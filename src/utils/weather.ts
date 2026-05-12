@@ -60,6 +60,9 @@ export const calculateDestination = (lat: number, lon: number, distance: number,
 
 export interface HourlyCloudData {
   time: string[];
+  /** time[] pre-parsed to epoch ms; kept in sync with `time` so interpolation
+   *  doesn't have to re-parse on every slider tick. */
+  timeMs: number[];
   low: number[];
   mid: number[];
   high: number[];
@@ -108,10 +111,12 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
 
       if (!res || !res.hourly) {
         console.warn(`Weather data missing for point ${i} (${p.dist}km). Using clear sky fallback.`);
+        const fallbackTime: string[] = results[0]?.hourly?.time || [];
         return {
           distance: p.dist,
           hourly: {
-            time: results[0]?.hourly?.time || [],
+            time: fallbackTime,
+            timeMs: fallbackTime.map(t => new Date(t).getTime()),
             low: Array(24).fill(0),
             mid: Array(24).fill(0),
             high: Array(24).fill(0),
@@ -120,8 +125,10 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
         };
       }
 
+      const time: string[] = res.hourly.time;
       const hourly: HourlyCloudData = {
-        time: res.hourly.time,
+        time,
+        timeMs: time.map((t: string) => new Date(t).getTime()),
         low: res.hourly.cloud_cover_low,
         mid: res.hourly.cloud_cover_mid,
         high: res.hourly.cloud_cover_high,
@@ -153,14 +160,15 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
  * Interpolates hourly weather data for a specific time.
  */
 export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Date): CloudData[] => {
+  const targetMs = targetTime.getTime();
   return pathData.map(p => {
-    const times = p.hourly.time.map(t => new Date(t).getTime());
+    // timeMs is pre-parsed at fetch time. Tolerate legacy / hand-built data
+    // that only has the string `time` field by parsing on the fly.
+    const times = p.hourly.timeMs ?? p.hourly.time.map(t => new Date(t).getTime());
 
     if (times.length === 0) {
       return { distance: p.distance, low: 0, mid: 0, high: 0 };
     }
-
-    const targetMs = targetTime.getTime();
 
     // Find the two nearest hours
     let i = 0;
