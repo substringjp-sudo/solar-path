@@ -28,6 +28,10 @@ export interface CloudData {
   mid: number;
   high: number;
   distance: number;
+  /** Surface visibility in meters. Only populated for the observer point. */
+  visibility?: number;
+  /** 2 m relative humidity in percent. Only populated for the observer point. */
+  humidity?: number;
 }
 
 export interface WeatherPoint {
@@ -56,9 +60,14 @@ export const calculateDestination = (lat: number, lon: number, distance: number,
 
 export interface HourlyCloudData {
   time: string[];
+  /** time[] pre-parsed to epoch ms; kept in sync with `time` so interpolation
+   *  doesn't have to re-parse on every slider tick. */
+  timeMs: number[];
   low: number[];
   mid: number[];
   high: number[];
+  visibility?: number[];
+  humidity?: number[];
 }
 
 export interface CloudPathData {
@@ -88,42 +97,58 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
 
   try {
     const response = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&timezone=auto`
+      `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
+        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m` +
+        `&timezone=auto`
     );
     const data = await response.json();
 
     // The API returns an array if multiple latitudes are passed
     const results = Array.isArray(data) ? data : [data];
 
-    return points.map((p, i) => {
-      // Find matching result or use dummy
+    const fetched: CloudPathData[] = points.map((p, i) => {
       const res = results[i];
-      
+
       if (!res || !res.hourly) {
         console.warn(`Weather data missing for point ${i} (${p.dist}km). Using clear sky fallback.`);
+        const fallbackTime: string[] = results[0]?.hourly?.time || [];
         return {
           distance: p.dist,
           hourly: {
-            time: results[0]?.hourly?.time || [],
+            time: fallbackTime,
+            timeMs: fallbackTime.map(t => new Date(t).getTime()),
             low: Array(24).fill(0),
             mid: Array(24).fill(0),
             high: Array(24).fill(0),
           },
-          source: 'standard'
+          source: 'standard',
         };
+      }
+
+      const time: string[] = res.hourly.time;
+      const hourly: HourlyCloudData = {
+        time,
+        timeMs: time.map((t: string) => new Date(t).getTime()),
+        low: res.hourly.cloud_cover_low,
+        mid: res.hourly.cloud_cover_mid,
+        high: res.hourly.cloud_cover_high,
+      };
+      // Visibility and humidity are only meaningful at the observer; the API
+      // returns them for all points but we only consume them at index 0.
+      if (i === 0) {
+        if (Array.isArray(res.hourly.visibility)) hourly.visibility = res.hourly.visibility;
+        if (Array.isArray(res.hourly.relative_humidity_2m)) hourly.humidity = res.hourly.relative_humidity_2m;
       }
 
       return {
         distance: p.dist,
-        hourly: {
-          time: res.hourly.time,
-          low: res.hourly.cloud_cover_low,
-          mid: res.hourly.cloud_cover_mid,
-          high: res.hourly.cloud_cover_high,
-        },
-        source: 'standard' // Currently using Open-Meteo Global Model
+        hourly,
+        source: 'standard',
       };
     });
+
+    weatherCache.set(cacheKey, fetched);
+    return fetched;
   } catch (error) {
     console.error("Failed to fetch weather data:", error);
     // Return empty but valid structure to prevent simulation crash
@@ -136,18 +161,19 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
  */
 export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Date): CloudData[] => {
   if (!pathData || !Array.isArray(pathData)) return [];
-  
+
+  const targetMs = targetTime.getTime();
   return pathData.map(p => {
     if (!p?.hourly?.time || !p?.hourly?.high || !p?.hourly?.low) {
       return { high: 0, mid: 0, low: 0, distance: p.distance || 0 };
     }
-    const times = p.hourly.time.map(t => new Date(t).getTime());
-    
+    // timeMs is pre-parsed at fetch time. Tolerate legacy / hand-built data
+    // that only has the string `time` field by parsing on the fly.
+    const times = p.hourly.timeMs ?? p.hourly.time.map(t => new Date(t).getTime());
+
     if (times.length === 0) {
       return { distance: p.distance || 0, low: 0, mid: 0, high: 0 };
     }
-
-    const targetMs = targetTime.getTime();
 
     // Find the two nearest hours
     let i = 0;
@@ -158,60 +184,23 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
     const ratio = Math.max(0, Math.min(1, (targetMs - t1) / (t2 - t1)));
 
     const interpolate = (v1: number, v2: number) => v1 + (v2 - v1) * ratio;
+    const interpolateOpt = (arr?: number[]): number | undefined => {
+      if (!arr) return undefined;
+      const a = arr[i];
+      const b = arr[i + 1] ?? a;
+      if (a == null) return undefined;
+      return interpolate(a, b);
+    };
 
     return {
       distance: p.distance,
       low: interpolate(p.hourly.low[i], p.hourly.low[i+1] ?? p.hourly.low[i]),
       mid: interpolate(p.hourly.mid[i], p.hourly.mid[i+1] ?? p.hourly.mid[i]),
       high: interpolate(p.hourly.high[i], p.hourly.high[i+1] ?? p.hourly.high[i]),
+      visibility: interpolateOpt(p.hourly.visibility),
+      humidity: interpolateOpt(p.hourly.humidity),
     };
   });
-};
-
-/**
- * Calculates a "Sunset Quality Score" based on sequential path analysis.
- * Considers:
- * 1. Reflection potential (far high clouds)
- * 2. Blocking effect (local and intermediate low/mid clouds)
- * 3. Atmospheric scattering
- */
-export const calculateSunsetScore = (data: CloudData[], source: 'standard' | 'ultra-short' = 'standard'): { score: number; quality: string; description: string; source: 'standard' | 'ultra-short' } => {
-  if (!data || data.length < 4) return { score: 0, quality: 'Unknown', description: 'No data.', source: 'standard' };
-
-  // 1. Calculate Reflection (Light catching distant high clouds)
-  // High clouds at 200km and 350km are prime for scattering light from below the horizon.
-  const farHighClouds = (data[2].high * 0.6 + data[3].high * 1.0);
-  
-  // 2. Calculate Transparency (How much of that light reaches us)
-  // Low and mid clouds at 0km and 80km act as "walls".
-  const localBlockage = (data[0].low * 0.7 + data[0].mid * 0.3 + data[1].low * 0.5);
-  const transparency = Math.max(0, 1 - (localBlockage / 100));
-
-  // 3. Final Scoring
-  let score = 30; // Base
-  score += (farHighClouds * 0.8) * transparency;
-  score -= (data[0].low * 0.2); 
-
-  score = Math.max(0, Math.min(100, score));
-
-  let quality = 'Fair';
-  let description = 'A typical sky.';
-
-  if (transparency < 0.2 && data[0].low > 60) {
-    quality = 'Overcast';
-    description = 'Thick local clouds are blocking the horizon view.';
-  } else if (score > 80) {
-    quality = 'Epic';
-    description = 'Perfect alignment! Distant clouds will glow through clear local air.';
-  } else if (score > 60) {
-    quality = 'Great';
-    description = 'Strong reflections from the horizon detected.';
-  } else if (score < 40) {
-    quality = 'Muted';
-    description = 'Lack of high clouds or heavy blocking layers.';
-  }
-
-  return { score, quality, description, source };
 };
 
 export interface TerrainData {
