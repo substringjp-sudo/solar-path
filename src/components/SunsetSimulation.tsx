@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Dimensions, Animated, Platform, TouchableOpacity, Linking, Modal } from 'react-native';
-import Svg, { Path, Defs, LinearGradient, Stop, Polygon } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient, Stop, Polygon, Rect } from 'react-native-svg';
 import { Sun, Compass, AlertCircle, Cloud, WifiOff, Maximize, Info, ExternalLink } from 'lucide-react-native';
 import { format, addMinutes, isAfter, addHours, subMinutes } from 'date-fns';
 import { TimeSlider } from './TimeSlider';
@@ -10,7 +10,36 @@ import { useNetInfo } from '@react-native-community/netinfo';
 import { GenericSlider } from './GenericSlider';
 
 import { useCelestialStore } from '../store/useCelestialStore';
-import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance } from '../utils/weather';
+import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather } from '../utils/weather';
+import { predictSunset, SunsetPrediction } from '../utils/sunsetPhysics';
+
+const qualityColor = (q: SunsetPrediction['quality']): string => {
+  switch (q) {
+    case 'Epic': return '#FF5C3F';
+    case 'Great': return '#FF8A3D';
+    case 'Fair': return '#E6C25A';
+    case 'Muted': return '#9AA1AA';
+    case 'Overcast': return '#6B7886';
+  }
+};
+
+const FactorBar: React.FC<{ label: string; value: number; color: string; theme: any; inverted?: boolean }> = ({
+  label, value, color, theme, inverted,
+}) => {
+  const display = Math.max(0, Math.min(1, value));
+  const fillPct = Math.round(display * 100);
+  return (
+    <View style={styles.factorBar}>
+      <View style={styles.factorBarLabelRow}>
+        <Text style={[styles.factorBarLabel, { color: theme.subText }]}>{label}</Text>
+        <Text style={[styles.factorBarValue, { color: theme.text }]}>{fillPct}%</Text>
+      </View>
+      <View style={[styles.factorBarTrack, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+        <View style={[styles.factorBarFill, { width: `${fillPct}%`, backgroundColor: color, opacity: inverted ? 0.6 : 1 }]} />
+      </View>
+    </View>
+  );
+};
 
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
@@ -228,22 +257,28 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
   const sunPos = SunCalc.getPosition(currentTime, location?.coords.latitude || 0, location?.coords.longitude || 0);
   const sunAltitude = sunPos.altitude * (180 / Math.PI);
   const sunAzimuth = (sunPos.azimuth * 180 / Math.PI) + 180;
-  
+
   const currentTerrainAngle = getTerrainAngleAtAz(sunAzimuth);
   const isSunVisible = sunAltitude > currentTerrainAngle;
-  
+
   // The sun is always centered in this simulation
   const heading = sunAzimuth;
 
-  const getSkyColor = (alt: number) => {
-    // If sun is behind terrain, use "after-event" colors
-    const effectiveAlt = isSunVisible ? alt : -2;
-    if (effectiveAlt > 8) return ['#4DA0B0', '#D39D38'];
-    if (effectiveAlt > 2) return ['#FF8C00', '#FFD700'];
-    if (effectiveAlt > -4) return ['#FF4500', '#2F4F4F'];
-    if (effectiveAlt > -12) return ['#191970', '#4B0082'];
-    return ['#000', '#000'];
-  };
+  // Physics-based prediction. Re-computed whenever weather, time, or the
+  // observer-relative sun altitude meaningfully changes. The astronomical
+  // sun altitude is what matters for whether overhead high clouds are still
+  // catching direct sunlight; terrain occlusion only affects the sun disk.
+  const prediction = useMemo<SunsetPrediction | null>(() => {
+    if (!sim?.pathData || sim.pathData.length < 4) return null;
+    const obsHourly = getInterpolatedWeather(sim.pathData, currentTime)[0];
+    return predictSunset(
+      sim.pathData,
+      currentTime,
+      sunAltitude,
+      obsHourly?.visibility,
+      obsHourly?.humidity,
+    );
+  }, [sim?.pathData, currentTime, sunAltitude]);
 
   // Drag rotation disabled as per user request to keep sun centered
 
@@ -336,13 +371,21 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
     const baseRadius = type === 'high' ? 3 : 12;
 
     const horizonTop = SKY_HEIGHT - HORIZON_Y;
-    
+
+    // Physically-derived cloud tints. High layer also blends the mid color
+    // for some textural variety since Open-Meteo collapses everything >2km
+    // into two bands.
+    const physBg =
+      type === 'high'
+        ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
+        : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
+
     return Array.from({ length: Math.ceil(density / 15) }).map((_, s) => {
       const seed = i * 17 + s;
       // Use degrees for distribution, so spacing scales with FOV
-      const baseDegOffset = ((seed * 137) % 80) - 40; 
+      const baseDegOffset = ((seed * 137) % 80) - 40;
       const x = (VISUALIZER_WIDTH / 2) + (baseDegOffset * DEGREE_TO_PIXEL);
-      
+
       const baseDistFromHorizon = type === 'high' ? (140 - i * 15) : (80 - i * 12);
       const y = horizonTop - (baseDistFromHorizon * zoomScale);
 
@@ -351,21 +394,21 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
       const drift = ((timeMs / 5000) % 200 - 100) * zoomScale;
 
       return (
-        <View 
-          key={`${type}-${i}-${s}`} 
+        <View
+          key={`${type}-${i}-${s}`}
           style={[
-            type === 'high' ? styles.cloudShapeHigh : styles.cloudShapeLow, 
-            { 
+            type === 'high' ? styles.cloudShapeHigh : styles.cloudShapeLow,
+            {
               width: baseWidth * combinedScale,
               height: baseHeight * combinedScale,
               borderRadius: baseRadius * combinedScale,
-              left: x + drift - (baseWidth * combinedScale / 2), 
-              top: y, 
-              backgroundColor: type === 'high' ? 'rgba(255, 192, 203, 0.4)' : 'rgba(100, 149, 237, 0.3)', 
-              opacity: Math.min(0.6, 0.2 + (density / 150)),
+              left: x + drift - (baseWidth * combinedScale / 2),
+              top: y,
+              backgroundColor: physBg,
+              opacity: Math.min(0.75, 0.25 + (density / 150)),
               zIndex: 10 - i
             }
-          ]} 
+          ]}
         />
       );
     });
@@ -411,8 +454,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
     );
   };
 
-  const skyColors = getSkyColor(sunAltitude);
   const hr = currentTime.getHours();
+  const skyStops = prediction?.skyGradient ?? [
+    { offset: 0, color: '#08101e' },
+    { offset: 1, color: '#08101e' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -427,23 +473,41 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
       ) : (
         <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
           <View style={styles.visualizerContainer}>
-            <View style={[styles.sky, { height: SKY_HEIGHT, backgroundColor: skyColors[0] }]}>
+            <View style={[styles.sky, { height: SKY_HEIGHT, backgroundColor: skyStops[0].color }]}>
+              <Svg
+                width={VISUALIZER_WIDTH}
+                height={SKY_HEIGHT}
+                style={StyleSheet.absoluteFillObject as any}
+                pointerEvents="none"
+              >
+                <Defs>
+                  <LinearGradient id="physSky" x1="0" y1="0" x2="0" y2="1">
+                    {skyStops.map((s, i) => (
+                      <Stop key={i} offset={s.offset} stopColor={s.color} stopOpacity={1} />
+                    ))}
+                  </LinearGradient>
+                </Defs>
+                <Rect width={VISUALIZER_WIDTH} height={SKY_HEIGHT} fill="url(#physSky)" />
+              </Svg>
               {(() => {
                 const sunX = VISUALIZER_WIDTH / 2;
+                const sunColor = isSunVisible
+                  ? (prediction?.sunDiskColor ?? '#FFD700')
+                  : '#FF4500';
                 return (
-                  <View 
+                  <View
                     style={[
-                      styles.sun, 
-                      { 
+                      styles.sun,
+                      {
                         width: sunSize,
                         height: sunSize,
                         borderRadius: sunSize / 2,
-                        bottom: (sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y - (sunSize / 2), 
-                        left: sunX - (sunSize / 2), 
-                        backgroundColor: isSunVisible ? '#FFD700' : '#FF4500', 
-                        shadowColor: isSunVisible ? '#FFD700' : '#FF4500' 
+                        bottom: (sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y - (sunSize / 2),
+                        left: sunX - (sunSize / 2),
+                        backgroundColor: sunColor,
+                        shadowColor: sunColor,
                       }
-                    ]} 
+                    ]}
                   />
                 );
               })()}
@@ -456,6 +520,34 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
           </View>
 
           {renderAzimuthScale()}
+
+          {prediction && (
+            <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              <View style={styles.predictionHeader}>
+                <View style={styles.predictionQualityRow}>
+                  <Text style={[styles.predictionQuality, { color: qualityColor(prediction.quality) }]}>
+                    {prediction.quality.toUpperCase()}
+                  </Text>
+                  <Text style={[styles.predictionSubLabel, { color: theme.subText }]}>
+                    {sim.type === 'Sunrise' ? 'DAWN FORECAST' : 'SUNSET FORECAST'}
+                  </Text>
+                </View>
+                <View style={styles.predictionScoreWrap}>
+                  <Text style={[styles.predictionScore, { color: theme.text }]}>{prediction.score}</Text>
+                  <Text style={[styles.predictionScoreMax, { color: theme.subText }]}>/100</Text>
+                </View>
+              </View>
+              <Text style={[styles.predictionDesc, { color: theme.subText }]} numberOfLines={2}>
+                {prediction.description}
+              </Text>
+              <View style={styles.predictionFactors}>
+                <FactorBar label="BEAM" value={prediction.factors.beamRedness} color="#FF6B5C" theme={theme} />
+                <FactorBar label="PATH" value={prediction.factors.pathClarity} color="#FFC56B" theme={theme} />
+                <FactorBar label="GLOW" value={prediction.factors.overheadGlow} color="#FF99CC" theme={theme} />
+                <FactorBar label="OVERCAST" value={prediction.factors.overheadOvercast} color="#8FA1B5" theme={theme} inverted />
+              </View>
+            </View>
+          )}
 
           <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
             <TimeSlider 
@@ -584,7 +676,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
                   <View style={styles.sourceContent}>
                     <Text style={[styles.sourceLabel, { color: theme.text }]}>기상 및 구름 예측</Text>
                     <Text style={[styles.sourceDesc, { color: theme.subText }]}>
-                      {sim.weatherSource === 'ultra-short' ? '기상청(KMA) 초단기예보 API' : 'Open-Meteo Weather API'}
+                      {sim?.weatherSource === 'ultra-short' ? '기상청(KMA) 초단기예보 API' : 'Open-Meteo Weather API'}
                     </Text>
                   </View>
                   <ExternalLink size={14} color={theme.subText} />
@@ -627,6 +719,22 @@ const styles = StyleSheet.create({
   cloudShapeLow: { position: 'absolute' },
   simControl: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, marginBottom: 8 },
   compassWidget: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, height: 60, marginBottom: 8 },
+  predictionCard: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, marginBottom: 8 },
+  predictionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 4 },
+  predictionQualityRow: { flexDirection: 'column' },
+  predictionQuality: { fontSize: 16, fontWeight: '900', letterSpacing: 1.2 },
+  predictionSubLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1, marginTop: 1 },
+  predictionScoreWrap: { flexDirection: 'row', alignItems: 'baseline' },
+  predictionScore: { fontSize: 22, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  predictionScoreMax: { fontSize: 11, fontWeight: '700', marginLeft: 2 },
+  predictionDesc: { fontSize: 11, lineHeight: 15, marginBottom: 8 },
+  predictionFactors: { flexDirection: 'row', gap: 6 },
+  factorBar: { flex: 1 },
+  factorBarLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
+  factorBarLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  factorBarValue: { fontSize: 9, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  factorBarTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
+  factorBarFill: { height: '100%', borderRadius: 2 },
   compassScaleContainer: { height: 48, justifyContent: 'flex-end' },
   scaleClip: { flex: 1, overflow: 'hidden' },
   tick: { position: 'absolute', bottom: 5, width: 1 },
