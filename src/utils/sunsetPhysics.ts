@@ -269,19 +269,26 @@ export const predictSunset = (
   }
 
   // --- Sky gradient ------------------------------------------------------
-  const twilight = clamp01((10 - sunAltDeg) / 16);
-  const dayToTwi = mixRgb(ZENITH_DAY, ZENITH_TWILIGHT, twilight);
-  const nightT = clamp01((-sunAltDeg - 6) / 6);
-  const zenithRGB = mixRgb(dayToTwi, NIGHT, nightT);
+  // Civil twilight ends at -6°, nautical at -12°, astronomical at -18°.
+  // Below -18° is effectively night.
+  const civilTwilightT = clamp01((6 - sunAltDeg) / 6);
+  const nauticalTwilightT = clamp01((-sunAltDeg - 6) / 6);
+  const astronomicalNightT = clamp01((-sunAltDeg - 18) / 6);
 
+  const dayToTwi = mixRgb(ZENITH_DAY, ZENITH_TWILIGHT, civilTwilightT);
+  const twilightToNight = mixRgb(dayToTwi, NIGHT, nauticalTwilightT);
+  const zenithRGB = mixRgb(twilightToNight, NIGHT, astronomicalNightT);
+
+  // Below -12° (nautical twilight), beamGlow should fade to nearly zero
+  // since there's no sunlight reaching the observer's location anymore.
+  const beamGlowScale = Math.max(0, 1 - Math.pow(Math.max(0, sunAltDeg + 12) / 12, 2));
   const beamGlow: RGB = {
-    r: clamp01(incidentBeam.r * 1.6 + 0.05),
-    g: clamp01(incidentBeam.g * 1.6 + 0.02),
-    b: clamp01(incidentBeam.b * 1.6),
+    r: clamp01(incidentBeam.r * 1.6 * beamGlowScale + 0.02),
+    g: clamp01(incidentBeam.g * 1.6 * beamGlowScale + 0.01),
+    b: clamp01(incidentBeam.b * 1.6 * beamGlowScale),
   };
-  const horizonBlendT = clamp01(pathClarity * (0.6 + 0.4 * horizonProximity));
+  const horizonBlendT = clamp01(pathClarity * (0.6 + 0.4 * horizonProximity) * (1 - astronomicalNightT));
   let horizonRGB = mixRgb(zenithRGB, beamGlow, horizonBlendT);
-  if (sunAltDeg < -6) horizonRGB = mixRgb(horizonRGB, NIGHT, nightT * 0.6);
 
   // Mid-altitude band: where overhead clouds catch the reddened beam.
   const midBandRGB = mixRgb(
