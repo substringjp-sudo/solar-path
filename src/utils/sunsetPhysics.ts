@@ -196,11 +196,11 @@ export const predictSunset = (
 
   // The sun disk itself: use its current line-of-sight altitude.
   const sunDiskBeam = directBeamRGB(Math.max(sunAltDeg, -0.5), beta);
-  // The reddened beam that bathes overhead clouds: always evaluated at
-  // grazing horizon, since the sun is on or below the geometric horizon
-  // when this matters and the high-cloud illumination path is still
-  // close to horizontal.
-  const horizonBeam = directBeamRGB(0, beta);
+  // The reddened beam that bathes overhead clouds:
+  // - If sun is above horizon (alt > 0°), use its actual altitude (direct beam)
+  // - If sun is below horizon (alt <= 0°), evaluate at grazing horizon (0°)
+  //   since the beam comes from that geometry and scattered light dominates
+  const horizonBeam = directBeamRGB(Math.max(sunAltDeg, 0), beta);
   const pathClarity = beamPathTransmittance(localPath);
 
   const incidentBeam: RGB = {
