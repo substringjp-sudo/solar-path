@@ -51,7 +51,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location }: any) 
           onPress={handleMapPress}
         >
           <UrlTile 
-            urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            urlTemplate="https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
             maximumZ={19}
             flipY={false}
           />

@@ -3,7 +3,8 @@ import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, Dim
 import * as Location from 'expo-location';
 import Constants from 'expo-constants';
 import { format, addDays, subDays, isSameDay } from 'date-fns';
-import { Sun, Moon, Navigation, Sunrise, Sunset, Clock, Zap, ChevronLeft, ChevronRight, Calendar, RotateCcw, MapPin, Compass } from 'lucide-react-native';
+import { Sun, Moon, Navigation, Sunrise, Sunset, Clock, Zap, ChevronLeft, ChevronRight, Calendar, RotateCcw, MapPin, Compass, Star, Trash2, X } from 'lucide-react-native';
+import { Modal, ScrollView, Alert } from 'react-native';
 
 import { useCelestialStore } from './store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from './utils/celestial';
@@ -24,13 +25,15 @@ export default function App() {
   const defaultCoords = { latitude: 37.5665, longitude: 126.9780 }; 
   const { 
     currentTime, location, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
+    savedLocations,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
-    resetRotation, setErrorMsg, updateTime 
+    resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation
   } = useCelestialStore();
 
   const [animating, setAnimating] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isMapVisible, setMapVisible] = useState(false);
+  const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'tracker' | 'sim'>('tracker');
   const contentOpacity = useRef(new Animated.Value(1)).current;
 
@@ -172,6 +175,55 @@ export default function App() {
     setCurrentTime(newTime);
     if (!isTimeMachineEnabled) setTimeMachineEnabled(true);
   };
+  
+  const handleSaveLocation = async () => {
+    if (!location) return;
+    
+    // Check if already saved
+    const isAlreadySaved = savedLocations.some(
+      loc => loc.latitude === location.coords.latitude && loc.longitude === location.coords.longitude
+    );
+    
+    if (isAlreadySaved) {
+      Alert.alert('이미 저장된 장소입니다.');
+      return;
+    }
+
+    Alert.prompt(
+      '장소 저장',
+      '이 장소의 이름을 입력해주세요.',
+      [
+        { text: '취소', style: 'cancel' },
+        { 
+          text: '저장', 
+          onPress: (name) => {
+            if (name) {
+              addSavedLocation(name, location.coords.latitude, location.coords.longitude);
+            }
+          } 
+        }
+      ],
+      'plain-text',
+      `장소 ${savedLocations.length + 1}`
+    );
+  };
+
+  const handleSelectSavedLocation = (saved: any) => {
+    setLocation({
+      coords: {
+        latitude: saved.latitude,
+        longitude: saved.longitude,
+        altitude: 0,
+        accuracy: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        speed: 0
+      },
+      timestamp: Date.now()
+    });
+    setSavedListVisible(false);
+    animateContent();
+  };
 
   useEffect(() => {
     (async () => {
@@ -231,7 +283,20 @@ export default function App() {
               style={[styles.mapOpenBtn, { backgroundColor: theme.accent }]}
             >
               <MapPin size={14} color="#000" />
-              <Text style={styles.mapOpenText}>Change Location</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={() => setSavedListVisible(true)}
+              style={[styles.mapOpenBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+            >
+              <Star size={14} color={theme.text} fill={savedLocations.length > 0 ? theme.accent : 'transparent'} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={handleSaveLocation}
+              style={[styles.mapOpenBtn, { backgroundColor: theme.text }]}
+            >
+              <Text style={[styles.mapOpenText, { color: theme.bg }]}>SAVE</Text>
             </TouchableOpacity>
           </View>
 
@@ -400,6 +465,56 @@ export default function App() {
         theme={theme}
         location={location}
       />
+
+      <Modal
+        visible={isSavedListVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSavedListVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.savedModal, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Saved Places</Text>
+              <TouchableOpacity onPress={() => setSavedListVisible(false)} style={styles.closeBtn}>
+                <X size={20} color={theme.subText} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.savedScroll}>
+              {savedLocations.length === 0 ? (
+                <View style={styles.emptySaved}>
+                  <Star size={40} color={theme.border} style={{ marginBottom: 10 }} />
+                  <Text style={{ color: theme.subText }}>저장된 장소가 없습니다.</Text>
+                </View>
+              ) : (
+                savedLocations.map((loc) => (
+                  <View key={loc.id} style={[styles.savedItem, { borderBottomColor: theme.border }]}>
+                    <TouchableOpacity 
+                      style={styles.savedItemLeft} 
+                      onPress={() => handleSelectSavedLocation(loc)}
+                    >
+                      <MapPin size={16} color={theme.accent} />
+                      <View style={{ marginLeft: 12 }}>
+                        <Text style={[styles.savedName, { color: theme.text }]}>{loc.name}</Text>
+                        <Text style={[styles.savedCoords, { color: theme.subText }]}>
+                          {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      onPress={() => removeSavedLocation(loc.id)}
+                      style={styles.deleteBtn}
+                    >
+                      <Trash2 size={16} color="#FF4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </AnimatedSafeAreaView>
   );
 }
@@ -590,5 +705,62 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 20,
     fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  savedModal: {
+    width: '100%',
+    maxHeight: '70%',
+    borderRadius: 32,
+    borderWidth: 1,
+    overflow: 'hidden',
+    padding: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  savedScroll: {
+    flexGrow: 0,
+  },
+  savedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  savedItemLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  savedName: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  savedCoords: {
+    fontSize: 12,
+  },
+  deleteBtn: {
+    padding: 8,
+  },
+  emptySaved: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  closeBtn: {
+    padding: 4,
   },
 });

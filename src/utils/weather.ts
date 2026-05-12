@@ -64,7 +64,7 @@ export interface HourlyCloudData {
 export interface CloudPathData {
   distance: number;
   hourly: HourlyCloudData;
-  source: 'standard' | 'ultra-short'; // 'standard' (Open-Meteo), 'ultra-short' (KMA 등)
+  source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
 }
 
 const weatherCache = new Map<string, CloudPathData[]>();
@@ -108,7 +108,8 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
             low: Array(24).fill(0),
             mid: Array(24).fill(0),
             high: Array(24).fill(0),
-          }
+          },
+          source: 'standard'
         };
       }
 
@@ -120,7 +121,7 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
           mid: res.hourly.cloud_cover_mid,
           high: res.hourly.cloud_cover_high,
         },
-        source: 'standard' // 현재는 Open-Meteo를 사용하므로 standard로 고정
+        source: 'standard' // Currently using Open-Meteo Global Model
       };
     });
   } catch (error) {
@@ -170,7 +171,7 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
  * 3. Atmospheric scattering
  */
 export const calculateSunsetScore = (data: CloudData[], source: 'standard' | 'ultra-short' = 'standard'): { score: number; quality: string; description: string; source: 'standard' | 'ultra-short' } => {
-  if (!data || data.length < 4) return { score: 0, quality: 'Unknown', description: 'No data.' };
+  if (!data || data.length < 4) return { score: 0, quality: 'Unknown', description: 'No data.', source: 'standard' };
 
   // 1. Calculate Reflection (Light catching distant high clouds)
   // High clouds at 200km and 350km are prime for scattering light from below the horizon.
