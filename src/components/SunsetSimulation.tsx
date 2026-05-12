@@ -64,6 +64,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
   currentTime, 
   setCurrentTime 
 }) => {
+  if (!theme || typeof theme !== 'object') return null;
   const { width, height } = Dimensions.get('window');
   const { 
     location, 
@@ -244,7 +245,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
   // Helper to get terrain angle at specific azimuth
   const getTerrainAngleAtAz = (az: number) => {
     if (!sim?.terrain?.panoramicAngles) return 0;
-    const angles = sim.terrain.panoramicAngles;
+    const angles = sim?.terrain?.panoramicAngles;
     const normalizedAz = ((az % 360) + 360) % 360;
     const index = (normalizedAz / 360) * (angles.length - 1);
     const i1 = Math.floor(index);
@@ -290,7 +291,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
     const buffer = visualFov * 0.2;
     const totalRenderFov = visualFov + buffer * 2;
     
-    const avgAngle = sim.terrain.panoramicAngles.reduce((a, b) => a + b, 0) / sim.terrain.panoramicAngles.length;
+    const avgAngle = (sim?.terrain?.panoramicAngles?.reduce((a, b) => a + b, 0) || 0) / (sim?.terrain?.panoramicAngles?.length || 1);
     const targetPeakHeight = SKY_HEIGHT * 0.15; 
     
     // IMPORTANT: Use a fixed DEGREE_TO_PIXEL based on reference FOV 20 
@@ -326,8 +327,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
       return pointsList.join(' ') + ` ${width - 24},${terrainHeight} 0,${terrainHeight}`;
     };
 
-    const bgPoints = getPoints(sim.terrain.farAngles, dynamicScale * 1.6, 0); 
-    const fgPoints = getPoints(sim.terrain.panoramicAngles, dynamicScale, 5); 
+    const bgPoints = getPoints(sim?.terrain?.farAngles || [], dynamicScale * 1.6, 0); 
+    const fgPoints = getPoints(sim?.terrain?.panoramicAngles || [], dynamicScale, 5); 
 
     return (
       <View style={styles.terrainContainer}>
@@ -512,9 +513,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
                 );
               })()}
               {renderTerrain()}
-              <View style={{ position: 'absolute', width: '100%', height: '100%', left: (sim.azimuth - heading) * DEGREE_TO_PIXEL }}>
-                {sim.pathData.map((c, i) => renderCloudLayer(c, i, 'high'))}
-                {sim.pathData.map((c, i) => renderCloudLayer(c, i, 'low'))}
+              <View style={{ position: 'absolute', width: '100%', height: '100%', left: ((sim?.azimuth || 0) - heading) * DEGREE_TO_PIXEL }}>
+                {sim?.pathData?.map((c, i) => renderCloudLayer(c, i, 'high'))}
+                {sim?.pathData?.map((c, i) => renderCloudLayer(c, i, 'low'))}
               </View>
             </View>
           </View>
@@ -554,7 +555,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
               mode="relative"
               value={currentTime}
               onChange={setCurrentTime}
-              baseTime={sim.eventTime}
+              baseTime={sim?.eventTime || new Date()}
               theme={theme}
               isDay={sunAltitude > 0}
             />
@@ -598,37 +599,37 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
             <View style={[styles.hero, { backgroundColor: theme.glass, borderColor: theme.border, flex: 1.2 }]}>
               <View style={styles.sourceBadgeRow}>
                 <Text style={[styles.heroTitle, { color: theme.text }]}>
-                  {sim.type === 'Sunrise' ? 'Actual Dawn' : 'Actual Twilight'}
+                  {sim?.type === 'Sunrise' ? 'Actual Dawn' : 'Actual Twilight'}
                 </Text>
                 <View style={[
                   styles.sourceBadge, 
-                  { backgroundColor: sim.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.2)' : 'rgba(255, 255, 255, 0.05)' }
+                  { backgroundColor: sim?.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.2)' : 'rgba(255, 255, 255, 0.05)' }
                 ]}>
                   <Text style={[
                     styles.sourceBadgeText, 
-                    { color: sim.weatherSource === 'ultra-short' ? '#4DA0B0' : theme.subText }
+                    { color: sim?.weatherSource === 'ultra-short' ? '#4DA0B0' : theme.subText }
                   ]}>
-                    {sim.weatherSource === 'ultra-short' ? '초단기정밀' : '글로벌표준'}
+                    {sim?.weatherSource === 'ultra-short' ? '초단기정밀' : '글로벌표준'}
                   </Text>
                 </View>
               </View>
               <Text style={[styles.heroTime, { color: theme.accent }]}>
-                {format(sim.trueEventTime || sim.eventTime, 'HH:mm')}
-                {sim.trueEventTime && (
+                {format(sim?.trueEventTime || sim?.eventTime || new Date(), 'HH:mm')}
+                {sim?.trueEventTime && (
                   <Text style={{ fontSize: 10, color: theme.subText, fontWeight: '400' }}>
-                    {` (Terrain +${Math.abs(Math.round((sim.trueEventTime.getTime() - sim.eventTime.getTime()) / 60000))}m)`}
+                    {sim?.trueEventTime && sim?.eventTime && ` (Terrain +${Math.abs(Math.round((sim.trueEventTime.getTime() - sim.eventTime.getTime()) / 60000))}m)`}
                   </Text>
                 )}
               </Text>
             </View>
 
             <View style={styles.cloudGrid}>
-              {sim.pathData.slice(0, 4).map((c, i) => (
+              {sim?.pathData?.slice(0, 4).map((c, i) => (
                 <View key={i} style={[styles.gridItem, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  <Text style={[styles.gridDist, { color: theme.subText }]}>{c.distance === 0 ? 'Loc' : `${c.distance}k`}</Text>
+                  <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
                   <View style={styles.miniBars}>
-                    <View style={[styles.miniBar, { height: `${Math.max(5, c.hourly.high[hr])}%`, backgroundColor: '#FF69B4' }]} />
-                    <View style={[styles.miniBar, { height: `${Math.max(5, c.hourly.low[hr])}%`, backgroundColor: '#4682B4' }]} />
+                    <View style={[styles.miniBar, { height: `${Math.max(5, c?.hourly?.high?.[hr] || 0)}%`, backgroundColor: '#FF69B4' }]} />
+                    <View style={[styles.miniBar, { height: `${Math.max(5, c?.hourly?.low?.[hr] || 0)}%`, backgroundColor: '#4682B4' }]} />
                   </View>
                 </View>
               ))}

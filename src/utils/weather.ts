@@ -73,7 +73,7 @@ export interface HourlyCloudData {
 export interface CloudPathData {
   distance: number;
   hourly: HourlyCloudData;
-  source: 'standard' | 'ultra-short'; // 'standard' (Open-Meteo), 'ultra-short' (KMA 등)
+  source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
 }
 
 const weatherCache = new Map<string, CloudPathData[]>();
@@ -160,14 +160,19 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
  * Interpolates hourly weather data for a specific time.
  */
 export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Date): CloudData[] => {
+  if (!pathData || !Array.isArray(pathData)) return [];
+
   const targetMs = targetTime.getTime();
   return pathData.map(p => {
+    if (!p?.hourly?.time || !p?.hourly?.high || !p?.hourly?.low) {
+      return { high: 0, mid: 0, low: 0, distance: p.distance || 0 };
+    }
     // timeMs is pre-parsed at fetch time. Tolerate legacy / hand-built data
     // that only has the string `time` field by parsing on the fly.
     const times = p.hourly.timeMs ?? p.hourly.time.map(t => new Date(t).getTime());
 
     if (times.length === 0) {
-      return { distance: p.distance, low: 0, mid: 0, high: 0 };
+      return { distance: p.distance || 0, low: 0, mid: 0, high: 0 };
     }
 
     // Find the two nearest hours
