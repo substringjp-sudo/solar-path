@@ -35,7 +35,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
   currentTime, 
   setCurrentTime 
 }) => {
-  if (!theme) return null;
+  if (!theme || typeof theme !== 'object') return null;
   const { width, height } = Dimensions.get('window');
   const { 
     location, 
@@ -534,10 +534,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
             <View style={styles.cloudGrid}>
               {sim?.pathData?.slice(0, 4).map((c, i) => (
                 <View key={i} style={[styles.gridItem, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  <Text style={[styles.gridDist, { color: theme.subText }]}>{c.distance === 0 ? 'Loc' : `${c.distance}k`}</Text>
+                  <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
                   <View style={styles.miniBars}>
-                    <View style={[styles.miniBar, { height: `${Math.max(5, c.hourly.high[hr])}%`, backgroundColor: '#FF69B4' }]} />
-                    <View style={[styles.miniBar, { height: `${Math.max(5, c.hourly.low[hr])}%`, backgroundColor: '#4682B4' }]} />
+                    <View style={[styles.miniBar, { height: `${Math.max(5, c?.hourly?.high?.[hr] || 0)}%`, backgroundColor: '#FF69B4' }]} />
+                    <View style={[styles.miniBar, { height: `${Math.max(5, c?.hourly?.low?.[hr] || 0)}%`, backgroundColor: '#4682B4' }]} />
                   </View>
                 </View>
               ))}

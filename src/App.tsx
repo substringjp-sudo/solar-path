@@ -196,7 +196,7 @@ export default function App() {
         { text: '취소', style: 'cancel' },
         { 
           text: '저장', 
-          onPress: (name) => {
+          onPress: (name: string | undefined) => {
             if (name) {
               addSavedLocation(name, location.coords.latitude, location.coords.longitude);
             }

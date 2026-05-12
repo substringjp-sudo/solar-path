@@ -135,11 +135,16 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
  * Interpolates hourly weather data for a specific time.
  */
 export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Date): CloudData[] => {
+  if (!pathData || !Array.isArray(pathData)) return [];
+  
   return pathData.map(p => {
+    if (!p?.hourly?.time || !p?.hourly?.high || !p?.hourly?.low) {
+      return { high: 0, mid: 0, low: 0, distance: p.distance || 0 };
+    }
     const times = p.hourly.time.map(t => new Date(t).getTime());
     
     if (times.length === 0) {
-      return { distance: p.distance, low: 0, mid: 0, high: 0 };
+      return { distance: p.distance || 0, low: 0, mid: 0, high: 0 };
     }
 
     const targetMs = targetTime.getTime();
