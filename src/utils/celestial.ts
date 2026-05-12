@@ -10,6 +10,14 @@ export interface PathPoint extends CelestialPosition {
   time: Date;
 }
 
+export interface CelestialEvents {
+  sunrise: Date;
+  sunset: Date;
+  goldenHour: Date;
+  moonrise: Date | null;
+  moonset: Date | null;
+}
+
 export const getSunPosition = (date: Date, lat: number, lng: number): CelestialPosition => {
   const pos = SunCalc.getPosition(date, lat, lng);
   return {
@@ -23,6 +31,19 @@ export const getMoonPosition = (date: Date, lat: number, lng: number): Celestial
   return {
     azimuth: (pos.azimuth * 180) / Math.PI + 180,
     altitude: (pos.altitude * 180) / Math.PI,
+  };
+};
+
+export const getCelestialEvents = (date: Date, lat: number, lng: number): CelestialEvents => {
+  const sunTimes = SunCalc.getTimes(date, lat, lng);
+  const moonTimes = SunCalc.getMoonTimes(date, lat, lng);
+  
+  return {
+    sunrise: sunTimes.sunrise,
+    sunset: sunTimes.sunset,
+    goldenHour: sunTimes.goldenHour,
+    moonrise: moonTimes.rise || null,
+    moonset: moonTimes.set || null,
   };
 };
 

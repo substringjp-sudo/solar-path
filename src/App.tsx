@@ -1,31 +1,177 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Dimensions, SafeAreaView, StatusBar, ActivityIndicator } from 'react-native';
-import Svg, { Circle, Path, G, Line, Text as SvgText, Defs, RadialGradient, Stop } from 'react-native-svg';
+import React, { useEffect, useState, useRef } from 'react';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, Dimensions, TouchableOpacity, Animated, Platform } from 'react-native';
 import * as Location from 'expo-location';
-import { Sun, Moon, Navigation, Info } from 'lucide-react-native';
-import { format } from 'date-fns';
-import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, CelestialPosition } from './utils/celestial';
+import Constants from 'expo-constants';
+import { format, addDays, subDays, isSameDay } from 'date-fns';
+import { Sun, Moon, Navigation, Sunrise, Sunset, Clock, Zap, ChevronLeft, ChevronRight, Calendar, RotateCcw, MapPin, Compass } from 'lucide-react-native';
 
-const { width } = Dimensions.get('window');
-const CANVAS_SIZE = width * 0.85;
-const CENTER = CANVAS_SIZE / 2;
-const RADIUS = CANVAS_SIZE * 0.4;
+import { useCelestialStore } from './store/useCelestialStore';
+import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from './utils/celestial';
+import { CelestialChart } from './components/CelestialChart';
+import { InfoCard } from './components/InfoCard';
+import { TimeSlider } from './components/TimeSlider';
+import { SunsetSimulation } from './components/SunsetSimulation';
+import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDatePicker';
+import { MapPicker } from './components/MapPicker';
 
-const polarToCartesian = (azimuth: number, altitude: number) => {
-  // Map altitude (0 to 90) to radius (RADIUS to 0)
-  // Higher altitude = closer to center
-  const r = RADIUS * (1 - altitude / 90);
-  const theta = (azimuth - 90) * (Math.PI / 180);
-  return {
-    x: CENTER + r * Math.cos(theta),
-    y: CENTER + r * Math.sin(theta),
+const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
+
+export default function App() {
+  const { width } = Dimensions.get('window');
+  // ... existing state ...
+
+  // Calculate positions ...
+  const defaultCoords = { latitude: 37.5665, longitude: 126.9780 }; 
+  const { 
+    currentTime, location, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
+    setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
+    resetRotation, setErrorMsg, updateTime 
+  } = useCelestialStore();
+
+  const [animating, setAnimating] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isMapVisible, setMapVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tracker' | 'sim'>('tracker');
+  const contentOpacity = useRef(new Animated.Value(1)).current;
+
+  // Theme Logic
+  const sunPos = getSunPosition(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
+  const isDay = sunPos.altitude > 0;
+  const themeAnim = useRef(new Animated.Value(isDay ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.timing(themeAnim, {
+      toValue: isDay ? 0 : 1,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [isDay]);
+
+  const moonPos = getMoonPosition(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
+  const sunPath = getSunPath(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
+  const moonPath = getMoonPath(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
+  const events = getCelestialEvents(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
+
+  const dynamicTheme = {
+    bg: themeAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#E8EDF2', '#08080C'] // Deeper background for pro look
+    }),
+    glass: themeAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['rgba(255,255,255,0.4)', 'rgba(255,255,255,0.08)'] // More transparent for true glass feel
+    }),
+    text: themeAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#1A1A1A', '#FFFFFF']
+    }),
+    subText: themeAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#555555', '#AAAAAA']
+    }),
+    border: themeAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['rgba(0,0,0,0.08)', 'rgba(255,255,255,0.1)']
+    }),
+    accent: '#FFD700',
   };
-};
 
-export default function SolarTracker() {
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const theme = {
+    bg: isDay ? '#E8EDF2' : '#08080C',
+    glass: isDay ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)',
+    text: isDay ? '#1A1A1A' : '#FFFFFF',
+    subText: isDay ? '#555' : '#AAA',
+    border: isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+    accent: '#FFD700',
+  };
+
+  // Gyro Sync Logic with Smoothing
+  const lastHeading = useRef(0);
+  useEffect(() => {
+    let subscription: any = null;
+    if (isGyroEnabled) {
+      import('expo-sensors').then(({ Magnetometer }) => {
+        subscription = Magnetometer.addListener(data => {
+          const { x, y } = data;
+          let magHeading = Math.atan2(y, x) * (180 / Math.PI);
+          let finalHeading = (magHeading - 90 + 360) % 360;
+          
+          // Smoothing (Low-pass filter) with Deadzone
+          const prev = lastHeading.current;
+          const diff = ((finalHeading - prev + 540) % 360) - 180;
+          
+          // Deadzone: Ignore micro-jitter if change is too small
+          if (Math.abs(diff) < 0.2) return;
+          
+          const smoothed = (prev + diff * 0.1 + 360) % 360; // More aggressive smoothing (0.1)
+          const finalVal = Math.round(smoothed * 10) / 10; // Round to 1 decimal place
+          
+          lastHeading.current = finalVal;
+          setUserRotation(-finalVal);
+        });
+        Magnetometer.setUpdateInterval(16);
+      });
+    }
+    return () => subscription && subscription.remove();
+  }, [isGyroEnabled]);
+
+  const animateContent = () => {
+    contentOpacity.setValue(0);
+    Animated.timing(contentOpacity, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  };
+
+  const animateTimeTo = (targetDate: Date, duration: number = 600) => {
+    setAnimating(true);
+    const startTime = Date.now();
+    const startVal = currentTime.getTime();
+    const endVal = targetDate.getTime();
+
+    const step = () => {
+      const now = Date.now();
+      const progress = Math.min(1, (now - startTime) / duration);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const currentVal = startVal + (endVal - startVal) * ease;
+      setCurrentTime(new Date(currentVal));
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        setAnimating(false);
+      }
+    };
+    requestAnimationFrame(step);
+  };
+
+  const handleToggleTimeMachine = (enabled: boolean) => {
+    if (!enabled) {
+      animateTimeTo(new Date(), 800);
+      setTimeout(() => setTimeMachineEnabled(false), 850);
+    } else {
+      setTimeMachineEnabled(true);
+    }
+  };
+
+  const handleTimeChange = (newTime: Date) => {
+    const diff = Math.abs(newTime.getTime() - currentTime.getTime());
+    const isJump = diff > (1000 * 60 * 30);
+    if (isJump && !animating) {
+      animateTimeTo(newTime, 500);
+    } else {
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleDateChange = (newDate: Date) => {
+    const newTime = new Date(newDate);
+    newTime.setHours(currentTime.getHours());
+    newTime.setMinutes(currentTime.getMinutes());
+    animateContent();
+    setCurrentTime(newTime);
+    if (!isTimeMachineEnabled) setTimeMachineEnabled(true);
+  };
 
   useEffect(() => {
     (async () => {
@@ -34,133 +180,399 @@ export default function SolarTracker() {
         setErrorMsg('Permission to access location was denied');
         return;
       }
-
       let loc = await Location.getCurrentPositionAsync({});
       setLocation(loc);
     })();
-
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  if (errorMsg) return <View style={styles.centered}><Text style={styles.errorText}>{errorMsg}</Text></View>;
-  if (!location) return <View style={styles.centered}><ActivityIndicator size="large" color="#FFD700" /></View>;
-
-  const { latitude, longitude } = location.coords;
-  const sunPos = getSunPosition(currentTime, latitude, longitude);
-  const moonPos = getMoonPosition(currentTime, latitude, longitude);
-  const sunPath = getSunPath(currentTime, latitude, longitude);
-
-  const sunCoords = polarToCartesian(sunPos.azimuth, sunPos.altitude);
-  const moonCoords = polarToCartesian(moonPos.azimuth, moonPos.altitude);
-
-  const renderPath = (path: any[], color: string) => {
-    if (path.length < 2) return null;
-    let d = "";
-    path.forEach((p, i) => {
-      // Only render points above horizon
-      if (p.altitude >= 0) {
-        const coords = polarToCartesian(p.azimuth, p.altitude);
-        d += (i === 0 ? "M" : "L") + `${coords.x} ${coords.y}`;
+    const timer = setInterval(() => {
+      if (!isTimeMachineEnabled && !animating) {
+        updateTime();
       }
-    });
-    return <Path d={d} stroke={color} strokeWidth="1" fill="none" strokeDasharray="4 4" opacity={0.6} />;
-  };
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [isTimeMachineEnabled, animating]);
+
+  if (errorMsg) return (
+    <View style={styles.centered}>
+      <Text style={styles.errorText}>{errorMsg}</Text>
+    </View>
+  );
+
+  if (!location) return (
+    <View style={styles.centered}>
+      <ActivityIndicator size="large" color="#FFD700" />
+      <Text style={styles.loadingText}>Locating your position...</Text>
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
+      <StatusBar barStyle={isDay ? "dark-content" : "light-content"} translucent backgroundColor="transparent" />
       
-      <View style={styles.header}>
-        <Text style={styles.title}>Solar Path</Text>
-        <Text style={styles.subtitle}>{format(currentTime, 'PPPP')}</Text>
-        <Text style={styles.subtitle}>{format(currentTime, 'pp')}</Text>
-      </View>
-
-      <View style={styles.canvasContainer}>
-        <Svg width={CANVAS_SIZE} height={CANVAS_SIZE} viewBox={`0 0 ${CANVAS_SIZE} ${CANVAS_SIZE}`}>
-          <Defs>
-            <RadialGradient id="skyGrad" cx="50%" cy="50%" rx="50%" ry="50%">
-              <Stop offset="0%" stopColor="#1a2a6c" stopOpacity="0.3" />
-              <Stop offset="100%" stopColor="#000000" stopOpacity="1" />
-            </RadialGradient>
-          </Defs>
-
-          {/* Background */}
-          <Circle cx={CENTER} cy={CENTER} r={RADIUS} fill="url(#skyGrad)" stroke="#333" strokeWidth="1" />
-          
-          {/* Compass Rings */}
-          {[30, 60].map(r => (
-            <Circle key={r} cx={CENTER} cy={CENTER} r={RADIUS * (1 - r/90)} stroke="#222" strokeWidth="0.5" fill="none" />
-          ))}
-
-          {/* Compass Labels */}
-          {['N', 'E', 'S', 'W'].map((label, i) => {
-            const angle = i * 90;
-            const coords = polarToCartesian(angle, -10);
-            return (
-              <SvgText
-                key={label}
-                x={coords.x}
-                y={coords.y}
-                fill="#666"
-                fontSize="12"
-                fontWeight="bold"
-                textAnchor="middle"
-                alignmentBaseline="middle"
+      <View style={styles.mainContent}>
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <Animated.View style={[styles.navToggle, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
+              <TouchableOpacity 
+                onPress={() => setActiveTab('tracker')}
+                style={[styles.navButton, activeTab === 'tracker' && { backgroundColor: theme.text }]}
               >
-                {label}
-              </SvgText>
-            );
-          })}
+                <Animated.Text style={[styles.navText, { color: activeTab === 'tracker' ? theme.bg : dynamicTheme.subText }]}>Tracker</Animated.Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => setActiveTab('sim')}
+                style={[styles.navButton, activeTab === 'sim' && { backgroundColor: theme.text }]}
+              >
+                <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>Simulation</Animated.Text>
+              </TouchableOpacity>
+            </Animated.View>
 
-          {/* Sun Path */}
-          {renderPath(sunPath, "#FFD700")}
+            <TouchableOpacity 
+              onPress={() => setMapVisible(true)}
+              style={[styles.mapOpenBtn, { backgroundColor: theme.accent }]}
+            >
+              <MapPin size={14} color="#000" />
+              <Text style={styles.mapOpenText}>Change Location</Text>
+            </TouchableOpacity>
+          </View>
 
-          {/* Celestial Bodies */}
-          {sunPos.altitude > 0 && (
-            <G x={sunCoords.x - 12} y={sunCoords.y - 12}>
-              <Circle cx={12} cy={12} r={12} fill="#FFD700" opacity={0.2} />
-              <Sun size={24} color="#FFD700" fill="#FFD700" />
-            </G>
+          {activeTab === 'tracker' && (
+            <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
+              <TouchableOpacity onPress={() => handleDateChange(subDays(currentTime, 1))} style={styles.dateControl}>
+                <ChevronLeft size={16} color={isDay ? '#1A1A1A' : '#FFFFFF'} />
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
+                <Calendar size={12} color={isDay ? '#666' : '#AAA'} style={{ marginRight: 6 }} />
+                <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
+                  {format(currentTime, 'EEE, MMM d, yyyy')}
+                </Animated.Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => handleDateChange(addDays(currentTime, 1))} style={styles.dateControl}>
+                <ChevronRight size={16} color={theme.text} />
+              </TouchableOpacity>
+
+              {!isSameDay(currentTime, new Date()) && (
+                <TouchableOpacity 
+                  onPress={() => handleDateChange(new Date())} 
+                  style={[styles.todayButton, { backgroundColor: theme.text }]}
+                >
+                  <RotateCcw size={10} color={theme.bg} />
+                  <Text style={[styles.todayText, { color: theme.bg }]}>TODAY</Text>
+                </TouchableOpacity>
+              )}
+            </Animated.View>
           )}
+        </View>
 
-          {moonPos.altitude > 0 && (
-            <G x={moonCoords.x - 10} y={moonCoords.y - 10}>
-              <Circle cx={10} cy={10} r={10} fill="#E0E0E0" opacity={0.2} />
-              <Moon size={20} color="#E0E0E0" fill="#E0E0E0" />
-            </G>
+        <Animated.View style={[styles.animatedContent, { opacity: contentOpacity }]}>
+          {activeTab === 'tracker' ? (
+            <>
+              <View style={styles.chartContainer}>
+                <CelestialChart 
+                  sunPos={sunPos} 
+                  moonPos={moonPos} 
+                  sunPath={sunPath} 
+                  moonPath={moonPath}
+                  isDay={isDay}
+                  rotation={userRotation}
+                  onRotationChange={setUserRotation}
+                />
+                
+                <View style={styles.trackerControls}>
+                  <TouchableOpacity 
+                    onPress={resetRotation}
+                    style={[styles.trackerBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+                  >
+                    <RotateCcw size={16} color={theme.text} />
+                    <Text style={[styles.trackerBtnText, { color: theme.text }]}>RESET</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    onPress={() => setGyroEnabled(!isGyroEnabled)}
+                    style={[styles.trackerBtn, { backgroundColor: isGyroEnabled ? theme.accent : theme.glass, borderColor: isGyroEnabled ? theme.accent : theme.border }]}
+                  >
+                    <Compass size={16} color={isGyroEnabled ? "#000" : theme.text} />
+                    <Text style={[styles.trackerBtnText, { color: isGyroEnabled ? "#000" : theme.text }]}>GYRO</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.infoSection}>
+                <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.frameHeader}>
+                    <Sun size={12} color="#FFD700" />
+                    <Text style={[styles.frameLabel, { color: theme.subText }]}>SOLAR DATA</Text>
+                  </View>
+                  <View style={styles.grid}>
+                    <InfoCard 
+                      icon={<Zap size={14} color="#FFD700" />}
+                      label="Position"
+                      value={`${sunPos.altitude.toFixed(0)}°`}
+                      subValue={`${sunPos.azimuth.toFixed(0)}°`}
+                      theme={theme}
+                    />
+                    <InfoCard 
+                      icon={<Sunrise size={14} color="#FFA500" />}
+                      label="Sunrise"
+                      value={format(events.sunrise, 'HH:mm')}
+                      theme={theme}
+                    />
+                    <InfoCard 
+                      icon={<Sunset size={14} color="#FF4500" />}
+                      label="Sunset"
+                      value={format(events.sunset, 'HH:mm')}
+                      theme={theme}
+                    />
+                  </View>
+                </View>
+
+                <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.frameHeader}>
+                    <Moon size={12} color={isDay ? "#666" : "#E0E0E0"} />
+                    <Text style={[styles.frameLabel, { color: theme.subText }]}>LUNAR DATA</Text>
+                  </View>
+                  <View style={styles.grid}>
+                    <InfoCard 
+                      icon={<Zap size={14} color="#888" />}
+                      label="Position"
+                      value={`${moonPos.altitude.toFixed(0)}°`}
+                      subValue={`${moonPos.azimuth.toFixed(0)}°`}
+                      theme={theme}
+                    />
+                    <InfoCard 
+                      icon={<Sunrise size={14} color="#888" />}
+                      label="Moonrise"
+                      value={events.moonrise ? format(events.moonrise, 'HH:mm') : '--:--'}
+                      theme={theme}
+                    />
+                    <InfoCard 
+                      icon={<Sunset size={14} color="#888" />}
+                      label="Moonset"
+                      value={events.moonset ? format(events.moonset, 'HH:mm') : '--:--'}
+                      theme={theme}
+                    />
+                  </View>
+                </View>
+              </View>
+            </>
+          ) : (
+            <SunsetSimulation 
+              theme={theme} 
+              currentTime={currentTime}
+              setCurrentTime={setCurrentTime}
+            />
           )}
-        </Svg>
+        </Animated.View>
       </View>
 
-      <View style={styles.infoGrid}>
-        <View style={styles.infoCard}>
-          <Sun size={20} color="#FFD700" />
-          <Text style={styles.cardLabel}>Sun Altitude</Text>
-          <Text style={styles.cardValue}>{sunPos.altitude.toFixed(1)}°</Text>
+      {activeTab === 'tracker' && (
+        <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <TimeSlider 
+            value={currentTime}
+            onChange={setCurrentTime}
+            isTimeMachineEnabled={isTimeMachineEnabled}
+            onToggleTimeMachine={setTimeMachineEnabled}
+            theme={theme}
+            isDay={isDay}
+            markers={[
+              { time: events.sunrise, color: '#FFA500', type: 'rise' },
+              { time: events.sunset, color: '#FF4500', type: 'set' },
+              { time: events.moonrise, color: '#888', type: 'rise' },
+              { time: events.moonset, color: '#888', type: 'set' },
+            ]}
+          />
         </View>
-        <View style={styles.infoCard}>
-          <Moon size={20} color="#E0E0E0" />
-          <Text style={styles.cardLabel}>Moon Altitude</Text>
-          <Text style={styles.cardValue}>{moonPos.altitude.toFixed(1)}°</Text>
-        </View>
-      </View>
+      )}
 
-      <View style={styles.footer}>
-        <View style={styles.locationContainer}>
-          <Navigation size={14} color="#666" />
-          <Text style={styles.locationText}>{latitude.toFixed(4)}, {longitude.toFixed(4)}</Text>
-        </View>
-      </View>
-    </SafeAreaView>
+      {showDatePicker && (
+        <AdaptiveDatePicker
+          value={currentTime}
+          onChange={handleDateChange}
+          onClose={() => setShowDatePicker(false)}
+        />
+      )}
+
+      <MapPicker
+        visible={isMapVisible}
+        onClose={() => setMapVisible(false)}
+        onSelect={(loc: any) => setLocation(loc)}
+        theme={theme}
+        location={location}
+      />
+    </AnimatedSafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    paddingTop: Platform.OS === 'android' ? Constants.statusBarHeight : 0,
+  },
+  mainContent: {
+    flex: 1,
+  },
+  animatedContent: {
+    flex: 1,
+    minHeight: 500, // Ensure there's a minimum height for simulation visibility
+  },
+  header: {
+    paddingTop: 5,
+    paddingHorizontal: 16,
+    marginBottom: 5,
+    gap: 4,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  navToggle: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  navButton: {
+    paddingVertical: 5,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  navText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  mapOpenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 6,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  mapOpenText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#000',
+    letterSpacing: -0.2,
+  },
+  dateNavigator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 40,
+  },
+  dateControl: {
+    padding: 4,
+  },
+  dateCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  dateText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  todayButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    gap: 4,
+    position: 'absolute',
+    right: 8,
+  },
+  todayText: {
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  chartContainer: {
+    flex: 1.2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  trackerControls: {
+    position: 'absolute',
+    right: 20,
+    bottom: 40,
+    gap: 12,
+  },
+  trackerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  trackerBtnText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  infoSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 5,
+    gap: 6,
+  },
+  infoFrame: {
+    borderRadius: 20,
+    padding: 10,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  frameHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 4,
+    marginBottom: 4,
+    gap: 6,
+  },
+  frameLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  grid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  bottomPanel: {
+    margin: 16,
+    marginBottom: 24,
+    paddingVertical: 10,
+    borderRadius: 28,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 15,
   },
   centered: {
     flex: 1,
@@ -168,74 +580,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
-    padding: 24,
-    alignItems: 'center',
-  },
-  title: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  subtitle: {
+  loadingText: {
     color: '#888',
+    marginTop: 15,
     fontSize: 14,
-    marginTop: 4,
-  },
-  canvasContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  infoGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 20,
-    marginTop: 20,
-  },
-  infoCard: {
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 16,
-    width: width * 0.42,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#222',
-  },
-  cardLabel: {
-    color: '#888',
-    fontSize: 12,
-    marginTop: 8,
-  },
-  cardValue: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 40,
-    width: '100%',
-    alignItems: 'center',
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#111',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-  },
-  locationText: {
-    color: '#666',
-    fontSize: 12,
-    marginLeft: 6,
   },
   errorText: {
     color: '#ff4444',
     textAlign: 'center',
     padding: 20,
+    fontSize: 16,
   },
 });
