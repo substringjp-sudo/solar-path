@@ -1,22 +1,5 @@
 /**
  * Physics-based sunset/sunrise prediction.
- *
- * The model combines four ingredients:
- *
- *   1. Kasten-Young airmass for the slant path through the atmosphere when
- *      the sun is near the horizon.
- *   2. Wavelength-dependent extinction (Rayleigh + Mie/Angstrom) on three
- *      RGB primaries, producing the reddened color of the direct beam.
- *   3. Earth-curvature horizon depression that determines, per cloud layer
- *      altitude, whether the sun is still above that layer's local horizon
- *      and can therefore illuminate it.
- *   4. Path-integrated cloud blockage sampled along the sun's azimuth at
- *      0/80/200/350 km, which models how much of the direct beam survives
- *      to reach the observer and the clouds above the observer.
- *
- * The result is a `SunsetPrediction` carrying a 0-100 score, a quality
- * label, a human-readable explanation, an SVG-ready vertical sky gradient,
- * and physically-derived tinting colors for the cloud and sun layers.
  */
 
 import { CloudData, CloudPathData, getInterpolatedWeather } from './weather';
@@ -65,9 +48,20 @@ const mixRgb = (a: RGB, b: RGB, t: number): RGB => ({
 
 /** Kasten-Young 1989 airmass for line-of-sight altitude in degrees. */
 export const airMass = (altDeg: number): number => {
-  const h = Math.max(altDeg, -1);
+  const h = Math.max(altDeg, -1.5); // Allow slightly below horizon for refraction/dip
   if (h >= 89) return 1;
   return 1 / (Math.sin((h * Math.PI) / 180) + 0.50572 * Math.pow(6.07995 + h, -1.6364));
+};
+
+/** Henyey-Greenstein phase function for Mie scattering. */
+const henyeyGreenstein = (cosTheta: number, g: number): number => {
+  const g2 = g * g;
+  return (1 - g2) / Math.pow(1 + g2 - 2 * g * cosTheta, 1.5);
+};
+
+/** Rayleigh phase function. */
+const rayleighPhase = (cosTheta: number): number => {
+  return 0.75 * (1 + cosTheta * cosTheta);
 };
 
 const tauRayleigh = (lambdaNm: number): number =>
@@ -93,17 +87,41 @@ export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
 };
 
 /**
- * Linear-light RGB (0..1) of the direct solar beam at the observer along a
- * line of sight at altitude `altDeg`, attenuated by Rayleigh + Mie only.
+ * Linear-light RGB (0..1) of the direct solar beam at its current altitude,
+ * attenuated by Rayleigh + Mie scattering.
  */
-export const directBeamRGB = (altDeg: number, beta: number): RGB => {
-  const m = airMass(altDeg);
-  const t = (lambda: number): number =>
-    Math.exp(-(tauRayleigh(lambda) + tauMie(lambda, beta)) * m);
+export const directBeamRGB = (altDeg: number): RGB => {
+  if (isNaN(altDeg)) return NIGHT;
+
+  const altRad = (altDeg * Math.PI) / 180;
+  const sinAlt = Math.max(Math.sin(altRad), 0.015); // Refraction adjustment
+
+  // Air mass calculation (approximate Kasten-Young formula)
+  // Clamp altDeg to avoid NaN when base is negative (at altDeg < -3.885)
+  const safeAltForAirMass = Math.max(altDeg, -3.8);
+  const airMass = 1.0 / (sinAlt + 0.15 * Math.pow(safeAltForAirMass + 3.885, -1.253));
+
+  // Scattering coefficients (Rayleigh + Mie) - Tuned for more vibrant reds
+  const rayleigh = {
+    r: Math.exp(-0.07 * airMass),
+    g: Math.exp(-0.18 * airMass),
+    b: Math.exp(-0.38 * airMass),
+  };
+
+  const mie = Math.exp(-0.04 * airMass);
+
+  // Perceived intensity boost for sunset reds
+  const redBoost = altDeg < 10 && altDeg > -6 
+    ? 1.0 + Math.pow(Math.max(0, 10 - altDeg), 1.2) * 0.08 
+    : 1.0;
+
+  // Darken everything as the sun goes below horizon to simulate twilight fade
+  const nightFade = altDeg < 0 ? Math.exp(altDeg / 2.5) : 1.0;
+
   return {
-    r: 1.0 * t(LAMBDA_R),
-    g: 0.96 * t(LAMBDA_G),
-    b: 0.92 * t(LAMBDA_B),
+    r: clamp01(rayleigh.r * mie * redBoost * nightFade),
+    g: clamp01(rayleigh.g * mie * nightFade),
+    b: clamp01(rayleigh.b * mie * nightFade),
   };
 };
 
@@ -127,12 +145,12 @@ export const cloudIllumination = (sunAltDeg: number, cloudAltKm: number): number
 };
 
 /**
- * Path-integrated transmittance through low and mid clouds along the sun's
+ * Calculates transmittance based on cloud cover sampled at different distances along the sun's 
  * azimuth. Distance weights favor the 200-350 km samples because a near-
  * horizon beam grazes the boundary layer at exactly those distances.
  */
 export const beamPathTransmittance = (path: CloudData[]): number => {
-  if (path.length < 4) return 1;
+  if (!path || path.length < 4) return 1;
   const sectors = [
     { lo: path[0].low, mi: path[0].mid, w: 0.1 },
     { lo: path[1].low, mi: path[1].mid, w: 0.2 },
@@ -160,6 +178,8 @@ export interface SunsetPrediction {
   description: string;
   /** Vertical gradient stops. offset=0 is zenith, offset=1 is horizon. */
   skyGradient: SkyStop[];
+  /** Radial gradient stops for the sun's aura. */
+  sunGlowStops: SkyStop[];
   highCloudColor: string;
   midCloudColor: string;
   lowCloudColor: string;
@@ -191,22 +211,36 @@ export const predictSunset = (
   visibilityM?: number,
   rhPct?: number,
 ): SunsetPrediction => {
+  if (isNaN(sunAltDeg)) {
+    // Return a safe neutral prediction if input is invalid
+    return {
+      score: 0,
+      quality: 'Muted',
+      description: '데이터가 올바르지 않아 예측할 수 없습니다.',
+      skyGradient: [
+        { offset: 0, color: '#08101e' },
+        { offset: 1, color: '#08101e' },
+      ],
+      sunGlowStops: [],
+      highCloudColor: 'transparent',
+      midCloudColor: 'transparent',
+      lowCloudColor: 'transparent',
+      sunDiskColor: 'transparent',
+      factors: { beamRedness: 0, pathClarity: 0, overheadGlow: 0, overheadOvercast: 0, aerosolBeta: 0, illumLow: 0, illumMid: 0, illumHigh: 0 }
+    };
+  }
   const beta = aerosolBeta(visibilityM, rhPct);
   const localPath = getInterpolatedWeather(pathData, targetTime);
+  // Sunset mode should only apply when sun is near or just below horizon
+  const isSunsetMode = sunAltDeg < 10 && sunAltDeg > -6;
 
-  // The sun disk itself: use its current line-of-sight altitude.
-  const sunDiskBeam = directBeamRGB(Math.max(sunAltDeg, -0.5), beta);
-  // The reddened beam that bathes overhead clouds: always evaluated at
-  // grazing horizon, since the sun is on or below the geometric horizon
-  // when this matters and the high-cloud illumination path is still
-  // close to horizontal.
-  const horizonBeam = directBeamRGB(0, beta);
+  const currentBeam = directBeamRGB(sunAltDeg);
   const pathClarity = beamPathTransmittance(localPath);
 
   const incidentBeam: RGB = {
-    r: horizonBeam.r * pathClarity,
-    g: horizonBeam.g * pathClarity,
-    b: horizonBeam.b * pathClarity,
+    r: currentBeam.r * pathClarity * 1.2, // Boost red intensity
+    g: currentBeam.g * pathClarity,
+    b: currentBeam.b * pathClarity,
   };
   const beamRedness =
     incidentBeam.r > 0
@@ -250,84 +284,117 @@ export const predictSunset = (
   } else if (score >= 55) {
     quality = 'Great';
     description =
-      '광선 경로가 비교적 맑고 윗하늘에 빛을 받아 줄 구름이 있어 좋은 노을이 예상됩니다.';
-  } else if (score >= 30) {
+      '충분히 붉은 빛이 구름에 반사되어 아름다운 노을을 감상하기 좋습니다.';
+  } else if (score >= 35) {
     quality = 'Fair';
-    description =
-      '평범한 수준. 수평선 부근의 옅은 붉은 띠 정도가 관측될 수 있습니다.';
+    description = '구름이 다소 많거나 빛이 약하지만 은은한 노을을 볼 수 있습니다.';
   } else {
     quality = 'Muted';
-    if (pathClarity < 0.35) {
-      description =
-        '광원 방향의 저·중층운이 빛을 차단해 노을이 거의 보이지 않을 수 있습니다.';
-    } else if (overheadGlow < 0.1) {
-      description =
-        '윗하늘에 빛을 받아 줄 구름이 부족해 색감 없는 옅은 수평선 빛만 보일 것입니다.';
-    } else {
-      description = '색감이 약한 노을이 예상됩니다.';
-    }
+    description = '빛의 산란이 부족하거나 구름이 너무 적어 노을이 밋밋할 수 있습니다.';
   }
 
-  // --- Sky gradient ------------------------------------------------------
-  const twilight = clamp01((10 - sunAltDeg) / 16);
-  const dayToTwi = mixRgb(ZENITH_DAY, ZENITH_TWILIGHT, twilight);
-  const nightT = clamp01((-sunAltDeg - 6) / 6);
-  const zenithRGB = mixRgb(dayToTwi, NIGHT, nightT);
+  // --- Sky Gradient ------------------------------------------------------
+  // sunWeight: 1.0 during day, drops as sun approaches horizon (< 8 deg)
+  const sunWeight = clamp01((sunAltDeg + 1) / 9); 
+  // twilightWeight: Mixes in twilight purple/blue as sun dips below horizon
+  const twilightWeight = clamp01(1 - (sunAltDeg + 6) / 10);
 
-  const beamGlow: RGB = {
-    r: clamp01(incidentBeam.r * 1.6 + 0.05),
-    g: clamp01(incidentBeam.g * 1.6 + 0.02),
-    b: clamp01(incidentBeam.b * 1.6),
-  };
-  const horizonBlendT = clamp01(pathClarity * (0.6 + 0.4 * horizonProximity));
-  let horizonRGB = mixRgb(zenithRGB, beamGlow, horizonBlendT);
-  if (sunAltDeg < -6) horizonRGB = mixRgb(horizonRGB, NIGHT, nightT * 0.6);
-
-  // Mid-altitude band: where overhead clouds catch the reddened beam.
-  const midBandRGB = mixRgb(
-    zenithRGB,
-    beamGlow,
-    clamp01(overheadGlow * pathClarity * 0.9),
+  // Dynamic sky base colors
+  const skyZenith = mixRgb(
+    mixRgb(ZENITH_TWILIGHT, NIGHT, clamp01(-sunAltDeg / 12)),
+    ZENITH_DAY,
+    sunWeight
   );
 
-  const overcastBlend = overheadOvercast * 0.7;
-  const muted = (c: RGB) => mixRgb(c, OVERCAST, overcastBlend);
+  const muted = (c: RGB): RGB => {
+    // At night (sunWeight -> 0), the sky shouldn't turn gray even if overcast
+    const overcastWeight = overheadOvercast * 0.7 * sunWeight;
+    return mixRgb(c, OVERCAST, overcastWeight);
+  };
+
+  // 4. Horizon & Sky Gradients - More vibrant spread
+  const horizonRGB: RGB = {
+    r: clamp01(currentBeam.r * 1.5 + (isSunsetMode ? 0.3 * sunWeight : 0)),
+    g: clamp01(currentBeam.g * 1.3 + (isSunsetMode ? 0.1 * sunWeight : 0)),
+    b: clamp01(currentBeam.b * 1.1),
+  };
+
+  const midBandRGB = mixRgb(skyZenith, horizonRGB, 0.65);
+  const upperMidRGB = mixRgb(skyZenith, midBandRGB, 0.4);
 
   const skyGradient: SkyStop[] = [
-    { offset: 0, color: rgbToCss(muted(zenithRGB)) },
-    {
-      offset: 0.5,
-      color: rgbToCss(muted(mixRgb(zenithRGB, midBandRGB, 0.7))),
-    },
-    { offset: 0.82, color: rgbToCss(muted(midBandRGB)) },
+    { offset: 0, color: rgbToCss(muted(skyZenith)) },
+    { offset: 0.3, color: rgbToCss(muted(upperMidRGB)) },
+    { offset: 0.65, color: rgbToCss(muted(midBandRGB)) },
+    { offset: 0.85, color: rgbToCss(muted(mixRgb(midBandRGB, horizonRGB, 0.5))) },
     { offset: 1, color: rgbToCss(muted(horizonRGB)) },
   ];
 
+  // --- Sun Glow (Mie Scattering Halo) ------------------------------------
+  const sunGlowStops: SkyStop[] = [];
+  const g = 0.88; // Slightly more forward-heavy Mie scattering
+  // More samples for a smoother gradient
+  const glowSamples = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.7, 0.85, 1.0];
+  
+  // Boost visibility and add an exponential "core" intensity
+  const glowVisibility = pathClarity * clamp01(1 - Math.abs(sunAltDeg + 1) / 20);
+  
+  for (const offset of glowSamples) {
+    // Map offset to scattering angle. Inner halo is much tighter.
+    const theta = (offset * 30 * Math.PI) / 180;
+    const phase = henyeyGreenstein(Math.cos(theta), g);
+    
+    // Multi-stage glow for better blending and fire-red edges
+    const coreBoost = isSunsetMode ? 1.5 : 1.2;
+    const vibrancy = isSunsetMode ? 1.3 : 1.0;
+
+    const glowRGB: RGB = {
+      r: clamp01(currentBeam.r * coreBoost * 2.2 * vibrancy),
+      g: clamp01(currentBeam.g * coreBoost * 1.6),
+      b: clamp01(currentBeam.b * coreBoost * 1.2),
+    };
+
+    // Transition from hot center to deep red rim
+    const rVal = clamp01(glowRGB.r);
+    const gVal = clamp01(glowRGB.g * (1 - offset * 0.8));
+    const bVal = clamp01(glowRGB.b * (1 - offset));
+
+    let intensity = (phase / 28) * glowVisibility;
+    intensity *= Math.pow(1.0 - offset, 2.0); // Smoother falloff
+
+    // Alpha needs to be high at the center to look like a light source
+    const alpha = clamp01(intensity * 1.2);
+    sunGlowStops.push({
+      offset,
+      color: rgbToCssAlpha({ r: rVal, g: gVal, b: bVal }, alpha),
+    });
+  }
+
   // --- Cloud tints -------------------------------------------------------
   const litColor = (illum: number, baseLit: number): RGB => {
-    const target = mixRgb(NEUTRAL_CLOUD, beamGlow, baseLit);
-    return mixRgb(SHADOWED_CLOUD, target, illum * (0.4 + 0.6 * pathClarity));
+    const target = mixRgb(NEUTRAL_CLOUD, incidentBeam, baseLit);
+    const lit = mixRgb(SHADOWED_CLOUD, target, illum);
+    // At night, clouds should fade to the NIGHT color
+    return mixRgb(NIGHT, lit, sunWeight * 0.8 + 0.2);
   };
-  const highCloudRGB = litColor(illumHigh, 1.0);
-  const midCloudRGB = litColor(illumMid, 0.85);
-  const lowCloudRGB = mixRgb(
-    SHADOWED_CLOUD,
-    beamGlow,
-    illumLow * pathClarity * 0.35,
-  );
+
+  const highCloudRGB = muted(litColor(illumHigh, 0.9));
+  const midCloudRGB = muted(litColor(illumMid, 0.7));
+  const lowCloudRGB = muted(litColor(illumLow, 0.3));
 
   return {
     score,
     quality,
     description,
     skyGradient,
+    sunGlowStops,
     highCloudColor: rgbToCssAlpha(highCloudRGB, 0.6),
     midCloudColor: rgbToCssAlpha(midCloudRGB, 0.55),
     lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.65),
     sunDiskColor: rgbToCss({
-      r: clamp01(sunDiskBeam.r * 1.2),
-      g: clamp01(sunDiskBeam.g * 1.2),
-      b: clamp01(sunDiskBeam.b * 1.2),
+      r: clamp01(currentBeam.r * 8.0 + (isSunsetMode ? 0.45 : 0)), // Intense red disk
+      g: clamp01(currentBeam.g * 4.0 + (isSunsetMode ? 0.1 : 0)),
+      b: clamp01(currentBeam.b * 2.5),
     }),
     factors: {
       beamRedness,

@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Dimensions, Animated, Platform, TouchableOpacity, Linking, Modal } from 'react-native';
-import Svg, { Path, Defs, LinearGradient, Stop, Polygon, Rect } from 'react-native-svg';
+import { StyleSheet, View, Text, ActivityIndicator, Dimensions, Animated, Platform, TouchableOpacity, Linking, Modal, useWindowDimensions } from 'react-native';
+import Svg, { Path, Defs, LinearGradient, RadialGradient, Stop, Polygon, Rect, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 import { Sun, Compass, AlertCircle, Cloud, WifiOff, Maximize, Info, ExternalLink } from 'lucide-react-native';
 import { format, addMinutes, isAfter, addHours, subMinutes } from 'date-fns';
 import { TimeSlider } from './TimeSlider';
 import SunCalc from 'suncalc';
-import { Magnetometer } from 'expo-sensors';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { GenericSlider } from './GenericSlider';
 
@@ -59,13 +58,12 @@ interface SunsetSimulationProps {
   setCurrentTime: (time: Date) => void;
 }
 
-export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({ 
-  theme, 
-  currentTime, 
-  setCurrentTime 
-}) => {
-  if (!theme || typeof theme !== 'object') return null;
-  const { width, height } = Dimensions.get('window');
+export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
+  const { theme, currentTime, setCurrentTime } = props;
+  const { width, height } = useWindowDimensions();
+  
+  if (!theme) return null;
+  
   const { 
     location, 
     weatherCache, 
@@ -287,7 +285,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
     if (!sim?.terrain?.panoramicAngles) return null;
 
     const terrainHeight = 160;
-    const pointsCount = 45; 
+    const pointsCount = 150; // Increased from 45 for smoother horizon 
     const buffer = visualFov * 0.2;
     const totalRenderFov = visualFov + buffer * 2;
     
@@ -303,17 +301,16 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
 
     const getPoints = (angles: number[], verticalScale: number, yOffset: number) => {
       const pointsList: string[] = [];
-      const getAngle = (az: number) => {
-        const normalizedAz = ((az % 360) + 360) % 360;
+      const getAngle = (azDeg: number) => {
+        if (angles.length < 2) return 0;
+        const normalizedAz = ((azDeg % 360) + 360) % 360;
         const index = (normalizedAz / 360) * (angles.length - 1);
         const i1 = Math.floor(index);
         const i2 = (i1 + 1) % angles.length;
         const ratio = index - i1;
-        let angle = angles[i1] * (1 - ratio) + angles[i2] * ratio;
-        if (angle < 0.1) {
-          angle += (Math.sin(az * 10) * 0.05) + (Math.sin(az * 25) * 0.02);
-        }
-        return angle;
+        const a1 = angles[i1] || 0;
+        const a2 = angles[i2] || 0;
+        return a1 * (1 - ratio) + a2 * ratio;
       };
 
       for (let i = 0; i <= pointsCount; i++) {
@@ -322,9 +319,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
         const angle = getAngle(absDeg);
         const x = (relativeDeg / visualFov) * (width - 24) + (width - 24) / 2;
         const y = terrainHeight - HORIZON_Y - (angle * verticalScale * DEGREE_TO_PIXEL) + yOffset;
-        pointsList.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+        
+        pointsList.push(`${x.toFixed(2)},${y.toFixed(2)}`);
       }
-      return pointsList.join(' ') + ` ${width - 24},${terrainHeight} 0,${terrainHeight}`;
+      
+      const lastX = (width - 24).toFixed(2);
+      const groundY = terrainHeight.toFixed(2);
+      return pointsList.join(' ') + ` ${lastX},${groundY} 0,${groundY}`;
     };
 
     const bgPoints = getPoints(sim?.terrain?.farAngles || [], dynamicScale * 1.6, 0); 
@@ -431,7 +432,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
       else if (norm === 270) label = 'W';
       ticks.push(
         <View key={deg} style={[styles.tick, { left: x, height: isMajor ? 10 : 5, backgroundColor: isMajor ? theme.accent : theme.text }]}>
-          {label !== "" && <Text style={[styles.tickLabel, { color: isMajor ? theme.accent : theme.text }]}>{label}</Text>}
+          {label !== "" && (
+            <Text style={[styles.tickLabel, { color: isMajor ? theme.accent : theme.text }]}>
+              {label}
+            </Text>
+          )}
         </View>
       );
     }
@@ -487,31 +492,91 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({
                       <Stop key={i} offset={s.offset} stopColor={s.color} stopOpacity={1} />
                     ))}
                   </LinearGradient>
+                  {prediction?.sunGlowStops && (
+                    <>
+                      <Filter id="glowFilter">
+                        <FeGaussianBlur stdDeviation="6" />
+                      </Filter>
+                      <RadialGradient 
+                        id="sunGlow" 
+                        cx="50%" cy="50%" r="50%" 
+                        fx="50%" fy="50%"
+                      >
+                        {prediction.sunGlowStops.map((s, i) => {
+                          // Extract alpha from rgba string for better SVG compatibility
+                          const rgbaMatch = s.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+                          const stopColor = rgbaMatch ? `rgb(${rgbaMatch[1]},${rgbaMatch[2]},${rgbaMatch[3]})` : s.color;
+                          const stopOpacity = rgbaMatch && rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
+                          
+                          return (
+                            <Stop 
+                              key={i} 
+                              offset={s.offset.toFixed(3)} 
+                              stopColor={stopColor} 
+                              stopOpacity={isNaN(stopOpacity) ? 0 : stopOpacity} 
+                            />
+                          );
+                        })}
+                      </RadialGradient>
+                    </>
+                  )}
                 </Defs>
                 <Rect width={VISUALIZER_WIDTH} height={SKY_HEIGHT} fill="url(#physSky)" />
+                
+                {(() => {
+                  const sunX = (VISUALIZER_WIDTH / 2).toFixed(2);
+                  const sunY = (SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y)).toFixed(2);
+                  // Make the halo even larger and more atmospheric near the horizon
+                  const haloSize = (sunSize * (15 + Math.max(0, (8 - sunAltitude) * 2.5))).toFixed(2); 
+                  const sunColor = isSunVisible
+                    ? (prediction?.sunDiskColor ?? '#FFD700')
+                    : '#FF4500';
+
+                  return (
+                    <>
+                      {/* Mie Scattering Halo - Layered for 'bloom' effect */}
+                      {prediction?.sunGlowStops && (
+                        <>
+                          {/* Very large soft outer glow */}
+                          <Circle 
+                            cx={sunX} 
+                            cy={sunY} 
+                            r={haloSize * 1.2} 
+                            fill="url(#sunGlow)"
+                            opacity={0.3}
+                            filter="url(#glowFilter)"
+                          />
+                          {/* Main soft outer glow */}
+                          <Circle 
+                            cx={sunX} 
+                            cy={sunY} 
+                            r={haloSize} 
+                            fill="url(#sunGlow)"
+                            opacity={0.6}
+                            filter="url(#glowFilter)"
+                          />
+                          {/* Intense inner glow */}
+                          <Circle 
+                            cx={sunX} 
+                            cy={sunY} 
+                            r={haloSize / 2.2} 
+                            fill="url(#sunGlow)"
+                            opacity={1.0}
+                          />
+                        </>
+                      )}
+                      
+                      {/* Direct Sun Disk */}
+                      <Circle
+                        cx={sunX}
+                        cy={sunY}
+                        r={sunSize / 2}
+                        fill={sunColor}
+                      />
+                    </>
+                  );
+                })()}
               </Svg>
-              {(() => {
-                const sunX = VISUALIZER_WIDTH / 2;
-                const sunColor = isSunVisible
-                  ? (prediction?.sunDiskColor ?? '#FFD700')
-                  : '#FF4500';
-                return (
-                  <View
-                    style={[
-                      styles.sun,
-                      {
-                        width: sunSize,
-                        height: sunSize,
-                        borderRadius: sunSize / 2,
-                        bottom: (sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y - (sunSize / 2),
-                        left: sunX - (sunSize / 2),
-                        backgroundColor: sunColor,
-                        shadowColor: sunColor,
-                      }
-                    ]}
-                  />
-                );
-              })()}
               {renderTerrain()}
               <View style={{ position: 'absolute', width: '100%', height: '100%', left: ((sim?.azimuth || 0) - heading) * DEGREE_TO_PIXEL }}>
                 {sim?.pathData?.map((c, i) => renderCloudLayer(c, i, 'high'))}
