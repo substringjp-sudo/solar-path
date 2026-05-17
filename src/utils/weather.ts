@@ -208,6 +208,7 @@ export interface TerrainData {
   farAngles: number[];       // Only distant mountains (15km, 40km)
   minAz: number;
   maxAz: number;
+  observerElevation?: number; // Observer elevation in meters
 }
 
 const terrainCache = new Map<string, TerrainData>();
@@ -342,11 +343,11 @@ export const fetchTerrainProfile = async (
       farAngles.push(maxFarAngle);
     }
 
-    const terrainData = { panoramicAngles, farAngles, minAz, maxAz };
+    const terrainData = { panoramicAngles, farAngles, minAz, maxAz, observerElevation: observerElev };
     terrainCache.set(cacheKey, terrainData);
     return terrainData;
   } catch (error) {
     console.error("Failed to fetch panoramic terrain:", error);
-    return { panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0), minAz, maxAz };
+    return { panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0), minAz, maxAz, observerElevation: 0 };
   }
 };

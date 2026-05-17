@@ -46,6 +46,29 @@ const mixRgb = (a: RGB, b: RGB, t: number): RGB => ({
   b: lerp(a.b, b.b, t),
 });
 
+/** Sæmundsson 1986 atmospheric refraction correction. */
+export const getApparentAltitude = (altDeg: number): number => {
+  if (altDeg <= -6.0) return altDeg;
+  const safeAlt = Math.max(altDeg, -4.2);
+  const tanArg = ((safeAlt + 10.3 / (safeAlt + 5.11)) * Math.PI) / 180;
+  const R_arcmin = 1.02 / Math.tan(tanArg);
+  const R_deg = R_arcmin / 60.0;
+
+  // Smoothly fade refraction effect to zero between -4.2 and -6.0 degrees to prevent discontinuity
+  let fade = 1.0;
+  if (altDeg < -4.2) {
+    fade = (altDeg + 6.0) / 1.8;
+  }
+  return altDeg + R_deg * fade;
+};
+
+/** Geometric horizon depression in degrees for an observer at altitude m. */
+export const getHorizonDip = (elevationM: number): number => {
+  const hKm = Math.max(0, elevationM) / 1000.0;
+  const ratio = EARTH_RADIUS_KM / (EARTH_RADIUS_KM + hKm);
+  return (Math.acos(Math.min(1.0, ratio)) * 180) / Math.PI;
+};
+
 /** Kasten-Young 1989 airmass for line-of-sight altitude in degrees. */
 export const airMass = (altDeg: number): number => {
   const h = Math.max(altDeg, -1.5); // Allow slightly below horizon for refraction/dip
@@ -88,35 +111,59 @@ export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
 
 /**
  * Linear-light RGB (0..1) of the direct solar beam at its current altitude,
- * attenuated by Rayleigh + Mie scattering.
+ * attenuated by Rayleigh + Mie scattering, altitude-based air density scale, and ozone absorption.
  */
-export const directBeamRGB = (altDeg: number): RGB => {
+export const directBeamRGB = (
+  altDeg: number,
+  observerElevationM: number = 0,
+  latitude: number = 37.5665
+): RGB => {
   if (isNaN(altDeg)) return NIGHT;
 
-  const altRad = (altDeg * Math.PI) / 180;
-  const sinAlt = Math.max(Math.sin(altRad), 0.015); // Refraction adjustment
+  // 1) Apply Sæmundsson atmospheric refraction
+  const apparentAlt = getApparentAltitude(altDeg);
+  const altRad = (apparentAlt * Math.PI) / 180;
+  const sinAlt = Math.max(Math.sin(altRad), 0.015);
 
-  // Air mass calculation (approximate Kasten-Young formula)
-  // Clamp altDeg to avoid NaN when base is negative (at altDeg < -3.885)
-  const safeAltForAirMass = Math.max(altDeg, -3.8);
-  const airMass = 1.0 / (sinAlt + 0.15 * Math.pow(safeAltForAirMass + 3.885, -1.253));
+  // 2) Kasten-Young airmass calculation
+  const safeAltForAirMass = Math.max(apparentAlt, -3.8);
+  const airMassVal = 1.0 / (sinAlt + 0.15 * Math.pow(safeAltForAirMass + 3.885, -1.253));
 
-  // Scattering coefficients (Rayleigh + Mie) - Tuned for more vibrant reds
-  const rayleigh = {
-    r: Math.exp(-0.07 * airMass),
-    g: Math.exp(-0.18 * airMass),
-    b: Math.exp(-0.38 * airMass),
+  // 3) Altitude-based density scale (Rayleigh scale height ~8km)
+  const altScale = Math.exp(-Math.max(0, observerElevationM) / 8000.0);
+  const effectiveAirMass = airMassVal * altScale;
+
+  // 4) Latitude-dependent Ozone layer thickness (Dobson Units)
+  const latRad = (latitude * Math.PI) / 180;
+  const ozoneDu = 300.0 + 80.0 * Math.pow(Math.sin(latRad), 2);
+  
+  // Ozone center layer altitude is ~22km, use high-altitude ozone airmass formula
+  const r_ozone = 22.0 / EARTH_RADIUS_KM;
+  const ozoneAirMass = (1.0 + r_ozone) / Math.sqrt(Math.max(0.001, Math.sin(altRad) * Math.sin(altRad) + 2.0 * r_ozone));
+
+  // Chappuis band ozone absorption coefficients for R, G, B channels
+  const ozoneTrans = {
+    r: Math.exp(-0.015 * (ozoneDu / 300.0) * ozoneAirMass),
+    g: Math.exp(-0.030 * (ozoneDu / 300.0) * ozoneAirMass),
+    b: Math.exp(-0.002 * (ozoneDu / 300.0) * ozoneAirMass),
   };
 
-  const mie = Math.exp(-0.04 * airMass);
+  // 5) Scattering coefficients (Rayleigh + Mie) combined with Ozone absorption
+  const rayleigh = {
+    r: Math.exp(-0.07 * effectiveAirMass) * ozoneTrans.r,
+    g: Math.exp(-0.18 * effectiveAirMass) * ozoneTrans.g,
+    b: Math.exp(-0.38 * effectiveAirMass) * ozoneTrans.b,
+  };
+
+  const mie = Math.exp(-0.04 * effectiveAirMass);
 
   // Perceived intensity boost for sunset reds
-  const redBoost = altDeg < 10 && altDeg > -6 
-    ? 1.0 + Math.pow(Math.max(0, 10 - altDeg), 1.2) * 0.08 
+  const redBoost = apparentAlt < 10 && apparentAlt > -6 
+    ? 1.0 + Math.pow(Math.max(0, 10 - apparentAlt), 1.2) * 0.08 
     : 1.0;
 
   // Darken everything as the sun goes below horizon to simulate twilight fade
-  const nightFade = altDeg < 0 ? Math.exp(altDeg / 2.5) : 1.0;
+  const nightFade = apparentAlt < 0 ? Math.exp(apparentAlt / 2.5) : 1.0;
 
   return {
     r: clamp01(rayleigh.r * mie * redBoost * nightFade),
@@ -210,6 +257,8 @@ export const predictSunset = (
   sunAltDeg: number,
   visibilityM?: number,
   rhPct?: number,
+  latitude?: number,
+  observerElevationM?: number,
 ): SunsetPrediction => {
   if (isNaN(sunAltDeg)) {
     // Return a safe neutral prediction if input is invalid
@@ -229,12 +278,19 @@ export const predictSunset = (
       factors: { beamRedness: 0, pathClarity: 0, overheadGlow: 0, overheadOvercast: 0, aerosolBeta: 0, illumLow: 0, illumMid: 0, illumHigh: 0 }
     };
   }
+  const latVal = latitude ?? 37.5665;
+  const elevVal = observerElevationM ?? 0;
+
+  const dip = getHorizonDip(elevVal);
+  const apparentAlt = getApparentAltitude(sunAltDeg);
+  const effectiveSunAlt = apparentAlt + dip;
+
   const beta = aerosolBeta(visibilityM, rhPct);
   const localPath = getInterpolatedWeather(pathData, targetTime);
   // Sunset mode should only apply when sun is near or just below horizon
-  const isSunsetMode = sunAltDeg < 10 && sunAltDeg > -6;
+  const isSunsetMode = effectiveSunAlt < 10 && effectiveSunAlt > -6;
 
-  const currentBeam = directBeamRGB(sunAltDeg);
+  const currentBeam = directBeamRGB(sunAltDeg, elevVal, latVal);
   const pathClarity = beamPathTransmittance(localPath);
 
   const incidentBeam: RGB = {
@@ -247,9 +303,9 @@ export const predictSunset = (
       ? Math.max(0, (incidentBeam.r - incidentBeam.g) / Math.max(incidentBeam.r, 0.001))
       : 0;
 
-  const illumLow = cloudIllumination(sunAltDeg, CLOUD_ALT_LOW_KM);
-  const illumMid = cloudIllumination(sunAltDeg, CLOUD_ALT_MID_KM);
-  const illumHigh = cloudIllumination(sunAltDeg, CLOUD_ALT_HIGH_KM);
+  const illumLow = cloudIllumination(effectiveSunAlt, CLOUD_ALT_LOW_KM);
+  const illumMid = cloudIllumination(effectiveSunAlt, CLOUD_ALT_MID_KM);
+  const illumHigh = cloudIllumination(effectiveSunAlt, CLOUD_ALT_HIGH_KM);
 
   const overheadMid = localPath[0].mid / 100;
   const overheadHigh = localPath[0].high / 100;
@@ -260,7 +316,7 @@ export const predictSunset = (
   // --- Score -------------------------------------------------------------
   // Horizon glow band exists whenever the path is clear and the sun is
   // within ~8 of the geometric horizon, even without overhead clouds.
-  const horizonProximity = clamp01(1 - Math.abs(sunAltDeg) / 8);
+  const horizonProximity = clamp01(1 - Math.abs(effectiveSunAlt) / 8);
   // Reddened beam x cloud canvas is the main contributor when conditions
   // are favorable.
   const cloudShow = pathClarity * overheadGlow * (0.5 + 0.5 * beamRedness);
@@ -295,13 +351,13 @@ export const predictSunset = (
 
   // --- Sky Gradient ------------------------------------------------------
   // sunWeight: 1.0 during day, drops as sun approaches horizon (< 8 deg)
-  const sunWeight = clamp01((sunAltDeg + 1) / 9); 
+  const sunWeight = clamp01((effectiveSunAlt + 1) / 9); 
   // twilightWeight: Mixes in twilight purple/blue as sun dips below horizon
-  const twilightWeight = clamp01(1 - (sunAltDeg + 6) / 10);
+  const twilightWeight = clamp01(1 - (effectiveSunAlt + 6) / 10);
 
   // Dynamic sky base colors
   const skyZenith = mixRgb(
-    mixRgb(ZENITH_TWILIGHT, NIGHT, clamp01(-sunAltDeg / 12)),
+    mixRgb(ZENITH_TWILIGHT, NIGHT, clamp01(-effectiveSunAlt / 12)),
     ZENITH_DAY,
     sunWeight
   );
@@ -337,7 +393,7 @@ export const predictSunset = (
   const glowSamples = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.7, 0.85, 1.0];
   
   // Boost visibility and add an exponential "core" intensity
-  const glowVisibility = pathClarity * clamp01(1 - Math.abs(sunAltDeg + 1) / 20);
+  const glowVisibility = pathClarity * clamp01(1 - Math.abs(effectiveSunAlt + 1) / 20);
   
   for (const offset of glowSamples) {
     // Map offset to scattering angle. Inner halo is much tighter.
@@ -371,16 +427,52 @@ export const predictSunset = (
   }
 
   // --- Cloud tints -------------------------------------------------------
-  const litColor = (illum: number, baseLit: number): RGB => {
-    const target = mixRgb(NEUTRAL_CLOUD, incidentBeam, baseLit);
-    const lit = mixRgb(SHADOWED_CLOUD, target, illum);
-    // At night, clouds should fade to the NIGHT color
-    return mixRgb(NIGHT, lit, sunWeight * 0.8 + 0.2);
+  // Extracted cloud cover proportions (0.0 ~ 1.0)
+  const coverLow = (localPath[0]?.low ?? 0) / 100;
+  const coverMid = (localPath[0]?.mid ?? 0) / 100;
+  const coverHigh = (localPath[0]?.high ?? 0) / 100;
+
+  // Cloud Optical Thickness (tau) modeled realistically based on altitude layer
+  const tauLow = 0.5 + 11.5 * coverLow;   // Thick low-layer clouds (up to 12.0)
+  const tauMid = 0.3 + 3.7 * coverMid;    // Medium thickness mid-layer clouds (up to 4.0)
+  const tauHigh = 0.1 + 1.4 * coverHigh;  // Thin high-layer clouds (up to 1.5)
+
+  const ambientSky = muted(skyZenith);
+
+  const physicalCloudColor = (
+    illum: number,
+    tau: number,
+    baseAlbedo: number
+  ): RGB => {
+    // Light transmission inside the cloud layer using Beer-Lambert Law
+    const tInternal = Math.exp(-tau * 0.25);
+    
+    // Direct beam scattered component
+    const directScatter: RGB = {
+      r: incidentBeam.r * tInternal * baseAlbedo,
+      g: incidentBeam.g * tInternal * baseAlbedo,
+      b: incidentBeam.b * tInternal * baseAlbedo,
+    };
+
+    // Shadowed component incorporating red horizon bounce and blue sky ambient
+    // This synthesizes the beautiful deep purple/magenta colors of shadowed twilight clouds
+    const ambientInfluence = clamp01(1.0 - tInternal);
+    const purpleGlow: RGB = {
+      r: lerp(SHADOWED_CLOUD.r, horizonRGB.r * 0.28, ambientInfluence),
+      g: lerp(SHADOWED_CLOUD.g, horizonRGB.g * 0.15, ambientInfluence),
+      b: lerp(SHADOWED_CLOUD.b, ambientSky.b * 0.45, ambientInfluence),
+    };
+
+    // Interpolate direct scattering and shadowed color by cloud illumination
+    const mixedCloud = mixRgb(purpleGlow, directScatter, illum);
+
+    // Fade to night as twilight settles
+    return mixRgb(NIGHT, mixedCloud, sunWeight * 0.85 + 0.15);
   };
 
-  const highCloudRGB = muted(litColor(illumHigh, 0.9));
-  const midCloudRGB = muted(litColor(illumMid, 0.7));
-  const lowCloudRGB = muted(litColor(illumLow, 0.3));
+  const highCloudRGB = physicalCloudColor(illumHigh, tauHigh, 0.95);
+  const midCloudRGB = physicalCloudColor(illumMid, tauMid, 0.8);
+  const lowCloudRGB = physicalCloudColor(illumLow, tauLow, 0.55);
 
   return {
     score,

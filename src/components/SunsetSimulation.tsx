@@ -276,8 +276,17 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       sunAltitude,
       obsHourly?.visibility,
       obsHourly?.humidity,
+      location?.coords?.latitude,
+      location?.coords?.altitude ?? sim?.terrain?.observerElevation ?? 0,
     );
-  }, [sim?.pathData, currentTime, sunAltitude]);
+  }, [
+    sim?.pathData,
+    currentTime,
+    sunAltitude,
+    location?.coords?.latitude,
+    location?.coords?.altitude,
+    sim?.terrain?.observerElevation,
+  ]);
 
   // Drag rotation disabled as per user request to keep sun centered
 
@@ -527,7 +536,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                   const sunX = (VISUALIZER_WIDTH / 2).toFixed(2);
                   const sunY = (SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y)).toFixed(2);
                   // Make the halo even larger and more atmospheric near the horizon
-                  const haloSize = (sunSize * (15 + Math.max(0, (8 - sunAltitude) * 2.5))).toFixed(2); 
+                  const haloSize = sunSize * (15 + Math.max(0, (8 - sunAltitude) * 2.5)); 
                   const sunColor = isSunVisible
                     ? (prediction?.sunDiskColor ?? '#FFD700')
                     : '#FF4500';
