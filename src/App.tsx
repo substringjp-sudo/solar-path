@@ -55,6 +55,8 @@ export default function App() {
   const moonPath = getMoonPath(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
   const events = getCelestialEvents(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
 
+  const isAndroid = Platform.OS === 'android';
+
   const dynamicTheme = {
     bg: themeAnim.interpolate({
       inputRange: [0, 1],
@@ -62,7 +64,9 @@ export default function App() {
     }),
     glass: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['rgba(255,255,255,0.4)', 'rgba(255,255,255,0.08)'] // More transparent for true glass feel
+      outputRange: isAndroid
+        ? ['#FFFFFF', '#14141C']
+        : ['rgba(255,255,255,0.4)', 'rgba(255,255,255,0.08)'] // More transparent for true glass feel
     }),
     text: themeAnim.interpolate({
       inputRange: [0, 1],
@@ -74,17 +78,23 @@ export default function App() {
     }),
     border: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['rgba(0,0,0,0.08)', 'rgba(255,255,255,0.1)']
+      outputRange: isAndroid
+        ? ['rgba(0,0,0,0.06)', 'rgba(255,255,255,0.04)']
+        : ['rgba(0,0,0,0.08)', 'rgba(255,255,255,0.1)']
     }),
     accent: '#FFD700',
   };
 
   const theme = {
     bg: isDay ? '#E8EDF2' : '#08080C',
-    glass: isDay ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)',
+    glass: isAndroid
+      ? (isDay ? '#FFFFFF' : '#14141C')
+      : (isDay ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)'),
     text: isDay ? '#1A1A1A' : '#FFFFFF',
     subText: isDay ? '#555' : '#AAA',
-    border: isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+    border: isAndroid
+      ? (isDay ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)')
+      : (isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)'),
     accent: '#FFD700',
   };
 
@@ -480,6 +490,7 @@ export default function App() {
         theme={theme}
         location={location}
         currentTime={currentTime}
+        isDay={isDay}
       />
 
       <Modal
@@ -562,7 +573,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 3,
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
   },
   navButton: {
     paddingVertical: 5,
@@ -600,7 +611,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
     height: 40,
   },
   dateControl: {
@@ -649,13 +660,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
     gap: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: Platform.OS === 'android' ? 3 : 2,
   },
   trackerBtnText: {
     fontSize: 10,
@@ -670,12 +681,12 @@ const styles = StyleSheet.create({
   infoFrame: {
     borderRadius: 20,
     padding: 10,
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.03,
     shadowRadius: 10,
-    elevation: 2,
+    elevation: Platform.OS === 'android' ? 4 : 2,
   },
   frameHeader: {
     flexDirection: 'row',
@@ -698,12 +709,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingVertical: 10,
     borderRadius: 28,
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 20,
-    elevation: 15,
+    elevation: Platform.OS === 'android' ? 18 : 15,
   },
   centered: {
     flex: 1,
@@ -733,9 +744,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxHeight: '70%',
     borderRadius: 32,
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
     overflow: 'hidden',
     padding: 24,
+    elevation: Platform.OS === 'android' ? 24 : 0,
   },
   modalHeader: {
     flexDirection: 'row',

@@ -79,18 +79,19 @@ export interface CloudPathData {
 const weatherCache = new Map<string, CloudPathData[]>();
 
 export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: number): Promise<CloudPathData[]> => {
-  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${azimuth.toFixed(1)}`;
+  // Bucket azimuth to nearest 30 degrees to reduce weather API requests on tiny azimuth adjustments
+  const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
+  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${bucketedAzimuth}`;
   if (weatherCache.has(cacheKey)) {
     return weatherCache.get(cacheKey)!;
   }
 
   const points = [
     { dist: 0, lat, lon },
-    { dist: 80, ...calculateDestination(lat, lon, 80, azimuth) },
-    { dist: 200, ...calculateDestination(lat, lon, 200, azimuth) },
-    { dist: 350, ...calculateDestination(lat, lon, 350, azimuth) },
+    { dist: 80, ...calculateDestination(lat, lon, 80, bucketedAzimuth) },
+    { dist: 200, ...calculateDestination(lat, lon, 200, bucketedAzimuth) },
+    { dist: 350, ...calculateDestination(lat, lon, 350, bucketedAzimuth) },
   ];
-// ... (rest of the function remains same but uses results to populate cache)
 
   const lats = points.map(p => (p as any).latitude || (p as any).lat).join(',');
   const lons = points.map(p => (p as any).longitude || (p as any).lon).join(',');

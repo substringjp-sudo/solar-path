@@ -66,10 +66,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   
   const { 
     location, 
-    weatherCache, 
-    terrainCache, 
-    setWeatherCache, 
-    setTerrainCache 
+    weatherCacheList, 
+    terrainCacheList, 
+    addWeatherCache, 
+    addTerrainCache 
   } = useCelestialStore();
   const netInfo = useNetInfo();
   
@@ -134,6 +134,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
   useEffect(() => {
     if (!location) return;
+    let active = true;
+
+    // 즉시 기존 시뮬레이션 상태를 비우고 로딩을 시작하도록 함
+    setSim(null);
+    setLoadingStatus('시뮬레이션 준비 중...');
+    fadeAnim.setValue(0);
+
     const fetchSim = async () => {
       try {
         const { latitude, longitude } = location.coords;
@@ -155,29 +162,57 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         const pos = SunCalc.getPosition(nextEvent as any, latitude, longitude);
         const az = (pos.azimuth * 180 / Math.PI) + 180;
 
-        let weatherData = weatherCache?.data;
-        let terrainData = terrainCache?.data;
+        let terrainData = null;
+        let foundTerrainCache = null;
+        let minDistTerrain = 500; // 500m threshold
+        
+        for (const item of terrainCacheList) {
+          const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+          if (dist <= minDistTerrain) {
+            minDistTerrain = dist;
+            foundTerrainCache = item;
+          }
+        }
+        
+        if (foundTerrainCache) {
+          terrainData = foundTerrainCache.data;
+        }
+        const shouldFetchTerrain = !terrainData;
 
-        // Terrain: 100m threshold
-        const distTerrain = terrainCache ? getDistance(latitude, longitude, terrainCache.latitude, terrainCache.longitude) : Infinity;
-        const shouldFetchTerrain = !terrainCache || distTerrain > 100;
-
-        // Weather: 1km threshold OR 30 minutes
-        const distWeather = weatherCache ? getDistance(latitude, longitude, weatherCache.latitude, weatherCache.longitude) : Infinity;
-        const timePassed = weatherCache ? Date.now() - weatherCache.timestamp : Infinity;
-        const shouldFetchWeather = !weatherCache || distWeather > 1000 || timePassed > 1800000;
+        let weatherData = null;
+        let foundWeatherCache = null;
+        let minDistWeather = 2000; // 2km (2000m) threshold
+        const timeLimit = 1800000; // 30 minutes
+        
+        for (const item of weatherCacheList) {
+          const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+          const age = Date.now() - item.timestamp;
+          if (dist <= minDistWeather && age <= timeLimit) {
+            minDistWeather = dist;
+            foundWeatherCache = item;
+          }
+        }
+        
+        if (foundWeatherCache) {
+          weatherData = foundWeatherCache.data;
+        }
+        const shouldFetchWeather = !weatherData;
 
         if (shouldFetchWeather || shouldFetchTerrain) {
-          if (shouldFetchWeather) setLoadingStatus('기상 데이터 분석 중...');
+          if (shouldFetchWeather && active) setLoadingStatus('기상 데이터 분석 중...');
           
           const [newWeather, newTerrain] = await Promise.all([
             shouldFetchWeather ? fetchSunsetWeather(latitude, longitude, az) : Promise.resolve(weatherData),
-            shouldFetchTerrain ? fetchTerrainProfile(latitude, longitude, 0, 360, (msg) => setLoadingStatus(msg)) : Promise.resolve(terrainData)
+            shouldFetchTerrain ? fetchTerrainProfile(latitude, longitude, 0, 360, (msg) => {
+              if (active) setLoadingStatus(msg);
+            }) : Promise.resolve(terrainData)
           ]);
+
+          if (!active) return;
 
           if (shouldFetchWeather && newWeather) {
             weatherData = newWeather;
-            setWeatherCache({ 
+            addWeatherCache({ 
               key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, 
               data: newWeather, 
               timestamp: Date.now(), 
@@ -187,7 +222,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
           if (shouldFetchTerrain && newTerrain) {
             terrainData = newTerrain;
-            setTerrainCache({ 
+            addTerrainCache({ 
               key: `t_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, 
               data: newTerrain, 
               timestamp: Date.now(), 
@@ -197,6 +232,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
         }
 
+        if (!active) return;
+
         if (weatherData && terrainData) {
           const trueEventTime = calculateTrueEventTime(
             nextEvent, 
@@ -205,6 +242,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             longitude, 
             terrainData as TerrainData
           );
+
+          if (!active) return;
 
           setSim({ 
             type, 
@@ -225,9 +264,17 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           });
           Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
         }
-      } catch (err) { console.error(err); }
+      } catch (err) { 
+        if (active) {
+          console.error(err); 
+        }
+      }
     };
     fetchSim();
+
+    return () => {
+      active = false;
+    };
   }, [location]);
 
   if (netInfo.isConnected === false) {
@@ -332,6 +379,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     sim?.terrain?.observerElevation,
   ]);
 
+  const interpolatedWeather = useMemo(() => {
+    if (!sim?.pathData) return [];
+    return getInterpolatedWeather(sim.pathData, currentTime);
+  }, [sim?.pathData, currentTime]);
+
   // Drag rotation disabled as per user request to keep sun centered
 
   const renderTerrain = () => {
@@ -409,9 +461,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   };
 
   const renderCloudLayer = (c: any, i: number, type: 'high' | 'low') => {
-    const hr = currentTime.getHours();
-    const low = c.hourly.low[hr] || 0;
-    const high = c.hourly.high[hr] || 0;
+    const interpolated = interpolatedWeather[i];
+    const low = interpolated ? interpolated.low : 0;
+    const high = interpolated ? interpolated.high : 0;
     const density = type === 'high' ? high : low;
     if (density < 5) return null;
 
@@ -576,7 +628,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     );
   };
 
-  const hr = currentTime.getHours();
   const skyStops = prediction?.skyGradient ?? [
     { offset: 0, color: '#08101e' },
     { offset: 1, color: '#08101e' },
@@ -710,9 +761,22 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <View style={styles.predictionHeader}>
                 <View style={styles.predictionQualityRow}>
-                  <Text style={[styles.predictionQuality, { color: qualityColor(prediction.quality) }]}>
-                    {prediction.quality.toUpperCase()}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.predictionQuality, { color: qualityColor(prediction.quality) }]}>
+                      {prediction.quality.toUpperCase()}
+                    </Text>
+                    {sim?.weatherSource === 'ultra-short' && (
+                      <TouchableOpacity 
+                        style={[
+                          styles.sourceBadge, 
+                          { backgroundColor: 'rgba(77, 160, 176, 0.2)', borderColor: 'rgba(77, 160, 176, 0.3)' }
+                        ]}
+                        onPress={() => setShowSources(true)}
+                      >
+                        <Text style={[styles.sourceBadgeText, { color: '#4DA0B0', fontSize: 8 }]}>기상청 초단기 예보</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <Text style={[styles.predictionSubLabel, { color: theme.subText }]}>
                     {sim.type === 'Sunrise' ? 'DAWN FORECAST' : 'SUNSET FORECAST'}
                   </Text>
@@ -734,41 +798,26 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             </View>
           )}
 
-          <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <TimeSlider 
-              mode="relative"
-              value={currentTime}
-              onChange={setCurrentTime}
-              baseTime={sim?.eventTime || new Date()}
-              theme={theme}
-              isDay={sunAltitude > 0}
-            />
-            <TouchableOpacity 
-              style={[styles.infoButton, { marginTop: 8, borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,0.05)', paddingTop: 8 }]} 
-              onPress={() => setShowSources(true)}
-            >
-              <Info size={13} color={theme.subText} />
-              <Text style={[styles.infoButtonText, { color: theme.subText }]}>Data Sources</Text>
-            </TouchableOpacity>
-          </View>
-
           <View style={styles.bottomRow}>
             <View style={[styles.hero, { backgroundColor: theme.glass, borderColor: theme.border, flex: 1.2 }]}>
               <View style={styles.sourceBadgeRow}>
                 <Text style={[styles.heroTitle, { color: theme.text }]}>
                   {sim?.type === 'Sunrise' ? 'Actual Dawn' : 'Actual Twilight'}
                 </Text>
-                <View style={[
-                  styles.sourceBadge, 
-                  { backgroundColor: sim?.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.2)' : 'rgba(255, 255, 255, 0.05)' }
-                ]}>
+                <TouchableOpacity 
+                  style={[
+                    styles.sourceBadge, 
+                    { backgroundColor: sim?.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.2)' : 'rgba(255, 255, 255, 0.05)' }
+                  ]}
+                  onPress={() => setShowSources(true)}
+                >
                   <Text style={[
                     styles.sourceBadgeText, 
                     { color: sim?.weatherSource === 'ultra-short' ? '#4DA0B0' : theme.subText }
                   ]}>
                     {sim?.weatherSource === 'ultra-short' ? '초단기정밀' : '글로벌표준'}
                   </Text>
-                </View>
+                </TouchableOpacity>
               </View>
               <Text style={[styles.heroTime, { color: theme.accent }]}>
                 {format(sim?.trueEventTime || sim?.eventTime || new Date(), 'HH:mm')}
@@ -781,16 +830,30 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             </View>
 
             <View style={styles.cloudGrid}>
-              {sim?.pathData?.slice(0, 4).map((c, i) => (
-                <View key={i} style={[styles.gridItem, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
-                  <View style={styles.miniBars}>
-                    <View style={[styles.miniBar, { height: `${Math.max(5, c?.hourly?.high?.[hr] || 0)}%`, backgroundColor: '#FF69B4' }]} />
-                    <View style={[styles.miniBar, { height: `${Math.max(5, c?.hourly?.low?.[hr] || 0)}%`, backgroundColor: '#4682B4' }]} />
+              {sim?.pathData?.slice(0, 4).map((c, i) => {
+                const interpolated = interpolatedWeather[i];
+                return (
+                  <View key={i} style={[styles.gridItem, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                    <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
+                    <View style={styles.miniBars}>
+                      <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.high ?? 0)}%`, backgroundColor: '#FF69B4' }]} />
+                      <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.low ?? 0)}%`, backgroundColor: '#4682B4' }]} />
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
+          </View>
+
+          <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <TimeSlider 
+              mode="relative"
+              value={currentTime}
+              onChange={setCurrentTime}
+              baseTime={sim?.eventTime || new Date()}
+              theme={theme}
+              isDay={sunAltitude > 0}
+            />
           </View>
         </Animated.View>
       )}
@@ -875,9 +938,9 @@ const styles = StyleSheet.create({
   terrainBase: { height: 100, width: '100%', marginTop: -2 },
   cloudShapeHigh: { position: 'absolute' },
   cloudShapeLow: { position: 'absolute' },
-  simControl: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, marginBottom: 8 },
+  simControl: { height: 108, justifyContent: 'center', borderRadius: 20, borderWidth: 1, marginBottom: 8 },
   compassWidget: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, height: 60, marginBottom: 8 },
-  predictionCard: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, marginBottom: 8 },
+  predictionCard: { height: 112, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, marginBottom: 8 },
   predictionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 4 },
   predictionQualityRow: { flexDirection: 'column' },
   predictionQuality: { fontSize: 16, fontWeight: '900', letterSpacing: 1.2 },

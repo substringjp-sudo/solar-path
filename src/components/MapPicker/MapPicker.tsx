@@ -8,7 +8,7 @@ import { getCelestialIsochrones, getIsochroneInterval } from '../../utils/celest
 
 const { width, height } = Dimensions.get('window');
 
-export const MapPicker = ({ visible, onClose, onSelect, theme, location, currentTime }: any) => {
+export const MapPicker = ({ visible, onClose, onSelect, theme, location, currentTime, isDay = false }: any) => {
   const { savedLocations, addSavedLocation, removeSavedLocation } = useCelestialStore();
   const [latInput, setLatInput] = useState(location?.coords?.latitude?.toString() || '37.56');
   const [lonInput, setLonInput] = useState(location?.coords?.longitude?.toString() || '126.97');
@@ -19,6 +19,13 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
   const [timeFormat, setTimeFormat] = useState<'local' | 'utc'>('local');
   const [isMapReady, setIsMapReady] = useState(false);
   const iframeRef = useRef<any>(null);
+
+  // Premium UI tokens for Map WebView
+  const mapBg = isDay ? '#E8EDF2' : '#08080C';
+  const popupBg = isDay ? '#FFFFFF' : '#14141C';
+  const popupText = isDay ? '#1A1A1A' : '#FFFFFF';
+  const popupBorder = isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)';
+  const accentColor = isDay ? '#4F46E5' : '#FFD700'; // Indigo for Light, Gold for Dark
 
   // Reset map ready status when modal visibility changes
   useEffect(() => {
@@ -35,49 +42,76 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <style>
-        body, html, #map { height: 100%; margin: 0; padding: 0; background: #000; }
+        body, html, #map { height: 100%; margin: 0; padding: 0; background: ${mapBg}; }
         .crosshair {
           position: absolute; top: 50%; left: 50%;
-          transform: translate(-50%, -100%);
+          transform: translate(-50%, -50%);
           z-index: 1000; pointer-events: none;
-          font-size: 24px;
-          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+          display: flex; align-items: center; justify-content: center;
+        }
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+          background: ${popupBg} !important;
+          color: ${popupText} !important;
+          border: 1px solid ${popupBorder};
+          border-radius: 12px;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.15) !important;
         }
         .isochrone-label {
-          font-family: 'monospace', sans-serif;
-          font-size: 12px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-size: 13px;
           font-weight: 700;
           white-space: nowrap;
-          background: rgba(0, 0, 0, 0.85);
-          padding: 2px 6px;
-          border-radius: 4px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+          background: ${isDay ? 'rgba(255, 255, 255, 0.92)' : 'rgba(10, 10, 18, 0.88)'};
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          padding: 4px 8px;
+          border-radius: 6px;
+          box-shadow: 0 4px 10px rgba(0,0,0,0.35);
           pointer-events: none;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
         }
         .isochrone-label-sunrise {
-          color: #FFA500;
-          border: 1px solid rgba(255, 165, 0, 0.4);
+          color: #FFB300;
+          border: 1px solid rgba(255, 179, 0, 0.4);
         }
         .isochrone-label-sunset {
-          color: #B39DDB;
-          border: 1px solid rgba(147, 112, 219, 0.4);
+          color: ${isDay ? '#6200EE' : '#D1C4E9'};
+          border: 1px solid rgba(179, 157, 219, 0.4);
         }
       </style>
     </head>
     <body>
       <div id="map"></div>
-      <div class="crosshair">📍</div>
+      <div class="crosshair">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Outer target circle -->
+          <circle cx="20" cy="20" r="8" stroke="${accentColor}" stroke-width="2.5" opacity="0.8" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
+          <!-- Center tracking dot -->
+          <circle cx="20" cy="20" r="1.5" fill="${accentColor}" />
+          <!-- Micro-reticle line ticks -->
+          <line x1="20" y1="2" x2="20" y2="9" stroke="${accentColor}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
+          <line x1="20" y1="31" x2="20" y2="38" stroke="${accentColor}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
+          <line x1="2" y1="20" x2="9" y2="20" stroke="${accentColor}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
+          <line x1="31" y1="20" x2="38" y2="20" stroke="${accentColor}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
+        </svg>
+      </div>
       <script>
         const map = L.map('map', {
           zoomControl: false
         }).setView([${location?.coords?.latitude || 37.56}, ${location?.coords?.longitude || 126.97}], 10);
         
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        const tileUrl = ${isDay ? "'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'" : "'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'"};
+        L.tileLayer(tileUrl, {
           attribution: '© OpenStreetMap contributors © CARTO'
         }).addTo(map);
         
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
+        // Layer group to hold saved locations and their 100m circles
+        const savedLocationsLayer = L.layerGroup().addTo(map);
 
         // Store active data for dynamic redraw during movement
         let currentSunriseIso = [];
@@ -107,12 +141,17 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
           return segments;
         }
 
-        // Find the best point on the isochrone within viewport near the center latitude
+        // Find the best point on the isochrone within viewport near the center latitude, avoiding the top-right control panel area.
         function findBestLabelPoint(points, centerLat, west, east) {
           let bestPt = null;
           let minLatDiff = Infinity;
           const padding = (east - west) * 0.05; // avoid edge clipping
           
+          const mapSize = map.getSize();
+          const mapWidth = mapSize.x;
+          const mapHeight = mapSize.y;
+          
+          // First pass: try to find a point that is inside the viewport AND avoids the top-right controls area
           for (let i = 0; i < points.length; i++) {
             const pt = points[i];
             const lat = pt[0];
@@ -122,6 +161,13 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
             if (lng >= (west + padding) && lng <= (east - padding)) {
               if (lat < -60 || lat > 60) continue; // skip polar regions
               
+              // Project to 2D container pixels to check if it overlaps the top-right floating controls
+              // Floating controls area: x > mapWidth - 250 && y < 220
+              const containerPt = map.latLngToContainerPoint(L.latLng(lat, lng));
+              if (containerPt.x > mapWidth - 250 && containerPt.y < 220) {
+                continue; // Skip points hidden under the controls panel
+              }
+              
               const latDiff = Math.abs(lat - centerLat);
               if (latDiff < minLatDiff) {
                 minLatDiff = latDiff;
@@ -129,6 +175,27 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
               }
             }
           }
+          
+          // Fallback pass: if all points in viewport are inside the controls area, relax the controls restriction
+          if (!bestPt) {
+            minLatDiff = Infinity;
+            for (let i = 0; i < points.length; i++) {
+              const pt = points[i];
+              const lat = pt[0];
+              const lng = pt[1];
+              
+              if (lng >= (west + padding) && lng <= (east - padding)) {
+                if (lat < -60 || lat > 60) continue;
+                
+                const latDiff = Math.abs(lat - centerLat);
+                if (latDiff < minLatDiff) {
+                  minLatDiff = latDiff;
+                  bestPt = pt;
+                }
+              }
+            }
+          }
+          
           return bestPt;
         }
 
@@ -145,6 +212,8 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
           // Calculate wraps to continuously render in copied worlds when panning east/west
           const minOffset = Math.floor((west - 180) / 360) - 1;
           const maxOffset = Math.ceil((east + 180) / 360) + 1;
+          
+          const labelsToDraw = [];
           
           // 1. Draw Sunrise Isochrones
           if (showSunrise && currentSunriseIso) {
@@ -165,14 +234,13 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
 
                 const bestPt = findBestLabelPoint(shiftedPoints, centerLat - 3, west, east);
                 if (bestPt) {
-                  L.marker([bestPt[0], bestPt[1]], {
-                    icon: L.divIcon({
-                      className: 'isochrone-div-icon',
-                      html: '<div class="isochrone-label isochrone-label-sunrise">' + line.timeLabel + '</div>',
-                      iconSize: [50, 20],
-                      iconAnchor: [25, 10]
-                    })
-                  }).addTo(isochroneLayer);
+                  labelsToDraw.push({
+                    lat: bestPt[0],
+                    lng: bestPt[1],
+                    text: line.timeLabel,
+                    emoji: '🌅',
+                    labelClass: 'isochrone-label-sunrise'
+                  });
                 }
               }
             });
@@ -196,16 +264,84 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
 
                 const bestPt = findBestLabelPoint(shiftedPoints, centerLat + 3, west, east);
                 if (bestPt) {
-                  L.marker([bestPt[0], bestPt[1]], {
-                    icon: L.divIcon({
-                      className: 'isochrone-div-icon',
-                      html: '<div class="isochrone-label isochrone-label-sunset">' + line.timeLabel + '</div>',
-                      iconSize: [50, 20],
-                      iconAnchor: [25, 10]
-                    })
-                  }).addTo(isochroneLayer);
+                  labelsToDraw.push({
+                    lat: bestPt[0],
+                    lng: bestPt[1],
+                    text: line.timeLabel,
+                    emoji: '🌇',
+                    labelClass: 'isochrone-label-sunset'
+                  });
                 }
               }
+            });
+          }
+
+          // 3. Resolve Label Collisions in 2D Screen Space
+          if (labelsToDraw.length > 0) {
+            // Projected screen size for collision calculations (76px width, 28px height)
+            const width = 76;
+            const height = 28;
+            
+            // Map labels to pixel coordinates in viewport
+            const processedLabels = labelsToDraw.map(lbl => {
+              const pixel = map.latLngToContainerPoint(L.latLng(lbl.lat, lbl.lng));
+              return {
+                ...lbl,
+                x: pixel.x,
+                y: pixel.y,
+                width: width,
+                height: height
+              };
+            });
+            
+            // Iteratively push overlapping labels vertically to resolve collision
+            const iterations = 8;
+            for (let iter = 0; iter < iterations; iter++) {
+              let changed = false;
+              for (let i = 0; i < processedLabels.length; i++) {
+                for (let j = i + 1; j < processedLabels.length; j++) {
+                  const a = processedLabels[i];
+                  const b = processedLabels[j];
+                  
+                  const dx = Math.abs(a.x - b.x);
+                  const dy = Math.abs(a.y - b.y);
+                  
+                  // Add a small extra margin (8px width, 6px height) for spacing
+                  const minX = (a.width + b.width) / 2 + 8;
+                  const minY = (a.height + b.height) / 2 + 6;
+                  
+                  if (dx < minX && dy < minY) {
+                    const overlapY = minY - dy;
+                    const push = overlapY / 2;
+                    
+                    if (a.y <= b.y) {
+                      a.y -= push;
+                      b.y += push;
+                    } else {
+                      a.y += push;
+                      b.y -= push;
+                    }
+                    changed = true;
+                  }
+                }
+              }
+              if (!changed) break;
+            }
+            
+            // Draw collision-resolved labels back onto the map
+            processedLabels.forEach(lbl => {
+              const finalLatLng = map.containerPointToLatLng(L.point(lbl.x, lbl.y));
+              L.marker([finalLatLng.lat, finalLatLng.lng], {
+                icon: L.divIcon({
+                  className: 'isochrone-div-icon',
+                  html: '<div class="isochrone-label ' + lbl.labelClass + '">' +
+                        '<span style="font-size: 14px; margin-right: 2px;">' + lbl.emoji + '</span>' +
+                        '<span>' + lbl.text + '</span>' +
+                        '</div>',
+                  iconSize: [lbl.width, lbl.height],
+                  iconAnchor: [lbl.width / 2, lbl.height / 2]
+                })
+              }).addTo(isochroneLayer);
             });
           }
         }
@@ -253,6 +389,42 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
             showSunset = data.showSunset;
             currentSunriseIso = data.sunriseIso || [];
             currentSunsetIso = data.sunsetIso || [];
+            
+            // Render saved locations markers & 100m range circles
+            savedLocationsLayer.clearLayers();
+            const savedLocs = data.savedLocations || [];
+            savedLocs.forEach(loc => {
+              // 100m radius circle overlay
+              L.circle([loc.latitude, loc.longitude], {
+                radius: 100,
+                color: '${accentColor}', // 테마 accentColor를 동적으로 반영
+                fillColor: '${accentColor}',
+                fillOpacity: 0.15,
+                weight: 1.5
+              }).addTo(savedLocationsLayer);
+
+              // Styled Circle Dot marker
+              const marker = L.marker([loc.latitude, loc.longitude], {
+                icon: L.divIcon({
+                  className: 'saved-location-icon',
+                  html: '<div style="width: 12px; height: 12px; background-color: ${accentColor}; border: 2px solid ${isDay ? "#ffffff" : "#14141c"}; border-radius: 50%; box-shadow: 0 0 0 1px ${accentColor}, 0 2px 6px rgba(0,0,0,0.4); pointer-events: auto; cursor: pointer;"></div>',
+                  iconSize: [12, 12],
+                  iconAnchor: [6, 6] // 12x12 크기의 중심점 설정
+                })
+              }).addTo(savedLocationsLayer);
+
+              // Jump viewport and update input coords on click
+              marker.on('click', () => {
+                map.setView([loc.latitude, loc.longitude], 13);
+                const moveData = { type: 'MAP_MOVE', lat: loc.latitude, lng: loc.longitude };
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify(moveData));
+                } else {
+                  window.parent.postMessage(moveData, '*');
+                }
+              });
+            });
+
             redrawIsochrones();
           }
         };
@@ -290,7 +462,13 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
         showSunrise: showSunriseIso,
         showSunset: showSunsetIso,
         sunriseIso,
-        sunsetIso
+        sunsetIso,
+        savedLocations: savedLocations.map(loc => ({
+          id: loc.id,
+          name: loc.name,
+          latitude: loc.latitude,
+          longitude: loc.longitude
+        }))
       };
       
       if (iframeRef.current) {
@@ -310,7 +488,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
     };
     
     sendIsochrones();
-  }, [currentTime, mapZoom, showSunriseIso, showSunsetIso, timeFormat, visible, isMapReady]);
+  }, [currentTime, mapZoom, showSunriseIso, showSunsetIso, timeFormat, visible, isMapReady, savedLocations]);
 
   // Handle messages sent from standard browser frames (for Web platform compatibility)
   useEffect(() => {
@@ -345,10 +523,29 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
 
   // Safe split handling across iOS, Android, and Web platforms to avoid prompt-related crashes
   const handleSaveLocation = () => {
-    const lat = parseFloat(latInput);
-    const lon = parseFloat(lonInput);
-    if (isNaN(lat) || isNaN(lon)) {
+    const rawLat = parseFloat(latInput);
+    const rawLon = parseFloat(lonInput);
+    if (isNaN(rawLat) || isNaN(rawLon)) {
       Alert.alert('Error', 'Invalid coordinates');
+      return;
+    }
+
+    // Round to 3 decimal places (~100m precision range)
+    const lat = Math.round(rawLat * 1000) / 1000;
+    const lon = Math.round(rawLon * 1000) / 1000;
+
+    // Check if coordinates overlap within the 100m grid
+    const isDuplicate = savedLocations.some(loc => {
+      const existingLat = Math.round(loc.latitude * 1000) / 1000;
+      const existingLon = Math.round(loc.longitude * 1000) / 1000;
+      return existingLat === lat && existingLon === lon;
+    });
+
+    if (isDuplicate) {
+      Alert.alert(
+        '이미 저장된 위치',
+        '선택하신 위치 주변 100m 내에 이미 저장된 장소가 있습니다. 중복 저장을 막기 위해 취소합니다.'
+      );
       return;
     }
 
@@ -382,7 +579,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
           ''
         );
       } else {
-        const defaultName = `Spot ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+        const defaultName = `Spot ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
         performSave(defaultName);
       }
     }
@@ -607,7 +804,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
                         <View>
                           <Text style={[styles.savedItemName, { color: theme.text }]}>{loc.name}</Text>
                           <Text style={[styles.savedItemCoords, { color: theme.subText }]}>
-                            {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                            {loc.latitude.toFixed(3)}, {loc.longitude.toFixed(3)}
                           </Text>
                         </View>
                       </TouchableOpacity>
