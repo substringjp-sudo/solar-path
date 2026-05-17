@@ -189,23 +189,38 @@ export default function App() {
       return;
     }
 
-    Alert.prompt(
-      '장소 저장',
-      '이 장소의 이름을 입력해주세요.',
-      [
-        { text: '취소', style: 'cancel' },
-        { 
-          text: '저장', 
-          onPress: (name: string | undefined) => {
-            if (name) {
-              addSavedLocation(name, location.coords.latitude, location.coords.longitude);
-            }
-          } 
-        }
-      ],
-      'plain-text',
-      `장소 ${savedLocations.length + 1}`
-    );
+    const defaultName = `장소 ${savedLocations.length + 1}`;
+
+    if (Platform.OS === 'web') {
+      const name = window.prompt('이 장소의 이름을 입력해주세요.', defaultName);
+      if (name !== null) {
+        const finalName = name.trim() || defaultName;
+        addSavedLocation(finalName, location.coords.latitude, location.coords.longitude);
+        Alert.alert('성공', '장소가 저장되었습니다!');
+      }
+    } else if (Platform.OS === 'ios') {
+      Alert.prompt(
+        '장소 저장',
+        '이 장소의 이름을 입력해주세요.',
+        [
+          { text: '취소', style: 'cancel' },
+          { 
+            text: '저장', 
+            onPress: (name: string | undefined) => {
+              const finalName = name?.trim() || defaultName;
+              addSavedLocation(finalName, location.coords.latitude, location.coords.longitude);
+            } 
+          }
+        ],
+        'plain-text',
+        defaultName
+      );
+    } else {
+      // Android does not support Alert.prompt.
+      // Save automatically with a friendly default name and let them know.
+      addSavedLocation(defaultName, location.coords.latitude, location.coords.longitude);
+      Alert.alert('장소 저장', `장소가 '${defaultName}'(으)로 저장되었습니다!`);
+    }
   };
 
   const handleSelectSavedLocation = (saved: any) => {
@@ -464,6 +479,7 @@ export default function App() {
         onSelect={(loc: any) => setLocation(loc)}
         theme={theme}
         location={location}
+        currentTime={currentTime}
       />
 
       <Modal

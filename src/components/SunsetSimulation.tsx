@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Dimensions, Animated, Platform, TouchableOpacity, Linking, Modal, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Dimensions, Animated, Platform, TouchableOpacity, Linking, Modal, useWindowDimensions, PanResponder } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, RadialGradient, Stop, Polygon, Rect, Circle, Filter, FeGaussianBlur } from 'react-native-svg';
 import { Sun, Compass, AlertCircle, Cloud, WifiOff, Maximize, Info, ExternalLink } from 'lucide-react-native';
 import { format, addMinutes, isAfter, addHours, subMinutes } from 'date-fns';
@@ -87,6 +87,50 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
   const startFov = useRef(20);
+
+  // 핀치 줌 제스처 계산을 위한 터치 간격 구하는 헬퍼 함수
+  const getTouchDistance = (touches: any[]) => {
+    const [t1, t2] = touches;
+    if (!t1 || !t2) return 0;
+    const dx = t1.pageX - t2.pageX;
+    const dy = t1.pageY - t2.pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const initialPinchDist = useRef<number | null>(null);
+  const initialFovOnPinch = useRef<number>(20);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
+      onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
+      onPanResponderGrant: (evt) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches.length >= 2) {
+          initialPinchDist.current = getTouchDistance(touches);
+          initialFovOnPinch.current = visualFov;
+        }
+      },
+      onPanResponderMove: (evt) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches.length >= 2 && initialPinchDist.current !== null) {
+          const currentDist = getTouchDistance(touches);
+          if (currentDist > 0) {
+            const ratio = initialPinchDist.current / currentDist;
+            let targetFov = initialFovOnPinch.current * ratio;
+            targetFov = Math.max(10, Math.min(30, targetFov));
+            setVisualFov(targetFov);
+          }
+        }
+      },
+      onPanResponderRelease: () => {
+        initialPinchDist.current = null;
+      },
+      onPanResponderTerminate: () => {
+        initialPinchDist.current = null;
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (!location) return;
@@ -425,45 +469,108 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     });
   };
 
-  const renderAzimuthScale = () => {
+  const renderOverlayAzimuthScale = () => {
     const ticks = [];
-    const range = visualFov + 40;
+    const range = visualFov + 15;
     const start = Math.floor((heading - range / 2) / 2) * 2;
     const end = Math.ceil((heading + range / 2) / 2) * 2;
+    
     for (let deg = start; deg <= end; deg += 2) {
       const norm = (deg + 360) % 360;
       const x = (VISUALIZER_WIDTH / 2) + (deg - heading) * DEGREE_TO_PIXEL;
-      const isMajor = norm % 45 === 0;
+      const isMajor = norm % 10 === 0;
+      const isCard = norm % 45 === 0;
       let label = "";
       if (norm === 0) label = 'N'; 
       else if (norm === 90) label = 'E'; 
       else if (norm === 180) label = 'S'; 
       else if (norm === 270) label = 'W';
+      else if (isMajor) label = `${norm}°`;
+
+      if (x < -20 || x > VISUALIZER_WIDTH + 20) continue;
+
       ticks.push(
-        <View key={deg} style={[styles.tick, { left: x, height: isMajor ? 10 : 5, backgroundColor: isMajor ? theme.accent : theme.text }]}>
+        <View 
+          key={deg} 
+          style={[
+            styles.overlayTick, 
+            { 
+              left: x, 
+              height: isCard ? 8 : (isMajor ? 5 : 3), 
+              backgroundColor: isCard ? theme.accent : 'rgba(255,255,255,0.4)' 
+            }
+          ]}
+        >
           {label !== "" && (
-            <Text style={[styles.tickLabel, { color: isMajor ? theme.accent : theme.text }]}>
+            <Text style={[styles.overlayTickLabel, { color: isCard ? theme.accent : 'rgba(255,255,255,0.7)', fontSize: isCard ? 9 : 7 }]}>
               {label}
             </Text>
           )}
         </View>
       );
     }
+
     const sunriseX = (VISUALIZER_WIDTH / 2) + (eventAzimuths.sunrise - heading) * DEGREE_TO_PIXEL;
     const sunsetX = (VISUALIZER_WIDTH / 2) + (eventAzimuths.sunset - heading) * DEGREE_TO_PIXEL;
+
     return (
-      <View style={[styles.compassWidget, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-        <View style={styles.compassScaleContainer}>
-          <View style={styles.scaleClip}>{ticks}</View>
-          <View style={[styles.scaleSunMarker, { left: sunriseX }]}>
+      <View style={[styles.overlayCompass, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+        <View style={styles.scaleClip}>{ticks}</View>
+        
+        {sunriseX >= 0 && sunriseX <= VISUALIZER_WIDTH && (
+          <View style={[styles.overlaySunMarker, { left: sunriseX }]}>
             <Sun size={8} color="#FFA500" />
-            <Text style={[styles.scaleSunLabel, { color: theme.text }]}>RISE</Text>
+            <Text style={styles.overlaySunLabel}>RISE</Text>
           </View>
-          <View style={[styles.scaleSunMarker, { left: sunsetX }]}>
+        )}
+        {sunsetX >= 0 && sunsetX <= VISUALIZER_WIDTH && (
+          <View style={[styles.overlaySunMarker, { left: sunsetX }]}>
             <Sun size={8} color="#FF4500" />
-            <Text style={[styles.scaleSunLabel, { color: theme.text }]}>SET</Text>
+            <Text style={styles.overlaySunLabel}>SET</Text>
           </View>
-          <View style={[styles.centerIndicator, { borderTopColor: theme.accent }]} />
+        )}
+        
+        <View style={[styles.overlayCenterIndicator, { borderTopColor: theme.accent }]} />
+      </View>
+    );
+  };
+
+  const renderOverlayFovScale = () => {
+    const fovPct = ((visualFov - 10) / 20) * 100;
+    const fovTicks = [10, 15, 20, 25, 30];
+    
+    return (
+      <View style={styles.overlayFovContainer}>
+        <View style={styles.fovTrackLine} />
+        {fovTicks.map((val) => {
+          const pct = ((val - 10) / 20) * 100;
+          const isBase = val === 20;
+          return (
+            <View 
+              key={val} 
+              style={[
+                styles.fovTickLine, 
+                { 
+                  top: `${pct}%`, 
+                  width: isBase ? 10 : 6,
+                  backgroundColor: 'rgba(255,255,255,0.4)'
+                }
+              ]}
+            >
+              <Text style={styles.fovTickText}>
+                {val}°
+              </Text>
+            </View>
+          );
+        })}
+        
+        <View style={[styles.fovPointer, { top: `${fovPct}%`, borderColor: theme.accent }]}>
+          <View style={[styles.fovPointerDot, { backgroundColor: theme.accent }]} />
+          <View style={[styles.fovTooltip, { backgroundColor: 'rgba(0,0,0,0.75)', borderColor: theme.accent }]}>
+            <Text style={[styles.fovTooltipText, { color: theme.text }]}>
+              {((20 / visualFov)).toFixed(1)}x
+            </Text>
+          </View>
         </View>
       </View>
     );
@@ -488,7 +595,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       ) : (
         <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
           <View style={styles.visualizerContainer}>
-            <View style={[styles.sky, { height: SKY_HEIGHT, backgroundColor: skyStops[0].color }]}>
+            <View 
+              style={[styles.sky, { height: SKY_HEIGHT, backgroundColor: skyStops[0].color }]}
+              {...panResponder.panHandlers}
+            >
               <Svg
                 width={VISUALIZER_WIDTH}
                 height={SKY_HEIGHT}
@@ -591,10 +701,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 {sim?.pathData?.map((c, i) => renderCloudLayer(c, i, 'high'))}
                 {sim?.pathData?.map((c, i) => renderCloudLayer(c, i, 'low'))}
               </View>
+              {renderOverlayAzimuthScale()}
+              {renderOverlayFovScale()}
             </View>
           </View>
-
-          {renderAzimuthScale()}
 
           {prediction && (
             <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -633,38 +743,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               theme={theme}
               isDay={sunAltitude > 0}
             />
-          </View>
-
-          <View style={[styles.zoomControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <View style={styles.zoomHeader}>
-              <View style={styles.zoomTitleRow}>
-                <Maximize size={12} color={theme.subText} />
-                <Text style={[styles.zoomTitle, { color: theme.subText }]}>시야각 수정</Text>
-              </View>
-            </View>
-            
-            <View style={styles.zoomSliderWrapper}>
-              <GenericSlider
-                value={((visualFov - 10) / 20) * 100}
-                onChange={(p) => {
-                  const newFov = 10 + (p / 100) * 20;
-                  setVisualFov(newFov);
-                }}
-                theme={theme}
-                trackColor="rgba(255,255,255,0.1)"
-                knobColor={theme.glass}
-              >
-                <Text style={[styles.zoomKnobText, { color: theme.text }]}>
-                  {Math.round(visualFov)}°
-                </Text>
-              </GenericSlider>
-            </View>
-
             <TouchableOpacity 
-              style={styles.infoButton} 
+              style={[styles.infoButton, { marginTop: 8, borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,0.05)', paddingTop: 8 }]} 
               onPress={() => setShowSources(true)}
             >
-              <Info size={14} color={theme.subText} />
+              <Info size={13} color={theme.subText} />
               <Text style={[styles.infoButtonText, { color: theme.subText }]}>Data Sources</Text>
             </TouchableOpacity>
           </View>
@@ -810,13 +893,7 @@ const styles = StyleSheet.create({
   factorBarValue: { fontSize: 9, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   factorBarTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   factorBarFill: { height: '100%', borderRadius: 2 },
-  compassScaleContainer: { height: 48, justifyContent: 'flex-end' },
   scaleClip: { flex: 1, overflow: 'hidden' },
-  tick: { position: 'absolute', bottom: 5, width: 1 },
-  tickLabel: { position: 'absolute', fontSize: 10, fontWeight: 'bold', width: 30, textAlign: 'center', marginLeft: -15, bottom: 12 },
-  centerIndicator: { position: 'absolute', top: 0, left: '50%', marginLeft: -5, borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#FFF' },
-  scaleSunMarker: { position: 'absolute', top: 2, alignItems: 'center', width: 30, marginLeft: -15 },
-  scaleSunLabel: { fontSize: 8, fontWeight: '900' },
   bottomRow: { flexDirection: 'row', gap: 8, height: 80 },
   hero: { borderRadius: 20, padding: 12, borderWidth: 1, justifyContent: 'center' },
   sourceBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
@@ -829,41 +906,115 @@ const styles = StyleSheet.create({
   gridDist: { fontSize: 9, fontWeight: '700', marginBottom: 4 },
   miniBars: { flexDirection: 'row', gap: 3, height: 25, alignItems: 'flex-end' },
   miniBar: { width: 6, borderRadius: 3 },
-  zoomControl: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    marginBottom: 8,
+  overlayCompass: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 32,
+    zIndex: 120,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'flex-end',
+    paddingBottom: 4,
   },
-  zoomHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  overlayTick: {
+    position: 'absolute',
+    bottom: 0,
+    width: 1,
+  },
+  overlayTickLabel: {
+    position: 'absolute',
+    fontWeight: 'bold',
+    width: 30,
+    textAlign: 'center',
+    marginLeft: -15,
+    bottom: 8,
+  },
+  overlayCenterIndicator: {
+    position: 'absolute',
+    top: 0,
+    left: '50%',
+    marginLeft: -5,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+  },
+  overlaySunMarker: {
+    position: 'absolute',
+    top: 1,
     alignItems: 'center',
-    marginBottom: 8,
-    height: 28,
-    paddingHorizontal: 16,
+    width: 30,
+    marginLeft: -15,
   },
-  zoomTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  zoomTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    marginLeft: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  zoomSliderWrapper: {
-    height: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  zoomKnobText: {
-    fontSize: 13,
+  overlaySunLabel: {
+    fontSize: 7,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#FFF',
+    marginTop: 1,
+  },
+  overlayFovContainer: {
+    position: 'absolute',
+    left: 8,
+    top: 40,
+    bottom: 20,
+    width: 32,
+    zIndex: 120,
+    alignItems: 'center',
+  },
+  fovTrackLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  fovTickLine: {
+    position: 'absolute',
+    left: 10,
+    height: 1,
+    justifyContent: 'center',
+  },
+  fovTickText: {
+    position: 'absolute',
+    left: 8,
+    fontSize: 7,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '700',
+    width: 25,
+  },
+  fovPointer: {
+    position: 'absolute',
+    left: -4,
+    width: 10,
+    height: 10,
+    marginTop: -5,
+    borderWidth: 1.5,
+    borderRadius: 5,
+    backgroundColor: '#050510',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fovPointerDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+  },
+  fovTooltip: {
+    position: 'absolute',
+    left: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    width: 28,
+    alignItems: 'center',
+  },
+  fovTooltipText: {
+    fontSize: 7,
+    fontWeight: '900',
   },
   offlineContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
   offlineIconBg: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', borderWidth: 1, marginBottom: 20 },
