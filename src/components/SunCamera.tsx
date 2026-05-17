@@ -49,6 +49,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 나침반에서 가져오는 절대 방위각 상태
   const [compassHeading, setCompassHeading] = useState<number | null>(null);
 
+  // 센서 실시간 값을 보관할 Refs (re-subscription 방지)
+  const compassHeadingRef = useRef<number | null>(null);
+  const gyroCalibOffsetRef = useRef({ az: 0, pitch: 0 });
+  const deviceAzimuthRef = useRef(0);
+  const devicePitchRef = useRef(0);
+
+  // EMA/LPF 저주파 필터 Refs
+  // 방위각은 360도 경계면 처리(wrapping)를 위해 2D 벡터로 보간
+  const smoothedAzVectorRef = useRef<{ x: number; y: number } | null>(null);
+  const smoothedPitchRef = useRef<number | null>(null);
+
   // 촬영 상태
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureResult, setCaptureResult] = useState<string | null>(null);
@@ -87,6 +98,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       let heading = Math.atan2(y, x) * (180 / Math.PI);
       heading = (heading + 360) % 360;
       setCompassHeading(heading);
+      compassHeadingRef.current = heading;
     });
 
     return () => {
@@ -94,7 +106,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [visible]);
 
-  // DeviceMotion 구독 & 나침반 센서 융합 (Complementary Filter)
+  // DeviceMotion 구독 & 나침반 센서 융합 (Complementary Filter + LPF Smoothing)
   useEffect(() => {
     if (!visible) return;
 
@@ -109,48 +121,106 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // alpha = z축 회전 (방위각)
       let rawAzimuth = (alpha * 180 / Math.PI);
       
+      const compVal = compassHeadingRef.current;
+      const currentOffset = gyroCalibOffsetRef.current;
+
       // 나침반 데이터를 기반으로 자이로의 방향 드리프트를 실시간 보정 (상보 필터 융합)
-      if (compassHeading !== null) {
-        const targetOffset = (compassHeading + rawAzimuth) % 360;
-        setGyroCalibOffset(prev => {
-          const diff = (targetOffset - prev.az + 540) % 360 - 180;
-          // 자이로 반응성 98% + 나침반 절대 방위 2% 융합으로 안정성과 정확성 극대화
-          return {
-            az: (prev.az + diff * 0.02 + 360) % 360,
-            pitch: prev.pitch
-          };
-        });
+      if (compVal !== null) {
+        const targetOffset = (compVal + rawAzimuth) % 360;
+        const diff = (targetOffset - currentOffset.az + 540) % 360 - 180;
+        
+        // 자이로 반응성 98% + 나침반 절대 방위 2% 융합으로 안정성과 정확성 극대화
+        const nextOffsetAz = (currentOffset.az + diff * 0.02 + 360) % 360;
+        gyroCalibOffsetRef.current = {
+          az: nextOffsetAz,
+          pitch: currentOffset.pitch
+        };
+        // 렌더링에 필요한 보정 오프셋 상태 업데이트 (안정적)
+        setGyroCalibOffset(gyroCalibOffsetRef.current);
       }
 
-      let azimuth = (360 - rawAzimuth + gyroCalibOffset.az) % 360;
+      const latestOffset = gyroCalibOffsetRef.current;
+      let targetAzimuth = (360 - rawAzimuth + latestOffset.az) % 360;
 
       // 피치: 수평 = 0, 위로 = 양수
-      let pitch = (beta * 180 / Math.PI) - 90 + gyroCalibOffset.pitch;
-      pitch = Math.max(-90, Math.min(90, pitch));
+      let targetPitch = (beta * 180 / Math.PI) - 90 + latestOffset.pitch;
+      targetPitch = Math.max(-90, Math.min(90, targetPitch));
 
-      setDeviceAzimuth(azimuth);
-      setDevicePitch(pitch);
+      // --- 실시간 LPF (EMA) 필터링 적용 ---
+      // 저주파 통과 계수 (0.12 = 부드러우면서도 딜레이가 적어 AR에 최적)
+      const lpfFactor = 0.12;
+
+      // 1. 방위각(targetAzimuth) 2D 벡터 필터링 (0-360 경계 넘나들기 지원)
+      const azRad = targetAzimuth * Math.PI / 180;
+      const tx = Math.cos(azRad);
+      const ty = Math.sin(azRad);
+
+      let nextX = tx;
+      let nextY = ty;
+
+      if (smoothedAzVectorRef.current === null) {
+        smoothedAzVectorRef.current = { x: tx, y: ty };
+      } else {
+        const prevVec = smoothedAzVectorRef.current;
+        nextX = prevVec.x + (tx - prevVec.x) * lpfFactor;
+        nextY = prevVec.y + (ty - prevVec.y) * lpfFactor;
+        smoothedAzVectorRef.current = { x: nextX, y: nextY };
+      }
+
+      let filteredAzimuth = Math.atan2(nextY, nextX) * 180 / Math.PI;
+      filteredAzimuth = (filteredAzimuth + 360) % 360;
+
+      // 2. 피치(targetPitch) 필터링
+      let filteredPitch = targetPitch;
+      if (smoothedPitchRef.current === null) {
+        smoothedPitchRef.current = targetPitch;
+      } else {
+        filteredPitch = smoothedPitchRef.current + (targetPitch - smoothedPitchRef.current) * lpfFactor;
+        smoothedPitchRef.current = filteredPitch;
+      }
+
+      // refs 업데이트
+      deviceAzimuthRef.current = filteredAzimuth;
+      devicePitchRef.current = filteredPitch;
+
+      // React 상태 업데이트로 AR 리액티브 렌더링 유도
+      setDeviceAzimuth(filteredAzimuth);
+      setDevicePitch(filteredPitch);
     });
 
     return () => {
       if (subscription) subscription.remove();
     };
-  }, [visible, compassHeading, gyroCalibOffset.az]);
+  }, [visible]);
 
   // 나침반 기준 절대 정북 정밀 재보정
   const handleCalibrate = useCallback(() => {
-    if (compassHeading !== null) {
+    const compHeading = compassHeadingRef.current;
+    if (compHeading !== null) {
       // 나침반 절대각에 맞춰 즉시 강제 리셋 동기화
-      setGyroCalibOffset(prev => ({
-        az: (compassHeading + deviceAzimuth - prev.az) % 360,
+      const nextOffset = {
+        az: (compHeading + deviceAzimuthRef.current - gyroCalibOffsetRef.current.az) % 360,
         pitch: 0 // 피치는 수평 기준 리셋
-      }));
+      };
+      gyroCalibOffsetRef.current = nextOffset;
+      setGyroCalibOffset(nextOffset);
+      
+      // 스무딩 벡터도 즉시 리셋해서 튀지 않게 조정
+      const azRad = deviceAzimuthRef.current * Math.PI / 180;
+      smoothedAzVectorRef.current = { x: Math.cos(azRad), y: Math.sin(azRad) };
+      smoothedPitchRef.current = 0;
+      
       Alert.alert('정북 보정 완료', '나침반(Magnetometer) 센서 기준으로 태양 궤적의 절대 방위를 정확하게 재정렬했습니다.');
     } else {
-      setGyroCalibOffset({ az: 0, pitch: 0 });
+      const nextOffset = { az: 0, pitch: 0 };
+      gyroCalibOffsetRef.current = nextOffset;
+      setGyroCalibOffset(nextOffset);
+      
+      smoothedAzVectorRef.current = null;
+      smoothedPitchRef.current = null;
       Alert.alert('보정 완료', '현재 센서 값을 기준점으로 강제 리셋했습니다.');
     }
-  }, [compassHeading, deviceAzimuth]);
+  }, []);
 
   // 태양의 화면 좌표 계산
   const sunScreenPos = useMemo((): ScreenPoint => {
