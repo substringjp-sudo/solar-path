@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, Dimensions, TouchableOpacity, Animated, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import Constants from 'expo-constants';
 import { format, addDays, subDays, isSameDay } from 'date-fns';
-import { Sun, Moon, Navigation, Sunrise, Sunset, Clock, Zap, ChevronLeft, ChevronRight, Calendar, RotateCcw, MapPin, Compass, Star, Trash2, X } from 'lucide-react-native';
+import { Sun, Moon, Navigation, Sunrise, Sunset, Clock, Zap, ChevronLeft, ChevronRight, Calendar, RotateCcw, MapPin, Compass, Star, Trash2, X, Camera as CameraIcon } from 'lucide-react-native';
 import { Modal, ScrollView, Alert } from 'react-native';
 
 import { useCelestialStore } from './store/useCelestialStore';
@@ -14,6 +14,8 @@ import { TimeSlider } from './components/TimeSlider';
 import { SunsetSimulation } from './components/SunsetSimulation';
 import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDatePicker';
 import { MapPicker } from './components/MapPicker';
+import { SunCamera } from './components/SunCamera';
+import { getGoldenTimeInfo } from './utils/sunCamera';
 
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
@@ -35,6 +37,7 @@ export default function App() {
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'tracker' | 'sim'>('tracker');
+  const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
 
   // Theme Logic
@@ -54,6 +57,15 @@ export default function App() {
   const sunPath = getSunPath(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
   const moonPath = getMoonPath(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
   const events = getCelestialEvents(currentTime, location?.coords.latitude || defaultCoords.latitude, location?.coords.longitude || defaultCoords.longitude);
+
+  // 골든타임 활성 여부 (일출/일몰 전후 2.5시간)
+  const goldenTimeInfo = useMemo(() => {
+    return getGoldenTimeInfo(
+      currentTime,
+      location?.coords.latitude || defaultCoords.latitude,
+      location?.coords.longitude || defaultCoords.longitude
+    );
+  }, [currentTime, location]);
 
   const isAndroid = Platform.OS === 'android';
 
@@ -186,6 +198,29 @@ export default function App() {
     if (!isTimeMachineEnabled) setTimeMachineEnabled(true);
   };
   
+  const handleCameraPress = () => {
+    if (goldenTimeInfo.isActive) {
+      setSunCameraVisible(true);
+    } else {
+      Alert.alert(
+        '골든타임 대기 중',
+        '노을 AR 촬영은 일출/일몰 전후 2.5시간의 골든타임에만 활성화됩니다!\n\n(개발자/테스트 용도: 버튼을 2초 이상 길게 누르면 강제로 진입할 수 있습니다.)',
+        [{ text: '확인', style: 'default' }]
+      );
+    }
+  };
+
+  const handleCameraLongPress = () => {
+    Alert.alert(
+      '개발자 테스트 모드',
+      '골든타임 제약을 무시하고 노을 AR 카메라에 강제로 진입하시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '강제 진입', style: 'destructive', onPress: () => setSunCameraVisible(true) }
+      ]
+    );
+  };
+
   const handleSaveLocation = async () => {
     if (!location) return;
     
@@ -322,6 +357,38 @@ export default function App() {
               style={[styles.mapOpenBtn, { backgroundColor: theme.text }]}
             >
               <Text style={[styles.mapOpenText, { color: theme.bg }]}>SAVE</Text>
+            </TouchableOpacity>
+
+            {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
+            <TouchableOpacity
+              onPress={handleCameraPress}
+              onLongPress={handleCameraLongPress}
+              delayLongPress={1500}
+              style={[
+                styles.mapOpenBtn,
+                goldenTimeInfo.isActive
+                  ? { 
+                      backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                      shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 6,
+                      elevation: 5
+                    }
+                  : { 
+                      backgroundColor: theme.glass, 
+                      borderColor: theme.border, 
+                      borderWidth: 1,
+                      opacity: 0.55
+                    }
+              ]}
+            >
+              <CameraIcon size={14} color={goldenTimeInfo.isActive ? '#FFF' : theme.text} />
+              {goldenTimeInfo.isActive ? (
+                <Text style={[styles.mapOpenText, { color: '#FFF', fontSize: 9, fontWeight: 'bold' }]}>GOLDEN</Text>
+              ) : (
+                <Text style={[styles.mapOpenText, { color: theme.text, fontSize: 8, opacity: 0.7 }]}>LOCK</Text>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -542,6 +609,16 @@ export default function App() {
           </View>
         </View>
       </Modal>
+
+      {/* AR 노을 촬영 카메라 */}
+      <SunCamera
+        visible={isSunCameraVisible}
+        onClose={() => setSunCameraVisible(false)}
+        latitude={location?.coords.latitude || defaultCoords.latitude}
+        longitude={location?.coords.longitude || defaultCoords.longitude}
+        currentTime={currentTime}
+        goldenTimeInfo={goldenTimeInfo}
+      />
     </AnimatedSafeAreaView>
   );
 }
