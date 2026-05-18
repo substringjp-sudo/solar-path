@@ -405,7 +405,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24, backgroundColor: 'transparent' },
+  container: { flex: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 0, backgroundColor: 'transparent' },
   mainWrapper: { flex: 1, justifyContent: 'space-between' },
   bottomSection: { gap: 6, marginTop: 'auto' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', height: 300 },
@@ -416,7 +416,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center', 
     borderRadius: 28, 
     borderWidth: Platform.OS === 'android' ? 0 : 1, 
-    marginBottom: 0,
+    marginBottom: 24, // 트래커의 bottomPanel marginBottom: 24와 완벽하게 일치!
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
