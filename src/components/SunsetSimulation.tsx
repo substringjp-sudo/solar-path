@@ -381,22 +381,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             </View>
 
             <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-              <View style={styles.simControlHeader}>
-                <View style={styles.simControlTitleCol}>
-                  <Text style={[styles.simControlTitle, { color: theme.text }]}>
-                    {sim?.type === 'Sunrise' ? 'Actual Dawn' : 'Actual Twilight'}
-                  </Text>
-                  <TouchableOpacity 
-                    style={[styles.miniSourceBadge, { backgroundColor: sim?.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.15)' : 'rgba(255, 255, 255, 0.03)' }]}
-                    onPress={() => setShowSources(true)}
-                  >
-                    <Text style={[styles.miniSourceBadgeText, { color: sim?.weatherSource === 'ultra-short' ? '#4DA0B0' : theme.subText }]}>
-                      {sim?.weatherSource === 'ultra-short' ? '초단기정밀' : '글로벌표준'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              
               <TimeSlider 
                 mode="relative"
                 value={currentTime}
@@ -428,11 +412,11 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   loadingSubText: { fontSize: 11, opacity: 0.6 },
   simControl: { 
-    height: 114, 
+    height: 84, 
     justifyContent: 'center', 
     borderRadius: 28, 
     borderWidth: Platform.OS === 'android' ? 0 : 1, 
-    paddingVertical: 10,
+    paddingVertical: 4,
     marginBottom: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
