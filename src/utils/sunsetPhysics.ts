@@ -116,7 +116,8 @@ export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
 export const directBeamRGB = (
   altDeg: number,
   observerElevationM: number = 0,
-  latitude: number = 37.5665
+  latitude: number = 37.5665,
+  aerosolBetaVal?: number
 ): RGB => {
   if (isNaN(altDeg)) return NIGHT;
 
@@ -155,11 +156,15 @@ export const directBeamRGB = (
     b: Math.exp(-0.38 * effectiveAirMass) * ozoneTrans.b,
   };
 
-  const mie = Math.exp(-0.04 * effectiveAirMass);
+  // Use dynamic aerosol Angstrom turbidity beta for Mie scattering
+  const beta = aerosolBetaVal ?? 0.08;
+  const mie = Math.exp(-beta * effectiveAirMass);
 
-  // Perceived intensity boost for sunset reds
+  // Perceived intensity boost for sunset reds, dynamically scaled by aerosol beta
+  // Clean atmosphere (low beta) has extremely mild red boost, dusty/humid has strong red dispersion
+  const betaFactor = clamp01((beta - 0.04) / 0.25);
   const redBoost = apparentAlt < 10 && apparentAlt > -6 
-    ? 1.0 + Math.pow(Math.max(0, 10 - apparentAlt), 1.2) * 0.08 
+    ? 1.0 + Math.pow(Math.max(0, 10 - apparentAlt), 1.25) * (0.01 + betaFactor * 0.06) 
     : 1.0;
 
   // Darken everything as the sun goes below horizon to simulate twilight fade
@@ -196,21 +201,90 @@ export const cloudIllumination = (sunAltDeg: number, cloudAltKm: number): number
  * azimuth. Distance weights favor the 200-350 km samples because a near-
  * horizon beam grazes the boundary layer at exactly those distances.
  */
-export const beamPathTransmittance = (path: CloudData[]): number => {
+export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5): number => {
   if (!path || path.length < 4) return 1;
-  const sectors = [
-    { lo: path[0].low, mi: path[0].mid, w: 0.1 },
-    { lo: path[1].low, mi: path[1].mid, w: 0.2 },
-    { lo: path[2].low, mi: path[2].mid, w: 0.35 },
-    { lo: path[3].low, mi: path[3].mid, w: 0.35 },
-  ];
-  let t = 1;
-  for (const s of sectors) {
-    const blockLow = (s.lo / 100) * s.w;
-    const blockMid = (s.mi / 100) * s.w * 0.5;
-    t *= 1 - Math.min(0.95, blockLow + blockMid);
+
+  // 1) Sæmundsson atmospheric refraction correction
+  const apparentAlt = getApparentAltitude(sunAltDeg);
+  const apparentAltRad = (apparentAlt * Math.PI) / 180;
+
+  // path[0]: 0km, path[1]: 80km, path[2]: 200km, path[3]: 350km
+  const distances = [0, 80, 200, 350];
+  const weights = [0.1, 0.2, 0.35, 0.35];
+
+  let totalOpticalDepth = 0;
+
+  for (let i = 0; i < path.length; i++) {
+    const x = distances[i];
+    const s = path[i];
+    const w = weights[i];
+
+    // Calculate actual ray altitude considering Earth's curvature (km)
+    // H(x) = x * tan(apparentAlt) + x^2 / (2 * R_E)
+    const hRay = x * Math.tan(apparentAltRad) + (x * x) / (2 * EARTH_RADIUS_KM);
+
+    if (hRay < 0) {
+      // Ray dips below horizon -> completely blocked
+      totalOpticalDepth += 5.0 * w;
+      continue;
+    }
+
+    // Determine matching cloud layers (low/mid/high) with soft transitions
+    let wLow = 0;
+    let wMid = 0;
+    let wHigh = 0;
+
+    if (hRay <= 2.0) {
+      if (hRay > 1.5) {
+        const t = (hRay - 1.5) / 0.5;
+        wLow = 1.0 - t;
+        wMid = t;
+      } else {
+        wLow = 1.0;
+      }
+    } else if (hRay <= 6.0) {
+      if (hRay < 2.5) {
+        const t = (hRay - 2.0) / 0.5;
+        wLow = 1.0 - t;
+        wMid = t;
+      } else if (hRay > 5.0) {
+        const t = (hRay - 5.0) / 1.0;
+        wMid = 1.0 - t;
+        wHigh = t;
+      } else {
+        wMid = 1.0;
+      }
+    } else if (hRay <= 12.0) {
+      if (hRay < 7.0) {
+        const t = (hRay - 6.0) / 1.0;
+        wMid = 1.0 - t;
+        wHigh = t;
+      } else {
+        wHigh = 1.0;
+      }
+    } else {
+      wHigh = 0;
+    }
+
+    // Layer-specific extinction coefficients (low clouds are highly opaque, high clouds are thin)
+    const extLow = 4.0;
+    const extMid = 2.0;
+    const extHigh = 0.5;
+
+    // Convert cloud cover percentages (0..100) to fractions (0..1)
+    const cLow = s.low / 100;
+    const cMid = s.mid / 100;
+    const cHigh = s.high / 100;
+
+    // Accumulate optical depth: cloud fraction * extinction * path weight
+    const sectorExtinction = extLow * cLow * wLow + extMid * cMid * wMid + extHigh * cHigh * wHigh;
+    const tau = sectorExtinction * w;
+    totalOpticalDepth += tau;
   }
-  return clamp01(t);
+
+  // Beer-Lambert Law: T = exp(-totalOpticalDepth)
+  const transmittance = Math.exp(-totalOpticalDepth);
+  return clamp01(transmittance);
 };
 
 export interface SkyStop {
@@ -290,11 +364,13 @@ export const predictSunset = (
   // Sunset mode should only apply when sun is near or just below horizon
   const isSunsetMode = effectiveSunAlt < 10 && effectiveSunAlt > -6;
 
-  const currentBeam = directBeamRGB(sunAltDeg, elevVal, latVal);
-  const pathClarity = beamPathTransmittance(localPath);
+  // Pass dynamically computed aerosol beta to directBeamRGB!
+  const currentBeam = directBeamRGB(sunAltDeg, elevVal, latVal, beta);
+  const pathClarity = beamPathTransmittance(localPath, sunAltDeg);
 
+  // Remove artificial 1.2x boost on incident beam red channel, make it clean and physical
   const incidentBeam: RGB = {
-    r: currentBeam.r * pathClarity * 1.2, // Boost red intensity
+    r: currentBeam.r * pathClarity,
     g: currentBeam.g * pathClarity,
     b: currentBeam.b * pathClarity,
   };
@@ -313,6 +389,14 @@ export const predictSunset = (
   const overheadGlow = clamp01(overheadHigh * illumHigh + overheadMid * illumMid * 0.7);
   const overheadOvercast = clamp01(localPath[0].low / 100);
 
+  // --- Horizon Blockage Detection ---
+  // If the sun is low (effectiveSunAlt < 3.0) and there is thick cloud cover along the low-altitude horizon beam path
+  // leading to extremely low transmittance (pathClarity < 0.15), the sun will be completely blocked.
+  const isHorizonBlocked =
+    effectiveSunAlt < 3.0 &&
+    pathClarity < 0.15 &&
+    (localPath[0].low > 40 || localPath[1].low > 40 || localPath[2].mid > 40);
+
   // --- Score -------------------------------------------------------------
   // Horizon glow band exists whenever the path is clear and the sun is
   // within ~8 of the geometric horizon, even without overhead clouds.
@@ -324,12 +408,22 @@ export const predictSunset = (
   let raw = 25 * pathClarity * horizonProximity + 70 * cloudShow;
   // Thick low cloud directly above the observer kills the view.
   raw *= 1 - 0.85 * overheadOvercast;
+
+  // Strongly penalize score if horizon is blocked by thick clouds
+  if (isHorizonBlocked) {
+    raw *= 0.3;
+  }
+
   const score = Math.max(0, Math.min(100, Math.round(raw)));
 
   // --- Quality label & description --------------------------------------
   let quality: SunsetPrediction['quality'];
   let description: string;
-  if (overheadOvercast > 0.7 && pathClarity < 0.35) {
+  if (isHorizonBlocked) {
+    quality = 'Muted';
+    description =
+      '일몰 방향 수평선 부근에 두꺼운 구름 장벽이 깔려 있어, 해가 구름에 완전히 가려져 노을을 보기 어렵습니다.';
+  } else if (overheadOvercast > 0.7 && pathClarity < 0.35) {
     quality = 'Overcast';
     description =
       '두꺼운 저층운이 머리 위와 광원 방향을 동시에 덮고 있어 노을 자체가 가려질 가능성이 높습니다.';
@@ -368,11 +462,17 @@ export const predictSunset = (
     return mixRgb(c, OVERCAST, overcastWeight);
   };
 
-  // 4. Horizon & Sky Gradients - More vibrant spread
+  // 4. Horizon & Sky Gradients - Dynamically computed based on aerosol beta
+  // Clear day (low beta) has natural orange-yellow gradients; dusty day (high beta) has deep red gradients
+  const redMult = 1.04 + clamp01(beta * 1.1) * 0.36; // Scales between ~1.08 to 1.45 based on atmospheric haze
+  const greenMult = 1.01 + clamp01(beta * 0.8) * 0.24; // Scales between ~1.04 to 1.25
+  const sunsetOffsetR = isSunsetMode ? (0.04 + clamp01(beta * 0.7) * 0.2) * sunWeight : 0;
+  const sunsetOffsetG = isSunsetMode ? (0.01 + clamp01(beta * 0.4) * 0.08) * sunWeight : 0;
+
   const horizonRGB: RGB = {
-    r: clamp01(currentBeam.r * 1.5 + (isSunsetMode ? 0.3 * sunWeight : 0)),
-    g: clamp01(currentBeam.g * 1.3 + (isSunsetMode ? 0.1 * sunWeight : 0)),
-    b: clamp01(currentBeam.b * 1.1),
+    r: clamp01(currentBeam.r * redMult + sunsetOffsetR),
+    g: clamp01(currentBeam.g * greenMult + sunsetOffsetG),
+    b: clamp01(currentBeam.b * 1.04),
   };
 
   const midBandRGB = mixRgb(skyZenith, horizonRGB, 0.65);
@@ -400,14 +500,18 @@ export const predictSunset = (
     const theta = (offset * 30 * Math.PI) / 180;
     const phase = henyeyGreenstein(Math.cos(theta), g);
     
-    // Multi-stage glow for better blending and fire-red edges
-    const coreBoost = isSunsetMode ? 1.5 : 1.2;
-    const vibrancy = isSunsetMode ? 1.3 : 1.0;
+    // Multi-stage glow based dynamically on aerosol beta
+    const coreBoost = isSunsetMode ? 1.3 : 1.15;
+    const vibrancy = isSunsetMode ? 1.15 : 1.0;
+    
+    // Clean atmosphere = golden/yellow glow; hazy atmosphere = wider red/orange glow
+    const glowRedFactor = 1.1 + clamp01(beta * 1.8) * 0.9;   // ~1.18 to 2.0 based on haze
+    const glowGreenFactor = 1.0 + clamp01(beta * 1.1) * 0.5; // ~1.05 to 1.5
 
     const glowRGB: RGB = {
-      r: clamp01(currentBeam.r * coreBoost * 2.2 * vibrancy),
-      g: clamp01(currentBeam.g * coreBoost * 1.6),
-      b: clamp01(currentBeam.b * coreBoost * 1.2),
+      r: clamp01(currentBeam.r * coreBoost * glowRedFactor * vibrancy),
+      g: clamp01(currentBeam.g * coreBoost * glowGreenFactor),
+      b: clamp01(currentBeam.b * coreBoost * 1.08),
     };
 
     // Transition from hot center to deep red rim
@@ -484,9 +588,10 @@ export const predictSunset = (
     midCloudColor: rgbToCssAlpha(midCloudRGB, 0.55),
     lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.65),
     sunDiskColor: rgbToCss({
-      r: clamp01(currentBeam.r * 8.0 + (isSunsetMode ? 0.45 : 0)), // Intense red disk
-      g: clamp01(currentBeam.g * 4.0 + (isSunsetMode ? 0.1 : 0)),
-      b: clamp01(currentBeam.b * 2.5),
+      // Dynamically scaled sun disk color based on beta, avoiding extreme pitch-red
+      r: clamp01(currentBeam.r * (2.2 + clamp01(beta * 1.5) * 2.0) + (isSunsetMode ? (0.05 + clamp01(beta) * 0.2) : 0)),
+      g: clamp01(currentBeam.g * (1.8 + clamp01(beta * 1.0) * 1.0) + (isSunsetMode ? 0.02 : 0)),
+      b: clamp01(currentBeam.b * 1.5),
     }),
     factors: {
       beamRedness,

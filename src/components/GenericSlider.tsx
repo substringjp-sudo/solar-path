@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, PanResponder, Animated, Platform } from 'react-native';
+import { View, StyleSheet, PanResponder, Animated } from 'react-native';
 
 interface GenericSliderProps {
   value: number; // 0 to 100
@@ -80,7 +80,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     },
   }), [onChange, onGrant, onRelease]);
 
-  const displayValue = isDragging ? localValue : value;
+
 
   const onLayout = (event: any) => {
     const { width } = event.nativeEvent.layout;

@@ -19,6 +19,13 @@ export interface TerrainCacheItem {
   longitude: number;
 }
 
+export interface SavedLocation {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
 interface CelestialState {
   currentTime: Date;
   location: Location.LocationObject | null;
@@ -30,6 +37,7 @@ interface CelestialState {
   terrainCacheList: TerrainCacheItem[];
   userRotation: number;
   isGyroEnabled: boolean;
+  savedLocations: SavedLocation[];
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -44,6 +52,8 @@ interface CelestialState {
   setUserRotation: (rot: number) => void;
   setGyroEnabled: (enabled: boolean) => void;
   resetRotation: () => void;
+  addSavedLocation: (name: string, latitude: number, longitude: number) => void;
+  removeSavedLocation: (id: string) => void;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -59,6 +69,7 @@ export const useCelestialStore = create<CelestialState>()(
       terrainCacheList: [],
       userRotation: 0,
       isGyroEnabled: false,
+      savedLocations: [],
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -94,6 +105,24 @@ export const useCelestialStore = create<CelestialState>()(
         if (state.isTimeMachineEnabled) return state;
         return { currentTime: new Date() };
       }),
+      addSavedLocation: (name, latitude, longitude) => set((state) => {
+        const newLocation: SavedLocation = {
+          id: Date.now().toString(),
+          name,
+          latitude,
+          longitude,
+        };
+        const isDuplicate = state.savedLocations.some(
+          (loc) => loc.latitude === latitude && loc.longitude === longitude
+        );
+        if (isDuplicate) return state;
+        return {
+          savedLocations: [...state.savedLocations, newLocation]
+        };
+      }),
+      removeSavedLocation: (id) => set((state) => ({
+        savedLocations: state.savedLocations.filter(loc => loc.id !== id)
+      })),
     }),
     {
       name: 'solar-path-storage',
@@ -101,7 +130,8 @@ export const useCelestialStore = create<CelestialState>()(
       partialize: (state) => ({ 
         location: state.location,
         weatherCacheList: state.weatherCacheList,
-        terrainCacheList: state.terrainCacheList
+        terrainCacheList: state.terrainCacheList,
+        savedLocations: state.savedLocations
       }),
     }
   )

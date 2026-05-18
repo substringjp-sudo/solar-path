@@ -8,7 +8,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { DeviceMotion, Magnetometer } from 'expo-sensors';
 import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw } from 'lucide-react-native';
-import SunCalc from 'suncalc';
+
 
 import {
   getSunScreenPosition,
@@ -63,7 +63,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 상태
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureResult, setCaptureResult] = useState<string | null>(null);
-  const [enhancementParams, setEnhancementParams] = useState<EnhancementParams | null>(null);
+
 
   // 현재 태양 위치
   const sunPos = useMemo(() => {
@@ -264,7 +264,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     if (!cameraRef.current || isCapturing) return;
 
     setIsCapturing(true);
-    setEnhancementParams(currentEnhancement);
+
 
     try {
       // EXIF 활성화하여 촬영

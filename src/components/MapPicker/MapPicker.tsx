@@ -1,23 +1,32 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { MapPin, X, Navigation, Globe, ChevronRight, LocateFixed, Save, Trash2, Map as MapIcon } from 'lucide-react-native';
+import { MapPin, X, Navigation, ChevronRight, LocateFixed, Save, Trash2, Star } from 'lucide-react-native';
 import * as Location from 'expo-location';
-import { useCelestialStore, SavedLocation } from '../../store/useCelestialStore';
 import { getCelestialIsochrones, getIsochroneInterval } from '../../utils/celestial';
 
 const { width, height } = Dimensions.get('window');
 
-export const MapPicker = ({ visible, onClose, onSelect, theme, location, currentTime, isDay = false }: any) => {
-  const { savedLocations, addSavedLocation, removeSavedLocation } = useCelestialStore();
+export const MapPicker = ({ 
+  visible, 
+  onClose, 
+  onSelect, 
+  theme, 
+  location, 
+  currentTime, 
+  isDay = false,
+  savedLocations = [],
+  addSavedLocation,
+  removeSavedLocation
+}: any) => {
   const [latInput, setLatInput] = useState(location?.coords?.latitude?.toString() || '37.56');
   const [lonInput, setLonInput] = useState(location?.coords?.longitude?.toString() || '126.97');
-  const [locationName, setLocationName] = useState('');
   const [mapZoom, setMapZoom] = useState(10);
   const [showSunriseIso, setShowSunriseIso] = useState(true);
   const [showSunsetIso, setShowSunsetIso] = useState(true);
   const [timeFormat, setTimeFormat] = useState<'local' | 'utc'>('local');
   const [isMapReady, setIsMapReady] = useState(false);
+  const [saveName, setSaveName] = useState('');
   const iframeRef = useRef<any>(null);
 
   // Premium UI tokens for Map WebView
@@ -110,8 +119,6 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
         
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
-        // Layer group to hold saved locations and their 100m circles
-        const savedLocationsLayer = L.layerGroup().addTo(map);
 
         // Store active data for dynamic redraw during movement
         let currentSunriseIso = [];
@@ -390,41 +397,6 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
             currentSunriseIso = data.sunriseIso || [];
             currentSunsetIso = data.sunsetIso || [];
             
-            // Render saved locations markers & 100m range circles
-            savedLocationsLayer.clearLayers();
-            const savedLocs = data.savedLocations || [];
-            savedLocs.forEach(loc => {
-              // 100m radius circle overlay
-              L.circle([loc.latitude, loc.longitude], {
-                radius: 100,
-                color: '${accentColor}', // 테마 accentColor를 동적으로 반영
-                fillColor: '${accentColor}',
-                fillOpacity: 0.15,
-                weight: 1.5
-              }).addTo(savedLocationsLayer);
-
-              // Styled Circle Dot marker
-              const marker = L.marker([loc.latitude, loc.longitude], {
-                icon: L.divIcon({
-                  className: 'saved-location-icon',
-                  html: '<div style="width: 12px; height: 12px; background-color: ${accentColor}; border: 2px solid ${isDay ? "#ffffff" : "#14141c"}; border-radius: 50%; box-shadow: 0 0 0 1px ${accentColor}, 0 2px 6px rgba(0,0,0,0.4); pointer-events: auto; cursor: pointer;"></div>',
-                  iconSize: [12, 12],
-                  iconAnchor: [6, 6] // 12x12 크기의 중심점 설정
-                })
-              }).addTo(savedLocationsLayer);
-
-              // Jump viewport and update input coords on click
-              marker.on('click', () => {
-                map.setView([loc.latitude, loc.longitude], 13);
-                const moveData = { type: 'MAP_MOVE', lat: loc.latitude, lng: loc.longitude };
-                if (window.ReactNativeWebView) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify(moveData));
-                } else {
-                  window.parent.postMessage(moveData, '*');
-                }
-              });
-            });
-
             redrawIsochrones();
           }
         };
@@ -462,13 +434,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
         showSunrise: showSunriseIso,
         showSunset: showSunsetIso,
         sunriseIso,
-        sunsetIso,
-        savedLocations: savedLocations.map(loc => ({
-          id: loc.id,
-          name: loc.name,
-          latitude: loc.latitude,
-          longitude: loc.longitude
-        }))
+        sunsetIso
       };
       
       if (iframeRef.current) {
@@ -488,7 +454,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
     };
     
     sendIsochrones();
-  }, [currentTime, mapZoom, showSunriseIso, showSunsetIso, timeFormat, visible, isMapReady, savedLocations]);
+  }, [currentTime, mapZoom, showSunriseIso, showSunsetIso, timeFormat, visible, isMapReady]);
 
   // Handle messages sent from standard browser frames (for Web platform compatibility)
   useEffect(() => {
@@ -521,69 +487,7 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
     }
   };
 
-  // Safe split handling across iOS, Android, and Web platforms to avoid prompt-related crashes
-  const handleSaveLocation = () => {
-    const rawLat = parseFloat(latInput);
-    const rawLon = parseFloat(lonInput);
-    if (isNaN(rawLat) || isNaN(rawLon)) {
-      Alert.alert('Error', 'Invalid coordinates');
-      return;
-    }
 
-    // Round to 3 decimal places (~100m precision range)
-    const lat = Math.round(rawLat * 1000) / 1000;
-    const lon = Math.round(rawLon * 1000) / 1000;
-
-    // Check if coordinates overlap within the 100m grid
-    const isDuplicate = savedLocations.some(loc => {
-      const existingLat = Math.round(loc.latitude * 1000) / 1000;
-      const existingLon = Math.round(loc.longitude * 1000) / 1000;
-      return existingLat === lat && existingLon === lon;
-    });
-
-    if (isDuplicate) {
-      Alert.alert(
-        '이미 저장된 위치',
-        '선택하신 위치 주변 100m 내에 이미 저장된 장소가 있습니다. 중복 저장을 막기 위해 취소합니다.'
-      );
-      return;
-    }
-
-    const performSave = (name: string) => {
-      if (!name.trim()) {
-        Alert.alert('Error', 'Please enter a name for this location');
-        return;
-      }
-      addSavedLocation(name.trim(), lat, lon);
-      setLocationName('');
-      Alert.alert('Success', `"${name.trim()}" saved!`);
-    };
-
-    if (locationName.trim()) {
-      performSave(locationName);
-    } else {
-      if (Platform.OS === 'web') {
-        const name = window.prompt('Enter location name (e.g. Home):');
-        if (name !== null) {
-          performSave(name);
-        }
-      } else if (Platform.OS === 'ios') {
-        Alert.prompt(
-          'Save Location',
-          'Enter a name for this spot:',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Save', onPress: (name?: string) => performSave(name || '') }
-          ],
-          'plain-text',
-          ''
-        );
-      } else {
-        const defaultName = `Spot ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
-        performSave(defaultName);
-      }
-    }
-  };
 
   const handleManualSelect = () => {
     const lat = parseFloat(latInput);
@@ -592,6 +496,27 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
       onSelect({ coords: { latitude: lat, longitude: lon } });
       onClose();
     }
+  };
+
+  const handleSaveLocation = () => {
+    if (!saveName.trim()) {
+      Alert.alert('알림', '장소 이름을 입력하세요.');
+      return;
+    }
+    const lat = parseFloat(latInput);
+    const lon = parseFloat(lonInput);
+    if (isNaN(lat) || isNaN(lon)) {
+      Alert.alert('오류', '올바른 좌표가 지정되지 않았습니다.');
+      return;
+    }
+
+    addSavedLocation(saveName.trim(), lat, lon);
+    setSaveName('');
+    Alert.alert('성공', `'${saveName.trim()}' 장소가 성공적으로 저장되었습니다.`);
+  };
+
+  const handleSelectSaved = (saved: any) => {
+    handleJumpToLocation(saved.latitude, saved.longitude);
   };
 
   const handleCurrentLocation = async () => {
@@ -765,68 +690,71 @@ export const MapPicker = ({ visible, onClose, onSelect, theme, location, current
                 </View>
               </View>
 
-              <View style={[styles.saveRow, { borderTopColor: theme.border }]}>
+              {/* 즐겨찾기 저장 폼 */}
+              <View style={[styles.saveRow, { borderColor: theme.border }]}>
                 <TextInput
                   style={[styles.nameInput, { color: theme.text, borderColor: theme.border }]}
-                  placeholder="Location name (e.g. Home)"
-                  placeholderTextColor="#666"
-                  value={locationName}
-                  onChangeText={setLocationName}
+                  placeholder="장소 이름을 입력하세요"
+                  placeholderTextColor={theme.subText}
+                  value={saveName}
+                  onChangeText={setSaveName}
                 />
-                <TouchableOpacity 
-                  onPress={handleSaveLocation}
+                <TouchableOpacity
                   style={[styles.saveBtn, { backgroundColor: theme.accent }]}
+                  onPress={handleSaveLocation}
                 >
-                  <Save size={18} color="#000" />
-                  <Text style={styles.saveBtnText}>Save</Text>
+                  <Save size={16} color="#000" />
+                  <Text style={styles.saveBtnText}>저장</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
+            <TouchableOpacity 
+              onPress={handleManualSelect}
+              style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 24 }]}
+            >
+              <Navigation size={20} color="#000" />
+              <Text style={styles.confirmBtnText}>Select This Location</Text>
+            </TouchableOpacity>
+
+            {/* 저장된 즐겨찾기 목록 */}
             <View style={styles.savedSection}>
               <Text style={[styles.sectionTitle, { color: theme.subText, marginBottom: 12 }]}>SAVED PLACES</Text>
               {savedLocations.length === 0 ? (
                 <View style={[styles.emptyState, { borderColor: theme.border }]}>
-                  <MapIcon size={24} color={theme.subText} opacity={0.5} />
-                  <Text style={{ color: theme.subText, fontSize: 12, marginTop: 8 }}>No saved locations yet</Text>
+                  <Star size={24} color={theme.subText} style={{ marginBottom: 6 }} />
+                  <Text style={{ color: theme.subText, fontSize: 13 }}>저장된 장소가 없습니다.</Text>
                 </View>
               ) : (
                 <View style={styles.savedList}>
-                  {savedLocations.map((loc: SavedLocation) => (
-                    <View key={loc.id} style={[styles.savedItem, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                      <TouchableOpacity 
+                  {savedLocations.map((loc: any) => (
+                    <View key={loc.id} style={[styles.savedItem, { borderColor: theme.border, backgroundColor: theme.glass }]}>
+                      <TouchableOpacity
                         style={styles.savedItemContent}
-                        onPress={() => handleJumpToLocation(loc.latitude, loc.longitude)}
+                        onPress={() => handleSelectSaved(loc)}
                       >
-                        <View style={styles.savedItemIcon}>
+                        <View style={[styles.savedItemIcon, { backgroundColor: theme.glass }]}>
                           <MapPin size={16} color={theme.accent} />
                         </View>
-                        <View>
+                        <View style={{ flex: 1 }}>
                           <Text style={[styles.savedItemName, { color: theme.text }]}>{loc.name}</Text>
                           <Text style={[styles.savedItemCoords, { color: theme.subText }]}>
-                            {loc.latitude.toFixed(3)}, {loc.longitude.toFixed(3)}
+                            {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
                           </Text>
                         </View>
                       </TouchableOpacity>
-                      <TouchableOpacity 
-                        onPress={() => removeSavedLocation(loc.id)}
+                      <TouchableOpacity
                         style={styles.deleteBtn}
+                        onPress={() => removeSavedLocation(loc.id)}
                       >
-                        <Trash2 size={16} color="#ff4444" />
+                        <Trash2 size={16} color="#FF4444" />
                       </TouchableOpacity>
                     </View>
                   ))}
                 </View>
               )}
             </View>
-
-            <TouchableOpacity 
-              onPress={handleManualSelect}
-              style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 40 }]}
-            >
-              <Navigation size={20} color="#000" />
-              <Text style={styles.confirmBtnText}>Select This Location</Text>
-            </TouchableOpacity>
+            <View style={{ height: 40 }} />
           </ScrollView>
         </View>
       </View>
