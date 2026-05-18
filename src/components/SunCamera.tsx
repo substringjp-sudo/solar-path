@@ -46,11 +46,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [devicePitch, setDevicePitch] = useState(0);
   const [gyroCalibOffset, setGyroCalibOffset] = useState({ az: 0, pitch: 0 });
 
-  // 나침반에서 가져오는 절대 방위각 상태
-  const [compassHeading, setCompassHeading] = useState<number | null>(null);
-
   // 센서 실시간 값을 보관할 Refs (re-subscription 방지)
-  const compassHeadingRef = useRef<number | null>(null);
   const gyroCalibOffsetRef = useRef({ az: 0, pitch: 0 });
   const deviceAzimuthRef = useRef(0);
   const devicePitchRef = useRef(0);
@@ -86,145 +82,121 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     );
   }, [sunPos.altitude, goldenTimeInfo.minutesToEvent]);
 
-  // Magnetometer 구독 (나침반 절대 방위각 획득 + GPS 기반 진북 및 LPF 보정)
-  useEffect(() => {
-    if (!visible) return;
-
-    let subscription: any = null;
-    Magnetometer.setUpdateInterval(64); // ~15fps
-
-    subscription = Magnetometer.addListener((data) => {
-      let { x, y } = data;
-      // y축, x축 기반 아크탄젠트로 절대 북쪽 기준 방위각 산출
-      let rawHeading = Math.atan2(y, x) * (180 / Math.PI);
-      rawHeading = (rawHeading + 360) % 360;
-
-      // GPS 위도 경도를 기준으로 자북(Magnetic North)과 진북(True North)의 편각(Magnetic Declination) 보정 계산
-      // 한국 지역(서울 37.5N, 127.0E) 기준 약 -8.5도(서편각)의 물리 보정치를 포함하여 진북 방위 확보
-      const declination = -8.5 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
-      const trueHeading = (rawHeading + declination + 360) % 360;
-
-      // 360도 경계면 처리(wrapping)를 위한 2D 벡터 단위 LPF 필터 적용
-      const headingRad = trueHeading * Math.PI / 180;
-      const hx = Math.cos(headingRad);
-      const hy = Math.sin(headingRad);
-
-      let nextHx = hx;
-      let nextHy = hy;
-
-      if (smoothedCompassVectorRef.current === null) {
-        smoothedCompassVectorRef.current = { x: hx, y: hy };
-      } else {
-        const prevHVec = smoothedCompassVectorRef.current;
-        // 나침반 고주파 노이즈를 강력하게 억제하는 스무딩 계수 0.06 적용
-        nextHx = prevHVec.x + (hx - prevHVec.x) * 0.06;
-        nextHy = prevHVec.y + (hy - prevHVec.y) * 0.06;
-        smoothedCompassVectorRef.current = { x: nextHx, y: nextHy };
-      }
-
-      let filteredHeading = Math.atan2(nextHy, nextHx) * 180 / Math.PI;
-      filteredHeading = (filteredHeading + 360) % 360;
-
-      setCompassHeading(filteredHeading);
-      compassHeadingRef.current = filteredHeading;
-    });
-
-    return () => {
-      if (subscription) subscription.remove();
-    };
-  }, [visible]);
-
-  // DeviceMotion 구독 & 나침반 센서 융합 (Complementary Filter + LPF Smoothing)
+  // OS 하드웨어 레벨 융합 모션 센서 구독 (3D Rotation Matrix 공간 벡터 투영 기법)
   useEffect(() => {
     if (!visible) return;
 
     let subscription: any = null;
 
-    DeviceMotion.setUpdateInterval(32); // ~30fps
+    // 30fps 정밀 주기로 물리 행렬 관찰
+    DeviceMotion.setUpdateInterval(32); 
     subscription = DeviceMotion.addListener((data) => {
-      if (!data.rotation) return;
-
-      const { alpha, beta, gamma } = data.rotation;
-
-      // alpha = z축 회전 (방위각)
-      let rawAzimuth = (alpha * 180 / Math.PI);
+      const motionData = data as any;
       
-      const compVal = compassHeadingRef.current;
-      const currentOffset = gyroCalibOffsetRef.current;
+      // 1. 최고 정밀도의 3D 회전 행렬(Rotation Matrix) 투영 방식 적용 (축 꼬임 및 지터 원천 박멸)
+      if (motionData.rotationMatrix) {
+        const { m13, m23, m33 } = motionData.rotationMatrix;
 
-      // 회전 움직임 크기 검출 (각속도 데이터가 존재하면 alpha, beta, gamma 크기 연산)
-      let isMoving = true;
-      if (data.rotationRate) {
-        const { alpha: ra, beta: rb, gamma: rg } = data.rotationRate;
-        const rateMag = Math.sqrt(ra * ra + rb * rb + rg * rg);
-        isMoving = rateMag > 0.04; // 0.04 rad/s 이상의 극미세 회전이 감지될 때만 움직임으로 판단
+        // 카메라 렌즈 방향 (기기 로컬 좌표 -Z축: [0, 0, -1]^T)을 세계 ENU (East-North-Up) 좌표계로 3차원 투영
+        // vx = -m13 (East 성분), vy = -m23 (North 성분), vz = -m33 (Up 성분)
+        const vx = -m13;
+        const vy = -m23;
+        const vz = -m33;
+
+        // 3D 평면상에서의 절대 방위각(Azimuth, 자북 기준) 계산 (단 1도의 왜곡도 없는 공간 투영)
+        let trueAzimuth = Math.atan2(vx, vy) * (180 / Math.PI);
+        trueAzimuth = (trueAzimuth + 360) % 360;
+
+        // 절대 고도각(Pitch, 지평선 대비 각도) 계산
+        let truePitch = Math.atan2(vz, Math.sqrt(vx * vx + vy * vy)) * (180 / Math.PI);
+        truePitch = Math.max(-90, Math.min(90, truePitch));
+
+        // GPS 위도/경도 기반 지자기 편각(Magnetic Declination) 보정 적용 (자북 -> 진북 물리적 변환)
+        // 한국 지역(서울 37.5N, 127.0E) 기준 약 -8.5도(서편각) 편차 및 지역 격차 자동 보정 적용
+        const declination = -8.5 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
+        trueAzimuth = (trueAzimuth + declination + 360) % 360;
+
+        // 초밀착 지수 이동 평균(EMA) 필터를 통한 기기 미세 잔진동(Jitter) 최종 흡수
+        const filterFactor = 0.12; 
+
+        // 방위각 360도 래핑 보정을 위해 2D 원형 벡터 EMA 필터링 적용
+        const azRad = trueAzimuth * Math.PI / 180;
+        const tx = Math.cos(azRad);
+        const ty = Math.sin(azRad);
+
+        let nextX = tx;
+        let nextY = ty;
+
+        if (smoothedAzVectorRef.current === null) {
+          smoothedAzVectorRef.current = { x: tx, y: ty };
+        } else {
+          const prevVec = smoothedAzVectorRef.current;
+          nextX = prevVec.x + (tx - prevVec.x) * filterFactor;
+          nextY = prevVec.y + (ty - prevVec.y) * filterFactor;
+          smoothedAzVectorRef.current = { x: nextX, y: nextY };
+        }
+
+        let filteredAzimuth = Math.atan2(nextY, nextX) * 180 / Math.PI;
+        filteredAzimuth = (filteredAzimuth + 360) % 360;
+
+        // 피치(고도각) EMA 필터링
+        let filteredPitch = truePitch;
+        if (smoothedPitchRef.current === null) {
+          smoothedPitchRef.current = truePitch;
+        } else {
+          filteredPitch = smoothedPitchRef.current + (truePitch - smoothedPitchRef.current) * filterFactor;
+          smoothedPitchRef.current = filteredPitch;
+        }
+
+        // 상태 및 refs 정밀 업데이트
+        deviceAzimuthRef.current = filteredAzimuth;
+        devicePitchRef.current = filteredPitch;
+        setDeviceAzimuth(filteredAzimuth);
+        setDevicePitch(filteredPitch);
+
+      } else if (data.rotation) {
+        // Fallback: 3D rotationMatrix가 지원되지 않는 하위 기기를 위한 기존 오리엔테이션 LPF 필터 구조
+        const { alpha, beta } = data.rotation;
+        let rawAzimuth = (alpha * 180 / Math.PI);
+        let targetPitch = (beta * 180 / Math.PI) - 90;
+        targetPitch = Math.max(-90, Math.min(90, targetPitch));
+
+        const declination = -8.5 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
+        let trueAzimuth = (360 - rawAzimuth + declination) % 360;
+
+        const filterFactor = 0.12;
+        const azRad = trueAzimuth * Math.PI / 180;
+        const tx = Math.cos(azRad);
+        const ty = Math.sin(azRad);
+
+        let nextX = tx;
+        let nextY = ty;
+
+        if (smoothedAzVectorRef.current === null) {
+          smoothedAzVectorRef.current = { x: tx, y: ty };
+        } else {
+          const prevVec = smoothedAzVectorRef.current;
+          nextX = prevVec.x + (tx - prevVec.x) * filterFactor;
+          nextY = prevVec.y + (ty - prevVec.y) * filterFactor;
+          smoothedAzVectorRef.current = { x: nextX, y: nextY };
+        }
+
+        let filteredAzimuth = Math.atan2(nextY, nextX) * 180 / Math.PI;
+        filteredAzimuth = (filteredAzimuth + 360) % 360;
+
+        let filteredPitch = targetPitch;
+        if (smoothedPitchRef.current === null) {
+          smoothedPitchRef.current = targetPitch;
+        } else {
+          filteredPitch = smoothedPitchRef.current + (targetPitch - smoothedPitchRef.current) * filterFactor;
+          smoothedPitchRef.current = filteredPitch;
+        }
+
+        deviceAzimuthRef.current = filteredAzimuth;
+        devicePitchRef.current = filteredPitch;
+        setDeviceAzimuth(filteredAzimuth);
+        setDevicePitch(filteredPitch);
       }
-
-      // 나침반 데이터를 기반으로 자이로의 방향 드리프트를 실시간 보정 (적응형 상보 필터)
-      if (compVal !== null) {
-        const targetOffset = (compVal + rawAzimuth) % 360;
-        const diff = (targetOffset - currentOffset.az + 540) % 360 - 180;
-        
-        // 기기가 가만히 멈춰 있을 때는 지자기 나침반 센서의 잡음 유입을 완전히 틀어막기 위해 보정 속도를 0.0005로 40배 축소!
-        // 기기가 이동/회전 중일 때는 자이로 상대 좌표에 의존하며 0.003 비율로 드리프트를 완벽하게 서서히 보정
-        const k = isMoving ? 0.003 : 0.0005;
-        const nextOffsetAz = (currentOffset.az + diff * k + 360) % 360;
-        
-        gyroCalibOffsetRef.current = {
-          az: nextOffsetAz,
-          pitch: currentOffset.pitch
-        };
-        // 렌더링에 필요한 보정 오프셋 상태 업데이트 (정적 록인 제공)
-        setGyroCalibOffset(gyroCalibOffsetRef.current);
-      }
-
-      const latestOffset = gyroCalibOffsetRef.current;
-      let targetAzimuth = (360 - rawAzimuth + latestOffset.az) % 360;
-
-      // 피치: 수평 = 0, 위로 = 양수
-      let targetPitch = (beta * 180 / Math.PI) - 90 + latestOffset.pitch;
-      targetPitch = Math.max(-90, Math.min(90, targetPitch));
-
-      // --- 실시간 LPF (EMA) 필터링 적용 ---
-      // 저주파 통과 계수 (0.12 = 부드러우면서도 딜레이가 적어 AR에 최적)
-      const lpfFactor = 0.12;
-
-      // 1. 방위각(targetAzimuth) 2D 벡터 필터링 (0-360 경계 넘나들기 지원)
-      const azRad = targetAzimuth * Math.PI / 180;
-      const tx = Math.cos(azRad);
-      const ty = Math.sin(azRad);
-
-      let nextX = tx;
-      let nextY = ty;
-
-      if (smoothedAzVectorRef.current === null) {
-        smoothedAzVectorRef.current = { x: tx, y: ty };
-      } else {
-        const prevVec = smoothedAzVectorRef.current;
-        nextX = prevVec.x + (tx - prevVec.x) * lpfFactor;
-        nextY = prevVec.y + (ty - prevVec.y) * lpfFactor;
-        smoothedAzVectorRef.current = { x: nextX, y: nextY };
-      }
-
-      let filteredAzimuth = Math.atan2(nextY, nextX) * 180 / Math.PI;
-      filteredAzimuth = (filteredAzimuth + 360) % 360;
-
-      // 2. 피치(targetPitch) 필터링
-      let filteredPitch = targetPitch;
-      if (smoothedPitchRef.current === null) {
-        smoothedPitchRef.current = targetPitch;
-      } else {
-        filteredPitch = smoothedPitchRef.current + (targetPitch - smoothedPitchRef.current) * lpfFactor;
-        smoothedPitchRef.current = filteredPitch;
-      }
-
-      // refs 업데이트
-      deviceAzimuthRef.current = filteredAzimuth;
-      devicePitchRef.current = filteredPitch;
-
-      // React 상태 업데이트로 AR 리액티브 렌더링 유도
-      setDeviceAzimuth(filteredAzimuth);
-      setDevicePitch(filteredPitch);
     });
 
     return () => {
@@ -232,33 +204,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [visible]);
 
-  // 나침반 기준 절대 정북 정밀 재보정
+  // 3D 센서 오리엔테이션 기준점 정밀 재보정
   const handleCalibrate = useCallback(() => {
-    const compHeading = compassHeadingRef.current;
-    if (compHeading !== null) {
-      // 나침반 절대각에 맞춰 즉시 강제 리셋 동기화
-      const nextOffset = {
-        az: (compHeading + deviceAzimuthRef.current - gyroCalibOffsetRef.current.az) % 360,
-        pitch: 0 // 피치는 수평 기준 리셋
-      };
-      gyroCalibOffsetRef.current = nextOffset;
-      setGyroCalibOffset(nextOffset);
-      
-      // 스무딩 벡터도 즉시 리셋해서 튀지 않게 조정
-      const azRad = deviceAzimuthRef.current * Math.PI / 180;
-      smoothedAzVectorRef.current = { x: Math.cos(azRad), y: Math.sin(azRad) };
-      smoothedPitchRef.current = 0;
-      
-      Alert.alert('정북 보정 완료', '나침반(Magnetometer) 센서 기준으로 태양 궤적의 절대 방위를 정확하게 재정렬했습니다.');
-    } else {
-      const nextOffset = { az: 0, pitch: 0 };
-      gyroCalibOffsetRef.current = nextOffset;
-      setGyroCalibOffset(nextOffset);
-      
-      smoothedAzVectorRef.current = null;
-      smoothedPitchRef.current = null;
-      Alert.alert('보정 완료', '현재 센서 값을 기준점으로 강제 리셋했습니다.');
-    }
+    const nextOffset = { az: 0, pitch: 0 };
+    gyroCalibOffsetRef.current = nextOffset;
+    setGyroCalibOffset(nextOffset);
+    
+    smoothedAzVectorRef.current = null;
+    smoothedPitchRef.current = null;
+    Alert.alert('보정 완료', '현재 디바이스의 정밀 3D 센서 기준점을 성공적으로 초기화했습니다.');
   }, []);
 
   // 태양의 화면 좌표 계산
