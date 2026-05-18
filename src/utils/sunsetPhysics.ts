@@ -486,14 +486,29 @@ export const predictSunset = (
     { offset: 1, color: rgbToCss(muted(horizonRGB)) },
   ];
 
+  // --- Weather Specific Adjustments (구름, 미세먼지, 안개 개별 정밀 튜닝) ----------
+  // 1) 안개 강도 (Fog Intensity)
+  // rhPct(습도)가 85%를 넘어가고 시정이 6000m 이하일 때 안개로 인해 광원 뭉개짐 발생
+  const visM = visibilityM ?? 25000;
+  const rhVal = rhPct ?? 50;
+  const fogIntensity = clamp01((rhVal - 85) / 15) * clamp01((6000 - Math.max(500, visM)) / 5500);
+
+  // 2) 미세먼지 강도 (Dust/Haze Intensity)
+  // aerosolBeta가 0.08을 초과하여 대기 탁도가 높을 때
+  const dustIntensity = clamp01((beta - 0.08) / 0.4);
+
+  // 3) 구름 가림 강도 (Cloud Block Intensity)
+  // pathClarity는 태양 광선 경로에 구름이 없을 때 1.0, 꽉 차서 차단될 때 0.0
+  const cloudBlockIntensity = 1.0 - pathClarity;
+
   // --- Sun Glow (Mie Scattering Halo) ------------------------------------
   const sunGlowStops: SkyStop[] = [];
   const g = 0.88; // Slightly more forward-heavy Mie scattering
   // More samples for a smoother gradient
   const glowSamples = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.7, 0.85, 1.0];
   
-  // Boost visibility and add an exponential "core" intensity
-  const glowVisibility = pathClarity * clamp01(1 - Math.abs(effectiveSunAlt + 1) / 20);
+  // 구름이 많이 낄수록, 혹은 안개가 낄수록 Mie 산란 광채의 선명도와 가시성이 비례적으로 차단됨
+  const glowVisibility = pathClarity * clamp01(1 - Math.abs(effectiveSunAlt + 1) / 20) * (1.0 - fogIntensity * 0.6) * (1.0 - cloudBlockIntensity * 0.85);
   
   for (const offset of glowSamples) {
     // Map offset to scattering angle. Inner halo is much tighter.
@@ -501,17 +516,19 @@ export const predictSunset = (
     const phase = henyeyGreenstein(Math.cos(theta), g);
     
     // Multi-stage glow based dynamically on aerosol beta
-    const coreBoost = isSunsetMode ? 1.3 : 1.15;
+    const coreBoost = isSunsetMode ? 1.35 : 1.15;
     const vibrancy = isSunsetMode ? 1.15 : 1.0;
     
     // Clean atmosphere = golden/yellow glow; hazy atmosphere = wider red/orange glow
-    const glowRedFactor = 1.1 + clamp01(beta * 1.8) * 0.9;   // ~1.18 to 2.0 based on haze
-    const glowGreenFactor = 1.0 + clamp01(beta * 1.1) * 0.5; // ~1.05 to 1.5
+    // 미세먼지가 심하면 붉은기가 비약적으로 늘어나고 맑은 날은 따뜻한 황금빛
+    const glowRedFactor = 1.1 + clamp01(beta * 1.8) * 0.9 + dustIntensity * 0.7;   
+    const glowGreenFactor = (1.0 + clamp01(beta * 1.1) * 0.5) * Math.exp(-dustIntensity * 1.8);
 
+    // 맑은 날에는 광륜이 황금빛으로 찬란하도록 최소 밝기를 대폭 확보함
     const glowRGB: RGB = {
-      r: clamp01(currentBeam.r * coreBoost * glowRedFactor * vibrancy),
-      g: clamp01(currentBeam.g * coreBoost * glowGreenFactor),
-      b: clamp01(currentBeam.b * coreBoost * 1.08),
+      r: clamp01(Math.max(0.94, currentBeam.r * coreBoost * glowRedFactor * vibrancy)),
+      g: clamp01(Math.max(0.52, currentBeam.g * coreBoost * glowGreenFactor)),
+      b: clamp01(Math.max(0.10, currentBeam.b * coreBoost * 1.08) * Math.exp(-dustIntensity * 3.0)),
     };
 
     // Transition from hot center to deep red rim
@@ -578,6 +595,17 @@ export const predictSunset = (
   const midCloudRGB = physicalCloudColor(illumMid, tauMid, 0.8);
   const lowCloudRGB = physicalCloudColor(illumLow, tauLow, 0.55);
 
+  // --- Sun Disk Attenuation (태양 발광 원반 색상 및 불투명도 계산) ---------------
+  // 기본 맑을 때의 강력하고 눈부신 베이스 태양빛 (r: 0.98, g: 0.65, b: 0.18)
+  // 미세먼지(Dust)가 심하면 초록(g)과 파랑(b) 채널이 빛 산란으로 완전 차단되며 짙은 블러드 레드(Blood Red)로 조절됨
+  const sunR = clamp01(Math.max(0.98, currentBeam.r * 5.0) * (1.0 - dustIntensity * 0.15));
+  const sunG = clamp01(Math.max(0.65, currentBeam.g * 4.0) * Math.exp(-dustIntensity * 3.0));
+  const sunB = clamp01(Math.max(0.18, currentBeam.b * 2.5) * Math.exp(-dustIntensity * 4.5));
+
+  // 안개가 심하거나 구름이 가리면 태양의 윤곽이 뭉개져서 투과 불투명도(Alpha)가 극도로 감소함
+  // 구름이 완전히 가릴 때는 흐릿한 원반 형체(5% 내외)만 간신히 남음
+  const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.95) * (1.0 - fogIntensity * 0.85));
+
   return {
     score,
     quality,
@@ -587,12 +615,7 @@ export const predictSunset = (
     highCloudColor: rgbToCssAlpha(highCloudRGB, 0.6),
     midCloudColor: rgbToCssAlpha(midCloudRGB, 0.55),
     lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.65),
-    sunDiskColor: rgbToCss({
-      // Dynamically scaled sun disk color based on beta, avoiding extreme pitch-red
-      r: clamp01(currentBeam.r * (2.2 + clamp01(beta * 1.5) * 2.0) + (isSunsetMode ? (0.05 + clamp01(beta) * 0.2) : 0)),
-      g: clamp01(currentBeam.g * (1.8 + clamp01(beta * 1.0) * 1.0) + (isSunsetMode ? 0.02 : 0)),
-      b: clamp01(currentBeam.b * 1.5),
-    }),
+    sunDiskColor: rgbToCssAlpha({ r: sunR, g: sunG, b: sunB }, sunDiskAlpha),
     factors: {
       beamRedness,
       pathClarity,
