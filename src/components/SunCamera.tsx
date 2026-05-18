@@ -134,9 +134,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         // Fallback: 3D 회전 행렬 또는 rotation alpha 상대각 사용
         if (motionData.rotationMatrix) {
           const { m13, m23 } = motionData.rotationMatrix;
-          trueHeading = Math.atan2(-m13, -m23) * (180 / Math.PI);
+          const headingDeg = Math.atan2(-m13, -m23) * (180 / Math.PI);
+          trueHeading = (360 - headingDeg) % 360;
         } else {
-          trueHeading = (alpha * 180 / Math.PI);
+          trueHeading = (360 - (alpha * 180 / Math.PI)) % 360;
         }
       } else {
         // 3D 기울기 보정 나침반 (Tilt-Compensated Compass) 핵심 공식 적용
@@ -146,8 +147,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         const Yh = My * Math.cos(phi) - Mz * Math.sin(phi);
 
         // 아크탄젠트를 활용하여 수평 평면 상의 절대 자북(Magnetic Heading) 도출
-        // 폰을 세우거나 눕히는 3D 공간 회전 상태와 완전히 무관한(Orthogonal) 칼정렬 방위각 확보
-        trueHeading = Math.atan2(-Yh, Xh) * (180 / Math.PI);
+        // 수학적 반시계(CCW) 각도를 지리 표준 시계(CW) 방위각으로 매핑하기 위해 360에서 각도를 차감 (좌우 회전 반대 현상 완전 정비)
+        const headingDeg = Math.atan2(-Yh, Xh) * (180 / Math.PI);
+        trueHeading = (360 - headingDeg) % 360;
       }
       
       trueHeading = (trueHeading + 360) % 360;
