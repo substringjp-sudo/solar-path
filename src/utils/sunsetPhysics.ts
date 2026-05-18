@@ -537,10 +537,10 @@ export const predictSunset = (
     const glowGreenFactor = (1.0 + clamp01(beta * 1.1) * 0.5) * Math.exp(-dustIntensity * 1.8);
 
     // 광륜 역시 노란색으로 혼자 붕 뜨지 않고, 배경 지평선 하늘색(horizonRGB)과 100% 동적으로 스며들어 섞이게 만듭니다!
-    // 맑은 날에는 투명하고 고급스러운 백색-황금빛 아우라로 녹아듭니다.
-    const baseGlowR = currentBeam.r * coreBoost * glowRedFactor * vibrancy * 0.9 + 0.1;
-    const baseGlowG = currentBeam.g * coreBoost * glowGreenFactor * 0.85 + 0.08;
-    const baseGlowB = currentBeam.b * coreBoost * 1.08 * 0.75 + 0.04;
+    // 맑은 날에는 지평선 주변을 환하게 눈부시게 밝힐 수 있도록 맑은 화이트-골드 광원 하한을 더 화사하게 보강합니다.
+    const baseGlowR = currentBeam.r * coreBoost * glowRedFactor * vibrancy * 1.2 + 0.16;
+    const baseGlowG = currentBeam.g * coreBoost * glowGreenFactor * 1.05 + 0.12;
+    const baseGlowB = currentBeam.b * coreBoost * 1.08 * 0.95 + 0.08;
 
     // 구름 차단 시 주변 지평선 하늘색(horizonRGB)과 소프트 믹싱
     const glowR = lerp(horizonRGB.r * 0.8, baseGlowR, pathClarity);
@@ -552,10 +552,11 @@ export const predictSunset = (
     const finalGlowG = lerp(glowG, horizonRGB.g * 1.1, fogIntensity * 0.5);
     const finalGlowB = lerp(glowB, horizonRGB.b * 1.1, fogIntensity * 0.5);
 
-    // Transition from hot center to deep red rim
+    // Green과 Blue를 외곽에서 인위적으로 깎아 칙칙하게 만들던 곱셈을 완전히 배제합니다!
+    // 본래의 화사한 광원 색채 비율을 100% 그대로 유지하여 주변 지평선과 매끄럽게 페이드아웃 되게 유도합니다.
     const rVal = clamp01(finalGlowR);
-    const gVal = clamp01(finalGlowG * (1 - offset * 0.8));
-    const bVal = clamp01(finalGlowB * (1 - offset));
+    const gVal = clamp01(finalGlowG);
+    const bVal = clamp01(finalGlowB);
 
     let intensity = (phase / 28) * glowVisibility;
     // 3.5승 지수 곡선으로 가장자리로 갈수록 솜털처럼 부드럽게 소멸시킴 (경계선 이질감 완전 해결!)
