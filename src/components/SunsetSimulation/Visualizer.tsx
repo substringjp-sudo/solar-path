@@ -504,7 +504,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         <View style={[styles.fovPointer, { top: `${fovPct}%`, borderColor: theme.accent }]}>
           <View style={[styles.fovPointerDot, { backgroundColor: theme.accent }]} />
           <View style={[styles.fovTooltip, { backgroundColor: 'rgba(0,0,0,0.75)', borderColor: theme.accent }]}>
-            <Text style={[styles.fovTooltipText, { color: theme.text }]}>
+            <Text style={[styles.fovTooltipText, { color: '#ffffff' }]}>
               {((20 / visualFov)).toFixed(1)}x
             </Text>
           </View>

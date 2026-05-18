@@ -81,7 +81,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       },
       onPanResponderMove: (evt) => {
         const touches = evt.nativeEvent.touches;
-        if (touches.length >= 2 && initialPinchDist.current !== null) {
+        if (touches.length >= 2) {
+          // If the pinch baseline isn't captured yet (e.g., transition from 1 touch to 2),
+          // immediately capture the current distance and visualFov as the benchmark!
+          if (initialPinchDist.current === null) {
+            initialPinchDist.current = getTouchDistance(touches);
+            initialFovOnPinch.current = visualFov;
+            return;
+          }
           const currentDist = getTouchDistance(touches);
           if (currentDist > 0) {
             const ratio = initialPinchDist.current / currentDist;
@@ -89,6 +96,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             targetFov = Math.max(10, Math.min(30, targetFov));
             setVisualFov(targetFov);
           }
+        } else {
+          // Reset benchmark if fingers are lifted to ensure a smooth transition on next pinch
+          initialPinchDist.current = null;
         }
       },
       onPanResponderRelease: () => {
