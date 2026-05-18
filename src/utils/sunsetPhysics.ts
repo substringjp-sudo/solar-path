@@ -470,11 +470,19 @@ export const predictSunset = (
   const sunsetOffsetR = isSunsetMode ? (0.04 + clamp01(beta * 0.7) * 0.2) * sunWeight : 0;
   const sunsetOffsetG = isSunsetMode ? (0.01 + clamp01(beta * 0.4) * 0.08) * sunWeight : 0;
 
-  const horizonRGB: RGB = {
+  const rawHorizonRGB: RGB = {
     r: clamp01(currentBeam.r * redMult + sunsetOffsetR),
     g: clamp01(currentBeam.g * greenMult + sunsetOffsetG),
     b: clamp01(currentBeam.b * 1.04),
   };
+
+  // 해가 수평선 밑으로 완전히 꺼질 때(effectiveSunAlt가 음수로 내려갈 때) 
+  // 지평선 색상도 머리 위 밤하늘(NIGHT) 속으로 완벽하게 페이드아웃 되게 함!
+  const horizonRGB = mixRgb(
+    NIGHT, 
+    rawHorizonRGB, 
+    clamp01((effectiveSunAlt + 6) / 8) // 해가 -6도 이하가 되면 지평선도 완전한 NIGHT로 동화!
+  );
 
   const midBandRGB = mixRgb(skyZenith, horizonRGB, 0.65);
   const upperMidRGB = mixRgb(skyZenith, midBandRGB, 0.4);
@@ -602,7 +610,9 @@ export const predictSunset = (
     const mixedCloud = mixRgb(purpleGlow, directScatter, illum);
 
     // Fade to night as twilight settles
-    return mixRgb(NIGHT, mixedCloud, sunWeight * 0.85 + 0.15);
+    // 해가 깊어질수록 구름 색상도 완벽한 NIGHT 속으로 100% 물러나게 함! (15% 잔류 붕 뜸 버그 완벽 해결!)
+    const cloudNightWeight = clamp01((effectiveSunAlt + 6) / 10);
+    return mixRgb(NIGHT, mixedCloud, cloudNightWeight);
   };
 
   const highCloudRGB = physicalCloudColor(illumHigh, tauHigh, 0.95);
