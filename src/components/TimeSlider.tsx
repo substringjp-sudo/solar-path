@@ -121,7 +121,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
       <View style={styles.timeLabels}>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : "Event"}</Text>
+        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : (baseTime ? format(baseTime, 'HH:mm') : "Event")}</Text>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
       </View>
     </View>

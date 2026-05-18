@@ -395,9 +395,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={[styles.simControlTime, { color: theme.accent }]}>
-                  예정 시각 {format(sim?.trueEventTime || sim?.eventTime || new Date(), 'HH:mm')}
-                </Text>
               </View>
               
               <TimeSlider 
@@ -431,11 +428,11 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   loadingSubText: { fontSize: 11, opacity: 0.6 },
   simControl: { 
-    height: 124, 
+    height: 114, 
     justifyContent: 'center', 
     borderRadius: 28, 
     borderWidth: Platform.OS === 'android' ? 0 : 1, 
-    paddingVertical: 12,
+    paddingVertical: 10,
     marginBottom: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
