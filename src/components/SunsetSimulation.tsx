@@ -412,11 +412,10 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   loadingSubText: { fontSize: 11, opacity: 0.6 },
   simControl: { 
-    height: 84, 
+    paddingVertical: 10,
     justifyContent: 'center', 
     borderRadius: 28, 
     borderWidth: Platform.OS === 'android' ? 0 : 1, 
-    paddingVertical: 4,
     marginBottom: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
