@@ -312,6 +312,7 @@ export interface SunsetPrediction {
     overheadGlow: number;
     overheadOvercast: number;
     aerosolBeta: number;
+    dynamicHaloScale: number;
     illumLow: number;
     illumMid: number;
     illumHigh: number;
@@ -349,7 +350,7 @@ export const predictSunset = (
       midCloudColor: 'transparent',
       lowCloudColor: 'transparent',
       sunDiskColor: 'transparent',
-      factors: { beamRedness: 0, pathClarity: 0, overheadGlow: 0, overheadOvercast: 0, aerosolBeta: 0, illumLow: 0, illumMid: 0, illumHigh: 0 }
+      factors: { beamRedness: 0, pathClarity: 0, overheadGlow: 0, overheadOvercast: 0, aerosolBeta: 0, dynamicHaloScale: 1.0, illumLow: 0, illumMid: 0, illumHigh: 0 }
     };
   }
   const latVal = latitude ?? 37.5665;
@@ -488,7 +489,7 @@ export const predictSunset = (
 
   // --- Weather Specific Adjustments (구름, 미세먼지, 안개 개별 정밀 튜닝) ----------
   // 1) 안개 강도 (Fog Intensity)
-  // rhPct(습도)가 85%를 넘어가고 시정이 6000m 이하일 때 안개로 인해 광원 뭉개짐 발생
+  // rhVal(습도)가 85%를 넘어가고 시정이 6000m 이하일 때 안개로 인해 광원 뭉개짐 발생
   const visM = visibilityM ?? 25000;
   const rhVal = rhPct ?? 50;
   const fogIntensity = clamp01((rhVal - 85) / 15) * clamp01((6000 - Math.max(500, visM)) / 5500);
@@ -500,6 +501,9 @@ export const predictSunset = (
   // 3) 구름 가림 강도 (Cloud Block Intensity)
   // pathClarity는 태양 광선 경로에 구름이 없을 때 1.0, 꽉 차서 차단될 때 0.0
   const cloudBlockIntensity = 1.0 - pathClarity;
+
+  // 4) 광륜의 동적 물리 크기 스케일 (미세먼지 시 넓게 팽창, 안개 시 거대하게 뿌옇게 팽창, 구름 시 소멸)
+  const dynamicHaloScale = (1.0 + dustIntensity * 0.4 + fogIntensity * 0.75) * Math.max(0.15, pathClarity);
 
   // --- Sun Glow (Mie Scattering Halo) ------------------------------------
   const sunGlowStops: SkyStop[] = [];
@@ -524,23 +528,33 @@ export const predictSunset = (
     const glowRedFactor = 1.1 + clamp01(beta * 1.8) * 0.9 + dustIntensity * 0.7;   
     const glowGreenFactor = (1.0 + clamp01(beta * 1.1) * 0.5) * Math.exp(-dustIntensity * 1.8);
 
-    // 맑은 날에는 광륜이 황금빛으로 찬란하도록 최소 밝기를 대폭 확보함
-    const glowRGB: RGB = {
-      r: clamp01(Math.max(0.94, currentBeam.r * coreBoost * glowRedFactor * vibrancy)),
-      g: clamp01(Math.max(0.52, currentBeam.g * coreBoost * glowGreenFactor)),
-      b: clamp01(Math.max(0.10, currentBeam.b * coreBoost * 1.08) * Math.exp(-dustIntensity * 3.0)),
-    };
+    // 광륜 역시 노란색으로 혼자 붕 뜨지 않고, 배경 지평선 하늘색(horizonRGB)과 100% 동적으로 스며들어 섞이게 만듭니다!
+    // 맑은 날에는 투명하고 고급스러운 백색-황금빛 아우라로 녹아듭니다.
+    const baseGlowR = currentBeam.r * coreBoost * glowRedFactor * vibrancy * 0.9 + 0.1;
+    const baseGlowG = currentBeam.g * coreBoost * glowGreenFactor * 0.85 + 0.08;
+    const baseGlowB = currentBeam.b * coreBoost * 1.08 * 0.75 + 0.04;
+
+    // 구름 차단 시 주변 지평선 하늘색(horizonRGB)과 소프트 믹싱
+    const glowR = lerp(horizonRGB.r * 0.8, baseGlowR, pathClarity);
+    const glowG = lerp(horizonRGB.g * 0.65, baseGlowG, pathClarity);
+    const glowB = lerp(horizonRGB.b * 0.65, baseGlowB, pathClarity);
+
+    // 안개가 끼면 주변 하늘의 뽀얀 공기빛(Soft Gray-Blue)과 섞여 붕 뜨는 이질감이 완벽히 사라집니다
+    const finalGlowR = lerp(glowR, horizonRGB.r * 1.1, fogIntensity * 0.5);
+    const finalGlowG = lerp(glowG, horizonRGB.g * 1.1, fogIntensity * 0.5);
+    const finalGlowB = lerp(glowB, horizonRGB.b * 1.1, fogIntensity * 0.5);
 
     // Transition from hot center to deep red rim
-    const rVal = clamp01(glowRGB.r);
-    const gVal = clamp01(glowRGB.g * (1 - offset * 0.8));
-    const bVal = clamp01(glowRGB.b * (1 - offset));
+    const rVal = clamp01(finalGlowR);
+    const gVal = clamp01(finalGlowG * (1 - offset * 0.8));
+    const bVal = clamp01(finalGlowB * (1 - offset));
 
     let intensity = (phase / 28) * glowVisibility;
-    intensity *= Math.pow(1.0 - offset, 2.0); // Smoother falloff
+    // 3.5승 지수 곡선으로 가장자리로 갈수록 솜털처럼 부드럽게 소멸시킴 (경계선 이질감 완전 해결!)
+    intensity *= Math.pow(1.0 - offset, 3.5); 
 
     // Alpha needs to be high at the center to look like a light source
-    const alpha = clamp01(intensity * 1.2);
+    const alpha = clamp01(intensity * 1.05);
     sunGlowStops.push({
       offset,
       color: rgbToCssAlpha({ r: rVal, g: gVal, b: bVal }, alpha),
@@ -596,15 +610,31 @@ export const predictSunset = (
   const lowCloudRGB = physicalCloudColor(illumLow, tauLow, 0.55);
 
   // --- Sun Disk Attenuation (태양 발광 원반 색상 및 불투명도 계산) ---------------
-  // 기본 맑을 때의 강력하고 눈부신 베이스 태양빛 (r: 0.98, g: 0.65, b: 0.18)
+  // 태양 원반 자체는 고체 형광색이 아니라, 본질적으로 하얗고 눈부신 백색(White)에서 시작하여 
+  // 대기 흡수(currentBeam)에 의해 자연스럽게 필터링되는 부드러운 살구/황금/적색으로 변해야 합니다.
+  // 맑을 때는 완전히 눈부신 백색에 가까운 황금빛이어야 합니다.
+  let baseSunR = currentBeam.r * 1.6 + 0.85;
+  let baseSunG = currentBeam.g * 1.3 + 0.75;
+  let baseSunB = currentBeam.b * 1.0 + 0.50;
+
   // 미세먼지(Dust)가 심하면 초록(g)과 파랑(b) 채널이 빛 산란으로 완전 차단되며 짙은 블러드 레드(Blood Red)로 조절됨
-  const sunR = clamp01(Math.max(0.98, currentBeam.r * 5.0) * (1.0 - dustIntensity * 0.15));
-  const sunG = clamp01(Math.max(0.65, currentBeam.g * 4.0) * Math.exp(-dustIntensity * 3.0));
-  const sunB = clamp01(Math.max(0.18, currentBeam.b * 2.5) * Math.exp(-dustIntensity * 4.5));
+  baseSunR = baseSunR * (1.0 - dustIntensity * 0.15);
+  baseSunG = baseSunG * Math.exp(-dustIntensity * 3.0);
+  baseSunB = baseSunB * Math.exp(-dustIntensity * 4.5);
+
+  // 구름이 엄청 많아 태양이 가려지면, 태양 고유 광채가 구름 뒤에서 어둡고 탁하게 죽으며 주변 하늘의 자줏빛/회색 ambientSky와 자연스럽게 블렌딩됩니다!
+  const cloudIllum = pathClarity; // 0.0 (가려짐) ~ 1.0 (맑음)
+  const sunR = lerp(ambientSky.r * 0.6, baseSunR, cloudIllum);
+  const sunG = lerp(ambientSky.g * 0.5, baseSunG, cloudIllum);
+  const sunB = lerp(ambientSky.b * 0.5, baseSunB, cloudIllum);
+
+  // 안개가 심하면 태양이 안개 고유의 뽀얀 우윳빛(0.95, 0.90, 0.85)으로 부드럽게 번집니다.
+  const finalSunR = lerp(sunR, 0.95, fogIntensity * 0.6);
+  const finalSunG = lerp(sunG, 0.90, fogIntensity * 0.6);
+  const finalSunB = lerp(sunB, 0.85, fogIntensity * 0.6);
 
   // 안개가 심하거나 구름이 가리면 태양의 윤곽이 뭉개져서 투과 불투명도(Alpha)가 극도로 감소함
-  // 구름이 완전히 가릴 때는 흐릿한 원반 형체(5% 내외)만 간신히 남음
-  const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.95) * (1.0 - fogIntensity * 0.85));
+  const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.95) * (1.0 - fogIntensity * 0.82));
 
   return {
     score,
@@ -615,13 +645,14 @@ export const predictSunset = (
     highCloudColor: rgbToCssAlpha(highCloudRGB, 0.6),
     midCloudColor: rgbToCssAlpha(midCloudRGB, 0.55),
     lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.65),
-    sunDiskColor: rgbToCssAlpha({ r: sunR, g: sunG, b: sunB }, sunDiskAlpha),
+    sunDiskColor: rgbToCssAlpha({ r: finalSunR, g: finalSunG, b: finalSunB }, sunDiskAlpha),
     factors: {
       beamRedness,
       pathClarity,
       overheadGlow,
       overheadOvercast,
       aerosolBeta: beta,
+      dynamicHaloScale,
       illumLow,
       illumMid,
       illumHigh,
