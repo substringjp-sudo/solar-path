@@ -256,9 +256,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const sunAzimuth = (sunPos.azimuth * 180 / Math.PI) + 180;
   const heading = sunAzimuth;
 
+  const obsHourly = useMemo(() => {
+    if (!sim?.pathData || sim.pathData.length === 0) return null;
+    return getInterpolatedWeather(sim.pathData, currentTime)[0];
+  }, [sim?.pathData, currentTime]);
+
   const prediction = useMemo<SunsetPrediction | null>(() => {
     if (!sim?.pathData || sim.pathData.length < 4) return null;
-    const obsHourly = getInterpolatedWeather(sim.pathData, currentTime)[0];
     return predictSunset(
       sim.pathData,
       currentTime,
@@ -268,7 +272,12 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       location?.coords?.latitude,
       location?.coords?.altitude ?? sim?.terrain?.observerElevation ?? 0,
     );
-  }, [sim?.pathData, currentTime, sunAltitude, location?.coords?.latitude, location?.coords?.altitude, sim?.terrain?.observerElevation]);
+  }, [sim?.pathData, currentTime, sunAltitude, obsHourly, location?.coords?.latitude, location?.coords?.altitude, sim?.terrain?.observerElevation]);
+
+  const pm25 = useMemo(() => {
+    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
+    return Math.round(beta * 280);
+  }, [prediction]);
 
   const interpolatedWeather = useMemo(() => {
     if (!sim?.pathData) return [];
@@ -326,22 +335,28 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
             <View style={[styles.unifiedCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <View style={styles.unifiedLeftSection}>
-                <View style={styles.sourceBadgeRow}>
-                  <Text style={[styles.heroTitle, { color: theme.text }]}>
-                    {sim?.type === 'Sunrise' ? 'Actual Dawn' : 'Actual Twilight'}
-                  </Text>
-                  <TouchableOpacity 
-                    style={[styles.sourceBadge, { backgroundColor: sim?.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.2)' : 'rgba(255, 255, 255, 0.05)' }]}
-                    onPress={() => setShowSources(true)}
-                  >
-                    <Text style={[styles.sourceBadgeText, { color: sim?.weatherSource === 'ultra-short' ? '#4DA0B0' : theme.subText }]}>
-                      {sim?.weatherSource === 'ultra-short' ? '초단기정밀' : '글로벌표준'}
+                <Text style={[styles.aerosolTitle, { color: theme.text }]}>대기 에어로졸 & 습도</Text>
+                <View style={styles.aerosolRow}>
+                  <View style={styles.aerosolCol}>
+                    <Text style={[styles.aerosolVal, { color: theme.text }]}>
+                      {obsHourly?.humidity != null ? Math.round(obsHourly.humidity) : 50}
+                      <Text style={styles.aerosolUnit}>%</Text>
                     </Text>
-                  </TouchableOpacity>
+                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>상대습도</Text>
+                  </View>
+                  
+                  <View style={[styles.miniDivider, { backgroundColor: theme.border }]} />
+                  
+                  <View style={styles.aerosolCol}>
+                    <Text style={[styles.aerosolVal, { 
+                      color: pm25 <= 15 ? '#4DA0B0' : pm25 <= 35 ? '#E6C25A' : pm25 <= 75 ? '#FF8A3D' : '#FF5C3F'
+                    }]}>
+                      {pm25}
+                      <Text style={styles.aerosolUnit}>㎍</Text>
+                    </Text>
+                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>초미세먼지</Text>
+                  </View>
                 </View>
-                <Text style={[styles.heroTime, { color: theme.accent }]}>
-                  {format(sim?.trueEventTime || sim?.eventTime || new Date(), 'HH:mm')}
-                </Text>
               </View>
 
               <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
@@ -366,6 +381,25 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             </View>
 
             <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              <View style={styles.simControlHeader}>
+                <View style={styles.simControlTitleCol}>
+                  <Text style={[styles.simControlTitle, { color: theme.text }]}>
+                    {sim?.type === 'Sunrise' ? 'Actual Dawn' : 'Actual Twilight'}
+                  </Text>
+                  <TouchableOpacity 
+                    style={[styles.miniSourceBadge, { backgroundColor: sim?.weatherSource === 'ultra-short' ? 'rgba(77, 160, 176, 0.15)' : 'rgba(255, 255, 255, 0.03)' }]}
+                    onPress={() => setShowSources(true)}
+                  >
+                    <Text style={[styles.miniSourceBadgeText, { color: sim?.weatherSource === 'ultra-short' ? '#4DA0B0' : theme.subText }]}>
+                      {sim?.weatherSource === 'ultra-short' ? '초단기정밀' : '글로벌표준'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.simControlTime, { color: theme.accent }]}>
+                  예정 시각 {format(sim?.trueEventTime || sim?.eventTime || new Date(), 'HH:mm')}
+                </Text>
+              </View>
+              
               <TimeSlider 
                 mode="relative"
                 value={currentTime}
@@ -397,11 +431,11 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   loadingSubText: { fontSize: 11, opacity: 0.6 },
   simControl: { 
-    height: 108, 
+    height: 124, 
     justifyContent: 'center', 
     borderRadius: 28, 
     borderWidth: Platform.OS === 'android' ? 0 : 1, 
-    paddingVertical: 10,
+    paddingVertical: 12,
     marginBottom: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
@@ -416,25 +450,26 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 22,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
-    height: 80,
+    height: 84,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.03,
     shadowRadius: 10,
     elevation: Platform.OS === 'android' ? 4 : 2,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   unifiedLeftSection: {
-    flex: 1.2,
+    flex: 1.35,
     justifyContent: 'center',
+    gap: 4,
   },
   verticalDivider: {
     width: 1,
-    height: '60%',
-    marginHorizontal: 12,
+    height: '65%',
+    marginHorizontal: 8,
   },
   unifiedRightSection: {
-    flex: 2.2,
+    flex: 1.9,
     justifyContent: 'center',
   },
   unifiedCloudGrid: {
@@ -446,11 +481,75 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  sourceBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
-  sourceBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.1)' },
-  sourceBadgeText: { fontSize: 8, fontWeight: '900' },
-  heroTitle: { fontSize: 13, fontWeight: '900' },
-  heroTime: { fontSize: 18, fontWeight: '900', marginTop: 2 },
+  aerosolTitle: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    opacity: 0.85,
+    marginBottom: 2,
+  },
+  aerosolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  aerosolCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  aerosolVal: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  aerosolUnit: {
+    fontSize: 8,
+    fontWeight: '600',
+    opacity: 0.7,
+  },
+  aerosolLabel: {
+    fontSize: 8,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  miniDivider: {
+    width: 1,
+    height: 12,
+    opacity: 0.3,
+  },
+  simControlHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 6,
+  },
+  simControlTitleCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  simControlTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.0,
+  },
+  simControlTime: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  miniSourceBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  miniSourceBadgeText: {
+    fontSize: 7,
+    fontWeight: '900',
+  },
   gridDist: { fontSize: 9, fontWeight: '700', marginBottom: 4 },
   miniBars: { flexDirection: 'row', gap: 2.5, height: 25, alignItems: 'flex-end' },
   miniBar: { width: 4.5, borderRadius: 2.5 }
