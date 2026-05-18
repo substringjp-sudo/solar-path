@@ -58,6 +58,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // EMA/LPF 저주파 필터 Refs
   // 방위각은 360도 경계면 처리(wrapping)를 위해 2D 벡터로 보간
   const smoothedAzVectorRef = useRef<{ x: number; y: number } | null>(null);
+  const smoothedCompassVectorRef = useRef<{ x: number; y: number } | null>(null);
   const smoothedPitchRef = useRef<number | null>(null);
 
   // 촬영 상태
@@ -85,7 +86,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     );
   }, [sunPos.altitude, goldenTimeInfo.minutesToEvent]);
 
-  // Magnetometer 구독 (나침반 절대 방위각 획득)
+  // Magnetometer 구독 (나침반 절대 방위각 획득 + GPS 기반 진북 및 LPF 보정)
   useEffect(() => {
     if (!visible) return;
 
@@ -95,10 +96,37 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     subscription = Magnetometer.addListener((data) => {
       let { x, y } = data;
       // y축, x축 기반 아크탄젠트로 절대 북쪽 기준 방위각 산출
-      let heading = Math.atan2(y, x) * (180 / Math.PI);
-      heading = (heading + 360) % 360;
-      setCompassHeading(heading);
-      compassHeadingRef.current = heading;
+      let rawHeading = Math.atan2(y, x) * (180 / Math.PI);
+      rawHeading = (rawHeading + 360) % 360;
+
+      // GPS 위도 경도를 기준으로 자북(Magnetic North)과 진북(True North)의 편각(Magnetic Declination) 보정 계산
+      // 한국 지역(서울 37.5N, 127.0E) 기준 약 -8.5도(서편각)의 물리 보정치를 포함하여 진북 방위 확보
+      const declination = -8.5 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
+      const trueHeading = (rawHeading + declination + 360) % 360;
+
+      // 360도 경계면 처리(wrapping)를 위한 2D 벡터 단위 LPF 필터 적용
+      const headingRad = trueHeading * Math.PI / 180;
+      const hx = Math.cos(headingRad);
+      const hy = Math.sin(headingRad);
+
+      let nextHx = hx;
+      let nextHy = hy;
+
+      if (smoothedCompassVectorRef.current === null) {
+        smoothedCompassVectorRef.current = { x: hx, y: hy };
+      } else {
+        const prevHVec = smoothedCompassVectorRef.current;
+        // 나침반 고주파 노이즈를 강력하게 억제하는 스무딩 계수 0.06 적용
+        nextHx = prevHVec.x + (hx - prevHVec.x) * 0.06;
+        nextHy = prevHVec.y + (hy - prevHVec.y) * 0.06;
+        smoothedCompassVectorRef.current = { x: nextHx, y: nextHy };
+      }
+
+      let filteredHeading = Math.atan2(nextHy, nextHx) * 180 / Math.PI;
+      filteredHeading = (filteredHeading + 360) % 360;
+
+      setCompassHeading(filteredHeading);
+      compassHeadingRef.current = filteredHeading;
     });
 
     return () => {
@@ -124,18 +152,29 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const compVal = compassHeadingRef.current;
       const currentOffset = gyroCalibOffsetRef.current;
 
-      // 나침반 데이터를 기반으로 자이로의 방향 드리프트를 실시간 보정 (상보 필터 융합)
+      // 회전 움직임 크기 검출 (각속도 데이터가 존재하면 alpha, beta, gamma 크기 연산)
+      let isMoving = true;
+      if (data.rotationRate) {
+        const { alpha: ra, beta: rb, gamma: rg } = data.rotationRate;
+        const rateMag = Math.sqrt(ra * ra + rb * rb + rg * rg);
+        isMoving = rateMag > 0.04; // 0.04 rad/s 이상의 극미세 회전이 감지될 때만 움직임으로 판단
+      }
+
+      // 나침반 데이터를 기반으로 자이로의 방향 드리프트를 실시간 보정 (적응형 상보 필터)
       if (compVal !== null) {
         const targetOffset = (compVal + rawAzimuth) % 360;
         const diff = (targetOffset - currentOffset.az + 540) % 360 - 180;
         
-        // 자이로 반응성 98% + 나침반 절대 방위 2% 융합으로 안정성과 정확성 극대화
-        const nextOffsetAz = (currentOffset.az + diff * 0.02 + 360) % 360;
+        // 기기가 가만히 멈춰 있을 때는 지자기 나침반 센서의 잡음 유입을 완전히 틀어막기 위해 보정 속도를 0.0005로 40배 축소!
+        // 기기가 이동/회전 중일 때는 자이로 상대 좌표에 의존하며 0.003 비율로 드리프트를 완벽하게 서서히 보정
+        const k = isMoving ? 0.003 : 0.0005;
+        const nextOffsetAz = (currentOffset.az + diff * k + 360) % 360;
+        
         gyroCalibOffsetRef.current = {
           az: nextOffsetAz,
           pitch: currentOffset.pitch
         };
-        // 렌더링에 필요한 보정 오프셋 상태 업데이트 (안정적)
+        // 렌더링에 필요한 보정 오프셋 상태 업데이트 (정적 록인 제공)
         setGyroCalibOffset(gyroCalibOffsetRef.current);
       }
 
