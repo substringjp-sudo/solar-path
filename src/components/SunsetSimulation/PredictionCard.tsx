@@ -66,10 +66,11 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
 
 const styles = StyleSheet.create({
   predictionCard: {
+    height: 96, // 카드 높이를 항상 96으로 고정하여 설명글 줄 수에 따른 꿀렁임 제거!
     padding: 12,
     borderRadius: 20,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
-    gap: 8,
+    justifyContent: 'space-between', // 카드 내부 헤더와 설명란의 균형 잡힌 정렬 보장
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.03,
