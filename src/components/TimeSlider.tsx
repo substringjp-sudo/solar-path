@@ -43,7 +43,11 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   }, [markers, longitude]);
 
   const isFullDay = mode === 'fullDay';
-  const dayStart = startOfDay(localValue);
+  const dayStart = useMemo(() => {
+    const d = new Date(localValue);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [localValue]);
   
   const isSunrise = localMarkers.some(m => m.type === 'rise');
   const startOffset = isSunrise ? -60 : -90; // 일출은 전 1시간(-60), 일몰은 전 1.5시간(-90)
@@ -51,7 +55,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   const getPercentageFromTime = (t: Date) => {
     if (isFullDay) {
-      const mins = (t.getTime() - dayStart.getTime()) / (1000 * 60);
+      const mins = t.getHours() * 60 + t.getMinutes();
       return (mins / (24 * 60)) * 100;
     } else {
       const ref = localBaseTime || new Date();
