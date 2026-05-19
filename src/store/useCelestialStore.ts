@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
 
 export interface WeatherCacheItem {
@@ -37,6 +37,7 @@ export interface GlobalPhoto {
   latitude: number;
   longitude: number;
   imageUrl: string;
+  storagePath: string;
   timestamp: number;
   locationName: string;
   userId: string;
@@ -349,25 +350,33 @@ export const useCelestialStore = create<CelestialState>()(
         const response = await fetch(localUri);
         const blob = await response.blob();
 
-        // Upload to Firebase Storage
-        await uploadBytes(storageRef, blob);
-        const imageUrl = await getDownloadURL(storageRef);
+        try {
+          // Upload to Firebase Storage
+          await uploadBytes(storageRef, blob);
+          const imageUrl = await getDownloadURL(storageRef);
 
-        // Save metadata to Firestore 'global_photos'
-        const userName = user.email || user.displayName || 'Anonymous';
-        const newPhoto: GlobalPhoto = {
-          id: photoId,
-          latitude,
-          longitude,
-          imageUrl,
-          timestamp: Date.now(),
-          locationName,
-          userId: user.uid,
-          userName,
-        };
+          // Save metadata to Firestore 'global_photos'
+          const userName = user.email || user.displayName || 'Anonymous';
+          const newPhoto: GlobalPhoto = {
+            id: photoId,
+            latitude,
+            longitude,
+            imageUrl,
+            storagePath,
+            timestamp: Date.now(),
+            locationName,
+            userId: user.uid,
+            userName,
+          };
 
-        const docRef = doc(db, 'global_photos', photoId);
-        await setDoc(docRef, newPhoto);
+          const docRef = doc(db, 'global_photos', photoId);
+          await setDoc(docRef, newPhoto);
+        } finally {
+          // Prevent memory leaks / OOM by closing the blob if supported in RN
+          if (blob && typeof (blob as any).close === 'function') {
+            (blob as any).close();
+          }
+        }
       },
       syncGlobalPhotos: () => {
         const photosRef = collection(db, 'global_photos');
@@ -386,11 +395,21 @@ export const useCelestialStore = create<CelestialState>()(
         const user = get().currentUser || auth.currentUser;
         if (!user) return;
         
+        // Find photo metadata to get the storage path
+        const photo = get().globalPhotos.find(p => p.id === id);
+        
         try {
+          // 1. Delete Firestore document first
           const docRef = doc(db, 'global_photos', id);
           await deleteDoc(docRef);
+
+          // 2. Delete the actual image file from Firebase Storage
+          if (photo && photo.storagePath) {
+            const fileRef = ref(storage, photo.storagePath);
+            await deleteObject(fileRef);
+          }
         } catch (err) {
-          console.warn('Failed to remove global photo from Firestore:', err);
+          console.warn('Failed to remove global photo:', err);
         }
       },
     }),

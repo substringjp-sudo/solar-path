@@ -14,7 +14,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pplaner.beforeglow"
+      "bundleIdentifier": "com.pplaner.beforeglow",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "BeforeGlow requires location access to calculate accurate sunrise/sunset times and display isochrone maps for your current spot.",
+        "NSCameraUsageDescription": "BeforeGlow requires camera access to take beautiful photos of the sunset and share them with the community.",
+        "NSPhotoLibraryUsageDescription": "BeforeGlow requires photo library access to select and upload your saved sunset photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +27,14 @@
         "backgroundColor": "#000000"
       },
       "package": "com.pplaner.beforeglow",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -68,8 +68,10 @@ export const MapPicker = ({
     <head>
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      ${googleMapsApiKey ? `
       <script src="https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}"></script>
       <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@latest/dist/Leaflet.GoogleMutant.js"></script>
+      ` : ''}
       <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
       <style>
         body, html, #map { height: 100%; margin: 0; padding: 0; background: ${mapBg}; }
@@ -151,10 +153,17 @@ export const MapPicker = ({
           { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4e5d6c' }] }
         ])};
 
-        L.gridLayer.googleMutant({
-          type: 'roadmap',
-          styles: googleStyles
-        }).addTo(map);
+        if (typeof L.gridLayer.googleMutant === 'function') {
+          L.gridLayer.googleMutant({
+            type: 'roadmap',
+            styles: googleStyles
+          }).addTo(map);
+        } else {
+          const tileUrl = ${isDay ? "'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'" : "'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'"};
+          L.tileLayer(tileUrl, {
+            attribution: '© OpenStreetMap contributors © CARTO'
+          }).addTo(map);
+        }
         
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
