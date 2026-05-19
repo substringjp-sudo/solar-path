@@ -29,18 +29,17 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   isDay,
   markers = [],
 }) => {
-  const { location } = useCelestialStore();
-  const longitude = location?.coords.longitude ?? 126.9780;
+  const { location, timezoneOffsetHours } = useCelestialStore();
 
-  const localValue = useMemo(() => getLocalTimeAtLocation(value, longitude), [value, longitude]);
-  const localBaseTime = useMemo(() => baseTime ? getLocalTimeAtLocation(baseTime, longitude) : undefined, [baseTime, longitude]);
+  const localValue = useMemo(() => getLocalTimeAtLocation(value, timezoneOffsetHours), [value, timezoneOffsetHours]);
+  const localBaseTime = useMemo(() => baseTime ? getLocalTimeAtLocation(baseTime, timezoneOffsetHours) : undefined, [baseTime, timezoneOffsetHours]);
   
   const localMarkers = useMemo(() => {
     return markers.map(m => ({
       ...m,
-      time: m.time ? getLocalTimeAtLocation(m.time, longitude) : null,
+      time: m.time ? getLocalTimeAtLocation(m.time, timezoneOffsetHours) : null,
     }));
-  }, [markers, longitude]);
+  }, [markers, timezoneOffsetHours]);
 
   const isFullDay = mode === 'fullDay';
   const dayStart = useMemo(() => {
@@ -160,7 +159,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           value={currentPct}
           onChange={(p) => {
             const selectedLocalTime = getTimeFromPercentage(p);
-            const systemTime = getSystemTimeFromLocationTime(selectedLocalTime, longitude);
+            const systemTime = getSystemTimeFromLocationTime(selectedLocalTime, timezoneOffsetHours);
             onChange(systemTime);
           }}
           onGrant={() => onToggleTimeMachine(true)}

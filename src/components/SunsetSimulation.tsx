@@ -40,6 +40,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   
   const { 
     location, 
+    timezoneOffsetHours,
     weatherCacheList, 
     terrainCacheList, 
     addWeatherCache, 
@@ -66,12 +67,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const initialPinchDist = useRef<number | null>(null);
   const initialFovOnPinch = useRef<number>(20);
 
-  const longitude = location?.coords.longitude ?? 126.9780;
-
   const currentDateStr = useMemo(() => {
-    const localTime = getLocalTimeAtLocation(currentTime, longitude);
+    const localTime = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
     return format(localTime, 'yyyy-MM-dd');
-  }, [currentTime, longitude]);
+  }, [currentTime, timezoneOffsetHours]);
 
   const lastFetchedDateRef = useRef<string>('');
 

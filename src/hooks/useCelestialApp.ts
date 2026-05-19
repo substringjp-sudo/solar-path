@@ -4,14 +4,14 @@ import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
-import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, getTimezoneLabel } from '../utils/timezone';
+import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
 
 export function useCelestialApp() {
   const { width } = Dimensions.get('window');
   
   const defaultCoords = { latitude: 37.5665, longitude: 126.9780 }; 
   const { 
-    currentTime, location, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
+    currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation
@@ -20,14 +20,10 @@ export function useCelestialApp() {
   const longitude = location?.coords.longitude ?? defaultCoords.longitude;
   const latitude = location?.coords.latitude ?? defaultCoords.latitude;
 
-  // 현지 기준 가상 시간 및 시간대 라벨 계산
+  // 현지 기준 가상 시간 계산 (실제 법정 오프셋 반영)
   const currentTimeLocal = useMemo(() => {
-    return getLocalTimeAtLocation(currentTime, longitude);
-  }, [currentTime, longitude]);
-
-  const timezoneLabel = useMemo(() => {
-    return getTimezoneLabel(longitude);
-  }, [longitude]);
+    return getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+  }, [currentTime, timezoneOffsetHours]);
 
   const [animating, setAnimating] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -208,7 +204,7 @@ export function useCelestialApp() {
     newTime.setSeconds(0);
     newTime.setMilliseconds(0);
     
-    const systemTime = getSystemTimeFromLocationTime(newTime, longitude);
+    const systemTime = getSystemTimeFromLocationTime(newTime, timezoneOffsetHours);
     animateContent();
     setCurrentTime(systemTime);
     if (!isTimeMachineEnabled) setTimeMachineEnabled(true);

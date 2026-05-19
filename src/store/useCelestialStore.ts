@@ -29,6 +29,8 @@ export interface SavedLocation {
 interface CelestialState {
   currentTime: Date;
   location: Location.LocationObject | null;
+  timezoneOffsetHours: number;
+  timezoneLabel: string;
   isTimeMachineEnabled: boolean;
   errorMsg: string | null;
   weatherCache: WeatherCacheItem | null;
@@ -61,6 +63,12 @@ export const useCelestialStore = create<CelestialState>()(
     (set, get) => ({
       currentTime: new Date(),
       location: null,
+      timezoneOffsetHours: -new Date().getTimezoneOffset() / 60,
+      timezoneLabel: (() => {
+        const offset = -new Date().getTimezoneOffset() / 60;
+        if (offset === 0) return 'GMT';
+        return `GMT${offset > 0 ? '+' : ''}${offset}`;
+      })(),
       isTimeMachineEnabled: false,
       errorMsg: null,
       weatherCache: null,
@@ -92,7 +100,37 @@ export const useCelestialStore = create<CelestialState>()(
         };
       }),
       setCurrentTime: (time) => set({ currentTime: time }),
-      setLocation: (loc) => set({ location: loc }),
+      setLocation: async (loc) => {
+        set({ location: loc });
+        if (loc) {
+          const { latitude, longitude } = loc.coords;
+          try {
+            const response = await fetch(
+              `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&timezone=auto`
+            );
+            const data = await response.json();
+            if (data && typeof data.utc_offset_seconds === 'number') {
+              const offsetHours = data.utc_offset_seconds / 3600;
+              const tzName = data.timezone || `GMT${offsetHours >= 0 ? '+' : ''}${offsetHours}`;
+              const cleanLabel = `${tzName} (GMT${offsetHours >= 0 ? '+' : ''}${offsetHours})`;
+              set({ timezoneOffsetHours: offsetHours, timezoneLabel: cleanLabel });
+            } else {
+              const solarOffset = Math.floor((longitude + 7.5) / 15);
+              set({
+                timezoneOffsetHours: solarOffset,
+                timezoneLabel: `GMT${solarOffset >= 0 ? '+' : ''}${solarOffset}`
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to fetch timezone from API:', error);
+            const solarOffset = Math.floor((longitude + 7.5) / 15);
+            set({
+              timezoneOffsetHours: solarOffset,
+              timezoneLabel: `GMT${solarOffset >= 0 ? '+' : ''}${solarOffset}`
+            });
+          }
+        }
+      },
       setUserRotation: (rot) => set({ userRotation: (rot + 360) % 360 }),
       setGyroEnabled: (enabled) => set({ isGyroEnabled: enabled }),
       resetRotation: () => set({ userRotation: 0, isGyroEnabled: false }),
@@ -129,6 +167,8 @@ export const useCelestialStore = create<CelestialState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({ 
         location: state.location,
+        timezoneOffsetHours: state.timezoneOffsetHours,
+        timezoneLabel: state.timezoneLabel,
         weatherCacheList: state.weatherCacheList,
         terrainCacheList: state.terrainCacheList,
         savedLocations: state.savedLocations

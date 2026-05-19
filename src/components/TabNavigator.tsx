@@ -53,21 +53,20 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   setTimeMachineEnabled,
   isDay,
 }) => {
-  const { location } = useCelestialStore();
-  const longitude = location?.coords.longitude ?? 126.9780;
+  const { location, timezoneOffsetHours } = useCelestialStore();
 
   const eventsLocal = useMemo(() => {
     return {
-      sunrise: getLocalTimeAtLocation(events.sunrise, longitude),
-      sunset: getLocalTimeAtLocation(events.sunset, longitude),
-      moonrise: events.moonrise ? getLocalTimeAtLocation(events.moonrise, longitude) : null,
-      moonset: events.moonset ? getLocalTimeAtLocation(events.moonset, longitude) : null,
+      sunrise: getLocalTimeAtLocation(events.sunrise, timezoneOffsetHours),
+      sunset: getLocalTimeAtLocation(events.sunset, timezoneOffsetHours),
+      moonrise: events.moonrise ? getLocalTimeAtLocation(events.moonrise, timezoneOffsetHours) : null,
+      moonset: events.moonset ? getLocalTimeAtLocation(events.moonset, timezoneOffsetHours) : null,
     };
-  }, [events, longitude]);
+  }, [events, timezoneOffsetHours]);
 
   const currentTimeLocal = useMemo(() => {
-    return getLocalTimeAtLocation(currentTime, longitude);
-  }, [currentTime, longitude]);
+    return getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+  }, [currentTime, timezoneOffsetHours]);
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.animatedContent, { opacity: contentOpacity }]}>

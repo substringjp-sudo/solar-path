@@ -38,16 +38,15 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   currentTimeLocal,
   timezoneLabel,
 }) => {
-  const { currentTime, location } = useCelestialStore();
+  const { currentTime, location, timezoneOffsetHours } = useCelestialStore();
   const isDay = activeTab === 'tracker' ? theme.bg === '#E8EDF2' : true; // 기본 낮 밤 계산 백업
-  const longitude = location?.coords.longitude ?? 126.9780;
   
   // 현지 기준의 오늘(Today) 가상 날짜
   const isTodayLocal = useMemo(() => {
-    const todayLocal = getLocalTimeAtLocation(new Date(), longitude);
-    const currentLocal = currentTimeLocal || getLocalTimeAtLocation(currentTime, longitude);
+    const todayLocal = getLocalTimeAtLocation(new Date(), timezoneOffsetHours);
+    const currentLocal = currentTimeLocal || getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
     return isSameDay(currentLocal, todayLocal);
-  }, [currentTime, currentTimeLocal, longitude]);
+  }, [currentTime, currentTimeLocal, timezoneOffsetHours]);
 
   return (
     <View style={styles.header}>
