@@ -9,3 +9,5 @@ yarn-error.*
 .env.test.local
 .env.production.local
 .env
+android/
+ios/
