@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { format, startOfDay, addMinutes, subMinutes } from 'date-fns';
 import { Clock, Zap } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
+import { useCelestialStore } from '../store/useCelestialStore';
+import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
 
 interface TimeSliderProps {
   value: Date;
@@ -27,10 +29,23 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   isDay,
   markers = [],
 }) => {
-  const isFullDay = mode === 'fullDay';
-  const dayStart = startOfDay(value);
+  const { location } = useCelestialStore();
+  const longitude = location?.coords.longitude ?? 126.9780;
+
+  const localValue = useMemo(() => getLocalTimeAtLocation(value, longitude), [value, longitude]);
+  const localBaseTime = useMemo(() => baseTime ? getLocalTimeAtLocation(baseTime, longitude) : undefined, [baseTime, longitude]);
   
-  const isSunrise = markers.some(m => m.type === 'rise');
+  const localMarkers = useMemo(() => {
+    return markers.map(m => ({
+      ...m,
+      time: m.time ? getLocalTimeAtLocation(m.time, longitude) : null,
+    }));
+  }, [markers, longitude]);
+
+  const isFullDay = mode === 'fullDay';
+  const dayStart = startOfDay(localValue);
+  
+  const isSunrise = localMarkers.some(m => m.type === 'rise');
   const startOffset = isSunrise ? -60 : -90; // 일출은 전 1시간(-60), 일몰은 전 1.5시간(-90)
   const totalRange = 150; // 총 범위 150분 (1시간 + 1.5시간)
 
@@ -39,7 +54,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       const mins = (t.getTime() - dayStart.getTime()) / (1000 * 60);
       return (mins / (24 * 60)) * 100;
     } else {
-      const ref = baseTime || new Date();
+      const ref = localBaseTime || new Date();
       const diff = (t.getTime() - ref.getTime()) / (1000 * 60);
       return ((diff - startOffset) / totalRange) * 100;
     }
@@ -52,12 +67,12 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       const minutes = Math.min(1439, Math.floor(pct * 24 * 60));
       return addMinutes(dayStart, minutes);
     } else {
-      const ref = baseTime || new Date();
+      const ref = localBaseTime || new Date();
       return addMinutes(ref, startOffset + pct * totalRange);
     }
   };
 
-  const currentPct = getPercentageFromTime(value);
+  const currentPct = getPercentageFromTime(localValue);
 
   const getKnobColors = (p: number) => {
     // Always return white background for the knob and dark text for the tooltip,
@@ -68,7 +83,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   const getFillColor = () => {
     // 1. 일출/일몰 골든타임 구간 체크
     let isGolden = false;
-    const valueMinutes = value.getHours() * 60 + value.getMinutes();
+    const valueMinutes = localValue.getHours() * 60 + localValue.getMinutes();
 
     let sunriseMinutes = 6 * 60; // 기본 일출 06:00
     let sunsetMinutes = 18 * 60 + 30; // 기본 일몰 18:30
@@ -139,7 +154,11 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       <View style={styles.sliderWrapper}>
         <GenericSlider
           value={currentPct}
-          onChange={(p) => onChange(getTimeFromPercentage(p))}
+          onChange={(p) => {
+            const selectedLocalTime = getTimeFromPercentage(p);
+            const systemTime = getSystemTimeFromLocationTime(selectedLocalTime, longitude);
+            onChange(systemTime);
+          }}
           onGrant={() => onToggleTimeMachine(true)}
           theme={theme}
           trackColor={isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)'}
@@ -147,7 +166,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           knobColor={getKnobColors(currentPct).color}
           trackOverlay={
             <View style={styles.markerOverlay} pointerEvents="none">
-              {markers.map((marker, i) => {
+              {localMarkers.map((marker, i) => {
                 if (!marker.time) return null;
                 const p = getPercentageFromTime(marker.time);
                 if (p < 0 || p > 100) return null;
@@ -174,14 +193,14 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           }
         >
           <Text style={[styles.tooltipText, { color: getKnobColors(currentPct).textColor }]}>
-            {format(value, 'HH:mm')}
+            {format(localValue, 'HH:mm')}
           </Text>
         </GenericSlider>
       </View>
 
       <View style={styles.timeLabels}>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : (baseTime ? format(baseTime, 'HH:mm') : "Event")}</Text>
+        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : (localBaseTime ? format(localBaseTime, 'HH:mm') : "Event")}</Text>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
       </View>
     </View>

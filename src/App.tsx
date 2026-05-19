@@ -27,6 +27,8 @@ export default function App() {
     setSunCameraVisible,
     contentOpacity,
     currentTime,
+    currentTimeLocal,
+    timezoneLabel,
     location,
     isTimeMachineEnabled,
     userRotation,
@@ -91,6 +93,8 @@ export default function App() {
           handleDateChange={handleDateChange}
           theme={theme}
           dynamicTheme={dynamicTheme}
+          currentTimeLocal={currentTimeLocal}
+          timezoneLabel={timezoneLabel}
         />
 
         <TabNavigator

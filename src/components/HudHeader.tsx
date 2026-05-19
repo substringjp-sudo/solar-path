@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
 import { format, addDays, subDays, isSameDay } from 'date-fns';
 import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
+import { getLocalTimeAtLocation } from '../utils/timezone';
 
 interface HudHeaderProps {
   activeTab: 'tracker' | 'sim';
@@ -17,6 +18,8 @@ interface HudHeaderProps {
   handleDateChange: (date: Date) => void;
   theme: any;
   dynamicTheme: any;
+  currentTimeLocal?: Date;
+  timezoneLabel?: string;
 }
 
 export const HudHeader: React.FC<HudHeaderProps> = ({
@@ -32,9 +35,19 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   handleDateChange,
   theme,
   dynamicTheme,
+  currentTimeLocal,
+  timezoneLabel,
 }) => {
-  const { currentTime, savedLocations } = useCelestialStore();
+  const { currentTime, location } = useCelestialStore();
   const isDay = activeTab === 'tracker' ? theme.bg === '#E8EDF2' : true; // 기본 낮 밤 계산 백업
+  const longitude = location?.coords.longitude ?? 126.9780;
+  
+  // 현지 기준의 오늘(Today) 가상 날짜
+  const isTodayLocal = useMemo(() => {
+    const todayLocal = getLocalTimeAtLocation(new Date(), longitude);
+    const currentLocal = currentTimeLocal || getLocalTimeAtLocation(currentTime, longitude);
+    return isSameDay(currentLocal, todayLocal);
+  }, [currentTime, currentTimeLocal, longitude]);
 
   return (
     <View style={styles.header}>
@@ -98,7 +111,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
 
       <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
         {activeTab !== 'sim' ? (
-          <TouchableOpacity onPress={() => handleDateChange(subDays(currentTime, 1))} style={styles.dateControl}>
+          <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
             <ChevronLeft size={16} color={theme.text} />
           </TouchableOpacity>
         ) : (
@@ -108,19 +121,24 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
           <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
           <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
-            {format(currentTime, 'EEE, MMM d, yyyy')}
+            {format(currentTimeLocal || currentTime, 'EEE, MMM d, yyyy')}
           </Animated.Text>
+          {timezoneLabel && (
+            <View style={[styles.timezoneBadge, { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }]}>
+              <Text style={[styles.timezoneText, { color: theme.subText }]}>{timezoneLabel}</Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         {activeTab !== 'sim' ? (
-          <TouchableOpacity onPress={() => handleDateChange(addDays(currentTime, 1))} style={styles.dateControl}>
+          <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
             <ChevronRight size={16} color={theme.text} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 24 }} />
         )}
 
-        {!isSameDay(currentTime, new Date()) && (
+        {!isTodayLocal && (
           <TouchableOpacity 
             onPress={() => handleDateChange(new Date())} 
             style={[styles.todayButton, { backgroundColor: theme.text }]}
@@ -220,5 +238,15 @@ const styles = StyleSheet.create({
   todayText: {
     fontSize: 9,
     fontWeight: '900',
+  },
+  timezoneBadge: {
+    marginLeft: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  timezoneText: {
+    fontSize: 9,
+    fontWeight: '800',
   },
 });

@@ -4,6 +4,7 @@ import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
+import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, getTimezoneLabel } from '../utils/timezone';
 
 export function useCelestialApp() {
   const { width } = Dimensions.get('window');
@@ -15,6 +16,18 @@ export function useCelestialApp() {
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation
   } = useCelestialStore();
+
+  const longitude = location?.coords.longitude ?? defaultCoords.longitude;
+  const latitude = location?.coords.latitude ?? defaultCoords.latitude;
+
+  // 현지 기준 가상 시간 및 시간대 라벨 계산
+  const currentTimeLocal = useMemo(() => {
+    return getLocalTimeAtLocation(currentTime, longitude);
+  }, [currentTime, longitude]);
+
+  const timezoneLabel = useMemo(() => {
+    return getTimezoneLabel(longitude);
+  }, [longitude]);
 
   const [animating, setAnimating] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -185,15 +198,20 @@ export function useCelestialApp() {
   };
 
   const handleTimeChange = (newTime: Date) => {
-    setCurrentTime(newTime);
+    const systemTime = getSystemTimeFromLocationTime(newTime, longitude);
+    setCurrentTime(systemTime);
   };
 
   const handleDateChange = (newDate: Date) => {
     const newTime = new Date(newDate);
-    newTime.setHours(currentTime.getHours());
-    newTime.setMinutes(currentTime.getMinutes());
+    newTime.setHours(currentTimeLocal.getHours());
+    newTime.setMinutes(currentTimeLocal.getMinutes());
+    newTime.setSeconds(0);
+    newTime.setMilliseconds(0);
+    
+    const systemTime = getSystemTimeFromLocationTime(newTime, longitude);
     animateContent();
-    setCurrentTime(newTime);
+    setCurrentTime(systemTime);
     if (!isTimeMachineEnabled) setTimeMachineEnabled(true);
   };
   
@@ -321,6 +339,8 @@ export function useCelestialApp() {
     setSunCameraVisible,
     contentOpacity,
     currentTime,
+    currentTimeLocal,
+    timezoneLabel,
     location,
     isTimeMachineEnabled,
     userRotation,

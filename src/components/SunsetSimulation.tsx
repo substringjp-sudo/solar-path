@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, 
 import { format, isAfter, addHours, addMinutes } from 'date-fns';
 import SunCalc from 'suncalc';
 import { useNetInfo } from '@react-native-community/netinfo';
+import { getLocalTimeAtLocation } from '../utils/timezone';
 
 import { useCelestialStore } from '../store/useCelestialStore';
 import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather } from '../utils/weather';
@@ -65,7 +66,12 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const initialPinchDist = useRef<number | null>(null);
   const initialFovOnPinch = useRef<number>(20);
 
-  const currentDateStr = useMemo(() => format(currentTime, 'yyyy-MM-dd'), [currentTime]);
+  const longitude = location?.coords.longitude ?? 126.9780;
+
+  const currentDateStr = useMemo(() => {
+    const localTime = getLocalTimeAtLocation(currentTime, longitude);
+    return format(localTime, 'yyyy-MM-dd');
+  }, [currentTime, longitude]);
 
   const panResponder = useRef(
     PanResponder.create({
