@@ -44,6 +44,9 @@ export default function App() {
     resetRotation,
     removeSavedLocation,
     addSavedLocation,
+    myPhotos,
+    addMyPhoto,
+    removeMyPhoto,
     
     sunPos,
     isDay,
@@ -143,6 +146,9 @@ export default function App() {
         savedLocations={savedLocations}
         addSavedLocation={addSavedLocation}
         removeSavedLocation={removeSavedLocation}
+        myPhotos={myPhotos}
+        addMyPhoto={addMyPhoto}
+        removeMyPhoto={removeMyPhoto}
       />
 
       <Modal

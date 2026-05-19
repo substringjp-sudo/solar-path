@@ -13,10 +13,10 @@ export function useCelestialApp() {
   const defaultCoords = { latitude: 37.5665, longitude: 126.9780 }; 
   const { 
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
-    savedLocations, currentUser,
+    savedLocations, currentUser, myPhotos,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
-    setCurrentUser, syncSavedLocations
+    setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos
   } = useCelestialStore();
 
   const longitude = location?.coords.longitude ?? defaultCoords.longitude;
@@ -321,30 +321,39 @@ export function useCelestialApp() {
     return () => clearInterval(timer);
   }, [isTimeMachineEnabled, animating, updateTime]);
 
-  // Firebase Auth & Firestore savedLocations 실시간 동기화 라이프사이클
+  // Firebase Auth & Firestore 실시간 동기화 라이프사이클
   useEffect(() => {
-    let unsubscribeFirestore: (() => void) | null = null;
+    let unsubscribeFirestoreLocations: (() => void) | null = null;
+    let unsubscribeFirestorePhotos: (() => void) | null = null;
     
     const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
       await setCurrentUser(user);
       
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
-        unsubscribeFirestore = null;
+      if (unsubscribeFirestoreLocations) {
+        unsubscribeFirestoreLocations();
+        unsubscribeFirestoreLocations = null;
+      }
+      if (unsubscribeFirestorePhotos) {
+        unsubscribeFirestorePhotos();
+        unsubscribeFirestorePhotos = null;
       }
       
       if (user) {
-        unsubscribeFirestore = syncSavedLocations();
+        unsubscribeFirestoreLocations = syncSavedLocations();
+        unsubscribeFirestorePhotos = syncMyPhotos();
       }
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
+      if (unsubscribeFirestoreLocations) {
+        unsubscribeFirestoreLocations();
+      }
+      if (unsubscribeFirestorePhotos) {
+        unsubscribeFirestorePhotos();
       }
     };
-  }, [setCurrentUser, syncSavedLocations]);
+  }, [setCurrentUser, syncSavedLocations, syncMyPhotos]);
 
   return {
     width,
@@ -383,6 +392,9 @@ export function useCelestialApp() {
     updateTime,
     addSavedLocation,
     removeSavedLocation,
+    myPhotos,
+    addMyPhoto,
+    removeMyPhoto,
     
     sunPos,
     isDay,

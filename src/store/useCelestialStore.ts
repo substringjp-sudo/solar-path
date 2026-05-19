@@ -22,6 +22,15 @@ export interface TerrainCacheItem {
   longitude: number;
 }
 
+export interface MyPhoto {
+  id: string;
+  latitude: number;
+  longitude: number;
+  imageUrl: string;
+  timestamp: number;
+  locationName: string;
+}
+
 export interface SavedLocation {
   id: string;
   name: string;
@@ -44,6 +53,7 @@ interface CelestialState {
   isGyroEnabled: boolean;
   savedLocations: SavedLocation[];
   currentUser: User | null;
+  myPhotos: MyPhoto[];
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -62,6 +72,9 @@ interface CelestialState {
   removeSavedLocation: (id: string) => Promise<void>;
   setCurrentUser: (user: User | null) => Promise<void>;
   syncSavedLocations: () => () => void;
+  addMyPhoto: (imageUrl: string, latitude: number, longitude: number, locationName: string) => Promise<void>;
+  removeMyPhoto: (id: string) => Promise<void>;
+  syncMyPhotos: () => () => void;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -84,6 +97,7 @@ export const useCelestialStore = create<CelestialState>()(
       userRotation: 0,
       isGyroEnabled: false,
       savedLocations: [],
+      myPhotos: [],
       currentUser: null,
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
@@ -196,6 +210,7 @@ export const useCelestialStore = create<CelestialState>()(
       setCurrentUser: async (user) => {
         set({ currentUser: user });
         if (user) {
+          // 1. Merge locations
           const localLocations = get().savedLocations;
           if (localLocations.length > 0) {
             try {
@@ -215,6 +230,22 @@ export const useCelestialStore = create<CelestialState>()(
               console.warn('Failed to merge local locations to Firestore:', err);
             }
           }
+
+          // 2. Merge photos
+          const localPhotos = get().myPhotos;
+          if (localPhotos.length > 0) {
+            try {
+              const batch = writeBatch(db);
+              localPhotos.forEach((photo) => {
+                const docRef = doc(db, `users/${user.uid}/photos`, photo.id);
+                batch.set(docRef, photo);
+              });
+              await batch.commit();
+              console.log('Successfully merged local photos to Firestore');
+            } catch (err) {
+              console.warn('Failed to merge local photos to Firestore:', err);
+            }
+          }
         }
       },
       syncSavedLocations: () => {
@@ -231,6 +262,61 @@ export const useCelestialStore = create<CelestialState>()(
         });
         return unsubscribe;
       },
+      addMyPhoto: async (imageUrl, latitude, longitude, locationName) => {
+        const user = get().currentUser || auth.currentUser;
+        const newPhoto: MyPhoto = {
+          id: Date.now().toString(),
+          latitude,
+          longitude,
+          imageUrl,
+          timestamp: Date.now(),
+          locationName,
+        };
+
+        if (user) {
+          try {
+            const docRef = doc(db, `users/${user.uid}/photos`, newPhoto.id);
+            await setDoc(docRef, newPhoto);
+          } catch (err) {
+            console.warn('Failed to save photo to Firestore:', err);
+          }
+        } else {
+          set((state) => ({
+            myPhotos: [newPhoto, ...state.myPhotos]
+          }));
+        }
+      },
+      removeMyPhoto: async (id) => {
+        const user = get().currentUser || auth.currentUser;
+        if (user) {
+          try {
+            const docRef = doc(db, `users/${user.uid}/photos`, id);
+            await deleteDoc(docRef);
+          } catch (err) {
+            console.warn('Failed to remove photo from Firestore:', err);
+          }
+        } else {
+          set((state) => ({
+            myPhotos: state.myPhotos.filter((p) => p.id !== id)
+          }));
+        }
+      },
+      syncMyPhotos: () => {
+        const user = get().currentUser || auth.currentUser;
+        if (!user) return () => {};
+        
+        const photosRef = collection(db, `users/${user.uid}/photos`);
+        const unsubscribe = onSnapshot(photosRef, (snapshot) => {
+          const photosList: MyPhoto[] = [];
+          snapshot.forEach((doc) => {
+            photosList.push(doc.data() as MyPhoto);
+          });
+          // Sort by newest timestamp
+          photosList.sort((a, b) => b.timestamp - a.timestamp);
+          set({ myPhotos: photosList });
+        });
+        return unsubscribe;
+      },
     }),
     {
       name: 'solar-path-storage',
@@ -241,7 +327,8 @@ export const useCelestialStore = create<CelestialState>()(
         timezoneLabel: state.timezoneLabel,
         weatherCacheList: state.weatherCacheList,
         terrainCacheList: state.terrainCacheList,
-        savedLocations: state.savedLocations
+        savedLocations: state.savedLocations,
+        myPhotos: state.myPhotos
       }),
     }
   )
