@@ -214,7 +214,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     
     smoothedAzVectorRef.current = null;
     smoothedPitchRef.current = null;
-    Alert.alert('보정 완료', '현재 디바이스의 정밀 3D 센서 기준점을 성공적으로 초기화했습니다.');
+    Alert.alert('Calibrated', 'Successfully calibrated the 3D sensor baseline offset.');
   }, []);
 
   // 태양의 화면 좌표 계산
@@ -282,7 +282,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       });
 
       if (!photo?.uri) {
-        Alert.alert('오류', '사진 촬영에 실패했습니다.');
+        Alert.alert('Error', 'Failed to take photo.');
         setIsCapturing(false);
         return;
       }
@@ -326,13 +326,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             setIsCapturing(false);
           }, 2000);
         } else {
-          Alert.alert('권한 필요', '사진을 저장하려면 갤러리 접근 권한이 필요합니다.');
+          Alert.alert('Permission Required', 'Gallery permission is required to save photos.');
           setIsCapturing(false);
         }
       }
     } catch (error) {
       console.warn('[SunCamera] Capture error:', error);
-      Alert.alert('오류', '사진 촬영 중 오류가 발생했습니다.');
+      Alert.alert('Error', 'An error occurred while taking photo.');
       setIsCapturing(false);
     }
   }, [isCapturing, currentEnhancement, mediaPermission, latitude, longitude, sunPos]);
@@ -351,15 +351,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
         <View style={styles.permissionContainer}>
           <Camera size={64} color="#FFD700" />
-          <Text style={styles.permissionTitle}>카메라 권한 필요</Text>
+          <Text style={styles.permissionTitle}>Camera Permission Required</Text>
           <Text style={styles.permissionDesc}>
-            AR 노을 촬영을 위해 카메라 접근 권한이 필요합니다.
+            Camera access is required for AR Sun tracking.
           </Text>
           <TouchableOpacity style={styles.permissionBtn} onPress={requestCameraPermission}>
-            <Text style={styles.permissionBtnText}>권한 허용</Text>
+            <Text style={styles.permissionBtnText}>Allow Permission</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.closeTextBtn} onPress={onClose}>
-            <Text style={styles.closeTextBtnText}>닫기</Text>
+            <Text style={styles.closeTextBtnText}>Close</Text>
           </TouchableOpacity>
         </View>
       </Modal>
@@ -368,7 +368,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   // 골든타임 타입에 따른 색상
   const eventColor = goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500';
-  const eventLabel = goldenTimeInfo.type === 'sunrise' ? '일출' : '일몰';
+  const eventLabel = goldenTimeInfo.type === 'sunrise' ? 'Sunrise' : 'Sunset';
   const minutesBefore = Math.abs(Math.round(goldenTimeInfo.minutesToEvent));
   const isBeforeEvent = goldenTimeInfo.minutesToEvent < 0;
 
@@ -428,7 +428,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     fontWeight="bold"
                     textAnchor="middle"
                   >
-                    {`${hour}시`}
+                    {`${hour}:00`}
                   </SvgText>
                 </React.Fragment>
               );
@@ -499,7 +499,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           <View style={styles.eventBadge}>
             <Sun size={14} color={eventColor} />
             <Text style={[styles.eventText, { color: eventColor }]}>
-              {eventLabel} {isBeforeEvent ? `${minutesBefore}분 전` : `${minutesBefore}분 후`}
+              {eventLabel} {isBeforeEvent ? `${minutesBefore}m before` : `${minutesBefore}m after`}
             </Text>
           </View>
 
@@ -517,10 +517,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             <Text style={styles.enhancementText}>{currentEnhancement.description}</Text>
           </View>
           <View style={styles.enhancementDetails}>
-            <EnhancementIndicator label="밝기" value={currentEnhancement.brightness} />
-            <EnhancementIndicator label="대비" value={currentEnhancement.contrast - 1} />
-            <EnhancementIndicator label="채도" value={currentEnhancement.saturation - 1} />
-            <EnhancementIndicator label="온도" value={currentEnhancement.warmth} />
+            <EnhancementIndicator label="Brightness" value={currentEnhancement.brightness} />
+            <EnhancementIndicator label="Contrast" value={currentEnhancement.contrast - 1} />
+            <EnhancementIndicator label="Saturation" value={currentEnhancement.saturation - 1} />
+            <EnhancementIndicator label="Warmth" value={currentEnhancement.warmth} />
           </View>
         </View>
 
@@ -529,7 +529,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           {/* 자이로 보정 버튼 */}
           <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
             <RotateCcw size={22} color="#FFF" />
-            <Text style={styles.sideBtnText}>보정</Text>
+            <Text style={styles.sideBtnText}>Calibrate</Text>
           </TouchableOpacity>
 
           {/* 촬영 버튼 */}
@@ -552,7 +552,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
           >
             <RefreshCw size={22} color="#FFF" />
-            <Text style={styles.sideBtnText}>전환</Text>
+            <Text style={styles.sideBtnText}>Flip</Text>
           </TouchableOpacity>
         </View>
 
@@ -560,7 +560,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         {captureResult && (
           <View style={styles.captureOverlay}>
             <Check size={48} color="#4CAF50" />
-            <Text style={styles.captureSuccessText}>저장 완료!</Text>
+            <Text style={styles.captureSuccessText}>Saved!</Text>
             <Text style={styles.captureSubText}>{currentEnhancement.description}</Text>
           </View>
         )}

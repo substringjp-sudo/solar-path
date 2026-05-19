@@ -284,7 +284,7 @@ export const fetchTerrainProfile = async (
   }
 
   try {
-    onProgress?.(`지형 데이터 분석 중...`);
+    onProgress?.(`Analyzing Terrain Data...`);
     
     // 3. 순차 대기(sleep) 없이 모든 청크를 병렬(Promise.all)로 동시 호출하여 로딩 속도 600% 이상 단축
     const fetchPromises = chunkedPoints.map(async (chunk, idx) => {

@@ -122,7 +122,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
           <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
           <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
-            {formatLocalTime(currentTimeLocal || currentTime, 'EEE, MMM d, yyyy')}
+            {formatLocalTime(currentTimeLocal || currentTime, 'yyyy/MM/dd')}
           </Animated.Text>
           {timezoneLabel && (
             <View style={[styles.timezoneBadge, { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }]}>
@@ -139,7 +139,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           <View style={{ width: 24 }} />
         )}
  
-        {!isTodayLocal && (
+        {!isTodayLocal && activeTab !== 'sim' && (
           <TouchableOpacity 
             onPress={() => handleDateChange(new Date())} 
             style={[styles.todayButton, { backgroundColor: theme.text }]}

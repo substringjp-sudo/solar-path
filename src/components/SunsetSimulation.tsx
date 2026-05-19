@@ -49,8 +49,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const netInfo = useNetInfo();
   
   const [visualFov, setVisualFov] = useState(20);
+  const visualFovRef = useRef(20);
+  React.useEffect(() => {
+    visualFovRef.current = visualFov;
+  }, [visualFov]);
+
   const [sim, setSim] = useState<SimulationState | null>(null);
-  const [loadingStatus, setLoadingStatus] = useState<string>('시뮬레이션 준비 중...');
+  const [loadingStatus, setLoadingStatus] = useState<string>('Preparing Simulation...');
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showSources, setShowSources] = useState(false);
 
@@ -83,7 +88,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         const touches = evt.nativeEvent.touches;
         if (touches.length >= 2) {
           initialPinchDist.current = getTouchDistance(touches);
-          initialFovOnPinch.current = visualFov;
+          initialFovOnPinch.current = visualFovRef.current;
         }
       },
       onPanResponderMove: (evt) => {
@@ -93,7 +98,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           // immediately capture the current distance and visualFov as the benchmark!
           if (initialPinchDist.current === null) {
             initialPinchDist.current = getTouchDistance(touches);
-            initialFovOnPinch.current = visualFov;
+            initialFovOnPinch.current = visualFovRef.current;
             return;
           }
           const currentDist = getTouchDistance(touches);
@@ -128,7 +133,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     lastFetchedDateRef.current = currentDateStr;
 
     setSim(null);
-    setLoadingStatus('시뮬레이션 준비 중...');
+    setLoadingStatus('Preparing Simulation...');
     fadeAnim.setValue(0);
 
     const fetchSim = async () => {
@@ -185,7 +190,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         const shouldFetchWeather = !weatherData;
 
         if (shouldFetchWeather || shouldFetchTerrain) {
-          if (shouldFetchWeather && active) setLoadingStatus('기상 데이터 분석 중...');
+          if (shouldFetchWeather && active) setLoadingStatus('Analyzing Weather Data...');
           
           const [newWeather, newTerrain] = await Promise.all([
             shouldFetchWeather ? fetchSunsetWeather(latitude, longitude, az) : Promise.resolve(weatherData),
@@ -358,7 +363,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           <ActivityIndicator size="large" color={theme.accent} />
           <Text style={[styles.loadingText, { color: theme.text, marginTop: 12 }]}>{loadingStatus}</Text>
           <Text style={[styles.loadingSubText, { color: theme.subText }]}>
-            {loadingStatus.includes('기상') ? '전세계 기상 모델 데이터 수집 중' : '지형 고도 분석 데이터 생성 중'}
+            {loadingStatus.includes('Weather') ? 'Collecting global weather model data' : 'Generating terrain elevation profile'}
           </Text>
         </View>
       ) : (
@@ -390,14 +395,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
             <View style={[styles.unifiedCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <View style={styles.unifiedLeftSection}>
-                <Text style={[styles.aerosolTitle, { color: theme.text }]}>대기 에어로졸 & 습도</Text>
+                <Text style={[styles.aerosolTitle, { color: theme.text }]}>Aerosols & Humidity</Text>
                 <View style={styles.aerosolRow}>
                   <View style={styles.aerosolCol}>
                     <Text style={[styles.aerosolVal, { color: theme.text }]}>
                       {obsHourly?.humidity != null ? Math.round(obsHourly.humidity) : 50}
                       <Text style={styles.aerosolUnit}>%</Text>
                     </Text>
-                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>상대습도</Text>
+                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>RH</Text>
                   </View>
                   
                   <View style={[styles.miniDivider, { backgroundColor: theme.border }]} />
@@ -409,7 +414,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                       {pm25}
                       <Text style={styles.aerosolUnit}>㎍</Text>
                     </Text>
-                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>초미세먼지</Text>
+                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>PM2.5</Text>
                   </View>
                 </View>
               </View>

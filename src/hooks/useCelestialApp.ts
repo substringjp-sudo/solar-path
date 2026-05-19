@@ -215,20 +215,20 @@ export function useCelestialApp() {
       setSunCameraVisible(true);
     } else {
       Alert.alert(
-        '골든타임 대기 중',
-        '노을 AR 촬영은 일출/일몰 전후 2.5시간의 골든타임에만 활성화됩니다!\n\n(개발자/테스트 용도: 버튼을 2초 이상 길게 누르면 강제로 진입할 수 있습니다.)',
-        [{ text: '확인', style: 'default' }]
+        'Waiting for Golden Hour',
+        'AR Camera is only active during the 2.5 hours before and after sunrise/sunset.\n\n(Developer Bypass: Long-press for 2 seconds to force open.)',
+        [{ text: 'OK', style: 'default' }]
       );
     }
   };
 
   const handleCameraLongPress = () => {
     Alert.alert(
-      '개발자 테스트 모드',
-      '골든타임 제약을 무시하고 노을 AR 카메라에 강제로 진입하시겠습니까?',
+      'Developer Test Mode',
+      'Would you like to bypass the Golden Hour constraint and force open the AR Camera?',
       [
-        { text: '취소', style: 'cancel' },
-        { text: '강제 진입', style: 'destructive', onPress: () => setSunCameraVisible(true) }
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Force Open', style: 'destructive', onPress: () => setSunCameraVisible(true) }
       ]
     );
   };
@@ -242,27 +242,27 @@ export function useCelestialApp() {
     );
     
     if (isAlreadySaved) {
-      Alert.alert('이미 저장된 장소입니다.');
+      Alert.alert('This place is already saved.');
       return;
     }
 
-    const defaultName = `장소 ${savedLocations.length + 1}`;
+    const defaultName = `Place ${savedLocations.length + 1}`;
 
     if (Platform.OS === 'web') {
-      const name = window.prompt('이 장소의 이름을 입력해주세요.', defaultName);
+      const name = window.prompt('Please enter a name for this place.', defaultName);
       if (name !== null) {
         const finalName = name.trim() || defaultName;
         addSavedLocation(finalName, location.coords.latitude, location.coords.longitude);
-        Alert.alert('성공', '장소가 저장되었습니다!');
+        Alert.alert('Success', 'Place saved successfully!');
       }
     } else if (Platform.OS === 'ios') {
       Alert.prompt(
-        '장소 저장',
-        '이 장소의 이름을 입력해주세요.',
+        'Save Place',
+        'Please enter a name for this place.',
         [
-          { text: '취소', style: 'cancel' },
+          { text: 'Cancel', style: 'cancel' },
           { 
-            text: '저장', 
+            text: 'Save', 
             onPress: (name: string | undefined) => {
               const finalName = name?.trim() || defaultName;
               addSavedLocation(finalName, location.coords.latitude, location.coords.longitude);
@@ -276,7 +276,7 @@ export function useCelestialApp() {
       // Android does not support Alert.prompt.
       // Save automatically with a friendly default name and let them know.
       addSavedLocation(defaultName, location.coords.latitude, location.coords.longitude);
-      Alert.alert('장소 저장', `장소가 '${defaultName}'(으)로 저장되었습니다!`);
+      Alert.alert('Save Place', `Place saved as '${defaultName}'!`);
     }
   };
 

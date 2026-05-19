@@ -44,7 +44,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
                 ]}
                 onPress={onPressSource}
               >
-                <Text style={styles.sourceBadgeText}>기상청 초단기 예보</Text>
+                <Text style={styles.sourceBadgeText}>KMA Forecast</Text>
               </TouchableOpacity>
             )}
           </View>

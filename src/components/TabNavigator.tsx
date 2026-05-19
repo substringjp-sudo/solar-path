@@ -125,14 +125,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                     icon={<Sunrise size={14} color="#FFA500" />}
                     label="Sunrise"
                     value={formatLocalTime(eventsLocal.sunrise, 'HH:mm')}
-                    subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? '오늘' : '내일'}
+                    subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? 'Today' : 'Tomorrow'}
                     theme={theme}
                   />
                   <InfoCard 
                     icon={<Sunset size={14} color="#FF4500" />}
                     label="Sunset"
                     value={formatLocalTime(eventsLocal.sunset, 'HH:mm')}
-                    subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? '오늘' : '내일'}
+                    subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? 'Today' : 'Tomorrow'}
                     theme={theme}
                   />
                 </View>
@@ -155,14 +155,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                     icon={<Sunrise size={14} color="#888" />}
                     label="Moonrise"
                     value={eventsLocal.moonrise ? formatLocalTime(eventsLocal.moonrise, 'HH:mm') : '--:--'}
-                    subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? '오늘' : '내일') : undefined}
+                    subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
                     theme={theme}
                   />
                   <InfoCard 
                     icon={<Sunset size={14} color="#888" />}
                     label="Moonset"
                     value={eventsLocal.moonset ? formatLocalTime(eventsLocal.moonset, 'HH:mm') : '--:--'}
-                    subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? '오늘' : '내일') : undefined}
+                    subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
                     theme={theme}
                   />
                 </View>

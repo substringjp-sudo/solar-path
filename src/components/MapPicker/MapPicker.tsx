@@ -500,19 +500,19 @@ export const MapPicker = ({
 
   const handleSaveLocation = () => {
     if (!saveName.trim()) {
-      Alert.alert('알림', '장소 이름을 입력하세요.');
+      Alert.alert('Notification', 'Please enter a name for the place.');
       return;
     }
     const lat = parseFloat(latInput);
     const lon = parseFloat(lonInput);
     if (isNaN(lat) || isNaN(lon)) {
-      Alert.alert('오류', '올바른 좌표가 지정되지 않았습니다.');
+      Alert.alert('Error', 'Invalid coordinates.');
       return;
     }
 
     addSavedLocation(saveName.trim(), lat, lon);
     setSaveName('');
-    Alert.alert('성공', `'${saveName.trim()}' 장소가 성공적으로 저장되었습니다.`);
+    Alert.alert('Success', `'${saveName.trim()}' has been saved successfully.`);
   };
 
   const handleSelectSaved = (saved: any) => {
@@ -694,7 +694,7 @@ export const MapPicker = ({
               <View style={[styles.saveRow, { borderColor: theme.border }]}>
                 <TextInput
                   style={[styles.nameInput, { color: theme.text, borderColor: theme.border }]}
-                  placeholder="장소 이름을 입력하세요"
+                  placeholder="Enter place name"
                   placeholderTextColor={theme.subText}
                   value={saveName}
                   onChangeText={setSaveName}
@@ -704,7 +704,7 @@ export const MapPicker = ({
                   onPress={handleSaveLocation}
                 >
                   <Save size={16} color="#000" />
-                  <Text style={styles.saveBtnText}>저장</Text>
+                  <Text style={styles.saveBtnText}>Save</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -723,7 +723,7 @@ export const MapPicker = ({
               {savedLocations.length === 0 ? (
                 <View style={[styles.emptyState, { borderColor: theme.border }]}>
                   <Star size={24} color={theme.subText} style={{ marginBottom: 6 }} />
-                  <Text style={{ color: theme.subText, fontSize: 13 }}>저장된 장소가 없습니다.</Text>
+                  <Text style={{ color: theme.subText, fontSize: 13 }}>No saved places.</Text>
                 </View>
               ) : (
                 <View style={styles.savedList}>

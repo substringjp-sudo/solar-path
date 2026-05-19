@@ -12,9 +12,9 @@ export const OfflineView: React.FC<OfflineViewProps> = ({ theme }) => {
       <View style={[styles.offlineIconBg, { backgroundColor: theme.glass, borderColor: theme.border }]}>
         <WifiOff size={32} color={theme.accent} />
       </View>
-      <Text style={[styles.offlineTitle, { color: theme.text }]}>오프라인 상태</Text>
+      <Text style={[styles.offlineTitle, { color: theme.text }]}>Offline Mode</Text>
       <Text style={[styles.offlineText, { color: theme.subText }]}>
-        현재 네트워크에 연결되어 있지 않습니다. 기상 및 고도 데이터 조회를 위해 인터넷 연결이 필요합니다.
+        You are currently offline. An internet connection is required to fetch weather and terrain data.
       </Text>
     </View>
   );

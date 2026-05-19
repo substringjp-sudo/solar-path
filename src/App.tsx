@@ -160,7 +160,7 @@ export default function App() {
               {savedLocations.length === 0 ? (
                 <View style={styles.emptySaved}>
                   <Star size={40} color={theme.border} style={{ marginBottom: 10 }} />
-                  <Text style={{ color: theme.subText }}>저장된 장소가 없습니다.</Text>
+                  <Text style={{ color: theme.subText }}>No saved places.</Text>
                 </View>
               ) : (
                 savedLocations.map((loc) => (

@@ -25,9 +25,9 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: theme.background, borderColor: theme.border }]}>
           <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>데이터 출처 정보</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Data Source Info</Text>
             <TouchableOpacity onPress={onClose}>
-              <Text style={[styles.closeText, { color: theme.accent }]}>닫기</Text>
+              <Text style={[styles.closeText, { color: theme.accent }]}>Close</Text>
             </TouchableOpacity>
           </View>
 
@@ -39,7 +39,7 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
                 onPress={() => Linking.openURL('https://open-meteo.com/en/docs/elevation-api')}
               >
                 <View style={styles.sourceContent}>
-                  <Text style={[styles.sourceLabel, { color: theme.text }]}>지형 고도 (DEM)</Text>
+                  <Text style={[styles.sourceLabel, { color: theme.text }]}>Digital Elevation Model (DEM)</Text>
                   <Text style={[styles.sourceDesc, { color: theme.subText }]}>Open-Meteo Elevation API</Text>
                 </View>
                 <ExternalLink size={14} color={theme.subText} />
@@ -53,9 +53,9 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
                 onPress={() => Linking.openURL('https://open-meteo.com/')}
               >
                 <View style={styles.sourceContent}>
-                  <Text style={[styles.sourceLabel, { color: theme.text }]}>기상 및 구름 예측</Text>
+                  <Text style={[styles.sourceLabel, { color: theme.text }]}>Weather & Clouds Forecast</Text>
                   <Text style={[styles.sourceDesc, { color: theme.subText }]}>
-                    {weatherSource === 'ultra-short' ? '기상청(KMA) 초단기예보 API' : 'Open-Meteo Weather API'}
+                    {weatherSource === 'ultra-short' ? 'Korea Meteorological Administration (KMA) Forecast API' : 'Open-Meteo Weather API'}
                   </Text>
                 </View>
                 <ExternalLink size={14} color={theme.subText} />
@@ -66,7 +66,7 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
               <Text style={[styles.sourceCategory, { color: theme.accent }]}>ASTRONOMY</Text>
               <View style={styles.sourceItemNonClickable}>
                 <View style={styles.sourceContent}>
-                  <Text style={[styles.sourceLabel, { color: theme.text }]}>태양 궤적 및 방위각</Text>
+                  <Text style={[styles.sourceLabel, { color: theme.text }]}>Solar Trajectory & Azimuth</Text>
                   <Text style={[styles.sourceDesc, { color: theme.subText }]}>SunCalc Library</Text>
                 </View>
               </View>

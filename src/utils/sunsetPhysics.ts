@@ -353,7 +353,7 @@ export const predictSunset = (
     return {
       score: 0,
       quality: 'Muted',
-      description: '데이터가 올바르지 않아 예측할 수 없습니다.',
+      description: 'Unable to predict due to invalid data.',
       skyGradient: [
         { offset: 0, color: '#08101e' },
         { offset: 1, color: '#08101e' },
@@ -465,26 +465,26 @@ export const predictSunset = (
   if (overheadOvercast > 0.82) {
     quality = 'Overcast';
     description = precip > 0 
-      ? '강수와 함께 하늘 전역을 무거운 비구름이 가득 덮고 있어, 일몰 빛이 완전히 차단되었습니다.'
-      : '두꺼운 단일 구름 장막이 하늘 전체를 덮고 있어 태양 빛이 완전히 가려진 상태입니다.';
+      ? 'Heavy rain clouds cover the entire sky, completely blocking the sunset light.'
+      : 'A thick single layer of clouds covers the sky, completely hiding the sunlight.';
   } else if (isHorizonBlocked) {
     quality = 'Muted';
     description =
-      '일몰 방향 수평선 부근에 두꺼운 구름 장벽이 깔려 있어, 해가 구름에 완전히 가려져 노을을 보기 어렵습니다.';
+      'Thick clouds block the horizon in the sunset direction, making it hard to see the sunset glow.';
   } else if (score >= 75) {
     quality = 'Epic';
     description =
-      '수평선 방향이 깨끗하고 중·고층운이 적절히 자리해 강렬한 노을이 예상됩니다.';
+      'Clear horizon combined with mid-to-high clouds suggests an intense, beautiful sunset.';
   } else if (score >= 55) {
     quality = 'Great';
     description =
-      '충분히 붉은 빛이 구름에 반사되어 아름다운 노을을 감상하기 좋습니다.';
+      'Ample red light is reflecting off the clouds, perfect for viewing a lovely sunset.';
   } else if (score >= 35) {
     quality = 'Fair';
-    description = '구름이 다소 많거나 빛이 약하지만 은은한 노을을 볼 수 있습니다.';
+    description = 'Light is weak or there are many clouds, but a subtle sunset glow is visible.';
   } else {
     quality = 'Muted';
-    description = '빛의 산란이 부족하거나 구름이 너무 적어 노을이 밋밋할 수 있습니다.';
+    description = 'Lack of scattering or too few clouds might make the sunset look plain.';
   }
 
   // --- Sky Gradient ------------------------------------------------------

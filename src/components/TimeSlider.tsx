@@ -77,6 +77,11 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   const currentPct = getPercentageFromTime(localValue);
 
+  const baseTimePercentage = useMemo(() => {
+    if (!localBaseTime) return 50;
+    return getPercentageFromTime(localBaseTime);
+  }, [localBaseTime, getPercentageFromTime]);
+
   const getKnobColors = (p: number) => {
     // Always return white background for the knob and dark text for the tooltip,
     // keeping the styling consistent with the forced light theme.
@@ -138,8 +143,8 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Clock size={14} color={isTimeMachineEnabled ? "#FFD700" : theme.subText} />
-          <Text style={[styles.title, { color: theme.subText }, isTimeMachineEnabled && { color: "#FFD700" }]}>
+          <Clock size={14} color={theme.subText} />
+          <Text style={[styles.title, { color: theme.subText }]}>
             {isFullDay ? (isTimeMachineEnabled ? "Time Machine" : "Real-time") : "Simulation Time"}
           </Text>
         </View>
@@ -203,7 +208,19 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
  
       <View style={styles.timeLabels}>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : (localBaseTime ? formatLocalTime(localBaseTime, 'HH:mm') : "Event")}</Text>
+        {isFullDay ? (
+          <Text style={[styles.timeLabel, { color: theme.subText }]}>12:00</Text>
+        ) : (
+          localBaseTime && (
+            <View style={styles.absoluteLabelOverlay} pointerEvents="none">
+              <View style={[styles.absoluteLabelContainer, { left: `${baseTimePercentage}%` }]}>
+                <Text style={[styles.timeLabel, { color: theme.subText }]}>
+                  {formatLocalTime(localBaseTime, 'HH:mm')}
+                </Text>
+              </View>
+            </View>
+          )
+        )}
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
       </View>
     </View>
@@ -218,7 +235,7 @@ const styles = StyleSheet.create({
   nowButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, gap: 3 },
   nowText: { color: '#000', fontSize: 10, fontWeight: '900' },
   sliderWrapper: { position: 'relative', height: 44, justifyContent: 'center' },
-  markerOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+  markerOverlay: { width: '100%', height: '100%' },
   markerContainer: {
     position: 'absolute',
     alignItems: 'center',
@@ -247,6 +264,22 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   tooltipText: { fontSize: 13, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  timeLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingHorizontal: 27 },
+  timeLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingHorizontal: 27, position: 'relative' },
   timeLabel: { fontSize: 10, fontWeight: '700', opacity: 0.6 },
+  absoluteLabelOverlay: {
+    position: 'absolute',
+    left: 27,
+    right: 27,
+    top: 0,
+    bottom: 0,
+  },
+  absoluteLabelContainer: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 60,
+    marginLeft: -30, // 60px 너비의 딱 절반만큼 왼쪽으로 밀어 마커 중심선과 완전 정렬
+    top: 0,
+    bottom: 0,
+  },
 });
