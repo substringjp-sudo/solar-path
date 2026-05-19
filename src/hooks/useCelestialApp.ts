@@ -198,8 +198,7 @@ export function useCelestialApp() {
   };
 
   const handleTimeChange = (newTime: Date) => {
-    const systemTime = getSystemTimeFromLocationTime(newTime, longitude);
-    setCurrentTime(systemTime);
+    setCurrentTime(newTime);
   };
 
   const handleDateChange = (newDate: Date) => {
