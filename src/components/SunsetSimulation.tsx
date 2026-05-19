@@ -73,6 +73,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return format(localTime, 'yyyy-MM-dd');
   }, [currentTime, longitude]);
 
+  const lastFetchedDateRef = useRef<string>('');
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
@@ -117,7 +119,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
   useEffect(() => {
     if (!location) return;
+    
+    if (lastFetchedDateRef.current === currentDateStr) {
+      return;
+    }
+    
     let active = true;
+    lastFetchedDateRef.current = currentDateStr;
 
     setSim(null);
     setLoadingStatus('시뮬레이션 준비 중...');
