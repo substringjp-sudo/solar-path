@@ -54,6 +54,105 @@ export const MapPicker = ({
   const popupBorder = isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)';
   const accentColor = isDay ? '#4F46E5' : '#FFD700'; // Indigo for Light, Gold for Dark
 
+  const isAndroid = Platform.OS === 'android';
+
+  // Android Material 3 Design styles override
+  const m3Style = {
+    modalContent: {
+      backgroundColor: isDay ? '#F3F4F6' : '#121216',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      borderWidth: 0,
+    },
+    section: {
+      backgroundColor: isDay ? '#FFFFFF' : '#1E1F28',
+      borderRadius: 16,
+      borderWidth: 0,
+      elevation: 2,
+    },
+    input: {
+      backgroundColor: isDay ? '#E5E7EB' : '#2C2D35',
+      borderRadius: 8,
+      borderWidth: 0,
+      borderBottomWidth: 2,
+      borderBottomColor: theme.accent,
+      height: 48,
+    },
+    button: {
+      borderRadius: 100, // Capsule buttons for M3
+      height: 48,
+      elevation: 3,
+    },
+    savedItem: {
+      backgroundColor: isDay ? '#FFFFFF' : '#1E1F28',
+      borderRadius: 12,
+      borderWidth: 0,
+      elevation: 1,
+    },
+    tabBar: {
+      borderBottomWidth: 0,
+      marginHorizontal: 4,
+    },
+    activeTabItem: {
+      borderBottomWidth: 0,
+      backgroundColor: isDay ? 'rgba(79, 70, 229, 0.1)' : 'rgba(255, 215, 0, 0.12)',
+      borderRadius: 20,
+    },
+    tabItemText: {
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+    }
+  };
+
+  // iOS Liquid Glass Design styles override
+  const glassStyle = {
+    modalContent: {
+      backgroundColor: isDay ? 'rgba(255, 255, 255, 0.78)' : 'rgba(10, 10, 16, 0.78)',
+      borderTopLeftRadius: 32,
+      borderTopRightRadius: 32,
+      borderWidth: 1,
+      borderColor: isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+    },
+    section: {
+      backgroundColor: isDay ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255,255,255,0.03)',
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: isDay ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+    },
+    input: {
+      backgroundColor: isDay ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255,255,255,0.05)',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+      height: 44,
+    },
+    button: {
+      borderRadius: 16, // SF-style rounded rectangle
+      height: 52,
+    },
+    savedItem: {
+      backgroundColor: isDay ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255,255,255,0.03)',
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: isDay ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+    },
+    tabBar: {
+      borderBottomWidth: 1,
+      marginHorizontal: 0,
+    },
+    activeTabItem: {
+      borderBottomWidth: 2,
+      borderRadius: 0,
+    },
+    tabItemText: {
+      paddingVertical: 0,
+      paddingHorizontal: 0,
+    }
+  };
+
+  const dStyle = isAndroid ? m3Style : glassStyle;
+
+
   // Reset map ready status when modal visibility changes
   useEffect(() => {
     if (visible) {
@@ -806,7 +905,7 @@ export const MapPicker = ({
   return (
     <Modal visible={visible} animationType="slide" transparent={true}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: theme.bg }]}>
+        <View style={[styles.modalContent, dStyle.modalContent]}>
           <View style={styles.header}>
             <View>
               <Text style={[styles.title, { color: theme.text }]}>Change Location</Text>
@@ -818,20 +917,20 @@ export const MapPicker = ({
           </View>
 
           {/* 탭 네비게이션 */}
-          <View style={[styles.tabBar, { borderBottomColor: theme.border }]}>
+          <View style={[styles.tabBar, { borderBottomColor: theme.border }, dStyle.tabBar]}>
             <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'location' && [styles.activeTabItem, { borderBottomColor: theme.accent }]]}
+              style={[styles.tabItem, activeTab === 'location' && [styles.activeTabItem, { borderBottomColor: theme.accent }, dStyle.activeTabItem]]}
               onPress={() => setActiveTab('location')}
             >
-              <Text style={[styles.tabText, activeTab === 'location' ? { color: theme.accent } : { color: theme.subText }]}>
+              <Text style={[styles.tabText, activeTab === 'location' ? { color: theme.accent } : { color: theme.subText }, dStyle.tabItemText]}>
                 Location
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'photo' && [styles.activeTabItem, { borderBottomColor: theme.accent }]]}
+              style={[styles.tabItem, activeTab === 'photo' && [styles.activeTabItem, { borderBottomColor: theme.accent }, dStyle.activeTabItem]]}
               onPress={() => setActiveTab('photo')}
             >
-              <Text style={[styles.tabText, activeTab === 'photo' ? { color: theme.accent } : { color: theme.subText }]}>
+              <Text style={[styles.tabText, activeTab === 'photo' ? { color: theme.accent } : { color: theme.subText }, dStyle.tabItemText]}>
                 Photo
               </Text>
             </TouchableOpacity>
@@ -936,7 +1035,7 @@ export const MapPicker = ({
           <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
             {activeTab === 'location' ? (
               <>
-                <View style={[styles.section, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                <View style={[styles.section, dStyle.section]}>
                   <View style={styles.sectionHeader}>
                     <Text style={[styles.sectionTitle, { color: theme.subText }]}>PICKED COORDINATES</Text>
                     <TouchableOpacity onPress={handleCurrentLocation} style={styles.currentLocLink}>
@@ -949,7 +1048,7 @@ export const MapPicker = ({
                     <View style={styles.coordBox}>
                        <Text style={styles.coordLabel}>Latitude</Text>
                        <TextInput
-                         style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                         style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
                          value={latInput}
                          onChangeText={setLatInput}
                          keyboardType="numeric"
@@ -958,7 +1057,7 @@ export const MapPicker = ({
                     <View style={styles.coordBox}>
                        <Text style={styles.coordLabel}>Longitude</Text>
                        <TextInput
-                         style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                         style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
                          value={lonInput}
                          onChangeText={setLonInput}
                          keyboardType="numeric"
@@ -969,14 +1068,14 @@ export const MapPicker = ({
                   {/* 즐겨찾기 저장 폼 */}
                   <View style={[styles.saveRow, { borderColor: theme.border }]}>
                     <TextInput
-                      style={[styles.nameInput, { color: theme.text, borderColor: theme.border }]}
+                      style={[styles.nameInput, { color: theme.text, borderColor: theme.border }, dStyle.input, { flex: 1 }]}
                       placeholder="Enter place name"
                       placeholderTextColor={theme.subText}
                       value={saveName}
                       onChangeText={setSaveName}
                     />
                     <TouchableOpacity
-                      style={[styles.saveBtn, { backgroundColor: theme.accent }]}
+                      style={[styles.saveBtn, { backgroundColor: theme.accent }, dStyle.button, { height: isAndroid ? 48 : 44 }]}
                       onPress={handleSaveLocation}
                     >
                       <Save size={16} color="#000" />
@@ -987,7 +1086,7 @@ export const MapPicker = ({
 
                 <TouchableOpacity 
                   onPress={handleManualSelect}
-                  style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 24 }]}
+                  style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 24 }, dStyle.button]}
                 >
                   <Navigation size={20} color="#000" />
                   <Text style={styles.confirmBtnText}>Select This Location</Text>
@@ -1004,7 +1103,7 @@ export const MapPicker = ({
                   ) : (
                     <View style={styles.savedList}>
                       {savedLocations.map((loc: any) => (
-                        <View key={loc.id} style={[styles.savedItem, { borderColor: theme.border, backgroundColor: theme.glass }]}>
+                        <View key={loc.id} style={[styles.savedItem, dStyle.savedItem]}>
                           <TouchableOpacity
                             style={styles.savedItemContent}
                             onPress={() => handleSelectSaved(loc)}
@@ -1034,7 +1133,7 @@ export const MapPicker = ({
             ) : (
               // Photo Tab Panel
               <>
-                <View style={[styles.photoCapturePanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                <View style={[styles.photoCapturePanel, dStyle.section]}>
                   <Text style={[styles.photoCaptureTitle, { color: theme.subText }]}>Share Sunset Photo</Text>
                   
                   {!auth.currentUser ? (
@@ -1051,7 +1150,7 @@ export const MapPicker = ({
                       
                       <View style={{ flexDirection: 'row', gap: 12, width: '100%', marginTop: 4 }}>
                         <TouchableOpacity
-                          style={[styles.captureBtn, { backgroundColor: theme.accent, flex: 1 }]}
+                          style={[styles.captureBtn, { backgroundColor: theme.accent, flex: 1 }, dStyle.button]}
                           onPress={takePhotoWithCamera}
                         >
                           <Camera size={16} color="#000" />
@@ -1059,7 +1158,7 @@ export const MapPicker = ({
                         </TouchableOpacity>
                         
                         <TouchableOpacity
-                          style={[styles.captureBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: theme.border, flex: 1 }]}
+                          style={[styles.captureBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: isAndroid ? 0 : 1, borderColor: theme.border, flex: 1 }, dStyle.button, isAndroid && { backgroundColor: '#2C2D35' }]}
                           onPress={pickPhotoFromLibrary}
                         >
                           <ImageIcon size={16} color={theme.text} />
@@ -1100,7 +1199,7 @@ export const MapPicker = ({
                   ) : (
                     <View style={styles.galleryGrid}>
                       {displayedPhotos.map((photo: any) => (
-                        <View key={photo.id} style={[styles.galleryItem, { borderColor: theme.border, backgroundColor: theme.glass }]}>
+                        <View key={photo.id} style={[styles.galleryItem, dStyle.savedItem]}>
                           <Image
                             source={{ uri: photo.imageUrl }}
                             style={styles.galleryImage}
@@ -1136,7 +1235,7 @@ export const MapPicker = ({
       {/* Photo Preview & Publish Modal */}
       <Modal visible={!!previewImageUri} transparent animationType="fade">
         <View style={styles.previewOverlay}>
-          <View style={[styles.previewContainer, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+          <View style={[styles.previewContainer, dStyle.section]}>
             <Text style={[styles.previewTitle, { color: theme.text }]}>Preview Sunset Photo</Text>
             
             {previewImageUri && (
@@ -1155,14 +1254,14 @@ export const MapPicker = ({
             ) : (
               <View style={styles.previewBtnRow}>
                 <TouchableOpacity
-                  style={[styles.previewBtn, { backgroundColor: theme.accent, flex: 2 }]}
+                  style={[styles.previewBtn, { backgroundColor: theme.accent, flex: 2 }, dStyle.button]}
                   onPress={handlePublishPhoto}
                 >
                   <Text style={styles.previewBtnTextPrimary}>Post Sunset</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.previewBtn, { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: theme.border, flex: 1 }]}
+                  style={[styles.previewBtn, { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: isAndroid ? 0 : 1, borderColor: theme.border, flex: 1 }, dStyle.button, isAndroid && { backgroundColor: '#2C2D35' }]}
                   onPress={() => setPreviewImageUri(null)}
                 >
                   <Text style={[styles.previewBtnTextSecondary, { color: theme.text }]}>Cancel</Text>
