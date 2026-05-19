@@ -272,13 +272,19 @@ export const useCelestialStore = create<CelestialState>()(
         if (!user) return () => {};
         
         const locationsRef = collection(db, `users/${user.uid}/locations`);
-        const unsubscribe = onSnapshot(locationsRef, (snapshot) => {
-          const locationsList: SavedLocation[] = [];
-          snapshot.forEach((doc) => {
-            locationsList.push(doc.data() as SavedLocation);
-          });
-          set({ savedLocations: locationsList });
-        });
+        const unsubscribe = onSnapshot(
+          locationsRef,
+          (snapshot) => {
+            const locationsList: SavedLocation[] = [];
+            snapshot.forEach((doc) => {
+              locationsList.push(doc.data() as SavedLocation);
+            });
+            set({ savedLocations: locationsList });
+          },
+          (err) => {
+            console.warn('Failed to sync saved locations:', err);
+          }
+        );
         return unsubscribe;
       },
       addMyPhoto: async (imageUrl, latitude, longitude, locationName) => {
@@ -325,15 +331,21 @@ export const useCelestialStore = create<CelestialState>()(
         if (!user) return () => {};
         
         const photosRef = collection(db, `users/${user.uid}/photos`);
-        const unsubscribe = onSnapshot(photosRef, (snapshot) => {
-          const photosList: MyPhoto[] = [];
-          snapshot.forEach((doc) => {
-            photosList.push(doc.data() as MyPhoto);
-          });
-          // Sort by newest timestamp
-          photosList.sort((a, b) => b.timestamp - a.timestamp);
-          set({ myPhotos: photosList });
-        });
+        const unsubscribe = onSnapshot(
+          photosRef,
+          (snapshot) => {
+            const photosList: MyPhoto[] = [];
+            snapshot.forEach((doc) => {
+              photosList.push(doc.data() as MyPhoto);
+            });
+            // Sort by newest timestamp
+            photosList.sort((a, b) => b.timestamp - a.timestamp);
+            set({ myPhotos: photosList });
+          },
+          (err) => {
+            console.warn('Failed to sync my photos:', err);
+          }
+        );
         return unsubscribe;
       },
       uploadAndPostPhoto: async (localUri: string, latitude: number, longitude: number, locationName: string) => {
@@ -380,15 +392,21 @@ export const useCelestialStore = create<CelestialState>()(
       },
       syncGlobalPhotos: () => {
         const photosRef = collection(db, 'global_photos');
-        const unsubscribe = onSnapshot(photosRef, (snapshot) => {
-          const photosList: GlobalPhoto[] = [];
-          snapshot.forEach((doc) => {
-            photosList.push(doc.data() as GlobalPhoto);
-          });
-          // Sort by newest timestamp
-          photosList.sort((a, b) => b.timestamp - a.timestamp);
-          set({ globalPhotos: photosList });
-        });
+        const unsubscribe = onSnapshot(
+          photosRef,
+          (snapshot) => {
+            const photosList: GlobalPhoto[] = [];
+            snapshot.forEach((doc) => {
+              photosList.push(doc.data() as GlobalPhoto);
+            });
+            // Sort by newest timestamp
+            photosList.sort((a, b) => b.timestamp - a.timestamp);
+            set({ globalPhotos: photosList });
+          },
+          (err) => {
+            console.warn('Failed to sync global photos:', err);
+          }
+        );
         return unsubscribe;
       },
       removeGlobalPhoto: async (id: string) => {
