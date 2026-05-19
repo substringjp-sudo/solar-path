@@ -47,6 +47,9 @@ export default function App() {
     myPhotos,
     addMyPhoto,
     removeMyPhoto,
+    globalPhotos,
+    uploadAndPostPhoto,
+    removeGlobalPhoto,
     
     sunPos,
     isDay,
@@ -149,6 +152,9 @@ export default function App() {
         myPhotos={myPhotos}
         addMyPhoto={addMyPhoto}
         removeMyPhoto={removeMyPhoto}
+        globalPhotos={globalPhotos}
+        uploadAndPostPhoto={uploadAndPostPhoto}
+        removeGlobalPhoto={removeGlobalPhoto}
       />
 
       <Modal

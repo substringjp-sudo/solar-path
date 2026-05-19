@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, ActivityIndicator, Image } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star, Camera } from 'lucide-react-native';
+import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star, Camera, Image as ImageIcon } from 'lucide-react-native';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { auth } from '../../config/firebase';
 import { getCelestialIsochrones, getIsochroneInterval } from '../../utils/celestial';
 
 const { width, height } = Dimensions.get('window');
@@ -20,9 +23,18 @@ export const MapPicker = ({
   removeSavedLocation,
   myPhotos = [],
   addMyPhoto,
-  removeMyPhoto
+  removeMyPhoto,
+  globalPhotos = [],
+  uploadAndPostPhoto,
+  removeGlobalPhoto
 }: any) => {
   const [activeTab, setActiveTab] = useState<'location' | 'photo'>('location');
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('mine');
+  const displayedPhotos = galleryFilter === 'mine'
+    ? globalPhotos.filter((p: any) => p.userId === auth.currentUser?.uid)
+    : globalPhotos;
   const [latInput, setLatInput] = useState(location?.coords?.latitude?.toString() || '37.56');
   const [lonInput, setLonInput] = useState(location?.coords?.longitude?.toString() || '126.97');
   const [mapZoom, setMapZoom] = useState(10);
@@ -32,6 +44,8 @@ export const MapPicker = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [saveName, setSaveName] = useState('');
   const iframeRef = useRef<any>(null);
+
+  const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
 
   // Premium UI tokens for Map WebView
   const mapBg = isDay ? '#E8EDF2' : '#08080C';
@@ -54,6 +68,8 @@ export const MapPicker = ({
     <head>
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <script src="https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}"></script>
+      <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@latest/dist/Leaflet.GoogleMutant.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
       <style>
         body, html, #map { height: 100%; margin: 0; padding: 0; background: ${mapBg}; }
@@ -117,34 +133,34 @@ export const MapPicker = ({
           zoomControl: false
         }).setView([${location?.coords?.latitude || 37.56}, ${location?.coords?.longitude || 126.97}], 10);
         
-        const tileUrl = ${isDay ? "'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'" : "'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'"};
-        L.tileLayer(tileUrl, {
-          attribution: '© OpenStreetMap contributors © CARTO'
+        const googleStyles = ${isDay ? '[]' : JSON.stringify([
+          { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
+          { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
+          { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
+          { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#4b687a' }] },
+          { featureType: 'administrative.province', elementType: 'geometry.stroke', stylers: [{ color: '#4b687a' }] },
+          { featureType: 'landscape.man_made', elementType: 'geometry.stroke', stylers: [{ color: '#334e87' }] },
+          { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#023e58' }] },
+          { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#283d6a' }] },
+          { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#6f9ba5' }] },
+          { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+          { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#98a5be' }] },
+          { featureType: 'road', elementType: 'labels.text.stroke', stylers: [{ color: '#1d2c4d' }] },
+          { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2c4591' }] },
+          { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
+          { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4e5d6c' }] }
+        ])};
+
+        L.gridLayer.googleMutant({
+          type: 'roadmap',
+          styles: googleStyles
         }).addTo(map);
         
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
 
         // Heatmap and user photos overlay configurations
-        const globalHeatmapPoints = [
-          // Seoul
-          [37.5665, 126.9780, 0.8], [37.5615, 126.9830, 0.9], [37.5515, 126.9880, 0.75],
-          [37.5284, 126.9331, 0.95], [37.5184, 126.9381, 0.9], [37.5254, 126.9231, 0.85],
-          [37.5113, 127.0981, 0.8], [37.5123, 127.1001, 0.85],
-          // Tokyo
-          [35.6895, 139.6917, 0.8], [35.6586, 139.7454, 0.9], [35.6606, 139.7304, 0.75],
-          // Paris
-          [48.8584, 2.2945, 0.95], [48.8604, 2.2925, 0.9], [48.8564, 2.2985, 0.85],
-          // New York
-          [40.7128, -74.0060, 0.85], [40.7061, -73.9969, 0.95], [40.7071, -74.0120, 0.75],
-          // London
-          [51.5074, -0.1278, 0.8], [51.5007, -0.1246, 0.9], [51.5055, -0.0754, 0.85],
-          // Sydney
-          [-33.8568, 151.2153, 0.9], [-33.8588, 151.2133, 0.95],
-          // Los Angeles
-          [34.0522, -118.2437, 0.8], [34.1341, -118.2978, 0.9]
-        ];
-
+        let globalHeatmapPoints = [];
         let heatLayer = null;
         let myPhotosMarkers = [];
         let mapMode = 'location'; // 'location' or 'photo'
@@ -167,7 +183,7 @@ export const MapPicker = ({
             // Hide isochrones on photo mode
             isochroneLayer.clearLayers();
 
-            if (typeof L.heatLayer === 'function') {
+            if (typeof L.heatLayer === 'function' && globalHeatmapPoints.length > 0) {
               heatLayer = L.heatLayer(globalHeatmapPoints, {
                 radius: 28,
                 blur: 16,
@@ -187,6 +203,7 @@ export const MapPicker = ({
               const popupContent = '<div style="font-family: -apple-system, BlinkMacSystemFont, ' + "'Segoe UI', Roboto, sans-serif; width: 140px; text-align: center;\">" +
                 '<img src="' + photo.imageUrl + '" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; margin-bottom: 6px; border: 1px solid rgba(0,0,0,0.15);" />' +
                 '<div style="font-size: 12px; font-weight: bold; color: ' + popupText + '; margin-bottom: 2px;">' + photo.locationName + '</div>' +
+                '<div style="font-size: 10px; color: ' + accentColor + '; font-weight: 600; margin-bottom: 4px;">by ' + photo.userName + '</div>' +
                 '<div style="font-size: 9px; color: ' + (isDay ? '#555' : '#ccc') + ';">' + new Date(photo.timestamp).toLocaleDateString() + '</div>' +
                 '</div>';
               marker.bindPopup(popupContent, { closeButton: false });
@@ -476,7 +493,12 @@ export const MapPicker = ({
             map.setView([data.lat, data.lon], 13);
           } else if (data?.type === 'UPDATE_MAP_MODE') {
             mapMode = data.mode;
-            myPhotosData = data.myPhotos || [];
+            redrawMapLayers();
+          } else if (data?.type === 'SYNC_PHOTOS') {
+            const photos = data.globalPhotos || [];
+            const currentUserId = data.currentUserId || '';
+            globalHeatmapPoints = photos.map(function(p) { return [p.latitude, p.longitude, 1.0]; });
+            myPhotosData = photos.filter(function(p) { return p.userId === currentUserId; });
             redrawMapLayers();
           } else if (data?.type === 'UPDATE_ISOCHRONES') {
             showSunrise = data.showSunrise;
@@ -549,8 +571,7 @@ export const MapPicker = ({
 
     const message = {
       type: 'UPDATE_MAP_MODE',
-      mode: activeTab,
-      myPhotos: myPhotos
+      mode: activeTab
     };
 
     if (iframeRef.current) {
@@ -566,7 +587,31 @@ export const MapPicker = ({
         iframeRef.current.injectJavaScript(runJS);
       }
     }
-  }, [activeTab, myPhotos, isMapReady, visible]);
+  }, [activeTab, isMapReady, visible]);
+
+  useEffect(() => {
+    if (!isMapReady) return;
+
+    const message = {
+      type: 'SYNC_PHOTOS',
+      globalPhotos: globalPhotos,
+      currentUserId: auth.currentUser?.uid || ''
+    };
+
+    if (iframeRef.current) {
+      if (Platform.OS === 'web') {
+        iframeRef.current.contentWindow?.postMessage(message, '*');
+      } else {
+        const runJS = `
+          if (typeof handleMessage === 'function') {
+            handleMessage({ data: ${JSON.stringify(message)} });
+          }
+          true;
+        `;
+        iframeRef.current.injectJavaScript(runJS);
+      }
+    }
+  }, [globalPhotos, isMapReady, visible]);
 
   // Handle messages sent from standard browser frames (for Web platform compatibility)
   useEffect(() => {
@@ -671,19 +716,82 @@ export const MapPicker = ({
     'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=600&q=80'
   ];
 
-  const handleCapturePhoto = () => {
+  const takePhotoWithCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Camera permission is required to take sunset photos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setPreviewImageUri(result.assets[0].uri);
+    }
+  };
+
+  const pickPhotoFromLibrary = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Media library permission is required to select photos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setPreviewImageUri(result.assets[0].uri);
+    }
+  };
+
+  const handlePublishPhoto = async () => {
+    if (!previewImageUri) return;
     const lat = parseFloat(latInput);
     const lon = parseFloat(lonInput);
     if (isNaN(lat) || isNaN(lon)) {
       Alert.alert('Error', 'Invalid coordinates.');
       return;
     }
-    
-    const locationName = `Sunset at ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
-    const randomImg = sunsetImages[Math.floor(Math.random() * sunsetImages.length)];
-    
-    addMyPhoto(randomImg, lat, lon, locationName);
-    Alert.alert('Success', 'Sunset photo captured and pinned at this spot!');
+
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Login Required', 'You must log in to upload and share sunset photos.');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      // Compress and resize using expo-image-manipulator
+      const manipulated = await ImageManipulator.manipulateAsync(
+        previewImageUri,
+        [{ resize: { width: 800 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      const locationName = `Sunset at ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+
+      // Upload and share globally
+      await uploadAndPostPhoto(manipulated.uri, lat, lon, locationName);
+
+      Alert.alert('Success', 'Your sunset photo has been shared successfully!');
+      setPreviewImageUri(null);
+    } catch (error: any) {
+      console.error('Failed to publish photo:', error);
+      Alert.alert('Error', 'Failed to publish photo: ' + (error.message || 'Unknown error'));
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -918,50 +1026,92 @@ export const MapPicker = ({
               // Photo Tab Panel
               <>
                 <View style={[styles.photoCapturePanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  <Text style={[styles.photoCaptureTitle, { color: theme.subText }]}>Capture Sunset Spot</Text>
-                  <Text style={[styles.photoCaptureDesc, { color: theme.text }]}>
-                    Pin a beautiful sunset photo at the selected coordinates on the map.
-                  </Text>
+                  <Text style={[styles.photoCaptureTitle, { color: theme.subText }]}>Share Sunset Photo</Text>
                   
-                  <TouchableOpacity
-                    style={[styles.captureBtn, { backgroundColor: theme.accent }]}
-                    onPress={handleCapturePhoto}
-                  >
-                    <Camera size={18} color="#000" />
-                    <Text style={{ color: '#000', fontWeight: '800', fontSize: 14 }}>Post Sunset Photo</Text>
-                  </TouchableOpacity>
+                  {!auth.currentUser ? (
+                    <View style={{ alignItems: 'center', padding: 8 }}>
+                      <Text style={[styles.photoCaptureDesc, { color: theme.text, marginBottom: 8, textAlign: 'center' }]}>
+                        You must log in to upload and share sunset photos.
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={[styles.photoCaptureDesc, { color: theme.text }]}>
+                        Capture or select a sunset photo to share at the selected coordinates ({parseFloat(latInput).toFixed(4)}°, {parseFloat(lonInput).toFixed(4)}°).
+                      </Text>
+                      
+                      <View style={{ flexDirection: 'row', gap: 12, width: '100%', marginTop: 4 }}>
+                        <TouchableOpacity
+                          style={[styles.captureBtn, { backgroundColor: theme.accent, flex: 1 }]}
+                          onPress={takePhotoWithCamera}
+                        >
+                          <Camera size={16} color="#000" />
+                          <Text style={{ color: '#000', fontWeight: '800', fontSize: 13 }}>Take Photo</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          style={[styles.captureBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: theme.border, flex: 1 }]}
+                          onPress={pickPhotoFromLibrary}
+                        >
+                          <ImageIcon size={16} color={theme.text} />
+                          <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>Choose Photo</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
                 </View>
 
-                {/* 내가 찍은 사진 갤러리 */}
+                {/* Sunset Photos Gallery */}
                 <View style={styles.gallerySection}>
-                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>My Sunset Photos</Text>
-                  {myPhotos.length === 0 ? (
-                    <View style={[styles.emptyState, { borderColor: theme.border, marginTop: 12 }]}>
-                      <Camera size={24} color={theme.subText} style={{ marginBottom: 6 }} />
-                      <Text style={{ color: theme.subText, fontSize: 13 }}>No sunset photos captured yet.</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={[styles.sectionTitle, { color: theme.subText }]}>Sunset Gallery</Text>
+                    
+                    {/* 필터 칩 */}
+                    <View style={styles.filterContainer}>
+                      <TouchableOpacity
+                        style={[styles.filterChip, galleryFilter === 'mine' && { backgroundColor: theme.accent }]}
+                        onPress={() => setGalleryFilter('mine')}
+                      >
+                        <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? '#000' : theme.subText }]}>Mine</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.filterChip, galleryFilter === 'all' && { backgroundColor: theme.accent }]}
+                        onPress={() => setGalleryFilter('all')}
+                      >
+                        <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? '#000' : theme.subText }]}>All</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {displayedPhotos.length === 0 ? (
+                    <View style={[styles.emptyState, { borderColor: theme.border }]}>
+                      <ImageIcon size={24} color={theme.subText} style={{ marginBottom: 6 }} />
+                      <Text style={{ color: theme.subText, fontSize: 13 }}>No sunset photos found.</Text>
                     </View>
                   ) : (
                     <View style={styles.galleryGrid}>
-                      {myPhotos.map((photo: any) => (
+                      {displayedPhotos.map((photo: any) => (
                         <View key={photo.id} style={[styles.galleryItem, { borderColor: theme.border, backgroundColor: theme.glass }]}>
-                          <iframe
-                            src={photo.imageUrl}
-                            style={styles.galleryImage as any}
+                          <Image
+                            source={{ uri: photo.imageUrl }}
+                            style={styles.galleryImage}
                           />
                           <View style={styles.galleryMeta}>
                             <Text numberOfLines={1} style={[styles.galleryTitle, { color: theme.text }]}>
                               {photo.locationName}
                             </Text>
-                            <Text style={[styles.galleryDate, { color: theme.subText }]}>
-                              {new Date(photo.timestamp).toLocaleDateString()}
+                            <Text numberOfLines={1} style={[styles.galleryDate, { color: theme.subText }]}>
+                              {new Date(photo.timestamp).toLocaleDateString()} • by {photo.userName}
                             </Text>
                           </View>
-                          <TouchableOpacity
-                            style={styles.photoDeleteBtn}
-                            onPress={() => removeMyPhoto(photo.id)}
-                          >
-                            <Trash2 size={12} color="#FF6F61" />
-                          </TouchableOpacity>
+                          {photo.userId === auth.currentUser?.uid && (
+                            <TouchableOpacity
+                              style={styles.photoDeleteBtn}
+                              onPress={() => removeGlobalPhoto(photo.id)}
+                            >
+                              <Trash2 size={12} color="#FF6F61" />
+                            </TouchableOpacity>
+                          )}
                         </View>
                       ))}
                     </View>
@@ -973,6 +1123,46 @@ export const MapPicker = ({
           </ScrollView>
         </View>
       </View>
+
+      {/* Photo Preview & Publish Modal */}
+      <Modal visible={!!previewImageUri} transparent animationType="fade">
+        <View style={styles.previewOverlay}>
+          <View style={[styles.previewContainer, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+            <Text style={[styles.previewTitle, { color: theme.text }]}>Preview Sunset Photo</Text>
+            
+            {previewImageUri && (
+              <Image source={{ uri: previewImageUri }} style={styles.previewImage} resizeMode="cover" />
+            )}
+
+            <Text style={[styles.previewLocation, { color: theme.subText }]}>
+              📍 Pin at: {parseFloat(latInput).toFixed(4)}°, {parseFloat(lonInput).toFixed(4)}°
+            </Text>
+
+            {isUploading ? (
+              <View style={styles.uploadingContainer}>
+                <ActivityIndicator size="small" color={theme.accent} />
+                <Text style={[styles.uploadingText, { color: theme.text }]}>Compressing & Sharing...</Text>
+              </View>
+            ) : (
+              <View style={styles.previewBtnRow}>
+                <TouchableOpacity
+                  style={[styles.previewBtn, { backgroundColor: theme.accent, flex: 2 }]}
+                  onPress={handlePublishPhoto}
+                >
+                  <Text style={styles.previewBtnTextPrimary}>Post Sunset</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.previewBtn, { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: theme.border, flex: 1 }]}
+                  onPress={() => setPreviewImageUri(null)}
+                >
+                  <Text style={[styles.previewBtnTextSecondary, { color: theme.text }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 };
@@ -1080,6 +1270,22 @@ const styles = StyleSheet.create({
   galleryMeta: { padding: 8 },
   galleryTitle: { fontSize: 12, fontWeight: '700' },
   galleryDate: { fontSize: 9, opacity: 0.6, marginTop: 2 },
-  photoDeleteBtn: { position: 'absolute', top: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }
+  photoDeleteBtn: { position: 'absolute', top: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  
+  filterContainer: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  filterChipText: { fontSize: 11, fontWeight: '700' },
+  
+  previewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  previewContainer: { width: '100%', maxWidth: 360, borderRadius: 28, borderWidth: 1, padding: 24, gap: 16, alignItems: 'center' },
+  previewTitle: { fontSize: 18, fontWeight: '800' },
+  previewImage: { width: '100%', height: 220, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.2)' },
+  previewLocation: { fontSize: 12, opacity: 0.8 },
+  previewBtnRow: { flexDirection: 'row', gap: 12, width: '100%' },
+  previewBtn: { height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  previewBtnTextPrimary: { fontSize: 14, fontWeight: '800', color: '#000' },
+  previewBtnTextSecondary: { fontSize: 14, fontWeight: '700' },
+  uploadingContainer: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center', paddingVertical: 12 },
+  uploadingText: { fontSize: 13, fontWeight: '700' }
 });
 

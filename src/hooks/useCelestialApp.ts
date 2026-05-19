@@ -13,10 +13,11 @@ export function useCelestialApp() {
   const defaultCoords = { latitude: 37.5665, longitude: 126.9780 }; 
   const { 
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
-    savedLocations, currentUser, myPhotos,
+    savedLocations, currentUser, myPhotos, globalPhotos,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
-    setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos
+    setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
+    uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto
   } = useCelestialStore();
 
   const longitude = location?.coords.longitude ?? defaultCoords.longitude;
@@ -355,6 +356,13 @@ export function useCelestialApp() {
     };
   }, [setCurrentUser, syncSavedLocations, syncMyPhotos]);
 
+  useEffect(() => {
+    const unsubscribeGlobalPhotos = syncGlobalPhotos();
+    return () => {
+      unsubscribeGlobalPhotos();
+    };
+  }, [syncGlobalPhotos]);
+
   return {
     width,
     animating,
@@ -395,6 +403,9 @@ export function useCelestialApp() {
     myPhotos,
     addMyPhoto,
     removeMyPhoto,
+    globalPhotos,
+    uploadAndPostPhoto,
+    removeGlobalPhoto,
     
     sunPos,
     isDay,

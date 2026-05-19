@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth, db } from '../config/firebase';
+import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { User } from 'firebase/auth';
 
 export interface WeatherCacheItem {
@@ -31,6 +32,17 @@ export interface MyPhoto {
   locationName: string;
 }
 
+export interface GlobalPhoto {
+  id: string;
+  latitude: number;
+  longitude: number;
+  imageUrl: string;
+  timestamp: number;
+  locationName: string;
+  userId: string;
+  userName: string;
+}
+
 export interface SavedLocation {
   id: string;
   name: string;
@@ -54,6 +66,7 @@ interface CelestialState {
   savedLocations: SavedLocation[];
   currentUser: User | null;
   myPhotos: MyPhoto[];
+  globalPhotos: GlobalPhoto[];
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -75,6 +88,10 @@ interface CelestialState {
   addMyPhoto: (imageUrl: string, latitude: number, longitude: number, locationName: string) => Promise<void>;
   removeMyPhoto: (id: string) => Promise<void>;
   syncMyPhotos: () => () => void;
+  
+  uploadAndPostPhoto: (localUri: string, latitude: number, longitude: number, locationName: string) => Promise<void>;
+  syncGlobalPhotos: () => () => void;
+  removeGlobalPhoto: (id: string) => Promise<void>;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -98,6 +115,7 @@ export const useCelestialStore = create<CelestialState>()(
       isGyroEnabled: false,
       savedLocations: [],
       myPhotos: [],
+      globalPhotos: [],
       currentUser: null,
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
@@ -316,6 +334,64 @@ export const useCelestialStore = create<CelestialState>()(
           set({ myPhotos: photosList });
         });
         return unsubscribe;
+      },
+      uploadAndPostPhoto: async (localUri: string, latitude: number, longitude: number, locationName: string) => {
+        const user = get().currentUser || auth.currentUser;
+        if (!user) throw new Error('User must be logged in to upload photos');
+
+        const photoId = Date.now().toString();
+        // File extension extraction
+        const ext = localUri.split('.').pop() || 'jpg';
+        const storagePath = `photos/${user.uid}/${photoId}.${ext}`;
+        const storageRef = ref(storage, storagePath);
+
+        // Fetch image file to upload as blob
+        const response = await fetch(localUri);
+        const blob = await response.blob();
+
+        // Upload to Firebase Storage
+        await uploadBytes(storageRef, blob);
+        const imageUrl = await getDownloadURL(storageRef);
+
+        // Save metadata to Firestore 'global_photos'
+        const userName = user.email || user.displayName || 'Anonymous';
+        const newPhoto: GlobalPhoto = {
+          id: photoId,
+          latitude,
+          longitude,
+          imageUrl,
+          timestamp: Date.now(),
+          locationName,
+          userId: user.uid,
+          userName,
+        };
+
+        const docRef = doc(db, 'global_photos', photoId);
+        await setDoc(docRef, newPhoto);
+      },
+      syncGlobalPhotos: () => {
+        const photosRef = collection(db, 'global_photos');
+        const unsubscribe = onSnapshot(photosRef, (snapshot) => {
+          const photosList: GlobalPhoto[] = [];
+          snapshot.forEach((doc) => {
+            photosList.push(doc.data() as GlobalPhoto);
+          });
+          // Sort by newest timestamp
+          photosList.sort((a, b) => b.timestamp - a.timestamp);
+          set({ globalPhotos: photosList });
+        });
+        return unsubscribe;
+      },
+      removeGlobalPhoto: async (id: string) => {
+        const user = get().currentUser || auth.currentUser;
+        if (!user) return;
+        
+        try {
+          const docRef = doc(db, 'global_photos', id);
+          await deleteDoc(docRef);
+        } catch (err) {
+          console.warn('Failed to remove global photo from Firestore:', err);
+        }
       },
     }),
     {
