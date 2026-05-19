@@ -46,6 +46,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [devicePitch, setDevicePitch] = useState(0);
   const [gyroCalibOffset, setGyroCalibOffset] = useState({ az: 0, pitch: 0 });
 
+  // 지자기 이상 간섭 감지 상태
+  const [hasInterference, setHasInterference] = useState(false);
+
   // 센서 실시간 값을 보관할 Refs (re-subscription 방지)
   const gyroCalibOffsetRef = useRef({ az: 0, pitch: 0 });
   const deviceAzimuthRef = useRef(0);
@@ -56,11 +59,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const magYRef = useRef(0);
   const magZRef = useRef(0);
 
-  // EMA/LPF 저주파 필터 Refs
-  // 방위각은 360도 경계면 처리(wrapping)를 위해 2D 벡터로 보간
-  const smoothedAzVectorRef = useRef<{ x: number; y: number } | null>(null);
-  const smoothedCompassVectorRef = useRef<{ x: number; y: number } | null>(null);
-  const smoothedPitchRef = useRef<number | null>(null);
+  // 원유로 필터 (One Euro Filter) 보관 상태 Refs
+  const filterStateRef = useRef({
+    prevAzX: 0,
+    prevAzY: 0,
+    prevAzDx: 0,
+    prevAzDy: 0,
+    prevPitch: 0,
+    prevPitchD: 0,
+    lastTime: 0,
+    initialized: false,
+  });
 
   // 촬영 상태
   const [isCapturing, setIsCapturing] = useState(false);
@@ -105,7 +114,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [visible]);
 
-  // 2. DeviceMotion 자세 결합 & 3D 기울기 보정 나침반(Tilt-Compensated Compass) 융합 엔진
+  // 2. DeviceMotion 자세 결합 & Rotation Matrix / One Euro Filter 탑재 융합 엔진
   useEffect(() => {
     if (!visible) return;
 
@@ -116,85 +125,102 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const motionData = data as any;
       if (!motionData.rotation) return;
 
-      const { alpha, beta, gamma } = motionData.rotation;
-
       // 3D 자기장 raw 벡터 수집
       const Mx = magXRef.current;
       const My = magYRef.current;
       const Mz = magZRef.current;
 
-      // Pitch (theta)와 Roll (phi) 각도 (라디안 단위)
-      const theta = beta;
-      const phi = gamma;
+      // 자기 왜곡 감지 (Norm 계산 - 지구 평균 자기장 25~65 μT 범위 일탈 여부)
+      const magNorm = Math.sqrt(Mx * Mx + My * My + Mz * Mz);
+      const isSkewed = magNorm > 0 && (magNorm < 22 || magNorm > 68);
+      setHasInterference(isSkewed);
 
       let trueHeading = 0;
+      let truePitch = 0;
 
-      // 자기장 센서가 유효한지 검증 (초기 지연이나 무센서 플랫폼 대응)
-      if (Mx === 0 && My === 0 && Mz === 0) {
-        // Fallback: 3D 회전 행렬 또는 rotation alpha 상대각 사용
-        if (motionData.rotationMatrix) {
-          const { m13, m23 } = motionData.rotationMatrix;
-          const headingDeg = Math.atan2(-m13, -m23) * (180 / Math.PI);
-          trueHeading = (360 - headingDeg) % 360;
-        } else {
-          trueHeading = (360 - (alpha * 180 / Math.PI)) % 360;
-        }
+      // 회전 행렬(Rotation Matrix)이 존재하면 짐벌 락 방지를 위한 벡터 역투영 활용
+      if (motionData.rotationMatrix) {
+        const { m13, m23, m33 } = motionData.rotationMatrix;
+        
+        // 카메라 촬영 뒷면 방향(-Z축) 벡터
+        const vx = -m13;
+        const vy = -m23;
+        const vz = -m33;
+
+        // ENU 좌표계 기반의 정확한 방위각 (북쪽=0, 동쪽=90, 남쪽=180, 서쪽=270)
+        const headingDeg = Math.atan2(vx, vy) * (180 / Math.PI);
+        trueHeading = (headingDeg + 360) % 360;
+
+        // 지평선 기준의 카메라 고도각
+        truePitch = Math.asin(Math.max(-1, Math.min(1, vz))) * (180 / Math.PI);
       } else {
-        // 3D 기울기 보정 나침반 (Tilt-Compensated Compass) 핵심 공식 적용
-        // 기기의 3차원 기울어짐(Pitch/Roll)을 물리적으로 정밀 투영하여 수평 자기장 성분 Xh, Yh 산출
-        // 가만히 제자리 회전할 때와 몸을 중심으로 반경을 돌릴 때의 원심력 오차를 자기장 평면 역투영으로 완벽 제거!
-        const Xh = Mx * Math.cos(theta) + My * Math.sin(phi) * Math.sin(theta) + Mz * Math.cos(phi) * Math.sin(theta);
-        const Yh = My * Math.cos(phi) - Mz * Math.sin(phi);
-
-        // 아크탄젠트를 활용하여 수평 평면 상의 절대 자북(Magnetic Heading) 도출
-        // 수학적 반시계(CCW) 각도를 지리 표준 시계(CW) 방위각으로 매핑하기 위해 360에서 각도를 차감 (좌우 회전 반대 현상 완전 정비)
-        const headingDeg = Math.atan2(-Yh, Xh) * (180 / Math.PI);
-        trueHeading = (360 - headingDeg) % 360;
+        // Fallback: 자이로스코프/가속도 오일러각
+        const { alpha, beta, gamma } = motionData.rotation;
+        trueHeading = (360 - (alpha * 180 / Math.PI)) % 360;
+        truePitch = (beta * 180 / Math.PI) - 90;
       }
-      
-      trueHeading = (trueHeading + 360) % 360;
 
       // GPS 위도/경도 기반 지자기 편각(Magnetic Declination) 보정 적용 (자북 -> 진북 변환)
       const declination = -8.5 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
       let trueAzimuth = (trueHeading + declination + 360) % 360;
 
-      // 지평선 수평을 극강의 안정성으로 잡아내는 모션 센서 Pitch 적용 (중력 방향 보정 적용)
-      let truePitch = (beta * 180 / Math.PI) - 90;
       truePitch = Math.max(-90, Math.min(90, truePitch));
 
-      // 원심 가속도 노이즈 및 고주파 지터를 극도로 필터링하는 부드러운 스무딩 계수 적용 (AR 트래킹 황금비인 0.08 적용)
-      const filterFactor = 0.08; 
+      // 원유로 필터 (One Euro Filter) 엔진
+      const now = Date.now();
+      const state = filterStateRef.current;
+      let dt = (now - state.lastTime) / 1000;
+      if (dt <= 0 || dt > 0.5) dt = 0.032; 
+      state.lastTime = now;
 
-      // 360도 경계면(0도 근처)에서의 튐 방지를 위한 2D 벡터 원형 EMA 보간 필터 적용
+      // 360도 임계면 튐 방지를 위한 2D 단위 벡터 성분화
       const azRad = trueAzimuth * Math.PI / 180;
       const tx = Math.cos(azRad);
       const ty = Math.sin(azRad);
 
-      let nextX = tx;
-      let nextY = ty;
-
-      if (smoothedAzVectorRef.current === null) {
-        smoothedAzVectorRef.current = { x: tx, y: ty };
-      } else {
-        const prevVec = smoothedAzVectorRef.current;
-        nextX = prevVec.x + (tx - prevVec.x) * filterFactor;
-        nextY = prevVec.y + (ty - prevVec.y) * filterFactor;
-        smoothedAzVectorRef.current = { x: nextX, y: nextY };
+      if (!state.initialized) {
+        state.prevAzX = tx;
+        state.prevAzY = ty;
+        state.prevPitch = truePitch;
+        state.initialized = true;
       }
 
-      let filteredAzimuth = Math.atan2(nextY, nextX) * 180 / Math.PI;
+      // 방위각 X 성분 동적 스무딩
+      const dx_azX = (tx - state.prevAzX) / dt;
+      const dcutoff = 1.0;
+      const alpha_d_azX = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
+      state.prevAzDx = state.prevAzDx + (dx_azX - state.prevAzDx) * alpha_d_azX;
+
+      const minCutoff_az = 0.15; // 손떨림 억제력 극대화
+      const beta_az = 0.08;      // 회전 응답 속도 확보
+      const cutoff_azX = minCutoff_az + beta_az * Math.abs(state.prevAzDx);
+      const alpha_azX = (2 * Math.PI * dt * cutoff_azX) / (1 + 2 * Math.PI * dt * cutoff_azX);
+      const filteredAzX = state.prevAzX + (tx - state.prevAzX) * Math.min(1, Math.max(0, alpha_azX));
+      state.prevAzX = filteredAzX;
+
+      // 방위각 Y 성분 동적 스무딩
+      const dx_azY = (ty - state.prevAzY) / dt;
+      state.prevAzDy = state.prevAzDy + (dx_azY - state.prevAzDy) * alpha_d_azX;
+      const cutoff_azY = minCutoff_az + beta_az * Math.abs(state.prevAzDy);
+      const alpha_azY = (2 * Math.PI * dt * cutoff_azY) / (1 + 2 * Math.PI * dt * cutoff_azY);
+      const filteredAzY = state.prevAzY + (ty - state.prevAzY) * Math.min(1, Math.max(0, alpha_azY));
+      state.prevAzY = filteredAzY;
+
+      let filteredAzimuth = Math.atan2(filteredAzY, filteredAzX) * (180 / Math.PI);
       filteredAzimuth = (filteredAzimuth + 360) % 360;
 
-      // 피치(고도각) EMA 필터링
-      let filteredPitch = truePitch;
-      if (smoothedPitchRef.current === null) {
-        smoothedPitchRef.current = truePitch;
-      } else {
-        filteredPitch = smoothedPitchRef.current + (truePitch - smoothedPitchRef.current) * filterFactor;
-        smoothedPitchRef.current = filteredPitch;
-      }
+      // 고도각(Pitch) 동적 스무딩
+      const dx_pitch = (truePitch - state.prevPitch) / dt;
+      state.prevPitchD = state.prevPitchD + (dx_pitch - state.prevPitchD) * alpha_d_azX;
 
-      // 상태 및 Refs 최종 업데이트 적용
+      const minCutoff_pitch = 0.2;
+      const beta_pitch = 0.08;
+      const cutoff_pitch = minCutoff_pitch + beta_pitch * Math.abs(state.prevPitchD);
+      const alpha_pitch = (2 * Math.PI * dt * cutoff_pitch) / (1 + 2 * Math.PI * dt * cutoff_pitch);
+      const filteredPitch = state.prevPitch + (truePitch - state.prevPitch) * Math.min(1, Math.max(0, alpha_pitch));
+      state.prevPitch = filteredPitch;
+
+      // 상태 최종 업데이트
       deviceAzimuthRef.current = filteredAzimuth;
       devicePitchRef.current = filteredPitch;
       setDeviceAzimuth(filteredAzimuth);
@@ -212,30 +238,38 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     gyroCalibOffsetRef.current = nextOffset;
     setGyroCalibOffset(nextOffset);
     
-    smoothedAzVectorRef.current = null;
-    smoothedPitchRef.current = null;
+    filterStateRef.current.initialized = false;
     Alert.alert('Calibrated', 'Successfully calibrated the 3D sensor baseline offset.');
   }, []);
+
+  // 수동 캘리브레이션 오프셋이 적용된 유효 방위각/고도각
+  const effectiveAz = useMemo(() => {
+    return (deviceAzimuth + gyroCalibOffset.az + 360) % 360;
+  }, [deviceAzimuth, gyroCalibOffset.az]);
+
+  const effectivePitch = useMemo(() => {
+    return Math.max(-90, Math.min(90, devicePitch + gyroCalibOffset.pitch));
+  }, [devicePitch, gyroCalibOffset.pitch]);
 
   // 태양의 화면 좌표 계산
   const sunScreenPos = useMemo((): ScreenPoint => {
     return getSunScreenPosition(
-      deviceAzimuth,
-      devicePitch,
+      effectiveAz,
+      effectivePitch,
       sunPos.azimuth,
       sunPos.altitude,
       60, // 수평 FOV (대부분의 스마트폰 카메라)
       80, // 수직 FOV
     );
-  }, [deviceAzimuth, devicePitch, sunPos.azimuth, sunPos.altitude]);
+  }, [effectiveAz, effectivePitch, sunPos.azimuth, sunPos.altitude]);
 
   // 태양 궤적의 화면 좌표 변환
   const trajectoryScreenPoints = useMemo(() => {
     return trajectory.map(pt => ({
       ...pt,
-      screen: getSunScreenPosition(deviceAzimuth, devicePitch, pt.azimuth, pt.altitude, 60, 80),
+      screen: getSunScreenPosition(effectiveAz, effectivePitch, pt.azimuth, pt.altitude, 60, 80),
     }));
-  }, [trajectory, deviceAzimuth, devicePitch]);
+  }, [trajectory, effectiveAz, effectivePitch]);
 
   // 궤적 SVG 경로 생성
   const trajectoryPathD = useMemo(() => {
@@ -436,7 +470,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
           {/* 수평선 가이드 */}
           {(() => {
-            const horizonY = getSunScreenPosition(deviceAzimuth, devicePitch, deviceAzimuth, 0, 60, 80).y * H;
+            const horizonY = getSunScreenPosition(effectiveAz, effectivePitch, effectiveAz, 0, 60, 80).y * H;
             if (horizonY > 0 && horizonY < H) {
               return (
                 <Line
@@ -490,6 +524,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           )}
         </Svg>
 
+        {/* 지자기 이상 왜곡 경고 메시지 배너 */}
+        {hasInterference && (
+          <View style={styles.warningBanner}>
+            <Text style={styles.warningText}>
+              ⚠️ Magnetic Interference! Move your phone in an "8" shape to calibrate.
+            </Text>
+          </View>
+        )}
+
         {/* 상단 HUD */}
         <View style={styles.topHud}>
           <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
@@ -505,7 +548,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
           <View style={styles.compassBadge}>
             <Text style={styles.compassText}>
-              {Math.round(deviceAzimuth)}°
+              {Math.round(effectiveAz)}°
             </Text>
           </View>
         </View>
@@ -521,6 +564,30 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             <EnhancementIndicator label="Contrast" value={currentEnhancement.contrast - 1} />
             <EnhancementIndicator label="Saturation" value={currentEnhancement.saturation - 1} />
             <EnhancementIndicator label="Warmth" value={currentEnhancement.warmth} />
+          </View>
+        </View>
+
+        {/* 수동 미세 조정 패널 (태양 정밀 오프셋 조율) */}
+        <View style={styles.manualTuningPanel}>
+          <Text style={styles.tuningTitle}>Fine-Tune Azimuth (Align Sun)</Text>
+          <View style={styles.tuningButtonsRow}>
+            <TouchableOpacity 
+              style={styles.tuningBtn} 
+              onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az - 1 }))}
+            >
+              <Text style={styles.tuningBtnText}>-1°</Text>
+            </TouchableOpacity>
+            <View style={styles.tuningValueContainer}>
+              <Text style={styles.tuningValueText}>
+                {gyroCalibOffset.az > 0 ? `+${gyroCalibOffset.az}` : gyroCalibOffset.az}°
+              </Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.tuningBtn} 
+              onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az + 1 }))}
+            >
+              <Text style={styles.tuningBtnText}>+1°</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -772,5 +839,71 @@ const styles = StyleSheet.create({
   captureSubText: {
     color: '#AAA',
     fontSize: 13,
+  },
+  warningBanner: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 120 : 96,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(211, 47, 47, 0.85)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    zIndex: 150,
+  },
+  warningText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  manualTuningPanel: {
+    position: 'absolute',
+    bottom: 230,
+    left: 40,
+    right: 40,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  tuningTitle: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tuningButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  tuningBtn: {
+    width: 42,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tuningBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tuningValueContainer: {
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  tuningValueText: {
+    color: '#FFD700',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

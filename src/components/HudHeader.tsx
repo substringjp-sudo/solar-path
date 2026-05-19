@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
 import { addDays, subDays } from 'date-fns';
-import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon } from 'lucide-react-native';
+import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 
@@ -10,6 +10,7 @@ interface HudHeaderProps {
   setActiveTab: (tab: 'tracker' | 'sim') => void;
   setMapVisible: (visible: boolean) => void;
   setSavedListVisible: (visible: boolean) => void;
+  setSettingsVisible: (visible: boolean) => void;
   handleSaveLocation: () => void;
   handleCameraPress: () => void;
   handleCameraLongPress: () => void;
@@ -27,6 +28,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   setActiveTab,
   setMapVisible,
   setSavedListVisible,
+  setSettingsVisible,
   handleSaveLocation,
   handleCameraPress,
   handleCameraLongPress,
@@ -68,46 +70,53 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           </TouchableOpacity>
         </Animated.View>
  
-        <TouchableOpacity 
-          onPress={() => setMapVisible(true)}
-          style={[styles.mapOpenBtn, { backgroundColor: theme.accent }]}
-        >
-          <MapPin size={14} color="#000" />
-        </TouchableOpacity>
- 
- 
- 
-        {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
-        <TouchableOpacity
-          onPress={handleCameraPress}
-          onLongPress={handleCameraLongPress}
-          delayLongPress={1500}
-          style={[
-            styles.mapOpenBtn,
-            goldenTimeInfo.isActive
-              ? { 
-                  backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
-                  shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 6,
-                  elevation: 5
-                }
-              : { 
-                  backgroundColor: theme.glass, 
-                  borderColor: theme.border, 
-                  borderWidth: 1,
-                  opacity: 0.55
-                }
-          ]}
-        >
-          <CameraIcon size={14} color={goldenTimeInfo.isActive ? '#FFF' : theme.text} />
-          {goldenTimeInfo.isActive ? (
-            <Text style={[styles.mapOpenText, { color: '#FFF', fontSize: 9, fontWeight: 'bold' }]}>GOLDEN</Text>
-          ) : (
-            <Text style={[styles.mapOpenText, { color: theme.text, fontSize: 8, opacity: 0.7 }]}>LOCK</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.rightButtonsContainer}>
+          <TouchableOpacity 
+            onPress={() => setMapVisible(true)}
+            style={[styles.mapOpenBtn, { backgroundColor: theme.accent }]}
+          >
+            <MapPin size={14} color="#000" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={() => setSettingsVisible(true)}
+            style={[styles.settingsOpenBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+          >
+            <Settings size={14} color={theme.text} />
+          </TouchableOpacity>
+
+          {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
+          <TouchableOpacity
+            onPress={handleCameraPress}
+            onLongPress={handleCameraLongPress}
+            delayLongPress={1500}
+            style={[
+              styles.mapOpenBtn,
+              goldenTimeInfo.isActive
+                ? { 
+                    backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                    shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.4,
+                    shadowRadius: 6,
+                    elevation: 5
+                  }
+                : { 
+                    backgroundColor: theme.glass, 
+                    borderColor: theme.border, 
+                    borderWidth: 1,
+                    opacity: 0.55
+                  }
+            ]}
+          >
+            <CameraIcon size={14} color={goldenTimeInfo.isActive ? '#FFF' : theme.text} />
+            {goldenTimeInfo.isActive ? (
+              <Text style={[styles.mapOpenText, { color: '#FFF', fontSize: 9, fontWeight: 'bold' }]}>GOLDEN</Text>
+            ) : (
+              <Text style={[styles.mapOpenText, { color: theme.text, fontSize: 8, opacity: 0.7 }]}>LOCK</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
  
       <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
@@ -181,6 +190,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: -0.3,
+  },
+  rightButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  settingsOpenBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   mapOpenBtn: {
     flexDirection: 'row',

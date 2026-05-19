@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Solar Path",
-    "slug": "solar-path",
+    "name": "BeforeGlow",
+    "slug": "beforeglow",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,14 +14,15 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.solarpath"
+      "bundleIdentifier": "com.pplaner.beforeglow"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.anonymous.solarpath"
+      "package": "com.pplaner.beforeglow",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -5,6 +5,7 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
+import { auth } from '../config/firebase';
 
 export function useCelestialApp() {
   const { width } = Dimensions.get('window');
@@ -12,9 +13,10 @@ export function useCelestialApp() {
   const defaultCoords = { latitude: 37.5665, longitude: 126.9780 }; 
   const { 
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
-    savedLocations,
+    savedLocations, currentUser,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
-    resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation
+    resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
+    setCurrentUser, syncSavedLocations
   } = useCelestialStore();
 
   const longitude = location?.coords.longitude ?? defaultCoords.longitude;
@@ -29,6 +31,7 @@ export function useCelestialApp() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
+  const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'tracker' | 'sim'>('tracker');
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
@@ -318,6 +321,31 @@ export function useCelestialApp() {
     return () => clearInterval(timer);
   }, [isTimeMachineEnabled, animating, updateTime]);
 
+  // Firebase Auth & Firestore savedLocations 실시간 동기화 라이프사이클
+  useEffect(() => {
+    let unsubscribeFirestore: (() => void) | null = null;
+    
+    const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
+      await setCurrentUser(user);
+      
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+        unsubscribeFirestore = null;
+      }
+      
+      if (user) {
+        unsubscribeFirestore = syncSavedLocations();
+      }
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+      }
+    };
+  }, [setCurrentUser, syncSavedLocations]);
+
   return {
     width,
     animating,
@@ -328,6 +356,8 @@ export function useCelestialApp() {
     setMapVisible,
     isSavedListVisible,
     setSavedListVisible,
+    isSettingsVisible,
+    setSettingsVisible,
     activeTab,
     setActiveTab,
     isSunCameraVisible,
@@ -342,6 +372,7 @@ export function useCelestialApp() {
     isGyroEnabled,
     errorMsg,
     savedLocations,
+    currentUser,
     setCurrentTime,
     setLocation,
     setTimeMachineEnabled,

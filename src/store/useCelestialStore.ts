@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth, db } from '../config/firebase';
+import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { User } from 'firebase/auth';
 
 export interface WeatherCacheItem {
   key: string;
@@ -40,6 +43,7 @@ interface CelestialState {
   userRotation: number;
   isGyroEnabled: boolean;
   savedLocations: SavedLocation[];
+  currentUser: User | null;
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -54,8 +58,10 @@ interface CelestialState {
   setUserRotation: (rot: number) => void;
   setGyroEnabled: (enabled: boolean) => void;
   resetRotation: () => void;
-  addSavedLocation: (name: string, latitude: number, longitude: number) => void;
-  removeSavedLocation: (id: string) => void;
+  addSavedLocation: (name: string, latitude: number, longitude: number) => Promise<void>;
+  removeSavedLocation: (id: string) => Promise<void>;
+  setCurrentUser: (user: User | null) => Promise<void>;
+  syncSavedLocations: () => () => void;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -78,6 +84,7 @@ export const useCelestialStore = create<CelestialState>()(
       userRotation: 0,
       isGyroEnabled: false,
       savedLocations: [],
+      currentUser: null,
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -143,24 +150,87 @@ export const useCelestialStore = create<CelestialState>()(
         if (state.isTimeMachineEnabled) return state;
         return { currentTime: new Date() };
       }),
-      addSavedLocation: (name, latitude, longitude) => set((state) => {
+      addSavedLocation: async (name, latitude, longitude) => {
+        const user = get().currentUser || auth.currentUser;
         const newLocation: SavedLocation = {
           id: Date.now().toString(),
           name,
           latitude,
           longitude,
         };
-        const isDuplicate = state.savedLocations.some(
-          (loc) => loc.latitude === latitude && loc.longitude === longitude
-        );
-        if (isDuplicate) return state;
-        return {
-          savedLocations: [...state.savedLocations, newLocation]
-        };
-      }),
-      removeSavedLocation: (id) => set((state) => ({
-        savedLocations: state.savedLocations.filter(loc => loc.id !== id)
-      })),
+
+        if (user) {
+          try {
+            const docRef = doc(db, `users/${user.uid}/locations`, newLocation.id);
+            await setDoc(docRef, newLocation);
+          } catch (err) {
+            console.warn('Failed to save location to Firestore:', err);
+          }
+        } else {
+          set((state) => {
+            const isDuplicate = state.savedLocations.some(
+              (loc) => loc.latitude === latitude && loc.longitude === longitude
+            );
+            if (isDuplicate) return state;
+            return {
+              savedLocations: [...state.savedLocations, newLocation]
+            };
+          });
+        }
+      },
+      removeSavedLocation: async (id) => {
+        const user = get().currentUser || auth.currentUser;
+        if (user) {
+          try {
+            const docRef = doc(db, `users/${user.uid}/locations`, id);
+            await deleteDoc(docRef);
+          } catch (err) {
+            console.warn('Failed to remove location from Firestore:', err);
+          }
+        } else {
+          set((state) => ({
+            savedLocations: state.savedLocations.filter(loc => loc.id !== id)
+          }));
+        }
+      },
+      setCurrentUser: async (user) => {
+        set({ currentUser: user });
+        if (user) {
+          const localLocations = get().savedLocations;
+          if (localLocations.length > 0) {
+            try {
+              const batch = writeBatch(db);
+              localLocations.forEach((loc) => {
+                const docRef = doc(db, `users/${user.uid}/locations`, loc.id);
+                batch.set(docRef, {
+                  id: loc.id,
+                  name: loc.name,
+                  latitude: loc.latitude,
+                  longitude: loc.longitude,
+                });
+              });
+              await batch.commit();
+              console.log('Successfully merged local saved locations to Firestore');
+            } catch (err) {
+              console.warn('Failed to merge local locations to Firestore:', err);
+            }
+          }
+        }
+      },
+      syncSavedLocations: () => {
+        const user = get().currentUser || auth.currentUser;
+        if (!user) return () => {};
+        
+        const locationsRef = collection(db, `users/${user.uid}/locations`);
+        const unsubscribe = onSnapshot(locationsRef, (snapshot) => {
+          const locationsList: SavedLocation[] = [];
+          snapshot.forEach((doc) => {
+            locationsList.push(doc.data() as SavedLocation);
+          });
+          set({ savedLocations: locationsList });
+        });
+        return unsubscribe;
+      },
     }),
     {
       name: 'solar-path-storage',

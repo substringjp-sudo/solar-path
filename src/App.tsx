@@ -9,6 +9,7 @@ import { TabNavigator } from './components/TabNavigator';
 import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDatePicker';
 import { MapPicker } from './components/MapPicker';
 import { SunCamera } from './components/SunCamera';
+import { SettingsModal } from './components/SettingsModal';
 
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
@@ -21,6 +22,8 @@ export default function App() {
     setMapVisible,
     isSavedListVisible,
     setSavedListVisible,
+    isSettingsVisible,
+    setSettingsVisible,
     activeTab,
     setActiveTab,
     isSunCameraVisible,
@@ -85,6 +88,7 @@ export default function App() {
           setActiveTab={setActiveTab}
           setMapVisible={setMapVisible}
           setSavedListVisible={setSavedListVisible}
+          setSettingsVisible={setSettingsVisible}
           handleSaveLocation={handleSaveLocation}
           handleCameraPress={handleCameraPress}
           handleCameraLongPress={handleCameraLongPress}
@@ -199,6 +203,14 @@ export default function App() {
         longitude={location?.coords.longitude || defaultCoords.longitude}
         currentTime={currentTime}
         goldenTimeInfo={goldenTimeInfo}
+      />
+
+      {/* 설정 모달 */}
+      <SettingsModal
+        visible={isSettingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        theme={theme}
+        dynamicTheme={dynamicTheme}
       />
     </AnimatedSafeAreaView>
   );

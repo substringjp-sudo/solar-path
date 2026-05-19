@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "860206623180",
+    "project_id": "p-plan",
+    "storage_bucket": "p-plan.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:860206623180:android:3ee8be5071cb7a8e579569",
+        "android_client_info": {
+          "package_name": "com.pplaner.beforeglow"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "860206623180-8pbbb7pvp95kb3g023j7tsc74g2hu55b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB97hW7XeVYTFqNSk01XL0dl0pYN915B1g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "860206623180-8pbbb7pvp95kb3g023j7tsc74g2hu55b.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
