@@ -22,7 +22,7 @@ const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(AsyncStorage),
 });
 
-const db = getFirestore(app);
+const db = getFirestore(app, process.env.EXPO_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID || '(default)');
 const storage = getStorage(app);
 
 export { app, auth, db, storage };
