@@ -434,10 +434,8 @@ export const predictSunset = (
     Math.max(cloudWeight, waterFactor, precipFactor, dniBlockFactor)
   );
 
-  const overheadMid = obsPoint.mid / 100;
-  const overheadHigh = obsPoint.high / 100;
   // The actual canvas the reddened beam paints: illuminated mid+high cover.
-  const overheadGlow = clamp01(overheadHigh * illumHigh + overheadMid * illumMid * 0.7);
+  const overheadGlow = clamp01(highVal * illumHigh + midVal * illumMid * 0.7);
 
   // --- Horizon Blockage Detection ---
   const isHorizonBlocked =

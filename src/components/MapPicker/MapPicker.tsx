@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { MapPin, X, Navigation, ChevronRight, LocateFixed, Save, Trash2, Star } from 'lucide-react-native';
+import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { getCelestialIsochrones, getIsochroneInterval } from '../../utils/celestial';
 

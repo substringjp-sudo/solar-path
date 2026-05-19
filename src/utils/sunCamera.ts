@@ -12,6 +12,12 @@ export interface GoldenTimeInfo {
   minutesToEvent: number; // 음수 = 이벤트 전, 양수 = 이벤트 후
 }
 
+// 골든타임 기준 임계값 상수 (분 단위)
+export const SUNRISE_PRE_MINUTES = -60;  // 일출 전 1시간 (밤쪽)
+export const SUNRISE_POST_MINUTES = 90;  // 일출 후 1.5시간 (낮쪽)
+export const SUNSET_PRE_MINUTES = -90;   // 일몰 전 1.5시간 (낮쪽)
+export const SUNSET_POST_MINUTES = 60;   // 일몰 후 1시간 (밤쪽)
+
 export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): GoldenTimeInfo => {
   const times = SunCalc.getTimes(currentTime, lat, lng);
 
@@ -22,8 +28,8 @@ export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): 
   const minutesToSunrise = (nowMs - sunriseMs) / 60000; // negative = before sunrise, positive = after sunrise
   const minutesToSunset = (nowMs - sunsetMs) / 60000;   // negative = before sunset, positive = after sunset
 
-  // 일출 체크: 밤쪽(전) 1시간(-60분), 낮쪽(후) 1.5시간(90분)
-  if (minutesToSunrise >= -60 && minutesToSunrise <= 90) {
+  // 일출 체크: 밤쪽(전) 1시간, 낮쪽(후) 1.5시간
+  if (minutesToSunrise >= SUNRISE_PRE_MINUTES && minutesToSunrise <= SUNRISE_POST_MINUTES) {
     return {
       isActive: true,
       type: 'sunrise',
@@ -32,8 +38,8 @@ export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): 
     };
   }
 
-  // 일몰 체크: 낮쪽(전) 1.5시간(-90분), 밤쪽(후) 1시간(60분)
-  if (minutesToSunset >= -90 && minutesToSunset <= 60) {
+  // 일몰 체크: 낮쪽(전) 1.5시간, 밤쪽(후) 1시간
+  if (minutesToSunset >= SUNSET_PRE_MINUTES && minutesToSunset <= SUNSET_POST_MINUTES) {
     return {
       isActive: true,
       type: 'sunset',

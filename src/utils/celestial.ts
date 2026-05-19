@@ -1,5 +1,5 @@
 import SunCalc from 'suncalc';
-import { addHours, startOfDay, addDays, isSameDay } from 'date-fns';
+import { addHours, startOfDay, addDays } from 'date-fns';
 
 export interface CelestialPosition {
   azimuth: number;

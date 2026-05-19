@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, useWindowDimensions, PanResponder, Platform } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform } from 'react-native';
 import { format, isAfter, addHours, addMinutes } from 'date-fns';
 import SunCalc from 'suncalc';
 import { useNetInfo } from '@react-native-community/netinfo';
@@ -34,7 +34,6 @@ interface SunsetSimulationProps {
 
 export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const { theme, currentTime, setCurrentTime } = props;
-  const { width, height } = useWindowDimensions();
   
   if (!theme) return null;
   
@@ -545,39 +544,6 @@ const styles = StyleSheet.create({
     width: 1,
     height: 12,
     opacity: 0.3,
-  },
-  simControlHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 6,
-  },
-  simControlTitleCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  simControlTitle: {
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.0,
-  },
-  simControlTime: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  miniSourceBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  miniSourceBadgeText: {
-    fontSize: 7,
-    fontWeight: '900',
   },
   gridDist: { fontSize: 9, fontWeight: '700', marginBottom: 4 },
   miniBars: { flexDirection: 'row', gap: 2.5, height: 25, alignItems: 'flex-end' },

@@ -70,7 +70,7 @@ export function useCelestialApp() {
       location?.coords.latitude || defaultCoords.latitude,
       location?.coords.longitude || defaultCoords.longitude
     );
-  }, [currentTime, location]);
+  }, [location]);
 
   const isAndroid = Platform.OS === 'android';
 
