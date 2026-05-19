@@ -35,48 +35,20 @@ export const getMoonPosition = (date: Date, lat: number, lng: number): Celestial
 };
 
 export const getCelestialEvents = (date: Date, lat: number, lng: number): CelestialEvents => {
-  // 1. Get today's events
-  let sunTimes = SunCalc.getTimes(date, lat, lng);
-  let moonTimes = SunCalc.getMoonTimes(date, lat, lng);
+  // 기준 날짜(date) 당일의 일출, 일몰, 월출, 월몰 물리 시각을 기기 시스템 시간대로 구합니다.
+  // (이후 사용부에서 현지 법정 오프셋을 적용해 포맷팅합니다.)
+  const sunTimes = SunCalc.getTimes(date, lat, lng);
+  const moonTimes = SunCalc.getMoonTimes(date, lat, lng);
   
-  let sunrise = sunTimes.sunrise;
-  let sunset = sunTimes.sunset;
-  let goldenHour = sunTimes.goldenHour;
-  let moonrise = moonTimes.rise || null;
-  let moonset = moonTimes.set || null;
-
-  // 2. If current time is past today's event, fetch tomorrow's event
-  if (date > sunrise) {
-    const tomorrow = addDays(date, 1);
-    const tomorrowTimes = SunCalc.getTimes(tomorrow, lat, lng);
-    sunrise = tomorrowTimes.sunrise;
-    goldenHour = tomorrowTimes.goldenHour;
-  }
-  if (date > sunset) {
-    const tomorrow = addDays(date, 1);
-    const tomorrowTimes = SunCalc.getTimes(tomorrow, lat, lng);
-    sunset = tomorrowTimes.sunset;
-  }
-
-  if (moonrise && date > moonrise) {
-    const tomorrow = addDays(date, 1);
-    const tomorrowMoon = SunCalc.getMoonTimes(tomorrow, lat, lng);
-    moonrise = tomorrowMoon.rise || null;
-  }
-  if (moonset && date > moonset) {
-    const tomorrow = addDays(date, 1);
-    const tomorrowMoon = SunCalc.getMoonTimes(tomorrow, lat, lng);
-    moonset = tomorrowMoon.set || null;
-  }
-
   return {
-    sunrise,
-    sunset,
-    goldenHour,
-    moonrise,
-    moonset,
+    sunrise: sunTimes.sunrise,
+    sunset: sunTimes.sunset,
+    goldenHour: sunTimes.goldenHour,
+    moonrise: moonTimes.rise || null,
+    moonset: moonTimes.set || null,
   };
 };
+
 
 export const getSunPath = (date: Date, lat: number, lng: number): PathPoint[] => {
   const dayStart = startOfDay(date);

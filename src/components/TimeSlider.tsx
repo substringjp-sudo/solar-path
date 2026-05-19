@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { format, startOfDay, addMinutes, subMinutes } from 'date-fns';
+import { addMinutes } from 'date-fns';
 import { Clock, Zap } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
+import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
 
 interface TimeSliderProps {
   value: Date;
@@ -44,7 +44,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   const isFullDay = mode === 'fullDay';
   const dayStart = useMemo(() => {
     const d = new Date(localValue);
-    d.setHours(0, 0, 0, 0);
+    d.setUTCHours(0, 0, 0, 0);
     return d;
   }, [localValue]);
   
@@ -54,7 +54,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   const getPercentageFromTime = (t: Date) => {
     if (isFullDay) {
-      const mins = t.getHours() * 60 + t.getMinutes();
+      const mins = t.getUTCHours() * 60 + t.getUTCMinutes();
       return (mins / (24 * 60)) * 100;
     } else {
       const ref = localBaseTime || new Date();
@@ -86,17 +86,17 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   const getFillColor = () => {
     // 1. 일출/일몰 골든타임 구간 체크
     let isGolden = false;
-    const valueMinutes = localValue.getHours() * 60 + localValue.getMinutes();
+    const valueMinutes = localValue.getUTCHours() * 60 + localValue.getUTCMinutes();
 
     let sunriseMinutes = 6 * 60; // 기본 일출 06:00
     let sunsetMinutes = 18 * 60 + 30; // 기본 일몰 18:30
 
-    markers.forEach(m => {
+    localMarkers.forEach(m => {
       if (!m.time) return;
       // 달 마커(색상이 #888)는 골든타임 판정에서 제외하고 태양 마커만 판정
       if (m.color === '#888' || m.color === '#888888') return;
 
-      const markerMinutes = m.time.getHours() * 60 + m.time.getMinutes();
+      const markerMinutes = m.time.getUTCHours() * 60 + m.time.getUTCMinutes();
       
       // 일출/일몰 기준 분 기억
       if (m.type === 'rise') {
@@ -153,7 +153,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           </TouchableOpacity>
         )}
       </View>
-
+ 
       <View style={styles.sliderWrapper}>
         <GenericSlider
           value={currentPct}
@@ -196,14 +196,14 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           }
         >
           <Text style={[styles.tooltipText, { color: getKnobColors(currentPct).textColor }]}>
-            {format(localValue, 'HH:mm')}
+            {formatLocalTime(localValue, 'HH:mm')}
           </Text>
         </GenericSlider>
       </View>
-
+ 
       <View style={styles.timeLabels}>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : (localBaseTime ? format(localBaseTime, 'HH:mm') : "Event")}</Text>
+        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "12:00" : (localBaseTime ? formatLocalTime(localBaseTime, 'HH:mm') : "Event")}</Text>
         <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
       </View>
     </View>

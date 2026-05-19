@@ -8,24 +8,51 @@ export const formatTimezoneOffsetLabel = (offsetHours: number): string => {
 
 /**
  * 주어진 기준 Date(기기 로컬 시간대)를 특정 법정 오프셋(시간) 기준으로 가상 변환합니다.
- * 포맷팅용 텍스트를 만들 때 해당 오프셋을 가산/감산하여 표현합니다.
+ * UTC 메소드(getUTCHours 등)를 통해 기기 시스템 타임존에 독립적으로 동작합니다.
  */
 export const getLocalTimeAtLocation = (date: Date, offsetHours: number): Date => {
-  const localOffsetHours = -date.getTimezoneOffset() / 60;
-  
-  // 두 오프셋의 차이 (시간)
-  const diffHours = offsetHours - localOffsetHours;
-  
-  // 차이를 반영한 새로운 Date 생성
-  return new Date(date.getTime() + diffHours * 60 * 60 * 1000);
+  return new Date(date.getTime() + offsetHours * 60 * 60 * 1000);
 };
 
 /**
  * 현지 로컬 시간 기준 가상 Date를 다시 기기 시간 기준 Date로 역변환합니다.
- * (데이트피커나 슬라이더에서 선택된 시간 값을 전역 상태에 쓸 때 역보정 필요)
  */
 export const getSystemTimeFromLocationTime = (locationDate: Date, offsetHours: number): Date => {
-  const localOffsetHours = -locationDate.getTimezoneOffset() / 60;
-  const diffHours = offsetHours - localOffsetHours;
-  return new Date(locationDate.getTime() - diffHours * 60 * 60 * 1000);
+  return new Date(locationDate.getTime() - offsetHours * 60 * 60 * 1000);
 };
+
+/**
+ * getLocalTimeAtLocation으로 변환된 가상 Date 객체를 UTC 기준으로 포맷팅합니다.
+ * pattern: 'HH:mm' | 'yyyy-MM-dd' | 'yyyy-MM-dd HH:mm' | 'EEE, MMM d, yyyy'
+ */
+export const formatLocalTime = (date: Date, pattern: string): string => {
+  const pad = (num: number) => String(num).padStart(2, '0');
+  
+  const yyyy = date.getUTCFullYear();
+  const MM = pad(date.getUTCMonth() + 1);
+  const dd = pad(date.getUTCDate());
+  const HH = pad(date.getUTCHours());
+  const mm = pad(date.getUTCMinutes());
+  const ss = pad(date.getUTCSeconds());
+
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const EEE = days[date.getUTCDay()];
+  const MMM = months[date.getUTCMonth()];
+  const d = String(date.getUTCDate());
+
+  // Replace tokens carefully
+  return pattern
+    .replace('yyyy', String(yyyy))
+    .replace('MMM', MMM)
+    .replace('MM', MM)
+    .replace('dd', dd)
+    .replace('EEE', EEE)
+    .replace('HH', HH)
+    .replace('mm', mm)
+    .replace('ss', ss)
+    .replace('d', d);
+};
+
+

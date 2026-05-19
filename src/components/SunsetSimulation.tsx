@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform } from 'react-native';
-import { format, isAfter, addHours, addMinutes } from 'date-fns';
+import { isAfter, addHours, addMinutes } from 'date-fns';
 import SunCalc from 'suncalc';
 import { useNetInfo } from '@react-native-community/netinfo';
-import { getLocalTimeAtLocation } from '../utils/timezone';
+import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 
 import { useCelestialStore } from '../store/useCelestialStore';
 import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather } from '../utils/weather';
@@ -14,7 +14,7 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-
+ 
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
   eventTime: Date;
@@ -69,8 +69,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
   const currentDateStr = useMemo(() => {
     const localTime = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
-    return format(localTime, 'yyyy-MM-dd');
+    return formatLocalTime(localTime, 'yyyy-MM-dd');
   }, [currentTime, timezoneOffsetHours]);
+
 
   const lastFetchedDateRef = useRef<string>('');
 

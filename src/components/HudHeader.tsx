@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
-import { format, addDays, subDays, isSameDay } from 'date-fns';
+import { addDays, subDays } from 'date-fns';
 import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { getLocalTimeAtLocation } from '../utils/timezone';
+import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 
 interface HudHeaderProps {
   activeTab: 'tracker' | 'sim';
@@ -45,7 +45,9 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   const isTodayLocal = useMemo(() => {
     const todayLocal = getLocalTimeAtLocation(new Date(), timezoneOffsetHours);
     const currentLocal = currentTimeLocal || getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
-    return isSameDay(currentLocal, todayLocal);
+    return todayLocal.getUTCFullYear() === currentLocal.getUTCFullYear() &&
+           todayLocal.getUTCMonth() === currentLocal.getUTCMonth() &&
+           todayLocal.getUTCDate() === currentLocal.getUTCDate();
   }, [currentTime, currentTimeLocal, timezoneOffsetHours]);
 
   return (
@@ -65,16 +67,16 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>Simulation</Animated.Text>
           </TouchableOpacity>
         </Animated.View>
-
+ 
         <TouchableOpacity 
           onPress={() => setMapVisible(true)}
           style={[styles.mapOpenBtn, { backgroundColor: theme.accent }]}
         >
           <MapPin size={14} color="#000" />
         </TouchableOpacity>
-
-
-
+ 
+ 
+ 
         {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
         <TouchableOpacity
           onPress={handleCameraPress}
@@ -107,7 +109,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           )}
         </TouchableOpacity>
       </View>
-
+ 
       <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
         {activeTab !== 'sim' ? (
           <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
@@ -120,7 +122,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
           <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
           <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
-            {format(currentTimeLocal || currentTime, 'EEE, MMM d, yyyy')}
+            {formatLocalTime(currentTimeLocal || currentTime, 'EEE, MMM d, yyyy')}
           </Animated.Text>
           {timezoneLabel && (
             <View style={[styles.timezoneBadge, { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }]}>
@@ -128,7 +130,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             </View>
           )}
         </TouchableOpacity>
-
+ 
         {activeTab !== 'sim' ? (
           <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
             <ChevronRight size={16} color={theme.text} />
@@ -136,7 +138,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         ) : (
           <View style={{ width: 24 }} />
         )}
-
+ 
         {!isTodayLocal && (
           <TouchableOpacity 
             onPress={() => handleDateChange(new Date())} 

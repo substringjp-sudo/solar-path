@@ -1,9 +1,8 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
 import { RotateCcw, Compass, Sun, Moon, Zap, Sunrise, Sunset } from 'lucide-react-native';
-import { format, isSameDay } from 'date-fns';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { getLocalTimeAtLocation } from '../utils/timezone';
+import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { useMemo } from 'react';
 import { CelestialChart } from './CelestialChart';
 import { InfoCard } from './InfoCard';
@@ -31,6 +30,12 @@ interface TabNavigatorProps {
   setTimeMachineEnabled: (enabled: boolean) => void;
   isDay: boolean;
 }
+
+const isSameDayUTC = (d1: Date, d2: Date) => {
+  return d1.getUTCFullYear() === d2.getUTCFullYear() &&
+         d1.getUTCMonth() === d2.getUTCMonth() &&
+         d1.getUTCDate() === d2.getUTCDate();
+};
 
 export const TabNavigator: React.FC<TabNavigatorProps> = ({
   activeTab,
@@ -119,15 +124,15 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                   <InfoCard 
                     icon={<Sunrise size={14} color="#FFA500" />}
                     label="Sunrise"
-                    value={format(eventsLocal.sunrise, 'HH:mm')}
-                    subValue={isSameDay(eventsLocal.sunrise, currentTimeLocal) ? '오늘' : '내일'}
+                    value={formatLocalTime(eventsLocal.sunrise, 'HH:mm')}
+                    subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? '오늘' : '내일'}
                     theme={theme}
                   />
                   <InfoCard 
                     icon={<Sunset size={14} color="#FF4500" />}
                     label="Sunset"
-                    value={format(eventsLocal.sunset, 'HH:mm')}
-                    subValue={isSameDay(eventsLocal.sunset, currentTimeLocal) ? '오늘' : '내일'}
+                    value={formatLocalTime(eventsLocal.sunset, 'HH:mm')}
+                    subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? '오늘' : '내일'}
                     theme={theme}
                   />
                 </View>
@@ -149,15 +154,15 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                   <InfoCard 
                     icon={<Sunrise size={14} color="#888" />}
                     label="Moonrise"
-                    value={eventsLocal.moonrise ? format(eventsLocal.moonrise, 'HH:mm') : '--:--'}
-                    subValue={eventsLocal.moonrise ? (isSameDay(eventsLocal.moonrise, currentTimeLocal) ? '오늘' : '내일') : undefined}
+                    value={eventsLocal.moonrise ? formatLocalTime(eventsLocal.moonrise, 'HH:mm') : '--:--'}
+                    subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? '오늘' : '내일') : undefined}
                     theme={theme}
                   />
                   <InfoCard 
                     icon={<Sunset size={14} color="#888" />}
                     label="Moonset"
-                    value={eventsLocal.moonset ? format(eventsLocal.moonset, 'HH:mm') : '--:--'}
-                    subValue={eventsLocal.moonset ? (isSameDay(eventsLocal.moonset, currentTimeLocal) ? '오늘' : '내일') : undefined}
+                    value={eventsLocal.moonset ? formatLocalTime(eventsLocal.moonset, 'HH:mm') : '--:--'}
+                    subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? '오늘' : '내일') : undefined}
                     theme={theme}
                   />
                 </View>
