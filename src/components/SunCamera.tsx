@@ -239,19 +239,32 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   // 궤적 SVG 경로 생성
   const trajectoryPathD = useMemo(() => {
-    const visiblePoints = trajectoryScreenPoints.filter(p =>
-      p.screen.x >= -0.5 && p.screen.x <= 1.5 && p.screen.y >= -0.5 && p.screen.y <= 1.5
-    );
+    if (trajectoryScreenPoints.length < 2) return '';
 
-    if (visiblePoints.length < 2) return '';
+    let path = '';
+    let lastX = 0;
 
-    const parts = visiblePoints.map((p, i) => {
+    trajectoryScreenPoints.forEach((p, i) => {
       const px = p.screen.x * W;
       const py = p.screen.y * H;
-      return `${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`;
+
+      if (i === 0) {
+        path += `M ${px.toFixed(1)} ${py.toFixed(1)}`;
+      } else {
+        // 방위각 180도 뒤집힘으로 인해 화면 한쪽 끝에서 반대쪽 끝으로 순간이동하는 격차 감지
+        const isScreenJump = Math.abs(px - lastX) > W * 2;
+
+        if (isScreenJump) {
+          path += ` M ${px.toFixed(1)} ${py.toFixed(1)}`; // 선을 잇지 않고 이동
+        } else {
+          path += ` L ${px.toFixed(1)} ${py.toFixed(1)}`; // 선 잇기
+        }
+      }
+
+      lastX = px;
     });
 
-    return parts.join(' ');
+    return path;
   }, [trajectoryScreenPoints, W, H]);
 
   // 촬영
