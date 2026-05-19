@@ -1,5 +1,5 @@
 import SunCalc from 'suncalc';
-import { addHours, startOfDay } from 'date-fns';
+import { addHours, startOfDay, addDays, isSameDay } from 'date-fns';
 
 export interface CelestialPosition {
   azimuth: number;
@@ -35,15 +35,46 @@ export const getMoonPosition = (date: Date, lat: number, lng: number): Celestial
 };
 
 export const getCelestialEvents = (date: Date, lat: number, lng: number): CelestialEvents => {
-  const sunTimes = SunCalc.getTimes(date, lat, lng);
-  const moonTimes = SunCalc.getMoonTimes(date, lat, lng);
+  // 1. Get today's events
+  let sunTimes = SunCalc.getTimes(date, lat, lng);
+  let moonTimes = SunCalc.getMoonTimes(date, lat, lng);
   
+  let sunrise = sunTimes.sunrise;
+  let sunset = sunTimes.sunset;
+  let goldenHour = sunTimes.goldenHour;
+  let moonrise = moonTimes.rise || null;
+  let moonset = moonTimes.set || null;
+
+  // 2. If current time is past today's event, fetch tomorrow's event
+  if (date > sunrise) {
+    const tomorrow = addDays(date, 1);
+    const tomorrowTimes = SunCalc.getTimes(tomorrow, lat, lng);
+    sunrise = tomorrowTimes.sunrise;
+    goldenHour = tomorrowTimes.goldenHour;
+  }
+  if (date > sunset) {
+    const tomorrow = addDays(date, 1);
+    const tomorrowTimes = SunCalc.getTimes(tomorrow, lat, lng);
+    sunset = tomorrowTimes.sunset;
+  }
+
+  if (moonrise && date > moonrise) {
+    const tomorrow = addDays(date, 1);
+    const tomorrowMoon = SunCalc.getMoonTimes(tomorrow, lat, lng);
+    moonrise = tomorrowMoon.rise || null;
+  }
+  if (moonset && date > moonset) {
+    const tomorrow = addDays(date, 1);
+    const tomorrowMoon = SunCalc.getMoonTimes(tomorrow, lat, lng);
+    moonset = tomorrowMoon.set || null;
+  }
+
   return {
-    sunrise: sunTimes.sunrise,
-    sunset: sunTimes.sunset,
-    goldenHour: sunTimes.goldenHour,
-    moonrise: moonTimes.rise || null,
-    moonset: moonTimes.set || null,
+    sunrise,
+    sunset,
+    goldenHour,
+    moonrise,
+    moonset,
   };
 };
 

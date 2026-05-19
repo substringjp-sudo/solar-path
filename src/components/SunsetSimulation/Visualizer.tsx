@@ -152,6 +152,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const h_v = (sim?.terrain?.observerElevation ?? 50) / 1000; // Observer altitude in km (default 50m)
 
     const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
+    const isOvercast = (prediction?.factors?.overheadOvercast ?? 0) >= 0.75;
     
     types.forEach((type) => {
       sim.pathData.forEach((c: any, i: number) => {
@@ -167,24 +168,25 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         const baseWidth = type === 'high' ? 120 : type === 'mid' ? 150 : 180;
         const baseHeight = type === 'high' ? 6 : type === 'mid' ? 14 : 24;
         
-        const baseDist = c?.distance ?? [15, 80, 200, 350][i];
+        const baseDist = c?.distance ?? [0, 80, 200, 350][i % 4];
         const H_c = type === 'high' ? 9.5 : type === 'mid' ? 4.5 : 1.5; 
 
-        // Number of clouds in this slot
-        const cloudCount = Math.ceil(density / 12);
+        // If overcast, we draw massive giant bands instead of 100s of small clouds to prevent FPS drop and look cleaner.
+        // We still render a few scattered background clouds to give depth.
+        const cloudCount = isOvercast ? Math.ceil(density / 35) : Math.ceil(density / 12);
         
         for (let s = 0; s < cloudCount; s++) {
           const seed = type.charCodeAt(0) * 100 + i * 37 + s * 17;
           
           // Spread clouds dynamically around the sampling area to avoid artificial bands
           let d = baseDist;
-          if (i === 0) {
+          if (baseDist === 0) {
             d = 4 + ((seed * 13) % 25); // 4 to 29 km
-          } else if (i === 1) {
+          } else if (baseDist <= 80) {
             d = 45 + ((seed * 19) % 55); // 45 to 100 km
-          } else if (i === 2) {
+          } else if (baseDist <= 200) {
             d = 130 + ((seed * 29) % 100); // 130 to 230 km
-          } else if (i === 3) {
+          } else {
             d = 270 + ((seed * 41) % 130); // 270 to 400 km
           }
 
@@ -217,6 +219,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             type,
             S, // distance for depth sorting
             apparentElevationDeg,
+            azimuthOffset: c?.azimuthOffset ?? 0, // Fanning offset
             baseWidth,
             baseHeight,
             baseColorStr,
@@ -247,8 +250,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
       const totalDx = spatialDx + (windDriftKm % 160 - 80);
       
-      // Cloud azimuth relative to sim azimuth
-      const totalAzOffset = Math.atan2(totalDx, item.d) * (180 / Math.PI);
+      // Cloud azimuth relative to sim azimuth, factoring in 3-Ray Fanning offset
+      const totalAzOffset = item.azimuthOffset + Math.atan2(totalDx, item.d) * (180 / Math.PI);
       
       // Absolute azimuth of the cloud
       const cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
@@ -322,11 +325,11 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const shadowDx = -cosA * shadowDist;
       const shadowDy = -sinA * shadowDist;
 
-      // Haze attenuation (Significantly eased off to make high/distant clouds beautifully visible)
-      const aerosolScaleHeight = 260; // 120 -> 260 km (much less aggressive haze extinction)
+      // Haze attenuation
+      const aerosolScaleHeight = 260; 
       const aerosolExtinction = Math.exp(-item.S / aerosolScaleHeight);
       const baseOpacity = 0.12 + (item.opacityDensity / 120);
-      const cloudOpacity = Math.max(0.12, Math.min(0.85, baseOpacity * aerosolExtinction)); // Enforce at least 0.12 opacity
+      const cloudOpacity = Math.max(0.12, Math.min(0.85, baseOpacity * aerosolExtinction)); 
 
       const gradId = `cloudGrad-${item.id}`;
 
@@ -348,6 +351,119 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       };
     }).filter(Boolean);
   }, [allCloudLayersData, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL]);
+
+  // 3. Compute continuous overhead giant cloud bands when overcast factor is extremely high
+  const giantClouds = useMemo(() => {
+    if (!prediction || !interpolatedWeather) return [];
+    const overcast = prediction.factors?.overheadOvercast ?? 0;
+    if (overcast < 0.75) return [];
+
+    const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
+    const horizonTop = SKY_HEIGHT - HORIZON_Y;
+
+    // Time-based wind drift shift translated to degrees
+    const timeMs = currentTime.getTime();
+    const windSpeedDegPerMs = 0.000005; // subtle drift over time
+    const windShiftDeg = (timeMs * windSpeedDegPerMs) % 360;
+
+    return types.map((type) => {
+      // Find average density for this type from weather stations
+      const densities = interpolatedWeather.map((w: any) => type === 'high' ? w.high : type === 'mid' ? w.mid : w.low);
+      const avgDensity = densities.reduce((a: number, b: number) => a + b, 0) / densities.length;
+      if (avgDensity < 15) return null;
+
+      const baseColorStr =
+        type === 'high'
+          ? (prediction.highCloudColor)
+          : type === 'mid'
+          ? (prediction.midCloudColor)
+          : (prediction.lowCloudColor);
+
+      // Define altitude range boundaries for giant sheets
+      const minElev = type === 'high' ? 18 : type === 'mid' ? 6 : 0;
+      const maxElev = type === 'high' ? 55 : type === 'mid' ? 22 : 9;
+
+      const yStart = horizonTop - (maxElev * DEGREE_TO_PIXEL);
+      const yEnd = horizonTop - (minElev * DEGREE_TO_PIXEL);
+      const layerHeight = Math.max(28, yEnd - yStart);
+
+      // Project a seamless 360-degree cloud ring to completely prevent clipping
+      const totalWidth = 360 * DEGREE_TO_PIXEL;
+      const xStart = (VISUALIZER_WIDTH / 2) - (heading - windShiftDeg) * DEGREE_TO_PIXEL;
+
+      // Higher step count for smoother 360-degree cyclical sampling
+      const steps = 36;
+      const topPoints: { x: number; y: number }[] = [];
+      const bottomPoints: { x: number; y: number }[] = [];
+
+      // Top boundary points with Fourier-like smooth wave synthesis (Seamless Loop)
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const px = xStart + totalWidth * t;
+        const sampleAz = (heading - windShiftDeg) + 360 * t;
+        
+        const rad = (sampleAz * Math.PI) / 180;
+        const wave1 = Math.sin(rad * 3) * 0.12;
+        const wave2 = Math.cos(rad * 7) * 0.06;
+        const wave3 = Math.sin(rad * 12) * 0.03;
+        const noiseSum = wave1 + wave2 + wave3;
+        
+        const py = yStart + layerHeight * (0.2 + noiseSum);
+        topPoints.push({ x: px, y: py });
+      }
+
+      // Bottom boundary points
+      for (let k = steps; k >= 0; k--) {
+        const t = k / steps;
+        const px = xStart + totalWidth * t;
+        const sampleAz = (heading - windShiftDeg) + 360 * t;
+        
+        const rad = (sampleAz * Math.PI) / 180;
+        const wave1 = Math.sin(rad * 2.5 + 2) * 0.12;
+        const wave2 = Math.cos(rad * 6 + 4) * 0.06;
+        const wave3 = Math.sin(rad * 11 + 6) * 0.03;
+        const noiseSum = wave1 + wave2 + wave3;
+        
+        const py = yStart + layerHeight * (0.8 - noiseSum);
+        bottomPoints.push({ x: px, y: py });
+      }
+
+      // Build smooth path using Cubic Bezier segments
+      let pathStr = `M ${topPoints[0].x.toFixed(1)},${topPoints[0].y.toFixed(1)}`;
+      
+      for (let k = 0; k < steps; k++) {
+        const p0 = topPoints[k];
+        const p1 = topPoints[k + 1];
+        const cp1x = p0.x + (p1.x - p0.x) / 3;
+        const cp1y = p0.y;
+        const cp2x = p0.x + 2 * (p1.x - p0.x) / 3;
+        const cp2y = p1.y;
+        pathStr += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
+      }
+
+      pathStr += ` L ${bottomPoints[0].x.toFixed(1)},${bottomPoints[0].y.toFixed(1)}`;
+
+      for (let k = 0; k < steps; k++) {
+        const p0 = bottomPoints[k];
+        const p1 = bottomPoints[k + 1];
+        const cp1x = p0.x - (p0.x - p1.x) / 3;
+        const cp1y = p0.y;
+        const cp2x = p0.x - 2 * (p0.x - p1.x) / 3;
+        const cp2y = p1.y;
+        pathStr += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
+      }
+
+      pathStr += ' Z';
+      const opacity = Math.min(0.96, (avgDensity / 100) * overcast * 1.15);
+
+      return {
+        id: `giant-${type}`,
+        pathStr,
+        color: baseColorStr,
+        opacity,
+      };
+    }).filter(Boolean);
+  }, [prediction, interpolatedWeather, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, VISUALIZER_WIDTH, heading, visualFov, currentTime, sim]);
 
   const renderTerrain = () => {
     if (!sim?.terrain?.panoramicAngles) return null;
@@ -711,7 +827,20 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             );
           })()}
 
-          {/* 3. 3D Depth-sorted Clouds (Rendered behind terrain) */}
+          {/* 3. Continuous Overcast Giant Clouds (Rendered behind terrain) */}
+          {giantClouds.map((gCloud: any) => {
+            if (!gCloud) return null;
+            return (
+              <Path
+                key={gCloud.id}
+                d={gCloud.pathStr}
+                fill={gCloud.color}
+                opacity={gCloud.opacity}
+              />
+            );
+          })}
+
+          {/* 4. 3D Depth-sorted Clouds (Rendered behind terrain) */}
           {computedClouds.map((cloud: any) => {
             if (!cloud) return null;
             return (

@@ -14,17 +14,16 @@ export interface GoldenTimeInfo {
 
 export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): GoldenTimeInfo => {
   const times = SunCalc.getTimes(currentTime, lat, lng);
-  const windowMinutes = 150; // 2.5시간 = 150분
 
   const sunriseMs = times.sunrise.getTime();
   const sunsetMs = times.sunset.getTime();
   const nowMs = currentTime.getTime();
 
-  const minutesToSunrise = (nowMs - sunriseMs) / 60000;
-  const minutesToSunset = (nowMs - sunsetMs) / 60000;
+  const minutesToSunrise = (nowMs - sunriseMs) / 60000; // negative = before sunrise, positive = after sunrise
+  const minutesToSunset = (nowMs - sunsetMs) / 60000;   // negative = before sunset, positive = after sunset
 
-  // 일출 전후 2.5시간 체크
-  if (Math.abs(minutesToSunrise) <= windowMinutes) {
+  // 일출 체크: 밤쪽(전) 1시간(-60분), 낮쪽(후) 1.5시간(90분)
+  if (minutesToSunrise >= -60 && minutesToSunrise <= 90) {
     return {
       isActive: true,
       type: 'sunrise',
@@ -33,8 +32,8 @@ export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): 
     };
   }
 
-  // 일몰 전후 2.5시간 체크
-  if (Math.abs(minutesToSunset) <= windowMinutes) {
+  // 일몰 체크: 낮쪽(전) 1.5시간(-90분), 밤쪽(후) 1시간(60분)
+  if (minutesToSunset >= -90 && minutesToSunset <= 60) {
     return {
       isActive: true,
       type: 'sunset',

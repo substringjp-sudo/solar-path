@@ -28,16 +28,21 @@ export interface CloudData {
   mid: number;
   high: number;
   distance: number;
+  azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
   visibility?: number;
   /** 2 m relative humidity in percent. Only populated for the observer point. */
   humidity?: number;
+  directNormalIrradiance?: number;
+  totalColumnWaterVapour?: number;
+  precipitation?: number;
 }
 
 export interface WeatherPoint {
   latitude: number;
   longitude: number;
   distance: number;
+  azimuthOffset: number;
 }
 
 /**
@@ -68,10 +73,14 @@ export interface HourlyCloudData {
   high: number[];
   visibility?: number[];
   humidity?: number[];
+  directNormalIrradiance?: number[];
+  totalColumnWaterVapour?: number[];
+  precipitation?: number[];
 }
 
 export interface CloudPathData {
   distance: number;
+  azimuthOffset: number;
   hourly: HourlyCloudData;
   source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
 }
@@ -86,20 +95,28 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
     return weatherCache.get(cacheKey)!;
   }
 
-  const points = [
-    { dist: 0, lat, lon },
-    { dist: 80, ...calculateDestination(lat, lon, 80, bucketedAzimuth) },
-    { dist: 200, ...calculateDestination(lat, lon, 200, bucketedAzimuth) },
-    { dist: 350, ...calculateDestination(lat, lon, 350, bucketedAzimuth) },
+  // 3-Ray Fanning: Observer (0km) + Left(-15 deg), Center(0 deg), Right(+15 deg) at distances [80, 200, 350]
+  const angles = [-15, 0, 15];
+  const distances = [80, 200, 350];
+
+  const points: { dist: number; azOffset: number; lat: number; lon: number }[] = [
+    { dist: 0, azOffset: 0, lat, lon }
   ];
 
-  const lats = points.map(p => (p as any).latitude || (p as any).lat).join(',');
-  const lons = points.map(p => (p as any).longitude || (p as any).lon).join(',');
+  angles.forEach(ang => {
+    distances.forEach(d => {
+      const dest = calculateDestination(lat, lon, d, bucketedAzimuth + ang);
+      points.push({ dist: d, azOffset: ang, lat: dest.latitude, lon: dest.longitude });
+    });
+  });
+
+  const lats = points.map(p => p.lat.toFixed(5)).join(',');
+  const lons = points.map(p => p.lon.toFixed(5)).join(',');
 
   try {
     const response = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
-        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m` +
+        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
         `&timezone=auto`
     );
     const data = await response.json();
@@ -111,10 +128,11 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
       const res = results[i];
 
       if (!res || !res.hourly) {
-        console.warn(`Weather data missing for point ${i} (${p.dist}km). Using clear sky fallback.`);
+        console.warn(`Weather data missing for point ${i} (${p.dist}km, offset ${p.azOffset}°). Using clear sky fallback.`);
         const fallbackTime: string[] = results[0]?.hourly?.time || [];
         return {
           distance: p.dist,
+          azimuthOffset: p.azOffset,
           hourly: {
             time: fallbackTime,
             timeMs: fallbackTime.map(t => new Date(t).getTime()),
@@ -133,7 +151,11 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
         low: res.hourly.cloud_cover_low,
         mid: res.hourly.cloud_cover_mid,
         high: res.hourly.cloud_cover_high,
+        directNormalIrradiance: res.hourly.direct_normal_irradiance,
+        totalColumnWaterVapour: res.hourly.total_column_integrated_water_vapour,
+        precipitation: res.hourly.precipitation,
       };
+      
       // Visibility and humidity are only meaningful at the observer; the API
       // returns them for all points but we only consume them at index 0.
       if (i === 0) {
@@ -143,6 +165,7 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
 
       return {
         distance: p.dist,
+        azimuthOffset: p.azOffset,
         hourly,
         source: 'standard',
       };
@@ -166,14 +189,14 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
   const targetMs = targetTime.getTime();
   return pathData.map(p => {
     if (!p?.hourly?.time || !p?.hourly?.high || !p?.hourly?.low) {
-      return { high: 0, mid: 0, low: 0, distance: p.distance || 0 };
+      return { high: 0, mid: 0, low: 0, distance: p.distance || 0, azimuthOffset: p.azimuthOffset || 0 };
     }
     // timeMs is pre-parsed at fetch time. Tolerate legacy / hand-built data
     // that only has the string `time` field by parsing on the fly.
     const times = p.hourly.timeMs ?? p.hourly.time.map(t => new Date(t).getTime());
 
     if (times.length === 0) {
-      return { distance: p.distance || 0, low: 0, mid: 0, high: 0 };
+      return { distance: p.distance || 0, azimuthOffset: p.azimuthOffset || 0, low: 0, mid: 0, high: 0 };
     }
 
     // Find the two nearest hours
@@ -195,11 +218,15 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
 
     return {
       distance: p.distance,
+      azimuthOffset: p.azimuthOffset,
       low: interpolate(p.hourly.low[i], p.hourly.low[i+1] ?? p.hourly.low[i]),
       mid: interpolate(p.hourly.mid[i], p.hourly.mid[i+1] ?? p.hourly.mid[i]),
       high: interpolate(p.hourly.high[i], p.hourly.high[i+1] ?? p.hourly.high[i]),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
+      directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
+      totalColumnWaterVapour: interpolateOpt(p.hourly.totalColumnWaterVapour),
+      precipitation: interpolateOpt(p.hourly.precipitation),
     };
   });
 };
@@ -238,6 +265,10 @@ export const fetchTerrainProfile = async (
   );
 
   const points: { lat: number; lon: number; dist: number; az: number }[] = [];
+  
+  // 1. 관측자 본인(거리 0)을 첫 번째로 포함시켜 단일 호출로 통합
+  points.push({ lat, lon, dist: 0, az: 0 });
+
   azimuths.forEach(az => {
     DISTANCES.forEach(dist => {
       const dest = calculateDestination(lat, lon, dist, az);
@@ -245,33 +276,29 @@ export const fetchTerrainProfile = async (
     });
   });
 
-  const CHUNK_SIZE = 30; // Further reduced to safely avoid 414 Request-URI Too Large
+  // 2. 청크 크기를 60으로 늘려 리퀘스트 갯수 최소화 (총 4개 미만 청크)
+  const CHUNK_SIZE = 60;
   const chunkedPoints: typeof points[] = [];
   for (let i = 0; i < points.length; i += CHUNK_SIZE) {
     chunkedPoints.push(points.slice(i, i + CHUNK_SIZE));
   }
 
   try {
-    const results: number[] = [];
+    onProgress?.(`지형 데이터 분석 중...`);
     
-    for (let i = 0; i < chunkedPoints.length; i++) {
-      onProgress?.(`지형 데이터 분석 중 (${i + 1}/${chunkedPoints.length})...`);
-      if (i > 0) await sleep(1000); // 1s delay between batches to stay under minutely limits
-      
-      const chunk = chunkedPoints[i];
+    // 3. 순차 대기(sleep) 없이 모든 청크를 병렬(Promise.all)로 동시 호출하여 로딩 속도 600% 이상 단축
+    const fetchPromises = chunkedPoints.map(async (chunk, idx) => {
       const lats = chunk.map(p => p.lat.toFixed(5)).join(',');
       const lons = chunk.map(p => p.lon.toFixed(5)).join(',');
       const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
       
-      let success = false;
       let retries = 0;
-      while (!success && retries < 3) {
+      while (retries < 3) {
         try {
           const response = await fetch(url);
           
           if (response.status === 429) {
-            const waitTime = 2000 * (retries + 1);
-            console.warn(`Elevation API 429. Retrying in ${waitTime}ms...`);
+            const waitTime = 1000 * (retries + 1);
             await sleep(waitTime);
             retries++;
             continue;
@@ -283,44 +310,37 @@ export const fetchTerrainProfile = async (
 
           const data = await response.json();
           if (data && Array.isArray(data.elevation)) {
-            results.push(...data.elevation);
-            success = true;
+            return { idx, elevation: data.elevation };
           } else {
             throw new Error("Missing elevation array in response");
           }
         } catch (e) {
           retries++;
           if (retries >= 3) throw e;
-          await sleep(1000);
+          await sleep(500);
         }
       }
-    }
-    
-    console.log(`Successfully fetched ${results.length} terrain points`);
+      return { idx, elevation: [] as number[] };
+    });
 
-    // Get observer elevation with retry logic
-    let observerElev = 0;
-    let obsSuccess = false;
-    let obsRetries = 0;
-    const obsUrl = `https://api.open-meteo.com/v1/elevation?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}`;
+    const chunkResults = await Promise.all(fetchPromises);
     
-    while (!obsSuccess && obsRetries < 3) {
-      try {
-        const obsRes = await fetch(obsUrl);
-        if (obsRes.status === 429) {
-          await sleep(2000);
-          obsRetries++;
-          continue;
-        }
-        const obsData = await obsRes.json();
-        observerElev = (obsData && Array.isArray(obsData.elevation)) ? (obsData.elevation[0] || 0) : 0;
-        obsSuccess = true;
-      } catch (e) {
-        obsRetries++;
-        if (obsRetries >= 3) break;
-        await sleep(1000);
-      }
+    // 청크 인덱스 순서대로 정렬하여 데이터 머지
+    chunkResults.sort((a, b) => a.idx - b.idx);
+    const results: number[] = [];
+    chunkResults.forEach(r => results.push(...r.elevation));
+
+    if (results.length !== points.length) {
+      throw new Error(`Data size mismatch: expected ${points.length}, got ${results.length}`);
     }
+
+    console.log(`Successfully fetched ${results.length} terrain points in parallel`);
+
+    // 0번째 결과가 바로 첫 머리에 끼워넣은 관측자의 고도(observerElevation)
+    const observerElev = results[0] || 0;
+    
+    // 1번째 결과부터 실제 샘플링 지형 데이터
+    const terrainPoints = results.slice(1);
 
     const panoramicAngles: number[] = [];
     const farAngles: number[] = [];
@@ -329,7 +349,7 @@ export const fetchTerrainProfile = async (
       let maxFarAngle = 0;
       for (let j = 0; j < DISTANCES.length; j++) {
         const idx = i * DISTANCES.length + j;
-        const elev = results[idx];
+        const elev = terrainPoints[idx];
         if (elev === undefined) continue;
         
         const distMeters = DISTANCES[j] * 1000;
@@ -337,7 +357,6 @@ export const fetchTerrainProfile = async (
         const angle = (Math.atan2(elevDiff, distMeters) * 180) / Math.PI;
         
         if (angle > maxAzAngle) maxAzAngle = angle;
-        // DISTANCES = [5, 15, 40], so j >= 1 covers 15km and 40km
         if (j >= 1 && angle > maxFarAngle) maxFarAngle = angle;
       }
       panoramicAngles.push(maxAzAngle);

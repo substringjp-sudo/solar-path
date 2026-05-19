@@ -34,6 +34,30 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   const trackRef = useRef<View>(null);
   const trackPos = useRef({ x: 0, width: 0 });
 
+  // 1. 색상 부드러운 전환을 위한 보간 애니메이션 설계
+  const [prevColor, setPrevColor] = useState(fillColor || theme.accent);
+  const [nextColor, setNextColor] = useState(fillColor || theme.accent);
+  const colorAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const targetColor = fillColor || theme.accent;
+    if (targetColor !== nextColor) {
+      setPrevColor(nextColor);
+      setNextColor(targetColor);
+      colorAnim.setValue(0);
+      Animated.timing(colorAnim, {
+        toValue: 1,
+        duration: 300, // 300ms 동안 자연스럽게 변화
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [fillColor, theme.accent]);
+
+  const animatedFillColor = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [prevColor, nextColor],
+  });
+
   useEffect(() => {
     if (!isDragging) {
       Animated.spring(animatedValue, {
@@ -114,7 +138,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
             styles.fill, 
             { 
               width: fillWidth,
-              backgroundColor: fillColor || theme.accent,
+              backgroundColor: animatedFillColor,
             }
           ]} 
         />
@@ -122,10 +146,8 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
       {/* 2. Track Overlay (Markers) - Between Track and Knob */}
       {trackOverlay && (
-        <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: 'center', zIndex: 5, elevation: 5, paddingHorizontal: 27 }} pointerEvents="none">
-          <View style={{ height: 6 }}>
-             {trackOverlay}
-          </View>
+        <View style={{ ...StyleSheet.absoluteFillObject, zIndex: 10, elevation: 10, paddingHorizontal: 27 }} pointerEvents="none">
+           {trackOverlay}
         </View>
       )}
 

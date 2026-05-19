@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
 import { RotateCcw, Compass, Sun, Moon, Zap, Sunrise, Sunset } from 'lucide-react-native';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { CelestialChart } from './CelestialChart';
 import { InfoCard } from './InfoCard';
 import { TimeSlider } from './TimeSlider';
@@ -103,12 +103,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                     icon={<Sunrise size={14} color="#FFA500" />}
                     label="Sunrise"
                     value={format(events.sunrise, 'HH:mm')}
+                    subValue={isSameDay(events.sunrise, currentTime) ? '오늘' : '내일'}
                     theme={theme}
                   />
                   <InfoCard 
                     icon={<Sunset size={14} color="#FF4500" />}
                     label="Sunset"
                     value={format(events.sunset, 'HH:mm')}
+                    subValue={isSameDay(events.sunset, currentTime) ? '오늘' : '내일'}
                     theme={theme}
                   />
                 </View>
@@ -131,12 +133,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                     icon={<Sunrise size={14} color="#888" />}
                     label="Moonrise"
                     value={events.moonrise ? format(events.moonrise, 'HH:mm') : '--:--'}
+                    subValue={events.moonrise ? (isSameDay(events.moonrise, currentTime) ? '오늘' : '내일') : undefined}
                     theme={theme}
                   />
                   <InfoCard 
                     icon={<Sunset size={14} color="#888" />}
                     label="Moonset"
                     value={events.moonset ? format(events.moonset, 'HH:mm') : '--:--'}
+                    subValue={events.moonset ? (isSameDay(events.moonset, currentTime) ? '오늘' : '내일') : undefined}
                     theme={theme}
                   />
                 </View>

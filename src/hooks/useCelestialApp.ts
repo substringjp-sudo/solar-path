@@ -24,14 +24,15 @@ export function useCelestialApp() {
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
 
-  // Theme Logic
+  // Theme Logic (Forced to true to default to Light Theme as requested)
+  const isDay = true;
+  const themeAnim = useRef(new Animated.Value(0)).current;
+
   const sunPos = getSunPosition(
     currentTime, 
     location?.coords.latitude || defaultCoords.latitude, 
     location?.coords.longitude || defaultCoords.longitude
   );
-  const isDay = sunPos.altitude > 0;
-  const themeAnim = useRef(new Animated.Value(isDay ? 0 : 1)).current;
 
   useEffect(() => {
     Animated.timing(themeAnim, {
@@ -62,10 +63,10 @@ export function useCelestialApp() {
     location?.coords.longitude || defaultCoords.longitude
   );
 
-  // 골든타임 활성 여부 (일출/일몰 전후 2.5시간)
+  // 골든타임 활성 여부 (일출/일몰 전후 2.5시간) - 실제 기기 시간 기준
   const goldenTimeInfo = useMemo(() => {
     return getGoldenTimeInfo(
-      currentTime,
+      new Date(),
       location?.coords.latitude || defaultCoords.latitude,
       location?.coords.longitude || defaultCoords.longitude
     );
@@ -184,13 +185,7 @@ export function useCelestialApp() {
   };
 
   const handleTimeChange = (newTime: Date) => {
-    const diff = Math.abs(newTime.getTime() - currentTime.getTime());
-    const isJump = diff > (1000 * 60 * 30);
-    if (isJump && !animating) {
-      animateTimeTo(newTime, 500);
-    } else {
-      setCurrentTime(newTime);
-    }
+    setCurrentTime(newTime);
   };
 
   const handleDateChange = (newDate: Date) => {

@@ -97,9 +97,13 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
       </View>
 
       <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
-        <TouchableOpacity onPress={() => handleDateChange(subDays(currentTime, 1))} style={styles.dateControl}>
-          <ChevronLeft size={16} color={theme.text} />
-        </TouchableOpacity>
+        {activeTab !== 'sim' ? (
+          <TouchableOpacity onPress={() => handleDateChange(subDays(currentTime, 1))} style={styles.dateControl}>
+            <ChevronLeft size={16} color={theme.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 24 }} />
+        )}
         
         <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
           <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
@@ -108,9 +112,13 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           </Animated.Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => handleDateChange(addDays(currentTime, 1))} style={styles.dateControl}>
-          <ChevronRight size={16} color={theme.text} />
-        </TouchableOpacity>
+        {activeTab !== 'sim' ? (
+          <TouchableOpacity onPress={() => handleDateChange(addDays(currentTime, 1))} style={styles.dateControl}>
+            <ChevronRight size={16} color={theme.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 24 }} />
+        )}
 
         {!isSameDay(currentTime, new Date()) && (
           <TouchableOpacity 

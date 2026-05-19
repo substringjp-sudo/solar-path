@@ -202,25 +202,34 @@ export const cloudIllumination = (sunAltDeg: number, cloudAltKm: number): number
  * horizon beam grazes the boundary layer at exactly those distances.
  */
 export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5): number => {
-  if (!path || path.length < 4) return 1;
+  if (!path || path.length === 0) return 1;
+
+  // Filter central ray for transmittance calculation (azimuthOffset === 0)
+  const centralPath = path.filter(p => p.azimuthOffset === 0);
+  // Sort central path by distance to ensure [0, 80, 200, 350] order
+  const activePath = (centralPath.length > 0 ? centralPath : path).sort((a, b) => a.distance - b.distance);
 
   // 1) Sæmundsson atmospheric refraction correction
   const apparentAlt = getApparentAltitude(sunAltDeg);
   const apparentAltRad = (apparentAlt * Math.PI) / 180;
 
-  // path[0]: 0km, path[1]: 80km, path[2]: 200km, path[3]: 350km
-  const distances = [0, 80, 200, 350];
-  const weights = [0.1, 0.2, 0.35, 0.35];
+  // We map the active path elements to distances
+  const distances = activePath.map(p => p.distance);
+  // Dynamic weights based on distance
+  const weights = distances.map((d) => {
+    if (d === 0) return 0.1;
+    if (d <= 80) return 0.2;
+    return 0.35;
+  });
 
   let totalOpticalDepth = 0;
 
-  for (let i = 0; i < path.length; i++) {
+  for (let i = 0; i < activePath.length; i++) {
     const x = distances[i];
-    const s = path[i];
-    const w = weights[i];
+    const s = activePath[i];
+    const w = weights[i] ?? 0.25;
 
     // Calculate actual ray altitude considering Earth's curvature (km)
-    // H(x) = x * tan(apparentAlt) + x^2 / (2 * R_E)
     const hRay = x * Math.tan(apparentAltRad) + (x * x) / (2 * EARTH_RADIUS_KM);
 
     if (hRay < 0) {
@@ -266,10 +275,14 @@ export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5
       wHigh = 0;
     }
 
+    // Scale extinction coefficients by totalColumnWaterVapour if available (physical thickness scaling)
+    const waterDensity = s.totalColumnWaterVapour ?? 15.0; // default nominal value in kg/m2
+    const waterMultiplier = Math.max(0.6, Math.min(2.5, waterDensity / 20.0)); // scale factor
+
     // Layer-specific extinction coefficients (low clouds are highly opaque, high clouds are thin)
-    const extLow = 4.0;
-    const extMid = 2.0;
-    const extHigh = 0.5;
+    const extLow = 4.0 * waterMultiplier;
+    const extMid = 2.0 * waterMultiplier;
+    const extHigh = 0.5 * waterMultiplier;
 
     // Convert cloud cover percentages (0..100) to fractions (0..1)
     const cLow = s.low / 100;
@@ -384,30 +397,60 @@ export const predictSunset = (
   const illumMid = cloudIllumination(effectiveSunAlt, CLOUD_ALT_MID_KM);
   const illumHigh = cloudIllumination(effectiveSunAlt, CLOUD_ALT_HIGH_KM);
 
-  const overheadMid = localPath[0].mid / 100;
-  const overheadHigh = localPath[0].high / 100;
+  // Observer point is always the element at distance === 0
+  const obsPoint = localPath.find(p => p.distance === 0) ?? localPath[0];
+  const centralPath = localPath.filter(p => p.azimuthOffset === 0).sort((a, b) => a.distance - b.distance);
+  const centerPoint = centralPath[1] ?? obsPoint; // next point along central path (e.g. 80km)
+
+  const lowVal = obsPoint.low / 100;
+  const midVal = obsPoint.mid / 100;
+  const highVal = obsPoint.high / 100;
+  
+  // 1) Weighted layer combinations (higher weights for low/mid clouds)
+  const cloudWeight = clamp01(lowVal * 0.95 + midVal * 0.55 + highVal * 0.25);
+  
+  // 2) Integrated Water column density factor (using Precipitable Water Vapour)
+  // Water vapour exists even on clear days, so we must scale it by active cloud presence to prevent false overcast.
+  const liquidWater = obsPoint.totalColumnWaterVapour ?? 0;
+  const cloudPresence = clamp01(cloudWeight * 3.0); // Suppress water factor if there are no clouds
+  const waterFactor = clamp01(liquidWater / 35.0) * cloudPresence;
+  
+  // 3) Precipitation factor (strongly forces overcast)
+  const precip = obsPoint.precipitation ?? 0;
+  const precipFactor = precip > 0.1 ? 1.0 : precip * 10;
+  
+  // 4) Direct Normal Irradiance (DNI) attenuation factor
+  const dni = obsPoint.directNormalIrradiance;
+  let dniBlockFactor = 0;
+  if (dni !== undefined && sunAltDeg > 1.5) {
+    const maxDniTheory = Math.max(80, 950 * Math.sin((Math.max(1.5, sunAltDeg) * Math.PI) / 180));
+    dniBlockFactor = clamp01(1.0 - (dni / maxDniTheory));
+  } else if (dni !== undefined && sunAltDeg <= 1.5 && sunAltDeg > -2.0) {
+    dniBlockFactor = dni < 15 ? 1.0 : clamp01(1.0 - (dni / 80));
+  }
+
+  // Combined Overcast Metric for backdrop darkening/slate gray shading
+  const overheadOvercast = clamp01(
+    Math.max(cloudWeight, waterFactor, precipFactor, dniBlockFactor)
+  );
+
+  const overheadMid = obsPoint.mid / 100;
+  const overheadHigh = obsPoint.high / 100;
   // The actual canvas the reddened beam paints: illuminated mid+high cover.
   const overheadGlow = clamp01(overheadHigh * illumHigh + overheadMid * illumMid * 0.7);
-  const overheadOvercast = clamp01(localPath[0].low / 100);
 
   // --- Horizon Blockage Detection ---
-  // If the sun is low (effectiveSunAlt < 3.0) and there is thick cloud cover along the low-altitude horizon beam path
-  // leading to extremely low transmittance (pathClarity < 0.15), the sun will be completely blocked.
   const isHorizonBlocked =
     effectiveSunAlt < 3.0 &&
     pathClarity < 0.15 &&
-    (localPath[0].low > 40 || localPath[1].low > 40 || localPath[2].mid > 40);
+    (obsPoint.low > 40 || centerPoint.low > 40);
 
   // --- Score -------------------------------------------------------------
-  // Horizon glow band exists whenever the path is clear and the sun is
-  // within ~8 of the geometric horizon, even without overhead clouds.
   const horizonProximity = clamp01(1 - Math.abs(effectiveSunAlt) / 8);
-  // Reddened beam x cloud canvas is the main contributor when conditions
-  // are favorable.
   const cloudShow = pathClarity * overheadGlow * (0.5 + 0.5 * beamRedness);
 
   let raw = 25 * pathClarity * horizonProximity + 70 * cloudShow;
-  // Thick low cloud directly above the observer kills the view.
+  // Heavy overcast kills color scattering visibility
   raw *= 1 - 0.85 * overheadOvercast;
 
   // Strongly penalize score if horizon is blocked by thick clouds
@@ -420,14 +463,16 @@ export const predictSunset = (
   // --- Quality label & description --------------------------------------
   let quality: SunsetPrediction['quality'];
   let description: string;
-  if (isHorizonBlocked) {
+  
+  if (overheadOvercast > 0.82) {
+    quality = 'Overcast';
+    description = precip > 0 
+      ? '강수와 함께 하늘 전역을 무거운 비구름이 가득 덮고 있어, 일몰 빛이 완전히 차단되었습니다.'
+      : '두꺼운 단일 구름 장막이 하늘 전체를 덮고 있어 태양 빛이 완전히 가려진 상태입니다.';
+  } else if (isHorizonBlocked) {
     quality = 'Muted';
     description =
       '일몰 방향 수평선 부근에 두꺼운 구름 장벽이 깔려 있어, 해가 구름에 완전히 가려져 노을을 보기 어렵습니다.';
-  } else if (overheadOvercast > 0.7 && pathClarity < 0.35) {
-    quality = 'Overcast';
-    description =
-      '두꺼운 저층운이 머리 위와 광원 방향을 동시에 덮고 있어 노을 자체가 가려질 가능성이 높습니다.';
   } else if (score >= 75) {
     quality = 'Epic';
     description =
@@ -445,12 +490,8 @@ export const predictSunset = (
   }
 
   // --- Sky Gradient ------------------------------------------------------
-  // sunWeight: 1.0 during day, drops as sun approaches horizon (< 8 deg)
   const sunWeight = clamp01((effectiveSunAlt + 1) / 9); 
-  // twilightWeight: Mixes in twilight purple/blue as sun dips below horizon
-  const twilightWeight = clamp01(1 - (effectiveSunAlt + 6) / 10);
 
-  // Dynamic sky base colors
   const skyZenith = mixRgb(
     mixRgb(ZENITH_TWILIGHT, NIGHT, clamp01(-effectiveSunAlt / 12)),
     ZENITH_DAY,
@@ -458,15 +499,12 @@ export const predictSunset = (
   );
 
   const muted = (c: RGB): RGB => {
-    // At night (sunWeight -> 0), the sky shouldn't turn gray even if overcast
     const overcastWeight = overheadOvercast * 0.7 * sunWeight;
     return mixRgb(c, OVERCAST, overcastWeight);
   };
 
-  // 4. Horizon & Sky Gradients - Dynamically computed based on aerosol beta
-  // Clear day (low beta) has natural orange-yellow gradients; dusty day (high beta) has deep red gradients
   const redMult = 1.04 + clamp01(beta * 1.1) * 0.36; // Scales between ~1.08 to 1.45 based on atmospheric haze
-  const greenMult = 1.01 + clamp01(beta * 0.8) * 0.24; // Scales between ~1.04 to 1.25
+  const greenMult = 1.01 + clamp01(beta * 0.8) * 0.24; 
   const sunsetOffsetR = isSunsetMode ? (0.04 + clamp01(beta * 0.7) * 0.2) * sunWeight : 0;
   const sunsetOffsetG = isSunsetMode ? (0.01 + clamp01(beta * 0.4) * 0.08) * sunWeight : 0;
 
@@ -476,12 +514,10 @@ export const predictSunset = (
     b: clamp01(currentBeam.b * 1.04),
   };
 
-  // 해가 수평선 밑으로 완전히 꺼질 때(effectiveSunAlt가 음수로 내려갈 때) 
-  // 지평선 색상도 머리 위 밤하늘(NIGHT) 속으로 완벽하게 페이드아웃 되게 함!
   const horizonRGB = mixRgb(
     NIGHT, 
     rawHorizonRGB, 
-    clamp01((effectiveSunAlt + 6) / 8) // 해가 -6도 이하가 되면 지평선도 완전한 NIGHT로 동화!
+    clamp01((effectiveSunAlt + 6) / 8) 
   );
 
   const midBandRGB = mixRgb(skyZenith, horizonRGB, 0.65);
@@ -495,74 +531,56 @@ export const predictSunset = (
     { offset: 1, color: rgbToCss(muted(horizonRGB)) },
   ];
 
-  // --- Weather Specific Adjustments (구름, 미세먼지, 안개 개별 정밀 튜닝) ----------
-  // 1) 안개 강도 (Fog Intensity)
-  // rhVal(습도)가 85%를 넘어가고 시정이 6000m 이하일 때 안개로 인해 광원 뭉개짐 발생
+  // --- Weather Specific Adjustments ----------
   const visM = visibilityM ?? 25000;
   const rhVal = rhPct ?? 50;
   const fogIntensity = clamp01((rhVal - 85) / 15) * clamp01((6000 - Math.max(500, visM)) / 5500);
-
-  // 2) 미세먼지 강도 (Dust/Haze Intensity)
-  // aerosolBeta가 0.08을 초과하여 대기 탁도가 높을 때
   const dustIntensity = clamp01((beta - 0.08) / 0.4);
 
-  // 3) 구름 가림 강도 (Cloud Block Intensity)
-  // pathClarity는 태양 광선 경로에 구름이 없을 때 1.0, 꽉 차서 차단될 때 0.0
-  const cloudBlockIntensity = 1.0 - pathClarity;
+  // Cloud blockage incorporates DNI block, precipitation and high water density
+  const cloudBlockIntensity = clamp01(
+    Math.max(1.0 - pathClarity, precipFactor, dniBlockFactor, waterFactor * 0.95)
+  );
 
-  // 4) 광륜의 동적 물리 크기 스케일 (미세먼지 시 넓게 팽창, 안개 시 거대하게 뿌옇게 팽창, 구름 시 소멸)
-  const dynamicHaloScale = (1.0 + dustIntensity * 0.4 + fogIntensity * 0.75) * Math.max(0.15, pathClarity);
+  const dynamicHaloScale = (1.0 + dustIntensity * 0.4 + fogIntensity * 0.75) * Math.max(0.01, 1.0 - cloudBlockIntensity);
 
   // --- Sun Glow (Mie Scattering Halo) ------------------------------------
   const sunGlowStops: SkyStop[] = [];
-  const g = 0.88; // Slightly more forward-heavy Mie scattering
-  // More samples for a smoother gradient
+  const g = 0.88; 
   const glowSamples = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.7, 0.85, 1.0];
   
-  // 구름이 많이 낄수록, 혹은 안개가 낄수록 Mie 산란 광채의 선명도와 가시성이 비례적으로 차단됨
-  const glowVisibility = pathClarity * clamp01(1 - Math.abs(effectiveSunAlt + 1) / 20) * (1.0 - fogIntensity * 0.6) * (1.0 - cloudBlockIntensity * 0.85);
+  // Outer halo opacity scales down to near 0 under heavy clouds
+  const glowVisibility = pathClarity * clamp01(1 - Math.abs(effectiveSunAlt + 1) / 20) * (1.0 - fogIntensity * 0.6) * (1.0 - cloudBlockIntensity * 0.98);
   
   for (const offset of glowSamples) {
-    // Map offset to scattering angle. Inner halo is much tighter.
     const theta = (offset * 30 * Math.PI) / 180;
     const phase = henyeyGreenstein(Math.cos(theta), g);
     
-    // Multi-stage glow based dynamically on aerosol beta
     const coreBoost = isSunsetMode ? 1.35 : 1.15;
     const vibrancy = isSunsetMode ? 1.15 : 1.0;
     
-    // Clean atmosphere = golden/yellow glow; hazy atmosphere = wider red/orange glow
-    // 미세먼지가 심하면 붉은기가 비약적으로 늘어나고 맑은 날은 따뜻한 황금빛
     const glowRedFactor = 1.1 + clamp01(beta * 1.8) * 0.9 + dustIntensity * 0.7;   
     const glowGreenFactor = (1.0 + clamp01(beta * 1.1) * 0.5) * Math.exp(-dustIntensity * 1.8);
 
-    // 광륜 역시 노란색으로 혼자 붕 뜨지 않고, 배경 지평선 하늘색(horizonRGB)과 100% 동적으로 스며들어 섞이게 만듭니다!
-    // 맑은 날에는 지평선 주변을 환하게 눈부시게 밝힐 수 있도록 맑은 화이트-골드 광원 하한을 더 화사하게 보강합니다.
     const baseGlowR = currentBeam.r * coreBoost * glowRedFactor * vibrancy * 1.2 + 0.16;
     const baseGlowG = currentBeam.g * coreBoost * glowGreenFactor * 1.05 + 0.12;
     const baseGlowB = currentBeam.b * coreBoost * 1.08 * 0.95 + 0.08;
 
-    // 구름 차단 시 주변 지평선 하늘색(horizonRGB)과 소프트 믹싱
     const glowR = lerp(horizonRGB.r * 0.8, baseGlowR, pathClarity);
     const glowG = lerp(horizonRGB.g * 0.65, baseGlowG, pathClarity);
     const glowB = lerp(horizonRGB.b * 0.65, baseGlowB, pathClarity);
 
-    // 안개가 끼면 주변 하늘의 뽀얀 공기빛(Soft Gray-Blue)과 섞여 붕 뜨는 이질감이 완벽히 사라집니다
     const finalGlowR = lerp(glowR, horizonRGB.r * 1.1, fogIntensity * 0.5);
     const finalGlowG = lerp(glowG, horizonRGB.g * 1.1, fogIntensity * 0.5);
     const finalGlowB = lerp(glowB, horizonRGB.b * 1.1, fogIntensity * 0.5);
 
-    // Green과 Blue를 외곽에서 인위적으로 깎아 칙칙하게 만들던 곱셈을 완전히 배제합니다!
-    // 본래의 화사한 광원 색채 비율을 100% 그대로 유지하여 주변 지평선과 매끄럽게 페이드아웃 되게 유도합니다.
     const rVal = clamp01(finalGlowR);
     const gVal = clamp01(finalGlowG);
     const bVal = clamp01(finalGlowB);
 
     let intensity = (phase / 28) * glowVisibility;
-    // 3.5승 지수 곡선으로 가장자리로 갈수록 솜털처럼 부드럽게 소멸시킴 (경계선 이질감 완전 해결!)
     intensity *= Math.pow(1.0 - offset, 3.5); 
 
-    // Alpha needs to be high at the center to look like a light source
     const alpha = clamp01(intensity * 1.05);
     sunGlowStops.push({
       offset,
@@ -571,15 +589,15 @@ export const predictSunset = (
   }
 
   // --- Cloud tints -------------------------------------------------------
-  // Extracted cloud cover proportions (0.0 ~ 1.0)
-  const coverLow = (localPath[0]?.low ?? 0) / 100;
-  const coverMid = (localPath[0]?.mid ?? 0) / 100;
-  const coverHigh = (localPath[0]?.high ?? 0) / 100;
+  const coverLow = (obsPoint?.low ?? 0) / 100;
+  const coverMid = (obsPoint?.mid ?? 0) / 100;
+  const coverHigh = (obsPoint?.high ?? 0) / 100;
 
-  // Cloud Optical Thickness (tau) modeled realistically based on altitude layer
-  const tauLow = 0.5 + 11.5 * coverLow;   // Thick low-layer clouds (up to 12.0)
-  const tauMid = 0.3 + 3.7 * coverMid;    // Medium thickness mid-layer clouds (up to 4.0)
-  const tauHigh = 0.1 + 1.4 * coverHigh;  // Thin high-layer clouds (up to 1.5)
+  // Cloud Optical Thickness scales dynamically with water density
+  const thicknessScale = 0.5 + 2.0 * waterFactor;
+  const tauLow = (0.5 + 11.5 * coverLow) * thicknessScale;   
+  const tauMid = (0.3 + 3.7 * coverMid) * thicknessScale;    
+  const tauHigh = (0.1 + 1.4 * coverHigh) * thicknessScale;  
 
   const ambientSky = muted(skyZenith);
 
@@ -588,18 +606,14 @@ export const predictSunset = (
     tau: number,
     baseAlbedo: number
   ): RGB => {
-    // Light transmission inside the cloud layer using Beer-Lambert Law
     const tInternal = Math.exp(-tau * 0.25);
     
-    // Direct beam scattered component
     const directScatter: RGB = {
       r: incidentBeam.r * tInternal * baseAlbedo,
       g: incidentBeam.g * tInternal * baseAlbedo,
       b: incidentBeam.b * tInternal * baseAlbedo,
     };
 
-    // Shadowed component incorporating red horizon bounce and blue sky ambient
-    // This synthesizes the beautiful deep purple/magenta colors of shadowed twilight clouds
     const ambientInfluence = clamp01(1.0 - tInternal);
     const purpleGlow: RGB = {
       r: lerp(SHADOWED_CLOUD.r, horizonRGB.r * 0.28, ambientInfluence),
@@ -607,11 +621,7 @@ export const predictSunset = (
       b: lerp(SHADOWED_CLOUD.b, ambientSky.b * 0.45, ambientInfluence),
     };
 
-    // Interpolate direct scattering and shadowed color by cloud illumination
     const mixedCloud = mixRgb(purpleGlow, directScatter, illum);
-
-    // Fade to night as twilight settles
-    // 해가 깊어질수록 구름 색상도 완벽한 NIGHT 속으로 100% 물러나게 함! (15% 잔류 붕 뜸 버그 완벽 해결!)
     const cloudNightWeight = clamp01((effectiveSunAlt + 6) / 10);
     return mixRgb(NIGHT, mixedCloud, cloudNightWeight);
   };
@@ -620,32 +630,25 @@ export const predictSunset = (
   const midCloudRGB = physicalCloudColor(illumMid, tauMid, 0.8);
   const lowCloudRGB = physicalCloudColor(illumLow, tauLow, 0.55);
 
-  // --- Sun Disk Attenuation (태양 발광 원반 색상 및 불투명도 계산) ---------------
-  // 태양 원반 자체는 고체 형광색이 아니라, 본질적으로 하얗고 눈부신 백색(White)에서 시작하여 
-  // 대기 흡수(currentBeam)에 의해 자연스럽게 필터링되는 부드러운 살구/황금/적색으로 변해야 합니다.
-  // 맑을 때는 완전히 눈부신 백색에 가까운 황금빛이어야 합니다.
+  // --- Sun Disk Attenuation ---
   let baseSunR = currentBeam.r * 1.6 + 0.85;
   let baseSunG = currentBeam.g * 1.3 + 0.75;
   let baseSunB = currentBeam.b * 1.0 + 0.50;
 
-  // 미세먼지(Dust)가 심하면 초록(g)과 파랑(b) 채널이 빛 산란으로 완전 차단되며 짙은 블러드 레드(Blood Red)로 조절됨
   baseSunR = baseSunR * (1.0 - dustIntensity * 0.15);
   baseSunG = baseSunG * Math.exp(-dustIntensity * 3.0);
   baseSunB = baseSunB * Math.exp(-dustIntensity * 4.5);
 
-  // 구름이 엄청 많아 태양이 가려지면, 태양 고유 광채가 구름 뒤에서 어둡고 탁하게 죽으며 주변 하늘의 자줏빛/회색 ambientSky와 자연스럽게 블렌딩됩니다!
-  const cloudIllum = pathClarity; // 0.0 (가려짐) ~ 1.0 (맑음)
-  const sunR = lerp(ambientSky.r * 0.6, baseSunR, cloudIllum);
-  const sunG = lerp(ambientSky.g * 0.5, baseSunG, cloudIllum);
-  const sunB = lerp(ambientSky.b * 0.5, baseSunB, cloudIllum);
+  const sunR = lerp(ambientSky.r * 0.6, baseSunR, 1.0 - cloudBlockIntensity);
+  const sunG = lerp(ambientSky.g * 0.5, baseSunG, 1.0 - cloudBlockIntensity);
+  const sunB = lerp(ambientSky.b * 0.5, baseSunB, 1.0 - cloudBlockIntensity);
 
-  // 안개가 심하면 태양이 안개 고유의 뽀얀 우윳빛(0.95, 0.90, 0.85)으로 부드럽게 번집니다.
   const finalSunR = lerp(sunR, 0.95, fogIntensity * 0.6);
   const finalSunG = lerp(sunG, 0.90, fogIntensity * 0.6);
   const finalSunB = lerp(sunB, 0.85, fogIntensity * 0.6);
 
-  // 안개가 심하거나 구름이 가리면 태양의 윤곽이 뭉개져서 투과 불투명도(Alpha)가 극도로 감소함
-  const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.95) * (1.0 - fogIntensity * 0.82));
+  // Fully extinguish sun disk alpha when block intensity reaches 0.99
+  const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.99) * (1.0 - fogIntensity * 0.82));
 
   return {
     score,

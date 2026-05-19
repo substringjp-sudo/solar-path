@@ -296,6 +296,48 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return sunAltitude > terrainAngle;
   }, [sim?.terrain, sunAltitude, heading]);
 
+  // Update weather pathData dynamically if the camera heading (sunAzimuth) drifts too far from the sampled azimuth
+  useEffect(() => {
+    if (!location || !sim || sim.loading) return;
+    
+    const { latitude, longitude } = location.coords;
+    const currentAz = sunAzimuth;
+    
+    // Calculate shortest angular distance between current sun azimuth and simulated (sampled) azimuth
+    let diff = Math.abs(currentAz - sim.azimuth);
+    diff = diff > 180 ? 360 - diff : diff;
+    
+    // If the difference is greater than 35 degrees, fetch updated pathData for this direction!
+    if (diff > 35) {
+      let active = true;
+      const fetchUpdatedWeather = async () => {
+        try {
+          const newWeather = await fetchSunsetWeather(latitude, longitude, currentAz);
+          if (active && newWeather) {
+            setSim(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                azimuth: currentAz,
+                pathData: newWeather,
+                weatherSource: newWeather[0]?.source || prev.weatherSource
+              };
+            });
+          }
+        } catch (err) {
+          console.error('Failed to update weather for new azimuth:', err);
+        }
+      };
+      
+      // Debounce slightly to prevent rapid API requests when user drags slider
+      const timer = setTimeout(fetchUpdatedWeather, 450);
+      return () => {
+        active = false;
+        clearTimeout(timer);
+      };
+    }
+  }, [sunAzimuth, location, sim?.loading]);
+
   return (
     <View style={styles.container}>
       {!simLoaded ? (
@@ -388,6 +430,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 baseTime={sim?.eventTime || new Date()}
                 theme={theme}
                 isDay={sunAltitude > 0}
+                markers={[
+                  {
+                    time: sim?.eventTime || null,
+                    color: sim?.type === 'Sunrise' ? '#FFA500' : '#FF4500',
+                    type: sim?.type === 'Sunrise' ? 'rise' : 'set'
+                  }
+                ]}
               />
             </View>
           </View>
