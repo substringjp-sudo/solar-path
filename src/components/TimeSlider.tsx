@@ -88,6 +88,135 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     return { color: '#FFFFFF', textColor: '#1A1A1A' };
   };
 
+  const sunriseTime = useMemo(() => {
+    const m = localMarkers.find(x => x.type === 'rise');
+    if (m && m.time) return m.time;
+    const d = new Date(dayStart);
+    d.setUTCHours(6, 0, 0, 0);
+    return d;
+  }, [localMarkers, dayStart]);
+
+  const sunsetTime = useMemo(() => {
+    const m = localMarkers.find(x => x.type === 'set');
+    if (m && m.time) return m.time;
+    const d = new Date(dayStart);
+    d.setUTCHours(18, 30, 0, 0);
+    return d;
+  }, [localMarkers, dayStart]);
+
+  const colorMap = useMemo(() => {
+    const points: Array<{ pct: number; color: string }> = [];
+
+    const getPointColor = (t: Date) => {
+      const valueMinutes = t.getUTCHours() * 60 + t.getUTCMinutes();
+      const sunriseMinutes = sunriseTime.getUTCHours() * 60 + sunriseTime.getUTCMinutes();
+      const sunsetMinutes = sunsetTime.getUTCHours() * 60 + sunsetTime.getUTCMinutes();
+
+      let isGolden = false;
+      localMarkers.forEach(m => {
+        if (!m.time || m.color === '#888' || m.color === '#888888') return;
+        const markerMinutes = m.time.getUTCHours() * 60 + m.time.getUTCMinutes();
+        let diff = valueMinutes - markerMinutes;
+        if (diff > 720) diff -= 1440;
+        if (diff < -720) diff += 1440;
+
+        if (m.type === 'rise') {
+          if (diff >= -60 && diff <= 90) isGolden = true;
+        } else if (m.type === 'set') {
+          if (diff >= -90 && diff <= 60) isGolden = true;
+        }
+      });
+
+      if (isGolden) return '#FFD700';
+      const isSliderDay = valueMinutes >= sunriseMinutes && valueMinutes < sunsetMinutes;
+      return isSliderDay ? '#38BDF8' : '#1A237E';
+    };
+
+    const transitionBufferMins = 15; // 15분 전이 그라데이션 구간
+
+    if (isFullDay) {
+      const rMinutes = sunriseTime.getUTCHours() * 60 + sunriseTime.getUTCMinutes();
+      const sMinutes = sunsetTime.getUTCHours() * 60 + sunsetTime.getUTCMinutes();
+
+      const keyMinutes = [
+        0,
+        (rMinutes - 60 + 1440) % 1440,
+        (rMinutes + 90) % 1440,
+        (sMinutes - 90 + 1440) % 1440,
+        (sMinutes + 60) % 1440,
+        1439
+      ];
+
+      const allMinutes: number[] = [];
+      keyMinutes.forEach(m => {
+        allMinutes.push(m);
+        allMinutes.push((m - transitionBufferMins + 1440) % 1440);
+        allMinutes.push((m + transitionBufferMins) % 1440);
+      });
+
+      const uniqueSorted = Array.from(new Set(allMinutes)).sort((a, b) => a - b);
+
+      uniqueSorted.forEach(m => {
+        const d = new Date(dayStart);
+        d.setUTCHours(Math.floor(m / 60), m % 60, 0, 0);
+        const pct = (m / 1440) * 100;
+        points.push({ pct, color: getPointColor(d) });
+      });
+    } else {
+      const ref = localBaseTime || new Date();
+      const offsets = [
+        startOffset,
+        startOffset + transitionBufferMins,
+        0,
+        totalRange + startOffset - transitionBufferMins,
+        totalRange + startOffset
+      ];
+
+      if (isSunrise) {
+        offsets.push(-60 - transitionBufferMins, -60, 90, 90 + transitionBufferMins);
+      } else {
+        offsets.push(-90 - transitionBufferMins, -90, 60, 60 + transitionBufferMins);
+      }
+
+      const validOffsets = Array.from(new Set(offsets))
+        .filter(off => off >= startOffset && off <= startOffset + totalRange)
+        .sort((a, b) => a - b);
+
+      validOffsets.forEach(off => {
+        const t = addMinutes(ref, off);
+        const pct = ((off - startOffset) / totalRange) * 100;
+        points.push({ pct, color: getPointColor(t) });
+      });
+    }
+
+    points.sort((a, b) => a.pct - b.pct);
+
+    const finalInputRange: number[] = [];
+    const finalOutputRange: string[] = [];
+
+    points.forEach((pt, idx) => {
+      if (idx > 0 && Math.abs(pt.pct - finalInputRange[finalInputRange.length - 1]) < 0.01) {
+        return;
+      }
+      finalInputRange.push(pt.pct);
+      finalOutputRange.push(pt.color);
+    });
+
+    if (finalInputRange[0] > 0) {
+      finalInputRange.unshift(0);
+      finalOutputRange.unshift(finalOutputRange[0]);
+    }
+    if (finalInputRange[finalInputRange.length - 1] < 100) {
+      finalInputRange.push(100);
+      finalOutputRange.push(finalOutputRange[finalOutputRange.length - 1]);
+    }
+
+    return {
+      inputRange: finalInputRange,
+      outputRange: finalOutputRange
+    };
+  }, [sunriseTime, sunsetTime, localMarkers, isFullDay, dayStart, localBaseTime, startOffset, totalRange, isSunrise]);
+
   const getFillColor = () => {
     // 1. 일출/일몰 골든타임 구간 체크
     let isGolden = false;
@@ -171,6 +300,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           theme={theme}
           trackColor={isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)'}
           fillColor={getFillColor()}
+          colorMap={colorMap}
           knobColor={getKnobColors(currentPct).color}
           trackOverlay={
             <View style={styles.markerOverlay} pointerEvents="none">

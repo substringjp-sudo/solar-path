@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import * as Location from 'expo-location';
+import { Camera } from 'expo-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
@@ -68,6 +69,8 @@ interface CelestialState {
   currentUser: User | null;
   myPhotos: MyPhoto[];
   globalPhotos: GlobalPhoto[];
+  locationPermission: string | null;
+  cameraPermission: string | null;
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -93,6 +96,9 @@ interface CelestialState {
   uploadAndPostPhoto: (localUri: string, latitude: number, longitude: number, locationName: string) => Promise<void>;
   syncGlobalPhotos: () => () => void;
   removeGlobalPhoto: (id: string) => Promise<void>;
+  checkPermissions: () => Promise<void>;
+  requestLocationPermission: () => Promise<void>;
+  requestCameraPermission: () => Promise<void>;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -118,6 +124,8 @@ export const useCelestialStore = create<CelestialState>()(
       myPhotos: [],
       globalPhotos: [],
       currentUser: null,
+      locationPermission: 'undetermined',
+      cameraPermission: 'undetermined',
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -428,6 +436,39 @@ export const useCelestialStore = create<CelestialState>()(
           }
         } catch (err) {
           console.warn('Failed to remove global photo:', err);
+        }
+      },
+      checkPermissions: async () => {
+        try {
+          const { status: locStatus } = await Location.getForegroundPermissionsAsync();
+          const { status: camStatus } = await Camera.getCameraPermissionsAsync();
+          set({ locationPermission: locStatus, cameraPermission: camStatus });
+        } catch (err) {
+          console.warn('Failed to check permissions:', err);
+        }
+      },
+      requestLocationPermission: async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          set({ locationPermission: status });
+          if (status === 'granted') {
+            set({ errorMsg: null });
+            const loc = await Location.getCurrentPositionAsync({});
+            await get().setLocation(loc);
+          } else {
+            set({ errorMsg: 'Permission to access location was denied' });
+          }
+        } catch (err) {
+          console.warn('Failed to request location permission:', err);
+          set({ errorMsg: 'Failed to request location permission' });
+        }
+      },
+      requestCameraPermission: async () => {
+        try {
+          const { status } = await Camera.requestCameraPermissionsAsync();
+          set({ cameraPermission: status });
+        } catch (err) {
+          console.warn('Failed to request camera permission:', err);
         }
       },
     }),

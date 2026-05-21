@@ -10,6 +10,7 @@ import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDate
 import { MapPicker } from './components/MapPicker';
 import { SunCamera } from './components/SunCamera';
 import { SettingsModal } from './components/SettingsModal';
+import { PermissionRequestView } from './components/PermissionRequestView';
 
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
@@ -33,6 +34,7 @@ export default function App() {
     currentTimeLocal,
     timezoneLabel,
     location,
+    locationPermission,
     isTimeMachineEnabled,
     userRotation,
     isGyroEnabled,
@@ -71,11 +73,9 @@ export default function App() {
     defaultCoords,
   } = useCelestialApp();
 
-  if (errorMsg) return (
-    <View style={styles.centered}>
-      <Text style={styles.errorText}>{errorMsg}</Text>
-    </View>
-  );
+  if (locationPermission !== 'granted') {
+    return <PermissionRequestView />;
+  }
 
   if (!location) return (
     <View style={styles.centered}>

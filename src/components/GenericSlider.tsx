@@ -10,6 +10,7 @@ interface GenericSliderProps {
   children?: React.ReactNode; // Custom knob content
   trackColor?: string;
   fillColor?: string;
+  colorMap?: { inputRange: number[]; outputRange: string[] };
   knobColor?: string;
   trackOverlay?: React.ReactNode;
 }
@@ -23,6 +24,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   children,
   trackColor,
   fillColor,
+  colorMap,
   knobColor,
   trackOverlay,
 }) => {
@@ -53,10 +55,19 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     }
   }, [fillColor, theme.accent]);
 
-  const animatedFillColor = colorAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [prevColor, nextColor],
-  });
+  const animatedFillColor = useMemo(() => {
+    if (colorMap && colorMap.inputRange.length > 1) {
+      return animatedValue.interpolate({
+        inputRange: colorMap.inputRange,
+        outputRange: colorMap.outputRange,
+        extrapolate: 'clamp',
+      });
+    }
+    return colorAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [prevColor, nextColor],
+    });
+  }, [colorMap, prevColor, nextColor, colorAnim, animatedValue]);
 
   useEffect(() => {
     if (!isDragging) {

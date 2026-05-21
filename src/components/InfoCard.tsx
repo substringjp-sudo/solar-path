@@ -19,10 +19,8 @@ export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue
       </View>
       <View style={styles.content}>
         <Text style={[styles.label, { color: theme.subText }]} numberOfLines={1}>{label}</Text>
-        <View style={styles.valueRow}>
-          <Text style={[styles.value, { color: theme.text }]}>{value}</Text>
-          {subValue && <Text style={[styles.subValue, { color: theme.subText }]}>{subValue}</Text>}
-        </View>
+        <Text style={[styles.value, { color: theme.text }]}>{value}</Text>
+        {subValue && <Text style={[styles.subValue, { color: theme.subText }]}>{subValue}</Text>}
       </View>
     </View>
   );
@@ -54,11 +52,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 1,
   },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-  },
   value: {
     fontSize: 13,
     fontWeight: '800',
@@ -66,5 +59,6 @@ const styles = StyleSheet.create({
   subValue: {
     fontSize: 8,
     fontWeight: '600',
+    marginTop: 2,
   },
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Dimensions, Animated, Platform, Alert } from 'react-native';
+import { Dimensions, Animated, Platform, Alert, AppState } from 'react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
@@ -14,10 +14,12 @@ export function useCelestialApp() {
   const { 
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations, currentUser, myPhotos, globalPhotos,
+    locationPermission, cameraPermission,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
-    uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto
+    uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto,
+    checkPermissions, requestLocationPermission, requestCameraPermission
   } = useCelestialStore();
 
   const longitude = location?.coords.longitude ?? defaultCoords.longitude;
@@ -36,6 +38,8 @@ export function useCelestialApp() {
   const [activeTab, setActiveTab] = useState<'tracker' | 'sim'>('tracker');
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
+  const prevTabRef = useRef(activeTab);
+  const hasResetRef = useRef(false);
 
   // Theme Logic (Forced to true to default to Light Theme as requested)
   const isDay = true;
@@ -70,8 +74,20 @@ export function useCelestialApp() {
     location?.coords.latitude || defaultCoords.latitude, 
     location?.coords.longitude || defaultCoords.longitude
   );
+  // 현지 타임존 기준의 당일 정오(12:00) 시스템 시각 계산
+  const targetSystemNoon = useMemo(() => {
+    const localTime = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+    const localNoon = new Date(Date.UTC(
+      localTime.getUTCFullYear(),
+      localTime.getUTCMonth(),
+      localTime.getUTCDate(),
+      12, 0, 0, 0
+    ));
+    return getSystemTimeFromLocationTime(localNoon, timezoneOffsetHours);
+  }, [currentTime, timezoneOffsetHours]);
+
   const events = getCelestialEvents(
-    currentTime, 
+    targetSystemNoon, 
     location?.coords.latitude || defaultCoords.latitude, 
     location?.coords.longitude || defaultCoords.longitude
   );
@@ -84,6 +100,39 @@ export function useCelestialApp() {
       location?.coords.longitude || defaultCoords.longitude
     );
   }, [location]);
+
+  // 탭 전환 시 시간 슬라이더 초기값 리셋 (무한 루프 방지를 위해 플래그 기법 적용)
+  useEffect(() => {
+    if (prevTabRef.current !== activeTab) {
+      hasResetRef.current = false;
+      prevTabRef.current = activeTab;
+    }
+
+    if (!hasResetRef.current) {
+      if (activeTab === 'tracker') {
+        setCurrentTime(new Date());
+        hasResetRef.current = true;
+      } else if (activeTab === 'sim') {
+        if (events && events.sunrise) {
+          setCurrentTime(events.sunrise);
+          hasResetRef.current = true;
+        }
+      }
+    }
+  }, [activeTab, events]);
+
+  // AppState 리스너: 포그라운드 복귀 시 권한 실시간 동기화
+  useEffect(() => {
+    checkPermissions();
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        checkPermissions();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [checkPermissions]);
 
   const isAndroid = Platform.OS === 'android';
 
@@ -302,16 +351,17 @@ export function useCelestialApp() {
   };
 
   useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Permission to access location was denied');
-        return;
-      }
-      let loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc);
-    })();
-  }, [setLocation, setErrorMsg]);
+    if (locationPermission === 'granted') {
+      (async () => {
+        try {
+          let loc = await Location.getCurrentPositionAsync({});
+          setLocation(loc);
+        } catch (err) {
+          console.warn('Failed to get current location:', err);
+        }
+      })();
+    }
+  }, [locationPermission, setLocation]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -406,6 +456,11 @@ export function useCelestialApp() {
     globalPhotos,
     uploadAndPostPhoto,
     removeGlobalPhoto,
+    locationPermission,
+    cameraPermission,
+    checkPermissions,
+    requestLocationPermission,
+    requestCameraPermission,
     
     sunPos,
     isDay,

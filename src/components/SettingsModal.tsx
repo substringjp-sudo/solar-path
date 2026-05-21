@@ -20,10 +20,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   theme,
   dynamicTheme,
 }) => {
-  const { currentUser } = useCelestialStore();
-  const [cameraPermission, setCameraPermission] = useState<string>('undetermined');
-  const [locationPermission, setLocationPermission] = useState<string>('undetermined');
-  const [loadingPermissions, setLoadingPermissions] = useState(true);
+  const { 
+    currentUser,
+    locationPermission,
+    cameraPermission,
+    checkPermissions,
+    requestLocationPermission,
+    requestCameraPermission,
+  } = useCelestialStore();
   const [showLicenses, setShowLicenses] = useState(false);
 
   // Auth States
@@ -102,20 +106,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  // 권한 상태 확인 함수
-  const checkPermissions = async () => {
-    try {
-      setLoadingPermissions(true);
-      
-      const camStatus = await CameraModule.Camera.getCameraPermissionsAsync();
-      setCameraPermission(camStatus.status);
+  const handleLocationPress = () => {
+    if (locationPermission === 'granted') return;
+    if (locationPermission === 'denied') {
+      Linking.openSettings();
+    } else {
+      requestLocationPermission();
+    }
+  };
 
-      const locStatus = await Location.getForegroundPermissionsAsync();
-      setLocationPermission(locStatus.status);
-    } catch (e) {
-      console.warn('Failed to fetch permission status:', e);
-    } finally {
-      setLoadingPermissions(false);
+  const handleCameraPress = () => {
+    if (cameraPermission === 'granted') return;
+    if (cameraPermission === 'denied') {
+      Linking.openSettings();
+    } else {
+      requestCameraPermission();
     }
   };
 
@@ -123,7 +128,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (visible) {
       checkPermissions();
     }
-  }, [visible]);
+  }, [visible, checkPermissions]);
 
   const openSystemSettings = () => {
     Linking.openSettings();
@@ -264,12 +269,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>App Permissions</Text>
-                {loadingPermissions && <ActivityIndicator size="small" color={theme.accent} />}
               </View>
 
               <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                 {/* Camera Permission */}
-                <View style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}>
+                <TouchableOpacity 
+                  style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                  onPress={handleCameraPress}
+                  activeOpacity={0.7}
+                >
                   <View style={styles.permIconContainer}>
                     <Camera size={16} color={theme.text} />
                     <Text style={[styles.permLabel, { color: theme.text }]}>Camera</Text>
@@ -283,14 +291,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ) : (
                       <View style={styles.badgeDenied}>
                         <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>Denied</Text>
+                        <Text style={styles.badgeTextDenied}>
+                          {cameraPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                        </Text>
                       </View>
                     )}
                   </View>
-                </View>
+                </TouchableOpacity>
 
                 {/* Location Permission */}
-                <View style={styles.permissionRow}>
+                <TouchableOpacity 
+                  style={styles.permissionRow}
+                  onPress={handleLocationPress}
+                  activeOpacity={0.7}
+                >
                   <View style={styles.permIconContainer}>
                     <MapPin size={16} color={theme.text} />
                     <Text style={[styles.permLabel, { color: theme.text }]}>Location</Text>
@@ -304,11 +318,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ) : (
                       <View style={styles.badgeDenied}>
                         <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>Denied</Text>
+                        <Text style={styles.badgeTextDenied}>
+                          {locationPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                        </Text>
                       </View>
                     )}
                   </View>
-                </View>
+                </TouchableOpacity>
 
                 {/* System Settings Button */}
                 <TouchableOpacity 

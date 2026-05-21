@@ -3,6 +3,8 @@ import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponder
 import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip } from '../../utils/sunsetPhysics';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 
 interface VisualizerProps {
   prediction: SunsetPrediction | null;
@@ -128,6 +130,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   panHandlers,
 }) => {
   const { width, height } = useWindowDimensions();
+  const { timezoneOffsetHours } = useCelestialStore();
 
   const VISUALIZER_WIDTH = width - 32; // refined floating card margin
   const SKY_HEIGHT = Math.round(height * 0.38); // dynamically syncs vertical aspect ratio with CelestialChart
@@ -588,6 +591,37 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     );
   };
 
+  const renderNextEventBadge = () => {
+    if (!sim) return null;
+    const { type, eventTime } = sim;
+    if (!eventTime) return null;
+
+    const localCurrent = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+    const localEvent = getLocalTimeAtLocation(eventTime, timezoneOffsetHours);
+
+    const isSameDay = localCurrent.getDate() === localEvent.getDate() &&
+                      localCurrent.getMonth() === localEvent.getMonth() &&
+                      localCurrent.getFullYear() === localEvent.getFullYear();
+
+    const dateLabel = isSameDay ? 'Today' : 'Tomorrow';
+    const formattedTime = formatLocalTime(localEvent, 'HH:mm');
+
+    const isSunrise = type === 'Sunrise';
+    const badgeColor = isSunrise ? '#FFA500' : '#FF4500';
+
+    return (
+      <View style={[styles.nextEventBadge, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}>
+        <View style={styles.nextEventHeader}>
+          <View style={[styles.eventDot, { backgroundColor: badgeColor }]} />
+          <Text style={styles.nextEventTitle}>NEXT EVENT</Text>
+        </View>
+        <Text style={[styles.nextEventValue, { color: '#FFFFFF' }]}>
+          {isSunrise ? 'Sunrise' : 'Sunset'} <Text style={styles.nextEventTime}>{dateLabel} {formattedTime}</Text>
+        </Text>
+      </View>
+    );
+  };
+
   const renderOverlayFovScale = () => {
     const fovPct = ((visualFov - 10) / 20) * 100;
     const fovTicks = [10, 15, 20, 25, 30];
@@ -866,6 +900,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         </Svg>
         {renderOverlayAzimuthScale()}
         {renderOverlayFovScale()}
+        {renderNextEventBadge()}
       </View>
     </View>
   );
@@ -989,5 +1024,42 @@ const styles = StyleSheet.create({
   fovTooltipText: {
     fontSize: 7,
     fontWeight: '900',
+  },
+  nextEventBadge: {
+    position: 'absolute',
+    top: 40,
+    right: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    zIndex: 120,
+    minWidth: 110,
+  },
+  nextEventHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  eventDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  nextEventTitle: {
+    fontSize: 7.5,
+    fontWeight: '900',
+    color: 'rgba(255, 255, 255, 0.6)',
+    letterSpacing: 0.5,
+  },
+  nextEventValue: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  nextEventTime: {
+    fontSize: 11,
+    fontWeight: '600',
+    opacity: 0.8,
   },
 });
