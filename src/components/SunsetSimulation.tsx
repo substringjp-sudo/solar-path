@@ -14,6 +14,7 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
+import { RotateCw } from 'lucide-react-native';
  
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
@@ -58,6 +59,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [loadingStatus, setLoadingStatus] = useState<string>('Preparing Simulation...');
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showSources, setShowSources] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const forceRefreshRef = useRef(false);
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
 
@@ -125,15 +128,17 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   useEffect(() => {
     if (!location) return;
     
-    if (lastFetchedDateRef.current === currentDateStr) {
+    if (lastFetchedDateRef.current === currentDateStr && !forceRefreshRef.current) {
       return;
     }
     
     let active = true;
     lastFetchedDateRef.current = currentDateStr;
+    const isForceRefresh = forceRefreshRef.current;
+    forceRefreshRef.current = false;
 
     setSim(null);
-    setLoadingStatus('Preparing Simulation...');
+    setLoadingStatus(isForceRefresh ? 'Forcing Weather & Terrain Update...' : 'Preparing Simulation...');
     fadeAnim.setValue(0);
 
     const fetchSim = async () => {
@@ -161,11 +166,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         let foundTerrainCache = null;
         let minDistTerrain = 500;
         
-        for (const item of terrainCacheList) {
-          const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
-          if (dist <= minDistTerrain) {
-            minDistTerrain = dist;
-            foundTerrainCache = item;
+        if (!isForceRefresh) {
+          for (const item of terrainCacheList) {
+            const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+            if (dist <= minDistTerrain) {
+              minDistTerrain = dist;
+              foundTerrainCache = item;
+            }
           }
         }
         
@@ -177,12 +184,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         let minDistWeather = 2000;
         const timeLimit = 1800000;
         
-        for (const item of weatherCacheList) {
-          const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
-          const age = Date.now() - item.timestamp;
-          if (dist <= minDistWeather && age <= timeLimit) {
-            minDistWeather = dist;
-            foundWeatherCache = item;
+        if (!isForceRefresh) {
+          for (const item of weatherCacheList) {
+            const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+            const age = Date.now() - item.timestamp;
+            if (dist <= minDistWeather && age <= timeLimit) {
+              minDistWeather = dist;
+              foundWeatherCache = item;
+            }
           }
         }
         
@@ -242,7 +251,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     fetchSim();
 
     return () => { active = false; };
-  }, [location, currentDateStr]);
+  }, [location, currentDateStr, refreshTrigger]);
+
+  const handleRefresh = () => {
+    if (!sim || forceRefreshRef.current) return;
+    forceRefreshRef.current = true;
+    lastFetchedDateRef.current = '';
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   if (netInfo.isConnected === false) return <OfflineView theme={theme} />;
 
@@ -368,19 +384,28 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         </View>
       ) : (
         <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
-          <Visualizer
-            sim={sim}
-            currentTime={currentTime}
-            sunAltitude={sunAltitude}
-            heading={heading}
-            visualFov={visualFov}
-            prediction={prediction}
-            panHandlers={panResponder.panHandlers}
-            theme={theme}
-            interpolatedWeather={interpolatedWeather}
-            isSunVisible={isSunVisible}
-            eventAzimuths={eventAzimuths}
-          />
+          <View style={styles.visualizerWrapper}>
+            <Visualizer
+              sim={sim}
+              currentTime={currentTime}
+              sunAltitude={sunAltitude}
+              heading={heading}
+              visualFov={visualFov}
+              prediction={prediction}
+              panHandlers={panResponder.panHandlers}
+              theme={theme}
+              interpolatedWeather={interpolatedWeather}
+              isSunVisible={isSunVisible}
+              eventAzimuths={eventAzimuths}
+            />
+            <TouchableOpacity 
+              style={[styles.refreshButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
+              onPress={handleRefresh}
+              activeOpacity={0.7}
+            >
+              <RotateCw size={12} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.bottomSection}>
             {prediction && (
@@ -474,6 +499,27 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 0, backgroundColor: 'transparent' },
   mainWrapper: { flex: 1, justifyContent: 'space-between' },
+  visualizerWrapper: {
+    position: 'relative',
+    width: '100%',
+  },
+  refreshButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 999,
+  },
   bottomSection: { gap: 6, marginTop: 'auto' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', height: 300 },
   loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
