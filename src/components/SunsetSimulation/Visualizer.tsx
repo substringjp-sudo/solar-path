@@ -902,8 +902,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           {gridCloudShapes && gridCloudShapes.length > 0 && gridCloudShapes.map((shape) => {
             const horizonTop = SKY_HEIGHT - HORIZON_Y;
 
-            // Map polar grid coordinates to screen space
-            const relAzDeg = shape.centerAzOffset;
+            // Compute wind drift coordinate here (synchronized with computedClouds)
+            const timeMs = currentTime.getTime();
+            const windSpeedKmh = 25; 
+            const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
+            const totalDx = (windDriftKm % 160 - 80);
+            const windAzOffset = Math.atan2(totalDx, shape.centerDist) * (180 / Math.PI);
+
+            // Map polar grid coordinates to screen space with wind drift
+            const relAzDeg = shape.centerAzOffset + windAzOffset;
             const relAz = ((relAzDeg + 180) % 360) - 180;
             const fovRad = (visualFov * Math.PI) / 180;
             const halfFovRad = fovRad / 2;
@@ -932,9 +939,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             // Opacity from density
             const opacity = Math.max(0.15, Math.min(0.75, shape.density / 100));
 
-            // Sun proximity coloring (reuse prediction colors)
+            // Sun proximity coloring (reuse prediction colors, using wind-drifted position)
             const sunAz = sim?.azimuth ?? 180;
-            let azDiff = (sunAz + shape.centerAzOffset) - sunAz;
+            const cloudAzimuthAbs = (sim?.azimuth ?? 180) + shape.centerAzOffset + windAzOffset;
+            let azDiff = cloudAzimuthAbs - sunAz;
             azDiff = ((azDiff + 180) % 360) - 180;
             const altDiff = shape.apparentElevation - sunAltitude;
             const angularDist = Math.sqrt(azDiff * azDiff + altDiff * altDiff);
