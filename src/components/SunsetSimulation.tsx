@@ -8,13 +8,15 @@ import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather } from '../utils/weather';
 import { predictSunset, SunsetPrediction } from '../utils/sunsetPhysics';
+import { fetchCloudGrid, CloudDensityGrid } from '../utils/cloudGrid';
+import { convertGridToClouds, GridCloudShape } from '../utils/cloudGridRenderer';
 
 import { OfflineView } from './SunsetSimulation/OfflineView';
 import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw } from 'lucide-react-native';
+import { RotateCw, Layers } from 'lucide-react-native';
  
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
@@ -61,6 +63,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [showSources, setShowSources] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const forceRefreshRef = useRef(false);
+  const [cloudGridData, setCloudGridData] = useState<CloudDensityGrid | null>(null);
+  const [enhancedLoading, setEnhancedLoading] = useState(false);
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
 
@@ -257,8 +261,30 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     if (!sim || forceRefreshRef.current) return;
     forceRefreshRef.current = true;
     lastFetchedDateRef.current = '';
+    setCloudGridData(null);
     setRefreshTrigger(prev => prev + 1);
   };
+
+  const handleEnhancedCloud = async () => {
+    if (!location || !sim || enhancedLoading) return;
+    setEnhancedLoading(true);
+    try {
+      const { latitude, longitude } = location.coords;
+      const grid = await fetchCloudGrid(latitude, longitude, sunAzimuth, currentTime);
+      if (grid) {
+        setCloudGridData(grid);
+      }
+    } catch (err) {
+      console.error('Enhanced cloud fetch failed:', err);
+    } finally {
+      setEnhancedLoading(false);
+    }
+  };
+
+  const gridCloudShapes = useMemo<GridCloudShape[]>(() => {
+    if (!cloudGridData) return [];
+    return convertGridToClouds(cloudGridData, sim?.terrain?.observerElevation ?? 50);
+  }, [cloudGridData, sim?.terrain?.observerElevation]);
 
   if (netInfo.isConnected === false) return <OfflineView theme={theme} />;
 
@@ -397,7 +423,19 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               interpolatedWeather={interpolatedWeather}
               isSunVisible={isSunVisible}
               eventAzimuths={eventAzimuths}
+              gridCloudShapes={gridCloudShapes}
             />
+            <TouchableOpacity 
+              style={[styles.enhancedButton, { backgroundColor: cloudGridData ? 'rgba(70, 130, 180, 0.7)' : 'rgba(5, 5, 10, 0.65)', borderColor: cloudGridData ? 'rgba(100, 160, 210, 0.6)' : theme.border }]}
+              onPress={handleEnhancedCloud}
+              activeOpacity={0.7}
+            >
+              {enhancedLoading ? (
+                <ActivityIndicator size={10} color="#FFFFFF" />
+              ) : (
+                <Layers size={12} color={cloudGridData ? '#FFFFFF' : 'rgba(255,255,255,0.7)'} />
+              )}
+            </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.refreshButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
               onPress={handleRefresh}
@@ -502,6 +540,23 @@ const styles = StyleSheet.create({
   visualizerWrapper: {
     position: 'relative',
     width: '100%',
+  },
+  enhancedButton: {
+    position: 'absolute',
+    top: 8,
+    right: 40,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 999,
   },
   refreshButton: {
     position: 'absolute',

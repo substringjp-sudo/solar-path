@@ -5,6 +5,7 @@ import { Sun } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
+import { GridCloudShape } from '../../utils/cloudGridRenderer';
 
 interface VisualizerProps {
   prediction: SunsetPrediction | null;
@@ -18,6 +19,7 @@ interface VisualizerProps {
   eventAzimuths: { sunrise: number; sunset: number };
   theme: any;
   panHandlers: GestureResponderHandlers;
+  gridCloudShapes?: GridCloudShape[];
 }
 
 interface RGB {
@@ -128,6 +130,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   eventAzimuths,
   theme,
   panHandlers,
+  gridCloudShapes,
 }) => {
   const { width, height } = useWindowDimensions();
   const { timezoneOffsetHours } = useCelestialStore();
@@ -895,7 +898,97 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             );
           })}
 
-          {/* 4. Panoramic Terrain (Rendered ON TOP of all celestial objects to naturally occlude them!) */}
+          {/* 4.5. Enhanced Grid Clouds (rendered between computed clouds and terrain) */}
+          {gridCloudShapes && gridCloudShapes.length > 0 && gridCloudShapes.map((shape) => {
+            const horizonTop = SKY_HEIGHT - HORIZON_Y;
+
+            // Map polar grid coordinates to screen space
+            const relAzDeg = shape.centerAzOffset;
+            const relAz = ((relAzDeg + 180) % 360) - 180;
+            const fovRad = (visualFov * Math.PI) / 180;
+            const halfFovRad = fovRad / 2;
+            const xOffsetRatio = Math.tan((relAz * Math.PI) / 180) / Math.tan(halfFovRad);
+            const cx = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
+
+            // Vertical position from apparent elevation
+            const cy = horizonTop - (shape.apparentElevation * DEGREE_TO_PIXEL);
+
+            // Scale based on distance (perspective)
+            const perspectiveScale = 45 / Math.max(10, shape.centerDist);
+            const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
+            const scaleZoom = 20 / visualFov;
+            const finalScale = clampedScale * scaleZoom;
+
+            // Cloud size based on density and type
+            const baseW = shape.type === 'high' ? 180 : shape.type === 'mid' ? 200 : 220;
+            const baseH = shape.type === 'high' ? 10 : shape.type === 'mid' ? 18 : 28;
+            const renderW = baseW * finalScale;
+            const renderH = baseH * finalScale * 0.6;
+
+            // Skip if off-screen
+            if (cx + renderW < -60 || cx - renderW > VISUALIZER_WIDTH + 60) return null;
+            if (cy + renderH < -30 || cy > SKY_HEIGHT + 30) return null;
+
+            // Opacity from density
+            const opacity = Math.max(0.15, Math.min(0.75, shape.density / 100));
+
+            // Sun proximity coloring (reuse prediction colors)
+            const sunAz = sim?.azimuth ?? 180;
+            let azDiff = (sunAz + shape.centerAzOffset) - sunAz;
+            azDiff = ((azDiff + 180) % 360) - 180;
+            const altDiff = shape.apparentElevation - sunAltitude;
+            const angularDist = Math.sqrt(azDiff * azDiff + altDiff * altDiff);
+            const sunCloseness = Math.max(0, 1 - angularDist / 30);
+
+            const baseColor = shape.type === 'high'
+              ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.5)')
+              : shape.type === 'mid'
+              ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.45)')
+              : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.4)');
+
+            const baseRGB = parseColor(baseColor);
+            const sunGlow = parseColor(prediction?.sunDiskColor ?? '#FFD700');
+            const fireRGB = interpolateColors(sunGlow, { r: 255, g: 110, b: 0, a: 1 }, 0.35);
+            const litRGB = interpolateColors(baseRGB, fireRGB, sunCloseness * 0.9);
+            const fillColor = colorToString(litRGB);
+
+            // Generate a cloud-like path for this grid shape
+            const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
+            const cloudPath = generatePolygonalCloudPath(baseW, baseH, seed, shape.type);
+            const gradId = `gridGrad-${shape.id}`;
+
+            // Sun direction for gradient
+            const sunScreenY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
+            const dx = (VISUALIZER_WIDTH / 2) - cx;
+            const dy = sunScreenY - cy;
+            const angleRad = Math.atan2(dy, dx);
+            const cosA = Math.cos(angleRad);
+            const sinA = Math.sin(angleRad);
+            const x1 = `${(0.5 - cosA * 0.5) * 100}%`;
+            const y1 = `${(0.5 - sinA * 0.5) * 100}%`;
+            const x2 = `${(0.5 + cosA * 0.5) * 100}%`;
+            const y2 = `${(0.5 + sinA * 0.5) * 100}%`;
+
+            const shadowRGB = interpolateColors(baseRGB, sunGlow, sunCloseness * 0.2);
+
+            return (
+              <G key={shape.id} opacity={opacity}>
+                <Defs>
+                  <LinearGradient id={gradId} x1={x1} y1={y1} x2={x2} y2={y2}>
+                    <Stop offset="0%" stopColor={colorToString(shadowRGB)} stopOpacity={1} />
+                    <Stop offset="100%" stopColor={fillColor} stopOpacity={1} />
+                  </LinearGradient>
+                </Defs>
+                <Path
+                  d={cloudPath}
+                  fill={`url(#${gradId})`}
+                  transform={`translate(${cx - (baseW * finalScale) / 2}, ${cy}) scale(${finalScale}, ${finalScale * 0.6})`}
+                />
+              </G>
+            );
+          })}
+
+          {/* 5. Panoramic Terrain (Rendered ON TOP of all celestial objects to naturally occlude them!) */}
           {renderTerrain()}
         </Svg>
         {renderOverlayAzimuthScale()}
