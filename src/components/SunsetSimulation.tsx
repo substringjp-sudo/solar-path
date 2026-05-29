@@ -1,671 +1,632 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform } from 'react-native';
-import { isAfter, addHours, addMinutes } from 'date-fns';
-import SunCalc from 'suncalc';
-import { useNetInfo } from '@react-native-community/netinfo';
-import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  StyleSheet, View, Text, ScrollView, Animated, Dimensions,
+  Platform, TouchableOpacity, PanResponder,
+  Linking, Easing
+} from 'react-native';
+import {
+  ArrowLeft, Maximize, Info, Map as MapIcon,
+  Clock, Thermometer, Droplets, Wind,
+  Cloud, CloudRain, Sun, Zap, Compass,
+  ChevronDown, Layers, Target, Eye
+} from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
+import { DeviceMotion } from 'expo-sensors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Path } from 'react-native-svg';
 
 import { useCelestialStore } from '../store/useCelestialStore';
-import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather } from '../utils/weather';
-import { predictSunset, SunsetPrediction } from '../utils/sunsetPhysics';
-import { fetchCloudGrid, CloudDensityGrid } from '../utils/cloudGrid';
-import { convertGridToClouds, GridCloudShape } from '../utils/cloudGridRenderer';
-
-import { OfflineView } from './SunsetSimulation/OfflineView';
-import { PredictionCard } from './SunsetSimulation/PredictionCard';
-import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
-import { Visualizer } from './SunsetSimulation/Visualizer';
+import { getSimulationData } from '../utils/weather';
+import {
+  getSunsetColors, getSunPositionInSim,
+  getSunsetPrediction, SunsetPrediction
+} from '../utils/sunsetPhysics';
+import { SimulationData } from '../types/simulation';
+import { GenericSlider } from './GenericSlider';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw, Layers } from 'lucide-react-native';
- 
-interface SimulationState {
-  type: 'Sunrise' | 'Sunset';
-  eventTime: Date;
-  trueEventTime?: Date;
-  azimuth: number;
-  fov: number;
-  pathData: CloudPathData[];
-  terrain: TerrainData;
-  loading: boolean;
-  weatherSource: 'standard' | 'ultra-short';
-}
+import { FloatingHeader } from './FloatingHeader';
+import { triggerHaptic } from '../utils/haptics';
+
+// New Simulation Components
+import { PredictionCard } from './simulation/PredictionCard';
+import { CompassWidget } from './simulation/CompassWidget';
+import { SimulationVisualizer } from './simulation/SimulationVisualizer';
+import { SimulationModals } from './simulation/SimulationModals';
+const AnimatedVisualizer = Animated.createAnimatedComponent(SimulationVisualizer);
+import { SimulationHero } from './simulation/SimulationHero';
+import { CloudGrid } from './simulation/CloudGrid';
+import { FovControl } from './simulation/FovControl';
+import { qualityColor } from './simulation/utils';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 interface SunsetSimulationProps {
-  theme: any;
-  currentTime: Date;
-  setCurrentTime: (time: Date) => void;
+  theme: {
+    bg: string;
+    glass: string;
+    text: string;
+    subText: string;
+    border: string;
+    accent: string;
+  };
+  onClose?: () => void;
 }
 
-export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
-  const { theme, currentTime, setCurrentTime } = props;
-  
-  if (!theme) return null;
-  
-  const { 
-    location, 
-    timezoneOffsetHours,
-    weatherCacheList, 
-    terrainCacheList, 
-    addWeatherCache, 
-    addTerrainCache 
+export const SunsetSimulation: React.FC<SunsetSimulationProps> = ({ theme, onClose }) => {
+  const insets = useSafeAreaInsets();
+
+  const {
+  location, userRotation, setUserRotation,
+  isGyroEnabled, setGyroEnabled,
+  isTimeMachineEnabled, setTimeMachineEnabled,
+  gyroRotation, setGyroRotation,
+  currentTime
   } = useCelestialStore();
-  const netInfo = useNetInfo();
-  
-  const [visualFov, setVisualFov] = useState(20);
-  const visualFovRef = useRef(20);
-  React.useEffect(() => {
-    visualFovRef.current = visualFov;
-  }, [visualFov]);
 
-  const [sim, setSim] = useState<SimulationState | null>(null);
-  const [loadingStatus, setLoadingStatus] = useState<string>('Preparing Simulation...');
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const [showSources, setShowSources] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const forceRefreshRef = useRef(false);
-  const [cloudGridData, setCloudGridData] = useState<CloudDensityGrid | null>(null);
-  const [enhancedLoading, setEnhancedLoading] = useState(false);
+  const[localSimTime, setLocalSimTime] = useState(new Date());
+  const[sim, setSim] = useState<SimulationData | null>(null);
+  const[prediction, setPrediction] = useState<SunsetPrediction | null>(null);
+  const[visualFov, setVisualFov] = useState(50);
+  const[loading, setLoading] = useState(true);
+  const[showPredictInfo, setShowPredictInfo] = useState(false);
+  const[showSources, setShowSources] = useState(false);
 
-  const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
+  // Animation State
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const dashboardY = useRef(new Animated.Value(0)).current;
+  const driftAnim = useRef(new Animated.Value(0)).current;
+  const[isCollapsed, setIsCollapsed] = useState(false);
 
-  const getTouchDistance = (touches: any[]) => {
-    const [t1, t2] = touches;
-    if (!t1 || !t2) return 0;
-    const dx = t1.pageX - t2.pageX;
-    const dy = t1.pageY - t2.pageY;
-    return Math.sqrt(dx * dx + dy * dy);
+  const lastTap = useRef(0);
+  const isSnapped = useRef(false);
+
+  const combinedRotation = useMemo(() => {
+  return (userRotation + (isGyroEnabled?gyroRotation: 0) + 360) % 360;
+  }, [userRotation, gyroRotation, isGyroEnabled]);
+
+  // Sensor tracking moved to App.tsx to unify gyroRotation state
+
+  useEffect(() => {
+    loadSimulation();
+  }, [location?.coords.latitude, location?.coords.longitude, currentTime.toDateString()]);
+
+  const currentCoords = location?.coords || { latitude: 0, longitude: 0 };
+
+  const loadSimulation = async () => {
+  try {
+  setLoading(true);
+  const data = await getSimulationData(currentCoords.latitude, currentCoords.longitude, currentTime);
+  setSim(data);
+  setLocalSimTime(data.eventTime);
+
+  const pred = getSunsetPrediction(data.weatherData, data.eventTime, 0, currentCoords.latitude, currentCoords.longitude);
+  setPrediction(pred);
+  } catch (error) {
+  console.error('Sim load error:', error);
+  } finally {
+  setLoading(false);
+  }
   };
 
-  const initialPinchDist = useRef<number | null>(null);
-  const initialFovOnPinch = useRef<number>(20);
+  // Separate atmospheric calculations (heavy) from viewport calculations (frequent)
+  const atmosphericState = useMemo(() => {
+    if (!sim) return null;
 
-  const currentDateStr = useMemo(() => {
-    const localTime = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
-    return formatLocalTime(localTime, 'yyyy-MM-dd');
-  }, [currentTime, timezoneOffsetHours]);
+    const eventTime = sim.eventTime.getTime();
+    const currentTime = localSimTime.getTime();
+    const diffMin = (currentTime - eventTime) / (60 * 1000);
 
+    // Calculate base sun position
+    const { altitude, azimuth } = getSunPositionInSim(localSimTime, currentCoords.latitude, currentCoords.longitude);
+    const colors = getSunsetColors(altitude);
 
-  const lastFetchedDateRef = useRef<string>('');
+    // Update prediction for current time
+    const currentPrediction = getSunsetPrediction(sim.weatherData, localSimTime, 0, currentCoords.latitude, currentCoords.longitude);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
-      onPanResponderGrant: (evt) => {
-        const touches = evt.nativeEvent.touches;
-        if (touches.length >= 2) {
-          initialPinchDist.current = getTouchDistance(touches);
-          initialFovOnPinch.current = visualFovRef.current;
-        }
-      },
-      onPanResponderMove: (evt) => {
-        const touches = evt.nativeEvent.touches;
-        if (touches.length >= 2) {
-          // If the pinch baseline isn't captured yet (e.g., transition from 1 touch to 2),
-          // immediately capture the current distance and visualFov as the benchmark!
-          if (initialPinchDist.current === null) {
-            initialPinchDist.current = getTouchDistance(touches);
-            initialFovOnPinch.current = visualFovRef.current;
-            return;
-          }
-          const currentDist = getTouchDistance(touches);
-          if (currentDist > 0) {
-            const ratio = initialPinchDist.current / currentDist;
-            let targetFov = initialFovOnPinch.current * ratio;
-            targetFov = Math.max(10, Math.min(30, targetFov));
-            setVisualFov(targetFov);
-          }
-        } else {
-          // Reset benchmark if fingers are lifted to ensure a smooth transition on next pinch
-          initialPinchDist.current = null;
-        }
-      },
-      onPanResponderRelease: () => {
-        initialPinchDist.current = null;
-      },
-      onPanResponderTerminate: () => {
-        initialPinchDist.current = null;
-      },
-    })
+    // Interpolate cloud profile based on time (simulated) - this is the heavy part
+    const interpolatedPath = sim.pathData.map((p) => ({
+      ...p,
+      profile: p.profile.map((point) => ({
+        ...point,
+        height: point.height * (1 + Math.sin(diffMin / 60) * 0.1)
+      }))
+    }));
+
+    return {
+      colors,
+      altitude,
+      azimuth,
+      prediction: currentPrediction,
+      interpolatedPath
+    };
+  }, [sim, localSimTime, currentCoords.latitude, currentCoords.longitude]);
+
+  const visualState = useMemo(() => {
+    if (!atmosphericState) return null;
+
+    // FOV to Pixel Mapping
+    const pixelsPerDegree = 1000 / visualFov;
+    
+    // Sun position depends on rotation (gyro)
+    const sunX = 500 + (atmosphericState.azimuth - combinedRotation) * pixelsPerDegree;
+    const sunY = 500 - (atmosphericState.altitude * pixelsPerDegree);
+
+    return {
+      ...atmosphericState,
+      sunX,
+      sunY,
+      sunSize: 20 * (50 / visualFov),
+      sunGlowSize: 120 * (50 / visualFov),
+      sunAltitude: atmosphericState.altitude,
+      sunAzimuth: atmosphericState.azimuth,
+    };
+  }, [atmosphericState, visualFov, combinedRotation]);
+
+  // Pan Responder for horizontal rotation
+  const startRotation = useRef(0);
+  const rotationPanResponder = useRef(
+  PanResponder.create({
+  onStartShouldSetPanResponder: () => true,
+  onPanResponderGrant: () => {
+  startRotation.current = userRotation;
+
+  // Double tap for reset
+  const now = Date.now();
+  if (now - lastTap.current < 300) {
+  setUserRotation(0);
+  setVisualFov(50);
+  triggerHaptic('success');
+  }
+  lastTap.current = now;
+  },
+  onPanResponderMove: (_, gestureState) => {
+  // Sensitivity: proportional to FOV to keep panning feel consistent
+  const sensitivity = visualFov / screenWidth;
+  let newRotation = (startRotation.current - gestureState.dx * sensitivity + 360) % 360;
+
+  // Azimuth Snap logic (0, 90, 180, 270)
+  const snapPoints = [0, 90, 180, 270];
+  const snapThreshold = 3; // degrees
+  let snapped = false;
+
+  for (const point of snapPoints) {
+  const diff = Math.abs(newRotation - point);
+  const wrappedDiff = Math.abs(newRotation - (point + 360));
+  const finalDiff = Math.min(diff, wrappedDiff);
+
+  if (finalDiff < snapThreshold) {
+  newRotation = point;
+  snapped = true;
+  break;
+  }
+  }
+
+  if (snapped && !isSnapped.current) {
+  triggerHaptic('medium');
+  isSnapped.current = true;
+  } else if (!snapped) {
+  isSnapped.current = false;
+  // Smooth panning haptic
+  if (Math.abs(gestureState.dx) % 30 < 1.5) {
+  triggerHaptic('selection');
+  }
+  }
+
+  setUserRotation(newRotation);
+  },
+  onPanResponderRelease: () => {
+  isSnapped.current = false;
+  }
+  })
   ).current;
 
-  useEffect(() => {
-    if (!location) return;
-    
-    if (lastFetchedDateRef.current === currentDateStr && !forceRefreshRef.current) {
-      return;
-    }
-    
-    let active = true;
-    lastFetchedDateRef.current = currentDateStr;
-    const isForceRefresh = forceRefreshRef.current;
-    forceRefreshRef.current = false;
+  // Pan Responder for dashboard collapse
+  const panResponder = useRef(
+  PanResponder.create({
+  onMoveShouldSetPanResponder: (_, gestureState) => {
+  return Math.abs(gestureState.dy) > 10;
+  },
+  onPanResponderMove: (_, gestureState) => {
+  if (isCollapsed) {
+  if (gestureState.dy < 0) {
+  dashboardY.setValue(gestureState.dy + screenHeight * 0.6);
+  }
+  } else {
+  if (gestureState.dy > 0) {
+  dashboardY.setValue(gestureState.dy);
+  }
+  }
+  },
+  onPanResponderRelease: (_, gestureState) => {
+  const { dy, vy } = gestureState;
+  if ((dy > 80 || vy > 0.4) && !isCollapsed) {
+  collapseDashboard(vy);
+  triggerHaptic('medium');
+  } else if ((dy < -80 || vy < -0.4) && isCollapsed) {
+  expandDashboard(vy);
+  triggerHaptic('medium');
+  } else {
+  resetDashboard();
+  }
+  }
+  })
+  ).current;
 
-    setSim(null);
-    setLoadingStatus(isForceRefresh ? 'Forcing Weather & Terrain Update...' : 'Preparing Simulation...');
-    fadeAnim.setValue(0);
-
-    const fetchSim = async () => {
-      try {
-        const { latitude, longitude } = location.coords;
-        const now = new Date(currentTime);
-        const times = SunCalc.getTimes(now, latitude, longitude);
-        let nextEvent: Date;
-        let type: 'Sunrise' | 'Sunset';
-
-        if (isAfter(now, times.sunset)) {
-          nextEvent = SunCalc.getTimes(addHours(now, 24), latitude, longitude).sunrise;
-          type = 'Sunrise';
-        } else if (isAfter(now, times.sunrise)) {
-          nextEvent = times.sunset;
-          type = 'Sunset';
-        } else {
-          nextEvent = times.sunrise;
-          type = 'Sunrise';
-        }
-        const pos = SunCalc.getPosition(nextEvent as any, latitude, longitude);
-        const az = (pos.azimuth * 180 / Math.PI) + 180;
-
-        let terrainData = null;
-        let foundTerrainCache = null;
-        let minDistTerrain = 500;
-        
-        if (!isForceRefresh) {
-          for (const item of terrainCacheList) {
-            const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
-            if (dist <= minDistTerrain) {
-              minDistTerrain = dist;
-              foundTerrainCache = item;
-            }
-          }
-        }
-        
-        if (foundTerrainCache) terrainData = foundTerrainCache.data;
-        const shouldFetchTerrain = !terrainData;
-
-        let weatherData = null;
-        let foundWeatherCache = null;
-        let minDistWeather = 2000;
-        const timeLimit = 1800000;
-        
-        if (!isForceRefresh) {
-          for (const item of weatherCacheList) {
-            const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
-            const age = Date.now() - item.timestamp;
-            if (dist <= minDistWeather && age <= timeLimit) {
-              minDistWeather = dist;
-              foundWeatherCache = item;
-            }
-          }
-        }
-        
-        if (foundWeatherCache) weatherData = foundWeatherCache.data;
-        const shouldFetchWeather = !weatherData;
-
-        if (shouldFetchWeather || shouldFetchTerrain) {
-          if (shouldFetchWeather && active) setLoadingStatus('Analyzing Weather Data...');
-          
-          const [newWeather, newTerrain] = await Promise.all([
-            shouldFetchWeather ? fetchSunsetWeather(latitude, longitude, az) : Promise.resolve(weatherData),
-            shouldFetchTerrain ? fetchTerrainProfile(latitude, longitude, 0, 360, (msg) => {
-              if (active) setLoadingStatus(msg);
-            }) : Promise.resolve(terrainData)
-          ]);
-
-          if (!active) return;
-
-          if (shouldFetchWeather && newWeather) {
-            weatherData = newWeather;
-            addWeatherCache({ key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, data: newWeather, timestamp: Date.now(), latitude, longitude });
-          }
-          if (shouldFetchTerrain && newTerrain) {
-            terrainData = newTerrain;
-            addTerrainCache({ key: `t_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, data: newTerrain, timestamp: Date.now(), latitude, longitude });
-          }
-        }
-
-        if (!active) return;
-
-        if (weatherData && terrainData) {
-          const trueEventTime = calculateTrueEventTime(nextEvent, type, latitude, longitude, terrainData as TerrainData);
-
-          if (!active) return;
-
-          setSim({ 
-            type, 
-            eventTime: nextEvent, 
-            trueEventTime,
-            azimuth: az, 
-            fov: 20, 
-            pathData: weatherData as CloudPathData[], 
-            terrain: terrainData as TerrainData, 
-            loading: false,
-            weatherSource: (weatherData as CloudPathData[])[0]?.source || 'standard'
-          });
-          setCurrentTime(nextEvent);
-          const sTimes = SunCalc.getTimes(now, latitude, longitude);
-          setEventAzimuths({
-            sunrise: (SunCalc.getPosition(sTimes.sunrise, latitude, longitude).azimuth * 180 / Math.PI) + 180,
-            sunset: (SunCalc.getPosition(sTimes.sunset, latitude, longitude).azimuth * 180 / Math.PI) + 180
-          });
-          Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-        }
-      } catch (err) { if (active) console.error(err); }
-    };
-    fetchSim();
-
-    return () => { active = false; };
-  }, [location, currentDateStr, refreshTrigger]);
-
-  const handleRefresh = () => {
-    if (!sim || forceRefreshRef.current) return;
-    forceRefreshRef.current = true;
-    lastFetchedDateRef.current = '';
-    setCloudGridData(null);
-    setRefreshTrigger(prev => prev + 1);
+  const collapseDashboard = (velocity = 0) => {
+  setIsCollapsed(true);
+  Animated.spring(dashboardY, {
+  toValue: screenHeight * 0.6,
+  useNativeDriver: true,
+  velocity: velocity,
+  tension: 85,
+  friction: 14,
+  restDisplacementThreshold: 0.01,
+  restSpeedThreshold: 0.01
+  }).start();
   };
 
-  const handleEnhancedCloud = async () => {
-    if (!location || !sim || enhancedLoading) return;
-    setEnhancedLoading(true);
-    try {
-      const { latitude, longitude } = location.coords;
-      const grid = await fetchCloudGrid(latitude, longitude, sunAzimuth, currentTime);
-      if (grid) {
-        setCloudGridData(grid);
-      }
-    } catch (err) {
-      console.error('Enhanced cloud fetch failed:', err);
-    } finally {
-      setEnhancedLoading(false);
-    }
+  const expandDashboard = (velocity = 0) => {
+  setIsCollapsed(false);
+  Animated.spring(dashboardY, {
+  toValue: 0,
+  useNativeDriver: true,
+  velocity: velocity,
+  tension: 75,
+  friction: 12,
+  restDisplacementThreshold: 0.01,
+  restSpeedThreshold: 0.01
+  }).start();
   };
 
-  const gridCloudShapes = useMemo<GridCloudShape[]>(() => {
-    if (!cloudGridData) return [];
-    return convertGridToClouds(cloudGridData, sim?.terrain?.observerElevation ?? 50);
-  }, [cloudGridData, sim?.terrain?.observerElevation]);
-
-  if (netInfo.isConnected === false) return <OfflineView theme={theme} />;
-
-  const simLoaded = !!sim;
-  const calculateTrueEventTime = (baseTime: Date, type: 'Sunrise' | 'Sunset', lat: number, lon: number, terrain: TerrainData) => {
-    const startOffset = -30;
-    const endOffset = 90;
-    let bestTime = baseTime;
-    for (let offset = startOffset; offset < endOffset; offset += 0.5) {
-      const checkTime = addMinutes(baseTime, offset);
-      const pos = SunCalc.getPosition(checkTime, lat, lon);
-      const alt = pos.altitude * (180 / Math.PI);
-      const az = (pos.azimuth * 180 / Math.PI) + 180;
-      const angles = terrain.panoramicAngles;
-      const normalizedAz = ((az % 360) + 360) % 360;
-      const index = (normalizedAz / 360) * (angles.length - 1);
-      const i1 = Math.floor(index);
-      const i2 = (i1 + 1) % angles.length;
-      const ratio = index - i1;
-      const terrainAngle = angles[i1] * (1 - ratio) + angles[i2] * ratio;
-      if (type === 'Sunset') { if (alt <= terrainAngle) return checkTime; } 
-      else { if (alt >= terrainAngle) return checkTime; }
-    }
-    return bestTime;
+  const resetDashboard = () => {
+  Animated.spring(dashboardY, {
+  toValue: isCollapsed?screenHeight * 0.6: 0,
+  useNativeDriver: true,
+  tension: 60,
+  friction: 12
+  }).start();
   };
 
-  const sunPos = SunCalc.getPosition(currentTime, location?.coords.latitude || 0, location?.coords.longitude || 0);
-  const sunAltitude = sunPos.altitude * (180 / Math.PI);
-  const sunAzimuth = (sunPos.azimuth * 180 / Math.PI) + 180;
-  const heading = sunAzimuth;
+  if (!location) {
+  return (
+  <View style = {[styles.container, { backgroundColor: '#000' }]}>
+  <View style = {styles.centered}>
+  <Text style = {{ color: '#FFF' }}>Waiting for location...</Text>
+  </View>
+  </View>
+  );
+  }
 
-  const obsHourly = useMemo(() => {
-    if (!sim?.pathData || sim.pathData.length === 0) return null;
-    return getInterpolatedWeather(sim.pathData, currentTime)[0];
-  }, [sim?.pathData, currentTime]);
 
-  const prediction = useMemo<SunsetPrediction | null>(() => {
-    if (!sim?.pathData || sim.pathData.length < 4) return null;
-    return predictSunset(
-      sim.pathData,
-      currentTime,
-      sunAltitude,
-      obsHourly?.visibility,
-      obsHourly?.humidity,
-      location?.coords?.latitude,
-      location?.coords?.altitude ?? sim?.terrain?.observerElevation ?? 0,
-    );
-  }, [sim?.pathData, currentTime, sunAltitude, obsHourly, location?.coords?.latitude, location?.coords?.altitude, sim?.terrain?.observerElevation]);
+  const isDay = visualState?visualState.sunAltitude > 0: true;
 
-  const pm25 = useMemo(() => {
-    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
-    return Math.round(beta * 280);
-  }, [prediction]);
+  // Animation values derived from dashboardY
+  const floatingBarOpacity = dashboardY.interpolate({
+  inputRange: [0, screenHeight * 0.35, screenHeight * 0.55],
+  outputRange: [0, 0.2, 1],
+  extrapolate: 'clamp'
+  });
 
-  const interpolatedWeather = useMemo(() => {
-    if (!sim?.pathData) return [];
-    return getInterpolatedWeather(sim.pathData, currentTime);
-  }, [sim?.pathData, currentTime]);
+  const floatingBarTranslateY = dashboardY.interpolate({
+  inputRange: [screenHeight * 0.2, screenHeight * 0.6],
+  outputRange: [60, 0],
+  extrapolate: 'clamp'
+  });
 
-  const isSunVisible = useMemo(() => {
-    if (!sim?.terrain) return sunAltitude > 0;
-    const angles = sim.terrain.panoramicAngles;
-    const normalizedAz = ((heading % 360) + 360) % 360;
-    const index = (normalizedAz / 360) * (angles.length - 1);
-    const i1 = Math.floor(index);
-    const i2 = (i1 + 1) % angles.length;
-    const ratio = index - i1;
-    const terrainAngle = angles[i1] * (1 - ratio) + angles[i2] * ratio;
-    return sunAltitude > terrainAngle;
-  }, [sim?.terrain, sunAltitude, heading]);
-
-  // Update weather pathData dynamically if the camera heading (sunAzimuth) drifts too far from the sampled azimuth
-  useEffect(() => {
-    if (!location || !sim || sim.loading) return;
-    
-    const { latitude, longitude } = location.coords;
-    const currentAz = sunAzimuth;
-    
-    // Calculate shortest angular distance between current sun azimuth and simulated (sampled) azimuth
-    let diff = Math.abs(currentAz - sim.azimuth);
-    diff = diff > 180 ? 360 - diff : diff;
-    
-    // If the difference is greater than 35 degrees, fetch updated pathData for this direction!
-    if (diff > 35) {
-      let active = true;
-      const fetchUpdatedWeather = async () => {
-        try {
-          const newWeather = await fetchSunsetWeather(latitude, longitude, currentAz);
-          if (active && newWeather) {
-            setSim(prev => {
-              if (!prev) return null;
-              return {
-                ...prev,
-                azimuth: currentAz,
-                pathData: newWeather,
-                weatherSource: newWeather[0]?.source || prev.weatherSource
-              };
-            });
-          }
-        } catch (err) {
-          console.error('Failed to update weather for new azimuth:', err);
-        }
-      };
-      
-      // Debounce slightly to prevent rapid API requests when user drags slider
-      const timer = setTimeout(fetchUpdatedWeather, 450);
-      return () => {
-        active = false;
-        clearTimeout(timer);
-      };
-    }
-  }, [sunAzimuth, location, sim?.loading]);
+  const floatingBarScale = dashboardY.interpolate({
+  inputRange: [screenHeight * 0.45, screenHeight * 0.6],
+  outputRange: [0.85, 1],
+  extrapolate: 'clamp'
+  });
 
   return (
-    <View style={styles.container}>
-      {!simLoaded ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={[styles.loadingText, { color: theme.text, marginTop: 12 }]}>{loadingStatus}</Text>
-          <Text style={[styles.loadingSubText, { color: theme.subText }]}>
-            {loadingStatus.includes('Weather') ? 'Collecting global weather model data' : 'Generating terrain elevation profile'}
-          </Text>
-        </View>
-      ) : (
-        <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
-          <View style={styles.visualizerWrapper}>
-            <Visualizer
-              sim={sim}
-              currentTime={currentTime}
-              sunAltitude={sunAltitude}
-              heading={heading}
-              visualFov={visualFov}
-              prediction={prediction}
-              panHandlers={panResponder.panHandlers}
-              theme={theme}
-              interpolatedWeather={interpolatedWeather}
-              isSunVisible={isSunVisible}
-              eventAzimuths={eventAzimuths}
-              gridCloudShapes={gridCloudShapes}
-            />
-            <TouchableOpacity 
-              style={[styles.enhancedButton, { backgroundColor: cloudGridData ? 'rgba(70, 130, 180, 0.7)' : 'rgba(5, 5, 10, 0.65)', borderColor: cloudGridData ? 'rgba(100, 160, 210, 0.6)' : theme.border }]}
-              onPress={handleEnhancedCloud}
-              activeOpacity={0.7}
-            >
-              {enhancedLoading ? (
-                <ActivityIndicator size={10} color="#FFFFFF" />
-              ) : (
-                <Layers size={12} color={cloudGridData ? '#FFFFFF' : 'rgba(255,255,255,0.7)'} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.refreshButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
-              onPress={handleRefresh}
-              activeOpacity={0.7}
-            >
-              <RotateCw size={12} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
+  <View style = {styles.container}>
+  <FloatingHeader
+  title = "HYPER-SIMULATION"
+  subtitle = "ATMOSPHERIC PREDICTION ENGINE"
+  showBack
+  onBack = {onClose}
+  />
 
-          <View style={styles.bottomSection}>
-            {prediction && (
-              <PredictionCard
-                prediction={prediction}
-                theme={theme}
-                weatherSource={sim.weatherSource}
-                isSunrise={sim.type === 'Sunrise'}
-                onPressSource={() => setShowSources(true)}
-              />
-            )}
+  {loading?(
+  <View style = {styles.centered}>
+  <Sun size = {32} color = {theme.accent} />
+  <Text style = {[styles.loadingText, { color: theme.text }]}>INITIALIZING SIMULATION</Text>
+  <Text style = {[styles.loadingSubText, { color: theme.subText }]}>Modeling atmospheric path vectors...</Text>
+  </View>
+  ): (
+  <View style = {styles.mainWrapper} {...rotationPanResponder.panHandlers}>
+  <AnimatedVisualizer
+  interpolatedColors = {visualState?.colors ||[]}
+  visualFov = {visualFov}
+  sunX = {visualState?.sunX || 0}
+  sunY = {visualState?.sunY || 0}
+  sunSize = {visualState?.sunSize || 0}
+  sunGlowSize = {visualState?.sunGlowSize || 0}
+  interpolatedPath = {visualState?.interpolatedPath ||[]}
+  sunAltitude = {visualState?.sunAltitude || 0}
+  userRotation = {userRotation}
+  gyroRotation = {isGyroEnabled?gyroRotation: 0}
+  theme = {theme}
+  containerHeight = {screenHeight * 0.5}
+  prediction = {visualState?.prediction || null}
+  cloudDrift = {0}
+  />
 
-            <View style={[styles.unifiedCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-              <View style={styles.unifiedLeftSection}>
-                <Text style={[styles.aerosolTitle, { color: theme.text }]}>Aerosols & Humidity</Text>
-                <View style={styles.aerosolRow}>
-                  <View style={styles.aerosolCol}>
-                    <Text style={[styles.aerosolVal, { color: theme.text }]}>
-                      {obsHourly?.humidity != null ? Math.round(obsHourly.humidity) : 50}
-                      <Text style={styles.aerosolUnit}>%</Text>
-                    </Text>
-                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>RH</Text>
-                  </View>
-                  
-                  <View style={[styles.miniDivider, { backgroundColor: theme.border }]} />
-                  
-                  <View style={styles.aerosolCol}>
-                    <Text style={[styles.aerosolVal, { 
-                      color: pm25 <= 15 ? '#4DA0B0' : pm25 <= 35 ? '#E6C25A' : pm25 <= 75 ? '#FF8A3D' : '#FF5C3F'
-                    }]}>
-                      {pm25}
-                      <Text style={styles.aerosolUnit}>㎍</Text>
-                    </Text>
-                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>PM2.5</Text>
-                  </View>
-                </View>
-              </View>
+  <Animated.View
+  style = {[
+  styles.dashboardWrapper,
+  {
+  transform: [{ translateY: dashboardY }],
+  backgroundColor: theme.bg === '#000'?'rgba(10,10,12,0.92)': 'rgba(255,255,255,0.92)'
+  }
+  ]}
+  >
+  <View {...panResponder.panHandlers} style = {styles.dragHandleContainer}>
+  <View style = {[styles.dragHandle, { backgroundColor: theme.text }]} />
+  </View>
 
-              <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
+  <ScrollView
+  showsVerticalScrollIndicator = {false}
+  contentContainerStyle = {styles.scrollContent}
+  scrollEventThrottle = {16}
+  bounces = {false}
+  >
+  <View style = {styles.bottomCardContainer}>
+  <PredictionCard
+  prediction = {visualState?.prediction || prediction}
+  theme = {theme}
+  onPress = {() => setShowPredictInfo(true) }
+  />
 
-              <View style={styles.unifiedRightSection}>
-                <View style={styles.unifiedCloudGrid}>
-                  {sim?.pathData?.slice(0, 4).map((c, i) => {
-                    const interpolated = interpolatedWeather[i];
-                    return (
-                      <View key={i} style={styles.unifiedGridItem}>
-                        <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
-                        <View style={styles.miniBars}>
-                          <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.high ?? 0)}%`, backgroundColor: '#FF69B4' }]} />
-                          <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.mid ?? 0)}%`, backgroundColor: '#9370DB' }]} />
-                          <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.low ?? 0)}%`, backgroundColor: '#4682B4' }]} />
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              </View>
-            </View>
+  <View style = {styles.dashboardRow}>
+  <CompassWidget
+  heading = {combinedRotation}
+  sunAzimuth = {visualState?.sunAzimuth || 0}
+  theme = {theme}
+  />
 
-            <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-              <TimeSlider 
-                mode="relative"
-                value={currentTime}
-                onChange={setCurrentTime}
-                baseTime={sim?.eventTime || new Date()}
-                theme={theme}
-                isDay={sunAltitude > 0}
-                markers={[
-                  {
-                    time: sim?.eventTime || null,
-                    color: sim?.type === 'Sunrise' ? '#FFA500' : '#FF4500',
-                    type: sim?.type === 'Sunrise' ? 'rise' : 'set'
-                  }
-                ]}
-              />
-            </View>
-          </View>
-        </Animated.View>
-      )}
+  {/* Gyro Toggle Overlay */}
+  <TouchableOpacity
+  style = {[
+  styles.gyroToggle,
+  {
+  backgroundColor: isGyroEnabled?theme.accent: 'rgba(0,0,0,0.5)',
+  borderColor: isGyroEnabled?'transparent': theme.border
+  }
+  ]}
+  onPress = {() => setGyroEnabled(!isGyroEnabled) }
+  >
+  <Compass size = {16} color = {isGyroEnabled?'#000': theme.text} />
+  <Text style = {[styles.gyroText, { color: isGyroEnabled?'#000': theme.text }]}>
+  {isGyroEnabled?'GYRO ON': 'GYRO OFF'}
+  </Text>
+  </TouchableOpacity>
+  </View>
 
-      <SourceInfoModal
-        visible={showSources}
-        onClose={() => setShowSources(false)}
-        theme={theme}
-        weatherSource={sim?.weatherSource}
-      />
-    </View>
+  <View style = {styles.dashboardRow}>
+  <SimulationHero
+  simulationTime = {localSimTime}
+  terrainOffset = {sim?.terrainInfo?.horizonOffset}
+  theme = {theme}
+  />
+
+  <CloudGrid
+  weatherData = {sim?.weatherData ||[]}
+  time = {localSimTime}
+  theme = {theme}
+  />
+  </View>
+
+  <FovControl
+  fov = {visualFov}
+  onFovChange = {setVisualFov}
+  theme = {theme}
+  />
+
+  <View style = {[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+  <TimeSlider
+  value = {localSimTime}
+  onChange = {setLocalSimTime}
+  isTimeMachineEnabled = {isTimeMachineEnabled}
+  onToggleTimeMachine = {setTimeMachineEnabled}
+  theme = {theme}
+  isDay = {isDay}
+  />
+  </View>
+
+  <TouchableOpacity
+  style = {styles.sourceInfoTrigger}
+  onPress = {() => setShowSources(true) }
+  activeOpacity = {0.7}
+  >
+  <Info size = {12} color = {theme.subText} />
+  <Text style = {[styles.sourceInfoText, { color: theme.subText }]}>SIMULATION DATA SOURCES</Text>
+  </TouchableOpacity>
+  </View>
+  </ScrollView>
+  </Animated.View>
+
+  {/* Layer 2: Floating Liquid Time Slider (Visible when collapsed) */}
+  <Animated.View
+  style = {[
+  styles.floatingTimeBar,
+  {
+  opacity: floatingBarOpacity,
+  shadowColor: theme.accent,
+  transform: [
+  { translateY: floatingBarTranslateY },
+  { scale: floatingBarScale }
+  ]
+  }
+  ]}
+  {...panResponder.panHandlers}
+  pointerEvents = {isCollapsed?'auto': 'none'}
+  >
+  <BlurView intensity = {Platform.OS === 'ios'?60: 90} tint = {isDay?"light": "dark"} style = {styles.blurContainer}>
+  <View style = {[styles.floatingLiquidContent, { backgroundColor: 'transparent', borderColor: theme.border }]}>
+  <View style = {styles.floatingHandleWrapper}>
+  <View style = {[styles.floatingHandle, { backgroundColor: theme.text }]} />
+  </View>
+  {sim && (
+  <TimeSlider
+  value = {localSimTime}
+  onChange = {setLocalSimTime}
+  isTimeMachineEnabled = {isTimeMachineEnabled}
+  onToggleTimeMachine = {setTimeMachineEnabled}
+  theme = {theme}
+  isDay = {isDay}
+  compact
+  />
+  ) }
+  </View>
+  </BlurView>
+  </Animated.View>
+  </View>
+  ) }
+
+  <SimulationModals
+  showPredictInfo = {showPredictInfo}
+  setShowPredictInfo = {setShowPredictInfo}
+  showSources = {showSources}
+  setShowSources = {setShowSources}
+  prediction = {prediction}
+  weatherSource = {sim?.weatherSource}
+  theme = {theme}
+  />
+  </View>
   );
-};
+  };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 0, backgroundColor: 'transparent' },
-  mainWrapper: { flex: 1, justifyContent: 'space-between' },
-  visualizerWrapper: {
-    position: 'relative',
-    width: '100%',
-  },
-  enhancedButton: {
-    position: 'absolute',
-    top: 8,
-    right: 40,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 999,
-  },
-  refreshButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 999,
-  },
-  bottomSection: { gap: 6, marginTop: 'auto' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', height: 300 },
-  loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  loadingSubText: { fontSize: 11, opacity: 0.6 },
-  simControl: { 
-    paddingVertical: 10,
-    justifyContent: 'center', 
-    borderRadius: 28, 
-    borderWidth: Platform.OS === 'android' ? 0 : 1, 
-    marginBottom: 24, // 트래커의 bottomPanel marginBottom: 24와 완벽하게 일치!
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: Platform.OS === 'android' ? 18 : 15,
-  },
-  unifiedCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 22,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
-    height: 84,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    elevation: Platform.OS === 'android' ? 4 : 2,
-    marginBottom: 4,
-  },
-  unifiedLeftSection: {
-    flex: 1.35,
-    justifyContent: 'center',
-    gap: 4,
-  },
-  verticalDivider: {
-    width: 1,
-    height: '65%',
-    marginHorizontal: 8,
-  },
-  unifiedRightSection: {
-    flex: 1.9,
-    justifyContent: 'center',
-  },
-  unifiedCloudGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 4,
-  },
-  unifiedGridItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  aerosolTitle: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    opacity: 0.85,
-    marginBottom: 2,
-  },
-  aerosolRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 2,
-  },
-  aerosolCol: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  aerosolVal: {
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  aerosolUnit: {
-    fontSize: 8,
-    fontWeight: '600',
-    opacity: 0.7,
-  },
-  aerosolLabel: {
-    fontSize: 8,
-    fontWeight: '600',
-    marginTop: 1,
-  },
-  miniDivider: {
-    width: 1,
-    height: 12,
-    opacity: 0.3,
-  },
-  gridDist: { fontSize: 9, fontWeight: '700', marginBottom: 4 },
-  miniBars: { flexDirection: 'row', gap: 2.5, height: 25, alignItems: 'flex-end' },
-  miniBar: { width: 4.5, borderRadius: 2.5 }
-});
+    container: { flex: 1, backgroundColor: '#000' },
+    mainWrapper: { flex: 1 },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    loadingText: { fontSize: 15, fontWeight: '800', marginTop: 12, letterSpacing: 1 },
+    loadingSubText: { fontSize: 12, opacity: 0.5, marginTop: 4 },
+    dashboardWrapper: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      paddingHorizontal: 16,
+      paddingBottom: Platform.OS === 'ios' ? 44 : 24,
+      maxHeight: screenHeight * 0.6,
+      backgroundColor: 'rgba(0,0,0,0.85)',
+      borderTopLeftRadius: 40,
+      borderTopRightRadius: 40,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
+    },
+    scrollContent: { paddingTop: 20, paddingBottom: 40 },
+    bottomCardContainer: { gap: 16 },
+    dashboardRow: { flexDirection: 'row', gap: 12 },
+    heroCard: {
+      flex: 1,
+      borderRadius: 32,
+      padding: 16,
+      borderWidth: 1,
+      justifyContent: 'center',
+    },
+    heroHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+    heroTitle: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+    heroTimeRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+    heroTime: { fontSize: 22, fontWeight: '900' },
+    terrainOffset: { fontSize: 13, fontWeight: '800' },
+    sourceBadge: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8, borderWidth: 0.5 },
+    sourceBadgeText: { fontSize: 8, fontWeight: '900' },
+    cloudGridCard: { flex: 1.8, flexDirection: 'row', gap: 8 },
+    gridItem: {
+      flex: 1,
+      borderRadius: 24,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 6,
+    },
+    gridDist: { fontSize: 8, fontWeight: '900', marginBottom: 8, opacity: 0.5 },
+    miniBars: { flexDirection: 'row', gap: 3, height: 36, alignItems: 'flex-end' },
+    miniBar: { width: 6, borderRadius: 3 },
+    zoomControl: {
+      paddingVertical: 16,
+      paddingHorizontal: 20,
+      borderRadius: 32,
+      borderWidth: 1,
+    },
+    zoomHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+    zoomTitleRow: { flexDirection: 'row', alignItems: 'center' },
+    zoomTitle: { fontSize: 10, fontWeight: '900', marginLeft: 8, letterSpacing: 1.2 },
+    zoomValue: { fontSize: 16, fontWeight: '900' },
+    zoomSliderWrapper: { height: 28, justifyContent: 'center' },
+    simControl: {
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      borderRadius: 32,
+      borderWidth: 1,
+    },
+    gyroToggle: {
+      position: 'absolute',
+      top: 16,
+      right: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 12,
+      borderWidth: 1,
+      gap: 6,
+    },
+    gyroText: {
+      fontSize: 9,
+      fontWeight: '900',
+      letterSpacing: 1,
+    },
+    sourceInfoTrigger: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, gap: 6, opacity: 0.5 },
+    sourceInfoText: { fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+    dragHandleContainer: {
+      width: '100%',
+      height: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dragHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      opacity: 0.2,
+    },
+    floatingTimeBar: {
+      position: 'absolute',
+      bottom: Platform.OS === 'ios' ? 54 : 34,
+      left: 20,
+      right: 20,
+      borderRadius: 44,
+      zIndex: 100,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 16 },
+      shadowOpacity: 0.4,
+      shadowRadius: 32,
+      elevation: 25,
+    },
+    blurContainer: { flex: 1, borderRadius: 40, overflow: 'hidden' },
+    floatingLiquidContent: {
+      paddingVertical: 12,
+      paddingHorizontal: 8,
+      borderWidth: 0.5,
+      borderRadius: 44,
+    },
+    floatingHandleWrapper: {
+      width: '100%',
+      height: 6,
+      alignItems: 'center',
+      marginBottom: 8,
+      marginTop: -2,
+    },
+    floatingHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      opacity: 0.15,
+    },
+  });
