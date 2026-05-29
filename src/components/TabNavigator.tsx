@@ -58,7 +58,11 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   setTimeMachineEnabled,
   isDay,
 }) => {
-  const { location, timezoneOffsetHours } = useCelestialStore();
+  const { location, timezoneOffsetHours, gyroRotation } = useCelestialStore();
+
+  const combinedRotation = useMemo(() => {
+    return (userRotation + (isGyroEnabled ? gyroRotation : 0) + 360) % 360;
+  }, [userRotation, gyroRotation, isGyroEnabled]);
 
   const eventsLocal = useMemo(() => {
     return {
@@ -84,8 +88,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                 sunPath={sunPath} 
                 moonPath={moonPath}
                 isDay={isDay}
-                rotation={userRotation}
-                onRotationChange={setUserRotation}
+                rotation={combinedRotation}
+                onRotationChange={isGyroEnabled ? undefined : setUserRotation}
               />
               
               <View style={styles.trackerControls}>
@@ -172,8 +176,6 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         ) : (
           <SunsetSimulation 
             theme={theme} 
-            currentTime={currentTime}
-            setCurrentTime={setCurrentTime}
           />
         )}
       </Animated.View>

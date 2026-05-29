@@ -64,6 +64,7 @@ interface CelestialState {
   weatherCacheList: WeatherCacheItem[];
   terrainCacheList: TerrainCacheItem[];
   userRotation: number;
+  gyroRotation: number;
   isGyroEnabled: boolean;
   savedLocations: SavedLocation[];
   currentUser: User | null;
@@ -83,6 +84,7 @@ interface CelestialState {
   addWeatherCache: (cache: WeatherCacheItem) => void;
   addTerrainCache: (cache: TerrainCacheItem) => void;
   setUserRotation: (rot: number) => void;
+  setGyroRotation: (rot: number) => void;
   setGyroEnabled: (enabled: boolean) => void;
   resetRotation: () => void;
   addSavedLocation: (name: string, latitude: number, longitude: number) => Promise<void>;
@@ -119,6 +121,7 @@ export const useCelestialStore = create<CelestialState>()(
       weatherCacheList: [],
       terrainCacheList: [],
       userRotation: 0,
+      gyroRotation: 0,
       isGyroEnabled: false,
       savedLocations: [],
       myPhotos: [],
@@ -180,8 +183,9 @@ export const useCelestialStore = create<CelestialState>()(
         }
       },
       setUserRotation: (rot) => set({ userRotation: (rot + 360) % 360 }),
+      setGyroRotation: (rot) => set({ gyroRotation: rot }),
       setGyroEnabled: (enabled) => set({ isGyroEnabled: enabled }),
-      resetRotation: () => set({ userRotation: 0, isGyroEnabled: false }),
+      resetRotation: () => set({ userRotation: 0, gyroRotation: 0, isGyroEnabled: false }),
       setTimeMachineEnabled: (enabled) => set((state) => ({ 
         isTimeMachineEnabled: enabled,
         currentTime: enabled ? state.currentTime : new Date() 

@@ -15,7 +15,7 @@ export function useCelestialApp() {
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations, currentUser, myPhotos, globalPhotos,
     locationPermission, cameraPermission,
-    setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
+    setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
     uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto,
@@ -199,13 +199,15 @@ export function useCelestialApp() {
           const finalVal = Math.round(smoothed * 10) / 10; // Round to 1 decimal place
           
           lastHeading.current = finalVal;
-          setUserRotation(-finalVal);
+          setGyroRotation(-finalVal);
         });
         Magnetometer.setUpdateInterval(16);
       });
+    } else {
+      setGyroRotation(0);
     }
     return () => subscription && subscription.remove();
-  }, [isGyroEnabled, setUserRotation]);
+  }, [isGyroEnabled, setGyroRotation]);
 
   const animateContent = () => {
     contentOpacity.setValue(0);

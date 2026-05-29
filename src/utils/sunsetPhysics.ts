@@ -375,6 +375,17 @@ const NEUTRAL_CLOUD: RGB = { r: 0.55, g: 0.55, b: 0.58 };
 
 import { getSunPosition } from './celestial';
 
+/** Sæmundsson 1986 atmospheric refraction correction. */
+export const getApparentAltitude = (altDeg: number): number => {
+  if (altDeg <= -6.0) return altDeg;
+  const safeAlt = Math.max(altDeg, -4.2);
+  const tanArg = ((safeAlt + 10.3 / (safeAlt + 5.11)) * Math.PI) / 180;
+  const R_arcmin = 1.02 / Math.tan(tanArg);
+  const R_deg = R_arcmin / 60.0;
+  const fade = clamp01((altDeg + 6.0) / 1.8);
+  return altDeg + R_deg * fade;
+};
+
 export const getSunPositionInSim = (date: Date, lat: number, lon: number) => {
   return getSunPosition(date, lat, lon);
 };

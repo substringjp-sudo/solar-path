@@ -26,10 +26,8 @@ export const FovControl: React.FC<FovControlProps> = ({
       </View>
       <View style={styles.zoomSliderWrapper}>
         <GenericSlider 
-          value={fov} 
-          onChange={onFovChange} 
-          min={10} 
-          max={100} 
+          value={((fov - 10) / 90) * 100} 
+          onChange={(pct) => onFovChange(10 + (pct / 100) * 90)} 
           theme={theme}
         />
       </View>

@@ -16,6 +16,7 @@ interface TimeSliderProps {
   theme: any;
   isDay: boolean;
   markers?: Array<{ time: Date | null; color: string; type: 'rise' | 'set' }>;
+  compact?: boolean;
 }
 
 export const TimeSlider: React.FC<TimeSliderProps> = ({
@@ -28,6 +29,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   theme,
   isDay,
   markers = [],
+  compact = false,
 }) => {
   const { location, timezoneOffsetHours } = useCelestialStore();
 
@@ -270,23 +272,25 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Clock size={14} color={theme.subText} />
-          <Text style={[styles.title, { color: theme.subText }]}>
-            {isFullDay ? (isTimeMachineEnabled ? "Time Machine" : "Real-time") : "Simulation Time"}
-          </Text>
+      {!compact && (
+        <View style={styles.header}>
+          <View style={styles.titleRow}>
+            <Clock size={14} color={theme.subText} />
+            <Text style={[styles.title, { color: theme.subText }]}>
+              {isFullDay ? (isTimeMachineEnabled ? "Time Machine" : "Real-time") : "Simulation Time"}
+            </Text>
+          </View>
+          {isFullDay && isTimeMachineEnabled && (
+            <TouchableOpacity 
+              style={[styles.nowButton, { backgroundColor: theme.accent }]} 
+              onPress={() => onToggleTimeMachine(false)}
+            >
+              <Zap size={10} color="#000" fill="#000" />
+              <Text style={styles.nowText}>NOW</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        {isFullDay && isTimeMachineEnabled && (
-          <TouchableOpacity 
-            style={[styles.nowButton, { backgroundColor: theme.accent }]} 
-            onPress={() => onToggleTimeMachine(false)}
-          >
-            <Zap size={10} color="#000" fill="#000" />
-            <Text style={styles.nowText}>NOW</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      )}
  
       <View style={styles.sliderWrapper}>
         <GenericSlider
@@ -336,23 +340,25 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         </GenericSlider>
       </View>
  
-      <View style={styles.timeLabels}>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
-        {isFullDay ? (
-          <Text style={[styles.timeLabel, { color: theme.subText }]}>12:00</Text>
-        ) : (
-          localBaseTime && (
-            <View style={styles.absoluteLabelOverlay} pointerEvents="none">
-              <View style={[styles.absoluteLabelContainer, { left: `${baseTimePercentage}%` }]}>
-                <Text style={[styles.timeLabel, { color: theme.subText }]}>
-                  {formatLocalTime(localBaseTime, 'HH:mm')}
-                </Text>
+      {!compact && (
+        <View style={styles.timeLabels}>
+          <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
+          {isFullDay ? (
+            <Text style={[styles.timeLabel, { color: theme.subText }]}>12:00</Text>
+          ) : (
+            localBaseTime && (
+              <View style={styles.absoluteLabelOverlay} pointerEvents="none">
+                <View style={[styles.absoluteLabelContainer, { left: `${baseTimePercentage}%` }]}>
+                  <Text style={[styles.timeLabel, { color: theme.subText }]}>
+                    {formatLocalTime(localBaseTime, 'HH:mm')}
+                  </Text>
+                </View>
               </View>
-            </View>
-          )
-        )}
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
-      </View>
+            )
+          )}
+          <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
+        </View>
+      )}
     </View>
   );
 };
