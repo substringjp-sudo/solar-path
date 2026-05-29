@@ -316,16 +316,14 @@ export const classifyClouds = (levels: PressureLevelCloud[]): ClassifiedCloud[] 
       }
     }
 
-    if (genus !== 'clear') {
-      result.push({
-        genus,
-        baseAltKm: Math.max(0.1, baseAlt),
-        topAltKm: topAlt,
-        opticalThickness: Math.round(optThickness),
-        coverage: cov,
-        isIce,
-      });
-    }
+    result.push({
+      genus,
+      baseAltKm: Math.max(0.1, baseAlt),
+      topAltKm: topAlt,
+      opticalThickness: Math.round(optThickness),
+      coverage: cov,
+      isIce,
+    });
   });
 
   return result;
