@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers } from 'react-native';
-import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G, Filter, FeGaussianBlur, FeOffset, FeComponentTransfer, FeFuncA, FeMerge, FeMergeNode, Ellipse } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -86,39 +86,27 @@ function colorToString(rgb: RGB): string {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${rgb.a})`;
 }
 
-function generatePolygonalCloudPath(w: number, h: number, seed: number, type: 'high' | 'mid' | 'low'): string {
-  const rand = (s: number) => {
-    const x = Math.sin(s) * 10000;
-    return x - Math.floor(x);
-  };
-  // 정점 수를 축소하여 렌더링 성능을 획기적으로 개선합니다.
-  const steps = type === 'high' ? 4 : type === 'mid' ? 6 : 8;
-  const points: { x: number; y: number }[] = [];
-  const heightVar = type === 'high' ? 0.25 : type === 'mid' ? 0.45 : 0.65;
-  
-  // Left-to-right top edge
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const px = w * t;
-    const noise = rand(seed + i * 7.3);
-    const py = h * (0.15 + noise * heightVar * Math.sin(t * Math.PI));
-    points.push({ x: px, y: py });
-  }
-  // Right-to-left bottom edge
-  for (let i = steps; i >= 0; i--) {
-    const t = i / steps;
-    const px = w * t;
-    const noise = rand(seed + i * 11.7 + 50);
-    const py = h * (0.85 - noise * heightVar * 0.4 * Math.sin(t * Math.PI));
-    points.push({ x: px, y: py });
-  }
-  let path = `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
-  for (let i = 1; i < points.length; i++) {
-    path += ` L ${points[i].x.toFixed(1)},${points[i].y.toFixed(1)}`;
-  }
-  path += ' Z';
-  return path;
-}
+// Collage / Papercraft cloud SVG templates categorized by distance
+const CLOUD_TEMPLATES = {
+  // Far clouds (d > 200 km): thin horizontal wisps/cirrus
+  far: [
+    "M 0,20 C 15,17 30,12 50,12 C 70,12 85,17 100,20 C 85,23 70,25 50,25 C 30,25 15,23 0,20 Z",
+    "M 0,15 C 20,13 40,8 60,8 C 80,8 100,13 120,15 C 100,18 80,20 60,20 C 40,20 20,18 0,15 Z",
+    "M 0,25 C 25,21 50,15 75,15 C 100,15 125,21 150,25 C 125,29 100,31 75,31 C 50,31 25,29 0,25 Z"
+  ],
+  // Mid clouds (80 < d <= 200 km): wave/layer clusters
+  mid: [
+    "M 10,20 C 10,14 20,10 35,10 C 45,5 65,5 75,12 C 85,8 100,8 110,14 C 120,10 135,12 140,20 C 140,23 10,23 10,20 Z",
+    "M 5,18 C 5,12 15,8 28,8 C 36,4 52,4 62,10 C 70,6 85,6 93,12 C 101,8 115,10 120,18 C 120,21 5,21 5,18 Z",
+    "M 15,22 C 15,16 25,12 40,12 C 50,7 72,7 82,14 C 92,10 110,10 120,16 C 130,12 145,14 150,22 C 150,25 15,25 15,22 Z"
+  ],
+  // Near clouds (d <= 80 km): fluffy volumetric paper cumulus
+  near: [
+    "M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z",
+    "M 10,28 C 10,20 18,14 30,14 C 38,8 54,6 66,10 C 78,4 98,4 110,12 C 118,9 130,12 134,20 C 142,20 146,24 146,28 C 146,30 10,30 10,28 Z",
+    "M 20,40 C 20,28 32,20 50,20 C 60,10 82,8 100,12 C 118,4 146,4 163,16 C 175,12 192,16 198,28 C 210,28 215,34 215,40 C 215,43 20,43 20,40 Z"
+  ]
+};
 
 export const Visualizer: React.FC<VisualizerProps> = ({
   prediction,
@@ -175,9 +163,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
         if (density < 5) return;
 
-        const baseWidth = type === 'high' ? 120 : type === 'mid' ? 150 : 180;
-        const baseHeight = type === 'high' ? 6 : type === 'mid' ? 14 : 24;
-        
         const baseDist = c?.distance ?? [0, 80, 200, 350][i % 4];
         const H_c = type === 'high' ? 9.5 : type === 'mid' ? 4.5 : 1.5; 
 
@@ -213,8 +198,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           // Skip if below horizon dip
           if (apparentElevationDeg < -horizonDipDeg - 0.2) continue;
 
-          // Generate master static cloud path to prevent precision issues and recalculation
-          const pathStr = generatePolygonalCloudPath(baseWidth, baseHeight, seed, type);
+          // Resolve papercraft template based on distance categories
+          let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
+          if (d <= 80) cloudCategory = 'near';
+          else if (d > 200) cloudCategory = 'far';
+
+          const templates = CLOUD_TEMPLATES[cloudCategory];
+          const templateIndex = seed % templates.length;
+          const pathStr = templates[templateIndex];
+
+          // Set dimensions optimal for template aspect ratios
+          const baseWidth = cloudCategory === 'far' ? 150 : cloudCategory === 'mid' ? 140 : 200;
+          const baseHeight = cloudCategory === 'far' ? 25 : cloudCategory === 'mid' ? 25 : 45;
 
           // Base cloud color
           const baseColorStr =
@@ -236,7 +231,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             seed,
             opacityDensity: density,
             d,
-            pathStr
+            pathStr,
+            cloudCategory
           });
         }
       });
@@ -312,10 +308,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const x2 = (0.5 + cosA * 0.5) * 100 + '%';
       const y2 = (0.5 + sinA * 0.5) * 100 + '%';
 
-      // Warm glow factor
-      const sunGlowColorStr = prediction?.sunDiskColor ?? '#FFD700';
-      const litRGB = parseColor(sunGlowColorStr);
-      const shadowRGB = parseColor(item.baseColorStr);
+      // 카툰 스타일: 구름이 물드는지 여부를 날씨 상태와 해 고도로 명확히 정의
+      const alt = sunAltitude;
+      const { overcast, dustIntensity } = weatherFactors;
+      // 노을이 나타날 수 있는 조건 (해 고도 -8 ~ +10도, 맑은 대기)
+      const isGoldenHour = alt >= -8 && alt <= 10;
+      const sunsetQuality = Math.max(0, 1.0 - (overcast * 1.3 + dustIntensity * 0.9)); // 0이면 노을빛이 완전히 가려짐
 
       const sunAz = sim?.azimuth ?? 180;
       const sunAlt = sunAltitude;
@@ -323,12 +321,36 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       azDiff = ((azDiff + 180) % 360) - 180;
       const altDiff = item.apparentElevationDeg - sunAlt;
       const angularDistanceToSun = Math.sqrt(azDiff * azDiff + altDiff * altDiff);
+      const sunCloseness = Math.max(0, 1 - angularDistanceToSun / 32);
 
-      const sunCloseness = Math.max(0, 1 - angularDistanceToSun / 35);
-      
-      const fireRGB = interpolateColors(litRGB, { r: 255, g: 110, b: 0, a: 1 }, 0.35); // fiery orange-red
-      const finalLitRGB = interpolateColors(shadowRGB, fireRGB, sunCloseness * 0.95);
-      const finalShadowRGB = interpolateColors(shadowRGB, litRGB, sunCloseness * 0.25);
+      // 구름 기본 색 (날씨에 따라 칙칙함 반영)
+      let baseCloudRGB = parseColor(item.baseColorStr);
+      if (overcast > 0.5) {
+        baseCloudRGB = interpolateColors(baseCloudRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
+      }
+      if (dustIntensity > 0.5) {
+        baseCloudRGB = interpolateColors(baseCloudRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
+      }
+
+      let finalLitRGB: RGB;
+      let finalShadowRGB: RGB;
+
+      if (isGoldenHour && sunsetQuality > 0.15 && sunCloseness > 0.1) {
+        // 카툰 스타일 물듦 효과: 경계가 확실하고 강렬한 형광 오렌지/황금빛
+        const burnFactor = sunCloseness * sunsetQuality;
+        const sunsetGlowRGB = interpolateColors(
+          { r: 255, g: 80, b: 0, a: 1 },
+          { r: 255, g: 215, b: 0, a: 1 },
+          Math.min(1, burnFactor * 1.5)
+        );
+        
+        finalLitRGB = interpolateColors(baseCloudRGB, sunsetGlowRGB, Math.min(1, burnFactor * 1.3));
+        finalShadowRGB = interpolateColors(baseCloudRGB, { r: 130, g: 40, b: 90, a: 1 }, Math.min(0.85, burnFactor * 0.95)); // 보라빛 그림자
+      } else {
+        // 노을이 안 보이거나 태양과 먼 경우 -> 뚜렷한 노을 변화 없음
+        finalLitRGB = baseCloudRGB;
+        finalShadowRGB = interpolateColors(baseCloudRGB, { r: 40, g: 50, b: 70, a: 1 }, 0.35);
+      }
 
       // Shadow offset (opposite to the sun vector)
       const shadowDist = Math.min(6, 2 + renderHeight * 0.15);
@@ -410,6 +432,146 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     return Array.from(grid);
   }, [computedClouds, visualFov, DEGREE_TO_PIXEL]);
 
+  // Extract real-time weather factors for dynamic papercraft collage styling
+  const weatherFactors = useMemo(() => {
+    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
+    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
+    const overcast = prediction?.factors?.overheadOvercast ?? 0.0;
+    
+    // Normalize aerosol dust intensity (0 to 1 scale)
+    const dustIntensity = Math.max(0, Math.min(1, (beta - 0.04) / 0.46)); 
+    
+    // Cloud opacity blocker for direct solar light
+    const cloudBlock = Math.max(0, Math.min(1, 1.0 - pathClarity));
+
+    return {
+      beta,
+      pathClarity,
+      overcast,
+      dustIntensity,
+      cloudBlock
+    };
+  }, [prediction]);
+
+  // Adjust papercraft border line styles for comic/papercraft theme (clear white borders when clear, fading to soft tint in heavy cloud/haze)
+  const borderStyle = useMemo(() => {
+    const { dustIntensity, overcast } = weatherFactors;
+    const severity = Math.max(dustIntensity, overcast);
+    // 카툰 느낌을 주기 위해 기본 strokeWidth를 2.0으로 두껍게 가져가고, 날씨가 안 좋을 때만 흐려지게 함
+    const strokeWidth = Math.max(0.8, 2.0 * (1.0 - severity * 0.5));
+    const strokeOpacity = Math.max(0.3, 1.0 - severity * 0.6);
+    return {
+      strokeWidth,
+      strokeColor: `rgba(255, 255, 255, ${strokeOpacity.toFixed(2)})`
+    };
+  }, [weatherFactors]);
+
+  // Interpolate terrain and ocean colors based on sun altitude & weather factors (Cartoon Collage Style)
+  const terrainColors = useMemo(() => {
+    const alt = sunAltitude;
+    const { overcast, dustIntensity } = weatherFactors;
+    
+    // Smooth transition for day/night: -6 degrees to +8 degrees
+    const t = Math.max(0, Math.min(1, (alt + 6) / 14));
+    
+    // 노을 강도: 맑을 때 극대화, 흐리거나 먼지가 심하면 0에 수렴
+    const sunsetGlowFactor = Math.max(0, 1.0 - (overcast * 1.3 + dustIntensity * 0.9)) * (1.0 - Math.pow(Math.abs(t - 0.4) / 0.4, 2));
+    const clampedGlow = Math.max(0, Math.min(1, sunsetGlowFactor));
+
+    // 1) 맑은 날의 기본 대낮/황혼/밤 색상
+    // 낮의 선명한 바다 (카툰풍 스카이블루)
+    const daySeaStart = parseColor('#29b6f6');
+    const daySeaMid = parseColor('#0288d1');
+    const daySeaEnd = parseColor('#01579b');
+
+    // 밤/황혼의 깊은 어두운 바다
+    const nightSeaStart = parseColor('#1a0f30');
+    const nightSeaMid = parseColor('#0c051a');
+    const nightSeaEnd = parseColor('#040108');
+
+    // 맑은 날 골든아워의 타오르는 노을 바다
+    const goldenSeaStart = parseColor('#ff5500');
+    const goldenSeaMid = parseColor('#d00d56');
+    const goldenSeaEnd = parseColor('#180230');
+
+    // 보간 적용
+    // 기본적으로 낮/밤 상태 보간 후, 노을 타임에는 노을 바다 색상을 강렬하게 끼얹는다.
+    let seaStartRGB = interpolateColors(nightSeaStart, daySeaStart, t);
+    let seaMidRGB = interpolateColors(nightSeaMid, daySeaMid, t);
+    let seaEndRGB = interpolateColors(nightSeaEnd, daySeaEnd, t);
+
+    seaStartRGB = interpolateColors(seaStartRGB, goldenSeaStart, clampedGlow);
+    seaMidRGB = interpolateColors(seaMidRGB, goldenSeaMid, clampedGlow);
+    seaEndRGB = interpolateColors(seaEndRGB, goldenSeaEnd, clampedGlow);
+
+    // 지형 색상 (맑을 때의 선명한 카툰톤)
+    // 낮: 짙은 슬레이트 블루/네이비
+    const dayFgStart = parseColor('#1e293b');
+    const dayFgEnd = parseColor('#0f172a');
+    const dayBgStart = parseColor('#334155');
+    const dayBgEnd = parseColor('#1e293b');
+
+    // 밤/황혼: 다크 퍼플
+    const nightFgStart = parseColor('#120a21');
+    const nightFgEnd = parseColor('#07020f');
+    const nightBgStart = parseColor('#24153b');
+    const nightBgEnd = parseColor('#0f071f');
+
+    let fgStartRGB = interpolateColors(nightFgStart, dayFgStart, t);
+    let fgEndRGB = interpolateColors(nightFgEnd, dayFgEnd, t);
+    let bgStartRGB = interpolateColors(nightBgStart, dayBgStart, t);
+    let bgEndRGB = interpolateColors(nightBgEnd, dayBgEnd, t);
+
+    // 노을 타임 지형은 아래쪽에 붉은 잔광이 살짝 비치는 느낌
+    if (clampedGlow > 0.05) {
+      fgStartRGB = interpolateColors(fgStartRGB, parseColor('#3d112d'), clampedGlow * 0.4);
+      bgStartRGB = interpolateColors(bgStartRGB, parseColor('#4c123a'), clampedGlow * 0.5);
+    }
+
+    // 2) 날씨가 안 좋을 때의 카툰 피드백 (완벽한 회조색/진흙 갈색 탈색)
+    // 흐리면 무채색 회색, 미세먼지는 칙칙한 진흙 갈색
+    const badWeatherSeverity = Math.max(overcast, dustIntensity);
+    if (badWeatherSeverity > 0.1) {
+      const grayTone = overcast > dustIntensity 
+        ? { start: parseColor('#303540'), mid: parseColor('#20242b'), end: parseColor('#12151a') } // 흐림: 회색조
+        : { start: parseColor('#4a3c31'), mid: parseColor('#332820'), end: parseColor('#1f1712') }; // 미세먼지: 황갈색조
+
+      seaStartRGB = interpolateColors(seaStartRGB, grayTone.start, badWeatherSeverity * 0.85);
+      seaMidRGB = interpolateColors(seaMidRGB, grayTone.mid, badWeatherSeverity * 0.85);
+      seaEndRGB = interpolateColors(seaEndRGB, grayTone.end, badWeatherSeverity * 0.85);
+
+      fgStartRGB = interpolateColors(fgStartRGB, grayTone.start, badWeatherSeverity * 0.9);
+      fgEndRGB = interpolateColors(fgEndRGB, grayTone.end, badWeatherSeverity * 0.9);
+      bgStartRGB = interpolateColors(bgStartRGB, grayTone.mid, badWeatherSeverity * 0.95);
+      bgEndRGB = interpolateColors(bgEndRGB, grayTone.end, badWeatherSeverity * 0.95);
+    }
+
+    return {
+      bgStart: colorToString(bgStartRGB),
+      bgEnd: colorToString(bgEndRGB),
+      fgStart: colorToString(fgStartRGB),
+      fgEnd: colorToString(fgEndRGB),
+      seaStart: colorToString(seaStartRGB),
+      seaMid: colorToString(seaMidRGB),
+      seaEnd: colorToString(seaEndRGB),
+    };
+  }, [sunAltitude, weatherFactors]);
+
+  // Dedicated sun corona halo opacity to let dawn glow emerge before sun disk crosses horizon
+  const haloOpacity = useMemo(() => {
+    // Dawn/twilight glow begins emerging gently from -12 degrees (astronomical twilight)
+    const t = Math.max(0, Math.min(1, (sunAltitude + 12) / 14)); // 0 at -12 deg, 1.0 at 2 deg
+    const baseHalo = Math.pow(t, 1.8);
+    // Extinguish halo when thick cloud layer obstructs the direct line-of-sight
+    return baseHalo * (1.0 - weatherFactors.cloudBlock * 0.96);
+  }, [sunAltitude, weatherFactors]);
+
+  // Dynamic corona size multiplier based on dust & relative humidity (larger halos in heavy particulate conditions)
+  const dynamicHaloSizeScale = useMemo(() => {
+    const { dustIntensity } = weatherFactors;
+    return 1.0 + dustIntensity * 0.45;
+  }, [weatherFactors]);
+
   // Compute uniforms for react-native-skia atmospheric shader
   const uniforms = useMemo(() => {
     const beta = prediction?.factors?.aerosolBeta ?? 0.08;
@@ -418,21 +580,23 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const observerElevationM = sim?.terrain?.observerElevation ?? 50;
     const latitude = sim?.pathData?.[0]?.latitude ?? 37.5665;
 
-    const sunLight = directBeamRGB(Math.max(sunAltitude, -0.5), observerElevationM, latitude, beta);
+    // Evaluate sunLight at Rayleigh/Mie/Horizon specific effective altitudes
+    // Rayleigh scale height is ~8km -> horizon dip is 2.8°, average scattering altitude is ~12km
+    const sunLightRayleigh = directBeamRGB(Math.max(sunAltitude + 2.8, -2.0), 12000, latitude, beta);
+    // Mie scale height is ~1.2km -> horizon dip is 1.1°, average scattering altitude is ~2.5km
+    const sunLightMie = directBeamRGB(Math.max(sunAltitude + 1.1, -1.5), 2500, latitude, beta);
     const horizonBeam = directBeamRGB(Math.max(sunAltitude, 0), observerElevationM, latitude, beta);
 
     const lerpVal = (a: number, b: number, t: number) => a + (b - a) * t;
+    
+    // Dawn/twilight background glow begins emerging gently from -12 degrees (astronomical twilight)
     let sunBrightness = 1.0;
     if (sunAltitude < 2) {
-      const t = Math.max(0, Math.min(1, (sunAltitude + 6) / 8));
-      sunBrightness = lerpVal(0.02, 1.0, t * t);
-      if (sunAltitude < -6) {
-        const tNight = Math.max(0, Math.min(1, (-sunAltitude - 6) / 10));
-        sunBrightness = lerpVal(0.02, 0.0, tNight);
-      }
+      const tDecay = Math.max(0, Math.min(1, (sunAltitude + 12) / 14));
+      sunBrightness = lerpVal(0.0, 1.0, Math.pow(tDecay, 1.8));
     }
 
-    const dayMultiplier = 1.0 + 1.25 * Math.max(0, Math.min(1, sunAltitude / 40));
+    const dayMultiplier = 1.0 + 1.25 * Math.pow(Math.max(0, Math.min(1, sunAltitude / 40)), 0.3);
 
     const sunX = VISUALIZER_WIDTH / 2;
     const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
@@ -444,7 +608,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     return {
       u_resolution: safeVec2([VISUALIZER_WIDTH, SKY_HEIGHT], [1, 1]),
       u_sunPos: safeVec2([sunX, sunY]),
-      u_sunLight: safeVec3([sunLight.r, sunLight.g, sunLight.b]),
+      u_sunLightRayleigh: safeVec3([sunLightRayleigh.r, sunLightRayleigh.g, sunLightRayleigh.b]),
+      u_sunLightMie: safeVec3([sunLightMie.r, sunLightMie.g, sunLightMie.b]),
       u_horizonBeam: safeVec3([horizonBeam.r, horizonBeam.g, horizonBeam.b]),
       u_sunAlt: safeFloat(sunAltitude, 0),
       u_beta: safeFloat(beta, 0.08),
@@ -622,8 +787,64 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
     return (
       <G>
-        <Polygon points={bgPoints} fill="url(#bgTerrainGrad)" />
-        <Polygon points={fgPoints} fill="url(#fgTerrainGrad)" />
+        {/* Sea Layer Shadow (Collage) */}
+        <Rect
+          x={0}
+          y={horizonLineY + 3.0}
+          width={VISUALIZER_WIDTH}
+          height={SKY_HEIGHT - horizonLineY}
+          fill="rgba(0,0,0,0.16)"
+        />
+        {/* Sea Layer */}
+        <Rect
+          x={0}
+          y={horizonLineY}
+          width={VISUALIZER_WIDTH}
+          height={SKY_HEIGHT - horizonLineY}
+          fill="url(#bgSeaGrad)"
+          stroke={borderStyle.strokeColor}
+          strokeWidth={borderStyle.strokeWidth}
+        />
+        
+        {/* Fine Dust Haze Layer behind terrain but above sea */}
+        {weatherFactors.dustIntensity > 0.08 && (
+          <Rect
+            x={0}
+            y={horizonLineY - 20}
+            width={VISUALIZER_WIDTH}
+            height={40}
+            fill="url(#hazeGrad)"
+            opacity={weatherFactors.dustIntensity * 0.8}
+          />
+        )}
+        
+        {/* Far Mountain Terrain Shadow (Collage) */}
+        <Polygon
+          points={bgPoints}
+          fill="rgba(0,0,0,0.16)"
+          transform="translate(1.0, 3.5)"
+        />
+        {/* Far Mountain Terrain */}
+        <Polygon
+          points={bgPoints}
+          fill="url(#bgTerrainGrad)"
+          stroke={borderStyle.strokeColor}
+          strokeWidth={borderStyle.strokeWidth}
+        />
+        
+        {/* Foreground Mountain Terrain Shadow (Collage) */}
+        <Polygon
+          points={fgPoints}
+          fill="rgba(0,0,0,0.22)"
+          transform="translate(1.5, 4.0)"
+        />
+        {/* Foreground Mountain Terrain */}
+        <Polygon
+          points={fgPoints}
+          fill="url(#fgTerrainGrad)"
+          stroke={borderStyle.strokeColor}
+          strokeWidth={borderStyle.strokeWidth * 1.25}
+        />
       </G>
     );
   };
@@ -793,14 +1014,46 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           pointerEvents="none"
         >
           <Defs>
+            {/* Sea linear gradient reflecting dynamic twilight to daytime transitions */}
+            <LinearGradient id="bgSeaGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor={terrainColors.seaStart} stopOpacity={0.8} />
+              <Stop offset="40%" stopColor={terrainColors.seaMid} stopOpacity="0.95" />
+              <Stop offset="100%" stopColor={terrainColors.seaEnd} stopOpacity="1" />
+            </LinearGradient>
+
+            {/* Concentric sun corona halo gradients (Cartoon Step Gradients) */}
+            <RadialGradient id="sunInnerHalo" cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.9" />
+              <Stop offset="55%" stopColor="#FFD700" stopOpacity="0.8" />
+              <Stop offset="85%" stopColor="#FFD700" stopOpacity="0.6" />
+              <Stop offset="90%" stopColor="#FF8C00" stopOpacity="0.3" />
+              <Stop offset="100%" stopColor="#FF8C00" stopOpacity="0" />
+            </RadialGradient>
+
+            <RadialGradient id="sunMidHalo" cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0%" stopColor="#FFD700" stopOpacity="0.65" />
+              <Stop offset="75%" stopColor="#FFD700" stopOpacity="0.5" />
+              <Stop offset="80%" stopColor="#FF8C00" stopOpacity="0.3" />
+              <Stop offset="95%" stopColor="#FF8C00" stopOpacity="0.15" />
+              <Stop offset="100%" stopColor="#FF8C00" stopOpacity="0" />
+            </RadialGradient>
+
+            <RadialGradient id="sunOuterHalo" cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0%" stopColor="#FF8C00" stopOpacity="0.35" />
+              <Stop offset="80%" stopColor="#FF8C00" stopOpacity="0.2" />
+              <Stop offset="85%" stopColor="#FF4500" stopOpacity="0.1" />
+              <Stop offset="100%" stopColor="#FF4500" stopOpacity="0" />
+            </RadialGradient>
+
             <LinearGradient id="bgTerrainGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#2c2c4e" stopOpacity="1" />
-              <Stop offset="1" stopColor="#1a1a2e" stopOpacity="1" />
+              <Stop offset="0" stopColor={terrainColors.bgStart} stopOpacity={1} />
+              <Stop offset="1" stopColor={terrainColors.bgEnd} stopOpacity={1} />
             </LinearGradient>
 
             <LinearGradient id="fgTerrainGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#1a1a2e" stopOpacity="1" />
-              <Stop offset="1" stopColor="#050510" stopOpacity="1" />
+              <Stop offset="0" stopColor={terrainColors.fgStart} stopOpacity={1} />
+              <Stop offset="1" stopColor={terrainColors.fgEnd} stopOpacity={1} />
             </LinearGradient>
 
             <LinearGradient id="lightPillarGrad" x1="0" y1="0" x2="1" y2="0">
@@ -825,6 +1078,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                 <Stop offset="100%" stopColor={cloud.finalLitColor} stopOpacity={1} />
               </LinearGradient>
             ))}
+            {/* Fine dust haze linear gradient for horizons */}
+            <LinearGradient id="hazeGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#a37648" stopOpacity={0} />
+              <Stop offset="45%" stopColor="#c59768" stopOpacity={0.65} />
+              <Stop offset="75%" stopColor="#9a6e42" stopOpacity={0.8} />
+              <Stop offset="100%" stopColor="#9a6e42" stopOpacity={0} />
+            </LinearGradient>
           </Defs>
           
           {/* 1. Solar Light Pillar */}
@@ -894,21 +1154,78 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
           {/* 2. Sun Glow & Disk (Rendered behind clouds and terrain) */}
           {(() => {
-            const sunX = (VISUALIZER_WIDTH / 2).toFixed(2);
-            const sunY = (SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y)).toFixed(2);
-            const haloScale = prediction?.factors?.dynamicHaloScale ?? 1.0;
-            const haloSize = sunSize * (15 + Math.max(0, (8 - sunAltitude) * 2.5)) * haloScale; 
+            const sunX = Number((VISUALIZER_WIDTH / 2).toFixed(2));
+            const sunY = Number((SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y)).toFixed(2));
+            const glowVisibility = prediction?.factors?.pathClarity ?? 1.0;
             const sunColor = prediction?.sunDiskColor ?? '#FFD700';
+
+            // Extract pure color RGB values from rgba string to avoid transparent border
+            const parsedSun = parseColor(sunColor);
+            const pureSunDiskColor = `rgb(${parsedSun.r}, ${parsedSun.g}, ${parsedSun.b})`;
+            const sunOpacity = parsedSun.a;
 
             return (
               <>
-                {/* Sun Disk (Rendered on top of the halo but behind terrain) */}
-                <Circle
-                  cx={sunX}
-                  cy={sunY}
-                  r={sunSize / 2}
-                  fill={sunColor}
-                />
+                {/* Corona Halo Layers - Separated from disk opacity to allow astronomical dawn glow */}
+                <G opacity={haloOpacity}>
+                  {/* Giant Outer Corona Halo */}
+                  <Circle
+                    cx={sunX}
+                    cy={sunY}
+                    r={sunSize * 3.8 * dynamicHaloSizeScale}
+                    fill="url(#sunOuterHalo)"
+                    opacity={glowVisibility * 0.4}
+                  />
+                  
+                  {/* Medium Corona Halo */}
+                  <Circle
+                    cx={sunX}
+                    cy={sunY}
+                    r={sunSize * 2.2 * dynamicHaloSizeScale}
+                    fill="url(#sunMidHalo)"
+                    opacity={glowVisibility * 0.65}
+                  />
+                  
+                  {/* Horizontal Lens Flare Ellipse */}
+                  <Ellipse
+                    cx={sunX}
+                    cy={sunY}
+                    rx={sunSize * 4.8 * dynamicHaloSizeScale}
+                    ry={sunSize * 0.16 * dynamicHaloSizeScale}
+                    fill="url(#sunInnerHalo)"
+                    opacity={glowVisibility * 0.45}
+                    transform={`rotate(-12, ${sunX}, ${sunY})`}
+                  />
+
+                  {/* Strong Inner Glow Corona */}
+                  <Circle
+                    cx={sunX}
+                    cy={sunY}
+                    r={sunSize * 1.15 * dynamicHaloSizeScale}
+                    fill="url(#sunInnerHalo)"
+                    opacity={glowVisibility * 0.9}
+                  />
+                </G>
+
+                {/* Sun Disk - Renders only when sun crosses above horizon (using sunOpacity) */}
+                <G opacity={sunOpacity}>
+                  {/* Paper Sun Disk Shadow */}
+                  <Circle
+                    cx={sunX + 1.5}
+                    cy={sunY + 3.5}
+                    r={sunSize / 2}
+                    fill="rgba(0, 0, 0, 0.22)"
+                  />
+                  {/* Main Paper Sun Disk */}
+                  <Circle
+                    cx={sunX}
+                    cy={sunY}
+                    r={sunSize / 2}
+                    fill={pureSunDiskColor}
+                    stroke={borderStyle.strokeColor}
+                    strokeWidth={borderStyle.strokeWidth * 1.5}
+                  />
+                </G>
               </>
             );
           })()}
@@ -931,16 +1248,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             if (!cloud) return null;
             return (
               <G key={cloud.id} opacity={cloud.cloudOpacity}>
-                {/* Volumetric shadow path offset opposite to the sun */}
+                {/* Paper Cloud Shadow */}
                 <Path
                   d={cloud.pathStr}
-                  fill="rgba(0,0,0,0.22)"
-                  transform={`translate(${cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2 + cloud.shadowDx}, ${cloud.y + cloud.shadowDy}) scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`}
+                  fill="rgba(0,0,0,0.16)"
+                  transform={`translate(${cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2 + 1.5}, ${cloud.y + 3.5}) scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`}
                 />
-                {/* Main lit cloud path */}
+                {/* Main lit cloud path with Paper border */}
                 <Path
                   d={cloud.pathStr}
                   fill={`url(#${cloud.gradId})`}
+                  stroke={borderStyle.strokeColor}
+                  strokeWidth={borderStyle.strokeWidth * 0.8}
                   transform={`translate(${cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2}, ${cloud.y}) scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`}
                 />
               </G>
@@ -969,15 +1288,26 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             // Vertical position from apparent elevation
             const cy = horizonTop - (shape.apparentElevation * DEGREE_TO_PIXEL);
 
+            // Resolve papercraft template based on distance categories
+            let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
+            if (shape.centerDist <= 80) cloudCategory = 'near';
+            else if (shape.centerDist > 200) cloudCategory = 'far';
+
+            const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
+            const templates = CLOUD_TEMPLATES[cloudCategory];
+            const templateIndex = seed % templates.length;
+            const cloudPath = templates[templateIndex];
+
+            // Set dimensions optimal for template aspect ratios
+            const baseW = cloudCategory === 'far' ? 150 : cloudCategory === 'mid' ? 140 : 200;
+            const baseH = cloudCategory === 'far' ? 25 : cloudCategory === 'mid' ? 25 : 45;
+
             // Scale based on distance (perspective)
             const perspectiveScale = 45 / Math.max(10, shape.centerDist);
             const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
             const scaleZoom = 20 / visualFov;
             const finalScale = clampedScale * scaleZoom;
 
-            // Cloud size based on density and type
-            const baseW = shape.type === 'high' ? 180 : shape.type === 'mid' ? 200 : 220;
-            const baseH = shape.type === 'high' ? 10 : shape.type === 'mid' ? 18 : 28;
             const renderW = baseW * finalScale;
             const renderH = baseH * finalScale * 0.6;
 
@@ -997,21 +1327,47 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const angularDist = Math.sqrt(azDiff * azDiff + altDiff * altDiff);
             const sunCloseness = Math.max(0, 1 - angularDist / 30);
 
-            const baseColor = shape.type === 'high'
-              ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.5)')
-              : shape.type === 'mid'
-              ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.45)')
-              : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.4)');
+            // 카툰 물듦 법칙 반영
+            const alt = sunAltitude;
+            const { overcast, dustIntensity } = weatherFactors;
+            const isGoldenHour = alt >= -8 && alt <= 10;
+            const sunsetQuality = Math.max(0, 1.0 - (overcast * 1.3 + dustIntensity * 0.9));
 
-            const baseRGB = parseColor(baseColor);
-            const sunGlow = parseColor(prediction?.sunDiskColor ?? '#FFD700');
-            const fireRGB = interpolateColors(sunGlow, { r: 255, g: 110, b: 0, a: 1 }, 0.35);
-            const litRGB = interpolateColors(baseRGB, fireRGB, sunCloseness * 0.9);
+            let baseRGB = parseColor(
+              shape.type === 'high'
+                ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.5)')
+                : shape.type === 'mid'
+                ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.45)')
+                : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.4)')
+            );
+
+            // 날씨 보간
+            if (overcast > 0.5) {
+              baseRGB = interpolateColors(baseRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
+            }
+            if (dustIntensity > 0.5) {
+              baseRGB = interpolateColors(baseRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
+            }
+
+            let litRGB: RGB;
+            let shadowRGB: RGB;
+
+            if (isGoldenHour && sunsetQuality > 0.15 && sunCloseness > 0.1) {
+              const burnFactor = sunCloseness * sunsetQuality;
+              const sunsetGlowRGB = interpolateColors(
+                { r: 255, g: 80, b: 0, a: 1 },
+                { r: 255, g: 215, b: 0, a: 1 },
+                Math.min(1, burnFactor * 1.5)
+              );
+              litRGB = interpolateColors(baseRGB, sunsetGlowRGB, Math.min(1, burnFactor * 1.3));
+              shadowRGB = interpolateColors(baseRGB, { r: 130, g: 40, b: 90, a: 1 }, Math.min(0.85, burnFactor * 0.95));
+            } else {
+              litRGB = baseRGB;
+              shadowRGB = interpolateColors(baseRGB, { r: 40, g: 50, b: 70, a: 1 }, 0.35);
+            }
+
             const fillColor = colorToString(litRGB);
 
-            // Generate a cloud-like path for this grid shape
-            const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
-            const cloudPath = generatePolygonalCloudPath(baseW, baseH, seed, shape.type);
             const gradId = `gridGrad-${shape.id}`;
 
             // Sun direction for gradient
@@ -1026,8 +1382,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const x2 = `${(0.5 + cosA * 0.5) * 100}%`;
             const y2 = `${(0.5 + sinA * 0.5) * 100}%`;
 
-            const shadowRGB = interpolateColors(baseRGB, sunGlow, sunCloseness * 0.2);
-
             return (
               <G key={shape.id} opacity={opacity}>
                 <Defs>
@@ -1036,9 +1390,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                     <Stop offset="100%" stopColor={fillColor} stopOpacity={1} />
                   </LinearGradient>
                 </Defs>
+                {/* Paper Grid Cloud Shadow */}
+                <Path
+                  d={cloudPath}
+                  fill="rgba(0,0,0,0.16)"
+                  transform={`translate(${cx - (baseW * finalScale) / 2 + 1.5}, ${cy + 3.5}) scale(${finalScale}, ${finalScale * 0.6})`}
+                />
+                {/* Main Cloud Path */}
                 <Path
                   d={cloudPath}
                   fill={`url(#${gradId})`}
+                  stroke={borderStyle.strokeColor}
+                  strokeWidth={borderStyle.strokeWidth * 0.8}
                   transform={`translate(${cx - (baseW * finalScale) / 2}, ${cy}) scale(${finalScale}, ${finalScale * 0.6})`}
                 />
               </G>

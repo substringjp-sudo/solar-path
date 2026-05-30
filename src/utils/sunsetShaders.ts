@@ -9,7 +9,8 @@ import { Skia } from '@shopify/react-native-skia';
 const skyShaderSource = `
   uniform float2 u_resolution;
   uniform float2 u_sunPos;
-  uniform float3 u_sunLight;
+  uniform float3 u_sunLightRayleigh;
+  uniform float3 u_sunLightMie;
   uniform float3 u_horizonBeam;
   uniform float u_sunAlt;
   uniform float u_beta;
@@ -127,25 +128,27 @@ const skyShaderSource = `
 
     // 5. Rayleigh scattering channel intensities
     // Extinguish background scattering mildly under clouds
-    float rayleighStrength = exp(-0.055 * m) * rayleighPhase * (1.0 - cloudDensity * 0.4);
+    float transmit = exp(-(0.055 + u_beta) * m);
+    float rayleighStrength = transmit * rayleighPhase * (1.0 - cloudDensity * 0.4);
     float3 rayleigh = float3(
-      u_sunLight.r * 0.065 * rayleighStrength,
-      u_sunLight.g * 0.165 * rayleighStrength,
-      u_sunLight.b * 0.38 * rayleighStrength
+      u_sunLightRayleigh.r * 0.18 * rayleighStrength,
+      u_sunLightRayleigh.g * 0.42 * rayleighStrength,
+      u_sunLightRayleigh.b * 0.85 * rayleighStrength
     );
 
     // 6. Mie scattering channel intensities
     // Strongly extinguish Mie scattering halo (Sun Glow) behind clouds
-    float mieStrength = 0.14 * (m - 1.0) * u_beta * miePhase * (1.0 - cloudDensity * 0.95);
+    float mieStrength = 0.14 * m * u_beta * miePhase * transmit * (1.0 - cloudDensity * 0.95);
     float3 mie = float3(
-      u_sunLight.r * mieStrength,
-      u_sunLight.g * mieStrength,
-      u_sunLight.b * mieStrength
+      u_sunLightMie.r * mieStrength,
+      u_sunLightMie.g * mieStrength,
+      u_sunLightMie.b * mieStrength
     );
 
     // 7. Horizon Extinction (scattering light fading near the horizon)
     float horizonWeight = exp(-0.35 * max(0.0, theta_deg));
-    float horizonStrength = horizonWeight * u_pathClarity * 2.2 * (1.0 - cloudDensity * 0.6);
+    float sunLowFactor = clamp((15.0 - u_sunAlt) / 15.0, 0.0, 1.0);
+    float horizonStrength = horizonWeight * u_pathClarity * 2.2 * (1.0 - cloudDensity * 0.6) * sunLowFactor;
     
     float altWeight = clamp((u_sunAlt - 0.0) / 10.0, 0.0, 1.0);
     float gFilter = mix(0.42, 0.9, altWeight);
@@ -159,15 +162,21 @@ const skyShaderSource = `
 
     // 8. Ground / Night / Below Horizon fading
     // Apply exposure multiplier (12.0) to convert small physical scattering quantities to rich visual tones
-    float3 skyRGB = (rayleigh + mie + horizon) * 12.0;
+    // Multiply Rayleigh by 2.2 for vibrant daylight blue sky dome
+    float3 skyRGB = (rayleigh * 2.2 + mie + horizon) * 12.0;
     
     // Ternary fade-out below horizon with limit guard to prevent GPU underflow NaN
     float belowHorizonFade = (theta_deg < 0.0) ? exp(max(-20.0, theta_deg * 0.8)) : 1.0;
     skyRGB = skyRGB * belowHorizonFade;
 
     // 9. Absolute base color + Sun Brightness & Overcast mixing
-    float3 finalRGB = (skyRGB + float3(0.008, 0.008, 0.010)) * u_sunBrightness * u_dayMultiplier 
+    float3 finalRGB = (skyRGB + float3(0.015, 0.055, 0.115)) * u_sunBrightness * u_dayMultiplier 
                      + AMBIENT_NIGHT * (1.0 - u_sunBrightness);
+
+    // Apply fine dust graying/whitening to the blue sky dome in high aerosol conditions
+    float dustLevel = clamp((u_beta - 0.04) / 0.46, 0.0, 1.0);
+    float3 dustySkyColor = float3(0.48, 0.45, 0.40);
+    finalRGB = mix(finalRGB, dustySkyColor, dustLevel * 0.45 * u_sunBrightness);
 
     // Apply cloud overcast darkening (merging global overcast with localized cloud density)
     float localOvercast = max(u_overheadOvercast, cloudDensity);

@@ -387,44 +387,67 @@ export const calculateRefractedSkyColor = (
 
   const getChannelColor = (th: number, channel: 'r' | 'g' | 'b'): number => {
     const m = airMass(th);
-    const sunLight = directBeamRGB(Math.max(sunAlt, -0.5), observerElevationM, latitude, beta);
+    
+    // Evaluate sunLight at Rayleigh/Mie/Horizon specific effective altitudes
+    // Rayleigh scale height is ~8km -> horizon dip is 2.8°, average scattering altitude is ~12km
+    const sunLightRayleigh = directBeamRGB(Math.max(sunAlt + 2.8, -2.0), 12000, latitude, beta);
+    // Mie scale height is ~1.2km -> horizon dip is 1.1°, average scattering altitude is ~2.5km
+    const sunLightMie = directBeamRGB(Math.max(sunAlt + 1.1, -1.5), 2500, latitude, beta);
+    // Horizon is observer level
+    const sunLightHorizon = directBeamRGB(Math.max(sunAlt, -0.5), observerElevationM, latitude, beta);
 
     // Rayleigh Scattering (dominant at high elevations, scatters blue most)
     // Multiplied by sunLight color to reflect dynamic sunset reddening and Rayleigh phase
-    const rayleighStrength = Math.exp(-0.055 * m) * rayleighPhase;
+    // Unified transmittance (Rayleigh + Mie extinction along the path to the observer)
+    const transmit = Math.exp(-(0.055 + beta) * m);
+    const rayleighStrength = transmit * rayleighPhase;
     let rayleigh = 0;
-    if (channel === 'r') rayleigh = sunLight.r * 0.065 * rayleighStrength;
-    if (channel === 'g') rayleigh = sunLight.g * 0.165 * rayleighStrength;
-    if (channel === 'b') rayleigh = sunLight.b * 0.38 * rayleighStrength;
+    if (channel === 'r') rayleigh = sunLightRayleigh.r * 0.18 * rayleighStrength;
+    if (channel === 'g') rayleigh = sunLightRayleigh.g * 0.42 * rayleighStrength;
+    if (channel === 'b') rayleigh = sunLightRayleigh.b * 0.85 * rayleighStrength;
 
     // Mie Scattering (forward scattering by aerosols, white/gray glare)
     // Strongly dependent on the phase angle (gamma) and aerosol beta coefficient
-    const mieStrength = 0.14 * (m - 1) * beta * miePhase;
+    // Evaluated with unified transmittance and path airmass m
+    const mieStrength = 0.14 * m * beta * miePhase * transmit;
     let mie = 0;
-    if (channel === 'r') mie = sunLight.r * mieStrength;
-    if (channel === 'g') mie = sunLight.g * mieStrength;
-    if (channel === 'b') mie = sunLight.b * mieStrength;
+    if (channel === 'r') mie = sunLightMie.r * mieStrength;
+    if (channel === 'g') mie = sunLightMie.g * mieStrength;
+    if (channel === 'b') mie = sunLightMie.b * mieStrength;
 
     // Horizon Extinction & Reddened Scatter (near the horizon, blue/green are blocked)
     const horizonWeight = Math.exp(-0.35 * th);
-    const horizonStrength = horizonWeight * pathClarity * 2.2;
+    const sunLowFactor = clamp01((15.0 - sunAlt) / 15.0);
+    const horizonStrength = horizonWeight * pathClarity * 2.2 * sunLowFactor;
     let horizon = 0;
-    if (channel === 'r') horizon = sunLight.r * horizonStrength;
-    if (channel === 'g') horizon = sunLight.g * horizonStrength * 0.42;
-    if (channel === 'b') horizon = sunLight.b * horizonStrength * 0.05;
+    if (channel === 'r') horizon = sunLightHorizon.r * horizonStrength;
+    if (channel === 'g') horizon = sunLightHorizon.g * horizonStrength * 0.42;
+    if (channel === 'b') horizon = sunLightHorizon.b * horizonStrength * 0.05;
 
-    return rayleigh + mie + horizon;
+    // Apply exposure multiplier (12.0) and Rayleigh weight (2.2) to match AGSL shader
+    return (rayleigh * 2.2 + mie + horizon) * 12.0;
   };
 
   const ambientNight = { r: 0.003, g: 0.003, b: 0.010 };
   
   // Sky brightness multiplier based on sun altitude to prevent dark skies in the afternoon
-  const dayMultiplier = 1.0 + 1.25 * clamp01(sunAlt / 40);
+  const dayMultiplier = 1.0 + 1.25 * Math.pow(clamp01(sunAlt / 40), 0.3);
+
+  let finalR = (getChannelColor(thetaR, 'r') + 0.015) * sunBrightness * dayMultiplier + ambientNight.r * (1 - sunBrightness);
+  let finalG = (getChannelColor(thetaG, 'g') + 0.055) * sunBrightness * dayMultiplier + ambientNight.g * (1 - sunBrightness);
+  let finalB = (getChannelColor(thetaB, 'b') + 0.115) * sunBrightness * dayMultiplier + ambientNight.b * (1 - sunBrightness);
+
+  // Apply fine dust graying/whitening to the blue sky dome in high aerosol conditions
+  const dustLevel = clamp01((beta - 0.04) / 0.46);
+  const dustySkyColor = { r: 0.48, g: 0.45, b: 0.40 };
+  finalR = lerp(finalR, dustySkyColor.r, dustLevel * 0.45 * sunBrightness);
+  finalG = lerp(finalG, dustySkyColor.g, dustLevel * 0.45 * sunBrightness);
+  finalB = lerp(finalB, dustySkyColor.b, dustLevel * 0.45 * sunBrightness);
 
   return {
-    r: (getChannelColor(thetaR, 'r') + 0.008) * sunBrightness * dayMultiplier + ambientNight.r * (1 - sunBrightness),
-    g: (getChannelColor(thetaG, 'g') + 0.008) * sunBrightness * dayMultiplier + ambientNight.g * (1 - sunBrightness),
-    b: (getChannelColor(thetaB, 'b') + 0.010) * sunBrightness * dayMultiplier + ambientNight.b * (1 - sunBrightness),
+    r: finalR,
+    g: finalG,
+    b: finalB
   };
 };
 
