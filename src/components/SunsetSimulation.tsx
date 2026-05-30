@@ -344,6 +344,32 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return getInterpolatedWeather(sim.pathData, currentTime);
   }, [sim?.pathData, currentTime]);
 
+  const gridPanelData = useMemo(() => {
+    if (!cloudGridData) return null;
+    
+    // Choose 4 representative distance rings matching the spacing of the original panel
+    const targetRings = [10, 80, 170, 380];
+    
+    return targetRings.map(dist => {
+      const pointsAtDist = cloudGridData.points.filter(p => p.distance === dist);
+      if (pointsAtDist.length === 0) {
+        return { distance: dist, low: 0, mid: 0, high: 0 };
+      }
+      
+      const lowSum = pointsAtDist.reduce((sum, p) => sum + p.low, 0);
+      const midSum = pointsAtDist.reduce((sum, p) => sum + p.mid, 0);
+      const highSum = pointsAtDist.reduce((sum, p) => sum + p.high, 0);
+      const count = pointsAtDist.length;
+      
+      return {
+        distance: dist,
+        low: Math.round(lowSum / count),
+        mid: Math.round(midSum / count),
+        high: Math.round(highSum / count),
+      };
+    });
+  }, [cloudGridData]);
+
   const isSunVisible = useMemo(() => {
     if (!sim?.terrain) return sunAltitude > 0;
     const angles = sim.terrain.panoramicAngles;
@@ -486,19 +512,34 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
               <View style={styles.unifiedRightSection}>
                 <View style={styles.unifiedCloudGrid}>
-                  {sim?.pathData?.slice(0, 4).map((c, i) => {
-                    const interpolated = interpolatedWeather[i];
-                    return (
+                  {gridPanelData ? (
+                    gridPanelData.map((item, i) => (
                       <View key={i} style={styles.unifiedGridItem}>
-                        <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
+                        <Text style={[styles.gridDist, { color: theme.subText }]}>
+                          {item.distance === 10 ? 'Loc' : `${item.distance}k`}
+                        </Text>
                         <View style={styles.miniBars}>
-                          <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.high ?? 0)}%`, backgroundColor: '#FF69B4' }]} />
-                          <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.mid ?? 0)}%`, backgroundColor: '#9370DB' }]} />
-                          <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.low ?? 0)}%`, backgroundColor: '#4682B4' }]} />
+                          <View style={[styles.miniBar, { height: `${Math.max(5, item.high)}%`, backgroundColor: '#FF69B4' }]} />
+                          <View style={[styles.miniBar, { height: `${Math.max(5, item.mid)}%`, backgroundColor: '#9370DB' }]} />
+                          <View style={[styles.miniBar, { height: `${Math.max(5, item.low)}%`, backgroundColor: '#4682B4' }]} />
                         </View>
                       </View>
-                    );
-                  })}
+                    ))
+                  ) : (
+                    sim?.pathData?.slice(0, 4).map((c, i) => {
+                      const interpolated = interpolatedWeather[i];
+                      return (
+                        <View key={i} style={styles.unifiedGridItem}>
+                          <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
+                          <View style={styles.miniBars}>
+                            <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.high ?? 0)}%`, backgroundColor: '#FF69B4' }]} />
+                            <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.mid ?? 0)}%`, backgroundColor: '#9370DB' }]} />
+                            <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.low ?? 0)}%`, backgroundColor: '#4682B4' }]} />
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
                 </View>
               </View>
             </View>
