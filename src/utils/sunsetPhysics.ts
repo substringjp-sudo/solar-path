@@ -345,6 +345,7 @@ const NEUTRAL_CLOUD: RGB = { r: 0.55, g: 0.55, b: 0.58 };
  */
 export const calculateRefractedSkyColor = (
   theta: number,
+  gamma: number,
   sunAlt: number,
   beta: number,
   pathClarity: number,
@@ -372,26 +373,39 @@ export const calculateRefractedSkyColor = (
   const thetaG = Math.max(0.01, theta);
   const thetaB = Math.max(0.01, theta + refractBase * 0.12);
 
+  // Phase functions based on the scattering phase angle (gamma)
+  const cosGamma = Math.cos((gamma * Math.PI) / 180);
+  
+  // 1. Rayleigh Phase Function: 3 / (16 * PI) * (1 + cos^2(gamma))
+  const rayleighPhase = 0.05968 * (1.0 + cosGamma * cosGamma);
+
+  // 2. Mie Phase Function (Henyey-Greenstein model for aerosol forward scattering)
+  // g represents the aerosol asymmetry factor. 0.78 is a standard value for rural/continental aerosols
+  const g = 0.78;
+  const g2 = g * g;
+  const miePhase = 0.07957 * (1.0 - g2) / Math.pow(1.0 + g2 - 2.0 * g * cosGamma, 1.5);
+
   const getChannelColor = (th: number, channel: 'r' | 'g' | 'b'): number => {
     const m = airMass(th);
     const sunLight = directBeamRGB(Math.max(sunAlt, -0.5), observerElevationM, latitude, beta);
 
-    // 1. Rayleigh Scattering (dominant at high elevations, scatters blue most)
-    const rayleighStrength = Math.exp(-0.055 * m);
+    // Rayleigh Scattering (dominant at high elevations, scatters blue most)
+    // Multiplied by sunLight color to reflect dynamic sunset reddening and Rayleigh phase
+    const rayleighStrength = Math.exp(-0.055 * m) * rayleighPhase;
     let rayleigh = 0;
-    if (channel === 'r') rayleigh = 0.075 * rayleighStrength;
-    if (channel === 'g') rayleigh = 0.185 * rayleighStrength;
-    if (channel === 'b') rayleigh = 0.42 * rayleighStrength;
+    if (channel === 'r') rayleigh = sunLight.r * 0.065 * rayleighStrength;
+    if (channel === 'g') rayleigh = sunLight.g * 0.165 * rayleighStrength;
+    if (channel === 'b') rayleigh = sunLight.b * 0.38 * rayleighStrength;
 
-    // 2. Mie Scattering (forward scattering by aerosols, white/gray light)
-    // Increases at lower elevations where aerosol layer thickness is large
-    const mieStrength = 0.18 * (m - 1) * beta;
+    // Mie Scattering (forward scattering by aerosols, white/gray glare)
+    // Strongly dependent on the phase angle (gamma) and aerosol beta coefficient
+    const mieStrength = 0.14 * (m - 1) * beta * miePhase;
     let mie = 0;
     if (channel === 'r') mie = sunLight.r * mieStrength;
     if (channel === 'g') mie = sunLight.g * mieStrength;
     if (channel === 'b') mie = sunLight.b * mieStrength;
 
-    // 3. Horizon Extinction & Reddened Scatter (near the horizon, blue/green are blocked)
+    // Horizon Extinction & Reddened Scatter (near the horizon, blue/green are blocked)
     const horizonWeight = Math.exp(-0.35 * th);
     const horizonStrength = horizonWeight * pathClarity * 2.2;
     let horizon = 0;
@@ -403,10 +417,14 @@ export const calculateRefractedSkyColor = (
   };
 
   const ambientNight = { r: 0.003, g: 0.003, b: 0.010 };
+  
+  // Sky brightness multiplier based on sun altitude to prevent dark skies in the afternoon
+  const dayMultiplier = 1.0 + 1.25 * clamp01(sunAlt / 40);
+
   return {
-    r: (getChannelColor(thetaR, 'r') + 0.008) * sunBrightness + ambientNight.r * (1 - sunBrightness),
-    g: (getChannelColor(thetaG, 'g') + 0.008) * sunBrightness + ambientNight.g * (1 - sunBrightness),
-    b: (getChannelColor(thetaB, 'b') + 0.010) * sunBrightness + ambientNight.b * (1 - sunBrightness),
+    r: (getChannelColor(thetaR, 'r') + 0.008) * sunBrightness * dayMultiplier + ambientNight.r * (1 - sunBrightness),
+    g: (getChannelColor(thetaG, 'g') + 0.008) * sunBrightness * dayMultiplier + ambientNight.g * (1 - sunBrightness),
+    b: (getChannelColor(thetaB, 'b') + 0.010) * sunBrightness * dayMultiplier + ambientNight.b * (1 - sunBrightness),
   };
 };
 
@@ -573,13 +591,13 @@ export const predictSunset = (
     return mixRgb(c, OVERCAST, overcastWeight);
   };
 
-  const horizonRGB = calculateRefractedSkyColor(0.05, sunAltDeg, beta, pathClarity, elevVal, latVal);
+  const horizonRGB = calculateRefractedSkyColor(0.05, 90, sunAltDeg, beta, pathClarity, elevVal, latVal);
 
   const skyGradient: SkyStop[] = [0, 0.25, 0.5, 0.7, 0.85, 1.0].map(y => {
     // Map y offset to an elevation angle theta in degrees
-    // We use a quadratic mapping to cluster more gradient stops near the horizon
-    const theta = 0.05 + 35 * Math.pow(1.0 - y, 2.0);
-    const physicalColor = calculateRefractedSkyColor(theta, sunAltDeg, beta, pathClarity, elevVal, latVal);
+    // We use a quadratic mapping to cluster more gradient stops near the horizon, extending to 85 deg at the zenith
+    const theta = 0.05 + 85 * Math.pow(1.0 - y, 2.0);
+    const physicalColor = calculateRefractedSkyColor(theta, 90, sunAltDeg, beta, pathClarity, elevVal, latVal);
     return {
       offset: y,
       color: rgbToCss(muted(physicalColor)),
@@ -601,45 +619,31 @@ export const predictSunset = (
 
   // --- Sun Glow (Mie Scattering Halo) ------------------------------------
   const sunGlowStops: SkyStop[] = [];
-  const g = 0.88; 
   const glowSamples = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.7, 0.85, 1.0];
   
-  // Outer halo opacity scales down to near 0 under heavy clouds
-  const glowVisibility = pathClarity * clamp01(1 - Math.abs(effectiveSunAlt + 1) / 20) * (1.0 - fogIntensity * 0.6) * (1.0 - cloudBlockIntensity * 0.98);
+  // Outer halo opacity scales down to near 0 under heavy clouds, fades when sun is deep below horizon
+  const glowVisibility = pathClarity * clamp01((sunAltDeg + 6) / 12) * (1.0 - fogIntensity * 0.5) * (1.0 - cloudBlockIntensity * 0.95);
+  
+  const gValForPhase = 0.78;
+  const maxPhase = (1.0 + gValForPhase) / ((1.0 - gValForPhase) * (1.0 - gValForPhase)); // phase at gamma = 0
   
   for (const offset of glowSamples) {
-    const theta = (offset * 30 * Math.PI) / 180;
-    const phase = henyeyGreenstein(Math.cos(theta), g);
+    const gamma = offset * 50; // 0 to 50 degrees spatial sweep from the sun
+    const theta = Math.max(0.05, sunAltDeg); // Approximate local elevation near the sun
     
-    const coreBoost = isSunsetMode ? 1.35 : 1.15;
-    const vibrancy = isSunsetMode ? 1.15 : 1.0;
+    // Calculate the physical scattering color at this angular distance from the sun
+    const physicalColor = calculateRefractedSkyColor(theta, gamma, sunAltDeg, beta, pathClarity, elevVal, latVal);
     
-    const glowRedFactor = 1.1 + clamp01(beta * 1.8) * 0.9 + dustIntensity * 0.7;   
-    const glowGreenFactor = (1.0 + clamp01(beta * 1.1) * 0.5) * Math.exp(-dustIntensity * 1.8);
-
-    const baseGlowR = currentBeam.r * coreBoost * glowRedFactor * vibrancy * 1.2 + 0.16;
-    const baseGlowG = currentBeam.g * coreBoost * glowGreenFactor * 1.05 + 0.12;
-    const baseGlowB = currentBeam.b * coreBoost * 1.08 * 0.95 + 0.08;
-
-    const glowR = lerp(horizonRGB.r * 0.8, baseGlowR, pathClarity);
-    const glowG = lerp(horizonRGB.g * 0.65, baseGlowG, pathClarity);
-    const glowB = lerp(horizonRGB.b * 0.65, baseGlowB, pathClarity);
-
-    const finalGlowR = lerp(glowR, horizonRGB.r * 1.1, fogIntensity * 0.5);
-    const finalGlowG = lerp(glowG, horizonRGB.g * 1.1, fogIntensity * 0.5);
-    const finalGlowB = lerp(glowB, horizonRGB.b * 1.1, fogIntensity * 0.5);
-
-    const rVal = clamp01(finalGlowR);
-    const gVal = clamp01(finalGlowG);
-    const bVal = clamp01(finalGlowB);
-
-    let intensity = (phase / 28) * glowVisibility;
-    intensity *= Math.pow(1.0 - offset, 3.5); 
-
-    const alpha = clamp01(intensity * 1.05);
+    // Alpha transparency based on Mie phase density (strong forward scattering glare near core)
+    const cosGamma = Math.cos((gamma * Math.PI) / 180);
+    const phase = (1.0 - gValForPhase * gValForPhase) / Math.pow(1.0 + gValForPhase * gValForPhase - 2.0 * gValForPhase * cosGamma, 1.5);
+    const phaseNorm = phase / maxPhase;
+    
+    const alpha = clamp01(phaseNorm * 0.95 * glowVisibility);
+    
     sunGlowStops.push({
       offset,
-      color: rgbToCssAlpha({ r: rVal, g: gVal, b: bVal }, alpha),
+      color: rgbToCssAlpha(physicalColor, alpha),
     });
   }
 

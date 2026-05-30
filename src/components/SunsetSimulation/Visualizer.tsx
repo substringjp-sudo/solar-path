@@ -823,34 +823,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
             return (
               <>
-                {/* Mie Scattering Halo (3-Stage Volumetric Aura for Elite Realism) */}
+                {/* Mie Scattering Halo (Single-Pass Physically-Driven Scattering Halo) */}
                 {prediction?.sunGlowStops && (
-                  <>
-                    {/* Stage 3: Wide Atmospheric Ambient Glow (Ultra-soft blend) */}
-                    <Circle 
-                      cx={sunX} 
-                      cy={sunY} 
-                      r={haloSize * 1.30} 
-                      fill="url(#sunGlow)"
-                      opacity={0.09}
-                    />
-                    {/* Stage 2: Mid-range Dynamic Scattering Halo (Medium smooth) */}
-                    <Circle 
-                      cx={sunX} 
-                      cy={sunY} 
-                      r={haloSize * 0.52} 
-                      fill="url(#sunGlow)"
-                      opacity={0.24}
-                    />
-                    {/* Stage 1: Ultra-intense Core Mie Scattering Corona (Tight glare) */}
-                    <Circle 
-                      cx={sunX} 
-                      cy={sunY} 
-                      r={haloSize * 0.18} 
-                      fill="url(#sunGlow)"
-                      opacity={0.65}
-                    />
-                  </>
+                  <Circle 
+                    cx={sunX} 
+                    cy={sunY} 
+                    r={haloSize * 1.5} 
+                    fill="url(#sunGlow)"
+                    opacity={0.9}
+                  />
                 )}
                 
                 {/* Sun Disk (Rendered on top of the halo but behind terrain) */}

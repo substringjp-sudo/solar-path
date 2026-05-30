@@ -18,7 +18,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "BeforeGlow requires location access to calculate accurate sunrise/sunset times and display isochrone maps for your current spot.",
         "NSCameraUsageDescription": "BeforeGlow requires camera access to take beautiful photos of the sunset and share them with the community.",
-        "NSPhotoLibraryUsageDescription": "BeforeGlow requires photo library access to select and upload your saved sunset photos."
+        "NSPhotoLibraryUsageDescription": "BeforeGlow requires photo library access to select and upload your saved sunset photos.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
