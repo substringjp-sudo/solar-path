@@ -2,10 +2,12 @@ import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
-import { SunsetPrediction, getApparentAltitude, getHorizonDip } from '../../utils/sunsetPhysics';
+import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
+import { Canvas, Rect as SkiaRect, Shader } from '@shopify/react-native-skia';
+import { skyShaderEffect } from '../../utils/sunsetShaders';
 
 interface VisualizerProps {
   prediction: SunsetPrediction | null;
@@ -148,6 +150,57 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
   // Base sizes for FOV 20
   const sunSize = 40 * (20 / visualFov);
+
+  // Compute uniforms for react-native-skia atmospheric shader
+  const uniforms = useMemo(() => {
+    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
+    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
+    const overheadOvercast = prediction?.factors?.overheadOvercast ?? 0.0;
+    const observerElevationM = sim?.terrain?.observerElevation ?? 50;
+    const latitude = sim?.pathData?.[0]?.latitude ?? 37.5665;
+
+    // Calculate sunLight direct beam and horizon beam
+    const sunLight = directBeamRGB(Math.max(sunAltitude, -0.5), observerElevationM, latitude, beta);
+    const horizonBeam = directBeamRGB(Math.max(sunAltitude, 0), observerElevationM, latitude, beta);
+
+    // Calculate sun brightness twilight decay
+    const lerpVal = (a: number, b: number, t: number) => a + (b - a) * t;
+    let sunBrightness = 1.0;
+    if (sunAltitude < 2) {
+      const t = Math.max(0, Math.min(1, (sunAltitude + 6) / 8));
+      sunBrightness = lerpVal(0.02, 1.0, t * t);
+      if (sunAltitude < -6) {
+        const tNight = Math.max(0, Math.min(1, (-sunAltitude - 6) / 10));
+        sunBrightness = lerpVal(0.02, 0.0, tNight);
+      }
+    }
+
+    const dayMultiplier = 1.0 + 1.25 * Math.max(0, Math.min(1, sunAltitude / 40));
+
+    // Sun screen coordinates
+    const sunX = VISUALIZER_WIDTH / 2;
+    const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
+
+    // NaN / Infinity Defensive Guards for Skia Shader Uniforms
+    const safeFloat = (v: number, fallback = 0) => (isNaN(v) || !isFinite(v) ? fallback : v);
+    const safeVec2 = (v: number[], fallback = [0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1])];
+    const safeVec3 = (v: number[], fallback = [0, 0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1]), safeFloat(v[2], fallback[2])];
+
+    return {
+      u_resolution: safeVec2([VISUALIZER_WIDTH, SKY_HEIGHT], [1, 1]),
+      u_sunPos: safeVec2([sunX, sunY]),
+      u_sunLight: safeVec3([sunLight.r, sunLight.g, sunLight.b]),
+      u_horizonBeam: safeVec3([horizonBeam.r, horizonBeam.g, horizonBeam.b]),
+      u_sunAlt: safeFloat(sunAltitude, 0),
+      u_beta: safeFloat(beta, 0.08),
+      u_pathClarity: safeFloat(pathClarity, 1.0),
+      u_visualFov: safeFloat(visualFov, 20),
+      u_horizonY: safeFloat(HORIZON_Y, SKY_HEIGHT * 0.1),
+      u_sunBrightness: safeFloat(sunBrightness, 1.0),
+      u_dayMultiplier: safeFloat(dayMultiplier, 1.0),
+      u_overheadOvercast: safeFloat(overheadOvercast, 0.0),
+    };
+  }, [prediction, sim, sunAltitude, visualFov, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL]);
 
   // 1. Unified 3D Spatial Clouds Computation & Depth Sorting (Optimized caching)
   const allCloudLayersData = useMemo(() => {
@@ -674,9 +727,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   return (
     <View style={[styles.visualizerContainer, { width: VISUALIZER_WIDTH }]}>
       <View 
-        style={[styles.sky, { height: SKY_HEIGHT, backgroundColor: skyStops[0].color }]}
+        style={[styles.sky, { height: SKY_HEIGHT }]}
         {...panHandlers}
       >
+        {/* Skia GPU-Accelerated Atmosphere Shader Background */}
+        {skyShaderEffect && (
+          <Canvas style={StyleSheet.absoluteFillObject}>
+            <SkiaRect x={0} y={0} width={VISUALIZER_WIDTH} height={SKY_HEIGHT}>
+              <Shader source={skyShaderEffect} uniforms={uniforms} />
+            </SkiaRect>
+          </Canvas>
+        )}
+
         <Svg
           width={VISUALIZER_WIDTH}
           height={SKY_HEIGHT}
@@ -684,12 +746,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           pointerEvents="none"
         >
           <Defs>
-            <LinearGradient id="physSky" x1="0" y1="0" x2="0" y2="1">
-              {skyStops.map((s, i) => (
-                <Stop key={i} offset={s.offset} stopColor={s.color} stopOpacity={1} />
-              ))}
-            </LinearGradient>
-            
             <LinearGradient id="bgTerrainGrad" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor="#2c2c4e" stopOpacity="1" />
               <Stop offset="1" stopColor="#1a1a2e" stopOpacity="1" />
@@ -715,29 +771,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               <Stop offset="100%" stopColor={theme.accent ?? '#FFD700'} stopOpacity={0} />
             </LinearGradient>
 
-            {prediction?.sunGlowStops && (
-              <RadialGradient 
-                id="sunGlow" 
-                cx="50%" cy="50%" r="50%" 
-                fx="50%" fy="50%"
-              >
-                {prediction.sunGlowStops.map((s: any, i: number) => {
-                  const rgbaMatch = s.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-                  const stopColor = rgbaMatch ? `rgb(${rgbaMatch[1]},${rgbaMatch[2]},${rgbaMatch[3]})` : s.color;
-                  const stopOpacity = rgbaMatch && rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
-                  
-                  return (
-                    <Stop 
-                      key={i} 
-                      offset={s.offset.toFixed(3)} 
-                      stopColor={stopColor} 
-                      stopOpacity={isNaN(stopOpacity) ? 0 : stopOpacity} 
-                    />
-                  );
-                })}
-              </RadialGradient>
-            )}
-
             {/* Custom dynamic cloud gradients */}
             {computedClouds.map((cloud: any) => (
               <LinearGradient key={cloud.gradId} id={cloud.gradId} x1={cloud.x1} y1={cloud.y1} x2={cloud.x2} y2={cloud.y2}>
@@ -746,7 +779,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               </LinearGradient>
             ))}
           </Defs>
-          <Rect width={VISUALIZER_WIDTH} height={SKY_HEIGHT} fill="url(#physSky)" />
           
           {/* 1. Solar Light Pillar */}
           {(() => {
@@ -823,17 +855,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
             return (
               <>
-                {/* Mie Scattering Halo (Single-Pass Physically-Driven Scattering Halo) */}
-                {prediction?.sunGlowStops && (
-                  <Circle 
-                    cx={sunX} 
-                    cy={sunY} 
-                    r={haloSize * 1.5} 
-                    fill="url(#sunGlow)"
-                    opacity={0.9}
-                  />
-                )}
-                
                 {/* Sun Disk (Rendered on top of the halo but behind terrain) */}
                 <Circle
                   cx={sunX}

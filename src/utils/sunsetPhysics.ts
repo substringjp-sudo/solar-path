@@ -128,7 +128,7 @@ export const directBeamRGB = (
 
   // 2) Kasten-Young airmass calculation
   const safeAltForAirMass = Math.max(apparentAlt, -3.8);
-  const airMassVal = 1.0 / (sinAlt + 0.15 * Math.pow(safeAltForAirMass + 3.885, -1.253));
+  const airMassVal = 1.0 / (sinAlt + 0.15 * Math.pow(Math.max(0.001, safeAltForAirMass + 3.885), -1.253));
 
   // 3) Altitude-based density scale (Rayleigh scale height ~8km)
   const altScale = Math.exp(-Math.max(0, observerElevationM) / 8000.0);
