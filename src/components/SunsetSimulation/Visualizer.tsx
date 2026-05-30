@@ -731,7 +731,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         {...panHandlers}
       >
         {/* Skia GPU-Accelerated Atmosphere Shader Background */}
-        {skyShaderEffect && (
+        {skyShaderEffect && prediction && (
           <Canvas style={StyleSheet.absoluteFillObject}>
             <SkiaRect x={0} y={0} width={VISUALIZER_WIDTH} height={SKY_HEIGHT}>
               <Shader source={skyShaderEffect} uniforms={uniforms} />

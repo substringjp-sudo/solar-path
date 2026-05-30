@@ -3,7 +3,7 @@ import { Skia } from '@shopify/react-native-skia';
 /**
  * AGSL (Android Graphics Shading Language) source code for high-fidelity 2D atmospheric scattering.
  * Computes Rayleigh scattering, Mie scattering, and horizon extinction per pixel on the GPU.
- * Fully type-unified to float/float3/float4 to avoid C++ compiler type mismatch crashes.
+ * Const/Variables relocated inside main and division-by-zero guards added to avoid C++ compiler crash.
  */
 const skyShaderSource = `
   uniform float2 u_resolution;
@@ -19,19 +19,20 @@ const skyShaderSource = `
   uniform float u_dayMultiplier;
   uniform float u_overheadOvercast;
 
-  const float3 OVERCAST = float3(0.498, 0.541, 0.588);
-  const float3 AMBIENT_NIGHT = float3(0.003, 0.003, 0.010);
-  const float PI = 3.14159265;
-
   float4 main(float2 pos) {
+    // Relocated constants to prevent global context linking errors in Skia compilers
+    float3 OVERCAST = float3(0.498, 0.541, 0.588);
+    float3 AMBIENT_NIGHT = float3(0.003, 0.003, 0.010);
+    float PI = 3.14159265;
+
     // 1. Calculate elevation angle (theta) of the pixel in degrees
-    // y = 0 is top, y = u_horizonY is horizon (theta = 0)
+    // Prevent division-by-zero crash if u_resolution.x is 0
     float dy = u_horizonY - pos.y;
-    float degPerPixel = u_visualFov / u_resolution.x;
+    float degPerPixel = u_visualFov / max(1.0, u_resolution.x);
     float theta_deg = dy * degPerPixel;
     
     // Calculate horizontal azimuth angle (phi) relative to the sun (centered horizontally)
-    float dx = pos.x - (u_resolution.x / 2.0);
+    float dx = pos.x - (max(1.0, u_resolution.x) / 2.0);
     float phi_deg = dx * degPerPixel;
 
     // Convert angles to radians
@@ -40,8 +41,6 @@ const skyShaderSource = `
     float sunAlt_rad = u_sunAlt * PI / 180.0;
 
     // 2. 3D Spherical directions to compute scattering phase angle (gamma)
-    // v_sun = [0, sin(alt), cos(alt)]
-    // v_pixel = [cos(theta)*sin(phi), sin(theta), cos(theta)*cos(phi)]
     float cosTheta = cos(theta_rad);
     float cosGamma = cosTheta * cos(sunAlt_rad) * cos(phi_rad) + sin(theta_rad) * sin(sunAlt_rad);
     cosGamma = clamp(cosGamma, -1.0, 1.0);
@@ -55,7 +54,6 @@ const skyShaderSource = `
     float miePhase = 0.07957 * (1.0 - g2) / pow(max(0.001, 1.0 + g2 - 2.0 * g * cosGamma), 1.5);
 
     // 4. Airmass calculation (for pixel direction)
-    // Simplified model that avoids pow of negative values and division by zero.
     float m = 1.0 / max(0.015, sin(theta_rad));
     m = clamp(m, 1.0, 40.0);
 
@@ -87,9 +85,9 @@ const skyShaderSource = `
     // 8. Ground / Night / Below Horizon fading
     float3 skyRGB = rayleigh + mie + horizon;
     
-    // Branchless exponential fade-out below the horizon to prevent GPU shader branch compilation errors
-    float isBelow = step(theta_deg, 0.0); // 1.0 if below horizon, 0.0 otherwise
-    float belowHorizonFade = mix(1.0, exp(theta_deg * 0.8), isBelow);
+    // Branchless exponential fade-out below the horizon with exponential lower-bound safety guard to prevent GPU underflow NaN
+    float isBelow = step(theta_deg, 0.0); 
+    float belowHorizonFade = mix(1.0, exp(max(-20.0, theta_deg * 0.8)), isBelow);
     skyRGB = skyRGB * belowHorizonFade;
 
     // 9. Absolute base color + Sun Brightness & Overcast mixing
