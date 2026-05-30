@@ -151,56 +151,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   // Base sizes for FOV 20
   const sunSize = 40 * (20 / visualFov);
 
-  // Compute uniforms for react-native-skia atmospheric shader
-  const uniforms = useMemo(() => {
-    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
-    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
-    const overheadOvercast = prediction?.factors?.overheadOvercast ?? 0.0;
-    const observerElevationM = sim?.terrain?.observerElevation ?? 50;
-    const latitude = sim?.pathData?.[0]?.latitude ?? 37.5665;
-
-    // Calculate sunLight direct beam and horizon beam
-    const sunLight = directBeamRGB(Math.max(sunAltitude, -0.5), observerElevationM, latitude, beta);
-    const horizonBeam = directBeamRGB(Math.max(sunAltitude, 0), observerElevationM, latitude, beta);
-
-    // Calculate sun brightness twilight decay
-    const lerpVal = (a: number, b: number, t: number) => a + (b - a) * t;
-    let sunBrightness = 1.0;
-    if (sunAltitude < 2) {
-      const t = Math.max(0, Math.min(1, (sunAltitude + 6) / 8));
-      sunBrightness = lerpVal(0.02, 1.0, t * t);
-      if (sunAltitude < -6) {
-        const tNight = Math.max(0, Math.min(1, (-sunAltitude - 6) / 10));
-        sunBrightness = lerpVal(0.02, 0.0, tNight);
-      }
-    }
-
-    const dayMultiplier = 1.0 + 1.25 * Math.max(0, Math.min(1, sunAltitude / 40));
-
-    // Sun screen coordinates
-    const sunX = VISUALIZER_WIDTH / 2;
-    const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
-
-    // NaN / Infinity Defensive Guards for Skia Shader Uniforms
-    const safeFloat = (v: number, fallback = 0) => (isNaN(v) || !isFinite(v) ? fallback : v);
-    const safeVec2 = (v: number[], fallback = [0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1])];
-    const safeVec3 = (v: number[], fallback = [0, 0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1]), safeFloat(v[2], fallback[2])];
-
-    return {
-      u_resolution: safeVec2([VISUALIZER_WIDTH, SKY_HEIGHT], [1, 1]),
-      u_sunPos: safeVec2([sunX, sunY]),
-      u_sunLight: safeVec3([sunLight.r, sunLight.g, sunLight.b]),
-      u_horizonBeam: safeVec3([horizonBeam.r, horizonBeam.g, horizonBeam.b]),
-      u_sunAlt: safeFloat(sunAltitude, 0),
-      u_beta: safeFloat(beta, 0.08),
-      u_pathClarity: safeFloat(pathClarity, 1.0),
-      u_visualFov: safeFloat(visualFov, 20),
-      u_horizonY: safeFloat(HORIZON_Y, SKY_HEIGHT * 0.1),
-      u_sunBrightness: safeFloat(sunBrightness, 1.0),
-      u_dayMultiplier: safeFloat(dayMultiplier, 1.0),
-      u_overheadOvercast: safeFloat(overheadOvercast, 0.0),
-    };
-  }, [prediction, sim, sunAltitude, visualFov, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL]);
+  // uniforms definition moved below computedClouds
 
   // 1. Unified 3D Spatial Clouds Computation & Depth Sorting (Optimized caching)
   const allCloudLayersData = useMemo(() => {
@@ -406,10 +357,106 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         finalScaleX,
         finalScaleY,
         renderWidth,
-        renderHeight
+        renderHeight,
+        relativeAz
       };
     }).filter(Boolean);
   }, [allCloudLayersData, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL]);
+
+  // Compute 8x4 local cloud grid array for the scattering shader
+  const cloudGrid = useMemo(() => {
+    const grid = new Float32Array(32);
+    grid.fill(0);
+
+    if (!computedClouds || computedClouds.length === 0) {
+      return Array.from(grid);
+    }
+
+    for (let row = 0; row < 4; row++) {
+      const theta_cell = (row + 0.5) * (75 / 4);
+      for (let col = 0; col < 8; col++) {
+        const phi_cell = -visualFov / 2 + (col + 0.5) * (visualFov / 8);
+
+        let maxDensity = 0;
+
+        for (const cloud of computedClouds) {
+          if (!cloud) continue;
+
+          const phi_cloud = cloud.relativeAz;
+          const theta_cloud = cloud.apparentElevationDeg;
+
+          const wDeg = (cloud.baseWidth * cloud.finalScaleX) / DEGREE_TO_PIXEL;
+          const hDeg = (cloud.baseHeight * cloud.finalScaleY) / DEGREE_TO_PIXEL;
+
+          const rx = wDeg * 0.7;
+          const ry = hDeg * 0.7;
+
+          const dPhi = Math.abs(phi_cell - phi_cloud);
+          const dTheta = Math.abs(theta_cell - theta_cloud);
+
+          if (dPhi < rx && dTheta < ry) {
+            const distNorm = Math.sqrt((dPhi / rx) ** 2 + (dTheta / ry) ** 2);
+            if (distNorm < 1.0) {
+              const factor = Math.cos(distNorm * Math.PI / 2);
+              const densityContribution = (cloud.opacityDensity / 100) * factor;
+              maxDensity = Math.max(maxDensity, densityContribution);
+            }
+          }
+        }
+        grid[row * 8 + col] = Math.min(1.0, maxDensity);
+      }
+    }
+
+    return Array.from(grid);
+  }, [computedClouds, visualFov, DEGREE_TO_PIXEL]);
+
+  // Compute uniforms for react-native-skia atmospheric shader
+  const uniforms = useMemo(() => {
+    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
+    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
+    const overheadOvercast = prediction?.factors?.overheadOvercast ?? 0.0;
+    const observerElevationM = sim?.terrain?.observerElevation ?? 50;
+    const latitude = sim?.pathData?.[0]?.latitude ?? 37.5665;
+
+    const sunLight = directBeamRGB(Math.max(sunAltitude, -0.5), observerElevationM, latitude, beta);
+    const horizonBeam = directBeamRGB(Math.max(sunAltitude, 0), observerElevationM, latitude, beta);
+
+    const lerpVal = (a: number, b: number, t: number) => a + (b - a) * t;
+    let sunBrightness = 1.0;
+    if (sunAltitude < 2) {
+      const t = Math.max(0, Math.min(1, (sunAltitude + 6) / 8));
+      sunBrightness = lerpVal(0.02, 1.0, t * t);
+      if (sunAltitude < -6) {
+        const tNight = Math.max(0, Math.min(1, (-sunAltitude - 6) / 10));
+        sunBrightness = lerpVal(0.02, 0.0, tNight);
+      }
+    }
+
+    const dayMultiplier = 1.0 + 1.25 * Math.max(0, Math.min(1, sunAltitude / 40));
+
+    const sunX = VISUALIZER_WIDTH / 2;
+    const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
+
+    const safeFloat = (v: number, fallback = 0) => (isNaN(v) || !isFinite(v) ? fallback : v);
+    const safeVec2 = (v: number[], fallback = [0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1])];
+    const safeVec3 = (v: number[], fallback = [0, 0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1]), safeFloat(v[2], fallback[2])];
+
+    return {
+      u_resolution: safeVec2([VISUALIZER_WIDTH, SKY_HEIGHT], [1, 1]),
+      u_sunPos: safeVec2([sunX, sunY]),
+      u_sunLight: safeVec3([sunLight.r, sunLight.g, sunLight.b]),
+      u_horizonBeam: safeVec3([horizonBeam.r, horizonBeam.g, horizonBeam.b]),
+      u_sunAlt: safeFloat(sunAltitude, 0),
+      u_beta: safeFloat(beta, 0.08),
+      u_pathClarity: safeFloat(pathClarity, 1.0),
+      u_visualFov: safeFloat(visualFov, 20),
+      u_horizonY: safeFloat(SKY_HEIGHT - HORIZON_Y, SKY_HEIGHT * 0.9),
+      u_sunBrightness: safeFloat(sunBrightness, 1.0),
+      u_dayMultiplier: safeFloat(dayMultiplier, 1.0),
+      u_overheadOvercast: safeFloat(overheadOvercast, 0.0),
+      u_cloudGrid: cloudGrid,
+    };
+  }, [prediction, sim, sunAltitude, visualFov, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, cloudGrid]);
 
   // 3. Compute continuous overhead giant cloud bands when overcast factor is extremely high
   const giantClouds = useMemo(() => {
