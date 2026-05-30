@@ -147,7 +147,8 @@ const skyShaderSource = `
 
     // 7. Horizon Extinction (scattering light fading near the horizon)
     float horizonWeight = exp(-0.35 * max(0.0, theta_deg));
-    float sunLowFactor = clamp((15.0 - u_sunAlt) / 15.0, 0.0, 1.0);
+    // 대낮에도 수평선 부근이 맑고 뽀얀 연청색을 유지하도록 0.32 하한선 적용
+    float sunLowFactor = clamp((15.0 - u_sunAlt) / 15.0, 0.32, 1.0);
     float horizonStrength = horizonWeight * u_pathClarity * 2.2 * (1.0 - cloudDensity * 0.6) * sunLowFactor;
     
     float altWeight = clamp((u_sunAlt - 0.0) / 10.0, 0.0, 1.0);
@@ -165,12 +166,14 @@ const skyShaderSource = `
     // Multiply Rayleigh by 2.2 for vibrant daylight blue sky dome
     float3 skyRGB = (rayleigh * 2.2 + mie + horizon) * 12.0;
     
-    // Ternary fade-out below horizon with limit guard to prevent GPU underflow NaN
-    float belowHorizonFade = (theta_deg < 0.0) ? exp(max(-20.0, theta_deg * 0.8)) : 1.0;
+    // Ternary fade-out below horizon (0.45로 완화하여 지평선 아래 수평선 근처 바다에도 여명이 자연스럽게 퍼짐)
+    float belowHorizonFade = (theta_deg < 0.0) ? exp(max(-20.0, theta_deg * 0.45)) : 1.0;
     skyRGB = skyRGB * belowHorizonFade;
 
     // 9. Absolute base color + Sun Brightness & Overcast mixing
-    float3 finalRGB = (skyRGB + float3(0.015, 0.055, 0.115)) * u_sunBrightness * u_dayMultiplier 
+    // skyRGB는 이미 nightFade와 물리적 산란량이 적용되어 있으므로 u_sunBrightness의 이중 감쇠를 적용하지 않습니다.
+    float3 finalRGB = skyRGB * u_dayMultiplier 
+                     + float3(0.015, 0.055, 0.115) * u_sunBrightness * u_dayMultiplier 
                      + AMBIENT_NIGHT * (1.0 - u_sunBrightness);
 
     // Apply fine dust graying/whitening to the blue sky dome in high aerosol conditions

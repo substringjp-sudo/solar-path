@@ -1166,44 +1166,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
             return (
               <>
-                {/* Corona Halo Layers - Separated from disk opacity to allow astronomical dawn glow */}
+                {/* Corona Halo Layers - Cleaned up to single tidy halo for cartoon look */}
                 <G opacity={haloOpacity}>
-                  {/* Giant Outer Corona Halo */}
+                  {/* Single Clean Sun Corona Halo */}
                   <Circle
                     cx={sunX}
                     cy={sunY}
-                    r={sunSize * 3.8 * dynamicHaloSizeScale}
-                    fill="url(#sunOuterHalo)"
-                    opacity={glowVisibility * 0.4}
-                  />
-                  
-                  {/* Medium Corona Halo */}
-                  <Circle
-                    cx={sunX}
-                    cy={sunY}
-                    r={sunSize * 2.2 * dynamicHaloSizeScale}
-                    fill="url(#sunMidHalo)"
-                    opacity={glowVisibility * 0.65}
-                  />
-                  
-                  {/* Horizontal Lens Flare Ellipse */}
-                  <Ellipse
-                    cx={sunX}
-                    cy={sunY}
-                    rx={sunSize * 4.8 * dynamicHaloSizeScale}
-                    ry={sunSize * 0.16 * dynamicHaloSizeScale}
+                    r={sunSize * 1.45 * dynamicHaloSizeScale}
                     fill="url(#sunInnerHalo)"
-                    opacity={glowVisibility * 0.45}
-                    transform={`rotate(-12, ${sunX}, ${sunY})`}
-                  />
-
-                  {/* Strong Inner Glow Corona */}
-                  <Circle
-                    cx={sunX}
-                    cy={sunY}
-                    r={sunSize * 1.15 * dynamicHaloSizeScale}
-                    fill="url(#sunInnerHalo)"
-                    opacity={glowVisibility * 0.9}
+                    opacity={glowVisibility * 0.8}
                   />
                 </G>
 

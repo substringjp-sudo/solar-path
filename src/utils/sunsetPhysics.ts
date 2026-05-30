@@ -417,7 +417,8 @@ export const calculateRefractedSkyColor = (
 
     // Horizon Extinction & Reddened Scatter (near the horizon, blue/green are blocked)
     const horizonWeight = Math.exp(-0.35 * th);
-    const sunLowFactor = clamp01((15.0 - sunAlt) / 15.0);
+    // 대낮에도 수평선 부근이 맑고 뽀얀 연청색을 유지하도록 0.32 하한선 적용
+    const sunLowFactor = Math.max(0.32, clamp01((15.0 - sunAlt) / 15.0));
     const horizonStrength = horizonWeight * pathClarity * 2.2 * sunLowFactor;
     let horizon = 0;
     if (channel === 'r') horizon = sunLightHorizon.r * horizonStrength;
@@ -433,9 +434,10 @@ export const calculateRefractedSkyColor = (
   // Sky brightness multiplier based on sun altitude to prevent dark skies in the afternoon
   const dayMultiplier = 1.0 + 1.25 * Math.pow(clamp01(sunAlt / 40), 0.3);
 
-  let finalR = (getChannelColor(thetaR, 'r') + 0.015) * sunBrightness * dayMultiplier + ambientNight.r * (1 - sunBrightness);
-  let finalG = (getChannelColor(thetaG, 'g') + 0.055) * sunBrightness * dayMultiplier + ambientNight.g * (1 - sunBrightness);
-  let finalB = (getChannelColor(thetaB, 'b') + 0.115) * sunBrightness * dayMultiplier + ambientNight.b * (1 - sunBrightness);
+  // skyRGB(getChannelColor 결과)는 이미 nightFade와 물리적 산란량이 적용되어 있으므로 sunBrightness의 이중 감쇠를 적용하지 않습니다.
+  let finalR = getChannelColor(thetaR, 'r') * dayMultiplier + 0.015 * sunBrightness * dayMultiplier + ambientNight.r * (1 - sunBrightness);
+  let finalG = getChannelColor(thetaG, 'g') * dayMultiplier + 0.055 * sunBrightness * dayMultiplier + ambientNight.g * (1 - sunBrightness);
+  let finalB = getChannelColor(thetaB, 'b') * dayMultiplier + 0.115 * sunBrightness * dayMultiplier + ambientNight.b * (1 - sunBrightness);
 
   // Apply fine dust graying/whitening to the blue sky dome in high aerosol conditions
   const dustLevel = clamp01((beta - 0.04) / 0.46);
