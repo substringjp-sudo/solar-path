@@ -243,6 +243,27 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     return results;
   }, [interpolatedWeather, sim, horizonDipDeg, prediction]);
 
+  // Extract real-time weather factors for dynamic papercraft collage styling
+  const weatherFactors = useMemo(() => {
+    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
+    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
+    const overcast = prediction?.factors?.overheadOvercast ?? 0.0;
+    
+    // Normalize aerosol dust intensity (0 to 1 scale)
+    const dustIntensity = Math.max(0, Math.min(1, (beta - 0.04) / 0.46)); 
+    
+    // Cloud opacity blocker for direct solar light
+    const cloudBlock = Math.max(0, Math.min(1, 1.0 - pathClarity));
+
+    return {
+      beta,
+      pathClarity,
+      overcast,
+      dustIntensity,
+      cloudBlock
+    };
+  }, [prediction]);
+
   // 2. Map computed sorted clouds to visual SVG structures with dynamic warm gradients and shadows
   const computedClouds = useMemo(() => {
     const horizonTop = SKY_HEIGHT - HORIZON_Y;
@@ -431,27 +452,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
     return Array.from(grid);
   }, [computedClouds, visualFov, DEGREE_TO_PIXEL]);
-
-  // Extract real-time weather factors for dynamic papercraft collage styling
-  const weatherFactors = useMemo(() => {
-    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
-    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
-    const overcast = prediction?.factors?.overheadOvercast ?? 0.0;
-    
-    // Normalize aerosol dust intensity (0 to 1 scale)
-    const dustIntensity = Math.max(0, Math.min(1, (beta - 0.04) / 0.46)); 
-    
-    // Cloud opacity blocker for direct solar light
-    const cloudBlock = Math.max(0, Math.min(1, 1.0 - pathClarity));
-
-    return {
-      beta,
-      pathClarity,
-      overcast,
-      dustIntensity,
-      cloudBlock
-    };
-  }, [prediction]);
 
   // Adjust papercraft border line styles for comic/papercraft theme (clear white borders when clear, fading to soft tint in heavy cloud/haze)
   const borderStyle = useMemo(() => {
