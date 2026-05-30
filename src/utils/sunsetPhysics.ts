@@ -380,13 +380,20 @@ export const predictSunset = (
 
   // Pass dynamically computed aerosol beta to directBeamRGB!
   const currentBeam = directBeamRGB(sunAltDeg, elevVal, latVal, beta);
+  
+  // The reddened beam that bathes overhead clouds:
+  // - If sun is above horizon (alt > 0°), use its actual altitude (direct beam)
+  // - If sun is below horizon (alt <= 0°), evaluate at grazing horizon (0°)
+  //   since the beam comes from that geometry and scattered light dominates
+  const horizonBeam = directBeamRGB(Math.max(sunAltDeg, 0), elevVal, latVal, beta);
+  
   const pathClarity = beamPathTransmittance(localPath, sunAltDeg);
 
   // Remove artificial 1.2x boost on incident beam red channel, make it clean and physical
   const incidentBeam: RGB = {
-    r: currentBeam.r * pathClarity,
-    g: currentBeam.g * pathClarity,
-    b: currentBeam.b * pathClarity,
+    r: horizonBeam.r * pathClarity,
+    g: horizonBeam.g * pathClarity,
+    b: horizonBeam.b * pathClarity,
   };
   const beamRedness =
     incidentBeam.r > 0
@@ -507,9 +514,9 @@ export const predictSunset = (
   const sunsetOffsetG = isSunsetMode ? (0.01 + clamp01(beta * 0.4) * 0.08) * sunWeight : 0;
 
   const rawHorizonRGB: RGB = {
-    r: clamp01(currentBeam.r * redMult + sunsetOffsetR),
-    g: clamp01(currentBeam.g * greenMult + sunsetOffsetG),
-    b: clamp01(currentBeam.b * 1.04),
+    r: clamp01(horizonBeam.r * redMult + sunsetOffsetR),
+    g: clamp01(horizonBeam.g * greenMult + sunsetOffsetG),
+    b: clamp01(horizonBeam.b * 1.04),
   };
 
   const horizonRGB = mixRgb(
