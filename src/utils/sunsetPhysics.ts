@@ -339,6 +339,77 @@ const OVERCAST: RGB = { r: 0.42, g: 0.44, b: 0.48 };
 const SHADOWED_CLOUD: RGB = { r: 0.22, g: 0.24, b: 0.3 };
 const NEUTRAL_CLOUD: RGB = { r: 0.55, g: 0.55, b: 0.58 };
 
+/**
+ * Calculates physically-based sky color using Rayleigh scattering, Mie scattering,
+ * atmospheric refraction, and chromatic aberration (color dispersion).
+ */
+export const calculateRefractedSkyColor = (
+  theta: number,
+  sunAlt: number,
+  beta: number,
+  pathClarity: number,
+  observerElevationM: number = 0,
+  latitude: number = 37.5665
+): RGB => {
+  // Sky brightness factor based on sun altitude (twilight/night transitions)
+  // Decays exponentially as the sun dips below the horizon
+  let sunBrightness = 1.0;
+  if (sunAlt < 2) {
+    const t = clamp01((sunAlt + 6) / 8); // 0 at -6 deg, 1 at 2 deg
+    sunBrightness = lerp(0.02, 1.0, t * t);
+    if (sunAlt < -6) {
+      const tNight = clamp01((-sunAlt - 6) / 10); // 0 at -6, 1 at -16
+      sunBrightness = lerp(0.02, 0.0, tNight);
+    }
+  }
+
+  // Chromatic dispersion (color separation/aberration near the horizon)
+  // The atmosphere refracts shorter wavelengths (blue) more than longer (red)
+  const refractBase = 0.35 / (Math.tan((theta + 1.2) * Math.PI / 180) + 0.08); // in degrees
+  
+  // Wavelength-specific elevation shifts (aberration)
+  const thetaR = Math.max(0.01, theta - refractBase * 0.12);
+  const thetaG = Math.max(0.01, theta);
+  const thetaB = Math.max(0.01, theta + refractBase * 0.12);
+
+  const getChannelColor = (th: number, channel: 'r' | 'g' | 'b'): number => {
+    const m = airMass(th);
+    const sunLight = directBeamRGB(Math.max(sunAlt, -0.5), observerElevationM, latitude, beta);
+
+    // 1. Rayleigh Scattering (dominant at high elevations, scatters blue most)
+    const rayleighStrength = Math.exp(-0.055 * m);
+    let rayleigh = 0;
+    if (channel === 'r') rayleigh = 0.075 * rayleighStrength;
+    if (channel === 'g') rayleigh = 0.185 * rayleighStrength;
+    if (channel === 'b') rayleigh = 0.42 * rayleighStrength;
+
+    // 2. Mie Scattering (forward scattering by aerosols, white/gray light)
+    // Increases at lower elevations where aerosol layer thickness is large
+    const mieStrength = 0.18 * (m - 1) * beta;
+    let mie = 0;
+    if (channel === 'r') mie = sunLight.r * mieStrength;
+    if (channel === 'g') mie = sunLight.g * mieStrength;
+    if (channel === 'b') mie = sunLight.b * mieStrength;
+
+    // 3. Horizon Extinction & Reddened Scatter (near the horizon, blue/green are blocked)
+    const horizonWeight = Math.exp(-0.35 * th);
+    const horizonStrength = horizonWeight * pathClarity * 2.2;
+    let horizon = 0;
+    if (channel === 'r') horizon = sunLight.r * horizonStrength;
+    if (channel === 'g') horizon = sunLight.g * horizonStrength * 0.42;
+    if (channel === 'b') horizon = sunLight.b * horizonStrength * 0.05;
+
+    return rayleigh + mie + horizon;
+  };
+
+  const ambientNight = { r: 0.003, g: 0.003, b: 0.010 };
+  return {
+    r: (getChannelColor(thetaR, 'r') + 0.008) * sunBrightness + ambientNight.r * (1 - sunBrightness),
+    g: (getChannelColor(thetaG, 'g') + 0.008) * sunBrightness + ambientNight.g * (1 - sunBrightness),
+    b: (getChannelColor(thetaB, 'b') + 0.010) * sunBrightness + ambientNight.b * (1 - sunBrightness),
+  };
+};
+
 export const predictSunset = (
   pathData: CloudPathData[],
   targetTime: Date,
@@ -497,44 +568,23 @@ export const predictSunset = (
   // --- Sky Gradient ------------------------------------------------------
   const sunWeight = clamp01((effectiveSunAlt + 1) / 9); 
 
-  const skyZenith = mixRgb(
-    mixRgb(ZENITH_TWILIGHT, NIGHT, clamp01(-effectiveSunAlt / 12)),
-    ZENITH_DAY,
-    sunWeight
-  );
-
   const muted = (c: RGB): RGB => {
     const overcastWeight = overheadOvercast * 0.7 * sunWeight;
     return mixRgb(c, OVERCAST, overcastWeight);
   };
 
-  const redMult = 1.04 + clamp01(beta * 1.1) * 0.36; // Scales between ~1.08 to 1.45 based on atmospheric haze
-  const greenMult = 1.01 + clamp01(beta * 0.8) * 0.24; 
-  const sunsetOffsetR = isSunsetMode ? (0.04 + clamp01(beta * 0.7) * 0.2) * sunWeight : 0;
-  const sunsetOffsetG = isSunsetMode ? (0.01 + clamp01(beta * 0.4) * 0.08) * sunWeight : 0;
+  const horizonRGB = calculateRefractedSkyColor(0.05, sunAltDeg, beta, pathClarity, elevVal, latVal);
 
-  const rawHorizonRGB: RGB = {
-    r: clamp01(horizonBeam.r * redMult + sunsetOffsetR),
-    g: clamp01(horizonBeam.g * greenMult + sunsetOffsetG),
-    b: clamp01(horizonBeam.b * 1.04),
-  };
-
-  const horizonRGB = mixRgb(
-    NIGHT, 
-    rawHorizonRGB, 
-    clamp01((effectiveSunAlt + 6) / 8) 
-  );
-
-  const midBandRGB = mixRgb(skyZenith, horizonRGB, 0.65);
-  const upperMidRGB = mixRgb(skyZenith, midBandRGB, 0.4);
-
-  const skyGradient: SkyStop[] = [
-    { offset: 0, color: rgbToCss(muted(skyZenith)) },
-    { offset: 0.3, color: rgbToCss(muted(upperMidRGB)) },
-    { offset: 0.65, color: rgbToCss(muted(midBandRGB)) },
-    { offset: 0.85, color: rgbToCss(muted(mixRgb(midBandRGB, horizonRGB, 0.5))) },
-    { offset: 1, color: rgbToCss(muted(horizonRGB)) },
-  ];
+  const skyGradient: SkyStop[] = [0, 0.25, 0.5, 0.7, 0.85, 1.0].map(y => {
+    // Map y offset to an elevation angle theta in degrees
+    // We use a quadratic mapping to cluster more gradient stops near the horizon
+    const theta = 0.05 + 35 * Math.pow(1.0 - y, 2.0);
+    const physicalColor = calculateRefractedSkyColor(theta, sunAltDeg, beta, pathClarity, elevVal, latVal);
+    return {
+      offset: y,
+      color: rgbToCss(muted(physicalColor)),
+    };
+  });
 
   // --- Weather Specific Adjustments ----------
   const visM = visibilityM ?? 25000;
@@ -594,63 +644,50 @@ export const predictSunset = (
   }
 
   // --- Cloud tints -------------------------------------------------------
-  const coverLow = (obsPoint?.low ?? 0) / 100;
-  const coverMid = (obsPoint?.mid ?? 0) / 100;
-  const coverHigh = (obsPoint?.high ?? 0) / 100;
-
-  // Cloud Optical Thickness scales dynamically with water density
-  const thicknessScale = 0.5 + 2.0 * waterFactor;
-  const tauLow = (0.5 + 11.5 * coverLow) * thicknessScale;   
-  const tauMid = (0.3 + 3.7 * coverMid) * thicknessScale;    
-  const tauHigh = (0.1 + 1.4 * coverHigh) * thicknessScale;  
-
-  const ambientSky = muted(skyZenith);
-
-  const physicalCloudColor = (
-    illum: number,
-    tau: number,
-    baseAlbedo: number
-  ): RGB => {
-    const tInternal = Math.exp(-tau * 0.25);
+  const litColor = (illum: number, baseLit: number, isIce: boolean = false, genus?: string): RGB => {
+    // Determine the color of the sunlight hitting the cloud
+    let cloudSunlight: RGB;
+    if (sunAltDeg > 5) {
+      cloudSunlight = { r: 0.98, g: 0.95, b: 0.88 }; // Warm white
+    } else {
+      const t = clamp01((sunAltDeg + 2) / 7);
+      cloudSunlight = mixRgb({ r: 0.98, g: 0.50, b: 0.15 }, { r: 0.98, g: 0.95, b: 0.88 }, t); // Transition to gold/orange
+    }
     
-    const directScatter: RGB = {
-      r: incidentBeam.r * tInternal * baseAlbedo,
-      g: incidentBeam.g * tInternal * baseAlbedo,
-      b: incidentBeam.b * tInternal * baseAlbedo,
-    };
+    // Ice crystals (Cirrus) refraction / prism coloring effect (vibrant pink/orange-red)
+    if (isIce && sunAltDeg <= 4) {
+      const tIce = clamp01((sunAltDeg + 4) / 8); // -4 to 4 degrees
+      const iceColor = { r: 1.0, g: 0.45, b: 0.65 }; // Prism rose/magenta tint
+      cloudSunlight = mixRgb(iceColor, cloudSunlight, tIce);
+    }
 
-    const ambientInfluence = clamp01(1.0 - tInternal);
-    const purpleGlow: RGB = {
-      r: lerp(SHADOWED_CLOUD.r, horizonRGB.r * 0.28, ambientInfluence),
-      g: lerp(SHADOWED_CLOUD.g, horizonRGB.g * 0.15, ambientInfluence),
-      b: lerp(SHADOWED_CLOUD.b, ambientSky.b * 0.45, ambientInfluence),
-    };
-
-    const mixedCloud = mixRgb(purpleGlow, directScatter, illum);
-    const cloudNightWeight = clamp01((effectiveSunAlt + 6) / 10);
-    return mixRgb(NIGHT, mixedCloud, cloudNightWeight);
+    const shadowColor = SHADOWED_CLOUD;
+    
+    // Mix shadow and sunlight based on illumination and pathClarity
+    const mixFactor = clamp01(illum * baseLit * (pathClarity * 0.5 + 0.5));
+    return mixRgb(shadowColor, cloudSunlight, mixFactor);
   };
+  
+  const highCloudRGB = litColor(illumHigh, 1.4, true, 'cirrus');
+  const midCloudRGB = litColor(illumMid, 1.2, false, 'altocumulus');
+  const lowCloudRGB = litColor(illumLow, 0.9, false, 'stratocumulus');
 
-  const highCloudRGB = physicalCloudColor(illumHigh, tauHigh, 0.95);
-  const midCloudRGB = physicalCloudColor(illumMid, tauMid, 0.8);
-  const lowCloudRGB = physicalCloudColor(illumLow, tauLow, 0.55);
+  // Compute realistic sun disk color (bright white/yellow during day, transitions near horizon)
+  let sunRGB: RGB;
+  if (sunAltDeg > 6) {
+    sunRGB = { r: 1.0, g: 0.98, b: 0.92 }; // White-yellow
+  } else if (sunAltDeg > 1.5) {
+    const t = (sunAltDeg - 1.5) / 4.5;
+    sunRGB = mixRgb({ r: 1.0, g: 0.72, b: 0.28 }, { r: 1.0, g: 0.98, b: 0.92 }, t); // Golden orange to white-yellow
+  } else if (sunAltDeg > -2) {
+    const t = (sunAltDeg + 2) / 3.5;
+    sunRGB = mixRgb({ r: 0.96, g: 0.22, b: 0.08 }, { r: 1.0, g: 0.72, b: 0.28 }, t); // Crimson to golden orange
+  } else {
+    sunRGB = { r: 0.85, g: 0.12, b: 0.05 }; // Crimson below horizon
+  }
 
-  // --- Sun Disk Attenuation ---
-  let baseSunR = currentBeam.r * 1.6 + 0.85;
-  let baseSunG = currentBeam.g * 1.3 + 0.75;
-  let baseSunB = currentBeam.b * 1.0 + 0.50;
-
-  baseSunR = baseSunR * (1.0 - dustIntensity * 0.15);
-  baseSunG = baseSunG * Math.exp(-dustIntensity * 3.0);
-  baseSunB = baseSunB * Math.exp(-dustIntensity * 4.5);
-
-  const sunR = lerp(ambientSky.r * 0.6, baseSunR, 1.0 - cloudBlockIntensity);
-  const sunG = lerp(ambientSky.g * 0.5, baseSunG, 1.0 - cloudBlockIntensity);
-  const sunB = lerp(ambientSky.b * 0.5, baseSunB, 1.0 - cloudBlockIntensity);
-
-  const finalSunR = lerp(sunR, 0.95, fogIntensity * 0.6);
-  const finalSunG = lerp(sunG, 0.90, fogIntensity * 0.6);
-  const finalSunB = lerp(sunB, 0.85, fogIntensity * 0.6);
+  // Adjust for path clarity
+  const finalSunRGB = mixRgb({ r: 0.96, g: 0.22, b: 0.08 }, sunRGB, clamp01(pathClarity * 0.7 + 0.3));
 
   // Fully extinguish sun disk alpha when block intensity reaches 0.99
   const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.99) * (1.0 - fogIntensity * 0.82));
@@ -661,10 +698,10 @@ export const predictSunset = (
     description,
     skyGradient,
     sunGlowStops,
-    highCloudColor: rgbToCssAlpha(highCloudRGB, 0.6),
-    midCloudColor: rgbToCssAlpha(midCloudRGB, 0.55),
-    lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.65),
-    sunDiskColor: rgbToCssAlpha({ r: finalSunR, g: finalSunG, b: finalSunB }, sunDiskAlpha),
+    highCloudColor: rgbToCssAlpha(highCloudRGB, 0.9),
+    midCloudColor: rgbToCssAlpha(midCloudRGB, 0.85),
+    lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.9),
+    sunDiskColor: rgbToCssAlpha({ r: finalSunRGB.r, g: finalSunRGB.g, b: finalSunRGB.b }, sunDiskAlpha),
     factors: {
       beamRedness,
       pathClarity,
