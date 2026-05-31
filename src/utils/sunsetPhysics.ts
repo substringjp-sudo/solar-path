@@ -399,14 +399,17 @@ export const computeSkyGrid = (
   visualFov: number,      // horizontal FOV (degrees)
   beta: number,
   pathClarity: number,
+  verticalFovDeg: number = 60, // actual vertical FOV of the sky viewport
 ): RGB[] => {
   const ROWS = 8;
   const COLS = 5;
 
-  // Elevation boundaries (degrees): row 0 = 70–80°, row 7 = 0–10°
+  // Elevation boundaries derived from actual vertical FOV.
+  // When zoomed in (small FOV), the top of the viewport shows lower elevation;
+  // when zoomed out (large FOV), higher elevation is visible.
   const elevMin = 0;
-  const elevMax = 80;
-  const elevStep = (elevMax - elevMin) / ROWS; // 10° per row
+  const elevMax = Math.min(90, Math.max(10, verticalFovDeg)); // clamp to sensible range
+  const elevStep = (elevMax - elevMin) / ROWS;
 
   // Azimuth boundaries relative to heading
   const halfFov = visualFov / 2;
@@ -415,7 +418,7 @@ export const computeSkyGrid = (
   const grid: RGB[] = [];
 
   for (let row = 0; row < ROWS; row++) {
-    // Row 0 = top (zenith side), row 7 = bottom (horizon side)
+    // Row 0 = top (high elevation), row 7 = bottom (near horizon)
     const thetaCenter = elevMax - (row + 0.5) * elevStep; // degrees above horizon
 
     for (let col = 0; col < COLS; col++) {
@@ -429,8 +432,6 @@ export const computeSkyGrid = (
       const azDiffRad = ((absAz - sunAzDeg) * Math.PI) / 180;
 
       // 3D dot product: view direction · sun direction
-      // view = (cos(θ)·sin(relAz), cos(θ)·cos(relAz), sin(θ))  [simplified]
-      // sun  = (cos(sunAlt)·sin(0), cos(sunAlt)·cos(0), sin(sunAlt))  [sun in front]
       const cosGamma = Math.sin(thetaRad) * Math.sin(sunAltRad) +
                        Math.cos(thetaRad) * Math.cos(sunAltRad) * Math.cos(azDiffRad);
       const cosGammaClamped = Math.max(-1.0, Math.min(1.0, cosGamma));

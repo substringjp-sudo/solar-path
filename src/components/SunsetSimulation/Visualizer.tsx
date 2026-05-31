@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers } from 'react-native';
+import React, { useMemo, useRef } from 'react';
+import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G, Filter, FeGaussianBlur, FeOffset, FeComponentTransfer, FeFuncA, FeMerge, FeMergeNode, Ellipse } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01 } from '../../utils/sunsetPhysics';
@@ -13,6 +13,7 @@ interface VisualizerProps {
   interpolatedWeather: any[];
   heading: number;
   visualFov: number;
+  onFovChange?: (fov: number) => void;
   currentTime: Date;
   sunAltitude: number;
   isSunVisible: boolean;
@@ -112,6 +113,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   interpolatedWeather,
   heading,
   visualFov,
+  onFovChange,
   currentTime,
   sunAltitude,
   isSunVisible,
@@ -410,6 +412,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
     const sunAzDeg = sim?.azimuth ?? 180;
 
+    // The actual vertical elevation range visible in the sky viewport depends on FOV.
+    // DEGREE_TO_PIXEL = VISUALIZER_WIDTH / visualFov, so:
+    // verticalFovDeg = (SKY_HEIGHT - HORIZON_Y) / DEGREE_TO_PIXEL
+    //                = (SKY_HEIGHT - HORIZON_Y) * visualFov / VISUALIZER_WIDTH
+    const skyViewportH = SKY_HEIGHT - HORIZON_Y;
+    const verticalFovDeg = skyViewportH * visualFov / VISUALIZER_WIDTH;
+
     return computeSkyGrid(
       sunAltitude,
       sunAzDeg,
@@ -417,8 +426,9 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       visualFov,
       beta,
       pathClarity,
+      verticalFovDeg,
     );
-  }, [sunAltitude, heading, visualFov, prediction, sim]);
+  }, [sunAltitude, heading, visualFov, prediction, sim, SKY_HEIGHT, HORIZON_Y, VISUALIZER_WIDTH]);
 
   // Adjust papercraft border line styles for comic/papercraft theme (clear white borders when clear, fading to soft tint in heavy cloud/haze)
   const borderStyle = useMemo(() => {
@@ -433,7 +443,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
   }, [weatherFactors]);
 
-  // Interpolate terrain and ocean colors based on sun altitude & weather factors (Cartoon Collage Style)
+  // Interpolate terrain and ocean colors based on sun altitude & weather factors (Topographic Map Style)
   const terrainColors = useMemo(() => {
     const alt = sunAltitude;
     const { overcast, dustIntensity } = weatherFactors;
@@ -445,82 +455,84 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const sunsetGlowFactor = Math.max(0, 1.0 - (overcast * 1.3 + dustIntensity * 0.9)) * (1.0 - Math.pow(Math.abs(t - 0.4) / 0.4, 2));
     const clampedGlow = Math.max(0, Math.min(1, sunsetGlowFactor));
 
-    // 1) 맑은 날의 기본 대낮/황혼/밤 색상
-    // 낮의 선명한 바다 (카툰풍 스카이블루)
+    // 1) 맑은 날의 기본 대낮/황혼/밤 색상 (바다)
     const daySeaStart = parseColor('#29b6f6');
     const daySeaMid = parseColor('#0288d1');
     const daySeaEnd = parseColor('#01579b');
-
-    // 밤/황혼의 깊은 어두운 바다
     const nightSeaStart = parseColor('#1a0f30');
     const nightSeaMid = parseColor('#0c051a');
     const nightSeaEnd = parseColor('#040108');
-
-    // 맑은 날 골든아워의 타오르는 노을 바다
     const goldenSeaStart = parseColor('#ff5500');
     const goldenSeaMid = parseColor('#d00d56');
     const goldenSeaEnd = parseColor('#180230');
 
-    // 보간 적용
-    // 기본적으로 낮/밤 상태 보간 후, 노을 타임에는 노을 바다 색상을 강렬하게 끼얹는다.
     let seaStartRGB = interpolateColors(nightSeaStart, daySeaStart, t);
     let seaMidRGB = interpolateColors(nightSeaMid, daySeaMid, t);
     let seaEndRGB = interpolateColors(nightSeaEnd, daySeaEnd, t);
-
     seaStartRGB = interpolateColors(seaStartRGB, goldenSeaStart, clampedGlow);
     seaMidRGB = interpolateColors(seaMidRGB, goldenSeaMid, clampedGlow);
     seaEndRGB = interpolateColors(seaEndRGB, goldenSeaEnd, clampedGlow);
 
-    // 지형 색상 (맑을 때의 선명한 카툰톤)
-    // 낮: 짙은 슬레이트 블루/네이비
-    const dayFgStart = parseColor('#1e293b');
-    const dayFgEnd = parseColor('#0f172a');
-    const dayBgStart = parseColor('#334155');
-    const dayBgEnd = parseColor('#1e293b');
+    // 2) 지형도 스타일 등고선 레이어 색상
+    // 낮에는 녹색~갈색~암회색 지형도 팔레트, 밤엔 어두운 남색~퍼플 팔레트
+    // 등고선 레이어 (아래부터 위 순서: layer0=최저, layer4=최고)
+    const dayLayers = [
+      parseColor('#2d3f2f'), // layer0: 저지대 짙은 녹색
+      parseColor('#3a5234'), // layer1: 구릉 녹색
+      parseColor('#4a5e3d'), // layer2: 중간 고지 올리브
+      parseColor('#5a5e46'), // layer3: 고지대 황갈
+      parseColor('#6b6052'), // layer4: 고봉 회갈색
+    ];
+    const nightLayers = [
+      parseColor('#0d0e1e'), // layer0
+      parseColor('#111428'), // layer1
+      parseColor('#161a32'), // layer2
+      parseColor('#1b203c'), // layer3
+      parseColor('#212646'), // layer4
+    ];
+    const goldenLayers = [
+      parseColor('#3d1a12'), // layer0
+      parseColor('#4a2016'), // layer1
+      parseColor('#563026'), // layer2
+      parseColor('#5e3820'), // layer3
+      parseColor('#6b4228'), // layer4
+    ];
 
-    // 밤/황혼: 다크 퍼플
-    const nightFgStart = parseColor('#120a21');
-    const nightFgEnd = parseColor('#07020f');
-    const nightBgStart = parseColor('#24153b');
-    const nightBgEnd = parseColor('#0f071f');
+    const contourLayers = dayLayers.map((dayC, i) => {
+      let c = interpolateColors(nightLayers[i], dayC, t);
+      if (clampedGlow > 0.05) c = interpolateColors(c, goldenLayers[i], clampedGlow * 0.6);
+      return c;
+    });
 
-    let fgStartRGB = interpolateColors(nightFgStart, dayFgStart, t);
-    let fgEndRGB = interpolateColors(nightFgEnd, dayFgEnd, t);
-    let bgStartRGB = interpolateColors(nightBgStart, dayBgStart, t);
-    let bgEndRGB = interpolateColors(nightBgEnd, dayBgEnd, t);
+    // 등고선 선 색 (각 레이어보다 약간 밝게)
+    const contourLineDay = parseColor('#8fa87a');
+    const contourLineNight = parseColor('#2a2e4a');
+    let contourLineRGB = interpolateColors(contourLineNight, contourLineDay, t);
+    if (clampedGlow > 0.05) contourLineRGB = interpolateColors(contourLineRGB, parseColor('#a06030'), clampedGlow * 0.5);
 
-    // 노을 타임 지형은 아래쪽에 붉은 잔광이 살짝 비치는 느낌
-    if (clampedGlow > 0.05) {
-      fgStartRGB = interpolateColors(fgStartRGB, parseColor('#3d112d'), clampedGlow * 0.4);
-      bgStartRGB = interpolateColors(bgStartRGB, parseColor('#4c123a'), clampedGlow * 0.5);
-    }
-
-    // 2) 날씨가 안 좋을 때의 카툰 피드백 (완벽한 회조색/진흙 갈색 탈색)
-    // 흐리면 무채색 회색, 미세먼지는 칙칙한 진흙 갈색
+    // 날씨 나쁠 때 탈색
     const badWeatherSeverity = Math.max(overcast, dustIntensity);
-    if (badWeatherSeverity > 0.1) {
-      const grayTone = overcast > dustIntensity 
-        ? { start: parseColor('#303540'), mid: parseColor('#20242b'), end: parseColor('#12151a') } // 흐림: 회색조
-        : { start: parseColor('#4a3c31'), mid: parseColor('#332820'), end: parseColor('#1f1712') }; // 미세먼지: 황갈색조
+    const grayTone = overcast > dustIntensity
+      ? { start: parseColor('#303540'), mid: parseColor('#20242b'), end: parseColor('#12151a') }
+      : { start: parseColor('#4a3c31'), mid: parseColor('#332820'), end: parseColor('#1f1712') };
 
+    if (badWeatherSeverity > 0.1) {
       seaStartRGB = interpolateColors(seaStartRGB, grayTone.start, badWeatherSeverity * 0.85);
       seaMidRGB = interpolateColors(seaMidRGB, grayTone.mid, badWeatherSeverity * 0.85);
       seaEndRGB = interpolateColors(seaEndRGB, grayTone.end, badWeatherSeverity * 0.85);
-
-      fgStartRGB = interpolateColors(fgStartRGB, grayTone.start, badWeatherSeverity * 0.9);
-      fgEndRGB = interpolateColors(fgEndRGB, grayTone.end, badWeatherSeverity * 0.9);
-      bgStartRGB = interpolateColors(bgStartRGB, grayTone.mid, badWeatherSeverity * 0.95);
-      bgEndRGB = interpolateColors(bgEndRGB, grayTone.end, badWeatherSeverity * 0.95);
+      for (let i = 0; i < contourLayers.length; i++) {
+        contourLayers[i] = interpolateColors(contourLayers[i], i % 2 === 0 ? grayTone.start : grayTone.mid, badWeatherSeverity * 0.85);
+      }
+      contourLineRGB = interpolateColors(contourLineRGB, grayTone.mid, badWeatherSeverity * 0.8);
     }
 
     return {
-      bgStart: colorToString(bgStartRGB),
-      bgEnd: colorToString(bgEndRGB),
-      fgStart: colorToString(fgStartRGB),
-      fgEnd: colorToString(fgEndRGB),
       seaStart: colorToString(seaStartRGB),
       seaMid: colorToString(seaMidRGB),
       seaEnd: colorToString(seaEndRGB),
+      // 등고선 레이어 5단계
+      layers: contourLayers.map(colorToString),
+      contourLine: colorToString(contourLineRGB),
     };
   }, [sunAltitude, weatherFactors]);
 
@@ -645,112 +657,106 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   const renderTerrain = () => {
     if (!sim?.terrain?.panoramicAngles) return null;
 
-    const pointsCount = 150; 
+    const pointsCount = 150;
     const buffer = visualFov * 0.2;
     const totalRenderFov = visualFov + buffer * 2;
-    
+
     const avgAngle = (sim.terrain.panoramicAngles.reduce((a: number, b: number) => a + b, 0) || 0) / (sim.terrain.panoramicAngles.length || 1);
-    // 산맥 높이 스케일을 완화하여 수평선 부근에 완만하고 자연스럽게 걸치도록 조정합니다.
-    const targetPeakHeight = SKY_HEIGHT * 0.08; 
-    
+    const targetPeakHeight = SKY_HEIGHT * 0.08;
     const REF_DEGREE_TO_PIXEL = VISUALIZER_WIDTH / 20;
     const baseScale = targetPeakHeight / (Math.max(1, avgAngle) * REF_DEGREE_TO_PIXEL);
     const dynamicScale = Math.min(4.0, Math.max(0.6, baseScale));
-    
     const horizonLineY = SKY_HEIGHT - HORIZON_Y;
 
-    const getPoints = (angles: number[], verticalScale: number, yOffset: number) => {
-      const pointsList: string[] = [];
-      const getAngle = (azDeg: number) => {
-        if (angles.length < 2) return 0;
-        const normalizedAz = ((azDeg % 360) + 360) % 360;
-        const index = (normalizedAz / 360) * (angles.length - 1);
-        const i1 = Math.floor(index);
-        const i2 = (i1 + 1) % angles.length;
-        const ratio = index - i1;
-        const a1 = angles[i1] || 0;
-        const a2 = angles[i2] || 0;
-        return a1 * (1 - ratio) + a2 * ratio;
-      };
+    // Helper: get terrain height angle at absolute azimuth
+    const getAngle = (angles: number[], azDeg: number) => {
+      if (angles.length < 2) return 0;
+      const normalizedAz = ((azDeg % 360) + 360) % 360;
+      const index = (normalizedAz / 360) * (angles.length - 1);
+      const i1 = Math.floor(index);
+      const i2 = (i1 + 1) % angles.length;
+      const ratio = index - i1;
+      return (angles[i1] || 0) * (1 - ratio) + (angles[i2] || 0) * ratio;
+    };
 
+    // Build polygon points string for a given height fraction (0=ground, 1=full ridge)
+    const getContourPoints = (angles: number[], verticalScale: number, yOffset: number, heightFraction: number) => {
+      const pointsList: string[] = [];
       for (let i = 0; i <= pointsCount; i++) {
-        const relativeDeg = - (totalRenderFov / 2) + (i * totalRenderFov / pointsCount);
+        const relativeDeg = -(totalRenderFov / 2) + (i * totalRenderFov / pointsCount);
         const absDeg = heading + relativeDeg;
-        const angle = getAngle(absDeg);
+        const angle = getAngle(angles, absDeg) * heightFraction;
         const x = (relativeDeg / visualFov) * VISUALIZER_WIDTH + VISUALIZER_WIDTH / 2;
         const y = horizonLineY - (angle * verticalScale * DEGREE_TO_PIXEL) + yOffset;
-        
         pointsList.push(`${x.toFixed(2)},${y.toFixed(2)}`);
       }
-      
       const lastX = VISUALIZER_WIDTH.toFixed(2);
-      const groundY = SKY_HEIGHT.toFixed(2);
+      const groundY = (horizonLineY + 2).toFixed(2);
       return pointsList.join(' ') + ` ${lastX},${groundY} 0,${groundY}`;
     };
 
-    const bgPoints = getPoints(sim.terrain.farAngles || [], dynamicScale * 1.5, 0); 
-    const fgPoints = getPoints(sim.terrain.panoramicAngles || [], dynamicScale, 4); 
+    // ── Contour layer fractions ──────────────────────────────────
+    const CONTOUR_LEVELS = 5;
+    const layers = terrainColors.layers;
+    const contourLine = terrainColors.contourLine;
+    const farAngles = sim.terrain.farAngles || [];
+    const fgAngles = sim.terrain.panoramicAngles || [];
 
     return (
       <G>
-        {/* Sea Layer Shadow (Collage) */}
-        <Rect
-          x={0}
-          y={horizonLineY + 3.0}
-          width={VISUALIZER_WIDTH}
-          height={SKY_HEIGHT - horizonLineY}
-          fill="rgba(0,0,0,0.16)"
-        />
-        {/* Sea Layer */}
-        <Rect
-          x={0}
-          y={horizonLineY}
-          width={VISUALIZER_WIDTH}
-          height={SKY_HEIGHT - horizonLineY}
-          fill="url(#bgSeaGrad)"
-          stroke={borderStyle.strokeColor}
-          strokeWidth={borderStyle.strokeWidth}
-        />
-        
-        {/* Fine Dust Haze Layer behind terrain but above sea */}
-        {weatherFactors.dustIntensity > 0.08 && (
-          <Rect
-            x={0}
-            y={horizonLineY - 20}
-            width={VISUALIZER_WIDTH}
-            height={40}
-            fill="url(#hazeGrad)"
-            opacity={weatherFactors.dustIntensity * 0.8}
-          />
+        {/* ── Far Mountain: topographic contour layers ─────────────────────── */}
+        {farAngles.length > 1 && (
+          <G>
+            {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+              const frac = ((li + 1) / CONTOUR_LEVELS);
+              const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+              return (
+                <G key={`far-cl-${li}`}>
+                  <Polygon
+                    points={getContourPoints(farAngles, dynamicScale * 1.5, 0, frac)}
+                    fill={layers[Math.min(li, layers.length - 1)]}
+                    opacity={0.92}
+                  />
+                  {li < CONTOUR_LEVELS - 1 && (
+                    <Polygon
+                      points={getContourPoints(farAngles, dynamicScale * 1.5, 0, ridgeFrac)}
+                      fill="none"
+                      stroke={contourLine}
+                      strokeWidth={0.6}
+                      opacity={0.55}
+                    />
+                  )}
+                </G>
+              );
+            })}
+          </G>
         )}
-        
-        {/* Far Mountain Terrain Shadow (Collage) */}
-        <Polygon
-          points={bgPoints}
-          fill="rgba(0,0,0,0.16)"
-          transform="translate(1.0, 3.5)"
-        />
-        {/* Far Mountain Terrain */}
-        <Polygon
-          points={bgPoints}
-          fill="url(#bgTerrainGrad)"
-          stroke={borderStyle.strokeColor}
-          strokeWidth={borderStyle.strokeWidth}
-        />
-        
-        {/* Foreground Mountain Terrain Shadow (Collage) */}
-        <Polygon
-          points={fgPoints}
-          fill="rgba(0,0,0,0.22)"
-          transform="translate(1.5, 4.0)"
-        />
-        {/* Foreground Mountain Terrain */}
-        <Polygon
-          points={fgPoints}
-          fill="url(#fgTerrainGrad)"
-          stroke={borderStyle.strokeColor}
-          strokeWidth={borderStyle.strokeWidth * 1.25}
-        />
+
+        {/* ── Foreground Mountain: topographic contour layers ──────────────── */}
+        <G>
+          {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+            const frac = ((li + 1) / CONTOUR_LEVELS);
+            const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+            return (
+              <G key={`fg-cl-${li}`}>
+                <Polygon
+                  points={getContourPoints(fgAngles, dynamicScale, 0, frac)}
+                  fill={layers[Math.min(li, layers.length - 1)]}
+                  opacity={0.95}
+                />
+                {li < CONTOUR_LEVELS - 1 && (
+                  <Polygon
+                    points={getContourPoints(fgAngles, dynamicScale, 0, ridgeFrac)}
+                    fill="none"
+                    stroke={contourLine}
+                    strokeWidth={0.75}
+                    opacity={0.65}
+                  />
+                )}
+              </G>
+            );
+          })}
+        </G>
       </G>
     );
   };
@@ -800,7 +806,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const sunsetX = (VISUALIZER_WIDTH / 2) + (eventAzimuths.sunset - heading) * DEGREE_TO_PIXEL;
 
     return (
-      <View style={[styles.overlayCompass, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+      <View style={[styles.overlayCompass, { backgroundColor: 'rgba(4,5,16,0.97)' }]}>
         <View style={styles.scaleClip}>{ticks}</View>
         
         {sunriseX >= 0 && sunriseX <= VISUALIZER_WIDTH && (
@@ -816,7 +822,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           </View>
         )}
         
-        <View style={[styles.overlayCenterIndicator, { borderTopColor: theme.accent }]} />
+        <View style={[styles.overlayCenterIndicator, { borderBottomColor: theme.accent }]} />
       </View>
     );
   };
@@ -852,12 +858,39 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     );
   };
 
+  const fovDragRef = useRef<{ startY: number; startFov: number } | null>(null);
+  const fovPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        fovDragRef.current = {
+          startY: evt.nativeEvent.pageY,
+          startFov: visualFov,
+        };
+      },
+      onPanResponderMove: (evt) => {
+        if (!fovDragRef.current || !onFovChange) return;
+        // Drag UP = zoom in (smaller FOV), drag DOWN = zoom out (larger FOV)
+        // The slider is 200px tall (bottom: 48, top: 8) representing 10−30°
+        // 200px / 20° = 10px per degree
+        const dy = evt.nativeEvent.pageY - fovDragRef.current.startY;
+        const deltaFov = dy * (20 / 200); // 20° range over ~200px track height
+        const newFov = Math.max(10, Math.min(30, fovDragRef.current.startFov + deltaFov));
+        onFovChange(newFov);
+      },
+      onPanResponderRelease: () => {
+        fovDragRef.current = null;
+      },
+    })
+  ).current;
+
   const renderOverlayFovScale = () => {
     const fovPct = ((visualFov - 10) / 20) * 100;
     const fovTicks = [10, 15, 20, 25, 30];
     
     return (
-      <View style={styles.overlayFovContainer}>
+      <View style={styles.overlayFovContainer} {...fovPanResponder.panHandlers}>
         <View style={styles.fovTrackLine} />
         {fovTicks.map((val) => {
           const pct = ((val - 10) / 20) * 100;
@@ -949,9 +982,19 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                 : '#08101e'} stopOpacity={0.9} />
               <Stop offset="100%" stopColor="rgb(1,2,12)" stopOpacity={1} />
             </LinearGradient>
+            {/* Sea gradient — rendered behind terrain in this base SVG */}
+            <LinearGradient id="bgSeaGradBase" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor={terrainColors.seaStart} stopOpacity={0.85} />
+              <Stop offset="40%" stopColor={terrainColors.seaMid} stopOpacity={0.95} />
+              <Stop offset="100%" stopColor={terrainColors.seaEnd} stopOpacity={1} />
+            </LinearGradient>
           </Defs>
+          {/* Below-horizon sky fade */}
           <Rect x={0} y={horizonTop} width={VISUALIZER_WIDTH} height={SKY_HEIGHT - horizonTop}
             fill="url(#belowHorizonGrad)" />
+          {/* Sea fill — sits here so terrain SVG renders on top */}
+          <Rect x={0} y={horizonTop} width={VISUALIZER_WIDTH} height={SKY_HEIGHT - horizonTop}
+            fill="url(#bgSeaGradBase)" />
         </Svg>
 
         <Svg
@@ -961,23 +1004,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           pointerEvents="none"
         >
           <Defs>
-            {/* Sea linear gradient reflecting dynamic twilight to daytime transitions */}
-            <LinearGradient id="bgSeaGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor={terrainColors.seaStart} stopOpacity={0.8} />
-              <Stop offset="40%" stopColor={terrainColors.seaMid} stopOpacity="0.95" />
-              <Stop offset="100%" stopColor={terrainColors.seaEnd} stopOpacity="1" />
-            </LinearGradient>
-
-            <LinearGradient id="bgTerrainGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={terrainColors.bgStart} stopOpacity={1} />
-              <Stop offset="1" stopColor={terrainColors.bgEnd} stopOpacity={1} />
-            </LinearGradient>
-
-            <LinearGradient id="fgTerrainGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={terrainColors.fgStart} stopOpacity={1} />
-              <Stop offset="1" stopColor={terrainColors.fgEnd} stopOpacity={1} />
-            </LinearGradient>
-
+            {/* Haze gradient (dust) */}
             <LinearGradient id="lightPillarGrad" x1="0" y1="0" x2="1" y2="0">
               <Stop offset="0%" stopColor={theme.accent ?? '#FFD700'} stopOpacity={0} />
               <Stop offset="25%" stopColor={theme.accent ?? '#FFD700'} stopOpacity={0.06} />
@@ -1074,40 +1101,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             );
           })()}
 
-          {/* 2. Sun Glow & Disk (Rendered behind clouds and terrain) */}
+          {/* 2. Sun Disk */}
           {(() => {
             const sunX = Number((VISUALIZER_WIDTH / 2).toFixed(2));
             const sunY = Number((SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y)).toFixed(2));
-            const glowVisibility = prediction?.factors?.pathClarity ?? 1.0;
             const sunColor = prediction?.sunDiskColor ?? '#FFD700';
-
-            // Extract pure color RGB values from rgba string to avoid transparent border
             const parsedSun = parseColor(sunColor);
             const pureSunDiskColor = `rgb(${parsedSun.r}, ${parsedSun.g}, ${parsedSun.b})`;
             const sunOpacity = parsedSun.a;
-
             return (
-              <>
-                {/* Sun Disk - color from prediction (deep red near horizon, white-yellow when high) */}
-                <G opacity={sunOpacity}>
-                  {/* Paper Sun Disk Shadow */}
-                  <Circle
-                    cx={sunX + 1.5}
-                    cy={sunY + 3.5}
-                    r={sunSize / 2}
-                    fill="rgba(0, 0, 0, 0.22)"
-                  />
-                  {/* Main Sun Disk */}
-                  <Circle
-                    cx={sunX}
-                    cy={sunY}
-                    r={sunSize / 2}
-                    fill={pureSunDiskColor}
-                    stroke={borderStyle.strokeColor}
-                    strokeWidth={borderStyle.strokeWidth * 1.5}
-                  />
-                </G>
-              </>
+              <G opacity={sunOpacity}>
+                <Circle cx={sunX} cy={sunY} r={sunSize / 2} fill={pureSunDiskColor} />
+              </G>
             );
           })()}
 
@@ -1124,82 +1129,57 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             );
           })}
 
-          {/* 4. 3D Depth-sorted Clouds (Rendered behind terrain) */}
+          {/* 4. 3D Depth-sorted Clouds */}
           {computedClouds.map((cloud: any) => {
             if (!cloud) return null;
+            const tx = cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2;
+            const ty = cloud.y;
+            const scaleStr = `scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`;
             return (
               <G key={cloud.id} opacity={cloud.cloudOpacity}>
-                {/* Paper Cloud Shadow */}
-                <Path
-                  d={cloud.pathStr}
-                  fill="rgba(0,0,0,0.16)"
-                  transform={`translate(${cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2 + 1.5}, ${cloud.y + 3.5}) scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`}
-                />
-                {/* Main lit cloud path with Paper border */}
+                {/* Cloud fill only — no border/shadow */}
                 <Path
                   d={cloud.pathStr}
                   fill={`url(#${cloud.gradId})`}
-                  stroke={borderStyle.strokeColor}
-                  strokeWidth={borderStyle.strokeWidth * 0.8}
-                  transform={`translate(${cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2}, ${cloud.y}) scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`}
+                  transform={`translate(${tx}, ${ty}) ${scaleStr}`}
                 />
               </G>
             );
           })}
 
-          {/* 4.5. Enhanced Grid Clouds (rendered between computed clouds and terrain) */}
+          {/* 4.5. Enhanced Grid Clouds */}
           {gridCloudShapes && gridCloudShapes.length > 0 && gridCloudShapes.map((shape) => {
             const horizonTop = SKY_HEIGHT - HORIZON_Y;
-
-            // Compute wind drift coordinate here (synchronized with computedClouds)
             const timeMs = currentTime.getTime();
-            const windSpeedKmh = 25; 
+            const windSpeedKmh = 25;
             const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
             const totalDx = (windDriftKm % 160 - 80);
             const windAzOffset = Math.atan2(totalDx, shape.centerDist) * (180 / Math.PI);
-
-            // Map polar grid coordinates to screen space with wind drift
             const relAzDeg = shape.centerAzOffset + windAzOffset;
             const relAz = ((relAzDeg + 180) % 360) - 180;
             const fovRad = (visualFov * Math.PI) / 180;
             const halfFovRad = fovRad / 2;
             const xOffsetRatio = Math.tan((relAz * Math.PI) / 180) / Math.tan(halfFovRad);
             const cx = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
-
-            // Vertical position from apparent elevation
             const cy = horizonTop - (shape.apparentElevation * DEGREE_TO_PIXEL);
-
-            // Resolve papercraft template based on distance categories
             let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
             if (shape.centerDist <= 80) cloudCategory = 'near';
             else if (shape.centerDist > 200) cloudCategory = 'far';
-
             const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
             const templates = CLOUD_TEMPLATES[cloudCategory];
             const templateIndex = seed % templates.length;
             const cloudPath = templates[templateIndex];
-
-            // Set dimensions optimal for template aspect ratios
             const baseW = cloudCategory === 'far' ? 150 : cloudCategory === 'mid' ? 140 : 200;
             const baseH = cloudCategory === 'far' ? 25 : cloudCategory === 'mid' ? 25 : 45;
-
-            // Scale based on distance (perspective)
             const perspectiveScale = 45 / Math.max(10, shape.centerDist);
             const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
             const scaleZoom = 20 / visualFov;
             const finalScale = clampedScale * scaleZoom;
-
             const renderW = baseW * finalScale;
             const renderH = baseH * finalScale * 0.6;
-
-            // Skip if off-screen
             if (cx + renderW < -60 || cx - renderW > VISUALIZER_WIDTH + 60) return null;
             if (cy + renderH < -30 || cy > SKY_HEIGHT + 30) return null;
-
-            // Opacity from density
             const opacity = Math.max(0.15, Math.min(0.75, shape.density / 100));
-
-            // Sun proximity coloring (reuse prediction colors, using wind-drifted position)
             const sunAz = sim?.azimuth ?? 180;
             const cloudAzimuthAbs = (sim?.azimuth ?? 180) + shape.centerAzOffset + windAzOffset;
             let azDiff = cloudAzimuthAbs - sunAz;
@@ -1207,13 +1187,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const altDiff = shape.apparentElevation - sunAltitude;
             const angularDist = Math.sqrt(azDiff * azDiff + altDiff * altDiff);
             const sunCloseness = Math.max(0, 1 - angularDist / 30);
-
-            // 카툰 물듦 법칙 반영
             const alt = sunAltitude;
             const { overcast, dustIntensity } = weatherFactors;
             const isGoldenHour = alt >= -8 && alt <= 10;
             const sunsetQuality = Math.max(0, 1.0 - (overcast * 1.3 + dustIntensity * 0.9));
-
             let baseRGB = parseColor(
               shape.type === 'high'
                 ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.5)')
@@ -1221,37 +1198,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                 ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.45)')
                 : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.4)')
             );
-
-            // 날씨 보간
-            if (overcast > 0.5) {
-              baseRGB = interpolateColors(baseRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
-            }
-            if (dustIntensity > 0.5) {
-              baseRGB = interpolateColors(baseRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
-            }
-
+            if (overcast > 0.5) baseRGB = interpolateColors(baseRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
+            if (dustIntensity > 0.5) baseRGB = interpolateColors(baseRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
             let litRGB: RGB;
-            let shadowRGB: RGB;
-
             if (isGoldenHour && sunsetQuality > 0.15 && sunCloseness > 0.1) {
               const burnFactor = sunCloseness * sunsetQuality;
-              const sunsetGlowRGB = interpolateColors(
-                { r: 255, g: 80, b: 0, a: 1 },
-                { r: 255, g: 215, b: 0, a: 1 },
-                Math.min(1, burnFactor * 1.5)
-              );
+              const sunsetGlowRGB = interpolateColors({ r: 255, g: 80, b: 0, a: 1 }, { r: 255, g: 215, b: 0, a: 1 }, Math.min(1, burnFactor * 1.5));
               litRGB = interpolateColors(baseRGB, sunsetGlowRGB, Math.min(1, burnFactor * 1.3));
-              shadowRGB = interpolateColors(baseRGB, { r: 130, g: 40, b: 90, a: 1 }, Math.min(0.85, burnFactor * 0.95));
             } else {
               litRGB = baseRGB;
-              shadowRGB = interpolateColors(baseRGB, { r: 40, g: 50, b: 70, a: 1 }, 0.35);
             }
-
             const fillColor = colorToString(litRGB);
-
             const gradId = `gridGrad-${shape.id}`;
-
-            // Sun direction for gradient
             const sunScreenY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
             const dx = (VISUALIZER_WIDTH / 2) - cx;
             const dy = sunScreenY - cy;
@@ -1262,28 +1220,22 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const y1 = `${(0.5 - sinA * 0.5) * 100}%`;
             const x2 = `${(0.5 + cosA * 0.5) * 100}%`;
             const y2 = `${(0.5 + sinA * 0.5) * 100}%`;
-
+            const gTx = cx - (baseW * finalScale) / 2;
+            const gTy = cy;
+            const gScale = `scale(${finalScale}, ${finalScale * 0.6})`;
             return (
               <G key={shape.id} opacity={opacity}>
                 <Defs>
                   <LinearGradient id={gradId} x1={x1} y1={y1} x2={x2} y2={y2}>
-                    <Stop offset="0%" stopColor={colorToString(shadowRGB)} stopOpacity={1} />
+                    <Stop offset="0%" stopColor={fillColor} stopOpacity={1} />
                     <Stop offset="100%" stopColor={fillColor} stopOpacity={1} />
                   </LinearGradient>
                 </Defs>
-                {/* Paper Grid Cloud Shadow */}
+                {/* Cloud fill only — no border/shadow */}
                 <Path
                   d={cloudPath}
-                  fill="rgba(0,0,0,0.16)"
-                  transform={`translate(${cx - (baseW * finalScale) / 2 + 1.5}, ${cy + 3.5}) scale(${finalScale}, ${finalScale * 0.6})`}
-                />
-                {/* Main Cloud Path */}
-                <Path
-                  d={cloudPath}
-                  fill={`url(#${gradId})`}
-                  stroke={borderStyle.strokeColor}
-                  strokeWidth={borderStyle.strokeWidth * 0.8}
-                  transform={`translate(${cx - (baseW * finalScale) / 2}, ${cy}) scale(${finalScale}, ${finalScale * 0.6})`}
+                  fill={fillColor}
+                  transform={`translate(${gTx}, ${gTy}) ${gScale}`}
                 />
               </G>
             );
@@ -1311,19 +1263,19 @@ const styles = StyleSheet.create({
   scaleClip: { flex: 1, overflow: 'hidden' },
   overlayCompass: {
     position: 'absolute',
-    top: 0,
+    bottom: 0,
     left: 0,
     right: 0,
     height: 32,
     zIndex: 120,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-    justifyContent: 'flex-end',
-    paddingBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'flex-start',
+    paddingTop: 4,
   },
   overlayTick: {
     position: 'absolute',
-    bottom: 0,
+    top: 0,
     width: 1,
   },
   overlayTickLabel: {
@@ -1332,22 +1284,22 @@ const styles = StyleSheet.create({
     width: 30,
     textAlign: 'center',
     marginLeft: -15,
-    bottom: 8,
+    top: 8,
   },
   overlayCenterIndicator: {
     position: 'absolute',
-    top: 0,
+    bottom: 0,
     left: '50%',
     marginLeft: -5,
     borderLeftWidth: 5,
     borderRightWidth: 5,
-    borderTopWidth: 6,
+    borderBottomWidth: 6,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },
   overlaySunMarker: {
     position: 'absolute',
-    top: 1,
+    bottom: 1,
     alignItems: 'center',
     width: 30,
     marginLeft: -15,
@@ -1361,8 +1313,8 @@ const styles = StyleSheet.create({
   overlayFovContainer: {
     position: 'absolute',
     left: 8,
-    top: 40,
-    bottom: 20,
+    top: 8,
+    bottom: 48,   // 나침반 높이(32) + 여유(16)
     width: 32,
     zIndex: 120,
     alignItems: 'center',

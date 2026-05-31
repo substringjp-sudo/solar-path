@@ -104,22 +104,19 @@ export function useCelestialApp() {
   // 탭 전환 시 시간 슬라이더 초기값 리셋 (무한 루프 방지를 위해 플래그 기법 적용)
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
-      hasResetRef.current = false;
       prevTabRef.current = activeTab;
-    }
-
-    if (!hasResetRef.current) {
+      // 탭이 실제로 전환됐을 때만 리셋
       if (activeTab === 'tracker') {
         setCurrentTime(new Date());
-        hasResetRef.current = true;
       } else if (activeTab === 'sim') {
         if (events && events.sunrise) {
           setCurrentTime(events.sunrise);
-          hasResetRef.current = true;
         }
       }
     }
-  }, [activeTab, events]);
+    // events 변경으로 인한 추가 리셋은 의도적으로 막음
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // AppState 리스너: 포그라운드 복귀 시 권한 실시간 동기화
   useEffect(() => {

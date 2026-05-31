@@ -75,7 +75,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     }
   };
 
-  const currentPct = getPercentageFromTime(localValue);
+  const currentPct = Math.max(0, Math.min(100, getPercentageFromTime(localValue)));
 
   const baseTimePercentage = useMemo(() => {
     if (!localBaseTime) return 50;
@@ -337,7 +337,9 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       </View>
  
       <View style={styles.timeLabels}>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "00:00" : "-2.5h"}</Text>
+        <Text style={[styles.timeLabel, { color: theme.subText }]}>
+          {isFullDay ? "00:00" : `${startOffset >= 0 ? '+' : ''}${(startOffset / 60).toFixed(1)}h`}
+        </Text>
         {isFullDay ? (
           <Text style={[styles.timeLabel, { color: theme.subText }]}>12:00</Text>
         ) : (
@@ -351,7 +353,9 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
             </View>
           )
         )}
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>{isFullDay ? "23:59" : "+2.5h"}</Text>
+        <Text style={[styles.timeLabel, { color: theme.subText }]}>
+          {isFullDay ? "23:59" : `+${((startOffset + totalRange) / 60).toFixed(1)}h`}
+        </Text>
       </View>
     </View>
   );

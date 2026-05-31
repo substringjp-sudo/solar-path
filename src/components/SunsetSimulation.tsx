@@ -443,6 +443,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               sunAltitude={sunAltitude}
               heading={heading}
               visualFov={visualFov}
+              onFovChange={setVisualFov}
               prediction={prediction}
               panHandlers={panResponder.panHandlers}
               theme={theme}
