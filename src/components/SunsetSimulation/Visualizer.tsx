@@ -2,12 +2,10 @@ import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G, Filter, FeGaussianBlur, FeOffset, FeComponentTransfer, FeFuncA, FeMerge, FeMergeNode, Ellipse } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
-import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB } from '../../utils/sunsetPhysics';
+import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01 } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
-import { Canvas, Rect as SkiaRect, Shader } from '@shopify/react-native-skia';
-import { skyShaderEffect } from '../../utils/sunsetShaders';
 
 interface VisualizerProps {
   prediction: SunsetPrediction | null;
@@ -406,52 +404,21 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     }).filter(Boolean);
   }, [allCloudLayersData, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL]);
 
-  // Compute 8x4 local cloud grid array for the scattering shader
-  const cloudGrid = useMemo(() => {
-    const grid = new Float32Array(32);
-    grid.fill(0);
+  // ── Sky mosaic: 8 vertical × 5 horizontal = 40 cell physically-based colors ──
+  const skyGrid = useMemo(() => {
+    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
+    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
+    const sunAzDeg = sim?.azimuth ?? 180;
 
-    if (!computedClouds || computedClouds.length === 0) {
-      return Array.from(grid);
-    }
-
-    for (let row = 0; row < 4; row++) {
-      const theta_cell = (row + 0.5) * (75 / 4);
-      for (let col = 0; col < 8; col++) {
-        const phi_cell = -visualFov / 2 + (col + 0.5) * (visualFov / 8);
-
-        let maxDensity = 0;
-
-        for (const cloud of computedClouds) {
-          if (!cloud) continue;
-
-          const phi_cloud = cloud.relativeAz;
-          const theta_cloud = cloud.apparentElevationDeg;
-
-          const wDeg = (cloud.baseWidth * cloud.finalScaleX) / DEGREE_TO_PIXEL;
-          const hDeg = (cloud.baseHeight * cloud.finalScaleY) / DEGREE_TO_PIXEL;
-
-          const rx = wDeg * 0.7;
-          const ry = hDeg * 0.7;
-
-          const dPhi = Math.abs(phi_cell - phi_cloud);
-          const dTheta = Math.abs(theta_cell - theta_cloud);
-
-          if (dPhi < rx && dTheta < ry) {
-            const distNorm = Math.sqrt((dPhi / rx) ** 2 + (dTheta / ry) ** 2);
-            if (distNorm < 1.0) {
-              const factor = Math.cos(distNorm * Math.PI / 2);
-              const densityContribution = (cloud.opacityDensity / 100) * factor;
-              maxDensity = Math.max(maxDensity, densityContribution);
-            }
-          }
-        }
-        grid[row * 8 + col] = Math.min(1.0, maxDensity);
-      }
-    }
-
-    return Array.from(grid);
-  }, [computedClouds, visualFov, DEGREE_TO_PIXEL]);
+    return computeSkyGrid(
+      sunAltitude,
+      sunAzDeg,
+      heading,
+      visualFov,
+      beta,
+      pathClarity,
+    );
+  }, [sunAltitude, heading, visualFov, prediction, sim]);
 
   // Adjust papercraft border line styles for comic/papercraft theme (clear white borders when clear, fading to soft tint in heavy cloud/haze)
   const borderStyle = useMemo(() => {
@@ -557,71 +524,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
   }, [sunAltitude, weatherFactors]);
 
-  // Dedicated sun corona halo opacity to let dawn glow emerge before sun disk crosses horizon
-  const haloOpacity = useMemo(() => {
-    // Dawn/twilight glow begins emerging gently from -12 degrees (astronomical twilight)
-    const t = Math.max(0, Math.min(1, (sunAltitude + 12) / 14)); // 0 at -12 deg, 1.0 at 2 deg
-    const baseHalo = Math.pow(t, 1.8);
-    // Extinguish halo when thick cloud layer obstructs the direct line-of-sight
-    return baseHalo * (1.0 - weatherFactors.cloudBlock * 0.96);
-  }, [sunAltitude, weatherFactors]);
+  // (halo useMemos removed — sun glow is now handled by sky mosaic Mie boost)
 
-  // Dynamic corona size multiplier based on dust & relative humidity (larger halos in heavy particulate conditions)
-  const dynamicHaloSizeScale = useMemo(() => {
-    const { dustIntensity } = weatherFactors;
-    return 1.0 + dustIntensity * 0.45;
-  }, [weatherFactors]);
 
-  // Compute uniforms for react-native-skia atmospheric shader
-  const uniforms = useMemo(() => {
-    const beta = prediction?.factors?.aerosolBeta ?? 0.08;
-    const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
-    const overheadOvercast = prediction?.factors?.overheadOvercast ?? 0.0;
-    const observerElevationM = sim?.terrain?.observerElevation ?? 50;
-    const latitude = sim?.pathData?.[0]?.latitude ?? 37.5665;
-
-    // Evaluate sunLight at Rayleigh/Mie/Horizon specific effective altitudes
-    // Rayleigh scale height is ~8km -> horizon dip is 2.8°, average scattering altitude is ~12km
-    const sunLightRayleigh = directBeamRGB(Math.max(sunAltitude + 2.8, -2.0), 12000, latitude, beta);
-    // Mie scale height is ~1.2km -> horizon dip is 1.1°, average scattering altitude is ~2.5km
-    const sunLightMie = directBeamRGB(Math.max(sunAltitude + 1.1, -1.5), 2500, latitude, beta);
-    const horizonBeam = directBeamRGB(Math.max(sunAltitude, 0), observerElevationM, latitude, beta);
-
-    const lerpVal = (a: number, b: number, t: number) => a + (b - a) * t;
-    
-    // Dawn/twilight background glow begins emerging gently from -12 degrees (astronomical twilight)
-    let sunBrightness = 1.0;
-    if (sunAltitude < 2) {
-      const tDecay = Math.max(0, Math.min(1, (sunAltitude + 12) / 14));
-      sunBrightness = lerpVal(0.0, 1.0, Math.pow(tDecay, 1.8));
-    }
-
-    const dayMultiplier = 1.0 + 1.25 * Math.pow(Math.max(0, Math.min(1, sunAltitude / 40)), 0.3);
-
-    const sunX = VISUALIZER_WIDTH / 2;
-    const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
-
-    const safeFloat = (v: number, fallback = 0) => (isNaN(v) || !isFinite(v) ? fallback : v);
-    const safeVec2 = (v: number[], fallback = [0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1])];
-    const safeVec3 = (v: number[], fallback = [0, 0, 0]) => [safeFloat(v[0], fallback[0]), safeFloat(v[1], fallback[1]), safeFloat(v[2], fallback[2])];
-
-    return {
-      u_resolution: safeVec2([VISUALIZER_WIDTH, SKY_HEIGHT], [1, 1]),
-      u_sunPos: safeVec2([sunX, sunY]),
-      u_sunLightRayleigh: safeVec3([sunLightRayleigh.r, sunLightRayleigh.g, sunLightRayleigh.b]),
-      u_sunLightMie: safeVec3([sunLightMie.r, sunLightMie.g, sunLightMie.b]),
-      u_horizonBeam: safeVec3([horizonBeam.r, horizonBeam.g, horizonBeam.b]),
-      u_sunAlt: safeFloat(sunAltitude, 0),
-      u_beta: safeFloat(beta, 0.08),
-      u_pathClarity: safeFloat(pathClarity, 1.0),
-      u_visualFov: safeFloat(visualFov, 20),
-      u_horizonY: safeFloat(SKY_HEIGHT - HORIZON_Y, SKY_HEIGHT * 0.9),
-      u_sunBrightness: safeFloat(sunBrightness, 1.0),
-      u_dayMultiplier: safeFloat(dayMultiplier, 1.0),
-      u_overheadOvercast: safeFloat(overheadOvercast, 0.0),
-      u_cloudGrid: cloudGrid,
-    };
-  }, [prediction, sim, sunAltitude, visualFov, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, cloudGrid]);
+  // (uniforms block removed — Skia shader replaced by SVG mosaic)
 
   // 3. Compute continuous overhead giant cloud bands when overcast factor is extremely high
   const giantClouds = useMemo(() => {
@@ -992,20 +898,61 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     { offset: 1, color: '#08101e' },
   ];
 
+  // ── Sky mosaic rendering constants ────────────────────────────────────────
+  const SKY_ROWS = 8;
+  const SKY_COLS = 5;
+  const cellW = VISUALIZER_WIDTH / SKY_COLS;
+  const cellH = (SKY_HEIGHT - HORIZON_Y) / SKY_ROWS; // only above horizon
+  const horizonTop = SKY_HEIGHT - HORIZON_Y;
+
   return (
     <View style={[styles.visualizerContainer, { width: VISUALIZER_WIDTH }]}>
       <View 
         style={[styles.sky, { height: SKY_HEIGHT }]}
         {...panHandlers}
       >
-        {/* Skia GPU-Accelerated Atmosphere Shader Background */}
-        {skyShaderEffect && prediction && (
-          <Canvas style={StyleSheet.absoluteFillObject}>
-            <SkiaRect x={0} y={0} width={VISUALIZER_WIDTH} height={SKY_HEIGHT}>
-              <Shader source={skyShaderEffect} uniforms={uniforms} />
-            </SkiaRect>
-          </Canvas>
-        )}
+        {/* ── Physical Sky Mosaic Background (8×5 grid, no blur/gradient) ── */}
+        <Svg
+          width={VISUALIZER_WIDTH}
+          height={SKY_HEIGHT}
+          style={StyleSheet.absoluteFillObject as any}
+          pointerEvents="none"
+        >
+          {/* Night/below-horizon fill */}
+          <Rect x={0} y={0} width={VISUALIZER_WIDTH} height={SKY_HEIGHT}
+            fill={`rgb(1,2,12)`} />
+          {/* Sky mosaic cells (above horizon only) */}
+          {skyGrid.map((color, idx) => {
+            const row = Math.floor(idx / SKY_COLS);
+            const col = idx % SKY_COLS;
+            const x = col * cellW;
+            // row 0 = zenith (top), row 7 = near horizon (bottom)
+            const y = row * cellH;
+            const cssColor = rgbToCss(color);
+            return (
+              <Rect
+                key={`sky-${row}-${col}`}
+                x={x}
+                y={y}
+                width={cellW + 1}
+                height={cellH + 1}
+                fill={cssColor}
+              />
+            );
+          })}
+          {/* Below-horizon gradient (sea color fading to dark) */}
+          <Defs>
+            <LinearGradient id="belowHorizonGrad" x1="0" y1="0" x2="0" y2="1">
+              {/* Use the lowest sky row color for continuity */}
+              <Stop offset="0%" stopColor={skyGrid.length >= SKY_COLS
+                ? rgbToCss(skyGrid[SKY_ROWS * SKY_COLS - Math.ceil(SKY_COLS / 2)])
+                : '#08101e'} stopOpacity={0.9} />
+              <Stop offset="100%" stopColor="rgb(1,2,12)" stopOpacity={1} />
+            </LinearGradient>
+          </Defs>
+          <Rect x={0} y={horizonTop} width={VISUALIZER_WIDTH} height={SKY_HEIGHT - horizonTop}
+            fill="url(#belowHorizonGrad)" />
+        </Svg>
 
         <Svg
           width={VISUALIZER_WIDTH}
@@ -1020,31 +967,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               <Stop offset="40%" stopColor={terrainColors.seaMid} stopOpacity="0.95" />
               <Stop offset="100%" stopColor={terrainColors.seaEnd} stopOpacity="1" />
             </LinearGradient>
-
-            {/* Concentric sun corona halo gradients (Cartoon Step Gradients) */}
-            <RadialGradient id="sunInnerHalo" cx="50%" cy="50%" rx="50%" ry="50%">
-              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-              <Stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.9" />
-              <Stop offset="55%" stopColor="#FFD700" stopOpacity="0.8" />
-              <Stop offset="85%" stopColor="#FFD700" stopOpacity="0.6" />
-              <Stop offset="90%" stopColor="#FF8C00" stopOpacity="0.3" />
-              <Stop offset="100%" stopColor="#FF8C00" stopOpacity="0" />
-            </RadialGradient>
-
-            <RadialGradient id="sunMidHalo" cx="50%" cy="50%" rx="50%" ry="50%">
-              <Stop offset="0%" stopColor="#FFD700" stopOpacity="0.65" />
-              <Stop offset="75%" stopColor="#FFD700" stopOpacity="0.5" />
-              <Stop offset="80%" stopColor="#FF8C00" stopOpacity="0.3" />
-              <Stop offset="95%" stopColor="#FF8C00" stopOpacity="0.15" />
-              <Stop offset="100%" stopColor="#FF8C00" stopOpacity="0" />
-            </RadialGradient>
-
-            <RadialGradient id="sunOuterHalo" cx="50%" cy="50%" rx="50%" ry="50%">
-              <Stop offset="0%" stopColor="#FF8C00" stopOpacity="0.35" />
-              <Stop offset="80%" stopColor="#FF8C00" stopOpacity="0.2" />
-              <Stop offset="85%" stopColor="#FF4500" stopOpacity="0.1" />
-              <Stop offset="100%" stopColor="#FF4500" stopOpacity="0" />
-            </RadialGradient>
 
             <LinearGradient id="bgTerrainGrad" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor={terrainColors.bgStart} stopOpacity={1} />
@@ -1166,19 +1088,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
             return (
               <>
-                {/* Corona Halo Layers - Cleaned up to single tidy halo for cartoon look */}
-                <G opacity={haloOpacity}>
-                  {/* Single Clean Sun Corona Halo */}
-                  <Circle
-                    cx={sunX}
-                    cy={sunY}
-                    r={sunSize * 1.45 * dynamicHaloSizeScale}
-                    fill="url(#sunInnerHalo)"
-                    opacity={glowVisibility * 0.8}
-                  />
-                </G>
-
-                {/* Sun Disk - Renders only when sun crosses above horizon (using sunOpacity) */}
+                {/* Sun Disk - color from prediction (deep red near horizon, white-yellow when high) */}
                 <G opacity={sunOpacity}>
                   {/* Paper Sun Disk Shadow */}
                   <Circle
@@ -1187,7 +1097,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                     r={sunSize / 2}
                     fill="rgba(0, 0, 0, 0.22)"
                   />
-                  {/* Main Paper Sun Disk */}
+                  {/* Main Sun Disk */}
                   <Circle
                     cx={sunX}
                     cy={sunY}

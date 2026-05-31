@@ -81,7 +81,7 @@ const skyShaderSource = `
   float4 main(float2 pos) {
     // Relocated constants to prevent global context linking errors in Skia compilers
     float3 OVERCAST = float3(0.498, 0.541, 0.588);
-    float3 AMBIENT_NIGHT = float3(0.003, 0.003, 0.010);
+    float3 AMBIENT_NIGHT = float3(0.002, 0.003, 0.012);
     float PI = 3.14159265;
 
     // 1. Calculate elevation angle (theta) of the pixel in degrees
@@ -146,25 +146,22 @@ const skyShaderSource = `
     );
 
     // 7. Horizon Extinction (scattering light fading near the horizon)
-    float horizonWeight = exp(-0.35 * max(0.0, theta_deg));
+    float altWeight = clamp((u_sunAlt - 0.0) / 10.0, 0.0, 1.0);
+    float horizonDecay = mix(0.35, 0.15, altWeight);
+    float horizonWeight = exp(-horizonDecay * max(0.0, theta_deg));
     // 대낮에도 수평선 부근이 맑고 뽀얀 연청색을 유지하도록 0.32 하한선 적용
     float sunLowFactor = clamp((15.0 - u_sunAlt) / 15.0, 0.32, 1.0);
     float horizonStrength = horizonWeight * u_pathClarity * 2.2 * (1.0 - cloudDensity * 0.6) * sunLowFactor;
     
-    float altWeight = clamp((u_sunAlt - 0.0) / 10.0, 0.0, 1.0);
-    float gFilter = mix(0.42, 0.9, altWeight);
-    float bFilter = mix(0.05, 0.8, altWeight);
-    
-    float3 horizon = float3(
-      u_horizonBeam.r * horizonStrength,
-      u_horizonBeam.g * horizonStrength * gFilter,
-      u_horizonBeam.b * horizonStrength * bFilter
-    );
+    float3 dayHorizonColor = float3(0.68, 0.82, 0.94);
+    float3 baseHorizonColor = mix(u_horizonBeam, dayHorizonColor, altWeight);
+    float3 horizon = baseHorizonColor * horizonStrength;
 
     // 8. Ground / Night / Below Horizon fading
     // Apply exposure multiplier (12.0) to convert small physical scattering quantities to rich visual tones
     // Multiply Rayleigh by 2.2 for vibrant daylight blue sky dome
-    float3 skyRGB = (rayleigh * 2.2 + mie + horizon) * 12.0;
+    // Scale horizon outside of 12.0 multiplier to prevent oversaturating to white
+    float3 skyRGB = (rayleigh * 2.2 + mie) * 12.0 + horizon * 1.8;
     
     // Ternary fade-out below horizon (0.45로 완화하여 지평선 아래 수평선 근처 바다에도 여명이 자연스럽게 퍼짐)
     float belowHorizonFade = (theta_deg < 0.0) ? exp(max(-20.0, theta_deg * 0.45)) : 1.0;
@@ -173,7 +170,7 @@ const skyShaderSource = `
     // 9. Absolute base color + Sun Brightness & Overcast mixing
     // skyRGB는 이미 nightFade와 물리적 산란량이 적용되어 있으므로 u_sunBrightness의 이중 감쇠를 적용하지 않습니다.
     float3 finalRGB = skyRGB * u_dayMultiplier 
-                     + float3(0.015, 0.055, 0.115) * u_sunBrightness * u_dayMultiplier 
+                     + float3(0.008, 0.045, 0.280) * u_sunBrightness * u_dayMultiplier 
                      + AMBIENT_NIGHT * (1.0 - u_sunBrightness);
 
     // Apply fine dust graying/whitening to the blue sky dome in high aerosol conditions
@@ -182,9 +179,11 @@ const skyShaderSource = `
     finalRGB = mix(finalRGB, dustySkyColor, dustLevel * 0.45 * u_sunBrightness);
 
     // Apply cloud overcast darkening (merging global overcast with localized cloud density)
+    // 흐린 하늘이 밋밋한 회색 판때기처럼 보이지 않도록 천정각과 해 방향에 따른 음영 변화 적용
+    float3 localOvercastColor = OVERCAST * (1.0 - 0.12 * clamp(theta_deg / 75.0, 0.0, 1.0) + 0.15 * cosGamma * u_pathClarity);
     float localOvercast = max(u_overheadOvercast, cloudDensity);
     float overcastWeight = localOvercast * 0.75 * u_sunBrightness;
-    finalRGB = mix(finalRGB, OVERCAST, overcastWeight);
+    finalRGB = mix(finalRGB, localOvercastColor, overcastWeight);
 
     // Gamma correction for sRGB color space mapping on mobile displays
     finalRGB = pow(finalRGB, float3(1.0 / 2.2));
