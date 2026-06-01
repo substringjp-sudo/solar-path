@@ -20,6 +20,9 @@ import {
   TrajectoryPoint,
 } from '../utils/sunCamera';
 import { getSunPosition } from '../utils/celestial';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { useCelestialStore } from '../store/useCelestialStore';
+import { auth } from '../config/firebase';
 
 interface SunCameraProps {
   visible: boolean;
@@ -34,6 +37,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
+  const { uploadAndPostPhoto } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -326,35 +330,57 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 갤러리에 저장 및 EXIF 기록 시뮬레이션 로깅
       console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
 
+      // 1. 휴대폰 갤러리에 저장
+      let savedToLibrary = false;
       if (mediaPermission?.granted) {
         await MediaLibrary.saveToLibraryAsync(photo.uri);
-        setCaptureResult(photo.uri);
-
-        // 2초 후 결과 화면 닫기
-        setTimeout(() => {
-          setCaptureResult(null);
-          setIsCapturing(false);
-        }, 2000);
+        savedToLibrary = true;
       } else {
         const { granted } = await requestMediaPermission();
         if (granted) {
           await MediaLibrary.saveToLibraryAsync(photo.uri);
-          setCaptureResult(photo.uri);
-          setTimeout(() => {
-            setCaptureResult(null);
-            setIsCapturing(false);
-          }, 2000);
+          savedToLibrary = true;
         } else {
           Alert.alert('Permission Required', 'Gallery permission is required to save photos.');
           setIsCapturing(false);
+          return;
         }
       }
+
+      // 2. 서버 업로드 및 지도 데이터베이스 연동 (로그인된 경우)
+      const user = auth.currentUser;
+      if (user && savedToLibrary) {
+        try {
+          // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
+          const manipulated = await ImageManipulator.manipulateAsync(
+            photo.uri,
+            [{ resize: { width: 600 } }],
+            { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
+          );
+
+          const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
+          await uploadAndPostPhoto(manipulated.uri, latitude, longitude, locationName);
+        } catch (uploadError: any) {
+          console.error('[SunCamera] Failed to upload and post photo:', uploadError);
+          Alert.alert('Upload Failed', 'Photo was saved to your gallery, but failed to upload to the map: ' + (uploadError.message || 'Unknown error'));
+        }
+      } else if (!user) {
+        Alert.alert('Saved to Gallery', 'Photo saved to your phone gallery. Log in to share sunset photos on the map!');
+      }
+
+      setCaptureResult(photo.uri);
+      // 2초 후 결과 화면 닫기
+      setTimeout(() => {
+        setCaptureResult(null);
+        setIsCapturing(false);
+      }, 2000);
+
     } catch (error) {
       console.warn('[SunCamera] Capture error:', error);
       Alert.alert('Error', 'An error occurred while taking photo.');
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, mediaPermission, latitude, longitude, sunPos]);
+  }, [isCapturing, currentEnhancement, mediaPermission, requestMediaPermission, latitude, longitude, sunPos, uploadAndPostPhoto]);
 
   // 권한 요청
   useEffect(() => {

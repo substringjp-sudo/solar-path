@@ -880,11 +880,11 @@ export const MapPicker = ({
     try {
       setIsUploading(true);
 
-      // Compress and resize using expo-image-manipulator
+      // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
       const manipulated = await ImageManipulator.manipulateAsync(
         previewImageUri,
-        [{ resize: { width: 800 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        [{ resize: { width: 600 } }],
+        { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
       );
 
       const locationName = `Sunset at ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;

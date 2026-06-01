@@ -206,7 +206,7 @@ export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5
   if (!path || path.length === 0) return 1;
   const centralPath = path.filter(p => p.azimuthOffset === 0);
   const activePath = (centralPath.length > 0 ? centralPath : path).sort((a, b) => a.distance - b.distance);
-  const apparentAlt = getApparentAltitude(sunAltDeg);
+  const apparentAlt = getApparentAltitude(Math.max(0.5, sunAltDeg));
   const apparentAltRad = (apparentAlt * Math.PI) / 180;
   const distances = activePath.map(p => p.distance);
   const weights = distances.map((d) => {
@@ -355,6 +355,34 @@ export const skyColorAtDirection = (
     finalR = Math.min(1, finalR + bR * glowStrength);
     finalG = Math.min(1, finalG + bG * glowStrength * 0.85);
     finalB = Math.min(1, finalB + bB * glowStrength * 0.70);
+  }
+
+  // ── Broad Twilight Arch (Orange-red horizon glow centered at sun azimuth) ──
+  // This simulates the atmospheric light path that remains illuminated after sunset.
+  if (sunAltDeg > -12) {
+    // Decay factor as the sun goes deeper below the horizon (0.0 at -12°, 1.0 at >=2°)
+    const twilightVis = clamp01((sunAltDeg + 12) / 14);
+    const twilightVisSmooth = twilightVis * twilightVis * (3 - 2 * twilightVis);
+    
+    if (twilightVisSmooth > 0.01) {
+      // Horizontal distribution: centered at sun's azimuth (gammaDeg)
+      const cosAzDiff = Math.cos((gammaDeg * Math.PI) / 180);
+      const archSpread = Math.max(0, cosAzDiff);
+      
+      // Broad angular spread along the horizon with exponential height falloff
+      const archFactor = Math.pow(archSpread, 1.5) * Math.exp(-0.12 * thetaDeg) * twilightVisSmooth * pathClarity;
+      const archIntensity = archFactor * 0.90 * (0.8 + beta * 0.4);
+      
+      // Interpolate colors from deep red-orange to bright yellow-gold as sun altitude rises (-8° to +4°)
+      const tColor = clamp01((sunAltDeg + 8) / 12);
+      const archR = 1.0;
+      const archG = lerp(0.18, 0.72, tColor);
+      const archB = lerp(0.01, 0.12, tColor);
+      
+      finalR = Math.min(1, finalR + archR * archIntensity);
+      finalG = Math.min(1, finalG + archG * archIntensity);
+      finalB = Math.min(1, finalB + archB * archIntensity);
+    }
   }
 
   // ── Aerosol desaturation (fine dust/haze whitens sky uniformly) ──────────
