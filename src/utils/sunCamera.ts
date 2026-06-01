@@ -63,12 +63,14 @@ export interface ScreenPoint {
 
 /**
  * 디바이스 방향(자이로) 기준으로 태양의 화면 좌표를 계산한다.
- * deviceAzimuth: 디바이스가 바라보는 방위각 (0=북, 시계방향)
- * devicePitch: 디바이스의 수직 기울기 (0=수평, 양수=위)
- * sunAzimuth: 태양의 방위각 (0=북, 시계방향)
- * sunAltitude: 태양의 고도 (도)
- * hFov: 카메라 수평 시야각 (도)
- * vFov: 카메라 수직 시야각 (도)
+ * Perspective (탄젠트) 투영 사용 — 선형 투영보다 정확.
+ *
+ * deviceAzimuth: 디바이스가 바라보는 방위각 (0=북, 시계방향, 도)
+ * devicePitch:   디바이스의 수직 기울기 (0=수평, 양수=위를 향함, 도)
+ * sunAzimuth:    태양의 방위각 (0=북, 시계방향, 도)
+ * sunAltitude:   태양의 고도 (도)
+ * hFov:          카메라 수평 시야각 (도)
+ * vFov:          카메라 수직 시야각 (도)
  */
 export const getSunScreenPosition = (
   deviceAzimuth: number,
@@ -78,16 +80,25 @@ export const getSunScreenPosition = (
   hFov: number = 60,
   vFov: number = 80
 ): ScreenPoint => {
-  // 방위각 차이 (태양 - 디바이스), -180 ~ 180 범위로 정규화
+  const toRad = Math.PI / 180;
+
+  // 방위각 차이: 태양 - 카메라, -180~+180 범위
   let azDiff = sunAzimuth - deviceAzimuth;
   azDiff = ((azDiff + 540) % 360) - 180;
 
-  // 고도 차이 (태양 - 디바이스 피치)
+  // 고도 차이: 태양 - 카메라 피치
   const altDiff = sunAltitude - devicePitch;
 
-  // 화면 좌표 (0~1 범위)
-  const x = 0.5 + (azDiff / hFov);
-  const y = 0.5 - (altDiff / vFov);
+  // Perspective 투영: tan 기반으로 가장자리 왜곡 없이 정확한 화면 위치 계산
+  const halfHFovRad = (hFov / 2) * toRad;
+  const halfVFovRad = (vFov / 2) * toRad;
+
+  const xNorm = Math.tan(azDiff * toRad) / Math.tan(halfHFovRad);
+  // 화면 y: 위가 0, 아래가 1 → 고도가 높을수록 y가 작아야 함
+  const yNorm = -Math.tan(altDiff * toRad) / Math.tan(halfVFovRad);
+
+  const x = 0.5 + xNorm * 0.5;
+  const y = 0.5 + yNorm * 0.5;
 
   const isVisible = x >= -0.1 && x <= 1.1 && y >= -0.1 && y <= 1.1;
 
