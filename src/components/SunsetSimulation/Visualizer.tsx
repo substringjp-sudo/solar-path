@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder } from 'react-native';
-import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G, Filter, FeGaussianBlur, FeOffset, FeComponentTransfer, FeFuncA, FeMerge, FeMergeNode, Ellipse } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Stop, RadialGradient, Rect, Circle, Polygon, Path, G, Filter, FeGaussianBlur, FeOffset, FeComponentTransfer, FeFuncA, FeMerge, FeMergeNode, Ellipse, Polyline } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -950,6 +950,20 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       return pointsList.join(' ') + ` ${lastX},${groundY} 0,${groundY}`;
     };
 
+    // Build polyline points string for the top silhouette ridge only
+    const getRidgeLinePoints = (angles: number[], verticalScale: number, yOffset: number) => {
+      const pointsList: string[] = [];
+      for (let i = 0; i <= pointsCount; i++) {
+        const relativeDeg = -(totalRenderFov / 2) + (i * totalRenderFov / pointsCount);
+        const absDeg = heading + relativeDeg;
+        const angle = getAngle(angles, absDeg);
+        const x = (relativeDeg / visualFov) * VISUALIZER_WIDTH + VISUALIZER_WIDTH / 2;
+        const y = horizonLineY - (angle * verticalScale * DEGREE_TO_PIXEL) + yOffset;
+        pointsList.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+      }
+      return pointsList.join(' ');
+    };
+
     // ── Contour layer fractions ──────────────────────────────────
     const CONTOUR_LEVELS = 5;
     const layers = terrainColors.layers;
@@ -959,6 +973,28 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
     return (
       <G>
+        {/* Panoramic Ridge Highlight (glowing orange/gold rim on foreground ridge) */}
+        {sunAltitude >= -4.0 && sunAltitude <= 8.0 && (
+          <G>
+            {/* Outer blur-like glow */}
+            <Polyline
+              points={getRidgeLinePoints(fgAngles, dynamicScale, -1.5)}
+              fill="none"
+              stroke="#FF8C00"
+              strokeWidth={4.5}
+              opacity={Math.max(0, Math.min(1, sunAltitude >= 0 ? 1 - (sunAltitude / 8) : 1 - (sunAltitude / -4))) * 0.45}
+            />
+            {/* Inner core */}
+            <Polyline
+              points={getRidgeLinePoints(fgAngles, dynamicScale, -1)}
+              fill="none"
+              stroke="#FFE082"
+              strokeWidth={1.8}
+              opacity={Math.max(0, Math.min(1, sunAltitude >= 0 ? 1 - (sunAltitude / 8) : 1 - (sunAltitude / -4))) * 0.8}
+            />
+          </G>
+        )}
+
         {/* ── Far Mountain: topographic contour layers ─────────────────────── */}
         {farAngles.length > 1 && (
           <G>

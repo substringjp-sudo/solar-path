@@ -8,6 +8,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { Accelerometer, Magnetometer } from 'expo-sensors';
 import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw } from 'lucide-react-native';
+import { Skia, rect } from '@shopify/react-native-skia';
 
 
 import {
@@ -23,6 +24,8 @@ import { getSunPosition } from '../utils/celestial';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
+import { predictSunset } from '../utils/sunsetPhysics';
+import { getInterpolatedWeather } from '../utils/weather';
 
 interface SunCameraProps {
   visible: boolean;
@@ -33,11 +36,90 @@ interface SunCameraProps {
   goldenTimeInfo: GoldenTimeInfo;
 }
 
+const stampPhoto = async (
+  uri: string,
+  lat: number,
+  lon: number,
+  sunAlt: number,
+  humidity: number,
+  pm25: number,
+  description: string
+): Promise<string> => {
+  try {
+    const data = await Skia.Data.fromURI(uri);
+    const image = Skia.Image.MakeImageFromEncoded(data);
+    if (!image) return uri;
+
+    const w = image.width();
+    const h = image.height();
+
+    const surface = Skia.Surface.MakeRasterN32Premul(w, h);
+    if (!surface) return uri;
+
+    const canvas = surface.getCanvas();
+    canvas.drawImage(image, 0, 0);
+
+    const fontSize = Math.max(14, w * 0.016);
+    const fontMgr = Skia.FontMgr.RefDefault();
+    const fontSystem = fontMgr.matchFamilyStyle('sans-serif', { weight: 700 });
+    
+    if (fontSystem) {
+      const font = Skia.Font(fontSystem, fontSize);
+      const fontHeader = Skia.Font(fontSystem, fontSize * 1.25);
+      
+      const paintText = Skia.Paint();
+      paintText.setAntiAlias(true);
+
+      const boxW = w * 0.38;
+      const boxH = fontSize * 7.5;
+      const boxX = w - boxW - (w * 0.04);
+      const boxY = h - boxH - (h * 0.05);
+
+      const paintBox = Skia.Paint();
+      paintBox.setColor(Skia.Color('rgba(5, 5, 12, 0.65)'));
+      canvas.drawRoundRect(rect(boxX, boxY, boxW, boxH), 16, 16, paintBox);
+
+      const paintBorder = Skia.Paint();
+      paintBorder.setStyle(Skia.PaintStyle.Stroke);
+      paintBorder.setStrokeWidth(2);
+      paintBorder.setColor(Skia.Color('#FFD700'));
+      canvas.drawRoundRect(rect(boxX, boxY, boxW, boxH), 16, 16, paintBorder);
+
+      let currY = boxY + fontSize * 1.8;
+      const stepY = fontSize * 1.35;
+
+      paintText.setColor(Skia.Color('#FFD700'));
+      canvas.drawText('SOLAR PATH HUD', boxX + 16, currY, fontHeader, paintText);
+
+      currY += stepY * 1.1;
+      paintText.setColor(Skia.Color('#FFFFFF'));
+      canvas.drawText(`Location: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, font, paintText);
+
+      currY += stepY;
+      canvas.drawText(`Sun Alt: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, font, paintText);
+
+      currY += stepY;
+      canvas.drawText(`Humidity: ${humidity}%  |  PM2.5: ${pm25}㎍`, boxX + 16, currY, font, paintText);
+
+      currY += stepY;
+      paintText.setColor(Skia.Color('#00FFCC'));
+      canvas.drawText(`Sky Condition: ${description}`, boxX + 16, currY, font, paintText);
+    }
+
+    const snapshot = surface.makeImageSnapshot();
+    const base64Bytes = snapshot.encodeToBase64(Skia.ImageFormat.JPEG, 90);
+    return `data:image/jpeg;base64,${base64Bytes}`;
+  } catch (err) {
+    console.error('Failed to stamp photo with Skia:', err);
+    return uri;
+  }
+};
+
 export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  const { uploadAndPostPhoto } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -309,7 +391,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     setIsCapturing(true);
 
-
     try {
       // EXIF 활성화하여 촬영
       const photo = await cameraRef.current.takePictureAsync({
@@ -323,6 +404,71 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         return;
       }
 
+      // 날씨 데이터 추출 로직
+      let humidity = 50;
+      let pm25 = 22;
+      let description = currentEnhancement.description || 'Clear';
+
+      const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const R = 6371000;
+        const dLat = ((lat2 - lat1) * Math.PI) / 180;
+        const dLon = ((lon2 - lon1) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      let nearestWeather = null;
+      let minDist = Infinity;
+      const TIME_LIMIT = 1800000; // 30분
+      for (const item of weatherCacheList) {
+        const dist = getDistanceMeters(latitude, longitude, item.latitude, item.longitude);
+        const age = Date.now() - item.timestamp;
+        if (dist < minDist && age <= TIME_LIMIT) {
+          minDist = dist;
+          nearestWeather = item;
+        }
+      }
+
+      if (nearestWeather && nearestWeather.data && nearestWeather.data.length > 0) {
+        const interpolated = getInterpolatedWeather(nearestWeather.data, currentTime);
+        if (interpolated && interpolated.length > 0) {
+          const obs = interpolated[0];
+          humidity = obs.humidity != null ? Math.round(obs.humidity) : 50;
+          
+          const prediction = predictSunset(
+            nearestWeather.data,
+            currentTime,
+            sunPos.altitude,
+            obs.visibility,
+            obs.humidity,
+            latitude,
+            0
+          );
+          if (prediction) {
+            const beta = prediction.factors?.aerosolBeta ?? 0.08;
+            pm25 = Math.round(beta * 280);
+            description = prediction.description || 'Clear';
+          }
+        }
+      }
+
+      // Skia 워터마크 스탬프 찍기
+      const stampedUri = await stampPhoto(
+        photo.uri,
+        latitude,
+        longitude,
+        sunPos.altitude,
+        humidity,
+        pm25,
+        description
+      );
+
       // EXIF 메타데이터 구성 (태양 위치 물리값 및 이미지 인핸스먼트 지표 결합)
       const metadata = {
         UserComment: JSON.stringify({
@@ -331,7 +477,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           location: { latitude, longitude },
           sun: { altitude: sunPos.altitude, azimuth: sunPos.azimuth },
           filter: {
-            scene: currentEnhancement.description,
+            scene: description,
             brightness: currentEnhancement.brightness,
             contrast: currentEnhancement.contrast,
             saturation: currentEnhancement.saturation,
@@ -346,12 +492,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 1. 휴대폰 갤러리에 저장
       let savedToLibrary = false;
       if (mediaPermission?.granted) {
-        await MediaLibrary.saveToLibraryAsync(photo.uri);
+        await MediaLibrary.saveToLibraryAsync(stampedUri);
         savedToLibrary = true;
       } else {
         const { granted } = await requestMediaPermission();
         if (granted) {
-          await MediaLibrary.saveToLibraryAsync(photo.uri);
+          await MediaLibrary.saveToLibraryAsync(stampedUri);
           savedToLibrary = true;
         } else {
           Alert.alert('Permission Required', 'Gallery permission is required to save photos.');
@@ -366,7 +512,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         try {
           // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
           const manipulated = await ImageManipulator.manipulateAsync(
-            photo.uri,
+            stampedUri,
             [{ resize: { width: 600 } }],
             { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
           );
@@ -381,7 +527,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         Alert.alert('Saved to Gallery', 'Photo saved to your phone gallery. Log in to share sunset photos on the map!');
       }
 
-      setCaptureResult(photo.uri);
+      setCaptureResult(stampedUri);
       // 2초 후 결과 화면 닫기
       setTimeout(() => {
         setCaptureResult(null);
@@ -393,7 +539,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       Alert.alert('Error', 'An error occurred while taking photo.');
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, mediaPermission, requestMediaPermission, latitude, longitude, sunPos, uploadAndPostPhoto]);
+  }, [isCapturing, currentEnhancement, mediaPermission, requestMediaPermission, latitude, longitude, sunPos, uploadAndPostPhoto, weatherCacheList, currentTime]);
 
   // 권한 요청
   useEffect(() => {

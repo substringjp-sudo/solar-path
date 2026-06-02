@@ -311,6 +311,20 @@ export const MapPicker = ({
                 '<div style="font-size: 9px; color: ' + (isDay ? '#555' : '#ccc') + ';">' + new Date(photo.timestamp).toLocaleDateString() + '</div>' +
                 '</div>';
               marker.bindPopup(popupContent, { closeButton: false });
+              
+              marker.on('click', () => {
+                const message = {
+                  type: 'PHOTO_PIN_CLICK',
+                  lat: photo.latitude,
+                  lng: photo.longitude
+                };
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify(message));
+                } else {
+                  window.parent.postMessage(message, '*');
+                }
+              });
+
               marker.addTo(map);
               myPhotosMarkers.push(marker);
             });
@@ -730,6 +744,11 @@ export const MapPicker = ({
         if (typeof event.data.zoom === 'number') {
           setMapZoom(event.data.zoom);
         }
+      } else if (event.data?.type === 'PHOTO_PIN_CLICK') {
+        setLatInput(event.data.lat.toFixed(6));
+        setLonInput(event.data.lng.toFixed(6));
+        onSelect({ coords: { latitude: event.data.lat, longitude: event.data.lng } });
+        onClose();
       }
     };
     window.addEventListener('message', handleMessage);
@@ -873,6 +892,11 @@ export const MapPicker = ({
                         if (typeof data.zoom === 'number') {
                           setMapZoom(data.zoom);
                         }
+                      } else if (data.type === 'PHOTO_PIN_CLICK') {
+                        setLatInput(data.lat.toFixed(6));
+                        setLonInput(data.lng.toFixed(6));
+                        onSelect({ coords: { latitude: data.lat, longitude: data.lng } });
+                        onClose();
                       }
                     } catch (e) {
                       console.error("WebView message parse error:", e);

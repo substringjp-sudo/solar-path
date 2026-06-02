@@ -6,6 +6,50 @@ import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialE
 import { getGoldenTimeInfo } from '../utils/sunCamera';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
 import { auth } from '../config/firebase';
+import * as Notifications from 'expo-notifications';
+import { predictSunset } from '../utils/sunsetPhysics';
+import { fetchSunsetWeather, getInterpolatedWeather } from '../utils/weather';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+const requestNotificationPermission = async () => {
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  return finalStatus === 'granted';
+};
+
+const scheduleSunsetNotification = async (sunsetTime: Date, score: number) => {
+  try {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+
+    const triggerTime = new Date(sunsetTime.getTime() - 30 * 60 * 1000); // 30 mins before sunset
+    if (triggerTime.getTime() <= Date.now()) {
+      return;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '🌅 오늘의 스마트 노을 알림',
+        body: `오늘 일몰의 예측 점수가 ${score}점(대박 노을)입니다! 30분 뒤 골든아워가 시작됩니다.`,
+        sound: true,
+      },
+      trigger: triggerTime,
+    });
+    console.log('[Push Notification Scheduled]', triggerTime);
+  } catch (err) {
+    console.error('Failed to schedule notification:', err);
+  }
+};
 
 export function useCelestialApp() {
   const { width } = Dimensions.get('window');
@@ -459,6 +503,61 @@ export function useCelestialApp() {
       unsubscribeGlobalPhotos();
     };
   }, [syncGlobalPhotos]);
+
+  // 오늘의 스마트 노을 알림 스케줄링
+  useEffect(() => {
+    if (!location || !events?.sunset) return;
+
+    const lat = location.coords.latitude;
+    const lon = location.coords.longitude;
+    const sunsetTime = events.sunset;
+
+    // 이미 지난 일몰이면 생략 (예: 일몰 30분 전 시점이 과거일 때)
+    if (sunsetTime.getTime() - 30 * 60 * 1000 <= Date.now()) {
+      return;
+    }
+
+    const scheduleAlert = async () => {
+      try {
+        const hasPermission = await requestNotificationPermission();
+        if (!hasPermission) return;
+
+        // 대략적인 일몰 방위각 계산
+        const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
+
+        // 날씨 데이터 가져오기
+        const weatherData = await fetchSunsetWeather(lat, lon, azimuth);
+        if (!weatherData || weatherData.length === 0) return;
+
+        // 일몰 시간 부근의 날씨 보간
+        const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
+        const obs = interpolated[0];
+        if (!obs) return;
+
+        // 일몰 점수 및 예측 진단
+        const prediction = predictSunset(
+          weatherData,
+          sunsetTime,
+          0, // 일몰 시점 sun altitude = 0도
+          obs.visibility,
+          obs.humidity,
+          lat,
+          0 // elevation
+        );
+
+        if (prediction) {
+          const score = prediction.score;
+          if (score >= 55) {
+            await scheduleSunsetNotification(sunsetTime, score);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to schedule sunset notification:', err);
+      }
+    };
+
+    scheduleAlert();
+  }, [location, events?.sunset]);
 
   return {
     width,
