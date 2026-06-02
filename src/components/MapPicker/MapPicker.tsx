@@ -922,7 +922,7 @@ export const MapPicker = ({
               style={[styles.tabItem, activeTab === 'location' && [styles.activeTabItem, { borderBottomColor: theme.accent }, dStyle.activeTabItem]]}
               onPress={() => setActiveTab('location')}
             >
-              <Text style={[styles.tabText, activeTab === 'location' ? { color: theme.accent } : { color: theme.subText }, dStyle.tabItemText]}>
+              <Text style={[styles.tabText, activeTab === 'location' ? { color: theme.text } : { color: theme.subText }, dStyle.tabItemText]}>
                 Location
               </Text>
             </TouchableOpacity>
@@ -930,7 +930,7 @@ export const MapPicker = ({
               style={[styles.tabItem, activeTab === 'photo' && [styles.activeTabItem, { borderBottomColor: theme.accent }, dStyle.activeTabItem]]}
               onPress={() => setActiveTab('photo')}
             >
-              <Text style={[styles.tabText, activeTab === 'photo' ? { color: theme.accent } : { color: theme.subText }, dStyle.tabItemText]}>
+              <Text style={[styles.tabText, activeTab === 'photo' ? { color: theme.text } : { color: theme.subText }, dStyle.tabItemText]}>
                 Photo
               </Text>
             </TouchableOpacity>
@@ -1133,42 +1133,6 @@ export const MapPicker = ({
             ) : (
               // Photo Tab Panel
               <>
-                <View style={[styles.photoCapturePanel, dStyle.section]}>
-                  <Text style={[styles.photoCaptureTitle, { color: theme.subText }]}>Share Sunset Photo</Text>
-                  
-                  {!auth.currentUser ? (
-                    <View style={{ alignItems: 'center', padding: 8 }}>
-                      <Text style={[styles.photoCaptureDesc, { color: theme.text, marginBottom: 8, textAlign: 'center' }]}>
-                        You must log in to upload and share sunset photos.
-                      </Text>
-                    </View>
-                  ) : (
-                    <>
-                      <Text style={[styles.photoCaptureDesc, { color: theme.text }]}>
-                        Capture or select a sunset photo to share at the selected coordinates ({parseFloat(latInput).toFixed(4)}°, {parseFloat(lonInput).toFixed(4)}°).
-                      </Text>
-                      
-                      <View style={{ flexDirection: 'row', gap: 12, width: '100%', marginTop: 4 }}>
-                        <TouchableOpacity
-                          style={[styles.captureBtn, { backgroundColor: theme.accent, flex: 1 }, dStyle.button]}
-                          onPress={takePhotoWithCamera}
-                        >
-                          <Camera size={16} color="#000" />
-                          <Text style={{ color: '#000', fontWeight: '800', fontSize: 13 }}>Take Photo</Text>
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity
-                          style={[styles.captureBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: isAndroid ? 0 : 1, borderColor: theme.border, flex: 1 }, dStyle.button, isAndroid && { backgroundColor: '#2C2D35' }]}
-                          onPress={pickPhotoFromLibrary}
-                        >
-                          <ImageIcon size={16} color={theme.text} />
-                          <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>Choose Photo</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </>
-                  )}
-                </View>
-
                 {/* Sunset Photos Gallery */}
                 <View style={styles.gallerySection}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

@@ -229,35 +229,42 @@ function getCloudPreset(
 }
 
 function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
-  if (alt > 6.0) {
+  if (alt > 12.0) {
     return { r: 1.0, g: 1.0, b: 1.0 };
+  } else if (alt > 5.0) {
+    const t = Math.max(0, Math.min(1, (alt - 5.0) / 7.0));
+    return {
+      r: 1.0,
+      g: 0.85 + t * 0.15,
+      b: 0.20 + t * 0.80,
+    };
   } else if (alt > 1.5) {
-    const t = Math.max(0, Math.min(1, (alt - 1.5) / 4.5));
+    const t = Math.max(0, Math.min(1, (alt - 1.5) / 3.5));
     return {
       r: 1.0,
-      g: 0.92 + t * 0.08,
-      b: 0.30 + t * 0.70,
+      g: 0.45 + t * 0.40,
+      b: 0.02 + t * 0.18,
     };
-  } else if (alt > -1.5) {
-    const t = Math.max(0, Math.min(1, (alt - (-1.5)) / 3.0));
+  } else if (alt > -2.0) {
+    const t = Math.max(0, Math.min(1, (alt - (-2.0)) / 3.5));
     return {
       r: 1.0,
-      g: 0.45 + t * 0.47,
-      b: 0.05 + t * 0.25,
+      g: 0.12 + t * 0.33,
+      b: 0.00 + t * 0.02,
     };
-  } else if (alt > -6.0) {
-    const t = Math.max(0, Math.min(1, (alt - (-6.0)) / 4.5));
+  } else if (alt > -7.0) {
+    const t = Math.max(0, Math.min(1, (alt - (-7.0)) / 5.0));
     return {
-      r: 0.90 + t * 0.10,
-      g: 0.08 + t * 0.37,
-      b: 0.02 + t * 0.03,
+      r: 0.85 + t * 0.15,
+      g: 0.02 + t * 0.10,
+      b: 0.01 + t * 0.01,
     };
   } else {
-    const t = Math.max(0, Math.min(1, (alt + 10.0) / 4.0));
+    const t = Math.max(0, Math.min(1, (alt + 12.0) / 5.0));
     return {
-      r: 0.15 + t * 0.75,
-      g: 0.02 + t * 0.06,
-      b: 0.05 + t * 0.03,
+      r: 0.10 + t * 0.75,
+      g: 0.01 + t * 0.01,
+      b: 0.03 + t * 0.01,
     };
   }
 }
@@ -299,6 +306,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   theme,
   panHandlers,
   gridCloudShapes,
+  location,
 }) => {
   const { width, height } = useWindowDimensions();
   const { timezoneOffsetHours } = useCelestialStore();
@@ -495,13 +503,19 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
       const sunX = VISUALIZER_WIDTH / 2;
 
-      // Compute vector from cloud center to sun
-      const dx = sunX - x;
-      const dy = sunY - (y + renderHeight / 2);
-      const angleRad = Math.atan2(dy, dx);
+      // 태양은 무한히 먼 거리의 평행 광원(Parallel Light)이므로 구름의 개별 좌표 x에 따라 
+      // 빛받는 방향이 좌우로 뒤집혀서는 안 됩니다. 
+      // 오직 카메라 시야각(heading) 대비 태양 방위각(sim.azimuth) 차이에 의해 구름 전체의 광원 수평 성분이 통일되게 회전합니다.
+      const relativeSunAz = (((sim?.azimuth || 180) - heading + 180) % 360) - 180;
+      const lightDx = Math.sin((relativeSunAz * Math.PI) / 180);
       
-      const cosA = Math.cos(angleRad);
-      const sinA = Math.sin(angleRad);
+      // 수직 성분: 태양의 고도가 15도 부근일 때 수직 성분이 0이 되도록 설정
+      const lightDy = -Math.sin(((sunAltitude - 15) * Math.PI) / 180);
+      
+      // 광원 벡터 정규화
+      const lightLength = Math.sqrt(lightDx * lightDx + lightDy * lightDy);
+      const cosA = lightLength > 1e-5 ? lightDx / lightLength : 0;
+      const sinA = lightLength > 1e-5 ? lightDy / lightLength : -1.0;
       
       // Vector coordinates relative to bounding box
       const x1 = (0.5 - cosA * 0.5) * 100 + '%';
@@ -581,8 +595,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         shadowBlend
       );
 
-      // 중간톤(Mid) 색상 계산
-      const finalMidRGB = interpolateColors(finalShadowRGB, finalLitRGB, 0.45);
+      // 중간톤(Mid) 색상 계산: 태양 방향의 은은한 광원이 구름 몸통에 더 넓게 전이되도록 가중치 상향 (0.45 -> 0.65)
+      const finalMidRGB = interpolateColors(finalShadowRGB, finalLitRGB, 0.65);
 
       // 하이라이트(Highlight) 색상 계산: 태양을 마주하는 림 에지용 밝은 광택
       const highlightIntensity = preset.thickness > 0.5 ? 1.0 : 0.7;
@@ -608,9 +622,9 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         );
       }
 
-      // 두께에 따른 그라데이션 Stop 오프셋 계산
-      const stopMid = `${Math.round(30 + preset.thickness * 45)}%`; // 30% ~ 75%
-      const stopLit = `${Math.round(70 + preset.thickness * 20)}%`; // 70% ~ 90%
+      // 두께에 따른 그라데이션 Stop 오프셋 계산: 빛받는 면이 구름 안쪽으로 더 은은히 확산되도록 스톱 오프셋 앞당김
+      const stopMid = `${Math.round(20 + preset.thickness * 25)}%`; // 20% ~ 45%
+      const stopLit = `${Math.round(45 + preset.thickness * 20)}%`; // 45% ~ 65%
 
       // Shadow offset (opposite to the sun vector)
       const shadowDist = Math.min(6, 2 + renderHeight * 0.15);
@@ -1351,7 +1365,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const sunColor = prediction?.sunDiskColor ?? '#FFD700';
             const parsedSun = parseColor(sunColor);
             const pureSunDiskColor = `rgb(${parsedSun.r}, ${parsedSun.g}, ${parsedSun.b})`;
-            const sunOpacity = parsedSun.a;
+            const sunOpacity = 1.0; // 태양은 반투명해지지 않고 항상 불투명하게 렌더링
             return (
               <G opacity={sunOpacity}>
                 <Circle cx={sunX} cy={sunY} r={sunSize / 2} fill={pureSunDiskColor} />

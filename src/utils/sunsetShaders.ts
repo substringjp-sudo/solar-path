@@ -176,7 +176,9 @@ const skyShaderSource = `
     // Apply fine dust graying/whitening to the blue sky dome in high aerosol conditions
     float dustLevel = clamp((u_beta - 0.04) / 0.46, 0.0, 1.0);
     float3 dustySkyColor = float3(0.48, 0.45, 0.40);
-    finalRGB = mix(finalRGB, dustySkyColor, dustLevel * 0.45 * u_sunBrightness);
+    // 태양 주변부(cosGamma가 1.0에 가까울수록)에서는 에어로졸 탈색 강도를 줄여서 붉은 광선이 유지되도록 합니다.
+    float proximityFactor = clamp((1.0 - cosGamma) * 4.0, 0.15, 1.0);
+    finalRGB = mix(finalRGB, dustySkyColor, dustLevel * 0.45 * u_sunBrightness * proximityFactor);
 
     // Apply cloud overcast darkening (merging global overcast with localized cloud density)
     // 흐린 하늘이 밋밋한 회색 판때기처럼 보이지 않도록 천정각과 해 방향에 따른 음영 변화 적용

@@ -86,8 +86,14 @@ export const getSunScreenPosition = (
   let azDiff = sunAzimuth - deviceAzimuth;
   azDiff = ((azDiff + 540) % 360) - 180;
 
-  // 고도 차이: 태양 - 카메라 피치
-  const altDiff = sunAltitude - devicePitch;
+  // 고도 차이: 태양 - 카메라 피치, -180~+180 범위로 정규화
+  let altDiff = sunAltitude - devicePitch;
+  altDiff = ((altDiff + 540) % 360) - 180;
+
+  // 1. 카메라 뒤쪽 반구(후방 85도 이상 차이)에 위치하는 경우 렌더링 배제 (대칭 투영 왜곡 방지)
+  if (Math.abs(azDiff) >= 85 || Math.abs(altDiff) >= 85) {
+    return { x: NaN, y: NaN, isVisible: false };
+  }
 
   // Perspective 투영: tan 기반으로 가장자리 왜곡 없이 정확한 화면 위치 계산
   const halfHFovRad = (hFov / 2) * toRad;

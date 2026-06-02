@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput } from 'react-native';
-import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail } from 'lucide-react-native';
+import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -24,9 +24,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     currentUser,
     locationPermission,
     cameraPermission,
+    mediaPermission,
+    microphonePermission,
     checkPermissions,
     requestLocationPermission,
     requestCameraPermission,
+    requestMediaPermission,
+    requestMicrophonePermission,
   } = useCelestialStore();
   const [showLicenses, setShowLicenses] = useState(false);
 
@@ -121,6 +125,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       Linking.openSettings();
     } else {
       requestCameraPermission();
+    }
+  };
+
+  const handleMediaPress = () => {
+    if (mediaPermission === 'granted') return;
+    if (mediaPermission === 'denied') {
+      Linking.openSettings();
+    } else {
+      requestMediaPermission();
+    }
+  };
+
+  const handleMicrophonePress = () => {
+    if (microphonePermission === 'granted') return;
+    if (microphonePermission === 'denied') {
+      Linking.openSettings();
+    } else {
+      requestMicrophonePermission();
     }
   };
 
@@ -293,6 +315,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <AlertCircle size={12} color="#FF5252" />
                         <Text style={styles.badgeTextDenied}>
                           {cameraPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Storage & Media Permission */}
+                <TouchableOpacity 
+                  style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                  onPress={handleMediaPress}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.permIconContainer}>
+                    <Image size={16} color={theme.text} />
+                    <Text style={[styles.permLabel, { color: theme.text }]}>Storage & Media</Text>
+                  </View>
+                  <View style={styles.statusRow}>
+                    {mediaPermission === 'granted' ? (
+                      <View style={styles.badgeGranted}>
+                        <CheckCircle2 size={12} color="#4CAF50" />
+                        <Text style={styles.badgeTextGranted}>Granted</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.badgeDenied}>
+                        <AlertCircle size={12} color="#FF5252" />
+                        <Text style={styles.badgeTextDenied}>
+                          {mediaPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Microphone Permission */}
+                <TouchableOpacity 
+                  style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                  onPress={handleMicrophonePress}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.permIconContainer}>
+                    <Mic size={16} color={theme.text} />
+                    <Text style={[styles.permLabel, { color: theme.text }]}>Audio & Mic</Text>
+                  </View>
+                  <View style={styles.statusRow}>
+                    {microphonePermission === 'granted' ? (
+                      <View style={styles.badgeGranted}>
+                        <CheckCircle2 size={12} color="#4CAF50" />
+                        <Text style={styles.badgeTextGranted}>Granted</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.badgeDenied}>
+                        <AlertCircle size={12} color="#FF5252" />
+                        <Text style={styles.badgeTextDenied}>
+                          {microphonePermission === 'denied' ? 'Denied' : 'Not Granted'}
                         </Text>
                       </View>
                     )}

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
@@ -71,6 +72,8 @@ interface CelestialState {
   globalPhotos: GlobalPhoto[];
   locationPermission: string | null;
   cameraPermission: string | null;
+  mediaPermission: string | null;
+  microphonePermission: string | null;
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -99,6 +102,8 @@ interface CelestialState {
   checkPermissions: () => Promise<void>;
   requestLocationPermission: () => Promise<void>;
   requestCameraPermission: () => Promise<void>;
+  requestMediaPermission: () => Promise<void>;
+  requestMicrophonePermission: () => Promise<void>;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -126,6 +131,8 @@ export const useCelestialStore = create<CelestialState>()(
       currentUser: null,
       locationPermission: 'undetermined',
       cameraPermission: 'undetermined',
+      mediaPermission: 'undetermined',
+      microphonePermission: 'undetermined',
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -442,7 +449,14 @@ export const useCelestialStore = create<CelestialState>()(
         try {
           const { status: locStatus } = await Location.getForegroundPermissionsAsync();
           const { status: camStatus } = await Camera.getCameraPermissionsAsync();
-          set({ locationPermission: locStatus, cameraPermission: camStatus });
+          const { status: mediaStatus } = await MediaLibrary.getPermissionsAsync();
+          const { status: micStatus } = await Camera.getMicrophonePermissionsAsync();
+          set({ 
+            locationPermission: locStatus, 
+            cameraPermission: camStatus,
+            mediaPermission: mediaStatus,
+            microphonePermission: micStatus
+          });
         } catch (err) {
           console.warn('Failed to check permissions:', err);
         }
@@ -469,6 +483,22 @@ export const useCelestialStore = create<CelestialState>()(
           set({ cameraPermission: status });
         } catch (err) {
           console.warn('Failed to request camera permission:', err);
+        }
+      },
+      requestMediaPermission: async () => {
+        try {
+          const { status } = await MediaLibrary.requestPermissionsAsync();
+          set({ mediaPermission: status });
+        } catch (err) {
+          console.warn('Failed to request media permission:', err);
+        }
+      },
+      requestMicrophonePermission: async () => {
+        try {
+          const { status } = await Camera.requestMicrophonePermissionsAsync();
+          set({ microphonePermission: status });
+        } catch (err) {
+          console.warn('Failed to request microphone permission:', err);
         }
       },
     }),

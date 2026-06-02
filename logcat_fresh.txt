@@ -1,0 +1,1257 @@
+--------- beginning of main
+06-02 19:16:25.343  1833  2951 I SDM     : HWPeripheralDRM::SetPanelFeature: Set Panel feature property 15
+06-02 19:16:25.343  1833  2951 I SDM     : HWPeripheralDRM::SetPanelFeature: Set Panel feature property 16
+06-02 19:16:25.343  1833  2951 I SDM     : MdnieFeatureIntfImpl::HandleFrameDoneEvent: MdnieFeature is configured in ART mode, duration 16
+06-02 19:16:25.345  1833  2156 I SDM     : DRMPanelFeatureMgr::ApplyDirtyFeature: Commited panel feature [enabled]: 16-269
+06-02 19:16:25.345  1833  2156 I SDM     : DRMPanelFeatureMgr::ApplyDirtyFeature: Commited panel feature [enabled]: 17-271
+06-02 19:16:25.349  1840  2570 D AidlBufferPoolAcc: evictor expired: 1, evicted: 0
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger: Display 4630947191136750483 HWC layers:
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger:   SOLID_COLOR |                        0 | 00000000 | N/A          |    0.0    0.0    0.0    0.0 |    0    0 1440 3120 | animation-background for #4783#536885 (0)
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger:   SOLID_COLOR |                        0 | 00000002 | N/A          |    0.0    0.0    0.0    0.0 |    0  141 1317  944 | Background for e8cdc5c SurfaceView[c[...]neycomb.Shell$HomeActivity]@0#536882 (0)
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger:        CLIENT |           40501541764036 | 00002100 | RGBA_8888    |  110.0    0.0 1440.0 3120.0 |    0   14 1317 3106 | com.google.android.youtube/com.googl[...]comb.Shell$HomeActivity$_9430#536876 (33)
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger:        DEVICE |          129540508640834 | 00002100 | RGBA_8888    |    0.0    0.0 1440.0  128.0 |    0    0 1440  128 | StatusBar$_30161#483612 (106398)
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger:        DEVICE |          129540508640833 | 00002100 | RGBA_8888    |    0.0    0.0 1440.0  180.0 |    0 2940 1440 3120 | NavigationBar0$_30161#483603 (185614)
+06-02 19:16:25.372  1945  1945 D SurfaceFlinger: 
+06-02 19:16:25.373 29244 18225 D PerProcessNandswapNative: enable WriteBooster
+--------- beginning of system
+06-02 19:16:25.408 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.android.bluetooth(pid 30518) ret:18348015616 adj:-700
+06-02 19:16:25.411 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.google.android.apps.maps(pid 5259) action:14 adj:935 type:1
+06-02 19:16:25.479  1833  2951 I SDM     : HWPeripheralDRM::SetPanelFeature: Set Panel feature property 16
+06-02 19:16:25.479  1833  2951 I SDM     : MdnieFeatureIntfImpl::SetParameter: kMdnieArtDone Converging MdnieFeature state moved to Converged
+06-02 19:16:25.479  1833  2951 I SDM     : HWPeripheralDRM::SetPanelFeature: Set Panel feature property 17
+06-02 19:16:25.487  1833  2156 I SDM     : DRMPanelFeatureMgr::ApplyDirtyFeature: Commited panel feature [disabled]: 17-271
+06-02 19:16:25.487  1833  2156 I SDM     : DRMPanelFeatureMgr::ApplyDirtyFeature: Commited panel feature [disabled]: 18-273
+06-02 19:16:25.502 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:25.502 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:25.502 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:25.507  1107  1107 D io_stats: !@   8,0 r 315376682 7263493428 w 55042175 1999951840 d 12079986 1674875588 f 9960 38887 iot 29853276 0 th 0 0 0 pt 0 inp 0 0 2002938.048
+06-02 19:16:25.509  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_WAKE_IND: 0xFD
+06-02 19:16:25.509  1795 32433 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK ON
+06-02 19:16:25.510  1795 32433 D vendor.qti.bluetooth@1.0-wake_lock: Acquire wakelock is acquired 
+06-02 19:16:25.510  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Writing IBS_WAKE_ACK
+06-02 19:16:25.531 29244 30077 I ActivityManager: Changes in 1010277 10 to 10, 256 to 384
+06-02 19:16:25.531 31643  1079 I ekwx    : HDM. appOpsListener android:record_audio com.google.android.gms
+06-02 19:16:25.532 31643  1079 I ekwx    : HDM. Ignoring irrelevant audio permission changes for package com.google.android.gms
+06-02 19:16:25.532 29244 29510 W AppOps  : evalModeInternal uidCapability: uid= 1010277 code= 27 uidState= 600 uidCapability= 384 opCapability= 4
+06-02 19:16:25.532 29244 29510 W AppOps  : evalModeInternal uidCapability: uid= 1010277 code= 26 uidState= 600 uidCapability= 384 opCapability= 2
+06-02 19:16:25.535 29244 29479 I ActivityManager: Changes in 1010277 10 to 10, 384 to 256
+06-02 19:16:25.552 30518 32528 I ScanController: onScanResult to scannerId: 2- eventType=0x10, addressType=0, address=XX:XX:XX:XX:AA:43, primaryPhy=1, secondaryPhy=0, advertisingSid=0xff, txPower=127, rssi=-72, periodicAdvInt=0x0
+06-02 19:16:25.553 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.launcher and userId: 0
+06-02 19:16:25.553 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.sbrowser and userId: 0
+06-02 19:16:25.553 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.twitter.android and userId: 0
+06-02 19:16:25.555  7292  7946 I [+0900]oneconnect[1.8.45.24_01][CORE]: DataConvert.parseBleVd - deviceBle : |name:|deviceType:TV|discoverType:_BLE|services:None|connected:false[TvStatusString]POWER_OFF[TvStatus]-128[TvService]102[TvMirrorChannel]1[TvRegisteredDB][-42, 0, 0, 0, 0, 0][TvYear]2016[TvOcfInfo]0[TvAcmStatus]0[ExTvStatus]0[ExtendedStatus]-1[ModuloSn]-1
+06-02 19:16:25.558  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_SLEEP_IND: 0xFE
+06-02 19:16:25.558  1795 32433 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK OFF
+06-02 19:16:25.573  9430 17157 D AidlBufferPool: bufferpool2 0xb4000073aa78e0b8 : 0(0 size) total buffers - 0(0 size) used buffers - 1268/1279 (recycle/alloc) - 11/1910 (fetch/transfer)
+06-02 19:16:25.573  9430 17157 D AidlBufferPoolAcc: evictor expired: 1, evicted: 1
+06-02 19:16:25.584  6886  6886 I dumpstate: current cpu usage: 76
+06-02 19:16:25.584  6886  6886 E dumpstate: Error opening file descriptor for /sys/class/sec/sec-thermistor/temperature: No such file or directory
+06-02 19:16:25.584  6886  6886 W dumpstate: Fail to read from fd: /sys/class/sec/sec-thermistor/temperature
+06-02 19:16:25.584  6886  6886 E dumpstate: Error opening file descriptor for /sys/devices/platform/sec-thermistor/temperature: No such file or directory
+06-02 19:16:25.584  6886  6886 W dumpstate: Fail to read from fd: /sys/devices/platform/sec-thermistor/temperature
+06-02 19:16:25.586  6886  6886 I dumpstate: current ap temp: 429
+06-02 19:16:25.587  6886  6886 I dumpstate: do_vibrate: 0 stream_to_socket: 0 progress_updates_to_socket: 0 do_screenshot: 0 multi_display_screenshot: 0 is_remote_mode: 0 show_header_only: 0 telephony_only: 0 wifi_only: 0 do_progress_updates: 0 fd: -1 bugreport_mode: BUGREPORT_A_ERROR limited_only: 0 args: /system/bin/dumpstate -M -d -z
+06-02 19:16:25.587  6886  6886 I dumpstate: sec_mode : 1 dump_flags : 2139973260, booting_delay : 0 booting_enospc : 0 sys_rescue : 0 sys_error : 0 sys_native : 0 sys_watchdog : 0 app_error : 1 app_native : 0 app_anr : 0 light_level : 0 enospc : 0 by_key : 0
+06-02 19:16:25.587  6886  6886 I dumpstate: shutdown_broadcast: 0, shutdown_delay: 0
+06-02 19:16:25.587  6886  6886 I dumpstate: svcagent: 0
+06-02 19:16:25.587  6886  6886 D dumpstate: dumpstate calling_uid = 0 ; calling package =  
+06-02 19:16:25.587  6886  6886 D dumpstate: Loading stats from /data/log/dumpstate-stats.txt
+06-02 19:16:25.587  6886  6886 I dumpstate: Average max progress: 770 in 52 runs; estimated max: 770
+06-02 19:16:25.588  6886  6886 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: android.system.suspend.ISystemSuspend/default
+06-02 19:16:25.589  6886  6886 D dumpstate: Wake lock acquired.
+06-02 19:16:25.589  6886  6886 I dumpstate: Running on strict-run mode, which has shorter timeouts (to disable, call 'setprop dumpstate.strict_run false')
+06-02 19:16:25.589  6886  6886 I dumpstate: dumpstate info: id=45, args='/system/bin/dumpstate -M -d -z', bugreport_mode= BUGREPORT_A_ERROR bugreport format version: 2.0
+06-02 19:16:25.589  6886  6886 I dumpstate: current storage free is 159701 MB
+06-02 19:16:25.611  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_WAKE_IND: 0xFD
+06-02 19:16:25.611  1795 32433 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK ON
+06-02 19:16:25.611  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Writing IBS_WAKE_ACK
+06-02 19:16:25.612 30518 32528 I ScanController: onScanResult to scannerId: 2- eventType=0x10, addressType=0, address=XX:XX:XX:XX:28:B5, primaryPhy=1, secondaryPhy=0, advertisingSid=0xff, txPower=127, rssi=-81, periodicAdvInt=0x0
+06-02 19:16:25.615  7292  7946 I [+0900]oneconnect[1.8.45.24_01][CORE]: DataConvert.parseBleVd - deviceBle : |name:|deviceType:TV|discoverType:_BLE|services:None|connected:false[TvStatusString]POWER_OFF[TvStatus]-128[TvService]102[TvMirrorChannel]1[TvRegisteredDB][0, 0, 0, 0, 0, 0][TvYear]2016[TvOcfInfo]0[TvAcmStatus]0[ExTvStatus]0[ExtendedStatus]-1[ModuloSn]-1
+06-02 19:16:25.618 29244 29405 D SGM:GameManager: identifyForegroundApp. com.google.android.youtube, mCurrentUserId: 0, callerUserId: 0
+06-02 19:16:25.618 29244 29405 D SGM:SemGameManager: isForegroundGame(), ret=false
+06-02 19:16:25.635 30518 32528 I ScanController: onScanResult to scannerId: 2- eventType=0x10, addressType=0, address=XX:XX:XX:XX:98:CB, primaryPhy=1, secondaryPhy=0, advertisingSid=0xff, txPower=127, rssi=-82, periodicAdvInt=0x0
+06-02 19:16:25.636  7292  7946 I [+0900]oneconnect[1.8.45.24_01][CORE]: DataConvert.parseBleVd - deviceBle : |name:|deviceType:TV|discoverType:_BLE|services:None|connected:false[TvStatusString]POWER_OFF[TvStatus]-128[TvService]102[TvMirrorChannel]1[TvRegisteredDB][0, 0, 0, 0, 0, 0][TvYear]2016[TvOcfInfo]0[TvAcmStatus]0[ExTvStatus]0[ExtendedStatus]-1[ModuloSn]-1
+06-02 19:16:25.636 30161 30279 V WindowManagerShell: Transition animation finished (aborted=false), notifying core (#4783) android.os.BinderProxy@a62d567@0
+06-02 19:16:25.637 30161 30279 I SurfaceControlRegistry: apply, t=FinishTransaction_SyncId<4783>, caller=android.view.SurfaceControl$Transaction.apply:3581 android.view.SurfaceControl$Transaction.apply:3569 android.view.SurfaceControl$Transaction.apply:3519 com.android.wm.shell.transition.Transitions.onFinish:381 com.android.wm.shell.transition.Transitions$$ExternalSyntheticLambda8.onTransitionFinished:12 com.android.wm.shell.transition.DefaultTransitionHandler$$ExternalSyntheticLambda2.run:276 
+06-02 19:16:25.639 29244 30077 V WindowManager: Finish Transition: TransitionRecord{110bdad id=4783 type=CLOSE flags=0x10 parallelCollectType=NONE recentsDisplayId=-1 c=[
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{a351614 container=Display{#0 state=ON size=1440x3120 ROTATION_0} flags=0x0}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{cccaebd container=ActivityRecord{91633800 u0 com.google.android.youtube/.app.honeycomb.Shell$HomeActivity t3667} flags=0x0}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{3922cb2 container=WindowedMagnification:0:31@113628353 flags=0x0}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{2877403 container=DefaultTaskDisplayArea_d0@136920814 flags=0x0}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{6577f80 container=ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706 f} isExiting} flags=0x0}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{91a79b9 container=Task{9bfb221 #3667 type=standard A=10302:com.google.android.youtube} flags=0x30}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{f7261fe container=AppZoomOut:2:14@213916322 flags=0x0}
+06-02 19:16:25.639 29244 30077 V WindowManager:    ChangeInfo{6034d5f container=Task{d9c32fa #3706 type=standard A=10444:com.pplaner.beforeglow} flags=0x10}
+06-02 19:16:25.639 29244 30077 V WindowManager: ]
+06-02 19:16:25.639 29244 30077 V WindowManager: }, caller=com.android.server.wm.WindowOrganizerController.finishTransitionInner:34 com.android.server.wm.WindowOrganizerController.finishAllTransitions:60 android.window.IWindowOrganizerController$Stub.onTransact:292 
+06-02 19:16:25.640 29244 29402 V WindowManager: Finish Transition (#4783): created at 06-02 19:16:25.022 collect-started=0.297ms request-sent=0.59ms started=3.17ms ready=7.382ms sent=56.512ms commit=17.534ms finished=617.066ms
+06-02 19:16:25.640 29244 30077 V WindowManager: Setting visibility of Window{b77b6ad u0 com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity EXITING}: false, caller=com.android.server.wm.WindowContainer.sendAppVisibilityToClients:19 com.android.server.wm.WindowToken.setClientVisible:91 com.android.server.wm.ActivityRecord.commitVisibility:186 com.android.server.wm.TransitionController.finishTransition:989 com.android.server.wm.WindowOrganizerController.finishTransitionInner:34 
+06-02 19:16:25.640 29244 30077 E libbinder.IPCThreadState: Binder transaction failure. id: 1347775676, cmd: BR_DEAD_REPLY (29189), error: -22 (Invalid argument)
+06-02 19:16:25.640 29244 30077 W ActivityManager: pid 29244 system sent binder code 14 with flags 1 and got error -32
+06-02 19:16:25.640 29244 30077 D ActivityManager: Too many transaction errors, throttling freezer binder callback.
+06-02 19:16:25.640 29244 30077 W WindowManager: Exception thrown during dispatchAppVisibility Window{b77b6ad u0 com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity EXITING}
+06-02 19:16:25.640 29244 30077 W WindowManager: android.os.DeadObjectException
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at android.os.BinderProxy.transactNative(Native Method)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at android.os.BinderProxy.transact(BinderProxy.java:668)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at android.view.IWindow$Stub$Proxy.dispatchAppVisibility(IWindow.java:749)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.WindowState.sendAppVisibilityToClients(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:122)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.WindowContainer.sendAppVisibilityToClients(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:19)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.WindowToken.setClientVisible(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:91)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.ActivityRecord.commitVisibility(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:186)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.TransitionController.finishTransition(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:989)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.WindowOrganizerController.finishTransitionInner(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:34)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.WindowOrganizerController.finishAllTransitions(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:60)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at android.window.IWindowOrganizerController$Stub.onTransact(IWindowOrganizerController.java:292)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at com.android.server.wm.WindowOrganizerController.onTransact(qb/108124387 b1def025ea384b65be0cd5187ad62b3c2a768987b4391e94c115348264c914ad:1)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at android.os.Binder.execTransactInternal(Binder.java:1514)
+06-02 19:16:25.640 29244 30077 W WindowManager: 	at android.os.Binder.execTransact(Binder.java:1454)
+06-02 19:16:25.640 29244 30077 W Process : Unable to open /proc/6698/status
+06-02 19:16:25.640 29244 30077 W Process : Unable to open /proc/6698/status
+06-02 19:16:25.640 29244 30077 D PersonaActivityHelper: token.toString()  Token{56b1646 ActivityRecord{91633800 u0 com.google.android.youtube/.app.honeycomb.Shell$HomeActivity t3667}}
+06-02 19:16:25.640 29244 30077 D PersonaActivityHelper: mLastResumedSFActivity getPackageName  com.android.settings
+06-02 19:16:25.640 29244 30077 D PersonaActivityHelper: mLastResumedSFActivity getShortClassName  .SubSettings
+06-02 19:16:25.641 29244 30077 D PersonaActivityHelper: token.toString()  Token{5cb6308 ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706 f} isExiting}}
+06-02 19:16:25.641 29244 30077 D PersonaActivityHelper: mLastResumedSFActivity getPackageName  com.android.settings
+06-02 19:16:25.641 29244 30077 D PersonaActivityHelper: mLastResumedSFActivity getShortClassName  .SubSettings
+06-02 19:16:25.641 29244 30077 V WindowManager: Remove Window{b77b6ad u0 com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity EXITING}: mSurfaceControl=Surface(name=com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871)/@0x609c8b0 mAnimatingExit=true mRemoveOnExit=true mHasSurface=true surfaceShowing=true animating=false app-animation=false callers=com.android.server.wm.WindowToken.removeAllWindowsIfPossible:45 com.android.server.wm.WindowToken.removeIfPossible:16 com.android.server.wm.WindowToken.handleCompleteDeferredRemoval:5 com.android.server.wm.WindowContainer.handleCompleteDeferredRemoval:21 com.android.server.wm.TaskFragment.handleCompleteDeferredRemoval:17 com.android.server.wm.WindowContainer.handleCompleteDeferredRemoval:21 
+06-02 19:16:25.641 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.pplaner.beforeglow and userId: 0
+06-02 19:16:25.642 29244 30077 V WindowManager: Remove Window{b77b6ad u0 com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity EXITING}: mSurfaceControl=Surface(name=com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871)/@0x609c8b0 mAnimatingExit=true mRemoveOnExit=true mHasSurface=true surfaceShowing=true animating=false app-animation=false callers=com.android.server.wm.WindowToken.removeAllWindowsIfPossible:45 com.android.server.wm.WindowToken.removeIfPossible:16 com.android.server.wm.ActivityRecord.onRemovedFromDisplay:365 com.android.server.wm.ActivityRecord.removeImmediately:46 com.android.server.wm.WindowToken.removeIfPossible:19 com.android.server.wm.WindowToken.handleCompleteDeferredRemoval:5 
+06-02 19:16:25.642  1945  2835 I SurfaceFlinger: id=536867 Removed 6d7a5ee ActivityRecordInputSink com.pplaner.beforeglow/.MainActivity#536867 (237)
+06-02 19:16:25.642 29244 30077 D RestrictionPolicy: isScreenCaptureEnabled : ret=true userId=0
+06-02 19:16:25.643  1945  2835 I SurfaceFlinger: id=536887 createSurf, flag=24004, Task=3706#536887
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController: onTransitionFinished: TransitionRecord{110bdad id=4783 type=CLOSE flags=0x10 parallelCollectType=NONE recentsDisplayId=-1 c=[
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{a351614 container=Display{#0 state=ON size=1440x3120 ROTATION_0} flags=0x0}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{cccaebd container=ActivityRecord{91633800 u0 com.google.android.youtube/.app.honeycomb.Shell$HomeActivity t3667} flags=0x0}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{3922cb2 container=WindowedMagnification:0:31@113628353 flags=0x0}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{2877403 container=DefaultTaskDisplayArea_d0@136920814 flags=0x0}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{6577f80 container=ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t-1 f}} flags=0x0}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{91a79b9 container=Task{9bfb221 #3667 type=standard A=10302:com.google.android.youtube} flags=0x30}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{f7261fe container=AppZoomOut:2:14@213916322 flags=0x0}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController:    ChangeInfo{6034d5f container=Task{d9c32fa #3706 type=standard A=10444:com.pplaner.beforeglow} flags=0x10}
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController: ]
+06-02 19:16:25.643 29244 30077 D ChangeTransitionController: }
+06-02 19:16:25.643 30161 30279 V WindowManagerShell: Track 0 became idle
+06-02 19:16:25.643 30161 30279 V WindowManagerShell: All active transition animations finished
+06-02 19:16:25.644 30756 30756 I HoneySpace.TaskStackChangeRepositoryImpl: onTaskRemoved : 3706
+06-02 19:16:25.644 30756 30881 I HoneySpace.TopTaskSource: onTaskRemoved: 3706
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: RequestedLayer [Task=3706#536860] hidden!! flag  from(0) --> to(1)
+06-02 19:16:25.644 30756 30756 I HoneySpace.TaskStackChangeRepositoryImpl: onTaskRemoved : 3706
+06-02 19:16:25.644 30756 30756 I HoneySpace.TaskListViewModel[81905307][0]: taskRemoveId, 3706
+06-02 19:16:25.644 30756 30756 W HoneySpace.TaskListViewModel[81905307][0]: task is already removed: 3706
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [Display 0 name="기본으로 제공되는 화면"#483558] setFrameRateCategory: Default
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=3706#536860 parentId=483527 z=21} 1 children}] reparent to LayerHierarchy{RequestedLayerState{DefaultTaskDisplayArea_d0#483527 parentId=483526} 25 children}
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=3667#518629 parentId=483527 z=22} 2 children}] reparent to LayerHierarchy{RequestedLayerState{DefaultTaskDisplayArea_d0#483527 parentId=483526} 26 children}
+06-02 19:16:25.644 30756 30756 I HoneySpace.TaskListViewModel[81905307][0]: taskRemoveId, 3706
+06-02 19:16:25.644 30756 30756 W HoneySpace.TaskListViewModel[81905307][0]: task is already removed: 3706
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Transition Root: Task=3667#536883 z=22} 1 children}] reparent to OffscreenRoot
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Transition Root: Task=3667#536883 z=22} 1 children}] RelativeParent to null
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{DimTransitionLayer for Surface(name=Task=3667#518629)/@0x3f393bd#536884 z=1} no children}] reparent to OffscreenRoot
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{DimTransitionLayer for Surface(name=Task=3667#518629)/@0x3f393bd#536884 z=1} no children}] RelativeParent to null
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{animation-background for #4783#536885 z=-1} no children}] reparent to OffscreenRoot
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{animation-background for #4783#536885 z=-1} no children}] RelativeParent to null
+06-02 19:16:25.644  1945  1945 I SurfaceFlinger: [Task=3706#536887] attach to parent Root
+06-02 19:16:25.644 29244 29914 W ImageReader_JNI: Unable to acquire a buffer item, very likely client tried to acquire more than maxImages buffers
+06-02 19:16:25.645 29244 29406 W PackageConfigPersister: App-specific configuration not found for packageName: com.pplaner.beforeglow and userId: 0
+06-02 19:16:25.645 29244 32221 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.launcher and userId: 0
+06-02 19:16:25.645 29244 32221 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.sbrowser and userId: 0
+06-02 19:16:25.645  1945  1945 I SurfaceFlinger: id=536885 Removed animation-background for #4783#536885 (238)
+06-02 19:16:25.645  1945  1945 I SurfaceFlinger: id=536884 Removed DimTransitionLayer for Surface(name=Task=3667#518629)/@0x3f393bd#536884 (238)
+06-02 19:16:25.645  1945  1945 I SurfaceFlinger: id=536883 Removed Transition Root: Task=3667#536883 (238)
+06-02 19:16:25.646 30161 30279 V ShellTaskOrganizer: Task vanished taskId=3706
+06-02 19:16:25.646 30161 30279 V ShellTaskOrganizer: Fullscreen Task Vanished: #3706
+06-02 19:16:25.646 30161 30279 V ShellDesktopMode: Task Vanished: #3706 closed=true
+06-02 19:16:25.646 29244 29405 D LocalDisplayAdapter: updateActiveModeLocked for d=4630947191136750483, mActiveModeId=1, mActiveSfDisplayMode=DisplayMode{id=0, width=1440, height=3120, xDpi=501.0411, yDpi=501.5696, peakRefreshRate=120.00001, vsyncRate=120.00001, appVsyncOffsetNanos=8333333, presentationDeadlineNanos=9333333, supportedHdrTypes=[4, 2, 3], group=0}
+06-02 19:16:25.646 29244 29405 I DisplayDeviceRepository: Display device changed render timings: "기본으로 제공되는 화면", renderFrameRate=120.00001, presentationDeadlineNanos=9333333, appVsyncOffsetNanos=8333333, frameRateOverrides=[]
+06-02 19:16:25.646 30161 30279 D ShellDesktopMode: AppToWebRepository: Task 3706 is vanishing. Removing task data from repository
+06-02 19:16:25.646 30756 31072 I HoneySpace.RecentTasks: onRecentTasksChanged l:122804055
+06-02 19:16:25.647  1945  1945 D SurfaceFlinger: Display 4630947191136750483 HWC layers:
+06-02 19:16:25.647  1945  1945 D SurfaceFlinger:   SOLID_COLOR |                        0 | 00000002 | N/A          |    0.0    0.0    0.0    0.0 |    0  128 1440  938 | Background for e8cdc5c SurfaceView[c[...]neycomb.Shell$HomeActivity]@0#536882 (0)
+06-02 19:16:25.647  1945  1945 D SurfaceFlinger:        DEVICE |           40501541764036 | 00002100 | RGBA_8888    |    0.0    0.0 1440.0 3120.0 |    0    0 1440 3120 | com.google.android.youtube/com.googl[...]comb.Shell$HomeActivity$_9430#536876 (57)
+06-02 19:16:25.647  1945  1945 D SurfaceFlinger:        DEVICE |          129540508640834 | 00002100 | RGBA_8888    |    0.0    0.0 1440.0  128.0 |    0    0 1440  128 | StatusBar$_30161#483612 (106398)
+06-02 19:16:25.647  1945  1945 D SurfaceFlinger:        DEVICE |          129540508640833 | 00002100 | RGBA_8888    |    0.0    0.0 1440.0  180.0 |    0 2940 1440 3120 | NavigationBar0$_30161#483603 (185614)
+06-02 19:16:25.647  1945  1945 D SurfaceFlinger: 
+06-02 19:16:25.647 30756 16092 I HoneySpace.RecentTasks: onRunningTaskVanished
+06-02 19:16:25.647 30756 30881 I HoneySpace.TopTaskSource: onTaskRemoved: 3706
+06-02 19:16:25.647 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.pplaner.beforeglow and userId: 0
+06-02 19:16:25.648 30161 30161 D DisplayLifecycle: updateDisplay id = 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.sbrowser and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.twitter.android and userId: 0
+06-02 19:16:25.648 29244 29852 D WifiDisplayAdapter: isFitToActiveDisplayLocked : false
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.android.settings and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.kakao.talk and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.nhn.android.nmap and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.camera and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.samsung.android.dialer and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.samsung.android.calendar and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.sds.emm.client.lite and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.samsung.android.spay and userId: 0
+06-02 19:16:25.648 30161 30362 D StackScroller: onDisplayChanged for predraw skip to 2
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.samsung.android.messaging and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.android.vending and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.hanaskcard.paycla and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.nhn.android.search and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.google.android.gm and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.salab.issuetracker and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.google.android.apps.youtube.music and userId: 0
+06-02 19:16:25.648 29244 30077 W PackageConfigPersister: App-specific configuration not found for packageName: com.apple.android.music and userId: 0
+06-02 19:16:25.648 29244 29479 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.launcher and userId: 0
+06-02 19:16:25.648 29244 29479 W PackageConfigPersister: App-specific configuration not found for packageName: com.sec.android.app.sbrowser and userId: 0
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: destroyed Transition Root: Task=3667#536883 form LifecycleManager
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: destroyed DimTransitionLayer for Surface(name=Task=3667#518629)/@0x3f393bd#536884 form LifecycleManager
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: destroyed animation-background for #4783#536885 form LifecycleManager
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=3706#536860 z=21} 1 children}] reparent to OffscreenRoot
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=3706#536860 z=21} 1 children}] RelativeParent to null
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706}#536861} 2 children}] reparent to OffscreenRoot
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706}#536861} 2 children}] RelativeParent to null
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=3706#536887 z=21} no children}] reparent to OffscreenRoot
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=3706#536887 z=21} no children}] RelativeParent to null
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871} no children}] reparent to OffscreenRoot
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871} no children}] RelativeParent to null
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{b77b6ad com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity#536870} no children}] reparent to OffscreenRoot
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{b77b6ad com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity#536870} no children}] RelativeParent to null
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: id=536883 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Transition Root: Task=3667#536883 !handle z=22})
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: id=536884 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{DimTransitionLayer for Surface(name=Task=3667#518629)/@0x3f393bd#536884 !handle z=1})
+06-02 19:16:25.652  1945  1945 I SurfaceFlinger: id=536885 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{animation-background for #4783#536885 !handle z=-1})
+06-02 19:16:25.653 30756  6346 I HoneySpace.HistoryViewModel@239016908@OneUI: Illegal access. Unknown type. skip load history items
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536883 Destroyed Transition Root: Task=3667#536883
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536884 Destroyed DimTransitionLayer for Surface(name=Task=3667#518629)/@0x3f393bd#536884
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536885 Destroyed animation-background for #4783#536885
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536887 Removed Task=3706#536887 (235)
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536861 Removed ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706}#536861 (235)
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536870 Removed b77b6ad com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity#536870 (235)
+06-02 19:16:25.653  1945  1945 I SurfaceFlinger: id=536871 Removed com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871 (235)
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: destroyed 6d7a5ee ActivityRecordInputSink com.pplaner.beforeglow/.MainActivity#536867 form LifecycleManager
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: destroyed ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706}#536861 form LifecycleManager
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: destroyed Task=3706#536887 form LifecycleManager
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: destroyed com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871 form LifecycleManager
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: destroyed b77b6ad com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity#536870 form LifecycleManager
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536867 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{6d7a5ee ActivityRecordInputSink com.pplaner.beforeglow/.MainActivity#536867 !handle z=-2147483648})
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536861 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706}#536861 !handle})
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536887 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Task=3706#536887 !handle z=21})
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536871 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871 !handle})
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536870 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{b77b6ad com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity#536870 !handle})
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536867 Destroyed 6d7a5ee ActivityRecordInputSink com.pplaner.beforeglow/.MainActivity#536867
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536861 Destroyed ActivityRecord{146559260 u0 com.pplaner.beforeglow/.MainActivity t3706}#536861
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536887 Destroyed Task=3706#536887
+06-02 19:16:25.661  1945  1945 E BpTransactionCompletedListener: Failed to transact (-32)
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536871 Destroyed com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity$_6698#536871
+06-02 19:16:25.661  1945  1945 I SurfaceFlinger: id=536870 Destroyed b77b6ad com.pplaner.beforeglow/com.pplaner.beforeglow.MainActivity#536870
+06-02 19:16:25.673 26952 26952 I InputMethodService: removeImeSurface
+06-02 19:16:25.673 26952 26952 I InputMethodService: cancelImeSurfaceRemoval: removeCallbacks
+06-02 19:16:25.674  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_SLEEP_IND: 0xFE
+06-02 19:16:25.674  1795 32433 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK OFF
+06-02 19:16:25.678  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_WAKE_IND: 0xFD
+06-02 19:16:25.679  1795 32433 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK ON
+06-02 19:16:25.679  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Writing IBS_WAKE_ACK
+06-02 19:16:25.684 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.google.android.apps.maps(pid 5259) ret:17179836416 adj:935
+06-02 19:16:25.687 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.google.android.projection.gearhead:car(pid 27226) action:14 adj:935 type:1
+06-02 19:16:25.687 30518 32528 I ScanController: onScanResult to scannerId: 2- eventType=0x1b, addressType=0, address=XX:XX:XX:XX:45:83, primaryPhy=1, secondaryPhy=0, advertisingSid=0xff, txPower=127, rssi=-71, periodicAdvInt=0x0
+06-02 19:16:25.687 30518 32528 D BluetoothRemoteDevices: Update property, device=XX:XX:XX:XX:45:83, type: 1
+06-02 19:16:25.687 30518 32528 D BluetoothRemoteDevices: Skip name update for XX:XX:XX:XX:45:83
+06-02 19:16:25.687 30518 32528 D BluetoothRemoteDevices: Update property, device=XX:XX:XX:XX:45:83, type: 4
+06-02 19:16:25.687 30518 32528 E BluetoothRemoteDevices: Remote class is UNCATEGORIZED
+06-02 19:16:25.687 30518 32528 D BluetoothRemoteDevices: Update property, device=XX:XX:XX:XX:45:83, type: 5
+06-02 19:16:25.687 30518 32528 D BluetoothRemoteDevices: Update property, device=XX:XX:XX:XX:45:83, type: 24
+06-02 19:16:25.688  7292  7946 I [+0900]oneconnect[1.8.45.24_01][CORE]: DataConvert.parseBleVd - deviceBle : |name:($)-7(8)|deviceType:TV|discoverType:_BLE|services:None|connected:false[TvStatusString]POWER_OFF[TvStatus]-128[TvService]111[TvMirrorChannel]40[TvRegisteredDB][-43, -86, -2, -5, -37, 55][TvYear]2016[TvOcfInfo]0[TvAcmStatus]0[ExTvStatus]0[ExtendedStatus]-1[ModuloSn]-1
+06-02 19:16:25.702 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:25.702 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:25.702 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:25.722 29938 29938 D TelephonyManager: requestModemActivityInfo: Sending result to app: ModemActivityInfo{ mTimestamp=2015444190 mSleepTimeMs=84613191 mIdleTimeMs=1990022 mActivityStatsTechSpecificInfo=[{mRat=UNKNOWN,mFrequencyRange=UNKNOWN,mTxTimeMs[]=[1286259, 394923, 231706, 87520, 148292],mRxTimeMs=50959478}]}
+06-02 19:16:25.722  1795 32433 I vendor.qti.bluetooth@1.0-ibs_handler: ProcessIbsCmd: Received IBS_SLEEP_IND: 0xFE
+06-02 19:16:25.722  1795 32433 D vendor.qti.bluetooth@1.0-ibs_handler: SerialClockVote: vote for UART CLK OFF
+06-02 19:16:25.729 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.google.android.projection.gearhead:car(pid 27226) ret:17030041600 adj:935
+06-02 19:16:25.731 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.samsung.android.scloud(pid 18002) action:14 adj:935 type:1
+06-02 19:16:25.779 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.samsung.android.scloud(pid 18002) ret:18695368704 adj:935
+06-02 19:16:25.780 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.sec.android.app.myfiles(pid 5003) action:14 adj:935 type:1
+06-02 19:16:25.790  6962  6962 I ENOSPC  : !@ ------ DISK STATS (du -cmd2 /data/media/0 [MB]) ------
+06-02 19:16:25.790  6962  6962 I ENOSPC  : !@ 14840 total 14840 /data/media/0/ 8983 /data/media/0/DCIM 6628 /data/media/0/DCIM/Camera 1679 /data/media/0/log 1381 /data/media/0/Android 1368 /data/media/0/Android/data 1326 /data/media/0/DCIM/Kodak 1300 /data/media/0/Download 1227 /data/media/0/ACT_LOGS
+06-02 19:16:25.796 29244 31431 D BSOHChargingDataCollector:  BSOH Sys-servce ... 
+06-02 19:16:25.796 29244 31431 D BSOHChargingDataCollector: performBatteryWork++
+06-02 19:16:25.796 29244 31431 D BSOHChargingDataCollector: performBatteryWork battery com.android.server.bsoh.device.PrimeBattery@db0b394
+06-02 19:16:25.796 29244 31431 D BSOHChargingDataCollector: primeBatt readVoltage from sysFsBattVolt,  path : /sys/class/power_supply/battery/batt_voltage_now
+06-02 19:16:25.808 29244 31431 D BSOHChargingDataCollector: 0 	 BattData addData data : BattData { voltage:4.319, current:0.1375, soc:0.9, temperature:37.4, status:2, timestamp:1780395385808, voltage_chg:null}
+06-02 19:16:25.808 29244 31431 D BSOHChargingDataCollector: performBatteryWork--
+06-02 19:16:25.823  1833  2156 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+06-02 19:16:25.839 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.sec.android.app.myfiles(pid 5003) ret:17179836416 adj:935
+06-02 19:16:25.841 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.sec.android.soagent(pid 4627) action:14 adj:935 type:1
+06-02 19:16:25.850 19369  3634 I NearbyMediums: No BLE Fast/GATT advertisements found in the latest cycle.
+06-02 19:16:25.850 19369  3634 I NearbyMediums: Current Tracked Scanning Clients are : {NearbyConnections.EnvironmentMonitor, NearbySharing, NearbyConnections.TxAdvertisement}
+06-02 19:16:25.858  6971  6971 I ENOSPC  : !@ ------ DISK STATS (du -cmd1 /data/app [MB]) ------
+06-02 19:16:25.858  6971  6971 I ENOSPC  : !@ 25906 total 25906 /data/app/ 3055 /data/app/~~V4EXDgTi4Jw69vr4lMaIhA== 1965 /data/app/SamsungVisionModel 911 /data/app/~~1Xh3nHMWhIOqH9K035M-Ng== 734 /data/app/~~C_UmOdZcYZdbpBOIt_O8AA== 500 /data/app/~~LbtP8ezqSuOfvZ31YZPkPg== 405 /data/app/~~UFI61uzsexsR6ZvKOm5kuA== 400 /data/app/~~M2fRBoBiYY3bojsZ_2evtw== 381 /data/app/~~1WudNCYmBY36aTk1tinlIA==
+06-02 19:16:25.863 29244 30077 D AppOps  : noteOperationUnchecked: reject #3 for code 105 (105) uid 10125 package com.osp.app.signin flags: s
+06-02 19:16:25.865 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.sec.android.soagent(pid 4627) ret:16913367040 adj:935
+06-02 19:16:25.866 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.google.android.projection.gearhead:shared(pid 25496) action:14 adj:935 type:1
+06-02 19:16:25.872  1795 31021 D vendor.qti.bluetooth@1.0-wake_lock: Release wakelock is released 
+06-02 19:16:25.881 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.google.android.projection.gearhead:shared(pid 25496) ret:16961765376 adj:935
+06-02 19:16:25.882 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.yunhyeongseob.passtay(pid 17575) action:14 adj:945 type:1
+06-02 19:16:25.897  6982  6982 I ENOSPC  : !@ ------ DISK STATS (du -cmd2 /data/log [MB]) ------
+06-02 19:16:25.897  6982  6982 I ENOSPC  : !@ 1004 total 1004 /data/log/ 383 /data/log/traces 131 /data/log/batterystats 88 /data/log/bt 81 /data/log/ewlogd 70 /data/log/bluetooth 32 /data/log/tcpdump 30 /data/log/GearLog 20 /data/log/gps/issuetracker
+06-02 19:16:25.902 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:25.902 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:25.902 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:25.920 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.yunhyeongseob.passtay(pid 17575) ret:17151442944 adj:945
+06-02 19:16:25.921 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.google.android.apps.turbo(pid 18571) action:14 adj:945 type:1
+06-02 19:16:25.931 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.google.android.apps.turbo(pid 18571) ret:16872230912 adj:945
+06-02 19:16:25.931 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.google.android.apps.turbo(pid 18554) action:14 adj:945 type:1
+06-02 19:16:25.933  6990  6990 I ENOSPC  : !@ ------ DISK STATS (du -cmd1 /data/local/traces [MB]) ------
+06-02 19:16:25.933  6990  6990 I ENOSPC  : !@ 1 total 1 /data/local/traces/
+06-02 19:16:25.940 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.google.android.apps.turbo(pid 18554) ret:16890617856 adj:945
+06-02 19:16:25.941 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.sec.android.provider.badge(pid 19040) action:14 adj:955 type:1
+06-02 19:16:25.950 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.sec.android.provider.badge(pid 19040) ret:16818958336 adj:955
+06-02 19:16:25.951 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.sec.android.provider.badge(pid 27640) action:14 adj:955 type:1
+06-02 19:16:25.960 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.sec.android.provider.badge(pid 27640) ret:16983281664 adj:955
+06-02 19:16:25.961 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.google.android.permissioncontroller(pid 19121) action:14 adj:955 type:1
+06-02 19:16:25.971 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.google.android.permissioncontroller(pid 19121) ret:16952545280 adj:955
+06-02 19:16:25.971  6998  6998 I ENOSPC  : !@ ------ DISK STATS (du -cmd1 /data/local/tmp [MB]) ------
+06-02 19:16:25.971  6998  6998 I ENOSPC  : !@ 1 total 1 /data/local/tmp/
+06-02 19:16:25.972 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap start for non-activity com.samsung.android.lool(pid 25412) action:14 adj:955 type:1
+06-02 19:16:25.974  6886  6886 D dumpstate: Bugreport dir: [/data/log] Base name: [dumpstate_app_error] Suffix: [] Log path: [/data/log/dumpstate_app_error.txt] Temporary path: [/data/log/dumpstate_app_error.tmp] Screenshot path: []
+06-02 19:16:25.974  6886  6886 D dumpstate: Creating initial .zip file (/data/log/dumpstate_app_error_temp.zip)
+06-02 19:16:25.974  6886  6886 D dumpstate: Adding zip text entry version.txt
+06-02 19:16:25.975  6886  6886 I dumpstate: !@bugreport_mode BUGREPORT_A_ERROR, and dumpstate by com.pplaner.beforeglow
+06-02 19:16:25.976  6886  6886 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package_native
+06-02 19:16:25.976  6886  6886 D dumpstate: Module metadata package name: com.google.android.modulemetadata
+06-02 19:16:25.983 29244 18225 D PerProcessNandswap$NandswapHandler: nandswap end for non-activity com.samsung.android.lool(pid 25412) ret:16845553664 adj:955
+06-02 19:16:26.014  7003  7003 I libbinder.AidlLazyServiceRegistrar: Registering service android.hardware.dumpstate.IDumpstateDevice/default
+06-02 19:16:26.015  7003  7003 I libbinder.AidlLazyServiceRegistrar: Process has 1 (of 1 available) client(s) in use after notification android.hardware.dumpstate.IDumpstateDevice/default has clients: 1
+06-02 19:16:26.035  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.035  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.036  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.036  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.036  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.036  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.037  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.037  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.040 29938 29976 D SatelliteController: isInCarrierRoamingNbIotNtn: satellite is disabled
+06-02 19:16:26.040 29938 29976 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-02 19:16:26.040 29938 29976 D SatelliteController: updateLastNotifiedCarrierRoamingNtnSignalStrengthAndNotify(1)
+06-02 19:16:26.040 29938 29976 D SatelliteController: updateLastNotifiedCarrierRoamingNtnSignalStrengthAndNotify(1) lastNotifiedSignalStrength level: 0
+06-02 19:16:26.040 29938 29976 D SatelliteController: updateLastNotifiedCarrierRoamingNtnSignalStrengthAndNotify(1) currSignalStrength level: 0
+06-02 19:16:26.042 29244 30077 W libbinder.IPCThreadState: Sending oneway calls to frozen process.
+06-02 19:16:26.070 29244 29598 D HintManagerService: Starts cleaning for 10444
+06-02 19:16:26.103 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:26.103 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:26.103 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:26.303 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:26.303 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:26.303 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:26.337  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.337  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.337  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.337  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:26.354 28835  6860 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514290587
+06-02 19:16:26.354 28835  6862 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514322660
+06-02 19:16:26.388 29244 29482 I ActivityManager: Changes in 10156 5 to 15, 400 to 256
+06-02 19:16:26.392 30518 30518 D HidDeviceService: handleMessage: MESSAGE_IMPORTANCE_CHANGE
+06-02 19:16:26.393 30518 30518 D HidDeviceService: unregisterAppUid(): uid=10156
+06-02 19:16:26.393 30518 30518 D HidDeviceService: unregisterAppUid(): caller UID doesn't match user UID
+06-02 19:16:26.393 30518 30518 D HidDeviceService: handleMessage: MESSAGE_IMPORTANCE_CHANGE
+06-02 19:16:26.393 30518 30518 D HidDeviceService: unregisterAppUid(): uid=10156
+06-02 19:16:26.393 30518 30518 D HidDeviceService: unregisterAppUid(): caller UID doesn't match user UID
+06-02 19:16:26.484  1806 18208 I sensors-hal: handle_sns_client_event:379, [0][3868699] accel_sample [ 0.304,  8.512,  5.054] 2015444921126965
+06-02 19:16:26.503 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:26.503 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:26.503 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:26.537 29244 29510 W AppOps  : evalModeInternal uidCapability: uid= 1010277 code= 27 uidState= 600 uidCapability= 256 opCapability= 4
+06-02 19:16:26.537 29244 29510 W AppOps  : evalModeInternal uidCapability: uid= 1010277 code= 26 uidState= 600 uidCapability= 256 opCapability= 2
+06-02 19:16:26.537 31643  1079 I ekwx    : HDM. appOpsListener android:record_audio com.google.android.gms
+06-02 19:16:26.538 31643  1079 I ekwx    : HDM. Ignoring irrelevant audio permission changes for package com.google.android.gms
+06-02 19:16:26.703 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:26.703 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:26.704 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:26.752  1806 21633 I sensors-hal: handle_sns_std_sensor_event:409, [SSC_LIGHT] P: 71(71),c:5,b:74,m:13,cl:0,l:71,s:0,l0:12640,l1:224,s0:0,s1:0,acl:1,opr:0.54,f(r):83,u(bl):82,if:83,wi:0,si:0,0(N:0)
+06-02 19:16:26.798 29244 31431 D BSOHChargingDataCollector:  BSOH Sys-servce ... 
+06-02 19:16:26.798 29244 31431 D BSOHChargingDataCollector: performBatteryWork++
+06-02 19:16:26.798 29244 31431 D BSOHChargingDataCollector: performBatteryWork battery com.android.server.bsoh.device.PrimeBattery@db0b394
+06-02 19:16:26.798 29244 31431 D BSOHChargingDataCollector: primeBatt readVoltage from sysFsBattVolt,  path : /sys/class/power_supply/battery/batt_voltage_now
+06-02 19:16:26.810 29244 31431 D BSOHChargingDataCollector: 0 	 BattData addData data : BattData { voltage:4.358, current:1.083593, soc:0.9, temperature:37.4, status:2, timestamp:1780395386810, voltage_chg:null}
+06-02 19:16:26.810 29244 31431 D BSOHChargingDataCollector: performBatteryWork--
+06-02 19:16:26.904 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:26.904 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:26.904 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:26.925 30756 30756 I HoneySpace.UIThread-Monitor: awakeTick = 367
+06-02 19:16:26.998  6886  6886 W libbinder.ServiceManagerCppClient: Waited one second for android.hardware.dumpstate.IDumpstateDevice/default (is service started? Number of threads started in the threadpool: 0. Are binder threads started and available?)
+06-02 19:16:26.999  6886  6886 I dumpstate: Calling IDumpstateDevice implementation using path /data/log/dumpstate_board.txt
+06-02 19:16:26.999  6886  6886 I dumpstate: Calling IDumpstateDevice implementation using path /data/log/dumpstate_board.bin
+06-02 19:16:27.000  6886  6886 I dumpstate: Using IDumpstateDevice AIDL HAL
+06-02 19:16:27.000  7003  7003 D android.hardware.dumpstate-service: DumpstateDevice::dumpstateBoard() FD: 9
+06-02 19:16:27.007  6886  6886 E dumpstate: Ignoring empty dumpstate_board.bin
+06-02 19:16:27.007  6886  6886 D dumpstate: Duration of 'DUMP BOARD': 1.01s
+06-02 19:16:27.044 29938 29976 D SatelliteController: isInCarrierRoamingNbIotNtn: satellite is disabled
+06-02 19:16:27.044 29938 29976 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-02 19:16:27.044 29938 29976 D SatelliteController: updateLastNotifiedCarrierRoamingNtnSignalStrengthAndNotify(1)
+06-02 19:16:27.044 29938 29976 D SatelliteController: updateLastNotifiedCarrierRoamingNtnSignalStrengthAndNotify(1) lastNotifiedSignalStrength level: 0
+06-02 19:16:27.044 29938 29976 D SatelliteController: updateLastNotifiedCarrierRoamingNtnSignalStrengthAndNotify(1) currSignalStrength level: 0
+06-02 19:16:27.045 29244 32221 W libbinder.IPCThreadState: Sending oneway calls to frozen process.
+06-02 19:16:27.093 29244 31461 I NSLocationMonitor: getGPSUsingApps() called
+06-02 19:16:27.093 31482 21337 I NSLocationManager_FLP: getGPSUsingApps, No change
+06-02 19:16:27.097 29244 31461 D FreecessHandler: skipping freeze com.twitter.android(10386) result : 7
+06-02 19:16:27.101 28835  6915 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 4341932
+06-02 19:16:27.105 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:27.105 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:27.105 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:27.129 29244 29625 D InputReader: Btn_touch(5): value=1 when=2002939.670971
+06-02 19:16:27.129 29244 29625 I InputReader: Touch event's action is 0x0 (id=6, t=0) [pCnt=1, s=0.58708 ] when=2002939.670971
+06-02 19:16:27.131 29244 29624 I InputDispatcher: Delivering touch to (30161): action: 0x4, f=0x0, d=0, 'a999b10', t=1 
+06-02 19:16:27.131 29244 29624 I InputDispatcher: Delivering touch to (9430): action: 0x0, f=0x0, d=0, '11916b4', t=1 
+06-02 19:16:27.131 29244 29624 D PowerManagerService: [api] userActivityFromNative : touch displayId=0 eventTime=2002939670
+06-02 19:16:27.131  9430  9430 I VRI[Shell$HomeActivity]@51fbfc7: ViewPostIme pointer 0
+06-02 19:16:27.132 29244 29403 I GestureDetector: obtain mCurrentDownEvent. id: 14196751 caller: com.android.server.wm.SystemGesturesPointerEventListener.onPointerEvent:17 com.android.server.wm.PointerEventDispatcher.onInputEvent:51 android.view.InputEventReceiver.dispatchInputEvent:369 
+06-02 19:16:27.132 29244 29403 I GestureDetector: obtain mCurrentDownEvent. id: 14196751 caller: com.android.server.wm.SystemPerformancePointerEventListener.onPointerEvent:13 com.android.server.wm.PointerEventDispatcher.onInputEvent:51 android.view.InputEventReceiver.dispatchInputEvent:369 
+06-02 19:16:27.133  9430  9430 I VRI[Shell$HomeActivity]@51fbfc7: call setFrameRateCategory for touch hint category=high hint, reason=touch, vri=VRI[Shell$HomeActivity]@51fbfc7
+06-02 19:16:27.133 30756 30756 I HoneySpace.InputConsumerFactory: checkMultiFingerGesture: returning NO_OP - gesture disabled or blocked
+06-02 19:16:27.133 30756 30756 I HoneySpace.GestureInputHandler: inputConsumers = [com.honeyspace.gesture.inputconsumer.InputConsumer$Companion$NO_OP$1@c33832b]
+06-02 19:16:27.134 30756 30756 I HoneySpace.InputSession: inputConsumers = NO_OP
+06-02 19:16:27.134 28838 28838 I SS_POWER_HINT_SESSION: SS_ADPF 9430-10302-1e30 sendHint : 2
+06-02 19:16:27.134 28838 28838 I SS_POWER_HINT_SESSION: SS_ADPF 9430-10302-1e30 [28838 / 20562] request 0 - hyper uclamp_min 0
+06-02 19:16:27.134  1945  2835 I SurfaceFlinger: Current= 120, Period= 120, Distance= 0
+06-02 19:16:27.134 32040 32040 I SemDvfsHyPerManager: acquire hyper - TATouchBoost/32040@31, type = -999
+06-02 19:16:27.134 28835 28884 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : -927258386 [28838 / 20562]  HINT :     list : [UCLAMP_MIN_BOOST / 0] [TIMEOUT / 350] [TID / 17061] [TID / 17062] [TID / 9430] [TID / 17026] 
+06-02 19:16:27.134 32040 32040 I SemDvfsHyPerManager: acquire hyper - TA_TOUCH_SHARE/32040@32, type = -999
+06-02 19:16:27.134 28835 28884 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : 514290587 [32040 / 31]  HINT :     list : [TABoost / 1] [TIMEOUT / 1500] 
+06-02 19:16:27.134 30756 30756 I HoneySpace.InputSession: open
+06-02 19:16:27.135 28835 28884 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : 514322660 [32040 / 32]  HINT : TA_TOUCH_SHARE   list : [TIMEOUT / 1500] 
+06-02 19:16:27.136  1945  1945 I SurfaceFlinger: [com.google.android.youtube/com.google.android.youtube.app.honeycomb.Shell$HomeActivity$_9430#536876] setFrameRateCategory: HighHint
+06-02 19:16:27.137  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.138 29244 29403 I GestureDetector: obtain mCurrentMotionEventRaw. action: 2 id: 762872360
+06-02 19:16:27.138 29244 29403 I GestureDetector: obtain mCurrentMotionEventRaw. action: 2 id: 762872360
+06-02 19:16:27.138  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.138  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.138  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.138  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.138  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.139  1788  1912 E minksocket: MinkIPC ERROR: ( 1788:1912 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.139  1788  1924 E minksocket: MinkIPC ERROR: ( 1788:1924 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+06-02 19:16:27.142  1945  5104 I SurfaceFlinger: Current= 120, Period= 120, Distance= 120
+06-02 19:16:27.195 29244 29625 D InputReader: Btn_touch(5): value=0 when=2002939.737226
+06-02 19:16:27.195 29244 29625 I InputReader: Touch event's action is 0x1 (id=6, t=0) [pCnt=1, s=] when=2002939.737226
+06-02 19:16:27.196 29244 29624 I InputDispatcher: Delivering touch to (9430): action: 0x1, f=0x0, d=0, '11916b4', t=1 
+06-02 19:16:27.196  9430  9430 I VRI[Shell$HomeActivity]@51fbfc7: ViewPostIme pointer 1
+06-02 19:16:27.196 30756 30756 I HoneySpace.GestureInputHandler: reset
+06-02 19:16:27.196 30756 30756 I HoneySpace.InputSession: close
+06-02 19:16:27.196  9430  9430 E YT.mlplayer: MedialibPlayer.clearQueue()
+06-02 19:16:27.197  9430  9430 E YT.mlplayer: MedialibPlayer.setMediaView(202424998(0,0,1440,810))
+06-02 19:16:27.197  9430  9430 E YT.mlplayer: MedialibPlayer.loadVideo(cpn=CWOheTet0RubKVoV playWhenReady=true positionMs=19608 playerEvents=[82] videoId=scrubbed volume=1.0 pauseOnLastFrame=false)
+06-02 19:16:27.197  9430  9430 E YT.mlplayer: MedialibPlayerEvents[82].onPreparing()
+06-02 19:16:27.199  9430  9430 E YT.mlplayer: MedialibPlayerEvents[82].onPlaybackRateChange(playbackRate=1.000000)
+06-02 19:16:27.199  9430  9430 E YT.mlplayer: MedialibPlayerEvents[82].onBuffering()
+06-02 19:16:27.200  9430  9430 E YT.mlplayer: MedialibPlayerEvents[82].onVideoQualitySettingChange(0)
+06-02 19:16:27.201  9430  9430 I BLASTBufferQueue_Java: update, w= 1440 h= 3120 mName = VRI[Shell$HomeActivity]@51fbfc7 mNativeObject= 0xb40000727a794bd0 sc.mNativeObject= 0xb40000729a8e5210 format= -3 caller= android.view.ViewRootImpl.updateBlastSurfaceIfNeeded:3592 android.view.ViewRootImpl.relayoutWindow:11810 android.view.ViewRootImpl.performTraversals:4840 android.view.ViewRootImpl.doTraversal:3959 android.view.ViewRootImpl$TraversalRunnable.run:13031 android.view.Choreographer$CallbackRecord.run:1961 
+06-02 19:16:27.201  9430  9430 I VRI[Shell$HomeActivity]@51fbfc7: Relayout returned: old=(0,0,1440,3120) new=(0,0,1440,3120) relayoutAsync=true req=(1440,3120)0 dur=0 res=0x0 s={true 0xb40000724aef72d0} ch=false seqId=0
+06-02 19:16:27.201 29244 29479 I WindowManager: Relayout Window{11916b4 u0 com.google.android.youtube/com.google.android.youtube.app.honeycomb.Shell$HomeActivity}: viewVisibility=0 req=1440x3120 ty=1 d0
+06-02 19:16:27.201  9430  9430 E YT.mlplayer: MedialibPlayerEvents[82].onMediaTimeRangeChange(beginTimeMs=0 endTimeMs=67616)
+06-02 19:16:27.202 29244 29479 D PowerManagerService: [api] acquire WakeLock SCREEN_BRIGHT_WAKE_LOCK           'WindowManager/displayId:0' ON_AFTER_RELEASE (uid=1000 isFrozen=false pid=29244 ws=WorkSource{10302 com.google.android.youtube} displayId=0 lock=3343fb6)
+06-02 19:16:27.202 29244 30077 I MediaSessionStack: onPlaybackStateChanged - Pushing session to top | record: com.google.android.youtube/YouTube playerlib/12 (userId=0)
+06-02 19:16:27.202 29244 30077 D MediaSessionService: onSessionPlaybackStateChanged: record=com.google.android.youtube/YouTube playerlib/12 (userId=0) playbackState=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.203 29244 29244 I ResourceManagerHelper-JNI: getMediaResourceInfo resourceType 2, size 0
+06-02 19:16:27.203 29244 29244 I MediaSessionDataPlatform: getMediaType for uid: 10302 Audio
+06-02 19:16:27.203 29244 29244 D MediaSessionDataPlatform: put record (new)
+06-02 19:16:27.203  1669  1669 I PlatformContrRepo: Rejecting sessions from packages: 
+06-02 19:16:27.203  1669  1669 I PlatformContrRepo: Accepting sessions from packages: com.google.android.youtube
+06-02 19:16:27.204 29244 29794 D BackgroundInstallControlService: Package event received: 0
+06-02 19:16:27.204 29244 29479 I WindowManager: Relayout hash=11916b4, pid=0, syncId=-1: mAttrs={(0,0)(fillxfill) sim={adjust=resize} layoutInDisplayCutoutMode=always ty=BASE_APPLICATION fmt=TRANSLUCENT wanim=0x1030318 sysuil=true
+06-02 19:16:27.204 29244 29479 I WindowManager:   fl=81810180
+06-02 19:16:27.204 29244 29479 I WindowManager:   pfl=10008840
+06-02 19:16:27.204 29244 29479 I WindowManager:   vsysui=1710
+06-02 19:16:27.204 29244 29479 I WindowManager:   apr=10
+06-02 19:16:27.204 29244 29479 I WindowManager:   bhv=2
+06-02 19:16:27.204 29244 29479 I WindowManager:   fitSides=0
+06-02 19:16:27.204 29244 29479 I WindowManager:   frameRateBoostOnTouch=true
+06-02 19:16:27.204 29244 29479 I WindowManager:   dvrrWindowFrameRateHint=true naviIconColor=0}
+06-02 19:16:27.204  2749  2749 I smedia  : SMediaControllerCallback.OnPlaybackStateChanged(com.google.android.youtube)
+06-02 19:16:27.206 32168 32168 I [MCFDs]_MediaStateObserver: updateFinalState - (session) ######1 *.y*ut* IS PLAYING (FINAL_STATE:3)
+06-02 19:16:27.206  9430  7010 I CCodec  : state->set(ALLOCATING)
+06-02 19:16:27.206  9430  7011 I CCodec  : allocate(c2.qti.av1.decoder)
+06-02 19:16:27.206  9430  7011 D CCodec  : allocate(c2.qti.av1.decoder)
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaSessionUtils.findActivePosition(): [0]
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaSessionHelper.releaseActiveController(false): 'com.google.android.youtube'
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaSessionHelper.setActiveController(false): 'com.google.android.youtube' -> 'com.google.android.youtube' [0]
+06-02 19:16:27.206 32168 32168 I [MCFDs]_ContextManager: onContextChanged - MEDIA STATE : PLAYING
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaController.onActiveControllerSet(com.google.android.youtube, false)
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaSessionHelper.findActive(): [false]
+06-02 19:16:27.206 32168 32168 W [MCFDs]_AutoSwitchCondition: isSwitchablePreCondition - target is not set yet
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaNodeHelper.activeNode(a001d76e): false
+06-02 19:16:27.206  2749  2749 I smedia  : SMediaNodeHelper.aliveConnection(): false
+06-02 19:16:27.207  9430  7011 I CCodec  : setting up 'default' as default (vendor) store
+06-02 19:16:27.207  1840  1840 I QC2CompStore: addIdToList add Id[177] to list
+06-02 19:16:27.208  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(--002) for field mastering of struct #Param::CoreIndex(--180a)
+06-02 19:16:27.208  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(-V8002) for field portConfigs of struct #Param::CoreIndex(FV1a100)
+06-02 19:16:27.208  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(-V8002) for field portConfigs of struct #Param::CoreIndex(FV1a100)
+06-02 19:16:27.208  1840  1840 I QC2Comp : [cmpav1D_177] KPI_L1: init: ms=0
+06-02 19:16:27.208  1840  1840 I QC2Comp : [c2.qti.av1.decoder] KPI_L1: Create: ms=1
+06-02 19:16:27.208 30518 30518 I MediaPlayerWrapper: onPlaybackStateChanged(): com.google.android.youtube : PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.209  1840  1840 I QC2CompStore: Created component(c2.qti.av1.decoder) id(177) sStore[0xb4000078aae1ed50]
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(--002) for field mastering of struct #Param::CoreIndex(--180a)
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(--002) for field mastering of struct #Param::CoreIndex(--180a)
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: C2StreamVendorRenderEngineHDRToneMapRequestInfoset to 0
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: StrictValueWithNoDeps is called old.v.value is 35 me.v.value is 35
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: HDRToneMappingFilter ID 34057 CTOR
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: NonStrictValueWithNoDeps is called 
+06-02 19:16:27.209 30518 30518 I MediaPlayerWrapper: sendMediaUpdate(): Metadata has been updated for com.google.android.youtube
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: NonStrictValuesWithNoDeps is called 
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(--002) for field mastering of struct #Param::CoreIndex(--180a)
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: missing struct descriptor #Param::CoreIndex(--002) for field mastering of struct #Param::CoreIndex(--180a)
+06-02 19:16:27.209 30518 30518 I MediaPlayerList: sendMediaUpdate
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: VendorExternalAIFRCRequestSetter requested value is 0
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: VendorExternalAIFRCMediaQFDLevelSetter requested QFD level is 2
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: VendorExternalAIFRCEarlyLoadRequestSetter requested value is 0
+06-02 19:16:27.209 30518 30518 D AudioCastManager: setPlaybackStateForHost : 6
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: VendorExternalAIFRCDynamicAttachRequestSetter requested value is 0
+06-02 19:16:27.209 30518 30518 D MediaPlayerList: sendMediaUpdate state=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.209  1840  1840 I FRCFilterPlugin: AIFRCFilter CTOR mFilterId is 34058
+06-02 19:16:27.209  1840  1840 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: StrictValueWithNoDeps is called old.v.value is 35 me.v.value is 0
+06-02 19:16:27.209  1840  1840 I vendor.qti.media.c2@1.0-service: [FRC-IsFilteringEnabled] frcReqInfo.value is 0 earlyReqInfo value is0
+06-02 19:16:27.210 30518 30518 D AvrcpTargetService: onMediaUpdated: track_changed=false state=true queue=false
+06-02 19:16:27.210 30518 30518 D AvrcpNativeInterface: sendMediaUpdate: metadata=false playStatus=true queue=false
+06-02 19:16:27.210  9430  7011 W android.youtube: AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. This might not be intended. AIBinder_DeathRecipient_setOnUnlinked should be called first.
+06-02 19:16:27.210  9430  7011 I CCodec  : Created component [c2.qti.av1.decoder] for [c2.qti.av1.decoder]
+06-02 19:16:27.210  9430  7011 I CCodec  : [c2.qti.av1.decoder] state->set(ALLOCATED)
+06-02 19:16:27.211  1840  1840 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.211  9430  7011 D CCodecConfig: read media type: video/av01
+06-02 19:16:27.211  9430  9430 I VRI[Shell$HomeActivity]@51fbfc7: registerCallbackForPendingTransactions
+06-02 19:16:27.211 30518 30518 D AvrcpTargetJni: android/app/jni/com_android_bluetooth_avrcp_target.cpp:319 sendMediaUpdateNative: 
+06-02 19:16:27.211 30518 30518 I bluetooth: system/btif/avrcp/avrcp_service.cc:582 SendMediaUpdate: track_changed=false :  play_state=true :  queue=false
+06-02 19:16:27.212  9430  7011 D ReflectedParamUpdater: ignored struct field vendor.output.configs.portConfigs
+06-02 19:16:27.212  9430 17062 I VRI[Shell$HomeActivity]@51fbfc7: mWNT: t=0xb4000073aa8c7f10 mBlastBufferQueue=0xb40000727a794bd0 fn= 72 HdrRenderState mRenderHdrSdrRatio=1.0 caller= android.view.ViewRootImpl$10.onFrameDraw:6612 android.view.ViewRootImpl$4.onFrameDraw:2485 android.view.ThreadedRenderer$1.onFrameDraw:751 
+06-02 19:16:27.212 30518 30518 I MediaPlayerWrapper: onPlaybackStateChanged(): com.google.android.youtube : PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.212  9430  7011 D ReflectedParamUpdater: extent() != 1 for single value type: output.buffers.pool-ids.values
+06-02 19:16:27.212  9430  7011 D ReflectedParamUpdater: extent() != 1 for single value type: vendor.qti-ext-info-hist_hdr.stats_info
+06-02 19:16:27.212  9430  7011 D ReflectedParamUpdater: extent() != 1 for single value type: vendor.qti-ext-info-hist_hdr.reserved
+06-02 19:16:27.212 30518 30518 I MediaPlayerWrapper: sendMediaUpdate(): Metadata has been updated for com.google.android.youtube
+06-02 19:16:27.212 30518 30518 I MediaPlayerList: sendMediaUpdate
+06-02 19:16:27.212 30518 30518 D AudioCastManager: setPlaybackStateForHost : 6
+06-02 19:16:27.212 30518 30518 D MediaPlayerList: sendMediaUpdate state=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.212 30518 30518 D MediaControlProfile: onMediaUpdated: track_changed=false state_changed=true queue_changed=false
+06-02 19:16:27.213 30518 30518 E MediaControlProfile: onCurrentPlayerStateUpdated: base actions not supported, player actions= 21a7, expected at least= 7f
+06-02 19:16:27.213 30518 30518 D MediaControlProfile: onCurrentPlayerStateUpdated state= PAUSED, supported opcodes= 0x183f (PLAY | PAUSE | FAST_REWIND | FAST_FORWARD | STOP | MOVE_RELATIVE | PREVIOUS_TRACK | NEXT_TRACK), track position= 19608 (19608)
+06-02 19:16:27.213  9430  7011 D ReflectedParamUpdater: ignored struct field vendor.input.configs.portConfigs
+06-02 19:16:27.213  9430  7011 D ReflectedParamUpdater: extent() != 1 for single value type: output.subscribed-indices.values
+06-02 19:16:27.214  9430  7011 D ReflectedParamUpdater: extent() != 1 for single value type: vendor.qti-ext-transcode-info-stats.stats_info
+06-02 19:16:27.214 30518 30518 D MediaControlGattService: updatePlayerState: playbackState= PAUSED
+06-02 19:16:27.214 30518 30518 D MediaControlGattService: updatePlaybackSpeedChar: 1.0
+06-02 19:16:27.214 30518 30518 W MediaControlGattService: Feature PLAYBACK_SPEED support: true
+06-02 19:16:27.214 30518 30518 W MediaControlGattService: Feature PLAYBACK_SPEED support: true
+06-02 19:16:27.214 30518 30518 W MediaControlGattService: Feature PLAYBACK_SPEED support: true
+06-02 19:16:27.214 30518 30518 D MediaControlGattService: updateTrackPositionChar: 19608
+06-02 19:16:27.214 30518 30518 W MediaControlGattService: Feature TRACK_POSITION support: true
+06-02 19:16:27.214 30518 30518 W MediaControlGattService: Feature TRACK_POSITION_NOTIFY support: true
+06-02 19:16:27.214 30518 30518 W MediaControlGattService: Feature MEDIA_STATE support: true
+06-02 19:16:27.214  9430  7011 D CCodecConfig: ignoring local param raw.size (0xd2001800) as it is already supported
+06-02 19:16:27.214  9430  7011 D CCodecConfig: ignoring local param default.color (0x5200180b) as it is already supported
+06-02 19:16:27.214  9430  7011 D CCodecConfig: ignoring local param raw.hdr-static-info (0xd200180a) as it is already supported
+06-02 19:16:27.215  1840  2829 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.215  1840  2829 I vendor.qti.media.c2@1.0-service: StrictValueWithNoDeps is called old.v.value is 35 me.v.value is 0
+06-02 19:16:27.215  1840  2829 I vendor.qti.media.c2@1.0-service: [FRC-IsFilteringEnabled] frcReqInfo.value is 0 earlyReqInfo value is0
+06-02 19:16:27.215  9430  7011 I CCodec  : [c2.qti.av1.decoder] config->initialize() : 0
+06-02 19:16:27.215  1840  1971 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.215 30518 30518 I BluetoothAdapterProperties: getBondedDevices: length=7
+06-02 19:16:27.215  9430  7011 I CCodecConfig: query failed after returning 18 values (BAD_INDEX)
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:C6:69, type=3
+06-02 19:16:27.215  9430  7011 D CCodecConfig: c2 config diff is Dict {
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::i32 algo.priority.value = -4
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::float algo.rate.value = 1
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 algo.secure-mode.value = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::float coded.frame-rate.value = 1
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 coded.pl.level = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 coded.pl.profile = 36864
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.matrix = 255
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.primaries = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.range = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.transfer = 255
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 default.color.matrix = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 default.color.primaries = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 default.color.range = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 default.color.transfer = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 input.buffers.max-size.value = 8388608
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 input.delay.value = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   string input.media-type.value = "video/av01"
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 output.delay.value = 4
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   Buffer output.hdr10-plus-info.value = {
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   }
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   string output.media-type.value = "video/raw"
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 raw.color.matrix = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 raw.color.primaries = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 raw.color.range = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::u32 raw.color.transfer = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.blue.x = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.blue.y = 0
+06-02 19:16:27.215  9430  7011 D CCodecConfig:   c
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:64:89, type=3
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:1B:09, type=3
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:7B:50, type=3
+06-02 19:16:27.215  9430  7011 W ColorUtils: expected specified color aspects (0:0:0:0)
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:80:35, type=3
+06-02 19:16:27.215  9430  7011 I CCodec  : [c2.qti.av1.decoder] config->queryConfiguration()
+06-02 19:16:27.215  9430  7011 I CCodec  : [c2.qti.av1.decoder] mCallback->onComponentAllocated() IN
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:BA:56, type=2
+06-02 19:16:27.215  9430  7011 I CCodec  : [c2.qti.av1.decoder] mCallback->onComponentAllocated() OUT
+06-02 19:16:27.215 30518 30518 D BtGatt.GattService: getDeviceType() - device=XX:XX:XX:XX:48:79, type=3
+06-02 19:16:27.216 30518 30518 D MediaControlGattService: updateTrackPositionChar: positionMs= 19608, position= 1960
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature PLAYER_NAME support: true
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature PLAYER_NAME support: true
+06-02 19:16:27.216 30518 30518 D MediaControlGattService: updateSupportedOpcodesChar: opcodes= 0x183f (PLAY | PAUSE | FAST_REWIND | FAST_FORWARD | STOP | MOVE_RELATIVE | PREVIOUS_TRACK | NEXT_TRACK)
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature MEDIA_CONTROL_POINT_OPCODES_SUPPORTED support: true
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature MEDIA_STATE support: true
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature MEDIA_STATE support: true
+06-02 19:16:27.216 30518 30518 D MediaControlGattService: updateSeekingSpeedChar: speed= 1.0
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature SEEKING_SPEED support: true
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature SEEKING_SPEED support: true
+06-02 19:16:27.216 30518 30518 W MediaControlGattService: Feature SEEKING_SPEED support: true
+06-02 19:16:27.216 30518 30518 D MediaControlProfile: GMCS processPendingPlayerStateRequest
+06-02 19:16:27.217 30518 30518 I MediaPlayerWrapper: onPlaybackStateChanged(): com.google.android.youtube : PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.217  9430  7010 I MediaCodec: MediaCodec will operate in async mode
+06-02 19:16:27.217  9430  9696 I MediaCodec: media_quality service unavailable, skipping updatePictureProfile
+06-02 19:16:27.217  9430  7010 D SurfaceUtils: connecting to surface 0xb40000724acf5630, reason connectToSurface
+06-02 19:16:27.217  9430  7010 I MediaCodec: [c2.qti.av1.decoder] setting surface generation to 9656758
+06-02 19:16:27.217  9430  7010 D SurfaceUtils: disconnecting from surface 0xb40000724acf5630, reason connectToSurface(reconnect)
+06-02 19:16:27.217  9430  7010 D SurfaceUtils: connecting to surface 0xb40000724acf5620, reason connectToSurface(reconnect-with-listener)
+06-02 19:16:27.218  9430  7011 D CCodec  : [c2.qti.av1.decoder] buffers are bound to CCodec for this session
+06-02 19:16:27.218  9430  7011 I CCodec  : appPid(9430) width(1280) height(720)
+06-02 19:16:27.218  9430  7011 D CCodecConfig: no c2 equivalents for log-session-id
+06-02 19:16:27.218  9430  7011 D CCodecConfig: no c2 equivalents for importance
+06-02 19:16:27.218  9430  7011 D CCodecConfig: no c2 equivalents for color-standard
+06-02 19:16:27.218  9430  7011 D CCodecConfig: no c2 equivalents for native-window
+06-02 19:16:27.218  9430  7011 D CCodecConfig: no c2 equivalents for native-window-generation
+06-02 19:16:27.218  9430  7011 D CCodecConfig: no c2 equivalents for flags
+06-02 19:16:27.218  1840  2829 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.218  1840  2829 I vendor.qti.media.c2@1.0-service: StrictValueWithNoDeps is called old.v.value is 35 me.v.value is 0
+06-02 19:16:27.218  1840  2829 I vendor.qti.media.c2@1.0-service: [FRC-IsFilteringEnabled] frcReqInfo.value is 0 earlyReqInfo value is0
+06-02 19:16:27.218  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 algo.priority.value = 0
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::float algo.rate.value = 60
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 default.color.matrix = 1
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 default.color.primaries = 1
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 default.color.range = 2
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 default.color.transfer = 3
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 raw.max-size.height = 720
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 raw.max-size.width = 1280
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 raw.size.height = 720
+06-02 19:16:27.218  9430  7011 D CCodecConfig:   c2::u32 raw.size.width = 1280
+06-02 19:16:27.219  1840  1971 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.219  9430  7011 D CCodec  : client requested max input size 691200, which is smaller than what component recommended (8388608); overriding with component recommendation.
+06-02 19:16:27.219  9430  7011 W CCodec  : This behavior is subject to change. It is recommended that app developers double check whether the requested max input size is in reasonable range.
+06-02 19:16:27.219  9430  7011 D CCodec  : encoding statistics level = 0
+06-02 19:16:27.219  9430  7011 D CCodec  : setup formats input: AMessage(what = 0x00000000) = {
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t feature-secure-playback = 0
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t frame-rate = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t height = 720
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t max-input-size = 8388608
+06-02 19:16:27.219  9430  7011 D CCodec  :   string mime = "video/av01"
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t priority = 0
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t profile = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t width = 1280
+06-02 19:16:27.219  9430  7011 D CCodec  :   Rect crop(0, 0, 1279, 719)
+06-02 19:16:27.219  9430  7011 D CCodec  : }
+06-02 19:16:27.219  9430  7011 D CCodec  : setup formats output: AMessage(what = 0x00000000) = {
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t android._color-format = 0
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t android._video-scaling = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t android._dataspace = 260
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t color-standard = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t color-range = 2
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t color-transfer = 3
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t sar-height = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t rotation-degrees = 0
+06-02 19:16:27.219  9430  7011 D CCodec  :   Buffer hdr-static-info = {
+06-02 19:16:27.219  9430  7011 D CCodec  :     00000000:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................
+06-02 19:16:27.219  9430  7011 D CCodec  :     00000010:  00 00 00 00 00 00 00 00  00                       .........
+06-02 19:16:27.219  9430  7011 D CCodec  :   }
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t sar-width = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   Rect crop(0, 0, 1279, 719)
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t width = 1280
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t feature-secure-playback = 0
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t frame-rate = 1
+06-02 19:16:27.219  9430  7011 D CCodec  :   Buffer hdr10-plus-info = {
+06-02 19:16:27.219  9430  7011 D CCodec  :   }
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t height = 720
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t max-height = 720
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t max-width = 1280
+06-02 19:16:27.219  9430  7011 D CCodec  :   string mime = "video/raw"
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t priority = 0
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t color-format = 2130708361
+06-02 19:16:27.219  9430  7011 D CCodec  :   int32_t p-extraBC = 6
+06-02 19:16:27.219  9430  7011 D CCodec  : }
+06-02 19:16:27.219  1840  1971 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.219  9430  7011 I CCodecConfig: query failed after returning 18 values (BAD_INDEX)
+06-02 19:16:27.219 30518 30518 I MediaPlayerWrapper: sendMediaUpdate(): Metadata has been updated for com.google.android.youtube
+06-02 19:16:27.219  1840  2829 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.219  9430  7011 E android.youtube: Failed to query component interface for required system resources: 6
+06-02 19:16:27.219 30518 30518 I MediaPlayerList: sendMediaUpdate
+06-02 19:16:27.219 30518 30518 D AudioCastManager: setPlaybackStateForHost : 6
+06-02 19:16:27.219 30518 30518 D MediaPlayerList: sendMediaUpdate state=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.219  9430  9696 D MediaCodec: keep callback message for reclaim
+06-02 19:16:27.220 29244 29479 D SehCodecSolutionService: updateMediaStatisticsData: (action=1@1986621044;category=2@1986621044;label=1936220465@1986621044)
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: MediaStatisticsData: action=1@1986621044;category=2@1986621044;label=1936220465@1986621044
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: Category.valueOf: 2
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: Action.valueOf: 1
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: Label.valueOf: 0x73686131
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: category: VDEC
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: action: INSTANTIATE
+06-02 19:16:27.220 29244 29479 D CodecSolution_MediaStatisticsData: label: SEC_HW_AV1
+06-02 19:16:27.220 29244 29244 D SehCodecSolutionService: handleMessage : 900
+06-02 19:16:27.220  9430  7010 I CCodec  : [c2.qti.av1.decoder] state->set(STARTING)
+06-02 19:16:27.220 29244 29244 D SehCodecSolutionService: event : VDEC
+06-02 19:16:27.220  1840  2829 I vendor.qti.media.c2@1.0-service: [FRC-IsFilteringEnabled] frcReqInfo.value is 0 earlyReqInfo value is0
+06-02 19:16:27.220 29244 29244 D CodecSolution_Logging: dma : true, feature: VDEC, extra: SEC_HW_AV1, value: -1
+06-02 19:16:27.220 29244 29244 D CodecSolution_Logging: insert diagmon log
+06-02 19:16:27.220 29244 29244 D CodecSolution_Logging: permission granted
+06-02 19:16:27.220 29244 29244 W ContextImpl: Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1374 vendor.samsung.frameworks.codecsolution.Logging.insertDiagmonLog:14 vendor.samsung.frameworks.codecsolution.Logging.insertLog:6 vendor.samsung.frameworks.codecsolution.Logging.insertLog:1 vendor.samsung.frameworks.codecsolution.SehCodecSolutionService$1.handleMessage:24 
+06-02 19:16:27.220  1840  2829 I QC2Comp : [av1D_177] CPU perf resource value pair found: [1082130432, 4095, ]
+06-02 19:16:27.221  1840  2829 I QC2Registry: Build pipelined codec for session
+06-02 19:16:27.221  1840  2829 I QC2Registry: Getting stages for pipelined codec
+06-02 19:16:27.221  1840  2829 I QC2Registry: Requested codec is pipelined. Create codec list
+06-02 19:16:27.221  1840  2829 I QC2Registry: GetEnabledFilters for c2.qti.av1.decoder
+06-02 19:16:27.221  1840  2829 I QC2Registry: Pipeline Index = a000a103
+06-02 19:16:27.221  1840  2829 I QC2Registry: Filter c2.qti.filter.imagetransform can't be pipelined
+06-02 19:16:27.221  1840  2829 I QC2Registry: Created 0 filters for pipelined codec c2.qti.av1.decoder
+06-02 19:16:27.221  1840  2829 E QC2Comp : [av1D_177] configureIntf failed 95
+06-02 19:16:27.222 31974 31974 W ContextImpl: Calling a method in the system process without a qualified user: android.app.ContextImpl.startService:2128 android.content.ContextWrapper.startService:898 android.content.ContextWrapper.startService:898 com.sec.android.diagmonagent.sa.receiver.CFLogReceiver.onReceive:56 android.app.ActivityThread.handleReceiver:6032 
+06-02 19:16:27.223  1840  2829 I QC2V4l2Codec: [v4lav1D_177] KPI_L1: init: ms=1
+06-02 19:16:27.223  1840  7017 E QC2V4l2Codec: [v4lav1D_177]  ? is not a supported pixel format!
+06-02 19:16:27.225  6886  6886 I dumpstate: Launching async 'SERIALIZE PERFETTO TRACE'
+06-02 19:16:27.225 31974  7021 I DMASA[S]: [a]start parsing intent log
+06-02 19:16:27.225 31974  7021 W DMASA[S]: [BundleParser]pkg_name is null(empty)
+06-02 19:16:27.225 31974  7021 W DMASA[S]: [BundleParser]pkg_name is null(empty)
+06-02 19:16:27.225 31974  7021 I DMASA[S]: [a]check quota : 4I1-399-549798
+06-02 19:16:27.225  1840  2829 I QC2V4l2Codec: [v4lav1D_177] KPI_L1: start: ms=2
+06-02 19:16:27.225  9430 17493 D AidlBufferPool: bufferpool2 0xb4000073aa7d87a8 : 0(0 size) total buffers - 0(0 size) used buffers - 42/53 (recycle/alloc) - 11/45 (fetch/transfer)
+06-02 19:16:27.225  1840  2829 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.225  9430 17493 D AidlBufferPool: Destruction - bufferpool2 0xb4000073aa7d87a8 cached: 0/0M, 0/0% in use; allocs: 53, 79% recycled; transfers: 45, 76% unfetched
+06-02 19:16:27.225 31974  7021 I DMASA[S]: [b]4I1-399-549798 remain quota : 833
+06-02 19:16:27.225 31974  7021 I DMASA[S]: [a]Receive log ok : 4I1-399-549798
+06-02 19:16:27.225  9430 26606 D AidlBufferPool: Destruction - bufferpool2 0xb4000073aa78e0b8 cached: 0/0M, 0/0% in use; allocs: 1279, 99% recycled; transfers: 1910, 99% unfetched
+06-02 19:16:27.226  1840  2829 I QC2Comp : [av1D_177] KPI_L1: start: ms=5
+06-02 19:16:27.226  1840 11577 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.226  9430  7011 I CCodecBufferChannel: [c2.qti.av1.decoder#785] start: outputDelayValue changed from 4 to 12.
+06-02 19:16:27.226  1840 11577 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.226  9430  7011 D CCodecBufferChannel: [c2.qti.av1.decoder#785] Query input allocators returned 0 params => BAD_INDEX (6)
+06-02 19:16:27.226  9430  7011 D CCodecBufferChannel: [c2.qti.av1.decoder#785] Created input block pool with allocatorID 16 => poolID 187 - OK (0)
+06-02 19:16:27.226  9430  7011 I CCodecBufferChannel: [c2.qti.av1.decoder#785] start: max output delay 19
+06-02 19:16:27.227  1840  1840 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.227  9430  7011 D CCodecBufferChannel: [c2.qti.av1.decoder#785] Query output allocators returned 0 params => BAD_INDEX (6)
+06-02 19:16:27.227  1840  2829 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.227  9430  7011 D CCodecBufferChannel: [c2.qti.av1.decoder#785] Query output surface allocator returned 0 params => BAD_INDEX (6)
+06-02 19:16:27.227  9430  7011 D Codec2Client: GraphicBufferAllocator created
+06-02 19:16:27.227  9430  7011 I CCodecBufferChannel: [c2.qti.av1.decoder#785] Created output block pool with allocatorID 18 => poolID 34434 - OK
+06-02 19:16:27.227  1840  7017 I QC2Buf  : use shared ref tracker
+06-02 19:16:27.227  1840  7017 I QC2Buf  : Configured bufferpool fence wait time 150ms
+06-02 19:16:27.227  1840  7017 I QC2Buf  : Reconfig: clearing from 0 bufs. Peak mem=0 MB
+06-02 19:16:27.227  1840  7017 I QC2Buf  : Reconfig: clearing from 0 bufs. Peak mem=0 MB
+06-02 19:16:27.227  9430  7011 D CCodecBufferChannel: [c2.qti.av1.decoder#785] Configured output block pool ids 34434 => OK
+06-02 19:16:27.228  1840  1840 W QC2Interface: [av1D_177] Few parameters failed to configure
+06-02 19:16:27.228  9430  7011 D Codec2Client: setOutputSurface -- failed to set consumer usage (6/BAD_INDEX)
+06-02 19:16:27.228  9430  7011 D GraphicsTracker: new surface in configuration: maxDequeueRequested(0), maxDequeueCommitted(3)
+06-02 19:16:27.228  9430  7011 D GraphicsTracker: new surface configured with id:40501541601744 gen:9656758 maxDequeue:3
+06-02 19:16:27.228  9430  7011 D GraphicsTracker: maxDequeueCount committed to IGBP: 19
+06-02 19:16:27.228  9430  7011 D GraphicsTracker: Cache size 0 -> 0: maybe_cleared(0), dequeued(0)
+06-02 19:16:27.228  9430  7011 D GraphicsTracker: maxDqueueCount change 3 -> 19: pending: 0
+06-02 19:16:27.228  9430  7011 D Codec2Client: setOutputSurface -- generation=9656758 consumer usage=0x900
+06-02 19:16:27.228  9430  7011 I CCodec  : [c2.qti.av1.decoder] state->set(RUNNING)
+06-02 19:16:27.228  1840  1840 I QC2CompStore: Setting heap usage to system
+06-02 19:16:27.229  9430  7011 I CCodecBufferChannel: [c2.qti.av1.decoder#785] 10 initial input buffers available
+06-02 19:16:27.229  1840  1840 W QC2Interface: [av1D_177] Failed to query parameters
+06-02 19:16:27.229 28789 13068 I ResourceManagerService: addMediaInfo pid 9430 (width 1280 height 720), allocated hw codec count 1
+06-02 19:16:27.229 28789 13068 I ResourceManagerService: getMediaResourceInfo (PID : 9430, clientID : -5476376651711968816, non-secure-codec/hw-video-codec:[]:1, 1280x720 (fps:1) - sw codec : no, encoder : no componentName = c2.qti.av1.decoder bitrate = 17000000)
+06-02 19:16:27.229 28789 13067 W ResourceManagerServiceUtils: Ignoring request to add new resource entry with value <= 0
+06-02 19:16:27.229  7228  7445 I SemMediaResourceHelper: onAdd
+06-02 19:16:27.229 32040 32329 I SemMediaResourceHelper: onAdd
+06-02 19:16:27.229  7228  7445 I MultimediaHelper: (Paran)(2.2.04) updateVideoStatus() : status is false
+06-02 19:16:27.229  7228  7446 I MultimediaHelper: (Paran)(2.2.04) handleDecoderStatusUpdated() : decoder status is updated to true
+06-02 19:16:27.229  9430  7010 I MediaCodec: setCodecState state(0), called in 6, domain 1, 1
+06-02 19:16:27.229  9430  9696 W YT.codecreuse: Codec created: c2.qti.av1.decoder. Cacheable true. InitReason CODEC_INIT_REASON_SURFACE. Cache size 0
+06-02 19:16:27.230  9430  9430 E YT.mlplayer: MedialibPlayerEvents[82].onFormatStreamChange(currentVideoFormat=398  currentAudioFormat=249CggKA2RyYxIBMQ bestVideoFormat=0 trigger=a estimate=-1 source=0)
+06-02 19:16:27.230 32040 32329 I SemDvfsHyPerManager: acquire hyper - VIDEO_POWER_EFFICIENCY/32040@29, type = -999
+06-02 19:16:27.230 29244 29479 D MediaSessionService: onSessionMetadataChanged: record=com.google.android.youtube/YouTube playerlib/12 (userId=0) mediaMetadata=android.media.MediaMetadata@7f46013e
+06-02 19:16:27.231 32040 32329 I SemMediaResourceHelper: onState
+06-02 19:16:27.231 32040 32329 I SemDvfsHyPerManager: acquire hyper - TABaseBoost/32040@30, type = -999
+06-02 19:16:27.232 30518 30518 I MediaPlayerWrapper: onMetadataChanged() title:다들 정말 오래 버티셨습니다. 26.12 패치 밸런싱 명단, duration: 68000
+06-02 19:16:27.232 30518 30518 I MediaPlayerWrapper: sendMediaUpdate(): Metadata has been updated for com.google.android.youtube
+06-02 19:16:27.232 30518 30518 I MediaPlayerList: sendMediaUpdate
+06-02 19:16:27.232 30518 30518 D AudioCastManager: setPlaybackStateForHost : 6
+06-02 19:16:27.232 28835 28884 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : 514226444 [32040 / 29]  HINT : VIDEO_POWER_EFFICIENCY   list : 
+06-02 19:16:27.232 30518 30518 D MediaPlayerList: sendMediaUpdate state=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.232 30518 30518 D AvrcpTargetService: onMediaUpdated: track_changed=false state=false queue=false
+06-02 19:16:27.232  9430  7010 W android.youtube: AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. This might not be intended. AIBinder_DeathRecipient_setOnUnlinked should be called first.
+06-02 19:16:27.232 30518 30518 I MediaPlayerWrapper: onMetadataChanged() title:다들 정말 오래 버티셨습니다. 26.12 패치 밸런싱 명단, duration: 68000
+06-02 19:16:27.232 28835 28884 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514258515
+06-02 19:16:27.232  7228  7445 I SemMediaResourceHelper: onState
+06-02 19:16:27.232  7228  7445 I MultimediaHelper: (Paran)(2.2.04) onStateChanged() : status is false, codec state is 0
+06-02 19:16:27.232  7228  7446 I MultimediaHelper: (Paran)(2.2.04) handleCodecStatusUpdated() : codec running processes are updated
+06-02 19:16:27.232 30518 30518 I MediaPlayerWrapper: sendMediaUpdate(): Metadata has been updated for com.google.android.youtube
+06-02 19:16:27.232 30518 30518 I MediaPlayerList: sendMediaUpdate
+06-02 19:16:27.232 30518 30518 D AudioCastManager: setPlaybackStateForHost : 6
+06-02 19:16:27.232 30518 30518 D MediaPlayerList: sendMediaUpdate state=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.232 30518 30518 W MediaControlGattService: Feature PLAYER_NAME support: true
+06-02 19:16:27.232 30518 30518 W MediaControlGattService: Feature PLAYER_NAME support: true
+06-02 19:16:27.232 30518 30518 W MediaControlGattService: Feature MEDIA_STATE support: true
+06-02 19:16:27.232 30518 30518 D MediaControlProfile: GMCS processPendingPlayerStateRequest
+06-02 19:16:27.232 28835 28884 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514290587
+06-02 19:16:27.232 28835 28884 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514322660
+06-02 19:16:27.232 30518 30518 I MediaPlayerWrapper: onMetadataChanged() title:다들 정말 오래 버티셨습니다. 26.12 패치 밸런싱 명단, duration: 68000
+06-02 19:16:27.232 28835 28884 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514226444
+06-02 19:16:27.232 28835 28884 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : 514258515 [32040 / 30]  HINT :     list : [TABoost / 1] 
+06-02 19:16:27.233  1840  7017 I QC2CompStore: Setting heap usage to system
+06-02 19:16:27.233 30518 30518 I MediaPlayerWrapper: sendMediaUpdate(): Metadata has been updated for com.google.android.youtube
+06-02 19:16:27.233 30518 30518 I MediaPlayerList: sendMediaUpdate
+06-02 19:16:27.233 30518 30518 D AudioCastManager: setPlaybackStateForHost : 6
+06-02 19:16:27.233 30518 30518 D MediaPlayerList: sendMediaUpdate state=PlaybackState {state=BUFFERING(6), position=19608, buffered position=0, speed=1.0, updated=2015445670, actions=8615, custom actions=[], active item id=-1, error=null}
+06-02 19:16:27.233  2749  2749 I smedia  : SMediaControllerCallback.onMetadataChanged(com.google.android.youtube)
+06-02 19:16:27.233  2749  2749 I smedia  : SMediaNodeHelper.activeNode(a001d76e): false
+06-02 19:16:27.233  2749  2749 I smedia  : SMediaNodeHelper.aliveConnection(): false
+06-02 19:16:27.235  1840  7017 I QC2Buf  : Reconfig: clearing from 0 bufs. Peak mem=0 MB
+06-02 19:16:27.235  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.235  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.235  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.235  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.236  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.236  9430  7011 D CCodecConfig: c2 config diff is   c2::u32 output.delay.value = 17
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.236  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  9430  7011 I CCodecBufferChannel: [c2.qti.av1.decoder#785] updating max output delay 24
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.236  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.236  9430  7011 D GraphicsTracker: maxDequeueCount committed to IGBP: 24
+06-02 19:16:27.236  9430  7011 D GraphicsTracker: Cache size 4 -> 4: maybe_cleared(0), dequeued(4)
+06-02 19:16:27.236  9430  7011 D GraphicsTracker: maxDqueueCount change 19 -> 24: pending: 0
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.236  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.237  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.237  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.237  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.237  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.237  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.237  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.237  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.237  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.237  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.237  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.237  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.238  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.238  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.238  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.238  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.238  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.238  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.238  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.238  1840  7020 I QC2V4L2PollThread: [v4lav1D_177] KPI_L1: Reconfig: ms=4
+06-02 19:16:27.238  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.238  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.238  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.239  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.239  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.239  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.239  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.239  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.239  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.239  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.239  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.239  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.239  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.239  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.239  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.240  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.240  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.240  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.240  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.240  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.240  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.240  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.240  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.240  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.241  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.241  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.241  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.241  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.241  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.241  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.241  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.241  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.241  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.241  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.241  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.241  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.242  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.242  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.242  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.242  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.242  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.242  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.242  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.242  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.242  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.243  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.243  9430 17493 D CCodecBufferChannel: [c2.qti.av1.decoder#785] Ignoring stale input buffer done callback: last flush index = 0, frameIndex = 0
+06-02 19:16:27.243  9430  7011 D CCodecConfig: c2 config diff is   c2::u32 raw.color.matrix = 1
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.color.primaries = 1
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.color.range = 2
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.color.transfer = 3
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.crop.height = 720
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.crop.left = 0
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.crop.top = 0
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.crop.width = 1280
+06-02 19:16:27.243  9430  7011 D CCodecConfig:   c2::u32 raw.data-space.value = 281083904
+06-02 19:16:27.243  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.243  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.243  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.244  9430  7011 D CCodecBuffers: [c2.qti.av1.decoder#785:2D-Output] popFromStashAndRegister: at 1000016366000us, output format changed to AMessage(what = 0x00000000) = {
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t android._color-format = 0
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t android._video-scaling = 1
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t android._dataspace = 281083904
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t color-standard = 1
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t color-range = 2
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t color-transfer = 3
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t sar-height = 1
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t rotation-degrees = 0
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   Buffer hdr-static-info = {
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:     00000000:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  ................
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:     00000010:  00 00 00 00 00 00 00 00  00                       .........
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   }
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t sar-width = 1
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   Rect crop(0, 0, 1279, 719)
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t width = 1280
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t feature-secure-playback = 0
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t frame-rate = 1
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   Buffer hdr10-plus-info = {
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   }
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t height = 720
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t max-height = 720
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t max-width = 1280
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   string mime = "video/raw"
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t priority = 0
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t color-format = 2130708361
+06-02 19:16:27.244  9430  7011 D CCodecBuffers:   int32_t p-extraBC = 6
+06-02 19:16:27.244  9430  7011 D CCodecBuffers: }
+06-02 19:16:27.244  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.244  9430  7011 D CCodecConfig: c2 config diff is   c2::u32 coded.vui.color.matrix = 1
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.primaries = 1
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.range = 2
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   c2::u32 coded.vui.color.transfer = 3
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 2
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   c2::i32 vendor.qti-ext-dec-info-mbi.numMbs = 0
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a98cd80
+06-02 19:16:27.244  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 3
+06-02 19:16:27.244  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa23d20
+06-02 19:16:27.244  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.244  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.244  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.245  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.245  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 4
+06-02 19:16:27.245  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9ce140
+06-02 19:16:27.245  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 5
+06-02 19:16:27.245  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa11a80
+06-02 19:16:27.245  7023  7023 I perfetto:    perfetto_cmd.cc:1600 No tracing sessions eligible for bugreport were found.
+06-02 19:16:27.245  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 6
+06-02 19:16:27.245  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa19410
+06-02 19:16:27.245  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.245  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.245  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.245  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.246  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.246  9430  7010 I MediaCodec: setCodecState state(1), called in 6, domain 1, 1
+06-02 19:16:27.247  7228  7445 I SemMediaResourceHelper: onState
+06-02 19:16:27.247  7228  7445 I MultimediaHelper: (Paran)(2.2.04) onStateChanged() : status is false, codec state is 1
+06-02 19:16:27.247  7228  7446 I MultimediaHelper: (Paran)(2.2.04) handleDecoderStatusUpdated() : decoder status is updated to true
+06-02 19:16:27.247  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 9
+06-02 19:16:27.247  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa27790
+06-02 19:16:27.247  7228  7446 I MultimediaHelper: (Paran)(2.2.04) handleCodecStatusUpdated() : codec running processes are updated
+06-02 19:16:27.247 32040 32329 I SemMediaResourceHelper: onState
+06-02 19:16:27.247  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.247  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.247  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.247  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.247  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.247  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 12
+06-02 19:16:27.247  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa40970
+06-02 19:16:27.248  1830  1830 W qdgralloc: GetSnapFormat: Explicit UBWC formats such as 2141391878 are no longer supported, please switch to using base / linear formats + UBWC usage bits
+06-02 19:16:27.248  1830  1830 W qdgralloc: GetSnapUsage: UBWC explicit formats have been deprecated, please use the base format + UBWC usage flag! 2141391878
+06-02 19:16:27.248  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.248  1830  1830 I SnapAlloc: IsUBWCAlloc - Explicit ubwc format 265 passed by the clients
+06-02 19:16:27.248  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 13
+06-02 19:16:27.248  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9e80e0
+06-02 19:16:27.248  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.248 32040 32329 I SemDvfsHyPerManager: acquire hyper - VIDEO_POWER_EFFICIENCY/32040@29, type = -999
+06-02 19:16:27.249  7228  7446 I MultimediaHelper: (Paran)(2.2.04) updateMediaRunning() : current media mode is 2
+06-02 19:16:27.249  7228  7446 E MultimediaHelper: (Paran)(2.2.04) isMusicRunning() : audio playing list is empty
+06-02 19:16:27.250  7228  7445 I ShtCoreImpl: (Paran)(2.2.04) handleMediaStateUpdated(false)/current internal val : false
+06-02 19:16:27.250  7228  7445 I ShtCoreImpl: (Paran)(2.2.04) updateRunningCondition() : setting( false ), headtracking( false ), conn( false ), media( false ), wear( false ), screen( true ), audiopath( false ), sensorsupport( true )
+06-02 19:16:27.250 28835 28884 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : 514226444 [32040 / 29]  HINT : VIDEO_POWER_EFFICIENCY   list : 
+06-02 19:16:27.251  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.251 28835 28884 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 514258515
+06-02 19:16:27.252  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.252  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.253  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.253  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 16
+06-02 19:16:27.253  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9c7890
+06-02 19:16:27.254  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 19
+06-02 19:16:27.254  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa509b0
+06-02 19:16:27.254  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 20
+06-02 19:16:27.254  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9d05d0
+06-02 19:16:27.255  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 21
+06-02 19:16:27.255  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.255  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 24
+06-02 19:16:27.255  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9642e0
+06-02 19:16:27.255  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.255  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 27
+06-02 19:16:27.255  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa0ab40
+06-02 19:16:27.256  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 28
+06-02 19:16:27.256  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa2aa80
+06-02 19:16:27.260  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.260  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 31
+06-02 19:16:27.260  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9d4810
+06-02 19:16:27.264  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.264  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 34
+06-02 19:16:27.264  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9c45a0
+06-02 19:16:27.265  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.266  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 35
+06-02 19:16:27.266  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa3c0f0
+06-02 19:16:27.267  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.267  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 36
+06-02 19:16:27.267  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa30840
+06-02 19:16:27.268  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.269  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 37
+06-02 19:16:27.269  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a89bf70
+06-02 19:16:27.273  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.273  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 40
+06-02 19:16:27.273  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9d2f60
+06-02 19:16:27.277  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.277  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 43
+06-02 19:16:27.277  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a99dcc0
+06-02 19:16:27.278  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.278 28787 28960 V APM_AudioPolicyManager: selectOutput new bestOutput 13 criteria 0 100 0 0 0 0 0 2 
+06-02 19:16:27.279 28787 28960 V APM_AudioPolicyManager: selectOutput new bestOutput 21 criteria 0 100 0 0 0 1 0 0 
+06-02 19:16:27.279 28787 28960 V APM_AudioPolicyManager: getOutput() stream 3 selected devices {AUDIO_DEVICE_OUT_SPEAKER, @:}, output 21
+06-02 19:16:27.279  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 44
+06-02 19:16:27.279  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a950150
+06-02 19:16:27.279 28787 28960 V APM_AudioPolicyManager: selectOutput new bestOutput 13 criteria 0 100 0 0 0 0 0 2 
+06-02 19:16:27.279 28787 28960 V APM_AudioPolicyManager: selectOutput new bestOutput 21 criteria 0 100 0 0 0 1 0 0 
+06-02 19:16:27.279 28787 28960 V APM_AudioPolicyManager: getOutput() stream 3 selected devices {AUDIO_DEVICE_OUT_SPEAKER, @:}, output 21
+06-02 19:16:27.279 28787 18137 V APM_AudioPolicyManager: selectOutput new bestOutput 13 criteria 0 100 0 0 0 0 0 2 
+06-02 19:16:27.279 28787 18137 V APM_AudioPolicyManager: selectOutput new bestOutput 21 criteria 0 100 0 0 0 1 0 0 
+06-02 19:16:27.279 28787 18137 V APM_AudioPolicyManager: getOutput() stream 3 selected devices {AUDIO_DEVICE_OUT_SPEAKER, @:}, output 21
+06-02 19:16:27.279 28787 18137 D NativePermissionController: checkPermission: missing 1 for 10302
+06-02 19:16:27.279 28787 18137 D NativePermissionController: checkPermission: missing 3 for 10302
+06-02 19:16:27.279 28787 18137 D NativePermissionController: checkPermission: missing 5 for 10302
+06-02 19:16:27.279 28787 18137 V APM_AudioPolicyManager: getOutputForAttrInt() attributes={ Content type: AUDIO_CONTENT_TYPE_MUSIC Usage: AUDIO_USAGE_MEDIA Source: AUDIO_SOURCE_INVALID Flags: 0xa00 Tags:  } stream=AUDIO_STREAM_MUSIC session 14971697 selectedDeviceId 0
+06-02 19:16:27.279 28787 18137 I APM_AudioPolicyManager: selectOutputFlags: remove ULL flag for dolby
+06-02 19:16:27.279 28787 18137 V APM_AudioPolicyManager: getOutputForAttrInt() device {AUDIO_DEVICE_OUT_SPEAKER, @:}, sampling rate 48000, format 0x1, channel mask 0x3, flags 0x8 stream AUDIO_STREAM_MUSIC
+06-02 19:16:27.280 28787 18137 V APM_AudioPolicyManager: selectOutput new bestOutput 13 criteria 0 100 0 0 0 0 4 2 
+06-02 19:16:27.280 28787 18137 V APM_AudioPolicyManager: selectOutput new bestOutput 21 criteria 0 100 0 0 0 1 2 0 
+06-02 19:16:27.280 28787 18137 V APM_AudioPolicyManager: getOutputForAttrInt returns output 21 selectedDeviceIds 3
+06-02 19:16:27.280 28787 18137 V APM_AudioPolicyManager: getOutputForAttr() returns output 21 requestedPortIds AUDIO_PORT_HANDLE_NONE selectedDeviceIds 3 for port ID 4727
+06-02 19:16:27.280 28787 18137 I AudioFlinger: nonSecFlag 8, secFlag 0, outputFlags 8
+06-02 19:16:27.280 28787 18137 D AudioFlinger: Client defaulted notificationFrames to 7680 for frameCount 23040
+06-02 19:16:27.280 28787 18137 I AF::PthrPatchRecord: creating track with enforcement level 0
+06-02 19:16:27.281 28787 18137 I AF::Track: setMixerOutConfig expectKey 202
+06-02 19:16:27.281 28787 18137 I AF::Track: setMixerOutConfig select, mixer out f 5, s 48000, thread out f 4, s 48000
+06-02 19:16:27.282  9430  9696 D AudioTrack: setVolume(1.000000, 1.000000) pid : 9430
+06-02 19:16:27.283  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.283  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 47
+06-02 19:16:27.283  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa12520
+06-02 19:16:27.287  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.288  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 50
+06-02 19:16:27.288  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9c9690
+06-02 19:16:27.289  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.289  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 51
+06-02 19:16:27.289  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9fabf0
+06-02 19:16:27.290  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.291  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 52
+06-02 19:16:27.291  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9fbeb0
+06-02 19:16:27.292  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.292  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 53
+06-02 19:16:27.292  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a97a7c0
+06-02 19:16:27.296  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.296  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 56
+06-02 19:16:27.296  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa27790
+06-02 19:16:27.300  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.301  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 59
+06-02 19:16:27.301  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa29450
+06-02 19:16:27.302  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.302  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 60
+06-02 19:16:27.302  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a864a20
+06-02 19:16:27.303  1669  1669 W MCImplLegacy: Adding a fake MediaItem at the end of the list because there's no QueueItem with the active queue id and current Timeline should have currently playing MediaItem.
+06-02 19:16:27.303  1669  1669 W MCImplLegacy: Adding a fake MediaItem at the end of the list because there's no QueueItem with the active queue id and current Timeline should have currently playing MediaItem.
+06-02 19:16:27.303  1669  1669 I ControllerWrapper: onEvents (com.google.android.youtube, Player.Events=[4, 5, 11, 14])
+06-02 19:16:27.303  1669  1669 W MCImplLegacy: Adding a fake MediaItem at the end of the list because there's no QueueItem with the active queue id and current Timeline should have currently playing MediaItem.
+06-02 19:16:27.305 29244 29524 D PowerManagerService: displayReady: false groupId=0
+06-02 19:16:27.305 29244 29524 D DisplayPowerController[0]: animateScreenStateChange: target=ON, mIsEnabled=true
+06-02 19:16:27.305 29244 29524 D PowerManagerService: displayReady: true groupId=0
+06-02 19:16:27.306  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.306  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 63
+06-02 19:16:27.306  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa0f9b0
+06-02 19:16:27.309  1669  1669 I SDAdaptiveBridging: Debouncing for 1s
+06-02 19:16:27.310  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.311  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 66
+06-02 19:16:27.311  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9bf1e0
+06-02 19:16:27.312  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.312  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 67
+06-02 19:16:27.312  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9b3fc0
+06-02 19:16:27.314  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.314  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 68
+06-02 19:16:27.314  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa17c00
+06-02 19:16:27.315  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.315  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 69
+06-02 19:16:27.315  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a96af50
+06-02 19:16:27.319 29244 29796 I ChimeraGenieUnloadPolicyHandler: LRU list is empty
+06-02 19:16:27.320  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.320  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 72
+06-02 19:16:27.320  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa15c20
+06-02 19:16:27.324  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.324  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 75
+06-02 19:16:27.324  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9e36d0
+06-02 19:16:27.326  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.326  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 76
+06-02 19:16:27.326  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a941e20
+06-02 19:16:27.330  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.331  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 79
+06-02 19:16:27.331  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a993090
+06-02 19:16:27.334  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.335  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 82
+06-02 19:16:27.335  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa0ab40
+06-02 19:16:27.336  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.336  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 83
+06-02 19:16:27.336  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9c9910
+06-02 19:16:27.337  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.338  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 84
+06-02 19:16:27.338  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9ce140
+06-02 19:16:27.339  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.339  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 85
+06-02 19:16:27.339  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a88d1a0
+06-02 19:16:27.343  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.344  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 88
+06-02 19:16:27.344  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa3be20
+06-02 19:16:27.348  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.348  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 91
+06-02 19:16:27.348  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9ddc30
+06-02 19:16:27.350  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.350  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 92
+06-02 19:16:27.350  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa3db30
+06-02 19:16:27.354  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.355  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 95
+06-02 19:16:27.355  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa544c0
+06-02 19:16:27.359  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.359  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 98
+06-02 19:16:27.359  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9b0b40
+06-02 19:16:27.360  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.361  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 99
+06-02 19:16:27.361  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9fe7a0
+06-02 19:16:27.362  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.362  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 100
+06-02 19:16:27.362  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9fcf90
+06-02 19:16:27.363  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.364  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 101
+06-02 19:16:27.364  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a94f610
+06-02 19:16:27.368  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.368  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 104
+06-02 19:16:27.368  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9b84d0
+06-02 19:16:27.372  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.373  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 107
+06-02 19:16:27.373  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9bd750
+06-02 19:16:27.374  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.374  1904  1944 D HeatmapThread: Updated plugType via uevent: 2
+06-02 19:16:27.374  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 108
+06-02 19:16:27.374  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9cc570
+06-02 19:16:27.376  1845  1980 E BatteryDump: !@new_battery_dump : 4336,474,1200,1800,90,374,363,435,374,0,381,435,0,Charging,NO_CHARGING,Normal,Good,PDIC,0,Normal,0,0,9300,0x8000,0x10010000,0x0,0,0,557,v0002,0000,0000,ffff0700,0,0,0,0,103,4302,8891,980,0,
+06-02 19:16:27.377 28854 28854 I seh_thermal_service: getTemperaturesWithType SehTemperatureType: 3
+06-02 19:16:27.377 29244 30077 D [SS]BattFunctions: [sendRemainingChargingTimeChangedIntent]remainingChargingTime:1439 ,mLastRemainingChargingTime:1450
+06-02 19:16:27.377  1845  1845 I sehhealth-service: updateLrpSysfs: write: 383
+06-02 19:16:27.378 30161 30161 I AODBatteryManager: updateBatteryData: ACTION_BATTERY_CHANGED: false, isSleepModeChanged:false ,isRemainingTimeChanged: true, isUSBRestriction: false
+06-02 19:16:27.378 30161 30161 I ChargingInfoManager: updateChargingInfo: newState = AOD ChargingInfo [mState=BATTERY_AND_REMAIN_TIME, mIsCharging=true, mIsPlugged=true, mIsFullyCharged=false, mIsBatteryProtectMode=false, mBetteryLevel=90, mBetteryProtectModeType0, mIsSlowChargingfalse], oldState = AOD ChargingInfo [mState=BATTERY_AND_REMAIN_TIME, mIsCharging=true, mIsPlugged=true, mIsFullyCharged=false, mIsBatteryProtectMode=false, mBetteryLevel=90, mBetteryProtectModeType0, mIsSlowChargingfalse]
+06-02 19:16:27.378 30161 30161 D PowerUI : Remaining charging time : 1439
+06-02 19:16:27.378 30161 30161 D PowerUI : Charging time is changed, check charging notification
+06-02 19:16:27.378  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.378  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 111
+06-02 19:16:27.378  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa17250
+06-02 19:16:27.380 30161 30161 D PowerUI.Notification: showChargingNotice - Battery Level : 90 -> 90, Charging Type : 11 -> 11, Charging Time : 1450 -> 1439, Maximum protection : false -> false, Maximum threshold : 80 -> 80
+06-02 19:16:27.381 30161 30161 I NotificationManager: com.android.systemui: notify(2114586824, charging_state, Notification(channel=CHR shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|ONLY_ALERT_ONCE color=0x00000000 category=sys groupKey=CHARGING vis=PUBLIC semFlags=0x0 semPriority=0 semMissedCount=0 semScenarioType=0)) as user
+06-02 19:16:27.382 29244 30077 W PermissionService: getPermissionFlags: Unknown user -1
+06-02 19:16:27.382 29244 30077 W PermissionService: getPermissionFlags: Unknown user -1
+06-02 19:16:27.382  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.383  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 114
+06-02 19:16:27.383  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa51220
+06-02 19:16:27.384  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.384  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 115
+06-02 19:16:27.384  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9642e0
+06-02 19:16:27.385  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.386  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 116
+06-02 19:16:27.386  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9ef200
+06-02 19:16:27.387  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.387  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 117
+06-02 19:16:27.387  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a99dcc0
+06-02 19:16:27.391  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.391  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 120
+06-02 19:16:27.391  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa4e7f0
+06-02 19:16:27.395  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.395  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 123
+06-02 19:16:27.395  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9b1ae0
+06-02 19:16:27.396  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.396  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 124
+06-02 19:16:27.396  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9ddc30
+06-02 19:16:27.401  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.401  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 127
+06-02 19:16:27.401  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa102c0
+06-02 19:16:27.405  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.405  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 130
+06-02 19:16:27.405  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa2fee0
+06-02 19:16:27.407  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.407  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 131
+06-02 19:16:27.407  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a993d60
+06-02 19:16:27.408  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.409  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 132
+06-02 19:16:27.409  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa488a0
+06-02 19:16:27.410  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.410  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 133
+06-02 19:16:27.410  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa2aa80
+06-02 19:16:27.411  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.411  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 134
+06-02 19:16:27.411  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9c51d0
+06-02 19:16:27.415  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.415  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 137
+06-02 19:16:27.415  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9ea390
+06-02 19:16:27.419  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.420  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 140
+06-02 19:16:27.420  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa490c0
+06-02 19:16:27.421  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.421  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 141
+06-02 19:16:27.421  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9e18d0
+06-02 19:16:27.425  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.425  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 144
+06-02 19:16:27.425  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9e5110
+06-02 19:16:27.429  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.430  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 147
+06-02 19:16:27.430  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9fe2f0
+06-02 19:16:27.430 28854 29561 I thermal_core: pivot(AP) : 429, skin : 383
+06-02 19:16:27.431  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.431  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 148
+06-02 19:16:27.431  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa41ff0
+06-02 19:16:27.431 29244 29244 I GestureDetector: handleMessage TAP
+06-02 19:16:27.431 29244 29403 I GestureDetector: handleMessage TAP
+06-02 19:16:27.432  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.433  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 149
+06-02 19:16:27.433  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a841c00
+06-02 19:16:27.437  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.437  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 152
+06-02 19:16:27.437  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa29450
+06-02 19:16:27.441  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.443  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 155
+06-02 19:16:27.443  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9fabf0
+06-02 19:16:27.443  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.444  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 156
+06-02 19:16:27.444  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9d8190
+06-02 19:16:27.447  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.448  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 159
+06-02 19:16:27.448  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9b0b40
+06-02 19:16:27.451  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.452  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 162
+06-02 19:16:27.452  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a9c0130
+06-02 19:16:27.453  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.453  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 163
+06-02 19:16:27.453  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725aa30840
+06-02 19:16:27.454  1840  7012 W QC2Comp : [av1D_177] Skipping empty output buffer
+06-02 19:16:27.455  9430  7011 D CCodecConfig: c2 config diff is   c2::i32 vendor.qti-ext-dec-info-mbi.counter = 164
+06-02 19:16:27.455  9430  7011 D CCodecConfig:   Buffer vendor.qti-ext-dec-info-misr.value = 0xb40000725a941e20

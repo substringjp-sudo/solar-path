@@ -360,8 +360,15 @@ export const skyColorAtDirection = (
   // ── Broad Twilight Arch (Orange-red horizon glow centered at sun azimuth) ──
   // This simulates the atmospheric light path that remains illuminated after sunset.
   if (sunAltDeg > -12) {
-    // Decay factor as the sun goes deeper below the horizon (0.0 at -12°, 1.0 at >=2°)
-    const twilightVis = clamp01((sunAltDeg + 12) / 14);
+    // Decay factor as the sun goes deeper below the horizon, peaking near -2° to 1°, and fading to 0 by 8°
+    let twilightVis = 0;
+    if (sunAltDeg >= -12 && sunAltDeg <= 8) {
+      if (sunAltDeg < -2) {
+        twilightVis = (sunAltDeg + 12) / 10; // -12° (0.0) -> -2° (1.0)
+      } else {
+        twilightVis = 1.0 - clamp01((sunAltDeg + 2) / 10); // -2° (1.0) -> 8° (0.0)
+      }
+    }
     const twilightVisSmooth = twilightVis * twilightVis * (3 - 2 * twilightVis);
     
     if (twilightVisSmooth > 0.01) {
@@ -390,8 +397,9 @@ export const skyColorAtDirection = (
   // ── Aerosol desaturation (fine dust/haze whitens sky uniformly) ──────────
   const dustLevel = clamp01((beta - 0.05) / 0.45);
   if (dustLevel > 0) {
-    // Dust greys the sky: mix toward warm-grey
-    const haze = dustLevel * 0.40;
+    // 태양 주변부(gammaDeg가 작을수록)에서는 미세먼지에 의한 백색 탈색 효과를 억제하여 붉은색 채도를 보존합니다.
+    const proximityFactor = clamp01(gammaDeg / 35.0);
+    const haze = dustLevel * 0.40 * lerp(0.15, 1.0, proximityFactor);
     finalR = lerp(finalR, 0.62, haze);
     finalG = lerp(finalG, 0.60, haze);
     finalB = lerp(finalB, 0.58, haze);
@@ -710,7 +718,17 @@ export const predictSunset = (
       }
     : { r: 1.0, g: 0.2, b: 0.0 }; // 극단적 감쇄 시 붉은색 유지
 
-  const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.99) * (1.0 - fogIntensity * 0.82));
+  // Apply visual altitude filter for sharper sunset coloration transitions
+  // 지평선 부근(<=0도)일 땐 피처럼 붉고, 고도가 올라감에 따라(10도 이상) 빠르게 백색광으로 변함
+  const altFactor = clamp01(1.0 - (sunAltDeg - (-2.0)) / 12.0); // -2도 -> 1.0, 10도 -> 0.0
+  const redCorrectionG = lerp(1.0, 0.08, altFactor); // 지평선 근처에서 G 억제 대폭 강화 (0.23 -> 0.02)
+  const redCorrectionB = lerp(1.0, 0.00, altFactor); // 지평선 근처에서 B 완벽 억제
+
+  sunRGB.g = clamp01(sunRGB.g * redCorrectionG);
+  sunRGB.b = clamp01(sunRGB.b * redCorrectionB);
+
+  // 태양은 절대 반투명하면 안 되므로 불투명도를 1.0으로 고정
+  const sunDiskAlpha = 1.0;
 
   return {
     score,

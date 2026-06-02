@@ -214,10 +214,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       state.prevPitch += (pitchDeg - state.prevPitch) * alphaP;
       const filteredPitch = Math.max(-90, Math.min(90, state.prevPitch));
 
-      deviceAzimuthRef.current = filteredAz;
-      devicePitchRef.current = filteredPitch;
-      setDeviceAzimuth(filteredAz);
-      setDevicePitch(filteredPitch);
+      // 카메라 회전 시 태양 궤적이 카메라를 따라다니지 않고 제자리를 지키도록
+      // 계산된 방위각과 피치의 부호 및 방향을 기기 실제 물리 회전 방향과 일치하게 반전 보정합니다.
+      const correctedAz = (360 - filteredAz) % 360;
+      const correctedPitch = -filteredPitch;
+
+      deviceAzimuthRef.current = correctedAz;
+      devicePitchRef.current = correctedPitch;
+      setDeviceAzimuth(correctedAz);
+      setDevicePitch(correctedPitch);
     }, INTERVAL_MS);
 
     return () => clearInterval(timer);
@@ -266,28 +271,36 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     let path = '';
     let lastX = 0;
+    let isDrawing = false;
 
-    trajectoryScreenPoints.forEach((p, i) => {
+    trajectoryScreenPoints.forEach((p) => {
+      // 카메라 뒤쪽에 있는 유령 좌표(NaN)는 그리거나 연결하지 않고 선을 끊습니다.
+      if (isNaN(p.screen.x) || isNaN(p.screen.y)) {
+        isDrawing = false;
+        return;
+      }
+
       const px = p.screen.x * W;
       const py = p.screen.y * H;
 
-      if (i === 0) {
-        path += `M ${px.toFixed(1)} ${py.toFixed(1)}`;
+      if (!isDrawing) {
+        path += ` M ${px.toFixed(1)} ${py.toFixed(1)}`;
+        isDrawing = true;
       } else {
-        // 방위각 180도 뒤집힘으로 인해 화면 한쪽 끝에서 반대쪽 끝으로 순간이동하는 격차 감지
-        const isScreenJump = Math.abs(px - lastX) > W * 2;
+        // 탄젠트 무한 발산 임계점 등에서 화면 양 끝으로 순간이동하는 현상 감지
+        const isScreenJump = Math.abs(px - lastX) > W * 1.5;
 
         if (isScreenJump) {
-          path += ` M ${px.toFixed(1)} ${py.toFixed(1)}`; // 선을 잇지 않고 이동
+          path += ` M ${px.toFixed(1)} ${py.toFixed(1)}`;
         } else {
-          path += ` L ${px.toFixed(1)} ${py.toFixed(1)}`; // 선 잇기
+          path += ` L ${px.toFixed(1)} ${py.toFixed(1)}`;
         }
       }
 
       lastX = px;
     });
 
-    return path;
+    return path.trim();
   }, [trajectoryScreenPoints, W, H]);
 
   // 촬영
@@ -634,18 +647,25 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           </TouchableOpacity>
 
           {/* 촬영 버튼 */}
-          <TouchableOpacity
-            style={styles.captureBtn}
-            onPress={handleCapture}
-            disabled={isCapturing}
-            activeOpacity={0.7}
-          >
-            {isCapturing ? (
-              <ActivityIndicator size="small" color="#000" />
-            ) : (
-              <View style={styles.captureBtnInner} />
-            )}
-          </TouchableOpacity>
+          {(() => {
+            const isCaptureDisabled = isCapturing || (
+              goldenTimeInfo.isActive && (!sunScreenPos.isVisible || sunPos.altitude <= -5)
+            );
+            return (
+              <TouchableOpacity
+                style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
+                onPress={handleCapture}
+                disabled={isCaptureDisabled}
+                activeOpacity={0.7}
+              >
+                {isCapturing ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <View style={styles.captureBtnInner} />
+                )}
+              </TouchableOpacity>
+            );
+          })()}
 
           {/* 카메라 전후면 전환 버튼 */}
           <TouchableOpacity 
