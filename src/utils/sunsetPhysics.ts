@@ -89,7 +89,7 @@ const tauMie = (lambdaNm: number, beta550: number): number =>
  * and relative humidity (%). Falls back to a clear-air default.
  */
 export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
-  const visKm = visibilityM != null && visibilityM > 0 ? visibilityM / 1000 : 25;
+  const visKm = visibilityM != null && visibilityM > 0 ? visibilityM / 1000 : 45;
   const sigmaTotal = 3.912 / visKm;
   const sigmaAer = Math.max(0.02, sigmaTotal - 0.012);
   let beta = sigmaAer * 1.2;
@@ -371,7 +371,9 @@ export const skyColorAtDirection = (
       
       // Broad angular spread along the horizon with exponential height falloff
       const archFactor = Math.pow(archSpread, 1.5) * Math.exp(-0.12 * thetaDeg) * twilightVisSmooth * pathClarity;
-      const archIntensity = archFactor * 0.90 * (0.8 + beta * 0.4);
+      // beta가 낮을수록(대기가 깨끗할수록) 지평선 붉은 노을이 가려지지 않고 쨍하게 부스팅되도록 보정
+      const cleanAirBoost = 1.0 + Math.max(0, 0.12 - beta) * 2.0;
+      const archIntensity = archFactor * 0.90 * (0.8 + beta * 0.2) * cleanAirBoost;
       
       // Interpolate colors from deep red-orange to bright yellow-gold as sun altitude rises (-8° to +4°)
       const tColor = clamp01((sunAltDeg + 8) / 12);
@@ -656,7 +658,7 @@ export const predictSunset = (
   const rhVal = rhPct ?? 50;
   const fogIntensity = clamp01((rhVal - 85) / 15) * clamp01((6000 - Math.max(500, visM)) / 5500);
   const dustIntensity = clamp01((beta - 0.08) / 0.4);
-  const cloudBlockIntensity = clamp01(Math.max(1.0 - pathClarity, precipFactor, dniBlockFactor, waterFactor * 0.95));
+  const cloudBlockIntensity = clamp01(Math.max(precipFactor, dniBlockFactor, waterFactor * 0.95));
   const dynamicHaloScale = (1.0 + dustIntensity * 0.4 + fogIntensity * 0.75) * Math.max(0.01, 1.0 - cloudBlockIntensity);
 
   // Sun glow
@@ -698,30 +700,15 @@ export const predictSunset = (
 
   // Sun disk color: physically computed from directBeamRGB, normalized to always
   // display the correct hue. Near horizon = deep red/orange, high = white-yellow.
-  let sunRGB: RGB;
-  if (sunAltDeg > 10) {
-    // High sun: white with slight warm tint
-    sunRGB = { r: 1.0, g: 0.97, b: 0.90 };
-  } else if (sunAltDeg > 5) {
-    // Low daytime: warm yellow
-    const t = (sunAltDeg - 5) / 5;
-    sunRGB = { r: 1.0, g: lerp(0.88, 0.97, t), b: lerp(0.55, 0.90, t) };
-  } else if (sunAltDeg > 2) {
-    // Golden hour: golden orange
-    const t = (sunAltDeg - 2) / 3;
-    sunRGB = { r: 1.0, g: lerp(0.65, 0.88, t), b: lerp(0.20, 0.55, t) };
-  } else if (sunAltDeg > 0) {
-    // Just above horizon: orange to deep orange, still bright
-    const t = sunAltDeg / 2;
-    sunRGB = { r: 1.0, g: lerp(0.32, 0.65, t), b: lerp(0.04, 0.20, t) };
-  } else if (sunAltDeg > -2) {
-    // Touching horizon: deep crimson-red
-    const t = (sunAltDeg + 2) / 2;
-    sunRGB = { r: 1.0, g: lerp(0.08, 0.32, t), b: lerp(0.02, 0.04, t) };
-  } else {
-    // Below horizon: very deep crimson
-    sunRGB = { r: 0.92, g: 0.06, b: 0.01 };
-  }
+  const sunColorBeam = directBeamRGB(Math.max(sunAltDeg, -2.0), elevVal, latVal, beta, doy);
+  const maxChannel = Math.max(sunColorBeam.r, sunColorBeam.g, sunColorBeam.b);
+  const sunRGB: RGB = maxChannel > 1e-9
+    ? {
+        r: clamp01(sunColorBeam.r / maxChannel),
+        g: clamp01(sunColorBeam.g / maxChannel),
+        b: clamp01(sunColorBeam.b / maxChannel),
+      }
+    : { r: 1.0, g: 0.2, b: 0.0 }; // 극단적 감쇄 시 붉은색 유지
 
   const sunDiskAlpha = clamp01((1.0 - cloudBlockIntensity * 0.99) * (1.0 - fogIntensity * 0.82));
 

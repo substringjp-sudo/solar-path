@@ -8,3 +8,13 @@ yarn-error.*
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Android build artifacts
+android/build/
+android/app/build/
+android/.cxx/
+android/app/.cxx/
+
+# iOS build artifacts
+ios/build/
+ios/DerivedData/

@@ -94,11 +94,9 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
   if (weatherCache.has(cacheKey)) {
     return weatherCache.get(cacheKey)!;
   }
-
-  // 3-Ray Fanning: Observer (0km) + Left(-15 deg), Center(0 deg), Right(+15 deg) at distances [80, 200, 350]
+  // 3-Ray Fanning: Observer (0km) + Left(-15 deg), Center(0 deg), Right(+15 deg) at distances [15, 45, 110, 220, 360]
   const angles = [-15, 0, 15];
-  const distances = [80, 200, 350];
-
+  const distances = [15, 45, 110, 220, 360];
   const points: { dist: number; azOffset: number; lat: number; lon: number }[] = [
     { dist: 0, azOffset: 0, lat, lon }
   ];

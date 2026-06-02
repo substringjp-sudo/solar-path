@@ -451,6 +451,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               isSunVisible={isSunVisible}
               eventAzimuths={eventAzimuths}
               gridCloudShapes={gridCloudShapes}
+              location={location}
             />
             <TouchableOpacity 
               style={[styles.enhancedButton, { backgroundColor: cloudGridData ? 'rgba(70, 130, 180, 0.7)' : 'rgba(5, 5, 10, 0.65)', borderColor: cloudGridData ? 'rgba(100, 160, 210, 0.6)' : theme.border }]}
