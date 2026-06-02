@@ -3,8 +3,6 @@ import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView,
 import { WebView } from 'react-native-webview';
 import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star, Camera, Image as ImageIcon } from 'lucide-react-native';
 import * as Location from 'expo-location';
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { auth } from '../../config/firebase';
 import { getCelestialIsochrones, getIsochroneInterval } from '../../utils/celestial';
 
@@ -29,8 +27,6 @@ export const MapPicker = ({
   removeGlobalPhoto
 }: any) => {
   const [activeTab, setActiveTab] = useState<'location' | 'photo'>('location');
-  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('mine');
   const displayedPhotos = galleryFilter === 'mine'
     ? globalPhotos.filter((p: any) => p.userId === auth.currentUser?.uid)
@@ -816,92 +812,6 @@ export const MapPicker = ({
     }
   };
 
-  const sunsetImages = [
-    'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=600&q=80',
-    'https://images.unsplash.com/photo-1472214222541-d510753a4907?auto=format&fit=crop&w=600&q=80',
-    'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=600&q=80',
-    'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=600&q=80',
-    'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=600&q=80'
-  ];
-
-  const takePhotoWithCamera = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Camera permission is required to take sunset photos.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      setPreviewImageUri(result.assets[0].uri);
-    }
-  };
-
-  const pickPhotoFromLibrary = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Media library permission is required to select photos.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      setPreviewImageUri(result.assets[0].uri);
-    }
-  };
-
-  const handlePublishPhoto = async () => {
-    if (!previewImageUri) return;
-    const lat = parseFloat(latInput);
-    const lon = parseFloat(lonInput);
-    if (isNaN(lat) || isNaN(lon)) {
-      Alert.alert('Error', 'Invalid coordinates.');
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert('Login Required', 'You must log in to upload and share sunset photos.');
-      return;
-    }
-
-    try {
-      setIsUploading(true);
-
-      // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
-      const manipulated = await ImageManipulator.manipulateAsync(
-        previewImageUri,
-        [{ resize: { width: 600 } }],
-        { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
-      );
-
-      const locationName = `Sunset at ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
-
-      // Upload and share globally
-      await uploadAndPostPhoto(manipulated.uri, lat, lon, locationName);
-
-      Alert.alert('Success', 'Your sunset photo has been shared successfully!');
-      setPreviewImageUri(null);
-    } catch (error: any) {
-      console.error('Failed to publish photo:', error);
-      Alert.alert('Error', 'Failed to publish photo: ' + (error.message || 'Unknown error'));
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
   return (
     <Modal visible={visible} animationType="slide" transparent={true}>
       <View style={styles.modalOverlay}>
@@ -1195,46 +1105,6 @@ export const MapPicker = ({
           </ScrollView>
         </View>
       </View>
-
-      {/* Photo Preview & Publish Modal */}
-      <Modal visible={!!previewImageUri} transparent animationType="fade">
-        <View style={styles.previewOverlay}>
-          <View style={[styles.previewContainer, dStyle.section]}>
-            <Text style={[styles.previewTitle, { color: theme.text }]}>Preview Sunset Photo</Text>
-            
-            {previewImageUri && (
-              <Image source={{ uri: previewImageUri }} style={styles.previewImage} resizeMode="cover" />
-            )}
-
-            <Text style={[styles.previewLocation, { color: theme.subText }]}>
-              📍 Pin at: {parseFloat(latInput).toFixed(4)}°, {parseFloat(lonInput).toFixed(4)}°
-            </Text>
-
-            {isUploading ? (
-              <View style={styles.uploadingContainer}>
-                <ActivityIndicator size="small" color={theme.accent} />
-                <Text style={[styles.uploadingText, { color: theme.text }]}>Compressing & Sharing...</Text>
-              </View>
-            ) : (
-              <View style={styles.previewBtnRow}>
-                <TouchableOpacity
-                  style={[styles.previewBtn, { backgroundColor: theme.accent, flex: 2 }, dStyle.button]}
-                  onPress={handlePublishPhoto}
-                >
-                  <Text style={styles.previewBtnTextPrimary}>Post Sunset</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.previewBtn, { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: isAndroid ? 0 : 1, borderColor: theme.border, flex: 1 }, dStyle.button, isAndroid && { backgroundColor: '#2C2D35' }]}
-                  onPress={() => setPreviewImageUri(null)}
-                >
-                  <Text style={[styles.previewBtnTextSecondary, { color: theme.text }]}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </View>
-      </Modal>
     </Modal>
   );
 };

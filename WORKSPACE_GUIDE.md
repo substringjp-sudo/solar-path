@@ -46,7 +46,7 @@ solar-path/
   - **핵심 연산**: 일출/일몰 등시선(Isochrones) 생성을 위한 각 위도별 통과 시간 탐색.
 * **`sunsetPhysics.ts`**
   - **역할**: 대기 산란 시뮬레이션. 빛이 대기(Rayleigh, Mie Scattering)를 통과하며 겪는 감쇠 및 기상 요인(구름양, 습도 등)이 빛의 도달도에 미치는 영향 계산.
-  - **핵심 연산**: `beamPathTransmittance` (대기 통과 두께에 따른 흡수율), `getSimulationData` (화면에 그려질 HSL 그라디언트 및 광도 데이터 추출).
+  - **핵심 연산**: `beamPathTransmittance` (대기 통과 두께에 따른 흡수율), `predictSunset` (날씨 정보 기반 노을 점수 예측).
 * **`sunCamera.ts`**
   - **역할**: AR 환경에서 나침반(Magnetometer)과 가속도/자이로 센서 데이터를 활용해 기기의 3D 회전 행렬을 구하고, 카메라 좌표계에 태양 궤적 투영.
   - **핵심 연산**: 상보 필터(Complementary Filter) 및 쿼터니언을 활용한 센서 드리프트 방지 알고리즘.

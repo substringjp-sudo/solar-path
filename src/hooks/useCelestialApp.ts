@@ -174,35 +174,85 @@ export function useCelestialApp() {
     accent: '#FFD700',
   };
 
-  // Gyro Sync Logic with Smoothing
+  // Gyro Sync Logic with Tilt-Compensated Compass
+  const accRef = useRef({ x: 0, y: 0, z: -1 });
+  const magRef = useRef({ x: 0, y: 0, z: 0 });
   const lastHeading = useRef(0);
+
   useEffect(() => {
-    let subscription: any = null;
+    let subAcc: any = null;
+    let subMag: any = null;
+    let timer: any = null;
+
     if (isGyroEnabled) {
-      import('expo-sensors').then(({ Magnetometer }) => {
-        subscription = Magnetometer.addListener(data => {
-          const { x, y } = data;
-          let magHeading = Math.atan2(y, x) * (180 / Math.PI);
-          let finalHeading = (magHeading - 90 + 360) % 360;
-          
-          // Smoothing (Low-pass filter) with Deadzone
+      Promise.all([
+        import('expo-sensors').then(m => m.Accelerometer),
+        import('expo-sensors').then(m => m.Magnetometer),
+      ]).then(([Accelerometer, Magnetometer]) => {
+        Accelerometer.setUpdateInterval(32);
+        Magnetometer.setUpdateInterval(32);
+
+        subAcc = Accelerometer.addListener(data => {
+          accRef.current = data;
+        });
+        subMag = Magnetometer.addListener(data => {
+          magRef.current = data;
+        });
+
+        // 30fps 센서 융합 루프
+        timer = setInterval(() => {
+          const { x: Ax, y: Ay, z: Az } = accRef.current;
+          const { x: Mx, y: My, z: Mz } = magRef.current;
+
+          const accNorm = Math.sqrt(Ax * Ax + Ay * Ay + Az * Az);
+          if (accNorm < 0.1) return;
+
+          const nx = Ax / accNorm;
+          const ny = Ay / accNorm;
+          const nz = Az / accNorm;
+
+          const roll = Math.atan2(ny, -nz);
+          const pitch = Math.atan2(-nx, Math.sqrt(ny * ny + nz * nz));
+
+          const cosRoll = Math.cos(roll);
+          const sinRoll = Math.sin(roll);
+          const cosPitch = Math.cos(pitch);
+          const sinPitch = Math.sin(pitch);
+
+          const Mh_x = Mx * cosPitch + Mz * sinPitch;
+          const Mh_y = Mx * sinRoll * sinPitch + My * cosRoll - Mz * sinRoll * cosPitch;
+
+          let azimuthRad = Math.atan2(-Mh_y, Mh_x);
+          let azimuthDeg = (azimuthRad * 180 / Math.PI + 360) % 360;
+
+          // 한국 표준 편각 보정
+          const declination = -8.0 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
+          let finalHeading = (azimuthDeg + declination + 360) % 360;
+
+          // 보정된 회전각을 기기 물리 회전 방향과 일치하게 반전
+          finalHeading = (360 - finalHeading) % 360;
+
+          // Low-pass filter 스무딩
           const prev = lastHeading.current;
           const diff = ((finalHeading - prev + 540) % 360) - 180;
           
-          // Deadzone: Ignore micro-jitter if change is too small
           if (Math.abs(diff) < 0.2) return;
-          
-          const smoothed = (prev + diff * 0.1 + 360) % 360; // More aggressive smoothing (0.1)
-          const finalVal = Math.round(smoothed * 10) / 10; // Round to 1 decimal place
-          
+
+          const smoothed = (prev + diff * 0.12 + 360) % 360;
+          const finalVal = Math.round(smoothed * 10) / 10;
+
           lastHeading.current = finalVal;
-          setUserRotation(-finalVal);
-        });
-        Magnetometer.setUpdateInterval(16);
+          setUserRotation(finalVal);
+        }, 32);
       });
     }
-    return () => subscription && subscription.remove();
-  }, [isGyroEnabled, setUserRotation]);
+
+    return () => {
+      subAcc && subAcc.remove();
+      subMag && subMag.remove();
+      timer && clearInterval(timer);
+    };
+  }, [isGyroEnabled, setUserRotation, latitude, longitude]);
 
   const animateContent = () => {
     contentOpacity.setValue(0);

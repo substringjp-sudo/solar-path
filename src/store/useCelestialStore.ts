@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
@@ -199,6 +200,15 @@ export const useCelestialStore = create<CelestialState>()(
         return { currentTime: new Date() };
       }),
       addSavedLocation: async (name, latitude, longitude) => {
+        const isDuplicate = get().savedLocations.some(
+          (loc) => Math.abs(loc.latitude - latitude) < 1e-6 && Math.abs(loc.longitude - longitude) < 1e-6
+        );
+
+        if (isDuplicate) {
+          Alert.alert('Notification', 'This location is already saved.');
+          return;
+        }
+
         const user = get().currentUser || auth.currentUser;
         const newLocation: SavedLocation = {
           id: Date.now().toString(),
@@ -215,15 +225,9 @@ export const useCelestialStore = create<CelestialState>()(
             console.warn('Failed to save location to Firestore:', err);
           }
         } else {
-          set((state) => {
-            const isDuplicate = state.savedLocations.some(
-              (loc) => loc.latitude === latitude && loc.longitude === longitude
-            );
-            if (isDuplicate) return state;
-            return {
-              savedLocations: [...state.savedLocations, newLocation]
-            };
-          });
+          set((state) => ({
+            savedLocations: [...state.savedLocations, newLocation]
+          }));
         }
       },
       removeSavedLocation: async (id) => {
@@ -432,17 +436,18 @@ export const useCelestialStore = create<CelestialState>()(
         const photo = get().globalPhotos.find(p => p.id === id);
         
         try {
-          // 1. Delete Firestore document first
-          const docRef = doc(db, 'global_photos', id);
-          await deleteDoc(docRef);
-
-          // 2. Delete the actual image file from Firebase Storage
+          // 1. Delete the actual image file from Firebase Storage first
           if (photo && photo.storagePath) {
             const fileRef = ref(storage, photo.storagePath);
             await deleteObject(fileRef);
           }
+
+          // 2. Delete Firestore document after storage file is successfully deleted
+          const docRef = doc(db, 'global_photos', id);
+          await deleteDoc(docRef);
         } catch (err) {
           console.warn('Failed to remove global photo:', err);
+          Alert.alert('Error', 'Failed to delete photo from storage. Database document preserved.');
         }
       },
       checkPermissions: async () => {
