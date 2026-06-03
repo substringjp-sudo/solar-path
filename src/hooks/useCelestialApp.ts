@@ -15,6 +15,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -43,7 +45,7 @@ const scheduleSunsetNotification = async (sunsetTime: Date, score: number) => {
         body: `오늘 일몰의 예측 점수가 ${score}점(대박 노을)입니다! 30분 뒤 골든아워가 시작됩니다.`,
         sound: true,
       },
-      trigger: triggerTime,
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
     });
     console.log('[Push Notification Scheduled]', triggerTime);
   } catch (err) {
@@ -182,6 +184,10 @@ export function useCelestialApp() {
       inputRange: [0, 1],
       outputRange: ['#E8EDF2', '#08080C'] // Deeper background for pro look
     }),
+    card: themeAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#FFFFFF', '#14141C']
+    }),
     glass: themeAnim.interpolate({
       inputRange: [0, 1],
       outputRange: isAndroid
@@ -207,6 +213,7 @@ export function useCelestialApp() {
 
   const theme = {
     bg: isDay ? '#E8EDF2' : '#08080C',
+    card: isDay ? '#FFFFFF' : '#14141C',
     glass: isAndroid
       ? (isDay ? '#FFFFFF' : '#14141C')
       : (isDay ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)'),

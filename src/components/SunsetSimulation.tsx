@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform, Alert } from 'react-native';
 import { isAfter, addHours, addMinutes } from 'date-fns';
 import SunCalc from 'suncalc';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 
 import { useCelestialStore } from '../store/useCelestialStore';
-import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather } from '../utils/weather';
+import { fetchSunsetWeather, fetchTerrainProfile, CloudPathData, TerrainData, getDistance, getInterpolatedWeather, getLocalHighResModel } from '../utils/weather';
 import { predictSunset, SunsetPrediction } from '../utils/sunsetPhysics';
 import { fetchCloudGrid, CloudDensityGrid } from '../utils/cloudGrid';
 import { convertGridToClouds, GridCloudShape } from '../utils/cloudGridRenderer';
@@ -16,7 +16,8 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw, Layers } from 'lucide-react-native';
+import { RotateCw, Layers, Zap, Info } from 'lucide-react-native';
+import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
  
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
@@ -65,6 +66,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const forceRefreshRef = useRef(false);
   const [cloudGridData, setCloudGridData] = useState<CloudDensityGrid | null>(null);
   const [enhancedLoading, setEnhancedLoading] = useState(false);
+  const [isNowcastLoading, setIsNowcastLoading] = useState(false);
+  const [isWeatherDetailVisible, setWeatherDetailVisible] = useState(false);
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
 
@@ -281,6 +284,55 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     }
   };
 
+  const isNowcastSupported = useMemo(() => {
+    if (!location) return false;
+    const model = getLocalHighResModel(location.coords.latitude, location.coords.longitude);
+    return model !== 'best_match';
+  }, [location]);
+
+  const isWithinNowcastWindow = useMemo(() => {
+    if (!sim?.eventTime) return false;
+    const diff = sim.eventTime.getTime() - Date.now();
+    // 일출/일몰 이벤트 시각 2시간 전부터 이벤트 후 1시간 사이
+    return diff <= 2 * 60 * 60 * 1000 && diff >= -1 * 60 * 60 * 1000;
+  }, [sim?.eventTime]);
+
+  const showNowcastButton = isNowcastSupported && isWithinNowcastWindow && sim?.weatherSource !== 'ultra-short';
+
+  const handleLoadNowcast = async () => {
+    if (!location || !sim || isNowcastLoading) return;
+    setIsNowcastLoading(true);
+    try {
+      const { latitude, longitude } = location.coords;
+      const data = await fetchSunsetWeather(latitude, longitude, sim.azimuth, true);
+      if (data && data.length > 0) {
+        setSim(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pathData: data,
+            weatherSource: 'ultra-short'
+          };
+        });
+        addWeatherCache({
+          key: `w_nowcast_${latitude.toFixed(4)}_${longitude.toFixed(4)}`,
+          data,
+          timestamp: Date.now(),
+          latitude,
+          longitude
+        });
+        Alert.alert('정밀 예보 적용 완료', '초단기 국지 기상 모델(Nowcast)이 성공적으로 반영되었습니다.');
+      } else {
+        Alert.alert('알림', '초단기 정밀 기상 데이터를 가져올 수 없습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    } catch (err) {
+      console.error('Failed to load nowcast weather:', err);
+      Alert.alert('에러', '초단기 정밀 예보를 로드하는 도중 오류가 발생했습니다.');
+    } finally {
+      setIsNowcastLoading(false);
+    }
+  };
+
   const gridCloudShapes = useMemo<GridCloudShape[]>(() => {
     if (!cloudGridData) return [];
     return convertGridToClouds(cloudGridData, sim?.terrain?.observerElevation ?? 50);
@@ -382,6 +434,38 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return sunAltitude > terrainAngle;
   }, [sim?.terrain, sunAltitude, heading]);
 
+  // 5-Ray * 7-Distance (총 35개 지격) 매트릭스 변환
+  const miniGridMatrix = useMemo(() => {
+    if (!interpolatedWeather || interpolatedWeather.length < 36) return [];
+    const matrix: any[][] = [];
+    const distances = [380, 280, 200, 130, 70, 30, 10]; // top to bottom
+    const gridAngles = [-20, -10, 0, 10, 20];
+    
+    distances.forEach((dist) => {
+      const row: any[] = [];
+      gridAngles.forEach((ang) => {
+        const angleIdx = gridAngles.indexOf(ang);
+        const distIdx = [10, 30, 70, 130, 200, 280, 380].indexOf(dist);
+        const dataIdx = 1 + angleIdx * 7 + distIdx;
+        row.push(interpolatedWeather[dataIdx] || { low: 0, mid: 0, high: 0 });
+      });
+      matrix.push(row);
+    });
+    return matrix;
+  }, [interpolatedWeather]);
+
+  // 구름 고도별 혼합 색상 (저=SteelBlue, 중=MediumPurple, 고=HotPink)
+  const getCellColor = (low: number, mid: number, high: number) => {
+    const sum = low + mid + high;
+    if (sum === 0) return 'rgba(255, 255, 255, 0.05)';
+    const r = Math.round((high * 255 + mid * 147 + low * 70) / sum);
+    const g = Math.round((high * 105 + mid * 112 + low * 130) / sum);
+    const b = Math.round((high * 180 + mid * 219 + low * 180) / sum);
+    const maxVal = Math.max(low, mid, high);
+    const opacity = 0.2 + (maxVal / 100) * 0.8;
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+
   // Update weather pathData dynamically if the camera heading (sunAzimuth) drifts too far from the sampled azimuth
   useEffect(() => {
     if (!location || !sim || sim.loading) return;
@@ -453,6 +537,20 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               gridCloudShapes={gridCloudShapes}
               location={location}
             />
+            {showNowcastButton && (
+              <TouchableOpacity 
+                style={[styles.nowcastButton, { backgroundColor: isNowcastLoading ? 'rgba(255, 215, 0, 0.35)' : 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
+                onPress={handleLoadNowcast}
+                activeOpacity={0.7}
+                disabled={isNowcastLoading}
+              >
+                {isNowcastLoading ? (
+                  <ActivityIndicator size={10} color="#FFFFFF" />
+                ) : (
+                  <Zap size={12} color="#FFD700" />
+                )}
+              </TouchableOpacity>
+            )}
             <TouchableOpacity 
               style={[styles.enhancedButton, { backgroundColor: cloudGridData ? 'rgba(70, 130, 180, 0.7)' : 'rgba(5, 5, 10, 0.65)', borderColor: cloudGridData ? 'rgba(100, 160, 210, 0.6)' : theme.border }]}
               onPress={handleEnhancedCloud}
@@ -512,38 +610,47 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
               <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
 
-              <View style={styles.unifiedRightSection}>
-                <View style={styles.unifiedCloudGrid}>
-                  {gridPanelData ? (
-                    gridPanelData.map((item, i) => (
-                      <View key={i} style={styles.unifiedGridItem}>
-                        <Text style={[styles.gridDist, { color: theme.subText }]}>
-                          {item.distance === 10 ? 'Loc' : `${item.distance}k`}
-                        </Text>
-                        <View style={styles.miniBars}>
-                          <View style={[styles.miniBar, { height: `${Math.max(5, item.high)}%`, backgroundColor: '#FF69B4' }]} />
-                          <View style={[styles.miniBar, { height: `${Math.max(5, item.mid)}%`, backgroundColor: '#9370DB' }]} />
-                          <View style={[styles.miniBar, { height: `${Math.max(5, item.low)}%`, backgroundColor: '#4682B4' }]} />
-                        </View>
-                      </View>
-                    ))
-                  ) : (
-                    sim?.pathData?.slice(0, 4).map((c, i) => {
-                      const interpolated = interpolatedWeather[i];
-                      return (
-                        <View key={i} style={styles.unifiedGridItem}>
-                          <Text style={[styles.gridDist, { color: theme.subText }]}>{c?.distance === 0 ? 'Loc' : `${c?.distance || 0}k`}</Text>
-                          <View style={styles.miniBars}>
-                            <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.high ?? 0)}%`, backgroundColor: '#FF69B4' }]} />
-                            <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.mid ?? 0)}%`, backgroundColor: '#9370DB' }]} />
-                            <View style={[styles.miniBar, { height: `${Math.max(5, interpolated?.low ?? 0)}%`, backgroundColor: '#4682B4' }]} />
-                          </View>
-                        </View>
-                      );
-                    })
-                  )}
+              <TouchableOpacity 
+                style={styles.unifiedRightSection} 
+                onPress={() => setWeatherDetailVisible(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.gridTitleText, { color: theme.text }]}>Cloud Radar Grid</Text>
+                
+                <View style={styles.miniGridContainer}>
+                  {miniGridMatrix.map((row, rIdx) => (
+                    <View key={rIdx} style={styles.miniGridRow}>
+                      {row.map((cell, cIdx) => {
+                        const cellColor = getCellColor(cell.low, cell.mid, cell.high);
+                        // Calculate width and margin dynamically to form an inverted triangle (trapezoid)
+                        const cellWidth = 10 - rIdx * 0.9;
+                        const cellMargin = 1.0 - rIdx * 0.08;
+                        return (
+                          <View
+                            key={cIdx}
+                            style={[
+                              styles.miniGridCell, 
+                              { 
+                                backgroundColor: cellColor, 
+                                borderColor: theme.border,
+                                width: cellWidth,
+                                marginHorizontal: cellMargin
+                              }
+                            ]}
+                          />
+                        );
+                      })}
+                    </View>
+                  ))}
                 </View>
-              </View>
+                
+                <View style={styles.detailHintRow}>
+                  <Info size={8} color={theme.accent} style={{ marginRight: 3 }} />
+                  <Text style={[styles.detailHintText, { color: theme.subText }]}>
+                    380km Radius Map (Tap)
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
 
             <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -573,6 +680,16 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         theme={theme}
         weatherSource={sim?.weatherSource}
       />
+
+      <WeatherDetailModal
+        visible={isWeatherDetailVisible}
+        onClose={() => setWeatherDetailVisible(false)}
+        theme={theme}
+        pathData={sim?.pathData || []}
+        interpolatedWeather={interpolatedWeather}
+        currentTime={currentTime}
+        weatherSource={sim?.weatherSource || 'standard'}
+      />
     </View>
   );
 };
@@ -583,6 +700,22 @@ const styles = StyleSheet.create({
   visualizerWrapper: {
     position: 'relative',
     width: '100%',
+  },
+  nowcastButton: {
+    position: 'absolute',
+    top: 8,
+    right: 72,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   enhancedButton: {
     position: 'absolute',
@@ -662,15 +795,44 @@ const styles = StyleSheet.create({
   unifiedRightSection: {
     flex: 1.9,
     justifyContent: 'center',
+    paddingVertical: 2,
   },
-  unifiedCloudGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 4,
+  gridTitleText: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    opacity: 0.85,
+    marginBottom: 4,
+    textAlign: 'center',
   },
-  unifiedGridItem: {
-    alignItems: 'center',
+  miniGridContainer: {
     flex: 1,
+    justifyContent: 'center',
+    marginVertical: 1,
+    paddingHorizontal: 2,
+  },
+  miniGridRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginVertical: 0.6,
+  },
+  miniGridCell: {
+    width: 8,
+    height: 4.8,
+    borderRadius: 1.2,
+    marginHorizontal: 0.8,
+    borderWidth: 0.3,
+  },
+  detailHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  detailHintText: {
+    fontSize: 7,
+    fontWeight: '700',
+    opacity: 0.7,
   },
   aerosolTitle: {
     fontSize: 9,
@@ -707,8 +869,5 @@ const styles = StyleSheet.create({
     width: 1,
     height: 12,
     opacity: 0.3,
-  },
-  gridDist: { fontSize: 9, fontWeight: '700', marginBottom: 4 },
-  miniBars: { flexDirection: 'row', gap: 2.5, height: 25, alignItems: 'flex-end' },
-  miniBar: { width: 4.5, borderRadius: 2.5 }
+  }
 });
