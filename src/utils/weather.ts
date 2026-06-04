@@ -131,9 +131,6 @@ export const fetchSunsetWeather = async (
     });
   });
 
-  const lats = points.map(p => p.lat.toFixed(5)).join(',');
-  const lons = points.map(p => p.lon.toFixed(5)).join(',');
-
   const modelName = useNowcast ? getLocalHighResModel(lat, lon) : '';
   const modelParam = modelName ? `&models=${modelName}` : '';
 
@@ -142,39 +139,43 @@ export const fetchSunsetWeather = async (
     ? 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
     : 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
 
+  // 36개 좌표 단일 요청 시 Nginx 502 Bad Gateway 발생하므로, 12개씩 3개 청크로 분할 병렬 조회
+  const CHUNK_SIZE = 12;
+  const chunkedPoints: typeof points[] = [];
+  for (let i = 0; i < points.length; i += CHUNK_SIZE) {
+    chunkedPoints.push(points.slice(i, i + CHUNK_SIZE));
+  }
+
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
-      `&hourly=${hourlyVariables}` +
-      `&timezone=auto${modelParam}`;
-    
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      // 만약 고해상도 국지 모델(Nowcast) 요청이 실패(400)했거나 Rate Limit(429)이 걸렸다면 자동으로 글로벌 표준 모델로 재시도
-      if (useNowcast) {
-        console.warn(`Nowcast model [${modelName}] fetch failed (Status: ${response.status}). Falling back to standard global model.`);
-        return fetchSunsetWeather(lat, lon, azimuth, false);
+    const chunkPromises = chunkedPoints.map(async (chunk, idx) => {
+      const cLats = chunk.map(p => p.lat.toFixed(5)).join(',');
+      const cLons = chunk.map(p => p.lon.toFixed(5)).join(',');
+      
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
+        `&hourly=${hourlyVariables}` +
+        `&timezone=auto${modelParam}`;
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Chunk ${idx} failed with status: ${response.status}`);
       }
-      throw new Error(`Open-Meteo API returned error status: ${response.status}`);
-    }
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      throw new Error(`Open-Meteo API returned non-JSON response: ${contentType}`);
-    }
-
-    const data = await response.json();
-
-    if (data.error) {
-      if (useNowcast) {
-        console.warn(`Nowcast API returned error data. Falling back to standard global model.`);
-        return fetchSunsetWeather(lat, lon, azimuth, false);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Chunk ${idx} non-JSON response: ${contentType}`);
       }
-      throw new Error(`Open-Meteo API Error: ${data.reason || 'Unknown error'}`);
-    }
 
-    // The API returns an array if multiple latitudes are passed
-    const results = Array.isArray(data) ? data : [data];
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(`Chunk ${idx} API error: ${data.reason || 'Unknown'}`);
+      }
+
+      return Array.isArray(data) ? data : [data];
+    });
+
+    const chunkResults = await Promise.all(chunkPromises);
+    const results = chunkResults.flat();
 
     const fetched: CloudPathData[] = points.map((p, i) => {
       const res = results[i];
