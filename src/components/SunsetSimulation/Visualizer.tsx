@@ -379,7 +379,16 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           const S = Math.sqrt(Vx * Vx + Vy * Vy); // line of sight distance (km)
           const alpha = Math.atan2(Vy, Vx);
           const elevationDeg = alpha * (180 / Math.PI);
-          const apparentElevationDeg = getApparentAltitude(elevationDeg);
+          let apparentElevationDeg = getApparentAltitude(elevationDeg);
+
+          // 먼 거리 구름 (d > 80km)에 대한 수평선 리프트 및 압축 효과 적용
+          if (d > 80) {
+            // 거리가 멀수록 대기 굴절 및 구름 두께 효과로 지평선 바로 위에 맺힙니다.
+            // 음수이거나 너무 낮은 고도각을 지평선 위(0.3도 ~ 2.0도 사이)로 들어올립니다.
+            const minHeightOffset = type === 'high' ? 1.0 : type === 'mid' ? 0.5 : 0.25;
+            const targetLift = minHeightOffset + 1.2 * Math.exp(apparentElevationDeg);
+            apparentElevationDeg = Math.max(apparentElevationDeg, targetLift);
+          }
 
           // Skip if below horizon dip
           if (apparentElevationDeg < -horizonDipDeg - 0.2) continue;
@@ -485,10 +494,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
       // Unified 3D scaling (clamping scale carefully)
       const perspectiveScale = 35 / item.S;
-      const clampedScale = Math.max(0.04, Math.min(3.0, perspectiveScale));
+      // 원거리 크기 최소 한계를 0.04에서 0.075로 완화하여 가독성 확보
+      const clampedScale = Math.max(0.075, Math.min(3.0, perspectiveScale));
       const foreshorteningFactor = 0.15 + (clampedScale / 3.0) * 0.85; 
 
-      const finalScaleX = clampedScale * scaleZoom;
+      // 먼 거리 구름은 수평선 전체를 덮는 거대한 띠 형태이므로 가로로 길게 스트레칭합니다.
+      const horizontalStretch = item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0;
+      const finalScaleX = clampedScale * scaleZoom * horizontalStretch;
       const finalScaleY = clampedScale * foreshorteningFactor * scaleZoom;
 
       const renderWidth = item.baseWidth * finalScaleX;
@@ -637,6 +649,14 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
       const gradId = `cloudGrad-${item.id}`;
 
+      // 흐릴수록(overcast가 높을수록) 구름의 투명도가 더 불투명해지도록 보정 (최대 0.90)
+      const maxOpacityCap = 0.45 + (weatherFactors.overcast * 0.45);
+      const baseOpacityAttenuated = preset.baseOpacity * aerosolExtinction * (1.0 + weatherFactors.overcast * 0.5);
+      const cloudOpacity = Math.max(
+        Math.min(0.95, Math.max(0.15, (item.opacityDensity / 100) * maxOpacityCap)),
+        Math.min(0.95, baseOpacityAttenuated)
+      );
+
       return {
         ...item,
         x,
@@ -651,7 +671,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         stopLit,
         shadowDx,
         shadowDy,
-        cloudOpacity: Math.max(0.1, preset.baseOpacity * aerosolExtinction),
+        cloudOpacity,
         finalScaleX,
         finalScaleY,
         renderWidth,
@@ -811,9 +831,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const windShiftDeg = (timeMs * windSpeedDegPerMs) % 360;
 
     return types.map((type) => {
-      // Find average density for this type from weather stations
-      const densities = interpolatedWeather.map((w: any) => type === 'high' ? w.high : type === 'mid' ? w.mid : w.low);
-      const avgDensity = densities.reduce((a: number, b: number) => a + b, 0) / densities.length;
+      // 로컬(거리 80km 이하) 구름 밀도 평균을 80%, 원거리 평균을 20% 반영하여 로컬 체감 날씨를 극대화
+      const localDensities = interpolatedWeather.filter((w: any) => w.distance <= 80).map((w: any) => type === 'high' ? w.high : type === 'mid' ? w.mid : w.low);
+      const localAvg = localDensities.length > 0 ? localDensities.reduce((a: number, b: number) => a + b, 0) / localDensities.length : 0;
+      const remoteDensities = interpolatedWeather.filter((w: any) => w.distance > 80).map((w: any) => type === 'high' ? w.high : type === 'mid' ? w.mid : w.low);
+      const remoteAvg = remoteDensities.length > 0 ? remoteDensities.reduce((a: number, b: number) => a + b, 0) / remoteDensities.length : 0;
+      const avgDensity = localAvg * 0.8 + remoteAvg * 0.2;
       if (avgDensity < 15) return null;
 
       const baseColorStr =
@@ -824,8 +847,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           : (prediction.lowCloudColor);
 
       // Define altitude range boundaries for giant sheets
+      // 로컬 저/중/고층운의 밀도가 높을수록 구름 장막이 머리 위(천정 방향)로 더 높이 확장되도록 설정
+      const localDensity = type === 'high' ? (interpolatedWeather[0]?.high ?? 0) : type === 'mid' ? (interpolatedWeather[0]?.mid ?? 0) : (interpolatedWeather[0]?.low ?? 0);
+      const scaleFactor = 1.0 + (localDensity / 100) * 1.5; // 최대 2.5배 확장
+
       const minElev = type === 'high' ? 18 : type === 'mid' ? 6 : 0;
-      const maxElev = type === 'high' ? 55 : type === 'mid' ? 22 : 9;
+      const maxElev = type === 'high' ? Math.min(85, 55 * scaleFactor) : type === 'mid' ? Math.min(75, 22 * scaleFactor) : Math.min(50, 9 * scaleFactor);
 
       const yStart = horizonTop - (maxElev * DEGREE_TO_PIXEL);
       const yEnd = horizonTop - (minElev * DEGREE_TO_PIXEL);
@@ -1401,7 +1428,11 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const sunColor = prediction?.sunDiskColor ?? '#FFD700';
             const parsedSun = parseColor(sunColor);
             const pureSunDiskColor = `rgb(${parsedSun.r}, ${parsedSun.g}, ${parsedSun.b})`;
-            const sunOpacity = 1.0; // 태양은 반투명해지지 않고 항상 불투명하게 렌더링
+            
+            // pathClarity가 낮을수록(구름이 태양 앞을 가릴수록) 태양 디스크 자체도 흐려지거나 아예 소멸되도록 불투명도 조절
+            const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
+            const sunOpacity = clamp01((pathClarity - 0.15) / 0.85);
+            
             return (
               <G opacity={sunOpacity}>
                 <Circle cx={sunX} cy={sunY} r={sunSize / 2} fill={pureSunDiskColor} />
