@@ -147,7 +147,9 @@ export const fetchSunsetWeather = async (
   }
 
   try {
-    const chunkPromises = chunkedPoints.map(async (chunk, idx) => {
+    const results: any[] = [];
+    for (let idx = 0; idx < chunkedPoints.length; idx++) {
+      const chunk = chunkedPoints[idx];
       const cLats = chunk.map(p => p.lat.toFixed(5)).join(',');
       const cLons = chunk.map(p => p.lon.toFixed(5)).join(',');
       
@@ -171,11 +173,14 @@ export const fetchSunsetWeather = async (
         throw new Error(`Chunk ${idx} API error: ${data.reason || 'Unknown'}`);
       }
 
-      return Array.isArray(data) ? data : [data];
-    });
+      const chunkData = Array.isArray(data) ? data : [data];
+      results.push(...chunkData);
 
-    const chunkResults = await Promise.all(chunkPromises);
-    const results = chunkResults.flat();
+      // 청크 간 80ms 슬립을 주어 단시간 동시 요청(Burst Rate Limit) 우회
+      if (idx < chunkedPoints.length - 1) {
+        await sleep(80);
+      }
+    }
 
     const fetched: CloudPathData[] = points.map((p, i) => {
       const res = results[i];
