@@ -85,18 +85,41 @@ export interface CloudPathData {
   source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
 }
 
+export const getLocalHighResModel = (lat: number, lon: number): string => {
+  // 대한민국 영역 (위도 33~39, 경도 124~132)
+  if (lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132) {
+    return 'kma_ldaps';
+  }
+  // 미국 영역 (위도 24~50, 경도 -125~-66)
+  if (lat >= 24 && lat <= 50 && lon >= -125 && lon <= -66) {
+    return 'hrrr';
+  }
+  // 독일 및 주변 유럽 영역 (위도 47~55, 경도 5~16)
+  if (lat >= 47 && lat <= 55 && lon >= 5 && lon <= 16) {
+    return 'icon_d2';
+  }
+  return 'best_match';
+};
+
 const weatherCache = new Map<string, CloudPathData[]>();
 
-export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: number): Promise<CloudPathData[]> => {
+export const fetchSunsetWeather = async (
+  lat: number,
+  lon: number,
+  azimuth: number,
+  useNowcast: boolean = false
+): Promise<CloudPathData[]> => {
   // Bucket azimuth to nearest 30 degrees to reduce weather API requests on tiny azimuth adjustments
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
-  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${bucketedAzimuth}`;
+  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${bucketedAzimuth}_nowcast_${useNowcast}`;
   if (weatherCache.has(cacheKey)) {
     return weatherCache.get(cacheKey)!;
   }
-  // 3-Ray Fanning: Observer (0km) + Left(-15 deg), Center(0 deg), Right(+15 deg) at distances [15, 45, 110, 220, 360]
-  const angles = [-15, 0, 15];
-  const distances = [15, 45, 110, 220, 360];
+  
+  // 5-Ray Fanning: Observer (0km) + Left2(-20 deg), Left1(-10 deg), Center(0 deg), Right1(10 deg), Right2(20 deg)
+  // Distances: [10, 30, 70, 130, 200, 280, 380] km (More non-linear sampling density near horizon)
+  const angles = [-20, -10, 0, 10, 20];
+  const distances = [10, 30, 70, 130, 200, 280, 380];
   const points: { dist: number; azOffset: number; lat: number; lon: number }[] = [
     { dist: 0, azOffset: 0, lat, lon }
   ];
@@ -111,23 +134,55 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
   const lats = points.map(p => p.lat.toFixed(5)).join(',');
   const lons = points.map(p => p.lon.toFixed(5)).join(',');
 
+  const modelName = useNowcast ? getLocalHighResModel(lat, lon) : '';
+  const modelParam = modelName ? `&models=${modelName}` : '';
+
+  // 국지 고해상도 모델은 direct_normal_irradiance 및 total_column_integrated_water_vapour를 미지원하므로 제외하고 요청
+  const hourlyVariables = useNowcast
+    ? 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
+    : 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
+
   try {
-    const response = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
-        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
-        `&timezone=auto`
-    );
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
+      `&hourly=${hourlyVariables}` +
+      `&timezone=auto${modelParam}`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      // 만약 고해상도 국지 모델(Nowcast) 요청이 실패(400)했거나 Rate Limit(429)이 걸렸다면 자동으로 글로벌 표준 모델로 재시도
+      if (useNowcast) {
+        console.warn(`Nowcast model [${modelName}] fetch failed (Status: ${response.status}). Falling back to standard global model.`);
+        return fetchSunsetWeather(lat, lon, azimuth, false);
+      }
+      throw new Error(`Open-Meteo API returned error status: ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Open-Meteo API returned non-JSON response: ${contentType}`);
+    }
+
     const data = await response.json();
+
+    if (data.error) {
+      if (useNowcast) {
+        console.warn(`Nowcast API returned error data. Falling back to standard global model.`);
+        return fetchSunsetWeather(lat, lon, azimuth, false);
+      }
+      throw new Error(`Open-Meteo API Error: ${data.reason || 'Unknown error'}`);
+    }
 
     // The API returns an array if multiple latitudes are passed
     const results = Array.isArray(data) ? data : [data];
 
     const fetched: CloudPathData[] = points.map((p, i) => {
       const res = results[i];
+      const resHourly = res?.hourly || (modelName ? res?.[`hourly_${modelName}`] : null);
 
-      if (!res || !res.hourly) {
+      if (!res || !resHourly) {
         console.warn(`Weather data missing for point ${i} (${p.dist}km, offset ${p.azOffset}°). Using clear sky fallback.`);
-        const fallbackTime: string[] = results[0]?.hourly?.time || [];
+        const fallbackTime: string[] = results[0]?.hourly?.time || results[0]?.[`hourly_${modelName}`]?.time || [];
         return {
           distance: p.dist,
           azimuthOffset: p.azOffset,
@@ -138,34 +193,33 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
             mid: Array(24).fill(0),
             high: Array(24).fill(0),
           },
-          source: 'standard',
+          source: useNowcast ? 'ultra-short' : 'standard',
         };
       }
 
-      const time: string[] = res.hourly.time;
+      const time: string[] = resHourly.time;
       const hourly: HourlyCloudData = {
         time,
         timeMs: time.map((t: string) => new Date(t).getTime()),
-        low: res.hourly.cloud_cover_low,
-        mid: res.hourly.cloud_cover_mid,
-        high: res.hourly.cloud_cover_high,
-        directNormalIrradiance: res.hourly.direct_normal_irradiance,
-        totalColumnWaterVapour: res.hourly.total_column_integrated_water_vapour,
-        precipitation: res.hourly.precipitation,
+        low: resHourly.cloud_cover_low || Array(24).fill(0),
+        mid: resHourly.cloud_cover_mid || Array(24).fill(0),
+        high: resHourly.cloud_cover_high || Array(24).fill(0),
+        directNormalIrradiance: resHourly.direct_normal_irradiance,
+        totalColumnWaterVapour: resHourly.total_column_integrated_water_vapour,
+        precipitation: resHourly.precipitation,
       };
       
-      // Visibility and humidity are only meaningful at the observer; the API
-      // returns them for all points but we only consume them at index 0.
+      // Visibility and humidity are only meaningful at the observer
       if (i === 0) {
-        if (Array.isArray(res.hourly.visibility)) hourly.visibility = res.hourly.visibility;
-        if (Array.isArray(res.hourly.relative_humidity_2m)) hourly.humidity = res.hourly.relative_humidity_2m;
+        if (Array.isArray(resHourly.visibility)) hourly.visibility = resHourly.visibility;
+        if (Array.isArray(resHourly.relative_humidity_2m)) hourly.humidity = resHourly.relative_humidity_2m;
       }
 
       return {
         distance: p.dist,
         azimuthOffset: p.azOffset,
         hourly,
-        source: 'standard',
+        source: useNowcast ? 'ultra-short' : 'standard',
       };
     });
 
@@ -173,8 +227,34 @@ export const fetchSunsetWeather = async (lat: number, lon: number, azimuth: numb
     return fetched;
   } catch (error) {
     console.error("Failed to fetch weather data:", error);
-    // Return empty but valid structure to prevent simulation crash
-    return [];
+    
+    // 만약 캐시가 실패하였으나 메모리에 캐싱된 가장 최근 데이터가 있다면 그것을 우선 반환
+    if (weatherCache.size > 0) {
+      const lastCached = Array.from(weatherCache.values())[weatherCache.size - 1];
+      console.warn("Using last successfully cached weather data as emergency fallback.");
+      return lastCached;
+    }
+    
+    // 최악의 경우 격자/수치 렌더링을 위해 36개 포인트의 유효한 fallback 데이터를 정밀 조립하여 리턴
+    console.warn("Generating mock clear weather data for 36 points to prevent crash.");
+    const dummyTime = [new Date().toISOString()];
+    const dummyTimeMs = [new Date().getTime()];
+    
+    return points.map(p => ({
+      distance: p.dist,
+      azimuthOffset: p.azOffset,
+      hourly: {
+        time: dummyTime,
+        timeMs: dummyTimeMs,
+        low: [0],
+        mid: [0],
+        high: [0],
+        visibility: [10000],
+        humidity: [50],
+        precipitation: [0]
+      },
+      source: 'standard'
+    }));
   }
 };
 

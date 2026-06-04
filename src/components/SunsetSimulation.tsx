@@ -252,8 +252,30 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             sunset: (SunCalc.getPosition(sTimes.sunset, latitude, longitude).azimuth * 180 / Math.PI) + 180
           });
           Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
+        } else {
+          // 혹시라도 데이터가 없는 경우를 대비한 세이프 로딩 오프
+          if (active) {
+            setSim(prev => prev ? { ...prev, loading: false } : null);
+          }
         }
-      } catch (err) { if (active) console.error(err); }
+      } catch (err) {
+        if (active) {
+          console.error("Simulation initialization failed:", err);
+          setSim(prev => {
+            if (prev) return { ...prev, loading: false };
+            return {
+              type: 'Sunset',
+              eventTime: new Date(),
+              azimuth: 270,
+              fov: 20,
+              pathData: [],
+              terrain: { panoramicAngles: Array(61).fill(0), farAngles: Array(61).fill(0), minAz: 0, maxAz: 360, observerElevation: 50 },
+              loading: false,
+              weatherSource: 'standard'
+            };
+          });
+        }
+      }
     };
     fetchSim();
 
