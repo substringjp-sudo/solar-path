@@ -125,7 +125,8 @@ function getCloudPreset(
   density: number,
   overcast: number,
   precipFactor: number,
-  liquidWater: number
+  liquidWater: number,
+  humidity: number = 50
 ): CloudPreset {
   if (layerType === 'high') {
     if (overcast > 0.6 && density > 60) {
@@ -197,7 +198,22 @@ function getCloudPreset(
         rimLightSharpness: 0.90,
         baseOpacity: 0.92,
       };
-    } else if (density > 60 || overcast > 0.6) {
+    }
+
+    // 비 오는 날(강수가 약간 존재)이며 습도가 높은 먹구름 낀 안개날씨에 안개성 층운(Stratus) 판정
+    const isRainingLight = precipFactor > 0.05;
+    if (isRainingLight && humidity > 85) {
+      return {
+        name: 'Stratus',
+        thickness: 0.65,
+        shadowContrast: 0.60,
+        scattering: 0.50,
+        rimLightSharpness: 0.40,
+        baseOpacity: 0.75,
+      };
+    }
+
+    if (density > 60 || overcast > 0.6) {
       return {
         name: 'Stratocumulus',
         thickness: 0.80,
@@ -206,25 +222,28 @@ function getCloudPreset(
         rimLightSharpness: 0.75,
         baseOpacity: 0.75,
       };
-    } else if (density < 25 && overcast < 0.3) {
+    }
+
+    // 맑은 날이라도 안개/밤이슬 등으로 대기 하층 습도가 극도로 높을 때 층운(Stratus) 판정
+    if (humidity > 90 && density < 40) {
       return {
         name: 'Stratus',
-        thickness: 0.28,
-        shadowContrast: 0.25,
-        scattering: 0.75,
-        rimLightSharpness: 0.35,
-        baseOpacity: 0.32,
-      };
-    } else {
-      return {
-        name: 'Cumulus',
-        thickness: 0.70,
-        shadowContrast: 0.72,
-        scattering: 0.45,
-        rimLightSharpness: 0.82,
-        baseOpacity: 0.65,
+        thickness: 0.30,
+        shadowContrast: 0.30,
+        scattering: 0.70,
+        rimLightSharpness: 0.30,
+        baseOpacity: 0.35,
       };
     }
+
+    return {
+      name: 'Cumulus',
+      thickness: 0.70,
+      shadowContrast: 0.72,
+      scattering: 0.45,
+      rimLightSharpness: 0.82,
+      baseOpacity: 0.65,
+    };
   }
 }
 
@@ -270,25 +289,43 @@ function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
 }
 
 
-// Collage / Papercraft cloud SVG templates categorized by distance
-const CLOUD_TEMPLATES = {
-  // Far clouds (d > 200 km): thin horizontal wisps/cirrus
-  far: [
-    "M 0,20 C 15,17 30,12 50,12 C 70,12 85,17 100,20 C 85,23 70,25 50,25 C 30,25 15,23 0,20 Z",
-    "M 0,15 C 20,13 40,8 60,8 C 80,8 100,13 120,15 C 100,18 80,20 60,20 C 40,20 20,18 0,15 Z",
-    "M 0,25 C 25,21 50,15 75,15 C 100,15 125,21 150,25 C 125,29 100,31 75,31 C 50,31 25,29 0,25 Z"
+// Collage / Papercraft cloud SVG templates categorized by 10 specific cloud types
+const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
+  Cirrus: [
+    "M 0,20 C 20,15 45,8 70,12 C 85,14 110,7 130,12 C 105,16 80,13 55,20 C 35,25 15,23 0,20 Z",
+    "M 0,15 C 30,12 60,6 90,12 C 110,16 130,8 150,15 C 120,18 90,15 60,20 C 30,22 15,19 0,15 Z"
   ],
-  // Mid clouds (80 < d <= 200 km): wave/layer clusters
-  mid: [
-    "M 10,20 C 10,14 20,10 35,10 C 45,5 65,5 75,12 C 85,8 100,8 110,14 C 120,10 135,12 140,20 C 140,23 10,23 10,20 Z",
-    "M 5,18 C 5,12 15,8 28,8 C 36,4 52,4 62,10 C 70,6 85,6 93,12 C 101,8 115,10 120,18 C 120,21 5,21 5,18 Z",
-    "M 15,22 C 15,16 25,12 40,12 C 50,7 72,7 82,14 C 92,10 110,10 120,16 C 130,12 145,14 150,22 C 150,25 15,25 15,22 Z"
+  Cirrocumulus: [
+    "M 0,15 C 10,8 20,8 30,15 C 40,8 50,8 60,15 C 70,8 80,8 90,15 C 75,20 45,20 15,20 C 5,20 0,18 0,15 Z",
+    "M 10,12 C 18,6 26,6 34,12 C 42,6 50,6 58,12 C 66,6 74,6 82,12 C 68,16 42,16 16,16 Z"
   ],
-  // Near clouds (d <= 80 km): fluffy volumetric paper cumulus
-  near: [
+  Cirrostratus: [
+    "M 0,15 C 50,12 100,12 150,15 L 150,20 C 100,23 50,23 0,20 Z"
+  ],
+  Altocumulus: [
+    "M 10,20 C 15,12 25,12 35,20 C 45,12 55,12 65,20 C 75,12 85,12 95,20 C 105,12 115,12 125,20 L 125,25 C 95,28 65,28 35,25 L 10,20 Z",
+    "M 10,20 C 10,14 20,10 35,10 C 45,5 65,5 75,12 C 85,8 100,8 110,14 C 120,10 135,12 140,20 Z"
+  ],
+  Altostratus: [
+    "M 5,22 C 30,15 60,28 90,20 C 120,12 150,25 180,22 L 180,27 C 150,30 120,17 90,25 C 60,33 30,20 5,27 Z"
+  ],
+  Nimbostratus: [
+    "M 0,20 C 30,15 70,15 100,20 C 130,25 170,25 200,20 L 200,32 C 170,35 130,35 100,32 C 70,28 30,28 0,32 Z"
+  ],
+  Stratocumulus: [
+    "M 15,25 C 15,18 28,12 45,16 C 55,8 80,8 95,18 C 110,10 135,12 145,22 C 155,20 170,25 175,32 C 150,35 125,32 15,32 Z",
+    "M 15,22 C 15,16 25,12 40,12 C 50,7 72,7 82,14 C 92,10 110,10 120,16 C 130,12 145,14 150,22 Z"
+  ],
+  Stratus: [
+    "M 0,10 C 20,8 50,5 80,10 C 110,15 150,8 180,12 L 180,16 C 150,12 110,19 80,14 C 50,9 20,12 0,14 Z"
+  ],
+  Cumulus: [
     "M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z",
-    "M 10,28 C 10,20 18,14 30,14 C 38,8 54,6 66,10 C 78,4 98,4 110,12 C 118,9 130,12 134,20 C 142,20 146,24 146,28 C 146,30 10,30 10,28 Z",
-    "M 20,40 C 20,28 32,20 50,20 C 60,10 82,8 100,12 C 118,4 146,4 163,16 C 175,12 192,16 198,28 C 210,28 215,34 215,40 C 215,43 20,43 20,40 Z"
+    "M 20,40 C 20,28 32,20 50,20 C 60,10 82,8 100,12 C 118,4 146,4 163,16 C 175,12 192,16 198,28 C 210,28 215,34 215,40 Z"
+  ],
+  Cumulonimbus: [
+    "M 20,60 C 20,50 30,45 40,45 C 30,30 50,15 70,20 C 60,-5 120,-5 110,25 C 130,20 150,35 140,50 C 155,50 160,55 160,60 Z",
+    "M 10,50 C 10,42 16,36 28,36 C 20,20 45,10 65,18 C 55,2 105,2 95,24 C 112,20 130,30 120,45 C 130,45 135,48 135,50 Z"
   ]
 };
 
@@ -337,6 +374,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
     const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
     const isOvercast = (prediction?.factors?.overheadOvercast ?? 0) >= 0.75;
+    const overcast = prediction?.factors?.overheadOvercast ?? 0;
     
     types.forEach((type) => {
       sim.pathData.forEach((c: any, i: number) => {
@@ -350,7 +388,32 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         if (density < 5) return;
 
         const baseDist = c?.distance ?? [0, 80, 200, 350][i % 4];
-        const H_c = type === 'high' ? 9.5 : type === 'mid' ? 4.5 : 1.5; 
+        const precip = interpolated.precipitation ?? 0;
+        const water = interpolated.totalColumnWaterVapour ?? 0;
+        const humidity = interpolated.humidity ?? 50;
+
+        // 구름 프리셋 판별 (기상 조건 반영)
+        const preset = getCloudPreset(
+          type,
+          density,
+          overcast,
+          precip,
+          water,
+          humidity
+        );
+
+        // 구름 종류별 물리 고도 H_c 세분화 지정 (km)
+        let H_c = 1.5;
+        if (preset.name === 'Cirrus') H_c = 11.0;
+        else if (preset.name === 'Cirrocumulus') H_c = 9.5;
+        else if (preset.name === 'Cirrostratus') H_c = 8.5;
+        else if (preset.name === 'Altocumulus') H_c = 5.0;
+        else if (preset.name === 'Altostratus') H_c = 4.2;
+        else if (preset.name === 'Nimbostratus') H_c = 2.5;
+        else if (preset.name === 'Stratocumulus') H_c = 1.8;
+        else if (preset.name === 'Stratus') H_c = 0.4;
+        else if (preset.name === 'Cumulus') H_c = 1.2;
+        else if (preset.name === 'Cumulonimbus') H_c = 4.5; // 거대한 적란운 중심
 
         // If overcast, we draw massive giant bands instead of 100s of small clouds to prevent FPS drop and look cleaner.
         // We still render a few scattered background clouds to give depth.
@@ -398,13 +461,30 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           if (d <= 80) cloudCategory = 'near';
           else if (d > 200) cloudCategory = 'far';
 
-          const templates = CLOUD_TEMPLATES[cloudCategory];
+          const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
           const templateIndex = seed % templates.length;
           const pathStr = templates[templateIndex];
 
-          // Set dimensions optimal for template aspect ratios
-          const baseWidth = cloudCategory === 'far' ? 150 : cloudCategory === 'mid' ? 140 : 200;
-          const baseHeight = cloudCategory === 'far' ? 25 : cloudCategory === 'mid' ? 25 : 45;
+          // 구름 종류별 렌더링 규격(Aspect Ratio) 설정
+          let baseWidth = 150;
+          let baseHeight = 35;
+          
+          if (preset.name === 'Cirrus' || preset.name === 'Stratus') {
+            baseWidth = 220;
+            baseHeight = 15;
+          } else if (preset.name === 'Cirrostratus' || preset.name === 'Altostratus' || preset.name === 'Nimbostratus') {
+            baseWidth = 240;
+            baseHeight = 24;
+          } else if (preset.name === 'Cumulonimbus') {
+            baseWidth = 160;
+            baseHeight = 100;
+          } else if (preset.name === 'Cumulus') {
+            baseWidth = 190;
+            baseHeight = 48;
+          } else {
+            baseWidth = 170;
+            baseHeight = 32;
+          }
 
           // Base cloud color
           const baseColorStr =
@@ -428,6 +508,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             d,
             pathStr,
             cloudCategory,
+            preset,
             precipitation: interpolated.precipitation ?? 0,
             liquidWater: interpolated.totalColumnWaterVapour ?? 0,
           });
@@ -535,14 +616,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const x2 = (0.5 + cosA * 0.5) * 100 + '%';
       const y2 = (0.5 + sinA * 0.5) * 100 + '%';
 
-      // 1) 구름 프리셋 판별
-      const preset = getCloudPreset(
-        item.type,
-        item.opacityDensity,
-        weatherFactors.overcast,
-        item.precipitation ?? 0,
-        item.liquidWater ?? 0
-      );
+      // 1) 구름 프리셋 판별 (기존의 물리연산 시 지정한 preset 재사용)
+      const preset = item.preset;
 
       // 구름 기본 색 (날씨에 따라 칙칙함 반영)
       let baseCloudRGB = parseColor(item.baseColorStr);
@@ -1490,19 +1565,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             if (shape.centerDist <= 80) cloudCategory = 'near';
             else if (shape.centerDist > 200) cloudCategory = 'far';
             const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
-            const templates = CLOUD_TEMPLATES[cloudCategory];
-            const templateIndex = seed % templates.length;
-            const cloudPath = templates[templateIndex];
-            const baseW = cloudCategory === 'far' ? 150 : cloudCategory === 'mid' ? 140 : 200;
-            const baseH = cloudCategory === 'far' ? 25 : cloudCategory === 'mid' ? 25 : 45;
-            const perspectiveScale = 45 / Math.max(10, shape.centerDist);
-            const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
-            const scaleZoom = 20 / visualFov;
-            const finalScale = clampedScale * scaleZoom;
-            const renderW = baseW * finalScale;
-            const renderH = baseH * finalScale * 0.6;
-            if (cx + renderW < -60 || cx - renderW > VISUALIZER_WIDTH + 60) return null;
-            if (cy + renderH < -30 || cy > SKY_HEIGHT + 30) return null;
+            
             const { overcast, dustIntensity } = weatherFactors;
             const avgPrecip = interpolatedWeather && interpolatedWeather.length > 0
               ? interpolatedWeather.reduce((sum, w) => sum + (w.precipitation || 0), 0) / interpolatedWeather.length
@@ -1519,6 +1582,38 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               avgPrecip,
               avgLiquidWater
             );
+
+            const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
+            const templateIndex = seed % templates.length;
+            const cloudPath = templates[templateIndex];
+
+            // 구름 종류별 렌더링 규격(Aspect Ratio) 설정
+            let baseW = 150;
+            let baseH = 35;
+            
+            if (preset.name === 'Cirrus' || preset.name === 'Stratus') {
+              baseW = 220;
+              baseH = 15;
+            } else if (preset.name === 'Cirrostratus' || preset.name === 'Altostratus' || preset.name === 'Nimbostratus') {
+              baseW = 240;
+              baseH = 24;
+            } else if (preset.name === 'Cumulonimbus') {
+              baseW = 160;
+              baseH = 100;
+            } else if (preset.name === 'Cumulus') {
+              baseW = 190;
+              baseH = 48;
+            } else {
+              baseW = 170;
+              baseH = 32;
+            }
+
+            const perspectiveScale = 45 / Math.max(10, shape.centerDist);
+            const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
+            const scaleZoom = 20 / visualFov;
+            const finalScale = clampedScale * scaleZoom;
+            const renderW = baseW * finalScale;
+            const renderH = baseH * finalScale * 0.6;
 
             let baseRGB = parseColor(
               shape.type === 'high'
