@@ -16,7 +16,7 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw, Layers, Zap, Info } from 'lucide-react-native';
+import { RotateCw, Layers, Zap, Info, AlertCircle } from 'lucide-react-native';
 import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
  
 interface SimulationState {
@@ -28,7 +28,7 @@ interface SimulationState {
   pathData: CloudPathData[];
   terrain: TerrainData;
   loading: boolean;
-  weatherSource: 'standard' | 'ultra-short';
+  weatherSource: 'standard' | 'ultra-short' | 'fallback';
 }
 
 interface SunsetSimulationProps {
@@ -594,6 +594,31 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           </View>
 
           <View style={styles.bottomSection}>
+            {sim?.weatherSource === 'fallback' && (
+              <TouchableOpacity
+                style={[
+                  styles.warningBanner,
+                  {
+                    backgroundColor: 'rgba(255, 92, 63, 0.08)',
+                    borderColor: 'rgba(255, 92, 63, 0.25)',
+                  }
+                ]}
+                onPress={() => {
+                  Alert.alert(
+                    '기상 정보 수신 실패',
+                    '기상 API 서버(Open-Meteo)의 장애 또는 단시간 과도한 요청에 의한 일시적 IP 제한으로 실시간 날씨 정보를 가져올 수 없습니다.\n\n현재 맑은 날(기본값)로 임시 시뮬레이션 중이며, 10분 정도 대기 후 다시 날씨 갱신 버튼을 눌러주세요.',
+                    [{ text: '확인', style: 'default' }]
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <AlertCircle size={13} color="#FF5C3F" style={{ marginRight: 6 }} />
+                <Text style={styles.warningBannerText}>
+                  실시간 기상 수신 실패 (임시 데이터 적용됨) · 상세 보기
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {prediction && (
               <PredictionCard
                 prediction={prediction}
@@ -891,5 +916,20 @@ const styles = StyleSheet.create({
     width: 1,
     height: 12,
     opacity: 0.3,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 6,
+    justifyContent: 'center',
+  },
+  warningBannerText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FF5C3F',
   }
 });
