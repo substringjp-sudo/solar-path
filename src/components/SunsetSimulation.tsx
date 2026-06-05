@@ -488,6 +488,18 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   };
 
+  const getMiniAltitudeColor = (val: number, type: 'low' | 'mid' | 'high') => {
+    if (val === 0) return 'rgba(255, 255, 255, 0.05)';
+    let r = 70, g = 130, b = 180;
+    if (type === 'mid') {
+      r = 147; g = 112; b = 219;
+    } else if (type === 'high') {
+      r = 255; g = 105; b = 180;
+    }
+    const opacity = 0.15 + (val / 100) * 0.85;
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+
   // Update weather pathData dynamically if the camera heading (sunAzimuth) drifts too far from the sampled azimuth
   useEffect(() => {
     if (!location || !sim || sim.loading) return;
@@ -668,7 +680,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                   {miniGridMatrix.map((row, rIdx) => (
                     <View key={rIdx} style={styles.miniGridRow}>
                       {row.map((cell, cIdx) => {
-                        const cellColor = getCellColor(cell.low, cell.mid, cell.high);
                         // Calculate width and margin dynamically to form an inverted triangle (trapezoid)
                         const cellWidth = 10 - rIdx * 0.9;
                         const cellMargin = 1.0 - rIdx * 0.08;
@@ -678,13 +689,19 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                             style={[
                               styles.miniGridCell, 
                               { 
-                                backgroundColor: cellColor, 
                                 borderColor: theme.border,
                                 width: cellWidth,
-                                marginHorizontal: cellMargin
+                                marginHorizontal: cellMargin,
+                                overflow: 'hidden'
                               }
                             ]}
-                          />
+                          >
+                            <View style={{ flex: 1, width: '100%', height: '100%' }}>
+                              <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.high, 'high') }} />
+                              <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.mid, 'mid') }} />
+                              <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.low, 'low') }} />
+                            </View>
+                          </View>
                         );
                       })}
                     </View>

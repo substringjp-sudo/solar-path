@@ -24,6 +24,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   const { width: W, height: H } = Dimensions.get('window');
   const { timezoneOffsetHours } = useCelestialStore();
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
+  const [activeAltitude, setActiveAltitude] = useState<'all' | 'low' | 'mid' | 'high'>('all');
 
   const angles = [-20, -10, 0, 10, 20];
   const distances = [380, 280, 200, 130, 70, 30, 10]; // Top to bottom (Far to Near)
@@ -71,6 +72,18 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
     const maxVal = Math.max(low, mid, high);
     const opacity = 0.15 + (maxVal / 100) * 0.75; // 구름량에 따른 투명도 조절
     
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+
+  const getAltitudeColor = (val: number, type: 'low' | 'mid' | 'high') => {
+    if (val === 0) return 'rgba(255, 255, 255, 0.05)';
+    let r = 70, g = 130, b = 180; // low
+    if (type === 'mid') {
+      r = 147; g = 112; b = 219;
+    } else if (type === 'high') {
+      r = 255; g = 105; b = 180;
+    }
+    const opacity = 0.15 + (val / 100) * 0.75;
     return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   };
 
@@ -144,14 +157,40 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                   가로는 관측 방향(좌-20° ~ 우+20°), 세로는 관측 거리(10km ~ 380km)를 의미합니다.
                 </Text>
 
+                {/* Altitude Filter Tabs */}
+                <View style={[styles.altitudeTabContainer, { borderColor: theme.border }]}>
+                  {(['all', 'low', 'mid', 'high'] as const).map((alt) => {
+                    const label = alt === 'all' ? '통합' : alt === 'low' ? '저층운' : alt === 'mid' ? '중층운' : '고층운';
+                    const activeColor = alt === 'low' ? '#4682B4' : alt === 'mid' ? '#9370DB' : alt === 'high' ? '#FF69B4' : theme.accent;
+                    const isActive = activeAltitude === alt;
+                    return (
+                      <TouchableOpacity
+                        key={alt}
+                        style={[
+                          styles.altitudeTabButton,
+                          isActive && [styles.activeAltitudeTabButton, { borderBottomColor: activeColor }]
+                        ]}
+                        onPress={() => setActiveAltitude(alt)}
+                      >
+                        <Text style={[
+                          styles.altitudeTabText,
+                          { color: isActive ? theme.text : theme.subText, fontWeight: isActive ? '800' : '500' }
+                        ]}>
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
                 {/* 5x7 Heatmap Grid */}
                 <View style={styles.gridOuterContainer}>
-                  {/* Y-axis Labels (Distance) */}
-                  <View style={styles.yAxisLabels}>
-                    {distances.map((dist) => (
-                      <Text key={dist} style={[styles.yLabel, { color: theme.subText }]}>{dist}k</Text>
-                    ))}
-                  </View>
+                   {/* Y-axis Labels (Distance) */}
+                   <View style={styles.yAxisLabels}>
+                     {distances.map((dist) => (
+                       <Text key={dist} style={[styles.yLabel, { color: theme.subText }]}>{dist}k</Text>
+                     ))}
+                   </View>
 
                   <View style={styles.gridInnerContainer}>
                     {/* Matrix Grid */}
@@ -159,17 +198,33 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       {gridMatrix.map((row, rIdx) => (
                         <View key={rIdx} style={styles.gridRow}>
                           {row.map((cell, cIdx) => {
-                            const blendColor = getBlendColor(cell.low, cell.mid, cell.high);
-                            return (
-                              <View
-                                key={cIdx}
-                                style={[styles.gridCell, { backgroundColor: blendColor, borderColor: theme.border }]}
-                              >
-                                <Text style={styles.cellPercentageText}>
-                                  {Math.round((cell.low + cell.mid + cell.high) / 3)}%
-                                </Text>
-                              </View>
-                            );
+                            if (activeAltitude === 'all') {
+                              return (
+                                <View
+                                  key={cIdx}
+                                  style={[styles.gridCell, { borderColor: theme.border, height: 32, overflow: 'hidden' }]}
+                                >
+                                  <View style={styles.splitCellContainer}>
+                                    <View style={[styles.splitCellSegment, { backgroundColor: getAltitudeColor(cell.high, 'high') }]} />
+                                    <View style={[styles.splitCellSegment, { backgroundColor: getAltitudeColor(cell.mid, 'mid'), borderTopWidth: 0.5, borderBottomWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)' }]} />
+                                    <View style={[styles.splitCellSegment, { backgroundColor: getAltitudeColor(cell.low, 'low') }]} />
+                                  </View>
+                                </View>
+                              );
+                            } else {
+                              const cellVal = cell[activeAltitude];
+                              const cellColor = getAltitudeColor(cellVal, activeAltitude);
+                              return (
+                                <View
+                                  key={cIdx}
+                                  style={[styles.gridCell, { backgroundColor: cellColor, borderColor: theme.border, height: 32, justifyContent: 'center', alignItems: 'center' }]}
+                                >
+                                  <Text style={styles.cellPercentageText}>
+                                    {Math.round(cellVal)}%
+                                  </Text>
+                                </View>
+                              );
+                            }
                           })}
                         </View>
                       ))}
@@ -393,7 +448,7 @@ const styles = StyleSheet.create({
   yAxisLabels: {
     width: 32,
     justifyContent: 'space-between',
-    height: 196, // Matches grid table height
+    height: 252, // Matches grid table height
     paddingVertical: 4,
   },
   yLabel: {
@@ -406,21 +461,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   gridTable: {
-    height: 196,
+    height: 252,
     justifyContent: 'space-between',
   },
   gridRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    height: 24,
+    height: 32,
   },
   gridCell: {
     flex: 1,
     marginHorizontal: 2.5,
     borderRadius: 6,
     borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   cellPercentageText: {
     fontSize: 8,
@@ -563,5 +616,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#000',
+  },
+  altitudeTabContainer: {
+    flexDirection: 'row',
+    marginTop: 14,
+    marginBottom: 8,
+    borderBottomWidth: 1.5,
+    borderBottomColor: 'rgba(255,255,255,0.03)',
+    gap: 4,
+  },
+  altitudeTabButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeAltitudeTabButton: {
+    // borderBottomColor will be applied dynamically
+  },
+  altitudeTabText: {
+    fontSize: 11,
+  },
+  splitCellContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  splitCellSegment: {
+    flex: 1,
+    width: '100%',
   },
 });
