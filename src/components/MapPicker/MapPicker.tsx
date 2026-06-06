@@ -522,7 +522,7 @@ export const MapPicker = ({
         map.on('move', redrawIsochrones);
         map.on('zoomend', redrawIsochrones);
 
-        const handleMessage = (event) => {
+        window.handleMessage = (event) => {
           let data;
           try {
             data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
@@ -542,8 +542,8 @@ export const MapPicker = ({
           }
         };
 
-        window.addEventListener('message', handleMessage);
-        document.addEventListener('message', handleMessage);
+        window.addEventListener('message', window.handleMessage);
+        document.addEventListener('message', window.handleMessage);
       </script>
     </body>
     </html>
@@ -584,8 +584,8 @@ export const MapPicker = ({
         } else {
           // Robust message injection avoiding RN WebView message drops
           const runJS = `
-            if (typeof handleMessage === 'function') {
-              handleMessage({ data: ${JSON.stringify(message)} });
+            if (typeof window.handleMessage === 'function') {
+              window.handleMessage({ data: ${JSON.stringify(message)} });
             }
             true;
           `;
