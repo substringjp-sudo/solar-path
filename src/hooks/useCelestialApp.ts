@@ -83,6 +83,7 @@ export function useCelestialApp() {
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'tracker' | 'sim' | 'gallery'>('tracker');
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
+  const [isCameraWarningVisible, setCameraWarningVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const prevTabRef = useRef(activeTab);
   const hasResetRef = useRef(false);
@@ -365,11 +366,7 @@ export function useCelestialApp() {
     if (goldenTimeInfo.isActive) {
       setSunCameraVisible(true);
     } else {
-      Alert.alert(
-        'Waiting for Golden Hour',
-        'AR Camera is only active during the 2.5 hours before and after sunrise/sunset.\n\n(Developer Bypass: Long-press for 2 seconds to force open.)',
-        [{ text: 'OK', style: 'default' }]
-      );
+      setCameraWarningVisible(true);
     }
   };
 
@@ -587,6 +584,8 @@ export function useCelestialApp() {
     setActiveTab,
     isSunCameraVisible,
     setSunCameraVisible,
+    isCameraWarningVisible,
+    setCameraWarningVisible,
     contentOpacity,
     currentTime,
     currentTimeLocal,

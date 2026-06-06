@@ -88,7 +88,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             onLongPress={handleCameraLongPress}
             delayLongPress={1500}
             style={[
-              styles.mapOpenBtn,
+              styles.cameraOpenBtn,
               goldenTimeInfo.isActive
                 ? { 
                     backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
@@ -107,11 +107,6 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             ]}
           >
             <CameraIcon size={14} color={goldenTimeInfo.isActive ? '#FFF' : theme.text} />
-            {goldenTimeInfo.isActive ? (
-              <Text style={[styles.mapOpenText, { color: '#FFF', fontSize: 9, fontWeight: 'bold' }]}>GOLDEN</Text>
-            ) : (
-              <Text style={[styles.mapOpenText, { color: theme.text, fontSize: 8, opacity: 0.7 }]}>LOCK</Text>
-            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -207,25 +202,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  mapOpenBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  cameraOpenBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    gap: 4,
+    alignItems: 'center',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-  },
-  mapOpenText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#000',
-    letterSpacing: -0.2,
   },
   dateNavigator: {
     flexDirection: 'row',

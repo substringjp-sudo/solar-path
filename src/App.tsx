@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, TouchableOpacity, Animated, Platform, Modal, ScrollView } from 'react-native';
 import Constants from 'expo-constants';
-import { MapPin, Star, Trash2, X } from 'lucide-react-native';
+import { MapPin, Star, Trash2, X, AlertCircle, Camera } from 'lucide-react-native';
 
 import { useCelestialApp } from './hooks/useCelestialApp';
 import { HudHeader } from './components/HudHeader';
@@ -29,6 +29,8 @@ export default function App() {
     setActiveTab,
     isSunCameraVisible,
     setSunCameraVisible,
+    isCameraWarningVisible,
+    setCameraWarningVisible,
     contentOpacity,
     currentTime,
     currentTimeLocal,
@@ -220,6 +222,39 @@ export default function App() {
         theme={theme}
         dynamicTheme={dynamicTheme}
       />
+
+      {/* 카메라 비활성화 안내 모달 */}
+      <Modal
+        visible={isCameraWarningVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCameraWarningVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.warningModal, { backgroundColor: theme.card || '#1A1D24', borderColor: theme.border }]}>
+            <View style={styles.warningIconContainer}>
+              <View style={[styles.warningIconBg, { backgroundColor: 'rgba(255, 165, 0, 0.15)' }]}>
+                <Camera size={28} color="#FFA500" />
+              </View>
+            </View>
+            
+            <Text style={[styles.warningTitle, { color: theme.text }]}>골든 아워 대기 중</Text>
+            
+            <Text style={[styles.warningMessage, { color: theme.subText }]}>
+              AR 카메라 기능은 일출/일몰 전후 2.5시간(골든 아워) 동안에만 활성화됩니다.{"\n\n"}
+              개발자 테스트를 위해 우회 진입을 하시려면 카메라 버튼을 2초간 꾹 눌러주세요.
+            </Text>
+
+            <TouchableOpacity 
+              onPress={() => setCameraWarningVisible(false)} 
+              style={[styles.warningConfirmBtn, { backgroundColor: theme.accent || '#FFD700' }]}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.warningConfirmText, { color: '#000' }]}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </AnimatedSafeAreaView>
   );
 }
@@ -306,5 +341,50 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     padding: 4,
+  },
+  warningModal: {
+    width: '85%',
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    elevation: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  warningIconContainer: {
+    marginBottom: 16,
+  },
+  warningIconBg: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  warningTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  warningMessage: {
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  warningConfirmBtn: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  warningConfirmText: {
+    fontSize: 14,
+    fontWeight: '800',
   },
 });
