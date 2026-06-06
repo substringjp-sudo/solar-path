@@ -597,120 +597,183 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         else if (preset.name === 'Cumulus') H_c = 1.2;
         else if (preset.name === 'Cumulonimbus') H_c = 4.5;
 
-        // 체감 구름양에 근거한 구름 개수 결정
-        // 거대 비구름대나 안개층일 경우 더욱 촘촘하게 메움
-        const isDenseDeck = status.isStormSystem || status.isStratusDeck;
-        const cloudCount = isDenseDeck 
-          ? Math.ceil(perceivedDensity / 16)
-          : (isOvercast ? Math.ceil(perceivedDensity / 22) : Math.ceil(perceivedDensity / 10));
-        
-        for (let s = 0; s < cloudCount; s++) {
-          const seed = type.charCodeAt(0) * 100 + i * 37 + s * 17;
-          
-          // Spread clouds dynamically around the sampling area to avoid artificial bands
+        // 층상 장막 구름(Strata Layer) 여부 판정
+        const isStrata = 
+          preset.name === 'Nimbostratus' || 
+          preset.name === 'Stratus' || 
+          preset.name === 'Altostratus' || 
+          preset.name === 'Cirrostratus';
+
+        if (isStrata) {
+          // 층상운은 개별 조각 구름 루프를 돌지 않고, 해당 위상(거리/층)마다 1개의 넓은 레이어만 생성
+          const seed = type.charCodeAt(0) * 100 + i * 37;
           let d = baseDist;
-          if (baseDist === 0) {
-            d = 4 + ((seed * 13) % 25); // 4 to 29 km
-          } else if (baseDist <= 80) {
-            d = 45 + ((seed * 19) % 55); // 45 to 100 km
-          } else if (baseDist <= 200) {
-            d = 130 + ((seed * 29) % 100); // 130 to 230 km
-          } else {
-            d = 270 + ((seed * 41) % 130); // 270 to 400 km
+          const isLocal = d === 0;
+          if (isLocal) {
+            d = 12; // 로컬 안개/비구름의 가상 기준 거리 (km)
           }
 
-          // Earth curvature elevation angle calculation
           const phi = d / R_E;
           const Vx = (R_E + H_c) * Math.sin(phi);
           const Vy = (R_E + H_c) * Math.cos(phi) - (R_E + h_v);
-          
-          const S = Math.sqrt(Vx * Vx + Vy * Vy); // line of sight distance (km)
+          const S = Math.sqrt(Vx * Vx + Vy * Vy);
           const alpha = Math.atan2(Vy, Vx);
           const elevationDeg = alpha * (180 / Math.PI);
           let apparentElevationDeg = getApparentAltitude(elevationDeg);
 
-          // 먼 거리 구름 (d > 80km)에 대한 수평선 리프트 및 압축 효과 적용
-          if (d > 80) {
-            const minHeightOffset = type === 'high' ? 1.0 : type === 'mid' ? 0.5 : 0.25;
-            const targetLift = minHeightOffset + 1.2 * Math.exp(apparentElevationDeg);
-            apparentElevationDeg = Math.max(apparentElevationDeg, targetLift);
+          if (isLocal || apparentElevationDeg >= -horizonDipDeg - 0.2) {
+            const effElevationDeg = isLocal ? (visualFov / 2 + 10) : apparentElevationDeg;
+            
+            let baseHeight = 35;
+            if (preset.name === 'Stratus') baseHeight = 45;
+            else if (preset.name === 'Nimbostratus') baseHeight = 220;
+            else if (preset.name === 'Altostratus') baseHeight = 70;
+            else if (preset.name === 'Cirrostratus') baseHeight = 40;
+
+            const baseColorStr = preset.name === 'Nimbostratus'
+              ? 'rgba(65, 70, 80, 0.95)'
+              : preset.name === 'Stratus'
+              ? 'rgba(215, 222, 228, 0.45)'
+              : preset.name === 'Altostratus'
+              ? 'rgba(145, 140, 160, 0.6)'
+              : 'rgba(225, 210, 225, 0.25)';
+
+            results.push({
+              id: `${type}-${i}-strata`,
+              type,
+              S: isLocal ? 0.1 : S,
+              apparentElevationDeg: effElevationDeg,
+              azimuthOffset: 0,
+              baseWidth: VISUALIZER_WIDTH * 2.2,
+              baseHeight,
+              baseColorStr,
+              seed,
+              opacityDensity: perceivedDensity,
+              d,
+              pathStr: '',
+              preset,
+              isDeck,
+              cloudCategory: isLocal ? 'near' : (d > 200 ? 'far' : 'mid'),
+              weatherMode: {
+                isStormSystem: status.isStormSystem,
+                isStratusDeck: status.isStratusDeck,
+                isCirrostratusVeil: status.isCirrostratusVeil,
+                isCirrusStreamer: status.isCirrusStreamer,
+                isScatteredCumulus: status.isScatteredCumulus,
+              },
+              isStrata: true,
+              isLocal,
+            });
           }
-
-          // Skip if below horizon dip
-          if (apparentElevationDeg < -horizonDipDeg - 0.2) continue;
-
-          // Resolve papercraft template based on distance categories
-          let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
-          if (d <= 80) cloudCategory = 'near';
-          else if (d > 200) cloudCategory = 'far';
-
-          const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
-          const templateIndex = seed % templates.length;
-          const pathStr = templates[templateIndex];
-
-          // 구름 종류 및 공간 모드별 렌더링 규격(Aspect Ratio) 설정
-          let baseWidth = 150;
-          let baseHeight = 35;
+        } else {
+          // 조각 구름들 (Cumulus, Altocumulus, Cumulonimbus 등)
+          const isDenseDeck = status.isStormSystem || status.isStratusDeck;
+          const cloudCount = isDenseDeck 
+            ? Math.ceil(perceivedDensity / 16)
+            : (isOvercast ? Math.ceil(perceivedDensity / 22) : Math.ceil(perceivedDensity / 10));
           
-          if (status.isStratusDeck && type === 'low') {
-            // 안개는 가로로 매우 납작하고 넓음
-            baseWidth = 260;
-            baseHeight = 12;
-          } else if (status.isStormSystem && (type === 'low' || type === 'mid')) {
-            // 거대 비구름대 본체는 거대하고 우람함
-            baseWidth = 260;
-            baseHeight = 65;
-          } else if (preset.name === 'Cirrus' || preset.name === 'Stratus') {
-            baseWidth = 220;
-            baseHeight = 15;
-          } else if (preset.name === 'Cirrostratus' || preset.name === 'Altostratus' || preset.name === 'Nimbostratus') {
-            baseWidth = 240;
-            baseHeight = 24;
-          } else if (preset.name === 'Cumulonimbus') {
-            baseWidth = 160;
-            baseHeight = 100;
-          } else if (preset.name === 'Cumulus') {
-            baseWidth = 190;
-            baseHeight = 48;
-          } else {
-            baseWidth = 170;
-            baseHeight = 32;
-          }
-
-          // Base cloud color
-          const baseColorStr =
-            type === 'high'
-              ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
-              : type === 'mid'
-              ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.35)')
-              : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
-
-          results.push({
-            id: `${type}-${i}-${s}`,
-            type,
-            S, // distance for depth sorting
-            apparentElevationDeg,
-            azimuthOffset: c?.azimuthOffset ?? 0, // Fanning offset
-            baseWidth,
-            baseHeight,
-            baseColorStr,
-            seed,
-            opacityDensity: perceivedDensity,
-            d,
-            pathStr,
-            cloudCategory,
-            preset,
-            precipitation: interpolated.precipitation ?? 0,
-            liquidWater: interpolated.totalColumnWaterVapour ?? 0,
-            isDeck,
-            weatherMode: {
-              isStormSystem: status.isStormSystem,
-              isStratusDeck: status.isStratusDeck,
-              isCirrostratusVeil: status.isCirrostratusVeil,
-              isCirrusStreamer: status.isCirrusStreamer,
-              isScatteredCumulus: status.isScatteredCumulus,
+          for (let s = 0; s < cloudCount; s++) {
+            const seed = type.charCodeAt(0) * 100 + i * 37 + s * 17;
+            
+            let d = baseDist;
+            if (baseDist === 0) {
+              d = 4 + ((seed * 13) % 25);
+            } else if (baseDist <= 80) {
+              d = 45 + ((seed * 19) % 55);
+            } else if (baseDist <= 200) {
+              d = 130 + ((seed * 29) % 100);
+            } else {
+              d = 270 + ((seed * 41) % 130);
             }
-          });
+
+            const phi = d / R_E;
+            const Vx = (R_E + H_c) * Math.sin(phi);
+            const Vy = (R_E + H_c) * Math.cos(phi) - (R_E + h_v);
+            
+            const S = Math.sqrt(Vx * Vx + Vy * Vy);
+            const alpha = Math.atan2(Vy, Vx);
+            const elevationDeg = alpha * (180 / Math.PI);
+            let apparentElevationDeg = getApparentAltitude(elevationDeg);
+
+            if (d > 80) {
+              const minHeightOffset = type === 'high' ? 1.0 : type === 'mid' ? 0.5 : 0.25;
+              const targetLift = minHeightOffset + 1.2 * Math.exp(apparentElevationDeg);
+              apparentElevationDeg = Math.max(apparentElevationDeg, targetLift);
+            }
+
+            if (apparentElevationDeg < -horizonDipDeg - 0.2) continue;
+
+            let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
+            if (d <= 80) cloudCategory = 'near';
+            else if (d > 200) cloudCategory = 'far';
+
+            const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
+            const templateIndex = seed % templates.length;
+            const pathStr = templates[templateIndex];
+
+            let baseWidth = 150;
+            let baseHeight = 35;
+            
+            if (status.isStratusDeck && type === 'low') {
+              baseWidth = 260;
+              baseHeight = 12;
+            } else if (status.isStormSystem && (type === 'low' || type === 'mid')) {
+              baseWidth = 260;
+              baseHeight = 65;
+            } else if (preset.name === 'Cirrus') {
+              baseWidth = 220;
+              baseHeight = 15;
+            } else if (preset.name === 'Cirrocumulus') {
+              baseWidth = 180;
+              baseHeight = 25;
+            } else if (preset.name === 'Altocumulus') {
+              baseWidth = 170;
+              baseHeight = 30;
+            } else if (preset.name === 'Cumulonimbus') {
+              baseWidth = 160;
+              baseHeight = 100;
+            } else if (preset.name === 'Cumulus') {
+              baseWidth = 190;
+              baseHeight = 48;
+            } else {
+              baseWidth = 170;
+              baseHeight = 32;
+            }
+
+            const baseColorStr =
+              type === 'high'
+                ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
+                : type === 'mid'
+                ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.35)')
+                : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
+
+            results.push({
+              id: `${type}-${i}-${s}`,
+              type,
+              S,
+              apparentElevationDeg,
+              azimuthOffset: c?.azimuthOffset ?? 0,
+              baseWidth,
+              baseHeight,
+              baseColorStr,
+              seed,
+              opacityDensity: perceivedDensity,
+              d,
+              pathStr,
+              preset,
+              isDeck,
+              cloudCategory,
+              weatherMode: {
+                isStormSystem: status.isStormSystem,
+                isStratusDeck: status.isStratusDeck,
+                isCirrostratusVeil: status.isCirrostratusVeil,
+                isCirrusStreamer: status.isCirrusStreamer,
+                isScatteredCumulus: status.isScatteredCumulus,
+              },
+              isStrata: false,
+              isLocal: false,
+            });
+          }
         }
       });
     });
@@ -751,50 +814,84 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
     // ── Helper 1: Map allCloudLayersData (일반 3D 구름) ──────────────────────
     allCloudLayersData.forEach((item) => {
-      const spatialDx = (((item.seed * 73) % 120) - 60); // in km
-      const timeMs = currentTime.getTime();
-      const windSpeedKmh = 25; 
-      const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
-      const totalDx = spatialDx + (windDriftKm % 160 - 80);
+      const isStrata = item.isStrata;
       
-      const totalAzOffset = item.azimuthOffset + Math.atan2(totalDx, item.d) * (180 / Math.PI);
-      const cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
+      let x = VISUALIZER_WIDTH / 2;
+      let y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
+      let relativeAz = 0;
+      let cloudAzimuthAbs = sim?.azimuth || 0;
+      
+      if (!isStrata) {
+        const spatialDx = (((item.seed * 73) % 120) - 60); // in km
+        const timeMs = currentTime.getTime();
+        const windSpeedKmh = 25; 
+        const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
+        const totalDx = spatialDx + (windDriftKm % 160 - 80);
+        
+        const totalAzOffset = item.azimuthOffset + Math.atan2(totalDx, item.d) * (180 / Math.PI);
+        cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
 
-      const relativeAzDeg = cloudAzimuthAbs - heading;
-      const relativeAz = ((relativeAzDeg + 180) % 360) - 180;
-      
-      const fovRad = (visualFov * Math.PI) / 180;
-      const halfFovRad = fovRad / 2;
-      const xOffsetRatio = Math.tan((relativeAz * Math.PI) / 180) / Math.tan(halfFovRad);
-      const x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
-      const y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
+        const relativeAzDeg = cloudAzimuthAbs - heading;
+        relativeAz = ((relativeAzDeg + 180) % 360) - 180;
+        
+        const fovRad = (visualFov * Math.PI) / 180;
+        const halfFovRad = fovRad / 2;
+        const xOffsetRatio = Math.tan((relativeAz * Math.PI) / 180) / Math.tan(halfFovRad);
+        x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
+      } else {
+        if (item.isLocal) {
+          y = 0; // 로컬 안개/비구름은 머리 위를 다 덮음
+        } else {
+          // 먼 층상 구름은 지평선 위 고도각 높이까지만 올라오도록 배치
+          y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
+        }
+      }
 
       const perspectiveScale = 35 / item.S;
       const clampedScale = Math.max(0.075, Math.min(3.0, perspectiveScale));
       const foreshorteningFactor = 0.15 + (clampedScale / 3.0) * 0.85; 
 
-      // 공간 기상 모드에 따른 가로 신축 배율 결정
-      let horizontalStretch = 1.0;
-      if (item.weatherMode.isStormSystem) {
-        horizontalStretch = 4.8; // 먹구름 장막화
-      } else if (item.weatherMode.isStratusDeck) {
-        horizontalStretch = 4.2; // 바다안개 얇고 넓음
-      } else if (item.weatherMode.isCirrostratusVeil) {
-        horizontalStretch = 3.0; // 베일 구름 넓게 퍼짐
-      } else if (item.weatherMode.isScatteredCumulus) {
-        horizontalStretch = 1.1; // 적운은 조각조각
+      let finalScaleX = 1.0;
+      let finalScaleY = 1.0;
+      let renderWidth = item.baseWidth;
+      let renderHeight = item.baseHeight;
+
+      if (!isStrata) {
+        let horizontalStretch = 1.0;
+        if (item.weatherMode.isStormSystem) {
+          horizontalStretch = 4.8;
+        } else if (item.weatherMode.isStratusDeck) {
+          horizontalStretch = 4.2;
+        } else if (item.weatherMode.isCirrostratusVeil) {
+          horizontalStretch = 3.0;
+        } else if (item.weatherMode.isScatteredCumulus) {
+          horizontalStretch = 1.1;
+        } else {
+          horizontalStretch = item.isDeck 
+            ? 3.6 
+            : (item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0);
+        }
+
+        const densityStretch = item.weatherMode.isScatteredCumulus ? 1.0 : (1.0 + (item.opacityDensity / 120.0));
+        finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch;
+        finalScaleY = clampedScale * foreshorteningFactor * scaleZoom;
+        
+        renderWidth = item.baseWidth * finalScaleX;
+        renderHeight = item.baseHeight * finalScaleY;
       } else {
-        horizontalStretch = item.isDeck 
-          ? 3.6 
-          : (item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0);
+        renderWidth = VISUALIZER_WIDTH * 2.2;
+        
+        if (item.isLocal) {
+          renderHeight = SKY_HEIGHT;
+        } else {
+          const topY = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
+          const bottomY = horizonTop;
+          renderHeight = Math.max(2, bottomY - topY);
+        }
+        
+        const scaleY = Math.max(0.4, Math.min(1.6, perspectiveScale));
+        finalScaleY = scaleY * scaleZoom;
       }
-
-      const densityStretch = item.weatherMode.isScatteredCumulus ? 1.0 : (1.0 + (item.opacityDensity / 120.0));
-      const finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch;
-      const finalScaleY = clampedScale * foreshorteningFactor * scaleZoom;
-
-      const renderWidth = item.baseWidth * finalScaleX;
-      const renderHeight = item.baseHeight * finalScaleY;
 
       // Skip rendering if way off-screen horizontally
       if (x + renderWidth < -100 || x - renderWidth > VISUALIZER_WIDTH + 100) {
@@ -927,6 +1024,11 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       // 불투명 구름은 밀도가 존재하면 확실하게 불투명(Opaque)으로 고정
       if (isOpaqueCloud && item.opacityDensity >= 15) {
         cloudOpacity = 0.98;
+      }
+
+      // 안개(Stratus)는 반투명(transparent)하게 뒤가 보여야 함
+      if (preset.name === 'Stratus') {
+        cloudOpacity = Math.min(0.65, cloudOpacity);
       }
 
       cloudsList.push({
@@ -1485,8 +1587,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     }).filter(Boolean);
   }, [prediction, interpolatedWeather, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, VISUALIZER_WIDTH, heading, visualFov, currentTime, sim]);
 
-  const renderTerrain = () => {
+  const renderFarTerrain = () => {
     if (!sim?.terrain?.panoramicAngles) return null;
+    const farAngles = sim.terrain.farAngles || [];
+    if (farAngles.length <= 1) return null;
 
     const pointsCount = 150;
     const buffer = visualFov * 0.2;
@@ -1499,7 +1603,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const dynamicScale = Math.min(4.0, Math.max(0.6, baseScale));
     const horizonLineY = SKY_HEIGHT - HORIZON_Y;
 
-    // Helper: get terrain height angle at absolute azimuth
     const getAngle = (angles: number[], azDeg: number) => {
       if (angles.length < 2) return 0;
       const normalizedAz = ((azDeg % 360) + 360) % 360;
@@ -1510,7 +1613,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       return (angles[i1] || 0) * (1 - ratio) + (angles[i2] || 0) * ratio;
     };
 
-    // Build polygon points string for a given height fraction (0=ground, 1=full ridge)
     const getContourPoints = (angles: number[], verticalScale: number, yOffset: number, heightFraction: number) => {
       const pointsList: string[] = [];
       for (let i = 0; i <= pointsCount; i++) {
@@ -1526,7 +1628,77 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       return pointsList.join(' ') + ` ${lastX},${groundY} 0,${groundY}`;
     };
 
-    // Build polyline points string for the top silhouette ridge only
+    const CONTOUR_LEVELS = 5;
+    const layers = terrainColors.layers;
+    const contourLine = terrainColors.contourLine;
+
+    return (
+      <G key="far-mountain-group">
+        {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+          const frac = ((li + 1) / CONTOUR_LEVELS);
+          const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+          return (
+            <G key={`far-cl-${li}`}>
+              <Polygon
+                points={getContourPoints(farAngles, dynamicScale * 1.5, 0, frac)}
+                fill={layers[Math.min(li, layers.length - 1)]}
+                opacity={0.92}
+              />
+              {li < CONTOUR_LEVELS - 1 && (
+                <Polygon
+                  points={getContourPoints(farAngles, dynamicScale * 1.5, 0, ridgeFrac)}
+                  fill="none"
+                  stroke={contourLine}
+                  strokeWidth={0.6}
+                  opacity={0.55}
+                />
+              )}
+            </G>
+          );
+        })}
+      </G>
+    );
+  };
+
+  const renderForegroundTerrain = () => {
+    if (!sim?.terrain?.panoramicAngles) return null;
+
+    const pointsCount = 150;
+    const buffer = visualFov * 0.2;
+    const totalRenderFov = visualFov + buffer * 2;
+
+    const avgAngle = (sim.terrain.panoramicAngles.reduce((a: number, b: number) => a + b, 0) || 0) / (sim.terrain.panoramicAngles.length || 1);
+    const targetPeakHeight = SKY_HEIGHT * 0.08;
+    const REF_DEGREE_TO_PIXEL = VISUALIZER_WIDTH / 20;
+    const baseScale = targetPeakHeight / (Math.max(1, avgAngle) * REF_DEGREE_TO_PIXEL);
+    const dynamicScale = Math.min(4.0, Math.max(0.6, baseScale));
+    const horizonLineY = SKY_HEIGHT - HORIZON_Y;
+
+    const getAngle = (angles: number[], azDeg: number) => {
+      if (angles.length < 2) return 0;
+      const normalizedAz = ((azDeg % 360) + 360) % 360;
+      const index = (normalizedAz / 360) * (angles.length - 1);
+      const i1 = Math.floor(index);
+      const i2 = (i1 + 1) % angles.length;
+      const ratio = index - i1;
+      return (angles[i1] || 0) * (1 - ratio) + (angles[i2] || 0) * ratio;
+    };
+
+    const getContourPoints = (angles: number[], verticalScale: number, yOffset: number, heightFraction: number) => {
+      const pointsList: string[] = [];
+      for (let i = 0; i <= pointsCount; i++) {
+        const relativeDeg = -(totalRenderFov / 2) + (i * totalRenderFov / pointsCount);
+        const absDeg = heading + relativeDeg;
+        const angle = getAngle(angles, absDeg) * heightFraction;
+        const x = (relativeDeg / visualFov) * VISUALIZER_WIDTH + VISUALIZER_WIDTH / 2;
+        const y = horizonLineY - (angle * verticalScale * DEGREE_TO_PIXEL) + yOffset;
+        pointsList.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+      }
+      const lastX = VISUALIZER_WIDTH.toFixed(2);
+      const groundY = (horizonLineY + 2).toFixed(2);
+      return pointsList.join(' ') + ` ${lastX},${groundY} 0,${groundY}`;
+    };
+
     const getRidgeLinePoints = (angles: number[], verticalScale: number, yOffset: number) => {
       const pointsList: string[] = [];
       for (let i = 0; i <= pointsCount; i++) {
@@ -1540,19 +1712,16 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       return pointsList.join(' ');
     };
 
-    // ── Contour layer fractions ──────────────────────────────────
     const CONTOUR_LEVELS = 5;
     const layers = terrainColors.layers;
     const contourLine = terrainColors.contourLine;
-    const farAngles = sim.terrain.farAngles || [];
     const fgAngles = sim.terrain.panoramicAngles || [];
 
     return (
-      <G>
-        {/* Panoramic Ridge Highlight (glowing orange/gold rim on foreground ridge) */}
+      <G key="fg-mountain-group">
+        {/* Panoramic Ridge Highlight */}
         {sunAltitude >= -4.0 && sunAltitude <= 8.0 && (
           <G>
-            {/* Outer blur-like glow */}
             <Polyline
               points={getRidgeLinePoints(fgAngles, dynamicScale, -1.5)}
               fill="none"
@@ -1560,7 +1729,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               strokeWidth={4.5}
               opacity={Math.max(0, Math.min(1, sunAltitude >= 0 ? 1 - (sunAltitude / 8) : 1 - (sunAltitude / -4))) * 0.45}
             />
-            {/* Inner core */}
             <Polyline
               points={getRidgeLinePoints(fgAngles, dynamicScale, -1)}
               fill="none"
@@ -1571,59 +1739,29 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           </G>
         )}
 
-        {/* ── Far Mountain: topographic contour layers ─────────────────────── */}
-        {farAngles.length > 1 && (
-          <G>
-            {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
-              const frac = ((li + 1) / CONTOUR_LEVELS);
-              const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
-              return (
-                <G key={`far-cl-${li}`}>
-                  <Polygon
-                    points={getContourPoints(farAngles, dynamicScale * 1.5, 0, frac)}
-                    fill={layers[Math.min(li, layers.length - 1)]}
-                    opacity={0.92}
-                  />
-                  {li < CONTOUR_LEVELS - 1 && (
-                    <Polygon
-                      points={getContourPoints(farAngles, dynamicScale * 1.5, 0, ridgeFrac)}
-                      fill="none"
-                      stroke={contourLine}
-                      strokeWidth={0.6}
-                      opacity={0.55}
-                    />
-                  )}
-                </G>
-              );
-            })}
-          </G>
-        )}
-
-        {/* ── Foreground Mountain: topographic contour layers ──────────────── */}
-        <G>
-          {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
-            const frac = ((li + 1) / CONTOUR_LEVELS);
-            const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
-            return (
-              <G key={`fg-cl-${li}`}>
+        {/* Foreground Mountain layers */}
+        {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+          const frac = ((li + 1) / CONTOUR_LEVELS);
+          const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+          return (
+            <G key={`fg-cl-${li}`}>
+              <Polygon
+                points={getContourPoints(fgAngles, dynamicScale, 0, frac)}
+                fill={layers[Math.min(li, layers.length - 1)]}
+                opacity={0.95}
+              />
+              {li < CONTOUR_LEVELS - 1 && (
                 <Polygon
-                  points={getContourPoints(fgAngles, dynamicScale, 0, frac)}
-                  fill={layers[Math.min(li, layers.length - 1)]}
-                  opacity={0.95}
+                  points={getContourPoints(fgAngles, dynamicScale, 0, ridgeFrac)}
+                  fill="none"
+                  stroke={contourLine}
+                  strokeWidth={0.75}
+                  opacity={0.65}
                 />
-                {li < CONTOUR_LEVELS - 1 && (
-                  <Polygon
-                    points={getContourPoints(fgAngles, dynamicScale, 0, ridgeFrac)}
-                    fill="none"
-                    stroke={contourLine}
-                    strokeWidth={0.75}
-                    opacity={0.65}
-                  />
-                )}
-              </G>
-            );
-          })}
-        </G>
+              )}
+            </G>
+          );
+        })}
       </G>
     );
   };
@@ -2001,25 +2139,82 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             );
           })}
 
-          {/* 4. Unified Depth-sorted Occluded Clouds */}
-          {unifiedClouds.clouds.map((cloud: any) => {
-            if (!cloud) return null;
-            const tx = cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2;
-            const ty = cloud.y;
-            const scaleStr = `scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`;
-            return (
-              <G key={cloud.id} opacity={cloud.cloudOpacity}>
-                <Path
-                  d={cloud.pathStr}
-                  fill={`url(#${cloud.gradId})`}
-                  transform={`translate(${tx}, ${ty}) ${scaleStr}`}
-                />
-              </G>
-            );
-          })}
+          {/* 4. Depth-sorted Clouds & Terrain (Z-Buffer) */}
+          {(() => {
+            const renderQueue: Array<{ S: number; key: string; element: React.ReactNode }> = [];
 
-          {/* 5. Panoramic Terrain (Rendered ON TOP of all celestial objects to naturally occlude them!) */}
-          {renderTerrain()}
+            // 1) Far Terrain (S = 40km)
+            const farTerrain = renderFarTerrain();
+            if (farTerrain) {
+              renderQueue.push({
+                S: 40,
+                key: 'far-terrain',
+                element: farTerrain,
+              });
+            }
+
+            // 2) Foreground Terrain (S = 8km)
+            const fgTerrain = renderForegroundTerrain();
+            if (fgTerrain) {
+              renderQueue.push({
+                S: 8,
+                key: 'fg-terrain',
+                element: fgTerrain,
+              });
+            }
+
+            // 3) Clouds
+            unifiedClouds.clouds.forEach((cloud: any) => {
+              if (!cloud) return;
+              const key = `cloud-${cloud.id}`;
+              let element: React.ReactNode = null;
+
+              if (cloud.isStrata) {
+                // 층상운은 가로폭이 넓은 면(Rect)으로 연출합니다.
+                const rx = -0.6 * VISUALIZER_WIDTH;
+                element = (
+                  <G opacity={cloud.cloudOpacity}>
+                    <Rect
+                      x={rx}
+                      y={cloud.y}
+                      width={cloud.renderWidth}
+                      height={cloud.renderHeight}
+                      fill={`url(#${cloud.gradId})`}
+                    />
+                  </G>
+                );
+              } else {
+                // 일반 구름은 기존 방식대로 Path로 렌더링합니다.
+                const tx = cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2;
+                const ty = cloud.y;
+                const scaleStr = `scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`;
+                element = (
+                  <G opacity={cloud.cloudOpacity}>
+                    <Path
+                      d={cloud.pathStr}
+                      fill={`url(#${cloud.gradId})`}
+                      transform={`translate(${tx}, ${ty}) ${scaleStr}`}
+                    />
+                  </G>
+                );
+              }
+
+              renderQueue.push({
+                S: cloud.S,
+                key,
+                element,
+              });
+            });
+
+            // Painter's Algorithm: 먼 것부터 렌더링 (거리 내림차순 정렬)
+            renderQueue.sort((a, b) => b.S - a.S);
+
+            return renderQueue.map((item) => (
+              <G key={item.key}>
+                {item.element}
+              </G>
+            ));
+          })()}
         </Svg>
         {renderOverlayAzimuthScale()}
         {renderOverlayFovScale()}
