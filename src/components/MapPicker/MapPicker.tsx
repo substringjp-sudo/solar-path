@@ -177,6 +177,7 @@ export const MapPicker = ({
       <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@latest/dist/Leaflet.GoogleMutant.js"></script>
       ` : ''}
       <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+      <script src="https://cdn.jsdelivr.net/gh/dj0001/Leaflet.timezones@master/L.timezones.js"></script>
       <style>
         body, html, #map { height: 100%; margin: 0; padding: 0; background: ${mapBg}; }
         .crosshair {
@@ -271,6 +272,41 @@ export const MapPicker = ({
         
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
+
+        let isTimezoneLayerAdded = false;
+
+        function updateTimezoneLayer(show) {
+          if (!L.timezones) return;
+          
+          if (show) {
+            if (!isTimezoneLayerAdded) {
+              L.timezones.setStyle({
+                fillColor: '#FFD700',
+                fillOpacity: 0.04,
+                color: '#FFB300',
+                weight: 1.5,
+                opacity: 0.6
+              });
+              
+              L.timezones.bindPopup(function (layer) {
+                const props = layer.feature.properties;
+                return '<div style="color: #000; font-family: sans-serif; font-size: 11px; padding: 4px; line-height: 14px;">' +
+                       '<strong style="font-size: 13px; color: #E65100;">' + props.time_zone + '</strong><br/>' +
+                       '<span style="font-weight: bold; color: #333;">대표 지역:</span> ' + (props.tz_name1st || 'N/A') + '<br/>' +
+                       '<span style="color: #666;">적용 국가:</span> ' + (props.places || 'N/A') +
+                       '</div>';
+              });
+              
+              L.timezones.addTo(map);
+              isTimezoneLayerAdded = true;
+            }
+          } else {
+            if (isTimezoneLayerAdded) {
+              map.removeLayer(L.timezones);
+              isTimezoneLayerAdded = false;
+            }
+          }
+        }
 
         function redrawMapLayers() {
           redrawIsochrones();
@@ -553,6 +589,9 @@ export const MapPicker = ({
             currentSunriseIso = data.sunriseIso || [];
             currentSunsetIso = data.sunsetIso || [];
             
+            const timeFormat = data.timeFormat || 'local';
+            updateTimezoneLayer(timeFormat === 'utc');
+            
             redrawIsochrones();
           }
         };
@@ -590,7 +629,8 @@ export const MapPicker = ({
         showSunrise: showSunriseIso,
         showSunset: showSunsetIso,
         sunriseIso,
-        sunsetIso
+        sunsetIso,
+        timeFormat
       };
       
       if (iframeRef.current) {
