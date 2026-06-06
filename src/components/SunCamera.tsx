@@ -130,11 +130,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 센서 융합: Accelerometer + Magnetometer → Tilt-Compensated Compass ──
   const [deviceAzimuth, setDeviceAzimuth] = useState(0);
   const [devicePitch, setDevicePitch] = useState(0);
-  const [gyroCalibOffset, setGyroCalibOffset] = useState({ az: 0, pitch: 0 });
   const [hasInterference, setHasInterference] = useState(false);
 
   // 센서 실시간 Ref (리렌더 없이 최신값 유지)
-  const gyroCalibOffsetRef = useRef({ az: 0, pitch: 0 });
   const deviceAzimuthRef = useRef(0);
   const devicePitchRef = useRef(0);
 
@@ -312,15 +310,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       state.prevPitch += (pitchDeg - state.prevPitch) * alphaP;
       const filteredPitch = Math.max(-90, Math.min(90, state.prevPitch));
 
-      // 카메라 회전 시 태양 궤적이 카메라를 따라다니지 않고 제자리를 지키도록
-      // 계산된 방위각과 피치의 부호 및 방향을 기기 실제 물리 회전 방향과 일치하게 반전 보정합니다.
-      const correctedAz = (360 - filteredAz) % 360;
-      const correctedPitch = -filteredPitch;
-
-      deviceAzimuthRef.current = correctedAz;
-      devicePitchRef.current = correctedPitch;
-      setDeviceAzimuth(correctedAz);
-      setDevicePitch(correctedPitch);
+      // OS/One Euro Filter를 거친 보정 방위각/피치를 실제 물리 방향 그대로 적용합니다.
+      deviceAzimuthRef.current = filteredAz;
+      devicePitchRef.current = filteredPitch;
+      setDeviceAzimuth(filteredAz);
+      setDevicePitch(filteredPitch);
     }, INTERVAL_MS);
 
     return () => clearInterval(timer);
@@ -329,19 +323,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 센서 캘리브레이션 초기화
   const handleCalibrate = useCallback(() => {
     filterRef.current.initialized = false;
-    gyroCalibOffsetRef.current = { az: 0, pitch: 0 };
-    setGyroCalibOffset({ az: 0, pitch: 0 });
     Alert.alert('Calibrated', '센서 기준점이 초기화되었습니다. 기기를 수평으로 잠시 유지해주세요.');
   }, []);
 
-  // 수동 캘리브레이션 오프셋이 적용된 유효 방위각/고도각
+  // 오프셋 없이 물리 장치 방위각/고도각 그대로 사용
   const effectiveAz = useMemo(() => {
-    return (deviceAzimuth + gyroCalibOffset.az + 360) % 360;
-  }, [deviceAzimuth, gyroCalibOffset.az]);
+    return (deviceAzimuth + 360) % 360;
+  }, [deviceAzimuth]);
 
   const effectivePitch = useMemo(() => {
-    return Math.max(-90, Math.min(90, devicePitch + gyroCalibOffset.pitch));
-  }, [devicePitch, gyroCalibOffset.pitch]);
+    return Math.max(-90, Math.min(90, devicePitch));
+  }, [devicePitch]);
 
   // 태양의 화면 좌표 계산
   const sunScreenPos = useMemo((): ScreenPoint => {
@@ -917,50 +909,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </View>
             </View>
 
-            {/* 수동 미세 조정 패널 */}
-            <View style={styles.manualTuningPanel}>
-              <Text style={styles.tuningTitle}>AZ offset &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PITCH offset</Text>
-              <View style={{ flexDirection: 'row', gap: 16 }}>
-                <View style={styles.tuningButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.tuningBtn}
-                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az - 1 }))}
-                  >
-                    <Text style={styles.tuningBtnText}>-1°</Text>
-                  </TouchableOpacity>
-                  <View style={styles.tuningValueContainer}>
-                    <Text style={styles.tuningValueText}>
-                      {gyroCalibOffset.az > 0 ? `+${gyroCalibOffset.az}` : gyroCalibOffset.az}°
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.tuningBtn}
-                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az + 1 }))}
-                  >
-                    <Text style={styles.tuningBtnText}>+1°</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.tuningButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.tuningBtn}
-                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, pitch: prev.pitch - 1 }))}
-                  >
-                    <Text style={styles.tuningBtnText}>-1°</Text>
-                  </TouchableOpacity>
-                  <View style={styles.tuningValueContainer}>
-                    <Text style={styles.tuningValueText}>
-                      {gyroCalibOffset.pitch > 0 ? `+${gyroCalibOffset.pitch}` : gyroCalibOffset.pitch}°
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.tuningBtn}
-                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, pitch: prev.pitch + 1 }))}
-                  >
-                    <Text style={styles.tuningBtnText}>+1°</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
+
 
             {/* 하단 컨트롤 */}
             <View style={styles.bottomControls}>
