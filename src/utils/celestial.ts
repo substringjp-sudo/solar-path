@@ -102,7 +102,7 @@ export const getCelestialIsochrones = (
   date: Date,
   type: 'sunrise' | 'sunset',
   zoom: number,
-  timezoneOffsetMinutes: number = new Date().getTimezoneOffset()
+  isUtc: boolean = false
 ): IsochroneLine[] => {
   const interval = getIsochroneInterval(zoom);
   const lines: { [key: number]: IsochronePoint[] } = {};
@@ -113,25 +113,12 @@ export const getCelestialIsochrones = (
     lats.push(lat);
   }
 
-  // Target minutes within a day (0 to 1439), in steps of 'interval'
+  // Target minutes within a day (0 to 1439) in steps of 'interval'. 
+  // No 1-hour window filter; show full 24 hours.
   const targets: number[] = [];
-  
-  // Calculate local time (in minutes) corresponding to 'date' accounting for timezoneOffsetMinutes
-  const localTimeMs = date.getTime() - timezoneOffsetMinutes * 60 * 1000;
-  const localDate = new Date(localTimeMs);
-  const currentLocalMinutes = localDate.getUTCHours() * 60 + localDate.getUTCMinutes();
-
   for (let min = 0; min < 1440; min += interval) {
-    // Circular time difference
-    let diff = min - currentLocalMinutes;
-    if (diff > 720) diff -= 1440;
-    if (diff < -720) diff += 1440;
-    
-    // Only display isochrones within a ±1 hour (60 minutes) window of current local time
-    if (Math.abs(diff) <= 60) {
-      targets.push(min);
-      lines[min] = [];
-    }
+    targets.push(min);
+    lines[min] = [];
   }
 
   const baseDate = startOfDay(date);
@@ -155,24 +142,36 @@ export const getCelestialIsochrones = (
     const eventUtcMinutes = (eventDate.getTime() - eventUtcStartOfDay.getTime()) / 60000;
 
     for (const targetMin of targets) {
-      // We want the local time at the target longitude to be 'targetMin' minutes from the local start of day.
-      // Local Time = UTC Time + (Longitude / 15) hours = UTC Time - timezoneOffsetMinutes + (Longitude / 15) * 60 (approx)
-      // Actually, since SunCalc operates on UTC, the event occurs when:
-      // UTC_event(lng) = UTC_event(0) - lng * 4 minutes.
-      // So at longitude 'lng', the UTC time of the event is: UTC_time = eventUtcMinutes - lng * 4.
-      // We want this event to happen at local time representing 'targetMin' minutes of the day.
-      // Local_time = UTC_time - timezoneOffsetMinutes.
-      // Therefore, targetMin = (eventUtcMinutes - lng * 4) - timezoneOffsetMinutes
-      // Solving for lng:
-      // lng * 4 = eventUtcMinutes - timezoneOffsetMinutes - targetMin
-      // lng = (eventUtcMinutes - timezoneOffsetMinutes - targetMin) / 4
-      
-      let lng = (eventUtcMinutes - timezoneOffsetMinutes - targetMin) / 4;
-      
-      // Normalize longitude to [-180, 180]
-      lng = ((lng + 180) % 360 + 360) % 360 - 180;
-      
-      lines[targetMin].push({ latitude: lat, longitude: lng });
+      if (isUtc) {
+        // UTC mode: simple single-offset calculation (0 offset)
+        let lng = (eventUtcMinutes - targetMin) / 4;
+        lng = ((lng + 180) % 360 + 360) % 360 - 180;
+        lines[targetMin].push({ latitude: lat, longitude: lng });
+      } else {
+        // Local Time mode: Calculate for each timezone region (-12 to +12) separately
+        for (let h = -12; h <= 12; h++) {
+          const tzOffsetMinutes = -h * 60; // JavaScript style offset
+          let lng = (eventUtcMinutes - tzOffsetMinutes - targetMin) / 4;
+          let normalizedLng = ((lng + 180) % 360 + 360) % 360 - 180;
+          
+          // Boundaries of this timezone (each covers 15 degrees)
+          const minLngBound = (h - 0.5) * 15;
+          const maxLngBound = (h + 0.5) * 15;
+          
+          let inTimezone = false;
+          if (h === -12) {
+            inTimezone = (normalizedLng >= -180 && normalizedLng <= -172.5) || (normalizedLng >= 172.5 && normalizedLng <= 180);
+          } else if (h === 12) {
+            inTimezone = (normalizedLng >= 172.5 && normalizedLng <= 180) || (normalizedLng >= -180 && normalizedLng <= -172.5);
+          } else {
+            inTimezone = normalizedLng >= minLngBound && normalizedLng < maxLngBound;
+          }
+          
+          if (inTimezone) {
+            lines[targetMin].push({ latitude: lat, longitude: normalizedLng });
+          }
+        }
+      }
     }
   }
 
@@ -191,4 +190,5 @@ export const getCelestialIsochrones = (
     };
   }).filter(line => line.points.length > 1);
 };
+
 

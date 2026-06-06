@@ -609,10 +609,10 @@ export const MapPicker = ({
       if (!isMapReady) return;
 
       const date = currentTime || new Date();
-      const timezoneOffset = timeFormat === 'utc' ? 0 : date.getTimezoneOffset();
+      const isUtc = timeFormat === 'utc';
       
-      const sunriseIsoRaw = showSunriseIso ? getCelestialIsochrones(date, 'sunrise', mapZoom, timezoneOffset) : [];
-      const sunsetIsoRaw = showSunsetIso ? getCelestialIsochrones(date, 'sunset', mapZoom, timezoneOffset) : [];
+      const sunriseIsoRaw = showSunriseIso ? getCelestialIsochrones(date, 'sunrise', mapZoom, isUtc) : [];
+      const sunsetIsoRaw = showSunsetIso ? getCelestialIsochrones(date, 'sunset', mapZoom, isUtc) : [];
       
       // Map to plain [lat, lng] format compatible with Leaflet
       const sunriseIso = sunriseIsoRaw.map(line => ({
