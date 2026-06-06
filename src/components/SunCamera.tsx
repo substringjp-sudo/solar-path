@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal, Animated,
-  Dimensions, Platform, Alert, ActivityIndicator
+  Dimensions, Platform, Alert, ActivityIndicator, Image
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import { Accelerometer, Magnetometer } from 'expo-sensors';
 import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
-import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw } from 'lucide-react-native';
-import { Skia, rect } from '@shopify/react-native-skia';
+import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star } from 'lucide-react-native';
+import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
+import { generateSimulationImage } from '../utils/simulationImage';
 
 
 import {
@@ -53,14 +54,14 @@ const stampPhoto = async (
     const w = image.width();
     const h = image.height();
 
-    const surface = Skia.Surface.MakeRasterN32Premul(w, h);
+    const surface = Skia.Surface.Make(w, h);
     if (!surface) return uri;
 
     const canvas = surface.getCanvas();
     canvas.drawImage(image, 0, 0);
 
     const fontSize = Math.max(14, w * 0.016);
-    const fontMgr = Skia.FontMgr.RefDefault();
+    const fontMgr = Skia.FontMgr.System();
     const fontSystem = fontMgr.matchFamilyStyle('sans-serif', { weight: 700 });
     
     if (fontSystem) {
@@ -77,37 +78,37 @@ const stampPhoto = async (
 
       const paintBox = Skia.Paint();
       paintBox.setColor(Skia.Color('rgba(5, 5, 12, 0.65)'));
-      canvas.drawRoundRect(rect(boxX, boxY, boxW, boxH), 16, 16, paintBox);
+      canvas.drawRRect(Skia.RRectXY(rect(boxX, boxY, boxW, boxH), 16, 16), paintBox);
 
       const paintBorder = Skia.Paint();
-      paintBorder.setStyle(Skia.PaintStyle.Stroke);
+      paintBorder.setStyle(PaintStyle.Stroke);
       paintBorder.setStrokeWidth(2);
       paintBorder.setColor(Skia.Color('#FFD700'));
-      canvas.drawRoundRect(rect(boxX, boxY, boxW, boxH), 16, 16, paintBorder);
+      canvas.drawRRect(Skia.RRectXY(rect(boxX, boxY, boxW, boxH), 16, 16), paintBorder);
 
       let currY = boxY + fontSize * 1.8;
       const stepY = fontSize * 1.35;
 
       paintText.setColor(Skia.Color('#FFD700'));
-      canvas.drawText('SOLAR PATH HUD', boxX + 16, currY, fontHeader, paintText);
+      canvas.drawText('SOLAR PATH HUD', boxX + 16, currY, paintText, fontHeader);
 
       currY += stepY * 1.1;
       paintText.setColor(Skia.Color('#FFFFFF'));
-      canvas.drawText(`Location: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, font, paintText);
+      canvas.drawText(`Location: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
-      canvas.drawText(`Sun Alt: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, font, paintText);
+      canvas.drawText(`Sun Alt: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
-      canvas.drawText(`Humidity: ${humidity}%  |  PM2.5: ${pm25}㎍`, boxX + 16, currY, font, paintText);
+      canvas.drawText(`Humidity: ${humidity}%  |  PM2.5: ${pm25}㎍`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
       paintText.setColor(Skia.Color('#00FFCC'));
-      canvas.drawText(`Sky Condition: ${description}`, boxX + 16, currY, font, paintText);
+      canvas.drawText(`Sky Condition: ${description}`, boxX + 16, currY, paintText, font);
     }
 
     const snapshot = surface.makeImageSnapshot();
-    const base64Bytes = snapshot.encodeToBase64(Skia.ImageFormat.JPEG, 90);
+    const base64Bytes = snapshot.encodeToBase64(ImageFormat.JPEG, 90);
     return `data:image/jpeg;base64,${base64Bytes}`;
   } catch (err) {
     console.error('Failed to stamp photo with Skia:', err);
@@ -153,6 +154,21 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 상태
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureResult, setCaptureResult] = useState<string | null>(null);
+
+  // 촬영 후 미리보기 상태
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
+
+  // 점수 입력 상태
+  const [landscapeScore, setLandscapeScore] = useState<number>(5);
+  const [weatherScore, setWeatherScore] = useState<number>(5);
+
+  // 업로드 중 상태
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+
+  // 촬영 당시 메타데이터 상태
+  const [capturedWeatherInfo, setCapturedWeatherInfo] = useState<any>(null);
+  const [capturedSimSample, setCapturedSimSample] = useState<any>(null);
 
 
   // 현재 태양 위치
@@ -384,8 +400,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     return path.trim();
   }, [trajectoryScreenPoints, W, H]);
-
-  // 촬영
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || isCapturing) return;
 
@@ -408,6 +422,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       let humidity = 50;
       let pm25 = 22;
       let description = currentEnhancement.description || 'Clear';
+      let cloudRatio = 0.5;
 
       const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
         const R = 6371000;
@@ -440,6 +455,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         if (interpolated && interpolated.length > 0) {
           const obs = interpolated[0];
           humidity = obs.humidity != null ? Math.round(obs.humidity) : 50;
+          
+          const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
+          cloudRatio = maxCloud / 100;
           
           const prediction = predictSunset(
             nearestWeather.data,
@@ -489,57 +507,134 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 갤러리에 저장 및 EXIF 기록 시뮬레이션 로깅
       console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
 
-      // 1. 휴대폰 갤러리에 저장
-      let savedToLibrary = false;
-      if (mediaPermission?.granted) {
-        await MediaLibrary.saveToLibraryAsync(stampedUri);
-        savedToLibrary = true;
-      } else {
-        const { granted } = await requestMediaPermission();
-        if (granted) {
-          await MediaLibrary.saveToLibraryAsync(stampedUri);
-          savedToLibrary = true;
-        } else {
-          Alert.alert('Permission Required', 'Gallery permission is required to save photos.');
-          setIsCapturing(false);
-          return;
-        }
+      // 1. 백그라운드에서 시뮬레이션 예측 이미지 생성
+      let simUri = '';
+      try {
+        simUri = await generateSimulationImage(
+          sunPos.altitude,
+          cloudRatio
+        );
+      } catch (simErr) {
+        console.error('Failed to generate simulation image:', simErr);
       }
 
-      // 2. 서버 업로드 및 지도 데이터베이스 연동 (로그인된 경우)
-      const user = auth.currentUser;
-      if (user && savedToLibrary) {
-        try {
-          // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
-          const manipulated = await ImageManipulator.manipulateAsync(
-            stampedUri,
-            [{ resize: { width: 600 } }],
-            { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
-          );
+      // 2. 메타데이터 수집
+      const weatherInfo = {
+        humidity,
+        pm25,
+        description
+      };
 
-          const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
-          await uploadAndPostPhoto(manipulated.uri, latitude, longitude, locationName);
-        } catch (uploadError: any) {
-          console.error('[SunCamera] Failed to upload and post photo:', uploadError);
-          Alert.alert('Upload Failed', 'Photo was saved to your gallery, but failed to upload to the map: ' + (uploadError.message || 'Unknown error'));
-        }
-      } else if (!user) {
-        Alert.alert('Saved to Gallery', 'Photo saved to your phone gallery. Log in to share sunset photos on the map!');
-      }
+      const simulationSample = {
+        brightness: currentEnhancement.brightness,
+        contrast: currentEnhancement.contrast,
+        saturation: currentEnhancement.saturation,
+        warmth: currentEnhancement.warmth,
+        sunAltitude: sunPos.altitude,
+        sunAzimuth: sunPos.azimuth
+      };
 
-      setCaptureResult(stampedUri);
-      // 2초 후 결과 화면 닫기
-      setTimeout(() => {
-        setCaptureResult(null);
-        setIsCapturing(false);
-      }, 2000);
+      // 3. 임시 상태에 저장하여 프리뷰 화면 전환
+      setCapturedWeatherInfo(weatherInfo);
+      setCapturedSimSample(simulationSample);
+      setPreviewUri(stampedUri);
+      setSimPreviewUri(simUri);
+      
+      // 초기 점수 리셋
+      setLandscapeScore(5);
+      setWeatherScore(5);
+      
+      setIsCapturing(false);
 
     } catch (error) {
       console.warn('[SunCamera] Capture error:', error);
       Alert.alert('Error', 'An error occurred while taking photo.');
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, mediaPermission, requestMediaPermission, latitude, longitude, sunPos, uploadAndPostPhoto, weatherCacheList, currentTime]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime]);
+
+  // 업로드 및 공유 처리
+  const handleUpload = useCallback(async () => {
+    if (!previewUri || isUploading) return;
+    setIsUploading(true);
+
+    try {
+      // 1. 휴대폰 갤러리에 저장
+      let savedToLibrary = false;
+      if (mediaPermission?.granted) {
+        await MediaLibrary.saveToLibraryAsync(previewUri);
+        savedToLibrary = true;
+      } else {
+        const { granted } = await requestMediaPermission();
+        if (granted) {
+          await MediaLibrary.saveToLibraryAsync(previewUri);
+          savedToLibrary = true;
+        } else {
+          Alert.alert('Permission Required', 'Gallery permission is required to save photos.');
+          setIsUploading(false);
+          return;
+        }
+      }
+
+      // 2. 서버 업로드 및 지도 데이터베이스 연동
+      const user = auth.currentUser;
+      if (user && savedToLibrary) {
+        // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
+        const manipulated = await ImageManipulator.manipulateAsync(
+          previewUri,
+          [{ resize: { width: 600 } }],
+          { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
+        );
+
+        // 시뮬레이션 사진 압축
+        let manipulatedSimUri = undefined;
+        if (simPreviewUri) {
+          try {
+            const manipulatedSim = await ImageManipulator.manipulateAsync(
+              simPreviewUri,
+              [{ resize: { width: 400 } }],
+              { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
+            );
+            manipulatedSimUri = manipulatedSim.uri;
+          } catch (simCompressErr) {
+            console.warn('Failed to compress simulation image:', simCompressErr);
+            manipulatedSimUri = simPreviewUri;
+          }
+        }
+
+        const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
+        const uploadedLocationName = await uploadAndPostPhoto(
+          manipulated.uri,
+          latitude,
+          longitude,
+          locationName,
+          landscapeScore,
+          weatherScore,
+          capturedWeatherInfo,
+          capturedSimSample,
+          manipulatedSimUri
+        );
+        Alert.alert('Success', `${uploadedLocationName}의 사진과 날씨 정보가 성공적으로 업로드되었습니다!`);
+      } else if (!user) {
+        Alert.alert('Saved to Gallery', '사진이 갤러리에 저장되었습니다. 맵에 공유하려면 로그인해 주세요!');
+      }
+
+      // 성공 후 상태 초기화 및 닫기
+      setCaptureResult(previewUri);
+      setTimeout(() => {
+        setCaptureResult(null);
+        setPreviewUri(null);
+        setSimPreviewUri(null);
+        setIsUploading(false);
+        onClose(); // 업로드 완료 후 카메라 화면 닫기
+      }, 1500);
+
+    } catch (uploadError: any) {
+      console.error('[SunCamera] Upload failed:', uploadError);
+      Alert.alert('Upload Failed', '오류가 발생해 업로드에 실패했습니다: ' + (uploadError.message || 'Unknown error'));
+      setIsUploading(false);
+    }
+  }, [previewUri, simPreviewUri, landscapeScore, weatherScore, capturedWeatherInfo, capturedSimSample, mediaPermission, requestMediaPermission, latitude, longitude, uploadAndPostPhoto, onClose, isUploading]);
 
   // 권한 요청
   useEffect(() => {
@@ -579,256 +674,337 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
-        {/* 카메라 프리뷰 */}
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing={cameraFacing}
-        />
+        {previewUri ? (
+          // 촬영 후 미리보기 & 평가 입력 화면
+          <View style={styles.previewContainer}>
+            <Text style={styles.previewTitle}>노을 기록하기</Text>
+            
+            {/* 이미지 비교 영역 */}
+            <View style={styles.compareImagesRow}>
+              <View style={styles.compareImageWrapper}>
+                <Image source={{ uri: previewUri }} style={styles.compareImage} />
+                <Text style={styles.compareImageLabel}>실제 풍경 사진</Text>
+              </View>
+              {simPreviewUri ? (
+                <View style={styles.compareImageWrapper}>
+                  <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
+                  <Text style={styles.compareImageLabel}>시뮬레이션 예측</Text>
+                </View>
+              ) : null}
+            </View>
 
-        {/* AR 오버레이 */}
-        <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-          {/* 시네마틱 노을빛 감성 그라데이션 프리뷰 필터 */}
-          {currentEnhancement.warmth > 0 && (
-            <>
-              <Defs>
-                <LinearGradient id="sunsetGlow" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0%" stopColor="#FF8C00" stopOpacity={Math.min(0.12, currentEnhancement.warmth * 0.2)} />
-                  <Stop offset="50%" stopColor="#FF4500" stopOpacity={Math.min(0.18, currentEnhancement.warmth * 0.3)} />
-                  <Stop offset="100%" stopColor="#8A2BE2" stopOpacity={Math.min(0.08, currentEnhancement.warmth * 0.15)} />
-                </LinearGradient>
-              </Defs>
-              <Rect width={W} height={H} fill="url(#sunsetGlow)" />
-            </>
-          )}
+            {/* 별점 평가 카드 */}
+            <View style={styles.scoreCard}>
+              <View style={styles.scoreRow}>
+                <Text style={styles.scoreLabel}>풍경 점수</Text>
+                <View style={styles.starsContainer}>
+                  {[1, 2, 3, 4, 5].map((num) => (
+                    <TouchableOpacity key={num} onPress={() => setLandscapeScore(num)}>
+                      <Star
+                        size={28}
+                        color={num <= landscapeScore ? '#FFD700' : 'rgba(255,255,255,0.25)'}
+                        fill={num <= landscapeScore ? '#FFD700' : 'transparent'}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.scoreNumberText}>{landscapeScore} / 5</Text>
+              </View>
 
-          {/* 태양 궤적 선 */}
-          {trajectoryPathD.length > 0 && (
-            <Path
-              d={trajectoryPathD}
-              stroke="rgba(255,215,0,0.35)"
-              strokeWidth={2}
-              strokeDasharray="6,4"
-              fill="none"
+              <View style={styles.scoreRow}>
+                <Text style={styles.scoreLabel}>기상 점수</Text>
+                <View style={styles.starsContainer}>
+                  {[1, 2, 3, 4, 5].map((num) => (
+                    <TouchableOpacity key={num} onPress={() => setWeatherScore(num)}>
+                      <Sun
+                        size={28}
+                        color={num <= weatherScore ? '#FF7043' : 'rgba(255,255,255,0.25)'}
+                        fill={num <= weatherScore ? '#FF7043' : 'transparent'}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.scoreNumberText}>{weatherScore} / 5</Text>
+              </View>
+              
+              {capturedWeatherInfo && (
+                <View style={styles.weatherSummary}>
+                  <Text style={styles.weatherSummaryText}>
+                    습도 {capturedWeatherInfo.humidity}%  |  미세먼지 {capturedWeatherInfo.pm25}㎍  |  기상 {capturedWeatherInfo.description}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* 제어 버튼 영역 */}
+            <View style={styles.previewBtnRow}>
+              <TouchableOpacity 
+                style={styles.previewRetakeBtn} 
+                onPress={() => {
+                  setPreviewUri(null);
+                  setSimPreviewUri(null);
+                }}
+                disabled={isUploading}
+              >
+                <RefreshCw size={18} color="#FFF" style={{ marginRight: 8 }} />
+                <Text style={styles.previewRetakeText}>다시 찍기</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.previewUploadBtn} 
+                onPress={handleUpload}
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <>
+                    <Check size={18} color="#000" style={{ marginRight: 8 }} />
+                    <Text style={styles.previewUploadText}>저장 및 업로드</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          // 기존 카메라 뷰 및 AR 오버레이
+          <>
+            <CameraView
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              facing={cameraFacing}
             />
-          )}
 
-          {/* 시간 눈금 (1시간 간격) */}
-          {trajectoryScreenPoints
-            .filter((_, i) => i % 6 === 0) // 10분*6 = 1시간 간격
-            .filter(p => p.screen.isVisible)
-            .map((p, i) => {
-              const px = p.screen.x * W;
-              const py = p.screen.y * H;
-              const hour = p.time.getHours();
-              return (
-                <React.Fragment key={`tick-${i}`}>
-                  <Circle cx={px} cy={py} r={3} fill="rgba(255,215,0,0.5)" />
+            {/* AR 오버레이 */}
+            <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+              {currentEnhancement.warmth > 0 && (
+                <>
+                  <Defs>
+                    <LinearGradient id="sunsetGlow" x1="0" y1="0" x2="0" y2="1">
+                      <Stop offset="0%" stopColor="#FF8C00" stopOpacity={Math.min(0.12, currentEnhancement.warmth * 0.2)} />
+                      <Stop offset="50%" stopColor="#FF4500" stopOpacity={Math.min(0.18, currentEnhancement.warmth * 0.3)} />
+                      <Stop offset="100%" stopColor="#8A2BE2" stopOpacity={Math.min(0.08, currentEnhancement.warmth * 0.15)} />
+                    </LinearGradient>
+                  </Defs>
+                  <Rect width={W} height={H} fill="url(#sunsetGlow)" />
+                </>
+              )}
+
+              {trajectoryPathD.length > 0 && (
+                <Path
+                  d={trajectoryPathD}
+                  stroke="rgba(255,215,0,0.35)"
+                  strokeWidth={2}
+                  strokeDasharray="6,4"
+                  fill="none"
+                />
+              )}
+
+              {trajectoryScreenPoints
+                .filter((_, i) => i % 6 === 0)
+                .filter(p => p.screen.isVisible)
+                .map((p, i) => {
+                  const px = p.screen.x * W;
+                  const py = p.screen.y * H;
+                  const hour = p.time.getHours();
+                  return (
+                    <React.Fragment key={`tick-${i}`}>
+                      <Circle cx={px} cy={py} r={3} fill="rgba(255,215,0,0.5)" />
+                      <SvgText
+                        x={px}
+                        y={py - 10}
+                        fill="rgba(255,255,255,0.7)"
+                        fontSize={10}
+                        fontWeight="bold"
+                        textAnchor="middle"
+                      >
+                        {`${hour}:00`}
+                      </SvgText>
+                    </React.Fragment>
+                  );
+                })}
+
+              {(() => {
+                const horizonY = getSunScreenPosition(effectiveAz, effectivePitch, effectiveAz, 0, 60, 80).y * H;
+                if (horizonY > 0 && horizonY < H) {
+                  return (
+                    <Line
+                      x1={0} y1={horizonY} x2={W} y2={horizonY}
+                      stroke="rgba(255,255,255,0.15)"
+                      strokeWidth={1}
+                      strokeDasharray="10,5"
+                    />
+                  );
+                }
+                return null;
+              })()}
+
+              {sunScreenPos.isVisible && sunPos.altitude > -5 && (
+                <>
+                  <Circle
+                    cx={sunScreenPos.x * W}
+                    cy={sunScreenPos.y * H}
+                    r={30}
+                    fill="rgba(255,200,50,0.12)"
+                  />
+                  <Circle
+                    cx={sunScreenPos.x * W}
+                    cy={sunScreenPos.y * H}
+                    r={18}
+                    fill="rgba(255,215,0,0.2)"
+                  />
+                  <Circle
+                    cx={sunScreenPos.x * W}
+                    cy={sunScreenPos.y * H}
+                    r={8}
+                    fill="#FFD700"
+                    stroke="rgba(255,160,0,0.6)"
+                    strokeWidth={2}
+                  />
                   <SvgText
-                    x={px}
-                    y={py - 10}
-                    fill="rgba(255,255,255,0.7)"
-                    fontSize={10}
+                    x={sunScreenPos.x * W}
+                    y={sunScreenPos.y * H + 28}
+                    fill="#FFD700"
+                    fontSize={11}
                     fontWeight="bold"
                     textAnchor="middle"
                   >
-                    {`${hour}:00`}
+                    {`${sunPos.altitude.toFixed(1)}°`}
                   </SvgText>
-                </React.Fragment>
-              );
-            })}
+                </>
+              )}
+            </Svg>
 
-          {/* 수평선 가이드 */}
-          {(() => {
-            const horizonY = getSunScreenPosition(effectiveAz, effectivePitch, effectiveAz, 0, 60, 80).y * H;
-            if (horizonY > 0 && horizonY < H) {
-              return (
-                <Line
-                  x1={0} y1={horizonY} x2={W} y2={horizonY}
-                  stroke="rgba(255,255,255,0.15)"
-                  strokeWidth={1}
-                  strokeDasharray="10,5"
-                />
-              );
-            }
-            return null;
-          })()}
+            {hasInterference && (
+              <View style={styles.warningBanner}>
+                <Text style={styles.warningText}>
+                  ⚠️ Magnetic Interference! Move your phone in an "8" shape to calibrate.
+                </Text>
+              </View>
+            )}
 
-          {/* 현재 태양 위치 */}
-          {sunScreenPos.isVisible && sunPos.altitude > -5 && (
-            <>
-              {/* 태양 글로우 */}
-              <Circle
-                cx={sunScreenPos.x * W}
-                cy={sunScreenPos.y * H}
-                r={30}
-                fill="rgba(255,200,50,0.12)"
-              />
-              <Circle
-                cx={sunScreenPos.x * W}
-                cy={sunScreenPos.y * H}
-                r={18}
-                fill="rgba(255,215,0,0.2)"
-              />
-              {/* 태양 코어 */}
-              <Circle
-                cx={sunScreenPos.x * W}
-                cy={sunScreenPos.y * H}
-                r={8}
-                fill="#FFD700"
-                stroke="rgba(255,160,0,0.6)"
-                strokeWidth={2}
-              />
-              {/* 태양 고도 라벨 */}
-              <SvgText
-                x={sunScreenPos.x * W}
-                y={sunScreenPos.y * H + 28}
-                fill="#FFD700"
-                fontSize={11}
-                fontWeight="bold"
-                textAnchor="middle"
+            {/* 상단 HUD */}
+            <View style={styles.topHud}>
+              <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+                <X size={24} color="#FFF" />
+              </TouchableOpacity>
+
+              <View style={styles.eventBadge}>
+                <Sun size={14} color={eventColor} />
+                <Text style={[styles.eventText, { color: eventColor }]}>
+                  {eventLabel} {isBeforeEvent ? `${minutesBefore}m before` : `${minutesBefore}m after`}
+                </Text>
+              </View>
+
+              <View style={styles.compassBadge}>
+                <Text style={styles.compassText}>
+                  {Math.round(effectiveAz)}° | {Math.round(effectivePitch)}°↑
+                </Text>
+              </View>
+            </View>
+
+            {/* 보정 정보 패널 */}
+            <View style={styles.enhancementPanel}>
+              <View style={[styles.enhancementBadge, { borderColor: getSceneColor(currentEnhancement.sceneType) }]}>
+                <Aperture size={12} color={getSceneColor(currentEnhancement.sceneType)} />
+                <Text style={styles.enhancementText}>{currentEnhancement.description}</Text>
+              </View>
+              <View style={styles.enhancementDetails}>
+                <EnhancementIndicator label="Brightness" value={currentEnhancement.brightness} />
+                <EnhancementIndicator label="Contrast" value={currentEnhancement.contrast - 1} />
+                <EnhancementIndicator label="Saturation" value={currentEnhancement.saturation - 1} />
+                <EnhancementIndicator label="Warmth" value={currentEnhancement.warmth} />
+              </View>
+            </View>
+
+            {/* 수동 미세 조정 패널 */}
+            <View style={styles.manualTuningPanel}>
+              <Text style={styles.tuningTitle}>AZ offset &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PITCH offset</Text>
+              <View style={{ flexDirection: 'row', gap: 16 }}>
+                <View style={styles.tuningButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.tuningBtn}
+                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az - 1 }))}
+                  >
+                    <Text style={styles.tuningBtnText}>-1°</Text>
+                  </TouchableOpacity>
+                  <View style={styles.tuningValueContainer}>
+                    <Text style={styles.tuningValueText}>
+                      {gyroCalibOffset.az > 0 ? `+${gyroCalibOffset.az}` : gyroCalibOffset.az}°
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.tuningBtn}
+                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az + 1 }))}
+                  >
+                    <Text style={styles.tuningBtnText}>+1°</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.tuningButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.tuningBtn}
+                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, pitch: prev.pitch - 1 }))}
+                  >
+                    <Text style={styles.tuningBtnText}>-1°</Text>
+                  </TouchableOpacity>
+                  <View style={styles.tuningValueContainer}>
+                    <Text style={styles.tuningValueText}>
+                      {gyroCalibOffset.pitch > 0 ? `+${gyroCalibOffset.pitch}` : gyroCalibOffset.pitch}°
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.tuningBtn}
+                    onPress={() => setGyroCalibOffset(prev => ({ ...prev, pitch: prev.pitch + 1 }))}
+                  >
+                    <Text style={styles.tuningBtnText}>+1°</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* 하단 컨트롤 */}
+            <View style={styles.bottomControls}>
+              <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
+                <RotateCcw size={22} color="#FFF" />
+                <Text style={styles.sideBtnText}>Calibrate</Text>
+              </TouchableOpacity>
+
+              {(() => {
+                const isCaptureDisabled = isCapturing || (
+                  goldenTimeInfo.isActive && (!sunScreenPos.isVisible || sunPos.altitude <= -5)
+                );
+                return (
+                  <TouchableOpacity
+                    style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
+                    onPress={handleCapture}
+                    disabled={isCaptureDisabled}
+                    activeOpacity={0.7}
+                  >
+                    {isCapturing ? (
+                      <ActivityIndicator size="small" color="#000" />
+                    ) : (
+                      <View style={styles.captureBtnInner} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })()}
+
+              <TouchableOpacity 
+                style={styles.sideBtn} 
+                onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
               >
-                {`${sunPos.altitude.toFixed(1)}°`}
-              </SvgText>
-            </>
-          )}
-        </Svg>
-
-        {/* 지자기 이상 왜곡 경고 메시지 배너 */}
-        {hasInterference && (
-          <View style={styles.warningBanner}>
-            <Text style={styles.warningText}>
-              ⚠️ Magnetic Interference! Move your phone in an "8" shape to calibrate.
-            </Text>
-          </View>
+                <RefreshCw size={22} color="#FFF" />
+                <Text style={styles.sideBtnText}>Flip</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         )}
-
-        {/* 상단 HUD */}
-        <View style={styles.topHud}>
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <X size={24} color="#FFF" />
-          </TouchableOpacity>
-
-          <View style={styles.eventBadge}>
-            <Sun size={14} color={eventColor} />
-            <Text style={[styles.eventText, { color: eventColor }]}>
-              {eventLabel} {isBeforeEvent ? `${minutesBefore}m before` : `${minutesBefore}m after`}
-            </Text>
-          </View>
-
-          <View style={styles.compassBadge}>
-            <Text style={styles.compassText}>
-              {Math.round(effectiveAz)}° | {Math.round(effectivePitch)}°↑
-            </Text>
-          </View>
-        </View>
-
-        {/* 보정 정보 패널 */}
-        <View style={styles.enhancementPanel}>
-          <View style={[styles.enhancementBadge, { borderColor: getSceneColor(currentEnhancement.sceneType) }]}>
-            <Aperture size={12} color={getSceneColor(currentEnhancement.sceneType)} />
-            <Text style={styles.enhancementText}>{currentEnhancement.description}</Text>
-          </View>
-          <View style={styles.enhancementDetails}>
-            <EnhancementIndicator label="Brightness" value={currentEnhancement.brightness} />
-            <EnhancementIndicator label="Contrast" value={currentEnhancement.contrast - 1} />
-            <EnhancementIndicator label="Saturation" value={currentEnhancement.saturation - 1} />
-            <EnhancementIndicator label="Warmth" value={currentEnhancement.warmth} />
-          </View>
-        </View>
-
-        {/* 수동 미세 조정 패널 */}
-        <View style={styles.manualTuningPanel}>
-          <Text style={styles.tuningTitle}>AZ offset &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PITCH offset</Text>
-          <View style={{ flexDirection: 'row', gap: 16 }}>
-            {/* 방위각 조정 */}
-            <View style={styles.tuningButtonsRow}>
-              <TouchableOpacity
-                style={styles.tuningBtn}
-                onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az - 1 }))}
-              >
-                <Text style={styles.tuningBtnText}>-1°</Text>
-              </TouchableOpacity>
-              <View style={styles.tuningValueContainer}>
-                <Text style={styles.tuningValueText}>
-                  {gyroCalibOffset.az > 0 ? `+${gyroCalibOffset.az}` : gyroCalibOffset.az}°
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.tuningBtn}
-                onPress={() => setGyroCalibOffset(prev => ({ ...prev, az: prev.az + 1 }))}
-              >
-                <Text style={styles.tuningBtnText}>+1°</Text>
-              </TouchableOpacity>
-            </View>
-            {/* 피치 조정 */}
-            <View style={styles.tuningButtonsRow}>
-              <TouchableOpacity
-                style={styles.tuningBtn}
-                onPress={() => setGyroCalibOffset(prev => ({ ...prev, pitch: prev.pitch - 1 }))}
-              >
-                <Text style={styles.tuningBtnText}>-1°</Text>
-              </TouchableOpacity>
-              <View style={styles.tuningValueContainer}>
-                <Text style={styles.tuningValueText}>
-                  {gyroCalibOffset.pitch > 0 ? `+${gyroCalibOffset.pitch}` : gyroCalibOffset.pitch}°
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.tuningBtn}
-                onPress={() => setGyroCalibOffset(prev => ({ ...prev, pitch: prev.pitch + 1 }))}
-              >
-                <Text style={styles.tuningBtnText}>+1°</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* 하단 컨트롤 */}
-        <View style={styles.bottomControls}>
-          {/* 자이로 보정 버튼 */}
-          <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
-            <RotateCcw size={22} color="#FFF" />
-            <Text style={styles.sideBtnText}>Calibrate</Text>
-          </TouchableOpacity>
-
-          {/* 촬영 버튼 */}
-          {(() => {
-            const isCaptureDisabled = isCapturing || (
-              goldenTimeInfo.isActive && (!sunScreenPos.isVisible || sunPos.altitude <= -5)
-            );
-            return (
-              <TouchableOpacity
-                style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
-                onPress={handleCapture}
-                disabled={isCaptureDisabled}
-                activeOpacity={0.7}
-              >
-                {isCapturing ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <View style={styles.captureBtnInner} />
-                )}
-              </TouchableOpacity>
-            );
-          })()}
-
-          {/* 카메라 전후면 전환 버튼 */}
-          <TouchableOpacity 
-            style={styles.sideBtn} 
-            onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
-          >
-            <RefreshCw size={22} color="#FFF" />
-            <Text style={styles.sideBtnText}>Flip</Text>
-          </TouchableOpacity>
-        </View>
 
         {/* 촬영 성공 오버레이 */}
         {captureResult && (
           <View style={styles.captureOverlay}>
             <Check size={48} color="#4CAF50" />
-            <Text style={styles.captureSuccessText}>Saved!</Text>
-            <Text style={styles.captureSubText}>{currentEnhancement.description}</Text>
+            <Text style={styles.captureSuccessText}>업로드 성공!</Text>
           </View>
         )}
       </View>
@@ -1105,5 +1281,130 @@ const styles = StyleSheet.create({
     color: '#FFD700',
     fontSize: 13,
     fontWeight: '800',
+  },
+  previewContainer: {
+    flex: 1,
+    backgroundColor: '#0A0A0F',
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 20,
+    justifyContent: 'space-between',
+    paddingBottom: 40,
+  },
+  previewTitle: {
+    color: '#FFF',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 16,
+    letterSpacing: 0.5,
+  },
+  compareImagesRow: {
+    flexDirection: 'row',
+    gap: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  compareImageWrapper: {
+    flex: 1,
+    aspectRatio: 3 / 4,
+    borderRadius: 16,
+    backgroundColor: '#1E1E2A',
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  compareImage: {
+    flex: 1,
+    resizeMode: 'cover',
+  },
+  compareImageLabel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    paddingVertical: 6,
+  },
+  scoreCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    gap: 18,
+    marginVertical: 12,
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  scoreLabel: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '800',
+    minWidth: 70,
+  },
+  starsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scoreNumberText: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: '900',
+    minWidth: 40,
+    textAlign: 'right',
+  },
+  weatherSummary: {
+    marginTop: 6,
+    paddingTop: 12,
+    borderTopWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+  },
+  weatherSummaryText: {
+    color: '#AAA',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  previewBtnRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+  },
+  previewRetakeBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewRetakeText: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  previewUploadBtn: {
+    flex: 2,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#FFD700',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewUploadText: {
+    color: '#000',
+    fontSize: 15,
+    fontWeight: '900',
   },
 });

@@ -33,6 +33,11 @@ export interface MyPhoto {
   imageUrl: string;
   timestamp: number;
   locationName: string;
+  landscapeScore?: number;
+  weatherScore?: number;
+  weatherInfo?: any;
+  simulationSample?: any;
+  simulationImageUrl?: string;
 }
 
 export interface GlobalPhoto {
@@ -45,6 +50,12 @@ export interface GlobalPhoto {
   locationName: string;
   userId: string;
   userName: string;
+  landscapeScore?: number;
+  weatherScore?: number;
+  weatherInfo?: any;
+  simulationSample?: any;
+  simulationImageUrl?: string;
+  simulationStoragePath?: string;
 }
 
 export interface SavedLocation {
@@ -93,11 +104,31 @@ interface CelestialState {
   removeSavedLocation: (id: string) => Promise<void>;
   setCurrentUser: (user: User | null) => Promise<void>;
   syncSavedLocations: () => () => void;
-  addMyPhoto: (imageUrl: string, latitude: number, longitude: number, locationName: string) => Promise<void>;
+  addMyPhoto: (
+    imageUrl: string, 
+    latitude: number, 
+    longitude: number, 
+    locationName: string,
+    landscapeScore?: number,
+    weatherScore?: number,
+    weatherInfo?: any,
+    simulationSample?: any,
+    simulationImageUrl?: string
+  ) => Promise<void>;
   removeMyPhoto: (id: string) => Promise<void>;
   syncMyPhotos: () => () => void;
   
-  uploadAndPostPhoto: (localUri: string, latitude: number, longitude: number, locationName: string) => Promise<void>;
+  uploadAndPostPhoto: (
+    localUri: string, 
+    latitude: number, 
+    longitude: number, 
+    locationName: string,
+    landscapeScore?: number,
+    weatherScore?: number,
+    weatherInfo?: any,
+    simulationSample?: any,
+    simulationImageUri?: string
+  ) => Promise<string>;
   syncGlobalPhotos: () => () => void;
   removeGlobalPhoto: (id: string) => Promise<void>;
   checkPermissions: () => Promise<void>;
@@ -306,7 +337,17 @@ export const useCelestialStore = create<CelestialState>()(
         );
         return unsubscribe;
       },
-      addMyPhoto: async (imageUrl, latitude, longitude, locationName) => {
+      addMyPhoto: async (
+        imageUrl, 
+        latitude, 
+        longitude, 
+        locationName,
+        landscapeScore,
+        weatherScore,
+        weatherInfo,
+        simulationSample,
+        simulationImageUrl
+      ) => {
         const user = get().currentUser || auth.currentUser;
         const newPhoto: MyPhoto = {
           id: Date.now().toString(),
@@ -315,6 +356,11 @@ export const useCelestialStore = create<CelestialState>()(
           imageUrl,
           timestamp: Date.now(),
           locationName,
+          landscapeScore,
+          weatherScore,
+          weatherInfo,
+          simulationSample,
+          simulationImageUrl,
         };
 
         if (user) {
@@ -367,9 +413,62 @@ export const useCelestialStore = create<CelestialState>()(
         );
         return unsubscribe;
       },
-      uploadAndPostPhoto: async (localUri: string, latitude: number, longitude: number, locationName: string) => {
+      uploadAndPostPhoto: async (
+        localUri: string, 
+        latitude: number, 
+        longitude: number, 
+        locationName: string,
+        landscapeScore?: number,
+        weatherScore?: number,
+        weatherInfo?: any,
+        simulationSample?: any,
+        simulationImageUri?: string
+      ): Promise<string> => {
         const user = get().currentUser || auth.currentUser;
         if (!user) throw new Error('User must be logged in to upload photos');
+
+        // 구글 지오코드를 이용해 위경도 좌표에서 가장 간단한 단계의 행정구역 주소 획득
+        let simpleAddress = '';
+        const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+        if (apiKey) {
+          try {
+            const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}&language=ko`;
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.status === 'OK' && data.results && data.results.length > 0) {
+              const components = data.results[0].address_components;
+              let sublocality2 = '';
+              let sublocality1 = '';
+              let locality = '';
+              let adminArea1 = '';
+              for (const comp of components) {
+                const types = comp.types;
+                if (types.includes('sublocality_level_2')) {
+                  sublocality2 = comp.long_name;
+                } else if (types.includes('sublocality_level_1')) {
+                  sublocality1 = comp.long_name;
+                } else if (types.includes('locality')) {
+                  locality = comp.long_name;
+                } else if (types.includes('administrative_area_level_1')) {
+                  adminArea1 = comp.long_name;
+                }
+              }
+              if (sublocality2) {
+                simpleAddress = sublocality1 ? `${sublocality1} ${sublocality2}` : sublocality2;
+              } else if (sublocality1) {
+                simpleAddress = locality ? `${locality} ${sublocality1}` : sublocality1;
+              } else if (locality) {
+                simpleAddress = locality;
+              } else if (adminArea1) {
+                simpleAddress = adminArea1;
+              }
+            }
+          } catch (geoErr) {
+            console.warn('Geocoding failed, falling back to coordinates:', geoErr);
+          }
+        }
+
+        const finalLocationName = simpleAddress || locationName || `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
 
         const photoId = Date.now().toString();
         // File extension extraction
@@ -380,11 +479,27 @@ export const useCelestialStore = create<CelestialState>()(
         // Fetch image file to upload as blob
         const response = await fetch(localUri);
         const blob = await response.blob();
+        let imageUrl = '';
+
+        // Simulation image variables
+        let simulationImageUrl = '';
+        let simulationStoragePath = '';
+        let simBlob: any = null;
 
         try {
-          // Upload to Firebase Storage
+          // Upload actual photo to Firebase Storage
           await uploadBytes(storageRef, blob);
-          const imageUrl = await getDownloadURL(storageRef);
+          imageUrl = await getDownloadURL(storageRef);
+
+          // Upload simulation image if provided
+          if (simulationImageUri) {
+            simulationStoragePath = `photos/${user.uid}/${photoId}_sim.jpg`;
+            const simStorageRef = ref(storage, simulationStoragePath);
+            const simResponse = await fetch(simulationImageUri);
+            simBlob = await simResponse.blob();
+            await uploadBytes(simStorageRef, simBlob);
+            simulationImageUrl = await getDownloadURL(simStorageRef);
+          }
 
           // Save metadata to Firestore 'global_photos'
           const userName = user.email || user.displayName || 'Anonymous';
@@ -395,19 +510,42 @@ export const useCelestialStore = create<CelestialState>()(
             imageUrl,
             storagePath,
             timestamp: Date.now(),
-            locationName,
+            locationName: finalLocationName,
             userId: user.uid,
             userName,
+            landscapeScore,
+            weatherScore,
+            weatherInfo,
+            simulationSample,
+            simulationImageUrl,
+            simulationStoragePath,
           };
 
           const docRef = doc(db, 'global_photos', photoId);
           await setDoc(docRef, newPhoto);
+
+          // Add to local myPhotos as well
+          await get().addMyPhoto(
+            imageUrl,
+            latitude,
+            longitude,
+            finalLocationName,
+            landscapeScore,
+            weatherScore,
+            weatherInfo,
+            simulationSample,
+            simulationImageUrl
+          );
         } finally {
           // Prevent memory leaks / OOM by closing the blob if supported in RN
           if (blob && typeof (blob as any).close === 'function') {
             (blob as any).close();
           }
+          if (simBlob && typeof (simBlob as any).close === 'function') {
+            (simBlob as any).close();
+          }
         }
+        return finalLocationName;
       },
       syncGlobalPhotos: () => {
         const photosRef = collection(db, 'global_photos');
@@ -440,6 +578,16 @@ export const useCelestialStore = create<CelestialState>()(
           if (photo && photo.storagePath) {
             const fileRef = ref(storage, photo.storagePath);
             await deleteObject(fileRef);
+          }
+
+          // Delete simulation image if it exists
+          if (photo && photo.simulationStoragePath) {
+            try {
+              const simFileRef = ref(storage, photo.simulationStoragePath);
+              await deleteObject(simFileRef);
+            } catch (simDelErr) {
+              console.warn('Failed to delete simulation image from storage:', simDelErr);
+            }
           }
 
           // 2. Delete Firestore document after storage file is successfully deleted
