@@ -86,7 +86,6 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
       <Animated.View style={[
         styles.animatedContent, 
         { 
-          opacity: contentOpacity,
           transform: [{ translateX: contentTranslateX }]
         }
       ]}>
@@ -314,7 +313,7 @@ const styles = StyleSheet.create({
   },
   floatingMapBtn: {
     position: 'absolute',
-    top: -16,
+    top: 8,
     right: 16,
     width: 32,
     height: 32,

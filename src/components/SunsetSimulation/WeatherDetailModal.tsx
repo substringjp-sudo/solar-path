@@ -441,11 +441,19 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
               <Globe size={18} color={theme.accent} style={{ marginRight: 6 }} />
               <Text style={[styles.headerTitle, { color: theme.text }]}>기상 정밀 레이더 분석</Text>
               <TouchableOpacity 
-                style={{ marginLeft: 8, padding: 4 }} 
+                style={{
+                  marginLeft: 8,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: '#FFD700',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }} 
                 onPress={() => setShowInfoModal(true)}
                 activeOpacity={0.7}
               >
-                <Info size={15} color={theme.accent} />
+                <Info size={12} color="#000000" />
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={[styles.closeBtn, { backgroundColor: theme.border }]} onPress={onClose}>
@@ -670,7 +678,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
           {/* Footer Controls */}
           <View style={[styles.footer, { borderTopColor: theme.border }]}>
             <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: theme.accent }]} onPress={onClose}>
-              <Text style={styles.primaryBtnText}>분석 완료</Text>
+              <Text style={styles.primaryBtnText}>닫기</Text>
             </TouchableOpacity>
           </View>
 
@@ -715,7 +723,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 onPress={() => setGuideSubTab('encyclopedia')}
               >
                 <Text style={[styles.subTabText, { color: guideSubTab === 'encyclopedia' ? theme.text : theme.subText, fontWeight: guideSubTab === 'encyclopedia' ? '800' : '600' }]}>
-                  10종 구름 도감
+                  구름 가이드
                 </Text>
               </TouchableOpacity>
             </View>
@@ -806,7 +814,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 </>
               ) : (
                 <View style={styles.encyclopediaContainer}>
-                  <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>📖 기상학적 10종 운형 도감</Text>
+                  <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>📖 기상학적 구름 가이드</Text>
                   <Text style={[styles.infoText, { color: theme.subText, marginBottom: 16 }]}>
                     태양빛을 시뮬레이션할 때 사용되는 실제 구름 실루엣 및 속성 데이터입니다. 카드를 눌러 상세 원리와 노을 영향을 확인하세요.
                   </Text>
@@ -888,7 +896,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 style={[styles.infoPrimaryBtn, { backgroundColor: theme.text }]} 
                 onPress={() => setShowInfoModal(false)}
               >
-                <Text style={[styles.infoPrimaryBtnText, { color: theme.card }]}>가이드 완료</Text>
+                <Text style={[styles.infoPrimaryBtnText, { color: theme.card }]}>닫기</Text>
               </TouchableOpacity>
             </View>
           </View>

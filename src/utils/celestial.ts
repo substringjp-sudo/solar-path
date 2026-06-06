@@ -115,9 +115,23 @@ export const getCelestialIsochrones = (
 
   // Target minutes within a day (0 to 1439), in steps of 'interval'
   const targets: number[] = [];
+  
+  // Calculate local time (in minutes) corresponding to 'date' accounting for timezoneOffsetMinutes
+  const localTimeMs = date.getTime() - timezoneOffsetMinutes * 60 * 1000;
+  const localDate = new Date(localTimeMs);
+  const currentLocalMinutes = localDate.getUTCHours() * 60 + localDate.getUTCMinutes();
+
   for (let min = 0; min < 1440; min += interval) {
-    targets.push(min);
-    lines[min] = [];
+    // Circular time difference
+    let diff = min - currentLocalMinutes;
+    if (diff > 720) diff -= 1440;
+    if (diff < -720) diff += 1440;
+    
+    // Only display isochrones within a ±1 hour (60 minutes) window of current local time
+    if (Math.abs(diff) <= 60) {
+      targets.push(min);
+      lines[min] = [];
+    }
   }
 
   const baseDate = startOfDay(date);

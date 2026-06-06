@@ -120,8 +120,8 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   const onLayout = (event: any) => {
     const { width } = event.nativeEvent.layout;
     setLayoutWidth(width);
-    trackRef.current?.measure((x, y, w, h, px, py) => {
-      trackPos.current = { x: px, width: w };
+    trackRef.current?.measureInWindow((x, y, w, h) => {
+      trackPos.current = { x, width: w };
     });
   };
 

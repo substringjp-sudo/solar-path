@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { addMinutes } from 'date-fns';
 import { Clock, Zap } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -68,10 +67,10 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     if (isFullDay) {
       // Limit to 23:59 (1439 mins) so it doesn't spill over to next day
       const minutes = Math.min(1439, Math.floor(pct * 24 * 60));
-      return addMinutes(dayStart, minutes);
+      return new Date(dayStart.getTime() + minutes * 60 * 1000);
     } else {
       const ref = localBaseTime || new Date();
-      return addMinutes(ref, startOffset + pct * totalRange);
+      return new Date(ref.getTime() + (startOffset + pct * totalRange) * 60 * 1000);
     }
   };
 
@@ -183,7 +182,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         .sort((a, b) => a - b);
 
       validOffsets.forEach(off => {
-        const t = addMinutes(ref, off);
+        const t = new Date(ref.getTime() + off * 60 * 1000);
         const pct = ((off - startOffset) / totalRange) * 100;
         points.push({ pct, color: getPointColor(t) });
       });

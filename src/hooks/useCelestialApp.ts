@@ -330,20 +330,13 @@ export function useCelestialApp() {
     }
 
     contentTranslateX.setValue(startX);
-    contentOpacity.setValue(0);
+    contentOpacity.setValue(1);
 
-    Animated.parallel([
-      Animated.timing(contentOpacity, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: Platform.OS !== 'web',
-      }),
-      Animated.timing(contentTranslateX, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: Platform.OS !== 'web',
-      })
-    ]).start();
+    Animated.timing(contentTranslateX, {
+      toValue: 0,
+      duration: 400,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
   };
 
   const animateTimeTo = (targetDate: Date, duration: number = 600) => {
