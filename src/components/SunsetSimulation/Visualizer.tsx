@@ -1288,7 +1288,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           <View style={styles.fovTrackLine} />
           {fovTicks.map((val) => {
             const pct = ((val - 10) / 20) * 100;
-            const isBase = val === 20;
             return (
               <View 
                 key={val} 
@@ -1296,21 +1295,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({
                   styles.fovTickLine, 
                   { 
                     top: `${pct}%`, 
-                    width: isBase ? 8 : 5,
-                    backgroundColor: 'rgba(255,255,255,0.45)'
                   }
                 ]}
-              >
-                <Text style={styles.fovTickText}>
-                  {val}°
-                </Text>
-              </View>
+              />
             );
           })}
           
           <View style={[styles.fovPointer, { top: `${fovPct}%`, borderColor: theme.accent }]}>
             <View style={[styles.fovPointerDot, { backgroundColor: theme.accent }]} />
-            <View style={[styles.fovTooltip, { backgroundColor: 'rgba(5, 5, 10, 0.82)', borderColor: theme.accent }]}>
+            <View style={[styles.fovTooltip, { backgroundColor: 'rgba(5, 5, 10, 0.85)', borderColor: theme.accent }]}>
               <Text style={[styles.fovTooltipText, { color: '#ffffff' }]}>
                 {visualFov.toFixed(0)}°
               </Text>
@@ -1820,20 +1813,20 @@ const styles = StyleSheet.create({
   },
   overlayFovContainer: {
     position: 'absolute',
-    left: 8,
-    top: 8,
+    left: 12,
+    top: 12,
     bottom: 48,   // 나침반 높이(32) + 여유(16)
-    width: 44,
+    width: 28,
     zIndex: 120,
     alignItems: 'center',
-    borderRadius: 22,
+    borderRadius: 14,
     borderWidth: 1,
-    backgroundColor: 'rgba(5, 5, 10, 0.65)',
+    backgroundColor: 'rgba(5, 5, 10, 0.5)',
   },
   fovInnerWrapper: {
     flex: 1,
     width: '100%',
-    marginVertical: 16,
+    marginVertical: 14,
     position: 'relative',
     alignItems: 'center',
   },
@@ -1841,53 +1834,61 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    width: 2,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 1,
   },
   fovTickLine: {
     position: 'absolute',
-    left: 22,
+    left: 11, // (28 - 6) / 2 = 11
+    width: 6,
     height: 1,
-    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
   fovTickText: {
-    position: 'absolute',
-    left: 10,
-    fontSize: 7,
-    color: 'rgba(255,255,255,0.85)',
-    fontWeight: '800',
-    width: 25,
+    display: 'none',
   },
   fovPointer: {
     position: 'absolute',
-    left: 16,
-    width: 12,
-    height: 12,
-    marginTop: -6,
+    left: 3, // (28 - 20) / 2 = 4 (테두리 보정)
+    width: 20,
+    height: 20,
+    marginTop: -10,
     borderWidth: 1.5,
-    borderRadius: 6,
-    backgroundColor: '#050510',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   fovPointerDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   fovTooltip: {
     position: 'absolute',
-    left: 16,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-    borderWidth: 0.5,
-    width: 34,
+    left: 26, // pointer width 20 + 6px gap
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    minWidth: 32,
     alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   fovTooltipText: {
-    fontSize: 7,
-    fontWeight: '900',
+    fontSize: 9,
+    fontWeight: '800',
   },
   nextEventBadge: {
     position: 'absolute',
