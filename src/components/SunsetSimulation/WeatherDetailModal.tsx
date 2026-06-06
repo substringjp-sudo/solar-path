@@ -25,6 +25,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   const { timezoneOffsetHours } = useCelestialStore();
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
   const [activeAltitude, setActiveAltitude] = useState<'all' | 'low' | 'mid' | 'high'>('all');
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   const angles = [-20, -10, 0, 10, 20];
   const distances = [380, 280, 200, 130, 70, 30, 10]; // Top to bottom (Far to Near)
@@ -103,8 +104,9 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   }, [currentTime, timezoneOffsetHours]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
+    <>
+      <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
+        <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
           
           {/* Header */}
@@ -112,6 +114,13 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
             <View style={styles.headerTitleRow}>
               <Globe size={18} color={theme.accent} style={{ marginRight: 6 }} />
               <Text style={[styles.headerTitle, { color: theme.text }]}>기상 정밀 레이더 분석</Text>
+              <TouchableOpacity 
+                style={{ marginLeft: 8, padding: 4 }} 
+                onPress={() => setShowInfoModal(true)}
+                activeOpacity={0.7}
+              >
+                <Info size={15} color={theme.accent} />
+              </TouchableOpacity>
             </View>
             <TouchableOpacity style={[styles.closeBtn, { backgroundColor: theme.border }]} onPress={onClose}>
               <X size={16} color={theme.text} />
@@ -342,6 +351,119 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
         </View>
       </View>
     </Modal>
+
+      {/* Sunset & Cloud Science Info Modal */}
+      <Modal
+        visible={showInfoModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowInfoModal(false)}
+      >
+        <View style={styles.infoOverlay}>
+          <View style={[styles.infoModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.infoHeader, { borderBottomColor: theme.border }]}>
+              <View style={styles.infoHeaderTitleRow}>
+                <Info size={18} color={theme.accent} style={{ marginRight: 6 }} />
+                <Text style={[styles.infoHeaderTitle, { color: theme.text }]}>노을 & 구름 가이드</Text>
+              </View>
+              <TouchableOpacity 
+                style={[styles.infoCloseBtn, { backgroundColor: theme.border }]} 
+                onPress={() => setShowInfoModal(false)}
+              >
+                <X size={14} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.infoScrollBody} showsVerticalScrollIndicator={false}>
+              {/* 1. 구름 종류 가이드 */}
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>☁️ 구름의 종류와 노을의 상관관계</Text>
+                <Text style={[styles.infoText, { color: theme.text }]}>
+                  구름은 대기 중 떠 있는 고도에 따라 노을의 색과 형태를 크게 결정합니다.
+                </Text>
+                
+                <View style={styles.guideCard}>
+                  <View style={styles.guideItem}>
+                    <View style={[styles.guideColorIndicator, { backgroundColor: '#FF69B4' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.guideName, { color: theme.text }]}>고층운 (High Clouds · 6km 이상)</Text>
+                      <Text style={[styles.guideDesc, { color: theme.subText }]}>
+                        빙결정으로 이루어진 얇은 구름(권운 등)입니다. 지평선 아래로 해가 진 후에도 높은 고도 덕분에 오랜 시간 햇빛을 받아 붉은빛을 넓게 반사하고 증폭시킵니다.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.guideItem}>
+                    <View style={[styles.guideColorIndicator, { backgroundColor: '#9370DB' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.guideName, { color: theme.text }]}>중층운 (Mid Clouds · 2~6km)</Text>
+                      <Text style={[styles.guideDesc, { color: theme.subText }]}>
+                        고적운이나 고층운 등 물방울과 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.guideItem}>
+                    <View style={[styles.guideColorIndicator, { backgroundColor: '#4682B4' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.guideName, { color: theme.text }]}>저층운 (Low Clouds · 0~2km)</Text>
+                      <Text style={[styles.guideDesc, { color: theme.subText }]}>
+                        적운, 층운 등 두껍고 지표에 가까운 구름입니다. 밀도가 높아 태양광을 가리기 쉬우며, 지평선 근처에 저층운이 빽빽하게 낄 경우 노을빛을 통째로 흡수해 흐려지게 만듭니다.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* 2. 시뮬레이션 방법 */}
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🎮 시뮬레이션 활용 방법</Text>
+                
+                <View style={styles.instructionStep}>
+                  <Text style={[styles.stepNum, { color: theme.accent }]}>1</Text>
+                  <Text style={[styles.stepText, { color: theme.text }]}>
+                    <Text style={{ fontWeight: '800' }}>레이더 격자 맵 분석:</Text> 가로는 사용자가 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 셀이 3층으로 나뉘어 있어 어떤 구름이 껴 있는지 입체적으로 파악할 수 있습니다.
+                  </Text>
+                </View>
+                
+                <View style={styles.instructionStep}>
+                  <Text style={[styles.stepNum, { color: theme.accent }]}>2</Text>
+                  <Text style={[styles.stepText, { color: theme.text }]}>
+                    <Text style={{ fontWeight: '800' }}>타임슬라이더 컨트롤:</Text> 하단의 시간 바를 좌우로 드래그하면 시뮬레이션의 가상 시각을 조정할 수 있습니다. 일출/일몰 시간 전후의 태양 고도각 변화에 맞춰 대기 굴절률과 그림자 길이가 실시간으로 예측 계산됩니다.
+                  </Text>
+                </View>
+              </View>
+
+              {/* 3. 노을의 원리와 과학 */}
+              <View style={styles.infoSection}>
+                <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🔬 노을의 과학과 색의 변화</Text>
+                
+                <View style={[styles.scienceCard, { backgroundColor: theme.border }]}>
+                  <Text style={[styles.scienceTitle, { color: theme.text }]}>레일리 산란 (Rayleigh Scattering)</Text>
+                  <Text style={[styles.scienceText, { color: theme.subText }]}>
+                    태양이 지평선 가까이 내려가면, 햇빛이 통과해야 하는 지구 대기층의 경로가 낮 동안보다 최대 10배 이상 길어집니다. 이 과정에서 파장이 짧은 파란색과 보라색 계열의 빛은 모두 공기 분자에 의해 도중에 산란되어 사라지고, 산란이 적고 파장이 긴 붉은색과 주황색 계열의 빛만 관측자에게 도달해 하늘이 붉게 보이게 됩니다.
+                  </Text>
+                  
+                  <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 12 }]}>대기 물질(에어로졸)과 습도의 영향</Text>
+                  <Text style={[styles.scienceText, { color: theme.subText }]}>
+                     대기 중의 적절한 미세먼지(PM2.5)나 염분 결정 등의 에어로졸은 산란을 활성화해 노을빛을 더 진하고 화려하게 만듭니다. 하지만 대기 오염이 지나쳐 미세먼지가 너무 많거나 공기 중 습도가 80% 이상으로 지나치게 축축할 경우, 빛의 흡수가 과도해져 채도가 낮고 어두운 회색조 노을이 관찰됩니다.
+                  </Text>
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={[styles.infoFooter, { borderTopColor: theme.border }]}>
+              <TouchableOpacity 
+                style={[styles.infoPrimaryBtn, { backgroundColor: theme.text }]} 
+                onPress={() => setShowInfoModal(false)}
+              >
+                <Text style={[styles.infoPrimaryBtnText, { color: theme.card }]}>가이드 완료</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 };
 
@@ -646,5 +768,132 @@ const styles = StyleSheet.create({
   splitCellSegment: {
     flex: 1,
     width: '100%',
+  },
+  infoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(5, 5, 10, 0.82)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  infoModalCard: {
+    width: '100%',
+    height: '80%',
+    borderRadius: 28,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  infoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  infoHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  infoHeaderTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  infoCloseBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoScrollBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  infoSection: {
+    marginBottom: 24,
+  },
+  infoSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  infoText: {
+    fontSize: 11,
+    lineHeight: 16,
+    opacity: 0.85,
+  },
+  guideCard: {
+    marginTop: 10,
+    gap: 12,
+  },
+  guideItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  guideColorIndicator: {
+    width: 4,
+    height: '90%',
+    borderRadius: 2,
+    marginTop: 2,
+  },
+  guideName: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  guideDesc: {
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+    opacity: 0.8,
+  },
+  instructionStep: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 8,
+  },
+  stepNum: {
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 16,
+  },
+  stepText: {
+    fontSize: 11,
+    lineHeight: 16,
+    flex: 1,
+  },
+  scienceCard: {
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 6,
+  },
+  scienceTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  scienceText: {
+    fontSize: 10,
+    lineHeight: 14,
+    opacity: 0.85,
+  },
+  infoFooter: {
+    padding: 20,
+    borderTopWidth: 1,
+  },
+  infoPrimaryBtn: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoPrimaryBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
 });
