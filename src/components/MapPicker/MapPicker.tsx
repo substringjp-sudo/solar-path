@@ -838,52 +838,60 @@ export const MapPicker = ({
                 </TouchableOpacity>
               </View>
               
-              <View style={styles.inputRow}>
-                <View style={styles.coordBox}>
-                   <Text style={styles.coordLabel}>Latitude</Text>
-                   <TextInput
-                     style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
-                     value={latInput}
-                     onChangeText={setLatInput}
-                     keyboardType="numeric"
-                   />
+              {/* 콤팩트 위치 입력 & 장소 저장 통합 폼 */}
+              <View style={styles.compactSaveForm}>
+                <View style={styles.compactInputsContainer}>
+                  {/* 위도 & 경도 나란히 배치 */}
+                  <View style={styles.compactInputRow}>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1 }, dStyle.input]}
+                      value={latInput}
+                      onChangeText={setLatInput}
+                      placeholder="Latitude"
+                      placeholderTextColor={theme.subText}
+                      keyboardType="numeric"
+                    />
+                    <TextInput
+                      style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1, marginLeft: 8 }, dStyle.input]}
+                      value={lonInput}
+                      onChangeText={setLonInput}
+                      placeholder="Longitude"
+                      placeholderTextColor={theme.subText}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                  
+                  {/* 장소 이름 입력 필드 */}
+                  <TextInput
+                    style={[styles.nameInput, { color: theme.text, borderColor: theme.border, marginTop: 8 }, dStyle.input]}
+                    placeholder="Enter place name"
+                    placeholderTextColor={theme.subText}
+                    value={saveName}
+                    onChangeText={setSaveName}
+                  />
                 </View>
-                <View style={styles.coordBox}>
-                   <Text style={styles.coordLabel}>Longitude</Text>
-                   <TextInput
-                     style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
-                     value={lonInput}
-                     onChangeText={setLonInput}
-                     keyboardType="numeric"
-                   />
-                </View>
-              </View>
 
-              {/* 즐겨찾기 저장 폼 */}
-              <View style={[styles.saveRow, { borderColor: theme.border }]}>
-                <TextInput
-                  style={[styles.nameInput, { color: theme.text, borderColor: theme.border }, dStyle.input, { flex: 1 }]}
-                  placeholder="Enter place name"
-                  placeholderTextColor={theme.subText}
-                  value={saveName}
-                  onChangeText={setSaveName}
-                />
+                {/* 저장 버튼 (아이콘만 포함된 정사각형) */}
                 <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.accent }, dStyle.button, { height: isAndroid ? 48 : 44 }]}
+                  style={[
+                    styles.saveBtnCompact, 
+                    { backgroundColor: theme.accent }, 
+                    dStyle.button, 
+                    { width: isAndroid ? 48 : 44, height: isAndroid ? 48 : 44 }
+                  ]}
                   onPress={handleSaveLocation}
                 >
                   <Save size={16} color="#000" />
-                  <Text style={styles.saveBtnText}>Save</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             <TouchableOpacity 
               onPress={handleManualSelect}
-              style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 24 }, dStyle.button]}
+              style={[styles.confirmBtn, { backgroundColor: '#000000', marginTop: 24, marginBottom: 24, borderColor: theme.border, borderWidth: Platform.OS === 'ios' ? 1 : 0 }, dStyle.button]}
             >
-              <Navigation size={20} color="#000" />
-              <Text style={styles.confirmBtnText}>Select This Location</Text>
+              <Navigation size={20} color="#FFFFFF" />
+              <Text style={[styles.confirmBtnText, { color: '#FFFFFF' }]}>Select This Location</Text>
             </TouchableOpacity>
 
             {/* 저장된 즐겨찾기 목록 */}
@@ -1003,14 +1011,25 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' },
   currentLocLink: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.05)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
   currentLocLinkText: { fontSize: 11, fontWeight: '700' },
-  inputRow: { flexDirection: 'row', gap: 12 },
-  coordBox: { flex: 1, gap: 4 },
-  coordLabel: { fontSize: 10, fontWeight: '700', color: '#888', marginLeft: 4 },
   input: { height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 14, backgroundColor: 'rgba(0,0,0,0.2)' },
-  saveRow: { flexDirection: 'row', marginTop: 16, paddingTop: 16, borderTopWidth: 1, gap: 10, alignItems: 'center' },
   nameInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 14, backgroundColor: 'rgba(0,0,0,0.2)' },
-  saveBtn: { flexDirection: 'row', height: 44, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', gap: 8 },
-  saveBtnText: { fontWeight: '800', fontSize: 13, color: '#000' },
+  compactSaveForm: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    marginTop: 8,
+  },
+  compactInputsContainer: {
+    flex: 1,
+  },
+  compactInputRow: {
+    flexDirection: 'row',
+  },
+  saveBtnCompact: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
   savedSection: { marginTop: 24 },
   emptyState: { height: 100, borderRadius: 24, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
   savedList: { gap: 10 },
