@@ -270,8 +270,8 @@ export const MapPicker = ({
         }
 
         function prepareBBox() {
-          if (featuresWithBBox.length > 0 || !L.timezones || !L.timezones.geojsonFeature) return;
-          featuresWithBBox = L.timezones.geojsonFeature.features.map(f => {
+          if (featuresWithBBox.length > 0 || !L.Timezones || !L.Timezones.prototype.geojsonFeature) return;
+          featuresWithBBox = L.Timezones.prototype.geojsonFeature.features.map(f => {
             let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
             const processCoords = (coords) => {
               if (typeof coords[0] === 'number') {
@@ -340,7 +340,7 @@ export const MapPicker = ({
           const targets = [];
           for (let min = 0; min < 1440; min += interval) {
             targets.push(min);
-            lines[min] = [];
+            lines[min] = isUtc ? [] : {};
           }
           
           if (!window.SunCalc) return [];
@@ -377,22 +377,44 @@ export const MapPicker = ({
                   
                   const actualH = getTimezoneOffsetFromGeoJSON(lat, normalizedLng);
                   if (actualH === h) {
-                    lines[targetMin].push([lat, normalizedLng]);
+                    if (!lines[targetMin][h]) {
+                      lines[targetMin][h] = [];
+                    }
+                    lines[targetMin][h].push([lat, normalizedLng]);
                   }
                 }
               }
             }
           }
           
-          return targets.map(min => {
+          const result = [];
+          targets.forEach(min => {
             const hh = String(Math.floor(min / 60)).padStart(2, '0');
             const mm = String(min % 60).padStart(2, '0');
-            const points = lines[min].sort((a, b) => a[0] - b[0]);
-            return {
-              timeLabel: hh + ':' + mm,
-              points: points
-            };
-          }).filter(line => line.points.length > 1);
+            const label = hh + ':' + mm;
+            
+            if (isUtc) {
+              const points = lines[min].sort((a, b) => a[0] - b[0]);
+              if (points.length > 1) {
+                result.push({
+                  timeLabel: label,
+                  points: points
+                });
+              }
+            } else {
+              Object.keys(lines[min]).forEach(hStr => {
+                const points = lines[min][hStr].sort((a, b) => a[0] - b[0]);
+                if (points.length > 1) {
+                  result.push({
+                    timeLabel: label,
+                    points: points
+                  });
+                }
+              });
+            }
+          });
+          
+          return result;
         }
 
         const map = L.map('map', {
@@ -432,6 +454,7 @@ export const MapPicker = ({
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
 
+        let timezoneLayerInstance = null;
         let isTimezoneLayerAdded = false;
 
         function updateTimezoneLayer(show) {
@@ -439,29 +462,32 @@ export const MapPicker = ({
           
           if (show) {
             if (!isTimezoneLayerAdded) {
-              L.timezones.setStyle({
-                fillColor: '#FFD700',
-                fillOpacity: 0.04,
-                color: '#FFB300',
-                weight: 1.5,
-                opacity: 0.6
-              });
+              if (!timezoneLayerInstance) {
+                timezoneLayerInstance = L.timezones();
+                timezoneLayerInstance.setStyle({
+                  fillColor: '#FFD700',
+                  fillOpacity: 0.04,
+                  color: '#FFB300',
+                  weight: 1.5,
+                  opacity: 0.6
+                });
+                
+                timezoneLayerInstance.bindPopup(function (layer) {
+                  const props = layer.feature.properties;
+                  return '<div style="color: #000; font-family: sans-serif; font-size: 11px; padding: 4px; line-height: 14px;">' +
+                         '<strong style="font-size: 13px; color: #E65100;">' + props.time_zone + '</strong><br/>' +
+                         '<span style="font-weight: bold; color: #333;">대표 지역:</span> ' + (props.tz_name1st || 'N/A') + '<br/>' +
+                         '<span style="color: #666;">적용 국가:</span> ' + (props.places || 'N/A') +
+                         '</div>';
+                });
+              }
               
-              L.timezones.bindPopup(function (layer) {
-                const props = layer.feature.properties;
-                return '<div style="color: #000; font-family: sans-serif; font-size: 11px; padding: 4px; line-height: 14px;">' +
-                       '<strong style="font-size: 13px; color: #E65100;">' + props.time_zone + '</strong><br/>' +
-                       '<span style="font-weight: bold; color: #333;">대표 지역:</span> ' + (props.tz_name1st || 'N/A') + '<br/>' +
-                       '<span style="color: #666;">적용 국가:</span> ' + (props.places || 'N/A') +
-                       '</div>';
-              });
-              
-              L.timezones.addTo(map);
+              timezoneLayerInstance.addTo(map);
               isTimezoneLayerAdded = true;
             }
           } else {
-            if (isTimezoneLayerAdded) {
-              map.removeLayer(L.timezones);
+            if (isTimezoneLayerAdded && timezoneLayerInstance) {
+              map.removeLayer(timezoneLayerInstance);
               isTimezoneLayerAdded = false;
             }
           }
