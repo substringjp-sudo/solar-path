@@ -705,7 +705,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         rimHighlight = interpolateColors(
           finalHighlightRGB,
           { r: Math.round(cloudBeam.r * 255), g: Math.round(cloudBeam.g * 255), b: Math.round(cloudBeam.b * 255), a: 1 },
-          mieHighlight * 0.75
+          mieHighlight * 0.4
         );
       }
 
@@ -1697,7 +1697,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               rimHighlightRGB = interpolateColors(
                 highlightRGB,
                 { r: Math.round(cloudBeam.r * 255), g: Math.round(cloudBeam.g * 255), b: Math.round(cloudBeam.b * 255), a: 1 },
-                mieHighlight * 0.75
+                mieHighlight * 0.4
               );
             }
 
@@ -1711,12 +1711,17 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             const highlightColor = colorToString(rimHighlightRGB);
 
             const gradId = `gridGrad-${shape.id}`;
-            const sunScreenY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
-            const dx = (VISUALIZER_WIDTH / 2) - cx;
-            const dy = sunScreenY - cy;
-            const angleRad = Math.atan2(dy, dx);
-            const cosA = Math.cos(angleRad);
-            const sinA = Math.sin(angleRad);
+            
+            // 태양은 무한히 먼 거리의 평행 광원(Parallel Light)이므로 구름의 개별 좌표에 따라 
+            // 빛받는 방향이 좌우로 뒤집히지 않도록 통일된 평행 광선 벡터를 적용합니다.
+            const relativeSunAz = (((sim?.azimuth || 180) - heading + 180) % 360) - 180;
+            const lightDx = Math.sin((relativeSunAz * Math.PI) / 180);
+            const lightDy = -Math.sin(((sunAltitude - 15) * Math.PI) / 180);
+            
+            const lightLength = Math.sqrt(lightDx * lightDx + lightDy * lightDy);
+            const cosA = lightLength > 1e-5 ? lightDx / lightLength : 0;
+            const sinA = lightLength > 1e-5 ? lightDy / lightLength : -1.0;
+
             const x1 = `${(0.5 - cosA * 0.5) * 100}%`;
             const y1 = `${(0.5 - sinA * 0.5) * 100}%`;
             const x2 = `${(0.5 + cosA * 0.5) * 100}%`;
