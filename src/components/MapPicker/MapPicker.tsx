@@ -345,10 +345,6 @@ export const MapPicker = ({
 
         // Main rendering function that runs on update and move events
         function redrawIsochrones() {
-          if (mapMode !== 'location') {
-            isochroneLayer.clearLayers();
-            return;
-          }
           isochroneLayer.clearLayers();
           
           const center = map.getCenter();
