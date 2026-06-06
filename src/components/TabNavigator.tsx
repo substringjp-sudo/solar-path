@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform, Dimensions } from 'react-native';
 import { RotateCcw, Compass, Sun, Moon, Zap, Sunrise, Sunset, MapPin } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
@@ -81,147 +81,156 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   const currentTimeLocal = useMemo(() => {
     return getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
   }, [currentTime, timezoneOffsetHours]);
+  const { width } = Dimensions.get('window');
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { overflow: 'hidden' }]}>
       <Animated.View style={[
         styles.animatedContent, 
         { 
+          flexDirection: 'row',
+          width: width * 3,
           transform: [{ translateX: contentTranslateX }]
         }
       ]}>
-        {activeTab === 'tracker' ? (
-          <>
-            <View style={styles.chartContainer}>
-              <CelestialChart 
-                sunPos={sunPos} 
-                moonPos={moonPos} 
-                sunPath={sunPath} 
-                moonPath={moonPath}
-                isDay={isDay}
-                rotation={userRotation}
-                onRotationChange={setUserRotation}
-              />
-              
-              <View style={styles.trackerControls}>
-                <TouchableOpacity 
-                  onPress={resetRotation}
-                  style={[styles.trackerBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
-                >
-                  <RotateCcw size={16} color={theme.text} />
-                  <Text style={[styles.trackerBtnText, { color: theme.text }]}>RESET</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  onPress={() => setGyroEnabled(!isGyroEnabled)}
-                  style={[styles.trackerBtn, { backgroundColor: isGyroEnabled ? theme.accent : theme.glass, borderColor: isGyroEnabled ? theme.accent : theme.border }]}
-                >
-                  <Compass size={16} color={isGyroEnabled ? "#000" : theme.text} />
-                  <Text style={[styles.trackerBtnText, { color: isGyroEnabled ? "#000" : theme.text }]}>GYRO</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.infoSection}>
-              <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                <View style={styles.frameHeader}>
-                  <Sun size={12} color="#FFD700" />
-                  <Text style={[styles.frameLabel, { color: theme.subText }]}>SOLAR DATA</Text>
-                </View>
-                <View style={styles.grid}>
-                  <InfoCard 
-                    icon={<Zap size={14} color="#FFD700" />}
-                    label="Position"
-                    value={`${sunPos.altitude.toFixed(0)}°`}
-                    subValue={`${sunPos.azimuth.toFixed(0)}°`}
-                    theme={theme}
-                  />
-                  <InfoCard 
-                    icon={<Sunrise size={14} color="#FFA500" />}
-                    label="Sunrise"
-                    value={formatLocalTime(eventsLocal.sunrise, 'HH:mm')}
-                    subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? 'Today' : 'Tomorrow'}
-                    theme={theme}
-                  />
-                  <InfoCard 
-                    icon={<Sunset size={14} color="#FF4500" />}
-                    label="Sunset"
-                    value={formatLocalTime(eventsLocal.sunset, 'HH:mm')}
-                    subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? 'Today' : 'Tomorrow'}
-                    theme={theme}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                <View style={styles.frameHeader}>
-                  <Moon size={12} color={isDay ? "#666" : "#E0E0E0"} />
-                  <Text style={[styles.frameLabel, { color: theme.subText }]}>LUNAR DATA</Text>
-                </View>
-                <View style={styles.grid}>
-                  <InfoCard 
-                    icon={<Zap size={14} color="#888" />}
-                    label="Position"
-                    value={`${moonPos.altitude.toFixed(0)}°`}
-                    subValue={`${moonPos.azimuth.toFixed(0)}°`}
-                    theme={theme}
-                  />
-                  <InfoCard 
-                    icon={<Sunrise size={14} color="#888" />}
-                    label="Moonrise"
-                    value={eventsLocal.moonrise ? formatLocalTime(eventsLocal.moonrise, 'HH:mm') : '--:--'}
-                    subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
-                    theme={theme}
-                  />
-                  <InfoCard 
-                    icon={<Sunset size={14} color="#888" />}
-                    label="Moonset"
-                    value={eventsLocal.moonset ? formatLocalTime(eventsLocal.moonset, 'HH:mm') : '--:--'}
-                    subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
-                    theme={theme}
-                  />
-                </View>
-              </View>
-            </View>
-
-            <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
-              <TouchableOpacity
-                onPress={() => setMapVisible(true)}
-                style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
-                activeOpacity={0.7}
+        {/* Tracker Screen */}
+        <View style={{ width: width, flex: 1 }}>
+          <View style={styles.chartContainer}>
+            <CelestialChart 
+              sunPos={sunPos} 
+              moonPos={moonPos} 
+              sunPath={sunPath} 
+              moonPath={moonPath}
+              isDay={isDay}
+              rotation={userRotation}
+              onRotationChange={setUserRotation}
+            />
+            
+            <View style={styles.trackerControls}>
+              <TouchableOpacity 
+                onPress={resetRotation}
+                style={[styles.trackerBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
               >
-                <MapPin size={14} color="#000" />
+                <RotateCcw size={16} color={theme.text} />
+                <Text style={[styles.trackerBtnText, { color: theme.text }]}>RESET</Text>
               </TouchableOpacity>
-              <TimeSlider 
-                value={currentTime}
-                onChange={setCurrentTime}
-                isTimeMachineEnabled={isTimeMachineEnabled}
-                onToggleTimeMachine={setTimeMachineEnabled}
-                theme={theme}
-                isDay={isDay}
-                markers={[
-                  { time: events.sunrise, color: '#FFA500', type: 'rise' },
-                  { time: events.sunset, color: '#FF4500', type: 'set' },
-                  { time: events.moonrise, color: '#888', type: 'rise' },
-                  { time: events.moonset, color: '#888', type: 'set' },
-                ]}
-              />
+              
+              <TouchableOpacity 
+                onPress={() => setGyroEnabled(!isGyroEnabled)}
+                style={[styles.trackerBtn, { backgroundColor: isGyroEnabled ? theme.accent : theme.glass, borderColor: isGyroEnabled ? theme.accent : theme.border }]}
+              >
+                <Compass size={16} color={isGyroEnabled ? "#000" : theme.text} />
+                <Text style={[styles.trackerBtnText, { color: isGyroEnabled ? "#000" : theme.text }]}>GYRO</Text>
+              </TouchableOpacity>
             </View>
-          </>
-        ) : activeTab === 'sim' ? (
+          </View>
+
+          <View style={styles.infoSection}>
+            <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              <View style={styles.frameHeader}>
+                <Sun size={12} color="#FFD700" />
+                <Text style={[styles.frameLabel, { color: theme.subText }]}>SOLAR DATA</Text>
+              </View>
+              <View style={styles.grid}>
+                <InfoCard 
+                  icon={<Zap size={14} color="#FFD700" />}
+                  label="Position"
+                  value={`${sunPos.altitude.toFixed(0)}°`}
+                  subValue={`${sunPos.azimuth.toFixed(0)}°`}
+                  theme={theme}
+                />
+                <InfoCard 
+                  icon={<Sunrise size={14} color="#FFA500" />}
+                  label="Sunrise"
+                  value={formatLocalTime(eventsLocal.sunrise, 'HH:mm')}
+                  subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? 'Today' : 'Tomorrow'}
+                  theme={theme}
+                />
+                <InfoCard 
+                  icon={<Sunset size={14} color="#FF4500" />}
+                  label="Sunset"
+                  value={formatLocalTime(eventsLocal.sunset, 'HH:mm')}
+                  subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? 'Today' : 'Tomorrow'}
+                  theme={theme}
+                />
+              </View>
+            </View>
+
+            <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              <View style={styles.frameHeader}>
+                <Moon size={12} color={isDay ? "#666" : "#E0E0E0"} />
+                <Text style={[styles.frameLabel, { color: theme.subText }]}>LUNAR DATA</Text>
+              </View>
+              <View style={styles.grid}>
+                <InfoCard 
+                  icon={<Zap size={14} color="#888" />}
+                  label="Position"
+                  value={`${moonPos.altitude.toFixed(0)}°`}
+                  subValue={`${moonPos.azimuth.toFixed(0)}°`}
+                  theme={theme}
+                />
+                <InfoCard 
+                  icon={<Sunrise size={14} color="#888" />}
+                  label="Moonrise"
+                  value={eventsLocal.moonrise ? formatLocalTime(eventsLocal.moonrise, 'HH:mm') : '--:--'}
+                  subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
+                  theme={theme}
+                />
+                <InfoCard 
+                  icon={<Sunset size={14} color="#888" />}
+                  label="Moonset"
+                  value={eventsLocal.moonset ? formatLocalTime(eventsLocal.moonset, 'HH:mm') : '--:--'}
+                  subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
+                  theme={theme}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
+            <TouchableOpacity
+              onPress={() => setMapVisible(true)}
+              style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
+              activeOpacity={0.7}
+            >
+              <MapPin size={14} color="#000" />
+            </TouchableOpacity>
+            <TimeSlider 
+              value={currentTime}
+              onChange={setCurrentTime}
+              isTimeMachineEnabled={isTimeMachineEnabled}
+              onToggleTimeMachine={setTimeMachineEnabled}
+              theme={theme}
+              isDay={isDay}
+              markers={[
+                { time: events.sunrise, color: '#FFA500', type: 'rise' },
+                { time: events.sunset, color: '#FF4500', type: 'set' },
+                { time: events.moonrise, color: '#888', type: 'rise' },
+                { time: events.moonset, color: '#888', type: 'set' },
+              ]}
+            />
+          </View>
+        </View>
+
+        {/* Sim Screen */}
+        <View style={{ width: width, flex: 1 }}>
           <SunsetSimulation 
             theme={theme} 
             currentTime={currentTime}
             setCurrentTime={setCurrentTime}
             setMapVisible={setMapVisible}
           />
-        ) : (
+        </View>
+
+        {/* Gallery Screen */}
+        <View style={{ width: width, flex: 1 }}>
           <Gallery 
             theme={theme}
             dynamicTheme={dynamicTheme}
             globalPhotos={globalPhotos}
             removeGlobalPhoto={removeGlobalPhoto}
           />
-        )}
+        </View>
       </Animated.View>
     </View>
   );

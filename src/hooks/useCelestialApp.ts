@@ -292,21 +292,13 @@ export function useCelestialApp() {
     toTab?: 'tracker' | 'sim' | 'gallery'
   ) => {
     const screenWidth = Dimensions.get('window').width;
-    let startX = 0;
-
-    if (fromTab && toTab && fromTab !== toTab) {
-      const fromIdx = tabOrder.indexOf(fromTab);
-      const toIdx = tabOrder.indexOf(toTab);
-      // Slide from right if navigating forward, slide from left if navigating backward
-      startX = toIdx > fromIdx ? screenWidth * 0.35 : -screenWidth * 0.35;
-    }
-
-    contentTranslateX.setValue(startX);
-    contentOpacity.setValue(1);
+    if (!toTab) return;
+    const toIdx = tabOrder.indexOf(toTab);
+    const targetX = -toIdx * screenWidth;
 
     Animated.timing(contentTranslateX, {
-      toValue: 0,
-      duration: 400,
+      toValue: targetX,
+      duration: 350,
       useNativeDriver: Platform.OS !== 'web',
     }).start();
   };

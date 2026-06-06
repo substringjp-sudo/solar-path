@@ -59,7 +59,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
   const [sim, setSim] = useState<SimulationState | null>(null);
   const [loadingStatus, setLoadingStatus] = useState<string>('Preparing Simulation...');
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
   const [showSources, setShowSources] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const forceRefreshRef = useRef(false);
@@ -145,7 +145,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
     setSim(null);
     setLoadingStatus(isForceRefresh ? 'Forcing Weather & Terrain Update...' : 'Preparing Simulation...');
-    fadeAnim.setValue(0);
 
     const fetchSim = async () => {
       try {
@@ -250,7 +249,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             sunrise: (SunCalc.getPosition(sTimes.sunrise, latitude, longitude).azimuth * 180 / Math.PI) + 180,
             sunset: (SunCalc.getPosition(sTimes.sunset, latitude, longitude).azimuth * 180 / Math.PI) + 180
           });
-          Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
         } else {
           // 혹시라도 데이터가 없는 경우를 대비한 세이프 로딩 오프
           if (active) {
