@@ -32,6 +32,7 @@ export default function App() {
     isCameraWarningVisible,
     setCameraWarningVisible,
     contentOpacity,
+    contentTranslateX,
     currentTime,
     currentTimeLocal,
     timezoneLabel,
@@ -111,6 +112,7 @@ export default function App() {
         <TabNavigator
           activeTab={activeTab}
           contentOpacity={contentOpacity}
+          contentTranslateX={contentTranslateX}
           sunPos={sunPos}
           moonPos={moonPos}
           sunPath={sunPath}

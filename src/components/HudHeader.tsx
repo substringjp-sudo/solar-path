@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
 import { addDays, subDays } from 'date-fns';
 import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings } from 'lucide-react-native';
@@ -41,6 +41,21 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   const { currentTime, location, timezoneOffsetHours } = useCelestialStore();
   const isDay = activeTab === 'tracker' ? theme.bg === '#E8EDF2' : true; // 기본 낮 밤 계산 백업
   
+  const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const tabIndex = activeTab === 'tracker' ? 0 : activeTab === 'sim' ? 1 : 2;
+    // navToggle width = 258, padding = 3, inside content area width = 252.
+    // Each tab button is 84px wide.
+    const toValue = tabIndex * 84;
+    
+    Animated.timing(tabIndicatorAnim, {
+      toValue,
+      duration: 300,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  }, [activeTab]);
+  
   // 현지 기준의 오늘(Today) 가상 날짜
   const isTodayLocal = useMemo(() => {
     const todayLocal = getLocalTimeAtLocation(new Date(), timezoneOffsetHours);
@@ -54,21 +69,30 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <Animated.View style={[styles.navToggle, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
+          <Animated.View 
+            style={[
+              styles.navIndicator, 
+              { 
+                backgroundColor: theme.text,
+                transform: [{ translateX: tabIndicatorAnim }]
+              }
+            ]} 
+          />
           <TouchableOpacity 
             onPress={() => setActiveTab('tracker')}
-            style={[styles.navButton, activeTab === 'tracker' && { backgroundColor: theme.text }]}
+            style={styles.navButton}
           >
             <Animated.Text style={[styles.navText, { color: activeTab === 'tracker' ? theme.bg : dynamicTheme.subText }]}>Tracker</Animated.Text>
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={() => setActiveTab('sim')}
-            style={[styles.navButton, activeTab === 'sim' && { backgroundColor: theme.text }]}
+            style={styles.navButton}
           >
             <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>Simulation</Animated.Text>
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={() => setActiveTab('gallery')}
-            style={[styles.navButton, activeTab === 'gallery' && { backgroundColor: theme.text }]}
+            style={styles.navButton}
           >
             <Animated.Text style={[styles.navText, { color: activeTab === 'gallery' ? theme.bg : dynamicTheme.subText }]}>Gallery</Animated.Text>
           </TouchableOpacity>
@@ -174,11 +198,24 @@ const styles = StyleSheet.create({
     padding: 3,
     borderRadius: 20,
     borderWidth: Platform.OS === 'android' ? 0.5 : 1,
+    width: 258,
+    position: 'relative',
+  },
+  navIndicator: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    bottom: 3,
+    width: 84, // (258 - 6) / 3 = 84
+    borderRadius: 17,
   },
   navButton: {
+    flex: 1,
     paddingVertical: 5,
-    paddingHorizontal: 16,
-    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 17,
+    zIndex: 2,
   },
   navText: {
     fontSize: 11,

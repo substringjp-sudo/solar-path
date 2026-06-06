@@ -13,6 +13,7 @@ import { Gallery } from './Gallery';
 interface TabNavigatorProps {
   activeTab: 'tracker' | 'sim' | 'gallery';
   contentOpacity: Animated.Value;
+  contentTranslateX: Animated.Value;
   sunPos: any;
   moonPos: any;
   sunPath: any[];
@@ -44,6 +45,7 @@ const isSameDayUTC = (d1: Date, d2: Date) => {
 export const TabNavigator: React.FC<TabNavigatorProps> = ({
   activeTab,
   contentOpacity,
+  contentTranslateX,
   sunPos,
   moonPos,
   sunPath,
@@ -81,7 +83,13 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   }, [currentTime, timezoneOffsetHours]);
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.animatedContent, { opacity: contentOpacity }]}>
+      <Animated.View style={[
+        styles.animatedContent, 
+        { 
+          opacity: contentOpacity,
+          transform: [{ translateX: contentTranslateX }]
+        }
+      ]}>
         {activeTab === 'tracker' ? (
           <>
             <View style={styles.chartContainer}>

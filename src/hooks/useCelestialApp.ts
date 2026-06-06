@@ -81,7 +81,13 @@ export function useCelestialApp() {
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tracker' | 'sim' | 'gallery'>('tracker');
+  const [activeTab, setActiveTabState] = useState<'tracker' | 'sim' | 'gallery'>('tracker');
+  const setActiveTab = (tab: 'tracker' | 'sim' | 'gallery') => {
+    if (tab === activeTab) return;
+    const prev = activeTab;
+    setActiveTabState(tab);
+    animateContent(prev, tab);
+  };
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const [isCameraWarningVisible, setCameraWarningVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
@@ -306,13 +312,38 @@ export function useCelestialApp() {
     };
   }, [isGyroEnabled, setUserRotation, latitude, longitude]);
 
-  const animateContent = () => {
+  const contentTranslateX = useRef(new Animated.Value(0)).current;
+  const tabOrder: ('tracker' | 'sim' | 'gallery')[] = ['tracker', 'sim', 'gallery'];
+
+  const animateContent = (
+    fromTab?: 'tracker' | 'sim' | 'gallery',
+    toTab?: 'tracker' | 'sim' | 'gallery'
+  ) => {
+    const screenWidth = Dimensions.get('window').width;
+    let startX = 0;
+
+    if (fromTab && toTab && fromTab !== toTab) {
+      const fromIdx = tabOrder.indexOf(fromTab);
+      const toIdx = tabOrder.indexOf(toTab);
+      // Slide from right if navigating forward, slide from left if navigating backward
+      startX = toIdx > fromIdx ? screenWidth * 0.35 : -screenWidth * 0.35;
+    }
+
+    contentTranslateX.setValue(startX);
     contentOpacity.setValue(0);
-    Animated.timing(contentOpacity, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: Platform.OS !== 'web',
-    }).start();
+
+    Animated.parallel([
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      Animated.timing(contentTranslateX, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: Platform.OS !== 'web',
+      })
+    ]).start();
   };
 
   const animateTimeTo = (targetDate: Date, duration: number = 600) => {
@@ -587,6 +618,7 @@ export function useCelestialApp() {
     isCameraWarningVisible,
     setCameraWarningVisible,
     contentOpacity,
+    contentTranslateX,
     currentTime,
     currentTimeLocal,
     timezoneLabel,
