@@ -88,7 +88,7 @@ export interface CloudPathData {
 export const getLocalHighResModel = (lat: number, lon: number): string => {
   // 대한민국 영역 (위도 33~39, 경도 124~132)
   if (lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132) {
-    return 'kma_ldaps';
+    return 'best_match';
   }
   // 미국 영역 (위도 24~50, 경도 -125~-66)
   if (lat >= 24 && lat <= 50 && lon >= -125 && lon <= -66) {
