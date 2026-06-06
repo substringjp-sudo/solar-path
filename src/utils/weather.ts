@@ -6,6 +6,22 @@
 const EARTH_RADIUS_KM = 6371;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+};
+
 /**
  * Calculates the distance between two points in meters using the Haversine formula.
  */
@@ -157,7 +173,7 @@ export const fetchSunsetWeather = async (
         `&hourly=${hourlyVariables}` +
         `&timezone=auto${modelParam}`;
       
-      const response = await fetch(url);
+      const response = await fetchWithTimeout(url, {}, 5000);
       
       if (!response.ok) {
         throw new Error(`Chunk ${idx} failed with status: ${response.status}`);
@@ -379,7 +395,7 @@ export const fetchTerrainProfile = async (
       let retries = 0;
       while (retries < 3) {
         try {
-          const response = await fetch(url);
+          const response = await fetchWithTimeout(url, {}, 5000);
           
           if (response.status === 429) {
             const waitTime = 1000 * (retries + 1);
