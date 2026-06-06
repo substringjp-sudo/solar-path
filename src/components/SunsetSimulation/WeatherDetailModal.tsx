@@ -4,7 +4,7 @@ import {
   Dimensions, Platform, FlatList
 } from 'react-native';
 import { X, Cloud, Compass, Globe, Info } from 'lucide-react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Circle, Text as SvgText, G } from 'react-native-svg';
 import { CloudPathData, CloudData } from '../../utils/weather';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -167,6 +167,144 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
     }
   }
 ];
+
+const RadarGridInfoGraphic = ({ theme }: { theme: any }) => {
+  return (
+    <View style={[styles.artCard, { backgroundColor: 'rgba(5, 5, 10, 0.45)', borderColor: theme.border }]}>
+      <Svg width="180" height="110" viewBox="0 0 180 110">
+        {/* 부채꼴 빔 영역 배경 */}
+        <Path d="M 90,102 L 35,12 A 78,78 0 0,1 145,12 Z" fill="rgba(255, 255, 255, 0.015)" stroke="rgba(255, 255, 255, 0.08)" strokeWidth="1" />
+        
+        {/* 거리 동심원 반경 보조선 */}
+        <Path d="M 77,88.5 A 15,15 0 0,1 103,88.5" fill="none" stroke="rgba(255, 255, 255, 0.12)" strokeWidth="0.8" strokeDasharray="2,2" />
+        <Path d="M 60,71 A 38,38 0 0,1 120,71" fill="none" stroke="rgba(255, 255, 255, 0.12)" strokeWidth="0.8" strokeDasharray="2,2" />
+        <Path d="M 45,52 A 58,58 0 0,1 135,52" fill="none" stroke="rgba(255, 255, 255, 0.12)" strokeWidth="0.8" strokeDasharray="2,2" />
+        
+        {/* 각도 축선 (-10도, 0도, +10도) */}
+        <Path d="M 90,102 L 90,8" fill="none" stroke="rgba(255, 255, 255, 0.1)" strokeWidth="0.8" strokeDasharray="1,2" />
+        <Path d="M 90,102 L 62,17" fill="none" stroke="rgba(255, 255, 255, 0.06)" strokeWidth="0.6" strokeDasharray="1,2" />
+        <Path d="M 90,102 L 118,17" fill="none" stroke="rgba(255, 255, 255, 0.06)" strokeWidth="0.6" strokeDasharray="1,2" />
+        
+        {/* 거리 텍스트 라벨 */}
+        <SvgText x="92" y="90" fontSize="6" fill="rgba(255,255,255,0.4)" fontWeight="bold">10km</SvgText>
+        <SvgText x="92" y="73" fontSize="6" fill="rgba(255,255,255,0.4)" fontWeight="bold">130km</SvgText>
+        <SvgText x="92" y="54" fontSize="6" fill="rgba(255,255,255,0.4)" fontWeight="bold">280km</SvgText>
+        <SvgText x="92" y="16" fontSize="6" fill="rgba(255,255,255,0.4)" fontWeight="bold">380km</SvgText>
+        
+        {/* 각도 텍스트 라벨 */}
+        <SvgText x="20" y="12" fontSize="6" fill="rgba(255,255,255,0.45)">-20{'\u00B0'}</SvgText>
+        <SvgText x="87" y="6" fontSize="6" fill="rgba(255,255,255,0.45)">0{'\u00B0'}</SvgText>
+        <SvgText x="148" y="12" fontSize="6" fill="rgba(255,255,255,0.45)">+20{'\u00B0'}</SvgText>
+        
+        {/* 고층운 (핑크 도트) */}
+        <Circle cx="55" cy="32" r="2.2" fill="#FF69B4" />
+        <Circle cx="125" cy="32" r="2.2" fill="#FF69B4" />
+        {/* 중층운 (보라 도트) */}
+        <Circle cx="70" cy="56" r="2.2" fill="#9370DB" />
+        <Circle cx="110" cy="56" r="2.2" fill="#9370DB" />
+        {/* 저층운 (블루 도트) */}
+        <Circle cx="81" cy="80" r="2.2" fill="#4682B4" />
+        <Circle cx="99" cy="80" r="2.2" fill="#4682B4" />
+        
+        {/* Observer 위치 (관측자) */}
+        <Circle cx="90" cy="102" r="4.5" fill="#FF8C00" />
+        <SvgText x="98" y="104" fontSize="7" fill="#FF8C00" fontWeight="bold">관측자</SvgText>
+      </Svg>
+    </View>
+  );
+};
+
+const RayleighInfoGraphic = ({ theme }: { theme: any }) => {
+  return (
+    <View style={[styles.artCard, { backgroundColor: 'rgba(5, 5, 10, 0.45)', borderColor: theme.border }]}>
+      <Svg width="260" height="110" viewBox="0 0 260 110">
+        {/* 지구 표면 (두껍고 어두운 둥근 선) */}
+        <Path d="M -20,135 A 140,140 0 0,1 280,135" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="8" />
+        
+        {/* 반투명 대기 대역 */}
+        <Path d="M -20,115 A 140,140 0 0,1 280,115" fill="none" stroke="rgba(70, 130, 180, 0.15)" strokeWidth="20" />
+        
+        {/* 대기 공기 분자 */}
+        <Circle cx="70" cy="95" r="1" fill="rgba(255,255,255,0.5)" />
+        <Circle cx="120" cy="86" r="1.2" fill="rgba(255,255,255,0.5)" />
+        <Circle cx="170" cy="90" r="1" fill="rgba(255,255,255,0.5)" />
+        <Circle cx="95" cy="82" r="1" fill="rgba(255,255,255,0.5)" />
+        <Circle cx="145" cy="84" r="1" fill="rgba(255,255,255,0.5)" />
+        
+        {/* 1. 낮 시간대 (짧은 대기 통과) */}
+        <G>
+          {/* 낮 태양 */}
+          <Circle cx="70" cy="30" r="7" fill="#FFD700" />
+          <SvgText x="56" y="16" fontSize="6.5" fill="#FFD700" fontWeight="bold">낮 (수직 입사)</SvgText>
+          
+          {/* 수직 대기 통과 광선 */}
+          <Path d="M 70,39 L 70,82" fill="none" stroke="#1E90FF" strokeWidth="1.5" />
+          {/* 짧은 파장 파란빛 산란 묘사 */}
+          <Path d="M 70,55 L 56,62" fill="none" stroke="#1E90FF" strokeWidth="1" />
+          <Path d="M 70,55 L 84,62" fill="none" stroke="#1E90FF" strokeWidth="1" />
+          <Path d="M 70,68 L 60,78" fill="none" stroke="#1E90FF" strokeWidth="0.8" />
+          <Path d="M 70,68 L 80,78" fill="none" stroke="#1E90FF" strokeWidth="0.8" />
+          
+          <SvgText x="86" y="58" fontSize="5.5" fill="#1E90FF">파란빛 산란</SvgText>
+        </G>
+        
+        {/* 2. 저녁 노을 시간대 (비스듬히 긴 대기 경로 통과) */}
+        <G>
+          {/* 지평선 부근 붉은 태양 */}
+          <Circle cx="230" cy="84" r="6" fill="#FF4500" />
+          <SvgText x="205" y="70" fontSize="6.5" fill="#FF4500" fontWeight="bold">노을 (대기 깊음)</SvgText>
+          
+          {/* 긴 광선 경로 */}
+          <Path d="M 222,85 L 120,102" fill="none" stroke="#FF4500" strokeWidth="1.8" />
+          
+          {/* 중간 경로에서 파란빛은 모두 산란되어 소멸하는 모습 */}
+          <Path d="M 210,87 L 216,95" fill="none" stroke="rgba(30,144,255,0.7)" strokeWidth="0.8" />
+          <Path d="M 190,90 L 198,99" fill="none" stroke="rgba(30,144,255,0.4)" strokeWidth="0.8" />
+          <Path d="M 170,93 L 178,102" fill="none" stroke="rgba(30,144,255,0.15)" strokeWidth="0.8" />
+          
+          {/* 관측자 위치 (지구 표면) */}
+          <Circle cx="120" cy="102" r="2.2" fill="#FF8C00" />
+          <SvgText x="106" y="112" fontSize="6" fill="#FF8C00" fontWeight="bold">관측자</SvgText>
+          <SvgText x="130" y="99" fontSize="5.5" fill="#FF4500">붉은빛만 도달</SvgText>
+        </G>
+      </Svg>
+    </View>
+  );
+};
+
+const MieInfoGraphic = ({ theme }: { theme: any }) => {
+  return (
+    <View style={[styles.artCard, { backgroundColor: 'rgba(5, 5, 10, 0.45)', borderColor: theme.border }]}>
+      <Svg width="260" height="110" viewBox="0 0 260 110">
+        {/* 대형 먼지/수증기 입자 (중앙에 배치) */}
+        <Circle cx="110" cy="55" r="16" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+        <Circle cx="106" cy="51" r="14" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="2" />
+        <Circle cx="110" cy="55" r="7" fill="rgba(255, 255, 255, 0.08)" />
+        <SvgText x="92" y="24" fontSize="6.5" fill="#FFF" fontWeight="bold">먼지/수증기 대형 입자</SvgText>
+        
+        {/* 입사 태양 광선 (왼쪽에서 입사) */}
+        <Path d="M 30,42 L 92,42" fill="none" stroke="#FFA500" strokeWidth="1.5" />
+        <Path d="M 25,55 L 94,55" fill="none" stroke="#FFA500" strokeWidth="1.5" />
+        <Path d="M 30,68 L 92,68" fill="none" stroke="#FFA500" strokeWidth="1.5" />
+        
+        <SvgText x="28" y="32" fontSize="6.5" fill="#FFA500" fontWeight="bold">태양광 입사</SvgText>
+        
+        {/* 미에 산란 (전방 좁은 원뿔 형태로 강하게 집중 산란하는 모습 묘사) */}
+        <Path d="M 126,55 L 190,20 A 48,48 0 0,1 190,90 Z" fill="rgba(255, 222, 173, 0.12)" stroke="rgba(255, 222, 173, 0.3)" strokeWidth="0.8" />
+        
+        <Path d="M 126,55 L 180,32" fill="none" stroke="rgba(255, 255, 255, 0.6)" strokeWidth="1" />
+        <Path d="M 126,55 L 195,55" fill="none" stroke="rgba(255, 255, 255, 0.85)" strokeWidth="1.5" />
+        <Path d="M 126,55 L 180,78" fill="none" stroke="rgba(255, 255, 255, 0.6)" strokeWidth="1" />
+        
+        {/* 입자 외곽 발광 테두리 강조 (Mie 림 라이트 묘사) */}
+        <Path d="M 110,39 A 16,16 0 0,1 126,55 A 16,16 0 0,1 110,71" fill="none" stroke="#FFF" strokeWidth="2.5" opacity="0.9" />
+        
+        <SvgText x="156" y="93" fontSize="6.5" fill="#FFF">전방 강한 산란</SvgText>
+        <SvgText x="156" y="101" fontSize="5.5" fill="#FFF" opacity="0.6">(태양 주변 구름 발광 / 림라이트)</SvgText>
+      </Svg>
+    </View>
+  );
+};
 
 interface WeatherDetailModalProps {
   visible: boolean;
@@ -605,9 +743,12 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                     
                     <View style={styles.instructionStep}>
                       <Text style={[styles.stepNum, { color: theme.accent }]}>1</Text>
-                      <Text style={[styles.stepText, { color: theme.text }]}>
-                        <Text style={{ fontWeight: '800' }}>레이더 격자 맵 분석:</Text> 가로는 사용자가 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 셀이 3층으로 나뉘어 있어 어떤 구름이 껴 있는지 입체적으로 파악할 수 있습니다.
-                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.stepText, { color: theme.text }]}>
+                          <Text style={{ fontWeight: '800' }}>레이더 격자 맵 분석:</Text> 가로는 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 총 35개 지점을 3개 고도층으로 분할하여 입체적으로 구름 밀도를 예보 격자로부터 샘플링합니다.
+                        </Text>
+                        <RadarGridInfoGraphic theme={theme} />
+                      </View>
                     </View>
                     
                     <View style={styles.instructionStep}>
@@ -627,11 +768,13 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       <Text style={[styles.scienceText, { color: theme.subText }]}>
                         태양이 지평선 가까이 내려가면, 햇빛이 통과해야 하는 지구 대기층의 경로가 낮 동안보다 최대 10배 이상 길어집니다. 이 과정에서 파장이 짧은 파란색과 보라색 계열의 빛은 모두 공기 분자에 의해 도중에 산란되어 사라지고, 산란이 적고 파장이 긴 붉은색과 주황색 계열의 빛만 관측자에게 도달해 하늘이 붉게 보이게 됩니다.
                       </Text>
+                      <RayleighInfoGraphic theme={theme} />
                       
-                      <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 12 }]}>대기 물질(에어로졸)과 습도의 영향</Text>
+                      <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 16 }]}>대기 물질(에어로졸/미에 산란)과 습도의 영향</Text>
                       <Text style={[styles.scienceText, { color: theme.subText }]}>
-                         대기 중의 적절한 미세먼지(PM2.5)나 염분 결정 등의 에어로졸은 산란을 활성화해 노을빛을 더 진하고 화려하게 만듭니다. 하지만 대기 오염이 지나쳐 미세먼지가 너무 많거나 공기 중 습도가 80% 이상으로 지나치게 축축할 경우, 빛의 흡수가 과도해져 채도가 낮고 어두운 회색조 노을이 관찰됩니다.
+                         미세먼지나 수증기 입자처럼 빛의 파장보다 큰 물질은 파장 구분 없이 모든 빛을 전방으로 집중 산란(미에 산란, Mie Scattering)시킵니다. 이 때문에 태양 주변 구름 외곽선이 부자연스럽게 하얗고 찬란하게 발광하는 림 라이트 효과를 생성합니다. 단, 습도가 80% 이상으로 극도로 높거나 대기 오염이 너무 짙으면 빛이 과도하게 흡수되어 탁한 회색 노을이 됩니다.
                       </Text>
+                      <MieInfoGraphic theme={theme} />
                     </View>
                   </View>
                 </>
@@ -1261,4 +1404,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     opacity: 0.85,
   },
+  artCard: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
 });
+
