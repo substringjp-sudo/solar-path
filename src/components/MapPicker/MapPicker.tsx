@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, ActivityIndicator, Image } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, ActivityIndicator, Image, Animated } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star, Camera, Image as ImageIcon } from 'lucide-react-native';
 import * as Location from 'expo-location';
@@ -20,6 +20,25 @@ export const MapPicker = ({
   addSavedLocation,
   removeSavedLocation
 }: any) => {
+  const [windowHeight] = useState(Dimensions.get('window').height);
+  const slideAnim = useRef(new Animated.Value(windowHeight)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: windowHeight,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible, windowHeight]);
+
   const activeTab = 'location';
   const [latInput, setLatInput] = useState(location?.coords?.latitude?.toString() || '37.56');
   const [lonInput, setLonInput] = useState(location?.coords?.longitude?.toString() || '126.97');
@@ -689,9 +708,13 @@ export const MapPicker = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true}>
+    <Modal visible={visible} animationType="fade" transparent={true}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, dStyle.modalContent]}>
+        <Animated.View style={[
+          styles.modalContent, 
+          dStyle.modalContent,
+          { transform: [{ translateY: slideAnim }] }
+        ]}>
           <View style={styles.header}>
             <View>
               <Text style={[styles.title, { color: theme.text }]}>Change Location</Text>
@@ -902,7 +925,7 @@ export const MapPicker = ({
             </View>
             <View style={{ height: 40 }} />
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

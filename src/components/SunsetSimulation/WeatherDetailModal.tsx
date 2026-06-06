@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView,
-  Dimensions, Platform, FlatList
+  Dimensions, Platform, FlatList, Animated
 } from 'react-native';
 import { X, Cloud, Compass, Globe, Info } from 'lucide-react-native';
 import Svg, { Path, Circle, Text as SvgText, G } from 'react-native-svg';
@@ -319,6 +319,25 @@ interface WeatherDetailModalProps {
 export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   visible, onClose, theme, pathData, interpolatedWeather, currentTime, weatherSource
 }) => {
+  const [windowHeight] = useState(Dimensions.get('window').height);
+  const slideAnim = useRef(new Animated.Value(windowHeight)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: windowHeight,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible, windowHeight]);
+
   const { width: W, height: H } = Dimensions.get('window');
   const { timezoneOffsetHours } = useCelestialStore();
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
@@ -405,9 +424,16 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
+      <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={onClose}>
         <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Animated.View style={[
+          styles.modalContent, 
+          { 
+            backgroundColor: theme.card, 
+            borderColor: theme.border,
+            transform: [{ translateY: slideAnim }]
+          }
+        ]}>
           
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: theme.border }]}>
@@ -648,7 +674,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
             </TouchableOpacity>
           </View>
 
-        </View>
+        </Animated.View>
       </View>
     </Modal>
 

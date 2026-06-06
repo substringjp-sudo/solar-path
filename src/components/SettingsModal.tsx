@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions } from 'react-native';
 import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
@@ -20,6 +20,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   theme,
   dynamicTheme,
 }) => {
+  const [windowHeight] = useState(Dimensions.get('window').height);
+  const slideAnim = useRef(new Animated.Value(windowHeight)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: windowHeight,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible, windowHeight]);
+
   const { 
     currentUser,
     locationPermission,
@@ -170,11 +189,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={[styles.modalContainer, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+        <Animated.View style={[
+          styles.modalContainer, 
+          { 
+            backgroundColor: theme.bg, 
+            borderColor: theme.border,
+            transform: [{ translateY: slideAnim }]
+          }
+        ]}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: theme.border }]}>
             <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
@@ -464,7 +490,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </View>
             </View>
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
