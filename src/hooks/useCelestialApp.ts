@@ -162,8 +162,19 @@ export function useCelestialApp() {
       if (activeTab === 'tracker') {
         setCurrentTime(new Date());
       } else if (activeTab === 'sim') {
-        if (events && events.sunrise) {
-          setCurrentTime(events.sunrise);
+        const localHour = currentTimeLocal.getUTCHours();
+        if (localHour < 12) {
+          if (events && events.sunrise) {
+            setCurrentTime(events.sunrise);
+          } else if (events && events.sunset) {
+            setCurrentTime(events.sunset);
+          }
+        } else {
+          if (events && events.sunset) {
+            setCurrentTime(events.sunset);
+          } else if (events && events.sunrise) {
+            setCurrentTime(events.sunrise);
+          }
         }
       }
     }
