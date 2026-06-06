@@ -1725,6 +1725,9 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     );
   };
 
+  const visualFovRef = useRef(visualFov);
+  visualFovRef.current = visualFov;
+
   const fovDragRef = useRef<{ startY: number; startFov: number } | null>(null);
   const fovPanResponder = useRef(
     PanResponder.create({
@@ -1733,7 +1736,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       onPanResponderGrant: (evt) => {
         fovDragRef.current = {
           startY: evt.nativeEvent.pageY,
-          startFov: visualFov,
+          startFov: visualFovRef.current,
         };
       },
       onPanResponderMove: (evt) => {
