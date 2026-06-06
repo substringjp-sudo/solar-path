@@ -16,7 +16,7 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw, Layers, Zap, Info, AlertCircle } from 'lucide-react-native';
+import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin } from 'lucide-react-native';
 import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
  
 interface SimulationState {
@@ -35,12 +35,11 @@ interface SunsetSimulationProps {
   theme: any;
   currentTime: Date;
   setCurrentTime: (time: Date) => void;
+  setMapVisible: (visible: boolean) => void;
 }
 
 export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
-  const { theme, currentTime, setCurrentTime } = props;
-  
-  if (!theme) return null;
+  const { theme, currentTime, setCurrentTime, setMapVisible } = props;
   
   const { 
     location, 
@@ -360,8 +359,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return convertGridToClouds(cloudGridData, sim?.terrain?.observerElevation ?? 50);
   }, [cloudGridData, sim?.terrain?.observerElevation]);
 
-  if (netInfo.isConnected === false) return <OfflineView theme={theme} />;
-
   const simLoaded = !!sim;
   const calculateTrueEventTime = (baseTime: Date, type: 'Sunrise' | 'Sunset', lat: number, lon: number, terrain: TerrainData) => {
     const startOffset = -30;
@@ -542,6 +539,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     }
   }, [sunAzimuth, location, sim?.loading]);
 
+  if (!theme) return null;
+  if (netInfo.isConnected === false) return <OfflineView theme={theme} />;
+
   return (
     <View style={styles.container}>
       {!simLoaded ? (
@@ -717,7 +717,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
+              <TouchableOpacity
+                onPress={() => setMapVisible(true)}
+                style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
+                activeOpacity={0.7}
+              >
+                <MapPin size={14} color="#000" />
+              </TouchableOpacity>
               <TimeSlider 
                 mode="relative"
                 value={currentTime}
@@ -948,5 +955,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     color: '#FF5C3F',
-  }
+  },
+  floatingMapBtn: {
+    position: 'absolute',
+    top: -16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
 });

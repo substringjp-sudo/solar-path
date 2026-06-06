@@ -92,7 +92,6 @@ export default function App() {
         <HudHeader
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          setMapVisible={setMapVisible}
           setSavedListVisible={setSavedListVisible}
           setSettingsVisible={setSettingsVisible}
           handleSaveLocation={handleSaveLocation}
@@ -129,6 +128,7 @@ export default function App() {
           isDay={isDay}
           globalPhotos={globalPhotos}
           removeGlobalPhoto={removeGlobalPhoto}
+          setMapVisible={setMapVisible}
         />
       </View>
 

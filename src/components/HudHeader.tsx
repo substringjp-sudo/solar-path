@@ -8,7 +8,6 @@ import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 interface HudHeaderProps {
   activeTab: 'tracker' | 'sim' | 'gallery';
   setActiveTab: (tab: 'tracker' | 'sim' | 'gallery') => void;
-  setMapVisible: (visible: boolean) => void;
   setSavedListVisible: (visible: boolean) => void;
   setSettingsVisible: (visible: boolean) => void;
   handleSaveLocation: () => void;
@@ -26,7 +25,6 @@ interface HudHeaderProps {
 export const HudHeader: React.FC<HudHeaderProps> = ({
   activeTab,
   setActiveTab,
-  setMapVisible,
   setSavedListVisible,
   setSettingsVisible,
   handleSaveLocation,
@@ -77,13 +75,6 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         </Animated.View>
  
         <View style={styles.rightButtonsContainer}>
-          <TouchableOpacity 
-            onPress={() => setMapVisible(true)}
-            style={[styles.mapOpenBtn, { backgroundColor: theme.accent }]}
-          >
-            <MapPin size={14} color="#000" />
-          </TouchableOpacity>
-
           <TouchableOpacity 
             onPress={() => setSettingsVisible(true)}
             style={[styles.settingsOpenBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}

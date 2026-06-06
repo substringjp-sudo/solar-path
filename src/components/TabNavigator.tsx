@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
-import { RotateCcw, Compass, Sun, Moon, Zap, Sunrise, Sunset } from 'lucide-react-native';
+import { RotateCcw, Compass, Sun, Moon, Zap, Sunrise, Sunset, MapPin } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { useMemo } from 'react';
@@ -32,6 +32,7 @@ interface TabNavigatorProps {
   isDay: boolean;
   globalPhotos: any[];
   removeGlobalPhoto: (id: string) => Promise<void>;
+  setMapVisible: (visible: boolean) => void;
 }
 
 const isSameDayUTC = (d1: Date, d2: Date) => {
@@ -62,6 +63,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   isDay,
   globalPhotos,
   removeGlobalPhoto,
+  setMapVisible,
 }) => {
   const { location, timezoneOffsetHours } = useCelestialStore();
 
@@ -179,6 +181,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             theme={theme} 
             currentTime={currentTime}
             setCurrentTime={setCurrentTime}
+            setMapVisible={setMapVisible}
           />
         ) : (
           <Gallery 
@@ -191,7 +194,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
       </Animated.View>
 
       {activeTab === 'tracker' && (
-        <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+        <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
+          <TouchableOpacity
+            onPress={() => setMapVisible(true)}
+            style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
+            activeOpacity={0.7}
+          >
+            <MapPin size={14} color="#000" />
+          </TouchableOpacity>
           <TimeSlider 
             value={currentTime}
             onChange={setCurrentTime}
@@ -293,5 +303,21 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: Platform.OS === 'android' ? 18 : 15,
+  },
+  floatingMapBtn: {
+    position: 'absolute',
+    top: -16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
