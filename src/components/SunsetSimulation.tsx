@@ -47,7 +47,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     weatherCacheList, 
     terrainCacheList, 
     addWeatherCache, 
-    addTerrainCache 
+    addTerrainCache,
+    savedLocations
   } = useCelestialStore();
   const netInfo = useNetInfo();
   
@@ -169,7 +170,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
         let terrainData = null;
         let foundTerrainCache = null;
-        let minDistTerrain = 500;
+        let minDistTerrain = 500; // 500m threshold for memory cache
         
         if (!isForceRefresh) {
           for (const item of terrainCacheList) {
@@ -181,7 +182,33 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
         }
         
-        if (foundTerrainCache) terrainData = foundTerrainCache.data;
+        if (foundTerrainCache) {
+          terrainData = foundTerrainCache.data;
+        } else if (!isForceRefresh) {
+          // 메모리 캐시에 없으면, 1km 이내 지형 데이터가 내장된 저장 장소(savedLocations)가 있는지 검사
+          let minSavedDist = 1000; // 1km threshold
+          let matchedSavedLoc = null;
+          for (const item of savedLocations) {
+            if (item.terrainData) {
+              const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+              if (dist <= minSavedDist) {
+                minSavedDist = dist;
+                matchedSavedLoc = item;
+              }
+            }
+          }
+          if (matchedSavedLoc) {
+            terrainData = matchedSavedLoc.terrainData;
+            // 지형 메모리 캐시에도 추가하여 다음 접근 시 가속
+            addTerrainCache({
+              key: `t_${latitude.toFixed(4)}_${longitude.toFixed(4)}`,
+              data: terrainData,
+              timestamp: Date.now(),
+              latitude,
+              longitude
+            });
+          }
+        }
         const shouldFetchTerrain = !terrainData;
 
         let weatherData = null;

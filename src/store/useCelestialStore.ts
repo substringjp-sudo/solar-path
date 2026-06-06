@@ -9,6 +9,7 @@ import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
+import { TerrainData } from '../utils/weather';
 
 export interface WeatherCacheItem {
   key: string;
@@ -63,6 +64,7 @@ export interface SavedLocation {
   name: string;
   latitude: number;
   longitude: number;
+  terrainData?: TerrainData;
 }
 
 interface CelestialState {
@@ -100,7 +102,7 @@ interface CelestialState {
   setUserRotation: (rot: number) => void;
   setGyroEnabled: (enabled: boolean) => void;
   resetRotation: () => void;
-  addSavedLocation: (name: string, latitude: number, longitude: number) => Promise<void>;
+  addSavedLocation: (name: string, latitude: number, longitude: number, terrainData?: TerrainData) => Promise<void>;
   removeSavedLocation: (id: string) => Promise<void>;
   setCurrentUser: (user: User | null) => Promise<void>;
   syncSavedLocations: () => () => void;
@@ -230,7 +232,7 @@ export const useCelestialStore = create<CelestialState>()(
         if (state.isTimeMachineEnabled) return state;
         return { currentTime: new Date() };
       }),
-      addSavedLocation: async (name, latitude, longitude) => {
+      addSavedLocation: async (name, latitude, longitude, terrainData) => {
         const isDuplicate = get().savedLocations.some(
           (loc) => Math.abs(loc.latitude - latitude) < 1e-6 && Math.abs(loc.longitude - longitude) < 1e-6
         );
@@ -246,6 +248,7 @@ export const useCelestialStore = create<CelestialState>()(
           name,
           latitude,
           longitude,
+          ...(terrainData ? { terrainData } : {})
         };
 
         if (user) {

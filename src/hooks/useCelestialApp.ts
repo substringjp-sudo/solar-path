@@ -8,7 +8,7 @@ import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/
 import { auth } from '../config/firebase';
 import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
-import { fetchSunsetWeather, getInterpolatedWeather } from '../utils/weather';
+import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -378,8 +378,21 @@ export function useCelestialApp() {
     );
     
     if (isAlreadySaved) {
-      Alert.alert('This place is already saved.');
+      Alert.alert('Notification', 'This location is already saved.');
       return;
+    }
+
+    // 백그라운드 지형 데이터 조용히 패치 (약 0.5초 소요)
+    let terrainData: any = undefined;
+    try {
+      terrainData = await fetchTerrainProfile(
+        location.coords.latitude,
+        location.coords.longitude,
+        0,
+        360
+      );
+    } catch (err) {
+      console.warn('Failed to fetch silent terrain profile during location save:', err);
     }
 
     const defaultName = `Place ${savedLocations.length + 1}`;
@@ -388,7 +401,7 @@ export function useCelestialApp() {
       const name = window.prompt('Please enter a name for this place.', defaultName);
       if (name !== null) {
         const finalName = name.trim() || defaultName;
-        addSavedLocation(finalName, location.coords.latitude, location.coords.longitude);
+        addSavedLocation(finalName, location.coords.latitude, location.coords.longitude, terrainData);
         Alert.alert('Success', 'Place saved successfully!');
       }
     } else if (Platform.OS === 'ios') {
@@ -401,7 +414,7 @@ export function useCelestialApp() {
             text: 'Save', 
             onPress: (name: string | undefined) => {
               const finalName = name?.trim() || defaultName;
-              addSavedLocation(finalName, location.coords.latitude, location.coords.longitude);
+              addSavedLocation(finalName, location.coords.latitude, location.coords.longitude, terrainData);
             } 
           }
         ],
@@ -410,8 +423,7 @@ export function useCelestialApp() {
       );
     } else {
       // Android does not support Alert.prompt.
-      // Save automatically with a friendly default name and let them know.
-      addSavedLocation(defaultName, location.coords.latitude, location.coords.longitude);
+      addSavedLocation(defaultName, location.coords.latitude, location.coords.longitude, terrainData);
       Alert.alert('Save Place', `Place saved as '${defaultName}'!`);
     }
   };
