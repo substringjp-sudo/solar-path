@@ -145,14 +145,14 @@ export function useCelestialApp() {
     location?.coords.longitude || defaultCoords.longitude
   );
 
-  // 골든타임 활성 여부 (일출/일몰 전후 2.5시간) - 실제 기기 시간 기준
+  // 골든타임 활성 여부 (일출/일몰 전후 2.5시간) - 시간 흐름 및 타임머신 조작에 연동
   const goldenTimeInfo = useMemo(() => {
     return getGoldenTimeInfo(
-      new Date(),
+      currentTime,
       location?.coords.latitude || defaultCoords.latitude,
       location?.coords.longitude || defaultCoords.longitude
     );
-  }, [location]);
+  }, [location, currentTime]);
 
   // 탭 전환 시 시간 슬라이더 초기값 리셋 (무한 루프 방지를 위해 플래그 기법 적용)
   useEffect(() => {
