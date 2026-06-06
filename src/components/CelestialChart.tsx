@@ -30,6 +30,15 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
 
   const startRotation = useRef(0);
   const startAngle = useRef(0);
+  const startX = useRef(0);
+  const startY = useRef(0);
+
+  const rotationRef = useRef(rotation);
+  const onRotationChangeRef = useRef(onRotationChange);
+
+  // Keep references updated to avoid stale closures in panResponder
+  rotationRef.current = rotation;
+  onRotationChangeRef.current = onRotationChange;
 
   const getAngle = (x: number, y: number) => {
     const dx = x - CENTER;
@@ -43,17 +52,20 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
         startAngle.current = getAngle(locationX, locationY);
-        // Ensure we use a valid number for start rotation
-        startRotation.current = Number(rotation) || 0;
+        startX.current = locationX;
+        startY.current = locationY;
+        // Ensure we use a valid number for start rotation using the updated ref
+        startRotation.current = Number(rotationRef.current) || 0;
       },
-      onPanResponderMove: (evt) => {
-        const { locationX, locationY } = evt.nativeEvent;
-        const currentAngle = getAngle(locationX, locationY);
+      onPanResponderMove: (evt, gestureState) => {
+        const currentX = startX.current + gestureState.dx;
+        const currentY = startY.current + gestureState.dy;
+        const currentAngle = getAngle(currentX, currentY);
         const delta = currentAngle - startAngle.current;
         
-        // Final safety check for callback
-        if (typeof onRotationChange === 'function') {
-          onRotationChange(startRotation.current + delta);
+        // Final safety check for callback using the updated ref
+        if (typeof onRotationChangeRef.current === 'function') {
+          onRotationChangeRef.current(startRotation.current + delta);
         }
       },
     })

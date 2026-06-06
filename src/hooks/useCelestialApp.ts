@@ -243,85 +243,46 @@ export function useCelestialApp() {
     accent: '#FFD700',
   };
 
-  // Gyro Sync Logic with Tilt-Compensated Compass
-  const accRef = useRef({ x: 0, y: 0, z: -1 });
-  const magRef = useRef({ x: 0, y: 0, z: 0 });
+  // Compass Sync Logic with OS-Compensated Heading
   const lastHeading = useRef(0);
 
   useEffect(() => {
-    let subAcc: any = null;
-    let subMag: any = null;
-    let timer: any = null;
+    let headingSubscription: any = null;
 
     if (isGyroEnabled) {
-      Promise.all([
-        import('expo-sensors').then(m => m.Accelerometer),
-        import('expo-sensors').then(m => m.Magnetometer),
-      ]).then(([Accelerometer, Magnetometer]) => {
-        Accelerometer.setUpdateInterval(32);
-        Magnetometer.setUpdateInterval(32);
+      const startWatching = async () => {
+        try {
+          headingSubscription = await Location.watchHeadingAsync((data) => {
+            const heading = data.trueHeading !== -1 ? data.trueHeading : data.magHeading;
+            
+            // 보정된 회전각을 기기 물리 회전 방향과 일치하게 반전
+            let finalHeading = (360 - heading) % 360;
 
-        subAcc = Accelerometer.addListener(data => {
-          accRef.current = data;
-        });
-        subMag = Magnetometer.addListener(data => {
-          magRef.current = data;
-        });
+            // Low-pass filter 스무딩
+            const prev = lastHeading.current;
+            const diff = ((finalHeading - prev + 540) % 360) - 180;
+            
+            if (Math.abs(diff) < 0.2) return;
 
-        // 30fps 센서 융합 루프
-        timer = setInterval(() => {
-          const { x: Ax, y: Ay, z: Az } = accRef.current;
-          const { x: Mx, y: My, z: Mz } = magRef.current;
+            const smoothed = (prev + diff * 0.15 + 360) % 360;
+            const finalVal = Math.round(smoothed * 10) / 10;
 
-          const accNorm = Math.sqrt(Ax * Ax + Ay * Ay + Az * Az);
-          if (accNorm < 0.1) return;
-
-          const nx = Ax / accNorm;
-          const ny = Ay / accNorm;
-          const nz = Az / accNorm;
-
-          const roll = Math.atan2(ny, -nz);
-          const pitch = Math.atan2(-nx, Math.sqrt(ny * ny + nz * nz));
-
-          const cosRoll = Math.cos(roll);
-          const sinRoll = Math.sin(roll);
-          const cosPitch = Math.cos(pitch);
-          const sinPitch = Math.sin(pitch);
-
-          const Mh_x = Mx * cosPitch + Mz * sinPitch;
-          const Mh_y = Mx * sinRoll * sinPitch + My * cosRoll - Mz * sinRoll * cosPitch;
-
-          let azimuthRad = Math.atan2(-Mh_y, Mh_x);
-          let azimuthDeg = (azimuthRad * 180 / Math.PI + 360) % 360;
-
-          // 한국 표준 편각 보정
-          const declination = -8.0 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
-          let finalHeading = (azimuthDeg + declination + 360) % 360;
-
-          // 보정된 회전각을 기기 물리 회전 방향과 일치하게 반전
-          finalHeading = (360 - finalHeading) % 360;
-
-          // Low-pass filter 스무딩
-          const prev = lastHeading.current;
-          const diff = ((finalHeading - prev + 540) % 360) - 180;
-          
-          if (Math.abs(diff) < 0.2) return;
-
-          const smoothed = (prev + diff * 0.12 + 360) % 360;
-          const finalVal = Math.round(smoothed * 10) / 10;
-
-          lastHeading.current = finalVal;
-          setUserRotation(finalVal);
-        }, 32);
-      });
+            lastHeading.current = finalVal;
+            setUserRotation(finalVal);
+          });
+        } catch (err) {
+          console.error('Failed to start compass heading watch:', err);
+        }
+      };
+      startWatching();
     }
 
     return () => {
-      subAcc && subAcc.remove();
-      subMag && subMag.remove();
-      timer && clearInterval(timer);
+      if (headingSubscription) {
+        headingSubscription.remove();
+      }
     };
-  }, [isGyroEnabled, setUserRotation, latitude, longitude]);
+  }, [isGyroEnabled, setUserRotation]);
 
   const contentTranslateX = useRef(new Animated.Value(0)).current;
   const tabOrder: ('tracker' | 'sim' | 'gallery')[] = ['tracker', 'sim', 'gallery'];
