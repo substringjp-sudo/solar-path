@@ -375,6 +375,39 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
     const isOvercast = (prediction?.factors?.overheadOvercast ?? 0) >= 0.75;
     const overcast = prediction?.factors?.overheadOvercast ?? 0;
+
+    // 1) 5개 방위각 열별 거리 연속성 분석 (10k ~ 380k 사이)
+    const columnContinuity = Array.from({ length: 5 }, () => ({
+      low: new Array(7).fill(false),
+      mid: new Array(7).fill(false),
+      high: new Array(7).fill(false)
+    }));
+
+    for (let col = 0; col < 5; col++) {
+      const layers: ('low' | 'mid' | 'high')[] = ['low', 'mid', 'high'];
+      layers.forEach(layer => {
+        const hasCloud = new Array(7).fill(false);
+        for (let d = 0; d < 7; d++) {
+          const pIdx = 1 + col * 7 + d;
+          const interpolated = interpolatedWeather[pIdx];
+          if (interpolated) {
+            const val = layer === 'high' ? interpolated.high : layer === 'mid' ? interpolated.mid : interpolated.low;
+            hasCloud[d] = val >= 25; // 25% 이상 구름이 존재할 때
+          }
+        }
+        
+        // 앞이나 뒤 거리에 같이 구름이 있으면 연속된 것으로 판정
+        for (let d = 0; d < 7; d++) {
+          if (hasCloud[d]) {
+            const prevNeighbour = d > 0 ? hasCloud[d - 1] : false;
+            const nextNeighbour = d < 6 ? hasCloud[d + 1] : false;
+            if (prevNeighbour || nextNeighbour) {
+              columnContinuity[col][layer][d] = true;
+            }
+          }
+        }
+      });
+    }
     
     types.forEach((type) => {
       sim.pathData.forEach((c: any, i: number) => {
@@ -392,15 +425,43 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         const water = interpolated.totalColumnWaterVapour ?? 0;
         const humidity = interpolated.humidity ?? 50;
 
-        // 구름 프리셋 판별 (기상 조건 반영)
-        const preset = getCloudPreset(
+        // 2) 체감 구름양 보정 (지평선 부근 투영 경로 증가로 인한 체감 구름양 폭증 보정)
+        let slantPathFactor = 1.0;
+        if (baseDist > 0) {
+          if (baseDist <= 10) slantPathFactor = 3.5;
+          else if (baseDist <= 30) slantPathFactor = 5.0;
+          else if (baseDist <= 70) slantPathFactor = 6.5;
+          else slantPathFactor = 8.0;
+        }
+        
+        const perceivedDensity = Math.min(100, Math.round(100 * (1.0 - Math.pow(1.0 - density / 100, slantPathFactor))));
+
+        // 연속성 감지 정보 가져오기
+        const colIdx = i === 0 ? 2 : Math.floor((i - 1) / 7);
+        const distIdx = i === 0 ? 0 : (i - 1) % 7;
+        const isDeck = i === 0 ? false : (columnContinuity[colIdx]?.[type]?.[distIdx] ?? false);
+
+        // 구름 프리셋 판별 (보정된 perceivedDensity 적용)
+        let preset = getCloudPreset(
           type,
-          density,
+          perceivedDensity,
           overcast,
           precip,
           water,
           humidity
         );
+
+        // 저층 뭉게구름이지만 넓게 연속된 경우, 평평한 층적운(Stratocumulus) 또는 층운(Stratus)으로 강제 변형하여 시트화
+        if (isDeck && type === 'low' && preset.name === 'Cumulus') {
+          preset = {
+            name: 'Stratocumulus',
+            thickness: 0.85,
+            shadowContrast: 0.85,
+            scattering: 0.35,
+            rimLightSharpness: 0.70,
+            baseOpacity: 0.95,
+          };
+        }
 
         // 구름 종류별 물리 고도 H_c 세분화 지정 (km)
         let H_c = 1.5;
@@ -413,11 +474,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         else if (preset.name === 'Stratocumulus') H_c = 1.8;
         else if (preset.name === 'Stratus') H_c = 0.4;
         else if (preset.name === 'Cumulus') H_c = 1.2;
-        else if (preset.name === 'Cumulonimbus') H_c = 4.5; // 거대한 적란운 중심
+        else if (preset.name === 'Cumulonimbus') H_c = 4.5;
 
-        // If overcast, we draw massive giant bands instead of 100s of small clouds to prevent FPS drop and look cleaner.
-        // We still render a few scattered background clouds to give depth.
-        const cloudCount = isOvercast ? Math.ceil(density / 35) : Math.ceil(density / 12);
+        // 체감 구름양에 근거한 구름 개수 결정 (더욱 촘촘하게 덮도록 개수 상향)
+        const cloudCount = isOvercast 
+          ? Math.ceil(perceivedDensity / 22) 
+          : Math.ceil(perceivedDensity / 10);
         
         for (let s = 0; s < cloudCount; s++) {
           const seed = type.charCodeAt(0) * 100 + i * 37 + s * 17;
@@ -446,8 +508,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
           // 먼 거리 구름 (d > 80km)에 대한 수평선 리프트 및 압축 효과 적용
           if (d > 80) {
-            // 거리가 멀수록 대기 굴절 및 구름 두께 효과로 지평선 바로 위에 맺힙니다.
-            // 음수이거나 너무 낮은 고도각을 지평선 위(0.3도 ~ 2.0도 사이)로 들어올립니다.
             const minHeightOffset = type === 'high' ? 1.0 : type === 'mid' ? 0.5 : 0.25;
             const targetLift = minHeightOffset + 1.2 * Math.exp(apparentElevationDeg);
             apparentElevationDeg = Math.max(apparentElevationDeg, targetLift);
@@ -504,13 +564,14 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             baseHeight,
             baseColorStr,
             seed,
-            opacityDensity: density,
+            opacityDensity: perceivedDensity,
             d,
             pathStr,
             cloudCategory,
             preset,
             precipitation: interpolated.precipitation ?? 0,
             liquidWater: interpolated.totalColumnWaterVapour ?? 0,
+            isDeck,
           });
         }
       });
@@ -542,26 +603,25 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
   }, [prediction]);
 
-  // 2. Map computed sorted clouds to visual SVG structures with dynamic warm gradients and shadows
-  const computedClouds = useMemo(() => {
+  // 2. Unified 3D Spatial Clouds Mapping, Depth Sorting & Multi-Layer Occlusion
+  const unifiedClouds = useMemo(() => {
     const horizonTop = SKY_HEIGHT - HORIZON_Y;
     const scaleZoom = 20 / visualFov;
-    
-    return allCloudLayersData.map((item) => {
-      // Compute wind drift coordinate here (since currentTime is in dependency array here)
+    const { overcast, dustIntensity } = weatherFactors;
+
+    const cloudsList: any[] = [];
+
+    // ── Helper 1: Map allCloudLayersData (일반 3D 구름) ──────────────────────
+    allCloudLayersData.forEach((item) => {
       const spatialDx = (((item.seed * 73) % 120) - 60); // in km
       const timeMs = currentTime.getTime();
       const windSpeedKmh = 25; 
       const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
       const totalDx = spatialDx + (windDriftKm % 160 - 80);
       
-      // Cloud azimuth relative to sim azimuth, factoring in 3-Ray Fanning offset
       const totalAzOffset = item.azimuthOffset + Math.atan2(totalDx, item.d) * (180 / Math.PI);
-      
-      // Absolute azimuth of the cloud
       const cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
 
-      // Horizontal mapping via tangent visual FOV camera projection
       const relativeAzDeg = cloudAzimuthAbs - heading;
       const relativeAz = ((relativeAzDeg + 180) % 360) - 180;
       
@@ -569,59 +629,47 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const halfFovRad = fovRad / 2;
       const xOffsetRatio = Math.tan((relativeAz * Math.PI) / 180) / Math.tan(halfFovRad);
       const x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
-
-      // Vertical mapping
       const y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
 
-      // Unified 3D scaling (clamping scale carefully)
       const perspectiveScale = 35 / item.S;
-      // 원거리 크기 최소 한계를 0.04에서 0.075로 완화하여 가독성 확보
       const clampedScale = Math.max(0.075, Math.min(3.0, perspectiveScale));
       const foreshorteningFactor = 0.15 + (clampedScale / 3.0) * 0.85; 
 
-      // 먼 거리 구름은 수평선 전체를 덮는 거대한 띠 형태이므로 가로로 길게 스트레칭합니다.
-      const horizontalStretch = item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0;
-      const finalScaleX = clampedScale * scaleZoom * horizontalStretch;
+      // 거대 장막 구름(isDeck)일 경우 구름 조각을 가로로 길게 늘려서 서로 뭉개져 합쳐지게 함
+      const densityStretch = 1.0 + (item.opacityDensity / 120.0); // 밀도가 높을수록 더 넓게 퍼짐
+      const horizontalStretch = item.isDeck 
+        ? 3.6 
+        : (item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0);
+      
+      const finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch;
       const finalScaleY = clampedScale * foreshorteningFactor * scaleZoom;
 
       const renderWidth = item.baseWidth * finalScaleX;
       const renderHeight = item.baseHeight * finalScaleY;
 
       // Skip rendering if way off-screen horizontally
-      if (x + renderWidth < -50 || x - renderWidth > VISUALIZER_WIDTH + 50) {
-        return null;
+      if (x + renderWidth < -100 || x - renderWidth > VISUALIZER_WIDTH + 100) {
+        return;
       }
 
       // Proximity-to-Sun Gradient coloring:
-      const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
-      const sunX = VISUALIZER_WIDTH / 2;
-
-      // 태양은 무한히 먼 거리의 평행 광원(Parallel Light)이므로 구름의 개별 좌표 x에 따라 
-      // 빛받는 방향이 좌우로 뒤집혀서는 안 됩니다. 
-      // 오직 카메라 시야각(heading) 대비 태양 방위각(sim.azimuth) 차이에 의해 구름 전체의 광원 수평 성분이 통일되게 회전합니다.
       const relativeSunAz = (((sim?.azimuth || 180) - heading + 180) % 360) - 180;
       const lightDx = Math.sin((relativeSunAz * Math.PI) / 180);
-      
-      // 수직 성분: 태양의 고도가 15도 부근일 때 수직 성분이 0이 되도록 설정
       const lightDy = -Math.sin(((sunAltitude - 15) * Math.PI) / 180);
       
-      // 광원 벡터 정규화
       const lightLength = Math.sqrt(lightDx * lightDx + lightDy * lightDy);
       const cosA = lightLength > 1e-5 ? lightDx / lightLength : 0;
       const sinA = lightLength > 1e-5 ? lightDy / lightLength : -1.0;
       
-      // Vector coordinates relative to bounding box
       const x1 = (0.5 - cosA * 0.5) * 100 + '%';
       const y1 = (0.5 - sinA * 0.5) * 100 + '%';
       const x2 = (0.5 + cosA * 0.5) * 100 + '%';
       const y2 = (0.5 + sinA * 0.5) * 100 + '%';
 
-      // 1) 구름 프리셋 판별 (기존의 물리연산 시 지정한 preset 재사용)
       const preset = item.preset;
 
       // 구름 기본 색 (날씨에 따라 칙칙함 반영)
       let baseCloudRGB = parseColor(item.baseColorStr);
-      const { overcast, dustIntensity } = weatherFactors;
       if (overcast > 0.5) {
         baseCloudRGB = interpolateColors(baseCloudRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
       }
@@ -629,24 +677,14 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         baseCloudRGB = interpolateColors(baseCloudRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
       }
 
-      // 2) 태양 방위각 차이
       let azDiff = cloudAzimuthAbs - (sim?.azimuth || 180);
       azDiff = ((azDiff + 180) % 360) - 180;
       
-      // 3) 태양 방향 투영 수평 거리
       const dProjection = item.d * Math.cos((azDiff * Math.PI) / 180);
       const phiProjection = dProjection / 6371;
-      // 4) 지구 곡률에 기인한 구름 시점의 겉보기 태양 고도각 계산 (일몰 후 지평선 너머 해돋이 광량 반영)
       const sunAltFromCloud = sunAltitude + phiProjection * (180 / Math.PI);
-
-      const latVal = (location as any)?.coords?.latitude ?? 37.5665;
-      const doy = 172; // default
-      const cloudHeightM = item.type === 'high' ? 9500 : item.type === 'mid' ? 4500 : 1500;
-
-      // 5) 구름 고도에서의 물리적인 직사광선 스펙트럼 색상 보간
       const cloudBeam = getSunBeamColor(sunAltFromCloud);
 
-      // 6) 구름 주변 하늘 앰비언트(주변광) 색상
       const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (item.apparentElevationDeg - sunAltitude) * (item.apparentElevationDeg - sunAltitude));
       const ambientSky = skyColorAtDirection(
         Math.max(0.05, item.apparentElevationDeg),
@@ -656,18 +694,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         weatherFactors.pathClarity
       );
 
-      // 7) 구름 위치의 직사광 강도 (지평선 아래 감쇠 반영)
       const beamIntensity = clamp01((sunAltFromCloud + 2.0) / 4.0) * weatherFactors.pathClarity;
-
-      // 8) Lit / Shadow 광원 블렌딩
       const litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
       
-      // 얇은 구름(preset.thickness 낮음)은 그림자도 밝은 산란광을 많이 받아 밝음
-      // 두꺼운 구름(preset.thickness 높음)은 매우 어두운 차콜 그늘 톤으로 수렴
       const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
       const shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
 
-      // 얇은 구름은 baseCloudRGB의 흔적을 덜 남기고 산란된 빛(litLight)을 뽀얗게 머금음
       const litBlend = 0.9 - preset.thickness * 0.25;
       const shadowBlend = 0.8 - preset.thickness * 0.1;
 
@@ -682,10 +714,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         shadowBlend
       );
 
-      // 중간톤(Mid) 색상 계산: 태양 방향의 은은한 광원이 구름 몸통에 더 넓게 전이되도록 가중치 상향 (0.45 -> 0.65)
       const finalMidRGB = interpolateColors(finalShadowRGB, finalLitRGB, 0.65);
 
-      // 하이라이트(Highlight) 색상 계산: 태양을 마주하는 림 에지용 밝은 광택
       const highlightIntensity = preset.thickness > 0.5 ? 1.0 : 0.7;
       const finalHighlightRGB = interpolateColors(
         finalLitRGB,
@@ -693,7 +723,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         highlightIntensity
       );
 
-      // 9) Mie phase 역광 하이라이트 (테두리 실버 라이닝 추가 증폭)
       let rimHighlight = finalHighlightRGB;
       if (angularDistanceToSun < 35 && sunAltFromCloud > -3.0) {
         const cosG = Math.cos((angularDistanceToSun * Math.PI) / 180);
@@ -709,30 +738,39 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         );
       }
 
-      // 두께에 따른 그라데이션 Stop 오프셋 계산: 빛받는 면이 구름 안쪽으로 더 은은히 확산되도록 스톱 오프셋 앞당김
-      const stopMid = `${Math.round(20 + preset.thickness * 25)}%`; // 20% ~ 45%
-      const stopLit = `${Math.round(45 + preset.thickness * 20)}%`; // 45% ~ 65%
+      const stopMid = `${Math.round(20 + preset.thickness * 25)}%`;
+      const stopLit = `${Math.round(45 + preset.thickness * 20)}%`;
 
-      // Shadow offset (opposite to the sun vector)
       const shadowDist = Math.min(6, 2 + renderHeight * 0.15);
       const shadowDx = -cosA * shadowDist;
       const shadowDy = -sinA * shadowDist;
 
-      // Haze attenuation
       const aerosolScaleHeight = 260; 
       const aerosolExtinction = Math.exp(-item.S / aerosolScaleHeight);
 
       const gradId = `cloudGrad-${item.id}`;
 
-      // 흐릴수록(overcast가 높을수록) 구름의 투명도가 더 불투명해지도록 보정 (최대 0.90)
-      const maxOpacityCap = 0.45 + (weatherFactors.overcast * 0.45);
-      const baseOpacityAttenuated = preset.baseOpacity * aerosolExtinction * (1.0 + weatherFactors.overcast * 0.5);
-      const cloudOpacity = Math.max(
-        Math.min(0.95, Math.max(0.15, (item.opacityDensity / 100) * maxOpacityCap)),
-        Math.min(0.95, baseOpacityAttenuated)
+      // 구름 종류에 따른 불투명(Opaque) 여부 판정
+      const isOpaqueCloud = 
+        preset.name === 'Cumulus' || 
+        preset.name === 'Cumulonimbus' || 
+        preset.name === 'Nimbostratus' || 
+        preset.name === 'Stratocumulus';
+
+      const maxOpacityCap = isOpaqueCloud ? 0.98 : (0.45 + (overcast * 0.45));
+      const baseOpacityAttenuated = preset.baseOpacity * aerosolExtinction * (1.0 + overcast * 0.5);
+      
+      let cloudOpacity = Math.max(
+        Math.min(0.98, Math.max(0.15, (item.opacityDensity / 100) * maxOpacityCap)),
+        Math.min(0.98, baseOpacityAttenuated)
       );
 
-      return {
+      // 불투명 구름은 밀도가 존재하면 확실하게 불투명(Opaque)으로 고정
+      if (isOpaqueCloud && item.opacityDensity >= 15) {
+        cloudOpacity = 0.98;
+      }
+
+      cloudsList.push({
         ...item,
         x,
         y,
@@ -751,10 +789,280 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         finalScaleY,
         renderWidth,
         renderHeight,
-        relativeAz
-      };
-    }).filter(Boolean);
-  }, [allCloudLayersData, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL]);
+        relativeAz,
+        isOpaqueCloud,
+      });
+    });
+
+    // ── Helper 2: Map gridCloudShapes (외부 그리드 구름) ──────────────────────
+    if (gridCloudShapes && gridCloudShapes.length > 0) {
+      gridCloudShapes.forEach((shape) => {
+        const timeMs = currentTime.getTime();
+        const windSpeedKmh = 25;
+        const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
+        const totalDx = (windDriftKm % 160 - 80);
+        const windAzOffset = Math.atan2(totalDx, shape.centerDist) * (180 / Math.PI);
+        const relAzDeg = shape.centerAzOffset + windAzOffset;
+        const relativeAz = ((relAzDeg + 180) % 360) - 180;
+        
+        const fovRad = (visualFov * Math.PI) / 180;
+        const halfFovRad = fovRad / 2;
+        const xOffsetRatio = Math.tan((relativeAz * Math.PI) / 180) / Math.tan(halfFovRad);
+        const x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
+        const y = horizonTop - (shape.apparentElevation * DEGREE_TO_PIXEL);
+
+        const perspectiveScale = 45 / Math.max(10, shape.centerDist);
+        const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
+        const finalScaleX = clampedScale * scaleZoom;
+        const finalScaleY = clampedScale * scaleZoom * 0.6;
+
+        let baseW = 150;
+        let baseH = 35;
+        if (shape.type === 'high') {
+          baseW = 220; baseH = 15;
+        } else if (shape.type === 'mid') {
+          baseW = 170; baseH = 32;
+        } else {
+          baseW = 190; baseH = 48;
+        }
+
+        const renderWidth = baseW * finalScaleX;
+        const renderHeight = baseH * finalScaleY;
+
+        let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
+        if (shape.centerDist <= 80) cloudCategory = 'near';
+        else if (shape.centerDist > 200) cloudCategory = 'far';
+
+        if (x + renderWidth < -100 || x - renderWidth > VISUALIZER_WIDTH + 100) {
+          return;
+        }
+
+        const avgPrecip = interpolatedWeather && interpolatedWeather.length > 0
+          ? interpolatedWeather.reduce((sum, w) => sum + (w.precipitation || 0), 0) / interpolatedWeather.length
+          : 0;
+        const avgLiquidWater = interpolatedWeather && interpolatedWeather.length > 0
+          ? interpolatedWeather.reduce((sum, w) => sum + (w.totalColumnWaterVapour || 0), 0) / interpolatedWeather.length
+          : 0;
+
+        const preset = getCloudPreset(
+          shape.type,
+          shape.density,
+          overcast,
+          avgPrecip,
+          avgLiquidWater
+        );
+
+        const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
+        const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
+        const templateIndex = seed % templates.length;
+        const pathStr = templates[templateIndex];
+
+        let baseRGB = parseColor(
+          shape.type === 'high'
+            ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.5)')
+            : shape.type === 'mid'
+            ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.45)')
+            : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.4)')
+        );
+        if (overcast > 0.5) baseRGB = interpolateColors(baseRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
+        if (dustIntensity > 0.5) baseRGB = interpolateColors(baseRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
+
+        const cloudAzimuthAbs = (sim?.azimuth ?? 180) + shape.centerAzOffset + windAzOffset;
+        let azDiff = cloudAzimuthAbs - (sim?.azimuth ?? 180);
+        azDiff = ((azDiff + 180) % 360) - 180;
+        
+        const dProjection = shape.centerDist * Math.cos((azDiff * Math.PI) / 180);
+        const phiProjection = dProjection / 6371;
+        const sunAltFromCloud = sunAltitude + phiProjection * (180 / Math.PI);
+        const cloudBeam = getSunBeamColor(sunAltFromCloud);
+
+        const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (shape.apparentElevation - sunAltitude) * (shape.apparentElevation - sunAltitude));
+        const ambientSky = skyColorAtDirection(
+          Math.max(0.05, shape.apparentElevation),
+          angularDistanceToSun,
+          sunAltitude,
+          weatherFactors.beta,
+          weatherFactors.pathClarity
+        );
+
+        const beamIntensity = clamp01((sunAltFromCloud + 2.0) / 4.0) * weatherFactors.pathClarity;
+        const litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
+        
+        const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
+        const shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
+
+        const litBlend = 0.9 - preset.thickness * 0.25;
+        const shadowBlend = 0.8 - preset.thickness * 0.1;
+
+        let litRGB = interpolateColors(
+          baseRGB,
+          { r: Math.round(litLight.r * 255), g: Math.round(litLight.g * 255), b: Math.round(litLight.b * 255), a: 1 },
+          litBlend
+        );
+        let shadowRGB = interpolateColors(
+          baseRGB,
+          { r: Math.round(shadowLight.r * 255), g: Math.round(shadowLight.g * 255), b: Math.round(shadowLight.b * 255), a: 1 },
+          shadowBlend
+        );
+
+        const midRGB = interpolateColors(shadowRGB, litRGB, 0.45);
+
+        const highlightIntensity = preset.thickness > 0.5 ? 1.0 : 0.7;
+        const highlightRGB = interpolateColors(
+          litRGB,
+          { r: Math.round(cloudBeam.r * 255), g: Math.round(cloudBeam.g * 255), b: Math.round(cloudBeam.b * 255), a: 1 },
+          highlightIntensity
+        );
+
+        let rimHighlightRGB = highlightRGB;
+        if (angularDistanceToSun < 35 && sunAltFromCloud > -3.0) {
+          const cosG = Math.cos((angularDistanceToSun * Math.PI) / 180);
+          const gMie = 0.76;
+          const phase = (1 - gMie * gMie) / Math.pow(1 + gMie * gMie - 2 * gMie * cosG, 1.5);
+          const phaseMax = (1 - gMie * gMie) / Math.pow((1 - gMie) * (1 - gMie), 1.5);
+          const mieHighlight = clamp01(phase / phaseMax) * beamIntensity * weatherFactors.pathClarity;
+          
+          rimHighlightRGB = interpolateColors(
+            highlightRGB,
+            { r: Math.round(cloudBeam.r * 255), g: Math.round(cloudBeam.g * 255), b: Math.round(cloudBeam.b * 255), a: 1 },
+            mieHighlight * 0.4
+          );
+        }
+
+        const stopMid = `${Math.round(30 + preset.thickness * 45)}%`;
+        const stopLit = `${Math.round(70 + preset.thickness * 20)}%`;
+
+        const relativeSunAz = (((sim?.azimuth || 180) - heading + 180) % 360) - 180;
+        const lightDx = Math.sin((relativeSunAz * Math.PI) / 180);
+        const lightDy = -Math.sin(((sunAltitude - 15) * Math.PI) / 180);
+        
+        const lightLength = Math.sqrt(lightDx * lightDx + lightDy * lightDy);
+        const cosA = lightLength > 1e-5 ? lightDx / lightLength : 0;
+        const sinA = lightLength > 1e-5 ? lightDy / lightLength : -1.0;
+
+        const x1 = `${(0.5 - cosA * 0.5) * 100}%`;
+        const y1 = `${(0.5 - sinA * 0.5) * 100}%`;
+        const x2 = `${(0.5 + cosA * 0.5) * 100}%`;
+        const y2 = `${(0.5 + sinA * 0.5) * 100}%`;
+
+        // 구름 종류에 따른 불투명(Opaque) 여부 판정
+        const isOpaqueCloud = 
+          preset.name === 'Cumulus' || 
+          preset.name === 'Cumulonimbus' || 
+          preset.name === 'Nimbostratus' || 
+          preset.name === 'Stratocumulus';
+
+        let cloudOpacity = Math.max(0.1, preset.baseOpacity * (shape.density / 100));
+        if (isOpaqueCloud && shape.density >= 15) {
+          cloudOpacity = 0.98;
+        }
+
+        cloudsList.push({
+          id: shape.id,
+          type: shape.type,
+          S: shape.centerDist, // distance for depth sorting
+          apparentElevationDeg: shape.apparentElevation,
+          azimuthOffset: shape.centerAzOffset,
+          baseWidth: baseW,
+          baseHeight: baseH,
+          baseColorStr: colorToString(baseRGB),
+          seed,
+          opacityDensity: shape.density,
+          d: shape.centerDist,
+          pathStr,
+          cloudCategory,
+          preset,
+          precipitation: avgPrecip,
+          liquidWater: avgLiquidWater,
+          x,
+          y,
+          gradId: `gridGrad-${shape.id}`,
+          x1, y1, x2, y2,
+          finalShadowColor: colorToString(shadowRGB),
+          finalMidColor: colorToString(midRGB),
+          finalLitColor: colorToString(litRGB),
+          finalHighlightColor: colorToString(rimHighlightRGB),
+          stopMid,
+          stopLit,
+          shadowDx: 0,
+          shadowDy: 0,
+          cloudOpacity,
+          finalScaleX,
+          finalScaleY,
+          renderWidth,
+          renderHeight,
+          relativeAz,
+          isOpaqueCloud,
+        });
+      });
+    }
+
+    // ── 3단계: 가까운 순(S 오름차순) 정렬 및 Occlusion 연산 ──────────────────
+    cloudsList.sort((a, b) => a.S - b.S);
+
+    const numBuckets = 12;
+    const bucketOcclusion = new Array(numBuckets).fill(0);
+    let sunTransmission = 1.0;
+
+    const sunX = VISUALIZER_WIDTH / 2;
+    const sunY = SKY_HEIGHT - ((sunAltitude * DEGREE_TO_PIXEL) + HORIZON_Y);
+
+    cloudsList.forEach((cloud) => {
+      const halfFov = visualFov / 2;
+      let bucketIdx = Math.floor(((cloud.relativeAz + halfFov) / visualFov) * numBuckets);
+      bucketIdx = Math.max(0, Math.min(numBuckets - 1, bucketIdx));
+
+      const O_b = bucketOcclusion[bucketIdx];
+
+      // 구름 간 차폐 적용: 불투명(Opaque) 구름일수록 뒤쪽 구름을 강하게 가려 완전 차폐함
+      const occlWeight = cloud.isOpaqueCloud ? 0.95 : 0.45;
+      cloud.cloudOpacity = cloud.cloudOpacity * (1.0 - O_b * occlWeight);
+
+      // 차폐 기여도 누적
+      const thicknessFactor = cloud.preset.thickness * (cloud.isOpaqueCloud ? 1.0 : 0.6);
+      const opacityContribution = cloud.cloudOpacity * thicknessFactor;
+
+      // 주 버킷 차폐 누적
+      bucketOcclusion[bucketIdx] = Math.min(0.99, bucketOcclusion[bucketIdx] + (1.0 - bucketOcclusion[bucketIdx]) * opacityContribution);
+      
+      // 인접 버킷에도 차폐 효과 스필오버
+      if (bucketIdx > 0) {
+        bucketOcclusion[bucketIdx - 1] = Math.min(0.99, bucketOcclusion[bucketIdx - 1] + (1.0 - bucketOcclusion[bucketIdx - 1]) * opacityContribution * 0.4);
+      }
+      if (bucketIdx < numBuckets - 1) {
+        bucketOcclusion[bucketIdx + 1] = Math.min(0.99, bucketOcclusion[bucketIdx + 1] + (1.0 - bucketOcclusion[bucketIdx + 1]) * opacityContribution * 0.4);
+      }
+
+      // 태양 차폐 연산 (Sun Disk 가림막)
+      const rx = cloud.renderWidth / 2;
+      const ry = cloud.renderHeight / 2;
+      if (rx > 0 && ry > 0) {
+        const dx = sunX - cloud.x;
+        const dy = sunY - cloud.y;
+        // 타원 거리 계산 (구름 크기에 맞춰 1.1x 범위 가림)
+        const distEll = Math.sqrt((dx / rx) * (dx / rx) + (dy / ry) * (dy / ry));
+        
+        if (distEll < 1.1) {
+          const overlapFactor = Math.max(0, Math.min(1.0, 1.1 - distEll));
+          // 불투명 구름일수록 태양을 강력하게 완전히 가려버림
+          const cloudBlockFactor = cloud.cloudOpacity * cloud.preset.thickness * (cloud.isOpaqueCloud ? 1.5 : 0.8);
+          const sunOcclContribution = overlapFactor * cloudBlockFactor;
+          
+          sunTransmission = sunTransmission * (1.0 - Math.min(0.99, sunOcclContribution));
+        }
+      }
+    });
+
+    const sunOcclusion = 1.0 - sunTransmission;
+
+    // ── 4단계: 다시 먼 거리 순(S 내림차순) 정렬 ────────────────────────────
+    cloudsList.sort((a, b) => b.S - a.S);
+
+    return {
+      clouds: cloudsList,
+      sunOcclusion,
+    };
+  }, [allCloudLayersData, gridCloudShapes, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, weatherFactors]);
 
   // ── Sky mosaic: 8 vertical × 5 horizontal = 40 cell physically-based colors ──
   const skyGrid = useMemo(() => {
@@ -1409,7 +1717,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             </LinearGradient>
 
             {/* Custom dynamic cloud gradients */}
-            {computedClouds.map((cloud: any) => (
+            {unifiedClouds.clouds.map((cloud: any) => (
               <LinearGradient key={cloud.gradId} id={cloud.gradId} x1={cloud.x1} y1={cloud.y1} x2={cloud.x2} y2={cloud.y2}>
                 <Stop offset="0%" stopColor={cloud.finalShadowColor} stopOpacity={1} />
                 <Stop offset={cloud.stopMid} stopColor={cloud.finalMidColor} stopOpacity={1} />
@@ -1501,7 +1809,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             
             // pathClarity가 낮을수록(구름이 태양 앞을 가릴수록) 태양 디스크 자체도 흐려지거나 아예 소멸되도록 불투명도 조절
             const pathClarity = prediction?.factors?.pathClarity ?? 1.0;
-            const sunOpacity = clamp01((pathClarity - 0.15) / 0.85);
+            const baseSunOpacity = clamp01((pathClarity - 0.15) / 0.85);
+            const sunOpacity = baseSunOpacity * (1.0 - unifiedClouds.sunOcclusion);
             
             return (
               <G opacity={sunOpacity}>
@@ -1523,220 +1832,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             );
           })}
 
-          {/* 4. 3D Depth-sorted Clouds */}
-          {computedClouds.map((cloud: any) => {
+          {/* 4. Unified Depth-sorted Occluded Clouds */}
+          {unifiedClouds.clouds.map((cloud: any) => {
             if (!cloud) return null;
             const tx = cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2;
             const ty = cloud.y;
             const scaleStr = `scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`;
             return (
               <G key={cloud.id} opacity={cloud.cloudOpacity}>
-                {/* Cloud fill only — no border/shadow */}
                 <Path
                   d={cloud.pathStr}
                   fill={`url(#${cloud.gradId})`}
                   transform={`translate(${tx}, ${ty}) ${scaleStr}`}
-                />
-              </G>
-            );
-          })}
-
-          {/* 4.5. Enhanced Grid Clouds */}
-          {gridCloudShapes && gridCloudShapes.length > 0 && gridCloudShapes.map((shape) => {
-            const horizonTop = SKY_HEIGHT - HORIZON_Y;
-            const timeMs = currentTime.getTime();
-            const windSpeedKmh = 25;
-            const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
-            const totalDx = (windDriftKm % 160 - 80);
-            const windAzOffset = Math.atan2(totalDx, shape.centerDist) * (180 / Math.PI);
-            const relAzDeg = shape.centerAzOffset + windAzOffset;
-            const relAz = ((relAzDeg + 180) % 360) - 180;
-            const fovRad = (visualFov * Math.PI) / 180;
-            const halfFovRad = fovRad / 2;
-            const xOffsetRatio = Math.tan((relAz * Math.PI) / 180) / Math.tan(halfFovRad);
-            const cx = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
-            const cy = horizonTop - (shape.apparentElevation * DEGREE_TO_PIXEL);
-            let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
-            if (shape.centerDist <= 80) cloudCategory = 'near';
-            else if (shape.centerDist > 200) cloudCategory = 'far';
-            const seed = shape.id.charCodeAt(5) * 100 + shape.centerDist;
-            
-            const { overcast, dustIntensity } = weatherFactors;
-            const avgPrecip = interpolatedWeather && interpolatedWeather.length > 0
-              ? interpolatedWeather.reduce((sum, w) => sum + (w.precipitation || 0), 0) / interpolatedWeather.length
-              : 0;
-            const avgLiquidWater = interpolatedWeather && interpolatedWeather.length > 0
-              ? interpolatedWeather.reduce((sum, w) => sum + (w.totalColumnWaterVapour || 0), 0) / interpolatedWeather.length
-              : 0;
-
-            // 1) 구름 프리셋 판별
-            const preset = getCloudPreset(
-              shape.type,
-              shape.density,
-              overcast,
-              avgPrecip,
-              avgLiquidWater
-            );
-
-            const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
-            const templateIndex = seed % templates.length;
-            const cloudPath = templates[templateIndex];
-
-            // 구름 종류별 렌더링 규격(Aspect Ratio) 설정
-            let baseW = 150;
-            let baseH = 35;
-            
-            if (preset.name === 'Cirrus' || preset.name === 'Stratus') {
-              baseW = 220;
-              baseH = 15;
-            } else if (preset.name === 'Cirrostratus' || preset.name === 'Altostratus' || preset.name === 'Nimbostratus') {
-              baseW = 240;
-              baseH = 24;
-            } else if (preset.name === 'Cumulonimbus') {
-              baseW = 160;
-              baseH = 100;
-            } else if (preset.name === 'Cumulus') {
-              baseW = 190;
-              baseH = 48;
-            } else {
-              baseW = 170;
-              baseH = 32;
-            }
-
-            const perspectiveScale = 45 / Math.max(10, shape.centerDist);
-            const clampedScale = Math.max(0.06, Math.min(2.5, perspectiveScale));
-            const scaleZoom = 20 / visualFov;
-            const finalScale = clampedScale * scaleZoom;
-            const renderW = baseW * finalScale;
-            const renderH = baseH * finalScale * 0.6;
-
-            let baseRGB = parseColor(
-              shape.type === 'high'
-                ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.5)')
-                : shape.type === 'mid'
-                ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.45)')
-                : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.4)')
-            );
-            if (overcast > 0.5) baseRGB = interpolateColors(baseRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
-            if (dustIntensity > 0.5) baseRGB = interpolateColors(baseRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
-            
-            const cloudAzimuthAbs = (sim?.azimuth ?? 180) + shape.centerAzOffset + windAzOffset;
-            let azDiff = cloudAzimuthAbs - (sim?.azimuth ?? 180);
-            azDiff = ((azDiff + 180) % 360) - 180;
-            
-            const dProjection = shape.centerDist * Math.cos((azDiff * Math.PI) / 180);
-            const phiProjection = dProjection / 6371;
-            const sunAltFromCloud = sunAltitude + phiProjection * (180 / Math.PI);
-
-            const latVal = (location as any)?.coords?.latitude ?? 37.5665;
-            const doy = 172;
-            const cloudHeightM = shape.type === 'high' ? 9500 : shape.type === 'mid' ? 4500 : 1500;
-
-            // 2) 구름 고도에서의 물리적인 직사광선 스펙트럼 색상 보간
-            const cloudBeam = getSunBeamColor(sunAltFromCloud);
-
-            const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (shape.apparentElevation - sunAltitude) * (shape.apparentElevation - sunAltitude));
-            const ambientSky = skyColorAtDirection(
-              Math.max(0.05, shape.apparentElevation),
-              angularDistanceToSun,
-              sunAltitude,
-              weatherFactors.beta,
-              weatherFactors.pathClarity
-            );
-
-            const beamIntensity = clamp01((sunAltFromCloud + 2.0) / 4.0) * weatherFactors.pathClarity;
-            const litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
-            
-            // 얇은 구름은 그림자도 밝은 산란광을 많이 받아 밝음
-            // 두꺼운 구름은 매우 어두운 차콜 그늘 톤으로 수렴
-            const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
-            const shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
-
-            // 얇은 구름은 baseRGB의 흔적을 덜 남기고 산란된 빛(litLight)을 뽀얗게 머금음
-            const litBlend = 0.9 - preset.thickness * 0.25;
-            const shadowBlend = 0.8 - preset.thickness * 0.1;
-
-            let litRGB = interpolateColors(
-              baseRGB,
-              { r: Math.round(litLight.r * 255), g: Math.round(litLight.g * 255), b: Math.round(litLight.b * 255), a: 1 },
-              litBlend
-            );
-            let shadowRGB = interpolateColors(
-              baseRGB,
-              { r: Math.round(shadowLight.r * 255), g: Math.round(shadowLight.g * 255), b: Math.round(shadowLight.b * 255), a: 1 },
-              shadowBlend
-            );
-
-            // 중간톤(Mid) 색상 계산
-            const midRGB = interpolateColors(shadowRGB, litRGB, 0.45);
-
-            // 하이라이트(Highlight) 색상 계산: 태양을 마주하는 림 에지용 밝은 광택
-            const highlightIntensity = preset.thickness > 0.5 ? 1.0 : 0.7;
-            const highlightRGB = interpolateColors(
-              litRGB,
-              { r: Math.round(cloudBeam.r * 255), g: Math.round(cloudBeam.g * 255), b: Math.round(cloudBeam.b * 255), a: 1 },
-              highlightIntensity
-            );
-
-            // Mie phase 역광 하이라이트 추가 보정 (태양 부근일 때 림 발광 증폭)
-            let rimHighlightRGB = highlightRGB;
-            if (angularDistanceToSun < 35 && sunAltFromCloud > -3.0) {
-              const cosG = Math.cos((angularDistanceToSun * Math.PI) / 180);
-              const gMie = 0.76;
-              const phase = (1 - gMie * gMie) / Math.pow(1 + gMie * gMie - 2 * gMie * cosG, 1.5);
-              const phaseMax = (1 - gMie * gMie) / Math.pow((1 - gMie) * (1 - gMie), 1.5);
-              const mieHighlight = clamp01(phase / phaseMax) * beamIntensity * weatherFactors.pathClarity;
-              
-              rimHighlightRGB = interpolateColors(
-                highlightRGB,
-                { r: Math.round(cloudBeam.r * 255), g: Math.round(cloudBeam.g * 255), b: Math.round(cloudBeam.b * 255), a: 1 },
-                mieHighlight * 0.4
-              );
-            }
-
-            // 두께에 따른 그라데이션 Stop 오프셋 계산
-            const stopMid = `${Math.round(30 + preset.thickness * 45)}%`; // 30% ~ 75%
-            const stopLit = `${Math.round(70 + preset.thickness * 20)}%`; // 70% ~ 90%
-
-            const fillColor = colorToString(litRGB);
-            const shadowColor = colorToString(shadowRGB);
-            const midColor = colorToString(midRGB);
-            const highlightColor = colorToString(rimHighlightRGB);
-
-            const gradId = `gridGrad-${shape.id}`;
-            
-            // 태양은 무한히 먼 거리의 평행 광원(Parallel Light)이므로 구름의 개별 좌표에 따라 
-            // 빛받는 방향이 좌우로 뒤집히지 않도록 통일된 평행 광선 벡터를 적용합니다.
-            const relativeSunAz = (((sim?.azimuth || 180) - heading + 180) % 360) - 180;
-            const lightDx = Math.sin((relativeSunAz * Math.PI) / 180);
-            const lightDy = -Math.sin(((sunAltitude - 15) * Math.PI) / 180);
-            
-            const lightLength = Math.sqrt(lightDx * lightDx + lightDy * lightDy);
-            const cosA = lightLength > 1e-5 ? lightDx / lightLength : 0;
-            const sinA = lightLength > 1e-5 ? lightDy / lightLength : -1.0;
-
-            const x1 = `${(0.5 - cosA * 0.5) * 100}%`;
-            const y1 = `${(0.5 - sinA * 0.5) * 100}%`;
-            const x2 = `${(0.5 + cosA * 0.5) * 100}%`;
-            const y2 = `${(0.5 + sinA * 0.5) * 100}%`;
-            const gTx = cx - (baseW * finalScale) / 2;
-            const gTy = cy;
-            const gScale = `scale(${finalScale}, ${finalScale * 0.6})`;
-            return (
-              <G key={shape.id} opacity={Math.max(0.1, preset.baseOpacity * (shape.density / 100))}>
-                <Defs>
-                  <LinearGradient id={gradId} x1={x1} y1={y1} x2={x2} y2={y2}>
-                    <Stop offset="0%" stopColor={shadowColor} stopOpacity={1} />
-                    <Stop offset={stopMid} stopColor={midColor} stopOpacity={1} />
-                    <Stop offset={stopLit} stopColor={fillColor} stopOpacity={1} />
-                    <Stop offset="100%" stopColor={highlightColor} stopOpacity={1} />
-                  </LinearGradient>
-                </Defs>
-                {/* Cloud fill with gradient */}
-                <Path
-                  d={cloudPath}
-                  fill={`url(#${gradId})`}
-                  transform={`translate(${gTx}, ${gTy}) ${gScale}`}
                 />
               </G>
             );
