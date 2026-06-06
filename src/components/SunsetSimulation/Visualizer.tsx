@@ -376,14 +376,74 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const isOvercast = (prediction?.factors?.overheadOvercast ?? 0) >= 0.75;
     const overcast = prediction?.factors?.overheadOvercast ?? 0;
 
-    // 1) 5개 방위각 열별 거리 연속성 분석 (10k ~ 380k 사이)
-    const columnContinuity = Array.from({ length: 5 }, () => ({
-      low: new Array(7).fill(false),
-      mid: new Array(7).fill(false),
-      high: new Array(7).fill(false)
+    // ── 1) 5개 방위각 열별 공간 기상 패턴 분석 (10k ~ 380k 사이) ──
+    const colStatus = Array.from({ length: 5 }, () => ({
+      isStormSystem: false,      // 거대 비구름대 (저중고 전층 고밀도 수직발달)
+      isStratusDeck: false,      // 거대 지상 해무/안개 (저층 고밀도, 중고층 없음)
+      isScatteredCumulus: false, // 맑은 날의 산재한 뭉게구름 (거리별 밀도 편차가 큼)
+      isCirrostratusVeil: false, // 고고도 얇은 면사포 (고층 고밀도, 저중층 맑음)
+      isCirrusStreamer: false,   // 제트기류 새털구름 띠 (고층 고밀도가 선형 분포)
+      isDeck: new Array(7).fill(false) // 거리별 기본 연속성 기록
     }));
 
     for (let col = 0; col < 5; col++) {
+      const lowVals: number[] = [];
+      const midVals: number[] = [];
+      const highVals: number[] = [];
+      
+      for (let d = 0; d < 7; d++) {
+        const pIdx = 1 + col * 7 + d;
+        const interpolated = interpolatedWeather[pIdx];
+        lowVals.push(interpolated?.low ?? 0);
+        midVals.push(interpolated?.mid ?? 0);
+        highVals.push(interpolated?.high ?? 0);
+      }
+      
+      const avgLow = lowVals.reduce((a, b) => a + b, 0) / 7;
+      const avgMid = midVals.reduce((a, b) => a + b, 0) / 7;
+      const avgHigh = highVals.reduce((a, b) => a + b, 0) / 7;
+      
+      // 밀도의 공간적 분산(Variance) 계산
+      const varLow = lowVals.reduce((sum, v) => sum + Math.pow(v - avgLow, 2), 0) / 7;
+      const varHigh = highVals.reduce((sum, v) => sum + Math.pow(v - avgHigh, 2), 0) / 7;
+
+      // 인접 열들의 평균 고고도 구름 밀도 (선형 새털구름대 판정용)
+      const getColAvgHigh = (c: number) => {
+        let sum = 0;
+        for (let d = 0; d < 7; d++) {
+          sum += interpolatedWeather[1 + c * 7 + d]?.high ?? 0;
+        }
+        return sum / 7;
+      };
+      const leftColAvg = col > 0 ? getColAvgHigh(col - 1) : 0;
+      const rightColAvg = col < 4 ? getColAvgHigh(col + 1) : 0;
+
+      // 1. 거대 비구름대 판정 (앞 4개 근거리 지점에서 저, 중, 고 모두 55% 이상)
+      const nearLowAvg = lowVals.slice(0, 4).reduce((a,b)=>a+b, 0) / 4;
+      const nearMidAvg = midVals.slice(0, 4).reduce((a,b)=>a+b, 0) / 4;
+      const nearHighAvg = highVals.slice(0, 4).reduce((a,b)=>a+b, 0) / 4;
+      
+      if (nearLowAvg >= 55 && nearMidAvg >= 55 && nearHighAvg >= 55) {
+        colStatus[col].isStormSystem = true;
+      }
+      // 2. 거대 지상 안개/해무 판정 (저층 고밀도, 중고층은 맑음)
+      else if (nearLowAvg >= 50 && avgMid < 15 && avgHigh < 15) {
+        colStatus[col].isStratusDeck = true;
+      }
+      // 3. 고고도 얇은 면사포 권층운 판정 (저중층 맑음, 고층은 중간 밀도로 고르게 분포)
+      else if (avgLow < 15 && avgMid < 15 && (avgHigh >= 30 && avgHigh <= 75) && varHigh < 150) {
+        colStatus[col].isCirrostratusVeil = true;
+      }
+      // 4. 제트기류 새털구름 띠 판정 (고층운이 선형으로 뻗음, 양옆은 맑음)
+      else if (avgHigh >= 35 && avgLow < 15 && avgMid < 15 && ((col > 0 && leftColAvg < 15) || (col < 4 && rightColAvg < 15))) {
+        colStatus[col].isCirrusStreamer = true;
+      }
+      // 5. 산재된 조각 뭉게구름 판정 (저층 편차가 매우 큼)
+      else if (avgLow >= 15 && avgLow < 50 && varLow > 220) {
+        colStatus[col].isScatteredCumulus = true;
+      }
+
+      // 거리별 기본 연속성(isDeck) 기록 (앞뒤거리에 구름이 연속해 있는지 여부)
       const layers: ('low' | 'mid' | 'high')[] = ['low', 'mid', 'high'];
       layers.forEach(layer => {
         const hasCloud = new Array(7).fill(false);
@@ -392,17 +452,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           const interpolated = interpolatedWeather[pIdx];
           if (interpolated) {
             const val = layer === 'high' ? interpolated.high : layer === 'mid' ? interpolated.mid : interpolated.low;
-            hasCloud[d] = val >= 25; // 25% 이상 구름이 존재할 때
+            hasCloud[d] = val >= 25;
           }
         }
-        
-        // 앞이나 뒤 거리에 같이 구름이 있으면 연속된 것으로 판정
         for (let d = 0; d < 7; d++) {
           if (hasCloud[d]) {
             const prevNeighbour = d > 0 ? hasCloud[d - 1] : false;
             const nextNeighbour = d < 6 ? hasCloud[d + 1] : false;
             if (prevNeighbour || nextNeighbour) {
-              columnContinuity[col][layer][d] = true;
+              colStatus[col].isDeck[d] = true;
             }
           }
         }
@@ -436,10 +494,11 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         
         const perceivedDensity = Math.min(100, Math.round(100 * (1.0 - Math.pow(1.0 - density / 100, slantPathFactor))));
 
-        // 연속성 감지 정보 가져오기
+        // 해당 지점의 기상 패턴 상태 획득
         const colIdx = i === 0 ? 2 : Math.floor((i - 1) / 7);
         const distIdx = i === 0 ? 0 : (i - 1) % 7;
-        const isDeck = i === 0 ? false : (columnContinuity[colIdx]?.[type]?.[distIdx] ?? false);
+        const status = colStatus[colIdx];
+        const isDeck = i === 0 ? false : status.isDeck[distIdx];
 
         // 구름 프리셋 판별 (보정된 perceivedDensity 적용)
         let preset = getCloudPreset(
@@ -451,8 +510,70 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           humidity
         );
 
-        // 저층 뭉게구름이지만 넓게 연속된 경우, 평평한 층적운(Stratocumulus) 또는 층운(Stratus)으로 강제 변형하여 시트화
-        if (isDeck && type === 'low' && preset.name === 'Cumulus') {
+        // ── 구름 형태 및 프리셋 패턴 강제 매핑 ──
+        if (status.isStormSystem) {
+          // 거대 비구름대인 경우 저/중층은 Nimbostratus, 고층은 Cirrostratus로 강제화
+          if (type === 'low' || type === 'mid') {
+            preset = {
+              name: 'Nimbostratus',
+              thickness: 0.95,
+              shadowContrast: 0.96,
+              scattering: 0.22,
+              rimLightSharpness: 0.85,
+              baseOpacity: 0.98,
+            };
+          } else {
+            preset = {
+              name: 'Cirrostratus',
+              thickness: 0.40,
+              shadowContrast: 0.45,
+              scattering: 0.60,
+              rimLightSharpness: 0.40,
+              baseOpacity: 0.80,
+            };
+          }
+        } else if (status.isStratusDeck && type === 'low') {
+          // 거대 지상 안개/해무의 경우 Stratus로 강제화
+          preset = {
+            name: 'Stratus',
+            thickness: 0.50,
+            shadowContrast: 0.25, // 안개는 그늘이 부드러움
+            scattering: 0.85,
+            rimLightSharpness: 0.20,
+            baseOpacity: 0.92,
+          };
+        } else if (status.isCirrostratusVeil && type === 'high') {
+          // 고고도 얇은 면사포 권층운 강제화
+          preset = {
+            name: 'Cirrostratus',
+            thickness: 0.10,
+            shadowContrast: 0.08,
+            scattering: 0.92,
+            rimLightSharpness: 0.15,
+            baseOpacity: 0.20,
+          };
+        } else if (status.isCirrusStreamer && type === 'high') {
+          // 제트기류 새털구름대 강제화
+          preset = {
+            name: 'Cirrus',
+            thickness: 0.05,
+            shadowContrast: 0.05,
+            scattering: 0.98,
+            rimLightSharpness: 0.20,
+            baseOpacity: 0.25,
+          };
+        } else if (status.isScatteredCumulus && type === 'low') {
+          // 산재한 조각 뭉게구름 적운 강제화
+          preset = {
+            name: 'Cumulus',
+            thickness: 0.70,
+            shadowContrast: 0.75,
+            scattering: 0.40,
+            rimLightSharpness: 0.85,
+            baseOpacity: 0.80,
+          };
+        } else if (isDeck && type === 'low' && preset.name === 'Cumulus') {
+          // 단순히 겹친 저층운은 층적운으로 시트화
           preset = {
             name: 'Stratocumulus',
             thickness: 0.85,
@@ -476,10 +597,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         else if (preset.name === 'Cumulus') H_c = 1.2;
         else if (preset.name === 'Cumulonimbus') H_c = 4.5;
 
-        // 체감 구름양에 근거한 구름 개수 결정 (더욱 촘촘하게 덮도록 개수 상향)
-        const cloudCount = isOvercast 
-          ? Math.ceil(perceivedDensity / 22) 
-          : Math.ceil(perceivedDensity / 10);
+        // 체감 구름양에 근거한 구름 개수 결정
+        // 거대 비구름대나 안개층일 경우 더욱 촘촘하게 메움
+        const isDenseDeck = status.isStormSystem || status.isStratusDeck;
+        const cloudCount = isDenseDeck 
+          ? Math.ceil(perceivedDensity / 16)
+          : (isOvercast ? Math.ceil(perceivedDensity / 22) : Math.ceil(perceivedDensity / 10));
         
         for (let s = 0; s < cloudCount; s++) {
           const seed = type.charCodeAt(0) * 100 + i * 37 + s * 17;
@@ -525,11 +648,19 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           const templateIndex = seed % templates.length;
           const pathStr = templates[templateIndex];
 
-          // 구름 종류별 렌더링 규격(Aspect Ratio) 설정
+          // 구름 종류 및 공간 모드별 렌더링 규격(Aspect Ratio) 설정
           let baseWidth = 150;
           let baseHeight = 35;
           
-          if (preset.name === 'Cirrus' || preset.name === 'Stratus') {
+          if (status.isStratusDeck && type === 'low') {
+            // 안개는 가로로 매우 납작하고 넓음
+            baseWidth = 260;
+            baseHeight = 12;
+          } else if (status.isStormSystem && (type === 'low' || type === 'mid')) {
+            // 거대 비구름대 본체는 거대하고 우람함
+            baseWidth = 260;
+            baseHeight = 65;
+          } else if (preset.name === 'Cirrus' || preset.name === 'Stratus') {
             baseWidth = 220;
             baseHeight = 15;
           } else if (preset.name === 'Cirrostratus' || preset.name === 'Altostratus' || preset.name === 'Nimbostratus') {
@@ -572,6 +703,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             precipitation: interpolated.precipitation ?? 0,
             liquidWater: interpolated.totalColumnWaterVapour ?? 0,
             isDeck,
+            weatherMode: {
+              isStormSystem: status.isStormSystem,
+              isStratusDeck: status.isStratusDeck,
+              isCirrostratusVeil: status.isCirrostratusVeil,
+              isCirrusStreamer: status.isCirrusStreamer,
+              isScatteredCumulus: status.isScatteredCumulus,
+            }
           });
         }
       });
@@ -635,12 +773,23 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const clampedScale = Math.max(0.075, Math.min(3.0, perspectiveScale));
       const foreshorteningFactor = 0.15 + (clampedScale / 3.0) * 0.85; 
 
-      // 거대 장막 구름(isDeck)일 경우 구름 조각을 가로로 길게 늘려서 서로 뭉개져 합쳐지게 함
-      const densityStretch = 1.0 + (item.opacityDensity / 120.0); // 밀도가 높을수록 더 넓게 퍼짐
-      const horizontalStretch = item.isDeck 
-        ? 3.6 
-        : (item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0);
-      
+      // 공간 기상 모드에 따른 가로 신축 배율 결정
+      let horizontalStretch = 1.0;
+      if (item.weatherMode.isStormSystem) {
+        horizontalStretch = 4.8; // 먹구름 장막화
+      } else if (item.weatherMode.isStratusDeck) {
+        horizontalStretch = 4.2; // 바다안개 얇고 넓음
+      } else if (item.weatherMode.isCirrostratusVeil) {
+        horizontalStretch = 3.0; // 베일 구름 넓게 퍼짐
+      } else if (item.weatherMode.isScatteredCumulus) {
+        horizontalStretch = 1.1; // 적운은 조각조각
+      } else {
+        horizontalStretch = item.isDeck 
+          ? 3.6 
+          : (item.cloudCategory === 'far' ? 3.2 : item.cloudCategory === 'mid' ? 1.8 : 1.0);
+      }
+
+      const densityStretch = item.weatherMode.isScatteredCumulus ? 1.0 : (1.0 + (item.opacityDensity / 120.0));
       const finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch;
       const finalScaleY = clampedScale * foreshorteningFactor * scaleZoom;
 
@@ -695,10 +844,20 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       );
 
       const beamIntensity = clamp01((sunAltFromCloud + 2.0) / 4.0) * weatherFactors.pathClarity;
-      const litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
+      let litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
       
       const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
-      const shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
+      let shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
+
+      // ── 기상 모드별 색상 튜닝 ──
+      if (item.weatherMode.isStormSystem) {
+        // 비구름 폭풍우: 극단적으로 어두운 남회색/차콜 블랙 톤 대입
+        litLight = mixRgb(litLight, { r: 0.06, g: 0.07, b: 0.10 }, 0.8);
+        shadowLight = mixRgb(shadowLight, { r: 0.03, g: 0.04, b: 0.06 }, 0.9);
+      } else if (item.weatherMode.isStratusDeck) {
+        // 해무안개: 그림자 경계를 뽀얗고 밝게 하여 음영 대비 대폭 약화
+        shadowLight = mixRgb(shadowLight, litLight, 0.7);
+      }
 
       const litBlend = 0.9 - preset.thickness * 0.25;
       const shadowBlend = 0.8 - preset.thickness * 0.1;
@@ -886,10 +1045,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         );
 
         const beamIntensity = clamp01((sunAltFromCloud + 2.0) / 4.0) * weatherFactors.pathClarity;
-        const litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
+        let litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
         
         const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
-        const shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
+        let shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
 
         const litBlend = 0.9 - preset.thickness * 0.25;
         const shadowBlend = 0.8 - preset.thickness * 0.1;
@@ -993,6 +1152,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           renderHeight,
           relativeAz,
           isOpaqueCloud,
+          weatherMode: {
+            isStormSystem: false,
+            isStratusDeck: false,
+            isCirrostratusVeil: false,
+            isCirrusStreamer: false,
+            isScatteredCumulus: false,
+          }
         });
       });
     }
