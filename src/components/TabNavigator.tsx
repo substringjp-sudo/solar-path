@@ -182,6 +182,30 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                 </View>
               </View>
             </View>
+
+            <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
+              <TouchableOpacity
+                onPress={() => setMapVisible(true)}
+                style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
+                activeOpacity={0.7}
+              >
+                <MapPin size={14} color="#000" />
+              </TouchableOpacity>
+              <TimeSlider 
+                value={currentTime}
+                onChange={setCurrentTime}
+                isTimeMachineEnabled={isTimeMachineEnabled}
+                onToggleTimeMachine={setTimeMachineEnabled}
+                theme={theme}
+                isDay={isDay}
+                markers={[
+                  { time: events.sunrise, color: '#FFA500', type: 'rise' },
+                  { time: events.sunset, color: '#FF4500', type: 'set' },
+                  { time: events.moonrise, color: '#888', type: 'rise' },
+                  { time: events.moonset, color: '#888', type: 'set' },
+                ]}
+              />
+            </View>
           </>
         ) : activeTab === 'sim' ? (
           <SunsetSimulation 
@@ -199,32 +223,6 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           />
         )}
       </Animated.View>
-
-      {activeTab === 'tracker' && (
-        <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
-          <TouchableOpacity
-            onPress={() => setMapVisible(true)}
-            style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
-            activeOpacity={0.7}
-          >
-            <MapPin size={14} color="#000" />
-          </TouchableOpacity>
-          <TimeSlider 
-            value={currentTime}
-            onChange={setCurrentTime}
-            isTimeMachineEnabled={isTimeMachineEnabled}
-            onToggleTimeMachine={setTimeMachineEnabled}
-            theme={theme}
-            isDay={isDay}
-            markers={[
-              { time: events.sunrise, color: '#FFA500', type: 'rise' },
-              { time: events.sunset, color: '#FF4500', type: 'set' },
-              { time: events.moonrise, color: '#888', type: 'rise' },
-              { time: events.moonset, color: '#888', type: 'set' },
-            ]}
-          />
-        </View>
-      )}
     </View>
   );
 };
