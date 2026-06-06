@@ -4,9 +4,169 @@ import {
   Dimensions, Platform, FlatList
 } from 'react-native';
 import { X, Cloud, Compass, Globe, Info } from 'lucide-react-native';
+import Svg, { Path } from 'react-native-svg';
 import { CloudPathData, CloudData } from '../../utils/weather';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { CLOUD_TEMPLATES, CloudPresetName } from './Visualizer';
+
+interface CloudBookEntry {
+  name: CloudPresetName;
+  krName: string;
+  altitudeType: 'high' | 'mid' | 'low';
+  altitudeRange: string;
+  summary: string;
+  origin: string;
+  sunsetEffect: string;
+  physics: {
+    thickness: string;
+    scattering: string;
+    shadow: string;
+  };
+}
+
+const CLOUD_BOOK_DATA: CloudBookEntry[] = [
+  {
+    name: 'Cirrus',
+    krName: '권운 (새털구름)',
+    altitudeType: 'high',
+    altitudeRange: '6km 이상',
+    summary: '빙결정으로 이루어진 희고 가는 실이나 깃털 모양의 구름입니다.',
+    origin: '상층의 건조한 바람과 한랭한 기온 상태에서 수증기가 직접 빙결정으로 승화하여 생겨납니다.',
+    sunsetEffect: '태양이 지평선 아래로 내려간 뒤에도 가장 오랫동안 햇빛을 받아 불타는 듯한 선홍빛 노을을 넓게 퍼뜨립니다.',
+    physics: {
+      thickness: '매우 얇음 (두께 4%)',
+      scattering: '최상 (투과율 95%)',
+      shadow: '거의 없음 (대비 5%)'
+    }
+  },
+  {
+    name: 'Cirrocumulus',
+    krName: '권적운 (비늘구름)',
+    altitudeType: 'high',
+    altitudeRange: '6km 이상',
+    summary: '작은 조개껍데기나 물고기 비늘 모양의 흰 구름 조각들이 떼를 지어 덮은 구름입니다.',
+    origin: '상층 대기 불안정으로 약한 대류 현상이 생겨 수증기가 국소적으로 뭉쳐 얼어붙으며 정렬됩니다.',
+    sunsetEffect: '노을빛을 받아 미세하게 쪼개진 림 라이트와 다채로운 색조 변화가 하늘을 대단히 수려하게 장식합니다.',
+    physics: {
+      thickness: '얇음 (두께 16%)',
+      scattering: '높음 (투과율 80%)',
+      shadow: '약함 (대비 20%)'
+    }
+  },
+  {
+    name: 'Cirrostratus',
+    krName: '권층운 (햇무리구름)',
+    altitudeType: 'high',
+    altitudeRange: '6km 이상',
+    summary: '온 하늘을 하얀 베일처럼 넓게 뒤덮어 햇무리나 달무리를 만드는 얇은 안개성 구름입니다.',
+    origin: '온난전선 전면에서 넓은 대기 상층이 완만하게 상승하면서 얇고 평평한 얼음 입자 층이 만들어집니다.',
+    sunsetEffect: '하늘 전체에 부드러운 붉은색 파스텔 톤 필터를 씌운 듯 넓게 퍼지는 은은한 그라데이션 노을을 선사합니다.',
+    physics: {
+      thickness: '매우 얇음 (두께 12%)',
+      scattering: '매우 높음 (투과율 85%)',
+      shadow: '거의 없음 (대비 15%)'
+    }
+  },
+  {
+    name: 'Altocumulus',
+    krName: '고적운 (양떼구름)',
+    altitudeType: 'mid',
+    altitudeRange: '2 ~ 6km',
+    summary: '양 떼가 밭이랑에 모여 있는 것 같은 둥글둥글한 구름 뭉치들의 배열입니다.',
+    origin: '중층 대기가 국소적으로 불안정해 대류 기류가 형성되며 수증기가 중형 크기 물방울로 응결됩니다.',
+    sunsetEffect: '노을빛이 구름 덩어리 사이로 여과되어 웅장한 빛내림(Crepuscular rays)과 강렬한 외곽 불꽃 테두리를 연출합니다.',
+    physics: {
+      thickness: '보통 (두께 40%)',
+      scattering: '보통 (투과율 70%)',
+      shadow: '보통 (대비 40%)'
+    }
+  },
+  {
+    name: 'Altostratus',
+    krName: '고층운 (차일구름)',
+    altitudeType: 'mid',
+    altitudeRange: '2 ~ 6km',
+    summary: '하늘 전체에 장막을 치듯 균일한 짙은 회청색을 드리우는 넓은 평면 구름입니다.',
+    origin: '광범위한 중층 대기층이 서서히 대규모 상승하면서 대기 전반에 물방울과 얼음 알갱이가 응결되어 발달합니다.',
+    sunsetEffect: '태양의 직접광을 강하게 가려 흐리게 만들며, 몽환적이고 다소 차분한 회보라색~어두운 적색 톤을 유도합니다.',
+    physics: {
+      thickness: '다소 두꺼움 (두께 55%)',
+      scattering: '낮음 (투과율 60%)',
+      shadow: '다소 짙음 (대비 50%)'
+    }
+  },
+  {
+    name: 'Nimbostratus',
+    krName: '난층운 (비구름)',
+    altitudeType: 'mid',
+    altitudeRange: '2 ~ 6km (하층까지 확장)',
+    summary: '하늘 전체를 짙은 회색으로 덮어 지속적인 비나 눈을 내리게 하는 두껍고 어두운 구름입니다.',
+    origin: '저기압이나 활성화된 전선 주위에서 매우 두터운 기류가 강력하게 장시간 강제 상승할 때 생성됩니다.',
+    sunsetEffect: '대부분의 햇빛을 흡수 차단하여 노을의 붉은 광선이 거의 보이지 않고 하늘이 어두운 잿빛으로 탁해집니다.',
+    physics: {
+      thickness: '두꺼움 (두께 75%)',
+      scattering: '매우 낮음 (투과율 30%)',
+      shadow: '짙음 (대비 80%)'
+    }
+  },
+  {
+    name: 'Stratocumulus',
+    krName: '층적운 (물결뭉게구름)',
+    altitudeType: 'low',
+    altitudeRange: '2km 이하',
+    summary: '낮게 깔린 크고 둥그스름한 덩어리들이 서로 밀집해 물결 모양 층을 이루는 구름입니다.',
+    origin: '저고도의 바람과 기류의 복잡한 섭동이나 상승 기류 상단의 억제로 구름층이 수평으로 퍼져 발달합니다.',
+    sunsetEffect: '구름 아랫부분에 깊은 회색 그림자가 지는 동시에, 갈라진 틈 사이로 주황색 노을빛이 강하게 대비되는 입체감을 만듭니다.',
+    physics: {
+      thickness: '두꺼움 (두께 80%)',
+      scattering: '낮음 (투과율 40%)',
+      shadow: '매우 짙음 (대비 82%)'
+    }
+  },
+  {
+    name: 'Stratus',
+    krName: '층운 (안개구름)',
+    altitudeType: 'low',
+    altitudeRange: '2km 이하',
+    summary: '지표면 가까이에 안개처럼 아주 낮고 균일하게 형성된 얇은 판상의 구름층입니다.',
+    origin: '밤 사이 지표면의 복사 냉각 혹은 온난다습한 공기가 차가운 대지나 해면과 접촉하여 서서히 식어 생겨납니다.',
+    sunsetEffect: '지평선 주변을 뿌옇게 가로막으며 노을의 강렬한 노란빛이 대기 속에서 넓고 부드럽게 산란되도록 만듭니다.',
+    physics: {
+      thickness: '보통 (두께 30~65%)',
+      scattering: '보통 (투과율 50~70%)',
+      shadow: '보통 (대비 30~60%)'
+    }
+  },
+  {
+    name: 'Cumulus',
+    krName: '적운 (뭉게구름)',
+    altitudeType: 'low',
+    altitudeRange: '2km 이하',
+    summary: '하늘 높이 탐스럽게 뭉게뭉게 피어오른 맑은 날의 대표적인 하얀 솜사탕 구름입니다.',
+    origin: '태양열에 의해 불균일하게 가열된 지표면 공기가 상승 기류를 타고 오르며 물방울로 뭉쳐 자라납니다.',
+    sunsetEffect: '둥글게 발달한 외곽을 따라 아주 눈부신 황금빛 림 라이트와 짙은 주황빛 음영 대비가 극도의 입체감을 완성합니다.',
+    physics: {
+      thickness: '두꺼움 (두께 70%)',
+      scattering: '낮음 (투과율 45%)',
+      shadow: '짙음 (대비 72%)'
+    }
+  },
+  {
+    name: 'Cumulonimbus',
+    krName: '적란운 (소나기구름)',
+    altitudeType: 'low',
+    altitudeRange: '2km 이하 (최대 12km 상공까지 수직 발달)',
+    summary: '소나기와 뇌우를 동반하며 하늘 높이 탑이나 모루 형태로 거대하게 솟구친 먹구름 산입니다.',
+    origin: '대기가 극도로 불안정하여 초강력 상승 기류가 응결된 물방울과 빙결정을 성층권 하부 경계선까지 수직으로 폭발시키듯 밀어올려 생성됩니다.',
+    sunsetEffect: '태양빛을 철저히 막는 거대한 암흑 벽이 되지만, 가장 높은 구름 꼭대기 모루 끝자락은 찬란히 불타는 장관을 연출합니다.',
+    physics: {
+      thickness: '최대 (두께 100%)',
+      scattering: '최저 (투과율 20%)',
+      shadow: '최대 (대비 98%)'
+    }
+  }
+];
 
 interface WeatherDetailModalProps {
   visible: boolean;
@@ -26,6 +186,8 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
   const [activeAltitude, setActiveAltitude] = useState<'all' | 'low' | 'mid' | 'high'>('all');
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [guideSubTab, setGuideSubTab] = useState<'basic' | 'encyclopedia'>('basic');
+  const [expandedCloud, setExpandedCloud] = useState<string | null>(null);
 
   const angles = [-20, -10, 0, 10, 20];
   const distances = [380, 280, 200, 130, 70, 30, 10]; // Top to bottom (Far to Near)
@@ -374,82 +536,182 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.infoScrollBody} showsVerticalScrollIndicator={false}>
-              {/* 1. 구름 종류 가이드 */}
-              <View style={styles.infoSection}>
-                <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>☁️ 구름의 종류와 노을의 상관관계</Text>
-                <Text style={[styles.infoText, { color: theme.text }]}>
-                  구름은 대기 중 떠 있는 고도에 따라 노을의 색과 형태를 크게 결정합니다.
+            {/* Sub Tab Selector */}
+            <View style={[styles.subTabContainer, { backgroundColor: theme.border }]}>
+              <TouchableOpacity
+                style={[styles.subTabButton, guideSubTab === 'basic' && [styles.activeSubTabButton, { backgroundColor: theme.card }]]}
+                onPress={() => setGuideSubTab('basic')}
+              >
+                <Text style={[styles.subTabText, { color: guideSubTab === 'basic' ? theme.text : theme.subText, fontWeight: guideSubTab === 'basic' ? '800' : '600' }]}>
+                  기본 가이드
                 </Text>
-                
-                <View style={styles.guideCard}>
-                  <View style={styles.guideItem}>
-                    <View style={[styles.guideColorIndicator, { backgroundColor: '#FF69B4' }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.guideName, { color: theme.text }]}>고층운 (High Clouds · 6km 이상)</Text>
-                      <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                        빙결정으로 이루어진 얇은 구름(권운 등)입니다. 지평선 아래로 해가 진 후에도 높은 고도 덕분에 오랜 시간 햇빛을 받아 붉은빛을 넓게 반사하고 증폭시킵니다.
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.subTabButton, guideSubTab === 'encyclopedia' && [styles.activeSubTabButton, { backgroundColor: theme.card }]]}
+                onPress={() => setGuideSubTab('encyclopedia')}
+              >
+                <Text style={[styles.subTabText, { color: guideSubTab === 'encyclopedia' ? theme.text : theme.subText, fontWeight: guideSubTab === 'encyclopedia' ? '800' : '600' }]}>
+                  10종 구름 도감
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.infoScrollBody} showsVerticalScrollIndicator={false}>
+              {guideSubTab === 'basic' ? (
+                <>
+                  {/* 1. 구름 종류 가이드 */}
+                  <View style={styles.infoSection}>
+                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>☁️ 구름의 종류와 노을의 상관관계</Text>
+                    <Text style={[styles.infoText, { color: theme.text }]}>
+                      구름은 대기 중 떠 있는 고도에 따라 노을의 색과 형태를 크게 결정합니다.
+                    </Text>
+                    
+                    <View style={styles.guideCard}>
+                      <View style={styles.guideItem}>
+                        <View style={[styles.guideColorIndicator, { backgroundColor: '#FF69B4' }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.guideName, { color: theme.text }]}>고층운 (High Clouds · 6km 이상)</Text>
+                          <Text style={[styles.guideDesc, { color: theme.subText }]}>
+                            빙결정으로 이루어진 얇은 구름(권운 등)입니다. 지평선 아래로 해가 진 후에도 높은 고도 덕분에 오랜 시간 햇빛을 받아 붉은빛을 넓게 반사하고 증폭시킵니다.
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.guideItem}>
+                        <View style={[styles.guideColorIndicator, { backgroundColor: '#9370DB' }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.guideName, { color: theme.text }]}>중층운 (Mid Clouds · 2~6km)</Text>
+                          <Text style={[styles.guideDesc, { color: theme.subText }]}>
+                            고적운이나 고층운 등 물방울과 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.guideItem}>
+                        <View style={[styles.guideColorIndicator, { backgroundColor: '#4682B4' }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.guideName, { color: theme.text }]}>저층운 (Low Clouds · 0~2km)</Text>
+                          <Text style={[styles.guideDesc, { color: theme.subText }]}>
+                            적운, 층운 등 두껍고 지표에 가까운 구름입니다. 밀도가 높아 태양광을 가리기 쉬우며, 지평선 근처에 저층운이 빽빽하게 낄 경우 노을빛을 통째로 흡수해 흐려지게 만듭니다.
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* 2. 시뮬레이션 방법 */}
+                  <View style={styles.infoSection}>
+                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🎮 시뮬레이션 활용 방법</Text>
+                    
+                    <View style={styles.instructionStep}>
+                      <Text style={[styles.stepNum, { color: theme.accent }]}>1</Text>
+                      <Text style={[styles.stepText, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '800' }}>레이더 격자 맵 분석:</Text> 가로는 사용자가 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 셀이 3층으로 나뉘어 있어 어떤 구름이 껴 있는지 입체적으로 파악할 수 있습니다.
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.instructionStep}>
+                      <Text style={[styles.stepNum, { color: theme.accent }]}>2</Text>
+                      <Text style={[styles.stepText, { color: theme.text }]}>
+                        <Text style={{ fontWeight: '800' }}>타임슬라이더 컨트롤:</Text> 하단의 시간 바를 좌우로 드래그하면 시뮬레이션의 가상 시각을 조정할 수 있습니다. 일출/일몰 시간 전후의 태양 고도각 변화에 맞춰 대기 굴절률과 그림자 길이가 실시간으로 예측 계산됩니다.
                       </Text>
                     </View>
                   </View>
 
-                  <View style={styles.guideItem}>
-                    <View style={[styles.guideColorIndicator, { backgroundColor: '#9370DB' }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.guideName, { color: theme.text }]}>중층운 (Mid Clouds · 2~6km)</Text>
-                      <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                        고적운이나 고층운 등 물방울과 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.
+                  {/* 3. 노을의 원리와 과학 */}
+                  <View style={styles.infoSection}>
+                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🔬 노을의 과학과 색의 변화</Text>
+                    
+                    <View style={[styles.scienceCard, { backgroundColor: theme.border }]}>
+                      <Text style={[styles.scienceTitle, { color: theme.text }]}>레일리 산란 (Rayleigh Scattering)</Text>
+                      <Text style={[styles.scienceText, { color: theme.subText }]}>
+                        태양이 지평선 가까이 내려가면, 햇빛이 통과해야 하는 지구 대기층의 경로가 낮 동안보다 최대 10배 이상 길어집니다. 이 과정에서 파장이 짧은 파란색과 보라색 계열의 빛은 모두 공기 분자에 의해 도중에 산란되어 사라지고, 산란이 적고 파장이 긴 붉은색과 주황색 계열의 빛만 관측자에게 도달해 하늘이 붉게 보이게 됩니다.
+                      </Text>
+                      
+                      <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 12 }]}>대기 물질(에어로졸)과 습도의 영향</Text>
+                      <Text style={[styles.scienceText, { color: theme.subText }]}>
+                         대기 중의 적절한 미세먼지(PM2.5)나 염분 결정 등의 에어로졸은 산란을 활성화해 노을빛을 더 진하고 화려하게 만듭니다. 하지만 대기 오염이 지나쳐 미세먼지가 너무 많거나 공기 중 습도가 80% 이상으로 지나치게 축축할 경우, 빛의 흡수가 과도해져 채도가 낮고 어두운 회색조 노을이 관찰됩니다.
                       </Text>
                     </View>
                   </View>
-
-                  <View style={styles.guideItem}>
-                    <View style={[styles.guideColorIndicator, { backgroundColor: '#4682B4' }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.guideName, { color: theme.text }]}>저층운 (Low Clouds · 0~2km)</Text>
-                      <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                        적운, 층운 등 두껍고 지표에 가까운 구름입니다. 밀도가 높아 태양광을 가리기 쉬우며, 지평선 근처에 저층운이 빽빽하게 낄 경우 노을빛을 통째로 흡수해 흐려지게 만듭니다.
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* 2. 시뮬레이션 방법 */}
-              <View style={styles.infoSection}>
-                <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🎮 시뮬레이션 활용 방법</Text>
-                
-                <View style={styles.instructionStep}>
-                  <Text style={[styles.stepNum, { color: theme.accent }]}>1</Text>
-                  <Text style={[styles.stepText, { color: theme.text }]}>
-                    <Text style={{ fontWeight: '800' }}>레이더 격자 맵 분석:</Text> 가로는 사용자가 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 셀이 3층으로 나뉘어 있어 어떤 구름이 껴 있는지 입체적으로 파악할 수 있습니다.
-                  </Text>
-                </View>
-                
-                <View style={styles.instructionStep}>
-                  <Text style={[styles.stepNum, { color: theme.accent }]}>2</Text>
-                  <Text style={[styles.stepText, { color: theme.text }]}>
-                    <Text style={{ fontWeight: '800' }}>타임슬라이더 컨트롤:</Text> 하단의 시간 바를 좌우로 드래그하면 시뮬레이션의 가상 시각을 조정할 수 있습니다. 일출/일몰 시간 전후의 태양 고도각 변화에 맞춰 대기 굴절률과 그림자 길이가 실시간으로 예측 계산됩니다.
-                  </Text>
-                </View>
-              </View>
-
-              {/* 3. 노을의 원리와 과학 */}
-              <View style={styles.infoSection}>
-                <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🔬 노을의 과학과 색의 변화</Text>
-                
-                <View style={[styles.scienceCard, { backgroundColor: theme.border }]}>
-                  <Text style={[styles.scienceTitle, { color: theme.text }]}>레일리 산란 (Rayleigh Scattering)</Text>
-                  <Text style={[styles.scienceText, { color: theme.subText }]}>
-                    태양이 지평선 가까이 내려가면, 햇빛이 통과해야 하는 지구 대기층의 경로가 낮 동안보다 최대 10배 이상 길어집니다. 이 과정에서 파장이 짧은 파란색과 보라색 계열의 빛은 모두 공기 분자에 의해 도중에 산란되어 사라지고, 산란이 적고 파장이 긴 붉은색과 주황색 계열의 빛만 관측자에게 도달해 하늘이 붉게 보이게 됩니다.
+                </>
+              ) : (
+                <View style={styles.encyclopediaContainer}>
+                  <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>📖 기상학적 10종 운형 도감</Text>
+                  <Text style={[styles.infoText, { color: theme.subText, marginBottom: 16 }]}>
+                    태양빛을 시뮬레이션할 때 사용되는 실제 구름 실루엣 및 속성 데이터입니다. 카드를 눌러 상세 원리와 노을 영향을 확인하세요.
                   </Text>
                   
-                  <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 12 }]}>대기 물질(에어로졸)과 습도의 영향</Text>
-                  <Text style={[styles.scienceText, { color: theme.subText }]}>
-                     대기 중의 적절한 미세먼지(PM2.5)나 염분 결정 등의 에어로졸은 산란을 활성화해 노을빛을 더 진하고 화려하게 만듭니다. 하지만 대기 오염이 지나쳐 미세먼지가 너무 많거나 공기 중 습도가 80% 이상으로 지나치게 축축할 경우, 빛의 흡수가 과도해져 채도가 낮고 어두운 회색조 노을이 관찰됩니다.
-                  </Text>
+                  {CLOUD_BOOK_DATA.map((cloud) => {
+                    const isExpanded = expandedCloud === cloud.name;
+                    let viewWidth = 190;
+                    let viewHeight = 48;
+                    if (cloud.name === 'Cirrus' || cloud.name === 'Stratus') {
+                      viewWidth = 220; viewHeight = 15;
+                    } else if (cloud.name === 'Cirrostratus' || cloud.name === 'Altostratus' || cloud.name === 'Nimbostratus') {
+                      viewWidth = 240; viewHeight = 24;
+                    } else if (cloud.name === 'Cumulonimbus') {
+                      viewWidth = 160; viewHeight = 100;
+                    }
+                    
+                    const pathStr = CLOUD_TEMPLATES[cloud.name]?.[0] || "";
+                    const badgeColor = cloud.altitudeType === 'high' ? '#FF69B4' : cloud.altitudeType === 'mid' ? '#9370DB' : '#4682B4';
+                    const badgeText = cloud.altitudeType === 'high' ? '고층운' : cloud.altitudeType === 'mid' ? '중층운' : '저층운';
+                    
+                    return (
+                      <View key={cloud.name} style={[styles.cloudBookCard, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.01)' }]}>
+                        <TouchableOpacity
+                          style={styles.cloudBookHeader}
+                          activeOpacity={0.7}
+                          onPress={() => setExpandedCloud(isExpanded ? null : cloud.name)}
+                        >
+                          <View style={[styles.miniSvgContainer, { backgroundColor: 'rgba(5, 5, 10, 0.4)', borderColor: theme.border }]}>
+                            <Svg width="64" height="36" viewBox={`0 0 ${viewWidth} ${viewHeight}`} style={styles.miniSvg}>
+                              <Path d={pathStr} fill="rgba(255,255,255,0.75)" />
+                            </Svg>
+                          </View>
+                          
+                          <View style={styles.cloudHeaderInfo}>
+                            <View style={styles.cloudTitleRow}>
+                              <Text style={[styles.cloudBookTitle, { color: theme.text }]}>{cloud.krName}</Text>
+                              <View style={[styles.altitudeMiniBadge, { backgroundColor: `${badgeColor}20` }]}>
+                                <Text style={[styles.altitudeMiniBadgeText, { color: badgeColor }]}>{badgeText}</Text>
+                              </View>
+                            </View>
+                            <Text style={[styles.cloudBookSub, { color: theme.subText }]}>{cloud.name} | {cloud.altitudeRange}</Text>
+                          </View>
+                        </TouchableOpacity>
+                        
+                        {isExpanded && (
+                          <View style={[styles.cloudBookDetails, { borderTopColor: theme.border }]}>
+                            <Text style={[styles.detailDesc, { color: theme.text }]}>
+                              💡 <Text style={{ fontWeight: '700' }}>특징:</Text> {cloud.summary}
+                            </Text>
+                            <Text style={[styles.detailDesc, { color: theme.text, marginTop: 6 }]}>
+                              💨 <Text style={{ fontWeight: '700' }}>생성 원리:</Text> {cloud.origin}
+                            </Text>
+                            <Text style={[styles.detailDesc, { color: theme.text, marginTop: 6 }]}>
+                              🌇 <Text style={{ fontWeight: '700' }}>노을 영향:</Text> {cloud.sunsetEffect}
+                            </Text>
+                            
+                            <View style={styles.specsRow}>
+                              <View style={[styles.specBadge, { backgroundColor: theme.border }]}>
+                                <Text style={[styles.specBadgeText, { color: theme.text }]}>{cloud.physics.thickness}</Text>
+                              </View>
+                              <View style={[styles.specBadge, { backgroundColor: theme.border }]}>
+                                <Text style={[styles.specBadgeText, { color: theme.text }]}>{cloud.physics.scattering}</Text>
+                              </View>
+                              <View style={[styles.specBadge, { backgroundColor: theme.border }]}>
+                                <Text style={[styles.specBadgeText, { color: theme.text }]}>{cloud.physics.shadow}</Text>
+                              </View>
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
-              </View>
+              )}
             </ScrollView>
 
             <View style={[styles.infoFooter, { borderTopColor: theme.border }]}>
@@ -895,5 +1157,108 @@ const styles = StyleSheet.create({
   infoPrimaryBtnText: {
     fontSize: 13,
     fontWeight: '800',
+  },
+  subTabContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 3,
+    borderRadius: 10,
+  },
+  subTabButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  activeSubTabButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  subTabText: {
+    fontSize: 12,
+  },
+  encyclopediaContainer: {
+    paddingBottom: 24,
+  },
+  cloudBookCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  cloudBookHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  miniSvgContainer: {
+    width: 68,
+    height: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  miniSvg: {
+    transform: [{ scale: 0.8 }],
+  },
+  cloudHeaderInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  cloudTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cloudBookTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  altitudeMiniBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  altitudeMiniBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+  },
+  cloudBookSub: {
+    fontSize: 10,
+    marginTop: 2,
+    opacity: 0.6,
+  },
+  cloudBookDetails: {
+    borderTopWidth: 1,
+    padding: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.005)',
+  },
+  detailDesc: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  specsRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 6,
+  },
+  specBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  specBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    opacity: 0.85,
   },
 });

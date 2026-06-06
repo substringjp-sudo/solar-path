@@ -99,7 +99,7 @@ function colorToString(rgb: RGB): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // 10 Cloud Genera Types & Physics Parameters
 // ─────────────────────────────────────────────────────────────────────────────
-type CloudPresetName =
+export type CloudPresetName =
   | 'Cirrus'          // 권운 (새털구름)
   | 'Cirrocumulus'    // 권적운 (비늘구름)
   | 'Cirrostratus'    // 권층운 (햇무리구름)
@@ -290,7 +290,7 @@ function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
 
 
 // Collage / Papercraft cloud SVG templates categorized by 10 specific cloud types
-const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
+export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
   Cirrus: [
     "M 0,20 C 20,15 45,8 70,12 C 85,14 110,7 130,12 C 105,16 80,13 55,20 C 35,25 15,23 0,20 Z",
     "M 0,15 C 30,12 60,6 90,12 C 110,16 130,8 150,15 C 120,18 90,15 60,20 C 30,22 15,19 0,15 Z"
