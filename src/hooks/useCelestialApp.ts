@@ -496,12 +496,12 @@ export function useCelestialApp() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!isTimeMachineEnabled && !animating) {
+      if (!isTimeMachineEnabled && !animating && activeTab !== 'sim') {
         updateTime();
       }
     }, 60000);
     return () => clearInterval(timer);
-  }, [isTimeMachineEnabled, animating, updateTime]);
+  }, [isTimeMachineEnabled, animating, updateTime, activeTab]);
 
   // Firebase Auth & Firestore 실시간 동기화 라이프사이클
   useEffect(() => {
