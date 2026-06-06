@@ -34,7 +34,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
   const [layoutWidth, setLayoutWidth] = useState(0);
   const trackRef = useRef<View>(null);
-  const trackPos = useRef({ x: 0, width: 0 });
+  const startX = useRef(0);
 
   // 1. 색상 부드러운 전환을 위한 보간 애니메이션 설계
   const [prevColor, setPrevColor] = useState(fillColor || theme.accent);
@@ -87,20 +87,23 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     onPanResponderGrant: (evt) => {
       setIsDragging(true);
       onGrant?.();
-      if (trackPos.current.width === 0) return;
+      if (layoutWidth === 0) return;
       
-      const relativeX = evt.nativeEvent.pageX - trackPos.current.x - 27; // Subtract padding
-      const usableWidth = trackPos.current.width - 54; // Total width minus both paddings
+      const { locationX } = evt.nativeEvent;
+      startX.current = locationX;
+      
+      const usableWidth = layoutWidth - 54; // Total width minus both paddings
+      const relativeX = locationX - 27; // Subtract padding
       const p = Math.max(0, Math.min(100, (relativeX / usableWidth) * 100));
       setLocalValue(p);
       animatedValue.setValue(p);
       onChange(p);
     },
-    onPanResponderMove: (evt) => {
-      if (trackPos.current.width === 0) return;
-      const relativeX = evt.nativeEvent.pageX - trackPos.current.x - 27;
-      const usableWidth = trackPos.current.width - 54;
-      const p = Math.max(0, Math.min(100, (relativeX / usableWidth) * 100));
+    onPanResponderMove: (evt, gestureState) => {
+      if (layoutWidth === 0) return;
+      const usableWidth = layoutWidth - 54;
+      const currentX = startX.current + gestureState.dx - 27;
+      const p = Math.max(0, Math.min(100, (currentX / usableWidth) * 100));
       setLocalValue(p);
       animatedValue.setValue(p);
       onChange(p);
@@ -113,16 +116,13 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       setIsDragging(false);
       onRelease?.();
     },
-  }), [onChange, onGrant, onRelease]);
+  }), [onChange, onGrant, onRelease, layoutWidth]);
 
 
 
   const onLayout = (event: any) => {
     const { width } = event.nativeEvent.layout;
     setLayoutWidth(width);
-    trackRef.current?.measureInWindow((x, y, w, h) => {
-      trackPos.current = { x, width: w };
-    });
   };
 
   const fillWidth = animatedValue.interpolate({
