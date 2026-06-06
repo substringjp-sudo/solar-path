@@ -8,9 +8,10 @@ import { CelestialChart } from './CelestialChart';
 import { InfoCard } from './InfoCard';
 import { TimeSlider } from './TimeSlider';
 import { SunsetSimulation } from './SunsetSimulation';
+import { Gallery } from './Gallery';
 
 interface TabNavigatorProps {
-  activeTab: 'tracker' | 'sim';
+  activeTab: 'tracker' | 'sim' | 'gallery';
   contentOpacity: Animated.Value;
   sunPos: any;
   moonPos: any;
@@ -29,6 +30,8 @@ interface TabNavigatorProps {
   isTimeMachineEnabled: boolean;
   setTimeMachineEnabled: (enabled: boolean) => void;
   isDay: boolean;
+  globalPhotos: any[];
+  removeGlobalPhoto: (id: string) => Promise<void>;
 }
 
 const isSameDayUTC = (d1: Date, d2: Date) => {
@@ -57,6 +60,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   isTimeMachineEnabled,
   setTimeMachineEnabled,
   isDay,
+  globalPhotos,
+  removeGlobalPhoto,
 }) => {
   const { location, timezoneOffsetHours } = useCelestialStore();
 
@@ -169,11 +174,18 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               </View>
             </View>
           </>
-        ) : (
+        ) : activeTab === 'sim' ? (
           <SunsetSimulation 
             theme={theme} 
             currentTime={currentTime}
             setCurrentTime={setCurrentTime}
+          />
+        ) : (
+          <Gallery 
+            theme={theme}
+            dynamicTheme={dynamicTheme}
+            globalPhotos={globalPhotos}
+            removeGlobalPhoto={removeGlobalPhoto}
           />
         )}
       </Animated.View>

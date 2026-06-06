@@ -127,6 +127,8 @@ export default function App() {
           isTimeMachineEnabled={isTimeMachineEnabled}
           setTimeMachineEnabled={handleToggleTimeMachine}
           isDay={isDay}
+          globalPhotos={globalPhotos}
+          removeGlobalPhoto={removeGlobalPhoto}
         />
       </View>
 
@@ -149,12 +151,6 @@ export default function App() {
         savedLocations={savedLocations}
         addSavedLocation={addSavedLocation}
         removeSavedLocation={removeSavedLocation}
-        myPhotos={myPhotos}
-        addMyPhoto={addMyPhoto}
-        removeMyPhoto={removeMyPhoto}
-        globalPhotos={globalPhotos}
-        uploadAndPostPhoto={uploadAndPostPhoto}
-        removeGlobalPhoto={removeGlobalPhoto}
       />
 
       <Modal

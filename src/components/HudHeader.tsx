@@ -6,8 +6,8 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 
 interface HudHeaderProps {
-  activeTab: 'tracker' | 'sim';
-  setActiveTab: (tab: 'tracker' | 'sim') => void;
+  activeTab: 'tracker' | 'sim' | 'gallery';
+  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery') => void;
   setMapVisible: (visible: boolean) => void;
   setSavedListVisible: (visible: boolean) => void;
   setSettingsVisible: (visible: boolean) => void;
@@ -68,6 +68,12 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           >
             <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>Simulation</Animated.Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => setActiveTab('gallery')}
+            style={[styles.navButton, activeTab === 'gallery' && { backgroundColor: theme.text }]}
+          >
+            <Animated.Text style={[styles.navText, { color: activeTab === 'gallery' ? theme.bg : dynamicTheme.subText }]}>Gallery</Animated.Text>
+          </TouchableOpacity>
         </Animated.View>
  
         <View style={styles.rightButtonsContainer}>
@@ -119,45 +125,47 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         </View>
       </View>
  
-      <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
-        {activeTab !== 'sim' ? (
-          <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
-            <ChevronLeft size={16} color={theme.text} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 24 }} />
-        )}
-        
-        <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
-          <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
-          <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
-            {formatLocalTime(currentTimeLocal || currentTime, 'yyyy/MM/dd')}
-          </Animated.Text>
-          {timezoneLabel && (
-            <View style={[styles.timezoneBadge, { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }]}>
-              <Text style={[styles.timezoneText, { color: theme.subText }]}>{timezoneLabel}</Text>
-            </View>
+      {activeTab !== 'gallery' && (
+        <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
+          {activeTab !== 'sim' ? (
+            <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
+              <ChevronLeft size={16} color={theme.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 24 }} />
           )}
-        </TouchableOpacity>
- 
-        {activeTab !== 'sim' ? (
-          <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
-            <ChevronRight size={16} color={theme.text} />
+          
+          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
+            <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
+            <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
+              {formatLocalTime(currentTimeLocal || currentTime, 'yyyy/MM/dd')}
+            </Animated.Text>
+            {timezoneLabel && (
+              <View style={[styles.timezoneBadge, { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' }]}>
+                <Text style={[styles.timezoneText, { color: theme.subText }]}>{timezoneLabel}</Text>
+              </View>
+            )}
           </TouchableOpacity>
-        ) : (
-          <View style={{ width: 24 }} />
-        )}
- 
-        {!isTodayLocal && activeTab !== 'sim' && (
-          <TouchableOpacity 
-            onPress={() => handleDateChange(new Date())} 
-            style={[styles.todayButton, { backgroundColor: theme.text }]}
-          >
-            <RotateCcw size={10} color={theme.bg} />
-            <Text style={[styles.todayText, { color: theme.bg }]}>TODAY</Text>
-          </TouchableOpacity>
-        )}
-      </Animated.View>
+   
+          {activeTab !== 'sim' ? (
+            <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
+              <ChevronRight size={16} color={theme.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 24 }} />
+          )}
+   
+          {!isTodayLocal && activeTab !== 'sim' && (
+            <TouchableOpacity 
+              onPress={() => handleDateChange(new Date())} 
+              style={[styles.todayButton, { backgroundColor: theme.text }]}
+            >
+              <RotateCcw size={10} color={theme.bg} />
+              <Text style={[styles.todayText, { color: theme.bg }]}>TODAY</Text>
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+      )}
     </View>
   );
 };

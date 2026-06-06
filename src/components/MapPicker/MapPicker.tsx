@@ -18,19 +18,9 @@ export const MapPicker = ({
   isDay = false,
   savedLocations = [],
   addSavedLocation,
-  removeSavedLocation,
-  myPhotos = [],
-  addMyPhoto,
-  removeMyPhoto,
-  globalPhotos = [],
-  uploadAndPostPhoto,
-  removeGlobalPhoto
+  removeSavedLocation
 }: any) => {
-  const [activeTab, setActiveTab] = useState<'location' | 'photo'>('location');
-  const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('mine');
-  const displayedPhotos = galleryFilter === 'mine'
-    ? globalPhotos.filter((p: any) => p.userId === auth.currentUser?.uid)
-    : globalPhotos;
+  const activeTab = 'location';
   const [latInput, setLatInput] = useState(location?.coords?.latitude?.toString() || '37.56');
   const [lonInput, setLonInput] = useState(location?.coords?.longitude?.toString() || '126.97');
   const [mapZoom, setMapZoom] = useState(10);
@@ -263,75 +253,8 @@ export const MapPicker = ({
         // Layer group to hold isochrone polylines and text labels dynamically
         const isochroneLayer = L.layerGroup().addTo(map);
 
-        // Heatmap and user photos overlay configurations
-        let globalHeatmapPoints = [];
-        let heatLayer = null;
-        let myPhotosMarkers = [];
-        let mapMode = 'location'; // 'location' or 'photo'
-        let myPhotosData = [];
-
         function redrawMapLayers() {
-          if (heatLayer) {
-            map.removeLayer(heatLayer);
-            heatLayer = null;
-          }
-          myPhotosMarkers.forEach(m => map.removeLayer(m));
-          myPhotosMarkers = [];
-
-          const crosshair = document.getElementById('crosshair-element');
-          if (crosshair) {
-            crosshair.style.display = (mapMode === 'location') ? 'flex' : 'none';
-          }
-
-          if (mapMode === 'photo') {
-            // Hide isochrones on photo mode
-            isochroneLayer.clearLayers();
-
-            if (typeof L.heatLayer === 'function' && globalHeatmapPoints.length > 0) {
-              heatLayer = L.heatLayer(globalHeatmapPoints, {
-                radius: 28,
-                blur: 16,
-                max: 1.0
-              }).addTo(map);
-            }
-
-            myPhotosData.forEach(photo => {
-              const marker = L.circleMarker([photo.latitude, photo.longitude], {
-                radius: 9,
-                color: '#FF6D00',
-                fillColor: '#FFD700',
-                fillOpacity: 0.9,
-                weight: 3.5
-              });
-
-              const popupContent = '<div style="font-family: -apple-system, BlinkMacSystemFont, ' + "'Segoe UI', Roboto, sans-serif; width: 140px; text-align: center;\">" +
-                '<img src="' + photo.imageUrl + '" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; margin-bottom: 6px; border: 1px solid rgba(0,0,0,0.15);" />' +
-                '<div style="font-size: 12px; font-weight: bold; color: ' + popupText + '; margin-bottom: 2px;">' + photo.locationName + '</div>' +
-                '<div style="font-size: 10px; color: ' + accentColor + '; font-weight: 600; margin-bottom: 4px;">by ' + photo.userName + '</div>' +
-                '<div style="font-size: 9px; color: ' + (isDay ? '#555' : '#ccc') + ';">' + new Date(photo.timestamp).toLocaleDateString() + '</div>' +
-                '</div>';
-              marker.bindPopup(popupContent, { closeButton: false });
-              
-              marker.on('click', () => {
-                const message = {
-                  type: 'PHOTO_PIN_CLICK',
-                  lat: photo.latitude,
-                  lng: photo.longitude
-                };
-                if (window.ReactNativeWebView) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify(message));
-                } else {
-                  window.parent.postMessage(message, '*');
-                }
-              });
-
-              marker.addTo(map);
-              myPhotosMarkers.push(marker);
-            });
-          } else {
-            // redraw isochrones if switched back to location mode
-            redrawIsochrones();
-          }
+          redrawIsochrones();
         }
 
         // Store active data for dynamic redraw during movement
@@ -609,15 +532,6 @@ export const MapPicker = ({
           
           if (data?.type === 'SET_VIEW') {
             map.setView([data.lat, data.lon], 13);
-          } else if (data?.type === 'UPDATE_MAP_MODE') {
-            mapMode = data.mode;
-            redrawMapLayers();
-          } else if (data?.type === 'SYNC_PHOTOS') {
-            const photos = data.globalPhotos || [];
-            const currentUserId = data.currentUserId || '';
-            globalHeatmapPoints = photos.map(function(p) { return [p.latitude, p.longitude, 1.0]; });
-            myPhotosData = photos.filter(function(p) { return p.userId === currentUserId; });
-            redrawMapLayers();
           } else if (data?.type === 'UPDATE_ISOCHRONES') {
             showSunrise = data.showSunrise;
             showSunset = data.showSunset;
@@ -683,54 +597,6 @@ export const MapPicker = ({
     sendIsochrones();
   }, [currentTime, mapZoom, showSunriseIso, showSunsetIso, timeFormat, visible, isMapReady]);
 
-  // Synchronize map mode changes (location <-> photo) to WebView
-  useEffect(() => {
-    if (!isMapReady) return;
-
-    const message = {
-      type: 'UPDATE_MAP_MODE',
-      mode: activeTab
-    };
-
-    if (iframeRef.current) {
-      if (Platform.OS === 'web') {
-        iframeRef.current.contentWindow?.postMessage(message, '*');
-      } else {
-        const runJS = `
-          if (typeof handleMessage === 'function') {
-            handleMessage({ data: ${JSON.stringify(message)} });
-          }
-          true;
-        `;
-        iframeRef.current.injectJavaScript(runJS);
-      }
-    }
-  }, [activeTab, isMapReady, visible]);
-
-  useEffect(() => {
-    if (!isMapReady) return;
-
-    const message = {
-      type: 'SYNC_PHOTOS',
-      globalPhotos: globalPhotos,
-      currentUserId: auth.currentUser?.uid || ''
-    };
-
-    if (iframeRef.current) {
-      if (Platform.OS === 'web') {
-        iframeRef.current.contentWindow?.postMessage(message, '*');
-      } else {
-        const runJS = `
-          if (typeof handleMessage === 'function') {
-            handleMessage({ data: ${JSON.stringify(message)} });
-          }
-          true;
-        `;
-        iframeRef.current.injectJavaScript(runJS);
-      }
-    }
-  }, [globalPhotos, isMapReady, visible]);
-
   // Handle messages sent from standard browser frames (for Web platform compatibility)
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -744,11 +610,6 @@ export const MapPicker = ({
         if (typeof event.data.zoom === 'number') {
           setMapZoom(event.data.zoom);
         }
-      } else if (event.data?.type === 'PHOTO_PIN_CLICK') {
-        setLatInput(event.data.lat.toFixed(6));
-        setLonInput(event.data.lng.toFixed(6));
-        onSelect({ coords: { latitude: event.data.lat, longitude: event.data.lng } });
-        onClose();
       }
     };
     window.addEventListener('message', handleMessage);
@@ -845,25 +706,7 @@ export const MapPicker = ({
             </TouchableOpacity>
           </View>
 
-          {/* 탭 네비게이션 */}
-          <View style={[styles.tabBar, { borderBottomColor: theme.border }, dStyle.tabBar]}>
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'location' && [styles.activeTabItem, { borderBottomColor: theme.accent }, dStyle.activeTabItem]]}
-              onPress={() => setActiveTab('location')}
-            >
-              <Text style={[styles.tabText, activeTab === 'location' ? { color: theme.text } : { color: theme.subText }, dStyle.tabItemText]}>
-                Location
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'photo' && [styles.activeTabItem, { borderBottomColor: theme.accent }, dStyle.activeTabItem]]}
-              onPress={() => setActiveTab('photo')}
-            >
-              <Text style={[styles.tabText, activeTab === 'photo' ? { color: theme.text } : { color: theme.subText }, dStyle.tabItemText]}>
-                Photo
-              </Text>
-            </TouchableOpacity>
-          </View>
+
 
           {/* Map Wrapper with Floating Overlay Controls */}
           <View style={styles.mapWrapper}>
@@ -967,164 +810,100 @@ export const MapPicker = ({
 
           {/* Form and List Scroll Area */}
           <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
-            {activeTab === 'location' ? (
-              <>
-                <View style={[styles.section, dStyle.section]}>
-                  <View style={styles.sectionHeader}>
-                    <Text style={[styles.sectionTitle, { color: theme.subText }]}>PICKED COORDINATES</Text>
-                    <TouchableOpacity onPress={handleCurrentLocation} style={styles.currentLocLink}>
-                      <LocateFixed size={12} color={theme.accent} />
-                      <Text style={[styles.currentLocLinkText, { color: theme.accent }]}>My Location</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <View style={styles.inputRow}>
-                    <View style={styles.coordBox}>
-                       <Text style={styles.coordLabel}>Latitude</Text>
-                       <TextInput
-                         style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
-                         value={latInput}
-                         onChangeText={setLatInput}
-                         keyboardType="numeric"
-                       />
-                    </View>
-                    <View style={styles.coordBox}>
-                       <Text style={styles.coordLabel}>Longitude</Text>
-                       <TextInput
-                         style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
-                         value={lonInput}
-                         onChangeText={setLonInput}
-                         keyboardType="numeric"
-                       />
-                    </View>
-                  </View>
-
-                  {/* 즐겨찾기 저장 폼 */}
-                  <View style={[styles.saveRow, { borderColor: theme.border }]}>
-                    <TextInput
-                      style={[styles.nameInput, { color: theme.text, borderColor: theme.border }, dStyle.input, { flex: 1 }]}
-                      placeholder="Enter place name"
-                      placeholderTextColor={theme.subText}
-                      value={saveName}
-                      onChangeText={setSaveName}
-                    />
-                    <TouchableOpacity
-                      style={[styles.saveBtn, { backgroundColor: theme.accent }, dStyle.button, { height: isAndroid ? 48 : 44 }]}
-                      onPress={handleSaveLocation}
-                    >
-                      <Save size={16} color="#000" />
-                      <Text style={styles.saveBtnText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <TouchableOpacity 
-                  onPress={handleManualSelect}
-                  style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 24 }, dStyle.button]}
-                >
-                  <Navigation size={20} color="#000" />
-                  <Text style={styles.confirmBtnText}>Select This Location</Text>
+            <View style={[styles.section, dStyle.section]}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>PICKED COORDINATES</Text>
+                <TouchableOpacity onPress={handleCurrentLocation} style={styles.currentLocLink}>
+                  <LocateFixed size={12} color={theme.accent} />
+                  <Text style={[styles.currentLocLinkText, { color: theme.accent }]}>My Location</Text>
                 </TouchableOpacity>
-
-                {/* 저장된 즐겨찾기 목록 */}
-                <View style={styles.savedSection}>
-                  <Text style={[styles.sectionTitle, { color: theme.subText, marginBottom: 12 }]}>SAVED PLACES</Text>
-                  {savedLocations.length === 0 ? (
-                    <View style={[styles.emptyState, { borderColor: theme.border }]}>
-                      <Star size={24} color={theme.subText} style={{ marginBottom: 6 }} />
-                      <Text style={{ color: theme.subText, fontSize: 13 }}>No saved places.</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.savedList}>
-                      {savedLocations.map((loc: any) => (
-                        <View key={loc.id} style={[styles.savedItem, dStyle.savedItem]}>
-                          <TouchableOpacity
-                            style={styles.savedItemContent}
-                            onPress={() => handleSelectSaved(loc)}
-                          >
-                            <View style={[styles.savedItemIcon, { backgroundColor: theme.glass }]}>
-                              <MapPin size={16} color={theme.accent} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={[styles.savedItemName, { color: theme.text }]}>{loc.name}</Text>
-                              <Text style={[styles.savedItemCoords, { color: theme.subText }]}>
-                                {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.deleteBtn}
-                            onPress={() => removeSavedLocation(loc.id)}
-                          >
-                            <Trash2 size={16} color="#FF4444" />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </View>
-                  )}
+              </View>
+              
+              <View style={styles.inputRow}>
+                <View style={styles.coordBox}>
+                   <Text style={styles.coordLabel}>Latitude</Text>
+                   <TextInput
+                     style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
+                     value={latInput}
+                     onChangeText={setLatInput}
+                     keyboardType="numeric"
+                   />
                 </View>
-              </>
-            ) : (
-              // Photo Tab Panel
-              <>
-                {/* Sunset Photos Gallery */}
-                <View style={styles.gallerySection}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={[styles.sectionTitle, { color: theme.subText }]}>Sunset Gallery</Text>
-                    
-                    {/* 필터 칩 */}
-                    <View style={styles.filterContainer}>
+                <View style={styles.coordBox}>
+                   <Text style={styles.coordLabel}>Longitude</Text>
+                   <TextInput
+                     style={[styles.input, { color: theme.text, borderColor: theme.border }, dStyle.input]}
+                     value={lonInput}
+                     onChangeText={setLonInput}
+                     keyboardType="numeric"
+                   />
+                </View>
+              </View>
+
+              {/* 즐겨찾기 저장 폼 */}
+              <View style={[styles.saveRow, { borderColor: theme.border }]}>
+                <TextInput
+                  style={[styles.nameInput, { color: theme.text, borderColor: theme.border }, dStyle.input, { flex: 1 }]}
+                  placeholder="Enter place name"
+                  placeholderTextColor={theme.subText}
+                  value={saveName}
+                  onChangeText={setSaveName}
+                />
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: theme.accent }, dStyle.button, { height: isAndroid ? 48 : 44 }]}
+                  onPress={handleSaveLocation}
+                >
+                  <Save size={16} color="#000" />
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity 
+              onPress={handleManualSelect}
+              style={[styles.confirmBtn, { backgroundColor: theme.accent, marginTop: 24, marginBottom: 24 }, dStyle.button]}
+            >
+              <Navigation size={20} color="#000" />
+              <Text style={styles.confirmBtnText}>Select This Location</Text>
+            </TouchableOpacity>
+
+            {/* 저장된 즐겨찾기 목록 */}
+            <View style={styles.savedSection}>
+              <Text style={[styles.sectionTitle, { color: theme.subText, marginBottom: 12 }]}>SAVED PLACES</Text>
+              {savedLocations.length === 0 ? (
+                <View style={[styles.emptyState, { borderColor: theme.border }]}>
+                  <Star size={24} color={theme.subText} style={{ marginBottom: 6 }} />
+                  <Text style={{ color: theme.subText, fontSize: 13 }}>No saved places.</Text>
+                </View>
+              ) : (
+                <View style={styles.savedList}>
+                  {savedLocations.map((loc: any) => (
+                    <View key={loc.id} style={[styles.savedItem, dStyle.savedItem]}>
                       <TouchableOpacity
-                        style={[styles.filterChip, galleryFilter === 'mine' && { backgroundColor: theme.accent }]}
-                        onPress={() => setGalleryFilter('mine')}
+                        style={styles.savedItemContent}
+                        onPress={() => handleSelectSaved(loc)}
                       >
-                        <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? '#000' : theme.subText }]}>Mine</Text>
+                        <View style={[styles.savedItemIcon, { backgroundColor: theme.glass }]}>
+                          <MapPin size={16} color={theme.accent} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.savedItemName, { color: theme.text }]}>{loc.name}</Text>
+                          <Text style={[styles.savedItemCoords, { color: theme.subText }]}>
+                            {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.filterChip, galleryFilter === 'all' && { backgroundColor: theme.accent }]}
-                        onPress={() => setGalleryFilter('all')}
+                        style={styles.deleteBtn}
+                        onPress={() => removeSavedLocation(loc.id)}
                       >
-                        <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? '#000' : theme.subText }]}>All</Text>
+                        <Trash2 size={16} color="#FF4444" />
                       </TouchableOpacity>
                     </View>
-                  </View>
-
-                  {displayedPhotos.length === 0 ? (
-                    <View style={[styles.emptyState, { borderColor: theme.border }]}>
-                      <ImageIcon size={24} color={theme.subText} style={{ marginBottom: 6 }} />
-                      <Text style={{ color: theme.subText, fontSize: 13 }}>No sunset photos found.</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.galleryGrid}>
-                      {displayedPhotos.map((photo: any) => (
-                        <View key={photo.id} style={[styles.galleryItem, dStyle.savedItem]}>
-                          <Image
-                            source={{ uri: photo.imageUrl }}
-                            style={styles.galleryImage}
-                          />
-                          <View style={styles.galleryMeta}>
-                            <Text numberOfLines={1} style={[styles.galleryTitle, { color: theme.text }]}>
-                              {photo.locationName}
-                            </Text>
-                            <Text numberOfLines={1} style={[styles.galleryDate, { color: theme.subText }]}>
-                              {new Date(photo.timestamp).toLocaleDateString()} • by {photo.userName}
-                            </Text>
-                          </View>
-                          {photo.userId === auth.currentUser?.uid && (
-                            <TouchableOpacity
-                              style={styles.photoDeleteBtn}
-                              onPress={() => removeGlobalPhoto(photo.id)}
-                            >
-                              <Trash2 size={12} color="#FF6F61" />
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
+                  ))}
                 </View>
-              </>
-            )}
+              )}
+            </View>
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>

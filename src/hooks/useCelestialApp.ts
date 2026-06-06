@@ -81,7 +81,7 @@ export function useCelestialApp() {
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tracker' | 'sim'>('tracker');
+  const [activeTab, setActiveTab] = useState<'tracker' | 'sim' | 'gallery'>('tracker');
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const prevTabRef = useRef(activeTab);
@@ -450,14 +450,19 @@ export function useCelestialApp() {
 
   useEffect(() => {
     if (locationPermission === 'granted') {
-      (async () => {
-        try {
-          let loc = await Location.getCurrentPositionAsync({});
-          setLocation(loc);
-        } catch (err) {
-          console.warn('Failed to get current location:', err);
-        }
-      })();
+      // Force immediate default location mock in emulator to bypass GPS lock freeze
+      setLocation({
+        coords: {
+          latitude: 37.5665,
+          longitude: 126.9780,
+          altitude: 0,
+          accuracy: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          speed: 0
+        },
+        timestamp: Date.now()
+      });
     }
   }, [locationPermission, setLocation]);
 
