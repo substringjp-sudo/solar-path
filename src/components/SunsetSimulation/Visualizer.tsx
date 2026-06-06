@@ -1283,36 +1283,38 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const fovTicks = [10, 15, 20, 25, 30];
     
     return (
-      <View style={styles.overlayFovContainer} {...fovPanResponder.panHandlers}>
-        <View style={styles.fovTrackLine} />
-        {fovTicks.map((val) => {
-          const pct = ((val - 10) / 20) * 100;
-          const isBase = val === 20;
-          return (
-            <View 
-              key={val} 
-              style={[
-                styles.fovTickLine, 
-                { 
-                  top: `${pct}%`, 
-                  width: isBase ? 10 : 6,
-                  backgroundColor: 'rgba(255,255,255,0.4)'
-                }
-              ]}
-            >
-              <Text style={styles.fovTickText}>
-                {val}°
+      <View style={[styles.overlayFovContainer, { borderColor: theme.border }]} {...fovPanResponder.panHandlers}>
+        <View style={styles.fovInnerWrapper}>
+          <View style={styles.fovTrackLine} />
+          {fovTicks.map((val) => {
+            const pct = ((val - 10) / 20) * 100;
+            const isBase = val === 20;
+            return (
+              <View 
+                key={val} 
+                style={[
+                  styles.fovTickLine, 
+                  { 
+                    top: `${pct}%`, 
+                    width: isBase ? 8 : 5,
+                    backgroundColor: 'rgba(255,255,255,0.45)'
+                  }
+                ]}
+              >
+                <Text style={styles.fovTickText}>
+                  {val}°
+                </Text>
+              </View>
+            );
+          })}
+          
+          <View style={[styles.fovPointer, { top: `${fovPct}%`, borderColor: theme.accent }]}>
+            <View style={[styles.fovPointerDot, { backgroundColor: theme.accent }]} />
+            <View style={[styles.fovTooltip, { backgroundColor: 'rgba(5, 5, 10, 0.82)', borderColor: theme.accent }]}>
+              <Text style={[styles.fovTooltipText, { color: '#ffffff' }]}>
+                {visualFov.toFixed(0)}°
               </Text>
             </View>
-          );
-        })}
-        
-        <View style={[styles.fovPointer, { top: `${fovPct}%`, borderColor: theme.accent }]}>
-          <View style={[styles.fovPointerDot, { backgroundColor: theme.accent }]} />
-          <View style={[styles.fovTooltip, { backgroundColor: 'rgba(0,0,0,0.75)', borderColor: theme.accent }]}>
-            <Text style={[styles.fovTooltipText, { color: '#ffffff' }]}>
-              {visualFov.toFixed(0)}°
-            </Text>
           </View>
         </View>
       </View>
@@ -1816,8 +1818,18 @@ const styles = StyleSheet.create({
     left: 8,
     top: 8,
     bottom: 48,   // 나침반 높이(32) + 여유(16)
-    width: 32,
+    width: 44,
     zIndex: 120,
+    alignItems: 'center',
+    borderRadius: 22,
+    borderWidth: 1,
+    backgroundColor: 'rgba(5, 5, 10, 0.65)',
+  },
+  fovInnerWrapper: {
+    flex: 1,
+    width: '100%',
+    marginVertical: 16,
+    position: 'relative',
     alignItems: 'center',
   },
   fovTrackLine: {
@@ -1825,30 +1837,30 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
   fovTickLine: {
     position: 'absolute',
-    left: 10,
+    left: 22,
     height: 1,
     justifyContent: 'center',
   },
   fovTickText: {
     position: 'absolute',
-    left: 8,
+    left: 10,
     fontSize: 7,
-    color: 'rgba(255,255,255,0.5)',
-    fontWeight: '700',
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '800',
     width: 25,
   },
   fovPointer: {
     position: 'absolute',
-    left: -4,
-    width: 10,
-    height: 10,
-    marginTop: -5,
+    left: 16,
+    width: 12,
+    height: 12,
+    marginTop: -6,
     borderWidth: 1.5,
-    borderRadius: 5,
+    borderRadius: 6,
     backgroundColor: '#050510',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1860,7 +1872,7 @@ const styles = StyleSheet.create({
   },
   fovTooltip: {
     position: 'absolute',
-    left: 14,
+    left: 16,
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 4,
