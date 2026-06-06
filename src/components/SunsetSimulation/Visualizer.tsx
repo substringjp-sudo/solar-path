@@ -1587,7 +1587,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     }).filter(Boolean);
   }, [prediction, interpolatedWeather, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, VISUALIZER_WIDTH, heading, visualFov, currentTime, sim]);
 
-  const renderFarTerrain = () => {
+  // ── 지형 기하학적 포인트 연산 캐싱 (성능 극대화) ──────────────────
+  const farTerrainGeom = useMemo(() => {
     if (!sim?.terrain?.panoramicAngles) return null;
     const farAngles = sim.terrain.farAngles || [];
     if (farAngles.length <= 1) return null;
@@ -1629,39 +1630,23 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
 
     const CONTOUR_LEVELS = 5;
-    const layers = terrainColors.layers;
-    const contourLine = terrainColors.contourLine;
+    const contourPointsList = Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+      const frac = ((li + 1) / CONTOUR_LEVELS);
+      const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+      return {
+        contour: getContourPoints(farAngles, dynamicScale * 1.5, 0, frac),
+        ridge: getContourPoints(farAngles, dynamicScale * 1.5, 0, ridgeFrac)
+      };
+    });
 
-    return (
-      <G key="far-mountain-group">
-        {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
-          const frac = ((li + 1) / CONTOUR_LEVELS);
-          const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
-          return (
-            <G key={`far-cl-${li}`}>
-              <Polygon
-                points={getContourPoints(farAngles, dynamicScale * 1.5, 0, frac)}
-                fill={layers[Math.min(li, layers.length - 1)]}
-                opacity={0.92}
-              />
-              {li < CONTOUR_LEVELS - 1 && (
-                <Polygon
-                  points={getContourPoints(farAngles, dynamicScale * 1.5, 0, ridgeFrac)}
-                  fill="none"
-                  stroke={contourLine}
-                  strokeWidth={0.6}
-                  opacity={0.55}
-                />
-              )}
-            </G>
-          );
-        })}
-      </G>
-    );
-  };
+    return {
+      contourPointsList,
+    };
+  }, [sim?.terrain?.panoramicAngles, sim?.terrain?.farAngles, heading, visualFov, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, VISUALIZER_WIDTH]);
 
-  const renderForegroundTerrain = () => {
+  const fgTerrainGeom = useMemo(() => {
     if (!sim?.terrain?.panoramicAngles) return null;
+    const fgAngles = sim.terrain.panoramicAngles || [];
 
     const pointsCount = 150;
     const buffer = visualFov * 0.2;
@@ -1713,9 +1698,64 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
 
     const CONTOUR_LEVELS = 5;
+    const contourPointsList = Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+      const frac = ((li + 1) / CONTOUR_LEVELS);
+      const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+      return {
+        contour: getContourPoints(fgAngles, dynamicScale, 0, frac),
+        ridge: getContourPoints(fgAngles, dynamicScale, 0, ridgeFrac)
+      };
+    });
+
+    const ridgeHighlightPoints1 = getRidgeLinePoints(fgAngles, dynamicScale, -1.5);
+    const ridgeHighlightPoints2 = getRidgeLinePoints(fgAngles, dynamicScale, -1);
+
+    return {
+      contourPointsList,
+      ridgeHighlightPoints1,
+      ridgeHighlightPoints2,
+    };
+  }, [sim?.terrain?.panoramicAngles, heading, visualFov, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, VISUALIZER_WIDTH]);
+
+  const renderFarTerrain = () => {
+    if (!farTerrainGeom) return null;
+    const CONTOUR_LEVELS = 5;
     const layers = terrainColors.layers;
     const contourLine = terrainColors.contourLine;
-    const fgAngles = sim.terrain.panoramicAngles || [];
+
+    return (
+      <G key="far-mountain-group">
+        {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
+          const geom = farTerrainGeom.contourPointsList[li];
+          if (!geom) return null;
+          return (
+            <G key={`far-cl-${li}`}>
+              <Polygon
+                points={geom.contour}
+                fill={layers[Math.min(li, layers.length - 1)]}
+                opacity={0.92}
+              />
+              {li < CONTOUR_LEVELS - 1 && (
+                <Polygon
+                  points={geom.ridge}
+                  fill="none"
+                  stroke={contourLine}
+                  strokeWidth={0.6}
+                  opacity={0.55}
+                />
+              )}
+            </G>
+          );
+        })}
+      </G>
+    );
+  };
+
+  const renderForegroundTerrain = () => {
+    if (!fgTerrainGeom) return null;
+    const CONTOUR_LEVELS = 5;
+    const layers = terrainColors.layers;
+    const contourLine = terrainColors.contourLine;
 
     return (
       <G key="fg-mountain-group">
@@ -1723,14 +1763,14 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         {sunAltitude >= -4.0 && sunAltitude <= 8.0 && (
           <G>
             <Polyline
-              points={getRidgeLinePoints(fgAngles, dynamicScale, -1.5)}
+              points={fgTerrainGeom.ridgeHighlightPoints1}
               fill="none"
               stroke="#FF8C00"
               strokeWidth={4.5}
               opacity={Math.max(0, Math.min(1, sunAltitude >= 0 ? 1 - (sunAltitude / 8) : 1 - (sunAltitude / -4))) * 0.45}
             />
             <Polyline
-              points={getRidgeLinePoints(fgAngles, dynamicScale, -1)}
+              points={fgTerrainGeom.ridgeHighlightPoints2}
               fill="none"
               stroke="#FFE082"
               strokeWidth={1.8}
@@ -1741,18 +1781,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
         {/* Foreground Mountain layers */}
         {Array.from({ length: CONTOUR_LEVELS }, (_, li) => {
-          const frac = ((li + 1) / CONTOUR_LEVELS);
-          const ridgeFrac = ((li + 1.05) / CONTOUR_LEVELS);
+          const geom = fgTerrainGeom.contourPointsList[li];
+          if (!geom) return null;
           return (
             <G key={`fg-cl-${li}`}>
               <Polygon
-                points={getContourPoints(fgAngles, dynamicScale, 0, frac)}
+                points={geom.contour}
                 fill={layers[Math.min(li, layers.length - 1)]}
                 opacity={0.95}
               />
               {li < CONTOUR_LEVELS - 1 && (
                 <Polygon
-                  points={getContourPoints(fgAngles, dynamicScale, 0, ridgeFrac)}
+                  points={geom.ridge}
                   fill="none"
                   stroke={contourLine}
                   strokeWidth={0.75}
