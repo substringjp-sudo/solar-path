@@ -4,7 +4,7 @@ import { WebView } from 'react-native-webview';
 import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star, Camera, Image as ImageIcon } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { auth } from '../../config/firebase';
-import { getCelestialIsochrones, getIsochroneInterval } from '../../utils/celestial';
+import { getIsochroneInterval } from '../../utils/celestial';
 
 const { width, height } = Dimensions.get('window');
 
@@ -178,6 +178,7 @@ export const MapPicker = ({
       ` : ''}
       <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
       <script src="https://cdn.jsdelivr.net/gh/dj0001/Leaflet.timezones@master/L.timezones.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
       <style>
         body, html, #map { height: 100%; margin: 0; padding: 0; background: ${mapBg}; }
         .crosshair {
@@ -236,6 +237,164 @@ export const MapPicker = ({
         </svg>
       </div>
       <script>
+        // Point-in-Polygon (PIP) & BBox cache helper for precise timezone boundaries
+        const tzCache = {};
+        let featuresWithBBox = [];
+
+        function isPointInPolygon(point, vs) {
+          const x = point[1]; // longitude
+          const y = point[0]; // latitude
+          let inside = false;
+          for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+            const xi = vs[i][0], yi = vs[i][1];
+            const xj = vs[j][0], yj = vs[j][1];
+            const intersect = ((yi > y) !== (yj > y))
+              && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+          }
+          return inside;
+        }
+
+        function isPointInMultiPolygon(point, coords) {
+          for (let i = 0; i < coords.length; i++) {
+            const poly = coords[i];
+            if (Array.isArray(poly[0][0])) {
+              for (let j = 0; j < poly.length; j++) {
+                if (isPointInPolygon(point, poly[j])) return true;
+              }
+            } else {
+              if (isPointInPolygon(point, poly)) return true;
+            }
+          }
+          return false;
+        }
+
+        function prepareBBox() {
+          if (featuresWithBBox.length > 0 || !L.timezones || !L.timezones.geojsonFeature) return;
+          featuresWithBBox = L.timezones.geojsonFeature.features.map(f => {
+            let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+            const processCoords = (coords) => {
+              if (typeof coords[0] === 'number') {
+                const lng = coords[0], lat = coords[1];
+                if (lng < minLng) minLng = lng;
+                if (lng > maxLng) maxLng = lng;
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+              } else {
+                coords.forEach(processCoords);
+              }
+            };
+            processCoords(f.geometry.coordinates);
+            return {
+              feature: f,
+              bbox: [minLng, minLat, maxLng, maxLat],
+              zone: parseFloat(f.properties.zone)
+            };
+          });
+        }
+
+        function getTimezoneOffsetFromGeoJSON(lat, lng) {
+          const key = Math.round(lat * 2) + ',' + Math.round(lng * 2);
+          if (tzCache[key] !== undefined) return tzCache[key];
+          
+          prepareBBox();
+          if (featuresWithBBox.length === 0) {
+            return Math.floor((lng + 7.5) / 15);
+          }
+          
+          const point = [lat, lng];
+          for (let i = 0; i < featuresWithBBox.length; i++) {
+            const item = featuresWithBBox[i];
+            const bbox = item.bbox;
+            if (lng < bbox[0] || lng > bbox[2] || lat < bbox[1] || lat > bbox[3]) {
+              continue;
+            }
+            if (isPointInMultiPolygon(point, item.feature.geometry.coordinates)) {
+              tzCache[key] = item.zone;
+              return item.zone;
+            }
+          }
+          
+          const fallback = Math.floor((lng + 7.5) / 15);
+          tzCache[key] = fallback;
+          return fallback;
+        }
+
+        function getIsochroneInterval(zoom) {
+          if (zoom >= 10) return 5;
+          if (zoom >= 8) return 10;
+          if (zoom >= 6) return 15;
+          return 30;
+        }
+
+        function calculateIsochrones(dateStr, type, zoom, isUtc) {
+          const baseDate = new Date(dateStr);
+          const interval = getIsochroneInterval(zoom);
+          const lines = {};
+          
+          const lats = [];
+          for (let lat = -65; lat <= 65; lat += 3) {
+            lats.push(lat);
+          }
+          
+          const targets = [];
+          for (let min = 0; min < 1440; min += interval) {
+            targets.push(min);
+            lines[min] = [];
+          }
+          
+          if (!window.SunCalc) return [];
+          const startOfDayDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+          
+          for (let i = 0; i < lats.length; i++) {
+            const lat = lats[i];
+            const sunTimes = window.SunCalc.getTimes(startOfDayDate, lat, 0);
+            const eventDate = type === 'sunrise' ? sunTimes.sunrise : sunTimes.sunset;
+            
+            if (!eventDate || isNaN(eventDate.getTime())) {
+              continue;
+            }
+            
+            const eventUtcStartOfDay = Date.UTC(
+              eventDate.getUTCFullYear(),
+              eventDate.getUTCMonth(),
+              eventDate.getUTCDate()
+            );
+            const eventUtcMinutes = (eventDate.getTime() - eventUtcStartOfDay) / 60000;
+            
+            for (let t = 0; t < targets.length; t++) {
+              const targetMin = targets[t];
+              
+              if (isUtc) {
+                let lng = (eventUtcMinutes - targetMin) / 4;
+                lng = ((lng + 180) % 360 + 360) % 360 - 180;
+                lines[targetMin].push([lat, lng]);
+              } else {
+                for (let h = -12; h <= 12; h++) {
+                  const tzOffsetMinutes = -h * 60;
+                  let lng = (eventUtcMinutes - tzOffsetMinutes - targetMin) / 4;
+                  let normalizedLng = ((lng + 180) % 360 + 360) % 360 - 180;
+                  
+                  const actualH = getTimezoneOffsetFromGeoJSON(lat, normalizedLng);
+                  if (actualH === h) {
+                    lines[targetMin].push([lat, normalizedLng]);
+                  }
+                }
+              }
+            }
+          }
+          
+          return targets.map(min => {
+            const hh = String(Math.floor(min / 60)).padStart(2, '0');
+            const mm = String(min % 60).padStart(2, '0');
+            const points = lines[min].sort((a, b) => a[0] - b[0]);
+            return {
+              timeLabel: hh + ':' + mm,
+              points: points
+            };
+          }).filter(line => line.points.length > 1);
+        }
+
         const map = L.map('map', {
           zoomControl: false
         }).setView([${location?.coords?.latitude || 37.56}, ${location?.coords?.longitude || 126.97}], 10);
@@ -586,12 +745,23 @@ export const MapPicker = ({
           } else if (data?.type === 'UPDATE_ISOCHRONES') {
             showSunrise = data.showSunrise;
             showSunset = data.showSunset;
-            currentSunriseIso = data.sunriseIso || [];
-            currentSunsetIso = data.sunsetIso || [];
-            
+            const dateStr = data.date;
+            const zoom = data.zoom;
             const timeFormat = data.timeFormat || 'local';
-            updateTimezoneLayer(timeFormat === 'utc');
             
+            if (showSunrise) {
+              currentSunriseIso = calculateIsochrones(dateStr, 'sunrise', zoom, timeFormat === 'utc');
+            } else {
+              currentSunriseIso = [];
+            }
+            
+            if (showSunset) {
+              currentSunsetIso = calculateIsochrones(dateStr, 'sunset', zoom, timeFormat === 'utc');
+            } else {
+              currentSunsetIso = [];
+            }
+            
+            updateTimezoneLayer(timeFormat === 'utc');
             redrawIsochrones();
           }
         };
@@ -609,27 +779,13 @@ export const MapPicker = ({
       if (!isMapReady) return;
 
       const date = currentTime || new Date();
-      const isUtc = timeFormat === 'utc';
-      
-      const sunriseIsoRaw = showSunriseIso ? getCelestialIsochrones(date, 'sunrise', mapZoom, isUtc) : [];
-      const sunsetIsoRaw = showSunsetIso ? getCelestialIsochrones(date, 'sunset', mapZoom, isUtc) : [];
-      
-      // Map to plain [lat, lng] format compatible with Leaflet
-      const sunriseIso = sunriseIsoRaw.map(line => ({
-        timeLabel: line.timeLabel,
-        points: line.points.map(p => [p.latitude, p.longitude])
-      }));
-      const sunsetIso = sunsetIsoRaw.map(line => ({
-        timeLabel: line.timeLabel,
-        points: line.points.map(p => [p.latitude, p.longitude])
-      }));
       
       const message = {
         type: 'UPDATE_ISOCHRONES',
         showSunrise: showSunriseIso,
         showSunset: showSunsetIso,
-        sunriseIso,
-        sunsetIso,
+        date: date.toISOString(),
+        zoom: mapZoom,
         timeFormat
       };
       
