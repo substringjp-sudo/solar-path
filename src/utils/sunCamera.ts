@@ -19,36 +19,102 @@ export const SUNSET_PRE_MINUTES = -90;   // 일몰 전 1.5시간 (낮쪽)
 export const SUNSET_POST_MINUTES = 60;   // 일몰 후 1시간 (밤쪽)
 
 export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): GoldenTimeInfo => {
-  const times = SunCalc.getTimes(currentTime, lat, lng);
+  // 어제, 오늘, 내일 3일의 일출/일몰 시각을 모두 계산
+  const days = [-1, 0, 1].map(offset => {
+    const d = new Date(currentTime);
+    d.setDate(d.getDate() + offset);
+    return SunCalc.getTimes(d, lat, lng);
+  });
 
-  const sunriseMs = times.sunrise.getTime();
-  const sunsetMs = times.sunset.getTime();
   const nowMs = currentTime.getTime();
+  const sunrises: Date[] = [];
+  const sunsets: Date[] = [];
 
-  const minutesToSunrise = (nowMs - sunriseMs) / 60000; // negative = before sunrise, positive = after sunrise
-  const minutesToSunset = (nowMs - sunsetMs) / 60000;   // negative = before sunset, positive = after sunset
+  days.forEach(t => {
+    if (t.sunrise && !isNaN(t.sunrise.getTime())) sunrises.push(t.sunrise);
+    if (t.sunset && !isNaN(t.sunset.getTime())) sunsets.push(t.sunset);
+  });
 
-  // 일출 체크: 밤쪽(전) 1시간, 낮쪽(후) 1.5시간
-  if (minutesToSunrise >= SUNRISE_PRE_MINUTES && minutesToSunrise <= SUNRISE_POST_MINUTES) {
+  // 현재 시간과 가장 가까운 일출 찾기
+  let nearestSunrise: Date | null = null;
+  let minDiffSunrise = Infinity;
+  for (const sr of sunrises) {
+    const diff = Math.abs(nowMs - sr.getTime());
+    if (diff < minDiffSunrise) {
+      minDiffSunrise = diff;
+      nearestSunrise = sr;
+    }
+  }
+
+  // 현재 시간과 가장 가까운 일몰 찾기
+  let nearestSunset: Date | null = null;
+  let minDiffSunset = Infinity;
+  for (const ss of sunsets) {
+    const diff = Math.abs(nowMs - ss.getTime());
+    if (diff < minDiffSunset) {
+      minDiffSunset = diff;
+      nearestSunset = ss;
+    }
+  }
+
+  const minutesToSunrise = nearestSunrise ? (nowMs - nearestSunrise.getTime()) / 60000 : Infinity;
+  const minutesToSunset = nearestSunset ? (nowMs - nearestSunset.getTime()) / 60000 : Infinity;
+
+  // 일출 골든타임 체크: 밤쪽(전) 1시간, 낮쪽(후) 1.5시간
+  const isSunriseActive = minutesToSunrise >= SUNRISE_PRE_MINUTES && minutesToSunrise <= SUNRISE_POST_MINUTES;
+
+  // 일몰 골든타임 체크: 낮쪽(전) 1.5시간, 밤쪽(후) 1시간
+  const isSunsetActive = minutesToSunset >= SUNSET_PRE_MINUTES && minutesToSunset <= SUNSET_POST_MINUTES;
+
+  if (isSunriseActive && isSunsetActive) {
+    // 혹시라도 겹치면 더 가까운 이벤트를 선택
+    if (Math.abs(minutesToSunrise) < Math.abs(minutesToSunset)) {
+      return {
+        isActive: true,
+        type: 'sunrise',
+        eventTime: nearestSunrise,
+        minutesToEvent: minutesToSunrise,
+      };
+    } else {
+      return {
+        isActive: true,
+        type: 'sunset',
+        eventTime: nearestSunset,
+        minutesToEvent: minutesToSunset,
+      };
+    }
+  }
+
+  if (isSunriseActive && nearestSunrise) {
     return {
       isActive: true,
       type: 'sunrise',
-      eventTime: times.sunrise,
+      eventTime: nearestSunrise,
       minutesToEvent: minutesToSunrise,
     };
   }
 
-  // 일몰 체크: 낮쪽(전) 1.5시간, 밤쪽(후) 1시간
-  if (minutesToSunset >= SUNSET_PRE_MINUTES && minutesToSunset <= SUNSET_POST_MINUTES) {
+  if (isSunsetActive && nearestSunset) {
     return {
       isActive: true,
       type: 'sunset',
-      eventTime: times.sunset,
+      eventTime: nearestSunset,
       minutesToEvent: minutesToSunset,
     };
   }
 
-  return { isActive: false, type: null, eventTime: null, minutesToEvent: 0 };
+  // 매칭되지 않는 경우에도 디버깅 및 UI 편의를 위해 가장 가까운 이벤트를 탑재해 전달
+  const isSunriseCloser = Math.abs(minutesToSunrise) < Math.abs(minutesToSunset);
+  const nearestEvent = isSunriseCloser ? nearestSunrise : nearestSunset;
+  const nearestMinutes = isSunriseCloser ? minutesToSunrise : minutesToSunset;
+  const nearestType = isSunriseCloser ? 'sunrise' : 'sunset';
+
+  return {
+    isActive: false,
+    type: nearestType as any,
+    eventTime: nearestEvent,
+    minutesToEvent: nearestMinutes,
+  };
 };
 
 // ──────────────────────────────────────────
