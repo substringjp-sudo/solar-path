@@ -18,6 +18,7 @@ import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
 import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin } from 'lucide-react-native';
 import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
+import { t } from '../utils/i18n';
  
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
@@ -48,7 +49,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     terrainCacheList, 
     addWeatherCache, 
     addTerrainCache,
-    savedLocations
+    savedLocations,
+    setSimulationLoading,
+    isTimeMachineEnabled,
+    setTimeMachineEnabled,
+    language,
   } = useCelestialStore();
   const netInfo = useNetInfo();
   
@@ -70,6 +75,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [isWeatherDetailVisible, setWeatherDetailVisible] = useState(false);
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
+  const [selectedEventType, setSelectedEventType] = useState<'auto' | 'Sunrise' | 'Sunset'>('auto');
+  const activeRequestIdRef = useRef(0);
 
   const getTouchDistance = (touches: any[]) => {
     const [t1, t2] = touches;
@@ -89,6 +96,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
 
   const lastFetchedDateRef = useRef<string>('');
+  const lastCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const lastSelectedEventTypeRef = useRef<'auto' | 'Sunrise' | 'Sunset'>('auto');
 
   const panResponder = useRef(
     PanResponder.create({
@@ -135,17 +144,37 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   useEffect(() => {
     if (!location) return;
     
-    if (lastFetchedDateRef.current === currentDateStr && !forceRefreshRef.current) {
-      return;
+    const { latitude, longitude } = location.coords;
+    
+    // 1km(1000m) 이내 미세 이동이고 날짜도 같고 일출/일몰 모드도 같으며 강제 새로고침이 아닌 경우 갱신 건너뜀
+    if (lastCoordsRef.current && !forceRefreshRef.current) {
+      const dist = getDistance(
+        lastCoordsRef.current.latitude,
+        lastCoordsRef.current.longitude,
+        latitude,
+        longitude
+      );
+      if (
+        dist < 1000 &&
+        lastFetchedDateRef.current === currentDateStr &&
+        lastSelectedEventTypeRef.current === selectedEventType
+      ) {
+        return;
+      }
     }
     
-    let active = true;
+    const myId = ++activeRequestIdRef.current;
+    const isCurrent = () => myId === activeRequestIdRef.current;
+
+    lastCoordsRef.current = { latitude, longitude };
     lastFetchedDateRef.current = currentDateStr;
+    lastSelectedEventTypeRef.current = selectedEventType;
     const isForceRefresh = forceRefreshRef.current;
     forceRefreshRef.current = false;
 
     setSim(null);
     setLoadingStatus(isForceRefresh ? 'Forcing Weather & Terrain Update...' : 'Preparing Simulation...');
+    setSimulationLoading(true);
 
     const fetchSim = async () => {
       try {
@@ -155,22 +184,30 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         let nextEvent: Date;
         let type: 'Sunrise' | 'Sunset';
 
-        if (isAfter(now, times.sunset)) {
-          nextEvent = SunCalc.getTimes(addHours(now, 24), latitude, longitude).sunrise;
+        if (selectedEventType === 'Sunrise') {
+          nextEvent = times.sunrise;
           type = 'Sunrise';
-        } else if (isAfter(now, times.sunrise)) {
+        } else if (selectedEventType === 'Sunset') {
           nextEvent = times.sunset;
           type = 'Sunset';
         } else {
-          nextEvent = times.sunrise;
-          type = 'Sunrise';
+          if (isAfter(now, times.sunset)) {
+            nextEvent = SunCalc.getTimes(addHours(now, 24), latitude, longitude).sunrise;
+            type = 'Sunrise';
+          } else if (isAfter(now, times.sunrise)) {
+            nextEvent = times.sunset;
+            type = 'Sunset';
+          } else {
+            nextEvent = times.sunrise;
+            type = 'Sunrise';
+          }
         }
         const pos = SunCalc.getPosition(nextEvent as any, latitude, longitude);
         const az = (pos.azimuth * 180 / Math.PI) + 180;
 
         let terrainData = null;
         let foundTerrainCache = null;
-        let minDistTerrain = 500; // 500m threshold for memory cache
+        let minDistTerrain = 500;
         
         if (!isForceRefresh) {
           for (const item of terrainCacheList) {
@@ -185,8 +222,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         if (foundTerrainCache) {
           terrainData = foundTerrainCache.data;
         } else if (!isForceRefresh) {
-          // 메모리 캐시에 없으면, 1km 이내 지형 데이터가 내장된 저장 장소(savedLocations)가 있는지 검사
-          let minSavedDist = 1000; // 1km threshold
+          let minSavedDist = 1000;
           let matchedSavedLoc = null;
           for (const item of savedLocations) {
             if (item.terrainData) {
@@ -199,7 +235,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
           if (matchedSavedLoc) {
             terrainData = matchedSavedLoc.terrainData;
-            // 지형 메모리 캐시에도 추가하여 다음 접근 시 가속
             addTerrainCache({
               key: `t_${latitude.toFixed(4)}_${longitude.toFixed(4)}`,
               data: terrainData,
@@ -231,16 +266,16 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         const shouldFetchWeather = !weatherData;
 
         if (shouldFetchWeather || shouldFetchTerrain) {
-          if (shouldFetchWeather && active) setLoadingStatus('Analyzing Weather Data...');
+          if (shouldFetchWeather && isCurrent()) setLoadingStatus('Analyzing Weather Data...');
           
           const [newWeather, newTerrain] = await Promise.all([
-            shouldFetchWeather ? fetchSunsetWeather(latitude, longitude, az) : Promise.resolve(weatherData),
+            shouldFetchWeather ? fetchSunsetWeather(latitude, longitude, az, false, nextEvent) : Promise.resolve(weatherData),
             shouldFetchTerrain ? fetchTerrainProfile(latitude, longitude, 0, 360, (msg) => {
-              if (active) setLoadingStatus(msg);
+              if (isCurrent()) setLoadingStatus(msg);
             }) : Promise.resolve(terrainData)
           ]);
 
-          if (!active) return;
+          if (!isCurrent()) return;
 
           if (shouldFetchWeather && newWeather) {
             weatherData = newWeather;
@@ -252,12 +287,12 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
         }
 
-        if (!active) return;
+        if (!isCurrent()) return;
 
         if (weatherData && terrainData) {
           const trueEventTime = calculateTrueEventTime(nextEvent, type, latitude, longitude, terrainData as TerrainData);
 
-          if (!active) return;
+          if (!isCurrent()) return;
 
           setSim({ 
             type, 
@@ -270,6 +305,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             loading: false,
             weatherSource: (weatherData as CloudPathData[])[0]?.source || 'standard'
           });
+          setSimulationLoading(false);
           setCurrentTime(nextEvent);
           const sTimes = SunCalc.getTimes(now, latitude, longitude);
           setEventAzimuths({
@@ -277,14 +313,44 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             sunset: (SunCalc.getPosition(sTimes.sunset, latitude, longitude).azimuth * 180 / Math.PI) + 180
           });
         } else {
-          // 혹시라도 데이터가 없는 경우를 대비한 세이프 로딩 오프
-          if (active) {
+          if (isCurrent()) {
             setSim(prev => prev ? { ...prev, loading: false } : null);
+            setSimulationLoading(false);
           }
         }
       } catch (err) {
-        if (active) {
+        if (isCurrent()) {
           console.error("Simulation initialization failed:", err);
+          setSimulationLoading(false);
+
+          let alertTitle = t('fallbackAlertTitle', language);
+          let alertMsg = t('fallbackAlertMsg', language);
+
+          if (err instanceof Error) {
+            const errMsg = err.message;
+            if (errMsg.includes('RATE_LIMIT')) {
+              alertTitle = t('apiLimitExceeded', language);
+              alertMsg = t('apiLimitExceededMsg', language);
+            } else if (errMsg.includes('NETWORK_ERROR')) {
+              alertTitle = t('networkError', language);
+              alertMsg = t('networkErrorMsg', language);
+            } else if (errMsg.includes('SERVER_ERROR')) {
+              alertTitle = t('serverError', language);
+              alertMsg = t('serverErrorMsg', language);
+            } else if (errMsg.includes('HTTP_ERROR')) {
+              alertTitle = t('apiRequestError', language);
+              alertMsg = language === 'ko' 
+                ? `${errMsg.replace('HTTP_ERROR: ', '')}\n\n(날씨 캐시 또는 맑은 가상 데이터로 시뮬레이션을 불러옵니다.)`
+                : `${errMsg.replace('HTTP_ERROR: ', '')}\n\n(Loading simulation with cached or fallback data.)`;
+            } else {
+              alertMsg = language === 'ko'
+                ? `${errMsg}\n\n(날씨 캐시 또는 맑은 가상 데이터로 시뮬레이션을 불러옵니다.)`
+                : `${errMsg}\n\n(Loading simulation with cached or fallback data.)`;
+            }
+          }
+
+          Alert.alert(alertTitle, alertMsg, [{ text: t('confirm', language), style: 'default' }]);
+
           setSim(prev => {
             if (prev) return { ...prev, loading: false };
             return {
@@ -293,9 +359,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               azimuth: 270,
               fov: 20,
               pathData: [],
-              terrain: { panoramicAngles: Array(61).fill(0), farAngles: Array(61).fill(0), minAz: 0, maxAz: 360, observerElevation: 50 },
+              terrain: { panoramicAngles: Array(31).fill(0), farAngles: Array(31).fill(0), minAz: 0, maxAz: 360, observerElevation: 50 },
               loading: false,
-              weatherSource: 'standard'
+              weatherSource: 'fallback'
             };
           });
         }
@@ -303,8 +369,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     };
     fetchSim();
 
-    return () => { active = false; };
-  }, [location, currentDateStr, refreshTrigger]);
+    return () => {};
+  }, [location, currentDateStr, refreshTrigger, selectedEventType]);
 
   const handleRefresh = () => {
     if (!sim || forceRefreshRef.current) return;
@@ -348,9 +414,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const handleLoadNowcast = async () => {
     if (!location || !sim || isNowcastLoading) return;
     setIsNowcastLoading(true);
+    setSimulationLoading(true);
     try {
       const { latitude, longitude } = location.coords;
-      const data = await fetchSunsetWeather(latitude, longitude, sim.azimuth, true);
+      const data = await fetchSunsetWeather(latitude, longitude, sim.azimuth, true, sim.eventTime);
       if (data && data.length > 0) {
         setSim(prev => {
           if (!prev) return prev;
@@ -367,15 +434,36 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           latitude,
           longitude
         });
-        Alert.alert('정밀 예보 적용 완료', '초단기 국지 기상 모델(Nowcast)이 성공적으로 반영되었습니다.');
+        Alert.alert(t('nowcastLoaded', language), t('nowcastLoadedMsg', language));
       } else {
-        Alert.alert('알림', '초단기 정밀 기상 데이터를 가져올 수 없습니다. 잠시 후 다시 시도해 주세요.');
+        Alert.alert(t('notification', language), t('nowcastFailedMsg', language));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load nowcast weather:', err);
-      Alert.alert('에러', '초단기 정밀 예보를 로드하는 도중 오류가 발생했습니다.');
+      
+      let alertTitle = t('nowcastFailed', language);
+      let alertMsg = t('nowcastFailedMsg', language);
+      
+      if (err instanceof Error) {
+        const errMsg = err.message;
+        if (errMsg.includes('RATE_LIMIT')) {
+          alertTitle = t('nowcastLimitExceeded', language);
+          alertMsg = t('nowcastLimitExceededMsg', language);
+        } else if (errMsg.includes('NETWORK_ERROR')) {
+          alertTitle = t('networkError', language);
+          alertMsg = t('nowcastNetworkErrorMsg', language);
+        } else if (errMsg.includes('SERVER_ERROR')) {
+          alertTitle = t('nowcastFailed', language);
+          alertMsg = t('nowcastServerErrorMsg', language);
+        } else {
+          alertMsg = errMsg;
+        }
+      }
+      
+      Alert.alert(alertTitle, alertMsg);
     } finally {
       setIsNowcastLoading(false);
+      setSimulationLoading(false);
     }
   };
 
@@ -466,17 +554,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     });
   }, [cloudGridData]);
 
-  const isSunVisible = useMemo(() => {
-    if (!sim?.terrain) return sunAltitude > 0;
-    const angles = sim.terrain.panoramicAngles;
-    const normalizedAz = ((heading % 360) + 360) % 360;
-    const index = (normalizedAz / 360) * (angles.length - 1);
-    const i1 = Math.floor(index);
-    const i2 = (i1 + 1) % angles.length;
-    const ratio = index - i1;
-    const terrainAngle = angles[i1] * (1 - ratio) + angles[i2] * ratio;
-    return sunAltitude > terrainAngle;
-  }, [sim?.terrain, sunAltitude, heading]);
+
 
   // 5-Ray * 7-Distance (총 35개 지격) 매트릭스 변환
   const miniGridMatrix = useMemo(() => {
@@ -522,47 +600,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   };
 
-  // Update weather pathData dynamically if the camera heading (sunAzimuth) drifts too far from the sampled azimuth
-  useEffect(() => {
-    if (!location || !sim || sim.loading) return;
-    
-    const { latitude, longitude } = location.coords;
-    const currentAz = sunAzimuth;
-    
-    // Calculate shortest angular distance between current sun azimuth and simulated (sampled) azimuth
-    let diff = Math.abs(currentAz - sim.azimuth);
-    diff = diff > 180 ? 360 - diff : diff;
-    
-    // If the difference is greater than 35 degrees, fetch updated pathData for this direction!
-    if (diff > 35) {
-      let active = true;
-      const fetchUpdatedWeather = async () => {
-        try {
-          const newWeather = await fetchSunsetWeather(latitude, longitude, currentAz);
-          if (active && newWeather) {
-            setSim(prev => {
-              if (!prev) return null;
-              return {
-                ...prev,
-                azimuth: currentAz,
-                pathData: newWeather,
-                weatherSource: newWeather[0]?.source || prev.weatherSource
-              };
-            });
-          }
-        } catch (err) {
-          console.error('Failed to update weather for new azimuth:', err);
-        }
-      };
-      
-      // Debounce slightly to prevent rapid API requests when user drags slider
-      const timer = setTimeout(fetchUpdatedWeather, 450);
-      return () => {
-        active = false;
-        clearTimeout(timer);
-      };
-    }
-  }, [sunAzimuth, location, sim?.loading]);
+
 
   if (!theme) return null;
   if (netInfo.isConnected === false) return <OfflineView theme={theme} />;
@@ -572,9 +610,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       {!simLoaded ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={[styles.loadingText, { color: theme.text, marginTop: 12 }]}>{loadingStatus}</Text>
+          <Text style={[styles.loadingText, { color: theme.text, marginTop: 12 }]}>
+            {loadingStatus.includes('Weather') ? t('collectingWeather', language) : t('generatingTerrain', language)}
+          </Text>
           <Text style={[styles.loadingSubText, { color: theme.subText }]}>
-            {loadingStatus.includes('Weather') ? 'Collecting global weather model data' : 'Generating terrain elevation profile'}
+            {loadingStatus.includes('Weather') ? t('collectingWeather', language) : t('generatingTerrain', language)}
           </Text>
         </View>
       ) : (
@@ -591,7 +631,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               panHandlers={panResponder.panHandlers}
               theme={theme}
               interpolatedWeather={interpolatedWeather}
-              isSunVisible={isSunVisible}
               eventAzimuths={eventAzimuths}
               gridCloudShapes={gridCloudShapes}
               location={location}
@@ -631,6 +670,36 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           </View>
 
           <View style={styles.bottomSection}>
+            {/* 일출/일몰 선택 세그먼트 토글 */}
+            <View style={[styles.segmentContainer, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              {(['auto', 'Sunrise', 'Sunset'] as const).map((mode) => {
+                const isActive = selectedEventType === mode;
+                const label = mode === 'auto' ? t('auto', language) :
+                              mode === 'Sunrise' ? t('sunrise', language) :
+                              t('sunset', language);
+                return (
+                  <TouchableOpacity
+                    key={mode}
+                    style={[
+                      styles.segmentButton,
+                      isActive && { backgroundColor: theme.accent }
+                    ]}
+                    onPress={() => setSelectedEventType(mode)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        { color: isActive ? '#000' : theme.text }
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             {sim?.weatherSource === 'fallback' && (
               <TouchableOpacity
                 style={[
@@ -642,16 +711,16 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 ]}
                 onPress={() => {
                   Alert.alert(
-                    '기상 정보 수신 실패',
-                    '기상 API 서버(Open-Meteo)의 장애 또는 단시간 과도한 요청에 의한 일시적 IP 제한으로 실시간 날씨 정보를 가져올 수 없습니다.\n\n현재 맑은 날(기본값)로 임시 시뮬레이션 중이며, 10분 정도 대기 후 다시 날씨 갱신 버튼을 눌러주세요.',
-                    [{ text: '확인', style: 'default' }]
+                    t('fallbackAlertTitle', language),
+                    t('fallbackAlertMsg', language),
+                    [{ text: t('confirm', language), style: 'default' }]
                   );
                 }}
                 activeOpacity={0.7}
               >
                 <AlertCircle size={13} color="#FF5C3F" style={{ marginRight: 6 }} />
                 <Text style={styles.warningBannerText}>
-                  실시간 기상 수신 실패 (임시 데이터 적용됨) · 상세 보기
+                  {t('fallbackBannerTitle', language)}
                 </Text>
               </TouchableOpacity>
             )}
@@ -668,7 +737,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
             <View style={[styles.unifiedCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <View style={styles.unifiedLeftSection}>
-                <Text style={[styles.aerosolTitle, { color: theme.text }]}>Aerosols & Humidity</Text>
+                <Text style={[styles.aerosolTitle, { color: theme.text }]}>{t('aerosolsHumidity', language)}</Text>
                 <View style={styles.aerosolRow}>
                   <View style={styles.aerosolCol}>
                     <Text style={[styles.aerosolVal, { color: theme.text }]}>
@@ -699,7 +768,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 onPress={() => setWeatherDetailVisible(true)}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.gridTitleText, { color: theme.text }]}>Cloud Radar Grid</Text>
+                <Text style={[styles.gridTitleText, { color: theme.text }]}>{t('cloudRadarGrid', language)}</Text>
                 
                 <View style={styles.miniGridContainer}>
                   {miniGridMatrix.map((row, rIdx) => (
@@ -736,7 +805,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 <View style={styles.detailHintRow}>
                   <Info size={8} color={theme.accent} style={{ marginRight: 3 }} />
                   <Text style={[styles.detailHintText, { color: theme.subText }]}>
-                    380km Radius Map (Tap)
+                    {t('radiusMapHint', language)}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -757,6 +826,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 baseTime={sim?.eventTime || new Date()}
                 theme={theme}
                 isDay={sunAltitude > 0}
+                isTimeMachineEnabled={isTimeMachineEnabled}
+                onToggleTimeMachine={setTimeMachineEnabled}
                 markers={[
                   {
                     time: sim?.eventTime || null,
@@ -848,6 +919,24 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   bottomSection: { gap: 6, marginTop: 'auto' },
+  segmentContainer: {
+    flexDirection: 'row',
+    padding: 2,
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 38,
+    marginBottom: 4,
+  },
+  segmentButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 14,
+  },
+  segmentText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', height: 300 },
   loadingText: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   loadingSubText: { fontSize: 11, opacity: 0.6 },
