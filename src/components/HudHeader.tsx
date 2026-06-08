@@ -164,19 +164,21 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             )}
           </TouchableOpacity>
    
-          <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
-            <ChevronRight size={16} color={theme.text} />
-          </TouchableOpacity>
-   
-          {!isTodayLocal && (
-            <TouchableOpacity 
-              onPress={() => handleDateChange(new Date())} 
-              style={[styles.todayButton, { backgroundColor: theme.text }]}
-            >
-              <RotateCcw size={10} color={theme.bg} />
-              <Text style={[styles.todayText, { color: theme.bg }]}>{t('today', language)}</Text>
+          {/* 오른쪽 영역: 다음 날 + Today 버튼을 하나의 row로 묶어 겹침 방지 */}
+          <View style={styles.dateRightControls}>
+            {!isTodayLocal && (
+              <TouchableOpacity 
+                onPress={() => handleDateChange(new Date())} 
+                style={[styles.todayButton, { backgroundColor: theme.text }]}
+              >
+                <RotateCcw size={10} color={theme.bg} />
+                <Text style={[styles.todayText, { color: theme.bg }]}>{t('today', language)}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
+              <ChevronRight size={16} color={theme.text} />
             </TouchableOpacity>
-          )}
+          </View>
         </Animated.View>
       )}
     </View>
@@ -285,8 +287,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 8,
     gap: 4,
-    position: 'absolute',
-    right: 8,
+  },
+  dateRightControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   todayText: {
     fontSize: 9,

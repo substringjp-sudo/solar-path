@@ -264,14 +264,16 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             </View>
           </View>
 
-          <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
-            <TouchableOpacity
-              onPress={() => setMapVisible(true)}
-              style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
-              activeOpacity={0.7}
-            >
-              <MapPin size={14} color="#000" />
-            </TouchableOpacity>
+          <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <View style={styles.bottomPanelHeader}>
+              <TouchableOpacity
+                onPress={() => setMapVisible(true)}
+                style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
+                activeOpacity={0.7}
+              >
+                <MapPin size={14} color="#000" />
+              </TouchableOpacity>
+            </View>
             <TimeSlider 
               value={currentTime}
               onChange={setCurrentTime}
@@ -395,16 +397,19 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: Platform.OS === 'android' ? 18 : 15,
   },
+  bottomPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 2,
+  },
   floatingMapBtn: {
-    position: 'absolute',
-    top: 8,
-    right: 16,
     width: 32,
     height: 32,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
