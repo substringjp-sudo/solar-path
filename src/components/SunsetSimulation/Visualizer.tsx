@@ -2,12 +2,14 @@ import React, { useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
-import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination } from '../../utils/sunsetPhysics';
+import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
 import * as MediaLibrary from 'expo-media-library';
 import { generateSimulationImage } from '../../utils/simulationImage';
+import SunCalc from 'suncalc';
+import { getInterpolatedWeather } from '../../utils/weather';
 
 interface VisualizerProps {
   prediction: SunsetPrediction | null;
@@ -363,22 +365,38 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   // Base sizes for FOV 20
   const sunSize = 40 * (20 / visualFov);
 
-  // uniforms definition moved below computedClouds
+  // 1회 캐싱된 이벤트 시점 날씨 보간 데이터 및 예측
+  const eventWeather = useMemo(() => {
+    if (!sim?.pathData || sim.pathData.length === 0) return [];
+    return getInterpolatedWeather(sim.pathData, sim.eventTime);
+  }, [sim?.pathData, sim?.eventTime]);
+
+  const eventPrediction = useMemo(() => {
+    if (!sim?.pathData || sim.pathData.length < 4 || !eventWeather || eventWeather.length === 0) return null;
+    const baseSunPos = SunCalc.getPosition(sim.eventTime, location?.coords?.latitude || 0, location?.coords?.longitude || 0);
+    const baseSunAlt = baseSunPos.altitude * (180 / Math.PI);
+    return predictSunset(
+      sim.pathData,
+      sim.eventTime,
+      baseSunAlt,
+      eventWeather[0]?.visibility,
+      eventWeather[0]?.humidity,
+      location?.coords?.latitude,
+      location?.coords?.altitude ?? sim?.terrain?.observerElevation ?? 0
+    );
+  }, [sim?.pathData, sim?.eventTime, eventWeather, location, sim?.terrain?.observerElevation]);
 
   // 1. Unified 3D Spatial Clouds Computation & Depth Sorting (Optimized caching)
   const allCloudLayersData = useMemo(() => {
     const results: any[] = [];
-    if (!interpolatedWeather || !sim?.pathData) return results;
+    if (!eventWeather || eventWeather.length === 0 || !sim?.pathData) return results;
 
     const R_E = 6371; // Earth radius in km
     const h_v = (sim?.terrain?.observerElevation ?? 50) / 1000; // Observer altitude in km (default 50m)
-    const horizonTop = SKY_HEIGHT - HORIZON_Y;
-    const verticalFovDeg = (horizonTop * visualFov) / VISUALIZER_WIDTH;
-    const halfFov = visualFov / 2;
 
     const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
-    const isOvercast = (prediction?.factors?.overheadOvercast ?? 0) >= 0.75;
-    const overcast = prediction?.factors?.overheadOvercast ?? 0;
+    const isOvercast = (eventPrediction?.factors?.overheadOvercast ?? 0) >= 0.75;
+    const overcast = eventPrediction?.factors?.overheadOvercast ?? 0;
 
     // ── 1) 5개 방위각 열별 공간 기상 패턴 분석 (10k ~ 380k 사이) ──
     const colStatus = Array.from({ length: 5 }, () => ({
@@ -397,7 +415,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       
       for (let d = 0; d < 7; d++) {
         const pIdx = 1 + col * 7 + d;
-        const interpolated = interpolatedWeather[pIdx];
+        const interpolated = eventWeather[pIdx];
         lowVals.push(interpolated?.low ?? 0);
         midVals.push(interpolated?.mid ?? 0);
         highVals.push(interpolated?.high ?? 0);
@@ -415,7 +433,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const getColAvgHigh = (c: number) => {
         let sum = 0;
         for (let d = 0; d < 7; d++) {
-          sum += interpolatedWeather[1 + c * 7 + d]?.high ?? 0;
+          sum += eventWeather[1 + c * 7 + d]?.high ?? 0;
         }
         return sum / 7;
       };
@@ -453,7 +471,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         const hasCloud = new Array(7).fill(false);
         for (let d = 0; d < 7; d++) {
           const pIdx = 1 + col * 7 + d;
-          const interpolated = interpolatedWeather[pIdx];
+          const interpolated = eventWeather[pIdx];
           if (interpolated) {
             const val = layer === 'high' ? interpolated.high : layer === 'mid' ? interpolated.mid : interpolated.low;
             hasCloud[d] = val >= 25;
@@ -473,7 +491,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     
     types.forEach((type) => {
       sim.pathData.forEach((c: any, i: number) => {
-        const interpolated = interpolatedWeather[i];
+        const interpolated = eventWeather[i];
         if (!interpolated) return;
         const low = interpolated.low || 0;
         const mid = interpolated.mid || 0;
@@ -645,17 +663,6 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           const minElevation = type === 'high' ? 1.5 : type === 'mid' ? 0.8 : 0.4;
           apparentElevationDeg = Math.max(apparentElevationDeg, minElevation);
 
-          // 1) 수직 고도각 시야각 컬링 검사 (지평선 아래부터 화면 최상단 verticalFovDeg + 여유 5도까지)
-          const isVerticallyVisible = (apparentElevationDeg >= -horizonDipDeg - 2 && apparentElevationDeg <= verticalFovDeg + 5);
-          if (!isVerticallyVisible) continue;
-
-          // 2) 수평 방위각 시야각 컬링 검사 (카메라 heading 좌우 fov 절반 + 여유 12도까지)
-          const cloudAzimuthAbs = (sim?.azimuth || 0) + (c?.azimuthOffset ?? 0);
-          const relativeAzDeg = cloudAzimuthAbs - heading;
-          const relativeAz = ((relativeAzDeg + 180) % 360) - 180;
-          const isHorizontallyVisible = (relativeAz >= -halfFov - 12 && relativeAz <= halfFov + 12);
-          if (!isHorizontallyVisible) continue;
-
           let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
           if (d <= 80) cloudCategory = 'near';
           else if (d > 200) cloudCategory = 'far';
@@ -708,10 +715,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
           const baseColorStr =
             type === 'high'
-              ? (prediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
+              ? (eventPrediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
               : type === 'mid'
-              ? (prediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.35)')
-              : (prediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
+              ? (eventPrediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.35)')
+              : (eventPrediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
 
           results.push({
             id: `${type}-${i}-${s}`,
@@ -747,7 +754,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     // Deep sort: further away (larger S) rendered first, so closer (smaller S) overlaps it!
     results.sort((a, b) => b.S - a.S);
     return results;
-  }, [interpolatedWeather, sim, horizonDipDeg, prediction, visualFov, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y]);
+  }, [eventWeather, eventPrediction, sim]);
 
   // Extract real-time weather factors for dynamic papercraft collage styling
   const weatherFactors = useMemo(() => {
@@ -784,27 +791,35 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
     // ── Helper 1: Map allCloudLayersData (일반 3D 구름) ──────────────────────
     allCloudLayersData.forEach((item) => {
-      let x = VISUALIZER_WIDTH / 2;
-      let y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
-      let relativeAz = 0;
-      let cloudAzimuthAbs = sim?.azimuth || 0;
-      
-      const spatialDx = (((item.seed * 73) % 120) - 60); // in km
       const timeMs = currentTime.getTime();
       const windSpeedKmh = 25; 
       const windDriftKm = (timeMs / 3600000) * windSpeedKmh;
+      const spatialDx = (((item.seed * 73) % 120) - 60); // in km
       const totalDx = spatialDx + (windDriftKm % 160 - 80);
       
       const totalAzOffset = item.azimuthOffset + Math.atan2(totalDx, item.d) * (180 / Math.PI);
-      cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
-
+      const cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
       const relativeAzDeg = cloudAzimuthAbs - heading;
-      relativeAz = ((relativeAzDeg + 180) % 360) - 180;
-      
+      const relativeAz = ((relativeAzDeg + 180) % 360) - 180;
+      const halfFov = visualFov / 2;
+
+      // 1) 수평 방위각 시야각 컬링 검사 (여유 15도)
+      if (relativeAz < -halfFov - 15 || relativeAz > halfFov + 15) {
+        return;
+      }
+
+      // 2) 수직 고도각 시야각 컬링 검사 (여유 5도)
+      const horizonTop = SKY_HEIGHT - HORIZON_Y;
+      const verticalFovDeg = (horizonTop * visualFov) / VISUALIZER_WIDTH;
+      if (item.apparentElevationDeg < -horizonDipDeg - 2 || item.apparentElevationDeg > verticalFovDeg + 5) {
+        return;
+      }
+
       const fovRad = (visualFov * Math.PI) / 180;
       const halfFovRad = fovRad / 2;
       const xOffsetRatio = Math.tan((relativeAz * Math.PI) / 180) / Math.tan(halfFovRad);
-      x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
+      const x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
+      const y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
 
       const perspectiveScale = 35 / item.S;
       const clampedScale = Math.max(0.075, Math.min(3.0, perspectiveScale));
