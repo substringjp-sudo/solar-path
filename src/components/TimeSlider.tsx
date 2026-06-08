@@ -4,6 +4,7 @@ import { Clock, Zap } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
+import { t } from '../utils/i18n';
 
 interface TimeSliderProps {
   value: Date;
@@ -28,7 +29,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   isDay,
   markers = [],
 }) => {
-  const { location, timezoneOffsetHours } = useCelestialStore();
+  const { location, timezoneOffsetHours, language } = useCelestialStore();
 
   const localValue = useMemo(() => getLocalTimeAtLocation(value, timezoneOffsetHours), [value, timezoneOffsetHours]);
   const localBaseTime = useMemo(() => baseTime ? getLocalTimeAtLocation(baseTime, timezoneOffsetHours) : undefined, [baseTime, timezoneOffsetHours]);
@@ -273,7 +274,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         <View style={styles.titleRow}>
           <Clock size={14} color={theme.subText} />
           <Text style={[styles.title, { color: theme.subText }]}>
-            {isFullDay ? (isTimeMachineEnabled ? "Time Machine" : "Real-time") : "Simulation Time"}
+            {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
           </Text>
         </View>
         {isFullDay && isTimeMachineEnabled && (
@@ -282,7 +283,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
             onPress={() => onToggleTimeMachine(false)}
           >
             <Zap size={10} color="#000" fill="#000" />
-            <Text style={styles.nowText}>NOW</Text>
+            <Text style={styles.nowText}>{t('now', language)}</Text>
           </TouchableOpacity>
         )}
       </View>

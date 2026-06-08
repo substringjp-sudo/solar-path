@@ -34,7 +34,24 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
   const [layoutWidth, setLayoutWidth] = useState(0);
   const trackRef = useRef<View>(null);
-  const startX = useRef(0);
+  const dragStartValue = useRef(0);
+
+  // Callback refs to prevent PanResponder recreation on parent re-renders
+  const onChangeRef = useRef(onChange);
+  const onGrantRef = useRef(onGrant);
+  const onReleaseRef = useRef(onRelease);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    onGrantRef.current = onGrant;
+  }, [onGrant]);
+
+  useEffect(() => {
+    onReleaseRef.current = onRelease;
+  }, [onRelease]);
 
   // 1. 색상 부드러운 전환을 위한 보간 애니메이션 설계
   const [prevColor, setPrevColor] = useState(fillColor || theme.accent);
@@ -86,37 +103,37 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 2,
     onPanResponderGrant: (evt) => {
       setIsDragging(true);
-      onGrant?.();
+      onGrantRef.current?.();
       if (layoutWidth === 0) return;
       
       const { locationX } = evt.nativeEvent;
-      startX.current = locationX;
-      
       const usableWidth = layoutWidth - 54; // Total width minus both paddings
       const relativeX = locationX - 27; // Subtract padding
       const p = Math.max(0, Math.min(100, (relativeX / usableWidth) * 100));
+      
+      dragStartValue.current = p;
       setLocalValue(p);
       animatedValue.setValue(p);
-      onChange(p);
+      onChangeRef.current(p);
     },
     onPanResponderMove: (evt, gestureState) => {
       if (layoutWidth === 0) return;
       const usableWidth = layoutWidth - 54;
-      const currentX = startX.current + gestureState.dx - 27;
-      const p = Math.max(0, Math.min(100, (currentX / usableWidth) * 100));
+      const dp = (gestureState.dx / usableWidth) * 100;
+      const p = Math.max(0, Math.min(100, dragStartValue.current + dp));
       setLocalValue(p);
       animatedValue.setValue(p);
-      onChange(p);
+      onChangeRef.current(p);
     },
     onPanResponderRelease: () => {
       setIsDragging(false);
-      onRelease?.();
+      onReleaseRef.current?.();
     },
     onPanResponderTerminate: () => {
       setIsDragging(false);
-      onRelease?.();
+      onReleaseRef.current?.();
     },
-  }), [onChange, onGrant, onRelease, layoutWidth]);
+  }), [layoutWidth]);
 
 
 
@@ -164,6 +181,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
       {/* 3. Knob (Top) */}
       <Animated.View 
+        pointerEvents="none"
         style={[
           styles.knob, 
           { 

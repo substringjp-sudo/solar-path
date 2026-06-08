@@ -1,6 +1,8 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import { t, translateSunsetDesc } from '../../utils/i18n';
 
 export interface PredictionCardProps {
   prediction: SunsetPrediction;
@@ -28,13 +30,14 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   isSunrise,
   onPressSource,
 }) => {
+  const { language } = useCelestialStore();
   return (
     <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
       <View style={styles.predictionHeader}>
         <View style={styles.predictionQualityRow}>
           <View style={styles.qualityContainer}>
             <Text style={[styles.predictionQuality, { color: qualityColor(prediction.quality) }]}>
-              {prediction.quality.toUpperCase()}
+              {t(('quality' + prediction.quality) as any, language).toUpperCase()}
             </Text>
             {weatherSource === 'ultra-short' && (
               <TouchableOpacity 
@@ -44,12 +47,12 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
                 ]}
                 onPress={onPressSource}
               >
-                <Text style={styles.sourceBadgeText}>KMA Forecast</Text>
+                <Text style={styles.sourceBadgeText}>{t('kmaForecast', language)}</Text>
               </TouchableOpacity>
             )}
           </View>
           <Text style={[styles.predictionSubLabel, { color: theme.subText }]}>
-            {isSunrise ? 'DAWN FORECAST' : 'SUNSET FORECAST'}
+            {isSunrise ? t('dawnForecast', language) : t('sunsetForecast', language)}
           </Text>
         </View>
         <View style={styles.predictionScoreWrap}>
@@ -58,7 +61,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
         </View>
       </View>
       <Text style={[styles.predictionDesc, { color: theme.subText }]} numberOfLines={2}>
-        {prediction.description}
+        {translateSunsetDesc(prediction.description, language)}
       </Text>
     </View>
   );

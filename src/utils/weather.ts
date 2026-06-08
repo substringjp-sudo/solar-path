@@ -123,28 +123,60 @@ export const fetchSunsetWeather = async (
   lat: number,
   lon: number,
   azimuth: number,
-  useNowcast: boolean = false
+  useNowcast: boolean = false,
+  targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
   // Bucket azimuth to nearest 30 degrees to reduce weather API requests on tiny azimuth adjustments
+  const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
-  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${bucketedAzimuth}_nowcast_${useNowcast}`;
+  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${bucketedAzimuth}_nowcast_${useNowcast}_date_${targetDateStr}`;
   if (weatherCache.has(cacheKey)) {
     return weatherCache.get(cacheKey)!;
   }
   
-  // 5-Ray Fanning: Observer (0km) + Left2(-20 deg), Left1(-10 deg), Center(0 deg), Right1(10 deg), Right2(20 deg)
-  // Distances: [10, 30, 70, 130, 200, 280, 380] km (More non-linear sampling density near horizon)
+  const startTime = Date.now();
+  console.log(`[WeatherAPI] Fetching weather data for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)}, azimuth=${azimuth.toFixed(1)} (Date: ${targetDateStr}, Nowcast: ${useNowcast})`);
+
+  // Define 36 virtual points representing the full 5-Ray * 7-Distance grid
   const angles = [-20, -10, 0, 10, 20];
   const distances = [10, 30, 70, 130, 200, 280, 380];
-  const points: { dist: number; azOffset: number; lat: number; lon: number }[] = [
-    { dist: 0, azOffset: 0, lat, lon }
+  const virtualPoints: { dist: number; azOffset: number; lat: number; lon: number; targetLat: number; targetLon: number }[] = [
+    { dist: 0, azOffset: 0, lat, lon, targetLat: lat, targetLon: lon }
   ];
 
   angles.forEach(ang => {
     distances.forEach(d => {
-      const dest = calculateDestination(lat, lon, d, bucketedAzimuth + ang);
-      points.push({ dist: d, azOffset: ang, lat: dest.latitude, lon: dest.longitude });
+      // Near distances (10, 30, 70km) use only 3 angles [-10, 0, 10] by mapping outer angles (-20, 20) to adjacent ones.
+      let targetAng = ang;
+      if (d <= 70) {
+        if (ang === -20) targetAng = -10;
+        if (ang === 20) targetAng = 10;
+      }
+      
+      const origDest = calculateDestination(lat, lon, d, bucketedAzimuth + ang);
+      const targetDest = calculateDestination(lat, lon, d, bucketedAzimuth + targetAng);
+      
+      virtualPoints.push({
+        dist: d,
+        azOffset: ang,
+        lat: origDest.latitude,
+        lon: origDest.longitude,
+        targetLat: targetDest.latitude,
+        targetLon: targetDest.longitude
+      });
     });
+  });
+
+  // Deduplicate target coordinates to send minimum API requests (total 30 points)
+  const uniquePoints: { lat: number; lon: number; key: string }[] = [];
+  const seen = new Set<string>();
+
+  virtualPoints.forEach(vp => {
+    const key = `${vp.targetLat.toFixed(5)},${vp.targetLon.toFixed(5)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniquePoints.push({ lat: vp.targetLat, lon: vp.targetLon, key });
+    }
   });
 
   const modelName = useNowcast ? getLocalHighResModel(lat, lon) : '';
@@ -155,59 +187,84 @@ export const fetchSunsetWeather = async (
     ? 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
     : 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
 
-  // 36개 좌표 단일 요청 시 Nginx 502 Bad Gateway 발생하므로, 12개씩 3개 청크로 분할 병렬 조회
-  const CHUNK_SIZE = 12;
-  const chunkedPoints: typeof points[] = [];
-  for (let i = 0; i < points.length; i += CHUNK_SIZE) {
-    chunkedPoints.push(points.slice(i, i + CHUNK_SIZE));
+  const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
+  const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
+
+  // Check if targetDate is older than 5 days to determine forecast vs archive endpoint
+  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+  const isHistorical = diffDays > 5;
+
+  let url = '';
+  if (isHistorical) {
+    // Open-Meteo Archive API (total_column_integrated_water_vapour excluded due to archive support limits)
+    const archiveVariables = 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation';
+    url = `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
+      `&hourly=${archiveVariables}` +
+      `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
+      `&timezone=auto`;
+  } else {
+    // Open-Meteo Forecast API (limit data payload to targetDateStr to drastically reduce download and parsing latency)
+    url = `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
+      `&hourly=${hourlyVariables}` +
+      `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
+      `&timezone=auto${modelParam}`;
   }
 
+  console.log(`[WeatherAPI] Request URL: ${url}`);
+
   try {
-    const results: any[] = [];
-    for (let idx = 0; idx < chunkedPoints.length; idx++) {
-      const chunk = chunkedPoints[idx];
-      const cLats = chunk.map(p => p.lat.toFixed(5)).join(',');
-      const cLons = chunk.map(p => p.lon.toFixed(5)).join(',');
-      
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=${hourlyVariables}` +
-        `&timezone=auto${modelParam}`;
-      
-      const response = await fetchWithTimeout(url, {}, 5000);
-      
-      if (!response.ok) {
-        throw new Error(`Chunk ${idx} failed with status: ${response.status}`);
+    let response;
+    try {
+      response = await fetchWithTimeout(url, {}, 5000);
+    } catch (err: any) {
+      const duration = Date.now() - startTime;
+      console.error(`[WeatherAPI] Network failure or Timeout after ${duration}ms. Error: ${err?.message}`);
+      throw new Error(`NETWORK_ERROR: 인터넷 연결이 불안정하거나 타임아웃이 발생했습니다.`);
+    }
+    
+    const duration = Date.now() - startTime;
+    if (!response.ok) {
+      console.error(`[WeatherAPI] API responded with error status ${response.status} in ${duration}ms`);
+      if (response.status === 429) {
+        throw new Error(`RATE_LIMIT: API 요청 한도를 초과했습니다.`);
       }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        throw new Error(`Chunk ${idx} non-JSON response: ${contentType}`);
+      if (response.status >= 500) {
+        throw new Error(`SERVER_ERROR: 날씨 API 서버에 장애가 발생했습니다. (오류 코드: ${response.status})`);
       }
-
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(`Chunk ${idx} API error: ${data.reason || 'Unknown'}`);
-      }
-
-      const chunkData = Array.isArray(data) ? data : [data];
-      results.push(...chunkData);
-
-      // 청크 간 80ms 슬립을 주어 단시간 동시 요청(Burst Rate Limit) 우회
-      if (idx < chunkedPoints.length - 1) {
-        await sleep(80);
-      }
+      throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (오류 코드: ${response.status})`);
     }
 
-    const fetched: CloudPathData[] = points.map((p, i) => {
-      const res = results[i];
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      console.error(`[WeatherAPI] Non-JSON content-type received: ${contentType}`);
+      throw new Error(`HTTP_ERROR: 올바르지 않은 응답 형식입니다. (비JSON 응답)`);
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      console.error(`[WeatherAPI] Open-Meteo API Error: ${data.reason || 'Unknown error'}`);
+      if (data.reason && data.reason.includes('Minutely usage limit reached')) {
+        throw new Error(`RATE_LIMIT: 분당 API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.`);
+      }
+      throw new Error(`HTTP_ERROR: API 호출 오류 (${data.reason || 'Unknown'})`);
+    }
+
+    console.log(`[WeatherAPI] Successfully fetched weather data in ${duration}ms. Deduplicated size: ${uniquePoints.length} items.`);
+    const results = Array.isArray(data) ? data : [data];
+
+    // Reconstruct the 36 CloudPathData items from deduplicated results
+    const fetched: CloudPathData[] = virtualPoints.map((vp, i) => {
+      const targetKey = `${vp.targetLat.toFixed(5)},${vp.targetLon.toFixed(5)}`;
+      const uniqueIdx = uniquePoints.findIndex(up => up.key === targetKey);
+      const res = results[uniqueIdx];
       const resHourly = res?.hourly || (modelName ? res?.[`hourly_${modelName}`] : null);
 
       if (!res || !resHourly) {
-        console.warn(`Weather data missing for point ${i} (${p.dist}km, offset ${p.azOffset}°). Using clear sky fallback.`);
+        console.warn(`Weather data missing for virtual point ${i} (${vp.dist}km, offset ${vp.azOffset}°). Using clear sky fallback.`);
         const fallbackTime: string[] = results[0]?.hourly?.time || results[0]?.[`hourly_${modelName}`]?.time || [];
         return {
-          distance: p.dist,
-          azimuthOffset: p.azOffset,
+          distance: vp.dist,
+          azimuthOffset: vp.azOffset,
           hourly: {
             time: fallbackTime,
             timeMs: fallbackTime.map(t => new Date(t).getTime()),
@@ -220,26 +277,36 @@ export const fetchSunsetWeather = async (
       }
 
       const time: string[] = resHourly.time;
+      const low = Array.isArray(resHourly.cloud_cover_low) && resHourly.cloud_cover_low.length > 0
+        ? resHourly.cloud_cover_low
+        : Array(time.length).fill(0);
+      const mid = Array.isArray(resHourly.cloud_cover_mid) && resHourly.cloud_cover_mid.length > 0
+        ? resHourly.cloud_cover_mid
+        : Array(time.length).fill(0);
+      const high = Array.isArray(resHourly.cloud_cover_high) && resHourly.cloud_cover_high.length > 0
+        ? resHourly.cloud_cover_high
+        : Array(time.length).fill(0);
+
       const hourly: HourlyCloudData = {
         time,
         timeMs: time.map((t: string) => new Date(t).getTime()),
-        low: resHourly.cloud_cover_low || Array(24).fill(0),
-        mid: resHourly.cloud_cover_mid || Array(24).fill(0),
-        high: resHourly.cloud_cover_high || Array(24).fill(0),
+        low,
+        mid,
+        high,
         directNormalIrradiance: resHourly.direct_normal_irradiance,
         totalColumnWaterVapour: resHourly.total_column_integrated_water_vapour,
         precipitation: resHourly.precipitation,
       };
       
-      // Visibility and humidity are only meaningful at the observer
+      // Visibility and humidity are only meaningful at the observer (index 0)
       if (i === 0) {
         if (Array.isArray(resHourly.visibility)) hourly.visibility = resHourly.visibility;
         if (Array.isArray(resHourly.relative_humidity_2m)) hourly.humidity = resHourly.relative_humidity_2m;
       }
 
       return {
-        distance: p.dist,
-        azimuthOffset: p.azOffset,
+        distance: vp.dist,
+        azimuthOffset: vp.azOffset,
         hourly,
         source: useNowcast ? 'ultra-short' : 'standard',
       };
@@ -249,34 +316,7 @@ export const fetchSunsetWeather = async (
     return fetched;
   } catch (error) {
     console.error("Failed to fetch weather data:", error);
-    
-    // 만약 캐시가 실패하였으나 메모리에 캐싱된 가장 최근 데이터가 있다면 그것을 우선 반환
-    if (weatherCache.size > 0) {
-      const lastCached = Array.from(weatherCache.values())[weatherCache.size - 1];
-      console.warn("Using last successfully cached weather data as emergency fallback.");
-      return lastCached;
-    }
-    
-    // 최악의 경우 격자/수치 렌더링을 위해 36개 포인트의 유효한 fallback 데이터를 정밀 조립하여 리턴
-    console.warn("Generating mock clear weather data for 36 points to prevent crash.");
-    const dummyTime = [new Date().toISOString()];
-    const dummyTimeMs = [new Date().getTime()];
-    
-    return points.map(p => ({
-      distance: p.dist,
-      azimuthOffset: p.azOffset,
-      hourly: {
-        time: dummyTime,
-        timeMs: dummyTimeMs,
-        low: [0],
-        mid: [0],
-        high: [0],
-        visibility: [10000],
-        humidity: [50],
-        precipitation: [0]
-      },
-      source: 'standard'
-    }));
+    throw error;
   }
 };
 
@@ -319,9 +359,9 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
     return {
       distance: p.distance,
       azimuthOffset: p.azimuthOffset,
-      low: interpolate(p.hourly.low[i], p.hourly.low[i+1] ?? p.hourly.low[i]),
-      mid: interpolate(p.hourly.mid[i], p.hourly.mid[i+1] ?? p.hourly.mid[i]),
-      high: interpolate(p.hourly.high[i], p.hourly.high[i+1] ?? p.hourly.high[i]),
+      low: interpolate(p.hourly.low[i] ?? 0, p.hourly.low[i+1] ?? p.hourly.low[i] ?? 0),
+      mid: interpolate(p.hourly.mid[i] ?? 0, p.hourly.mid[i+1] ?? p.hourly.mid[i] ?? 0),
+      high: interpolate(p.hourly.high[i] ?? 0, p.hourly.high[i+1] ?? p.hourly.high[i] ?? 0),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
@@ -356,7 +396,7 @@ export const fetchTerrainProfile = async (
     return terrainCache.get(cacheKey)!;
   }
 
-  const SAMPLES = 61; // 6 degree resolution (Total 183 points with 3 distances)
+  const SAMPLES = 31; // Optimized from 61 to query within Open-Meteo's 100 coordinates limit in a single request.
   const DISTANCES = [5, 15, 40]; 
   
   const range = maxAz - minAz;
@@ -376,65 +416,56 @@ export const fetchTerrainProfile = async (
     });
   });
 
-  // 2. 청크 크기를 60으로 늘려 리퀘스트 갯수 최소화 (총 4개 미만 청크)
-  const CHUNK_SIZE = 60;
-  const chunkedPoints: typeof points[] = [];
-  for (let i = 0; i < points.length; i += CHUNK_SIZE) {
-    chunkedPoints.push(points.slice(i, i + CHUNK_SIZE));
-  }
+  const startTime = Date.now();
+  console.log(`[TerrainAPI] Fetching terrain elevation profile for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)} (Samples: ${SAMPLES})`);
 
   try {
     onProgress?.(`Analyzing Terrain Data...`);
     
-    // 3. 순차 대기(sleep) 없이 모든 청크를 병렬(Promise.all)로 동시 호출하여 로딩 속도 600% 이상 단축
-    const fetchPromises = chunkedPoints.map(async (chunk, idx) => {
-      const lats = chunk.map(p => p.lat.toFixed(5)).join(',');
-      const lons = chunk.map(p => p.lon.toFixed(5)).join(',');
-      const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
-      
-      let retries = 0;
-      while (retries < 3) {
-        try {
-          const response = await fetchWithTimeout(url, {}, 5000);
-          
-          if (response.status === 429) {
-            const waitTime = 1000 * (retries + 1);
-            await sleep(waitTime);
-            retries++;
-            continue;
-          }
-
-          if (!response.ok) {
-            throw new Error(`Status ${response.status}`);
-          }
-
-          const data = await response.json();
-          if (data && Array.isArray(data.elevation)) {
-            return { idx, elevation: data.elevation };
-          } else {
-            throw new Error("Missing elevation array in response");
-          }
-        } catch (e) {
-          retries++;
-          if (retries >= 3) throw e;
-          await sleep(500);
-        }
-      }
-      return { idx, elevation: [] as number[] };
-    });
-
-    const chunkResults = await Promise.all(fetchPromises);
+    const lats = points.map(p => p.lat.toFixed(5)).join(',');
+    const lons = points.map(p => p.lon.toFixed(5)).join(',');
+    const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
     
-    // 청크 인덱스 순서대로 정렬하여 데이터 머지
-    chunkResults.sort((a, b) => a.idx - b.idx);
-    const results: number[] = [];
-    chunkResults.forEach(r => results.push(...r.elevation));
+    console.log(`[TerrainAPI] Request URL: ${url}`);
+    
+    let results: number[] = [];
+    let retries = 0;
+    
+    while (retries < 3) {
+      try {
+        const response = await fetchWithTimeout(url, {}, 5000);
+        
+        if (response.status === 429) {
+          const waitTime = 1000 * (retries + 1);
+          await sleep(waitTime);
+          retries++;
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data && Array.isArray(data.elevation)) {
+          results = data.elevation;
+          break;
+        } else {
+          throw new Error("Missing elevation array in response");
+        }
+      } catch (e) {
+        retries++;
+        if (retries >= 3) throw e;
+        await sleep(500);
+      }
+    }
 
     if (results.length !== points.length) {
       throw new Error(`Data size mismatch: expected ${points.length}, got ${results.length}`);
     }
 
-    console.log(`Successfully fetched ${results.length} terrain points in parallel`);
+    const duration = Date.now() - startTime;
+    console.log(`[TerrainAPI] Successfully fetched ${results.length} terrain elevation points in ${duration}ms`);
 
     // 0번째 결과가 바로 첫 머리에 끼워넣은 관측자의 고도(observerElevation)
     const observerElev = results[0] || 0;
@@ -466,8 +497,9 @@ export const fetchTerrainProfile = async (
     const terrainData = { panoramicAngles, farAngles, minAz, maxAz, observerElevation: observerElev };
     terrainCache.set(cacheKey, terrainData);
     return terrainData;
-  } catch (error) {
-    console.error("Failed to fetch panoramic terrain:", error);
+  } catch (error: any) {
+    const duration = Date.now() - startTime;
+    console.error(`[TerrainAPI] Failed to fetch panoramic terrain in ${duration}ms. Error: ${error?.message}`);
     return { panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0), minAz, maxAz, observerElevation: 0 };
   }
 };

@@ -28,7 +28,7 @@ module.exports = {
     android: {
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
-        backgroundColor: "#000000"
+        backgroundColor: "#D49A1F"
       },
       package: "com.pplaner.beforeglow",
       googleServicesFile: "./google-services.json",

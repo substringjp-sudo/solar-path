@@ -1,6 +1,8 @@
 import React from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, Linking } from 'react-native';
 import { ExternalLink } from 'lucide-react-native';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import { t } from '../../utils/i18n';
 
 export interface SourceInfoModalProps {
   visible: boolean;
@@ -15,6 +17,8 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
   theme,
   weatherSource,
 }) => {
+  const { language } = useCelestialStore();
+
   return (
     <Modal
       visible={visible}
@@ -25,37 +29,37 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: theme.background, borderColor: theme.border }]}>
           <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Data Source Info</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('dataSourceInfo', language)}</Text>
             <TouchableOpacity onPress={onClose}>
-              <Text style={[styles.closeText, { color: theme.accent }]}>Close</Text>
+              <Text style={[styles.closeText, { color: theme.accent }]}>{t('close', language)}</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.sourceList}>
             <View style={styles.sourceSection}>
-              <Text style={[styles.sourceCategory, { color: theme.accent }]}>GEOSPATIAL</Text>
+              <Text style={[styles.sourceCategory, { color: theme.accent }]}>{t('geospatial', language)}</Text>
               <TouchableOpacity 
                 style={styles.sourceItem}
                 onPress={() => Linking.openURL('https://open-meteo.com/en/docs/elevation-api')}
               >
                 <View style={styles.sourceContent}>
-                  <Text style={[styles.sourceLabel, { color: theme.text }]}>Digital Elevation Model (DEM)</Text>
-                  <Text style={[styles.sourceDesc, { color: theme.subText }]}>Open-Meteo Elevation API</Text>
+                  <Text style={[styles.sourceLabel, { color: theme.text }]}>{t('digitalElevationModel', language)}</Text>
+                  <Text style={[styles.sourceDesc, { color: theme.subText }]}>{t('openMeteoElevationApi', language)}</Text>
                 </View>
                 <ExternalLink size={14} color={theme.subText} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.sourceSection}>
-              <Text style={[styles.sourceCategory, { color: theme.accent }]}>METEOROLOGY</Text>
+              <Text style={[styles.sourceCategory, { color: theme.accent }]}>{t('meteorology', language)}</Text>
               <TouchableOpacity 
                 style={styles.sourceItem}
                 onPress={() => Linking.openURL('https://open-meteo.com/')}
               >
                 <View style={styles.sourceContent}>
-                  <Text style={[styles.sourceLabel, { color: theme.text }]}>Weather & Clouds Forecast</Text>
+                  <Text style={[styles.sourceLabel, { color: theme.text }]}>{t('weatherCloudsForecast', language)}</Text>
                   <Text style={[styles.sourceDesc, { color: theme.subText }]}>
-                    {weatherSource === 'ultra-short' ? 'Korea Meteorological Administration (KMA) Forecast API' : 'Open-Meteo Weather API'}
+                    {weatherSource === 'ultra-short' ? t('kmaForecastApi', language) : t('openMeteoWeatherApi', language)}
                   </Text>
                 </View>
                 <ExternalLink size={14} color={theme.subText} />
@@ -63,18 +67,18 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
             </View>
 
             <View style={styles.sourceSection}>
-              <Text style={[styles.sourceCategory, { color: theme.accent }]}>ASTRONOMY</Text>
+              <Text style={[styles.sourceCategory, { color: theme.accent }]}>{t('astronomy', language)}</Text>
               <View style={styles.sourceItemNonClickable}>
                 <View style={styles.sourceContent}>
-                  <Text style={[styles.sourceLabel, { color: theme.text }]}>Solar Trajectory & Azimuth</Text>
-                  <Text style={[styles.sourceDesc, { color: theme.subText }]}>SunCalc Library</Text>
+                  <Text style={[styles.sourceLabel, { color: theme.text }]}>{t('solarTrajectoryAzimuth', language)}</Text>
+                  <Text style={[styles.sourceDesc, { color: theme.subText }]}>{t('suncalcLibrary', language)}</Text>
                 </View>
               </View>
             </View>
           </View>
 
           <Text style={[styles.attribution, { color: theme.subText }]}>
-            All weather data provided by Open-Meteo.com under CC BY 4.0.
+            {t('weatherAttribution', language)}
           </Text>
         </View>
       </View>

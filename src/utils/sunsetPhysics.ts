@@ -92,7 +92,7 @@ export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
   const visKm = visibilityM != null && visibilityM > 0 ? visibilityM / 1000 : 45;
   const sigmaTotal = 3.912 / visKm;
   const sigmaAer = Math.max(0.02, sigmaTotal - 0.012);
-  let beta = sigmaAer * 1.2;
+  let beta = sigmaAer * 0.46;
   if (rhPct != null && rhPct > 80) beta *= 1 + (rhPct - 80) / 100;
   return Math.max(0.04, Math.min(0.6, beta));
 };
@@ -399,7 +399,7 @@ export const skyColorAtDirection = (
   if (dustLevel > 0) {
     // 태양 주변부(gammaDeg가 작을수록)에서는 미세먼지에 의한 백색 탈색 효과를 억제하여 붉은색 채도를 보존합니다.
     const proximityFactor = clamp01(gammaDeg / 35.0);
-    const haze = dustLevel * 0.40 * lerp(0.15, 1.0, proximityFactor);
+    const haze = dustLevel * 0.20 * lerp(0.15, 1.0, proximityFactor);
     finalR = lerp(finalR, 0.62, haze);
     finalG = lerp(finalG, 0.60, haze);
     finalB = lerp(finalB, 0.58, haze);
@@ -407,7 +407,7 @@ export const skyColorAtDirection = (
 
   // ── Cloud/overcast: shift to grey as clarity drops ───────────────────────
   if (pathClarity < 1.0) {
-    const oc = (1.0 - pathClarity) * 0.65;
+    const oc = (1.0 - pathClarity) * 0.35;
     // Overcast sky: uniform grey, slightly blue-shifted
     const gcR = 0.48, gcG = 0.50, gcB = 0.55;
     finalR = lerp(finalR, gcR, oc);
@@ -512,6 +512,9 @@ export interface SunsetPrediction {
   highCloudColor: string;
   midCloudColor: string;
   lowCloudColor: string;
+  highCloudRGB: RGB;
+  midCloudRGB: RGB;
+  lowCloudRGB: RGB;
   sunDiskColor: string;
   factors: {
     beamRedness: number;
@@ -537,6 +540,7 @@ export const predictSunset = (
   dayOfYear?: number,
 ): SunsetPrediction => {
   if (isNaN(sunAltDeg)) {
+    const defaultRGB = { r: 0.22, g: 0.24, b: 0.3 };
     return {
       score: 0,
       quality: 'Muted',
@@ -549,6 +553,9 @@ export const predictSunset = (
       highCloudColor: 'transparent',
       midCloudColor: 'transparent',
       lowCloudColor: 'transparent',
+      highCloudRGB: defaultRGB,
+      midCloudRGB: defaultRGB,
+      lowCloudRGB: defaultRGB,
       sunDiskColor: 'transparent',
       factors: { beamRedness: 0, pathClarity: 0, overheadGlow: 0, overheadOvercast: 0, aerosolBeta: 0, dynamicHaloScale: 1.0, illumLow: 0, illumMid: 0, illumHigh: 0 }
     };
@@ -582,9 +589,9 @@ export const predictSunset = (
   const illumMid = cloudIllumination(effectiveSunAlt, CLOUD_ALT_MID_KM);
   const illumHigh = cloudIllumination(effectiveSunAlt, CLOUD_ALT_HIGH_KM);
 
-  const obsPoint = localPath.find(p => p.distance === 0) ?? localPath[0];
+  const obsPoint = localPath.find(p => p.distance === 0) ?? localPath[0] ?? { low: 0, mid: 0, high: 0, visibility: 25000, humidity: 50 };
   const centralPath = localPath.filter(p => p.azimuthOffset === 0).sort((a, b) => a.distance - b.distance);
-  const centerPoint = centralPath[1] ?? obsPoint;
+  const centerPoint = centralPath[1] ?? obsPoint ?? { low: 0, mid: 0, high: 0 };
 
   const lowVal = obsPoint.low / 100;
   const midVal = obsPoint.mid / 100;
@@ -739,6 +746,9 @@ export const predictSunset = (
     highCloudColor: rgbToCssAlpha(highCloudRGB, 0.9),
     midCloudColor: rgbToCssAlpha(midCloudRGB, 0.85),
     lowCloudColor: rgbToCssAlpha(lowCloudRGB, 0.9),
+    highCloudRGB,
+    midCloudRGB,
+    lowCloudRGB,
     sunDiskColor: rgbToCssAlpha(sunRGB, sunDiskAlpha),
     factors: {
       beamRedness,

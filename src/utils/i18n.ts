@@ -1,0 +1,552 @@
+export type Language = 'ko' | 'en';
+
+export const translations = {
+  ko: {
+    // Common
+    settings: '설정',
+    cancel: '취소',
+    close: '닫기',
+    save: '저장',
+    confirm: '확인',
+    error: '오류',
+    auto: '자동',
+    notification: '알림',
+    success: '성공',
+    latitude: '위도',
+    longitude: '경도',
+    timeMachine: '타임머신',
+    realtime: '실시간',
+    simulationTime: '시뮬레이션 시간',
+    now: '지금',
+    offlineMode: '오프라인 모드',
+    offlineDesc: '현재 오프라인 상태입니다. 날씨 및 지형 데이터를 수집하려면 인터넷 연결이 필요합니다.',
+    dataSourceInfo: '데이터 출처 정보',
+    geospatial: '지형/지각',
+    digitalElevationModel: '디지털 고도 모델 (DEM)',
+    openMeteoElevationApi: 'Open-Meteo 고도 API',
+    meteorology: '기상/예보',
+    weatherCloudsForecast: '날씨 및 구름 예보',
+    kmaForecastApi: '기상청(KMA) 초단기 예보 API',
+    openMeteoWeatherApi: 'Open-Meteo 날씨 API',
+    astronomy: '천문 데이터',
+    solarTrajectoryAzimuth: '태양 궤적 및 방위각',
+    suncalcLibrary: 'SunCalc 라이브러리',
+    weatherAttribution: '모든 날씨 데이터는 CC BY 4.0 라이선스 하에 Open-Meteo.com에서 제공받습니다.',
+
+    // TabNavigator & HudHeader
+    tracker: 'Tracker',
+    simulation: 'Simulation',
+    gallery: 'Gallery',
+    today: 'TODAY',
+    reset: '리셋',
+    gyro: '자이로',
+    solarData: 'SOLAR DATA',
+    lunarData: 'LUNAR DATA',
+    position: '위치',
+    sunrise: '일출',
+    sunset: '일몰',
+    moonrise: '월출',
+    moonset: '월목',
+    todayLabel: '오늘',
+    tomorrowLabel: '내일',
+
+    // SettingsModal
+    account: '계정',
+    signedInUser: '로그인된 사용자',
+    cloudSyncEnabled: '✓ 클라우드 동기화 활성화됨',
+    signOut: '로그아웃',
+    signIn: '로그인',
+    signUp: '회원가입',
+    createAccount: '계정 생성',
+    email: '이메일',
+    password: '비밀번호',
+    emailPasswordRequired: '이메일과 비밀번호를 입력해주세요.',
+    passwordMinLength: '비밀번호는 최소 6자리 이상이어야 합니다.',
+    signInFailed: '로그인에 실패했습니다.',
+    invalidCredentials: '이메일 또는 비밀번호가 올바르지 않습니다.',
+    invalidEmailFormat: '올바르지 않은 이메일 형식입니다.',
+    signUpFailed: '회원가입에 실패했습니다.',
+    emailAlreadyInUse: '이미 가입된 이메일 주소입니다.',
+    alreadyHaveAccount: '이미 계정이 있으신가요? 로그인',
+    dontHaveAccount: '계정이 없으신가요? 회원가입',
+    developerOptions: '개발자 옵션',
+    simulationDebugMode: '시뮬레이션 디버그 모드',
+    appPermissions: '앱 권한',
+    camera: '카메라',
+    storageMedia: '저장공간 & 미디어',
+    audioMic: '오디오 & 마이크',
+    location: '위치 정보',
+    granted: '허용됨',
+    denied: '거부됨',
+    notGranted: '허용 안 됨',
+    manageSystemSettings: '시스템 설정 관리',
+    aboutApp: '앱 정보',
+    version: '버전',
+    identifier: '식별자',
+    openSourceLicenses: '오픈소스 라이선스',
+    languageSetting: '언어 설정',
+    systemSettingsHint: '시스템 설정에서 관리',
+    languageName: '한국어',
+
+    // SunsetSimulation
+    collectingWeather: '전 지구 기상 모델 데이터를 수집하는 중...',
+    generatingTerrain: '주변 지형 고도 분석 데이터를 생성하는 중...',
+    nowcastLoaded: '정밀 예보 적용 완료',
+    nowcastLoadedMsg: '초단기 국지 기상 모델(Nowcast)이 성공적으로 반영되었습니다.',
+    nowcastFailed: '초단기 예보 로드 실패',
+    nowcastFailedMsg: '초단기 정밀 기상 데이터를 가져올 수 없습니다. 잠시 후 다시 시도해 주세요.',
+    apiLimitExceeded: '날씨 API 한도 초과',
+    apiLimitExceededMsg: '날씨 API(Open-Meteo)의 일일 또는 분당 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.\n\n(날씨 캐시 또는 맑은 가상 데이터로 시뮬레이션을 불러옵니다.)',
+    networkError: '네트워크 연결 오류',
+    networkErrorMsg: '인터넷 연결 상태가 불안정하거나 시간 초과가 발생했습니다. 연결을 확인한 후 다시 시도해 주세요.\n\n(날씨 캐시 또는 맑은 가상 데이터로 시뮬레이션을 불러옵니다.)',
+    serverError: '날씨 API 서버 장애',
+    serverErrorMsg: '날씨 제공 서버(Open-Meteo)에 일시적인 시스템 에러가 발생했습니다. 잠시 후 날씨 새로고침을 해주세요.\n\n(날씨 캐시 또는 맑은 가상 데이터로 시뮬레이션을 불러옵니다.)',
+    apiRequestError: '날씨 데이터 요청 오류',
+    fallbackBannerTitle: '실시간 기상 수신 실패 (임시 데이터 적용됨) · 상세 보기',
+    fallbackAlertTitle: '기상 정보 수신 실패',
+    fallbackAlertMsg: '기상 API 서버(Open-Meteo)의 장애 또는 단시간 과도한 요청에 의한 일시적 IP 제한으로 실시간 날씨 정보를 가져올 수 없습니다.\n\n현재 맑은 날(기본값)로 임시 시뮬레이션 중이며, 10분 정도 대기 후 다시 날씨 갱신 버튼을 눌러주세요.',
+    aerosolsHumidity: 'Aerosols & Humidity',
+    cloudRadarGrid: 'Cloud Radar Grid',
+    radiusMapHint: '380km Radius Map (Tap)',
+    timeMachineToggle: '시간 조정 모드',
+    nowcastLimitExceeded: '정밀 예보 한도 초과',
+    nowcastLimitExceededMsg: '정밀 예보 API의 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
+    nowcastNetworkErrorMsg: '인터넷 연결 상태가 불안정합니다. 네트워크 상태를 확인한 후 다시 시도해 주세요.',
+    nowcastServerErrorMsg: '기상 예보 서버에 일시적인 에러가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+
+    // PredictionCard
+    dawnForecast: 'DAWN FORECAST',
+    sunsetForecast: 'SUNSET FORECAST',
+    kmaForecast: 'KMA Forecast',
+    qualityEpic: 'EPIC',
+    qualityGreat: 'GREAT',
+    qualityFair: 'FAIR',
+    qualityMuted: 'MUTED',
+    qualityOvercast: 'OVERCAST',
+
+    // SunCamera
+    calibratedTitle: 'Calibrated',
+    calibratedMsg: '센서 기준점이 초기화되었습니다. 기기를 수평으로 잠시 유지해주세요.',
+    permissionRequired: 'Permission Required',
+    galleryPermissionRequiredMsg: '사진을 저장하려면 갤러리 접근 권한이 필요합니다.',
+    uploadSuccess: 'Success',
+    uploadSuccessMsg: '성공적으로 업로드되었습니다!',
+    saveSuccess: 'Saved to Gallery',
+    saveSuccessMsg: '사진이 갤러리에 저장되었습니다. 맵에 공유하려면 로그인해 주세요!',
+    uploadFailed: 'Upload Failed',
+    uploadFailedMsg: '오류가 발생해 업로드에 실패했습니다: ',
+    takePhotoError: 'Error',
+    takePhotoErrorMsg: '사진을 촬영하는 도중 오류가 발생했습니다.',
+    photoPreview: 'Photo Preview',
+    shareToMap: 'Share to Map',
+    saveOnly: 'Save Only',
+    backToCamera: 'Back to Camera',
+    calibrating: 'Calibrating sensors...',
+    magneticWarning: '지자기 간섭 감지됨',
+
+    // Gallery
+    sunsetGallery: '노을 갤러리',
+    all: '전체',
+    mine: '내 사진',
+    noPhotos: '등록된 노을 사진이 없습니다.',
+
+    // WeatherDetailModal
+    radarTitle: '기상 정밀 레이더 분석',
+    radarGuideTitle: '노을 & 구름 가이드',
+    radarTabGrid: '레이더 그리드 맵',
+    radarTabList: '지점별 세부 수치',
+    radarGridTitle: '구름 분포 레이더 격자 (380km 범위)',
+    radarGridDesc: '가로는 관측 방향(좌-20° ~ 우+20°), 세로는 관측 거리(10km ~ 380km)를 의미합니다.',
+    radarFilterAll: '통합',
+    radarFilterLow: '저층운',
+    radarFilterMid: '중층운',
+    radarFilterHigh: '고층운',
+    observerCenter: '관측자 중심점 (0km)',
+    avgLabel: '평균',
+    directionOffset: '방향 오프셋',
+    distPoint: 'km 지점',
+    observerPointText: '관측자 위치 (Observer)',
+    legendTitle: '구름 고도 범례 및 색상 가이드',
+    legendLowTitle: '저층운 (Low Clouds)',
+    legendLowDesc: '고도 0 ~ 2km. 노을빛을 가리는 주된 원인.',
+    legendMidTitle: '중층운 (Mid Clouds)',
+    legendMidDesc: '고도 2 ~ 6km. 노을 그림자를 만듦.',
+    legendHighTitle: '고층운 (High Clouds)',
+    legendHighDesc: '고도 6km 이상. 붉은 빛을 반사해 노을 증폭.',
+    tabBasicGuide: '기본 가이드',
+    tabCloudGuide: '구름 가이드',
+    obsTime: '분석 기준 시각 (현지)',
+    forecastModel: '수치 예보 모델',
+    scienceTitleRayleigh: '레일리 산란 (Rayleigh Scattering)',
+    scienceDescRayleigh: '태양이 지평선 가까이 내려가면, 햇빛이 통과해야 하는 지구 대기층의 경로가 낮 동안보다 최대 10배 이상 길어집니다. 이 과정에서 파장이 짧은 파란색과 보라색 계열의 빛은 모두 공기 분자에 의해 도중에 산란되어 사라지고, 산란이 적고 파장이 긴 붉은색과 주황색 계열의 빛만 관측자에게 도달해 하늘이 붉게 보이게 됩니다.',
+    scienceTitleMie: '대기 물질(에어로졸/미에 산란)과 습도의 영향',
+    scienceDescMie: '미세먼지나 수증기 입자처럼 빛의 파장보다 큰 물질은 파장 구분 없이 모든 빛을 전방으로 집중 산란(미에 산란, Mie Scattering)시킵니다. 이 때문에 태양 주변 구름 외곽선이 부자연스럽게 하얗고 찬란하게 발광하는 림 라이트 효과를 생성합니다. 단, 습도가 80% 이상으로 극도로 높거나 대기 오염이 너무 짙으면 빛이 과도하게 흡수되어 탁한 회색 노을이 됩니다.',
+    radarGridGuideText1: '1. 레이더 격자 맵 분석:',
+    radarGridGuideDesc1: '가로는 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 총 35개 지점을 3개 고도층으로 분할하여 입체적으로 구름 밀도를 예보 격자로부터 샘플링합니다.',
+    radarGridGuideText2: '2. 타임슬라이더 컨트롤:',
+    radarGridGuideDesc2: '하단의 시간 바를 좌우로 드래그하면 시뮬레이션의 가상 시각을 조정할 수 있습니다. 일출/일몰 시간 전후의 태양 고도각 변화에 맞춰 대기 굴절률과 그림자 길이가 실시간으로 예측 계산됩니다.',
+    cloudScienceTitle: '📖 기상학적 구름 가이드',
+    cloudScienceDesc: '태양빛을 시뮬레이션할 때 사용되는 실제 구름 실루엣 및 속성 데이터입니다. 카드를 눌러 상세 원리와 노을 영향을 확인하세요.',
+    cloudAltitudeTypeLow: '저층운',
+    cloudAltitudeTypeMid: '중층운',
+    cloudAltitudeTypeHigh: '고층운',
+    cloudFeature: '특징',
+    cloudOrigin: '생성 원리',
+    cloudSunsetEffect: '노을 영향',
+    dayAltVertical: '낮 (수직 입사)',
+    sunsetAltDeep: '노을 (대기 깊음)',
+    rayleighScatterBlue: '파란빛 산란',
+    rayleighOnlyRed: '붉은빛만 도달',
+    mieAerosolParticle: '먼지/수증기 대형 입자',
+    mieSunlightEntry: '태양광 입사',
+    mieForwardScatter: '전방 강한 산란',
+    mieRimLightDesc: '(태양 주변 구름 발광 / 림라이트)',
+    observerText: '관측자',
+
+    // PermissionRequestView
+    permissionTitle: 'Solar Path',
+    permissionSubtitle: '태양과 달의 여정을 완벽하게 추적하기 위해 아래 권한들이 필요합니다.',
+    realtimeLocation: '실시간 위치 정보',
+    required: '필수',
+    locationDesc: '당신이 서 있는 곳의 정확한 일출, 일몰, 박명 시간과 태양/달의 3D 궤적을 실시간으로 계산합니다.',
+    settingsAllow: '설정에서 허용하기',
+    requestPermission: '권한 요청하기',
+    arCameraGallery: 'AR 카메라 및 갤러리',
+    optional: '선택',
+    cameraDesc: '카메라 화면 위에 실시간 태양 궤적을 겹쳐서 보는 AR 모드 기능 및 노을 풍경 사진 촬영에 필요합니다.',
+    locationDeniedAlert: '위치 권한이 거부되어 태양 궤적 분석 기능을 시작할 수 없습니다. 시스템 설정 앱에서 위치 권한을 반드시 허용해 주세요.',
+    startApp: '시작하기',
+    goToSettings: '시스템 설정 바로가기',
+
+    // MapPicker
+    changeLocation: '위치 변경',
+    pickOnMap: '지도에서 직접 선택하거나 저장된 장소를 사용하세요',
+    pickedCoords: '선택된 위/경도',
+    myLocation: '내 위치',
+    enterPlaceName: '장소 이름을 입력해주세요',
+    selectThisLocation: '이 위치 선택하기',
+    savedPlaces: '저장된 장소',
+    noSavedPlaces: '저장된 장소가 없습니다.',
+    enterPlaceNameAlert: '장소 이름을 입력해 주세요.',
+    invalidCoordsAlert: '올바르지 않은 좌표입니다.',
+    permissionDenied: '권한 거부됨',
+    permissionDeniedMsg: '위치 정보 접근 권한이 거부되었습니다.',
+    failedGetLocation: '위치 가져오기 실패',
+    geolocationUnsupported: '브라우저에서 지오로케이션을 지원하지 않습니다.',
+    interval: '간격',
+
+    // App Loading / Modal
+    checkingPermissions: '권한을 확인하는 중...',
+    locatingPosition: '위치 정보를 파악하는 중...',
+    waitingGoldenHour: '골든 아워 대기 중',
+    cameraWarningMessage: 'AR 카메라 기능은 일출/일몰 전후 2.5시간(골든 아워) 동안에만 활성화됩니다.\n\n개발자 테스트를 위해 우회 진입을 하시려면 카메라 버튼을 2초간 꾹 눌러주세요.',
+  },
+  en: {
+    // Common
+    settings: 'Settings',
+    cancel: 'Cancel',
+    close: 'Close',
+    save: 'Save',
+    confirm: 'Confirm',
+    error: 'Error',
+    auto: 'Auto',
+    notification: 'Notification',
+    success: 'Success',
+    latitude: 'Latitude',
+    longitude: 'Longitude',
+    timeMachine: 'Time Machine',
+    realtime: 'Real-time',
+    simulationTime: 'Simulation Time',
+    now: 'NOW',
+    offlineMode: 'Offline Mode',
+    offlineDesc: 'You are currently offline. An internet connection is required to fetch weather and terrain data.',
+    dataSourceInfo: 'Data Source Info',
+    geospatial: 'GEOSPATIAL',
+    digitalElevationModel: 'Digital Elevation Model (DEM)',
+    openMeteoElevationApi: 'Open-Meteo Elevation API',
+    meteorology: 'METEOROLOGY',
+    weatherCloudsForecast: 'Weather & Clouds Forecast',
+    kmaForecastApi: 'Korea Meteorological Administration (KMA) Forecast API',
+    openMeteoWeatherApi: 'Open-Meteo Weather API',
+    astronomy: 'ASTRONOMY',
+    solarTrajectoryAzimuth: 'Solar Trajectory & Azimuth',
+    suncalcLibrary: 'SunCalc Library',
+    weatherAttribution: 'All weather data provided by Open-Meteo.com under CC BY 4.0.',
+
+    // TabNavigator & HudHeader
+    tracker: 'Tracker',
+    simulation: 'Simulation',
+    gallery: 'Gallery',
+    today: 'TODAY',
+    reset: 'RESET',
+    gyro: 'GYRO',
+    solarData: 'SOLAR DATA',
+    lunarData: 'LUNAR DATA',
+    position: 'Position',
+    sunrise: 'Sunrise',
+    sunset: 'Sunset',
+    moonrise: 'Moonrise',
+    moonset: 'Moonset',
+    todayLabel: 'Today',
+    tomorrowLabel: 'Tomorrow',
+
+    // SettingsModal
+    account: 'Account',
+    signedInUser: 'Signed In User',
+    cloudSyncEnabled: '✓ Cloud Sync Enabled',
+    signOut: 'Sign Out',
+    signIn: 'Sign In',
+    signUp: 'Sign Up',
+    createAccount: 'Create Account',
+    email: 'Email',
+    password: 'Password',
+    emailPasswordRequired: 'Please enter your email and password.',
+    passwordMinLength: 'Password must be at least 6 characters.',
+    signInFailed: 'Failed to sign in.',
+    invalidCredentials: 'Email or password is incorrect.',
+    invalidEmailFormat: 'Invalid email format.',
+    signUpFailed: 'Failed to sign up.',
+    emailAlreadyInUse: 'Email is already in use.',
+    alreadyHaveAccount: 'Already have an account? Sign In',
+    dontHaveAccount: "Don't have an account? Sign Up",
+    developerOptions: 'Developer Options',
+    simulationDebugMode: 'Simulation Debug Mode',
+    appPermissions: 'App Permissions',
+    camera: 'Camera',
+    storageMedia: 'Storage & Media',
+    audioMic: 'Audio & Mic',
+    location: 'Location',
+    granted: 'Granted',
+    denied: 'Denied',
+    notGranted: 'Not Granted',
+    manageSystemSettings: 'Manage system settings',
+    aboutApp: 'About App',
+    version: 'Version',
+    identifier: 'Identifier',
+    openSourceLicenses: 'Open Source Licenses',
+    languageSetting: 'Language',
+    systemSettingsHint: 'Manage in settings',
+    languageName: 'English',
+
+    // SunsetSimulation
+    collectingWeather: 'Collecting global weather model data...',
+    generatingTerrain: 'Generating terrain elevation profile...',
+    nowcastLoaded: 'Nowcast Applied',
+    nowcastLoadedMsg: 'Ultra-short local weather model (Nowcast) has been successfully applied.',
+    nowcastFailed: 'Nowcast Load Failed',
+    nowcastFailedMsg: 'Failed to fetch ultra-short weather data. Please try again later.',
+    apiLimitExceeded: 'Weather API Rate Limit Exceeded',
+    apiLimitExceededMsg: 'Rate limit for Open-Meteo API exceeded. Please try again later.\n\n(Loading simulation with cached or clear fallback data.)',
+    networkError: 'Network Connection Error',
+    networkErrorMsg: 'Network connection unstable or timed out. Please check your connection and try again.\n\n(Loading simulation with cached or clear fallback data.)',
+    serverError: 'Weather API Server Error',
+    serverErrorMsg: 'Temporary server error on Open-Meteo. Please try refreshing weather later.\n\n(Loading simulation with cached or clear fallback data.)',
+    apiRequestError: 'Weather Data Request Error',
+    fallbackBannerTitle: 'Real-time Weather Failed (Temporary Data Applied) · View Details',
+    fallbackAlertTitle: 'Weather Data Failed',
+    fallbackAlertMsg: 'Could not fetch real-time weather due to server error or temporary rate limits. Currently using clear sky fallback data. Please try refreshing again in 10 minutes.',
+    aerosolsHumidity: 'Aerosols & Humidity',
+    cloudRadarGrid: 'Cloud Radar Grid',
+    radiusMapHint: '380km Radius Map (Tap)',
+    timeMachineToggle: 'Time Adjustment Mode',
+    nowcastLimitExceeded: 'Nowcast Limit Exceeded',
+    nowcastLimitExceededMsg: 'Rate limit for nowcast API exceeded. Please try again later.',
+    nowcastNetworkErrorMsg: 'Network connection unstable. Please check your network and try again.',
+    nowcastServerErrorMsg: 'Temporary error on weather forecast server. Please try again later.',
+
+    // PredictionCard
+    dawnForecast: 'DAWN FORECAST',
+    sunsetForecast: 'SUNSET FORECAST',
+    kmaForecast: 'KMA Forecast',
+    qualityEpic: 'EPIC',
+    qualityGreat: 'GREAT',
+    qualityFair: 'FAIR',
+    qualityMuted: 'MUTED',
+    qualityOvercast: 'OVERCAST',
+
+    // SunCamera
+    calibratedTitle: 'Calibrated',
+    calibratedMsg: 'Sensor baseline reset. Please hold your device level for a moment.',
+    permissionRequired: 'Permission Required',
+    galleryPermissionRequiredMsg: 'Gallery permission is required to save photos.',
+    uploadSuccess: 'Success',
+    uploadSuccessMsg: 'Uploaded successfully!',
+    saveSuccess: 'Saved to Gallery',
+    saveSuccessMsg: 'Photo saved to gallery. Please sign in to share it on the map!',
+    uploadFailed: 'Upload Failed',
+    uploadFailedMsg: 'Failed to upload due to an error: ',
+    takePhotoError: 'Error',
+    takePhotoErrorMsg: 'An error occurred while taking photo.',
+    photoPreview: 'Photo Preview',
+    shareToMap: 'Share to Map',
+    saveOnly: 'Save Only',
+    backToCamera: 'Back to Camera',
+    calibrating: 'Calibrating sensors...',
+    magneticWarning: 'Magnetic Interference Detected',
+
+    // Gallery
+    sunsetGallery: 'Sunset Gallery',
+    all: 'All',
+    mine: 'Mine',
+    noPhotos: 'No sunset photos found.',
+
+    // WeatherDetailModal
+    radarTitle: 'Precision Weather Radar',
+    radarGuideTitle: 'Sunset & Cloud Guide',
+    radarTabGrid: 'Radar Grid Map',
+    radarTabList: 'Detailed Values',
+    radarGridTitle: 'Cloud Distribution Radar Grid (380km)',
+    radarGridDesc: 'Horizontal: Azimuth offset (-20° to +20°), Vertical: Distance (10km to 380km).',
+    radarFilterAll: 'All',
+    radarFilterLow: 'Low',
+    radarFilterMid: 'Mid',
+    radarFilterHigh: 'High',
+    observerCenter: 'Observer Center (0km)',
+    avgLabel: 'Avg',
+    directionOffset: 'Direction Offset',
+    distPoint: 'km Point',
+    observerPointText: 'Observer Location',
+    legendTitle: 'Legend & Color Guide',
+    legendLowTitle: 'Low Clouds (0 ~ 2km)',
+    legendLowDesc: 'Altitude 0-2km. Primary cause of blocked sunset glow.',
+    legendMidTitle: 'Mid Clouds (2 ~ 6km)',
+    legendMidDesc: 'Altitude 2-6km. Creates dramatic sky shadows.',
+    legendHighTitle: 'High Clouds (6km+)',
+    legendHighDesc: 'Altitude 6km+. Amplifies sunset by reflecting red rays.',
+    tabBasicGuide: 'Basic Guide',
+    tabCloudGuide: 'Cloud Encyclopedia',
+    obsTime: 'Observation Time (Local)',
+    forecastModel: 'Forecast Model',
+    scienceTitleRayleigh: 'Rayleigh Scattering',
+    scienceDescRayleigh: 'When the sun is near the horizon, sunlight must pass through up to 10 times more atmosphere than during midday. Short-wavelength blue and violet light are scattered away by air molecules, leaving only long-wavelength orange and red light to reach the observer.',
+    scienceTitleMie: 'Atmospheric Aerosols & Mie Scattering',
+    scienceDescMie: 'Particles larger than the wavelength of light, such as dust or water droplets, scatter all wavelengths of light forward (Mie scattering). This creates bright, glowing rims around clouds near the sun. However, if humidity is extremely high (>80%) or pollution is heavy, light is absorbed, resulting in a dull grey sunset.',
+    radarGridGuideText1: '1. Radar Grid Map Analysis:',
+    radarGridGuideDesc1: 'Horizontal represents the azimuth offset relative to the sun direction (-20° to +20°), and vertical represents distance from the observer (10km to 380km). Cloud densities are sampled across 35 points at 3 altitude levels.',
+    radarGridGuideText2: '2. Time Machine Slider:',
+    radarGridGuideDesc2: 'Drag the slider at the bottom to adjust the simulation time. Solar altitude changes dynamically calculate atmospheric refraction and shadow lengths in real-time.',
+    cloudScienceTitle: '📖 Meteorological Cloud Guide',
+    cloudScienceDesc: 'Real cloud profiles and attributes used for simulating light scattering. Tap a card to see details on physics and sunset effects.',
+    cloudAltitudeTypeLow: 'Low',
+    cloudAltitudeTypeMid: 'Mid',
+    cloudAltitudeTypeHigh: 'High',
+    cloudFeature: 'Features',
+    cloudOrigin: 'Origin',
+    cloudSunsetEffect: 'Sunset Effect',
+    dayAltVertical: 'Daytime (Zenith)',
+    sunsetAltDeep: 'Sunset (Deep Path)',
+    rayleighScatterBlue: 'Blue Scattered',
+    rayleighOnlyRed: 'Only Red Light Reaches',
+    mieAerosolParticle: 'Dust/Water Aerosols',
+    mieSunlightEntry: 'Incident Light',
+    mieForwardScatter: 'Strong Forward Scattering',
+    mieRimLightDesc: '(Cloud rim glow / Silver lining effect)',
+    observerText: 'Observer',
+
+    // PermissionRequestView
+    permissionTitle: 'Solar Path',
+    permissionSubtitle: 'We need the following permissions to track the sun and moon journeys perfectly.',
+    realtimeLocation: 'Real-time Location',
+    required: 'Required',
+    locationDesc: 'Calculates precise sunrise, sunset, twilight times, and 3D paths of the sun and moon based on your current location.',
+    settingsAllow: 'Allow in Settings',
+    requestPermission: 'Request Permission',
+    arCameraGallery: 'AR Camera & Gallery',
+    optional: 'Optional',
+    cameraDesc: 'Required for the AR mode overlaying the solar path on the camera view, and capturing sunset photos.',
+    locationDeniedAlert: 'Location permission is denied. Cannot start solar trajectory tracking. Please enable location permission in system settings.',
+    startApp: 'Start',
+    goToSettings: 'Go to System Settings',
+
+    // MapPicker
+    changeLocation: 'Change Location',
+    pickOnMap: 'Pick on map or use saved spots',
+    pickedCoords: 'PICKED COORDINATES',
+    myLocation: 'My Location',
+    enterPlaceName: 'Enter place name',
+    selectThisLocation: 'Select This Location',
+    savedPlaces: 'SAVED PLACES',
+    noSavedPlaces: 'No saved places.',
+    enterPlaceNameAlert: 'Please enter a name for the place.',
+    invalidCoordsAlert: 'Invalid coordinates.',
+    permissionDenied: 'Permission Denied',
+    permissionDeniedMsg: 'Permission to access location was denied',
+    failedGetLocation: 'Failed to get current location',
+    geolocationUnsupported: 'Geolocation is not supported by your browser',
+    interval: 'Interval',
+
+    // App Loading / Modal
+    checkingPermissions: 'Checking permissions...',
+    locatingPosition: 'Locating your position...',
+    waitingGoldenHour: 'Waiting for Golden Hour',
+    cameraWarningMessage: 'The AR camera feature is only active during the Golden Hour (2.5 hours before and after sunrise/sunset).\n\nTo bypass this for developer testing, press and hold the camera button for 2 seconds.',
+  }
+};
+
+export const t = (key: keyof typeof translations['ko'], lang: Language): string => {
+  return translations[lang]?.[key] || translations['ko']?.[key] || (key as string);
+};
+
+// 영어로 제공되는 prediction.description 번역 매핑
+export const translateSunsetDesc = (desc: string, lang: Language): string => {
+  if (lang === 'ko') {
+    if (desc.includes('Heavy rain clouds cover')) {
+      return '폭우 구름이 하늘 전체를 뒤덮어 일몰 빛을 완전히 차단합니다.';
+    }
+    if (desc.includes('A thick single layer of clouds')) {
+      return '두껍고 짙은 구름층이 하늘을 완전히 덮어 햇빛을 가립니다.';
+    }
+    if (desc.includes('Thick clouds block the horizon')) {
+      return '일몰 방향 지평선에 두꺼운 구름이 끼어 노을빛이 강하게 차단됩니다.';
+    }
+    if (desc.includes('Clear horizon combined with')) {
+      return '지평선이 깨끗하고 적절한 고/중층운이 있어 대단히 화려하고 강렬한 노을이 예상됩니다.';
+    }
+    if (desc.includes('Ample red light is reflecting')) {
+      return '구름에 반사되는 붉은 광선이 풍부하여 아주 멋진 노을을 감상하기 좋습니다.';
+    }
+    if (desc.includes('Light is weak or there are many clouds')) {
+      return '광선이 다소 약하거나 구름이 많지만, 은은하고 차분한 노을빛을 볼 수 있습니다.';
+    }
+    if (desc.includes('Lack of scattering or too few')) {
+      return '대기 산란이 부족하거나 구름이 없어 다소 평범하고 밋밋한 노을이 예상됩니다.';
+    }
+    if (desc.includes('Unable to predict due to invalid')) {
+      return '유효하지 않은 데이터로 인해 예측을 수행할 수 없습니다.';
+    }
+  }
+  return desc;
+};
+
+// 영어로 제공되는 scene.description 번역 매핑
+export const translateSceneDesc = (desc: string, lang: Language): string => {
+  if (lang === 'ko') {
+    if (desc.includes('흐린 하늘') || desc.toLowerCase().includes('overcast')) {
+      return '흐린 하늘 — 자연스러운 톤 유지';
+    }
+    if (desc.includes('드라마틱 구름') || desc.toLowerCase().includes('dramatic')) {
+      return '드라마틱 구름 — 대비 강화, 구름 부피감 극대화';
+    }
+    if (desc.includes('골든아워') || desc.toLowerCase().includes('golden')) {
+      return '골든아워 — 따뜻한 색감, 부드러운 채도 강화';
+    }
+    if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
+      return '맑은 하늘 — 밸런스 보정';
+    }
+  } else {
+    // en
+    if (desc.includes('흐린 하늘') || desc.toLowerCase().includes('overcast')) {
+      return 'Overcast — Maintaining natural tones';
+    }
+    if (desc.includes('드라마틱 구름') || desc.toLowerCase().includes('dramatic')) {
+      return 'Dramatic Clouds — Boosting contrast & volume';
+    }
+    if (desc.includes('골든아워') || desc.toLowerCase().includes('golden')) {
+      return 'Golden Hour — Enhancing warmth & soft saturation';
+    }
+    if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
+      return 'Clear Sky — Balancing exposure';
+    }
+  }
+  return desc;
+};

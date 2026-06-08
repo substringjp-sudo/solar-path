@@ -5,6 +5,8 @@ import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star, Camera, Image a
 import * as Location from 'expo-location';
 import { auth } from '../../config/firebase';
 import { getIsochroneInterval } from '../../utils/celestial';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import { t } from '../../utils/i18n';
 
 const { width, height } = Dimensions.get('window');
 
@@ -20,6 +22,7 @@ export const MapPicker = ({
   addSavedLocation,
   removeSavedLocation
 }: any) => {
+  const { language } = useCelestialStore();
   const [windowHeight] = useState(Dimensions.get('window').height);
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
 
@@ -185,7 +188,7 @@ export const MapPicker = ({
           position: absolute; top: 50%; left: 50%;
           transform: translate(-50%, -50%);
           z-index: 1000; pointer-events: none;
-          display: flex; align-items: center; justify-content: center;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
         .leaflet-popup-content-wrapper, .leaflet-popup-tip {
           background: ${popupBg} !important;
@@ -219,6 +222,36 @@ export const MapPicker = ({
           color: ${isDay ? '#6200EE' : '#D1C4E9'};
           border: 1px solid rgba(179, 157, 219, 0.4);
         }
+        .center-tooltip {
+          margin-top: 8px;
+          background: ${isDay ? 'rgba(255, 255, 255, 0.95)' : 'rgba(18, 18, 26, 0.92)'};
+          color: ${popupText};
+          border: 1px solid ${popupBorder};
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          padding: 6px 12px;
+          border-radius: 12px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 11px;
+          line-height: 14px;
+          white-space: nowrap;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+          pointer-events: none;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 2px;
+          border-left: 3px solid ${accentColor};
+        }
+        .center-tooltip-title {
+          font-weight: 800;
+          color: ${accentColor};
+          font-size: 12px;
+        }
+        .center-tooltip-sub {
+          opacity: 0.8;
+          font-weight: 500;
+        }
       </style>
     </head>
     <body>
@@ -235,6 +268,9 @@ export const MapPicker = ({
           <line x1="2" y1="20" x2="9" y2="20" stroke="${accentColor}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
           <line x1="31" y1="20" x2="38" y2="20" stroke="${accentColor}" stroke-width="2.5" stroke-linecap="round" style="filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.4));" />
         </svg>
+        <div id="center-tooltip" class="center-tooltip">
+          Loading location details...
+        </div>
       </div>
       <script>
         // Point-in-Polygon (PIP) & BBox cache helper for precise timezone boundaries
@@ -320,105 +356,231 @@ export const MapPicker = ({
           return fallback;
         }
 
-        function getIsochroneInterval(zoom) {
-          if (zoom >= 10) return 5;
-          if (zoom >= 8) return 10;
-          if (zoom >= 6) return 15;
-          return 30;
-        }
+        const tzFeatureCache = {};
+        function getTimezoneFeatureAt(lat, lng) {
+          const key = Math.round(lat * 2) + ',' + Math.round(lng * 2);
+          if (tzFeatureCache[key] !== undefined) return tzFeatureCache[key];
 
-        function calculateIsochrones(dateStr, type, zoom, isUtc) {
-          const baseDate = new Date(dateStr);
-          const interval = getIsochroneInterval(zoom);
-          const lines = {};
-          
-          const lats = [];
-          for (let lat = -65; lat <= 65; lat += 3) {
-            lats.push(lat);
-          }
-          
-          const targets = [];
-          for (let min = 0; min < 1440; min += interval) {
-            targets.push(min);
-            lines[min] = isUtc ? [] : {};
-          }
-          
-          if (!window.SunCalc) return [];
-          const startOfDayDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
-          
-          for (let i = 0; i < lats.length; i++) {
-            const lat = lats[i];
-            const sunTimes = window.SunCalc.getTimes(startOfDayDate, lat, 0);
-            const eventDate = type === 'sunrise' ? sunTimes.sunrise : sunTimes.sunset;
-            
-            if (!eventDate || isNaN(eventDate.getTime())) {
+          prepareBBox();
+          if (featuresWithBBox.length === 0) return null;
+
+          const point = [lat, lng];
+          for (let i = 0; i < featuresWithBBox.length; i++) {
+            const item = featuresWithBBox[i];
+            const bbox = item.bbox;
+            if (lng < bbox[0] || lng > bbox[2] || lat < bbox[1] || lat > bbox[3]) {
               continue;
             }
-            
-            const eventUtcStartOfDay = Date.UTC(
-              eventDate.getUTCFullYear(),
-              eventDate.getUTCMonth(),
-              eventDate.getUTCDate()
-            );
-            const eventUtcMinutes = (eventDate.getTime() - eventUtcStartOfDay) / 60000;
-            
-            for (let t = 0; t < targets.length; t++) {
-              const targetMin = targets[t];
-              
-              if (isUtc) {
-                let lng = (eventUtcMinutes - targetMin) / 4;
-                lng = ((lng + 180) % 360 + 360) % 360 - 180;
-                lines[targetMin].push([lat, lng]);
-              } else {
-                for (let h = -12; h <= 12; h++) {
-                  const tzOffsetMinutes = -h * 60;
-                  let lng = (eventUtcMinutes - tzOffsetMinutes - targetMin) / 4;
-                  let normalizedLng = ((lng + 180) % 360 + 360) % 360 - 180;
-                  
-                  const actualH = getTimezoneOffsetFromGeoJSON(lat, normalizedLng);
-                  if (actualH === h) {
-                    if (!lines[targetMin][h]) {
-                      lines[targetMin][h] = [];
-                    }
-                    lines[targetMin][h].push([lat, normalizedLng]);
-                  }
-                }
-              }
+            if (isPointInMultiPolygon(point, item.feature.geometry.coordinates)) {
+              tzFeatureCache[key] = item.feature.properties;
+              return item.feature.properties;
             }
           }
-          
+          tzFeatureCache[key] = null;
+          return null;
+        }
+
+        function updateCenterTooltip() {
+          const center = map.getCenter();
+          const props = getTimezoneFeatureAt(center.lat, center.lng);
+          const tooltip = document.getElementById('center-tooltip');
+          if (!tooltip) return;
+
+          let tzName = 'Unknown Timezone';
+          let details = 'N/A';
+          let offsetStr = '';
+
+          if (props) {
+            tzName = props.time_zone || 'Unknown';
+            const offset = parseFloat(props.zone);
+            offsetStr = 'UTC' + (offset >= 0 ? '+' + offset : offset);
+            details = (props.tz_name1st || 'N/A') + ' (' + offsetStr + ')';
+          } else {
+            const offset = Math.floor((center.lng + 7.5) / 15);
+            offsetStr = 'UTC' + (offset >= 0 ? '+' + offset : offset);
+            details = 'Approx. ' + offsetStr;
+          }
+
+          tooltip.innerHTML = '<span class="center-tooltip-title">' + tzName + '</span>' +
+                              '<span class="center-tooltip-sub">' + details + '</span>';
+        }
+
+        // 줌 레벨에 따라 표시할 등시선 간격 배열 반환 (분 단위, 굵은 선 우선 정렬)
+        function getActiveIntervals(zoom) {
+          if (zoom >= 14) return [60, 30, 15, 10, 5, 3, 1];
+          if (zoom >= 12) return [60, 30, 15, 10, 5, 3];
+          if (zoom >= 10) return [60, 30, 15, 10, 5];
+          if (zoom >= 8)  return [60, 30, 15, 10];
+          if (zoom >= 6)  return [60, 30, 15];
+          if (zoom >= 4)  return [60, 30];
+          return [60];
+        }
+
+        // 간격(분)별 폴리라인 시각 스타일 정의
+        const INTERVAL_STYLES = {
+          60: { weight: 3.5, opacity: 0.92, dash: null },
+          30: { weight: 2.2, opacity: 0.78, dash: null },
+          15: { weight: 1.5, opacity: 0.65, dash: null },
+          10: { weight: 1.2, opacity: 0.55, dash: '6,5' },
+          5:  { weight: 1.0, opacity: 0.45, dash: '4,6' },
+          3:  { weight: 0.8, opacity: 0.35, dash: '2,7' },
+          1:  { weight: 0.6, opacity: 0.25, dash: '1,9' }
+        };
+
+        // UTC 존별 + 다중 간격 등시선 계산 (뷰포트 클리핑 최적화 포함)
+        // 반환: { intervalMin, utcZone, timeLabel, points }[]
+        function calculateMultiIntervalIsochrones(dateStr, type, zoom, isUtc) {
+          if (!window.SunCalc) return [];
+
+          const baseDate = new Date(dateStr);
+          const startOfDayDate = new Date(
+            baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()
+          );
+
+          // ─── 최적화 ① : 뷰포트 bounds 가져오기 ─────────────────────────────
+          // 선이 경계에서 끊기지 않도록 패딩 추가
+          const bounds = map.getBounds();
+          // 위도: 뷰포트 남북 ± latPad (선이 화면 끝에서 잘리지 않도록)
+          const latPad = zoom >= 10 ? 3 : zoom >= 6 ? 5 : 8;
+          const viewSouth = Math.max(-65, bounds.getSouth() - latPad);
+          const viewNorth = Math.min(65,  bounds.getNorth() + latPad);
+          // 경도: 뷰포트 동서 ± lngPad (선 연속성 유지)
+          const lngPad = zoom >= 10 ? 5 : zoom >= 6 ? 10 : 20;
+          const viewWest = bounds.getWest() - lngPad;
+          const viewEast = bounds.getEast() + lngPad;
+
+          // 줌에 따라 위도 샘플링 밀도 결정 (줌 높을수록 세밀)
+          const latStep = zoom >= 10 ? 1 : zoom >= 6 ? 2 : 3;
+          const intervals = getActiveIntervals(zoom);
+
+          // ─── 최적화 ② : 뷰포트 위도 범위만 캐시 ────────────────────────────
+          // 전체 -65~65 대신 viewSouth~viewNorth만 SunCalc 호출
+          const latEventCache = {};
+          for (let lat = viewSouth; lat <= viewNorth; lat += latStep) {
+            // latStep 정수 단위로 맞추기
+            const roundedLat = Math.round(lat / latStep) * latStep;
+            if (latEventCache[roundedLat] !== undefined) continue;
+            const sunTimes = window.SunCalc.getTimes(startOfDayDate, roundedLat, 0);
+            const eventDate = type === 'sunrise' ? sunTimes.sunrise : sunTimes.sunset;
+            if (!eventDate || isNaN(eventDate.getTime())) {
+              latEventCache[roundedLat] = null;
+              continue;
+            }
+            const eventUtcSoD = Date.UTC(
+              eventDate.getUTCFullYear(), eventDate.getUTCMonth(), eventDate.getUTCDate()
+            );
+            latEventCache[roundedLat] = (eventDate.getTime() - eventUtcSoD) / 60000;
+          }
+
+          // ─── 최적화 ③ : 뷰포트 경도에서 가능한 UTC 존 범위만 계산 ──────────
+          // UTC 존 h는 대략 경도 h*15±7.5에 해당
+          // viewWest/viewEast 로부터 필요한 h 범위를 추론
+          const minH = Math.max(-12, Math.floor(viewWest / 15) - 1);
+          const maxH = Math.min(14,  Math.ceil(viewEast  / 15) + 1);
+
           const result = [];
-          targets.forEach(min => {
-            const hh = String(Math.floor(min / 60)).padStart(2, '0');
-            const mm = String(min % 60).padStart(2, '0');
-            const label = hh + ':' + mm;
-            
-            if (isUtc) {
-              const points = lines[min].sort((a, b) => a[0] - b[0]);
-              if (points.length > 1) {
-                result.push({
-                  timeLabel: label,
-                  points: points
-                });
+
+          if (isUtc) {
+            // UTC 모드: 뷰포트 위도만, 경도 뷰포트 내 점만
+            for (const intervalMin of intervals) {
+              const buckets = {};
+              for (let targetMin = 0; targetMin < 1440; targetMin += intervalMin) {
+                buckets[targetMin] = [];
               }
-            } else {
-              Object.keys(lines[min]).forEach(hStr => {
-                const points = lines[min][hStr].sort((a, b) => a[0] - b[0]);
-                if (points.length > 1) {
-                  result.push({
-                    timeLabel: label,
-                    points: points
-                  });
+              for (const latKey of Object.keys(latEventCache)) {
+                const lat = parseFloat(latKey);
+                const eventUtcMin = latEventCache[lat];
+                if (eventUtcMin === null) continue;
+                const rawTarget = Math.round(eventUtcMin / intervalMin) * intervalMin;
+                const targetMin = ((rawTarget % 1440) + 1440) % 1440;
+                let lng = (eventUtcMin - targetMin) / 4;
+                lng = ((lng + 180) % 360 + 360) % 360 - 180;
+                // 뷰포트 경도 범위 체크 (world-wrap 고려: ±360 offset 허용)
+                const inView = (lng >= viewWest && lng <= viewEast)
+                  || (lng + 360 >= viewWest && lng + 360 <= viewEast)
+                  || (lng - 360 >= viewWest && lng - 360 <= viewEast);
+                if (!inView) continue;
+                if (buckets[targetMin] !== undefined) {
+                  buckets[targetMin].push([lat, lng]);
                 }
+              }
+              Object.entries(buckets).forEach(([minStr, points]) => {
+                if (points.length < 2) return;
+                const min = parseInt(minStr);
+                const hh = String(Math.floor(min / 60)).padStart(2, '0');
+                const mm = String(min % 60).padStart(2, '0');
+                result.push({
+                  intervalMin,
+                  utcZone: null,
+                  timeLabel: hh + ':' + mm,
+                  points: points.sort((a, b) => a[0] - b[0])
+                });
               });
             }
-          });
-          
+          } else {
+            // Local 모드: 뷰포트 위도 × 뷰포트 UTC 존만 계산 + 경계 클리핑
+            for (const intervalMin of intervals) {
+              const zoneBuckets = {};
+
+              for (const latKey of Object.keys(latEventCache)) {
+                const lat = parseFloat(latKey);
+                const eventUtcMin = latEventCache[lat];
+                if (eventUtcMin === null) continue;
+
+                // ─── 최적화: 뷰포트 경도에서 유효한 UTC 존만 순회 ────────────
+                for (let h = minH; h <= maxH; h++) {
+                  const localEventMin = ((eventUtcMin + h * 60) % 1440 + 1440) % 1440;
+                  const rawTarget = Math.round(localEventMin / intervalMin) * intervalMin;
+                  const targetMin = ((rawTarget % 1440) + 1440) % 1440;
+
+                  const targetUtcMin = targetMin - h * 60;
+                  let lng = (eventUtcMin - targetUtcMin) / 4;
+                  lng = ((lng + 180) % 360 + 360) % 360 - 180;
+
+                  // ─── 최적화 ④ : 경도 early rejection ─────────────────────────
+                  // getTimezoneOffsetFromGeoJSON 은 polygon 조회로 비용이 크다.
+                  // 경도가 뷰포트 바깥이면 즉시 skip (world-wrap 고려)
+                  const inView = (lng >= viewWest && lng <= viewEast)
+                    || (lng + 360 >= viewWest && lng + 360 <= viewEast)
+                    || (lng - 360 >= viewWest && lng - 360 <= viewEast);
+                  if (!inView) continue;
+
+                  // UTC 존 경계 클리핑 (비용 큰 호출은 여기서만)
+                  const actualH = getTimezoneOffsetFromGeoJSON(lat, lng);
+                  if (actualH !== h) continue;
+
+                  const key = h + '_' + targetMin;
+                  if (!zoneBuckets[key]) {
+                    zoneBuckets[key] = { h, targetMin, points: [] };
+                  }
+                  zoneBuckets[key].points.push([lat, lng]);
+                }
+              }
+
+              Object.values(zoneBuckets).forEach(({ h, targetMin, points }) => {
+                if (points.length < 2) return;
+                const hh = String(Math.floor(targetMin / 60)).padStart(2, '0');
+                const mm = String(targetMin % 60).padStart(2, '0');
+                result.push({
+                  intervalMin,
+                  utcZone: h,
+                  timeLabel: hh + ':' + mm,
+                  points: points.sort((a, b) => a[0] - b[0])
+                });
+              });
+            }
+          }
+
           return result;
         }
 
+        // Canvas Renderer: SVG 대비 수백 개 폴리라인 성능 대폭 향상
+        const canvasRenderer = L.canvas({ padding: 0.5 });
+
         const map = L.map('map', {
-          zoomControl: false
+          zoomControl: false,
+          preferCanvas: true,
+          renderer: canvasRenderer
         }).setView([${location?.coords?.latitude || 37.56}, ${location?.coords?.longitude || 126.97}], 10);
         
         const googleStyles = ${isDay ? '[]' : JSON.stringify([
@@ -470,15 +632,6 @@ export const MapPicker = ({
                   color: '#FFB300',
                   weight: 1.5,
                   opacity: 0.6
-                });
-                
-                timezoneLayerInstance.bindPopup(function (layer) {
-                  const props = layer.feature.properties;
-                  return '<div style="color: #000; font-family: sans-serif; font-size: 11px; padding: 4px; line-height: 14px;">' +
-                         '<strong style="font-size: 13px; color: #E65100;">' + props.time_zone + '</strong><br/>' +
-                         '<span style="font-weight: bold; color: #333;">대표 지역:</span> ' + (props.tz_name1st || 'N/A') + '<br/>' +
-                         '<span style="color: #666;">적용 국가:</span> ' + (props.places || 'N/A') +
-                         '</div>';
                 });
               }
               
@@ -599,9 +752,13 @@ export const MapPicker = ({
           
           const labelsToDraw = [];
           
+          // 계층형 렌더링: 굵은 선(60분)이 먼저 그려지고 가는 선이 위에 겹침
           // 1. Draw Sunrise Isochrones
           if (showSunrise && currentSunriseIso) {
-            currentSunriseIso.forEach(line => {
+            // intervalMin 내림차순 정렬 (굵은 것 먼저)
+            const sortedSunrise = currentSunriseIso.slice().sort((a, b) => b.intervalMin - a.intervalMin);
+            sortedSunrise.forEach(line => {
+              const style = INTERVAL_STYLES[line.intervalMin] || INTERVAL_STYLES[60];
               for (let o = minOffset; o <= maxOffset; o++) {
                 const shiftedPoints = line.points.map(pt => [pt[0], pt[1] + o * 360]);
                 const segments = splitPointsByAntimeridian(shiftedPoints);
@@ -609,22 +766,26 @@ export const MapPicker = ({
                 segments.forEach(segment => {
                   L.polyline(segment, {
                     color: '#FFA500',
-                    weight: 2.5,
-                    opacity: 0.8,
-                    dashArray: '5, 8',
-                    fill: false
+                    weight: style.weight,
+                    opacity: style.opacity,
+                    dashArray: style.dash,
+                    fill: false,
+                    renderer: canvasRenderer
                   }).addTo(isochroneLayer);
                 });
 
-                const bestPt = findBestLabelPoint(shiftedPoints, centerLat - 3, west, east);
-                if (bestPt) {
-                  labelsToDraw.push({
-                    lat: bestPt[0],
-                    lng: bestPt[1],
-                    text: line.timeLabel,
-                    emoji: '🌅',
-                    labelClass: 'isochrone-label-sunrise'
-                  });
+                // 라벨은 60분 주선에만 표시
+                if (line.intervalMin === 60) {
+                  const bestPt = findBestLabelPoint(shiftedPoints, centerLat - 3, west, east);
+                  if (bestPt) {
+                    labelsToDraw.push({
+                      lat: bestPt[0],
+                      lng: bestPt[1],
+                      text: line.timeLabel,
+                      emoji: '🌅',
+                      labelClass: 'isochrone-label-sunrise'
+                    });
+                  }
                 }
               }
             });
@@ -632,7 +793,9 @@ export const MapPicker = ({
 
           // 2. Draw Sunset Isochrones
           if (showSunset && currentSunsetIso) {
-            currentSunsetIso.forEach(line => {
+            const sortedSunset = currentSunsetIso.slice().sort((a, b) => b.intervalMin - a.intervalMin);
+            sortedSunset.forEach(line => {
+              const style = INTERVAL_STYLES[line.intervalMin] || INTERVAL_STYLES[60];
               for (let o = minOffset; o <= maxOffset; o++) {
                 const shiftedPoints = line.points.map(pt => [pt[0], pt[1] + o * 360]);
                 const segments = splitPointsByAntimeridian(shiftedPoints);
@@ -640,21 +803,26 @@ export const MapPicker = ({
                 segments.forEach(segment => {
                   L.polyline(segment, {
                     color: '#9370DB',
-                    weight: 2.5,
-                    opacity: 0.8,
-                    fill: false
+                    weight: style.weight,
+                    opacity: style.opacity,
+                    dashArray: style.dash,
+                    fill: false,
+                    renderer: canvasRenderer
                   }).addTo(isochroneLayer);
                 });
 
-                const bestPt = findBestLabelPoint(shiftedPoints, centerLat + 3, west, east);
-                if (bestPt) {
-                  labelsToDraw.push({
-                    lat: bestPt[0],
-                    lng: bestPt[1],
-                    text: line.timeLabel,
-                    emoji: '🌇',
-                    labelClass: 'isochrone-label-sunset'
-                  });
+                // 라벨은 60분 주선에만 표시
+                if (line.intervalMin === 60) {
+                  const bestPt = findBestLabelPoint(shiftedPoints, centerLat + 3, west, east);
+                  if (bestPt) {
+                    labelsToDraw.push({
+                      lat: bestPt[0],
+                      lng: bestPt[1],
+                      text: line.timeLabel,
+                      emoji: '🌇',
+                      labelClass: 'isochrone-label-sunset'
+                    });
+                  }
                 }
               }
             });
@@ -731,7 +899,10 @@ export const MapPicker = ({
         }
 
         // Notify parent that the map is ready for updates
+        // Notify parent that the map is ready for updates
         map.whenReady(() => {
+          prepareBBox();
+          updateCenterTooltip();
           setTimeout(() => {
             const data = { type: 'MAP_READY' };
             if (window.ReactNativeWebView) {
@@ -752,11 +923,18 @@ export const MapPicker = ({
           } else {
             window.parent.postMessage(data, '*');
           }
+          updateCenterTooltip();
         });
 
         // Trigger dynamic label recalculation during pan/zoom transitions
-        map.on('move', redrawIsochrones);
-        map.on('zoomend', redrawIsochrones);
+        map.on('move', () => {
+          redrawIsochrones();
+          updateCenterTooltip();
+        });
+        map.on('zoomend', () => {
+          redrawIsochrones();
+          updateCenterTooltip();
+        });
 
         window.handleMessage = (event) => {
           let data;
@@ -776,13 +954,13 @@ export const MapPicker = ({
             const timeFormat = data.timeFormat || 'local';
             
             if (showSunrise) {
-              currentSunriseIso = calculateIsochrones(dateStr, 'sunrise', zoom, timeFormat === 'utc');
+              currentSunriseIso = calculateMultiIntervalIsochrones(dateStr, 'sunrise', zoom, timeFormat === 'utc');
             } else {
               currentSunriseIso = [];
             }
             
             if (showSunset) {
-              currentSunsetIso = calculateIsochrones(dateStr, 'sunset', zoom, timeFormat === 'utc');
+              currentSunsetIso = calculateMultiIntervalIsochrones(dateStr, 'sunset', zoom, timeFormat === 'utc');
             } else {
               currentSunsetIso = [];
             }
@@ -878,19 +1056,25 @@ export const MapPicker = ({
 
   const handleSaveLocation = () => {
     if (!saveName.trim()) {
-      Alert.alert('Notification', 'Please enter a name for the place.');
+      Alert.alert(t('notification', language), t('enterPlaceNameAlert', language));
       return;
     }
     const lat = parseFloat(latInput);
     const lon = parseFloat(lonInput);
     if (isNaN(lat) || isNaN(lon)) {
-      Alert.alert('Error', 'Invalid coordinates.');
+      Alert.alert(t('error', language), t('invalidCoordsAlert', language));
       return;
     }
 
     addSavedLocation(saveName.trim(), lat, lon);
+    const savedNameText = saveName.trim();
     setSaveName('');
-    Alert.alert('Success', `'${saveName.trim()}' has been saved successfully.`);
+    Alert.alert(
+      t('success', language),
+      language === 'ko'
+        ? `'${savedNameText}' 장소가 성공적으로 저장되었습니다.`
+        : `'${savedNameText}' has been saved successfully.`
+    );
   };
 
   const handleSelectSaved = (saved: any) => {
@@ -906,17 +1090,17 @@ export const MapPicker = ({
           },
           (error) => {
             console.error("Error getting location:", error);
-            Alert.alert('Error', 'Failed to get current location');
+            Alert.alert(t('error', language), t('failedGetLocation', language));
           }
         );
       } else {
-        Alert.alert('Error', 'Geolocation is not supported by your browser');
+        Alert.alert(t('error', language), t('geolocationUnsupported', language));
       }
     } else {
       try {
         let { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'Permission to access location was denied');
+          Alert.alert(t('permissionDenied', language), t('permissionDeniedMsg', language));
           return;
         }
         
@@ -924,7 +1108,7 @@ export const MapPicker = ({
         handleJumpToLocation(loc.coords.latitude, loc.coords.longitude);
       } catch (error) {
         console.error("Error getting location:", error);
-        Alert.alert('Error', 'Failed to get current location');
+        Alert.alert(t('error', language), t('failedGetLocation', language));
       }
     }
   };
@@ -939,8 +1123,8 @@ export const MapPicker = ({
         ]}>
           <View style={styles.header}>
             <View>
-              <Text style={[styles.title, { color: theme.text }]}>Change Location</Text>
-              <Text style={[styles.subtitle, { color: theme.subText }]}>Pick on map or use saved spots</Text>
+              <Text style={[styles.title, { color: theme.text }]}>{t('changeLocation', language)}</Text>
+              <Text style={[styles.subtitle, { color: theme.subText }]}>{t('pickOnMap', language)}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <X size={24} color={theme.text} />
@@ -995,7 +1179,7 @@ export const MapPicker = ({
               <View style={[styles.floatingControls, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                 <View style={styles.floatingHeader}>
                   <Text style={[styles.floatingTitle, { color: theme.text }]}>
-                    Interval: {getIsochroneInterval(mapZoom)}m
+                    {t('interval', language)}: {getIsochroneInterval(mapZoom)}m
                   </Text>
                 </View>
                 
@@ -1047,16 +1231,31 @@ export const MapPicker = ({
                 </View>
               </View>
             )}
+
+            {/* Locate Me Floating Button */}
+            <TouchableOpacity
+              onPress={handleCurrentLocation}
+              style={[
+                styles.locateMeBtn,
+                {
+                  backgroundColor: theme.glass,
+                  borderColor: theme.border,
+                }
+              ]}
+              activeOpacity={0.7}
+            >
+              <LocateFixed size={20} color={theme.accent} />
+            </TouchableOpacity>
           </View>
 
           {/* Form and List Scroll Area */}
           <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
             <View style={[styles.section, dStyle.section]}>
               <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: theme.subText }]}>PICKED COORDINATES</Text>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('pickedCoords', language)}</Text>
                 <TouchableOpacity onPress={handleCurrentLocation} style={styles.currentLocLink}>
                   <LocateFixed size={12} color={theme.accent} />
-                  <Text style={[styles.currentLocLinkText, { color: theme.accent }]}>My Location</Text>
+                  <Text style={[styles.currentLocLinkText, { color: theme.accent }]}>{t('myLocation', language)}</Text>
                 </TouchableOpacity>
               </View>
               
@@ -1069,7 +1268,7 @@ export const MapPicker = ({
                       style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1 }, dStyle.input]}
                       value={latInput}
                       onChangeText={setLatInput}
-                      placeholder="Latitude"
+                      placeholder={t('latitude', language)}
                       placeholderTextColor={theme.subText}
                       keyboardType="numeric"
                     />
@@ -1077,7 +1276,7 @@ export const MapPicker = ({
                       style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1, marginLeft: 8 }, dStyle.input]}
                       value={lonInput}
                       onChangeText={setLonInput}
-                      placeholder="Longitude"
+                      placeholder={t('longitude', language)}
                       placeholderTextColor={theme.subText}
                       keyboardType="numeric"
                     />
@@ -1086,7 +1285,7 @@ export const MapPicker = ({
                   {/* 장소 이름 입력 필드 */}
                   <TextInput
                     style={[styles.nameInput, { color: theme.text, borderColor: theme.border, marginTop: 8 }, dStyle.input]}
-                    placeholder="Enter place name"
+                    placeholder={t('enterPlaceName', language)}
                     placeholderTextColor={theme.subText}
                     value={saveName}
                     onChangeText={setSaveName}
@@ -1113,16 +1312,16 @@ export const MapPicker = ({
               style={[styles.confirmBtn, { backgroundColor: '#000000', marginTop: 24, marginBottom: 24, borderColor: theme.border, borderWidth: Platform.OS === 'ios' ? 1 : 0 }, dStyle.button]}
             >
               <Navigation size={20} color="#FFFFFF" />
-              <Text style={[styles.confirmBtnText, { color: '#FFFFFF' }]}>Select This Location</Text>
+              <Text style={[styles.confirmBtnText, { color: '#FFFFFF' }]}>{t('selectThisLocation', language)}</Text>
             </TouchableOpacity>
 
             {/* 저장된 즐겨찾기 목록 */}
             <View style={styles.savedSection}>
-              <Text style={[styles.sectionTitle, { color: theme.subText, marginBottom: 12 }]}>SAVED PLACES</Text>
+              <Text style={[styles.sectionTitle, { color: theme.subText, marginBottom: 12 }]}>{t('savedPlaces', language)}</Text>
               {savedLocations.length === 0 ? (
                 <View style={[styles.emptyState, { borderColor: theme.border }]}>
                   <Star size={24} color={theme.subText} style={{ marginBottom: 6 }} />
-                  <Text style={{ color: theme.subText, fontSize: 13 }}>No saved places.</Text>
+                  <Text style={{ color: theme.subText, fontSize: 13 }}>{t('noSavedPlaces', language)}</Text>
                 </View>
               ) : (
                 <View style={styles.savedList}>
@@ -1182,6 +1381,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 24,
     overflow: 'hidden',
+  },
+  locateMeBtn: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
   mapContainer: { flex: 1, borderRadius: 24, borderWidth: 1, overflow: 'hidden' },
   floatingControls: {

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform } from 'react-native';
 import { Trash2, Image as ImageIcon } from 'lucide-react-native';
 import { auth } from '../config/firebase';
+import { useCelestialStore } from '../store/useCelestialStore';
+import { t } from '../utils/i18n';
 
 interface GalleryProps {
   theme: any;
@@ -16,6 +18,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   globalPhotos = [],
   removeGlobalPhoto
 }) => {
+  const { language } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
 
@@ -26,7 +29,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Sunset Gallery</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{t('sunsetGallery', language)}</Text>
         
         {/* Filter Container */}
         <View style={styles.filterContainer}>
@@ -34,13 +37,13 @@ export const Gallery: React.FC<GalleryProps> = ({
             style={[styles.filterChip, galleryFilter === 'all' && [styles.activeFilterChip, { backgroundColor: theme.text }]]}
             onPress={() => setGalleryFilter('all')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? theme.bg : theme.subText }]}>All</Text>
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? theme.bg : theme.subText }]}>{t('all', language)}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.filterChip, galleryFilter === 'mine' && [styles.activeFilterChip, { backgroundColor: theme.text }]]}
             onPress={() => setGalleryFilter('mine')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? theme.bg : theme.subText }]}>Mine</Text>
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? theme.bg : theme.subText }]}>{t('mine', language)}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -48,7 +51,7 @@ export const Gallery: React.FC<GalleryProps> = ({
       {displayedPhotos.length === 0 ? (
         <View style={[styles.emptyState, { borderColor: theme.border }]}>
           <ImageIcon size={32} color={theme.subText} style={{ marginBottom: 10 }} />
-          <Text style={{ color: theme.subText, fontSize: 14 }}>No sunset photos found.</Text>
+          <Text style={{ color: theme.subText, fontSize: 14 }}>{t('noPhotos', language)}</Text>
         </View>
       ) : (
         <FlatList

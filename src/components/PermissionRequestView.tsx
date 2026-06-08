@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Linking, Platform, SafeAreaView, StatusBar, ScrollView } from 'react-native';
 import { MapPin, Camera, Compass, ShieldAlert, CheckCircle2, ChevronRight } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
+import { t } from '../utils/i18n';
 
 interface PermissionRequestViewProps {
   theme?: any;
@@ -12,7 +13,8 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
     locationPermission, 
     cameraPermission, 
     requestLocationPermission, 
-    requestCameraPermission 
+    requestCameraPermission,
+    language
   } = useCelestialStore();
 
   const handleOpenSettings = () => {
@@ -32,9 +34,9 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
           <View style={styles.logoBadge}>
             <Compass size={32} color="#FFD700" style={styles.logoIcon} />
           </View>
-          <Text style={styles.title}>Solar Path</Text>
+          <Text style={styles.title}>{t('permissionTitle', language)}</Text>
           <Text style={styles.subtitle}>
-            태양과 달의 여정을 완벽하게 추적하기 위해 아래 권한들이 필요합니다.
+            {t('permissionSubtitle', language)}
           </Text>
         </View>
 
@@ -49,13 +51,13 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
               </View>
               <View style={styles.cardTitleInfo}>
                 <View style={styles.row}>
-                  <Text style={styles.cardTitle}>실시간 위치 정보</Text>
+                  <Text style={styles.cardTitle}>{t('realtimeLocation', language)}</Text>
                   <View style={styles.requiredBadge}>
-                    <Text style={styles.requiredBadgeText}>필수</Text>
+                    <Text style={styles.requiredBadgeText}>{t('required', language)}</Text>
                   </View>
                 </View>
                 <Text style={styles.cardDesc}>
-                  당신이 서 있는 곳의 정확한 일출, 일몰, 박명 시간과 태양/달의 3D 궤적을 실시간으로 계산합니다.
+                  {t('locationDesc', language)}
                 </Text>
               </View>
             </View>
@@ -64,16 +66,16 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
               {locationPermission === 'granted' ? (
                 <View style={styles.statusGranted}>
                   <CheckCircle2 size={16} color="#4CAF50" />
-                  <Text style={styles.statusTextGranted}>허용됨</Text>
+                  <Text style={styles.statusTextGranted}>{t('granted', language)}</Text>
                 </View>
               ) : isLocationDenied ? (
                 <TouchableOpacity style={styles.actionBtnSettings} onPress={handleOpenSettings}>
-                  <Text style={styles.actionBtnSettingsText}>설정에서 허용하기</Text>
+                  <Text style={styles.actionBtnSettingsText}>{t('settingsAllow', language)}</Text>
                   <ChevronRight size={14} color="#FF5252" />
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={styles.actionBtn} onPress={requestLocationPermission}>
-                  <Text style={styles.actionBtnText}>권한 요청하기</Text>
+                  <Text style={styles.actionBtnText}>{t('requestPermission', language)}</Text>
                   <ChevronRight size={14} color="#08080C" />
                 </TouchableOpacity>
               )}
@@ -88,13 +90,13 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
               </View>
               <View style={styles.cardTitleInfo}>
                 <View style={styles.row}>
-                  <Text style={styles.cardTitle}>AR 카메라 및 갤러리</Text>
+                  <Text style={styles.cardTitle}>{t('arCameraGallery', language)}</Text>
                   <View style={styles.optionalBadge}>
-                    <Text style={styles.optionalBadgeText}>선택</Text>
+                    <Text style={styles.optionalBadgeText}>{t('optional', language)}</Text>
                   </View>
                 </View>
                 <Text style={styles.cardDesc}>
-                  카메라 화면 위에 실시간 태양 궤적을 겹쳐서 보는 AR 모드 기능 및 노을 풍경 사진 촬영에 필요합니다.
+                  {t('cameraDesc', language)}
                 </Text>
               </View>
             </View>
@@ -103,16 +105,16 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
               {cameraPermission === 'granted' ? (
                 <View style={styles.statusGranted}>
                   <CheckCircle2 size={16} color="#4CAF50" />
-                  <Text style={styles.statusTextGranted}>허용됨</Text>
+                  <Text style={styles.statusTextGranted}>{t('granted', language)}</Text>
                 </View>
               ) : isCameraDenied ? (
                 <TouchableOpacity style={styles.actionBtnSettings} onPress={handleOpenSettings}>
-                  <Text style={styles.actionBtnSettingsText}>설정에서 허용하기</Text>
+                  <Text style={styles.actionBtnSettingsText}>{t('settingsAllow', language)}</Text>
                   <ChevronRight size={14} color="#FF5252" />
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={[styles.actionBtn, styles.actionBtnSecondary]} onPress={requestCameraPermission}>
-                  <Text style={styles.actionBtnTextSecondary}>권한 요청하기</Text>
+                  <Text style={styles.actionBtnTextSecondary}>{t('requestPermission', language)}</Text>
                   <ChevronRight size={14} color="#FFFFFF" />
                 </TouchableOpacity>
               )}
@@ -125,7 +127,7 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
           <View style={styles.warningAlert}>
             <ShieldAlert size={18} color="#FF5252" />
             <Text style={styles.warningText}>
-              위치 권한이 거부되어 태양 궤적 분석 기능을 시작할 수 없습니다. 시스템 설정 앱에서 위치 권한을 반드시 허용해 주세요.
+              {t('locationDeniedAlert', language)}
             </Text>
           </View>
         )}
@@ -133,13 +135,13 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
         {/* Global Action Button */}
         {!isLocationDenied && locationPermission !== 'granted' && (
           <TouchableOpacity style={styles.primaryLaunchBtn} onPress={requestLocationPermission}>
-            <Text style={styles.primaryLaunchBtnText}>시작하기</Text>
+            <Text style={styles.primaryLaunchBtnText}>{t('startApp', language)}</Text>
           </TouchableOpacity>
         )}
 
         {isLocationDenied && (
           <TouchableOpacity style={[styles.primaryLaunchBtn, styles.settingsLaunchBtn]} onPress={handleOpenSettings}>
-            <Text style={styles.primaryLaunchBtnText}>시스템 설정 바로가기</Text>
+            <Text style={styles.primaryLaunchBtnText}>{t('goToSettings', language)}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>

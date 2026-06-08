@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions } from 'react-native';
-import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic } from 'lucide-react-native';
+import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic, Globe } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { t } from '../utils/i18n';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -50,6 +51,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     requestCameraPermission,
     requestMediaPermission,
     requestMicrophonePermission,
+    isDebugMode,
+    setDebugMode,
+    language,
+    setLanguage,
   } = useCelestialStore();
   const [showLicenses, setShowLicenses] = useState(false);
 
@@ -63,7 +68,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Auth Actions
   const handleSignIn = async () => {
     if (!email.trim() || !password.trim()) {
-      setAuthError('이메일과 비밀번호를 입력해주세요.');
+      setAuthError(t('emailPasswordRequired', language));
       return;
     }
     try {
@@ -74,11 +79,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setPassword('');
     } catch (err: any) {
       console.warn('Failed to sign in:', err);
-      let friendlyMsg = err.message || '로그인에 실패했습니다.';
+      let friendlyMsg = err.message || t('signInFailed', language);
       if (err.code === 'auth/invalid-credential') {
-        friendlyMsg = '이메일 또는 비밀번호가 올바르지 않습니다.';
+        friendlyMsg = t('invalidCredentials', language);
       } else if (err.code === 'auth/invalid-email') {
-        friendlyMsg = '올바르지 않은 이메일 형식입니다.';
+        friendlyMsg = t('invalidEmailFormat', language);
       }
       setAuthError(friendlyMsg);
     } finally {
@@ -88,11 +93,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSignUp = async () => {
     if (!email.trim() || !password.trim()) {
-      setAuthError('이메일과 비밀번호를 입력해주세요.');
+      setAuthError(t('emailPasswordRequired', language));
       return;
     }
     if (password.length < 6) {
-      setAuthError('비밀번호는 최소 6자리 이상이어야 합니다.');
+      setAuthError(t('passwordMinLength', language));
       return;
     }
     try {
@@ -104,11 +109,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsSignUpActive(false);
     } catch (err: any) {
       console.warn('Failed to sign up:', err);
-      let friendlyMsg = err.message || '회원가입에 실패했습니다.';
+      let friendlyMsg = err.message || t('signUpFailed', language);
       if (err.code === 'auth/email-already-in-use') {
-        friendlyMsg = '이미 가입된 이메일 주소입니다.';
+        friendlyMsg = t('emailAlreadyInUse', language);
       } else if (err.code === 'auth/invalid-email') {
-        friendlyMsg = '올바르지 않은 이메일 형식입니다.';
+        friendlyMsg = t('invalidEmailFormat', language);
       }
       setAuthError(friendlyMsg);
     } finally {
@@ -123,7 +128,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       await signOut(auth);
     } catch (err: any) {
       console.warn('Failed to sign out:', err);
-      setAuthError(err.message || '로그아웃에 실패했습니다.');
+      setAuthError(err.message || t('signOut', language));
     } finally {
       setIsSubmitting(false);
     }
@@ -203,7 +208,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ]}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>{t('settings', language)}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <X size={20} color={theme.subText} />
             </TouchableOpacity>
@@ -212,7 +217,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
             {/* 1. Account Section */}
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.subText }]}>Account</Text>
+              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('account', language)}</Text>
               
               {currentUser ? (
                 /* Profile Card */
@@ -223,10 +228,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </View>
                     <View style={styles.profileInfo}>
                       <Text style={[styles.profileName, { color: theme.text }]} numberOfLines={1}>
-                        {currentUser.email || 'Signed In User'}
+                        {currentUser.email || t('signedInUser', language)}
                       </Text>
                       <Text style={[styles.profileDesc, { color: '#4CAF50', fontWeight: '700' }]}>
-                        ✓ Cloud Sync Enabled
+                        {t('cloudSyncEnabled', language)}
                       </Text>
                     </View>
                     <TouchableOpacity 
@@ -246,14 +251,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 /* Auth Form */
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border, padding: 16, gap: 12 }]}>
                   <Text style={[styles.authTitle, { color: theme.text }]}>
-                    {isSignUpActive ? 'Create Account' : 'Sign In'}
+                    {isSignUpActive ? t('createAccount', language) : t('signIn', language)}
                   </Text>
                   
                   <View style={[styles.inputWrapper, { borderColor: theme.border, backgroundColor: theme.bg }]}>
-                    <Mail size={16} color={theme.subText} />
+                     <Mail size={16} color={theme.subText} />
                     <TextInput
                       style={[styles.input, { color: theme.text }]}
-                      placeholder="Email"
+                      placeholder={t('email', language)}
                       placeholderTextColor={theme.subText}
                       value={email}
                       onChangeText={setEmail}
@@ -266,7 +271,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <KeyRound size={16} color={theme.subText} />
                     <TextInput
                       style={[styles.input, { color: theme.text }]}
-                      placeholder="Password"
+                      placeholder={t('password', language)}
                       placeholderTextColor={theme.subText}
                       value={password}
                       onChangeText={setPassword}
@@ -291,7 +296,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <ActivityIndicator size="small" color={theme.bg} />
                     ) : (
                       <Text style={[styles.authButtonText, { color: theme.bg }]}>
-                        {isSignUpActive ? 'Sign Up' : 'Sign In'}
+                        {isSignUpActive ? t('signUp', language) : t('signIn', language)}
                       </Text>
                     )}
                   </TouchableOpacity>
@@ -305,18 +310,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <Text style={[styles.switchModeText, { color: theme.subText }]}>
                       {isSignUpActive 
-                        ? 'Already have an account? Sign In' 
-                        : "Don't have an account? Sign Up"}
+                        ? t('alreadyHaveAccount', language) 
+                        : t('dontHaveAccount', language)}
                     </Text>
                   </TouchableOpacity>
                 </View>
               )}
             </View>
 
+            {/* Language Setting Section */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('languageSetting', language)}</Text>
+              <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                <View style={styles.langSelectorRow}>
+                  <TouchableOpacity 
+                    style={[
+                      styles.langOption, 
+                      language === 'ko' && { backgroundColor: theme.border }
+                    ]}
+                    onPress={() => setLanguage('ko')}
+                  >
+                    <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[
+                      styles.langOption, 
+                      language === 'en' && { backgroundColor: theme.border }
+                    ]}
+                    onPress={() => setLanguage('en')}
+                  >
+                    <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Developer Options Section */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
+              <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                <TouchableOpacity 
+                  style={styles.permissionRow}
+                  onPress={() => setDebugMode(!isDebugMode)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.permIconContainer}>
+                    <Info size={16} color={theme.text} />
+                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
+                  </View>
+                  <View style={styles.statusRow}>
+                    {isDebugMode ? (
+                      <View style={styles.badgeGranted}>
+                        <CheckCircle2 size={12} color="#4CAF50" />
+                        <Text style={styles.badgeTextGranted}>ON</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.badgeDenied}>
+                        <AlertCircle size={12} color="#FF5252" />
+                        <Text style={styles.badgeTextDenied}>OFF</Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {/* 2. System Permissions Section */}
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
-                <Text style={[styles.sectionTitle, { color: theme.subText }]}>App Permissions</Text>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('appPermissions', language)}</Text>
               </View>
 
               <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -328,19 +390,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <View style={styles.permIconContainer}>
                     <Camera size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>Camera</Text>
+                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('camera', language)}</Text>
                   </View>
                   <View style={styles.statusRow}>
                     {cameraPermission === 'granted' ? (
                       <View style={styles.badgeGranted}>
                         <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>Granted</Text>
+                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
                       </View>
                     ) : (
                       <View style={styles.badgeDenied}>
                         <AlertCircle size={12} color="#FF5252" />
                         <Text style={styles.badgeTextDenied}>
-                          {cameraPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                          {cameraPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
                         </Text>
                       </View>
                     )}
@@ -355,19 +417,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <View style={styles.permIconContainer}>
                     <Image size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>Storage & Media</Text>
+                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('storageMedia', language)}</Text>
                   </View>
                   <View style={styles.statusRow}>
                     {mediaPermission === 'granted' ? (
                       <View style={styles.badgeGranted}>
                         <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>Granted</Text>
+                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
                       </View>
                     ) : (
                       <View style={styles.badgeDenied}>
                         <AlertCircle size={12} color="#FF5252" />
                         <Text style={styles.badgeTextDenied}>
-                          {mediaPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                          {mediaPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
                         </Text>
                       </View>
                     )}
@@ -382,19 +444,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <View style={styles.permIconContainer}>
                     <Mic size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>Audio & Mic</Text>
+                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('audioMic', language)}</Text>
                   </View>
                   <View style={styles.statusRow}>
                     {microphonePermission === 'granted' ? (
                       <View style={styles.badgeGranted}>
                         <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>Granted</Text>
+                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
                       </View>
                     ) : (
                       <View style={styles.badgeDenied}>
                         <AlertCircle size={12} color="#FF5252" />
                         <Text style={styles.badgeTextDenied}>
-                          {microphonePermission === 'denied' ? 'Denied' : 'Not Granted'}
+                          {microphonePermission === 'denied' ? t('denied', language) : t('notGranted', language)}
                         </Text>
                       </View>
                     )}
@@ -409,19 +471,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <View style={styles.permIconContainer}>
                     <MapPin size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>Location</Text>
+                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('location', language)}</Text>
                   </View>
                   <View style={styles.statusRow}>
                     {locationPermission === 'granted' ? (
                       <View style={styles.badgeGranted}>
                         <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>Granted</Text>
+                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
                       </View>
                     ) : (
                       <View style={styles.badgeDenied}>
                         <AlertCircle size={12} color="#FF5252" />
                         <Text style={styles.badgeTextDenied}>
-                          {locationPermission === 'denied' ? 'Denied' : 'Not Granted'}
+                          {locationPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
                         </Text>
                       </View>
                     )}
@@ -434,22 +496,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   style={[styles.settingsBtn, { backgroundColor: theme.border }]}
                 >
                   <Shield size={14} color={theme.text} />
-                  <Text style={[styles.settingsBtnText, { color: theme.text }]}>Manage system settings</Text>
+                  <Text style={[styles.settingsBtnText, { color: theme.text }]}>{t('manageSystemSettings', language)}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* 3. App Info & Version Section */}
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.subText }]}>About App</Text>
+              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('aboutApp', language)}</Text>
               <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                 <View style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}>
-                  <Text style={[styles.infoLabel, { color: theme.subText }]}>Version</Text>
+                  <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('version', language)}</Text>
                   <Text style={[styles.infoValue, { color: theme.text }]}>1.0.0 (Build 1)</Text>
                 </View>
 
                 <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: theme.subText }]}>Identifier</Text>
+                  <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('identifier', language)}</Text>
                   <Text style={[styles.infoValue, { color: theme.text }]}>com.pplaner.beforeglow</Text>
                 </View>
 
@@ -460,7 +522,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <View style={styles.licensesLabelRow}>
                     <Info size={14} color={theme.text} />
-                    <Text style={[styles.licensesToggleText, { color: theme.text }]}>Open Source Licenses</Text>
+                    <Text style={[styles.licensesToggleText, { color: theme.text }]}>{t('openSourceLicenses', language)}</Text>
                   </View>
                   <Text style={{ color: theme.accent, fontSize: 11, fontWeight: 'bold' }}>
                     {showLicenses ? 'HIDE' : 'SHOW'}
@@ -765,5 +827,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
+  },
+  langSelectorRow: {
+    flexDirection: 'row',
+    padding: 4,
+    gap: 4,
+  },
+  langOption: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  langText: {
+    fontSize: 13,
   },
 });

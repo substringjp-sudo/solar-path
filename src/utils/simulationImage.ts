@@ -130,7 +130,24 @@ export const generateSimulationImage = async (
         const rx = 35 + ((seed * 19) % 45); // 35 to 80
         const ry = 8 + ((seed * 3) % 12);  // 8 to 20
         
-        paintCloud.setColor(cloudBaseColor);
+        // 지구 곡률에 의한 그림자 효과 적용 (Y좌표가 낮을수록/지평선에 가까울수록 그림자에 가려짐)
+        let finalCloudColor = cloudBaseColor;
+        if (isSunset) {
+          const heightFactor = (horizonY - cy) / horizonY; // 0.1 ~ 0.9 범위
+          const shadowThreshold = 1.0 - (sunAltitude - (-6.0)) / 8.0; // sunAltitude가 -6에 가까울수록 1.0에 가까워짐
+          
+          if (heightFactor < shadowThreshold) {
+            // 어둠의 진행 정도에 따라 그림자 색과 노을 빛을 믹스
+            const mixRatio = Math.max(0, Math.min(1, heightFactor / shadowThreshold));
+            // 40, 45, 60 (Night Shadow) 와 255, 110, 64 (Sunset Glow) 사이의 색 보간
+            const r = Math.round(40 + (255 - 40) * mixRatio);
+            const g = Math.round(45 + (110 - 45) * mixRatio);
+            const b = Math.round(60 + (64 - 60) * mixRatio);
+            finalCloudColor = Skia.Color(`rgba(${r}, ${g}, ${b}, 0.55)`);
+          }
+        }
+        
+        paintCloud.setColor(finalCloudColor);
         paintCloud.setAlphaf(0.35 + (seed % 4) * 0.1);
 
         canvas.drawOval(rect(cx - rx, cy - ry, rx * 2, ry * 2), paintCloud);

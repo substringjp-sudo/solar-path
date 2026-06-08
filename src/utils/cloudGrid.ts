@@ -119,19 +119,25 @@ export const fetchCloudGrid = async (
 
   const lats = gridPoints.map(p => p.lat.toFixed(5)).join(',');
   const lons = gridPoints.map(p => p.lon.toFixed(5)).join(',');
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
+    `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high` +
+    `&timezone=auto`;
+
+  const startTime = Date.now();
+  console.log(`[CloudGrid] Request URL: ${url}`);
 
   try {
-    const response = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
-      `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high` +
-      `&timezone=auto`,
-    );
+    const response = await fetch(url);
 
     if (!response.ok) {
+      const duration = Date.now() - startTime;
+      console.error(`[CloudGrid] API responded with error status ${response.status} in ${duration}ms`);
       throw new Error(`Open-Meteo returned ${response.status}`);
     }
 
     const data = await response.json();
+    const duration = Date.now() - startTime;
+    console.log(`[CloudGrid] Successfully fetched grid data in ${duration}ms. Size: ${Array.isArray(data) ? data.length : 1} items.`);
     const results = Array.isArray(data) ? data : [data];
 
     const targetMs = targetTime.getTime();

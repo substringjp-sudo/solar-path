@@ -9,10 +9,11 @@ import { CloudPathData, CloudData } from '../../utils/weather';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { CLOUD_TEMPLATES, CloudPresetName } from './Visualizer';
+import { t, Language } from '../../utils/i18n';
 
 interface CloudBookEntry {
   name: CloudPresetName;
-  krName: string;
+  displayName: string;
   altitudeType: 'high' | 'mid' | 'low';
   altitudeRange: string;
   summary: string;
@@ -25,10 +26,10 @@ interface CloudBookEntry {
   };
 }
 
-const CLOUD_BOOK_DATA: CloudBookEntry[] = [
+const CLOUD_BOOK_DATA_KO: CloudBookEntry[] = [
   {
     name: 'Cirrus',
-    krName: '권운 (새털구름)',
+    displayName: '권운 (새털구름)',
     altitudeType: 'high',
     altitudeRange: '6km 이상',
     summary: '빙결정으로 이루어진 희고 가는 실이나 깃털 모양의 구름입니다.',
@@ -42,7 +43,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Cirrocumulus',
-    krName: '권적운 (비늘구름)',
+    displayName: '권적운 (비늘구름)',
     altitudeType: 'high',
     altitudeRange: '6km 이상',
     summary: '작은 조개껍데기나 물고기 비늘 모양의 흰 구름 조각들이 떼를 지어 덮은 구름입니다.',
@@ -56,7 +57,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Cirrostratus',
-    krName: '권층운 (햇무리구름)',
+    displayName: '권층운 (햇무리구름)',
     altitudeType: 'high',
     altitudeRange: '6km 이상',
     summary: '온 하늘을 하얀 베일처럼 넓게 뒤덮어 햇무리나 달무리를 만드는 얇은 안개성 구름입니다.',
@@ -70,7 +71,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Altocumulus',
-    krName: '고적운 (양떼구름)',
+    displayName: '고적운 (양떼구름)',
     altitudeType: 'mid',
     altitudeRange: '2 ~ 6km',
     summary: '양 떼가 밭이랑에 모여 있는 것 같은 둥글둥글한 구름 뭉치들의 배열입니다.',
@@ -84,7 +85,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Altostratus',
-    krName: '고층운 (차일구름)',
+    displayName: '고층운 (차일구름)',
     altitudeType: 'mid',
     altitudeRange: '2 ~ 6km',
     summary: '하늘 전체에 장막을 치듯 균일한 짙은 회청색을 드리우는 넓은 평면 구름입니다.',
@@ -98,7 +99,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Nimbostratus',
-    krName: '난층운 (비구름)',
+    displayName: '난층운 (비구름)',
     altitudeType: 'mid',
     altitudeRange: '2 ~ 6km (하층까지 확장)',
     summary: '하늘 전체를 짙은 회색으로 덮어 지속적인 비나 눈을 내리게 하는 두껍고 어두운 구름입니다.',
@@ -112,7 +113,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Stratocumulus',
-    krName: '층적운 (물결뭉게구름)',
+    displayName: '층적운 (물결뭉게구름)',
     altitudeType: 'low',
     altitudeRange: '2km 이하',
     summary: '낮게 깔린 크고 둥그스름한 덩어리들이 서로 밀집해 물결 모양 층을 이루는 구름입니다.',
@@ -126,7 +127,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Stratus',
-    krName: '층운 (안개구름)',
+    displayName: '층운 (안개구름)',
     altitudeType: 'low',
     altitudeRange: '2km 이하',
     summary: '지표면 가까이에 안개처럼 아주 낮고 균일하게 형성된 얇은 판상의 구름층입니다.',
@@ -140,7 +141,7 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Cumulus',
-    krName: '적운 (뭉게구름)',
+    displayName: '적운 (뭉게구름)',
     altitudeType: 'low',
     altitudeRange: '2km 이하',
     summary: '하늘 높이 탐스럽게 뭉게뭉게 피어오른 맑은 날의 대표적인 하얀 솜사탕 구름입니다.',
@@ -154,9 +155,9 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   },
   {
     name: 'Cumulonimbus',
-    krName: '적란운 (소나기구름)',
+    displayName: '적란운 (소나기구름)',
     altitudeType: 'low',
-    altitudeRange: '2km 이하 (최대 12km 상공까지 수직 발달)',
+    altitudeRange: '2km 이하 (최대 12km 상공)',
     summary: '소나기와 뇌우를 동반하며 하늘 높이 탑이나 모루 형태로 거대하게 솟구친 먹구름 산입니다.',
     origin: '대기가 극도로 불안정하여 초강력 상승 기류가 응결된 물방울과 빙결정을 성층권 하부 경계선까지 수직으로 폭발시키듯 밀어올려 생성됩니다.',
     sunsetEffect: '태양빛을 철저히 막는 거대한 암흑 벽이 되지만, 가장 높은 구름 꼭대기 모루 끝자락은 찬란히 불타는 장관을 연출합니다.',
@@ -168,7 +169,151 @@ const CLOUD_BOOK_DATA: CloudBookEntry[] = [
   }
 ];
 
+const CLOUD_BOOK_DATA_EN: CloudBookEntry[] = [
+  {
+    name: 'Cirrus',
+    displayName: 'Cirrus (Mares\' tails)',
+    altitudeType: 'high',
+    altitudeRange: 'Above 6km',
+    summary: 'Thin, wispy strands of ice crystal clouds resembling feathers.',
+    origin: 'Water vapor directly sublimates into ice crystals under dry wind and cold temperatures in high altitude.',
+    sunsetEffect: 'Receives sunlight for the longest time even after the sun sinks below the horizon, spreading brilliant scarlet hues.',
+    physics: {
+      thickness: 'Very Thin (Thickness 4%)',
+      scattering: 'Excellent (Transmittance 95%)',
+      shadow: 'Almost None (Contrast 5%)'
+    }
+  },
+  {
+    name: 'Cirrocumulus',
+    displayName: 'Cirrocumulus',
+    altitudeType: 'high',
+    altitudeRange: 'Above 6km',
+    summary: 'Small, white patches of clouds that resemble ripples or scales.',
+    origin: 'Weak convection due to atmospheric instability in high altitude causes water vapor to cluster and freeze.',
+    sunsetEffect: 'Creates delicate glowing outlines and rich color transitions across the sky.',
+    physics: {
+      thickness: 'Thin (Thickness 16%)',
+      scattering: 'High (Transmittance 80%)',
+      shadow: 'Weak (Contrast 20%)'
+    }
+  },
+  {
+    name: 'Cirrostratus',
+    displayName: 'Cirrostratus (Halo clouds)',
+    altitudeType: 'high',
+    altitudeRange: 'Above 6km',
+    summary: 'Thin, whitish sheet-like veil of clouds covering the sky, producing halos around the sun or moon.',
+    origin: 'A large, thin layer of ice crystals is formed as upper atmosphere rises gently in front of a warm front.',
+    sunsetEffect: 'Produces a soft, pastel-toned gradient sunset across the entire sky.',
+    physics: {
+      thickness: 'Very Thin (Thickness 12%)',
+      scattering: 'Very High (Transmittance 85%)',
+      shadow: 'Almost None (Contrast 15%)'
+    }
+  },
+  {
+    name: 'Altocumulus',
+    displayName: 'Altocumulus (Mackerel sky)',
+    altitudeType: 'mid',
+    altitudeRange: '2 ~ 6km',
+    summary: 'Rolls or patches of puffy, medium-sized cloud elements arranged in layers.',
+    origin: 'Local instability in mid-level atmosphere forms convective currents, condensing water vapor into water droplets.',
+    sunsetEffect: 'Sunlight filters through clouds to create dramatic light beams (Crepuscular rays) and bright glowing edges.',
+    physics: {
+      thickness: 'Medium (Thickness 40%)',
+      scattering: 'Medium (Transmittance 70%)',
+      shadow: 'Medium (Contrast 40%)'
+    }
+  },
+  {
+    name: 'Altostratus',
+    displayName: 'Altostratus',
+    altitudeType: 'mid',
+    altitudeRange: '2 ~ 6km',
+    summary: 'Grayish or bluish sheet or layer of flat, uniform clouds covering a wide area.',
+    origin: 'Slow, widespread lifting of a large air mass in mid-level atmosphere condenses water droplets and ice particles.',
+    sunsetEffect: 'Blocks direct sunlight, leading to deep, dreamy grey-violet or dark red sunsets.',
+    physics: {
+      thickness: 'Slightly Thick (Thickness 55%)',
+      scattering: 'Low (Transmittance 60%)',
+      shadow: 'Moderate (Contrast 50%)'
+    }
+  },
+  {
+    name: 'Nimbostratus',
+    displayName: 'Nimbostratus (Rain clouds)',
+    altitudeType: 'mid',
+    altitudeRange: '2 ~ 6km (extends lower)',
+    summary: 'Thick, dark grey cloud layer that covers the sky and produces continuous rain or snow.',
+    origin: 'Strong, long-lasting forced ascent of thick air masses near low-pressure systems or fronts.',
+    sunsetEffect: 'Absorbs most light, making sunsets dull and rendering the sky dark grey.',
+    physics: {
+      thickness: 'Thick (Thickness 75%)',
+      scattering: 'Very Low (Transmittance 30%)',
+      shadow: 'Dark (Contrast 80%)'
+    }
+  },
+  {
+    name: 'Stratocumulus',
+    displayName: 'Stratocumulus',
+    altitudeType: 'low',
+    altitudeRange: 'Below 2km',
+    summary: 'Low, lumpy grey cloud layers that form ripples or waves with occasional breaks.',
+    origin: 'Turbulence in lower boundary layer or capping inversions spread clouds horizontally.',
+    sunsetEffect: 'Creates deep grey shadows under cloud bases with brilliant orange hues breaking through the gaps.',
+    physics: {
+      thickness: 'Thick (Thickness 80%)',
+      scattering: 'Low (Transmittance 40%)',
+      shadow: 'Very Dark (Contrast 82%)'
+    }
+  },
+  {
+    name: 'Stratus',
+    displayName: 'Stratus (Fog-like clouds)',
+    altitudeType: 'low',
+    altitudeRange: 'Below 2km',
+    summary: 'A low, featureless, uniform grayish layer of clouds that resembles fog.',
+    origin: 'Radiational cooling of the ground overnight or warm moist air flowing over cold surface.',
+    sunsetEffect: 'Shrouds the horizon, scattering yellow sunset glow into a soft, diffused blanket.',
+    physics: {
+      thickness: 'Medium (Thickness 30~65%)',
+      scattering: 'Medium (Transmittance 50~70%)',
+      shadow: 'Medium (Contrast 30~60%)'
+    }
+  },
+  {
+    name: 'Cumulus',
+    displayName: 'Cumulus (Fair-weather clouds)',
+    altitudeType: 'low',
+    altitudeRange: 'Below 2km',
+    summary: 'Fluffy, cotton-like clouds with distinct outlines and flat bases.',
+    origin: 'Localized thermals rising from solar-heated ground condense into water droplets.',
+    sunsetEffect: 'Creates brilliant golden linings and sharp orange shading contrasts around puffy cloud edges.',
+    physics: {
+      thickness: 'Thick (Thickness 70%)',
+      scattering: 'Low (Transmittance 45%)',
+      shadow: 'Dark (Contrast 72%)'
+    }
+  },
+  {
+    name: 'Cumulonimbus',
+    displayName: 'Cumulonimbus (Thunderheads)',
+    altitudeType: 'low',
+    altitudeRange: 'Below 2km (extends to 12km)',
+    summary: 'Massive, towering clouds associated with thunderstorms and heavy rain.',
+    origin: 'Extremely unstable atmosphere forces strong updrafts, pushing clouds vertically to the tropopause.',
+    sunsetEffect: 'Acts as a dark wall blocking most light, but the anvil tops high up glow with intense fire-like colors.',
+    physics: {
+      thickness: 'Maximum (Thickness 100%)',
+      scattering: 'Lowest (Transmittance 20%)',
+      shadow: 'Maximum (Contrast 98%)'
+    }
+  }
+];
+
 const RadarGridInfoGraphic = ({ theme }: { theme: any }) => {
+  const { language } = useCelestialStore();
   return (
     <View style={[styles.artCard, { backgroundColor: 'rgba(5, 5, 10, 0.45)', borderColor: theme.border }]}>
       <Svg width="180" height="110" viewBox="0 0 180 110">
@@ -208,13 +353,14 @@ const RadarGridInfoGraphic = ({ theme }: { theme: any }) => {
         
         {/* Observer 위치 (관측자) */}
         <Circle cx="90" cy="102" r="4.5" fill="#FF8C00" />
-        <SvgText x="98" y="104" fontSize="7" fill="#FF8C00" fontWeight="bold">관측자</SvgText>
+        <SvgText x="98" y="104" fontSize="7" fill="#FF8C00" fontWeight="bold">{language === 'ko' ? '관측자' : 'Observer'}</SvgText>
       </Svg>
     </View>
   );
 };
 
 const RayleighInfoGraphic = ({ theme }: { theme: any }) => {
+  const { language } = useCelestialStore();
   return (
     <View style={[styles.artCard, { backgroundColor: 'rgba(5, 5, 10, 0.45)', borderColor: theme.border }]}>
       <Svg width="260" height="110" viewBox="0 0 260 110">
@@ -235,7 +381,7 @@ const RayleighInfoGraphic = ({ theme }: { theme: any }) => {
         <G>
           {/* 낮 태양 */}
           <Circle cx="70" cy="30" r="7" fill="#FFD700" />
-          <SvgText x="56" y="16" fontSize="6.5" fill="#FFD700" fontWeight="bold">낮 (수직 입사)</SvgText>
+          <SvgText x="56" y="16" fontSize="6.5" fill="#FFD700" fontWeight="bold">{t('dayAltVertical', language)}</SvgText>
           
           {/* 수직 대기 통과 광선 */}
           <Path d="M 70,39 L 70,82" fill="none" stroke="#1E90FF" strokeWidth="1.5" />
@@ -245,14 +391,14 @@ const RayleighInfoGraphic = ({ theme }: { theme: any }) => {
           <Path d="M 70,68 L 60,78" fill="none" stroke="#1E90FF" strokeWidth="0.8" />
           <Path d="M 70,68 L 80,78" fill="none" stroke="#1E90FF" strokeWidth="0.8" />
           
-          <SvgText x="86" y="58" fontSize="5.5" fill="#1E90FF">파란빛 산란</SvgText>
+          <SvgText x="86" y="58" fontSize="5.5" fill="#1E90FF">{t('rayleighScatterBlue', language)}</SvgText>
         </G>
         
         {/* 2. 저녁 노을 시간대 (비스듬히 긴 대기 경로 통과) */}
         <G>
           {/* 지평선 부근 붉은 태양 */}
           <Circle cx="230" cy="84" r="6" fill="#FF4500" />
-          <SvgText x="205" y="70" fontSize="6.5" fill="#FF4500" fontWeight="bold">노을 (대기 깊음)</SvgText>
+          <SvgText x="205" y="70" fontSize="6.5" fill="#FF4500" fontWeight="bold">{t('sunsetAltDeep', language)}</SvgText>
           
           {/* 긴 광선 경로 */}
           <Path d="M 222,85 L 120,102" fill="none" stroke="#FF4500" strokeWidth="1.8" />
@@ -264,8 +410,8 @@ const RayleighInfoGraphic = ({ theme }: { theme: any }) => {
           
           {/* 관측자 위치 (지구 표면) */}
           <Circle cx="120" cy="102" r="2.2" fill="#FF8C00" />
-          <SvgText x="106" y="112" fontSize="6" fill="#FF8C00" fontWeight="bold">관측자</SvgText>
-          <SvgText x="130" y="99" fontSize="5.5" fill="#FF4500">붉은빛만 도달</SvgText>
+          <SvgText x="106" y="112" fontSize="6" fill="#FF8C00" fontWeight="bold">{t('observerText', language)}</SvgText>
+          <SvgText x="130" y="99" fontSize="5.5" fill="#FF4500">{t('rayleighOnlyRed', language)}</SvgText>
         </G>
       </Svg>
     </View>
@@ -273,6 +419,7 @@ const RayleighInfoGraphic = ({ theme }: { theme: any }) => {
 };
 
 const MieInfoGraphic = ({ theme }: { theme: any }) => {
+  const { language } = useCelestialStore();
   return (
     <View style={[styles.artCard, { backgroundColor: 'rgba(5, 5, 10, 0.45)', borderColor: theme.border }]}>
       <Svg width="260" height="110" viewBox="0 0 260 110">
@@ -280,14 +427,14 @@ const MieInfoGraphic = ({ theme }: { theme: any }) => {
         <Circle cx="110" cy="55" r="16" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
         <Circle cx="106" cy="51" r="14" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="2" />
         <Circle cx="110" cy="55" r="7" fill="rgba(255, 255, 255, 0.08)" />
-        <SvgText x="92" y="24" fontSize="6.5" fill="#FFF" fontWeight="bold">먼지/수증기 대형 입자</SvgText>
+        <SvgText x="92" y="24" fontSize="6.5" fill="#FFF" fontWeight="bold">{t('mieAerosolParticle', language)}</SvgText>
         
         {/* 입사 태양 광선 (왼쪽에서 입사) */}
         <Path d="M 30,42 L 92,42" fill="none" stroke="#FFA500" strokeWidth="1.5" />
         <Path d="M 25,55 L 94,55" fill="none" stroke="#FFA500" strokeWidth="1.5" />
         <Path d="M 30,68 L 92,68" fill="none" stroke="#FFA500" strokeWidth="1.5" />
         
-        <SvgText x="28" y="32" fontSize="6.5" fill="#FFA500" fontWeight="bold">태양광 입사</SvgText>
+        <SvgText x="28" y="32" fontSize="6.5" fill="#FFA500" fontWeight="bold">{t('mieSunlightEntry', language)}</SvgText>
         
         {/* 미에 산란 (전방 좁은 원뿔 형태로 강하게 집중 산란하는 모습 묘사) */}
         <Path d="M 126,55 L 190,20 A 48,48 0 0,1 190,90 Z" fill="rgba(255, 222, 173, 0.12)" stroke="rgba(255, 222, 173, 0.3)" strokeWidth="0.8" />
@@ -299,8 +446,8 @@ const MieInfoGraphic = ({ theme }: { theme: any }) => {
         {/* 입자 외곽 발광 테두리 강조 (Mie 림 라이트 묘사) */}
         <Path d="M 110,39 A 16,16 0 0,1 126,55 A 16,16 0 0,1 110,71" fill="none" stroke="#FFF" strokeWidth="2.5" opacity="0.9" />
         
-        <SvgText x="156" y="93" fontSize="6.5" fill="#FFF">전방 강한 산란</SvgText>
-        <SvgText x="156" y="101" fontSize="5.5" fill="#FFF" opacity="0.6">(태양 주변 구름 발광 / 림라이트)</SvgText>
+        <SvgText x="156" y="93" fontSize="6.5" fill="#FFF">{t('mieForwardScatter', language)}</SvgText>
+        <SvgText x="156" y="101" fontSize="5.5" fill="#FFF" opacity="0.6">{t('mieRimLightDesc', language)}</SvgText>
       </Svg>
     </View>
   );
@@ -339,7 +486,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   }, [visible, windowHeight]);
 
   const { width: W, height: H } = Dimensions.get('window');
-  const { timezoneOffsetHours } = useCelestialStore();
+  const { timezoneOffsetHours, language } = useCelestialStore();
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
   const [activeAltitude, setActiveAltitude] = useState<'all' | 'low' | 'mid' | 'high'>('all');
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -409,12 +556,12 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
 
   const getSourceModelName = () => {
     if (weatherSource === 'ultra-short') {
-      return 'KMA LDAPS / HRRR (정밀 국지 초단기 모델)';
+      return language === 'ko' ? 'KMA LDAPS / HRRR (정밀 국지 초단기 모델)' : 'KMA LDAPS / HRRR (Ultra-short local model)';
     }
     if (weatherSource === 'fallback') {
-      return '임시 로컬 데이터 (기상 서버 연결 실패)';
+      return language === 'ko' ? '임시 로컬 데이터 (기상 서버 연결 실패)' : 'Temporary Local Data (Failed to connect to weather server)';
     }
-    return 'GFS / ECMWF Global Ensemble (표준 글로벌 모델)';
+    return language === 'ko' ? 'GFS / ECMWF Global Ensemble (표준 글로벌 모델)' : 'GFS / ECMWF Global Ensemble (Standard global model)';
   };
 
   const formattedTime = useMemo(() => {
@@ -464,10 +611,10 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
           {/* Subtitle & Source Info */}
           <View style={styles.sourceMetaCard}>
             <Text style={[styles.metaText, { color: theme.subText }]}>
-              분석 기준 시각 (현지): <Text style={{ color: theme.text, fontWeight: '700' }}>{formattedTime}</Text>
+              {t('obsTime', language)}: <Text style={{ color: theme.text, fontWeight: '700' }}>{formattedTime}</Text>
             </Text>
             <Text style={[styles.metaText, { color: theme.subText, marginTop: 2 }]}>
-              수치 예보 모델: <Text style={{ color: theme.accent, fontWeight: '700' }}>{getSourceModelName()}</Text>
+              {t('forecastModel', language)}: <Text style={{ color: theme.accent, fontWeight: '700' }}>{getSourceModelName()}</Text>
             </Text>
           </View>
 
@@ -478,14 +625,14 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
               onPress={() => setActiveTab('grid')}
             >
               <Compass size={14} color={activeTab === 'grid' ? theme.accent : theme.subText} style={{ marginRight: 6 }} />
-              <Text style={[styles.tabText, { color: activeTab === 'grid' ? theme.text : theme.subText }]}>레이더 그리드 맵</Text>
+              <Text style={[styles.tabText, { color: activeTab === 'grid' ? theme.text : theme.subText }]}>{t('radarTabGrid', language)}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tabButton, activeTab === 'list' && [styles.activeTabButton, { backgroundColor: theme.card }]]}
               onPress={() => setActiveTab('list')}
             >
               <Cloud size={14} color={activeTab === 'list' ? theme.accent : theme.subText} style={{ marginRight: 6 }} />
-              <Text style={[styles.tabText, { color: activeTab === 'list' ? theme.text : theme.subText }]}>지점별 세부 수치</Text>
+              <Text style={[styles.tabText, { color: activeTab === 'list' ? theme.text : theme.subText }]}>{t('radarTabList', language)}</Text>
             </TouchableOpacity>
           </View>
 
@@ -495,15 +642,15 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
               
               {/* Radar Grid Map Visualization */}
               <View style={styles.radarCard}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>구름 분포 레이더 격자 (380km 범위)</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('radarGridTitle', language)}</Text>
                 <Text style={[styles.sectionDesc, { color: theme.subText }]}>
-                  가로는 관측 방향(좌-20° ~ 우+20°), 세로는 관측 거리(10km ~ 380km)를 의미합니다.
+                  {t('radarGridDesc', language)}
                 </Text>
 
                 {/* Altitude Filter Tabs */}
                 <View style={[styles.altitudeTabContainer, { borderColor: theme.border }]}>
                   {(['all', 'low', 'mid', 'high'] as const).map((alt) => {
-                    const label = alt === 'all' ? '통합' : alt === 'low' ? '저층운' : alt === 'mid' ? '중층운' : '고층운';
+                    const label = alt === 'all' ? t('radarFilterAll', language) : alt === 'low' ? t('radarFilterLow', language) : alt === 'mid' ? t('radarFilterMid', language) : t('radarFilterHigh', language);
                     const activeColor = alt === 'low' ? '#4682B4' : alt === 'mid' ? '#9370DB' : alt === 'high' ? '#FF69B4' : theme.accent;
                     const isActive = activeAltitude === alt;
                     return (
@@ -588,9 +735,9 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 <View style={[styles.observerIndicator, { borderTopColor: theme.border }]}>
                   <View style={[styles.observerDot, { backgroundColor: theme.accent }]} />
                   <Text style={[styles.observerLabelText, { color: theme.text }]}>
-                    관측자 중심점 (0km):
+                    {t('observerCenter', language)}:
                     <Text style={{ fontWeight: '800' }}>
-                      {' '}저 {Math.round(observerPoint.low)}% | 중 {Math.round(observerPoint.mid)}% | 고 {Math.round(observerPoint.high)}%
+                      {' '}{language === 'ko' ? '저' : 'L'} {Math.round(observerPoint.low)}% | {language === 'ko' ? '중' : 'M'} {Math.round(observerPoint.mid)}% | {language === 'ko' ? '고' : 'H'} {Math.round(observerPoint.high)}%
                     </Text>
                   </Text>
                 </View>
@@ -600,31 +747,31 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
               <View style={[styles.legendCard, { backgroundColor: theme.border }]}>
                 <View style={styles.legendHeader}>
                   <Info size={13} color={theme.text} style={{ marginRight: 6 }} />
-                  <Text style={[styles.legendTitle, { color: theme.text }]}>구름 고도 범례 및 색상 가이드</Text>
+                  <Text style={[styles.legendTitle, { color: theme.text }]}>{t('legendTitle', language)}</Text>
                 </View>
                 
                 <View style={styles.legendRow}>
                   <View style={styles.legendItem}>
                     <View style={[styles.legendColorBox, { backgroundColor: 'rgba(70, 130, 180, 0.8)' }]} />
                     <View style={styles.legendTextCol}>
-                      <Text style={[styles.legendName, { color: theme.text }]}>저층운 (Low Clouds)</Text>
-                      <Text style={[styles.legendDesc, { color: theme.subText }]}>고도 0 ~ 2km. 노을빛을 가리는 주된 원인.</Text>
+                      <Text style={[styles.legendName, { color: theme.text }]}>{t('legendLowTitle', language)}</Text>
+                      <Text style={[styles.legendDesc, { color: theme.subText }]}>{t('legendLowDesc', language)}</Text>
                     </View>
                   </View>
 
                   <View style={styles.legendItem}>
                     <View style={[styles.legendColorBox, { backgroundColor: 'rgba(147, 112, 219, 0.8)' }]} />
                     <View style={styles.legendTextCol}>
-                      <Text style={[styles.legendName, { color: theme.text }]}>중층운 (Mid Clouds)</Text>
-                      <Text style={[styles.legendDesc, { color: theme.subText }]}>고도 2 ~ 6km. 노을 그림자를 만듦.</Text>
+                      <Text style={[styles.legendName, { color: theme.text }]}>{t('legendMidTitle', language)}</Text>
+                      <Text style={[styles.legendDesc, { color: theme.subText }]}>{t('legendMidDesc', language)}</Text>
                     </View>
                   </View>
 
                   <View style={styles.legendItem}>
                     <View style={[styles.legendColorBox, { backgroundColor: 'rgba(255, 105, 180, 0.8)' }]} />
                     <View style={styles.legendTextCol}>
-                      <Text style={[styles.legendName, { color: theme.text }]}>고층운 (High Clouds)</Text>
-                      <Text style={[styles.legendDesc, { color: theme.subText }]}>고도 6km 이상. 붉은 빛을 반사해 노을 증폭.</Text>
+                      <Text style={[styles.legendName, { color: theme.text }]}>{t('legendHighTitle', language)}</Text>
+                      <Text style={[styles.legendDesc, { color: theme.subText }]}>{t('legendHighDesc', language)}</Text>
                     </View>
                   </View>
                 </View>
@@ -646,11 +793,11 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       <Text style={[styles.listIndex, { color: theme.subText }]}>#{index}</Text>
                       <View style={{ marginLeft: 8 }}>
                         <Text style={[styles.listTitle, { color: theme.text }]}>
-                          {item.distance === 0 ? '관측자 위치 (Observer)' : `${item.distance}km 지점`}
+                          {item.distance === 0 ? t('observerPointText', language) : `${item.distance}${t('distPoint', language)}`}
                         </Text>
                         {item.distance > 0 && (
                           <Text style={[styles.listSub, { color: theme.subText }]}>
-                            방향 오프셋: {item.azimuthOffset > 0 ? `+${item.azimuthOffset}°` : `${item.azimuthOffset}°`}
+                            {t('directionOffset', language)}: {item.azimuthOffset > 0 ? `+${item.azimuthOffset}°` : `${item.azimuthOffset}°`}
                           </Text>
                         )}
                       </View>
@@ -658,16 +805,16 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                     <View style={styles.listItemRight}>
                       <View style={styles.cloudBadgeRow}>
                         <View style={[styles.cloudMiniBadge, { backgroundColor: 'rgba(70,130,180,0.15)' }]}>
-                          <Text style={[styles.cloudMiniText, { color: '#4682B4' }]}>저 {Math.round(item.low)}%</Text>
+                          <Text style={[styles.cloudMiniText, { color: '#4682B4' }]}>{language === 'ko' ? '저' : 'L'} {Math.round(item.low)}%</Text>
                         </View>
                         <View style={[styles.cloudMiniBadge, { backgroundColor: 'rgba(147,112,219,0.15)' }]}>
-                          <Text style={[styles.cloudMiniText, { color: '#9370DB' }]}>중 {Math.round(item.mid)}%</Text>
+                          <Text style={[styles.cloudMiniText, { color: '#9370DB' }]}>{language === 'ko' ? '중' : 'M'} {Math.round(item.mid)}%</Text>
                         </View>
                         <View style={[styles.cloudMiniBadge, { backgroundColor: 'rgba(255,105,180,0.15)' }]}>
-                          <Text style={[styles.cloudMiniText, { color: '#FF69B4' }]}>고 {Math.round(item.high)}%</Text>
+                          <Text style={[styles.cloudMiniText, { color: '#FF69B4' }]}>{language === 'ko' ? '고' : 'H'} {Math.round(item.high)}%</Text>
                         </View>
                       </View>
-                      <Text style={[styles.listTotalCloud, { color: theme.text }]}>평균 {total}%</Text>
+                      <Text style={[styles.listTotalCloud, { color: theme.text }]}>{t('avgLabel', language)} {total}%</Text>
                     </View>
                   </View>
                 );
@@ -678,7 +825,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
           {/* Footer Controls */}
           <View style={[styles.footer, { borderTopColor: theme.border }]}>
             <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: theme.accent }]} onPress={onClose}>
-              <Text style={styles.primaryBtnText}>닫기</Text>
+              <Text style={styles.primaryBtnText}>{t('close', language)}</Text>
             </TouchableOpacity>
           </View>
 
@@ -698,7 +845,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
             <View style={[styles.infoHeader, { borderBottomColor: theme.border }]}>
               <View style={styles.infoHeaderTitleRow}>
                 <Info size={18} color={theme.accent} style={{ marginRight: 6 }} />
-                <Text style={[styles.infoHeaderTitle, { color: theme.text }]}>노을 & 구름 가이드</Text>
+                <Text style={[styles.infoHeaderTitle, { color: theme.text }]}>{t('radarGuideTitle', language)}</Text>
               </View>
               <TouchableOpacity 
                 style={[styles.infoCloseBtn, { backgroundColor: theme.border }]} 
@@ -715,7 +862,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 onPress={() => setGuideSubTab('basic')}
               >
                 <Text style={[styles.subTabText, { color: guideSubTab === 'basic' ? theme.text : theme.subText, fontWeight: guideSubTab === 'basic' ? '800' : '600' }]}>
-                  기본 가이드
+                  {t('tabBasicGuide', language)}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -723,7 +870,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 onPress={() => setGuideSubTab('encyclopedia')}
               >
                 <Text style={[styles.subTabText, { color: guideSubTab === 'encyclopedia' ? theme.text : theme.subText, fontWeight: guideSubTab === 'encyclopedia' ? '800' : '600' }]}>
-                  구름 가이드
+                  {t('tabCloudGuide', language)}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -733,18 +880,18 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 <>
                   {/* 1. 구름 종류 가이드 */}
                   <View style={styles.infoSection}>
-                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>☁️ 구름의 종류와 노을의 상관관계</Text>
+                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>☁️ {language === 'ko' ? '구름의 종류와 노을의 상관관계' : 'Cloud Types & Sunset Correlation'}</Text>
                     <Text style={[styles.infoText, { color: theme.text }]}>
-                      구름은 대기 중 떠 있는 고도에 따라 노을의 색과 형태를 크게 결정합니다.
+                      {language === 'ko' ? '구름은 대기 중 떠 있는 고도에 따라 노을의 색과 형태를 크게 결정합니다.' : 'Clouds largely determine the color and shape of sunsets depending on their altitude.'}
                     </Text>
                     
                     <View style={styles.guideCard}>
                       <View style={styles.guideItem}>
                         <View style={[styles.guideColorIndicator, { backgroundColor: '#FF69B4' }]} />
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.guideName, { color: theme.text }]}>고층운 (High Clouds · 6km 이상)</Text>
+                          <Text style={[styles.guideName, { color: theme.text }]}>{t('legendHighTitle', language)}</Text>
                           <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                            빙결정으로 이루어진 얇은 구름(권운 등)입니다. 지평선 아래로 해가 진 후에도 높은 고도 덕분에 오랜 시간 햇빛을 받아 붉은빛을 넓게 반사하고 증폭시킵니다.
+                            {language === 'ko' ? '빙결정으로 이루어진 얇은 구름(권운 등)입니다. 지평선 아래로 해가 진 후에도 높은 고도 덕분에 오랜 시간 햇빛을 받아 붉은빛을 넓게 반사하고 증폭시킵니다.' : 'Thin clouds made of ice crystals (e.g. Cirrus). Due to high altitude, they receive sunlight long after the sun goes below the horizon, reflecting and amplifying red light.'}
                           </Text>
                         </View>
                       </View>
@@ -752,9 +899,9 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       <View style={styles.guideItem}>
                         <View style={[styles.guideColorIndicator, { backgroundColor: '#9370DB' }]} />
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.guideName, { color: theme.text }]}>중층운 (Mid Clouds · 2~6km)</Text>
+                          <Text style={[styles.guideName, { color: theme.text }]}>{t('legendMidTitle', language)}</Text>
                           <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                            고적운이나 고층운 등 물방울과 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.
+                            {language === 'ko' ? '고적운이나 고층운 등 물방울과 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.' : 'Mixed clouds of water droplets and ice crystals (e.g. Altocumulus). Creates spatial gaps in the sky that form majestic cloud shadows or dramatic crepuscular rays.'}
                           </Text>
                         </View>
                       </View>
@@ -762,9 +909,9 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       <View style={styles.guideItem}>
                         <View style={[styles.guideColorIndicator, { backgroundColor: '#4682B4' }]} />
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.guideName, { color: theme.text }]}>저층운 (Low Clouds · 0~2km)</Text>
+                          <Text style={[styles.guideName, { color: theme.text }]}>{t('legendLowTitle', language)}</Text>
                           <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                            적운, 층운 등 두껍고 지표에 가까운 구름입니다. 밀도가 높아 태양광을 가리기 쉬우며, 지평선 근처에 저층운이 빽빽하게 낄 경우 노을빛을 통째로 흡수해 흐려지게 만듭니다.
+                            {language === 'ko' ? '적운, 층운 등 두껍고 지표에 가까운 구름입니다. 밀도가 높아 태양광을 가리기 쉬우며, 지평선 근처에 저층운이 빽빽하게 낄 경우 노을빛을 통째로 흡수해 흐려지게 만듭니다.' : 'Thick, low clouds near the surface (e.g. Cumulus). Easy to block sunlight due to high density, and dense low clouds near the horizon will absorb the sunset glow completely.'}
                           </Text>
                         </View>
                       </View>
@@ -773,13 +920,13 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
 
                   {/* 2. 시뮬레이션 방법 */}
                   <View style={styles.infoSection}>
-                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🎮 시뮬레이션 활용 방법</Text>
+                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>{language === 'ko' ? '🎮 시뮬레이션 활용 방법' : '🎮 How to Use Simulation'}</Text>
                     
                     <View style={styles.instructionStep}>
                       <Text style={[styles.stepNum, { color: theme.accent }]}>1</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.stepText, { color: theme.text }]}>
-                          <Text style={{ fontWeight: '800' }}>레이더 격자 맵 분석:</Text> 가로는 바라보는 방위각 오프셋(좌-20° ~ 우+20°), 세로는 관측자와의 거리(10km ~ 380km)를 뜻합니다. 총 35개 지점을 3개 고도층으로 분할하여 입체적으로 구름 밀도를 예보 격자로부터 샘플링합니다.
+                          <Text style={{ fontWeight: '800' }}>{t('radarGridGuideText1', language)}</Text> {t('radarGridGuideDesc1', language)}
                         </Text>
                         <RadarGridInfoGraphic theme={theme} />
                       </View>
@@ -788,25 +935,25 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                     <View style={styles.instructionStep}>
                       <Text style={[styles.stepNum, { color: theme.accent }]}>2</Text>
                       <Text style={[styles.stepText, { color: theme.text }]}>
-                        <Text style={{ fontWeight: '800' }}>타임슬라이더 컨트롤:</Text> 하단의 시간 바를 좌우로 드래그하면 시뮬레이션의 가상 시각을 조정할 수 있습니다. 일출/일몰 시간 전후의 태양 고도각 변화에 맞춰 대기 굴절률과 그림자 길이가 실시간으로 예측 계산됩니다.
+                        <Text style={{ fontWeight: '800' }}>{t('radarGridGuideText2', language)}</Text> {t('radarGridGuideDesc2', language)}
                       </Text>
                     </View>
                   </View>
 
                   {/* 3. 노을의 원리와 과학 */}
                   <View style={styles.infoSection}>
-                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>🔬 노을의 과학과 색의 변화</Text>
+                    <Text style={[styles.infoSectionTitle, { color: theme.accent }]}>{language === 'ko' ? '🔬 노을의 과학과 색의 변화' : '🔬 Science of Sunsets'}</Text>
                     
                     <View style={[styles.scienceCard, { backgroundColor: theme.border }]}>
-                      <Text style={[styles.scienceTitle, { color: theme.text }]}>레일리 산란 (Rayleigh Scattering)</Text>
+                      <Text style={[styles.scienceTitle, { color: theme.text }]}>{t('scienceTitleRayleigh', language)}</Text>
                       <Text style={[styles.scienceText, { color: theme.subText }]}>
-                        태양이 지평선 가까이 내려가면, 햇빛이 통과해야 하는 지구 대기층의 경로가 낮 동안보다 최대 10배 이상 길어집니다. 이 과정에서 파장이 짧은 파란색과 보라색 계열의 빛은 모두 공기 분자에 의해 도중에 산란되어 사라지고, 산란이 적고 파장이 긴 붉은색과 주황색 계열의 빛만 관측자에게 도달해 하늘이 붉게 보이게 됩니다.
+                        {t('scienceDescRayleigh', language)}
                       </Text>
                       <RayleighInfoGraphic theme={theme} />
                       
-                      <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 16 }]}>대기 물질(에어로졸/미에 산란)과 습도의 영향</Text>
+                      <Text style={[styles.scienceTitle, { color: theme.text, marginTop: 16 }]}>{t('scienceTitleMie', language)}</Text>
                       <Text style={[styles.scienceText, { color: theme.subText }]}>
-                         미세먼지나 수증기 입자처럼 빛의 파장보다 큰 물질은 파장 구분 없이 모든 빛을 전방으로 집중 산란(미에 산란, Mie Scattering)시킵니다. 이 때문에 태양 주변 구름 외곽선이 부자연스럽게 하얗고 찬란하게 발광하는 림 라이트 효과를 생성합니다. 단, 습도가 80% 이상으로 극도로 높거나 대기 오염이 너무 짙으면 빛이 과도하게 흡수되어 탁한 회색 노을이 됩니다.
+                        {t('scienceDescMie', language)}
                       </Text>
                       <MieInfoGraphic theme={theme} />
                     </View>
@@ -814,12 +961,12 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 </>
               ) : (
                 <View style={styles.encyclopediaContainer}>
-                  <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>📖 기상학적 구름 가이드</Text>
+                  <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>{t('cloudScienceTitle', language)}</Text>
                   <Text style={[styles.infoText, { color: theme.subText, marginBottom: 16 }]}>
-                    태양빛을 시뮬레이션할 때 사용되는 실제 구름 실루엣 및 속성 데이터입니다. 카드를 눌러 상세 원리와 노을 영향을 확인하세요.
+                    {t('cloudScienceDesc', language)}
                   </Text>
                   
-                  {CLOUD_BOOK_DATA.map((cloud) => {
+                  {(language === 'ko' ? CLOUD_BOOK_DATA_KO : CLOUD_BOOK_DATA_EN).map((cloud) => {
                     const isExpanded = expandedCloud === cloud.name;
                     let viewWidth = 190;
                     let viewHeight = 48;
@@ -833,7 +980,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                     
                     const pathStr = CLOUD_TEMPLATES[cloud.name]?.[0] || "";
                     const badgeColor = cloud.altitudeType === 'high' ? '#FF69B4' : cloud.altitudeType === 'mid' ? '#9370DB' : '#4682B4';
-                    const badgeText = cloud.altitudeType === 'high' ? '고층운' : cloud.altitudeType === 'mid' ? '중층운' : '저층운';
+                    const badgeText = cloud.altitudeType === 'high' ? t('cloudAltitudeTypeHigh', language) : cloud.altitudeType === 'mid' ? t('cloudAltitudeTypeMid', language) : t('cloudAltitudeTypeLow', language);
                     
                     return (
                       <View key={cloud.name} style={[styles.cloudBookCard, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.01)' }]}>
@@ -850,7 +997,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                           
                           <View style={styles.cloudHeaderInfo}>
                             <View style={styles.cloudTitleRow}>
-                              <Text style={[styles.cloudBookTitle, { color: theme.text }]}>{cloud.krName}</Text>
+                              <Text style={[styles.cloudBookTitle, { color: theme.text }]}>{cloud.displayName}</Text>
                               <View style={[styles.altitudeMiniBadge, { backgroundColor: `${badgeColor}20` }]}>
                                 <Text style={[styles.altitudeMiniBadgeText, { color: badgeColor }]}>{badgeText}</Text>
                               </View>
@@ -862,13 +1009,13 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                         {isExpanded && (
                           <View style={[styles.cloudBookDetails, { borderTopColor: theme.border }]}>
                             <Text style={[styles.detailDesc, { color: theme.text }]}>
-                              💡 <Text style={{ fontWeight: '700' }}>특징:</Text> {cloud.summary}
+                              💡 <Text style={{ fontWeight: '700' }}>{t('cloudFeature', language)}:</Text> {cloud.summary}
                             </Text>
                             <Text style={[styles.detailDesc, { color: theme.text, marginTop: 6 }]}>
-                              💨 <Text style={{ fontWeight: '700' }}>생성 원리:</Text> {cloud.origin}
+                              💨 <Text style={{ fontWeight: '700' }}>{t('cloudOrigin', language)}:</Text> {cloud.origin}
                             </Text>
                             <Text style={[styles.detailDesc, { color: theme.text, marginTop: 6 }]}>
-                              🌇 <Text style={{ fontWeight: '700' }}>노을 영향:</Text> {cloud.sunsetEffect}
+                              🌇 <Text style={{ fontWeight: '700' }}>{t('cloudSunsetEffect', language)}:</Text> {cloud.sunsetEffect}
                             </Text>
                             
                             <View style={styles.specsRow}>
@@ -896,7 +1043,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 style={[styles.infoPrimaryBtn, { backgroundColor: theme.text }]} 
                 onPress={() => setShowInfoModal(false)}
               >
-                <Text style={[styles.infoPrimaryBtnText, { color: theme.card }]}>닫기</Text>
+                <Text style={[styles.infoPrimaryBtnText, { color: theme.card }]}>{t('close', language)}</Text>
               </TouchableOpacity>
             </View>
           </View>

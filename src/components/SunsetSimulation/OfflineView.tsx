@@ -1,20 +1,24 @@
 import React from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { WifiOff } from 'lucide-react-native';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import { t } from '../../utils/i18n';
 
 export interface OfflineViewProps {
   theme: any;
 }
 
 export const OfflineView: React.FC<OfflineViewProps> = ({ theme }) => {
+  const { language } = useCelestialStore();
+
   return (
     <View style={[styles.offlineContainer, { backgroundColor: theme.background }]}>
       <View style={[styles.offlineIconBg, { backgroundColor: theme.glass, borderColor: theme.border }]}>
         <WifiOff size={32} color={theme.accent} />
       </View>
-      <Text style={[styles.offlineTitle, { color: theme.text }]}>Offline Mode</Text>
+      <Text style={[styles.offlineTitle, { color: theme.text }]}>{t('offlineMode', language)}</Text>
       <Text style={[styles.offlineText, { color: theme.subText }]}>
-        You are currently offline. An internet connection is required to fetch weather and terrain data.
+        {t('offlineDesc', language)}
       </Text>
     </View>
   );

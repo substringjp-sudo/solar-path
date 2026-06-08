@@ -88,6 +88,9 @@ interface CelestialState {
   cameraPermission: string | null;
   mediaPermission: string | null;
   microphonePermission: string | null;
+  isSimulationLoading: boolean;
+  isDebugMode: boolean;
+  language: 'ko' | 'en';
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -138,6 +141,9 @@ interface CelestialState {
   requestCameraPermission: () => Promise<void>;
   requestMediaPermission: () => Promise<void>;
   requestMicrophonePermission: () => Promise<void>;
+  setSimulationLoading: (loading: boolean) => void;
+  setDebugMode: (enabled: boolean) => void;
+  setLanguage: (lang: 'ko' | 'en') => void;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -160,13 +166,16 @@ export const useCelestialStore = create<CelestialState>()(
       userRotation: 0,
       isGyroEnabled: false,
       savedLocations: [],
+      currentUser: null,
       myPhotos: [],
       globalPhotos: [],
-      currentUser: null,
-      locationPermission: 'undetermined',
+      locationPermission: null,
       cameraPermission: 'undetermined',
       mediaPermission: 'undetermined',
       microphonePermission: 'undetermined',
+      isSimulationLoading: false,
+      isDebugMode: false,
+      language: 'ko',
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -657,6 +666,9 @@ export const useCelestialStore = create<CelestialState>()(
           console.warn('Failed to request microphone permission:', err);
         }
       },
+      setSimulationLoading: (loading) => set({ isSimulationLoading: loading }),
+      setDebugMode: (enabled) => set({ isDebugMode: enabled }),
+      setLanguage: (lang) => set({ language: lang }),
     }),
     {
       name: 'solar-path-storage',
@@ -668,7 +680,9 @@ export const useCelestialStore = create<CelestialState>()(
         weatherCacheList: state.weatherCacheList,
         terrainCacheList: state.terrainCacheList,
         savedLocations: state.savedLocations,
-        myPhotos: state.myPhotos
+        myPhotos: state.myPhotos,
+        isDebugMode: state.isDebugMode,
+        language: state.language,
       }),
     }
   )

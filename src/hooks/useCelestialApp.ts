@@ -60,7 +60,7 @@ export function useCelestialApp() {
   const { 
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations, currentUser, myPhotos, globalPhotos,
-    locationPermission, cameraPermission,
+    locationPermission, cameraPermission, isSimulationLoading,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
@@ -351,6 +351,7 @@ export function useCelestialApp() {
   };
   
   const handleCameraPress = () => {
+    if (isSimulationLoading) return;
     if (goldenTimeInfo.isActive) {
       setSunCameraVisible(true);
     } else {
@@ -359,6 +360,7 @@ export function useCelestialApp() {
   };
 
   const handleCameraLongPress = () => {
+    if (isSimulationLoading) return;
     Alert.alert(
       'Developer Test Mode',
       'Would you like to bypass the Golden Hour constraint and force open the AR Camera?',
@@ -535,7 +537,7 @@ export function useCelestialApp() {
         const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
 
         // 날씨 데이터 가져오기
-        const weatherData = await fetchSunsetWeather(lat, lon, azimuth);
+        const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
         if (!weatherData || weatherData.length === 0) return;
 
         // 일몰 시간 부근의 날씨 보간
@@ -616,6 +618,7 @@ export function useCelestialApp() {
     removeGlobalPhoto,
     locationPermission,
     cameraPermission,
+    isSimulationLoading,
     checkPermissions,
     requestLocationPermission,
     requestCameraPermission,

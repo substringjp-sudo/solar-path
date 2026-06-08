@@ -11,10 +11,13 @@ import { MapPicker } from './components/MapPicker';
 import { SunCamera } from './components/SunCamera';
 import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
+import { useCelestialStore } from './store/useCelestialStore';
+import { t } from './utils/i18n';
 
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
 export default function App() {
+  const { language } = useCelestialStore();
   const {
     animating,
     showDatePicker,
@@ -74,7 +77,17 @@ export default function App() {
     handleSaveLocation,
     handleSelectSavedLocation,
     defaultCoords,
+    isSimulationLoading,
   } = useCelestialApp();
+
+  if (locationPermission === null) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#FFD700" />
+        <Text style={styles.loadingText}>{t('checkingPermissions', language)}</Text>
+      </View>
+    );
+  }
 
   if (locationPermission !== 'granted') {
     return <PermissionRequestView />;
@@ -83,7 +96,7 @@ export default function App() {
   if (!location) return (
     <View style={styles.centered}>
       <ActivityIndicator size="large" color="#FFD700" />
-      <Text style={styles.loadingText}>Locating your position...</Text>
+      <Text style={styles.loadingText}>{t('locatingPosition', language)}</Text>
     </View>
   );
 
@@ -107,10 +120,12 @@ export default function App() {
           dynamicTheme={dynamicTheme}
           currentTimeLocal={currentTimeLocal}
           timezoneLabel={timezoneLabel}
+          isSimulationLoading={isSimulationLoading}
         />
 
         <TabNavigator
           activeTab={activeTab}
+          setActiveTab={setActiveTab}
           contentOpacity={contentOpacity}
           contentTranslateX={contentTranslateX}
           sunPos={sunPos}
@@ -166,7 +181,7 @@ export default function App() {
         <View style={styles.modalOverlay}>
           <View style={[styles.savedModal, { backgroundColor: theme.bg, borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Saved Places</Text>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>{t('savedPlaces', language)}</Text>
               <TouchableOpacity onPress={() => setSavedListVisible(false)} style={styles.closeBtn}>
                 <X size={20} color={theme.subText} />
               </TouchableOpacity>
@@ -176,7 +191,7 @@ export default function App() {
               {savedLocations.length === 0 ? (
                 <View style={styles.emptySaved}>
                   <Star size={40} color={theme.border} style={{ marginBottom: 10 }} />
-                  <Text style={{ color: theme.subText }}>No saved places.</Text>
+                  <Text style={{ color: theme.subText }}>{t('noSavedPlaces', language)}</Text>
                 </View>
               ) : (
                 savedLocations.map((loc) => (
@@ -240,11 +255,10 @@ export default function App() {
               </View>
             </View>
             
-            <Text style={[styles.warningTitle, { color: theme.text }]}>골든 아워 대기 중</Text>
+            <Text style={[styles.warningTitle, { color: theme.text }]}>{t('waitingGoldenHour', language)}</Text>
             
             <Text style={[styles.warningMessage, { color: theme.subText }]}>
-              AR 카메라 기능은 일출/일몰 전후 2.5시간(골든 아워) 동안에만 활성화됩니다.{"\n\n"}
-              개발자 테스트를 위해 우회 진입을 하시려면 카메라 버튼을 2초간 꾹 눌러주세요.
+              {t('cameraWarningMessage', language)}
             </Text>
 
             <TouchableOpacity 
@@ -252,7 +266,7 @@ export default function App() {
               style={[styles.warningConfirmBtn, { backgroundColor: theme.accent || '#FFD700' }]}
               activeOpacity={0.8}
             >
-              <Text style={[styles.warningConfirmText, { color: '#000' }]}>확인</Text>
+              <Text style={[styles.warningConfirmText, { color: '#000' }]}>{t('confirm', language)}</Text>
             </TouchableOpacity>
           </View>
         </View>

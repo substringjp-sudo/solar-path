@@ -1,9 +1,9 @@
-import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform, Dimensions } from 'react-native';
+import React, { useMemo, useRef } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform, Dimensions, PanResponder } from 'react-native';
 import { RotateCcw, Compass, Sun, Moon, Zap, Sunrise, Sunset, MapPin } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
-import { useMemo } from 'react';
+import { t } from '../utils/i18n';
 import { CelestialChart } from './CelestialChart';
 import { InfoCard } from './InfoCard';
 import { TimeSlider } from './TimeSlider';
@@ -12,6 +12,7 @@ import { Gallery } from './Gallery';
 
 interface TabNavigatorProps {
   activeTab: 'tracker' | 'sim' | 'gallery';
+  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery') => void;
   contentOpacity: Animated.Value;
   contentTranslateX: Animated.Value;
   sunPos: any;
@@ -44,6 +45,7 @@ const isSameDayUTC = (d1: Date, d2: Date) => {
 
 export const TabNavigator: React.FC<TabNavigatorProps> = ({
   activeTab,
+  setActiveTab,
   contentOpacity,
   contentTranslateX,
   sunPos,
@@ -67,7 +69,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   removeGlobalPhoto,
   setMapVisible,
 }) => {
-  const { location, timezoneOffsetHours } = useCelestialStore();
+  const { location, timezoneOffsetHours, language } = useCelestialStore();
 
   const eventsLocal = useMemo(() => {
     return {
@@ -83,8 +85,83 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   }, [currentTime, timezoneOffsetHours]);
   const { width } = Dimensions.get('window');
 
+  const tabOrder: ('tracker' | 'sim' | 'gallery')[] = ['tracker', 'sim', 'gallery'];
+  const activeIndex = tabOrder.indexOf(activeTab);
+  const startX = useRef(0);
+
+  const activeTabRef = useRef(activeTab);
+  const activeIndexRef = useRef(activeIndex);
+  activeTabRef.current = activeTab;
+  activeIndexRef.current = activeIndex;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        const { pageY } = evt.nativeEvent;
+        const { height } = Dimensions.get('window');
+
+        // 하단 타임 슬라이더 카드 영역(최하단 160px 영역) 터치는 탭 슬라이드 제스처를 획득하지 않고 양보
+        if (pageY > height - 160) {
+          return false;
+        }
+
+        // Only claim gesture if horizontal movement is greater than vertical, and movement is significant
+        const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+        const isSignificant = Math.abs(gestureState.dx) > 10;
+        return isHorizontal && isSignificant;
+      },
+      onPanResponderGrant: () => {
+        startX.current = -activeIndexRef.current * width;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        let dx = gestureState.dx;
+        // Rubber-band effect on edge pages
+        if ((activeIndexRef.current === 0 && dx > 0) || (activeIndexRef.current === tabOrder.length - 1 && dx < 0)) {
+          dx = dx * 0.35;
+        }
+        contentTranslateX.setValue(startX.current + dx);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const swipeThreshold = width * 0.25;
+        const velocityThreshold = 0.3;
+        const dx = gestureState.dx;
+        const vx = gestureState.vx;
+
+        let targetTab: 'tracker' | 'sim' | 'gallery' | null = null;
+
+        if (dx < -swipeThreshold || vx < -velocityThreshold) {
+          if (activeIndexRef.current < tabOrder.length - 1) {
+            targetTab = tabOrder[activeIndexRef.current + 1];
+          }
+        } else if (dx > swipeThreshold || vx > velocityThreshold) {
+          if (activeIndexRef.current > 0) {
+            targetTab = tabOrder[activeIndexRef.current - 1];
+          }
+        }
+
+        if (targetTab && targetTab !== activeTabRef.current) {
+          setActiveTab(targetTab);
+        } else {
+          // Snap back if threshold not met
+          Animated.spring(contentTranslateX, {
+            toValue: startX.current,
+            bounciness: 4,
+            useNativeDriver: Platform.OS !== 'web',
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(contentTranslateX, {
+          toValue: startX.current,
+          useNativeDriver: Platform.OS !== 'web',
+        }).start();
+      }
+    })
+  ).current;
+
   return (
-    <View style={[styles.container, { overflow: 'hidden' }]}>
+    <View style={[styles.container, { overflow: 'hidden' }]} {...panResponder.panHandlers}>
       <Animated.View style={[
         styles.animatedContent, 
         { 
@@ -112,7 +189,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                 style={[styles.trackerBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
               >
                 <RotateCcw size={16} color={theme.text} />
-                <Text style={[styles.trackerBtnText, { color: theme.text }]}>RESET</Text>
+                <Text style={[styles.trackerBtnText, { color: theme.text }]}>{t('reset', language)}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
@@ -120,7 +197,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
                 style={[styles.trackerBtn, { backgroundColor: isGyroEnabled ? theme.accent : theme.glass, borderColor: isGyroEnabled ? theme.accent : theme.border }]}
               >
                 <Compass size={16} color={isGyroEnabled ? "#000" : theme.text} />
-                <Text style={[styles.trackerBtnText, { color: isGyroEnabled ? "#000" : theme.text }]}>GYRO</Text>
+                <Text style={[styles.trackerBtnText, { color: isGyroEnabled ? "#000" : theme.text }]}>{t('gyro', language)}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -129,28 +206,28 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <View style={styles.frameHeader}>
                 <Sun size={12} color="#FFD700" />
-                <Text style={[styles.frameLabel, { color: theme.subText }]}>SOLAR DATA</Text>
+                <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('solarData', language)}</Text>
               </View>
               <View style={styles.grid}>
                 <InfoCard 
                   icon={<Zap size={14} color="#FFD700" />}
-                  label="Position"
+                  label={t('position', language)}
                   value={`${sunPos.altitude.toFixed(0)}°`}
                   subValue={`${sunPos.azimuth.toFixed(0)}°`}
                   theme={theme}
                 />
                 <InfoCard 
                   icon={<Sunrise size={14} color="#FFA500" />}
-                  label="Sunrise"
+                  label={t('sunrise', language)}
                   value={formatLocalTime(eventsLocal.sunrise, 'HH:mm')}
-                  subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? 'Today' : 'Tomorrow'}
+                  subValue={isSameDayUTC(eventsLocal.sunrise, currentTimeLocal) ? t('todayLabel', language) : t('tomorrowLabel', language)}
                   theme={theme}
                 />
                 <InfoCard 
                   icon={<Sunset size={14} color="#FF4500" />}
-                  label="Sunset"
+                  label={t('sunset', language)}
                   value={formatLocalTime(eventsLocal.sunset, 'HH:mm')}
-                  subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? 'Today' : 'Tomorrow'}
+                  subValue={isSameDayUTC(eventsLocal.sunset, currentTimeLocal) ? t('todayLabel', language) : t('tomorrowLabel', language)}
                   theme={theme}
                 />
               </View>
@@ -159,28 +236,28 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <View style={styles.frameHeader}>
                 <Moon size={12} color={isDay ? "#666" : "#E0E0E0"} />
-                <Text style={[styles.frameLabel, { color: theme.subText }]}>LUNAR DATA</Text>
+                <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('lunarData', language)}</Text>
               </View>
               <View style={styles.grid}>
                 <InfoCard 
                   icon={<Zap size={14} color="#888" />}
-                  label="Position"
+                  label={t('position', language)}
                   value={`${moonPos.altitude.toFixed(0)}°`}
                   subValue={`${moonPos.azimuth.toFixed(0)}°`}
                   theme={theme}
                 />
                 <InfoCard 
                   icon={<Sunrise size={14} color="#888" />}
-                  label="Moonrise"
+                  label={t('moonrise', language)}
                   value={eventsLocal.moonrise ? formatLocalTime(eventsLocal.moonrise, 'HH:mm') : '--:--'}
-                  subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
+                  subValue={eventsLocal.moonrise ? (isSameDayUTC(eventsLocal.moonrise, currentTimeLocal) ? t('todayLabel', language) : t('tomorrowLabel', language)) : undefined}
                   theme={theme}
                 />
                 <InfoCard 
                   icon={<Sunset size={14} color="#888" />}
-                  label="Moonset"
+                  label={t('moonset', language)}
                   value={eventsLocal.moonset ? formatLocalTime(eventsLocal.moonset, 'HH:mm') : '--:--'}
-                  subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? 'Today' : 'Tomorrow') : undefined}
+                  subValue={eventsLocal.moonset ? (isSameDayUTC(eventsLocal.moonset, currentTimeLocal) ? t('todayLabel', language) : t('tomorrowLabel', language)) : undefined}
                   theme={theme}
                 />
               </View>
