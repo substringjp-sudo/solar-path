@@ -189,8 +189,15 @@ export const useCelestialStore = create<CelestialState>()(
         };
       }),
       addTerrainCache: (cache) => set((state) => {
-        // Filter out any existing item with the exact same key to prevent duplicates
-        const filtered = state.terrainCacheList.filter(item => item.key !== cache.key);
+        // 동일 key 중복 제거 + 기존 캐시 중 isFallback이거나 panoramicAngles가 전부 0인 무효 데이터를 함께 정화
+        const filtered = state.terrainCacheList.filter(item => {
+          if (item.key === cache.key) return false; // 동일 key 교체
+          const d = item.data as TerrainData | null;
+          if (!d) return false;
+          if (d.isFallback) return false; // fallback 마킹된 데이터 제거
+          if (Array.isArray(d.panoramicAngles) && d.panoramicAngles.every(a => a === 0)) return false; // 전부 0인 구형 무효 데이터 제거
+          return true;
+        });
         // Keep the last 10 items
         return {
           terrainCacheList: [cache, ...filtered].slice(0, 10),

@@ -377,6 +377,8 @@ export interface TerrainData {
   minAz: number;
   maxAz: number;
   observerElevation?: number; // Observer elevation in meters
+  /** API 실패로 인해 0으로 채워진 fallback 데이터임을 나타냄. 캐싱 금지. */
+  isFallback?: boolean;
 }
 
 const terrainCache = new Map<string, TerrainData>();
@@ -500,6 +502,7 @@ export const fetchTerrainProfile = async (
   } catch (error: any) {
     const duration = Date.now() - startTime;
     console.error(`[TerrainAPI] Failed to fetch panoramic terrain in ${duration}ms. Error: ${error?.message}`);
-    return { panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0), minAz, maxAz, observerElevation: 0 };
+    // isFallback: true 로 마킹하여 호출부에서 캐싱하지 않도록 방지
+    return { panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0), minAz, maxAz, observerElevation: 0, isFallback: true };
   }
 };

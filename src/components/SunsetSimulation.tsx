@@ -19,7 +19,20 @@ import { TimeSlider } from './TimeSlider';
 import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin } from 'lucide-react-native';
 import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
 import { t } from '../utils/i18n';
- 
+
+/**
+ * API 실패시 반환되는 fallback 데이터나 모든 각도가 0인 잘못된 데이터를 거름니다.
+ * 캐시에 들어가면 영구적으로 지형이 누락되므로, 저장 전 반드시 유효성을 검사합니다.
+ */
+const isValidTerrainData = (data: TerrainData | null | undefined): boolean => {
+  if (!data) return false;
+  if (data.isFallback) return false;
+  // panoramicAngles가 전부 0이면 미등록 데이터로 간주된 지형시실한 데이터를 돌려서 화시라도 0시리사한 각도를 가질 수 있는데,
+  // 순수 fallback은 이미 isFallback 플래그로 체크함. 구형 데이터를 대비해 추가로 합산 > 0 조건을 보조적으로 둥다.
+  const hasAnyAngle = Array.isArray(data.panoramicAngles) && data.panoramicAngles.some(a => a > 0);
+  return hasAnyAngle;
+};
+
 interface SimulationState {
   type: 'Sunrise' | 'Sunset';
   eventTime: Date;
@@ -212,6 +225,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         if (!isForceRefresh) {
           for (const item of terrainCacheList) {
             const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+            // isFallback이거나 유효하지 않은 캐시는 무시
+            if (!isValidTerrainData(item.data as TerrainData)) continue;
             if (dist <= minDistTerrain) {
               minDistTerrain = dist;
               foundTerrainCache = item;
@@ -226,6 +241,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           let matchedSavedLoc = null;
           for (const item of savedLocations) {
             if (item.terrainData) {
+              // 저장된 위치의 지형 데이터도 유효성 검사
+              if (!isValidTerrainData(item.terrainData)) continue;
               const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
               if (dist <= minSavedDist) {
                 minSavedDist = dist;
@@ -288,7 +305,12 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
           if (shouldFetchTerrain && newTerrain) {
             terrainData = newTerrain;
-            addTerrainCache({ key: `t_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, data: newTerrain, timestamp: Date.now(), latitude, longitude });
+            // isFallback 데이터는 캐시에 저장하지 않음으로써 다음 실행 시 재호출하도록 보장
+            if (isValidTerrainData(newTerrain as TerrainData)) {
+              addTerrainCache({ key: `t_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, data: newTerrain, timestamp: Date.now(), latitude, longitude });
+            } else {
+              console.warn('[TerrainCache] Skipping invalid fallback terrain data — will retry on next load.');
+            }
           }
         }
 
