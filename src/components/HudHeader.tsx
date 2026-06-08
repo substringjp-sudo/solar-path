@@ -4,6 +4,7 @@ import { addDays, subDays } from 'date-fns';
 import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
+import { t } from '../utils/i18n';
 
 interface HudHeaderProps {
   activeTab: 'tracker' | 'sim' | 'gallery';
@@ -20,6 +21,7 @@ interface HudHeaderProps {
   dynamicTheme: any;
   currentTimeLocal?: Date;
   timezoneLabel?: string;
+  isSimulationLoading?: boolean;
 }
 
 export const HudHeader: React.FC<HudHeaderProps> = ({
@@ -37,8 +39,9 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   dynamicTheme,
   currentTimeLocal,
   timezoneLabel,
+  isSimulationLoading = false,
 }) => {
-  const { currentTime, location, timezoneOffsetHours } = useCelestialStore();
+  const { currentTime, location, timezoneOffsetHours, language } = useCelestialStore();
   const isDay = activeTab === 'tracker' ? theme.bg === '#E8EDF2' : true; // 기본 낮 밤 계산 백업
   
   const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
@@ -82,19 +85,19 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             onPress={() => setActiveTab('tracker')}
             style={styles.navButton}
           >
-            <Animated.Text style={[styles.navText, { color: activeTab === 'tracker' ? theme.bg : dynamicTheme.subText }]}>Tracker</Animated.Text>
+            <Animated.Text style={[styles.navText, { color: activeTab === 'tracker' ? theme.bg : dynamicTheme.subText }]}>{t('tracker', language)}</Animated.Text>
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={() => setActiveTab('sim')}
             style={styles.navButton}
           >
-            <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>Simulation</Animated.Text>
+            <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>{t('simulation', language)}</Animated.Text>
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={() => setActiveTab('gallery')}
             style={styles.navButton}
           >
-            <Animated.Text style={[styles.navText, { color: activeTab === 'gallery' ? theme.bg : dynamicTheme.subText }]}>Gallery</Animated.Text>
+            <Animated.Text style={[styles.navText, { color: activeTab === 'gallery' ? theme.bg : dynamicTheme.subText }]}>{t('gallery', language)}</Animated.Text>
           </TouchableOpacity>
         </Animated.View>
  
@@ -108,42 +111,46 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
 
           {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
           <TouchableOpacity
+            disabled={isSimulationLoading}
             onPress={handleCameraPress}
             onLongPress={handleCameraLongPress}
             delayLongPress={1500}
             style={[
               styles.cameraOpenBtn,
-              goldenTimeInfo.isActive
-                ? { 
-                    backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
-                    shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.4,
-                    shadowRadius: 6,
-                    elevation: 5
-                  }
-                : { 
-                    backgroundColor: theme.glass, 
-                    borderColor: theme.border, 
+              isSimulationLoading
+                ? {
+                    backgroundColor: theme.glass,
+                    borderColor: theme.border,
                     borderWidth: 1,
-                    opacity: 0.55
+                    opacity: 0.25,
                   }
+                : goldenTimeInfo.isActive
+                  ? { 
+                      backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                      shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 6,
+                      elevation: 5
+                    }
+                  : { 
+                      backgroundColor: theme.glass, 
+                      borderColor: theme.border, 
+                      borderWidth: 1,
+                      opacity: 0.55
+                    }
             ]}
           >
-            <CameraIcon size={14} color={goldenTimeInfo.isActive ? '#FFF' : theme.text} />
+            <CameraIcon size={14} color={(goldenTimeInfo.isActive && !isSimulationLoading) ? '#FFF' : theme.text} />
           </TouchableOpacity>
         </View>
       </View>
  
       {activeTab !== 'gallery' && (
         <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
-          {activeTab !== 'sim' ? (
-            <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
-              <ChevronLeft size={16} color={theme.text} />
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 24 }} />
-          )}
+          <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
+            <ChevronLeft size={16} color={theme.text} />
+          </TouchableOpacity>
           
           <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
             <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
@@ -157,21 +164,17 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             )}
           </TouchableOpacity>
    
-          {activeTab !== 'sim' ? (
-            <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
-              <ChevronRight size={16} color={theme.text} />
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 24 }} />
-          )}
+          <TouchableOpacity onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
+            <ChevronRight size={16} color={theme.text} />
+          </TouchableOpacity>
    
-          {!isTodayLocal && activeTab !== 'sim' && (
+          {!isTodayLocal && (
             <TouchableOpacity 
               onPress={() => handleDateChange(new Date())} 
               style={[styles.todayButton, { backgroundColor: theme.text }]}
             >
               <RotateCcw size={10} color={theme.bg} />
-              <Text style={[styles.todayText, { color: theme.bg }]}>TODAY</Text>
+              <Text style={[styles.todayText, { color: theme.bg }]}>{t('today', language)}</Text>
             </TouchableOpacity>
           )}
         </Animated.View>
