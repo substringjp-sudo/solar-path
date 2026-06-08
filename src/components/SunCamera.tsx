@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
-import { Accelerometer, Magnetometer } from 'expo-sensors';
+import { Magnetometer, DeviceMotion } from 'expo-sensors';
+import * as Location from 'expo-location';
 import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
@@ -27,6 +28,7 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather } from '../utils/weather';
+import { t, Language, translateSunsetDesc } from '../utils/i18n';
 
 interface SunCameraProps {
   visible: boolean;
@@ -44,7 +46,8 @@ const stampPhoto = async (
   sunAlt: number,
   humidity: number,
   pm25: number,
-  description: string
+  description: string,
+  lang: Language
 ): Promise<string> => {
   try {
     const data = await Skia.Data.fromURI(uri);
@@ -94,17 +97,23 @@ const stampPhoto = async (
 
       currY += stepY * 1.1;
       paintText.setColor(Skia.Color('#FFFFFF'));
-      canvas.drawText(`Location: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, paintText, font);
+      const locLabel = lang === 'ko' ? '위치' : 'Location';
+      canvas.drawText(`${locLabel}: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
-      canvas.drawText(`Sun Alt: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, paintText, font);
+      const altLabel = lang === 'ko' ? '태양 고도' : 'Sun Alt';
+      canvas.drawText(`${altLabel}: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
-      canvas.drawText(`Humidity: ${humidity}%  |  PM2.5: ${pm25}㎍`, boxX + 16, currY, paintText, font);
+      const humLabel = lang === 'ko' ? '습도' : 'Humidity';
+      const dustLabel = lang === 'ko' ? '미세먼지' : 'PM2.5';
+      canvas.drawText(`${humLabel}: ${humidity}%  |  ${dustLabel}: ${pm25}㎍`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
       paintText.setColor(Skia.Color('#00FFCC'));
-      canvas.drawText(`Sky Condition: ${description}`, boxX + 16, currY, paintText, font);
+      const condLabel = lang === 'ko' ? '하늘 상태' : 'Sky Condition';
+      const translatedDesc = translateSunsetDesc(description, lang);
+      canvas.drawText(`${condLabel}: ${translatedDesc}`, boxX + 16, currY, paintText, font);
     }
 
     const snapshot = surface.makeImageSnapshot();
@@ -120,7 +129,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  const { uploadAndPostPhoto, weatherCacheList } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, language } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -136,8 +145,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const deviceAzimuthRef = useRef(0);
   const devicePitchRef = useRef(0);
 
-  // 가속도계 / 자기계 raw Ref
-  const accRef = useRef({ x: 0, y: 0, z: -1 }); // z=-1: 기기가 수평으로 놓인 상태 기본값
+  // 자기계 raw Ref
   const magRef = useRef({ x: 0, y: 0, z: 0 });
 
   // One Euro Filter 상태 Ref
@@ -189,142 +197,129 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     );
   }, [sunPos.altitude, goldenTimeInfo.minutesToEvent]);
 
-  // ── Accelerometer 수집 ──────────────────────────────────────────────────
+  // ── DeviceMotion 수집 (OS 센서 융합을 통한 Pitch 계산) ─────────────────────
   useEffect(() => {
     if (!visible) return;
-    Accelerometer.setUpdateInterval(32); // ~30fps
-    const sub = Accelerometer.addListener((data) => {
-      accRef.current = data; // { x, y, z } in g (중력 단위)
-    });
-    return () => sub.remove();
-  }, [visible]);
+    DeviceMotion.setUpdateInterval(32); // ~30fps
+    const sub = DeviceMotion.addListener((data) => {
+      if (!data.rotation) return;
+      
+      // rotation.beta: X축 기준 회전각 (라디안)
+      // Portrait 기기를 수평으로 들면 약 90도, 하늘을 바라보면 0도에 가깝게 변함
+      const betaDeg = data.rotation.beta * 180 / Math.PI;
+      const pitchDeg = 90 - betaDeg; // 정면=0, 하늘=90, 바닥=-90도 매핑
 
-  // ── Magnetometer 수집 ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!visible) return;
-    Magnetometer.setUpdateInterval(32);
-    const sub = Magnetometer.addListener((data) => {
-      magRef.current = data;
-    });
-    return () => sub.remove();
-  }, [visible]);
-
-  // ── 센서 융합 루프 (Tilt-Compensated Compass + One Euro Filter) ─────────
-  useEffect(() => {
-    if (!visible) return;
-
-    const INTERVAL_MS = 32; // ~30fps 융합 루프
-    const timer = setInterval(() => {
-      const { x: Ax, y: Ay, z: Az } = accRef.current;
-      const { x: Mx, y: My, z: Mz } = magRef.current;
-
-      // ── 1. 자기장 왜곡 감지 (지구 자기장 정상 범위: 25~65 μT) ──
-      const magNorm = Math.sqrt(Mx * Mx + My * My + Mz * Mz);
-      setHasInterference(magNorm > 0 && (magNorm < 22 || magNorm > 68));
-
-      // ── 2. 가속도계에서 Roll / Pitch 계산 ──
-      // Android: 기기를 세로로 들고 카메라가 앞을 향할 때
-      //   Ax ≈ 0, Ay ≈ 0, Az ≈ -1 (중력이 -Z 방향)
-      //   기기를 위(하늘)로 향하면 Ay가 증가, Ax는 좌우 기울기
-      const accNorm = Math.sqrt(Ax * Ax + Ay * Ay + Az * Az);
-      if (accNorm < 0.1) return; // 유효하지 않은 가속도 무시
-
-      const nx = Ax / accNorm;
-      const ny = Ay / accNorm;
-      const nz = Az / accNorm;
-
-      // Roll: Y-Z 평면 기울기 (좌우 기울기)
-      const roll = Math.atan2(ny, -nz);
-      // Pitch: 앞뒤 기울기 (카메라가 위를 향하면 양수)
-      // 기기를 세로로 들고 정면을 볼 때: nx≈0, nz≈-1 → pitch≈0
-      // 기기를 위로 들면: nx증가 → pitch 양수
-      const pitch_rad = Math.atan2(-nx, Math.sqrt(ny * ny + nz * nz));
-      const pitchDeg = pitch_rad * 180 / Math.PI;
-
-      // ── 3. Tilt-compensated compass (기울기 보정 자북 방위각) ──
-      // 중력 기준으로 자기장 벡터를 수평면에 투영
-      const cosRoll = Math.cos(roll);
-      const sinRoll = Math.sin(roll);
-      const cosPitch = Math.cos(pitch_rad);
-      const sinPitch = Math.sin(pitch_rad);
-
-      // 보정된 수평 자기장 성분
-      const Mh_x = Mx * cosPitch + Mz * sinPitch;
-      const Mh_y = Mx * sinRoll * sinPitch + My * cosRoll - Mz * sinRoll * cosPitch;
-
-      // 자북 방위각 (0=북, 시계방향 양수)
-      let azimuthRad = Math.atan2(-Mh_y, Mh_x);
-      let azimuthDeg = (azimuthRad * 180 / Math.PI + 360) % 360;
-
-      // ── 4. 자기 편각(Magnetic Declination) 보정 → 진북 변환 ──
-      // 한국 기준 약 -8°, 위도/경도에 따른 미세 보정
-      const declination = -8.0 + (latitude - 37.5) * 0.1 + (longitude - 127.0) * 0.05;
-      azimuthDeg = (azimuthDeg + declination + 360) % 360;
-
-      // ── 5. One Euro Filter (떨림 억제 + 빠른 회전 반응) ──
-      const now = Date.now();
+      const dt = 0.032;
       const state = filterRef.current;
-      let dt = (now - state.lastTime) / 1000;
-      if (dt <= 0 || dt > 0.5) dt = INTERVAL_MS / 1000;
-      state.lastTime = now;
 
       if (!state.initialized) {
-        const azRad0 = azimuthDeg * Math.PI / 180;
-        state.prevAzX = Math.cos(azRad0);
-        state.prevAzY = Math.sin(azRad0);
         state.prevPitch = pitchDeg;
-        state.initialized = true;
       }
 
-      // 방위각: 360° 경계 튐 방지를 위해 2D 단위벡터로 필터링
-      const azRad = azimuthDeg * Math.PI / 180;
-      const tx = Math.cos(azRad);
-      const ty = Math.sin(azRad);
-
+      // 피치 필터 (One Euro Filter - 자이로 융합값이므로 기존보다 필터 컷오프를 낮춰 잔떨림 완전 방지)
       const dcutoff = 1.0;
-      const minCutoff_az = 0.3;  // 클수록 응답 빠름, 작을수록 떨림 적음
-      const beta_az = 0.05;
+      const minCutoff_p = 0.15; // 부드러움 극대화
+      const beta_p = 0.02;
 
-      const dxX = (tx - state.prevAzX) / dt;
-      const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
-      state.prevAzDx += (dxX - state.prevAzDx) * alphaDx;
-      const cutoffX = minCutoff_az + beta_az * Math.abs(state.prevAzDx);
-      const alphaX = (2 * Math.PI * dt * cutoffX) / (1 + 2 * Math.PI * dt * cutoffX);
-      state.prevAzX += (tx - state.prevAzX) * alphaX;
-
-      const dxY = (ty - state.prevAzY) / dt;
-      state.prevAzDy += (dxY - state.prevAzDy) * alphaDx;
-      const cutoffY = minCutoff_az + beta_az * Math.abs(state.prevAzDy);
-      const alphaY = (2 * Math.PI * dt * cutoffY) / (1 + 2 * Math.PI * dt * cutoffY);
-      state.prevAzY += (ty - state.prevAzY) * alphaY;
-
-      const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
-
-      // 피치 필터
-      const minCutoff_p = 0.4;
-      const beta_p = 0.05;
       const dxP = (pitchDeg - state.prevPitch) / dt;
+      const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
       state.prevPitchD += (dxP - state.prevPitchD) * alphaDx;
+      
       const cutoffP = minCutoff_p + beta_p * Math.abs(state.prevPitchD);
       const alphaP = (2 * Math.PI * dt * cutoffP) / (1 + 2 * Math.PI * dt * cutoffP);
       state.prevPitch += (pitchDeg - state.prevPitch) * alphaP;
+      
       const filteredPitch = Math.max(-90, Math.min(90, state.prevPitch));
 
-      // OS/One Euro Filter를 거친 보정 방위각/피치를 실제 물리 방향 그대로 적용합니다.
-      deviceAzimuthRef.current = filteredAz;
       devicePitchRef.current = filteredPitch;
-      setDeviceAzimuth(filteredAz);
       setDevicePitch(filteredPitch);
-    }, INTERVAL_MS);
+    });
+    return () => sub.remove();
+  }, [visible]);
 
-    return () => clearInterval(timer);
-  }, [visible, latitude, longitude]);
+  // ── Magnetometer 수집 (자기장 왜곡만 감지) ──────────────────────────────────
+  useEffect(() => {
+    if (!visible) return;
+    Magnetometer.setUpdateInterval(100); // 왜곡 검출은 10Hz 정도로 충분
+    const sub = Magnetometer.addListener((data) => {
+      magRef.current = data;
+      const { x: Mx, y: My, z: Mz } = data;
+      
+      // 자기장 왜곡 감지 (지구 자기장 정상 범위: 25~65 μT)
+      const magNorm = Math.sqrt(Mx * Mx + My * My + Mz * Mz);
+      setHasInterference(magNorm > 0 && (magNorm < 22 || magNorm > 68));
+    });
+    return () => sub.remove();
+  }, [visible]);
+
+  // ── Location.watchHeadingAsync 수집 (진북 방위각) ───────────────────────────
+  useEffect(() => {
+    if (!visible) return;
+
+    let subscription: Location.LocationSubscription | null = null;
+
+    const startWatching = async () => {
+      try {
+        subscription = await Location.watchHeadingAsync((data) => {
+          const heading = data.trueHeading !== -1 ? data.trueHeading : data.magHeading;
+          
+          // 방위각: 360° 경계 튐 방지를 위해 2D 단위벡터로 필터링
+          const azRad = heading * Math.PI / 180;
+          const tx = Math.cos(azRad);
+          const ty = Math.sin(azRad);
+
+          const dt = 0.032;
+          const state = filterRef.current;
+
+          if (!state.initialized) {
+            state.prevAzX = tx;
+            state.prevAzY = ty;
+            state.initialized = true;
+          }
+
+          const dcutoff = 1.0;
+          const minCutoff_az = 0.08; // 0.3에서 0.08로 대폭 낮춰 지자기 센서 특유의 지터(덜덜거림) 억제
+          const beta_az = 0.015;     // 회전 관성 추종도 조율
+
+          const dxX = (tx - state.prevAzX) / dt;
+          const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
+          state.prevAzDx += (dxX - state.prevAzDx) * alphaDx;
+          
+          const cutoffX = minCutoff_az + beta_az * Math.abs(state.prevAzDx);
+          const alphaX = (2 * Math.PI * dt * cutoffX) / (1 + 2 * Math.PI * dt * cutoffX);
+          state.prevAzX += (tx - state.prevAzX) * alphaX;
+
+          const dxY = (ty - state.prevAzY) / dt;
+          state.prevAzDy += (dxY - state.prevAzDy) * alphaDx;
+          
+          const cutoffY = minCutoff_az + beta_az * Math.abs(state.prevAzDy);
+          const alphaY = (2 * Math.PI * dt * cutoffY) / (1 + 2 * Math.PI * dt * cutoffY);
+          state.prevAzY += (ty - state.prevAzY) * alphaY;
+
+          const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
+
+          deviceAzimuthRef.current = filteredAz;
+          setDeviceAzimuth(filteredAz);
+        });
+      } catch (err) {
+        console.warn('[SunCamera] watchHeadingAsync error:', err);
+      }
+    };
+
+    startWatching();
+
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, [visible]);
 
   // 센서 캘리브레이션 초기화
   const handleCalibrate = useCallback(() => {
     filterRef.current.initialized = false;
-    Alert.alert('Calibrated', '센서 기준점이 초기화되었습니다. 기기를 수평으로 잠시 유지해주세요.');
-  }, []);
+    Alert.alert(t('calibratedTitle', language), t('calibratedMsg', language));
+  }, [language]);
 
   // 오프셋 없이 물리 장치 방위각/고도각 그대로 사용
   const effectiveAz = useMemo(() => {
@@ -476,7 +471,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         sunPos.altitude,
         humidity,
         pm25,
-        description
+        description,
+        language
       );
 
       // EXIF 메타데이터 구성 (태양 위치 물리값 및 이미지 인핸스먼트 지표 결합)
@@ -919,9 +915,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </TouchableOpacity>
 
               {(() => {
-                const isCaptureDisabled = isCapturing || (
-                  goldenTimeInfo.isActive && (!sunScreenPos.isVisible || sunPos.altitude <= -5)
-                );
+                const isCaptureDisabled = isCapturing;
                 return (
                   <TouchableOpacity
                     style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
