@@ -249,13 +249,12 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         let weatherData = null;
         let foundWeatherCache = null;
         let minDistWeather = 2000;
-        const timeLimit = 1800000;
         
         if (!isForceRefresh) {
           for (const item of weatherCacheList) {
             const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
-            const age = Date.now() - item.timestamp;
-            if (dist <= minDistWeather && age <= timeLimit) {
+            const isSameDate = item.key.includes(currentDateStr);
+            if (dist <= minDistWeather && isSameDate) {
               minDistWeather = dist;
               foundWeatherCache = item;
             }
@@ -279,7 +278,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
           if (shouldFetchWeather && newWeather) {
             weatherData = newWeather;
-            addWeatherCache({ key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}`, data: newWeather, timestamp: Date.now(), latitude, longitude });
+            addWeatherCache({ 
+              key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${currentDateStr}`, 
+              data: newWeather, 
+              timestamp: Date.now(), 
+              latitude, 
+              longitude 
+            });
           }
           if (shouldFetchTerrain && newTerrain) {
             terrainData = newTerrain;
@@ -428,7 +433,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           };
         });
         addWeatherCache({
-          key: `w_nowcast_${latitude.toFixed(4)}_${longitude.toFixed(4)}`,
+          key: `w_nowcast_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${currentDateStr}`,
           data,
           timestamp: Date.now(),
           latitude,
