@@ -9,7 +9,9 @@ import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData } from '../utils/weather';
+import { TerrainData, fetchSunsetWeather, fetchTerrainProfile } from '../utils/weather';
+import SunCalc from 'suncalc';
+
 
 export interface WeatherCacheItem {
   key: string;
@@ -91,6 +93,7 @@ interface CelestialState {
   isSimulationLoading: boolean;
   isDebugMode: boolean;
   language: 'ko' | 'en';
+  isAppReady: boolean;
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -144,6 +147,8 @@ interface CelestialState {
   setSimulationLoading: (loading: boolean) => void;
   setDebugMode: (enabled: boolean) => void;
   setLanguage: (lang: 'ko' | 'en') => void;
+  setAppReady: (ready: boolean) => void;
+  preloadInitialData: () => Promise<void>;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -176,6 +181,7 @@ export const useCelestialStore = create<CelestialState>()(
       isSimulationLoading: false,
       isDebugMode: false,
       language: 'ko',
+      isAppReady: false,
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -676,6 +682,101 @@ export const useCelestialStore = create<CelestialState>()(
       setSimulationLoading: (loading) => set({ isSimulationLoading: loading }),
       setDebugMode: (enabled) => set({ isDebugMode: enabled }),
       setLanguage: (lang) => set({ language: lang }),
+      setAppReady: (ready) => set({ isAppReady: ready }),
+      preloadInitialData: async () => {
+        try {
+          await get().checkPermissions();
+          const locPerm = get().locationPermission;
+
+          if (locPerm !== 'granted') {
+            set({ isAppReady: true });
+            return;
+          }
+
+          let loc = null;
+          try {
+            loc = await Location.getLastKnownPositionAsync({});
+            if (!loc) {
+              loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            }
+          } catch (e) {
+            console.warn('Failed to get location, using default:', e);
+          }
+
+          const defaultCoords = { latitude: 37.5665, longitude: 126.9780 };
+          const lat = loc?.coords.latitude ?? defaultCoords.latitude;
+          const lon = loc?.coords.longitude ?? defaultCoords.longitude;
+
+          if (loc) {
+            await get().setLocation(loc);
+          } else {
+            await get().setLocation({
+              coords: {
+                ...defaultCoords,
+                altitude: 0,
+                accuracy: 0,
+                altitudeAccuracy: 0,
+                heading: 0,
+                speed: 0
+              },
+              timestamp: Date.now()
+            });
+          }
+
+          const now = new Date();
+          const times = SunCalc.getTimes(now, lat, lon);
+          let targetEvent = times.sunset;
+          let eventType = 'Sunset';
+          if (now.getTime() > times.sunset.getTime()) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            targetEvent = SunCalc.getTimes(tomorrow, lat, lon).sunrise;
+            eventType = 'Sunrise';
+          } else if (now.getTime() < times.sunrise.getTime()) {
+            targetEvent = times.sunrise;
+            eventType = 'Sunrise';
+          }
+
+          const pos = SunCalc.getPosition(targetEvent, lat, lon);
+          const az = (pos.azimuth * 180 / Math.PI) + 180;
+
+          const offsetHours = get().timezoneOffsetHours || 9;
+          const localTime = new Date(now.getTime() + offsetHours * 3600 * 1000);
+          const dateStr = localTime.toISOString().split('T')[0];
+
+          console.log(`[Preload] Fetching weather/terrain for lat=${lat}, lon=${lon}`);
+          await Promise.all([
+            fetchSunsetWeather(lat, lon, az, false, targetEvent).then(weatherData => {
+              if (weatherData) {
+                get().addWeatherCache({
+                  key: `w_${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`,
+                  data: weatherData,
+                  timestamp: Date.now(),
+                  latitude: lat,
+                  longitude: lon
+                });
+              }
+            }).catch(err => console.warn('Preload Weather failed:', err)),
+            fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
+              if (terrainData && !terrainData.isFallback) {
+                get().addTerrainCache({
+                  key: `t_${lat.toFixed(4)}_${lon.toFixed(4)}`,
+                  data: terrainData,
+                  timestamp: Date.now(),
+                  latitude: lat,
+                  longitude: lon
+                });
+              }
+            }).catch(err => console.warn('Preload Terrain failed:', err))
+          ]);
+
+          console.log('[Preload] Completed successfully');
+        } catch (err) {
+          console.warn('[Preload] Error during initialization preloading:', err);
+        } finally {
+          set({ isAppReady: true });
+        }
+      },
     }),
     {
       name: 'solar-path-storage',

@@ -136,7 +136,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   const [cameraFacing, setCameraFacing] = useState<CameraType>('back');
 
-  // ── 센서 융합: Accelerometer + Magnetometer → Tilt-Compensated Compass ──
+  // ── 센서 융합: Rotation Matrix 기반 정밀 Heading + Pitch 동시 추출 ──
+  // Why: Heading(Location.watchHeadingAsync)과 Pitch(DeviceMotion.beta)를
+  //      별도 센서 소스에서 비동기 수집하면 타이밍 디싱크로 AR 위치가 어긋남.
+  //      DeviceMotion의 Euler angles(α,β,γ)에서 Rotation Matrix를 재구성하여
+  //      카메라 전방 벡터를 직접 추출 → 동일 샘플에서 heading + pitch 동시 계산.
   const [deviceAzimuth, setDeviceAzimuth] = useState(0);
   const [devicePitch, setDevicePitch] = useState(0);
   const [hasInterference, setHasInterference] = useState(false);
@@ -147,6 +151,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   // 자기계 raw Ref
   const magRef = useRef({ x: 0, y: 0, z: 0 });
+
+  // Rotation Matrix에서 추출한 보정 전 heading (진북 오프셋 계산에 사용)
+  const rawGyroHeadingRef = useRef(0);
+  // gyro heading → 진북 방위각 보정 오프셋
+  const northOffsetRef = useRef(0);
+  const northOffsetInitialized = useRef(false);
 
   // One Euro Filter 상태 Ref
   const filterRef = useRef({
@@ -197,40 +207,95 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     );
   }, [sunPos.altitude, goldenTimeInfo.minutesToEvent]);
 
-  // ── DeviceMotion 수집 (OS 센서 융합을 통한 Pitch 계산) ─────────────────────
+  // ── DeviceMotion: Rotation Matrix로 Heading + Pitch 동시 추출 ──────────────
+  // Why: β 하나만 쓰면 roll(γ)을 무시하여 폰을 옆으로 기울이면 pitch가 부정확.
+  //      Rotation Matrix R = Rz(α)·Rx(β)·Ry(γ) 에서 카메라 전방 벡터를 직접 추출하면
+  //      어떤 기기 자세에서도 정확한 heading/pitch를 얻을 수 있다.
   useEffect(() => {
     if (!visible) return;
-    DeviceMotion.setUpdateInterval(32); // ~30fps
+    DeviceMotion.setUpdateInterval(16); // ~60fps for smooth AR tracking
     const sub = DeviceMotion.addListener((data) => {
       if (!data.rotation) return;
-      
-      // rotation.beta: X축 기준 회전각 (라디안)
-      // Portrait 기기를 수평으로 들면 약 90도, 하늘을 바라보면 0도에 가깝게 변함
-      const betaDeg = data.rotation.beta * 180 / Math.PI;
-      const pitchDeg = 90 - betaDeg; // 정면=0, 하늘=90, 바닥=-90도 매핑
 
-      const dt = 0.032;
+      const { alpha: aRad, beta: bRad, gamma: gRad } = data.rotation;
+
+      // === W3C DeviceOrientation Rotation Matrix 재구성 ===
+      // R = Rz(α) · Rx(β) · Ry(γ), 카메라 forward = (0, 0, -1) in device frame
+      const sa = Math.sin(aRad), ca = Math.cos(aRad);
+      const sb = Math.sin(bRad), cb = Math.cos(bRad);
+      const sg = Math.sin(gRad), cg = Math.cos(gRad);
+
+      // forward vector in Earth frame: R * (0, 0, -1)
+      const fx = -(ca * sg + sa * sb * cg);
+      const fy = -(sa * sg - ca * sb * cg);
+      const fz = -(cb * cg);
+
+      // Heading (방위각): atan2(East 성분, North 성분)
+      const rawHeading = (Math.atan2(fx, fy) * 180 / Math.PI + 360) % 360;
+      rawGyroHeadingRef.current = rawHeading;
+
+      // 진북 보정 오프셋 적용
+      const calibratedHeading = (rawHeading + northOffsetRef.current + 360) % 360;
+
+      // Pitch (고도각): 수직 성분의 asin (양수 = 위를 향함)
+      const rawPitch = Math.asin(Math.max(-1, Math.min(1, -fz))) * 180 / Math.PI;
+
+      // === One Euro Filter 적용 ===
+      const dt = 0.016; // 60fps
       const state = filterRef.current;
 
       if (!state.initialized) {
-        state.prevPitch = pitchDeg;
+        const azRad = calibratedHeading * Math.PI / 180;
+        state.prevAzX = Math.cos(azRad);
+        state.prevAzY = Math.sin(azRad);
+        state.prevPitch = rawPitch;
+        state.initialized = true;
       }
 
-      // 피치 필터 (One Euro Filter - 자이로 융합값이므로 기존보다 필터 컷오프를 낮춰 잔떨림 완전 방지)
-      const dcutoff = 1.0;
-      const minCutoff_p = 0.15; // 부드러움 극대화
-      const beta_p = 0.02;
+      // --- Heading filter (2D 단위벡터, 360° 경계 튐 방지) ---
+      const azRad = calibratedHeading * Math.PI / 180;
+      const tx = Math.cos(azRad);
+      const ty = Math.sin(azRad);
 
-      const dxP = (pitchDeg - state.prevPitch) / dt;
+      // DeviceMotion은 이미 자이로 융합이라 노이즈가 적음 → 필터를 가볍게
+      const dcutoff = 1.0;
+      const minCutoff_az = 0.8;   // 자이로 융합 데이터에 맞게 완화 (0.08 → 0.8)
+      const beta_az = 0.4;        // 빠른 회전 추종 (0.015 → 0.4)
+
+      const dxX = (tx - state.prevAzX) / dt;
       const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
-      state.prevPitchD += (dxP - state.prevPitchD) * alphaDx;
-      
+      state.prevAzDx += (dxX - state.prevAzDx) * alphaDx;
+
+      const cutoffX = minCutoff_az + beta_az * Math.abs(state.prevAzDx);
+      const alphaX = (2 * Math.PI * dt * cutoffX) / (1 + 2 * Math.PI * dt * cutoffX);
+      state.prevAzX += (tx - state.prevAzX) * alphaX;
+
+      const dxY = (ty - state.prevAzY) / dt;
+      state.prevAzDy += (dxY - state.prevAzDy) * alphaDx;
+
+      const cutoffY = minCutoff_az + beta_az * Math.abs(state.prevAzDy);
+      const alphaY = (2 * Math.PI * dt * cutoffY) / (1 + 2 * Math.PI * dt * cutoffY);
+      state.prevAzY += (ty - state.prevAzY) * alphaY;
+
+      const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
+
+      // --- Pitch filter ---
+      const minCutoff_p = 0.6;    // 자이로 데이터에 맞게 완화 (0.15 → 0.6)
+      const beta_p = 0.3;         // 빠른 추종 (0.02 → 0.3)
+
+      const dxP = (rawPitch - state.prevPitch) / dt;
+      const alphaDxP = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
+      state.prevPitchD += (dxP - state.prevPitchD) * alphaDxP;
+
       const cutoffP = minCutoff_p + beta_p * Math.abs(state.prevPitchD);
       const alphaP = (2 * Math.PI * dt * cutoffP) / (1 + 2 * Math.PI * dt * cutoffP);
-      state.prevPitch += (pitchDeg - state.prevPitch) * alphaP;
-      
+      state.prevPitch += (rawPitch - state.prevPitch) * alphaP;
+
       const filteredPitch = Math.max(-90, Math.min(90, state.prevPitch));
 
+      // Update refs and trigger re-render
+      deviceAzimuthRef.current = filteredAz;
+      setDeviceAzimuth(filteredAz);
       devicePitchRef.current = filteredPitch;
       setDevicePitch(filteredPitch);
     });
@@ -252,7 +317,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return () => sub.remove();
   }, [visible]);
 
-  // ── Location.watchHeadingAsync 수집 (진북 방위각) ───────────────────────────
+  // ── Location Heading: 진북 보정 오프셋만 계산 ─────────────────────────────────
+  // Why: DeviceMotion alpha가 진북 기준이 아닌 플랫폼을 대비하여
+  //      자기계 heading과의 차이(offset)를 천천히 추적. 자이로 장기 드리프트도 교정.
+  //      heading 자체는 DeviceMotion에서 이미 추출하므로 여기서는 보정만 수행.
   useEffect(() => {
     if (!visible) return;
 
@@ -262,44 +330,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       try {
         subscription = await Location.watchHeadingAsync((data) => {
           const heading = data.trueHeading !== -1 ? data.trueHeading : data.magHeading;
-          
-          // 방위각: 360° 경계 튐 방지를 위해 2D 단위벡터로 필터링
-          const azRad = heading * Math.PI / 180;
-          const tx = Math.cos(azRad);
-          const ty = Math.sin(azRad);
 
-          const dt = 0.032;
-          const state = filterRef.current;
+          // gyro heading(보정 전)과 magnetometer heading의 차이로 오프셋 계산
+          const rawGyroHeading = rawGyroHeadingRef.current;
+          let rawOffset = heading - rawGyroHeading;
+          rawOffset = ((rawOffset + 540) % 360) - 180; // -180~180 정규화
 
-          if (!state.initialized) {
-            state.prevAzX = tx;
-            state.prevAzY = ty;
-            state.initialized = true;
+          if (!northOffsetInitialized.current) {
+            // 최초 캘리브레이션: 즉시 적용
+            northOffsetRef.current = rawOffset;
+            northOffsetInitialized.current = true;
+          } else {
+            // 점진적 보정: 자이로 장기 드리프트만 천천히 교정 (tau ≈ 5초)
+            let diff = rawOffset - northOffsetRef.current;
+            diff = ((diff + 540) % 360) - 180;
+            northOffsetRef.current += diff * 0.02;
           }
-
-          const dcutoff = 1.0;
-          const minCutoff_az = 0.08; // 0.3에서 0.08로 대폭 낮춰 지자기 센서 특유의 지터(덜덜거림) 억제
-          const beta_az = 0.015;     // 회전 관성 추종도 조율
-
-          const dxX = (tx - state.prevAzX) / dt;
-          const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
-          state.prevAzDx += (dxX - state.prevAzDx) * alphaDx;
-          
-          const cutoffX = minCutoff_az + beta_az * Math.abs(state.prevAzDx);
-          const alphaX = (2 * Math.PI * dt * cutoffX) / (1 + 2 * Math.PI * dt * cutoffX);
-          state.prevAzX += (tx - state.prevAzX) * alphaX;
-
-          const dxY = (ty - state.prevAzY) / dt;
-          state.prevAzDy += (dxY - state.prevAzDy) * alphaDx;
-          
-          const cutoffY = minCutoff_az + beta_az * Math.abs(state.prevAzDy);
-          const alphaY = (2 * Math.PI * dt * cutoffY) / (1 + 2 * Math.PI * dt * cutoffY);
-          state.prevAzY += (ty - state.prevAzY) * alphaY;
-
-          const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
-
-          deviceAzimuthRef.current = filteredAz;
-          setDeviceAzimuth(filteredAz);
         });
       } catch (err) {
         console.warn('[SunCamera] watchHeadingAsync error:', err);
@@ -318,6 +364,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 센서 캘리브레이션 초기화
   const handleCalibrate = useCallback(() => {
     filterRef.current.initialized = false;
+    northOffsetInitialized.current = false; // 진북 보정도 리셋
     Alert.alert(t('calibratedTitle', language), t('calibratedMsg', language));
   }, [language]);
 
@@ -496,11 +543,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
 
       // 1. 백그라운드에서 시뮬레이션 예측 이미지 생성
+      // seed: 촬영 위치 + 시각 기반으로 매번 다른 구름 배치 생성
       let simUri = '';
       try {
+        const seed = Math.round(latitude * 1000 + longitude * 100 + currentTime.getTime() / 60000);
         simUri = await generateSimulationImage(
           sunPos.altitude,
-          cloudRatio
+          cloudRatio,
+          seed
         );
       } catch (simErr) {
         console.error('Failed to generate simulation image:', simErr);
@@ -915,20 +965,29 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </TouchableOpacity>
 
               {(() => {
-                const isCaptureDisabled = isCapturing;
+                const isCaptureDisabled = isCapturing || !goldenTimeInfo.isActive;
                 return (
-                  <TouchableOpacity
-                    style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
-                    onPress={handleCapture}
-                    disabled={isCaptureDisabled}
-                    activeOpacity={0.7}
-                  >
-                    {isCapturing ? (
-                      <ActivityIndicator size="small" color="#000" />
-                    ) : (
-                      <View style={styles.captureBtnInner} />
+                  <>
+                    {!goldenTimeInfo.isActive && (
+                      <Text style={styles.captureDisabledHint}>
+                        {goldenTimeInfo.type === 'sunrise'
+                          ? `일출 골든타임 밖 (±60–90min)`
+                          : `일몰 골든타임 밖 (±60–90min)`}
+                      </Text>
                     )}
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
+                      onPress={handleCapture}
+                      disabled={isCaptureDisabled}
+                      activeOpacity={0.7}
+                    >
+                      {isCapturing ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <View style={styles.captureBtnInner} />
+                      )}
+                    </TouchableOpacity>
+                  </>
                 );
               })()}
 
@@ -1142,6 +1201,19 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     backgroundColor: '#FFF',
+  },
+  captureDisabledHint: {
+    position: 'absolute',
+    bottom: 90,
+    alignSelf: 'center',
+    color: 'rgba(255,200,80,0.9)',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   captureOverlay: {
     ...StyleSheet.absoluteFillObject,

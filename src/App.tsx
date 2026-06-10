@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, TouchableOpacity, Animated, Platform, Modal, ScrollView } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X, AlertCircle, Camera } from 'lucide-react-native';
+import * as SplashScreen from 'expo-splash-screen';
 
 import { useCelestialApp } from './hooks/useCelestialApp';
 import { HudHeader } from './components/HudHeader';
@@ -14,10 +15,13 @@ import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
 import { t } from './utils/i18n';
 
+// 앱 초기 기동 시 Native Splash Screen을 유지하도록 고정합니다.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
 export default function App() {
-  const { language } = useCelestialStore();
+  const { language, isAppReady, preloadInitialData } = useCelestialStore();
   const {
     animating,
     showDatePicker,
@@ -80,25 +84,32 @@ export default function App() {
     isSimulationLoading,
   } = useCelestialApp();
 
-  if (locationPermission === null) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#FFD700" />
-        <Text style={styles.loadingText}>{t('checkingPermissions', language)}</Text>
-      </View>
-    );
+  // 앱 마운트 시 백그라운드 데이터(날씨, 지형 캐시 등) 프리로드 실행
+  React.useEffect(() => {
+    preloadInitialData();
+  }, [preloadInitialData]);
+
+  // 로딩이 완료되면 스플래시 화면을 부드럽게 종료
+  React.useEffect(() => {
+    if (isAppReady) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [isAppReady]);
+
+  // 로딩 진행 중(스플래시 화면 유지 중)에는 내부 컴포넌트 렌더링을 완전히 유예합니다.
+  if (!isAppReady) {
+    return null;
   }
 
+  // 권한 체크 후 권한 거부 시 권한 요청 화면 렌더링
   if (locationPermission !== 'granted') {
     return <PermissionRequestView />;
   }
 
-  if (!location) return (
-    <View style={styles.centered}>
-      <ActivityIndicator size="large" color="#FFD700" />
-      <Text style={styles.loadingText}>{t('locatingPosition', language)}</Text>
-    </View>
-  );
+  // 프리로더 완료 후 위치가 정상적으로 설정되지 않았을 경우 (대비책)
+  if (!location) {
+    return null;
+  }
 
   return (
     <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>

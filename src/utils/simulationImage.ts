@@ -44,7 +44,8 @@ const getSunBeamColorStr = (alt: number): string => {
  */
 export const generateSimulationImage = async (
   sunAltitude: number,
-  cloudRatio: number
+  cloudRatio: number,
+  seed: number = 0
 ): Promise<string> => {
   const w = 400;
   const h = 300;
@@ -120,15 +121,15 @@ export const generateSimulationImage = async (
         : Skia.Color('rgba(255, 235, 200, 0.5)');
 
       for (let i = 0; i < cloudCount; i++) {
-        // 의사 난수 생성
-        const seed = i * 29 + 17;
-        const cx = ((seed * 13) % (w - 60)) + 30;
+        // seed를 혼합하여 매번 다른 구름 배치 생성
+        const base = (seed + i * 29 + 17) & 0xFFFFFF;
+        const cx = ((base * 13) % (w - 60)) + 30;
         
         // 지평선 주위와 상단부에 배치되도록 Y값 맵핑
-        const cy = ((seed * 7) % (Math.round(horizonY * 0.7))) + 30;
+        const cy = ((base * 7) % (Math.round(horizonY * 0.7))) + 30;
         
-        const rx = 35 + ((seed * 19) % 45); // 35 to 80
-        const ry = 8 + ((seed * 3) % 12);  // 8 to 20
+        const rx = 35 + ((base * 19) % 45); // 35 to 80
+        const ry = 8 + ((base * 3) % 12);  // 8 to 20
         
         // 지구 곡률에 의한 그림자 효과 적용 (Y좌표가 낮을수록/지평선에 가까울수록 그림자에 가려짐)
         let finalCloudColor = cloudBaseColor;
@@ -148,7 +149,7 @@ export const generateSimulationImage = async (
         }
         
         paintCloud.setColor(finalCloudColor);
-        paintCloud.setAlphaf(0.35 + (seed % 4) * 0.1);
+        paintCloud.setAlphaf(0.35 + (base % 4) * 0.1);
 
         canvas.drawOval(rect(cx - rx, cy - ry, rx * 2, ry * 2), paintCloud);
       }
