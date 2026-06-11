@@ -265,15 +265,6 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           </View>
 
           <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <View style={styles.bottomPanelHeader}>
-              <TouchableOpacity
-                onPress={() => setMapVisible(true)}
-                style={[styles.floatingMapBtn, { backgroundColor: theme.accent }]}
-                activeOpacity={0.7}
-              >
-                <MapPin size={14} color="#000" />
-              </TouchableOpacity>
-            </View>
             <TimeSlider 
               value={currentTime}
               onChange={setCurrentTime}
@@ -281,6 +272,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               onToggleTimeMachine={setTimeMachineEnabled}
               theme={theme}
               isDay={isDay}
+              onPressMap={() => setMapVisible(true)}
               markers={[
                 { time: events.sunrise, color: '#FFA500', type: 'rise' },
                 { time: events.sunset, color: '#FF4500', type: 'set' },

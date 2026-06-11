@@ -49,7 +49,15 @@ module.exports = {
       favicon: "./assets/favicon.png"
     },
     plugins: [
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-dynamic-app-icon",
+        {
+          "icon_muted": "./assets/icon_muted.png",
+          "icon_clear": "./assets/icon_clear.png",
+          "icon_epic": "./assets/icon_epic.png"
+        }
+      ]
     ],
     extra: {
       eas: {

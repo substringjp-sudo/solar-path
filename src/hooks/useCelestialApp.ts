@@ -9,6 +9,8 @@ import { auth } from '../config/firebase';
 import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
+import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
+
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -32,24 +34,50 @@ const requestNotificationPermission = async () => {
 
 const scheduleSunsetNotification = async (sunsetTime: Date, score: number) => {
   try {
-    await Notifications.cancelAllScheduledNotificationsAsync();
-
-    const triggerTime = new Date(sunsetTime.getTime() - 30 * 60 * 1000); // 30 mins before sunset
+    // 일몰 2시간 전으로 트리거 시각 설정
+    const triggerTime = new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
     if (triggerTime.getTime() <= Date.now()) {
       return;
     }
 
     await Notifications.scheduleNotificationAsync({
+      identifier: 'sunset-alert',
       content: {
         title: '🌅 오늘의 스마트 노을 알림',
-        body: `오늘 일몰의 예측 점수가 ${score}점(대박 노을)입니다! 30분 뒤 골든아워가 시작됩니다.`,
+        body: `오늘 일몰의 예측 점수가 ${score}점입니다! 2시간 뒤 골든아워가 시작됩니다.`,
         sound: true,
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
     });
-    console.log('[Push Notification Scheduled]', triggerTime);
+    console.log('[Sunset Push Notification Scheduled]', triggerTime);
   } catch (err) {
-    console.error('Failed to schedule notification:', err);
+    console.error('Failed to schedule sunset notification:', err);
+  }
+};
+
+const scheduleSunriseNotification = async (sunriseTime: Date, score: number) => {
+  try {
+    // 일출 전날 밤 10시 (22:00)로 트리거 시각 설정
+    const triggerTime = new Date(sunriseTime.getTime());
+    triggerTime.setDate(triggerTime.getDate() - 1);
+    triggerTime.setHours(22, 0, 0, 0);
+
+    if (triggerTime.getTime() <= Date.now()) {
+      return;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: 'sunrise-alert',
+      content: {
+        title: '🌅 내일의 스마트 일출 알림',
+        body: `내일 일출의 예측 점수가 ${score}점입니다! 내일 아침 멋진 일출을 미리 준비해 보세요.`,
+        sound: true,
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
+    });
+    console.log('[Sunrise Push Notification Scheduled]', triggerTime);
+  } catch (err) {
+    console.error('Failed to schedule sunrise notification:', err);
   }
 };
 
@@ -160,7 +188,10 @@ export function useCelestialApp() {
       prevTabRef.current = activeTab;
       // 탭이 실제로 전환됐을 때만 리셋
       if (activeTab === 'tracker') {
-        setCurrentTime(new Date());
+        // 트래커로 돌아갈 땐 항상 타임머신 모드를 확실히 끄고 현재 시간으로 보간 복원
+        setTimeMachineEnabled(false);
+        resetRotation();
+        animateTimeTo(new Date(), 400);
       } else if (activeTab === 'sim') {
         const localHour = currentTimeLocal.getUTCHours();
         if (localHour < 12) {
@@ -515,60 +546,135 @@ export function useCelestialApp() {
     };
   }, [syncGlobalPhotos]);
 
-  // 오늘의 스마트 노을 알림 스케줄링
+  // 오늘의 스마트 노을 및 내일의 일출 알림 스케줄링 (+ 동적 앱아이콘 업데이트 연동)
   useEffect(() => {
-    if (!location || !events?.sunset) return;
+    if (!location || !events) return;
 
     const lat = location.coords.latitude;
     const lon = location.coords.longitude;
-    const sunsetTime = events.sunset;
 
-    // 이미 지난 일몰이면 생략 (예: 일몰 30분 전 시점이 과거일 때)
-    if (sunsetTime.getTime() - 30 * 60 * 1000 <= Date.now()) {
-      return;
+    // 1) 일몰(노을) 알림 스케줄링 (일몰 2시간 전 시점이 미래인 경우)
+    if (events.sunset) {
+      const sunsetTime = events.sunset;
+      if (sunsetTime.getTime() - 2 * 60 * 60 * 1000 > Date.now()) {
+        const scheduleSunsetAlert = async () => {
+          try {
+            const hasPermission = await requestNotificationPermission();
+            if (!hasPermission) return;
+
+            const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
+            const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
+            if (!weatherData || weatherData.length === 0) return;
+
+            const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
+            const obs = interpolated[0];
+            if (!obs) return;
+
+            const prediction = predictSunset(
+              weatherData,
+              sunsetTime,
+              0, 
+              obs.visibility,
+              obs.humidity,
+              lat,
+              0
+            );
+
+            if (prediction) {
+              const score = prediction.score;
+              await scheduleSunsetNotification(sunsetTime, score);
+
+              // 오늘 노을 점수 기준 동적 앱 아이콘 업데이트
+              try {
+                let targetIcon: 'icon_muted' | 'icon_clear' | 'icon_epic' = 'icon_clear';
+                if (score <= 35) {
+                  targetIcon = 'icon_muted';
+                } else if (score >= 75) {
+                  targetIcon = 'icon_epic';
+                }
+
+                if (typeof setAppIcon === 'function') {
+                  const currentIcon = getAppIcon();
+                  if (currentIcon !== targetIcon) {
+                    setAppIcon(targetIcon);
+                    console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunset Score: ${score})`);
+                  }
+                }
+              } catch (iconErr) {
+                console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to schedule sunset notification:', err);
+          }
+        };
+        scheduleSunsetAlert();
+      }
     }
 
-    const scheduleAlert = async () => {
-      try {
-        const hasPermission = await requestNotificationPermission();
-        if (!hasPermission) return;
+    // 2) 일출 알림 스케줄링 (전날 밤 10시 시점이 미래인 경우)
+    if (events.sunrise) {
+      const sunriseTime = events.sunrise;
+      const alertTime = new Date(sunriseTime.getTime());
+      alertTime.setDate(alertTime.getDate() - 1);
+      alertTime.setHours(22, 0, 0, 0); // 전날 22:00
 
-        // 대략적인 일몰 방위각 계산
-        const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
+      if (alertTime.getTime() > Date.now()) {
+        const scheduleSunriseAlert = async () => {
+          try {
+            const hasPermission = await requestNotificationPermission();
+            if (!hasPermission) return;
 
-        // 날씨 데이터 가져오기
-        const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
-        if (!weatherData || weatherData.length === 0) return;
+            const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;
+            const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunriseTime);
+            if (!weatherData || weatherData.length === 0) return;
 
-        // 일몰 시간 부근의 날씨 보간
-        const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
-        const obs = interpolated[0];
-        if (!obs) return;
+            const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
+            const obs = interpolated[0];
+            if (!obs) return;
 
-        // 일몰 점수 및 예측 진단
-        const prediction = predictSunset(
-          weatherData,
-          sunsetTime,
-          0, // 일몰 시점 sun altitude = 0도
-          obs.visibility,
-          obs.humidity,
-          lat,
-          0 // elevation
-        );
+            const prediction = predictSunset(
+              weatherData,
+              sunriseTime,
+              0,
+              obs.visibility,
+              obs.humidity,
+              lat,
+              0
+            );
 
-        if (prediction) {
-          const score = prediction.score;
-          if (score >= 55) {
-            await scheduleSunsetNotification(sunsetTime, score);
+            if (prediction) {
+              const score = prediction.score;
+              await scheduleSunriseNotification(sunriseTime, score);
+
+              // 내일 일출 점수 기준 동적 앱 아이콘 업데이트 (밤 10시 알림 발송 시점에 같이 갱신해 미리 준비)
+              try {
+                let targetIcon: 'icon_muted' | 'icon_clear' | 'icon_epic' = 'icon_clear';
+                if (score <= 35) {
+                  targetIcon = 'icon_muted';
+                } else if (score >= 75) {
+                  targetIcon = 'icon_epic';
+                }
+
+                if (typeof setAppIcon === 'function') {
+                  const currentIcon = getAppIcon();
+                  if (currentIcon !== targetIcon) {
+                    setAppIcon(targetIcon);
+                    console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunrise Score: ${score})`);
+                  }
+                }
+              } catch (iconErr) {
+                console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to schedule sunrise notification:', err);
           }
-        }
-      } catch (err) {
-        console.error('Failed to schedule sunset notification:', err);
+        };
+        scheduleSunriseAlert();
       }
-    };
-
-    scheduleAlert();
-  }, [location, events?.sunset]);
+    }
+  }, [location, events?.sunset, events?.sunrise]);
 
   return {
     width,

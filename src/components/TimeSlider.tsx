@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { Clock, Zap } from 'lucide-react-native';
+import { Clock, Zap, MapPin } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
@@ -16,6 +16,7 @@ interface TimeSliderProps {
   theme: any;
   isDay: boolean;
   markers?: Array<{ time: Date | null; color: string; type: 'rise' | 'set' }>;
+  onPressMap?: () => void;
 }
 
 export const TimeSlider: React.FC<TimeSliderProps> = ({
@@ -28,6 +29,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   theme,
   isDay,
   markers = [],
+  onPressMap,
 }) => {
   const { location, timezoneOffsetHours, language } = useCelestialStore();
 
@@ -277,15 +279,28 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
             {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
           </Text>
         </View>
-        {isFullDay && isTimeMachineEnabled && (
-          <TouchableOpacity 
-            style={[styles.nowButton, { backgroundColor: theme.accent }]} 
-            onPress={() => onToggleTimeMachine(false)}
-          >
-            <Zap size={10} color="#000" fill="#000" />
-            <Text style={styles.nowText}>{t('now', language)}</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerButtons}>
+          {onPressMap && (
+            <TouchableOpacity 
+              style={[styles.nowButton, { backgroundColor: theme.accent }]} 
+              onPress={onPressMap}
+              activeOpacity={0.7}
+            >
+              <MapPin size={10} color="#000" />
+              <Text style={styles.nowText}>{t('mapLabel', language)}</Text>
+            </TouchableOpacity>
+          )}
+          {isFullDay && isTimeMachineEnabled && (
+            <TouchableOpacity 
+              style={[styles.nowButton, { backgroundColor: theme.accent }]} 
+              onPress={() => onToggleTimeMachine(false)}
+              activeOpacity={0.7}
+            >
+              <Zap size={10} color="#000" fill="#000" />
+              <Text style={styles.nowText}>{t('now', language)}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
  
       <View style={styles.sliderWrapper}>
@@ -366,6 +381,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, height: 28 },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 11, fontWeight: '800', marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  headerButtons: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   nowButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, gap: 3 },
   nowText: { color: '#000', fontSize: 10, fontWeight: '900' },
   sliderWrapper: { position: 'relative', height: 44, justifyContent: 'center' },

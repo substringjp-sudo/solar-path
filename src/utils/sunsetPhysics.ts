@@ -618,13 +618,50 @@ export const predictSunset = (
   const isHorizonBlocked = effectiveSunAlt < 3.0 && pathClarity < 0.15 &&
     (obsPoint.low > 40 || centerPoint.low > 40);
 
-  // Score
-  const horizonProximity = clamp01(1 - Math.abs(effectiveSunAlt) / 8);
-  const cloudShow = pathClarity * overheadGlow * (0.5 + 0.5 * beamRedness);
-  let raw = 25 * pathClarity * horizonProximity + 70 * cloudShow;
-  raw *= 1 - 0.85 * overheadOvercast;
-  if (isHorizonBlocked) raw *= 0.3;
-  const score = Math.max(0, Math.min(100, Math.round(raw)));
+  // 1) 구름 가득 낀 날 (완전 오버캐스트) 체크 -> 무조건 0점
+  const isOvercast = overheadOvercast > 0.8;
+
+  // 2) 미세먼지가 아주 심해 시정이 나쁜 상태 체크 -> 낮은 점수대로 강제
+  const isDusty = (beta > 0.25) || (visibilityM !== undefined && visibilityM < 8000);
+
+  // 3) 구름 한 점 없는 맑은 하늘 체크 -> 50점대 고정
+  const totalCloudAmount = obsPoint.low + obsPoint.mid + obsPoint.high;
+  const isClearSky = totalCloudAmount < 15;
+
+  let score = 0;
+
+  if (isOvercast) {
+    score = 0;
+  } else if (isClearSky) {
+    let clearScore = 53;
+    if (isDusty) clearScore -= 15; 
+    if (isHorizonBlocked) clearScore -= 15; 
+    score = Math.max(15, Math.round(clearScore));
+  } else {
+    const horizonProximity = clamp01(1 - Math.abs(effectiveSunAlt) / 8);
+    const cloudShow = pathClarity * overheadGlow * (0.5 + 0.5 * beamRedness);
+    let raw = 25 * pathClarity * horizonProximity + 70 * cloudShow;
+    
+    raw *= 1 - 0.85 * overheadOvercast;
+    
+    // 먼 지평선 근처에 구름이 많아 붉어지기 전에 태양이 가려지면 낮은 점수대로 제한 (10~30점)
+    if (isHorizonBlocked) {
+      raw = Math.min(25, raw * 0.3 + 10);
+    }
+    
+    // 미세먼지가 매우 심해 해가 바로 뿌얘지면 낮은 점수대로 제한 (10~30점)
+    if (isDusty) {
+      raw = Math.min(25, raw * 0.4 + 10);
+    }
+
+    // 구름 정도가 이상적일수록 (중층운/상층운 적정량 및 하층운이 맑을 때) 높은 점수
+    const isIdealCloud = obsPoint.mid >= 20 && obsPoint.mid <= 70 && obsPoint.low < 30;
+    if (isIdealCloud) {
+      raw += 15;
+    }
+
+    score = Math.max(0, Math.min(100, Math.round(raw)));
+  }
 
   let quality: SunsetPrediction['quality'];
   let description: string;
