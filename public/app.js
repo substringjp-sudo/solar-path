@@ -48,6 +48,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // 2-2. Cloud Guide Filter Controller
+  const cloudFilterBtns = document.querySelectorAll('.cloud-filter-btn');
+  const cloudRows = document.querySelectorAll('.cloud-row');
+
+  cloudFilterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const filter = btn.getAttribute('data-filter');
+
+      // Update active button style
+      cloudFilterBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Show/hide rows
+      cloudRows.forEach(row => {
+        const altType = row.getAttribute('data-alt');
+        if (filter === 'all' || filter === altType) {
+          row.classList.remove('hidden');
+        } else {
+          row.classList.add('hidden');
+        }
+      });
+    });
+  });
+
   // 3. Navbar Scroll Interaction
   const navbar = document.querySelector('.navbar');
   window.addEventListener('scroll', () => {

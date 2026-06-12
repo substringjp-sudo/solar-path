@@ -296,6 +296,24 @@
                 <g id="cloud-shape-altocumulus">
                   <path d="M 10,20 C 15,12 25,12 35,20 C 45,12 55,12 65,20 C 75,12 85,12 95,20 C 105,12 115,12 125,20 L 125,25 C 95,28 65,28 35,25 L 10,20 Z" />
                 </g>
+                <g id="cloud-shape-cirrocumulus">
+                  <path d="M 0,15 C 10,8 20,8 30,15 C 40,8 50,8 60,15 C 70,8 80,8 90,15 C 75,20 45,20 15,20 C 5,20 0,18 0,15 Z" />
+                </g>
+                <g id="cloud-shape-cirrostratus">
+                  <path d="M 0,15 C 50,12 100,12 150,15 L 150,20 C 100,23 50,23 0,20 Z" />
+                </g>
+                <g id="cloud-shape-altostratus">
+                  <path d="M 5,22 C 30,15 60,28 90,20 C 120,12 150,25 180,22 L 180,27 C 150,30 120,17 90,25 C 60,33 30,20 5,27 Z" />
+                </g>
+                <g id="cloud-shape-stratocumulus">
+                  <path d="M 15,25 C 15,18 28,12 45,16 C 55,8 80,8 95,18 C 110,10 135,12 145,22 C 155,20 170,25 175,32 C 150,35 125,32 15,32 Z" />
+                </g>
+                <g id="cloud-shape-stratus">
+                  <path d="M 0,10 C 20,8 50,5 80,10 C 110,15 150,8 180,12 L 180,16 C 150,12 110,19 80,14 C 50,9 20,12 0,14 Z" />
+                </g>
+                <g id="cloud-shape-cumulonimbus">
+                  <path d="M 20,60 C 20,50 30,45 40,45 C 30,30 50,15 70,20 C 60,-5 120,-5 110,25 C 130,20 150,35 140,50 C 155,50 160,55 160,60 Z" />
+                </g>
               </defs>
 
               <!-- 1. 배경 하늘 -->
@@ -537,33 +555,255 @@
       </div>
 
       <div class="guide-tab-content" id="guide-clouds">
-        <div class="guide-layout">
-          <div class="guide-info-text">
-            <h3>구름 유형별 노을 기여도</h3>
-            <p>구름의 높이와 두께는 노을빛을 반사하는 스크린 역할을 하여 그날의 노을 등급을 좌우합니다.</p>
+        <div class="cloud-guide-container">
+          <div class="cloud-guide-header">
+            <h3>구름 유형별 노을 기여도 및 물리 생성 조건</h3>
+            <p>모바일 BeforeGlow 앱에서 사용되는 구름 리소스를 그대로 보여주며, 각 구름이 활성화되기 위한 기상 매개변수의 물리적 임계값 조건과 노을에 미치는 시각적 기여도를 표로 제공합니다.</p>
+            
+            <div class="cloud-filter-bar">
+              <button class="cloud-filter-btn active" data-filter="all">전체</button>
+              <button class="cloud-filter-btn" data-filter="high">상층운 (6km 이상)</button>
+              <button class="cloud-filter-btn" data-filter="mid">중층운 (2km ~ 6km)</button>
+              <button class="cloud-filter-btn" data-filter="low">하층운 (2km 이하)</button>
+            </div>
+          </div>
+          
+          <div class="cloud-table-wrapper">
             <table class="cloud-guide-table">
               <thead>
                 <tr>
-                  <th>구름명 (약칭)</th>
-                  <th>고도 범위</th>
-                  <th>노을 효과 설명</th>
+                  <th style="width: 15%">실물 형상</th>
+                  <th style="width: 20%">구름 종류</th>
+                  <th style="width: 15%">고도 및 범위</th>
+                  <th style="width: 25%">물리적 생성 조건 (앱 기준)</th>
+                  <th style="width: 25%">노을 기여도 및 시각 효과</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td><strong>권운 (새털구름)</strong></td>
-                  <td>6km 이상 (상층)</td>
-                  <td>태양이 진 뒤에도 가장 오랫동안 광선을 받아 불타는 듯한 선홍빛 노을을 유도합니다 (최고 등급).</td>
+                <!-- 상층운 -->
+                <tr class="cloud-row" data-alt="high">
+                  <td>
+                    <div class="cloud-preview-card high-bg">
+                      <svg viewBox="0 0 140 40"><use href="#cloud-shape-cirrus" fill="#fff" opacity="0.9" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">권운</strong>
+                      <span class="cloud-en-name">Cirrus (새털구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-high">상층운</span><br><span class="alt-range">6km 이상</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>고층 운량 <span class="cond-val">&lt; 30%</span></li>
+                      <li>전체 흐림도 <span class="cond-val">&lt; 30%</span></li>
+                      <li>또는 제트기류 선형 구름 분포</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">태양이 진 뒤에도 고고도에서 햇빛을 받아 불타는 선홍빛 노을을 유도합니다 (최고의 노을 메이커).</td>
                 </tr>
-                <tr>
-                  <td><strong>고적운 (양떼구름)</strong></td>
-                  <td>2km ~ 6km (중층)</td>
-                  <td>구름 블록 외곽에 쪼개지는 림 라이트와 다채로운 오렌지-핑크 그라데이션이 퍼져 시각적으로 가장 화려합니다.</td>
+
+                <tr class="cloud-row" data-alt="high">
+                  <td>
+                    <div class="cloud-preview-card high-bg">
+                      <svg viewBox="0 0 100 30"><use href="#cloud-shape-cirrocumulus" fill="#fff" opacity="0.9" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">권적운</strong>
+                      <span class="cloud-en-name">Cirrocumulus (비늘구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-high">상층운</span><br><span class="alt-range">6km 이상</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>권운/권층운에 해당되지 않는 고밀도 상층운</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">노을빛을 받아 미세하게 쪼개진 림 라이트와 다채로운 색조 변화가 하늘을 수려하게 장식합니다.</td>
                 </tr>
-                <tr>
-                  <td><strong>층적운 (물결구름)</strong></td>
-                  <td>2km 이하 (하층)</td>
-                  <td>구름의 두께가 두껍고 낮아 태양의 각도가 낮아지면 지평선 노을빛을 통째로 가로막아 노을을 밋밋하게 만듭니다.</td>
+
+                <tr class="cloud-row" data-alt="high">
+                  <td>
+                    <div class="cloud-preview-card high-bg">
+                      <svg viewBox="0 0 160 30"><use href="#cloud-shape-cirrostratus" fill="#fff" opacity="0.9" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">권층운</strong>
+                      <span class="cloud-en-name">Cirrostratus (햇무리구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-high">상층운</span><br><span class="alt-range">6km 이상</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>고층 운량 <span class="cond-val">&gt; 60%</span></li>
+                      <li>전체 흐림도 <span class="cond-val">&gt; 60%</span></li>
+                      <li>또는 온난전선 전면부 얇은 면사포형 기류</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">하늘 전체에 부드러운 붉은색 파스텔 톤 필터를 씌운 듯 넓게 퍼지는 은은한 그라데이션 노을을 유도합니다.</td>
+                </tr>
+
+                <!-- 중층운 -->
+                <tr class="cloud-row" data-alt="mid">
+                  <td>
+                    <div class="cloud-preview-card mid-bg">
+                      <svg viewBox="0 0 140 40"><use href="#cloud-shape-altocumulus" fill="#fff" opacity="0.9" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">고적운</strong>
+                      <span class="cloud-en-name">Altocumulus (양떼구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-mid">중층운</span><br><span class="alt-range">2km ~ 6km</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>중층 운량 <span class="cond-val">&le; 65%</span></li>
+                      <li>전체 흐림도 <span class="cond-val">&le; 60%</span></li>
+                      <li>강수량 <span class="cond-val">&le; 0.15mm</span> (비 안 옴)</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">노을빛이 구름 덩어리 사이로 여과되어 웅장한 빛내림(Crepuscular rays)과 강렬한 외곽 불꽃 테두리를 연출합니다.</td>
+                </tr>
+
+                <tr class="cloud-row" data-alt="mid">
+                  <td>
+                    <div class="cloud-preview-card mid-bg">
+                      <svg viewBox="0 0 190 40"><use href="#cloud-shape-altostratus" fill="#fff" opacity="0.9" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">고층운</strong>
+                      <span class="cloud-en-name">Altostratus (차일구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-mid">중층운</span><br><span class="alt-range">2km ~ 6km</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>중층 운량 <span class="cond-val">&gt; 65%</span> 또는 흐림도 <span class="cond-val">&gt; 60%</span></li>
+                      <li>강수량 <span class="cond-val">&le; 0.15mm</span></li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">태양 직접광을 가려 어둡게 하며, 몽환적이고 다소 차분한 회보라색 및 깊은 붉은색 톤의 하늘을 유도합니다.</td>
+                </tr>
+
+                <tr class="cloud-row" data-alt="mid">
+                  <td>
+                    <div class="cloud-preview-card mid-bg">
+                      <svg viewBox="0 0 210 40"><use href="#cloud-shape-nimbostratus" fill="#475569" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">난층운</strong>
+                      <span class="cloud-en-name">Nimbostratus (비구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-mid">중층운</span><br><span class="alt-range">2km ~ 6km (하층 연장)</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>강수량 <span class="cond-val">&gt; 0.15mm</span> (비/눈)</li>
+                      <li>또는 광범위 전층 저기압성 비구름 발달</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">태양 광선을 거의 차단하여 노을빛을 구름 뒤에 가두고 지상 대기를 짙은 잿빛으로 탁하게 바꿉니다.</td>
+                </tr>
+
+                <!-- 하층운 -->
+                <tr class="cloud-row" data-alt="low">
+                  <td>
+                    <div class="cloud-preview-card low-bg">
+                      <svg viewBox="0 0 190 40"><use href="#cloud-shape-stratocumulus" fill="#fff" opacity="0.9" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">층적운</strong>
+                      <span class="cloud-en-name">Stratocumulus (물결구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-low">하층운</span><br><span class="alt-range">2km 이하</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>하층 운량 <span class="cond-val">&gt; 60%</span> 또는 흐림도 <span class="cond-val">&gt; 60%</span></li>
+                      <li>폭풍우 및 강우가 아닐 때</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">구름 하단에 짙은 회색 입체 음영이 발생하는 한편, 갈라진 구름 틈새로 강렬한 오렌지빛 노을이 새어나오는 대비를 유발합니다.</td>
+                </tr>
+
+                <tr class="cloud-row" data-alt="low">
+                  <td>
+                    <div class="cloud-preview-card low-bg">
+                      <svg viewBox="0 0 190 30"><use href="#cloud-shape-stratus" fill="#fff" opacity="0.85" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">층운</strong>
+                      <span class="cloud-en-name">Stratus (안개구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-low">하층운</span><br><span class="alt-range">2km 이하</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>시정 거리 <span class="cond-val">&lt; 3,000m</span> (안개 발생)</li>
+                      <li>습도 <span class="cond-val">&gt; 85%</span></li>
+                      <li>하층 운량 <span class="cond-val">&lt; 40%</span> 또는 약한 강수 수반</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">지평선 부근을 불투명하게 메워 노을빛을 부드러운 안개장막 너머로 굴절 확산시키며 주황빛 무드를 연출합니다.</td>
+                </tr>
+
+                <tr class="cloud-row" data-alt="low">
+                  <td>
+                    <div class="cloud-preview-card low-bg">
+                      <svg viewBox="0 0 200 50"><use href="#cloud-shape-cumulus-1" fill="#fff" opacity="0.95" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">적운</strong>
+                      <span class="cloud-en-name">Cumulus (뭉게구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-low">하층운</span><br><span class="alt-range">2km 이하</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>맑고 온화한 날의 하층 조건</li>
+                      <li>기타 악기상(안개, 폭우, 흐림)에 불포함</li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">둥글게 솟은 구름 주변부를 타고 흐르는 찬란한 황금빛 테두리(Rim light)와 깊은 그늘의 풍부한 입체감을 연출합니다.</td>
+                </tr>
+
+                <tr class="cloud-row" data-alt="low">
+                  <td>
+                    <div class="cloud-preview-card low-bg">
+                      <svg viewBox="10 -10 160 80"><use href="#cloud-shape-cumulonimbus" fill="#334155" /></svg>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="cloud-name-container">
+                      <strong class="cloud-ko-name">적란운</strong>
+                      <span class="cloud-en-name">Cumulonimbus (소나기구름)</span>
+                    </div>
+                  </td>
+                  <td><span class="alt-badge badge-low">하층운</span><br><span class="alt-range">2km 이하 (최대 12km 발달)</span></td>
+                  <td>
+                    <ul class="cloud-cond-list">
+                      <li>강수량 <span class="cond-val">&gt; 0.35mm</span> (폭우)</li>
+                      <li>대기 액체 수분 함량 <span class="cond-val">&gt; 20mm</span></li>
+                    </ul>
+                  </td>
+                  <td class="cloud-effect-desc">빛을 철저히 막아서 태양을 가리는 어두운 장막이 되지만, 구름 꼭대기 모루 끝자락은 노을빛을 높게 반사해 붉게 태웁니다.</td>
                 </tr>
               </tbody>
             </table>
