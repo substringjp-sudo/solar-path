@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- SEO Meta Tags -->
+  <title>BeforeGlow - 스마트 노을 & 일출 예보 트래커</title>
+  <meta name="description" content="BeforeGlow와 함께 인생 최고의 골든아워를 만나보세요. 3D 지형 노을 시뮬레이션, 실시간 AR 태양 추적, 정밀 기상 분석 및 글로벌 갤러리 공유 서비스를 제공합니다.">
+  <meta name="keywords" content="노을, 일출, 일몰, 골든아워, 기상예보, 태양 추적, AR 카메라, BeforeGlow">
+  <meta name="author" content="BeforeGlow Team">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="BeforeGlow - 스마트 노을 & 일출 예보 트래커">
+  <meta property="og:description" content="인생 최고의 골든아워를 예측하고 기록하세요. 실시간 AR 추적 및 3D 지형 시뮬레이션.">
+  <meta property="og:type" content="website">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <link rel="stylesheet" href="style.css?v=1.0.1">
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="logo-area">
+        <!-- SVG Emblem Logo -->
+        <svg class="nav-logo" viewBox="0 0 200 200" width="36" height="36">
+          <defs>
+            <linearGradient id="navSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#FF7043" />
+              <stop offset="60%" stop-color="#FF5252" />
+              <stop offset="100%" stop-color="#3F1D38" />
+            </linearGradient>
+            <linearGradient id="navSunGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#FFF9C4" />
+              <stop offset="100%" stop-color="#FFB74D" />
+            </linearGradient>
+          </defs>
+          <circle cx="100" cy="100" r="95" fill="url(#navSkyGrad)" />
+          <path d="M 40,110 Q 100,60 160,110 L 160,180 L 40,180 Z" fill="#210D1D" opacity="0.85" />
+          <circle cx="100" cy="115" r="32" fill="url(#navSunGrad)" />
+          <path d="M 25,135 Q 100,90 175,135 L 175,185 L 25,185 Z" fill="#0D030C" />
+          <path d="M 60,150 Q 80,140 100,150 T 140,150" fill="none" stroke="#FFD54F" stroke-width="2" stroke-linecap="round" opacity="0.6" />
+          <path d="M 45,165 Q 75,155 100,165 T 155,165" fill="none" stroke="#FFB74D" stroke-width="1.5" stroke-linecap="round" opacity="0.5" />
+        </svg>
+        <span class="logo-text">BeforeGlow</span>
+      </div>
+      <nav class="nav-menu">
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#guides" class="nav-link">Guides</a>
+        <a href="#privacy" class="nav-link">Privacy Policy</a>
+        <a href="#credits" class="nav-link">Credits</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-container">
+      <div class="hero-content">
+        <div class="badge">🌅 Golden Hour Intelligence</div>
+        <h1 class="hero-title">인생 최고의<br><span class="highlight">노을과 일출</span>을 만나다</h1>
+        <p class="hero-desc">
+          BeforeGlow는 고도 데이터가 포함된 지형 모델과 대기 시뮬레이션 물리 공식을 결합하여, 실제 현장 지평선 뒤로 해가 가려지는 정확한 찰나와 기상 분석 노을 점수를 알려주는 스마트 예보 트래커입니다.
+        </p>
+        <div class="hero-actions">
+          <a href="#" class="btn btn-primary" id="btn-download">
+            <i data-lucide="play" class="btn-icon"></i>
+            <span>Google Play 다운로드</span>
+          </a>
+          <a href="#guides" class="btn btn-secondary">
+            <span>사용자 가이드북</span>
+          </a>
+        </div>
+      </div>
+      
+      <!-- Interactive Phone Mockup Simulator -->
+      <div class="hero-mockup">
+        <div class="phone-frame">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <!-- Simulated App Contents -->
+            <div class="sim-screen active" id="screen-tracker">
+              <div class="screen-header">
+                <i data-lucide="camera" class="header-icon"></i>
+                <span class="header-title">AR Tracker</span>
+                <i data-lucide="info" class="header-icon"></i>
+              </div>
+              <div class="ar-viewport">
+                <!-- AR HUD Overlay Elements -->
+                <div class="sky-background"></div>
+                <div class="terrain-silhouette"></div>
+                <div class="trajectory-line"></div>
+                <div class="neon-sun"></div>
+                <div class="hud-card top">
+                  <span class="hud-label">Sunset Golden Hour</span>
+                  <span class="hud-val">19:42:05</span>
+                </div>
+                <div class="hud-card bottom">
+                  <div class="hud-row">
+                    <span>Altitude: -1.2°</span>
+                    <span>Azimuth: 294.5°</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sim-screen" id="screen-simulation">
+              <div class="screen-header">
+                <i data-lucide="layers" class="header-icon"></i>
+                <span class="header-title">Simulation</span>
+                <i data-lucide="rotate-cw" class="header-icon"></i>
+              </div>
+              <div class="sim-viewport">
+                <div class="sim-sky"></div>
+                <div class="sim-clouds"></div>
+                <div class="sim-terrain"></div>
+                <div class="score-badge">
+                  <span class="score-num">89</span>
+                  <span class="score-lbl">Sunset Score</span>
+                </div>
+                <div class="timeline-slider">
+                  <div class="slider-track"><div class="slider-thumb"></div></div>
+                  <div class="slider-labels"><span>19:00</span><span>19:42</span><span>20:10</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sim-screen" id="screen-gallery">
+              <div class="screen-header">
+                <i data-lucide="images" class="header-icon"></i>
+                <span class="header-title">Global Feed</span>
+                <i data-lucide="plus" class="header-icon"></i>
+              </div>
+              <div class="gallery-viewport">
+                <div class="gallery-card">
+                  <div class="card-img shadow-img1"></div>
+                  <div class="card-info">
+                    <span class="card-loc">Namsan Tower, Seoul</span>
+                    <span class="card-score">★ 4.8</span>
+                  </div>
+                </div>
+                <div class="gallery-card">
+                  <div class="card-img shadow-img2"></div>
+                  <div class="card-info">
+                    <span class="card-loc">Haeundae Beach, Busan</span>
+                    <span class="card-score">★ 4.9</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Bottom Tab Navigation Indicator -->
+            <div class="phone-tabs">
+              <button class="tab-indicator active" data-target="screen-tracker">
+                <i data-lucide="camera"></i>
+                <span>AR</span>
+              </button>
+              <button class="tab-indicator" data-target="screen-simulation">
+                <i data-lucide="layers"></i>
+                <span>Sim</span>
+              </button>
+              <button class="tab-indicator" data-target="screen-gallery">
+                <i data-lucide="images"></i>
+                <span>Gallery</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Features Section -->
+  <section class="features-section" id="features">
+    <div class="section-header">
+      <h2 class="section-title">스마트 노을 관측 코어 테크놀로지</h2>
+      <p class="section-subtitle">일몰 시간에만 알림을 주는 단순 날씨 앱이 아닙니다. 노을이 가장 빛나는 최적의 장소와 시간을 정밀 계산합니다.</p>
+    </div>
+    
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon-wrapper orange">
+          <i data-lucide="eye" class="feature-icon"></i>
+        </div>
+        <h3 class="feature-heading">AR 골든아워 트래커</h3>
+        <p class="feature-body">
+          태양 궤적 공식(SunCalc)과 자이로센서, 디지털 나침반을 융합하여 기기 카메라 프리뷰 위에 실시간 일몰 경로와 골든아워를 정확하게 오버레이합니다.
+        </p>
+      </div>
+      
+      <div class="feature-card">
+        <div class="feature-icon-wrapper purple">
+          <i data-lucide="map" class="feature-icon"></i>
+        </div>
+        <h3 class="feature-heading">지형 차단 모델링</h3>
+        <p class="feature-body">
+          디지털 고도 모델(DEM) API를 통해 주변 360도 지형의 고도각 프로파일을 추출하여, 빌딩이나 산맥 뒤로 태양이 가려져 실제 노을빛이 끝나는 시각을 예측합니다.
+        </p>
+      </div>
+      
+      <div class="feature-card">
+        <div class="feature-icon-wrapper yellow">
+          <i data-lucide="sun" class="feature-icon"></i>
+        </div>
+        <h3 class="feature-heading">물리 기반 노을 점수 예보</h3>
+        <p class="feature-body">
+          구름의 고도 분포(상/중/하층운), 가시거리(Vis), 습도(RH)를 산란 및 흡수율 물리 계수로 분석하여 노을의 붉은빛이 구름 하부에 반사되는 품질 점수를 예보합니다.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Guides & Information Section -->
+  <section class="guides-section" id="guides">
+    <div class="section-header">
+      <h2 class="section-title">BeforeGlow 백과사전</h2>
+      <p class="section-subtitle">아름다운 노을을 포착하기 위해 꼭 알아야 하는 기상 및 천문 가이드를 소개합니다.</p>
+    </div>
+
+    <!-- Guides Interactive Tabs -->
+    <div class="guides-tabs-container">
+      <div class="guides-tab-list">
+        <button class="guide-tab-btn active" data-tab="guide-sim">시뮬레이션 가이드</button>
+        <button class="guide-tab-btn" data-tab="guide-weather">기상 & 산란 법칙</button>
+        <button class="guide-tab-btn" data-tab="guide-clouds">구름 종류별 노을 효과</button>
+      </div>
+
+      <div class="guide-tab-content active" id="guide-sim">
+        <div class="guide-layout">
+          <div class="guide-info-text">
+            <h3>가상 노을 시뮬레이터 활용법</h3>
+            <p>BeforeGlow의 시뮬레이션은 수치 기상 예보 모델 데이터를 기반으로 렌더링되므로, 현장을 직접 방문하지 않고도 당일 저녁의 하늘색 그라데이션을 예측해 줍니다. 아래 기상 상태 탭을 탭하여 실시간 변화를 확인해보세요.</p>
+            
+            <!-- Weather sub-tabs for demo -->
+            <div class="weather-selector">
+              <button class="weather-tab-btn active" data-weather="clear">맑은 날</button>
+              <button class="weather-tab-btn" data-weather="cloudy">구름 있는 날</button>
+              <button class="weather-tab-btn" data-weather="overcast">흐린 날</button>
+            </div>
+
+            <ul>
+              <li><strong>서서히 흐르는 해의 움직임:</strong> 가이드용 태양이 지평선 위아래로 서서히 하강했다가 다시 상승하는 주기 운동을 반복하며 시그널을 보여줍니다.</li>
+              <li><strong>시간 연동 색채 연출:</strong> 해의 고도(높이)가 변함에 따라 맑은 날/구름 낀 날/흐린 날 각각의 대기 광선 산란 공식에 맞게 하늘과 구름 색상이 부드럽게 보간됩니다.</li>
+              <li><strong>앱 구름 리소스 동기화:</strong> 데모에 흐르는 구름 쉐이프들은 실제 모바일 앱의 노을 시뮬레이션에 사용되는 벡터 패스와 완전히 동일하게 설계되었습니다.</li>
+            </ul>
+          </div>
+          <div class="guide-visual visual-sim" id="sim-viewport-demo">
+            <!-- SVG 기반의 시뮬레이션 캔버스 -->
+            <svg class="sim-svg-canvas" viewBox="0 0 500 280" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
+              <defs>
+                <!-- 하늘용 동적 그라데이션 -->
+                <linearGradient id="simSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop id="skyStop0" offset="0%" stop-color="#0c0813" />
+                  <stop id="skyStop1" offset="50%" stop-color="#1a0e2e" />
+                  <stop id="skyStop2" offset="100%" stop-color="#7b1fa2" />
+                </linearGradient>
+
+                <!-- 태양 글로우 필터 -->
+                <filter id="sunGlowFilter" x="-100%" y="-100%" width="300%" height="300%">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur1" />
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="30" result="blur2" />
+                  <feMerge>
+                    <feMergeNode in="blur2" />
+                    <feMergeNode in="blur1" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+
+                <!-- 구름 그림자 효과 -->
+                <filter id="cloudShadowFilter" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.25" />
+                </filter>
+
+                <!-- 앱 내 CLOUD_TEMPLATES에서 이식된 구름 벡터 패스 -->
+                <g id="cloud-shape-cumulus-1">
+                  <path d="M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z" />
+                </g>
+                <g id="cloud-shape-cumulus-2">
+                  <path d="M 20,40 C 20,28 32,20 50,20 C 60,10 82,8 100,12 C 118,4 146,4 163,16 C 175,12 192,16 198,28 C 210,28 215,34 215,40 Z" />
+                </g>
+                <g id="cloud-shape-nimbostratus">
+                  <path d="M 0,20 C 30,15 70,15 100,20 C 130,25 170,25 200,20 L 200,32 C 170,35 130,35 100,32 C 70,28 30,28 0,32 Z" />
+                </g>
+                <g id="cloud-shape-cirrus">
+                  <path d="M 0,20 C 20,15 45,8 70,12 C 85,14 110,7 130,12 C 105,16 80,13 55,20 C 35,25 15,23 0,20 Z" />
+                </g>
+                <g id="cloud-shape-altocumulus">
+                  <path d="M 10,20 C 15,12 25,12 35,20 C 45,12 55,12 65,20 C 75,12 85,12 95,20 C 105,12 115,12 125,20 L 125,25 C 95,28 65,28 35,25 L 10,20 Z" />
+                </g>
+              </defs>
+
+              <!-- 1. 배경 하늘 -->
+              <rect width="500" height="280" fill="url(#simSkyGrad)" />
+
+              <!-- 2. 오르내리는 태양 -->
+              <g id="simSunGroup">
+                <circle id="simSunGlowOuter" cx="250" cy="140" r="50" fill="rgba(255, 112, 67, 0.3)" filter="url(#sunGlowFilter)" />
+                <circle id="simSunGlowInner" cx="250" cy="140" r="28" fill="rgba(255, 215, 0, 0.5)" filter="url(#sunGlowFilter)" />
+                <circle id="simSunDisk" cx="250" cy="140" r="12" fill="#FFFFFF" />
+              </g>
+
+              <!-- 3. 구름 그룹 -->
+              <g id="simCloudGroup" filter="url(#cloudShadowFilter)"></g>
+
+              <!-- 4. 하단 지형 실루엣 -->
+              <path id="simTerrain" d="M 0 210 Q 70 170 150 220 T 300 190 Q 380 200 420 225 T 500 205 L 500 280 L 0 280 Z" fill="#090510" />
+            </svg>
+            
+            <!-- 실시간 시뮬레이션 상태 디버그 HUD -->
+            <div class="sim-hud-overlay">
+              <div class="sim-hud-left">
+                <span class="sim-hud-time" id="sim-hud-time">19:42</span>
+                <span class="sim-hud-status" id="sim-hud-status">Sunset Active</span>
+              </div>
+              <div class="sim-hud-right">
+                <span class="sim-hud-altitude" id="sim-hud-altitude">Alt: 0.0°</span>
+                <span class="sim-hud-score" id="sim-hud-score">Score: --</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-tab-content" id="guide-weather">
+        <div class="guide-layout">
+          <div class="guide-info-text">
+            <h3>기상 & 대기 산란 법칙</h3>
+            <p>노을이 붉게 물들고 황금빛으로 빛나는 현상은 대기 중 입자의 크기와 빛의 파장 간의 상호작용으로 발생합니다. 아래 탭을 통해 원리를 비교해 보세요.</p>
+            
+            <!-- 산란 서브 탭 -->
+            <div class="scatter-selector">
+              <button class="scatter-tab-btn active" data-scatter="rayleigh">레일리 산란</button>
+              <button class="scatter-tab-btn" data-scatter="mie">미에 산란</button>
+            </div>
+
+            <!-- 레일리 산란 설명 -->
+            <div class="scatter-desc active" id="desc-rayleigh">
+              <p><strong>레일리 산란(Rayleigh Scattering)</strong>은 빛의 파장보다 훨씬 작은 대기 분자(질소, 산소 등)에 의해 일어납니다.</p>
+              <ul>
+                <li><strong>낮 (파란 하늘):</strong> 태양이 위에 있을 땐 대기 통과 거리가 짧아 파장이 짧은 파란색 빛이 활발히 사방으로 튕겨 흩어지며 하늘을 온통 파랗게 만듭니다.</li>
+                <li><strong>노을 (붉은 하늘):</strong> 해가 지며 대기 통과 경로가 훨씬 길어지면 파란색 빛은 도달하기 전 중간에 다 산란되어 소멸하고, 통과력이 강한 붉은색 파장의 빛만 끝까지 관측자에게 도달하여 붉은 노을이 연출됩니다.</li>
+              </ul>
+            </div>
+
+            <!-- 미에 산란 설명 -->
+            <div class="scatter-desc" id="desc-mie">
+              <p><strong>미에 산란(Mie Scattering)</strong>은 빛의 파장과 크기가 비슷하거나 더 큰 입자(에어로졸, 미세먼지, 황사, 물방울 등)에 의해 일어납니다.</p>
+              <ul>
+                <li><strong>황금빛 글로우 (Glow):</strong> 파장에 따른 편차가 없어 모든 파장의 빛을 사방(특히 태양의 전방 진행 방향)으로 널리 산란시킵니다. 태양 주변의 황색 코로나와 웅장한 번짐 효과를 만듭니다.</li>
+                <li><strong>대기 습도의 결함 (광선 흡수):</strong> 미세먼지나 수증기가 적절하면 빛을 흩뿌려 황금빛 노을을 유도하지만, 습도가 80% 이상으로 올라가면 물방울이 광선을 다량 흡수하여 노을 채도가 칙칙해집니다.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="guide-visual visual-scatter" id="scatter-viewport-demo">
+            <svg class="scatter-svg-canvas" viewBox="0 0 500 280" style="width:100%; height:100%; display:block; background:#ffffff;">
+              <defs>
+                <!-- 밝은 공기/하늘 배경 그라데이션 -->
+                <linearGradient id="spaceSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#ffffff" />
+                  <stop offset="100%" stop-color="#f1f3f5" />
+                </linearGradient>
+
+                <!-- 레일리 대기 돔 그라데이션 (수직) -->
+                <linearGradient id="rayleighAtmosphereGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                  <stop id="atmosStop0" offset="0%" stop-color="#2196f3" stop-opacity="0.8" />
+                  <stop id="atmosStop1" offset="100%" stop-color="#2196f3" stop-opacity="0.0" />
+                </linearGradient>
+
+                <!-- 미에 대기 돔 그라데이션 -->
+                <linearGradient id="mieAtmosphereGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                  <stop id="mieAtmosStop0" offset="0%" stop-color="#ffa726" stop-opacity="0.65" />
+                  <stop id="mieAtmosStop1" offset="100%" stop-color="#ffa726" stop-opacity="0.0" />
+                </linearGradient>
+
+                <filter id="scatterGlow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="6" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              <!-- 0. 밝은 하늘 배경 공통 -->
+              <rect width="500" height="280" fill="url(#spaceSkyGrad)" />
+
+              <!-- 1. 레일리 산란 시각화 (기본 활성) -->
+              <g id="group-rayleigh-demo">
+                <!-- 대기 곡선 돔 (색상 동적 보간 대상) -->
+                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="url(#rayleighAtmosphereGrad)" opacity="0.65" />
+                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1.5" />
+                
+                <!-- 둥근 지구 표면 실루엣 (라이트 톤) -->
+                <path d="M 0,220 C 150,210 350,210 500,220 L 500,280 L 0,280 Z" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5" />
+                
+                <!-- 관측자 -->
+                <circle cx="250" cy="220" r="6" fill="#1e293b" />
+                <text class="sim-text-outline" x="250" y="244" fill="#1e293b" font-weight="bold" font-size="11" text-anchor="middle">관측자</text>
+                <text class="sim-text-outline" x="65" y="150" fill="#475569" font-weight="bold" font-size="10" text-anchor="middle">대기 경계</text>
+                
+                <!-- 태양 (오르내림) -->
+                <circle id="rayleigh-sun" cx="80" cy="140" r="12" fill="#ff9100" stroke="#e65100" stroke-width="1.5" filter="url(#scatterGlow)" />
+                
+                <!-- 파티클들이 생성되어 날아가는 그룹 -->
+                <g id="rayleigh-rays"></g>
+                
+                <text id="rayleigh-state-label" class="sim-text-outline" x="250" y="36" fill="#1e293b" font-size="14" font-weight="bold" text-anchor="middle">레일리 산란 시뮬레이션</text>
+              </g>
+
+              <!-- 2. 미에 산란 시각화 (기본 비활성) -->
+              <g id="group-mie-demo" display="none">
+                <!-- 대기 곡선 돔 (습도 조절 연계) -->
+                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="url(#mieAtmosphereGrad)" opacity="0.6" />
+                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1.5" />
+
+                <!-- 둥근 지구 표면 실루엣 (라이트 톤) -->
+                <path d="M 0,220 C 150,210 350,210 500,220 L 500,280 L 0,280 Z" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5" />
+
+                <!-- 관측자 -->
+                <circle cx="250" cy="220" r="6" fill="#1e293b" />
+                <text class="sim-text-outline" x="250" y="244" fill="#1e293b" font-weight="bold" font-size="11" text-anchor="middle">관측자</text>
+
+                <!-- 태양 광원 -->
+                <circle cx="250" cy="120" r="13" fill="#ffffff" stroke="#ff8f00" stroke-width="1.5" />
+                <!-- 미에 산란 전방 번짐 -->
+                <circle id="mie-sun-glow" cx="250" cy="120" r="35" fill="rgba(255, 179, 0, 0.5)" filter="url(#scatterGlow)" />
+                
+                <!-- 에어로졸 입자들 -->
+                <g id="mie-particles"></g>
+                <!-- 광선들 -->
+                <g id="mie-rays"></g>
+                
+                <text id="mie-state-label" class="sim-text-outline" x="250" y="36" fill="#1e293b" font-size="14" font-weight="bold" text-anchor="middle">미에 산란 시뮬레이션</text>
+                <!-- 습도에 따른 안개 장막 오버레이 -->
+                <rect id="mie-humidity-fade" width="500" height="280" fill="#e9e8ec" opacity="0" pointer-events="none" />
+              </g>
+            </svg>
+
+            <!-- 미에 산란 습도 슬라이더 컨트롤러 (기본 숨김) -->
+            <div class="mie-slider-overlay" id="mie-slider-container" style="display: none;">
+              <span class="slider-lbl">대기 중 습도</span>
+              <input type="range" id="mie-humidity-slider" min="10" max="95" value="45" style="cursor:pointer;">
+              <span class="slider-val" id="mie-humidity-val">45% (맑음)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-tab-content" id="guide-clouds">
+        <div class="guide-layout">
+          <div class="guide-info-text">
+            <h3>구름 유형별 노을 기여도</h3>
+            <p>구름의 높이와 두께는 노을빛을 반사하는 스크린 역할을 하여 그날의 노을 등급을 좌우합니다.</p>
+            <table class="cloud-guide-table">
+              <thead>
+                <tr>
+                  <th>구름명 (약칭)</th>
+                  <th>고도 범위</th>
+                  <th>노을 효과 설명</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>권운 (새털구름)</strong></td>
+                  <td>6km 이상 (상층)</td>
+                  <td>태양이 진 뒤에도 가장 오랫동안 광선을 받아 불타는 듯한 선홍빛 노을을 유도합니다 (최고 등급).</td>
+                </tr>
+                <tr>
+                  <td><strong>고적운 (양떼구름)</strong></td>
+                  <td>2km ~ 6km (중층)</td>
+                  <td>구름 블록 외곽에 쪼개지는 림 라이트와 다채로운 오렌지-핑크 그라데이션이 퍼져 시각적으로 가장 화려합니다.</td>
+                </tr>
+                <tr>
+                  <td><strong>층적운 (물결구름)</strong></td>
+                  <td>2km 이하 (하층)</td>
+                  <td>구름의 두께가 두껍고 낮아 태양의 각도가 낮아지면 지평선 노을빛을 통째로 가로막아 노을을 밋밋하게 만듭니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Privacy Policy Section -->
+  <section class="privacy-section" id="privacy">
+    <div class="section-header">
+      <h2 class="section-title">개인정보처리방침 (Privacy Policy)</h2>
+      <p class="section-subtitle">BeforeGlow 앱은 투명하게 개인정보를 처리하며, 사용자의 권리를 철저히 보장합니다.</p>
+    </div>
+    
+    <div class="policy-card">
+      <div class="policy-scroll">
+        <h3>1. 수집하는 개인정보 항목 및 이용 목적</h3>
+        <p>BeforeGlow는 앱 기능 수행을 위해 다음의 기기 권한 및 데이터에 액세스합니다:</p>
+        <ul>
+          <li><strong>위치 정보 (GPS):</strong> 일출/일몰 각도 공식(SunCalc) 연산, 고도 데이터 취득을 위한 지형 정보 API 조회, 장소 저장을 위해 기기의 위치 데이터를 활용합니다.</li>
+          <li><strong>카메라 권한:</strong> 증강현실(AR) 기반 태양 추적 화면 렌더링 및 노을 사진 촬영을 위해서만 사용합니다.</li>
+          <li><strong>저장공간 & 미디어 권한:</strong> 촬영한 노을 사진을 기기 갤러리에 저장하고, 지도 상에 공유할 사진 파일을 업로드하는 데 한해 사용합니다.</li>
+        </ul>
+        
+        <h3>2. 개인정보의 제3자 제공 및 동기화</h3>
+        <p>기본적으로 사용자의 저장 위치 및 사진 메타데이터는 개인 기기에만 안전하게 저장되며, 사용자가 로그인 후 명시적으로 <strong>[지도 공유/업로드]</strong> 기능을 실행했을 경우에만 Firebase Auth, Firestore 및 Firebase Storage 서버로 데이터가 암호화되어 전송 및 동기화됩니다. 어떠한 경우에도 마케팅 등 목적을 위한 제3자 제공은 수행하지 않습니다.</p>
+        
+        <h3>3. 개인정보 파기 및 철회</h3>
+        <p>로그아웃 시 연동 데이터를 기기에서 즉각 제거하며, 계정 탈퇴를 희망하시는 경우 앱 내 설정을 통해 탈퇴 절차를 밟으시면 클라우드 상에 백업된 모든 데이터가 영구 파기됩니다.</p>
+        
+        <p class="policy-date">최종 개정일자: 2026년 6월 12일</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Credits & Attribution Section -->
+  <section class="credits-section" id="credits">
+    <div class="section-header">
+      <h2 class="section-title">오픈소스 라이선스 & 크레딧</h2>
+      <p class="section-subtitle">BeforeGlow는 다음의 훌륭한 오픈소스 라이브러리와 공공 지리데이터 서비스를 활용하여 제작되었습니다.</p>
+    </div>
+    
+    <div class="credits-container">
+      <div class="credit-item">
+        <h4><i data-lucide="database" class="credit-icon"></i> Open-Meteo API</h4>
+        <p>전 지구 대기 기상 데이터 모델과 기상 위성 관측 데이터를 CC BY 4.0 라이선스 규정에 의거하여 제공받고 있습니다.</p>
+      </div>
+      <div class="credit-item">
+        <h4><i data-lucide="map-pin" class="credit-icon"></i> Google Maps Platform</h4>
+        <p>위경도 기반 지오코딩 및 맵 타일 렌더링을 위해 Google Maps API의 사용 규격 및 정책을 철저하게 준수합니다.</p>
+      </div>
+      <div class="credit-item">
+        <h4><i data-lucide="code-xml" class="credit-icon"></i> React Native / Expo Ecosystem</h4>
+        <p>Expo SDK 및 크로스 플랫폼 프레임워크와 천문 천체 분석 라이브러리인 SunCalc를 탑재하여 구동됩니다.</p>
+      </div>
+    </div>
+    <div class="credits-footnote">
+      상세한 라이선스 전문 및 타 기여 명세는 루트 [ATTRIBUTION.md](file:///Users/yunhyeongseob/dev/solar-path/ATTRIBUTION.md) 문서에 등재되어 있습니다.
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <p class="copyright">&copy; 2026 BeforeGlow. All Rights Reserved.</p>
+      <p class="hosting-note">Hosted securely on Firebase Hosting Platform</p>
+    </div>
+  </footer>
+
+  <script src="app.js?v=1.0.1" defer></script>
+</body>
+</html>
