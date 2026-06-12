@@ -120,9 +120,30 @@
                 <i data-lucide="rotate-cw" class="header-icon"></i>
               </div>
               <div class="sim-viewport">
-                <div class="sim-sky"></div>
-                <div class="sim-clouds"></div>
-                <div class="sim-terrain"></div>
+                <!-- 폰 목업용 벡터 시뮬레이터 SVG -->
+                <svg id="phoneSimSvg" viewBox="0 0 250 200" style="width: 100%; height: 100%; display: block; position: absolute; top: 0; left: 0; pointer-events: none;">
+                  <defs>
+                    <linearGradient id="phoneSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop id="phoneSkyStop0" offset="0%" stop-color="#110722" />
+                      <stop id="phoneSkyStop1" offset="45%" stop-color="#4A148C" />
+                      <stop id="phoneSkyStop2" offset="80%" stop-color="#E65100" />
+                      <stop id="phoneSkyStop3" offset="100%" stop-color="#210402" />
+                    </linearGradient>
+                  </defs>
+                  <!-- 하늘 배경 -->
+                  <rect width="250" height="200" fill="url(#phoneSkyGrad)" />
+                  <!-- 태양 -->
+                  <g id="phoneSunGroup">
+                    <circle id="phoneSunGlowOuter" cx="125" cy="100" r="25" fill="rgba(255, 112, 67, 0.25)" filter="url(#sunGlowFilter)" />
+                    <circle id="phoneSunGlowInner" cx="125" cy="100" r="14" fill="rgba(255, 215, 0, 0.4)" filter="url(#sunGlowFilter)" />
+                    <circle id="phoneSunDisk" cx="125" cy="100" r="6" fill="#FFFFFF" />
+                  </g>
+                  <!-- 구름 레이어 -->
+                  <g id="phoneCloudGroup" filter="url(#cloudShadowFilter)"></g>
+                  <!-- 지평선 산맥 실루엣 -->
+                  <path d="M 0 160 Q 40 145 80 162 T 160 150 Q 200 155 220 170 T 250 160 L 250 200 L 0 200 Z" fill="#090510" />
+                </svg>
+
                 <div class="score-badge">
                   <span class="score-num">89</span>
                   <span class="score-lbl">Sunset Score</span>
@@ -142,14 +163,53 @@
               </div>
               <div class="gallery-viewport">
                 <div class="gallery-card">
-                  <div class="card-img shadow-img1"></div>
+                  <!-- 남산타워 노을 일러스트 SVG -->
+                  <div class="card-img">
+                    <svg viewBox="0 0 160 100" style="width: 100%; height: 100%; display: block;">
+                      <defs>
+                        <linearGradient id="galSkyGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stop-color="#4A148C" />
+                          <stop offset="50%" stop-color="#FF5722" />
+                          <stop offset="100%" stop-color="#FFC107" />
+                        </linearGradient>
+                      </defs>
+                      <rect width="160" height="100" fill="url(#galSkyGrad1)" />
+                      <circle cx="80" cy="68" r="14" fill="rgba(255, 235, 59, 0.4)" filter="url(#sunGlowFilter)" />
+                      <circle cx="80" cy="68" r="5" fill="#FFFFFF" />
+                      <use href="#cloud-shape-cirrus" x="10" y="15" fill="#fff" opacity="0.45" transform="scale(0.8)" />
+                      <use href="#cloud-shape-altocumulus" x="55" y="30" fill="#fff" opacity="0.6" transform="scale(0.6)" />
+                      <use href="#cloud-shape-cumulus-1" x="95" y="40" fill="#fff" opacity="0.85" transform="scale(0.5)" />
+                      <!-- 지상 & 서울 N타워 실루엣 -->
+                      <path d="M 0 90 Q 40 82 80 86 T 160 84 L 160 100 L 0 100 Z" fill="#1b082e" />
+                      <path d="M 77 86 L 79 32 L 81 32 L 83 86 Z M 75 40 L 85 40 L 83 43 L 77 43 Z" fill="#1b082e" />
+                    </svg>
+                  </div>
                   <div class="card-info">
                     <span class="card-loc">Namsan Tower, Seoul</span>
                     <span class="card-score">★ 4.8</span>
                   </div>
                 </div>
                 <div class="gallery-card">
-                  <div class="card-img shadow-img2"></div>
+                  <!-- 해운대 노을 바다 일러스트 SVG -->
+                  <div class="card-img">
+                    <svg viewBox="0 0 160 100" style="width: 100%; height: 100%; display: block;">
+                      <defs>
+                        <linearGradient id="galSkyGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stop-color="#1A237E" />
+                          <stop offset="60%" stop-color="#E040FB" />
+                          <stop offset="100%" stop-color="#FF4081" />
+                        </linearGradient>
+                      </defs>
+                      <rect width="160" height="100" fill="url(#galSkyGrad2)" />
+                      <circle cx="115" cy="62" r="12" fill="rgba(255, 64, 129, 0.4)" filter="url(#sunGlowFilter)" />
+                      <circle cx="115" cy="62" r="4.5" fill="#FFFFFF" />
+                      <use href="#cloud-shape-cirrus" x="15" y="10" fill="#fff" opacity="0.5" transform="scale(0.7)" />
+                      <use href="#cloud-shape-cumulus-2" x="75" y="25" fill="#fff" opacity="0.8" transform="scale(0.5)" />
+                      <!-- 바다 물결 실루엣 -->
+                      <path d="M 0 85 Q 20 80 40 85 T 80 85 T 120 85 T 160 85 L 160 100 L 0 100 Z" fill="#150524" />
+                      <path d="M 0 92 Q 25 89 50 92 T 100 92 T 150 92 L 160 100 L 0 100 Z" fill="rgba(255, 64, 129, 0.18)" />
+                    </svg>
+                  </div>
                   <div class="card-info">
                     <span class="card-loc">Haeundae Beach, Busan</span>
                     <span class="card-score">★ 4.9</span>

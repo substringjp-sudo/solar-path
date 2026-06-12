@@ -388,16 +388,12 @@ h1, h2, h3, h4, .logo-text {
   position: relative;
   background: linear-gradient(to bottom, #110722 0%, #4A148C 45%, #E65100 80%, #210402 100%);
 }
-
-.sim-clouds {
+#phoneSimSvg {
+  width: 100%;
+  height: 100%;
   position: absolute;
-  width: 200%;
-  height: 80px;
-  background: radial-gradient(circle, rgba(255,100,50,0.2) 0%, transparent 60%);
-  top: 90px;
-  left: -50%;
-  filter: blur(8px);
-  animation: moveClouds 20s linear infinite;
+  top: 0;
+  left: 0;
 }
 
 .score-badge {
@@ -482,14 +478,6 @@ h1, h2, h3, h4, .logo-text {
 .card-img {
   height: 100px;
   width: 100%;
-}
-
-.shadow-img1 {
-  background: linear-gradient(135deg, #4A148C, #FF5722);
-}
-
-.shadow-img2 {
-  background: linear-gradient(135deg, #1A237E, #E040FB);
 }
 
 .card-info {

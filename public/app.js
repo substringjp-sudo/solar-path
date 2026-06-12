@@ -198,7 +198,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let weatherState = 'clear';
   let activeClouds = [];
+  let phoneActiveClouds = [];
   const cloudGroup = document.getElementById('simCloudGroup');
+  const phoneCloudGroup = document.getElementById('phoneCloudGroup');
 
   const initCloudAssets = (state) => {
     if (!cloudGroup) return;
@@ -214,6 +216,27 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
+  const initPhoneCloudAssets = (state) => {
+    if (!phoneCloudGroup) return;
+    phoneCloudGroup.innerHTML = '';
+    phoneActiveClouds = JSON.parse(JSON.stringify(cloudConfigs[state] || cloudConfigs.clear));
+
+    phoneActiveClouds.forEach((cloud) => {
+      // 폰 시뮬레이터 크기(250x200)에 맞춰 좌표 및 스케일 0.5배 보정 적용
+      cloud.x = cloud.x * 0.5;
+      cloud.y = (cloud.y * 0.5) - 5; // y축 오프셋 보정
+      cloud.scale = cloud.scale * 0.5;
+      cloud.speed = cloud.speed * 0.5;
+      cloud.width = cloud.width * 0.5;
+
+      const useNode = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+      useNode.setAttribute('href', cloud.shape);
+      useNode.setAttribute('class', `sim-svg-cloud layer-${cloud.layer}`);
+      phoneCloudGroup.appendChild(useNode);
+      cloud.dom = useNode;
+    });
+  };
+
   const weatherBtns = document.querySelectorAll('.weather-tab-btn');
   let weatherAutoplayInterval;
   const weatherStates = ['clear', 'cloudy', 'overcast'];
@@ -222,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const setWeatherState = (state) => {
     weatherState = state;
     initCloudAssets(state);
+    initPhoneCloudAssets(state); // 폰용 구름 에셋도 동일 기상으로 동기화 로드
 
     simViewport.classList.remove('state-clear', 'state-cloudy', 'state-overcast');
     simViewport.classList.add(`state-${state}`);
@@ -282,6 +306,27 @@ document.addEventListener('DOMContentLoaded', () => {
       sunGlowInner.setAttribute('cy', sunY);
     }
 
+    // 폰 시뮬레이터 태양 동기화
+    const phoneSunY = 145 - (altitude * 6.5);
+    const phoneSunX = 125;
+
+    const phoneSunDisk = document.getElementById('phoneSunDisk');
+    const phoneSunGlowOuter = document.getElementById('phoneSunGlowOuter');
+    const phoneSunGlowInner = document.getElementById('phoneSunGlowInner');
+
+    if (phoneSunDisk) {
+      phoneSunDisk.setAttribute('cx', phoneSunX);
+      phoneSunDisk.setAttribute('cy', phoneSunY);
+    }
+    if (phoneSunGlowOuter) {
+      phoneSunGlowOuter.setAttribute('cx', phoneSunX);
+      phoneSunGlowOuter.setAttribute('cy', phoneSunY);
+    }
+    if (phoneSunGlowInner) {
+      phoneSunGlowInner.setAttribute('cx', phoneSunX);
+      phoneSunGlowInner.setAttribute('cy', phoneSunY);
+    }
+
     const skyColors = getInterpolatedSky(weatherState, altitude);
     const stop0 = document.getElementById('skyStop0');
     const stop1 = document.getElementById('skyStop1');
@@ -290,6 +335,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (stop0) stop0.setAttribute('stop-color', skyColors[0]);
     if (stop1) stop1.setAttribute('stop-color', skyColors[1]);
     if (stop2) stop2.setAttribute('stop-color', skyColors[2]);
+
+    // 폰 시뮬레이터 하늘 동기화
+    const phoneStop0 = document.getElementById('phoneSkyStop0');
+    const phoneStop1 = document.getElementById('phoneSkyStop1');
+    const phoneStop2 = document.getElementById('phoneSkyStop2');
+    const phoneStop3 = document.getElementById('phoneSkyStop3');
+
+    if (phoneStop0) phoneStop0.setAttribute('stop-color', skyColors[0]);
+    if (phoneStop1) phoneStop1.setAttribute('stop-color', skyColors[1]);
+    if (phoneStop2) phoneStop2.setAttribute('stop-color', skyColors[2]);
+    if (phoneStop3) phoneStop3.setAttribute('stop-color', altitude < 0 ? '#020008' : '#100305');
 
     let sunColor = '#FFFFFF';
     let outerGlowColor = 'rgba(255, 112, 67, 0.4)';
@@ -335,9 +391,76 @@ document.addEventListener('DOMContentLoaded', () => {
       sunGlowInner.style.opacity = sunOpacity;
     }
 
+    // 폰 시뮬레이터 태양 색상/투명도 동기화
+    if (phoneSunDisk) {
+      phoneSunDisk.setAttribute('fill', sunColor);
+      phoneSunDisk.style.opacity = sunOpacity;
+    }
+    if (phoneSunGlowOuter) {
+      phoneSunGlowOuter.setAttribute('fill', outerGlowColor);
+      phoneSunGlowOuter.style.opacity = sunOpacity;
+    }
+    if (phoneSunGlowInner) {
+      phoneSunGlowInner.setAttribute('fill', innerGlowColor);
+      phoneSunGlowInner.style.opacity = sunOpacity;
+    }
+
     activeClouds.forEach(cloud => {
       cloud.x += cloud.speed;
       const cloudRightBoundary = 500;
+      const cloudLeftBoundary = -cloud.width * cloud.scale;
+      if (cloud.x > cloudRightBoundary) {
+        cloud.x = cloudLeftBoundary;
+      }
+
+      let cloudFill = '#FFFFFF';
+      if (weatherState === 'overcast') {
+        const t = Math.max(0, Math.min(1.0, (12.0 - altitude) / 20.0));
+        cloudFill = RGB.lerp(new RGB(95, 95, 95), new RGB(30, 30, 34), t).toCss();
+      } else if (weatherState === 'clear') {
+        if (altitude > 5.0) {
+          cloudFill = '#FFFFFF';
+        } else if (altitude > -2.0) {
+          const t = (5.0 - altitude) / 7.0;
+          cloudFill = RGB.lerp(new RGB(255, 255, 255), new RGB(255, 182, 193), t).toCss();
+        } else {
+          const t = Math.min(1.0, (-altitude - 2.0) / 6.0);
+          cloudFill = RGB.lerp(new RGB(255, 182, 193), new RGB(106, 27, 154), t).toCss();
+        }
+      } else {
+        if (altitude > 5.0) {
+          cloudFill = cloud.layer === 'high' ? '#FFFFFF' : '#E0E0E0';
+        } else if (altitude > -2.0) {
+          const t = (5.0 - altitude) / 7.0;
+          if (cloud.layer === 'high') {
+            cloudFill = RGB.lerp(new RGB(255, 255, 255), new RGB(255, 128, 171), t).toCss();
+          } else if (cloud.layer === 'mid') {
+            cloudFill = RGB.lerp(new RGB(255, 255, 255), new RGB(255, 167, 38), t).toCss();
+          } else {
+            cloudFill = RGB.lerp(new RGB(224, 224, 224), new RGB(255, 110, 64), t).toCss();
+          }
+        } else {
+          const t = Math.min(1.0, (-altitude - 2.0) / 6.0);
+          if (cloud.layer === 'high') {
+            cloudFill = RGB.lerp(new RGB(255, 128, 171), new RGB(74, 20, 140), t).toCss();
+          } else if (cloud.layer === 'mid') {
+            cloudFill = RGB.lerp(new RGB(255, 167, 38), new RGB(136, 14, 79), t).toCss();
+          } else {
+            cloudFill = RGB.lerp(new RGB(255, 110, 64), new RGB(49, 27, 146), t).toCss();
+          }
+        }
+      }
+
+      if (cloud.dom) {
+        cloud.dom.setAttribute('transform', `translate(${cloud.x}, ${cloud.y}) scale(${cloud.scale})`);
+        cloud.dom.setAttribute('fill', cloudFill);
+      }
+    });
+
+    // 폰 시뮬레이터 구름 동기화 제어
+    phoneActiveClouds.forEach(cloud => {
+      cloud.x += cloud.speed;
+      const cloudRightBoundary = 250;
       const cloudLeftBoundary = -cloud.width * cloud.scale;
       if (cloud.x > cloudRightBoundary) {
         cloud.x = cloudLeftBoundary;
