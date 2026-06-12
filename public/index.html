@@ -331,130 +331,208 @@
       </div>
 
       <div class="guide-tab-content" id="guide-weather">
-        <div class="guide-layout">
-          <div class="guide-info-text">
-            <h3>기상 & 대기 산란 법칙</h3>
-            <p>노을이 붉게 물들고 황금빛으로 빛나는 현상은 대기 중 입자의 크기와 빛의 파장 간의 상호작용으로 발생합니다. 아래 탭을 통해 원리를 비교해 보세요.</p>
-            
-            <!-- 산란 서브 탭 -->
-            <div class="scatter-selector">
-              <button class="scatter-tab-btn active" data-scatter="rayleigh">레일리 산란</button>
-              <button class="scatter-tab-btn" data-scatter="mie">미에 산란</button>
+        <!-- 전체가 위아래로 흐르는 상하 플로우 레이아웃 -->
+        <div class="weather-guide-flow">
+          
+          <!-- 1. 레일리 산란 파트 -->
+          <div class="scatter-block">
+            <div class="scatter-info-header">
+              <h3>1. 레일리 산란 (Rayleigh Scattering)</h3>
+              <p>빛의 파장보다 훨씬 작은 대기 분자(질소, 산소 등)에 부딪혀 빛이 흩어지는 현상입니다.</p>
             </div>
+            <div class="scatter-grid-layout">
+              <div class="scatter-explanation-box">
+                <ul>
+                  <li><strong>낮 (파란 하늘):</strong> 태양이 머리 위에 있을 때는 대기층의 통과 경로가 매우 짧습니다. 파장이 짧고 산란에 유리한 파란색 빛이 활발하게 사방으로 튕겨 흩어지며 온 하늘을 파란빛으로 가득 채웁니다.</li>
+                  <li><strong>노을 (붉은 하늘):</strong> 해가 지면서 대기층을 통과하는 빛의 경로가 낮보다 10배 이상 길어집니다. 파란색 파장은 도중에 이미 다 산란되어 소멸하고, 대기를 뚫고 나가는 힘이 강한 붉은색 파장만 끝까지 살아남아 관측자의 눈에 도달해 붉은 노을이 만들어집니다.</li>
+                </ul>
+              </div>
+              <div class="scatter-diagram-box">
+                <!-- 레일리 산란 정적 2열 대비 SVG 다이어그램 -->
+                <svg class="scatter-static-svg" viewBox="0 0 500 240" style="width:100%; height:100%; display:block; background:#ffffff;">
+                  <defs>
+                    <!-- 화살표 정의 -->
+                    <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#1565c0" />
+                    </marker>
+                    <marker id="arrow-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#d32f2f" />
+                    </marker>
+                    <!-- 레일리 대기 그라데이션 (낮) -->
+                    <linearGradient id="dayDomeGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                      <stop offset="0%" stop-color="#90caf9" stop-opacity="0.6" />
+                      <stop offset="100%" stop-color="#e3f2fd" stop-opacity="0.0" />
+                    </linearGradient>
+                    <!-- 레일리 대기 그라데이션 (노을) -->
+                    <linearGradient id="sunsetDomeGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                      <stop offset="0%" stop-color="#ff7043" stop-opacity="0.65" />
+                      <stop offset="100%" stop-color="#ffcc80" stop-opacity="0.1" />
+                    </linearGradient>
+                    <filter id="rayGlow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="4" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
 
-            <!-- 레일리 산란 설명 -->
-            <div class="scatter-desc active" id="desc-rayleigh">
-              <p><strong>레일리 산란(Rayleigh Scattering)</strong>은 빛의 파장보다 훨씬 작은 대기 분자(질소, 산소 등)에 의해 일어납니다.</p>
-              <ul>
-                <li><strong>낮 (파란 하늘):</strong> 태양이 위에 있을 땐 대기 통과 거리가 짧아 파장이 짧은 파란색 빛이 활발히 사방으로 튕겨 흩어지며 하늘을 온통 파랗게 만듭니다.</li>
-                <li><strong>노을 (붉은 하늘):</strong> 해가 지며 대기 통과 경로가 훨씬 길어지면 파란색 빛은 도달하기 전 중간에 다 산란되어 소멸하고, 통과력이 강한 붉은색 파장의 빛만 끝까지 관측자에게 도달하여 붉은 노을이 연출됩니다.</li>
-              </ul>
-            </div>
+                  <!-- 전체 배경 -->
+                  <rect width="500" height="240" fill="#ffffff" rx="16" />
 
-            <!-- 미에 산란 설명 -->
-            <div class="scatter-desc" id="desc-mie">
-              <p><strong>미에 산란(Mie Scattering)</strong>은 빛의 파장과 크기가 비슷하거나 더 큰 입자(에어로졸, 미세먼지, 황사, 물방울 등)에 의해 일어납니다.</p>
-              <ul>
-                <li><strong>황금빛 글로우 (Glow):</strong> 파장에 따른 편차가 없어 모든 파장의 빛을 사방(특히 태양의 전방 진행 방향)으로 널리 산란시킵니다. 태양 주변의 황색 코로나와 웅장한 번짐 효과를 만듭니다.</li>
-                <li><strong>대기 습도의 결함 (광선 흡수):</strong> 미세먼지나 수증기가 적절하면 빛을 흩뿌려 황금빛 노을을 유도하지만, 습도가 80% 이상으로 올라가면 물방울이 광선을 다량 흡수하여 노을 채도가 칙칙해집니다.</li>
-              </ul>
-            </div>
-          </div>
-          <div class="guide-visual visual-scatter" id="scatter-viewport-demo">
-            <svg class="scatter-svg-canvas" viewBox="0 0 500 280" style="width:100%; height:100%; display:block; background:#ffffff;">
-              <defs>
-                <!-- 밝은 공기/하늘 배경 그라데이션 -->
-                <linearGradient id="spaceSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stop-color="#ffffff" />
-                  <stop offset="100%" stop-color="#f1f3f5" />
-                </linearGradient>
+                  <!-- 왼쪽: 낮 (Daytime) -->
+                  <g>
+                    <!-- 대기 돔 -->
+                    <path d="M 15,180 C 45,95 195,95 225,180 Z" fill="url(#dayDomeGrad)" />
+                    <path d="M 15,180 C 45,95 195,95 225,180 Z" fill="none" stroke="#e2e8f0" stroke-width="1.2" />
+                    <!-- 대지 -->
+                    <path d="M 15,180 C 65,175 175,175 225,180 L 225,230 L 15,230 Z" fill="#cbd5e1" stroke="#94a3b8" stroke-width="1" />
+                    <!-- 관측자 -->
+                    <circle cx="120" cy="178" r="5" fill="#1e293b" />
+                    <text class="sim-text-outline" x="120" y="196" fill="#1e293b" font-weight="bold" font-size="10" text-anchor="middle">관측자</text>
+                    <!-- 태양 (머리 위) -->
+                    <circle cx="120" cy="50" r="11" fill="#f59e0b" stroke="#d97706" stroke-width="1.5" />
+                    <!-- 빛 경로 및 산란 선 -->
+                    <!-- 빨간선 (직진) -->
+                    <line x1="120" y1="61" x2="120" y2="173" stroke="#d32f2f" stroke-width="2" marker-end="url(#arrow-red)" />
+                    <!-- 파란선 (대기 진입 후 사방 비산) -->
+                    <line x1="120" y1="61" x2="120" y2="105" stroke="#1565c0" stroke-width="1.2" />
+                    <!-- 꺾인 산란 빔들 -->
+                    <line x1="120" y1="105" x2="75" y2="120" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="120" y1="105" x2="165" y2="120" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="120" y1="105" x2="85" y2="85" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="120" y1="105" x2="155" y2="85" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    
+                    <text class="sim-text-outline" x="120" y="24" fill="#0f172a" font-weight="bold" font-size="11" text-anchor="middle">낮 (대기 통과거리 짧음)</text>
+                    <text class="sim-text-outline" x="55" y="115" fill="#475569" font-size="9" text-anchor="middle">대기 경계</text>
+                  </g>
 
-                <!-- 레일리 대기 돔 그라데이션 (수직) -->
-                <linearGradient id="rayleighAtmosphereGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-                  <stop id="atmosStop0" offset="0%" stop-color="#2196f3" stop-opacity="0.8" />
-                  <stop id="atmosStop1" offset="100%" stop-color="#2196f3" stop-opacity="0.0" />
-                </linearGradient>
+                  <!-- 중앙 수직 구분선 -->
+                  <line x1="250" y1="15" x2="250" y2="225" stroke="#f1f5f9" stroke-width="2" />
 
-                <!-- 미에 대기 돔 그라데이션 -->
-                <linearGradient id="mieAtmosphereGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-                  <stop id="mieAtmosStop0" offset="0%" stop-color="#ffa726" stop-opacity="0.65" />
-                  <stop id="mieAtmosStop1" offset="100%" stop-color="#ffa726" stop-opacity="0.0" />
-                </linearGradient>
+                  <!-- 오른쪽: 노을 (Sunset) -->
+                  <g>
+                    <!-- 대기 돔 -->
+                    <path d="M 275,180 C 305,95 455,95 485,180 Z" fill="url(#sunsetDomeGrad)" />
+                    <path d="M 275,180 C 305,95 455,95 485,180 Z" fill="none" stroke="#e2e8f0" stroke-width="1.2" />
+                    <!-- 대지 -->
+                    <path d="M 275,180 C 325,175 435,175 485,180 L 485,230 L 275,230 Z" fill="#cbd5e1" stroke="#94a3b8" stroke-width="1" />
+                    <!-- 관측자 -->
+                    <circle cx="380" cy="178" r="5" fill="#1e293b" />
+                    <text class="sim-text-outline" x="380" y="196" fill="#1e293b" font-weight="bold" font-size="10" text-anchor="middle">관측자</text>
+                    <!-- 태양 (지평선 근처 측면) -->
+                    <circle cx="295" cy="155" r="11" fill="#ea580c" stroke="#9a3412" stroke-width="1.5" />
+                    <!-- 빛 경로 및 산란 선 -->
+                    <!-- 빨간선 (직선 통과) -->
+                    <line x1="305" y1="157" x2="375" y2="176" stroke="#d32f2f" stroke-width="2.5" marker-end="url(#arrow-red)" />
+                    <!-- 파란선 (대기 초입부 진입하자마자 저 멀리서 다 꺾이고 소멸) -->
+                    <line x1="305" y1="157" x2="330" y2="163" stroke="#1565c0" stroke-width="1.2" />
+                    <line x1="330" y1="163" x2="320" y2="185" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="330" y1="163" x2="315" y2="140" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="330" y1="163" x2="345" y2="145" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
 
-                <filter id="scatterGlow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="6" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-
-              <!-- 0. 밝은 하늘 배경 공통 -->
-              <rect width="500" height="280" fill="url(#spaceSkyGrad)" />
-
-              <!-- 1. 레일리 산란 시각화 (기본 활성) -->
-              <g id="group-rayleigh-demo">
-                <!-- 대기 곡선 돔 (색상 동적 보간 대상) -->
-                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="url(#rayleighAtmosphereGrad)" opacity="0.65" />
-                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1.5" />
-                
-                <!-- 둥근 지구 표면 실루엣 (라이트 톤) -->
-                <path d="M 0,220 C 150,210 350,210 500,220 L 500,280 L 0,280 Z" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5" />
-                
-                <!-- 관측자 -->
-                <circle cx="250" cy="220" r="6" fill="#1e293b" />
-                <text class="sim-text-outline" x="250" y="244" fill="#1e293b" font-weight="bold" font-size="11" text-anchor="middle">관측자</text>
-                <text class="sim-text-outline" x="65" y="150" fill="#475569" font-weight="bold" font-size="10" text-anchor="middle">대기 경계</text>
-                
-                <!-- 태양 (오르내림) -->
-                <circle id="rayleigh-sun" cx="80" cy="140" r="12" fill="#ff9100" stroke="#e65100" stroke-width="1.5" filter="url(#scatterGlow)" />
-                
-                <!-- 파티클들이 생성되어 날아가는 그룹 -->
-                <g id="rayleigh-rays"></g>
-                
-                <text id="rayleigh-state-label" class="sim-text-outline" x="250" y="36" fill="#1e293b" font-size="14" font-weight="bold" text-anchor="middle">레일리 산란 시뮬레이션</text>
-              </g>
-
-              <!-- 2. 미에 산란 시각화 (기본 비활성) -->
-              <g id="group-mie-demo" display="none">
-                <!-- 미에 산란 전용 배경 (습도에 따른 하늘색 ↔ 하얀색 실시간 보간) -->
-                <rect id="mie-bg" width="500" height="280" fill="#e0f2fe" />
-
-                <!-- 대기 곡선 돔 (습도 조절 연계) -->
-                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="url(#mieAtmosphereGrad)" opacity="0.6" />
-                <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1.5" />
-
-                <!-- 둥근 지구 표면 실루엣 (라이트 톤) -->
-                <path d="M 0,220 C 150,210 350,210 500,220 L 500,280 L 0,280 Z" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1.5" />
-
-                <!-- 관측자 -->
-                <circle cx="250" cy="220" r="6" fill="#1e293b" />
-                <text class="sim-text-outline" x="250" y="244" fill="#1e293b" font-weight="bold" font-size="11" text-anchor="middle">관측자</text>
-
-                <!-- 태양 광원 -->
-                <circle cx="250" cy="120" r="13" fill="#ffffff" stroke="#ff8f00" stroke-width="1.5" />
-                <!-- 미에 산란 전방 번짐 -->
-                <circle id="mie-sun-glow" cx="250" cy="120" r="35" fill="rgba(255, 179, 0, 0.5)" filter="url(#scatterGlow)" />
-                
-                <!-- 에어로졸 입자들 -->
-                <g id="mie-particles"></g>
-                <!-- 광선들 -->
-                <g id="mie-rays"></g>
-                
-                <text id="mie-state-label" class="sim-text-outline" x="250" y="36" fill="#1e293b" font-size="14" font-weight="bold" text-anchor="middle">미에 산란 시뮬레이션</text>
-                <!-- 습도에 따른 안개 장막 오버레이 -->
-                <rect id="mie-humidity-fade" width="500" height="280" fill="#e9e8ec" opacity="0" pointer-events="none" />
-              </g>
-            </svg>
-
-            <!-- 미에 산란 습도 슬라이더 컨트롤러 (기본 숨김) -->
-            <div class="mie-slider-overlay" id="mie-slider-container" style="display: none;">
-              <span class="slider-lbl">대기 중 습도</span>
-              <input type="range" id="mie-humidity-slider" min="10" max="95" value="45" style="cursor:pointer;">
-              <span class="slider-val" id="mie-humidity-val">45% (맑음)</span>
+                    <text class="sim-text-outline" x="380" y="24" fill="#0f172a" font-weight="bold" font-size="11" text-anchor="middle">노을 (대기 통과거리 10배)</text>
+                    <text class="sim-text-outline" x="328" y="128" fill="#e65100" font-size="8" text-anchor="middle">파란빛 조기 비산/소멸</text>
+                  </g>
+                </svg>
+              </div>
             </div>
           </div>
+
+          <!-- 상하 구분 실선 -->
+          <div class="scatter-divider"></div>
+
+          <!-- 2. 미에 산란 파트 -->
+          <div class="scatter-block">
+            <div class="scatter-info-header">
+              <h3>2. 미에 산란 (Mie Scattering)</h3>
+              <p>빛의 파장과 크기가 비슷하거나 더 큰 입자(먼지, 에어로졸, 미세먼지, 물방울 등)에 의한 광선 산란과 흡수 현상입니다.</p>
+            </div>
+            <div class="scatter-grid-layout">
+              <div class="scatter-explanation-box">
+                <ul>
+                  <li><strong>건조할 때 (맑은 황금빛 노을):</strong> 대기가 건조하면 에어로졸(물방울)의 크기가 매우 작습니다. 태양 빛이 이 미세입자들과 충돌하여 앞쪽 방향(전방 진행 방향)으로 빛을 폭넓게 고르게 흩뿌립니다. 이는 태양 주변에 웅장한 코로나와 눈부신 황금빛 노을 글로우를 연출합니다.</li>
+                  <li><strong>습할 때 (회색빛 노을 감쇄):</strong> 습도가 80% 이상으로 매우 다습해지면 수증기가 에어로졸 입자에 응결되어 물방울의 크기가 수배 이상 비대해집니다. 비대해진 물방울 입자들은 빛을 산란시키지 못하고 다량으로 흡수·차단해 대기가 흐릿해지고 노을빛의 채도를 칙칙하게 만듭니다.</li>
+                </ul>
+              </div>
+              <div class="scatter-diagram-box">
+                <!-- 미에 산란 정적 2열 대비 SVG 다이어그램 -->
+                <svg class="scatter-static-svg" viewBox="0 0 500 240" style="width:100%; height:100%; display:block; background:#ffffff;">
+                  <defs>
+                    <!-- 미에 빛 번짐 글로우 필터 -->
+                    <filter id="mieStaticGlow" x="-30%" y="-30%" width="160%" height="160%">
+                      <feGaussianBlur stdDeviation="5" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                    <!-- 화살표 정의 -->
+                    <marker id="arrow-gold" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f59e0b" />
+                    </marker>
+                    <marker id="arrow-gray" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#94a3b8" />
+                    </marker>
+                  </defs>
+
+                  <!-- 전체 배경 -->
+                  <rect width="500" height="240" fill="#ffffff" rx="16" />
+
+                  <!-- 왼쪽: 건조 (Dry) -->
+                  <g>
+                    <!-- 맑은 하늘색 배경 -->
+                    <rect x="15" y="40" width="220" height="150" fill="#e0f2fe" rx="10" />
+                    <!-- 에어로졸 입자들 (작은 하늘색 원) -->
+                    <circle cx="80" cy="115" r="4.5" fill="rgba(3, 169, 244, 0.6)" stroke="#0288d1" stroke-width="1" />
+                    <circle cx="160" cy="90" r="3.5" fill="rgba(3, 169, 244, 0.6)" stroke="#0288d1" stroke-width="1" />
+                    <circle cx="150" cy="140" r="4" fill="rgba(3, 169, 244, 0.6)" stroke="#0288d1" stroke-width="1" />
+                    <!-- 태양빛 입사 -->
+                    <line x1="30" y1="115" x2="73" y2="115" stroke="#f59e0b" stroke-width="1.8" />
+                    
+                    <!-- 전방 황금빛 산란 번짐 (글로우) -->
+                    <ellipse cx="140" cy="115" rx="45" ry="30" fill="rgba(251, 192, 45, 0.4)" filter="url(#mieStaticGlow)" />
+                    <!-- 널리 퍼지는 골든 빔들 -->
+                    <line x1="84.5" y1="115" x2="125" y2="95" stroke="#e28800" stroke-width="2" marker-end="url(#arrow-gold)" />
+                    <line x1="84.5" y1="115" x2="135" y2="115" stroke="#e28800" stroke-width="2.5" marker-end="url(#arrow-gold)" />
+                    <line x1="84.5" y1="115" x2="125" y2="135" stroke="#e28800" stroke-width="2" marker-end="url(#arrow-gold)" />
+                    
+                    <text class="sim-text-outline" x="125" y="24" fill="#0f172a" font-weight="bold" font-size="11" text-anchor="middle">건조 (습도 10% - 골든 글로우)</text>
+                    <text class="sim-text-outline" x="180" y="165" fill="#d97706" font-size="9" text-anchor="middle">전방 산란 극대화</text>
+                  </g>
+
+                  <!-- 중앙 수직 구분선 -->
+                  <line x1="250" y1="15" x2="250" y2="225" stroke="#f1f5f9" stroke-width="2" />
+
+                  <!-- 오른쪽: 다습 (Wet) -->
+                  <g>
+                    <!-- 안개낀 탁한 배경 -->
+                    <rect x="265" y="40" width="220" height="150" fill="#f1f1f4" rx="10" />
+                    <!-- 안개 텍스처 오버레이 장막 표현 -->
+                    <rect x="265" y="40" width="220" height="150" fill="#ffffff" opacity="0.45" rx="10" />
+                    <!-- 비대해진 물방울 입자들 (큰 파란색 원) -->
+                    <circle cx="330" cy="115" r="9" fill="rgba(3, 169, 244, 0.9)" stroke="#01579b" stroke-width="1.2" />
+                    <circle cx="410" cy="90" r="7.5" fill="rgba(3, 169, 244, 0.9)" stroke="#01579b" stroke-width="1.2" />
+                    <circle cx="400" cy="140" r="8.5" fill="rgba(3, 169, 244, 0.9)" stroke="#01579b" stroke-width="1.2" />
+                    <!-- 태양빛 입사 -->
+                    <line x1="280" y1="115" x2="318" y2="115" stroke="#ea580c" stroke-width="1.8" />
+
+                    <!-- 감쇄된 아주 흐린 광선 (점선 및 단절) -->
+                    <line x1="339" y1="115" x2="385" y2="115" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-gray)" />
+                    <line x1="339" y1="115" x2="375" y2="95" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-gray)" />
+                    <line x1="339" y1="115" x2="375" y2="135" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-gray)" />
+
+                    <!-- 극도로 약화된 글로우 -->
+                    <circle cx="330" cy="115" r="15" fill="rgba(251, 192, 45, 0.15)" filter="url(#mieStaticGlow)" />
+
+                    <text class="sim-text-outline" x="375" y="24" fill="#0f172a" font-weight="bold" font-size="11" text-anchor="middle">다습 (습도 95% - 빛 흡수/차단)</text>
+                    <text class="sim-text-outline" x="425" y="165" fill="#475569" font-size="9" text-anchor="middle">안개/광선 흡수 감쇄</text>
+                  </g>
+                </svg>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 

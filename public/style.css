@@ -824,93 +824,83 @@ h1, h2, h3, h4, .logo-text {
 }
 
 
-/* Scatter Sub-tab Selector & Descriptions */
-.scatter-selector {
+/* Scatter stacked static layout styling */
+.weather-guide-flow {
   display: flex;
-  gap: 12px;
-  margin: 16px 0 24px 0;
-}
-
-.scatter-tab-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 8px 18px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.scatter-tab-btn:hover, .scatter-tab-btn.active {
-  background: var(--primary);
-  color: #000;
-  border-color: var(--primary);
-  box-shadow: 0 4px 12px var(--primary-glow);
-}
-
-.scatter-desc {
-  display: none;
-}
-
-.scatter-desc.active {
-  display: block;
-  animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Scatter interactive visual positioning & Slider */
-.visual-scatter {
-  position: relative;
-  overflow: hidden;
-  background-color: #ffffff;
-  border: 1px solid var(--border);
-}
-
-.scatter-svg-canvas {
+  flex-direction: column;
+  gap: 36px;
   width: 100%;
-  height: 100%;
 }
 
-.mie-slider-overlay {
-  position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+.scatter-block {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  padding: 8px 16px;
-  border-radius: 12px;
-  pointer-events: auto;
-  z-index: 15;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.scatter-info-header h3 {
+  font-size: 20px;
+  color: #ffffff;
+  margin-bottom: 8px;
   font-family: 'Outfit', sans-serif;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
-  transition: opacity 0.4s ease;
-}
-
-.slider-lbl {
-  font-size: 11px;
   font-weight: 600;
-  color: #475569;
-  white-space: nowrap;
 }
 
-.slider-val {
-  font-size: 12px;
-  font-weight: 800;
-  color: #d97706;
-  min-width: 65px;
-  text-align: right;
+.scatter-info-header p {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.scatter-grid-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  width: 100%;
+}
+
+/* On desktop, show text and diagram block stacked but neat */
+.scatter-explanation-box {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  padding: 20px 24px;
+  border-radius: 14px;
+}
+
+.scatter-explanation-box ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scatter-explanation-box li {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.scatter-diagram-box {
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+  background-color: #ffffff;
+}
+
+.scatter-static-svg {
+  width: 100%;
+  height: auto;
+  min-height: 220px;
+  display: block;
+}
+
+.scatter-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0;
+  width: 100%;
 }
 
 /* Custom slider style */
