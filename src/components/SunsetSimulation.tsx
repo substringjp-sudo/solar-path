@@ -50,10 +50,11 @@ interface SunsetSimulationProps {
   currentTime: Date;
   setCurrentTime: (time: Date) => void;
   setMapVisible: (visible: boolean) => void;
+  activeTab?: 'tracker' | 'sim' | 'gallery';
 }
 
 export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
-  const { theme, currentTime, setCurrentTime, setMapVisible } = props;
+  const { theme, currentTime, setCurrentTime, setMapVisible, activeTab } = props;
   
   const { 
     location, 
@@ -333,7 +334,9 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             weatherSource: (weatherData as CloudPathData[])[0]?.source || 'standard'
           });
           setSimulationLoading(false);
-          setCurrentTime(nextEvent);
+          if (activeTab === 'sim') {
+            setCurrentTime(nextEvent);
+          }
           const sTimes = SunCalc.getTimes(now, latitude, longitude);
           setEventAzimuths({
             sunrise: (SunCalc.getPosition(sTimes.sunrise, latitude, longitude).azimuth * 180 / Math.PI) + 180,

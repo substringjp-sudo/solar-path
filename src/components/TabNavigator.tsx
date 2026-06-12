@@ -290,6 +290,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             currentTime={currentTime}
             setCurrentTime={setCurrentTime}
             setMapVisible={setMapVisible}
+            activeTab={activeTab}
           />
         </View>
 

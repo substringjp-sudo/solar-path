@@ -1,29 +1,29 @@
 /* BeforeGlow Official Style System */
-
+ 
 :root {
-  --primary: #FF7043;
-  --primary-glow: rgba(255, 112, 67, 0.4);
-  --accent: #FFD700;
-  --bg: #0D0814;
-  --bg-card: rgba(26, 17, 36, 0.65);
-  --border: rgba(255, 255, 255, 0.08);
-  --text: #F3F1F6;
-  --text-muted: #A39EAE;
-  --glass: rgba(20, 15, 30, 0.75);
+  --primary: #FF5722;
+  --primary-glow: rgba(255, 87, 34, 0.15);
+  --accent: #E65100;
+  --bg: #E8EDF2;
+  --bg-card: #FFFFFF;
+  --border: rgba(0, 0, 0, 0.08);
+  --text: #1A1A1A;
+  --text-muted: #555555;
+  --glass: rgba(255, 255, 255, 0.75);
   --glass-blur: blur(20px);
   --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
+ 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
-
+ 
 html {
   scroll-behavior: smooth;
 }
-
+ 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--bg);
@@ -31,12 +31,12 @@ body {
   overflow-x: hidden;
   line-height: 1.6;
 }
-
+ 
 h1, h2, h3, h4, .logo-text {
   font-family: 'Outfit', sans-serif;
   font-weight: 600;
 }
-
+ 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
@@ -45,13 +45,13 @@ h1, h2, h3, h4, .logo-text {
   background: var(--bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.12);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
 }
-
+ 
 /* Navigation Bar */
 .navbar {
   position: fixed;
@@ -59,15 +59,22 @@ h1, h2, h3, h4, .logo-text {
   left: 0;
   right: 0;
   height: 72px;
-  background-color: rgba(13, 8, 20, 0.8);
+  background-color: rgba(255, 255, 255, 0.55);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
   z-index: 1000;
   display: flex;
   align-items: center;
+  transition: var(--transition);
 }
 
+.navbar.scrolled {
+  background-color: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+ 
 .nav-container {
   width: 100%;
   max-width: 1200px;
@@ -77,31 +84,31 @@ h1, h2, h3, h4, .logo-text {
   justify-content: space-between;
   align-items: center;
 }
-
+ 
 .logo-area {
   display: flex;
   align-items: center;
   gap: 12px;
   cursor: pointer;
 }
-
+ 
 .nav-logo {
   filter: drop-shadow(0 2px 8px var(--primary-glow));
 }
-
+ 
 .logo-text {
   font-size: 22px;
   font-weight: 800;
-  background: linear-gradient(135deg, #FFF, #FF8A65);
+  background: linear-gradient(135deg, #1A1A1A, #FF7043);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-
+ 
 .nav-menu {
   display: flex;
   gap: 32px;
 }
-
+ 
 .nav-link {
   color: var(--text-muted);
   text-decoration: none;
@@ -109,18 +116,18 @@ h1, h2, h3, h4, .logo-text {
   font-weight: 500;
   transition: var(--transition);
 }
-
+ 
 .nav-link:hover {
   color: var(--text);
-  text-shadow: 0 0 10px rgba(255,255,255,0.3);
 }
-
+ 
 /* Hero Section */
 .hero-section {
   position: relative;
   padding: 160px 0 100px 0;
-  background: radial-gradient(circle at 80% 20%, rgba(255, 112, 67, 0.12) 0%, transparent 60%),
-              radial-gradient(circle at 20% 80%, rgba(147, 112, 219, 0.15) 0%, transparent 50%);
+  background: radial-gradient(circle at 80% 20%, rgba(255, 112, 67, 0.1) 0%, transparent 60%),
+              radial-gradient(circle at 20% 80%, rgba(147, 112, 219, 0.1) 0%, transparent 50%),
+              #E8EDF2;
   border-bottom: 1px solid var(--border);
 }
 
@@ -159,10 +166,10 @@ h1, h2, h3, h4, .logo-text {
 }
 
 .hero-title .highlight {
-  background: linear-gradient(135deg, #FF7043, #FFB74D);
+  background: linear-gradient(135deg, #D84315, #FF5722);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 4px 12px var(--primary-glow));
+  filter: drop-shadow(0 2px 6px var(--primary-glow));
 }
 
 .hero-desc {
@@ -253,31 +260,142 @@ h1, h2, h3, h4, .logo-text {
 .phone-screen {
   width: 100%;
   height: 100%;
-  background-color: #0c0813;
+  background-color: #E8EDF2;
   position: relative;
   display: flex;
   flex-direction: column;
 }
-
-.screen-header {
-  height: 56px;
-  padding: 24px 16px 8px 16px;
+ 
+/* 공통 헤더 통합 & 노치 대응 패딩 */
+.phone-app-header {
+  padding: 26px 12px 6px 12px;
+  background-color: #E8EDF2;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+ 
+.phone-header-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  z-index: 10;
 }
-
-.header-icon {
-  width: 16px;
-  height: 16px;
+ 
+/* 알약형 3단 토글 스위치 */
+.phone-nav-toggle {
+  display: flex;
+  position: relative;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 2px;
+  border-radius: 15px;
+  width: 136px;
+  height: 28px;
+}
+ 
+.phone-nav-indicator {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  bottom: 2px;
+  width: 44px; /* (136 - 4) / 3 = 44 */
+  background-color: #1A1A1A;
+  border-radius: 12px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+ 
+.phone-nav-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  z-index: 2;
+  transition: color 0.2s ease;
+  padding: 0;
+  line-height: 22px;
+}
+ 
+.phone-nav-btn.active {
+  color: #E8EDF2 !important;
+}
+ 
+/* 우측 헤더 아이콘 버튼 */
+.phone-header-right {
+  display: flex;
+  gap: 6px;
+}
+ 
+.phone-icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+ 
+.phone-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+ 
+.phone-icon-btn svg {
+  width: 12px;
+  height: 12px;
+}
+ 
+.phone-camera-btn {
+  background: #FF4500;
+  border-color: #FF4500;
+  color: #FFF;
+  box-shadow: 0 2px 6px rgba(255, 69, 0, 0.3);
+}
+ 
+/* 폰용 가로 날짜 바 */
+.phone-date-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  padding: 4px 10px;
+  border-radius: 10px;
+  height: 26px;
+  transition: opacity 0.2s ease;
+}
+ 
+.date-arrow {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+ 
+.date-label-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+ 
+.cal-icon {
+  width: 10px;
+  height: 10px;
   color: var(--text-muted);
 }
-
-.header-title {
-  font-size: 13px;
-  font-weight: 600;
+ 
+.phone-date-text {
+  font-size: 10px;
+  font-weight: 700;
   color: var(--text);
 }
 
@@ -554,9 +672,7 @@ h1, h2, h3, h4, .logo-text {
   font-size: 36px;
   font-weight: 800;
   margin-bottom: 16px;
-  background: linear-gradient(135deg, #FFF, #D1C4E9);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #1A1A1A;
 }
 
 .section-subtitle {
@@ -576,12 +692,29 @@ h1, h2, h3, h4, .logo-text {
   border-radius: 20px;
   padding: 32px;
   transition: var(--transition);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .feature-card:hover {
   transform: translateY(-5px);
   border-color: rgba(255, 112, 67, 0.3);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}
+
+.feature-visual {
+  width: 100%;
+  height: 140px;
+  margin-top: 24px;
+  border-radius: 12px;
+  background: rgba(10, 6, 16, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .feature-icon-wrapper {
@@ -677,7 +810,7 @@ h1, h2, h3, h4, .logo-text {
 .guide-info-text h3 {
   font-size: 26px;
   margin-bottom: 16px;
-  color: #FFF;
+  color: var(--text);
 }
 
 .guide-info-text p {
@@ -715,11 +848,18 @@ h1, h2, h3, h4, .logo-text {
   border: 1px solid var(--border);
 }
 
+.guide-visual-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 /* Weather sub-tabs style */
 .weather-selector {
   display: flex;
   gap: 10px;
-  margin-bottom: 24px;
+  margin-top: 16px;
+  justify-content: center;
 }
 
 .weather-tab-btn {
@@ -829,27 +969,27 @@ h1, h2, h3, h4, .logo-text {
 
 .scatter-info-header h3 {
   font-size: 20px;
-  color: #ffffff;
+  color: #110722 !important;
   margin-bottom: 8px;
   font-family: 'Outfit', sans-serif;
   font-weight: 600;
 }
-
+ 
 .scatter-info-header p {
   font-size: 14px;
   color: var(--text-muted);
 }
-
+ 
 .scatter-grid-layout {
   display: grid;
   grid-template-columns: 1fr;
   gap: 24px;
   width: 100%;
 }
-
+ 
 /* On desktop, show text and diagram block stacked but neat */
 .scatter-explanation-box {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   padding: 20px 24px;
   border-radius: 14px;
@@ -927,7 +1067,7 @@ h1, h2, h3, h4, .logo-text {
 
 .cloud-guide-header h3 {
   font-size: 24px;
-  color: #FFF;
+  color: var(--text);
   margin-bottom: 10px;
 }
 
@@ -985,10 +1125,10 @@ h1, h2, h3, h4, .logo-text {
   text-align: left;
   padding: 16px 20px;
   border-bottom: 2px solid var(--border);
-  color: #FFF;
+  color: var(--text);
   font-size: 13px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .cloud-guide-table td {
@@ -1047,7 +1187,7 @@ h1, h2, h3, h4, .logo-text {
 .cloud-ko-name {
   font-size: 15px;
   font-weight: 700;
-  color: #FFF;
+  color: var(--text);
 }
 
 .cloud-en-name {
@@ -1114,9 +1254,9 @@ h1, h2, h3, h4, .logo-text {
 }
 
 .cond-val {
-  color: #FFF;
+  color: var(--text);
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.04);
   padding: 1px 4px;
   border-radius: 4px;
   font-size: 10px;
@@ -1179,7 +1319,7 @@ h1, h2, h3, h4, .logo-text {
 
 .policy-scroll h3 {
   font-size: 18px;
-  color: #FFF;
+  color: var(--text);
   margin: 28px 0 12px 0;
 }
 
@@ -1220,7 +1360,7 @@ h1, h2, h3, h4, .logo-text {
 }
 
 .credit-item {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   padding: 24px;
   border-radius: 16px;
@@ -1229,7 +1369,7 @@ h1, h2, h3, h4, .logo-text {
 .credit-item h4 {
   font-size: 16px;
   margin-bottom: 8px;
-  color: #FFF;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1260,26 +1400,26 @@ h1, h2, h3, h4, .logo-text {
 
 /* Footer */
 .footer {
-  background-color: #060309;
+  background-color: #DFE5EB;
   padding: 40px 24px;
   border-top: 1px solid var(--border);
   text-align: center;
 }
-
+ 
 .footer-container {
   max-width: 1200px;
   margin: 0 auto;
 }
-
+ 
 .copyright {
   font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 8px;
 }
-
+ 
 .hosting-note {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.25);
+  color: rgba(0, 0, 0, 0.4);
 }
 
 /* Keyframe Animations */

@@ -21,7 +21,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
 export default function App() {
-  const { language, isAppReady, preloadInitialData } = useCelestialStore();
+  const { language, isAppReady, preloadInitialData, preloadStatus } = useCelestialStore();
   const {
     animating,
     showDatePicker,
@@ -96,9 +96,63 @@ export default function App() {
     }
   }, [isAppReady]);
 
-  // 로딩 진행 중(스플래시 화면 유지 중)에는 내부 컴포넌트 렌더링을 완전히 유예합니다.
+  const logoScale = React.useRef(new Animated.Value(0.9)).current;
+  const logoOpacity = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (!isAppReady) {
+      Animated.parallel([
+        Animated.timing(logoOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.spring(logoScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(logoScale, {
+              toValue: 1.04,
+              duration: 1200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(logoScale, {
+              toValue: 1,
+              duration: 1200,
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
+      });
+    }
+  }, [isAppReady]);
+
+  // 로딩 진행 중(스플래시 화면 유지 중)에는 커스텀 로딩 화면을 렌더링합니다.
   if (!isAppReady) {
-    return null;
+    return (
+      <View style={styles.loadingContainer}>
+        <Animated.View style={[
+          styles.logoWrapper,
+          {
+            opacity: logoOpacity,
+            transform: [{ scale: logoScale }]
+          }
+        ]}>
+          <Animated.Image 
+            source={require('../assets/icon.png')} 
+            style={styles.loadingLogo} 
+            resizeMode="cover"
+          />
+        </Animated.View>
+        <ActivityIndicator size="large" color="#FFD700" style={{ marginTop: 28 }} />
+        <Text style={styles.preloadStatusText}>{t(preloadStatus as any, language)}</Text>
+      </View>
+    );
   }
 
   // 권한 체크 후 권한 거부 시 권한 요청 화면 렌더링
@@ -413,5 +467,35 @@ const styles = StyleSheet.create({
   warningConfirmText: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#08080C',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoWrapper: {
+    borderRadius: 32,
+    backgroundColor: '#08080C',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 215, 0, 0.25)', // 은은한 골드 테두리
+    shadowColor: '#FFD700', // 금빛 글로우
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 15,
+    elevation: 20,
+  },
+  loadingLogo: {
+    width: 128,
+    height: 128,
+    borderRadius: 30,
+    overflow: 'hidden', // Android/iOS 둥근 모서리 보장
+  },
+  preloadStatusText: {
+    color: '#AAAAAA',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 20,
+    letterSpacing: 0.5,
   },
 });

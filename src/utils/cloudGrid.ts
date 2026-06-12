@@ -94,7 +94,9 @@ export const fetchCloudGrid = async (
 
   // Enforce cooldown
   if (now - lastFetchTimestamp < COOLDOWN_MS) {
-    console.log('[CloudGrid] Cooldown active, skipping fetch');
+    if (__DEV__) {
+      console.log('[CloudGrid] Cooldown active, skipping fetch');
+    }
     return cached ?? null;
   }
 
@@ -124,7 +126,9 @@ export const fetchCloudGrid = async (
     `&timezone=auto`;
 
   const startTime = Date.now();
-  console.log(`[CloudGrid] Request URL: ${url}`);
+  if (__DEV__) {
+    console.log(`[CloudGrid] Request URL: ${url}`);
+  }
 
   try {
     const response = await fetch(url);
@@ -137,7 +141,9 @@ export const fetchCloudGrid = async (
 
     const data = await response.json();
     const duration = Date.now() - startTime;
-    console.log(`[CloudGrid] Successfully fetched grid data in ${duration}ms. Size: ${Array.isArray(data) ? data.length : 1} items.`);
+    if (__DEV__) {
+      console.log(`[CloudGrid] Successfully fetched grid data in ${duration}ms. Size: ${Array.isArray(data) ? data.length : 1} items.`);
+    }
     const results = Array.isArray(data) ? data : [data];
 
     const targetMs = targetTime.getTime();
@@ -186,7 +192,9 @@ export const fetchCloudGrid = async (
     };
 
     gridCache.set(cacheKey, grid);
-    console.log(`[CloudGrid] Fetched ${points.length} grid points successfully`);
+    if (__DEV__) {
+      console.log(`[CloudGrid] Fetched ${points.length} grid points successfully`);
+    }
     return grid;
   } catch (error) {
     console.error('[CloudGrid] Fetch failed:', error);

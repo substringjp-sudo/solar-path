@@ -94,6 +94,7 @@ interface CelestialState {
   isDebugMode: boolean;
   language: 'ko' | 'en';
   isAppReady: boolean;
+  preloadStatus: string;
   
   // Actions
   setCurrentTime: (time: Date) => void;
@@ -182,6 +183,7 @@ export const useCelestialStore = create<CelestialState>()(
       isDebugMode: false,
       language: 'ko',
       isAppReady: false,
+      preloadStatus: 'initializingApp',
 
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
@@ -685,14 +687,16 @@ export const useCelestialStore = create<CelestialState>()(
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
         try {
+          set({ preloadStatus: 'checkingPermissions' });
           await get().checkPermissions();
           const locPerm = get().locationPermission;
-
+ 
           if (locPerm !== 'granted') {
             set({ isAppReady: true });
             return;
           }
-
+ 
+          set({ preloadStatus: 'locatingPosition' });
           let loc = null;
           try {
             loc = await Location.getLastKnownPositionAsync({});
@@ -702,11 +706,11 @@ export const useCelestialStore = create<CelestialState>()(
           } catch (e) {
             console.warn('Failed to get location, using default:', e);
           }
-
+ 
           const defaultCoords = { latitude: 37.5665, longitude: 126.9780 };
           const lat = loc?.coords.latitude ?? defaultCoords.latitude;
           const lon = loc?.coords.longitude ?? defaultCoords.longitude;
-
+ 
           if (loc) {
             await get().setLocation(loc);
           } else {
@@ -722,7 +726,7 @@ export const useCelestialStore = create<CelestialState>()(
               timestamp: Date.now()
             });
           }
-
+ 
           const now = new Date();
           const times = SunCalc.getTimes(now, lat, lon);
           let targetEvent = times.sunset;
@@ -736,15 +740,16 @@ export const useCelestialStore = create<CelestialState>()(
             targetEvent = times.sunrise;
             eventType = 'Sunrise';
           }
-
+ 
           const pos = SunCalc.getPosition(targetEvent, lat, lon);
           const az = (pos.azimuth * 180 / Math.PI) + 180;
-
+ 
           const offsetHours = get().timezoneOffsetHours || 9;
           const localTime = new Date(now.getTime() + offsetHours * 3600 * 1000);
           const dateStr = localTime.toISOString().split('T')[0];
-
+ 
           console.log(`[Preload] Fetching weather/terrain for lat=${lat}, lon=${lon}`);
+          set({ preloadStatus: 'analyzingData' });
           await Promise.all([
             fetchSunsetWeather(lat, lon, az, false, targetEvent).then(weatherData => {
               if (weatherData) {
@@ -769,7 +774,8 @@ export const useCelestialStore = create<CelestialState>()(
               }
             }).catch(err => console.warn('Preload Terrain failed:', err))
           ]);
-
+ 
+          set({ preloadStatus: 'simulationReady' });
           console.log('[Preload] Completed successfully');
         } catch (err) {
           console.warn('[Preload] Error during initialization preloading:', err);

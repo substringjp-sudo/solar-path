@@ -6,23 +6,41 @@ document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
   }
 
-  // 1. Phone Simulator Viewport Tab Switcher
-  const phoneTabs = document.querySelectorAll('.tab-indicator');
+  // 1. Phone Simulator Viewport Tab Switcher (Updated to Top Navigation Toggle)
+  const phoneNavBtns = document.querySelectorAll('.phone-nav-btn');
   const simScreens = document.querySelectorAll('.sim-screen');
+  const phoneNavIndicator = document.getElementById('phoneNavIndicator');
+  const phoneDateNav = document.getElementById('phoneDateNav');
 
-  phoneTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const targetScreenId = tab.getAttribute('data-target');
+  phoneNavBtns.forEach((btn, index) => {
+    btn.addEventListener('click', () => {
+      const targetScreenId = btn.getAttribute('data-target');
 
-      // Deactivate all tabs and screens
-      phoneTabs.forEach(t => t.classList.remove('active'));
+      // Deactivate all buttons and screens
+      phoneNavBtns.forEach(b => b.classList.remove('active'));
       simScreens.forEach(s => s.classList.remove('active'));
 
-      // Activate clicked tab and matched screen
-      tab.classList.add('active');
+      // Activate clicked button and matched screen
+      btn.classList.add('active');
       const targetScreen = document.getElementById(targetScreenId);
       if (targetScreen) {
         targetScreen.classList.add('active');
+      }
+
+      // Slide the indicator background (44px * index)
+      if (phoneNavIndicator) {
+        phoneNavIndicator.style.transform = `translateX(${index * 44}px)`;
+      }
+
+      // Show/Hide Date Navigation depending on active screen (hidden in Gallery)
+      if (phoneDateNav) {
+        if (targetScreenId === 'screen-gallery') {
+          phoneDateNav.style.opacity = '0';
+          phoneDateNav.style.pointerEvents = 'none';
+        } else {
+          phoneDateNav.style.opacity = '1';
+          phoneDateNav.style.pointerEvents = 'auto';
+        }
       }
     });
   });
@@ -76,11 +94,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const navbar = document.querySelector('.navbar');
   window.addEventListener('scroll', () => {
     if (window.scrollY > 50) {
-      navbar.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.4)';
-      navbar.style.backgroundColor = 'rgba(10, 6, 16, 0.95)';
+      navbar.classList.add('scrolled');
     } else {
-      navbar.style.boxShadow = 'none';
-      navbar.style.backgroundColor = 'rgba(13, 8, 20, 0.8)';
+      navbar.classList.remove('scrolled');
     }
   });
 
@@ -187,12 +203,18 @@ document.addEventListener('DOMContentLoaded', () => {
       { shape: '#cloud-shape-cumulus-1', scale: 0.7, x: 190, y: 120, speed: 0.32, layer: 'low', width: 190 }
     ],
     overcast: [
-      { shape: '#cloud-shape-nimbostratus', scale: 1.1, x: -80, y: 45, speed: 0.45, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-cumulus-2', scale: 1.3, x: 80, y: 80, speed: 0.55, layer: 'low', width: 215 },
-      { shape: '#cloud-shape-nimbostratus', scale: 1.2, x: 230, y: 60, speed: 0.4, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-cumulus-1', scale: 1.4, x: 380, y: 110, speed: 0.5, layer: 'low', width: 190 },
-      { shape: '#cloud-shape-nimbostratus', scale: 1.0, x: 520, y: 90, speed: 0.35, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-cumulus-2', scale: 1.1, x: 160, y: 130, speed: 0.48, layer: 'low', width: 215 }
+      { shape: '#cloud-shape-nimbostratus', scale: 1.8, x: -100, y: -10, speed: 0.3, layer: 'low', width: 200 },
+      { shape: '#cloud-shape-nimbostratus', scale: 1.7, x: 100, y: 10, speed: 0.35, layer: 'low', width: 200 },
+      { shape: '#cloud-shape-nimbostratus', scale: 1.8, x: 300, y: -5, speed: 0.25, layer: 'low', width: 200 },
+      { shape: '#cloud-shape-nimbostratus', scale: 1.7, x: 500, y: 5, speed: 0.32, layer: 'low', width: 200 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.6, x: -50, y: 30, speed: 0.4, layer: 'low', width: 215 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.5, x: 150, y: 50, speed: 0.45, layer: 'low', width: 215 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.6, x: 350, y: 25, speed: 0.38, layer: 'low', width: 215 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.5, x: 550, y: 45, speed: 0.42, layer: 'low', width: 215 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.5, x: 0, y: 70, speed: 0.5, layer: 'low', width: 190 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.6, x: 200, y: 90, speed: 0.48, layer: 'low', width: 190 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.5, x: 400, y: 80, speed: 0.52, layer: 'low', width: 190 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.6, x: 600, y: 95, speed: 0.46, layer: 'low', width: 190 }
     ]
   };
 

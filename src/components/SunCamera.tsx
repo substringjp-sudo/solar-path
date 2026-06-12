@@ -540,7 +540,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       };
 
       // 갤러리에 저장 및 EXIF 기록 시뮬레이션 로깅
-      console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
+      if (__DEV__) {
+        console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
+      }
 
       // 1. 백그라운드에서 시뮬레이션 예측 이미지 생성
       // seed: 촬영 위치 + 시각 기반으로 매번 다른 구름 배치 생성
@@ -586,10 +588,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     } catch (error) {
       console.warn('[SunCamera] Capture error:', error);
-      Alert.alert('Error', 'An error occurred while taking photo.');
+      Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language]);
 
   // 업로드 및 공유 처리
   const handleUpload = useCallback(async () => {
@@ -608,7 +610,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           await MediaLibrary.saveToLibraryAsync(previewUri);
           savedToLibrary = true;
         } else {
-          Alert.alert('Permission Required', 'Gallery permission is required to save photos.');
+          Alert.alert(t('permissionRequired', language), t('galleryPermissionRequiredMsg', language));
           setIsUploading(false);
           return;
         }
@@ -652,9 +654,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           capturedSimSample,
           manipulatedSimUri
         );
-        Alert.alert('Success', `${uploadedLocationName}의 사진과 날씨 정보가 성공적으로 업로드되었습니다!`);
+        Alert.alert(t('uploadSuccess', language), t('uploadSuccessWithLocation', language).replace('{location}', uploadedLocationName));
       } else if (!user) {
-        Alert.alert('Saved to Gallery', '사진이 갤러리에 저장되었습니다. 맵에 공유하려면 로그인해 주세요!');
+        Alert.alert(t('saveSuccess', language), t('saveSuccessMsg', language));
       }
 
       // 성공 후 상태 초기화 및 닫기
@@ -669,10 +671,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     } catch (uploadError: any) {
       console.error('[SunCamera] Upload failed:', uploadError);
-      Alert.alert('Upload Failed', '오류가 발생해 업로드에 실패했습니다: ' + (uploadError.message || 'Unknown error'));
+      Alert.alert(t('uploadFailed', language), t('uploadFailedMsg', language) + (uploadError.message || 'Unknown error'));
       setIsUploading(false);
     }
-  }, [previewUri, simPreviewUri, landscapeScore, weatherScore, capturedWeatherInfo, capturedSimSample, mediaPermission, requestMediaPermission, latitude, longitude, uploadAndPostPhoto, onClose, isUploading]);
+  }, [previewUri, simPreviewUri, landscapeScore, weatherScore, capturedWeatherInfo, capturedSimSample, mediaPermission, requestMediaPermission, latitude, longitude, uploadAndPostPhoto, onClose, isUploading, language]);
 
   // 권한 요청
   useEffect(() => {
@@ -696,7 +698,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             <Text style={styles.permissionBtnText}>Allow Permission</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.closeTextBtn} onPress={onClose}>
-            <Text style={styles.closeTextBtnText}>Close</Text>
+            <Text style={styles.closeTextBtnText}>{t('close', language)}</Text>
           </TouchableOpacity>
         </View>
       </Modal>
@@ -715,18 +717,18 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         {previewUri ? (
           // 촬영 후 미리보기 & 평가 입력 화면
           <View style={styles.previewContainer}>
-            <Text style={styles.previewTitle}>노을 기록하기</Text>
+            <Text style={styles.previewTitle}>{t('recordSunset', language)}</Text>
             
             {/* 이미지 비교 영역 */}
             <View style={styles.compareImagesRow}>
               <View style={styles.compareImageWrapper}>
                 <Image source={{ uri: previewUri }} style={styles.compareImage} />
-                <Text style={styles.compareImageLabel}>실제 풍경 사진</Text>
+                <Text style={styles.compareImageLabel}>{t('actualLandscape', language)}</Text>
               </View>
               {simPreviewUri ? (
                 <View style={styles.compareImageWrapper}>
                   <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
-                  <Text style={styles.compareImageLabel}>시뮬레이션 예측</Text>
+                  <Text style={styles.compareImageLabel}>{t('simulationPrediction', language)}</Text>
                 </View>
               ) : null}
             </View>
@@ -734,7 +736,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             {/* 별점 평가 카드 */}
             <View style={styles.scoreCard}>
               <View style={styles.scoreRow}>
-                <Text style={styles.scoreLabel}>풍경 점수</Text>
+                <Text style={styles.scoreLabel}>{t('landscapeScoreLabel', language)}</Text>
                 <View style={styles.starsContainer}>
                   {[1, 2, 3, 4, 5].map((num) => (
                     <TouchableOpacity key={num} onPress={() => setLandscapeScore(num)}>
@@ -750,7 +752,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </View>
 
               <View style={styles.scoreRow}>
-                <Text style={styles.scoreLabel}>기상 점수</Text>
+                <Text style={styles.scoreLabel}>{t('weatherScoreLabel', language)}</Text>
                 <View style={styles.starsContainer}>
                   {[1, 2, 3, 4, 5].map((num) => (
                     <TouchableOpacity key={num} onPress={() => setWeatherScore(num)}>
@@ -768,7 +770,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               {capturedWeatherInfo && (
                 <View style={styles.weatherSummary}>
                   <Text style={styles.weatherSummaryText}>
-                    습도 {capturedWeatherInfo.humidity}%  |  미세먼지 {capturedWeatherInfo.pm25}㎍  |  기상 {capturedWeatherInfo.description}
+                    {t('humidityLabel', language)} {capturedWeatherInfo.humidity}%  |  {t('dustLabel', language)} {capturedWeatherInfo.pm25}㎍  |  {t('weatherLabel', language)} {translateSunsetDesc(capturedWeatherInfo.description, language)}
                   </Text>
                 </View>
               )}
@@ -785,7 +787,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 disabled={isUploading}
               >
                 <RefreshCw size={18} color="#FFF" style={{ marginRight: 8 }} />
-                <Text style={styles.previewRetakeText}>다시 찍기</Text>
+                <Text style={styles.previewRetakeText}>{t('retake', language)}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -798,7 +800,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 ) : (
                   <>
                     <Check size={18} color="#000" style={{ marginRight: 8 }} />
-                    <Text style={styles.previewUploadText}>저장 및 업로드</Text>
+                    <Text style={styles.previewUploadText}>{t('saveAndUpload', language)}</Text>
                   </>
                 )}
               </TouchableOpacity>

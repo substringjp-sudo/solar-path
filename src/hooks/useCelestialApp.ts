@@ -10,6 +10,8 @@ import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
+import { t, Language } from '../utils/i18n';
+
 
 
 Notifications.setNotificationHandler({
@@ -32,7 +34,7 @@ const requestNotificationPermission = async () => {
   return finalStatus === 'granted';
 };
 
-const scheduleSunsetNotification = async (sunsetTime: Date, score: number) => {
+const scheduleSunsetNotification = async (sunsetTime: Date, score: number, language: Language) => {
   try {
     // 일몰 2시간 전으로 트리거 시각 설정
     const triggerTime = new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
@@ -40,22 +42,27 @@ const scheduleSunsetNotification = async (sunsetTime: Date, score: number) => {
       return;
     }
 
+    const title = t('sunsetNotificationTitle', language);
+    const body = t('sunsetNotificationBody', language).replace('{score}', score.toString());
+
     await Notifications.scheduleNotificationAsync({
       identifier: 'sunset-alert',
       content: {
-        title: '🌅 오늘의 스마트 노을 알림',
-        body: `오늘 일몰의 예측 점수가 ${score}점입니다! 2시간 뒤 골든아워가 시작됩니다.`,
+        title,
+        body,
         sound: true,
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
     });
-    console.log('[Sunset Push Notification Scheduled]', triggerTime);
+    if (__DEV__) {
+      console.log('[Sunset Push Notification Scheduled]', triggerTime);
+    }
   } catch (err) {
     console.error('Failed to schedule sunset notification:', err);
   }
 };
 
-const scheduleSunriseNotification = async (sunriseTime: Date, score: number) => {
+const scheduleSunriseNotification = async (sunriseTime: Date, score: number, language: Language) => {
   try {
     // 일출 전날 밤 10시 (22:00)로 트리거 시각 설정
     const triggerTime = new Date(sunriseTime.getTime());
@@ -66,16 +73,21 @@ const scheduleSunriseNotification = async (sunriseTime: Date, score: number) => 
       return;
     }
 
+    const title = t('sunriseNotificationTitle', language);
+    const body = t('sunriseNotificationBody', language).replace('{score}', score.toString());
+
     await Notifications.scheduleNotificationAsync({
       identifier: 'sunrise-alert',
       content: {
-        title: '🌅 내일의 스마트 일출 알림',
-        body: `내일 일출의 예측 점수가 ${score}점입니다! 내일 아침 멋진 일출을 미리 준비해 보세요.`,
+        title,
+        body,
         sound: true,
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
     });
-    console.log('[Sunrise Push Notification Scheduled]', triggerTime);
+    if (__DEV__) {
+      console.log('[Sunrise Push Notification Scheduled]', triggerTime);
+    }
   } catch (err) {
     console.error('Failed to schedule sunrise notification:', err);
   }
@@ -88,7 +100,7 @@ export function useCelestialApp() {
   const { 
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations, currentUser, myPhotos, globalPhotos,
-    locationPermission, cameraPermission, isSimulationLoading,
+    locationPermission, cameraPermission, isSimulationLoading, language,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
@@ -582,22 +594,24 @@ export function useCelestialApp() {
 
             if (prediction) {
               const score = prediction.score;
-              await scheduleSunsetNotification(sunsetTime, score);
+              await scheduleSunsetNotification(sunsetTime, score, language);
 
               // 오늘 노을 점수 기준 동적 앱 아이콘 업데이트
               try {
-                let targetIcon: 'icon_muted' | 'icon_clear' | 'icon_epic' = 'icon_clear';
+                let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
                 if (score <= 35) {
-                  targetIcon = 'icon_muted';
+                  targetIcon = 'spiconmuted';
                 } else if (score >= 75) {
-                  targetIcon = 'icon_epic';
+                  targetIcon = 'spiconepic';
                 }
 
                 if (typeof setAppIcon === 'function') {
                   const currentIcon = getAppIcon();
                   if (currentIcon !== targetIcon) {
                     setAppIcon(targetIcon);
-                    console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunset Score: ${score})`);
+                    if (__DEV__) {
+                      console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunset Score: ${score})`);
+                    }
                   }
                 }
               } catch (iconErr) {
@@ -645,22 +659,24 @@ export function useCelestialApp() {
 
             if (prediction) {
               const score = prediction.score;
-              await scheduleSunriseNotification(sunriseTime, score);
+              await scheduleSunriseNotification(sunriseTime, score, language);
 
               // 내일 일출 점수 기준 동적 앱 아이콘 업데이트 (밤 10시 알림 발송 시점에 같이 갱신해 미리 준비)
               try {
-                let targetIcon: 'icon_muted' | 'icon_clear' | 'icon_epic' = 'icon_clear';
+                let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
                 if (score <= 35) {
-                  targetIcon = 'icon_muted';
+                  targetIcon = 'spiconmuted';
                 } else if (score >= 75) {
-                  targetIcon = 'icon_epic';
+                  targetIcon = 'spiconepic';
                 }
 
                 if (typeof setAppIcon === 'function') {
                   const currentIcon = getAppIcon();
                   if (currentIcon !== targetIcon) {
                     setAppIcon(targetIcon);
-                    console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunrise Score: ${score})`);
+                    if (__DEV__) {
+                      console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunrise Score: ${score})`);
+                    }
                   }
                 }
               } catch (iconErr) {

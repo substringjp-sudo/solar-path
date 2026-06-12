@@ -135,7 +135,9 @@ export const fetchSunsetWeather = async (
   }
   
   const startTime = Date.now();
-  console.log(`[WeatherAPI] Fetching weather data for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)}, azimuth=${azimuth.toFixed(1)} (Date: ${targetDateStr}, Nowcast: ${useNowcast})`);
+  if (__DEV__) {
+    console.log(`[WeatherAPI] Fetching weather data for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)}, azimuth=${azimuth.toFixed(1)} (Date: ${targetDateStr}, Nowcast: ${useNowcast})`);
+  }
 
   // Define 36 virtual points representing the full 5-Ray * 7-Distance grid
   const angles = [-20, -10, 0, 10, 20];
@@ -210,7 +212,9 @@ export const fetchSunsetWeather = async (
       `&timezone=auto${modelParam}`;
   }
 
-  console.log(`[WeatherAPI] Request URL: ${url}`);
+  if (__DEV__) {
+    console.log(`[WeatherAPI] Request URL: ${url}`);
+  }
 
   try {
     let response;
@@ -249,7 +253,9 @@ export const fetchSunsetWeather = async (
       throw new Error(`HTTP_ERROR: API 호출 오류 (${data.reason || 'Unknown'})`);
     }
 
-    console.log(`[WeatherAPI] Successfully fetched weather data in ${duration}ms. Deduplicated size: ${uniquePoints.length} items.`);
+    if (__DEV__) {
+      console.log(`[WeatherAPI] Successfully fetched weather data in ${duration}ms. Deduplicated size: ${uniquePoints.length} items.`);
+    }
     const results = Array.isArray(data) ? data : [data];
 
     // Reconstruct the 36 CloudPathData items from deduplicated results
@@ -419,7 +425,9 @@ export const fetchTerrainProfile = async (
   });
 
   const startTime = Date.now();
-  console.log(`[TerrainAPI] Fetching terrain elevation profile for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)} (Samples: ${SAMPLES})`);
+  if (__DEV__) {
+    console.log(`[TerrainAPI] Fetching terrain elevation profile for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)} (Samples: ${SAMPLES})`);
+  }
 
   try {
     onProgress?.(`Analyzing Terrain Data...`);
@@ -428,7 +436,9 @@ export const fetchTerrainProfile = async (
     const lons = points.map(p => p.lon.toFixed(5)).join(',');
     const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
     
-    console.log(`[TerrainAPI] Request URL: ${url}`);
+    if (__DEV__) {
+      console.log(`[TerrainAPI] Request URL: ${url}`);
+    }
     
     let results: number[] = [];
     let retries = 0;
@@ -467,7 +477,9 @@ export const fetchTerrainProfile = async (
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[TerrainAPI] Successfully fetched ${results.length} terrain elevation points in ${duration}ms`);
+    if (__DEV__) {
+      console.log(`[TerrainAPI] Successfully fetched ${results.length} terrain elevation points in ${duration}ms`);
+    }
 
     // 0번째 결과가 바로 첫 머리에 끼워넣은 관측자의 고도(observerElevation)
     const observerElev = results[0] || 0;

@@ -23,7 +23,7 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <link rel="stylesheet" href="style.css?v=1.0.1">
+  <link rel="stylesheet" href="style.css?v=1.0.5">
 </head>
 <body>
 
@@ -31,26 +31,7 @@
   <header class="navbar">
     <div class="nav-container">
       <div class="logo-area">
-        <!-- SVG Emblem Logo -->
-        <svg class="nav-logo" viewBox="0 0 200 200" width="36" height="36">
-          <defs>
-            <linearGradient id="navSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#FF7043" />
-              <stop offset="60%" stop-color="#FF5252" />
-              <stop offset="100%" stop-color="#3F1D38" />
-            </linearGradient>
-            <linearGradient id="navSunGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#FFF9C4" />
-              <stop offset="100%" stop-color="#FFB74D" />
-            </linearGradient>
-          </defs>
-          <circle cx="100" cy="100" r="95" fill="url(#navSkyGrad)" />
-          <path d="M 40,110 Q 100,60 160,110 L 160,180 L 40,180 Z" fill="#210D1D" opacity="0.85" />
-          <circle cx="100" cy="115" r="32" fill="url(#navSunGrad)" />
-          <path d="M 25,135 Q 100,90 175,135 L 175,185 L 25,185 Z" fill="#0D030C" />
-          <path d="M 60,150 Q 80,140 100,150 T 140,150" fill="none" stroke="#FFD54F" stroke-width="2" stroke-linecap="round" opacity="0.6" />
-          <path d="M 45,165 Q 75,155 100,165 T 155,165" fill="none" stroke="#FFB74D" stroke-width="1.5" stroke-linecap="round" opacity="0.5" />
-        </svg>
+        <img src="icon.png" class="nav-logo" width="36" height="36" style="border-radius: 9px; object-fit: cover;">
         <span class="logo-text">BeforeGlow</span>
       </div>
       <nav class="nav-menu">
@@ -87,13 +68,36 @@
         <div class="phone-frame">
           <div class="phone-notch"></div>
           <div class="phone-screen">
-            <!-- Simulated App Contents -->
-            <div class="sim-screen active" id="screen-tracker">
-              <div class="screen-header">
-                <i data-lucide="camera" class="header-icon"></i>
-                <span class="header-title">AR Tracker</span>
-                <i data-lucide="info" class="header-icon"></i>
+            <!-- Shared App Header matching real app -->
+            <div class="phone-app-header">
+              <div class="phone-header-top">
+                <div class="phone-nav-toggle">
+                  <div class="phone-nav-indicator" id="phoneNavIndicator" style="transform: translateX(44px);"></div>
+                  <button class="phone-nav-btn" data-target="screen-tracker">예보</button>
+                  <button class="phone-nav-btn active" data-target="screen-simulation">시뮬레이션</button>
+                  <button class="phone-nav-btn" data-target="screen-gallery">갤러리</button>
+                </div>
+                <div class="phone-header-right">
+                  <button class="phone-icon-btn">
+                    <i data-lucide="settings"></i>
+                  </button>
+                  <button class="phone-icon-btn phone-camera-btn">
+                    <i data-lucide="camera"></i>
+                  </button>
+                </div>
               </div>
+              <div class="phone-date-nav" id="phoneDateNav">
+                <i data-lucide="chevron-left" class="date-arrow"></i>
+                <div class="date-label-wrapper">
+                  <i data-lucide="calendar" class="cal-icon"></i>
+                  <span class="phone-date-text">2026/06/12</span>
+                </div>
+                <i data-lucide="chevron-right" class="date-arrow"></i>
+              </div>
+            </div>
+
+            <!-- Simulated App Contents -->
+            <div class="sim-screen" id="screen-tracker">
               <div class="ar-viewport">
                 <!-- AR HUD Overlay Elements -->
                 <div class="sky-background"></div>
@@ -113,12 +117,7 @@
               </div>
             </div>
 
-            <div class="sim-screen" id="screen-simulation">
-              <div class="screen-header">
-                <i data-lucide="layers" class="header-icon"></i>
-                <span class="header-title">Simulation</span>
-                <i data-lucide="rotate-cw" class="header-icon"></i>
-              </div>
+            <div class="sim-screen active" id="screen-simulation">
               <div class="sim-viewport">
                 <!-- 폰 목업용 벡터 시뮬레이터 SVG -->
                 <svg id="phoneSimSvg" viewBox="0 0 250 200" style="width: 100%; height: 100%; display: block; position: absolute; top: 0; left: 0; pointer-events: none;">
@@ -156,11 +155,6 @@
             </div>
 
             <div class="sim-screen" id="screen-gallery">
-              <div class="screen-header">
-                <i data-lucide="images" class="header-icon"></i>
-                <span class="header-title">Global Feed</span>
-                <i data-lucide="plus" class="header-icon"></i>
-              </div>
               <div class="gallery-viewport">
                 <div class="gallery-card">
                   <!-- 남산타워 노을 일러스트 SVG -->
@@ -217,22 +211,6 @@
                 </div>
               </div>
             </div>
-            
-            <!-- Bottom Tab Navigation Indicator -->
-            <div class="phone-tabs">
-              <button class="tab-indicator active" data-target="screen-tracker">
-                <i data-lucide="camera"></i>
-                <span>AR</span>
-              </button>
-              <button class="tab-indicator" data-target="screen-simulation">
-                <i data-lucide="layers"></i>
-                <span>Sim</span>
-              </button>
-              <button class="tab-indicator" data-target="screen-gallery">
-                <i data-lucide="images"></i>
-                <span>Gallery</span>
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -242,39 +220,124 @@
   <!-- Core Features Section -->
   <section class="features-section" id="features">
     <div class="section-header">
-      <h2 class="section-title">스마트 노을 관측 코어 테크놀로지</h2>
+      <h2 class="section-title">BeforeGlow 주요 기능</h2>
       <p class="section-subtitle">일몰 시간에만 알림을 주는 단순 날씨 앱이 아닙니다. 노을이 가장 빛나는 최적의 장소와 시간을 정밀 계산합니다.</p>
     </div>
     
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon-wrapper orange">
-          <i data-lucide="eye" class="feature-icon"></i>
+        <div>
+          <div class="feature-icon-wrapper orange">
+            <i data-lucide="eye" class="feature-icon"></i>
+          </div>
+          <h3 class="feature-heading">AR 골든아워 트래커</h3>
+          <p class="feature-body">
+            태양 궤적 공식(SunCalc)과 자이로센서, 디지털 나침반을 융합하여 기기 카메라 프리뷰 위에 실시간 일몰 경로와 골든아워를 정확하게 오버레이합니다.
+          </p>
         </div>
-        <h3 class="feature-heading">AR 골든아워 트래커</h3>
-        <p class="feature-body">
-          태양 궤적 공식(SunCalc)과 자이로센서, 디지털 나침반을 융합하여 기기 카메라 프리뷰 위에 실시간 일몰 경로와 골든아워를 정확하게 오버레이합니다.
-        </p>
+        <div class="feature-visual">
+          <svg viewBox="0 0 300 140" style="width:100%; height:100%; display:block;">
+            <defs>
+              <linearGradient id="arSky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#1A0E2E" />
+                <stop offset="60%" stop-color="#4A148C" />
+                <stop offset="100%" stop-color="#880e4f" />
+              </linearGradient>
+            </defs>
+            <rect width="300" height="140" fill="url(#arSky)" />
+            <!-- 카메라 가이드 그리드 -->
+            <line x1="150" y1="10" x2="150" y2="130" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="2,2" />
+            <line x1="20" y1="70" x2="280" y2="70" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="2,2" />
+            <rect x="15" y="10" width="270" height="120" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" rx="8" />
+            <!-- 궤적 가이드라인 -->
+            <path d="M 30,120 C 100,50 200,50 270,120" fill="none" stroke="rgba(255, 215, 0, 0.4)" stroke-width="2" stroke-dasharray="4,4" />
+            <!-- 현재 태양과 경로 오버레이 -->
+            <circle cx="150" cy="65" r="14" fill="rgba(255, 112, 67, 0.3)" />
+            <circle cx="150" cy="65" r="8" fill="rgba(255, 215, 0, 0.6)" />
+            <circle cx="150" cy="65" r="4" fill="#FFFFFF" />
+            <!-- 텍스트 HUD -->
+            <rect x="25" y="20" width="90" height="26" fill="rgba(0,0,0,0.5)" rx="4" />
+            <text x="32" y="36" fill="#FFD700" font-size="8" font-family="monospace">ALT: +3.2°</text>
+            <rect x="185" y="20" width="90" height="26" fill="rgba(0,0,0,0.5)" rx="4" />
+            <text x="192" y="36" fill="#FFFFFF" font-size="8" font-family="monospace">AZI: 294.5°</text>
+          </svg>
+        </div>
       </div>
       
       <div class="feature-card">
-        <div class="feature-icon-wrapper purple">
-          <i data-lucide="map" class="feature-icon"></i>
+        <div>
+          <div class="feature-icon-wrapper purple">
+            <i data-lucide="map" class="feature-icon"></i>
+          </div>
+          <h3 class="feature-heading">지형 차단 모델링</h3>
+          <p class="feature-body">
+            디지털 고도 모델(DEM) API를 통해 주변 360도 지형의 고도각 프로파일을 추출하여, 빌딩이나 산맥 뒤로 태양이 가려져 실제 노을빛이 끝나는 시각을 예측합니다.
+          </p>
         </div>
-        <h3 class="feature-heading">지형 차단 모델링</h3>
-        <p class="feature-body">
-          디지털 고도 모델(DEM) API를 통해 주변 360도 지형의 고도각 프로파일을 추출하여, 빌딩이나 산맥 뒤로 태양이 가려져 실제 노을빛이 끝나는 시각을 예측합니다.
-        </p>
+        <div class="feature-visual">
+          <svg viewBox="0 0 300 140" style="width:100%; height:100%; display:block;">
+            <defs>
+              <linearGradient id="terrainSky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#4A148C" />
+                <stop offset="60%" stop-color="#FF7043" />
+                <stop offset="100%" stop-color="#E65100" />
+              </linearGradient>
+            </defs>
+            <rect width="300" height="140" fill="url(#terrainSky)" />
+            <!-- 가상 지평선 (0도) -->
+            <line x1="0" y1="110" x2="300" y2="110" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="4,4" />
+            <text x="10" y="105" fill="rgba(255,255,255,0.6)" font-size="7">수평선 (0°)</text>
+            <!-- 해 떨어지는 궤적 -->
+            <line x1="150" y1="40" x2="190" y2="120" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-dasharray="3,3" />
+            <!-- 산맥 실루엣 -->
+            <path d="M 0 140 L 0 95 Q 40 80 80 100 T 170 75 Q 210 115 250 85 T 300 95 L 300 140 Z" fill="#090510" />
+            <!-- 가려지는 지점 태양 -->
+            <circle cx="170" cy="80" r="10" fill="rgba(255, 69, 0, 0.4)" />
+            <circle cx="170" cy="80" r="4.5" fill="#FFFFFF" opacity="0.9" />
+            <!-- 차단 정보 지시선 -->
+            <line x1="170" y1="80" x2="220" y2="45" stroke="#FF5252" stroke-width="1" />
+            <circle cx="170" cy="80" r="2" fill="#FF5252" />
+            <rect x="210" y="30" width="75" height="24" fill="rgba(255,82,82,0.15)" stroke="#FF5252" stroke-width="0.8" rx="4" />
+            <text x="216" y="44" fill="#FF8A80" font-size="8" font-weight="bold">실제 가려짐 (+2.1°)</text>
+          </svg>
+        </div>
       </div>
       
       <div class="feature-card">
-        <div class="feature-icon-wrapper yellow">
-          <i data-lucide="sun" class="feature-icon"></i>
+        <div>
+          <div class="feature-icon-wrapper yellow">
+            <i data-lucide="sun" class="feature-icon"></i>
+          </div>
+          <h3 class="feature-heading">물리 기반 노을 점수 예보</h3>
+          <p class="feature-body">
+            구름의 고도 분포(상/중/하층운), 가시거리(Vis), 습도(RH)를 산란 및 흡수율 물리 계수로 분석하여 노을의 붉은빛이 구름 하부에 반사되는 품질 점수를 예보합니다.
+          </p>
         </div>
-        <h3 class="feature-heading">물리 기반 노을 점수 예보</h3>
-        <p class="feature-body">
-          구름의 고도 분포(상/중/하층운), 가시거리(Vis), 습도(RH)를 산란 및 흡수율 물리 계수로 분석하여 노을의 붉은빛이 구름 하부에 반사되는 품질 점수를 예보합니다.
-        </p>
+        <div class="feature-visual">
+          <svg viewBox="0 0 300 140" style="width:100%; height:100%; display:block;">
+            <defs>
+              <linearGradient id="physicsSky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0F172A" />
+                <stop offset="50%" stop-color="#311B92" />
+                <stop offset="100%" stop-color="#AD1457" />
+              </linearGradient>
+            </defs>
+            <rect width="300" height="140" fill="url(#physicsSky)" />
+            <!-- 구름 입자 레이어 -->
+            <path d="M 20 40 Q 40 30 60 40 T 100 40" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="3" stroke-linecap="round" />
+            <path d="M 120 70 Q 150 55 180 70 T 220 70" fill="none" stroke="rgba(255,179,0,0.6)" stroke-width="4" stroke-linecap="round" />
+            <!-- 태양 붉은 광선이 아래 구름 하부에 닿아 반사되는 연출 -->
+            <path d="M 290 130 L 170 65 L 120 120" fill="none" stroke="#FF5252" stroke-width="1.5" stroke-dasharray="2,2" />
+            <circle cx="170" cy="65" r="3" fill="#FF5252" />
+            <!-- 노을 점수 다이얼 시뮬레이션 -->
+            <circle cx="60" cy="90" r="30" fill="rgba(0,0,0,0.4)" stroke="rgba(255,255,255,0.1)" stroke-width="3" />
+            <!-- 점수 아크 게이지 -->
+            <path d="M 35 105 A 30 30 0 1 1 85 105" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3" stroke-linecap="round" />
+            <path d="M 35 105 A 30 30 0 1 1 78 63" fill="none" stroke="url(#navSkyGrad)" stroke-width="3.5" stroke-linecap="round" />
+            <text x="60" y="93" fill="#FFD700" font-size="13" font-weight="900" text-anchor="middle">89점</text>
+            <text x="60" y="106" fill="rgba(255,255,255,0.6)" font-size="6" text-anchor="middle">Sunset Score</text>
+          </svg>
+        </div>
       </div>
     </div>
   </section>
@@ -282,7 +345,7 @@
   <!-- Guides & Information Section -->
   <section class="guides-section" id="guides">
     <div class="section-header">
-      <h2 class="section-title">BeforeGlow 백과사전</h2>
+      <h2 class="section-title">시뮬레이션 가이드</h2>
       <p class="section-subtitle">아름다운 노을을 포착하기 위해 꼭 알아야 하는 기상 및 천문 가이드를 소개합니다.</p>
     </div>
 
@@ -300,109 +363,111 @@
             <h3>가상 노을 시뮬레이터 활용법</h3>
             <p>BeforeGlow의 시뮬레이션은 수치 기상 예보 모델 데이터를 기반으로 렌더링되므로, 현장을 직접 방문하지 않고도 당일 저녁의 하늘색 그라데이션을 예측해 줍니다. 아래 기상 상태 탭을 탭하여 실시간 변화를 확인해보세요.</p>
             
-            <!-- Weather sub-tabs for demo -->
-            <div class="weather-selector">
-              <button class="weather-tab-btn active" data-weather="clear">맑은 날</button>
-              <button class="weather-tab-btn" data-weather="cloudy">구름 있는 날</button>
-              <button class="weather-tab-btn" data-weather="overcast">흐린 날</button>
-            </div>
-
             <ul>
               <li><strong>서서히 흐르는 해의 움직임:</strong> 가이드용 태양이 지평선 위아래로 서서히 하강했다가 다시 상승하는 주기 운동을 반복하며 시그널을 보여줍니다.</li>
               <li><strong>시간 연동 색채 연출:</strong> 해의 고도(높이)가 변함에 따라 맑은 날/구름 낀 날/흐린 날 각각의 대기 광선 산란 공식에 맞게 하늘과 구름 색상이 부드럽게 보간됩니다.</li>
               <li><strong>앱 구름 리소스 동기화:</strong> 데모에 흐르는 구름 쉐이프들은 실제 모바일 앱의 노을 시뮬레이션에 사용되는 벡터 패스와 완전히 동일하게 설계되었습니다.</li>
             </ul>
           </div>
-          <div class="guide-visual visual-sim" id="sim-viewport-demo">
-            <!-- SVG 기반의 시뮬레이션 캔버스 -->
-            <svg class="sim-svg-canvas" viewBox="0 0 500 280" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
-              <defs>
-                <!-- 하늘용 동적 그라데이션 -->
-                <linearGradient id="simSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop id="skyStop0" offset="0%" stop-color="#0c0813" />
-                  <stop id="skyStop1" offset="50%" stop-color="#1a0e2e" />
-                  <stop id="skyStop2" offset="100%" stop-color="#7b1fa2" />
-                </linearGradient>
+          <div class="guide-visual-wrapper">
+            <div class="guide-visual visual-sim" id="sim-viewport-demo">
+              <!-- SVG 기반의 시뮬레이션 캔버스 -->
+              <svg class="sim-svg-canvas" viewBox="0 0 500 280" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
+                <defs>
+                  <!-- 하늘용 동적 그라데이션 -->
+                  <linearGradient id="simSkyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop id="skyStop0" offset="0%" stop-color="#0c0813" />
+                    <stop id="skyStop1" offset="50%" stop-color="#1a0e2e" />
+                    <stop id="skyStop2" offset="100%" stop-color="#7b1fa2" />
+                  </linearGradient>
 
-                <!-- 태양 글로우 필터 -->
-                <filter id="sunGlowFilter" x="-100%" y="-100%" width="300%" height="300%">
-                  <feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur1" />
-                  <feGaussianBlur in="SourceGraphic" stdDeviation="30" result="blur2" />
-                  <feMerge>
-                    <feMergeNode in="blur2" />
-                    <feMergeNode in="blur1" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
+                  <!-- 태양 글로우 필터 -->
+                  <filter id="sunGlowFilter" x="-500%" y="-500%" width="1100%" height="1100%">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur1" />
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="30" result="blur2" />
+                    <feMerge>
+                      <feMergeNode in="blur2" />
+                      <feMergeNode in="blur1" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
 
-                <!-- 구름 그림자 효과 -->
-                <filter id="cloudShadowFilter" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.25" />
-                </filter>
+                  <!-- 구름 그림자 효과 -->
+                  <filter id="cloudShadowFilter" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.25" />
+                  </filter>
 
-                <!-- 앱 내 CLOUD_TEMPLATES에서 이식된 구름 벡터 패스 -->
-                <g id="cloud-shape-cumulus-1">
-                  <path d="M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z" />
-                </g>
-                <g id="cloud-shape-cumulus-2">
-                  <path d="M 20,40 C 20,28 32,20 50,20 C 60,10 82,8 100,12 C 118,4 146,4 163,16 C 175,12 192,16 198,28 C 210,28 215,34 215,40 Z" />
-                </g>
-                <g id="cloud-shape-nimbostratus">
-                  <path d="M 0,20 C 30,15 70,15 100,20 C 130,25 170,25 200,20 L 200,32 C 170,35 130,35 100,32 C 70,28 30,28 0,32 Z" />
-                </g>
-                <g id="cloud-shape-cirrus">
-                  <path d="M 0,20 C 20,15 45,8 70,12 C 85,14 110,7 130,12 C 105,16 80,13 55,20 C 35,25 15,23 0,20 Z" />
-                </g>
-                <g id="cloud-shape-altocumulus">
-                  <path d="M 10,20 C 15,12 25,12 35,20 C 45,12 55,12 65,20 C 75,12 85,12 95,20 C 105,12 115,12 125,20 L 125,25 C 95,28 65,28 35,25 L 10,20 Z" />
-                </g>
-                <g id="cloud-shape-cirrocumulus">
-                  <path d="M 0,15 C 10,8 20,8 30,15 C 40,8 50,8 60,15 C 70,8 80,8 90,15 C 75,20 45,20 15,20 C 5,20 0,18 0,15 Z" />
-                </g>
-                <g id="cloud-shape-cirrostratus">
-                  <path d="M 0,15 C 50,12 100,12 150,15 L 150,20 C 100,23 50,23 0,20 Z" />
-                </g>
-                <g id="cloud-shape-altostratus">
-                  <path d="M 5,22 C 30,15 60,28 90,20 C 120,12 150,25 180,22 L 180,27 C 150,30 120,17 90,25 C 60,33 30,20 5,27 Z" />
-                </g>
-                <g id="cloud-shape-stratocumulus">
-                  <path d="M 15,25 C 15,18 28,12 45,16 C 55,8 80,8 95,18 C 110,10 135,12 145,22 C 155,20 170,25 175,32 C 150,35 125,32 15,32 Z" />
-                </g>
-                <g id="cloud-shape-stratus">
-                  <path d="M 0,10 C 20,8 50,5 80,10 C 110,15 150,8 180,12 L 180,16 C 150,12 110,19 80,14 C 50,9 20,12 0,14 Z" />
-                </g>
-                <g id="cloud-shape-cumulonimbus">
-                  <path d="M 20,60 C 20,50 30,45 40,45 C 30,30 50,15 70,20 C 60,-5 120,-5 110,25 C 130,20 150,35 140,50 C 155,50 160,55 160,60 Z" />
-                </g>
-              </defs>
+                  <!-- 앱 내 CLOUD_TEMPLATES에서 이식된 구름 벡터 패스 -->
+                  <g id="cloud-shape-cumulus-1">
+                    <path d="M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z" />
+                  </g>
+                  <g id="cloud-shape-cumulus-2">
+                    <path d="M 20,40 C 20,28 32,20 50,20 C 60,10 82,8 100,12 C 118,4 146,4 163,16 C 175,12 192,16 198,28 C 210,28 215,34 215,40 Z" />
+                  </g>
+                  <g id="cloud-shape-nimbostratus">
+                    <path d="M 0,20 C 30,15 70,15 100,20 C 130,25 170,25 200,20 L 200,32 C 170,35 130,35 100,32 C 70,28 30,28 0,32 Z" />
+                  </g>
+                  <g id="cloud-shape-cirrus">
+                    <path d="M 0,20 C 20,15 45,8 70,12 C 85,14 110,7 130,12 C 105,16 80,13 55,20 C 35,25 15,23 0,20 Z" />
+                  </g>
+                  <g id="cloud-shape-altocumulus">
+                    <path d="M 10,20 C 15,12 25,12 35,20 C 45,12 55,12 65,20 C 75,12 85,12 95,20 C 105,12 115,12 125,20 L 125,25 C 95,28 65,28 35,25 L 10,20 Z" />
+                  </g>
+                  <g id="cloud-shape-cirrocumulus">
+                    <path d="M 0,15 C 10,8 20,8 30,15 C 40,8 50,8 60,15 C 70,8 80,8 90,15 C 75,20 45,20 15,20 C 5,20 0,18 0,15 Z" />
+                  </g>
+                  <g id="cloud-shape-cirrostratus">
+                    <path d="M 0,15 C 50,12 100,12 150,15 L 150,20 C 100,23 50,23 0,20 Z" />
+                  </g>
+                  <g id="cloud-shape-altostratus">
+                    <path d="M 5,22 C 30,15 60,28 90,20 C 120,12 150,25 180,22 L 180,27 C 150,30 120,17 90,25 C 60,33 30,20 5,27 Z" />
+                  </g>
+                  <g id="cloud-shape-stratocumulus">
+                    <path d="M 15,25 C 15,18 28,12 45,16 C 55,8 80,8 95,18 C 110,10 135,12 145,22 C 155,20 170,25 175,32 C 150,35 125,32 15,32 Z" />
+                  </g>
+                  <g id="cloud-shape-stratus">
+                    <path d="M 0,10 C 20,8 50,5 80,10 C 110,15 150,8 180,12 L 180,16 C 150,12 110,19 80,14 C 50,9 20,12 0,14 Z" />
+                  </g>
+                  <g id="cloud-shape-cumulonimbus">
+                    <path d="M 20,60 C 20,50 30,45 40,45 C 30,30 50,15 70,20 C 60,-5 120,-5 110,25 C 130,20 150,35 140,50 C 155,50 160,55 160,60 Z" />
+                  </g>
+                </defs>
 
-              <!-- 1. 배경 하늘 -->
-              <rect width="500" height="280" fill="url(#simSkyGrad)" />
+                <!-- 1. 배경 하늘 -->
+                <rect width="500" height="280" fill="url(#simSkyGrad)" />
 
-              <!-- 2. 오르내리는 태양 -->
-              <g id="simSunGroup">
-                <circle id="simSunGlowOuter" cx="250" cy="140" r="50" fill="rgba(255, 112, 67, 0.3)" filter="url(#sunGlowFilter)" />
-                <circle id="simSunGlowInner" cx="250" cy="140" r="28" fill="rgba(255, 215, 0, 0.5)" filter="url(#sunGlowFilter)" />
-                <circle id="simSunDisk" cx="250" cy="140" r="12" fill="#FFFFFF" />
-              </g>
+                <!-- 2. 오르내리는 태양 -->
+                <g id="simSunGroup">
+                  <circle id="simSunGlowOuter" cx="250" cy="140" r="50" fill="rgba(255, 112, 67, 0.3)" filter="url(#sunGlowFilter)" />
+                  <circle id="simSunGlowInner" cx="250" cy="140" r="28" fill="rgba(255, 215, 0, 0.5)" filter="url(#sunGlowFilter)" />
+                  <circle id="simSunDisk" cx="250" cy="140" r="12" fill="#FFFFFF" />
+                </g>
 
-              <!-- 3. 구름 그룹 -->
-              <g id="simCloudGroup" filter="url(#cloudShadowFilter)"></g>
+                <!-- 3. 구름 그룹 -->
+                <g id="simCloudGroup" filter="url(#cloudShadowFilter)"></g>
 
-              <!-- 4. 하단 지형 실루엣 -->
-              <path id="simTerrain" d="M 0 210 Q 70 170 150 220 T 300 190 Q 380 200 420 225 T 500 205 L 500 280 L 0 280 Z" fill="#090510" />
-            </svg>
-            
-            <!-- 실시간 시뮬레이션 상태 디버그 HUD -->
-            <div class="sim-hud-overlay">
-              <div class="sim-hud-left">
-                <span class="sim-hud-time" id="sim-hud-time">19:42</span>
-                <span class="sim-hud-status" id="sim-hud-status">Sunset Active</span>
+                <!-- 4. 하단 지형 실루엣 -->
+                <path id="simTerrain" d="M 0 210 Q 70 170 150 220 T 300 190 Q 380 200 420 225 T 500 205 L 500 280 L 0 280 Z" fill="#090510" />
+              </svg>
+              
+              <!-- 실시간 시뮬레이션 상태 디버그 HUD -->
+              <div class="sim-hud-overlay">
+                <div class="sim-hud-left">
+                  <span class="sim-hud-time" id="sim-hud-time">19:42</span>
+                  <span class="sim-hud-status" id="sim-hud-status">Sunset Active</span>
+                </div>
+                <div class="sim-hud-right">
+                  <span class="sim-hud-altitude" id="sim-hud-altitude">Alt: 0.0°</span>
+                  <span class="sim-hud-score" id="sim-hud-score">Score: --</span>
+                </div>
               </div>
-              <div class="sim-hud-right">
-                <span class="sim-hud-altitude" id="sim-hud-altitude">Alt: 0.0°</span>
-                <span class="sim-hud-score" id="sim-hud-score">Score: --</span>
-              </div>
+            </div>
+
+            <!-- Weather sub-tabs for demo -->
+            <div class="weather-selector">
+              <button class="weather-tab-btn active" data-weather="clear">맑은 날</button>
+              <button class="weather-tab-btn" data-weather="cloudy">구름 있는 날</button>
+              <button class="weather-tab-btn" data-weather="overcast">흐린 날</button>
             </div>
           </div>
         </div>
@@ -470,24 +535,27 @@
                     <text class="sim-text-outline" x="120" y="196" fill="#1e293b" font-weight="bold" font-size="10" text-anchor="middle">관측자</text>
                     <!-- 태양 (머리 위) -->
                     <circle cx="120" cy="50" r="11" fill="#f59e0b" stroke="#d97706" stroke-width="1.5" />
+                    
                     <!-- 빛 경로 및 산란 선 -->
-                    <!-- 빨간선 (직진) -->
+                    <!-- 직진하여 도달하는 적색 광선 (적색/황색 성분) -->
                     <line x1="120" y1="61" x2="120" y2="173" stroke="#d32f2f" stroke-width="2" marker-end="url(#arrow-red)" />
-                    <!-- 파란선 (대기 진입 후 사방 비산) -->
-                    <line x1="120" y1="61" x2="120" y2="105" stroke="#1565c0" stroke-width="1.2" />
-                    <!-- 꺾인 산란 빔들 -->
-                    <line x1="120" y1="105" x2="75" y2="120" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
-                    <line x1="120" y1="105" x2="165" y2="120" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
-                    <line x1="120" y1="105" x2="85" y2="85" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
-                    <line x1="120" y1="105" x2="155" y2="85" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <!-- 대기 중 파란빛의 전방향 산란 및 사용자 눈으로 유입되는 경로 -->
+                    <!-- 중앙 직진 산란광 -->
+                    <line x1="120" y1="95" x2="120" y2="173" stroke="#1565c0" stroke-width="1.2" stroke-dasharray="2,2" marker-end="url(#arrow-blue)" />
+                    <!-- 하늘 주변부(좌/우)에서 꺾여 관측자 눈으로 모여 들어오는 파란빛 -->
+                    <line x1="75" y1="115" x2="114" y2="173" stroke="#1565c0" stroke-width="1.2" stroke-dasharray="2,2" marker-end="url(#arrow-blue)" />
+                    <line x1="165" y1="115" x2="126" y2="173" stroke="#1565c0" stroke-width="1.2" stroke-dasharray="2,2" marker-end="url(#arrow-blue)" />
+                    <!-- 일부 대기 밖이나 딴곳으로 흩어지는 파란빛 -->
+                    <line x1="120" y1="105" x2="70" y2="90" stroke="#1565c0" stroke-width="1" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="120" y1="105" x2="170" y2="90" stroke="#1565c0" stroke-width="1" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
                     
                     <text class="sim-text-outline" x="120" y="24" fill="#0f172a" font-weight="bold" font-size="11" text-anchor="middle">낮 (대기 통과거리 짧음)</text>
                     <text class="sim-text-outline" x="55" y="115" fill="#475569" font-size="9" text-anchor="middle">대기 경계</text>
                   </g>
-
+ 
                   <!-- 중앙 수직 구분선 -->
                   <line x1="250" y1="15" x2="250" y2="225" stroke="#f1f5f9" stroke-width="2" />
-
+ 
                   <!-- 오른쪽: 노을 (Sunset) -->
                   <g>
                     <!-- 대기 돔 -->
@@ -500,17 +568,19 @@
                     <text class="sim-text-outline" x="380" y="196" fill="#1e293b" font-weight="bold" font-size="10" text-anchor="middle">관측자</text>
                     <!-- 태양 (지평선 근처 측면) -->
                     <circle cx="295" cy="155" r="11" fill="#ea580c" stroke="#9a3412" stroke-width="1.5" />
+                    
                     <!-- 빛 경로 및 산란 선 -->
-                    <!-- 빨간선 (직선 통과) -->
+                    <!-- 긴 경로를 뚫고 끝까지 살아남아 관측자에게 도달하는 붉은 광선 -->
                     <line x1="305" y1="157" x2="375" y2="176" stroke="#d32f2f" stroke-width="2.5" marker-end="url(#arrow-red)" />
-                    <!-- 파란선 (대기 초입부 진입하자마자 저 멀리서 다 꺾이고 소멸) -->
-                    <line x1="305" y1="157" x2="330" y2="163" stroke="#1565c0" stroke-width="1.2" />
-                    <line x1="330" y1="163" x2="320" y2="185" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
-                    <line x1="330" y1="163" x2="315" y2="140" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
-                    <line x1="330" y1="163" x2="345" y2="145" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
-
+                    <!-- 관측자에게 도달하기 한참 전(초입부)에 사방 및 대기 밖으로 비산되어 소멸하는 파란빛 -->
+                    <line x1="305" y1="157" x2="320" y2="160" stroke="#1565c0" stroke-width="1.2" />
+                    <!-- 우주/대기권 밖 및 반대 방향으로 산란되어 나가는 화살표들 -->
+                    <line x1="320" y1="160" x2="310" y2="125" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="320" y1="160" x2="280" y2="170" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+                    <line x1="320" y1="160" x2="340" y2="135" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="1,1" marker-end="url(#arrow-blue)" />
+ 
                     <text class="sim-text-outline" x="380" y="24" fill="#0f172a" font-weight="bold" font-size="11" text-anchor="middle">노을 (대기 통과거리 10배)</text>
-                    <text class="sim-text-outline" x="328" y="128" fill="#e65100" font-size="8" text-anchor="middle">파란빛 조기 비산/소멸</text>
+                    <text class="sim-text-outline" x="332" y="112" fill="#e65100" font-size="8" text-anchor="middle">파란빛 대기 외곽 방출/소멸</text>
                   </g>
                 </svg>
               </div>
@@ -935,6 +1005,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=1.0.1" defer></script>
+  <script src="app.js?v=1.0.5" defer></script>
 </body>
 </html>

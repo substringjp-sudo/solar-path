@@ -25,19 +25,19 @@
     "expo-media-library": "~18.2.1",
     "expo-notifications": "^0.32.17",
     "expo-sensors": "~15.0.8",
-    "expo-splash-screen": "^56.0.10",
+    "expo-splash-screen": "^31.0.13",
     "expo-status-bar": "~3.0.9",
     "firebase": "^12.13.0",
     "lucide-react-native": "^0.473.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
-    "react-native-maps": "^1.20.1",
+    "react-native-maps": "1.20.1",
     "react-native-reanimated": "~4.1.7",
     "react-native-svg": "15.12.1",
     "react-native-web": "^0.21.2",
     "react-native-webview": "^13.15.0",
-    "react-native-worklets": "^0.5.1",
+    "react-native-worklets": "0.5.1",
     "suncalc": "^1.9.0",
     "zustand": "^5.0.3"
   },
@@ -49,5 +49,14 @@
     "babel-preset-expo": "^54.0.10",
     "typescript": "~5.9.3"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "expo-dynamic-app-icon"
+        ]
+      }
+    }
+  }
 }

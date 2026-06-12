@@ -958,6 +958,16 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       <MieInfoGraphic theme={theme} />
                     </View>
                   </View>
+
+                  {/* 4. 시뮬레이션 유의사항 */}
+                  <View style={styles.infoSection}>
+                    <Text style={[styles.infoSectionTitle, { color: '#FFA500' }]}>⚠️ {language === 'ko' ? '시뮬레이션 오차 및 유의사항' : 'Simulation Disclaimer'}</Text>
+                    <View style={[styles.scienceCard, { backgroundColor: theme.border, padding: 16 }]}>
+                      <Text style={[styles.scienceText, { color: theme.text, fontSize: 12, lineHeight: 18 }]}>
+                        {t('simulationLimitNote', language)}
+                      </Text>
+                    </View>
+                  </View>
                 </>
               ) : (
                 <View style={styles.encyclopediaContainer}>

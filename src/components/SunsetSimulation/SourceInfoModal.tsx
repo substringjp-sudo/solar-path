@@ -77,6 +77,12 @@ export const SourceInfoModal: React.FC<SourceInfoModalProps> = ({
             </View>
           </View>
 
+          <View style={[styles.limitNoteCard, { backgroundColor: 'rgba(255, 165, 0, 0.05)', borderColor: 'rgba(255, 165, 0, 0.15)' }]}>
+            <Text style={[styles.limitNoteText, { color: theme.subText }]}>
+              {t('simulationLimitNote', language)}
+            </Text>
+          </View>
+
           <Text style={[styles.attribution, { color: theme.subText }]}>
             {t('weatherAttribution', language)}
           </Text>
@@ -166,5 +172,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  limitNoteCard: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  limitNoteText: {
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+    opacity: 0.85,
   },
 });

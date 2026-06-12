@@ -2041,7 +2041,9 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       })) ?? [],
     };
 
-    console.log('[PHYSICS_DEBUG_SNAPSHOT]', JSON.stringify(debugLogPayload, null, 2));
+    if (__DEV__) {
+      console.log('[PHYSICS_DEBUG_SNAPSHOT]', JSON.stringify(debugLogPayload, null, 2));
+    }
 
     try {
       const cloudRatio = weatherFactors?.overcast ?? 0;
