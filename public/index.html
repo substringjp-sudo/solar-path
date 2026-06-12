@@ -418,6 +418,9 @@
 
               <!-- 2. 미에 산란 시각화 (기본 비활성) -->
               <g id="group-mie-demo" display="none">
+                <!-- 미에 산란 전용 배경 (습도에 따른 하늘색 ↔ 하얀색 실시간 보간) -->
+                <rect id="mie-bg" width="500" height="280" fill="#e0f2fe" />
+
                 <!-- 대기 곡선 돔 (습도 조절 연계) -->
                 <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="url(#mieAtmosphereGrad)" opacity="0.6" />
                 <path d="M 0,220 C 150,110 350,110 500,220 Z" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1.5" />

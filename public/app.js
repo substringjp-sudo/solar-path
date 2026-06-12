@@ -494,8 +494,8 @@ document.addEventListener('DOMContentLoaded', () => {
     mieParticles.forEach(p => {
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('r', p.r);
-      circle.setAttribute('fill', 'rgba(251, 192, 45, 0.45)');
-      circle.setAttribute('stroke', 'rgba(120, 80, 0, 0.35)');
+      circle.setAttribute('fill', 'rgba(3, 169, 244, 0.45)');
+      circle.setAttribute('stroke', 'rgba(2, 136, 209, 0.35)');
       circle.setAttribute('stroke-width', '1');
       mieParticlesGroup.appendChild(circle);
       p.dom = circle;
@@ -742,7 +742,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
     } else {
-      // 1. Mie: Large particle movement
+      // 1. Mie: 배경색 습도 보간 (낮을 때 하늘색 #e0f2fe, 높을 때 하얀색 #ffffff)
+      const mieBg = document.getElementById('mie-bg');
+      if (mieBg) {
+        const hT = (humidity - 10) / 85; // 0.0 ~ 1.0
+        const bgRGB = RGB.lerp(new RGB(224, 242, 254), new RGB(255, 255, 255), hT);
+        mieBg.setAttribute('fill', bgRGB.toCss());
+      }
+
+      // 2. Mie: Large particle movement
       mieParticles.forEach(p => {
         p.x += p.vx;
         p.y += p.vy;
@@ -757,7 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      // 2. 태양으로부터 퍼지는 빔 및 파동 연산
+      // 3. 태양으로부터 퍼지는 빔 및 파동 연산
       if (mieRaysGroup) {
         mieRaysGroup.innerHTML = '';
 
@@ -766,10 +774,10 @@ document.addEventListener('DOMContentLoaded', () => {
         mieParticles.forEach(p => {
           if (p.dom) {
             p.dom.setAttribute('r', (p.r * particleScale).toFixed(1));
-            // 습도가 높으면 입자가 탁한 백색 물방울처럼 표현됨
-            const waterOpacity = 0.45 + (humidity / 100) * 0.5;
-            p.dom.setAttribute('fill', `rgba(200, 200, 225, ${waterOpacity.toFixed(2)})`);
-            p.dom.setAttribute('stroke', `rgba(80, 80, 100, ${(0.25 + (humidity / 100) * 0.35).toFixed(2)})`);
+            // 습도가 높아질수록 더 선명하고 짙은 파란 물방울로 색상 변화
+            const waterOpacity = 0.45 + (humidity / 100) * 0.45;
+            p.dom.setAttribute('fill', `rgba(3, 169, 244, ${waterOpacity.toFixed(2)})`);
+            p.dom.setAttribute('stroke', `rgba(1, 87, 155, ${(0.25 + (humidity / 100) * 0.35).toFixed(2)})`);
           }
         });
 
