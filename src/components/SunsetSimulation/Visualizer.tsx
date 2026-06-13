@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
-import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset } from '../../utils/sunsetPhysics';
+import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset, getApproximatedSkyColor } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
@@ -784,8 +784,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const { overcast, dustIntensity } = weatherFactors;
 
     // 대기 산란 물리 시뮬레이션 대표 하늘색 2개 캐싱 (천정 vs 지평선)로 Hot Loop 내 중복 연산 제거
-    const zenithSkyColor = skyColorAtDirection(80, 90, sunAltitude, weatherFactors.beta, weatherFactors.pathClarity);
-    const horizonSkyColor = skyColorAtDirection(0.05, 0, sunAltitude, weatherFactors.beta, weatherFactors.pathClarity);
+    const zenithSkyColor = getApproximatedSkyColor(80, 90, sunAltitude, weatherFactors.beta, weatherFactors.pathClarity);
+    const horizonSkyColor = getApproximatedSkyColor(0.05, 0, sunAltitude, weatherFactors.beta, weatherFactors.pathClarity);
 
     const cloudsList: any[] = [];
 

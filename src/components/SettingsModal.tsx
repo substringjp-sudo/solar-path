@@ -96,8 +96,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setAuthError(t('emailPasswordRequired', language));
       return;
     }
-    if (password.length < 6) {
+    if (password.length < 8) {
       setAuthError(t('passwordMinLength', language));
+      return;
+    }
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    if (!hasUppercase || !hasNumber || !hasSpecial) {
+      setAuthError(t('passwordComplexity', language));
       return;
     }
     try {
@@ -281,6 +288,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       autoCapitalize="none"
                     />
                   </View>
+                  {isSignUpActive && password.length > 0 && (
+                    <View style={styles.passwordHintContainer}>
+                      <Text style={[styles.passwordHintText, { color: password.length >= 8 ? '#4CAF50' : '#FF5252' }]}>
+                        {password.length >= 8 ? '✓' : '✗'} {t('passwordMinLengthHint', language)}
+                      </Text>
+                      <Text style={[styles.passwordHintText, { color: (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '#4CAF50' : '#FF5252' }]}>
+                        {(/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '✓' : '✗'} {t('passwordComplexityHint', language)}
+                      </Text>
+                    </View>
+                  )}
 
                   {authError && (
                     <View style={styles.errorContainer}>
@@ -348,34 +365,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </View>
 
             {/* Developer Options Section */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
-              <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                <TouchableOpacity 
-                  style={styles.permissionRow}
-                  onPress={() => setDebugMode(!isDebugMode)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.permIconContainer}>
-                    <Info size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
-                  </View>
-                  <View style={styles.statusRow}>
-                    {isDebugMode ? (
-                      <View style={styles.badgeGranted}>
-                        <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>ON</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgeDenied}>
-                        <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>OFF</Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
+            {__DEV__ && (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <TouchableOpacity 
+                    style={styles.permissionRow}
+                    onPress={() => setDebugMode(!isDebugMode)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <Info size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {isDebugMode ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color="#4CAF50" />
+                          <Text style={styles.badgeTextGranted}>ON</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color="#FF5252" />
+                          <Text style={styles.badgeTextDenied}>OFF</Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            )}
 
             {/* 2. System Permissions Section */}
             <View style={styles.section}>
@@ -712,6 +731,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     textDecorationLine: 'underline',
+  },
+  passwordHintContainer: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    gap: 4,
+  },
+  passwordHintText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   actionArrow: {
     padding: 4,

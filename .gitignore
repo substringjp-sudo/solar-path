@@ -11,3 +11,10 @@ yarn-error.*
 .env
 android/
 ios/
+
+# Credentials & Credentials configuration
+google-services.json
+
+# Local debug log files
+*logcat*.txt
+*.txt

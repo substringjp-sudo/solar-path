@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView,
-  Dimensions, Platform, FlatList, Animated
+  Dimensions, Platform, FlatList, Animated, Linking
 } from 'react-native';
-import { X, Cloud, Compass, Globe, Info } from 'lucide-react-native';
+import { X, Cloud, Compass, Globe, Info, ExternalLink } from 'lucide-react-native';
 import Svg, { Path, Circle, Text as SvgText, G } from 'react-native-svg';
 import { CloudPathData, CloudData } from '../../utils/weather';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
@@ -460,7 +460,7 @@ interface WeatherDetailModalProps {
   pathData: CloudPathData[];
   interpolatedWeather: CloudData[];
   currentTime: Date;
-  weatherSource: 'standard' | 'ultra-short' | 'fallback';
+  weatherSource: 'standard' | 'ultra-short' | 'cache' | 'fallback';
 }
 
 export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
@@ -490,7 +490,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
   const [activeAltitude, setActiveAltitude] = useState<'all' | 'low' | 'mid' | 'high'>('all');
   const [showInfoModal, setShowInfoModal] = useState(false);
-  const [guideSubTab, setGuideSubTab] = useState<'basic' | 'encyclopedia'>('basic');
+  const [guideSubTab, setGuideSubTab] = useState<'basic' | 'encyclopedia' | 'portal'>('basic');
   const [expandedCloud, setExpandedCloud] = useState<string | null>(null);
 
   const angles = [-20, -10, 0, 10, 20];
@@ -560,6 +560,9 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
     }
     if (weatherSource === 'fallback') {
       return language === 'ko' ? '임시 로컬 데이터 (기상 서버 연결 실패)' : 'Temporary Local Data (Failed to connect to weather server)';
+    }
+    if (weatherSource === 'cache') {
+      return language === 'ko' ? '로컬 캐시 데이터 (오프라인/에러 복구)' : 'Local Cache Data (Offline/Error recovery)';
     }
     return language === 'ko' ? 'GFS / ECMWF Global Ensemble (표준 글로벌 모델)' : 'GFS / ECMWF Global Ensemble (Standard global model)';
   };
@@ -873,6 +876,14 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                   {t('tabCloudGuide', language)}
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.subTabButton, guideSubTab === 'portal' && [styles.activeSubTabButton, { backgroundColor: theme.card }]]}
+                onPress={() => setGuideSubTab('portal')}
+              >
+                <Text style={[styles.subTabText, { color: guideSubTab === 'portal' ? theme.text : theme.subText, fontWeight: guideSubTab === 'portal' ? '800' : '600' }]}>
+                  {t('tabPortalLinks', language)}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.infoScrollBody} showsVerticalScrollIndicator={false}>
@@ -969,7 +980,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                     </View>
                   </View>
                 </>
-              ) : (
+              ) : guideSubTab === 'encyclopedia' ? (
                 <View style={styles.encyclopediaContainer}>
                   <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>{t('cloudScienceTitle', language)}</Text>
                   <Text style={[styles.infoText, { color: theme.subText, marginBottom: 16 }]}>
@@ -1044,6 +1055,70 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       </View>
                     );
                   })}
+                </View>
+              ) : (
+                <View style={styles.portalContainer}>
+                  {/* PPLANER Portal */}
+                  <View style={[styles.portalMainCard, { borderColor: theme.border, backgroundColor: 'rgba(255, 215, 0, 0.03)' }]}>
+                    <View style={styles.portalCardHeader}>
+                      <Globe size={20} color={theme.accent} style={{ marginRight: 8 }} />
+                      <Text style={[styles.portalCardTitle, { color: theme.text }]}>{t('portalTitle', language)}</Text>
+                    </View>
+                    <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
+                      {t('portalDesc', language)}
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.portalLinkBtn, { backgroundColor: theme.accent }]}
+                      onPress={() => Linking.openURL('https://pplaner.com')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.portalLinkBtnText}>{t('visitSite', language)}</Text>
+                      <ExternalLink size={14} color="#000" style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Sister Sites Header */}
+                  <Text style={[styles.portalSectionHeader, { color: theme.text }]}>
+                    🔗 {t('sisterSitesTitle', language)}
+                  </Text>
+
+                  {/* JP Rail Planner */}
+                  <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
+                    <View style={styles.portalCardHeader}>
+                      <Compass size={18} color="#FF6347" style={{ marginRight: 8 }} />
+                      <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterJpRailTitle', language)}</Text>
+                    </View>
+                    <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
+                      {t('sisterJpRailDesc', language)}
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
+                      onPress={() => Linking.openURL('https://jprail.pplaner.com')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
+                      <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* RG Nevel Planner */}
+                  <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
+                    <View style={styles.portalCardHeader}>
+                      <Cloud size={18} color="#20B2AA" style={{ marginRight: 8 }} />
+                      <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterRgNevelTitle', language)}</Text>
+                    </View>
+                    <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
+                      {t('sisterRgNevelDesc', language)}
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
+                      onPress={() => Linking.openURL('https://rgnevel.pplaner.com')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
+                      <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
             </ScrollView>
@@ -1605,6 +1680,80 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 8,
     overflow: 'hidden',
+  },
+  portalContainer: {
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    gap: 16,
+  },
+  portalMainCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  portalSubCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.005)',
+  },
+  portalCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  portalCardTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  portalSubCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  portalCardDesc: {
+    fontSize: 11,
+    lineHeight: 16,
+    opacity: 0.8,
+    marginBottom: 12,
+  },
+  portalLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  portalLinkBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#000',
+  },
+  portalSubLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  portalSubLinkBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  portalSectionHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 8,
+    marginBottom: 2,
+    letterSpacing: 0.5,
   },
 });
 

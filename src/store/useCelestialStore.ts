@@ -11,7 +11,11 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { User } from 'firebase/auth';
 import { TerrainData, fetchSunsetWeather, fetchTerrainProfile } from '../utils/weather';
 import SunCalc from 'suncalc';
+import { encryptData, decryptData } from '../utils/security';
 
+const generateUniqueId = () => {
+  return Math.random().toString(36).substring(2, 15) + '_' + Date.now().toString(36);
+};
 
 export interface WeatherCacheItem {
   key: string;
@@ -59,6 +63,8 @@ export interface GlobalPhoto {
   simulationSample?: any;
   simulationImageUrl?: string;
   simulationStoragePath?: string;
+  deviceAzimuth?: number;
+  devicePitch?: number;
 }
 
 export interface SavedLocation {
@@ -136,7 +142,9 @@ interface CelestialState {
     weatherScore?: number,
     weatherInfo?: any,
     simulationSample?: any,
-    simulationImageUri?: string
+    simulationImageUri?: string,
+    deviceAzimuth?: number,
+    devicePitch?: number
   ) => Promise<string>;
   syncGlobalPhotos: () => () => void;
   removeGlobalPhoto: (id: string) => Promise<void>;
@@ -268,7 +276,7 @@ export const useCelestialStore = create<CelestialState>()(
 
         const user = get().currentUser || auth.currentUser;
         const newLocation: SavedLocation = {
-          id: Date.now().toString(),
+          id: generateUniqueId(),
           name,
           latitude,
           longitude,
@@ -377,7 +385,7 @@ export const useCelestialStore = create<CelestialState>()(
       ) => {
         const user = get().currentUser || auth.currentUser;
         const newPhoto: MyPhoto = {
-          id: Date.now().toString(),
+          id: generateUniqueId(),
           latitude,
           longitude,
           imageUrl,
@@ -449,11 +457,13 @@ export const useCelestialStore = create<CelestialState>()(
         weatherScore?: number,
         weatherInfo?: any,
         simulationSample?: any,
-        simulationImageUri?: string
+        simulationImageUri?: string,
+        deviceAzimuth?: number,
+        devicePitch?: number
       ): Promise<string> => {
         const user = get().currentUser || auth.currentUser;
         if (!user) throw new Error('User must be logged in to upload photos');
-
+ 
         // 구글 지오코드를 이용해 위경도 좌표에서 가장 간단한 단계의 행정구역 주소 획득
         let simpleAddress = '';
         const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -494,30 +504,30 @@ export const useCelestialStore = create<CelestialState>()(
             console.warn('Geocoding failed, falling back to coordinates:', geoErr);
           }
         }
-
+ 
         const finalLocationName = simpleAddress || locationName || `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
-
-        const photoId = Date.now().toString();
+ 
+        const photoId = generateUniqueId();
         // File extension extraction
         const ext = localUri.split('.').pop() || 'jpg';
         const storagePath = `photos/${user.uid}/${photoId}.${ext}`;
         const storageRef = ref(storage, storagePath);
-
+ 
         // Fetch image file to upload as blob
         const response = await fetch(localUri);
         const blob = await response.blob();
         let imageUrl = '';
-
+ 
         // Simulation image variables
         let simulationImageUrl = '';
         let simulationStoragePath = '';
         let simBlob: any = null;
-
+ 
         try {
           // Upload actual photo to Firebase Storage
           await uploadBytes(storageRef, blob);
           imageUrl = await getDownloadURL(storageRef);
-
+ 
           // Upload simulation image if provided
           if (simulationImageUri) {
             simulationStoragePath = `photos/${user.uid}/${photoId}_sim.jpg`;
@@ -527,13 +537,13 @@ export const useCelestialStore = create<CelestialState>()(
             await uploadBytes(simStorageRef, simBlob);
             simulationImageUrl = await getDownloadURL(simStorageRef);
           }
-
+ 
           // Save metadata to Firestore 'global_photos'
-          const userName = user.email || user.displayName || 'Anonymous';
+          const userName = user.displayName || (user.email ? user.email.split('@')[0] : 'Anonymous');
           const newPhoto: GlobalPhoto = {
             id: photoId,
-            latitude,
-            longitude,
+            latitude: Number(latitude.toFixed(2)),
+            longitude: Number(longitude.toFixed(2)),
             imageUrl,
             storagePath,
             timestamp: Date.now(),
@@ -546,8 +556,10 @@ export const useCelestialStore = create<CelestialState>()(
             simulationSample,
             simulationImageUrl,
             simulationStoragePath,
+            deviceAzimuth,
+            devicePitch
           };
-
+ 
           const docRef = doc(db, 'global_photos', photoId);
           await setDoc(docRef, newPhoto);
 
@@ -748,7 +760,9 @@ export const useCelestialStore = create<CelestialState>()(
           const localTime = new Date(now.getTime() + offsetHours * 3600 * 1000);
           const dateStr = localTime.toISOString().split('T')[0];
  
-          console.log(`[Preload] Fetching weather/terrain for lat=${lat}, lon=${lon}`);
+          if (__DEV__) {
+            console.log(`[Preload] Fetching weather/terrain for lat=${lat}, lon=${lon}`);
+          }
           set({ preloadStatus: 'analyzingData' });
           await Promise.all([
             fetchSunsetWeather(lat, lon, az, false, targetEvent).then(weatherData => {
@@ -776,7 +790,9 @@ export const useCelestialStore = create<CelestialState>()(
           ]);
  
           set({ preloadStatus: 'simulationReady' });
-          console.log('[Preload] Completed successfully');
+          if (__DEV__) {
+            console.log('[Preload] Completed successfully');
+          }
         } catch (err) {
           console.warn('[Preload] Error during initialization preloading:', err);
         } finally {
@@ -786,7 +802,30 @@ export const useCelestialStore = create<CelestialState>()(
     }),
     {
       name: 'solar-path-storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => ({
+        getItem: async (name) => {
+          const value = await AsyncStorage.getItem(name);
+          if (!value) return null;
+          try {
+            return decryptData(value);
+          } catch (e) {
+            console.warn('Failed to decrypt storage data:', e);
+            return value;
+          }
+        },
+        setItem: async (name, value) => {
+          try {
+            const encrypted = encryptData(value);
+            await AsyncStorage.setItem(name, encrypted);
+          } catch (e) {
+            console.warn('Failed to encrypt storage data:', e);
+            await AsyncStorage.setItem(name, value);
+          }
+        },
+        removeItem: async (name) => {
+          await AsyncStorage.removeItem(name);
+        }
+      })),
       partialize: (state) => ({ 
         location: state.location,
         timezoneOffsetHours: state.timezoneOffsetHours,
@@ -795,7 +834,6 @@ export const useCelestialStore = create<CelestialState>()(
         terrainCacheList: state.terrainCacheList,
         savedLocations: state.savedLocations,
         myPhotos: state.myPhotos,
-        isDebugMode: state.isDebugMode,
         language: state.language,
       }),
     }

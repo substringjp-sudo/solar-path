@@ -4,6 +4,7 @@
  */
 
 import { CloudData, CloudPathData, getInterpolatedWeather } from './weather';
+import skyWeights from './sky_weights_v2.json';
 
 const EARTH_RADIUS_KM = 6371;
 
@@ -418,6 +419,78 @@ export const skyColorAtDirection = (
   return { r: finalR, g: finalG, b: finalB };
 };
 
+/**
+ * Extract 21 polynomial + interaction features for OLS model.
+ */
+export const extractSkyFeatures = (
+  sunAlt: number,
+  thetaDeg: number,
+  gammaDeg: number,
+  beta: number,
+  pathClarity: number
+): number[] => {
+  const cosGamma = Math.cos((gammaDeg * Math.PI) / 180);
+  const normalizedTheta = thetaDeg / 80.0;
+  const normalizedSunAlt = sunAlt / 60.0;
+
+  return [
+    1.0,
+    normalizedSunAlt,
+    normalizedSunAlt * normalizedSunAlt,
+    cosGamma,
+    cosGamma * cosGamma,
+    normalizedTheta,
+    normalizedTheta * normalizedTheta,
+    beta,
+    pathClarity,
+    normalizedSunAlt * cosGamma,
+    normalizedSunAlt * normalizedTheta,
+    beta * cosGamma,
+    pathClarity * cosGamma,
+    pathClarity * normalizedTheta,
+    Math.exp(normalizedSunAlt * 2),
+    Math.exp(-normalizedTheta * 3),
+    Math.max(0, cosGamma) * Math.exp(-normalizedTheta * 2),
+    clamp01((sunAlt + 6) / 12) * Math.max(0, cosGamma),
+    normalizedSunAlt * beta,
+    normalizedSunAlt * pathClarity,
+    normalizedSunAlt * normalizedSunAlt * normalizedSunAlt,
+  ];
+};
+
+/**
+ * Predict R, G, B colors using OLS weights from sky_weights_v2.json.
+ */
+export const getApproximatedSkyColor = (
+  thetaDeg: number,
+  gammaDeg: number,
+  sunAltDeg: number,
+  beta: number,
+  pathClarity: number
+): RGB => {
+  const features = extractSkyFeatures(sunAltDeg, thetaDeg, gammaDeg, beta, pathClarity);
+
+  const Wr = skyWeights.Wr;
+  const Wg = skyWeights.Wg;
+  const Wb = skyWeights.Wb;
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  for (let i = 0; i < features.length; i++) {
+    r += features[i] * Wr[i];
+    g += features[i] * Wg[i];
+    b += features[i] * Wb[i];
+  }
+
+  return {
+    r: clamp01(r),
+    g: clamp01(g),
+    b: clamp01(b),
+  };
+};
+
 
 
 
@@ -475,7 +548,7 @@ export const computeSkyGrid = (
       const cosGammaClamped = Math.max(-1.0, Math.min(1.0, cosGamma));
       const gammaDeg = (Math.acos(cosGammaClamped) * 180) / Math.PI;
 
-      const color = skyColorAtDirection(
+      const color = getApproximatedSkyColor(
         Math.max(thetaCenter, 0.05),
         gammaDeg,
         sunAltDeg,

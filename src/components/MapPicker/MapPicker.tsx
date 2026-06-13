@@ -401,8 +401,15 @@ export const MapPicker = ({
             details = 'Approx. ' + offsetStr;
           }
 
-          tooltip.innerHTML = '<span class="center-tooltip-title">' + tzName + '</span>' +
-                              '<span class="center-tooltip-sub">' + details + '</span>';
+          tooltip.innerHTML = '';
+          const titleSpan = document.createElement('span');
+          titleSpan.className = 'center-tooltip-title';
+          titleSpan.textContent = tzName;
+          const subSpan = document.createElement('span');
+          subSpan.className = 'center-tooltip-sub';
+          subSpan.textContent = details;
+          tooltip.appendChild(titleSpan);
+          tooltip.appendChild(subSpan);
         }
 
         // 줌 레벨에 따라 표시할 등시선 간격 배열 반환 (분 단위, 굵은 선 우선 정렬)
@@ -1149,6 +1156,24 @@ export const MapPicker = ({
                   source={{ html: mapHtml }}
                   style={{ width: '100%', height: '100%', backgroundColor: 'transparent' }}
                   userAgent="SolarPathApp/1.0 (Mobile; contact: solar-path-dev@example.com)"
+                  allowFileAccess={false}
+                  allowUniversalAccessFromFileURLs={false}
+                  onShouldStartLoadWithRequest={(request) => {
+                    const url = request.url;
+                    if (
+                      url === 'about:blank' || 
+                      url.startsWith('data:') ||
+                      url.includes('unpkg.com') ||
+                      url.includes('cdn.jsdelivr.net') ||
+                      url.includes('cdnjs.cloudflare.com') ||
+                      url.includes('maps.googleapis.com') ||
+                      url.includes('openstreetmap.org') ||
+                      url.includes('api.open-meteo.com')
+                    ) {
+                      return true;
+                    }
+                    return false;
+                  }}
                   onMessage={(event) => {
                     try {
                       const data = JSON.parse(event.nativeEvent.data);

@@ -119,7 +119,7 @@ module.exports = {
         "expo-dynamic-app-icon",
         {
           "spiconmuted": { "image": "./assets/icon_muted.png" },
-          "spiconclear": { "image": "./assets/icon_clear.png" },
+          "spiconclear": { "image": "./assets/icon.png" },
           "spiconepic": { "image": "./assets/icon_epic.png" }
         }
       ]

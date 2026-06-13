@@ -42,7 +42,8 @@ interface SimulationState {
   pathData: CloudPathData[];
   terrain: TerrainData;
   loading: boolean;
-  weatherSource: 'standard' | 'ultra-short' | 'fallback';
+  weatherSource: 'standard' | 'ultra-short' | 'cache' | 'fallback';
+  recoveredAgeHours?: number;
 }
 
 interface SunsetSimulationProps {
@@ -191,12 +192,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     setSimulationLoading(true);
 
     const fetchSim = async () => {
+      let nextEvent: Date = new Date(currentTime);
+      let type: 'Sunrise' | 'Sunset' = selectedEventType === 'Sunrise' ? 'Sunrise' : 'Sunset';
+      let az: number = 0;
+      let terrainData: any = null;
       try {
         const { latitude, longitude } = location.coords;
         const now = new Date(currentTime);
         const times = SunCalc.getTimes(now, latitude, longitude);
-        let nextEvent: Date;
-        let type: 'Sunrise' | 'Sunset';
 
         if (selectedEventType === 'Sunrise') {
           nextEvent = times.sunrise;
@@ -217,9 +220,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           }
         }
         const pos = SunCalc.getPosition(nextEvent as any, latitude, longitude);
-        const az = (pos.azimuth * 180 / Math.PI) + 180;
+        az = (pos.azimuth * 180 / Math.PI) + 180;
 
-        let terrainData = null;
         let foundTerrainCache = null;
         let minDistTerrain = 500;
         
@@ -351,6 +353,53 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       } catch (err) {
         if (isCurrent()) {
           console.error("Simulation initialization failed:", err);
+          
+          // --- Smart Cache Recovery Solution ---
+          let recoveredWeather = null;
+          let recoveredAgeHours = 0;
+          const { latitude, longitude } = location.coords;
+          const minDistWeather = 50000; // 50km
+          const AGE_LIMIT = 48 * 60 * 60 * 1000; // 48h
+          
+          for (const item of weatherCacheList) {
+            const dist = getDistance(latitude, longitude, item.latitude, item.longitude);
+            const age = Date.now() - item.timestamp;
+            if (dist <= minDistWeather && age <= AGE_LIMIT) {
+              recoveredWeather = item.data;
+              recoveredAgeHours = Math.round(age / (60 * 60 * 1000));
+              break;
+            }
+          }
+
+          if (recoveredWeather) {
+            const ageStr = language === 'ko' ? `${recoveredAgeHours}시간` : `${recoveredAgeHours}h`;
+            const alertTitle = t('cachedWeatherAlertTitle', language);
+            const alertMsg = t('cachedWeatherAlertMsg', language).replace('{time}', ageStr);
+            Alert.alert(alertTitle, alertMsg, [{ text: t('confirm', language), style: 'default' }]);
+            
+            const activeTerrain = terrainData || { panoramicAngles: Array(31).fill(0), farAngles: Array(31).fill(0), minAz: 0, maxAz: 360, observerElevation: 50 };
+            const trueEventTime = calculateTrueEventTime(nextEvent, type, latitude, longitude, activeTerrain as TerrainData);
+            
+            setSim({
+              type,
+              eventTime: nextEvent,
+              trueEventTime,
+              azimuth: az,
+              fov: 20,
+              pathData: recoveredWeather,
+              terrain: activeTerrain as TerrainData,
+              loading: false,
+              weatherSource: 'cache',
+              recoveredAgeHours
+            });
+            setSimulationLoading(false);
+            if (activeTab === 'sim') {
+              setCurrentTime(nextEvent);
+            }
+            return;
+          }
+          
+          // --- Fallback default values ---
           setSimulationLoading(false);
 
           let alertTitle = t('fallbackAlertTitle', language);
@@ -751,6 +800,32 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 <AlertCircle size={13} color="#FF5C3F" style={{ marginRight: 6 }} />
                 <Text style={styles.warningBannerText}>
                   {t('fallbackBannerTitle', language)}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {sim?.weatherSource === 'cache' && (
+              <TouchableOpacity
+                style={[
+                  styles.warningBanner,
+                  {
+                    backgroundColor: 'rgba(255, 165, 0, 0.08)',
+                    borderColor: 'rgba(255, 165, 0, 0.25)',
+                  }
+                ]}
+                onPress={() => {
+                  const ageStr = language === 'ko' ? `${sim.recoveredAgeHours || 0}시간` : `${sim.recoveredAgeHours || 0}h`;
+                  Alert.alert(
+                    t('cachedWeatherAlertTitle', language),
+                    t('cachedWeatherAlertMsg', language).replace('{time}', ageStr),
+                    [{ text: t('confirm', language), style: 'default' }]
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <AlertCircle size={13} color="#FFA500" style={{ marginRight: 6 }} />
+                <Text style={[styles.warningBannerText, { color: '#FFA500' }]}>
+                  {t('cachedWeatherBanner', language).replace('{time}', language === 'ko' ? `${sim.recoveredAgeHours || 0}시간` : `${sim.recoveredAgeHours || 0}h`)}
                 </Text>
               </TouchableOpacity>
             )}

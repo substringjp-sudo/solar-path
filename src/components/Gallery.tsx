@@ -5,6 +5,13 @@ import { auth } from '../config/firebase';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t } from '../utils/i18n';
 
+const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en'): string => {
+  const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
+  const enDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const index = Math.round(azimuth / 45) % 8;
+  return lang === 'ko' ? koDirs[index] : enDirs[index];
+};
+
 interface GalleryProps {
   theme: any;
   dynamicTheme: any;
@@ -75,6 +82,11 @@ export const Gallery: React.FC<GalleryProps> = ({
                   <Text numberOfLines={1} style={[styles.galleryDate, { color: theme.subText }]}>
                     {new Date(item.timestamp).toLocaleDateString()} • {item.userName}
                   </Text>
+                  {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
+                    <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || '#FFD700' }]}>
+                      🧭 {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
+                    </Text>
+                  )}
                 </View>
                 {item.userId === auth.currentUser?.uid && (
                   <TouchableOpacity
@@ -167,6 +179,11 @@ const styles = StyleSheet.create({
     fontSize: 9,
     opacity: 0.6,
     marginTop: 3,
+  },
+  galleryGuide: {
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 2,
   },
   photoDeleteBtn: {
     position: 'absolute',

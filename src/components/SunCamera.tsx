@@ -652,7 +652,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           weatherScore,
           capturedWeatherInfo,
           capturedSimSample,
-          manipulatedSimUri
+          manipulatedSimUri,
+          deviceAzimuthRef.current,
+          devicePitchRef.current
         );
         Alert.alert(t('uploadSuccess', language), t('uploadSuccessWithLocation', language).replace('{location}', uploadedLocationName));
       } else if (!user) {
