@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, TouchableOpacity, Animated, Platform, Modal, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, TouchableOpacity, Animated, Platform, Modal, ScrollView, Image, Dimensions } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X, AlertCircle, Camera } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
@@ -21,7 +21,52 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
+// 로딩 화면 순회용 대표 노을 사진 목록 (EXIF 제거본)
+const LOAD_IMAGES = [
+  {
+    source: require('../assets/photos_clean/20251019_174521.jpg'),
+    location: {
+      ko: '서울특별시, 대한민국',
+      en: 'Seoul, South Korea'
+    },
+    sunX: 0.5
+  },
+  {
+    source: require('../assets/photos_clean/20220130_174222.jpg'),
+    location: {
+      ko: '홍성군, 대한민국',
+      en: 'Hongseong, South Korea'
+    },
+    sunX: 0.5
+  },
+  {
+    source: require('../assets/photos_clean/20221014_174506.jpg'),
+    location: {
+      ko: '평창군 미탄면, 대한민국',
+      en: 'Mitan, South Korea'
+    },
+    sunX: 0.5
+  },
+  {
+    source: require('../assets/photos_clean/20240516_192636.jpg'),
+    location: {
+      ko: '수사미초, 일본',
+      en: 'Susami, Japan'
+    },
+    sunX: 0.5
+  },
+  {
+    source: require('../assets/photos_clean/20191209_065429.jpg'),
+    location: {
+      ko: '방콕, 태국',
+      en: 'Bangkok, Thailand'
+    },
+    sunX: 0.5
+  }
+];
+
 export default function App() {
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const { language, isAppReady, preloadInitialData, preloadStatus } = useCelestialStore();
   const {
     animating,
@@ -90,12 +135,10 @@ export default function App() {
     preloadInitialData();
   }, [preloadInitialData]);
 
-  // 로딩이 완료되면 스플래시 화면을 부드럽게 종료
+  // 앱 마운트 시 즉시 네이티브 스플래시 화면을 숨기고 하이브리드 로딩 화면을 노출합니다.
   React.useEffect(() => {
-    if (isAppReady) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [isAppReady]);
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
   const progressVal = React.useRef(new Animated.Value(0.15)).current;
   const contentFade = React.useRef(new Animated.Value(0)).current;
@@ -124,115 +167,85 @@ export default function App() {
     }).start();
   }, [preloadStatus]);
 
+  // 커스텀 고급 팝업 애니메이션 효과용 상태
+  const warningScale = React.useRef(new Animated.Value(0.85)).current;
+  const warningOpacity = React.useRef(new Animated.Value(0)).current;
+  const savedListScale = React.useRef(new Animated.Value(0.85)).current;
+  const savedListOpacity = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (isCameraWarningVisible) {
+      warningScale.setValue(0.85);
+      warningOpacity.setValue(0);
+      Animated.parallel([
+        Animated.spring(warningScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(warningOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        })
+      ]).start();
+    }
+  }, [isCameraWarningVisible]);
+
+  React.useEffect(() => {
+    if (isSavedListVisible) {
+      savedListScale.setValue(0.85);
+      savedListOpacity.setValue(0);
+      Animated.parallel([
+        Animated.spring(savedListScale, {
+          toValue: 1,
+          friction: 7,
+          tension: 90,
+          useNativeDriver: true,
+        }),
+        Animated.timing(savedListOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        })
+      ]).start();
+    }
+  }, [isSavedListVisible]);
+
+  // 앱 세션별 랜덤 로딩 이미지 지정
+  const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
+
   // 로딩 진행 중(스플래시 화면 유지 중)에는 커스텀 로딩 화면을 렌더링합니다.
   if (!isAppReady) {
+    const imageAspect = 4 / 3;
+    const scaledWidth = screenHeight * imageAspect;
+    const sunX = randomImageRef.current.sunX ?? 0.5;
+    const sunPositionInImage = scaledWidth * sunX;
+    
+    // 태양이 화면 가로의 정중앙에 위치하도록 left 오프셋 조절
+    let leftOffset = (screenWidth / 2) - sunPositionInImage;
+    // 이미지가 기기 화면을 벗어나 여백이 남지 않도록 left 오프셋을 최대/최소 한도 내로 가둡니다(Clamping)
+    leftOffset = Math.max(screenWidth - scaledWidth, Math.min(0, leftOffset));
+
     return (
       <View style={styles.loadingContainer}>
-        {/* Fullscreen SVG Sunset Drawing matching icon.png style */}
-        <Svg style={StyleSheet.absoluteFill} viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice">
-          <Defs>
-            <LinearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#0b132b" />
-              <Stop offset="35%" stopColor="#1c2541" />
-              <Stop offset="65%" stopColor="#5c2c5c" />
-              <Stop offset="85%" stopColor="#cf455c" />
-              <Stop offset="100%" stopColor="#ff7b54" />
-            </LinearGradient>
-            <RadialGradient id="sunGrad" cx="50%" cy="40%" r="60%">
-              <Stop offset="0%" stopColor="#fff4cc" />
-              <Stop offset="25%" stopColor="#ffcc00" />
-              <Stop offset="65%" stopColor="#ff6600" />
-              <Stop offset="100%" stopColor="#cc0044" />
-            </RadialGradient>
-            <LinearGradient id="cloudEdgeGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-              <Stop offset="0%" stopColor="#ffcc00" />
-              <Stop offset="100%" stopColor="#ffffff" />
-            </LinearGradient>
-            <LinearGradient id="cloudBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#311d4d" stopOpacity={0.95} />
-              <Stop offset="100%" stopColor="#160c26" stopOpacity={0.95} />
-            </LinearGradient>
-            <LinearGradient id="mountFar" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#4c2c72" />
-              <Stop offset="100%" stopColor="#211235" />
-            </LinearGradient>
-            <LinearGradient id="mountMid" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#2e184a" />
-              <Stop offset="100%" stopColor="#120621" />
-            </LinearGradient>
-            <LinearGradient id="mountNear" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#160829" />
-              <Stop offset="100%" stopColor="#05010a" />
-            </LinearGradient>
-            <LinearGradient id="waterGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#190d33" />
-              <Stop offset="50%" stopColor="#0c051c" />
-              <Stop offset="100%" stopColor="#020005" />
-            </LinearGradient>
-            <LinearGradient id="yoonseulGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <Stop offset="0%" stopColor="#ff6600" stopOpacity={0} />
-              <Stop offset="25%" stopColor="#ffcc00" stopOpacity={0.8} />
-              <Stop offset="50%" stopColor="#ffffff" stopOpacity={1} />
-              <Stop offset="75%" stopColor="#ffcc00" stopOpacity={0.8} />
-              <Stop offset="100%" stopColor="#ff6600" stopOpacity={0} />
-            </LinearGradient>
-          </Defs>
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+        {/* Fullscreen splash background matching native splash */}
+        <Image
+          source={randomImageRef.current.source}
+          style={{
+            position: 'absolute',
+            width: scaledWidth,
+            height: screenHeight,
+            left: leftOffset,
+            top: 0
+          }}
+          resizeMode="cover"
+        />
 
-          {/* Sky Background */}
-          <Rect width="800" height="800" fill="url(#skyGrad)" />
-          
-          {/* Sun setting into horizon */}
-          <Circle cx="400" cy="430" r="170" fill="url(#sunGrad)" />
-
-          {/* Cloud Backlight */}
-          <Path d="M 200,320 Q 300,260 420,290 T 640,300 Q 700,340 600,380 H 200 Z" fill="url(#cloudEdgeGrad)" opacity={0.3} />
-
-          {/* Far Mountains */}
-          <Path d="M 0,520 L 150,440 L 290,490 L 460,390 L 620,470 L 800,410 L 800,560 L 0,560 Z" fill="url(#mountFar)" opacity={0.9} />
-
-          {/* Clouds passing in front of Sun */}
-          <Path d="M 120,380 C 170,330 250,330 290,360 C 340,310 440,310 490,350 C 530,320 610,330 650,370 C 690,410 630,460 570,440 C 490,460 410,430 360,450 C 290,440 160,440 120,380 Z" fill="url(#cloudBodyGrad)" />
-          <Path d="M 120,380 C 170,330 250,330 290,360 C 340,310 440,310 490,350 C 530,320 610,330 650,370" fill="none" stroke="url(#cloudEdgeGrad)" strokeWidth={4} strokeLinecap="round" opacity={0.9} />
-
-          {/* Mid Mountains */}
-          <Path d="M -50,560 L 180,460 L 340,520 L 510,430 L 690,510 L 850,440 L 850,600 L -50,600 Z" fill="url(#mountMid)" />
-
-          {/* Near Mountains */}
-          <Path d="M -20,600 L 120,510 L 260,560 L 420,470 L 600,550 L 820,480 L 820,620 L -20,620 Z" fill="url(#mountNear)" />
-
-          {/* Water Surface */}
-          <Rect y={540} width="800" height="260" fill="url(#waterGrad)" />
-
-          {/* Ripple lines */}
-          <Path d="M 50,555 Q 220,548 400,555 T 750,555" fill="none" stroke="#cf455c" strokeWidth={2} opacity={0.5} />
-          <Path d="M 100,580 Q 250,572 400,580 T 700,580" fill="none" stroke="#cf455c" strokeWidth={1.8} opacity={0.4} />
-          <Path d="M 150,610 Q 280,602 400,610 T 650,610" fill="none" stroke="#cf455c" strokeWidth={1.5} opacity={0.3} />
-          <Path d="M 180,645 Q 300,637 400,645 T 620,645" fill="none" stroke="#ff7b54" strokeWidth={1.2} opacity={0.25} />
-          <Path d="M 220,685 Q 310,677 400,685 T 580,685" fill="none" stroke="#ff7b54" strokeWidth={1} opacity={0.2} />
-          <Path d="M 260,730 Q 330,723 400,730 T 540,730" fill="none" stroke="#ffcc00" strokeWidth={1} opacity={0.15} />
-
-          {/* Yoonseul (Golden Glow Reflections) */}
-          <Ellipse cx="400" cy="558" rx="160" ry="10" fill="url(#yoonseulGrad)" />
-          <Ellipse cx="400" cy="583" rx="130" ry="8" fill="url(#yoonseulGrad)" />
-          <Ellipse cx="400" cy="613" rx="100" ry="7" fill="url(#yoonseulGrad)" />
-          <Ellipse cx="400" cy="648" rx="80" ry="6" fill="url(#yoonseulGrad)" />
-          <Ellipse cx="400" cy="688" rx="60" ry="5" fill="url(#yoonseulGrad)" />
-          <Ellipse cx="400" cy="733" rx="40" ry="4" fill="url(#yoonseulGrad)" />
-          <Ellipse cx="400" cy="775" rx="20" ry="3" fill="url(#yoonseulGrad)" />
-
-          {/* Sparkling Yoonseul Particles */}
-          <Path d="M 400,550 L 406,556 L 400,562 L 394,556 Z" fill="#ffffff" />
-          <Path d="M 350,565 L 354,569 L 350,573 L 346,569 Z" fill="#ffcc00" opacity={0.9} />
-          <Path d="M 450,567 L 454,571 L 450,575 L 446,571 Z" fill="#ffcc00" opacity={0.9} />
-          <Path d="M 380,590 L 385,595 L 380,600 L 375,595 Z" fill="#ffffff" />
-          <Path d="M 420,592 L 425,597 L 420,602 L 415,597 Z" fill="#ffffff" />
-          <Path d="M 330,605 L 333,608 L 330,611 L 327,608 Z" fill="#ffcc00" opacity={0.7} />
-          <Path d="M 470,603 L 473,606 L 470,609 L 467,606 Z" fill="#ffcc00" opacity={0.7} />
-          <Path d="M 395,625 L 400,630 L 395,635 L 390,630 Z" fill="#ffffff" />
-          <Path d="M 410,655 L 414,659 L 410,663 L 406,659 Z" fill="#ffcc00" opacity={0.85} />
-          <Path d="M 370,665 L 373,668 L 370,671 L 367,668 Z" fill="#ffcc00" opacity={0.6} />
-          <Path d="M 402,705 L 405,708 L 402,711 L 399,708 Z" fill="#ffffff" opacity={0.75} />
-        </Svg>
+        {/* Paper texture feel overlay */}
+        <View style={styles.paperOverlay} />
 
         {/* Content Overlay */}
         <SafeAreaView style={styles.loadingOverlay}>
@@ -244,21 +257,30 @@ export default function App() {
 
           {/* Footer Area for custom progress bar & state details */}
           <Animated.View style={[styles.loadingFooter, { opacity: contentFade }]}>
-            {/* Custom concept-matching progress bar */}
-            <View style={styles.progressBarBg}>
-              <Animated.View style={[
-                styles.progressBarFill,
-                {
-                  width: progressVal.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0%', '100%']
-                  })
-                }
-              ]} />
+            <View style={styles.glassContainer}>
+              {/* Custom concept-matching progress bar */}
+              <View style={styles.progressBarBg}>
+                <Animated.View style={[
+                  styles.progressBarFill,
+                  {
+                    width: progressVal.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0%', '100%']
+                    })
+                  }
+                ]} />
+              </View>
+              <Text style={styles.preloadStatusText}>
+                {t(preloadStatus as any, language)}
+              </Text>
+              
+              {/* 촬영지 정보 출력 */}
+              <Text style={styles.capturedText}>
+                {language === 'ko'
+                  ? `📸 ${randomImageRef.current.location.ko}에서 촬영된 노을`
+                  : `📸 Sunset captured in ${randomImageRef.current.location.en}`}
+              </Text>
             </View>
-            <Text style={styles.preloadStatusText}>
-              {t(preloadStatus as any, language)}
-            </Text>
           </Animated.View>
         </SafeAreaView>
       </View>
@@ -354,7 +376,15 @@ export default function App() {
         onRequestClose={() => setSavedListVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.savedModal, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+          <Animated.View style={[
+            styles.savedModal, 
+            { 
+              backgroundColor: theme.bg, 
+              borderColor: theme.border,
+              opacity: savedListOpacity,
+              transform: [{ scale: savedListScale }]
+            }
+          ]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{t('savedPlaces', language)}</Text>
               <TouchableOpacity onPress={() => setSavedListVisible(false)} style={styles.closeBtn}>
@@ -393,7 +423,7 @@ export default function App() {
                 ))
               )}
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -423,7 +453,15 @@ export default function App() {
         onRequestClose={() => setCameraWarningVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.warningModal, { backgroundColor: theme.card || '#1A1D24', borderColor: theme.border }]}>
+          <Animated.View style={[
+            styles.warningModal, 
+            { 
+              backgroundColor: theme.card || '#1A1D24', 
+              borderColor: theme.border,
+              opacity: warningOpacity,
+              transform: [{ scale: warningScale }]
+            }
+          ]}>
             <View style={styles.warningIconContainer}>
               <View style={[styles.warningIconBg, { backgroundColor: 'rgba(255, 165, 0, 0.15)' }]}>
                 <Camera size={28} color="#FFA500" />
@@ -455,7 +493,7 @@ export default function App() {
                 <Text style={[styles.warningConfirmText, { color: '#000' }]}>{t('enterAnyway', language)}</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </AnimatedSafeAreaView>
@@ -598,7 +636,7 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#08080C',
+    backgroundColor: '#F4EBE6',
   },
   loadingOverlay: {
     flex: 1,
@@ -611,21 +649,21 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   appNameText: {
-    color: '#FFFFFF',
+    color: '#3D312A',
     fontSize: 34,
     fontWeight: '900',
     letterSpacing: 3,
-    textShadowColor: 'rgba(255, 215, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 4 },
-    textShadowRadius: 12,
+    textShadowColor: 'rgba(61, 49, 42, 0.12)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   appSubtitleText: {
-    color: '#FFD700',
+    color: '#D86A4F',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 2,
     marginTop: 8,
-    opacity: 0.85,
+    opacity: 0.9,
     textTransform: 'uppercase',
   },
   loadingFooter: {
@@ -634,32 +672,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     marginBottom: 40,
   },
+  glassContainer: {
+    width: '100%',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 4,
+  },
   progressBarBg: {
     width: '100%',
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 2,
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 3,
     overflow: 'hidden',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#FFD700',
-    shadowColor: '#FFD700',
+    backgroundColor: '#D86A4F',
+    borderRadius: 3,
+    shadowColor: '#D86A4F',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 1,
   },
   preloadStatusText: {
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     marginTop: 14,
     letterSpacing: 0.5,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+  },
+  paperOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(244, 235, 230, 0.18)',
+  },
+  capturedText: {
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 8,
+    letterSpacing: 0.5,
   },
 });

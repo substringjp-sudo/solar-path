@@ -490,31 +490,41 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'grid' | 'list'>('grid');
   const [activeAltitude, setActiveAltitude] = useState<'all' | 'low' | 'mid' | 'high'>('all');
   const [showInfoModal, setShowInfoModal] = useState(false);
-  const [guideSubTab, setGuideSubTab] = useState<'basic' | 'encyclopedia' | 'portal'>('basic');
+  const [guideSubTab, setGuideSubTab] = useState<'basic' | 'encyclopedia'>('basic');
   const [expandedCloud, setExpandedCloud] = useState<string | null>(null);
 
   const angles = [-20, -10, 0, 10, 20];
-  const distances = [380, 280, 200, 130, 70, 30, 10]; // Top to bottom (Far to Near)
+  const distances = [380, 280, 200, 130, 70, 30, 10, 0]; // Top to bottom (Far to Near & Observer at 0)
 
-  // 1. 5x7 그리드 매트릭스 변환
+  // 1. 5x8 그리드 매트릭스 변환 (내 위치인 0km 포함)
   const gridMatrix = useMemo(() => {
     if (!interpolatedWeather || interpolatedWeather.length < 36) return [];
     
     // interpolatedWeather의 첫 번째는 observer(0km)
     // 그 다음은 5개 각도 * 7개 거리 순
     const matrix: any[][] = [];
+    const observerData = interpolatedWeather[0] || { low: 0, mid: 0, high: 0, visibility: 10000, humidity: 50 };
     
     distances.forEach((dist) => {
       const row: any[] = [];
       angles.forEach((ang) => {
-        // angleIndex: 0~4, distanceIndex: 0~6
-        const angleIdx = angles.indexOf(ang);
-        const distIdx = [10, 30, 70, 130, 200, 280, 380].indexOf(dist);
-        
-        // 1 + angleIdx * 7 + distIdx
-        const dataIdx = 1 + angleIdx * 7 + distIdx;
-        const cellData = interpolatedWeather[dataIdx];
-        row.push(cellData || { distance: dist, azimuthOffset: ang, low: 0, mid: 0, high: 0 });
+        if (dist === 0) {
+          // 내 위치(0km)인 경우 observer 데이터를 행 전체에 채움
+          row.push({
+            ...observerData,
+            distance: 0,
+            azimuthOffset: ang
+          });
+        } else {
+          // angleIndex: 0~4, distanceIndex: 0~6
+          const angleIdx = angles.indexOf(ang);
+          const distIdx = [10, 30, 70, 130, 200, 280, 380].indexOf(dist);
+          
+          // 1 + angleIdx * 7 + distIdx
+          const dataIdx = 1 + angleIdx * 7 + distIdx;
+          const cellData = interpolatedWeather[dataIdx];
+          row.push(cellData || { distance: dist, azimuthOffset: ang, low: 0, mid: 0, high: 0 });
+        }
       });
       matrix.push(row);
     });
@@ -680,9 +690,22 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                 <View style={styles.gridOuterContainer}>
                    {/* Y-axis Labels (Distance) */}
                    <View style={styles.yAxisLabels}>
-                     {distances.map((dist) => (
-                       <Text key={dist} style={[styles.yLabel, { color: theme.subText }]}>{dist}k</Text>
-                     ))}
+                     {distances.map((dist) => {
+                       const isObserver = dist === 0;
+                       const labelText = isObserver ? (language === 'ko' ? '내위치' : 'Me') : `${dist}k`;
+                       const labelFontSize = isObserver && language === 'ko' ? 7.5 : 9;
+                       return (
+                         <Text
+                           key={dist}
+                           style={[
+                             styles.yLabel,
+                             { color: theme.subText, fontSize: labelFontSize }
+                           ]}
+                         >
+                           {labelText}
+                         </Text>
+                       );
+                     })}
                    </View>
 
                   <View style={styles.gridInnerContainer}>
@@ -876,14 +899,6 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                   {t('tabCloudGuide', language)}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.subTabButton, guideSubTab === 'portal' && [styles.activeSubTabButton, { backgroundColor: theme.card }]]}
-                onPress={() => setGuideSubTab('portal')}
-              >
-                <Text style={[styles.subTabText, { color: guideSubTab === 'portal' ? theme.text : theme.subText, fontWeight: guideSubTab === 'portal' ? '800' : '600' }]}>
-                  {t('tabPortalLinks', language)}
-                </Text>
-              </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.infoScrollBody} showsVerticalScrollIndicator={false}>
@@ -912,7 +927,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.guideName, { color: theme.text }]}>{t('legendMidTitle', language)}</Text>
                           <Text style={[styles.guideDesc, { color: theme.subText }]}>
-                            {language === 'ko' ? '고적운이나 고층운 등 물방울과 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.' : 'Mixed clouds of water droplets and ice crystals (e.g. Altocumulus). Creates spatial gaps in the sky that form majestic cloud shadows or dramatic crepuscular rays.'}
+                            {language === 'ko' ? '고적운이나 고층운 등 물방울 and 빙결정의 혼합 구름입니다. 하늘에 입체적인 틈새를 만들어 웅장한 하늘 그림자나 드라마틱한 빛내림(Crepuscular rays)을 형성합니다.' : 'Mixed clouds of water droplets and ice crystals (e.g. Altocumulus). Creates spatial gaps in the sky that form majestic cloud shadows or dramatic crepuscular rays.'}
                           </Text>
                         </View>
                       </View>
@@ -980,7 +995,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                     </View>
                   </View>
                 </>
-              ) : guideSubTab === 'encyclopedia' ? (
+              ) : (
                 <View style={styles.encyclopediaContainer}>
                   <Text style={[styles.infoSectionTitle, { color: theme.accent, marginBottom: 4 }]}>{t('cloudScienceTitle', language)}</Text>
                   <Text style={[styles.infoText, { color: theme.subText, marginBottom: 16 }]}>
@@ -1055,70 +1070,6 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
                       </View>
                     );
                   })}
-                </View>
-              ) : (
-                <View style={styles.portalContainer}>
-                  {/* PPLANER Portal */}
-                  <View style={[styles.portalMainCard, { borderColor: theme.border, backgroundColor: 'rgba(255, 215, 0, 0.03)' }]}>
-                    <View style={styles.portalCardHeader}>
-                      <Globe size={20} color={theme.accent} style={{ marginRight: 8 }} />
-                      <Text style={[styles.portalCardTitle, { color: theme.text }]}>{t('portalTitle', language)}</Text>
-                    </View>
-                    <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
-                      {t('portalDesc', language)}
-                    </Text>
-                    <TouchableOpacity 
-                      style={[styles.portalLinkBtn, { backgroundColor: theme.accent }]}
-                      onPress={() => Linking.openURL('https://pplaner.com')}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.portalLinkBtnText}>{t('visitSite', language)}</Text>
-                      <ExternalLink size={14} color="#000" style={{ marginLeft: 4 }} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Sister Sites Header */}
-                  <Text style={[styles.portalSectionHeader, { color: theme.text }]}>
-                    🔗 {t('sisterSitesTitle', language)}
-                  </Text>
-
-                  {/* JP Rail Planner */}
-                  <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
-                    <View style={styles.portalCardHeader}>
-                      <Compass size={18} color="#FF6347" style={{ marginRight: 8 }} />
-                      <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterJpRailTitle', language)}</Text>
-                    </View>
-                    <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
-                      {t('sisterJpRailDesc', language)}
-                    </Text>
-                    <TouchableOpacity 
-                      style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
-                      onPress={() => Linking.openURL('https://jprail.pplaner.com')}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
-                      <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* RG Nevel Planner */}
-                  <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
-                    <View style={styles.portalCardHeader}>
-                      <Cloud size={18} color="#20B2AA" style={{ marginRight: 8 }} />
-                      <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterRgNevelTitle', language)}</Text>
-                    </View>
-                    <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
-                      {t('sisterRgNevelDesc', language)}
-                    </Text>
-                    <TouchableOpacity 
-                      style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
-                      onPress={() => Linking.openURL('https://rgnevel.pplaner.com')}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
-                      <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
-                    </TouchableOpacity>
-                  </View>
                 </View>
               )}
             </ScrollView>
@@ -1241,7 +1192,7 @@ const styles = StyleSheet.create({
   yAxisLabels: {
     width: 32,
     justifyContent: 'space-between',
-    height: 252, // Matches grid table height
+    height: 288, // Matches grid table height
     paddingVertical: 4,
   },
   yLabel: {
@@ -1254,7 +1205,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   gridTable: {
-    height: 252,
+    height: 288,
     justifyContent: 'space-between',
   },
   gridRow: {
@@ -1681,79 +1632,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     overflow: 'hidden',
   },
-  portalContainer: {
-    paddingHorizontal: 4,
-    paddingVertical: 8,
-    gap: 16,
-  },
-  portalMainCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  portalSubCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.005)',
-  },
-  portalCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  portalCardTitle: {
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  portalSubCardTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  portalCardDesc: {
-    fontSize: 11,
-    lineHeight: 16,
-    opacity: 0.8,
-    marginBottom: 12,
-  },
-  portalLinkBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    marginTop: 4,
-  },
-  portalLinkBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#000',
-  },
-  portalSubLinkBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  portalSubLinkBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  portalSectionHeader: {
-    fontSize: 12,
-    fontWeight: '800',
-    marginTop: 8,
-    marginBottom: 2,
-    letterSpacing: 0.5,
-  },
+
 });
 

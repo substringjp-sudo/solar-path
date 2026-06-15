@@ -24,6 +24,7 @@ import {
 } from '../utils/sunCamera';
 import { getSunPosition } from '../utils/celestial';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
@@ -143,11 +144,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   //      카메라 전방 벡터를 직접 추출 → 동일 샘플에서 heading + pitch 동시 계산.
   const [deviceAzimuth, setDeviceAzimuth] = useState(0);
   const [devicePitch, setDevicePitch] = useState(0);
+  const [deviceRotation, setDeviceRotation] = useState({ alpha: 0, beta: 0, gamma: 0 });
   const [hasInterference, setHasInterference] = useState(false);
 
   // 센서 실시간 Ref (리렌더 없이 최신값 유지)
   const deviceAzimuthRef = useRef(0);
   const devicePitchRef = useRef(0);
+  const deviceRotationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
 
   // 자기계 raw Ref
   const magRef = useRef({ x: 0, y: 0, z: 0 });
@@ -298,6 +301,18 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setDeviceAzimuth(filteredAz);
       devicePitchRef.current = filteredPitch;
       setDevicePitch(filteredPitch);
+
+      // 진북 보정 각도로 보정된 3D Rotation Matrix 각도 세트 전개
+      const radOffset = (northOffsetRef.current * Math.PI) / 180;
+      const calibratedAlpha = (aRad + radOffset + 2 * Math.PI) % (2 * Math.PI);
+      
+      const currentRotation = {
+        alpha: calibratedAlpha,
+        beta: bRad,
+        gamma: gRad,
+      };
+      deviceRotationRef.current = currentRotation;
+      setDeviceRotation(currentRotation);
     });
     return () => sub.remove();
   }, [visible]);
@@ -374,28 +389,27 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [deviceAzimuth]);
 
   const effectivePitch = useMemo(() => {
-    return Math.max(-90, Math.min(90, devicePitch));
+    return Math.max(-90, Math.min(90, -devicePitch));
   }, [devicePitch]);
 
   // 태양의 화면 좌표 계산
   const sunScreenPos = useMemo((): ScreenPoint => {
     return getSunScreenPosition(
-      effectiveAz,
-      effectivePitch,
+      deviceRotation,
       sunPos.azimuth,
       sunPos.altitude,
       60, // 수평 FOV (대부분의 스마트폰 카메라)
       80, // 수직 FOV
     );
-  }, [effectiveAz, effectivePitch, sunPos.azimuth, sunPos.altitude]);
+  }, [deviceRotation, sunPos.azimuth, sunPos.altitude]);
 
   // 태양 궤적의 화면 좌표 변환
   const trajectoryScreenPoints = useMemo(() => {
     return trajectory.map(pt => ({
       ...pt,
-      screen: getSunScreenPosition(effectiveAz, effectivePitch, pt.azimuth, pt.altitude, 60, 80),
+      screen: getSunScreenPosition(deviceRotation, pt.azimuth, pt.altitude, 60, 80),
     }));
-  }, [trajectory, effectiveAz, effectivePitch]);
+  }, [trajectory, deviceRotation]);
 
   // 궤적 SVG 경로 생성
   const trajectoryPathD = useMemo(() => {
@@ -558,11 +572,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         console.error('Failed to generate simulation image:', simErr);
       }
 
-      // 2. 메타데이터 수집
+      // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
       const weatherInfo = {
         humidity,
         pm25,
-        description
+        description,
+        latitude,
+        longitude,
+        timestamp: currentTime.getTime(),
+        rawWeatherData: nearestWeather ? nearestWeather.data : null,
+        interpolatedWeatherData: nearestWeather ? getInterpolatedWeather(nearestWeather.data, currentTime) : []
       };
 
       const simulationSample = {
@@ -601,13 +620,29 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     try {
       // 1. 휴대폰 갤러리에 저장
       let savedToLibrary = false;
+      let finalSaveUri = previewUri;
+
+      if (previewUri.startsWith('data:')) {
+        try {
+          const base64Data = previewUri.split(';base64,')[1];
+          const tempFileUri = `${FileSystem.cacheDirectory}stamped_photo_${Date.now()}.jpg`;
+          await FileSystem.writeAsStringAsync(tempFileUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          finalSaveUri = tempFileUri;
+        } catch (fsErr) {
+          console.error('[SunCamera] Failed to write temp file:', fsErr);
+          throw new Error('Failed to create local image file for saving.');
+        }
+      }
+
       if (mediaPermission?.granted) {
-        await MediaLibrary.saveToLibraryAsync(previewUri);
+        await MediaLibrary.saveToLibraryAsync(finalSaveUri);
         savedToLibrary = true;
       } else {
         const { granted } = await requestMediaPermission();
         if (granted) {
-          await MediaLibrary.saveToLibraryAsync(previewUri);
+          await MediaLibrary.saveToLibraryAsync(finalSaveUri);
           savedToLibrary = true;
         } else {
           Alert.alert(t('permissionRequired', language), t('galleryPermissionRequiredMsg', language));
@@ -621,7 +656,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       if (user && savedToLibrary) {
         // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
         const manipulated = await ImageManipulator.manipulateAsync(
-          previewUri,
+          finalSaveUri,
           [{ resize: { width: 600 } }],
           { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
         );
@@ -630,8 +665,18 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         let manipulatedSimUri = undefined;
         if (simPreviewUri) {
           try {
+            let finalSimSaveUri = simPreviewUri;
+            if (simPreviewUri.startsWith('data:')) {
+              const simBase64Data = simPreviewUri.split(';base64,')[1];
+              const tempSimFileUri = `${FileSystem.cacheDirectory}sim_photo_${Date.now()}.jpg`;
+              await FileSystem.writeAsStringAsync(tempSimFileUri, simBase64Data, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              finalSimSaveUri = tempSimFileUri;
+            }
+
             const manipulatedSim = await ImageManipulator.manipulateAsync(
-              simPreviewUri,
+              finalSimSaveUri,
               [{ resize: { width: 400 } }],
               { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
             );
@@ -867,7 +912,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 })}
 
               {(() => {
-                const horizonY = getSunScreenPosition(effectiveAz, effectivePitch, effectiveAz, 0, 60, 80).y * H;
+                const horizonY = getSunScreenPosition(deviceRotation, deviceAzimuth, 0, 60, 80).y * H;
                 if (horizonY > 0 && horizonY < H) {
                   return (
                     <Line

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions } from 'react-native';
-import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic, Globe } from 'lucide-react-native';
+import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -26,15 +26,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      Animated.timing(slideAnim, {
+      Animated.spring(slideAnim, {
         toValue: 0,
-        duration: 350,
+        damping: 18,
+        stiffness: 120,
+        mass: 0.9,
         useNativeDriver: true,
       }).start();
     } else {
       Animated.timing(slideAnim, {
         toValue: windowHeight,
-        duration: 300,
+        duration: 250,
         useNativeDriver: true,
       }).start();
     }
@@ -57,6 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLanguage,
   } = useCelestialStore();
   const [showLicenses, setShowLicenses] = useState(false);
+  const [showPortal, setShowPortal] = useState(false);
 
   // Auth States
   const [email, setEmail] = useState('');
@@ -179,6 +182,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (visible) {
+      setShowPortal(false);
       checkPermissions();
     }
   }, [visible, checkPermissions]);
@@ -217,362 +221,454 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ]}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>{t('settings', language)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              {showPortal && (
+                <TouchableOpacity onPress={() => setShowPortal(false)} style={styles.backBtn}>
+                  <ChevronLeft size={20} color={theme.text} />
+                </TouchableOpacity>
+              )}
+              <Text style={[styles.headerTitle, { color: theme.text, marginLeft: showPortal ? 8 : 0 }]}>
+                {showPortal ? t('tabPortalLinks', language) : t('settings', language)}
+              </Text>
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <X size={20} color={theme.subText} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
-            {/* 1. Account Section */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('account', language)}</Text>
-              
-              {currentUser ? (
-                /* Profile Card */
-                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  <View style={styles.profileRow}>
-                    <View style={[styles.avatarCircle, { backgroundColor: theme.border }]}>
-                      <User size={24} color={theme.accent} />
-                    </View>
-                    <View style={styles.profileInfo}>
-                      <Text style={[styles.profileName, { color: theme.text }]} numberOfLines={1}>
-                        {currentUser.email || t('signedInUser', language)}
-                      </Text>
-                      <Text style={[styles.profileDesc, { color: '#4CAF50', fontWeight: '700' }]}>
-                        {t('cloudSyncEnabled', language)}
-                      </Text>
-                    </View>
-                    <TouchableOpacity 
-                      onPress={handleSignOut} 
-                      disabled={isSubmitting}
-                      style={[styles.signOutBtn, { backgroundColor: 'rgba(255,82,82,0.1)' }]}
-                    >
-                      {isSubmitting ? (
-                        <ActivityIndicator size="small" color="#FF5252" />
-                      ) : (
-                        <LogOut size={16} color="#FF5252" />
-                      )}
-                    </TouchableOpacity>
+          {showPortal ? (
+            <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
+              <View style={styles.portalContainer}>
+                {/* PPLANER Portal */}
+                <View style={[styles.portalMainCard, { borderColor: theme.border, backgroundColor: 'rgba(255, 215, 0, 0.03)' }]}>
+                  <View style={styles.portalCardHeader}>
+                    <Globe size={20} color={theme.accent} style={{ marginRight: 8 }} />
+                    <Text style={[styles.portalCardTitle, { color: theme.text }]}>{t('portalTitle', language)}</Text>
                   </View>
-                </View>
-              ) : (
-                /* Auth Form */
-                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border, padding: 16, gap: 12 }]}>
-                  <Text style={[styles.authTitle, { color: theme.text }]}>
-                    {isSignUpActive ? t('createAccount', language) : t('signIn', language)}
+                  <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
+                    {t('portalDesc', language)}
                   </Text>
-                  
-                  <View style={[styles.inputWrapper, { borderColor: theme.border, backgroundColor: theme.bg }]}>
-                     <Mail size={16} color={theme.subText} />
-                    <TextInput
-                      style={[styles.input, { color: theme.text }]}
-                      placeholder={t('email', language)}
-                      placeholderTextColor={theme.subText}
-                      value={email}
-                      onChangeText={setEmail}
-                      autoCapitalize="none"
-                      keyboardType="email-address"
-                    />
-                  </View>
-
-                  <View style={[styles.inputWrapper, { borderColor: theme.border, backgroundColor: theme.bg }]}>
-                    <KeyRound size={16} color={theme.subText} />
-                    <TextInput
-                      style={[styles.input, { color: theme.text }]}
-                      placeholder={t('password', language)}
-                      placeholderTextColor={theme.subText}
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry
-                      autoCapitalize="none"
-                    />
-                  </View>
-                  {isSignUpActive && password.length > 0 && (
-                    <View style={styles.passwordHintContainer}>
-                      <Text style={[styles.passwordHintText, { color: password.length >= 8 ? '#4CAF50' : '#FF5252' }]}>
-                        {password.length >= 8 ? '✓' : '✗'} {t('passwordMinLengthHint', language)}
-                      </Text>
-                      <Text style={[styles.passwordHintText, { color: (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '#4CAF50' : '#FF5252' }]}>
-                        {(/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '✓' : '✗'} {t('passwordComplexityHint', language)}
-                      </Text>
-                    </View>
-                  )}
-
-                  {authError && (
-                    <View style={styles.errorContainer}>
-                      <AlertCircle size={14} color="#FF5252" />
-                      <Text style={styles.errorText}>{authError}</Text>
-                    </View>
-                  )}
-
-                  <TouchableOpacity
-                    onPress={isSignUpActive ? handleSignUp : handleSignIn}
-                    disabled={isSubmitting}
-                    style={[styles.authButton, { backgroundColor: theme.text }]}
+                  <TouchableOpacity 
+                    style={[styles.portalLinkBtn, { backgroundColor: theme.accent }]}
+                    onPress={() => Linking.openURL('https://pplaner.com')}
+                    activeOpacity={0.8}
                   >
-                    {isSubmitting ? (
-                      <ActivityIndicator size="small" color={theme.bg} />
-                    ) : (
-                      <Text style={[styles.authButtonText, { color: theme.bg }]}>
-                        {isSignUpActive ? t('signUp', language) : t('signIn', language)}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      setIsSignUpActive(!isSignUpActive);
-                      setAuthError(null);
-                    }}
-                    style={styles.switchModeBtn}
-                  >
-                    <Text style={[styles.switchModeText, { color: theme.subText }]}>
-                      {isSignUpActive 
-                        ? t('alreadyHaveAccount', language) 
-                        : t('dontHaveAccount', language)}
-                    </Text>
+                    <Text style={styles.portalLinkBtnText}>{t('visitSite', language)}</Text>
+                    <ExternalLink size={14} color="#000" style={{ marginLeft: 4 }} />
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
 
-            {/* Language Setting Section */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('languageSetting', language)}</Text>
-              <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                <View style={styles.langSelectorRow}>
+                {/* Sister Sites Header */}
+                <Text style={[styles.portalSectionHeader, { color: theme.text }]}>
+                  🔗 {t('sisterSitesTitle', language)}
+                </Text>
+
+                {/* JP Rail Planner */}
+                <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
+                  <View style={styles.portalCardHeader}>
+                    <Compass size={18} color="#FF6347" style={{ marginRight: 8 }} />
+                    <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterJpRailTitle', language)}</Text>
+                  </View>
+                  <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
+                    {t('sisterJpRailDesc', language)}
+                  </Text>
                   <TouchableOpacity 
-                    style={[
-                      styles.langOption, 
-                      language === 'ko' && { backgroundColor: theme.border }
-                    ]}
-                    onPress={() => setLanguage('ko')}
+                    style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
+                    onPress={() => Linking.openURL('https://jprail.pplaner.com')}
+                    activeOpacity={0.8}
                   >
-                    <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
+                    <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
+                    <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
                   </TouchableOpacity>
+                </View>
+
+                {/* RG Nevel Planner */}
+                <View style={[styles.portalSubCard, { borderColor: theme.border }]}>
+                  <View style={styles.portalCardHeader}>
+                    <Cloud size={18} color="#20B2AA" style={{ marginRight: 8 }} />
+                    <Text style={[styles.portalSubCardTitle, { color: theme.text }]}>{t('sisterRgNevelTitle', language)}</Text>
+                  </View>
+                  <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
+                    {t('sisterRgNevelDesc', language)}
+                  </Text>
                   <TouchableOpacity 
-                    style={[
-                      styles.langOption, 
-                      language === 'en' && { backgroundColor: theme.border }
-                    ]}
-                    onPress={() => setLanguage('en')}
+                    style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
+                    onPress={() => Linking.openURL('https://rgnevel.pplaner.com')}
+                    activeOpacity={0.8}
                   >
-                    <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
+                    <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
+                    <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
-
-            {/* Developer Options Section */}
-            {__DEV__ && (
+            </ScrollView>
+          ) : (
+            <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
+              {/* 1. Account Section */}
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('account', language)}</Text>
+                
+                {currentUser ? (
+                  /* Profile Card */
+                  <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                    <View style={styles.profileRow}>
+                      <View style={[styles.avatarCircle, { backgroundColor: theme.border }]}>
+                        <User size={24} color={theme.accent} />
+                      </View>
+                      <View style={styles.profileInfo}>
+                        <Text style={[styles.profileName, { color: theme.text }]} numberOfLines={1}>
+                          {currentUser.email || t('signedInUser', language)}
+                        </Text>
+                        <Text style={[styles.profileDesc, { color: '#4CAF50', fontWeight: '700' }]}>
+                          {t('cloudSyncEnabled', language)}
+                        </Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={handleSignOut} 
+                        disabled={isSubmitting}
+                        style={[styles.signOutBtn, { backgroundColor: 'rgba(255,82,82,0.1)' }]}
+                      >
+                        {isSubmitting ? (
+                          <ActivityIndicator size="small" color="#FF5252" />
+                        ) : (
+                          <LogOut size={16} color="#FF5252" />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  /* Auth Form */
+                  <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border, padding: 16, gap: 12 }]}>
+                    <Text style={[styles.authTitle, { color: theme.text }]}>
+                      {isSignUpActive ? t('createAccount', language) : t('signIn', language)}
+                    </Text>
+                    
+                    <View style={[styles.inputWrapper, { borderColor: theme.border, backgroundColor: theme.bg }]}>
+                       <Mail size={16} color={theme.subText} />
+                      <TextInput
+                        style={[styles.input, { color: theme.text }]}
+                        placeholder={t('email', language)}
+                        placeholderTextColor={theme.subText}
+                        value={email}
+                        onChangeText={setEmail}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                    </View>
+
+                    <View style={[styles.inputWrapper, { borderColor: theme.border, backgroundColor: theme.bg }]}>
+                      <KeyRound size={16} color={theme.subText} />
+                      <TextInput
+                        style={[styles.input, { color: theme.text }]}
+                        placeholder={t('password', language)}
+                        placeholderTextColor={theme.subText}
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    {isSignUpActive && password.length > 0 && (
+                      <View style={styles.passwordHintContainer}>
+                        <Text style={[styles.passwordHintText, { color: password.length >= 8 ? '#4CAF50' : '#FF5252' }]}>
+                          {password.length >= 8 ? '✓' : '✗'} {t('passwordMinLengthHint', language)}
+                        </Text>
+                        <Text style={[styles.passwordHintText, { color: (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '#4CAF50' : '#FF5252' }]}>
+                          {(/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '✓' : '✗'} {t('passwordComplexityHint', language)}
+                        </Text>
+                      </View>
+                    )}
+
+                    {authError && (
+                      <View style={styles.errorContainer}>
+                        <AlertCircle size={14} color="#FF5252" />
+                        <Text style={styles.errorText}>{authError}</Text>
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      onPress={isSignUpActive ? handleSignUp : handleSignIn}
+                      disabled={isSubmitting}
+                      style={[styles.authButton, { backgroundColor: theme.text }]}
+                    >
+                      {isSubmitting ? (
+                        <ActivityIndicator size="small" color={theme.bg} />
+                      ) : (
+                        <Text style={[styles.authButtonText, { color: theme.bg }]}>
+                          {isSignUpActive ? t('signUp', language) : t('signIn', language)}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        setIsSignUpActive(!isSignUpActive);
+                        setAuthError(null);
+                      }}
+                      style={styles.switchModeBtn}
+                    >
+                      <Text style={[styles.switchModeText, { color: theme.subText }]}>
+                        {isSignUpActive 
+                          ? t('alreadyHaveAccount', language) 
+                          : t('dontHaveAccount', language)}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Family Services Link */}
+                <TouchableOpacity 
+                  style={[styles.portalLinkRow, { backgroundColor: theme.glass, borderColor: theme.border }]}
+                  onPress={() => setShowPortal(true)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.portalLinkLeft}>
+                    <Globe size={18} color={theme.accent} />
+                    <Text style={[styles.portalLinkLabel, { color: theme.text }]}>
+                      {t('tabPortalLinks', language)}
+                    </Text>
+                  </View>
+                  <ChevronRight size={16} color={theme.subText} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Language Setting Section */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('languageSetting', language)}</Text>
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.langSelectorRow}>
+                    <TouchableOpacity 
+                      style={[
+                        styles.langOption, 
+                        language === 'ko' && { backgroundColor: theme.border }
+                      ]}
+                      onPress={() => setLanguage('ko')}
+                    >
+                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[
+                        styles.langOption, 
+                        language === 'en' && { backgroundColor: theme.border }
+                      ]}
+                      onPress={() => setLanguage('en')}
+                    >
+                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* Developer Options Section */}
+              {__DEV__ && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
+                  <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                    <TouchableOpacity 
+                      style={styles.permissionRow}
+                      onPress={() => setDebugMode(!isDebugMode)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.permIconContainer}>
+                        <Info size={16} color={theme.text} />
+                        <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
+                      </View>
+                      <View style={styles.statusRow}>
+                        {isDebugMode ? (
+                          <View style={styles.badgeGranted}>
+                            <CheckCircle2 size={12} color="#4CAF50" />
+                            <Text style={styles.badgeTextGranted}>ON</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.badgeDenied}>
+                            <AlertCircle size={12} color="#FF5252" />
+                            <Text style={styles.badgeTextDenied}>OFF</Text>
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* 2. System Permissions Section */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('appPermissions', language)}</Text>
+                </View>
+
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  {/* Camera Permission */}
                   <TouchableOpacity 
-                    style={styles.permissionRow}
-                    onPress={() => setDebugMode(!isDebugMode)}
+                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                    onPress={handleCameraPress}
                     activeOpacity={0.7}
                   >
                     <View style={styles.permIconContainer}>
-                      <Info size={16} color={theme.text} />
-                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
+                      <Camera size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('camera', language)}</Text>
                     </View>
                     <View style={styles.statusRow}>
-                      {isDebugMode ? (
+                      {cameraPermission === 'granted' ? (
                         <View style={styles.badgeGranted}>
                           <CheckCircle2 size={12} color="#4CAF50" />
-                          <Text style={styles.badgeTextGranted}>ON</Text>
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
                         </View>
                       ) : (
                         <View style={styles.badgeDenied}>
                           <AlertCircle size={12} color="#FF5252" />
-                          <Text style={styles.badgeTextDenied}>OFF</Text>
+                          <Text style={styles.badgeTextDenied}>
+                            {cameraPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
                         </View>
                       )}
                     </View>
                   </TouchableOpacity>
-                </View>
-              </View>
-            )}
 
-            {/* 2. System Permissions Section */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('appPermissions', language)}</Text>
-              </View>
-
-              <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                {/* Camera Permission */}
-                <TouchableOpacity 
-                  style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
-                  onPress={handleCameraPress}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.permIconContainer}>
-                    <Camera size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('camera', language)}</Text>
-                  </View>
-                  <View style={styles.statusRow}>
-                    {cameraPermission === 'granted' ? (
-                      <View style={styles.badgeGranted}>
-                        <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgeDenied}>
-                        <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>
-                          {cameraPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Storage & Media Permission */}
-                <TouchableOpacity 
-                  style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
-                  onPress={handleMediaPress}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.permIconContainer}>
-                    <Image size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('storageMedia', language)}</Text>
-                  </View>
-                  <View style={styles.statusRow}>
-                    {mediaPermission === 'granted' ? (
-                      <View style={styles.badgeGranted}>
-                        <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgeDenied}>
-                        <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>
-                          {mediaPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Microphone Permission */}
-                <TouchableOpacity 
-                  style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
-                  onPress={handleMicrophonePress}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.permIconContainer}>
-                    <Mic size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('audioMic', language)}</Text>
-                  </View>
-                  <View style={styles.statusRow}>
-                    {microphonePermission === 'granted' ? (
-                      <View style={styles.badgeGranted}>
-                        <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgeDenied}>
-                        <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>
-                          {microphonePermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Location Permission */}
-                <TouchableOpacity 
-                  style={styles.permissionRow}
-                  onPress={handleLocationPress}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.permIconContainer}>
-                    <MapPin size={16} color={theme.text} />
-                    <Text style={[styles.permLabel, { color: theme.text }]}>{t('location', language)}</Text>
-                  </View>
-                  <View style={styles.statusRow}>
-                    {locationPermission === 'granted' ? (
-                      <View style={styles.badgeGranted}>
-                        <CheckCircle2 size={12} color="#4CAF50" />
-                        <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgeDenied}>
-                        <AlertCircle size={12} color="#FF5252" />
-                        <Text style={styles.badgeTextDenied}>
-                          {locationPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-
-                {/* System Settings Button */}
-                <TouchableOpacity 
-                  onPress={openSystemSettings}
-                  style={[styles.settingsBtn, { backgroundColor: theme.border }]}
-                >
-                  <Shield size={14} color={theme.text} />
-                  <Text style={[styles.settingsBtnText, { color: theme.text }]}>{t('manageSystemSettings', language)}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* 3. App Info & Version Section */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('aboutApp', language)}</Text>
-              <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                <View style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}>
-                  <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('version', language)}</Text>
-                  <Text style={[styles.infoValue, { color: theme.text }]}>1.0.0 (Build 1)</Text>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('identifier', language)}</Text>
-                  <Text style={[styles.infoValue, { color: theme.text }]}>com.pplaner.beforeglow</Text>
-                </View>
-
-                {/* Open Source Licenses Trigger */}
-                <TouchableOpacity 
-                  onPress={() => setShowLicenses(prev => !prev)}
-                  style={[styles.licensesToggle, { borderTopColor: theme.border, borderTopWidth: 0.5 }]}
-                >
-                  <View style={styles.licensesLabelRow}>
-                    <Info size={14} color={theme.text} />
-                    <Text style={[styles.licensesToggleText, { color: theme.text }]}>{t('openSourceLicenses', language)}</Text>
-                  </View>
-                  <Text style={{ color: theme.accent, fontSize: 11, fontWeight: 'bold' }}>
-                    {showLicenses ? 'HIDE' : 'SHOW'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Licenses List Accordion */}
-                {showLicenses && (
-                  <View style={[styles.licensesContainer, { backgroundColor: 'rgba(0,0,0,0.15)' }]}>
-                    {licenses.map((lib, idx) => (
-                      <View 
-                        key={lib.name} 
-                        style={[
-                          styles.licenseItem, 
-                          idx < licenses.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 0.5 }
-                        ]}
-                      >
-                        <View style={styles.licenseItemHeader}>
-                          <Text style={[styles.libName, { color: theme.text }]}>{lib.name}</Text>
-                          <Text style={[styles.libVersion, { color: theme.subText }]}>v{lib.version}</Text>
+                  {/* Storage & Media Permission */}
+                  <TouchableOpacity 
+                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                    onPress={handleMediaPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <Image size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('storageMedia', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {mediaPermission === 'granted' ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color="#4CAF50" />
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
                         </View>
-                        <Text style={styles.libLicense}>License: {lib.license}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color="#FF5252" />
+                          <Text style={styles.badgeTextDenied}>
+                            {mediaPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Microphone Permission */}
+                  <TouchableOpacity 
+                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                    onPress={handleMicrophonePress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <Mic size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('audioMic', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {microphonePermission === 'granted' ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color="#4CAF50" />
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color="#FF5252" />
+                          <Text style={styles.badgeTextDenied}>
+                            {microphonePermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Location Permission */}
+                  <TouchableOpacity 
+                    style={styles.permissionRow}
+                    onPress={handleLocationPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <MapPin size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('location', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {locationPermission === 'granted' ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color="#4CAF50" />
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color="#FF5252" />
+                          <Text style={styles.badgeTextDenied}>
+                            {locationPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* System Settings Button */}
+                  <TouchableOpacity 
+                    onPress={openSystemSettings}
+                    style={[styles.settingsBtn, { backgroundColor: theme.border }]}
+                  >
+                    <Shield size={14} color={theme.text} />
+                    <Text style={[styles.settingsBtnText, { color: theme.text }]}>{t('manageSystemSettings', language)}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          </ScrollView>
+
+              {/* 3. App Info & Version Section */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('aboutApp', language)}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}>
+                    <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('version', language)}</Text>
+                    <Text style={[styles.infoValue, { color: theme.text }]}>1.0.0 (Build 1)</Text>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('identifier', language)}</Text>
+                    <Text style={[styles.infoValue, { color: theme.text }]}>com.pplaner.beforeglow</Text>
+                  </View>
+
+                  {/* Open Source Licenses Trigger */}
+                  <TouchableOpacity 
+                    onPress={() => setShowLicenses(prev => !prev)}
+                    style={[styles.licensesToggle, { borderTopColor: theme.border, borderTopWidth: 0.5 }]}
+                  >
+                    <View style={styles.licensesLabelRow}>
+                      <Info size={14} color={theme.text} />
+                      <Text style={[styles.licensesToggleText, { color: theme.text }]}>{t('openSourceLicenses', language)}</Text>
+                    </View>
+                    <Text style={{ color: theme.accent, fontSize: 11, fontWeight: 'bold' }}>
+                      {showLicenses ? 'HIDE' : 'SHOW'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Licenses List Accordion */}
+                  {showLicenses && (
+                    <View style={[styles.licensesContainer, { backgroundColor: 'rgba(0,0,0,0.15)' }]}>
+                      {licenses.map((lib, idx) => (
+                        <View 
+                          key={lib.name} 
+                          style={[
+                            styles.licenseItem, 
+                            idx < licenses.length - 1 && { borderBottomColor: theme.border, borderBottomWidth: 0.5 }
+                          ]}
+                        >
+                          <View style={styles.licenseItemHeader}>
+                            <Text style={[styles.libName, { color: theme.text }]}>{lib.name}</Text>
+                            <Text style={[styles.libVersion, { color: theme.subText }]}>v{lib.version}</Text>
+                          </View>
+                          <Text style={styles.libLicense}>License: {lib.license}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              </View>
+            </ScrollView>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -802,6 +898,106 @@ const styles = StyleSheet.create({
   settingsBtnText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  portalLinkRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  portalLinkLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  portalLinkLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  portalContainer: {
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    gap: 16,
+  },
+  portalMainCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  portalSubCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.005)',
+  },
+  portalCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  portalCardTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  portalSubCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  portalCardDesc: {
+    fontSize: 11,
+    lineHeight: 16,
+    opacity: 0.8,
+    marginBottom: 12,
+  },
+  portalLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  portalLinkBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#000',
+  },
+  portalSubLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  portalSubLinkBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  portalSectionHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 8,
+    marginBottom: 2,
+    letterSpacing: 0.5,
   },
   infoRow: {
     flexDirection: 'row',

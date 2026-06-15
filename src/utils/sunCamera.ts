@@ -139,38 +139,71 @@ export interface ScreenPoint {
  * vFov:          카메라 수직 시야각 (도)
  */
 export const getSunScreenPosition = (
-  deviceAzimuth: number,
-  devicePitch: number,
+  deviceRotation: { alpha: number; beta: number; gamma: number },
   sunAzimuth: number,
   sunAltitude: number,
   hFov: number = 60,
   vFov: number = 80
 ): ScreenPoint => {
   const toRad = Math.PI / 180;
+  const { alpha, beta, gamma } = deviceRotation;
 
-  // 방위각 차이: 태양 - 카메라, -180~+180 범위
-  let azDiff = sunAzimuth - deviceAzimuth;
-  azDiff = ((azDiff + 540) % 360) - 180;
+  // 1) 지구 좌표계에서 태양의 단위 방향 벡터 계산
+  // azimuth가 0도일 때 북쪽(+y), 90도일 때 동쪽(+x)
+  const sunAzRad = sunAzimuth * toRad;
+  const sunAltRad = sunAltitude * toRad;
 
-  // 고도 차이: 태양 - 카메라 피치, -180~+180 범위로 정규화
-  let altDiff = sunAltitude - devicePitch;
-  altDiff = ((altDiff + 540) % 360) - 180;
+  const sx = Math.cos(sunAltRad) * Math.sin(sunAzRad); // East
+  const sy = Math.cos(sunAltRad) * Math.cos(sunAzRad); // North
+  const sz = Math.sin(sunAltRad);                     // Up
 
-  // 1. 카메라 뒤쪽 반구(후방 85도 이상 차이)에 위치하는 경우 렌더링 배제 (대칭 투영 왜곡 방지)
-  if (Math.abs(azDiff) >= 85 || Math.abs(altDiff) >= 85) {
+  // 2) 보정된 alpha, beta, gamma로 W3C 회전 행렬 R 재구성
+  // R = Rz(alpha) * Rx(beta) * Ry(gamma)
+  const sa = Math.sin(alpha), ca = Math.cos(alpha);
+  const sb = Math.sin(beta), cb = Math.cos(beta);
+  const sg = Math.sin(gamma), cg = Math.cos(gamma);
+
+  // R의 각 성분
+  const r00 = ca * cg - sa * sb * sg;
+  const r01 = -sa * cb;
+  const r02 = ca * sg + sa * sb * cg;
+
+  const r10 = sa * cg + ca * sb * sg;
+  const r11 = ca * cb;
+  const r12 = sa * sg - ca * sb * cg;
+
+  const r20 = -cb * sg;
+  const r21 = sb;
+  const r22 = cb * cg;
+
+  // 3) 카메라 로컬 축 벡터 추출 (지구 좌표계 기준)
+  // r_earth (오른쪽): R의 첫 번째 열
+  const rx = r00, ry = r10, rz = r20;
+  // u_earth (위쪽): R의 두 번째 열
+  const ux = r01, uy = r11, uz = r21;
+  // f_earth (전방, 카메라가 보는 방향): R의 세 번째 열의 반대 (-z_dev)
+  const fx = -r02, fy = -r12, fz = -r22;
+
+  // 4) 태양 벡터를 카메라 로컬 축에 정사영 (내적)
+  const dRight = sx * rx + sy * ry + sz * rz;
+  const dUp = sx * ux + sy * uy + sz * uz;
+  const dForward = sx * fx + sy * fy + sz * fz;
+
+  // 5) 카메라 뒤쪽에 위치하는 경우 렌더링 제외
+  if (dForward <= 0.05) {
     return { x: NaN, y: NaN, isVisible: false };
   }
 
-  // Perspective 투영: tan 기반으로 가장자리 왜곡 없이 정확한 화면 위치 계산
+  // 6) Perspective 원근 투영
   const halfHFovRad = (hFov / 2) * toRad;
   const halfVFovRad = (vFov / 2) * toRad;
 
-  const xNorm = Math.tan(azDiff * toRad) / Math.tan(halfHFovRad);
-  // 화면 y: 위가 0, 아래가 1 → 고도가 높을수록 y가 작아야 함
-  const yNorm = -Math.tan(altDiff * toRad) / Math.tan(halfVFovRad);
+  const xNorm = dRight / dForward / Math.tan(halfHFovRad);
+  const yNorm = dUp / dForward / Math.tan(halfVFovRad);
 
+  // 화면 x, y 계산 (좌상단 0,0 ~ 우하단 1,1)
   const x = 0.5 + xNorm * 0.5;
-  const y = 0.5 + yNorm * 0.5;
+  const y = 0.5 - yNorm * 0.5;
 
   const isVisible = x >= -0.1 && x <= 1.1 && y >= -0.1 && y <= 1.1;
 

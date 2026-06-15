@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
 import { Trash2, Image as ImageIcon } from 'lucide-react-native';
 import { auth } from '../config/firebase';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -91,7 +91,20 @@ export const Gallery: React.FC<GalleryProps> = ({
                 {item.userId === auth.currentUser?.uid && (
                   <TouchableOpacity
                     style={styles.photoDeleteBtn}
-                    onPress={() => removeGlobalPhoto(item.id)}
+                    onPress={() => {
+                      Alert.alert(
+                        t('deletePhotoConfirmTitle', language),
+                        t('deletePhotoConfirmMsg', language),
+                        [
+                          { text: t('cancel', language), style: 'cancel' },
+                          { 
+                            text: t('delete', language), 
+                            style: 'destructive',
+                            onPress: () => removeGlobalPhoto(item.id)
+                          }
+                        ]
+                      );
+                    }}
                   >
                     <Trash2 size={12} color="#FF6F61" />
                   </TouchableOpacity>

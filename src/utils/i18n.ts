@@ -156,6 +156,9 @@ export const translations = {
     all: '전체',
     mine: '내 사진',
     noPhotos: '등록된 노을 사진이 없습니다.',
+    deletePhotoConfirmTitle: '사진 삭제',
+    deletePhotoConfirmMsg: '정말로 이 사진을 삭제하시겠습니까? 글로벌 갤러리와 내 사진첩에서 모두 삭제됩니다.',
+    delete: '삭제',
 
     // WeatherDetailModal
     radarTitle: '기상 정밀 레이더 분석',
@@ -432,6 +435,9 @@ export const translations = {
     all: 'All',
     mine: 'Mine',
     noPhotos: 'No sunset photos found.',
+    deletePhotoConfirmTitle: 'Delete Photo',
+    deletePhotoConfirmMsg: 'Are you sure you want to delete this photo? It will be removed from both the global gallery and your personal collection.',
+    delete: 'Delete',
 
     // WeatherDetailModal
     radarTitle: 'Precision Weather Radar',

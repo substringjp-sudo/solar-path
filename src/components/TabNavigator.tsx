@@ -111,6 +111,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         const isSignificant = Math.abs(gestureState.dx) > 10;
         return isHorizontal && isSignificant;
       },
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         startX.current = -activeIndexRef.current * width;
       },
@@ -181,6 +182,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               isDay={isDay}
               rotation={userRotation}
               onRotationChange={setUserRotation}
+              isActive={activeTab === 'tracker'}
             />
             
             <View style={styles.trackerControls}>

@@ -128,7 +128,8 @@ interface CelestialState {
     weatherScore?: number,
     weatherInfo?: any,
     simulationSample?: any,
-    simulationImageUrl?: string
+    simulationImageUrl?: string,
+    photoId?: string
   ) => Promise<void>;
   removeMyPhoto: (id: string) => Promise<void>;
   syncMyPhotos: () => () => void;
@@ -381,11 +382,12 @@ export const useCelestialStore = create<CelestialState>()(
         weatherScore,
         weatherInfo,
         simulationSample,
-        simulationImageUrl
+        simulationImageUrl,
+        photoId
       ) => {
         const user = get().currentUser || auth.currentUser;
         const newPhoto: MyPhoto = {
-          id: generateUniqueId(),
+          id: photoId || generateUniqueId(),
           latitude,
           longitude,
           imageUrl,
@@ -415,8 +417,15 @@ export const useCelestialStore = create<CelestialState>()(
         const user = get().currentUser || auth.currentUser;
         if (user) {
           try {
+            // 1. Delete local user photo document
             const docRef = doc(db, `users/${user.uid}/photos`, id);
             await deleteDoc(docRef);
+
+            // 2. Cascade delete global photo if shared
+            const globalPhoto = get().globalPhotos.find(p => p.id === id);
+            if (globalPhoto && globalPhoto.userId === user.uid) {
+              await get().removeGlobalPhoto(id);
+            }
           } catch (err) {
             console.warn('Failed to remove photo from Firestore:', err);
           }
@@ -573,7 +582,8 @@ export const useCelestialStore = create<CelestialState>()(
             weatherScore,
             weatherInfo,
             simulationSample,
-            simulationImageUrl
+            simulationImageUrl,
+            photoId
           );
         } finally {
           // Prevent memory leaks / OOM by closing the blob if supported in RN
@@ -632,6 +642,10 @@ export const useCelestialStore = create<CelestialState>()(
           // 2. Delete Firestore document after storage file is successfully deleted
           const docRef = doc(db, 'global_photos', id);
           await deleteDoc(docRef);
+
+          // 3. Delete local user photo document as well to sync
+          const myPhotoDocRef = doc(db, `users/${user.uid}/photos`, id);
+          await deleteDoc(myPhotoDocRef).catch(e => console.warn('Failed to delete local copy:', e));
         } catch (err) {
           console.warn('Failed to remove global photo:', err);
           Alert.alert('Error', 'Failed to delete photo from storage. Database document preserved.');
@@ -830,8 +844,6 @@ export const useCelestialStore = create<CelestialState>()(
         location: state.location,
         timezoneOffsetHours: state.timezoneOffsetHours,
         timezoneLabel: state.timezoneLabel,
-        weatherCacheList: state.weatherCacheList,
-        terrainCacheList: state.terrainCacheList,
         savedLocations: state.savedLocations,
         myPhotos: state.myPhotos,
         language: state.language,

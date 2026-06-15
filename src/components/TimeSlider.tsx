@@ -17,6 +17,8 @@ interface TimeSliderProps {
   isDay: boolean;
   markers?: Array<{ time: Date | null; color: string; type: 'rise' | 'set' }>;
   onPressMap?: () => void;
+  onSlidingStart?: () => void;
+  onSlidingComplete?: () => void;
 }
 
 export const TimeSlider: React.FC<TimeSliderProps> = ({
@@ -30,6 +32,8 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   isDay,
   markers = [],
   onPressMap,
+  onSlidingStart,
+  onSlidingComplete,
 }) => {
   const { location, timezoneOffsetHours, language } = useCelestialStore();
 
@@ -311,7 +315,11 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
             const systemTime = getSystemTimeFromLocationTime(selectedLocalTime, timezoneOffsetHours);
             onChange(systemTime);
           }}
-          onGrant={() => onToggleTimeMachine(true)}
+          onGrant={() => {
+            onToggleTimeMachine(true);
+            onSlidingStart?.();
+          }}
+          onRelease={onSlidingComplete}
           theme={theme}
           trackColor={isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)'}
           fillColor={getFillColor()}

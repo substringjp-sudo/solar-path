@@ -339,9 +339,11 @@ export function useCelestialApp() {
     const toIdx = tabOrder.indexOf(toTab);
     const targetX = -toIdx * screenWidth;
 
-    Animated.timing(contentTranslateX, {
+    Animated.spring(contentTranslateX, {
       toValue: targetX,
-      duration: 350,
+      damping: 20,
+      stiffness: 130,
+      mass: 0.9,
       useNativeDriver: Platform.OS !== 'web',
     }).start();
   };

@@ -12,6 +12,7 @@ interface CelestialChartProps {
   isDay: boolean;
   rotation?: number;
   onRotationChange?: (rot: number) => void;
+  isActive?: boolean;
 }
 
 export const CelestialChart: React.FC<CelestialChartProps> = ({
@@ -22,6 +23,7 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
   isDay,
   rotation = 0,
   onRotationChange = () => {},
+  isActive = true,
 }) => {
   const { width } = Dimensions.get('window');
   const CANVAS_SIZE = width * 0.75;
@@ -35,10 +37,12 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
 
   const rotationRef = useRef(rotation);
   const onRotationChangeRef = useRef(onRotationChange);
+  const isActiveRef = useRef(isActive);
 
   // Keep references updated to avoid stale closures in panResponder
   rotationRef.current = rotation;
   onRotationChangeRef.current = onRotationChange;
+  isActiveRef.current = isActive;
 
   const getAngle = (x: number, y: number) => {
     const dx = x - CENTER;
@@ -48,7 +52,7 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => !!isActiveRef.current,
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
         startAngle.current = getAngle(locationX, locationY);

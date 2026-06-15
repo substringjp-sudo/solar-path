@@ -1,12 +1,13 @@
 import React, { useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder, TouchableOpacity, Alert } from 'react-native';
-import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline, ClipPath } from 'react-native-svg';
 import { Sun } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset, getApproximatedSkyColor } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
 import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
 import { generateSimulationImage } from '../../utils/simulationImage';
 import SunCalc from 'suncalc';
 import { getInterpolatedWeather } from '../../utils/weather';
@@ -25,6 +26,7 @@ interface VisualizerProps {
   panHandlers: GestureResponderHandlers;
   gridCloudShapes?: GridCloudShape[];
   location?: any;
+  isSliding?: boolean;
 }
 
 interface RGB {
@@ -300,8 +302,8 @@ export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
     "M 0,15 C 30,12 60,6 90,12 C 110,16 130,8 150,15 C 120,18 90,15 60,20 C 30,22 15,19 0,15 Z"
   ],
   Cirrocumulus: [
-    "M 0,15 C 10,8 20,8 30,15 C 40,8 50,8 60,15 C 70,8 80,8 90,15 C 75,20 45,20 15,20 C 5,20 0,18 0,15 Z",
-    "M 10,12 C 18,6 26,6 34,12 C 42,6 50,6 58,12 C 66,6 74,6 82,12 C 68,16 42,16 16,16 Z"
+    "M 5,12 C 10,8 15,8 20,12 C 18,15 12,15 5,12 Z M 30,10 C 35,6 40,6 45,10 C 43,13 37,13 30,10 Z M 55,12 C 60,8 65,8 70,12 C 68,15 62,15 55,12 Z M 15,22 C 20,18 25,18 30,22 C 28,25 22,25 15,22 Z M 42,20 C 47,16 52,16 57,20 C 55,23 49,23 42,20 Z M 68,22 C 73,18 78,18 83,22 C 81,25 75,25 68,22 Z",
+    "M 10,10 C 14,6 18,6 22,10 C 20,13 16,13 10,10 Z M 32,12 C 36,8 40,8 44,12 C 42,15 38,15 32,12 Z M 54,10 C 58,6 62,6 66,10 C 64,13 60,13 54,10 Z M 21,20 C 25,16 29,16 33,20 C 31,23 27,23 21,20 Z M 43,22 C 47,18 51,18 55,22 C 53,25 49,25 43,22 Z"
   ],
   Cirrostratus: [
     "M 0,15 C 50,12 100,12 150,15 L 150,20 C 100,23 50,23 0,20 Z"
@@ -311,17 +313,17 @@ export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
     "M 10,20 C 10,14 20,10 35,10 C 45,5 65,5 75,12 C 85,8 100,8 110,14 C 120,10 135,12 140,20 Z"
   ],
   Altostratus: [
-    "M 5,22 C 30,15 60,28 90,20 C 120,12 150,25 180,22 L 180,27 C 150,30 120,17 90,25 C 60,33 30,20 5,27 Z"
+    "M 0,25 C 20,10 50,8 80,18 C 110,8 140,12 170,5 C 200,10 220,18 240,25 C 240,40 220,45 200,42 C 160,48 120,40 80,45 C 40,42 20,48 0,40 Z"
   ],
   Nimbostratus: [
-    "M 0,20 C 30,15 70,15 100,20 C 130,25 170,25 200,20 L 200,32 C 170,35 130,35 100,32 C 70,28 30,28 0,32 Z"
+    "M 0,40 C 30,20 70,15 100,30 C 130,10 170,25 210,15 C 240,20 260,35 280,45 C 280,75 250,85 220,80 C 180,90 140,82 100,90 C 60,82 30,88 0,75 Z"
   ],
   Stratocumulus: [
     "M 15,25 C 15,18 28,12 45,16 C 55,8 80,8 95,18 C 110,10 135,12 145,22 C 155,20 170,25 175,32 C 150,35 125,32 15,32 Z",
     "M 15,22 C 15,16 25,12 40,12 C 50,7 72,7 82,14 C 92,10 110,10 120,16 C 130,12 145,14 150,22 Z"
   ],
   Stratus: [
-    "M 0,10 C 20,8 50,5 80,10 C 110,15 150,8 180,12 L 180,16 C 150,12 110,19 80,14 C 50,9 20,12 0,14 Z"
+    "M 0,15 C 30,8 80,8 120,15 C 150,18 180,10 200,15 L 200,30 C 170,25 140,32 100,28 C 60,24 30,28 0,25 Z"
   ],
   Cumulus: [
     "M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z",
@@ -330,6 +332,39 @@ export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
   Cumulonimbus: [
     "M 20,60 C 20,50 30,45 40,45 C 30,30 50,15 70,20 C 60,-5 120,-5 110,25 C 130,20 150,35 140,50 C 155,50 160,55 160,60 Z",
     "M 10,50 C 10,42 16,36 28,36 C 20,20 45,10 65,18 C 55,2 105,2 95,24 C 112,20 130,30 120,45 C 130,45 135,48 135,50 Z"
+  ]
+};
+
+export const CLOUD_TEMPLATES_HORIZONTAL: Record<CloudPresetName, string[]> = {
+  Cirrus: [
+    "M 0,10 C 30,8 70,5 110,8 C 140,10 180,7 210,10 C 180,12 140,11 110,13 C 70,14 30,13 0,10 Z"
+  ],
+  Cirrocumulus: [
+    "M 5,8 C 10,5 15,5 20,8 C 18,10 12,10 5,8 Z M 30,6 C 35,3 40,3 45,6 C 43,8 37,8 30,6 Z M 55,8 C 60,5 65,5 70,8 C 68,10 62,10 55,8 Z M 80,6 C 85,3 90,3 95,6 C 93,8 87,8 80,6 Z M 15,16 C 20,13 25,13 30,16 C 28,18 22,18 15,16 Z M 42,14 C 47,11 52,11 57,14 C 55,16 49,16 42,14 Z M 68,16 C 73,13 78,13 83,16 C 81,18 75,18 68,16 Z"
+  ],
+  Cirrostratus: [
+    "M 0,8 C 60,6 120,6 180,8 L 180,11 C 120,13 60,13 0,11 Z"
+  ],
+  Altocumulus: [
+    "M 10,10 C 25,6 40,6 55,10 C 70,6 85,6 100,10 C 115,6 130,6 145,10 C 160,6 175,6 190,10 L 190,13 C 145,15 100,15 55,13 L 10,10 Z"
+  ],
+  Altostratus: [
+    "M 0,20 C 30,8 70,6 110,16 C 150,6 190,10 230,5 C 260,10 280,18 300,22 C 300,35 270,38 230,35 C 190,42 150,35 110,40 C 70,38 30,42 0,35 Z"
+  ],
+  Nimbostratus: [
+    "M 0,30 C 40,15 90,10 130,25 C 170,8 210,20 250,15 C 280,20 300,32 320,40 C 320,65 290,72 250,68 C 210,76 170,70 130,76 C 90,70 45,75 0,65 Z"
+  ],
+  Stratocumulus: [
+    "M 10,15 C 25,10 45,8 65,12 C 85,6 115,6 135,14 C 155,8 185,10 205,18 C 225,16 245,20 255,25 C 220,27 185,25 10,25 Z"
+  ],
+  Stratus: [
+    "M 0,10 C 40,5 100,5 150,10 C 190,12 220,7 260,10 L 260,22 C 220,18 180,24 130,20 C 80,17 40,20 0,17 Z"
+  ],
+  Cumulus: [
+    "M 10,18 C 25,12 45,10 65,12 C 85,8 115,8 135,14 C 155,10 185,12 205,18 C 175,21 145,21 115,20 C 85,20 45,20 10,18 Z"
+  ],
+  Cumulonimbus: [
+    "M 10,25 C 25,18 45,15 65,18 C 85,12 115,12 135,22 C 155,15 185,18 205,25 C 175,28 145,28 115,27 C 85,27 45,27 10,25 Z"
   ]
 };
 
@@ -347,6 +382,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   panHandlers,
   gridCloudShapes,
   location,
+  isSliding = false,
 }) => {
   const { width, height } = useWindowDimensions();
   const { timezoneOffsetHours, isDebugMode } = useCelestialStore();
@@ -397,6 +433,37 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
     const isOvercast = (eventPrediction?.factors?.overheadOvercast ?? 0) >= 0.75;
     const overcast = eventPrediction?.factors?.overheadOvercast ?? 0;
+
+    // ── 0) 동일 거리의 열들 중 연속된 지점들의 구름(isContinuous) 판별 ──
+    const continuousGrid = {
+      high: new Array(7).fill(false),
+      mid: new Array(7).fill(false),
+      low: new Array(7).fill(false),
+    };
+
+    for (let d = 0; d < 7; d++) {
+      types.forEach((type) => {
+        const hasCloud = new Array(5).fill(false);
+        for (let col = 0; col < 5; col++) {
+          const pIdx = 1 + col * 7 + d;
+          const interpolated = eventWeather[pIdx];
+          if (interpolated) {
+            const val = type === 'high' ? interpolated.high : type === 'mid' ? interpolated.mid : interpolated.low;
+            hasCloud[col] = (val || 0) >= 20; // 20% 이상이면 구름 존재로 간주
+          }
+        }
+        
+        // 연속된 둘 이상의 지점 판별 (0..4 중 인접한 두 지점 모두 구름 존재)
+        let isContinuous = false;
+        for (let col = 0; col < 4; col++) {
+          if (hasCloud[col] && hasCloud[col + 1]) {
+            isContinuous = true;
+            break;
+          }
+        }
+        continuousGrid[type][d] = isContinuous;
+      });
+    }
 
     // ── 1) 5개 방위각 열별 공간 기상 패턴 분석 (10k ~ 380k 사이) ──
     const colStatus = Array.from({ length: 5 }, () => ({
@@ -620,7 +687,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         else if (preset.name === 'Stratocumulus') H_c = 1.8;
         else if (preset.name === 'Stratus') H_c = 0.4;
         else if (preset.name === 'Cumulus') H_c = 1.2;
-        else if (preset.name === 'Cumulonimbus') H_c = 4.5;
+        else if (preset.name === 'Cumulonimbus') H_c = 6.8;
 
         // 층상 장막 구름(Strata Layer) 여부 판정
         // 층상운을 개별 조각 구름처럼 3D 공간 상에 흩어지도록 장막(Strata) 분기 제거
@@ -628,9 +695,21 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
         // 조각 구름들 (10종 운형 모두 조각 구름 형태로 3D 공간 상에 생성)
         const isDenseDeck = status.isStormSystem || status.isStratusDeck;
-        const cloudCount = isDenseDeck 
+        const isContinuous = i === 0 ? false : continuousGrid[type][distIdx];
+
+        let cloudCount = isDenseDeck 
           ? Math.ceil(perceivedDensity / 16)
           : (isOvercast ? Math.ceil(perceivedDensity / 22) : Math.ceil(perceivedDensity / 10));
+        
+        if (isContinuous) {
+          // 연속성 구름은 더 촘촘히 겹쳐서 거대한 띠를 형성하도록 개수 1.4배 보정
+          cloudCount = Math.ceil(cloudCount * 1.4);
+        }
+
+        if (isSliding) {
+          // 슬라이더 조작 중일 때는 구름 개수를 25% 이하로 조율하여 렌더링 부하 대폭 감소
+          cloudCount = Math.max(1, Math.round(cloudCount * 0.25));
+        }
         
         for (let s = 0; s < cloudCount; s++) {
           const seed = type.charCodeAt(0) * 100 + i * 37 + s * 17;
@@ -662,12 +741,30 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
           const minElevation = type === 'high' ? 1.5 : type === 'mid' ? 0.8 : 0.4;
           apparentElevationDeg = Math.max(apparentElevationDeg, minElevation);
+          let baseColorStr =
+            type === 'high'
+              ? (eventPrediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
+              : type === 'mid'
+              ? (eventPrediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.35)')
+              : (eventPrediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
+
+          // 난층운, 고층운, 층운 개별 맞춤 색상 처리
+          if (preset.name === 'Altostratus') {
+            baseColorStr = 'rgba(130, 140, 160, 0.55)'; // 회청색
+          } else if (preset.name === 'Nimbostratus') {
+            baseColorStr = 'rgba(90, 100, 115, 0.75)'; // 어두운 회청색
+          } else if (preset.name === 'Stratus') {
+            baseColorStr = 'rgba(245, 248, 255, 0.4)'; // 반투명한 하얀색 면
+          }
 
           let cloudCategory: 'near' | 'mid' | 'far' = 'mid';
           if (d <= 80) cloudCategory = 'near';
           else if (d > 200) cloudCategory = 'far';
 
-          const templates = CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus;
+          const isNear = d <= 35;
+          const templates = isNear
+            ? (CLOUD_TEMPLATES_HORIZONTAL[preset.name] || CLOUD_TEMPLATES_HORIZONTAL.Cumulus)
+            : (CLOUD_TEMPLATES[preset.name] || CLOUD_TEMPLATES.Cumulus);
           const templateIndex = seed % templates.length;
           const pathStr = templates[templateIndex];
 
@@ -695,30 +792,23 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             baseHeight = 30;
           } else if (preset.name === 'Altostratus') {
             baseWidth = 240;
-            baseHeight = 32;
+            baseHeight = 60;
           } else if (preset.name === 'Nimbostratus') {
             baseWidth = 280;
-            baseHeight = 70;
+            baseHeight = 90;
           } else if (preset.name === 'Stratocumulus') {
             baseWidth = 190;
             baseHeight = 40;
           } else if (preset.name === 'Stratus') {
             baseWidth = 240;
-            baseHeight = 16;
+            baseHeight = 30;
           } else if (preset.name === 'Cumulus') {
             baseWidth = 190;
             baseHeight = 48;
           } else if (preset.name === 'Cumulonimbus') {
-            baseWidth = 160;
-            baseHeight = 100;
+            baseWidth = 180;
+            baseHeight = 220;
           }
-
-          const baseColorStr =
-            type === 'high'
-              ? (eventPrediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
-              : type === 'mid'
-              ? (eventPrediction?.midCloudColor ?? 'rgba(180, 150, 220, 0.35)')
-              : (eventPrediction?.lowCloudColor ?? 'rgba(100, 149, 237, 0.3)');
 
           results.push({
             id: `${type}-${i}-${s}`,
@@ -736,6 +826,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
             preset,
             isDeck,
             cloudCategory,
+            isContinuous,
+            isNear,
             weatherMode: {
               isStormSystem: status.isStormSystem,
               isStratusDeck: status.isStratusDeck,
@@ -754,7 +846,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     // Deep sort: further away (larger S) rendered first, so closer (smaller S) overlaps it!
     results.sort((a, b) => b.S - a.S);
     return results;
-  }, [eventWeather, eventPrediction, sim]);
+  }, [eventWeather, eventPrediction, sim, isSliding]);
 
   // Extract real-time weather factors for dynamic papercraft collage styling
   const weatherFactors = useMemo(() => {
@@ -808,10 +900,17 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         return;
       }
 
-      // 2) 수직 고도각 시야각 컬링 검사 (여유 5도)
+      // 2) 수직 고도각 시야각 컬링 검사 및 화면 분포를 위한 비선형 스쿼싱(Squashing) 적용
       const horizonTop = SKY_HEIGHT - HORIZON_Y;
       const verticalFovDeg = (horizonTop * visualFov) / VISUALIZER_WIDTH;
-      if (item.apparentElevationDeg < -horizonDipDeg - 2 || item.apparentElevationDeg > verticalFovDeg + 5) {
+
+      let renderElevation = item.apparentElevationDeg;
+      if (renderElevation > 0) {
+        // 실제 고도각(0~90도)을 화면 수직 시야각(0~verticalFovDeg) 범위로 고르게 펼치기 위해 비선형 압축 적용
+        renderElevation = verticalFovDeg * Math.pow(renderElevation / 90, 0.48);
+      }
+
+      if (renderElevation < -horizonDipDeg - 2 || renderElevation > verticalFovDeg + 5) {
         return;
       }
 
@@ -819,11 +918,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const halfFovRad = fovRad / 2;
       const xOffsetRatio = Math.tan((relativeAz * Math.PI) / 180) / Math.tan(halfFovRad);
       const x = (VISUALIZER_WIDTH / 2) + (xOffsetRatio * (VISUALIZER_WIDTH / 2));
-      const y = horizonTop - (item.apparentElevationDeg * DEGREE_TO_PIXEL);
+      const y = horizonTop - (renderElevation * DEGREE_TO_PIXEL);
 
       const perspectiveScale = 35 / item.S;
       const clampedScale = Math.max(0.075, Math.min(3.0, perspectiveScale));
-      const foreshorteningFactor = 0.15 + (clampedScale / 3.0) * 0.85; 
 
       let finalScaleX = 1.0;
       let finalScaleY = 1.0;
@@ -846,8 +944,28 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       }
 
       const densityStretch = item.weatherMode.isScatteredCumulus ? 1.0 : (1.0 + (item.opacityDensity / 120.0));
-      finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch;
-      finalScaleY = clampedScale * foreshorteningFactor * scaleZoom;
+      
+      if (item.isNear) {
+        // 머리 위 수평 구름: 가로로 얇고 길쭉하게 스케일링
+        const horizForeshortening = 0.12 + (clampedScale / 3.0) * 0.20;
+        finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch * 1.6;
+        finalScaleY = clampedScale * horizForeshortening * scaleZoom * 0.6;
+      } else {
+        // 멀리 있는 수직 구름: 세로 비율을 상대적으로 유지
+        const vertForeshortening = 0.35 + (clampedScale / 3.0) * 0.65;
+        finalScaleX = clampedScale * scaleZoom * horizontalStretch * densityStretch * 0.85;
+        finalScaleY = clampedScale * vertForeshortening * scaleZoom * 1.1;
+      }
+
+      // 적란운(Cumulonimbus)은 세로로 훨씬 거대하게 치솟아야 하므로 스케일 추가 보정
+      if (item.preset?.name === 'Cumulonimbus') {
+        finalScaleY = finalScaleY * 1.6;
+      }
+
+      if (item.isContinuous) {
+        // 연속성 구름은 가로 스케일을 2.2배 확대하여 서로 완전히 겹치게 함
+        finalScaleX = finalScaleX * 2.2;
+      }
       
       renderWidth = item.baseWidth * finalScaleX;
       renderHeight = item.baseHeight * finalScaleY;
@@ -1033,6 +1151,49 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         cloudOpacity = 0.98;
       }
 
+      // 3개 영역 분기 높이 계산
+      const altMin = -6.0;
+      const altMax = 6.0;
+      const tAlt = clamp01((sunAltFromCloud - altMin) / (altMax - altMin));
+      const topWeight = tAlt;
+      const bottomWeight = 1.0 - tAlt;
+
+      const transmission = 1.0 - preset.thickness;
+      const totalHighlightRatio = 0.4 + 0.5 * transmission;
+      const activeGlow = cloudIllum * weatherFactors.pathClarity;
+      const totalHighlightHeight = item.baseHeight * totalHighlightRatio * activeGlow;
+
+      let topRimHeight = totalHighlightHeight * topWeight;
+      let bottomRimHeight = totalHighlightHeight * bottomWeight;
+
+      if (topRimHeight + bottomRimHeight > item.baseHeight) {
+        const total = topRimHeight + bottomRimHeight;
+        topRimHeight = (topRimHeight / total) * item.baseHeight;
+        bottomRimHeight = (bottomRimHeight / total) * item.baseHeight;
+      }
+
+      // 위아래 반분할 노을 색상 계산
+      const altLimit = 10.0;
+      const tColor = Math.max(-1.0, Math.min(1.0, sunAltFromCloud / altLimit));
+      const whiteRGB = { r: 255, g: 250, b: 242, a: 1 };
+      const grayRGB = finalShadowRGB;
+      const redRGB = finalLitRGB;
+
+      let topHalfRGB = whiteRGB;
+      let bottomHalfRGB = whiteRGB;
+
+      if (tColor > 0) {
+        topHalfRGB = interpolateColors(redRGB, whiteRGB, tColor);
+        bottomHalfRGB = interpolateColors(grayRGB, whiteRGB, tColor);
+      } else {
+        const tNorm = tColor + 1.0; // 0.0 ~ 1.0
+        topHalfRGB = interpolateColors(grayRGB, redRGB, tNorm);
+        bottomHalfRGB = interpolateColors(redRGB, grayRGB, tNorm);
+      }
+      
+      const finalTopHalfColor = colorToString(topHalfRGB);
+      const finalBottomHalfColor = colorToString(bottomHalfRGB);
+
       // 층상운 종류별 투명도 캡 세분화 (하늘 격자 및 태양이 은은하게 비치도록)
       if (preset.name === 'Cirrostratus') {
         cloudOpacity = Math.min(0.25, cloudOpacity);
@@ -1065,6 +1226,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         renderHeight,
         relativeAz,
         isOpaqueCloud,
+        topRimHeight,
+        bottomRimHeight,
+        finalTopHalfColor,
+        finalBottomHalfColor,
       });
     });
 
@@ -1284,6 +1449,49 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         const cosA = lightLength > 1e-5 ? lightDx / lightLength : 0;
         const sinA = lightLength > 1e-5 ? lightDy / lightLength : -1.0;
 
+        // 3개 영역 분기 높이 계산
+        const altMin = -6.0;
+        const altMax = 6.0;
+        const tAlt = clamp01((sunAltFromCloud - altMin) / (altMax - altMin));
+        const topWeight = tAlt;
+        const bottomWeight = 1.0 - tAlt;
+
+        const transmission = 1.0 - preset.thickness;
+        const totalHighlightRatio = 0.4 + 0.5 * transmission;
+        const activeGlow = cloudIllum * weatherFactors.pathClarity;
+        const totalHighlightHeight = baseH * totalHighlightRatio * activeGlow;
+
+        let topRimHeight = totalHighlightHeight * topWeight;
+        let bottomRimHeight = totalHighlightHeight * bottomWeight;
+
+        if (topRimHeight + bottomRimHeight > baseH) {
+          const total = topRimHeight + bottomRimHeight;
+          topRimHeight = (topRimHeight / total) * baseH;
+          bottomRimHeight = (bottomRimHeight / total) * baseH;
+        }
+
+        // 위아래 반분할 노을 색상 계산
+        const altLimit = 10.0;
+        const tColor = Math.max(-1.0, Math.min(1.0, sunAltFromCloud / altLimit));
+        const whiteRGB = { r: 255, g: 250, b: 242, a: 1 };
+        const grayRGB = shadowRGB;
+        const redRGB = litRGB;
+
+        let topHalfRGB = whiteRGB;
+        let bottomHalfRGB = whiteRGB;
+
+        if (tColor > 0) {
+          topHalfRGB = interpolateColors(redRGB, whiteRGB, tColor);
+          bottomHalfRGB = interpolateColors(grayRGB, whiteRGB, tColor);
+        } else {
+          const tNorm = tColor + 1.0; // 0.0 ~ 1.0
+          topHalfRGB = interpolateColors(grayRGB, redRGB, tNorm);
+          bottomHalfRGB = interpolateColors(redRGB, grayRGB, tNorm);
+        }
+        
+        const finalTopHalfColor = colorToString(topHalfRGB);
+        const finalBottomHalfColor = colorToString(bottomHalfRGB);
+
         // 구름 종류에 따른 불투명(Opaque) 여부 판정
         const isOpaqueCloud = 
           preset.name === 'Cumulus' || 
@@ -1332,6 +1540,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           renderHeight,
           relativeAz,
           isOpaqueCloud,
+          topRimHeight,
+          bottomRimHeight,
+          finalTopHalfColor,
+          finalBottomHalfColor,
           weatherMode: {
             isStormSystem: false,
             isStratusDeck: false,
@@ -1409,7 +1621,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       clouds: cloudsList,
       sunOcclusion,
     };
-  }, [allCloudLayersData, gridCloudShapes, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, weatherFactors]);
+  }, [allCloudLayersData, gridCloudShapes, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, weatherFactors, isSliding]);
 
   // ── Sky mosaic: 8 vertical × 5 horizontal = 40 cell physically-based colors ──
   const skyGrid = useMemo(() => {
@@ -2054,9 +2266,25 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         return;
       }
 
+      let finalSaveUri = base64Image;
+      if (base64Image.startsWith('data:')) {
+        try {
+          const base64Data = base64Image.split(';base64,')[1];
+          const tempFileUri = `${FileSystem.cacheDirectory}sim_snapshot_${Date.now()}.jpg`;
+          await FileSystem.writeAsStringAsync(tempFileUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          finalSaveUri = tempFileUri;
+        } catch (fsErr) {
+          console.error('[Visualizer] Failed to write temp snapshot file:', fsErr);
+          Alert.alert('Error', 'Failed to prepare image for saving.');
+          return;
+        }
+      }
+
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status === 'granted') {
-        await MediaLibrary.saveToLibraryAsync(base64Image);
+        await MediaLibrary.saveToLibraryAsync(finalSaveUri);
         Alert.alert('Saved & Logged', '시뮬레이션 스냅샷 이미지가 갤러리에 저장되었으며, 기상 데이터가 콘솔(logcat)에 기록되었습니다.');
       } else {
         Alert.alert('Logged (No Storage Permission)', '기상 데이터가 콘솔에 기록되었습니다. (저장 공간 권한 없음)');
@@ -2299,28 +2527,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               <Stop offset="100%" stopColor={theme.accent ?? '#FFD700'} stopOpacity={0} />
             </LinearGradient>
 
-            {/* Custom dynamic cloud gradients */}
-            {unifiedClouds.clouds.map((cloud: any) => {
-              const isOpaque = cloud.preset?.name === 'Cumulus' || cloud.preset?.name === 'Cumulonimbus' || cloud.preset?.name === 'Nimbostratus' || cloud.preset?.name === 'Stratocumulus' || cloud.preset?.name === 'Altocumulus';
-              return (
-                <React.Fragment key={cloud.gradId}>
-                  {/* Fill Gradient (no highlight bleeding, ends with litColor) */}
-                  <LinearGradient id={cloud.gradId} x1={cloud.x1} y1={cloud.y1} x2={cloud.x2} y2={cloud.y2}>
-                    <Stop offset="0%" stopColor={cloud.finalShadowColor} stopOpacity={1} />
-                    <Stop offset={cloud.stopMid} stopColor={cloud.finalMidColor} stopOpacity={1} />
-                    <Stop offset="100%" stopColor={cloud.finalLitColor} stopOpacity={1} />
-                  </LinearGradient>
-                  
-                  {/* Stroke Gradient (only glows on the sun-facing side) */}
-                  <LinearGradient id={`stroke-${cloud.gradId}`} x1={cloud.x1} y1={cloud.y1} x2={cloud.x2} y2={cloud.y2}>
-                    <Stop offset="0%" stopColor={cloud.finalShadowColor} stopOpacity={0} />
-                    <Stop offset="65%" stopColor={cloud.finalLitColor} stopOpacity={0} />
-                    <Stop offset="78%" stopColor={cloud.finalHighlightColor} stopOpacity={isOpaque ? 0.35 : 0.15} />
-                    <Stop offset="100%" stopColor={cloud.finalHighlightColor} stopOpacity={1} />
-                  </LinearGradient>
-                </React.Fragment>
-              );
-            })}
+
             {/* Fine dust haze linear gradient for horizons */}
             <LinearGradient id="hazeGrad" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0%" stopColor="#a37648" stopOpacity={0} />
@@ -2464,18 +2671,73 @@ export const Visualizer: React.FC<VisualizerProps> = ({
               const tx = cloud.x - (cloud.baseWidth * cloud.finalScaleX) / 2;
               const ty = cloud.y;
               const scaleStr = `scale(${cloud.finalScaleX}, ${cloud.finalScaleY})`;
-              const isFlatColor = cloud.preset?.name === 'Cirrus' || cloud.preset?.name === 'Cirrostratus' || cloud.preset?.name === 'Stratus';
-              element = (
-                <G opacity={cloud.cloudOpacity}>
-                  <Path
-                    d={cloud.pathStr}
-                    fill={isFlatColor ? cloud.finalLitColor : `url(#${cloud.gradId})`}
-                    stroke={isFlatColor ? 'transparent' : `url(#stroke-${cloud.gradId})`}
-                    strokeWidth={1.6}
-                    transform={`translate(${tx}, ${ty}) ${scaleStr}`}
-                  />
-                </G>
-              );
+              if (cloud.preset?.name === 'Cirrus') {
+                // 권운: 얇은 선이 겹쳐서 샛털 형태로 표현되도록 특수 렌더링 (투명도 조율)
+                element = (
+                  <G opacity={cloud.cloudOpacity * 0.45}>
+                    {[0, 2, 4, 6].map((offsetY, idx) => (
+                      <Path
+                        key={idx}
+                        d={cloud.pathStr}
+                        fill="transparent"
+                        stroke={cloud.finalLitColor}
+                        strokeWidth={0.7}
+                        transform={`translate(${tx}, ${ty + offsetY}) ${scaleStr}`}
+                      />
+                    ))}
+                  </G>
+                );
+              } else {
+                // 구름 종류별 그림자 축소 비율 지정 (테두리 림 두께 및 실루엣 조율)
+                const isCirrocumulus = cloud.preset?.name === 'Cirrocumulus';
+                const isStratus = cloud.preset?.name === 'Stratus' || cloud.preset?.name === 'Cirrostratus';
+                
+                // 층상운은 세로가 얇으므로 스케일 축소를 다르게 하고 일반 적운계열은 더 굵게 지정
+                const shadowScaleX = isCirrocumulus ? 0.91 : isStratus ? 0.95 : 0.85;
+                const shadowScaleY = isCirrocumulus ? 0.86 : isStratus ? 0.68 : 0.76;
+                
+                const dx = (cloud.baseWidth * (1.0 - shadowScaleX)) / 2;
+                const dy = (cloud.baseHeight * (1.0 - shadowScaleY)) / 2;
+
+                element = (
+                  <G opacity={cloud.cloudOpacity}>
+                    <G transform={`translate(${tx}, ${ty}) ${scaleStr}`}>
+                      <Defs>
+                        <ClipPath id={`clip-${cloud.id}`}>
+                          <Path d={cloud.pathStr} />
+                        </ClipPath>
+                      </Defs>
+                      
+                      {/* 1. Top Half Area (위쪽 절반 빛색) */}
+                      <Rect
+                        x={-50}
+                        y={-10}
+                        width={cloud.baseWidth + 100}
+                        height={cloud.baseHeight / 2 + 12}
+                        fill={cloud.finalTopHalfColor}
+                        clipPath={`url(#clip-${cloud.id})`}
+                      />
+                      
+                      {/* 2. Bottom Half Area (아래쪽 절반 빛색) */}
+                      <Rect
+                        x={-50}
+                        y={cloud.baseHeight / 2 - 2}
+                        width={cloud.baseWidth + 100}
+                        height={cloud.baseHeight / 2 + 12}
+                        fill={cloud.finalBottomHalfColor}
+                        clipPath={`url(#clip-${cloud.id})`}
+                      />
+                      
+                      {/* 3. Inner Shadow Body (테두리 후광을 만들기 위한 안쪽 그늘 폴리곤) */}
+                      <Path
+                        d={cloud.pathStr}
+                        fill={cloud.finalShadowColor}
+                        transform={`translate(${dx}, ${dy}) scale(${shadowScaleX}, ${shadowScaleY})`}
+                      />
+                    </G>
+                  </G>
+                );
+              }
 
               renderQueue.push({
                 S: cloud.S,

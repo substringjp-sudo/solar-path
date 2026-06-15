@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform, Alert } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform, Alert, InteractionManager } from 'react-native';
 import { isAfter, addHours, addMinutes } from 'date-fns';
 import SunCalc from 'suncalc';
 import { useNetInfo } from '@react-native-community/netinfo';
@@ -88,6 +88,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [enhancedLoading, setEnhancedLoading] = useState(false);
   const [isNowcastLoading, setIsNowcastLoading] = useState(false);
   const [isWeatherDetailVisible, setWeatherDetailVisible] = useState(false);
+  const [isSliding, setIsSliding] = useState(false);
+  const [isTransitionReady, setIsTransitionReady] = useState(false);
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
   const [selectedEventType, setSelectedEventType] = useState<'auto' | 'Sunrise' | 'Sunset'>('auto');
@@ -451,6 +453,17 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return () => {};
   }, [location, currentDateStr, refreshTrigger, selectedEventType]);
 
+  // ── 탭 전환 애니메이션 완료 후 시뮬레이션 렌더링 활성화 (Deferred 마운트) ──
+  useEffect(() => {
+    if (activeTab === 'sim') {
+      setIsTransitionReady(false);
+      const task = InteractionManager.runAfterInteractions(() => {
+        setIsTransitionReady(true);
+      });
+      return () => task.cancel();
+    }
+  }, [activeTab]);
+
   const handleRefresh = () => {
     if (!sim || forceRefreshRef.current) return;
     forceRefreshRef.current = true;
@@ -699,21 +712,28 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
       ) : (
         <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
           <View style={styles.visualizerWrapper}>
-            <Visualizer
-              sim={sim}
-              currentTime={currentTime}
-              sunAltitude={sunAltitude}
-              heading={heading}
-              visualFov={visualFov}
-              onFovChange={setVisualFov}
-              prediction={prediction}
-              panHandlers={panResponder.panHandlers}
-              theme={theme}
-              interpolatedWeather={interpolatedWeather}
-              eventAzimuths={eventAzimuths}
-              gridCloudShapes={gridCloudShapes}
-              location={location}
-            />
+            {!isTransitionReady ? (
+              <View style={[styles.centered, { height: 260 }]}>
+                <ActivityIndicator size="small" color={theme.accent} />
+              </View>
+            ) : (
+              <Visualizer
+                sim={sim}
+                currentTime={currentTime}
+                sunAltitude={sunAltitude}
+                heading={heading}
+                visualFov={visualFov}
+                onFovChange={setVisualFov}
+                prediction={prediction}
+                panHandlers={panResponder.panHandlers}
+                theme={theme}
+                interpolatedWeather={interpolatedWeather}
+                eventAzimuths={eventAzimuths}
+                gridCloudShapes={gridCloudShapes}
+                location={location}
+                isSliding={isSliding}
+              />
+            )}
             {showNowcastButton && (
               <TouchableOpacity 
                 style={[styles.nowcastButton, { backgroundColor: isNowcastLoading ? 'rgba(255, 215, 0, 0.35)' : 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
@@ -933,6 +953,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 isDay={sunAltitude > 0}
                 isTimeMachineEnabled={isTimeMachineEnabled}
                 onToggleTimeMachine={setTimeMachineEnabled}
+                onSlidingStart={() => setIsSliding(true)}
+                onSlidingComplete={() => setIsSliding(false)}
                 markers={[
                   {
                     time: sim?.eventTime || null,

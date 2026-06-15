@@ -18,3 +18,7 @@ google-services.json
 # Local debug log files
 *logcat*.txt
 *.txt
+
+# Builds and Temp Files
+*.apk
+.firebase/
