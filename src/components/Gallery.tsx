@@ -29,9 +29,17 @@ export const Gallery: React.FC<GalleryProps> = ({
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
 
-  const displayedPhotos = galleryFilter === 'mine'
-    ? globalPhotos.filter((p: any) => p.userId === auth.currentUser?.uid)
-    : globalPhotos;
+  const displayedPhotos = globalPhotos.filter((p: any) => {
+    // 1. 내가 올린 사진은 항상 즉시 노출
+    const isMyPhoto = p.userId === auth.currentUser?.uid;
+    if (isMyPhoto) {
+      return galleryFilter === 'mine' || galleryFilter === 'all';
+    }
+    
+    // 2. 다른 사람이 올린 사진은 신변/사생활 보호를 위해 1시간 뒤에 노출
+    const oneHourElapsed = Date.now() - p.timestamp >= 3600000;
+    return galleryFilter === 'all' && oneHourElapsed;
+  });
 
   return (
     <View style={styles.container}>

@@ -823,6 +823,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               )}
             </View>
 
+            {/* 신변보호 및 사생활보호 업로드 고지 */}
+            <View style={styles.privacyNoticeContainer}>
+              <Text style={styles.privacyNoticeText}>
+                {t('privacyUploadNotice', language)}
+              </Text>
+            </View>
+
             {/* 제어 버튼 영역 */}
             <View style={styles.previewBtnRow}>
               <TouchableOpacity 
@@ -1470,5 +1477,20 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 15,
     fontWeight: '900',
+  },
+  privacyNoticeContainer: {
+    backgroundColor: 'rgba(255, 82, 82, 0.1)',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 82, 82, 0.25)',
+    marginVertical: 10,
+  },
+  privacyNoticeText: {
+    color: '#FF8A80',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });

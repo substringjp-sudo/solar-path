@@ -584,5 +584,170 @@ document.addEventListener('DOMContentLoaded', () => {
 
   requestAnimationFrame(updateTick);
 
+  // 6. Premium Offline Mock Photos Data Generator
+  const getMockPhotos = () => {
+    return [
+      {
+        id: 'mock1',
+        imageUrl: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=600&q=80',
+        locationName: 'Namsan Tower, Seoul',
+        userName: 'SunsetLover',
+        timestamp: Date.now() - 7200000, // 2 hours ago (Visible)
+        landscapeScore: 4.8,
+        weatherScore: 4.7,
+        deviceAzimuth: 294.5,
+        devicePitch: 3.2
+      },
+      {
+        id: 'mock2',
+        imageUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=600&q=80',
+        locationName: 'Haeundae Beach, Busan',
+        userName: 'OceanBreeze',
+        timestamp: Date.now() - 10800000, // 3 hours ago (Visible)
+        landscapeScore: 4.9,
+        weatherScore: 4.8,
+        deviceAzimuth: 115.2,
+        devicePitch: 2.1
+      },
+      {
+        id: 'mock3',
+        imageUrl: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=600&q=80',
+        locationName: 'Hallasan, Jeju',
+        userName: 'Trekkie99',
+        timestamp: Date.now() - 5400000, // 1.5 hours ago (Visible)
+        landscapeScore: 4.7,
+        weatherScore: 4.5,
+        deviceAzimuth: 180.0,
+        devicePitch: -1.5
+      },
+      {
+        id: 'mock4',
+        imageUrl: 'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=600&q=80',
+        locationName: 'Gwangalli Bridge, Busan',
+        userName: 'BridgeWalker',
+        timestamp: Date.now() - 4000000, // 1.1 hours ago (Visible)
+        landscapeScore: 4.6,
+        weatherScore: 4.4,
+        deviceAzimuth: 90.0,
+        devicePitch: 0.5
+      }
+    ];
+  };
 
+  // 7. Dynamic Web Gallery Renderer with 1-Hour Delay filter
+  const renderWebGallery = (photos) => {
+    const grid = document.getElementById('web-gallery-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '';
+
+    const now = Date.now();
+    const publishedPhotos = photos.filter(p => {
+      // 신변 및 사생활 보호를 위해 업로드 후 최소 1시간(3,600,000ms) 경과된 것만 공개
+      return now - p.timestamp >= 3600000;
+    });
+
+    if (publishedPhotos.length === 0) {
+      grid.innerHTML = `
+        <div class="gallery-empty-placeholder">
+          <i data-lucide="image" style="width: 48px; height: 48px;"></i>
+          <h4>아직 공개된 사진이 없습니다</h4>
+          <p>BeforeGlow 앱에서 공유된 사진들은 사생활 보호를 위해 업로드 1시간 후에 이곳에 노출됩니다.</p>
+        </div>
+      `;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      return;
+    }
+
+    publishedPhotos.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'web-gallery-card';
+
+      // Compass azimuth to cardinal labels helper
+      const getDirText = (az) => {
+        const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        return dirs[Math.round(az / 45) % 8];
+      };
+
+      const formattedDate = new Date(p.timestamp).toLocaleDateString();
+      const avgScore = p.landscapeScore && p.weatherScore
+        ? ((p.landscapeScore + p.weatherScore) / 2).toFixed(1)
+        : (p.landscapeScore || p.weatherScore || 5.0).toFixed(1);
+
+      card.innerHTML = `
+        <div class="web-gallery-image-wrapper">
+          <img class="web-gallery-image" src="${p.imageUrl}" alt="${p.locationName || 'Sunset'}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=600&q=80'">
+          ${p.deviceAzimuth !== undefined && p.devicePitch !== undefined 
+            ? `<div class="web-gallery-hud-overlay">
+                 <i data-lucide="compass" style="width: 12px; height: 12px;"></i>
+                 <span>🧭 ${getDirText(p.deviceAzimuth)} • ${Math.round(p.devicePitch)}°</span>
+               </div>`
+            : ''
+          }
+          <div class="web-gallery-score-badge">
+            <i data-lucide="star" style="width: 12px; height: 12px; fill: #FFA500;"></i>
+            <span>${avgScore}</span>
+          </div>
+        </div>
+        <div class="web-gallery-card-info">
+          <h4 class="web-gallery-loc">${p.locationName || 'Golden Hour Spot'}</h4>
+          <div class="web-gallery-meta-bottom">
+            <span class="web-gallery-user">
+              <i data-lucide="user" style="width: 12px; height: 12px;"></i>
+              <span>${p.userName || 'Anonymous'}</span>
+            </span>
+            <span class="web-gallery-date">${formattedDate}</span>
+          </div>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  };
+
+  // 8. Initialize and Listen to Firebase Firestore 'global_photos'
+  const startGalleryListening = () => {
+    let db = null;
+    
+    if (typeof firebase !== 'undefined') {
+      try {
+        const app = firebase.app();
+        // Custom database ID 'beforeglow' 사용
+        db = firebase.app().firestore('beforeglow');
+      } catch (err) {
+        console.warn('Firebase app is not initialized via init.js yet. Trying default...');
+        try {
+          db = firebase.firestore();
+        } catch (e) {
+          console.error('Firebase fallback initialization failed:', e);
+        }
+      }
+    }
+
+    if (db) {
+      console.log('Successfully connected to Firestore database: beforeglow');
+      db.collection('global_photos')
+        .orderBy('timestamp', 'desc')
+        .limit(20)
+        .onSnapshot((snapshot) => {
+          const photos = [];
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            photos.push({ id: doc.id, ...data });
+          });
+          renderWebGallery(photos);
+        }, (error) => {
+          console.error("Firestore subscription error:", error);
+          renderWebGallery(getMockPhotos());
+        });
+    } else {
+      console.log('Loading default premium simulator mockup photos (No SDK).');
+      renderWebGallery(getMockPhotos());
+    }
+  };
+
+  startGalleryListening();
 });

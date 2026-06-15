@@ -49,6 +49,7 @@
       </div>
       <nav class="nav-menu">
         <a href="#features" class="nav-link">Features</a>
+        <a href="#web-gallery" class="nav-link">Gallery</a>
         <a href="#guides" class="nav-link">Guides</a>
         <a href="#privacy" class="nav-link">Privacy Policy</a>
         <a href="#credits" class="nav-link">Credits</a>
@@ -374,6 +375,24 @@
             <text x="60" y="93" fill="#FFD700" font-size="13" font-weight="900" text-anchor="middle">89점</text>
             <text x="60" y="106" fill="rgba(255,255,255,0.6)" font-size="6" text-anchor="middle">Sunset Score</text>
           </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Global Sunset Gallery Section -->
+  <section class="gallery-section" id="web-gallery">
+    <div class="section-header">
+      <div class="badge">📸 Global Sunset Gallery</div>
+      <h2 class="section-title">글로벌 노을 갤러리</h2>
+      <p class="section-subtitle">BeforeGlow 사용자들이 기록하고 공유한 전 세계의 실시간 노을 정보입니다. 사생활 보호를 위해 업로드 1시간 후에 공개됩니다.</p>
+    </div>
+    
+    <div class="gallery-grid-container">
+      <div class="gallery-grid" id="web-gallery-grid">
+        <div class="gallery-loading-placeholder">
+          <div class="gallery-spinner"></div>
+          <p>실시간 노을 사진을 불러오는 중...</p>
         </div>
       </div>
     </div>
@@ -1041,6 +1060,11 @@
       <p class="hosting-note">Hosted securely on Firebase Hosting Platform</p>
     </div>
   </footer>
+
+  <!-- Firebase SDK (v10 compat) & Auto-init -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="/__/firebase/init.js"></script>
 
   <script src="app.js?v=1.0.5" defer></script>
 </body>

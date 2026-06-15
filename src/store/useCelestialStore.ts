@@ -569,8 +569,16 @@ export const useCelestialStore = create<CelestialState>()(
             devicePitch
           };
  
+          // Firestore는 undefined 필드값을 허용하지 않으므로 안전하게 제거합니다.
+          const cleanedPhoto = Object.entries(newPhoto).reduce((acc, [key, val]) => {
+            if (val !== undefined) {
+              acc[key] = val;
+            }
+            return acc;
+          }, {} as any);
+
           const docRef = doc(db, 'global_photos', photoId);
-          await setDoc(docRef, newPhoto);
+          await setDoc(docRef, cleanedPhoto);
 
           // Add to local myPhotos as well
           await get().addMyPhoto(
