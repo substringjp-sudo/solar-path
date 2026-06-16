@@ -111,7 +111,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
 
           {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
           <TouchableOpacity
-            disabled={isSimulationLoading}
+            disabled={isSimulationLoading || !goldenTimeInfo.isActive}
             onPress={handleCameraPress}
             onLongPress={handleCameraLongPress}
             delayLongPress={1500}
@@ -122,7 +122,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
                     backgroundColor: theme.glass,
                     borderColor: theme.border,
                     borderWidth: 1,
-                    opacity: 0.25,
+                    opacity: 0.2,
                   }
                 : goldenTimeInfo.isActive
                   ? { 
@@ -137,7 +137,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
                       backgroundColor: theme.glass, 
                       borderColor: theme.border, 
                       borderWidth: 1,
-                      opacity: 0.55
+                      opacity: 0.2, // 비활성화 상태임을 알 수 있도록 매우 낮은 명도로 조율
                     }
             ]}
           >

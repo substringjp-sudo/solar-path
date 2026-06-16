@@ -28,7 +28,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
-import { getInterpolatedWeather } from '../utils/weather';
+import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
 import { t, Language, translateSunsetDesc } from '../utils/i18n';
 
 interface SunCameraProps {
@@ -130,7 +130,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  const { uploadAndPostPhoto, weatherCacheList, language } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -498,6 +498,32 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         }
       }
 
+      // 1. 캐시가 없는 경우 실시간으로 날씨 정보를 불러와 캐시에 저장
+      if (!nearestWeather) {
+        try {
+          if (__DEV__) {
+            console.log('[SunCamera] No valid weather cache. Fetching weather on the fly...');
+          }
+          const weatherData = await fetchSunsetWeather(latitude, longitude, sunPos.azimuth, false, currentTime);
+          if (weatherData && weatherData.length > 0) {
+            const dateStr = new Date(currentTime.getTime() + (9 * 3600 * 1000)).toISOString().split('T')[0];
+            const newCacheItem = {
+              key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${dateStr}`,
+              data: weatherData,
+              timestamp: Date.now(),
+              latitude,
+              longitude
+            };
+            addWeatherCache(newCacheItem);
+            nearestWeather = newCacheItem;
+          }
+        } catch (fetchErr) {
+          console.warn('[SunCamera] Failed to fetch weather on the fly:', fetchErr);
+        }
+      }
+
+      let prediction: any = null;
+
       if (nearestWeather && nearestWeather.data && nearestWeather.data.length > 0) {
         const interpolated = getInterpolatedWeather(nearestWeather.data, currentTime);
         if (interpolated && interpolated.length > 0) {
@@ -507,7 +533,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
           cloudRatio = maxCloud / 100;
           
-          const prediction = predictSunset(
+          prediction = predictSunset(
             nearestWeather.data,
             currentTime,
             sunPos.altitude,
@@ -521,6 +547,21 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             pm25 = Math.round(beta * 280);
             description = prediction.description || 'Clear';
           }
+        }
+      } else {
+        // 2. 날씨 정보를 가져오는 데 최종 실패한 경우에도, 현재 시간의 태양 고도에 상응하는
+        // 물리 기반의 맑은 하늘(Clear) 예측 그라데이션 값을 생성하여 더미 대신 정상 시뮬레이션 렌더링을 유도
+        prediction = predictSunset(
+          [],
+          currentTime,
+          sunPos.altitude,
+          15000, // 기본 시정 15km
+          50,    // 기본 습도 50%
+          latitude,
+          0
+        );
+        if (prediction) {
+          description = prediction.description || 'Clear';
         }
       }
 
@@ -566,7 +607,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         simUri = await generateSimulationImage(
           sunPos.altitude,
           cloudRatio,
-          seed
+          seed,
+          prediction
         );
       } catch (simErr) {
         console.error('Failed to generate simulation image:', simErr);

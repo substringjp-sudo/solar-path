@@ -294,6 +294,146 @@ function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
   }
 }
 
+interface ApproximatedCloudColors {
+  litRGB: RGB;
+  shadowRGB: RGB;
+  midRGB: RGB;
+  cloudIllum: number;
+  beamIntensity: number;
+  baseRGB: RGB;
+}
+
+function approximateCloudColors(
+  sunAltFromCloud: number,
+  layerType: 'high' | 'mid' | 'low',
+  preset: CloudPreset,
+  weatherFactors: { pathClarity: number },
+  overcast: number,
+  dustIntensity: number,
+  ambientSky: { r: number; g: number; b: number },
+  cloudBeam: { r: number; g: number; b: number }
+): ApproximatedCloudColors {
+  // 1. 선형 근사 조도 (cloudIllumination과 동일한 선형 매핑 적용)
+  let dip = 1.0;
+  if (layerType === 'high') dip = 3.0;
+  else if (layerType === 'mid') dip = 2.2;
+  
+  const sunFromCloud = sunAltFromCloud + dip;
+  let cloudIllum = 0;
+  if (sunFromCloud >= 0.5) cloudIllum = 1;
+  else if (sunFromCloud > -1.5) cloudIllum = (sunFromCloud + 1.5) / 2.0;
+
+  // 2. 태양 고도(sunAltFromCloud) 기반 구름 직사광(cloudSunlight) 고속 선형 근사
+  let cloudSunlight = { r: 0.98, g: 0.50, b: 0.15 };
+  if (sunAltFromCloud > 5) {
+    cloudSunlight = { r: 0.98, g: 0.95, b: 0.88 };
+  } else if (sunAltFromCloud >= -2) {
+    const t = (sunAltFromCloud + 2) / 7;
+    cloudSunlight.g = 0.50 + 0.45 * t;
+    cloudSunlight.b = 0.15 + 0.73 * t;
+  }
+
+  // 얼음 구름(high)인 경우 핑크빛 추가 선형 보간 (sunAltFromCloud <= 4)
+  if (layerType === 'high' && sunAltFromCloud <= 4) {
+    const tIce = Math.max(0, Math.min(1, (sunAltFromCloud + 4) / 8));
+    cloudSunlight.r = 1.0 + (0.98 - 1.0) * tIce;
+    cloudSunlight.g = 0.45 + (cloudSunlight.g - 0.45) * tIce;
+    cloudSunlight.b = 0.65 + (cloudSunlight.b - 0.65) * tIce;
+  }
+
+  // 3. 구름 고유 반사광(localCloudBeamRGB) 계산
+  const baseLit = layerType === 'high' ? 1.4 : layerType === 'mid' ? 1.2 : 0.9;
+  const mixFactor = Math.max(0, Math.min(1, cloudIllum * baseLit * (weatherFactors.pathClarity * 0.5 + 0.5)));
+  
+  const SHADOWED_CLOUD_LINEAR = { r: 0.22, g: 0.24, b: 0.3 };
+  const localCloudBeamRGB = {
+    r: SHADOWED_CLOUD_LINEAR.r + (cloudSunlight.r - SHADOWED_CLOUD_LINEAR.r) * mixFactor,
+    g: SHADOWED_CLOUD_LINEAR.g + (cloudSunlight.g - SHADOWED_CLOUD_LINEAR.g) * mixFactor,
+    b: SHADOWED_CLOUD_LINEAR.b + (cloudSunlight.b - SHADOWED_CLOUD_LINEAR.b) * mixFactor,
+  };
+
+  // 4. 구름 기본 색상 결정 및 날씨 영향도 보간
+  let baseRGB = {
+    r: Math.round(localCloudBeamRGB.r * 255),
+    g: Math.round(localCloudBeamRGB.g * 255),
+    b: Math.round(localCloudBeamRGB.b * 255),
+    a: 1
+  };
+  
+  if (overcast > 0.5) {
+    const overcastWeight = overcast * 0.8;
+    baseRGB.r = Math.round(baseRGB.r + (90 - baseRGB.r) * overcastWeight);
+    baseRGB.g = Math.round(baseRGB.g + (95 - baseRGB.g) * overcastWeight);
+    baseRGB.b = Math.round(baseRGB.b + (105 - baseRGB.b) * overcastWeight);
+  }
+  if (dustIntensity > 0.5) {
+    const dustWeight = dustIntensity * 0.7;
+    baseRGB.r = Math.round(baseRGB.r + (120 - baseRGB.r) * dustWeight);
+    baseRGB.g = Math.round(baseRGB.g + (105 - baseRGB.g) * dustWeight);
+    baseRGB.b = Math.round(baseRGB.b + (90 - baseRGB.b) * dustWeight);
+  }
+
+  // 5. 직사 및 앰비언트 셰이딩 광선 결정 (선형 보간)
+  const beamIntensity = cloudIllum * weatherFactors.pathClarity;
+  const litIntensity = beamIntensity * 0.85;
+  const litLight = {
+    r: ambientSky.r + (cloudBeam.r - ambientSky.r) * litIntensity,
+    g: ambientSky.g + (cloudBeam.g - ambientSky.g) * litIntensity,
+    b: ambientSky.b + (cloudBeam.b - ambientSky.b) * litIntensity,
+  };
+
+  const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
+  const shadowIntensity = preset.shadowContrast * 0.85;
+  const shadowLight = {
+    r: ambientSky.r + (darkShadowRGB.r - ambientSky.r) * shadowIntensity,
+    g: ambientSky.g + (darkShadowRGB.g - ambientSky.g) * shadowIntensity,
+    b: ambientSky.b + (darkShadowRGB.b - ambientSky.b) * shadowIntensity,
+  };
+
+  // 6. 구름 종류별 커스텀 기상 튜닝 선형 적용
+  if (preset.name === 'Altostratus') {
+    // 회청색 강제화
+    baseRGB = { r: 130, g: 140, b: 160, a: 1 };
+  } else if (preset.name === 'Nimbostratus') {
+    // 어두운 회청색 폭풍우 톤 강제화 및 추가 어둠 보정
+    baseRGB = { r: 90, g: 100, b: 115, a: 1 };
+  } else if (preset.name === 'Stratus') {
+    // 반투명한 하얀색 면 강제화
+    baseRGB = { r: 245, g: 248, b: 255, a: 1 };
+  }
+
+  const litBlend = 0.9 - preset.thickness * 0.25;
+  const shadowBlend = 0.8 - preset.thickness * 0.1;
+
+  const litRGB = {
+    r: Math.round(baseRGB.r + (litLight.r * 255 - baseRGB.r) * litBlend),
+    g: Math.round(baseRGB.g + (litLight.g * 255 - baseRGB.g) * litBlend),
+    b: Math.round(baseRGB.b + (litLight.b * 255 - baseRGB.b) * litBlend),
+    a: 1
+  };
+
+  const shadowRGB = {
+    r: Math.round(baseRGB.r + (shadowLight.r * 255 - baseRGB.r) * shadowBlend),
+    g: Math.round(baseRGB.g + (shadowLight.g * 255 - baseRGB.g) * shadowBlend),
+    b: Math.round(baseRGB.b + (shadowLight.b * 255 - baseRGB.b) * shadowBlend),
+    a: 1
+  };
+
+  return {
+    litRGB,
+    shadowRGB,
+    midRGB: {
+      r: Math.round(shadowRGB.r + (litRGB.r - shadowRGB.r) * 0.45),
+      g: Math.round(shadowRGB.g + (litRGB.g - shadowRGB.g) * 0.45),
+      b: Math.round(shadowRGB.b + (litRGB.b - shadowRGB.b) * 0.45),
+      a: 1
+    },
+    cloudIllum,
+    beamIntensity,
+    baseRGB
+  };
+}
+
 
 // Collage / Papercraft cloud SVG templates categorized by 10 specific cloud types
 export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
@@ -731,16 +871,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
           const S = Math.sqrt(Vx * Vx + Vy * Vy);
           const alpha = Math.atan2(Vy, Vx);
           const elevationDeg = alpha * (180 / Math.PI);
-          let apparentElevationDeg = getApparentAltitude(elevationDeg);
-
-          if (d > 80) {
-            const minHeightOffset = type === 'high' ? 1.0 : type === 'mid' ? 0.5 : 0.25;
-            const targetLift = minHeightOffset + 1.2 * Math.exp(apparentElevationDeg);
-            apparentElevationDeg = Math.max(apparentElevationDeg, targetLift);
-          }
-
-          const minElevation = type === 'high' ? 1.5 : type === 'mid' ? 0.8 : 0.4;
-          apparentElevationDeg = Math.max(apparentElevationDeg, minElevation);
+          // 지구 곡률을 반영한 순수 물리적 겉보기 고도 (보정 없음)
+          // alpha = atan2(Vy, Vx) 자체가 지구 곡률로 인해 원거리 구름을
+          // 지평선(0°) 근처 또는 이하로 정확하게 투영함
+          const apparentElevationDeg = getApparentAltitude(elevationDeg);
           let baseColorStr =
             type === 'high'
               ? (eventPrediction?.highCloudColor ?? 'rgba(255, 192, 203, 0.4)')
@@ -908,9 +1042,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       if (renderElevation > 0) {
         // 실제 고도각(0~90도)을 화면 수직 시야각(0~verticalFovDeg) 범위로 고르게 펼치기 위해 비선형 압축 적용
         renderElevation = verticalFovDeg * Math.pow(renderElevation / 90, 0.48);
+      } else {
+        // 지구 곡률로 지평선 이하로 투영된 원거리 구름 처리:
+        // 음수 고도 → 지평선(0) 바로 위에 밀착 배치 (0 ~ +0.4° 범위)
+        // 이는 수백km 떨어진 구름이 관측자 눈높이에서 지평선 선상으로 보이는 현상을 재현
+        const clampedBelow = Math.max(renderElevation, -horizonDipDeg);
+        renderElevation = 0.4 * (1.0 + clampedBelow / Math.max(horizonDipDeg, 0.001));
       }
 
-      if (renderElevation < -horizonDipDeg - 2 || renderElevation > verticalFovDeg + 5) {
+      if (renderElevation < -0.5 || renderElevation > verticalFovDeg + 5) {
         return;
       }
 
@@ -1022,78 +1162,58 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const x2 = '50%';
       const y2 = isSunAboveCloud ? '0%' : '100%';
 
-      // 지구 곡률 그림자 높이에 따른 개별 구름 조도(Illumination) 계산
-      const H_c = item.H_c;
-      const cloudIllum = cloudIllumination(sunAltFromCloud, H_c);
-
-      // 구름 고유 반사광(Lit Color) 계산 (각 구름의 로컬 조도 기반 동적 보간)
-      let cloudSunlight: { r: number; g: number; b: number };
-      if (sunAltFromCloud > 5) {
-        cloudSunlight = { r: 0.98, g: 0.95, b: 0.88 };
-      } else {
-        const t = clamp01((sunAltFromCloud + 2) / 7);
-        cloudSunlight = mixRgb({ r: 0.98, g: 0.50, b: 0.15 }, { r: 0.98, g: 0.95, b: 0.88 }, t);
-      }
-      
-      const isIce = item.type === 'high';
-      if (isIce && sunAltFromCloud <= 4) {
-        const tIce = clamp01((sunAltFromCloud + 4) / 8);
-        cloudSunlight = mixRgb({ r: 1.0, g: 0.45, b: 0.65 }, cloudSunlight, tIce);
-      }
-      
-      const baseLit = item.type === 'high' ? 1.4 : item.type === 'mid' ? 1.2 : 0.9;
-      const mixFactor = clamp01(cloudIllum * baseLit * (weatherFactors.pathClarity * 0.5 + 0.5));
-      const SHADOWED_CLOUD_LINEAR = { r: 0.22, g: 0.24, b: 0.3 };
-      const localCloudBeamRGB = mixRgb(SHADOWED_CLOUD_LINEAR, cloudSunlight, mixFactor);
-
-      // 구름 기본 색 (0~255 범위 변환 및 날씨에 따른 칙칙함 반영)
-      let baseCloudRGB = {
-        r: Math.round(localCloudBeamRGB.r * 255),
-        g: Math.round(localCloudBeamRGB.g * 255),
-        b: Math.round(localCloudBeamRGB.b * 255),
-        a: 1
-      };
-      if (overcast > 0.5) {
-        baseCloudRGB = interpolateColors(baseCloudRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
-      }
-      if (dustIntensity > 0.5) {
-        baseCloudRGB = interpolateColors(baseCloudRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
-      }
-
-      const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (item.apparentElevationDeg - sunAltitude) * (item.apparentElevationDeg - sunAltitude));
       // skyColorAtDirection 중복 호출 제거 및 캐싱된 하늘색 선형 보간 적용
       const elevRatio = clamp01(item.apparentElevationDeg / 80.0);
       const ambientSky = mixRgb(horizonSkyColor, zenithSkyColor, elevRatio);
 
-      const beamIntensity = cloudIllum * weatherFactors.pathClarity;
-      let litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
-      
-      const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
-      let shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
+      // 선형 근사 함수로 구름 및 음영 색상 일괄 고속 산출
+      const approxColors = approximateCloudColors(
+        sunAltFromCloud,
+        item.type,
+        preset,
+        weatherFactors,
+        overcast,
+        dustIntensity,
+        ambientSky,
+        cloudBeam
+      );
 
-      // ── 기상 모드별 색상 튜닝 ──
-      if (item.weatherMode.isStormSystem) {
-        // 비구름 폭풍우: 극단적으로 어두운 남회색/차콜 블랙 톤 대입
-        litLight = mixRgb(litLight, { r: 0.06, g: 0.07, b: 0.10 }, 0.8);
-        shadowLight = mixRgb(shadowLight, { r: 0.03, g: 0.04, b: 0.06 }, 0.9);
-      } else if (item.weatherMode.isStratusDeck) {
-        // 해무안개: 그림자 경계를 뽀얗고 밝게 하여 음영 대비 대폭 약화
-        shadowLight = mixRgb(shadowLight, litLight, 0.7);
+      const cloudIllum = approxColors.cloudIllum;
+      const beamIntensity = approxColors.beamIntensity;
+      const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (item.apparentElevationDeg - sunAltitude) * (item.apparentElevationDeg - sunAltitude));
+
+      let finalLitRGB = approxColors.litRGB;
+      let finalShadowRGB = approxColors.shadowRGB;
+
+      // ── 기상 모드별 색상 튜닝 ── (필요한 경우에만 가볍게 보정)
+      if (item.weatherMode.isStormSystem || item.weatherMode.isStratusDeck) {
+        const cloudIllum = cloudIllumination(sunAltFromCloud, item.H_c);
+        const beamIntensity = cloudIllum * weatherFactors.pathClarity;
+        let litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
+        const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
+        let shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
+
+        if (item.weatherMode.isStormSystem) {
+          litLight = mixRgb(litLight, { r: 0.06, g: 0.07, b: 0.10 }, 0.8);
+          shadowLight = mixRgb(shadowLight, { r: 0.03, g: 0.04, b: 0.06 }, 0.9);
+        } else if (item.weatherMode.isStratusDeck) {
+          shadowLight = mixRgb(shadowLight, litLight, 0.7);
+        }
+
+        const litBlend = 0.9 - preset.thickness * 0.25;
+        const shadowBlend = 0.8 - preset.thickness * 0.1;
+        
+        finalLitRGB = interpolateColors(
+          finalLitRGB, // base
+          { r: Math.round(litLight.r * 255), g: Math.round(litLight.g * 255), b: Math.round(litLight.b * 255), a: 1 },
+          litBlend
+        );
+        finalShadowRGB = interpolateColors(
+          finalShadowRGB,
+          { r: Math.round(shadowLight.r * 255), g: Math.round(shadowLight.g * 255), b: Math.round(shadowLight.b * 255), a: 1 },
+          shadowBlend
+        );
       }
-
-      const litBlend = 0.9 - preset.thickness * 0.25;
-      const shadowBlend = 0.8 - preset.thickness * 0.1;
-
-      const finalLitRGB = interpolateColors(
-        baseCloudRGB,
-        { r: Math.round(litLight.r * 255), g: Math.round(litLight.g * 255), b: Math.round(litLight.b * 255), a: 1 },
-        litBlend
-      );
-      const finalShadowRGB = interpolateColors(
-        baseCloudRGB,
-        { r: Math.round(shadowLight.r * 255), g: Math.round(shadowLight.g * 255), b: Math.round(shadowLight.b * 255), a: 1 },
-        shadowBlend
-      );
 
       const finalMidRGB = interpolateColors(finalShadowRGB, finalLitRGB, 0.65);
 
@@ -1349,65 +1469,30 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         else if (preset.name === 'Cumulus') H_c = 1.2;
         else if (preset.name === 'Cumulonimbus') H_c = 4.5;
 
-        // 지구 곡률 그림자 높이에 따른 개별 구름 조도(Illumination) 계산
-        const cloudIllum = cloudIllumination(sunAltFromCloud, H_c);
-
-        // 구름 고유 반사광(Lit Color) 계산 (각 구름의 로컬 조도 기반 동적 보간)
-        let cloudSunlight: { r: number; g: number; b: number };
-        if (sunAltFromCloud > 5) {
-          cloudSunlight = { r: 0.98, g: 0.95, b: 0.88 };
-        } else {
-          const t = clamp01((sunAltFromCloud + 2) / 7);
-          cloudSunlight = mixRgb({ r: 0.98, g: 0.50, b: 0.15 }, { r: 0.98, g: 0.95, b: 0.88 }, t);
-        }
-        
-        const isIce = shape.type === 'high';
-        if (isIce && sunAltFromCloud <= 4) {
-          const tIce = clamp01((sunAltFromCloud + 4) / 8);
-          cloudSunlight = mixRgb({ r: 1.0, g: 0.45, b: 0.65 }, cloudSunlight, tIce);
-        }
-        
-        const baseLit = shape.type === 'high' ? 1.4 : shape.type === 'mid' ? 1.2 : 0.9;
-        const mixFactor = clamp01(cloudIllum * baseLit * (weatherFactors.pathClarity * 0.5 + 0.5));
-        const SHADOWED_CLOUD_LINEAR = { r: 0.22, g: 0.24, b: 0.3 };
-        const localCloudBeamRGB = mixRgb(SHADOWED_CLOUD_LINEAR, cloudSunlight, mixFactor);
-
-        let baseRGB = {
-          r: Math.round(localCloudBeamRGB.r * 255),
-          g: Math.round(localCloudBeamRGB.g * 255),
-          b: Math.round(localCloudBeamRGB.b * 255),
-          a: 1
-        };
-        if (overcast > 0.5) baseRGB = interpolateColors(baseRGB, { r: 90, g: 95, b: 105, a: 1 }, overcast * 0.8);
-        if (dustIntensity > 0.5) baseRGB = interpolateColors(baseRGB, { r: 120, g: 105, b: 90, a: 1 }, dustIntensity * 0.7);
-
-        const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (shape.apparentElevation - sunAltitude) * (shape.apparentElevation - sunAltitude));
         // skyColorAtDirection 중복 호출 제거 및 캐싱된 하늘색 선형 보간 적용
         const elevRatio = clamp01(shape.apparentElevation / 80.0);
         const ambientSky = mixRgb(horizonSkyColor, zenithSkyColor, elevRatio);
 
-        // 개별 조도를 직사광(beamIntensity) 계산에도 정확히 반영
-        const beamIntensity = cloudIllum * weatherFactors.pathClarity;
-        let litLight = mixRgb(ambientSky, cloudBeam, beamIntensity * 0.85);
-        
-        const darkShadowRGB = { r: 0.05, g: 0.06, b: 0.12 };
-        let shadowLight = mixRgb(ambientSky, darkShadowRGB, preset.shadowContrast * 0.85);
-
-        const litBlend = 0.9 - preset.thickness * 0.25;
-        const shadowBlend = 0.8 - preset.thickness * 0.1;
-
-        let litRGB = interpolateColors(
-          baseRGB,
-          { r: Math.round(litLight.r * 255), g: Math.round(litLight.g * 255), b: Math.round(litLight.b * 255), a: 1 },
-          litBlend
-        );
-        let shadowRGB = interpolateColors(
-          baseRGB,
-          { r: Math.round(shadowLight.r * 255), g: Math.round(shadowLight.g * 255), b: Math.round(shadowLight.b * 255), a: 1 },
-          shadowBlend
+        // 선형 근사 함수로 구름 및 음영 색상 일괄 고속 산출
+        const approxColors = approximateCloudColors(
+          sunAltFromCloud,
+          shape.type,
+          preset,
+          weatherFactors,
+          overcast,
+          dustIntensity,
+          ambientSky,
+          cloudBeam
         );
 
-        const midRGB = interpolateColors(shadowRGB, litRGB, 0.45);
+        let litRGB = approxColors.litRGB;
+        let shadowRGB = approxColors.shadowRGB;
+        const midRGB = approxColors.midRGB;
+
+        const cloudIllum = approxColors.cloudIllum;
+        const beamIntensity = approxColors.beamIntensity;
+        const baseRGB = approxColors.baseRGB;
+        const angularDistanceToSun = Math.sqrt(azDiff * azDiff + (shape.apparentElevation - sunAltitude) * (shape.apparentElevation - sunAltitude));
 
         const highlightIntensity = preset.thickness > 0.5 ? 1.0 : 0.7;
         const highlightRGB = interpolateColors(
@@ -1623,6 +1708,47 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
   }, [allCloudLayersData, gridCloudShapes, heading, visualFov, sunAltitude, currentTime, prediction, sim, VISUALIZER_WIDTH, SKY_HEIGHT, HORIZON_Y, DEGREE_TO_PIXEL, weatherFactors, isSliding]);
 
+  // ── 지평선 너머 구름의 태양빛 차단 계산 ─────────────────────────────────────
+  // 조건: (1) 구름이 지평선 아래, (2) 태양 방향 ±90° 이내, (3) 태양 고도 < 8°
+  // 이 세 조건이 동시에 만족될 때만 해당 구름이 수평에 가까운 태양빛을 차단
+  const belowHorizonSunBlock = useMemo(() => {
+    // 태양이 충분히 낮지 않으면 지평선 너머 구름이 태양빛 경로에 걸리지 않음
+    if (sunAltitude >= 8) return 0;
+
+    const sunAzDeg = sim?.azimuth ?? 180;
+    // 태양 고도가 낮을수록 수평 방향 차단 효과 극대화: 0° = 1.0, 8° = 0.0
+    const solarGrazingFactor = Math.max(0, 1.0 - sunAltitude / 8.0);
+
+    let totalBlock = 0;
+    let sampleCount = 0;
+
+    allCloudLayersData.forEach((item) => {
+      // 조건 1: 물리적으로 지평선 아래에 있는 구름만
+      if (item.apparentElevationDeg > 0) return;
+
+      // 조건 2: 구름 방위각과 태양 방위각의 차이가 ±90° 이내
+      // item.azimuthOffset은 태양 방향 기준 상대 오프셋
+      const azDiffFromSun = Math.abs(item.azimuthOffset);
+      if (azDiffFromSun > 90) return;
+
+      // 방위각 alignment 가중치: 태양 방향에 가까울수록 1.0, 90° 차이일 때 0.0
+      const azAlignmentFactor = Math.pow(Math.cos((azDiffFromSun * Math.PI) / 180), 2);
+
+      // 구름 두께 × 밀도로 실제 차단율 계산
+      const thicknessFactor = item.preset?.thickness ?? 0.5;
+      const densityFactor = item.opacityDensity / 100;
+      const cloudBlock = thicknessFactor * densityFactor * azAlignmentFactor * solarGrazingFactor;
+
+      totalBlock += cloudBlock;
+      sampleCount++;
+    });
+
+    if (sampleCount === 0) return 0;
+    // 여러 구름의 차단 효과는 누적되지만 1.0을 초과하지 않도록 물리적 clamp
+    // (각 구름이 독립적으로 빛을 가리는 게 아니라 투과율의 곱으로 계산)
+    return Math.max(0, Math.min(0.85, totalBlock / sampleCount * Math.min(sampleCount, 5)));
+  }, [allCloudLayersData, sunAltitude, sim]);
+
   // ── Sky mosaic: 8 vertical × 5 horizontal = 40 cell physically-based colors ──
   const skyGrid = useMemo(() => {
     const beta = prediction?.factors?.aerosolBeta ?? 0.08;
@@ -1637,7 +1763,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const verticalFovDeg = skyViewportH * visualFov / VISUALIZER_WIDTH;
 
     const apparentSunAltForSky = getApparentAltitude(sunAltitude);
-    return computeSkyGrid(
+    const baseGrid = computeSkyGrid(
       apparentSunAltForSky,
       sunAzDeg,
       heading,
@@ -1646,7 +1772,44 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       pathClarity,
       verticalFovDeg,
     );
-  }, [sunAltitude, heading, visualFov, prediction, sim, SKY_HEIGHT, HORIZON_Y, VISUALIZER_WIDTH]);
+
+    // 지평선 너머 구름의 태양빛 차단 효과가 있을 때만 지평선 근방 셀 darkening 적용
+    if (belowHorizonSunBlock <= 0.01) return baseGrid;
+
+    const ROWS = 8;
+    const COLS = 5;
+    const halfFov = visualFov / 2;
+    const azStep = visualFov / COLS;
+
+    // 태양 방향에 상대적인 셀 방위각을 계산하여 태양 근처 셀에만 효과 적용
+    return baseGrid.map((color, idx) => {
+      const row = Math.floor(idx / COLS);
+      const col = idx % COLS;
+
+      // 지평선 근방 2개 행(row 6, 7)에만 적용 (row 7이 가장 아래)
+      if (row < 6) return color;
+
+      const relAz = -halfFov + (col + 0.5) * azStep;
+      const absAz = heading + relAz;
+      const azDiffFromSun = Math.abs(((absAz - sunAzDeg + 540) % 360) - 180);
+
+      // 태양 방향 ±60° 이내 셀에만 차단 효과 적용
+      if (azDiffFromSun > 60) return color;
+
+      // 셀의 태양 방향 근접도 (1.0 = 정면, 0.0 = 60° 이탈)
+      const cellSunProximity = Math.max(0, 1.0 - azDiffFromSun / 60);
+      // 지평선 행일수록 효과 강함 (row 7 = 1.0, row 6 = 0.6)
+      const rowFactor = row === 7 ? 1.0 : 0.6;
+
+      const darkening = belowHorizonSunBlock * cellSunProximity * rowFactor;
+
+      return {
+        r: color.r * (1 - darkening),
+        g: color.g * (1 - darkening),
+        b: color.b * (1 - darkening),
+      };
+    });
+  }, [sunAltitude, heading, visualFov, prediction, sim, SKY_HEIGHT, HORIZON_Y, VISUALIZER_WIDTH, belowHorizonSunBlock]);
 
   // Adjust papercraft border line styles for comic/papercraft theme (clear white borders when clear, fading to soft tint in heavy cloud/haze)
   const borderStyle = useMemo(() => {

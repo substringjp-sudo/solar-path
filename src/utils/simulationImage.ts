@@ -45,7 +45,8 @@ const getSunBeamColorStr = (alt: number): string => {
 export const generateSimulationImage = async (
   sunAltitude: number,
   cloudRatio: number,
-  seed: number = 0
+  seed: number = 0,
+  prediction?: any
 ): Promise<string> => {
   const w = 400;
   const h = 300;
@@ -56,7 +57,18 @@ export const generateSimulationImage = async (
     const canvas = surface.getCanvas();
 
     // 1. 하늘 그라데이션 그리기
-    const skyColors = getSkyGradientColors(sunAltitude).map(c => Skia.Color(c));
+    let skyColors: any[] = [];
+    let skyOffsets: number[] = [];
+
+    if (prediction && prediction.skyGradient && prediction.skyGradient.length > 0) {
+      skyColors = prediction.skyGradient.map((stop: any) => Skia.Color(stop.color));
+      skyOffsets = prediction.skyGradient.map((stop: any) => stop.offset);
+    } else {
+      const fallbackColors = getSkyGradientColors(sunAltitude);
+      skyColors = fallbackColors.map(c => Skia.Color(c));
+      skyOffsets = fallbackColors.map((_, i) => i / (fallbackColors.length - 1));
+    }
+
     const skyPoints = [
       { x: w / 2, y: 0 },
       { x: w / 2, y: h }
@@ -67,7 +79,7 @@ export const generateSimulationImage = async (
       skyPoints[0],
       skyPoints[1],
       skyColors,
-      null,
+      skyOffsets,
       TileMode.Clamp
     );
     
@@ -86,7 +98,7 @@ export const generateSimulationImage = async (
       const pct = (30 - sunAltitude) / sunRange;
       sunY = (h * 0.1) + pct * (horizonY - (h * 0.1));
 
-      const sunColorStr = getSunBeamColorStr(sunAltitude);
+      const sunColorStr = prediction?.sunDiskColor || getSunBeamColorStr(sunAltitude);
       const sunColor = Skia.Color(sunColorStr);
 
       // 글로우 외곽선
@@ -120,6 +132,10 @@ export const generateSimulationImage = async (
         ? Skia.Color('rgba(255, 110, 64, 0.55)') 
         : Skia.Color('rgba(255, 235, 200, 0.5)');
 
+      const highColor = prediction?.highCloudColor ? Skia.Color(prediction.highCloudColor) : null;
+      const midColor = prediction?.midCloudColor ? Skia.Color(prediction.midCloudColor) : null;
+      const lowColor = prediction?.lowCloudColor ? Skia.Color(prediction.lowCloudColor) : null;
+
       for (let i = 0; i < cloudCount; i++) {
         // seed를 혼합하여 매번 다른 구름 배치 생성
         const base = (seed + i * 29 + 17) & 0xFFFFFF;
@@ -133,7 +149,16 @@ export const generateSimulationImage = async (
         
         // 지구 곡률에 의한 그림자 효과 적용 (Y좌표가 낮을수록/지평선에 가까울수록 그림자에 가려짐)
         let finalCloudColor = cloudBaseColor;
-        if (isSunset) {
+        if (prediction) {
+          const heightRatio = cy / horizonY;
+          if (heightRatio < 0.35 && highColor) {
+            finalCloudColor = highColor;
+          } else if (heightRatio < 0.7 && midColor) {
+            finalCloudColor = midColor;
+          } else if (lowColor) {
+            finalCloudColor = lowColor;
+          }
+        } else if (isSunset) {
           const heightFactor = (horizonY - cy) / horizonY; // 0.1 ~ 0.9 범위
           const shadowThreshold = 1.0 - (sunAltitude - (-6.0)) / 8.0; // sunAltitude가 -6에 가까울수록 1.0에 가까워짐
           
