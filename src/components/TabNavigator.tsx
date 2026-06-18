@@ -33,6 +33,7 @@ interface TabNavigatorProps {
   setTimeMachineEnabled: (enabled: boolean) => void;
   isDay: boolean;
   globalPhotos: any[];
+  myPhotos: any[];
   removeGlobalPhoto: (id: string) => Promise<void>;
   setMapVisible: (visible: boolean) => void;
 }
@@ -66,6 +67,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   setTimeMachineEnabled,
   isDay,
   globalPhotos,
+  myPhotos,
   removeGlobalPhoto,
   setMapVisible,
 }) => {
@@ -302,6 +304,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             theme={theme}
             dynamicTheme={dynamicTheme}
             globalPhotos={globalPhotos}
+            myPhotos={myPhotos}
             removeGlobalPhoto={removeGlobalPhoto}
           />
         </View>

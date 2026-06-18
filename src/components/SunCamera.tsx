@@ -466,6 +466,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         return;
       }
 
+      // 촬영 시점의 실제 물리 시각 강제 (타임머신 시간으로 인해 더미 대낮이 그려지는 오류 수정)
+      const captureTime = new Date();
+      const currentSunPos = getSunPosition(captureTime, latitude, longitude);
+
       // 날씨 데이터 추출 로직
       let humidity = 50;
       let pm25 = 22;
@@ -504,9 +508,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           if (__DEV__) {
             console.log('[SunCamera] No valid weather cache. Fetching weather on the fly...');
           }
-          const weatherData = await fetchSunsetWeather(latitude, longitude, sunPos.azimuth, false, currentTime);
+          const weatherData = await fetchSunsetWeather(latitude, longitude, currentSunPos.azimuth, false, captureTime);
           if (weatherData && weatherData.length > 0) {
-            const dateStr = new Date(currentTime.getTime() + (9 * 3600 * 1000)).toISOString().split('T')[0];
+            const dateStr = new Date(captureTime.getTime() + (9 * 3600 * 1000)).toISOString().split('T')[0];
             const newCacheItem = {
               key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${dateStr}`,
               data: weatherData,
@@ -525,7 +529,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       let prediction: any = null;
 
       if (nearestWeather && nearestWeather.data && nearestWeather.data.length > 0) {
-        const interpolated = getInterpolatedWeather(nearestWeather.data, currentTime);
+        const interpolated = getInterpolatedWeather(nearestWeather.data, captureTime);
         if (interpolated && interpolated.length > 0) {
           const obs = interpolated[0];
           humidity = obs.humidity != null ? Math.round(obs.humidity) : 50;
@@ -535,8 +539,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           
           prediction = predictSunset(
             nearestWeather.data,
-            currentTime,
-            sunPos.altitude,
+            captureTime,
+            currentSunPos.altitude,
             obs.visibility,
             obs.humidity,
             latitude,
@@ -553,8 +557,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         // 물리 기반의 맑은 하늘(Clear) 예측 그라데이션 값을 생성하여 더미 대신 정상 시뮬레이션 렌더링을 유도
         prediction = predictSunset(
           [],
-          currentTime,
-          sunPos.altitude,
+          captureTime,
+          currentSunPos.altitude,
           15000, // 기본 시정 15km
           50,    // 기본 습도 50%
           latitude,
@@ -570,7 +574,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         photo.uri,
         latitude,
         longitude,
-        sunPos.altitude,
+        currentSunPos.altitude,
         humidity,
         pm25,
         description,
@@ -581,9 +585,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const metadata = {
         UserComment: JSON.stringify({
           source: 'SolarPath AR Camera',
-          timestamp: new Date().toISOString(),
+          timestamp: captureTime.toISOString(),
           location: { latitude, longitude },
-          sun: { altitude: sunPos.altitude, azimuth: sunPos.azimuth },
+          sun: { altitude: currentSunPos.altitude, azimuth: currentSunPos.azimuth },
           filter: {
             scene: description,
             brightness: currentEnhancement.brightness,
@@ -603,9 +607,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // seed: 촬영 위치 + 시각 기반으로 매번 다른 구름 배치 생성
       let simUri = '';
       try {
-        const seed = Math.round(latitude * 1000 + longitude * 100 + currentTime.getTime() / 60000);
+        const seed = Math.round(latitude * 1000 + longitude * 100 + captureTime.getTime() / 60000);
         simUri = await generateSimulationImage(
-          sunPos.altitude,
+          currentSunPos.altitude,
           cloudRatio,
           seed,
           prediction
@@ -621,9 +625,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         description,
         latitude,
         longitude,
-        timestamp: currentTime.getTime(),
+        timestamp: captureTime.getTime(),
         rawWeatherData: nearestWeather ? nearestWeather.data : null,
-        interpolatedWeatherData: nearestWeather ? getInterpolatedWeather(nearestWeather.data, currentTime) : []
+        interpolatedWeatherData: nearestWeather ? getInterpolatedWeather(nearestWeather.data, captureTime) : []
       };
 
       const simulationSample = {
@@ -631,8 +635,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         contrast: currentEnhancement.contrast,
         saturation: currentEnhancement.saturation,
         warmth: currentEnhancement.warmth,
-        sunAltitude: sunPos.altitude,
-        sunAzimuth: sunPos.azimuth
+        sunAltitude: currentSunPos.altitude,
+        sunAzimuth: currentSunPos.azimuth
       };
 
       // 3. 임시 상태에 저장하여 프리뷰 화면 전환
@@ -730,20 +734,26 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         }
 
         const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
-        const uploadedLocationName = await uploadAndPostPhoto(
-          manipulated.uri,
-          latitude,
-          longitude,
-          locationName,
-          landscapeScore,
-          weatherScore,
-          capturedWeatherInfo,
-          capturedSimSample,
-          manipulatedSimUri,
-          deviceAzimuthRef.current,
-          devicePitchRef.current
-        );
-        Alert.alert(t('uploadSuccess', language), t('uploadSuccessWithLocation', language).replace('{location}', uploadedLocationName));
+        let uploadedLocationName = '';
+        try {
+          uploadedLocationName = await uploadAndPostPhoto(
+            manipulated.uri,
+            latitude,
+            longitude,
+            locationName,
+            landscapeScore,
+            weatherScore,
+            capturedWeatherInfo,
+            capturedSimSample,
+            manipulatedSimUri,
+            deviceAzimuthRef.current,
+            devicePitchRef.current
+          );
+          Alert.alert(t('uploadSuccess', language), t('uploadSuccessWithLocation', language).replace('{location}', uploadedLocationName));
+        } catch (uploadErr: any) {
+          console.error('[SunCamera] Server upload failed:', uploadErr);
+          Alert.alert(t('error', language) || 'Error', `Failed to upload photo: ${uploadErr.message || uploadErr}`);
+        }
       } else if (!user) {
         Alert.alert(t('saveSuccess', language), t('saveSuccessMsg', language));
       }

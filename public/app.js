@@ -715,10 +715,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof firebase !== 'undefined') {
       try {
         const app = firebase.app();
-        // Custom database ID 'beforeglow' 사용
-        db = firebase.app().firestore('beforeglow');
+        // Custom database ID 'beforeglow' 사용 (v10 compat 공식 스펙 적용)
+        db = firebase.firestore(app, 'beforeglow');
       } catch (err) {
-        console.warn('Firebase app is not initialized via init.js yet. Trying default...');
+        console.warn('Firebase app is not initialized via init.js yet. Trying default...', err);
         try {
           db = firebase.firestore();
         } catch (e) {

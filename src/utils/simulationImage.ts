@@ -10,6 +10,49 @@ interface CloudData {
   finalShadowColor?: string;
 }
 
+// Skia.Color가 rgb(r,g,b) 및 rgba(r,g,b,a) 포맷을 파싱하지 못하는 한계를 해결하기 위한 안전한 파서
+const parseColorToSkia = (colorStr: string) => {
+  if (!colorStr) return Skia.Color('transparent');
+  if (colorStr === 'transparent') return Skia.Color('transparent');
+
+  // rgba(r, g, b, a) 파싱
+  if (colorStr.startsWith('rgba')) {
+    const match = colorStr.match(/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/);
+    if (match) {
+      const r = parseInt(match[1]);
+      const g = parseInt(match[2]);
+      const b = parseInt(match[3]);
+      const a = parseFloat(match[4]);
+      const aHex = Math.round(a * 255).toString(16).padStart(2, '0');
+      const rHex = r.toString(16).padStart(2, '0');
+      const gHex = g.toString(16).padStart(2, '0');
+      const bHex = b.toString(16).padStart(2, '0');
+      return Skia.Color(`#${aHex}${rHex}${gHex}${bHex}`);
+    }
+  }
+
+  // rgb(r, g, b) 파싱
+  if (colorStr.startsWith('rgb')) {
+    const match = colorStr.match(/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+    if (match) {
+      const r = parseInt(match[1]);
+      const g = parseInt(match[2]);
+      const b = parseInt(match[3]);
+      const rHex = r.toString(16).padStart(2, '0');
+      const gHex = g.toString(16).padStart(2, '0');
+      const bHex = b.toString(16).padStart(2, '0');
+      return Skia.Color(`#ff${rHex}${gHex}${bHex}`);
+    }
+  }
+
+  try {
+    return Skia.Color(colorStr);
+  } catch (e) {
+    console.warn('[parseColorToSkia] Failed to parse color:', colorStr, e);
+    return Skia.Color('#ffffff');
+  }
+};
+
 // 태양 고도에 따른 정밀한 하늘 그라데이션 색상 배열 반환
 const getSkyGradientColors = (sunAlt: number): string[] => {
   if (sunAlt > 15.0) {
@@ -61,7 +104,7 @@ export const generateSimulationImage = async (
     let skyOffsets: number[] = [];
 
     if (prediction && prediction.skyGradient && prediction.skyGradient.length > 0) {
-      skyColors = prediction.skyGradient.map((stop: any) => Skia.Color(stop.color));
+      skyColors = prediction.skyGradient.map((stop: any) => parseColorToSkia(stop.color));
       skyOffsets = prediction.skyGradient.map((stop: any) => stop.offset);
     } else {
       const fallbackColors = getSkyGradientColors(sunAltitude);
@@ -99,7 +142,7 @@ export const generateSimulationImage = async (
       sunY = (h * 0.1) + pct * (horizonY - (h * 0.1));
 
       const sunColorStr = prediction?.sunDiskColor || getSunBeamColorStr(sunAltitude);
-      const sunColor = Skia.Color(sunColorStr);
+      const sunColor = parseColorToSkia(sunColorStr);
 
       // 글로우 외곽선
       const paintGlow1 = Skia.Paint();
@@ -132,9 +175,9 @@ export const generateSimulationImage = async (
         ? Skia.Color('rgba(255, 110, 64, 0.55)') 
         : Skia.Color('rgba(255, 235, 200, 0.5)');
 
-      const highColor = prediction?.highCloudColor ? Skia.Color(prediction.highCloudColor) : null;
-      const midColor = prediction?.midCloudColor ? Skia.Color(prediction.midCloudColor) : null;
-      const lowColor = prediction?.lowCloudColor ? Skia.Color(prediction.lowCloudColor) : null;
+      const highColor = prediction?.highCloudColor ? parseColorToSkia(prediction.highCloudColor) : null;
+      const midColor = prediction?.midCloudColor ? parseColorToSkia(prediction.midCloudColor) : null;
+      const lowColor = prediction?.lowCloudColor ? parseColorToSkia(prediction.lowCloudColor) : null;
 
       for (let i = 0; i < cloudCount; i++) {
         // seed를 혼합하여 매번 다른 구름 배치 생성

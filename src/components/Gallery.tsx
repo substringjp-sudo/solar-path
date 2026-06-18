@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
 import { Trash2, Image as ImageIcon } from 'lucide-react-native';
 import { auth } from '../config/firebase';
@@ -16,6 +16,7 @@ interface GalleryProps {
   theme: any;
   dynamicTheme: any;
   globalPhotos: any[];
+  myPhotos?: any[];
   removeGlobalPhoto: (id: string) => Promise<void>;
 }
 
@@ -23,23 +24,42 @@ export const Gallery: React.FC<GalleryProps> = ({
   theme,
   dynamicTheme,
   globalPhotos = [],
+  myPhotos = [],
   removeGlobalPhoto
 }) => {
-  const { language } = useCelestialStore();
+  const { language, currentUser } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
 
-  const displayedPhotos = globalPhotos.filter((p: any) => {
-    // 1. 내가 올린 사진은 항상 즉시 노출
-    const isMyPhoto = p.userId === auth.currentUser?.uid;
-    if (isMyPhoto) {
-      return galleryFilter === 'mine' || galleryFilter === 'all';
+  const displayedPhotos = useMemo(() => {
+    const currentUid = auth.currentUser?.uid || currentUser?.uid;
+
+    if (galleryFilter === 'mine') {
+      // '내가 찍은 사진' 탭에서는:
+      // 1) 로컬 기기의 myPhotos 리스트와 
+      // 2) globalPhotos 중 내 userId가 일치하는 사진들을 
+      // id 기준으로 중복 제거하여 합친 후 최신순으로 정렬
+      const localPhotos = myPhotos || [];
+      const myGlobalPhotos = globalPhotos.filter((p: any) => p.userId === currentUid);
+      
+      const mergedMap = new Map();
+      localPhotos.forEach(p => mergedMap.set(p.id, p));
+      myGlobalPhotos.forEach(p => mergedMap.set(p.id, p));
+      
+      return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
     }
-    
-    // 2. 다른 사람이 올린 사진은 신변/사생활 보호를 위해 1시간 뒤에 노출
-    const oneHourElapsed = Date.now() - p.timestamp >= 3600000;
-    return galleryFilter === 'all' && oneHourElapsed;
-  });
+
+    // '전체 사진' 탭에서는:
+    return globalPhotos.filter((p: any) => {
+      // 1. 내가 올린 사진은 항상 즉시 노출
+      const isMyPhoto = p.userId === currentUid;
+      if (isMyPhoto) return true;
+      
+      // 2. 다른 사람이 올린 사진은 신변/사생활 보호를 위해 1시간 뒤에 노출
+      const oneHourElapsed = Date.now() - p.timestamp >= 3600000;
+      return oneHourElapsed;
+    });
+  }, [globalPhotos, myPhotos, galleryFilter, currentUser]);
 
   return (
     <View style={styles.container}>

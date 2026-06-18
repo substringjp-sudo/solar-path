@@ -6,6 +6,7 @@ import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialE
 import { getGoldenTimeInfo } from '../utils/sunCamera';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
 import { auth } from '../config/firebase';
+import { signInAnonymously } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
@@ -45,6 +46,9 @@ const scheduleSunsetNotification = async (sunsetTime: Date, score: number, langu
     const title = t('sunsetNotificationTitle', language);
     const body = t('sunsetNotificationBody', language).replace('{score}', score.toString());
 
+    // 중복 등록 방지를 위해 기존 예약을 명시적으로 취소
+    await Notifications.cancelScheduledNotificationAsync('sunset-alert');
+
     await Notifications.scheduleNotificationAsync({
       identifier: 'sunset-alert',
       content: {
@@ -67,7 +71,7 @@ const scheduleSunriseNotification = async (sunriseTime: Date, score: number, lan
     // 일출 전날 밤 10시 (22:00)로 트리거 시각 설정
     const triggerTime = new Date(sunriseTime.getTime());
     triggerTime.setDate(triggerTime.getDate() - 1);
-    triggerTime.setHours(22, 0, 0, 0);
+    triggerTime.setHours(22, 0, 0, 0); // 전날 22:00
 
     if (triggerTime.getTime() <= Date.now()) {
       return;
@@ -75,6 +79,9 @@ const scheduleSunriseNotification = async (sunriseTime: Date, score: number, lan
 
     const title = t('sunriseNotificationTitle', language);
     const body = t('sunriseNotificationBody', language).replace('{score}', score.toString());
+
+    // 중복 등록 방지를 위해 기존 예약을 명시적으로 취소
+    await Notifications.cancelScheduledNotificationAsync('sunrise-alert');
 
     await Notifications.scheduleNotificationAsync({
       identifier: 'sunrise-alert',
@@ -133,6 +140,8 @@ export function useCelestialApp() {
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const prevTabRef = useRef(activeTab);
   const hasResetRef = useRef(false);
+  const lastSunsetDateRef = useRef<string | null>(null);
+  const lastSunriseDateRef = useRef<string | null>(null);
 
   // Theme Logic (Forced to true to default to Light Theme as requested)
   const isDay = true;
@@ -539,6 +548,13 @@ export function useCelestialApp() {
       if (user) {
         unsubscribeFirestoreLocations = syncSavedLocations();
         unsubscribeFirestorePhotos = syncMyPhotos();
+      } else {
+        // 비로그인 상태일 경우 자동으로 익명 로그인을 시도하여 사진 공유(업로드)가 항상 작동하도록 보증
+        try {
+          await signInAnonymously(auth);
+        } catch (anonErr) {
+          console.warn('[Auth] Auto anonymous sign-in failed:', anonErr);
+        }
       }
     });
 
@@ -570,7 +586,9 @@ export function useCelestialApp() {
     // 1) 일몰(노을) 알림 스케줄링 (일몰 2시간 전 시점이 미래인 경우)
     if (events.sunset) {
       const sunsetTime = events.sunset;
-      if (sunsetTime.getTime() - 2 * 60 * 60 * 1000 > Date.now()) {
+      const sunsetDateStr = sunsetTime.toDateString();
+
+      if (sunsetTime.getTime() - 2 * 60 * 60 * 1000 > Date.now() && lastSunsetDateRef.current !== sunsetDateStr) {
         const scheduleSunsetAlert = async () => {
           try {
             const hasPermission = await requestNotificationPermission();
@@ -597,6 +615,7 @@ export function useCelestialApp() {
             if (prediction) {
               const score = prediction.score;
               await scheduleSunsetNotification(sunsetTime, score, language);
+              lastSunsetDateRef.current = sunsetDateStr; // 성공적으로 스케줄링 완료 시 락 처리
 
               // 오늘 노을 점수 기준 동적 앱 아이콘 업데이트
               try {
@@ -631,11 +650,12 @@ export function useCelestialApp() {
     // 2) 일출 알림 스케줄링 (전날 밤 10시 시점이 미래인 경우)
     if (events.sunrise) {
       const sunriseTime = events.sunrise;
+      const sunriseDateStr = sunriseTime.toDateString();
       const alertTime = new Date(sunriseTime.getTime());
       alertTime.setDate(alertTime.getDate() - 1);
       alertTime.setHours(22, 0, 0, 0); // 전날 22:00
 
-      if (alertTime.getTime() > Date.now()) {
+      if (alertTime.getTime() > Date.now() && lastSunriseDateRef.current !== sunriseDateStr) {
         const scheduleSunriseAlert = async () => {
           try {
             const hasPermission = await requestNotificationPermission();
@@ -662,6 +682,7 @@ export function useCelestialApp() {
             if (prediction) {
               const score = prediction.score;
               await scheduleSunriseNotification(sunriseTime, score, language);
+              lastSunriseDateRef.current = sunriseDateStr; // 성공적으로 스케줄링 완료 시 락 처리
 
               // 내일 일출 점수 기준 동적 앱 아이콘 업데이트 (밤 10시 알림 발송 시점에 같이 갱신해 미리 준비)
               try {
@@ -692,7 +713,7 @@ export function useCelestialApp() {
         scheduleSunriseAlert();
       }
     }
-  }, [location, events?.sunset, events?.sunrise]);
+  }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime()]);
 
   return {
     width,

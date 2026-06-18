@@ -343,6 +343,7 @@ export default function App() {
           setTimeMachineEnabled={handleToggleTimeMachine}
           isDay={isDay}
           globalPhotos={globalPhotos}
+          myPhotos={myPhotos}
           removeGlobalPhoto={removeGlobalPhoto}
           setMapVisible={setMapVisible}
         />

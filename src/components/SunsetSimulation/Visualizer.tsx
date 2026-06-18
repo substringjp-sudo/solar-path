@@ -1726,6 +1726,9 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       // 조건 1: 물리적으로 지평선 아래에 있는 구름만
       if (item.apparentElevationDeg > 0) return;
 
+      // 추가 조건: 고고도 구름(high cloud)은 지평선 근처 하늘을 어둡게 하는 수평 차광 효과에서 제외
+      if (item.type === 'high') return;
+
       // 조건 2: 구름 방위각과 태양 방위각의 차이가 ±90° 이내
       // item.azimuthOffset은 태양 방향 기준 상대 오프셋
       const azDiffFromSun = Math.abs(item.azimuthOffset);
@@ -1737,7 +1740,18 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       // 구름 두께 × 밀도로 실제 차단율 계산
       const thicknessFactor = item.preset?.thickness ?? 0.5;
       const densityFactor = item.opacityDensity / 100;
-      const cloudBlock = thicknessFactor * densityFactor * azAlignmentFactor * solarGrazingFactor;
+
+      // 저고도/중고도 구름 중에서도 적란운(Cumulonimbus)이나 난층운(Nimbostratus)과 같은 두꺼운 비구름 종류에 높은 가중치 부여
+      let typeBoost = 1.0;
+      if (item.preset?.name === 'Cumulonimbus' || item.preset?.name === 'Nimbostratus') {
+        typeBoost = 1.5;
+      } else if (item.preset?.name === 'Altostratus' || item.preset?.name === 'Stratocumulus' || item.preset?.name === 'Cumulus') {
+        typeBoost = 1.0;
+      } else {
+        typeBoost = 0.3; // 얇은 하층/중층운은 차단력을 대폭 낮춤
+      }
+
+      const cloudBlock = thicknessFactor * densityFactor * azAlignmentFactor * solarGrazingFactor * typeBoost;
 
       totalBlock += cloudBlock;
       sampleCount++;
@@ -1746,7 +1760,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     if (sampleCount === 0) return 0;
     // 여러 구름의 차단 효과는 누적되지만 1.0을 초과하지 않도록 물리적 clamp
     // (각 구름이 독립적으로 빛을 가리는 게 아니라 투과율의 곱으로 계산)
-    return Math.max(0, Math.min(0.85, totalBlock / sampleCount * Math.min(sampleCount, 5)));
+    return Math.max(0, Math.min(0.85, (totalBlock / sampleCount) * Math.min(sampleCount, 5)));
   }, [allCloudLayersData, sunAltitude, sim]);
 
   // ── Sky mosaic: 8 vertical × 5 horizontal = 40 cell physically-based colors ──
@@ -1760,7 +1774,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     // verticalFovDeg = (SKY_HEIGHT - HORIZON_Y) / DEGREE_TO_PIXEL
     //                = (SKY_HEIGHT - HORIZON_Y) * visualFov / VISUALIZER_WIDTH
     const skyViewportH = SKY_HEIGHT - HORIZON_Y;
-    const verticalFovDeg = skyViewportH * visualFov / VISUALIZER_WIDTH;
+    const verticalFovDeg = (skyViewportH * visualFov) / VISUALIZER_WIDTH;
 
     const apparentSunAltForSky = getApparentAltitude(sunAltitude);
     const baseGrid = computeSkyGrid(
@@ -1770,46 +1784,12 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       visualFov,
       beta,
       pathClarity,
-      verticalFovDeg,
+      verticalFovDeg
     );
 
-    // 지평선 너머 구름의 태양빛 차단 효과가 있을 때만 지평선 근방 셀 darkening 적용
-    if (belowHorizonSunBlock <= 0.01) return baseGrid;
-
-    const ROWS = 8;
-    const COLS = 5;
-    const halfFov = visualFov / 2;
-    const azStep = visualFov / COLS;
-
-    // 태양 방향에 상대적인 셀 방위각을 계산하여 태양 근처 셀에만 효과 적용
-    return baseGrid.map((color, idx) => {
-      const row = Math.floor(idx / COLS);
-      const col = idx % COLS;
-
-      // 지평선 근방 2개 행(row 6, 7)에만 적용 (row 7이 가장 아래)
-      if (row < 6) return color;
-
-      const relAz = -halfFov + (col + 0.5) * azStep;
-      const absAz = heading + relAz;
-      const azDiffFromSun = Math.abs(((absAz - sunAzDeg + 540) % 360) - 180);
-
-      // 태양 방향 ±60° 이내 셀에만 차단 효과 적용
-      if (azDiffFromSun > 60) return color;
-
-      // 셀의 태양 방향 근접도 (1.0 = 정면, 0.0 = 60° 이탈)
-      const cellSunProximity = Math.max(0, 1.0 - azDiffFromSun / 60);
-      // 지평선 행일수록 효과 강함 (row 7 = 1.0, row 6 = 0.6)
-      const rowFactor = row === 7 ? 1.0 : 0.6;
-
-      const darkening = belowHorizonSunBlock * cellSunProximity * rowFactor;
-
-      return {
-        r: color.r * (1 - darkening),
-        g: color.g * (1 - darkening),
-        b: color.b * (1 - darkening),
-      };
-    });
-  }, [sunAltitude, heading, visualFov, prediction, sim, SKY_HEIGHT, HORIZON_Y, VISUALIZER_WIDTH, belowHorizonSunBlock]);
+    // 지평선 너머 구름의 태양빛 차단 효과에 따른 darkening 로직은 유저 요청으로 제거됨
+    return baseGrid;
+  }, [sunAltitude, heading, visualFov, prediction, sim, SKY_HEIGHT, HORIZON_Y, VISUALIZER_WIDTH]);
 
   // Adjust papercraft border line styles for comic/papercraft theme (clear white borders when clear, fading to soft tint in heavy cloud/haze)
   const borderStyle = useMemo(() => {
