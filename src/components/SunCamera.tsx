@@ -262,8 +262,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
       // DeviceMotion은 이미 자이로 융합이라 노이즈가 적음 → 필터를 가볍게
       const dcutoff = 1.0;
-      const minCutoff_az = 0.8;   // 자이로 융합 데이터에 맞게 완화 (0.08 → 0.8)
-      const beta_az = 0.4;        // 빠른 회전 추종 (0.015 → 0.4)
+      const minCutoff_az = 0.15;   // 지터링 차단을 위해 차단 주파수 하향 (0.8 → 0.15)
+      const beta_az = 0.05;        // 속도 비례 가중치 억제 (0.4 → 0.05)
 
       const dxX = (tx - state.prevAzX) / dt;
       const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
@@ -283,8 +283,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
 
       // --- Pitch filter ---
-      const minCutoff_p = 0.6;    // 자이로 데이터에 맞게 완화 (0.15 → 0.6)
-      const beta_p = 0.3;         // 빠른 추종 (0.02 → 0.3)
+      const minCutoff_p = 0.15;    // 지터링 차단을 위해 차단 주파수 하향 (0.6 → 0.15)
+      const beta_p = 0.05;         // 속도 비례 가중치 억제 (0.3 → 0.05)
 
       const dxP = (rawPitch - state.prevPitch) / dt;
       const alphaDxP = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
@@ -356,10 +356,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             northOffsetRef.current = rawOffset;
             northOffsetInitialized.current = true;
           } else {
-            // 점진적 보정: 자이로 장기 드리프트만 천천히 교정 (tau ≈ 5초)
+            // 점진적 보정: 지자기 센서 순간 노이즈 차단을 위해 보정률을 0.001로 극단적 억제
             let diff = rawOffset - northOffsetRef.current;
             diff = ((diff + 540) % 360) - 180;
-            northOffsetRef.current += diff * 0.02;
+            northOffsetRef.current += diff * 0.001;
           }
         });
       } catch (err) {

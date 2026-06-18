@@ -637,6 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 7. Dynamic Web Gallery Renderer with 1-Hour Delay filter
   const renderWebGallery = (photos) => {
     const grid = document.getElementById('web-gallery-grid');
+    const phoneViewport = document.querySelector('#screen-gallery .gallery-viewport');
     if (!grid) return;
 
     grid.innerHTML = '';
@@ -659,6 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // 1) Web Main Gallery Rendering
     publishedPhotos.forEach(p => {
       const card = document.createElement('div');
       card.className = 'web-gallery-card';
@@ -702,6 +704,31 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       grid.appendChild(card);
     });
+
+    // 2) Phone Mock Simulator Gallery Rendering (Only when actual photos exist)
+    if (phoneViewport) {
+      phoneViewport.innerHTML = '';
+      publishedPhotos.slice(0, 4).forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'gallery-card';
+
+        const avgScore = p.landscapeScore && p.weatherScore
+          ? ((p.landscapeScore + p.weatherScore) / 2).toFixed(1)
+          : (p.landscapeScore || p.weatherScore || 5.0).toFixed(1);
+
+        card.innerHTML = `
+          <div class="card-img" style="background-image: url('${p.imageUrl}'); background-size: cover; background-position: center; width: 100%; height: 100%;">
+          </div>
+          <div class="card-info">
+            <span class="card-loc" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px;">
+              ${p.locationName ? p.locationName.split(' at ')[0] : 'Golden Spot'}
+            </span>
+            <span class="card-score">★ ${avgScore}</span>
+          </div>
+        `;
+        phoneViewport.appendChild(card);
+      });
+    }
 
     if (typeof lucide !== 'undefined') {
       lucide.createIcons();
