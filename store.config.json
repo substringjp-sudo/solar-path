@@ -2,9 +2,6 @@
   "configVersion": 0,
   "googlePlay": {
     "defaultLocale": "ko-KR",
-    "categories": {
-      "applicationCategory": "WEATHER"
-    },
     "locales": {
       "ko-KR": {
         "title": "BeforeGlow - 노을 예보 & 추적",
