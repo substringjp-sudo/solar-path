@@ -1,9 +1,8 @@
 import React from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, ActivityIndicator, TouchableOpacity, Animated, Platform, Modal, ScrollView, Image, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, TouchableOpacity, Animated, Platform, Modal, ScrollView, Image, Dimensions } from 'react-native';
 import Constants from 'expo-constants';
-import { MapPin, Star, Trash2, X, AlertCircle, Camera } from 'lucide-react-native';
+import { MapPin, Star, Trash2, X, Camera } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
-import Svg, { Defs, LinearGradient, RadialGradient, Stop, Circle, Rect, Path, Ellipse } from 'react-native-svg';
 
 import { useCelestialApp } from './hooks/useCelestialApp';
 import { HudHeader } from './components/HudHeader';
@@ -69,7 +68,6 @@ export default function App() {
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const { language, isAppReady, preloadInitialData, preloadStatus } = useCelestialStore();
   const {
-    animating,
     showDatePicker,
     setShowDatePicker,
     isMapVisible,
@@ -94,7 +92,6 @@ export default function App() {
     isTimeMachineEnabled,
     userRotation,
     isGyroEnabled,
-    errorMsg,
     savedLocations,
     setLocation,
     setUserRotation,
@@ -103,10 +100,7 @@ export default function App() {
     removeSavedLocation,
     addSavedLocation,
     myPhotos,
-    addMyPhoto,
-    removeMyPhoto,
     globalPhotos,
-    uploadAndPostPhoto,
     removeGlobalPhoto,
     
     sunPos,

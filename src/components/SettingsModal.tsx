@@ -455,6 +455,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[
+                        styles.langOption, 
+                        language === 'ja' && { backgroundColor: theme.border }
+                      ]}
+                      onPress={() => setLanguage('ja')}
+                    >
+                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ja' ? '800' : '500' }]}>日本語</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               </View>

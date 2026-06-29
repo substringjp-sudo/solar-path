@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { t, translateSunsetDesc } from '../../utils/i18n';
+import { t } from '../../utils/i18n';
 
 export interface PredictionCardProps {
   prediction: SunsetPrediction;
@@ -12,14 +12,35 @@ export interface PredictionCardProps {
   onPressSource?: () => void;
 }
 
+/** 구름 양 라벨 색상 */
+export const cloudLabelColor = (c: SunsetPrediction['cloudLabel']): string => {
+  switch (c) {
+    case 'Overcast': return '#6B7886';
+    case 'Complex':  return '#E6C25A';
+    case 'Clear':    return '#9AA1AA';
+    default:         return '#9AA1AA';
+  }
+};
+
+/** 색상 라벨 색상 */
+export const colorLabelColor = (c: SunsetPrediction['colorLabel']): string => {
+  switch (c) {
+    case 'Vivid': return '#FF5C3F';
+    case 'Muted': return '#9AA1AA';
+    case 'Clean': return '#4DA0B0';
+    default:      return '#9AA1AA';
+  }
+};
+
+/** 하위 호환: quality 기반 색상 (Visualizer 등에서 계속 사용) */
 export const qualityColor = (q: SunsetPrediction['quality']): string => {
   switch (q) {
-    case 'Epic': return '#FF5C3F';
-    case 'Great': return '#FF8A3D';
-    case 'Fair': return '#E6C25A';
-    case 'Muted': return '#9AA1AA';
+    case 'Epic':    return '#FF5C3F';
+    case 'Great':   return '#FF8A3D';
+    case 'Fair':    return '#E6C25A';
+    case 'Muted':   return '#9AA1AA';
     case 'Overcast': return '#6B7886';
-    default: return '#9AA1AA';
+    default:        return '#9AA1AA';
   }
 };
 
@@ -34,15 +55,16 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   return (
     <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
       <View style={styles.predictionHeader}>
-        <View style={styles.predictionQualityRow}>
-          <View style={styles.qualityContainer}>
-            <Text style={[styles.predictionQuality, { color: qualityColor(prediction.quality) }]}>
-              {t(('quality' + prediction.quality) as any, language).toUpperCase()}
+        {/* 왼쪽: 구름 양 */}
+        <View style={styles.predictionLeftCol}>
+          <View style={styles.labelRow}>
+            <Text style={[styles.mainLabel, { color: cloudLabelColor(prediction.cloudLabel) }]}>
+              {t(('cloud' + prediction.cloudLabel) as any, language).toUpperCase()}
             </Text>
             {weatherSource === 'ultra-short' && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[
-                  styles.sourceBadge, 
+                  styles.sourceBadge,
                   { backgroundColor: 'rgba(77, 160, 176, 0.2)', borderColor: 'rgba(77, 160, 176, 0.3)' }
                 ]}
                 onPress={onPressSource}
@@ -51,13 +73,19 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
               </TouchableOpacity>
             )}
           </View>
-          <Text style={[styles.predictionSubLabel, { color: theme.subText }]}>
+          <Text style={[styles.subLabel, { color: theme.subText }]}>
             {isSunrise ? t('dawnForecast', language) : t('sunsetForecast', language)}
           </Text>
         </View>
-        <View style={styles.predictionScoreWrap}>
-          <Text style={[styles.predictionScore, { color: theme.text }]}>{prediction.score}</Text>
-          <Text style={[styles.predictionScoreMax, { color: theme.subText }]}>/100</Text>
+
+        {/* 오른쪽: 색상 평가 */}
+        <View style={styles.colorLabelWrap}>
+          <Text style={[styles.mainLabel, { color: colorLabelColor(prediction.colorLabel) }]}>
+            {t(('color' + prediction.colorLabel) as any, language).toUpperCase()}
+          </Text>
+          <Text style={[styles.subLabel, { color: theme.subText, textAlign: 'right' }]}>
+            {t('colorEvalLabel', language)}
+          </Text>
         </View>
       </View>
     </View>
@@ -81,18 +109,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  predictionQualityRow: {
+  predictionLeftCol: {
     flexDirection: 'column',
     gap: 2,
   },
-  qualityContainer: {
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  predictionQuality: {
+  mainLabel: {
     fontSize: 22,
     fontWeight: '900',
+  },
+  subLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.5,
   },
   sourceBadge: {
     paddingHorizontal: 6,
@@ -105,32 +138,9 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '700',
   },
-  predictionSubLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  predictionScoreWrap: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  predictionScore: {
-    fontSize: 22,
-    fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  predictionScoreMax: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginLeft: 2,
-  },
-  predictionDesc: {
-    fontSize: 12,
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-  predictionFactors: {
-    gap: 8,
-    marginTop: 4,
+  colorLabelWrap: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 2,
   },
 });

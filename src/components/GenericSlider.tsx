@@ -86,6 +86,14 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     });
   }, [colorMap, prevColor, nextColor, colorAnim, animatedValue]);
 
+  // 2. 최초 레이아웃 크기가 잡혔을 때, 게이지가 유실되지 않도록 값을 명시적으로 갱신합니다.
+  useEffect(() => {
+    if (layoutWidth > 0) {
+      animatedValue.setValue(value);
+      setLocalValue(value);
+    }
+  }, [layoutWidth]);
+
   useEffect(() => {
     if (!isDragging) {
       Animated.spring(animatedValue, {
@@ -202,7 +210,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 const styles = StyleSheet.create({
   container: { height: 44, justifyContent: 'center', width: '100%', paddingHorizontal: 27 },
   track: { height: 6, borderRadius: 3, width: '100%', position: 'relative' },
-  fill: { height: '100%', borderRadius: 3, position: 'absolute' },
+  fill: { height: '100%', borderRadius: 3, position: 'absolute', left: 0 },
   knob: { 
     position: 'absolute', 
     top: -14, 

@@ -90,12 +90,23 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
   const renderPath = (path: PathPoint[], color: string, isMoon: boolean = false) => {
     if (path.length < 2) return null;
     let d = "";
+    let isNewSegment = true;
     path.forEach((p, i) => {
       if (p.altitude >= 0) {
         const coords = polarToCartesian(p.azimuth, p.altitude);
-        d += (d === "" ? "M" : "L") + `${coords.x} ${coords.y}`;
+        if (isNewSegment) {
+          d += `M${coords.x} ${coords.y}`;
+          isNewSegment = false;
+        } else {
+          d += ` L${coords.x} ${coords.y}`;
+        }
+      } else {
+        isNewSegment = true;
       }
     });
+
+    if (d === "") return null;
+
     return (
       <Path
         d={d}

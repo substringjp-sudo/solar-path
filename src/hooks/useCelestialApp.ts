@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Dimensions, Animated, Platform, Alert, AppState } from 'react-native';
+import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
@@ -12,6 +12,7 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
+import { generateSimulationImage, saveSimulationImageToCache } from '../utils/simulationImage';
 
 
 
@@ -35,66 +36,89 @@ const requestNotificationPermission = async () => {
   return finalStatus === 'granted';
 };
 
-const scheduleSunsetNotification = async (sunsetTime: Date, score: number, language: Language) => {
+const scheduleSunsetNotification = async (
+  sunsetTime: Date,
+  cloudLabel: string,
+  colorLabel: string,
+  language: Language,
+  triggerTime?: Date,
+  imageUri?: string | null,
+) => {
   try {
-    // 일몰 2시간 전으로 트리거 시각 설정
-    const triggerTime = new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
-    if (triggerTime.getTime() <= Date.now()) {
-      return;
-    }
+    const effectiveTrigger = triggerTime ?? new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
+    if (effectiveTrigger.getTime() <= Date.now()) return;
 
     const title = t('sunsetNotificationTitle', language);
-    const body = t('sunsetNotificationBody', language).replace('{score}', score.toString());
+    const body = t('sunsetNotificationBody', language)
+      .replace('{cloud}', cloudLabel)
+      .replace('{color}', colorLabel);
 
-    // 중복 등록 방지를 위해 기존 예약을 명시적으로 취소
     await Notifications.cancelScheduledNotificationAsync('sunset-alert');
-
     await Notifications.scheduleNotificationAsync({
       identifier: 'sunset-alert',
       content: {
         title,
         body,
         sound: true,
+        // iOS: 알림을 길게 누르면 전체 이미지 표시 (iOS 사양에 맞춘 url, identifier, type 지정)
+        ...(imageUri ? {
+          attachments: [{
+            url: imageUri,
+            identifier: 'sunset-preview',
+            type: 'public.jpeg',
+            hideThumbnail: false,
+          }],
+        } : {}),
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: effectiveTrigger },
     });
-    if (__DEV__) {
-      console.log('[Sunset Push Notification Scheduled]', triggerTime);
-    }
+    if (__DEV__) console.log('[Sunset Notification Scheduled]', effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
   } catch (err) {
     console.error('Failed to schedule sunset notification:', err);
   }
 };
 
-const scheduleSunriseNotification = async (sunriseTime: Date, score: number, language: Language) => {
+const scheduleSunriseNotification = async (
+  sunriseTime: Date,
+  cloudLabel: string,
+  colorLabel: string,
+  language: Language,
+  triggerTime?: Date,
+  imageUri?: string | null,
+) => {
   try {
-    // 일출 전날 밤 10시 (22:00)로 트리거 시각 설정
-    const triggerTime = new Date(sunriseTime.getTime());
-    triggerTime.setDate(triggerTime.getDate() - 1);
-    triggerTime.setHours(22, 0, 0, 0); // 전날 22:00
-
-    if (triggerTime.getTime() <= Date.now()) {
-      return;
+    let effectiveTrigger = triggerTime;
+    if (!effectiveTrigger) {
+      effectiveTrigger = new Date(sunriseTime.getTime());
+      effectiveTrigger.setDate(effectiveTrigger.getDate() - 1);
+      effectiveTrigger.setHours(22, 0, 0, 0);
     }
+    if (effectiveTrigger.getTime() <= Date.now()) return;
 
     const title = t('sunriseNotificationTitle', language);
-    const body = t('sunriseNotificationBody', language).replace('{score}', score.toString());
+    const body = t('sunriseNotificationBody', language)
+      .replace('{cloud}', cloudLabel)
+      .replace('{color}', colorLabel);
 
-    // 중복 등록 방지를 위해 기존 예약을 명시적으로 취소
     await Notifications.cancelScheduledNotificationAsync('sunrise-alert');
-
     await Notifications.scheduleNotificationAsync({
       identifier: 'sunrise-alert',
       content: {
         title,
         body,
         sound: true,
+        ...(imageUri ? {
+          attachments: [{
+            url: imageUri,
+            identifier: 'sunrise-preview',
+            type: 'public.jpeg',
+            hideThumbnail: false,
+          }],
+        } : {}),
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerTime },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: effectiveTrigger },
     });
-    if (__DEV__) {
-      console.log('[Sunrise Push Notification Scheduled]', triggerTime);
-    }
+    if (__DEV__) console.log('[Sunrise Notification Scheduled]', effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
   } catch (err) {
     console.error('Failed to schedule sunrise notification:', err);
   }
@@ -108,15 +132,15 @@ export function useCelestialApp() {
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations, currentUser, myPhotos, globalPhotos,
     locationPermission, cameraPermission, isSimulationLoading, language,
+    isAppReady, initialTab,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
-    uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto,
+    uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto, initializePendingUploads,
     checkPermissions, requestLocationPermission, requestCameraPermission
   } = useCelestialStore();
 
-  const longitude = location?.coords.longitude ?? defaultCoords.longitude;
-  const latitude = location?.coords.latitude ?? defaultCoords.latitude;
+
 
   // 현지 기준 가상 시간 계산 (실제 법정 오프셋 반영)
   const currentTimeLocal = useMemo(() => {
@@ -129,17 +153,28 @@ export function useCelestialApp() {
   const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [activeTab, setActiveTabState] = useState<'tracker' | 'sim' | 'gallery'>('tracker');
+
+  const hasInitializedTab = useRef(false);
+  useEffect(() => {
+    if (isAppReady && !hasInitializedTab.current) {
+      hasInitializedTab.current = true;
+      setActiveTabState(initialTab);
+      const toIdx = tabOrder.indexOf(initialTab);
+      contentTranslateX.setValue(-toIdx * width);
+      // 지연 업로드 대기 큐 복구 및 스케줄링 실행
+      initializePendingUploads();
+    }
+  }, [isAppReady, initialTab, width, initializePendingUploads]);
+
   const setActiveTab = (tab: 'tracker' | 'sim' | 'gallery') => {
     if (tab === activeTab) return;
-    const prev = activeTab;
     setActiveTabState(tab);
-    animateContent(prev, tab);
+    animateContent(tab);
   };
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
   const [isCameraWarningVisible, setCameraWarningVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const prevTabRef = useRef(activeTab);
-  const hasResetRef = useRef(false);
   const lastSunsetDateRef = useRef<string | null>(null);
   const lastSunriseDateRef = useRef<string | null>(null);
 
@@ -206,33 +241,36 @@ export function useCelestialApp() {
   // 탭 전환 시 시간 슬라이더 초기값 리셋 (무한 루프 방지를 위해 플래그 기법 적용)
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
-      prevTabRef.current = activeTab;
-      // 탭이 실제로 전환됐을 때만 리셋
-      if (activeTab === 'tracker') {
-        // 트래커로 돌아갈 땐 항상 타임머신 모드를 확실히 끄고 현재 시간으로 보간 복원
-        setTimeMachineEnabled(false);
-        resetRotation();
-        animateTimeTo(new Date(), 400);
-      } else if (activeTab === 'sim') {
-        const localHour = currentTimeLocal.getUTCHours();
-        if (localHour < 12) {
-          if (events && events.sunrise) {
-            setCurrentTime(events.sunrise);
-          } else if (events && events.sunset) {
-            setCurrentTime(events.sunset);
-          }
-        } else {
-          if (events && events.sunset) {
-            setCurrentTime(events.sunset);
-          } else if (events && events.sunrise) {
-            setCurrentTime(events.sunrise);
+      const targetTab = activeTab;
+      prevTabRef.current = targetTab;
+      
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (targetTab === 'tracker') {
+          // 트래커로 돌아갈 땐 항상 타임머신 모드를 확실히 끄고 현재 시간으로 보간 복원
+          setTimeMachineEnabled(false);
+          resetRotation();
+          animateTimeTo(new Date(), 400);
+        } else if (targetTab === 'sim') {
+          const localHour = currentTimeLocal.getUTCHours();
+          if (localHour < 12) {
+            if (events && events.sunrise) {
+              setCurrentTime(events.sunrise);
+            } else if (events && events.sunset) {
+              setCurrentTime(events.sunset);
+            }
+          } else {
+            if (events && events.sunset) {
+              setCurrentTime(events.sunset);
+            } else if (events && events.sunrise) {
+              setCurrentTime(events.sunrise);
+            }
           }
         }
-      }
+      });
+
+      return () => task.cancel();
     }
-    // events 변경으로 인한 추가 리셋은 의도적으로 막음
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  }, [activeTab, currentTimeLocal, events]);
 
   // AppState 리스너: 포그라운드 복귀 시 권한 실시간 동기화
   useEffect(() => {
@@ -340,7 +378,6 @@ export function useCelestialApp() {
   const tabOrder: ('tracker' | 'sim' | 'gallery')[] = ['tracker', 'sim', 'gallery'];
 
   const animateContent = (
-    fromTab?: 'tracker' | 'sim' | 'gallery',
     toTab?: 'tracker' | 'sim' | 'gallery'
   ) => {
     const screenWidth = Dimensions.get('window').width;
@@ -583,64 +620,80 @@ export function useCelestialApp() {
     const lat = location.coords.latitude;
     const lon = location.coords.longitude;
 
-    // 1) 일몰(노을) 알림 스케줄링 (일몰 2시간 전 시점이 미래인 경우)
+    // 1) 일몰(노을) 알림 스케줄링
     if (events.sunset) {
       const sunsetTime = events.sunset;
       const sunsetDateStr = sunsetTime.toDateString();
 
-      if (sunsetTime.getTime() - 2 * 60 * 60 * 1000 > Date.now() && lastSunsetDateRef.current !== sunsetDateStr) {
+      // 알림 트리거 시각: 일몰 2시간 전. 단 그 시각이 이미 지났으면 현재+5분으로 대체 (앱을 늦게 열었을 때도 받을 수 있음)
+      const idealTrigger = sunsetTime.getTime() - 2 * 60 * 60 * 1000;
+      const fallbackTrigger = Date.now() + 5 * 60 * 1000; // 5분 후
+      const hasTriggerWindow = sunsetTime.getTime() > Date.now() + 5 * 60 * 1000; // 일몰이 최소 5분 이후
+
+      if (hasTriggerWindow && lastSunsetDateRef.current !== sunsetDateStr) {
+        lastSunsetDateRef.current = sunsetDateStr;
+        const effectiveTriggerTime = new Date(idealTrigger > Date.now() ? idealTrigger : fallbackTrigger);
         const scheduleSunsetAlert = async () => {
           try {
             const hasPermission = await requestNotificationPermission();
-            if (!hasPermission) return;
+            if (!hasPermission) {
+              lastSunsetDateRef.current = null;
+              return;
+            }
 
-            const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
-            const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
-            if (!weatherData || weatherData.length === 0) return;
+            let cloudLabel: string = '없음';
+            let colorLabel: string = '깨끗함';
+            let sunsetNotifImageUri: string | null = null;
+            try {
+              const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
+              const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
+              if (weatherData && weatherData.length > 0) {
+                const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
+                const obs = interpolated[0];
+                if (obs) {
+                  const prediction = predictSunset(
+                    weatherData, sunsetTime, 0, obs.visibility, obs.humidity, lat, 0
+                  );
+                  if (prediction) {
+                    cloudLabel = t(('cloud' + prediction.cloudLabel) as any, language);
+                    colorLabel = t(('color' + prediction.colorLabel) as any, language);
 
-            const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
-            const obs = interpolated[0];
-            if (!obs) return;
+                    // 앱아이콘: Vivid → epic, Overcast → muted, 그 외 → clear
+                    try {
+                      let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
+                      if (prediction.colorLabel === 'Vivid') targetIcon = 'spiconepic';
+                      else if (prediction.cloudLabel === 'Overcast') targetIcon = 'spiconmuted';
+                      if (typeof setAppIcon === 'function') {
+                        const currentIcon = getAppIcon();
+                        if (currentIcon !== targetIcon) {
+                          setAppIcon(targetIcon);
+                          if (__DEV__) console.log(`[AppIcon] Set to: ${targetIcon} (cloud:${prediction.cloudLabel} color:${prediction.colorLabel})`);
+                        }
+                      }
+                    } catch (iconErr) {
+                      console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+                    }
 
-            const prediction = predictSunset(
-              weatherData,
-              sunsetTime,
-              0, 
-              obs.visibility,
-              obs.humidity,
-              lat,
-              0
-            );
-
-            if (prediction) {
-              const score = prediction.score;
-              await scheduleSunsetNotification(sunsetTime, score, language);
-              lastSunsetDateRef.current = sunsetDateStr; // 성공적으로 스케줄링 완료 시 락 처리
-
-              // 오늘 노을 점수 기준 동적 앱 아이콘 업데이트
-              try {
-                let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
-                if (score <= 35) {
-                  targetIcon = 'spiconmuted';
-                } else if (score >= 75) {
-                  targetIcon = 'spiconepic';
-                }
-
-                if (typeof setAppIcon === 'function') {
-                  const currentIcon = getAppIcon();
-                  if (currentIcon !== targetIcon) {
-                    setAppIcon(targetIcon);
-                    if (__DEV__) {
-                      console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunset Score: ${score})`);
+                    // 알림용 시뮬레이션 이미지 생성 → 캐시 저장
+                    try {
+                      const sunAltDeg = getSunPosition(sunsetTime, lat, lon).altitude * (180 / Math.PI);
+                      const overcast = prediction.factors?.overheadOvercast ?? 0.3;
+                      const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
+                      sunsetNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunset.jpg') : null;
+                    } catch (imgErr) {
+                      console.warn('[Notification] Simulation image generation failed:', imgErr);
                     }
                   }
                 }
-              } catch (iconErr) {
-                console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
               }
+            } catch (weatherErr) {
+              console.warn('[Notification] Weather fetch failed, using default labels:', weatherErr);
             }
+
+            await scheduleSunsetNotification(sunsetTime, cloudLabel, colorLabel, language, effectiveTriggerTime, sunsetNotifImageUri);
           } catch (err) {
             console.error('Failed to schedule sunset notification:', err);
+            lastSunsetDateRef.current = null;
           }
         };
         scheduleSunsetAlert();
@@ -655,64 +708,147 @@ export function useCelestialApp() {
       alertTime.setDate(alertTime.getDate() - 1);
       alertTime.setHours(22, 0, 0, 0); // 전날 22:00
 
-      if (alertTime.getTime() > Date.now() && lastSunriseDateRef.current !== sunriseDateStr) {
+      // 전날 22시가 이미 지났으면 현재+5분으로 대체 (당일 앱을 열었을 때도 받을 수 있음)
+      const hasSunriseWindow = sunriseTime.getTime() > Date.now() + 5 * 60 * 1000;
+      if (hasSunriseWindow && lastSunriseDateRef.current !== sunriseDateStr) {
+        lastSunriseDateRef.current = sunriseDateStr;
+        const effectiveSunriseTrigger = new Date(
+          alertTime.getTime() > Date.now() ? alertTime.getTime() : Date.now() + 5 * 60 * 1000
+        );
         const scheduleSunriseAlert = async () => {
           try {
             const hasPermission = await requestNotificationPermission();
-            if (!hasPermission) return;
+            if (!hasPermission) {
+              lastSunriseDateRef.current = null;
+              return;
+            }
 
-            const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;
-            const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunriseTime);
-            if (!weatherData || weatherData.length === 0) return;
+            let cloudLabel: string = '없음';
+            let colorLabel: string = '깨끗함';
+            let sunriseNotifImageUri: string | null = null;
+            try {
+              const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;
+              const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunriseTime);
+              if (weatherData && weatherData.length > 0) {
+                const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
+                const obs = interpolated[0];
+                if (obs) {
+                  const prediction = predictSunset(
+                    weatherData, sunriseTime, 0, obs.visibility, obs.humidity, lat, 0
+                  );
+                  if (prediction) {
+                    cloudLabel = t(('cloud' + prediction.cloudLabel) as any, language);
+                    colorLabel = t(('color' + prediction.colorLabel) as any, language);
 
-            const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
-            const obs = interpolated[0];
-            if (!obs) return;
+                    try {
+                      let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
+                      if (prediction.colorLabel === 'Vivid') targetIcon = 'spiconepic';
+                      else if (prediction.cloudLabel === 'Overcast') targetIcon = 'spiconmuted';
 
-            const prediction = predictSunset(
-              weatherData,
-              sunriseTime,
-              0,
-              obs.visibility,
-              obs.humidity,
-              lat,
-              0
-            );
+                      if (typeof setAppIcon === 'function') {
+                        const currentIcon = getAppIcon();
+                        if (currentIcon !== targetIcon) {
+                          setAppIcon(targetIcon);
+                          if (__DEV__) console.log(`[AppIcon] Set to: ${targetIcon} (cloud:${prediction.cloudLabel} color:${prediction.colorLabel})`);
+                        }
+                      }
+                    } catch (iconErr) {
+                      console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
+                    }
 
-            if (prediction) {
-              const score = prediction.score;
-              await scheduleSunriseNotification(sunriseTime, score, language);
-              lastSunriseDateRef.current = sunriseDateStr; // 성공적으로 스케줄링 완료 시 락 처리
-
-              // 내일 일출 점수 기준 동적 앱 아이콘 업데이트 (밤 10시 알림 발송 시점에 같이 갱신해 미리 준비)
-              try {
-                let targetIcon: 'spiconmuted' | 'spiconclear' | 'spiconepic' = 'spiconclear';
-                if (score <= 35) {
-                  targetIcon = 'spiconmuted';
-                } else if (score >= 75) {
-                  targetIcon = 'spiconepic';
-                }
-
-                if (typeof setAppIcon === 'function') {
-                  const currentIcon = getAppIcon();
-                  if (currentIcon !== targetIcon) {
-                    setAppIcon(targetIcon);
-                    if (__DEV__) {
-                      console.log(`[AppIcon] Alternative icon successfully set to: ${targetIcon} (Sunrise Score: ${score})`);
+                    // 알림용 시뮬레이션 이미지 생성 → 캐시 저장
+                    try {
+                      const sunAltDeg = getSunPosition(sunriseTime, lat, lon).altitude * (180 / Math.PI);
+                      const overcast = prediction.factors?.overheadOvercast ?? 0.3;
+                      const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
+                      sunriseNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunrise.jpg') : null;
+                    } catch (imgErr) {
+                      console.warn('[Notification] Sunrise simulation image generation failed:', imgErr);
                     }
                   }
                 }
-              } catch (iconErr) {
-                console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
               }
+            } catch (weatherErr) {
+              console.warn('[Notification] Weather fetch failed for sunrise, using default labels:', weatherErr);
             }
+
+            await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri);
           } catch (err) {
             console.error('Failed to schedule sunrise notification:', err);
+            lastSunriseDateRef.current = null;
           }
         };
         scheduleSunriseAlert();
       }
     }
+
+    // 3) 현재 시각 기준의 시뮬레이션 이미지 사전 생성 및 저장 (디바운스 450ms 적용, 갱신 시 메모리 비우기 및 작업 취소 처리)
+    useCelestialStore.getState().setCurrentSimulationUri(null); // 날짜/위치 갱신 즉시 이전 메모리 캐시를 해제하여 GC 대상화
+
+    let isCancelled = false;
+    let timerId: any = null;
+
+    const generateCurrentSimulation = async () => {
+      try {
+        const now = new Date();
+        const currentSunPos = getSunPosition(now, lat, lon);
+        
+        let prediction: any = null;
+        let cloudRatio = 0.5;
+        
+        const azimuth = currentSunPos.azimuth;
+
+        if (isCancelled) return;
+        const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, now);
+        
+        if (isCancelled) return;
+        if (weatherData && weatherData.length > 0) {
+          const interpolated = getInterpolatedWeather(weatherData, now);
+          const obs = interpolated[0];
+          if (obs) {
+            prediction = predictSunset(
+              weatherData, now, currentSunPos.altitude, obs.visibility, obs.humidity, lat, 0
+            );
+            const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
+            cloudRatio = maxCloud / 100;
+          }
+        } else {
+          prediction = predictSunset([], now, currentSunPos.altitude, 15000, 50, lat, 0);
+        }
+        
+        if (isCancelled) return;
+        if (prediction) {
+          const seed = Math.round(lat * 1000 + lon * 100 + now.getTime() / 60000);
+          const b64 = await generateSimulationImage(
+            currentSunPos.altitude,
+            cloudRatio,
+            seed,
+            prediction
+          );
+          
+          if (isCancelled) return;
+          if (b64) {
+            useCelestialStore.getState().setCurrentSimulationUri(b64);
+            if (__DEV__) console.log('[Background Simulation] Pre-generated current simulation image.');
+          }
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          console.warn('[Background Simulation] Pre-generation failed:', err);
+        }
+      }
+    };
+
+    timerId = setTimeout(() => {
+      generateCurrentSimulation();
+    }, 450);
+
+    return () => {
+      isCancelled = true;
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
   }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime()]);
 
   return {

@@ -578,6 +578,10 @@ export interface SkyStop {
 export interface SunsetPrediction {
   score: number;
   quality: 'Overcast' | 'Muted' | 'Fair' | 'Great' | 'Epic';
+  /** 구름 양 평가: 많음 / 복합적 / 없음 */
+  cloudLabel: 'Overcast' | 'Complex' | 'Clear';
+  /** 색상 평가: 화려함 / 칙칙함 / 깨끗함 */
+  colorLabel: 'Vivid' | 'Muted' | 'Clean';
   description: string;
   /** Vertical gradient stops (kept for backward compat, but now computed from skyColorAtDirection). */
   skyGradient: SkyStop[];
@@ -617,6 +621,8 @@ export const predictSunset = (
     return {
       score: 0,
       quality: 'Muted',
+      cloudLabel: 'Clear',
+      colorLabel: 'Muted',
       description: 'Unable to predict due to invalid data.',
       skyGradient: [
         { offset: 0, color: '#08101e' },
@@ -761,9 +767,13 @@ export const predictSunset = (
   }
 
   // Sky gradient (vertical only — for legacy consumers)
-  const sunWeight = clamp01((effectiveSunAlt + 1) / 9);
+  // overcastWeight는 태양 고도(sunWeight)와 무관하게 overheadOvercast 값만으로 결정한다.
+  // 기존에는 sunWeight를 곱해 노을 시간대(고도 ≈ 0°)에 overcastWeight가 극히 낮아져
+  // 비/완전흐림 날에도 붉은 색이 살아남는 버그가 있었다.
   const muted = (c: RGB): RGB => {
-    const overcastWeight = overheadOvercast * 0.7 * sunWeight;
+    // 완전 흐림(overheadOvercast > 0.8)이면 물리 색을 거의 덮어씌움 (최대 90%)
+    // 부분 흐림은 비례적으로 적용
+    const overcastWeight = clamp01(overheadOvercast * 1.1);
     return mixRgb(c, OVERCAST, overcastWeight);
   };
 
@@ -815,8 +825,17 @@ export const predictSunset = (
       const tIce = clamp01((sunAltDeg + 4) / 8);
       cloudSunlight = mixRgb({ r: 1.0, g: 0.45, b: 0.65 }, cloudSunlight, tIce);
     }
+    
+    let baseShadow = SHADOWED_CLOUD;
+    if (isIce) {
+      // 지구 그림자에 가려지지 않은 상태(illum > 0)일 때는 칙칙한 그림자 대신 붉은빛(cloudSunlight)을 채워줌
+      // illum이 0이 되면(지구 그림자에 완전히 들어감) 원래의 회색 그림자(SHADOWED_CLOUD)가 됨
+      const redGlowFactor = clamp01(illum);
+      baseShadow = mixRgb(SHADOWED_CLOUD, cloudSunlight, redGlowFactor * 0.95);
+    }
+
     const mixFactor = clamp01(illum * baseLit * (pathClarity * 0.5 + 0.5));
-    return mixRgb(SHADOWED_CLOUD, cloudSunlight, mixFactor);
+    return mixRgb(baseShadow, cloudSunlight, mixFactor);
   };
 
   const highCloudRGB = litColor(illumHigh, 1.4, true);
@@ -847,9 +866,27 @@ export const predictSunset = (
   // 태양은 절대 반투명하면 안 되므로 불투명도를 1.0으로 고정
   const sunDiskAlpha = 1.0;
 
+  // ── 2축 라벨 계산 ─────────────────────────────────────────────────────
+  // 구름 양: overheadOvercast 기준
+  const cloudLabel: SunsetPrediction['cloudLabel'] =
+    overheadOvercast > 0.6 ? 'Overcast'
+    : overheadOvercast > 0.25 ? 'Complex'
+    : 'Clear';
+
+  // 색상: beamRedness + overheadGlow 기준
+  //   화려: 선광이 빨가고 구름이 받아 짜는 상태
+  //   칙칙: 구름이 많아 흑칙칙한 상태
+  //   깨끗: 구름 없는 맑은 하늘
+  const colorLabel: SunsetPrediction['colorLabel'] =
+    (beamRedness > 0.30 && overheadGlow > 0.08) ? 'Vivid'
+    : overheadOvercast > 0.55 ? 'Muted'
+    : 'Clean';
+
   return {
     score,
     quality,
+    cloudLabel,
+    colorLabel,
     description,
     skyGradient,
     sunGlowStops,

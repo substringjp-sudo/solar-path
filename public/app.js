@@ -100,14 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 4. Download Alert Simulation
-  const downloadBtn = document.getElementById('btn-download');
-  if (downloadBtn) {
-    downloadBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      alert('BeforeGlow 앱이 현재 구글 플레이 스토어 내부 심사 준비 중입니다. 업로드된 AAB 패키지 빌드 검토가 승인된 후 즉시 다운로드 링크로 활성화됩니다!');
-    });
-  }
+  // 4. Download Alert Simulation (removed preventDefault to allow play store link navigation)
 
   // 5. Interactive Sunset Simulator Engine (SVG Renderer)
   const simViewport = document.getElementById('sim-viewport-demo');

@@ -1,9 +1,10 @@
 import React, { useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline, ClipPath } from 'react-native-svg';
-import { Sun } from 'lucide-react-native';
+import { Sun, Download } from 'lucide-react-native';
 import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset, getApproximatedSkyColor } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { t } from '../../utils/i18n';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
 import * as MediaLibrary from 'expo-media-library';
@@ -419,6 +420,17 @@ function approximateCloudColors(
     a: 1
   };
 
+  if (layerType === 'high' && preset.thickness < 0.4) {
+    // 지구 그림자에 가려지지 않은 상태(cloudIllum > 0)일 때는 그림자가 붉게 물들게(litRGB에 가깝게) 보간
+    // cloudIllum이 0이 되면(지구 그림자에 완전히 들어감) 원래의 회색 그림자(shadowRGB)가 됨
+    const redGlowFactor = cloudIllum;
+    if (redGlowFactor > 0) {
+      shadowRGB.r = Math.round(shadowRGB.r + (litRGB.r - shadowRGB.r) * redGlowFactor * 0.95);
+      shadowRGB.g = Math.round(shadowRGB.g + (litRGB.g - shadowRGB.g) * redGlowFactor * 0.95);
+      shadowRGB.b = Math.round(shadowRGB.b + (litRGB.b - shadowRGB.b) * redGlowFactor * 0.95);
+    }
+  }
+
   return {
     litRGB,
     shadowRGB,
@@ -525,7 +537,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   isSliding = false,
 }) => {
   const { width, height } = useWindowDimensions();
-  const { timezoneOffsetHours, isDebugMode } = useCelestialStore();
+  const { timezoneOffsetHours, isDebugMode, language } = useCelestialStore();
 
   const VISUALIZER_WIDTH = width - 32; // refined floating card margin
   const SKY_HEIGHT = Math.round(height * 0.38); // dynamically syncs vertical aspect ratio with CelestialChart
@@ -2342,6 +2354,45 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     );
   };
 
+  const handleExportJpg = async () => {
+    try {
+      const cloudRatio = weatherFactors?.overcast ?? 0;
+      const base64Image = await generateSimulationImage(sunAltitude, cloudRatio);
+      
+      if (!base64Image) {
+        Alert.alert(t('error', language), t('saveJpgFailed', language));
+        return;
+      }
+
+      let finalSaveUri = base64Image;
+      if (base64Image.startsWith('data:')) {
+        try {
+          const base64Data = base64Image.split(';base64,')[1];
+          const tempFileUri = `${FileSystem.cacheDirectory}simulation_${Date.now()}.jpg`;
+          await FileSystem.writeAsStringAsync(tempFileUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          finalSaveUri = tempFileUri;
+        } catch (fsErr) {
+          console.error('[Visualizer] Failed to write temp export file:', fsErr);
+          Alert.alert(t('error', language), t('saveJpgFailed', language));
+          return;
+        }
+      }
+
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status === 'granted') {
+        await MediaLibrary.saveToLibraryAsync(finalSaveUri);
+        Alert.alert(t('success', language), t('saveJpgSuccess', language));
+      } else {
+        Alert.alert(t('permissionRequired', language), t('galleryPermissionRequiredMsg', language));
+      }
+    } catch (err) {
+      console.warn('Failed to export simulation image:', err);
+      Alert.alert(t('error', language), t('saveJpgFailed', language));
+    }
+  };
+
   const handleLogAndCapture = async () => {
     const obsWeather = interpolatedWeather?.[0];
     const visibilityVal = obsWeather?.visibility !== undefined ? (obsWeather.visibility / 1000).toFixed(1) : 'N/A';
@@ -2902,6 +2953,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         {renderOverlayAzimuthScale()}
         {renderOverlayFovScale()}
         {renderNextEventBadge()}
+        <TouchableOpacity
+          style={[styles.exportJpgBtn, { borderColor: theme.border }]}
+          onPress={handleExportJpg}
+          activeOpacity={0.7}
+        >
+          <Download size={16} color="#FFFFFF" />
+        </TouchableOpacity>
         {renderDebugOverlay()}
       </View>
     </View>
@@ -2916,6 +2974,19 @@ const styles = StyleSheet.create({
     marginBottom: 8 
   },
   sky: { position: 'relative', overflow: 'hidden' },
+  exportJpgBtn: {
+    position: 'absolute',
+    top: 40,
+    left: 8,
+    backgroundColor: 'rgba(5, 5, 10, 0.65)',
+    borderWidth: 1,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 150,
+  },
   scaleClip: { flex: 1, overflow: 'hidden' },
   overlayCompass: {
     position: 'absolute',

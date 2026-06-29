@@ -5,11 +5,14 @@ import { auth } from '../config/firebase';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t } from '../utils/i18n';
 
-const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en'): string => {
+const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
   const enDirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const jaDirs = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
   const index = Math.round(azimuth / 45) % 8;
-  return lang === 'ko' ? koDirs[index] : enDirs[index];
+  if (lang === 'ko') return koDirs[index];
+  if (lang === 'ja') return jaDirs[index];
+  return enDirs[index];
 };
 
 interface GalleryProps {
@@ -27,7 +30,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   myPhotos = [],
   removeGlobalPhoto
 }) => {
-  const { language, currentUser } = useCelestialStore();
+  const { language, currentUser, removeMyPhoto } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
 
@@ -98,17 +101,26 @@ export const Gallery: React.FC<GalleryProps> = ({
           renderItem={({ item }) => {
             const itemWidth = (width - 44) / 2; // 16px margins + 12px gap
             return (
-              <View style={[styles.galleryItem, { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={[
+                styles.galleryItem, 
+                { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
+                item.isPending && { opacity: 0.65 }
+              ]}>
                 <Image
                   source={{ uri: item.imageUrl }}
                   style={styles.galleryImage}
                 />
+                {item.isPending && (
+                  <View style={styles.pendingBadge}>
+                    <Text style={styles.pendingText}>{t('uploadPending', language)}</Text>
+                  </View>
+                )}
                 <View style={styles.galleryMeta}>
                   <Text numberOfLines={1} style={[styles.galleryTitle, { color: theme.text }]}>
                     {item.locationName}
                   </Text>
                   <Text numberOfLines={1} style={[styles.galleryDate, { color: theme.subText }]}>
-                    {new Date(item.timestamp).toLocaleDateString()} • {item.userName}
+                    {new Date(item.timestamp).toLocaleDateString()} • {item.userName || 'Me'}
                   </Text>
                   {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
                     <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || '#FFD700' }]}>
@@ -116,7 +128,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                     </Text>
                   )}
                 </View>
-                {item.userId === auth.currentUser?.uid && (
+                {(item.userId === auth.currentUser?.uid || item.isPending) && (
                   <TouchableOpacity
                     style={styles.photoDeleteBtn}
                     onPress={() => {
@@ -128,7 +140,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                           { 
                             text: t('delete', language), 
                             style: 'destructive',
-                            onPress: () => removeGlobalPhoto(item.id)
+                            onPress: () => removeMyPhoto(item.id)
                           }
                         ]
                       );
@@ -236,5 +248,21 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  pendingBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,111,97,0.3)',
+  },
+  pendingText: {
+    color: '#FF6F61',
+    fontSize: 8,
+    fontWeight: '800',
   },
 });

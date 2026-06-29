@@ -1,4 +1,5 @@
 import { Skia, rect, TileMode, ImageFormat } from '@shopify/react-native-skia';
+import * as FileSystem from 'expo-file-system/legacy';
 
 interface CloudData {
   x: number;
@@ -53,8 +54,29 @@ const parseColorToSkia = (colorStr: string) => {
   }
 };
 
-// 태양 고도에 따른 정밀한 하늘 그라데이션 색상 배열 반환
-const getSkyGradientColors = (sunAlt: number): string[] => {
+// 태양 고도와 구름 비율에 따른 정밀한 하늘 그라데이션 색상 배열 반환
+const getSkyGradientColors = (sunAlt: number, cloudRatio: number = 0): string[] => {
+  // 비/완전흐림(cloudRatio > 0.8): 회색 계열만 반환 (노을 색 완전 억제)
+  if (cloudRatio > 0.8) {
+    if (sunAlt > 0) {
+      return ['#4A4F5A', '#6B7180', '#8E96A3']; // 낮의 두꺼운 구름
+    } else {
+      return ['#1A1D22', '#2E3039', '#3F4350']; // 밤의 두꺼운 구름
+    }
+  }
+  // 흐린 날(0.5 < cloudRatio <= 0.8): 색은 있지만 채도를 크게 낮춤
+  if (cloudRatio > 0.5) {
+    if (sunAlt > 15.0) {
+      return ['#3D5A7A', '#5B7EA3', '#8EAEC8']; // 옅은 파란 하늘 (채도 낮춤)
+    } else if (sunAlt > 1.5) {
+      return ['#4A3D60', '#7A5E6E', '#A8806A', '#C4A870']; // 흐린 날 골든아워 (옅은 색)
+    } else if (sunAlt > -2.0) {
+      return ['#2E2040', '#6A3A40', '#9A5050', '#B07050']; // 흐린 날 노을 피크 (옅은 붉은색)
+    } else {
+      return ['#0F0820', '#2E1E40', '#3A2A50']; // 흐린 저녁/밤
+    }
+  }
+  // 맑은 날 ~ 약간 흐린 날: 기존 로직
   if (sunAlt > 15.0) {
     return ['#0B47A1', '#2196F3', '#B3E5FC']; // 쨍한 파란 하늘
   } else if (sunAlt > 5.0) {
@@ -93,9 +115,11 @@ export const generateSimulationImage = async (
 ): Promise<string> => {
   const w = 400;
   const h = 300;
+  let surface: any = null;
+  let snapshot: any = null;
 
   try {
-    const surface = Skia.Surface.Make(w, h);
+    surface = Skia.Surface.Make(w, h);
     if (!surface) return '';
     const canvas = surface.getCanvas();
 
@@ -107,20 +131,18 @@ export const generateSimulationImage = async (
       skyColors = prediction.skyGradient.map((stop: any) => parseColorToSkia(stop.color));
       skyOffsets = prediction.skyGradient.map((stop: any) => stop.offset);
     } else {
-      const fallbackColors = getSkyGradientColors(sunAltitude);
-      skyColors = fallbackColors.map(c => Skia.Color(c));
-      skyOffsets = fallbackColors.map((_, i) => i / (fallbackColors.length - 1));
+      const colors = getSkyGradientColors(sunAltitude, cloudRatio);
+      skyColors = colors.map(c => parseColorToSkia(c));
+      skyOffsets = colors.length === 3 
+        ? [0.0, 0.45, 1.0] 
+        : colors.length === 4 
+        ? [0.0, 0.3, 0.65, 1.0] 
+        : colors.map((_, i) => i / (colors.length - 1));
     }
 
-    const skyPoints = [
-      { x: w / 2, y: 0 },
-      { x: w / 2, y: h }
-    ];
-    
-    // Skia 셰이더 생성
     const skyShader = Skia.Shader.MakeLinearGradient(
-      skyPoints[0],
-      skyPoints[1],
+      { x: w / 2, y: 0 },
+      { x: w / 2, y: h },
       skyColors,
       skyOffsets,
       TileMode.Clamp
@@ -247,11 +269,41 @@ export const generateSimulationImage = async (
     canvas.drawPath(path, paintTerrain);
 
     // 5. 이미지 캡처
-    const snapshot = surface.makeImageSnapshot();
+    snapshot = surface.makeImageSnapshot();
     const base64Bytes = snapshot.encodeToBase64(ImageFormat.JPEG, 85);
     return `data:image/jpeg;base64,${base64Bytes}`;
   } catch (error) {
     console.error('Failed to generate simulation image:', error);
     return '';
+  } finally {
+    surface = null;
+    snapshot = null;
+  }
+};
+
+/**
+ * base64 data URI 형태의 이미지를 캐시 디렉토리에 저장하고
+ * 알림(expo-notifications)에서 참조 가능한 file:// URI를 반환합니다.
+ *
+ * @param base64DataUri  `data:image/jpeg;base64,...` 형태의 문자열
+ * @param filename       저장 파일명 (예: 'notif_sunset.jpg')
+ * @returns              file:// URI, 실패 시 null
+ */
+export const saveSimulationImageToCache = async (
+  base64DataUri: string,
+  filename: string,
+): Promise<string | null> => {
+  if (!base64DataUri || !base64DataUri.startsWith('data:')) return null;
+  try {
+    const base64 = base64DataUri.split(';base64,')[1];
+    if (!base64) return null;
+    const destPath = `${FileSystem.cacheDirectory}${filename}`;
+    await FileSystem.writeAsStringAsync(destPath, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return destPath; // file:// 경로 그대로 반환
+  } catch (err) {
+    console.warn('[saveSimulationImageToCache] Failed:', err);
+    return null;
   }
 };

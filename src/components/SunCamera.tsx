@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
-  StyleSheet, View, Text, TouchableOpacity, Modal, Animated,
+  StyleSheet, View, Text, TouchableOpacity, Modal,
   Dimensions, Platform, Alert, ActivityIndicator, Image
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
@@ -10,7 +10,6 @@ import * as Location from 'expo-location';
 import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
-import { generateSimulationImage } from '../utils/simulationImage';
 
 
 import {
@@ -20,7 +19,6 @@ import {
   EnhancementParams,
   GoldenTimeInfo,
   ScreenPoint,
-  TrajectoryPoint,
 } from '../utils/sunCamera';
 import { getSunPosition } from '../utils/celestial';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -130,7 +128,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language, currentSimulationUri } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -405,10 +403,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   // 태양 궤적의 화면 좌표 변환
   const trajectoryScreenPoints = useMemo(() => {
-    return trajectory.map(pt => ({
-      ...pt,
-      screen: getSunScreenPosition(deviceRotation, pt.azimuth, pt.altitude, 60, 80),
-    }));
+    return trajectory.map(pt => {
+      // 밤 시간대(고도 -5도 이하)는 화면에 그리지 않고 선을 끊기 위해 NaN 좌표로 설정
+      if (pt.altitude <= -5) {
+        return {
+          ...pt,
+          screen: { x: NaN, y: NaN, isVisible: false }
+        };
+      }
+      return {
+        ...pt,
+        screen: getSunScreenPosition(deviceRotation, pt.azimuth, pt.altitude, 60, 80),
+      };
+    });
   }, [trajectory, deviceRotation]);
 
   // 궤적 SVG 경로 생성
@@ -474,7 +481,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       let humidity = 50;
       let pm25 = 22;
       let description = currentEnhancement.description || 'Clear';
-      let cloudRatio = 0.5;
 
       const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
         const R = 6371000;
@@ -533,9 +539,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         if (interpolated && interpolated.length > 0) {
           const obs = interpolated[0];
           humidity = obs.humidity != null ? Math.round(obs.humidity) : 50;
-          
-          const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
-          cloudRatio = maxCloud / 100;
           
           prediction = predictSunset(
             nearestWeather.data,
@@ -603,20 +606,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
       }
 
-      // 1. 백그라운드에서 시뮬레이션 예측 이미지 생성
-      // seed: 촬영 위치 + 시각 기반으로 매번 다른 구름 배치 생성
-      let simUri = '';
-      try {
-        const seed = Math.round(latitude * 1000 + longitude * 100 + captureTime.getTime() / 60000);
-        simUri = await generateSimulationImage(
-          currentSunPos.altitude,
-          cloudRatio,
-          seed,
-          prediction
-        );
-      } catch (simErr) {
-        console.error('Failed to generate simulation image:', simErr);
-      }
+      // 1. 사전 생성된 현재 시뮬레이션 이미지 바로 연동 (비동기 생성 방지 및 셔터랙 제거)
+      let simUri = currentSimulationUri || '';
 
       // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
       const weatherInfo = {
@@ -936,87 +927,92 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 </>
               )}
 
-              {trajectoryPathD.length > 0 && (
-                <Path
-                  d={trajectoryPathD}
-                  stroke="rgba(255,215,0,0.35)"
-                  strokeWidth={2}
-                  strokeDasharray="6,4"
-                  fill="none"
-                />
-              )}
+              {/* 완성도 개선 시까지 AR 가이드 오버레이 그래픽 일시 비활성화 */}
+              {false && (
+                <>
+                  {trajectoryPathD.length > 0 && (
+                    <Path
+                      d={trajectoryPathD}
+                      stroke="rgba(255,215,0,0.35)"
+                      strokeWidth={2}
+                      strokeDasharray="6,4"
+                      fill="none"
+                    />
+                  )}
 
-              {trajectoryScreenPoints
-                .filter((_, i) => i % 6 === 0)
-                .filter(p => p.screen.isVisible)
-                .map((p, i) => {
-                  const px = p.screen.x * W;
-                  const py = p.screen.y * H;
-                  const hour = p.time.getHours();
-                  return (
-                    <React.Fragment key={`tick-${i}`}>
-                      <Circle cx={px} cy={py} r={3} fill="rgba(255,215,0,0.5)" />
+                  {trajectoryScreenPoints
+                    .filter((_, i) => i % 6 === 0)
+                    .filter(p => p.screen.isVisible)
+                    .map((p, i) => {
+                      const px = p.screen.x * W;
+                      const py = p.screen.y * H;
+                      const hour = p.time.getHours();
+                      return (
+                        <React.Fragment key={`tick-${i}`}>
+                          <Circle cx={px} cy={py} r={3} fill="rgba(255,215,0,0.5)" />
+                          <SvgText
+                            x={px}
+                            y={py - 10}
+                            fill="rgba(255,255,255,0.7)"
+                            fontSize={10}
+                            fontWeight="bold"
+                            textAnchor="middle"
+                          >
+                            {`${hour}:00`}
+                          </SvgText>
+                        </React.Fragment>
+                      );
+                    })}
+
+                  {(() => {
+                    const horizonY = getSunScreenPosition(deviceRotation, deviceAzimuth, 0, 60, 80).y * H;
+                    if (horizonY > 0 && horizonY < H) {
+                      return (
+                        <Line
+                          x1={0} y1={horizonY} x2={W} y2={horizonY}
+                          stroke="rgba(255,255,255,0.15)"
+                          strokeWidth={1}
+                          strokeDasharray="10,5"
+                        />
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {sunScreenPos.isVisible && sunPos.altitude > -5 && (
+                    <>
+                      <Circle
+                        cx={sunScreenPos.x * W}
+                        cy={sunScreenPos.y * H}
+                        r={30}
+                        fill="rgba(255,200,50,0.12)"
+                      />
+                      <Circle
+                        cx={sunScreenPos.x * W}
+                        cy={sunScreenPos.y * H}
+                        r={18}
+                        fill="rgba(255,215,0,0.2)"
+                      />
+                      <Circle
+                        cx={sunScreenPos.x * W}
+                        cy={sunScreenPos.y * H}
+                        r={8}
+                        fill="#FFD700"
+                        stroke="rgba(255,160,0,0.6)"
+                        strokeWidth={2}
+                      />
                       <SvgText
-                        x={px}
-                        y={py - 10}
-                        fill="rgba(255,255,255,0.7)"
-                        fontSize={10}
+                        x={sunScreenPos.x * W}
+                        y={sunScreenPos.y * H + 28}
+                        fill="#FFD700"
+                        fontSize={11}
                         fontWeight="bold"
                         textAnchor="middle"
                       >
-                        {`${hour}:00`}
+                        {`${sunPos.altitude.toFixed(1)}°`}
                       </SvgText>
-                    </React.Fragment>
-                  );
-                })}
-
-              {(() => {
-                const horizonY = getSunScreenPosition(deviceRotation, deviceAzimuth, 0, 60, 80).y * H;
-                if (horizonY > 0 && horizonY < H) {
-                  return (
-                    <Line
-                      x1={0} y1={horizonY} x2={W} y2={horizonY}
-                      stroke="rgba(255,255,255,0.15)"
-                      strokeWidth={1}
-                      strokeDasharray="10,5"
-                    />
-                  );
-                }
-                return null;
-              })()}
-
-              {sunScreenPos.isVisible && sunPos.altitude > -5 && (
-                <>
-                  <Circle
-                    cx={sunScreenPos.x * W}
-                    cy={sunScreenPos.y * H}
-                    r={30}
-                    fill="rgba(255,200,50,0.12)"
-                  />
-                  <Circle
-                    cx={sunScreenPos.x * W}
-                    cy={sunScreenPos.y * H}
-                    r={18}
-                    fill="rgba(255,215,0,0.2)"
-                  />
-                  <Circle
-                    cx={sunScreenPos.x * W}
-                    cy={sunScreenPos.y * H}
-                    r={8}
-                    fill="#FFD700"
-                    stroke="rgba(255,160,0,0.6)"
-                    strokeWidth={2}
-                  />
-                  <SvgText
-                    x={sunScreenPos.x * W}
-                    y={sunScreenPos.y * H + 28}
-                    fill="#FFD700"
-                    fontSize={11}
-                    fontWeight="bold"
-                    textAnchor="middle"
-                  >
-                    {`${sunPos.altitude.toFixed(1)}°`}
-                  </SvgText>
+                    </>
+                  )}
                 </>
               )}
             </Svg>

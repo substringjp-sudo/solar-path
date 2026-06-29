@@ -224,16 +224,14 @@ export const getDaySunTrajectory = (date: Date, lat: number, lng: number): Traje
   const dayStart = startOfDay(date);
   const points: TrajectoryPoint[] = [];
 
-  // 10분 간격으로 하루 태양 위치 계산 (altitude > -5인 것만)
+  // 10분 간격으로 하루 태양 위치 계산 (24시간 연속 데이터 확보)
   for (let m = 0; m <= 1440; m += 10) {
     const t = addMinutes(dayStart, m);
     const pos = SunCalc.getPosition(t, lat, lng);
     const azimuth = (pos.azimuth * 180 / Math.PI) + 180;
     const altitude = pos.altitude * 180 / Math.PI;
 
-    if (altitude > -5) {
-      points.push({ azimuth, altitude, time: t });
-    }
+    points.push({ azimuth, altitude, time: t });
   }
 
   return points;

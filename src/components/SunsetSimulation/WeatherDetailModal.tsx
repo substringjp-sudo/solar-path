@@ -599,7 +599,7 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
           <View style={[styles.header, { borderBottomColor: theme.border }]}>
             <View style={styles.headerTitleRow}>
               <Globe size={18} color={theme.accent} style={{ marginRight: 6 }} />
-              <Text style={[styles.headerTitle, { color: theme.text }]}>기상 정밀 레이더 분석</Text>
+              <Text style={[styles.headerTitle, { color: theme.text }]}>{t('radarTitle', language)}</Text>
               <TouchableOpacity 
                 style={{
                   marginLeft: 8,

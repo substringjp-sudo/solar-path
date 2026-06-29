@@ -1,4 +1,4 @@
-export type Language = 'ko' | 'en';
+export type Language = 'ko' | 'en' | 'ja';
 
 export const translations = {
   ko: {
@@ -115,6 +115,7 @@ export const translations = {
     aerosolsHumidity: 'Aerosols & Humidity',
     cloudRadarGrid: 'Cloud Radar Grid',
     radiusMapHint: '380km Radius Map (Tap)',
+    tapForDetails: '터치하여 날씨 상세 정보 보기',
     timeMachineToggle: '시간 조정 모드',
     nowcastLimitExceeded: '정밀 예보 한도 초과',
     nowcastLimitExceededMsg: '정밀 예보 API의 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
@@ -130,6 +131,15 @@ export const translations = {
     qualityFair: 'FAIR',
     qualityMuted: 'MUTED',
     qualityOvercast: 'OVERCAST',
+    // 구름 양 라벨
+    cloudOvercast: '많음',
+    cloudComplex: '복합적',
+    cloudClear: '없음',
+    // 색상 라벨
+    colorVivid: '화려함',
+    colorMuted: '칙칙함',
+    colorClean: '깨끗함',
+    colorEvalLabel: 'COLOR',
 
     // SunCamera
     calibratedTitle: 'Calibrated',
@@ -158,7 +168,12 @@ export const translations = {
     noPhotos: '등록된 노을 사진이 없습니다.',
     deletePhotoConfirmTitle: '사진 삭제',
     deletePhotoConfirmMsg: '정말로 이 사진을 삭제하시겠습니까? 글로벌 갤러리와 내 사진첩에서 모두 삭제됩니다.',
+    uploadPending: '업로드 대기 중 (1시간 뒤 공유)',
     delete: '삭제',
+    saveSimulationJpg: '시뮬레이션 JPG 저장',
+    savingImage: '이미지를 생성하여 저장 중...',
+    saveJpgSuccess: '시뮬레이션 이미지가 성공적으로 갤러리에 저장되었습니다.',
+    saveJpgFailed: '이미지 저장에 실패했습니다.',
 
     // WeatherDetailModal
     radarTitle: '기상 정밀 레이더 분석',
@@ -267,10 +282,10 @@ export const translations = {
     initializingApp: '앱 초기화 중...',
     analyzingData: '기상 및 지형 데이터 분석 중...',
     simulationReady: '시뮬레이션 준비 완료!',
-    sunsetNotificationTitle: '🌅 오늘의 스마트 노을 알림',
-    sunsetNotificationBody: '오늘 일몰의 예측 점수가 {score}점입니다! 2시간 뒤 골든아워가 시작됩니다.',
-    sunriseNotificationTitle: '🌅 내일의 스마트 일출 알림',
-    sunriseNotificationBody: '내일 일출의 예측 점수가 {score}점입니다! 내일 아침 멋진 일출을 미리 준비해 보세요.',
+    sunsetNotificationTitle: '🌅 오늘의 노을 예보',
+    sunsetNotificationBody: '오늘 일몰: 구름 {cloud} / 하늘 {color}. 2시간 후 골든아워가 시작됩니다.',
+    sunriseNotificationTitle: '🌅 내일 일출 예보',
+    sunriseNotificationBody: '내일 일출: 구름 {cloud} / 하늘 {color}. 멋진 일출을 미리 준비해 보세요.',
     tabPortalLinks: '패밀리 서비스',
     portalTitle: 'PPLANER 포털',
     portalDesc: '통합 여행 플래너 포털 pplaner.com을 통해 다양한 여행 경로와 계획을 세워보세요.',
@@ -395,6 +410,7 @@ export const translations = {
     aerosolsHumidity: 'Aerosols & Humidity',
     cloudRadarGrid: 'Cloud Radar Grid',
     radiusMapHint: '380km Radius Map (Tap)',
+    tapForDetails: 'Tap to view weather details',
     timeMachineToggle: 'Time Adjustment Mode',
     nowcastLimitExceeded: 'Nowcast Limit Exceeded',
     nowcastLimitExceededMsg: 'Rate limit for nowcast API exceeded. Please try again later.',
@@ -410,6 +426,15 @@ export const translations = {
     qualityFair: 'FAIR',
     qualityMuted: 'MUTED',
     qualityOvercast: 'OVERCAST',
+    // Cloud amount labels
+    cloudOvercast: 'HEAVY',
+    cloudComplex: 'MIXED',
+    cloudClear: 'CLEAR',
+    // Color labels
+    colorVivid: 'VIVID',
+    colorMuted: 'MUTED',
+    colorClean: 'CLEAN',
+    colorEvalLabel: 'COLOR',
 
     // SunCamera
     calibratedTitle: 'Calibrated',
@@ -438,7 +463,12 @@ export const translations = {
     noPhotos: 'No sunset photos found.',
     deletePhotoConfirmTitle: 'Delete Photo',
     deletePhotoConfirmMsg: 'Are you sure you want to delete this photo? It will be removed from both the global gallery and your personal collection.',
+    uploadPending: 'Upload pending (shares in 1h)',
     delete: 'Delete',
+    saveSimulationJpg: 'Save Simulation JPG',
+    savingImage: 'Generating & saving image...',
+    saveJpgSuccess: 'Simulation image saved to your gallery successfully.',
+    saveJpgFailed: 'Failed to save image.',
 
     // WeatherDetailModal
     radarTitle: 'Precision Weather Radar',
@@ -547,10 +577,10 @@ export const translations = {
     initializingApp: 'Initializing App...',
     analyzingData: 'Analyzing weather & terrain...',
     simulationReady: 'Simulation ready!',
-    sunsetNotificationTitle: '🌅 Today\'s Smart Sunset Alert',
-    sunsetNotificationBody: 'Today\'s sunset prediction score is {score}! Golden Hour starts in 2 hours.',
-    sunriseNotificationTitle: '🌅 Tomorrow\'s Smart Sunrise Alert',
-    sunriseNotificationBody: 'Tomorrow\'s sunrise prediction score is {score}! Get ready for a beautiful sunrise tomorrow morning.',
+    sunsetNotificationTitle: '🌅 Today\'s Sunset Forecast',
+    sunsetNotificationBody: 'Tonight: clouds {cloud} / sky {color}. Golden Hour starts in 2 hours.',
+    sunriseNotificationTitle: '🌅 Tomorrow\'s Sunrise Forecast',
+    sunriseNotificationBody: 'Tomorrow: clouds {cloud} / sky {color}. Get ready for a beautiful sunrise!',
     tabPortalLinks: 'Family Services',
     portalTitle: 'PPLANER Portal',
     portalDesc: 'Create comprehensive travel routes and plans on the unified planner portal pplaner.com.',
@@ -560,7 +590,302 @@ export const translations = {
     sisterRgNevelTitle: 'RG Nevel Planner',
     sisterRgNevelDesc: 'A local course recommender and customized travel planner optimized for domestic and international trips.',
     visitSite: 'Visit Website',
-  }
+  },
+  ja: {
+    // Common
+    settings: '設定',
+    cancel: 'キャンセル',
+    close: '閉じる',
+    save: '保存',
+    confirm: '確認',
+    error: 'エラー',
+    auto: '自動',
+    notification: '通知',
+    success: '成功',
+    latitude: '緯度',
+    longitude: '経度',
+    timeMachine: 'タイムライン',
+    realtime: 'リアルタイム',
+    mapLabel: '地図',
+    simulationTime: 'タイムライン',
+    now: '現在',
+    offlineMode: 'オフラインモード',
+    offlineDesc: '現在オフライン状態です。天気と地形データを取得するにはインターネット接続が必要です。',
+    dataSourceInfo: 'データソース情報',
+    geospatial: '地理空間',
+    digitalElevationModel: 'デジタル標高モデル (DEM)',
+    openMeteoElevationApi: 'Open-Meteo標高API',
+    meteorology: '気象/予報',
+    weatherCloudsForecast: '天気と雲の予報',
+    kmaForecastApi: '気象庁(KMA)超短期予報API',
+    openMeteoWeatherApi: 'Open-Meteo天気API',
+    astronomy: '天文データ',
+    solarTrajectoryAzimuth: '太陽軌道と方位角',
+    suncalcLibrary: 'SunCalcライブラリ',
+    weatherAttribution: 'すべての天気データはCC BY 4.0ライセンスのもとでOpen-Meteo.comより提供されています。',
+
+    // TabNavigator & HudHeader
+    tracker: 'Tracker',
+    simulation: 'Simulation',
+    gallery: 'Gallery',
+    today: 'TODAY',
+    reset: 'リセット',
+    gyro: 'ジャイロ',
+    solarData: 'SOLAR DATA',
+    lunarData: 'LUNAR DATA',
+    position: '位置',
+    sunrise: '日の出',
+    sunset: '日の入り',
+    moonrise: '月の出',
+    moonset: '月の入り',
+    todayLabel: '今日',
+    tomorrowLabel: '明日',
+
+    // SettingsModal
+    account: 'アカウント',
+    signedInUser: 'ログイン中のユーザー',
+    cloudSyncEnabled: '✓ クラウド同期有効',
+    signOut: 'ログアウト',
+    signIn: 'ログイン',
+    signUp: '会員登録',
+    createAccount: 'アカウント作成',
+    email: 'メールアドレス',
+    password: 'パスワード',
+    emailPasswordRequired: 'メールアドレスとパスワードを入力してください。',
+    passwordMinLength: 'パスワードは8文字以上にする必要があります。',
+    passwordComplexity: 'パスワードは英大文字、数字、特殊文字をすべて含める必要があります。',
+    passwordMinLengthHint: '8文字以上',
+    passwordComplexityHint: '大文字、数字、特殊文字の組み合わせを含める',
+    signInFailed: 'ログインに失敗しました。',
+    invalidCredentials: 'メールアドレスまたはパスワードが正しくありません。',
+    invalidEmailFormat: 'メールアドレスの形式が正しくありません。',
+    signUpFailed: '会員登録に失敗しました。',
+    emailAlreadyInUse: 'このメールアドレスはすでに登録されています。',
+    alreadyHaveAccount: 'すでにアカウントをお持ちですか？ ログイン',
+    dontHaveAccount: 'アカウントをお持ちでないですか？ 会員登録',
+    developerOptions: '開発者オプション',
+    simulationDebugMode: 'シミュレーションデバッグモード',
+    appPermissions: 'アプリの権限',
+    camera: 'カメラ',
+    storageMedia: 'ストレージ＆メディア',
+    audioMic: 'オーディオ＆マイク',
+    location: '位置情報',
+    granted: '許可済み',
+    denied: '拒否',
+    notGranted: '未許可',
+    manageSystemSettings: 'システム設定の管理',
+    aboutApp: 'アプリ情報',
+    version: 'バージョン',
+    identifier: '識別子',
+    openSourceLicenses: 'オープンソースライセンス',
+    languageSetting: '言語設定',
+    systemSettingsHint: 'システム設定で管理',
+    languageName: '日本語',
+
+    // SunsetSimulation
+    collectingWeather: '地球気象モデルデータを収集中...',
+    generatingTerrain: '周辺地形の標高分析データを生成中...',
+    nowcastLoaded: 'Nowcast適用完了',
+    nowcastLoadedMsg: '超短期局地気象モデル(Nowcast)が正常に反映されました。',
+    nowcastFailed: 'Nowcast読み込み失敗',
+    nowcastFailedMsg: '超短期의 精密気象データを取得できませんでした。しばらくしてからやり直しください。',
+    apiLimitExceeded: '天気APIレート制限超過',
+    apiLimitExceededMsg: 'Open-Meteo APIの1日または1分あたりのリクエスト制限を超過しました。しばらくしてからやり直してください。\n\n(天気キャッシュまたは晴れの仮想データでシミュレーションを読み込みます。)',
+    networkError: 'ネットワーク接続エラー',
+    networkErrorMsg: 'インターネット接続状態が不安定であるか、タイムアウトが発生しました。接続を確認してからやり直してください。\n\n(天気キャッシュまたは晴れの仮想データでシミュレーションを読み込みます。)',
+    serverError: '天気APIサーバーエラー',
+    serverErrorMsg: '天気提供サーバー(Open-Meteo)で一時的なシステムエラーが発生しました。しばらくしてから天気を更新してください。\n\n(天気キャッシュまたは晴れの仮想データでシミュレーションを読み込みます。)',
+    apiRequestError: '天気データリクエストエラー',
+    cachedWeatherBanner: '{time}前にキャッシュされた天気データを使用中 · 詳細を見る',
+    cachedWeatherAlertTitle: 'キャッシュデータの適用',
+    cachedWeatherAlertMsg: 'ネットワーク不安定またはAPI制限のため、{time}前に最後にキャッシュされた天気データでシミュレーションを行っています。',
+    fallbackBannerTitle: 'リアルタイム気象の受信失敗（一時データ適用） · 詳細を見る',
+    fallbackAlertTitle: '気象情報の取得失敗',
+    fallbackAlertMsg: '気象APIサーバー(Open-Meteo)の障害または一時的なIP制限のため、リアルタイムの天気情報を取得できませんでした。\n\n現在、晴れ（デフォルト値）で一時的にシミュレーションを行っています。10分ほど待ってからもう一度天気更新ボタンを押してください。',
+    aerosolsHumidity: 'エアロゾル＆湿度',
+    cloudRadarGrid: '雲レーダーグリッド',
+    radiusMapHint: '380km半径マップ (タップ)',
+    tapForDetails: 'タップして天気の詳細を表示',
+    timeMachineToggle: '時間調整モード',
+    nowcastLimitExceeded: 'Nowcast制限超過',
+    nowcastLimitExceededMsg: 'Nowcast APIのリクエスト制限を超過しました。しばらくしてからやり直してください。',
+    nowcastNetworkErrorMsg: 'インターネット接続状態が不安定です。ネットワーク状態を確認してからやり直してください。',
+    nowcastServerErrorMsg: '天気予報サーバーで一時的なエラーが発生しました。しばらくしてからやり直してください。',
+
+    // PredictionCard
+    dawnForecast: 'DAWN FORECAST',
+    sunsetForecast: 'SUNSET FORECAST',
+    kmaForecast: 'KMA Forecast',
+    qualityEpic: 'EPIC',
+    qualityGreat: 'GREAT',
+    qualityFair: 'FAIR',
+    qualityMuted: 'MUTED',
+    qualityOvercast: 'OVERCAST',
+    // 雲の量ラベル
+    cloudOvercast: '曇り',
+    cloudComplex: '複雑',
+    cloudClear: '快晴',
+    // 色のラベル
+    colorVivid: '鮮やか',
+    colorMuted: 'くすんだ',
+    colorClean: '綺麗',
+    colorEvalLabel: 'COLOR',
+
+    // SunCamera
+    calibratedTitle: 'キャリブレーション完了',
+    calibratedMsg: 'センサーの基準点がリセットされました。デバイスを一時的に水平に保ってください。',
+    permissionRequired: '権限が必要です',
+    galleryPermissionRequiredMsg: '写真を保存するにはギャラリーへのアクセス権限が必要です。',
+    uploadSuccess: '成功',
+    uploadSuccessMsg: '正常にアップロードされました！',
+    saveSuccess: 'デバイスへの保存完了',
+    saveSuccessMsg: '写真をデバイスのギャラリーにのみ保存しました。地図で共有するには、設定からログインしてください！',
+    uploadFailed: 'アップロード失敗',
+    uploadFailedMsg: 'エラーのためアップロードに失敗しました: ',
+    takePhotoError: 'エラー',
+    takePhotoErrorMsg: '写真撮影中にエラーが発生しました。',
+    photoPreview: '写真プレビュー',
+    shareToMap: '地図に共有',
+    saveOnly: '保存のみ',
+    backToCamera: 'カメラに戻る',
+    calibrating: 'センサーのキャリブレーション中...',
+    magneticWarning: '磁気干渉が検出されました',
+
+    // Gallery
+    sunsetGallery: '夕焼けギャラリー',
+    all: 'すべて',
+    mine: 'マイフォト',
+    noPhotos: '登録された夕焼け写真がありません。',
+    deletePhotoConfirmTitle: '写真の削除',
+    deletePhotoConfirmMsg: '本当にこの写真を削除しますか？ グローバルギャラリーとマイフォトの両方から削除されます。',
+    uploadPending: 'アップロード待機中 (1時間後に共有)',
+    delete: '削除',
+    saveSimulationJpg: 'シミュレーションJPG保存',
+    savingImage: '画像を作成して保存中...',
+    saveJpgSuccess: 'シミュレーション画像が正常にギャラリーに保存されました。',
+    saveJpgFailed: '画像の保存に失敗しました。',
+
+    // WeatherDetailModal
+    radarTitle: '精密気象レーダー',
+    radarGuideTitle: '夕焼け＆雲ガイド',
+    radarTabGrid: 'レーダーグリッドマップ',
+    radarTabList: '詳細値',
+    radarGridTitle: '雲分布レーダーグリッド (380km)',
+    radarGridDesc: '横：方位角オフセット（-20°から+20°）、縦：距離（10kmから380km）。',
+    radarFilterAll: 'すべて',
+    radarFilterLow: '下層',
+    radarFilterMid: '中層',
+    radarFilterHigh: '上層',
+    observerCenter: '観測中心 (0km)',
+    avgLabel: '平均',
+    directionOffset: '方向オフセット',
+    distPoint: 'km地点',
+    observerPointText: '観測者の位置',
+    legendTitle: '凡例＆カラーガイド',
+    legendLowTitle: '下層雲 (0 ~ 2km)',
+    legendLowDesc: '高度0-2km。夕焼けの光を遮る主な原因となります。',
+    legendMidTitle: '中層雲 (2 ~ 6km)',
+    legendMidDesc: '高度2-6km。ドラマチックな空の影を作り出します。',
+    legendHighTitle: '上層雲 (6km以上)',
+    legendHighDesc: '高度6km以上。赤い光線を反射して夕焼けを増幅させます。',
+    tabBasicGuide: '基本ガイド',
+    tabCloudGuide: '雲の図鑑',
+    obsTime: '観測時刻 (現地時間)',
+    forecastModel: '予報モデル',
+    scienceTitleRayleigh: 'レイリー散乱',
+    scienceDescRayleigh: '太陽が地平線近くにあるとき、太陽光は日中に比べて最大10倍の空気層を通過する必要があります。波長の短い青や紫の光は空気分子によって散乱して消え、波長の長いオレンジや赤의 光だけが観測者に届きます。',
+    scienceTitleMie: '大気エアロゾル＆ミー散乱',
+    scienceDescMie: '埃や水滴など、光の波長より大きな粒子は、すべての波長の光を前方に散乱させます（ミー散乱）。これにより、太陽近くの雲の輪郭が明るく輝きます（シルバーライニング効果）。ただし、湿度が非常に高い（>80%）か、汚染がひどい場合は光が吸収され、鈍い灰色の夕焼けになります。',
+    radarGridGuideText1: '1. レーダーグリッドマップの分析:',
+    radarGridGuideDesc1: '横は太陽方向に対する方位角オフセット（-20°から+20°）、縦は観測者からの距離（10kmから380km）を表します。3つの高度レベルにおける35箇所のサンプリングポイントで雲密度を測定します。',
+    radarGridGuideText2: '2. タイムマシン・スライダー:',
+    radarGridGuideDesc2: '下部のスライダーをドラッグしてシミュレーション時間を調整します。太陽高度の変化に合わせて、大気屈折と影の長さをリアルタイムで動的に計算します。',
+    cloudScienceTitle: '📖 気象雲ガイド',
+    cloudScienceDesc: '光の散乱シミュレーションに使用される実際の雲のプロファイルと属性です。カードをタップすると、物理学と夕焼け効果の詳細が表示されます。',
+    cloudAltitudeTypeLow: '下層',
+    cloudAltitudeTypeMid: '中層',
+    cloudAltitudeTypeHigh: '上層',
+    cloudFeature: '特徴',
+    cloudOrigin: '発生要因',
+    cloudSunsetEffect: '夕焼け効果',
+    dayAltVertical: '日中 (天頂)',
+    sunsetAltDeep: '夕方 (長大光路)',
+    rayleighScatterBlue: '散乱される青い光',
+    rayleighOnlyRed: '赤い光のみが届く',
+    mieAerosolParticle: '埃/水滴エアロゾル',
+    mieSunlightEntry: '入射光',
+    mieForwardScatter: '強い前方散乱',
+    mieRimLightDesc: '（雲の輪郭の輝き / シルバーライニング）',
+    observerText: '観測者',
+
+    // PermissionRequestView
+    permissionTitle: 'Solar Path',
+    permissionSubtitle: '太陽と月の軌道を完璧に追跡するために、以下の権限が必要です。',
+    realtimeLocation: 'リアルタイム位置情報',
+    required: '必須',
+    locationDesc: '現在地に基づいて、正確な日の出・日の入り・薄明時刻、および太陽と月の3D軌道を計算します。',
+    settingsAllow: '設定で許可する',
+    requestPermission: '権限をリクエスト',
+    arCameraGallery: 'ARカメラ＆ギャラリー',
+    optional: '任意',
+    cameraDesc: 'カメラビュー上に太陽軌道を重ねて表示するARモード、および夕焼けの写真を撮影するために必要です。',
+    locationDeniedAlert: '位置情報の利用が拒否されました。太陽軌道の追跡を開始できません。システム設定で位置情報の使用を有効にしてください。',
+    startApp: '開始する',
+    goToSettings: 'システム設定へ移動',
+    enterAnyway: 'プレビューで入る',
+
+    // MapPicker
+    changeLocation: '位置変更',
+    pickOnMap: '地図上での選択または保存済みの場所',
+    pickedCoords: '選択された座標',
+    myLocation: '現在地',
+    enterPlaceName: '場所の名前を入力',
+    selectThisLocation: 'この場所を選択',
+    savedPlaces: '保存された場所',
+    noSavedPlaces: '保存された場所がありません。',
+    enterPlaceNameAlert: '場所の名前を入力してください。',
+    invalidCoordsAlert: '無効な座標です。',
+    permissionDenied: 'アクセス権限が拒否されました',
+    permissionDeniedMsg: '位置情報へのアクセス権限が拒否されました',
+    failedGetLocation: '現在地の取得に失敗しました',
+    geolocationUnsupported: 'お使いのブラウザは位置情報サービスに対応していません',
+    interval: '間隔',
+
+    // App Loading / Modal
+    checkingPermissions: '権限を確認中...',
+    locatingPosition: '현재지を取得中...',
+    waitingGoldenHour: 'ゴールデンアワーを待機中',
+    cameraWarningMessage: 'ARカメラ機能はゴールデンアワー（日の出・日の入りの前後2.5時間）の間のみ有効です。\n\n開発者テストのためにこの制限をバイパスするには、カメラボタンを2秒間長押ししてください。',
+    simulationLimitNote: '※ 注意：シミュレーションは数値天気予報モデルに基づいてレンダリングされるため、現実の現地の天気、地形の特徴、または正確な雲の形状とは完全に一致しない場合があります。',
+    recordSunset: '夕焼けを記録',
+    actualLandscape: '実際の写真',
+    simulationPrediction: 'シミュレーション予測',
+    landscapeScoreLabel: '景観スコア',
+    weatherScoreLabel: '天気スコア',
+    retake: '撮り直し',
+    saveAndUpload: '保存＆アップロード',
+    privacyUploadNotice: '💡 個人情報保護と安全のため、アップロードされた写真は1時間後にグローバルマップとギャラリーに公開されます。',
+    humidityLabel: '湿度',
+    dustLabel: 'ダスト',
+    weatherLabel: '天気',
+    uploadSuccessWithLocation: '{location} の写真と天気データが正常にアップロードされました！',
+    initializingApp: 'アプリの初期化中...',
+    analyzingData: '天気と地形を分析中...',
+    simulationReady: 'シミュレーション準備完了！',
+    sunsetNotificationTitle: '🌅 本日の夕焼け予報',
+    sunsetNotificationBody: '今夜：雲 {cloud} / 空 {color}。ゴールデンアワーは2時間後に始まります。',
+    sunriseNotificationTitle: '🌅 明日の日の出予報',
+    sunriseNotificationBody: '明日：雲 {cloud} / 空 {color}。美しい日の出をお楽しみに！',
+    tabPortalLinks: 'ファミリーサービス',
+    portalTitle: 'PPLANER ポータル',
+    portalDesc: '統合プランナーポータル pplaner.com で、包括的な旅行ルートや計画を作成できます。',
+    sisterSitesTitle: '姉妹サービス',
+    sisterJpRailTitle: 'JP Rail Planner',
+    sisterJpRailDesc: 'ジャパンレールパスのルート、電車の時刻表、および最適な旅行ルートのために設計された専門の鉄道計画プラットフォーム。',
+    sisterRgNevelTitle: 'RG Nevel Planner',
+    sisterRgNevelDesc: '国内および海外旅行に最適化された、地域のコース推薦とカスタマイズされた旅行プランナー。',
+    visitSite: 'ウェブサイトにアクセス',
+  },
 };
 
 export const t = (key: keyof typeof translations['ko'], lang: Language): string => {
@@ -594,6 +919,31 @@ export const translateSunsetDesc = (desc: string, lang: Language): string => {
     if (desc.includes('Unable to predict due to invalid')) {
       return '유효하지 않은 데이터로 인해 예측을 수행할 수 없습니다.';
     }
+  } else if (lang === 'ja') {
+    if (desc.includes('Heavy rain clouds cover')) {
+      return '大雨の雲が空全体を覆い、夕焼けの光を完全に遮ります。';
+    }
+    if (desc.includes('A thick single layer of clouds')) {
+      return '厚く暗い雲の層が空を完全に覆い、日光を遮ります。';
+    }
+    if (desc.includes('Thick clouds block the horizon')) {
+      return '日の入り方向の地平線に厚い雲がかかり、夕焼けの光が強く遮られます。';
+    }
+    if (desc.includes('Clear horizon combined with')) {
+      return '地平線がクリアで適度な高・中層雲があり、非常に華やかで強烈な夕焼けが予想されます。';
+    }
+    if (desc.includes('Ample red light is reflecting')) {
+      return '雲に反射する赤い光が豊富で、素晴らしい夕焼けが期待できます。';
+    }
+    if (desc.includes('Light is weak or there are many clouds')) {
+      return '光がやや弱いか雲が多いですが、ほのかで落ち着いた夕焼けが見られます。';
+    }
+    if (desc.includes('Lack of scattering or too few')) {
+      return '大気散乱の不足や雲がないため、やや平凡で静かな夕焼けが予想されます。';
+    }
+    if (desc.includes('Unable to predict due to invalid')) {
+      return '無効なデータのため、予測を実行できません。';
+    }
   }
   return desc;
 };
@@ -612,6 +962,19 @@ export const translateSceneDesc = (desc: string, lang: Language): string => {
     }
     if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
       return '맑은 하늘 — 밸런스 보정';
+    }
+  } else if (lang === 'ja') {
+    if (desc.includes('흐린 하늘') || desc.toLowerCase().includes('overcast')) {
+      return '曇り空 — 自然なトーンを維持';
+    }
+    if (desc.includes('드라마틱 구름') || desc.toLowerCase().includes('dramatic')) {
+      return 'ドラマチックな雲 — コントラストを強化し、雲の立体感を最大化';
+    }
+    if (desc.includes('골든아워') || desc.toLowerCase().includes('golden')) {
+      return 'ゴールデンアワー — 温かみのある色合い、柔らかな彩度の強化';
+    }
+    if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
+      return '澄んだ空 — バランス調整';
     }
   } else {
     // en

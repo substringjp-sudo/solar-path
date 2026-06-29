@@ -20,11 +20,11 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 // Initialize Auth with AsyncStorage Persistence for React Native, preventing already-initialized error in HMR
 let auth: Auth;
 try {
-  auth = getAuth(app);
-} catch (error) {
   auth = initializeAuth(app, {
     persistence: getReactNativePersistence(AsyncStorage),
   });
+} catch (error) {
+  auth = getAuth(app);
 }
 
 const db = getFirestore(app, process.env.EXPO_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID || '(default)');

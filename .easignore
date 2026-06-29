@@ -18,3 +18,16 @@ android/app/.cxx/
 # iOS build artifacts
 ios/build/
 ios/DerivedData/
+ios/Pods/
+
+# Gradle & Android caches
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
+
+# Archive files
+*.zip
+*.tar.gz
+*.tgz
+*.rar
