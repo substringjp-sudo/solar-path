@@ -1,0 +1,23 @@
+{
+  "configVersion": 0,
+  "googlePlay": {
+    "defaultLocale": "ko-KR",
+    "categories": {
+      "applicationCategory": "WEATHER"
+    },
+    "locales": {
+      "ko-KR": {
+        "title": "BeforeGlow - 노을 예보 & 추적",
+        "shortDescription": "실시간 노을 예측, 태양 추적, 골든아워 알림",
+        "fullDescription": "BeforeGlow는 현재 위치를 기반으로 태양의 위치를 실시간으로 추적하고, 아름다운 노을과 골든아워를 놓치지 않도록 도와주는 앱입니다.\n\n✨ 주요 기능\n• 실시간 태양/달 위치 추적 (SunCalc 기반)\n• 골든아워 & 블루아워 예측 알림\n• 노을 사진 촬영 및 커뮤니티 공유\n• 지형 기반 정확한 일출/일몰 시간 계산\n• 등시선(Isochrone) 지도로 최적 촬영 위치 탐색\n• 아름다운 다크 모드 UI\n\n📸 사진작가와 자연을 사랑하는 모든 분들을 위한 앱\n일출, 일몰, 골든아워의 정확한 시간과 최적 위치를 미리 계획하세요.",
+        "video": ""
+      },
+      "en-US": {
+        "title": "BeforeGlow - Sunset Forecast",
+        "shortDescription": "Real-time sunset prediction, solar tracking & golden hour alerts",
+        "fullDescription": "BeforeGlow tracks the sun's position in real-time based on your current location, helping you never miss a beautiful sunset or golden hour.\n\n✨ Key Features\n• Real-time sun & moon position tracking (SunCalc-powered)\n• Golden hour & blue hour prediction alerts\n• Sunset photo capture & community sharing\n• Accurate sunrise/sunset times with terrain consideration\n• Isochrone maps to find perfect shooting locations\n• Beautiful dark mode UI\n\n📸 Built for photographers and nature lovers\nPlan ahead with precise golden hour timing and ideal shooting locations.",
+        "video": ""
+      }
+    }
+  }
+}
