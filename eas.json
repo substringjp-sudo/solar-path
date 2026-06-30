@@ -25,27 +25,6 @@
         "releaseStatus": "draft",
         "changesNotSentForReview": false
       }
-    },
-    "rollout_10": {
-      "android": {
-        "track": "production",
-        "rollout": "0.1",
-        "changesNotSentForReview": false
-      }
-    },
-    "rollout_50": {
-      "android": {
-        "track": "production",
-        "rollout": "0.5",
-        "changesNotSentForReview": false
-      }
-    },
-    "rollout_100": {
-      "android": {
-        "track": "production",
-        "rollout": "1.0",
-        "changesNotSentForReview": false
-      }
     }
   }
 }
