@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform, Alert, InteractionManager } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Animated, TouchableOpacity, PanResponder, Platform, Alert, InteractionManager, Dimensions, ScrollView, useWindowDimensions } from 'react-native';
 import { isAfter, addHours, addMinutes } from 'date-fns';
 import SunCalc from 'suncalc';
 import { useNetInfo } from '@react-native-community/netinfo';
@@ -56,13 +56,15 @@ interface SunsetSimulationProps {
 
 export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const { theme, currentTime, setCurrentTime, setMapVisible, activeTab } = props;
-  
-  const { 
-    location, 
+  const { width, height } = useWindowDimensions();
+  const isTablet = width > 900;
+
+  const {
+    location,
     timezoneOffsetHours,
-    weatherCacheList, 
-    terrainCacheList, 
-    addWeatherCache, 
+    weatherCacheList,
+    terrainCacheList,
+    addWeatherCache,
     addTerrainCache,
     savedLocations,
     setSimulationLoading,
@@ -710,8 +712,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
           </Text>
         </View>
       ) : (
-        <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
-          <View style={styles.visualizerWrapper}>
+        <Animated.View style={[styles.mainWrapper, isTablet && styles.tabletMainWrapper, { opacity: fadeAnim }]}>
+          <View style={[styles.visualizerWrapper, isTablet && styles.tabletVisualizerWrapper]}>
             {!isTransitionReady ? (
               <View style={[styles.centered, { height: 260 }]}>
                 <ActivityIndicator size="small" color={theme.accent} />
@@ -768,7 +770,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.bottomSection}>
+          <ScrollView
+            style={[styles.bottomSection, isTablet && styles.tabletBottomSection]}
+            contentContainerStyle={isTablet && styles.tabletBottomSectionContent}
+            scrollEnabled={isTablet}
+          >
             {/* 일출/일몰 선택 세그먼트 토글 */}
             <View style={[styles.segmentContainer, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               {(['auto', 'Sunrise', 'Sunset'] as const).map((mode) => {
@@ -976,7 +982,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 ]}
               />
             </View>
-          </View>
+          </ScrollView>
         </Animated.View>
       )}
 
@@ -1058,6 +1064,23 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   bottomSection: { gap: 6, marginTop: 'auto' },
+  tabletMainWrapper: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  tabletVisualizerWrapper: {
+    flex: 1,
+  },
+  tabletBottomSection: {
+    flex: 1,
+    marginTop: 0,
+  },
+  tabletBottomSectionContent: {
+    gap: 6,
+  },
   segmentContainer: {
     flexDirection: 'row',
     padding: 2,
