@@ -866,7 +866,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               activeOpacity={0.7}
             >
               {/* 상단 정보 패널 */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%', flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'stretch', width: '100%', flex: 1 }}>
                 <View style={styles.unifiedLeftSection}>
                   <Text style={[styles.aerosolTitle, { color: theme.text }]}>{t('aerosolsHumidity', language)}</Text>
                   <View style={styles.aerosolRow}>
@@ -894,7 +894,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
 
                 <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
 
-                <View style={styles.unifiedRightSection}>
+                <View style={[styles.unifiedRightSection, { flexDirection: 'column' }]}>
                   <Text style={[styles.gridTitleText, { color: theme.text }]}>{t('cloudRadarGrid', language)}</Text>
                   
                   <View style={styles.miniGridContainer}>
@@ -935,16 +935,16 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                       {t('radiusMapHint', language)}
                     </Text>
                   </View>
-                </View>
-              </View>
 
-              {/* 하단 터치 유도 바 */}
-              <View style={[styles.cardFooter, { borderTopColor: theme.border }]}>
-                <Info size={10} color={theme.accent} style={{ marginRight: 4 }} />
-                <Text style={[styles.cardFooterText, { color: theme.subText }]}>
-                  {t('tapForDetails', language)}
-                </Text>
-                <ChevronRight size={10} color={theme.subText} style={{ marginLeft: 'auto' }} />
+                  {/* 우측 하단 터치 유도 텍스트 */}
+                  <View style={[styles.rightSideTapHint, { borderTopColor: theme.border }]}>
+                    <Info size={8} color={theme.accent} style={{ marginRight: 3 }} />
+                    <Text style={[styles.tapHintText, { color: theme.subText }]}>
+                      {t('tapForDetails', language)}
+                    </Text>
+                    <ChevronRight size={8} color={theme.subText} style={{ marginLeft: 'auto' }} />
+                  </View>
+                </View>
               </View>
             </TouchableOpacity>
 
@@ -1129,6 +1129,20 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+  rightSideTapHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 0.5,
+    paddingTop: 4,
+    marginTop: 4,
+    paddingHorizontal: 2,
+  },
+  tapHintText: {
+    fontSize: 7,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    flex: 1,
   },
   unifiedRightSection: {
     flex: 1.9,
