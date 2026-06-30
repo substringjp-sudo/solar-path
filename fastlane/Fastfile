@@ -1,0 +1,59 @@
+default_platform(:android)
+
+platform :android do
+  desc "Push store metadata (title, description) to Google Play"
+  lane :push_metadata do
+    upload_to_play_store(
+      track: "internal",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: false,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Upload screenshots to Google Play"
+  lane :push_screenshots do
+    upload_to_play_store(
+      track: "internal",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: false,
+      skip_upload_screenshots: false
+    )
+  end
+
+  desc "Set production rollout percentage"
+  lane :set_rollout do |options|
+    percentage = options[:percentage] || "0.1"
+    upload_to_play_store(
+      track: "production",
+      rollout: percentage,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Push everything (metadata + screenshots)"
+  lane :push_all do |options|
+    version_code = options[:version_code]
+    upload_to_play_store(
+      track: "internal",
+      version_code: version_code,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: false,
+      skip_upload_changelogs: true,
+      skip_upload_images: false,
+      skip_upload_screenshots: false
+    )
+  end
+end

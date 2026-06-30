@@ -1,0 +1,12 @@
+BeforeGlow tracks the sun's position in real-time based on your current location, helping you never miss a beautiful sunset or golden hour.
+
+✨ Key Features
+• Real-time sun & moon position tracking (SunCalc-powered)
+• Golden hour & blue hour prediction alerts
+• Sunset photo capture & community sharing
+• Accurate sunrise/sunset times with terrain consideration
+• Isochrone maps to find perfect shooting locations
+• Beautiful dark mode UI
+
+📸 Built for photographers and nature lovers
+Plan ahead with precise golden hour timing and ideal shooting locations.
