@@ -55,7 +55,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   return (
     <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
       <View style={styles.predictionHeader}>
-        {/* 왼쪽: 구름 양 */}
+        {/* Anchor: 구름 양 */}
         <View style={styles.predictionLeftCol}>
           <View style={styles.labelRow}>
             <Text style={[styles.mainLabel, { color: cloudLabelColor(prediction.cloudLabel) }]}>
@@ -78,7 +78,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
           </Text>
         </View>
 
-        {/* 오른쪽: 색상 평가 */}
+        {/* Anchor: 색상 평가 */}
         <View style={styles.colorLabelWrap}>
           <Text style={[styles.mainLabel, { color: colorLabelColor(prediction.colorLabel) }]}>
             {t(('color' + prediction.colorLabel) as any, language).toUpperCase()}
@@ -98,6 +98,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 24,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
+    flexShrink: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.03,

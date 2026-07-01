@@ -47,6 +47,14 @@ Set production rollout percentage
 
 Push everything (metadata + screenshots)
 
+### android deploy_aab
+
+```sh
+[bundle exec] fastlane android deploy_aab
+```
+
+Upload AAB to Google Play internal track
+
 ----
 
 This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.

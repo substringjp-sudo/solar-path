@@ -22,7 +22,39 @@ allprojects {
   });
 };
 
-
+const withRemoveUnusedPermissions = (config) => {
+  return withAndroidManifest(config, (config) => {
+    const androidManifest = config.modResults;
+    if (!androidManifest.manifest.$['xmlns:tools']) {
+      androidManifest.manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
+    }
+    if (!androidManifest.manifest['uses-permission']) {
+      androidManifest.manifest['uses-permission'] = [];
+    }
+    // Remove ACTIVITY_RECOGNITION
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.ACTIVITY_RECOGNITION',
+        'tools:node': 'remove'
+      }
+    });
+    // Remove READ_MEDIA_VIDEO
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.READ_MEDIA_VIDEO',
+        'tools:node': 'remove'
+      }
+    });
+    // Remove READ_MEDIA_AUDIO
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.READ_MEDIA_AUDIO',
+        'tools:node': 'remove'
+      }
+    });
+    return config;
+  });
+};
 
 module.exports = {
   expo: {
@@ -58,7 +90,7 @@ module.exports = {
     },
     android: {
       package: "com.pplaner.beforeglow",
-      versionCode: 5,
+      versionCode: 14,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#D49A1F"
@@ -82,6 +114,7 @@ module.exports = {
     },
     plugins: [
       withKotlinJvmTargetFix,
+      withRemoveUnusedPermissions,
       "expo-splash-screen",
       "@react-native-community/datetimepicker",
       [

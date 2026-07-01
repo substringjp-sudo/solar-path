@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView,
-  Dimensions, Platform, FlatList, Animated, Linking
+  Dimensions, Platform, FlatList, Animated, Linking, PanResponder, TouchableWithoutFeedback
 } from 'react-native';
 import { X, Cloud, Compass, Globe, Info, ExternalLink } from 'lucide-react-native';
 import Svg, { Path, Circle, Text as SvgText, G } from 'react-native-svg';
@@ -469,17 +469,49 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
   const [windowHeight] = useState(Dimensions.get('window').height);
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
 
+  const handleClose = () => {
+    Animated.timing(slideAnim, {
+      toValue: windowHeight,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(onClose);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 10 && gestureState.dy > 0;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          slideAnim.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+          handleClose();
+        } else {
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            damping: 18,
+            stiffness: 120,
+            mass: 0.9,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
   useEffect(() => {
     if (visible) {
-      Animated.timing(slideAnim, {
+      slideAnim.setValue(windowHeight);
+      Animated.spring(slideAnim, {
         toValue: 0,
-        duration: 350,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: windowHeight,
-        duration: 300,
+        damping: 18,
+        stiffness: 120,
+        mass: 0.9,
         useNativeDriver: true,
       }).start();
     }
@@ -584,42 +616,51 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
 
   return (
     <>
-      <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={onClose}>
-        <View style={styles.modalOverlay}>
-        <Animated.View style={[
-          styles.modalContent, 
-          { 
-            backgroundColor: theme.card, 
-            borderColor: theme.border,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}>
-          
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: theme.border }]}>
-            <View style={styles.headerTitleRow}>
-              <Globe size={18} color={theme.accent} style={{ marginRight: 6 }} />
-              <Text style={[styles.headerTitle, { color: theme.text }]}>{t('radarTitle', language)}</Text>
-              <TouchableOpacity 
-                style={{
-                  marginLeft: 8,
-                  width: 18,
-                  height: 18,
-                  borderRadius: 9,
-                  backgroundColor: '#FFD700',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }} 
-                onPress={() => setShowInfoModal(true)}
-                activeOpacity={0.7}
-              >
-                <Info size={12} color="#000000" />
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={[styles.closeBtn, { backgroundColor: theme.border }]} onPress={onClose}>
-              <X size={16} color={theme.text} />
-            </TouchableOpacity>
-          </View>
+      <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={handleClose}>
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={handleClose}
+        >
+          <TouchableWithoutFeedback>
+            <Animated.View style={[
+              styles.modalContent, 
+              { 
+                backgroundColor: theme.card, 
+                borderColor: theme.border,
+                transform: [{ translateY: slideAnim }]
+              }
+            ]}>
+              {/* 드래그 닫기 핸들 바 */}
+              <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
+                <View style={[styles.dragHandle, { backgroundColor: theme.border }]} />
+              </View>
+              
+              {/* Header */}
+              <View style={[styles.header, { borderBottomColor: theme.border, paddingTop: 4 }]}>
+                <View style={styles.headerTitleRow}>
+                  <Globe size={18} color={theme.accent} style={{ marginRight: 6 }} />
+                  <Text style={[styles.headerTitle, { color: theme.text }]}>{t('radarTitle', language)}</Text>
+                  <TouchableOpacity 
+                    style={{
+                      marginLeft: 8,
+                      width: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      backgroundColor: '#FFD700',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }} 
+                    onPress={() => setShowInfoModal(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Info size={12} color="#000000" />
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity style={[styles.closeBtn, { backgroundColor: theme.border }]} onPress={handleClose}>
+                  <X size={16} color={theme.text} />
+                </TouchableOpacity>
+              </View>
 
           {/* Subtitle & Source Info */}
           <View style={styles.sourceMetaCard}>
@@ -855,8 +896,9 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
             </TouchableOpacity>
           </View>
 
-        </Animated.View>
-      </View>
+          </Animated.View>
+        </TouchableWithoutFeedback>
+      </TouchableOpacity>
     </Modal>
 
       {/* Sunset & Cloud Science Info Modal */}
@@ -1090,6 +1132,19 @@ export const WeatherDetailModal: React.FC<WeatherDetailModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  dragHandleWrapper: {
+    width: '100%',
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 10,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(5, 5, 10, 0.75)',

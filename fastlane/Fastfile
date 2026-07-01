@@ -5,6 +5,7 @@ platform :android do
   lane :push_metadata do
     upload_to_play_store(
       track: "internal",
+      version_code: "9",
       skip_upload_apk: true,
       skip_upload_aab: true,
       skip_upload_metadata: false,
@@ -54,6 +55,19 @@ platform :android do
       skip_upload_changelogs: true,
       skip_upload_images: false,
       skip_upload_screenshots: false
+    )
+  end
+  desc "Upload AAB to Google Play internal track"
+  lane :deploy_aab do |options|
+    aab_path = options[:aab_path]
+    upload_to_play_store(
+      track: "internal",
+      aab: aab_path,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true
     )
   end
 end

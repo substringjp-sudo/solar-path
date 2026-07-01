@@ -1,8 +1,8 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline, ClipPath } from 'react-native-svg';
 import { Sun, Download } from 'lucide-react-native';
-import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset, getApproximatedSkyColor } from '../../utils/sunsetPhysics';
+import { SunsetPrediction, getApparentAltitude, getHorizonDip, directBeamRGB, computeSkyGrid as originalComputeSkyGrid, rgbToCss, clamp01, skyColorAtDirection, cloudIllumination, predictSunset, getApproximatedSkyColor } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t } from '../../utils/i18n';
 import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
@@ -12,6 +12,40 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { generateSimulationImage } from '../../utils/simulationImage';
 import SunCalc from 'suncalc';
 import { getInterpolatedWeather } from '../../utils/weather';
+
+// 하늘 격자 계산용 전역 캐시 맵
+const skyGridCache = new Map<string, any[]>();
+
+function cachedComputeSkyGrid(
+  apparentSunAlt: number,
+  sunAz: number,
+  heading: number,
+  visualFov: number,
+  beta: number,
+  pathClarity: number,
+  verticalFovDeg: number
+): any[] {
+  const roundedAlt = Math.round(apparentSunAlt * 5) / 5;
+  const roundedAz = Math.round(sunAz * 2) / 2;
+  const key = `${roundedAlt.toFixed(1)}_${roundedAz.toFixed(1)}_${heading.toFixed(0)}_${visualFov.toFixed(0)}_${beta.toFixed(3)}_${pathClarity.toFixed(2)}`;
+  
+  if (skyGridCache.has(key)) {
+    return skyGridCache.get(key)!;
+  }
+  
+  const result = originalComputeSkyGrid(
+    apparentSunAlt,
+    sunAz,
+    heading,
+    visualFov,
+    beta,
+    pathClarity,
+    verticalFovDeg
+  );
+  
+  skyGridCache.set(key, result);
+  return result;
+}
 
 interface VisualizerProps {
   prediction: SunsetPrediction | null;
@@ -304,6 +338,8 @@ interface ApproximatedCloudColors {
   baseRGB: RGB;
 }
 
+const cloudColorsCache = new Map<string, ApproximatedCloudColors>();
+
 function approximateCloudColors(
   sunAltFromCloud: number,
   layerType: 'high' | 'mid' | 'low',
@@ -314,6 +350,13 @@ function approximateCloudColors(
   ambientSky: { r: number; g: number; b: number },
   cloudBeam: { r: number; g: number; b: number }
 ): ApproximatedCloudColors {
+  const roundedAlt = Math.round(sunAltFromCloud * 5) / 5;
+  const key = `${roundedAlt.toFixed(1)}_${layerType}_${preset.name}_${weatherFactors.pathClarity.toFixed(2)}_${overcast.toFixed(2)}_${dustIntensity.toFixed(2)}_${ambientSky.r.toFixed(2)}_${ambientSky.g.toFixed(2)}_${ambientSky.b.toFixed(2)}_${cloudBeam.r.toFixed(2)}_${cloudBeam.g.toFixed(2)}_${cloudBeam.b.toFixed(2)}`;
+  
+  if (cloudColorsCache.has(key)) {
+    return cloudColorsCache.get(key)!;
+  }
+
   // 1. 선형 근사 조도 (cloudIllumination과 동일한 선형 매핑 적용)
   let dip = 1.0;
   if (layerType === 'high') dip = 3.0;
@@ -537,7 +580,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   isSliding = false,
 }) => {
   const { width, height } = useWindowDimensions();
-  const { timezoneOffsetHours, isDebugMode, language } = useCelestialStore();
+  const { timezoneOffsetHours, isDebugMode, language, setCurrentSimulationUri } = useCelestialStore();
 
   const VISUALIZER_WIDTH = width - 32; // refined floating card margin
   const SKY_HEIGHT = Math.round(height * 0.38); // dynamically syncs vertical aspect ratio with CelestialChart
@@ -1014,6 +1057,40 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       cloudBlock
     };
   }, [prediction]);
+
+  // 메인 화면 시뮬레이션 상태 변경 시 이미지 동기화
+  useEffect(() => {
+    let isCancelled = false;
+    
+    const updatePreviewImage = async () => {
+      try {
+        const cloudRatio = weatherFactors?.overcast ?? 0.5;
+        const seed = location?.coords 
+          ? Math.round(location.coords.latitude * 1000 + location.coords.longitude * 100 + currentTime.getTime() / 60000)
+          : Math.round(currentTime.getTime() / 60000);
+        
+        const b64 = await generateSimulationImage(
+          sunAltitude,
+          cloudRatio,
+          seed,
+          prediction
+        );
+        
+        if (!isCancelled && b64) {
+          setCurrentSimulationUri(b64);
+        }
+      } catch (err) {
+        console.warn('[Visualizer Image Sync] Failed to update pre-generated image:', err);
+      }
+    };
+
+    const timer = setTimeout(updatePreviewImage, isSliding ? 150 : 50);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [sunAltitude, weatherFactors?.overcast, prediction, currentTime, location?.coords?.latitude, location?.coords?.longitude, isSliding, setCurrentSimulationUri]);
 
   // 2. Unified 3D Spatial Clouds Mapping, Depth Sorting & Multi-Layer Occlusion
   const unifiedClouds = useMemo(() => {
@@ -1789,7 +1866,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const verticalFovDeg = (skyViewportH * visualFov) / VISUALIZER_WIDTH;
 
     const apparentSunAltForSky = getApparentAltitude(sunAltitude);
-    const baseGrid = computeSkyGrid(
+    const baseGrid = cachedComputeSkyGrid(
       apparentSunAltForSky,
       sunAzDeg,
       heading,
@@ -2953,13 +3030,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         {renderOverlayAzimuthScale()}
         {renderOverlayFovScale()}
         {renderNextEventBadge()}
-        <TouchableOpacity
-          style={[styles.exportJpgBtn, { borderColor: theme.border }]}
-          onPress={handleExportJpg}
-          activeOpacity={0.7}
-        >
-          <Download size={16} color="#FFFFFF" />
-        </TouchableOpacity>
+        {/* 이미지 저장 버튼 제거 완료 */}
         {renderDebugOverlay()}
       </View>
     </View>

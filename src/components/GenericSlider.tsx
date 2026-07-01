@@ -96,6 +96,8 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
   useEffect(() => {
     if (!isDragging) {
+      // 레이아웃이 처음 잡히거나 외부 값이 갱신될 때 스킵 없이 즉시 셋업되도록 강제 주입
+      animatedValue.setValue(value);
       Animated.spring(animatedValue, {
         toValue: value,
         useNativeDriver: false,

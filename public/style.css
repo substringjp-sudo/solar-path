@@ -181,6 +181,7 @@ h1, h2, h3, h4, .logo-text {
 
 .hero-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
@@ -195,11 +196,17 @@ h1, h2, h3, h4, .logo-text {
   font-weight: 600;
   transition: var(--transition);
   cursor: pointer;
+  white-space: nowrap !important;
+  word-break: keep-all;
+}
+
+.btn span {
+  white-space: nowrap !important;
 }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), #FF5722);
-  color: #000;
+  color: #fff;
   border: none;
   box-shadow: 0 4px 20px rgba(255, 112, 67, 0.35);
   gap: 10px;
@@ -224,7 +231,7 @@ h1, h2, h3, h4, .logo-text {
 .btn-icon {
   width: 18px;
   height: 18px;
-  fill: #000;
+  fill: #fff;
 }
 
 /* Interactive Phone Mockup */
@@ -1159,6 +1166,11 @@ h1, h2, h3, h4, .logo-text {
   box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.3);
 }
 
+.cloud-preview-card.cumulonimbus-card {
+  height: 80px;
+  align-items: flex-end;
+}
+
 .cloud-preview-card svg {
   width: 100%;
   height: 100%;
@@ -1295,55 +1307,6 @@ h1, h2, h3, h4, .logo-text {
   }
 }
 
-/* Privacy Policy Section */
-.privacy-section {
-  padding: 100px 0;
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 100px 24px;
-  border-bottom: 1px solid var(--border);
-}
-
-.policy-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 40px;
-}
-
-.policy-scroll {
-  max-height: 400px;
-  overflow-y: auto;
-  padding-right: 16px;
-}
-
-.policy-scroll h3 {
-  font-size: 18px;
-  color: var(--text);
-  margin: 28px 0 12px 0;
-}
-
-.policy-scroll h3:first-of-type {
-  margin-top: 0;
-}
-
-.policy-scroll p, .policy-scroll li {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 12px;
-}
-
-.policy-scroll ul {
-  margin-left: 20px;
-  margin-bottom: 20px;
-}
-
-.policy-date {
-  font-weight: 600;
-  margin-top: 40px;
-  color: var(--primary) !important;
-}
-
 /* Credits Section */
 .credits-section {
   padding: 100px 0;
@@ -1448,11 +1411,16 @@ h1, h2, h3, h4, .logo-text {
   
   .hero-content {
     align-items: center;
+    display: flex;
+    flex-direction: column;
   }
   
-  .hero-title {
-    font-size: 44px;
-  }
+  .hero-content .badge { order: 1; }
+  .hero-content .hero-title { order: 2; font-size: 44px; }
+  .hero-content .beta-signup-card { order: 3; width: 100%; max-width: 480px; }
+  .hero-content .hero-actions { order: 4; }
+  .hero-content .hero-desc { order: 5; }
+  .hero-content .apk-install-guide { order: 6; }
   
   .features-grid {
     grid-template-columns: 1fr;
@@ -1467,19 +1435,51 @@ h1, h2, h3, h4, .logo-text {
     grid-template-columns: 1fr;
   }
   
-  .nav-container {
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px;
-  }
-  
   .navbar {
     height: auto;
-    position: relative;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background-color: rgba(232, 237, 242, 0.7);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    z-index: 1000;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  }
+
+  .nav-container {
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 16px;
+  }
+
+  .nav-menu {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    justify-content: center;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+    scrollbar-width: none;
+  }
+
+  .nav-menu::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    font-size: 14px;
   }
   
   .hero-section {
-    padding-top: 60px;
+    padding-top: 130px;
+  }
+
+  .cloud-preview-card.cumulonimbus-card {
+    height: 72px;
   }
 }
 
@@ -1768,4 +1768,122 @@ h1, h2, h3, h4, .logo-text {
 @keyframes gallerySpin {
   to { transform: rotate(360deg); }
 }
+
+/* Beta Tester Signup Card */
+.beta-signup-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 24px;
+  margin-top: 20px;
+  margin-bottom: 36px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.beta-signup-card .guide-badge {
+  background: linear-gradient(135deg, #ff7b54 0%, #ff5252 100%);
+  color: white;
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.beta-signup-card .guide-intro {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.beta-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (min-width: 576px) {
+  .beta-form {
+    flex-direction: row;
+  }
+}
+
+.beta-form .input-group {
+  position: relative;
+  flex: 1;
+}
+
+.beta-form .input-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #5A606F;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.beta-form input[type="email"] {
+  width: 100%;
+  padding: 14px 14px 14px 44px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  color: #2D3139;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.beta-form input[type="email"]:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: rgba(255, 123, 84, 0.8);
+  box-shadow: 0 0 0 4px rgba(255, 123, 84, 0.2);
+}
+
+.beta-form button {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  border-radius: 12px;
+  padding: 14px 24px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.beta-status-msg {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.beta-status-msg.success {
+  background: rgba(46, 125, 50, 0.15);
+  border: 1px solid rgba(46, 125, 50, 0.3);
+  color: #81c784;
+}
+
+.beta-status-msg.error {
+  background: rgba(198, 40, 40, 0.15);
+  border: 1px solid rgba(198, 40, 40, 0.3);
+  color: #e57373;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 

@@ -21,4 +21,13 @@ google-services.json
 
 # Builds and Temp Files
 *.apk
+*.aab
+build-*
 .firebase/
+
+# Service Account Keys
+p-plan-5c00df855290.json
+functions/p-plan-5c00df855290.json
+functions/.env
+
+

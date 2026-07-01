@@ -185,29 +185,33 @@ document.addEventListener('DOMContentLoaded', () => {
   // Cloud configuration template
   const cloudConfigs = {
     clear: [
-      { shape: '#cloud-shape-cirrus', scale: 0.8, x: 50, y: 30, speed: 0.15, layer: 'high', width: 220 },
-      { shape: '#cloud-shape-cirrus', scale: 0.7, x: 320, y: 45, speed: 0.12, layer: 'high', width: 220 }
+      { shape: '#cloud-shape-cirrus', scale: 0.8, x: 50, y: 30, speed: 0.15, layer: 'high', width: 220, distance: 2.2 },
+      { shape: '#cloud-shape-cirrus', scale: 0.7, x: 320, y: 45, speed: 0.12, layer: 'high', width: 220, distance: 2.5 }
     ],
     cloudy: [
-      { shape: '#cloud-shape-altocumulus', scale: 0.75, x: -30, y: 50, speed: 0.25, layer: 'mid', width: 170 },
-      { shape: '#cloud-shape-cumulus-1', scale: 0.6, x: 120, y: 70, speed: 0.35, layer: 'low', width: 190 },
-      { shape: '#cloud-shape-cumulus-2', scale: 0.8, x: 280, y: 95, speed: 0.28, layer: 'low', width: 215 },
-      { shape: '#cloud-shape-altocumulus', scale: 0.9, x: 420, y: 60, speed: 0.22, layer: 'mid', width: 170 },
-      { shape: '#cloud-shape-cumulus-1', scale: 0.7, x: 190, y: 120, speed: 0.32, layer: 'low', width: 190 }
+      { shape: '#cloud-shape-altocumulus', scale: 0.75, x: -30, y: 50, speed: 0.25, layer: 'mid', width: 170, distance: 1.5 },
+      { shape: '#cloud-shape-cumulonimbus', scale: 1.2, x: 80, y: 20, speed: 0.3, layer: 'low', width: 160, distance: 1.8 },
+      { shape: '#cloud-shape-cumulus-1', scale: 0.6, x: 120, y: 70, speed: 0.35, layer: 'low', width: 190, distance: 1.1 },
+      { shape: '#cloud-shape-cumulus-2', scale: 0.8, x: 280, y: 95, speed: 0.28, layer: 'low', width: 215, distance: 0.9 },
+      { shape: '#cloud-shape-cumulonimbus', scale: 1.8, x: 20, y: -10, speed: 0.45, layer: 'low', width: 160, distance: 0.75 },
+      { shape: '#cloud-shape-altocumulus', scale: 0.9, x: 420, y: 60, speed: 0.22, layer: 'mid', width: 170, distance: 1.4 },
+      { shape: '#cloud-shape-cumulus-1', scale: 0.7, x: 190, y: 120, speed: 0.32, layer: 'low', width: 190, distance: 0.8 }
     ],
     overcast: [
-      { shape: '#cloud-shape-nimbostratus', scale: 1.8, x: -100, y: -10, speed: 0.3, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-nimbostratus', scale: 1.7, x: 100, y: 10, speed: 0.35, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-nimbostratus', scale: 1.8, x: 300, y: -5, speed: 0.25, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-nimbostratus', scale: 1.7, x: 500, y: 5, speed: 0.32, layer: 'low', width: 200 },
-      { shape: '#cloud-shape-cumulus-2', scale: 1.6, x: -50, y: 30, speed: 0.4, layer: 'low', width: 215 },
-      { shape: '#cloud-shape-cumulus-2', scale: 1.5, x: 150, y: 50, speed: 0.45, layer: 'low', width: 215 },
-      { shape: '#cloud-shape-cumulus-2', scale: 1.6, x: 350, y: 25, speed: 0.38, layer: 'low', width: 215 },
-      { shape: '#cloud-shape-cumulus-2', scale: 1.5, x: 550, y: 45, speed: 0.42, layer: 'low', width: 215 },
-      { shape: '#cloud-shape-cumulus-1', scale: 1.5, x: 0, y: 70, speed: 0.5, layer: 'low', width: 190 },
-      { shape: '#cloud-shape-cumulus-1', scale: 1.6, x: 200, y: 90, speed: 0.48, layer: 'low', width: 190 },
-      { shape: '#cloud-shape-cumulus-1', scale: 1.5, x: 400, y: 80, speed: 0.52, layer: 'low', width: 190 },
-      { shape: '#cloud-shape-cumulus-1', scale: 1.6, x: 600, y: 95, speed: 0.46, layer: 'low', width: 190 }
+      { shape: '#cloud-shape-nimbostratus', scale: 1.8, x: -100, y: -10, speed: 0.3, layer: 'low', width: 200, distance: 1.2 },
+      { shape: '#cloud-shape-cumulonimbus', scale: 1.6, x: 50, y: 5, speed: 0.32, layer: 'low', width: 160, distance: 1.4 },
+      { shape: '#cloud-shape-nimbostratus', scale: 1.7, x: 100, y: 10, speed: 0.35, layer: 'low', width: 200, distance: 1.0 },
+      { shape: '#cloud-shape-nimbostratus', scale: 1.8, x: 300, y: -5, speed: 0.25, layer: 'low', width: 200, distance: 1.3 },
+      { shape: '#cloud-shape-cumulonimbus', scale: 2.1, x: 220, y: -15, speed: 0.5, layer: 'low', width: 160, distance: 0.7 },
+      { shape: '#cloud-shape-nimbostratus', scale: 1.7, x: 500, y: 5, speed: 0.32, layer: 'low', width: 200, distance: 1.1 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.6, x: -50, y: 30, speed: 0.4, layer: 'low', width: 215, distance: 0.95 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.5, x: 150, y: 50, speed: 0.45, layer: 'low', width: 215, distance: 1.05 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.6, x: 350, y: 25, speed: 0.38, layer: 'low', width: 215, distance: 0.9 },
+      { shape: '#cloud-shape-cumulus-2', scale: 1.5, x: 550, y: 45, speed: 0.42, layer: 'low', width: 215, distance: 1.1 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.5, x: 0, y: 70, speed: 0.5, layer: 'low', width: 190, distance: 0.8 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.6, x: 200, y: 90, speed: 0.48, layer: 'low', width: 190, distance: 0.85 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.5, x: 400, y: 80, speed: 0.52, layer: 'low', width: 190, distance: 0.75 },
+      { shape: '#cloud-shape-cumulus-1', scale: 1.6, x: 600, y: 95, speed: 0.46, layer: 'low', width: 190, distance: 0.9 }
     ]
   };
 
@@ -222,10 +226,25 @@ document.addEventListener('DOMContentLoaded', () => {
     cloudGroup.innerHTML = '';
     activeClouds = JSON.parse(JSON.stringify(cloudConfigs[state] || cloudConfigs.clear));
 
+    // Z-ordering: 거리가 먼 구름이 먼저 추가되어 뒤에 깔리게 정렬
+    activeClouds.sort((a, b) => (b.distance || 1.0) - (a.distance || 1.0));
+
     activeClouds.forEach((cloud) => {
+      const dist = cloud.distance || 1.0;
+      cloud.baseScale = cloud.scale;
+      cloud.scale = cloud.baseScale / dist;
+
+      cloud.baseSpeed = cloud.speed;
+      cloud.speed = cloud.baseSpeed / dist;
+
       const useNode = document.createElementNS('http://www.w3.org/2000/svg', 'use');
       useNode.setAttribute('href', cloud.shape);
       useNode.setAttribute('class', `sim-svg-cloud layer-${cloud.layer}`);
+      
+      // 대기 원근법 적용: 멀수록 약간 흐릿해짐
+      const opacity = Math.max(0.35, Math.min(1.0, 1.25 - (dist - 1.0) * 0.35));
+      useNode.setAttribute('opacity', opacity);
+
       cloudGroup.appendChild(useNode);
       cloud.dom = useNode;
     });
@@ -236,17 +255,30 @@ document.addEventListener('DOMContentLoaded', () => {
     phoneCloudGroup.innerHTML = '';
     phoneActiveClouds = JSON.parse(JSON.stringify(cloudConfigs[state] || cloudConfigs.clear));
 
+    // Z-ordering
+    phoneActiveClouds.sort((a, b) => (b.distance || 1.0) - (a.distance || 1.0));
+
     phoneActiveClouds.forEach((cloud) => {
+      const dist = cloud.distance || 1.0;
+      
       // 폰 시뮬레이터 크기(250x200)에 맞춰 좌표 및 스케일 0.5배 보정 적용
       cloud.x = cloud.x * 0.5;
       cloud.y = (cloud.y * 0.5) - 5; // y축 오프셋 보정
-      cloud.scale = cloud.scale * 0.5;
-      cloud.speed = cloud.speed * 0.5;
+      
+      cloud.baseScale = cloud.scale * 0.5;
+      cloud.scale = cloud.baseScale / dist;
+      
+      cloud.baseSpeed = cloud.speed * 0.5;
+      cloud.speed = cloud.baseSpeed / dist;
       cloud.width = cloud.width * 0.5;
 
       const useNode = document.createElementNS('http://www.w3.org/2000/svg', 'use');
       useNode.setAttribute('href', cloud.shape);
       useNode.setAttribute('class', `sim-svg-cloud layer-${cloud.layer}`);
+      
+      const opacity = Math.max(0.35, Math.min(1.0, 1.25 - (dist - 1.0) * 0.35));
+      useNode.setAttribute('opacity', opacity);
+
       phoneCloudGroup.appendChild(useNode);
       cloud.dom = useNode;
     });
@@ -770,4 +802,52 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   startGalleryListening();
+
+  // 6. Beta Tester Signup Controller
+  const betaForm = document.getElementById('beta-form');
+  const betaEmailInput = document.getElementById('beta-email');
+  const betaSubmitBtn = document.getElementById('btn-beta-submit');
+  const betaStatusMsg = document.getElementById('beta-status-msg');
+
+  if (betaForm) {
+    betaForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = betaEmailInput.value.trim();
+      if (!email) return;
+
+      // UI loading state
+      betaSubmitBtn.disabled = true;
+      const originalBtnHtml = betaSubmitBtn.innerHTML;
+      betaSubmitBtn.innerHTML = `
+        <span class="spinner" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle;"></span>
+        <span>신청 중...</span>
+      `;
+      
+      betaStatusMsg.className = 'beta-status-msg';
+      betaStatusMsg.classList.add('hidden');
+
+      try {
+        const registerBetaTester = firebase.app().functions().httpsCallable('registerBetaTester');
+        const result = await registerBetaTester({ email });
+        
+        if (result.data && result.data.success) {
+          betaStatusMsg.textContent = result.data.message;
+          betaStatusMsg.classList.add('success');
+          betaStatusMsg.classList.remove('hidden');
+          betaEmailInput.value = ''; // Input clear
+        } else {
+          throw new Error('신청 처리 중 알 수 없는 응답이 반환되었습니다.');
+        }
+      } catch (error) {
+        console.error('Beta tester registration failed:', error);
+        betaStatusMsg.textContent = error.message || '등록 중 에러가 발생했습니다. 다시 시도해 주세요.';
+        betaStatusMsg.classList.add('error');
+        betaStatusMsg.classList.remove('hidden');
+      } finally {
+        betaSubmitBtn.disabled = false;
+        betaSubmitBtn.innerHTML = originalBtnHtml;
+      }
+    });
+  }
 });

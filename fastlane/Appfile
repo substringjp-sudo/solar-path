@@ -1,2 +1,2 @@
-json_key_file("/home/user/solar-path/p-plan-5c00df855290.json")
+json_key_file("./p-plan-5c00df855290.json")
 package_name("com.pplaner.beforeglow")

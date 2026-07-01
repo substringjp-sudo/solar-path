@@ -36,7 +36,7 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <link rel="stylesheet" href="style.css?v=1.0.5">
+  <link rel="stylesheet" href="style.css?v=1.0.8">
 </head>
 <body>
 
@@ -51,7 +51,7 @@
         <a href="#features" class="nav-link">Features</a>
         <a href="#web-gallery" class="nav-link">Gallery</a>
         <a href="#guides" class="nav-link">Guides</a>
-        <a href="#privacy" class="nav-link">Privacy Policy</a>
+        <a href="privacy.html" class="nav-link">Privacy Policy</a>
         <a href="#credits" class="nav-link">Credits</a>
       </nav>
     </div>
@@ -66,6 +66,23 @@
         <p class="hero-desc">
           BeforeGlow는 고도 데이터가 포함된 지형 모델과 대기 시뮬레이션 물리 공식을 결합하여, 실제 현장 지평선 뒤로 해가 가려지는 정확한 찰나와 기상 분석 노을 점수를 알려주는 스마트 예보 트래커입니다.
         </p>
+        <!-- 베타테스트 자동 신청 글라스모피즘 카드 -->
+        <div class="beta-signup-card">
+          <div class="guide-badge">공식 베타 테스터 신청</div>
+          <p class="guide-intro">구글 이메일을 입력하시면 테스터 명단 등록 완료 후 다운로드 안내 메일을 일괄 발송해 드립니다.</p>
+          <form id="beta-form" class="beta-form">
+            <div class="input-group">
+              <i data-lucide="mail" class="input-icon"></i>
+              <input type="email" id="beta-email" placeholder="google-account@gmail.com" required>
+            </div>
+            <button type="submit" class="btn btn-primary" id="btn-beta-submit">
+              <i data-lucide="user-plus" class="btn-icon"></i>
+              <span>베타 테스터 신청</span>
+            </button>
+          </form>
+          <div id="beta-status-msg" class="beta-status-msg hidden"></div>
+        </div>
+
         <div class="hero-actions">
           <a href="https://play.google.com/store/apps/details?id=com.pplaner.beforeglow" class="btn btn-primary" id="btn-download">
             <i data-lucide="play" class="btn-icon"></i>
@@ -74,9 +91,6 @@
           <a href="./BeforeGlow_preview.apk" class="btn btn-secondary btn-apk-download" download="BeforeGlow.apk">
             <i data-lucide="download" class="btn-icon"></i>
             <span>Android APK 다운로드</span>
-          </a>
-          <a href="#guides" class="btn btn-secondary">
-            <span>사용자 가이드북</span>
           </a>
         </div>
 
@@ -972,8 +986,8 @@
 
                 <tr class="cloud-row" data-alt="low">
                   <td>
-                    <div class="cloud-preview-card low-bg">
-                      <svg viewBox="10 -10 160 80"><use href="#cloud-shape-cumulonimbus" fill="#334155" /></svg>
+                    <div class="cloud-preview-card low-bg cumulonimbus-card">
+                      <svg viewBox="15 -15 150 85"><use href="#cloud-shape-cumulonimbus" fill="#334155" /></svg>
                     </div>
                   </td>
                   <td>
@@ -999,33 +1013,6 @@
     </div>
   </section>
 
-  <!-- Privacy Policy Section -->
-  <section class="privacy-section" id="privacy">
-    <div class="section-header">
-      <h2 class="section-title">개인정보처리방침 (Privacy Policy)</h2>
-      <p class="section-subtitle">BeforeGlow 앱은 투명하게 개인정보를 처리하며, 사용자의 권리를 철저히 보장합니다.</p>
-    </div>
-    
-    <div class="policy-card">
-      <div class="policy-scroll">
-        <h3>1. 수집하는 개인정보 항목 및 이용 목적</h3>
-        <p>BeforeGlow는 앱 기능 수행을 위해 다음의 기기 권한 및 데이터에 액세스합니다:</p>
-        <ul>
-          <li><strong>위치 정보 (GPS):</strong> 일출/일몰 각도 공식(SunCalc) 연산, 고도 데이터 취득을 위한 지형 정보 API 조회, 장소 저장을 위해 기기의 위치 데이터를 활용합니다.</li>
-          <li><strong>카메라 권한:</strong> 증강현실(AR) 기반 태양 추적 화면 렌더링 및 노을 사진 촬영을 위해서만 사용합니다.</li>
-          <li><strong>저장공간 & 미디어 권한:</strong> 촬영한 노을 사진을 기기 갤러리에 저장하고, 지도 상에 공유할 사진 파일을 업로드하는 데 한해 사용합니다.</li>
-        </ul>
-        
-        <h3>2. 개인정보의 제3자 제공 및 동기화</h3>
-        <p>기본적으로 사용자의 저장 위치 및 사진 메타데이터는 개인 기기에만 안전하게 저장되며, 사용자가 로그인 후 명시적으로 <strong>[지도 공유/업로드]</strong> 기능을 실행했을 경우에만 Firebase Auth, Firestore 및 Firebase Storage 서버로 데이터가 암호화되어 전송 및 동기화됩니다. 어떠한 경우에도 마케팅 등 목적을 위한 제3자 제공은 수행하지 않습니다.</p>
-        
-        <h3>3. 개인정보 파기 및 철회</h3>
-        <p>로그아웃 시 연동 데이터를 기기에서 즉각 제거하며, 계정 탈퇴를 희망하시는 경우 앱 내 설정을 통해 탈퇴 절차를 밟으시면 클라우드 상에 백업된 모든 데이터가 영구 파기됩니다.</p>
-        
-        <p class="policy-date">최종 개정일자: 2026년 6월 12일</p>
-      </div>
-    </div>
-  </section>
 
   <!-- Credits & Attribution Section -->
   <section class="credits-section" id="credits">
@@ -1064,8 +1051,9 @@
   <!-- Firebase SDK (v10 compat) & Auto-init -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js"></script>
   <script src="/__/firebase/init.js"></script>
 
-  <script src="app.js?v=1.0.5" defer></script>
+  <script src="app.js?v=1.0.8" defer></script>
 </body>
 </html>

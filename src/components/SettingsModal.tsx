@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
 import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
@@ -24,19 +24,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [windowHeight] = useState(Dimensions.get('window').height);
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
 
+  const handleClose = () => {
+    Animated.timing(slideAnim, {
+      toValue: windowHeight,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(onClose);
+  };
+
+  // 드래그 제스처로 닫기 위한 PanResponder
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // 아래로 드래그하는 경향이 뚜렷할 때 제스처 획득 (dy > 10)
+        return Math.abs(gestureState.dy) > 10 && gestureState.dy > 0;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          slideAnim.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+          // 120px 이상 쓸어내렸거나 빠르게 휙 내렸을 때 닫기 실행
+          handleClose();
+        } else {
+          // 덜 내렸으면 원래 위치로 통통 복귀
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            damping: 18,
+            stiffness: 120,
+            mass: 0.9,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
   useEffect(() => {
     if (visible) {
+      slideAnim.setValue(windowHeight);
       Animated.spring(slideAnim, {
         toValue: 0,
         damping: 18,
         stiffness: 120,
         mass: 0.9,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: windowHeight,
-        duration: 250,
         useNativeDriver: true,
       }).start();
     }
@@ -208,19 +242,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
-      <View style={styles.overlay}>
-        <Animated.View style={[
-          styles.modalContainer, 
-          { 
-            backgroundColor: theme.bg, 
-            borderColor: theme.border,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}>
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: theme.border }]}>
+      <TouchableOpacity 
+        style={styles.overlay} 
+        activeOpacity={1} 
+        onPress={handleClose}
+      >
+        <TouchableWithoutFeedback>
+          <Animated.View style={[
+            styles.modalContainer, 
+            { 
+              backgroundColor: theme.bg, 
+              borderColor: theme.border,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}>
+            {/* 드래그 닫기 핸들 바 */}
+            <View style={styles.dragHandleWrapper} {...panResponder.panHandlers}>
+              <View style={[styles.dragHandle, { backgroundColor: theme.border }]} />
+            </View>
+
+            {/* Header */}
+            <View style={[styles.header, { borderBottomColor: theme.border, paddingTop: 4 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {showPortal && (
                 <TouchableOpacity onPress={() => setShowPortal(false)} style={styles.backBtn}>
@@ -231,7 +275,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {showPortal ? t('tabPortalLinks', language) : t('settings', language)}
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
               <X size={20} color={theme.subText} />
             </TouchableOpacity>
           </View>
@@ -678,8 +722,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </View>
             </ScrollView>
           )}
-        </Animated.View>
-      </View>
+          </Animated.View>
+        </TouchableWithoutFeedback>
+      </TouchableOpacity>
     </Modal>
   );
 };
@@ -689,6 +734,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
+  },
+  dragHandleWrapper: {
+    width: '100%',
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 8,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
   },
   modalContainer: {
     borderTopLeftRadius: 28,

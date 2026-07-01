@@ -770,10 +770,8 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            style={[styles.bottomSection, isTablet && styles.tabletBottomSection]}
-            contentContainerStyle={isTablet && styles.tabletBottomSectionContent}
-            scrollEnabled={isTablet}
+          <View
+            style={styles.bottomSection}
           >
             {/* 일출/일몰 선택 세그먼트 토글 */}
             <View style={[styles.segmentContainer, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -866,93 +864,81 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               />
             )}
 
-            <TouchableOpacity 
-              style={[styles.unifiedCard, { backgroundColor: theme.glass, borderColor: theme.border }]}
-              onPress={() => setWeatherDetailVisible(true)}
-              activeOpacity={0.7}
-            >
-              {/* 상단 정보 패널 */}
-              <View style={{ flexDirection: 'row', alignItems: 'stretch', width: '100%', flex: 1 }}>
-                <View style={styles.unifiedLeftSection}>
-                  <Text style={[styles.aerosolTitle, { color: theme.text }]}>{t('aerosolsHumidity', language)}</Text>
-                  <View style={styles.aerosolRow}>
-                    <View style={styles.aerosolCol}>
-                      <Text style={[styles.aerosolVal, { color: theme.text }]}>
-                        {obsHourly?.humidity != null ? Math.round(obsHourly.humidity) : 50}
-                        <Text style={styles.aerosolUnit}>%</Text>
-                      </Text>
-                      <Text style={[styles.aerosolLabel, { color: theme.subText }]}>RH</Text>
-                    </View>
-                    
-                    <View style={[styles.miniDivider, { backgroundColor: theme.border }]} />
-                    
-                    <View style={styles.aerosolCol}>
-                      <Text style={[styles.aerosolVal, { 
-                        color: pm25 <= 15 ? '#4DA0B0' : pm25 <= 35 ? '#E6C25A' : pm25 <= 75 ? '#FF8A3D' : '#FF5C3F'
-                      }]}>
-                        {pm25}
-                        <Text style={styles.aerosolUnit}>㎍</Text>
-                      </Text>
-                      <Text style={[styles.aerosolLabel, { color: theme.subText }]}>PM2.5</Text>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
-
-                <View style={[styles.unifiedRightSection, { flexDirection: 'column' }]}>
-                  <Text style={[styles.gridTitleText, { color: theme.text }]}>{t('cloudRadarGrid', language)}</Text>
-                  
-                  <View style={styles.miniGridContainer}>
-                    {miniGridMatrix.map((row, rIdx) => (
-                      <View key={rIdx} style={styles.miniGridRow}>
-                        {row.map((cell, cIdx) => {
-                          // Calculate width and margin dynamically to form an inverted triangle (trapezoid)
-                          const cellWidth = 10 - rIdx * 0.9;
-                          const cellMargin = 1.0 - rIdx * 0.08;
-                          return (
-                            <View
-                              key={cIdx}
-                              style={[
-                                styles.miniGridCell, 
-                                { 
-                                  borderColor: theme.border,
-                                  width: cellWidth,
-                                  marginHorizontal: cellMargin,
-                                  overflow: 'hidden'
-                                }
-                              ]}
-                            >
-                              <View style={{ flex: 1, width: '100%', height: '100%' }}>
-                                <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.high, 'high') }} />
-                                <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.mid, 'mid') }} />
-                                <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.low, 'low') }} />
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ))}
+            <View style={[styles.unifiedCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              <View style={styles.unifiedLeftSection}>
+                <Text style={[styles.aerosolTitle, { color: theme.text }]}>{t('aerosolsHumidity', language)}</Text>
+                <View style={styles.aerosolRow}>
+                  <View style={styles.aerosolCol}>
+                    <Text style={[styles.aerosolVal, { color: theme.text }]}>
+                      {obsHourly?.humidity != null ? Math.round(obsHourly.humidity) : 50}
+                      <Text style={styles.aerosolUnit}>%</Text>
+                    </Text>
+                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>RH</Text>
                   </View>
                   
-                  <View style={styles.detailHintRow}>
-                    <Info size={8} color={theme.accent} style={{ marginRight: 3 }} />
-                    <Text style={[styles.detailHintText, { color: theme.subText }]}>
-                      {t('radiusMapHint', language)}
+                  <View style={[styles.miniDivider, { backgroundColor: theme.border }]} />
+                  
+                  <View style={styles.aerosolCol}>
+                    <Text style={[styles.aerosolVal, { 
+                      color: pm25 <= 15 ? '#4DA0B0' : pm25 <= 35 ? '#E6C25A' : pm25 <= 75 ? '#FF8A3D' : '#FF5C3F'
+                    }]}>
+                      {pm25}
+                      <Text style={styles.aerosolUnit}>㎍</Text>
                     </Text>
-                  </View>
-
-                  {/* 우측 하단 터치 유도 텍스트 */}
-                  <View style={[styles.rightSideTapHint, { borderTopColor: theme.border }]}>
-                    <Info size={8} color={theme.accent} style={{ marginRight: 3 }} />
-                    <Text style={[styles.tapHintText, { color: theme.subText }]}>
-                      {t('tapForDetails', language)}
-                    </Text>
-                    <ChevronRight size={8} color={theme.subText} style={{ marginLeft: 'auto' }} />
+                    <Text style={[styles.aerosolLabel, { color: theme.subText }]}>PM2.5</Text>
                   </View>
                 </View>
               </View>
-            </TouchableOpacity>
+
+              <View style={[styles.verticalDivider, { backgroundColor: theme.border }]} />
+
+              <TouchableOpacity 
+                style={styles.unifiedRightSection} 
+                onPress={() => setWeatherDetailVisible(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.gridTitleText, { color: theme.text }]}>{t('cloudRadarGrid', language)}</Text>
+                
+                <View style={styles.miniGridContainer}>
+                  {miniGridMatrix.map((row, rIdx) => (
+                    <View key={rIdx} style={styles.miniGridRow}>
+                      {row.map((cell, cIdx) => {
+                        // Calculate width and margin dynamically to form an inverted triangle (trapezoid)
+                        const cellWidth = 10 - rIdx * 0.9;
+                        const cellMargin = 1.0 - rIdx * 0.08;
+                        return (
+                          <View
+                            key={cIdx}
+                            style={[
+                              styles.miniGridCell, 
+                              { 
+                                borderColor: theme.border,
+                                width: cellWidth,
+                                marginHorizontal: cellMargin,
+                                overflow: 'hidden'
+                              }
+                            ]}
+                          >
+                            <View style={{ flex: 1, width: '100%', height: '100%' }}>
+                              <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.high, 'high') }} />
+                              <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.mid, 'mid') }} />
+                              <View style={{ flex: 1, width: '100%', backgroundColor: getMiniAltitudeColor(cell.low, 'low') }} />
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+                
+                <View style={styles.detailHintRow}>
+                  <Info size={8} color={theme.accent} style={{ marginRight: 3 }} />
+                  <Text style={[styles.detailHintText, { color: theme.subText }]}>
+                    {t('radiusMapHint', language)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
 
             <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
               <TouchableOpacity
@@ -982,7 +968,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
                 ]}
               />
             </View>
-          </ScrollView>
+          </View>
         </Animated.View>
       )}
 
@@ -1063,7 +1049,7 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 999,
   },
-  bottomSection: { gap: 6, marginTop: 'auto' },
+  bottomSection: { gap: 6, marginTop: 'auto', flexShrink: 0 },
   tabletMainWrapper: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1115,13 +1101,14 @@ const styles = StyleSheet.create({
     elevation: Platform.OS === 'android' ? 18 : 15,
   },
   unifiedCard: {
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 6,
+    paddingVertical: 10,
     borderRadius: 22,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
+    height: 84,
+    flexShrink: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.03,
@@ -1133,39 +1120,11 @@ const styles = StyleSheet.create({
     flex: 1.35,
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 2,
   },
   verticalDivider: {
     width: 1,
-    height: '75%',
+    height: '65%',
     marginHorizontal: 8,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderTopWidth: 0.5,
-    paddingTop: 5,
-    marginTop: 6,
-    width: '100%',
-  },
-  cardFooterText: {
-    fontSize: 9,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  rightSideTapHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderTopWidth: 0.5,
-    paddingTop: 4,
-    marginTop: 4,
-    paddingHorizontal: 2,
-  },
-  tapHintText: {
-    fontSize: 7,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-    flex: 1,
   },
   unifiedRightSection: {
     flex: 1.9,

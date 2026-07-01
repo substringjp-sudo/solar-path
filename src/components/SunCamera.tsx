@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
-  Dimensions, Platform, Alert, ActivityIndicator, Image
+  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
@@ -46,7 +46,8 @@ const stampPhoto = async (
   humidity: number,
   pm25: number,
   description: string,
-  lang: Language
+  lang: Language,
+  exposure: number = 0
 ): Promise<string> => {
   try {
     const data = await Skia.Data.fromURI(uri);
@@ -61,6 +62,17 @@ const stampPhoto = async (
 
     const canvas = surface.getCanvas();
     canvas.drawImage(image, 0, 0);
+
+    // 소프트웨어 노출 보정 처리 (사진 저장물에 오버레이 합성)
+    if (exposure !== 0) {
+      const paintExposure = Skia.Paint();
+      if (exposure < 0) {
+        paintExposure.setColor(Skia.Color(`rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})`));
+      } else {
+        paintExposure.setColor(Skia.Color(`rgba(255, 255, 255, ${exposure * 0.4})`));
+      }
+      canvas.drawRect(rect(0, 0, w, h), paintExposure);
+    }
 
     const fontSize = Math.max(14, w * 0.016);
     const fontMgr = Skia.FontMgr.System();
@@ -134,6 +146,64 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const cameraRef = useRef<CameraView>(null);
 
   const [cameraFacing, setCameraFacing] = useState<CameraType>('back');
+  const [zoom, setZoom] = useState(0); // 0 (1.0x) ~ 1 (5.0x)
+  const [exposure, setExposure] = useState(0); // -1.0 ~ 1.0 (디폴트 0)
+
+  const initialZoom = useRef(0);
+  const initialDistance = useRef(0);
+
+  // 1. Pinch Zoom PanResponder
+  const pinchPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
+    onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
+    onPanResponderGrant: (evt) => {
+      const touches = evt.nativeEvent.touches;
+      if (touches.length === 2) {
+        initialZoom.current = zoom;
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        initialDistance.current = Math.sqrt(dx * dx + dy * dy);
+      }
+    },
+    onPanResponderMove: (evt) => {
+      const touches = evt.nativeEvent.touches;
+      if (touches.length === 2 && initialDistance.current > 0) {
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const scale = distance / initialDistance.current;
+        const deltaZoom = (scale - 1) * 0.3; // 감도 조절
+        const newZoom = Math.max(0, Math.min(1, initialZoom.current + deltaZoom));
+        setZoom(newZoom);
+      }
+    },
+    onPanResponderRelease: () => {
+      initialDistance.current = 0;
+    },
+    onPanResponderTerminate: () => {
+      initialDistance.current = 0;
+    }
+  }), [zoom]);
+
+  // 2. Exposure Vertical Slider PanResponder
+  const EXPOSURE_SLIDER_HEIGHT = 160;
+  const startExposure = useRef(0);
+  const exposurePanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (evt) => {
+      const { locationY } = evt.nativeEvent;
+      const ratio = Math.max(0, Math.min(1, (EXPOSURE_SLIDER_HEIGHT - locationY) / EXPOSURE_SLIDER_HEIGHT));
+      const initialVal = ratio * 2 - 1;
+      startExposure.current = initialVal;
+      setExposure(initialVal);
+    },
+    onPanResponderMove: (evt, gestureState) => {
+      const delta = -(gestureState.dy / EXPOSURE_SLIDER_HEIGHT) * 2;
+      const nextExposure = Math.max(-1, Math.min(1, startExposure.current + delta));
+      setExposure(nextExposure);
+    }
+  }), []);
 
   // ── 센서 융합: Rotation Matrix 기반 정밀 Heading + Pitch 동시 추출 ──
   // Why: Heading(Location.watchHeadingAsync)과 Pitch(DeviceMotion.beta)를
@@ -581,7 +651,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         humidity,
         pm25,
         description,
-        language
+        language,
+        exposure
       );
 
       // EXIF 메타데이터 구성 (태양 위치 물리값 및 이미지 인핸스먼트 지표 결합)
@@ -910,7 +981,64 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
               facing={cameraFacing}
+              zoom={zoom}
             />
+
+            {/* 소프트웨어 노출 조절 프리뷰 오버레이 */}
+            {exposure < 0 && (
+              <View 
+                style={[
+                  StyleSheet.absoluteFill, 
+                  { backgroundColor: `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})` }
+                ]} 
+                pointerEvents="none" 
+              />
+            )}
+            {exposure > 0 && (
+              <View 
+                style={[
+                  StyleSheet.absoluteFill, 
+                  { backgroundColor: `rgba(255, 255, 255, ${exposure * 0.4})` }
+                ]} 
+                pointerEvents="none" 
+              />
+            )}
+
+            {/* 핀치 제스처 인식을 위한 전체 투명 오버레이 뷰 (touches === 2 일 때만 작동) */}
+            <View 
+              style={StyleSheet.absoluteFill} 
+              {...pinchPanResponder.panHandlers} 
+              pointerEvents="box-none" 
+            />
+
+            {/* 줌 배율 인디케이터 */}
+            <View style={styles.zoomIndicatorContainer} pointerEvents="none">
+              <Text style={styles.zoomIndicatorText}>{(1 + zoom * 4).toFixed(1)}x</Text>
+            </View>
+
+            {/* 우측 노출 조절 수직 슬라이더 UI (Glassmorphism 컨테이너) */}
+            <View style={styles.exposureSliderWrapper}>
+              <Sun size={14} color="#FFD700" style={styles.exposureIconTop} />
+              <View 
+                style={styles.exposureSliderTrackContainer}
+                {...exposurePanResponder.panHandlers}
+              >
+                <View style={styles.exposureTrack} />
+                <View 
+                  style={[
+                    styles.exposureActiveBar, 
+                    { height: `${((exposure + 1) / 2) * 100}%` }
+                  ]} 
+                />
+                <View 
+                  style={[
+                    styles.exposureKnob, 
+                    { bottom: `${((exposure + 1) / 2) * 100}%`, marginBottom: -6 }
+                  ]} 
+                />
+              </View>
+              <Sun size={12} color="rgba(255,255,255,0.4)" style={styles.exposureIconBottom} />
+            </View>
 
             {/* AR 오버레이 */}
             <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -1540,5 +1668,78 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 18,
     textAlign: 'center',
+  },
+  zoomIndicatorContainer: {
+    position: 'absolute',
+    top: '15%',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    zIndex: 200,
+  },
+  zoomIndicatorText: {
+    color: '#FFD700',
+    fontSize: 13,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  exposureSliderWrapper: {
+    position: 'absolute',
+    right: 20,
+    top: '30%',
+    height: 220,
+    width: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    zIndex: 200,
+  },
+  exposureIconTop: {
+    marginBottom: 4,
+  },
+  exposureIconBottom: {
+    marginTop: 4,
+  },
+  exposureSliderTrackContainer: {
+    flex: 1,
+    width: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  exposureTrack: {
+    position: 'absolute',
+    width: 4,
+    height: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 2,
+  },
+  exposureActiveBar: {
+    position: 'absolute',
+    bottom: 0,
+    width: 4,
+    backgroundColor: '#FFD700',
+    borderRadius: 2,
+  },
+  exposureKnob: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#FFD700',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
   },
 });

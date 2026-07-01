@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BeforeGlow - 회원 탈퇴 및 계정 삭제 신청 (Account Deletion)</title>
+  <meta name="description" content="BeforeGlow 서비스 회원 탈퇴 및 개인정보/계정 데이터 삭제 요청 안내 페이지입니다.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <link rel="stylesheet" href="style.css?v=1.0.8">
+  
+  <style>
+    .delete-page-container {
+      max-width: 600px;
+      margin: 120px auto 60px auto;
+      padding: 0 24px;
+    }
+    .delete-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .delete-card h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .delete-card p {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+    .info-box {
+      background: rgba(255, 123, 84, 0.08);
+      border: 1px solid rgba(255, 123, 84, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .info-box h4 {
+      color: var(--primary);
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .info-box ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .info-box li {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 6px;
+    }
+    .info-box li:last-child {
+      margin-bottom: 0;
+    }
+    .contact-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: linear-gradient(135deg, var(--primary), #FF5722);
+      color: #fff;
+      text-decoration: none;
+      padding: 14px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-align: center;
+      transition: var(--transition);
+      box-shadow: 0 4px 20px rgba(255, 112, 67, 0.35);
+    }
+    .contact-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(255, 112, 67, 0.45);
+    }
+    .btn-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      transition: var(--transition);
+    }
+    .btn-back:hover {
+      color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar scrolled">
+    <div class="nav-container">
+      <div class="logo-area" style="cursor: pointer;" onclick="location.href='/'">
+        <img src="icon.png" class="nav-logo" width="36" height="36" style="border-radius: 9px; object-fit: cover;">
+        <span class="logo-text">BeforeGlow</span>
+      </div>
+      <nav class="nav-menu">
+        <a href="/" class="nav-link">Home</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="delete-page-container">
+    <a href="/" class="btn-back">
+      <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+      <span>메인 페이지로 돌아가기</span>
+    </a>
+
+    <div class="delete-card">
+      <h2>회원 탈퇴 및 계정 삭제 신청</h2>
+      <p>BeforeGlow 서비스를 이용해 주셔서 감사합니다. 아래 안내 사항을 확인하신 후 삭제 신청을 진행해 주시기 바랍니다.</p>
+      
+      <div class="info-box">
+        <h4>⚠️ 계정 삭제 시 주의사항</h4>
+        <ul>
+          <li>계정 삭제 요청 시 가입된 소셜 로그인 계정 연동 및 이메일 주소 정보가 영구적으로 파기됩니다.</li>
+          <li>수집되었던 기상 알림 장소 데이터, 업로드한 노을 사진 등의 연동 데이터 역시 복구 불가능한 상태로 완전히 지워집니다.</li>
+          <li>기기 내부 데이터는 앱을 삭제하시면 즉시 함께 파기됩니다.</li>
+        </ul>
+      </div>
+
+      <p>서버에 보관된 사용자 계정 및 연동 데이터의 즉각적인 영구 삭제를 원하시는 경우, 아래 **'이메일로 삭제 요청하기'** 버튼을 누르거나 지원 이메일 주소로 사용 중인 계정 이메일을 기재하여 삭제를 요청해 주시기 바랍니다.</p>
+      
+      <p style="font-weight: 600; text-align: center; color: var(--text);">지원 이메일: substring.jp@gmail.com</p>
+
+      <a href="mailto:substring.jp@gmail.com?subject=[BeforeGlow]%20계정%20및%20데이터%20삭제%20요청&body=안녕하세요.%20BeforeGlow%20서비스%20탈퇴%20및%20데이터%20삭제를%20요청합니다.%0A%0A-%20가입한%20이메일%20계정%20주소%20:%20" class="contact-btn">
+        <i data-lucide="mail"></i>
+        <span>이메일로 삭제 요청하기</span>
+      </a>
+      
+      <p style="font-size: 12px; text-align: center; margin-top: 24px; color: var(--text-muted);">* 접수된 데이터 삭제 요청은 3~5 영업일 이내에 영구 삭제 처리 완료 후 메일로 알려드립니다.</p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <p class="copyright">&copy; 2026 BeforeGlow. All Rights Reserved.</p>
+    </div>
+  </footer>
+
+  <script>
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>
