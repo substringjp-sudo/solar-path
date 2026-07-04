@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "860206623180-aceglilnqs7lsh4l4tqefbrm7dbpr2bi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pplaner.beforeglow",
+            "certificate_hash": "4172731adce7e470ee6045c85f04e99b8a24c9ab"
+          }
+        },
+        {
+          "client_id": "860206623180-m01480ungpqmcqqh4a1rcdtlj402tlfo.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pplaner.beforeglow",
+            "certificate_hash": "c87ce864a2057c1432e9fcca00cf079e3a26b7e0"
+          }
+        },
+        {
           "client_id": "860206623180-8pbbb7pvp95kb3g023j7tsc74g2hu55b.apps.googleusercontent.com",
           "client_type": 3
         }

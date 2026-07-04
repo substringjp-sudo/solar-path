@@ -31,3 +31,7 @@ android/build/
 *.tar.gz
 *.tgz
 *.rar
+
+# Build outputs
+*.aab
+*.apk
