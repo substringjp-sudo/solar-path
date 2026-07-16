@@ -5,6 +5,132 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
   }
+  // 페이지별 SEO 메타 태그 정의
+  const PAGE_META = {
+    home: {
+      title: 'BeforeGlow - 스마트 노을 & 일출 예보 트래커 | Sunset & Sunrise Tracker',
+      description: 'BeforeGlow와 함께 인생 최고의 골든아워를 만나보세요. 3D 지형 노을 시뮬레이션, 실시간 AR 태양 추적, 정밀 기상 분석 및 글로벌 갤러리 공유 서비스를 제공합니다.',
+      canonical: 'https://bglow.pplaner.com/',
+    },
+    features: {
+      title: 'BeforeGlow 주요 기능 - Features | 3D 지형 시뮬레이션, AR 태양 추적',
+      description: '3D 실제 지형 기반 노을 시뮬레이션, AR 카메라 태양 궤적 추적, 기상 노을 점수 예측, 골든아워 알림 등 BeforeGlow의 핵심 기능을 확인하세요.',
+      canonical: 'https://bglow.pplaner.com/#features',
+    },
+    gallery: {
+      title: 'BeforeGlow 갤러리 - 글로벌 노을 사진 Gallery | 전 세계 노을',
+      description: 'BeforeGlow 사용자들이 기록하고 공유한 전 세계의 실시간 노을 & 일출 사진. 사생활 보호를 위해 업로드 1시간 후 공개됩니다.',
+      canonical: 'https://bglow.pplaner.com/#gallery',
+    },
+    guides: {
+      title: 'BeforeGlow 가이드 - 노을 시뮬레이션 & 기상 가이드 Guides',
+      description: '아름다운 노을을 포착하기 위한 기상 산란 법칙, 구름 종류별 노을 효과, 3D 지형 시뮬레이션 활용 가이드를 소개합니다.',
+      canonical: 'https://bglow.pplaner.com/#guides',
+    },
+    isolain: {
+      title: 'Isolain - 등시선 태양 지도 시뮬레이터 | BeforeGlow Solar Map',
+      description: '전 세계 어디서든 태양의 일출·일몰 등시선(Isolain)을 3D 지구본 위에서 시각화합니다. 실시간 터미네이터 라인, 태양 위치, 위치별 상세 태양 정보를 확인하세요.',
+      canonical: 'https://bglow.pplaner.com/#isolain',
+    },
+    credits: {
+      title: 'BeforeGlow 크레딧 - 오픈소스 라이선스 & 기여 Credits',
+      description: 'BeforeGlow에서 활용한 오픈소스 라이브러리, 공공 지리데이터 서비스, API 출처 및 라이선스 정보를 확인하세요.',
+      canonical: 'https://bglow.pplaner.com/#credits',
+    },
+  };
+
+  function updatePageMeta(pageId) {
+    const meta = PAGE_META[pageId] || PAGE_META.home;
+    const BASE_URL = 'https://bglow.pplaner.com/';
+
+    // Title
+    document.title = meta.title;
+    const elTitle = document.getElementById('meta-title');
+    if (elTitle) elTitle.textContent = meta.title;
+
+    // Description
+    const elDesc = document.getElementById('meta-description');
+    if (elDesc) elDesc.setAttribute('content', meta.description);
+
+    // Canonical
+    const elCanon = document.getElementById('meta-canonical');
+    if (elCanon) elCanon.setAttribute('href', meta.canonical);
+
+    // OG
+    const elOgTitle = document.getElementById('og-title');
+    if (elOgTitle) elOgTitle.setAttribute('content', meta.title);
+    const elOgDesc = document.getElementById('og-description');
+    if (elOgDesc) elOgDesc.setAttribute('content', meta.description);
+    const elOgUrl = document.getElementById('og-url');
+    if (elOgUrl) elOgUrl.setAttribute('content', meta.canonical);
+
+    // Twitter
+    const elTwTitle = document.getElementById('tw-title');
+    if (elTwTitle) elTwTitle.setAttribute('content', meta.title);
+    const elTwDesc = document.getElementById('tw-description');
+    if (elTwDesc) elTwDesc.setAttribute('content', meta.description);
+  }
+
+  // ============================================================
+  // 0. SPA Section Router
+  // ============================================================
+  const ALL_PAGES = ['home', 'features', 'gallery', 'guides', 'credits', 'isolain'];
+
+  function showPage(pageId) {
+    const validId = ALL_PAGES.includes(pageId) ? pageId : 'home';
+
+    // 모든 page-section 숨김
+    ALL_PAGES.forEach(id => {
+      const el = document.getElementById('page-' + id);
+      if (el) el.style.display = 'none';
+    });
+
+    // 대상 page-section만 표시
+    const target = document.getElementById('page-' + validId);
+    if (target) target.style.display = 'block';
+
+    // 활성 nav 링크 강조
+    document.querySelectorAll('.nav-link[data-page]').forEach(a => a.classList.remove('active'));
+    const activeLink = document.querySelector(`.nav-link[data-page="${validId}"]`);
+    if (activeLink) activeLink.classList.add('active');
+
+    // URL 해시 업데이트 (home은 클린 URL 유지)
+    if (validId === 'home') {
+      history.pushState(null, '', location.pathname);
+    } else {
+      history.pushState(null, '', '#' + validId);
+    }
+
+    // 페이지별 SEO 메타 태그 업데이트
+    updatePageMeta(validId);
+
+    // 페이지 상단으로 스크롤
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  // nav-link[data-page] 클릭 이벤트
+  document.querySelectorAll('.nav-link[data-page]').forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      showPage(link.getAttribute('data-page'));
+    });
+  });
+
+  // 로고 클릭 → 홈으로
+  const logoBtn = document.getElementById('logo-home-btn');
+  if (logoBtn) {
+    logoBtn.addEventListener('click', () => showPage('home'));
+  }
+
+  // 뒤로가기/앞으로가기 지원
+  window.addEventListener('popstate', () => {
+    const hash = location.hash.replace('#', '') || 'home';
+    showPage(hash);
+  });
+
+  // 초기 로드 시 해시로 페이지 결정
+  const initPage = location.hash.replace('#', '') || 'home';
+  showPage(initPage);
 
   // 1. Phone Simulator Viewport Tab Switcher (Updated to Top Navigation Toggle)
   const phoneNavBtns = document.querySelectorAll('.phone-nav-btn');

@@ -1,21 +1,76 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <!-- Home / Landing Page -->
   <url>
     <loc>https://bglow.pplaner.com/</loc>
-    <lastmod>2026-07-08</lastmod>
-    <changefreq>monthly</changefreq>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
+
+  <!-- Features Section -->
+  <url>
+    <loc>https://bglow.pplaner.com/#features</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Gallery Section -->
+  <url>
+    <loc>https://bglow.pplaner.com/#gallery</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Guides Section -->
+  <url>
+    <loc>https://bglow.pplaner.com/#guides</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Isolain Solar Map Simulator Section -->
+  <url>
+    <loc>https://bglow.pplaner.com/#isolain</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Credits Section -->
+  <url>
+    <loc>https://bglow.pplaner.com/#credits</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+
+  <!-- Privacy Policy -->
   <url>
     <loc>https://bglow.pplaner.com/privacy.html</loc>
-    <lastmod>2026-07-08</lastmod>
+    <lastmod>2026-07-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
+
+  <!-- Account Deletion Page -->
   <url>
     <loc>https://bglow.pplaner.com/delete-account.html</loc>
-    <lastmod>2026-07-08</lastmod>
+    <lastmod>2026-07-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
+
+  <!-- Isolain Standalone App -->
+  <url>
+    <loc>https://bglow.pplaner.com/isolain/</loc>
+    <lastmod>2026-07-17</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
 </urlset>

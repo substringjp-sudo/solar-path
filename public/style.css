@@ -121,6 +121,23 @@ h1, h2, h3, h4, .logo-text {
   color: var(--text);
 }
  
+.nav-link.active {
+  color: var(--text);
+  font-weight: 600;
+  position: relative;
+}
+
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary, #FF7043);
+  border-radius: 2px;
+}
+ 
 /* Hero Section */
 .hero-section {
   position: relative;

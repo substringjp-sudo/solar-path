@@ -4,30 +4,30 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <!-- SEO Meta Tags -->
-  <title>BeforeGlow - 스마트 노을 & 일출 예보 트래커 | Sunset & Sunrise Tracker</title>
-  <meta name="description" content="BeforeGlow와 함께 인생 최고의 골든아워를 만나보세요. 3D 지형 노을 시뮬레이션, 실시간 AR 태양 추적, 정밀 기상 분석 및 글로벌 갤러리 공유 서비스를 제공합니다. Find the best golden hour with 3D terrain simulation, real-time AR solar tracking, and weather-based sunset score.">
-  <meta name="keywords" content="노을, 일출, 일몰, 골든아워, 기상예보, 태양 추적, AR 카메라, BeforeGlow, 노을예측, 노을점수, 해넘이, 해돋이, 태양궤적, 카메라AR, 선셋, 선라이즈, 일몰시간, 일출시간, 하늘색깔, 붉은하늘, sunset, sunrise, sunset forecast, sun tracker, AR camera, golden hour, sunset score, solar path, twilight, sundown, sun path, AR sunset, sky color, 夕焼け, 日の出, 日没, ゴールデンアワー, 天気予報, 太陽追跡, ARカメラ, ビフォーグロー, 夕焼け予測, 夕焼けスコア, サンセット, サンライズ">
+  <!-- SEO Meta Tags (dynamically updated per page by app.js) -->
+  <title id="meta-title">BeforeGlow - 스마트 노을 &amp; 일출 예보 트래커 | Sunset &amp; Sunrise Tracker</title>
+  <meta name="description" id="meta-description" content="BeforeGlow와 함께 인생 최고의 골든아워를 만나보세요. 3D 지형 노을 시뮬레이션, 실시간 AR 태양 추적, 정밀 기상 분석 및 글로벌 갤러리 공유 서비스를 제공합니다.">
+  <meta name="keywords" content="노을, 일출, 일몰, 골든아워, 기상예보, 태양 추적, AR 카메라, BeforeGlow, 노을예측, 노을점수, sunset, sunrise, golden hour, solar path, sun tracker, AR camera, 夕焼け, 日の出, ゴールデンアワー">
   <meta name="author" content="BeforeGlow Team">
   <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://bglow.pplaner.com/">
-  
+  <link rel="canonical" id="meta-canonical" href="https://bglow.pplaner.com/">
+
   <!-- Google Search Console Verification -->
   <meta name="google-site-verification" content="YOUR_VERIFICATION_CODE_HERE" />
 
   <!-- Open Graph / Facebook -->
-  <meta property="og:title" content="BeforeGlow - 스마트 노을 & 일출 예보 트래커">
-  <meta property="og:description" content="인생 최고의 골든아워를 예측하고 기록하세요. 실시간 AR 추적, 3D 지형 시뮬레이션 및 정밀 기상 노을 점수.">
+  <meta property="og:title" id="og-title" content="BeforeGlow - 스마트 노을 &amp; 일출 예보 트래커">
+  <meta property="og:description" id="og-description" content="인생 최고의 골든아워를 예측하고 기록하세요. 실시간 AR 추적, 3D 지형 시뮬레이션 및 정밀 기상 노을 점수.">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://bglow.pplaner.com/">
+  <meta property="og:url" id="og-url" content="https://bglow.pplaner.com/">
   <meta property="og:image" content="https://bglow.pplaner.com/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  
+
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="BeforeGlow - 스마트 노을 & 일출 예보 트래커">
-  <meta name="twitter:description" content="인생 최고의 골든아워를 예측하고 기록하세요. 실시간 AR 추적 및 3D 지형 시뮬레이션.">
+  <meta name="twitter:title" id="tw-title" content="BeforeGlow - 스마트 노을 &amp; 일출 예보 트래커">
+  <meta name="twitter:description" id="tw-description" content="인생 최고의 골든아워를 예측하고 기록하세요. 실시간 AR 추적 및 3D 지형 시뮬레이션.">
   <meta name="twitter:image" content="https://bglow.pplaner.com/og-image.png">
   
   <!-- Google Fonts -->
@@ -38,27 +38,50 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <link rel="stylesheet" href="style.css?v=1.0.8">
+
+  <link rel="stylesheet" href="style.css?v=1.1.0">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json" id="json-ld-main">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "BeforeGlow",
+    "url": "https://bglow.pplaner.com/",
+    "description": "BeforeGlow와 함께 인생 최고의 골든아워를 만나보세요. 3D 지형 노을 시뮬레이션, 실시간 AR 태양 추적, 정밀 기상 분석 서비스.",
+    "inLanguage": ["ko", "en", "ja"],
+    "publisher": {
+      "@type": "Organization",
+      "name": "BeforeGlow",
+      "url": "https://bglow.pplaner.com/"
+    }
+  }
+  </script>
 </head>
 <body>
 
   <!-- Navigation Bar -->
   <header class="navbar">
     <div class="nav-container">
-      <div class="logo-area">
+      <div class="logo-area" style="cursor: pointer;" id="logo-home-btn">
         <img src="icon.png" class="nav-logo" width="36" height="36" style="border-radius: 9px; object-fit: cover;">
         <span class="logo-text">BeforeGlow</span>
       </div>
       <nav class="nav-menu">
-        <a href="#features" class="nav-link">Features</a>
-        <a href="#web-gallery" class="nav-link">Gallery</a>
-        <a href="#guides" class="nav-link">Guides</a>
+        <a href="#features" data-page="features" class="nav-link">Features</a>
+        <a href="#gallery" data-page="gallery" class="nav-link">Gallery</a>
+        <a href="#guides" data-page="guides" class="nav-link">Guides</a>
+        <a href="#isolain" data-page="isolain" id="nav-link-isolain" class="nav-link">Isolain</a>
         <a href="privacy.html" class="nav-link">Privacy Policy</a>
-        <a href="#credits" class="nav-link">Credits</a>
+        <a href="#credits" data-page="credits" class="nav-link">Credits</a>
       </nav>
     </div>
   </header>
 
+  <!-- ============================================================ -->
+  <!-- PAGE: HOME -->
+  <!-- ============================================================ -->
+  <div class="page-section" id="page-home">
   <!-- Hero Section -->
   <section class="hero-section">
     <div class="hero-container">
@@ -270,7 +293,12 @@
       </div>
     </div>
   </section>
+  </div><!-- /page-home -->
 
+  <!-- ============================================================ -->
+  <!-- PAGE: FEATURES -->
+  <!-- ============================================================ -->
+  <div class="page-section" id="page-features">
   <!-- Core Features Section -->
   <section class="features-section" id="features">
     <div class="section-header">
@@ -395,7 +423,12 @@
       </div>
     </div>
   </section>
+  </div><!-- /page-features -->
 
+  <!-- ============================================================ -->
+  <!-- PAGE: GALLERY -->
+  <!-- ============================================================ -->
+  <div class="page-section" id="page-gallery">
   <!-- Global Sunset Gallery Section -->
   <section class="gallery-section" id="web-gallery">
     <div class="section-header">
@@ -413,7 +446,12 @@
       </div>
     </div>
   </section>
+  </div><!-- /page-gallery -->
 
+  <!-- ============================================================ -->
+  <!-- PAGE: GUIDES -->
+  <!-- ============================================================ -->
+  <div class="page-section" id="page-guides">
   <!-- Guides & Information Section -->
   <section class="guides-section" id="guides">
     <div class="section-header">
@@ -1014,8 +1052,12 @@
       </div>
     </div>
   </section>
+  </div><!-- /page-guides -->
 
-
+  <!-- ============================================================ -->
+  <!-- PAGE: CREDITS -->
+  <!-- ============================================================ -->
+  <div class="page-section" id="page-credits">
   <!-- Credits & Attribution Section -->
   <section class="credits-section" id="credits">
     <div class="section-header">
@@ -1041,6 +1083,17 @@
       상세한 라이선스 전문 및 타 기여 명세는 루트 [ATTRIBUTION.md](file:///Users/yunhyeongseob/dev/solar-path/ATTRIBUTION.md) 문서에 등재되어 있습니다.
     </div>
   </section>
+  </div><!-- /page-credits -->
+
+  <!-- ============================================================ -->
+  <!-- PAGE: ISOLAIN -->
+  <!-- ============================================================ -->
+  <div class="page-section" id="page-isolain">
+  <!-- Isolain Simulator Section -->
+  <section class="isolain-section" id="isolain-section" style="background: #e8edf2; padding-top: 72px;">
+    <iframe src="/isolain/" style="width: 100%; height: calc(100vh - 72px); border: none; display: block;" id="isolain-iframe"></iframe>
+  </section>
+  </div><!-- /page-isolain -->
 
   <!-- Footer -->
   <footer class="footer">
