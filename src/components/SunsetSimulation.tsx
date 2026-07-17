@@ -51,7 +51,7 @@ interface SunsetSimulationProps {
   currentTime: Date;
   setCurrentTime: (time: Date) => void;
   setMapVisible: (visible: boolean) => void;
-  activeTab?: 'tracker' | 'sim' | 'gallery';
+  activeTab?: 'tracker' | 'sim' | 'gallery' | 'isoline';
 }
 
 export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {

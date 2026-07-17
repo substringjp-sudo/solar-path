@@ -6,9 +6,11 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { t } from '../utils/i18n';
 
+const TAB_ORDER: ('tracker' | 'sim' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'gallery', 'isoline'];
+
 interface HudHeaderProps {
-  activeTab: 'tracker' | 'sim' | 'gallery';
-  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery') => void;
+  activeTab: 'tracker' | 'sim' | 'gallery' | 'isoline';
+  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery' | 'isoline') => void;
   setSavedListVisible: (visible: boolean) => void;
   setSettingsVisible: (visible: boolean) => void;
   handleSaveLocation: () => void;
@@ -44,20 +46,24 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   const { currentTime, location, timezoneOffsetHours, language } = useCelestialStore();
   const isDay = activeTab === 'tracker' ? theme.bg === '#E8EDF2' : true; // 기본 낮 밤 계산 백업
   
-  const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
+  const tabIndicatorAnim = useRef(new Animated.Value(TAB_ORDER.indexOf(activeTab))).current;
 
   useEffect(() => {
-    const tabIndex = activeTab === 'tracker' ? 0 : activeTab === 'sim' ? 1 : 2;
-    // navToggle width = 258, padding = 3, inside content area width = 252.
-    // Each tab button is 84px wide.
-    const toValue = tabIndex * 84;
-    
+    const tabIndex = TAB_ORDER.indexOf(activeTab);
+
     Animated.timing(tabIndicatorAnim, {
-      toValue,
+      toValue: tabIndex,
       duration: 300,
-      useNativeDriver: Platform.OS !== 'web',
+      // 인디케이터 위치를 %(레이아웃 속성)로 애니메이션하므로 네이티브 드라이버를 사용할 수 없습니다.
+      useNativeDriver: false,
     }).start();
   }, [activeTab]);
+
+  const tabCount = TAB_ORDER.length;
+  const indicatorLeft = tabIndicatorAnim.interpolate({
+    inputRange: TAB_ORDER.map((_, i) => i),
+    outputRange: TAB_ORDER.map((_, i) => `${(i * 100) / tabCount}%`),
+  });
   
   // 현지 기준의 오늘(Today) 가상 날짜
   const isTodayLocal = useMemo(() => {
@@ -72,33 +78,30 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <Animated.View style={[styles.navToggle, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
-          <Animated.View 
+          <Animated.View
             style={[
-              styles.navIndicator, 
-              { 
+              styles.navIndicator,
+              {
                 backgroundColor: theme.text,
-                transform: [{ translateX: tabIndicatorAnim }]
+                left: indicatorLeft,
+                width: `${100 / tabCount}%`,
               }
-            ]} 
+            ]}
           />
-          <TouchableOpacity 
-            onPress={() => setActiveTab('tracker')}
-            style={styles.navButton}
-          >
-            <Animated.Text style={[styles.navText, { color: activeTab === 'tracker' ? theme.bg : dynamicTheme.subText }]}>{t('tracker', language)}</Animated.Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => setActiveTab('sim')}
-            style={styles.navButton}
-          >
-            <Animated.Text style={[styles.navText, { color: activeTab === 'sim' ? theme.bg : dynamicTheme.subText }]}>{t('simulation', language)}</Animated.Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => setActiveTab('gallery')}
-            style={styles.navButton}
-          >
-            <Animated.Text style={[styles.navText, { color: activeTab === 'gallery' ? theme.bg : dynamicTheme.subText }]}>{t('gallery', language)}</Animated.Text>
-          </TouchableOpacity>
+          {TAB_ORDER.map((tabKey) => (
+            <TouchableOpacity
+              key={tabKey}
+              onPress={() => setActiveTab(tabKey)}
+              style={styles.navButton}
+            >
+              <Animated.Text
+                numberOfLines={1}
+                style={[styles.navText, { color: activeTab === tabKey ? theme.bg : dynamicTheme.subText }]}
+              >
+                {t(tabKey === 'tracker' ? 'tracker' : tabKey === 'sim' ? 'simulation' : tabKey === 'gallery' ? 'gallery' : 'isolineTab', language)}
+              </Animated.Text>
+            </TouchableOpacity>
+          ))}
         </Animated.View>
  
         <View style={styles.rightButtonsContainer}>
@@ -203,15 +206,15 @@ const styles = StyleSheet.create({
     padding: 3,
     borderRadius: 20,
     borderWidth: Platform.OS === 'android' ? 0.5 : 1,
-    width: 258,
+    flex: 1,
+    maxWidth: 340,
+    marginRight: 10,
     position: 'relative',
   },
   navIndicator: {
     position: 'absolute',
     top: 3,
-    left: 3,
     bottom: 3,
-    width: 84, // (258 - 6) / 3 = 84
     borderRadius: 17,
   },
   navButton: {

@@ -1,0 +1,84 @@
+import React, { useState } from 'react';
+import { View, StyleSheet, LayoutChangeEvent } from 'react-native';
+import Svg, { Line, Polyline as SvgPolyline, Circle } from 'react-native-svg';
+import { IsochronePoint } from '../../utils/celestial';
+
+interface MapCanvasProps {
+  lat: number;
+  lon: number;
+  hasLocation: boolean;
+  subsolar: IsochronePoint;
+  terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
+  theme: any;
+}
+
+// react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,
+// 웹 미리보기에서는 react-native-svg 기반의 단순 등장방형(equirectangular) 도법으로 대체합니다.
+export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, theme }) => {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setSize({ width, height });
+  };
+
+  const project = (point: IsochronePoint) => ({
+    x: ((point.longitude + 180) / 360) * size.width,
+    y: ((90 - point.latitude) / 180) * size.height,
+  });
+
+  const toSvgPoints = (segment: IsochronePoint[]) => segment.map((p) => { const { x, y } = project(p); return `${x},${y}`; }).join(' ');
+
+  const subsolarXY = project(subsolar);
+  const userXY = project({ latitude: lat, longitude: lon });
+
+  return (
+    <View style={styles.container} onLayout={onLayout}>
+      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#0B1220' }]} />
+      {size.width > 0 && (
+        <Svg width={size.width} height={size.height}>
+          {[-60, -30, 0, 30, 60].map((gridLat) => (
+            <Line
+              key={`lat-${gridLat}`}
+              x1={0}
+              y1={project({ latitude: gridLat, longitude: 0 }).y}
+              x2={size.width}
+              y2={project({ latitude: gridLat, longitude: 0 }).y}
+              stroke="rgba(255,255,255,0.08)"
+              strokeWidth={1}
+            />
+          ))}
+          {[-120, -60, 0, 60, 120].map((gridLon) => (
+            <Line
+              key={`lon-${gridLon}`}
+              x1={project({ latitude: 0, longitude: gridLon }).x}
+              y1={0}
+              x2={project({ latitude: 0, longitude: gridLon }).x}
+              y2={size.height}
+              stroke="rgba(255,255,255,0.08)"
+              strokeWidth={1}
+            />
+          ))}
+
+          {terminator.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => (
+            <SvgPolyline key={`sunrise-${i}`} points={toSvgPoints(segment)} fill="none" stroke="#FFA500" strokeWidth={2} />
+          ))}
+          {terminator.sunset.filter((segment) => segment.length >= 2).map((segment, i) => (
+            <SvgPolyline key={`sunset-${i}`} points={toSvgPoints(segment)} fill="none" stroke="#FF4500" strokeWidth={2} />
+          ))}
+
+          <Circle cx={subsolarXY.x} cy={subsolarXY.y} r={7} fill="#FFD700" stroke="#B45309" strokeWidth={2} />
+          {hasLocation && (
+            <Circle cx={userXY.x} cy={userXY.y} r={5} fill={theme.accent} stroke="#FFFFFF" strokeWidth={2} />
+          )}
+        </Svg>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+});

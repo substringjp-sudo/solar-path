@@ -94,6 +94,157 @@ export const getIsochroneInterval = (zoom: number): number => {
   return 30;
 };
 
+/**
+ * 태양 적위(declination)와 균시차(equation of time)를 계산합니다.
+ * NOAA 저정밀도 태양 위치 알고리즘(J2000 기준일) 기반.
+ */
+const daysSinceJ2000 = (date: Date): number => {
+  const j2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
+  return (date.getTime() - j2000) / 86400000;
+};
+
+export const getSunDeclinationAndEquationOfTime = (date: Date): { declination: number; equationOfTimeMinutes: number } => {
+  const d = daysSinceJ2000(date);
+  const meanAnomaly = (357.5291 + 0.98560028 * d) * (Math.PI / 180);
+  const meanLongitude = (280.4665 + 0.98564736 * d) * (Math.PI / 180);
+  const eclipticLongitude = meanLongitude + (1.9146 * Math.sin(meanAnomaly) + 0.01999 * Math.sin(2 * meanAnomaly)) * (Math.PI / 180);
+  const obliquity = (23.439291 - 0.000130043 * d) * (Math.PI / 180);
+  const declination = Math.asin(Math.sin(obliquity) * Math.sin(eclipticLongitude));
+
+  const y = Math.sin(eclipticLongitude) * Math.cos(obliquity);
+  const x = Math.cos(eclipticLongitude);
+  let rightAscension = Math.atan2(y, x);
+  if (rightAscension < 0) rightAscension += 2 * Math.PI;
+
+  let equationOfTimeMinutes = (meanLongitude - rightAscension) * (180 / Math.PI) * 4;
+  while (equationOfTimeMinutes < -20) equationOfTimeMinutes += 1440;
+  while (equationOfTimeMinutes > 20) equationOfTimeMinutes -= 1440;
+
+  return { declination, equationOfTimeMinutes };
+};
+
+/**
+ * 태양의 남중점(subsolar point, 태양이 정확히 머리 위에 있는 지표 좌표)을 계산합니다.
+ */
+export const getSubsolarPoint = (date: Date): IsochronePoint => {
+  const { declination, equationOfTimeMinutes } = getSunDeclinationAndEquationOfTime(date);
+  const hourDecimal = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600 + date.getUTCMilliseconds() / 3600000;
+  const latitude = declination * (180 / Math.PI);
+  let longitude = -15 * (hourDecimal - 12 + equationOfTimeMinutes / 60);
+  longitude = ((longitude + 180) % 360 + 360) % 360 - 180;
+  return { latitude, longitude };
+};
+
+/**
+ * 연속된 [경도, 위도] 좌표열을 날짜변경선(경도 ±180°) 교차 지점에서 여러 구간으로 분리합니다.
+ * react-native-maps의 Polyline은 좌표 사이를 직선으로 잇기 때문에, 분리하지 않으면
+ * 지도 반대편까지 선이 가로질러 그려지는 문제가 발생합니다.
+ */
+const splitAtAntimeridian = (points: [number, number][]): IsochronePoint[][] => {
+  const segments: IsochronePoint[][] = [];
+  let current: IsochronePoint[] = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const [longitude, latitude] = points[i];
+    // 극지방 부근에서는 위도 한 스텝만으로도 경도가 크게 도약할 수 있는데(진짜 날짜변경선 교차),
+    // 이 경우에도 직전까지 모인 점들(길이 1이어도)은 유실 없이 별도 구간으로 보존합니다.
+    if (i > 0 && Math.abs(longitude - points[i - 1][0]) > 180) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+    }
+    current.push({ latitude, longitude });
+  }
+  if (current.length > 0) segments.push(current);
+  return segments;
+};
+
+/**
+ * 특정 시각(date)에 대해 전 지구를 가로지르는 일출선/일몰선(태양 천정각 기준 등시선)을 계산합니다.
+ * zenithAngleDeg: 90(기하학적 수평선, 기본값), 90.833(대기굴절 보정 실제 일출/일몰), 96/102/108(박명 단계) 등.
+ * 반환값은 날짜변경선에서 분리된 여러 개의 좌표 구간(segments) 배열입니다.
+ */
+export const getTerminatorSegments = (date: Date, zenithAngleDeg: number = 90): { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] } => {
+  const { declination } = getSunDeclinationAndEquationOfTime(date);
+  const { longitude: subsolarLon } = getSubsolarPoint(date);
+
+  const declDeg = declination * (180 / Math.PI);
+  const zenithRad = zenithAngleDeg * (Math.PI / 180);
+  const latMin = Math.max(-90, declDeg - zenithAngleDeg);
+  const latMax = Math.min(90, 180 - zenithAngleDeg - declDeg);
+
+  const sunriseRaw: [number, number][] = [];
+  const sunsetRaw: [number, number][] = [];
+
+  if (latMin >= latMax) {
+    return { sunrise: [], sunset: [] };
+  }
+
+  const STEPS = 180;
+  for (let i = 0; i <= STEPS; i++) {
+    const lat = latMin + (latMax - latMin) * (i / STEPS);
+    const latRad = lat * (Math.PI / 180);
+    const cosHourAngle = (Math.cos(zenithRad) - Math.sin(latRad) * Math.sin(declination)) / (Math.cos(latRad) * Math.cos(declination));
+    const clamped = Math.max(-1, Math.min(1, cosHourAngle));
+    const hourAngleDeg = Math.acos(clamped) * (180 / Math.PI);
+
+    let sunsetLon = ((subsolarLon + hourAngleDeg + 180) % 360 + 360) % 360 - 180;
+    let sunriseLon = ((subsolarLon - hourAngleDeg + 180) % 360 + 360) % 360 - 180;
+
+    sunriseRaw.push([sunriseLon, lat]);
+    sunsetRaw.push([sunsetLon, lat]);
+  }
+
+  return {
+    sunrise: splitAtAntimeridian(sunriseRaw),
+    sunset: splitAtAntimeridian(sunsetRaw),
+  };
+};
+
+export interface SeasonMarkers {
+  springEquinox: Date;
+  summerSolstice: Date;
+  autumnEquinox: Date;
+  winterSolstice: Date;
+}
+
+/**
+ * 주어진 연도의 춘분/하지/추분/동지 날짜를 태양 적위 변화를 스캔하여 계산합니다.
+ * (일 단위 정밀도로 충분 - 슬라이더 마커 표시 용도)
+ */
+export const getSeasonMarkers = (year: number): SeasonMarkers => {
+  let summerSolstice = new Date(Date.UTC(year, 5, 21, 12, 0, 0));
+  let winterSolstice = new Date(Date.UTC(year, 11, 21, 12, 0, 0));
+  let springEquinox = new Date(Date.UTC(year, 2, 20, 12, 0, 0));
+  let autumnEquinox = new Date(Date.UTC(year, 8, 22, 12, 0, 0));
+
+  let maxDecl = -Infinity;
+  let minDecl = Infinity;
+  let prevDecl: number | null = null;
+  let prevDate: Date | null = null;
+
+  for (let day = 1; day <= 366; day++) {
+    const date = new Date(Date.UTC(year, 0, day, 12, 0, 0));
+    if (date.getUTCFullYear() !== year) break;
+
+    const { declination } = getSunDeclinationAndEquationOfTime(date);
+    if (declination > maxDecl) {
+      maxDecl = declination;
+      summerSolstice = date;
+    }
+    if (declination < minDecl) {
+      minDecl = declination;
+      winterSolstice = date;
+    }
+    if (prevDecl !== null && prevDate !== null) {
+      if (prevDecl < 0 && declination >= 0) springEquinox = date;
+      if (prevDecl > 0 && declination <= 0) autumnEquinox = date;
+    }
+    prevDecl = declination;
+    prevDate = date;
+  }
+
+  return { springEquinox, summerSolstice, autumnEquinox, winterSolstice };
+};
 
 
 

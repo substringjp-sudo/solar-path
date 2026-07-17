@@ -9,10 +9,11 @@ import { InfoCard } from './InfoCard';
 import { TimeSlider } from './TimeSlider';
 import { SunsetSimulation } from './SunsetSimulation';
 import { Gallery } from './Gallery';
+import { IsolineMap } from './IsolineMap/IsolineMap';
 
 interface TabNavigatorProps {
-  activeTab: 'tracker' | 'sim' | 'gallery';
-  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery') => void;
+  activeTab: 'tracker' | 'sim' | 'gallery' | 'isoline';
+  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery' | 'isoline') => void;
   contentOpacity: Animated.Value;
   contentTranslateX: Animated.Value;
   sunPos: any;
@@ -87,7 +88,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   }, [currentTime, timezoneOffsetHours]);
   const { width } = Dimensions.get('window');
 
-  const tabOrder: ('tracker' | 'sim' | 'gallery')[] = ['tracker', 'sim', 'gallery'];
+  const tabOrder: ('tracker' | 'sim' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'gallery', 'isoline'];
   const activeIndex = tabOrder.indexOf(activeTab);
   const startX = useRef(0);
 
@@ -131,7 +132,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         const dx = gestureState.dx;
         const vx = gestureState.vx;
 
-        let targetTab: 'tracker' | 'sim' | 'gallery' | null = null;
+        let targetTab: 'tracker' | 'sim' | 'gallery' | 'isoline' | null = null;
 
         if (dx < -swipeThreshold || vx < -velocityThreshold) {
           if (activeIndexRef.current < tabOrder.length - 1) {
@@ -166,10 +167,10 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   return (
     <View style={[styles.container, { overflow: 'hidden' }]} {...panResponder.panHandlers}>
       <Animated.View style={[
-        styles.animatedContent, 
-        { 
+        styles.animatedContent,
+        {
           flexDirection: 'row',
-          width: width * 3,
+          width: width * 4,
           transform: [{ translateX: contentTranslateX }]
         }
       ]}>
@@ -300,12 +301,21 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
 
         {/* Gallery Screen */}
         <View style={{ width: width, flex: 1 }}>
-          <Gallery 
+          <Gallery
             theme={theme}
             dynamicTheme={dynamicTheme}
             globalPhotos={globalPhotos}
             myPhotos={myPhotos}
             removeGlobalPhoto={removeGlobalPhoto}
+          />
+        </View>
+
+        {/* Isoline Screen */}
+        <View style={{ width: width, flex: 1 }}>
+          <IsolineMap
+            theme={theme}
+            currentTime={currentTime}
+            isActive={activeTab === 'isoline'}
           />
         </View>
       </Animated.View>
