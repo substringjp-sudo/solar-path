@@ -38,6 +38,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date(currentTime));
   const [isPlaying, setIsPlaying] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
+  const [longitudeDelta, setLongitudeDelta] = useState(60);
 
   const lat = location?.coords.latitude ?? 37.5665;
   const lon = location?.coords.longitude ?? 126.9780;
@@ -58,12 +59,21 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const terminator = useMemo(() => getTerminatorSegments(selectedDate), [selectedDate]);
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
 
+  const step = useMemo(() => {
+    if (longitudeDelta >= 120) return 120;
+    if (longitudeDelta >= 60) return 60;
+    if (longitudeDelta >= 20) return 30;
+    if (longitudeDelta >= 8) return 15;
+    if (longitudeDelta >= 3) return 5;
+    return 2;
+  }, [longitudeDelta]);
+
   const allTerminators = useMemo(() => {
     const list = [];
     const base = new Date(selectedDate);
     base.setUTCHours(0, 0, 0, 0);
     
-    for (let min = 0; min < 1440; min += 60) {
+    for (let min = 0; min < 1440; min += step) {
       const time = new Date(base.getTime() + min * 60 * 1000);
       const segments = getTerminatorSegments(time);
       list.push({
@@ -73,7 +83,46 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       });
     }
     return list;
-  }, [selectedDate]);
+  }, [selectedDate, step]);
+
+  const nightGeoJSON = useMemo(() => {
+    const lat_anti = -subsolar.latitude;
+    let lon_anti = subsolar.longitude + 180;
+    lon_anti = ((lon_anti + 180) % 360 + 360) % 360 - 180;
+
+    const lat_s = lat_anti * (Math.PI / 180);
+    const lon_s = lon_anti * (Math.PI / 180);
+    
+    const points: [number, number][] = [];
+    const STEPS = 90;
+    for (let i = 0; i < STEPS; i++) {
+      const t = (i / STEPS) * 2 * Math.PI;
+      const sin_phi = Math.cos(lat_s) * Math.sin(t);
+      const lat = Math.asin(Math.max(-1, Math.min(1, sin_phi)));
+      const y = Math.sin(t);
+      const x = -Math.sin(lat_s) * Math.cos(t);
+      const lon = lon_s + Math.atan2(y, x);
+
+      const lonDeg = ((lon * (180 / Math.PI) + 180) % 360 + 360) % 360 - 180;
+      const latDeg = lat * (180 / Math.PI);
+      points.push([lonDeg, latDeg]);
+    }
+    points.push([points[0][0], points[0][1]]);
+
+    return {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon",
+            coordinates: [points]
+          }
+        }
+      ]
+    };
+  }, [subsolar]);
 
   const sunPosAtSelected = useMemo(() => getSunPosition(selectedDate, lat, lon), [selectedDate, lat, lon]);
   const eventsAtSelected = useMemo(() => getCelestialEvents(selectedDate, lat, lon), [selectedDate, lat, lon]);
@@ -140,6 +189,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             subsolar={subsolar}
             terminator={terminator}
             allTerminators={allTerminators}
+            nightGeoJSON={nightGeoJSON}
+            onRegionChangeComplete={(region) => setLongitudeDelta(region.longitudeDelta)}
             theme={theme}
           />
 

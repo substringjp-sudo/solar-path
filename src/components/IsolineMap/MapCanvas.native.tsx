@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Geojson } from 'react-native-maps';
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 
@@ -11,10 +11,22 @@ interface MapCanvasProps {
   subsolar: IsochronePoint;
   terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
   allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
+  nightGeoJSON?: any;
+  onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
 }
 
-export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, allTerminators = [], theme }) => {
+export const MapCanvas: React.FC<MapCanvasProps> = ({
+  lat,
+  lon,
+  hasLocation,
+  subsolar,
+  terminator,
+  allTerminators = [],
+  nightGeoJSON,
+  onRegionChangeComplete,
+  theme,
+}) => {
   return (
     <MapView
       provider={PROVIDER_GOOGLE}
@@ -27,7 +39,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, sub
       }}
       rotateEnabled={false}
       pitchEnabled={false}
+      onRegionChangeComplete={onRegionChangeComplete}
     >
+      {/* 밤 그림자 레이어 추가 */}
+      {nightGeoJSON && (
+        <Geojson
+          geojson={nightGeoJSON}
+          fillColor="rgba(11, 18, 32, 0.3)"
+          strokeColor="transparent"
+        />
+      )}
+
       {/* 1. 하루 24시간의 얇고 투명한 배경 등시선 */}
       {allTerminators.map((tData, idx) => (
         <React.Fragment key={`bg-term-${idx}`}>

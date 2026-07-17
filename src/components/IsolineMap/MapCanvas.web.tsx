@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, LayoutChangeEvent } from 'react-native';
-import Svg, { Line, Polyline as SvgPolyline, Circle } from 'react-native-svg';
+import Svg, { Line, Polyline as SvgPolyline, Circle, Polygon as SvgPolygon } from 'react-native-svg';
 import { IsochronePoint } from '../../utils/celestial';
 
 interface MapCanvasProps {
@@ -10,12 +10,23 @@ interface MapCanvasProps {
   subsolar: IsochronePoint;
   terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
   allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
+  nightGeoJSON?: any;
+  onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,
 // 웹 미리보기에서는 react-native-svg 기반의 단순 등장방형(equirectangular) 도법으로 대체합니다.
-export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, allTerminators = [], theme }) => {
+export const MapCanvas: React.FC<MapCanvasProps> = ({
+  lat,
+  lon,
+  hasLocation,
+  subsolar,
+  terminator,
+  allTerminators = [],
+  nightGeoJSON,
+  theme,
+}) => {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -60,6 +71,20 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, sub
               strokeWidth={1}
             />
           ))}
+
+          {/* 밤 그림자 오버레이 */}
+          {nightGeoJSON && nightGeoJSON.features && nightGeoJSON.features[0] && (
+            <SvgPolygon
+              points={toSvgPoints(
+                nightGeoJSON.features[0].geometry.coordinates[0].map((coord: any) => ({
+                  longitude: coord[0],
+                  latitude: coord[1],
+                }))
+              )}
+              fill="rgba(11, 18, 32, 0.3)"
+              stroke="none"
+            />
+          )}
 
           {/* 1. 하루 24시간의 얇고 투명한 배경 등시선 */}
           {allTerminators.map((tData, idx) => (
