@@ -101,6 +101,11 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // 제스처가 명시적으로 차단된 경우 탭 전환 터치를 무시
+        if (useCelestialStore.getState().isGestureBlocked) {
+          return false;
+        }
+
         const { pageY } = evt.nativeEvent;
         const { height } = Dimensions.get('window');
 

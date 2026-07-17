@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, PanResponder, Animated } from 'react-native';
+import { useCelestialStore } from '../store/useCelestialStore';
 
 interface GenericSliderProps {
   value: number; // 0 to 100
@@ -112,6 +113,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 2,
     onPanResponderGrant: (evt) => {
+      useCelestialStore.getState().setGestureBlocked(true);
       setIsDragging(true);
       onGrantRef.current?.();
       if (layoutWidth === 0) return;
@@ -136,10 +138,12 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       onChangeRef.current(p);
     },
     onPanResponderRelease: () => {
+      useCelestialStore.getState().setGestureBlocked(false);
       setIsDragging(false);
       onReleaseRef.current?.();
     },
     onPanResponderTerminate: () => {
+      useCelestialStore.getState().setGestureBlocked(false);
       setIsDragging(false);
       onReleaseRef.current?.();
     },

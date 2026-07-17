@@ -9,12 +9,13 @@ interface MapCanvasProps {
   hasLocation: boolean;
   subsolar: IsochronePoint;
   terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
+  allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
   theme: any;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,
 // 웹 미리보기에서는 react-native-svg 기반의 단순 등장방형(equirectangular) 도법으로 대체합니다.
-export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, theme }) => {
+export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, allTerminators = [], theme }) => {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -60,6 +61,33 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, sub
             />
           ))}
 
+          {/* 1. 하루 24시간의 얇고 투명한 배경 등시선 */}
+          {allTerminators.map((tData, idx) => (
+            <React.Fragment key={`bg-term-${idx}`}>
+              {tData.sunrise.filter((s) => s.length >= 2).map((segment, i) => (
+                <SvgPolyline
+                  key={`bg-sunrise-${idx}-${i}`}
+                  points={toSvgPoints(segment)}
+                  fill="none"
+                  stroke="#FFA500"
+                  strokeWidth={0.8}
+                  opacity={0.25}
+                />
+              ))}
+              {tData.sunset.filter((s) => s.length >= 2).map((segment, i) => (
+                <SvgPolyline
+                  key={`bg-sunset-${idx}-${i}`}
+                  points={toSvgPoints(segment)}
+                  fill="none"
+                  stroke="#FF4500"
+                  strokeWidth={0.8}
+                  opacity={0.25}
+                />
+              ))}
+            </React.Fragment>
+          ))}
+
+          {/* 2. 현재 선택된 시간의 메인 일출/일몰선 */}
           {terminator.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => (
             <SvgPolyline key={`sunrise-${i}`} points={toSvgPoints(segment)} fill="none" stroke="#FFA500" strokeWidth={2} />
           ))}

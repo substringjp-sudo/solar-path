@@ -10,10 +10,11 @@ interface MapCanvasProps {
   hasLocation: boolean;
   subsolar: IsochronePoint;
   terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
+  allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
   theme: any;
 }
 
-export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, theme }) => {
+export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, subsolar, terminator, allTerminators = [], theme }) => {
   return (
     <MapView
       provider={PROVIDER_GOOGLE}
@@ -27,6 +28,31 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({ lat, lon, hasLocation, sub
       rotateEnabled={false}
       pitchEnabled={false}
     >
+      {/* 1. 하루 24시간의 얇고 투명한 배경 등시선 */}
+      {allTerminators.map((tData, idx) => (
+        <React.Fragment key={`bg-term-${idx}`}>
+          {tData.sunrise.filter(s => s.length >= 2).map((segment, i) => (
+            <Polyline
+              key={`bg-sunrise-${idx}-${i}`}
+              coordinates={segment}
+              strokeColor="rgba(255, 165, 0, 0.25)"
+              strokeWidth={0.8}
+              geodesic
+            />
+          ))}
+          {tData.sunset.filter(s => s.length >= 2).map((segment, i) => (
+            <Polyline
+              key={`bg-sunset-${idx}-${i}`}
+              coordinates={segment}
+              strokeColor="rgba(255, 69, 0, 0.25)"
+              strokeWidth={0.8}
+              geodesic
+            />
+          ))}
+        </React.Fragment>
+      ))}
+
+      {/* 2. 현재 선택된 시간의 메인 일출/일몰선 */}
       {terminator.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => (
         <Polyline
           key={`sunrise-${i}`}

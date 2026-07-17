@@ -3,6 +3,7 @@ import { View, Dimensions, StyleSheet, PanResponder } from 'react-native';
 import Svg, { Circle, Path, G, Line, Text as SvgText, Defs, RadialGradient, Stop, LinearGradient, Rect } from 'react-native-svg';
 import { Moon } from 'lucide-react-native';
 import { PathPoint, CelestialPosition } from '../utils/celestial';
+import { useCelestialStore } from '../store/useCelestialStore';
 
 interface CelestialChartProps {
   sunPos: CelestialPosition;
@@ -54,6 +55,7 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => !!isActiveRef.current,
       onPanResponderGrant: (evt) => {
+        useCelestialStore.getState().setGestureBlocked(true);
         const { locationX, locationY } = evt.nativeEvent;
         startAngle.current = getAngle(locationX, locationY);
         startX.current = locationX;
@@ -71,6 +73,12 @@ export const CelestialChart: React.FC<CelestialChartProps> = ({
         if (typeof onRotationChangeRef.current === 'function') {
           onRotationChangeRef.current(startRotation.current + delta);
         }
+      },
+      onPanResponderRelease: () => {
+        useCelestialStore.getState().setGestureBlocked(false);
+      },
+      onPanResponderTerminate: () => {
+        useCelestialStore.getState().setGestureBlocked(false);
       },
     })
   ).current;

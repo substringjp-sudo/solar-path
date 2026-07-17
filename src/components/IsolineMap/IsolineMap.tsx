@@ -58,6 +58,23 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const terminator = useMemo(() => getTerminatorSegments(selectedDate), [selectedDate]);
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
 
+  const allTerminators = useMemo(() => {
+    const list = [];
+    const base = new Date(selectedDate);
+    base.setUTCHours(0, 0, 0, 0);
+    
+    for (let min = 0; min < 1440; min += 60) {
+      const time = new Date(base.getTime() + min * 60 * 1000);
+      const segments = getTerminatorSegments(time);
+      list.push({
+        time,
+        sunrise: segments.sunrise,
+        sunset: segments.sunset
+      });
+    }
+    return list;
+  }, [selectedDate]);
+
   const sunPosAtSelected = useMemo(() => getSunPosition(selectedDate, lat, lon), [selectedDate, lat, lon]);
   const eventsAtSelected = useMemo(() => getCelestialEvents(selectedDate, lat, lon), [selectedDate, lat, lon]);
 
@@ -110,13 +127,19 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       </View>
 
       <View style={[styles.mainWrapper, isTablet && styles.tabletMainWrapper]}>
-        <View style={[styles.mapCard, isTablet && styles.tabletMapCard, { borderColor: theme.border }]}>
+        <View 
+          style={[styles.mapCard, isTablet && styles.tabletMapCard, { borderColor: theme.border }]}
+          onTouchStart={() => useCelestialStore.getState().setGestureBlocked(true)}
+          onTouchEnd={() => useCelestialStore.getState().setGestureBlocked(false)}
+          onTouchCancel={() => useCelestialStore.getState().setGestureBlocked(false)}
+        >
           <MapCanvas
             lat={lat}
             lon={lon}
             hasLocation={!!location}
             subsolar={subsolar}
             terminator={terminator}
+            allTerminators={allTerminators}
             theme={theme}
           />
 

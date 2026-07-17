@@ -174,6 +174,8 @@ interface CelestialState {
   triggerActualUpload: (photo: MyPhoto) => Promise<void>;
   currentSimulationUri: string | null;
   setCurrentSimulationUri: (uri: string | null) => void;
+  isGestureBlocked: boolean;
+  setGestureBlocked: (blocked: boolean) => void;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -210,8 +212,10 @@ export const useCelestialStore = create<CelestialState>()(
       preloadStatus: 'initializingApp',
       initialTab: 'tracker',
       currentSimulationUri: null,
+      isGestureBlocked: false,
 
       setCurrentSimulationUri: (uri) => set({ currentSimulationUri: uri }),
+      setGestureBlocked: (blocked) => set({ isGestureBlocked: blocked }),
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
       addWeatherCache: (cache) => set((state) => {
