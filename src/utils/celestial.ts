@@ -165,33 +165,52 @@ const splitAtAntimeridian = (points: [number, number][]): IsochronePoint[][] => 
  */
 export const getTerminatorSegments = (date: Date, zenithAngleDeg: number = 90): { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] } => {
   const { declination } = getSunDeclinationAndEquationOfTime(date);
-  const { longitude: subsolarLon } = getSubsolarPoint(date);
+  const { latitude: subsolarLat, longitude: subsolarLon } = getSubsolarPoint(date);
 
-  const declDeg = declination * (180 / Math.PI);
+  const lat_s = subsolarLat * (Math.PI / 180);
+  const lon_s = subsolarLon * (Math.PI / 180);
   const zenithRad = zenithAngleDeg * (Math.PI / 180);
-  const latMin = Math.max(-90, declDeg - zenithAngleDeg);
-  const latMax = Math.min(90, 180 - zenithAngleDeg - declDeg);
+  const phi_prime = Math.PI / 2 - zenithRad;
 
   const sunriseRaw: [number, number][] = [];
   const sunsetRaw: [number, number][] = [];
 
-  if (latMin >= latMax) {
-    return { sunrise: [], sunset: [] };
+  const STEPS = 180;
+  const sin_phi_prime = Math.sin(phi_prime);
+  const cos_phi_prime = Math.cos(phi_prime);
+  const sin_lat_s = Math.sin(lat_s);
+  const cos_lat_s = Math.cos(lat_s);
+
+  // t: PI/2 to 3*PI/2 (Sunrise)
+  for (let i = 0; i <= STEPS; i++) {
+    const t = Math.PI / 2 + Math.PI * (i / STEPS);
+    const sin_phi = sin_phi_prime * sin_lat_s + cos_phi_prime * cos_lat_s * Math.cos(t);
+    const clamped_sin = Math.max(-1, Math.min(1, sin_phi));
+    const lat = Math.asin(clamped_sin);
+
+    const y = cos_phi_prime * Math.sin(t);
+    const x = sin_phi_prime * cos_lat_s - cos_phi_prime * sin_lat_s * Math.cos(t);
+    const lon = lon_s + Math.atan2(y, x);
+
+    const lonDeg = ((lon * (180 / Math.PI) + 180) % 360 + 360) % 360 - 180;
+    const latDeg = lat * (180 / Math.PI);
+    sunriseRaw.push([lonDeg, latDeg]);
   }
 
-  const STEPS = 180;
+  // t: -PI/2 to PI/2 (Sunset)
   for (let i = 0; i <= STEPS; i++) {
-    const lat = latMin + (latMax - latMin) * (i / STEPS);
-    const latRad = lat * (Math.PI / 180);
-    const cosHourAngle = (Math.cos(zenithRad) - Math.sin(latRad) * Math.sin(declination)) / (Math.cos(latRad) * Math.cos(declination));
-    const clamped = Math.max(-1, Math.min(1, cosHourAngle));
-    const hourAngleDeg = Math.acos(clamped) * (180 / Math.PI);
+    const t = -Math.PI / 2 + Math.PI * (i / STEPS);
+    const sin_phi = sin_phi_prime * sin_lat_s + cos_phi_prime * cos_lat_s * Math.cos(t);
+    const clamped_sin = Math.max(-1, Math.min(1, sin_phi));
+    const lat = Math.asin(clamped_sin);
 
-    let sunsetLon = ((subsolarLon + hourAngleDeg + 180) % 360 + 360) % 360 - 180;
-    let sunriseLon = ((subsolarLon - hourAngleDeg + 180) % 360 + 360) % 360 - 180;
+    const y = cos_phi_prime * Math.sin(t);
+    const x = sin_phi_prime * cos_lat_s - cos_phi_prime * sin_lat_s * Math.cos(t);
+    const lon = lon_s + Math.atan2(y, x);
 
-    sunriseRaw.push([sunriseLon, lat]);
-    sunsetRaw.push([sunsetLon, lat]);
+    const lonDeg = ((lon * (180 / Math.PI) + 180) % 360 + 360) % 360 - 180;
+    const latDeg = lat * (180 / Math.PI);
+    sunsetRaw.push([lonDeg, latDeg]);
   }
 
   return {
