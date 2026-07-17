@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Geojson } from 'react-native-maps';
+import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon } from 'react-native-maps';
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 
@@ -11,7 +11,7 @@ interface MapCanvasProps {
   subsolar: IsochronePoint;
   terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
   allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
-  nightGeoJSON?: any;
+  nightStripes?: Array<Array<{ latitude: number; longitude: number }>>;
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
 }
@@ -23,7 +23,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   subsolar,
   terminator,
   allTerminators = [],
-  nightGeoJSON,
+  nightStripes = [],
   onRegionChangeComplete,
   theme,
 }) => {
@@ -41,14 +41,16 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       pitchEnabled={false}
       onRegionChangeComplete={onRegionChangeComplete}
     >
-      {/* 밤 그림자 레이어 추가 */}
-      {nightGeoJSON && (
-        <Geojson
-          geojson={nightGeoJSON}
+      {/* 밤 그림자 격자 오버레이 */}
+      {nightStripes && nightStripes.map((coords, index) => (
+        <Polygon
+          key={`night-stripe-${index}`}
+          coordinates={coords}
           fillColor="rgba(11, 18, 32, 0.3)"
           strokeColor="transparent"
+          strokeWidth={0}
         />
-      )}
+      ))}
 
       {/* 1. 하루 24시간의 얇고 투명한 배경 등시선 */}
       {allTerminators.map((tData, idx) => (

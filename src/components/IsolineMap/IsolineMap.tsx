@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions, ScrollView } from 'react-native';
 import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, MapPin, Hourglass } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -43,6 +43,25 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const lat = location?.coords.latitude ?? 37.5665;
   const lon = location?.coords.longitude ?? 126.9780;
 
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleRegionChangeComplete = useCallback((region: { longitudeDelta: number }) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      setLongitudeDelta(region.longitudeDelta);
+    }, 350); // 350ms 디바운스
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
   // 탭이 비활성화되면(다른 탭으로 스와이프) 자동재생을 일시정지해 배터리/성능을 절약합니다.
   useEffect(() => {
     if (!isActive && isPlaying) setIsPlaying(false);
@@ -59,13 +78,13 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const terminator = useMemo(() => getTerminatorSegments(selectedDate), [selectedDate]);
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
 
+  // 최소 간격을 10분으로 조정하여 렌더링 성능 최적화 (버벅임 방지)
   const step = useMemo(() => {
     if (longitudeDelta >= 120) return 120;
     if (longitudeDelta >= 60) return 60;
     if (longitudeDelta >= 20) return 30;
     if (longitudeDelta >= 8) return 15;
-    if (longitudeDelta >= 3) return 5;
-    return 2;
+    return 10;
   }, [longitudeDelta]);
 
   const allTerminators = useMemo(() => {
@@ -85,43 +104,53 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     return list;
   }, [selectedDate, step]);
 
-  const nightGeoJSON = useMemo(() => {
-    const lat_anti = -subsolar.latitude;
-    let lon_anti = subsolar.longitude + 180;
-    lon_anti = ((lon_anti + 180) % 360 + 360) % 360 - 180;
+  const nightStripes = useMemo(() => {
+    const lat_s = subsolar.latitude * (Math.PI / 180);
+    const lon_s = subsolar.longitude * (Math.PI / 180);
+    const stripes: Array<Array<{ latitude: number; longitude: number }>> = [];
 
-    const lat_s = lat_anti * (Math.PI / 180);
-    const lon_s = lon_anti * (Math.PI / 180);
-    
-    const points: [number, number][] = [];
-    const STEPS = 90;
-    for (let i = 0; i < STEPS; i++) {
-      const t = (i / STEPS) * 2 * Math.PI;
-      const sin_phi = Math.cos(lat_s) * Math.sin(t);
-      const lat = Math.asin(Math.max(-1, Math.min(1, sin_phi)));
-      const y = Math.sin(t);
-      const x = -Math.sin(lat_s) * Math.cos(t);
-      const lon = lon_s + Math.atan2(y, x);
+    const LAT_STEP = 10;
+    const LON_STEP = 10;
 
-      const lonDeg = ((lon * (180 / Math.PI) + 180) % 360 + 360) % 360 - 180;
-      const latDeg = lat * (180 / Math.PI);
-      points.push([lonDeg, latDeg]);
-    }
-    points.push([points[0][0], points[0][1]]);
+    for (let latDeg = -90; latDeg < 90; latDeg += LAT_STEP) {
+      const latMin = latDeg;
+      const latMax = latDeg + LAT_STEP;
+      const latMid = (latMin + latMax) / 2;
+      const latMidRad = latMid * (Math.PI / 180);
 
-    return {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "Polygon",
-            coordinates: [points]
-          }
+      let inNight = false;
+      let startLon = -180;
+
+      for (let lonDeg = -180; lonDeg <= 180; lonDeg += LON_STEP) {
+        const currLon = Math.min(180, lonDeg);
+        const lonRad = currLon * (Math.PI / 180);
+
+        const sin_alt = Math.sin(latMidRad) * Math.sin(lat_s) + Math.cos(latMidRad) * Math.cos(lat_s) * Math.cos(lonRad - lon_s);
+        const isNight = sin_alt < 0;
+
+        if (isNight && !inNight) {
+          inNight = true;
+          startLon = currLon;
+        } else if (!isNight && inNight) {
+          inNight = false;
+          stripes.push([
+            { latitude: latMin, longitude: startLon },
+            { latitude: latMin, longitude: currLon },
+            { latitude: latMax, longitude: currLon },
+            { latitude: latMax, longitude: startLon },
+          ]);
         }
-      ]
-    };
+      }
+      if (inNight) {
+        stripes.push([
+          { latitude: latMin, longitude: startLon },
+          { latitude: latMin, longitude: 180 },
+          { latitude: latMax, longitude: 180 },
+          { latitude: latMax, longitude: startLon },
+        ]);
+      }
+    }
+    return stripes;
   }, [subsolar]);
 
   const sunPosAtSelected = useMemo(() => getSunPosition(selectedDate, lat, lon), [selectedDate, lat, lon]);
@@ -189,8 +218,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             subsolar={subsolar}
             terminator={terminator}
             allTerminators={allTerminators}
-            nightGeoJSON={nightGeoJSON}
-            onRegionChangeComplete={(region) => setLongitudeDelta(region.longitudeDelta)}
+            nightStripes={nightStripes}
+            onRegionChangeComplete={handleRegionChangeComplete}
             theme={theme}
           />
 

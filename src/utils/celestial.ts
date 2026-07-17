@@ -172,14 +172,15 @@ export const getTerminatorSegments = (date: Date, zenithAngleDeg: number = 90): 
   const zenithRad = zenithAngleDeg * (Math.PI / 180);
   const phi_prime = Math.PI / 2 - zenithRad;
 
-  const allPoints: IsochronePoint[] = [];
+  const sunrisePoints: [number, number][] = [];
+  const sunsetPoints: [number, number][] = [];
   const STEPS = 180;
   const sin_phi_prime = Math.sin(phi_prime);
   const cos_phi_prime = Math.cos(phi_prime);
   const sin_lat_s = Math.sin(lat_s);
   const cos_lat_s = Math.cos(lat_s);
 
-  for (let i = 0; i < STEPS; i++) {
+  for (let i = 0; i <= STEPS; i++) {
     const t = (i / STEPS) * 2 * Math.PI;
     const sin_phi = sin_phi_prime * sin_lat_s + cos_phi_prime * cos_lat_s * Math.cos(t);
     const clamped_sin = Math.max(-1, Math.min(1, sin_phi));
@@ -191,34 +192,21 @@ export const getTerminatorSegments = (date: Date, zenithAngleDeg: number = 90): 
 
     const lonDeg = ((lon * (180 / Math.PI) + 180) % 360 + 360) % 360 - 180;
     const latDeg = lat * (180 / Math.PI);
-    allPoints.push({ latitude: latDeg, longitude: lonDeg });
-  }
 
-  if (allPoints.length > 0) {
-    allPoints.push({ ...allPoints[0] });
-  }
-
-  // 날짜변경선에서 먼저 안전하게 쪼갬
-  const rawSegments = splitAtAntimeridian(allPoints.map(p => [p.longitude, p.latitude]));
-
-  const sunrise: IsochronePoint[][] = [];
-  const sunset: IsochronePoint[][] = [];
-
-  for (const segment of rawSegments) {
-    if (segment.length < 2) continue;
-    // 세그먼트의 중간점을 기준으로 태양 동/서 반구 판정
-    const midPoint = segment[Math.floor(segment.length / 2)];
-    let lonDiff = midPoint.longitude - subsolarLon;
+    let lonDiff = lonDeg - subsolarLon;
     lonDiff = ((lonDiff + 180) % 360 + 360) % 360 - 180;
 
     if (lonDiff < 0) {
-      sunrise.push(segment);
+      sunrisePoints.push([lonDeg, latDeg]);
     } else {
-      sunset.push(segment);
+      sunsetPoints.push([lonDeg, latDeg]);
     }
   }
 
-  return { sunrise, sunset };
+  return {
+    sunrise: splitAtAntimeridian(sunrisePoints),
+    sunset: splitAtAntimeridian(sunsetPoints),
+  };
 };
 
 export interface SeasonMarkers {
