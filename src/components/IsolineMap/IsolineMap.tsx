@@ -78,13 +78,15 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const terminator = useMemo(() => getTerminatorSegments(selectedDate), [selectedDate]);
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
 
-  // 최소 간격을 10분으로 조정하여 렌더링 성능 최적화 (버벅임 방지)
+  // 줌 레벨에 따라 제공될 등시선 시간 간격 (4시간, 2시간, 1시간, 30분, 15분, 5분, 1분)
   const step = useMemo(() => {
-    if (longitudeDelta >= 120) return 120;
-    if (longitudeDelta >= 60) return 60;
-    if (longitudeDelta >= 20) return 30;
-    if (longitudeDelta >= 8) return 15;
-    return 10;
+    if (longitudeDelta >= 180) return 240; // 4시간
+    if (longitudeDelta >= 90) return 120;  // 2시간
+    if (longitudeDelta >= 40) return 60;   // 1시간
+    if (longitudeDelta >= 15) return 30;   // 30분
+    if (longitudeDelta >= 5) return 15;    // 15분
+    if (longitudeDelta >= 1.5) return 5;   // 5분
+    return 1;                              // 1분
   }, [longitudeDelta]);
 
   const allTerminators = useMemo(() => {
