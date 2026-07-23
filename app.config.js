@@ -125,6 +125,10 @@ module.exports = {
         }
       ]
     ],
+    runtimeVersion: "1.0.0",
+    updates: {
+      url: "https://u.expo.dev/575ac16a-4ca5-4e70-9a12-cb7095f582a8"
+    },
     extra: {
       eas: {
         projectId: "575ac16a-4ca5-4e70-9a12-cb7095f582a8"

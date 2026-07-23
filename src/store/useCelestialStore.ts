@@ -592,8 +592,8 @@ export const useCelestialStore = create<CelestialState>()(
           myPhotos: [newPendingPhoto, ...state.myPhotos]
         }));
 
-        // 촬영 완료 후 즉시 백그라운드 Firebase 업로드 가동
-        get().triggerActualUpload(newPendingPhoto);
+        // 촬영 완료 후 실제 Firebase 업로드 완료 대기
+        await get().triggerActualUpload(newPendingPhoto);
 
         return finalLocationName;
       },
@@ -687,6 +687,7 @@ export const useCelestialStore = create<CelestialState>()(
 
         } catch (uploadErr) {
           console.error(`[Pending Upload] Failed to upload ${photo.id}:`, uploadErr);
+          throw uploadErr;
         }
       },
       publishGlobalPhoto: async (photoId: string) => {
