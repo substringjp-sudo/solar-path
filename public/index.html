@@ -465,6 +465,7 @@
         <button class="guide-tab-btn active" data-tab="guide-sim">시뮬레이션 가이드</button>
         <button class="guide-tab-btn" data-tab="guide-weather">기상 & 산란 법칙</button>
         <button class="guide-tab-btn" data-tab="guide-clouds">구름 종류별 노을 효과</button>
+        <button class="guide-tab-btn" data-tab="guide-isoline">등시선(Isoline) 가이드</button>
       </div>
 
       <div class="guide-tab-content active" id="guide-sim">
@@ -1047,6 +1048,58 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 등시선 가이드 탭 콘텐츠 -->
+      <div class="guide-tab-content" id="guide-isoline">
+        <div class="guide-layout">
+          <div class="guide-info-text">
+            <h3>일출일몰 등시선(Isoline) 지도 가이드</h3>
+            <p>지구 위에서 같은 시각(UTC)에 일출 혹은 일몰이 발생하는 지점들을 한데 모아 연결한 특수 천문학 지도 노선입니다. 지구가 하루 동안 자전함에 따라 이 등시선들이 전 지구를 휩쓸며 움직이는 장관을 실시간으로 추적할 수 있습니다.</p>
+            
+            <ul>
+              <li><strong>일출 등시선 (주황색 선):</strong> 선 위의 모든 위치에서 정확하게 같은 찰나에 해가 수평선 위로 솟구치며 아침이 시작됩니다.</li>
+              <li><strong>일몰 등시선 (자홍색/빨간색 선):</strong> 선 위의 모든 위치에서 정확하게 같은 찰나에 해가 수평선 아래로 가라앉으며 밤이 시작됩니다.</li>
+              <li><strong>시간 라벨 마커 오버레이:</strong> 각각의 등시선이 몇 시(UTC 기준)에 작동하는 노선인지 적도 위치에 실시간 시간 라벨 칩이 표시됩니다.</li>
+              <li><strong>2차원 / 3차원 입체 지구본 전환:</strong> 우측 하단의 지구본 아이콘을 눌러 Flat 지도와 입체적인 3D 지구본 모드를 넘나들며 입체적 대원(Great Circle) 형태의 등시선을 관찰해보세요.</li>
+            </ul>
+          </div>
+          <div class="guide-visual-wrapper">
+            <div class="guide-visual visual-isoline" style="background: radial-gradient(circle, #1e293b 0%, #0f172a 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; border-radius: 20px; box-sizing: border-box; overflow: hidden; position: relative; min-height: 240px; border: 1px solid rgba(255,255,255,0.06); width: 100%;">
+              <!-- 3D 지구본 느낌의 그래픽 묘사 -->
+              <svg width="150" height="150" viewBox="0 0 200 200">
+                <defs>
+                  <radialGradient id="isolineGlobeGrad" cx="30%" cy="30%" r="70%">
+                    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9" />
+                    <stop offset="70%" stop-color="#0284c7" stop-opacity="0.9" />
+                    <stop offset="100%" stop-color="#0369a1" stop-opacity="0.9" />
+                  </radialGradient>
+                  <linearGradient id="isolineSunLine" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#ffa500" />
+                    <stop offset="100%" stop-color="#ff4500" />
+                  </linearGradient>
+                </defs>
+                <!-- 지구본 구체 -->
+                <circle cx="100" cy="100" r="85" fill="url(#isolineGlobeGrad)" />
+                <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="0.8" />
+                <!-- 지구본 경위도선 그리드 -->
+                <path d="M15 100 H185 M100 15 V185" stroke="rgba(255,255,255,0.2)" stroke-width="0.8" />
+                <path d="M40 50 Q100 80 160 50 M40 150 Q100 120 160 150 M50 40 Q80 100 50 160 M150 40 Q120 100 150 160" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="0.8" />
+                <!-- 밤 그림자 영역 (절반) -->
+                <path d="M100 15 A85 85 0 0 1 100 185 A42.5 85 0 0 1 100 15" fill="rgba(3, 7, 18, 0.45)" />
+                <!-- 메인 일출선 (곡선) -->
+                <path d="M100 15 A42.5 85 0 0 1 100 185" fill="none" stroke="url(#isolineSunLine)" stroke-width="2.5" stroke-dasharray="2,2" />
+                <!-- 태양 아이콘 -->
+                <circle cx="60" cy="70" r="8" fill="#ffd700" />
+                <circle cx="60" cy="70" r="14" fill="none" stroke="#ffa500" stroke-width="1.2" stroke-opacity="0.6" />
+                <!-- 시간 라벨 -->
+                <rect x="88" y="93" width="24" height="14" rx="3" fill="#ea580c" />
+                <text x="100" y="102" fill="#ffffff" font-size="7.5" font-weight="bold" text-anchor="middle">12:00</text>
+              </svg>
+              <div class="isoline-mini-caption" style="color: #94a3b8; font-size: 11px; margin-top: 10px; font-weight: 500; text-align: center;">BeforeGlow Isoline Simulator</div>
+            </div>
           </div>
         </div>
       </div>

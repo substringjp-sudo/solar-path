@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions, ScrollView } from 'react-native';
-import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, MapPin, Hourglass } from 'lucide-react-native';
+import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, MapPin, Hourglass, Globe } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
@@ -8,6 +8,8 @@ import { t } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
+import { MapGlobe } from './MapGlobe';
+import * as d3 from 'd3-geo';
 
 // InfoCard는 window 폭 기준 고정 width(30%)를 쓰기 때문에 태블릿 2단 레이아웃의
 // 좁은 사이드 패널 안에서는 넘칠 수 있어, 여기서는 flex 기반의 자체 타일을 사용합니다.
@@ -39,6 +41,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const [isPlaying, setIsPlaying] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
   const [longitudeDelta, setLongitudeDelta] = useState(60);
+  const [projectionType, setProjectionType] = useState<'2D' | '3D'>('2D');
+  const [globeScale, setGlobeScale] = useState(150);
 
   const lat = location?.coords.latitude ?? 37.5665;
   const lon = location?.coords.longitude ?? 126.9780;
@@ -80,14 +84,23 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
   // 줌 레벨에 따라 제공될 등시선 시간 간격 (4시간, 2시간, 1시간, 30분, 15분, 5분, 1분)
   const step = useMemo(() => {
-    if (longitudeDelta >= 180) return 240; // 4시간
-    if (longitudeDelta >= 90) return 120;  // 2시간
-    if (longitudeDelta >= 40) return 60;   // 1시간
-    if (longitudeDelta >= 15) return 30;   // 30분
-    if (longitudeDelta >= 5) return 15;    // 15분
-    if (longitudeDelta >= 1.5) return 5;   // 5분
-    return 1;                              // 1분
-  }, [longitudeDelta]);
+    if (projectionType === '2D') {
+      if (longitudeDelta >= 180) return 240; // 4시간
+      if (longitudeDelta >= 90) return 120;  // 2시간
+      if (longitudeDelta >= 40) return 60;   // 1시간
+      if (longitudeDelta >= 15) return 30;   // 30분
+      if (longitudeDelta >= 5) return 15;    // 15분
+      if (longitudeDelta >= 1.5) return 5;   // 5분
+      return 1;                              // 1분
+    } else {
+      // 3D 지구본 Scale 기준 step 계산 (기본 scale = 150)
+      if (globeScale <= 120) return 240;     // 4시간
+      if (globeScale <= 250) return 120;     // 2시간
+      if (globeScale <= 500) return 60;      // 1시간
+      if (globeScale <= 1000) return 30;     // 30분
+      return 15;                             // 15분
+    }
+  }, [projectionType, longitudeDelta, globeScale]);
 
   const allTerminators = useMemo(() => {
     const list = [];
@@ -106,53 +119,39 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     return list;
   }, [selectedDate, step]);
 
-  const nightStripes = useMemo(() => {
-    const lat_s = subsolar.latitude * (Math.PI / 180);
-    const lon_s = subsolar.longitude * (Math.PI / 180);
-    const stripes: Array<Array<{ latitude: number; longitude: number }>> = [];
+  const nightPolygonCoords = useMemo(() => {
+    try {
+      // 구글맵 Polygon의 래핑 반전 특성에 대응하기 위해,
+      // 안티포달 포인트 대신 태양 남중점(subsolar) 자체를 투사 원점으로 주어 바깥쪽(밤 영역)이 칠해지도록 유도합니다.
+      const circleGeoJSON = d3.geoCircle().center([subsolar.longitude, subsolar.latitude]).radius(90)();
+      if (!circleGeoJSON || !circleGeoJSON.coordinates) return [];
 
-    const LAT_STEP = 10;
-    const LON_STEP = 10;
+      const segments: Array<Array<{ latitude: number; longitude: number }>> = [];
 
-    for (let latDeg = -90; latDeg < 90; latDeg += LAT_STEP) {
-      const latMin = latDeg;
-      const latMax = latDeg + LAT_STEP;
-      const latMid = (latMin + latMax) / 2;
-      const latMidRad = latMid * (Math.PI / 180);
-
-      let inNight = false;
-      let startLon = -180;
-
-      for (let lonDeg = -180; lonDeg <= 180; lonDeg += LON_STEP) {
-        const currLon = Math.min(180, lonDeg);
-        const lonRad = currLon * (Math.PI / 180);
-
-        const sin_alt = Math.sin(latMidRad) * Math.sin(lat_s) + Math.cos(latMidRad) * Math.cos(lat_s) * Math.cos(lonRad - lon_s);
-        const isNight = sin_alt < 0;
-
-        if (isNight && !inNight) {
-          inNight = true;
-          startLon = currLon;
-        } else if (!isNight && inNight) {
-          inNight = false;
-          stripes.push([
-            { latitude: latMin, longitude: startLon },
-            { latitude: latMin, longitude: currLon },
-            { latitude: latMax, longitude: currLon },
-            { latitude: latMax, longitude: startLon },
-          ]);
-        }
+      if (circleGeoJSON.type === 'Polygon') {
+        circleGeoJSON.coordinates.forEach((ring: any) => {
+          const seg = ring.map((pt: [number, number]) => ({
+            longitude: pt[0],
+            latitude: pt[1]
+          }));
+          if (seg.length > 0) segments.push(seg);
+        });
+      } else if (circleGeoJSON.type === 'MultiPolygon') {
+        circleGeoJSON.coordinates.forEach((polygon: any) => {
+          polygon.forEach((ring: any) => {
+            const seg = ring.map((pt: [number, number]) => ({
+              longitude: pt[0],
+              latitude: pt[1]
+            }));
+            if (seg.length > 0) segments.push(seg);
+          });
+        });
       }
-      if (inNight) {
-        stripes.push([
-          { latitude: latMin, longitude: startLon },
-          { latitude: latMin, longitude: 180 },
-          { latitude: latMax, longitude: 180 },
-          { latitude: latMax, longitude: startLon },
-        ]);
-      }
+      return segments;
+    } catch (e) {
+      console.error('Failed to generate 2D night polygon:', e);
+      return [];
     }
-    return stripes;
   }, [subsolar]);
 
   const sunPosAtSelected = useMemo(() => getSunPosition(selectedDate, lat, lon), [selectedDate, lat, lon]);
@@ -213,17 +212,46 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           onTouchEnd={() => useCelestialStore.getState().setGestureBlocked(false)}
           onTouchCancel={() => useCelestialStore.getState().setGestureBlocked(false)}
         >
-          <MapCanvas
-            lat={lat}
-            lon={lon}
-            hasLocation={!!location}
-            subsolar={subsolar}
-            terminator={terminator}
-            allTerminators={allTerminators}
-            nightStripes={nightStripes}
-            onRegionChangeComplete={handleRegionChangeComplete}
-            theme={theme}
-          />
+          {projectionType === '2D' ? (
+            <MapCanvas
+              lat={lat}
+              lon={lon}
+              hasLocation={!!location}
+              subsolar={subsolar}
+              terminator={terminator}
+              allTerminators={allTerminators}
+              nightPolygonCoords={nightPolygonCoords}
+              onRegionChangeComplete={handleRegionChangeComplete}
+              theme={theme}
+              selectedDate={selectedDate}
+            />
+          ) : (
+            <MapGlobe
+              subsolar={subsolar}
+              terminator={terminator}
+              allTerminators={allTerminators}
+              lat={lat}
+              lon={lon}
+              hasLocation={!!location}
+              theme={theme}
+              isActive={isActive}
+              initialScale={globeScale}
+              selectedDate={selectedDate}
+              onScaleChange={setGlobeScale}
+            />
+          )}
+
+          <TouchableOpacity
+            onPress={() => setProjectionType((p) => (p === '2D' ? '3D' : '2D'))}
+            style={[styles.projectionBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+            activeOpacity={0.7}
+          >
+            {projectionType === '2D' ? (
+              <Globe size={16} color={theme.text} />
+            ) : (
+              <Compass size={16} color={theme.accent} />
+            )}
+          </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => setGuideVisible(true)}
@@ -387,6 +415,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 10,
     right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  projectionBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 50,
     width: 32,
     height: 32,
     borderRadius: 16,

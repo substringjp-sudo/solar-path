@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
-  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder
+  Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
@@ -877,102 +877,107 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       <View style={styles.container}>
         {previewUri ? (
           // 촬영 후 미리보기 & 평가 입력 화면
-          <View style={styles.previewContainer}>
-            <Text style={styles.previewTitle}>{t('recordSunset', language)}</Text>
-            
-            {/* 이미지 비교 영역 */}
-            <View style={styles.compareImagesRow}>
-              <View style={styles.compareImageWrapper}>
-                <Image source={{ uri: previewUri }} style={styles.compareImage} />
-                <Text style={styles.compareImageLabel}>{t('actualLandscape', language)}</Text>
-              </View>
-              {simPreviewUri ? (
-                <View style={styles.compareImageWrapper}>
-                  <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
-                  <Text style={styles.compareImageLabel}>{t('simulationPrediction', language)}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* 별점 평가 카드 */}
-            <View style={styles.scoreCard}>
-              <View style={styles.scoreRow}>
-                <Text style={styles.scoreLabel}>{t('landscapeScoreLabel', language)}</Text>
-                <View style={styles.starsContainer}>
-                  {[1, 2, 3, 4, 5].map((num) => (
-                    <TouchableOpacity key={num} onPress={() => setLandscapeScore(num)}>
-                      <Star
-                        size={28}
-                        color={num <= landscapeScore ? '#FFD700' : 'rgba(255,255,255,0.25)'}
-                        fill={num <= landscapeScore ? '#FFD700' : 'transparent'}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <Text style={styles.scoreNumberText}>{landscapeScore} / 5</Text>
-              </View>
-
-              <View style={styles.scoreRow}>
-                <Text style={styles.scoreLabel}>{t('weatherScoreLabel', language)}</Text>
-                <View style={styles.starsContainer}>
-                  {[1, 2, 3, 4, 5].map((num) => (
-                    <TouchableOpacity key={num} onPress={() => setWeatherScore(num)}>
-                      <Sun
-                        size={28}
-                        color={num <= weatherScore ? '#FF7043' : 'rgba(255,255,255,0.25)'}
-                        fill={num <= weatherScore ? '#FF7043' : 'transparent'}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <Text style={styles.scoreNumberText}>{weatherScore} / 5</Text>
-              </View>
+          <View style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+            <ScrollView 
+              contentContainerStyle={styles.previewScrollContent} 
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.previewTitle}>{t('recordSunset', language)}</Text>
               
-              {capturedWeatherInfo && (
-                <View style={styles.weatherSummary}>
-                  <Text style={styles.weatherSummaryText}>
-                    {t('humidityLabel', language)} {capturedWeatherInfo.humidity}%  |  {t('dustLabel', language)} {capturedWeatherInfo.pm25}㎍  |  {t('weatherLabel', language)} {translateSunsetDesc(capturedWeatherInfo.description, language)}
-                  </Text>
+              {/* 이미지 비교 영역 */}
+              <View style={styles.compareImagesRow}>
+                <View style={styles.compareImageWrapper}>
+                  <Image source={{ uri: previewUri }} style={styles.compareImage} />
+                  <Text style={styles.compareImageLabel}>{t('actualLandscape', language)}</Text>
                 </View>
-              )}
-            </View>
-
-            {/* 신변보호 및 사생활보호 업로드 고지 */}
-            <View style={styles.privacyNoticeContainer}>
-              <Text style={styles.privacyNoticeText}>
-                {t('privacyUploadNotice', language)}
-              </Text>
-            </View>
-
-            {/* 제어 버튼 영역 */}
-            <View style={styles.previewBtnRow}>
-              <TouchableOpacity 
-                style={styles.previewRetakeBtn} 
-                onPress={() => {
-                  setPreviewUri(null);
-                  setSimPreviewUri(null);
-                }}
-                disabled={isUploading}
-              >
-                <RefreshCw size={18} color="#FFF" style={{ marginRight: 8 }} />
-                <Text style={styles.previewRetakeText}>{t('retake', language)}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.previewUploadBtn} 
-                onPress={handleUpload}
-                disabled={isUploading}
-              >
-                {isUploading ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <>
-                    <Check size={18} color="#000" style={{ marginRight: 8 }} />
-                    <Text style={styles.previewUploadText}>{t('saveAndUpload', language)}</Text>
-                  </>
+                {simPreviewUri ? (
+                  <View style={styles.compareImageWrapper}>
+                    <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
+                    <Text style={styles.compareImageLabel}>{t('simulationPrediction', language)}</Text>
+                  </View>
+                ) : null}
+              </View>
+  
+              {/* 별점 평가 카드 */}
+              <View style={styles.scoreCard}>
+                <View style={styles.scoreRow}>
+                  <Text style={styles.scoreLabel}>{t('landscapeScoreLabel', language)}</Text>
+                  <View style={styles.starsContainer}>
+                    {[1, 2, 3, 4, 5].map((num) => (
+                      <TouchableOpacity key={num} onPress={() => setLandscapeScore(num)}>
+                        <Star
+                          size={28}
+                          color={num <= landscapeScore ? '#FFD700' : 'rgba(255,255,255,0.25)'}
+                          fill={num <= landscapeScore ? '#FFD700' : 'transparent'}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.scoreNumberText}>{landscapeScore} / 5</Text>
+                </View>
+  
+                <View style={styles.scoreRow}>
+                  <Text style={styles.scoreLabel}>{t('weatherScoreLabel', language)}</Text>
+                  <View style={styles.starsContainer}>
+                    {[1, 2, 3, 4, 5].map((num) => (
+                      <TouchableOpacity key={num} onPress={() => setWeatherScore(num)}>
+                        <Sun
+                          size={28}
+                          color={num <= weatherScore ? '#FF7043' : 'rgba(255,255,255,0.25)'}
+                          fill={num <= weatherScore ? '#FF7043' : 'transparent'}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.scoreNumberText}>{weatherScore} / 5</Text>
+                </View>
+                
+                {capturedWeatherInfo && (
+                  <View style={styles.weatherSummary}>
+                    <Text style={styles.weatherSummaryText}>
+                      {t('humidityLabel', language)} {capturedWeatherInfo.humidity}%  |  {t('dustLabel', language)} {capturedWeatherInfo.pm25}㎍  |  {t('weatherLabel', language)} {translateSunsetDesc(capturedWeatherInfo.description, language)}
+                    </Text>
+                  </View>
                 )}
-              </TouchableOpacity>
-            </View>
+              </View>
+  
+              {/* 신변보호 및 사생활보호 업로드 고지 */}
+              <View style={styles.privacyNoticeContainer}>
+                <Text style={styles.privacyNoticeText}>
+                  {t('privacyUploadNotice', language)}
+                </Text>
+              </View>
+  
+              {/* 제어 버튼 영역 */}
+              <View style={styles.previewBtnRow}>
+                <TouchableOpacity 
+                  style={styles.previewRetakeBtn} 
+                  onPress={() => {
+                    setPreviewUri(null);
+                    setSimPreviewUri(null);
+                  }}
+                  disabled={isUploading}
+                >
+                  <RefreshCw size={18} color="#FFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.previewRetakeText}>{t('retake', language)}</Text>
+                </TouchableOpacity>
+  
+                <TouchableOpacity 
+                  style={styles.previewUploadBtn} 
+                  onPress={handleUpload}
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <>
+                      <Check size={18} color="#000" style={{ marginRight: 8 }} />
+                      <Text style={styles.previewUploadText}>{t('saveAndUpload', language)}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         ) : (
           // 기존 카메라 뷰 및 AR 오버레이
@@ -1535,6 +1540,11 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 20,
     justifyContent: 'space-between',
+    paddingBottom: 40,
+  },
+  previewScrollContent: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 20,
     paddingBottom: 40,
   },
   previewTitle: {

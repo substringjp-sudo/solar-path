@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "p-plan"
-  }
+  },
+  "targets": {
+    "p-plan": {
+      "hosting": {
+        "beforeglow": [
+          "bglow-pplan"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

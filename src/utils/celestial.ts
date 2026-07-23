@@ -146,9 +146,23 @@ const splitAtAntimeridian = (points: [number, number][]): IsochronePoint[][] => 
 
   for (let i = 0; i < points.length; i++) {
     const [longitude, latitude] = points[i];
-    // 극지방 부근에서는 위도 한 스텝만으로도 경도가 크게 도약할 수 있는데(진짜 날짜변경선 교차),
-    // 이 경우에도 직전까지 모인 점들(길이 1이어도)은 유실 없이 별도 구간으로 보존합니다.
-    if (i > 0 && Math.abs(longitude - points[i - 1][0]) > 180) {
+    
+    // 위도가 ±85도 이상인 극지방 영역은 2D 평면 지도 외곽 찢어짐(Stretching) 및 꼬임선 차단을 위해 제외합니다.
+    if (Math.abs(latitude) >= 85) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+      continue;
+    }
+
+    // 날짜변경선(경도 ±180도) 부근 경계면 1.5도 이내는 지도 꼬임 선 버그 차단을 위해 스킵하며 세그먼트를 분리합니다.
+    if (Math.abs(longitude) >= 178.5) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+      continue;
+    }
+    // 극지방 및 대권 경계 분할 지점에서 위경도가 도약할 때(진짜 날짜변경선 교차 혹은 좌표 꼬임),
+    // 30도 이상의 급격한 경도 차이를 감지하여 횡단하는 가로지르기 꼬임선을 분리합니다.
+    if (i > 0 && Math.abs(longitude - points[i - 1][0]) > 30) {
       if (current.length > 0) segments.push(current);
       current = [];
     }

@@ -10,9 +10,10 @@ interface MapCanvasProps {
   subsolar: IsochronePoint;
   terminator: { sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] };
   allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
-  nightStripes?: Array<Array<{ latitude: number; longitude: number }>>;
+  nightPolygonCoords?: Array<Array<{ latitude: number; longitude: number }>>;
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
+  selectedDate?: Date;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,
@@ -24,8 +25,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   subsolar,
   terminator,
   allTerminators = [],
-  nightStripes = [],
+  nightPolygonCoords = [],
   theme,
+  selectedDate,
 }) => {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
@@ -72,12 +74,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
             />
           ))}
 
-          {/* 밤 그림자 격자 오버레이 */}
-          {nightStripes && nightStripes.map((coords, index) => (
+          {/* 밤 그림자 영역 오버레이 (곡선 폴리곤) */}
+          {nightPolygonCoords && nightPolygonCoords.map((coords: any[], index: number) => (
             <SvgPolygon
-              key={`night-stripe-${index}`}
+              key={`night-polygon-${index}`}
               points={toSvgPoints(coords)}
-              fill="rgba(11, 18, 32, 0.3)"
+              fill="rgba(11, 18, 32, 0.38)"
               stroke="transparent"
               strokeWidth={0}
             />
