@@ -9,7 +9,7 @@ import { getLocalTimeAtLocation, formatLocalTime } from '../../utils/timezone';
 import { GridCloudShape } from '../../utils/cloudGridRenderer';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
-import { generateSimulationImage } from '../../utils/simulationImage';
+import { generateSimulationImage, captureVisualizerSnapshot } from '../../utils/simulationImage';
 import SunCalc from 'suncalc';
 import { getInterpolatedWeather } from '../../utils/weather';
 
@@ -62,6 +62,7 @@ interface VisualizerProps {
   gridCloudShapes?: GridCloudShape[];
   location?: any;
   isSliding?: boolean;
+  snapshotRef?: React.RefObject<any>;
 }
 
 interface RGB {
@@ -578,7 +579,10 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   gridCloudShapes,
   location,
   isSliding = false,
+  snapshotRef,
 }) => {
+  const internalRef = useRef<any>(null);
+  const targetViewRef = snapshotRef || internalRef;
   const { width, height } = useWindowDimensions();
   const { timezoneOffsetHours, isDebugMode, language, setCurrentSimulationUri } = useCelestialStore();
 
@@ -598,29 +602,50 @@ export const Visualizer: React.FC<VisualizerProps> = ({
 
   // 1회 캐싱된 이벤트 시점 날씨 보간 데이터 및 예측
   const eventWeather = useMemo(() => {
+    if (interpolatedWeather && interpolatedWeather.length > 0) {
+      return interpolatedWeather;
+    }
     if (!sim?.pathData || sim.pathData.length === 0) return [];
-    return getInterpolatedWeather(sim.pathData, sim.eventTime);
-  }, [sim?.pathData, sim?.eventTime]);
+    return getInterpolatedWeather(sim.pathData, sim.eventTime || currentTime);
+  }, [interpolatedWeather, sim?.pathData, sim?.eventTime, currentTime]);
 
   const eventPrediction = useMemo(() => {
+    if (prediction) return prediction;
     if (!sim?.pathData || sim.pathData.length < 4 || !eventWeather || eventWeather.length === 0) return null;
-    const baseSunPos = SunCalc.getPosition(sim.eventTime, location?.coords?.latitude || 0, location?.coords?.longitude || 0);
+    const targetTime = sim?.eventTime || currentTime;
+    const baseSunPos = SunCalc.getPosition(targetTime, location?.coords?.latitude || 0, location?.coords?.longitude || 0);
     const baseSunAlt = baseSunPos.altitude * (180 / Math.PI);
     return predictSunset(
       sim.pathData,
-      sim.eventTime,
+      targetTime,
       baseSunAlt,
       eventWeather[0]?.visibility,
       eventWeather[0]?.humidity,
       location?.coords?.latitude,
       location?.coords?.altitude ?? sim?.terrain?.observerElevation ?? 0
     );
-  }, [sim?.pathData, sim?.eventTime, eventWeather, location, sim?.terrain?.observerElevation]);
+  }, [prediction, sim?.pathData, sim?.eventTime, currentTime, eventWeather, location, sim?.terrain?.observerElevation]);
+
+  const effectivePathData = useMemo(() => {
+    if (sim?.pathData && sim.pathData.length > 0) {
+      return sim.pathData;
+    }
+    if (eventWeather && eventWeather.length > 0) {
+      return eventWeather.map((w: any, idx: number) => ({
+        distance: w.distance ?? [0, 15, 40, 80, 150, 250, 350][idx % 7],
+        azimuthOffset: w.azimuthOffset ?? 0,
+      }));
+    }
+    return Array.from({ length: 29 }, (_, idx) => ({
+      distance: [0, 15, 40, 80, 150, 250, 350][idx % 7],
+      azimuthOffset: 0,
+    }));
+  }, [sim?.pathData, eventWeather]);
 
   // 1. Unified 3D Spatial Clouds Computation & Depth Sorting (Optimized caching)
   const allCloudLayersData = useMemo(() => {
     const results: any[] = [];
-    if (!eventWeather || eventWeather.length === 0 || !sim?.pathData) return results;
+    if (!eventWeather || eventWeather.length === 0) return results;
 
     const R_E = 6371; // Earth radius in km
     const h_v = (sim?.terrain?.observerElevation ?? 50) / 1000; // Observer altitude in km (default 50m)
@@ -752,7 +777,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     }
     
     types.forEach((type) => {
-      sim.pathData.forEach((c: any, i: number) => {
+      effectivePathData.forEach((c: any, i: number) => {
         const interpolated = eventWeather[i];
         if (!interpolated) return;
         const low = interpolated.low || 0;
@@ -1058,39 +1083,30 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     };
   }, [prediction]);
 
-  // 메인 화면 시뮬레이션 상태 변경 시 이미지 동기화
+  // 메인 화면 시뮬레이션 뷰(SVG/구름) 상태 변경 시 스냅샷 이미지 동기화
   useEffect(() => {
     let isCancelled = false;
     
     const updatePreviewImage = async () => {
       try {
-        const cloudRatio = weatherFactors?.overcast ?? 0.5;
-        const seed = location?.coords 
-          ? Math.round(location.coords.latitude * 1000 + location.coords.longitude * 100 + currentTime.getTime() / 60000)
-          : Math.round(currentTime.getTime() / 60000);
-        
-        const b64 = await generateSimulationImage(
-          sunAltitude,
-          cloudRatio,
-          seed,
-          prediction
-        );
-        
-        if (!isCancelled && b64) {
-          setCurrentSimulationUri(b64);
+        if (targetViewRef && targetViewRef.current) {
+          const uri = await captureVisualizerSnapshot(targetViewRef, { quality: 0.85 });
+          if (!isCancelled && uri) {
+            setCurrentSimulationUri(uri);
+          }
         }
       } catch (err) {
-        console.warn('[Visualizer Image Sync] Failed to update pre-generated image:', err);
+        console.warn('[Visualizer Image Sync] Failed to capture SVG view snapshot:', err);
       }
     };
 
-    const timer = setTimeout(updatePreviewImage, isSliding ? 150 : 50);
+    const timer = setTimeout(updatePreviewImage, isSliding ? 300 : 150);
 
     return () => {
       isCancelled = true;
       clearTimeout(timer);
     };
-  }, [sunAltitude, weatherFactors?.overcast, prediction, currentTime, location?.coords?.latitude, location?.coords?.longitude, isSliding, setCurrentSimulationUri]);
+  }, [sunAltitude, weatherFactors?.overcast, prediction, currentTime, location?.coords?.latitude, location?.coords?.longitude, isSliding, setCurrentSimulationUri, targetViewRef]);
 
   // 2. Unified 3D Spatial Clouds Mapping, Depth Sorting & Multi-Layer Occlusion
   const unifiedClouds = useMemo(() => {
@@ -1113,7 +1129,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       const totalDx = spatialDx + (windDriftKm % 160 - 80);
       
       const totalAzOffset = item.azimuthOffset + Math.atan2(totalDx, item.d) * (180 / Math.PI);
-      const cloudAzimuthAbs = (sim?.azimuth || 0) + totalAzOffset;
+      const baseAzimuth = sim?.azimuth ?? heading ?? 270;
+      const cloudAzimuthAbs = baseAzimuth + totalAzOffset;
       const relativeAzDeg = cloudAzimuthAbs - heading;
       const relativeAz = ((relativeAzDeg + 180) % 360) - 180;
       const halfFov = visualFov / 2;
@@ -2717,7 +2734,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
   const horizonTop = SKY_HEIGHT - HORIZON_Y;
 
   return (
-    <View style={[styles.visualizerContainer, { width: VISUALIZER_WIDTH }]}>
+    <View ref={targetViewRef} style={[styles.visualizerContainer, { width: VISUALIZER_WIDTH }]}>
       <View 
         style={[styles.sky, { height: SKY_HEIGHT }]}
         {...panHandlers}

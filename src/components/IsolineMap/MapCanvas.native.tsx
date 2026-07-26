@@ -17,7 +17,7 @@ interface MapCanvasProps {
   selectedDate?: Date;
 }
 
-export const MapCanvas: React.FC<MapCanvasProps> = ({
+export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   lat,
   lon,
   hasLocation,
@@ -29,54 +29,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   theme,
   selectedDate,
 }) => {
-  const [currentRegion, setCurrentRegion] = useState({
-    latitude: lat,
-    longitude: lon,
-    latitudeDelta: 60,
-    longitudeDelta: 60,
-  });
-
   const handleRegionChangeComplete = (newRegion: any) => {
-    setCurrentRegion(newRegion);
     onRegionChangeComplete?.(newRegion);
-  };
-
-  // 뷰포트 가시 범위를 구합니다. 경위도 래핑 마진(80%) 부여
-  const marginLat = currentRegion.latitudeDelta * 0.8;
-  const marginLon = currentRegion.longitudeDelta * 0.8;
-  const minLat = currentRegion.latitude - currentRegion.latitudeDelta / 2 - marginLat;
-  const maxLat = currentRegion.latitude + currentRegion.latitudeDelta / 2 + marginLat;
-  const minLon = currentRegion.longitude - currentRegion.longitudeDelta / 2 - marginLon;
-  const maxLon = currentRegion.longitude + currentRegion.longitudeDelta / 2 + marginLon;
-
-  // 특정 선/다각형 세그먼트가 화면 바운더리에 포함되는지 판단하는 고성능 판별기
-  const isSegmentVisible = (segment: Array<{ latitude: number; longitude: number }>) => {
-    return segment.some(pt => {
-      if (pt.latitude < minLat || pt.latitude > maxLat) return false;
-      
-      // 경도 래핑을 고려한 범위 체크
-      if (minLon <= maxLon) {
-        return pt.longitude >= minLon && pt.longitude <= maxLon;
-      } else {
-        // 뷰포트가 날짜변경선(180도)에 걸친 케이스
-        return pt.longitude >= minLon || pt.longitude <= maxLon;
-      }
-    });
-  };
-
-  // 적도(위도 0도)에 가장 인접한 좌표를 찾는 함수
-  const getEquatorPoint = (segment: Array<{ latitude: number; longitude: number }>) => {
-    if (segment.length === 0) return null;
-    let best = segment[0];
-    let minDiff = Math.abs(best.latitude);
-    for (const pt of segment) {
-      const diff = Math.abs(pt.latitude);
-      if (diff < minDiff) {
-        minDiff = diff;
-        best = pt;
-      }
-    }
-    return best;
   };
 
   // 시간을 HH:MM 포맷으로 만드는 함수
@@ -86,6 +40,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     const minutes = String(date.getUTCMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
   };
+
+  const mainTimeStr = selectedDate ? formatTime(selectedDate) : '';
 
   return (
     <MapView
@@ -102,78 +58,44 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       onRegionChangeComplete={handleRegionChangeComplete}
     >
       {/* 밤 그림자 영역 오버레이 (d3-geoCircle 기반 곡선 폴리곤) */}
-      {nightPolygonCoords && nightPolygonCoords.map((coords, index) => 
-        isSegmentVisible(coords) ? (
-          <Polygon
-            key={`night-polygon-${index}`}
-            coordinates={coords}
-            fillColor="rgba(11, 18, 32, 0.38)"
-            strokeColor="transparent"
-            strokeWidth={0}
-            geodesic
-          />
-        ) : null
-      )}
+      {nightPolygonCoords && nightPolygonCoords.map((coords, index) => (
+        <Polygon
+          key={`night-polygon-${index}`}
+          coordinates={coords}
+          fillColor="rgba(11, 18, 32, 0.38)"
+          strokeColor="transparent"
+          strokeWidth={0}
+          geodesic
+        />
+      ))}
 
-      {/* 1. 시간별 서브 등시선들 (allTerminators) */}
-      {allTerminators && allTerminators.map((term, idx) => {
-        const timeStr = formatTime(term.time);
-        return (
-          <React.Fragment key={`sub-term-${idx}`}>
-            {term.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => {
-              const visible = isSegmentVisible(segment);
-              if (!visible) return null;
-              const eqPt = getEquatorPoint(segment);
-              return (
-                <React.Fragment key={`sub-sunrise-${idx}-${i}`}>
-                  <Polyline
-                    coordinates={segment}
-                    strokeColor="rgba(251, 146, 60, 0.18)"
-                    strokeWidth={1.1}
-                    geodesic
-                  />
-                  {eqPt && (
-                    <Marker coordinate={{ latitude: eqPt.latitude, longitude: eqPt.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
-                      <View style={styles.isolineLabelSunrise}>
-                        <Text style={styles.isolineLabelText}>{timeStr}</Text>
-                      </View>
-                    </Marker>
-                  )}
-                </React.Fragment>
-              );
-            })}
-            {term.sunset.filter((segment) => segment.length >= 2).map((segment, i) => {
-              const visible = isSegmentVisible(segment);
-              if (!visible) return null;
-              const eqPt = getEquatorPoint(segment);
-              return (
-                <React.Fragment key={`sub-sunset-${idx}-${i}`}>
-                  <Polyline
-                    coordinates={segment}
-                    strokeColor="rgba(248, 113, 113, 0.18)"
-                    strokeWidth={1.1}
-                    geodesic
-                  />
-                  {eqPt && (
-                    <Marker coordinate={{ latitude: eqPt.latitude, longitude: eqPt.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
-                      <View style={styles.isolineLabelSunset}>
-                        <Text style={styles.isolineLabelText}>{timeStr}</Text>
-                      </View>
-                    </Marker>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </React.Fragment>
-        );
-      })}
+      {/* 1. 시간별 서브 등시선들 (allTerminators) - 고성능 선형 폴리라인 렌더링 */}
+      {allTerminators && allTerminators.map((term, idx) => (
+        <React.Fragment key={`sub-term-${idx}`}>
+          {term.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => (
+            <Polyline
+              key={`sub-sunrise-${idx}-${i}`}
+              coordinates={segment}
+              strokeColor="rgba(251, 146, 60, 0.18)"
+              strokeWidth={1.1}
+              geodesic
+            />
+          ))}
+          {term.sunset.filter((segment) => segment.length >= 2).map((segment, i) => (
+            <Polyline
+              key={`sub-sunset-${idx}-${i}`}
+              coordinates={segment}
+              strokeColor="rgba(248, 113, 113, 0.18)"
+              strokeWidth={1.1}
+              geodesic
+            />
+          ))}
+        </React.Fragment>
+      ))}
 
       {/* 2. 현재 선택된 시간의 메인 일출/일몰선 */}
       {terminator.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => {
-        const visible = isSegmentVisible(segment);
-        if (!visible) return null;
-        const eqPt = getEquatorPoint(segment);
-        const mainTimeStr = selectedDate ? formatTime(selectedDate) : '';
+        const eqPt = segment.length > 0 ? segment[Math.floor(segment.length / 2)] : null;
         return (
           <React.Fragment key={`sunrise-${i}`}>
             <Polyline
@@ -193,10 +115,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         );
       })}
       {terminator.sunset.filter((segment) => segment.length >= 2).map((segment, i) => {
-        const visible = isSegmentVisible(segment);
-        if (!visible) return null;
-        const eqPt = getEquatorPoint(segment);
-        const mainTimeStr = selectedDate ? formatTime(selectedDate) : '';
+        const eqPt = segment.length > 0 ? segment[Math.floor(segment.length / 2)] : null;
         return (
           <React.Fragment key={`sunset-${i}`}>
             <Polyline
@@ -231,7 +150,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       )}
     </MapView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   sunMarker: {

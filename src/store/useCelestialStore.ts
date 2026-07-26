@@ -75,6 +75,7 @@ export interface GlobalPhoto {
   simulationStoragePath?: string;
   deviceAzimuth?: number;
   devicePitch?: number;
+  scheduledUploadTime?: number;
 }
 
 export interface SavedLocation {
@@ -171,8 +172,6 @@ interface CelestialState {
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
   initializePendingUploads: () => void;
-  triggerActualUpload: (photo: MyPhoto) => Promise<void>;
-  publishGlobalPhoto: (photoId: string) => Promise<void>;
   currentSimulationUri: string | null;
   setCurrentSimulationUri: (uri: string | null) => void;
   isGestureBlocked: boolean;
@@ -441,37 +440,28 @@ export const useCelestialStore = create<CelestialState>()(
         }
       },
       removeMyPhoto: async (id) => {
-        // 1. 예약 대기 중인 타이머가 있다면 즉시 제거
         if (uploadTimers[id]) {
           clearTimeout(uploadTimers[id]);
           delete uploadTimers[id];
-          if (__DEV__) console.log(`[Pending Upload] Cancelled scheduled upload for photo ${id}`);
         }
 
         const user = get().currentUser || auth.currentUser;
+        set((state) => ({
+          myPhotos: state.myPhotos.filter((p) => p.id !== id),
+          globalPhotos: state.globalPhotos.filter((p) => p.id !== id)
+        }));
+
         if (user) {
           try {
-            // 로컬 상태에서 즉시 먼저 제거하여 즉각적인 UI 반응 제공
-            set((state) => ({
-              myPhotos: state.myPhotos.filter((p) => p.id !== id)
-            }));
-
-            // 2. Firestore 개인 사진 문서 삭제 (이미 업로드된 경우)
+            // 1. 내 개인 Firestore 문서 삭제
             const docRef = doc(db, `users/${user.uid}/photos`, id);
             await deleteDoc(docRef);
 
-            // 3. shared 전역 사진 문서 연쇄 삭제
-            const globalPhoto = get().globalPhotos.find(p => p.id === id);
-            if (globalPhoto && globalPhoto.userId === user.uid) {
-              await get().removeGlobalPhoto(id);
-            }
+            // 2. Storage 및 전역 Firestore 연쇄 삭제
+            await get().removeGlobalPhoto(id);
           } catch (err) {
-            console.warn('Failed to remove photo from Firestore:', err);
+            console.warn('Failed to remove photo from Firestore/Storage:', err);
           }
-        } else {
-          set((state) => ({
-            myPhotos: state.myPhotos.filter((p) => p.id !== id)
-          }));
         }
       },
       syncMyPhotos: () => {
@@ -521,7 +511,6 @@ export const useCelestialStore = create<CelestialState>()(
         const user = get().currentUser || auth.currentUser;
         if (!user) throw new Error('User must be logged in to upload photos');
 
-        // 구글 지오코드를 이용해 위경도 좌표에서 가장 간단한 단계의 행정구역 주소 획득
         let simpleAddress = '';
         const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
         if (apiKey) {
@@ -564,131 +553,115 @@ export const useCelestialStore = create<CelestialState>()(
  
         const finalLocationName = simpleAddress || locationName || `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
         const photoId = generateUniqueId();
-        const scheduledTime = Date.now() + 60 * 60 * 1000; // 1시간 뒤 전역 공개 예정
+        const now = Date.now();
+        const scheduledTime = now + 60 * 60 * 1000; // 서버 기준 1시간 뒤 전역 공개
 
-        // 임시 로컬 이미지로 등록하여 myPhotos에 즉시 노출 (isPending: true 표시)
-        const newPendingPhoto: MyPhoto = {
-          id: photoId,
-          latitude,
-          longitude,
-          imageUrl: localUri, // 일단 로컬 URI를 이미지 소스로 지정하여 갤러리에 노출
-          timestamp: Date.now(),
-          locationName: finalLocationName,
-          landscapeScore,
-          weatherScore,
-          weatherInfo,
-          simulationSample,
-          simulationImageUrl: simulationImageUri, // 이것도 로컬 경로
-          isPending: true,
-          scheduledUploadTime: scheduledTime,
-          localUri,
-          simulationLocalUri: simulationImageUri,
-          deviceAzimuth,
-          devicePitch
-        };
+        // 1. Firebase Storage에 즉시 파일 업로드
+        const ext = localUri?.split('.').pop() || 'jpg';
+        const storagePath = `photos/${user.uid}/${photoId}.${ext}`;
+        const storageRef = ref(storage, storagePath);
 
-        // 로컬 상태에 즉시 추가하여 갤러리에 대기 중 이미지 노출
-        set((state) => ({
-          myPhotos: [newPendingPhoto, ...state.myPhotos]
-        }));
-
-        // 촬영 완료 후 실제 Firebase 업로드 완료 대기
-        await get().triggerActualUpload(newPendingPhoto);
-
-        return finalLocationName;
-      },
-      triggerActualUpload: async (photo: MyPhoto) => {
-        const user = get().currentUser || auth.currentUser;
-        if (!user) return;
-
-        // 혹시 대기 사이에 사용자가 삭제했다면 업로드 중단
-        const exists = get().myPhotos.find(p => p.id === photo.id);
-        if (!exists) return;
-
+        let imageUrl = localUri;
         try {
-          const ext = photo.localUri?.split('.').pop() || 'jpg';
-          const storagePath = `photos/${user.uid}/${photo.id}.${ext}`;
-          const storageRef = ref(storage, storagePath);
+          const base64Data = await FileSystem.readAsStringAsync(localUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const contentType = `image/${ext === 'png' ? 'png' : 'jpeg'}`;
+          await uploadString(storageRef, base64Data, 'base64', { contentType });
+          imageUrl = await getDownloadURL(storageRef);
+        } catch (uploadErr) {
+          console.warn('[Photo Upload] Main image upload failed, using local URI:', uploadErr);
+        }
 
-          // 1. 실제 사진 업로드
-          let imageUrl = '';
-          if (photo.localUri) {
-            const base64Data = await FileSystem.readAsStringAsync(photo.localUri, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            const contentType = `image/${ext === 'png' ? 'png' : 'jpeg'}`;
-            await uploadString(storageRef, base64Data, 'base64', { contentType });
-            imageUrl = await getDownloadURL(storageRef);
-          }
-
-          // 2. 시뮬레이션 사진 업로드
-          let simulationImageUrl = '';
-          let simulationStoragePath = '';
-          if (photo.simulationLocalUri) {
-            simulationStoragePath = `photos/${user.uid}/${photo.id}_sim.jpg`;
+        let simulationImageUrl = simulationImageUri || '';
+        let simulationStoragePath = '';
+        if (simulationImageUri) {
+          try {
+            simulationStoragePath = `photos/${user.uid}/${photoId}_sim.jpg`;
             const simStorageRef = ref(storage, simulationStoragePath);
-
             let simBase64 = '';
-            if (photo.simulationLocalUri.startsWith('data:')) {
-              simBase64 = photo.simulationLocalUri.split(';base64,')[1];
+            if (simulationImageUri.startsWith('data:')) {
+              simBase64 = simulationImageUri.split(';base64,')[1];
             } else {
-              simBase64 = await FileSystem.readAsStringAsync(photo.simulationLocalUri, {
+              simBase64 = await FileSystem.readAsStringAsync(simulationImageUri, {
                 encoding: FileSystem.EncodingType.Base64,
               });
             }
             await uploadString(simStorageRef, simBase64, 'base64', { contentType: 'image/jpeg' });
             simulationImageUrl = await getDownloadURL(simStorageRef);
+          } catch (simUploadErr) {
+            console.warn('[Photo Upload] Simulation image upload failed:', simUploadErr);
           }
-
-          // 3. Firestore 개인 users/*/photos 컬렉션에 즉시 보관
-          const personalPhoto: MyPhoto = {
-            ...photo,
-            imageUrl: imageUrl || photo.imageUrl,
-            simulationImageUrl,
-            isPending: undefined,
-            localUri: undefined,
-            simulationLocalUri: undefined
-          };
-
-          const cleanedPersonal = Object.entries(personalPhoto).reduce((acc, [key, val]) => {
-            if (val !== undefined) acc[key] = val;
-            return acc;
-          }, {} as any);
-
-          const personalDocRef = doc(db, `users/${user.uid}/photos`, photo.id);
-          await setDoc(personalDocRef, cleanedPersonal);
-
-          // 4. 로컬 상태 업데이트 (isPending 해제 및 실제 CDN URL 적용)
-          set((state) => ({
-            myPhotos: state.myPhotos.map(p => 
-              p.id === photo.id 
-                ? { 
-                    ...p, 
-                    isPending: undefined, 
-                    localUri: undefined, 
-                    simulationLocalUri: undefined,
-                    imageUrl: imageUrl || p.imageUrl, 
-                    simulationImageUrl 
-                  } 
-                : p
-            )
-          }));
-
-          if (__DEV__) console.log(`[Pending Upload] Personal storage uploaded successfully for photo ${photo.id}`);
-
-          // 5. 1시간 뒤 전역 갤러리 공개를 위한 타이머 예약
-          const delay = (photo.scheduledUploadTime || (Date.now() + 60 * 60 * 1000)) - Date.now();
-          if (uploadTimers[photo.id]) {
-            clearTimeout(uploadTimers[photo.id]);
-          }
-          uploadTimers[photo.id] = setTimeout(() => {
-            get().publishGlobalPhoto(photo.id);
-          }, Math.max(0, delay));
-
-        } catch (uploadErr) {
-          console.error(`[Pending Upload] Failed to upload ${photo.id}:`, uploadErr);
-          throw uploadErr;
         }
+
+        const userName = user.displayName || (user.email ? user.email.split('@')[0] : 'Anonymous');
+
+        // 2. 개인 Firestore 문서 생성
+        const myPhotoRecord: MyPhoto = {
+          id: photoId,
+          latitude,
+          longitude,
+          imageUrl,
+          timestamp: now,
+          locationName: finalLocationName,
+          landscapeScore,
+          weatherScore,
+          weatherInfo,
+          simulationSample,
+          simulationImageUrl,
+          scheduledUploadTime: scheduledTime,
+          deviceAzimuth,
+          devicePitch
+        };
+
+        const cleanedMyRecord = Object.entries(myPhotoRecord).reduce((acc, [key, val]) => {
+          if (val !== undefined) acc[key] = val;
+          return acc;
+        }, {} as any);
+
+        const personalDocRef = doc(db, `users/${user.uid}/photos`, photoId);
+        await setDoc(personalDocRef, cleanedMyRecord);
+
+        // 3. 전역 global_photos 문서 즉시 기록 (scheduledUploadTime 보존)
+        const globalPhotoRecord: GlobalPhoto = {
+          id: photoId,
+          latitude: Number(latitude.toFixed(2)),
+          longitude: Number(longitude.toFixed(2)),
+          imageUrl,
+          storagePath,
+          timestamp: now,
+          locationName: finalLocationName,
+          userId: user.uid,
+          userName,
+          landscapeScore,
+          weatherScore,
+          weatherInfo,
+          simulationSample,
+          simulationImageUrl,
+          simulationStoragePath,
+          scheduledUploadTime: scheduledTime,
+          deviceAzimuth,
+          devicePitch
+        };
+
+        const cleanedGlobalRecord = Object.entries(globalPhotoRecord).reduce((acc, [key, val]) => {
+          if (val !== undefined) acc[key] = val;
+          return acc;
+        }, {} as any);
+
+        const globalDocRef = doc(db, 'global_photos', photoId);
+        await setDoc(globalDocRef, cleanedGlobalRecord);
+
+        // 4. 로컬 상태 즉시 추가
+        set((state) => ({
+          myPhotos: [myPhotoRecord, ...state.myPhotos.filter(p => p.id !== photoId)]
+        }));
+
+        if (__DEV__) {
+          console.log(`[Photo Upload] Successfully uploaded photo ${photoId} to Storage & Firestore. Scheduled reveal at ${new Date(scheduledTime).toISOString()}`);
+        }
+
+        return finalLocationName;
       },
       publishGlobalPhoto: async (photoId: string) => {
         const user = get().currentUser || auth.currentUser;
@@ -758,42 +731,21 @@ export const useCelestialStore = create<CelestialState>()(
         }
       },
       initializePendingUploads: () => {
-        const user = get().currentUser || auth.currentUser;
-        if (!user) return;
-
-        // A. 업로드 미완료 복구
-        const pendingUpload = get().myPhotos.filter(p => p.isPending);
-        pendingUpload.forEach(photo => {
-          if (uploadTimers[photo.id]) clearTimeout(uploadTimers[photo.id]);
-          if (__DEV__) console.log(`[Pending Upload] Retrying upload for ${photo.id} immediately.`);
-          get().triggerActualUpload(photo);
-        });
-
-        // B. 전역 공개 대기 복구
-        const pendingPublish = get().myPhotos.filter(p => !p.isPending && p.scheduledUploadTime);
-        pendingPublish.forEach(photo => {
-          if (uploadTimers[photo.id]) clearTimeout(uploadTimers[photo.id]);
-          const now = Date.now();
-          const delay = (photo.scheduledUploadTime || now) - now;
-          if (delay <= 0) {
-            if (__DEV__) console.log(`[Pending Publish] Publish delay passed. Publishing ${photo.id} immediately.`);
-            get().publishGlobalPhoto(photo.id);
-          } else {
-            if (__DEV__) console.log(`[Pending Publish] Rescheduling global publish for ${photo.id} in ${(delay / 1000 / 60).toFixed(1)} minutes`);
-            uploadTimers[photo.id] = setTimeout(() => {
-              get().publishGlobalPhoto(photo.id);
-            }, delay);
-          }
-        });
+        // Instant upload with server-side scheduledUploadTime requires no client timers
       },
       syncGlobalPhotos: () => {
         const photosRef = collection(db, 'global_photos');
         const unsubscribe = onSnapshot(
           photosRef,
           (snapshot) => {
+            const now = Date.now();
             const photosList: GlobalPhoto[] = [];
             snapshot.forEach((doc) => {
-              photosList.push(doc.data() as GlobalPhoto);
+              const data = doc.data() as GlobalPhoto;
+              // scheduledUploadTime이 없거나, 이미 서버 시각 기준 1시간이 경과한 것만 전역 사진으로 채택
+              if (!data.scheduledUploadTime || data.scheduledUploadTime <= now) {
+                photosList.push(data);
+              }
             });
             // Sort by newest timestamp
             photosList.sort((a, b) => b.timestamp - a.timestamp);

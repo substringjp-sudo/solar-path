@@ -82,29 +82,25 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const terminator = useMemo(() => getTerminatorSegments(selectedDate), [selectedDate]);
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
 
-  // 줌 레벨에 따라 제공될 등시선 시간 간격 (4시간, 2시간, 1시간, 30분, 15분, 5분, 1분)
+  // 줌 레벨에 따라 제공될 등시선 시간 간격 (4시간, 2시간, 1시간, 30분) - 렉 방지용 하한선 30분 지정
   const step = useMemo(() => {
     if (projectionType === '2D') {
       if (longitudeDelta >= 180) return 240; // 4시간
       if (longitudeDelta >= 90) return 120;  // 2시간
       if (longitudeDelta >= 40) return 60;   // 1시간
-      if (longitudeDelta >= 15) return 30;   // 30분
-      if (longitudeDelta >= 5) return 15;    // 15분
-      if (longitudeDelta >= 1.5) return 5;   // 5분
-      return 1;                              // 1분
+      return 30;                             // 30분
     } else {
-      // 3D 지구본 Scale 기준 step 계산 (기본 scale = 150)
       if (globeScale <= 120) return 240;     // 4시간
       if (globeScale <= 250) return 120;     // 2시간
       if (globeScale <= 500) return 60;      // 1시간
-      if (globeScale <= 1000) return 30;     // 30분
-      return 15;                             // 15분
+      return 30;                             // 30분
     }
   }, [projectionType, longitudeDelta, globeScale]);
 
+  const dateKey = selectedDate.toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
     const list = [];
-    const base = new Date(selectedDate);
+    const base = new Date(dateKey);
     base.setUTCHours(0, 0, 0, 0);
     
     for (let min = 0; min < 1440; min += step) {
@@ -117,7 +113,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       });
     }
     return list;
-  }, [selectedDate, step]);
+  }, [dateKey, step]);
 
   const nightPolygonCoords = useMemo(() => {
     try {

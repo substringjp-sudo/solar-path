@@ -1,297 +1,48 @@
-import { Skia, rect, TileMode, ImageFormat } from '@shopify/react-native-skia';
+import { captureRef } from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system/legacy';
+import React from 'react';
 
-interface CloudData {
-  x: number;
-  y: number;
-  renderWidth: number;
-  renderHeight: number;
-  cloudOpacity: number;
-  finalLitColor?: string;
-  finalShadowColor?: string;
-}
-
-// Skia.Color가 rgb(r,g,b) 및 rgba(r,g,b,a) 포맷을 파싱하지 못하는 한계를 해결하기 위한 안전한 파서
-const parseColorToSkia = (colorStr: string) => {
-  if (!colorStr) return Skia.Color('transparent');
-  if (colorStr === 'transparent') return Skia.Color('transparent');
-
-  // rgba(r, g, b, a) 파싱
-  if (colorStr.startsWith('rgba')) {
-    const match = colorStr.match(/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/);
-    if (match) {
-      const r = parseInt(match[1]);
-      const g = parseInt(match[2]);
-      const b = parseInt(match[3]);
-      const a = parseFloat(match[4]);
-      const aHex = Math.round(a * 255).toString(16).padStart(2, '0');
-      const rHex = r.toString(16).padStart(2, '0');
-      const gHex = g.toString(16).padStart(2, '0');
-      const bHex = b.toString(16).padStart(2, '0');
-      return Skia.Color(`#${aHex}${rHex}${gHex}${bHex}`);
-    }
-  }
-
-  // rgb(r, g, b) 파싱
-  if (colorStr.startsWith('rgb')) {
-    const match = colorStr.match(/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
-    if (match) {
-      const r = parseInt(match[1]);
-      const g = parseInt(match[2]);
-      const b = parseInt(match[3]);
-      const rHex = r.toString(16).padStart(2, '0');
-      const gHex = g.toString(16).padStart(2, '0');
-      const bHex = b.toString(16).padStart(2, '0');
-      return Skia.Color(`#ff${rHex}${gHex}${bHex}`);
-    }
-  }
-
+/**
+ * Visualizer 컴포넌트 View Ref를 react-native-view-shot으로 스냅샷 캡처하여
+ * data URI (JPG base64) 문자열로 반환합니다.
+ */
+export const captureVisualizerSnapshot = async (
+  targetRef: React.RefObject<any>,
+  options?: { width?: number; height?: number; quality?: number }
+): Promise<string> => {
+  if (!targetRef || !targetRef.current) return '';
   try {
-    return Skia.Color(colorStr);
-  } catch (e) {
-    console.warn('[parseColorToSkia] Failed to parse color:', colorStr, e);
-    return Skia.Color('#ffffff');
+    const uri = await captureRef(targetRef, {
+      format: 'jpg',
+      quality: options?.quality ?? 0.85,
+      result: 'data-uri',
+      width: options?.width,
+      height: options?.height,
+    });
+    return uri;
+  } catch (err) {
+    console.warn('[captureVisualizerSnapshot] Failed to capture Visualizer ref:', err);
+    return '';
   }
-};
-
-// 태양 고도와 구름 비율에 따른 정밀한 하늘 그라데이션 색상 배열 반환
-const getSkyGradientColors = (sunAlt: number, cloudRatio: number = 0): string[] => {
-  // 비/완전흐림(cloudRatio > 0.8): 회색 계열만 반환 (노을 색 완전 억제)
-  if (cloudRatio > 0.8) {
-    if (sunAlt > 0) {
-      return ['#4A4F5A', '#6B7180', '#8E96A3']; // 낮의 두꺼운 구름
-    } else {
-      return ['#1A1D22', '#2E3039', '#3F4350']; // 밤의 두꺼운 구름
-    }
-  }
-  // 흐린 날(0.5 < cloudRatio <= 0.8): 색은 있지만 채도를 크게 낮춤
-  if (cloudRatio > 0.5) {
-    if (sunAlt > 15.0) {
-      return ['#3D5A7A', '#5B7EA3', '#8EAEC8']; // 옅은 파란 하늘 (채도 낮춤)
-    } else if (sunAlt > 1.5) {
-      return ['#4A3D60', '#7A5E6E', '#A8806A', '#C4A870']; // 흐린 날 골든아워 (옅은 색)
-    } else if (sunAlt > -2.0) {
-      return ['#2E2040', '#6A3A40', '#9A5050', '#B07050']; // 흐린 날 노을 피크 (옅은 붉은색)
-    } else {
-      return ['#0F0820', '#2E1E40', '#3A2A50']; // 흐린 저녁/밤
-    }
-  }
-  // 맑은 날 ~ 약간 흐린 날: 기존 로직
-  if (sunAlt > 15.0) {
-    return ['#0B47A1', '#2196F3', '#B3E5FC']; // 쨍한 파란 하늘
-  } else if (sunAlt > 5.0) {
-    return ['#1A237E', '#3F51B5', '#FFCC80']; // 옅은 골든아워 진입
-  } else if (sunAlt > 1.5) {
-    return ['#311B92', '#880E4F', '#FF7043', '#FFE082']; // 본격 황금빛 노을
-  } else if (sunAlt > -2.0) {
-    return ['#2E1563', '#B71C1C', '#FF5722', '#FFCA28']; // 강렬한 붉은 핏빛 노을 피크
-  } else if (sunAlt > -6.0) {
-    return ['#0F0826', '#4A148C', '#880E4F', '#E65100']; // 일몰 후 어스름 (보랏빛 잔광)
-  } else if (sunAlt > -12.0) {
-    return ['#050514', '#0D0D2B', '#25164E']; // 천문 박명 (아주 깊은 남색)
-  } else {
-    return ['#020205', '#050510', '#0A0A1C']; // 밤 (암흑에 가까움)
-  }
-};
-
-// 태양 고도에 따른 광선 색상
-const getSunBeamColorStr = (alt: number): string => {
-  if (alt > 15.0) return '#FFFFFF';
-  if (alt > 5.0) return '#FFF59D';
-  if (alt > 0) return '#FFB74D';
-  if (alt > -3.0) return '#FF5722';
-  return '#FF3D00';
 };
 
 /**
- * 촬영 당시 태양 고도와 구름 비율(cloudRatio)을 이용하여
- * 백그라운드 캔버스에 시뮬레이션 결과를 렌더링하고 base64 JPEG 스트링을 반환합니다.
+ * 하위 호환성을 위해 남아있는 wrapper 함수.
+ * Visualizer Ref가 존재하면 해당 뷰를 캡처합니다.
  */
 export const generateSimulationImage = async (
-  sunAltitude: number,
-  cloudRatio: number,
-  seed: number = 0,
-  prediction?: any
+  _sunAltitude: number,
+  _cloudRatio: number,
+  _seed: number = 0,
+  _prediction?: any
 ): Promise<string> => {
-  const w = 400;
-  const h = 300;
-  let surface: any = null;
-  let snapshot: any = null;
-
-  try {
-    surface = Skia.Surface.Make(w, h);
-    if (!surface) return '';
-    const canvas = surface.getCanvas();
-
-    // 1. 하늘 그라데이션 그리기
-    let skyColors: any[] = [];
-    let skyOffsets: number[] = [];
-
-    if (prediction && prediction.skyGradient && prediction.skyGradient.length > 0) {
-      skyColors = prediction.skyGradient.map((stop: any) => parseColorToSkia(stop.color));
-      skyOffsets = prediction.skyGradient.map((stop: any) => stop.offset);
-    } else {
-      const colors = getSkyGradientColors(sunAltitude, cloudRatio);
-      skyColors = colors.map(c => parseColorToSkia(c));
-      skyOffsets = colors.length === 3 
-        ? [0.0, 0.45, 1.0] 
-        : colors.length === 4 
-        ? [0.0, 0.3, 0.65, 1.0] 
-        : colors.map((_, i) => i / (colors.length - 1));
-    }
-
-    const skyShader = Skia.Shader.MakeLinearGradient(
-      { x: w / 2, y: 0 },
-      { x: w / 2, y: h },
-      skyColors,
-      skyOffsets,
-      TileMode.Clamp
-    );
-    
-    const paintSky = Skia.Paint();
-    paintSky.setShader(skyShader);
-    canvas.drawRect(rect(0, 0, w, h), paintSky);
-
-    const horizonY = h * 0.72; // 지평선 높이 (72%)
-
-    // 2. 태양 그리기 (태양 고도가 -8도 이상인 경우에만 렌더링)
-    let sunY = 0;
-    let sunX = w / 2;
-    if (sunAltitude > -8.0) {
-      // 태양 Y축 계산: 고도 30도일 때 꼭대기, -8도일 때 지평선 아래 매핑
-      const sunRange = 38; // 30도 ~ -8도 범위
-      const pct = (30 - sunAltitude) / sunRange;
-      sunY = (h * 0.1) + pct * (horizonY - (h * 0.1));
-
-      const sunColorStr = prediction?.sunDiskColor || getSunBeamColorStr(sunAltitude);
-      const sunColor = parseColorToSkia(sunColorStr);
-
-      // 글로우 외곽선
-      const paintGlow1 = Skia.Paint();
-      paintGlow1.setColor(sunColor);
-      paintGlow1.setAlphaf(0.12);
-      canvas.drawCircle(sunX, sunY, 32, paintGlow1);
-
-      const paintGlow2 = Skia.Paint();
-      paintGlow2.setColor(sunColor);
-      paintGlow2.setAlphaf(0.24);
-      canvas.drawCircle(sunX, sunY, 20, paintGlow2);
-
-      // 태양 코어
-      const paintSun = Skia.Paint();
-      paintSun.setColor(Skia.Color('#FFFFFF'));
-      canvas.drawCircle(sunX, sunY, 10, paintSun);
-    }
-
-    // 3. 구름 그리기 (cloudRatio를 기반으로 내부 난수 드로잉 생성)
-    if (cloudRatio > 0.05) {
-      const paintCloud = Skia.Paint();
-      const cloudCount = Math.min(18, Math.round(cloudRatio * 15) + 3);
-      
-      // 태양 고도에 따라 구름의 라이팅 색상 보간
-      const isNight = sunAltitude <= -6.0;
-      const isSunset = sunAltitude > -6.0 && sunAltitude <= 2.0;
-      const cloudBaseColor = isNight 
-        ? Skia.Color('rgba(40, 45, 60, 0.45)') 
-        : isSunset 
-        ? Skia.Color('rgba(255, 110, 64, 0.55)') 
-        : Skia.Color('rgba(255, 235, 200, 0.5)');
-
-      const highColor = prediction?.highCloudColor ? parseColorToSkia(prediction.highCloudColor) : null;
-      const midColor = prediction?.midCloudColor ? parseColorToSkia(prediction.midCloudColor) : null;
-      const lowColor = prediction?.lowCloudColor ? parseColorToSkia(prediction.lowCloudColor) : null;
-
-      for (let i = 0; i < cloudCount; i++) {
-        // seed를 혼합하여 매번 다른 구름 배치 생성
-        const base = (seed + i * 29 + 17) & 0xFFFFFF;
-        const cx = ((base * 13) % (w - 60)) + 30;
-        
-        // 지평선 주위와 상단부에 배치되도록 Y값 맵핑
-        const cy = ((base * 7) % (Math.round(horizonY * 0.7))) + 30;
-        
-        const rx = 35 + ((base * 19) % 45); // 35 to 80
-        const ry = 8 + ((base * 3) % 12);  // 8 to 20
-        
-        // 지구 곡률에 의한 그림자 효과 적용 (Y좌표가 낮을수록/지평선에 가까울수록 그림자에 가려짐)
-        let finalCloudColor = cloudBaseColor;
-        if (prediction) {
-          const heightRatio = cy / horizonY;
-          if (heightRatio < 0.35 && highColor) {
-            finalCloudColor = highColor;
-          } else if (heightRatio < 0.7 && midColor) {
-            finalCloudColor = midColor;
-          } else if (lowColor) {
-            finalCloudColor = lowColor;
-          }
-        } else if (isSunset) {
-          const heightFactor = (horizonY - cy) / horizonY; // 0.1 ~ 0.9 범위
-          const shadowThreshold = 1.0 - (sunAltitude - (-6.0)) / 8.0; // sunAltitude가 -6에 가까울수록 1.0에 가까워짐
-          
-          if (heightFactor < shadowThreshold) {
-            // 어둠의 진행 정도에 따라 그림자 색과 노을 빛을 믹스
-            const mixRatio = Math.max(0, Math.min(1, heightFactor / shadowThreshold));
-            // 40, 45, 60 (Night Shadow) 와 255, 110, 64 (Sunset Glow) 사이의 색 보간
-            const r = Math.round(40 + (255 - 40) * mixRatio);
-            const g = Math.round(45 + (110 - 45) * mixRatio);
-            const b = Math.round(60 + (64 - 60) * mixRatio);
-            finalCloudColor = Skia.Color(`rgba(${r}, ${g}, ${b}, 0.55)`);
-          }
-        }
-        
-        paintCloud.setColor(finalCloudColor);
-        paintCloud.setAlphaf(0.35 + (base % 4) * 0.1);
-
-        canvas.drawOval(rect(cx - rx, cy - ry, rx * 2, ry * 2), paintCloud);
-      }
-    }
-
-    // 4. 지형 그리기 (산 실루엣 contour)
-    const paintTerrain = Skia.Paint();
-    // 태양 고도가 낮아질수록 실루엣 색상을 어둡게 변경
-    const terrainColorStr = sunAltitude > 2 ? '#222F1E' : sunAltitude > -2 ? '#162013' : '#070A06';
-    paintTerrain.setColor(Skia.Color(terrainColorStr));
-
-    const path = Skia.Path.Make();
-    path.moveTo(0, h);
-    path.lineTo(0, horizonY + 12);
-
-    const segments = 12;
-    for (let i = 1; i <= segments; i++) {
-      const px = (w / segments) * i;
-      // 자연스러운 산 능선을 표현하기 위해 삼각함수 노이즈 적용
-      const offset = Math.sin(i * 1.6) * 9 + Math.cos(i * 0.8) * 4;
-      const py = horizonY + offset;
-      path.lineTo(px, py);
-    }
-    path.lineTo(w, h);
-    path.close();
-
-    canvas.drawPath(path, paintTerrain);
-
-    // 5. 이미지 캡처
-    snapshot = surface.makeImageSnapshot();
-    const base64Bytes = snapshot.encodeToBase64(ImageFormat.JPEG, 85);
-    return `data:image/jpeg;base64,${base64Bytes}`;
-  } catch (error) {
-    console.error('Failed to generate simulation image:', error);
-    return '';
-  } finally {
-    surface = null;
-    snapshot = null;
-  }
+  // 메인 시뮬레이션 Visualizer 뷰 스냅샷으로 전환되었으므로 경고 없이 반환
+  return '';
 };
 
-/**
- * base64 data URI 형태의 이미지를 캐시 디렉토리에 저장하고
- * 알림(expo-notifications)에서 참조 가능한 file:// URI를 반환합니다.
- *
- * @param base64DataUri  `data:image/jpeg;base64,...` 형태의 문자열
- * @param filename       저장 파일명 (예: 'notif_sunset.jpg')
- * @returns              file:// URI, 실패 시 null
- */
 export const saveSimulationImageToCache = async (
   base64DataUri: string,
-  filename: string,
+  filename: string
 ): Promise<string | null> => {
   if (!base64DataUri || !base64DataUri.startsWith('data:')) return null;
   try {
@@ -301,9 +52,10 @@ export const saveSimulationImageToCache = async (
     await FileSystem.writeAsStringAsync(destPath, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    return destPath; // file:// 경로 그대로 반환
+    return destPath;
   } catch (err) {
     console.warn('[saveSimulationImageToCache] Failed:', err);
     return null;
   }
 };
+

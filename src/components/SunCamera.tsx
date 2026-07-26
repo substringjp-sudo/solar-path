@@ -20,7 +20,7 @@ import {
   GoldenTimeInfo,
   ScreenPoint,
 } from '../utils/sunCamera';
-import { getSunPosition } from '../utils/celestial';
+import { getSunPosition, getCelestialEvents } from '../utils/celestial';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -28,6 +28,8 @@ import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
 import { t, Language, translateSunsetDesc } from '../utils/i18n';
+import { captureVisualizerSnapshot } from '../utils/simulationImage';
+import { Visualizer } from './SunsetSimulation/Visualizer';
 
 interface SunCameraProps {
   visible: boolean;
@@ -239,6 +241,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   });
 
   // 촬영 상태
+  const offscreenVisualizerRef = useRef<any>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureResult, setCaptureResult] = useState<string | null>(null);
 
@@ -262,6 +265,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const sunPos = useMemo(() => {
     return getSunPosition(currentTime, latitude, longitude);
   }, [currentTime, latitude, longitude]);
+
+  // ── 동적 일몰/일출 방위각 계산 (현재 날짜 & 위도/경도 물리계산 기준) ──
+  const dynamicEventAzimuths = useMemo(() => {
+    const events = getCelestialEvents(currentTime, latitude, longitude);
+    const sunrisePos = getSunPosition(events.sunrise, latitude, longitude);
+    const sunsetPos = getSunPosition(events.sunset, latitude, longitude);
+    return {
+      sunrise: sunrisePos.azimuth,
+      sunset: sunsetPos.azimuth,
+    };
+  }, [currentTime, latitude, longitude]);
+
+  // ── 오프스크린 시뮬레이터용 29개 다지점 공간 샘플링 시뮬레이션 상태 ──
+  const cameraSimState = useMemo(() => {
+    const pathData = weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : undefined;
+    return {
+      pathData,
+      azimuth: dynamicEventAzimuths.sunset,
+      eventTime: currentTime,
+      terrain: { observerElevation: 50 },
+    };
+  }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset]);
 
   // 하루 태양 궤적
   const trajectory = useMemo(() => {
@@ -677,8 +702,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
       }
 
-      // 1. 사전 생성된 현재 시뮬레이션 이미지 바로 연동 (비동기 생성 방지 및 셔터랙 제거)
+      // 1. 현재 시뮬레이션 이미지 연동 (없을 경우 오프스크린 Visualizer SVG 뷰 스냅샷 즉시 캡처)
       let simUri = currentSimulationUri || '';
+      if (!simUri && offscreenVisualizerRef.current) {
+        try {
+          simUri = await captureVisualizerSnapshot(offscreenVisualizerRef, { quality: 0.85 });
+        } catch (simGenErr) {
+          console.warn('[SunCamera] Failed to capture offscreen Visualizer snapshot:', simGenErr);
+        }
+      }
 
       // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
       const weatherInfo = {
@@ -1246,6 +1278,34 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             <Text style={styles.captureSuccessText}>업로드 성공!</Text>
           </View>
         )}
+
+        {/* Offscreen Visualizer Component for exact capture time simulation snapshot */}
+        <View 
+          style={{ 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            width: W, 
+            height: Math.round(H * 0.38), 
+            zIndex: -9999, 
+            opacity: 0.01 
+          }}
+          pointerEvents="none"
+        >
+          <Visualizer
+            snapshotRef={offscreenVisualizerRef}
+            prediction={predictSunset(weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : [], currentTime, sunPos.altitude, 15000, 50, latitude, 0)}
+            sim={cameraSimState}
+            interpolatedWeather={weatherCacheList && weatherCacheList.length > 0 ? getInterpolatedWeather(weatherCacheList[0].data, currentTime) : []}
+            heading={dynamicEventAzimuths.sunset}
+            visualFov={60}
+            currentTime={currentTime}
+            sunAltitude={sunPos.altitude}
+            eventAzimuths={dynamicEventAzimuths}
+            theme={{ accent: '#FF9800' }}
+            panHandlers={{}}
+          />
+        </View>
       </View>
     </Modal>
   );

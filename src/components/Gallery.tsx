@@ -52,16 +52,8 @@ export const Gallery: React.FC<GalleryProps> = ({
       return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
     }
 
-    // '전체 사진' 탭에서는:
-    return globalPhotos.filter((p: any) => {
-      // 1. 내가 올린 사진은 항상 즉시 노출
-      const isMyPhoto = p.userId === currentUid;
-      if (isMyPhoto) return true;
-      
-      // 2. 다른 사람이 올린 사진은 신변/사생활 보호를 위해 1시간 뒤에 노출
-      const oneHourElapsed = Date.now() - p.timestamp >= 3600000;
-      return oneHourElapsed;
-    });
+    // '전체 사진' 탭에서는 서버에서 전역 동기화된 유저들의 업로드 사진을 표시
+    return globalPhotos;
   }, [globalPhotos, myPhotos, galleryFilter, currentUser]);
 
   return (
