@@ -13,6 +13,7 @@ import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from 
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
 import { generateSimulationImage, saveSimulationImageToCache } from '../utils/simulationImage';
+import { updateSunsetWidgetData } from '../utils/widgetStorage';
 
 
 
@@ -25,6 +26,19 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+// Android 전용 High-Priority 알림 채널 생성 (OS 절전 모드 우회 및 헤드업 팝업 보장)
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('beforeglow-sunset-channel', {
+    name: 'Sunset & Sunrise Alerts',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#FF4500',
+    sound: 'default',
+    enableVibrate: true,
+    enableLights: true,
+  });
+}
 
 const requestNotificationPermission = async () => {
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -43,6 +57,7 @@ const scheduleSunsetNotification = async (
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
+  customIdentifier: string = 'sunset-alert'
 ) => {
   try {
     const effectiveTrigger = triggerTime ?? new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
@@ -53,26 +68,37 @@ const scheduleSunsetNotification = async (
       .replace('{cloud}', cloudLabel)
       .replace('{color}', colorLabel);
 
-    await Notifications.cancelScheduledNotificationAsync('sunset-alert');
+    await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
-      identifier: 'sunset-alert',
+      identifier: customIdentifier,
       content: {
         title,
         body,
         sound: true,
-        // iOS: 알림을 길게 누르면 전체 이미지 표시 (iOS 사양에 맞춘 url, identifier, type 지정)
+        ...(Platform.OS === 'android' ? { channelId: 'beforeglow-sunset-channel' } : {}),
         ...(imageUri ? {
-          attachments: [{
-            url: imageUri,
-            identifier: 'sunset-preview',
-            type: 'public.jpeg',
-            hideThumbnail: false,
-          }],
+          ...(Platform.OS === 'android' ? {
+            android: {
+              notificationStyle: {
+                type: 'bigpicture',
+                picture: imageUri,
+                largeIcon: imageUri,
+              },
+            },
+          } : {}),
+          ...(Platform.OS === 'ios' ? {
+            attachments: [{
+              url: imageUri,
+              identifier: 'sunset-preview',
+              type: 'public.jpeg',
+              hideThumbnail: false,
+            }],
+          } : {}),
         } : {}),
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: effectiveTrigger },
     });
-    if (__DEV__) console.log('[Sunset Notification Scheduled]', effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
+    if (__DEV__) console.log(`[Sunset Notification Scheduled: ${customIdentifier}]`, effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
   } catch (err) {
     console.error('Failed to schedule sunset notification:', err);
   }
@@ -85,6 +111,7 @@ const scheduleSunriseNotification = async (
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
+  customIdentifier: string = 'sunrise-alert'
 ) => {
   try {
     let effectiveTrigger = triggerTime;
@@ -100,25 +127,37 @@ const scheduleSunriseNotification = async (
       .replace('{cloud}', cloudLabel)
       .replace('{color}', colorLabel);
 
-    await Notifications.cancelScheduledNotificationAsync('sunrise-alert');
+    await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
-      identifier: 'sunrise-alert',
+      identifier: customIdentifier,
       content: {
         title,
         body,
         sound: true,
+        ...(Platform.OS === 'android' ? { channelId: 'beforeglow-sunset-channel' } : {}),
         ...(imageUri ? {
-          attachments: [{
-            url: imageUri,
-            identifier: 'sunrise-preview',
-            type: 'public.jpeg',
-            hideThumbnail: false,
-          }],
+          ...(Platform.OS === 'android' ? {
+            android: {
+              notificationStyle: {
+                type: 'bigpicture',
+                picture: imageUri,
+                largeIcon: imageUri,
+              },
+            },
+          } : {}),
+          ...(Platform.OS === 'ios' ? {
+            attachments: [{
+              url: imageUri,
+              identifier: 'sunrise-preview',
+              type: 'public.jpeg',
+              hideThumbnail: false,
+            }],
+          } : {}),
         } : {}),
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: effectiveTrigger },
     });
-    if (__DEV__) console.log('[Sunrise Notification Scheduled]', effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
+    if (__DEV__) console.log(`[Sunrise Notification Scheduled: ${customIdentifier}]`, effectiveTrigger, cloudLabel, colorLabel, imageUri ? '🏞 image attached' : '');
   } catch (err) {
     console.error('Failed to schedule sunrise notification:', err);
   }
@@ -633,6 +672,15 @@ export function useCelestialApp() {
       if (hasTriggerWindow && lastSunsetDateRef.current !== sunsetDateStr) {
         lastSunsetDateRef.current = sunsetDateStr;
         const effectiveTriggerTime = new Date(idealTrigger > Date.now() ? idealTrigger : fallbackTrigger);
+        
+        // 일몰 시간 우선 동기화
+        updateSunsetWidgetData({
+          timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          eventLabel: '오늘의 일몰',
+          cloudLabel: '분석 중...',
+          colorLabel: '예측 정보 수신 중',
+          updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
         const scheduleSunsetAlert = async () => {
           try {
             const hasPermission = await requestNotificationPermission();
@@ -674,14 +722,24 @@ export function useCelestialApp() {
                       console.warn('[AppIcon] Failed to set alternate app icon:', iconErr);
                     }
 
-                    // 알림용 시뮬레이션 이미지 생성 → 캐시 저장
+                    // 알림 및 위젯용 시뮬레이션 이미지 생성 → 위젯 데이터 즉시 갱신
                     try {
                       const sunAltDeg = getSunPosition(sunsetTime, lat, lon).altitude * (180 / Math.PI);
                       const overcast = prediction.factors?.overheadOvercast ?? 0.3;
                       const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
                       sunsetNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunset.jpg') : null;
+
+                      // 홈 화면 반응형 위젯 데이터 실시간 갱신
+                      updateSunsetWidgetData({
+                        timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+                        eventLabel: '오늘의 일몰',
+                        cloudLabel,
+                        colorLabel,
+                        simulationBase64: b64 ? `data:image/jpeg;base64,${b64}` : null,
+                        updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      });
                     } catch (imgErr) {
-                      console.warn('[Notification] Simulation image generation failed:', imgErr);
+                      console.warn('[Notification/Widget] Simulation image generation failed:', imgErr);
                     }
                   }
                 }
@@ -690,9 +748,22 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed, using default labels:', weatherErr);
             }
 
-            await scheduleSunsetNotification(sunsetTime, cloudLabel, colorLabel, language, effectiveTriggerTime, sunsetNotifImageUri);
+            // 향후 7일간 다일 사전 알림 스케줄링 (앱을 일주일 동안 켜지 않아도 OS 스케줄러가 매일 일몰 2시간 전에 3D 시뮬레이션 알림 발송)
+            for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+              const futureDate = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000);
+              const dayEvents = getCelestialEvents(futureDate, lat, lon);
+              if (!dayEvents.sunset) continue;
+
+              const fSunset = dayEvents.sunset;
+              const fIdealTrigger = fSunset.getTime() - 2 * 60 * 60 * 1000;
+              if (fIdealTrigger <= Date.now() && dayOffset > 0) continue;
+
+              const notifId = `sunset-alert-day-${dayOffset}`;
+              const triggerTime = new Date(fIdealTrigger > Date.now() ? fIdealTrigger : Date.now() + (5 + dayOffset) * 60 * 1000);
+              await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId);
+            }
           } catch (err) {
-            console.error('Failed to schedule sunset notification:', err);
+            console.error('Failed to schedule multi-day sunset notifications:', err);
             lastSunsetDateRef.current = null;
           }
         };
