@@ -12,7 +12,7 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
-import { generateSimulationImage, saveSimulationImageToCache } from '../utils/simulationImage';
+import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
 import { updateSunsetWidgetData } from '../utils/widgetStorage';
 
 
@@ -77,6 +77,12 @@ const scheduleSunsetNotification = async (
         sound: true,
         ...(Platform.OS === 'android' ? { channelId: 'beforeglow-sunset-channel' } : {}),
         ...(imageUri ? {
+          attachments: [{
+            url: imageUri,
+            identifier: 'sunset-preview',
+            type: 'public.jpeg',
+            hideThumbnail: false,
+          }],
           ...(Platform.OS === 'android' ? {
             android: {
               notificationStyle: {
@@ -85,14 +91,6 @@ const scheduleSunsetNotification = async (
                 largeIcon: imageUri,
               },
             },
-          } : {}),
-          ...(Platform.OS === 'ios' ? {
-            attachments: [{
-              url: imageUri,
-              identifier: 'sunset-preview',
-              type: 'public.jpeg',
-              hideThumbnail: false,
-            }],
           } : {}),
         } : {}),
       },
@@ -727,15 +725,22 @@ export function useCelestialApp() {
                       const sunAltDeg = getSunPosition(sunsetTime, lat, lon).altitude * (180 / Math.PI);
                       const overcast = prediction.factors?.overheadOvercast ?? 0.3;
                       const b64 = await generateSimulationImage(sunAltDeg, overcast, Date.now() & 0xFFFF, prediction);
-                      sunsetNotifImageUri = b64 ? await saveSimulationImageToCache(b64, 'notif_sunset.jpg') : null;
+                      let resImages = null;
+                      if (b64) {
+                        sunsetNotifImageUri = await saveSimulationImageToCache(b64, 'notif_sunset.jpg');
+                        resImages = await compressToWidgetSizes(`data:image/jpeg;base64,${b64}`, 'widget_sunset');
+                      }
 
-                      // 홈 화면 반응형 위젯 데이터 실시간 갱신
+                      // 홈 화면 반응형 위젯 데이터 실시간 갱신 (Small/Medium/Large 3단계 해상도 지원)
                       updateSunsetWidgetData({
                         timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
                         eventLabel: '오늘의 일몰',
                         cloudLabel,
                         colorLabel,
-                        simulationBase64: b64 ? `data:image/jpeg;base64,${b64}` : null,
+                        simulationUri: sunsetNotifImageUri,
+                        simulationSmallUri: resImages?.small || sunsetNotifImageUri,
+                        simulationMediumUri: resImages?.medium || sunsetNotifImageUri,
+                        simulationLargeUri: resImages?.large || sunsetNotifImageUri,
                         updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                       });
                     } catch (imgErr) {
@@ -747,6 +752,9 @@ export function useCelestialApp() {
             } catch (weatherErr) {
               console.warn('[Notification] Weather fetch failed, using default labels:', weatherErr);
             }
+
+            // 기존 중복/구형 예약 알림 전량 취소하여 동일 시각 중복 수신 완벽 방지
+            await Notifications.cancelAllScheduledNotificationsAsync();
 
             // 향후 7일간 다일 사전 알림 스케줄링 (앱을 일주일 동안 켜지 않아도 OS 스케줄러가 매일 일몰 2시간 전에 3D 시뮬레이션 알림 발송)
             for (let dayOffset = 0; dayOffset < 7; dayOffset++) {

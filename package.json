@@ -7,13 +7,16 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "send-emails": "node functions/send-bulk.js"
+    "send-emails": "node functions/send-bulk.js",
+    "build:apk": "eas build -p android --profile preview --local --output=./app-release.apk",
+    "build:install": "bash scripts/build-and-install.sh"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "^8.4.4",
     "@react-native-community/netinfo": "11.4.1",
     "@shopify/react-native-skia": "2.2.12",
+    "@types/three": "^0.185.1",
     "d3-geo": "^3.1.1",
     "date-fns": "^4.1.0",
     "expo": "~54.0.35",
@@ -22,6 +25,7 @@
     "expo-dev-client": "~6.0.21",
     "expo-dynamic-app-icon": "^1.2.0",
     "expo-file-system": "^19.0.23",
+    "expo-gl": "~16.0.10",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "^17.0.11",
     "expo-location": "~19.0.8",
@@ -30,6 +34,7 @@
     "expo-sensors": "~15.0.8",
     "expo-splash-screen": "^31.0.13",
     "expo-status-bar": "~3.0.9",
+    "expo-three": "^8.0.0",
     "expo-updates": "~29.0.19",
     "firebase": "^12.13.0",
     "lucide-react-native": "^0.473.0",
@@ -45,6 +50,7 @@
     "react-native-webview": "^13.15.0",
     "react-native-worklets": "0.5.1",
     "suncalc": "^1.9.0",
+    "three": "^0.185.1",
     "topojson-client": "^3.1.0",
     "zustand": "^5.0.3"
   },

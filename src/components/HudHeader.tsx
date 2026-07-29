@@ -1,16 +1,52 @@
-import React, { useMemo, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform, Modal, Pressable } from 'react-native';
 import { addDays, subDays } from 'date-fns';
-import { MapPin, ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings, ChevronDown, Lock, Sun, Cloud, Star, Image as ImageIcon } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { t } from '../utils/i18n';
 
-const TAB_ORDER: ('tracker' | 'sim' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'gallery', 'isoline'];
+export type CategoryType = 'sun' | 'cloud' | 'star' | 'gallery';
+export type TabType = 'tracker' | 'sim' | 'isoline' | 'rainbow' | 'all' | 'my';
+
+export const CATEGORY_TABS: Record<CategoryType, { id: TabType; labelKey: string; disabled?: boolean }[]> = {
+  sun: [
+    { id: 'tracker', labelKey: 'tracker' },
+    { id: 'sim', labelKey: 'simulation' },
+    { id: 'isoline', labelKey: 'isolineTab' },
+  ],
+  cloud: [
+    { id: 'tracker', labelKey: 'tracker' },
+    { id: 'rainbow', labelKey: 'rainbowTab', disabled: true },
+  ],
+  star: [
+    { id: 'tracker', labelKey: 'tracker', disabled: true },
+  ],
+  gallery: [
+    { id: 'all', labelKey: 'allTab' },
+    { id: 'my', labelKey: 'myTab' },
+  ],
+};
+
+const renderCategoryIcon = (cat: CategoryType, color: string = '#FFF', size: number = 14) => {
+  switch (cat) {
+    case 'sun': return <Sun size={size} color="#FFD700" />;
+    case 'cloud': return <Cloud size={size} color="#88C0D0" />;
+    case 'star': return <Star size={size} color="#E5E9F0" />;
+    case 'gallery': return <ImageIcon size={size} color="#D8DEE9" />;
+  }
+};
+
+const CATEGORY_NAMES: Record<CategoryType, string> = {
+  sun: 'catSun',
+  cloud: 'catCloud',
+  star: 'catStar',
+  gallery: 'catGallery',
+};
 
 interface HudHeaderProps {
-  activeTab: 'tracker' | 'sim' | 'gallery' | 'isoline';
-  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery' | 'isoline') => void;
+  activeTab: string;
+  setActiveTab: (tab: any) => void;
   setSavedListVisible: (visible: boolean) => void;
   setSettingsVisible: (visible: boolean) => void;
   handleSaveLocation: () => void;
@@ -43,28 +79,43 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   timezoneLabel,
   isSimulationLoading = false,
 }) => {
-  const { currentTime, location, timezoneOffsetHours, language } = useCelestialStore();
-  const isDay = activeTab === 'tracker' ? theme.bg === '#E8EDF2' : true; // 기본 낮 밤 계산 백업
-  
-  const tabIndicatorAnim = useRef(new Animated.Value(TAB_ORDER.indexOf(activeTab))).current;
+  const { currentTime, timezoneOffsetHours, language, selectedCategory, setSelectedCategory } = useCelestialStore();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  const currentTabs = useMemo(() => CATEGORY_TABS[selectedCategory] || CATEGORY_TABS.sun, [selectedCategory]);
+  const currentTabIds = useMemo(() => currentTabs.map(t => t.id), [currentTabs]);
+
+  const activeTabIndex = useMemo(() => {
+    const idx = currentTabIds.indexOf(activeTab as TabType);
+    return idx >= 0 ? idx : 0;
+  }, [currentTabIds, activeTab]);
+
+  const tabIndicatorAnim = useRef(new Animated.Value(activeTabIndex)).current;
 
   useEffect(() => {
-    const tabIndex = TAB_ORDER.indexOf(activeTab);
-
     Animated.timing(tabIndicatorAnim, {
-      toValue: tabIndex,
-      duration: 300,
-      // 인디케이터 위치를 %(레이아웃 속성)로 애니메이션하므로 네이티브 드라이버를 사용할 수 없습니다.
+      toValue: activeTabIndex,
+      duration: 250,
       useNativeDriver: false,
     }).start();
-  }, [activeTab]);
+  }, [activeTabIndex]);
 
-  const tabCount = TAB_ORDER.length;
+  const tabCount = currentTabs.length;
   const indicatorLeft = tabIndicatorAnim.interpolate({
-    inputRange: TAB_ORDER.map((_, i) => i),
-    outputRange: TAB_ORDER.map((_, i) => `${(i * 100) / tabCount}%`),
+    inputRange: currentTabIds.map((_, i) => i),
+    outputRange: currentTabIds.map((_, i) => `${(i * 100) / tabCount}%`),
   });
-  
+
+  const handleCategorySelect = (cat: CategoryType) => {
+    if (cat === 'star') return; // 별 카테고리는 미완성 비활성화
+    setDropdownOpen(false);
+    setSelectedCategory(cat);
+    
+    // 카테고리 변경 시 첫 번째 활성 탭으로 스위칭
+    const firstActiveTab = CATEGORY_TABS[cat].find(t => !t.disabled)?.id || 'tracker';
+    setActiveTab(firstActiveTab);
+  };
+
   // 현지 기준의 오늘(Today) 가상 날짜
   const isTodayLocal = useMemo(() => {
     const todayLocal = getLocalTimeAtLocation(new Date(), timezoneOffsetHours);
@@ -77,6 +128,20 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
+        {/* Category Dropdown Button */}
+        <TouchableOpacity
+          onPress={() => setDropdownOpen(true)}
+          style={[styles.categoryDropdownBtn, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}
+          activeOpacity={0.7}
+        >
+          {renderCategoryIcon(selectedCategory, theme.text, 14)}
+          <Text style={[styles.categoryText, { color: theme.text }]}>
+            {t(CATEGORY_NAMES[selectedCategory] as any, language)}
+          </Text>
+          <ChevronDown size={14} color={theme.text} />
+        </TouchableOpacity>
+
+        {/* Dynamic Sub-Tab Navigator */}
         <Animated.View style={[styles.navToggle, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
           <Animated.View
             style={[
@@ -88,22 +153,34 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
               }
             ]}
           />
-          {TAB_ORDER.map((tabKey) => (
-            <TouchableOpacity
-              key={tabKey}
-              onPress={() => setActiveTab(tabKey)}
-              style={styles.navButton}
-            >
-              <Animated.Text
-                numberOfLines={1}
-                style={[styles.navText, { color: activeTab === tabKey ? theme.bg : dynamicTheme.subText }]}
+          {currentTabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            const isDisabled = !!tab.disabled;
+
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                onPress={() => !isDisabled && setActiveTab(tab.id)}
+                disabled={isDisabled}
+                style={[styles.navButton, isDisabled && { opacity: 0.35 }]}
               >
-                {t(tabKey === 'tracker' ? 'tracker' : tabKey === 'sim' ? 'simulation' : tabKey === 'gallery' ? 'gallery' : 'isolineTab', language)}
-              </Animated.Text>
-            </TouchableOpacity>
-          ))}
+                <Animated.Text
+                  numberOfLines={1}
+                  style={[
+                    styles.navText,
+                    { color: isActive ? theme.bg : dynamicTheme.subText },
+                    isDisabled && { textDecorationLine: 'line-through' }
+                  ]}
+                >
+                  {t(tab.labelKey as any, language)}
+                  {isDisabled ? ' 🔒' : ''}
+                </Animated.Text>
+              </TouchableOpacity>
+            );
+          })}
         </Animated.View>
- 
+
+        {/* Right Utility Buttons */}
         <View style={styles.rightButtonsContainer}>
           <TouchableOpacity 
             onPress={() => setSettingsVisible(true)}
@@ -112,7 +189,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
             <Settings size={14} color={theme.text} />
           </TouchableOpacity>
 
-          {/* AR 촬영 버튼 — 골든타임(일출/일몰 전후 2.5시간)에만 활성화, 롱프레스로 우회 진입 가능 */}
+          {/* AR 촬영 버튼 */}
           <TouchableOpacity
             disabled={isSimulationLoading || !goldenTimeInfo.isActive}
             onPress={handleCameraPress}
@@ -140,7 +217,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
                       backgroundColor: theme.glass, 
                       borderColor: theme.border, 
                       borderWidth: 1,
-                      opacity: 0.2, // 비활성화 상태임을 알 수 있도록 매우 낮은 명도로 조율
+                      opacity: 0.2,
                     }
             ]}
           >
@@ -148,8 +225,9 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           </TouchableOpacity>
         </View>
       </View>
- 
-      {activeTab !== 'gallery' && (
+
+      {/* Date Navigator Bar */}
+      {selectedCategory !== 'gallery' && (
         <Animated.View style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}>
           <TouchableOpacity onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))} style={styles.dateControl}>
             <ChevronLeft size={16} color={theme.text} />
@@ -166,8 +244,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
               </View>
             )}
           </TouchableOpacity>
-   
-          {/* 오른쪽 영역: 다음 날 + Today 버튼을 하나의 row로 묶어 겹침 방지 */}
+
           <View style={styles.dateRightControls}>
             {!isTodayLocal && (
               <TouchableOpacity 
@@ -184,6 +261,50 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
           </View>
         </Animated.View>
       )}
+
+      {/* Category Selection Modal Popup */}
+      <Modal
+        visible={dropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDropdownOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setDropdownOpen(false)}>
+          <View style={[styles.dropdownMenu, { backgroundColor: '#1C1924', borderColor: 'rgba(255,255,255,0.15)' }]}>
+            <Text style={styles.dropdownTitle}>카테고리 선택</Text>
+            {(['sun', 'cloud', 'star', 'gallery'] as CategoryType[]).map((cat) => {
+              const isSelected = selectedCategory === cat;
+              const isDisabled = cat === 'star';
+
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  disabled={isDisabled}
+                  onPress={() => handleCategorySelect(cat)}
+                  style={[
+                    styles.dropdownItem,
+                    isSelected && styles.dropdownItemSelected,
+                    isDisabled && { opacity: 0.35 }
+                  ]}
+                >
+                  <View style={styles.dropdownItemLeft}>
+                    {renderCategoryIcon(cat, '#FFF', 16)}
+                    <Text style={[styles.dropdownItemText, isSelected && { color: '#FF9800', fontWeight: '900' }]}>
+                      {t(CATEGORY_NAMES[cat] as any, language)}
+                    </Text>
+                  </View>
+                  {isDisabled && (
+                    <View style={styles.disabledBadge}>
+                      <Lock size={10} color="#AAA" />
+                      <Text style={styles.disabledText}>{t('comingSoon' as any, language)}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -191,15 +312,32 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
 const styles = StyleSheet.create({
   header: {
     paddingTop: 5,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     marginBottom: 5,
     gap: 4,
   },
   headerTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
+    gap: 6,
+  },
+  categoryDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 18,
+    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
+    gap: 4,
+  },
+  categoryIcon: {
+    fontSize: 13,
+  },
+  categoryText: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: -0.3,
   },
   navToggle: {
     flexDirection: 'row',
@@ -207,8 +345,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: Platform.OS === 'android' ? 0.5 : 1,
     flex: 1,
-    maxWidth: 340,
-    marginRight: 10,
     position: 'relative',
   },
   navIndicator: {
@@ -233,31 +369,23 @@ const styles = StyleSheet.create({
   rightButtonsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   settingsOpenBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   cameraOpenBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   dateNavigator: {
     flexDirection: 'row',
@@ -267,7 +395,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 16,
     borderWidth: Platform.OS === 'android' ? 0.5 : 1,
-    height: 40,
+    height: 38,
   },
   dateControl: {
     padding: 4,
@@ -309,5 +437,69 @@ const styles = StyleSheet.create({
   timezoneText: {
     fontSize: 9,
     fontWeight: '800',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-start',
+    paddingTop: 60,
+    paddingHorizontal: 16,
+  },
+  dropdownMenu: {
+    borderRadius: 20,
+    padding: 12,
+    borderWidth: 1,
+    gap: 4,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  dropdownTitle: {
+    color: '#888',
+    fontSize: 10,
+    fontWeight: '800',
+    marginBottom: 6,
+    marginLeft: 8,
+    letterSpacing: 0.5,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+  },
+  dropdownItemSelected: {
+    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+  },
+  dropdownItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dropdownItemIcon: {
+    fontSize: 16,
+  },
+  dropdownItemText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  disabledBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  disabledText: {
+    color: '#AAA',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });

@@ -20,16 +20,21 @@ import {
   GoldenTimeInfo,
   ScreenPoint,
 } from '../utils/sunCamera';
-import { getSunPosition, getCelestialEvents } from '../utils/celestial';
+import { getSunPosition, getMoonPosition, getCelestialEvents } from '../utils/celestial';
+import { getCalculatedStars, CONSTELLATION_LINES_DATA } from '../utils/celestialStarsData';
+import { getCalculatedMilkyWay } from '../utils/celestialMilkyWayData';
+import { getCalculatedPlanets } from '../utils/celestialPlanets';
+import { generate29GridPoints, computeCloudCellData } from '../utils/cloudMatrix';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useCelestialStore } from '../store/useCelestialStore';
+import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
 import { t, Language, translateSunsetDesc } from '../utils/i18n';
 import { captureVisualizerSnapshot } from '../utils/simulationImage';
 import { Visualizer } from './SunsetSimulation/Visualizer';
+import { PostDetailModal } from './PostDetailModal';
 
 interface SunCameraProps {
   visible: boolean;
@@ -259,12 +264,53 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 당시 메타데이터 상태
   const [capturedWeatherInfo, setCapturedWeatherInfo] = useState<any>(null);
   const [capturedSimSample, setCapturedSimSample] = useState<any>(null);
+  const [uploadedPhotoForModal, setUploadedPhotoForModal] = useState<MyPhoto | null>(null);
 
+
+  // AR 멀티 레이어 활성화 토글 상태
+  const [arLayers, setArLayers] = useState({
+    sun: true,
+    moon: true,
+    planets: true,
+    stars: true,
+    milkyWay: true,
+    clouds: true,
+  });
+
+  const toggleArLayer = (layerKey: keyof typeof arLayers) => {
+    setArLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
+  };
 
   // 현재 태양 위치
   const sunPos = useMemo(() => {
     return getSunPosition(currentTime, latitude, longitude);
   }, [currentTime, latitude, longitude]);
+
+  // 현재 달 위치
+  const moonPos = useMemo(() => {
+    return getMoonPosition(currentTime, latitude, longitude);
+  }, [currentTime, latitude, longitude]);
+
+  // 현재 5대 행성 위치
+  const planetsPos = useMemo(() => {
+    return getCalculatedPlanets(latitude, longitude, currentTime);
+  }, [latitude, longitude, currentTime]);
+
+  // 현재 오프라인 주요 별 위치
+  const starsPos = useMemo(() => {
+    return getCalculatedStars(latitude, longitude, currentTime);
+  }, [latitude, longitude, currentTime]);
+
+  // 현재 은하수 궤적 위치
+  const milkyWayPos = useMemo(() => {
+    return getCalculatedMilkyWay(latitude, longitude, currentTime);
+  }, [latitude, longitude, currentTime]);
+
+  // 주변 200km 반경 29개 구름 셀 위치
+  const cloudCellsPos = useMemo(() => {
+    const grid = generate29GridPoints(latitude, longitude);
+    return grid.map(pt => computeCloudCellData(pt, 0));
+  }, [latitude, longitude]);
 
   // ── 동적 일몰/일출 방위각 계산 (현재 날짜 & 위도/경도 물리계산 기준) ──
   const dynamicEventAzimuths = useMemo(() => {
@@ -469,12 +515,32 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [visible]);
 
-  // 센서 캘리브레이션 초기화
+  // 센서 캘리브레이션 초기화 (기본)
   const handleCalibrate = useCallback(() => {
     filterRef.current.initialized = false;
     northOffsetInitialized.current = false; // 진북 보정도 리셋
     Alert.alert(t('calibratedTitle', language), t('calibratedMsg', language));
   }, [language]);
+
+  // ── Sun-Snap Calibration (태양 위치 기반 정밀 AR 보정) ──────────────────────────
+  // 사용자가 화면 중앙에 태양(또는 일몰 방향)을 맞추고 탭하면
+  // 실제 천문학적 태양 방위각(sunPos.azimuth)으로 AR 오버레이를 ±1° 이내로 정밀 맞춤.
+  const handleSunSnap = useCallback(() => {
+    const rawHeading = rawGyroHeadingRef.current;
+    const trueSunAz = sunPos.azimuth; // SunCalc 계산 방위각
+
+    let offset = trueSunAz - rawHeading;
+    offset = ((offset + 540) % 360) - 180;
+
+    northOffsetRef.current = offset;
+    northOffsetInitialized.current = true;
+
+    Alert.alert(
+      '☀️ Sun-Snap 보정 완료',
+      `태양 실제 방위각(${Math.round(trueSunAz)}°)에 AR 시뮬레이션이 정밀 고정되었습니다.`,
+      [{ text: '확인' }]
+    );
+  }, [sunPos.azimuth]);
 
   // 오프셋 없이 물리 장치 방위각/고도각 그대로 사용
   const effectiveAz = useMemo(() => {
@@ -495,6 +561,49 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       80, // 수직 FOV
     );
   }, [deviceRotation, sunPos.azimuth, sunPos.altitude]);
+
+  // 달 화면 좌표 계산
+  const moonScreenPos = useMemo((): ScreenPoint => {
+    return getSunScreenPosition(deviceRotation, moonPos.azimuth, moonPos.altitude, 60, 80);
+  }, [deviceRotation, moonPos.azimuth, moonPos.altitude]);
+
+  // 행성 화면 좌표 계산
+  const planetsScreenPos = useMemo(() => {
+    return planetsPos.map(p => ({
+      ...p,
+      screen: getSunScreenPosition(deviceRotation, p.azimuth, p.altitude, 60, 80),
+    }));
+  }, [deviceRotation, planetsPos]);
+
+  // 별 화면 좌표 계산 (지평선 위 상공 별만 계산)
+  const starsScreenPos = useMemo(() => {
+    return starsPos
+      .filter(s => s.altitude > -10)
+      .map(s => ({
+        ...s,
+        screen: getSunScreenPosition(deviceRotation, s.azimuth, s.altitude, 60, 80),
+      }));
+  }, [deviceRotation, starsPos]);
+
+  // 은하수 궤적 화면 좌표 변환
+  const milkyWayScreenPoints = useMemo(() => {
+    return milkyWayPos.map(pt => ({
+      ...pt,
+      screen: getSunScreenPosition(deviceRotation, pt.azimuth, pt.altitude, 60, 80),
+    }));
+  }, [deviceRotation, milkyWayPos]);
+
+  // 200km 구름 29개 셀 화면 좌표 변환 (거리 50~200km에 따른 가상 고도각 5~25도 투영)
+  const cloudsScreenPoints = useMemo(() => {
+    return cloudCellsPos.map(c => {
+      // 0km = 고도 45°, 50km = 25°, 100km = 15°, 200km = 8° (시야 투영)
+      const virtAlt = c.distanceKm === 0 ? 45 : c.distanceKm <= 50 ? 25 : c.distanceKm <= 100 ? 15 : 8;
+      return {
+        ...c,
+        screen: getSunScreenPosition(deviceRotation, c.bearingDeg, virtAlt, 60, 80),
+      };
+    });
+  }, [deviceRotation, cloudCellsPos]);
 
   // 태양 궤적의 화면 좌표 변환
   const trajectoryScreenPoints = useMemo(() => {
@@ -755,11 +864,23 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 업로드 및 공유 처리
   const handleUpload = useCallback(async () => {
     if (!previewUri || isUploading) return;
+
+    // 0. 엄격한 로그인 인증 상태 검증
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert(
+        language === 'ko' ? '로그인 필요' : 'Login Required',
+        language === 'ko'
+          ? '게시물을 등록하려면 정식 로그인이 필요합니다. 로그인 후 다시 시도해 주세요.'
+          : 'Please log in to upload and share posts.'
+      );
+      return;
+    }
+
     setIsUploading(true);
 
     try {
-      // 1. 휴대폰 갤러리에 저장
-      let savedToLibrary = false;
+      // 1. 휴대폰 갤러리에 저장 시도
       let finalSaveUri = previewUri;
 
       if (previewUri.startsWith('data:')) {
@@ -777,90 +898,97 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       }
 
       if (mediaPermission?.granted) {
-        await MediaLibrary.saveToLibraryAsync(finalSaveUri);
-        savedToLibrary = true;
+        try {
+          await MediaLibrary.saveToLibraryAsync(finalSaveUri);
+        } catch (memErr) {
+          console.warn('[SunCamera] MediaLibrary save failed, continuing server upload:', memErr);
+        }
       } else {
         const { granted } = await requestMediaPermission();
         if (granted) {
-          await MediaLibrary.saveToLibraryAsync(finalSaveUri);
-          savedToLibrary = true;
-        } else {
-          Alert.alert(t('permissionRequired', language), t('galleryPermissionRequiredMsg', language));
-          setIsUploading(false);
-          return;
+          try {
+            await MediaLibrary.saveToLibraryAsync(finalSaveUri);
+          } catch (memErr) {
+            console.warn('[SunCamera] MediaLibrary save failed:', memErr);
+          }
         }
       }
 
       // 2. 서버 업로드 및 지도 데이터베이스 연동
-      const user = auth.currentUser;
-      if (user && savedToLibrary) {
-        // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
-        const manipulated = await ImageManipulator.manipulateAsync(
-          finalSaveUri,
-          [{ resize: { width: 600 } }],
-          { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
-        );
+      // expo-image-manipulator를 통한 대폭 압축 및 리사이징 (width 600, compress 0.4)
+      const manipulated = await ImageManipulator.manipulateAsync(
+        finalSaveUri,
+        [{ resize: { width: 600 } }],
+        { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
+      );
 
-        // 시뮬레이션 사진 압축
-        let manipulatedSimUri = undefined;
-        if (simPreviewUri) {
-          try {
-            let finalSimSaveUri = simPreviewUri;
-            if (simPreviewUri.startsWith('data:')) {
-              const simBase64Data = simPreviewUri.split(';base64,')[1];
-              const tempSimFileUri = `${FileSystem.cacheDirectory}sim_photo_${Date.now()}.jpg`;
-              await FileSystem.writeAsStringAsync(tempSimFileUri, simBase64Data, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              finalSimSaveUri = tempSimFileUri;
-            }
-
-            const manipulatedSim = await ImageManipulator.manipulateAsync(
-              finalSimSaveUri,
-              [{ resize: { width: 400 } }],
-              { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
-            );
-            manipulatedSimUri = manipulatedSim.uri;
-          } catch (simCompressErr) {
-            console.warn('Failed to compress simulation image:', simCompressErr);
-            manipulatedSimUri = simPreviewUri;
-          }
-        }
-
-        const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
-        let uploadedLocationName = '';
+      // 시뮬레이션 사진 압축
+      let manipulatedSimUri = undefined;
+      if (simPreviewUri) {
         try {
-          uploadedLocationName = await uploadAndPostPhoto(
-            manipulated.uri,
-            latitude,
-            longitude,
-            locationName,
-            landscapeScore,
-            weatherScore,
-            capturedWeatherInfo,
-            capturedSimSample,
-            manipulatedSimUri,
-            deviceAzimuthRef.current,
-            devicePitchRef.current
+          let finalSimSaveUri = simPreviewUri;
+          if (simPreviewUri.startsWith('data:')) {
+            const simBase64Data = simPreviewUri.split(';base64,')[1];
+            const tempSimFileUri = `${FileSystem.cacheDirectory}sim_photo_${Date.now()}.jpg`;
+            await FileSystem.writeAsStringAsync(tempSimFileUri, simBase64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            finalSimSaveUri = tempSimFileUri;
+          }
+
+          const manipulatedSim = await ImageManipulator.manipulateAsync(
+            finalSimSaveUri,
+            [{ resize: { width: 400 } }],
+            { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
           );
-          Alert.alert(t('uploadSuccess', language), t('uploadSuccessWithLocation', language).replace('{location}', uploadedLocationName));
-        } catch (uploadErr: any) {
-          console.error('[SunCamera] Server upload failed:', uploadErr);
-          Alert.alert(t('error', language) || 'Error', `Failed to upload photo: ${uploadErr.message || uploadErr}`);
+          manipulatedSimUri = manipulatedSim.uri;
+        } catch (simCompressErr) {
+          console.warn('Failed to compress simulation image:', simCompressErr);
+          manipulatedSimUri = simPreviewUri;
         }
-      } else if (!user) {
-        Alert.alert(t('saveSuccess', language), t('saveSuccessMsg', language));
       }
 
-      // 성공 후 상태 초기화 및 닫기
-      setCaptureResult(previewUri);
-      setTimeout(() => {
-        setCaptureResult(null);
-        setPreviewUri(null);
-        setSimPreviewUri(null);
-        setIsUploading(false);
-        onClose(); // 업로드 완료 후 카메라 화면 닫기
-      }, 1500);
+      const locationName = `AR Sunset at ${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
+      let uploadedLocationName = '';
+      try {
+        uploadedLocationName = await uploadAndPostPhoto(
+          manipulated.uri,
+          latitude,
+          longitude,
+          locationName,
+          landscapeScore,
+          weatherScore,
+          capturedWeatherInfo,
+          capturedSimSample,
+          manipulatedSimUri,
+          deviceAzimuthRef.current,
+          devicePitchRef.current
+        );
+
+        // 3. 업로드 성공 즉시 게시물 상세 미리보기 모달 100% 팝업!
+        setUploadedPhotoForModal({
+          id: `temp_${Date.now()}`,
+          latitude,
+          longitude,
+          imageUrl: manipulated.uri,
+          timestamp: Date.now(),
+          locationName: uploadedLocationName || '서울특별시',
+          weatherInfo: capturedWeatherInfo,
+          simulationLocalUri: manipulatedSimUri,
+          isPublic: false, // 초기 상태 비공개
+        });
+      } catch (uploadErr: any) {
+        console.error('[SunCamera] Server upload failed:', uploadErr);
+        Alert.alert(
+          language === 'ko' ? '업로드 오류' : 'Upload Error',
+          `Failed to upload photo: ${uploadErr.message || uploadErr}`
+        );
+      }
+
+      // 성공 후 프리뷰 초기화
+      setPreviewUri(null);
+      setSimPreviewUri(null);
+      setIsUploading(false);
 
     } catch (uploadError: any) {
       console.error('[SunCamera] Upload failed:', uploadError);
@@ -1092,50 +1220,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 </>
               )}
 
-              {/* 완성도 개선 시까지 AR 가이드 오버레이 그래픽 일시 비활성화 */}
-              {false && (
+              {/* AR 멀티 레이어 오버레이 렌더링 */}
+              {true && (
                 <>
-                  {trajectoryPathD.length > 0 && (
+                  {/* 1. 태양 궤적 (Sun Layer) */}
+                  {arLayers.sun && trajectoryPathD.length > 0 && (
                     <Path
                       d={trajectoryPathD}
-                      stroke="rgba(255,215,0,0.35)"
+                      stroke="rgba(255,215,0,0.45)"
                       strokeWidth={2}
                       strokeDasharray="6,4"
                       fill="none"
                     />
                   )}
 
-                  {trajectoryScreenPoints
-                    .filter((_, i) => i % 6 === 0)
-                    .filter(p => p.screen.isVisible)
-                    .map((p, i) => {
-                      const px = p.screen.x * W;
-                      const py = p.screen.y * H;
-                      const hour = p.time.getHours();
-                      return (
-                        <React.Fragment key={`tick-${i}`}>
-                          <Circle cx={px} cy={py} r={3} fill="rgba(255,215,0,0.5)" />
-                          <SvgText
-                            x={px}
-                            y={py - 10}
-                            fill="rgba(255,255,255,0.7)"
-                            fontSize={10}
-                            fontWeight="bold"
-                            textAnchor="middle"
-                          >
-                            {`${hour}:00`}
-                          </SvgText>
-                        </React.Fragment>
-                      );
-                    })}
-
+                  {/* 2. 수평선 가이드 라인 */}
                   {(() => {
                     const horizonY = getSunScreenPosition(deviceRotation, deviceAzimuth, 0, 60, 80).y * H;
                     if (horizonY > 0 && horizonY < H) {
                       return (
                         <Line
                           x1={0} y1={horizonY} x2={W} y2={horizonY}
-                          stroke="rgba(255,255,255,0.15)"
+                          stroke="rgba(255,255,255,0.2)"
                           strokeWidth={1}
                           strokeDasharray="10,5"
                         />
@@ -1144,40 +1250,132 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     return null;
                   })()}
 
-                  {sunScreenPos.isVisible && sunPos.altitude > -5 && (
+                  {/* 3. 태양 노드 (Sun Layer) */}
+                  {arLayers.sun && sunScreenPos.isVisible && sunPos.altitude > -5 && (
                     <>
                       <Circle
                         cx={sunScreenPos.x * W}
                         cy={sunScreenPos.y * H}
                         r={30}
-                        fill="rgba(255,200,50,0.12)"
+                        fill="rgba(255,200,50,0.2)"
+                        stroke="#FFD700"
+                        strokeWidth={1.5}
                       />
                       <Circle
                         cx={sunScreenPos.x * W}
                         cy={sunScreenPos.y * H}
-                        r={18}
-                        fill="rgba(255,215,0,0.2)"
-                      />
-                      <Circle
-                        cx={sunScreenPos.x * W}
-                        cy={sunScreenPos.y * H}
-                        r={8}
-                        fill="#FFD700"
-                        stroke="rgba(255,160,0,0.6)"
-                        strokeWidth={2}
+                        r={16}
+                        fill="#FFA500"
                       />
                       <SvgText
                         x={sunScreenPos.x * W}
-                        y={sunScreenPos.y * H + 28}
+                        y={sunScreenPos.y * H - 36}
                         fill="#FFD700"
                         fontSize={11}
-                        fontWeight="bold"
+                        fontWeight="900"
                         textAnchor="middle"
                       >
-                        {`${sunPos.altitude.toFixed(1)}°`}
+                        ☀️ 태양 ({Math.round(sunPos.altitude)}°)
                       </SvgText>
                     </>
                   )}
+
+                  {/* 4. 달 노드 (Moon Layer) */}
+                  {arLayers.moon && moonScreenPos.isVisible && (
+                    <>
+                      <Circle
+                        cx={moonScreenPos.x * W}
+                        cy={moonScreenPos.y * H}
+                        r={22}
+                        fill="rgba(220,230,242,0.2)"
+                        stroke="#ECEFF4"
+                        strokeWidth={1.5}
+                      />
+                      <Circle
+                        cx={moonScreenPos.x * W}
+                        cy={moonScreenPos.y * H}
+                        r={12}
+                        fill="#E5E9F0"
+                      />
+                      <SvgText
+                        x={moonScreenPos.x * W}
+                        y={moonScreenPos.y * H - 28}
+                        fill="#ECEFF4"
+                        fontSize={11}
+                        fontWeight="900"
+                        textAnchor="middle"
+                      >
+                        🌙 달 ({Math.round(moonPos.altitude)}°)
+                      </SvgText>
+                    </>
+                  )}
+
+                  {/* 5. 5대 행성 노드 (Planets Layer) */}
+                  {arLayers.planets && planetsScreenPos.map((p) => {
+                    if (!p.screen.isVisible || p.altitude <= -5) return null;
+                    const px = p.screen.x * W;
+                    const py = p.screen.y * H;
+                    return (
+                      <React.Fragment key={`planet-${p.key}`}>
+                        <Circle cx={px} cy={py} r={10} fill="rgba(255, 140, 0, 0.4)" stroke="#FF8C00" strokeWidth={1.5} />
+                        <SvgText x={px} y={py - 14} fill="#FF8C00" fontSize={10} fontWeight="bold" textAnchor="middle">
+                          🪐 {p.nameKo}
+                        </SvgText>
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* 6. 별 & 별자리 노드 (Stars Layer) */}
+                  {arLayers.stars && starsScreenPos.map((s) => {
+                    if (!s.screen.isVisible) return null;
+                    const px = s.screen.x * W;
+                    const py = s.screen.y * H;
+                    return (
+                      <React.Fragment key={`star-${s.id}`}>
+                        <Circle cx={px} cy={py} r={s.magnitude < 1.0 ? 5 : 3} fill="#FFF" />
+                        {s.magnitude < 1.0 && (
+                          <SvgText x={px} y={py - 8} fill="rgba(255,255,255,0.8)" fontSize={9} fontWeight="bold" textAnchor="middle">
+                            ⭐ {s.nameKo}
+                          </SvgText>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* 7. 은하수 노드 (Milky Way Layer) */}
+                  {arLayers.milkyWay && milkyWayScreenPoints.map((mw, i) => {
+                    if (!mw.screen.isVisible || mw.altitude <= -5) return null;
+                    const px = mw.screen.x * W;
+                    const py = mw.screen.y * H;
+                    return (
+                      <React.Fragment key={`mw-${i}`}>
+                        <Circle cx={px} cy={py} r={mw.isCenter ? 12 : 5} fill={mw.isCenter ? "rgba(180,140,252,0.6)" : "rgba(180,140,252,0.3)"} />
+                        {mw.isCenter && (
+                          <SvgText x={px} y={py - 16} fill="#B48EAD" fontSize={10} fontWeight="bold" textAnchor="middle">
+                            🌌 은하수 중심부
+                          </SvgText>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* 8. 주변 200km 구름 29개 노드 (Clouds Layer) */}
+                  {arLayers.clouds && cloudsScreenPoints.map((c) => {
+                    if (!c.screen.isVisible) return null;
+                    const px = c.screen.x * W;
+                    const py = c.screen.y * H;
+                    return (
+                      <React.Fragment key={`cloud-ar-${c.id}`}>
+                        {c.isSpecial && (
+                          <Circle cx={px} cy={py} r={18} fill="rgba(255, 140, 0, 0.25)" stroke="#FF8C00" strokeWidth={1} />
+                        )}
+                        <Circle cx={px} cy={py} r={10} fill="rgba(0, 0, 0, 0.4)" stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
+                        <SvgText x={px} y={py - 14} fill="#88C0D0" fontSize={9} fontWeight="bold" textAnchor="middle">
+                          ☁️ {c.cloudName.split(' ')[0]} ({c.distanceKm}km)
+                        </SvgText>
+                      </React.Fragment>
+                    );
+                  })}
                 </>
               )}
             </Svg>
@@ -1190,7 +1388,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </View>
             )}
 
-            {/* 상단 HUD */}
+            {/* 상단 HUD 및 AR 레이어 선택 칩 스크롤 바 */}
             <View style={styles.topHud}>
               <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
                 <X size={24} color="#FFF" />
@@ -1208,6 +1406,53 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   {Math.round(effectiveAz)}° | {Math.round(effectivePitch)}°↑
                 </Text>
               </View>
+            </View>
+
+            {/* AR 멀티 레이어 선택 칩 스크롤 바 */}
+            <View style={{ position: 'absolute', top: 100, left: 16, right: 16, zIndex: 90 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.arLayerChip, arLayers.sun && styles.arLayerChipActive]}
+                  onPress={() => toggleArLayer('sun')}
+                >
+                  <Text style={[styles.arLayerChipText, arLayers.sun && styles.arLayerChipTextActive]}>☀️ 태양</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.arLayerChip, arLayers.moon && styles.arLayerChipActive]}
+                  onPress={() => toggleArLayer('moon')}
+                >
+                  <Text style={[styles.arLayerChipText, arLayers.moon && styles.arLayerChipTextActive]}>🌙 달</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.arLayerChip, arLayers.planets && styles.arLayerChipActive]}
+                  onPress={() => toggleArLayer('planets')}
+                >
+                  <Text style={[styles.arLayerChipText, arLayers.planets && styles.arLayerChipTextActive]}>🪐 행성</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.arLayerChip, arLayers.stars && styles.arLayerChipActive]}
+                  onPress={() => toggleArLayer('stars')}
+                >
+                  <Text style={[styles.arLayerChipText, arLayers.stars && styles.arLayerChipTextActive]}>⭐ 별/별자리</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.arLayerChip, arLayers.milkyWay && styles.arLayerChipActive]}
+                  onPress={() => toggleArLayer('milkyWay')}
+                >
+                  <Text style={[styles.arLayerChipText, arLayers.milkyWay && styles.arLayerChipTextActive]}>🌌 은하수</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.arLayerChip, arLayers.clouds && styles.arLayerChipActive]}
+                  onPress={() => toggleArLayer('clouds')}
+                >
+                  <Text style={[styles.arLayerChipText, arLayers.clouds && styles.arLayerChipTextActive]}>☁️ 구름 200km</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
 
             {/* 보정 정보 패널 */}
@@ -1228,8 +1473,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
             {/* 하단 컨트롤 */}
             <View style={styles.bottomControls}>
+              <TouchableOpacity style={styles.sideBtn} onPress={handleSunSnap}>
+                <Sun size={24} color="#FFD700" />
+                <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>Sun-Snap</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
-                <RotateCcw size={22} color="#FFF" />
+                <RotateCcw size={20} color="#FFF" />
                 <Text style={styles.sideBtnText}>Calibrate</Text>
               </TouchableOpacity>
 
@@ -1264,7 +1514,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 style={styles.sideBtn} 
                 onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
               >
-                <RefreshCw size={22} color="#FFF" />
+                <RefreshCw size={20} color="#FFF" />
                 <Text style={styles.sideBtnText}>Flip</Text>
               </TouchableOpacity>
             </View>
@@ -1306,6 +1556,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             panHandlers={{}}
           />
         </View>
+
+        {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
+        <PostDetailModal
+          visible={!!uploadedPhotoForModal}
+          photo={uploadedPhotoForModal}
+          onClose={() => {
+            setUploadedPhotoForModal(null);
+            onClose(); // 상세 모달 닫을 때 카메라 모달도 함께 클로즈
+          }}
+        />
       </View>
     </Modal>
   );
@@ -1811,5 +2071,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 2,
     elevation: 3,
+  },
+  arLayerChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 14,
+    backgroundColor: 'rgba(22, 19, 26, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  arLayerChipActive: {
+    backgroundColor: 'rgba(255, 140, 0, 0.85)',
+    borderColor: '#FF8C00',
+  },
+  arLayerChipText: {
+    color: 'rgba(255, 255, 255, 0.65)',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  arLayerChipTextActive: {
+    color: '#FFF',
+    fontWeight: '900',
   },
 });

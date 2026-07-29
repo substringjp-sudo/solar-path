@@ -16,8 +16,12 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin, ChevronRight } from 'lucide-react-native';
+import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin, ChevronRight, Box, SlidersHorizontal } from 'lucide-react-native';
+import { SkyScene3D, LayerState } from './SkyScene3D';
 import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
+import { EventRecommendBar } from './SunsetSimulation/EventRecommendBar';
+import { LayerControlModal } from './SunsetSimulation/LayerControlModal';
+import { getDailyCelestialEvents } from '../utils/celestialEvents';
 import { t } from '../utils/i18n';
 
 /**
@@ -92,6 +96,16 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [isWeatherDetailVisible, setWeatherDetailVisible] = useState(false);
   const [isSliding, setIsSliding] = useState(false);
   const [isTransitionReady, setIsTransitionReady] = useState(false);
+  const [is3DMode, setIs3DMode] = useState(false);
+  const [isLayerModalVisible, setLayerModalVisible] = useState(false);
+  const [layers, setLayers] = useState<LayerState>({
+    sun: true,
+    moon: true,
+    stars: true,
+    planets: true,
+    clouds: true,
+    paths: true,
+  });
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
   const [selectedEventType, setSelectedEventType] = useState<'auto' | 'Sunrise' | 'Sunset'>('auto');
@@ -648,6 +662,17 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     });
   }, [cloudGridData]);
 
+  // 당일 추천 및 일반 천문 이벤트 생성
+  const dailyCelestialEvents = useMemo(() => {
+    if (!location) return [];
+    return getDailyCelestialEvents(
+      currentTime,
+      location.coords.latitude,
+      location.coords.longitude,
+      prediction
+    );
+  }, [currentTime, location, prediction]);
+
 
 
   // 5-Ray * 7-Distance (총 35개 지격) 매트릭스 변환
@@ -718,6 +743,18 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               <View style={[styles.centered, { height: 260 }]}>
                 <ActivityIndicator size="small" color={theme.accent} />
               </View>
+            ) : is3DMode ? (
+              <SkyScene3D
+                sim={sim}
+                currentTime={currentTime}
+                sunAltitude={sunAltitude}
+                sunAzimuth={sunAzimuth}
+                prediction={prediction}
+                location={location}
+                interpolatedWeather={interpolatedWeather}
+                theme={theme}
+                layers={layers}
+              />
             ) : (
               <Visualizer
                 sim={sim}
@@ -768,6 +805,22 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             >
               <RotateCw size={12} color="#FFFFFF" />
             </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.toggle3DButton, { backgroundColor: is3DMode ? 'rgba(59, 130, 246, 0.7)' : 'rgba(5, 5, 10, 0.65)', borderColor: is3DMode ? 'rgba(100, 160, 246, 0.6)' : theme.border }]}
+              onPress={() => setIs3DMode(prev => !prev)}
+              activeOpacity={0.7}
+            >
+              <Box size={12} color={is3DMode ? '#FFFFFF' : 'rgba(255,255,255,0.7)'} />
+            </TouchableOpacity>
+            {is3DMode && (
+              <TouchableOpacity 
+                style={[styles.layerControlButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
+                onPress={() => setLayerModalVisible(true)}
+                activeOpacity={0.7}
+              >
+                <SlidersHorizontal size={12} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View
@@ -940,6 +993,13 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               </TouchableOpacity>
             </View>
 
+            <EventRecommendBar
+              events={dailyCelestialEvents}
+              currentTime={currentTime}
+              onSelectEvent={setCurrentTime}
+              theme={theme}
+            />
+
             <View style={[styles.simControl, { backgroundColor: theme.glass, borderColor: theme.border, position: 'relative' }]}>
               <TouchableOpacity
                 onPress={() => setMapVisible(true)}
@@ -988,6 +1048,14 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         currentTime={currentTime}
         weatherSource={sim?.weatherSource || 'standard'}
       />
+
+      <LayerControlModal
+        visible={isLayerModalVisible}
+        onClose={() => setLayerModalVisible(false)}
+        layers={layers}
+        onToggleLayer={(key: keyof LayerState) => setLayers((prev: LayerState) => ({ ...prev, [key]: !prev[key] }))}
+        theme={theme}
+      />
     </View>
   );
 };
@@ -1035,6 +1103,40 @@ const styles = StyleSheet.create({
   refreshButton: {
     position: 'absolute',
     top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 999,
+  },
+  toggle3DButton: {
+    position: 'absolute',
+    top: 40,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 999,
+  },
+  layerControlButton: {
+    position: 'absolute',
+    top: 72,
     right: 8,
     width: 26,
     height: 26,

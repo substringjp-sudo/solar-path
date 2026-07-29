@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
-import { Trash2, Image as ImageIcon } from 'lucide-react-native';
+import { Trash2, Image as ImageIcon, Share2 } from 'lucide-react-native';
+import { shareToTwitter } from '../utils/twitterShare';
 import { auth } from '../config/firebase';
-import { useCelestialStore } from '../store/useCelestialStore';
+import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { t } from '../utils/i18n';
+import { PostDetailModal } from './PostDetailModal';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
@@ -33,6 +35,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   const { language, currentUser, removeMyPhoto } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
+  const [selectedPhotoForDetail, setSelectedPhotoForDetail] = useState<MyPhoto | null>(null);
 
   const displayedPhotos = useMemo(() => {
     const currentUid = auth.currentUser?.uid || currentUser?.uid;
@@ -93,11 +96,14 @@ export const Gallery: React.FC<GalleryProps> = ({
           renderItem={({ item }) => {
             const itemWidth = (width - 44) / 2; // 16px margins + 12px gap
             return (
-              <View style={[
-                styles.galleryItem, 
-                { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
-                item.isPending && { opacity: 0.65 }
-              ]}>
+              <TouchableOpacity
+                style={[
+                  styles.galleryItem, 
+                  { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
+                  item.isPending && { opacity: 0.65 }
+                ]}
+                onPress={() => setSelectedPhotoForDetail(item)}
+              >
                 <Image
                   source={{ uri: item.imageUrl }}
                   style={styles.galleryImage}
@@ -120,32 +126,55 @@ export const Gallery: React.FC<GalleryProps> = ({
                     </Text>
                   )}
                 </View>
-                {(item.userId === auth.currentUser?.uid || item.isPending) && (
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <TouchableOpacity
-                    style={styles.photoDeleteBtn}
+                    style={styles.photoShareBtn}
                     onPress={() => {
-                      Alert.alert(
-                        t('deletePhotoConfirmTitle', language),
-                        t('deletePhotoConfirmMsg', language),
-                        [
-                          { text: t('cancel', language), style: 'cancel' },
-                          { 
-                            text: t('delete', language), 
-                            style: 'destructive',
-                            onPress: () => removeMyPhoto(item.id)
-                          }
-                        ]
-                      );
+                      const tweetText = `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${item.location || '하늘 포토'}\n#BeforeGlow #노을 #sunset`;
+                      shareToTwitter({
+                        text: tweetText,
+                        imageUris: [item.uri],
+                      });
                     }}
                   >
-                    <Trash2 size={12} color="#FF6F61" />
+                    <Share2 size={13} color="#FFD700" />
                   </TouchableOpacity>
-                )}
-              </View>
+
+                  {(item.userId === auth.currentUser?.uid || item.isPending) && (
+                    <TouchableOpacity
+                      style={styles.photoDeleteBtn}
+                      onPress={() => {
+                        Alert.alert(
+                          t('deletePhotoConfirmTitle', language),
+                          t('deletePhotoConfirmMsg', language),
+                          [
+                            { text: t('cancel', language), style: 'cancel' },
+                            { 
+                              text: t('delete', language), 
+                              style: 'destructive',
+                              onPress: () => removeMyPhoto(item.id)
+                            }
+                          ]
+                        );
+                      }}
+                    >
+                      <Trash2 size={12} color="#FF6F61" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </TouchableOpacity>
             );
           }}
         />
       )}
+
+      {/* 게시물 상세 미리보기 & 멀티 SNS 공유 모달 */}
+      <PostDetailModal
+        visible={!!selectedPhotoForDetail}
+        photo={selectedPhotoForDetail}
+        onClose={() => setSelectedPhotoForDetail(null)}
+      />
     </View>
   );
 };
@@ -230,10 +259,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
+  photoShareBtn: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+  },
   photoDeleteBtn: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
     backgroundColor: 'rgba(0,0,0,0.6)',
     width: 28,
     height: 28,

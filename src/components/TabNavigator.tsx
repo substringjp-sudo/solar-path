@@ -10,10 +10,11 @@ import { TimeSlider } from './TimeSlider';
 import { SunsetSimulation } from './SunsetSimulation';
 import { Gallery } from './Gallery';
 import { IsolineMap } from './IsolineMap/IsolineMap';
+import { CloudTrackerChart } from './CloudTrackerChart';
 
 interface TabNavigatorProps {
-  activeTab: 'tracker' | 'sim' | 'gallery' | 'isoline';
-  setActiveTab: (tab: 'tracker' | 'sim' | 'gallery' | 'isoline') => void;
+  activeTab: string;
+  setActiveTab: (tab: any) => void;
   contentOpacity: Animated.Value;
   contentTranslateX: Animated.Value;
   sunPos: any;
@@ -72,7 +73,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   removeGlobalPhoto,
   setMapVisible,
 }) => {
-  const { location, timezoneOffsetHours, language } = useCelestialStore();
+  const { location, timezoneOffsetHours, language, selectedCategory } = useCelestialStore();
 
   const eventsLocal = useMemo(() => {
     return {
@@ -88,7 +89,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   }, [currentTime, timezoneOffsetHours]);
   const { width } = Dimensions.get('window');
 
-  const tabOrder: ('tracker' | 'sim' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'gallery', 'isoline'];
+  const tabOrder = ['tracker', 'sim', 'isoline', 'rainbow', 'all', 'my'];
   const activeIndex = tabOrder.indexOf(activeTab);
   const startX = useRef(0);
 
@@ -101,8 +102,9 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // 제스처가 명시적으로 차단된 경우 탭 전환 터치를 무시
-        if (useCelestialStore.getState().isGestureBlocked) {
+        // 태양(sun) 카테고리가 아니거나 제스처가 명시적으로 차단된 경우 탭 슬라이드 터치 차단
+        const currentCategory = useCelestialStore.getState().selectedCategory;
+        if (currentCategory !== 'sun' || useCelestialStore.getState().isGestureBlocked) {
           return false;
         }
 
@@ -137,7 +139,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         const dx = gestureState.dx;
         const vx = gestureState.vx;
 
-        let targetTab: 'tracker' | 'sim' | 'gallery' | 'isoline' | null = null;
+        let targetTab: string | null = null;
 
         if (dx < -swipeThreshold || vx < -velocityThreshold) {
           if (activeIndexRef.current < tabOrder.length - 1) {
@@ -179,19 +181,27 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           transform: [{ translateX: contentTranslateX }]
         }
       ]}>
-        {/* Tracker Screen */}
+        {/* Tracker Screen (Sun or Cloud Matrix Radar) */}
         <View style={{ width: width, flex: 1 }}>
-          <View style={styles.chartContainer}>
-            <CelestialChart 
-              sunPos={sunPos} 
-              moonPos={moonPos} 
-              sunPath={sunPath} 
-              moonPath={moonPath}
-              isDay={isDay}
-              rotation={userRotation}
-              onRotationChange={setUserRotation}
-              isActive={activeTab === 'tracker'}
+          {selectedCategory === 'cloud' ? (
+            <CloudTrackerChart
+              theme={theme}
+              latitude={location?.coords.latitude || 37.5665}
+              longitude={location?.coords.longitude || 126.9780}
             />
+          ) : (
+            <>
+              <View style={styles.chartContainer}>
+                <CelestialChart 
+                  sunPos={sunPos} 
+                  moonPos={moonPos} 
+                  sunPath={sunPath} 
+                  moonPath={moonPath}
+                  isDay={isDay}
+                  rotation={userRotation}
+                  onRotationChange={setUserRotation}
+                  isActive={activeTab === 'tracker'}
+                />
             
             <View style={styles.trackerControls}>
               <TouchableOpacity 
@@ -291,6 +301,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               ]}
             />
           </View>
+            </>
+          )}
         </View>
 
         {/* Sim Screen */}
@@ -300,16 +312,16 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
             currentTime={currentTime}
             setCurrentTime={setCurrentTime}
             setMapVisible={setMapVisible}
-            activeTab={activeTab}
+            activeTab={activeTab as any}
           />
         </View>
 
-        {/* Gallery Screen */}
+        {/* Gallery Screen (All / My) */}
         <View style={{ width: width, flex: 1 }}>
           <Gallery
             theme={theme}
             dynamicTheme={dynamicTheme}
-            globalPhotos={globalPhotos}
+            globalPhotos={activeTab === 'my' ? [] : globalPhotos}
             myPhotos={myPhotos}
             removeGlobalPhoto={removeGlobalPhoto}
           />

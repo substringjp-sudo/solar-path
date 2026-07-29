@@ -21,6 +21,24 @@ const generateUniqueId = () => {
   return Math.random().toString(36).substring(2, 15) + '_' + Date.now().toString(36);
 };
 
+export function sanitizeFirestoreData(obj: any): any {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== 'object') {
+    if (typeof obj === 'number' && isNaN(obj)) return 0;
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeFirestoreData);
+  }
+  const sanitized: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      sanitized[key] = sanitizeFirestoreData(val);
+    }
+  }
+  return sanitized;
+}
+
 export interface WeatherCacheItem {
   key: string;
   data: any[];
@@ -55,6 +73,8 @@ export interface MyPhoto {
   simulationLocalUri?: string;
   deviceAzimuth?: number;
   devicePitch?: number;
+  isPublic?: boolean;
+  likesCount?: number;
 }
 
 export interface GlobalPhoto {
@@ -113,8 +133,10 @@ interface CelestialState {
   isAppReady: boolean;
   preloadStatus: string;
   initialTab: 'tracker' | 'sim' | 'gallery';
+  selectedCategory: 'sun' | 'cloud' | 'star' | 'gallery';
   
   // Actions
+  setSelectedCategory: (category: 'sun' | 'cloud' | 'star' | 'gallery') => void;
   setCurrentTime: (time: Date) => void;
   setLocation: (loc: Location.LocationObject | null) => void;
   setTimeMachineEnabled: (enabled: boolean) => void;
@@ -144,6 +166,7 @@ interface CelestialState {
     photoId?: string
   ) => Promise<void>;
   removeMyPhoto: (id: string) => Promise<void>;
+  togglePhotoVisibility: (id: string, isPublic: boolean) => Promise<void>;
   syncMyPhotos: () => () => void;
   
   uploadAndPostPhoto: (
@@ -211,9 +234,11 @@ export const useCelestialStore = create<CelestialState>()(
       isAppReady: false,
       preloadStatus: 'initializingApp',
       initialTab: 'tracker',
+      selectedCategory: 'sun',
       currentSimulationUri: null,
       isGestureBlocked: false,
 
+      setSelectedCategory: (category) => set({ selectedCategory: category }),
       setCurrentSimulationUri: (uri) => set({ currentSimulationUri: uri }),
       setGestureBlocked: (blocked) => set({ isGestureBlocked: blocked }),
       setWeatherCache: (cache) => set({ weatherCache: cache }),
@@ -614,11 +639,7 @@ export const useCelestialStore = create<CelestialState>()(
           devicePitch
         };
 
-        const cleanedMyRecord = Object.entries(myPhotoRecord).reduce((acc, [key, val]) => {
-          if (val !== undefined) acc[key] = val;
-          return acc;
-        }, {} as any);
-
+        const cleanedMyRecord = sanitizeFirestoreData(myPhotoRecord);
         const personalDocRef = doc(db, `users/${user.uid}/photos`, photoId);
         await setDoc(personalDocRef, cleanedMyRecord);
 
@@ -644,11 +665,7 @@ export const useCelestialStore = create<CelestialState>()(
           devicePitch
         };
 
-        const cleanedGlobalRecord = Object.entries(globalPhotoRecord).reduce((acc, [key, val]) => {
-          if (val !== undefined) acc[key] = val;
-          return acc;
-        }, {} as any);
-
+        const cleanedGlobalRecord = sanitizeFirestoreData(globalPhotoRecord);
         const globalDocRef = doc(db, 'global_photos', photoId);
         await setDoc(globalDocRef, cleanedGlobalRecord);
 
@@ -662,6 +679,23 @@ export const useCelestialStore = create<CelestialState>()(
         }
 
         return finalLocationName;
+      },
+      togglePhotoVisibility: async (photoId: string, isPublic: boolean) => {
+        const user = get().currentUser || auth.currentUser;
+        // 1. 로컬 상태 갱신
+        set((state) => ({
+          myPhotos: state.myPhotos.map(p => p.id === photoId ? { ...p, isPublic } : p),
+        }));
+
+        // 2. Firestore 동기화
+        if (user) {
+          try {
+            const userPhotoRef = doc(db, `users/${user.uid}/photos`, photoId);
+            await updateDoc(userPhotoRef, { isPublic });
+          } catch (err) {
+            console.warn('[togglePhotoVisibility] Firestore update failed:', err);
+          }
+        }
       },
       publishGlobalPhoto: async (photoId: string) => {
         const user = get().currentUser || auth.currentUser;

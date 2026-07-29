@@ -296,6 +296,16 @@ export const translations = {
     sisterRgNevelDesc: '국내/해외 맞춤형 지역 기반 코스 추천 및 네비게이션 시나리오용 플래너입니다.',
     visitSite: '사이트 방문하기',
 
+    // Category & Tabs
+    catSun: '태양',
+    catCloud: '구름',
+    catStar: '별',
+    catGallery: '갤러리',
+    rainbowTab: '무지개',
+    allTab: '전체',
+    myTab: '내 사진',
+    comingSoon: '준비 중',
+
     // Isoline Tab
     isolineTab: 'Isoline',
     isolineSelectedDate: '선택된 날짜',
@@ -620,6 +630,16 @@ export const translations = {
     sisterRgNevelDesc: 'A local course recommender and customized travel planner optimized for domestic and international trips.',
     visitSite: 'Visit Website',
 
+    // Category & Tabs
+    catSun: 'Sun',
+    catCloud: 'Cloud',
+    catStar: 'Star',
+    catGallery: 'Gallery',
+    rainbowTab: 'Rainbow',
+    allTab: 'All',
+    myTab: 'My',
+    comingSoon: 'Coming Soon',
+
     // Isoline Tab
     isolineTab: 'Isoline',
     isolineSelectedDate: 'Selected Date',
@@ -943,6 +963,16 @@ export const translations = {
     sisterRgNevelTitle: 'RG Nevel Planner',
     sisterRgNevelDesc: '国内および海外旅行に最適化された、地域のコース推薦とカスタマイズされた旅行プランナー。',
     visitSite: 'ウェブサイトにアクセス',
+
+    // Category & Tabs
+    catSun: '太陽',
+    catCloud: '雲',
+    catStar: '星',
+    catGallery: 'ギャラリー',
+    rainbowTab: '虹',
+    allTab: '全体',
+    myTab: 'マイ写真',
+    comingSoon: '準備中',
 
     // Isoline Tab
     isolineTab: 'Isoline',
