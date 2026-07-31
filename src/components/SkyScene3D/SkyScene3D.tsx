@@ -10,7 +10,7 @@
  * - SunMesh & MoonMesh: 태양 및 달 디스크/위상
  * - CelestialObjectsMesh: 별, 은하수, 5대 행성
  * - CelestialPathMesh: 태양/달 24h 이동 궤적 & 관측자 그림자
- * - CloudMesh: flat polygon 구름 (billboard)
+ * - CloudField: 10종 SVG 템플릿 아틀라스 기반 InstancedMesh 구름 (draw call 1개)
  */
 import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, StyleSheet, PanResponder, useWindowDimensions, Text } from 'react-native';
@@ -24,7 +24,9 @@ import { createSunGroup, updateSunPosition } from './SunMesh';
 import { createMoonGroup, updateMoonPosition } from './MoonMesh';
 import { createCelestialObjectsGroup, updateCelestialObjects, CelestialObjectsGroup } from './CelestialObjectsMesh';
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
-import { createCloudGroup, updateCloudBillboards, type Cloud3DData } from './CloudMesh';
+import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
+import { createCloudField, updateCloudField, type CloudField } from './CloudField';
+import { buildCloudInstances } from './cloudPlacement';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
 export interface LayerState {
@@ -60,6 +62,9 @@ const DEFAULT_LAYERS: LayerState = {
 
 const DRAG_SENSITIVITY = 0.3;
 
+/** InstancedMesh 용량. 29셀 × 최대 4개 ≈ 116이지만 여유를 둡니다. */
+const MAX_CLOUDS = 320;
+
 export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   sim,
   currentTime,
@@ -87,7 +92,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const moonGroupRef = useRef<THREE.Group | null>(null);
   const celestialObjectsRef = useRef<CelestialObjectsGroup | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
-  const cloudGroupRef = useRef<THREE.Group | null>(null);
+  const cloudAtlasRef = useRef<CloudAtlas | null>(null);
+  const cloudFieldRef = useRef<CloudField | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -224,6 +230,13 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     scene.add(celPaths.containerGroup);
     celestialPathsRef.current = celPaths;
 
+    // 7. Clouds — SVG 템플릿 아틀라스를 1회 굽고 InstancedMesh 하나로 렌더
+    const atlas = bakeCloudAtlas(renderer as unknown as THREE.WebGLRenderer);
+    cloudAtlasRef.current = atlas;
+    const cloudField = createCloudField(atlas, MAX_CLOUDS);
+    scene.add(cloudField.mesh);
+    cloudFieldRef.current = cloudField;
+
     // 초기 업데이트
     updateScene();
 
@@ -240,10 +253,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         -lookDist * Math.cos(elevRad) * Math.cos(azRad)
       );
 
-      if (cloudGroupRef.current) {
-        updateCloudBillboards(cloudGroupRef.current, camera);
-      }
-
+      // 빌보드 회전은 vertex shader에서 처리하므로 여기서 할 일이 없습니다.
       renderer.render(scene, camera);
       gl.endFrameEXP();
     };
@@ -305,96 +315,41 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     }
 
     // 7. Clouds (Layer 옵션 반영)
-    if (cloudGroupRef.current) {
-      cloudGroupRef.current.visible = currentLayers.clouds;
+    if (cloudFieldRef.current) {
+      cloudFieldRef.current.mesh.visible = currentLayers.clouds;
     }
 
     rebuildClouds();
   }, [currentTime, location]);
 
-  // 구름 재생성
+  // 구름 갱신 — 지오메트리 생성/해제 없이 인스턴스 속성만 다시 씁니다.
   const rebuildClouds = useCallback(() => {
-    const scene = sceneRef.current;
-    if (!scene || !weatherRef.current || weatherRef.current.length === 0) return;
+    const field = cloudFieldRef.current;
+    const atlas = cloudAtlasRef.current;
+    if (!field || !atlas) return;
 
-    if (cloudGroupRef.current) {
-      scene.remove(cloudGroupRef.current);
-      cloudGroupRef.current.traverse(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-    }
+    const factors = predictionRef.current?.factors;
+    const beta = factors?.aerosolBeta ?? 0.08;
+    const pathClarity = factors?.pathClarity ?? 1.0;
+    const overcast = factors?.overheadOvercast ?? 0;
+    const dustIntensity = Math.max(0, Math.min(1, (beta - 0.04) / 0.46));
 
-    const clouds: Cloud3DData[] = [];
-    const distances = [10, 30, 70, 130, 200, 280, 380];
-    const angleOffsets = [-20, -10, 0, 10, 20];
-    const cloudPresets: Record<string, string[]> = {
-      high: ['M 0,20 C 20,15 45,8 70,12 C 85,14 110,7 130,12 C 105,16 80,13 55,20 C 35,25 15,23 0,20 Z'],
-      mid: ['M 10,20 C 15,12 25,12 35,20 C 45,12 55,12 65,20 C 75,12 85,12 95,20 C 105,12 115,12 125,20 L 125,25 C 95,28 65,28 35,25 L 10,20 Z'],
-      low: ['M 15,35 C 15,25 25,18 40,18 C 50,10 70,8 85,12 C 100,5 125,5 140,15 C 150,12 165,15 170,25 C 180,25 185,30 185,35 C 185,38 15,38 15,35 Z'],
-    };
+    const instances = buildCloudInstances({
+      atlas,
+      latitude: location?.coords?.latitude ?? 37.5,
+      longitude: location?.coords?.longitude ?? 127.0,
+      currentTime,
+      sunAltDeg: sunAltRef.current,
+      beta,
+      pathClarity,
+      overcast,
+      dustIntensity,
+      maxTotal: MAX_CLOUDS,
+    });
 
-    const pathClarity = predictionRef.current?.factors?.pathClarity ?? 1.0;
-    const sunAlt = sunAltRef.current;
-
-    const getLayerColor = (layerType: 'high' | 'mid' | 'low', density: number) => {
-      const illumAlt = layerType === 'high' ? sunAlt + 3 : layerType === 'mid' ? sunAlt + 2.2 : sunAlt + 1;
-      const cloudIllum = illumAlt >= 0.5 ? 1 : illumAlt > -1.5 ? (illumAlt + 1.5) / 2 : 0;
-      
-      const litBase = cloudIllum > 0.5 ? 200 : 120;
-      const shadowBase = 60;
-      const factor = cloudIllum * pathClarity;
-      
-      return {
-        lit: { r: litBase + factor * 55, g: litBase * 0.8 + factor * 40, b: litBase * 0.6 + factor * 20 },
-        shadow: { r: shadowBase, g: shadowBase + 5, b: shadowBase + 15 },
-      };
-    };
-
-    for (let col = 0; col < 5; col++) {
-      for (let d = 0; d < 7; d++) {
-        const pIdx = 1 + col * 7 + d;
-        const w = weatherRef.current[pIdx];
-        if (!w) continue;
-
-        const dist = distances[d];
-        const azOffset = angleOffsets[col];
-        const absAz = (sunAzRef.current + azOffset + 360) % 360;
-
-        (['high', 'mid', 'low'] as const).forEach(type => {
-          const density = w[type] ?? 0;
-          if (density < 5) return;
-
-          const cloudAltKm = type === 'high' ? 9 : type === 'mid' ? 4 : 1;
-          const elevDeg = Math.atan2(cloudAltKm, dist) * (180 / Math.PI);
-
-          const colors = getLayerColor(type, density);
-          const svgPaths = cloudPresets[type];
-          const pathIdx = Math.floor(Math.random() * svgPaths.length);
-
-          clouds.push({
-            azimuthDeg: absAz,
-            elevationDeg: elevDeg,
-            distanceKm: dist,
-            layerType: type,
-            density,
-            svgPath: svgPaths[pathIdx],
-            litColor: colors.lit,
-            shadowColor: colors.shadow,
-            thickness: type === 'high' ? 0.1 : type === 'mid' ? 0.4 : 0.7,
-            opacity: type === 'high' ? 0.5 : type === 'mid' ? 0.7 : 0.85,
-          });
-        });
-      }
-    }
-
-    const cloudGroup = createCloudGroup(clouds);
-    cloudGroup.visible = layersRef.current.clouds;
-    scene.add(cloudGroup);
-    cloudGroupRef.current = cloudGroup;
-  }, []);
+    updateCloudField(field, atlas, instances, sunAzRef.current, sunAltRef.current);
+    field.mesh.visible = layersRef.current.clouds;
+  }, [currentTime, location]);
 
   useEffect(() => {
     if (sceneRef.current) {
@@ -436,6 +391,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           }
         }
       });
+      // 아틀라스 텍스처는 씬 그래프에 속하지 않으므로 별도 해제
+      cloudAtlasRef.current?.dispose();
+      cloudAtlasRef.current = null;
+      cloudFieldRef.current = null;
     };
   }, []);
 
