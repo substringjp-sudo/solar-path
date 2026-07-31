@@ -189,7 +189,7 @@ export function useCelestialApp() {
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
-  const [activeTab, setActiveTabState] = useState<'tracker' | 'sim' | 'gallery' | 'isoline'>('tracker');
+  const [activeTab, setActiveTabState] = useState<'tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline'>('tracker');
 
   const hasInitializedTab = useRef(false);
   useEffect(() => {
@@ -203,9 +203,9 @@ export function useCelestialApp() {
     }
   }, [isAppReady, initialTab, width, initializePendingUploads]);
 
-  const setActiveTab = (tab: 'tracker' | 'sim' | 'gallery' | 'isoline') => {
+  const setActiveTab = (tab: 'tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline' | string) => {
     if (tab === activeTab) return;
-    setActiveTabState(tab);
+    setActiveTabState(tab as any);
     animateContent(tab);
   };
   const [isSunCameraVisible, setSunCameraVisible] = useState(false);
@@ -412,15 +412,15 @@ export function useCelestialApp() {
   }, [isGyroEnabled, setUserRotation]);
 
   const contentTranslateX = useRef(new Animated.Value(0)).current;
-  const tabOrder: ('tracker' | 'sim' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'gallery', 'isoline'];
+  const tabOrder: ('tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'sim3dView', 'gallery', 'isoline'];
 
   const animateContent = (
-    toTab?: 'tracker' | 'sim' | 'gallery' | 'isoline'
+    toTab?: 'tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline' | string
   ) => {
     const screenWidth = Dimensions.get('window').width;
     if (!toTab) return;
-    const toIdx = tabOrder.indexOf(toTab);
-    const targetX = -toIdx * screenWidth;
+    const toIdx = tabOrder.indexOf(toTab as any);
+    const targetX = -(toIdx >= 0 ? toIdx : 0) * screenWidth;
 
     Animated.spring(contentTranslateX, {
       toValue: targetX,

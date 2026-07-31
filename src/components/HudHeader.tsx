@@ -1,19 +1,18 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform, Modal, Pressable } from 'react-native';
 import { addDays, subDays } from 'date-fns';
-import { ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings, ChevronDown, Lock, Sun, Cloud, Star, Image as ImageIcon } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Calendar, RotateCcw, Camera as CameraIcon, Settings, ChevronDown, Lock, Sun, Cloud, Star, Box, Image as ImageIcon } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { t } from '../utils/i18n';
 
-export type CategoryType = 'sun' | 'cloud' | 'star' | 'gallery';
-export type TabType = 'tracker' | 'sim' | 'isoline' | 'rainbow' | 'all' | 'my';
+export type CategoryType = 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery';
+export type TabType = 'tracker' | 'sim' | 'sim3dView' | 'isoline' | 'rainbow' | 'all' | 'my';
 
 export const CATEGORY_TABS: Record<CategoryType, { id: TabType; labelKey: string; disabled?: boolean }[]> = {
   sun: [
     { id: 'tracker', labelKey: 'tracker' },
     { id: 'sim', labelKey: 'simulation' },
-    { id: 'isoline', labelKey: 'isolineTab' },
   ],
   cloud: [
     { id: 'tracker', labelKey: 'tracker' },
@@ -21,6 +20,9 @@ export const CATEGORY_TABS: Record<CategoryType, { id: TabType; labelKey: string
   ],
   star: [
     { id: 'tracker', labelKey: 'tracker', disabled: true },
+  ],
+  sim3d: [
+    { id: 'sim3dView', labelKey: 'sim3dTab' },
   ],
   gallery: [
     { id: 'all', labelKey: 'allTab' },
@@ -33,6 +35,7 @@ const renderCategoryIcon = (cat: CategoryType, color: string = '#FFF', size: num
     case 'sun': return <Sun size={size} color="#FFD700" />;
     case 'cloud': return <Cloud size={size} color="#88C0D0" />;
     case 'star': return <Star size={size} color="#E5E9F0" />;
+    case 'sim3d': return <Box size={size} color="#60A5FA" />;
     case 'gallery': return <ImageIcon size={size} color="#D8DEE9" />;
   }
 };
@@ -41,6 +44,7 @@ const CATEGORY_NAMES: Record<CategoryType, string> = {
   sun: 'catSun',
   cloud: 'catCloud',
   star: 'catStar',
+  sim3d: 'catSim3d',
   gallery: 'catGallery',
 };
 
@@ -102,8 +106,8 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
 
   const tabCount = currentTabs.length;
   const indicatorLeft = tabIndicatorAnim.interpolate({
-    inputRange: currentTabIds.map((_, i) => i),
-    outputRange: currentTabIds.map((_, i) => `${(i * 100) / tabCount}%`),
+    inputRange: tabCount > 1 ? currentTabIds.map((_, i) => i) : [0, 1],
+    outputRange: tabCount > 1 ? currentTabIds.map((_, i) => `${(i * 100) / tabCount}%`) : ['0%', '100%'],
   });
 
   const handleCategorySelect = (cat: CategoryType) => {
@@ -272,7 +276,7 @@ export const HudHeader: React.FC<HudHeaderProps> = ({
         <Pressable style={styles.modalOverlay} onPress={() => setDropdownOpen(false)}>
           <View style={[styles.dropdownMenu, { backgroundColor: '#1C1924', borderColor: 'rgba(255,255,255,0.15)' }]}>
             <Text style={styles.dropdownTitle}>카테고리 선택</Text>
-            {(['sun', 'cloud', 'star', 'gallery'] as CategoryType[]).map((cat) => {
+            {(['sun', 'cloud', 'star', 'sim3d', 'gallery'] as CategoryType[]).map((cat) => {
               const isSelected = selectedCategory === cat;
               const isDisabled = cat === 'star';
 

@@ -46,6 +46,7 @@ interface SkyScene3DProps {
   interpolatedWeather: any[];
   theme: any;
   layers?: LayerState;
+  fullScreen?: boolean;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -69,6 +70,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   interpolatedWeather,
   theme,
   layers = DEFAULT_LAYERS,
+  fullScreen = false,
 }) => {
   const { width, height } = useWindowDimensions();
   
@@ -450,7 +452,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   }, [cameraAzRef.current]);
 
   return (
-    <View style={[styles.container, { width: SCENE_WIDTH, height: SCENE_HEIGHT }]}>
+    <View style={[styles.container, fullScreen ? { flex: 1, width: '100%', height: '100%' } : { width: SCENE_WIDTH, height: SCENE_HEIGHT }]}>
       <GLView
         style={styles.glView}
         onContextCreate={onContextCreate}

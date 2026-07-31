@@ -133,10 +133,10 @@ interface CelestialState {
   isAppReady: boolean;
   preloadStatus: string;
   initialTab: 'tracker' | 'sim' | 'gallery';
-  selectedCategory: 'sun' | 'cloud' | 'star' | 'gallery';
+  selectedCategory: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery';
   
   // Actions
-  setSelectedCategory: (category: 'sun' | 'cloud' | 'star' | 'gallery') => void;
+  setSelectedCategory: (category: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery') => void;
   setCurrentTime: (time: Date) => void;
   setLocation: (loc: Location.LocationObject | null) => void;
   setTimeMachineEnabled: (enabled: boolean) => void;

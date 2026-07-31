@@ -95,7 +95,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [isNowcastLoading, setIsNowcastLoading] = useState(false);
   const [isWeatherDetailVisible, setWeatherDetailVisible] = useState(false);
   const [isSliding, setIsSliding] = useState(false);
-  const [isTransitionReady, setIsTransitionReady] = useState(false);
+  const [isTransitionReady, setIsTransitionReady] = useState(true);
   const [is3DMode, setIs3DMode] = useState(false);
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [layers, setLayers] = useState<LayerState>({
@@ -469,10 +469,10 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     return () => {};
   }, [location, currentDateStr, refreshTrigger, selectedEventType]);
 
-  // ── 탭 전환 애니메이션 완료 후 시뮬레이션 렌더링 활성화 (Deferred 마운트) ──
+  // ── 탭 전환 애니메이션 완료 후 시뮬레이션 렌더링 활성화 ──
   useEffect(() => {
     if (activeTab === 'sim') {
-      setIsTransitionReady(false);
+      setIsTransitionReady(true);
       const task = InteractionManager.runAfterInteractions(() => {
         setIsTransitionReady(true);
       });
@@ -743,18 +743,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
               <View style={[styles.centered, { height: 260 }]}>
                 <ActivityIndicator size="small" color={theme.accent} />
               </View>
-            ) : is3DMode ? (
-              <SkyScene3D
-                sim={sim}
-                currentTime={currentTime}
-                sunAltitude={sunAltitude}
-                sunAzimuth={sunAzimuth}
-                prediction={prediction}
-                location={location}
-                interpolatedWeather={interpolatedWeather}
-                theme={theme}
-                layers={layers}
-              />
             ) : (
               <Visualizer
                 sim={sim}
@@ -805,56 +793,11 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             >
               <RotateCw size={12} color="#FFFFFF" />
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.toggle3DButton, { backgroundColor: is3DMode ? 'rgba(59, 130, 246, 0.7)' : 'rgba(5, 5, 10, 0.65)', borderColor: is3DMode ? 'rgba(100, 160, 246, 0.6)' : theme.border }]}
-              onPress={() => setIs3DMode(prev => !prev)}
-              activeOpacity={0.7}
-            >
-              <Box size={12} color={is3DMode ? '#FFFFFF' : 'rgba(255,255,255,0.7)'} />
-            </TouchableOpacity>
-            {is3DMode && (
-              <TouchableOpacity 
-                style={[styles.layerControlButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
-                onPress={() => setLayerModalVisible(true)}
-                activeOpacity={0.7}
-              >
-                <SlidersHorizontal size={12} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
           </View>
 
           <View
             style={styles.bottomSection}
           >
-            {/* 일출/일몰 선택 세그먼트 토글 */}
-            <View style={[styles.segmentContainer, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-              {(['auto', 'Sunrise', 'Sunset'] as const).map((mode) => {
-                const isActive = selectedEventType === mode;
-                const label = mode === 'auto' ? t('auto', language) :
-                              mode === 'Sunrise' ? t('sunrise', language) :
-                              t('sunset', language);
-                return (
-                  <TouchableOpacity
-                    key={mode}
-                    style={[
-                      styles.segmentButton,
-                      isActive && { backgroundColor: theme.accent }
-                    ]}
-                    onPress={() => setSelectedEventType(mode)}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.segmentText,
-                        { color: isActive ? '#000' : theme.text }
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
 
             {sim?.weatherSource === 'fallback' && (
               <TouchableOpacity
