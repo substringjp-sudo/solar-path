@@ -7,21 +7,22 @@
  * 핵심 원칙 두 가지
  *  1) 완전 결정적(deterministic): Math.random()을 쓰지 않습니다. 셀 id + 인덱스 해시로만
  *     모양·크기·지터를 정하므로, 시간 슬라이더를 움직여도 구름이 튀지 않습니다.
- *  2) 색은 2D에서 검증된 엔진 재사용: getCloudPreset() + approximateCloudColors()를
- *     그대로 호출해 lit/shadow를 따로 받아옵니다(단색으로 뭉개지 않음).
+ *  2) 색은 atmosphere.ts의 단일 물리 모델에서 유도합니다. 구름 고도의 직달광과
+ *     주변 하늘색, 광학두께 τ를 넘기면 셰이더가 2-stream 산란을 계산합니다.
  */
 import {
   generate29GridPoints,
   computeCloudCellData,
   type CloudTypeCategory,
 } from '../../utils/cloudMatrix';
+import { getCloudPreset, type CloudPresetName } from '../SunsetSimulation/Visualizer';
+import { clamp01, type RGB } from '../../utils/sunsetPhysics';
 import {
-  getCloudPreset,
-  approximateCloudColors,
-  getSunBeamColor,
-  type CloudPresetName,
-} from '../SunsetSimulation/Visualizer';
-import { getApproximatedSkyColor, clamp01 } from '../../utils/sunsetPhysics';
+  skyRadiance,
+  beamAtAltitude,
+  cloudOpticalDepth,
+  type AtmosphereParams,
+} from '../../utils/atmosphere';
 import { cloudAtlasKey, type CloudAtlas } from './cloudAtlas';
 
 export type LayerType = 'high' | 'mid' | 'low';
@@ -41,8 +42,12 @@ export interface CloudInstanceData {
   sizeY: number;
   aspect: number;
   opacity: number;
-  litRGB: { r: number; g: number; b: number };
-  shadowRGB: { r: number; g: number; b: number };
+  /** 구름 고도에서의 직달광 (linear RGB) */
+  beam: RGB;
+  /** 구름 주변 하늘색 (linear RGB) */
+  ambient: RGB;
+  /** 구름 광학두께 — 셰이더가 이걸로 반사/투과를 계산합니다 */
+  tau: number;
   /** 0 = 카메라를 보는 빌보드, 1 = 바닥에 눕힌 수평 배치 */
   horizontal: boolean;
 }
@@ -98,11 +103,10 @@ export interface BuildCloudsParams {
   /** 씬의 현재 시각 — 바람 이류 오프셋 계산에 사용 */
   currentTime: Date;
   sunAltDeg: number;
-  /** 대기 파라미터 (prediction.factors에서) */
-  beta: number;
-  pathClarity: number;
+  sunAzDeg: number;
+  /** 대기 광학 상태 (가시거리·습도·미세먼지에서 유도) */
+  atmosphere: AtmosphereParams;
   overcast: number;
-  dustIntensity: number;
   /** 셀 하나당 최대 구름 개수 */
   maxPerCell?: number;
   /** 전체 상한 (InstancedMesh 용량과 맞춰야 함) */
@@ -120,10 +124,9 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
     longitude,
     currentTime,
     sunAltDeg,
-    beta,
-    pathClarity,
+    sunAzDeg,
+    atmosphere,
     overcast,
-    dustIntensity,
     maxPerCell = 4,
     maxTotal = 320,
   } = params;
@@ -134,9 +137,16 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
 
   const gridPoints = generate29GridPoints(latitude, longitude);
 
-  // 하늘색은 셀마다 다시 구하지 않고 천정/지평선 2개만 캐싱 후 보간 (2D와 동일 전략)
-  const zenithSky = getApproximatedSkyColor(80, 90, sunAltDeg, beta, pathClarity);
-  const horizonSky = getApproximatedSkyColor(0.05, 0, sunAltDeg, beta, pathClarity);
+  // 구름 고도별 직달광은 종류 수만큼만 계산하면 되므로 캐싱합니다.
+  const beamCache = new Map<number, RGB>();
+  const beamFor = (altKm: number): RGB => {
+    let v = beamCache.get(altKm);
+    if (!v) {
+      v = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+      beamCache.set(altKm, v);
+    }
+    return v;
+  };
 
   const out: CloudInstanceData[] = [];
 
@@ -185,7 +195,7 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
       const rect = atlas.rects.get(atlasKey);
       if (!rect) continue;
 
-      // ── 색상: 2D에서 쓰던 물리 엔진 그대로 ──────────────────────────────
+      // ── 물리 색상 ───────────────────────────────────────────────────────
       const preset = getCloudPreset(
         layerType,
         cell.cloudCover * 100,
@@ -196,27 +206,23 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
         10000
       );
 
-      // 구름 높이에서 본 태양 고도 (지평선 아래 태양도 높은 구름은 아직 비춤)
-      const sunAltFromCloud = sunAltDeg + horizonDip(altKm);
+      // 구름 고도에서의 직달광. 높은 구름은 해가 진 뒤에도 빛을 받습니다.
+      const beam = beamFor(altKm);
 
-      const elevRatio = clamp01(elevationDeg / 80.0);
-      const ambientSky = {
-        r: horizonSky.r + (zenithSky.r - horizonSky.r) * elevRatio,
-        g: horizonSky.g + (zenithSky.g - horizonSky.g) * elevRatio,
-        b: horizonSky.b + (zenithSky.b - horizonSky.b) * elevRatio,
-      };
-      const cloudBeam = getSunBeamColor(sunAltFromCloud);
+      // 구름이 있는 방향의 하늘색 (재조명 성분)
+      const azDiff = ((sunAzDeg - azimuthDeg + 540) % 360) - 180;
+      const gammaDeg = Math.acos(
+        clamp01Signed(
+          Math.sin((elevationDeg * Math.PI) / 180) * Math.sin((sunAltDeg * Math.PI) / 180) +
+          Math.cos((elevationDeg * Math.PI) / 180) * Math.cos((sunAltDeg * Math.PI) / 180) *
+          Math.cos((azDiff * Math.PI) / 180)
+        )
+      ) * (180 / Math.PI);
+      const ambient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
 
-      const colors = approximateCloudColors(
-        sunAltFromCloud,
-        layerType,
-        preset,
-        { pathClarity },
-        overcast,
-        dustIntensity,
-        ambientSky,
-        cloudBeam
-      );
+      // 광학두께 — 얼음운(권운류)은 훨씬 얇습니다.
+      const isIce = layerType === 'high';
+      const tau = cloudOpticalDepth(presetName, cell.cloudCover, isIce);
 
       // ── 크기 ────────────────────────────────────────────────────────────
       // 각크기 기준으로 잡아야 멀리 있는 구름이 자연스럽게 작아집니다.
@@ -232,8 +238,9 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
         sizeY,
         aspect: rect.aspect,
         opacity: clamp01(preset.baseOpacity + cell.cloudCover * 0.55),
-        litRGB: colors.litRGB,
-        shadowRGB: colors.shadowRGB,
+        beam,
+        ambient,
+        tau,
         horizontal,
       });
     }
@@ -244,13 +251,9 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
   return out;
 }
 
-/**
- * 구름 고도에 따른 지평선 처짐 보정.
- * 높은 구름일수록 태양이 지평선 아래로 내려가도 더 오래 빛을 받습니다.
- */
-function horizonDip(altKm: number): number {
-  // 대략 sqrt 관계. 11km 권운이면 약 +3.4°
-  return Math.sqrt(Math.max(0, altKm)) * 1.02;
+/** [-1,1] 클램프 (acos 입력 보호) */
+function clamp01Signed(x: number): number {
+  return Math.max(-1, Math.min(1, x));
 }
 
 /** 아틀라스에 구워진 변형 개수 조회 */

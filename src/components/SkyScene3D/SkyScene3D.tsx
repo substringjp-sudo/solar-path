@@ -18,15 +18,16 @@ import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
 
-import { createSkydome, updateSkydomeColors } from './Skydome';
+import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import { createTerrainRing, updateTerrainColors } from './TerrainRing';
-import { createSunGroup, updateSunPosition } from './SunMesh';
+import { createSun, updateSun, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition } from './MoonMesh';
 import { createCelestialObjectsGroup, updateCelestialObjects, CelestialObjectsGroup } from './CelestialObjectsMesh';
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { buildCloudInstances } from './cloudPlacement';
+import { makeAtmosphereParams } from '../../utils/atmosphere';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
 export interface LayerState {
@@ -65,6 +66,12 @@ const DRAG_SENSITIVITY = 0.3;
 /** InstancedMesh 용량. 29셀 × 최대 4개 ≈ 116이지만 여유를 둡니다. */
 const MAX_CLOUDS = 320;
 
+/** 연중 일수 — 지구·태양 거리 보정에 사용 */
+function dayOfYearOf(d: Date): number {
+  const start = Date.UTC(d.getUTCFullYear(), 0, 0);
+  return Math.floor((d.getTime() - start) / 86400000);
+}
+
 export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   sim,
   currentTime,
@@ -86,9 +93,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const rendererRef = useRef<any>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const skydomeRef = useRef<THREE.Mesh | null>(null);
+  const skydomeRef = useRef<SkydomeHandle | null>(null);
   const terrainRef = useRef<THREE.Mesh | null>(null);
-  const sunGroupRef = useRef<THREE.Group | null>(null);
+  const sunRef = useRef<SunHandle | null>(null);
   const moonGroupRef = useRef<THREE.Group | null>(null);
   const celestialObjectsRef = useRef<CelestialObjectsGroup | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
@@ -119,6 +126,12 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   useEffect(() => { simRef.current = sim; }, [sim]);
   useEffect(() => { weatherRef.current = interpolatedWeather; }, [interpolatedWeather]);
   useEffect(() => { layersRef.current = layers; }, [layers]);
+
+  // 관측자 지점(index 0)의 기상값 — 가시거리·습도가 대기 혼탁도를 결정합니다.
+  const observerWeather = useCallback(() => {
+    const w = weatherRef.current;
+    return w && w.length > 0 ? w[0] : undefined;
+  }, []);
 
   // 터치 제스처
   const getTouchDist = (touches: any[]) => {
@@ -197,9 +210,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     camera.position.set(0, 0, 0);
     cameraRef.current = camera;
 
-    // 1. Skydome
+    // 1. Skydome (물리 대기 산란 셰이더)
     const skydome = createSkydome();
-    scene.add(skydome);
+    scene.add(skydome.mesh);
     skydomeRef.current = skydome;
 
     // 2. Terrain
@@ -210,10 +223,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       terrainRef.current = terrain;
     }
 
-    // 3. Sun
-    const sunGroup = createSunGroup();
-    scene.add(sunGroup);
-    sunGroupRef.current = sunGroup;
+    // 3. Sun — 글로우는 별도 메시가 아니라 스카이돔의 Mie 위상함수에서 나옵니다.
+    const sun = createSun();
+    scene.add(sun.mesh);
+    sunRef.current = sun;
 
     // 4. Moon
     const moonGroup = createMoonGroup();
@@ -262,16 +275,24 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
   // 물리 파라미터 및 레이어 옵션 변경 시 씬 업데이트
   const updateScene = useCallback(() => {
-    const beta = predictionRef.current?.factors?.aerosolBeta ?? 0.08;
-    const pathClarity = predictionRef.current?.factors?.pathClarity ?? 1.0;
     const overcast = predictionRef.current?.factors?.overheadOvercast ?? 0;
     const currentLayers = layersRef.current;
     const lat = location?.coords?.latitude ?? 37.5;
     const lng = location?.coords?.longitude ?? 127.0;
 
+    // 대기 광학 상태를 관측값에서 유도합니다.
+    // 하늘·태양·구름이 전부 이 하나의 상태를 공유하므로 색이 따로 놀지 않습니다.
+    const atmosphere = makeAtmosphereParams({
+      visibilityM: observerWeather()?.visibility,
+      humidityPct: observerWeather()?.humidity,
+      observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
+      latitude: lat,
+      dayOfYear: dayOfYearOf(currentTime),
+    });
+
     // 1. Skydome
     if (skydomeRef.current) {
-      updateSkydomeColors(skydomeRef.current, sunAltRef.current, sunAzRef.current, beta, pathClarity);
+      updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
     }
 
     // 2. Terrain
@@ -279,17 +300,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       updateTerrainColors(terrainRef.current, sunAltRef.current, overcast, 0);
     }
 
-    // 3. Sun (Layer 옵션 반영)
-    if (sunGroupRef.current) {
-      updateSunPosition(
-        sunGroupRef.current,
-        sunAltRef.current,
-        sunAzRef.current,
-        simRef.current?.terrain?.observerElevation ?? 50,
-        lat,
-        beta
-      );
-      sunGroupRef.current.visible = currentLayers.sun;
+    // 3. Sun (Layer 옵션 반영) — 하늘과 같은 대기 파라미터를 씁니다.
+    if (sunRef.current) {
+      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
+      if (!currentLayers.sun) sunRef.current.mesh.visible = false;
     }
 
     // 4. Moon (Layer 옵션 반영)
@@ -328,22 +342,26 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const atlas = cloudAtlasRef.current;
     if (!field || !atlas) return;
 
-    const factors = predictionRef.current?.factors;
-    const beta = factors?.aerosolBeta ?? 0.08;
-    const pathClarity = factors?.pathClarity ?? 1.0;
-    const overcast = factors?.overheadOvercast ?? 0;
-    const dustIntensity = Math.max(0, Math.min(1, (beta - 0.04) / 0.46));
+    const overcast = predictionRef.current?.factors?.overheadOvercast ?? 0;
+    const lat = location?.coords?.latitude ?? 37.5;
+
+    const atmosphere = makeAtmosphereParams({
+      visibilityM: observerWeather()?.visibility,
+      humidityPct: observerWeather()?.humidity,
+      observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
+      latitude: lat,
+      dayOfYear: dayOfYearOf(currentTime),
+    });
 
     const instances = buildCloudInstances({
       atlas,
-      latitude: location?.coords?.latitude ?? 37.5,
+      latitude: lat,
       longitude: location?.coords?.longitude ?? 127.0,
       currentTime,
       sunAltDeg: sunAltRef.current,
-      beta,
-      pathClarity,
+      sunAzDeg: sunAzRef.current,
+      atmosphere,
       overcast,
-      dustIntensity,
       maxTotal: MAX_CLOUDS,
     });
 
