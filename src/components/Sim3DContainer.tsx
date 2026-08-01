@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { SlidersHorizontal } from 'lucide-react-native';
-import { SkyScene3D, LayerState } from './SkyScene3D/SkyScene3D';
+import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from './SkyScene3D/SkyScene3D';
 import { LayerControlModal } from './SunsetSimulation/LayerControlModal';
 import { TimeSlider } from './TimeSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -33,10 +33,12 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
     sun: true,
     moon: true,
     stars: true,
+    milkyway: true,
     planets: true,
     clouds: true,
     paths: true,
   });
+  const [skySettings, setSkySettings] = useState<SkySettings>(DEFAULT_SKY_SETTINGS);
 
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.9780;
@@ -60,6 +62,7 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
           interpolatedWeather={[]}
           theme={theme}
           layers={layers}
+          skySettings={skySettings}
           fullScreen={true}
         />
         
@@ -126,6 +129,8 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
         onClose={() => setLayerModalVisible(false)}
         layers={layers}
         onToggleLayer={(key) => setLayers(prev => ({ ...prev, [key]: !prev[key] }))}
+        skySettings={skySettings}
+        onChangeSkySettings={(next) => setSkySettings(prev => ({ ...prev, ...next }))}
         theme={theme}
       />
     </View>

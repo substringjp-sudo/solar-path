@@ -1,123 +1,150 @@
 /**
  * Skydome.ts
- * 
- * Why: 기존 sunsetPhysics.ts의 skyColorAtDirection()이 임의의 하늘 방향에 대한
- * 색상을 이미 물리적으로 계산하므로, 이를 구체 내면의 vertex color로 매핑하면
- * 360° 전방향 물리 기반 하늘을 구현할 수 있음.
  *
- * 쉐이딩 없이 vertex color만 사용하는 flat 스타일.
+ * 360° 물리 기반 하늘. 프래그먼트 셰이더에서 픽셀 단위로 대기 산란을 계산합니다.
+ *
+ * Why: 이전 구현은 정점 1,225개마다 CPU에서 회귀 근사(getApproximatedSkyColor)를
+ * 돌려 vertex color로 칠했습니다. 그래서
+ *   - 삼각형 하나가 7.5°×4°라 Gouraud 보간 밴딩이 보이고
+ *   - 시간 슬라이더를 움직일 때마다 2만 번 넘는 곱셈이 JS에서 돌아 렉이 걸렸으며
+ *   - 회귀 근사가 극단 구간에서 외삽하며 채도가 터졌습니다.
+ *
+ * 이제 색은 전부 GPU 프래그먼트에서 나오므로 정점 수를 줄여도 되고(48×24 → 32×16),
+ * CPU는 uniform 몇 개만 갱신합니다. 밴딩은 디더로 잡습니다.
+ *
+ * 태양 주변 글로우는 별도 halo 메시가 아니라 Mie 위상함수에서 자연히 나옵니다.
  */
 import * as THREE from 'three';
-import { getApproximatedSkyColor, clamp01, type RGB } from '../../utils/sunsetPhysics';
+import { ATMOSPHERE_GLSL, type AtmosphereParams } from '../../utils/atmosphere';
 
-const SPHERE_H_SEGMENTS = 48; // 수평 분할 (방위각)
-const SPHERE_V_SEGMENTS = 24; // 수직 분할 (고도)
+const SPHERE_H_SEGMENTS = 32;
+const SPHERE_V_SEGMENTS = 16;
 const SPHERE_RADIUS = 500;
 
+const VERT = `
+varying vec3 vWorldDir;
+
+void main() {
+  // 구면 위치가 곧 시선 방향 (카메라는 원점에 있음)
+  vWorldDir = normalize(position);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const FRAG = `
+precision highp float;
+
+${ATMOSPHERE_GLSL}
+
+uniform vec3  uSunDir;      // 정규화된 태양 방향 (월드)
+uniform float uSunAltDeg;
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
+uniform float uOzoneDU;
+uniform float uSaturation;  // 아트 디렉션용 채도 보정
+
+varying vec3 vWorldDir;
+
+// 그라데이션 밴딩 제거용 미세 디더 (±1/255 미만)
+float dither(vec2 p) {
+  return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+void main() {
+  vec3 dir = normalize(vWorldDir);
+
+  // 시선 고도각
+  float viewElevDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+  // 태양과의 각거리 코사인
+  float cosGamma = clamp(dot(dir, uSunDir), -1.0, 1.0);
+
+  vec3 col = atm_skyRadiance(
+    viewElevDeg, cosGamma, uSunAltDeg,
+    uBeta, uAngstrom, uElevScale, uOzoneDU
+  );
+
+  // 물리 복사휘도 → 화면 색 (노출 → ACES → 채도 → 대비 → sRGB)
+  col = atm_display(col, uSaturation, uSunAltDeg);
+
+  // 넓은 면적의 완만한 그라데이션에서 생기는 밴딩 제거
+  col += (dither(gl_FragCoord.xy) - 0.5) / 255.0;
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+export interface SkydomeHandle {
+  mesh: THREE.Mesh;
+  material: THREE.ShaderMaterial;
+}
+
 /**
- * 스카이돔 mesh 생성 (구체 내면)
- * MeshBasicMaterial + vertexColors = 쉐이딩 없이 물리 기반 색상 직접 표시
+ * 스카이돔 생성. 색은 전부 프래그먼트에서 계산되므로 정점 수는 형상 유지에만 필요합니다.
  */
-export function createSkydome(): THREE.Mesh {
+export function createSkydome(): SkydomeHandle {
   const geometry = new THREE.SphereGeometry(
     SPHERE_RADIUS,
     SPHERE_H_SEGMENTS,
-    SPHERE_V_SEGMENTS,
-    0,               // phiStart
-    Math.PI * 2,     // phiLength (full 360°)
-    0,               // thetaStart
-    Math.PI * 0.55   // thetaLength — 지평선 약간 아래까지만 (하반구 불필요)
+    SPHERE_V_SEGMENTS
   );
 
-  // 내면이 보이도록 법선 반전
-  geometry.scale(-1, 1, 1);
-
-  // vertex color 초기화 (검은색)
-  const count = geometry.attributes.position.count;
-  const colors = new Float32Array(count * 3);
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-  const material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    side: THREE.FrontSide,
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uSunDir: { value: new THREE.Vector3(0, 0.5, -1).normalize() },
+      uSunAltDeg: { value: 30 },
+      uBeta: { value: 0.08 },
+      uAngstrom: { value: 1.3 },
+      uElevScale: { value: 1.0 },
+      uOzoneDU: { value: 330 },
+      uSaturation: { value: 1.0 },
+    },
+    vertexShader: VERT,
+    fragmentShader: FRAG,
+    // 구 안쪽에서 보므로 뒷면을 그립니다.
+    // (이전처럼 scale(-1,1,1)로 뒤집으면 씬이 좌우 반전되어 동/서가 바뀝니다.)
+    side: THREE.BackSide,
     depthWrite: false,
+    depthTest: false,
   });
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'skydome';
-  mesh.renderOrder = -1; // 항상 뒤에 그려짐
-  
-  return mesh;
+  mesh.renderOrder = -1;
+  mesh.frustumCulled = false;
+
+  return { mesh, material };
 }
 
 /**
- * sRGB → linear 역변환 (sunsetPhysics가 linear light로 반환하므로
- * Three.js의 sRGB color space에 맞춰 변환)
- */
-function linearToSrgb(c: number): number {
-  const x = clamp01(c);
-  return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
-}
-
-/**
- * 스카이돔의 vertex color를 현재 태양 위치와 대기 조건으로 업데이트합니다.
- * geometry 재생성 없이 color attribute만 갱신 → 매 프레임 호출 가능.
+ * 대기 상태와 태양 위치를 uniform으로 반영합니다.
+ * 정점 버퍼를 건드리지 않으므로 매 프레임 호출해도 비용이 거의 없습니다.
  *
- * @param mesh createSkydome()으로 생성된 mesh
  * @param sunAltDeg 태양 고도 (도)
- * @param sunAzDeg 태양 방위각 (도, N=0)
- * @param beta 에어로졸 터비디티
- * @param pathClarity 광선 투과율 (0=흐림, 1=맑음)
+ * @param sunAzDeg  태양 방위각 (도, N=0, E=90)
  */
-export function updateSkydomeColors(
-  mesh: THREE.Mesh,
+export function updateSkydome(
+  handle: SkydomeHandle,
   sunAltDeg: number,
   sunAzDeg: number,
-  beta: number,
-  pathClarity: number
+  params: AtmosphereParams,
+  saturation: number = 1.0
 ): void {
-  const geometry = mesh.geometry as THREE.BufferGeometry;
-  const posAttr = geometry.attributes.position;
-  const colorAttr = geometry.attributes.color as THREE.BufferAttribute;
-  const count = posAttr.count;
+  const u = handle.material.uniforms;
 
-  for (let i = 0; i < count; i++) {
-    // vertex 위치에서 방향 벡터 계산 (구체 표면 → 방위/고도)
-    const x = posAttr.getX(i);
-    const y = posAttr.getY(i);
-    const z = posAttr.getZ(i);
+  const altRad = (sunAltDeg * Math.PI) / 180;
+  const azRad = (sunAzDeg * Math.PI) / 180;
+  // Three.js 좌표계: Y=up, -Z=North, X=East
+  (u.uSunDir.value as THREE.Vector3).set(
+    Math.cos(altRad) * Math.sin(azRad),
+    Math.sin(altRad),
+    -Math.cos(altRad) * Math.cos(azRad)
+  );
 
-    // Three.js 좌표계: Y=up, Z=forward(South), X=right(East)
-    // 고도: atan2(y, √(x²+z²))
-    const hDist = Math.sqrt(x * x + z * z);
-    const elevDeg = Math.atan2(y, hDist) * (180 / Math.PI);
-    
-    // 방위각: atan2(x, -z) — North=+Z에서 반전
-    // 구체가 scale(-1,1,1)로 뒤집혀 있으므로 x 부호 반전
-    const azDeg = ((Math.atan2(-x, -z) * (180 / Math.PI)) + 360) % 360;
-
-    // 태양과의 각거리(γ) 계산
-    const thetaRad = (Math.max(elevDeg, 0.05) * Math.PI) / 180;
-    const sunAltRad = (sunAltDeg * Math.PI) / 180;
-    const azDiffRad = ((azDeg - sunAzDeg) * Math.PI) / 180;
-    
-    const cosGamma = Math.sin(thetaRad) * Math.sin(sunAltRad) +
-                     Math.cos(thetaRad) * Math.cos(sunAltRad) * Math.cos(azDiffRad);
-    const cosGammaClamped = Math.max(-1.0, Math.min(1.0, cosGamma));
-    const gammaDeg = Math.acos(cosGammaClamped) * (180 / Math.PI);
-
-    // 물리 기반 색상 계산 (기존 엔진 그대로 활용)
-    const rgb: RGB = getApproximatedSkyColor(
-      Math.max(elevDeg, 0.05),
-      gammaDeg,
-      sunAltDeg,
-      beta,
-      pathClarity
-    );
-
-    // linear → sRGB 변환 후 버퍼에 기록
-    colorAttr.setXYZ(i, linearToSrgb(rgb.r), linearToSrgb(rgb.g), linearToSrgb(rgb.b));
-  }
-
-  colorAttr.needsUpdate = true;
+  u.uSunAltDeg.value = sunAltDeg;
+  u.uBeta.value = params.betaMie;
+  u.uAngstrom.value = params.angstrom;
+  u.uElevScale.value = params.elevScale;
+  u.uOzoneDU.value = params.ozoneDU;
+  u.uSaturation.value = saturation;
 }

@@ -152,7 +152,7 @@ export type CloudPresetName =
   | 'Cumulus'         // 적운 (뭉게구름)
   | 'Cumulonimbus';   // 적란운 (소나기구름)
 
-interface CloudPreset {
+export interface CloudPreset {
   name: CloudPresetName;
   thickness: number;          // 0.0 ~ 1.0 (빛 차단 및 그늘 깊이)
   shadowContrast: number;     // 0.0 ~ 1.0 (그림자 색상 어두움 비중)
@@ -161,7 +161,7 @@ interface CloudPreset {
   baseOpacity: number;        // 기본 투명도 바이어스
 }
 
-function getCloudPreset(
+export function getCloudPreset(
   layerType: 'high' | 'mid' | 'low',
   density: number,
   overcast: number,
@@ -289,7 +289,7 @@ function getCloudPreset(
   }
 }
 
-function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
+export function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
   if (alt > 12.0) {
     return { r: 1.0, g: 1.0, b: 1.0 };
   } else if (alt > 5.0) {
@@ -330,7 +330,7 @@ function getSunBeamColor(alt: number): { r: number; g: number; b: number } {
   }
 }
 
-interface ApproximatedCloudColors {
+export interface ApproximatedCloudColors {
   litRGB: RGB;
   shadowRGB: RGB;
   midRGB: RGB;
@@ -341,7 +341,7 @@ interface ApproximatedCloudColors {
 
 const cloudColorsCache = new Map<string, ApproximatedCloudColors>();
 
-function approximateCloudColors(
+export function approximateCloudColors(
   sunAltFromCloud: number,
   layerType: 'high' | 'mid' | 'low',
   preset: CloudPreset,

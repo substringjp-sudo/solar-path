@@ -1,120 +1,113 @@
 /**
  * SunMesh.ts
  *
- * Why: 태양 디스크 + 글로우 효과. directBeamRGB()로 정확한 태양 색상을 계산하고,
- * 추가 halo 원으로 일출/일몰의 특징적인 글로우를 표현합니다.
- * 쉐이딩 없이 flat 스타일.
+ * 태양 원반. 색은 하늘과 **같은 대기 파라미터**로 감쇠한 직달광에서 나옵니다.
+ *
+ * Why: 이전 구현은 3° 반경 단색 원에 AdditiveBlending을 얹어 halo를 흉내냈습니다.
+ * 가장자리가 딱 잘린 밝은 원반이 되어 글로우로 보이지 않았고, 하늘색과 별개로
+ * 계산되어 노을 때 색이 따로 놀았습니다.
+ *
+ * 이제 halo 메시가 없습니다. 태양 주변 글로우는 스카이돔 셰이더의 Mie 위상함수에서
+ * 자연히 나옵니다(전방산란 피크). 물리적으로도 그게 맞고, 하늘과 태양이 항상
+ * 같은 혼탁도를 공유하므로 미세먼지가 많으면 글로우가 넓게 퍼지는 것까지 재현됩니다.
  */
 import * as THREE from 'three';
-import { directBeamRGB, clamp01, type RGB } from '../../utils/sunsetPhysics';
+import { sunDiskColor, type AtmosphereParams } from '../../utils/atmosphere';
 
-const SUN_ANGULAR_RADIUS = 0.267; // 태양 시직경 ~0.534°, 반경 ~0.267°
-const SUN_DISTANCE = 450; // 스카이돔(500) 안쪽
+/** 태양 시직경 약 0.53° → 반경 0.267° */
+const SUN_ANGULAR_RADIUS_DEG = 0.267;
+const SUN_DISTANCE = 450;
+/** 원반이 너무 작아 안 보이지 않도록 살짝 키웁니다(시각적 가독성). */
+const VISUAL_SCALE = 2.4;
 
-/**
- * 태양 디스크 + 글로우 halo를 포함하는 Group을 생성합니다.
- */
-export function createSunGroup(): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'sunGroup';
+const VERT = `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
 
-  // 태양 디스크 (실제 크기)
-  const sunGeometry = new THREE.CircleGeometry(SUN_DISTANCE * Math.tan(SUN_ANGULAR_RADIUS * Math.PI / 180), 32);
-  const sunMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: false,
-    depthWrite: false,
-  });
-  const sunDisk = new THREE.Mesh(sunGeometry, sunMaterial);
-  sunDisk.name = 'sunDisk';
-  group.add(sunDisk);
+const FRAG = `
+precision highp float;
 
-  // 글로우 halo (투명한 큰 원)
-  const haloGeometry = new THREE.CircleGeometry(SUN_DISTANCE * Math.tan(3 * Math.PI / 180), 48);
-  const haloMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffaa44,
+uniform vec3  uColor;      // 대기 감쇠를 거친 직달광 (linear)
+uniform float uIntensity;  // 원반 밝기 배율
+varying vec2 vUv;
+
+vec3 toSrgb(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
+void main() {
+  // 원 바깥은 버리고, 가장자리는 한 픽셀 정도만 부드럽게 (대기 번짐은 하늘이 담당)
+  float d = length(vUv - 0.5) * 2.0;
+  float alpha = 1.0 - smoothstep(0.86, 1.0, d);
+  if (alpha <= 0.001) discard;
+
+  // 하늘과 같은 톤매핑을 써야 원반이 하늘에서 떠 보이지 않습니다.
+  vec3 col = 1.0 - exp(-uColor * uIntensity);
+
+  gl_FragColor = vec4(toSrgb(col), alpha);
+}
+`;
+
+export interface SunHandle {
+  mesh: THREE.Mesh;
+  material: THREE.ShaderMaterial;
+}
+
+export function createSun(): SunHandle {
+  const radius =
+    SUN_DISTANCE * Math.tan((SUN_ANGULAR_RADIUS_DEG * Math.PI) / 180) * VISUAL_SCALE;
+
+  const geometry = new THREE.PlaneGeometry(radius * 2, radius * 2);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(1, 1, 1) },
+      uIntensity: { value: 14.0 },
+    },
+    vertexShader: VERT,
+    fragmentShader: FRAG,
     transparent: true,
-    opacity: 0.3,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    depthTest: false,
+    side: THREE.DoubleSide,
   });
-  const halo = new THREE.Mesh(haloGeometry, haloMaterial);
-  halo.name = 'sunHalo';
-  halo.position.z = -0.1; // 디스크 뒤에 위치
-  group.add(halo);
 
-  return group;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'sunDisk';
+  mesh.renderOrder = 0; // 하늘(-1) 위, 구름(1) 아래
+  mesh.frustumCulled = false;
+
+  return { mesh, material };
 }
 
 /**
- * sRGB → linear 변환 (directBeamRGB의 결과를 Three.js Color에 맞게)
+ * 태양 위치와 색을 갱신합니다.
+ * 색은 sunDiskColor() → directBeamRGB()로, 하늘과 같은 β·Ångström을 씁니다.
  */
-function linearToSrgb(c: number): number {
-  const x = clamp01(c);
-  return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
-}
-
-/**
- * 태양의 위치와 색상을 업데이트합니다.
- *
- * @param sunGroup createSunGroup()으로 생성된 그룹
- * @param sunAltDeg 태양 고도 (도)
- * @param sunAzDeg 태양 방위각 (도, N=0)
- * @param observerElevM 관측자 고도 (m)
- * @param latitude 위도
- * @param aerosolBeta 에어로졸 β값
- * @param dayOfYear 연중 일수
- */
-export function updateSunPosition(
-  sunGroup: THREE.Group,
+export function updateSun(
+  handle: SunHandle,
   sunAltDeg: number,
   sunAzDeg: number,
-  observerElevM: number = 0,
-  latitude: number = 37.5,
-  aerosolBeta: number = 0.08,
-  dayOfYear: number = 172
+  params: AtmosphereParams
 ): void {
-  // 태양 고도/방위 → 3D 위치 변환
   const altRad = (sunAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
 
-  // Three.js 좌표계: Y=up, -Z=North → sunAz=0=North, 90=East
-  const x = SUN_DISTANCE * Math.cos(altRad) * Math.sin(azRad);
-  const y = SUN_DISTANCE * Math.sin(altRad);
-  const z = -SUN_DISTANCE * Math.cos(altRad) * Math.cos(azRad);
+  handle.mesh.position.set(
+    SUN_DISTANCE * Math.cos(altRad) * Math.sin(azRad),
+    SUN_DISTANCE * Math.sin(altRad),
+    -SUN_DISTANCE * Math.cos(altRad) * Math.cos(azRad)
+  );
+  handle.mesh.lookAt(0, 0, 0);
 
-  sunGroup.position.set(x, y, z);
+  const c = sunDiskColor(sunAltDeg, params);
+  (handle.material.uniforms.uColor.value as THREE.Color).setRGB(c.r, c.g, c.b);
 
-  // 항상 카메라(원점)를 향하도록
-  sunGroup.lookAt(0, 0, 0);
-
-  // 태양 색상 계산 (물리 기반)
-  const beamRGB: RGB = directBeamRGB(sunAltDeg, observerElevM, latitude, aerosolBeta, dayOfYear);
-  
-  // 디스크 색상 업데이트
-  const sunDisk = sunGroup.getObjectByName('sunDisk') as THREE.Mesh;
-  if (sunDisk) {
-    const mat = sunDisk.material as THREE.MeshBasicMaterial;
-    mat.color.setRGB(linearToSrgb(beamRGB.r), linearToSrgb(beamRGB.g), linearToSrgb(beamRGB.b));
-    
-    // 지평선 아래 → 숨김
-    sunDisk.visible = sunAltDeg > -2;
-  }
-
-  // 글로우 halo 색상 및 투명도
-  const halo = sunGroup.getObjectByName('sunHalo') as THREE.Mesh;
-  if (halo) {
-    const mat = halo.material as THREE.MeshBasicMaterial;
-    // 낮은 고도에서 더 강한 글로우
-    const glowIntensity = sunAltDeg < 10
-      ? clamp01(0.15 + (10 - sunAltDeg) * 0.04)
-      : 0.08;
-    mat.opacity = glowIntensity;
-    mat.color.setRGB(
-      linearToSrgb(beamRGB.r * 0.9),
-      linearToSrgb(beamRGB.g * 0.7),
-      linearToSrgb(beamRGB.b * 0.4)
-    );
-    halo.visible = sunAltDeg > -6;
-  }
+  // 대기 굴절로 지평선 아래 약 -0.6°까지 보입니다.
+  handle.mesh.visible = sunAltDeg > -0.9;
 }
