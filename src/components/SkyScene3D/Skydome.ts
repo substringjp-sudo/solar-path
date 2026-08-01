@@ -64,14 +64,8 @@ void main() {
     uBeta, uAngstrom, uElevScale, uOzoneDU
   );
 
-  // 물리 복사휘도 → 표시 범위. 하이라이트가 딱 잘리지 않도록 부드럽게 포화시킵니다.
-  col = 1.0 - exp(-col);
-
-  // 채도 보정 (1.0이면 물리 그대로)
-  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-  col = mix(vec3(luma), col, uSaturation);
-
-  col = atm_toSrgb(col);
+  // 물리 복사휘도 → 화면 색 (노출 → ACES → 채도 → 대비 → sRGB)
+  col = atm_display(col, uSaturation, uSunAltDeg);
 
   // 넓은 면적의 완만한 그라데이션에서 생기는 밴딩 제거
   col += (dither(gl_FragCoord.xy) - 0.5) / 255.0;

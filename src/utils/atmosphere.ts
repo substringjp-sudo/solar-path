@@ -27,9 +27,9 @@ export const TAU_R_550 = 0.0972;
 /** Rayleigh 파장 지수 (이론값 4, 실측 보정 4.05) */
 export const TAU_R_EXP = 4.05;
 /** 오존 Chappuis 흡수 계수 (R/G/B, 300DU 기준) */
-export const OZONE_TAU: [number, number, number] = [0.015, 0.03, 0.002];
+export const OZONE_TAU: [number, number, number] = [0.024, 0.034, 0.003];
 /** Mie 위상함수 비대칭 인자 (에어로졸: 전방산란 우세) */
-export const MIE_G = 0.76;
+export const MIE_G = 0.80;
 /** 구름 물방울 위상함수 비대칭 인자 (강한 전방산란) */
 export const CLOUD_G = 0.85;
 
@@ -38,8 +38,58 @@ export const RAYLEIGH_GAIN = 1.0;
 export const MIE_GAIN = 1.0;
 /** 다중산란(하늘 전체가 서로 빛을 주고받는 성분) 이득 */
 export const MULTI_SCATTER_GAIN = 0.42;
-/** 최종 노출 */
+/** 최종 노출 (물리 복사휘도 → 화면 밝기) */
 export const SKY_EXPOSURE = 22.0;
+
+/**
+ * 디스플레이 변환 — "물리적으로 맞지만 안 예쁜" 문제를 푸는 부분입니다.
+ *
+ * 선형 복사휘도를 그냥 1-exp(-x)로 누르면 밝은 영역이 전부 흰색으로 뭉개져
+ * 지평선이 날아가고 하늘 전체가 우윳빛이 됩니다. ACES 필름 커브는 하이라이트를
+ * 훨씬 완만하게 굴려서 밝은 곳에도 색이 남습니다.
+ *
+ * 채도 보정은 톤매핑 **이후**에 겁니다. 톤 압축이 채도를 깎아내리므로
+ * 그 뒤에 되살려야 합니다.
+ */
+export const DISPLAY_EXPOSURE = 0.62;
+
+/**
+ * 눈의 순응(adaptation).
+ *
+ * Why: 정오 하늘과 박명 하늘은 휘도가 200배 차이납니다. 절대 노출 하나로는
+ * 정오를 맞추면 박명이 새까맣게 죽고, 박명을 맞추면 정오가 흰색으로 날아갑니다.
+ * 실제로는 사람 눈이 어두워질수록 순응해 더 밝게 봅니다. 그래서 태양이 낮아질수록
+ * 노출을 올립니다. 물리 복사휘도는 그대로 두고 표시 단계에서만 보정하므로
+ * 상대적인 밝기 관계(지평선이 천정보다 밝다 등)는 유지됩니다.
+ */
+export const ADAPT_MAX = 16.0;
+export const ADAPT_START_ALT = 6.0;
+export const ADAPT_END_ALT = -14.0;
+export const DISPLAY_SATURATION = 1.22;
+/** 하단 대비 S커브 강도 — 어두운 쪽을 살짝 눌러 탁함을 걷어냅니다 */
+export const DISPLAY_CONTRAST = 1.06;
+
+/**
+ * 박명 시 오존층 접선 통과 배율.
+ *
+ * Why: 태양이 지평선 아래면 햇빛이 오존층(약 22km)을 거의 접선 방향으로
+ * 길게 통과합니다. Chappuis 대역이 주황~적색을 걷어내기 때문에 살아남는 빛이
+ * 푸르게 되고, 이것이 박명 상공이 짙은 파랑으로 남는 이유입니다.
+ * 기하 공식만으로는 이 경로 증가가 표현되지 않아 별도 항을 둡니다.
+ */
+export const OZONE_TWILIGHT_GAIN = 0.55;
+export const OZONE_TWILIGHT_MAX = 3.2;
+
+/**
+ * 지평선 아래 감광.
+ *
+ * Why: 스카이돔은 구 전체라 지평선 아래에도 하늘색이 칠해집니다. 그대로 두면
+ * 화면 하단이 형광색 단색 벽이 되어 가장 먼저 눈에 거슬립니다. 실제로 그 방향을
+ * 보면 하늘이 아니라 지면과 지면 부근 연무를 보게 되므로, 더 어둡고 채도가
+ * 낮은 색으로 부드럽게 깔아줍니다. (지형 링이 덮지 못하는 틈도 이걸로 메워집니다)
+ */
+export const GROUND_DARKEN: RGB = { r: 0.20, g: 0.185, b: 0.175 };
+export const GROUND_FADE_DEG = 5.5;
 
 /** 대기광이 완전히 사라지는 태양 고도 (천문박명) */
 export const TWILIGHT_END_DEG = -16.0;
@@ -196,11 +246,18 @@ function tauMieRGB(beta: number, angstrom: number, elevScale: number): [number, 
   ) as [number, number, number];
 }
 
-/** 오존층(약 22km) 통과 경로 배율 */
-function ozoneAirMass(altDeg: number): number {
+/**
+ * 오존층(약 22km) 통과 경로 배율.
+ * 지평선 아래에서는 접선 통과로 경로가 크게 늘어납니다(박명 파랑의 원인).
+ */
+function ozoneAirMass(altDeg: number, trueSunAltDeg: number = altDeg): number {
   const altRad = (altDeg * Math.PI) / 180;
   const rOzone = 22.0 / 6371;
-  return (1 + rOzone) / Math.sqrt(Math.max(0.001, Math.sin(altRad) ** 2 + 2 * rOzone));
+  const base = (1 + rOzone) / Math.sqrt(Math.max(0.001, Math.sin(altRad) ** 2 + 2 * rOzone));
+  const twilight = trueSunAltDeg < 0
+    ? 1 + Math.min(OZONE_TWILIGHT_MAX, -trueSunAltDeg * OZONE_TWILIGHT_GAIN)
+    : 1;
+  return base * twilight;
 }
 
 /**
@@ -233,7 +290,7 @@ export function skyRadiance(
 
   const tR = tauRayleighRGB(p.elevScale);
   const tM = tauMieRGB(p.betaMie, p.angstrom, p.elevScale);
-  const ozAM = ozoneAirMass(Math.max(sunAltForT, 0.5));
+  const ozAM = ozoneAirMass(Math.max(sunAltForT, 0.5), sunAltDeg);
   const ozScale = p.ozoneDU / 300;
 
   const pR = rayleighPhase(cosGamma) * RAYLEIGH_GAIN;
@@ -269,10 +326,17 @@ export function skyRadiance(
     out.push((single + multi) * SKY_EXPOSURE * sunLit);
   }
 
+  // 지평선 아래로 갈수록 지면 쪽이므로 어둡게 깔아줍니다.
+  const belowT = clamp01(-viewElevDeg / GROUND_FADE_DEG);
+  const below = belowT * belowT * (3 - 2 * belowT);
+  const gr = 1 + (GROUND_DARKEN.r - 1) * below;
+  const gg = 1 + (GROUND_DARKEN.g - 1) * below;
+  const gb = 1 + (GROUND_DARKEN.b - 1) * below;
+
   return {
-    r: Math.max(NIGHT_SKY.r, out[0]),
-    g: Math.max(NIGHT_SKY.g, out[1]),
-    b: Math.max(NIGHT_SKY.b, out[2]),
+    r: Math.max(NIGHT_SKY.r, out[0] * gr),
+    g: Math.max(NIGHT_SKY.g, out[1] * gg),
+    b: Math.max(NIGHT_SKY.b, out[2] * gb),
   };
 }
 
@@ -518,6 +582,16 @@ const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
 const vec3  TWILIGHT_W  = vec3(${f(TWILIGHT_PURPLE_WEIGHTS[0])}, ${f(TWILIGHT_PURPLE_WEIGHTS[1])}, ${f(TWILIGHT_PURPLE_WEIGHTS[2])});
 const float SCALE_H_KM  = ${f(SCALE_HEIGHT_KM)};
 const float AERIAL_STR  = ${f(AERIAL_STRENGTH)};
+const float OZ_TW_GAIN  = ${f(OZONE_TWILIGHT_GAIN)};
+const float OZ_TW_MAX   = ${f(OZONE_TWILIGHT_MAX)};
+const float DISP_EXPO   = ${f(DISPLAY_EXPOSURE)};
+const float ADAPT_MAX   = ${f(ADAPT_MAX)};
+const float ADAPT_HI    = ${f(ADAPT_START_ALT)};
+const float ADAPT_LO    = ${f(ADAPT_END_ALT)};
+const float DISP_SAT    = ${f(DISPLAY_SATURATION)};
+const float DISP_CONTR  = ${f(DISPLAY_CONTRAST)};
+const vec3  GROUND_DARK = vec3(${f(GROUND_DARKEN.r)}, ${f(GROUND_DARKEN.g)}, ${f(GROUND_DARKEN.b)});
+const float GROUND_FADE = ${f(GROUND_FADE_DEG)};
 const float PI_         = 3.14159265359;
 
 // Kasten-Young 대기 질량 — 지평선으로 갈수록 대기가 두꺼워지는 정도
@@ -545,11 +619,15 @@ vec3 atm_tauMie(float beta, float angstrom, float elevScale) {
   return beta * pow(vec3(550.0) / LAMBDA, vec3(angstrom)) * elevScale;
 }
 
-float atm_ozoneAirMass(float altDeg) {
+float atm_ozoneAirMass(float altDeg, float trueSunAlt) {
   float s = sin(radians(altDeg));
   float rO = 22.0 / 6371.0;
-  return (1.0 + rO) / sqrt(max(0.001, s * s + 2.0 * rO));
+  float base = (1.0 + rO) / sqrt(max(0.001, s * s + 2.0 * rO));
+  // 박명에는 오존층을 접선 방향으로 길게 통과 → 주황이 걷히고 파랑이 남음
+  float tw = trueSunAlt < 0.0 ? 1.0 + min(OZ_TW_MAX, -trueSunAlt * OZ_TW_GAIN) : 1.0;
+  return base * tw;
 }
+
 
 /**
  * 시선 방향의 하늘 복사휘도.
@@ -569,7 +647,7 @@ vec3 atm_skyRadiance(
 
   vec3 tR = atm_tauRayleigh(elevScale);
   vec3 tM = atm_tauMie(beta, angstrom, elevScale);
-  float ozAM = atm_ozoneAirMass(max(sunAltForT, 0.5));
+  float ozAM = atm_ozoneAirMass(max(sunAltForT, 0.5), sunAltDeg);
   float ozScale = ozoneDU / 300.0;
 
   float pR = atm_rayleighPhase(cosGamma) * RAY_GAIN;
@@ -594,6 +672,11 @@ vec3 atm_skyRadiance(
   vec3 multi  = tSunMS * scatterFrac * MS_GAIN * (1.0 / (4.0 * PI_));
 
   vec3 col = (single + multi) * SKY_EXPOSURE * sunLit;
+
+  // 지평선 아래는 지면 쪽 — 어둡고 채도 낮게 깔아 형광 벽이 되지 않게 합니다.
+  float below = smoothstep(0.0, -GROUND_FADE, viewElevDeg);
+  col *= mix(vec3(1.0), GROUND_DARK, below);
+
   return max(NIGHT_SKY, col);
 }
 
@@ -642,5 +725,30 @@ vec3 atm_aerialTransmittance(
 vec3 atm_toSrgb(vec3 c) {
   c = clamp(c, 0.0, 1.0);
   return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
+/**
+ * ACES 필름 톤매핑 (Narkowicz 2015 근사).
+ * 1-exp(-x) 대비 하이라이트 롤오프가 완만해 밝은 하늘에도 색이 남습니다.
+ */
+vec3 atm_tonemapACES(vec3 x) {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+/** 태양이 낮아질수록 노출을 올립니다 (눈의 순응) */
+float atm_adaptation(float sunAltDeg) {
+  return 1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg);
+}
+
+/**
+ * 물리 복사휘도 → 화면 색. 순응 노출 → ACES → 채도 복원 → 대비 순서입니다.
+ * 채도를 톤매핑 뒤에 거는 것이 핵심입니다(압축으로 깎인 색을 되살림).
+ */
+vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
+  vec3 c = atm_tonemapACES(radiance * DISP_EXPO * atm_adaptation(sunAltDeg));
+  float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(luma), c, DISP_SAT * saturation);
+  c = clamp((c - 0.5) * DISP_CONTR + 0.5, 0.0, 1.0);
+  return atm_toSrgb(c);
 }
 `;
