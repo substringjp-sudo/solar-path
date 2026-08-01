@@ -23,6 +23,8 @@ google-services.json
 *.apk
 *.aab
 build-*
+# 셰이더 미리보기 빌더는 도구 소스라 예외 (build-* 규칙에 걸립니다)
+!tools/shader-preview/build-*.js
 .firebase/
 
 # Service Account Keys

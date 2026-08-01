@@ -1,20 +1,39 @@
 /**
  * LayerControlModal.tsx
- * 
- * 3D 시뮬레이션 뷰의 천체 및 환경 레이어(해, 달, 별, 행성, 구름, 궤적/그림자)를
- * 각각 ON/OFF 선택할 수 있는 레이어 조종 팝업 컴포넌트.
+ *
+ * 3D 시뮬레이션 뷰의 천체 및 환경 레이어(해, 달, 별, 은하수, 행성, 구름, 궤적/그림자)를
+ * 각각 ON/OFF 선택하고, 별의 밝기·한계등급을 조절하는 팝업 컴포넌트.
  */
 import React from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity } from 'react-native';
-import { LayerState } from '../SkyScene3D/SkyScene3D';
-import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X } from 'lucide-react-native';
+import { LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
+import { GenericSlider } from '../GenericSlider';
+import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone } from 'lucide-react-native';
 
 interface LayerControlModalProps {
   visible: boolean;
   onClose: () => void;
   layers: LayerState;
   onToggleLayer: (key: keyof LayerState) => void;
+  skySettings: SkySettings;
+  onChangeSkySettings: (next: Partial<SkySettings>) => void;
   theme: any;
+}
+
+/** 한계등급 슬라이더 범위 — 3등급(도심)부터 6.5등급(암천)까지 */
+const MAG_MIN = 3.0;
+const MAG_MAX = 6.5;
+/** 밝기 배율 범위 */
+const BRIGHT_MIN = 0.2;
+const BRIGHT_MAX = 2.0;
+
+/** 한계등급을 사용자가 알아볼 수 있는 하늘 상태로 옮깁니다 (Bortle 척도 근사) */
+function skyQualityLabel(mag: number): string {
+  if (mag < 3.6) return '도심 한복판';
+  if (mag < 4.4) return '도시 외곽';
+  if (mag < 5.2) return '교외';
+  if (mag < 6.0) return '시골';
+  return '완전한 암천';
 }
 
 export const LayerControlModal: React.FC<LayerControlModalProps> = ({
@@ -22,16 +41,24 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   onClose,
   layers,
   onToggleLayer,
+  skySettings,
+  onChangeSkySettings,
   theme,
 }) => {
   const layerItems: { key: keyof LayerState; label: string; icon: any }[] = [
     { key: 'sun', label: '태양 (Sun)', icon: <Sun size={18} color="#eab308" /> },
     { key: 'moon', label: '달 (Moon)', icon: <Moon size={18} color="#38bdf8" /> },
-    { key: 'stars', label: '별 & 은하수 (Stars)', icon: <Sparkles size={18} color="#a78bfa" /> },
+    { key: 'stars', label: '별 (Stars)', icon: <Sparkles size={18} color="#a78bfa" /> },
+    { key: 'milkyway', label: '은하수 (Milky Way)', icon: <Milestone size={18} color="#c4b5fd" /> },
     { key: 'planets', label: '행성 (Planets)', icon: <Star size={18} color="#f43f5e" /> },
     { key: 'clouds', label: '구름 (Clouds)', icon: <Cloud size={18} color="#94a3b8" /> },
     { key: 'paths', label: '궤적 & 그림자 (Paths)', icon: <Navigation size={18} color="#22c55e" /> },
   ];
+
+  // GenericSlider는 0~100을 다루므로 실제 단위와 서로 변환합니다.
+  const brightnessPct =
+    ((skySettings.starBrightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)) * 100;
+  const magPct = ((skySettings.starMagLimit - MAG_MIN) / (MAG_MAX - MAG_MIN)) * 100;
 
   return (
     <Modal
@@ -85,6 +112,52 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 </TouchableOpacity>
               );
             })}
+          </View>
+
+          {/* 별 표현 조절 — ON/OFF가 아닌 연속값이라 슬라이더로 둡니다 */}
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+          <View style={styles.sliderBlock}>
+            <View style={styles.sliderHeader}>
+              <Text style={[styles.sliderLabel, { color: theme.text }]}>별 밝기</Text>
+              <Text style={[styles.sliderValue, { color: theme.subText }]}>
+                ×{skySettings.starBrightness.toFixed(2)}
+              </Text>
+            </View>
+            <GenericSlider
+              value={Math.max(0, Math.min(100, brightnessPct))}
+              onChange={(p: number) =>
+                onChangeSkySettings({
+                  starBrightness: BRIGHT_MIN + (p / 100) * (BRIGHT_MAX - BRIGHT_MIN),
+                })
+              }
+              theme={theme}
+              fillColor="#a78bfa"
+              knobColor="#ede9fe"
+            />
+          </View>
+
+          <View style={styles.sliderBlock}>
+            <View style={styles.sliderHeader}>
+              <Text style={[styles.sliderLabel, { color: theme.text }]}>한계 등급</Text>
+              <Text style={[styles.sliderValue, { color: theme.subText }]}>
+                {skySettings.starMagLimit.toFixed(1)}등급 · {skyQualityLabel(skySettings.starMagLimit)}
+              </Text>
+            </View>
+            <GenericSlider
+              value={Math.max(0, Math.min(100, magPct))}
+              onChange={(p: number) =>
+                onChangeSkySettings({
+                  starMagLimit: MAG_MIN + (p / 100) * (MAG_MAX - MAG_MIN),
+                })
+              }
+              theme={theme}
+              fillColor="#38bdf8"
+              knobColor="#e0f2fe"
+            />
+            <Text style={[styles.sliderHint, { color: theme.subText }]}>
+              6.5등급이면 맨눈으로 볼 수 있는 8,355개 항성이 모두 표시됩니다.
+            </Text>
           </View>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -164,5 +237,33 @@ const styles = StyleSheet.create({
   toggleText: {
     fontSize: 10,
     fontWeight: '800',
+  },
+  divider: {
+    height: 1,
+    marginTop: 16,
+    marginBottom: 4,
+    opacity: 0.5,
+  },
+  sliderBlock: {
+    marginTop: 8,
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  sliderLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sliderValue: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sliderHint: {
+    fontSize: 10,
+    lineHeight: 14,
+    paddingHorizontal: 2,
   },
 });

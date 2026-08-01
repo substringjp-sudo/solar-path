@@ -40,3 +40,21 @@ node tools/shader-preview/shoot.js
 - **셰이더 컴파일 여부** — GLSL ES 1.0은 선언 후 사용이 강제됩니다.
   공유 청크에 함수를 추가할 때 순서를 어기면 여기서 바로 잡힙니다.
 - **여러 태양 고도에서의 실제 색** — 물리 검증만으로는 알 수 없는 부분입니다.
+
+## 밤하늘 미리보기 (별 · 은하수 · 궤적 리본)
+
+```bash
+node tools/shader-preview/stage-esm.js            # SkyScene3D 모듈을 브라우저용 ESM으로 준비
+node tools/shader-preview/build-night-preview.js  # 넓은 화각 4컷
+node tools/shader-preview/build-night-preview.js --close  # 좁은 화각 4컷 (별 색·크기 판단용)
+# preview 디렉터리에서 python3 -m http.server 8123 을 띄운 뒤 shoot 스크립트로 촬영
+```
+
+`build-preview.js`가 셰이더 문자열만 소스에서 뽑아 쓰는 데 반해, 밤하늘 쪽은
+`stage-esm.js`가 **StarField / MilkyWayBand / CelestialPathMesh 모듈 자체를**
+tsc로 ESM 변환해 브라우저에 넣습니다. import 경로만 vendor/상대경로로 고치고
+로직은 건드리지 않으므로, 미리보기에서 도는 지오메트리 생성·좌표 변환·행성
+계산이 앱과 완전히 같은 코드입니다.
+
+`vendor/date-fns.js`는 `addHours`/`startOfDay`만 담은 최소 shim입니다 —
+동작은 date-fns와 같지만, 미리보기 외의 용도로 쓰지 마세요.

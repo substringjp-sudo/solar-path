@@ -8,8 +8,9 @@
  * - Skydome: 360° 물리 기반 하늘색
  * - TerrainRing: panoramicAngles 기반 지형 실루엣
  * - SunMesh & MoonMesh: 태양 및 달 디스크/위상
- * - CelestialObjectsMesh: 별, 은하수, 5대 행성
- * - CelestialPathMesh: 태양/달 24h 이동 궤적 & 관측자 그림자
+ * - StarField: 6.5등급까지 8,355개 실제 항성 + 5대 행성 (draw call 1개)
+ * - MilkyWayBand: 은하 적도를 따르는 광대(光帶)
+ * - CelestialPathMesh: 태양/달 24h 이동 궤적 리본 & 관측자 그림자
  * - CloudField: 10종 SVG 템플릿 아틀라스 기반 InstancedMesh 구름 (draw call 1개)
  */
 import React, { useRef, useCallback, useEffect, useMemo } from 'react';
@@ -22,7 +23,14 @@ import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import { createTerrainRing, updateTerrainColors } from './TerrainRing';
 import { createSun, updateSun, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition } from './MoonMesh';
-import { createCelestialObjectsGroup, updateCelestialObjects, CelestialObjectsGroup } from './CelestialObjectsMesh';
+import {
+  createStarField,
+  updateStarField,
+  computeEquToHorizon,
+  buildPlanetPoints,
+  type StarFieldHandle,
+} from './StarField';
+import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
@@ -34,10 +42,24 @@ export interface LayerState {
   sun: boolean;
   moon: boolean;
   stars: boolean;
+  milkyway: boolean;
   planets: boolean;
   clouds: boolean;
   paths: boolean;
 }
+
+/** 별 표현을 사용자가 조절하는 값 (레이어 ON/OFF와 달리 연속값이라 따로 둡니다) */
+export interface SkySettings {
+  /** 밝기 배율 0~2 */
+  starBrightness: number;
+  /** 표시 한계 등급 (3 = 도심, 6.5 = 완전한 암천) */
+  starMagLimit: number;
+}
+
+export const DEFAULT_SKY_SETTINGS: SkySettings = {
+  starBrightness: 1.0,
+  starMagLimit: 6.5,
+};
 
 interface SkyScene3DProps {
   sim: any;
@@ -50,12 +72,14 @@ interface SkyScene3DProps {
   theme: any;
   layers?: LayerState;
   fullScreen?: boolean;
+  skySettings?: SkySettings;
 }
 
 const DEFAULT_LAYERS: LayerState = {
   sun: true,
   moon: true,
   stars: true,
+  milkyway: true,
   planets: true,
   clouds: true,
   paths: true,
@@ -83,6 +107,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   theme,
   layers = DEFAULT_LAYERS,
   fullScreen = false,
+  skySettings = DEFAULT_SKY_SETTINGS,
 }) => {
   const { width, height } = useWindowDimensions();
   
@@ -97,8 +122,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const terrainRef = useRef<THREE.Mesh | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
   const moonGroupRef = useRef<THREE.Group | null>(null);
-  const celestialObjectsRef = useRef<CelestialObjectsGroup | null>(null);
+  const starFieldRef = useRef<StarFieldHandle | null>(null);
+  const milkyWayRef = useRef<MilkyWayHandle | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
+  /** 별·은하수가 공유하는 적도→지평 회전 행렬 (프레임당 1회만 계산) */
+  const equToHorizonRef = useRef(new THREE.Matrix3());
   const cloudAtlasRef = useRef<CloudAtlas | null>(null);
   const cloudFieldRef = useRef<CloudField | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
@@ -119,7 +147,13 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const simRef = useRef(sim);
   const weatherRef = useRef(interpolatedWeather);
   const layersRef = useRef(layers);
-  
+  const skySettingsRef = useRef(skySettings);
+  const pixelRatioRef = useRef(1);
+  // onContextCreate는 deps가 비어 있어 클로저가 굳으므로 ref로 읽습니다.
+  const sceneWidthRef = useRef(SCENE_WIDTH);
+
+  useEffect(() => { sceneWidthRef.current = SCENE_WIDTH; }, [SCENE_WIDTH]);
+  useEffect(() => { skySettingsRef.current = skySettings; }, [skySettings]);
   useEffect(() => { sunAltRef.current = sunAltitude; }, [sunAltitude]);
   useEffect(() => { sunAzRef.current = sunAzimuth; }, [sunAzimuth]);
   useEffect(() => { predictionRef.current = prediction; }, [prediction]);
@@ -233,10 +267,21 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     scene.add(moonGroup);
     moonGroupRef.current = moonGroup;
 
-    // 5. Celestial Objects (Stars, Planets, MilkyWay)
-    const celObjects = createCelestialObjectsGroup();
-    scene.add(celObjects.containerGroup);
-    celestialObjectsRef.current = celObjects;
+    // 5a. 은하수 — 별보다 뒤에 그려야 별이 위에 얹힙니다.
+    const milkyWay = createMilkyWayBand();
+    scene.add(milkyWay.mesh);
+    milkyWayRef.current = milkyWay;
+
+    // 5b. 항성 + 행성 — 8,355개를 Points 하나로
+    const starField = createStarField(8);
+    scene.add(starField.points);
+    starFieldRef.current = starField;
+
+    // 점 크기를 물리 픽셀 기준으로 맞춥니다 (고DPI에서 별이 사라지지 않도록).
+    pixelRatioRef.current = Math.max(
+      1,
+      gl.drawingBufferWidth / Math.max(1, sceneWidthRef.current)
+    );
 
     // 6. Celestial Paths & Ground Shadow
     const celPaths = createCelestialPathsGroup();
@@ -312,20 +357,39 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       moonGroupRef.current.visible = currentLayers.moon && moonGroupRef.current.visible;
     }
 
-    // 5. Celestial Objects (Stars, Planets, MilkyWay) (Layer 옵션 반영)
-    if (celestialObjectsRef.current) {
-      updateCelestialObjects(celestialObjectsRef.current, currentTime, lat, lng, sunAltRef.current);
-      celestialObjectsRef.current.starsPoints.visible = currentLayers.stars && celestialObjectsRef.current.starsPoints.visible;
-      celestialObjectsRef.current.milkyWayPoints.visible = currentLayers.stars && celestialObjectsRef.current.milkyWayPoints.visible;
-      celestialObjectsRef.current.planetsGroup.visible = currentLayers.planets;
+    // 5. 별·행성·은하수 — 회전 행렬 하나를 계산해 두 셰이더가 함께 씁니다.
+    const equToHorizon = computeEquToHorizon(currentTime, lat, lng, equToHorizonRef.current);
+    const settings = skySettingsRef.current;
+
+    if (starFieldRef.current) {
+      updateStarField(starFieldRef.current, {
+        equToHorizon,
+        sunAltDeg: sunAltRef.current,
+        brightness: settings.starBrightness,
+        magLimit: settings.starMagLimit,
+        pixelRatio: pixelRatioRef.current,
+        planets: buildPlanetPoints(currentTime),
+        showStars: currentLayers.stars,
+        showPlanets: currentLayers.planets,
+      });
+      starFieldRef.current.points.visible = currentLayers.stars || currentLayers.planets;
+    }
+
+    if (milkyWayRef.current) {
+      updateMilkyWay(
+        milkyWayRef.current,
+        equToHorizon,
+        sunAltRef.current,
+        settings.starBrightness,
+        settings.starMagLimit
+      );
+      milkyWayRef.current.mesh.visible = currentLayers.milkyway;
     }
 
     // 6. Celestial Paths & Ground Shadow (Layer 옵션 반영)
     if (celestialPathsRef.current) {
       updateCelestialPaths(celestialPathsRef.current, currentTime, lat, lng, sunAltRef.current, sunAzRef.current);
-      celestialPathsRef.current.sunPathLine.visible = currentLayers.paths;
-      celestialPathsRef.current.moonPathLine.visible = currentLayers.paths;
-      celestialPathsRef.current.groundShadowMesh.visible = currentLayers.paths && celestialPathsRef.current.groundShadowMesh.visible;
+      celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
     }
 
     // 7. Clouds (Layer 옵션 반영)
@@ -389,7 +453,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       }
       updateScene();
     }
-  }, [sunAltitude, sunAzimuth, currentTime, prediction, layers]);
+  }, [sunAltitude, sunAzimuth, currentTime, prediction, layers, skySettings]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -421,6 +485,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           }
         }
       });
+      // traverse는 Mesh만 훑으므로 Points는 직접 해제합니다.
+      starFieldRef.current?.dispose();
+      starFieldRef.current = null;
+      milkyWayRef.current?.dispose();
+      milkyWayRef.current = null;
       // 아틀라스 텍스처는 씬 그래프에 속하지 않으므로 별도 해제
       cloudAtlasRef.current?.dispose();
       cloudAtlasRef.current = null;

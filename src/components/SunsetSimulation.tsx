@@ -16,11 +16,9 @@ import { PredictionCard } from './SunsetSimulation/PredictionCard';
 import { SourceInfoModal } from './SunsetSimulation/SourceInfoModal';
 import { Visualizer } from './SunsetSimulation/Visualizer';
 import { TimeSlider } from './TimeSlider';
-import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin, ChevronRight, Box, SlidersHorizontal } from 'lucide-react-native';
-import { SkyScene3D, LayerState } from './SkyScene3D';
+import { RotateCw, Layers, Zap, Info, AlertCircle, MapPin, ChevronRight } from 'lucide-react-native';
 import { WeatherDetailModal } from './SunsetSimulation/WeatherDetailModal';
 import { EventRecommendBar } from './SunsetSimulation/EventRecommendBar';
-import { LayerControlModal } from './SunsetSimulation/LayerControlModal';
 import { getDailyCelestialEvents } from '../utils/celestialEvents';
 import { t } from '../utils/i18n';
 
@@ -96,16 +94,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
   const [isWeatherDetailVisible, setWeatherDetailVisible] = useState(false);
   const [isSliding, setIsSliding] = useState(false);
   const [isTransitionReady, setIsTransitionReady] = useState(true);
-  const [is3DMode, setIs3DMode] = useState(false);
-  const [isLayerModalVisible, setLayerModalVisible] = useState(false);
-  const [layers, setLayers] = useState<LayerState>({
-    sun: true,
-    moon: true,
-    stars: true,
-    planets: true,
-    clouds: true,
-    paths: true,
-  });
 
   const [eventAzimuths, setEventAzimuths] = useState({ sunrise: 0, sunset: 0 });
   const [selectedEventType, setSelectedEventType] = useState<'auto' | 'Sunrise' | 'Sunset'>('auto');
@@ -992,13 +980,6 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
         weatherSource={sim?.weatherSource || 'standard'}
       />
 
-      <LayerControlModal
-        visible={isLayerModalVisible}
-        onClose={() => setLayerModalVisible(false)}
-        layers={layers}
-        onToggleLayer={(key: keyof LayerState) => setLayers((prev: LayerState) => ({ ...prev, [key]: !prev[key] }))}
-        theme={theme}
-      />
     </View>
   );
 };
