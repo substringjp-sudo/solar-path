@@ -20,7 +20,7 @@ import { clamp01, type RGB } from '../../utils/sunsetPhysics';
 import {
   skyRadiance,
   beamAtAltitude,
-  cloudOpticalDepth,
+  cloudOpticalDepthFromDb,
   type AtmosphereParams,
 } from '../../utils/atmosphere';
 import { cloudAtlasKey, type CloudAtlas } from './cloudAtlas';
@@ -48,6 +48,12 @@ export interface CloudInstanceData {
   ambient: RGB;
   /** 구름 광학두께 — 셰이더가 이걸로 반사/투과를 계산합니다 */
   tau: number;
+  /** 구름 고도 (km) — 원경 대기 투시 계산에 사용 */
+  altitudeKm: number;
+  /** 도감의 그림자 대비 (0~1) */
+  shadowContrast: number;
+  /** 도감의 림라이트 날카로움 (0~1) */
+  rimSharpness: number;
   /** 0 = 카메라를 보는 빌보드, 1 = 바닥에 눕힌 수평 배치 */
   horizontal: boolean;
 }
@@ -220,9 +226,9 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
       ) * (180 / Math.PI);
       const ambient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
 
-      // 광학두께 — 얼음운(권운류)은 훨씬 얇습니다.
-      const isIce = layerType === 'high';
-      const tau = cloudOpticalDepth(presetName, cell.cloudCover, isIce);
+      // 광학두께를 도감의 투과율(scattering)에서 역산합니다.
+      // 이렇게 하면 도감에 적힌 "투과율 95%"가 화면에서 실제로 성립합니다.
+      const tau = cloudOpticalDepthFromDb(preset.scattering, cell.cloudCover);
 
       // ── 크기 ────────────────────────────────────────────────────────────
       // 각크기 기준으로 잡아야 멀리 있는 구름이 자연스럽게 작아집니다.
@@ -241,6 +247,9 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
         beam,
         ambient,
         tau,
+        altitudeKm: altKm,
+        shadowContrast: preset.shadowContrast,
+        rimSharpness: preset.rimLightSharpness,
         horizontal,
       });
     }

@@ -307,6 +307,23 @@ export function beamAtAltitude(
 
 // ── 4) 구름 ────────────────────────────────────────────────────────────────
 
+/** 대기 척도고도 (km) — 수평 경로의 공기 밀도 감소에 사용 */
+export const SCALE_HEIGHT_KM = 8.4;
+
+/**
+ * 원경 대기 투시(aerial perspective) 세기. 1.0 = 물리 그대로.
+ * 관측자와 구름 사이의 대기가 구름을 흐리게 하고 하늘색을 덧씌웁니다.
+ * 200km 밖 구름이 지평선 연무에 잠겨 실루엣만 남는 현상이 여기서 나옵니다.
+ */
+export const AERIAL_STRENGTH = 1.0;
+
+/**
+ * 황혼 자색광 합성 가중치 (docs/CLOUD_PHYSICS.md §5).
+ * 그늘진 구름이 검게 죽지 않고, 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 함께 받아
+ * 황혼 특유의 자주색을 띠게 하는 채널별 가중치입니다.
+ */
+export const TWILIGHT_PURPLE_WEIGHTS: [number, number, number] = [0.28, 0.15, 0.45];
+
 /** 구름 종류별 기하학적 두께 (km) → 광학두께 환산에 사용 */
 export const CLOUD_GEOMETRIC_THICKNESS_KM: Record<string, number> = {
   Cirrus: 0.4,
@@ -334,6 +351,54 @@ export function cloudOpticalDepth(
   // 얼음운은 입자 밀도가 낮아 광학두께가 한 자릿수에 머무릅니다.
   const extinctionPerKm = isIce ? 1.6 : 26.0;
   return Math.max(0.05, thickness * extinctionPerKm * clamp01(density01));
+}
+
+/**
+ * 구름 도감(CloudPreset)의 scattering 값에서 광학두께를 역산합니다.
+ *
+ * Why: 도감에는 종류별 "투과율"이 적혀 있고(예: 권운 95%), 사용자에게도 그렇게
+ * 보여줍니다. 2-stream 투과율 T = 2/(τ(1-g)+2)를 τ에 대해 풀면, 도감에 적힌
+ * 그 숫자가 화면에서 실제로 성립합니다. 즉 도감과 렌더가 어긋나지 않습니다.
+ *
+ * docs/CLOUD_PHYSICS.md의 τ 공식과도 정합합니다. 문서는 τ에 k=0.25를 곱해
+ * 쓰는데, 여기서는 (1-g)=0.15가 같은 역할을 하므로 유효 광학두께가 비슷합니다.
+ *
+ * @param scattering 도감의 투과율 (0~1)
+ * @param cover      구름량 (0~1) — 부분적으로 낀 구름은 더 얇게
+ */
+export function cloudOpticalDepthFromDb(scattering: number, cover: number): number {
+  const s = Math.max(0.02, Math.min(0.98, scattering));
+  const tauEff = 2 / s - 2;              // 2-stream 역산
+  const tau = tauEff / (1 - CLOUD_G);
+  // 구름량이 적으면 광학적으로도 얇아집니다.
+  return Math.max(0.03, tau * (0.25 + 0.75 * clamp01(cover)));
+}
+
+/**
+ * 관측자와 대상 사이 대기의 투과율 (원경 대기 투시).
+ *
+ * 수평 경로의 광학두께는 천정 광학두께를 척도고도로 나눈 지표 소산계수에
+ * 경로 길이를 곱해 구합니다. 대상이 고고도면 경로 평균 밀도가 낮아지므로
+ * 그만큼 보정합니다.
+ */
+export function aerialTransmittance(
+  distanceKm: number,
+  targetAltKm: number,
+  p: AtmosphereParams
+): RGB {
+  const tR = tauRayleighRGB(p.elevScale);
+  const tM = tauMieRGB(p.betaMie, p.angstrom, p.elevScale);
+
+  // 경로가 상승하며 지나는 공기의 평균 밀도비
+  const h = Math.max(0.01, targetAltKm);
+  const avgDensity = (SCALE_HEIGHT_KM / h) * (1 - Math.exp(-h / SCALE_HEIGHT_KM));
+  const pathScale = (distanceKm / SCALE_HEIGHT_KM) * avgDensity * AERIAL_STRENGTH;
+
+  return {
+    r: Math.exp(-(tR[0] + tM[0]) * pathScale),
+    g: Math.exp(-(tR[1] + tM[1]) * pathScale),
+    b: Math.exp(-(tR[2] + tM[2]) * pathScale),
+  };
 }
 
 export interface CloudShadingResult {
@@ -369,8 +434,18 @@ export function cloudShading(
   tau: number,
   cosView: number,
   beam: RGB,
-  ambient: RGB
+  ambient: RGB,
+  opts: {
+    /** 도감의 그림자 대비 (0~1) — 클수록 그늘면이 깊게 어두워짐 */
+    shadowContrast?: number;
+    /** 지평선 노을빛 — 황혼 자색광 합성용 */
+    horizonGlow?: RGB;
+    /** 천공 푸른빛 — 황혼 자색광 합성용 */
+    zenithSky?: RGB;
+  } = {}
 ): CloudShadingResult {
+  const { shadowContrast = 0.5, horizonGlow, zenithSky } = opts;
+
   const tauEff = tau * (1 - CLOUD_G);
   const R = tauEff / (tauEff + 2);
   const T = 2 / (tauEff + 2);
@@ -387,12 +462,29 @@ export function cloudShading(
     b: beam.b * (R + silver) + ambient.b * (1 - R) * 0.55,
   };
 
-  // 그늘면: 구름 내부를 통과해 확산된 빛 + 주변 하늘의 재조명
-  const shadow: RGB = {
-    r: beam.r * T * 0.35 + ambient.r * (0.30 + T * 0.45),
-    g: beam.g * T * 0.35 + ambient.g * (0.30 + T * 0.45),
-    b: beam.b * T * 0.35 + ambient.b * (0.30 + T * 0.45),
+  // 그늘면 기저: 구름 내부를 통과해 확산된 빛 + 주변 하늘의 재조명.
+  // 도감의 shadowContrast가 클수록 더 깊게 어두워집니다.
+  const ambientKeep = 0.30 + T * 0.45;
+  const depth = 1 - shadowContrast * 0.55;
+  let shadow: RGB = {
+    r: (beam.r * T * 0.35 + ambient.r * ambientKeep) * depth,
+    g: (beam.g * T * 0.35 + ambient.g * ambientKeep) * depth,
+    b: (beam.b * T * 0.35 + ambient.b * ambientKeep) * depth,
   };
+
+  // ── 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5) ──────────────────────────
+  // 그늘진 구름은 검게 죽지 않습니다. 빛이 통과하지 못할수록(=차폐도가 클수록)
+  // 대신 두 환경광을 받습니다: 지평선의 붉은 노을빛과 머리 위 천공의 푸른빛.
+  // 이 상반된 두 파장이 구름 안에서 섞이며 황혼 특유의 자주색이 나옵니다.
+  if (horizonGlow && zenithSky) {
+    const influence = clamp01(1 - T);
+    const [wR, wG, wB] = TWILIGHT_PURPLE_WEIGHTS;
+    shadow = {
+      r: shadow.r + (horizonGlow.r * wR - shadow.r) * influence,
+      g: shadow.g + (horizonGlow.g * wG - shadow.g) * influence,
+      b: shadow.b + (zenithSky.b * wB - shadow.b) * influence,
+    };
+  }
 
   return { lit, shadow, diffuseReflectance: R, diffuseTransmittance: T };
 }
@@ -423,6 +515,9 @@ const float MS_AM_FRAC  = ${f(MS_AIRMASS_FRACTION)};
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
 const float SH_ZENITH   = ${f(SCATTER_HEIGHT_ZENITH)};
 const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
+const vec3  TWILIGHT_W  = vec3(${f(TWILIGHT_PURPLE_WEIGHTS[0])}, ${f(TWILIGHT_PURPLE_WEIGHTS[1])}, ${f(TWILIGHT_PURPLE_WEIGHTS[2])});
+const float SCALE_H_KM  = ${f(SCALE_HEIGHT_KM)};
+const float AERIAL_STR  = ${f(AERIAL_STRENGTH)};
 const float PI_         = 3.14159265359;
 
 // Kasten-Young 대기 질량 — 지평선으로 갈수록 대기가 두꺼워지는 정도
@@ -516,6 +611,31 @@ float atm_cloudSilver(float tau, float cosView) {
   float direct = exp(-tau);
   float forward = atm_hgPhase(cosView, CLOUD_G) * 4.0 * PI_;
   return direct * clamp(forward * 0.25, 0.0, 1.0);
+}
+
+/**
+ * 그늘진 구름의 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5).
+ * 차폐도가 클수록 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 받아 자주색을 띱니다.
+ */
+vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T) {
+  float influence = clamp(1.0 - T, 0.0, 1.0);
+  vec3 target = vec3(horizonGlow.r, horizonGlow.g, zenithSky.b) * TWILIGHT_W;
+  return mix(shadowBase, target, influence);
+}
+
+/**
+ * 원경 대기 투시 — 관측자와 구름 사이 대기의 투과율.
+ * 멀리 있는 구름일수록 하늘색에 잠겨 실루엣만 남습니다.
+ */
+vec3 atm_aerialTransmittance(
+  float distanceKm, float targetAltKm,
+  float beta, float angstrom, float elevScale
+) {
+  vec3 tau = atm_tauRayleigh(elevScale) + atm_tauMie(beta, angstrom, elevScale);
+  float h = max(0.01, targetAltKm);
+  float avgDensity = (SCALE_H_KM / h) * (1.0 - exp(-h / SCALE_H_KM));
+  float pathScale = (distanceKm / SCALE_H_KM) * avgDensity * AERIAL_STR;
+  return exp(-tau * pathScale);
 }
 
 // linear → sRGB

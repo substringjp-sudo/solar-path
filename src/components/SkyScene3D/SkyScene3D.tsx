@@ -27,7 +27,7 @@ import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } 
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { buildCloudInstances } from './cloudPlacement';
-import { makeAtmosphereParams } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance } from '../../utils/atmosphere';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
 export interface LayerState {
@@ -365,7 +365,19 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       maxTotal: MAX_CLOUDS,
     });
 
-    updateCloudField(field, atlas, instances, sunAzRef.current, sunAltRef.current);
+    // 황혼 자색광 합성용 두 환경광 (docs/CLOUD_PHYSICS.md §5).
+    // 지평선의 붉은 노을빛과 머리 위 천공의 푸른빛을 따로 넘겨야
+    // 그늘진 구름에서 두 파장이 섞여 자주색이 나옵니다.
+    const horizonGlow = skyRadiance(0.5, 5, sunAltRef.current, atmosphere);
+    const zenithSky = skyRadiance(88, 90, sunAltRef.current, atmosphere);
+
+    updateCloudField(field, atlas, instances, sunAzRef.current, sunAltRef.current, {
+      horizonGlow,
+      zenithSky,
+      betaMie: atmosphere.betaMie,
+      angstrom: atmosphere.angstrom,
+      elevScale: atmosphere.elevScale,
+    });
     field.mesh.visible = layersRef.current.clouds;
   }, [currentTime, location]);
 
