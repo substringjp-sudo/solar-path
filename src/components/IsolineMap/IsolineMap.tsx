@@ -47,7 +47,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const lat = location?.coords.latitude ?? 37.5665;
   const lon = location?.coords.longitude ?? 126.9780;
 
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleRegionChangeComplete = useCallback((region: { longitudeDelta: number }) => {
     if (debounceTimerRef.current) {

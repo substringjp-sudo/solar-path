@@ -1,20 +1,13 @@
 /**
  * CloudField.ts
  *
- * Why: 구름 하나당 Mesh+Material을 만들면 draw call이 구름 개수만큼 늘고(기존 최대 105개),
- * 업데이트마다 전량 dispose/재생성하느라 GC가 튑니다.
- *
- * 여기서는 InstancedMesh 하나 + 아틀라스 텍스처 하나로 모든 구름을 그립니다.
- *  - draw call: 구름이 몇 개든 1개
- *  - 업데이트: 지오메트리 생성 없이 인스턴스 속성 배열에 숫자만 씀
- *  - 빌보드 회전도 CPU lookAt이 아니라 vertex shader에서 처리
- *
- * 셰이딩은 라이팅 없이 lit/shadow 2색을 태양 방향으로 보간 + 가장자리 림라이트.
- * (기존처럼 두 색을 하나로 뭉개지 않기 때문에 부피감이 살아납니다.)
+ * Why: 3D 구름 렌더링 시 수평 눕힘 옵션을 제거하고 카메라를 향하는 정교한 3D 빌보드로 통일하여,
+ * 거대한 사각형 덮개 폴리곤이 화면을 가리는 증상 및 좌우 찌그러짐 현상을 해결합니다.
+ * 고도층별 구면 반지름(c.shellRadius)을 사용하여 상/중/하층 구름의 물리적 고도감을 구현합니다.
  */
 import * as THREE from 'three';
 import type { CloudAtlas } from './cloudAtlas';
-import { CLOUD_SHELL_RADIUS, type CloudInstanceData } from './cloudPlacement';
+import { type CloudInstanceData } from './cloudPlacement';
 import { ATMOSPHERE_GLSL } from '../../utils/atmosphere';
 
 export interface CloudField {
@@ -49,16 +42,12 @@ void main() {
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
   vec2 corner = position.xy;   // PlaneGeometry(1,1) → -0.5..0.5
 
-  vec3 worldPos;
-  if (aOptics.y < 0.5) {
-    vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
-    vec3 up    = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-    worldPos = center + right * (corner.x * aGeom.x) + up * (corner.y * aGeom.y);
-  } else {
-    worldPos = center + vec3(corner.x * aGeom.x, 0.0, corner.y * aGeom.y);
-  }
+  // 항상 카메라 시선 방향을 바라보는 spherical billboard 정렬
+  vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+  vec3 up    = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+  vec3 worldPos = center + right * (corner.x * aGeom.x) + up * (corner.y * aGeom.y);
 
-  // 구름을 보는 방향과 태양 방향의 각도. +1이면 역광 → 실버라이닝.
+  // 구름을 보는 방향과 태양 방향의 각도. +1이면 역광 → 실버라이닝
   vCosView = clamp(dot(normalize(center), uSunDir), -1.0, 1.0);
 
   vUv       = mix(aUvRect.xy, aUvRect.zw, corner + 0.5);
@@ -106,8 +95,6 @@ void main() {
   float altitudeKm     = vCloudDb.z;
 
   // ── 구름 광학 (2-stream) ────────────────────────────────────────────────
-  // R = 확산반사(윗면이 희어짐), T = 확산투과(아래로 새는 빛)
-  // T는 도감에 적힌 "투과율"과 일치하도록 tau를 역산해 넣었습니다.
   vec2 rt = atm_cloudRT(tau);
   float R = rt.x;
   float T = rt.y;
@@ -121,23 +108,22 @@ void main() {
   // 밝은 면: 반사 + 실버라이닝
   vec3 litCol = vBeam * (R + silver) + vAmbient * (1.0 - R) * 0.55;
 
-  // 그늘 면: 통과한 확산광 + 주변 하늘. 도감의 shadowContrast가 깊이를 정합니다.
+  // 그늘 면: 통과한 확산광 + 주변 하늘
   float ambientKeep = 0.30 + T * 0.45;
   float depth = 1.0 - shadowContrast * 0.55;
   vec3 shadowCol = (vBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
 
-  // 황혼 자색광 — 그늘진 구름이 검게 죽지 않고 자주색을 띱니다.
+  // 황혼 자색광
   shadowCol = atm_twilightPurple(shadowCol, uHorizonGlow, uZenithSky, T);
 
   vec3 col = mix(shadowCol, litCol, t);
 
-  // 가장자리는 광학적으로 얇아 빛이 샙니다. 도감의 rimSharpness가 폭을 정합니다.
+  // 가장자리는 광학적으로 얇아 빛이 샙니다.
   float rimWidth = mix(0.55, 0.12, rimSharpness);
   float edgeThin = smoothstep(0.85, 0.85 - rimWidth, a);
   col += vBeam * edgeThin * silver * 0.6;
 
   // ── 원경 대기 투시 ───────────────────────────────────────────────────────
-  // 멀리 있는 구름일수록 사이 대기에 가려져 하늘색에 잠깁니다.
   vec3 Tpath = atm_aerialTransmittance(distanceKm, altitudeKm, uBeta, uAngstrom, uElevScale);
   col = col * Tpath + vAmbient * (1.0 - Tpath);
 
@@ -149,15 +135,9 @@ void main() {
 }
 `;
 
-/**
- * 빈 구름 필드를 만듭니다. 인스턴스 내용은 updateCloudField()로 채웁니다.
- * @param capacity 최대 구름 개수 (버퍼 크기 고정)
- */
 export function createCloudField(atlas: CloudAtlas, capacity: number = 320): CloudField {
-  // PlaneGeometry를 그대로 사용합니다. InstancedBufferGeometry로 감싸고 attribute를
-  // 공유하면, 원본 geometry를 dispose할 때 공유 중인 GPU 버퍼까지 해제되어 위험합니다.
   const geometry = new THREE.PlaneGeometry(1, 1);
-  geometry.deleteAttribute('normal'); // 미사용 — attribute 슬롯 절약
+  geometry.deleteAttribute('normal');
 
   const addInstanced = (name: string, itemSize: number) => {
     const arr = new Float32Array(capacity * itemSize);
@@ -167,8 +147,6 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
     return attr;
   };
 
-  // 정점 attribute 슬롯을 아끼려고 값들을 vec4로 묶었습니다.
-  // (모바일 GLES2는 attribute 개수 상한이 낮습니다)
   addInstanced('aUvRect', 4);
   addInstanced('aBeam', 3);
   addInstanced('aAmbient', 3);
@@ -200,8 +178,7 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
   mesh.name = 'cloudField';
   mesh.count = 0;
   mesh.frustumCulled = false;
-  // 하늘(-1)보다 앞, 지형보다 뒤에 그려지도록
-  mesh.renderOrder = 1;
+  mesh.renderOrder = 2; // 지형(0) 및 스카이돔(-1)보다 위에 렌더
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
   return {
@@ -218,13 +195,6 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
 const _mat = new THREE.Matrix4();
 const _pos = new THREE.Vector3();
 
-/**
- * 구름 인스턴스 목록을 GPU 버퍼에 씁니다.
- * 지오메트리 생성/해제가 없어 매 프레임 호출해도 안전합니다.
- *
- * @param sunAzDeg 태양 방위각 — 화면상 음영 방향 계산용
- * @param sunAltDeg 태양 고도
- */
 export function updateCloudField(
   field: CloudField,
   atlas: CloudAtlas,
@@ -232,9 +202,7 @@ export function updateCloudField(
   sunAzDeg: number,
   sunAltDeg: number,
   env: {
-    /** 지평선 노을빛 (linear) — 황혼 자색광 합성용 */
     horizonGlow: { r: number; g: number; b: number };
-    /** 천공 푸른빛 (linear) — 황혼 자색광 합성용 */
     zenithSky: { r: number; g: number; b: number };
     betaMie: number;
     angstrom: number;
@@ -253,7 +221,6 @@ export function updateCloudField(
 
   const u = field.material.uniforms;
 
-  // 월드 태양 방향 — 셰이더가 역광 여부(실버라이닝)를 판단하는 데 씁니다.
   const sAlt = (sunAltDeg * Math.PI) / 180;
   const sAz = (sunAzDeg * Math.PI) / 180;
   (u.uSunDir.value as THREE.Vector3).set(
@@ -268,7 +235,7 @@ export function updateCloudField(
   u.uAngstrom.value = env.angstrom;
   u.uElevScale.value = env.elevScale;
 
-  // 반투명 빌보드는 뒤에서 앞으로 그려야 겹침이 자연스럽습니다.
+  // 원경 구름부터 근경 구름 순서로 뒤에서 앞으로 렌더링 정렬
   const sorted = instances.slice(0, capacity).sort((a, b) => b.distanceKm - a.distanceKm);
 
   for (let i = 0; i < sorted.length; i++) {
@@ -276,12 +243,13 @@ export function updateCloudField(
 
     const altRad = (c.elevationDeg * Math.PI) / 180;
     const azRad = (c.azimuthDeg * Math.PI) / 180;
+    const radius = c.shellRadius || 430;
 
-    // Three.js 좌표계: Y=up, -Z=North, X=East
+    // Three.js 좌표계: Y=up, -Z=North, X=East (고도층별 3D 반지름 적용)
     _pos.set(
-      CLOUD_SHELL_RADIUS * Math.cos(altRad) * Math.sin(azRad),
-      CLOUD_SHELL_RADIUS * Math.sin(altRad),
-      -CLOUD_SHELL_RADIUS * Math.cos(altRad) * Math.cos(azRad)
+      radius * Math.cos(altRad) * Math.sin(azRad),
+      radius * Math.sin(altRad),
+      -radius * Math.cos(altRad) * Math.cos(azRad)
     );
     _mat.makeTranslation(_pos.x, _pos.y, _pos.z);
     mesh.setMatrixAt(i, _mat);
@@ -293,25 +261,17 @@ export function updateCloudField(
       uvRect.setXYZW(i, 0, 0, 1, 1);
     }
 
-    // 물리 복사휘도(linear). 셰이더가 여기서 2-stream 산란을 계산합니다.
     beam.setXYZ(i, c.beam.r, c.beam.g, c.beam.b);
     ambient.setXYZ(i, c.ambient.r, c.ambient.g, c.ambient.b);
 
-    // quad 로컬 공간에서 태양이 어느 쪽인지 (면 내 음영 그라데이션용)
     const azDiff = ((sunAzDeg - c.azimuthDeg + 540) % 360) - 180;
-    let sx: number;
-    let sy: number;
-    if (c.horizontal) {
-      sx = Math.sin((azDiff * Math.PI) / 180);
-      sy = Math.cos((azDiff * Math.PI) / 180);
-    } else {
-      sx = Math.sin((azDiff * Math.PI) / 180);
-      sy = Math.sin(((sunAltDeg - c.elevationDeg) * Math.PI) / 180);
-    }
+    const sx = Math.sin((azDiff * Math.PI) / 180);
+    const sy = Math.sin(((sunAltDeg - c.elevationDeg) * Math.PI) / 180);
     const len = Math.hypot(sx, sy) || 1;
 
-    geom.setXYZW(i, c.sizeY * c.aspect, c.sizeY, sx / len, sy / len);
-    optics.setXYZW(i, c.opacity, c.horizontal ? 1 : 0, c.tau, c.distanceKm);
+    const sizeX = c.sizeY * c.aspect;
+    geom.setXYZW(i, sizeX, c.sizeY, sx / len, sy / len);
+    optics.setXYZW(i, c.opacity, 0.0, c.tau, c.distanceKm);
     cloudDb.setXYZ(i, c.shadowContrast, c.rimSharpness, c.altitudeKm);
   }
 
