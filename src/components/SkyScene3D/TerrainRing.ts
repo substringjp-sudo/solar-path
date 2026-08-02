@@ -95,23 +95,26 @@ export function createGroundPlane(): THREE.Mesh {
   const posCount = geometry.attributes.position.count;
   const colors = new Float32Array(posCount * 3);
   for (let i = 0; i < posCount; i++) {
-    colors[i * 3] = 0.04;
-    colors[i * 3 + 1] = 0.06;
-    colors[i * 3 + 2] = 0.08;
+    colors[i * 3] = 0.03;
+    colors[i * 3 + 1] = 0.04;
+    colors[i * 3 + 2] = 0.06;
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const material = new THREE.MeshBasicMaterial({
     vertexColors: true,
     side: THREE.DoubleSide,
-    depthWrite: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 3,
+    polygonOffsetUnits: 3,
   });
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'groundPlane';
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = -1.2; // 지평선 약간 아래
-  mesh.renderOrder = -1;
+  mesh.position.y = -8.0; // Z-fighting 차단을 위해 지형 링 하단 아래로 배치
+  mesh.renderOrder = -2;
 
   return mesh;
 }
@@ -207,11 +210,12 @@ export function createCompassGroup(): THREE.Group {
 }
 
 /**
- * 지형 및 지면 색상을 태양 고도와 날씨에 따라 업데이트합니다.
+ * 지형 및 지면 색상을 태양 고도, 방위각, 날씨에 따라 입체 음영(Hillshading)으로 업데이트합니다.
  */
 export function updateTerrainColors(
   mesh: THREE.Mesh,
   sunAltitude: number,
+  sunAzimuth: number = 180,
   overcast: number = 0,
   dustIntensity: number = 0
 ): void {
@@ -225,39 +229,69 @@ export function updateTerrainColors(
     (1.0 - Math.pow(Math.abs(t - 0.4) / 0.4, 2));
   const glow = clamp01(sunsetGlowFactor);
 
-  const nightBase = { r: 0.05, g: 0.06, b: 0.12 };
-  const dayBase = { r: 0.18, g: 0.25, b: 0.19 };
-  const goldenBase = { r: 0.24, g: 0.10, b: 0.07 };
-  const nightTop = { r: 0.08, g: 0.09, b: 0.17 };
-  const dayTop = { r: 0.26, g: 0.24, b: 0.20 };
-  const goldenTop = { r: 0.35, g: 0.16, b: 0.10 };
+  // 태양 입사광 단위 벡터 L
+  const altRad = (sunAltitude * Math.PI) / 180;
+  const azRad = (sunAzimuth * Math.PI) / 180;
+  const sunDir = new THREE.Vector3(
+    Math.sin(azRad) * Math.cos(altRad),
+    Math.sin(altRad),
+    -Math.cos(azRad) * Math.cos(altRad)
+  ).normalize();
+
+  const nightBase = { r: 0.04, g: 0.05, b: 0.10 };
+  const dayBase = { r: 0.16, g: 0.22, b: 0.17 };
+  const goldenBase = { r: 0.28, g: 0.14, b: 0.08 };
+
+  const nightTop = { r: 0.07, g: 0.08, b: 0.15 };
+  const dayTop = { r: 0.28, g: 0.26, b: 0.22 };
+  const goldenTop = { r: 0.42, g: 0.20, b: 0.12 };
 
   const severity = Math.max(overcast, dustIntensity);
   const grayR = 0.15, grayG = 0.16, grayB = 0.17;
 
   const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
 
-  const count = colorAttr.count;
-  for (let i = 0; i < count; i++) {
-    const isTop = i % 2 === 1;
-    const base = isTop
-      ? { r: lerp(nightTop.r, dayTop.r, t), g: lerp(nightTop.g, dayTop.g, t), b: lerp(nightTop.b, dayTop.b, t) }
-      : { r: lerp(nightBase.r, dayBase.r, t), g: lerp(nightBase.g, dayBase.g, t), b: lerp(nightBase.b, dayBase.b, t) };
+  const count = colorAttr.count; // TERRAIN_SEGMENTS * 2
+  const segments = count / 2;
+
+  for (let i = 0; i < segments; i++) {
+    // 세그먼트별 지형 법선 벡터 N (지평선 원통 세그먼트 방향)
+    const segAz = (i / segments) * Math.PI * 2;
+    const normal = new THREE.Vector3(Math.sin(segAz), 0.1, -Math.cos(segAz)).normalize();
+
+    // 태양 입사각 내적 N dot L (입체 음영 요인)
+    const dot = Math.max(-0.4, Math.min(1.0, normal.dot(sunDir)));
+    const hillshade = (dot + 0.4) / 1.4; // 0 ~ 1 범위로 정규화
+
+    const bIdx = i * 2;
+    const tIdx = i * 2 + 1;
+
+    // 하단/상단 기본 색상
+    const baseB = { r: lerp(nightBase.r, dayBase.r, t), g: lerp(nightBase.g, dayBase.g, t), b: lerp(nightBase.b, dayBase.b, t) };
+    const baseT = { r: lerp(nightTop.r, dayTop.r, t), g: lerp(nightTop.g, dayTop.g, t), b: lerp(nightTop.b, dayTop.b, t) };
+
+    // 음영(Hillshading) 반영: 양지는 밝고 구릿빛, 음지는 딥블루 그림자
+    const shadeFactor = 0.4 + hillshade * 0.75;
+    baseB.r *= shadeFactor; baseB.g *= shadeFactor; baseB.b *= shadeFactor;
+    baseT.r *= shadeFactor; baseT.g *= shadeFactor; baseT.b *= shadeFactor;
 
     if (glow > 0.05) {
-      const golden = isTop ? goldenTop : goldenBase;
-      base.r = lerp(base.r, golden.r, glow * 0.6);
-      base.g = lerp(base.g, golden.g, glow * 0.6);
-      base.b = lerp(base.b, golden.b, glow * 0.6);
+      baseT.r = lerp(baseT.r, goldenTop.r * hillshade, glow * 0.7);
+      baseT.g = lerp(baseT.g, goldenTop.g * hillshade, glow * 0.7);
+      baseT.b = lerp(baseT.b, goldenTop.b * hillshade, glow * 0.7);
     }
 
     if (severity > 0.1) {
-      base.r = lerp(base.r, grayR, severity * 0.7);
-      base.g = lerp(base.g, grayG, severity * 0.7);
-      base.b = lerp(base.b, grayB, severity * 0.7);
+      baseB.r = lerp(baseB.r, grayR, severity * 0.7);
+      baseB.g = lerp(baseB.g, grayG, severity * 0.7);
+      baseB.b = lerp(baseB.b, grayB, severity * 0.7);
+      baseT.r = lerp(baseT.r, grayR, severity * 0.7);
+      baseT.g = lerp(baseT.g, grayG, severity * 0.7);
+      baseT.b = lerp(baseT.b, grayB, severity * 0.7);
     }
 
-    colorAttr.setXYZ(i, base.r, base.g, base.b);
+    colorAttr.setXYZ(bIdx, baseB.r, baseB.g, baseB.b);
+    colorAttr.setXYZ(tIdx, baseT.r, baseT.g, baseT.b);
   }
 
   colorAttr.needsUpdate = true;

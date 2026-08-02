@@ -74,6 +74,7 @@ uniform vec3  uZenithSky;    // 천공 푸른빛 — 황혼 자색광 합성용
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
+uniform float uSunAlt;       // 태양 고도 (라디안) — 노을 틴트 강도 제어
 
 varying vec2  vUv;
 varying vec2  vQuad;
@@ -102,26 +103,64 @@ void main() {
   // 얇은 구름의 역광 실버라이닝
   float silver = atm_cloudSilver(tau, vCosView);
 
+  // ── 노을 틴트 계산 (Sunset/Sunrise Cloud Illumination Tint) ─────────────
+  // beam 색온도: R채널이 B보다 강할수록 노을 상태 (0=낮 흰빛, 1=완전 노을 주홍)
+  float sunsetStrength = clamp((vBeam.r - vBeam.b) * 2.2, 0.0, 1.0);
+
+  // 태양 고도에 따른 틴트 활성 범위: -6° ~ +10° 사이에서만 강하게 작용
+  // uSunAlt가 이미 라디안이므로 -0.105 ~ 0.175 범위
+  float altFade = 1.0 - clamp((uSunAlt - 0.175) / 0.14, 0.0, 1.0);
+  altFade *= 1.0 - clamp((-uSunAlt - 0.105) / 0.07, 0.0, 1.0);
+  sunsetStrength *= altFade;
+
+  // 태양을 향한 면(vCosView > 0)에 핑크→주황 스펙트럼 틴트 적용
+  // 두꺼운 구름(tau 큼)은 태양 방향 외벽이 선명하게 물드는 효과
+  float frontFacing = clamp(vCosView * 0.5 + 0.5, 0.0, 1.0); // 0=역광, 1=순광
+  float tintWeight  = frontFacing * sunsetStrength;
+
+  // 광학두께에 따른 틴트 채도 스케일:
+  // 얇은 구름(tau<6): 투과가 많아 전체가 물듦 (T가 높음 → 틴트 약화)
+  // 두꺼운 구름(tau>20): 앞면만 진하게 물듦
+  float thickFactor = clamp((tau - 4.0) / 30.0, 0.0, 1.0); // 0=얇음, 1=두꺼움
+
+  // 노을 색상 팔레트: 태양 고도에 따라 주황(낮은 각도)→핑크(지평선 아래)→마젠타 스펙트럼
+  // vBeam의 G/R 비율로 시간대 감지 (황혼 초입엔 오렌지, 박명엔 핑크)
+  float greenRatio   = clamp(vBeam.g / max(vBeam.r, 0.001), 0.0, 1.0);
+  // greenRatio 높음 = 오렌지/황색, 낮음 = 핑크/마젠타
+  vec3 orangeTint = vec3(1.0, 0.55, 0.15);    // 오렌지-적색
+  vec3 pinkTint   = vec3(1.0, 0.38, 0.55);    // 핑크-마젠타
+  vec3 sunsetTint = mix(pinkTint, orangeTint, greenRatio);
+
+  // 앞면 틴트: 두꺼운 구름은 선명하게, 얇은 구름은 연하게
+  float tintMag = tintWeight * mix(0.28, 0.68, thickFactor);
+
   // ── 면 내 조명 ───────────────────────────────────────────────────────────
   float t = clamp(dot(vSunDir2D, vQuad) * uShadeContrast + 0.5, 0.0, 1.0);
 
-  // 밝은 면: 반사 + 실버라이닝
-  vec3 litCol = vBeam * (R + silver) + vAmbient * (1.0 - R) * 0.55;
+  // 밝은 면: 반사 + 실버라이닝 + 노을 틴트
+  vec3 tintedBeam = mix(vBeam, vBeam * sunsetTint * 1.35, tintMag);
+  vec3 litCol = tintedBeam * (R + silver) + vAmbient * (1.0 - R) * 0.55;
 
-  // 그늘 면: 통과한 확산광 + 주변 하늘
+  // 그늘 면: 통과한 확산광 + 주변 하늘 (그늘도 약하게 노을빛 받음)
   float ambientKeep = 0.30 + T * 0.45;
   float depth = 1.0 - shadowContrast * 0.55;
-  vec3 shadowCol = (vBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
+  // 얇은 구름은 역광 면에도 노을빛이 투과해 물듦
+  vec3 shadowBeam = mix(vBeam, vBeam * sunsetTint * 1.1, sunsetStrength * (1.0 - thickFactor) * 0.4);
+  vec3 shadowCol = (shadowBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
 
   // 황혼 자색광
   shadowCol = atm_twilightPurple(shadowCol, uHorizonGlow, uZenithSky, T);
 
   vec3 col = mix(shadowCol, litCol, t);
 
-  // 가장자리는 광학적으로 얇아 빛이 샙니다.
+  // 가장자리는 광학적으로 얇아 빛이 샙니다. (림라이트도 틴트 색상 반영)
   float rimWidth = mix(0.55, 0.12, rimSharpness);
   float edgeThin = smoothstep(0.85, 0.85 - rimWidth, a);
-  col += vBeam * edgeThin * silver * 0.6;
+  col += tintedBeam * edgeThin * silver * 0.6;
+
+  // ── 밤하늘 달빛 및 은은한 대기광 (Night Cloud Airglow Ambient) ───────────────────
+  vec3 nightCloudAmbient = vec3(0.014, 0.020, 0.038) * (0.45 + T * 0.55);
+  col = max(col, nightCloudAmbient);
 
   // ── 원경 대기 투시 ───────────────────────────────────────────────────────
   vec3 Tpath = atm_aerialTransmittance(distanceKm, altitudeKm, uBeta, uAngstrom, uElevScale);
@@ -134,6 +173,7 @@ void main() {
   gl_FragColor = vec4(col, a * vOptics.x);
 }
 `;
+
 
 export function createCloudField(atlas: CloudAtlas, capacity: number = 320): CloudField {
   const geometry = new THREE.PlaneGeometry(1, 1);
@@ -164,6 +204,7 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
+      uSunAlt: { value: 0.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -234,6 +275,8 @@ export function updateCloudField(
   u.uBeta.value = env.betaMie;
   u.uAngstrom.value = env.angstrom;
   u.uElevScale.value = env.elevScale;
+  // 태양 고도 라디안 → 셰이더 노을 틴트 강도 제어
+  u.uSunAlt.value = (sunAltDeg * Math.PI) / 180;
 
   // 원경 구름부터 근경 구름 순서로 뒤에서 앞으로 렌더링 정렬
   const sorted = instances.slice(0, capacity).sort((a, b) => b.distanceKm - a.distanceKm);
@@ -241,16 +284,21 @@ export function updateCloudField(
   for (let i = 0; i < sorted.length; i++) {
     const c = sorted[i];
 
-    const altRad = (c.elevationDeg * Math.PI) / 180;
-    const azRad = (c.azimuthDeg * Math.PI) / 180;
-    const radius = c.shellRadius || 430;
+    if (c.isOverheadLowCloud && c.worldX !== undefined && c.worldY !== undefined && c.worldZ !== undefined) {
+      // 머리 위 3D 대기 공간 좌표 (Overhead 3D World Space)
+      _pos.set(c.worldX, c.worldY, c.worldZ);
+    } else {
+      // 고고도 / 원거리 구름: 스카이돔 구면 좌표계 (Spherical Shell Dome)
+      const altRad = (c.elevationDeg * Math.PI) / 180;
+      const azRad = (c.azimuthDeg * Math.PI) / 180;
+      const radius = c.shellRadius || 430;
 
-    // Three.js 좌표계: Y=up, -Z=North, X=East (고도층별 3D 반지름 적용)
-    _pos.set(
-      radius * Math.cos(altRad) * Math.sin(azRad),
-      radius * Math.sin(altRad),
-      -radius * Math.cos(altRad) * Math.cos(azRad)
-    );
+      _pos.set(
+        radius * Math.cos(altRad) * Math.sin(azRad),
+        radius * Math.sin(altRad),
+        -radius * Math.cos(altRad) * Math.cos(azRad)
+      );
+    }
     _mat.makeTranslation(_pos.x, _pos.y, _pos.z);
     mesh.setMatrixAt(i, _mat);
 

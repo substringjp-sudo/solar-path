@@ -13,6 +13,7 @@ export const CATEGORY_TABS: Record<CategoryType, { id: TabType; labelKey: string
   sun: [
     { id: 'tracker', labelKey: 'tracker' },
     { id: 'sim', labelKey: 'simulation' },
+    { id: 'isoline', labelKey: 'isoline' },
   ],
   cloud: [
     { id: 'tracker', labelKey: 'tracker' },

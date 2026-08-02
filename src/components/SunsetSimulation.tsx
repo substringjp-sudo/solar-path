@@ -162,6 +162,34 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
     })
   ).current;
 
+  const handleSelectEventType = (type: 'auto' | 'Sunrise' | 'Sunset') => {
+    setSelectedEventType(type);
+    if (!location?.coords) return;
+    const { latitude, longitude } = location.coords;
+    const times = SunCalc.getTimes(currentTime, latitude, longitude);
+    if (type === 'Sunrise') {
+      setCurrentTime(times.sunrise);
+    } else if (type === 'Sunset') {
+      setCurrentTime(times.sunset);
+    }
+  };
+
+  const handleSelectRecommendEvent = (eventTime: Date) => {
+    if (location?.coords) {
+      const { latitude, longitude } = location.coords;
+      const times = SunCalc.getTimes(eventTime, latitude, longitude);
+      const srDiff = Math.abs(eventTime.getTime() - times.sunrise.getTime());
+      const ssDiff = Math.abs(eventTime.getTime() - times.sunset.getTime());
+
+      if (srDiff < 90 * 60 * 1000) {
+        setSelectedEventType('Sunrise');
+      } else if (ssDiff < 90 * 60 * 1000) {
+        setSelectedEventType('Sunset');
+      }
+    }
+    setCurrentTime(eventTime);
+  };
+
   useEffect(() => {
     if (!location) return;
     
@@ -787,6 +815,37 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             style={styles.bottomSection}
           >
 
+            {/* 일출 / 일몰 / 자동 세그먼트 스위처 */}
+            <View style={[styles.segmentContainer, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+              <TouchableOpacity
+                style={[styles.segmentButton, selectedEventType === 'auto' && { backgroundColor: theme.accent }]}
+                onPress={() => handleSelectEventType('auto')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.segmentText, { color: selectedEventType === 'auto' ? '#000' : theme.text }]}>
+                  Auto
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.segmentButton, selectedEventType === 'Sunrise' && { backgroundColor: '#FFA500' }]}
+                onPress={() => handleSelectEventType('Sunrise')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.segmentText, { color: selectedEventType === 'Sunrise' ? '#000' : theme.text }]}>
+                  🌅 {t('sunrise', language)}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.segmentButton, selectedEventType === 'Sunset' && { backgroundColor: '#FF4500' }]}
+                onPress={() => handleSelectEventType('Sunset')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.segmentText, { color: selectedEventType === 'Sunset' ? '#FFF' : theme.text }]}>
+                  🌇 {t('sunset', language)}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             {sim?.weatherSource === 'fallback' && (
               <TouchableOpacity
                 style={[
@@ -927,7 +986,7 @@ export const SunsetSimulation: React.FC<SunsetSimulationProps> = (props) => {
             <EventRecommendBar
               events={dailyCelestialEvents}
               currentTime={currentTime}
-              onSelectEvent={setCurrentTime}
+              onSelectEvent={handleSelectRecommendEvent}
               theme={theme}
             />
 

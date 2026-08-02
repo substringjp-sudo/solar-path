@@ -312,6 +312,12 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               setMapVisible={setMapVisible}
               activeTab={activeTab as any}
             />
+          ) : activeTab === 'isoline' ? (
+            <IsolineMap
+              theme={theme}
+              currentTime={currentTime}
+              isActive={true}
+            />
           ) : activeTab === 'sim3dView' ? (
             <Sim3DContainer
               theme={theme}
@@ -330,13 +336,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
               myPhotos={myPhotos}
               removeGlobalPhoto={removeGlobalPhoto}
             />
-          ) : (
-            <IsolineMap
-              theme={theme}
-              currentTime={currentTime}
-              isActive={activeTab === 'isoline'}
-            />
-          )}
+          ) : null}
         </View>
       </View>
     </View>

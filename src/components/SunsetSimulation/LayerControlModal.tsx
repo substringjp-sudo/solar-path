@@ -8,7 +8,7 @@ import React from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import { GenericSlider } from '../GenericSlider';
-import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone } from 'lucide-react-native';
+import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag } from 'lucide-react-native';
 
 interface LayerControlModalProps {
   visible: boolean;
@@ -43,10 +43,10 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   theme,
 }) => {
   const isDark = theme?.isDark ?? true;
-  const bgColor = theme?.cardBackground ?? (isDark ? '#1e293b' : '#ffffff');
+  const bgColor = theme?.card || theme?.cardBackground || theme?.background || (isDark ? '#0f172a' : '#ffffff');
   const textColor = theme?.text ?? (isDark ? '#f8fafc' : '#0f172a');
   const subTextColor = theme?.subText ?? (isDark ? '#94a3b8' : '#64748b');
-  const borderColor = theme?.border ?? (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)');
+  const borderColor = theme?.border ?? (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(203, 213, 225, 0.8)');
 
   const layerItems: { key: keyof LayerState; label: string; icon: any; iconBg: string }[] = [
     { key: 'sun', label: '태양 (Sun)', icon: <Sun size={18} color="#eab308" />, iconBg: 'rgba(234, 179, 8, 0.15)' },
@@ -55,7 +55,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
     { key: 'milkyway', label: '은하수 (Milky Way)', icon: <Milestone size={18} color="#c4b5fd" />, iconBg: 'rgba(196, 181, 253, 0.15)' },
     { key: 'planets', label: '행성 (Planets)', icon: <Star size={18} color="#f43f5e" />, iconBg: 'rgba(244, 63, 94, 0.15)' },
     { key: 'clouds', label: '구름 (Clouds)', icon: <Cloud size={18} color="#94a3b8" />, iconBg: 'rgba(148, 163, 184, 0.15)' },
-    { key: 'paths', label: '궤적 & 그림자 (Paths)', icon: <Navigation size={18} color="#22c55e" />, iconBg: 'rgba(34, 197, 94, 0.15)' },
+    { key: 'paths', label: '궤적 & 라벨 (Paths & Labels)', icon: <Navigation size={18} color="#22c55e" />, iconBg: 'rgba(34, 197, 94, 0.15)' },
   ];
 
   const brightnessPct = ((skySettings.starBrightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)) * 100;
@@ -94,53 +94,58 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
             화면에 표시할 요소 레이어를 자유롭게 선택하세요.
           </Text>
 
-          <ScrollView style={styles.scrollList} showsVerticalScrollIndicator={false}>
-            <View style={styles.list}>
-              {layerItems.map((item) => {
-                const isOn = layers[item.key];
-                return (
-                  <TouchableOpacity
-                    key={item.key}
-                    style={[
-                      styles.layerRow,
-                      {
-                        borderColor: isOn ? '#3b82f6' : borderColor,
-                        backgroundColor: isOn
-                          ? (isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.08)')
-                          : (isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
-                      },
-                    ]}
-                    onPress={() => onToggleLayer(item.key)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.rowLeft}>
-                      <View style={[styles.iconChip, { backgroundColor: item.iconBg }]}>
-                        {item.icon}
-                      </View>
-                      <Text style={[styles.layerLabel, { color: textColor, fontWeight: isOn ? '700' : '500' }]}>
-                        {item.label}
-                      </Text>
-                    </View>
-                    <View
+          {/* ON/OFF 레이어 항목 리스트 (고정 높이 내 스크롤) */}
+          <View style={styles.layerListContainer}>
+            <ScrollView style={styles.layerScrollList} showsVerticalScrollIndicator={true} nestedScrollEnabled={true}>
+              <View style={styles.list}>
+                {layerItems.map((item) => {
+                  const isOn = layers[item.key];
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
                       style={[
-                        styles.togglePill,
-                        isOn
-                          ? styles.toggleOn
-                          : { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+                        styles.layerRow,
+                        {
+                          borderColor: isOn ? '#3b82f6' : borderColor,
+                          backgroundColor: isOn
+                            ? (isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.08)')
+                            : (isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
+                        },
                       ]}
+                      onPress={() => onToggleLayer(item.key)}
+                      activeOpacity={0.7}
                     >
-                      <Text style={[styles.toggleText, { color: isOn ? '#ffffff' : subTextColor }]}>
-                        {isOn ? 'ON' : 'OFF'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                      <View style={styles.rowLeft}>
+                        <View style={[styles.iconChip, { backgroundColor: item.iconBg }]}>
+                          {item.icon}
+                        </View>
+                        <Text style={[styles.layerLabel, { color: textColor, fontWeight: isOn ? '700' : '500' }]}>
+                          {item.label}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.togglePill,
+                          isOn
+                            ? styles.toggleOn
+                            : { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+                        ]}
+                      >
+                        <Text style={[styles.toggleText, { color: isOn ? '#ffffff' : subTextColor }]}>
+                          {isOn ? 'ON' : 'OFF'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
 
-            <View style={[styles.divider, { backgroundColor: borderColor }]} />
+          <View style={[styles.divider, { backgroundColor: borderColor }]} />
 
-            {/* 별 표현 슬라이더 */}
+          {/* 하단 고정 조절 슬라이더 영역 */}
+          <View style={styles.sliderSection}>
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
                 <Text style={[styles.sliderLabel, { color: textColor }]}>별 밝기</Text>
@@ -183,7 +188,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 6.5등급이면 맨눈으로 볼 수 있는 8,355개 항성이 모두 표시됩니다.
               </Text>
             </View>
-          </ScrollView>
+          </View>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -228,14 +233,21 @@ const styles = StyleSheet.create({
   subTitle: {
     fontSize: 12,
     marginTop: 4,
-    marginBottom: 16,
+    marginBottom: 12,
     lineHeight: 16,
   },
-  scrollList: {
+  layerListContainer: {
+    maxHeight: 220,
+  },
+  layerScrollList: {
     flexGrow: 0,
   },
   list: {
     gap: 8,
+    paddingRight: 4,
+  },
+  sliderSection: {
+    gap: 4,
   },
   layerRow: {
     flexDirection: 'row',

@@ -99,13 +99,13 @@ void main() {
   mottle *= 0.86 + 0.30 * fbm(uv * 0.14 + 11.3);
 
   // ── Great Rift ──────────────────────────────────────────────────────────
-  // 백조자리(l≈80°)에서 궁수자리(l≈0°)까지 이어지는 암흑성운 띠.
-  // 은하 적도보다 약간 남쪽(b ≈ -1°)에 놓입니다.
-  //
-  // 깊이와 폭에 주의: 너무 깊고 넓으면 띠가 **두 줄로 쪼개져** 나란한 리본
-  // 두 개처럼 보입니다. 실제 Great Rift는 띠를 갈라놓는 게 아니라 한 줄 안에
-  // 어두운 실개천을 낸 정도로 보입니다.
-  float riftLon = smoothstep(0.26, 0.19, vLongT) + smoothstep(0.76, 0.83, vLongT);
+  // 백조자리(l≈80°)에서 궁수자리(l≈30°)까지 이어지는 암흑성운 띠.
+  // 핵심: l=0~15° (팽대부 core)에서는 rift가 약해야 합니다.
+  // 팽대부 자체가 rift를 압도하기 때문이고, 실제로도 l=0° 쪽 중심은
+  // 성간 적색화(reddening)로 어둡지만 rift처럼 잘리진 않습니다.
+  float riftCore  = smoothstep(0.04, 0.18, vLongT) * smoothstep(0.96, 0.82, vLongT); // l=15~70° 구간
+  float riftShell = smoothstep(0.18, 0.10, vLongT) + smoothstep(0.82, 0.90, vLongT); // l=70~80° 구간
+  float riftLon   = max(riftCore, riftShell * 0.55);
   float riftLat = exp(-pow((vLatDeg + 1.2) / 2.1, 2.0));
   float rift = 1.0 - 0.40 * riftLat * clamp(riftLon, 0.0, 1.0);
 
@@ -121,8 +121,9 @@ void main() {
   float a = profile * vBright * mottle * rift * night * horizonFade * pollution * uBrightness * 0.095;
   if (a <= 0.002) discard;
 
-  // 수많은 별빛의 합 — 팽대부 쪽은 성간 적색화로 조금 더 따뜻합니다.
-  float warm = smoothstep(0.22, 0.0, min(vLongT, 1.0 - vLongT));
+  // 수많은 별빛의 합 — 팸대부 쪽은 성간 적색화로 조금 더 따뜻합니다.
+  // warm: l=0~8° 팥대부 코어, 실제 시각적 하이라이트에 정확히 맞춤.
+  float warm = smoothstep(0.12, 0.0, min(vLongT, 1.0 - vLongT));
   vec3 col = mix(vec3(0.66, 0.72, 0.86), vec3(0.94, 0.88, 0.76), warm);
 
   gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
@@ -192,9 +193,10 @@ function foldLongitude(lDeg: number): number {
  */
 function longitudeBrightness(lDeg: number): number {
   const L = foldLongitude(lDeg);
-  const bulge = Math.exp(-Math.pow(L / 26, 2));
-  const arm = 0.52 * Math.exp(-Math.pow((L - 55) / 46, 2));
-  const base = 0.16 - 0.09 * Math.min(1, Math.max(0, (L - 90) / 90));
+  // 팅대부: l=0° 중심, 주의가 더 완만한 표현을 위해 좌우 비대칭 상승(Onsager 1997 밀도 모델 참조)
+  const bulge = Math.exp(-Math.pow(L / 20, 2));            // 더 좌우로 충집된 해상도
+  const arm   = 0.50 * Math.exp(-Math.pow((L - 60) / 44, 2)); // 방패-백조 나선 팠 (l≈60°)
+  const base  = 0.15 - 0.09 * Math.min(1, Math.max(0, (L - 90) / 90));
   return bulge + arm + base;
 }
 

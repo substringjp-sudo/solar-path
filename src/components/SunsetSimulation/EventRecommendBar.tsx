@@ -1,13 +1,13 @@
 /**
  * EventRecommendBar.tsx
  * 
- * 추천(Recommended) 및 일반(General) 천문 이벤트를 가로 카루셀/칩 형태로 보여주는 컴포넌트.
- * 터치 시 해당 이벤트 발생 시각으로 시뮬레이션 시각을 이동시킵니다.
+ * 2D 태양 시뮬레이터 전용 이벤트 추천 바.
+ * 태양 관련 이벤트(일출, 일몰)만 콤팩트하고 슬림하게 노출하여 타임라인 레이아웃이 화면 밖으로 넘치지 않게 합니다.
  */
 import React from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { CelestialEventItem } from '../../utils/celestialEvents';
-import { Sparkles, Sun, Sunset, Sunrise, Moon, Star } from 'lucide-react-native';
+import { Sparkles, Sun, Sunset, Sunrise } from 'lucide-react-native';
 
 interface EventRecommendBarProps {
   events: CelestialEventItem[];
@@ -24,22 +24,18 @@ export const EventRecommendBar: React.FC<EventRecommendBarProps> = ({
 }) => {
   if (!events || events.length === 0) return null;
 
+  // 2D 태양 시뮬레이터는 태양 관련 이벤트 (일출, 일몰)만 필터링하여 표시
+  const solarEvents = events.filter(evt => evt.type === 'sunrise' || evt.type === 'sunset');
+  const displayEvents = solarEvents.length > 0 ? solarEvents : events.slice(0, 2);
+
   const renderIcon = (type: CelestialEventItem['type']) => {
     switch (type) {
       case 'sunset':
-        return <Sunset size={14} color="#f97316" />;
+        return <Sunset size={12} color="#f97316" />;
       case 'sunrise':
-        return <Sunrise size={14} color="#fbbf24" />;
-      case 'crescent_moon':
-      case 'moonrise':
-      case 'moonset':
-        return <Moon size={14} color="#38bdf8" />;
-      case 'milky_way':
-        return <Sparkles size={14} color="#a78bfa" />;
-      case 'planet':
-        return <Star size={14} color="#f43f5e" />;
+        return <Sunrise size={12} color="#fbbf24" />;
       default:
-        return <Sun size={14} color="#eab308" />;
+        return <Sun size={12} color="#eab308" />;
     }
   };
 
@@ -50,7 +46,7 @@ export const EventRecommendBar: React.FC<EventRecommendBarProps> = ({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {events.map((evt) => {
+        {displayEvents.map((evt) => {
           const isRecommended = evt.category === 'recommended';
           const isSelected = Math.abs(evt.time.getTime() - currentTime.getTime()) < 10 * 60 * 1000;
 
@@ -68,7 +64,7 @@ export const EventRecommendBar: React.FC<EventRecommendBarProps> = ({
             >
               {isRecommended && (
                 <View style={styles.recommendedBadge}>
-                  <Sparkles size={10} color="#fff" />
+                  <Sparkles size={8} color="#fff" />
                   <Text style={styles.badgeText}>{evt.badge || '추천'}</Text>
                 </View>
               )}
@@ -87,52 +83,52 @@ export const EventRecommendBar: React.FC<EventRecommendBarProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 6,
+    marginVertical: 2,
   },
   scrollContent: {
     paddingHorizontal: 2,
-    gap: 8,
+    gap: 6,
   },
   card: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
     borderWidth: 1,
-    minWidth: 120,
+    minWidth: 95,
     justifyContent: 'center',
   },
   recommendedCard: {
-    borderColor: 'rgba(168, 85, 247, 0.6)',
-    backgroundColor: 'rgba(147, 51, 234, 0.15)',
+    borderColor: 'rgba(249, 115, 22, 0.5)',
+    backgroundColor: 'rgba(249, 115, 22, 0.12)',
   },
   recommendedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#9333ea',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    gap: 2,
+    backgroundColor: '#f97316',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
     alignSelf: 'flex-start',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   badgeText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '800',
     color: '#fff',
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
   title: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
   },
   subtitle: {
-    fontSize: 10,
-    marginTop: 2,
-    opacity: 0.8,
+    fontSize: 9,
+    marginTop: 1,
+    opacity: 0.85,
   },
 });
