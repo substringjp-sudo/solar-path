@@ -314,7 +314,9 @@ export function updateCloudField(
 
     const azDiff = ((sunAzDeg - c.azimuthDeg + 540) % 360) - 180;
     const sx = Math.sin((azDiff * Math.PI) / 180);
-    const sy = Math.sin(((sunAltDeg - c.elevationDeg) * Math.PI) / 180);
+    // 태양 방향 화면 투영도 **그려지는 위치**의 고도각을 써야 합니다.
+    // elevationDeg를 쓰면 머리 위 구름의 명암 축이 실제 태양 방향과 어긋납니다.
+    const sy = Math.sin(((sunAltDeg - c.lightingElevDeg) * Math.PI) / 180);
     const len = Math.hypot(sx, sy) || 1;
 
     const sizeX = c.sizeY * c.aspect;

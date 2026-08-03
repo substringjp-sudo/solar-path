@@ -30,6 +30,12 @@ export const CLOUD_SHELL_RADIUS_LOW  = 400;
 export interface CloudInstanceData {
   azimuthDeg: number;
   elevationDeg: number;
+  /**
+   * 조명 계산에 쓴 고도각 — **실제로 그려지는 위치**의 고도각입니다.
+   * 머리 위 분기에서는 elevationDeg(구면 배치용)와 크게 다르므로,
+   * 태양 방향 투영 등 조명성 계산은 전부 이 값을 써야 합니다.
+   */
+  lightingElevDeg: number;
   distanceKm: number;
   atlasKey: string;
   sizeY: number;
@@ -221,15 +227,33 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
 
       const beam = beamFor(altKm);
 
+      // 근거리 저층 구름 (distanceKm <= 55km & layerType !== 'high')
+      const isOverheadLowCloud = distanceKm <= 55 && layerType !== 'high';
+
+      // 머리 위 구름의 월드 좌표. 조명보다 **먼저** 정해야 합니다.
+      const mainHorizDist = Math.max(12, distanceKm * 3.6);
+      const mainWorldY = Math.max(35, Math.min(180, altKm * 28.0));
+
+      // 조명에 쓸 고도각은 반드시 **실제로 그려질 위치**에서 나와야 합니다.
+      //
+      // 머리 위 분기는 수평거리를 3.6배, 높이를 28배로 다시 잡기 때문에
+      // 위의 elevationDeg(구면 배치용)와 최대 50°까지 벌어집니다. 그대로 두면
+      // 천정 부근에 그려진 구름이 지평선(2°) 하늘빛으로 조명됩니다.
+      // 태양고도 12°에서 그 차이는 밝기 21배, R/B 4.95배 —
+      // 머리 위 구름이 노을빛을 뒤집어쓰고 노랗게 타오르던 원인입니다.
+      const lightingElevDeg = isOverheadLowCloud
+        ? (Math.atan2(mainWorldY, mainHorizDist) * 180) / Math.PI
+        : elevationDeg;
+
       const azDiff = ((sunAzDeg - azimuthDeg + 540) % 360) - 180;
       const gammaDeg = Math.acos(
         clamp01Signed(
-          Math.sin((elevationDeg * Math.PI) / 180) * Math.sin((sunAltDeg * Math.PI) / 180) +
-          Math.cos((elevationDeg * Math.PI) / 180) * Math.cos((sunAltDeg * Math.PI) / 180) *
+          Math.sin((lightingElevDeg * Math.PI) / 180) * Math.sin((sunAltDeg * Math.PI) / 180) +
+          Math.cos((lightingElevDeg * Math.PI) / 180) * Math.cos((sunAltDeg * Math.PI) / 180) *
           Math.cos((azDiff * Math.PI) / 180)
         )
       ) * (180 / Math.PI);
-      const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
+      const rawAmbient = skyRadiance(lightingElevDeg, gammaDeg, sunAltDeg, atmosphere);
       // 야간(sunAltDeg < 0)에도 은은한 달빛/대기광 최저 광량 보장
       const minNightAmbient = { r: 0.015, g: 0.022, b: 0.040 };
       const ambient = {
@@ -245,16 +269,11 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
       const baseAngularDeg = layerType === 'high' ? 22 : layerType === 'mid' ? 18 : 14;
       const angularDeg = baseAngularDeg * (0.8 + seed1 * 0.4);
 
-      // 근거리 저층 구름 (distanceKm <= 50km & layerType !== 'high')
-      const isOverheadLowCloud = distanceKm <= 55 && layerType !== 'high';
-
       if (isOverheadLowCloud) {
         // 머리 위 3D 월드 공간 좌표 계산 (Direct Overhead 3D World Placement)
         // 저층 구름의 볼륨감을 살리기 위해 메인 퍼프 + 2~3개의 서브 오프셋 클러스터 생성
         const subPuffCount = layerType === 'low' ? (presetName === 'Cumulus' || presetName === 'Cumulonimbus' ? 3 : 2) : 1;
-        
-        const mainHorizDist = Math.max(12, distanceKm * 3.6);
-        const mainWorldY = Math.max(35, Math.min(180, altKm * 28.0));
+
         const azRad = (azimuthDeg * Math.PI) / 180;
 
         for (let p = 0; p < subPuffCount; p++) {
@@ -280,6 +299,7 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
           out.push({
             azimuthDeg,
             elevationDeg,
+            lightingElevDeg,
             distanceKm,
             atlasKey,
             sizeY,
@@ -312,6 +332,7 @@ export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceDat
         out.push({
           azimuthDeg,
           elevationDeg,
+          lightingElevDeg,
           distanceKm,
           atlasKey,
           sizeY,
