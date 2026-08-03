@@ -5,7 +5,7 @@
  * 스카이돔 및 천체 가이드라인 위에서도 태양의 물리적 3D 원반 형체가 선명하게 드러나도록 셰이더를 구성합니다.
  */
 import * as THREE from 'three';
-import { sunDiskColor, type AtmosphereParams } from '../../utils/atmosphere';
+import { sunDiskColor, ATMOSPHERE_GLSL, type AtmosphereParams } from '../../utils/atmosphere';
 
 /** 실제 시직경 0.533° 기반 사람 눈 체감 착시 스케일 반영 (반지름 약 8.5 유닛) */
 const SUN_ANGULAR_RADIUS_DEG = 1.08;
@@ -22,14 +22,13 @@ void main() {
 const FRAG = `
 precision highp float;
 
+${ATMOSPHERE_GLSL}
+
 uniform vec3  uColor;      // 대기 감쇠를 거친 직달광 (linear)
 uniform float uIntensity;  // 원반 밝기 배율
+uniform float uSunAltDeg;  // 눈 순응 노출 — 하늘·구름과 공유
+uniform float uSaturation;
 varying vec2 vUv;
-
-vec3 toSrgb(vec3 c) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-}
 
 void main() {
   // 중심으로부터의 2D 반경 거리
@@ -41,13 +40,12 @@ void main() {
   float rim = smoothstep(1.0, 0.88, d);
   float core = smoothstep(0.88, 0.0, d);
 
-  // 대기 톤매핑 직달광 색상
-  vec3 col = 1.0 - exp(-uColor * uIntensity);
-  
-  // 중심부는 고휘도 화이트 코어, 가장자리는 직달 노을 림 색상
-  vec3 finalColor = mix(col, vec3(1.0, 0.98, 0.92) * 1.5, core * 0.7);
+  // 중심부를 더 밝게 (주연감광의 반대 — 원반 중심이 가장 밝습니다)
+  vec3 radiance = uColor * uIntensity * (1.0 + core * 0.7);
 
-  gl_FragColor = vec4(toSrgb(finalColor), rim);
+  // 하늘·구름과 같은 톤매핑. 태양만 다른 곡선을 쓰면 박명에 노출이 어긋나
+  // 하늘은 밝은데 원반은 회색으로 죽는 식이 됩니다.
+  gl_FragColor = vec4(atm_display(radiance, uSaturation, uSunAltDeg), rim);
 }
 `;
 
@@ -66,6 +64,8 @@ export function createSun(): SunHandle {
     uniforms: {
       uColor: { value: new THREE.Color(1, 1, 1) },
       uIntensity: { value: 16.0 },
+      uSunAltDeg: { value: 30.0 },
+      uSaturation: { value: 1.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -103,7 +103,9 @@ export function updateSun(
   handle.mesh.lookAt(0, 0, 0);
 
   const c = sunDiskColor(sunAltDeg, params);
-  (handle.material.uniforms.uColor.value as THREE.Color).setRGB(c.r, c.g, c.b);
+  const u = handle.material.uniforms;
+  (u.uColor.value as THREE.Color).setRGB(c.r, c.g, c.b);
+  u.uSunAltDeg.value = sunAltDeg;
 
   // 대기 굴절로 지평선 아래 약 -0.9°까지 보입니다.
   handle.mesh.visible = sunAltDeg > -0.9;

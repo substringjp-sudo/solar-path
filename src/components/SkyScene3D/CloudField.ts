@@ -74,7 +74,8 @@ uniform vec3  uZenithSky;    // 천공 푸른빛 — 황혼 자색광 합성용
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
-uniform float uSunAlt;       // 태양 고도 (라디안) — 노을 틴트 강도 제어
+uniform float uSunAltDeg;    // 태양 고도 (도) — 눈 순응 노출에 사용
+uniform float uSaturation;   // 아트 디렉션용 채도 보정 (하늘과 공유)
 
 varying vec2  vUv;
 varying vec2  vQuad;
@@ -103,60 +104,32 @@ void main() {
   // 얇은 구름의 역광 실버라이닝
   float silver = atm_cloudSilver(tau, vCosView);
 
-  // ── 노을 틴트 계산 (Sunset/Sunrise Cloud Illumination Tint) ─────────────
-  // beam 색온도: R채널이 B보다 강할수록 노을 상태 (0=낮 흰빛, 1=완전 노을 주홍)
-  float sunsetStrength = clamp((vBeam.r - vBeam.b) * 2.2, 0.0, 1.0);
-
-  // 태양 고도에 따른 틴트 활성 범위: -6° ~ +10° 사이에서만 강하게 작용
-  // uSunAlt가 이미 라디안이므로 -0.105 ~ 0.175 범위
-  float altFade = 1.0 - clamp((uSunAlt - 0.175) / 0.14, 0.0, 1.0);
-  altFade *= 1.0 - clamp((-uSunAlt - 0.105) / 0.07, 0.0, 1.0);
-  sunsetStrength *= altFade;
-
-  // 태양을 향한 면(vCosView > 0)에 핑크→주황 스펙트럼 틴트 적용
-  // 두꺼운 구름(tau 큼)은 태양 방향 외벽이 선명하게 물드는 효과
-  float frontFacing = clamp(vCosView * 0.5 + 0.5, 0.0, 1.0); // 0=역광, 1=순광
-  float tintWeight  = frontFacing * sunsetStrength;
-
-  // 광학두께에 따른 틴트 채도 스케일:
-  // 얇은 구름(tau<6): 투과가 많아 전체가 물듦 (T가 높음 → 틴트 약화)
-  // 두꺼운 구름(tau>20): 앞면만 진하게 물듦
-  float thickFactor = clamp((tau - 4.0) / 30.0, 0.0, 1.0); // 0=얇음, 1=두꺼움
-
-  // 노을 색상 팔레트: 태양 고도에 따라 주황(낮은 각도)→핑크(지평선 아래)→마젠타 스펙트럼
-  // vBeam의 G/R 비율로 시간대 감지 (황혼 초입엔 오렌지, 박명엔 핑크)
-  float greenRatio   = clamp(vBeam.g / max(vBeam.r, 0.001), 0.0, 1.0);
-  // greenRatio 높음 = 오렌지/황색, 낮음 = 핑크/마젠타
-  vec3 orangeTint = vec3(1.0, 0.55, 0.15);    // 오렌지-적색
-  vec3 pinkTint   = vec3(1.0, 0.38, 0.55);    // 핑크-마젠타
-  vec3 sunsetTint = mix(pinkTint, orangeTint, greenRatio);
-
-  // 앞면 틴트: 두꺼운 구름은 선명하게, 얇은 구름은 연하게
-  float tintMag = tintWeight * mix(0.28, 0.68, thickFactor);
-
   // ── 면 내 조명 ───────────────────────────────────────────────────────────
+  //
+  // 노을 색은 여기서 만들지 않습니다. vBeam은 beamAtAltitude()가 대기 경로로
+  // **이미 물리적으로 붉힌** 값이라, 그 위에 다시 주황 틴트를 곱하면 이중 계상입니다.
+  // (이전 구현은 태양고도 10°에서 R/B를 2.08 → 3.28로 1.58배 부풀렸습니다.)
+  // 또 그 틴트 세기가 clamp((vBeam.r - vBeam.b) * 2.2)로 **정규화되지 않은
+  // 절대 복사휘도의 차**여서, 색이 희어도 밝기만 하면 1.0으로 포화했습니다.
   float t = clamp(dot(vSunDir2D, vQuad) * uShadeContrast + 0.5, 0.0, 1.0);
 
-  // 밝은 면: 반사 + 실버라이닝 + 노을 틴트
-  vec3 tintedBeam = mix(vBeam, vBeam * sunsetTint * 1.35, tintMag);
-  vec3 litCol = tintedBeam * (R + silver) + vAmbient * (1.0 - R) * 0.55;
+  // 밝은 면: 반사 + 실버라이닝 + 확산 천공광
+  vec3 litCol = vBeam * (R + silver) + vAmbient * (1.0 - R) * 0.55;
 
-  // 그늘 면: 통과한 확산광 + 주변 하늘 (그늘도 약하게 노을빛 받음)
+  // 그늘 면: 통과한 확산광 + 주변 하늘
   float ambientKeep = 0.30 + T * 0.45;
   float depth = 1.0 - shadowContrast * 0.55;
-  // 얇은 구름은 역광 면에도 노을빛이 투과해 물듦
-  vec3 shadowBeam = mix(vBeam, vBeam * sunsetTint * 1.1, sunsetStrength * (1.0 - thickFactor) * 0.4);
-  vec3 shadowCol = (shadowBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
+  vec3 shadowCol = (vBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
 
   // 황혼 자색광
   shadowCol = atm_twilightPurple(shadowCol, uHorizonGlow, uZenithSky, T);
 
   vec3 col = mix(shadowCol, litCol, t);
 
-  // 가장자리는 광학적으로 얇아 빛이 샙니다. (림라이트도 틴트 색상 반영)
+  // 가장자리는 광학적으로 얇아 빛이 샙니다.
   float rimWidth = mix(0.55, 0.12, rimSharpness);
   float edgeThin = smoothstep(0.85, 0.85 - rimWidth, a);
-  col += tintedBeam * edgeThin * silver * 0.6;
+  col += vBeam * edgeThin * silver * 0.6;
 
   // ── 밤하늘 달빛 및 은은한 대기광 (Night Cloud Airglow Ambient) ───────────────────
   vec3 nightCloudAmbient = vec3(0.014, 0.020, 0.038) * (0.45 + T * 0.55);
@@ -166,9 +139,11 @@ void main() {
   vec3 Tpath = atm_aerialTransmittance(distanceKm, altitudeKm, uBeta, uAngstrom, uElevScale);
   col = col * Tpath + vAmbient * (1.0 - Tpath);
 
-  // 하늘과 같은 톤매핑
-  col = 1.0 - exp(-col);
-  col = atm_toSrgb(col);
+  // 하늘과 **정말로** 같은 톤매핑.
+  // 이전에는 주석만 그렇고 실제로는 1-exp(-x)를 써서, 구름만 DISP_EXPO(0.62)와
+  // 최대 16× 눈 순응을 건너뛰었습니다. 그래서 박명에 하늘만 밝아지고
+  // 구름은 검게 죽었습니다.
+  col = atm_display(col, uSaturation, uSunAltDeg);
 
   gl_FragColor = vec4(col, a * vOptics.x);
 }
@@ -204,7 +179,8 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
-      uSunAlt: { value: 0.0 },
+      uSunAltDeg: { value: 0.0 },
+      uSaturation: { value: 1.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -275,8 +251,8 @@ export function updateCloudField(
   u.uBeta.value = env.betaMie;
   u.uAngstrom.value = env.angstrom;
   u.uElevScale.value = env.elevScale;
-  // 태양 고도 라디안 → 셰이더 노을 틴트 강도 제어
-  u.uSunAlt.value = (sunAltDeg * Math.PI) / 180;
+  // 하늘과 같은 눈 순응 곡선을 타도록 태양 고도를 도 단위로 넘깁니다.
+  u.uSunAltDeg.value = sunAltDeg;
 
   // 원경 구름부터 근경 구름 순서로 뒤에서 앞으로 렌더링 정렬
   const sorted = instances.slice(0, capacity).sort((a, b) => b.distanceKm - a.distanceKm);
