@@ -41,7 +41,7 @@ const SUN_F = (t => {
 
 // 운량 × 태양고도 매트릭스. 운량은 저층 %.
 const SCENES = [
-  { label: '맑음 0/8 · 태양 45°',    low: 0,   mid: 0,  high: 10, sunAlt: 45, camElev: 30 },
+  { label: '무리 · 권층운 45%',      low: 0,   mid: 0,  high: 45, sunAlt: 45, camElev: 30 },
   { label: '조각 3/8 · 태양 45°',    low: 38,  mid: 10, high: 15, sunAlt: 45, camElev: 30 },
   { label: '많음 6/8 · 태양 45°',    low: 75,  mid: 40, high: 30, sunAlt: 45, camElev: 30 },
   { label: '흐림 8/8 · 태양 45°',    low: 100, mid: 90, high: 70, sunAlt: 45, camElev: 30, precip: 1.2, dniFrac: 0.02 },
@@ -91,7 +91,7 @@ const atlas = bakeCloudAtlas(renderer);
 const scene=new THREE.Scene();
 const skyMat=new THREE.ShaderMaterial({uniforms:{
   uSunDir:{value:new THREE.Vector3()},uSunAltDeg:{value:0},uBeta:{value:0.08},
-  uAngstrom:{value:1.3},uElevScale:{value:1},uOzoneDU:{value:330},uSaturation:{value:1},uCloudDiffuse:{value:1}},
+  uAngstrom:{value:1.3},uElevScale:{value:1},uOzoneDU:{value:330},uSaturation:{value:1},uCloudDiffuse:{value:1},uHaloStrength:{value:0}},
   vertexShader:SKY_V,fragmentShader:SKY_F,side:THREE.BackSide,depthWrite:false,depthTest:false});
 const skyMesh=new THREE.Mesh(new THREE.SphereGeometry(500,32,16),skyMat);
 skyMesh.renderOrder=-1; scene.add(skyMesh);
@@ -166,6 +166,7 @@ SCENES.forEach((s,i)=>{
   const med=(a,f)=>{ if(!a.length) return f; const q=[...a].sort((x,y)=>x-y); return q[Math.floor(q.length/2)]; };
   sunMat.uniforms.uOcclusion.value = built.optics.sunTransmittance;
   skyMat.uniforms.uCloudDiffuse.value = built.optics.diffuseToGround;
+  skyMat.uniforms.uHaloStrength.value = built.halo;
   updateCloudDeck(cloudDeck, {
     samples: built.samples,
     beamFor: alt => {
@@ -182,7 +183,7 @@ SCENES.forEach((s,i)=>{
     timeSeconds: 0, visible: !NODECK,
   });
 
-  stats.push({label:s.label, n:built.instances.length, dniTau:built.dniTau,
+  stats.push({label:s.label, n:built.instances.length, dniTau:built.dniTau, halo:built.halo,
               sunT:built.optics.sunTransmittance, beamLow:built.optics.beamFactor.low,
               decks:cloudDeck.layers.filter(l=>l.mesh.visible).map(l=>l.layer).join('+')||'-',
               types:[...new Set(built.instances.map(c=>c.atlasKey.split('#')[0]))].join(',')});

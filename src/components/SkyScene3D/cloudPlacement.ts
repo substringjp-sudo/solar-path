@@ -25,6 +25,7 @@ import {
 import {
   buildSkyColumns,
   solveColumnOptics,
+  haloStrength,
   WeatherFan,
   LAYER_ALTITUDE_KM,
   type ColumnOptics,
@@ -189,6 +190,8 @@ export interface BuildCloudsResult {
   dniTau: DniTauResult | null;
   /** 태양 방향 수직 기둥 광학 — 태양 원반 차폐와 덱 조명이 함께 씁니다. */
   optics: ColumnOptics;
+  /** 22° 무리 세기 (0 = 안 보임) */
+  halo: number;
 }
 
 /**
@@ -412,7 +415,15 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
     });
   }
 
-  return { instances: out, samples, dniTau, optics };
+  // 22° 무리 — 얇은 권층운에서만 보입니다.
+  const halo = haloStrength(
+    (obs?.high ?? 0) / 100,
+    (obs?.low ?? 0) / 100,
+    (obs?.mid ?? 0) / 100,
+    sunAltDeg
+  );
+
+  return { instances: out, samples, dniTau, optics, halo };
 }
 
 const D2R = Math.PI / 180;

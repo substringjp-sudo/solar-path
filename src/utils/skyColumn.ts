@@ -483,6 +483,38 @@ export function solveColumnOptics(
 }
 
 /**
+ * 22° 무리가 보일 조건인지 판정합니다.
+ *
+ * 무리는 **얇은 권층운**에서만 보입니다. 조건이 꽤 까다롭습니다:
+ *  - 상층이 어느 정도 덮여 있어야 합니다 (얼음 결정이 있어야 하므로)
+ *  - 그런데 너무 두꺼우면 안 됩니다 — 빛이 여러 번 산란되면 각이 흩어져 사라집니다
+ *  - 저·중층이 가리고 있으면 애초에 태양이 안 보입니다
+ *  - 태양이 지평선 근처면 고리 아래쪽이 잘려 잘 안 보입니다
+ */
+export function haloStrength(
+  highCover: number,
+  lowCover: number,
+  midCover: number,
+  sunAltDeg: number
+): number {
+  // 상층이 있어야 하지만, 0.85를 넘어 두꺼워지면 다중산란으로 흐려집니다.
+  const ice = Math.min(
+    smoothstep01(0.25, 0.55, highCover),
+    1 - smoothstep01(0.85, 1.0, highCover)
+  );
+  // 아래층이 가리면 못 봅니다.
+  const clearBelow = (1 - smoothstep01(0.2, 0.6, lowCover)) * (1 - smoothstep01(0.3, 0.7, midCover));
+  // 태양이 22° 위로 올라와야 고리가 온전히 보입니다.
+  const alt = smoothstep01(6, 24, sunAltDeg);
+  return Math.max(0, Math.min(1, ice * clearBelow * alt));
+}
+
+function smoothstep01(e0: number, e1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
  * 층별 하늘 전체 평균 운량 (입체각 가중).
  *
  * 등입체각 격자를 쓰므로 단순 산술평균이 곧 입체각 가중 평균입니다.

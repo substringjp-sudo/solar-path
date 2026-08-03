@@ -613,9 +613,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     // 하늘도 구름층 아래로 들어갑니다. 이게 없으면 덱 구멍으로 맑은 날
     // 노을이 그대로 새어 나와 흐린 일몰이 시뻘겋게 탑니다.
     if (skydomeRef.current) {
-      skydomeRef.current.material.uniforms.uCloudDiffuse.value = layersRef.current.clouds
-        ? built.optics.diffuseToGround
-        : 1;
+      const su = skydomeRef.current.material.uniforms;
+      su.uCloudDiffuse.value = layersRef.current.clouds ? built.optics.diffuseToGround : 1;
+      // 22° 무리 — 권층운의 얼음 결정 굴절
+      su.uHaloStrength.value = layersRef.current.clouds ? built.halo : 0;
     }
 
     // 태양 원반 차폐. 구름을 푼 뒤에 적용해야 같은 프레임의 값을 씁니다.
