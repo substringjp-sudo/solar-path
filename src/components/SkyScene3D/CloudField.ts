@@ -121,8 +121,8 @@ void main() {
   float depth = 1.0 - shadowContrast * 0.55;
   vec3 shadowCol = (vBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
 
-  // 황혼 자색광
-  shadowCol = atm_twilightPurple(shadowCol, uHorizonGlow, uZenithSky, T);
+  // 황혼 자색광 (태양 고도로 게이트 — 한낮에는 작동하지 않습니다)
+  shadowCol = atm_twilightPurple(shadowCol, uHorizonGlow, uZenithSky, T, uSunAltDeg);
 
   vec3 col = mix(shadowCol, litCol, t);
 

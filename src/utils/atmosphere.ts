@@ -773,8 +773,17 @@ float atm_cloudSilver(float tau, float cosView) {
  * 그늘진 구름의 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5).
  * 차폐도가 클수록 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 받아 자주색을 띱니다.
  */
-vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T) {
-  float influence = clamp(1.0 - T, 0.0, 1.0);
+vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T, float sunAltDeg) {
+  // **황혼에만** 작동해야 합니다.
+  //
+  // 이 항은 해가 진 뒤 그늘진 구름이 검게 죽지 않고 지평선 붉은빛과 천공
+  // 푸른빛을 함께 받아 자주색을 띠는 현상을 만듭니다. 그런데 고도 게이트가
+  // 없으면 한낮에도 걸립니다. 태양 45°에서 horizonGlow는 (25.2, 19.1, 12.3) —
+  // 태양 옆 5°의 눈부신 연무라 target이 (7.05, 2.86, 0.18), R/B = 38이 됩니다.
+  // 그 색이 그늘 면의 72%를 덮어써서 한낮 구름이 노랗게 탔습니다.
+  float twilight = 1.0 - smoothstep(-2.0, 8.0, sunAltDeg);
+  float influence = clamp(1.0 - T, 0.0, 1.0) * twilight;
+  if (influence <= 0.0) return shadowBase;
   vec3 target = vec3(horizonGlow.r, horizonGlow.g, zenithSky.b) * TWILIGHT_W;
   return mix(shadowBase, target, influence);
 }

@@ -21,6 +21,7 @@ const ENTRIES = [
   'src/components/SkyScene3D/cloudPlacement.ts',
   'src/components/SkyScene3D/cloudAtlas.ts',
   'src/components/SkyScene3D/CloudField.ts',
+  'src/components/SkyScene3D/CloudDeck.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });

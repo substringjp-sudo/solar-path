@@ -38,7 +38,8 @@ import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } 
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { buildCloudInstances, type BuildCloudsResult } from './cloudPlacement';
-import { makeAtmosphereParams, skyRadiance } from '../../utils/atmosphere';
+import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude } from '../../utils/atmosphere';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 
 function getPlanetDirectionVector(key: PlanetKey, date: Date): THREE.Vector3 {
@@ -169,6 +170,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** 마지막 구름 빌드 결과 — 덱 셸과 태양 차폐가 같은 샘플을 씁니다. */
   const lastCloudBuildRef = useRef<BuildCloudsResult | null>(null);
   const cloudFieldRef = useRef<CloudField | null>(null);
+  const cloudDeckRef = useRef<CloudDeckHandle | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -354,6 +356,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const cloudField = createCloudField(atlas, MAX_CLOUDS);
     scene.add(cloudField.mesh);
     cloudFieldRef.current = cloudField;
+
+    // 연속 구름층 — 운량이 병합 임계를 넘으면 빌보드 위로 덮입니다.
+    const cloudDeck = createCloudDeck();
+    scene.add(cloudDeck.group);
+    cloudDeckRef.current = cloudDeck;
 
     // 초기 업데이트
     updateScene();
@@ -601,6 +608,39 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     });
     field.mesh.visible = layersRef.current.clouds;
     lastCloudBuildRef.current = built;
+
+    // 연속 구름층. 빌보드와 같은 샘플·같은 대기 상태를 씁니다.
+    const deck = cloudDeckRef.current;
+    if (deck) {
+      const sAlt = (sunAltRef.current * Math.PI) / 180;
+      const sAz = (sunAzRef.current * Math.PI) / 180;
+      const sunDir = new THREE.Vector3(
+        Math.cos(sAlt) * Math.sin(sAz),
+        Math.sin(sAlt),
+        -Math.cos(sAlt) * Math.cos(sAz)
+      );
+      // 층별 대표 광학두께/그늘은 그 층에서 실제로 뽑힌 빌보드의 중앙값을 씁니다.
+      const byLayer = (layer: 'low' | 'mid' | 'high') =>
+        built.instances.filter(c => c.layer === layer);
+      const medianOf = (arr: number[], fallback: number) => {
+        if (arr.length === 0) return fallback;
+        const s2 = [...arr].sort((a, b) => a - b);
+        return s2[Math.floor(s2.length / 2)];
+      };
+
+      updateCloudDeck(deck, {
+        samples: built.samples,
+        beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
+        ambientUp: zenithSky,
+        ambientDown: skyRadiance(20, 70, sunAltRef.current, atmosphere),
+        sunDir,
+        sunAltDeg: sunAltRef.current,
+        tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), 25),
+        shadowFor: layer => medianOf(byLayer(layer).map(c => c.shadowContrast), 0.5),
+        timeSeconds: (targetDate.getTime() / 1000) % 100000,
+        visible: layersRef.current.clouds,
+      });
+    }
   }, [currentTime, location]);
 
   useEffect(() => {
@@ -643,6 +683,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       starFieldRef.current = null;
       milkyWayRef.current?.dispose();
       milkyWayRef.current = null;
+      cloudDeckRef.current?.dispose();
+      cloudDeckRef.current = null;
       cloudAtlasRef.current?.dispose();
       cloudAtlasRef.current = null;
       cloudFieldRef.current = null;

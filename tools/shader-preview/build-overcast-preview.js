@@ -51,6 +51,12 @@ const SCENES = [
   { label: '흐림 8/8 · 태양 5°',     low: 100, mid: 90, high: 70, sunAlt: 5,  camElev: 14, precip: 1.2 },
 ];
 
+const SINGLE = process.argv.includes('--single');
+const NODECK = process.argv.includes('--nodeck');
+if (SINGLE) {
+  SCENES.length = 0;
+  SCENES.push({ label: '많음 6/8 · 태양 45° (확대)', low: 75, mid: 40, high: 30, sunAlt: 45, camElev: 30 });
+}
 const SUN_AZ = 270;
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -64,14 +70,15 @@ import * as THREE from './app/vendor/three.module.js';
 import { bakeCloudAtlas } from './app/components/SkyScene3D/cloudAtlas.js';
 import { createCloudField, updateCloudField } from './app/components/SkyScene3D/CloudField.js';
 import { buildCloudInstances } from './app/components/SkyScene3D/cloudPlacement.js';
-import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI }
+import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
+import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI, beamAtAltitude }
   from './app/utils/atmosphere.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
 const SUN_V=${JSON.stringify(SUN_V)},SUN_F=${JSON.stringify(SUN_F)};
-const SCENES=${JSON.stringify(SCENES)}, SUN_AZ=${SUN_AZ};
+const SCENES=${JSON.stringify(SCENES)}, SUN_AZ=${SUN_AZ}, NODECK=${NODECK};
 
-const COLS=4,ROWS=2,TW=300,TH=380;
+const COLS=${SINGLE?1:4},ROWS=${SINGLE?1:2},TW=${SINGLE?1000:300},TH=${SINGLE?700:380};
 const canvas=document.getElementById('c');
 canvas.width=COLS*TW;canvas.height=ROWS*TH;
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
@@ -99,6 +106,8 @@ sunMesh.renderOrder=5; sunMesh.frustumCulled=false; scene.add(sunMesh);
 
 const cloudField = createCloudField(atlas, 320);
 scene.add(cloudField.mesh);
+const cloudDeck = createCloudDeck();
+scene.add(cloudDeck.group);
 
 const cam=new THREE.PerspectiveCamera(72,TW/TH,0.1,1000); cam.position.set(0,0,0);
 const labels=document.getElementById('labels');
@@ -152,7 +161,21 @@ SCENES.forEach((s,i)=>{
     betaMie: atmosphere.betaMie, angstrom: atmosphere.angstrom, elevScale: atmosphere.elevScale,
   });
 
+  const byLayer=L=>built.instances.filter(c=>c.layer===L);
+  const med=(a,f)=>{ if(!a.length) return f; const q=[...a].sort((x,y)=>x-y); return q[Math.floor(q.length/2)]; };
+  updateCloudDeck(cloudDeck, {
+    samples: built.samples,
+    beamFor: alt => beamAtAltitude(s.sunAlt, alt, atmosphere),
+    ambientUp: skyRadiance(88,90,s.sunAlt,atmosphere),
+    ambientDown: skyRadiance(20,70,s.sunAlt,atmosphere),
+    sunDir, sunAltDeg: s.sunAlt,
+    tauFor: L => med(byLayer(L).map(c=>c.tau), 25),
+    shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
+    timeSeconds: 0, visible: !NODECK,
+  });
+
   stats.push({label:s.label, n:built.instances.length, dniTau:built.dniTau,
+              decks:cloudDeck.layers.filter(l=>l.mesh.visible).map(l=>l.layer).join('+')||'-',
               types:[...new Set(built.instances.map(c=>c.atlasKey.split('#')[0]))].join(',')});
 
   const cA=SUN_AZ*Math.PI/180,cE=s.camElev*Math.PI/180;
@@ -169,5 +192,6 @@ window.__errors=errors;
 window.__stats=stats;
 </script></body></html>`;
 
-fs.writeFileSync(path.join(PREVIEW, 'overcast.html'), html);
-console.log('생성 완료: overcast.html');
+const outName = (SINGLE ? 'overcast-single' : 'overcast') + (NODECK ? '-nodeck' : '') + '.html';
+fs.writeFileSync(path.join(PREVIEW, outName), html);
+console.log('생성 완료: ' + outName);
