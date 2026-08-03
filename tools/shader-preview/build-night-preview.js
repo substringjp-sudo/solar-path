@@ -89,7 +89,10 @@ const scene=new THREE.Scene();
 const skyMat=new THREE.ShaderMaterial({uniforms:{
   uSunDir:{value:new THREE.Vector3()},uSunAltDeg:{value:0},uBeta:{value:PARAMS.betaMie},
   uAngstrom:{value:PARAMS.angstrom},uElevScale:{value:PARAMS.elevScale},
-  uOzoneDU:{value:PARAMS.ozoneDU},uSaturation:{value:1}},
+  uOzoneDU:{value:PARAMS.ozoneDU},uSaturation:{value:1},
+  // 스카이돔이 요구하는 uniform은 전부 채워야 합니다. 빠뜨리면 GL 기본값 0이
+  // 들어가 uCloudDiffuse=0 → 하늘 전체가 감광·탈색됩니다.
+  uCloudDiffuse:{value:1},uHaloStrength:{value:0}},
   vertexShader:SKY_V,fragmentShader:SKY_F,side:THREE.BackSide,depthWrite:false,depthTest:false});
 const skyMesh=new THREE.Mesh(new THREE.SphereGeometry(500,32,16),skyMat);
 skyMesh.renderOrder=-1; scene.add(skyMesh);
