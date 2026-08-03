@@ -132,7 +132,8 @@ interface CelestialState {
   language: 'ko' | 'en' | 'ja';
   isAppReady: boolean;
   preloadStatus: string;
-  initialTab: 'tracker' | 'sim' | 'gallery';
+  /** 프리로드 후 처음 열 탭. 새 IA 기준: 'sky' | 'map' | 'log' */
+  initialTab: 'sky' | 'map' | 'log';
   selectedCategory: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery';
   
   // Actions
@@ -233,7 +234,7 @@ export const useCelestialStore = create<CelestialState>()(
       language: 'ko',
       isAppReady: false,
       preloadStatus: 'initializingApp',
-      initialTab: 'tracker',
+      initialTab: 'sky',
       selectedCategory: 'sun',
       currentSimulationUri: null,
       isGestureBlocked: false,
@@ -979,12 +980,12 @@ export const useCelestialStore = create<CelestialState>()(
             }).catch(err => console.warn('Preload Terrain failed:', err))
           ]);
  
-          let initialTab: 'tracker' | 'sim' = 'tracker';
+          let initialTab: 'sky' | 'map' | 'log' = 'sky';
           try {
             const netState = await NetInfo.fetch();
             const isConnected = netState.isConnected && netState.isInternetReachable !== false;
             if (isConnected) {
-              initialTab = 'sim';
+              initialTab = 'sky';
             }
           } catch (netErr) {
             console.warn('[Preload] Failed to check network state:', netErr);

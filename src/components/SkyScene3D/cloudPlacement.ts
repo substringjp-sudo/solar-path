@@ -1,23 +1,38 @@
 /**
  * cloudPlacement.ts
  *
- * Why: 10종 운형(권운, 권적운, 권층운, 고적운, 고층운, 층적운, 층운, 적운, 적란운, 난층운)을 
- * 100% 매칭하며, 고고도/원거리 구름은 스카이돔 구면에, 근거리 저층 구름은 머리 위 3D 월드 공간에
- * 푹신한 다중 서브 퍼프 클러스터 폴리곤 형태로 직접 띄워 디테일한 입체 대기를 모델링합니다.
+ * 하늘 방향 샘플(skyColumn)에서 구름 빌보드를 만듭니다.
+ *
+ * Why 지상 격자를 버렸나: 이전 구현은 29점 지상 격자의 각 점에 구름을 놓고
+ * 고도각을 `atan2(고도, 거리)`로 구했습니다. 격자 거리가 0/50/100/200km라
+ * 29칸 중 28칸이 고도각 13° 아래에 깔렸고, 그 위 — 하늘의 77.6% — 를
+ * 중심 셀 한 칸이 담당했습니다. 고개를 들면 늘 비어 있었습니다.
+ * 지금은 skyColumn이 방향을 먼저 정하고 거리를 역산하므로 천정도 채워집니다.
+ *
+ * 운형과 운량도 위경도 해시가 아니라 실제 기상값에서 나옵니다.
  */
-import {
-  generate29GridPoints,
-  computeCloudCellData,
-  type CloudTypeCategory,
-} from '../../utils/cloudMatrix';
-import { getCloudPreset, type CloudPresetName } from '../SunsetSimulation/Visualizer';
+import { getCloudPreset, type CloudPresetName } from '../../utils/cloudPresets';
 import { clamp01, type RGB } from '../../utils/sunsetPhysics';
 import {
   skyRadiance,
   beamAtAltitude,
   cloudOpticalDepthFromDb,
+  cloudTauFromDNI,
+  applyCloudDimming,
+  type DniTauResult,
   type AtmosphereParams,
 } from '../../utils/atmosphere';
+import {
+  buildSkyColumns,
+  solveColumnOptics,
+  haloStrength,
+  WeatherFan,
+  LAYER_ALTITUDE_KM,
+  type ColumnOptics,
+  type LayerSample,
+  type LayerKey,
+} from '../../utils/skyColumn';
+import type { CloudData } from '../../utils/weather';
 import { cloudAtlasKey, type CloudAtlas } from './cloudAtlas';
 
 export type LayerType = 'high' | 'mid' | 'low';
@@ -30,6 +45,11 @@ export const CLOUD_SHELL_RADIUS_LOW  = 400;
 export interface CloudInstanceData {
   azimuthDeg: number;
   elevationDeg: number;
+  /**
+   * 조명 계산에 쓴 고도각 — **실제로 그려지는 위치**의 고도각입니다.
+   * 태양 방향 투영 등 조명성 계산은 전부 이 값을 써야 합니다.
+   */
+  lightingElevDeg: number;
   distanceKm: number;
   atlasKey: string;
   sizeY: number;
@@ -43,42 +63,9 @@ export interface CloudInstanceData {
   rimSharpness: number;
   horizontal: boolean;
   shellRadius: number;
-  isOverheadLowCloud?: boolean;
-  worldX?: number;
-  worldY?: number;
-  worldZ?: number;
-}
-
-/** 
- * cloudMatrix 5개 범주 + 셀 seed 기반으로 10종 구름 프리셋으로 세분화 매핑 
- */
-function resolvePreset(category: CloudTypeCategory, seed: number): CloudPresetName {
-  switch (category) {
-    case 'cirrus': {
-      if (seed < 0.35) return 'Cirrus';
-      if (seed < 0.70) return 'Cirrocumulus';
-      return 'Cirrostratus';
-    }
-    case 'lenticularis': {
-      if (seed < 0.5) return 'Altocumulus';
-      return 'Altostratus';
-    }
-    case 'stratus': {
-      if (seed < 0.33) return 'Stratus';
-      if (seed < 0.66) return 'Stratocumulus';
-      return 'Nimbostratus';
-    }
-    case 'fair_cumulus': {
-      if (seed < 0.7) return 'Cumulus';
-      return 'Stratocumulus';
-    }
-    case 'cumulonimbus': {
-      if (seed < 0.6) return 'Cumulonimbus';
-      return 'Nimbostratus';
-    }
-    default:
-      return 'Cumulus';
-  }
+  /** 이 방향 층의 운량 (0~1) — 덱과의 블렌드에 사용 */
+  cover: number;
+  layer: LayerKey;
 }
 
 /** 프리셋별 대표 물리 고도 (km) */
@@ -95,7 +82,7 @@ const PRESET_ALTITUDE_KM: Record<CloudPresetName, number> = {
   Cumulonimbus: 3.5,
 };
 
-/** 10종 운형별 디테일 물리 광학 파라미터 맵 (투명도, 광학 두께, 그림자, 림라이트) */
+/** 10종 운형별 광학 파라미터. DNI가 없을 때의 폴백입니다. */
 interface CloudOpticsConfig {
   tau: number;
   opacity: number;
@@ -103,17 +90,23 @@ interface CloudOpticsConfig {
   rimSharpness: number;
 }
 
+/**
+ * τ 값은 실제 관측 범위에 맞춰 올렸습니다.
+ * 이전 값(난층운 50 → T=0.21, 적란운 70 → T=0.16)은 "비 오는데 꽤 밝은" 수준이라
+ * 아무리 두꺼운 구름을 쌓아도 흐린 날이 나오지 않았습니다.
+ * (T = 2/(τ(1−g)+2), g = 0.85)
+ */
 const PRESET_OPTICS: Record<CloudPresetName, CloudOpticsConfig> = {
-  Cirrus: { tau: 3.0, opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25 },
-  Cirrocumulus: { tau: 4.2, opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30 },
-  Cirrostratus: { tau: 5.0, opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20 },
-  Altocumulus: { tau: 14.0, opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60 },
-  Altostratus: { tau: 18.0, opacity: 0.78, shadowContrast: 0.38, rimSharpness: 0.35 },
-  Stratocumulus: { tau: 24.0, opacity: 0.88, shadowContrast: 0.62, rimSharpness: 0.70 },
-  Stratus: { tau: 12.0, opacity: 0.72, shadowContrast: 0.28, rimSharpness: 0.25 },
-  Cumulus: { tau: 28.0, opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88 },
-  Cumulonimbus: { tau: 70.0, opacity: 0.98, shadowContrast: 0.94, rimSharpness: 0.95 },
-  Nimbostratus: { tau: 50.0, opacity: 0.96, shadowContrast: 0.88, rimSharpness: 0.45 },
+  Cirrus:        { tau: 3.0,   opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25 },
+  Cirrocumulus:  { tau: 4.2,   opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30 },
+  Cirrostratus:  { tau: 5.0,   opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20 },
+  Altocumulus:   { tau: 16.0,  opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60 },
+  Altostratus:   { tau: 30.0,  opacity: 0.82, shadowContrast: 0.38, rimSharpness: 0.35 },
+  Stratocumulus: { tau: 35.0,  opacity: 0.90, shadowContrast: 0.62, rimSharpness: 0.70 },
+  Stratus:       { tau: 22.0,  opacity: 0.80, shadowContrast: 0.28, rimSharpness: 0.25 },
+  Cumulus:       { tau: 32.0,  opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88 },
+  Cumulonimbus:  { tau: 220.0, opacity: 0.99, shadowContrast: 0.94, rimSharpness: 0.95 },
+  Nimbostratus:  { tau: 110.0, opacity: 0.98, shadowContrast: 0.88, rimSharpness: 0.45 },
 };
 
 function presetLayerType(name: CloudPresetName): LayerType {
@@ -137,204 +130,304 @@ function hash01(str: string): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
+/**
+ * 실제 기상값에서 운형을 고릅니다.
+ *
+ * 이전에는 `Math.sin(lat*12.9898 + ...)` 해시로 뽑았습니다. 비가 오든 말든
+ * 같은 좌표면 같은 운형이 나왔습니다. 여기서는 강수·습도·운량으로 판정합니다.
+ *
+ * 판정 근거는 기본적인 운형 분류입니다:
+ *  - 강수가 있고 저층이 많이 덮였으면 난층운(지속성 비)
+ *  - 강수가 강하고 상층까지 발달했으면 적란운(대류성 소나기)
+ *  - 저층이 많고 습도가 매우 높으면 층운(안개층이 들린 것)
+ *  - 저층이 많고 건조하면 층적운(대류가 억제되어 퍼진 것)
+ *  - 저층이 적당하면 적운(맑은 날 뭉게구름)
+ */
+function resolvePresetFromWeather(
+  layer: LayerKey,
+  cover: number,
+  wx: { precipitation?: number; humidity?: number; lowPct: number; highPct: number },
+  seed: number
+): CloudPresetName {
+  const precip = wx.precipitation ?? 0;
+  const rh = wx.humidity ?? 60;
+
+  if (layer === 'high') {
+    if (cover > 0.65) return 'Cirrostratus';
+    if (cover > 0.3) return seed < 0.5 ? 'Cirrocumulus' : 'Cirrus';
+    return 'Cirrus';
+  }
+
+  if (layer === 'mid') {
+    if (precip > 0.2 || cover > 0.7) return 'Altostratus';
+    return 'Altocumulus';
+  }
+
+  // low
+  if (precip > 2.0 && wx.highPct > 45) return 'Cumulonimbus';
+  if (precip > 0.3 && cover > 0.6) return 'Nimbostratus';
+  if (cover > 0.6) return rh > 90 ? 'Stratus' : 'Stratocumulus';
+  if (cover > 0.35) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';
+  return 'Cumulus';
+}
+
 export interface BuildCloudsParams {
   atlas: CloudAtlas;
-  latitude: number;
-  longitude: number;
   currentTime: Date;
   sunAltDeg: number;
   sunAzDeg: number;
   atmosphere: AtmosphereParams;
-  overcast: number;
-  maxPerCell?: number;
+  /** 관측 팬. 없으면 빈 배열을 넘기면 됩니다(맑은 하늘로 처리). */
+  weather: CloudData[];
   maxTotal?: number;
 }
 
-export function buildCloudInstances(params: BuildCloudsParams): CloudInstanceData[] {
+export interface BuildCloudsResult {
+  instances: CloudInstanceData[];
+  /** 덱 렌더링에 그대로 넘길 층 샘플 */
+  samples: LayerSample[];
+  /** DNI에서 역산한 기둥 광학두께 (없거나 태양이 낮으면 null) */
+  dniTau: DniTauResult | null;
+  /** 태양 방향 수직 기둥 광학 — 태양 원반 차폐와 덱 조명이 함께 씁니다. */
+  optics: ColumnOptics;
+  /** 22° 무리 세기 (0 = 안 보임) */
+  halo: number;
+}
+
+/**
+ * 덱 바닥에서 내려오는 확산광의 세기 배율.
+ *
+ * 두꺼운 층 아래의 조도는 입사 직달광의 대략 10~20%입니다. 여기서는 그
+ * 중간값을 쓰되, 확산광은 반구 전체에서 오므로 방향성 직달광보다 구름을
+ * 고르게 비춥니다.
+ */
+const DIFFUSE_ILLUM_SCALE = 0.55;
+
+/**
+ * 빌보드 하나의 각크기 (도).
+ *
+ * 격자 한 칸이 담당하는 입체각은 2π/192 = 0.0327 sr이고, 이는 지름 약 11.7°의
+ * 원반에 해당합니다. 빌보드를 그보다 조금 크게 잡아야 8/8에서 빈틈이 닫히고,
+ * 너무 크게 잡으면(이전 26~36°) 겹침이 과해져 3/8도 뿌연 죽처럼 보입니다.
+ */
+const BILLBOARD_ANGULAR_DEG: Record<LayerKey, number> = {
+  low: 14,
+  mid: 17,
+  high: 21,
+};
+
+export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResult {
   const {
     atlas,
-    latitude,
-    longitude,
     currentTime,
     sunAltDeg,
     sunAzDeg,
     atmosphere,
-    overcast,
-    maxPerCell = 4,
+    weather,
     maxTotal = 320,
   } = params;
 
-  const minutesOffset = (currentTime.getTime() / 60000) % 600;
-  const gridPoints = generate29GridPoints(latitude, longitude);
+  const fan = new WeatherFan(weather, sunAzDeg);
+  const obs = fan.observerData();
 
-  const beamCache = new Map<number, RGB>();
-  const beamFor = (altKm: number): RGB => {
-    let v = beamCache.get(altKm);
+  // 바람 — 관측값이 없으면 온건한 서풍계열로 둡니다.
+  const windSpeedKmh = 22;
+  const windBearingDeg = 260;
+  const driftMinutes = (currentTime.getTime() / 60000) % 1440;
+
+  const samples = buildSkyColumns({
+    fan,
+    driftMinutes,
+    windSpeedKmh,
+    windBearingDeg,
+  });
+
+  const dniTau = cloudTauFromDNI(obs?.directNormalIrradiance, sunAltDeg);
+
+  // 층별 대표 광학두께 — 태양 방향 기둥을 푸는 데 필요합니다.
+  // 운형 판정이 방향마다 달라질 수 있으므로 관측점 값으로 대표를 잡습니다.
+  const representativeTau = (layer: LayerKey): number => {
+    const coverPct = layer === 'low' ? obs?.low ?? 0 : layer === 'mid' ? obs?.mid ?? 0 : obs?.high ?? 0;
+    const name = resolvePresetFromWeather(
+      layer,
+      coverPct / 100,
+      {
+        precipitation: obs?.precipitation,
+        humidity: obs?.humidity,
+        lowPct: obs?.low ?? 0,
+        highPct: obs?.high ?? 0,
+      },
+      0.5
+    );
+    return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau;
+  };
+
+  // 태양 방향 수직 기둥. 각 층에 실제로 닿는 직달광 배율을 줍니다.
+  const optics = solveColumnOptics(samples, sunAzDeg, sunAltDeg, representativeTau);
+
+  const beamCache = new Map<string, RGB>();
+  const beamFor = (altKm: number, layer: LayerKey): RGB => {
+    const key = `${altKm}|${layer}`;
+    let v = beamCache.get(key);
     if (!v) {
-      v = beamAtAltitude(sunAltDeg, altKm, atmosphere);
-      beamCache.set(altKm, v);
+      const clear = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+      // **위층을 통과해서 오는 직달광.**
+      // 이게 없으면 상층이 완전히 덮여도 저층운이 햇빛을 그대로 받아,
+      // 아무리 두꺼운 구름을 쌓아도 흐린 날이 되지 않습니다.
+      const f = optics.beamFactor[layer];
+      v = { r: clear.r * f, g: clear.g * f, b: clear.b * f };
+      beamCache.set(key, v);
     }
     return v;
   };
 
+  const minNightAmbient = { r: 0.015, g: 0.022, b: 0.040 };
   const out: CloudInstanceData[] = [];
 
-  for (const gp of gridPoints) {
-    const cell = computeCloudCellData(gp, minutesOffset);
+  // 운량이 높은 방향부터 채워 용량이 모자랄 때 빈 하늘이 아니라
+  // 옅은 구름이 먼저 잘리게 합니다.
+  const ordered = samples
+    .filter(s => s.cover > 0.06)
+    .sort((a, b) => b.cover - a.cover);
 
-    const ringCount = cell.distanceKm <= 0 ? 1 : gridPoints.filter(p => p.distanceKm === gp.distanceKm).length;
-    const sectorDeg = 360 / Math.max(1, ringCount);
-
-    const count = Math.max(1, Math.round(cell.cloudCover * maxPerCell));
-
-    for (let k = 0; k < count; k++) {
-      if (out.length >= maxTotal) break;
-
-      const seed1 = hash01(`${cell.id}#${k}`);
-      const seed2 = hash01(`${cell.id}#${k}#b`);
-      const seed3 = hash01(`${cell.id}#${k}#c`);
-
-      const presetName = resolvePreset(cell.cloudType, seed1);
-      const layerType = presetLayerType(presetName);
-      const altKm = PRESET_ALTITUDE_KM[presetName];
-      const shellRadius = layerShellRadius(layerType);
-      const opticsConfig = PRESET_OPTICS[presetName] || PRESET_OPTICS.Cumulus;
-
-      const azimuthDeg = (cell.bearingDeg + (seed1 - 0.5) * sectorDeg * 0.85 + 360) % 360;
-      const distanceKm = Math.max(2, cell.distanceKm * (1 + (seed2 - 0.5) * 0.44));
-
-      // 3D 고도각
-      const elevationDeg = Math.max(2.0, Math.atan2(altKm, Math.max(0.5, distanceKm)) * (180 / Math.PI));
-
-      let variantCount = countVariants(atlas, presetName, false);
-      if (variantCount === 0) continue;
-
-      const preset = getCloudPreset(
-        layerType,
-        cell.cloudCover * 100,
-        overcast,
-        0,
-        0,
-        50,
-        10000
-      );
-
-      const beam = beamFor(altKm);
-
-      const azDiff = ((sunAzDeg - azimuthDeg + 540) % 360) - 180;
-      const gammaDeg = Math.acos(
-        clamp01Signed(
-          Math.sin((elevationDeg * Math.PI) / 180) * Math.sin((sunAltDeg * Math.PI) / 180) +
-          Math.cos((elevationDeg * Math.PI) / 180) * Math.cos((sunAltDeg * Math.PI) / 180) *
-          Math.cos((azDiff * Math.PI) / 180)
-        )
-      ) * (180 / Math.PI);
-      const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
-      // 야간(sunAltDeg < 0)에도 은은한 달빛/대기광 최저 광량 보장
-      const minNightAmbient = { r: 0.015, g: 0.022, b: 0.040 };
-      const ambient = {
-        r: Math.max(rawAmbient.r, minNightAmbient.r),
-        g: Math.max(rawAmbient.g, minNightAmbient.g),
-        b: Math.max(rawAmbient.b, minNightAmbient.b),
-      };
-
-      const tau = Math.max(opticsConfig.tau, cloudOpticalDepthFromDb(preset.scattering, cell.cloudCover));
-      const opacity = clamp01(opticsConfig.opacity * (0.6 + cell.cloudCover * 0.45));
-
-      // 종횡비 및 구름 크기 안정화
-      const baseAngularDeg = layerType === 'high' ? 22 : layerType === 'mid' ? 18 : 14;
-      const angularDeg = baseAngularDeg * (0.8 + seed1 * 0.4);
-
-      // 근거리 저층 구름 (distanceKm <= 50km & layerType !== 'high')
-      const isOverheadLowCloud = distanceKm <= 55 && layerType !== 'high';
-
-      if (isOverheadLowCloud) {
-        // 머리 위 3D 월드 공간 좌표 계산 (Direct Overhead 3D World Placement)
-        // 저층 구름의 볼륨감을 살리기 위해 메인 퍼프 + 2~3개의 서브 오프셋 클러스터 생성
-        const subPuffCount = layerType === 'low' ? (presetName === 'Cumulus' || presetName === 'Cumulonimbus' ? 3 : 2) : 1;
-        
-        const mainHorizDist = Math.max(12, distanceKm * 3.6);
-        const mainWorldY = Math.max(35, Math.min(180, altKm * 28.0));
-        const azRad = (azimuthDeg * Math.PI) / 180;
-
-        for (let p = 0; p < subPuffCount; p++) {
-          if (out.length >= maxTotal) break;
-          const subSeed = hash01(`${cell.id}#${k}#puff#${p}`);
-          const variant = Math.floor(subSeed * variantCount) % variantCount;
-          const atlasKey = cloudAtlasKey(presetName, variant, false);
-          const rect = atlas.rects.get(atlasKey);
-          if (!rect) continue;
-
-          // 메인 인스턴스는 오프셋 0, 서브 인스턴스는 푹신한 조각 흩뿌림 오프셋
-          const offsetRadius = p === 0 ? 0 : (12 + subSeed * 24);
-          const offsetAngle = subSeed * Math.PI * 2;
-
-          const px = mainHorizDist * Math.sin(azRad) + offsetRadius * Math.cos(offsetAngle);
-          const py = mainWorldY + (p === 0 ? 0 : (subSeed - 0.5) * 16);
-          const pz = -mainHorizDist * Math.cos(azRad) + offsetRadius * Math.sin(offsetAngle);
-
-          const puffScale = p === 0 ? 1.0 : (0.65 + subSeed * 0.4);
-          const sizeY = (mainWorldY * 0.45 + 12) * puffScale;
-          const clampedAspect = Math.max(0.85, Math.min(2.2, rect.aspect));
-
-          out.push({
-            azimuthDeg,
-            elevationDeg,
-            distanceKm,
-            atlasKey,
-            sizeY,
-            aspect: clampedAspect,
-            opacity: opacity * (p === 0 ? 1.0 : 0.82),
-            beam,
-            ambient,
-            tau,
-            altitudeKm: altKm,
-            shadowContrast: opticsConfig.shadowContrast,
-            rimSharpness: opticsConfig.rimSharpness,
-            horizontal: false,
-            shellRadius,
-            isOverheadLowCloud: true,
-            worldX: px,
-            worldY: py,
-            worldZ: pz,
-          });
-        }
-      } else {
-        // 고고도 / 원거리 구름: 기존 스카이돔 구면(Spherical Shell Dome) 좌표
-        const variant = Math.floor(seed3 * variantCount) % variantCount;
-        const atlasKey = cloudAtlasKey(presetName, variant, false);
-        const rect = atlas.rects.get(atlasKey);
-        if (!rect) continue;
-
-        const sizeY = shellRadius * Math.tan((angularDeg * Math.PI) / 360) * 2;
-        const clampedAspect = Math.max(0.8, Math.min(2.5, rect.aspect));
-
-        out.push({
-          azimuthDeg,
-          elevationDeg,
-          distanceKm,
-          atlasKey,
-          sizeY,
-          aspect: clampedAspect,
-          opacity,
-          beam,
-          ambient,
-          tau,
-          altitudeKm: altKm,
-          shadowContrast: opticsConfig.shadowContrast,
-          rimSharpness: opticsConfig.rimSharpness,
-          horizontal: false,
-          shellRadius,
-          isOverheadLowCloud: false,
-        });
-      }
-    }
-
+  for (const s of ordered) {
     if (out.length >= maxTotal) break;
+
+    const key = `${s.layer}|${s.azimuthDeg.toFixed(1)}|${s.elevationDeg.toFixed(1)}`;
+    const seed1 = hash01(key);
+    const seed2 = hash01(`${key}#b`);
+
+    // 운량이 낮으면 그 방향에 구름이 없을 수도 있어야 합니다.
+    // (전부 그리면 운량 10%도 하늘을 한 바퀴 두릅니다.)
+    if (seed2 > 0.12 + s.cover * 0.95) continue;
+
+    const presetName = resolvePresetFromWeather(
+      s.layer,
+      s.cover,
+      {
+        precipitation: obs?.precipitation,
+        humidity: obs?.humidity,
+        lowPct: obs?.low ?? 0,
+        highPct: obs?.high ?? 0,
+      },
+      seed1
+    );
+
+    const layerType = presetLayerType(presetName);
+    const altKm = PRESET_ALTITUDE_KM[presetName];
+    const shellRadius = layerShellRadius(layerType);
+    const opticsConfig = PRESET_OPTICS[presetName] || PRESET_OPTICS.Cumulus;
+
+    const variantCount = countVariants(atlas, presetName, false);
+    if (variantCount === 0) continue;
+    const variant = Math.floor(seed1 * variantCount) % variantCount;
+    const atlasKey = cloudAtlasKey(presetName, variant, false);
+    const rect = atlas.rects.get(atlasKey);
+    if (!rect) continue;
+
+    // 격자 중앙에서 살짝 흔들어 정렬 티가 나지 않게 합니다.
+    const azJitter = (seed1 - 0.5) * (360 / 24) * 0.8;
+    const elevJitter = (seed2 - 0.5) * 5.0;
+    const azimuthDeg = (s.azimuthDeg + azJitter + 360) % 360;
+    const elevationDeg = Math.max(1.5, Math.min(89, s.elevationDeg + elevJitter));
+
+    const beam = beamFor(altKm, s.layer);
+
+    const azDiff = ((sunAzDeg - azimuthDeg + 540) % 360) - 180;
+    const gammaDeg =
+      Math.acos(
+        clamp01Signed(
+          Math.sin(elevationDeg * D2R) * Math.sin(sunAltDeg * D2R) +
+            Math.cos(elevationDeg * D2R) * Math.cos(sunAltDeg * D2R) * Math.cos(azDiff * D2R)
+        )
+      ) * R2D;
+
+    const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
+
+    // 위층이 두꺼우면 아래는 파란 천공광이 아니라 **덱 바닥에서 내려오는
+    // 회백색 확산광**으로 조명됩니다. 이 항이 없으면 평행광을 죽인 순간
+    // 8/8 하늘이 새까매집니다 — 실제 흐린 날은 균일하게 밝은 회색입니다.
+    const dFactor = optics.diffuseFactor[s.layer];
+    // 하늘빛은 스카이돔과 **같은 식**으로 감광·탈색합니다.
+    const dimmedSky = applyCloudDimming(rawAmbient, dFactor);
+    // 위층 바닥에서 내려오는 회백색 확산광. 평행광을 죽인 뒤에도
+    // 이 빛이 남아야 흐린 하늘이 새까매지지 않고 균일한 회색이 됩니다.
+    const clearBeam = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+    const skyBlocked = 1 - dFactor;
+    const diffuseGrey =
+      (clearBeam.r + clearBeam.g + clearBeam.b) / 3 * dFactor * DIFFUSE_ILLUM_SCALE * skyBlocked;
+
+    const ambient = {
+      r: Math.max(dimmedSky.r + diffuseGrey, minNightAmbient.r),
+      g: Math.max(dimmedSky.g + diffuseGrey, minNightAmbient.g),
+      b: Math.max(dimmedSky.b + diffuseGrey, minNightAmbient.b),
+    };
+
+    // 도감 τ를 기본으로 쓰되, DNI 관측이 있으면 그쪽으로 끌어옵니다.
+    // 관측이 "얼마나 가렸나"를 직접 말해주므로 표보다 신뢰합니다.
+    const preset = getCloudPreset(layerType, s.cover * 100, s.cover, 0, 0, obs?.humidity ?? 50, obs?.visibility ?? 10000);
+    let tau = Math.max(opticsConfig.tau, cloudOpticalDepthFromDb(preset.scattering, s.cover));
+
+    // DNI 관측 반영.
+    //
+    // DNI는 τ ≲ 5까지만 분해합니다(직달광이 Beer-Lambert로 죽으므로).
+    // 그래서 **포화하지 않았을 때만** 신뢰합니다. 포화했다면 "두껍다"는 것만
+    // 확인해줄 뿐이라 도감 τ를 그대로 둡니다.
+    //
+    // 이 구분이 없으면 난층운(τ=110)이 DNI 역산값 2.8에 끌려 40까지 얇아집니다.
+    // 관측을 반영하려다 오히려 흐린 날을 밝게 만드는 셈입니다.
+    if (dniTau && !dniTau.saturated) {
+      // 예보는 흐림인데 해가 실제로 비치는 상황 — 관측이 옳습니다.
+      const share = s.layer === 'low' ? 0.6 : s.layer === 'mid' ? 0.3 : 0.1;
+      const fromDni = (dniTau.tauVert * share) / Math.max(0.15, s.cover);
+      // 관측은 상한으로만 씁니다(도감보다 두껍게 만들지는 않음).
+      tau = Math.min(tau, Math.max(0.5, fromDni));
+    }
+    tau = Math.max(0.5, Math.min(400, tau));
+
+    // 알파는 운량이 아니라 **광학두께**가 정합니다.
+    // 운량은 하늘을 얼마나 채우는가(= 빌보드 개수)로 이미 반영되었습니다.
+    const opacity = clamp01(opticsConfig.opacity * (0.55 + 0.45 * clamp01(s.cover * 1.4)));
+
+    const angularDeg = BILLBOARD_ANGULAR_DEG[s.layer] * (0.75 + seed1 * 0.5);
+    const sizeY = shellRadius * Math.tan((angularDeg * Math.PI) / 360) * 2;
+    const clampedAspect = Math.max(0.8, Math.min(2.5, rect.aspect));
+
+    out.push({
+      azimuthDeg,
+      elevationDeg,
+      lightingElevDeg: elevationDeg,
+      distanceKm: s.distanceKm,
+      atlasKey,
+      sizeY,
+      aspect: clampedAspect,
+      opacity,
+      beam,
+      ambient,
+      tau,
+      altitudeKm: altKm,
+      shadowContrast: opticsConfig.shadowContrast,
+      rimSharpness: opticsConfig.rimSharpness,
+      horizontal: false,
+      shellRadius,
+      cover: s.cover,
+      layer: s.layer,
+    });
   }
 
-  return out;
+  // 22° 무리 — 얇은 권층운에서만 보입니다.
+  const halo = haloStrength(
+    (obs?.high ?? 0) / 100,
+    (obs?.low ?? 0) / 100,
+    (obs?.mid ?? 0) / 100,
+    sunAltDeg
+  );
+
+  return { instances: out, samples, dniTau, optics, halo };
 }
+
+const D2R = Math.PI / 180;
+const R2D = 180 / Math.PI;
 
 function clamp01Signed(x: number): number {
   return Math.max(-1, Math.min(1, x));
@@ -345,3 +438,5 @@ function countVariants(atlas: CloudAtlas, name: CloudPresetName, horizontal: boo
   while (atlas.rects.has(cloudAtlasKey(name, n, horizontal))) n++;
   return n;
 }
+
+export { LAYER_ALTITUDE_KM };

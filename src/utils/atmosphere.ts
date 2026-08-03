@@ -438,6 +438,108 @@ export function cloudOpticalDepthFromDb(scattering: number, cover: number): numb
   return Math.max(0.03, tau * (0.25 + 0.75 * clamp01(cover)));
 }
 
+/** 태양 상수 (W/m²) */
+export const SOLAR_CONSTANT = 1361;
+
+/** 구름 아래에서 하늘빛이 잃는 채도 비율 */
+export const CLOUD_DIM_DESAT = 0.85;
+/** 구름이 완전히 덮었을 때 남는 하늘빛 밝기 */
+export const CLOUD_DIM_FLOOR = 0.55;
+
+/**
+ * 구름층 아래로 들어간 하늘빛.
+ *
+ * 두꺼운 구름 아래에서는 노을이 보이지 않습니다. 빛이 구름 안에서 여러 번
+ * 산란되며 방향성과 색을 모두 잃기 때문입니다. 이 보정이 없으면 스카이돔과
+ * 구름 ambient가 맑은 날의 복사휘도를 그대로 쓰고, 8/8 일몰이 시뻘겋게 탑니다.
+ *
+ * 스카이돔(GLSL)과 구름 배치(TS)가 **같은 식**을 써야 하므로 여기 한 번만 둡니다.
+ *
+ * @param diffuseFactor 구름 기둥의 확산 투과율 (1 = 맑음, 0 = 완전 차폐)
+ */
+export function applyCloudDimming(c: RGB, diffuseFactor: number): RGB {
+  const blocked = Math.max(0, Math.min(1, 1 - diffuseFactor));
+  if (blocked <= 0) return c;
+  const grey = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  const desat = blocked * CLOUD_DIM_DESAT;
+  const scale = 1 + (CLOUD_DIM_FLOOR - 1) * blocked;
+  return {
+    r: (c.r + (grey - c.r) * desat) * scale,
+    g: (c.g + (grey - c.g) * desat) * scale,
+    b: (c.b + (grey - c.b) * desat) * scale,
+  };
+}
+
+/**
+ * 맑은 하늘 직달일사(DNI) 근사 — Meinel & Meinel (1976).
+ *
+ *   DNI_clear = S0 · 0.7^(AM^0.678)
+ *
+ * 간단하지만 실측과 10% 내로 맞고, 무엇보다 **절대값**을 줍니다.
+ * 이게 있어야 API가 주는 DNI를 "구름이 얼마나 가렸나"로 번역할 수 있습니다.
+ */
+export function clearSkyDNI(sunAltDeg: number): number {
+  if (sunAltDeg <= 0.5) return 0;
+  const am = airMass(sunAltDeg);
+  return SOLAR_CONSTANT * Math.pow(0.7, Math.pow(am, 0.678));
+}
+
+/** DNI 측정이 의미를 갖는 최대 경사 광학두께. 이 위는 직달광이 0으로 죽습니다. */
+export const DNI_TAU_CEILING = 6.5;
+
+export interface DniTauResult {
+  /** 역산한 연직 광학두께 */
+  tauVert: number;
+  /**
+   * 측정 한계에 닿았는가.
+   *
+   * `true`면 "τ가 최소 이만큼은 된다"는 **하한**일 뿐 정확한 값이 아닙니다.
+   * 이때는 도감 τ를 그대로 쓰고, `false`일 때만 관측을 신뢰해 값을 끌어옵니다.
+   */
+  saturated: boolean;
+}
+
+/**
+ * 관측된 DNI에서 **구름 기둥의 광학두께**를 역산합니다.
+ *
+ *   T_beam  = DNI / DNI_clear        (구름을 통과한 직달 투과율)
+ *   τ_slant = −ln(T_beam)            (경사 경로 광학두께)
+ *   τ_vert  = τ_slant · sin(고도각)   (연직 환산)
+ *
+ * **분해능 한계를 반드시 이해하고 쓰십시오.** 직달광은 Beer-Lambert로 죽으므로
+ * τ가 조금만 커져도 DNI가 0에 붙습니다. 태양 45°에서:
+ *
+ *   τ=3(권운)   → 직달 1.4e-2      ← 측정 가능
+ *   τ=30(고층운) → 직달 3.8e-19     ← 이미 0
+ *   τ=110(난층운)→ 직달 2.8e-68     ← 완전히 0
+ *
+ * 즉 DNI는 τ ≲ 5까지만 분해합니다. 그 위는 전부 "0"으로 같아 보입니다.
+ * 따라서 DNI의 쓸모는 **"예보는 흐림인데 실제로는 해가 비친다"** 를 잡아내는
+ * 것이지, 두꺼운 구름의 두께를 재는 것이 아닙니다.
+ */
+export function cloudTauFromDNI(
+  observedDNI: number | undefined,
+  sunAltDeg: number
+): DniTauResult | null {
+  if (observedDNI == null || !isFinite(observedDNI)) return null;
+  // 태양이 낮으면 DNI 자체가 작아 잡음이 지배합니다.
+  if (sunAltDeg < 5) return null;
+
+  const clear = clearSkyDNI(sunAltDeg);
+  if (clear <= 1) return null;
+
+  const ratio = Math.min(1, observedDNI / clear);
+  const floor = Math.exp(-DNI_TAU_CEILING);
+  const saturated = ratio <= floor;
+
+  const T = Math.max(floor, ratio);
+  if (T >= 0.995) return { tauVert: 0, saturated: false }; // 완전한 맑음
+
+  const tauSlant = -Math.log(T);
+  const tauVert = tauSlant * Math.sin(Math.max(5, sunAltDeg) * (Math.PI / 180));
+  return { tauVert: Math.max(0, tauVert), saturated };
+}
+
 /**
  * 관측자와 대상 사이 대기의 투과율 (원경 대기 투시).
  *
@@ -574,6 +676,8 @@ const float MS_GAIN     = ${f(MULTI_SCATTER_GAIN)};
 const float SKY_EXPOSURE= ${f(SKY_EXPOSURE)};
 const float TWILIGHT_END= ${f(TWILIGHT_END_DEG)};
 const vec3  NIGHT_SKY   = vec3(${f(NIGHT_SKY.r)}, ${f(NIGHT_SKY.g)}, ${f(NIGHT_SKY.b)});
+const float CLOUD_DIM_DESAT = ${f(CLOUD_DIM_DESAT)};
+const float CLOUD_DIM_FLOOR = ${f(CLOUD_DIM_FLOOR)};
 const float MS_AM_CAP   = ${f(MS_AIRMASS_CAP)};
 const float MS_AM_FRAC  = ${f(MS_AIRMASS_FRACTION)};
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
@@ -700,8 +804,28 @@ float atm_cloudSilver(float tau, float cosView) {
  * 그늘진 구름의 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5).
  * 차폐도가 클수록 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 받아 자주색을 띱니다.
  */
-vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T) {
-  float influence = clamp(1.0 - T, 0.0, 1.0);
+/**
+ * 구름층 아래로 들어간 하늘빛 (TS의 applyCloudDimming과 같은 식).
+ * 상수는 TS에서 주입되므로 두 구현이 어긋날 수 없습니다.
+ */
+vec3 atm_cloudDim(vec3 c, float diffuseFactor) {
+  float blocked = clamp(1.0 - diffuseFactor, 0.0, 1.0);
+  float grey = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  vec3 d = mix(c, vec3(grey), blocked * CLOUD_DIM_DESAT);
+  return d * mix(1.0, CLOUD_DIM_FLOOR, blocked);
+}
+
+vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T, float sunAltDeg) {
+  // **황혼에만** 작동해야 합니다.
+  //
+  // 이 항은 해가 진 뒤 그늘진 구름이 검게 죽지 않고 지평선 붉은빛과 천공
+  // 푸른빛을 함께 받아 자주색을 띠는 현상을 만듭니다. 그런데 고도 게이트가
+  // 없으면 한낮에도 걸립니다. 태양 45°에서 horizonGlow는 (25.2, 19.1, 12.3) —
+  // 태양 옆 5°의 눈부신 연무라 target이 (7.05, 2.86, 0.18), R/B = 38이 됩니다.
+  // 그 색이 그늘 면의 72%를 덮어써서 한낮 구름이 노랗게 탔습니다.
+  float twilight = 1.0 - smoothstep(-2.0, 8.0, sunAltDeg);
+  float influence = clamp(1.0 - T, 0.0, 1.0) * twilight;
+  if (influence <= 0.0) return shadowBase;
   vec3 target = vec3(horizonGlow.r, horizonGlow.g, zenithSky.b) * TWILIGHT_W;
   return mix(shadowBase, target, influence);
 }

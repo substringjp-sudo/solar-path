@@ -5,7 +5,7 @@ import { MapPin, Star, Trash2, X, Camera } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { useCelestialApp } from './hooks/useCelestialApp';
-import { HudHeader } from './components/HudHeader';
+import { AppHeader, type AppTab } from './components/AppHeader';
 import { TabNavigator } from './components/TabNavigator';
 import { AdaptiveDatePicker } from './components/AdaptiveDatePicker/AdaptiveDatePicker';
 import { MapPicker } from './components/MapPicker';
@@ -296,12 +296,10 @@ export default function App() {
       <StatusBar barStyle={isDay ? "dark-content" : "light-content"} translucent backgroundColor="transparent" />
       
       <View style={styles.mainContent}>
-        <HudHeader
-          activeTab={activeTab}
+        <AppHeader
+          activeTab={activeTab as AppTab}
           setActiveTab={setActiveTab}
-          setSavedListVisible={setSavedListVisible}
           setSettingsVisible={setSettingsVisible}
-          handleSaveLocation={handleSaveLocation}
           handleCameraPress={handleCameraPress}
           handleCameraLongPress={handleCameraLongPress}
           goldenTimeInfo={goldenTimeInfo}
@@ -315,27 +313,17 @@ export default function App() {
         />
 
         <TabNavigator
-          activeTab={activeTab}
+          activeTab={activeTab as AppTab}
           setActiveTab={setActiveTab}
           contentOpacity={contentOpacity}
           contentTranslateX={contentTranslateX}
-          sunPos={sunPos}
-          moonPos={moonPos}
-          sunPath={sunPath}
-          moonPath={moonPath}
           events={events}
           theme={theme}
           dynamicTheme={dynamicTheme}
-          userRotation={userRotation}
-          setUserRotation={setUserRotation}
-          resetRotation={resetRotation}
-          isGyroEnabled={isGyroEnabled}
-          setGyroEnabled={setGyroEnabled}
           currentTime={currentTime}
           setCurrentTime={handleTimeChange}
           isTimeMachineEnabled={isTimeMachineEnabled}
           setTimeMachineEnabled={handleToggleTimeMachine}
-          isDay={isDay}
           globalPhotos={globalPhotos}
           myPhotos={myPhotos}
           removeGlobalPhoto={removeGlobalPhoto}
