@@ -5,7 +5,13 @@ import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from './Sky
 import { LayerControlModal } from './SunsetSimulation/LayerControlModal';
 import { TimeSlider } from './TimeSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { fetchTerrainProfile } from '../utils/weather';
+import {
+  fetchTerrainProfile,
+  fetchSunsetWeather,
+  getInterpolatedWeather,
+  type CloudPathData,
+} from '../utils/weather';
+import { predictSunset } from '../utils/sunsetPhysics';
 import SunCalc from 'suncalc';
 
 interface Sim3DContainerProps {
@@ -97,6 +103,64 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
   const sunPos = SunCalc.getPosition(currentTime, latitude, longitude);
   const sunAltitude = (sunPos.altitude * 180) / Math.PI;
   const sunAzimuth = (sunPos.azimuth * 180) / Math.PI + 180;
+
+  // ── 실제 기상 데이터 ─────────────────────────────────────────────────────
+  // 이게 없으면 3D 씬의 구름은 전부 위경도 해시로만 만들어져서
+  // 흐린 날과 맑은 날의 화면이 완전히 같아집니다.
+  const [pathData, setPathData] = useState<CloudPathData[]>([]);
+  const currentDateStr = useMemo(
+    () => `${currentTime.getFullYear()}-${currentTime.getMonth() + 1}-${currentTime.getDate()}`,
+    [currentTime]
+  );
+  // 방위는 30° 버킷으로 캐시되므로 태양 방위가 조금 움직여도 재요청이 없습니다.
+  const bucketedSunAz = useMemo(() => Math.round(sunAzimuth / 30) * 30, [sunAzimuth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!latitude || !longitude) return;
+
+    fetchSunsetWeather(latitude, longitude, bucketedSunAz, false, currentTime)
+      .then(data => {
+        if (!cancelled && Array.isArray(data)) setPathData(data);
+      })
+      .catch(err => {
+        console.log('3D weather fetch error:', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // currentTime 전체가 아니라 날짜·방위 버킷에만 반응해야 슬라이더마다 재요청하지 않습니다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latitude, longitude, currentDateStr, bucketedSunAz]);
+
+  const interpolatedWeather = useMemo(
+    () => (pathData.length ? getInterpolatedWeather(pathData, currentTime) : []),
+    [pathData, currentTime]
+  );
+
+  const prediction = useMemo(() => {
+    if (!pathData.length) return null;
+    const obs = interpolatedWeather[0];
+    const dayOfYear = Math.floor(
+      (currentTime.getTime() - Date.UTC(currentTime.getUTCFullYear(), 0, 0)) / 86400000
+    );
+    try {
+      return predictSunset(
+        pathData,
+        currentTime,
+        sunAltitude,
+        obs?.visibility,
+        obs?.humidity,
+        latitude,
+        terrainData.observerElevation,
+        dayOfYear
+      );
+    } catch (err) {
+      console.log('3D prediction error:', err);
+      return null;
+    }
+  }, [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
 
   // 오늘의 추천 및 일반 이벤트 목록 생성
   const eventItems = useMemo(() => {
@@ -213,9 +277,9 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
           currentTime={currentTime}
           sunAltitude={sunAltitude}
           sunAzimuth={sunAzimuth}
-          prediction={null}
+          prediction={prediction}
           location={location}
-          interpolatedWeather={[]}
+          interpolatedWeather={interpolatedWeather}
           theme={theme}
           layers={layers}
           skySettings={skySettings}
