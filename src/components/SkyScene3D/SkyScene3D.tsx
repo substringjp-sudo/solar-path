@@ -605,9 +605,25 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       betaMie: atmosphere.betaMie,
       angstrom: atmosphere.angstrom,
       elevScale: atmosphere.elevScale,
+      cloudDiffuse: built.optics.diffuseToGround,
     });
     field.mesh.visible = layersRef.current.clouds;
     lastCloudBuildRef.current = built;
+
+    // 하늘도 구름층 아래로 들어갑니다. 이게 없으면 덱 구멍으로 맑은 날
+    // 노을이 그대로 새어 나와 흐린 일몰이 시뻘겋게 탑니다.
+    if (skydomeRef.current) {
+      skydomeRef.current.material.uniforms.uCloudDiffuse.value = layersRef.current.clouds
+        ? built.optics.diffuseToGround
+        : 1;
+    }
+
+    // 태양 원반 차폐. 구름을 푼 뒤에 적용해야 같은 프레임의 값을 씁니다.
+    if (sunRef.current) {
+      sunRef.current.material.uniforms.uOcclusion.value = layersRef.current.clouds
+        ? built.optics.sunTransmittance
+        : 1;
+    }
 
     // 연속 구름층. 빌보드와 같은 샘플·같은 대기 상태를 씁니다.
     const deck = cloudDeckRef.current;
@@ -630,7 +646,14 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
       updateCloudDeck(deck, {
         samples: built.samples,
-        beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
+        // 덱도 **위층을 통과한** 직달광을 받아야 합니다.
+        // 그래야 상층이 덮였을 때 아래 덱이 평평한 회색이 됩니다.
+        beamFor: altKm => {
+          const layer = altKm > 7 ? 'high' : altKm > 3 ? 'mid' : 'low';
+          const f = built.optics.beamFactor[layer];
+          const b = beamAtAltitude(sunAltRef.current, altKm, atmosphere);
+          return { r: b.r * f, g: b.g * f, b: b.b * f };
+        },
         ambientUp: zenithSky,
         ambientDown: skyRadiance(20, 70, sunAltRef.current, atmosphere),
         sunDir,

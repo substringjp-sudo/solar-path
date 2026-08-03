@@ -28,6 +28,7 @@ uniform vec3  uColor;      // 대기 감쇠를 거친 직달광 (linear)
 uniform float uIntensity;  // 원반 밝기 배율
 uniform float uSunAltDeg;  // 눈 순응 노출 — 하늘·구름과 공유
 uniform float uSaturation;
+uniform float uOcclusion; // 태양 방향 구름 기둥 투과율 (1 = 맑음)
 varying vec2 vUv;
 
 void main() {
@@ -36,16 +37,31 @@ void main() {
   float d = length(st);
   if (d > 1.0) discard;
 
-  // 태양 원반 가장자리(Rim) 윤곽 선명도 보정
-  float rim = smoothstep(1.0, 0.88, d);
-  float core = smoothstep(0.88, 0.0, d);
+  // ── 구름에 의한 차폐 ────────────────────────────────────────────────────
+  // uOcclusion = 태양 방향 구름 기둥의 투과율 T.
+  //   T > 0.7  : 원반 그대로
+  //   0.1~0.7  : 다중산란이 각을 퍼뜨려 흐리고 넓어짐 ("물먹은 해")
+  //   T < 0.1  : 원반 소멸
+  // 이전에는 SunMesh가 구름의 존재를 전혀 몰라서 8/8 난층운 뒤에서도
+  // 태양이 그대로 타올랐습니다.
+  float T = clamp(uOcclusion, 0.0, 1.0);
+
+  // 퍼짐: 투과율이 낮을수록 원반 경계가 뭉개집니다.
+  float spread = 1.0 - smoothstep(0.08, 0.75, T);
+  float rimEdge = mix(0.88, 0.05, spread);
+  float rim = smoothstep(1.0, rimEdge, d);
+  float core = smoothstep(rimEdge, 0.0, d);
 
   // 중심부를 더 밝게 (주연감광의 반대 — 원반 중심이 가장 밝습니다)
-  vec3 radiance = uColor * uIntensity * (1.0 + core * 0.7);
+  vec3 radiance = uColor * uIntensity * (1.0 + core * 0.7) * T;
+
+  // 완전히 가려지면 아무것도 그리지 않습니다.
+  float alpha = rim * smoothstep(0.015, 0.12, T);
+  if (alpha <= 0.002) discard;
 
   // 하늘·구름과 같은 톤매핑. 태양만 다른 곡선을 쓰면 박명에 노출이 어긋나
   // 하늘은 밝은데 원반은 회색으로 죽는 식이 됩니다.
-  gl_FragColor = vec4(atm_display(radiance, uSaturation, uSunAltDeg), rim);
+  gl_FragColor = vec4(atm_display(radiance, uSaturation, uSunAltDeg), alpha);
 }
 `;
 
@@ -66,6 +82,7 @@ export function createSun(): SunHandle {
       uIntensity: { value: 16.0 },
       uSunAltDeg: { value: 30.0 },
       uSaturation: { value: 1.0 },
+      uOcclusion: { value: 1.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -77,7 +94,9 @@ export function createSun(): SunHandle {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'sunDisk';
-  mesh.renderOrder = 5; // 지형/가이드라인보다 위에 선명하게 렌더링
+  // 구름(빌보드 2, 덱 1)보다 **뒤**에 그려야 구름이 태양을 가릴 수 있습니다.
+  // 이전에는 5라서 8/8 난층운 뒤에서도 원반이 그대로 보였습니다.
+  mesh.renderOrder = 0.5;
   mesh.frustumCulled = false;
 
   return { mesh, material };
@@ -90,7 +109,9 @@ export function updateSun(
   handle: SunHandle,
   sunAltDeg: number,
   sunAzDeg: number,
-  params: AtmosphereParams
+  params: AtmosphereParams,
+  /** 태양 방향 구름 기둥의 투과율 (1 = 구름 없음) */
+  occlusion: number = 1
 ): void {
   const altRad = (sunAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
@@ -106,6 +127,7 @@ export function updateSun(
   const u = handle.material.uniforms;
   (u.uColor.value as THREE.Color).setRGB(c.r, c.g, c.b);
   u.uSunAltDeg.value = sunAltDeg;
+  u.uOcclusion.value = Math.max(0, Math.min(1, occlusion));
 
   // 대기 굴절로 지평선 아래 약 -0.9°까지 보입니다.
   handle.mesh.visible = sunAltDeg > -0.9;

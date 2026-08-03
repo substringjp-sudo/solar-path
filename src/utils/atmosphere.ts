@@ -441,6 +441,35 @@ export function cloudOpticalDepthFromDb(scattering: number, cover: number): numb
 /** 태양 상수 (W/m²) */
 export const SOLAR_CONSTANT = 1361;
 
+/** 구름 아래에서 하늘빛이 잃는 채도 비율 */
+export const CLOUD_DIM_DESAT = 0.85;
+/** 구름이 완전히 덮었을 때 남는 하늘빛 밝기 */
+export const CLOUD_DIM_FLOOR = 0.55;
+
+/**
+ * 구름층 아래로 들어간 하늘빛.
+ *
+ * 두꺼운 구름 아래에서는 노을이 보이지 않습니다. 빛이 구름 안에서 여러 번
+ * 산란되며 방향성과 색을 모두 잃기 때문입니다. 이 보정이 없으면 스카이돔과
+ * 구름 ambient가 맑은 날의 복사휘도를 그대로 쓰고, 8/8 일몰이 시뻘겋게 탑니다.
+ *
+ * 스카이돔(GLSL)과 구름 배치(TS)가 **같은 식**을 써야 하므로 여기 한 번만 둡니다.
+ *
+ * @param diffuseFactor 구름 기둥의 확산 투과율 (1 = 맑음, 0 = 완전 차폐)
+ */
+export function applyCloudDimming(c: RGB, diffuseFactor: number): RGB {
+  const blocked = Math.max(0, Math.min(1, 1 - diffuseFactor));
+  if (blocked <= 0) return c;
+  const grey = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  const desat = blocked * CLOUD_DIM_DESAT;
+  const scale = 1 + (CLOUD_DIM_FLOOR - 1) * blocked;
+  return {
+    r: (c.r + (grey - c.r) * desat) * scale,
+    g: (c.g + (grey - c.g) * desat) * scale,
+    b: (c.b + (grey - c.b) * desat) * scale,
+  };
+}
+
 /**
  * 맑은 하늘 직달일사(DNI) 근사 — Meinel & Meinel (1976).
  *
@@ -647,6 +676,8 @@ const float MS_GAIN     = ${f(MULTI_SCATTER_GAIN)};
 const float SKY_EXPOSURE= ${f(SKY_EXPOSURE)};
 const float TWILIGHT_END= ${f(TWILIGHT_END_DEG)};
 const vec3  NIGHT_SKY   = vec3(${f(NIGHT_SKY.r)}, ${f(NIGHT_SKY.g)}, ${f(NIGHT_SKY.b)});
+const float CLOUD_DIM_DESAT = ${f(CLOUD_DIM_DESAT)};
+const float CLOUD_DIM_FLOOR = ${f(CLOUD_DIM_FLOOR)};
 const float MS_AM_CAP   = ${f(MS_AIRMASS_CAP)};
 const float MS_AM_FRAC  = ${f(MS_AIRMASS_FRACTION)};
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
@@ -773,6 +804,17 @@ float atm_cloudSilver(float tau, float cosView) {
  * 그늘진 구름의 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5).
  * 차폐도가 클수록 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 받아 자주색을 띱니다.
  */
+/**
+ * 구름층 아래로 들어간 하늘빛 (TS의 applyCloudDimming과 같은 식).
+ * 상수는 TS에서 주입되므로 두 구현이 어긋날 수 없습니다.
+ */
+vec3 atm_cloudDim(vec3 c, float diffuseFactor) {
+  float blocked = clamp(1.0 - diffuseFactor, 0.0, 1.0);
+  float grey = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  vec3 d = mix(c, vec3(grey), blocked * CLOUD_DIM_DESAT);
+  return d * mix(1.0, CLOUD_DIM_FLOOR, blocked);
+}
+
 vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T, float sunAltDeg) {
   // **황혼에만** 작동해야 합니다.
   //

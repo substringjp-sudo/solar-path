@@ -101,5 +101,81 @@ ok(tThick.saturated, `난층운급 차폐 → saturated=${tThick.saturated} (도
 const tThin = A.cloudTauFromDNI(A.clearSkyDNI(45)*0.35, 45);
 ok(!tThin.saturated, `엷은 구름 → saturated=${tThin.saturated} (관측 신뢰)`);
 
-console.log(`\n총 ${pass+fail}개 중 통과 ${pass}, 실패 ${fail}`);
-process.exit(fail?1:0);
+
+// ── 수직 광학 스택 (6단계) ────────────────────────────────────────────────
+console.log('\n== 층 합성 (adding) ==');
+{
+  const rt = S.cloudRT;
+  const l1 = rt(20), l2 = rt(50);
+  const c = S.addLayers(l1.R, l1.T, l2.R, l2.T);
+  ok(c.T > l1.T * l2.T, `합성 T=${c.T.toFixed(3)} > 단순곱 ${(l1.T*l2.T).toFixed(3)} (층간 다중반사)`);
+  ok(c.T < Math.min(l1.T, l2.T), `합성 T < 얇은 쪽 ${Math.min(l1.T,l2.T).toFixed(3)}`);
+  ok(c.R > Math.max(l1.R, l2.R), `합성 R=${c.R.toFixed(3)} > 각 층 최대 ${Math.max(l1.R,l2.R).toFixed(3)}`);
+  const none = S.addLayers(0, 1, rt(30).R, rt(30).T);
+  ok(Math.abs(none.T - rt(30).T) < 1e-9, '맑은 층과 합성하면 원래 값 그대로');
+}
+
+console.log('\n== 태양 방향 기둥 ==');
+{
+  const tauOf = L => (L === 'low' ? 110 : L === 'mid' ? 30 : 5);
+  const mk = (l, m, h) => S.buildSkyColumns({
+    fan: new S.WeatherFan(makeFan(l, m, h), 270),
+    driftMinutes: 0, windSpeedKmh: 20, windBearingDeg: 260,
+  });
+
+  const clear = S.solveColumnOptics(mk(0,0,0), 270, 45, tauOf);
+  ok(clear.sunTransmittance > 0.98, `맑음 → 태양 투과 ${(clear.sunTransmittance*100).toFixed(1)}%`);
+  ok(clear.beamFactor.low > 0.98, `맑음 → 저층 평행광 ${(clear.beamFactor.low*100).toFixed(1)}%`);
+
+  const ovc = S.solveColumnOptics(mk(100,90,70), 270, 45, tauOf);
+  ok(ovc.sunTransmittance < 0.01, `8/8 → 태양 투과 ${(ovc.sunTransmittance*100).toFixed(3)}% (원반 소멸)`);
+  ok(ovc.beamFactor.low < 0.1, `8/8 → 저층 평행광 ${(ovc.beamFactor.low*100).toFixed(1)}% (명암 대비 소멸)`);
+  // 평행광이 죽어도 확산광은 남아야 합니다 — 흐린 날은 캄캄하지 않습니다.
+  ok(ovc.diffuseToGround > 0.03, `8/8 → 지상 확산광 ${(ovc.diffuseToGround*100).toFixed(1)}% (새까맣지 않음)`);
+  ok(ovc.diffuseFactor.low > ovc.beamFactor.low,
+     `확산 ${(ovc.diffuseFactor.low*100).toFixed(0)}% > 평행 ${(ovc.beamFactor.low*100).toFixed(0)}% (2-stream T ≠ Beer-Lambert)`);
+
+  // 상층만 덮여도 저층 평행광이 줄어야 합니다 (핵심 인과)
+  const highOnly = S.solveColumnOptics(mk(0,90,70), 270, 45, tauOf);
+  ok(highOnly.beamFactor.low < 0.35,
+     `상층만 덮임 → 저층 평행광 ${(highOnly.beamFactor.low*100).toFixed(0)}% (위층이 아래를 그늘지게 함)`);
+  ok(highOnly.beamFactor.high === 1, '최상층은 항상 직달광 100%');
+
+  // 태양이 낮으면 경사 경로가 길어져 더 많이 막힙니다
+  const lowSun = S.solveColumnOptics(mk(60,0,0), 270, 8, tauOf);
+  const highSun = S.solveColumnOptics(mk(60,0,0), 270, 60, tauOf);
+  ok(lowSun.sunTransmittance <= highSun.sunTransmittance,
+     `태양 8° 투과 ${(lowSun.sunTransmittance*100).toFixed(1)}% ≤ 60° ${(highSun.sunTransmittance*100).toFixed(1)}% (경사 경로)`);
+
+  // 단조성: 운량이 늘수록 투과가 준다
+  let mono = true, prev = 2;
+  for (const c of [0, 25, 50, 75, 100]) {
+    const t = S.solveColumnOptics(mk(c,0,0), 270, 45, tauOf).sunTransmittance;
+    if (t > prev + 1e-6) mono = false;
+    prev = t;
+  }
+  ok(mono, '운량 증가 → 태양 투과 단조 감소');
+}
+
+console.log('\n== 구름 아래 하늘빛 감광 ==');
+{
+  const sunset = { r: 10.65, g: 4.90, b: 1.53 };  // 태양 5° 지평선 노을
+  const clear = A.applyCloudDimming(sunset, 1.0);
+  ok(Math.abs(clear.r - sunset.r) < 1e-9, '맑으면 그대로 통과');
+
+  const under = A.applyCloudDimming(sunset, 0.05);
+  const rbBefore = sunset.r / sunset.b, rbAfter = under.r / under.b;
+  ok(rbAfter < rbBefore * 0.35, `8/8 아래 R/B ${rbBefore.toFixed(1)} → ${rbAfter.toFixed(2)} (탈색)`);
+  ok(under.r < sunset.r * 0.4, `밝기도 감소 (${sunset.r.toFixed(1)} → ${under.r.toFixed(2)})`);
+  // 단조성
+  let m2 = true, p2 = 1e9;
+  for (const d of [1, 0.75, 0.5, 0.25, 0]) {
+    const v = A.applyCloudDimming(sunset, d).r;
+    if (v > p2 + 1e-9) m2 = false;
+    p2 = v;
+  }
+  ok(m2, '확산 투과율이 낮을수록 단조 감소');
+}
+
+console.log(`\n[6단계 포함] 총 ${pass+fail}개 중 통과 ${pass}, 실패 ${fail}`);
+process.exit(fail ? 1 : 0);

@@ -91,18 +91,18 @@ const atlas = bakeCloudAtlas(renderer);
 const scene=new THREE.Scene();
 const skyMat=new THREE.ShaderMaterial({uniforms:{
   uSunDir:{value:new THREE.Vector3()},uSunAltDeg:{value:0},uBeta:{value:0.08},
-  uAngstrom:{value:1.3},uElevScale:{value:1},uOzoneDU:{value:330},uSaturation:{value:1}},
+  uAngstrom:{value:1.3},uElevScale:{value:1},uOzoneDU:{value:330},uSaturation:{value:1},uCloudDiffuse:{value:1}},
   vertexShader:SKY_V,fragmentShader:SKY_F,side:THREE.BackSide,depthWrite:false,depthTest:false});
 const skyMesh=new THREE.Mesh(new THREE.SphereGeometry(500,32,16),skyMat);
 skyMesh.renderOrder=-1; scene.add(skyMesh);
 
 const sunMat=new THREE.ShaderMaterial({uniforms:{
   uColor:{value:new THREE.Color(1,1,1)},uIntensity:{value:16},
-  uSunAltDeg:{value:30},uSaturation:{value:1}},
+  uSunAltDeg:{value:30},uSaturation:{value:1},uOcclusion:{value:1}},
   vertexShader:SUN_V,fragmentShader:SUN_F,transparent:true,depthWrite:false,depthTest:true,side:THREE.DoubleSide});
 const sunR=450*Math.tan(1.08*Math.PI/180);
 const sunMesh=new THREE.Mesh(new THREE.PlaneGeometry(sunR*2,sunR*2),sunMat);
-sunMesh.renderOrder=5; sunMesh.frustumCulled=false; scene.add(sunMesh);
+sunMesh.renderOrder=0.5; sunMesh.frustumCulled=false; scene.add(sunMesh);
 
 const cloudField = createCloudField(atlas, 320);
 scene.add(cloudField.mesh);
@@ -159,13 +159,21 @@ SCENES.forEach((s,i)=>{
     horizonGlow: skyRadiance(0.5,5,s.sunAlt,atmosphere),
     zenithSky:   skyRadiance(88,90,s.sunAlt,atmosphere),
     betaMie: atmosphere.betaMie, angstrom: atmosphere.angstrom, elevScale: atmosphere.elevScale,
+    cloudDiffuse: built.optics.diffuseToGround,
   });
 
   const byLayer=L=>built.instances.filter(c=>c.layer===L);
   const med=(a,f)=>{ if(!a.length) return f; const q=[...a].sort((x,y)=>x-y); return q[Math.floor(q.length/2)]; };
+  sunMat.uniforms.uOcclusion.value = built.optics.sunTransmittance;
+  skyMat.uniforms.uCloudDiffuse.value = built.optics.diffuseToGround;
   updateCloudDeck(cloudDeck, {
     samples: built.samples,
-    beamFor: alt => beamAtAltitude(s.sunAlt, alt, atmosphere),
+    beamFor: alt => {
+      const L = alt > 7 ? 'high' : alt > 3 ? 'mid' : 'low';
+      const f = built.optics.beamFactor[L];
+      const b = beamAtAltitude(s.sunAlt, alt, atmosphere);
+      return { r: b.r*f, g: b.g*f, b: b.b*f };
+    },
     ambientUp: skyRadiance(88,90,s.sunAlt,atmosphere),
     ambientDown: skyRadiance(20,70,s.sunAlt,atmosphere),
     sunDir, sunAltDeg: s.sunAlt,
@@ -175,6 +183,7 @@ SCENES.forEach((s,i)=>{
   });
 
   stats.push({label:s.label, n:built.instances.length, dniTau:built.dniTau,
+              sunT:built.optics.sunTransmittance, beamLow:built.optics.beamFactor.low,
               decks:cloudDeck.layers.filter(l=>l.mesh.visible).map(l=>l.layer).join('+')||'-',
               types:[...new Set(built.instances.map(c=>c.atlasKey.split('#')[0]))].join(',')});
 

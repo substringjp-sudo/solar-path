@@ -43,6 +43,7 @@ uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uOzoneDU;
 uniform float uSaturation;  // 아트 디렉션용 채도 보정
+uniform float uCloudDiffuse; // 구름 기둥 확산 투과율 (1 = 맑음)
 
 varying vec3 vWorldDir;
 
@@ -63,6 +64,17 @@ void main() {
     viewElevDeg, cosGamma, uSunAltDeg,
     uBeta, uAngstrom, uElevScale, uOzoneDU
   );
+
+  // ── 구름층에 의한 감광 ──────────────────────────────────────────────────
+  // uCloudDiffuse = 구름 기둥을 통과해 내려오는 확산광 비율 (1 = 맑음).
+  //
+  // 이게 없으면 8/8 하늘에서도 스카이돔이 맑은 날의 복사휘도를 그대로 칠합니다.
+  // 덱에 난 구멍과 반투명 가장자리로 그 빛이 새어 나와, 흐린 일몰이
+  // 시뻘겋게 타오릅니다. 실제로는 두꺼운 구름 아래에서 노을이 보이지 않습니다.
+  //
+  // 구름 아래 빛은 여러 번 산란돼 색을 잃으므로 감광과 함께 회색으로 끕니다.
+  // 구름 ambient(TS applyCloudDimming)와 **같은 함수**를 씁니다.
+  col = atm_cloudDim(col, uCloudDiffuse);
 
   // 물리 복사휘도 → 화면 색 (노출 → ACES → 채도 → 대비 → sRGB)
   col = atm_display(col, uSaturation, uSunAltDeg);
@@ -98,6 +110,7 @@ export function createSkydome(): SkydomeHandle {
       uElevScale: { value: 1.0 },
       uOzoneDU: { value: 330 },
       uSaturation: { value: 1.0 },
+      uCloudDiffuse: { value: 1.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,

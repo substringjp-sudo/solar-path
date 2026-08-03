@@ -353,6 +353,135 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
   return out;
 }
 
+// ── 수직 광학 스택 ─────────────────────────────────────────────────────────
+
+/** 두 층의 반사·투과를 합성 (adding method) */
+export function addLayers(
+  R1: number,
+  T1: number,
+  R2: number,
+  T2: number
+): { R: number; T: number } {
+  // 층 사이 다중 반사를 무시하면 다층운이 부자연스럽게 밝아집니다.
+  const denom = Math.max(1e-4, 1 - R1 * R2);
+  return {
+    R: R1 + (T1 * T1 * R2) / denom,
+    T: (T1 * T2) / denom,
+  };
+}
+
+/** 광학두께 → 2-stream 반사·투과 (CLOUD_G = 0.85) */
+export function cloudRT(tau: number): { R: number; T: number } {
+  const tauEff = tau * (1 - 0.85);
+  return { R: tauEff / (tauEff + 2), T: 2 / (tauEff + 2) };
+}
+
+export interface ColumnOptics {
+  /**
+   * 각 층에 닿는 **평행광(직달)** 배율.
+   *
+   * Beer-Lambert `exp(-τ/sinθ)`입니다. 2-stream의 T와 구분해야 합니다 —
+   * T는 직달+확산 총 투과율이고, 구름의 밝은 면/그늘 면 대비를 만드는 것은
+   * 오직 평행광입니다. 위층이 두꺼우면 이 값이 0에 붙고, 그 순간 아래 구름의
+   * 명암이 사라져 평평한 회색이 됩니다. 그것이 흐린 날입니다.
+   */
+  beamFactor: Record<LayerKey, number>;
+  /**
+   * 각 층에 위에서 내려오는 **확산광** 배율 (2-stream T).
+   *
+   * 평행광이 죽어도 이 빛은 남습니다. 흐린 날이 캄캄하지 않고 균일하게
+   * 밝은 회색인 이유입니다. 이걸 빠뜨리면 8/8 하늘이 새까매집니다.
+   */
+  diffuseFactor: Record<LayerKey, number>;
+  /** 관측자가 태양 원반을 볼 때의 직달 투과율 (원반 차폐) */
+  sunTransmittance: number;
+  /** 하늘 전체를 통과해 내려오는 확산광 비율 */
+  diffuseToGround: number;
+}
+
+/**
+ * 태양 방향 기둥을 풀어 층별 직달광 감쇠를 구합니다.
+ *
+ * **이 항이 흐린 날의 변곡점입니다.** 이전에는 각 구름이 독립이라 상층이
+ * 완전히 덮여도 그 아래 저층운이 직달광 100%를 받았습니다. 그래서 아무리
+ * 두꺼운 구름을 쌓아도 "햇빛 받은 뭉게구름"으로 보였습니다.
+ *
+ * 직달광이 사라지면 밝은 면/그늘 면 대비가 소멸하고, 그제야 평평한 회색이 됩니다.
+ */
+export function solveColumnOptics(
+  samples: LayerSample[],
+  sunAzDeg: number,
+  sunAltDeg: number,
+  tauFor: (layer: LayerKey) => number
+): ColumnOptics {
+  // 태양 방향에서 각 층의 운량을 읽습니다.
+  const coverTowardSun = (layer: LayerKey): number => {
+    const altKm = LAYER_ALTITUDE_KM[layer];
+    const dist = elevationToDistanceKm(Math.max(3, sunAltDeg), altKm);
+    let best: LayerSample | undefined;
+    let bestScore = Infinity;
+    for (const s of samples) {
+      if (s.layer !== layer) continue;
+      const dAz = Math.abs(((s.azimuthDeg - sunAzDeg + 540) % 360) - 180);
+      const dD = Math.abs(s.distanceKm - dist) / Math.max(1, dist);
+      const score = dAz / 30 + dD;
+      if (score < bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    return best?.cover ?? 0;
+  };
+
+  // 경사 경로 배율 — 태양이 낮으면 구름을 더 길게 통과합니다.
+  const slant = 1 / Math.max(0.12, Math.sin(Math.max(3, sunAltDeg) * D2R));
+
+  // 층별 (R, T) — 확산 성분. 운량이 1 미만이면 그 비율만큼만 가립니다.
+  const layerRT = (layer: LayerKey): { R: number; T: number } => {
+    const c = Math.max(0, Math.min(1, coverTowardSun(layer)));
+    if (c <= 0.001) return { R: 0, T: 1 };
+    const { R, T } = cloudRT(tauFor(layer));
+    // 구름이 덮은 부분은 (R,T), 나머지는 그대로 통과.
+    return { R: R * c, T: T * c + (1 - c) };
+  };
+
+  // 층별 평행광 투과 — Beer-Lambert. 구름이 덮은 비율만 감쇠합니다.
+  const layerDirect = (layer: LayerKey): number => {
+    const c = Math.max(0, Math.min(1, coverTowardSun(layer)));
+    if (c <= 0.001) return 1;
+    const through = Math.exp(-tauFor(layer) * slant);
+    return through * c + (1 - c);
+  };
+
+  const high = layerRT('high');
+  const mid = layerRT('mid');
+  const low = layerRT('low');
+
+  const dHigh = layerDirect('high');
+  const dMid = layerDirect('mid');
+  const dLow = layerDirect('low');
+
+  // 확산은 위에서부터 adding으로 쌓습니다 (층간 다중반사 포함).
+  const highMid = addLayers(high.R, high.T, mid.R, mid.T);
+  const all = addLayers(highMid.R, highMid.T, low.R, low.T);
+
+  return {
+    // 평행광은 단순 곱 — 직달광은 한 번 산란되면 더 이상 직달이 아닙니다.
+    beamFactor: {
+      high: 1,
+      mid: dHigh,
+      low: dHigh * dMid,
+    },
+    diffuseFactor: {
+      high: 1,
+      mid: high.T,
+      low: highMid.T,
+    },
+    sunTransmittance: dHigh * dMid * dLow,
+    diffuseToGround: all.T,
+  };
+}
+
 /**
  * 층별 하늘 전체 평균 운량 (입체각 가중).
  *

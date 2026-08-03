@@ -18,13 +18,16 @@ import {
   beamAtAltitude,
   cloudOpticalDepthFromDb,
   cloudTauFromDNI,
+  applyCloudDimming,
   type DniTauResult,
   type AtmosphereParams,
 } from '../../utils/atmosphere';
 import {
   buildSkyColumns,
+  solveColumnOptics,
   WeatherFan,
   LAYER_ALTITUDE_KM,
+  type ColumnOptics,
   type LayerSample,
   type LayerKey,
 } from '../../utils/skyColumn';
@@ -184,7 +187,18 @@ export interface BuildCloudsResult {
   samples: LayerSample[];
   /** DNI에서 역산한 기둥 광학두께 (없거나 태양이 낮으면 null) */
   dniTau: DniTauResult | null;
+  /** 태양 방향 수직 기둥 광학 — 태양 원반 차폐와 덱 조명이 함께 씁니다. */
+  optics: ColumnOptics;
 }
+
+/**
+ * 덱 바닥에서 내려오는 확산광의 세기 배율.
+ *
+ * 두꺼운 층 아래의 조도는 입사 직달광의 대략 10~20%입니다. 여기서는 그
+ * 중간값을 쓰되, 확산광은 반구 전체에서 오므로 방향성 직달광보다 구름을
+ * 고르게 비춥니다.
+ */
+const DIFFUSE_ILLUM_SCALE = 0.55;
 
 /**
  * 빌보드 하나의 각크기 (도).
@@ -227,12 +241,39 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
 
   const dniTau = cloudTauFromDNI(obs?.directNormalIrradiance, sunAltDeg);
 
-  const beamCache = new Map<number, RGB>();
-  const beamFor = (altKm: number): RGB => {
-    let v = beamCache.get(altKm);
+  // 층별 대표 광학두께 — 태양 방향 기둥을 푸는 데 필요합니다.
+  // 운형 판정이 방향마다 달라질 수 있으므로 관측점 값으로 대표를 잡습니다.
+  const representativeTau = (layer: LayerKey): number => {
+    const coverPct = layer === 'low' ? obs?.low ?? 0 : layer === 'mid' ? obs?.mid ?? 0 : obs?.high ?? 0;
+    const name = resolvePresetFromWeather(
+      layer,
+      coverPct / 100,
+      {
+        precipitation: obs?.precipitation,
+        humidity: obs?.humidity,
+        lowPct: obs?.low ?? 0,
+        highPct: obs?.high ?? 0,
+      },
+      0.5
+    );
+    return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau;
+  };
+
+  // 태양 방향 수직 기둥. 각 층에 실제로 닿는 직달광 배율을 줍니다.
+  const optics = solveColumnOptics(samples, sunAzDeg, sunAltDeg, representativeTau);
+
+  const beamCache = new Map<string, RGB>();
+  const beamFor = (altKm: number, layer: LayerKey): RGB => {
+    const key = `${altKm}|${layer}`;
+    let v = beamCache.get(key);
     if (!v) {
-      v = beamAtAltitude(sunAltDeg, altKm, atmosphere);
-      beamCache.set(altKm, v);
+      const clear = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+      // **위층을 통과해서 오는 직달광.**
+      // 이게 없으면 상층이 완전히 덮여도 저층운이 햇빛을 그대로 받아,
+      // 아무리 두꺼운 구름을 쌓아도 흐린 날이 되지 않습니다.
+      const f = optics.beamFactor[layer];
+      v = { r: clear.r * f, g: clear.g * f, b: clear.b * f };
+      beamCache.set(key, v);
     }
     return v;
   };
@@ -287,7 +328,7 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
     const azimuthDeg = (s.azimuthDeg + azJitter + 360) % 360;
     const elevationDeg = Math.max(1.5, Math.min(89, s.elevationDeg + elevJitter));
 
-    const beam = beamFor(altKm);
+    const beam = beamFor(altKm, s.layer);
 
     const azDiff = ((sunAzDeg - azimuthDeg + 540) % 360) - 180;
     const gammaDeg =
@@ -299,10 +340,24 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
       ) * R2D;
 
     const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
+
+    // 위층이 두꺼우면 아래는 파란 천공광이 아니라 **덱 바닥에서 내려오는
+    // 회백색 확산광**으로 조명됩니다. 이 항이 없으면 평행광을 죽인 순간
+    // 8/8 하늘이 새까매집니다 — 실제 흐린 날은 균일하게 밝은 회색입니다.
+    const dFactor = optics.diffuseFactor[s.layer];
+    // 하늘빛은 스카이돔과 **같은 식**으로 감광·탈색합니다.
+    const dimmedSky = applyCloudDimming(rawAmbient, dFactor);
+    // 위층 바닥에서 내려오는 회백색 확산광. 평행광을 죽인 뒤에도
+    // 이 빛이 남아야 흐린 하늘이 새까매지지 않고 균일한 회색이 됩니다.
+    const clearBeam = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+    const skyBlocked = 1 - dFactor;
+    const diffuseGrey =
+      (clearBeam.r + clearBeam.g + clearBeam.b) / 3 * dFactor * DIFFUSE_ILLUM_SCALE * skyBlocked;
+
     const ambient = {
-      r: Math.max(rawAmbient.r, minNightAmbient.r),
-      g: Math.max(rawAmbient.g, minNightAmbient.g),
-      b: Math.max(rawAmbient.b, minNightAmbient.b),
+      r: Math.max(dimmedSky.r + diffuseGrey, minNightAmbient.r),
+      g: Math.max(dimmedSky.g + diffuseGrey, minNightAmbient.g),
+      b: Math.max(dimmedSky.b + diffuseGrey, minNightAmbient.b),
     };
 
     // 도감 τ를 기본으로 쓰되, DNI 관측이 있으면 그쪽으로 끌어옵니다.
@@ -357,7 +412,7 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
     });
   }
 
-  return { instances: out, samples, dniTau };
+  return { instances: out, samples, dniTau, optics };
 }
 
 const D2R = Math.PI / 180;

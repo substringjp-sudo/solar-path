@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import type { CloudAtlas } from './cloudAtlas';
 import { type CloudInstanceData } from './cloudPlacement';
-import { ATMOSPHERE_GLSL } from '../../utils/atmosphere';
+import { ATMOSPHERE_GLSL, applyCloudDimming } from '../../utils/atmosphere';
 
 export interface CloudField {
   mesh: THREE.InstancedMesh;
@@ -224,6 +224,12 @@ export function updateCloudField(
     betaMie: number;
     angstrom: number;
     elevScale: number;
+    /**
+     * 구름 기둥의 확산 투과율 (1 = 맑음).
+     * 황혼 자색광의 입력(지평선 노을빛·천공빛)도 구름 아래로 들어가면
+     * 감광·탈색되어야 합니다. 이걸 빠뜨리면 8/8 일몰에서 구름만 시뻘겋게 남습니다.
+     */
+    cloudDiffuse?: number;
   }
 ): void {
   const { mesh, capacity } = field;
@@ -246,8 +252,12 @@ export function updateCloudField(
     -Math.cos(sAlt) * Math.cos(sAz)
   );
 
-  (u.uHorizonGlow.value as THREE.Vector3).set(env.horizonGlow.r, env.horizonGlow.g, env.horizonGlow.b);
-  (u.uZenithSky.value as THREE.Vector3).set(env.zenithSky.r, env.zenithSky.g, env.zenithSky.b);
+  // 황혼 자색광 입력도 구름층 아래로 넣습니다 (하늘·ambient와 같은 식).
+  const dim = env.cloudDiffuse ?? 1;
+  const hg = applyCloudDimming(env.horizonGlow, dim);
+  const zs = applyCloudDimming(env.zenithSky, dim);
+  (u.uHorizonGlow.value as THREE.Vector3).set(hg.r, hg.g, hg.b);
+  (u.uZenithSky.value as THREE.Vector3).set(zs.r, zs.g, zs.b);
   u.uBeta.value = env.betaMie;
   u.uAngstrom.value = env.angstrom;
   u.uElevScale.value = env.elevScale;
