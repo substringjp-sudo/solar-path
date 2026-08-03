@@ -27,6 +27,20 @@ export interface CloudGridPoint {
   mid: number;
   /** High cloud cover % at target time */
   high: number;
+  /**
+   * Raw hourly series kept alongside the interpolated snapshot.
+   *
+   * Why: without this the grid is frozen at whatever `targetTime` it was
+   * fetched for, so scrubbing the time slider silently shows stale structure
+   * (or forces a refetch per tick). The arrays come back in the same response
+   * we already pay for — keeping them makes the grid re-interpolable for free.
+   */
+  hourly?: {
+    timeMs: number[];
+    low: number[];
+    mid: number[];
+    high: number[];
+  };
 }
 
 export interface CloudDensityGrid {
@@ -180,6 +194,12 @@ export const fetchCloudGrid = async (
         low: lerp(res.hourly.cloud_cover_low),
         mid: lerp(res.hourly.cloud_cover_mid),
         high: lerp(res.hourly.cloud_cover_high),
+        hourly: {
+          timeMs: timeEpochs,
+          low: res.hourly.cloud_cover_low,
+          mid: res.hourly.cloud_cover_mid,
+          high: res.hourly.cloud_cover_high,
+        },
       };
     });
 
@@ -200,4 +220,48 @@ export const fetchCloudGrid = async (
     console.error('[CloudGrid] Fetch failed:', error);
     return cached ?? null;
   }
+};
+
+// ---------------------------------------------------------------------------
+// Time re-interpolation
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-reads the grid at an arbitrary time using the retained hourly series.
+ *
+ * A grid is cached for 10 minutes and keyed only by (lat, lon, azimuth bucket),
+ * so the `targetTime` it was originally fetched for is often *not* the time the
+ * user is now looking at. Points without `hourly` (older cache entries) keep
+ * their snapshot values.
+ */
+export const interpolateCloudGrid = (
+  grid: CloudDensityGrid,
+  time: Date,
+): CloudGridPoint[] => {
+  const targetMs = time.getTime();
+
+  return grid.points.map(p => {
+    const h = p.hourly;
+    if (!h || h.timeMs.length === 0) return p;
+
+    let idx = 0;
+    while (idx < h.timeMs.length - 1 && h.timeMs[idx + 1] < targetMs) idx++;
+
+    const t1 = h.timeMs[idx];
+    const t2 = h.timeMs[idx + 1] ?? t1 + 3600_000;
+    const ratio = Math.max(0, Math.min(1, (targetMs - t1) / (t2 - t1)));
+
+    const lerp = (arr: number[]) => {
+      const a = arr[idx] ?? 0;
+      const b = arr[idx + 1] ?? a;
+      return a + (b - a) * ratio;
+    };
+
+    return {
+      ...p,
+      low: lerp(h.low),
+      mid: lerp(h.mid),
+      high: lerp(h.high),
+    };
+  });
 };
