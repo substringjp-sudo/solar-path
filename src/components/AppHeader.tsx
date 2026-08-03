@@ -1,0 +1,336 @@
+/**
+ * AppHeader.tsx
+ *
+ * 평면 3탭 헤더. `HudHeader`의 카테고리 드롭다운(모달) × 서브탭 2단 구조를 대체합니다.
+ *
+ * Why (docs/IA_REDESIGN.md §1): 이전 구조는 2D 시뮬 → 3D 시뮬 이동에
+ * "카테고리 버튼 → 모달 열림 → 항목 선택 → 모달 닫힘"이 필요했습니다.
+ * 둘 다 "하늘을 본다"는 같은 일인데 3탭 + 모달이 걸렸습니다.
+ *
+ * 탭은 **공간 프레임**으로 나눕니다 — 시뮬레이터 개수가 아니라
+ * "어떤 시점에서 묻는 질문인가"입니다. 이 축은 서로 겹치지 않습니다.
+ *   하늘: 자기중심(돔 안) — "뭐가 보일까"
+ *   지도: 타자중심(위에서) — "뭐가 오고 있나"
+ *   기록: 시간축 — "뭘 봤나"
+ */
+import React, { useMemo, useRef, useEffect } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import { addDays, subDays } from 'date-fns';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  RotateCcw,
+  Camera as CameraIcon,
+  Settings,
+} from 'lucide-react-native';
+import { useCelestialStore } from '../store/useCelestialStore';
+import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
+import { t } from '../utils/i18n';
+
+/** 앱의 최상위 화면. 이 셋이 전부입니다. */
+export type AppTab = 'sky' | 'map' | 'log';
+
+export const APP_TABS: { id: AppTab; label: string }[] = [
+  { id: 'sky', label: '하늘' },
+  { id: 'map', label: '지도' },
+  { id: 'log', label: '기록' },
+];
+
+/** 스와이프 순서 = 탭 순서. 둘이 어긋날 수 없도록 같은 배열에서 유도합니다. */
+export const TAB_ORDER: AppTab[] = APP_TABS.map(t2 => t2.id);
+
+interface AppHeaderProps {
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
+  setSettingsVisible: (visible: boolean) => void;
+  handleCameraPress: () => void;
+  handleCameraLongPress: () => void;
+  goldenTimeInfo: { isActive: boolean; type: 'sunrise' | 'sunset' | null };
+  setShowDatePicker: (visible: boolean) => void;
+  handleDateChange: (date: Date) => void;
+  theme: any;
+  dynamicTheme: any;
+  currentTimeLocal?: Date;
+  timezoneLabel?: string;
+  isSimulationLoading?: boolean;
+}
+
+export const AppHeader: React.FC<AppHeaderProps> = ({
+  activeTab,
+  setActiveTab,
+  setSettingsVisible,
+  handleCameraPress,
+  handleCameraLongPress,
+  goldenTimeInfo,
+  setShowDatePicker,
+  handleDateChange,
+  theme,
+  dynamicTheme,
+  currentTimeLocal,
+  timezoneLabel,
+  isSimulationLoading = false,
+}) => {
+  const { currentTime, timezoneOffsetHours, language } = useCelestialStore();
+
+  const activeIndex = useMemo(() => {
+    const i = TAB_ORDER.indexOf(activeTab);
+    return i >= 0 ? i : 0;
+  }, [activeTab]);
+
+  const indicatorAnim = useRef(new Animated.Value(activeIndex)).current;
+  useEffect(() => {
+    Animated.timing(indicatorAnim, {
+      toValue: activeIndex,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [activeIndex, indicatorAnim]);
+
+  const indicatorLeft = indicatorAnim.interpolate({
+    inputRange: APP_TABS.map((_, i) => i),
+    outputRange: APP_TABS.map((_, i) => `${(i * 100) / APP_TABS.length}%`),
+  });
+
+  // 기록 탭은 날짜와 무관하므로 날짜 바를 숨깁니다.
+  const showDateBar = activeTab !== 'log';
+
+  const isTodayLocal = useMemo(() => {
+    const todayLocal = getLocalTimeAtLocation(new Date(), timezoneOffsetHours);
+    const currentLocal = currentTimeLocal || getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+    return (
+      todayLocal.getUTCFullYear() === currentLocal.getUTCFullYear() &&
+      todayLocal.getUTCMonth() === currentLocal.getUTCMonth() &&
+      todayLocal.getUTCDate() === currentLocal.getUTCDate()
+    );
+  }, [currentTime, currentTimeLocal, timezoneOffsetHours]);
+
+  return (
+    <View style={styles.header}>
+      <View style={styles.headerTop}>
+        <Animated.View
+          style={[styles.navToggle, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}
+        >
+          <Animated.View
+            style={[
+              styles.navIndicator,
+              {
+                backgroundColor: theme.text,
+                left: indicatorLeft,
+                width: `${100 / APP_TABS.length}%`,
+              },
+            ]}
+          />
+          {APP_TABS.map(tab => {
+            const isActive = activeTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                onPress={() => setActiveTab(tab.id)}
+                style={styles.navButton}
+                activeOpacity={0.8}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.navText, { color: isActive ? theme.bg : dynamicTheme.subText }]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </Animated.View>
+
+        <View style={styles.rightButtons}>
+          <TouchableOpacity
+            onPress={() => setSettingsVisible(true)}
+            style={[styles.iconBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+          >
+            <Settings size={14} color={theme.text} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            disabled={isSimulationLoading || !goldenTimeInfo.isActive}
+            onPress={handleCameraPress}
+            onLongPress={handleCameraLongPress}
+            delayLongPress={1500}
+            style={[
+              styles.iconBtn,
+              isSimulationLoading
+                ? { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1, opacity: 0.2 }
+                : goldenTimeInfo.isActive
+                  ? {
+                      backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                      shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 6,
+                      elevation: 5,
+                    }
+                  : { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1, opacity: 0.2 },
+            ]}
+          >
+            <CameraIcon
+              size={14}
+              color={goldenTimeInfo.isActive && !isSimulationLoading ? '#FFF' : theme.text}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {showDateBar && (
+        <Animated.View
+          style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}
+        >
+          <TouchableOpacity
+            onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))}
+            style={styles.dateControl}
+          >
+            <ChevronLeft size={16} color={theme.text} />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
+            <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
+            <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
+              {formatLocalTime(currentTimeLocal || currentTime, 'yyyy/MM/dd')}
+            </Animated.Text>
+            {timezoneLabel && (
+              <View
+                style={[
+                  styles.timezoneBadge,
+                  { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <Text style={[styles.timezoneText, { color: theme.subText }]}>{timezoneLabel}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.dateRightControls}>
+            {!isTodayLocal && (
+              <TouchableOpacity
+                onPress={() => handleDateChange(new Date())}
+                style={[styles.todayButton, { backgroundColor: theme.text }]}
+              >
+                <RotateCcw size={10} color={theme.bg} />
+                <Text style={[styles.todayText, { color: theme.bg }]}>{t('today', language)}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))}
+              style={styles.dateControl}
+            >
+              <ChevronRight size={16} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  header: {
+    paddingTop: 5,
+    paddingHorizontal: 14,
+    marginBottom: 5,
+    gap: 4,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 8,
+  },
+  navToggle: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: 20,
+    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
+    flex: 1,
+    position: 'relative',
+  },
+  navIndicator: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    borderRadius: 17,
+  },
+  navButton: {
+    flex: 1,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 17,
+    zIndex: 2,
+  },
+  navText: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  rightButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+  },
+  dateNavigator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
+    height: 38,
+  },
+  dateControl: {
+    padding: 4,
+  },
+  dateCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  dateText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  todayButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  dateRightControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  todayText: {
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  timezoneBadge: {
+    marginLeft: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  timezoneText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+});

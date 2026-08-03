@@ -1,20 +1,35 @@
+/**
+ * SkyScreen.tsx
+ *
+ * "하늘" 탭 — 자기중심(돔 안) 시점. 답하는 질문은 **"뭐가 보일까"** 입니다.
+ *
+ * 레이아웃 원칙 (docs/IA_REDESIGN.md §4): 작은 화면에서는 나누지 말고 순서를 만듭니다.
+ *  - 3D 씬이 화면을 꽉 채우고 (full-bleed)
+ *  - 상시 노출은 타임 슬라이더 하나뿐 — 시간 스크럽이 이 앱의 핵심 인터랙션
+ *  - 예측·수치·이벤트는 peek 시트 안. 닫히면 요약 한 줄(52px)만 남습니다.
+ *
+ * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
+ */
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Compass, Target } from 'lucide-react-native';
-import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from './SkyScene3D/SkyScene3D';
-import { LayerControlModal } from './SunsetSimulation/LayerControlModal';
-import { TimeSlider } from './TimeSlider';
-import { useCelestialStore } from '../store/useCelestialStore';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap } from 'lucide-react-native';
+import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
+import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
+import { TimeSlider } from '../TimeSlider';
+import { useCelestialStore } from '../../store/useCelestialStore';
 import {
   fetchTerrainProfile,
   fetchSunsetWeather,
   getInterpolatedWeather,
   type CloudPathData,
-} from '../utils/weather';
-import { predictSunset } from '../utils/sunsetPhysics';
+} from '../../utils/weather';
+import { predictSunset } from '../../utils/sunsetPhysics';
+import { PredictionCard } from '../SunsetSimulation/PredictionCard';
+import { InfoCard } from '../InfoCard';
+import { PeekSheet } from './PeekSheet';
 import SunCalc from 'suncalc';
 
-interface Sim3DContainerProps {
+interface SkyScreenProps {
   theme: any;
   currentTime: Date;
   setCurrentTime: (time: Date) => void;
@@ -39,7 +54,7 @@ export interface EventItem {
   description: string;
 }
 
-export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
+export const SkyScreen: React.FC<SkyScreenProps> = ({
   theme,
   currentTime,
   setCurrentTime,
@@ -104,10 +119,17 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
   const sunAltitude = (sunPos.altitude * 180) / Math.PI;
   const sunAzimuth = (sunPos.azimuth * 180) / Math.PI + 180;
 
+  const moonPos = SunCalc.getMoonPosition(currentTime, latitude, longitude);
+  const moonAltitude = (moonPos.altitude * 180) / Math.PI;
+  const moonAzimuth = (moonPos.azimuth * 180) / Math.PI + 180;
+
   // ── 실제 기상 데이터 ─────────────────────────────────────────────────────
   // 이게 없으면 3D 씬의 구름은 전부 위경도 해시로만 만들어져서
   // 흐린 날과 맑은 날의 화면이 완전히 같아집니다.
   const [pathData, setPathData] = useState<CloudPathData[]>([]);
+  // 초단기 실황(nowcast). 예전 2D 시뮬 탭의 ⚡ 버튼이 하던 일입니다.
+  const [useNowcast, setUseNowcast] = useState(false);
+  const [isNowcastLoading, setNowcastLoading] = useState(false);
   const currentDateStr = useMemo(
     () => `${currentTime.getFullYear()}-${currentTime.getMonth() + 1}-${currentTime.getDate()}`,
     [currentTime]
@@ -119,12 +141,16 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
     let cancelled = false;
     if (!latitude || !longitude) return;
 
-    fetchSunsetWeather(latitude, longitude, bucketedSunAz, false, currentTime)
+    setNowcastLoading(true);
+    fetchSunsetWeather(latitude, longitude, bucketedSunAz, useNowcast, currentTime)
       .then(data => {
         if (!cancelled && Array.isArray(data)) setPathData(data);
       })
       .catch(err => {
         console.log('3D weather fetch error:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setNowcastLoading(false);
       });
 
     return () => {
@@ -132,7 +158,7 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
     };
     // currentTime 전체가 아니라 날짜·방위 버킷에만 반응해야 슬라이더마다 재요청하지 않습니다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latitude, longitude, currentDateStr, bucketedSunAz]);
+  }, [latitude, longitude, currentDateStr, bucketedSunAz, useNowcast]);
 
   const interpolatedWeather = useMemo(
     () => (pathData.length ? getInterpolatedWeather(pathData, currentTime) : []),
@@ -268,9 +294,16 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
     return `${hh}:${mm}`;
   };
 
+  // 요약 한 줄에 쓸 값들
+  const scoreText = prediction?.score != null ? `${Math.round(prediction.score)}점` : '—';
+  const sunsetText = events?.sunset
+    ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
+    : '--:--';
+  const highCloudPct = interpolatedWeather[0]?.high;
+
   return (
     <View style={styles.container}>
-      {/* 3D 시뮬레이션 뷰포트 (높이 밸런스 조절) */}
+      {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
       <View style={styles.sceneWrapper}>
         <SkyScene3D
           sim={simObj}
@@ -301,88 +334,158 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
             <Text style={styles.trackingCancel}> [해제]</Text>
           </TouchableOpacity>
         )}
-        
-        <TouchableOpacity
-          style={[styles.layerControlButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
-          onPress={() => setLayerModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <SlidersHorizontal size={14} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
 
-      {/* 시뮬레이터와 타임 슬라이더 사이 추천/일반 이벤트 박스 */}
-      <View style={[styles.eventBoxContainer, { backgroundColor: theme.glass ?? 'rgba(15, 23, 42, 0.6)', borderColor: theme.border }]}>
-        <View style={styles.eventHeaderRow}>
-          <View style={styles.tabToggleGroup}>
-            <TouchableOpacity
-              style={[styles.tabButton, activeTab === 'featured' && styles.tabButtonActive]}
-              onPress={() => setActiveTab('featured')}
-              activeOpacity={0.8}
-            >
-              <Sparkles size={12} color={activeTab === 'featured' ? '#F59E0B' : '#94A3B8'} style={{ marginRight: 4 }} />
-              <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>추천 이벤트</Text>
-            </TouchableOpacity>
+        {/* 씬 위 오버레이는 최소한만 — 레이어 토글과 초단기 실황 */}
+        <View style={styles.sceneOverlayButtons}>
+          <TouchableOpacity
+            style={[
+              styles.overlayButton,
+              {
+                backgroundColor: useNowcast ? 'rgba(250, 204, 21, 0.32)' : 'rgba(5, 5, 10, 0.65)',
+                borderColor: useNowcast ? '#FACC15' : theme.border,
+              },
+            ]}
+            onPress={() => setUseNowcast(v => !v)}
+            disabled={isNowcastLoading}
+            activeOpacity={0.7}
+          >
+            <Zap size={14} color={useNowcast ? '#FACC15' : '#FFFFFF'} />
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tabButton, activeTab === 'general' && styles.tabButtonActive]}
-              onPress={() => setActiveTab('general')}
-              activeOpacity={0.8}
-            >
-              <Sun size={12} color={activeTab === 'general' ? '#38BDF8' : '#94A3B8'} style={{ marginRight: 4 }} />
-              <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>일반 이벤트</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[styles.overlayButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
+            onPress={() => setLayerModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <SlidersHorizontal size={14} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.eventCardsScroll}
-        >
-          {(activeTab === 'featured' ? featuredList : generalList).map(item => (
-            <TouchableOpacity
-              key={item.id}
-              style={[
-                styles.eventCard,
-                item.category === 'featured' ? styles.eventCardFeatured : styles.eventCardGeneral,
-              ]}
-              onPress={() => setCurrentTime(item.time)}
-              activeOpacity={0.75}
-            >
-              <View style={styles.cardTopRow}>
-                {(() => {
-                  if (item.id.includes('sunset')) return <Sunset size={13} color="#F97316" />;
-                  if (item.id.includes('sunrise')) return <Sun size={13} color="#FBBF24" />;
-                  if (item.id.includes('crescent')) return <Moon size={13} color="#38BDF8" />;
-                  if (item.id.includes('milkyway')) return <Sparkles size={13} color="#A78BFA" />;
-                  if (item.id.includes('night')) return <Star size={13} color="#F43F5E" />;
-                  if (item.id.includes('moon')) return <Moon size={13} color="#38BDF8" />;
-                  return <Sun size={13} color="#EAB308" />;
-                })()}
-                <Text style={styles.cardTimeText}>{formatTimeStr(item.time)}</Text>
-                {item.badge && (
-                  <View style={styles.cardBadge}>
-                    <Text style={styles.cardBadgeText}>{item.badge}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.cardDesc} numberOfLines={1}>{item.description}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
-      {/* 3D 뷰어 하단 시간 슬라이더 */}
+      {/* ── peek 시트: 닫히면 요약 한 줄, 끌어올리면 근거와 수치 ─────────── */}
+      <PeekSheet
+        theme={theme}
+        summary={
+          <View style={styles.summaryRow}>
+            <Flame size={13} color="#F97316" />
+            <Text style={[styles.summaryScore, { color: theme.text }]}>{scoreText}</Text>
+            <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
+            <Sunset size={12} color="#FB923C" />
+            <Text style={[styles.summaryValue, { color: theme.text }]}>{sunsetText}</Text>
+            {highCloudPct != null && (
+              <>
+                <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
+                <Text style={[styles.summaryValue, { color: theme.subText }]}>
+                  상층운 {Math.round(highCloudPct)}%
+                </Text>
+              </>
+            )}
+          </View>
+        }
+      >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetScroll}>
+          {prediction && (
+            <PredictionCard
+              prediction={prediction}
+              theme={theme}
+              isSunrise={sunAltitude < 0 && (events?.sunrise ? currentTime < events.sunrise : false)}
+            />
+          )}
+
+          {/* 태양·달 수치 — 예전 tracker 탭의 InfoCard 그리드 */}
+          <View style={[styles.numberFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <View style={styles.frameHeader}>
+              <Sun size={11} color="#FFD700" />
+              <Text style={[styles.frameLabel, { color: theme.subText }]}>태양 · 달</Text>
+            </View>
+            <View style={styles.numberGrid}>
+              <InfoCard
+                icon={<Sun size={14} color="#FFD700" />}
+                label="태양"
+                value={`${sunAltitude.toFixed(0)}°`}
+                subValue={`${sunAzimuth.toFixed(0)}°`}
+                theme={theme}
+              />
+              <InfoCard
+                icon={<Moon size={14} color="#94A3B8" />}
+                label="달"
+                value={`${moonAltitude.toFixed(0)}°`}
+                subValue={`${moonAzimuth.toFixed(0)}°`}
+                theme={theme}
+              />
+              <InfoCard
+                icon={<Sunset size={14} color="#FF4500" />}
+                label="일몰"
+                value={sunsetText}
+                theme={theme}
+              />
+            </View>
+          </View>
+
+          {/* 이벤트 — 탭하면 그 시각으로 이동 */}
+          <View style={styles.eventSection}>
+            <View style={styles.tabToggleGroup}>
+              <TouchableOpacity
+                style={[styles.tabButton, activeTab === 'featured' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('featured')}
+                activeOpacity={0.8}
+              >
+                <Sparkles size={12} color={activeTab === 'featured' ? '#F59E0B' : '#94A3B8'} style={{ marginRight: 4 }} />
+                <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>추천 이벤트</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.tabButton, activeTab === 'general' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('general')}
+                activeOpacity={0.8}
+              >
+                <Sun size={12} color={activeTab === 'general' ? '#38BDF8' : '#94A3B8'} style={{ marginRight: 4 }} />
+                <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>일반 이벤트</Text>
+              </TouchableOpacity>
+            </View>
+
+            {(activeTab === 'featured' ? featuredList : generalList).map(item => (
+              <TouchableOpacity
+                key={item.id}
+                style={[
+                  styles.eventRow,
+                  { borderColor: theme.border },
+                  item.category === 'featured' && styles.eventRowFeatured,
+                ]}
+                onPress={() => setCurrentTime(item.time)}
+                activeOpacity={0.75}
+              >
+                {(() => {
+                  if (item.id.includes('sunset')) return <Sunset size={14} color="#F97316" />;
+                  if (item.id.includes('sunrise')) return <Sun size={14} color="#FBBF24" />;
+                  if (item.id.includes('crescent')) return <Moon size={14} color="#38BDF8" />;
+                  if (item.id.includes('milkyway')) return <Sparkles size={14} color="#A78BFA" />;
+                  if (item.id.includes('night')) return <Star size={14} color="#F43F5E" />;
+                  if (item.id.includes('moon')) return <Moon size={14} color="#38BDF8" />;
+                  return <Sun size={14} color="#EAB308" />;
+                })()}
+                <View style={styles.eventRowText}>
+                  <Text style={[styles.eventTitle, { color: theme.text }]}>{item.title}</Text>
+                  <Text style={[styles.eventDesc, { color: theme.subText }]} numberOfLines={1}>
+                    {item.description}
+                  </Text>
+                </View>
+                <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      </PeekSheet>
+
+      {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
       <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-        <TimeSlider 
+        <TimeSlider
           value={currentTime}
           onChange={setCurrentTime}
           isTimeMachineEnabled={isTimeMachineEnabled}
           onToggleTimeMachine={setTimeMachineEnabled}
           theme={theme}
-          isDay={true}
+          isDay={sunAltitude > 0}
           onPressMap={() => setMapVisible && setMapVisible(true)}
           markers={events ? [
             { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
@@ -415,30 +518,33 @@ export const Sim3DContainer: React.FC<Sim3DContainerProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 12,
   },
+  // 씬은 화면을 꽉 채웁니다. 고정 높이(380px)를 쓰면 큰 화면에서 여백이,
+  // 작은 화면에서는 답답함이 생깁니다.
   sceneWrapper: {
-    height: 380, // 세로로 너무 긴 시뮬레이션 높이 비율 조절
-    borderRadius: 16,
-    overflow: 'hidden',
+    flex: 1,
     position: 'relative',
+    overflow: 'hidden',
   },
-  layerControlButton: {
+  sceneOverlayButtons: {
     position: 'absolute',
     top: 12,
     right: 12,
+    gap: 8,
+    zIndex: 20,
+  },
+  overlayButton: {
     width: 32,
     height: 32,
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 20,
   },
   trackingBadge: {
     position: 'absolute',
     top: 12,
-    left: 100,
+    left: 12,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.85)',
@@ -455,107 +561,121 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
   },
   trackingCancel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#38BDF8',
   },
-  eventBoxContainer: {
-    marginTop: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 10,
-  },
-  eventHeaderRow: {
+
+  // ── peek 시트 요약 한 줄 ──────────────────────────────────────────────
+  summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  summaryScore: {
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  summaryValue: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  summaryDot: {
+    fontSize: 12,
+    fontWeight: '700',
+    opacity: 0.5,
+  },
+
+  // ── 시트 본문 ────────────────────────────────────────────────────────
+  sheetScroll: {
+    paddingBottom: 16,
+    gap: 10,
+  },
+  numberFrame: {
+    borderRadius: 16,
+    padding: 10,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
+  },
+  frameHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 4,
+    marginBottom: 6,
+    gap: 6,
+  },
+  frameLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  numberGrid: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+  },
+
+  eventSection: {
+    gap: 6,
   },
   tabToggleGroup: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    borderRadius: 10,
-    padding: 2,
+    gap: 6,
+    marginBottom: 2,
   },
   tabButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(148, 163, 184, 0.12)',
   },
   tabButtonActive: {
-    backgroundColor: 'rgba(30, 41, 59, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(59, 130, 246, 0.22)',
   },
   tabText: {
     fontSize: 11,
+    fontWeight: '700',
     color: '#94A3B8',
-    fontWeight: '600',
   },
   tabTextActive: {
     color: '#F8FAFC',
-    fontWeight: '800',
+    fontWeight: '900',
   },
-  eventCardsScroll: {
-    gap: 8,
-    paddingRight: 8,
-  },
-  eventCard: {
-    width: 145,
-    borderRadius: 12,
-    padding: 8,
-    borderWidth: 1,
-  },
-  eventCardFeatured: {
-    backgroundColor: 'rgba(30, 27, 75, 0.65)',
-    borderColor: 'rgba(245, 158, 11, 0.4)',
-  },
-  eventCardGeneral: {
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    borderColor: 'rgba(56, 189, 248, 0.25)',
-  },
-  cardTopRow: {
+  // 이벤트를 가로 스크롤 카드가 아니라 세로 목록으로 바꿨습니다.
+  // 시트 안에서는 세로 스크롤이 이미 있어서 가로 스크롤과 충돌합니다.
+  eventRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
-  },
-  cardIcon: {
-    fontSize: 14,
-  },
-  cardTimeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#F1F5F9',
-  },
-  cardBadge: {
-    marginLeft: 'auto',
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  cardBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#F59E0B',
-  },
-  cardTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#F8FAFC',
-    marginBottom: 2,
-  },
-  cardDesc: {
-    fontSize: 10,
-    color: '#94A3B8',
-  },
-  bottomPanel: {
-    marginTop: 10,
-    borderRadius: 16,
+    gap: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 12,
+  },
+  eventRowFeatured: {
+    borderColor: 'rgba(249, 115, 22, 0.45)',
+    backgroundColor: 'rgba(249, 115, 22, 0.08)',
+  },
+  eventRowText: {
+    flex: 1,
+  },
+  eventTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  eventDesc: {
+    fontSize: 10.5,
+    marginTop: 1,
+  },
+  eventTime: {
+    fontSize: 12,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+
+  bottomPanel: {
+    paddingVertical: 8,
+    borderTopWidth: Platform.OS === 'android' ? 0 : 1,
   },
 });

@@ -4,6 +4,7 @@ import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
+import { TAB_ORDER, type AppTab } from '../components/AppHeader';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
 import { auth } from '../config/firebase';
 import { signInAnonymously } from 'firebase/auth';
@@ -189,7 +190,7 @@ export function useCelestialApp() {
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
-  const [activeTab, setActiveTabState] = useState<'tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline'>('tracker');
+  const [activeTab, setActiveTabState] = useState<AppTab>('sky');
 
   const hasInitializedTab = useRef(false);
   useEffect(() => {
@@ -203,7 +204,7 @@ export function useCelestialApp() {
     }
   }, [isAppReady, initialTab, width, initializePendingUploads]);
 
-  const setActiveTab = (tab: 'tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline' | string) => {
+  const setActiveTab = (tab: AppTab) => {
     if (tab === activeTab) return;
     setActiveTabState(tab as any);
     animateContent(tab);
@@ -282,12 +283,9 @@ export function useCelestialApp() {
       prevTabRef.current = targetTab;
       
       const task = InteractionManager.runAfterInteractions(() => {
-        if (targetTab === 'tracker') {
-          // 트래커로 돌아갈 땐 항상 타임머신 모드를 확실히 끄고 현재 시간으로 보간 복원
-          setTimeMachineEnabled(false);
-          resetRotation();
-          animateTimeTo(new Date(), 400);
-        } else if (targetTab === 'sim') {
+        if (targetTab === 'sky') {
+          // 하늘 탭으로 들어오면 그날의 주요 이벤트 시각으로 맞춰줍니다.
+          // (예전 sim 탭의 동작 — 하늘 탭이 그 역할을 흡수했습니다)
           const localHour = currentTimeLocal.getUTCHours();
           if (localHour < 12) {
             if (events && events.sunrise) {
@@ -302,6 +300,9 @@ export function useCelestialApp() {
               setCurrentTime(events.sunrise);
             }
           }
+        } else if (targetTab === 'log') {
+          // 기록 탭은 시간과 무관하므로 타임머신을 꺼 현재 시각으로 돌립니다.
+          setTimeMachineEnabled(false);
         }
       });
 
@@ -412,11 +413,11 @@ export function useCelestialApp() {
   }, [isGyroEnabled, setUserRotation]);
 
   const contentTranslateX = useRef(new Animated.Value(0)).current;
-  const tabOrder: ('tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline')[] = ['tracker', 'sim', 'sim3dView', 'gallery', 'isoline'];
+  // 스와이프·애니메이션 순서는 헤더의 탭 순서(TAB_ORDER) 하나에서 나옵니다.
+  // 예전에는 여기와 TabNavigator가 각자 배열을 들고 있어 서로 어긋났습니다.
+  const tabOrder = TAB_ORDER;
 
-  const animateContent = (
-    toTab?: 'tracker' | 'sim' | 'sim3dView' | 'gallery' | 'isoline' | string
-  ) => {
+  const animateContent = (toTab?: AppTab) => {
     const screenWidth = Dimensions.get('window').width;
     if (!toTab) return;
     const toIdx = tabOrder.indexOf(toTab as any);
@@ -595,7 +596,7 @@ export function useCelestialApp() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!isTimeMachineEnabled && !animating && activeTab !== 'sim') {
+      if (!isTimeMachineEnabled && !animating && activeTab !== 'sky') {
         updateTime();
       }
     }, 60000);
