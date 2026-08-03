@@ -18,12 +18,28 @@ const ENTRIES = [
   'src/components/SkyScene3D/StarField.ts',
   'src/components/SkyScene3D/MilkyWayBand.ts',
   'src/components/SkyScene3D/CelestialPathMesh.ts',
+  'src/components/SkyScene3D/cloudPlacement.ts',
+  'src/components/SkyScene3D/cloudAtlas.ts',
+  'src/components/SkyScene3D/CloudField.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });
-execFileSync('npx', ['tsc', '--module', 'esnext', '--target', 'es2020',
-  '--moduleResolution', 'bundler', '--skipLibCheck', '--outDir', OUT, ...ENTRIES],
-  { cwd: SRC, stdio: 'inherit' });
+// tsc는 타입 오류가 있어도 emit합니다. 리포에는 이 작업과 무관한 기존 오류
+// (sunsetPhysics의 CloudData 유니온, weather.ts의 __DEV__ 전역)가 있으므로
+// 종료 코드로 실패시키지 않고, **출력이 실제로 나왔는지**로 판단합니다.
+try {
+  execFileSync('npx', ['tsc', '--module', 'esnext', '--target', 'es2020',
+    '--moduleResolution', 'bundler', '--skipLibCheck', '--outDir', OUT, ...ENTRIES],
+    { cwd: SRC, stdio: 'pipe' });
+} catch (e) {
+  // 무시 — 아래에서 산출물 존재로 검증합니다.
+}
+for (const entry of ENTRIES) {
+  const emitted = path.join(OUT, entry.replace(/^src\//, '').replace(/\.ts$/, '.js'));
+  if (!fs.existsSync(emitted)) {
+    throw new Error(`tsc가 ${entry} 를 emit하지 못했습니다 (${emitted} 없음)`);
+  }
+}
 
 for (const d of ['components', 'utils']) fs.rmSync(path.join(APP, d), { recursive: true, force: true });
 fs.mkdirSync(path.join(APP, 'vendor'), { recursive: true });
@@ -56,6 +72,20 @@ for (const f of ['three.module.js', 'three.core.js']) {
   const from = path.join(PREVIEW, f);
   if (fs.existsSync(from)) fs.copyFileSync(from, path.join(APP, 'vendor', f));
 }
+// sunsetPhysics는 sky_weights_v2.json을 import합니다. 브라우저는 JSON 모듈을
+// import attribute 없이 못 읽으므로, ESM 래퍼로 감싸 같은 경로에 둡니다.
+// (상대 import에 .js를 붙이는 규칙과 맞물려 './sky_weights_v2.json.js'가 됩니다.)
+{
+  const weightsSrc = path.join(SRC, 'src/utils/sky_weights_v2.json');
+  if (fs.existsSync(weightsSrc)) {
+    fs.mkdirSync(path.join(APP, 'utils'), { recursive: true });
+    fs.writeFileSync(
+      path.join(APP, 'utils', 'sky_weights_v2.json.js'),
+      'export default ' + fs.readFileSync(weightsSrc, 'utf8') + ';\n'
+    );
+  }
+}
+
 const sc = fs.readFileSync(path.join(SRC, 'node_modules/suncalc/suncalc.js'), 'utf8');
 fs.writeFileSync(path.join(APP, 'vendor', 'suncalc.js'),
   'const module={exports:{}};const exports=module.exports;\n' + sc + '\nexport default module.exports;\n');

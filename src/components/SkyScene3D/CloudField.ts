@@ -260,21 +260,18 @@ export function updateCloudField(
   for (let i = 0; i < sorted.length; i++) {
     const c = sorted[i];
 
-    if (c.isOverheadLowCloud && c.worldX !== undefined && c.worldY !== undefined && c.worldZ !== undefined) {
-      // 머리 위 3D 대기 공간 좌표 (Overhead 3D World Space)
-      _pos.set(c.worldX, c.worldY, c.worldZ);
-    } else {
-      // 고고도 / 원거리 구름: 스카이돔 구면 좌표계 (Spherical Shell Dome)
-      const altRad = (c.elevationDeg * Math.PI) / 180;
-      const azRad = (c.azimuthDeg * Math.PI) / 180;
-      const radius = c.shellRadius || 430;
+    // 구름은 전부 층별 구면 셸 위에 놓입니다.
+    // (이전에는 근거리 저층만 별도 월드 좌표로 다시 배치했는데, 그 좌표가
+    //  조명에 쓰인 고도각과 어긋나 머리 위 구름이 노을빛을 뒤집어썼습니다.)
+    const altRad = (c.elevationDeg * Math.PI) / 180;
+    const azRad = (c.azimuthDeg * Math.PI) / 180;
+    const radius = c.shellRadius || 430;
 
-      _pos.set(
-        radius * Math.cos(altRad) * Math.sin(azRad),
-        radius * Math.sin(altRad),
-        -radius * Math.cos(altRad) * Math.cos(azRad)
-      );
-    }
+    _pos.set(
+      radius * Math.cos(altRad) * Math.sin(azRad),
+      radius * Math.sin(altRad),
+      -radius * Math.cos(altRad) * Math.cos(azRad)
+    );
     _mat.makeTranslation(_pos.x, _pos.y, _pos.z);
     mesh.setMatrixAt(i, _mat);
 

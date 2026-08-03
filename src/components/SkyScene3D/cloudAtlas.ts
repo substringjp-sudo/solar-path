@@ -17,7 +17,7 @@ import {
   CLOUD_TEMPLATES,
   CLOUD_TEMPLATES_HORIZONTAL,
   type CloudPresetName,
-} from '../SunsetSimulation/Visualizer';
+} from '../../utils/cloudPresets';
 
 /** 셀 한 변의 픽셀 수. 구름은 형태가 뭉툭해 128이면 충분합니다. */
 const CELL = 128;

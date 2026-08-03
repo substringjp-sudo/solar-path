@@ -37,7 +37,7 @@ import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './Milky
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
-import { buildCloudInstances } from './cloudPlacement';
+import { buildCloudInstances, type BuildCloudsResult } from './cloudPlacement';
 import { makeAtmosphereParams, skyRadiance } from '../../utils/atmosphere';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 
@@ -166,6 +166,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** 별·은하수가 공유하는 적도→지평 회전 행렬 (프레임당 1회만 계산) */
   const equToHorizonRef = useRef(new THREE.Matrix3());
   const cloudAtlasRef = useRef<CloudAtlas | null>(null);
+  /** 마지막 구름 빌드 결과 — 덱 셸과 태양 차폐가 같은 샘플을 씁니다. */
+  const lastCloudBuildRef = useRef<BuildCloudsResult | null>(null);
   const cloudFieldRef = useRef<CloudField | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
@@ -567,7 +569,6 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const atlas = cloudAtlasRef.current;
     if (!field || !atlas) return;
 
-    const overcast = predictionRef.current?.factors?.overheadOvercast ?? 0;
     const lat = location?.coords?.latitude ?? 37.5;
 
     const atmosphere = makeAtmosphereParams({
@@ -578,22 +579,20 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       dayOfYear: dayOfYearOf(targetDate),
     });
 
-    const instances = buildCloudInstances({
+    const built = buildCloudInstances({
       atlas,
-      latitude: lat,
-      longitude: location?.coords?.longitude ?? 127.0,
       currentTime: targetDate,
       sunAltDeg: sunAltRef.current,
       sunAzDeg: sunAzRef.current,
       atmosphere,
-      overcast,
+      weather: weatherRef.current ?? [],
       maxTotal: MAX_CLOUDS,
     });
 
     const horizonGlow = skyRadiance(0.5, 5, sunAltRef.current, atmosphere);
     const zenithSky = skyRadiance(88, 90, sunAltRef.current, atmosphere);
 
-    updateCloudField(field, atlas, instances, sunAzRef.current, sunAltRef.current, {
+    updateCloudField(field, atlas, built.instances, sunAzRef.current, sunAltRef.current, {
       horizonGlow,
       zenithSky,
       betaMie: atmosphere.betaMie,
@@ -601,6 +600,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       elevScale: atmosphere.elevScale,
     });
     field.mesh.visible = layersRef.current.clouds;
+    lastCloudBuildRef.current = built;
   }, [currentTime, location]);
 
   useEffect(() => {

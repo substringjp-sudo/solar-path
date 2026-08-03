@@ -438,6 +438,79 @@ export function cloudOpticalDepthFromDb(scattering: number, cover: number): numb
   return Math.max(0.03, tau * (0.25 + 0.75 * clamp01(cover)));
 }
 
+/** 태양 상수 (W/m²) */
+export const SOLAR_CONSTANT = 1361;
+
+/**
+ * 맑은 하늘 직달일사(DNI) 근사 — Meinel & Meinel (1976).
+ *
+ *   DNI_clear = S0 · 0.7^(AM^0.678)
+ *
+ * 간단하지만 실측과 10% 내로 맞고, 무엇보다 **절대값**을 줍니다.
+ * 이게 있어야 API가 주는 DNI를 "구름이 얼마나 가렸나"로 번역할 수 있습니다.
+ */
+export function clearSkyDNI(sunAltDeg: number): number {
+  if (sunAltDeg <= 0.5) return 0;
+  const am = airMass(sunAltDeg);
+  return SOLAR_CONSTANT * Math.pow(0.7, Math.pow(am, 0.678));
+}
+
+/** DNI 측정이 의미를 갖는 최대 경사 광학두께. 이 위는 직달광이 0으로 죽습니다. */
+export const DNI_TAU_CEILING = 6.5;
+
+export interface DniTauResult {
+  /** 역산한 연직 광학두께 */
+  tauVert: number;
+  /**
+   * 측정 한계에 닿았는가.
+   *
+   * `true`면 "τ가 최소 이만큼은 된다"는 **하한**일 뿐 정확한 값이 아닙니다.
+   * 이때는 도감 τ를 그대로 쓰고, `false`일 때만 관측을 신뢰해 값을 끌어옵니다.
+   */
+  saturated: boolean;
+}
+
+/**
+ * 관측된 DNI에서 **구름 기둥의 광학두께**를 역산합니다.
+ *
+ *   T_beam  = DNI / DNI_clear        (구름을 통과한 직달 투과율)
+ *   τ_slant = −ln(T_beam)            (경사 경로 광학두께)
+ *   τ_vert  = τ_slant · sin(고도각)   (연직 환산)
+ *
+ * **분해능 한계를 반드시 이해하고 쓰십시오.** 직달광은 Beer-Lambert로 죽으므로
+ * τ가 조금만 커져도 DNI가 0에 붙습니다. 태양 45°에서:
+ *
+ *   τ=3(권운)   → 직달 1.4e-2      ← 측정 가능
+ *   τ=30(고층운) → 직달 3.8e-19     ← 이미 0
+ *   τ=110(난층운)→ 직달 2.8e-68     ← 완전히 0
+ *
+ * 즉 DNI는 τ ≲ 5까지만 분해합니다. 그 위는 전부 "0"으로 같아 보입니다.
+ * 따라서 DNI의 쓸모는 **"예보는 흐림인데 실제로는 해가 비친다"** 를 잡아내는
+ * 것이지, 두꺼운 구름의 두께를 재는 것이 아닙니다.
+ */
+export function cloudTauFromDNI(
+  observedDNI: number | undefined,
+  sunAltDeg: number
+): DniTauResult | null {
+  if (observedDNI == null || !isFinite(observedDNI)) return null;
+  // 태양이 낮으면 DNI 자체가 작아 잡음이 지배합니다.
+  if (sunAltDeg < 5) return null;
+
+  const clear = clearSkyDNI(sunAltDeg);
+  if (clear <= 1) return null;
+
+  const ratio = Math.min(1, observedDNI / clear);
+  const floor = Math.exp(-DNI_TAU_CEILING);
+  const saturated = ratio <= floor;
+
+  const T = Math.max(floor, ratio);
+  if (T >= 0.995) return { tauVert: 0, saturated: false }; // 완전한 맑음
+
+  const tauSlant = -Math.log(T);
+  const tauVert = tauSlant * Math.sin(Math.max(5, sunAltDeg) * (Math.PI / 180));
+  return { tauVert: Math.max(0, tauVert), saturated };
+}
+
 /**
  * 관측자와 대상 사이 대기의 투과율 (원경 대기 투시).
  *
