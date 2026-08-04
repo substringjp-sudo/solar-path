@@ -152,6 +152,31 @@ export class WeatherFan {
       arr.push({ distanceKm: s.distance ?? 0, data: s });
     }
     for (const arr of this.byOffset.values()) arr.sort((a, b) => a.distanceKm - b.distanceKm);
+
+    // 관측점(0km)은 **모든 레이가 만나는 같은 지점**입니다.
+    //
+    // Why 이게 필요한가: API 팬은 0km 표본을 오프셋 0 레이에만 답니다. 나머지
+    // 레이는 첫 표본이 10km라 `alongRay`의 하한 클램프에 걸려, 관측자 바로 위를
+    // **10km 밖 하늘로** 채웁니다. 저층운(고도 1.5km)은 고도각 8.5° 위쪽 전부가
+    // 10km 안이므로 머리 위가 통째로 틀어집니다.
+    //
+    // 측정 (관측자 0%, 10km 밖 90%): 같은 천정 방향이 방위에 따라
+    //   270°(팬 중심, 0km 표본 있음) 4.3%
+    //   300°/330°(가장자리 레이 클램프) 84.1% / 82.2%
+    //   0°/90°(팬 밖 → 관측점 대체)     0.0%
+    // 하나의 물리적 지점이 세 값을 동시에 갖는 모순입니다.
+    //
+    // 0km 표본을 모든 레이의 시작점으로 복사하면 이 모순이 사라지고,
+    // 머리 위가 실제 관측값으로 수렴합니다.
+    const observer0 = samples.find(s => (s.distance ?? 0) === 0);
+    if (observer0) {
+      for (const arr of this.byOffset.values()) {
+        if (arr.length === 0 || arr[0].distanceKm > 0) {
+          arr.unshift({ distanceKm: 0, data: observer0 });
+        }
+      }
+    }
+
     this.offsets = [...this.byOffset.keys()].sort((a, b) => a - b);
     this.hasData = samples.length > 0;
   }

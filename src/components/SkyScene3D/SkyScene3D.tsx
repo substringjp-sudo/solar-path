@@ -198,8 +198,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
   const targetTimeMsRef = useRef(currentTime.getTime());
-  const lastCloudRebuildMsRef = useRef(0);   // 구름 마지막 재빌드 시각
+  const lastCloudRebuildMsRef = useRef(0);   // 구름 마지막 재빌드 시각 (벽시계)
   const lastCloudSunAltRef   = useRef(-999); // 구름 재빌드 당시 태양 고도
+  const lastCloudSceneMsRef  = useRef(-1e15); // 구름 재빌드 당시 **씬** 시각
+  /** 구름 재빌드 당시 기상 배열. 정체성 비교로 슬라이더 변화를 잡습니다. */
+  const lastCloudWeatherRef  = useRef<any[] | null>(null);
   const renderedTimeMsRef = useRef(currentTime.getTime());
 
   // ── 성능 캐시 ref ──────────────────────────────────────────────────────────
@@ -250,6 +253,20 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
+      /**
+       * 씬을 잡은 동안에는 아무에게도 responder를 넘기지 않습니다.
+       *
+       * Why: `isGestureBlocked`는 **권고**입니다 — `TabNavigator`가 자발적으로
+       * 확인해 줄 때만 효과가 있습니다. 반면 RN 제스처 시스템이 실제로 강제하는
+       * 것은 이 콜백입니다. 부모가 responder를 원하면 시스템이 현재 responder에게
+       * `onPanResponderTerminationRequest`를 묻고, **기본값이 true라서 그냥
+       * 빼앗깁니다.**
+       *
+       * 증상: 가로로 끌면 12px까지만 돌아가고 멈춥니다 (TabNavigator의 스와이프
+       * 임계값이 12px). 세로는 `|dx| > |dy|` 조건에 걸려 빼앗기지 않으므로
+       * 멀쩡히 동작합니다 — "위아래로만 움직인다"가 정확히 이 모양입니다.
+       */
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: (evt) => {
         // 드래그 시작: TabNavigator가 수평 스와이프를 가로채지 않도록 차단
         useCelestialStore.getState().setGestureBlocked(true);
@@ -651,13 +668,30 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       cloudFieldRef.current.mesh.visible = currentLayers.clouds;
     }
 
-    // ── 구름 재빌드: 30초 간격 OR 태양 고도 1° 이상 변화 시에만 ────────────────
+    // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
+    //
+    // 벽시계 시간만으로 조이면 두 가지를 놓칩니다.
+    //
+    // ① **기상 데이터가 바뀌어도 안 그립니다.** 슬라이더를 끌면
+    //    `interpolatedWeather`가 새로 계산되는데, 그게 트리거에 없으면
+    //    최대 30초 동안 예전 운량으로 그린 하늘을 보게 됩니다.
+    // ② **태양 고도가 정체된 시간대에 멈춥니다.** 고도 변화율은 남중·자정
+    //    부근에서 0에 가까우므로, 그 근처를 스크럽하면 `altDelta`가 안 자라
+    //    씬 시각이 몇 시간을 건너뛰어도 구름이 그대로입니다.
+    //
+    // 그래서 **씬 시각**과 **기상 배열 정체성**을 함께 봅니다. 벽시계 조건은
+    // 실시간 관측 중 구름이 서서히 흐르게 하는 안전망으로만 남깁니다.
+    const weatherChanged = weatherRef.current !== lastCloudWeatherRef.current;
     const altDelta = Math.abs(sunAltRef.current - lastCloudSunAltRef.current);
-    const timeDeltaSec = (nowMs - lastCloudRebuildMsRef.current) / 1000;
-    if (timeDeltaSec > 30 || altDelta > 1.0) {
+    const sceneDeltaMin = Math.abs(targetDate.getTime() - lastCloudSceneMsRef.current) / 60000;
+    const wallDeltaSec = (nowMs - lastCloudRebuildMsRef.current) / 1000;
+
+    if (weatherChanged || sceneDeltaMin > 2 || altDelta > 1.0 || wallDeltaSec > 30) {
       rebuildCloudsForDate(targetDate);
       lastCloudRebuildMsRef.current = nowMs;
       lastCloudSunAltRef.current = sunAltRef.current;
+      lastCloudSceneMsRef.current = targetDate.getTime();
+      lastCloudWeatherRef.current = weatherRef.current;
     }
   }, [location]);
 
