@@ -41,6 +41,7 @@ import { buildCloudInstances, type BuildCloudsResult } from './cloudPlacement';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude } from '../../utils/atmosphere';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
+import { useCelestialStore } from '../../store/useCelestialStore';
 
 function getPlanetDirectionVector(key: PlanetKey, date: Date): THREE.Vector3 {
   const eq = getPlanetEquatorialCoord(key, date);
@@ -104,7 +105,8 @@ const DEFAULT_LAYERS: LayerState = {
 const DRAG_SENSITIVITY = 0.3;
 
 /** InstancedMesh 용량. 29셀 × 최대 4개 ≈ 116이지만 여유를 둡니다. */
-const MAX_CLOUDS = 320;
+const MAX_CLOUDS = 160; // 320 → 160: 모바일 GPU 부하 절반 절감
+
 
 /** 연중 일수 — 지구·태양 거리 보정에 사용 */
 function dayOfYearOf(d: Date): number {
@@ -196,7 +198,26 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
   const targetTimeMsRef = useRef(currentTime.getTime());
+  const lastCloudRebuildMsRef = useRef(0);   // 구름 마지막 재빌드 시각
+  const lastCloudSunAltRef   = useRef(-999); // 구름 재빌드 당시 태양 고도
   const renderedTimeMsRef = useRef(currentTime.getTime());
+
+  // ── 성능 캐시 ref ──────────────────────────────────────────────────────────
+  /** makeAtmosphereParams 결과 캐시 (2분 간격) */
+  const cachedAtmosphereRef = useRef<ReturnType<typeof makeAtmosphereParams> | null>(null);
+  const cachedAtmosphereMsRef = useRef(0);
+  /** computeEquToHorizon 마지막 갱신 시각 (30초 간격) */
+  const cachedEquToHorizonMsRef = useRef(0);
+  /** buildPlanetPoints 결과 캐시 (30초 간격) */
+  const cachedPlanetPointsRef = useRef<ReturnType<typeof buildPlanetPoints> | null>(null);
+  const cachedPlanetPointsMsRef = useRef(0);
+  /** updateCelestialPaths 마지막 갱신 시각 (30초 간격) */
+  const lastCelestialPathsMsRef = useRef(0);
+  /** getSunPath/getMoonPath 날짜 키 캐시 (같은 날이면 재계산 생략) */
+  const cachedSunPathDateRef = useRef('');
+  /** setCelestialLabels 마지막 호출 시각 (4fps = 250ms 스로틀) */
+  const lastLabelUpdateMsRef = useRef(0);
+
 
   useEffect(() => { sceneWidthRef.current = SCENE_WIDTH; }, [SCENE_WIDTH]);
   useEffect(() => { skySettingsRef.current = skySettings; }, [skySettings]);
@@ -222,11 +243,16 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     return Math.sqrt(dx * dx + dy * dy);
   };
 
+  // 나침반 UI용 화각 업데이트: 드래그 중 React 리렌더 방지
+  const lastAzUpdateMsRef = useRef(0);
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
+        // 드래그 시작: TabNavigator가 수평 스와이프를 가로채지 않도록 차단
+        useCelestialStore.getState().setGestureBlocked(true);
         // 드래그 시 자동 천체 트래킹 해제 -> 자유 조작 모드로 전환
         if (trackingTargetRef.current && onSelectTrackingTargetRef.current) {
           onSelectTrackingTargetRef.current(null);
@@ -263,15 +289,28 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
             const nextAz = (cameraAzRef.current - dx * DRAG_SENSITIVITY + 360) % 360;
             cameraAzRef.current = nextAz;
             cameraElevRef.current = Math.max(-10, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
-            setCameraAzimuth(nextAz);
+            // setCameraAzimuth 를 여기서 호출하지 않음 — 드래그 중 리렌더 차단
           }
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
           pinchDistRef.current = null;
+          // 나침반 UI는 100ms 스로싸럁 — 매 이벤트 React 리렌더 금지
+          const nowAz = Date.now();
+          if (nowAz - lastAzUpdateMsRef.current > 100) {
+            lastAzUpdateMsRef.current = nowAz;
+            setCameraAzimuth(cameraAzRef.current);
+          }
         }
       },
       onPanResponderRelease: () => {
         lastTouchRef.current = null;
         pinchDistRef.current = null;
+        // 드래그 종료: TabNavigator 스와이프 다시 허용
+        useCelestialStore.getState().setGestureBlocked(false);
+      },
+      onPanResponderTerminate: () => {
+        lastTouchRef.current = null;
+        pinchDistRef.current = null;
+        useCelestialStore.getState().setGestureBlocked(false);
       },
     })
   ).current;
@@ -366,9 +405,16 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     updateScene();
 
     // Render loop
+    let contextLost = false;
+    const onContextLost = () => { contextLost = true; };
+    // expo-gl 에는 addEventListener가 없으나, gl 객체에 직접 플래그 노출
+    (gl as any).__contextLostRef = (v: boolean) => { contextLost = v; };
+
     const animate = () => {
+      if (contextLost) return; // 컨텍스트 소실 시 루프 중단
       animFrameRef.current = requestAnimationFrame(animate);
 
+      try {
       // 120fps 급 시간 슬라이더 보간 (Lerp Smooth Time Shift)
       const timeDiff = targetTimeMsRef.current - renderedTimeMsRef.current;
       if (Math.abs(timeDiff) > 10) {
@@ -428,7 +474,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       renderer.render(scene, camera);
 
       // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
-      if (layersRef.current.labels !== false) {
+      // ── 250ms(4fps) 스로틀: React setState가 렌더루프보다 훨씬 무거움 ──────
+      const nowForLabel = Date.now();
+      if (layersRef.current.labels !== false && nowForLabel - lastLabelUpdateMsRef.current >= 250) {
+        lastLabelUpdateMsRef.current = nowForLabel;
         const w = gl.drawingBufferWidth;
         const h = gl.drawingBufferHeight;
         const ratio = pixelRatioRef.current || 1;
@@ -481,14 +530,21 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         }
 
         setCelestialLabels(labs);
-      } else {
-        setCelestialLabels([]);
+      }
+
+      } catch (e) {
+        // 렌더 루프 내 예외: 컨텍스트 소실 등 GPU 오류를 잡아 루프를 안전하게 종료
+        // 이게 없으면 오류 발생 시 화이트 화면 후 았 정지
+        console.warn('[SkyScene] render error, stopping loop:', e);
+        contextLost = true;
+        return;
       }
 
       gl.endFrameEXP();
     };
     animate();
   }, []);
+
 
   const updateScene = useCallback((evalDate?: Date) => {
     const targetDate = evalDate || new Date(renderedTimeMsRef.current);
@@ -497,17 +553,26 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const lat = location?.coords?.latitude ?? 37.5;
     const lng = location?.coords?.longitude ?? 127.0;
 
+    // SunCalc는 가볍고 태양 위치는 매 프레임 필요 → 항상 계산
     const sunPos = SunCalc.getPosition(targetDate, lat, lng);
     sunAltRef.current = (sunPos.altitude * 180) / Math.PI;
     sunAzRef.current = (sunPos.azimuth * 180) / Math.PI + 180;
 
-    const atmosphere = makeAtmosphereParams({
-      visibilityM: observerWeather()?.visibility,
-      humidityPct: observerWeather()?.humidity,
-      observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
-      latitude: lat,
-      dayOfYear: dayOfYearOf(targetDate),
-    });
+    const nowMs = Date.now();
+
+    // ── makeAtmosphereParams: 2분 캐시 ────────────────────────────────────────
+    // 기상 파라미터(가시거리·습도)는 실시간 변화 없음. 매 프레임 계산은 낭비.
+    if (!cachedAtmosphereRef.current || nowMs - cachedAtmosphereMsRef.current > 120_000) {
+      cachedAtmosphereRef.current = makeAtmosphereParams({
+        visibilityM: observerWeather()?.visibility,
+        humidityPct: observerWeather()?.humidity,
+        observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
+        latitude: lat,
+        dayOfYear: dayOfYearOf(targetDate),
+      });
+      cachedAtmosphereMsRef.current = nowMs;
+    }
+    const atmosphere = cachedAtmosphereRef.current;
 
     if (skydomeRef.current) {
       updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
@@ -531,8 +596,21 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       moonRef.current.group.visible = currentLayers.moon && moonRef.current.group.visible;
     }
 
-    const equToHorizon = computeEquToHorizon(targetDate, lat, lng, equToHorizonRef.current);
+    // ── computeEquToHorizon: 30초 캐시 ───────────────────────────────────────
+    // LST 변화(4초/초)는 별 위치에 실질적 영향 없음. 30초면 충분.
+    if (nowMs - cachedEquToHorizonMsRef.current > 30_000) {
+      computeEquToHorizon(targetDate, lat, lng, equToHorizonRef.current);
+      cachedEquToHorizonMsRef.current = nowMs;
+    }
+    const equToHorizon = equToHorizonRef.current;
     const settings = skySettingsRef.current;
+
+    // ── buildPlanetPoints: 30초 캐시 ──────────────────────────────────────────
+    // 행성 위치는 시간 단위로 변화. 30초마다 갱신이면 충분.
+    if (!cachedPlanetPointsRef.current || nowMs - cachedPlanetPointsMsRef.current > 30_000) {
+      cachedPlanetPointsRef.current = buildPlanetPoints(targetDate);
+      cachedPlanetPointsMsRef.current = nowMs;
+    }
 
     if (starFieldRef.current) {
       updateStarField(starFieldRef.current, {
@@ -541,7 +619,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         brightness: settings.starBrightness,
         magLimit: settings.starMagLimit,
         pixelRatio: pixelRatioRef.current,
-        planets: buildPlanetPoints(targetDate),
+        planets: cachedPlanetPointsRef.current,
         showStars: currentLayers.stars,
         showPlanets: currentLayers.planets,
       });
@@ -559,8 +637,13 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       milkyWayRef.current.mesh.visible = currentLayers.milkyway;
     }
 
+    // ── updateCelestialPaths: 30초 캐시 ──────────────────────────────────────
+    // getSunPath/getMoonPath 각각 SunCalc 48+24 = 72회 호출 → 매 프레임은 과부하
     if (celestialPathsRef.current) {
-      updateCelestialPaths(celestialPathsRef.current, targetDate, lat, lng, sunAltRef.current, sunAzRef.current);
+      if (nowMs - lastCelestialPathsMsRef.current > 30_000) {
+        updateCelestialPaths(celestialPathsRef.current, targetDate, lat, lng, sunAltRef.current, sunAzRef.current);
+        lastCelestialPathsMsRef.current = nowMs;
+      }
       celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
     }
 
@@ -568,8 +651,18 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       cloudFieldRef.current.mesh.visible = currentLayers.clouds;
     }
 
-    rebuildCloudsForDate(targetDate);
+    // ── 구름 재빌드: 30초 간격 OR 태양 고도 1° 이상 변화 시에만 ────────────────
+    const altDelta = Math.abs(sunAltRef.current - lastCloudSunAltRef.current);
+    const timeDeltaSec = (nowMs - lastCloudRebuildMsRef.current) / 1000;
+    if (timeDeltaSec > 30 || altDelta > 1.0) {
+      rebuildCloudsForDate(targetDate);
+      lastCloudRebuildMsRef.current = nowMs;
+      lastCloudSunAltRef.current = sunAltRef.current;
+    }
   }, [location]);
+
+
+
 
   const rebuildCloudsForDate = useCallback((targetDate: Date) => {
     const field = cloudFieldRef.current;

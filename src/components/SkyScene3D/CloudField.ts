@@ -18,7 +18,7 @@ export interface CloudField {
 }
 
 const VERT = `
-precision highp float;
+precision mediump float;
 
 attribute vec4 aUvRect;    // (u0, v0, u1, v1)
 attribute vec3 aBeam;      // 구름 고도에서의 직달광 (linear)
@@ -63,7 +63,7 @@ void main() {
 `;
 
 const FRAG = `
-precision highp float;
+precision mediump float;
 
 ${ATMOSPHERE_GLSL}
 

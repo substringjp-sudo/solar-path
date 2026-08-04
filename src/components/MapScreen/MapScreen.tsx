@@ -14,12 +14,13 @@
  */
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
-import { Globe2, CloudSun } from 'lucide-react-native';
+import { Globe2, CloudSun, Compass } from 'lucide-react-native';
 import { IsolineMap } from '../IsolineMap/IsolineMap';
 import { CloudTrackerChart } from '../CloudTrackerChart';
+import { SunAzimuthView } from './SunAzimuthView';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
-type MapView = 'isoline' | 'clouds';
+type MapView = 'isoline' | 'clouds' | 'sunpath';
 
 interface MapScreenProps {
   theme: any;
@@ -34,14 +35,27 @@ export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActi
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.978;
 
-  const views: { id: MapView; label: string; icon: React.ReactNode }[] = [
-    { id: 'isoline', label: '등시선', icon: <Globe2 size={13} color={view === 'isoline' ? '#F8FAFC' : '#94A3B8'} /> },
-    { id: 'clouds', label: '구름 이동', icon: <CloudSun size={13} color={view === 'clouds' ? '#F8FAFC' : '#94A3B8'} /> },
+  const views: { id: MapView; label: string; icon: (active: boolean) => React.ReactNode }[] = [
+    {
+      id: 'isoline',
+      label: '등시선',
+      icon: (a) => <Globe2 size={13} color={a ? '#F8FAFC' : '#94A3B8'} />,
+    },
+    {
+      id: 'clouds',
+      label: '구름 이동',
+      icon: (a) => <CloudSun size={13} color={a ? '#F8FAFC' : '#94A3B8'} />,
+    },
+    {
+      id: 'sunpath',
+      label: '태양 경로',
+      icon: (a) => <Compass size={13} color={a ? '#F8FAFC' : '#94A3B8'} />,
+    },
   ];
 
   return (
     <View style={styles.container}>
-      {/* 같은 공간 프레임 안의 두 레이어 — 탭이 아니라 세그먼트로 전환합니다. */}
+      {/* 같은 공간 프레임 안의 레이어 — 탭이 아니라 세그먼트로 전환합니다. */}
       <View style={[styles.segment, { backgroundColor: theme.glass, borderColor: theme.border }]}>
         {views.map(v => {
           const isActiveView = view === v.id;
@@ -55,7 +69,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActi
               ]}
               activeOpacity={0.8}
             >
-              {v.icon}
+              {v.icon(isActiveView)}
               <Text
                 style={[
                   styles.segmentText,
@@ -73,8 +87,10 @@ export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActi
       <View style={styles.body}>
         {view === 'isoline' ? (
           <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
-        ) : (
+        ) : view === 'clouds' ? (
           <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} />
+        ) : (
+          <SunAzimuthView theme={theme} currentTime={currentTime} />
         )}
       </View>
     </View>
