@@ -332,8 +332,19 @@ function sampleCoverAt(
 export interface DeckUpdate {
   samples: LayerSample[];
   beamFor: (altKm: number) => { r: number; g: number; b: number };
-  ambientUp: { r: number; g: number; b: number };
-  ambientDown: { r: number; g: number; b: number };
+  /**
+   * 층별 환경광. **층마다 달라야 합니다.**
+   *
+   * Why: 예전에는 `ambientUp`/`ambientDown` 하나를 모든 층에 썼고, 그 값이
+   * `applyCloudDimming`을 거치지 않은 **맑은 하늘 복사휘도**였습니다.
+   * 빌보드(cloudPlacement)는 감광되는데 덱만 안 되고 있었고, 하필 8/8에서는
+   * 화면을 덮는 것이 덱입니다. 그래서 운량을 올릴수록 오히려 밝아졌습니다 —
+   * 측정: 태양 45°에서 6/8이 화면밝기 181, 8/8이 207.
+   */
+  ambientFor: (layer: LayerKey) => {
+    up: { r: number; g: number; b: number };
+    down: { r: number; g: number; b: number };
+  };
   sunDir: THREE.Vector3;
   sunAltDeg: number;
   tauFor: (layer: LayerKey) => number;
@@ -362,8 +373,9 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     const uni = l.material.uniforms;
     const beam = u.beamFor(LAYER_ALTITUDE_KM[l.layer]);
     (uni.uBeam.value as THREE.Vector3).set(beam.r, beam.g, beam.b);
-    (uni.uAmbientUp.value as THREE.Vector3).set(u.ambientUp.r, u.ambientUp.g, u.ambientUp.b);
-    (uni.uAmbientDown.value as THREE.Vector3).set(u.ambientDown.r, u.ambientDown.g, u.ambientDown.b);
+    const amb = u.ambientFor(l.layer);
+    (uni.uAmbientUp.value as THREE.Vector3).set(amb.up.r, amb.up.g, amb.up.b);
+    (uni.uAmbientDown.value as THREE.Vector3).set(amb.down.r, amb.down.g, amb.down.b);
     (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir);
     uni.uTau.value = u.tauFor(l.layer);
     uni.uShadowContrast.value = u.shadowFor(l.layer);

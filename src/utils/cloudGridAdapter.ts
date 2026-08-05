@@ -77,16 +77,10 @@ export function cloudGridToFan(params: GridFanParams): CloudData[] {
   }));
 
   if (observer) {
-    // 레이마다 0km 앵커를 하나씩. 한 레이에만 넣으면 그 레이만 머리 위가
-    // 달라져 하늘에 부채꼴 이음매가 생깁니다.
-    const offsets = [...new Set(out.map(s => s.azimuthOffset))];
-    for (const off of offsets) {
-      out.push({
-        ...observer,
-        distance: 0,
-        azimuthOffset: off,
-      });
-    }
+    // 0km 표본은 하나만 넣습니다. 레이마다 복사하는 일은 `WeatherFan`이
+    // 생성자에서 처리합니다 — 표준 팬도 같은 문제를 갖고 있어서 앵커링을
+    // 두 곳에 두면 한쪽만 고쳐지는 사고가 납니다.
+    out.push({ ...observer, distance: 0, azimuthOffset: 0 });
   }
 
   return out;

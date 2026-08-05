@@ -88,3 +88,26 @@ tsc는 오류가 있어도 emit하므로 산출물은 정상입니다. 프로젝
 
 `window.__stats` 에 층·거리대·방위대별 운량이 들어 있어, 화면에서 본 것과
 수치를 대조할 수 있습니다. 결과 해석은 `docs/IA_REDESIGN.md` §8.
+
+## 박명 곡선 A/B (`twilight.html`)
+
+```bash
+node tools/shader-preview/verify-twilight.js      # 곡선 모양 검증 (26개)
+node tools/shader-preview/build-twilight-preview.js
+node tools/shader-preview/shoot.js twilight.html twilight-preview.png
+```
+
+태양 고도 +2°~-12°를 8컷으로 훑어 **해가 진 뒤 얼마나 빨리 어두워지는지**를
+눈으로 봅니다. 수치만으로는 판단할 수 없는 부분입니다 — 톤매핑과 눈 순응
+(`ADAPT_*`)이 표시 단계에서 밝기를 다시 주무르므로, 선형 복사휘도가 절반이 돼도
+화면은 거의 안 바뀔 수 있고 그 반대도 됩니다.
+
+`build-twilight-preview.js`는 **수정 전 `atmosphere.ts`로도 돌아갑니다**
+(`earthShadowLit`이 없으면 0으로 두고 화면 밝기만 비교). 그래서 이런 A/B가 됩니다:
+
+```bash
+git show origin/main:src/utils/atmosphere.ts > /tmp/old.ts
+# atmosphere.ts를 교체해가며 각각 렌더 → 화면 밝기를 직접 비교
+```
+
+배경과 측정 결과는 `docs/TWILIGHT.md`.

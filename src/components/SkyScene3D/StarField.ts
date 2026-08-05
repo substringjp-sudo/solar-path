@@ -119,6 +119,8 @@ export interface StarFieldHandle {
   material: THREE.ShaderMaterial;
   /** 항성 개수 (행성은 뒤에 이어붙음) */
   starCount: number;
+  /** 마지막으로 GPU에 올린 행성 배열. 같은 배열이면 재전송을 건너뜁니다. */
+  lastPlanets?: PlanetPoint[];
   dispose: () => void;
 }
 
@@ -312,7 +314,14 @@ export function updateStarField(handle: StarFieldHandle, u: StarFieldUpdate): vo
   uni.uShowPlanets.value = u.showPlanets === false ? 0 : 1;
 
   // 행성은 개수가 적으므로 attribute를 직접 갱신합니다.
-  if (u.planets && u.planets.length) {
+  //
+  // 단, **같은 행성 배열이면 건너뜁니다.** `needsUpdate = true`는 바뀐 슬롯만이
+  // 아니라 **버퍼 전체**를 다시 올립니다. 여기 버퍼에는 항성 8,355개가 함께
+  // 들어 있어서, 행성 5칸을 쓰려고 매 프레임 100KB짜리 attribute 3개를
+  // 통째로 GPU에 재전송하게 됩니다 (60fps면 초당 18MB).
+  // 호출부가 행성 위치를 캐시하므로, 배열 정체성만 비교하면 충분합니다.
+  if (u.planets && u.planets.length && u.planets !== handle.lastPlanets) {
+    handle.lastPlanets = u.planets;
     const geo = handle.points.geometry;
     const pos = geo.getAttribute('position') as THREE.BufferAttribute;
     const mag = geo.getAttribute('aMag') as THREE.BufferAttribute;

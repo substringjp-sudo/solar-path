@@ -136,9 +136,115 @@ export const SCATTER_HEIGHT_ZENITH = 1.6;
  * Why: 태양이 지평선 아래로 가면 Kasten-Young 대기질량이 포화되어 투과율이
  * 0으로 떨어집니다. 하지만 박명은 **상층 대기가 아직 햇빛을 받아** 생기는
  * 현상이라 색은 남아 있어야 합니다. 색은 이 하한에서 고정하고, 밝기만
- * TWILIGHT_END_DEG까지 램프로 줄입니다.
+ * `earthShadowLit`으로 줄입니다.
+ *
+ * **왜 -1이 아니라 0인가** (일몰 직후 급격한 암전 수정):
+ * Kasten-Young은 지표 관측자용 식이라 0° 부근에서 폭발합니다 —
+ * 0° → 37.9, -1° → 55.8. 하한이 -1이면 이 구간이 살아 있어서
+ * 지평선을 넘는 **1도 사이에 지평선 글로우가 5.1배** 떨어집니다.
+ * 그 뒤로는 하한에 걸려 도당 0.7배로 완만해집니다. 절벽 다음 평지 —
+ * 실제 박명(완만하게 시작해 점점 가팔라짐)과 정확히 반대 모양입니다.
+ *
+ * 애초에 해가 진 뒤의 하늘을 밝히는 빛은 지표 대기를 통과하지 않습니다.
+ * 관측자보다 **위**로 들어와 고층을 스치는 경로라, 지표 대기질량 식을
+ * 지평선 아래로 외삽하는 것 자체가 무의미합니다. 0에서 얼리는 것이 맞습니다.
  */
-export const TRANSMITTANCE_MIN_SUN_ALT = -1.0;
+export const TRANSMITTANCE_MIN_SUN_ALT = 0.0;
+
+/** 지구 반경 (km) — 지구 그림자 높이 계산용 */
+const EARTH_RADIUS_KM_ATM = 6371;
+
+/**
+ * 태양이 지평선 아래 δ도일 때, 아직 햇빛이 닿는 **최저 고도** (km).
+ *
+ * 해가 지면 지구 그림자가 대기를 아래에서 위로 쓸고 올라갑니다.
+ * 기하는 단순합니다 — 관측자 접선 방향으로 나아간 빛이 지구를 스치는 높이는
+ * `R(sec δ − 1)` 입니다.
+ *
+ *   δ=1° → 0.97km,  δ=2° → 3.9km,  δ=4° → 15.5km,  δ=6° → 34.9km
+ *
+ * 6°(시민박명 끝)에서 이미 산란 대기 대부분을 지나갑니다. 관측과 맞습니다.
+ */
+export function earthShadowHeightKm(sunDepressionDeg: number): number {
+  const d = (Math.max(0, sunDepressionDeg) * Math.PI) / 180;
+  return EARTH_RADIUS_KM_ATM * (1 / Math.cos(d) - 1);
+}
+
+/**
+ * 박명 조명의 **유효 척도고도** (km).
+ *
+ * 지표 척도고도(8.4km)가 아닙니다. 박명을 만드는 빛은 대기를 **접선으로**
+ * 지나며 고층에서 산란되고, 다중산란이 그 빛을 아래로 퍼뜨립니다. 그래서
+ * 유효 발광 고도가 지표 밀도 분포보다 높게 잡힙니다 (오존층 22km도 참여).
+ *
+ * 8.4km를 그대로 쓰면 너무 빨리 죽습니다 — 측정: 시민박명(-6°) 하늘이
+ * 밤하늘 바닥의 2.1배까지 떨어져, 해 지고 20분 만에 한밤중이 됐습니다.
+ * 13km는 0→-6° 감소폭을 실측 천정휘도 감소(약 40배)에 맞춘 값입니다.
+ */
+export const TWILIGHT_SCALE_HEIGHT_KM = 13.0;
+
+/**
+ * 아직 햇빛을 받고 있는 산란 대기의 비율 (0~1).
+ *
+ * 대기 밀도가 척도고도 H로 지수 감소하므로, 그림자가 높이 h까지 올라오면
+ * 남은 산란 질량은 `exp(-h/H)` 입니다. 이 항 **하나가** 지평선 아래의
+ * 어두워짐을 전부 담당합니다.
+ *
+ * 이전 구현은 `pow((alt+16)/16, 2.2)` 라는 임의 램프였는데, 고도에 선형인
+ * 값을 거듭제곱한 것이라 물리적 근거가 없었고, 위 대기질량 절벽과 겹쳐
+ * "쿵 떨어지고 나서 한참 안 어두워지는" 곡선을 만들었습니다.
+ *
+ *   δ=0° → 1.00,  δ=1° → 0.93,  δ=2° → 0.74,  δ=4° → 0.30,  δ=6° → 0.067
+ *
+ * **완만하게 시작해 점점 가팔라지는** 실제 박명의 모양입니다.
+ */
+export function earthShadowLit(sunAltDeg: number): number {
+  if (sunAltDeg >= 0) return 1;
+  if (sunAltDeg <= TWILIGHT_END_DEG) return 0;
+  return Math.exp(-earthShadowHeightKm(-sunAltDeg) / TWILIGHT_SCALE_HEIGHT_KM);
+}
+
+/**
+ * 다중산란 성분의 유효 척도고도 (km).
+ *
+ * 단일산란보다 큽니다. 다중산란 빛은 내 머리 위 기둥이 아니라 **아직 햇빛을
+ * 받고 있는 먼 상층 대기**에서 여러 번 튕겨 오기 때문에, 그림자가 내 위를
+ * 덮어도 바로 사라지지 않습니다.
+ *
+ * 이 항이 없으면 박명이 -5° 근처에서 뚝 끊깁니다 — 렌더로 확인했습니다:
+ * 화면 밝기가 -4°에서 23/255, -6°에서 2.7/255, -8°에서 0. 일몰 절벽을
+ * 고치고 나서 **그 절벽을 5도 뒤로 옮긴 것**뿐이었습니다.
+ *
+ * **42는 "어느 고도에서도 기존보다 어두워지지 않는" 최소값입니다.**
+ * 렌더한 화면 밝기를 수정 전과 나눈 값 (서쪽 지평선 띠):
+ *
+ *   H_MS   -1°    -2°    -4°    -6°    -8°
+ *   22    2.15x  2.23x  2.37x  0.77x  0.02x  ← 늦은 박명이 기존보다 **어두워짐**
+ *   30    2.17x  2.28x  2.69x  1.11x  0.48x
+ *   34    2.18x  2.30x  2.79x  1.42x  0.65x
+ *   42    2.20x  2.32x  2.95x  2.38x  0.94x  ← 선택. 회귀 없음
+ *
+ * 22가 실측 천정휘도(0°→-6° 약 40배 감소)에는 더 가깝습니다(20.9배 vs 10.8배).
+ * 그런데 그 값을 쓰면 -6°/-8°가 **지금 배포된 앱보다 어두워집니다.**
+ * 사용자가 재보지도 않을 측광비를 맞추려고 이미 나가 있는 화면을 퇴화시키는
+ * 것은 잘못된 거래입니다. 일몰 절벽을 고치면서 늦은 박명을 건드리지 않는
+ * 쪽을 택했습니다.
+ *
+ * **알려진 한계**: 그래서 늦은 박명의 **천정**이 실제보다 밝게 남습니다.
+ * 근본 원인은 이 항이 스칼라라는 것입니다 — 실제로는 시선 방향마다 그림자에
+ * 들어가는 시점이 다릅니다. 천정 기둥은 일찍 그늘에 들어가고, 태양 쪽
+ * 지평선을 따라가는 경로는 훨씬 오래 빛을 받습니다. `sunLitMS`를 시선
+ * 의존으로 만들면 두 관측을 동시에 만족시킬 수 있습니다. 기기 확인 후
+ * 손대는 것이 맞다고 봅니다.
+ */
+export const TWILIGHT_MS_SCALE_HEIGHT_KM = 42.0;
+
+/** 다중산란 성분에 적용할 지구 그림자 감쇠 — 단일산란보다 훨씬 완만합니다. */
+export function earthShadowLitMS(sunAltDeg: number): number {
+  if (sunAltDeg >= 0) return 1;
+  if (sunAltDeg <= TWILIGHT_END_DEG) return 0;
+  return Math.exp(-earthShadowHeightKm(-sunAltDeg) / TWILIGHT_MS_SCALE_HEIGHT_KM);
+}
 
 // ── 1) 대기 파라미터 ───────────────────────────────────────────────────────
 
@@ -297,8 +403,10 @@ export function skyRadiance(
   const pM = hgPhase(cosGamma, MIE_G) * MIE_GAIN;
 
   // 태양이 지평선 아래로 내려가면 하층 대기가 지구 그림자에 들어갑니다.
-  const twilight = clamp01((sunAltDeg - TWILIGHT_END_DEG) / (0 - TWILIGHT_END_DEG));
-  const sunLit = sunAltDeg >= 0 ? 1 : Math.pow(twilight, 2.2);
+  // 지평선 아래의 어두워짐은 **전부** 이 항이 담당합니다 — 위의 mSun은
+  // TRANSMITTANCE_MIN_SUN_ALT=0 에서 얼어 색만 유지합니다.
+  const sunLit = earthShadowLit(sunAltDeg);
+  const sunLitMS = earthShadowLitMS(sunAltDeg);
 
   const out: number[] = [];
   for (let c = 0; c < 3; c++) {
@@ -323,7 +431,14 @@ export function skyRadiance(
     // 다중산란 — 등방적. 천정의 파랑과 지평선 airlight를 유지시킵니다.
     const multi = tSunMS * scatterFrac * MULTI_SCATTER_GAIN * (1 / (4 * Math.PI));
 
-    out.push((single + multi) * SKY_EXPOSURE * sunLit);
+    // 지구 그림자를 두 성분에 **다르게** 겁니다.
+    //
+    // 단일산란은 시선 기둥이 직접 햇빛을 받아야 생기므로, 그림자가 그 기둥을
+    // 덮으면 그대로 사라집니다. 반면 다중산란으로 들어오는 빛은 아직 햇빛을
+    // 받고 있는 **먼 상층 대기**에서 여러 번 튕겨 옵니다 — 내 머리 위가
+    // 그늘에 들어갔다고 사라지지 않습니다. 이게 박명의 긴 꼬리입니다.
+    // (파일 위쪽에서 mSun/mSunMS를 나눈 것과 같은 이유입니다.)
+    out.push((single * sunLit + multi * sunLitMS) * SKY_EXPOSURE);
   }
 
   // 지평선 아래로 갈수록 지면 쪽이므로 어둡게 깔아줍니다.
@@ -444,7 +559,7 @@ export const SOLAR_CONSTANT = 1361;
 /** 구름 아래에서 하늘빛이 잃는 채도 비율 */
 export const CLOUD_DIM_DESAT = 0.85;
 /** 구름이 완전히 덮었을 때 남는 하늘빛 밝기 */
-export const CLOUD_DIM_FLOOR = 0.55;
+export const CLOUD_DIM_FLOOR = 0.30;
 
 /**
  * 구름층 아래로 들어간 하늘빛.
@@ -685,6 +800,8 @@ const float SH_ZENITH   = ${f(SCATTER_HEIGHT_ZENITH)};
 const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
 const vec3  TWILIGHT_W  = vec3(${f(TWILIGHT_PURPLE_WEIGHTS[0])}, ${f(TWILIGHT_PURPLE_WEIGHTS[1])}, ${f(TWILIGHT_PURPLE_WEIGHTS[2])});
 const float SCALE_H_KM  = ${f(SCALE_HEIGHT_KM)};
+const float TW_SCALE_H  = ${f(TWILIGHT_SCALE_HEIGHT_KM)};
+const float TW_MS_SCALE = ${f(TWILIGHT_MS_SCALE_HEIGHT_KM)};
 const float AERIAL_STR  = ${f(AERIAL_STRENGTH)};
 const float OZ_TW_GAIN  = ${f(OZONE_TWILIGHT_GAIN)};
 const float OZ_TW_MAX   = ${f(OZONE_TWILIGHT_MAX)};
@@ -703,6 +820,27 @@ float atm_airMass(float altDeg) {
   float h = max(altDeg, -1.5);
   if (h >= 89.0) return 1.0;
   return 1.0 / (sin(radians(h)) + 0.50572 * pow(6.07995 + h, -1.6364));
+}
+
+// 지구 그림자 높이 (km) — 태양 복각 δ에서 아직 햇빛이 닿는 최저 고도.
+// TS의 earthShadowHeightKm과 같은 식이어야 합니다.
+float atm_earthShadowHeightKm(float depressionDeg) {
+  return 6371.0 * (1.0 / cos(radians(max(0.0, depressionDeg))) - 1.0);
+}
+
+// 아직 햇빛을 받는 산란 대기 비율. 지평선 아래 어두워짐을 전부 담당합니다.
+// TS의 earthShadowLit과 같은 식이어야 합니다.
+float atm_earthShadowLit(float sunAltDeg) {
+  if (sunAltDeg >= 0.0) return 1.0;
+  if (sunAltDeg <= TWILIGHT_END) return 0.0;
+  return exp(-atm_earthShadowHeightKm(-sunAltDeg) / TW_SCALE_H);
+}
+
+// 다중산란 성분용 — 훨씬 완만합니다. TS의 earthShadowLitMS와 같은 식.
+float atm_earthShadowLitMS(float sunAltDeg) {
+  if (sunAltDeg >= 0.0) return 1.0;
+  if (sunAltDeg <= TWILIGHT_END) return 0.0;
+  return exp(-atm_earthShadowHeightKm(-sunAltDeg) / TW_MS_SCALE);
 }
 
 float atm_rayleighPhase(float cosG) {
@@ -758,8 +896,8 @@ vec3 atm_skyRadiance(
   float pM = atm_hgPhase(cosGamma, MIE_G) * MIE_GAIN;
 
   // 태양이 지평선 아래면 하층 대기가 지구 그림자에 들어감
-  float twilight = clamp((sunAltDeg - TWILIGHT_END) / (0.0 - TWILIGHT_END), 0.0, 1.0);
-  float sunLit = sunAltDeg >= 0.0 ? 1.0 : pow(twilight, 2.2);
+  float sunLit   = atm_earthShadowLit(sunAltDeg);
+  float sunLitMS = atm_earthShadowLitMS(sunAltDeg);
 
   vec3 tauZenith = tR + tM;
   vec3 ozone = OZONE_TAU * ozScale * ozAM;
@@ -775,7 +913,8 @@ vec3 atm_skyRadiance(
   vec3 single = tSun   * (pR * rW + pM * mW) * scatterFrac;
   vec3 multi  = tSunMS * scatterFrac * MS_GAIN * (1.0 / (4.0 * PI_));
 
-  vec3 col = (single + multi) * SKY_EXPOSURE * sunLit;
+  // 지구 그림자를 두 성분에 다르게 적용 — TS skyRadiance와 같아야 합니다.
+  vec3 col = (single * sunLit + multi * sunLitMS) * SKY_EXPOSURE;
 
   // 지평선 아래는 지면 쪽 — 어둡고 채도 낮게 깔아 형광 벽이 되지 않게 합니다.
   float below = smoothstep(0.0, -GROUND_FADE, viewElevDeg);

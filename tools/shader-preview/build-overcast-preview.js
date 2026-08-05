@@ -71,7 +71,7 @@ import { bakeCloudAtlas } from './app/components/SkyScene3D/cloudAtlas.js';
 import { createCloudField, updateCloudField } from './app/components/SkyScene3D/CloudField.js';
 import { buildCloudInstances } from './app/components/SkyScene3D/cloudPlacement.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
-import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI, beamAtAltitude }
+import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI, beamAtAltitude, applyCloudDimming }
   from './app/utils/atmosphere.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
@@ -175,15 +175,18 @@ SCENES.forEach((s,i)=>{
       const b = beamAtAltitude(s.sunAlt, alt, atmosphere);
       return { r: b.r*f, g: b.g*f, b: b.b*f };
     },
-    ambientUp: skyRadiance(88,90,s.sunAlt,atmosphere),
-    ambientDown: skyRadiance(20,70,s.sunAlt,atmosphere),
+    ambientFor: L => {
+      const f = built.optics.diffuseFactor[L];
+      return { up: applyCloudDimming(skyRadiance(88,90,s.sunAlt,atmosphere), f),
+               down: applyCloudDimming(skyRadiance(20,70,s.sunAlt,atmosphere), f) };
+    },
     sunDir, sunAltDeg: s.sunAlt,
     tauFor: L => med(byLayer(L).map(c=>c.tau), 25),
     shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
     timeSeconds: 0, visible: !NODECK,
   });
 
-  stats.push({label:s.label, n:built.instances.length, dniTau:built.dniTau, halo:built.halo,
+  stats.push({label:s.label, n:built.instances.length, diffuseGround:+built.optics.diffuseToGround.toFixed(4), dniTau:built.dniTau, halo:built.halo,
               sunT:built.optics.sunTransmittance, beamLow:built.optics.beamFactor.low,
               decks:cloudDeck.layers.filter(l=>l.mesh.visible).map(l=>l.layer).join('+')||'-',
               types:[...new Set(built.instances.map(c=>c.atlasKey.split('#')[0]))].join(',')});
@@ -192,6 +195,22 @@ SCENES.forEach((s,i)=>{
   cam.lookAt(100*Math.cos(cE)*Math.sin(cA),100*Math.sin(cE),-100*Math.cos(cE)*Math.cos(cA));
   renderer.setViewport(x,y,TW,TH); renderer.setScissor(x,y,TW,TH); renderer.setScissorTest(true);
   renderer.render(scene,cam);
+
+  // 화면에 실제로 나온 밝기 — "흐리게 느껴지는가"의 유일한 근거입니다.
+  // **render 뒤에** 읽어야 합니다. 앞에서 읽으면 전부 0이 나옵니다.
+  {
+    const buf=new Uint8Array(4*TW*TH);
+    const g2=renderer.getContext();
+    g2.readPixels(x,y,TW,TH,g2.RGBA,g2.UNSIGNED_BYTE,buf);
+    let sum=0,n2=0,mn=999,mx=0;
+    for(let py=0;py<TH;py+=2) for(let px=0;px<TW;px+=2){
+      const o=4*(py*TW+px);
+      const L=0.2126*buf[o]+0.7152*buf[o+1]+0.0722*buf[o+2];
+      sum+=L;n2++; if(L<mn)mn=L; if(L>mx)mx=L;
+    }
+    const st=stats[stats.length-1];
+    st.screenLum=+(sum/n2).toFixed(1); st.screenMin=+mn.toFixed(0); st.screenMax=+mx.toFixed(0);
+  }
 
   const d=document.createElement('div'); d.className='lbl';
   d.style.left=(x+8)+'px'; d.style.top=(row*TH+8)+'px'; d.textContent=s.label;

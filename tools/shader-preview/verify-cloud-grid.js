@@ -86,7 +86,40 @@ console.log('\n== 실측 신뢰 영역 (기본 팬 대비) ==');
   ok(ratio > 1.2 && ratio < 1.9, `확대 비율 ${ratio.toFixed(2)}배 (기대 ~1.5)`);
 
   ok(new Set(gridFan.map(s => s.azimuthOffset)).size === 7, '레이 7개 유지 (관측점 앵커가 레이를 늘리지 않음)');
-  ok(gridFan.filter(s => s.distance === 0).length === 7, '레이마다 0km 앵커 1개');
+  // 어댑터는 0km 표본을 하나만 넣습니다. 레이별 복제는 WeatherFan 담당입니다
+  // (표준 팬도 같은 문제를 갖고 있어서 앵커링을 두 곳에 두면 안 됩니다).
+  ok(gridFan.filter(s => s.distance === 0).length === 1, '어댑터는 0km 표본을 1개만 내보냄');
+}
+
+// ── 2-B. WeatherFan 자체의 레이별 0km 앵커 (표준 팬 경로) ──────────────────
+console.log('\n== 머리 위 일관성 — 표준 팬 (격자와 무관) ==');
+{
+  // 관측자는 맑은데(0%) 10km 밖은 잔뜩 낀(90%) 상황.
+  // 표준 API 팬은 0km 표본을 오프셋 0 레이에만 답니다.
+  const fan = [{ distance: 0, azimuthOffset: 0, low: 0, mid: 0, high: 0, humidity: 60 }];
+  for (const off of [-20, -10, 0, 10, 20])
+    for (const d of [10, 30, 70, 130, 200, 280, 380])
+      fan.push({ distance: d, azimuthOffset: off, low: 90, mid: 90, high: 90 });
+
+  const cols = columns(fan, 270).filter(s => s.layer === 'low' && s.elevationDeg > 45);
+  const byAz = new Map();
+  for (const s of cols) byAz.set(Math.round(s.azimuthDeg), s.cover);
+
+  // 천정 부근은 어느 방위로 올려다봐도 **같은 물리적 지점**입니다.
+  const vals = [...byAz.values()];
+  const spread = Math.max(...vals) - Math.min(...vals);
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  console.log(`  방위별 머리 위 운량: 최소 ${(Math.min(...vals) * 100).toFixed(1)}% ` +
+              `최대 ${(Math.max(...vals) * 100).toFixed(1)}% 평균 ${(mean * 100).toFixed(1)}%`);
+  ok(spread < 0.15, `방위에 따른 모순 제거 (편차 ${(spread * 100).toFixed(1)}%p, 수정 전 84%p)`);
+  ok(mean < 0.15, `머리 위가 관측값(0%)을 따름 (${(mean * 100).toFixed(1)}%, 수정 전 28.3%)`);
+
+  // 반대로 관측자가 흐리면 머리 위도 흐려야 합니다 (한 방향으로만 맞추면 안 됨).
+  const fan2 = fan.map(s => (s.distance === 0 ? { ...s, low: 95, mid: 95, high: 95 } : { ...s, low: 0, mid: 0, high: 0 }));
+  const z2 = columns(fan2, 270).filter(s => s.layer === 'low' && s.elevationDeg > 45);
+  const m2 = z2.reduce((a, b) => a + b.cover, 0) / z2.length;
+  console.log(`  역방향(관측자 95%, 10km 밖 0%): 머리 위 ${(m2 * 100).toFixed(1)}%`);
+  ok(m2 > 0.7, `역방향에서도 관측값을 따름 (${(m2 * 100).toFixed(1)}%)`);
 }
 
 // ── 3. 방위 어긋남 보정 ────────────────────────────────────────────────────
