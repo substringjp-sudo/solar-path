@@ -39,7 +39,7 @@ import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { buildCloudInstances, type BuildCloudsResult } from './cloudPlacement';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming } from '../../utils/atmosphere';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
@@ -782,8 +782,16 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           const b = beamAtAltitude(sunAltRef.current, altKm, atmosphere);
           return { r: b.r * f, g: b.g * f, b: b.b * f };
         },
-        ambientUp: zenithSky,
-        ambientDown: skyRadiance(20, 70, sunAltRef.current, atmosphere),
+        // 덱 환경광도 빌보드와 **같은 식**으로 감광합니다.
+        // 이게 없으면 8/8에서 화면을 덮는 덱이 맑은 하늘빛으로 빛나서,
+        // 운량을 올릴수록 오히려 밝아집니다.
+        ambientFor: layer => {
+          const f = built.optics.diffuseFactor[layer];
+          return {
+            up: applyCloudDimming(zenithSky, f),
+            down: applyCloudDimming(skyRadiance(20, 70, sunAltRef.current, atmosphere), f),
+          };
+        },
         sunDir,
         sunAltDeg: sunAltRef.current,
         tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), 25),

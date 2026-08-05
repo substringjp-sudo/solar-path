@@ -559,7 +559,7 @@ export const SOLAR_CONSTANT = 1361;
 /** 구름 아래에서 하늘빛이 잃는 채도 비율 */
 export const CLOUD_DIM_DESAT = 0.85;
 /** 구름이 완전히 덮었을 때 남는 하늘빛 밝기 */
-export const CLOUD_DIM_FLOOR = 0.55;
+export const CLOUD_DIM_FLOOR = 0.30;
 
 /**
  * 구름층 아래로 들어간 하늘빛.

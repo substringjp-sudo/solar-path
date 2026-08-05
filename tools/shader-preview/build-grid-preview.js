@@ -61,7 +61,7 @@ import { createCloudField, updateCloudField } from './app/components/SkyScene3D/
 import { buildCloudInstances } from './app/components/SkyScene3D/cloudPlacement.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
 import { cloudGridToFan } from './app/utils/cloudGridAdapter.js';
-import { makeAtmosphereParams, skyRadiance, sunDiskColor, beamAtAltitude }
+import { makeAtmosphereParams, skyRadiance, sunDiskColor, beamAtAltitude, applyCloudDimming }
   from './app/utils/atmosphere.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
@@ -195,8 +195,11 @@ SCENES.forEach((s,i)=>{
       const b = beamAtAltitude(s.sunAlt, alt, atmosphere);
       return { r: b.r*f, g: b.g*f, b: b.b*f };
     },
-    ambientUp: skyRadiance(88,90,s.sunAlt,atmosphere),
-    ambientDown: skyRadiance(20,70,s.sunAlt,atmosphere),
+    ambientFor: L => {
+      const f = built.optics.diffuseFactor[L];
+      return { up: applyCloudDimming(skyRadiance(88,90,s.sunAlt,atmosphere), f),
+               down: applyCloudDimming(skyRadiance(20,70,s.sunAlt,atmosphere), f) };
+    },
     sunDir, sunAltDeg: s.sunAlt,
     tauFor: L => med(byLayer(L).map(c=>c.tau), 25),
     shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
