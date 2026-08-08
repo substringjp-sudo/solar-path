@@ -12,6 +12,9 @@
  * Visualizer.tsx는 하위 호환을 위해 여기서 재수출합니다.
  */
 
+import type { CloudData } from './weather';
+import type { LayerKey } from './skyColumn';
+
 export type CloudPresetName =
   | 'Cirrus'          // 권운 (새털구름)
   | 'Cirrocumulus'    // 권적운 (비늘구름)
@@ -326,3 +329,87 @@ export const CLOUD_TEMPLATES_HORIZONTAL: Record<CloudPresetName, string[]> = {
     "M 10,25 C 25,18 45,15 65,18 C 85,12 115,12 135,22 C 155,15 185,18 205,25 C 175,28 145,28 115,27 C 85,27 45,27 10,25 Z"
   ]
 };
+
+
+// ── 광학·운형 판정 (THREE 비의존) ──────────────────────────────────────
+
+/**
+ * 이 블록이 왜 여기 있나: 사전 계산(`skyTimeline`)이 렌더러를 끌고 오면 안 됩니다.
+ * 원래 `cloudPlacement.ts`에 있었는데, 그 파일은 `cloudAtlas`를 통해 THREE에
+ * 의존합니다. 순수 데이터인 이 셋만 내려서 계층을 되돌립니다.
+ */
+export interface CloudOpticsConfig {
+  tau: number;
+  opacity: number;
+  shadowContrast: number;
+  rimSharpness: number;
+}
+
+export const PRESET_OPTICS: Record<CloudPresetName, CloudOpticsConfig> = {
+  Cirrus:        { tau: 3.0,   opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25 },
+  Cirrocumulus:  { tau: 4.2,   opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30 },
+  Cirrostratus:  { tau: 5.0,   opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20 },
+  Altocumulus:   { tau: 16.0,  opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60 },
+  Altostratus:   { tau: 30.0,  opacity: 0.82, shadowContrast: 0.38, rimSharpness: 0.35 },
+  Stratocumulus: { tau: 35.0,  opacity: 0.90, shadowContrast: 0.62, rimSharpness: 0.70 },
+  Stratus:       { tau: 22.0,  opacity: 0.80, shadowContrast: 0.28, rimSharpness: 0.25 },
+  Cumulus:       { tau: 32.0,  opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88 },
+  Cumulonimbus:  { tau: 220.0, opacity: 0.99, shadowContrast: 0.94, rimSharpness: 0.95 },
+  Nimbostratus:  { tau: 110.0, opacity: 0.98, shadowContrast: 0.88, rimSharpness: 0.45 },
+};
+
+export function resolvePresetFromWeather(
+  layer: LayerKey,
+  cover: number,
+  wx: { precipitation?: number; humidity?: number; lowPct: number; highPct: number },
+  seed: number
+): CloudPresetName {
+  const precip = wx.precipitation ?? 0;
+  const rh = wx.humidity ?? 60;
+
+  if (layer === 'high') {
+    if (cover > 0.65) return 'Cirrostratus';
+    if (cover > 0.3) return seed < 0.5 ? 'Cirrocumulus' : 'Cirrus';
+    return 'Cirrus';
+  }
+
+  if (layer === 'mid') {
+    if (precip > 0.2 || cover > 0.7) return 'Altostratus';
+    return 'Altocumulus';
+  }
+
+  // low
+  if (precip > 2.0 && wx.highPct > 45) return 'Cumulonimbus';
+  if (precip > 0.3 && cover > 0.6) return 'Nimbostratus';
+  if (cover > 0.6) return rh > 90 ? 'Stratus' : 'Stratocumulus';
+  if (cover > 0.35) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';
+  return 'Cumulus';
+}
+
+/**
+ * 관측점 기상에서 층별 대표 광학두께를 뽑습니다.
+ *
+ * 태양 방향 기둥을 풀 때 필요합니다. 운형 판정이 방향마다 달라질 수 있으므로
+ * 관측점 값으로 대표를 잡습니다.
+ *
+ * `skyTimeline`의 사전 계산도 **이 함수를 그대로** 씁니다 — 두 곳에서 따로
+ * 구현하면 사전 계산과 실시간 계산의 광학이 갈라집니다.
+ */
+export function representativeTauForObserver(
+  layer: LayerKey,
+  obs: CloudData | undefined
+): number {
+  const coverPct = layer === 'low' ? obs?.low ?? 0 : layer === 'mid' ? obs?.mid ?? 0 : obs?.high ?? 0;
+  const name = resolvePresetFromWeather(
+    layer,
+    coverPct / 100,
+    {
+      precipitation: obs?.precipitation,
+      humidity: obs?.humidity,
+      lowPct: obs?.low ?? 0,
+      highPct: obs?.high ?? 0,
+    },
+    0.5
+  );
+  return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau;
+}

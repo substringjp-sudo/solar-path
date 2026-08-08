@@ -326,6 +326,126 @@ export const fetchSunsetWeather = async (
   }
 };
 
+// ---------------------------------------------------------------------------
+// 360° 하루치 링 — 사전 계산(skyTimeline)용
+// ---------------------------------------------------------------------------
+
+/** 링 방위 (12방위, 30° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
+const RING_AZIMUTHS = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30];
+const RING_DISTANCES = [10, 30, 70, 130, 200, 280, 380];
+
+const ringCache = new Map<string, CloudPathData[]>();
+
+/**
+ * 하루치 날씨를 **360° 전 방위**로 한 번에 받아옵니다.
+ *
+ * Why 팬이 아니라 링인가:
+ * `fetchSunsetWeather`의 팬은 **태양 방위 중심**이라 캐시 키에 방위 버킷이
+ * 들어갑니다. 시간을 옮기면 태양 방위가 30° 버킷을 넘어가고, 그때마다
+ * 캐시 미스 → 재요청입니다. 하루를 스크럽하면 방위가 180° 넘게 도니
+ * 같은 날 같은 장소인데도 6번 이상 새로 받습니다. "날씨를 매번 받아온다"의
+ * 정체가 이것입니다.
+ *
+ * 링은 방위에 의존하지 않으므로 **(위경도, 날짜)당 한 번**이면 끝입니다.
+ * 덤으로 품질도 올라갑니다 — 팬은 ±20°만 실측이라 나머지 하늘은
+ * 관측점 값 + 노이즈로 메웠는데(신뢰도 0), 링은 전 방위가 실측입니다.
+ *
+ * 반환 `azimuthOffset`은 **절대 방위**(-180~180)입니다. 그래서
+ * `new WeatherFan(samples, 0)` 으로 감싸면 됩니다 (중심 0 = 북).
+ */
+export const fetchDayWeatherRing = async (
+  lat: number,
+  lon: number,
+  targetDate: Date = new Date()
+): Promise<CloudPathData[]> => {
+  const targetDateStr = targetDate.toISOString().split('T')[0];
+  const cacheKey = `ring_${lat.toFixed(3)},${lon.toFixed(3)}_${targetDateStr}`;
+  const cached = ringCache.get(cacheKey);
+  if (cached) return cached;
+
+  // 관측점 + 12방위 × 7거리
+  const virtualPoints: { dist: number; az: number; lat: number; lon: number }[] = [
+    { dist: 0, az: 0, lat, lon },
+  ];
+  for (const az of RING_AZIMUTHS) {
+    for (const d of RING_DISTANCES) {
+      const dest = calculateDestination(lat, lon, d, az);
+      virtualPoints.push({ dist: d, az, lat: dest.latitude, lon: dest.longitude });
+    }
+  }
+
+  // 가까운 고리는 12방위가 수 km 간격이라 예보 격자(약 11km) 한 칸에 여럿이
+  // 들어갑니다. 좌표를 반올림해 중복 요청을 없앱니다.
+  const uniquePoints: { lat: number; lon: number; key: string }[] = [];
+  const seen = new Map<string, number>();
+  const keyOf = (la: number, lo: number) => `${la.toFixed(4)},${lo.toFixed(4)}`;
+  const idxOf: number[] = virtualPoints.map(vp => {
+    const k = keyOf(vp.lat, vp.lon);
+    let i = seen.get(k);
+    if (i === undefined) {
+      i = uniquePoints.length;
+      seen.set(k, i);
+      uniquePoints.push({ lat: vp.lat, lon: vp.lon, key: k });
+    }
+    return i;
+  });
+
+  const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
+  const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
+
+  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+  const isHistorical = diffDays > 5;
+
+  const url = isHistorical
+    ? `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
+      `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
+      `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
+    : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
+      `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
+      `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`;
+
+  const response = await fetchWithTimeout(url, {}, 15000);
+  if (!response.ok) {
+    if (response.status === 429) throw new Error('RATE_LIMIT: API 요청 한도를 초과했습니다.');
+    throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (${response.status})`);
+  }
+  const data = await response.json();
+  if (data?.error) throw new Error(`HTTP_ERROR: ${data.reason || 'Unknown'}`);
+  const results = Array.isArray(data) ? data : [data];
+
+  const out: CloudPathData[] = virtualPoints.map((vp, i) => {
+    const res = results[idxOf[i]];
+    const rh = res?.hourly;
+    const time: string[] = rh?.time ?? [];
+    const fill = (a: any) => (Array.isArray(a) && a.length ? a : Array(Math.max(1, time.length)).fill(0));
+    const hourly: HourlyCloudData = {
+      time,
+      timeMs: time.map((t: string) => new Date(t).getTime()),
+      low: fill(rh?.cloud_cover_low),
+      mid: fill(rh?.cloud_cover_mid),
+      high: fill(rh?.cloud_cover_high),
+      directNormalIrradiance: rh?.direct_normal_irradiance,
+      totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
+      precipitation: rh?.precipitation,
+    };
+    // 시정·습도는 관측점에서만 의미가 있습니다.
+    if (i === 0) {
+      if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
+      if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
+    }
+    return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
+  });
+
+  // 이음매: 방위 180°와 -180°는 같은 방향입니다. WeatherFan은 정렬된
+  // 오프셋 사이를 보간하므로, 양 끝을 복제해 두지 않으면 남쪽에 틈이 생깁니다.
+  for (const p of out.filter(p => p.azimuthOffset === 180)) {
+    out.push({ ...p, azimuthOffset: -180 });
+  }
+
+  ringCache.set(cacheKey, out);
+  return out;
+};
+
 /**
  * Interpolates hourly weather data for a specific time.
  */

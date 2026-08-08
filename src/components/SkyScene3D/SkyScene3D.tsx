@@ -37,7 +37,8 @@ import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './Milky
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
-import { buildCloudInstances, type BuildCloudsResult } from './cloudPlacement';
+import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
+import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming } from '../../utils/atmosphere';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -89,6 +90,11 @@ interface SkyScene3DProps {
   skySettings?: SkySettings;
   trackingTarget?: string | null;
   onSelectTrackingTarget?: (target: string | null) => void;
+  /**
+   * 사전 계산된 하루치 하늘. 있으면 매 갱신마다 다시 푸는 대신
+   * 키프레임 사이를 보간해서 씁니다 (utils/skyTimeline.ts).
+   */
+  timeline?: SkyTimeline | null;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -142,6 +148,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   skySettings = DEFAULT_SKY_SETTINGS,
   trackingTarget,
   onSelectTrackingTarget,
+  timeline = null,
 }) => {
   const { width, height } = useWindowDimensions();
   
@@ -195,6 +202,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const pixelRatioRef = useRef(1);
   const sceneWidthRef = useRef(SCENE_WIDTH);
 
+  const timelineRef = useRef<SkyTimeline | null>(timeline);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
   const targetTimeMsRef = useRef(currentTime.getTime());
@@ -230,6 +238,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   useEffect(() => { simRef.current = sim; }, [sim]);
   useEffect(() => { weatherRef.current = interpolatedWeather; }, [interpolatedWeather]);
   useEffect(() => { layersRef.current = layers; }, [layers]);
+  useEffect(() => { timelineRef.current = timeline; }, [timeline]);
   useEffect(() => { trackingTargetRef.current = trackingTarget; }, [trackingTarget]);
   useEffect(() => { onSelectTrackingTargetRef.current = onSelectTrackingTarget; }, [onSelectTrackingTarget]);
   useEffect(() => { targetTimeMsRef.current = currentTime.getTime(); }, [currentTime]);
@@ -570,16 +579,28 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const lat = location?.coords?.latitude ?? 37.5;
     const lng = location?.coords?.longitude ?? 127.0;
 
-    // SunCalc는 가볍고 태양 위치는 매 프레임 필요 → 항상 계산
-    const sunPos = SunCalc.getPosition(targetDate, lat, lng);
-    sunAltRef.current = (sunPos.altitude * 180) / Math.PI;
-    sunAzRef.current = (sunPos.azimuth * 180) / Math.PI + 180;
+    // 사전 계산된 타임라인이 있으면 **전부 여기서 읽습니다.**
+    // 태양 위치·대기·하늘 기둥이 한 번에 나오므로 아래 캐시들이 필요 없습니다.
+    const tl = timelineRef.current;
+    const sampled: SampledSky | null = tl ? sampleTimeline(tl, targetDate.getTime()) : null;
+
+    if (sampled) {
+      sunAltRef.current = sampled.sunAltDeg;
+      sunAzRef.current = sampled.sunAzDeg;
+    } else {
+      // SunCalc는 가볍고 태양 위치는 매 프레임 필요 → 항상 계산
+      const sunPos = SunCalc.getPosition(targetDate, lat, lng);
+      sunAltRef.current = (sunPos.altitude * 180) / Math.PI;
+      sunAzRef.current = (sunPos.azimuth * 180) / Math.PI + 180;
+    }
 
     const nowMs = Date.now();
 
     // ── makeAtmosphereParams: 2분 캐시 ────────────────────────────────────────
     // 기상 파라미터(가시거리·습도)는 실시간 변화 없음. 매 프레임 계산은 낭비.
-    if (!cachedAtmosphereRef.current || nowMs - cachedAtmosphereMsRef.current > 120_000) {
+    if (sampled) {
+      cachedAtmosphereRef.current = sampled.atmosphere;
+    } else if (!cachedAtmosphereRef.current || nowMs - cachedAtmosphereMsRef.current > 120_000) {
       cachedAtmosphereRef.current = makeAtmosphereParams({
         visibilityM: observerWeather()?.visibility,
         humidityPct: observerWeather()?.humidity,
@@ -686,8 +707,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const sceneDeltaMin = Math.abs(targetDate.getTime() - lastCloudSceneMsRef.current) / 60000;
     const wallDeltaSec = (nowMs - lastCloudRebuildMsRef.current) / 1000;
 
-    if (weatherChanged || sceneDeltaMin > 2 || altDelta > 1.0 || wallDeltaSec > 30) {
-      rebuildCloudsForDate(targetDate);
+    // 타임라인이 있으면 재빌드가 fBm 없이 조명만 다시 계산하는 수준이라
+    // 훨씬 촘촘히 갱신해도 됩니다 (씬 시각 1분 = 실제 구름 변화 한 칸).
+    const sceneThresholdMin = sampled ? 0.5 : 2;
+    if (weatherChanged || sceneDeltaMin > sceneThresholdMin || altDelta > 1.0 || wallDeltaSec > 30) {
+      rebuildCloudsForDate(targetDate, sampled);
       lastCloudRebuildMsRef.current = nowMs;
       lastCloudSunAltRef.current = sunAltRef.current;
       lastCloudSceneMsRef.current = targetDate.getTime();
@@ -698,30 +722,46 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
 
 
-  const rebuildCloudsForDate = useCallback((targetDate: Date) => {
+  const rebuildCloudsForDate = useCallback((targetDate: Date, sampled?: SampledSky | null) => {
     const field = cloudFieldRef.current;
     const atlas = cloudAtlasRef.current;
     if (!field || !atlas) return;
 
     const lat = location?.coords?.latitude ?? 37.5;
 
-    const atmosphere = makeAtmosphereParams({
-      visibilityM: observerWeather()?.visibility,
-      humidityPct: observerWeather()?.humidity,
-      observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
-      latitude: lat,
-      dayOfYear: dayOfYearOf(targetDate),
-    });
+    const atmosphere =
+      sampled?.atmosphere ??
+      makeAtmosphereParams({
+        visibilityM: observerWeather()?.visibility,
+        humidityPct: observerWeather()?.humidity,
+        observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
+        latitude: lat,
+        dayOfYear: dayOfYearOf(targetDate),
+      });
 
-    const built = buildCloudInstances({
-      atlas,
-      currentTime: targetDate,
-      sunAltDeg: sunAltRef.current,
-      sunAzDeg: sunAzRef.current,
-      atmosphere,
-      weather: weatherRef.current ?? [],
-      maxTotal: MAX_CLOUDS,
-    });
+    // 타임라인이 있으면 **비싼 앞부분을 건너뜁니다** — 팬 샘플링도, 576방향
+    // fBm도, 기둥 광학도 이미 계산돼 있습니다. 여기서는 조명만 다시 겁니다.
+    const built = sampled
+      ? buildCloudsFromColumns({
+          atlas,
+          sunAltDeg: sunAltRef.current,
+          sunAzDeg: sunAzRef.current,
+          atmosphere,
+          samples: sampled.samples,
+          optics: sampled.optics,
+          halo: sampled.halo,
+          obs: sampled.obs,
+          maxTotal: MAX_CLOUDS,
+        })
+      : buildCloudInstances({
+          atlas,
+          currentTime: targetDate,
+          sunAltDeg: sunAltRef.current,
+          sunAzDeg: sunAzRef.current,
+          atmosphere,
+          weather: weatherRef.current ?? [],
+          maxTotal: MAX_CLOUDS,
+        });
 
     const horizonGlow = skyRadiance(0.5, 5, sunAltRef.current, atmosphere);
     const zenithSky = skyRadiance(88, 90, sunAltRef.current, atmosphere);

@@ -111,3 +111,18 @@ git show origin/main:src/utils/atmosphere.ts > /tmp/old.ts
 ```
 
 배경과 측정 결과는 `docs/TWILIGHT.md`.
+
+## 사전 계산 타임라인 (`verify-timeline.js`)
+
+```bash
+npx tsc --module commonjs --target es2020 --moduleResolution node --skipLibCheck \
+  --resolveJsonModule --esModuleInterop --allowSyntheticDefaultImports \
+  --outDir /tmp/tlbuild src/utils/skyTimeline.ts
+ln -sfn /home/user/solar-path/node_modules /tmp/node_modules   # suncalc 해결용
+node tools/shader-preview/verify-timeline.js
+```
+
+네트워크를 타지 않도록 `fetchDayWeatherRing`을 합성 링으로 교체한 뒤 돌립니다.
+핵심 검사는 **키프레임 시각에서 사전 계산 결과가 직접 계산과 정확히 일치하는가**
+입니다 — 여기가 어긋나면 "빠르지만 다른 하늘"이 됩니다.
+배경은 `docs/SKY_TIMELINE.md`.

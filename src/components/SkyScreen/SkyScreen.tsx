@@ -11,8 +11,8 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers } from 'lucide-react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, Wand2, X } from 'lucide-react-native';
 import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { TimeSlider } from '../TimeSlider';
@@ -26,6 +26,11 @@ import {
 import { predictSunset } from '../../utils/sunsetPhysics';
 import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
 import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
+import {
+  buildSkyTimeline,
+  isTimelineUsable,
+  type SkyTimeline,
+} from '../../utils/skyTimeline';
 import { PredictionCard } from '../SunsetSimulation/PredictionCard';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet } from './PeekSheet';
@@ -161,6 +166,76 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     // currentTime 전체가 아니라 날짜·방위 버킷에만 반응해야 슬라이더마다 재요청하지 않습니다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latitude, longitude, currentDateStr, bucketedSunAz, useNowcast]);
+
+  // ── 하루치 사전 계산 ─────────────────────────────────────────────────────
+  //
+  // "새로 만들기"를 누르면 그 장소·그 날짜의 하늘을 통째로 계산합니다.
+  // 그 뒤로는 시간을 아무리 움직여도 네트워크도, fBm도 다시 돌지 않고
+  // 키프레임 사이 보간만 합니다 (utils/skyTimeline.ts).
+  const [timeline, setTimeline] = useState<SkyTimeline | null>(null);
+  const [buildProgress, setBuildProgress] = useState<number>(0);
+  const [buildLabel, setBuildLabel] = useState<string>('');
+  const [isBuilding, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const cancelBuildRef = React.useRef(false);
+
+  const progressAnim = React.useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: buildProgress,
+      duration: 180,
+      useNativeDriver: false,
+    }).start();
+  }, [buildProgress, progressAnim]);
+
+  const handleBuildTimeline = React.useCallback(async () => {
+    if (isBuilding) {
+      // 진행 중이면 취소
+      cancelBuildRef.current = true;
+      return;
+    }
+    cancelBuildRef.current = false;
+    setBuilding(true);
+    setBuildError(null);
+    setBuildProgress(0);
+    setBuildLabel('시작하는 중…');
+    try {
+      const tl = await buildSkyTimeline({
+        latitude,
+        longitude,
+        date: currentTime,
+        observerElevM: terrainData.observerElevation,
+        onProgress: (p, label) => {
+          setBuildProgress(p);
+          setBuildLabel(label);
+        },
+        isCancelled: () => cancelBuildRef.current,
+      });
+      setTimeline(tl);
+      setBuildLabel('완료');
+    } catch (err: any) {
+      if (err?.message === 'CANCELLED') {
+        setBuildLabel('취소됨');
+      } else {
+        console.log('sky timeline build failed:', err);
+        setBuildError(err?.message?.includes('RATE_LIMIT')
+          ? 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.'
+          : '날씨를 받지 못했습니다. 연결을 확인해 주세요.');
+      }
+    } finally {
+      setBuilding(false);
+    }
+  }, [isBuilding, latitude, longitude, currentTime, terrainData.observerElevation]);
+
+  // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.
+  const timelineValid = isTimelineUsable(timeline, latitude, longitude, currentTime);
+  useEffect(() => {
+    if (timeline && !isTimelineUsable(timeline, latitude, longitude, currentTime)) {
+      setTimeline(null);
+      setBuildLabel('');
+      setBuildProgress(0);
+    }
+  }, [timeline, latitude, longitude, currentDateStr]);
 
   const interpolatedWeather = useMemo(
     () => (pathData.length ? getInterpolatedWeather(pathData, currentTime) : []),
@@ -374,6 +449,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           trackingTarget={trackingTarget}
           onSelectTrackingTarget={setTrackingTarget}
           fullScreen={true}
+          timeline={timelineValid ? timeline : null}
         />
 
         {trackingTarget && (
@@ -392,6 +468,27 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
         {/* 씬 위 오버레이는 최소한만 — 레이어 토글과 초단기 실황 */}
         <View style={styles.sceneOverlayButtons}>
+          {/* 하루치 사전 계산. 눌러 두면 이후 스크럽이 네트워크 없이 돌아갑니다. */}
+          <TouchableOpacity
+            style={[
+              styles.overlayButton,
+              {
+                backgroundColor: isBuilding
+                  ? 'rgba(239, 68, 68, 0.32)'
+                  : timelineValid
+                    ? 'rgba(52, 211, 153, 0.32)'
+                    : 'rgba(5, 5, 10, 0.65)',
+                borderColor: isBuilding ? '#EF4444' : timelineValid ? '#34D399' : theme.border,
+              },
+            ]}
+            onPress={handleBuildTimeline}
+            activeOpacity={0.7}
+          >
+            {isBuilding
+              ? <X size={14} color="#FCA5A5" />
+              : <Wand2 size={14} color={timelineValid ? '#34D399' : '#FFFFFF'} />}
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[
               styles.overlayButton,
@@ -432,6 +529,32 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             <SlidersHorizontal size={14} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
+        {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
+        {(isBuilding || buildError) && (
+          <View style={styles.buildBanner}>
+            {buildError ? (
+              <Text style={styles.buildError} numberOfLines={2}>{buildError}</Text>
+            ) : (
+              <>
+                <Text style={styles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
+                <View style={styles.progressTrack}>
+                  <Animated.View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: progressAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0%', '100%'],
+                        }),
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.buildHint}>탭하면 취소</Text>
+              </>
+            )}
+          </View>
+        )}
       </View>
 
       {/* ── peek 시트: 닫히면 요약 한 줄, 끌어올리면 근거와 수치 ─────────── */}
@@ -612,6 +735,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  buildBanner: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+    backgroundColor: 'rgba(5, 8, 16, 0.88)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    zIndex: 25,
+    gap: 6,
+  },
+  buildLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#E2E8F0',
+  },
+  buildHint: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  buildError: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FCA5A5',
+  },
+  progressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(148, 163, 184, 0.25)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#34D399',
   },
   trackingBadge: {
     position: 'absolute',

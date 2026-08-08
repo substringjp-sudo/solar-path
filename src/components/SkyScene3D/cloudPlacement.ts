@@ -11,7 +11,14 @@
  *
  * 운형과 운량도 위경도 해시가 아니라 실제 기상값에서 나옵니다.
  */
-import { getCloudPreset, type CloudPresetName } from '../../utils/cloudPresets';
+import {
+  getCloudPreset,
+  PRESET_OPTICS,
+  resolvePresetFromWeather,
+  representativeTauForObserver,
+  type CloudPresetName,
+  type CloudOpticsConfig,
+} from '../../utils/cloudPresets';
 import { clamp01, type RGB } from '../../utils/sunsetPhysics';
 import {
   skyRadiance,
@@ -83,12 +90,6 @@ const PRESET_ALTITUDE_KM: Record<CloudPresetName, number> = {
 };
 
 /** 10종 운형별 광학 파라미터. DNI가 없을 때의 폴백입니다. */
-interface CloudOpticsConfig {
-  tau: number;
-  opacity: number;
-  shadowContrast: number;
-  rimSharpness: number;
-}
 
 /**
  * τ 값은 실제 관측 범위에 맞춰 올렸습니다.
@@ -96,18 +97,6 @@ interface CloudOpticsConfig {
  * 아무리 두꺼운 구름을 쌓아도 흐린 날이 나오지 않았습니다.
  * (T = 2/(τ(1−g)+2), g = 0.85)
  */
-const PRESET_OPTICS: Record<CloudPresetName, CloudOpticsConfig> = {
-  Cirrus:        { tau: 3.0,   opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25 },
-  Cirrocumulus:  { tau: 4.2,   opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30 },
-  Cirrostratus:  { tau: 5.0,   opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20 },
-  Altocumulus:   { tau: 16.0,  opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60 },
-  Altostratus:   { tau: 30.0,  opacity: 0.82, shadowContrast: 0.38, rimSharpness: 0.35 },
-  Stratocumulus: { tau: 35.0,  opacity: 0.90, shadowContrast: 0.62, rimSharpness: 0.70 },
-  Stratus:       { tau: 22.0,  opacity: 0.80, shadowContrast: 0.28, rimSharpness: 0.25 },
-  Cumulus:       { tau: 32.0,  opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88 },
-  Cumulonimbus:  { tau: 220.0, opacity: 0.99, shadowContrast: 0.94, rimSharpness: 0.95 },
-  Nimbostratus:  { tau: 110.0, opacity: 0.98, shadowContrast: 0.88, rimSharpness: 0.45 },
-};
 
 function presetLayerType(name: CloudPresetName): LayerType {
   if (name === 'Cirrus' || name === 'Cirrocumulus' || name === 'Cirrostratus') return 'high';
@@ -143,33 +132,6 @@ function hash01(str: string): number {
  *  - 저층이 많고 건조하면 층적운(대류가 억제되어 퍼진 것)
  *  - 저층이 적당하면 적운(맑은 날 뭉게구름)
  */
-function resolvePresetFromWeather(
-  layer: LayerKey,
-  cover: number,
-  wx: { precipitation?: number; humidity?: number; lowPct: number; highPct: number },
-  seed: number
-): CloudPresetName {
-  const precip = wx.precipitation ?? 0;
-  const rh = wx.humidity ?? 60;
-
-  if (layer === 'high') {
-    if (cover > 0.65) return 'Cirrostratus';
-    if (cover > 0.3) return seed < 0.5 ? 'Cirrocumulus' : 'Cirrus';
-    return 'Cirrus';
-  }
-
-  if (layer === 'mid') {
-    if (precip > 0.2 || cover > 0.7) return 'Altostratus';
-    return 'Altocumulus';
-  }
-
-  // low
-  if (precip > 2.0 && wx.highPct > 45) return 'Cumulonimbus';
-  if (precip > 0.3 && cover > 0.6) return 'Nimbostratus';
-  if (cover > 0.6) return rh > 90 ? 'Stratus' : 'Stratocumulus';
-  if (cover > 0.35) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';
-  return 'Cumulus';
-}
 
 export interface BuildCloudsParams {
   atlas: CloudAtlas;
@@ -216,6 +178,30 @@ const BILLBOARD_ANGULAR_DEG: Record<LayerKey, number> = {
   high: 21,
 };
 
+
+/**
+ * 사전 계산된 하늘 기둥으로 구름 인스턴스를 만듭니다.
+ *
+ * `buildCloudInstances`에서 **비싼 앞부분(팬 샘플링 + 576방향 fBm + 기둥 광학)을
+ * 뺀** 나머지입니다. 타임라인 경로는 그 앞부분을 미리 계산해 두고 여기만
+ * 매 갱신마다 돌립니다.
+ */
+export function buildCloudsFromColumns(params: {
+  atlas: CloudAtlas;
+  sunAltDeg: number;
+  sunAzDeg: number;
+  atmosphere: AtmosphereParams;
+  samples: LayerSample[];
+  optics: ColumnOptics;
+  halo: number;
+  obs: CloudData | undefined;
+  maxTotal?: number;
+}): BuildCloudsResult {
+  const { atlas, sunAltDeg, sunAzDeg, atmosphere, samples, optics, halo, obs, maxTotal = 320 } = params;
+  const dniTau = cloudTauFromDNI(obs?.directNormalIrradiance, sunAltDeg);
+  return placeClouds(atlas, sunAltDeg, sunAzDeg, atmosphere, samples, optics, halo, obs, dniTau, maxTotal);
+}
+
 export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResult {
   const {
     atlas,
@@ -244,26 +230,35 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
 
   const dniTau = cloudTauFromDNI(obs?.directNormalIrradiance, sunAltDeg);
 
-  // 층별 대표 광학두께 — 태양 방향 기둥을 푸는 데 필요합니다.
-  // 운형 판정이 방향마다 달라질 수 있으므로 관측점 값으로 대표를 잡습니다.
-  const representativeTau = (layer: LayerKey): number => {
-    const coverPct = layer === 'low' ? obs?.low ?? 0 : layer === 'mid' ? obs?.mid ?? 0 : obs?.high ?? 0;
-    const name = resolvePresetFromWeather(
-      layer,
-      coverPct / 100,
-      {
-        precipitation: obs?.precipitation,
-        humidity: obs?.humidity,
-        lowPct: obs?.low ?? 0,
-        highPct: obs?.high ?? 0,
-      },
-      0.5
-    );
-    return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau;
-  };
-
   // 태양 방향 수직 기둥. 각 층에 실제로 닿는 직달광 배율을 줍니다.
-  const optics = solveColumnOptics(samples, sunAzDeg, sunAltDeg, representativeTau);
+  const optics = solveColumnOptics(samples, sunAzDeg, sunAltDeg, layer =>
+    representativeTauForObserver(layer, obs)
+  );
+
+  // 22° 무리 — 얇은 권층운에서만 보입니다.
+  const halo = haloStrength(
+    (obs?.high ?? 0) / 100,
+    (obs?.low ?? 0) / 100,
+    (obs?.mid ?? 0) / 100,
+    sunAltDeg
+  );
+
+  return placeClouds(atlas, sunAltDeg, sunAzDeg, atmosphere, samples, optics, halo, obs, dniTau, maxTotal);
+}
+
+/** 빌보드 배치·조명 — 두 경로가 공유하는 부분입니다. */
+function placeClouds(
+  atlas: CloudAtlas,
+  sunAltDeg: number,
+  sunAzDeg: number,
+  atmosphere: AtmosphereParams,
+  samples: LayerSample[],
+  optics: ColumnOptics,
+  halo: number,
+  obs: CloudData | undefined,
+  dniTau: DniTauResult | null,
+  maxTotal: number
+): BuildCloudsResult {
 
   const beamCache = new Map<string, RGB>();
   const beamFor = (altKm: number, layer: LayerKey): RGB => {
@@ -415,14 +410,6 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
     });
   }
 
-  // 22° 무리 — 얇은 권층운에서만 보입니다.
-  const halo = haloStrength(
-    (obs?.high ?? 0) / 100,
-    (obs?.low ?? 0) / 100,
-    (obs?.mid ?? 0) / 100,
-    sunAltDeg
-  );
-
   return { instances: out, samples, dniTau, optics, halo };
 }
 
@@ -440,3 +427,5 @@ function countVariants(atlas: CloudAtlas, name: CloudPresetName, horizontal: boo
 }
 
 export { LAYER_ALTITUDE_KM };
+
+export { representativeTauForObserver, resolvePresetFromWeather, PRESET_OPTICS };
