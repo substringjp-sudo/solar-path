@@ -114,6 +114,7 @@ void main() {
 export interface SkydomeHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
+  dispose: () => void;
 }
 
 /**
@@ -152,7 +153,14 @@ export function createSkydome(): SkydomeHandle {
   mesh.renderOrder = -1;
   mesh.frustumCulled = false;
 
-  return { mesh, material };
+  return {
+    mesh,
+    material,
+    dispose: () => {
+      geometry.dispose();
+      material.dispose();
+    },
+  };
 }
 
 /**

@@ -68,6 +68,7 @@ void main() {
 export interface SunHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
+  dispose: () => void;
 }
 
 export function createSun(): SunHandle {
@@ -99,7 +100,14 @@ export function createSun(): SunHandle {
   mesh.renderOrder = 0.5;
   mesh.frustumCulled = false;
 
-  return { mesh, material };
+  return {
+    mesh,
+    material,
+    dispose: () => {
+      geometry.dispose();
+      material.dispose();
+    },
+  };
 }
 
 /**
