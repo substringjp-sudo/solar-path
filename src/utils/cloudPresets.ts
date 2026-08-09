@@ -379,7 +379,10 @@ export function resolvePresetFromWeather(
   }
 
   // low
-  if (precip > 2.0 && wx.highPct > 45) return 'Cumulonimbus';
+  // 적란운 조건이 강수 2.0mm/h + 상층 45% 였는데, 2.0mm/h는 꽤 센 비라
+  // 실제로는 거의 걸리지 않았습니다. 대류성 소나기의 서명(상층까지 발달)은
+  // 유지하되 문턱을 관측 가능한 수준으로 낮춥니다.
+  if (precip > 0.9 && wx.highPct > 35) return 'Cumulonimbus';
   if (precip > 0.3 && cover > 0.6) return 'Nimbostratus';
   if (cover > 0.6) return rh > 90 ? 'Stratus' : 'Stratocumulus';
   if (cover > 0.35) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';

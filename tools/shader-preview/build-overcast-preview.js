@@ -55,7 +55,7 @@ const SINGLE = process.argv.includes('--single');
 const NODECK = process.argv.includes('--nodeck');
 if (SINGLE) {
   SCENES.length = 0;
-  SCENES.push({ label: '많음 6/8 · 태양 45° (확대)', low: 75, mid: 40, high: 30, sunAlt: 45, camElev: 30 });
+  SCENES.push({ label: '흐림 8/8 · 태양 45° (확대)', low: 100, mid: 90, high: 70, sunAlt: 45, camElev: 30, precip: 1.2, dniFrac: 0.02 });
 }
 const SUN_AZ = 270;
 const html = `<!doctype html>
