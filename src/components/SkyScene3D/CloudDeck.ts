@@ -19,7 +19,7 @@
  * 적운→층적운 전이입니다. mergeFactor 하나로 두 표현을 잇습니다.
  */
 import * as THREE from 'three';
-import { ATMOSPHERE_GLSL } from '../../utils/atmosphere';
+import { ATMOSPHERE_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
 import {
   LAYER_ALTITUDE_KM,
   elevationGrid,
@@ -273,6 +273,7 @@ export function createCloudDeck(): CloudDeckHandle {
 
     const material = new THREE.ShaderMaterial({
       uniforms: {
+      ...makeTuningUniforms(),
         uBeam: { value: new THREE.Vector3(1, 1, 1) },
         uAmbientUp: { value: new THREE.Vector3(0.4, 0.5, 0.7) },
         uAmbientDown: { value: new THREE.Vector3(0.3, 0.33, 0.38) },

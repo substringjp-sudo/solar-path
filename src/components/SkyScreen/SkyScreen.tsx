@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, Wand2, X } from 'lucide-react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, Wand2, X, SlidersVertical } from 'lucide-react-native';
 import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { TimeSlider } from '../TimeSlider';
@@ -34,6 +34,7 @@ import {
 import { PredictionCard } from '../SunsetSimulation/PredictionCard';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet } from './PeekSheet';
+import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
 
 interface SkyScreenProps {
@@ -172,6 +173,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // "새로 만들기"를 누르면 그 장소·그 날짜의 하늘을 통째로 계산합니다.
   // 그 뒤로는 시간을 아무리 움직여도 네트워크도, fBm도 다시 돌지 않고
   // 키프레임 사이 보간만 합니다 (utils/skyTimeline.ts).
+  const [isDevPanelOpen, setDevPanelOpen] = useState(false);
   const [timeline, setTimeline] = useState<SkyTimeline | null>(null);
   const [buildProgress, setBuildProgress] = useState<number>(0);
   const [buildLabel, setBuildLabel] = useState<string>('');
@@ -524,10 +526,23 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           <TouchableOpacity
             style={[styles.overlayButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
             onPress={() => setLayerModalVisible(true)}
+            onLongPress={() => setDevPanelOpen(v => !v)}
+            delayLongPress={700}
             activeOpacity={0.7}
           >
             <SlidersHorizontal size={14} color="#FFFFFF" />
           </TouchableOpacity>
+
+          {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
+          {isDevPanelOpen && (
+            <TouchableOpacity
+              style={[styles.overlayButton, { backgroundColor: 'rgba(56, 189, 248, 0.32)', borderColor: '#38BDF8' }]}
+              onPress={() => setDevPanelOpen(false)}
+              activeOpacity={0.7}
+            >
+              <SlidersVertical size={14} color="#38BDF8" />
+            </TouchableOpacity>
+          )}
         </View>
         {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
         {(isBuilding || buildError) && (
@@ -690,6 +705,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           ] : []}
         />
       </View>
+
+      <DevTuningPanel visible={isDevPanelOpen} onClose={() => setDevPanelOpen(false)} />
 
       <LayerControlModal
         visible={isLayerModalVisible}

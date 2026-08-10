@@ -40,7 +40,8 @@ import { createCloudField, updateCloudField, type CloudField } from './CloudFiel
 import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms } from '../../utils/atmosphere';
+import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
@@ -239,6 +240,13 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   useEffect(() => { weatherRef.current = interpolatedWeather; }, [interpolatedWeather]);
   useEffect(() => { layersRef.current = layers; }, [layers]);
   useEffect(() => { timelineRef.current = timeline; }, [timeline]);
+
+  // 운형 문턱·덱 밀폐·빌보드 수는 uniform이 아니라 배치 로직에 들어갑니다.
+  // 바뀌면 다음 프레임에 다시 배치하도록 재빌드 조건을 깨워 둡니다.
+  useEffect(() => subscribeTuning(() => {
+    lastCloudSceneMsRef.current = -1e15;
+    lastCloudSunAltRef.current = -999;
+  }), []);
   useEffect(() => { trackingTargetRef.current = trackingTarget; }, [trackingTarget]);
   useEffect(() => { onSelectTrackingTargetRef.current = onSelectTrackingTarget; }, [onSelectTrackingTarget]);
   useEffect(() => { targetTimeMsRef.current = currentTime.getTime(); }, [currentTime]);
@@ -497,6 +505,14 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         -lookDist * Math.cos(elevRad) * Math.cos(azRad)
       );
 
+      // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
+      // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
+      applyTuningUniforms(skydomeRef.current?.material.uniforms);
+      applyTuningUniforms(sunRef.current?.material.uniforms);
+      applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
+      const deckLayers = cloudDeckRef.current?.layers;
+      if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
+
       renderer.render(scene, camera);
 
       // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
@@ -751,7 +767,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           optics: sampled.optics,
           halo: sampled.halo,
           obs: sampled.obs,
-          maxTotal: MAX_CLOUDS,
+          maxTotal: getTuning().maxClouds,
         })
       : buildCloudInstances({
           atlas,
@@ -760,7 +776,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           sunAzDeg: sunAzRef.current,
           atmosphere,
           weather: weatherRef.current ?? [],
-          maxTotal: MAX_CLOUDS,
+          maxTotal: getTuning().maxClouds,
         });
 
     const horizonGlow = skyRadiance(0.5, 5, sunAltRef.current, atmosphere);

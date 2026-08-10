@@ -5,7 +5,7 @@
  * 스카이돔 및 천체 가이드라인 위에서도 태양의 물리적 3D 원반 형체가 선명하게 드러나도록 셰이더를 구성합니다.
  */
 import * as THREE from 'three';
-import { sunDiskColor, ATMOSPHERE_GLSL, type AtmosphereParams } from '../../utils/atmosphere';
+import { sunDiskColor, ATMOSPHERE_GLSL, type AtmosphereParams, makeTuningUniforms } from '../../utils/atmosphere';
 
 /** 실제 시직경 0.533° 기반 사람 눈 체감 착시 스케일 반영 (반지름 약 8.5 유닛) */
 const SUN_ANGULAR_RADIUS_DEG = 1.08;
@@ -78,6 +78,7 @@ export function createSun(): SunHandle {
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
+      ...makeTuningUniforms(),
       uColor: { value: new THREE.Color(1, 1, 1) },
       uIntensity: { value: 16.0 },
       uSunAltDeg: { value: 30.0 },

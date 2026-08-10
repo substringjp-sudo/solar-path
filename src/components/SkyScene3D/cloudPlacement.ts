@@ -40,6 +40,7 @@ import {
   type LayerKey,
 } from '../../utils/skyColumn';
 import type { CloudData } from '../../utils/weather';
+import { getTuning } from '../../utils/skyTuning';
 import { cloudAtlasKey, type CloudAtlas } from './cloudAtlas';
 
 export type LayerType = 'high' | 'mid' | 'low';
@@ -297,7 +298,7 @@ function placeClouds(
   // 덱이 완전히 덮은 방향에는 빌보드가 필요 없습니다.
   // OVC에서 덱은 불투명하므로 그 위에 얹는 빌보드는 순수한 오버드로입니다 —
   // 하필 가장 무거운 상황(하늘이 구름으로 꽉 찬 때)에서 가장 크게 낭비됩니다.
-  const deckSeals = (cover: number) => cover >= 0.93;
+  const deckSeals = (cover: number) => cover >= getTuning().deckSealCover;
 
   // **아래층이 막으면 위층도 안 보입니다.**
   // 셸 반경이 저 400 < 중 430 < 상 460 이고 카메라는 원점이므로, 저층 덱이

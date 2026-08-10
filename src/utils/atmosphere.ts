@@ -18,6 +18,7 @@
  * GLSL 문자열에 주입합니다. 두 구현이 갈라지는 것을 구조적으로 막습니다.
  */
 import { directBeamRGB, aerosolBeta, airMass, clamp01, type RGB } from './sunsetPhysics';
+import { getTuning } from './skyTuning';
 
 // ── 물리 상수 (TS·GLSL 공용) ───────────────────────────────────────────────
 /** 대표 파장 (nm) — sunsetPhysics와 동일 */
@@ -201,7 +202,7 @@ export const TWILIGHT_SCALE_HEIGHT_KM = 13.0;
 export function earthShadowLit(sunAltDeg: number): number {
   if (sunAltDeg >= 0) return 1;
   if (sunAltDeg <= TWILIGHT_END_DEG) return 0;
-  return Math.exp(-earthShadowHeightKm(-sunAltDeg) / TWILIGHT_SCALE_HEIGHT_KM);
+  return Math.exp(-earthShadowHeightKm(-sunAltDeg) / getTuning().twilightScaleKm);
 }
 
 /**
@@ -243,7 +244,7 @@ export const TWILIGHT_MS_SCALE_HEIGHT_KM = 42.0;
 export function earthShadowLitMS(sunAltDeg: number): number {
   if (sunAltDeg >= 0) return 1;
   if (sunAltDeg <= TWILIGHT_END_DEG) return 0;
-  return Math.exp(-earthShadowHeightKm(-sunAltDeg) / TWILIGHT_MS_SCALE_HEIGHT_KM);
+  return Math.exp(-earthShadowHeightKm(-sunAltDeg) / getTuning().twilightMsScaleKm);
 }
 
 // ── 1) 대기 파라미터 ───────────────────────────────────────────────────────
@@ -438,7 +439,7 @@ export function skyRadiance(
     // 받고 있는 **먼 상층 대기**에서 여러 번 튕겨 옵니다 — 내 머리 위가
     // 그늘에 들어갔다고 사라지지 않습니다. 이게 박명의 긴 꼬리입니다.
     // (파일 위쪽에서 mSun/mSunMS를 나눈 것과 같은 이유입니다.)
-    out.push((single * sunLit + multi * sunLitMS) * SKY_EXPOSURE);
+    out.push((single * sunLit + multi * sunLitMS) * getTuning().skyExposure);
   }
 
   // 지평선 아래로 갈수록 지면 쪽이므로 어둡게 깔아줍니다.
@@ -576,8 +577,9 @@ export function applyCloudDimming(c: RGB, diffuseFactor: number): RGB {
   const blocked = Math.max(0, Math.min(1, 1 - diffuseFactor));
   if (blocked <= 0) return c;
   const grey = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-  const desat = blocked * CLOUD_DIM_DESAT;
-  const scale = 1 + (CLOUD_DIM_FLOOR - 1) * blocked;
+  const tune = getTuning();
+  const desat = blocked * tune.cloudDimDesat;
+  const scale = 1 + (tune.cloudDimFloor - 1) * blocked;
   return {
     r: (c.r + (grey - c.r) * desat) * scale,
     g: (c.g + (grey - c.g) * desat) * scale,
@@ -788,11 +790,11 @@ const float CLOUD_G     = ${f(CLOUD_G)};
 const float RAY_GAIN    = ${f(RAYLEIGH_GAIN)};
 const float MIE_GAIN    = ${f(MIE_GAIN)};
 const float MS_GAIN     = ${f(MULTI_SCATTER_GAIN)};
-const float SKY_EXPOSURE= ${f(SKY_EXPOSURE)};
+uniform float SKY_EXPOSURE;
 const float TWILIGHT_END= ${f(TWILIGHT_END_DEG)};
 const vec3  NIGHT_SKY   = vec3(${f(NIGHT_SKY.r)}, ${f(NIGHT_SKY.g)}, ${f(NIGHT_SKY.b)});
-const float CLOUD_DIM_DESAT = ${f(CLOUD_DIM_DESAT)};
-const float CLOUD_DIM_FLOOR = ${f(CLOUD_DIM_FLOOR)};
+uniform float CLOUD_DIM_DESAT;
+uniform float CLOUD_DIM_FLOOR;
 const float MS_AM_CAP   = ${f(MS_AIRMASS_CAP)};
 const float MS_AM_FRAC  = ${f(MS_AIRMASS_FRACTION)};
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
@@ -800,17 +802,17 @@ const float SH_ZENITH   = ${f(SCATTER_HEIGHT_ZENITH)};
 const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
 const vec3  TWILIGHT_W  = vec3(${f(TWILIGHT_PURPLE_WEIGHTS[0])}, ${f(TWILIGHT_PURPLE_WEIGHTS[1])}, ${f(TWILIGHT_PURPLE_WEIGHTS[2])});
 const float SCALE_H_KM  = ${f(SCALE_HEIGHT_KM)};
-const float TW_SCALE_H  = ${f(TWILIGHT_SCALE_HEIGHT_KM)};
-const float TW_MS_SCALE = ${f(TWILIGHT_MS_SCALE_HEIGHT_KM)};
+uniform float TW_SCALE_H;
+uniform float TW_MS_SCALE;
 const float AERIAL_STR  = ${f(AERIAL_STRENGTH)};
 const float OZ_TW_GAIN  = ${f(OZONE_TWILIGHT_GAIN)};
 const float OZ_TW_MAX   = ${f(OZONE_TWILIGHT_MAX)};
-const float DISP_EXPO   = ${f(DISPLAY_EXPOSURE)};
-const float ADAPT_MAX   = ${f(ADAPT_MAX)};
-const float ADAPT_HI    = ${f(ADAPT_START_ALT)};
-const float ADAPT_LO    = ${f(ADAPT_END_ALT)};
-const float DISP_SAT    = ${f(DISPLAY_SATURATION)};
-const float DISP_CONTR  = ${f(DISPLAY_CONTRAST)};
+uniform float DISP_EXPO;
+uniform float ADAPT_MAX;
+uniform float ADAPT_HI;
+uniform float ADAPT_LO;
+uniform float DISP_SAT;
+uniform float DISP_CONTR;
 const vec3  GROUND_DARK = vec3(${f(GROUND_DARKEN.r)}, ${f(GROUND_DARKEN.g)}, ${f(GROUND_DARKEN.b)});
 const float GROUND_FADE = ${f(GROUND_FADE_DEG)};
 const float PI_         = 3.14159265359;
@@ -1015,3 +1017,48 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   return atm_toSrgb(c);
 }
 `;
+
+
+// ── 개발자 튜닝 uniform ─────────────────────────────────────────────────────
+//
+// 위 GLSL에서 `uniform float`로 선언한 값들입니다. ATMOSPHERE_GLSL을 포함하는
+// 머티리얼은 전부 이 선언을 함께 받으므로, 여기 한 곳에서 만들고 밀어 넣으면
+// 스카이돔·태양·구름·덱이 같은 값을 씁니다.
+//
+// 셰이더가 안 쓰는 uniform은 GLSL 컴파일러가 지우고 three가 조용히 건너뜁니다.
+
+/** 머티리얼 생성 시 uniforms에 펼쳐 넣습니다. */
+export function makeTuningUniforms(): Record<string, { value: number }> {
+  const t = getTuning();
+  return {
+    SKY_EXPOSURE: { value: t.skyExposure },
+    CLOUD_DIM_DESAT: { value: t.cloudDimDesat },
+    CLOUD_DIM_FLOOR: { value: t.cloudDimFloor },
+    DISP_EXPO: { value: t.displayExposure },
+    ADAPT_MAX: { value: t.adaptMax },
+    ADAPT_HI: { value: t.adaptStartAlt },
+    ADAPT_LO: { value: t.adaptEndAlt },
+    DISP_SAT: { value: t.displaySaturation },
+    DISP_CONTR: { value: t.displayContrast },
+    TW_SCALE_H: { value: t.twilightScaleKm },
+    TW_MS_SCALE: { value: t.twilightMsScaleKm },
+  };
+}
+
+/** 매 프레임(또는 튜닝 변경 시) 값을 갱신합니다. */
+export function applyTuningUniforms(uniforms: Record<string, any> | undefined | null): void {
+  if (!uniforms) return;
+  const t = getTuning();
+  const set = (k: string, v: number) => { if (uniforms[k]) uniforms[k].value = v; };
+  set('SKY_EXPOSURE', t.skyExposure);
+  set('CLOUD_DIM_DESAT', t.cloudDimDesat);
+  set('CLOUD_DIM_FLOOR', t.cloudDimFloor);
+  set('DISP_EXPO', t.displayExposure);
+  set('ADAPT_MAX', t.adaptMax);
+  set('ADAPT_HI', t.adaptStartAlt);
+  set('ADAPT_LO', t.adaptEndAlt);
+  set('DISP_SAT', t.displaySaturation);
+  set('DISP_CONTR', t.displayContrast);
+  set('TW_SCALE_H', t.twilightScaleKm);
+  set('TW_MS_SCALE', t.twilightMsScaleKm);
+}

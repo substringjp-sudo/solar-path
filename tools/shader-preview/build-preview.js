@@ -112,6 +112,7 @@ const html = `<!doctype html>
 <script type="module">
 import * as THREE from './three.module.js';
 const SKY_V=${JSON.stringify(SKY_V)}, SKY_F=${JSON.stringify(SKY_F)};
+const TUNE_UNIFORMS=${JSON.stringify(A.makeTuningUniforms())};
 const SUN_V=${JSON.stringify(SUN_V)}, SUN_F=${JSON.stringify(SUN_F)};
 const CLD_V=${JSON.stringify(CLD_V)}, CLD_F=${JSON.stringify(CLD_F)};
 const SCENES=${JSON.stringify(SCENE_DATA)};
@@ -149,13 +150,13 @@ function makeAtlas(){
 const atlas=makeAtlas();
 
 const scene=new THREE.Scene();
-const skyMat=new THREE.ShaderMaterial({uniforms:{
+const skyMat=new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS,
   uSunDir:{value:new THREE.Vector3()},uSunAltDeg:{value:0},uBeta:{value:0.08},
   uAngstrom:{value:1.3},uElevScale:{value:1},uOzoneDU:{value:330},uSaturation:{value:1}},
   vertexShader:SKY_V,fragmentShader:SKY_F,side:THREE.BackSide,depthWrite:false,depthTest:false});
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(500,32,16),skyMat));
 
-const sunMat=new THREE.ShaderMaterial({uniforms:{uColor:{value:new THREE.Color(1,1,1)},uIntensity:{value:14}},
+const sunMat=new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS,uColor:{value:new THREE.Color(1,1,1)},uIntensity:{value:14}},
   vertexShader:SUN_V,fragmentShader:SUN_F,transparent:true,depthWrite:false,depthTest:false,side:THREE.DoubleSide});
 const sunR=450*Math.tan(0.267*Math.PI/180)*2.4;
 const sunMesh=new THREE.Mesh(new THREE.PlaneGeometry(sunR*2,sunR*2),sunMat);
@@ -167,7 +168,7 @@ const mk=(n,sz)=>{const a=new THREE.InstancedBufferAttribute(new Float32Array(CA
   a.setUsage(THREE.DynamicDrawUsage); cg.setAttribute(n,a); return a;};
 const aUv=mk('aUvRect',4),aBeam=mk('aBeam',3),aAmb=mk('aAmbient',3),
       aGeom=mk('aGeom',4),aOpt=mk('aOptics',4),aDb=mk('aCloudDb',3);
-const cldMat=new THREE.ShaderMaterial({uniforms:{
+const cldMat=new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS,
   uAtlas:{value:atlas},uSunDir:{value:new THREE.Vector3()},uShadeContrast:{value:1.35},
   uHorizonGlow:{value:new THREE.Vector3()},uZenithSky:{value:new THREE.Vector3()},
   uBeta:{value:0.08},uAngstrom:{value:1.3},uElevScale:{value:1}},

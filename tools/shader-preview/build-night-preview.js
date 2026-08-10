@@ -73,6 +73,7 @@ import { createCelestialPathsGroup, updateCelestialPaths }
   from './app/components/SkyScene3D/CelestialPathMesh.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
+const TUNE_UNIFORMS=${JSON.stringify(A.makeTuningUniforms())};
 const SCENES=${JSON.stringify(SCENES)},PARAMS=${JSON.stringify(P)};
 const DATE=new Date(${JSON.stringify(PREVIEW_ISO)}), LAT=${LAT}, LON=${LON};
 
@@ -86,7 +87,7 @@ const errors=[];const oe=console.error;console.error=(...a)=>{errors.push(a.join
 const scene=new THREE.Scene();
 
 // 하늘 (앱과 같은 셰이더)
-const skyMat=new THREE.ShaderMaterial({uniforms:{
+const skyMat=new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS,
   uSunDir:{value:new THREE.Vector3()},uSunAltDeg:{value:0},uBeta:{value:PARAMS.betaMie},
   uAngstrom:{value:PARAMS.angstrom},uElevScale:{value:PARAMS.elevScale},
   uOzoneDU:{value:PARAMS.ozoneDU},uSaturation:{value:1},
