@@ -65,6 +65,7 @@ import { makeAtmosphereParams, skyRadiance, sunDiskColor, beamAtAltitude, applyC
   from './app/utils/atmosphere.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
+const TUNE_UNIFORMS=${JSON.stringify(A.makeTuningUniforms())};
 const SUN_V=${JSON.stringify(SUN_V)},SUN_F=${JSON.stringify(SUN_F)};
 const SCENES=${JSON.stringify(SCENES)}, SUN_AZ=${SUN_AZ};
 
@@ -77,7 +78,7 @@ const errors=[];const oe=console.error;console.error=(...a)=>{errors.push(a.join
 
 const atlas = bakeCloudAtlas(renderer);
 const scene=new THREE.Scene();
-const skyMat=new THREE.ShaderMaterial({uniforms:{
+const skyMat=new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS,
   uSunDir:{value:new THREE.Vector3()},uSunAltDeg:{value:0},uBeta:{value:0.08},
   uAngstrom:{value:1.3},uElevScale:{value:1},uOzoneDU:{value:330},uSaturation:{value:1},
   uCloudDiffuse:{value:1},uHaloStrength:{value:0}},
@@ -85,7 +86,7 @@ const skyMat=new THREE.ShaderMaterial({uniforms:{
 const skyMesh=new THREE.Mesh(new THREE.SphereGeometry(500,32,16),skyMat);
 skyMesh.renderOrder=-1; scene.add(skyMesh);
 
-const sunMat=new THREE.ShaderMaterial({uniforms:{
+const sunMat=new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS,
   uColor:{value:new THREE.Color(1,1,1)},uIntensity:{value:16},
   uSunAltDeg:{value:30},uSaturation:{value:1},uOcclusion:{value:1}},
   vertexShader:SUN_V,fragmentShader:SUN_F,transparent:true,depthWrite:false,depthTest:true,side:THREE.DoubleSide});

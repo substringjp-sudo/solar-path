@@ -15,7 +15,7 @@
  * 태양 주변 글로우는 별도 halo 메시가 아니라 Mie 위상함수에서 자연히 나옵니다.
  */
 import * as THREE from 'three';
-import { ATMOSPHERE_GLSL, type AtmosphereParams } from '../../utils/atmosphere';
+import { ATMOSPHERE_GLSL, type AtmosphereParams, makeTuningUniforms } from '../../utils/atmosphere';
 
 const SPHERE_H_SEGMENTS = 32;
 const SPHERE_V_SEGMENTS = 16;
@@ -129,6 +129,7 @@ export function createSkydome(): SkydomeHandle {
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
+      ...makeTuningUniforms(),
       uSunDir: { value: new THREE.Vector3(0, 0.5, -1).normalize() },
       uSunAltDeg: { value: 30 },
       uBeta: { value: 0.08 },

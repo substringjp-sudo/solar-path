@@ -40,6 +40,7 @@ import {
   type LayerKey,
 } from '../../utils/skyColumn';
 import type { CloudData } from '../../utils/weather';
+import { getTuning } from '../../utils/skyTuning';
 import { cloudAtlasKey, type CloudAtlas } from './cloudAtlas';
 
 export type LayerType = 'high' | 'mid' | 'low';
@@ -279,11 +280,68 @@ function placeClouds(
   const minNightAmbient = { r: 0.015, g: 0.022, b: 0.040 };
   const out: CloudInstanceData[] = [];
 
-  // 운량이 높은 방향부터 채워 용량이 모자랄 때 빈 하늘이 아니라
-  // 옅은 구름이 먼저 잘리게 합니다.
-  const ordered = samples
-    .filter(s => s.cover > 0.06)
-    .sort((a, b) => b.cover - a.cover);
+  // ── 어떤 방향에 빌보드를 놓을지 ──────────────────────────────────────────
+  //
+  // 예전에는 전체를 운량 내림차순으로 정렬해 앞에서부터 잘랐습니다.
+  // 그러면 **저층이 예산을 독점합니다.** 측정 (예산 160개):
+  //
+  //   상황     저층  중층  상층   잘려나간 방향
+  //   6/8       147     6     7        371
+  //   8/8       160     0     0        416
+  //
+  // 8/8에서 중·상층이 통째로 0입니다. 새털구름(권운)은 저층이 거의 없을 때만
+  // 살아남았고, 그게 "구름 형태가 다양하지 않다"의 정체였습니다.
+  //
+  // 그래서 **층마다 몫을 따로 줍니다.** 남는 몫은 다른 층이 가져갑니다.
+  const LAYER_SHARE: Record<LayerKey, number> = { low: 0.45, mid: 0.22, high: 0.33 };
+
+  // 덱이 완전히 덮은 방향에는 빌보드가 필요 없습니다.
+  // OVC에서 덱은 불투명하므로 그 위에 얹는 빌보드는 순수한 오버드로입니다 —
+  // 하필 가장 무거운 상황(하늘이 구름으로 꽉 찬 때)에서 가장 크게 낭비됩니다.
+  const deckSeals = (cover: number) => cover >= getTuning().deckSealCover;
+
+  // **아래층이 막으면 위층도 안 보입니다.**
+  // 셸 반경이 저 400 < 중 430 < 상 460 이고 카메라는 원점이므로, 저층 덱이
+  // 불투명해진 방향에서는 중·상층이 그 뒤에 완전히 가립니다. 이걸 빼지 않으면
+  // 8/8에서 저층 빌보드를 없앤 만큼 중·상층이 그 자리를 채워, 보이지도 않는
+  // 빌보드 160장을 그리게 됩니다.
+  const dirKey = (s: LayerSample) => `${s.azimuthDeg.toFixed(1)}|${s.elevationDeg.toFixed(1)}`;
+  const sealedBelow: Record<LayerKey, Set<string>> = { low: new Set(), mid: new Set(), high: new Set() };
+  for (const s of samples) {
+    if (!deckSeals(s.cover)) continue;
+    const k = dirKey(s);
+    if (s.layer === 'low') {
+      sealedBelow.low.add(k);
+      sealedBelow.mid.add(k);
+      sealedBelow.high.add(k);
+    } else if (s.layer === 'mid') {
+      sealedBelow.mid.add(k);
+      sealedBelow.high.add(k);
+    } else {
+      sealedBelow.high.add(k);
+    }
+  }
+
+  const byLayer: Record<LayerKey, LayerSample[]> = { low: [], mid: [], high: [] };
+  for (const s of samples) {
+    if (s.cover <= 0.06) continue;
+    if (sealedBelow[s.layer].has(dirKey(s))) continue;
+    byLayer[s.layer].push(s);
+  }
+  for (const k of ['low', 'mid', 'high'] as LayerKey[]) {
+    byLayer[k].sort((a, b) => b.cover - a.cover);
+  }
+
+  const ordered: LayerSample[] = [];
+  const leftovers: LayerSample[] = [];
+  for (const k of ['low', 'mid', 'high'] as LayerKey[]) {
+    const quota = Math.floor(maxTotal * LAYER_SHARE[k]);
+    ordered.push(...byLayer[k].slice(0, quota));
+    leftovers.push(...byLayer[k].slice(quota));
+  }
+  // 쓰지 않은 몫은 운량이 높은 순서로 다른 층이 채웁니다.
+  leftovers.sort((a, b) => b.cover - a.cover);
+  ordered.push(...leftovers);
 
   for (const s of ordered) {
     if (out.length >= maxTotal) break;

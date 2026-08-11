@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import type { CloudAtlas } from './cloudAtlas';
 import { type CloudInstanceData } from './cloudPlacement';
-import { ATMOSPHERE_GLSL, applyCloudDimming } from '../../utils/atmosphere';
+import { ATMOSPHERE_GLSL, applyCloudDimming, makeTuningUniforms } from '../../utils/atmosphere';
 
 export interface CloudField {
   mesh: THREE.InstancedMesh;
@@ -181,6 +181,7 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
+      ...makeTuningUniforms(),
       uAtlas: { value: atlas.texture },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uShadeContrast: { value: 1.35 },

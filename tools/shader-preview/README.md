@@ -126,3 +126,21 @@ node tools/shader-preview/verify-timeline.js
 핵심 검사는 **키프레임 시각에서 사전 계산 결과가 직접 계산과 정확히 일치하는가**
 입니다 — 여기가 어긋나면 "빠르지만 다른 하늘"이 됩니다.
 배경은 `docs/SKY_TIMELINE.md`.
+
+## ⚠ 셰이더 상수를 uniform으로 바꿀 때
+
+`ATMOSPHERE_GLSL`의 표시·감광·박명 상수는 개발자 튜닝을 위해 **uniform**입니다
+(`src/utils/skyTuning.ts`). 여기 빌더들은 앱과 달리 머티리얼을 손으로 만들기
+때문에, uniform을 안 넘기면 **GL 기본값 0**이 되어 셰이더가 조용히 죽습니다 —
+에러 없이 하늘만 밋밋한 회색이 됩니다. 이 세션에서 두 번 겪었습니다.
+
+그래서 모든 빌더가 `TUNE_UNIFORMS`를 심고 모든 `ShaderMaterial`에 펼쳐 넣습니다:
+
+```js
+const TUNE_UNIFORMS=${JSON.stringify(A.makeTuningUniforms())};
+...
+new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS, /* 나머지 */}})
+```
+
+새 uniform을 추가하면 `makeTuningUniforms`에만 넣으면 자동으로 따라옵니다.
+확인법: 흐린날 8컷의 화면 밝기가 218.1 / 200.2 / 172.9 / 107.2 근처인가.

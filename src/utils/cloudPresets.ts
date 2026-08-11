@@ -13,6 +13,7 @@
  */
 
 import type { CloudData } from './weather';
+import { getTuning } from './skyTuning';
 import type { LayerKey } from './skyColumn';
 
 export type CloudPresetName =
@@ -366,6 +367,10 @@ export function resolvePresetFromWeather(
 ): CloudPresetName {
   const precip = wx.precipitation ?? 0;
   const rh = wx.humidity ?? 60;
+  // 문턱은 개발자 패널에서 조정합니다 (utils/skyTuning.ts).
+  // "비가 오는데 왜 뭉게구름이냐" 같은 판단은 실제 하늘을 보면서 맞춰야
+  // 하는 값이라, 상수로 박아두면 매번 빌드를 다시 해야 합니다.
+  const T = getTuning();
 
   if (layer === 'high') {
     if (cover > 0.65) return 'Cirrostratus';
@@ -379,10 +384,13 @@ export function resolvePresetFromWeather(
   }
 
   // low
-  if (precip > 2.0 && wx.highPct > 45) return 'Cumulonimbus';
-  if (precip > 0.3 && cover > 0.6) return 'Nimbostratus';
-  if (cover > 0.6) return rh > 90 ? 'Stratus' : 'Stratocumulus';
-  if (cover > 0.35) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';
+  // 적란운 조건이 강수 2.0mm/h + 상층 45% 였는데, 2.0mm/h는 꽤 센 비라
+  // 실제로는 거의 걸리지 않았습니다. 대류성 소나기의 서명(상층까지 발달)은
+  // 유지하되 문턱을 관측 가능한 수준으로 낮춥니다.
+  if (precip > T.cbPrecipMm && wx.highPct > T.cbHighPct) return 'Cumulonimbus';
+  if (precip > T.nsPrecipMm && cover > T.nsCover) return 'Nimbostratus';
+  if (cover > T.stratusCover) return rh > T.stratusHumidityPct ? 'Stratus' : 'Stratocumulus';
+  if (cover > T.cumulusCover) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';
   return 'Cumulus';
 }
 
