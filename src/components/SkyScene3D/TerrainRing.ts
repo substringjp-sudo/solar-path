@@ -209,6 +209,40 @@ export function createCompassGroup(): THREE.Group {
   return group;
 }
 
+const tempSunDir = new THREE.Vector3();
+const tempNormal = new THREE.Vector3();
+
+export function disposeTerrainRing(mesh: THREE.Mesh): void {
+  mesh.geometry?.dispose();
+  if (Array.isArray(mesh.material)) {
+    mesh.material.forEach(m => m.dispose());
+  } else {
+    (mesh.material as THREE.Material)?.dispose();
+  }
+}
+
+export function disposeGroundPlane(mesh: THREE.Mesh): void {
+  mesh.geometry?.dispose();
+  if (Array.isArray(mesh.material)) {
+    mesh.material.forEach(m => m.dispose());
+  } else {
+    (mesh.material as THREE.Material)?.dispose();
+  }
+}
+
+export function disposeCompassGroup(group: THREE.Group): void {
+  group.traverse(child => {
+    if (child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.LineSegments || child instanceof THREE.Points) {
+      child.geometry?.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        (child.material as THREE.Material)?.dispose();
+      }
+    }
+  });
+}
+
 /**
  * 지형 및 지면 색상을 태양 고도, 방위각, 날씨에 따라 입체 음영(Hillshading)으로 업데이트합니다.
  */
@@ -232,7 +266,7 @@ export function updateTerrainColors(
   // 태양 입사광 단위 벡터 L
   const altRad = (sunAltitude * Math.PI) / 180;
   const azRad = (sunAzimuth * Math.PI) / 180;
-  const sunDir = new THREE.Vector3(
+  tempSunDir.set(
     Math.sin(azRad) * Math.cos(altRad),
     Math.sin(altRad),
     -Math.cos(azRad) * Math.cos(altRad)
@@ -257,10 +291,10 @@ export function updateTerrainColors(
   for (let i = 0; i < segments; i++) {
     // 세그먼트별 지형 법선 벡터 N (지평선 원통 세그먼트 방향)
     const segAz = (i / segments) * Math.PI * 2;
-    const normal = new THREE.Vector3(Math.sin(segAz), 0.1, -Math.cos(segAz)).normalize();
+    tempNormal.set(Math.sin(segAz), 0.1, -Math.cos(segAz)).normalize();
 
     // 태양 입사각 내적 N dot L (입체 음영 요인)
-    const dot = Math.max(-0.4, Math.min(1.0, normal.dot(sunDir)));
+    const dot = Math.max(-0.4, Math.min(1.0, tempNormal.dot(tempSunDir)));
     const hillshade = (dot + 0.4) / 1.4; // 0 ~ 1 범위로 정규화
 
     const bIdx = i * 2;

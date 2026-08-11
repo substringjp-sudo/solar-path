@@ -23,7 +23,16 @@ import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
 
 import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
-import { createTerrainRing, createGroundPlane, createCompassGroup, updateTerrainColors, updateGroundColors } from './TerrainRing';
+import {
+  createTerrainRing,
+  createGroundPlane,
+  createCompassGroup,
+  updateTerrainColors,
+  updateGroundColors,
+  disposeTerrainRing,
+  disposeGroundPlane,
+  disposeCompassGroup,
+} from './TerrainRing';
 import { createSun, updateSun, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
 import {
@@ -45,12 +54,22 @@ import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
-function getPlanetDirectionVector(key: PlanetKey, date: Date): THREE.Vector3 {
+// 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
+const tempPlanetVec = new THREE.Vector3();
+const projTempVec = new THREE.Vector3();
+const trackingMwVec = new THREE.Vector3();
+const sunDirDeckVec = new THREE.Vector3();
+
+function getPlanetDirectionVector(
+  key: PlanetKey,
+  date: Date,
+  targetVec: THREE.Vector3 = tempPlanetVec
+): THREE.Vector3 {
   const eq = getPlanetEquatorialCoord(key, date);
   const raRad = (eq.raHours / 24) * Math.PI * 2;
   const decRad = (eq.decDeg * Math.PI) / 180;
   const cd = Math.cos(decRad);
-  return new THREE.Vector3(cd * Math.cos(raRad), cd * Math.sin(raRad), Math.sin(decRad)).normalize();
+  return targetVec.set(cd * Math.cos(raRad), cd * Math.sin(raRad), Math.sin(decRad)).normalize();
 }
 
 export interface LayerState {
@@ -440,8 +459,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
     // Render loop
     let contextLost = false;
-    const onContextLost = () => { contextLost = true; };
-    // expo-gl 에는 addEventListener가 없으나, gl 객체에 직접 플래그 노출
+    let consecutiveErrors = 0;
     (gl as any).__contextLostRef = (v: boolean) => { contextLost = v; };
 
     const animate = () => {
@@ -449,137 +467,150 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       animFrameRef.current = requestAnimationFrame(animate);
 
       try {
-      // 120fps 급 시간 슬라이더 보간 (Lerp Smooth Time Shift)
-      const timeDiff = targetTimeMsRef.current - renderedTimeMsRef.current;
-      if (Math.abs(timeDiff) > 10) {
-        renderedTimeMsRef.current += timeDiff * 0.22;
-      }
-      const frameDate = new Date(renderedTimeMsRef.current);
-      updateScene(frameDate);
-
-      // 3D 천체 카메라 트래킹 (Smooth Celestial Camera Tracking)
-      if (trackingTargetRef.current) {
-        let tPos: THREE.Vector3 | null = null;
-        const target = trackingTargetRef.current;
-        if (target === 'sun' && sunRef.current?.mesh) {
-          tPos = sunRef.current.mesh.position;
-        } else if (target === 'moon' && moonRef.current?.group) {
-          tPos = moonRef.current.group.position;
-        } else if (target === 'milkyway') {
-          tPos = new THREE.Vector3(0.5, -0.4, -0.7).normalize().multiplyScalar(400).applyMatrix3(equToHorizonRef.current);
-        } else if (target.startsWith('planet_')) {
-          const idx = parseInt(target.split('_')[1], 10);
-          const keys: PlanetKey[] = ['jupiter', 'saturn', 'venus'];
-          if (keys[idx]) {
-            const dir = getPlanetDirectionVector(keys[idx], frameDate);
-            tPos = dir.multiplyScalar(380).applyMatrix3(equToHorizonRef.current);
-          }
+        // 120fps 급 시간 슬라이더 보간 (Lerp Smooth Time Shift)
+        const timeDiff = targetTimeMsRef.current - renderedTimeMsRef.current;
+        if (Math.abs(timeDiff) > 10) {
+          renderedTimeMsRef.current += timeDiff * 0.22;
         }
+        const frameDate = new Date(renderedTimeMsRef.current);
+        updateScene(frameDate);
 
-        if (tPos) {
-          const targetAz = (Math.atan2(tPos.x, -tPos.z) * (180 / Math.PI) + 360) % 360;
-          const horizDist = Math.hypot(tPos.x, tPos.z);
-          const targetElev = Math.atan2(tPos.y, horizDist) * (180 / Math.PI);
-
-          let azDiff = targetAz - cameraAzRef.current;
-          while (azDiff > 180) azDiff -= 360;
-          while (azDiff < -180) azDiff += 360;
-
-          cameraAzRef.current = (cameraAzRef.current + azDiff * 0.14 + 360) % 360;
-          cameraElevRef.current += (targetElev - cameraElevRef.current) * 0.14;
-          setCameraAzimuth(cameraAzRef.current);
-        }
-      }
-      
-      const observerElev = simRef.current?.terrain?.observerElevation ?? 0;
-      // 해발 고도(m) 반영: 100m당 0.2 유닛 (예: 500m 산 정상 = 1.0 유닛 오프셋)
-      const cameraY = Math.max(0, observerElev * 0.002);
-      camera.position.set(0, cameraY, 0);
-
-      const azRad = (cameraAzRef.current * Math.PI) / 180;
-      const elevRad = (cameraElevRef.current * Math.PI) / 180;
-      const lookDist = 100;
-      camera.lookAt(
-        lookDist * Math.cos(elevRad) * Math.sin(azRad),
-        cameraY + lookDist * Math.sin(elevRad),
-        -lookDist * Math.cos(elevRad) * Math.cos(azRad)
-      );
-
-      // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
-      // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
-      applyTuningUniforms(skydomeRef.current?.material.uniforms);
-      applyTuningUniforms(sunRef.current?.material.uniforms);
-      applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
-      const deckLayers = cloudDeckRef.current?.layers;
-      if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
-
-      renderer.render(scene, camera);
-
-      // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
-      // ── 250ms(4fps) 스로틀: React setState가 렌더루프보다 훨씬 무거움 ──────
-      const nowForLabel = Date.now();
-      if (layersRef.current.labels !== false && nowForLabel - lastLabelUpdateMsRef.current >= 250) {
-        lastLabelUpdateMsRef.current = nowForLabel;
-        const w = gl.drawingBufferWidth;
-        const h = gl.drawingBufferHeight;
-        const ratio = pixelRatioRef.current || 1;
-
-        const proj = (v3: THREE.Vector3) => {
-          const p = v3.clone().project(camera);
-          const visible = p.z < 1.0 && p.x >= -1.1 && p.x <= 1.1 && p.y >= -1.1 && p.y <= 1.1;
-          const px = ((p.x + 1) * w) / 2 / ratio;
-          const py = ((-p.y + 1) * h) / 2 / ratio;
-          return { px, py, visible };
-        };
-
-        const labs: Array<{ id: string; name: string; x: number; y: number; color: string }> = [];
-
-        // 1. 태양 (Sun)
-        if (sunRef.current?.mesh && layersRef.current.sun && sunAltRef.current > -0.9) {
-          const p = proj(sunRef.current.mesh.position);
-          if (p.visible) labs.push({ id: 'sun', name: '태양 Sun', x: p.px, y: p.py, color: '#FBBF24' });
-        }
-        // 2. 달 (Moon)
-        if (moonRef.current?.group && layersRef.current.moon) {
-          const p = proj(moonRef.current.group.position);
-          if (p.visible) labs.push({ id: 'moon', name: '달 Moon', x: p.px, y: p.py, color: '#38BDF8' });
-        }
-        // 3. 은하수 중심부 (Milky Way Center)
-        if (layersRef.current.milkyway) {
-          const mwPos = new THREE.Vector3(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
-          mwPos.applyMatrix3(equToHorizonRef.current);
-          if (mwPos.y > 0) {
-            const p = proj(mwPos);
-            if (p.visible) labs.push({ id: 'milkyway', name: '은하수 중심 Milky Way', x: p.px, y: p.py, color: '#C4B5FD' });
-          }
-        }
-        // 4. 주요 행성 (Planets: 목성, 토성, 금성)
-        if (layersRef.current.planets) {
-          const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
-            { key: 'jupiter', name: '목성 Jupiter', color: '#F43F5E' },
-            { key: 'saturn', name: '토성 Saturn', color: '#F59E0B' },
-            { key: 'venus', name: '금성 Venus', color: '#38BDF8' },
-          ];
-          planetList.forEach((pl, idx) => {
-            const pDir = getPlanetDirectionVector(pl.key, frameDate);
-            const pWorld = pDir.multiplyScalar(380);
-            pWorld.applyMatrix3(equToHorizonRef.current);
-            if (pWorld.y > 0) {
-              const p = proj(pWorld);
-              if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
+        // 3D 천체 카메라 트래킹 (Smooth Celestial Camera Tracking)
+        if (trackingTargetRef.current) {
+          let tPos: THREE.Vector3 | null = null;
+          const target = trackingTargetRef.current;
+          if (target === 'sun' && sunRef.current?.mesh) {
+            tPos = sunRef.current.mesh.position;
+          } else if (target === 'moon' && moonRef.current?.group) {
+            tPos = moonRef.current.group.position;
+          } else if (target === 'milkyway') {
+            tPos = trackingMwVec
+              .set(0.5, -0.4, -0.7)
+              .normalize()
+              .multiplyScalar(400)
+              .applyMatrix3(equToHorizonRef.current);
+          } else if (target.startsWith('planet_')) {
+            const idx = parseInt(target.split('_')[1], 10);
+            const keys: PlanetKey[] = ['jupiter', 'saturn', 'venus'];
+            if (keys[idx]) {
+              const dir = getPlanetDirectionVector(keys[idx], frameDate, tempPlanetVec);
+              tPos = dir.multiplyScalar(380).applyMatrix3(equToHorizonRef.current);
             }
-          });
+          }
+
+          if (tPos) {
+            const targetAz = (Math.atan2(tPos.x, -tPos.z) * (180 / Math.PI) + 360) % 360;
+            const horizDist = Math.hypot(tPos.x, tPos.z);
+            const targetElev = Math.atan2(tPos.y, horizDist) * (180 / Math.PI);
+
+            let azDiff = targetAz - cameraAzRef.current;
+            while (azDiff > 180) azDiff -= 360;
+            while (azDiff < -180) azDiff += 360;
+
+            cameraAzRef.current = (cameraAzRef.current + azDiff * 0.14 + 360) % 360;
+            cameraElevRef.current += (targetElev - cameraElevRef.current) * 0.14;
+            setCameraAzimuth(cameraAzRef.current);
+          }
         }
 
-        setCelestialLabels(labs);
-      }
+        const observerElev = simRef.current?.terrain?.observerElevation ?? 0;
+        // 해발 고도(m) 반영: 100m당 0.2 유닛 (예: 500m 산 정상 = 1.0 유닛 오프셋)
+        const cameraY = Math.max(0, observerElev * 0.002);
+        camera.position.set(0, cameraY, 0);
 
+        const azRad = (cameraAzRef.current * Math.PI) / 180;
+        const elevRad = (cameraElevRef.current * Math.PI) / 180;
+        const lookDist = 100;
+        camera.lookAt(
+          lookDist * Math.cos(elevRad) * Math.sin(azRad),
+          cameraY + lookDist * Math.sin(elevRad),
+          -lookDist * Math.cos(elevRad) * Math.cos(azRad)
+        );
+
+        // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
+        // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
+        applyTuningUniforms(skydomeRef.current?.material.uniforms);
+        applyTuningUniforms(sunRef.current?.material.uniforms);
+        applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
+        const deckLayers = cloudDeckRef.current?.layers;
+        if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
+
+        renderer.render(scene, camera);
+        consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
+
+        // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
+        // ── 250ms(4fps) 스로틀: React setState가 렌더루프보다 훨씬 무거움 ──────
+        const nowForLabel = Date.now();
+        if (layersRef.current.labels !== false && nowForLabel - lastLabelUpdateMsRef.current >= 250) {
+          lastLabelUpdateMsRef.current = nowForLabel;
+          const w = gl.drawingBufferWidth;
+          const h = gl.drawingBufferHeight;
+          const ratio = pixelRatioRef.current || 1;
+
+          const proj = (v3: THREE.Vector3) => {
+            projTempVec.copy(v3).project(camera);
+            const visible =
+              projTempVec.z < 1.0 &&
+              projTempVec.x >= -1.1 &&
+              projTempVec.x <= 1.1 &&
+              projTempVec.y >= -1.1 &&
+              projTempVec.y <= 1.1;
+            const px = ((projTempVec.x + 1) * w) / 2 / ratio;
+            const py = ((-projTempVec.y + 1) * h) / 2 / ratio;
+            return { px, py, visible };
+          };
+
+          const labs: Array<{ id: string; name: string; x: number; y: number; color: string }> = [];
+
+          // 1. 태양 (Sun)
+          if (sunRef.current?.mesh && layersRef.current.sun && sunAltRef.current > -0.9) {
+            const p = proj(sunRef.current.mesh.position);
+            if (p.visible) labs.push({ id: 'sun', name: '태양 Sun', x: p.px, y: p.py, color: '#FBBF24' });
+          }
+          // 2. 달 (Moon)
+          if (moonRef.current?.group && layersRef.current.moon) {
+            const p = proj(moonRef.current.group.position);
+            if (p.visible) labs.push({ id: 'moon', name: '달 Moon', x: p.px, y: p.py, color: '#38BDF8' });
+          }
+          // 3. 은하수 중심부 (Milky Way Center)
+          if (layersRef.current.milkyway) {
+            const mwPos = trackingMwVec.set(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
+            mwPos.applyMatrix3(equToHorizonRef.current);
+            if (mwPos.y > 0) {
+              const p = proj(mwPos);
+              if (p.visible) labs.push({ id: 'milkyway', name: '은하수 중심 Milky Way', x: p.px, y: p.py, color: '#C4B5FD' });
+            }
+          }
+          // 4. 주요 행성 (Planets: 목성, 토성, 금성)
+          if (layersRef.current.planets) {
+            const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
+              { key: 'jupiter', name: '목성 Jupiter', color: '#F43F5E' },
+              { key: 'saturn', name: '토성 Saturn', color: '#F59E0B' },
+              { key: 'venus', name: '금성 Venus', color: '#38BDF8' },
+            ];
+            planetList.forEach((pl, idx) => {
+              const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);
+              const pWorld = pDir.multiplyScalar(380);
+              pWorld.applyMatrix3(equToHorizonRef.current);
+              if (pWorld.y > 0) {
+                const p = proj(pWorld);
+                if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
+              }
+            });
+          }
+
+          setCelestialLabels(labs);
+        }
       } catch (e) {
-        // 렌더 루프 내 예외: 컨텍스트 소실 등 GPU 오류를 잡아 루프를 안전하게 종료
-        // 이게 없으면 오류 발생 시 화이트 화면 후 았 정지
-        console.warn('[SkyScene] render error, stopping loop:', e);
-        contextLost = true;
-        return;
+        consecutiveErrors++;
+        console.warn(`[SkyScene] Render frame warning (${consecutiveErrors}/10):`, e);
+        // 단발성 렌더 에러로 루프 전체가 무조건 멈춰서 화면이 백화되는 현상 예방
+        // 연속 10회 이상 에러 시에만 멈춤
+        if (consecutiveErrors >= 10) {
+          console.error('[SkyScene] Exceeded consecutive render error limit, pausing loop.');
+          contextLost = true;
+          return;
+        }
       }
 
       gl.endFrameEXP();
@@ -814,7 +845,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     if (deck) {
       const sAlt = (sunAltRef.current * Math.PI) / 180;
       const sAz = (sunAzRef.current * Math.PI) / 180;
-      const sunDir = new THREE.Vector3(
+      const sunDir = sunDirDeckVec.set(
         Math.cos(sAlt) * Math.sin(sAz),
         Math.sin(sAlt),
         -Math.cos(sAlt) * Math.cos(sAz)
@@ -870,8 +901,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
     if (terrainRef.current) {
       scene.remove(terrainRef.current);
-      terrainRef.current.geometry.dispose();
-      (terrainRef.current.material as THREE.Material).dispose();
+      disposeTerrainRing(terrainRef.current);
+      terrainRef.current = null;
     }
 
     const terrain = createTerrainRing(sim.terrain.panoramicAngles);
@@ -883,26 +914,82 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     return () => {
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = 0;
       }
-      sceneRef.current?.traverse(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-        }
-      });
+
+      skydomeRef.current?.dispose();
+      skydomeRef.current = null;
+
+      if (terrainRef.current) {
+        disposeTerrainRing(terrainRef.current);
+        terrainRef.current = null;
+      }
+
+      if (groundRef.current) {
+        disposeGroundPlane(groundRef.current);
+        groundRef.current = null;
+      }
+
+      if (compassGroupRef.current) {
+        disposeCompassGroup(compassGroupRef.current);
+        compassGroupRef.current = null;
+      }
+
+      sunRef.current?.dispose();
+      sunRef.current = null;
+
+      moonRef.current?.dispose();
+      moonRef.current = null;
+
       starFieldRef.current?.dispose();
       starFieldRef.current = null;
+
       milkyWayRef.current?.dispose();
       milkyWayRef.current = null;
+
+      celestialPathsRef.current?.dispose();
+      celestialPathsRef.current = null;
+
       cloudDeckRef.current?.dispose();
       cloudDeckRef.current = null;
+
       cloudAtlasRef.current?.dispose();
       cloudAtlasRef.current = null;
-      cloudFieldRef.current = null;
+
+      if (cloudFieldRef.current) {
+        cloudFieldRef.current.dispose();
+        cloudFieldRef.current = null;
+      }
+
+      if (sceneRef.current) {
+        sceneRef.current.traverse(child => {
+          if (
+            child instanceof THREE.Mesh ||
+            child instanceof THREE.Points ||
+            child instanceof THREE.Line ||
+            child instanceof THREE.LineSegments ||
+            child instanceof THREE.InstancedMesh
+          ) {
+            child.geometry?.dispose();
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => m.dispose());
+            } else {
+              (child.material as THREE.Material)?.dispose();
+            }
+          }
+        });
+        sceneRef.current.clear();
+        sceneRef.current = null;
+      }
+
+      if (rendererRef.current) {
+        try {
+          rendererRef.current.dispose();
+        } catch (_) {}
+        rendererRef.current = null;
+      }
+
+      glRef.current = null;
     };
   }, []);
 

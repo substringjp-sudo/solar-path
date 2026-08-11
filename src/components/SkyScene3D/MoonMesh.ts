@@ -107,6 +107,7 @@ void main() {
 export interface MoonHandle {
   group: THREE.Group;
   material: THREE.ShaderMaterial;
+  dispose: () => void;
 }
 
 /**
@@ -140,7 +141,14 @@ export function createMoonGroup(): MoonHandle {
   moonMesh.renderOrder = 6; // 천체 경로선 및 가이드라인보다 위에 선명하게 표현
   group.add(moonMesh);
 
-  return { group, material };
+  return {
+    group,
+    material,
+    dispose: () => {
+      moonGeo.dispose();
+      material.dispose();
+    },
+  };
 }
 
 /**
