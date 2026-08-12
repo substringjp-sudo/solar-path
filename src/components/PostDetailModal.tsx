@@ -101,17 +101,25 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* Visual Comparison: Photo & 3D Simulation */}
             <View style={styles.visualContainer}>
-              <View style={styles.photoFrame}>
-                <Image source={{ uri: photo.imageUrl || photo.localUri }} style={styles.mainPhoto} resizeMode="cover" />
-                <Text style={styles.photoLabel}>📷 촬영 사진</Text>
-              </View>
+              {(() => {
+                const photoUri = typeof photo.imageUrl === 'string' ? photo.imageUrl : typeof photo.localUri === 'string' ? photo.localUri : '';
+                return photoUri ? (
+                  <View style={styles.photoFrame}>
+                    <Image source={{ uri: photoUri }} style={styles.mainPhoto} resizeMode="cover" />
+                    <Text style={styles.photoLabel}>📷 촬영 사진</Text>
+                  </View>
+                ) : null;
+              })()}
 
-              {(photo.simulationImageUrl || photo.simulationLocalUri) && (
-                <View style={styles.photoFrame}>
-                  <Image source={{ uri: photo.simulationImageUrl || photo.simulationLocalUri }} style={styles.mainPhoto} resizeMode="cover" />
-                  <Text style={styles.photoLabel}>🌅 3D 노을 시뮬레이션</Text>
-                </View>
-              )}
+              {(() => {
+                const simUri = typeof photo.simulationImageUrl === 'string' ? photo.simulationImageUrl : typeof photo.simulationLocalUri === 'string' ? photo.simulationLocalUri : '';
+                return simUri ? (
+                  <View style={styles.photoFrame}>
+                    <Image source={{ uri: simUri }} style={styles.mainPhoto} resizeMode="cover" />
+                    <Text style={styles.photoLabel}>🌅 3D 노을 시뮬레이션</Text>
+                  </View>
+                ) : null;
+              })()}
             </View>
 
             {/* Metadata Section */}

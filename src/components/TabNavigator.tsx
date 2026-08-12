@@ -129,28 +129,29 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
 
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
-      <View style={[styles.page, { width }]}>
-        {activeTab === 'sky' ? (
-          <SkyScreen
-            theme={theme}
-            currentTime={currentTime}
-            setCurrentTime={setCurrentTime}
-            isTimeMachineEnabled={isTimeMachineEnabled}
-            setTimeMachineEnabled={setTimeMachineEnabled}
-            events={events}
-            setMapVisible={setMapVisible}
-          />
-        ) : activeTab === 'map' ? (
-          <MapScreen theme={theme} currentTime={currentTime} isActive={true} />
-        ) : (
-          <Gallery
-            theme={theme}
-            dynamicTheme={dynamicTheme}
-            globalPhotos={globalPhotos}
-            myPhotos={myPhotos}
-            removeGlobalPhoto={removeGlobalPhoto}
-          />
-        )}
+      <View style={[styles.page, { width }, activeTab !== 'sky' && styles.hiddenPage]}>
+        <SkyScreen
+          theme={theme}
+          currentTime={currentTime}
+          setCurrentTime={setCurrentTime}
+          isTimeMachineEnabled={isTimeMachineEnabled}
+          setTimeMachineEnabled={setTimeMachineEnabled}
+          events={events}
+          setMapVisible={setMapVisible}
+          isActive={activeTab === 'sky'}
+        />
+      </View>
+      <View style={[styles.page, { width }, activeTab !== 'map' && styles.hiddenPage]}>
+        <MapScreen theme={theme} currentTime={currentTime} isActive={activeTab === 'map'} />
+      </View>
+      <View style={[styles.page, { width }, activeTab !== 'gallery' && styles.hiddenPage]}>
+        <Gallery
+          theme={theme}
+          dynamicTheme={dynamicTheme}
+          globalPhotos={globalPhotos}
+          myPhotos={myPhotos}
+          removeGlobalPhoto={removeGlobalPhoto}
+        />
       </View>
     </View>
   );
@@ -163,5 +164,8 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
+  },
+  hiddenPage: {
+    display: 'none',
   },
 });

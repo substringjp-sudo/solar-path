@@ -82,6 +82,11 @@ void main() {
   // 정시 눈금
   float tick = smoothstep(0.93, 1.0, abs(fract(vHours) * 2.0 - 1.0));
 
+  // 이동 방향 화살표 (> > >) 마커 — 태양이 진행하는 방향(미래)으로 뾰족하게 가리킴
+  float arrowFrac = fract(vHours * 1.5);
+  float vShape = (1.0 - abs(vAcross)) * 0.16; // 리본 중앙이 미래 방향으로 뾰족한 V자
+  float arrowLine = smoothstep(0.04, 0.0, abs(arrowFrac - vShape - 0.4)) * smoothstep(0.05, 0.2, 1.0 - abs(vAcross));
+
   // 지평선 아래 구간은 점선 처리 (보이지 않는 경로)
   float below = step(vAltDeg, 0.0);
   float dash = step(0.5, fract(vHours * 6.0));
@@ -90,10 +95,11 @@ void main() {
   float a = core * timeFade * belowMask * uOpacity;
   a += nowGlow * core * 0.9;
   a += tick * core * 0.35;
+  a += arrowLine * 0.75;
 
   if (a <= 0.004) discard;
 
-  vec3 col = uColor + vec3(1.0) * (nowGlow * 0.55 + tick * 0.25);
+  vec3 col = uColor + vec3(1.0) * (nowGlow * 0.55 + tick * 0.25 + arrowLine * 0.6);
   gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
 }
 `;
@@ -166,20 +172,12 @@ export function createCelestialPathsGroup(): CelestialPathsGroup {
   containerGroup.add(sun.mesh);
   containerGroup.add(moon.mesh);
 
-  // 관측자 기준 바닥 그림자 — 태양 반대 방향으로 늘어나는 평면
-  const shadowGeo = new THREE.PlaneGeometry(12, 40);
-  const shadowMat = new THREE.MeshBasicMaterial({
-    color: 0x020308,
-    transparent: true,
-    opacity: 0.6,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
+  // 더미 바닥 그림자 메시 (사용자 요청으로 사각형 폴리곤 비활성화)
+  const shadowGeo = new THREE.BufferGeometry();
+  const shadowMat = new THREE.MeshBasicMaterial({ visible: false });
   const groundShadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
   groundShadowMesh.name = 'groundShadowMesh';
-  groundShadowMesh.rotation.x = -Math.PI / 2;
-  groundShadowMesh.position.y = -1;
-  containerGroup.add(groundShadowMesh);
+  groundShadowMesh.visible = false;
 
   return {
     sun,
@@ -295,29 +293,7 @@ export function updateCelestialPaths(
   fillRibbon(paths.sun, getSunPath(date, lat, lng), nowHours);
   fillRibbon(paths.moon, getMoonPath(date, lat, lng), nowHours);
 
-  // 바닥 그림자 — 태양이 지평선 위에 있을 때만
+  // 바닥 그림자 비활성화
   const shadow = paths.groundShadowMesh;
-  if (sunAltitude > -1.0) {
-    shadow.visible = true;
-    // 고도가 낮을수록 그림자가 길어짐 (tan 관계)
-    const shadowLength = Math.max(
-      10,
-      Math.min(120, 25 / Math.tan(Math.max(0.08, (sunAltitude * Math.PI) / 180)))
-    );
-    shadow.scale.set(1.0, shadowLength / 40, 1.0);
-
-    const shadowAzRad = ((sunAzimuth + 180) * Math.PI) / 180;
-    shadow.position.set(
-      (shadowLength / 2) * Math.sin(shadowAzRad),
-      -1.2,
-      -(shadowLength / 2) * Math.cos(shadowAzRad)
-    );
-    shadow.rotation.z = -shadowAzRad;
-    (shadow.material as THREE.MeshBasicMaterial).opacity = Math.max(
-      0.15,
-      Math.min(0.65, 0.7 - sunAltitude / 90)
-    );
-  } else {
-    shadow.visible = false;
-  }
+  shadow.visible = false;
 }

@@ -115,6 +115,7 @@ interface SkyScene3DProps {
    * 키프레임 사이를 보간해서 씁니다 (utils/skyTimeline.ts).
    */
   timeline?: SkyTimeline | null;
+  isActive?: boolean;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -169,6 +170,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   trackingTarget,
   onSelectTrackingTarget,
   timeline = null,
+  isActive = true,
 }) => {
   const { width, height } = useWindowDimensions();
   
@@ -223,6 +225,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const sceneWidthRef = useRef(SCENE_WIDTH);
 
   const timelineRef = useRef<SkyTimeline | null>(timeline);
+  const isActiveRef = useRef(isActive);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
   const targetTimeMsRef = useRef(currentTime.getTime());
@@ -232,6 +235,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** 구름 재빌드 당시 기상 배열. 정체성 비교로 슬라이더 변화를 잡습니다. */
   const lastCloudWeatherRef  = useRef<any[] | null>(null);
   const renderedTimeMsRef = useRef(currentTime.getTime());
+  /** 슬라이더 패스트 스크럽 시 구름 재빌드 디바운스/취소용 타이머 ref */
+  const cloudRebuildTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
 
   // ── 성능 캐시 ref ──────────────────────────────────────────────────────────
   /** makeAtmosphereParams 결과 캐시 (2분 간격) */
@@ -466,12 +473,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       if (contextLost) return; // 컨텍스트 소실 시 루프 중단
       animFrameRef.current = requestAnimationFrame(animate);
 
+      if (!isActiveRef.current) return; // 탭 비활성화 시 렌더링 스킵 (GPU/CPU 부하 및 메모리 절감)
+
       try {
-        // 120fps 급 시간 슬라이더 보간 (Lerp Smooth Time Shift)
-        const timeDiff = targetTimeMsRef.current - renderedTimeMsRef.current;
-        if (Math.abs(timeDiff) > 10) {
-          renderedTimeMsRef.current += timeDiff * 0.22;
-        }
+        // 즉시(0ms) 시간 이동 (타임 슬라이더 변경 시 부드러운 보간 없이 즉각 적용)
+        renderedTimeMsRef.current = targetTimeMsRef.current;
         const frameDate = new Date(renderedTimeMsRef.current);
         updateScene(frameDate);
 
@@ -758,11 +764,28 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     // 훨씬 촘촘히 갱신해도 됩니다 (씬 시각 1분 = 실제 구름 변화 한 칸).
     const sceneThresholdMin = sampled ? 0.5 : 2;
     if (weatherChanged || sceneDeltaMin > sceneThresholdMin || altDelta > 1.0 || wallDeltaSec > 30) {
-      rebuildCloudsForDate(targetDate, sampled);
-      lastCloudRebuildMsRef.current = nowMs;
-      lastCloudSunAltRef.current = sunAltRef.current;
-      lastCloudSceneMsRef.current = targetDate.getTime();
-      lastCloudWeatherRef.current = weatherRef.current;
+      const isScrubbing = useCelestialStore.getState().isGestureBlocked;
+
+      // 이전 구름 빌드 예약 취소 (Cancel pending rebuild tasks to prevent lag and memory accumulation)
+      if (cloudRebuildTimerRef.current) {
+        clearTimeout(cloudRebuildTimerRef.current);
+        cloudRebuildTimerRef.current = null;
+      }
+
+      const executeRebuild = () => {
+        rebuildCloudsForDate(targetDate, sampled);
+        lastCloudRebuildMsRef.current = Date.now();
+        lastCloudSunAltRef.current = sunAltRef.current;
+        lastCloudSceneMsRef.current = targetDate.getTime();
+        lastCloudWeatherRef.current = weatherRef.current;
+      };
+
+      if (isScrubbing && !sampled) {
+        // 빠른 드래그 스크럽 중에는 이전 연산을 취소하고 손을 뗀 시점(120ms 후)에 1회만 계산
+        cloudRebuildTimerRef.current = setTimeout(executeRebuild, 120);
+      } else {
+        executeRebuild();
+      }
     }
   }, [location]);
 
@@ -915,6 +938,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = 0;
+      }
+
+      if (cloudRebuildTimerRef.current) {
+        clearTimeout(cloudRebuildTimerRef.current);
+        cloudRebuildTimerRef.current = null;
       }
 
       skydomeRef.current?.dispose();

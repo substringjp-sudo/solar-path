@@ -94,50 +94,57 @@ export const Gallery: React.FC<GalleryProps> = ({
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
-            const itemWidth = (width - 44) / 2; // 16px margins + 12px gap
-            return (
-              <TouchableOpacity
-                style={[
-                  styles.galleryItem, 
-                  { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
-                  item.isPending && { opacity: 0.65 }
-                ]}
-                onPress={() => setSelectedPhotoForDetail(item)}
-              >
-                <Image
-                  source={{ uri: item.imageUrl }}
-                  style={styles.galleryImage}
-                />
-                {item.isPending && (
-                  <View style={styles.pendingBadge}>
-                    <Text style={styles.pendingText}>{t('uploadPending', language)}</Text>
-                  </View>
-                )}
-                <View style={styles.galleryMeta}>
-                  <Text numberOfLines={1} style={[styles.galleryTitle, { color: theme.text }]}>
-                    {item.locationName}
-                  </Text>
-                  <Text numberOfLines={1} style={[styles.galleryDate, { color: theme.subText }]}>
-                    {new Date(item.timestamp).toLocaleDateString()} • {item.userName || 'Me'}
-                  </Text>
-                  {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
-                    <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || '#FFD700' }]}>
-                      🧭 {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
-                    </Text>
+              const itemWidth = (width - 44) / 2;
+              const photoUri = typeof item.imageUrl === 'string' ? item.imageUrl : typeof item.localUri === 'string' ? item.localUri : typeof item.uri === 'string' ? item.uri : '';
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.galleryItem, 
+                    { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
+                    item.isPending && { opacity: 0.65 }
+                  ]}
+                  onPress={() => setSelectedPhotoForDetail(item)}
+                >
+                  {photoUri ? (
+                    <Image
+                      source={{ uri: photoUri }}
+                      style={styles.galleryImage}
+                    />
+                  ) : (
+                    <View style={[styles.galleryImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <ImageIcon size={24} color={theme.subText} />
+                    </View>
                   )}
-                </View>
+                  {item.isPending && (
+                    <View style={styles.pendingBadge}>
+                      <Text style={styles.pendingText}>{t('uploadPending', language)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.galleryMeta}>
+                    <Text numberOfLines={1} style={[styles.galleryTitle, { color: theme.text }]}>
+                      {item.locationName}
+                    </Text>
+                    <Text numberOfLines={1} style={[styles.galleryDate, { color: theme.subText }]}>
+                      {new Date(item.timestamp).toLocaleDateString()} • {item.userName || 'Me'}
+                    </Text>
+                    {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
+                      <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || '#FFD700' }]}>
+                        🧭 {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
+                      </Text>
+                    )}
+                  </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <TouchableOpacity
-                    style={styles.photoShareBtn}
-                    onPress={() => {
-                      const tweetText = `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${item.location || '하늘 포토'}\n#BeforeGlow #노을 #sunset`;
-                      shareToTwitter({
-                        text: tweetText,
-                        imageUris: [item.uri],
-                      });
-                    }}
-                  >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <TouchableOpacity
+                      style={styles.photoShareBtn}
+                      onPress={() => {
+                        const tweetText = `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${item.location || '하늘 포토'}\n#BeforeGlow #노을 #sunset`;
+                        shareToTwitter({
+                          text: tweetText,
+                          imageUris: photoUri ? [photoUri] : [],
+                        });
+                      }}
+                    >
                     <Share2 size={13} color="#FFD700" />
                   </TouchableOpacity>
 

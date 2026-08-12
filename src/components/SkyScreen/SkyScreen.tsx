@@ -50,6 +50,7 @@ interface SkyScreenProps {
     moonset?: Date;
   };
   setMapVisible?: (visible: boolean) => void;
+  isActive?: boolean;
 }
 
 export interface EventItem {
@@ -70,6 +71,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   setTimeMachineEnabled,
   events,
   setMapVisible,
+  isActive = true,
 }) => {
   const { location } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
@@ -452,6 +454,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onSelectTrackingTarget={setTrackingTarget}
           fullScreen={true}
           timeline={timelineValid ? timeline : null}
+          isActive={isActive}
         />
 
         {trackingTarget && (
@@ -468,7 +471,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </TouchableOpacity>
         )}
 
-        {/* 씬 위 오버레이는 최소한만 — 레이어 토글과 초단기 실황 */}
+        {/* 씬 위 오버레이 버튼: 하루치 사전 계산 & 3D 표시 설정 */}
         <View style={styles.sceneOverlayButtons}>
           {/* 하루치 사전 계산. 눌러 두면 이후 스크럽이 네트워크 없이 돌아갑니다. */}
           <TouchableOpacity
@@ -491,38 +494,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               : <Wand2 size={14} color={timelineValid ? '#34D399' : '#FFFFFF'} />}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.overlayButton,
-              {
-                backgroundColor: useNowcast ? 'rgba(250, 204, 21, 0.32)' : 'rgba(5, 5, 10, 0.65)',
-                borderColor: useNowcast ? '#FACC15' : theme.border,
-              },
-            ]}
-            onPress={() => setUseNowcast(v => !v)}
-            disabled={isNowcastLoading}
-            activeOpacity={0.7}
-          >
-            <Zap size={14} color={useNowcast ? '#FACC15' : '#FFFFFF'} />
-          </TouchableOpacity>
-
-          {/* 강화 구름 격자 — 관측 팬을 ±20°/35점에서 ±30°/70점으로 넓힙니다 */}
-          <TouchableOpacity
-            style={[
-              styles.overlayButton,
-              {
-                backgroundColor: isGridActive ? 'rgba(56, 189, 248, 0.32)' : 'rgba(5, 5, 10, 0.65)',
-                borderColor: isGridActive ? '#38BDF8' : theme.border,
-                opacity: isGridLoading ? 0.5 : 1,
-              },
-            ]}
-            onPress={() => setUseEnhancedGrid(v => !v)}
-            disabled={isGridLoading}
-            activeOpacity={0.7}
-          >
-            <Layers size={14} color={isGridActive ? '#38BDF8' : '#FFFFFF'} />
-          </TouchableOpacity>
-
+          {/* 3D 요소 표시 설정 모달 */}
           <TouchableOpacity
             style={[styles.overlayButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
             onPress={() => setLayerModalVisible(true)}
