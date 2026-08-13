@@ -55,6 +55,10 @@ export interface SkyTuning {
   twilightScaleKm: number;
   /** 다중산란 유효 척도고도 (클수록 잔광이 오래 남음) */
   twilightMsScaleKm: number;
+  /** 박명 오존 경로 배율의 기울기 (올릴수록 박명 하늘이 짙은 파랑, 어두워짐) */
+  ozoneTwilightGain: number;
+  /** 그늘진 구름이 황혼 환경광에 물드는 정도 (0이면 물들지 않음) */
+  twilightTint: number;
 
   // ── 운형 판정 문턱 (순수 TS) ─────────────────────────────────────────────
   /** 적란운: 이 강수량(mm/h) 초과 + 상층 발달 */
@@ -93,6 +97,8 @@ export const DEFAULT_TUNING: SkyTuning = {
 
   twilightScaleKm: 13.0,
   twilightMsScaleKm: 42.0,
+  ozoneTwilightGain: 0.30,
+  twilightTint: 0.75,
 
   cbPrecipMm: 0.9,
   cbHighPct: 35,
@@ -156,6 +162,8 @@ export const TUNING_GROUPS: TuningGroup[] = [
     fields: [
       { key: 'twilightScaleKm', label: '직달 척도고도', min: 4, max: 30, step: 0.5, hint: '낮출수록 해 지고 빨리 어두워짐', live: true },
       { key: 'twilightMsScaleKm', label: '다중산란 척도고도', min: 10, max: 90, step: 1, hint: '올릴수록 잔광이 오래 남음', live: true },
+      { key: 'ozoneTwilightGain', label: '박명 오존 경로', min: 0, max: 0.8, step: 0.01, hint: '올리면 박명 하늘이 짙은 파랑·어두워짐', live: true },
+      { key: 'twilightTint', label: '구름 황혼 물듦', min: 0, max: 1.5, step: 0.01, hint: '올리면 그늘진 구름이 노을색으로 물듦', live: true },
     ],
   },
   {
