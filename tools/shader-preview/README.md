@@ -144,3 +144,16 @@ new THREE.ShaderMaterial({uniforms:{...TUNE_UNIFORMS, /* 나머지 */}})
 
 새 uniform을 추가하면 `makeTuningUniforms`에만 넣으면 자동으로 따라옵니다.
 확인법: 흐린날 8컷의 화면 밝기가 218.1 / 200.2 / 172.9 / 107.2 근처인가.
+
+## 오존 τ 유도 (`derive-ozone-tau.js`)
+
+```bash
+node tools/shader-preview/derive-ozone-tau.js
+```
+
+`atmosphere.ts`의 `OZONE_TAU`가 어디서 나왔는지 재현합니다. O3 Chappuis
+흡수단면적을 CIE 등색함수 × D65 × sRGB 변환에 걸어 **채널 유효 τ**를 적분합니다.
+
+렌더가 아니라 순수 계산이므로 서버도 크로미움도 필요 없습니다.
+`OZONE_TAU`를 손대려면 여기부터 보세요 — 그 값은 눈으로 맞춘 아트 상수가
+아니라 유도된 물리량입니다. 배경은 `docs/TWILIGHT.md` §5.

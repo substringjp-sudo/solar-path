@@ -27,8 +27,32 @@ export const LAMBDA_RGB: [number, number, number] = [650, 550, 450];
 export const TAU_R_550 = 0.0972;
 /** Rayleigh 파장 지수 (이론값 4, 실측 보정 4.05) */
 export const TAU_R_EXP = 4.05;
-/** 오존 Chappuis 흡수 계수 (R/G/B, 300DU 기준) */
-export const OZONE_TAU: [number, number, number] = [0.024, 0.034, 0.003];
+/**
+ * 오존 Chappuis 흡수 계수 (R/G/B, 300DU 연직 기준).
+ *
+ * **밴드 적분값입니다. 단일 파장 샘플이 아닙니다.**
+ *
+ * Why: 이전에는 LAMBDA_RGB(650/550/450nm)에서 σ를 한 점씩 읽어
+ * [0.024, 0.034, 0.003]을 썼습니다. 그런데 Chappuis 대역의 정점은 **602nm** —
+ * sRGB 적색 채널 한가운데입니다. 650nm는 정점에서 이미 40% 내려온 자락이라,
+ * 한 점 샘플링은 적색 흡수를 절반 가까이 과소평가합니다.
+ *
+ * 그 결과가 τ_R(0.024) < τ_G(0.034) 이었고, 박명에 오존 경로가 20~40배로
+ * 늘어나면 **녹색만 깎이고 적·청이 남아 하늘이 자홍색**이 됐습니다.
+ * 실제 박명 하늘은 파랗습니다 — 오존이 녹색만이 아니라 500~700nm **전체**를
+ * 걷어내고 청색만 남기기 때문입니다.
+ *
+ * 여기 값은 σ(λ)를 CIE 등색함수(Wyman et al. 2013 해석 근사) × D65 × sRGB
+ * 변환에 걸어 적분한 **채널 유효 τ**입니다. slant 배수 1~50에서 거의 일정합니다
+ * (τ_R 0.041→0.047, τ_G 0.0237→0.0231). 박명 대표 배수 20에서의 값을 씁니다.
+ * 유도 스크립트는 `tools/shader-preview/derive-ozone-tau.js`, 배경은
+ * docs/TWILIGHT.md §5.
+ *
+ * 청색만 예외입니다. 적분값은 0.0000 부근으로 나오는데, 그 대역에서는
+ * XYZ→sRGB 변환의 음의 로브가 결과를 지배해 신뢰할 수 없습니다. 청색은
+ * 흡수가 원래 미미하므로 단일파장(450nm, σ≈0.17e-21) 값을 그대로 씁니다.
+ */
+export const OZONE_TAU: [number, number, number] = [0.043, 0.0233, 0.0014];
 /** Mie 위상함수 비대칭 인자 (에어로졸: 전방산란 우세) */
 export const MIE_G = 0.80;
 /** 구름 물방울 위상함수 비대칭 인자 (강한 전방산란) */
@@ -77,9 +101,29 @@ export const DISPLAY_CONTRAST = 1.06;
  * 길게 통과합니다. Chappuis 대역이 주황~적색을 걷어내기 때문에 살아남는 빛이
  * 푸르게 되고, 이것이 박명 상공이 짙은 파랑으로 남는 이유입니다.
  * 기하 공식만으로는 이 경로 증가가 표현되지 않아 별도 항을 둡니다.
+ *
+ * 값이 0.55 → 0.30으로 내려온 이유: 예전 배율은 **틀린 τ에 맞춰** 튜닝된
+ * 값이었습니다. τ_R을 밴드 적분값으로 고치자 같은 경로 길이가 적색을 3배 더
+ * 먹어 태양 -4°에서 R 채널이 0으로 눌렸습니다. 경로 자체를 현실적인 범위
+ * (태양 -4°에서 slant 배수 26 안팎)로 되돌립니다.
  */
-export const OZONE_TWILIGHT_GAIN = 0.55;
-export const OZONE_TWILIGHT_MAX = 3.2;
+export const OZONE_TWILIGHT_GAIN = 0.30;
+export const OZONE_TWILIGHT_MAX = 2.4;
+
+/**
+ * 다중산란 성분에 박명 오존 경로를 얼마나 걸 것인가 (0~1).
+ *
+ * Why: MS_AIRMASS_FRACTION과 **같은 이유**입니다. 단일산란은 태양광이 산란점까지
+ * 오는 실제 경로로 감쇠해야 하지만, 다중산란으로 들어오는 빛은 하늘 전역에서
+ * 오고 그 상당 부분은 오존층(22km)보다 위에서 튕겨 온 빛이라 접선 경로를
+ * 통째로 겪지 않습니다.
+ *
+ * 이 항이 없으면(=1.0) 태양 -8°에서 지평선 띠가 **초록**이 됩니다. 그 고도에서는
+ * sunLit 0.008 : sunLitMS 0.225 로 다중산란이 거의 전부인데, 거기에 접선 오존
+ * 경로를 그대로 걸면 적색만 남김없이 걷혀 녹색이 남기 때문입니다.
+ * 실제 심박명의 서쪽 하늘은 탁한 주황~황토색입니다.
+ */
+export const MS_OZONE_TWILIGHT_FRACTION = 0.4;
 
 /**
  * 지평선 아래 감광.
@@ -339,6 +383,12 @@ export function hgPhase(cosGamma: number, g: number): number {
   return (1 - gg) / (4 * Math.PI * Math.pow(Math.max(1e-4, denom), 1.5));
 }
 
+/** GLSL smoothstep과 같은 식 — TS/셰이더 게이트가 갈라지지 않게 */
+function smoothstep01(edge0: number, edge1: number, x: number): number {
+  const t = clamp01((x - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
 /** 천정 방향 Rayleigh 광학두께 (채널별) */
 function tauRayleighRGB(elevScale: number): [number, number, number] {
   return LAMBDA_RGB.map(
@@ -357,14 +407,20 @@ function tauMieRGB(beta: number, angstrom: number, elevScale: number): [number, 
  * 오존층(약 22km) 통과 경로 배율.
  * 지평선 아래에서는 접선 통과로 경로가 크게 늘어납니다(박명 파랑의 원인).
  */
-function ozoneAirMass(altDeg: number, trueSunAltDeg: number = altDeg): number {
+function ozoneAirMass(
+  altDeg: number,
+  trueSunAltDeg: number = altDeg
+): { single: number; multi: number } {
   const altRad = (altDeg * Math.PI) / 180;
   const rOzone = 22.0 / 6371;
   const base = (1 + rOzone) / Math.sqrt(Math.max(0.001, Math.sin(altRad) ** 2 + 2 * rOzone));
   const twilight = trueSunAltDeg < 0
-    ? 1 + Math.min(OZONE_TWILIGHT_MAX, -trueSunAltDeg * OZONE_TWILIGHT_GAIN)
+    ? 1 + Math.min(OZONE_TWILIGHT_MAX, -trueSunAltDeg * getTuning().ozoneTwilightGain)
     : 1;
-  return base * twilight;
+  return {
+    single: base * twilight,
+    multi: base * (1 + (twilight - 1) * MS_OZONE_TWILIGHT_FRACTION),
+  };
 }
 
 /**
@@ -412,12 +468,13 @@ export function skyRadiance(
   const out: number[] = [];
   for (let c = 0; c < 3; c++) {
     const tauZenith = tR[c] + tM[c];
-    const ozone = OZONE_TAU[c] * ozScale * ozAM;
+    const ozone = OZONE_TAU[c] * ozScale * ozAM.single;
+    const ozoneMS = OZONE_TAU[c] * ozScale * ozAM.multi;
 
     // 산란 지점에 도달하는 햇빛의 투과율 (단일산란용 — 실제 경로)
     const tSun = Math.exp(-tauZenith * mSun - ozone);
-    // 다중산란용 — 하늘 전역에서 오는 빛이라 훨씬 덜 감쇠
-    const tSunMS = Math.exp(-tauZenith * mSunMS - ozone);
+    // 다중산란용 — 하늘 전역에서 오는 빛이라 훨씬 덜 감쇠 (오존 경로도 함께)
+    const tSunMS = Math.exp(-tauZenith * mSunMS - ozoneMS);
 
     // 시선 경로의 총 광학두께
     const tauView = tauZenith * mView;
@@ -498,11 +555,22 @@ export const SCALE_HEIGHT_KM = 8.4;
 export const AERIAL_STRENGTH = 1.0;
 
 /**
- * 황혼 자색광 합성 가중치 (docs/CLOUD_PHYSICS.md §5).
- * 그늘진 구름이 검게 죽지 않고, 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 함께 받아
- * 황혼 특유의 자주색을 띠게 하는 채널별 가중치입니다.
+ * 그늘진 구름이 황혼에 받는 두 환경광의 비중 (docs/CLOUD_PHYSICS.md §5).
+ *
+ * 구름 아랫면·그늘면은 반구를 봅니다. 그 반구의 절반쯤은 지평선 노을빛이고
+ * 절반쯤은 머리 위 천공빛이라, 두 광원을 각각 이 비중으로 더합니다.
+ *
+ * **채널별 가중치가 아닙니다.** 예전에는 `[R,G,B] = [0.28, 0.15, 0.45]`로
+ * 지평선빛의 R·G와 천공빛의 B만 뽑아 섞었는데, 녹색 가중치가 적·청의 절반이라
+ * **없는 자홍색을 만들어 냈습니다** — 태양 -4°에서 층적운 그늘면의 72%가
+ * rgb(193,0,93)으로 덮였습니다. 실제 황혼 구름 그늘은 회보라·회갈색이지
+ * 마젠타가 아닙니다.
+ *
+ * 지금은 두 광원의 **RGB 전체**를 더합니다. 색은 광원이 정하고, 여기 상수는
+ * 세기만 정합니다.
  */
-export const TWILIGHT_PURPLE_WEIGHTS: [number, number, number] = [0.28, 0.15, 0.45];
+export const TWILIGHT_TINT_HORIZON = 0.22;
+export const TWILIGHT_TINT_ZENITH = 0.38;
 
 /** 구름 종류별 기하학적 두께 (km) → 광학두께 환산에 사용 */
 export const CLOUD_GEOMETRIC_THICKNESS_KM: Record<string, number> = {
@@ -721,13 +789,15 @@ export function cloudShading(
   opts: {
     /** 도감의 그림자 대비 (0~1) — 클수록 그늘면이 깊게 어두워짐 */
     shadowContrast?: number;
-    /** 지평선 노을빛 — 황혼 자색광 합성용 */
+    /** 지평선 노을빛 — 황혼 환경광 합성용 */
     horizonGlow?: RGB;
-    /** 천공 푸른빛 — 황혼 자색광 합성용 */
+    /** 천공 푸른빛 — 황혼 환경광 합성용 */
     zenithSky?: RGB;
+    /** 태양 고도 — 황혼 게이트용. 생략하면 게이트 없이 항상 적용(예전 동작) */
+    sunAltDeg?: number;
   } = {}
 ): CloudShadingResult {
-  const { shadowContrast = 0.5, horizonGlow, zenithSky } = opts;
+  const { shadowContrast = 0.5, horizonGlow, zenithSky, sunAltDeg } = opts;
 
   const tauEff = tau * (1 - CLOUD_G);
   const R = tauEff / (tauEff + 2);
@@ -755,18 +825,25 @@ export function cloudShading(
     b: (beam.b * T * 0.35 + ambient.b * ambientKeep) * depth,
   };
 
-  // ── 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5) ──────────────────────────
+  // ── 황혼 환경광 합성 (docs/CLOUD_PHYSICS.md §5) ──────────────────────────
   // 그늘진 구름은 검게 죽지 않습니다. 빛이 통과하지 못할수록(=차폐도가 클수록)
-  // 대신 두 환경광을 받습니다: 지평선의 붉은 노을빛과 머리 위 천공의 푸른빛.
-  // 이 상반된 두 파장이 구름 안에서 섞이며 황혼 특유의 자주색이 나옵니다.
+  // 대신 두 환경광을 받습니다: 지평선의 노을빛과 머리 위 천공의 푸른빛.
+  // 두 광원의 **RGB 전체**를 더합니다 — 채널을 골라 뽑으면 없는 색이 생깁니다.
   if (horizonGlow && zenithSky) {
-    const influence = clamp01(1 - T);
-    const [wR, wG, wB] = TWILIGHT_PURPLE_WEIGHTS;
-    shadow = {
-      r: shadow.r + (horizonGlow.r * wR - shadow.r) * influence,
-      g: shadow.g + (horizonGlow.g * wG - shadow.g) * influence,
-      b: shadow.b + (zenithSky.b * wB - shadow.b) * influence,
-    };
+    const gate = sunAltDeg === undefined ? 1 : 1 - smoothstep01(-2, 8, sunAltDeg);
+    const influence = clamp01(1 - T) * gate * getTuning().twilightTint;
+    if (influence > 0) {
+      const wH = TWILIGHT_TINT_HORIZON;
+      const wZ = TWILIGHT_TINT_ZENITH;
+      const tr = horizonGlow.r * wH + zenithSky.r * wZ;
+      const tg = horizonGlow.g * wH + zenithSky.g * wZ;
+      const tb = horizonGlow.b * wH + zenithSky.b * wZ;
+      shadow = {
+        r: shadow.r + (tr - shadow.r) * influence,
+        g: shadow.g + (tg - shadow.g) * influence,
+        b: shadow.b + (tb - shadow.b) * influence,
+      };
+    }
   }
 
   return { lit, shadow, diffuseReflectance: R, diffuseTransmittance: T };
@@ -800,13 +877,16 @@ const float MS_AM_FRAC  = ${f(MS_AIRMASS_FRACTION)};
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
 const float SH_ZENITH   = ${f(SCATTER_HEIGHT_ZENITH)};
 const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
-const vec3  TWILIGHT_W  = vec3(${f(TWILIGHT_PURPLE_WEIGHTS[0])}, ${f(TWILIGHT_PURPLE_WEIGHTS[1])}, ${f(TWILIGHT_PURPLE_WEIGHTS[2])});
+const float TW_TINT_H   = ${f(TWILIGHT_TINT_HORIZON)};
+const float TW_TINT_Z   = ${f(TWILIGHT_TINT_ZENITH)};
+uniform float TW_TINT;
 const float SCALE_H_KM  = ${f(SCALE_HEIGHT_KM)};
 uniform float TW_SCALE_H;
 uniform float TW_MS_SCALE;
 const float AERIAL_STR  = ${f(AERIAL_STRENGTH)};
-const float OZ_TW_GAIN  = ${f(OZONE_TWILIGHT_GAIN)};
+uniform float OZ_TW_GAIN;
 const float OZ_TW_MAX   = ${f(OZONE_TWILIGHT_MAX)};
+const float OZ_TW_MSFRAC= ${f(MS_OZONE_TWILIGHT_FRACTION)};
 uniform float DISP_EXPO;
 uniform float ADAPT_MAX;
 uniform float ADAPT_HI;
@@ -863,13 +943,14 @@ vec3 atm_tauMie(float beta, float angstrom, float elevScale) {
   return beta * pow(vec3(550.0) / LAMBDA, vec3(angstrom)) * elevScale;
 }
 
-float atm_ozoneAirMass(float altDeg, float trueSunAlt) {
+// x = 단일산란용 경로, y = 다중산란용 경로 (TS ozoneAirMass와 같아야 합니다)
+vec2 atm_ozoneAirMass(float altDeg, float trueSunAlt) {
   float s = sin(radians(altDeg));
   float rO = 22.0 / 6371.0;
   float base = (1.0 + rO) / sqrt(max(0.001, s * s + 2.0 * rO));
   // 박명에는 오존층을 접선 방향으로 길게 통과 → 주황이 걷히고 파랑이 남음
   float tw = trueSunAlt < 0.0 ? 1.0 + min(OZ_TW_MAX, -trueSunAlt * OZ_TW_GAIN) : 1.0;
-  return base * tw;
+  return vec2(base * tw, base * (1.0 + (tw - 1.0) * OZ_TW_MSFRAC));
 }
 
 
@@ -891,7 +972,7 @@ vec3 atm_skyRadiance(
 
   vec3 tR = atm_tauRayleigh(elevScale);
   vec3 tM = atm_tauMie(beta, angstrom, elevScale);
-  float ozAM = atm_ozoneAirMass(max(sunAltForT, 0.5), sunAltDeg);
+  vec2 ozAM = atm_ozoneAirMass(max(sunAltForT, 0.5), sunAltDeg);
   float ozScale = ozoneDU / 300.0;
 
   float pR = atm_rayleighPhase(cosGamma) * RAY_GAIN;
@@ -902,9 +983,10 @@ vec3 atm_skyRadiance(
   float sunLitMS = atm_earthShadowLitMS(sunAltDeg);
 
   vec3 tauZenith = tR + tM;
-  vec3 ozone = OZONE_TAU * ozScale * ozAM;
+  vec3 ozone   = OZONE_TAU * ozScale * ozAM.x;
+  vec3 ozoneMS = OZONE_TAU * ozScale * ozAM.y;
   vec3 tSun   = exp(-tauZenith * mSun   - ozone);
-  vec3 tSunMS = exp(-tauZenith * mSunMS - ozone);
+  vec3 tSunMS = exp(-tauZenith * mSunMS - ozoneMS);
 
   vec3 tauView = tauZenith * mView;
   vec3 scatterFrac = 1.0 - exp(-tauView);
@@ -942,7 +1024,7 @@ float atm_cloudSilver(float tau, float cosView) {
 }
 
 /**
- * 그늘진 구름의 황혼 자색광 합성 (docs/CLOUD_PHYSICS.md §5).
+ * 그늘진 구름의 황혼 환경광 합성 (docs/CLOUD_PHYSICS.md §5, docs/TWILIGHT.md §5-C).
  * 차폐도가 클수록 지평선 붉은빛(R,G)과 천공 푸른빛(B)을 받아 자주색을 띱니다.
  */
 /**
@@ -956,18 +1038,21 @@ vec3 atm_cloudDim(vec3 c, float diffuseFactor) {
   return d * mix(1.0, CLOUD_DIM_FLOOR, blocked);
 }
 
-vec3 atm_twilightPurple(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T, float sunAltDeg) {
+vec3 atm_twilightTint(vec3 shadowBase, vec3 horizonGlow, vec3 zenithSky, float T, float sunAltDeg) {
   // **황혼에만** 작동해야 합니다.
   //
-  // 이 항은 해가 진 뒤 그늘진 구름이 검게 죽지 않고 지평선 붉은빛과 천공
-  // 푸른빛을 함께 받아 자주색을 띠는 현상을 만듭니다. 그런데 고도 게이트가
-  // 없으면 한낮에도 걸립니다. 태양 45°에서 horizonGlow는 (25.2, 19.1, 12.3) —
-  // 태양 옆 5°의 눈부신 연무라 target이 (7.05, 2.86, 0.18), R/B = 38이 됩니다.
-  // 그 색이 그늘 면의 72%를 덮어써서 한낮 구름이 노랗게 탔습니다.
+  // 이 항은 해가 진 뒤 그늘진 구름이 검게 죽지 않고 지평선 노을빛과 천공
+  // 푸른빛을 함께 받는 현상을 만듭니다. 그런데 고도 게이트가 없으면 한낮에도
+  // 걸립니다. 태양 45°에서 horizonGlow는 (25.2, 19.1, 12.3) — 태양 옆 5°의
+  // 눈부신 연무라, 그 색이 그늘 면의 72%를 덮어써서 한낮 구름이 노랗게 탔습니다.
+  //
+  // 두 광원의 RGB 전체를 더합니다. 예전에는 지평선빛의 R·G와 천공빛의 B만
+  // 채널별 가중치로 뽑아 섞었는데, 그 가중치(0.28/0.15/0.45)가 녹색을 눌러
+  // **없는 자홍색을 만들어 냈습니다**. 색은 광원이 정하고 상수는 세기만 정합니다.
   float twilight = 1.0 - smoothstep(-2.0, 8.0, sunAltDeg);
-  float influence = clamp(1.0 - T, 0.0, 1.0) * twilight;
+  float influence = clamp(1.0 - T, 0.0, 1.0) * twilight * TW_TINT;
   if (influence <= 0.0) return shadowBase;
-  vec3 target = vec3(horizonGlow.r, horizonGlow.g, zenithSky.b) * TWILIGHT_W;
+  vec3 target = horizonGlow * TW_TINT_H + zenithSky * TW_TINT_Z;
   return mix(shadowBase, target, influence);
 }
 
@@ -1042,6 +1127,8 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     DISP_CONTR: { value: t.displayContrast },
     TW_SCALE_H: { value: t.twilightScaleKm },
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
+    TW_TINT: { value: t.twilightTint },
+    OZ_TW_GAIN: { value: t.ozoneTwilightGain },
   };
 }
 
@@ -1061,4 +1148,6 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('DISP_CONTR', t.displayContrast);
   set('TW_SCALE_H', t.twilightScaleKm);
   set('TW_MS_SCALE', t.twilightMsScaleKm);
+  set('TW_TINT', t.twilightTint);
+  set('OZ_TW_GAIN', t.ozoneTwilightGain);
 }
