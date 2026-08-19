@@ -11,7 +11,7 @@
 2. [태양 직사광 감쇄 모델 (Direct Beam Attenuation)](#2-태양-직사광-감쇄-모델-direct-beam-attenuation)
 3. [구름 광학 두께 모델 (Cloud Optical Depth, $\tau$)](#3-구름-광학-두께-모델-cloud-optical-depth-tau)
 4. [구름 내부 감쇄 모델 (Beer-Lambert Law)](#4-구름-내부-감쇄-모델-beer-lambert-law)
-5. [음영 자색광 합성 공식 (Twilight Purple Synthesis)](#5-음영-자색광-합성-공식-twilight-purple-synthesis)
+5. [음영 환경광 합성 공식 (Twilight Ambient Synthesis)](#5-음영-환경광-합성-공식-twilight-ambient-synthesis)
 6. [코드 매핑 테이블 (Code to Math Mapping)](#6-코드-매핑-테이블-code-to-math-mapping)
 
 ---
@@ -76,24 +76,32 @@ $$t_{\text{internal}} = e^{-\tau \cdot k}$$
 
 ---
 
-## 5. 음영 자색광 합성 공식 (Twilight Purple Synthesis)
+## 5. 음영 환경광 합성 공식 (Twilight Ambient Synthesis)
 
 해가 지평선 아래로 떨어지거나 구름이 햇빛의 직사선 밑에서 완전히 가려졌을 때(그림자 영역), 구름은 완전한 검은색이 되지 않습니다. 대신 두 가지 환경광(Ambient Light)을 받아 독특한 색을 띱니다.
 
 1.  **천공광(Zenith Ambient Sky, $I_{\text{sky}}$)**: 머리 위 하늘의 푸른빛(Rayleigh 산란의 잔재).
 2.  **지평선 반사광(Horizon Glow, $I_{\text{horizon}}$)**: 멀리 지평선 부근에서 붉게 흩어지는 노을빛.
 
-구름 내부에서 이 두 개의 상반된 파장(파란색과 빨간색)이 혼합되면서 황혼기 특유의 **신비로운 보랏빛/자색(Twilight Purple/Magenta)**이 창출됩니다.
+구름 내부에서 이 두 광원이 혼합되면서 황혼기 특유의 회보라·회갈색 그늘이 만들어집니다. 두 광원 자체가 이미 서로 다른 색이므로, **없는 색을 채널 가중치로 만들어 넣을 필요가 없습니다.**
 
-### 🟣 자색광 합성 수식 (Purple Glow Equation)
-구름의 차폐도($\text{ambientInfluence} = 1.0 - t_{\text{internal}}$)에 따라, 그늘진 구름의 기저 색상(Shadowed Cloud base)에 파란색 천공광과 빨간색 지평선 반사광을 선택적으로 혼합합니다:
+### 🟣 환경광 합성 수식 (Ambient Blend Equation)
 
-$$R_{\text{shadow}} = \text{lerp}(C_{\text{shadow}}.r, \, I_{\text{horizon}}.r \cdot 0.28, \, \text{ambientInfluence})$$
-$$G_{\text{shadow}} = \text{lerp}(C_{\text{shadow}}.g, \, I_{\text{horizon}}.g \cdot 0.15, \, \text{ambientInfluence})$$
-$$B_{\text{shadow}} = \text{lerp}(C_{\text{shadow}}.b, \, I_{\text{sky}}.b \cdot 0.45, \, \text{ambientInfluence})$$
+> **개정 이력.** 예전에는 채널을 골라 뽑아 섞었습니다 —
+> $I_{\text{horizon}}$의 $r,g$와 $I_{\text{sky}}$의 $b$에 각각 $0.28 / 0.15 / 0.45$.
+> 녹색 가중치가 적·청의 절반이라 **입력에 없는 마젠타가 출력에 생겼습니다**:
+> 태양 -4°에서 층적운 그늘면의 72%가 `rgb(193,0,93)`으로 덮였습니다.
+> 실제 황혼 구름 그늘은 회보라·회갈색입니다. 자세한 진단은 `docs/TWILIGHT.md` §5-C.
 
-*   **상수 설계**: $r$ 채널(0.28)과 $b$ 채널(0.45)에 적절한 가중치를 부여하여, 탁하지 않고 채도가 높은 신비로운 자주색/자색이 자연스럽게 배어 나오도록 조율했습니다.
-*   최종 구름 색상은 태양의 구름 조명율($illum$)에 따라 **직접 산란광(Direct Scatter)**과 **음영 자색광(Purple Shadow)**을 블렌딩하여 구합니다:
+구름의 차폐도($\text{ambientInfluence} = 1.0 - t_{\text{internal}}$)에 따라, 그늘진 구름의 기저 색상(Shadowed Cloud base)을 두 환경광의 합으로 끌어당깁니다. 두 광원의 **RGB 전체**를 씁니다:
+
+$$I_{\text{ambient}} = 0.22 \cdot I_{\text{horizon}} + 0.38 \cdot I_{\text{sky}}$$
+$$C_{\text{shadow}}' = \text{lerp}(C_{\text{shadow}}, \, I_{\text{ambient}}, \, \text{ambientInfluence} \cdot g(\alpha_{\odot}) \cdot k)$$
+
+*   **상수 설계**: 구름 아랫면이 보는 반구의 대략 절반이 지평선 방향, 절반이 상공입니다. 두 계수는 그 입체각 비중과 구름 알베도를 함께 담은 세기 값이며, **색은 정하지 않습니다** — 색은 광원이 정합니다.
+*   $g(\alpha_{\odot}) = 1 - \text{smoothstep}(-2°, 8°, \alpha_{\odot})$ 는 황혼 게이트입니다. 이것이 없으면 한낮의 눈부신 지평선 연무가 구름을 노랗게 태웁니다(`docs/OVERCAST_DESIGN.md` §6-A).
+*   $k$ 는 개발자 패널의 **구름 황혼 물듦**(`twilightTint`, 기본 0.75)입니다.
+*   최종 구름 색상은 태양의 구름 조명율($illum$)에 따라 **직접 산란광(Direct Scatter)**과 **음영 환경광(Ambient Shadow)**을 블렌딩하여 구합니다:
 $$C_{\text{cloud}} = \text{mix}(C_{\text{shadow}}, \, C_{\text{direct\_scatter}}, \, illum)$$
 
 ---

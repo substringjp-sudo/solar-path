@@ -72,8 +72,8 @@ ${ATMOSPHERE_GLSL}
 
 uniform sampler2D uAtlas;
 uniform float uShadeContrast;
-uniform vec3  uHorizonGlow;  // 지평선 노을빛 — 황혼 자색광 합성용
-uniform vec3  uZenithSky;    // 천공 푸른빛 — 황혼 자색광 합성용
+uniform vec3  uHorizonGlow;  // 지평선 노을빛 — 황혼 환경광 합성용
+uniform vec3  uZenithSky;    // 천공 푸른빛 — 황혼 환경광 합성용
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
@@ -134,8 +134,8 @@ void main() {
   float depth = 1.0 - shadowContrast * 0.55;
   vec3 shadowCol = (vBeam * T * 0.35 + vAmbient * ambientKeep) * depth;
 
-  // 황혼 자색광 (태양 고도로 게이트 — 한낮에는 작동하지 않습니다)
-  shadowCol = atm_twilightPurple(shadowCol, uHorizonGlow, uZenithSky, T, uSunAltDeg);
+  // 황혼 환경광 (태양 고도로 게이트 — 한낮에는 작동하지 않습니다)
+  shadowCol = atm_twilightTint(shadowCol, uHorizonGlow, uZenithSky, T, uSunAltDeg);
 
   vec3 col = mix(shadowCol, litCol, t);
 
@@ -240,7 +240,7 @@ export function updateCloudField(
     elevScale: number;
     /**
      * 구름 기둥의 확산 투과율 (1 = 맑음).
-     * 황혼 자색광의 입력(지평선 노을빛·천공빛)도 구름 아래로 들어가면
+     * 황혼 환경광의 입력(지평선 노을빛·천공빛)도 구름 아래로 들어가면
      * 감광·탈색되어야 합니다. 이걸 빠뜨리면 8/8 일몰에서 구름만 시뻘겋게 남습니다.
      */
     cloudDiffuse?: number;
@@ -266,7 +266,7 @@ export function updateCloudField(
     -Math.cos(sAlt) * Math.cos(sAz)
   );
 
-  // 황혼 자색광 입력도 구름층 아래로 넣습니다 (하늘·ambient와 같은 식).
+  // 황혼 환경광 입력도 구름층 아래로 넣습니다 (하늘·ambient와 같은 식).
   const dim = env.cloudDiffuse ?? 1;
   const hg = applyCloudDimming(env.horizonGlow, dim);
   const zs = applyCloudDimming(env.zenithSky, dim);

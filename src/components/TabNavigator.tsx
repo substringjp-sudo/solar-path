@@ -144,7 +144,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
       <View style={[styles.page, { width }, activeTab !== 'map' && styles.hiddenPage]}>
         <MapScreen theme={theme} currentTime={currentTime} isActive={activeTab === 'map'} />
       </View>
-      <View style={[styles.page, { width }, activeTab !== 'gallery' && styles.hiddenPage]}>
+      <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>
         <Gallery
           theme={theme}
           dynamicTheme={dynamicTheme}

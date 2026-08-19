@@ -236,7 +236,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const lastCloudWeatherRef  = useRef<any[] | null>(null);
   const renderedTimeMsRef = useRef(currentTime.getTime());
   /** 슬라이더 패스트 스크럽 시 구름 재빌드 디바운스/취소용 타이머 ref */
-  const cloudRebuildTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const cloudRebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
 
