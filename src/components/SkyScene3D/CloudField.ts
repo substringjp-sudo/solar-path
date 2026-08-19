@@ -42,10 +42,13 @@ void main() {
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
   vec2 corner = position.xy;   // PlaneGeometry(1,1) → -0.5..0.5
 
-  // 항상 카메라 시선 방향을 바라보는 spherical billboard 정렬
+  // 항상 카메라 시선 방향을 바라보는 spherical billboard 정렬 (원복)
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up    = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-  vec3 worldPos = center + right * (corner.x * aGeom.x) + up * (corner.y * aGeom.y);
+
+  // 좌우 반전 플래그 (aOptics.y가 음수이면 좌우 반전)
+  float flip = aOptics.y < 0.0 ? -1.0 : 1.0;
+  vec3 worldPos = center + right * (corner.x * aGeom.x * flip) + up * (corner.y * aGeom.y);
 
   // 구름을 보는 방향과 태양 방향의 각도. +1이면 역광 → 실버라이닝
   vCosView = clamp(dot(normalize(center), uSunDir), -1.0, 1.0);
@@ -315,7 +318,7 @@ export function updateCloudField(
 
     const sizeX = c.sizeY * c.aspect;
     geom.setXYZW(i, sizeX, c.sizeY, sx / len, sy / len);
-    optics.setXYZW(i, c.opacity, 0.0, c.tau, c.distanceKm);
+    optics.setXYZW(i, c.opacity, c.horizontal ? -1.0 : 1.0, c.tau, c.distanceKm);
     cloudDb.setXYZ(i, c.shadowContrast, c.rimSharpness, c.altitudeKm);
   }
 

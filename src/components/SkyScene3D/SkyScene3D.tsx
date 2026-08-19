@@ -741,6 +741,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     if (cloudFieldRef.current) {
       cloudFieldRef.current.mesh.visible = currentLayers.clouds;
     }
+    if (cloudDeckRef.current) {
+      cloudDeckRef.current.group.visible = currentLayers.clouds;
+    }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
     //
@@ -846,6 +849,37 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     });
     field.mesh.visible = layersRef.current.clouds;
     lastCloudBuildRef.current = built;
+
+    if (cloudDeckRef.current) {
+      const isVisible = layersRef.current.clouds;
+      const sAltRad = (sunAltRef.current * Math.PI) / 180;
+      const sAzRad = (sunAzRef.current * Math.PI) / 180;
+      const sunDirVec = new THREE.Vector3(
+        Math.cos(sAltRad) * Math.sin(sAzRad),
+        Math.sin(sAltRad),
+        -Math.cos(sAltRad) * Math.cos(sAzRad)
+      );
+
+      updateCloudDeck(cloudDeckRef.current, {
+        samples: built.samples,
+        beamFor: (altKm) => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
+        ambientFor: (layer) => {
+          const rawUp = skyRadiance(70, 45, sunAltRef.current, atmosphere);
+          const rawDown = skyRadiance(15, 90, sunAltRef.current, atmosphere);
+          const dFactor = built.optics.diffuseFactor[layer];
+          return {
+            up: applyCloudDimming(rawUp, dFactor),
+            down: applyCloudDimming(rawDown, dFactor),
+          };
+        },
+        sunDir: sunDirVec,
+        sunAltDeg: sunAltRef.current,
+        tauFor: (layer) => (built.optics as any)?.tau?.[layer] ?? (layer === 'high' ? 2.0 : layer === 'mid' ? 8.0 : 15.0),
+        shadowFor: (layer) => 0.5,
+        timeSeconds: targetDate.getTime() / 1000,
+        visible: isVisible,
+      });
+    }
 
     // 하늘도 구름층 아래로 들어갑니다. 이게 없으면 덱 구멍으로 맑은 날
     // 노을이 그대로 새어 나와 흐린 일몰이 시뻘겋게 탑니다.

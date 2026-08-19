@@ -371,12 +371,16 @@ function placeClouds(
     const shellRadius = layerShellRadius(layerType);
     const opticsConfig = PRESET_OPTICS[presetName] || PRESET_OPTICS.Cumulus;
 
+    const seed3 = hash01(`${key}#v3`);
     const variantCount = countVariants(atlas, presetName, false);
     if (variantCount === 0) continue;
-    const variant = Math.floor(seed1 * variantCount) % variantCount;
+    const variant = Math.floor((seed1 * 0.4 + seed3 * 0.6) * variantCount * 13) % variantCount;
     const atlasKey = cloudAtlasKey(presetName, variant, false);
     const rect = atlas.rects.get(atlasKey);
     if (!rect) continue;
+
+    // 50% 확률 무작위 좌우 반전
+    const isFlipped = seed3 > 0.5;
 
     // 격자 중앙에서 살짝 흔들어 정렬 티가 나지 않게 합니다.
     const azJitter = (seed1 - 0.5) * (360 / 24) * 0.8;
@@ -461,7 +465,7 @@ function placeClouds(
       altitudeKm: altKm,
       shadowContrast: opticsConfig.shadowContrast,
       rimSharpness: opticsConfig.rimSharpness,
-      horizontal: false,
+      horizontal: isFlipped,
       shellRadius,
       cover: s.cover,
       layer: s.layer,
