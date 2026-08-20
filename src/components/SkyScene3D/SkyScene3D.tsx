@@ -49,6 +49,7 @@ import { createCloudField, updateCloudField, type CloudField } from './CloudFiel
 import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
+import { PRESET_OPTICS, representativePresetForObserver } from '../../utils/cloudPresets';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -282,6 +283,30 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     return w && w.length > 0 ? w[0] : undefined;
   }, []);
 
+
+  /**
+   * 덱이 쓸 조각 기하 — 광학두께와 **같은 운형**에서 뽑습니다.
+   * 두 값이 갈라지면 "권운처럼 얇은데 층적운처럼 큰 조각"이 나옵니다.
+   */
+  const cellForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
+    const name = representativePresetForObserver(layer, obs);
+    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    return {
+      cellSizeKm: o.cellSizeKm,
+      cellStrength: o.cellStrength,
+      cellVariant: o.cellVariant,
+    };
+  }, []);
+
+  /**
+   * 화면 픽셀 하나의 각크기 (rad). 덱의 밉 필터 보정이 이걸로 축소율을
+   * 해석적으로 구합니다 — 미분(dFdx)을 쓰지 않아도 됩니다.
+   */
+  const pixelAngleRad = useCallback(() => {
+    const h = Math.max(1, glRef.current?.drawingBufferHeight ?? 1000);
+    return (fovRef.current * Math.PI) / 180 / h;
+  }, []);
+
   const getTouchDist = (touches: any[]) => {
     if (touches.length < 2) return 0;
     const dx = touches[0].pageX - touches[1].pageX;
@@ -457,7 +482,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     cloudFieldRef.current = cloudField;
 
     // 연속 구름층 — 운량이 병합 임계를 넘으면 빌보드 위로 덮입니다.
-    const cloudDeck = createCloudDeck();
+    const cloudDeck = createCloudDeck({
+      maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
+    });
     scene.add(cloudDeck.group);
     cloudDeckRef.current = cloudDeck;
 
@@ -876,6 +903,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         sunAltDeg: sunAltRef.current,
         tauFor: (layer) => (built.optics as any)?.tau?.[layer] ?? (layer === 'high' ? 2.0 : layer === 'mid' ? 8.0 : 15.0),
         shadowFor: (layer) => 0.5,
+        cellFor: (layer) => cellForLayer(layer, observerWeather()),
+        pixelAngleRad: pixelAngleRad(),
         timeSeconds: targetDate.getTime() / 1000,
         visible: isVisible,
       });
@@ -940,6 +969,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         sunAltDeg: sunAltRef.current,
         tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), 25),
         shadowFor: layer => medianOf(byLayer(layer).map(c => c.shadowContrast), 0.5),
+        cellFor: layer => cellForLayer(layer, observerWeather()),
+        pixelAngleRad: pixelAngleRad(),
         timeSeconds: (targetDate.getTime() / 1000) % 100000,
         visible: layersRef.current.clouds,
       });

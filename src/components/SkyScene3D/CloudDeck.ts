@@ -20,6 +20,12 @@
  */
 import * as THREE from 'three';
 import { ATMOSPHERE_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
+import { CELL_FIELD_GLSL } from '../../utils/cloudCellField';
+import {
+  createCloudCellTexture,
+  CELL_CHANNEL_MASK,
+  type CloudCellTexture,
+} from './cloudCellTexture';
 import {
   LAYER_ALTITUDE_KM,
   elevationGrid,
@@ -63,6 +69,7 @@ const FRAG = `
 precision highp float;
 
 ${ATMOSPHERE_GLSL}
+${CELL_FIELD_GLSL}
 
 uniform vec3  uBeam;        // 이 층 고도에서의 직달광 (위층 감쇠 반영됨)
 uniform vec3  uAmbientUp;   // 덱 윗면이 받는 하늘빛
@@ -74,6 +81,19 @@ uniform float uSunAltDeg;
 uniform float uSaturation;
 uniform float uOpacity;     // 레이어 전체 페이드
 uniform float uTime;        // 바람에 따른 무늬 이동
+
+// ── 조각 무늬 (docs/CLOUD_TEXTURE_PLAN.md 2단계) ──────────────────────────
+uniform sampler2D uCellTex;      // 구운 셀 필드 (RGBA = 씨앗 4개)
+uniform vec4  uCellMaskA;        // 이 층이 읽을 채널
+uniform vec4  uCellMaskB;        // 두 번째 탭이 읽을 채널
+uniform float uCellUvScale;      // 1 / (셀크기km × 타일당셀수)
+uniform float uPatchUvScale;     // 패치용 — 훨씬 큰 스케일
+uniform float uCellStrength;     // 0이면 조각 없는 연속 베일
+uniform float uAltKm;            // 이 층의 고도
+uniform float uMaxDistKm;        // 지상거리 상한 (지평선에서 발산 방지)
+uniform float uPixelAngleRad;    // 화면 픽셀 하나의 각크기
+uniform float uMaxAniso;         // 이방성 필터 최대 배율
+uniform float uCellTexSize;      // 텍스처 한 변 (텍셀)
 
 varying float vCover;
 varying float vElevDeg;
@@ -101,31 +121,80 @@ float fbm(vec2 p) {
 }
 
 void main() {
-  // ── 병합 계수 (경계선 격자가 튀지 않도록 부드러운 페더링 보간) ─────────
-  float merge = smoothstep(0.20, 0.85, vCover);
-  if (merge <= 0.001) discard;
+  if (vCover <= 0.005) discard;
 
+  // ── 투영: 고도 선형 → **지상거리 선형** ─────────────────────────────────
+  //
+  // 예전에는 uv 반지름이 시선 고도에 선형이었습니다(방위각 등거리).
+  // 그러면 원근 단축이 없어 구름이 지평선까지 같은 크기로 깔립니다 —
+  // 하늘이 벽지처럼 보이던 이유입니다.
+  //
+  // 실제 구름층은 고도 h의 평면이고, 시선이 닿는 지점의 지상거리는
+  // d = h / tan(ε) 입니다. 고도 45°와 8° 사이에 이 값이 7배 차이납니다.
   vec2 hdir = vDir.xz;
   float hlen = max(1e-4, length(hdir));
-  float rad = (90.0 - vElevDeg) / 90.0;
-  vec2 uv = (hdir / hlen) * rad * 5.2;
-  uv += vec2(uTime * 0.04, uTime * 0.015);
+  vec2 dirXZ = hdir / hlen;
 
-  float holes = fbm(uv * 1.5);
-  // BKN에서는 구멍이 뚫리고 OVC에서 닫힙니다.
-  float holeCut = smoothstep(0.68 - vCover * 0.50, 0.96 - vCover * 0.50, holes);
+  float elevRad = radians(max(vElevDeg, 0.05));
+  float sinE = max(sin(elevRad), 1e-3);
+  float cosE = max(cos(elevRad), 1e-3);
+  // 지평선에서 d가 발산하므로 상한을 둡니다. 그 너머는 어차피 연무입니다.
+  float d = min(uAltKm * cosE / sinE, uMaxDistKm);
 
-  float ovc = smoothstep(0.80, 0.98, vCover);
-  holeCut = mix(holeCut, 1.0, ovc);
+  // 바람에 따른 이동은 **km 단위**여야 합니다 — uv 단위로 밀면 층마다
+  // 셀 크기가 달라 이동 속도가 제각각이 됩니다.
+  vec2 driftKm = vec2(uTime * 0.0040, uTime * 0.0016);
 
-  // 지평선 부근의 덱 페이드 및 부드러운 알파 결합
+  vec2 uvCell  = (dirXZ * d + driftKm) * uCellUvScale;
+  vec2 uvPatch = (dirXZ * d + driftKm * 0.6) * uPatchUvScale;
+
+  // ── 화면 픽셀 하나가 덮는 텍셀 수 (해석적으로) ─────────────────────────
+  //
+  // uv 변화율은 방향마다 다릅니다. 접선 방향은 d/cos ε, 반경 방향은
+  // d/(sin ε · cos ε) — 비율이 정확히 1/sin ε 입니다. 지평선 쪽에서 반경
+  // 방향이 훨씬 빨리 변하므로 무늬가 그 방향으로 눌립니다.
+  //
+  // 이방성 필터가 있으면 LOD는 **짧은 축** 기준으로 잡히므로 접선 쪽을 쓰되,
+  // 비율이 필터 한계를 넘으면 그만큼 되돌립니다.
+  float tangential = uCellTexSize * uPixelAngleRad * d * uCellUvScale / cosE;
+  float aniso = 1.0 / sinE;
+  float tpp = tangential * max(1.0, aniso / max(1.0, uMaxAniso));
+
+  // ── 두 스케일 ──────────────────────────────────────────────────────────
+  //
+  // 큰 스케일은 **합성하지 않습니다.** 576방향 기상 격자가 이미 방향마다
+  // 다른 운량(vCover)을 주고 있고, 그게 진짜 데이터로 된 패치입니다.
+  //
+  // 한동안 그 위에 합성 패치를 하나 더 얹어 국소 운량을 흔들었는데, 렌더에서
+  // 잡혔습니다: 지상거리 투영은 천정에서 d → 0 이라 **패치 uv가 한 점으로
+  // 수축**합니다. 그러면 천정 부근 넓은 영역이 텍스처의 한 값을 공유해
+  // 운량이 통째로 밀립니다 (측정 -5.2%p). 셀 쪽은 uv 배율이 8배 커서 그
+  // 특이점이 눈에 안 띌 만큼 작습니다.
+  //
+  // 격자는 통계를, 텍스처는 모양을 — 계획의 원칙 그대로가 맞았습니다.
+  float cellV = cell_sample(uCellTex, uvCell, uCellMaskA, uCellMaskB);
+  float t = cell_threshold(vCover, tpp);
+  // 문턱 램프는 대칭이라 면적을 바꾸지 않습니다. 축소가 클수록 넓혀
+  // 계단이 지글거리지 않게 합니다.
+  float w = clamp(0.025 * max(1.0, tpp), 0.02, 0.40);
+  float cellCut = smoothstep(t - w, t + w, cellV);
+
+  // 층운계(cellStrength = 0)는 조각을 내지 않습니다 — WMO 정의상 요소가
+  // 없는 구름입니다. 그때는 운량이 그대로 알파가 됩니다.
+  float coverAlpha = mix(vCover, cellCut, uCellStrength);
+
+  // 지평선 부근의 덱 페이드 (4단계에서 대기 투시로 대체)
   float horizonFade = smoothstep(1.5, 14.0, vElevDeg);
-  float deckAlpha = merge * holeCut * horizonFade;
+  float deckAlpha = coverAlpha * horizonFade;
 
   // 두께 얼룩 — 덱이 균일한 판때기로 보이지 않게 합니다.
-  float thickVar = 0.72 + 0.56 * fbm(uv * 3.3 + 17.0);
+  float thickVar = 0.72 + 0.56 * fbm(uvPatch * 6.0 + 17.0);
 
   if (deckAlpha <= 0.004) discard;
+
+  // 아래쪽 코드가 쓰는 이름들을 맞춰 둡니다.
+  float holeCut = cellCut;
+  float merge = vCover;
 
   // ── 광학 ────────────────────────────────────────────────────────────────
   float tau = uTau * thickVar;
@@ -166,6 +235,8 @@ export interface CloudDeckHandle {
   group: THREE.Group;
   layers: CloudDeckLayer[];
   dispose: () => void;
+  /** 구운 조각 무늬 — 검증 하네스가 크기·타일 수를 읽습니다 */
+  cell: CloudCellTexture;
 }
 
 function buildDeckGeometry(layer: LayerKey): {
@@ -229,9 +300,29 @@ function buildDeckGeometry(layer: LayerKey): {
 /** 층 → 메시 정점 방향 목록 (샘플 보간에 재사용) */
 const deckDirs = new Map<LayerKey, { azDeg: number; elevDeg: number }[]>();
 
-export function createCloudDeck(): CloudDeckHandle {
+/** 지상거리 상한 — 층 고도의 몇 배까지 볼 것인가 (시선 고도 약 1.4°) */
+const MAX_DIST_FACTOR = 40;
+/**
+ * 두께 얼룩용 무늬의 물리 크기 (km).
+ *
+ * **운량에는 관여하지 않습니다.** τ를 ±28% 흔들어 덱이 균일한 판때기로
+ * 보이지 않게 하는 밝기 얼룩일 뿐입니다. 예전에 여기에 운량 변조를 얹었다가
+ * 천정 특이점으로 운량이 -5.2%p 밀렸습니다 (셰이더 주석 참고).
+ */
+const PATCH_SIZE_KM = 4;
+
+export function createCloudDeck(opts: {
+  /** 이방성 필터 최대 배율. `renderer.capabilities.getMaxAnisotropy()` */
+  maxAnisotropy?: number;
+} = {}): CloudDeckHandle {
   const group = new THREE.Group();
   group.name = 'cloudDeck';
+
+  // 조각 무늬는 날씨·시각과 무관한 정적 텍스처라 한 번만 굽습니다.
+  const cell = createCloudCellTexture();
+  const maxAniso = Math.max(1, opts.maxAnisotropy ?? 1);
+  cell.texture.anisotropy = maxAniso;
+  cell.texture.needsUpdate = true;
 
   const layers: CloudDeckLayer[] = [];
 
@@ -253,6 +344,19 @@ export function createCloudDeck(): CloudDeckHandle {
         uSaturation: { value: 1 },
         uOpacity: { value: 1 },
         uTime: { value: 0 },
+
+        uCellTex: { value: cell.texture },
+        uCellMaskA: { value: new THREE.Vector4(1, 0, 0, 0) },
+        uCellMaskB: { value: new THREE.Vector4(0, 1, 0, 0) },
+        // 기본값은 고적운 기준. updateCloudDeck이 운형에서 다시 넣습니다.
+        uCellUvScale: { value: 1 / (0.5 * cell.tileCells) },
+        uPatchUvScale: { value: 1 / (PATCH_SIZE_KM * cell.tileCells) },
+        uCellStrength: { value: 0.9 },
+        uAltKm: { value: LAYER_ALTITUDE_KM[layer] },
+        uMaxDistKm: { value: LAYER_ALTITUDE_KM[layer] * MAX_DIST_FACTOR },
+        uPixelAngleRad: { value: 0.002 },
+        uMaxAniso: { value: maxAniso },
+        uCellTexSize: { value: cell.size },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -281,7 +385,9 @@ export function createCloudDeck(): CloudDeckHandle {
         l.mesh.geometry.dispose();
         l.material.dispose();
       }
+      // 텍스처는 모듈 캐시가 갖고 있으므로 여기서 버리지 않습니다.
     },
+    cell,
   };
 }
 
@@ -343,6 +449,19 @@ export interface DeckUpdate {
   sunAltDeg: number;
   tauFor: (layer: LayerKey) => number;
   shadowFor: (layer: LayerKey) => number;
+  /**
+   * 층별 대표 운형의 조각 기하.
+   *
+   * **광학두께와 같은 운형에서 나와야 합니다.** 두 값이 갈라지면
+   * "권운처럼 얇은데 층적운처럼 큰 조각"이 나옵니다.
+   */
+  cellFor: (layer: LayerKey) => {
+    cellSizeKm: number;
+    cellStrength: number;
+    cellVariant: 'billow' | 'fbm';
+  };
+  /** 화면 픽셀 하나의 각크기 (rad) — 밉 필터 보정에 씁니다 */
+  pixelAngleRad: number;
   timeSeconds: number;
   visible: boolean;
 }
@@ -373,10 +492,27 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir);
     uni.uTau.value = u.tauFor(l.layer);
     uni.uShadowContrast.value = u.shadowFor(l.layer);
+
+    const cellCfg = u.cellFor(l.layer);
+    const mask = CELL_CHANNEL_MASK[cellCfg.cellVariant];
+    (uni.uCellMaskA.value as THREE.Vector4).fromArray(mask.a);
+    (uni.uCellMaskB.value as THREE.Vector4).fromArray(mask.b);
+    // 셀 크기가 0인 운형(층운계)은 조각이 없습니다. 0으로 나누지 않도록
+    // 배율은 아무 값이나 넣고 uCellStrength가 결과를 지웁니다.
+    const sizeKm = cellCfg.cellSizeKm > 0.001 ? cellCfg.cellSizeKm : 1;
+    uni.uCellUvScale.value = 1 / (sizeKm * handle.cell.tileCells);
+    uni.uCellStrength.value = cellCfg.cellStrength;
+    uni.uPixelAngleRad.value = u.pixelAngleRad;
     uni.uSunAltDeg.value = u.sunAltDeg;
     uni.uTime.value = u.timeSeconds;
 
-    // 최대 운량이 병합 임계에 못 미치면 그 층 덱은 통째로 끕니다.
-    l.mesh.visible = u.visible && maxCover > 0.45;
+    // 운량이 사실상 0인 층만 끕니다.
+    //
+    // 예전 문턱은 0.45였습니다. 덱이 "BKN/OVC에서만 얹는 보조"였을 때는
+    // 맞는 값이었지만(merge가 0.20에서 시작해 0.85에서 차므로 그 아래는
+    // 기여가 거의 없었습니다), 2단계부터 덱이 층상운의 **주역**이라
+    // 그 문턱은 운량 45% 미만의 하늘을 통째로 지워 버립니다.
+    // 기준 사진(고적운 39%)이 정확히 여기 걸렸습니다.
+    l.mesh.visible = u.visible && maxCover > 0.02;
   }
 }

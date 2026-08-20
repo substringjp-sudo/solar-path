@@ -71,6 +71,7 @@ import { bakeCloudAtlas } from './app/components/SkyScene3D/cloudAtlas.js';
 import { createCloudField, updateCloudField } from './app/components/SkyScene3D/CloudField.js';
 import { buildCloudInstances } from './app/components/SkyScene3D/cloudPlacement.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
+import { PRESET_OPTICS } from './app/utils/cloudPresets.js';
 import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI, beamAtAltitude, applyCloudDimming }
   from './app/utils/atmosphere.js';
 
@@ -107,7 +108,21 @@ sunMesh.renderOrder=0.5; sunMesh.frustumCulled=false; scene.add(sunMesh);
 
 const cloudField = createCloudField(atlas, 320);
 scene.add(cloudField.mesh);
-const cloudDeck = createCloudDeck();
+const cloudDeck = createCloudDeck({
+  maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
+});
+
+// 덱의 조각 기하는 **그 층에서 실제로 뽑힌 운형**에서 가져옵니다.
+// 광학두께(tauFor)와 같은 출처여야 모양과 광학이 갈라지지 않습니다.
+function cellForLayer(instances, layer) {
+  const names = instances.filter(c => c.layer === layer)
+    .map(c => c.atlasKey.split('#')[0]);
+  const count = {};
+  for (const n of names) count[n] = (count[n] || 0) + 1;
+  const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+  const o = PRESET_OPTICS[top] || PRESET_OPTICS.Stratocumulus;
+  return { cellSizeKm: o.cellSizeKm, cellStrength: o.cellStrength, cellVariant: o.cellVariant };
+}
 scene.add(cloudDeck.group);
 
 const cam=new THREE.PerspectiveCamera(72,TW/TH,0.1,1000); cam.position.set(0,0,0);
@@ -184,6 +199,8 @@ SCENES.forEach((s,i)=>{
     sunDir, sunAltDeg: s.sunAlt,
     tauFor: L => med(byLayer(L).map(c=>c.tau), 25),
     shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
+    cellFor: L => cellForLayer(built.instances, L),
+    pixelAngleRad: (72 * Math.PI / 180) / TH,   // 카메라 화각 72°
     timeSeconds: 0, visible: !NODECK,
   });
 

@@ -207,3 +207,33 @@ GPU가 우리 밉 체인을 실제로 쓸 때만 참입니다. 실제로 GL 쪽 
 측정 경로와 출하 경로가 같아야 합니다.
 
 확인법: 실사용 축소 범위(텍셀/픽셀 ≤ 12)에서 오차가 1%p 아래인가.
+
+## 덱 각크기 (2단계) — `verify-deck-scale.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-deck-scale-preview.js
+node tools/shader-preview/verify-deck-scale.js          # 8개
+node tools/shader-preview/shoot.js deck-scale.html deck-scale.png
+```
+
+`CloudDeck.ts`를 **그대로 임포트해** 씬을 만들고 렌더된 픽셀에서 잽니다.
+셰이더 식을 옮겨 적지 않는 것이 핵심입니다 — 그러면 측정이 거짓말을 합니다.
+
+⚠ **반투명 층을 색 문턱으로 재지 마세요.** 가장자리 반투명 픽셀과 그늘진
+구름이 섞여 운량이 과소 계상됩니다(처음에 0.39가 0.25로 나왔습니다).
+검정·흰 두 배경으로 두 번 그려 알파를 분리합니다:
+`a = 1 - (over_white - over_black)`.
+
+⚠ **운량은 입체각으로 가중하세요.** 픽셀 가중이면 카메라를 천정 쪽에 오래
+둔 스윕이 천정을 과대 반영합니다. 고도대 [lo,hi]의 몫은 `sin(hi) - sin(lo)`.
+
+`measure-cloud-scale.js`는 이제 **2단계 이전 덱의 재현**입니다(상수 고정).
+개선 전후를 같은 정의로 나란히 두려고 남겨 뒀습니다 — 지금 덱은 여기서
+재세요.
+
+| 지표 (운량 0.39, 고적운) | 개선 전 | 2단계 후 |
+|---|---|---|
+| 조각 각크기 | 5.87° | 1.63~2.97° |
+| 주기 | 42.4° | 4.8~7.5° |
+| 운량 오차 (고도 10° 이상) | -25.2%p | -1.05%p |

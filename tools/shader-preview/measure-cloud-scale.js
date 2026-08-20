@@ -1,49 +1,37 @@
 /**
- * 구름의 **각크기**를 잽니다 — 색이 아니라 공간 주파수.
+ * **개선 전 덱의 각크기 기준값을 재현합니다** (docs/CLOUD_TEXTURE_PLAN.md).
  *
- * Why: 실제 하늘과 앱을 나란히 놓았을 때 남은 차이가 색이 아니라 조각 크기라는
- * 것을 알아냈는데, "굵어 보인다"로는 고쳤는지 알 수가 없습니다. 이 프로젝트에서
- * 눈 대신 숫자로 재는 습관이 이미 세 번 오류를 잡았으므로(docs/TWILIGHT.md,
- * 이 디렉터리의 README) 여기서도 재는 방법을 먼저 고정합니다.
+ * ⚠ 이 스크립트는 **지금 덱을 재지 않습니다.** 2단계에서 투영과 문턱 식이
+ * 통째로 바뀌었기 때문입니다. 지금 덱은 `verify-deck-scale.js`로 재세요 —
+ * 그쪽은 `CloudDeck.ts`를 실제로 임포트해 렌더된 픽셀에서 잽니다.
  *
- * 무엇을 재나: `CloudDeck.ts`의 FRAG에 있는 fbm/holeCut 식을 **소스에서 상수를
- * 읽어** JS로 옮겨 계산하고, 고도 45° 원을 따라 방위 360°를 훑으며 알파가
- * 0↔1을 넘나드는 횟수를 셉니다. 교차 횟수를 대권 길이로 나누면 조각 하나의
- * 평균 각크기가 나옵니다.
+ * 그래도 남겨 두는 이유: **개선 전후를 같은 정의로 나란히 놓기 위해서**입니다.
+ * "42.4°였다"가 재현 가능해야 "지금 2.5°다"가 의미를 갖습니다.
  *
- * 렌더가 아니라 순수 계산이라 서버도 크로미움도 필요 없습니다.
+ * 원래는 `CloudDeck.ts`에서 상수를 읽어 왔습니다. 2단계가 그 식들을 지우면서
+ * 읽기가 실패했는데, 그건 감시가 제대로 동작한 것입니다. 이제 과거 값이므로
+ * **그때 값을 고정**해 둡니다 — 소스를 읽으면 오히려 거짓말이 됩니다.
  *
- * 기준값 (2026-08 측정, 개선 전):
- *   운량 0.39 → 42.4°   운량 0.60 → 28.3°   운량 0.80 → 25.5°
- * 목표 (docs/CLOUD_TEXTURE_PLAN.md §6): 고적운 장면에서 1~3°.
+ * ## 그때 무엇이 문제였나
+ *
+ * 세밀한 무늬가 **없는 게 아니라 문턱을 넘을 힘이 없었습니다.** 옥타브 3이
+ * 1.40°짜리 무늬를 갖고 있었지만 진폭이 문턱창의 22%뿐이라 구멍을 뚫지도
+ * 막지도 못했습니다. 문턱을 넘는 것은 11.5°짜리 옥타브 0 하나뿐이었습니다.
  *
  * 사용: node tools/shader-preview/measure-cloud-scale.js
  */
-const fs = require('fs');
-const path = require('path');
-const SRC = path.resolve(__dirname, '../..');
 
-// ── 셰이더 소스에서 상수를 읽어옵니다 ─────────────────────────────────────
-// 여기 숫자를 손으로 베끼면 셰이더를 고쳤을 때 측정이 조용히 거짓말을 합니다.
-const deckSrc = fs.readFileSync(
-  path.join(SRC, 'src/components/SkyScene3D/CloudDeck.ts'), 'utf8');
-
-const grab = (re, label) => {
-  const m = deckSrc.match(re);
-  if (!m) throw new Error(`CloudDeck.ts에서 ${label}를 찾지 못했습니다 — 식이 바뀌었나요?`);
-  return parseFloat(m[1]);
-};
-
-// vec2 uv = (hdir / hlen) * rad * 5.2;
-const UV_SCALE = grab(/\*\s*rad\s*\*\s*([\d.]+)\s*;/, 'uv 스케일');
-// float holes = fbm(uv * 1.5);
-const HOLE_FREQ = grab(/holes\s*=\s*fbm\(uv\s*\*\s*([\d.]+)\)/, 'holeCut 주파수');
-// float holeCut = smoothstep(0.68 - vCover * 0.50, 0.96 - vCover * 0.50, holes);
-const HOLE_LO = grab(/holeCut\s*=\s*smoothstep\(([\d.]+)\s*-\s*vCover/, 'holeCut 하단');
-const HOLE_HI = grab(/holeCut\s*=\s*smoothstep\([\d.]+\s*-\s*vCover\s*\*\s*[\d.]+,\s*([\d.]+)/, 'holeCut 상단');
-const HOLE_SLOPE = grab(/holeCut\s*=\s*smoothstep\([\d.]+\s*-\s*vCover\s*\*\s*([\d.]+)/, 'holeCut 기울기');
-// p = rot * p * 2.02;
-const LACUNARITY = grab(/p\s*=\s*rot\s*\*\s*p\s*\*\s*([\d.]+)\s*;/, 'fbm lacunarity');
+// ── 2026-08, 2단계 이전 `CloudDeck.ts` FRAG의 상수 ────────────────────────
+//   vec2  uv      = (hdir / hlen) * rad * 5.2;
+//   float holes   = fbm(uv * 1.5);
+//   float holeCut = smoothstep(0.68 - vCover * 0.50, 0.96 - vCover * 0.50, holes);
+//   p = rot * p * 2.02;   // fbm lacunarity
+const UV_SCALE = 5.2;
+const HOLE_FREQ = 1.5;
+const HOLE_LO = 0.68;
+const HOLE_HI = 0.96;
+const HOLE_SLOPE = 0.50;
+const LACUNARITY = 2.02;
 
 // ── GLSL 식을 그대로 옮깁니다 ─────────────────────────────────────────────
 const fract = x => x - Math.floor(x);
@@ -86,7 +74,8 @@ const smoothstep = (a, b, x) => {
 const DEG_PER_UV = 90 / UV_SCALE;
 const WINDOW = HOLE_HI - HOLE_LO;
 
-console.log('읽어온 상수: uv×%s, fbm×%s, 문턱 %s~%s (창 %s), lacunarity %s',
+console.log('※ 2단계 이전 덱의 재현입니다. 지금 덱은 verify-deck-scale.js 로 재세요.\n');
+console.log('그때 상수: uv×%s, fbm×%s, 문턱 %s~%s (창 %s), lacunarity %s',
   UV_SCALE, HOLE_FREQ, HOLE_LO, HOLE_HI, WINDOW.toFixed(2), LACUNARITY);
 console.log('uv 1단위 = %s°\n', DEG_PER_UV.toFixed(1));
 
@@ -110,7 +99,11 @@ const rad = (90 - ELEV) / 90;
 const arcDeg = 360 * Math.cos((ELEV * Math.PI) / 180); // 대권 기준 실제 각거리
 const N = 20000;
 
-console.log('운량 │ 교차 │ 평균 조각 크기 │ 실제(고적운 1~3°) 대비');
+// **주기와 조각을 나눠 적습니다.**
+// 교차 두 번이 조각 하나 + 틈 하나 = 한 주기입니다. WMO가 정의하는 것은
+// 조각 쪽(= 주기 × 실제 덮은 면적)이라, 둘을 섞으면 개선 전후 비교가
+// 사과 대 오렌지가 됩니다. verify-deck-scale.js도 같은 정의를 씁니다.
+console.log('운량 │ 교차 │   주기 │ 실제 면적 │   조각 │ WMO 고적운 1~5° 대비');
 const results = [];
 for (const cover of [0.2, 0.39, 0.6, 0.8, 0.95]) {
   const lo = HOLE_LO - cover * HOLE_SLOPE;
@@ -124,13 +117,28 @@ for (const cover of [0.2, 0.39, 0.6, 0.8, 0.95]) {
     if (prev !== null && open !== prev) crossings++;
     prev = open;
   }
-  const featureDeg = crossings > 0 ? (2 * arcDeg) / crossings : Infinity;
-  results.push({ cover, featureDeg });
-  const times = featureDeg / 2; // 실제 1~3°의 중앙값 2°와 비교
-  console.log('%s │ %s │ %s° │ %s배 굵음',
+  const periodDeg = crossings > 0 ? (2 * arcDeg) / crossings : Infinity;
+
+  // 이 운량에서 덱이 **실제로** 덮는 면적 (§1-D의 계통 오차 포함)
+  let sum = 0, n = 0;
+  const M = 200;
+  for (let i = 0; i < M; i++) {
+    for (let j = 0; j < M; j++) {
+      const ux = ((i / M) * 2 - 1) * UV_SCALE * HOLE_FREQ;
+      const uy = ((j / M) * 2 - 1) * UV_SCALE * HOLE_FREQ;
+      sum += smoothstep(lo, hi, fbm(ux, uy));
+      n++;
+    }
+  }
+  const area = sum / n;
+  const elementDeg = Number.isFinite(periodDeg) ? periodDeg * area : Infinity;
+  results.push({ cover, periodDeg, elementDeg, area });
+  const times = elementDeg / 3; // WMO 고적운 상한 근처(3°)와 비교
+  console.log('%s │ %s │ %s° │ %s │ %s° │ %s',
     cover.toFixed(2), String(crossings).padStart(4),
-    featureDeg.toFixed(1).padStart(14),
-    Number.isFinite(times) ? times.toFixed(0).padStart(4) : '  ∞');
+    periodDeg.toFixed(1).padStart(6), area.toFixed(3).padStart(9),
+    Number.isFinite(elementDeg) ? elementDeg.toFixed(2).padStart(6) : '     ∞',
+    Number.isFinite(times) ? times.toFixed(1) + '배 굵음' : '조각이 안 생김');
 }
 
 // ── 3) 통과 면적비가 운량을 따라가는가 ────────────────────────────────────
@@ -157,5 +165,7 @@ for (const cover of [0.2, 0.39, 0.6, 0.8]) {
     err >= 0 ? '+' : '', (err * 100).toFixed(1) + '%p');
 }
 
-console.log('\n기준값(개선 전, 2026-08): 운량 0.39 → 42.4°');
-console.log('목표: docs/CLOUD_TEXTURE_PLAN.md §6 — 고적운 장면에서 1~3°');
+console.log('\n기준값 (개선 전, 2026-08): 운량 0.39 → 주기 42.4°, 조각 5.85°');
+console.log('2단계 후 (verify-deck-scale.js): 주기 4.8~7.5°, 조각 1.63~2.97°');
+console.log('이 스크립트는 **예전 덱 식**을 재현합니다 — 지금 덱은 여기가 아니라');
+console.log('verify-deck-scale.js 로 재세요. 두 수치를 나란히 두려고 남겨 둡니다.');

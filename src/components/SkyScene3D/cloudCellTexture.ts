@@ -43,19 +43,32 @@ export interface CloudCellTexture {
 }
 
 /**
- * 채널별 씨앗.
+ * 채널 배치 — **두 변종을 각각 두 채널씩** 담습니다.
  *
- * 덱은 층이 3개인데 셋이 같은 무늬를 쓰면 저·중·상층이 완벽히 겹쳐 보여
- * 하늘이 한 장짜리가 됩니다. 층마다 다른 채널을 읽게 하려고 씨앗을 벌려 둡니다.
- * (네 번째 채널은 같은 층 안에서 무늬를 섞어 타일 반복을 흐리는 데 씁니다)
+ * `cell_sample`이 타일 반복을 억제하려고 두 번 뽑으므로 변종마다 최소 두
+ * 채널이 필요합니다. RGBA가 넷이니 billow 2 + fbm 2 가 정확히 들어맞습니다.
+ *
+ *   R, G : billow — |2n-1| 접기. 둥근 알갱이가 또렷해 권적운·고적운에 맞습니다.
+ *   B, A : fbm    — 덩어리가 이어져 권운·층적운·적운 쪽입니다.
+ *
+ * 같은 변종을 쓰는 두 층은 같은 채널 쌍을 읽지만, **셀 크기와 층 고도가
+ * 달라 uv 배율이 크게 벌어지므로** 실제로 겹쳐 보이지 않습니다
+ * (권적운 0.20km/8km vs 고적운 0.50km/4km → uv 배율 약 5배 차이).
  */
-const CHANNEL_SEEDS = [1, 18, 35, 52];
+const CHANNEL_SPECS: { seed: number; variant: 'billow' | 'fbm' }[] = [
+  { seed: 1, variant: 'billow' },
+  { seed: 18, variant: 'billow' },
+  { seed: 35, variant: 'fbm' },
+  { seed: 52, variant: 'fbm' },
+];
 
-/** 층 → 읽을 채널. `cloudCellField`의 RGBA 순서와 맞춰야 합니다. */
-export const LAYER_CELL_CHANNEL: Record<'low' | 'mid' | 'high', number> = {
-  low: 0,
-  mid: 1,
-  high: 2,
+/** 변종 → (첫 탭, 둘째 탭) 채널 마스크. 셰이더 `uCellMaskA/B`에 그대로 넣습니다. */
+export const CELL_CHANNEL_MASK: Record<
+  'billow' | 'fbm',
+  { a: [number, number, number, number]; b: [number, number, number, number] }
+> = {
+  billow: { a: [1, 0, 0, 0], b: [0, 1, 0, 0] },
+  fbm: { a: [0, 0, 1, 0], b: [0, 0, 0, 1] },
 };
 
 function toDataTexture(packed: PackedCellField): THREE.DataTexture {
@@ -98,7 +111,6 @@ function keyOf(opts: CellFieldOptions): string {
     size: opts.size ?? null,
     tileCells: opts.tileCells ?? null,
     octaves: opts.octaves ?? null,
-    variant: opts.variant ?? null,
     warp: opts.warp ?? null,
   });
 }
@@ -116,7 +128,7 @@ export function createCloudCellTexture(
   const key = keyOf(opts);
   if (cached && cachedKey === key) return cached;
 
-  const fields = CHANNEL_SEEDS.map(seed => bakeCellField({ ...opts, seed }));
+  const fields = CHANNEL_SPECS.map(c => bakeCellField({ ...opts, seed: c.seed, variant: c.variant }));
   const packed = packCellFieldsRGBA(fields);
   const texture = toDataTexture(packed);
 
@@ -155,9 +167,10 @@ export async function createCloudCellTextureAsync(
   }
 
   const fields = [];
-  for (let i = 0; i < CHANNEL_SEEDS.length; i++) {
-    fields.push(bakeCellField({ ...opts, seed: CHANNEL_SEEDS[i] }));
-    onProgress?.((i + 1) / CHANNEL_SEEDS.length);
+  for (let i = 0; i < CHANNEL_SPECS.length; i++) {
+    const c = CHANNEL_SPECS[i];
+    fields.push(bakeCellField({ ...opts, seed: c.seed, variant: c.variant }));
+    onProgress?.((i + 1) / CHANNEL_SPECS.length);
     await new Promise<void>(resolve => setTimeout(resolve, 0));
   }
 
