@@ -22,6 +22,7 @@ const ENTRIES = [
   'src/components/SkyScene3D/cloudAtlas.ts',
   'src/components/SkyScene3D/CloudField.ts',
   'src/components/SkyScene3D/CloudDeck.ts',
+  'src/components/SkyScene3D/cloudCellTexture.ts',
   'src/utils/cloudGridAdapter.ts',
 ];
 

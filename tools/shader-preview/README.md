@@ -181,3 +181,29 @@ node tools/shader-preview/measure-cloud-scale.js
 | 통과 면적비 오차 | -25.2%p | ±2%p |
 
 배경과 설계는 `docs/CLOUD_TEXTURE_PLAN.md`.
+
+## 셀 필드 (1단계) — `verify-cell-field.js` · `verify-cell-gl.js`
+
+```bash
+npx tsc --module commonjs --target es2020 --moduleResolution node \
+  --skipLibCheck --outDir /tmp/cellbuild src/utils/cloudCellField.ts
+node tools/shader-preview/verify-cell-field.js     # 순수 TS (10개)
+node tools/shader-preview/build-cell-preview.js    # 무늬를 눈으로
+node tools/shader-preview/shoot.js cell.html cell-preview.png
+
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-cell-gl-preview.js
+node tools/shader-preview/verify-cell-gl.js        # GL 경로 (11개)
+```
+
+**두 개가 따로 있는 이유가 핵심입니다.** `verify-cell-field.js`는 JS 배열의
+면적비를 봅니다. 그런데 1단계의 주장은 "축소해도 운량이 유지된다"이고, 그건
+GPU가 우리 밉 체인을 실제로 쓸 때만 참입니다. 실제로 GL 쪽 검사가 JS 검사가
+전부 통과한 상태에서 **-11.29%p** 오차를 잡아냈습니다 — 삼선형 필터가 업로드
+이후에 분포를 다시 좁히기 때문입니다.
+
+⚠ **수축률(`MIP_SHRINK_*`)을 다시 맞출 때는 반드시 `cell_sample`(두 번 뽑기)
+경로로 재세요.** 한 번 뽑기로 재서 맞추면 운량 0.85 꼬리에서 어긋납니다.
+측정 경로와 출하 경로가 같아야 합니다.
+
+확인법: 실사용 축소 범위(텍셀/픽셀 ≤ 12)에서 오차가 1%p 아래인가.
