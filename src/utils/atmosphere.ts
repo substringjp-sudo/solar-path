@@ -424,6 +424,27 @@ function ozoneAirMass(
 }
 
 /**
+ * 두 (방위, 고도) 방향 사이의 각거리 — `skyRadiance`의 `gammaDeg` 인자를
+ * 만드는 데 씁니다.
+ *
+ * 구면 코사인 법칙입니다. 빌보드 조명(`cloudPlacement.ts`)이 이미 인라인으로
+ * 같은 식을 쓰고 있었는데, 덱 조명(3단계)에도 같은 식이 필요해져 여기로
+ * 올렸습니다 — 두 곳이 따로 구현하면 하늘색이 갈라집니다.
+ */
+export function angularSeparationDeg(
+  az1Deg: number,
+  elev1Deg: number,
+  az2Deg: number,
+  elev2Deg: number
+): number {
+  const azDiffRad = ((az2Deg - az1Deg + 540) % 360 - 180) * (Math.PI / 180);
+  const e1 = (elev1Deg * Math.PI) / 180;
+  const e2 = (elev2Deg * Math.PI) / 180;
+  const cosGamma = Math.sin(e1) * Math.sin(e2) + Math.cos(e1) * Math.cos(e2) * Math.cos(azDiffRad);
+  return (Math.acos(Math.max(-1, Math.min(1, cosGamma))) * 180) / Math.PI;
+}
+
+/**
  * 임의의 시선 방향에 대한 하늘 복사휘도 (linear RGB).
  *
  * @param viewElevDeg 시선 고도각 (지평선 0, 천정 90)

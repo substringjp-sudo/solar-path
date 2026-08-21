@@ -50,16 +50,22 @@ precision highp float;
 attribute float aCover;      // 이 방향 층 운량 0~1
 attribute float aElevDeg;
 attribute float aAzDeg;
+attribute vec3  aAmbientUp;   // 3단계: 방향별 하늘빛 (덱 상단이 받음)
+attribute vec3  aAmbientDown; // 3단계: 방향별 확산광 (덱 하단이 받음)
 
 varying float vCover;
 varying float vElevDeg;
 varying float vAzDeg;
 varying vec3  vDir;
+varying vec3  vAmbientUp;
+varying vec3  vAmbientDown;
 
 void main() {
-  vCover   = aCover;
-  vElevDeg = aElevDeg;
-  vAzDeg   = aAzDeg;
+  vCover       = aCover;
+  vElevDeg     = aElevDeg;
+  vAzDeg       = aAzDeg;
+  vAmbientUp   = aAmbientUp;
+  vAmbientDown = aAmbientDown;
   vDir     = normalize(position);
   gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
 }
@@ -72,8 +78,6 @@ ${ATMOSPHERE_GLSL}
 ${CELL_FIELD_GLSL}
 
 uniform vec3  uBeam;        // 이 층 고도에서의 직달광 (위층 감쇠 반영됨)
-uniform vec3  uAmbientUp;   // 덱 윗면이 받는 하늘빛
-uniform vec3  uAmbientDown; // 덱 아랫면 주변 확산광
 uniform vec3  uSunDir;
 uniform float uTau;         // 층 대표 광학두께
 uniform float uShadowContrast;
@@ -95,10 +99,17 @@ uniform float uPixelAngleRad;    // 화면 픽셀 하나의 각크기
 uniform float uMaxAniso;         // 이방성 필터 최대 배율
 uniform float uCellTexSize;      // 텍스처 한 변 (텍셀)
 
+// ── 대기 투시 (docs/CLOUD_TEXTURE_PLAN.md 4단계) ──────────────────────────
+uniform float uBeta;             // 에어로졸 혼탁도 — CloudField.ts와 같은 값
+uniform float uAngstrom;
+uniform float uElevScale;
+
 varying float vCover;
 varying float vElevDeg;
 varying float vAzDeg;
 varying vec3  vDir;
+varying vec3  vAmbientUp;
+varying vec3  vAmbientDown;
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -183,14 +194,10 @@ void main() {
   // 없는 구름입니다. 그때는 운량이 그대로 알파가 됩니다.
   float coverAlpha = mix(vCover, cellCut, uCellStrength);
 
-  // 지평선 부근의 덱 페이드 (4단계에서 대기 투시로 대체)
-  float horizonFade = smoothstep(1.5, 14.0, vElevDeg);
-  float deckAlpha = coverAlpha * horizonFade;
-
   // 두께 얼룩 — 덱이 균일한 판때기로 보이지 않게 합니다.
   float thickVar = 0.72 + 0.56 * fbm(uvPatch * 6.0 + 17.0);
 
-  if (deckAlpha <= 0.004) discard;
+  if (coverAlpha <= 0.004) discard;
 
   // 아래쪽 코드가 쓰는 이름들을 맞춰 둡니다.
   float holeCut = cellCut;
@@ -206,7 +213,7 @@ void main() {
   // 바닥면 밝기는 위에서 통과해 내려온 확산광(T)이 지배합니다.
   // 이것이 흐린 날의 평평한 회색입니다 — 직달광이 도달하지 않으므로
   // 밝은 면/그늘 면 대비가 생기지 않습니다.
-  vec3 baseCol = uBeam * T * 0.42 + uAmbientDown * (0.35 + T * 0.4);
+  vec3 baseCol = uBeam * T * 0.42 + vAmbientDown * (0.35 + T * 0.4);
 
   // 덱이 얇으면 태양 방향이 비쳐 밝은 얼룩이 생깁니다 (구름 사이 밝음).
   float sunAlign = clamp(dot(normalize(vDir), uSunDir), 0.0, 1.0);
@@ -215,12 +222,25 @@ void main() {
 
   // 구멍 가장자리는 위쪽 밝은 면이 살짝 보입니다.
   float edge = (1.0 - holeCut) * merge;
-  baseCol += (uBeam * R + uAmbientUp * (1.0 - R)) * edge * 0.35;
+  baseCol += (uBeam * R + vAmbientUp * (1.0 - R)) * edge * 0.35;
 
   // 그늘 깊이 — 두꺼울수록 어둡습니다.
   baseCol *= 1.0 - uShadowContrast * 0.42 * smoothstep(8.0, 60.0, tau);
 
-  gl_FragColor = vec4(atm_display(baseCol, uSaturation, uSunAltDeg), deckAlpha * uOpacity);
+  // ── 대기 투시 (docs/CLOUD_TEXTURE_PLAN.md 4단계) ────────────────────────
+  //
+  // 예전에는 지평선 근처에서 알파를 임의로 줄였습니다(smoothstep(1.5,14.0,·)).
+  // 고도 14°는 중층 기준 16km — 그 거리에서 구름이 사라질 이유가 없는데도
+  // 지웠고, 이 창을 그대로 재면 운량이 -28.3%p 모자랐습니다 (2단계 측정).
+  //
+  // 구름은 멀어진다고 투명해지지 않습니다 — 대기에 잠겨 **색이 하늘과
+  // 같아질 뿐**입니다. CloudField.ts(빌보드)가 이미 이렇게 합니다.
+  // 알파는 운량 그대로 두고(= 통계가 맞고), 색만 거리에 따라 vAmbientDown
+  // (이 방향의 실제 하늘/연무 색, 3단계에서 방향별로 만들어짐)으로 보냅니다.
+  vec3 Tpath = atm_aerialTransmittance(d, uAltKm, uBeta, uAngstrom, uElevScale);
+  baseCol = baseCol * Tpath + vAmbientDown * (1.0 - Tpath);
+
+  gl_FragColor = vec4(atm_display(baseCol, uSaturation, uSunAltDeg), coverAlpha * uOpacity);
 }
 `;
 
@@ -229,6 +249,8 @@ export interface CloudDeckLayer {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
   coverAttr: THREE.BufferAttribute;
+  ambientUpAttr: THREE.BufferAttribute;
+  ambientDownAttr: THREE.BufferAttribute;
 }
 
 export interface CloudDeckHandle {
@@ -242,6 +264,8 @@ export interface CloudDeckHandle {
 function buildDeckGeometry(layer: LayerKey): {
   geometry: THREE.BufferGeometry;
   coverAttr: THREE.BufferAttribute;
+  ambientUpAttr: THREE.BufferAttribute;
+  ambientDownAttr: THREE.BufferAttribute;
   dirs: { azDeg: number; elevDeg: number }[];
 } {
   const radius = DECK_RADIUS[layer];
@@ -292,9 +316,20 @@ function buildDeckGeometry(layer: LayerKey): {
   geometry.setAttribute('aCover', coverAttr);
   geometry.setAttribute('aElevDeg', new THREE.Float32BufferAttribute(elevA, 1));
   geometry.setAttribute('aAzDeg', new THREE.Float32BufferAttribute(azA, 1));
+
+  // 3단계: 방향별 환경광. 정점 수만큼(층당 2,409) 미리 0으로 채워 두고
+  // updateCloudDeck이 192방향 그리드에서 보간해 채웁니다.
+  const nV = dirs.length;
+  const ambientUpAttr = new THREE.Float32BufferAttribute(new Float32Array(nV * 3), 3);
+  const ambientDownAttr = new THREE.Float32BufferAttribute(new Float32Array(nV * 3), 3);
+  ambientUpAttr.setUsage(THREE.DynamicDrawUsage);
+  ambientDownAttr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('aAmbientUp', ambientUpAttr);
+  geometry.setAttribute('aAmbientDown', ambientDownAttr);
+
   geometry.setIndex(indices);
 
-  return { geometry, coverAttr, dirs };
+  return { geometry, coverAttr, ambientUpAttr, ambientDownAttr, dirs };
 }
 
 /** 층 → 메시 정점 방향 목록 (샘플 보간에 재사용) */
@@ -328,15 +363,13 @@ export function createCloudDeck(opts: {
 
   // 상층부터 그려야 아래층이 위에 얹힙니다.
   (['high', 'mid', 'low'] as LayerKey[]).forEach((layer, idx) => {
-    const { geometry, coverAttr, dirs } = buildDeckGeometry(layer);
+    const { geometry, coverAttr, ambientUpAttr, ambientDownAttr, dirs } = buildDeckGeometry(layer);
     deckDirs.set(layer, dirs);
 
     const material = new THREE.ShaderMaterial({
       uniforms: {
       ...makeTuningUniforms(),
         uBeam: { value: new THREE.Vector3(1, 1, 1) },
-        uAmbientUp: { value: new THREE.Vector3(0.4, 0.5, 0.7) },
-        uAmbientDown: { value: new THREE.Vector3(0.3, 0.33, 0.38) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uTau: { value: 30 },
         uShadowContrast: { value: 0.6 },
@@ -357,6 +390,12 @@ export function createCloudDeck(opts: {
         uPixelAngleRad: { value: 0.002 },
         uMaxAniso: { value: maxAniso },
         uCellTexSize: { value: cell.size },
+
+        // 4단계: 대기 투시. CloudField.ts와 같은 이름 — updateCloudDeck이
+        // 매 프레임 env에서 채웁니다.
+        uBeta: { value: 0.08 },
+        uAngstrom: { value: 1.3 },
+        uElevScale: { value: 1.0 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -374,7 +413,7 @@ export function createCloudDeck(opts: {
     mesh.renderOrder = 1 + idx * 0.1;
     group.add(mesh);
 
-    layers.push({ layer, mesh, material, coverAttr });
+    layers.push({ layer, mesh, material, coverAttr, ambientUpAttr, ambientDownAttr });
   });
 
   return {
@@ -429,19 +468,77 @@ function sampleCoverAt(
   );
 }
 
+/**
+ * `sampleCoverAt`와 같은 이중선형 보간을 vec3 그리드에 적용합니다
+ * (docs/CLOUD_TEXTURE_PLAN.md 3단계).
+ *
+ * `grid`는 `azSteps × elevs.length` 방향, 채널당 순서로 저장됩니다
+ * (`(a * elevs.length + e) * 3 + c`). 192개 격자점에서만 실제 계산(스카이
+ * 복사휘도)을 하고, 여기서는 배열 조회 4번뿐이라 정점 수(2,409×3층)만큼
+ * 불러도 저렴합니다.
+ */
+function sampleVec3GridAt(
+  grid: Float32Array,
+  azSteps: number,
+  elevs: number[],
+  azDeg: number,
+  elevDeg: number,
+  out: THREE.Vector3
+): void {
+  const nE = elevs.length;
+
+  const aF = (azDeg / 360) * azSteps;
+  const a0 = Math.floor(aF) % azSteps;
+  const a1 = (a0 + 1) % azSteps;
+  const at = aF - Math.floor(aF);
+
+  let e0 = 0;
+  while (e0 < nE - 2 && elevs[e0 + 1] < elevDeg) e0++;
+  const e1 = Math.min(nE - 1, e0 + 1);
+  const span = Math.max(1e-6, elevs[e1] - elevs[e0]);
+  const et = Math.max(0, Math.min(1, (elevDeg - elevs[e0]) / span));
+
+  const i00 = (a0 * nE + e0) * 3;
+  const i01 = (a0 * nE + e1) * 3;
+  const i10 = (a1 * nE + e0) * 3;
+  const i11 = (a1 * nE + e1) * 3;
+
+  for (let c = 0; c < 3; c++) {
+    const v0 = grid[i00 + c] * (1 - et) + grid[i01 + c] * et;
+    const v1 = grid[i10 + c] * (1 - et) + grid[i11 + c] * et;
+    const v = v0 * (1 - at) + v1 * at;
+    if (c === 0) out.x = v;
+    else if (c === 1) out.y = v;
+    else out.z = v;
+  }
+}
+
 export interface DeckUpdate {
   samples: LayerSample[];
   beamFor: (altKm: number) => { r: number; g: number; b: number };
   /**
-   * 층별 환경광. **층마다 달라야 합니다.**
+   * 방향별 환경광 (docs/CLOUD_TEXTURE_PLAN.md 3단계).
    *
-   * Why: 예전에는 `ambientUp`/`ambientDown` 하나를 모든 층에 썼고, 그 값이
-   * `applyCloudDimming`을 거치지 않은 **맑은 하늘 복사휘도**였습니다.
-   * 빌보드(cloudPlacement)는 감광되는데 덱만 안 되고 있었고, 하필 8/8에서는
-   * 화면을 덮는 것이 덱입니다. 그래서 운량을 올릴수록 오히려 밝아졌습니다 —
-   * 측정: 태양 45°에서 6/8이 화면밝기 181, 8/8이 207.
+   * **`azDeg`/`elevDeg`로 나뉘어야 합니다.** 예전에는 층당 uniform 하나라
+   * 360° 덱 전체가 같은 색이었습니다 — 일몰에 서쪽은 타오르고 동쪽은 잿빛이어야
+   * 하는데 전부 같은 색이었습니다. 콜백이 방향마다 다시 불리므로, 안에서
+   * 그 방향과 태양 사이 각거리(`angularSeparationDeg`)로 실제 하늘 복사휘도를
+   * 계산해야 방향성이 생깁니다.
+   *
+   * 층별 `up`/`down` uniform 하나였을 때는 `applyCloudDimming`을 거치지 않은
+   * **맑은 하늘 복사휘도**였습니다. 빌보드는 감광되는데 덱만 안 되고 있었고,
+   * 하필 8/8에서는 화면을 덮는 것이 덱이라 운량을 올릴수록 오히려 밝아졌습니다
+   * (측정: 태양 45°에서 6/8이 화면밝기 181, 8/8이 207). 감광은 그대로 유지하세요.
+   *
+   * 192방향(24×8)에서만 불립니다 — 정점(2,409×3층)마다 부르면 안 됩니다.
+   * `skyRadiance` 한 번이 약 1.8µs라 192×3층×2(up/down) ≈ 1ms이지만,
+   * 정점마다 부르면 7,227×2로 10배 넘게 뜁니다.
    */
-  ambientFor: (layer: LayerKey) => {
+  ambientFor: (
+    layer: LayerKey,
+    azDeg: number,
+    elevDeg: number
+  ) => {
     up: { r: number; g: number; b: number };
     down: { r: number; g: number; b: number };
   };
@@ -462,13 +559,24 @@ export interface DeckUpdate {
   };
   /** 화면 픽셀 하나의 각크기 (rad) — 밉 필터 보정에 씁니다 */
   pixelAngleRad: number;
+  /**
+   * 대기 투시 (docs/CLOUD_TEXTURE_PLAN.md 4단계) — `CloudField.ts`와 같은
+   * 값을 넣으세요. 덱과 빌보드가 서로 다른 연무 세기를 쓰면 두 표현이
+   * 이어지는 지점(BKN 경계)에서 색이 끊깁니다.
+   */
+  betaMie: number;
+  angstrom: number;
+  elevScale: number;
   timeSeconds: number;
   visible: boolean;
 }
 
+const _ambientVec = new THREE.Vector3();
+
 export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
   const elevs = elevationGrid();
   const azSteps = 24;
+  const nE = elevs.length;
 
   for (const l of handle.layers) {
     const dirs = deckDirs.get(l.layer);
@@ -483,12 +591,34 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     }
     l.coverAttr.needsUpdate = true;
 
+    // ── 3단계: 192방향 그리드에서 방향별 환경광을 채웁니다 ─────────────────
+    // 여기서만 ambientFor(=skyRadiance)를 부릅니다. 정점 보간은 배열 조회뿐이라
+    // 값싸게 2,409개로 퍼뜨릴 수 있습니다.
+    const gridUp = new Float32Array(azSteps * nE * 3);
+    const gridDown = new Float32Array(azSteps * nE * 3);
+    for (let a = 0; a < azSteps; a++) {
+      const azDeg = (a * 360) / azSteps;
+      for (let e = 0; e < nE; e++) {
+        const amb = u.ambientFor(l.layer, azDeg, elevs[e]);
+        const i = (a * nE + e) * 3;
+        gridUp[i] = amb.up.r; gridUp[i + 1] = amb.up.g; gridUp[i + 2] = amb.up.b;
+        gridDown[i] = amb.down.r; gridDown[i + 1] = amb.down.g; gridDown[i + 2] = amb.down.b;
+      }
+    }
+    const upArr = l.ambientUpAttr.array as Float32Array;
+    const downArr = l.ambientDownAttr.array as Float32Array;
+    for (let i = 0; i < dirs.length; i++) {
+      sampleVec3GridAt(gridUp, azSteps, elevs, dirs[i].azDeg, dirs[i].elevDeg, _ambientVec);
+      upArr[i * 3] = _ambientVec.x; upArr[i * 3 + 1] = _ambientVec.y; upArr[i * 3 + 2] = _ambientVec.z;
+      sampleVec3GridAt(gridDown, azSteps, elevs, dirs[i].azDeg, dirs[i].elevDeg, _ambientVec);
+      downArr[i * 3] = _ambientVec.x; downArr[i * 3 + 1] = _ambientVec.y; downArr[i * 3 + 2] = _ambientVec.z;
+    }
+    l.ambientUpAttr.needsUpdate = true;
+    l.ambientDownAttr.needsUpdate = true;
+
     const uni = l.material.uniforms;
     const beam = u.beamFor(LAYER_ALTITUDE_KM[l.layer]);
     (uni.uBeam.value as THREE.Vector3).set(beam.r, beam.g, beam.b);
-    const amb = u.ambientFor(l.layer);
-    (uni.uAmbientUp.value as THREE.Vector3).set(amb.up.r, amb.up.g, amb.up.b);
-    (uni.uAmbientDown.value as THREE.Vector3).set(amb.down.r, amb.down.g, amb.down.b);
     (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir);
     uni.uTau.value = u.tauFor(l.layer);
     uni.uShadowContrast.value = u.shadowFor(l.layer);
@@ -505,6 +635,11 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     uni.uPixelAngleRad.value = u.pixelAngleRad;
     uni.uSunAltDeg.value = u.sunAltDeg;
     uni.uTime.value = u.timeSeconds;
+
+    // 4단계: 대기 투시 — 빌보드(CloudField.ts)와 같은 값.
+    uni.uBeta.value = u.betaMie;
+    uni.uAngstrom.value = u.angstrom;
+    uni.uElevScale.value = u.elevScale;
 
     // 운량이 사실상 0인 층만 끕니다.
     //

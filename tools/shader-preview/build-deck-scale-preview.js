@@ -102,6 +102,10 @@ for (const layer of ['low', 'mid', 'high']) {
 }
 
 const white = { r: 1.2, g: 1.2, b: 1.25 };
+// 이 미리보기는 각크기·운량만 잽니다 — 조명은 일부러 방향과 무관하게
+// 상수로 둡니다(3단계와 무관). 4단계(대기 투시)는 실제로 켜집니다: 값이
+// 없으면 uBeta 등이 undefined → NaN이 번져 셰이더가 통째로 깨지므로,
+// 무난한 중간값(맑은 날 흔한 조건)을 넣어 둡니다.
 updateCloudDeck(deck, {
   samples,
   beamFor: () => white,
@@ -112,6 +116,7 @@ updateCloudDeck(deck, {
   shadowFor: () => 0.48,
   cellFor: () => ({ cellSizeKm: 0.5, cellStrength: 0.95, cellVariant: 'billow' }),
   pixelAngleRad: (FOV_DEG * Math.PI / 180) / TH,
+  betaMie: 0.08, angstrom: 1.3, elevScale: 1.0,
   timeSeconds: 0,
   visible: true,
 });

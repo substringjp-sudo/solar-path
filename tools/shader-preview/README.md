@@ -237,3 +237,33 @@ node tools/shader-preview/shoot.js deck-scale.html deck-scale.png
 | 조각 각크기 | 5.87° | 1.63~2.97° |
 | 주기 | 42.4° | 4.8~7.5° |
 | 운량 오차 (고도 10° 이상) | -25.2%p | -1.05%p |
+
+## 덱 방향별 조명 (3단계) — `verify-deck-ambient.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-deck-ambient-preview.js
+node tools/shader-preview/verify-deck-ambient.js        # 7개
+node tools/shader-preview/shoot.js deck-ambient.html deck-ambient.png
+```
+
+층당 uniform 하나였던 덱 조명을 방향별 정점 속성으로 바꾼 것을 확인합니다.
+JS 콜백만 부르면 정점 속성 배선(aAmbientUp → vAmbientUp)이 실제로
+맞물렸는지 알 수 없으므로, 태양 고도 6°·mid층 운량 0.97에서 카메라를
+태양 방위와 그 반대 방위로 돌려 **렌더된 화면 평균색**을 비교합니다.
+
+기준값: 태양 쪽 R/B 1.133, 반대쪽 R/B 0.948 (비율 1.195). 예전(방향 무관
+uniform)이었다면 1.000이었을 값입니다.
+
+## 빌보드 운형 제한 (5단계) — `verify-billboard-genus.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-overcast-preview.js
+node tools/shader-preview/verify-billboard-genus.js      # 8개
+```
+
+새 미리보기 없이 `build-overcast-preview.js`가 이미 남기는
+`window.__stats[].genera`(그 장면에서 실제로 배치된 빌보드 운형 집합)를
+읽습니다. 흐림 8/8과 권층운 장면에서 빌보드가 0장인지, 그 외 장면의
+운형이 전부 Cumulus/Cumulonimbus뿐인지 확인합니다.

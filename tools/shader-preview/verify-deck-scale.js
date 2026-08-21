@@ -1,9 +1,10 @@
 /**
- * 2단계 합격 판정 (docs/CLOUD_TEXTURE_PLAN.md).
+ * 2·4단계 합격 판정 (docs/CLOUD_TEXTURE_PLAN.md).
  *
  * 1단계는 무늬를 굽기만 했고 조각 각크기는 42.4° 그대로였습니다. 2단계는
  * 그 무늬를 **지상거리 투영**으로 하늘에 붙여 각크기를 실제 고적운 범위로
- * 내리는 일입니다.
+ * 내리는 일입니다. 4단계는 지평선 부근의 임의 알파 페이드(horizonFade)를
+ * **대기 투시**로 바꿔, 2단계가 남긴 지평선 대(0~10°) 운량 결손을 줄입니다.
  *
  * 셰이더 식을 옮겨 적어 재면 안 됩니다 — `CloudDeck.ts`를 그대로 임포트해
  * 씬을 만들고 **렌더된 픽셀**에서 잽니다. 알파는 검정·흰 두 배경으로 두 번
@@ -110,13 +111,22 @@ function ok(cond, label) {
     console.log('  %s │ %s │ %s%%p%s',
       bnd.고도대.padStart(8), bnd.운량.toFixed(4),
       (d >= 0 ? '+' : '') + d.toFixed(2).padStart(6),
-      bnd.고도대 === '0~10°' ? '  ← horizonFade. 4단계에서 대기 투시로 대체' : '');
+      bnd.고도대 === '0~10°' ? '  ← 4단계: 대기 투시로 대체 (예전 -28.29%p)' : '');
   }
-  // 지평선 대의 결손은 **예정된 것**입니다. 다만 그 항이 사라지지 않았는지
-  // (누가 조용히 지웠는지) 확인은 해 둡니다.
+  // 4단계 이전에는 이 대가 -28.29%p였습니다(horizonFade가 알파를 임의로
+  // 죽였기 때문). 대기 투시로 바꾸면 알파는 운량 그대로 두고 색만 바뀌므로
+  // 크게 좁혀져야 합니다 — 측정: -8.28%p.
+  //
+  // 0으로 완전히 닫히지는 않습니다. 남은 오차는 극단적으로 낮은 시선(1.5°
+  // 근처)에서 uCellTexSize·uPixelAngleRad·d로 구한 texelsPerPixel이 밉 보정
+  // (cell_threshold)을 실측 검증한 범위(1~44, build-cell-gl-preview.js)를
+  // 넘어서기 때문으로 보입니다 — 더 좁히려면 그 보정을 더 넓은 범위에서
+  // 다시 측정해야 합니다. 4단계의 몫(임의 페이드 제거)은 끝났다고 보고,
+  // 이 잔차는 밉 보정 쪽 후속 과제로 남깁니다.
   const horizonBand = stats.고도대.find(x => x.고도대 === '0~10°');
-  ok(horizonBand && horizonBand.운량 < target,
-    `지평선 대는 아직 horizonFade가 깎고 있음 (4단계 대기, ${horizonBand.운량.toFixed(3)})`);
+  const horizonErr = horizonBand ? Math.abs(horizonBand.운량 - target) : 1;
+  ok(horizonBand && horizonErr <= 0.12,
+    `지평선 대 오차가 크게 좁혀짐 (-28.29%p → ${(horizonErr * 100).toFixed(2)}%p, 예산 12%p)`);
 
   console.log('\n%s — pass %d / fail %d', fail === 0 ? 'ALL PASS' : 'FAILURES', pass, fail);
   process.exit(fail === 0 ? 0 : 1);

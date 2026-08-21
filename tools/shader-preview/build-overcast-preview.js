@@ -72,7 +72,7 @@ import { createCloudField, updateCloudField } from './app/components/SkyScene3D/
 import { buildCloudInstances } from './app/components/SkyScene3D/cloudPlacement.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
 import { PRESET_OPTICS } from './app/utils/cloudPresets.js';
-import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI, beamAtAltitude, applyCloudDimming }
+import { makeAtmosphereParams, skyRadiance, sunDiskColor, clearSkyDNI, beamAtAltitude, applyCloudDimming, angularSeparationDeg }
   from './app/utils/atmosphere.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
@@ -191,23 +191,30 @@ SCENES.forEach((s,i)=>{
       const b = beamAtAltitude(s.sunAlt, alt, atmosphere);
       return { r: b.r*f, g: b.g*f, b: b.b*f };
     },
-    ambientFor: L => {
+    // 3단계: 방향별 환경광 — angularSeparationDeg로 실제 gamma를 잽니다.
+    ambientFor: (L, azDeg) => {
       const f = built.optics.diffuseFactor[L];
-      return { up: applyCloudDimming(skyRadiance(88,90,s.sunAlt,atmosphere), f),
-               down: applyCloudDimming(skyRadiance(20,70,s.sunAlt,atmosphere), f) };
+      const gammaUp = angularSeparationDeg(azDeg, 70, SUN_AZ, s.sunAlt);
+      const gammaDown = angularSeparationDeg(azDeg, 15, SUN_AZ, s.sunAlt);
+      return { up: applyCloudDimming(skyRadiance(70,gammaUp,s.sunAlt,atmosphere), f),
+               down: applyCloudDimming(skyRadiance(15,gammaDown,s.sunAlt,atmosphere), f) };
     },
     sunDir, sunAltDeg: s.sunAlt,
     tauFor: L => med(byLayer(L).map(c=>c.tau), 25),
     shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
     cellFor: L => cellForLayer(built.instances, L),
     pixelAngleRad: (72 * Math.PI / 180) / TH,   // 카메라 화각 72°
+    // 4단계: 대기 투시 — 빌보드(updateCloudField)와 같은 값.
+    betaMie: atmosphere.betaMie, angstrom: atmosphere.angstrom, elevScale: atmosphere.elevScale,
     timeSeconds: 0, visible: !NODECK,
   });
 
+  // atlasKey 형식은 방향구분:운형:변형번호 — ':'로 잘라야 운형이 나옵니다.
+  // ('#'로는 안 갈라져서 예전엔 전체 키가 그대로 나왔습니다.)
   stats.push({label:s.label, n:built.instances.length, diffuseGround:+built.optics.diffuseToGround.toFixed(4), dniTau:built.dniTau, halo:built.halo,
               sunT:built.optics.sunTransmittance, beamLow:built.optics.beamFactor.low,
               decks:cloudDeck.layers.filter(l=>l.mesh.visible).map(l=>l.layer).join('+')||'-',
-              types:[...new Set(built.instances.map(c=>c.atlasKey.split('#')[0]))].join(',')});
+              genera:[...new Set(built.instances.map(c=>c.atlasKey.split(':')[1]))].sort().join(',')});
 
   const cA=SUN_AZ*Math.PI/180,cE=s.camElev*Math.PI/180;
   cam.lookAt(100*Math.cos(cE)*Math.sin(cA),100*Math.sin(cE),-100*Math.cos(cE)*Math.cos(cA));

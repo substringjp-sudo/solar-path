@@ -50,7 +50,7 @@ import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } f
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
 import { PRESET_OPTICS, representativePresetForObserver } from '../../utils/cloudPresets';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -877,39 +877,6 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     field.mesh.visible = layersRef.current.clouds;
     lastCloudBuildRef.current = built;
 
-    if (cloudDeckRef.current) {
-      const isVisible = layersRef.current.clouds;
-      const sAltRad = (sunAltRef.current * Math.PI) / 180;
-      const sAzRad = (sunAzRef.current * Math.PI) / 180;
-      const sunDirVec = new THREE.Vector3(
-        Math.cos(sAltRad) * Math.sin(sAzRad),
-        Math.sin(sAltRad),
-        -Math.cos(sAltRad) * Math.cos(sAzRad)
-      );
-
-      updateCloudDeck(cloudDeckRef.current, {
-        samples: built.samples,
-        beamFor: (altKm) => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
-        ambientFor: (layer) => {
-          const rawUp = skyRadiance(70, 45, sunAltRef.current, atmosphere);
-          const rawDown = skyRadiance(15, 90, sunAltRef.current, atmosphere);
-          const dFactor = built.optics.diffuseFactor[layer];
-          return {
-            up: applyCloudDimming(rawUp, dFactor),
-            down: applyCloudDimming(rawDown, dFactor),
-          };
-        },
-        sunDir: sunDirVec,
-        sunAltDeg: sunAltRef.current,
-        tauFor: (layer) => (built.optics as any)?.tau?.[layer] ?? (layer === 'high' ? 2.0 : layer === 'mid' ? 8.0 : 15.0),
-        shadowFor: (layer) => 0.5,
-        cellFor: (layer) => cellForLayer(layer, observerWeather()),
-        pixelAngleRad: pixelAngleRad(),
-        timeSeconds: targetDate.getTime() / 1000,
-        visible: isVisible,
-      });
-    }
-
     // 하늘도 구름층 아래로 들어갑니다. 이게 없으면 덱 구멍으로 맑은 날
     // 노을이 그대로 새어 나와 흐린 일몰이 시뻘겋게 탑니다.
     if (skydomeRef.current) {
@@ -958,11 +925,17 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         // 덱 환경광도 빌보드와 **같은 식**으로 감광합니다.
         // 이게 없으면 8/8에서 화면을 덮는 덱이 맑은 하늘빛으로 빛나서,
         // 운량을 올릴수록 오히려 밝아집니다.
-        ambientFor: layer => {
+        //
+        // 3단계: 방향(azDeg)마다 실제 하늘 복사휘도를 잽니다. 태양 쪽
+        // azDeg는 gamma가 작아 따뜻하게, 반대쪽은 gamma가 커 파랗게 나옵니다
+        // — 예전에는 gamma를 고정해(위 45°, 아래 90°) 360° 덱이 한 색이었습니다.
+        ambientFor: (layer, azDeg, elevDeg) => {
           const f = built.optics.diffuseFactor[layer];
+          const gammaUp = angularSeparationDeg(azDeg, 70, sunAzRef.current, sunAltRef.current);
+          const gammaDown = angularSeparationDeg(azDeg, 15, sunAzRef.current, sunAltRef.current);
           return {
-            up: applyCloudDimming(zenithSky, f),
-            down: applyCloudDimming(skyRadiance(20, 70, sunAltRef.current, atmosphere), f),
+            up: applyCloudDimming(skyRadiance(70, gammaUp, sunAltRef.current, atmosphere), f),
+            down: applyCloudDimming(skyRadiance(15, gammaDown, sunAltRef.current, atmosphere), f),
           };
         },
         sunDir,
@@ -971,6 +944,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         shadowFor: layer => medianOf(byLayer(layer).map(c => c.shadowContrast), 0.5),
         cellFor: layer => cellForLayer(layer, observerWeather()),
         pixelAngleRad: pixelAngleRad(),
+        // 4단계: 대기 투시 — 빌보드(updateCloudField)와 같은 값.
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
         timeSeconds: (targetDate.getTime() / 1000) % 100000,
         visible: layersRef.current.clouds,
       });
