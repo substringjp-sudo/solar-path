@@ -114,8 +114,9 @@ updateCloudDeck(deck, {
   sunAltDeg: 37,
   tauFor: () => 16,
   shadowFor: () => 0.48,
-  cellFor: () => ({ cellSizeKm: 0.5, cellStrength: 0.95, cellVariant: 'billow' }),
+  cellFor: () => ({ cellSizeKm: 0.5, cellStrength: 0.95, cellVariant: 'billow', cellAspect: 1 }),
   pixelAngleRad: (FOV_DEG * Math.PI / 180) / TH,
+  windBearingDeg: 260,   // 고적운은 등방(cellAspect=1)이라 결과에 영향 없음
   betaMie: 0.08, angstrom: 1.3, elevScale: 1.0,
   timeSeconds: 0,
   visible: true,

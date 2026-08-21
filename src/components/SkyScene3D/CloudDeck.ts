@@ -90,7 +90,8 @@ uniform float uTime;        // 바람에 따른 무늬 이동
 uniform sampler2D uCellTex;      // 구운 셀 필드 (RGBA = 씨앗 4개)
 uniform vec4  uCellMaskA;        // 이 층이 읽을 채널
 uniform vec4  uCellMaskB;        // 두 번째 탭이 읽을 채널
-uniform float uCellUvScale;      // 1 / (셀크기km × 타일당셀수)
+uniform vec2  uCellUvScale;      // 1 / (축별 셀크기km × 타일당셀수) — x=가로지름, y=바람방향
+uniform vec2  uCellAcross;       // 바람을 가로지르는 단위벡터 (XZ 평면)
 uniform float uPatchUvScale;     // 패치용 — 훨씬 큰 스케일
 uniform float uCellStrength;     // 0이면 조각 없는 연속 베일
 uniform float uAltKm;            // 이 층의 고도
@@ -156,7 +157,21 @@ void main() {
   // 셀 크기가 달라 이동 속도가 제각각이 됩니다.
   vec2 driftKm = vec2(uTime * 0.0040, uTime * 0.0016);
 
-  vec2 uvCell  = (dirXZ * d + driftKm) * uCellUvScale;
+  // ── 바람 정렬 이방성 (docs/CLOUD_TEXTURE_PLAN.md 6단계) ────────────────
+  //
+  // 권운은 낙하하는 얼음 결정이 풍속차에 끌려 생기는 낙적운이라, 태생부터
+  // 바람 방향으로 길게 늘어난 필라멘트입니다. 등방 노이즈로는 절대 그
+  // 모양이 안 나옵니다.
+  //
+  // 지상 좌표를 바람 축으로 회전한 뒤 **축마다 다른 배율**을 겁니다.
+  // uCellAcross가 가로지르는 축, 그에 수직인 것이 바람 축입니다.
+  // 등방 운형(cellAspect = 1)은 두 배율이 같아 회전이 무의미해지므로
+  // 이 경로의 영향을 전혀 받지 않습니다.
+  vec2 groundKm = dirXZ * d + driftKm;
+  vec2 windAxis = vec2(-uCellAcross.y, uCellAcross.x);
+  vec2 alignedKm = vec2(dot(groundKm, uCellAcross), dot(groundKm, windAxis));
+
+  vec2 uvCell  = alignedKm * uCellUvScale;
   vec2 uvPatch = (dirXZ * d + driftKm * 0.6) * uPatchUvScale;
 
   // ── 화면 픽셀 하나가 덮는 텍셀 수 (해석적으로) ─────────────────────────
@@ -167,7 +182,10 @@ void main() {
   //
   // 이방성 필터가 있으면 LOD는 **짧은 축** 기준으로 잡히므로 접선 쪽을 쓰되,
   // 비율이 필터 한계를 넘으면 그만큼 되돌립니다.
-  float tangential = uCellTexSize * uPixelAngleRad * d * uCellUvScale / cosE;
+  // 배율이 축마다 다르므로 **더 촘촘한 쪽**을 씁니다 — 앨리어싱은 항상
+  // 고주파 축에서 먼저 납니다. (권운은 가로지르는 축이 20배 촘촘합니다)
+  float finestScale = max(uCellUvScale.x, uCellUvScale.y);
+  float tangential = uCellTexSize * uPixelAngleRad * d * finestScale / cosE;
   float aniso = 1.0 / sinE;
   float tpp = tangential * max(1.0, aniso / max(1.0, uMaxAniso));
 
@@ -382,7 +400,9 @@ export function createCloudDeck(opts: {
         uCellMaskA: { value: new THREE.Vector4(1, 0, 0, 0) },
         uCellMaskB: { value: new THREE.Vector4(0, 1, 0, 0) },
         // 기본값은 고적운 기준. updateCloudDeck이 운형에서 다시 넣습니다.
-        uCellUvScale: { value: 1 / (0.5 * cell.tileCells) },
+        // 기본값은 등방 고적운 기준. updateCloudDeck이 운형·바람에서 다시 넣습니다.
+        uCellUvScale: { value: new THREE.Vector2(1 / (0.5 * cell.tileCells), 1 / (0.5 * cell.tileCells)) },
+        uCellAcross: { value: new THREE.Vector2(1, 0) },
         uPatchUvScale: { value: 1 / (PATCH_SIZE_KM * cell.tileCells) },
         uCellStrength: { value: 0.9 },
         uAltKm: { value: LAYER_ALTITUDE_KM[layer] },
@@ -556,9 +576,20 @@ export interface DeckUpdate {
     cellSizeKm: number;
     cellStrength: number;
     cellVariant: 'billow' | 'fbm';
+    /** 바람 방향 늘임 비율 (1 = 등방). 권운만 1이 아닙니다. */
+    cellAspect: number;
   };
   /** 화면 픽셀 하나의 각크기 (rad) — 밉 필터 보정에 씁니다 */
   pixelAngleRad: number;
+  /**
+   * 필라멘트를 빗을 바람 방향 (도, 6단계).
+   *
+   * ⚠ 지금은 **실측이 아니라 대용 상수**입니다
+   * (`skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG`). 이 앱은 바람을 받아오지
+   * 않습니다. 등방 운형(cellAspect = 1)에는 아무 영향이 없고, 권운에만
+   * 필라멘트 축으로 쓰입니다.
+   */
+  windBearingDeg: number;
   /**
    * 대기 투시 (docs/CLOUD_TEXTURE_PLAN.md 4단계) — `CloudField.ts`와 같은
    * 값을 넣으세요. 덱과 빌보드가 서로 다른 연무 세기를 쓰면 두 표현이
@@ -630,7 +661,20 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     // 셀 크기가 0인 운형(층운계)은 조각이 없습니다. 0으로 나누지 않도록
     // 배율은 아무 값이나 넣고 uCellStrength가 결과를 지웁니다.
     const sizeKm = cellCfg.cellSizeKm > 0.001 ? cellCfg.cellSizeKm : 1;
-    uni.uCellUvScale.value = 1 / (sizeKm * handle.cell.tileCells);
+    // 6단계: 축별 배율 + 바람 정렬 축.
+    // 가로지르는 쪽이 `cellSizeKm`, 바람 쪽이 그 `cellAspect`배입니다.
+    const aspect = Math.max(1, cellCfg.cellAspect);
+    const acrossScale = 1 / (sizeKm * handle.cell.tileCells);
+    (uni.uCellUvScale.value as THREE.Vector2).set(acrossScale, acrossScale / aspect);
+
+    // 바람 bearing → XZ 단위벡터. 덱 기하와 같은 규약을 씁니다
+    // (buildDeckGeometry: x = sin(az), z = -cos(az)).
+    // 필라멘트 축은 180° 주기라 "불어오는/불어가는" 구분은 결과에 영향이 없습니다.
+    const windRad = (u.windBearingDeg * Math.PI) / 180;
+    const windX = Math.sin(windRad);
+    const windZ = -Math.cos(windRad);
+    // 가로지르는 축 = 바람 축을 90° 돌린 것
+    (uni.uCellAcross.value as THREE.Vector2).set(windZ, -windX);
     uni.uCellStrength.value = cellCfg.cellStrength;
     uni.uPixelAngleRad.value = u.pixelAngleRad;
     uni.uSunAltDeg.value = u.sunAltDeg;

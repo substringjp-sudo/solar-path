@@ -36,6 +36,8 @@ import {
   haloStrength,
   WeatherFan,
   LAYER_ALTITUDE_KM,
+  PLACEHOLDER_WIND_SPEED_KMH,
+  PLACEHOLDER_WIND_BEARING_DEG,
   type ColumnOptics,
   type LayerSample,
   type LayerKey,
@@ -218,9 +220,9 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
   const fan = new WeatherFan(weather, sunAzDeg);
   const obs = fan.observerData();
 
-  // 바람 — 관측값이 없으면 온건한 서풍계열로 둡니다.
-  const windSpeedKmh = 22;
-  const windBearingDeg = 260;
+  // 바람 — **실측이 아니라 대용 상수입니다** (skyColumn.ts 주석 참고).
+  const windSpeedKmh = PLACEHOLDER_WIND_SPEED_KMH;
+  const windBearingDeg = PLACEHOLDER_WIND_BEARING_DEG;
   const driftMinutes = (currentTime.getTime() / 60000) % 1440;
 
   const samples = buildSkyColumns({

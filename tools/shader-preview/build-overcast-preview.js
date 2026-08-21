@@ -121,7 +121,8 @@ function cellForLayer(instances, layer) {
   for (const n of names) count[n] = (count[n] || 0) + 1;
   const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
   const o = PRESET_OPTICS[top] || PRESET_OPTICS.Stratocumulus;
-  return { cellSizeKm: o.cellSizeKm, cellStrength: o.cellStrength, cellVariant: o.cellVariant };
+  return { cellSizeKm: o.cellSizeKm, cellStrength: o.cellStrength, cellVariant: o.cellVariant,
+           cellAspect: o.cellAspect };
 }
 scene.add(cloudDeck.group);
 
@@ -204,6 +205,8 @@ SCENES.forEach((s,i)=>{
     shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
     cellFor: L => cellForLayer(built.instances, L),
     pixelAngleRad: (72 * Math.PI / 180) / TH,   // 카메라 화각 72°
+    // 6단계: 결 방향. 앱과 같은 자리표시자 값(skyColumn.PLACEHOLDER_WIND_BEARING_DEG).
+    windBearingDeg: 260,
     // 4단계: 대기 투시 — 빌보드(updateCloudField)와 같은 값.
     betaMie: atmosphere.betaMie, angstrom: atmosphere.angstrom, elevScale: atmosphere.elevScale,
     timeSeconds: 0, visible: !NODECK,

@@ -113,8 +113,9 @@ updateCloudDeck(deck, {
   sunDir, sunAltDeg: SUN_ALT,
   tauFor: () => 16,
   shadowFor: () => 0.4,
-  cellFor: () => ({ cellSizeKm: 0.5, cellStrength: 0.9, cellVariant: 'billow' }),
+  cellFor: () => ({ cellSizeKm: 0.5, cellStrength: 0.9, cellVariant: 'billow', cellAspect: 1 }),
   pixelAngleRad: (FOV_DEG * Math.PI / 180) / TH,
+  windBearingDeg: 260,   // 등방이라 결과에 영향 없음
   betaMie: atmosphere.betaMie, angstrom: atmosphere.angstrom, elevScale: atmosphere.elevScale,
   timeSeconds: 0, visible: true,
 });

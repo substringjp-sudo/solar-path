@@ -263,6 +263,25 @@ export class WeatherFan {
   }
 }
 
+/**
+ * 상층풍 대용값 (docs/CLOUD_TEXTURE_PLAN.md 6단계).
+ *
+ * ⚠ **이건 실측이 아니라 상수입니다.** 이 앱은 바람을 받아오지 않습니다 —
+ * `weather.ts`가 Open-Meteo에서 긁는 변수 목록에 wind가 없고, `CloudData`에도
+ * 필드가 없습니다. 그래서 `cloudPlacement.ts`와 `skyTimeline.ts`가 각자
+ * `22 / 260`을 하드코딩하고 있었습니다.
+ *
+ * 6단계에서 권운 필라멘트를 이 방향으로 빗어 정렬하면서 **덱까지 세 번째로
+ * 같은 상수를 필요로 하게** 되어, 여기 한 곳으로 모읍니다. 실측 바람이
+ * 들어오면 고칠 자리도 여기 하나입니다.
+ *
+ * 값의 근거: 중위도 편서풍대의 온건한 대표값(서남서 260°, 22km/h).
+ * 필라멘트 정렬에는 방향만 쓰이고, 축은 180° 주기라 "불어오는/불어가는"
+ * 구분은 결과에 영향이 없습니다.
+ */
+export const PLACEHOLDER_WIND_SPEED_KMH = 22;
+export const PLACEHOLDER_WIND_BEARING_DEG = 260;
+
 export interface SkyColumnParams {
   fan: WeatherFan;
   /** 바람 이류를 반영하기 위한 시간 오프셋 (분). 구조가 하늘을 가로질러 흐릅니다. */

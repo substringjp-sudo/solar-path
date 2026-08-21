@@ -378,29 +378,54 @@ export interface CloudOpticsConfig {
    * `fbm`(덩어리가 이어짐)이 층적운·적운 쪽입니다.
    */
   cellVariant: 'billow' | 'fbm';
+  /**
+   * 조각의 **바람 방향 늘임 비율** (1 = 등방).
+   *
+   * 권운(Ci)만 1이 아닙니다. 권운은 낙하하는 얼음 결정이 상하층 풍속차에
+   * 끌려가며 생기는 **낙적운(fall streak)** 이라, 태생부터 바람 방향으로
+   * 길게 늘어난 필라멘트입니다.
+   *
+   * 셰이더는 지상 좌표를 바람 정렬 축으로 회전한 뒤 축마다 다른 배율을
+   * 적용합니다 — 가로지르는 쪽은 `cellSizeKm`, 바람 쪽은
+   * `cellSizeKm * cellAspect`. 비율이 1이면 회전이 무의미해지므로
+   * 나머지 아홉 운형은 이 코드 경로의 영향을 전혀 받지 않습니다.
+   *
+   * ⚠ **물리 비율 20을 그대로 쓰면 안 됩니다.** 낙하줄 하나의 실제 비율은
+   * 300 m × 6 km ≒ 20이지만, 그건 *조각 하나*의 비율입니다. 이 배율은
+   * 무늬의 **모든 옥타브에 한꺼번에** 걸리므로, 20을 주면 낱개 줄뿐 아니라
+   * 줄이 모여 이루는 큰 덩어리까지 20배로 늘어납니다. 그 결과는 필라멘트가
+   * 아니라 화면을 가로지르는 **끊기지 않는 블라인드**입니다 (종횡비 훑기
+   * 렌더로 확인: 6부터 이미 리본이 되고 20은 완전한 줄무늬).
+   *
+   * 4는 그 훑기에서 고른 값입니다 — 줄이 뚜렷이 바람 방향으로 눕되 잘게
+   * 끊겨 있는 마지막 지점. 큰 덩어리까지 늘이지 않고 낱개만 늘이려면
+   * 옥타브별로 다른 배율을 먹여야 하는데, 그건 무늬를 다시 굽는 일이라
+   * 여기 범위 밖입니다.
+   */
+  cellAspect: number;
 }
 
 export const PRESET_OPTICS: Record<CloudPresetName, CloudOpticsConfig> = {
   Cirrus:        { tau: 3.0,   opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25,
-                   cellSizeKm: 0.30, cellStrength: 0.55, cellVariant: 'fbm' },
+                   cellSizeKm: 0.30, cellStrength: 0.55, cellVariant: 'fbm', cellAspect: 4 },
   Cirrocumulus:  { tau: 4.2,   opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30,
-                   cellSizeKm: 0.20, cellStrength: 0.95, cellVariant: 'billow' },
+                   cellSizeKm: 0.20, cellStrength: 0.95, cellVariant: 'billow', cellAspect: 1 },
   Cirrostratus:  { tau: 5.0,   opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20,
-                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm' },
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
   Altocumulus:   { tau: 16.0,  opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60,
-                   cellSizeKm: 0.50, cellStrength: 0.95, cellVariant: 'billow' },
+                   cellSizeKm: 0.50, cellStrength: 0.95, cellVariant: 'billow', cellAspect: 1 },
   Altostratus:   { tau: 30.0,  opacity: 0.82, shadowContrast: 0.38, rimSharpness: 0.35,
-                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm' },
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
   Stratocumulus: { tau: 35.0,  opacity: 0.90, shadowContrast: 0.62, rimSharpness: 0.70,
-                   cellSizeKm: 2.00, cellStrength: 0.85, cellVariant: 'fbm' },
+                   cellSizeKm: 2.00, cellStrength: 0.85, cellVariant: 'fbm', cellAspect: 1 },
   Stratus:       { tau: 22.0,  opacity: 0.80, shadowContrast: 0.28, rimSharpness: 0.25,
-                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm' },
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
   Cumulus:       { tau: 32.0,  opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88,
-                   cellSizeKm: 1.20, cellStrength: 0.90, cellVariant: 'fbm' },
+                   cellSizeKm: 1.20, cellStrength: 0.90, cellVariant: 'fbm', cellAspect: 1 },
   Cumulonimbus:  { tau: 220.0, opacity: 0.99, shadowContrast: 0.94, rimSharpness: 0.95,
-                   cellSizeKm: 4.00, cellStrength: 0.70, cellVariant: 'fbm' },
+                   cellSizeKm: 4.00, cellStrength: 0.70, cellVariant: 'fbm', cellAspect: 1 },
   Nimbostratus:  { tau: 110.0, opacity: 0.98, shadowContrast: 0.88, rimSharpness: 0.45,
-                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm' },
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
 };
 
 export function resolvePresetFromWeather(

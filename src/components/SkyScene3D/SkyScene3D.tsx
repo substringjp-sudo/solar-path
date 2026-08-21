@@ -50,6 +50,7 @@ import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } f
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
 import { PRESET_OPTICS, representativePresetForObserver } from '../../utils/cloudPresets';
+import { PLACEHOLDER_WIND_BEARING_DEG } from '../../utils/skyColumn';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -295,6 +296,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       cellSizeKm: o.cellSizeKm,
       cellStrength: o.cellStrength,
       cellVariant: o.cellVariant,
+      cellAspect: o.cellAspect,
     };
   }, []);
 
@@ -944,6 +946,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         shadowFor: layer => medianOf(byLayer(layer).map(c => c.shadowContrast), 0.5),
         cellFor: layer => cellForLayer(layer, observerWeather()),
         pixelAngleRad: pixelAngleRad(),
+        // 6단계: 권운 필라멘트를 빗을 방향. 실측이 아니라 대용 상수입니다
+        // (skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG).
+        windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
         // 4단계: 대기 투시 — 빌보드(updateCloudField)와 같은 값.
         betaMie: atmosphere.betaMie,
         angstrom: atmosphere.angstrom,

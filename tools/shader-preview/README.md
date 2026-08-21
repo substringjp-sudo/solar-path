@@ -267,3 +267,29 @@ node tools/shader-preview/verify-billboard-genus.js      # 8개
 `window.__stats[].genera`(그 장면에서 실제로 배치된 빌보드 운형 집합)를
 읽습니다. 흐림 8/8과 권층운 장면에서 빌보드가 0장인지, 그 외 장면의
 운형이 전부 Cumulus/Cumulonimbus뿐인지 확인합니다.
+
+## 권운 결 방향 (6단계) — `verify-cirrus-aniso.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-cirrus-aniso-preview.js
+node tools/shader-preview/shoot.js cirrus-aniso.html cirrus-aniso.png
+node tools/shader-preview/verify-cirrus-aniso.js         # 11개
+```
+
+카메라·운량·층을 고정한 채 `windBearingDeg`만 0°/90°로 바꿔 두 번 렌더하고,
+알파장의 방향별 기울기 에너지 비(Gx/Gy)가 뒤집히는지 봅니다. 화면 세로축이
+원근 단축을 크게 먹지만 그 편향은 두 컷에 똑같이 걸리므로 **비의 비**에서
+상쇄됩니다 — 투영을 따로 보정하지 않아도 되는 이유입니다.
+
+권적운(등방, `cellAspect = 1`)을 같은 방식으로 찍어 대조군으로 씁니다.
+이게 없으면 "바람을 돌렸더니 뭔가 달라졌다"가 이방성 때문인지 그냥 다른
+무늬가 걸린 것인지 구분할 수 없습니다.
+
+기준값: 권운 ×7.7, 권적운 ×1.04.
+
+**수치만 보면 안 되는 사례입니다.** `cellAspect = 20`(낙하줄 하나의 물리
+비율)일 때 이 검사는 ×55로 더 화려하게 통과했지만, 그림은 필라멘트가
+아니라 끊기지 않는 블라인드였습니다. 배율이 모든 옥타브에 한꺼번에 걸려
+큰 덩어리까지 20배로 늘어난 탓입니다. 그래서 `프리셋 종횡비` 단언에
+**위쪽 한계**가 있습니다 — 자세한 것은 docs/CLOUD_TEXTURE_PLAN.md §15.

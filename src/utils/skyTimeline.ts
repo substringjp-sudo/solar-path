@@ -37,6 +37,8 @@ import {
   haloStrength,
   layerMeanCover,
   WeatherFan,
+  PLACEHOLDER_WIND_SPEED_KMH,
+  PLACEHOLDER_WIND_BEARING_DEG,
   type LayerSample,
   type LayerKey,
   type ColumnOptics,
@@ -204,8 +206,9 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
       // 이류는 그 날 00:00 기준 경과 분으로 둡니다 — 시간이 흐르면 구조가
       // 하늘을 가로질러 흐르고, 같은 시각이면 항상 같은 그림이 나옵니다.
       driftMinutes: i * stepMinutes,
-      windSpeedKmh: 22,
-      windBearingDeg: 260,
+      // **실측이 아니라 대용 상수입니다** (skyColumn.ts 주석 참고).
+      windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
+      windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
     });
 
     if (!layout) {
