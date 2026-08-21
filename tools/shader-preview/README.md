@@ -157,3 +157,139 @@ node tools/shader-preview/derive-ozone-tau.js
 렌더가 아니라 순수 계산이므로 서버도 크로미움도 필요 없습니다.
 `OZONE_TAU`를 손대려면 여기부터 보세요 — 그 값은 눈으로 맞춘 아트 상수가
 아니라 유도된 물리량입니다. 배경은 `docs/TWILIGHT.md` §5.
+
+## 구름 각크기 측정 (`measure-cloud-scale.js`)
+
+```bash
+node tools/shader-preview/measure-cloud-scale.js
+```
+
+구름의 **색이 아니라 공간 주파수**를 잽니다. `CloudDeck.ts`의 FRAG에서
+상수를 **소스로부터 읽어** fbm/holeCut 식을 JS로 재현하고, 두 가지를 냅니다:
+
+1. **조각 각크기** — 고도 45° 원을 따라 알파가 0↔1을 넘나드는 주기
+2. **통과 면적비** — 운량 대비 실제로 덮은 하늘 면적
+
+렌더가 아니라 순수 계산이라 서버도 크로미움도 필요 없습니다.
+상수를 하드코딩하지 않으므로 셰이더를 고치면 측정도 따라옵니다.
+
+기준값(2026-08, 개선 전):
+
+| 지표 | 값 | 목표 |
+|---|---|---|
+| 조각 각크기 (운량 0.39) | 42.4° | 1~3° |
+| 통과 면적비 오차 | -25.2%p | ±2%p |
+
+배경과 설계는 `docs/CLOUD_TEXTURE_PLAN.md`.
+
+## 셀 필드 (1단계) — `verify-cell-field.js` · `verify-cell-gl.js`
+
+```bash
+npx tsc --module commonjs --target es2020 --moduleResolution node \
+  --skipLibCheck --outDir /tmp/cellbuild src/utils/cloudCellField.ts
+node tools/shader-preview/verify-cell-field.js     # 순수 TS (10개)
+node tools/shader-preview/build-cell-preview.js    # 무늬를 눈으로
+node tools/shader-preview/shoot.js cell.html cell-preview.png
+
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-cell-gl-preview.js
+node tools/shader-preview/verify-cell-gl.js        # GL 경로 (11개)
+```
+
+**두 개가 따로 있는 이유가 핵심입니다.** `verify-cell-field.js`는 JS 배열의
+면적비를 봅니다. 그런데 1단계의 주장은 "축소해도 운량이 유지된다"이고, 그건
+GPU가 우리 밉 체인을 실제로 쓸 때만 참입니다. 실제로 GL 쪽 검사가 JS 검사가
+전부 통과한 상태에서 **-11.29%p** 오차를 잡아냈습니다 — 삼선형 필터가 업로드
+이후에 분포를 다시 좁히기 때문입니다.
+
+⚠ **수축률(`MIP_SHRINK_*`)을 다시 맞출 때는 반드시 `cell_sample`(두 번 뽑기)
+경로로 재세요.** 한 번 뽑기로 재서 맞추면 운량 0.85 꼬리에서 어긋납니다.
+측정 경로와 출하 경로가 같아야 합니다.
+
+확인법: 실사용 축소 범위(텍셀/픽셀 ≤ 12)에서 오차가 1%p 아래인가.
+
+## 덱 각크기 (2단계) — `verify-deck-scale.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-deck-scale-preview.js
+node tools/shader-preview/verify-deck-scale.js          # 8개
+node tools/shader-preview/shoot.js deck-scale.html deck-scale.png
+```
+
+`CloudDeck.ts`를 **그대로 임포트해** 씬을 만들고 렌더된 픽셀에서 잽니다.
+셰이더 식을 옮겨 적지 않는 것이 핵심입니다 — 그러면 측정이 거짓말을 합니다.
+
+⚠ **반투명 층을 색 문턱으로 재지 마세요.** 가장자리 반투명 픽셀과 그늘진
+구름이 섞여 운량이 과소 계상됩니다(처음에 0.39가 0.25로 나왔습니다).
+검정·흰 두 배경으로 두 번 그려 알파를 분리합니다:
+`a = 1 - (over_white - over_black)`.
+
+⚠ **운량은 입체각으로 가중하세요.** 픽셀 가중이면 카메라를 천정 쪽에 오래
+둔 스윕이 천정을 과대 반영합니다. 고도대 [lo,hi]의 몫은 `sin(hi) - sin(lo)`.
+
+`measure-cloud-scale.js`는 이제 **2단계 이전 덱의 재현**입니다(상수 고정).
+개선 전후를 같은 정의로 나란히 두려고 남겨 뒀습니다 — 지금 덱은 여기서
+재세요.
+
+| 지표 (운량 0.39, 고적운) | 개선 전 | 2단계 후 |
+|---|---|---|
+| 조각 각크기 | 5.87° | 1.63~2.97° |
+| 주기 | 42.4° | 4.8~7.5° |
+| 운량 오차 (고도 10° 이상) | -25.2%p | -1.05%p |
+
+## 덱 방향별 조명 (3단계) — `verify-deck-ambient.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-deck-ambient-preview.js
+node tools/shader-preview/verify-deck-ambient.js        # 7개
+node tools/shader-preview/shoot.js deck-ambient.html deck-ambient.png
+```
+
+층당 uniform 하나였던 덱 조명을 방향별 정점 속성으로 바꾼 것을 확인합니다.
+JS 콜백만 부르면 정점 속성 배선(aAmbientUp → vAmbientUp)이 실제로
+맞물렸는지 알 수 없으므로, 태양 고도 6°·mid층 운량 0.97에서 카메라를
+태양 방위와 그 반대 방위로 돌려 **렌더된 화면 평균색**을 비교합니다.
+
+기준값: 태양 쪽 R/B 1.133, 반대쪽 R/B 0.948 (비율 1.195). 예전(방향 무관
+uniform)이었다면 1.000이었을 값입니다.
+
+## 빌보드 운형 제한 (5단계) — `verify-billboard-genus.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-overcast-preview.js
+node tools/shader-preview/verify-billboard-genus.js      # 8개
+```
+
+새 미리보기 없이 `build-overcast-preview.js`가 이미 남기는
+`window.__stats[].genera`(그 장면에서 실제로 배치된 빌보드 운형 집합)를
+읽습니다. 흐림 8/8과 권층운 장면에서 빌보드가 0장인지, 그 외 장면의
+운형이 전부 Cumulus/Cumulonimbus뿐인지 확인합니다.
+
+## 권운 결 방향 (6단계) — `verify-cirrus-aniso.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-cirrus-aniso-preview.js
+node tools/shader-preview/shoot.js cirrus-aniso.html cirrus-aniso.png
+node tools/shader-preview/verify-cirrus-aniso.js         # 11개
+```
+
+카메라·운량·층을 고정한 채 `windBearingDeg`만 0°/90°로 바꿔 두 번 렌더하고,
+알파장의 방향별 기울기 에너지 비(Gx/Gy)가 뒤집히는지 봅니다. 화면 세로축이
+원근 단축을 크게 먹지만 그 편향은 두 컷에 똑같이 걸리므로 **비의 비**에서
+상쇄됩니다 — 투영을 따로 보정하지 않아도 되는 이유입니다.
+
+권적운(등방, `cellAspect = 1`)을 같은 방식으로 찍어 대조군으로 씁니다.
+이게 없으면 "바람을 돌렸더니 뭔가 달라졌다"가 이방성 때문인지 그냥 다른
+무늬가 걸린 것인지 구분할 수 없습니다.
+
+기준값: 권운 ×7.7, 권적운 ×1.04.
+
+**수치만 보면 안 되는 사례입니다.** `cellAspect = 20`(낙하줄 하나의 물리
+비율)일 때 이 검사는 ×55로 더 화려하게 통과했지만, 그림은 필라멘트가
+아니라 끊기지 않는 블라인드였습니다. 배율이 모든 옥타브에 한꺼번에 걸려
+큰 덩어리까지 20배로 늘어난 탓입니다. 그래서 `프리셋 종횡비` 단언에
+**위쪽 한계**가 있습니다 — 자세한 것은 docs/CLOUD_TEXTURE_PLAN.md §15.

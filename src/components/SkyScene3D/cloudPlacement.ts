@@ -26,6 +26,7 @@ import {
   cloudOpticalDepthFromDb,
   cloudTauFromDNI,
   applyCloudDimming,
+  angularSeparationDeg,
   type DniTauResult,
   type AtmosphereParams,
 } from '../../utils/atmosphere';
@@ -35,6 +36,8 @@ import {
   haloStrength,
   WeatherFan,
   LAYER_ALTITUDE_KM,
+  PLACEHOLDER_WIND_SPEED_KMH,
+  PLACEHOLDER_WIND_BEARING_DEG,
   type ColumnOptics,
   type LayerSample,
   type LayerKey,
@@ -217,9 +220,9 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
   const fan = new WeatherFan(weather, sunAzDeg);
   const obs = fan.observerData();
 
-  // 바람 — 관측값이 없으면 온건한 서풍계열로 둡니다.
-  const windSpeedKmh = 22;
-  const windBearingDeg = 260;
+  // 바람 — **실측이 아니라 대용 상수입니다** (skyColumn.ts 주석 참고).
+  const windSpeedKmh = PLACEHOLDER_WIND_SPEED_KMH;
+  const windBearingDeg = PLACEHOLDER_WIND_BEARING_DEG;
   const driftMinutes = (currentTime.getTime() / 60000) % 1440;
 
   const samples = buildSkyColumns({
@@ -366,6 +369,21 @@ function placeClouds(
       seed1
     );
 
+    // ── 5단계: 빌보드는 적운·적란운으로 후퇴 (docs/CLOUD_TEXTURE_PLAN.md 3-G) ──
+    //
+    // 나머지 여덟 운형(Ci·Cc·Cs·Ac·As·Sc·St·Ns)은 이제 덱이 담당합니다.
+    // 거리로 나누는 게 아니라 **속으로** 나눕니다 — 적운은 원래 가깝고 낮고
+    // 볼록해 시차가 의미 있는 3D 물체지만, 층상운은 원래 멀고 평평해서
+    // 시차가 0인 스프라이트로 그려 봐야 얻는 게 없습니다(카메라가 원점에서
+    // 회전만 하므로).
+    //
+    // 1-B의 계산이 여기서 무너집니다: 상층 52장 × 21°만으로 반구가
+    // 기하학적으로 포화됐던 게 파란 하늘이 사라진 원인 중 하나였는데,
+    // 상층·중층 빌보드가 이제 전혀 안 나오므로(resolvePresetFromWeather의
+    // mid/high 분기는 Cumulus/Cumulonimbus를 절대 반환하지 않습니다)
+    // 그 포화가 사라집니다.
+    if (presetName !== 'Cumulus' && presetName !== 'Cumulonimbus') continue;
+
     const layerType = presetLayerType(presetName);
     const altKm = PRESET_ALTITUDE_KM[presetName];
     const shellRadius = layerShellRadius(layerType);
@@ -390,14 +408,7 @@ function placeClouds(
 
     const beam = beamFor(altKm, s.layer);
 
-    const azDiff = ((sunAzDeg - azimuthDeg + 540) % 360) - 180;
-    const gammaDeg =
-      Math.acos(
-        clamp01Signed(
-          Math.sin(elevationDeg * D2R) * Math.sin(sunAltDeg * D2R) +
-            Math.cos(elevationDeg * D2R) * Math.cos(sunAltDeg * D2R) * Math.cos(azDiff * D2R)
-        )
-      ) * R2D;
+    const gammaDeg = angularSeparationDeg(azimuthDeg, elevationDeg, sunAzDeg, sunAltDeg);
 
     const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
 
@@ -473,13 +484,6 @@ function placeClouds(
   }
 
   return { instances: out, samples, dniTau, optics, halo };
-}
-
-const D2R = Math.PI / 180;
-const R2D = 180 / Math.PI;
-
-function clamp01Signed(x: number): number {
-  return Math.max(-1, Math.min(1, x));
 }
 
 function countVariants(atlas: CloudAtlas, name: CloudPresetName, horizontal: boolean): number {

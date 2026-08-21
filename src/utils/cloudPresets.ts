@@ -344,19 +344,88 @@ export interface CloudOpticsConfig {
   opacity: number;
   shadowContrast: number;
   rimSharpness: number;
+
+  // ── 덱 조각 기하 (docs/CLOUD_TEXTURE_PLAN.md 3-B) ────────────────────────
+  /**
+   * 구름 조각(요소) 하나의 **물리 크기** (km).
+   *
+   * 각크기가 아니라 물리 크기인 것이 핵심입니다. 같은 조각이라도 낮은
+   * 고도각에서는 훨씬 멀어 작게 보여야 하는데, 그 원근 단축은 덱 셰이더의
+   * 지상거리 투영이 알아서 만들어 줍니다.
+   *
+   * 값의 출처는 **WMO 속 분류 자체**입니다. WMO는 권적운·고적운·층적운을
+   * 구성 요소의 각크기로 구분합니다 (고도 30° 이상에서 관측했을 때):
+   *
+   *   권적운 Cc  < 1°   상층 8km  → 30°에서 14km  → 244m 미만
+   *   고적운 Ac  1~5°   중층 4km  → 30°에서  7km  → 122~611m
+   *   층적운 Sc  > 5°   저층 1.5km → 30°에서  3km  → 262m 초과
+   *
+   * 즉 분류 기준이 곧 우리에게 필요한 숫자입니다. 새 입력이 필요 없습니다.
+   */
+  cellSizeKm: number;
+  /**
+   * 조각 무늬를 얼마나 강하게 낼 것인가 (0 = 조각 없는 연속 베일).
+   *
+   * 층운·난층운·고층운·권층운은 0입니다 — WMO 정의상 **요소가 없는**
+   * 구름이라 조각을 내면 오히려 틀립니다. 지금 덱이 잘 그리는 유일한
+   * 하늘이 바로 그쪽이고, 0으로 두면 그 동작이 그대로 보존됩니다.
+   */
+  cellStrength: number;
+  /**
+   * 어느 채널의 무늬를 쓸 것인가 (`cloudCellField`가 구운 RGBA 중).
+   *
+   * 렌더로 비교했을 때 `billow`(둥근 알갱이가 또렷)가 고적운·권적운에 맞고,
+   * `fbm`(덩어리가 이어짐)이 층적운·적운 쪽입니다.
+   */
+  cellVariant: 'billow' | 'fbm';
+  /**
+   * 조각의 **바람 방향 늘임 비율** (1 = 등방).
+   *
+   * 권운(Ci)만 1이 아닙니다. 권운은 낙하하는 얼음 결정이 상하층 풍속차에
+   * 끌려가며 생기는 **낙적운(fall streak)** 이라, 태생부터 바람 방향으로
+   * 길게 늘어난 필라멘트입니다.
+   *
+   * 셰이더는 지상 좌표를 바람 정렬 축으로 회전한 뒤 축마다 다른 배율을
+   * 적용합니다 — 가로지르는 쪽은 `cellSizeKm`, 바람 쪽은
+   * `cellSizeKm * cellAspect`. 비율이 1이면 회전이 무의미해지므로
+   * 나머지 아홉 운형은 이 코드 경로의 영향을 전혀 받지 않습니다.
+   *
+   * ⚠ **물리 비율 20을 그대로 쓰면 안 됩니다.** 낙하줄 하나의 실제 비율은
+   * 300 m × 6 km ≒ 20이지만, 그건 *조각 하나*의 비율입니다. 이 배율은
+   * 무늬의 **모든 옥타브에 한꺼번에** 걸리므로, 20을 주면 낱개 줄뿐 아니라
+   * 줄이 모여 이루는 큰 덩어리까지 20배로 늘어납니다. 그 결과는 필라멘트가
+   * 아니라 화면을 가로지르는 **끊기지 않는 블라인드**입니다 (종횡비 훑기
+   * 렌더로 확인: 6부터 이미 리본이 되고 20은 완전한 줄무늬).
+   *
+   * 4는 그 훑기에서 고른 값입니다 — 줄이 뚜렷이 바람 방향으로 눕되 잘게
+   * 끊겨 있는 마지막 지점. 큰 덩어리까지 늘이지 않고 낱개만 늘이려면
+   * 옥타브별로 다른 배율을 먹여야 하는데, 그건 무늬를 다시 굽는 일이라
+   * 여기 범위 밖입니다.
+   */
+  cellAspect: number;
 }
 
 export const PRESET_OPTICS: Record<CloudPresetName, CloudOpticsConfig> = {
-  Cirrus:        { tau: 3.0,   opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25 },
-  Cirrocumulus:  { tau: 4.2,   opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30 },
-  Cirrostratus:  { tau: 5.0,   opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20 },
-  Altocumulus:   { tau: 16.0,  opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60 },
-  Altostratus:   { tau: 30.0,  opacity: 0.82, shadowContrast: 0.38, rimSharpness: 0.35 },
-  Stratocumulus: { tau: 35.0,  opacity: 0.90, shadowContrast: 0.62, rimSharpness: 0.70 },
-  Stratus:       { tau: 22.0,  opacity: 0.80, shadowContrast: 0.28, rimSharpness: 0.25 },
-  Cumulus:       { tau: 32.0,  opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88 },
-  Cumulonimbus:  { tau: 220.0, opacity: 0.99, shadowContrast: 0.94, rimSharpness: 0.95 },
-  Nimbostratus:  { tau: 110.0, opacity: 0.98, shadowContrast: 0.88, rimSharpness: 0.45 },
+  Cirrus:        { tau: 3.0,   opacity: 0.38, shadowContrast: 0.12, rimSharpness: 0.25,
+                   cellSizeKm: 0.30, cellStrength: 0.55, cellVariant: 'fbm', cellAspect: 4 },
+  Cirrocumulus:  { tau: 4.2,   opacity: 0.42, shadowContrast: 0.15, rimSharpness: 0.30,
+                   cellSizeKm: 0.20, cellStrength: 0.95, cellVariant: 'billow', cellAspect: 1 },
+  Cirrostratus:  { tau: 5.0,   opacity: 0.45, shadowContrast: 0.10, rimSharpness: 0.20,
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
+  Altocumulus:   { tau: 16.0,  opacity: 0.72, shadowContrast: 0.48, rimSharpness: 0.60,
+                   cellSizeKm: 0.50, cellStrength: 0.95, cellVariant: 'billow', cellAspect: 1 },
+  Altostratus:   { tau: 30.0,  opacity: 0.82, shadowContrast: 0.38, rimSharpness: 0.35,
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
+  Stratocumulus: { tau: 35.0,  opacity: 0.90, shadowContrast: 0.62, rimSharpness: 0.70,
+                   cellSizeKm: 2.00, cellStrength: 0.85, cellVariant: 'fbm', cellAspect: 1 },
+  Stratus:       { tau: 22.0,  opacity: 0.80, shadowContrast: 0.28, rimSharpness: 0.25,
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
+  Cumulus:       { tau: 32.0,  opacity: 0.92, shadowContrast: 0.78, rimSharpness: 0.88,
+                   cellSizeKm: 1.20, cellStrength: 0.90, cellVariant: 'fbm', cellAspect: 1 },
+  Cumulonimbus:  { tau: 220.0, opacity: 0.99, shadowContrast: 0.94, rimSharpness: 0.95,
+                   cellSizeKm: 4.00, cellStrength: 0.70, cellVariant: 'fbm', cellAspect: 1 },
+  Nimbostratus:  { tau: 110.0, opacity: 0.98, shadowContrast: 0.88, rimSharpness: 0.45,
+                   cellSizeKm: 0.00, cellStrength: 0.00, cellVariant: 'fbm', cellAspect: 1 },
 };
 
 export function resolvePresetFromWeather(
@@ -420,4 +489,29 @@ export function representativeTauForObserver(
     0.5
   );
   return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau;
+}
+
+/**
+ * 관측점 기상에서 층별 대표 **운형**을 뽑습니다.
+ *
+ * `representativeTauForObserver`가 이미 안에서 하던 일을 꺼낸 것뿐입니다.
+ * 덱은 광학두께만이 아니라 조각 크기(`cellSizeKm`)도 알아야 하는데,
+ * 두 값이 **같은 운형**에서 나와야 광학과 모양이 갈라지지 않습니다.
+ */
+export function representativePresetForObserver(
+  layer: LayerKey,
+  obs: CloudData | undefined
+): CloudPresetName {
+  const coverPct = layer === 'low' ? obs?.low ?? 0 : layer === 'mid' ? obs?.mid ?? 0 : obs?.high ?? 0;
+  return resolvePresetFromWeather(
+    layer,
+    coverPct / 100,
+    {
+      precipitation: obs?.precipitation,
+      humidity: obs?.humidity,
+      lowPct: obs?.low ?? 0,
+      highPct: obs?.high ?? 0,
+    },
+    0.5
+  );
 }

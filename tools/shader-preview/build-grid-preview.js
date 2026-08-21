@@ -61,8 +61,9 @@ import { createCloudField, updateCloudField } from './app/components/SkyScene3D/
 import { buildCloudInstances } from './app/components/SkyScene3D/cloudPlacement.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
 import { cloudGridToFan } from './app/utils/cloudGridAdapter.js';
-import { makeAtmosphereParams, skyRadiance, sunDiskColor, beamAtAltitude, applyCloudDimming }
+import { makeAtmosphereParams, skyRadiance, sunDiskColor, beamAtAltitude, applyCloudDimming, angularSeparationDeg }
   from './app/utils/atmosphere.js';
+import { PRESET_OPTICS } from './app/utils/cloudPresets.js';
 
 const SKY_V=${JSON.stringify(SKY_V)},SKY_F=${JSON.stringify(SKY_F)};
 const TUNE_UNIFORMS=${JSON.stringify(A.makeTuningUniforms())};
@@ -185,6 +186,16 @@ SCENES.forEach((s,i)=>{
 
   const byLayer=L=>built.instances.filter(c=>c.layer===L);
   const med=(a,f)=>{ if(!a.length) return f; const q=[...a].sort((p,r)=>p-r); return q[Math.floor(q.length/2)]; };
+  // 그 층에서 실제로 뽑힌 빌보드 중 최다 운형의 셀 기하 (build-overcast-preview.js와 같은 식).
+  function cellForLayer(instances, layer) {
+    const names = instances.filter(c => c.layer === layer).map(c => c.atlasKey.split(':')[1]);
+    const count = {};
+    for (const n of names) count[n] = (count[n] || 0) + 1;
+    const top = Object.keys(count).sort((a,b) => count[b]-count[a])[0];
+    const o = PRESET_OPTICS[top] || PRESET_OPTICS.Stratocumulus;
+    return { cellSizeKm: o.cellSizeKm, cellStrength: o.cellStrength, cellVariant: o.cellVariant,
+             cellAspect: o.cellAspect };
+  }
   sunMat.uniforms.uOcclusion.value = built.optics.sunTransmittance;
   skyMat.uniforms.uCloudDiffuse.value = built.optics.diffuseToGround;
   skyMat.uniforms.uHaloStrength.value = built.halo;
@@ -196,14 +207,23 @@ SCENES.forEach((s,i)=>{
       const b = beamAtAltitude(s.sunAlt, alt, atmosphere);
       return { r: b.r*f, g: b.g*f, b: b.b*f };
     },
-    ambientFor: L => {
+    // 3단계: 방향별 환경광.
+    ambientFor: (L, azDeg) => {
       const f = built.optics.diffuseFactor[L];
-      return { up: applyCloudDimming(skyRadiance(88,90,s.sunAlt,atmosphere), f),
-               down: applyCloudDimming(skyRadiance(20,70,s.sunAlt,atmosphere), f) };
+      const gammaUp = angularSeparationDeg(azDeg, 70, SUN_AZ, s.sunAlt);
+      const gammaDown = angularSeparationDeg(azDeg, 15, SUN_AZ, s.sunAlt);
+      return { up: applyCloudDimming(skyRadiance(70,gammaUp,s.sunAlt,atmosphere), f),
+               down: applyCloudDimming(skyRadiance(15,gammaDown,s.sunAlt,atmosphere), f) };
     },
     sunDir, sunAltDeg: s.sunAlt,
     tauFor: L => med(byLayer(L).map(c=>c.tau), 25),
     shadowFor: L => med(byLayer(L).map(c=>c.shadowContrast), 0.5),
+    cellFor: L => cellForLayer(built.instances, L),
+    pixelAngleRad: (72 * Math.PI / 180) / TH,   // 카메라 화각 72°
+    // 6단계: 결 방향. 앱과 같은 자리표시자 값(skyColumn.PLACEHOLDER_WIND_BEARING_DEG).
+    windBearingDeg: 260,
+    // 4단계: 대기 투시.
+    betaMie: atmosphere.betaMie, angstrom: atmosphere.angstrom, elevScale: atmosphere.elevScale,
     timeSeconds: 0, visible: true,
   });
 
