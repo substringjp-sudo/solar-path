@@ -70,10 +70,20 @@ for (const f of files) {
   fs.writeFileSync(f, s);
 }
 
-// vendor: three는 미리 받아둔 것을 쓰고, suncalc은 UMD를 ESM으로 감쌉니다.
-for (const f of ['three.module.js', 'three.core.js']) {
-  const from = path.join(PREVIEW, f);
-  if (fs.existsSync(from)) fs.copyFileSync(from, path.join(APP, 'vendor', f));
+// vendor: three는 **node_modules에서** 가져옵니다. 예전에는 PREVIEW에 미리
+// 받아둔 사본을 `if (exists)`로 복사했는데, /tmp가 비워지거나 사본이 사라지면
+// 조용히 건너뛰고 브라우저에서만 404가 나 "__stats가 없습니다"로 나타났습니다
+// (원인을 찾는 데 한참 걸립니다). 앱이 실제로 쓰는 버전과 같아야 하기도 하고요.
+// three.module.js는 three.core.js를 import하므로 둘 다 필요합니다.
+{
+  const buildDir = path.join(SRC, 'node_modules/three/build');
+  for (const f of ['three.module.js', 'three.core.js']) {
+    const from = path.join(buildDir, f);
+    if (!fs.existsSync(from)) {
+      throw new Error(`${from} 가 없습니다 — npm install 이 필요합니다`);
+    }
+    fs.copyFileSync(from, path.join(APP, 'vendor', f));
+  }
 }
 // sunsetPhysics는 sky_weights_v2.json을 import합니다. 브라우저는 JSON 모듈을
 // import attribute 없이 못 읽으므로, ESM 래퍼로 감싸 같은 경로에 둡니다.
