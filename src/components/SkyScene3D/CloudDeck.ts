@@ -41,6 +41,13 @@ const DECK_RADIUS: Record<LayerKey, number> = {
   high: 456,
 };
 
+/**
+ * 조각별 입체 음영의 세기. 셀 값을 구름 윗면 높이로 읽어 태양 쪽 기울기로
+ * 밝기를 흔듭니다. 기울기는 평균이 0이라 하늘 전체 밝기는 바뀌지 않습니다.
+ * 렌더로 고른 값 — 자세한 근거는 FRAG의 "조각의 입체감" 주석.
+ */
+const CELL_RELIEF_STRENGTH = 0.45;
+
 /** 덱 메시 해상도 (방위 × 고도). 샘플 격자보다 촘촘해야 보간이 매끄럽습니다. */
 const MESH_AZ = 72;
 const MESH_ELEV = 32;
@@ -95,6 +102,8 @@ uniform vec2  uCellUvScale;      // 1 / (축별 셀크기km × 타일당셀수) 
 uniform vec2  uCellAcross;       // 바람을 가로지르는 단위벡터 (XZ 평면)
 uniform float uPatchUvScale;     // 패치용 — 훨씬 큰 스케일
 uniform float uCellStrength;     // 0이면 조각 없는 연속 베일
+uniform float uCellReliefUv;     // 입체감 표본을 태양 쪽으로 밀 uv 거리
+uniform float uCellRelief;       // 입체 음영 세기 (0 = 끔)
 uniform float uAltKm;            // 이 층의 고도
 uniform float uEarthRadiusKm;    // 지구 반지름 (구면 투영)
 uniform float uPixelAngleRad;    // 화면 픽셀 하나의 각크기
@@ -224,6 +233,32 @@ void main() {
   //
   // 격자는 통계를, 텍스처는 모양을 — 계획의 원칙 그대로가 맞았습니다.
   float cellV = cell_sample(uCellTex, uvCell, uCellMaskA, uCellMaskB);
+
+  // ── 조각의 입체감 ───────────────────────────────────────────────────────
+  //
+  // 여기까지의 셰이딩은 한 방향 안에서 **모든 조각이 같은 밝기**였습니다.
+  // 조각은 알파로만 오려내고 색은 시선·광학두께로만 정해졌으니까요. 그래서
+  // 하늘이 오려붙인 종이처럼 보였습니다 — 실제 구름 조각은 태양 쪽 면이
+  // 밝고 반대쪽이 그늘집니다.
+  //
+  // 셀 값을 구름 윗면의 **높이**로 읽으면 기울기가 곧 법선입니다. 필요한
+  // 것은 태양 쪽 기울기 하나뿐이므로(조명은 그 방향으로만 결정됩니다)
+  // 전체 법선을 만들 것 없이 **태양 방향으로 한 번만 더** 뽑습니다.
+  // 값이 태양 쪽으로 커지면 = 그쪽이 더 두껍다 = 여기는 반대 사면 → 어둡게.
+  //
+  // 텍스처 페치는 2회 → 4회가 됩니다. cellStrength가 0인 층운계는 조각이
+  // 없으므로 uniform 분기로 건너뜁니다 (uniform이라 발산이 없습니다).
+  float relief = 0.0;
+  if (uCellStrength > 0.0) {
+    vec2 sunXZ = normalize(uSunDir.xz + vec2(1e-5));
+    vec2 sunAligned = vec2(dot(sunXZ, uCellAcross), dot(sunXZ, windAxis));
+    vec2 sunUv = normalize(sunAligned * uCellUvScale + vec2(1e-9)) * uCellReliefUv;
+    float cellSun = cell_sample(uCellTex, uvCell + sunUv, uCellMaskA, uCellMaskB);
+    // 낮은 태양일수록 옆에서 비추므로 대비가 큽니다.
+    float sunLow = 1.0 - clamp(uSunAltDeg / 40.0, 0.0, 1.0);
+    relief = clamp((cellV - cellSun) * 3.0, -1.0, 1.0) * (0.30 + 0.55 * sunLow);
+  }
+
   float t = cell_threshold(vCover, tpp);
   // 문턱 램프는 대칭이라 면적을 바꾸지 않습니다. 축소가 클수록 넓혀
   // 계단이 지글거리지 않게 합니다.
@@ -266,6 +301,11 @@ void main() {
 
   // 그늘 깊이 — 두꺼울수록 어둡습니다.
   baseCol *= 1.0 - uShadowContrast * 0.42 * smoothstep(8.0, 60.0, tau);
+
+  // 조각별 입체 음영. **대기 투시보다 앞**에 둡니다 — 멀리 있는 조각은
+  // 아래에서 연무에 잠기면서 입체감도 같이 흐려져야 하기 때문입니다.
+  // 기울기는 평균이 0이라 하늘 전체 밝기(=운량 통계)는 건드리지 않습니다.
+  baseCol *= 1.0 + relief * uCellRelief;
 
   // ── 대기 투시 (docs/CLOUD_TEXTURE_PLAN.md 4단계) ────────────────────────
   //
@@ -427,6 +467,11 @@ export function createCloudDeck(opts: {
         uPatchUvScale: { value: 1 / (PATCH_SIZE_KM * cell.tileCells) },
         uCellStrength: { value: 0.9 },
         uAltKm: { value: LAYER_ALTITUDE_KM[layer] },
+        // 조각 하나의 uv 폭은 1/tileCells. 그 35%만큼 태양 쪽으로 밀어
+        // 기울기를 잽니다 — 너무 짧으면 필터에 묻히고, 너무 길면 옆
+        // 조각을 집어 음영이 조각과 어긋납니다.
+        uCellReliefUv: { value: (0.35 / cell.tileCells) },
+        uCellRelief: { value: CELL_RELIEF_STRENGTH },
         uEarthRadiusKm: { value: EARTH_RADIUS_KM },
         uPixelAngleRad: { value: 0.002 },
         uMaxAniso: { value: maxAniso },

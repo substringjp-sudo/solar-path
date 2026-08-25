@@ -268,6 +268,47 @@ node tools/shader-preview/verify-billboard-genus.js      # 8개
 읽습니다. 흐림 8/8과 권층운 장면에서 빌보드가 0장인지, 그 외 장면의
 운형이 전부 Cumulus/Cumulonimbus뿐인지 확인합니다.
 
+## 준비 — `stage-node.js` / `stage-esm.js`
+
+```bash
+node tools/shader-preview/stage-node.js   # /tmp/{atm,cell,sky,tl}build + suncalc 링크
+node tools/shader-preview/stage-esm.js    # 브라우저용 ESM + vendor
+```
+
+검사 스크립트가 `/tmp`의 CommonJS 산출물을 require합니다. 예전에는 그
+명령이 이 문서 세 군데에만 적혀 있어서, /tmp가 비워지면(컨테이너 재시작,
+디스크 정리, `npm install`) 하네스 11종이 전부
+`Cannot find module '/tmp/…'`로 죽는데 무엇을 다시 돌려야 하는지 알기
+어려웠습니다. 이제 위 두 줄이면 됩니다.
+
+`three`는 `node_modules`에서 가져옵니다 — 앱이 실제로 쓰는 버전과 같아야
+하고, 미리 받아둔 사본에 기대면 사본이 사라졌을 때 브라우저에서만 404가 나
+"__stats가 없습니다"라는 엉뚱한 증상으로 나타납니다.
+
+## 조각 입체 음영 — `verify-cell-relief.js`
+
+```bash
+node tools/shader-preview/build-cell-relief-preview.js
+node tools/shader-preview/shoot.js cell-relief.html cell-relief.png
+node tools/shader-preview/verify-cell-relief.js          # 11개
+```
+
+조각마다 밝은 면과 그늘 면이 생기는지 봅니다. 세기를 끄고 켤 손잡이가
+없으므로 **차등 검사**입니다: 입체감이 `0.30 + 0.55 × (태양이 낮을수록 1)`로
+스케일되므로 같은 장면을 태양 5°와 70°로 찍어 구름 픽셀 안의 국소(7×7)
+밝기 표준편차 비를 봅니다.
+
+대조군은 층운(`cellStrength = 0`, WMO 정의상 요소가 없는 구름)입니다.
+이게 없으면 "태양을 낮췄더니 대비가 커졌다"가 입체감 때문인지 그냥
+노을빛 때문인지 구분할 수 없습니다.
+
+기준값: 고적운 ×2.61, 층운 ×0.85.
+
+⚠ 불투명 문턱을 0.85로 두면 **층운이 한 점도 안 잡힙니다** — 조각이 없어
+알파가 운량 그대로(0.62)라 문턱을 못 넘습니다. 그러면 대조군 비가 0/0이
+되어 비교가 거저 통과합니다. 문턱을 0.50으로 낮추고, 대조군에도 표본이
+있는지 따로 단언합니다.
+
 ## 권운 결 방향 (6단계) — `verify-cirrus-aniso.js`
 
 ```bash
