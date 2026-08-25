@@ -70,6 +70,14 @@ export function elevationGrid(steps: number = ELEV_STEPS): number[] {
 export const EARTH_RADIUS_KM = 6371;
 
 /**
+ * 운량 U자 곡선의 세기. 1이면 균등분포, 클수록 맑음/흐림 양 끝으로 몰립니다.
+ * 렌더로 고른 값 — 자세한 근거는 `buildSkyColumns` 안 주석.
+ */
+export const U_SHAPE_P = 2.0;
+/** U자 구조를 얼마나 섞을지 (1 = 순수 U자). */
+export const U_SHAPE_MIX = 0.85;
+
+/**
  * 고도각 → 구름층 위 투영 거리 (호 길이, km).
  *
  * **평면 근사를 자르는 게 아니라 구면을 직접 풉니다.** 예전에는
@@ -382,36 +390,101 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
       }
     }
 
-    // 노이즈 평균 보정.
+    // ── 순위 사상으로 U자 운량장 만들기 ──────────────────────────────────
     //
-    // Why 필요한가: 하늘 방향 샘플은 지상에서 **균일하게 퍼지지 않습니다.**
-    // 저층 1.5km 층은 고도각 3.6°에서 24km, 69.6°에서 0.56km라
-    // 8개 고리 중 6개가 반경 5km 안에 몰립니다. 그 샘플들이 노이즈 셀 하나를
-    // 공유해 버리면 그 셀 값이 하늘 전체 평균을 끌고 갑니다.
-    // (측정: 입력 50%가 화면 29%로 나왔습니다.)
+    // 예전에는 `cover = 평균 + (노이즈 - 노이즈평균) × 진폭` 이었습니다.
+    // 평균은 잘 보존됐지만 **분포가 평균 주위 좁은 가우시안**이었습니다.
+    // 중층 평균 50%로 재보면 하늘이 8%~94% 사이에 표준편차 0.14로 뭉쳐
+    // **10% 미만인 방향이 0%, 90% 초과인 방향이 0%** 였습니다. 즉 어느 쪽을
+    // 봐도 반쯤 덮인 하늘 — 파란 구멍도, 꽉 찬 덩어리도 없는 벽지입니다.
+    // 진폭만 키우면 0과 1에서 잘려 평균이 밀리므로 그 길은 막혀 있습니다.
     //
-    // 실현된 노이즈 평균을 빼서 편차만 남기면, 구조는 유지하면서
-    // 입력 운량이 정확히 보존됩니다.
-    let nSum = 0;
-    for (const s of staged) nSum += s.n;
-    const nMean = staged.length ? nSum / staged.length : 0.5;
+    // 실제 운량장은 U자(이봉형)입니다. 하늘은 맑거나 덮이거나이고, 고르게
+    // 반쯤 덮인 하늘이 오히려 드뭅니다. 사진에도 파란 구멍과 짙은 덩어리가
+    // 같이 있습니다.
+    //
+    // 그래서 **1단계에서 셀 무늬에 썼던 히스토그램 평활화를 한 층 위에**
+    // 그대로 적용합니다: 노이즈를 값으로 쓰지 않고 **순위**만 씁니다.
+    //   1. 노이즈 순위 → 분위수 u
+    //   2. u를 U자 곡선에 통과시켜 v (양 끝으로 질량을 밀어냄)
+    //   3. 곡선 지수를 이분법으로 잡아 평균을 목표 운량에 맞춤
+    //   4. 남은 오차를 단조 보정으로 정확히 0으로
+    // 순위 사상은 단조라 **어느 방향이 더 흐린지**(공간 구조)는 노이즈가
+    // 그대로 정합니다. 값만 다시 배분됩니다.
+    //
+    // 표본이 등입체각이므로(elevationGrid가 sin ε 균등) 순위 = 입체각
+    // 분위수이고, 표본 평균 = 하늘 평균입니다. 예전 주석이 걱정하던
+    // "지상에서 균일하게 안 퍼진다"는 문제도 순위를 쓰면 사라집니다 —
+    // 노이즈 값의 편향이 순위에 영향을 주지 않기 때문입니다.
+    const N = staged.length;
+    if (N > 0) {
+      const order = staged.map((_, i) => i).sort((a, b) => staged[a].n - staged[b].n);
+      const u = new Float64Array(N);
+      for (let rank = 0; rank < N; rank++) u[order[rank]] = (rank + 0.5) / N;
 
-    for (const s of staged) {
-      // 분산은 평균이 0이나 1에 가까울수록 0으로 수렴합니다.
-      // 맑으면 완전히 맑고, 8/8이면 빈틈이 없어야 하기 때문입니다.
-      const spread = 4 * s.meanCover * (1 - s.meanCover);
-      // 신뢰도가 낮은 방향(팬 밖)은 노이즈 비중을 키워 구조를 만듭니다.
-      const amp = 0.42 * spread * (1 + (1 - s.confidence) * 0.5);
-      const cover = Math.max(0, Math.min(1, s.meanCover + (s.n - nMean) * 2 * amp));
+      // 층 평균 운량 (방향마다 다를 수 있으므로 실제 평균을 씁니다).
+      let cSum = 0;
+      for (const s of staged) cSum += s.meanCover;
+      const cTarget = cSum / N;
 
-      out.push({
-        layer,
-        azimuthDeg: s.azimuthDeg,
-        elevationDeg: s.elevationDeg,
-        distanceKm: s.distanceKm,
-        cover,
-        confidence: s.confidence,
-      });
+      // U자 곡선. p = 1이면 균등, p > 1이면 가운데가 가팔라 질량이 양 끝으로
+      // 밀립니다. v(0) = 0, v(1) = 1 이 정확히 성립합니다.
+      const uShape = (x: number) => {
+        const a = Math.pow(x, U_SHAPE_P);
+        const b = Math.pow(1 - x, U_SHAPE_P);
+        return a / (a + b);
+      };
+      const base = new Float64Array(N);
+      for (let i = 0; i < N; i++) base[i] = uShape(u[i]);
+
+      // 평균을 목표로 옮깁니다. v^g 는 g에 대해 단조 감소하므로 이분법.
+      // (대칭 곡선의 평균은 0.5인데 목표가 0.06이면, 그냥 배율로 눌러
+      //  [0, 0.12]에 몰아넣는 대신 **질량을 옮겨** 대부분을 0 근처로 보내고
+      //  일부를 1 근처에 남깁니다. 맑은 하늘에 구름 몇 덩이 — 실제 모습입니다.)
+      let lo = 1e-3, hi = 1e3;
+      for (let it = 0; it < 48; it++) {
+        const g = Math.sqrt(lo * hi);
+        let m = 0;
+        for (let i = 0; i < N; i++) m += Math.pow(base[i], g);
+        m /= N;
+        if (m > cTarget) lo = g; else hi = g;
+      }
+      const g = Math.sqrt(lo * hi);
+      let realized = 0;
+      const v = new Float64Array(N);
+      for (let i = 0; i < N; i++) { v[i] = Math.pow(base[i], g); realized += v[i]; }
+      realized /= N;
+
+      // 이분법이 닿지 못한 나머지(목표가 1/N보다 작을 때 등)를 단조 보정으로
+      // 정확히 맞춥니다. 두 형태 모두 [0,1]을 벗어나지 않습니다.
+      if (realized > cTarget + 1e-9 && realized > 1e-9) {
+        const k = cTarget / realized;
+        for (let i = 0; i < N; i++) v[i] *= k;
+      } else if (realized < cTarget - 1e-9 && realized < 1 - 1e-9) {
+        const k = (1 - cTarget) / (1 - realized);
+        for (let i = 0; i < N; i++) v[i] = 1 - (1 - v[i]) * k;
+      }
+
+      for (let i = 0; i < N; i++) {
+        const s = staged[i];
+        // 이 방향의 예보 평균이 층 평균과 다르면 그만큼 되돌립니다.
+        // (팬 안쪽은 실측이 방향마다 다르므로 그 차이를 지우면 안 됩니다.)
+        const bias = s.meanCover - cTarget;
+        // 신뢰도가 낮은 방향(팬 밖)은 U자 구조를 더 강하게 씁니다 —
+        // 어차피 실측이 없으니 구조라도 그럴듯해야 합니다.
+        const k = Math.min(1, U_SHAPE_MIX * (1 + (1 - s.confidence) * 0.3));
+        const shaped = cTarget + (v[i] - cTarget) * k;
+        const cover = Math.max(0, Math.min(1, shaped + bias));
+
+        out.push({
+          layer,
+          azimuthDeg: s.azimuthDeg,
+          elevationDeg: s.elevationDeg,
+          distanceKm: s.distanceKm,
+          cover,
+          confidence: s.confidence,
+        });
+      }
     }
   });
 
