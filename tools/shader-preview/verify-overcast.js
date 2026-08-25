@@ -32,14 +32,39 @@ ok(g[g.length-1] > 60, `최상단 띠 중심 ${g[g.length-1].toFixed(1)}° (61~9
 const topBandFrac = 1 - Math.sin(61*Math.PI/180);
 ok(Math.abs(topBandFrac - 1/8) < 0.02, `최상단 띠가 하늘의 ${(topBandFrac*100).toFixed(1)}% (= 1/8)`);
 
-console.log('\n== 고도각 → 지상거리 역산 ==');
-for (const [alt, e, expect] of [[1.5,45,1.5],[1.5,10,8.5],[10,5,114],[10,45,10]]) {
+console.log('\n== 고도각 → 지상거리 역산 (구면) ==');
+// 기댓값은 **구면 정답**입니다. 예전에는 평면 근사 h·cot(ε)의 값을 그대로
+// 적어 뒀는데(ε=5°에서 114km), 그건 근사의 오차까지 정답으로 굳힌 것이라
+// 구면으로 고쳤을 때 올바른 값 104.5km가 오히려 실패로 잡혔습니다.
+//
+// 구면 정답: r = (2Rh+h²) / (R·sinε + sqrt(R²sin²ε + 2Rh + h²)),
+//            d = (R+h)·asin(r·cosε/(R+h))
+// 고각에서는 두 식이 사실상 같고(45°에서 0.1% 미만), 저각에서 갈립니다.
+const R_E = 6371;
+const sphere = (e, h) => {
+  const er = e * Math.PI / 180, s = Math.sin(er), c = Math.cos(er);
+  const chord = 2 * R_E * h + h * h;
+  const r = chord / (R_E * s + Math.sqrt(R_E * R_E * s * s + chord));
+  return (R_E + h) * Math.asin(Math.min(1, (r * c) / (R_E + h)));
+};
+for (const [alt, e] of [[1.5, 45], [1.5, 10], [10, 5], [10, 45], [10, 1]]) {
   const d = S.elevationToDistanceKm(e, alt);
-  ok(Math.abs(d-expect)/expect < 0.05, `h=${alt}km ε=${e}° → ${d.toFixed(1)}km (기대 ~${expect})`);
+  const expect = sphere(e, alt);
+  ok(Math.abs(d - expect) / expect < 0.01,
+    `h=${alt}km ε=${e}° → ${d.toFixed(1)}km (구면 ${expect.toFixed(1)})`);
 }
-// 지평선에서 곡률 한계로 잘리는가
-const dh = S.elevationToDistanceKm(0.01, 1.5);
-ok(dh < 200 && dh > 100, `지평선 발산 방지: h=1.5km → ${dh.toFixed(0)}km (곡률한계 √(2Rh)=${Math.sqrt(2*6371*1.5).toFixed(0)})`);
+// 저각에서 평면 근사와 **갈라져야** 합니다. 안 갈라지면 구면식이 실제로는
+// 안 걸린 것입니다 (예전 코드는 여기서 평면값을 그대로 냈습니다).
+const flat1 = 10 / Math.tan(1 * Math.PI / 180);
+const sph1 = S.elevationToDistanceKm(1, 10);
+ok(flat1 / sph1 > 1.8,
+  `ε=1°에서 평면(${flat1.toFixed(0)}km)이 구면(${sph1.toFixed(0)}km)의 ${(flat1 / sph1).toFixed(2)}배 — 구면식이 실제로 걸림`);
+
+// 지평선에서 상한 없이 √(2Rh)로 수렴하는가
+const dh = S.elevationToDistanceKm(0, 1.5);
+const horizon = Math.sqrt(2 * R_E * 1.5 + 1.5 * 1.5);
+ok(Math.abs(dh - horizon) / horizon < 0.01,
+  `ε=0에서 곡률 지평선으로 수렴: ${dh.toFixed(1)}km (√(2Rh+h²)=${horizon.toFixed(1)})`);
 
 console.log('\n== 운량 보존 (핵심) ==');
 for (const cover of [0, 12, 35, 50, 75, 100]) {

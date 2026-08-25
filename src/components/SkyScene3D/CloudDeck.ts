@@ -28,6 +28,7 @@ import {
 } from './cloudCellTexture';
 import {
   LAYER_ALTITUDE_KM,
+  EARTH_RADIUS_KM,
   elevationGrid,
   type LayerKey,
   type LayerSample,
@@ -95,7 +96,7 @@ uniform vec2  uCellAcross;       // 바람을 가로지르는 단위벡터 (XZ �
 uniform float uPatchUvScale;     // 패치용 — 훨씬 큰 스케일
 uniform float uCellStrength;     // 0이면 조각 없는 연속 베일
 uniform float uAltKm;            // 이 층의 고도
-uniform float uMaxDistKm;        // 지상거리 상한 (지평선에서 발산 방지)
+uniform float uEarthRadiusKm;    // 지구 반지름 (구면 투영)
 uniform float uPixelAngleRad;    // 화면 픽셀 하나의 각크기
 uniform float uMaxAniso;         // 이방성 필터 최대 배율
 uniform float uCellTexSize;      // 텍스처 한 변 (텍셀)
@@ -141,17 +142,38 @@ void main() {
   // 그러면 원근 단축이 없어 구름이 지평선까지 같은 크기로 깔립니다 —
   // 하늘이 벽지처럼 보이던 이유입니다.
   //
-  // 실제 구름층은 고도 h의 평면이고, 시선이 닿는 지점의 지상거리는
-  // d = h / tan(ε) 입니다. 고도 45°와 8° 사이에 이 값이 7배 차이납니다.
+  // 실제 구름층은 고도 h의 **구면 껍질**이고, 시선이 닿는 지점까지의
+  // 거리는 아래 구면 교점식으로 구합니다.
   vec2 hdir = vDir.xz;
   float hlen = max(1e-4, length(hdir));
   vec2 dirXZ = hdir / hlen;
 
-  float elevRad = radians(max(vElevDeg, 0.05));
-  float sinE = max(sin(elevRad), 1e-3);
+  float elevRad = radians(max(vElevDeg, 0.0));
+  float sinE = max(sin(elevRad), 0.0);
   float cosE = max(cos(elevRad), 1e-3);
-  // 지평선에서 d가 발산하므로 상한을 둡니다. 그 너머는 어차피 연무입니다.
-  float d = min(uAltKm * cosE / sinE, uMaxDistKm);
+  // ── 구면 투영 ──────────────────────────────────────────────────────────
+  //
+  // 평면 근사 d = h·cot(ε)는 지평선에서 **발산합니다**. 예전에는 상한을
+  // 씌워 막았지만, 그건 곡률이 아니라 벽입니다: 상한에 닿는 순간 압축이
+  // 뚝 멈춰 그 아래가 통째로 같은 배율로 뭉갭니다. 그리고 발산하는 구간이
+  // 실제보다 훨씬 넓습니다 — 상층 10km에서 고도각 1°의 참값은 263km인데
+  // 평면식은 573km, 0.2°에서는 336km 대 2865km로 **8.5배** 틀립니다.
+  // 그 8배가 지평선 근처에 무한한 벽지를 깔아 "곡률 없는 무한 평면"으로
+  // 보이게 만들던 것입니다.
+  //
+  // 정확한 값은 시선과 구름 구면(반지름 R+h)의 교점입니다. 경사거리 r은
+  //   r = -R·sinε + sqrt(R²sin²ε + 2Rh + h²)
+  // 인데 이 형태는 천정에서 큰 수 둘을 빼게 되어(6381 - 6371) float32에서
+  // 유효숫자가 날아갑니다. 켤레를 곱해 정리한 아래 형태는 어느 고도각에서도
+  // 상쇄가 없습니다.
+  float Rk = uEarthRadiusKm;
+  float h  = uAltKm;
+  float chord = 2.0 * Rk * h + h * h;
+  float r = chord / (Rk * sinE + sqrt(Rk * Rk * sinE * sinE + chord));
+  // 구름층 위 호 길이. 지심각 θ = asin(r·cosε/(R+h)).
+  float theta = asin(clamp(r * cosE / (Rk + h), 0.0, 1.0));
+  // 상한이 필요 없습니다 — ε→0에서 sqrt(2Rh+h²)로 **스스로 수렴합니다.**
+  float d = (Rk + h) * theta;
 
   // 바람에 따른 이동은 **km 단위**여야 합니다 — uv 단위로 밀면 층마다
   // 셀 크기가 달라 이동 속도가 제각각이 됩니다.
@@ -354,7 +376,6 @@ function buildDeckGeometry(layer: LayerKey): {
 const deckDirs = new Map<LayerKey, { azDeg: number; elevDeg: number }[]>();
 
 /** 지상거리 상한 — 층 고도의 몇 배까지 볼 것인가 (시선 고도 약 1.4°) */
-const MAX_DIST_FACTOR = 40;
 /**
  * 두께 얼룩용 무늬의 물리 크기 (km).
  *
@@ -406,7 +427,7 @@ export function createCloudDeck(opts: {
         uPatchUvScale: { value: 1 / (PATCH_SIZE_KM * cell.tileCells) },
         uCellStrength: { value: 0.9 },
         uAltKm: { value: LAYER_ALTITUDE_KM[layer] },
-        uMaxDistKm: { value: LAYER_ALTITUDE_KM[layer] * MAX_DIST_FACTOR },
+        uEarthRadiusKm: { value: EARTH_RADIUS_KM },
         uPixelAngleRad: { value: 0.002 },
         uMaxAniso: { value: maxAniso },
         uCellTexSize: { value: cell.size },

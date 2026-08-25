@@ -66,18 +66,39 @@ export function elevationGrid(steps: number = ELEV_STEPS): number[] {
   return out;
 }
 
+/** 지구 반지름 (km). 구면 투영의 기준. */
+export const EARTH_RADIUS_KM = 6371;
+
 /**
- * 고도각 → 지상 투영 거리.
+ * 고도각 → 구름층 위 투영 거리 (호 길이, km).
  *
- * 평면 근사 `d = h / tan ε` 를 쓰되, 지평선 근처에서 무한대로 발산하지 않도록
- * 지구 곡률 한계(구름층이 지평선에 잠기는 거리)로 자릅니다.
- * 고도 h인 층이 보이는 최대 거리는 `sqrt(2 R h)` 근처입니다 (R = 6371km).
+ * **평면 근사를 자르는 게 아니라 구면을 직접 풉니다.** 예전에는
+ * `min(h/tan ε, sqrt(2Rh))` 였는데, 그건 두 가지가 틀렸습니다:
+ *
+ * 1. 자르는 지점에서 값이 꺾입니다. 그 아래 고도각이 전부 같은 거리로
+ *    뭉개져, 곡률이 아니라 **벽**이 됩니다.
+ * 2. 자르기 전에도 이미 많이 틀립니다. 상층 10km · 고도각 1°에서
+ *    평면식은 573km, 참값은 263km — **2.2배**. 0.2°에서는 8.5배입니다.
+ *
+ * 정확한 값은 시선과 구름 구면(반지름 R+h)의 교점입니다. 경사거리는
+ * `r = -R sinε + sqrt(R²sin²ε + 2Rh + h²)` 인데, 이 형태는 천정에서
+ * 큰 수 둘을 빼게 되어 유효숫자가 날아갑니다. 켤레를 곱해 정리한 아래
+ * 형태는 어느 고도각에서도 상쇄가 없습니다.
+ *
+ * ε → 0 에서 `sqrt(2Rh + h²)` 로 **스스로 수렴**하므로 상한이 필요 없습니다.
+ * `CloudDeck.ts`의 FRAG가 같은 식을 씁니다 — 격자와 셰이더가 하늘의 같은
+ * 지점을 가리켜야 하기 때문입니다. (예전에는 저층에서 격자 138km,
+ * 셰이더 60km로 **57% 어긋나** 있었습니다.)
  */
 export function elevationToDistanceKm(elevDeg: number, altKm: number): number {
-  const horizonKm = Math.sqrt(2 * 6371 * altKm);
-  if (elevDeg <= 0.05) return horizonKm;
-  const d = altKm / Math.tan(elevDeg * D2R);
-  return Math.min(horizonKm, d);
+  const R = EARTH_RADIUS_KM;
+  const er = Math.max(0, elevDeg) * D2R;
+  const sinE = Math.max(0, Math.sin(er));
+  const cosE = Math.cos(er);
+  const chord = 2 * R * altKm + altKm * altKm;
+  const r = chord / (R * sinE + Math.sqrt(R * R * sinE * sinE + chord));
+  const theta = Math.asin(Math.min(1, Math.max(0, (r * cosE) / (R + altKm))));
+  return (R + altKm) * theta;
 }
 
 // ── 공간 노이즈 ────────────────────────────────────────────────────────────
