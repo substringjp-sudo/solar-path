@@ -295,18 +295,12 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
 
   /**
-   * 덱이 쓸 조각 기하 — 광학두께와 **같은 운형**에서 뽑습니다.
-   * 두 값이 갈라지면 "권운처럼 얇은데 층적운처럼 큰 조각"이 나옵니다.
+   * 덱이 쓸 층 대표 운형의 광학 — 조각 기하와 광학두께가 **같은 운형**에서
+   * 나와야 합니다. 갈라지면 "권운처럼 얇은데 층적운처럼 큰 조각"이 나옵니다.
    */
-  const cellForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
+  const opticsForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
     const name = representativePresetForObserver(layer, obs);
-    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
-    return {
-      cellSizeKm: o.cellSizeKm,
-      cellStrength: o.cellStrength,
-      cellVariant: o.cellVariant,
-      cellAspect: o.cellAspect,
-    };
+    return PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
   }, []);
 
   /**
@@ -969,13 +963,29 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         Math.sin(sAlt),
         -Math.cos(sAlt) * Math.cos(sAz)
       );
-      // 층별 대표 광학두께/그늘은 그 층에서 실제로 뽑힌 빌보드의 중앙값을 씁니다.
+      // ── 층별 대표 광학두께·그늘 (docs/CLOUD_VARIETY_PLAN.md 1단계) ─────────
+      //
+      // 기본은 **그 층의 대표 운형 도감값**입니다. 빌보드가 실제로 뽑힌
+      // 층에서만 그 중앙값으로 덮어씁니다 — 빌보드 τ에는 DNI 관측 보정이
+      // 들어 있어서 도감보다 그 하늘을 더 잘 압니다.
+      //
+      // ⚠ 예전에는 폴백이 상수 25/0.5였는데, `CLOUD_TEXTURE_PLAN.md` 5단계에서
+      // 빌보드를 적운·적란운으로 제한한 뒤로 그 둘은 `low` 층에서만 나옵니다
+      // (`resolvePresetFromWeather`의 mid/high 분기는 절대 반환하지 않음).
+      // 그래서 **중·상층은 언제나 폴백에 갇혀 있었습니다.** 권운(τ=3, 투과율
+      // 0.82)이 τ=25(투과율 0.35)로 그려져 해가 비치지 않는 회색 판이 됐고,
+      // 실측으로 밝기 208.7 → 179.2 였습니다.
       const byLayer = (layer: 'low' | 'mid' | 'high') =>
         built.instances.filter(c => c.layer === layer);
       const medianOf = (arr: number[], fallback: number) => {
         if (arr.length === 0) return fallback;
         const s2 = [...arr].sort((a, b) => a - b);
         return s2[Math.floor(s2.length / 2)];
+      };
+      const layerOptics = {
+        low: opticsForLayer('low', observerWeather()),
+        mid: opticsForLayer('mid', observerWeather()),
+        high: opticsForLayer('high', observerWeather()),
       };
 
       updateCloudDeck(deck, {
@@ -1006,9 +1016,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         },
         sunDir,
         sunAltDeg: sunAltRef.current,
-        tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), 25),
-        shadowFor: layer => medianOf(byLayer(layer).map(c => c.shadowContrast), 0.5),
-        cellFor: layer => cellForLayer(layer, observerWeather()),
+        tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), layerOptics[layer].tau),
+        shadowFor: layer =>
+          medianOf(byLayer(layer).map(c => c.shadowContrast), layerOptics[layer].shadowContrast),
+        cellFor: layer => layerOptics[layer],
         pixelAngleRad: pixelAngleRad(),
         // 6단계: 권운 필라멘트를 빗을 방향. 실측이 아니라 대용 상수입니다
         // (skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG).
