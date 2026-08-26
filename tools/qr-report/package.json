@@ -1,0 +1,10 @@
+{
+  "name": "qr-report-decoder",
+  "private": true,
+  "description": "SimReportQR 캡처를 디코드하는 개발자 도구. 앱 번들에는 들어가지 않습니다 — src/components/SkyScreen/SimReportQR.tsx가 QR로 그리는 페이로드(src/utils/simReport.ts)를 화면 캡처에서 되읽기 위한 독립 스크립트입니다.",
+  "dependencies": {
+    "jpeg-js": "^0.4.4",
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0"
+  }
+}

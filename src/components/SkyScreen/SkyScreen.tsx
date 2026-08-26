@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, Wand2, X, SlidersVertical } from 'lucide-react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, Wand2, X, SlidersVertical, QrCode } from 'lucide-react-native';
 import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { TimeSlider } from '../TimeSlider';
@@ -35,6 +35,9 @@ import { PredictionCard } from '../SunsetSimulation/PredictionCard';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
+import { SimReportQR } from './SimReportQR';
+import { buildSimReportPayload, encodeSimReportPayload } from '../../utils/simReport';
+import { PLACEHOLDER_WIND_SPEED_KMH, PLACEHOLDER_WIND_BEARING_DEG } from '../../utils/skyColumn';
 import SunCalc from 'suncalc';
 
 interface SkyScreenProps {
@@ -75,6 +78,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 }) => {
   const { location } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
+  // 분석용 QR — 이 프레임의 기상·태양 입력값을 캡처에 함께 담습니다
+  // (utils/simReport.ts). 기본은 꺼짐: 일반 사용자의 노을 사진에는
+  // 필요 없는 오버레이입니다.
+  const [showSimReportQR, setShowSimReportQR] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerState>({
@@ -435,6 +442,27 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     : '--:--';
   const highCloudPct = interpolatedWeather[0]?.high;
 
+  // 분석용 QR 페이로드. **씬에 실제로 넘어가는 값**(sceneWeather — 강화
+  // 격자가 켜져 있으면 그쪽)에서 뽑아야 화면에 그려진 것과 QR이 말하는
+  // 것이 어긋나지 않습니다.
+  const simReportData = useMemo(
+    () =>
+      encodeSimReportPayload(
+        buildSimReportPayload({
+          simTimeMs: currentTime.getTime(),
+          latitude,
+          longitude,
+          observerElevM: terrainData.observerElevation,
+          sunAltDeg: sunAltitude,
+          sunAzDeg: sunAzimuth,
+          obs: sceneWeather[0],
+          windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
+          windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
+        })
+      ),
+    [currentTime, latitude, longitude, terrainData.observerElevation, sunAltitude, sunAzimuth, sceneWeather]
+  );
+
   return (
     <View style={styles.container}>
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
@@ -505,6 +533,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             <SlidersHorizontal size={14} color="#FFFFFF" />
           </TouchableOpacity>
 
+          {/* 분석용 QR — 켜면 화면 왼쪽 아래에 이 프레임의 기상값 QR이 뜹니다 */}
+          <TouchableOpacity
+            style={[
+              styles.overlayButton,
+              showSimReportQR
+                ? { backgroundColor: 'rgba(56, 189, 248, 0.32)', borderColor: '#38BDF8' }
+                : { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border },
+            ]}
+            onPress={() => setShowSimReportQR(v => !v)}
+            activeOpacity={0.7}
+          >
+            <QrCode size={14} color={showSimReportQR ? '#38BDF8' : '#FFFFFF'} />
+          </TouchableOpacity>
+
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
           {isDevPanelOpen && (
             <TouchableOpacity
@@ -516,6 +558,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </TouchableOpacity>
           )}
         </View>
+
+        {/* 분석용 QR — 씬 왼쪽 아래. 진행률 배너와 자리가 겹치므로 그때는 숨깁니다. */}
+        {showSimReportQR && !isBuilding && !buildError && (
+          <View style={styles.simReportQrWrap}>
+            <SimReportQR data={simReportData} />
+          </View>
+        )}
+
         {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
         {(isBuilding || buildError) && (
           <View style={styles.buildBanner}>
@@ -724,6 +774,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  simReportQrWrap: {
+    position: 'absolute',
+    left: 12,
+    bottom: 14,
+    zIndex: 22,
   },
   buildBanner: {
     position: 'absolute',
