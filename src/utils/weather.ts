@@ -500,6 +500,25 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
 export interface TerrainData {
   panoramicAngles: number[]; // Max of all distances (near/mid/far)
   farAngles: number[];       // Only distant mountains (15km, 40km)
+  /**
+   * 거리대별 지형각 `[거리대][방위]`.
+   *
+   * 위 두 배열은 거리를 최댓값으로 뭉갠 것이라 "가까운 능선 뒤에 먼 능선"이
+   * 사라집니다. 그 정보가 거리별 대기 투시의 재료입니다
+   * (docs/GROUND_PLAN.md 3단계).
+   */
+  bandAngles: number[][];
+  /** `bandAngles`의 거리 (km) */
+  bandDistancesKm: number[];
+  /**
+   * 방위별 수역 비율 0~1.
+   *
+   * Open-Meteo elevation API는 **해상에서 정확히 0.0**을 반환합니다
+   * (육지는 0이 아닌 정수). 새 데이터원 없이 바다를 읽을 수 있습니다.
+   * ⚠ 해수면 높이의 해안 평야도 0으로 읽힙니다 — 드물고 시각적으로 물
+   * 근처라 실패해도 크게 어긋나지 않지만, 한계로 남겨 둡니다.
+   */
+  waterFrac: number[];
   minAz: number;
   maxAz: number;
   observerElevation?: number; // Observer elevation in meters
@@ -609,32 +628,57 @@ export const fetchTerrainProfile = async (
 
     const panoramicAngles: number[] = [];
     const farAngles: number[] = [];
+    // 거리대별 지형각. 예전에는 세 거리를 최댓값으로 뭉개 버려서 "가까운 능선
+    // 뒤에 먼 능선"이라는 정보가 사라졌습니다. 이미 계산하는 값이므로 그대로
+    // 내보냅니다 — 거리별 대기 투시(docs/GROUND_PLAN.md 3단계)에 씁니다.
+    // 모양: [거리대][방위]  (기존 두 배열은 호환을 위해 그대로 둡니다)
+    const bandAngles: number[][] = DISTANCES.map(() => []);
+    // 바다 판정. Open-Meteo elevation API는 **해상에서 정확히 0.0**을
+    // 반환합니다 (육지는 0이 아닌 정수). 새 데이터원 없이 방위별 수역 여부를
+    // 읽을 수 있습니다. 한계: 해수면 높이의 해안 평야도 0으로 읽힙니다.
+    const waterFrac: number[] = [];
     for (let i = 0; i < SAMPLES; i++) {
       let maxAzAngle = 0;
       let maxFarAngle = 0;
+      let water = 0;
+      let counted = 0;
       for (let j = 0; j < DISTANCES.length; j++) {
         const idx = i * DISTANCES.length + j;
         const elev = terrainPoints[idx];
-        if (elev === undefined) continue;
-        
+        if (elev === undefined) { bandAngles[j].push(0); continue; }
+
         const distMeters = DISTANCES[j] * 1000;
         const elevDiff = elev - observerElev;
         const angle = (Math.atan2(elevDiff, distMeters) * 180) / Math.PI;
-        
+
+        bandAngles[j].push(angle);
         if (angle > maxAzAngle) maxAzAngle = angle;
         if (j >= 1 && angle > maxFarAngle) maxFarAngle = angle;
+        if (elev === 0) water++;
+        counted++;
       }
       panoramicAngles.push(maxAzAngle);
       farAngles.push(maxFarAngle);
+      waterFrac.push(counted > 0 ? water / counted : 0);
     }
 
-    const terrainData = { panoramicAngles, farAngles, minAz, maxAz, observerElevation: observerElev };
+    const terrainData = {
+      panoramicAngles, farAngles, bandAngles, waterFrac,
+      bandDistancesKm: DISTANCES.slice(),
+      minAz, maxAz, observerElevation: observerElev,
+    };
     terrainCache.set(cacheKey, terrainData);
     return terrainData;
   } catch (error: any) {
     const duration = Date.now() - startTime;
     console.error(`[TerrainAPI] Failed to fetch panoramic terrain in ${duration}ms. Error: ${error?.message}`);
     // isFallback: true 로 마킹하여 호출부에서 캐싱하지 않도록 방지
-    return { panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0), minAz, maxAz, observerElevation: 0, isFallback: true };
+    return {
+      panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0),
+      bandAngles: DISTANCES.map(() => Array(SAMPLES).fill(0)),
+      waterFrac: Array(SAMPLES).fill(0),
+      bandDistancesKm: DISTANCES.slice(),
+      minAz, maxAz, observerElevation: 0, isFallback: true,
+    };
   }
 };

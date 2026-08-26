@@ -45,6 +45,15 @@ export const GROUND_ALBEDO = { r: 0.22, g: 0.17, b: 0.13 };
  */
 export const GROUND_EXPOSURE = 2.2;
 
+/**
+ * 능선 각도 상한.
+ *
+ * 예전 값 8°는 관측점에서 5km 떨어진 **700m 산까지**밖에 못 담습니다.
+ * 설악(1708m)이 5km 앞이면 18.9°, 2000m면 21.8°입니다. 25°면 국내 어떤
+ * 산도 잘리지 않습니다.
+ */
+export const TERRAIN_MAX_ANGLE_DEG = 25;
+
 const TERRAIN_RING_RADIUS = 480; // 스카이돔(500) 바로 안쪽
 const TERRAIN_SEGMENTS = 72;     // 5° 간격으로 충분히 부드러운 실루엣
 
@@ -112,7 +121,13 @@ export function createTerrainRing(
 
   const material = new THREE.MeshBasicMaterial({
     vertexColors: true,
-    side: THREE.FrontSide,
+    // ⚠ 예전에는 `FrontSide` 였고, 그래서 **한 번도 화면에 안 나왔습니다.**
+    // 이 링은 관측자를 둘러싼 원통이라 항상 **안쪽에서** 봅니다. 그런데 감김
+    // 방향상 안쪽이 뒷면이라 통째로 컬링됐습니다 (검은 배경에 지형만 그려
+    // 세어 보니 0픽셀). 지면 원반이 그리기 순서 때문에 안 보이던 것과 같은
+    // 종류의 버그입니다 — 둘 다 코드를 읽어서는 안 잡히고, 씬에서 빼 보거나
+    // 단독으로 그려 봐야 드러납니다.
+    side: THREE.DoubleSide,
     depthWrite: true,
   });
 
@@ -122,6 +137,62 @@ export function createTerrainRing(
   
   return mesh;
 }
+
+const BAND_VERT = `
+precision highp float;
+attribute float aElevDeg;
+attribute vec3  aHaze;      // 이 방위 지평선 하늘색 (연무)
+varying float vElevDeg;
+varying vec3 vDir;
+varying vec3 vHaze;
+void main() {
+  vElevDeg = aElevDeg;
+  vHaze = aHaze;
+  vDir = normalize(position);
+  gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
+}
+`;
+
+const BAND_FRAG = `
+precision highp float;
+
+${ATMOSPHERE_GLSL}
+
+uniform vec3  uTerrainRadiance;  // 이 능선이 되쏘는 복사휘도 (선형)
+uniform float uDistanceKm;       // 이 거리대까지의 거리
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
+uniform float uSunAltDeg;
+uniform float uSaturation;
+uniform float uExposure;
+
+varying float vElevDeg;
+varying vec3  vDir;
+varying vec3  vHaze;
+
+void main() {
+  // ── 거리별 대기 투시 ────────────────────────────────────────────────────
+  //
+  // 풍경 사진에서 깊이를 만드는 가장 강한 단서입니다. 능선은 멀어진다고
+  // 투명해지지 않고 **색이 연무와 같아집니다** — 구름에서 쓴 것과 같은 원리.
+  //
+  // 5 / 15 / 40 km 세 거리대를 각각 다른 투과율로 칠하면, 가까운 능선은
+  // 짙게 남고 먼 능선은 하늘색에 잠겨 겹쳐 보입니다. 예전에는 세 거리를
+  // 최댓값으로 뭉개 하나의 띠로 그렸으므로 이 겹침이 아예 없었습니다.
+  vec3 T = atm_aerialTransmittance(uDistanceKm, 0.0, uBeta, uAngstrom, uElevScale);
+  // ⚠ 연무색은 **방위마다** 달라야 합니다. 하나로 고정하면 먼 능선이 태양
+  // 쪽 색으로 온 하늘에 칠해져, 하늘과 경계가 생기고 반대쪽은 엉뚱하게
+  // 밝아집니다. 정점 속성으로 그 방위의 지평선 하늘색을 받습니다 — 그래야
+  // 먼 능선이 **자기 뒤 하늘에** 잠깁니다.
+  vec3 col = uTerrainRadiance * uExposure * T + vHaze * (1.0 - T);
+
+  // 능선 위쪽(하늘에 가까운 쪽)이 조금 밝습니다 — 사면이 하늘을 더 봅니다.
+  col *= 0.82 + 0.30 * smoothstep(-2.0, 6.0, vElevDeg);
+
+  gl_FragColor = vec4(atm_display(col, uSaturation, uSunAltDeg), 1.0);
+}
+`;
 
 const GROUND_VERT = `
 precision highp float;
@@ -198,6 +269,206 @@ void main() {
   gl_FragColor = vec4(atm_display(col, uSaturation, uSunAltDeg), 1.0);
 }
 `;
+
+/** 거리대 하나에 해당하는 능선 링 */
+export interface TerrainBand {
+  mesh: THREE.Mesh;
+  material: THREE.ShaderMaterial;
+  distanceKm: number;
+}
+
+export interface TerrainBandsHandle {
+  group: THREE.Group;
+  bands: TerrainBand[];
+  dispose: () => void;
+}
+
+/**
+ * **거리대별 능선 링**을 만듭니다 (docs/GROUND_PLAN.md 3단계).
+ *
+ * 예전 `createTerrainRing`은 세 거리(5·15·40km)의 지형각을 **최댓값 하나로
+ * 뭉개** 띠 하나로 그렸습니다. 그러면 "가까운 언덕 뒤에 먼 산"이라는 정보가
+ * 사라지고, 대기 투시를 걸 대상도 없어집니다 — 화면에 깊이가 안 생깁니다.
+ *
+ * 여기서는 거리대마다 링을 하나씩 만들고 **먼 것부터** 그립니다. 가까운
+ * 능선이 먼 능선을 가리므로(화가 알고리즘) 겹침이 그대로 나타납니다.
+ *
+ * @param bandAngles     `[거리대][방위]` 지형각 (도)
+ * @param distancesKm    각 거리대의 거리
+ */
+export function createTerrainBands(
+  bandAngles: number[][],
+  distancesKm: number[],
+  maxVisualAngle: number = TERRAIN_MAX_ANGLE_DEG
+): TerrainBandsHandle {
+  const group = new THREE.Group();
+  group.name = 'terrainBands';
+  const bands: TerrainBand[] = [];
+
+  // 먼 거리대를 먼저 그립니다. renderOrder가 클수록 나중이므로 가까울수록 큽니다.
+  const order = distancesKm
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => b.d - a.d);
+
+  order.forEach(({ d, i }, rank) => {
+    const angles = bandAngles[i];
+    if (!angles || angles.length === 0) return;
+
+    const vertexCount = TERRAIN_SEGMENTS * 2;
+    const positions = new Float32Array(vertexCount * 3);
+    const elevAttr = new Float32Array(vertexCount);
+    const hazeAttr = new Float32Array(vertexCount * 3);
+    const indices: number[] = [];
+
+    for (let s = 0; s < TERRAIN_SEGMENTS; s++) {
+      const azFrac = s / TERRAIN_SEGMENTS;
+      const azRad = azFrac * Math.PI * 2;
+
+      const angleIdx = azFrac * (angles.length - 1);
+      const i0 = Math.floor(angleIdx);
+      const i1 = Math.min(i0 + 1, angles.length - 1);
+      const f = angleIdx - i0;
+      const raw = angles[i0] * (1 - f) + angles[i1] * f;
+      const topDeg = Math.min(Math.max(raw, 0), maxVisualAngle);
+
+      // ⚠ 아래로 얼마나 내릴지가 중요합니다.
+      //
+      // 처음에 -30°까지 내렸더니 띠가 **지면 원반을 통째로 덮었습니다**
+      // (띠가 지면보다 나중에 그려집니다). 그러면 지평선 아래 전부가 "5km
+      // 거리의 대기 투시를 먹은 색"이 되는데, 발밑 땅은 5km가 아니라 수십
+      // 미터 앞이라 연무가 거의 없습니다. 태양 쪽을 볼 때 특히 어긋납니다 —
+      // 어두워야 할 전경이 연무색으로 밝아집니다.
+      //
+      // 지면 원반의 가장자리가 고도 -0.95°이므로, 그보다 조금만 내려
+      // 틈은 없애고 겹침은 최소로 둡니다.
+      const botDeg = -2.5;
+      const dirX = Math.sin(azRad);
+      const dirZ = -Math.cos(azRad);
+
+      // 거리대마다 반지름을 조금씩 달리해 z-fighting을 피합니다.
+      const R = TERRAIN_RING_RADIUS - rank * 3;
+
+      const put = (vi: number, deg: number) => {
+        const e = (deg * Math.PI) / 180;
+        positions[vi * 3] = dirX * R * Math.cos(e);
+        positions[vi * 3 + 1] = R * Math.sin(e);
+        positions[vi * 3 + 2] = dirZ * R * Math.cos(e);
+        elevAttr[vi] = deg;
+      };
+      put(s * 2, botDeg);
+      put(s * 2 + 1, topDeg);
+
+      const n = (s + 1) % TERRAIN_SEGMENTS;
+      indices.push(s * 2, s * 2 + 1, n * 2);
+      indices.push(n * 2, s * 2 + 1, n * 2 + 1);
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aElevDeg', new THREE.BufferAttribute(elevAttr, 1));
+    geometry.setAttribute('aHaze', new THREE.BufferAttribute(hazeAttr, 3));
+    geometry.setIndex(indices);
+
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        ...makeTuningUniforms(),
+        uTerrainRadiance: { value: new THREE.Vector3(0.02, 0.018, 0.014) },
+        uDistanceKm: { value: d },
+        uBeta: { value: 0.08 },
+        uAngstrom: { value: 1.3 },
+        uElevScale: { value: 1.0 },
+        uSunAltDeg: { value: 30 },
+        uSaturation: { value: 1.0 },
+        uExposure: { value: GROUND_EXPOSURE },
+      },
+      vertexShader: BAND_VERT,
+      fragmentShader: BAND_FRAG,
+      // 안쪽에서 보는 원통이라 감김 방향에 기대지 않습니다 (위 주석 참고).
+      side: THREE.DoubleSide,
+      depthWrite: true,
+      depthTest: true,
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `terrainBand_${d}km`;
+    // 지면 원반(−0.5)보다 뒤, 구름(1)보다 앞. 먼 거리대일수록 먼저.
+    mesh.renderOrder = -0.4 + rank * 0.05;
+    group.add(mesh);
+    bands.push({ mesh, material, distanceKm: d });
+  });
+
+  return {
+    group,
+    bands,
+    dispose: () => {
+      for (const b of bands) {
+        b.mesh.geometry.dispose();
+        b.material.dispose();
+      }
+    },
+  };
+}
+
+/**
+ * 거리대별 능선의 색을 갱신합니다. 지면 원반과 **같은 조도 × 알베도**를 쓰되,
+ * 능선은 사면이라 하늘을 조금 덜 봅니다.
+ */
+export function updateTerrainBands(
+  handle: TerrainBandsHandle,
+  sunAltitude: number,
+  opts: {
+    skyMean: { r: number; g: number; b: number };
+    /**
+     * **방위·고도별** 하늘색 (연무). 먼 능선이 자기 뒤 하늘에 잠깁니다.
+     *
+     * 고도까지 받는 이유: 고정 고도(예: 1°)에서 뽑으면 능선 꼭대기가 조금
+     * 높은 띠가 자기 뒤 하늘보다 밝게 칠해집니다. 실측에서 40km 띠가 15km
+     * 띠보다 대비가 커지는 역전이 그래서 생겼습니다.
+     */
+    hazeAt: (azimuthDeg: number, elevDeg: number) => { r: number; g: number; b: number };
+    beam?: { r: number; g: number; b: number };
+    sunTransmittance?: number;
+    betaMie: number;
+    angstrom: number;
+    elevScale: number;
+    saturation?: number;
+  }
+): void {
+  const sunT = clamp01(opts.sunTransmittance ?? 1);
+  const sinAlt = Math.max(0, Math.sin((sunAltitude * Math.PI) / 180));
+  const beam = opts.beam ?? { r: 0, g: 0, b: 0 };
+  const direct = (sinAlt * sunT) / Math.PI;
+
+  // 능선은 수평면이 아니라 사면이라 하늘을 덜 봅니다 (하늘 가림 ≈ 0.72).
+  const SKY_VIEW = 0.72;
+  const r = (opts.skyMean.r * SKY_VIEW + beam.r * direct) * GROUND_ALBEDO.r;
+  const g = (opts.skyMean.g * SKY_VIEW + beam.g * direct) * GROUND_ALBEDO.g;
+  const b = (opts.skyMean.b * SKY_VIEW + beam.b * direct) * GROUND_ALBEDO.b;
+
+  for (const band of handle.bands) {
+    const u = band.material.uniforms;
+    (u.uTerrainRadiance.value as THREE.Vector3).set(r, g, b);
+
+    // 방위별 연무를 정점 속성에 씁니다. 정점은 방위 s 마다 2개(아래/위)입니다.
+    const hz = band.mesh.geometry.getAttribute('aHaze') as THREE.BufferAttribute;
+    const el = band.mesh.geometry.getAttribute('aElevDeg') as THREE.BufferAttribute;
+    for (let s = 0; s < TERRAIN_SEGMENTS; s++) {
+      const az = (s / TERRAIN_SEGMENTS) * 360;
+      // 능선 꼭대기 바로 뒤 하늘을 씁니다. 아래쪽 정점은 -30°라 하늘이
+      // 없으므로 같은 값을 넣습니다 (거기는 어차피 앞 띠에 가려집니다).
+      const topDeg = Math.max(0.3, el.getX(s * 2 + 1));
+      const h = opts.hazeAt(az, topDeg);
+      hz.setXYZ(s * 2, h.r, h.g, h.b);
+      hz.setXYZ(s * 2 + 1, h.r, h.g, h.b);
+    }
+    hz.needsUpdate = true;
+    u.uBeta.value = opts.betaMie;
+    u.uAngstrom.value = opts.angstrom;
+    u.uElevScale.value = opts.elevScale;
+    u.uSunAltDeg.value = sunAltitude;
+    u.uSaturation.value = (opts.saturation ?? 1.0) * 0.55;
+  }
+}
 
 /**
  * 지평선 발 아래 전체를 덮는 3D 대지(Ground Plane) 원반 Mesh를 생성합니다.

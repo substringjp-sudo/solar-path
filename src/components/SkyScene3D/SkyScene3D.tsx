@@ -25,6 +25,9 @@ import SunCalc from 'suncalc';
 import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import {
   createTerrainRing,
+  createTerrainBands,
+  updateTerrainBands,
+  type TerrainBandsHandle,
   createGroundPlane,
   createCompassGroup,
   updateTerrainColors,
@@ -189,6 +192,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const skydomeRef = useRef<SkydomeHandle | null>(null);
   const terrainRef = useRef<THREE.Mesh | null>(null);
+  /** 거리대별 능선 (docs/GROUND_PLAN.md 3단계) */
+  const terrainBandsRef = useRef<TerrainBandsHandle | null>(null);
   const groundRef = useRef<THREE.Mesh | null>(null);
   const compassGroupRef = useRef<THREE.Group | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
@@ -438,12 +443,18 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     scene.add(compassGroup);
     compassGroupRef.current = compassGroup;
 
-    // 2c. Terrain Ring
-    const panoramicAngles = simRef.current?.terrain?.panoramicAngles;
-    if (panoramicAngles && panoramicAngles.length > 0) {
-      const terrain = createTerrainRing(panoramicAngles);
-      scene.add(terrain);
-      terrainRef.current = terrain;
+    // 2c. 거리대별 능선.
+    //
+    // 예전에는 `createTerrainRing(panoramicAngles)` 하나였습니다. 그 배열은
+    // 5·15·40km 지형각의 **최댓값**이라 "가까운 언덕 뒤에 먼 산"이 사라지고,
+    // 게다가 재질이 FrontSide여서 안쪽에서 보면 통째로 컬링돼 **한 번도
+    // 화면에 안 나왔습니다** (docs/GROUND_PLAN.md 3단계).
+    const bandAngles = simRef.current?.terrain?.bandAngles;
+    const bandDist = simRef.current?.terrain?.bandDistancesKm;
+    if (bandAngles && bandDist && bandAngles.length > 0) {
+      const bands = createTerrainBands(bandAngles, bandDist);
+      scene.add(bands.group);
+      terrainBandsRef.current = bands;
     }
 
     // 3. Sun
@@ -698,34 +709,52 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
     }
 
-    if (groundRef.current) {
-      // 지면 밝기는 **조도 × 알베도**입니다. 하늘 조도는 몇 방향만 뽑아
-      // 평균해도 충분합니다 (지면은 방향을 구분해 보지 않고 전부 합쳐 받습니다).
-      // 태양 쪽이 훨씬 밝으므로 방위도 같이 훑어야 편향이 없습니다.
-      //
-      // **코사인 가중이 핵심입니다.** 수평면이 받는 조도는 ∫L·cosθ dΩ 이라
-      // 천정 쪽이 크게, 지평선 쪽이 작게 기여합니다. 균등 평균으로 내면
-      // 지평선의 노을빛을 과대 반영해 지면이 실제보다 따뜻해집니다.
-      let sr = 0, sg = 0, sb = 0, sw = 0;
-      for (const elev of [10, 30, 50, 75]) {
-        const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
-        for (let a = 0; a < 6; a++) {
-          const az = (a * 360) / 6;
-          const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
-          const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
-          sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
-        }
+    // 지면·능선이 **같이 쓰는** 하늘 조도. 몇 방향만 뽑아 평균해도 충분합니다
+    // (지면은 방향을 구분해 보지 않고 전부 합쳐 받습니다). 태양 쪽이 훨씬
+    // 밝으므로 방위도 같이 훑어야 편향이 없습니다.
+    //
+    // **코사인 가중이 핵심입니다.** 수평면이 받는 조도는 ∫L·cosθ dΩ 이라
+    // 천정 쪽이 크게, 지평선 쪽이 작게 기여합니다. 균등 평균으로 내면
+    // 지평선의 노을빛을 과대 반영해 지면이 실제보다 따뜻해집니다.
+    let sr = 0, sg = 0, sb = 0, sw = 0;
+    for (const elev of [10, 30, 50, 75]) {
+      const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
+      for (let a = 0; a < 6; a++) {
+        const az = (a * 360) / 6;
+        const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
+        const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
+        sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
       }
+    }
+    const skyMeanRGB = { r: sr / sw, g: sg / sw, b: sb / sw };
+
+    if (groundRef.current) {
       updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
-        skyMean: { r: sr / sw, g: sg / sw, b: sb / sw },
+        skyMean: skyMeanRGB,
         beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
         sunTransmittance: 1 - overcast,
         sunAzimuthDeg: sunAzRef.current,
       });
     }
 
-    if (terrainRef.current) {
-      updateTerrainColors(terrainRef.current, sunAltRef.current, sunAzRef.current, overcast, atmosphere.betaMie);
+    if (terrainBandsRef.current) {
+      // 지면 원반과 **같은 조도**를 씁니다 (바로 위에서 계산한 skyMean).
+      // 연무색은 방위·고도별로 뽑아, 먼 능선이 자기 뒤 하늘에 잠기게 합니다.
+      updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
+        skyMean: skyMeanRGB,
+        hazeAt: (az: number, elev: number) =>
+          skyRadiance(
+            elev,
+            angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current),
+            sunAltRef.current,
+            atmosphere
+          ),
+        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+        sunTransmittance: 1 - overcast,
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
+      });
     }
 
     if (sunRef.current) {
@@ -989,18 +1018,18 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !sim?.terrain?.panoramicAngles) return;
+    if (!scene || !sim?.terrain?.bandAngles) return;
 
-    if (terrainRef.current) {
-      scene.remove(terrainRef.current);
-      disposeTerrainRing(terrainRef.current);
-      terrainRef.current = null;
+    if (terrainBandsRef.current) {
+      scene.remove(terrainBandsRef.current.group);
+      terrainBandsRef.current.dispose();
+      terrainBandsRef.current = null;
     }
 
-    const terrain = createTerrainRing(sim.terrain.panoramicAngles);
-    scene.add(terrain);
-    terrainRef.current = terrain;
-  }, [sim?.terrain?.panoramicAngles]);
+    const bands = createTerrainBands(sim.terrain.bandAngles, sim.terrain.bandDistancesKm);
+    scene.add(bands.group);
+    terrainBandsRef.current = bands;
+  }, [sim?.terrain?.bandAngles]);
 
   useEffect(() => {
     return () => {
@@ -1017,6 +1046,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       skydomeRef.current?.dispose();
       skydomeRef.current = null;
 
+      if (terrainBandsRef.current) {
+        terrainBandsRef.current.dispose();
+        terrainBandsRef.current = null;
+      }
       if (terrainRef.current) {
         disposeTerrainRing(terrainRef.current);
         terrainRef.current = null;
