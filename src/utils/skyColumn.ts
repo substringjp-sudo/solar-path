@@ -43,6 +43,24 @@ export interface LayerSample {
   cover: number;
   /** 이 방향 관측의 신뢰도. 실측 팬 안이면 1, 밖이면 0으로 떨어집니다. */
   confidence: number;
+  // ── 운형 판정용 방향별 기상 (docs/CLOUD_VARIETY_PLAN.md 3단계) ────────────
+  //
+  // 운형은 운량만으로 정해지지 않습니다. 같은 저층 80%라도 강수가 있으면
+  // 난층운, 없으면 층적운입니다. 그런데 `resolvePresetFromWeather`는 강수·
+  // 습도를 **관측점 값 하나**로 받고 있었습니다 — 서쪽 30km에 비가 와도
+  // 그 방향이 비구름이 되지 않았습니다.
+  //
+  // 이 값들은 새로 받아오는 게 아닙니다. Open-Meteo 팬은 이미 모든 지점에서
+  // `precipitation`과 `relative_humidity_2m`을 받고 있고(weather.ts의
+  // 원격 지점 변수 목록), 여기까지 오지 않고 있었을 뿐입니다.
+  /** 이 방향 지점의 강수 (mm/h) */
+  precipMmH: number;
+  /** 이 방향 지점의 상대습도 (%) */
+  humidityPct: number;
+  /** 이 방향 지점의 저층 운량 (%) — 운형 판정 입력 */
+  lowPct: number;
+  /** 이 방향 지점의 상층 운량 (%) — 적란운 판정 입력 */
+  highPct: number;
 }
 
 /** 방위 24 × 고도 8 = 192 방향/층 */
@@ -233,11 +251,18 @@ export class WeatherFan {
       const b = arr[i + 1];
       if (distanceKm >= a.distanceKm && distanceKm <= b.distanceKm) {
         const t = (distanceKm - a.distanceKm) / Math.max(1e-6, b.distanceKm - a.distanceKm);
+        // 강수·습도도 같이 보간합니다 (3단계). 예전에는 스프레드로 **가까운
+        // 쪽 값이 그대로** 넘어와, 30km 표본과 70km 표본 사이 전 구간이
+        // 30km의 강수를 썼습니다. 운량만 보간되고 운형 입력은 계단이었던 셈입니다.
+        const lerpOpt = (x?: number, y?: number) =>
+          x == null ? y : y == null ? x : x + (y - x) * t;
         return {
           ...a.data,
           low: a.data.low + (b.data.low - a.data.low) * t,
           mid: a.data.mid + (b.data.mid - a.data.mid) * t,
           high: a.data.high + (b.data.high - a.data.high) * t,
+          precipitation: lerpOpt(a.data.precipitation, b.data.precipitation),
+          humidity: lerpOpt(a.data.humidity, b.data.humidity),
         };
       }
     }
@@ -286,12 +311,18 @@ export class WeatherFan {
     if (!b || lo === hi) return { data: a, confidence: 1 };
 
     const t = (rel - lo) / Math.max(1e-6, hi - lo);
+    // 강수·습도도 같이 보간합니다 (3단계). 거리 방향과 같은 이유입니다 —
+    // 스프레드만 두면 두 레이 사이 30° 전체가 낮은 쪽 레이의 강수를 씁니다.
+    const lerpOpt = (x?: number, y?: number) =>
+      x == null ? y : y == null ? x : x + (y - x) * t;
     return {
       data: {
         ...a,
         low: a.low + (b.low - a.low) * t,
         mid: a.mid + (b.mid - a.mid) * t,
         high: a.high + (b.high - a.high) * t,
+        precipitation: lerpOpt(a.precipitation, b.precipitation),
+        humidity: lerpOpt(a.humidity, b.humidity),
       },
       confidence: 1,
     };
@@ -487,6 +518,10 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
       meanCover: number;
       confidence: number;
       n: number;
+      precipMmH: number;
+      humidityPct: number;
+      lowPct: number;
+      highPct: number;
     }[] = [];
 
     for (let ai = 0; ai < azSteps; ai++) {
@@ -512,7 +547,15 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
         const gy = (distanceKm * Math.cos(azRad) + driftY) / cellKm;
         const n = fbm2(gx + layerOffset, gy + layerOffset, 3);
 
-        staged.push({ azimuthDeg, elevationDeg, distanceKm, meanCover, confidence, n });
+        staged.push({
+          azimuthDeg, elevationDeg, distanceKm, meanCover, confidence, n,
+          // 3단계: 이 방향 지점의 기상. 운량과 **같은 지점**에서 뽑아야
+          // "비는 오는데 구름은 저쪽" 같은 모순이 생기지 않습니다.
+          precipMmH: data?.precipitation ?? 0,
+          humidityPct: data?.humidity ?? 60,
+          lowPct: data?.low ?? 0,
+          highPct: data?.high ?? 0,
+        });
       }
     }
 
@@ -651,6 +694,10 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
           distanceKm: s.distanceKm,
           cover,
           confidence: s.confidence,
+          precipMmH: s.precipMmH,
+          humidityPct: s.humidityPct,
+          lowPct: s.lowPct,
+          highPct: s.highPct,
         });
       }
     }

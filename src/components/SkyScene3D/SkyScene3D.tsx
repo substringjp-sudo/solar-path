@@ -53,12 +53,23 @@ import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
-import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
+import {
+  createCloudDeck,
+  updateCloudDeck,
+  type CloudDeckHandle,
+  type GenusInput,
+} from './CloudDeck';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
-  resolvePresetFromWeather,
+  blendedOpticsFromWeather,
+  type BlendedOptics,
 } from '../../utils/cloudPresets';
+
+/** 방향별 광학을 담는 재사용 버퍼 — 갱신마다 576번 불리므로 새로 만들지 않습니다. */
+const _genusOut: BlendedOptics = {
+  tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
+};
 import { PLACEHOLDER_WIND_BEARING_DEG, PLACEHOLDER_WIND_SPEED_KMH } from '../../utils/skyColumn';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
@@ -992,35 +1003,39 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         high: opticsForLayer('high', observerWeather()),
       };
 
-      // ── 방향별 운형 광학 (docs/CLOUD_VARIETY_PLAN.md 2단계) ─────────────
+      // ── 방향별 운형 광학 (docs/CLOUD_VARIETY_PLAN.md 2·3단계) ───────────
       //
       // DNI 보정은 `placeClouds`의 빌보드 경로와 **같은 규칙**입니다. 두 곳이
       // 갈라지면 덱과 빌보드가 이어지는 BKN 경계에서 두께가 어긋납니다.
       // (DNI는 τ ≲ 5까지만 분해하므로 포화하지 않았을 때만 상한으로 씁니다.)
-      const obsWx = observerWeather();
-      const wx = {
-        precipitation: obsWx?.precipitation,
-        humidity: obsWx?.humidity,
-        lowPct: obsWx?.low ?? 0,
-        highPct: obsWx?.high ?? 0,
-      };
       const dniTau = built.dniTau;
-      const genusOptics = (layer: 'low' | 'mid' | 'high', cover: number) => {
-        const name = resolvePresetFromWeather(layer, cover, wx, 0.5);
-        const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
-        let tau = o.tau;
+      const genusOptics = (layer: 'low' | 'mid' | 'high', s: GenusInput) => {
+        // 3단계: 강수·습도·상층 운량이 **그 방향 지점의 값**입니다.
+        // 예전에는 셋 다 관측점 값이라, 서쪽 30km에 비가 와도 그 방향이
+        // 비구름이 되지 않았습니다.
+        //
+        // 문턱을 입력 공간에서 뭉갠 값을 씁니다 — 계단을 15° 격자로 표본하면
+        // 등고선이 격자선에 붙어 하늘에 네모난 상자가 찍힙니다
+        // (blendedOpticsFromWeather 주석).
+        const o = blendedOpticsFromWeather(
+          layer,
+          s.cover,
+          {
+            precipitation: s.precipMmH,
+            humidity: s.humidityPct,
+            lowPct: 0,
+            highPct: s.highPct,
+          },
+          0.5,
+          _genusOut
+        );
         if (dniTau && !dniTau.saturated) {
           const share = layer === 'low' ? 0.6 : layer === 'mid' ? 0.3 : 0.1;
-          const fromDni = (dniTau.tauVert * share) / Math.max(0.15, cover);
-          tau = Math.min(tau, Math.max(0.5, fromDni));
+          const fromDni = (dniTau.tauVert * share) / Math.max(0.15, s.cover);
+          o.tau = Math.min(o.tau, Math.max(0.5, fromDni));
         }
-        return {
-          tau: Math.max(0.5, Math.min(400, tau)),
-          shadowContrast: o.shadowContrast,
-          cellSizeKm: o.cellSizeKm,
-          cellStrength: o.cellStrength,
-          cellAspect: o.cellAspect,
-        };
+        o.tau = Math.max(0.5, Math.min(400, o.tau));
+        return o;
       };
 
       updateCloudDeck(deck, {
@@ -1066,7 +1081,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         // seed는 0.5 고정입니다. 방향마다 난수를 넣으면 이웃한 두 방향이
         // 무작위로 다른 운형이 되어 **기상이 아니라 노이즈**가 됩니다.
         // 0.5로 두면 운형 차이는 오직 데이터(운량·강수·습도)에서 옵니다.
-        genusFor: (layer, _azDeg, _elevDeg, cover) => genusOptics(layer, cover),
+        genusFor: (layer, sample) => genusOptics(layer, sample),
         pixelAngleRad: pixelAngleRad(),
         // 6단계: 권운 필라멘트를 빗을 방향. 실측이 아니라 대용 상수입니다
         // (skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG).

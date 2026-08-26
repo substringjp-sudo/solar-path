@@ -464,6 +464,94 @@ export function resolvePresetFromWeather(
 }
 
 /**
+ * 방향별 운형 광학 — **문턱을 부드럽게 넘긴** 값
+ * (docs/CLOUD_VARIETY_PLAN.md 2·3단계).
+ *
+ * ## 왜 그냥 뽑으면 안 되나
+ *
+ * `resolvePresetFromWeather`는 운량·강수의 **계단 함수**입니다. 그런데 덱이
+ * 그 입력을 받는 기상 격자는 방위 24 × 고도 8, 즉 15°짜리 성긴 격자입니다.
+ * 계단 함수를 성긴 격자로 표본하면 **문턱을 넘는 등고선이 격자선에 붙어**,
+ * 화면에 축에 나란한 사각형으로 나타납니다 (렌더로 확인: 비 구역 경계가
+ * 하늘에 네모난 상자로 찍힘). 메시 해상도를 올려도 사라지지 않습니다 —
+ * 등고선의 위치를 정하는 것은 메시가 아니라 기상 격자이기 때문입니다.
+ *
+ * ## 왜 섞는 것이 물리적으로도 맞나
+ *
+ * 한 방향이 담당하는 입체각은 15°×약 10°입니다. 30km 밖이면 한 변이
+ * 8km쯤 되는 하늘 조각이고, 그 안에 운형 하나만 들어 있을 리 없습니다.
+ * 실제로는 운량·강수가 그 조각 안에서 분포를 이루고, 분포의 각 부분이
+ * 다른 운형입니다. 그러니 대표 하나를 고르는 것보다 **입력 분포 위에서
+ * 평균한 광학**이 그 조각을 더 잘 나타냅니다.
+ *
+ * ## 어떻게
+ *
+ * 운량과 강수 축으로 5점 스텐실을 잡아 가중 평균합니다. 문턱 위치를
+ * 알 필요가 없다는 것이 장점입니다 — 문턱이 어디 있든, 그 근처에서만
+ * 자동으로 섞이고 멀리서는 한 운형이 100% 이깁니다
+ * (예: 강수 0인 하늘은 다섯 점이 전부 같은 운형이라 평균이 그 운형 그대로).
+ *
+ * 폭은 각각 예보 격자가 한 칸 사이에 실제로 변하는 정도로 잡았습니다.
+ */
+const COVER_STENCIL = 0.10;
+const PRECIP_STENCIL = 0.25;
+/** 중심 : 네 이웃 가중치. 합이 1이 되도록 씁니다. */
+const STENCIL_CENTER = 0.40;
+const STENCIL_SIDE = 0.15;
+
+export interface BlendedOptics {
+  tau: number;
+  shadowContrast: number;
+  cellSizeKm: number;
+  cellStrength: number;
+  cellAspect: number;
+}
+
+export function blendedOpticsFromWeather(
+  layer: LayerKey,
+  cover: number,
+  wx: { precipitation?: number; humidity?: number; lowPct: number; highPct: number },
+  seed: number,
+  out?: BlendedOptics
+): BlendedOptics {
+  const r = out ?? { tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1 };
+  r.tau = 0;
+  r.shadowContrast = 0;
+  r.cellSizeKm = 0;
+  r.cellStrength = 0;
+  r.cellAspect = 0;
+
+  const precip = wx.precipitation ?? 0;
+  const add = (c: number, p: number, w: number) => {
+    _stencilWx.precipitation = p;
+    _stencilWx.humidity = wx.humidity;
+    _stencilWx.lowPct = wx.lowPct;
+    _stencilWx.highPct = wx.highPct;
+    const name = resolvePresetFromWeather(layer, c, _stencilWx, seed);
+    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    r.tau += o.tau * w;
+    r.shadowContrast += o.shadowContrast * w;
+    r.cellSizeKm += o.cellSizeKm * w;
+    r.cellStrength += o.cellStrength * w;
+    r.cellAspect += o.cellAspect * w;
+  };
+
+  add(cover, precip, STENCIL_CENTER);
+  add(Math.max(0, cover - COVER_STENCIL), precip, STENCIL_SIDE);
+  add(Math.min(1, cover + COVER_STENCIL), precip, STENCIL_SIDE);
+  add(cover, Math.max(0, precip - PRECIP_STENCIL), STENCIL_SIDE);
+  add(cover, precip + PRECIP_STENCIL, STENCIL_SIDE);
+  return r;
+}
+
+const _stencilWx: {
+  precipitation?: number;
+  humidity?: number;
+  lowPct: number;
+  highPct: number;
+} = { lowPct: 0, highPct: 0 };
+
+/**
  * 관측점 기상에서 층별 대표 광학두께를 뽑습니다.
  *
  * 태양 방향 기둥을 풀 때 필요합니다. 운형 판정이 방향마다 달라질 수 있으므로

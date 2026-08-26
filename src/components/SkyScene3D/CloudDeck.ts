@@ -60,10 +60,17 @@ attribute float aElevDeg;
 attribute float aAzDeg;
 attribute vec3  aAmbientUp;   // 3단계: 방향별 하늘빛 (덱 상단이 받음)
 attribute vec3  aAmbientDown; // 3단계: 방향별 확산광 (덱 하단이 받음)
-// 다양성 2단계: 이 방향 운형의 광학. 예전에는 층당 uniform 하나였습니다
-// (= 하늘 360°가 한 가지 운형). (τ, 그늘대비, 조각세기, 조각크기km)
-attribute vec4  aOptics;
-attribute float aAspect;      // 바람 방향 늘임 비율 (1 = 등방, 권운만 예외)
+/**
+ * 다양성 2단계: 이 방향 운형의 광학 — (τ, 그늘 대비, 조각 세기).
+ * 예전에는 층당 uniform 하나였습니다 (= 하늘 360°가 한 가지 운형).
+ *
+ * ⚠ **조각 크기(cellSizeKm)와 늘임비는 여기 없습니다.** 둘은 텍스처 uv
+ * 배율이라, 방향마다 다르면 같은 지상 좌표가 방향마다 다른 uv로 사상되어
+ * **무늬의 위상이 어긋납니다** — 화면에서 구름 가장자리가 두 겹으로 갈라진
+ * 이음매로 보입니다 (성분별 분해 렌더로 확인: τ·그늘·세기는 깨끗하고
+ * 크기만 이음매를 만듦). 크기는 층당 하나로 둡니다.
+ */
+attribute vec3  aOptics;
 
 varying float vCover;
 varying float vElevDeg;
@@ -71,8 +78,7 @@ varying float vAzDeg;
 varying vec3  vDir;
 varying vec3  vAmbientUp;
 varying vec3  vAmbientDown;
-varying vec4  vOptics;
-varying float vAspect;
+varying vec3  vOptics;
 
 void main() {
   vCover       = aCover;
@@ -81,7 +87,6 @@ void main() {
   vAmbientUp   = aAmbientUp;
   vAmbientDown = aAmbientDown;
   vOptics      = aOptics;
-  vAspect      = aAspect;
   vDir     = normalize(position);
   gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
 }
@@ -104,9 +109,9 @@ uniform float uTime;        // 바람에 따른 무늬 이동
 uniform sampler2D uCellTex;      // 구운 셀 필드 (RGBA = 씨앗 4개)
 uniform vec4  uCellMaskA;        // 이 층이 읽을 채널
 uniform vec4  uCellMaskB;        // 두 번째 탭이 읽을 채널
+uniform vec2  uCellUvScale;      // 1 / (축별 셀크기km × 타일당셀수) — 층당 하나
 uniform vec2  uCellAcross;       // 바람을 가로지르는 단위벡터 (XZ 평면)
 uniform float uPatchUvScale;     // 패치용 — 훨씬 큰 스케일
-uniform float uCellTileCells;    // 텍스처 한 타일에 든 조각 수
 /**
  * 이 층에 조각이 **하나라도** 있는가 (0 = 층 전체가 층상운).
  *
@@ -135,8 +140,7 @@ varying float vAzDeg;
 varying vec3  vDir;
 varying vec3  vAmbientUp;
 varying vec3  vAmbientDown;
-varying vec4  vOptics;
-varying float vAspect;
+varying vec3  vOptics;
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -169,16 +173,9 @@ void main() {
   // 정점 보간이 값을 이어 주므로 인접한 두 방향이 다른 운형이어도 경계에
   // 계단이 생기지 않습니다 — τ 16→30(고적운→고층운)은 그 사이를 부드럽게
   // 지나갑니다. 실제 대기에서도 운형은 선이 아니라 띠로 바뀝니다.
-  float dTau         = max(vOptics.x, 0.05);
-  float dShadow      = clamp(vOptics.y, 0.0, 1.0);
-  float dCellStr     = clamp(vOptics.z, 0.0, 1.0);
-  // 층상운(조각 없음)은 조각 크기가 0이라 나눗셈이 터집니다. 크기는
-  // 아무 값이나 두고 dCellStr가 결과를 지웁니다.
-  float dCellSizeKm  = max(vOptics.w, 0.02);
-  float dAspect      = max(vAspect, 1.0);
-  // 가로지르는 쪽이 조각 크기, 바람 쪽이 그 dAspect배.
-  float acrossScale  = 1.0 / (dCellSizeKm * uCellTileCells);
-  vec2  cellUvScale  = vec2(acrossScale, acrossScale / dAspect);
+  float dTau     = max(vOptics.x, 0.05);
+  float dShadow  = clamp(vOptics.y, 0.0, 1.0);
+  float dCellStr = clamp(vOptics.z, 0.0, 1.0);
 
   // ── 투영: 고도 선형 → **지상거리 선형** ─────────────────────────────────
   //
@@ -237,7 +234,7 @@ void main() {
   vec2 windAxis = vec2(-uCellAcross.y, uCellAcross.x);
   vec2 alignedKm = vec2(dot(groundKm, uCellAcross), dot(groundKm, windAxis));
 
-  vec2 uvCell  = alignedKm * cellUvScale;
+  vec2 uvCell  = alignedKm * uCellUvScale;
   vec2 uvPatch = (dirXZ * d + driftKm * 0.6) * uPatchUvScale;
 
   // ── 화면 픽셀 하나가 덮는 텍셀 수 (해석적으로) ─────────────────────────
@@ -250,7 +247,7 @@ void main() {
   // 비율이 필터 한계를 넘으면 그만큼 되돌립니다.
   // 배율이 축마다 다르므로 **더 촘촘한 쪽**을 씁니다 — 앨리어싱은 항상
   // 고주파 축에서 먼저 납니다. (권운은 가로지르는 축이 20배 촘촘합니다)
-  float finestScale = max(cellUvScale.x, cellUvScale.y);
+  float finestScale = max(uCellUvScale.x, uCellUvScale.y);
   float tangential = uCellTexSize * uPixelAngleRad * d * finestScale / cosE;
   float aniso = 1.0 / sinE;
   float tpp = tangential * max(1.0, aniso / max(1.0, uMaxAniso));
@@ -291,7 +288,7 @@ void main() {
   if (uAnyCells > 0.0) {
     vec2 sunXZ = normalize(uSunDir.xz + vec2(1e-5));
     vec2 sunAligned = vec2(dot(sunXZ, uCellAcross), dot(sunXZ, windAxis));
-    vec2 sunUv = normalize(sunAligned * cellUvScale + vec2(1e-9)) * uCellReliefUv;
+    vec2 sunUv = normalize(sunAligned * uCellUvScale + vec2(1e-9)) * uCellReliefUv;
     float cellSun = cell_sample(uCellTex, uvCell + sunUv, uCellMaskA, uCellMaskB);
     // 낮은 태양일수록 옆에서 비추므로 대비가 큽니다.
     float sunLow = 1.0 - clamp(uSunAltDeg / 40.0, 0.0, 1.0);
@@ -372,7 +369,6 @@ export interface CloudDeckLayer {
   ambientUpAttr: THREE.BufferAttribute;
   ambientDownAttr: THREE.BufferAttribute;
   opticsAttr: THREE.BufferAttribute;
-  aspectAttr: THREE.BufferAttribute;
 }
 
 export interface CloudDeckHandle {
@@ -389,7 +385,6 @@ function buildDeckGeometry(layer: LayerKey): {
   ambientUpAttr: THREE.BufferAttribute;
   ambientDownAttr: THREE.BufferAttribute;
   opticsAttr: THREE.BufferAttribute;
-  aspectAttr: THREE.BufferAttribute;
   dirs: { azDeg: number; elevDeg: number }[];
 } {
   const radius = DECK_RADIUS[layer];
@@ -451,17 +446,14 @@ function buildDeckGeometry(layer: LayerKey): {
   geometry.setAttribute('aAmbientUp', ambientUpAttr);
   geometry.setAttribute('aAmbientDown', ambientDownAttr);
 
-  // 다양성 2단계: 방향별 운형 광학 (τ, 그늘, 조각세기, 조각크기km) + 늘임비.
-  const opticsAttr = new THREE.Float32BufferAttribute(new Float32Array(nV * 4), 4);
-  const aspectAttr = new THREE.Float32BufferAttribute(new Float32Array(nV), 1);
+  // 다양성 2단계: 방향별 운형 광학 (τ, 그늘, 조각 세기).
+  const opticsAttr = new THREE.Float32BufferAttribute(new Float32Array(nV * 3), 3);
   opticsAttr.setUsage(THREE.DynamicDrawUsage);
-  aspectAttr.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('aOptics', opticsAttr);
-  geometry.setAttribute('aAspect', aspectAttr);
 
   geometry.setIndex(indices);
 
-  return { geometry, coverAttr, ambientUpAttr, ambientDownAttr, opticsAttr, aspectAttr, dirs };
+  return { geometry, coverAttr, ambientUpAttr, ambientDownAttr, opticsAttr, dirs };
 }
 
 /** 층 → 메시 정점 방향 목록 (샘플 보간에 재사용) */
@@ -494,7 +486,7 @@ export function createCloudDeck(opts: {
 
   // 상층부터 그려야 아래층이 위에 얹힙니다.
   (['high', 'mid', 'low'] as LayerKey[]).forEach((layer, idx) => {
-    const { geometry, coverAttr, ambientUpAttr, ambientDownAttr, opticsAttr, aspectAttr, dirs } =
+    const { geometry, coverAttr, ambientUpAttr, ambientDownAttr, opticsAttr, dirs } =
       buildDeckGeometry(layer);
     deckDirs.set(layer, dirs);
 
@@ -511,11 +503,12 @@ export function createCloudDeck(opts: {
         uCellTex: { value: cell.texture },
         uCellMaskA: { value: new THREE.Vector4(1, 0, 0, 0) },
         uCellMaskB: { value: new THREE.Vector4(0, 1, 0, 0) },
+        // 기본값은 등방 고적운 기준. updateCloudDeck이 운형·바람에서 다시 넣습니다.
+        uCellUvScale: {
+          value: new THREE.Vector2(1 / (0.5 * cell.tileCells), 1 / (0.5 * cell.tileCells)),
+        },
         uCellAcross: { value: new THREE.Vector2(1, 0) },
         uPatchUvScale: { value: 1 / (PATCH_SIZE_KM * cell.tileCells) },
-        // 조각 크기·세기·τ·그늘은 이제 정점 속성입니다 (2단계).
-        // 셰이더가 조각 uv 배율을 직접 만들려면 타일당 조각 수가 필요합니다.
-        uCellTileCells: { value: cell.tileCells },
         uAnyCells: { value: 1 },
         uAltKm: { value: LAYER_ALTITUDE_KM[layer] },
         // 조각 하나의 uv 폭은 1/tileCells. 그 35%만큼 태양 쪽으로 밀어
@@ -551,7 +544,7 @@ export function createCloudDeck(opts: {
     group.add(mesh);
 
     layers.push({
-      layer, mesh, material, coverAttr, ambientUpAttr, ambientDownAttr, opticsAttr, aspectAttr,
+      layer, mesh, material, coverAttr, ambientUpAttr, ambientDownAttr, opticsAttr,
     });
   });
 
@@ -631,13 +624,20 @@ function sampleGridInto(
   const aF = (azDeg / 360) * azSteps;
   const a0 = Math.floor(aF) % azSteps;
   const a1 = (a0 + 1) % azSteps;
-  const at = aF - Math.floor(aF);
+  const atL = aF - Math.floor(aF);
 
   let e0 = 0;
   while (e0 < nE - 2 && elevs[e0 + 1] < elevDeg) e0++;
   const e1 = Math.min(nE - 1, e0 + 1);
   const span = Math.max(1e-6, elevs[e1] - elevs[e0]);
-  const et = Math.max(0, Math.min(1, (elevDeg - elevs[e0]) / span));
+  const etL = Math.max(0, Math.min(1, (elevDeg - elevs[e0]) / span));
+
+  // 가중치를 smoothstep으로 부드럽게 합니다. 선형 보간은 격자선에서 기울기가
+  // 꺾여(C0) 성긴 격자에서 주름이 보입니다 — 특히 값 차이가 큰 장(τ 35↔110)
+  // 에서 눈에 띕니다. smoothstep은 격자선에서 기울기가 0이라 이어집니다.
+  // 격자점의 값 자체는 그대로 지나가므로 예보는 바뀌지 않습니다.
+  const at = atL * atL * (3 - 2 * atL);
+  const et = etL * etL * (3 - 2 * etL);
 
   const i00 = (a0 * nE + e0) * comps;
   const i01 = (a0 * nE + e1) * comps;
@@ -649,6 +649,14 @@ function sampleGridInto(
     const v1 = grid[i10 + c] * (1 - et) + grid[i11 + c] * et;
     out[outOffset + c] = v0 * (1 - at) + v1 * at;
   }
+}
+
+/** `genusFor`가 받는 한 정점의 기상 (192방향 표본을 보간한 값) */
+export interface GenusInput {
+  cover: number;
+  precipMmH: number;
+  humidityPct: number;
+  highPct: number;
 }
 
 export interface DeckUpdate {
@@ -703,9 +711,15 @@ export interface DeckUpdate {
    * 없으면 위의 `tauFor`/`shadowFor`/`cellFor` 스칼라가 하늘 전체에 그대로
    * 쓰입니다 — 2단계 이전의 동작이고, 기존 미리보기 하네스가 그 경로입니다.
    *
-   * 있으면 192방향 격자에서 방향마다 불리고, 결과가 정점 속성으로 보간되어
-   * 한 화면 안에서 운형이 갈립니다. `cover`는 그 방향 그 층의 운량으로,
-   * 운형 판정의 주된 입력입니다.
+   * 있으면 환경광과 같이 **192방향 격자에서** 불리고, 결과가 정점 속성으로
+   * 보간됩니다. 인자는 그 방향의 운량·강수·습도·상층 운량입니다.
+   *
+   * ⚠ **반환값이 입력의 매끄러운 함수여야 합니다.** 운형 판정은 원래
+   * 문턱을 넘는 계단 함수인데, 계단을 15° 격자로 표본하면 등고선이 격자선에
+   * 붙어 화면에 축에 나란한 사각형으로 찍힙니다 (렌더로 확인). 그래서
+   * 호출자는 `blendedOpticsFromWeather`처럼 **입력 공간에서 문턱을 뭉갠**
+   * 값을 돌려줘야 합니다. 그렇게 하면 광학장이 운량장만큼 매끄러워지고,
+   * 성긴 격자로 표본해도 격자 무늬가 나오지 않습니다.
    *
    * ⚠ **`cellVariant`(billow/fbm 채널)는 여기 없습니다.** 방향마다 바꾸려면
    * 두 채널을 섞어야 하는데, 독립인 균등분포 둘을 선형으로 섞으면 분포가
@@ -715,9 +729,7 @@ export interface DeckUpdate {
    */
   genusFor?: (
     layer: LayerKey,
-    azDeg: number,
-    elevDeg: number,
-    cover: number
+    at: GenusInput
   ) => {
     tau: number;
     shadowContrast: number;
@@ -748,8 +760,7 @@ export interface DeckUpdate {
   visible: boolean;
 }
 
-/** 격자 보간 결과를 받는 스크래치 (τ, 그늘, 조각세기, 조각크기, 늘임비) */
-const _optics5 = new Float32Array(5);
+const _genusAt: GenusInput = { cover: 0, precipMmH: 0, humidityPct: 60, highPct: 0 };
 
 export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
   const elevs = elevationGrid();
@@ -801,56 +812,67 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     const 층대표 = {
       tau: u.tauFor(l.layer),
       shadowContrast: u.shadowFor(l.layer),
-      cellSizeKm: cellCfg.cellSizeKm,
       cellStrength: cellCfg.cellStrength,
-      cellAspect: cellCfg.cellAspect,
     };
-    // 층상운은 조각 크기가 0입니다. 그대로 두면 이웃한 조각형 운형과의
-    // 보간이 0 → 2.0 을 지나며 크기가 널뛰므로, **세기가 지울 값**이라도
-    // 그 층의 대표 크기를 넣어 둡니다. 결과는 세기(0)가 어차피 지웁니다.
-    const 층공칭크기: Record<LayerKey, number> = { high: 0.30, mid: 0.50, low: 1.20 };
-    const nominal = 층공칭크기[l.layer];
 
-    const gridG = new Float32Array(azSteps * nE * 5);
+    // 표본 격자(방위 24 × elevationGrid())는 덱이 쓰는 격자와 같습니다.
+    // 어긋나면 아래 길이 검사에 걸려 층 대표로 물러납니다.
+    const layerSamples = u.genusFor ? u.samples.filter(s => s.layer === l.layer) : [];
+    const gridAligned = layerSamples.length === azSteps * nE;
+
+    const optArr = l.opticsAttr.array as Float32Array;
     let anyCells = 0;
-    for (let a = 0; a < azSteps; a++) {
-      const azDeg = (a * 360) / azSteps;
-      for (let e = 0; e < nE; e++) {
-        const c = u.genusFor
-          ? sampleCoverAt(u.samples, l.layer, azSteps, elevs, azDeg, elevs[e])
-          : 0;
-        const g = u.genusFor ? u.genusFor(l.layer, azDeg, elevs[e], c) : 층대표;
-        const i = (a * nE + e) * 5;
-        gridG[i] = g.tau;
-        gridG[i + 1] = g.shadowContrast;
-        gridG[i + 2] = g.cellStrength;
-        gridG[i + 3] = g.cellSizeKm > 0.001 ? g.cellSizeKm : nominal;
-        gridG[i + 4] = Math.max(1, g.cellAspect);
-        if (g.cellStrength > anyCells) anyCells = g.cellStrength;
+
+    if (u.genusFor && gridAligned) {
+      const gridG = new Float32Array(azSteps * nE * 3);
+      for (let a = 0; a < azSteps; a++) {
+        for (let e = 0; e < nE; e++) {
+          const smp = layerSamples[a * nE + e];
+          _genusAt.cover = smp.cover;
+          _genusAt.precipMmH = smp.precipMmH;
+          _genusAt.humidityPct = smp.humidityPct;
+          _genusAt.highPct = smp.highPct;
+          const g = u.genusFor(l.layer, _genusAt);
+          const i = (a * nE + e) * 3;
+          gridG[i] = g.tau;
+          gridG[i + 1] = g.shadowContrast;
+          gridG[i + 2] = g.cellStrength;
+          if (g.cellStrength > anyCells) anyCells = g.cellStrength;
+        }
+      }
+      for (let i = 0; i < dirs.length; i++) {
+        sampleGridInto(gridG, 3, azSteps, elevs, dirs[i].azDeg, dirs[i].elevDeg, optArr, i * 3);
+      }
+    } else {
+      // genusFor가 없으면 층 대표를 그대로 (2단계 이전 동작).
+      anyCells = 층대표.cellStrength;
+      for (let i = 0; i < dirs.length; i++) {
+        optArr[i * 3] = 층대표.tau;
+        optArr[i * 3 + 1] = 층대표.shadowContrast;
+        optArr[i * 3 + 2] = 층대표.cellStrength;
       }
     }
-    const optArr = l.opticsAttr.array as Float32Array;
-    const aspArr = l.aspectAttr.array as Float32Array;
-    for (let i = 0; i < dirs.length; i++) {
-      sampleGridInto(gridG, 5, azSteps, elevs, dirs[i].azDeg, dirs[i].elevDeg, _optics5, 0);
-      optArr[i * 4] = _optics5[0];
-      optArr[i * 4 + 1] = _optics5[1];
-      optArr[i * 4 + 2] = _optics5[2];
-      optArr[i * 4 + 3] = _optics5[3];
-      aspArr[i] = _optics5[4];
-    }
     l.opticsAttr.needsUpdate = true;
-    l.aspectAttr.needsUpdate = true;
 
     const uni = l.material.uniforms;
     const beam = u.beamFor(LAYER_ALTITUDE_KM[l.layer]);
     (uni.uBeam.value as THREE.Vector3).set(beam.r, beam.g, beam.b);
     (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir);
 
-    // 채널(billow/fbm)만 층당 하나로 남습니다 — 왜인지는 `genusFor` 주석 참고.
+    // 채널(billow/fbm)과 **조각 크기·늘임비**는 층당 하나입니다 —
+    // 왜인지는 `genusFor`와 VERT의 `aOptics` 주석 참고.
     const mask = CELL_CHANNEL_MASK[cellCfg.cellVariant];
     (uni.uCellMaskA.value as THREE.Vector4).fromArray(mask.a);
     (uni.uCellMaskB.value as THREE.Vector4).fromArray(mask.b);
+    // 셀 크기가 0인 운형(층운계)은 조각이 없습니다. 0으로 나누지 않도록
+    // 배율은 아무 값이나 넣고 조각 세기가 결과를 지웁니다.
+    const sizeKm = cellCfg.cellSizeKm > 0.001 ? cellCfg.cellSizeKm : 1;
+    // 가로지르는 쪽이 조각 크기, 바람 쪽이 그 cellAspect배 (6단계).
+    const acrossScale = 1 / (sizeKm * handle.cell.tileCells);
+    (uni.uCellUvScale.value as THREE.Vector2).set(
+      acrossScale,
+      acrossScale / Math.max(1, cellCfg.cellAspect)
+    );
     // 입체 음영 분기는 uniform 이어야 합니다 (FRAG의 uAnyCells 주석 참고).
     uni.uAnyCells.value = anyCells;
 

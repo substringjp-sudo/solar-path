@@ -55,6 +55,9 @@ import SunCalc from 'suncalc';
 
 const R2D = 180 / Math.PI;
 
+/** `precipQ` 한 눈금의 강수량 (mm/h) */
+export const PRECIP_Q = 0.1;
+
 /** 키프레임 하나 — 그 시각의 하늘 상태 전부 */
 export interface SkyKeyframe {
   tMs: number;
@@ -64,6 +67,19 @@ export interface SkyKeyframe {
   moonAzDeg: number;
   /** 방향별 운량. `layout`과 같은 인덱스 순서입니다. */
   cover: Float32Array;
+  /**
+   * 방향별 운형 판정 입력 (docs/CLOUD_VARIETY_PLAN.md 3단계).
+   *
+   * `layout`과 같은 인덱스, **Uint8**입니다. 운량과 달리 이 셋은 문턱
+   * 비교에만 쓰이므로(강수 0.3·0.9 mm/h, 습도 90%, 상층 35%) 0.4% 해상도면
+   * 충분하고, Float32로 두면 하루 288프레임 × 576방향 × 3배열이 2.65MB가
+   * 됩니다. Uint8이면 497KB입니다.
+   *
+   * 눈금: 강수는 0.1 mm/h (0~25.5), 나머지는 1% (0~100, 100 초과는 잘림).
+   */
+  precipQ: Uint8Array;
+  humidityQ: Uint8Array;
+  highPctQ: Uint8Array;
   beamHigh: number;
   beamMid: number;
   beamLow: number;
@@ -226,7 +242,18 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
     );
 
     const cover = new Float32Array(samples.length);
-    for (let k = 0; k < samples.length; k++) cover[k] = samples[k].cover;
+    // 3단계: 운형 판정 입력을 Uint8로 양자화해 함께 저장합니다 (SkyKeyframe 주석).
+    const precipQ = new Uint8Array(samples.length);
+    const humidityQ = new Uint8Array(samples.length);
+    const highPctQ = new Uint8Array(samples.length);
+    const q = (v: number, scale: number) =>
+      Math.max(0, Math.min(255, Math.round(v / scale)));
+    for (let k = 0; k < samples.length; k++) {
+      cover[k] = samples[k].cover;
+      precipQ[k] = q(samples[k].precipMmH, PRECIP_Q);
+      humidityQ[k] = q(samples[k].humidityPct, 1);
+      highPctQ[k] = q(samples[k].highPct, 1);
+    }
 
     const halo = haloStrength(
       layerMeanCover(samples, 'high'),
@@ -242,6 +269,9 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
       moonAltDeg: moonPos.altitude * R2D,
       moonAzDeg: moonPos.azimuth * R2D + 180,
       cover,
+      precipQ,
+      humidityQ,
+      highPctQ,
       beamHigh: optics.beamFactor.high,
       beamMid: optics.beamFactor.mid,
       beamLow: optics.beamFactor.low,
@@ -324,6 +354,12 @@ export function sampleTimeline(tl: SkyTimeline, timeMs: number): SampledSky | nu
       distanceKm: L.distanceKm,
       cover: lerp(a.cover[k], b.cover[k]),
       confidence: L.confidence,
+      // 3단계: 운형 판정 입력. 운량과 **같은 두 키프레임**에서 같은 비율로
+      // 보간해야 "구름은 이 프레임, 비는 저 프레임" 이 되지 않습니다.
+      precipMmH: lerp(a.precipQ[k], b.precipQ[k]) * PRECIP_Q,
+      humidityPct: lerp(a.humidityQ[k], b.humidityQ[k]),
+      lowPct: 0,
+      highPct: lerp(a.highPctQ[k], b.highPctQ[k]),
     };
   }
 

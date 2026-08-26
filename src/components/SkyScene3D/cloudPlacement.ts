@@ -357,14 +357,17 @@ function placeClouds(
     // (전부 그리면 운량 10%도 하늘을 한 바퀴 두릅니다.)
     if (seed2 > 0.12 + s.cover * 0.95) continue;
 
+    // 3단계: 강수·습도·상층 운량은 **그 방향 지점**의 값입니다
+    // (docs/CLOUD_VARIETY_PLAN.md). 덱(SkyScene3D의 genusOptics)과 같은
+    // 입력을 써야 BKN 경계에서 두 표현의 운형이 갈라지지 않습니다.
     const presetName = resolvePresetFromWeather(
       s.layer,
       s.cover,
       {
-        precipitation: obs?.precipitation,
-        humidity: obs?.humidity,
-        lowPct: obs?.low ?? 0,
-        highPct: obs?.high ?? 0,
+        precipitation: s.precipMmH,
+        humidity: s.humidityPct,
+        lowPct: s.lowPct,
+        highPct: s.highPct,
       },
       seed1
     );
@@ -433,7 +436,11 @@ function placeClouds(
 
     // 도감 τ를 기본으로 쓰되, DNI 관측이 있으면 그쪽으로 끌어옵니다.
     // 관측이 "얼마나 가렸나"를 직접 말해주므로 표보다 신뢰합니다.
-    const preset = getCloudPreset(layerType, s.cover * 100, s.cover, 0, 0, obs?.humidity ?? 50, obs?.visibility ?? 10000);
+    // 시정(visibility)은 관측점에서만 옵니다 — 원격 지점 값은 지표 시정이라
+    // 그 방향 구름의 광학과 관계가 약합니다. 습도는 방향별 값을 씁니다.
+    const preset = getCloudPreset(
+      layerType, s.cover * 100, s.cover, 0, 0, s.humidityPct, obs?.visibility ?? 10000
+    );
     let tau = Math.max(opticsConfig.tau, cloudOpticalDepthFromDb(preset.scattering, s.cover));
 
     // DNI 관측 반영.

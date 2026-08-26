@@ -50,7 +50,7 @@ const html = `<!doctype html>
 <script type="module">
 import * as THREE from './app/vendor/three.module.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
-import { PRESET_OPTICS, resolvePresetFromWeather } from './app/utils/cloudPresets.js';
+import { PRESET_OPTICS, resolvePresetFromWeather, blendedOpticsFromWeather } from './app/utils/cloudPresets.js';
 import { WeatherFan, buildSkyColumns,
          PLACEHOLDER_WIND_SPEED_KMH, PLACEHOLDER_WIND_BEARING_DEG }
   from './app/utils/skyColumn.js';
@@ -201,12 +201,7 @@ function shoot(label, x, genusFor) {
 
 const 이전 = shoot('층 대표 스칼라 (2단계 이전)', 0, undefined);
 const 방향별 = shoot('방향별 운형 (2단계)', TW,
-  (layer, az, elev, cover) => {
-    const name = resolvePresetFromWeather(layer, cover, wx, 0.5);
-    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
-    return { tau:o.tau, shadowContrast:o.shadowContrast, cellSizeKm:o.cellSizeKm,
-             cellStrength:o.cellStrength, cellAspect:o.cellAspect };
-  });
+  (layer, at) => blendedOpticsFromWeather(layer, at.cover, wx, 0.5));
 
 // 이 링에서 방향별 판정이 실제로 어떤 운형을 얼마나 골랐는가.
 // 렌더가 아니라 판정 자체를 세는 것이라, 화면에서 본 차이의 **원인**입니다.
