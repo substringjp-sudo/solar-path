@@ -25,7 +25,12 @@ import SunCalc from 'suncalc';
 import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import {
   createTerrainRing,
+  createTerrainBands,
+  updateTerrainBands,
+  type TerrainBandsHandle,
   createGroundPlane,
+  setGroundHorizon,
+  makeWaterTexture,
   createCompassGroup,
   updateTerrainColors,
   updateGroundColors,
@@ -48,9 +53,24 @@ import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
-import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
-import { PRESET_OPTICS, representativePresetForObserver } from '../../utils/cloudPresets';
-import { PLACEHOLDER_WIND_BEARING_DEG } from '../../utils/skyColumn';
+import {
+  createCloudDeck,
+  updateCloudDeck,
+  type CloudDeckHandle,
+  type GenusInput,
+} from './CloudDeck';
+import {
+  PRESET_OPTICS,
+  representativePresetForObserver,
+  blendedOpticsFromWeather,
+  type BlendedOptics,
+} from '../../utils/cloudPresets';
+
+/** 방향별 광학을 담는 재사용 버퍼 — 갱신마다 576번 불리므로 새로 만들지 않습니다. */
+const _genusOut: BlendedOptics = {
+  tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
+};
+import { PLACEHOLDER_WIND_BEARING_DEG, PLACEHOLDER_WIND_SPEED_KMH } from '../../utils/skyColumn';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -189,7 +209,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const skydomeRef = useRef<SkydomeHandle | null>(null);
   const terrainRef = useRef<THREE.Mesh | null>(null);
+  /** 거리대별 능선 (docs/GROUND_PLAN.md 3단계) */
+  const terrainBandsRef = useRef<TerrainBandsHandle | null>(null);
   const groundRef = useRef<THREE.Mesh | null>(null);
+  /** 방위별 수역 마스크 (docs/GROUND_PLAN.md 4단계) */
+  const waterTexRef = useRef<THREE.DataTexture | null>(null);
   const compassGroupRef = useRef<THREE.Group | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
@@ -286,18 +310,12 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
 
   /**
-   * 덱이 쓸 조각 기하 — 광학두께와 **같은 운형**에서 뽑습니다.
-   * 두 값이 갈라지면 "권운처럼 얇은데 층적운처럼 큰 조각"이 나옵니다.
+   * 덱이 쓸 층 대표 운형의 광학 — 조각 기하와 광학두께가 **같은 운형**에서
+   * 나와야 합니다. 갈라지면 "권운처럼 얇은데 층적운처럼 큰 조각"이 나옵니다.
    */
-  const cellForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
+  const opticsForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
     const name = representativePresetForObserver(layer, obs);
-    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
-    return {
-      cellSizeKm: o.cellSizeKm,
-      cellStrength: o.cellStrength,
-      cellVariant: o.cellVariant,
-      cellAspect: o.cellAspect,
-    };
+    return PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
   }, []);
 
   /**
@@ -438,12 +456,18 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     scene.add(compassGroup);
     compassGroupRef.current = compassGroup;
 
-    // 2c. Terrain Ring
-    const panoramicAngles = simRef.current?.terrain?.panoramicAngles;
-    if (panoramicAngles && panoramicAngles.length > 0) {
-      const terrain = createTerrainRing(panoramicAngles);
-      scene.add(terrain);
-      terrainRef.current = terrain;
+    // 2c. 거리대별 능선.
+    //
+    // 예전에는 `createTerrainRing(panoramicAngles)` 하나였습니다. 그 배열은
+    // 5·15·40km 지형각의 **최댓값**이라 "가까운 언덕 뒤에 먼 산"이 사라지고,
+    // 게다가 재질이 FrontSide여서 안쪽에서 보면 통째로 컬링돼 **한 번도
+    // 화면에 안 나왔습니다** (docs/GROUND_PLAN.md 3단계).
+    const bandAngles = simRef.current?.terrain?.bandAngles;
+    const bandDist = simRef.current?.terrain?.bandDistancesKm;
+    if (bandAngles && bandDist && bandAngles.length > 0) {
+      const bands = createTerrainBands(bandAngles, bandDist);
+      scene.add(bands.group);
+      terrainBandsRef.current = bands;
     }
 
     // 3. Sun
@@ -698,12 +722,61 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
     }
 
+    // 지면·능선이 **같이 쓰는** 하늘 조도. 몇 방향만 뽑아 평균해도 충분합니다
+    // (지면은 방향을 구분해 보지 않고 전부 합쳐 받습니다). 태양 쪽이 훨씬
+    // 밝으므로 방위도 같이 훑어야 편향이 없습니다.
+    //
+    // **코사인 가중이 핵심입니다.** 수평면이 받는 조도는 ∫L·cosθ dΩ 이라
+    // 천정 쪽이 크게, 지평선 쪽이 작게 기여합니다. 균등 평균으로 내면
+    // 지평선의 노을빛을 과대 반영해 지면이 실제보다 따뜻해집니다.
+    let sr = 0, sg = 0, sb = 0, sw = 0;
+    for (const elev of [10, 30, 50, 75]) {
+      const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
+      for (let a = 0; a < 6; a++) {
+        const az = (a * 360) / 6;
+        const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
+        const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
+        sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
+      }
+    }
+    const skyMeanRGB = { r: sr / sw, g: sg / sw, b: sb / sw };
+
     if (groundRef.current) {
-      updateGroundColors(groundRef.current, sunAltRef.current, overcast);
+      updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
+        skyMean: skyMeanRGB,
+        // 물이 되비출 하늘은 **셰이더가 거울 방향으로 직접** 계산합니다
+        // (atm_skyRadiance). 여기서는 대기 파라미터만 넘깁니다.
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
+        waterTex: waterTexRef.current,
+        // ⚠ 실측 바람이 아닙니다 — 권운 이방성과 같은 자리표시자입니다
+        // (docs/CLOUD_TEXTURE_PLAN.md §15). 윤슬 폭이 실제 바람을 안 따릅니다.
+        windSpeedMs: PLACEHOLDER_WIND_SPEED_KMH / 3.6,
+        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+        sunTransmittance: 1 - overcast,
+        sunAzimuthDeg: sunAzRef.current,
+      });
     }
 
-    if (terrainRef.current) {
-      updateTerrainColors(terrainRef.current, sunAltRef.current, sunAzRef.current, overcast, atmosphere.betaMie);
+    if (terrainBandsRef.current) {
+      // 지면 원반과 **같은 조도**를 씁니다 (바로 위에서 계산한 skyMean).
+      // 연무색은 방위·고도별로 뽑아, 먼 능선이 자기 뒤 하늘에 잠기게 합니다.
+      updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
+        skyMean: skyMeanRGB,
+        hazeAt: (az: number, elev: number) =>
+          skyRadiance(
+            elev,
+            angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current),
+            sunAltRef.current,
+            atmosphere
+          ),
+        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+        sunTransmittance: 1 - overcast,
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
+      });
     }
 
     if (sunRef.current) {
@@ -905,7 +978,18 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         Math.sin(sAlt),
         -Math.cos(sAlt) * Math.cos(sAz)
       );
-      // 층별 대표 광학두께/그늘은 그 층에서 실제로 뽑힌 빌보드의 중앙값을 씁니다.
+      // ── 층별 대표 광학두께·그늘 (docs/CLOUD_VARIETY_PLAN.md 1단계) ─────────
+      //
+      // 기본은 **그 층의 대표 운형 도감값**입니다. 빌보드가 실제로 뽑힌
+      // 층에서만 그 중앙값으로 덮어씁니다 — 빌보드 τ에는 DNI 관측 보정이
+      // 들어 있어서 도감보다 그 하늘을 더 잘 압니다.
+      //
+      // ⚠ 예전에는 폴백이 상수 25/0.5였는데, `CLOUD_TEXTURE_PLAN.md` 5단계에서
+      // 빌보드를 적운·적란운으로 제한한 뒤로 그 둘은 `low` 층에서만 나옵니다
+      // (`resolvePresetFromWeather`의 mid/high 분기는 절대 반환하지 않음).
+      // 그래서 **중·상층은 언제나 폴백에 갇혀 있었습니다.** 권운(τ=3, 투과율
+      // 0.82)이 τ=25(투과율 0.35)로 그려져 해가 비치지 않는 회색 판이 됐고,
+      // 실측으로 밝기 208.7 → 179.2 였습니다.
       const byLayer = (layer: 'low' | 'mid' | 'high') =>
         built.instances.filter(c => c.layer === layer);
       const medianOf = (arr: number[], fallback: number) => {
@@ -913,17 +997,54 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         const s2 = [...arr].sort((a, b) => a - b);
         return s2[Math.floor(s2.length / 2)];
       };
+      const layerOptics = {
+        low: opticsForLayer('low', observerWeather()),
+        mid: opticsForLayer('mid', observerWeather()),
+        high: opticsForLayer('high', observerWeather()),
+      };
+
+      // ── 방향별 운형 광학 (docs/CLOUD_VARIETY_PLAN.md 2·3단계) ───────────
+      //
+      // DNI 보정은 `placeClouds`의 빌보드 경로와 **같은 규칙**입니다. 두 곳이
+      // 갈라지면 덱과 빌보드가 이어지는 BKN 경계에서 두께가 어긋납니다.
+      // (DNI는 τ ≲ 5까지만 분해하므로 포화하지 않았을 때만 상한으로 씁니다.)
+      const dniTau = built.dniTau;
+      const genusOptics = (layer: 'low' | 'mid' | 'high', s: GenusInput) => {
+        // 3단계: 강수·습도·상층 운량이 **그 방향 지점의 값**입니다.
+        // 예전에는 셋 다 관측점 값이라, 서쪽 30km에 비가 와도 그 방향이
+        // 비구름이 되지 않았습니다.
+        //
+        // 문턱을 입력 공간에서 뭉갠 값을 씁니다 — 계단을 15° 격자로 표본하면
+        // 등고선이 격자선에 붙어 하늘에 네모난 상자가 찍힙니다
+        // (blendedOpticsFromWeather 주석).
+        const o = blendedOpticsFromWeather(
+          layer,
+          s.cover,
+          {
+            precipitation: s.precipMmH,
+            humidity: s.humidityPct,
+            lowPct: 0,
+            highPct: s.highPct,
+          },
+          0.5,
+          _genusOut
+        );
+        if (dniTau && !dniTau.saturated) {
+          const share = layer === 'low' ? 0.6 : layer === 'mid' ? 0.3 : 0.1;
+          const fromDni = (dniTau.tauVert * share) / Math.max(0.15, s.cover);
+          o.tau = Math.min(o.tau, Math.max(0.5, fromDni));
+        }
+        o.tau = Math.max(0.5, Math.min(400, o.tau));
+        return o;
+      };
 
       updateCloudDeck(deck, {
         samples: built.samples,
-        // 덱도 **위층을 통과한** 직달광을 받아야 합니다.
-        // 그래야 상층이 덮였을 때 아래 덱이 평평한 회색이 됩니다.
-        beamFor: altKm => {
-          const layer = altKm > 7 ? 'high' : altKm > 3 ? 'mid' : 'low';
-          const f = built.optics.beamFactor[layer];
-          const b = beamAtAltitude(sunAltRef.current, altKm, atmosphere);
-          return { r: b.r * f, g: b.g * f, b: b.b * f };
-        },
+        // 4단계: 여기서는 **맑은 하늘 직달광**만 줍니다. 위층이 가리는 몫은
+        // 방향마다 다르므로 `beamShade`가 정점 속성으로 따로 나릅니다
+        // (예전에는 관측점 기둥 하나로 구한 배율을 하늘 전체에 곱했습니다).
+        beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
+        beamShade: built.beamShade,
         // 덱 환경광도 빌보드와 **같은 식**으로 감광합니다.
         // 이게 없으면 8/8에서 화면을 덮는 덱이 맑은 하늘빛으로 빛나서,
         // 운량을 올릴수록 오히려 밝아집니다.
@@ -942,9 +1063,22 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         },
         sunDir,
         sunAltDeg: sunAltRef.current,
-        tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), 25),
-        shadowFor: layer => medianOf(byLayer(layer).map(c => c.shadowContrast), 0.5),
-        cellFor: layer => cellForLayer(layer, observerWeather()),
+        tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), layerOptics[layer].tau),
+        shadowFor: layer =>
+          medianOf(byLayer(layer).map(c => c.shadowContrast), layerOptics[layer].shadowContrast),
+        // 채널(billow/fbm)만 층 대표에서 옵니다 — 방향마다 바꾸면 두 균등분포를
+        // 섞게 되어 운량 보장이 깨집니다 (CloudDeck.ts genusFor 주석).
+        cellFor: layer => layerOptics[layer],
+        // ── 2단계: 방향별 운형 ───────────────────────────────────────────
+        //
+        // 판정은 빌보드 경로(`placeClouds`)가 이미 방향마다 하고 있습니다.
+        // 다만 거기서는 적운·적란운이 아닌 여덟 종을 **버립니다**(빌보드
+        // 제한). 버리는 대신 덱이 받습니다.
+        //
+        // seed는 0.5 고정입니다. 방향마다 난수를 넣으면 이웃한 두 방향이
+        // 무작위로 다른 운형이 되어 **기상이 아니라 노이즈**가 됩니다.
+        // 0.5로 두면 운형 차이는 오직 데이터(운량·강수·습도)에서 옵니다.
+        genusFor: (layer, sample) => genusOptics(layer, sample),
         pixelAngleRad: pixelAngleRad(),
         // 6단계: 권운 필라멘트를 빗을 방향. 실측이 아니라 대용 상수입니다
         // (skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG).
@@ -967,18 +1101,27 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !sim?.terrain?.panoramicAngles) return;
+    if (!scene || !sim?.terrain?.bandAngles) return;
 
-    if (terrainRef.current) {
-      scene.remove(terrainRef.current);
-      disposeTerrainRing(terrainRef.current);
-      terrainRef.current = null;
+    if (terrainBandsRef.current) {
+      scene.remove(terrainBandsRef.current.group);
+      terrainBandsRef.current.dispose();
+      terrainBandsRef.current = null;
     }
 
-    const terrain = createTerrainRing(sim.terrain.panoramicAngles);
-    scene.add(terrain);
-    terrainRef.current = terrain;
-  }, [sim?.terrain?.panoramicAngles]);
+    const bands = createTerrainBands(
+      sim.terrain.bandAngles, sim.terrain.bandDistancesKm, undefined, sim.terrain.waterFrac);
+    scene.add(bands.group);
+    terrainBandsRef.current = bands;
+
+    // 수역 마스크와 **바다 수평선 각도**를 같이 갱신합니다. 수평선은 관측
+    // 고도로 정해집니다 (30m → 0.176° 내려앉음).
+    waterTexRef.current?.dispose();
+    waterTexRef.current = makeWaterTexture(sim.terrain.waterFrac ?? null);
+    if (groundRef.current) {
+      setGroundHorizon(groundRef.current, sim.terrain.observerElevation ?? 0);
+    }
+  }, [sim?.terrain?.bandAngles]);
 
   useEffect(() => {
     return () => {
@@ -995,6 +1138,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       skydomeRef.current?.dispose();
       skydomeRef.current = null;
 
+      if (terrainBandsRef.current) {
+        terrainBandsRef.current.dispose();
+        terrainBandsRef.current = null;
+      }
       if (terrainRef.current) {
         disposeTerrainRing(terrainRef.current);
         terrainRef.current = null;

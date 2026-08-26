@@ -43,6 +43,24 @@ export interface LayerSample {
   cover: number;
   /** 이 방향 관측의 신뢰도. 실측 팬 안이면 1, 밖이면 0으로 떨어집니다. */
   confidence: number;
+  // ── 운형 판정용 방향별 기상 (docs/CLOUD_VARIETY_PLAN.md 3단계) ────────────
+  //
+  // 운형은 운량만으로 정해지지 않습니다. 같은 저층 80%라도 강수가 있으면
+  // 난층운, 없으면 층적운입니다. 그런데 `resolvePresetFromWeather`는 강수·
+  // 습도를 **관측점 값 하나**로 받고 있었습니다 — 서쪽 30km에 비가 와도
+  // 그 방향이 비구름이 되지 않았습니다.
+  //
+  // 이 값들은 새로 받아오는 게 아닙니다. Open-Meteo 팬은 이미 모든 지점에서
+  // `precipitation`과 `relative_humidity_2m`을 받고 있고(weather.ts의
+  // 원격 지점 변수 목록), 여기까지 오지 않고 있었을 뿐입니다.
+  /** 이 방향 지점의 강수 (mm/h) */
+  precipMmH: number;
+  /** 이 방향 지점의 상대습도 (%) */
+  humidityPct: number;
+  /** 이 방향 지점의 저층 운량 (%) — 운형 판정 입력 */
+  lowPct: number;
+  /** 이 방향 지점의 상층 운량 (%) — 적란운 판정 입력 */
+  highPct: number;
 }
 
 /** 방위 24 × 고도 8 = 192 방향/층 */
@@ -66,18 +84,79 @@ export function elevationGrid(steps: number = ELEV_STEPS): number[] {
   return out;
 }
 
+/** 지구 반지름 (km). 구면 투영의 기준. */
+export const EARTH_RADIUS_KM = 6371;
+
 /**
- * 고도각 → 지상 투영 거리.
+ * 운량 U자 곡선의 세기. 1이면 균등분포, 클수록 맑음/흐림 양 끝으로 몰립니다.
+ * 렌더로 고른 값 — 자세한 근거는 `buildSkyColumns` 안 주석.
+ */
+export const U_SHAPE_P = 2.0;
+/**
+ * U자 구조를 얼마나 섞을지 (1 = 순수 U자).
  *
- * 평면 근사 `d = h / tan ε` 를 쓰되, 지평선 근처에서 무한대로 발산하지 않도록
- * 지구 곡률 한계(구름층이 지평선에 잠기는 거리)로 자릅니다.
- * 고도 h인 층이 보이는 최대 거리는 `sqrt(2 R h)` 근처입니다 (R = 6371km).
+ * 1보다 작게 둘 이유가 없어서 1입니다. 혼합은 `c + (shaped − c)·k` 라 어떤
+ * k에서도 평균이 예보값 그대로이고, k를 줄이면 구조만 옅어집니다.
+ * (0.85였을 때 표준편차 0.139 → 1.0에서 0.162, 노이즈 규모까지 고치면 0.263.)
+ */
+export const U_SHAPE_MIX = 1.0;
+/** 국소 평균 보정 이웃 — 방위 반경 (도). */
+export const LOCAL_AZ_DEG = 45;
+/** 국소 평균 보정 이웃 — 고도 반경 (sin ε 단위, 고리 약 2칸). */
+export const LOCAL_ELEV_SIN = 0.25;
+
+/**
+ * 고도각 → 구름층 위 투영 거리 (호 길이, km).
+ *
+ * **평면 근사를 자르는 게 아니라 구면을 직접 풉니다.** 예전에는
+ * `min(h/tan ε, sqrt(2Rh))` 였는데, 그건 두 가지가 틀렸습니다:
+ *
+ * 1. 자르는 지점에서 값이 꺾입니다. 그 아래 고도각이 전부 같은 거리로
+ *    뭉개져, 곡률이 아니라 **벽**이 됩니다.
+ * 2. 자르기 전에도 이미 많이 틀립니다. 상층 10km · 고도각 1°에서
+ *    평면식은 573km, 참값은 263km — **2.2배**. 0.2°에서는 8.5배입니다.
+ *
+ * 정확한 값은 시선과 구름 구면(반지름 R+h)의 교점입니다. 경사거리는
+ * `r = -R sinε + sqrt(R²sin²ε + 2Rh + h²)` 인데, 이 형태는 천정에서
+ * 큰 수 둘을 빼게 되어 유효숫자가 날아갑니다. 켤레를 곱해 정리한 아래
+ * 형태는 어느 고도각에서도 상쇄가 없습니다.
+ *
+ * ε → 0 에서 `sqrt(2Rh + h²)` 로 **스스로 수렴**하므로 상한이 필요 없습니다.
+ * `CloudDeck.ts`의 FRAG가 같은 식을 씁니다 — 격자와 셰이더가 하늘의 같은
+ * 지점을 가리켜야 하기 때문입니다. (예전에는 저층에서 격자 138km,
+ * 셰이더 60km로 **57% 어긋나** 있었습니다.)
  */
 export function elevationToDistanceKm(elevDeg: number, altKm: number): number {
-  const horizonKm = Math.sqrt(2 * 6371 * altKm);
-  if (elevDeg <= 0.05) return horizonKm;
-  const d = altKm / Math.tan(elevDeg * D2R);
-  return Math.min(horizonKm, d);
+  const R = EARTH_RADIUS_KM;
+  const er = Math.max(0, elevDeg) * D2R;
+  const sinE = Math.max(0, Math.sin(er));
+  const cosE = Math.cos(er);
+  const chord = 2 * R * altKm + altKm * altKm;
+  const r = chord / (R * sinE + Math.sqrt(R * R * sinE * sinE + chord));
+  const theta = Math.asin(Math.min(1, Math.max(0, (r * cosE) / (R + altKm))));
+  return (R + altKm) * theta;
+}
+
+/**
+ * `elevationToDistanceKm`의 **역함수** — 거리 d에 있는 고도 h 점의 고도각.
+ *
+ * 관측자를 반지름 R의 구면 위 (0, R), 대상을 지심각 θ 만큼 떨어진 고도 h
+ * 지점으로 두면 대상의 위치는 ((R+h)sinθ, (R+h)cosθ) 입니다. 관측자의
+ * 국소 연직은 (0,1), 수평은 (1,0) 이므로
+ *
+ *   tan ε = ((R+h)cosθ − R) / ((R+h) sinθ)
+ *
+ * 입니다. `elevationToDistanceKm`이 d를 **구름 껍질 위의 호**로 정의하므로
+ * (d = (R+h)·θ), 여기서도 θ = d/(R+h) 로 되돌립니다.
+ *
+ * 5단계에서 필요합니다: 밑면이 거리 d에 놓인 구름의 **꼭대기**가 몇 도에
+ * 보이는지를 알아야 연직 각크기가 나옵니다.
+ */
+export function elevationFromDistanceDeg(distanceKm: number, altKm: number): number {
+  const R = EARTH_RADIUS_KM;
+  const Rh = R + Math.max(0, altKm);
+  const theta = Math.max(1e-9, distanceKm) / Rh;
+  return Math.atan2(Rh * Math.cos(theta) - R, Rh * Math.sin(theta)) * R2D;
 }
 
 // ── 공간 노이즈 ────────────────────────────────────────────────────────────
@@ -194,11 +273,18 @@ export class WeatherFan {
       const b = arr[i + 1];
       if (distanceKm >= a.distanceKm && distanceKm <= b.distanceKm) {
         const t = (distanceKm - a.distanceKm) / Math.max(1e-6, b.distanceKm - a.distanceKm);
+        // 강수·습도도 같이 보간합니다 (3단계). 예전에는 스프레드로 **가까운
+        // 쪽 값이 그대로** 넘어와, 30km 표본과 70km 표본 사이 전 구간이
+        // 30km의 강수를 썼습니다. 운량만 보간되고 운형 입력은 계단이었던 셈입니다.
+        const lerpOpt = (x?: number, y?: number) =>
+          x == null ? y : y == null ? x : x + (y - x) * t;
         return {
           ...a.data,
           low: a.data.low + (b.data.low - a.data.low) * t,
           mid: a.data.mid + (b.data.mid - a.data.mid) * t,
           high: a.data.high + (b.data.high - a.data.high) * t,
+          precipitation: lerpOpt(a.data.precipitation, b.data.precipitation),
+          humidity: lerpOpt(a.data.humidity, b.data.humidity),
         };
       }
     }
@@ -247,12 +333,18 @@ export class WeatherFan {
     if (!b || lo === hi) return { data: a, confidence: 1 };
 
     const t = (rel - lo) / Math.max(1e-6, hi - lo);
+    // 강수·습도도 같이 보간합니다 (3단계). 거리 방향과 같은 이유입니다 —
+    // 스프레드만 두면 두 레이 사이 30° 전체가 낮은 쪽 레이의 강수를 씁니다.
+    const lerpOpt = (x?: number, y?: number) =>
+      x == null ? y : y == null ? x : x + (y - x) * t;
     return {
       data: {
         ...a,
         low: a.low + (b.low - a.low) * t,
         mid: a.mid + (b.mid - a.mid) * t,
         high: a.high + (b.high - a.high) * t,
+        precipitation: lerpOpt(a.precipitation, b.precipitation),
+        humidity: lerpOpt(a.humidity, b.humidity),
       },
       confidence: 1,
     };
@@ -281,6 +373,97 @@ export class WeatherFan {
  */
 export const PLACEHOLDER_WIND_SPEED_KMH = 22;
 export const PLACEHOLDER_WIND_BEARING_DEG = 260;
+
+/**
+ * U자 값 집합과 그 g 사다리.
+ *
+ * `base[rank] = uShape((rank + 0.5) / N)` 이므로 **값의 집합은 N에만
+ * 의존합니다.** 프레임마다 바뀌는 것은 어느 방향이 어느 순위를 받느냐이지
+ * 값 자체가 아닙니다. 따라서 `mean(base^g)` 도 매번 같고, g 사다리도 같습니다.
+ *
+ * 매 프레임 다시 만들면 사다리만으로 층당 40 × N 번의 `pow` 가 듭니다
+ * (타임라인 288프레임 × 3층 = 660만 번). N으로 캐싱합니다.
+ */
+const uShapeCache = new Map<number, {
+  base: Float64Array; gLadder: Float64Array; mLadder: Float64Array; GS: number;
+}>();
+
+function uShapeTable(n: number) {
+  const hit = uShapeCache.get(n);
+  if (hit) return hit;
+
+  // U자 곡선. p = 1이면 균등, p > 1이면 가운데가 가팔라 질량이 양 끝으로
+  // 밀립니다. v(0) = 0, v(1) = 1 이 정확히 성립합니다.
+  const base = new Float64Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const x = (rank + 0.5) / n;
+    const a = Math.pow(x, U_SHAPE_P);
+    const b = Math.pow(1 - x, U_SHAPE_P);
+    base[rank] = a / (a + b);
+  }
+
+  // g 사다리 (기하 등비). 평균은 g에 대해 감소하므로 표는 내림차순입니다.
+  const GS = 40;
+  const gLadder = new Float64Array(GS);
+  const mLadder = new Float64Array(GS);
+  for (let j = 0; j < GS; j++) {
+    const g = Math.pow(10, -3 + (6 * j) / (GS - 1));   // 1e-3 ~ 1e3
+    let m = 0;
+    for (let i = 0; i < n; i++) m += Math.pow(base[i], g);
+    gLadder[j] = g;
+    mLadder[j] = m / n;
+  }
+
+  const built = { base, gLadder, mLadder, GS };
+  uShapeCache.set(n, built);
+  return built;
+}
+
+/**
+ * 국소 평균 보정용 이웃 목록. 방위·고도 격자가 같으면 결과가 같으므로
+ * 격자 크기로 캐싱합니다 (`buildSkyColumns`가 타임라인에서 288 × 3번 불립니다).
+ */
+const neighborhoodCache = new Map<string, { idx: Int32Array[]; w: Float64Array[] }>();
+
+function neighborhood(
+  staged: { azimuthDeg: number; elevationDeg: number }[],
+  n: number,
+  azSteps: number,
+  elevSteps: number
+): { idx: Int32Array[]; w: Float64Array[] } {
+  const key = `${azSteps}x${elevSteps}`;
+  const hit = neighborhoodCache.get(key);
+  if (hit) return hit;
+
+  const sinEl = new Float64Array(n);
+  for (let i = 0; i < n; i++) sinEl[i] = Math.sin((staged[i].elevationDeg * Math.PI) / 180);
+
+  const idx: Int32Array[] = new Array(n);
+  const w: Float64Array[] = new Array(n);
+  const idxBuf = new Int32Array(n);
+  const wBuf = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const a0 = staged[i].azimuthDeg;
+    let cnt = 0;
+    for (let j = 0; j < n; j++) {
+      let dAz = Math.abs(staged[j].azimuthDeg - a0);
+      if (dAz > 180) dAz = 360 - dAz;
+      if (dAz > LOCAL_AZ_DEG) continue;
+      // 고도는 각도가 아니라 **sin 등간격**으로 재야 합니다 — 지평선 쪽 고리가
+      // 각도로는 촘촘해서, 각도로 재면 이웃 크기가 하늘 위치마다 달라집니다.
+      const dEl = Math.abs(sinEl[i] - sinEl[j]);
+      if (dEl > LOCAL_ELEV_SIN) continue;
+      idxBuf[cnt] = j;
+      wBuf[cnt] = (1 - dAz / LOCAL_AZ_DEG) * (1 - dEl / LOCAL_ELEV_SIN);
+      cnt++;
+    }
+    idx[i] = idxBuf.slice(0, cnt);
+    w[i] = wBuf.slice(0, cnt);
+  }
+  const built = { idx, w };
+  neighborhoodCache.set(key, built);
+  return built;
+}
 
 export interface SkyColumnParams {
   fan: WeatherFan;
@@ -318,9 +501,34 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
 
   (['low', 'mid', 'high'] as LayerKey[]).forEach(layer => {
     const altKm = LAYER_ALTITUDE_KM[layer];
-    // 노이즈 셀 크기는 그 층의 실제 구름 구조 규모를 따릅니다.
-    // 저층 적운은 수 km 간격, 상층 권운은 수십 km 규모로 뭉칩니다.
-    const cellKm = layer === 'low' ? 3.5 : layer === 'mid' ? 11 : 28;
+    // 노이즈 셀 크기.
+    //
+    // 예전 값은 3.5 / 11 / 28 km — "실제 구름 구조의 규모"를 따른 것이었습니다.
+    // 그런데 이 노이즈가 담당해야 하는 것은 구름 구조 전체가 아니라
+    // **예보 격자가 못 담는 잔여분**입니다. 큰 규모는 이미 기상 링(방위 12 ×
+    // 거리 7)이 실제 데이터로 주고 있으니까요.
+    //
+    // 11km는 격자 간격보다 커서 **인접 방향들이 같은 노이즈 값을 공유**했고,
+    // 그러면 노이즈가 예보와 같은 규모에서 경쟁합니다. 그 경쟁을 국소 평균
+    // 보정이 지우는데, 지우는 김에 U자 구조까지 같이 지워졌습니다
+    // (측정: 표준편차 0.139, 파란 하늘 1.5%밖에 안 남음).
+    //
+    // 격자 간격 아래로 내리면 둘이 안 부딪힙니다. 그런데 무작정 잘게 하면
+    // **시간 일관성**이 깨집니다 — 타임라인 키프레임이 5분 간격인데 바람
+    // 22km/h면 그 사이에 1.8km 흐릅니다. 셀이 1.6km면 키프레임 사이에 무늬가
+    // 통째로 뒤바뀌어, 구름이 흘러가는 게 아니라 자리에서 명멸합니다.
+    //
+    // 6실현 평균으로 세 지표를 함께 훑은 결과 (배율 → 지역오차 / 표준편차 /
+    // 보간오차):
+    //
+    //   ×1.00  11.0km   1.9%p / 0.157 / 1.5%p   구조가 너무 없음
+    //   ×0.50   5.5km   1.8%p / 0.195 / 3.1%p
+    //   ×0.35   3.8km   1.5%p / 0.226 / 4.4%p   ← 채택
+    //   ×0.15   1.6km   1.7%p / 0.263 / 7.9%p   구조는 최고, 명멸함
+    //
+    // 지역 예보 보존은 어느 배율에서도 국소 보정이 지켜 줍니다. 실제 상충은
+    // 구조 ↔ 시간 일관성이고, 0.35가 그 균형점입니다.
+    const cellKm = layer === 'low' ? 1.2 : layer === 'mid' ? 3.8 : 9.8;
     // 층마다 다른 오프셋 — 세 층이 같은 무늬로 겹치면 가짜처럼 보입니다.
     const layerOffset = layer === 'low' ? 0 : layer === 'mid' ? 37.1 : 73.9;
 
@@ -332,6 +540,10 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
       meanCover: number;
       confidence: number;
       n: number;
+      precipMmH: number;
+      humidityPct: number;
+      lowPct: number;
+      highPct: number;
     }[] = [];
 
     for (let ai = 0; ai < azSteps; ai++) {
@@ -357,40 +569,159 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
         const gy = (distanceKm * Math.cos(azRad) + driftY) / cellKm;
         const n = fbm2(gx + layerOffset, gy + layerOffset, 3);
 
-        staged.push({ azimuthDeg, elevationDeg, distanceKm, meanCover, confidence, n });
+        staged.push({
+          azimuthDeg, elevationDeg, distanceKm, meanCover, confidence, n,
+          // 3단계: 이 방향 지점의 기상. 운량과 **같은 지점**에서 뽑아야
+          // "비는 오는데 구름은 저쪽" 같은 모순이 생기지 않습니다.
+          precipMmH: data?.precipitation ?? 0,
+          humidityPct: data?.humidity ?? 60,
+          lowPct: data?.low ?? 0,
+          highPct: data?.high ?? 0,
+        });
       }
     }
 
-    // 노이즈 평균 보정.
+    // ── 순위 사상으로 U자 운량장 만들기 ──────────────────────────────────
     //
-    // Why 필요한가: 하늘 방향 샘플은 지상에서 **균일하게 퍼지지 않습니다.**
-    // 저층 1.5km 층은 고도각 3.6°에서 24km, 69.6°에서 0.56km라
-    // 8개 고리 중 6개가 반경 5km 안에 몰립니다. 그 샘플들이 노이즈 셀 하나를
-    // 공유해 버리면 그 셀 값이 하늘 전체 평균을 끌고 갑니다.
-    // (측정: 입력 50%가 화면 29%로 나왔습니다.)
+    // 예전에는 `cover = 평균 + (노이즈 - 노이즈평균) × 진폭` 이었습니다.
+    // 평균은 잘 보존됐지만 **분포가 평균 주위 좁은 가우시안**이었습니다.
+    // 중층 평균 50%로 재보면 하늘이 8%~94% 사이에 표준편차 0.14로 뭉쳐
+    // **10% 미만인 방향이 0%, 90% 초과인 방향이 0%** 였습니다. 즉 어느 쪽을
+    // 봐도 반쯤 덮인 하늘 — 파란 구멍도, 꽉 찬 덩어리도 없는 벽지입니다.
+    // 진폭만 키우면 0과 1에서 잘려 평균이 밀리므로 그 길은 막혀 있습니다.
     //
-    // 실현된 노이즈 평균을 빼서 편차만 남기면, 구조는 유지하면서
-    // 입력 운량이 정확히 보존됩니다.
-    let nSum = 0;
-    for (const s of staged) nSum += s.n;
-    const nMean = staged.length ? nSum / staged.length : 0.5;
+    // 실제 운량장은 U자(이봉형)입니다. 하늘은 맑거나 덮이거나이고, 고르게
+    // 반쯤 덮인 하늘이 오히려 드뭅니다. 사진에도 파란 구멍과 짙은 덩어리가
+    // 같이 있습니다.
+    //
+    // 그래서 **1단계에서 셀 무늬에 썼던 히스토그램 평활화를 한 층 위에**
+    // 그대로 적용합니다: 노이즈를 값으로 쓰지 않고 **순위**만 씁니다.
+    //   1. 노이즈 순위 → 분위수 u
+    //   2. u를 U자 곡선에 통과시켜 v (양 끝으로 질량을 밀어냄)
+    //   3. 곡선 지수를 이분법으로 잡아 평균을 목표 운량에 맞춤
+    //   4. 남은 오차를 단조 보정으로 정확히 0으로
+    // 순위 사상은 단조라 **어느 방향이 더 흐린지**(공간 구조)는 노이즈가
+    // 그대로 정합니다. 값만 다시 배분됩니다.
+    //
+    // 표본이 등입체각이므로(elevationGrid가 sin ε 균등) 순위 = 입체각
+    // 분위수이고, 표본 평균 = 하늘 평균입니다. 예전 주석이 걱정하던
+    // "지상에서 균일하게 안 퍼진다"는 문제도 순위를 쓰면 사라집니다 —
+    // 노이즈 값의 편향이 순위에 영향을 주지 않기 때문입니다.
+    const N = staged.length;
+    if (N > 0) {
+      const order = staged.map((_, i) => i).sort((a, b) => staged[a].n - staged[b].n);
 
-    for (const s of staged) {
-      // 분산은 평균이 0이나 1에 가까울수록 0으로 수렴합니다.
-      // 맑으면 완전히 맑고, 8/8이면 빈틈이 없어야 하기 때문입니다.
-      const spread = 4 * s.meanCover * (1 - s.meanCover);
-      // 신뢰도가 낮은 방향(팬 밖)은 노이즈 비중을 키워 구조를 만듭니다.
-      const amp = 0.42 * spread * (1 + (1 - s.confidence) * 0.5);
-      const cover = Math.max(0, Math.min(1, s.meanCover + (s.n - nMean) * 2 * amp));
+      // `base` 값의 **집합**은 매번 같습니다 — 순위 분위수 (i+0.5)/N 을 고정된
+      // 곡선에 통과시킨 것이라 N만 같으면 동일합니다. 바뀌는 건 어느 방향이
+      // 어느 값을 받느냐(순서)뿐입니다. 그래서 값 집합도, 거기서 나오는 g
+      // 사다리도 N으로 캐싱합니다.
+      const { base: baseSorted, gLadder, mLadder, GS } = uShapeTable(N);
+      const base = new Float64Array(N);
+      for (let rank = 0; rank < N; rank++) base[order[rank]] = baseSorted[rank];
 
-      out.push({
-        layer,
-        azimuthDeg: s.azimuthDeg,
-        elevationDeg: s.elevationDeg,
-        distanceKm: s.distanceKm,
-        cover,
-        confidence: s.confidence,
-      });
+      // ── 방향마다 **자기 예보값**을 평균으로 갖게 합니다 ──────────────────
+      //
+      // `base^g` 의 평균은 g에 대해 단조 감소합니다. 그러니 목표 운량 c 마다
+      // 대응하는 g가 하나 있습니다. 그 대응을 표로 만들어 두고 방향마다
+      // 자기 c로 뽑아 씁니다.
+      //
+      // ⚠ 여기가 처음에 틀렸던 자리입니다. 층 전체 평균 하나로 U자를 만든 뒤
+      // `cover = U자 + (그 방향 예보 − 층평균)` 으로 더해서 옮겼더니,
+      // **[0,1] 클램프가 지역 평균을 파괴했습니다.** 서쪽 예보 5%인데 U자
+      // 진폭이 ±40%p라 절반이 음수로 잘려나가고, 잘린 만큼 평균이 위로
+      // 밀려 화면에서는 **26%**로 나왔습니다 (측정). 5배입니다.
+      // 예전 코드가 `spread = 4c(1-c)`로 진폭을 줄여 두었던 게 바로 이
+      // 클램프를 피하려던 것이었는데, 그 보호를 걷어내고 대책을 안 세웠습니다.
+      //
+      // 지수를 방향마다 다르게 주면 클램프가 아예 필요 없습니다. 예보 5%인
+      // 지역은 큰 g가 걸려 대부분 0 근처, 일부만 1 근처가 되고 — 평균은
+      // 정확히 0.05입니다. 맑은 하늘에 구름 몇 덩이, 그게 실제 모습입니다.
+      // 예보 100%면 g → 0이라 `base^0 = 1`, 빈틈이 사라집니다. 예전
+      // `spread → 0` 이 지키던 성질이 공짜로 따라옵니다.
+      // 목표 평균 c → 지수 g (표를 로그 보간).
+      const gammaFor = (c: number) => {
+        if (c >= mLadder[0]) return gLadder[0];
+        if (c <= mLadder[GS - 1]) return gLadder[GS - 1];
+        for (let j = 0; j < GS - 1; j++) {
+          if (c <= mLadder[j] && c >= mLadder[j + 1]) {
+            const span = mLadder[j] - mLadder[j + 1];
+            const t = span > 1e-12 ? (mLadder[j] - c) / span : 0;
+            return Math.exp(Math.log(gLadder[j]) * (1 - t) + Math.log(gLadder[j + 1]) * t);
+          }
+        }
+        return gLadder[GS - 1];
+      };
+
+      // 여기서는 사다리 보간만 씁니다. 지수가 정확히 c를 맞추는지는 확인하지
+      // 않습니다 — 방향마다 `meanAt`을 다시 돌면 N²이 되고(타임라인 288프레임
+      // × 3층이라 그것만으로 초 단위), **어차피 바로 아래 국소 보정이 더 강한
+      // 보장을 겁니다**: 전역 평균이 아니라 이웃 평균을 목표에 맞추므로
+      // 사다리 보간 오차도 사다리 끝의 미달도 거기서 함께 흡수됩니다.
+      const shapedArr = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        shapedArr[i] = Math.pow(base[i], gammaFor(staged[i].meanCover));
+      }
+
+      // ── 국소 평균 보정 ────────────────────────────────────────────────────
+      //
+      // 위의 지수는 `base` **전체** 분포에 대해 평균을 맞춥니다. 그런데 fbm은
+      // 공간 상관이 있어서, 한 지역에 속한 방향들의 `base` 값이 전체 분포를
+      // 대표하지 않습니다 — 이웃한 방향은 비슷한 노이즈 값을 갖습니다.
+      // 그래서 지역별로 평균이 밀립니다 (측정: 예보 47%인 넓은 구역이 35%로,
+      // −11.9%p).
+      //
+      // 방향마다 **이웃의 실현 평균**과 **이웃의 예보 평균**을 견주어 그
+      // 비율만큼 되돌립니다. 이웃 가중이 매끄러우므로 보정도 매끄럽고,
+      // 경계에 이음매가 생기지 않습니다. 보정 자체는 앞서 쓴 것과 같은
+      // 단조 유계 형태라 [0,1]을 벗어나지 않습니다.
+      //
+      // 이웃 크기가 관건입니다. 너무 좁으면 표본이 적어 U자 구조까지 같이
+      // 지워지고, 너무 넓으면 지역차를 다시 뭉갭니다. 방위 ±45°·고도 ±2고리가
+      // 렌더와 측정으로 고른 값입니다.
+      // 이웃 목록은 **방향 격자에만** 의존합니다 — 방위·고도가 매번 같으므로
+      // 층이 바뀌어도, 시각이 바뀌어도 그대로입니다. `buildSkyColumns`는
+      // 타임라인에서 288번 × 3층 불리므로 매번 N²을 다시 훑으면 이것만으로
+      // 수 초가 됩니다. 격자 크기로 캐싱합니다.
+      const { idx: nbrIdx, w: nbrW } = neighborhood(staged, N, azSteps, elevSteps);
+
+      const localMean = (arr: ArrayLike<number>, idx: number) => {
+        const ix = nbrIdx[idx], wt = nbrW[idx];
+        let w = 0, acc = 0;
+        for (let k = 0; k < ix.length; k++) { w += wt[k]; acc += wt[k] * arr[ix[k]]; }
+        return w > 0 ? acc / w : 0;
+      };
+      const targets = new Float64Array(N);
+      for (let i = 0; i < N; i++) targets[i] = staged[i].meanCover;
+
+      for (let i = 0; i < N; i++) {
+        const s = staged[i];
+        const c = s.meanCover;
+        let shaped = shapedArr[i];
+        const R = localMean(shapedArr, i);
+        const T = localMean(targets, i);
+        if (R > T + 1e-9 && R > 1e-9) shaped *= T / R;
+        else if (R < T - 1e-9 && R < 1 - 1e-9) {
+          shaped = 1 - (1 - shaped) * ((1 - T) / (1 - R));
+        }
+        // 신뢰도가 낮은 방향(실측 팬 밖)은 U자 구조를 더 강하게 씁니다 —
+        // 어차피 실측이 없으니 구조라도 그럴듯해야 합니다. 이 혼합은
+        // `c + (shaped − c)·k` 라 평균이 c 그대로입니다.
+        const k = Math.min(1, U_SHAPE_MIX * (1 + (1 - s.confidence) * 0.3));
+        const cover = Math.max(0, Math.min(1, c + (shaped - c) * k));
+
+        out.push({
+          layer,
+          azimuthDeg: s.azimuthDeg,
+          elevationDeg: s.elevationDeg,
+          distanceKm: s.distanceKm,
+          cover,
+          confidence: s.confidence,
+          precipMmH: s.precipMmH,
+          humidityPct: s.humidityPct,
+          lowPct: s.lowPct,
+          highPct: s.highPct,
+        });
+      }
     }
   });
 
@@ -524,6 +855,135 @@ export function solveColumnOptics(
     sunTransmittance: dHigh * dMid * dLow,
     diffuseToGround: all.T,
   };
+}
+
+/**
+ * **방향마다 다른 그늘** — 그 방향 그 층의 구름에 닿는 직달광 배율
+ * (docs/CLOUD_VARIETY_PLAN.md 4단계).
+ *
+ * ## 왜 필요한가
+ *
+ * `solveColumnOptics`는 **관측점 수직 기둥 하나**를 풀고 그 `beamFactor`를
+ * 하늘 전체에 씁니다. 그래서 서쪽에 두꺼운 상층 띠가 있으면 **동쪽 저층까지
+ * 같이 어두워집니다.** 실제로는 옆 구름이 그늘인데 이 구름만 빛을 받는
+ * 그 대비가 노을 하늘의 인상을 거의 다 만듭니다.
+ *
+ * ## 기하
+ *
+ * 방위 az·지상거리 d·고도 h에 있는 구름에 닿는 햇빛은, 거기서 **태양 쪽으로**
+ * 올라가며 위층을 지납니다. 고도 h2에서의 관통점은 지상 좌표로
+ *
+ *   P = d·(sin az, cos az) + Δ·(sin az☉, cos az☉),
+ *   Δ = dist(az☉고도, h2) − dist(az☉고도, h)
+ *
+ * 입니다. Δ를 두 구면 거리의 차로 잡으면 지구 곡률이 자동으로 들어옵니다 —
+ * 평면 근사 (h2−h)/tan(ε)는 태양이 낮을 때 크게 빗나갑니다.
+ *
+ * 태양 고도 3° 미만은 3°로 잡습니다(기하가 발산). 그 아래에서는 어차피
+ * 직달광 자체가 거의 없어 배율의 차이가 화면에 남지 않습니다.
+ *
+ * ## 확산광은 왜 안 하나
+ *
+ * 확산광은 반구 전체에서 오므로 한 방향의 위층 운량에 거의 좌우되지
+ * 않습니다. 방향성이 있는 것은 평행광뿐이고, 밝은 면/그늘 면 대비를 만드는
+ * 것도 평행광입니다. 확산은 관측점 기둥 값(`diffuseFactor`)을 그대로 씁니다.
+ *
+ * @returns `samples`와 **같은 인덱스**의 배율 배열 (1 = 그늘 없음)
+ */
+export function solveDirectionalShade(
+  samples: LayerSample[],
+  sunAzDeg: number,
+  sunAltDeg: number,
+  tauFor: (layer: LayerKey) => number,
+  azSteps: number = AZ_STEPS,
+  elevSteps: number = ELEV_STEPS
+): Float32Array {
+  const out = new Float32Array(samples.length);
+  out.fill(1);
+
+  const elevs = elevationGrid(elevSteps);
+  const nE = elevs.length;
+  const layers: LayerKey[] = ['low', 'mid', 'high'];
+
+  // 층별 인덱스 목록. samples는 층 → 방위 → 고도 순이지만, 그 가정에
+  // 기대지 않고 실제로 모읍니다 (타임라인 경로가 순서를 바꿔도 안전하도록).
+  const idxOf: Record<LayerKey, number[]> = { low: [], mid: [], high: [] };
+  for (let i = 0; i < samples.length; i++) idxOf[samples[i].layer].push(i);
+  for (const L of layers) {
+    if (idxOf[L].length !== azSteps * nE) return out; // 격자가 다르면 그늘 없음
+  }
+
+  // 고도각 → 지상거리 (층마다 고정). 고도각이 오르면 거리는 줄어듭니다.
+  const distByElev: Record<LayerKey, number[]> = { low: [], mid: [], high: [] };
+  for (const L of layers) {
+    for (let e = 0; e < nE; e++) {
+      distByElev[L].push(elevationToDistanceKm(elevs[e], LAYER_ALTITUDE_KM[L]));
+    }
+  }
+
+  /** 층 L의 지상 좌표 (az, dist)에서 운량을 이중선형으로 읽습니다. */
+  const coverAtGround = (L: LayerKey, azDeg: number, distKm: number): number => {
+    const ix = idxOf[L];
+    const aF = ((azDeg % 360) + 360) % 360 / (360 / azSteps);
+    const a0 = Math.floor(aF) % azSteps;
+    const a1 = (a0 + 1) % azSteps;
+    const at = aF - Math.floor(aF);
+
+    const dArr = distByElev[L];
+    // 내림차순. dist가 dArr[e] 와 dArr[e+1] 사이인 e를 찾습니다.
+    let e0 = 0;
+    while (e0 < nE - 2 && dArr[e0 + 1] > distKm) e0++;
+    const e1 = Math.min(nE - 1, e0 + 1);
+    const span = dArr[e0] - dArr[e1];
+    const et = span > 1e-6 ? Math.max(0, Math.min(1, (dArr[e0] - distKm) / span)) : 0;
+
+    const c = (a: number, e: number) => samples[ix[a * nE + e]].cover;
+    return (
+      (c(a0, e0) * (1 - et) + c(a0, e1) * et) * (1 - at) +
+      (c(a1, e0) * (1 - et) + c(a1, e1) * et) * at
+    );
+  };
+
+  const sunAltEff = Math.max(3, sunAltDeg);
+  const sunRad = sunAzDeg * D2R;
+  const sunX = Math.sin(sunRad);
+  const sunY = Math.cos(sunRad);
+  const slant = 1 / Math.max(0.12, Math.sin(sunAltEff * D2R));
+  // 태양 쪽으로 올라가며 각 고도에 닿는 지상거리.
+  const rayDist: Record<LayerKey, number> = {
+    low: elevationToDistanceKm(sunAltEff, LAYER_ALTITUDE_KM.low),
+    mid: elevationToDistanceKm(sunAltEff, LAYER_ALTITUDE_KM.mid),
+    high: elevationToDistanceKm(sunAltEff, LAYER_ALTITUDE_KM.high),
+  };
+  const through: Record<LayerKey, number> = {
+    low: Math.exp(-tauFor('low') * slant),
+    mid: Math.exp(-tauFor('mid') * slant),
+    high: Math.exp(-tauFor('high') * slant),
+  };
+
+  for (const L of layers) {
+    const above = layers.filter(U => LAYER_ALTITUDE_KM[U] > LAYER_ALTITUDE_KM[L]);
+    if (above.length === 0) continue; // 상층은 위에 아무것도 없습니다
+    for (const i of idxOf[L]) {
+      const s = samples[i];
+      const azRad = s.azimuthDeg * D2R;
+      const px = s.distanceKm * Math.sin(azRad);
+      const py = s.distanceKm * Math.cos(azRad);
+      let f = 1;
+      for (const U of above) {
+        const delta = rayDist[U] - rayDist[L];
+        const qx = px + delta * sunX;
+        const qy = py + delta * sunY;
+        const dist = Math.sqrt(qx * qx + qy * qy);
+        const az = (Math.atan2(qx, qy) * R2D + 360) % 360;
+        const c = Math.max(0, Math.min(1, coverAtGround(U, az, dist)));
+        // 덮인 비율만 감쇠 — `solveColumnOptics`의 layerDirect와 같은 식입니다.
+        f *= through[U] * c + (1 - c);
+      }
+      out[i] = f;
+    }
+  }
+  return out;
 }
 
 /**

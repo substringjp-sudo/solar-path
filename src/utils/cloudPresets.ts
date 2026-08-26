@@ -281,6 +281,20 @@ export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
     "M 25,45 C 25,32 38,22 55,24 C 60,12 80,4 100,8 C 120,2 145,8 148,24 C 162,20 178,26 182,40 C 192,36 200,42 200,50 Z",
     // 해안형 — 밑면은 평평하고 위는 솟은 독립 봉우리
     "M 30,40 C 30,32 40,26 54,26 C 62,20 78,16 94,20 C 108,14 130,14 145,22 C 158,18 172,22 178,32 L 178,40 Z",
+    // ── 탑형 (congestus) — 인덱스 5부터 (docs/CLOUD_VARIETY_PLAN.md 5단계) ──
+    //
+    // 위의 다섯은 전부 **가로가 긴 판**입니다 (종횡비 2.3~5.6). 그래서
+    // 배치에서 종횡비를 세로로 열어 줘도 넓은 꽃양배추를 가로로 눌러 놓은
+    // 모양이 될 뿐, 솟은 탑이 나오지 않습니다. 세로로 긴 실루엣 자체가
+    // 필요합니다 (종횡비 0.54~0.65).
+    //
+    // `tools/shader-preview/gen-congestus-paths.js` 로 생성했습니다 —
+    // 손으로 베지에를 찍으면 재현이 안 되기 때문입니다. 생성기를 다시 돌리면
+    // 같은 문자열이 나옵니다(씨앗 고정). 런타임 생성이 아니라 정적 문자열인
+    // 이유는 앱과 하네스가 다른 모양을 그리면 안 되기 때문입니다.
+    "M 28,150 C 14.9,147.7 10.7,129.5 21.3,121.6 C 11,116.6 10.9,98.4 21,93.2 C 15.2,87.9 15.7,69.7 21.9,64.8 C 15.9,59.1 17.7,40.9 24.7,36.4 C 18.1,29.4 22.5,11.3 31.5,8 C 28.4,-2.1 39,-9.7 47.7,-3.8 C 50.8,-11.1 61.4,-10.9 64.3,-3.6 C 72,-8.2 82.6,-0.8 80.9,8 C 85.9,12.4 89.7,30.5 87.2,36.4 C 97.6,41.2 98.1,59.4 87.9,64.8 C 91.6,70.6 88.7,88.8 83.4,93.2 C 89.8,100 85.7,118.2 77,121.6 C 81.3,128.4 75.9,146.6 68.5,150 L 28,150 Z",
+    "M 28.5,138 C 17.5,136.9 11,120.2 18.3,112 C 11.9,107.5 11.3,90.9 17.4,86 C 10.9,80.6 12.7,63.9 20.2,60 C 12.8,54.7 14.2,38 22.4,34 C 15.4,29.2 15.6,12.6 22.8,8 C 22.1,2.1 29.7,-1.3 34.1,2.7 C 36.4,-2.2 44,-1.9 45.9,3.2 C 50,-0.7 57.6,2.3 57.8,8 C 64.2,11.5 68.3,28.2 64.9,34 C 73.9,36.9 77.7,53.5 70.7,60 C 78.4,63.2 82.2,79.8 76.7,86 C 87.4,89.6 89.1,106.3 79.4,112 C 88.1,119.6 83.3,136.3 71.8,138 L 28.5,138 Z",
+    "M 29.9,160 C 17.1,159.4 7.7,139.9 15.2,129.6 C 7.7,125.8 2.1,106.4 6.5,99.2 C -3.8,93 -2.6,73.6 8.5,68.8 C -0.1,58.6 8.3,39.2 21.5,38.4 C 17.8,28.8 29.3,9.3 39.6,8 C 39.4,-0.4 49,-7.5 56.4,-3.1 C 59.6,-11.7 69.3,-11.2 71.6,-2.3 C 79.5,-8.1 89.1,-1.5 86.7,8 C 92.2,12.1 96.5,31.6 91.6,38.4 C 103.4,41.1 108.6,60.6 99.7,68.8 C 104.7,74 105.6,93.5 101.2,99.2 C 107.3,107.1 101.2,126.6 91.7,129.6 C 93.9,138.4 82.1,157.9 73.3,160 L 29.9,160 Z",
   ],
 
   // ── 적란운 (Cumulonimbus): 탑 모양, 상단이 넓게 퍼지는 모루구름 ────────────
@@ -297,6 +311,15 @@ export const CLOUD_TEMPLATES: Record<CloudPresetName, string[]> = {
 };
 
 
+
+/**
+ * `CLOUD_TEMPLATES.Cumulus` 중 **탑형(congestus)** 실루엣이 시작하는 인덱스.
+ *
+ * 아틀라스는 이 배열 순서대로 변종을 굽고 `cloudAtlasKey(name, i)` 로
+ * 부르므로, 인덱스가 곧 아틀라스 키입니다. 배치가 대류 강도(vigor)로
+ * 이 앞뒤 중 어느 구간에서 고를지 정합니다.
+ */
+export const CUMULUS_TOWER_FIRST = 5;
 
 export const CLOUD_TEMPLATES_HORIZONTAL: Record<CloudPresetName, string[]> = {
   Cirrus: [
@@ -462,6 +485,159 @@ export function resolvePresetFromWeather(
   if (cover > T.cumulusCover) return seed < 0.65 ? 'Cumulus' : 'Stratocumulus';
   return 'Cumulus';
 }
+
+// ── 수직 발달 (docs/CLOUD_VARIETY_PLAN.md 5단계) ───────────────────────────
+
+const clamp01x = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * 구름 **밑면** 고도 (응결고도 LCL, km).
+ *
+ * Espy 근사: LCL[m] ≈ 125 × (T − Td). 그리고 이슬점 편차는 상대습도로
+ * (T − Td) ≈ (100 − RH)/5 로 근사됩니다. 둘을 합치면
+ *
+ *   LCL[km] ≈ 0.125 × (100 − RH)/5 = (100 − RH)/40
+ *
+ * 습도 50% → 1.25km, 70% → 0.75km, 90% → 0.25km. 실제 관측 범위와 맞습니다.
+ *
+ * **이게 왜 중요한가**: 적운의 밑면은 응결고도 하나에서 결정되므로 하늘의
+ * 모든 적운이 **같은 높이에 평평한 밑면**을 갖습니다. 사진에서 뭉게구름
+ * 아래쪽이 자로 그은 듯 나란한 것이 그 때문입니다. 지금까지는 이 고도가
+ * 상수(1.6km)라 습도와 무관했습니다.
+ */
+export function cloudBaseKm(humidityPct: number): number {
+  const rh = Math.max(5, Math.min(100, humidityPct));
+  return Math.max(0.15, Math.min(2.5, (100 - rh) / 40));
+}
+
+/**
+ * 대류 강도 0~1 — 적운이 얼마나 위로 자랐는가.
+ *
+ * CAPE를 받아오지 않으므로 대용값을 씁니다. 셋 다 이미 있는 값입니다:
+ *  - **강수**가 가장 직접적입니다 (적운이 비를 내리면 이미 congestus 이상)
+ *  - **습도**가 높으면 상승 기류가 덜 마르며 올라갑니다
+ *  - **운량**이 많으면 대류가 활발합니다
+ *
+ * 상한을 강수 0.9mm/h 로 잡은 것은 그 위가 적란운 문턱(`cbPrecipMm`)이라
+ * 종이 바뀌기 때문입니다 — 적운의 vigor는 그 직전까지만 의미가 있습니다.
+ */
+export function convectiveVigor(
+  precipMmH: number,
+  humidityPct: number,
+  cover: number
+): number {
+  const p = clamp01x(precipMmH / 0.9);
+  const h = clamp01x((humidityPct - 55) / 30);
+  const c = clamp01x((cover - 0.15) / 0.5);
+  return clamp01x(0.5 * p + 0.28 * h + 0.22 * c);
+}
+
+/**
+ * 적운·적란운의 **연직 두께** (km).
+ *
+ * 빌보드가 나오는 종은 이 둘뿐이라 둘만 다룹니다 (나머지 여덟은 덱이
+ * 그리고, 덱은 얇은 껍질이라 두께 개념이 없습니다).
+ *
+ *   humilis   0.7km   맑은 날 납작한 뭉게구름
+ *   mediocris 2.5km
+ *   congestus 4.7km   사진 ②의 솟은 탑
+ *   적란운    7.5~12km
+ */
+export function convectiveDepthKm(name: CloudPresetName, vigor: number): number {
+  if (name === 'Cumulonimbus') return 7.5 + 4.5 * clamp01x(vigor);
+  return 0.7 + 4.0 * clamp01x(vigor);
+}
+
+/** vigor가 이 값을 넘으면 탑형 실루엣을 씁니다 (congestus 전이). */
+export const TOWER_VIGOR = 0.45;
+
+/**
+ * 방향별 운형 광학 — **문턱을 부드럽게 넘긴** 값
+ * (docs/CLOUD_VARIETY_PLAN.md 2·3단계).
+ *
+ * ## 왜 그냥 뽑으면 안 되나
+ *
+ * `resolvePresetFromWeather`는 운량·강수의 **계단 함수**입니다. 그런데 덱이
+ * 그 입력을 받는 기상 격자는 방위 24 × 고도 8, 즉 15°짜리 성긴 격자입니다.
+ * 계단 함수를 성긴 격자로 표본하면 **문턱을 넘는 등고선이 격자선에 붙어**,
+ * 화면에 축에 나란한 사각형으로 나타납니다 (렌더로 확인: 비 구역 경계가
+ * 하늘에 네모난 상자로 찍힘). 메시 해상도를 올려도 사라지지 않습니다 —
+ * 등고선의 위치를 정하는 것은 메시가 아니라 기상 격자이기 때문입니다.
+ *
+ * ## 왜 섞는 것이 물리적으로도 맞나
+ *
+ * 한 방향이 담당하는 입체각은 15°×약 10°입니다. 30km 밖이면 한 변이
+ * 8km쯤 되는 하늘 조각이고, 그 안에 운형 하나만 들어 있을 리 없습니다.
+ * 실제로는 운량·강수가 그 조각 안에서 분포를 이루고, 분포의 각 부분이
+ * 다른 운형입니다. 그러니 대표 하나를 고르는 것보다 **입력 분포 위에서
+ * 평균한 광학**이 그 조각을 더 잘 나타냅니다.
+ *
+ * ## 어떻게
+ *
+ * 운량과 강수 축으로 5점 스텐실을 잡아 가중 평균합니다. 문턱 위치를
+ * 알 필요가 없다는 것이 장점입니다 — 문턱이 어디 있든, 그 근처에서만
+ * 자동으로 섞이고 멀리서는 한 운형이 100% 이깁니다
+ * (예: 강수 0인 하늘은 다섯 점이 전부 같은 운형이라 평균이 그 운형 그대로).
+ *
+ * 폭은 각각 예보 격자가 한 칸 사이에 실제로 변하는 정도로 잡았습니다.
+ */
+const COVER_STENCIL = 0.10;
+const PRECIP_STENCIL = 0.25;
+/** 중심 : 네 이웃 가중치. 합이 1이 되도록 씁니다. */
+const STENCIL_CENTER = 0.40;
+const STENCIL_SIDE = 0.15;
+
+export interface BlendedOptics {
+  tau: number;
+  shadowContrast: number;
+  cellSizeKm: number;
+  cellStrength: number;
+  cellAspect: number;
+}
+
+export function blendedOpticsFromWeather(
+  layer: LayerKey,
+  cover: number,
+  wx: { precipitation?: number; humidity?: number; lowPct: number; highPct: number },
+  seed: number,
+  out?: BlendedOptics
+): BlendedOptics {
+  const r = out ?? { tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1 };
+  r.tau = 0;
+  r.shadowContrast = 0;
+  r.cellSizeKm = 0;
+  r.cellStrength = 0;
+  r.cellAspect = 0;
+
+  const precip = wx.precipitation ?? 0;
+  const add = (c: number, p: number, w: number) => {
+    _stencilWx.precipitation = p;
+    _stencilWx.humidity = wx.humidity;
+    _stencilWx.lowPct = wx.lowPct;
+    _stencilWx.highPct = wx.highPct;
+    const name = resolvePresetFromWeather(layer, c, _stencilWx, seed);
+    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    r.tau += o.tau * w;
+    r.shadowContrast += o.shadowContrast * w;
+    r.cellSizeKm += o.cellSizeKm * w;
+    r.cellStrength += o.cellStrength * w;
+    r.cellAspect += o.cellAspect * w;
+  };
+
+  add(cover, precip, STENCIL_CENTER);
+  add(Math.max(0, cover - COVER_STENCIL), precip, STENCIL_SIDE);
+  add(Math.min(1, cover + COVER_STENCIL), precip, STENCIL_SIDE);
+  add(cover, Math.max(0, precip - PRECIP_STENCIL), STENCIL_SIDE);
+  add(cover, precip + PRECIP_STENCIL, STENCIL_SIDE);
+  return r;
+}
+
+const _stencilWx: {
+  precipitation?: number;
+  humidity?: number;
+  lowPct: number;
+  highPct: number;
+} = { lowPct: 0, highPct: 0 };
 
 /**
  * 관측점 기상에서 층별 대표 광학두께를 뽑습니다.

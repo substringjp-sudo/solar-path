@@ -268,6 +268,149 @@ node tools/shader-preview/verify-billboard-genus.js      # 8개
 읽습니다. 흐림 8/8과 권층운 장면에서 빌보드가 0장인지, 그 외 장면의
 운형이 전부 Cumulus/Cumulonimbus뿐인지 확인합니다.
 
+## 준비 — `stage-node.js` / `stage-esm.js`
+
+```bash
+node tools/shader-preview/stage-node.js   # /tmp/{atm,cell,sky,tl}build + suncalc 링크
+node tools/shader-preview/stage-esm.js    # 브라우저용 ESM + vendor
+```
+
+검사 스크립트가 `/tmp`의 CommonJS 산출물을 require합니다. 예전에는 그
+명령이 이 문서 세 군데에만 적혀 있어서, /tmp가 비워지면(컨테이너 재시작,
+디스크 정리, `npm install`) 하네스 11종이 전부
+`Cannot find module '/tmp/…'`로 죽는데 무엇을 다시 돌려야 하는지 알기
+어려웠습니다. 이제 위 두 줄이면 됩니다.
+
+`three`는 `node_modules`에서 가져옵니다 — 앱이 실제로 쓰는 버전과 같아야
+하고, 미리 받아둔 사본에 기대면 사본이 사라졌을 때 브라우저에서만 404가 나
+"__stats가 없습니다"라는 엉뚱한 증상으로 나타납니다.
+
+## 지역별 예보 보존 — `verify-region-cover.js`
+
+```bash
+node tools/shader-preview/stage-node.js
+node tools/shader-preview/verify-region-cover.js       # 11개
+```
+
+운량장에 **서로 잡아당기는 두 가지**를 동시에 요구합니다: (1) 각 지역의
+예보값이 그 지역의 평균으로 나올 것, (2) 한 지역 안에도 파란 구멍과 짙은
+덩어리가 있을 것. 2를 세게 하면 1이 깨집니다.
+
+실제로 깨진 적이 있습니다 — 층 평균 하나로 U자를 만들고 예보 차이를 더한 뒤
+[0,1]로 자르면 **클램프가 지역 평균을 파괴**해 예보 5%인 지역이 화면에서
+**26%** 로 나왔습니다. `verify-overcast`의 운량 보존 검사는 **하늘 전체
+평균**만 보므로 이걸 못 잡습니다 — 한쪽이 부풀고 다른 쪽이 눌리면 전체
+평균은 멀쩡하니까요. 그래서 이 검사가 따로 있습니다.
+
+기준값: 지역 구간별 최대 오차 3.2%p, 하늘 전체 0.16%p, 흐린 지역 − 맑은
+지역 0.826, 균일 입력에서 표준편차 0.226 / 맑음 4.3% / 꽉참 4.9%.
+
+⚠ 구조 쪽 문턱을 올리고 싶으면 **세 지표를 함께** 보세요. 노이즈를 잘게
+하면 구조는 늘지만 타임라인 5분 키프레임 사이에 무늬가 뒤바뀌어 구름이
+명멸합니다(`verify-timeline`이 잡습니다). 경계표는 파일 안 주석에.
+
+## 문법 검사 — `check-syntax.js`
+
+```bash
+node tools/shader-preview/check-syntax.js
+```
+
+빌더는 `.js` 라 `tsc --noEmit` 이 안 봅니다. 그런데 GLSL을 백틱 템플릿에
+담고 있어서, 그 안 주석에 백틱을 하나 쓰면 문자열이 거기서 끊겨
+`SyntaxError: Unexpected identifier` 가 납니다. 오류 메시지가 원인과 멀어
+매번 한참 헤맵니다 — 이 세션에서만 세 번 겪었습니다. `node --check` 는
+그걸 정확히, 오탐 없이 잡습니다.
+
+## 바다와 윤슬 — `verify-water.js`
+
+```bash
+node tools/shader-preview/build-water-preview.js
+node tools/shader-preview/shoot.js water.html water.png
+node tools/shader-preview/verify-water.js              # 10개
+```
+
+서쪽 절반이 바다인 관측점에서 태양 쪽과 **반대쪽**을 둘 다 찍습니다.
+물은 알베도가 0.06이라 반대쪽에서 육지보다 어둡고, 스치는 각에서는 프레넬로
+하늘을 비춰 태양 쪽에서 밝습니다 — **그 대비가 물의 전부**라 한쪽만 보면
+"물을 그냥 밝게 칠했다"와 구분이 안 됩니다.
+
+기준값: 육지 70.3 / 태양 쪽 124.5 / 반대쪽 50.2. 윤슬 폭 2m/s 4.9° →
+8m/s 11.2°.
+
+⚠ **봉우리 높이로 판정하지 마세요.** 선형에서는 약풍이 더 뾰족해야 하지만
+화면에서는 반대로 나옵니다 (ACES가 좁고 밝은 봉우리를 더 압축). 자기 바닥
+에서 고정 높이만큼 올라온 **폭**만 톤 곡선에 안 휘둘립니다.
+
+## 지평선 아래 (땅) — `verify-horizon.js`
+
+```bash
+node tools/shader-preview/build-horizon-preview.js
+node tools/shader-preview/shoot.js horizon.html horizon.png
+node tools/shader-preview/verify-horizon.js            # 9개
+```
+
+앱과 **같은 모듈**(`Skydome.ts`, `TerrainRing.ts`)을 임포트해 같은 순서로
+씬에 넣고, 요소를 하나씩 빼가며 지평선을 가로지르는 세로줄을 읽습니다.
+
+⚠ **renderOrder 숫자를 읽어 검산하면 이런 건 안 잡힙니다.** 지면 원반은
+매 프레임 색까지 갱신되면서 **한 픽셀도 화면에 안 나오고** 있었습니다
+(빼도 최대 픽셀차 **1**/255). 지면이 먼저 깊이 없이 그려지고, 스카이돔이
+`depthTest: false`로 전체 구를 칠하며 덮었기 때문입니다. 씬에서 **빼 보고
+화면이 바뀌는지**를 봐야 합니다.
+
+기준값: 지면 원반을 빼면 최대 픽셀차 175, 지평선 아래 휘도가 위의 36%,
+채도 4%(하늘이었을 때 47%).
+
+배경과 설계는 `docs/GROUND_PLAN.md`.
+
+## 한 화면 안의 좌우 대비 — `verify-one-screen.js`
+
+```bash
+node tools/shader-preview/build-one-screen-preview.js
+node tools/shader-preview/shoot.js one-screen.html one-screen.png
+node tools/shader-preview/verify-one-screen.js         # 11개
+```
+
+`verify-region-cover.js`가 보장하는 것은 **360° 하늘 전체**의 지역 보존입니다
+— "동쪽을 보면 흐리고 서쪽을 보면 맑다". 그건 **한 프레임 안에서** 좌우가
+갈린다는 뜻이 아닙니다. 화각 60° 안에는 기상 링의 방위가 2~3개밖에 안
+들어오니까요(링이 30° 간격). 그래서 렌더된 한 프레임의 픽셀에서 따로 잽니다.
+
+기준값 (서쪽 0% / 동쪽 95% 경계를 정면으로):
+
+| 구간 | 왼쪽 | 오른쪽 | 차이 |
+|---|---|---|---|
+| 전체 | 9.1% | 54.0% | **45.0%p** |
+| 천정 쪽 | 18.1% | 61.3% | 43.2%p |
+| 지평선 쪽 | 1.8% | 35.5% | 33.7%p |
+
+균일 48% 대조군은 전체 −5.8%p. 대조군이 없으면 좌우 차이가 기상 때문인지
+노이즈 때문인지 구분할 수 없습니다.
+
+## 조각 입체 음영 — `verify-cell-relief.js`
+
+```bash
+node tools/shader-preview/build-cell-relief-preview.js
+node tools/shader-preview/shoot.js cell-relief.html cell-relief.png
+node tools/shader-preview/verify-cell-relief.js          # 11개
+```
+
+조각마다 밝은 면과 그늘 면이 생기는지 봅니다. 세기를 끄고 켤 손잡이가
+없으므로 **차등 검사**입니다: 입체감이 `0.30 + 0.55 × (태양이 낮을수록 1)`로
+스케일되므로 같은 장면을 태양 5°와 70°로 찍어 구름 픽셀 안의 국소(7×7)
+밝기 표준편차 비를 봅니다.
+
+대조군은 층운(`cellStrength = 0`, WMO 정의상 요소가 없는 구름)입니다.
+이게 없으면 "태양을 낮췄더니 대비가 커졌다"가 입체감 때문인지 그냥
+노을빛 때문인지 구분할 수 없습니다.
+
+기준값: 고적운 ×2.61, 층운 ×0.85.
+
+⚠ 불투명 문턱을 0.85로 두면 **층운이 한 점도 안 잡힙니다** — 조각이 없어
+알파가 운량 그대로(0.62)라 문턱을 못 넘습니다. 그러면 대조군 비가 0/0이
+되어 비교가 거저 통과합니다. 문턱을 0.50으로 낮추고, 대조군에도 표본이
+있는지 따로 단언합니다.
+
 ## 권운 결 방향 (6단계) — `verify-cirrus-aniso.js`
 
 ```bash

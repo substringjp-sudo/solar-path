@@ -110,7 +110,7 @@ const html = `<!doctype html>
 </style></head><body>
 <div id="wrap"><canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
-import * as THREE from './three.module.js';
+import * as THREE from './app/vendor/three.module.js';
 const SKY_V=${JSON.stringify(SKY_V)}, SKY_F=${JSON.stringify(SKY_F)};
 const TUNE_UNIFORMS=${JSON.stringify(A.makeTuningUniforms())};
 const SUN_V=${JSON.stringify(SUN_V)}, SUN_F=${JSON.stringify(SUN_F)};

@@ -119,19 +119,46 @@ W.fetchDayWeatherRing = async () => ring;
   // 완전히 같을 수는 없습니다 — 노이즈 이류가 비선형이기 때문입니다.
   // 눈에 띄지 않을 정도(수 %p)인지만 봅니다.
   let sumErr = 0, maxErr = 0, n = 0;
+  let skyMeanErr = 0, clearErr = 0, frames = 0;
   for (let idx = 10; idx < 280; idx += 23) {
     const a = tl.frames[idx], b = tl.frames[idx + 1];
     const midMs = (a.tMs + b.tMs) / 2;
     const interp = T.sampleTimeline(tl, midMs);
     const direct = solveDirect(midMs, idx * STEP + STEP / 2);
+    let mi = 0, md = 0, ci = 0, cd = 0;
     for (let k = 0; k < 576; k++) {
-      const e = Math.abs(interp.samples[k].cover - direct.samples[k].cover);
-      sumErr += e; maxErr = Math.max(maxErr, e); n++;
+      const vi = interp.samples[k].cover, vd = direct.samples[k].cover;
+      sumErr += Math.abs(vi - vd); maxErr = Math.max(maxErr, Math.abs(vi - vd)); n++;
+      mi += vi; md += vd;
+      if (vi < 0.10) ci++;
+      if (vd < 0.10) cd++;
     }
+    skyMeanErr += Math.abs(mi - md) / 576;
+    clearErr += Math.abs(ci - cd) / 576;
+    frames++;
   }
+  skyMeanErr /= frames;
+  clearErr /= frames;
   const meanErr = sumErr / n;
-  console.log(`  평균 ${(meanErr * 100).toFixed(2)}%p, 최대 ${(maxErr * 100).toFixed(2)}%p`);
-  ok(meanErr < 0.03, `평균 오차 3%p 미만 (${(meanErr * 100).toFixed(2)}%p)`);
+  console.log(`  방향별 평균 ${(meanErr * 100).toFixed(2)}%p, 최대 ${(maxErr * 100).toFixed(2)}%p`);
+  console.log(`  하늘 평균 차이 ${(skyMeanErr * 100).toFixed(3)}%p, 맑음비율 차이 ${(clearErr * 100).toFixed(2)}%p`);
+
+  // **방향별 일치는 여기서 옳은 지표가 아닙니다.**
+  //
+  // 운량장이 U자가 된 뒤로 한 방향이 두 키프레임 사이에 0 ↔ 1을 오갑니다.
+  // 보간은 그 사이를 지나가고 직접 계산은 뛰므로 방향별 차이가 커집니다
+  // (평균 4.9%p, 최대 56%p). 둘 다 틀린 게 아니라 **서로 다른 그럴듯한
+  // 하늘**입니다 — 예전엔 모든 방향이 0.5 근처에 뭉쳐 있어서 이 차이가
+  // 드러나지 않았을 뿐입니다.
+  //
+  // 실제로 지켜야 하는 것은 (a) 예보값인 하늘 평균과 (b) 분포 모양입니다.
+  // 그 둘을 재고, 방향별로는 "완전히 딴 하늘은 아니다" 수준만 봅니다.
+  ok(skyMeanErr < 0.01,
+    `하늘 평균이 보존됨 — 1%p 미만 (${(skyMeanErr * 100).toFixed(3)}%p)`);
+  ok(clearErr < 0.10,
+    `분포 모양이 보존됨 — 맑은 방향 비율 차이 10%p 미만 (${(clearErr * 100).toFixed(2)}%p)`);
+  ok(meanErr < 0.10,
+    `방향별로도 딴 하늘은 아님 — 평균 10%p 미만 (${(meanErr * 100).toFixed(2)}%p)`);
 
   console.log('\n== 하루 전체 연속성 (튐 없음) ==');
   // 1분 간격으로 훑어 인접 시각 사이에 큰 점프가 없어야 합니다.
