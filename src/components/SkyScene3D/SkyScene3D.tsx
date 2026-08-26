@@ -29,6 +29,8 @@ import {
   updateTerrainBands,
   type TerrainBandsHandle,
   createGroundPlane,
+  setGroundHorizon,
+  makeWaterTexture,
   createCompassGroup,
   updateTerrainColors,
   updateGroundColors,
@@ -53,7 +55,7 @@ import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } f
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
 import { PRESET_OPTICS, representativePresetForObserver } from '../../utils/cloudPresets';
-import { PLACEHOLDER_WIND_BEARING_DEG } from '../../utils/skyColumn';
+import { PLACEHOLDER_WIND_BEARING_DEG, PLACEHOLDER_WIND_SPEED_KMH } from '../../utils/skyColumn';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -195,6 +197,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** 거리대별 능선 (docs/GROUND_PLAN.md 3단계) */
   const terrainBandsRef = useRef<TerrainBandsHandle | null>(null);
   const groundRef = useRef<THREE.Mesh | null>(null);
+  /** 방위별 수역 마스크 (docs/GROUND_PLAN.md 4단계) */
+  const waterTexRef = useRef<THREE.DataTexture | null>(null);
   const compassGroupRef = useRef<THREE.Group | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
@@ -731,6 +735,15 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     if (groundRef.current) {
       updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
         skyMean: skyMeanRGB,
+        // 물이 되비출 하늘은 **셰이더가 거울 방향으로 직접** 계산합니다
+        // (atm_skyRadiance). 여기서는 대기 파라미터만 넘깁니다.
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
+        waterTex: waterTexRef.current,
+        // ⚠ 실측 바람이 아닙니다 — 권운 이방성과 같은 자리표시자입니다
+        // (docs/CLOUD_TEXTURE_PLAN.md §15). 윤슬 폭이 실제 바람을 안 따릅니다.
+        windSpeedMs: PLACEHOLDER_WIND_SPEED_KMH / 3.6,
         beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
         sunTransmittance: 1 - overcast,
         sunAzimuthDeg: sunAzRef.current,
@@ -1026,9 +1039,18 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       terrainBandsRef.current = null;
     }
 
-    const bands = createTerrainBands(sim.terrain.bandAngles, sim.terrain.bandDistancesKm);
+    const bands = createTerrainBands(
+      sim.terrain.bandAngles, sim.terrain.bandDistancesKm, undefined, sim.terrain.waterFrac);
     scene.add(bands.group);
     terrainBandsRef.current = bands;
+
+    // 수역 마스크와 **바다 수평선 각도**를 같이 갱신합니다. 수평선은 관측
+    // 고도로 정해집니다 (30m → 0.176° 내려앉음).
+    waterTexRef.current?.dispose();
+    waterTexRef.current = makeWaterTexture(sim.terrain.waterFrac ?? null);
+    if (groundRef.current) {
+      setGroundHorizon(groundRef.current, sim.terrain.observerElevation ?? 0);
+    }
   }, [sim?.terrain?.bandAngles]);
 
   useEffect(() => {

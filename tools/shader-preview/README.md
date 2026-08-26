@@ -309,6 +309,38 @@ node tools/shader-preview/verify-region-cover.js       # 11개
 하면 구조는 늘지만 타임라인 5분 키프레임 사이에 무늬가 뒤바뀌어 구름이
 명멸합니다(`verify-timeline`이 잡습니다). 경계표는 파일 안 주석에.
 
+## 문법 검사 — `check-syntax.js`
+
+```bash
+node tools/shader-preview/check-syntax.js
+```
+
+빌더는 `.js` 라 `tsc --noEmit` 이 안 봅니다. 그런데 GLSL을 백틱 템플릿에
+담고 있어서, 그 안 주석에 백틱을 하나 쓰면 문자열이 거기서 끊겨
+`SyntaxError: Unexpected identifier` 가 납니다. 오류 메시지가 원인과 멀어
+매번 한참 헤맵니다 — 이 세션에서만 세 번 겪었습니다. `node --check` 는
+그걸 정확히, 오탐 없이 잡습니다.
+
+## 바다와 윤슬 — `verify-water.js`
+
+```bash
+node tools/shader-preview/build-water-preview.js
+node tools/shader-preview/shoot.js water.html water.png
+node tools/shader-preview/verify-water.js              # 10개
+```
+
+서쪽 절반이 바다인 관측점에서 태양 쪽과 **반대쪽**을 둘 다 찍습니다.
+물은 알베도가 0.06이라 반대쪽에서 육지보다 어둡고, 스치는 각에서는 프레넬로
+하늘을 비춰 태양 쪽에서 밝습니다 — **그 대비가 물의 전부**라 한쪽만 보면
+"물을 그냥 밝게 칠했다"와 구분이 안 됩니다.
+
+기준값: 육지 70.3 / 태양 쪽 124.5 / 반대쪽 50.2. 윤슬 폭 2m/s 4.9° →
+8m/s 11.2°.
+
+⚠ **봉우리 높이로 판정하지 마세요.** 선형에서는 약풍이 더 뾰족해야 하지만
+화면에서는 반대로 나옵니다 (ACES가 좁고 밝은 봉우리를 더 압축). 자기 바닥
+에서 고정 높이만큼 올라온 **폭**만 톤 곡선에 안 휘둘립니다.
+
 ## 지평선 아래 (땅) — `verify-horizon.js`
 
 ```bash

@@ -213,6 +213,10 @@ precision highp float;
 
 ${ATMOSPHERE_GLSL}
 
+// 물 알베도(0.06) 나누기 지표 알베도(약 0.19). uGroundRadiance 가 이미 지표
+// 알베도를 먹었으므로, 물의 몸체색은 이 비율만 더 곱하면 됩니다.
+#define WATER_ALBEDO_REL 0.32
+
 uniform vec3  uGroundRadiance;  // 지면이 되쏘는 복사휘도 (선형, 하늘과 같은 단위)
 uniform float uSunAzRad;
 uniform float uSunAltDeg;
@@ -220,7 +224,31 @@ uniform float uSaturation;
 uniform float uSheen;           // 태양 쪽 전방산란 광택 세기
 uniform float uExposure;        // 국소 순응 보정 (아래 주석)
 
+// ── 물 (docs/GROUND_PLAN.md 4·5단계) ────────────────────────────────────────
+uniform sampler2D uWaterTex;    // 방위별 수역 비율 (0~1), 가로 = 방위
+uniform float uHasWater;        // 0이면 물 경로를 통째로 건너뜁니다
+uniform vec3  uSunRadiance;     // 지면 고도에서의 직달광 (선형)
+uniform float uSunAltRad;
+uniform float uSlopeVar;        // Cox-Munk 파면 경사 분산 σ²
+// 물이 되비출 하늘을 셰이더 안에서 직접 계산합니다 (atm_skyRadiance).
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
+uniform float uOzoneDU;
+
 varying vec3 vWorld;
+
+/**
+ * 프레넬 반사율 (Schlick, 물 n=1.33 → F0 = 0.02).
+ *
+ * 물이 특별한 이유가 이 함수에 있습니다. 수직으로 내려다보면 2%만 반사해
+ * 거의 검지만, **스치는 각에서는 급격히 1에 가까워집니다** (85°에서 0.6 이상).
+ * 해 질 녘 물이 타오르는 것이 정확히 이것입니다.
+ */
+float waterFresnel(float cosTheta) {
+  float f = pow(1.0 - clamp(cosTheta, 0.0, 1.0), 5.0);
+  return 0.02 + 0.98 * f;
+}
 
 void main() {
   // 관측자는 원점에 있습니다. 이 픽셀이 보이는 방향.
@@ -264,11 +292,132 @@ void main() {
   // 표시만 고치는** 선택이라 여기 한 줄로 분리해 둡니다.
   vec3 col = uGroundRadiance * uExposure * nearShade * (1.0 + sheen);
 
+  // ── 물 ──────────────────────────────────────────────────────────────────
+  if (uHasWater > 0.5) {
+    float azFrac = fract((az / 6.2831853) + 1.0);
+    float water = texture2D(uWaterTex, vec2(azFrac, 0.5)).r;
+
+    if (water > 0.003) {
+      // V = 수면에서 눈으로, L = 수면에서 태양으로.
+      vec3 V = -dir;
+      vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad),
+                    sin(uSunAltRad),
+                    -cos(uSunAltRad) * cos(uSunAzRad));
+
+      // ── 윤슬: Cox-Munk 파면 경사 ─────────────────────────────────────
+      //
+      // 잔물결 하나하나를 그릴 수는 없지만, **경사의 분포**는 압니다.
+      // Cox & Munk (1954)가 풍속의 함수로 재 놓았습니다:
+      //     σ² = 0.003 + 0.00512 · U      (U = 10m 풍속, m/s)
+      //
+      // 눈과 태양을 잇는 반벡터 H가 그 지점에서 정반사를 일으키는 면의
+      // 법선입니다. H가 수직에서 얼마나 기울었는지를 가우시안에 넣으면
+      // 그 경사를 가진 면의 비율 = 그 방향의 밝기가 됩니다.
+      //
+      // 풍속이 낮으면 좁고 날카로운 기둥, 높으면 넓고 부드러운 띠가 되는
+      // 것이 σ² 하나에서 나옵니다.
+      vec3 H = normalize(V + L);
+      float cosN = max(H.y, 1e-3);            // 면 법선이 수직에서 기운 정도
+      float tan2 = (1.0 - cosN * cosN) / (cosN * cosN);
+      float p = exp(-tan2 / max(1e-4, uSlopeVar))
+              / (3.14159265 * max(1e-4, uSlopeVar) * pow(cosN, 4.0));
+
+      float cosV = max(-dir.y, 1e-3);         // 시선이 수면과 이루는 각
+      float F = waterFresnel(dot(V, H));
+      vec3 glitter = uSunRadiance * (F * p / (4.0 * cosV));
+
+      // ── 하늘 되비침 ──────────────────────────────────────────────────
+      //
+      // 반짝임이 없는 곳의 물은 **하늘을 비춥니다.** 스치는 각일수록 프레넬이
+      // 커져 더 많이 비추고, 내려다볼수록 물 자체 색(거의 검음)이 드러납니다.
+      //
+      // ⚠ **거울 방향의 하늘**을 봐야 합니다. 처음에 수평선 하늘색 하나를 모든
+      // 시선각에 썼더니 수면 전체가 노을색으로 포화돼 윤슬이 파묻혔습니다
+      // (측정: 수면 평균 238/255, 풍속을 4배 올려도 기둥 폭 0.56 → 0.59).
+      // 고도 -10°로 내려다본 물은 +10° 하늘을 비추지 수평선을 비추지 않습니다.
+      vec3 mirrorDir = vec3(dir.x, -dir.y, dir.z);
+      float mirrorElev = degrees(asin(clamp(mirrorDir.y, -1.0, 1.0)));
+      float cosG = dot(normalize(mirrorDir), L);
+      vec3 skyRefl = atm_skyRadiance(mirrorElev, cosG, uSunAltDeg,
+                                     uBeta, uAngstrom, uElevScale, uOzoneDU);
+
+      float Fv = waterFresnel(cosV);
+      vec3 body = uGroundRadiance * (WATER_ALBEDO_REL);   // 물 자체는 거의 검음
+      vec3 waterCol = skyRefl * Fv + body * (1.0 - Fv);
+
+      vec3 wet = (waterCol + glitter) * uExposure;
+      col = mix(col, wet, water);
+    }
+  }
+
   // 하늘과 **같은 표시 경로**를 통과시킵니다. 이게 없으면 두 축이 달라져
   // 상수를 손으로 맞출 수밖에 없습니다 (예전이 그랬습니다).
   gl_FragColor = vec4(atm_display(col, uSaturation, uSunAltDeg), 1.0);
 }
 `;
+
+/**
+ * 방위별 수역 비율을 가로 한 줄짜리 텍스처로 굽습니다.
+ *
+ * uniform 배열을 동적 인덱스로 읽는 것은 GLSL ES 1.0에서 보장되지 않으므로
+ * 텍스처를 씁니다 (텍스처 조회는 언제나 동적 인덱싱이 됩니다).
+ *
+ * `RepeatWrapping` + 선형 보간이라 방위 0°/360° 이음매가 자연히 이어지고,
+ * 해안선이 계단이 아니라 부드러운 경계로 나옵니다.
+ */
+export function makeWaterTexture(waterFrac: number[] | null): THREE.DataTexture {
+  const N = 64;
+  const data = new Uint8Array(N * 4);
+  for (let i = 0; i < N; i++) {
+    let v = 0;
+    if (waterFrac && waterFrac.length > 0) {
+      // 방위 i/N 에 해당하는 입력 표본을 선형 보간합니다.
+      const t = (i / N) * waterFrac.length;
+      const a = Math.floor(t) % waterFrac.length;
+      const b = (a + 1) % waterFrac.length;
+      const f = t - Math.floor(t);
+      v = waterFrac[a] * (1 - f) + waterFrac[b] * f;
+    }
+    const b8 = Math.round(Math.max(0, Math.min(1, v)) * 255);
+    data[i * 4] = b8; data[i * 4 + 1] = b8; data[i * 4 + 2] = b8; data[i * 4 + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, N, 1, THREE.RGBAFormat);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * 관측 고도에서 **바다 수평선**의 내려앉음(dip)을 구합니다 (도).
+ *
+ *     dip = acos(R / (R + h))
+ *
+ * 30m에서 0.176°, 100m에서 0.32°. 지형선과 달리 수평선은 완벽하게 평평하고
+ * 이 각도 하나로 정해집니다 — 그래서 물은 "없는 걸 안 만들어도 되는" 지표면
+ * 입니다.
+ */
+export function seaHorizonDipDeg(observerElevM: number): number {
+  const R = 6371000;
+  const h = Math.max(0, observerElevM);
+  return (Math.acos(R / (R + h)) * 180) / Math.PI;
+}
+
+/**
+ * 지면 원반을 **바다 수평선 각도에 맞춰** 내립니다.
+ *
+ * 원반 가장자리가 곧 보이는 지평선입니다. 예전에는 y = −8 (가장자리 −0.95°)
+ * 로 고정이었는데, 실제 30m 관측점의 수평선은 −0.176° 입니다 — 5배 아래로
+ * 내려가 있었습니다. 육지에서는 지형이 가려 안 보이지만 바다에서는 바로
+ * 드러납니다.
+ */
+export function setGroundHorizon(mesh: THREE.Mesh, observerElevM: number): void {
+  const dip = seaHorizonDipDeg(observerElevM);
+  mesh.position.y = -TERRAIN_RING_RADIUS * Math.tan((dip * Math.PI) / 180);
+}
 
 /** 거리대 하나에 해당하는 능선 링 */
 export interface TerrainBand {
@@ -299,7 +448,14 @@ export interface TerrainBandsHandle {
 export function createTerrainBands(
   bandAngles: number[][],
   distancesKm: number[],
-  maxVisualAngle: number = TERRAIN_MAX_ANGLE_DEG
+  maxVisualAngle: number = TERRAIN_MAX_ANGLE_DEG,
+  /**
+   * 방위별 수역 비율. 물인 방위에서는 능선을 접습니다 — 안 그러면 해면 위에
+   * 육지색 띠가 얹혀 수평선이 지형선처럼 보입니다. (바다 표본은 고도 0이라
+   * 지형각이 음수로 나오고, 그걸 0으로 클램프하면 지평선에 딱 붙은 얇은
+   * 띠가 되어 그 자리를 가립니다.)
+   */
+  waterFrac?: number[] | null
 ): TerrainBandsHandle {
   const group = new THREE.Group();
   group.name = 'terrainBands';
@@ -329,7 +485,17 @@ export function createTerrainBands(
       const i1 = Math.min(i0 + 1, angles.length - 1);
       const f = angleIdx - i0;
       const raw = angles[i0] * (1 - f) + angles[i1] * f;
-      const topDeg = Math.min(Math.max(raw, 0), maxVisualAngle);
+      let topDeg = Math.min(Math.max(raw, 0), maxVisualAngle);
+
+      if (waterFrac && waterFrac.length > 0) {
+        const wIdx = azFrac * (waterFrac.length - 1);
+        const w0 = Math.floor(wIdx);
+        const w1 = Math.min(w0 + 1, waterFrac.length - 1);
+        const wf = wIdx - w0;
+        const water = waterFrac[w0] * (1 - wf) + waterFrac[w1] * wf;
+        // 물이 우세한 방위는 능선을 지평선 아래로 접습니다.
+        topDeg = topDeg * (1 - Math.min(1, water * 1.4));
+      }
 
       // ⚠ 아래로 얼마나 내릴지가 중요합니다.
       //
@@ -486,6 +652,15 @@ export function createGroundPlane(): THREE.Mesh {
       uSaturation: { value: 1.0 },
       uSheen: { value: 0.0 },
       uExposure: { value: 1.0 },
+      uWaterTex: { value: makeWaterTexture(null) },
+      uHasWater: { value: 0.0 },
+      uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
+      uSunAltRad: { value: 0.5 },
+      uSlopeVar: { value: 0.03 },
+      uBeta: { value: 0.08 },
+      uAngstrom: { value: 1.3 },
+      uElevScale: { value: 1.0 },
+      uOzoneDU: { value: 330 },
     },
     vertexShader: GROUND_VERT,
     fragmentShader: GROUND_FRAG,
@@ -762,6 +937,15 @@ export function updateGroundColors(
     sunTransmittance?: number;
     sunAzimuthDeg?: number;
     saturation?: number;
+    /** 방위별 수역 비율. `makeWaterTexture`로 구운 것을 넘깁니다. */
+    waterTex?: THREE.DataTexture | null;
+    /** 대기 파라미터 — 물이 되비출 하늘을 셰이더 안에서 직접 계산합니다. */
+    betaMie?: number;
+    angstrom?: number;
+    elevScale?: number;
+    ozoneDU?: number;
+    /** 10m 고도 풍속 (m/s). 윤슬 폭이 이걸로 정해집니다. */
+    windSpeedMs?: number;
   }
 ): void {
   const mat = mesh.material as THREE.ShaderMaterial;
@@ -802,6 +986,23 @@ export function updateGroundColors(
   // 띠가 되고, 높이면 땅이 하늘만큼 밝아져 다시 거짓말이 됩니다.
   // 목표는 "명백히 어둡지만 표면으로 읽히는" 구간입니다.
   u.uExposure.value = GROUND_EXPOSURE;
+
+  // ── 물 ────────────────────────────────────────────────────────────────
+  if (opts?.waterTex) {
+    u.uWaterTex.value = opts.waterTex;
+    u.uHasWater.value = 1.0;
+  } else {
+    u.uHasWater.value = 0.0;
+  }
+  const bm = opts?.beam ?? { r: 0, g: 0, b: 0 };
+  (u.uSunRadiance.value as THREE.Vector3).set(bm.r * sunT, bm.g * sunT, bm.b * sunT);
+  u.uSunAltRad.value = (sunAltitude * Math.PI) / 180;
+  u.uBeta.value = opts?.betaMie ?? 0.08;
+  u.uAngstrom.value = opts?.angstrom ?? 1.3;
+  u.uElevScale.value = opts?.elevScale ?? 1.0;
+  u.uOzoneDU.value = opts?.ozoneDU ?? 330;
+  // Cox & Munk (1954). 풍속이 0이어도 잔물결이 있어 0.003이 바닥입니다.
+  u.uSlopeVar.value = 0.003 + 0.00512 * Math.max(0, opts?.windSpeedMs ?? 5.5);
 }
 
 /**
