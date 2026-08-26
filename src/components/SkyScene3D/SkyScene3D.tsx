@@ -699,7 +699,29 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     }
 
     if (groundRef.current) {
-      updateGroundColors(groundRef.current, sunAltRef.current, overcast);
+      // 지면 밝기는 **조도 × 알베도**입니다. 하늘 조도는 몇 방향만 뽑아
+      // 평균해도 충분합니다 (지면은 방향을 구분해 보지 않고 전부 합쳐 받습니다).
+      // 태양 쪽이 훨씬 밝으므로 방위도 같이 훑어야 편향이 없습니다.
+      //
+      // **코사인 가중이 핵심입니다.** 수평면이 받는 조도는 ∫L·cosθ dΩ 이라
+      // 천정 쪽이 크게, 지평선 쪽이 작게 기여합니다. 균등 평균으로 내면
+      // 지평선의 노을빛을 과대 반영해 지면이 실제보다 따뜻해집니다.
+      let sr = 0, sg = 0, sb = 0, sw = 0;
+      for (const elev of [10, 30, 50, 75]) {
+        const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
+        for (let a = 0; a < 6; a++) {
+          const az = (a * 360) / 6;
+          const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
+          const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
+          sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
+        }
+      }
+      updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
+        skyMean: { r: sr / sw, g: sg / sw, b: sb / sw },
+        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+        sunTransmittance: 1 - overcast,
+        sunAzimuthDeg: sunAzRef.current,
+      });
     }
 
     if (terrainRef.current) {

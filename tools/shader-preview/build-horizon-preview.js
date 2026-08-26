@@ -49,7 +49,8 @@ import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydom
 import { createTerrainRing, createGroundPlane,
          updateTerrainColors, updateGroundColors }
   from './app/components/SkyScene3D/TerrainRing.js';
-import { makeAtmosphereParams } from './app/utils/atmosphere.js';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, angularSeparationDeg }
+  from './app/utils/atmosphere.js';
 
 const errors = [];
 const oe = console.error;
@@ -83,7 +84,19 @@ const sunDir = new THREE.Vector3(
   Math.cos(sAlt) * Math.sin(sAz), Math.sin(sAlt), -Math.cos(sAlt) * Math.cos(sAz)).normalize();
 updateSkydome(sky, SUN_ALT, SUN_AZ, atmosphere, 1.0);
 updateTerrainColors(terrain, SUN_ALT, SUN_AZ, 0, atmosphere.betaMie);
-updateGroundColors(ground, SUN_ALT, 0);
+// 앱과 같은 방식으로 하늘 반구 평균을 뽑아 넘깁니다.
+let sr=0,sg=0,sb=0,sw=0;
+for (const e of [10,30,50,75]) { const w=Math.sin(e*Math.PI/180);
+  for (let a=0;a<6;a++) {
+    const az=(a*360)/6;
+    const L=skyRadiance(e, angularSeparationDeg(az,e,SUN_AZ,SUN_ALT), SUN_ALT, atmosphere);
+    sr+=L.r*w; sg+=L.g*w; sb+=L.b*w; sw+=w;
+  } }
+const skyMean = { r:sr/sw, g:sg/sw, b:sb/sw };
+updateGroundColors(ground, SUN_ALT, 0, {
+  skyMean, beam: beamAtAltitude(SUN_ALT, 0, atmosphere),
+  sunTransmittance: 1, sunAzimuthDeg: SUN_AZ });
+window.__skyMean = skyMean;
 
 const cam = new THREE.PerspectiveCamera(FOV_DEG, TW / TH, 0.1, 2000);
 cam.position.set(0, 0, 0);
@@ -142,10 +155,20 @@ function shoot(parts, label, x) {
   return strip;
 }
 
+function aim(azDeg) {
+  const a = azDeg * Math.PI / 180;
+  cam.lookAt(100 * Math.cos(er) * Math.sin(a), 100 * Math.sin(er), -100 * Math.cos(er) * Math.cos(a));
+  cam.updateMatrixWorld(true);
+}
+
 const 전부   = shoot({ sky: 1, terrain: 1, ground: 1 }, '전부 (앱과 동일)', 0);
 const 지면없이 = shoot({ sky: 1, terrain: 1, ground: 0 }, '지면 원반 뺌', TW);
 const 하늘없이 = shoot({ sky: 0, terrain: 1, ground: 1 }, '스카이돔 뺌', TW * 2);
-const 지면만  = shoot({ sky: 0, terrain: 0, ground: 1 }, '지면 원반만', TW * 3);
+// **태양 반대쪽**을 봅니다. 지면이 램버시안이면 여기가 태양 쪽과 같은
+// 밝기여야 하고, 전방산란 광택이 실제로 걸리면 더 어두워야 합니다.
+aim((SUN_AZ + 180) % 360);
+const 반대쪽 = shoot({ sky: 0, terrain: 0, ground: 1 }, '지면만 · 태양 반대쪽', TW * 3);
+aim(SUN_AZ);
 
 // 지면 원반을 빼도 화면이 그대로면, 애초에 안 보이고 있었다는 뜻입니다.
 let maxDelta = 0;
@@ -168,12 +191,14 @@ const BANDS = [[2, 10], [0, 2], [-2, 0], [-6, -2], [-15, -6], [-30, -15]];
 const glErr = gl.getError();
 window.__stats = {
   glError: glErr,
+  하늘반구평균: window.__skyMean,
   지면원반을_빼도_바뀌는_최대픽셀차: maxDelta,
   고도대: BANDS.map(([lo, hi]) => ({
     고도대: lo + '~' + hi + '°',
     전부: bandOf(전부, lo, hi),
     스카이돔뺌: bandOf(하늘없이, lo, hi),
-    지면만: bandOf(지면만, lo, hi),
+    지면_태양쪽: bandOf(하늘없이, lo, hi),
+    지면_반대쪽: bandOf(반대쪽, lo, hi),
   })),
 };
 window.__errors = errors;

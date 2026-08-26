@@ -55,15 +55,15 @@ const lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 
   console.log('\n== 고도대별 색 ==');
   const f = v => v ? `rgb(${String(v.r).padStart(3)},${String(v.g).padStart(3)},${String(v.b).padStart(3)})` : '—';
-  console.log('  고도대       전부              스카이돔뺌');
+  console.log('  고도대       전부              태양쪽지면        반대쪽지면');
   for (const band of stats.고도대) {
-    console.log(`  ${band.고도대.padEnd(10)} ${f(band.전부)}  ${f(band.스카이돔뺌)}`);
+    console.log(`  ${band.고도대.padEnd(10)} ${f(band.전부)}  ${f(band.지면_태양쪽)}  ${f(band.지면_반대쪽)}`);
   }
 
-  console.log('\n== 판정 ==');
+  console.log('\n== 1단계: 지평선 아래가 하늘이 아님 ==');
   const d = stats.지면원반을_빼도_바뀌는_최대픽셀차;
   console.log(`  지면 원반을 빼도 바뀌는 최대 픽셀차: ${d}`);
-  // 고치기 전은 **1** 이었습니다 — 즉 지면이 아예 안 보이고 있었습니다.
+  // 고치기 전은 **1** 이었습니다 — 지면이 아예 안 보이고 있었습니다.
   ok(d > 40, `지면 원반이 실제로 화면에 나옴 (최대 픽셀차 ${d} > 40, 고치기 전 1)`);
 
   const at = deg => stats.고도대.find(x => x.고도대 === deg);
@@ -71,23 +71,38 @@ const lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
   const 아래 = at('-6~-2°').전부;
   const 더아래 = at('-30~-15°').전부;
 
-  // 지평선 아래가 하늘이면 밝은 금빛(고치기 전 rgb(248,229,132))이 나옵니다.
   ok(lum(아래) < lum(하늘),
     `지평선 아래가 위보다 어두움 (${lum(아래).toFixed(0)} < ${lum(하늘).toFixed(0)})`);
-  ok(lum(아래) < lum(하늘) * 0.6,
-    `충분히 어두움 — 하늘의 60% 미만 (${(lum(아래) / lum(하늘) * 100).toFixed(0)}%)`);
 
-  // 하늘 셰이더가 아래로 이어지면 채도 높은 금빛이 됩니다. 땅이면 그렇지
-  // 않아야 합니다 (알베도가 낮아 무채색에 가깝습니다).
   const sat = c => (Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b)) /
     Math.max(1, Math.max(c.r, c.g, c.b));
   console.log(`  지평선 아래 채도 ${(sat(아래) * 100).toFixed(0)}% (하늘이었을 때 47%)`);
   ok(sat(아래) < 0.25,
     `지평선 아래가 금빛 하늘이 아님 (채도 ${(sat(아래) * 100).toFixed(0)}% < 25%)`);
 
-  // 아래로 갈수록 하늘 그라데이션이 이어지면 안 됩니다.
-  ok(Math.abs(lum(더아래) - lum(아래)) < 30,
-    `아래쪽이 하늘 그라데이션을 잇지 않음 (휘도차 ${Math.abs(lum(더아래) - lum(아래)).toFixed(0)})`);
+  console.log('\n== 2단계: 밝기가 알베도에서 나옴 ==');
+  const ratio = lum(아래) / lum(하늘);
+  console.log(`  지면 / 하늘 휘도비 = ${(ratio * 100).toFixed(0)}%`);
+  // 아래쪽은 알베도(≈0.2)에 국소 순응 보정을 곱한 만큼입니다. 양쪽 다
+  // 막습니다 — 너무 낮으면 검은 띠, 너무 높으면 "땅이 하늘만큼 밝다"는
+  // 원래 문제로 되돌아갑니다.
+  ok(ratio > 0.12, `검은 띠가 아님 (${(ratio * 100).toFixed(0)}% > 12%)`);
+  ok(ratio < 0.50, `땅이 하늘만큼 밝지 않음 (${(ratio * 100).toFixed(0)}% < 50%)`);
+
+  // 발밑으로 갈수록 어두워져야 합니다 (자기 그림자 + 주변 가림).
+  ok(lum(더아래) < lum(아래),
+    `발밑으로 갈수록 어두움 (${lum(더아래).toFixed(0)} < ${lum(아래).toFixed(0)})`);
+
+  // 방위별 전방산란 광택. 지면이 램버시안이면 이 비가 1이 되고, 그러면
+  // 방향에 무관한 한 색이라 회색 판때기로 보입니다.
+  const sun쪽 = at('-6~-2°').지면_태양쪽;
+  const 반대 = at('-6~-2°').지면_반대쪽;
+  const sheen = lum(sun쪽) / Math.max(1, lum(반대));
+  console.log(`  태양 쪽 / 반대쪽 = ${sheen.toFixed(2)}배`);
+  ok(sheen > 1.25,
+    `태양 쪽 지면이 더 밝음 — 표면으로 읽히는 방향 단서 (${sheen.toFixed(2)}배 > 1.25)`);
+  ok(sheen < 3.0,
+    `광택이 그라데이션을 지배하지 않음 (${sheen.toFixed(2)}배 < 3.0)`);
 
   console.log('\n%s — pass %d / fail %d', fail === 0 ? 'ALL PASS' : 'FAILURES', pass, fail);
   process.exit(fail === 0 ? 0 : 1);
