@@ -16,6 +16,11 @@ import {
   PRESET_OPTICS,
   resolvePresetFromWeather,
   representativeTauForObserver,
+  cloudBaseKm,
+  convectiveVigor,
+  convectiveDepthKm,
+  CUMULUS_TOWER_FIRST,
+  TOWER_VIGOR,
   type CloudPresetName,
   type CloudOpticsConfig,
 } from '../../utils/cloudPresets';
@@ -34,6 +39,7 @@ import {
   buildSkyColumns,
   solveColumnOptics,
   solveDirectionalShade,
+  elevationFromDistanceDeg,
   haloStrength,
   WeatherFan,
   LAYER_ALTITUDE_KM,
@@ -73,6 +79,10 @@ export interface CloudInstanceData {
   altitudeKm: number;
   shadowContrast: number;
   rimSharpness: number;
+  /** 밑면 고도 (km) — 응결고도. 같은 하늘이면 방향이 달라도 같은 값입니다. */
+  baseKm: number;
+  /** 운정 고도 (km) */
+  topKm: number;
   horizontal: boolean;
   shellRadius: number;
   /** 이 방향 층의 운량 (0~1) — 덱과의 블렌드에 사용 */
@@ -80,7 +90,13 @@ export interface CloudInstanceData {
   layer: LayerKey;
 }
 
-/** 프리셋별 대표 물리 고도 (km) */
+/**
+ * 프리셋별 대표 물리 고도 (km).
+ *
+ * ⚠ 적운·적란운은 이제 이 표를 쓰지 않습니다 — 밑면은 습도에서 나온
+ * 응결고도(`cloudBaseKm`), 꼭대기는 대류 강도에서 나옵니다 (5단계).
+ * 나머지 여덟 종은 덱이 그리므로 이 표는 조명 고도 참조로만 남습니다.
+ */
 const PRESET_ALTITUDE_KM: Record<CloudPresetName, number> = {
   Cirrus: 11.5,
   Cirrocumulus: 10.0,
@@ -179,17 +195,41 @@ export interface BuildCloudsResult {
 const DIFFUSE_ILLUM_SCALE = 0.55;
 
 /**
- * 빌보드 하나의 각크기 (도).
+ * 빌보드 연직 각크기의 하한·상한 (도) — docs/CLOUD_VARIETY_PLAN.md 5단계.
  *
- * 격자 한 칸이 담당하는 입체각은 2π/192 = 0.0327 sr이고, 이는 지름 약 11.7°의
- * 원반에 해당합니다. 빌보드를 그보다 조금 크게 잡아야 8/8에서 빈틈이 닫히고,
- * 너무 크게 잡으면(이전 26~36°) 겹침이 과해져 3/8도 뿌연 죽처럼 보입니다.
+ * 예전에는 각크기가 **상수**였습니다 (저 14° × 0.75~1.25). 그래서 40km 밖
+ * 적운과 5km 앞 적운이 화면에서 같은 크기였습니다 — 원근이 없으니 크기가
+ * 거리를 말해 주지 못했고, "다양한 크기"가 있을 수 없었습니다.
+ *
+ * 이제는 밑면·꼭대기 고도와 거리에서 계산합니다. 남는 것은 두 경계뿐입니다:
+ *  - 하한: 이보다 작으면 화면에서 몇 픽셀이라 그릴 값이 없습니다.
+ *    (그 거리의 구름은 덱이 이미 담당합니다.)
+ *  - 상한: 머리 위 가까운 탑은 기하학적으로 60°를 넘길 수 있는데, 그러면
+ *    빌보드 한 장이 화면을 덮어 스프라이트라는 게 드러납니다.
  */
-const BILLBOARD_ANGULAR_DEG: Record<LayerKey, number> = {
-  low: 14,
-  mid: 17,
-  high: 21,
-};
+const BILLBOARD_MIN_DEG = 1.2;
+const BILLBOARD_MAX_DEG = 40;
+
+/**
+ * 대류운 빌보드를 그리기 위한 **최소 거리** — 연직 두께의 몇 배인가.
+ *
+ * 하늘 기둥 모형은 방향에서 거리를 역산합니다(`elevationToDistanceKm`).
+ * 그 역산은 구름층이 **연속한 껍질**이라는 가정 위에 있습니다. 층상운에는
+ * 맞지만 대류운에는 안 맞습니다 — 적운은 낱개 덩어리라, 고도각 40°를
+ * 올려다볼 때 "밑면 0.3km인 구름이 0.36km 앞에 있다"는 답이 나옵니다.
+ * 그 자리에 4km짜리 탑을 그리면 각크기가 57°가 되어 빌보드 한 장이 화면을
+ * 덮습니다 (실측: 중앙값 41.9°, 상한에 붙음).
+ *
+ * 물리적으로도 그건 "구름 안에 들어가 있다"는 뜻입니다. 대류운의 수평 크기는
+ * 연직 두께와 비슷하므로, **자기 크기의 1.4배보다 가까우면** 하나의 물체로
+ * 보이지 않습니다. 그런 방향은 덱이 담당합니다.
+ *
+ * 이 조건은 두께에 비례하므로 저절로 옳은 일을 합니다: 납작한 호천적운
+ * (0.7km)은 1km 앞에서도 물체로 보이니 중간 고도까지 나오고, 4km짜리 탑은
+ * 5km 밖에서만 나옵니다 — 실제로 솟은 적운이 늘 **지평선 쪽에** 보이는
+ * 이유가 그것입니다 (사진 ②).
+ */
+const CONVECTIVE_MIN_DIST_FACTOR = 1.4;
 
 
 /**
@@ -409,14 +449,53 @@ function placeClouds(
     if (presetName !== 'Cumulus' && presetName !== 'Cumulonimbus') continue;
 
     const layerType = presetLayerType(presetName);
-    const altKm = PRESET_ALTITUDE_KM[presetName];
     const shellRadius = layerShellRadius(layerType);
     const opticsConfig = PRESET_OPTICS[presetName] || PRESET_OPTICS.Cumulus;
+
+    // ── 5단계: 수직 발달 ────────────────────────────────────────────────
+    //
+    // 밑면은 **응결고도**입니다 — 습도 하나가 정하므로 하늘의 모든 적운이
+    // 같은 높이에 평평한 밑면을 갖습니다. 사진에서 뭉게구름 아래가 자로 그은
+    // 듯 나란한 것이 그 때문입니다. 예전에는 상수 1.6km 였습니다.
+    const vigor = convectiveVigor(s.precipMmH, s.humidityPct, s.cover);
+    const baseKm = cloudBaseKm(s.humidityPct);
+    const depthKm = convectiveDepthKm(presetName, vigor);
+    const topKm = baseKm + depthKm;
+    // 조명 고도는 덩어리의 가운데를 씁니다.
+    const altKm = baseKm + depthKm * 0.5;
+
+    // ── 이 방향의 구름이 놓인 **거리**, 그리고 거기서 본 밑면·꼭대기 각 ──
+    //
+    // 거리는 표본의 `distanceKm`을 그대로 씁니다. 이 값은 층 대표 고도
+    // (1.5km) 껍질과의 교점이라, "이 방향에 구름이 있다면 대략 이만큼
+    // 떨어져 있다"는 뜻입니다 — 나머지 파이프라인(운량·그늘·대기 투시)이
+    // 전부 그 거리를 쓰므로 여기서도 같은 값을 써야 어긋나지 않습니다.
+    //
+    // ⚠ 밑면 고도로 거리를 **다시 역산하면 안 됩니다.** 그러면 밑면이 낮을수록
+    // (습한 날) 같은 고도각이 훨씬 가까운 거리로 풀려, 탑이 나올 수 있는
+    // 고도각 띠가 3.6° 한 줄로 좁아집니다 (실측: 빌보드 2장). 밑면 고도는
+    // **각도**를 정하는 데만 씁니다.
+    const dKm = s.distanceKm;
+    // 자기 크기보다 가까우면 물체로 보이지 않습니다 (위 상수 주석).
+    if (dKm < CONVECTIVE_MIN_DIST_FACTOR * depthKm) continue;
+    const baseElevDeg = elevationFromDistanceDeg(dKm, baseKm);
+    const topElevDeg = elevationFromDistanceDeg(dKm, topKm);
+    const angularDeg = topElevDeg - baseElevDeg;
+    // 너무 작으면 화면에서 몇 픽셀입니다 — 그 거리의 구름은 덱이 담당합니다.
+    if (angularDeg < BILLBOARD_MIN_DEG) continue;
+    const drawDeg = Math.min(BILLBOARD_MAX_DEG, angularDeg);
 
     const seed3 = hash01(`${key}#v3`);
     const variantCount = countVariants(atlas, presetName, false);
     if (variantCount === 0) continue;
-    const variant = Math.floor((seed1 * 0.4 + seed3 * 0.6) * variantCount * 13) % variantCount;
+    // 대류가 강하면 **탑형** 실루엣에서 고릅니다. 넓적한 판을 세로로 늘여
+    // 봐야 눌린 꽃양배추가 될 뿐이라, 모양 자체가 다른 템플릿이 필요합니다.
+    const useTower = presetName === 'Cumulus' && vigor > TOWER_VIGOR
+      && variantCount > CUMULUS_TOWER_FIRST;
+    const from = useTower ? CUMULUS_TOWER_FIRST : 0;
+    const span = useTower ? variantCount - CUMULUS_TOWER_FIRST
+      : Math.min(CUMULUS_TOWER_FIRST, variantCount);
+    const variant = from + (Math.floor((seed1 * 0.4 + seed3 * 0.6) * span * 13) % span);
     const atlasKey = cloudAtlasKey(presetName, variant, false);
     const rect = atlas.rects.get(atlasKey);
     if (!rect) continue;
@@ -425,10 +504,15 @@ function placeClouds(
     const isFlipped = seed3 > 0.5;
 
     // 격자 중앙에서 살짝 흔들어 정렬 티가 나지 않게 합니다.
+    // 세로 흔들림은 **밑면**에만 겁니다 — 밑면이 나란한 것이 적운의 서명이라
+    // 크게 흔들면 그 서명이 사라집니다.
     const azJitter = (seed1 - 0.5) * (360 / 24) * 0.8;
-    const elevJitter = (seed2 - 0.5) * 5.0;
+    const baseJitter = (seed2 - 0.5) * 1.6;
     const azimuthDeg = (s.azimuthDeg + azJitter + 360) % 360;
-    const elevationDeg = Math.max(1.5, Math.min(89, s.elevationDeg + elevJitter));
+    // 빌보드는 중심 정렬이므로, 밑면을 표본 방향에 두려면 중심을 반만큼
+    // 위로 올립니다. 그래야 탑이 밑면에서 **위로** 자랍니다.
+    const elevationDeg = Math.max(1.5, Math.min(89,
+      baseElevDeg + baseJitter + drawDeg * 0.5));
 
     const beam = beamFor(altKm, s);
 
@@ -485,9 +569,11 @@ function placeClouds(
     // 운량은 하늘을 얼마나 채우는가(= 빌보드 개수)로 이미 반영되었습니다.
     const opacity = clamp01(opticsConfig.opacity * (0.55 + 0.45 * clamp01(s.cover * 1.4)));
 
-    const angularDeg = BILLBOARD_ANGULAR_DEG[s.layer] * (0.75 + seed1 * 0.5);
-    const sizeY = shellRadius * Math.tan((angularDeg * Math.PI) / 360) * 2;
-    const clampedAspect = Math.max(0.8, Math.min(2.5, rect.aspect));
+    const sizeY = shellRadius * Math.tan((drawDeg * Math.PI) / 360) * 2;
+    // 종횡비는 **템플릿이 정합니다.** 목표 비율로 늘이면 넓적한 판이
+    // 가로로 눌린 모양이 되므로, 모양은 템플릿에서 오고 배치는 그걸
+    // 그대로 씁니다. 하한을 0.5로 연 것은 탑형이 0.54~0.65이기 때문입니다.
+    const clampedAspect = Math.max(0.5, Math.min(3.0, rect.aspect));
 
     out.push({
       azimuthDeg,
@@ -504,6 +590,8 @@ function placeClouds(
       altitudeKm: altKm,
       shadowContrast: opticsConfig.shadowContrast,
       rimSharpness: opticsConfig.rimSharpness,
+      baseKm,
+      topKm,
       horizontal: isFlipped,
       shellRadius,
       cover: s.cover,

@@ -137,6 +137,28 @@ export function elevationToDistanceKm(elevDeg: number, altKm: number): number {
   return (R + altKm) * theta;
 }
 
+/**
+ * `elevationToDistanceKm`의 **역함수** — 거리 d에 있는 고도 h 점의 고도각.
+ *
+ * 관측자를 반지름 R의 구면 위 (0, R), 대상을 지심각 θ 만큼 떨어진 고도 h
+ * 지점으로 두면 대상의 위치는 ((R+h)sinθ, (R+h)cosθ) 입니다. 관측자의
+ * 국소 연직은 (0,1), 수평은 (1,0) 이므로
+ *
+ *   tan ε = ((R+h)cosθ − R) / ((R+h) sinθ)
+ *
+ * 입니다. `elevationToDistanceKm`이 d를 **구름 껍질 위의 호**로 정의하므로
+ * (d = (R+h)·θ), 여기서도 θ = d/(R+h) 로 되돌립니다.
+ *
+ * 5단계에서 필요합니다: 밑면이 거리 d에 놓인 구름의 **꼭대기**가 몇 도에
+ * 보이는지를 알아야 연직 각크기가 나옵니다.
+ */
+export function elevationFromDistanceDeg(distanceKm: number, altKm: number): number {
+  const R = EARTH_RADIUS_KM;
+  const Rh = R + Math.max(0, altKm);
+  const theta = Math.max(1e-9, distanceKm) / Rh;
+  return Math.atan2(Rh * Math.cos(theta) - R, Rh * Math.sin(theta)) * R2D;
+}
+
 // ── 공간 노이즈 ────────────────────────────────────────────────────────────
 // 실측이 없는 방향을 메우고, 실측이 있는 곳에도 구조를 줍니다.
 // **평균은 건드리지 않고 분산만** 담당합니다 — 평균을 흔들면 예보가 왜곡됩니다.
