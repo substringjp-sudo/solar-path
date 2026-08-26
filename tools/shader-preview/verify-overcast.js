@@ -166,11 +166,45 @@ console.log('\n== 태양 방향 기둥 ==');
      `상층만 덮임 → 저층 평행광 ${(highOnly.beamFactor.low*100).toFixed(0)}% (위층이 아래를 그늘지게 함)`);
   ok(highOnly.beamFactor.high === 1, '최상층은 항상 직달광 100%');
 
-  // 태양이 낮으면 경사 경로가 길어져 더 많이 막힙니다
-  const lowSun = S.solveColumnOptics(mk(60,0,0), 270, 8, tauOf);
-  const highSun = S.solveColumnOptics(mk(60,0,0), 270, 60, tauOf);
-  ok(lowSun.sunTransmittance <= highSun.sunTransmittance,
-     `태양 8° 투과 ${(lowSun.sunTransmittance*100).toFixed(1)}% ≤ 60° ${(highSun.sunTransmittance*100).toFixed(1)}% (경사 경로)`);
+  // 태양이 낮으면 경사 경로가 길어져 더 많이 막힙니다.
+  //
+  // ⚠ **이 단언은 τ=110에서는 잴 수 없습니다.** exp(-110) ≈ 0 이라 태양 광선이
+  // 구름에 닿는 순간 고도각과 무관하게 완전히 막힙니다 — 투과 = 틈새 비율일
+  // 뿐 경사 경로 의존성이 물리적으로 존재하지 않습니다. 실제로 방위 24 ×
+  // 노이즈 실현 12를 평균해 보면 8° 40.9%, 20° 38.8%, 40° 39.4%, 60° 39.2%로
+  // **평평합니다.**
+  //
+  // 예전 단언(τ=110, 한 방위)이 통과하던 것은 경사 경로 때문이 아니라 예전
+  // 운량장이 매끄러워 고도각마다 운량이 조금씩 달랐기 때문입니다. 운량장을
+  // U자로 바꾸자 그 우연한 기울기가 사라져 드러났습니다.
+  //
+  // 경사 경로 자체를 재려면 (a) 광학두께가 반투명 영역이어야 하고
+  // (b) 운량이 고정돼야 합니다. 균일한 기둥을 직접 만들어 둘 다 고정합니다.
+  const uniformCols = [];
+  for (const layer of ['low', 'mid', 'high']) {
+    for (let a = 0; a < 24; a++) {
+      for (const e of S.elevationGrid(8)) {
+        uniformCols.push({
+          layer, azimuthDeg: (a * 360) / 24, elevationDeg: e,
+          distanceKm: S.elevationToDistanceKm(e, layer === 'low' ? 1.5 : layer === 'mid' ? 4.5 : 10),
+          confidence: 1, cover: layer === 'low' ? 0.6 : 0,
+        });
+      }
+    }
+  }
+  const thinTau = L => (L === 'low' ? 2.0 : 0);
+  const slantLow = S.solveColumnOptics(uniformCols, 270, 8, thinTau);
+  const slantHigh = S.solveColumnOptics(uniformCols, 270, 60, thinTau);
+  ok(slantLow.sunTransmittance < slantHigh.sunTransmittance,
+     `균일 운량·반투명(τ=2)에서 태양 8° 투과 ${(slantLow.sunTransmittance*100).toFixed(1)}% < 60° ${(slantHigh.sunTransmittance*100).toFixed(1)}% (경사 경로)`);
+
+  // 불투명 영역에서는 경사 의존성이 **없어야** 맞습니다. 위 단언이 τ=110에서
+  // 통과한다면 그건 물리가 아니라 운량 편향을 재고 있다는 뜻입니다.
+  const opaqueTau = L => (L === 'low' ? 110 : 0);
+  const opLow = S.solveColumnOptics(uniformCols, 270, 8, opaqueTau);
+  const opHigh = S.solveColumnOptics(uniformCols, 270, 60, opaqueTau);
+  ok(Math.abs(opLow.sunTransmittance - opHigh.sunTransmittance) < 0.02,
+     `불투명(τ=110)에서는 고도각 무관 — 8° ${(opLow.sunTransmittance*100).toFixed(1)}% ≈ 60° ${(opHigh.sunTransmittance*100).toFixed(1)}%`);
 
   // 단조성: 운량이 늘수록 투과가 준다
   let mono = true, prev = 2;
