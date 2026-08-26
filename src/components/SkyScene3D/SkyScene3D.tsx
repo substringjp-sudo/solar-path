@@ -54,7 +54,11 @@ import { createCloudField, updateCloudField, type CloudField } from './CloudFiel
 import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import { createCloudDeck, updateCloudDeck, type CloudDeckHandle } from './CloudDeck';
-import { PRESET_OPTICS, representativePresetForObserver } from '../../utils/cloudPresets';
+import {
+  PRESET_OPTICS,
+  representativePresetForObserver,
+  resolvePresetFromWeather,
+} from '../../utils/cloudPresets';
 import { PLACEHOLDER_WIND_BEARING_DEG, PLACEHOLDER_WIND_SPEED_KMH } from '../../utils/skyColumn';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
@@ -988,6 +992,37 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         high: opticsForLayer('high', observerWeather()),
       };
 
+      // ── 방향별 운형 광학 (docs/CLOUD_VARIETY_PLAN.md 2단계) ─────────────
+      //
+      // DNI 보정은 `placeClouds`의 빌보드 경로와 **같은 규칙**입니다. 두 곳이
+      // 갈라지면 덱과 빌보드가 이어지는 BKN 경계에서 두께가 어긋납니다.
+      // (DNI는 τ ≲ 5까지만 분해하므로 포화하지 않았을 때만 상한으로 씁니다.)
+      const obsWx = observerWeather();
+      const wx = {
+        precipitation: obsWx?.precipitation,
+        humidity: obsWx?.humidity,
+        lowPct: obsWx?.low ?? 0,
+        highPct: obsWx?.high ?? 0,
+      };
+      const dniTau = built.dniTau;
+      const genusOptics = (layer: 'low' | 'mid' | 'high', cover: number) => {
+        const name = resolvePresetFromWeather(layer, cover, wx, 0.5);
+        const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+        let tau = o.tau;
+        if (dniTau && !dniTau.saturated) {
+          const share = layer === 'low' ? 0.6 : layer === 'mid' ? 0.3 : 0.1;
+          const fromDni = (dniTau.tauVert * share) / Math.max(0.15, cover);
+          tau = Math.min(tau, Math.max(0.5, fromDni));
+        }
+        return {
+          tau: Math.max(0.5, Math.min(400, tau)),
+          shadowContrast: o.shadowContrast,
+          cellSizeKm: o.cellSizeKm,
+          cellStrength: o.cellStrength,
+          cellAspect: o.cellAspect,
+        };
+      };
+
       updateCloudDeck(deck, {
         samples: built.samples,
         // 덱도 **위층을 통과한** 직달광을 받아야 합니다.
@@ -1019,7 +1054,19 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), layerOptics[layer].tau),
         shadowFor: layer =>
           medianOf(byLayer(layer).map(c => c.shadowContrast), layerOptics[layer].shadowContrast),
+        // 채널(billow/fbm)만 층 대표에서 옵니다 — 방향마다 바꾸면 두 균등분포를
+        // 섞게 되어 운량 보장이 깨집니다 (CloudDeck.ts genusFor 주석).
         cellFor: layer => layerOptics[layer],
+        // ── 2단계: 방향별 운형 ───────────────────────────────────────────
+        //
+        // 판정은 빌보드 경로(`placeClouds`)가 이미 방향마다 하고 있습니다.
+        // 다만 거기서는 적운·적란운이 아닌 여덟 종을 **버립니다**(빌보드
+        // 제한). 버리는 대신 덱이 받습니다.
+        //
+        // seed는 0.5 고정입니다. 방향마다 난수를 넣으면 이웃한 두 방향이
+        // 무작위로 다른 운형이 되어 **기상이 아니라 노이즈**가 됩니다.
+        // 0.5로 두면 운형 차이는 오직 데이터(운량·강수·습도)에서 옵니다.
+        genusFor: (layer, _azDeg, _elevDeg, cover) => genusOptics(layer, cover),
         pixelAngleRad: pixelAngleRad(),
         // 6단계: 권운 필라멘트를 빗을 방향. 실측이 아니라 대용 상수입니다
         // (skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG).
