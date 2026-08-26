@@ -23,6 +23,8 @@ const ENTRIES = [
   'src/components/SkyScene3D/CloudField.ts',
   'src/components/SkyScene3D/CloudDeck.ts',
   'src/components/SkyScene3D/cloudCellTexture.ts',
+  'src/components/SkyScene3D/Skydome.ts',
+  'src/components/SkyScene3D/TerrainRing.ts',
   'src/utils/cloudGridAdapter.ts',
 ];
 

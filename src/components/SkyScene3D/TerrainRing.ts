@@ -114,7 +114,21 @@ export function createGroundPlane(): THREE.Mesh {
   mesh.name = 'groundPlane';
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = -8.0; // Z-fighting 차단을 위해 지형 링 하단 아래로 배치
-  mesh.renderOrder = -2;
+  // ── renderOrder: 스카이돔(−1) **뒤에** 그려야 합니다 ──────────────────────
+  //
+  // 예전에는 −2 였습니다. 그러면 지면이 먼저 그려지는데 `depthWrite: false`라
+  // 깊이를 안 남기고, 곧이어 스카이돔이 **`depthTest: false`로 전체 구를**
+  // 칠하면서 지면을 통째로 덮어 버립니다.
+  //
+  // 측정: 지면 원반을 씬에서 아예 빼도 화면 최대 픽셀차가 **1/255** 였습니다.
+  // 매 프레임 `updateGroundColors`로 색을 다시 칠하는데 한 픽셀도 안 나오고
+  // 있었고, 지평선 아래에 보이던 금빛은 땅이 아니라 **하늘 셰이더의 아래쪽
+  // 반구**였습니다 (docs/GROUND_PLAN.md §1).
+  //
+  // 스카이돔의 `depthTest: false`는 "항상 배경"이라는 의도이므로 건드리지
+  // 않고, 지면을 그 뒤로 옮깁니다. 지형 링(0)보다는 앞에 두어 능선이 지면
+  // 위에 얹히게 합니다.
+  mesh.renderOrder = -0.5;
 
   return mesh;
 }

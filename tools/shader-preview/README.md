@@ -309,6 +309,28 @@ node tools/shader-preview/verify-region-cover.js       # 11개
 하면 구조는 늘지만 타임라인 5분 키프레임 사이에 무늬가 뒤바뀌어 구름이
 명멸합니다(`verify-timeline`이 잡습니다). 경계표는 파일 안 주석에.
 
+## 지평선 아래 (땅) — `verify-horizon.js`
+
+```bash
+node tools/shader-preview/build-horizon-preview.js
+node tools/shader-preview/shoot.js horizon.html horizon.png
+node tools/shader-preview/verify-horizon.js            # 9개
+```
+
+앱과 **같은 모듈**(`Skydome.ts`, `TerrainRing.ts`)을 임포트해 같은 순서로
+씬에 넣고, 요소를 하나씩 빼가며 지평선을 가로지르는 세로줄을 읽습니다.
+
+⚠ **renderOrder 숫자를 읽어 검산하면 이런 건 안 잡힙니다.** 지면 원반은
+매 프레임 색까지 갱신되면서 **한 픽셀도 화면에 안 나오고** 있었습니다
+(빼도 최대 픽셀차 **1**/255). 지면이 먼저 깊이 없이 그려지고, 스카이돔이
+`depthTest: false`로 전체 구를 칠하며 덮었기 때문입니다. 씬에서 **빼 보고
+화면이 바뀌는지**를 봐야 합니다.
+
+기준값: 지면 원반을 빼면 최대 픽셀차 175, 지평선 아래 휘도가 위의 36%,
+채도 4%(하늘이었을 때 47%).
+
+배경과 설계는 `docs/GROUND_PLAN.md`.
+
 ## 한 화면 안의 좌우 대비 — `verify-one-screen.js`
 
 ```bash
