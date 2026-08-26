@@ -309,6 +309,30 @@ node tools/shader-preview/verify-region-cover.js       # 11개
 하면 구조는 늘지만 타임라인 5분 키프레임 사이에 무늬가 뒤바뀌어 구름이
 명멸합니다(`verify-timeline`이 잡습니다). 경계표는 파일 안 주석에.
 
+## 한 화면 안의 좌우 대비 — `verify-one-screen.js`
+
+```bash
+node tools/shader-preview/build-one-screen-preview.js
+node tools/shader-preview/shoot.js one-screen.html one-screen.png
+node tools/shader-preview/verify-one-screen.js         # 11개
+```
+
+`verify-region-cover.js`가 보장하는 것은 **360° 하늘 전체**의 지역 보존입니다
+— "동쪽을 보면 흐리고 서쪽을 보면 맑다". 그건 **한 프레임 안에서** 좌우가
+갈린다는 뜻이 아닙니다. 화각 60° 안에는 기상 링의 방위가 2~3개밖에 안
+들어오니까요(링이 30° 간격). 그래서 렌더된 한 프레임의 픽셀에서 따로 잽니다.
+
+기준값 (서쪽 0% / 동쪽 95% 경계를 정면으로):
+
+| 구간 | 왼쪽 | 오른쪽 | 차이 |
+|---|---|---|---|
+| 전체 | 9.1% | 54.0% | **45.0%p** |
+| 천정 쪽 | 18.1% | 61.3% | 43.2%p |
+| 지평선 쪽 | 1.8% | 35.5% | 33.7%p |
+
+균일 48% 대조군은 전체 −5.8%p. 대조군이 없으면 좌우 차이가 기상 때문인지
+노이즈 때문인지 구분할 수 없습니다.
+
 ## 조각 입체 음영 — `verify-cell-relief.js`
 
 ```bash
