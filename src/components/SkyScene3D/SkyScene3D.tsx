@@ -1040,14 +1040,11 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
       updateCloudDeck(deck, {
         samples: built.samples,
-        // 덱도 **위층을 통과한** 직달광을 받아야 합니다.
-        // 그래야 상층이 덮였을 때 아래 덱이 평평한 회색이 됩니다.
-        beamFor: altKm => {
-          const layer = altKm > 7 ? 'high' : altKm > 3 ? 'mid' : 'low';
-          const f = built.optics.beamFactor[layer];
-          const b = beamAtAltitude(sunAltRef.current, altKm, atmosphere);
-          return { r: b.r * f, g: b.g * f, b: b.b * f };
-        },
+        // 4단계: 여기서는 **맑은 하늘 직달광**만 줍니다. 위층이 가리는 몫은
+        // 방향마다 다르므로 `beamShade`가 정점 속성으로 따로 나릅니다
+        // (예전에는 관측점 기둥 하나로 구한 배율을 하늘 전체에 곱했습니다).
+        beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
+        beamShade: built.beamShade,
         // 덱 환경광도 빌보드와 **같은 식**으로 감광합니다.
         // 이게 없으면 8/8에서 화면을 덮는 덱이 맑은 하늘빛으로 빛나서,
         // 운량을 올릴수록 오히려 밝아집니다.

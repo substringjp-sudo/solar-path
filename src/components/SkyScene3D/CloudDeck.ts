@@ -69,8 +69,12 @@ attribute vec3  aAmbientDown; // 3단계: 방향별 확산광 (덱 하단이 받
  * **무늬의 위상이 어긋납니다** — 화면에서 구름 가장자리가 두 겹으로 갈라진
  * 이음매로 보입니다 (성분별 분해 렌더로 확인: τ·그늘·세기는 깨끗하고
  * 크기만 이음매를 만듦). 크기는 층당 하나로 둡니다.
+ *
+ * .w 는 4단계의 **방향별 그늘** — 이 방향 이 층의 구름에 실제로 닿는
+ * 직달광 배율입니다. 예전에는 관측점 기둥 하나로 구한 값을 하늘 전체에
+ * 곱했습니다 (= 서쪽 구름이 동쪽까지 어둡게 함).
  */
-attribute vec3  aOptics;
+attribute vec4  aOptics;
 
 varying float vCover;
 varying float vElevDeg;
@@ -78,7 +82,7 @@ varying float vAzDeg;
 varying vec3  vDir;
 varying vec3  vAmbientUp;
 varying vec3  vAmbientDown;
-varying vec3  vOptics;
+varying vec4  vOptics;
 
 void main() {
   vCover       = aCover;
@@ -140,7 +144,7 @@ varying float vAzDeg;
 varying vec3  vDir;
 varying vec3  vAmbientUp;
 varying vec3  vAmbientDown;
-varying vec3  vOptics;
+varying vec4  vOptics;
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -176,6 +180,9 @@ void main() {
   float dTau     = max(vOptics.x, 0.05);
   float dShadow  = clamp(vOptics.y, 0.0, 1.0);
   float dCellStr = clamp(vOptics.z, 0.0, 1.0);
+  // 4단계: 이 방향에 실제로 닿는 직달광. uBeam은 **맑은 하늘 값**이고
+  // 위층이 가리는 몫은 여기서 곱합니다.
+  vec3  dBeam    = uBeam * clamp(vOptics.w, 0.0, 1.0);
 
   // ── 투영: 고도 선형 → **지상거리 선형** ─────────────────────────────────
   //
@@ -325,16 +332,16 @@ void main() {
   // 바닥면 밝기는 위에서 통과해 내려온 확산광(T)이 지배합니다.
   // 이것이 흐린 날의 평평한 회색입니다 — 직달광이 도달하지 않으므로
   // 밝은 면/그늘 면 대비가 생기지 않습니다.
-  vec3 baseCol = uBeam * T * 0.42 + vAmbientDown * (0.35 + T * 0.4);
+  vec3 baseCol = dBeam * T * 0.42 + vAmbientDown * (0.35 + T * 0.4);
 
   // 덱이 얇으면 태양 방향이 비쳐 밝은 얼룩이 생깁니다 (구름 사이 밝음).
   float sunAlign = clamp(dot(normalize(vDir), uSunDir), 0.0, 1.0);
   float bright = pow(sunAlign, 6.0) * T;
-  baseCol += uBeam * bright * 0.5;
+  baseCol += dBeam * bright * 0.5;
 
   // 구멍 가장자리는 위쪽 밝은 면이 살짝 보입니다.
   float edge = (1.0 - holeCut) * merge;
-  baseCol += (uBeam * R + vAmbientUp * (1.0 - R)) * edge * 0.35;
+  baseCol += (dBeam * R + vAmbientUp * (1.0 - R)) * edge * 0.35;
 
   // 그늘 깊이 — 두꺼울수록 어둡습니다.
   baseCol *= 1.0 - dShadow * 0.42 * smoothstep(8.0, 60.0, tau);
@@ -446,8 +453,10 @@ function buildDeckGeometry(layer: LayerKey): {
   geometry.setAttribute('aAmbientUp', ambientUpAttr);
   geometry.setAttribute('aAmbientDown', ambientDownAttr);
 
-  // 다양성 2단계: 방향별 운형 광학 (τ, 그늘, 조각 세기).
-  const opticsAttr = new THREE.Float32BufferAttribute(new Float32Array(nV * 3), 3);
+  // 다양성 2·4단계: 방향별 운형 광학 (τ, 그늘 대비, 조각 세기, 직달광 배율).
+  const optics = new Float32Array(nV * 4);
+  for (let i = 3; i < optics.length; i += 4) optics[i] = 1; // 그늘 없음이 기본
+  const opticsAttr = new THREE.Float32BufferAttribute(optics, 4);
   opticsAttr.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('aOptics', opticsAttr);
 
@@ -737,6 +746,16 @@ export interface DeckUpdate {
     cellStrength: number;
     cellAspect: number;
   };
+  /**
+   * **방향별 그늘** (docs/CLOUD_VARIETY_PLAN.md 4단계).
+   *
+   * `samples`와 **같은 인덱스**의 직달광 배율 (1 = 그늘 없음).
+   * `solveDirectionalShade`가 만듭니다.
+   *
+   * 이걸 넘기면 `beamFor`는 **맑은 하늘 직달광**을 돌려줘야 합니다 —
+   * 위층이 가리는 몫을 두 번 곱하지 않도록.
+   */
+  beamShade?: Float32Array;
   /** 화면 픽셀 하나의 각크기 (rad) — 밉 필터 보정에 씁니다 */
   pixelAngleRad: number;
   /**
@@ -817,39 +836,58 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
 
     // 표본 격자(방위 24 × elevationGrid())는 덱이 쓰는 격자와 같습니다.
     // 어긋나면 아래 길이 검사에 걸려 층 대표로 물러납니다.
-    const layerSamples = u.genusFor ? u.samples.filter(s => s.layer === l.layer) : [];
+    //
+    // `beamShade`는 `u.samples` **전체**와 같은 인덱스라, 층으로 거른 뒤에도
+    // 원래 인덱스를 알아야 합니다.
+    const layerSamples: LayerSample[] = [];
+    const layerIdx: number[] = [];
+    if (u.genusFor || u.beamShade) {
+      for (let i = 0; i < u.samples.length; i++) {
+        if (u.samples[i].layer === l.layer) {
+          layerSamples.push(u.samples[i]);
+          layerIdx.push(i);
+        }
+      }
+    }
     const gridAligned = layerSamples.length === azSteps * nE;
 
     const optArr = l.opticsAttr.array as Float32Array;
     let anyCells = 0;
 
-    if (u.genusFor && gridAligned) {
-      const gridG = new Float32Array(azSteps * nE * 3);
+    if (gridAligned && (u.genusFor || u.beamShade)) {
+      const gridG = new Float32Array(azSteps * nE * 4);
       for (let a = 0; a < azSteps; a++) {
         for (let e = 0; e < nE; e++) {
-          const smp = layerSamples[a * nE + e];
-          _genusAt.cover = smp.cover;
-          _genusAt.precipMmH = smp.precipMmH;
-          _genusAt.humidityPct = smp.humidityPct;
-          _genusAt.highPct = smp.highPct;
-          const g = u.genusFor(l.layer, _genusAt);
-          const i = (a * nE + e) * 3;
+          const k = a * nE + e;
+          const smp = layerSamples[k];
+          let g = 층대표;
+          if (u.genusFor) {
+            _genusAt.cover = smp.cover;
+            _genusAt.precipMmH = smp.precipMmH;
+            _genusAt.humidityPct = smp.humidityPct;
+            _genusAt.highPct = smp.highPct;
+            g = u.genusFor(l.layer, _genusAt);
+          }
+          const i = k * 4;
           gridG[i] = g.tau;
           gridG[i + 1] = g.shadowContrast;
           gridG[i + 2] = g.cellStrength;
+          // 4단계: 이 방향에 닿는 직달광 배율. 없으면 1(그늘 없음).
+          gridG[i + 3] = u.beamShade ? u.beamShade[layerIdx[k]] : 1;
           if (g.cellStrength > anyCells) anyCells = g.cellStrength;
         }
       }
       for (let i = 0; i < dirs.length; i++) {
-        sampleGridInto(gridG, 3, azSteps, elevs, dirs[i].azDeg, dirs[i].elevDeg, optArr, i * 3);
+        sampleGridInto(gridG, 4, azSteps, elevs, dirs[i].azDeg, dirs[i].elevDeg, optArr, i * 4);
       }
     } else {
-      // genusFor가 없으면 층 대표를 그대로 (2단계 이전 동작).
+      // genusFor·beamShade가 없으면 층 대표를 그대로 (2단계 이전 동작).
       anyCells = 층대표.cellStrength;
       for (let i = 0; i < dirs.length; i++) {
-        optArr[i * 3] = 층대표.tau;
-        optArr[i * 3 + 1] = 층대표.shadowContrast;
-        optArr[i * 3 + 2] = 층대표.cellStrength;
+        optArr[i * 4] = 층대표.tau;
+        optArr[i * 4 + 1] = 층대표.shadowContrast;
+        optArr[i * 4 + 2] = 층대표.cellStrength;
+        optArr[i * 4 + 3] = 1;
       }
     }
     l.opticsAttr.needsUpdate = true;

@@ -836,6 +836,135 @@ export function solveColumnOptics(
 }
 
 /**
+ * **방향마다 다른 그늘** — 그 방향 그 층의 구름에 닿는 직달광 배율
+ * (docs/CLOUD_VARIETY_PLAN.md 4단계).
+ *
+ * ## 왜 필요한가
+ *
+ * `solveColumnOptics`는 **관측점 수직 기둥 하나**를 풀고 그 `beamFactor`를
+ * 하늘 전체에 씁니다. 그래서 서쪽에 두꺼운 상층 띠가 있으면 **동쪽 저층까지
+ * 같이 어두워집니다.** 실제로는 옆 구름이 그늘인데 이 구름만 빛을 받는
+ * 그 대비가 노을 하늘의 인상을 거의 다 만듭니다.
+ *
+ * ## 기하
+ *
+ * 방위 az·지상거리 d·고도 h에 있는 구름에 닿는 햇빛은, 거기서 **태양 쪽으로**
+ * 올라가며 위층을 지납니다. 고도 h2에서의 관통점은 지상 좌표로
+ *
+ *   P = d·(sin az, cos az) + Δ·(sin az☉, cos az☉),
+ *   Δ = dist(az☉고도, h2) − dist(az☉고도, h)
+ *
+ * 입니다. Δ를 두 구면 거리의 차로 잡으면 지구 곡률이 자동으로 들어옵니다 —
+ * 평면 근사 (h2−h)/tan(ε)는 태양이 낮을 때 크게 빗나갑니다.
+ *
+ * 태양 고도 3° 미만은 3°로 잡습니다(기하가 발산). 그 아래에서는 어차피
+ * 직달광 자체가 거의 없어 배율의 차이가 화면에 남지 않습니다.
+ *
+ * ## 확산광은 왜 안 하나
+ *
+ * 확산광은 반구 전체에서 오므로 한 방향의 위층 운량에 거의 좌우되지
+ * 않습니다. 방향성이 있는 것은 평행광뿐이고, 밝은 면/그늘 면 대비를 만드는
+ * 것도 평행광입니다. 확산은 관측점 기둥 값(`diffuseFactor`)을 그대로 씁니다.
+ *
+ * @returns `samples`와 **같은 인덱스**의 배율 배열 (1 = 그늘 없음)
+ */
+export function solveDirectionalShade(
+  samples: LayerSample[],
+  sunAzDeg: number,
+  sunAltDeg: number,
+  tauFor: (layer: LayerKey) => number,
+  azSteps: number = AZ_STEPS,
+  elevSteps: number = ELEV_STEPS
+): Float32Array {
+  const out = new Float32Array(samples.length);
+  out.fill(1);
+
+  const elevs = elevationGrid(elevSteps);
+  const nE = elevs.length;
+  const layers: LayerKey[] = ['low', 'mid', 'high'];
+
+  // 층별 인덱스 목록. samples는 층 → 방위 → 고도 순이지만, 그 가정에
+  // 기대지 않고 실제로 모읍니다 (타임라인 경로가 순서를 바꿔도 안전하도록).
+  const idxOf: Record<LayerKey, number[]> = { low: [], mid: [], high: [] };
+  for (let i = 0; i < samples.length; i++) idxOf[samples[i].layer].push(i);
+  for (const L of layers) {
+    if (idxOf[L].length !== azSteps * nE) return out; // 격자가 다르면 그늘 없음
+  }
+
+  // 고도각 → 지상거리 (층마다 고정). 고도각이 오르면 거리는 줄어듭니다.
+  const distByElev: Record<LayerKey, number[]> = { low: [], mid: [], high: [] };
+  for (const L of layers) {
+    for (let e = 0; e < nE; e++) {
+      distByElev[L].push(elevationToDistanceKm(elevs[e], LAYER_ALTITUDE_KM[L]));
+    }
+  }
+
+  /** 층 L의 지상 좌표 (az, dist)에서 운량을 이중선형으로 읽습니다. */
+  const coverAtGround = (L: LayerKey, azDeg: number, distKm: number): number => {
+    const ix = idxOf[L];
+    const aF = ((azDeg % 360) + 360) % 360 / (360 / azSteps);
+    const a0 = Math.floor(aF) % azSteps;
+    const a1 = (a0 + 1) % azSteps;
+    const at = aF - Math.floor(aF);
+
+    const dArr = distByElev[L];
+    // 내림차순. dist가 dArr[e] 와 dArr[e+1] 사이인 e를 찾습니다.
+    let e0 = 0;
+    while (e0 < nE - 2 && dArr[e0 + 1] > distKm) e0++;
+    const e1 = Math.min(nE - 1, e0 + 1);
+    const span = dArr[e0] - dArr[e1];
+    const et = span > 1e-6 ? Math.max(0, Math.min(1, (dArr[e0] - distKm) / span)) : 0;
+
+    const c = (a: number, e: number) => samples[ix[a * nE + e]].cover;
+    return (
+      (c(a0, e0) * (1 - et) + c(a0, e1) * et) * (1 - at) +
+      (c(a1, e0) * (1 - et) + c(a1, e1) * et) * at
+    );
+  };
+
+  const sunAltEff = Math.max(3, sunAltDeg);
+  const sunRad = sunAzDeg * D2R;
+  const sunX = Math.sin(sunRad);
+  const sunY = Math.cos(sunRad);
+  const slant = 1 / Math.max(0.12, Math.sin(sunAltEff * D2R));
+  // 태양 쪽으로 올라가며 각 고도에 닿는 지상거리.
+  const rayDist: Record<LayerKey, number> = {
+    low: elevationToDistanceKm(sunAltEff, LAYER_ALTITUDE_KM.low),
+    mid: elevationToDistanceKm(sunAltEff, LAYER_ALTITUDE_KM.mid),
+    high: elevationToDistanceKm(sunAltEff, LAYER_ALTITUDE_KM.high),
+  };
+  const through: Record<LayerKey, number> = {
+    low: Math.exp(-tauFor('low') * slant),
+    mid: Math.exp(-tauFor('mid') * slant),
+    high: Math.exp(-tauFor('high') * slant),
+  };
+
+  for (const L of layers) {
+    const above = layers.filter(U => LAYER_ALTITUDE_KM[U] > LAYER_ALTITUDE_KM[L]);
+    if (above.length === 0) continue; // 상층은 위에 아무것도 없습니다
+    for (const i of idxOf[L]) {
+      const s = samples[i];
+      const azRad = s.azimuthDeg * D2R;
+      const px = s.distanceKm * Math.sin(azRad);
+      const py = s.distanceKm * Math.cos(azRad);
+      let f = 1;
+      for (const U of above) {
+        const delta = rayDist[U] - rayDist[L];
+        const qx = px + delta * sunX;
+        const qy = py + delta * sunY;
+        const dist = Math.sqrt(qx * qx + qy * qy);
+        const az = (Math.atan2(qx, qy) * R2D + 360) % 360;
+        const c = Math.max(0, Math.min(1, coverAtGround(U, az, dist)));
+        // 덮인 비율만 감쇠 — `solveColumnOptics`의 layerDirect와 같은 식입니다.
+        f *= through[U] * c + (1 - c);
+      }
+      out[i] = f;
+    }
+  }
+  return out;
+}
+
+/**
  * 22° 무리가 보일 조건인지 판정합니다.
  *
  * 무리는 **얇은 권층운**에서만 보입니다. 조건이 꽤 까다롭습니다:

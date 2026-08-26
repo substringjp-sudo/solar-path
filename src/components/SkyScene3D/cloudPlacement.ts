@@ -33,6 +33,7 @@ import {
 import {
   buildSkyColumns,
   solveColumnOptics,
+  solveDirectionalShade,
   haloStrength,
   WeatherFan,
   LAYER_ALTITUDE_KM,
@@ -158,6 +159,14 @@ export interface BuildCloudsResult {
   optics: ColumnOptics;
   /** 22° 무리 세기 (0 = 안 보임) */
   halo: number;
+  /**
+   * 방향별 직달광 배율 — `samples`와 같은 인덱스 (다양성 4단계).
+   *
+   * 예전에는 `optics.beamFactor[layer]` 하나를 하늘 전체에 곱했습니다.
+   * 관측점 수직 기둥에서 구한 값이라, 서쪽에 두꺼운 상층 띠가 있으면
+   * **동쪽 저층까지 같이 어두워졌습니다.**
+   */
+  beamShade: Float32Array;
 }
 
 /**
@@ -264,20 +273,32 @@ function placeClouds(
   maxTotal: number
 ): BuildCloudsResult {
 
-  const beamCache = new Map<string, RGB>();
-  const beamFor = (altKm: number, layer: LayerKey): RGB => {
-    const key = `${altKm}|${layer}`;
-    let v = beamCache.get(key);
+  // ── 4단계: 방향별 그늘 ────────────────────────────────────────────────
+  //
+  // **위층을 통과해서 오는 직달광.** 이게 없으면 상층이 완전히 덮여도
+  // 저층운이 햇빛을 그대로 받아, 아무리 두꺼운 구름을 쌓아도 흐린 날이
+  // 되지 않습니다. 이제 그 배율이 방향마다 다릅니다 — 옆 구름은 그늘인데
+  // 이 구름만 빛을 받는 대비가 여기서 나옵니다.
+  const beamShade = solveDirectionalShade(samples, sunAzDeg, sunAltDeg, layer =>
+    representativeTauForObserver(layer, obs)
+  );
+  const shadeIndex = new Map<LayerSample, number>();
+  for (let i = 0; i < samples.length; i++) shadeIndex.set(samples[i], i);
+
+  const clearBeamCache = new Map<number, RGB>();
+  const clearBeamAt = (altKm: number): RGB => {
+    let v = clearBeamCache.get(altKm);
     if (!v) {
-      const clear = beamAtAltitude(sunAltDeg, altKm, atmosphere);
-      // **위층을 통과해서 오는 직달광.**
-      // 이게 없으면 상층이 완전히 덮여도 저층운이 햇빛을 그대로 받아,
-      // 아무리 두꺼운 구름을 쌓아도 흐린 날이 되지 않습니다.
-      const f = optics.beamFactor[layer];
-      v = { r: clear.r * f, g: clear.g * f, b: clear.b * f };
-      beamCache.set(key, v);
+      v = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+      clearBeamCache.set(altKm, v);
     }
     return v;
+  };
+  const beamFor = (altKm: number, s: LayerSample): RGB => {
+    const clear = clearBeamAt(altKm);
+    const idx = shadeIndex.get(s);
+    const f = idx === undefined ? optics.beamFactor[s.layer] : beamShade[idx];
+    return { r: clear.r * f, g: clear.g * f, b: clear.b * f };
   };
 
   const minNightAmbient = { r: 0.015, g: 0.022, b: 0.040 };
@@ -409,7 +430,7 @@ function placeClouds(
     const azimuthDeg = (s.azimuthDeg + azJitter + 360) % 360;
     const elevationDeg = Math.max(1.5, Math.min(89, s.elevationDeg + elevJitter));
 
-    const beam = beamFor(altKm, s.layer);
+    const beam = beamFor(altKm, s);
 
     const gammaDeg = angularSeparationDeg(azimuthDeg, elevationDeg, sunAzDeg, sunAltDeg);
 
@@ -423,7 +444,7 @@ function placeClouds(
     const dimmedSky = applyCloudDimming(rawAmbient, dFactor);
     // 위층 바닥에서 내려오는 회백색 확산광. 평행광을 죽인 뒤에도
     // 이 빛이 남아야 흐린 하늘이 새까매지지 않고 균일한 회색이 됩니다.
-    const clearBeam = beamAtAltitude(sunAltDeg, altKm, atmosphere);
+    const clearBeam = clearBeamAt(altKm);
     const skyBlocked = 1 - dFactor;
     const diffuseGrey =
       (clearBeam.r + clearBeam.g + clearBeam.b) / 3 * dFactor * DIFFUSE_ILLUM_SCALE * skyBlocked;
@@ -490,7 +511,7 @@ function placeClouds(
     });
   }
 
-  return { instances: out, samples, dniTau, optics, halo };
+  return { instances: out, samples, dniTau, optics, halo, beamShade };
 }
 
 function countVariants(atlas: CloudAtlas, name: CloudPresetName, horizontal: boolean): number {
