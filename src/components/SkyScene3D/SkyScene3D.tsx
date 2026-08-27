@@ -91,6 +91,8 @@ const tempPlanetVec = new THREE.Vector3();
 const projTempVec = new THREE.Vector3();
 const trackingMwVec = new THREE.Vector3();
 const sunDirDeckVec = new THREE.Vector3();
+/** 박명광선의 기준점. 렌더 루프에서 매 프레임 다시 채웁니다. */
+const sunDirRayVec = new THREE.Vector3();
 
 function getPlanetDirectionVector(
   key: PlanetKey,
@@ -636,8 +638,21 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
         // 등) 예전처럼 한 번에 그립니다 — 화면이 안 나오는 것보다 낫습니다.
         const composerNow = composerRef.current;
-        if (composerNow) composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
-        else renderer.render(scene, camera);
+        if (composerNow) {
+          // 광선의 기준점은 **매 프레임** 넣습니다. `updateScene`에서 한 번만
+          // 넣으면 카메라를 돌리는 프레임에 광선이 한 박자 늦게 따라옵니다.
+          const rayAlt = (sunAltRef.current * Math.PI) / 180;
+          const rayAz = (sunAzRef.current * Math.PI) / 180;
+          composerNow.setSun(
+            sunDirRayVec.set(
+              Math.cos(rayAlt) * Math.sin(rayAz),
+              Math.sin(rayAlt),
+              -Math.cos(rayAlt) * Math.cos(rayAz)
+            ),
+            sunAltRef.current
+          );
+          composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
+        } else renderer.render(scene, camera);
         consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
 
         // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
