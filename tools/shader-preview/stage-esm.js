@@ -11,7 +11,7 @@ const path = require('path');
 
 const SRC = '/home/user/solar-path';
 const OUT = '/tmp/esmbuild';
-const PREVIEW = '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 const APP = path.join(PREVIEW, 'app');
 
 const ENTRIES = [

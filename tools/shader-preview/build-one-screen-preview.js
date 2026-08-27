@@ -30,8 +30,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 // 경계를 정면으로 보는 방위. 링에서 동/서를 가르는 선이 여기입니다.
 const VIEW_AZ = 0;

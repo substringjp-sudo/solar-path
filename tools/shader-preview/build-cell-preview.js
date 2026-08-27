@@ -16,8 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const C = require('/tmp/cellbuild/cloudCellField.js');
 
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 const SIZE = 512;
 const COVERS = [0.15, 0.39, 0.6, 0.85];

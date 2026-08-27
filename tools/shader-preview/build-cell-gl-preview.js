@@ -27,8 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const CF = require('/tmp/cellbuild/cloudCellField.js');
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 // 축소율: 타일을 화면에 몇 번 반복해 그릴 것인가.
 // 1이면 확대에 가깝고, 32면 한 픽셀이 여러 셀을 덮어 밉맵이 강하게 걸립니다.

@@ -233,6 +233,6 @@ document.title='DONE::'+(errors.length?'SHADER_ERR':'OK')+'::'+renderer.getConte
 window.__errors=errors;
 </script></body></html>`;
 
-const dir = '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW: dir } = require('./paths');
 fs.writeFileSync(path.join(dir, 'full.html'), html);
 console.log('생성 완료');

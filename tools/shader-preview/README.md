@@ -15,22 +15,42 @@
 
 ## 사용법
 
+### 전체 한 번에
+
 ```bash
-# 1) atmosphere.ts를 CommonJS로 트랜스파일 (GLSL 문자열을 Node에서 읽기 위해)
-npx tsc src/utils/atmosphere.ts --outDir /tmp/atmbuild --module commonjs \
-  --target es2020 --moduleResolution node --skipLibCheck --resolveJsonModule \
-  --esModuleInterop --allowSyntheticDefaultImports
+npm run verify:sky                 # 준비 → 미리보기 생성 → 서버 → 판정 23종
+npm run verify:sky -- genus rain   # 이름에 이 문자열이 든 판정만
+npm run verify:sky -- --no-build   # 미리보기 재생성 없이 판정만 (빠름)
+```
+
+판정마다 **한 줄**(통과 개수)만 찍고, 실패한 것만 자세히 펼칩니다. 종료
+코드는 실패한 판정 수라 훅·CI에 그대로 물릴 수 있습니다.
+
+⚠ **셰이더를 고친 뒤에는 스테이징을 다시 해야 합니다.** 안 그러면 미리보기가
+옛 코드를 그리고, "고쳤는데 화면이 그대로"를 한참 들여다보게 됩니다.
+`run-all.js`는 `--no-build` 여도 스테이징만은 **항상** 돌리므로 이 함정을
+피합니다. 아래처럼 손으로 이어 붙일 때는 직접 챙기세요.
+
+### 손으로 (한 가지만 볼 때)
+
+```bash
+# 1) /tmp 산출물과 브라우저용 ESM 준비 — 판정 스크립트들이 이걸 require 합니다
+node tools/shader-preview/stage-node.js
+node tools/shader-preview/stage-esm.js
 
 # 2) 미리보기 HTML 생성
 node tools/shader-preview/build-preview.js
 
 # 3) 정적 서버 (file://는 ES 모듈 CORS에 막힙니다)
-cp node_modules/three/build/three.module.js <preview-dir>/
-cd <preview-dir> && python3 -m http.server 8123
+cd "$(node -p "require('./tools/shader-preview/paths').PREVIEW")" && python3 -m http.server 8123
 
 # 4) 헤드리스 Chromium으로 스크린샷
 node tools/shader-preview/shoot.js
 ```
+
+산출물이 어디로 가는지는 `tools/shader-preview/paths.js` 한 곳에서 정합니다
+(기본 `.harness/`, `SKY_PREVIEW_DIR`로 바꿀 수 있음). 예전에는 24개 스크립트가
+**그것을 처음 적은 세션의 UUID**를 각자 문자열로 박아 두고 있었습니다.
 
 헤드리스 Chromium은 SwiftShader로 WebGL을 지원합니다
 (`--use-gl=swiftshader --enable-unsafe-swiftshader`).

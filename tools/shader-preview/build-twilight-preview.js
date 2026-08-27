@@ -18,7 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const SRC = '/home/user/solar-path';
-const PREVIEW = '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 global.__DEV__ = false;
 
 const A = require('/tmp/atmbuild/atmosphere.js');

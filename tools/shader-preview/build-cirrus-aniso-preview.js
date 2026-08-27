@@ -43,8 +43,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 const VIEW_ELEV = 40;      // 상층(10km)이 11.9km 앞에 오는 시선 고도
 const COVER = 0.5;
