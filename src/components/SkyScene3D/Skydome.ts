@@ -45,6 +45,7 @@ uniform float uOzoneDU;
 uniform float uSaturation;  // 아트 디렉션용 채도 보정
 uniform float uCloudDiffuse; // 구름 기둥 확산 투과율 (1 = 맑음)
 uniform float uHaloStrength; // 22° 무리 세기 — 상층 얼음 구름이 있을 때만
+uniform float uDither;       // 디더 세기 (1/255 단위). 0이면 끕니다
 
 varying vec3 vWorldDir;
 
@@ -104,8 +105,18 @@ void main() {
   // 물리 복사휘도 → 화면 색 (노출 → ACES → 채도 → 대비 → sRGB)
   col = atm_display(col, uSaturation, uSunAltDeg);
 
-  // 넓은 면적의 완만한 그라데이션에서 생기는 밴딩 제거
-  col += (dither(gl_FragCoord.xy) - 0.5) / 255.0;
+  // 넓은 면적의 완만한 그라데이션에서 생기는 밴딩 제거.
+  //
+  // ⚠ 스카이돔은 분리 해상도 합성에서 **절반 해상도**로 그려진 뒤 쌍선형으로
+  // 확대됩니다. 여기서 뿌린 디더는 그 확대에 섞여 2×2 덩어리 잡음이 되고,
+  // 정작 화면 양자화는 확대 뒤에 일어나므로 밴딩을 못 잡습니다. 실제 디더는
+  // 후처리 마지막 패스가 원해상도에서 겁니다 (SceneComposer.ts).
+  // 그렇다고 여기를 끄면 안 됩니다. 반대로 **여기가 가장 중요합니다** —
+  // 정보가 처음 잘리는 곳이 rtSky 이고, 잘리기 전에 흩어야 되살아납니다.
+  // 확대 패스 디더만으로는 평탄구간이 30.4 → 22.1 밖에 안 내려가지만,
+  // 여기서 함께 걸면 2.3까지 갑니다. 절반 해상도에서 확대에 깎이는 만큼
+  // 2단계로 얹습니다 (build-dither-study.js).
+  col += (dither(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -139,6 +150,7 @@ export function createSkydome(): SkydomeHandle {
       uSaturation: { value: 1.0 },
       uCloudDiffuse: { value: 1.0 },
       uHaloStrength: { value: 0.0 },
+      uDither: { value: 2.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,

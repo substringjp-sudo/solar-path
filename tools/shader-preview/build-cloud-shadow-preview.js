@@ -30,8 +30,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 const VIEW_AZ = 0, VIEW_ELEV = 18, FOV_DEG = 66;
 const TW = 520, TH = 420;

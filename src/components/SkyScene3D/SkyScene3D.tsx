@@ -51,7 +51,12 @@ import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './Milky
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
-import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
+import {
+  buildCloudInstances,
+  buildCloudsFromColumns,
+  LAYER_ALTITUDE_KM,
+  type BuildCloudsResult,
+} from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import {
   createCloudDeck,
@@ -59,6 +64,16 @@ import {
   type CloudDeckHandle,
   type GenusInput,
 } from './CloudDeck';
+import {
+  createSceneComposer,
+  assignLayer,
+  DEFAULT_SOFT_SCALE,
+  LAYER_SOFT_SKY,
+  LAYER_MID,
+  LAYER_SOFT_CLOUD,
+  LAYER_FRONT,
+  type SceneComposerHandle,
+} from './SceneComposer';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
@@ -81,6 +96,8 @@ const tempPlanetVec = new THREE.Vector3();
 const projTempVec = new THREE.Vector3();
 const trackingMwVec = new THREE.Vector3();
 const sunDirDeckVec = new THREE.Vector3();
+/** 박명광선의 기준점. 렌더 루프에서 매 프레임 다시 채웁니다. */
+const sunDirRayVec = new THREE.Vector3();
 
 function getPlanetDirectionVector(
   key: PlanetKey,
@@ -228,6 +245,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const lastCloudBuildRef = useRef<BuildCloudsResult | null>(null);
   const cloudFieldRef = useRef<CloudField | null>(null);
   const cloudDeckRef = useRef<CloudDeckHandle | null>(null);
+  const composerRef = useRef<SceneComposerHandle | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -444,16 +462,19 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     // 1. Skydome (물리 대기 산란 셰이더)
     const skydome = createSkydome();
     scene.add(skydome.mesh);
+    assignLayer(skydome.mesh, LAYER_SOFT_SKY);
     skydomeRef.current = skydome;
 
     // 2a. Ground Plane (3D 대지 원반)
     const ground = createGroundPlane();
     scene.add(ground);
+    assignLayer(ground, LAYER_MID);
     groundRef.current = ground;
 
     // 2b. Compass Ring & Direction Markers (3D 지평선 방위 마커)
     const compassGroup = createCompassGroup();
     scene.add(compassGroup);
+    assignLayer(compassGroup, LAYER_MID);
     compassGroupRef.current = compassGroup;
 
     // 2c. 거리대별 능선.
@@ -467,27 +488,33 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     if (bandAngles && bandDist && bandAngles.length > 0) {
       const bands = createTerrainBands(bandAngles, bandDist);
       scene.add(bands.group);
+      assignLayer(bands.group, LAYER_MID);
       terrainBandsRef.current = bands;
     }
 
     // 3. Sun
     const sun = createSun();
     scene.add(sun.mesh);
+    assignLayer(sun.mesh, LAYER_MID);
     sunRef.current = sun;
 
     // 4. Moon
     const moon = createMoonGroup();
     scene.add(moon.group);
+    assignLayer(moon.group, LAYER_FRONT);
     moonRef.current = moon;
 
     // 5a. 은하수
     const milkyWay = createMilkyWayBand();
     scene.add(milkyWay.mesh);
+    assignLayer(milkyWay.mesh, LAYER_MID);
     milkyWayRef.current = milkyWay;
 
     // 5b. 항성 + 행성
     const starField = createStarField(8);
     scene.add(starField.points);
+    // 별은 점 광원이라 **반드시 원해상도**입니다 (SceneComposer 주석).
+    assignLayer(starField.points, LAYER_MID);
     starFieldRef.current = starField;
 
     pixelRatioRef.current = Math.max(
@@ -498,6 +525,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     // 6. Celestial Paths & Standard Gnomon Shadow Pole (160cm/100cm)
     const celPaths = createCelestialPathsGroup();
     scene.add(celPaths.containerGroup);
+    assignLayer(celPaths.containerGroup, LAYER_FRONT);
     celestialPathsRef.current = celPaths;
 
     // 7. Clouds
@@ -505,6 +533,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     cloudAtlasRef.current = atlas;
     const cloudField = createCloudField(atlas, MAX_CLOUDS);
     scene.add(cloudField.mesh);
+    // 빌보드는 원해상도 — 잔 파편을 만드는 것은 덱이고, 빌보드는
+    // depthTest 로 지형과 깊이 비교를 합니다 (SceneComposer 주석).
+    assignLayer(cloudField.mesh, LAYER_FRONT);
     cloudFieldRef.current = cloudField;
 
     // 연속 구름층 — 운량이 병합 임계를 넘으면 빌보드 위로 덮입니다.
@@ -512,7 +543,22 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
     });
     scene.add(cloudDeck.group);
+    assignLayer(cloudDeck.group, LAYER_SOFT_CLOUD);
     cloudDeckRef.current = cloudDeck;
+
+    // ── 분리 해상도 합성 (docs 배율 훑기 결과) ──────────────────────────
+    //
+    // 하늘돔과 구름 덱만 절반 해상도로 그린 뒤 화면에 얹습니다. 별·태양·
+    // 지형·빌보드는 원해상도 그대로입니다 — 별은 점 광원이라 해상도를
+    // 낮추면 흐려지고 깜빡입니다.
+    //
+    // 프래그먼트 부하도 그 두 층에서 1/4이 됩니다.
+    const composer = createSceneComposer(
+      gl.drawingBufferWidth,
+      gl.drawingBufferHeight,
+      DEFAULT_SOFT_SCALE
+    );
+    composerRef.current = composer;
 
     // 초기 업데이트
     updateScene();
@@ -594,7 +640,24 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         const deckLayers = cloudDeckRef.current?.layers;
         if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
 
-        renderer.render(scene, camera);
+        // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
+        // 등) 예전처럼 한 번에 그립니다 — 화면이 안 나오는 것보다 낫습니다.
+        const composerNow = composerRef.current;
+        if (composerNow) {
+          // 광선의 기준점은 **매 프레임** 넣습니다. `updateScene`에서 한 번만
+          // 넣으면 카메라를 돌리는 프레임에 광선이 한 박자 늦게 따라옵니다.
+          const rayAlt = (sunAltRef.current * Math.PI) / 180;
+          const rayAz = (sunAzRef.current * Math.PI) / 180;
+          composerNow.setSun(
+            sunDirRayVec.set(
+              Math.cos(rayAlt) * Math.sin(rayAz),
+              Math.sin(rayAlt),
+              -Math.cos(rayAlt) * Math.cos(rayAz)
+            ),
+            sunAltRef.current
+          );
+          composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
+        } else renderer.render(scene, camera);
         consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
 
         // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
@@ -1056,9 +1119,15 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           const f = built.optics.diffuseFactor[layer];
           const gammaUp = angularSeparationDeg(azDeg, 70, sunAzRef.current, sunAltRef.current);
           const gammaDown = angularSeparationDeg(azDeg, 15, sunAzRef.current, sunAltRef.current);
+          // ⚠ 하늘을 **그 층의 고도에서** 봅니다. 지상 하늘을 주면 10km
+          // 권운이 아직 햇빛을 받는 시각에도 지상의 깊은 파란 박명을
+          // 주변광으로 받아, 붉게 남아야 할 층이 파래집니다.
+          const altKm = LAYER_ALTITUDE_KM[layer];
           return {
-            up: applyCloudDimming(skyRadiance(70, gammaUp, sunAltRef.current, atmosphere), f),
-            down: applyCloudDimming(skyRadiance(15, gammaDown, sunAltRef.current, atmosphere), f),
+            up: applyCloudDimming(
+              skyRadiance(70, gammaUp, sunAltRef.current, atmosphere, altKm), f),
+            down: applyCloudDimming(
+              skyRadiance(15, gammaDown, sunAltRef.current, atmosphere, altKm), f),
           };
         },
         sunDir,
@@ -1112,6 +1181,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const bands = createTerrainBands(
       sim.terrain.bandAngles, sim.terrain.bandDistancesKm, undefined, sim.terrain.waterFrac);
     scene.add(bands.group);
+    // 지형은 다시 만들어질 수 있습니다 — 그때도 층 배정을 잊으면 안 됩니다.
+    assignLayer(bands.group, LAYER_MID);
     terrainBandsRef.current = bands;
 
     // 수역 마스크와 **바다 수평선 각도**를 같이 갱신합니다. 수평선은 관측
@@ -1174,6 +1245,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
       cloudDeckRef.current?.dispose();
       cloudDeckRef.current = null;
+
+      // 합성기가 잡고 있는 렌더 타깃 두 장 — 화면 크기라 놓치면 큽니다.
+      composerRef.current?.dispose();
+      composerRef.current = null;
 
       cloudAtlasRef.current?.dispose();
       cloudAtlasRef.current = null;

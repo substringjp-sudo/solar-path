@@ -27,8 +27,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 // 카메라가 바라볼 시선 고도. 낮을수록 구름이 멀어 조각이 작아져야 합니다.
 const VIEW_ELEVS = [60, 45, 30, 20, 12, 8];

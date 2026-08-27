@@ -26,8 +26,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const PREVIEW =
-  '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad/preview';
+const { PREVIEW } = require('./paths');
 
 const SUN_ALTS = [2, -1, -2, -3, -4, -6, -9];
 const TW = 240, TH = 260, VIEW_ELEV = 14, FOV_DEG = 60;
@@ -114,8 +113,8 @@ function apply(sunAltDeg) {
       const gU = angularSeparationDeg(azDeg, 70, SUN_AZ, sunAltDeg);
       const gD = angularSeparationDeg(azDeg, 15, SUN_AZ, sunAltDeg);
       return {
-        up: applyCloudDimming(skyRadiance(70, gU, sunAltDeg, atmosphere), f),
-        down: applyCloudDimming(skyRadiance(15, gD, sunAltDeg, atmosphere), f),
+        up: applyCloudDimming(skyRadiance(70, gU, sunAltDeg, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
+        down: applyCloudDimming(skyRadiance(15, gD, sunAltDeg, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
       };
     },
     sunDir, sunAltDeg,

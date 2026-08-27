@@ -125,6 +125,7 @@ uniform float uPatchUvScale;     // 패치용 — 훨씬 큰 스케일
  * 그래서 층 전체의 최댓값으로 분기하고, 안에서 방향별 세기를 곱합니다.
  */
 uniform float uAnyCells;
+
 uniform float uCellReliefUv;     // 입체감 표본을 태양 쪽으로 밀 uv 거리
 uniform float uCellRelief;       // 입체 음영 세기 (0 = 끔)
 uniform float uAltKm;            // 이 층의 고도
@@ -132,6 +133,10 @@ uniform float uEarthRadiusKm;    // 지구 반지름 (구면 투영)
 uniform float uPixelAngleRad;    // 화면 픽셀 하나의 각크기
 uniform float uMaxAniso;         // 이방성 필터 최대 배율
 uniform float uCellTexSize;      // 텍스처 한 변 (텍셀)
+
+// ── 스케치 레지스터 (기본 0 = 꺼짐, 현재 동작 그대로) ─────────────────────
+uniform float uEdgeSoften;   // 경계 램프를 넓힘 (깃털 같은 윤곽)
+uniform float uEdgeBreak;    // 문턱을 고주파로 흔들어 윤곽을 끊음
 
 // ── 대기 투시 (docs/CLOUD_TEXTURE_PLAN.md 4단계) ──────────────────────────
 uniform float uBeta;             // 에어로졸 혼탁도 — CloudField.ts와 같은 값
@@ -303,10 +308,30 @@ void main() {
              * step(0.001, dCellStr);
   }
 
-  float t = cell_threshold(vCover, tpp);
+  // ── 스케치 레지스터 (기본 0 = 꺼짐) ───────────────────────────────────
+  //
+  // 둘 다 **운량을 보존하도록** 만들었습니다. 문턱 램프(w)는 대칭이라
+  // 넓혀도 면적이 그대로고, 문턱 흔들림(uEdgeBreak)은 평균이 0인 잡음이라
+  // 평균적으로 상쇄됩니다. 예보 운량은 이 앱의 정확도 그 자체라 어떤
+  // 표현 실험도 그걸 밀면 안 됩니다.
+  //
+  // uEdgeSoften — 경계를 넓혀 깃털처럼. 권운·층운처럼 실제로 윤곽이
+  //   불분명한 운형에 맞습니다 (도감 rimSharpness 가 말하는 것).
+  // uEdgeBreak  — 문턱 자체를 고주파로 흔들어 윤곽을 **끊습니다.**
+  //   블러와 정반대 방향입니다: 정보를 지우는 게 아니라 확정적인 윤곽을
+  //   비확정적인 자국으로 바꿉니다. 연필 스케치가 초점 안 맞은 사진과
+  //   달리 의도로 읽히는 이유가 이 차이입니다.
+  //
+  //   ⚠ 잡음 주파수가 관건입니다. 처음에 조각의 37배로 잡았더니 화면에서
+  //   픽셀 얼룩(speckle)이 됐지, 윤곽이 울퉁불퉁해지지 않았습니다. 끊긴
+  //   윤곽으로 **읽히려면** 조각 크기와 비슷한 축척이어야 합니다.
+  float tBreak = uEdgeBreak > 0.0
+    ? (noise(uvCell * 4.0) - 0.5) * uEdgeBreak
+    : 0.0;
+  float t = cell_threshold(vCover, tpp) + tBreak;
   // 문턱 램프는 대칭이라 면적을 바꾸지 않습니다. 축소가 클수록 넓혀
   // 계단이 지글거리지 않게 합니다.
-  float w = clamp(0.025 * max(1.0, tpp), 0.02, 0.40);
+  float w = clamp(0.025 * max(1.0, tpp), 0.02, 0.40) + uEdgeSoften;
   float cellCut = smoothstep(t - w, t + w, cellV);
 
   // 층운계(cellStrength = 0)는 조각을 내지 않습니다 — WMO 정의상 요소가
@@ -519,6 +544,9 @@ export function createCloudDeck(opts: {
         uCellAcross: { value: new THREE.Vector2(1, 0) },
         uPatchUvScale: { value: 1 / (PATCH_SIZE_KM * cell.tileCells) },
         uAnyCells: { value: 1 },
+        // 스케치 레지스터 — 기본 0이라 켜기 전까지 현재 동작과 완전히 같습니다.
+        uEdgeSoften: { value: 0 },
+        uEdgeBreak: { value: 0 },
         uAltKm: { value: LAYER_ALTITUDE_KM[layer] },
         // 조각 하나의 uv 폭은 1/tileCells. 그 35%만큼 태양 쪽으로 밀어
         // 기울기를 잽니다 — 너무 짧으면 필터에 묻히고, 너무 길면 옆
@@ -542,7 +570,23 @@ export function createCloudDeck(opts: {
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,
-      blending: THREE.NormalBlending,
+      // ── 색은 보통 알파 블렌딩, **알파는 따로** ─────────────────────────
+      //
+      // 색 쪽은 NormalBlending과 같습니다. 다른 것은 알파 쪽뿐입니다:
+      // 기본값은 `a_src·a_src + (1−a_src)·a_dst` 라 누적이 틀립니다.
+      // `(One, 1−SrcAlpha)` 여야 여러 층이 겹쳤을 때 알파가 제대로 쌓입니다.
+      //
+      // 왜 필요한가: `SceneComposer`가 덱을 **투명 버퍼**에 그린 뒤 화면에
+      // 얹습니다(저해상도 합성). 그때 버퍼의 알파가 곧 구름의 불투명도라
+      // 틀리면 합성이 어긋납니다. 기본 프레임버퍼에 직접 그리는 경로에서는
+      // 목적지 알파가 무시되므로 동작이 전과 같습니다.
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.SrcAlphaFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendEquationAlpha: THREE.AddEquation,
+      blendSrcAlpha: THREE.OneFactor,
+      blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -756,6 +800,14 @@ export interface DeckUpdate {
    * 위층이 가리는 몫을 두 번 곱하지 않도록.
    */
   beamShade?: Float32Array;
+  /**
+   * **스케치 레지스터** — 안 넘기면 0(꺼짐)이라 현재 동작 그대로입니다.
+   *
+   * 둘 다 운량을 보존합니다(FRAG 주석 참고). 표현 실험이 예보 정확도를
+   * 밀면 안 되기 때문입니다.
+   */
+  edgeSoften?: number;
+  edgeBreak?: number;
   /** 화면 픽셀 하나의 각크기 (rad) — 밉 필터 보정에 씁니다 */
   pixelAngleRad: number;
   /**
@@ -922,6 +974,8 @@ export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
     const windZ = -Math.cos(windRad);
     // 가로지르는 축 = 바람 축을 90° 돌린 것
     (uni.uCellAcross.value as THREE.Vector2).set(windZ, -windX);
+    uni.uEdgeSoften.value = u.edgeSoften ?? 0;
+    uni.uEdgeBreak.value = u.edgeBreak ?? 0;
     uni.uPixelAngleRad.value = u.pixelAngleRad;
     uni.uSunAltDeg.value = u.sunAltDeg;
     uni.uTime.value = u.timeSeconds;

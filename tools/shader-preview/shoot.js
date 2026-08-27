@@ -7,7 +7,7 @@
  * (file:// 로는 ES 모듈이 CORS에 막힙니다).
  */
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
-const SP = '/tmp/claude-0/-home-user-solar-path/eaf4c0af-06ca-5c06-a0d7-588dbfb07373/scratchpad';
+const { SCRATCH: SP } = require('./paths');
 const page = process.argv[2] || 'full.html';
 const out = process.argv[3] || 'full-preview.png';
 (async () => {

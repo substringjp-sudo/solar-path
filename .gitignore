@@ -33,3 +33,6 @@ functions/p-plan-5c00df855290.json
 functions/.env
 
 
+
+# 셰이더 하네스 산출물 (tools/shader-preview/paths.js)
+.harness/
