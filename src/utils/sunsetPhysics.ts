@@ -86,15 +86,47 @@ const tauMie = (lambdaNm: number, beta550: number): number =>
   beta550 * Math.pow(LAMBDA_G / lambdaNm, ANGSTROM_ALPHA);
 
 /**
+ * 에어로졸 흡습 성장 인자 (Hänel 1976).
+ *
+ * 수증기는 가시광에서 **직접** 흡수하는 양이 거의 없습니다 (강한 흡수대
+ * 0.72·0.82·0.94µm는 전부 근적외라 sRGB 밖입니다). 수증기가 노을 색을
+ * 바꾸는 실제 경로는 **에어로졸을 불려서** 입니다 — 습기를 먹은 입자가
+ * 커지면 산란이 늘고 파장 의존성이 줄어, 하늘이 희뿌옇게 뜨고 노을의
+ * 붉은 채도가 깎입니다.
+ *
+ * 그 성장은 조해점(약 80%) 위에서 `((1-RH)/(1-RH₀))^-γ` 로 급격합니다.
+ * γ=0.6은 대륙성 에어로졸의 통상값입니다.
+ *
+ *   RH 85% → 1.32배,  90% → 1.74배,  95% → 2.29배,  98% → 3.62배
+ *
+ * ⚠ 예전 식은 `1 + (RH-80)/100` 이라 95%에서 겨우 1.15배였습니다. 실제의
+ * 1/7 수준이라, 습한 날의 뿌연 하늘이 맑은 날과 거의 같게 나왔습니다.
+ */
+const HYGRO_GAMMA = 0.6;
+const HYGRO_RH0 = 80;
+const hygroscopicGrowth = (rhPct: number): number => {
+  if (rhPct <= HYGRO_RH0) return 1;
+  const rh = Math.min(99, rhPct);
+  return Math.pow((100 - rh) / (100 - HYGRO_RH0), -HYGRO_GAMMA);
+};
+
+/**
  * Aerosol Angstrom turbidity beta at 550 nm, estimated from visibility (m)
  * and relative humidity (%). Falls back to a clear-air default.
+ *
+ * ⚠ **습도 보정은 가시거리를 모를 때만 겁니다.** 가시거리는 **그 습한
+ * 공기에서 실제로 잰 값**이라, 흡습 성장이 이미 그 안에 들어 있습니다.
+ * 둘 다 곱하면 같은 물을 두 번 세는 셈입니다 — 예전 식은 그렇게 하고
+ * 있었고, 보정이 워낙 약해서(1.15배) 티가 안 났을 뿐입니다. 제대로 된
+ * 2.3배를 그대로 곱했다면 습한 날 하늘이 두 배로 뿌예졌을 것입니다.
  */
 export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
-  const visKm = visibilityM != null && visibilityM > 0 ? visibilityM / 1000 : 45;
+  const hasVis = visibilityM != null && visibilityM > 0;
+  const visKm = hasVis ? visibilityM / 1000 : 45;
   const sigmaTotal = 3.912 / visKm;
   const sigmaAer = Math.max(0.02, sigmaTotal - 0.012);
   let beta = sigmaAer * 0.46;
-  if (rhPct != null && rhPct > 80) beta *= 1 + (rhPct - 80) / 100;
+  if (!hasVis && rhPct != null) beta *= hygroscopicGrowth(rhPct);
   return Math.max(0.04, Math.min(0.6, beta));
 };
 

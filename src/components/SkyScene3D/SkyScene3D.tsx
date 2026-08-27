@@ -51,7 +51,12 @@ import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './Milky
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
-import { buildCloudInstances, buildCloudsFromColumns, type BuildCloudsResult } from './cloudPlacement';
+import {
+  buildCloudInstances,
+  buildCloudsFromColumns,
+  LAYER_ALTITUDE_KM,
+  type BuildCloudsResult,
+} from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
 import {
   createCloudDeck,
@@ -1114,9 +1119,15 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           const f = built.optics.diffuseFactor[layer];
           const gammaUp = angularSeparationDeg(azDeg, 70, sunAzRef.current, sunAltRef.current);
           const gammaDown = angularSeparationDeg(azDeg, 15, sunAzRef.current, sunAltRef.current);
+          // ⚠ 하늘을 **그 층의 고도에서** 봅니다. 지상 하늘을 주면 10km
+          // 권운이 아직 햇빛을 받는 시각에도 지상의 깊은 파란 박명을
+          // 주변광으로 받아, 붉게 남아야 할 층이 파래집니다.
+          const altKm = LAYER_ALTITUDE_KM[layer];
           return {
-            up: applyCloudDimming(skyRadiance(70, gammaUp, sunAltRef.current, atmosphere), f),
-            down: applyCloudDimming(skyRadiance(15, gammaDown, sunAltRef.current, atmosphere), f),
+            up: applyCloudDimming(
+              skyRadiance(70, gammaUp, sunAltRef.current, atmosphere, altKm), f),
+            down: applyCloudDimming(
+              skyRadiance(15, gammaDown, sunAltRef.current, atmosphere, altKm), f),
           };
         },
         sunDir,

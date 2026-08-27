@@ -40,6 +40,7 @@ import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydom
 import { createStarField, updateStarField, computeEquToHorizon }
   from './app/components/SkyScene3D/StarField.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
+import { LAYER_ALTITUDE_KM } from './app/components/SkyScene3D/cloudPlacement.js';
 import {
   createSceneComposer, assignLayer, DEFAULT_BLOOM,
   LAYER_SOFT_SKY, LAYER_MID, LAYER_SOFT_CLOUD, LAYER_FRONT,
@@ -138,8 +139,8 @@ function setSun(sunAlt) {
       const gU = angularSeparationDeg(azDeg, 70, SUN_AZ, sunAlt);
       const gD = angularSeparationDeg(azDeg, 15, SUN_AZ, sunAlt);
       return {
-        up: applyCloudDimming(skyRadiance(70, gU, sunAlt, atmosphere), f),
-        down: applyCloudDimming(skyRadiance(15, gD, sunAlt, atmosphere), f),
+        up: applyCloudDimming(skyRadiance(70, gU, sunAlt, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
+        down: applyCloudDimming(skyRadiance(15, gD, sunAlt, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
       };
     },
     sunDir, sunAltDeg: sunAlt,
@@ -160,7 +161,7 @@ const labels = document.getElementById('labels');
 
 function shoot(scale, bloomStrength = 0) {
   composer.setSoftScale(scale);
-  composer.setBloom({ ...DEFAULT_BLOOM, strength: bloomStrength });
+  composer.setBloom({ ...DEFAULT_BLOOM, threshold: THRESH, strength: bloomStrength });
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 1);
   composer.render(renderer, scene, cam);
@@ -199,7 +200,15 @@ function brightnessProfile(buf) {
            포화: +(100 * sat / vals.length).toFixed(2) };
 }
 
-const STRENGTHS = [0, 0.35, 0.55, 0.85];
+/**
+ * 문턱은 ?t=0.82 처럼 쿼리로 덮어쓸 수 있습니다.
+ *
+ * 대기 흡수를 고쳐 하늘 밝기 분포가 바뀌었을 때, 세기만 훑어서는 답이
+ * 안 나왔습니다 — 화면이 평평해지면 옛 문턱으로는 블룸이 밝은 곳을
+ * **고르지 못합니다**. 두 값을 함께 훑어야 해서 넣은 손잡이입니다.
+ */
+const THRESH = Number(new URLSearchParams(location.search).get('t') || DEFAULT_BLOOM.threshold);
+const STRENGTHS = [0, 0.3, 0.5, 0.8];
 
 setSun(SUN_DAY);
 deck.group.visible = true;
@@ -229,7 +238,7 @@ const base = 결과[0];
   r.포화차 = +(r.포화 - base.포화).toFixed(2);
 });
 
-window.__stats = { glError: gl.getError(), 설정: DEFAULT_BLOOM, 결과 };
+window.__stats = { glError: gl.getError(), 설정: { ...DEFAULT_BLOOM, threshold: THRESH }, 결과 };
 window.__errors = errors;
 document.title = 'DONE::' + (errors.length ? 'SHADER_ERR' : 'OK') + '::' + gl.getError();
 </script></body></html>`;

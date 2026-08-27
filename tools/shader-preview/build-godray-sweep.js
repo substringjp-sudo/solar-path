@@ -42,6 +42,7 @@ import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydom
 import { createStarField, updateStarField, computeEquToHorizon }
   from './app/components/SkyScene3D/StarField.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
+import { LAYER_ALTITUDE_KM } from './app/components/SkyScene3D/cloudPlacement.js';
 import { createSun, updateSun } from './app/components/SkyScene3D/SunMesh.js';
 import { createMoonGroup, updateMoonPosition } from './app/components/SkyScene3D/MoonMesh.js';
 import {
@@ -172,8 +173,8 @@ function setSun(sunAlt) {
       const gU = angularSeparationDeg(azDeg, 70, SUN_AZ, sunAlt);
       const gD = angularSeparationDeg(azDeg, 15, SUN_AZ, sunAlt);
       return {
-        up: applyCloudDimming(skyRadiance(70, gU, sunAlt, atmosphere), f),
-        down: applyCloudDimming(skyRadiance(15, gD, sunAlt, atmosphere), f),
+        up: applyCloudDimming(skyRadiance(70, gU, sunAlt, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
+        down: applyCloudDimming(skyRadiance(15, gD, sunAlt, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
       };
     },
     sunDir, sunAltDeg: sunAlt,

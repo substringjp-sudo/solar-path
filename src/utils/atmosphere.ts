@@ -455,15 +455,61 @@ export function skyRadiance(
   viewElevDeg: number,
   gammaDeg: number,
   sunAltDeg: number,
-  p: AtmosphereParams
+  p: AtmosphereParams,
+  /**
+   * 관측 지점의 고도 (km). 0이면 지상 — 스카이돔·지형이 쓰는 값입니다.
+   *
+   * **구름의 주변광에는 반드시 그 층의 고도를 넘겨야 합니다.** 10km 권운이
+   * 보는 하늘은 지상에서 보는 하늘이 아닙니다. 두 가지가 다릅니다.
+   *
+   *  - **지평선이 내려앉습니다** (`acos(R/(R+h))`, 10km에서 3.2°). 그 구름에는
+   *    해가 아직 떠 있는데 지상 하늘을 주면 이미 깊은 박명입니다.
+   *  - **위쪽 공기가 얇습니다.** 산란할 질량이 줄어듭니다.
+   *
+   * 이걸 안 넘겨서 실제로 회귀가 났습니다: 박명 조명을 물리대로 파랗게
+   * 고쳤더니, 상층 구름이 **지상의** 깊은 파란 하늘을 주변광으로 받아
+   * "높은 층이 늦게까지 붉게 남는" 성질이 사라졌습니다 (붉은기 봉우리
+   * 상층 -6° → -1°). 빔은 그대로 붉은데 주변광이 이긴 것입니다.
+   */
+  observerAltKm: number = 0
 ): RGB {
   const cosGamma = Math.cos((gammaDeg * Math.PI) / 180);
+
+  // 고도가 있으면 그 지점에서 본 태양 고도로 바꿉니다 (지평선 내려앉음).
+  const dipDeg = observerAltKm > 0
+    ? (Math.acos(EARTH_RADIUS_KM_ATM / (EARTH_RADIUS_KM_ATM + observerAltKm)) * 180) / Math.PI
+    : 0;
+  const sunAltHere = sunAltDeg + dipDeg;
+  // 그 고도 위에 남은 공기 기둥.
+  const elevScaleHere = observerAltKm > 0
+    ? p.elevScale * Math.exp(-observerAltKm / SCALE_HEIGHT_KM)
+    : p.elevScale;
 
   // 시선 방향 대기 두께 — 지평선으로 갈수록 급증(공기가 두꺼워짐)
   const mView = airMass(Math.max(viewElevDeg, -0.8));
   // 태양광이 산란 지점까지 오는 경로의 두께.
   // 지평선 아래에서는 상층 대기가 조명되므로 색은 하한에서 고정합니다.
-  const sunAltForT = Math.max(sunAltDeg, TRANSMITTANCE_MIN_SUN_ALT);
+  const sunAltForT = Math.max(sunAltHere, TRANSMITTANCE_MIN_SUN_ALT);
+  /**
+   * 박명 조명이 지나는 **공기의 얇기**.
+   *
+   * 해가 지면 지구 그림자가 아래에서 위로 올라오고, 하늘을 밝히는 빛은
+   * 그림자 위 — 즉 훨씬 **얇은 공기** — 를 지나 들어옵니다. 그런데 오존층은
+   * 22km에 있어서 그 높이까지는 온전히 통과합니다.
+   *
+   * 이 비대칭이 **박명 하늘이 파란 이유**입니다. 공기(Rayleigh)는 청색을
+   * 가장 많이 걷어내는데 그 공기가 얇아지고, 적색을 걷어내는 오존은 그대로
+   * 남습니다. 그래서 조명 자체가 파래집니다.
+   *
+   * 예전에는 태양 경로 대기질량을 지평선 값에 얼려 두기만 했습니다
+   * (`TRANSMITTANCE_MIN_SUN_ALT`). 그러면 조명이 언제까지나 지표를 스치는
+   * 붉은 빛으로 남아, 박명 하늘이 파래지지 못하고 **올리브색**이 됩니다.
+   *
+   *   δ=2° → 0.63,  δ=4° → 0.16,  δ=6° → 0.016
+   */
+  const litAirFrac = sunAltHere >= 0
+    ? 1
+    : Math.exp(-earthShadowHeightKm(-sunAltHere) / SCALE_HEIGHT_KM);
   // 시선 고도가 높을수록 산란점이 높아 → 햇빛이 통과하는 대기가 얇아집니다.
   const t = clamp01(viewElevDeg / 70);
   const smooth = t * t * (3 - 2 * t);
@@ -472,43 +518,112 @@ export function skyRadiance(
   // 다중산란은 하늘 전역에서 오므로 훨씬 약하게 감쇠시킵니다.
   const mSunMS = Math.min(mSun, Math.max(MS_AIRMASS_CAP, mSun * MS_AIRMASS_FRACTION));
 
-  const tR = tauRayleighRGB(p.elevScale);
-  const tM = tauMieRGB(p.betaMie, p.angstrom, p.elevScale);
-  const ozAM = ozoneAirMass(Math.max(sunAltForT, 0.5), sunAltDeg);
+  const tR = tauRayleighRGB(elevScaleHere);
+  const tM = tauMieRGB(p.betaMie, p.angstrom, elevScaleHere);
+  const ozAM = ozoneAirMass(Math.max(sunAltForT, 0.5), sunAltHere);
   const ozScale = p.ozoneDU / 300;
+  /**
+   * **시선 방향** 오존 경로.
+   *
+   * 오랫동안 오존은 태양 경로에만 걸려 있었습니다. 그런데 지평선을 볼 때
+   * 내 눈까지 오는 빛도 오존층을 거의 접선으로 통과합니다 — 여기서 배수가
+   * 10을 넘고, τ가 [0.48, 0.26, 0.02]입니다. 적색만 28% 깎이는 크기인데
+   * 통째로 빠져 있었습니다.
+   *
+   * 그래서 박명 지평선이 **올리브색**이 됐습니다. 산란광은 원래 붉게
+   * 물든 빛인데, 그 붉은 쪽을 걷어낼 항이 없으니 R과 G가 비슷해지고
+   * B만 낮은 누런 초록이 남습니다 (2G/(R+B)가 천정 0.9 대 지평선 1.44).
+   * 실제 박명 지평선이 파란 것은 이 흡수 때문입니다.
+   *
+   * 태양 경로 쪽의 `twilight` 배율은 여기 쓰지 않습니다. 그것은 해가
+   * 지평선 아래로 내려가며 **햇빛이** 접선으로 길어지는 기하이고, 관측자의
+   * 시선이 길어지는 것과는 다른 사정입니다.
+   */
+  const ozAMView = Math.max(0, ozoneAirMass(viewElevDeg, 0).single - ozoneAirMass(90, 0).single);
 
   const pR = rayleighPhase(cosGamma) * RAYLEIGH_GAIN;
   const pM = hgPhase(cosGamma, MIE_G) * MIE_GAIN;
 
+  /**
+   * 조명 투과율 — **색은 얇은 공기 경로에서, 밝기는 예전 경로에서** 가져옵니다.
+   *
+   * 두 항을 그냥 곱하면 고도를 두 번 셉니다. 그림자가 h까지 오르면 빛이
+   * 지나는 공기도 `exp(-h/H)`로 얇아지고(소광 감소 → **밝아짐**), 산란할
+   * 공기 질량도 같은 `exp(-h/H)`로 줄어듭니다(→ 어두워짐). 앞의 것만
+   * 넣으면 청색 소광이 e^3.9 = 49배나 풀려서, 재 보니 해가 진 **뒤에**
+   * 지평선이 더 밝아졌습니다 (0° 대비 -2°에서 1.2배).
+   *
+   * 그래서 역할을 나눕니다.
+   *
+   *  - **밝기**는 `earthShadowLit`/`earthShadowLitMS`가 전담합니다. 이 둘은
+   *    실제 렌더 화면에 맞춰 척도고도를 고른 값이라(위 주석의 표) 건드리면
+   *    이미 검증된 박명 밝기 곡선이 통째로 흔들립니다.
+   *  - **색**만 얇은 공기 경로에서 가져옵니다. 휘도를 옛 경로에 맞춰
+   *    정규화하므로 밝기는 그대로이고 색상만 바뀝니다.
+   *
+   * 이 분리가 박명 하늘을 파랗게 만듭니다. 얇아지는 것은 공기뿐이고
+   * 오존층(22km)은 그림자 위에 남아 그대로 통과하므로, 적색을 걷어내는
+   * 항만 살아남습니다.
+   */
+  const LUM_W = [0.2126, 0.7152, 0.0722];
+  const tSunRGB: number[] = [];
+  const tSunMsRGB: number[] = [];
+  let lumThin = 0, lumThick = 0, lumThinMS = 0, lumThickMS = 0;
+  for (let c = 0; c < 3; c++) {
+    const tauZ = tR[c] + tM[c];
+    const oz = OZONE_TAU[c] * ozScale * ozAM.single;
+    const ozMS = OZONE_TAU[c] * ozScale * ozAM.multi;
+    const thin = Math.exp(-tauZ * mSun * litAirFrac - oz);
+    const thick = Math.exp(-tauZ * mSun - oz);
+    const thinMS = Math.exp(-tauZ * mSunMS * litAirFrac - ozMS);
+    const thickMS = Math.exp(-tauZ * mSunMS - ozMS);
+    tSunRGB.push(thin);
+    tSunMsRGB.push(thinMS);
+    lumThin += LUM_W[c] * thin;
+    lumThick += LUM_W[c] * thick;
+    lumThinMS += LUM_W[c] * thinMS;
+    lumThickMS += LUM_W[c] * thickMS;
+  }
+  const normS = lumThick / Math.max(1e-12, lumThin);
+  const normMS = lumThickMS / Math.max(1e-12, lumThinMS);
+
   // 태양이 지평선 아래로 내려가면 하층 대기가 지구 그림자에 들어갑니다.
   // 지평선 아래의 어두워짐은 **전부** 이 항이 담당합니다 — 위의 mSun은
   // TRANSMITTANCE_MIN_SUN_ALT=0 에서 얼어 색만 유지합니다.
-  const sunLit = earthShadowLit(sunAltDeg);
-  const sunLitMS = earthShadowLitMS(sunAltDeg);
+  const sunLit = earthShadowLit(sunAltHere);
+  const sunLitMS = earthShadowLitMS(sunAltHere);
 
   const out: number[] = [];
   for (let c = 0; c < 3; c++) {
     const tauZenith = tR[c] + tM[c];
-    const ozone = OZONE_TAU[c] * ozScale * ozAM.single;
-    const ozoneMS = OZONE_TAU[c] * ozScale * ozAM.multi;
 
-    // 산란 지점에 도달하는 햇빛의 투과율 (단일산란용 — 실제 경로)
-    const tSun = Math.exp(-tauZenith * mSun - ozone);
+    // 산란 지점에 도달하는 햇빛의 투과율 — 위에서 색만 바꿔 만든 값입니다.
+    const tSun = tSunRGB[c] * normS;
     // 다중산란용 — 하늘 전역에서 오는 빛이라 훨씬 덜 감쇠 (오존 경로도 함께)
-    const tSunMS = Math.exp(-tauZenith * mSunMS - ozoneMS);
+    const tSunMS = tSunMsRGB[c] * normMS;
 
-    // 시선 경로의 총 광학두께
-    const tauView = tauZenith * mView;
-    const scatterFrac = 1 - Math.exp(-tauView); // 포화형 — 두꺼워도 발산하지 않음
+    // 시선 경로의 총 광학두께 — 산란(공기+에어로졸)과 흡수(오존)를 나눕니다.
+    const tauViewScat = tauZenith * mView;
+    const tauViewAbs = OZONE_TAU[c] * ozScale * ozAMView;
+    const scatterFrac = 1 - Math.exp(-(tauViewScat + tauViewAbs)); // 포화형
+
+    /**
+     * 단일산란 알베도 ω₀ = 산란 / (산란 + 흡수).
+     *
+     * 두꺼운 대기에서 눈에 도달하는 airlight는 τ에 비례하지 않고 ω₀에
+     * 수렴합니다. 흡수가 없으면 1이라 예전 식과 같고, 지평선 오존 경로에서는
+     * [0.72, 0.89, 1.00]이 되어 적색을 골라 깎습니다.
+     */
+    const w0 = tauViewScat / Math.max(1e-6, tauViewScat + tauViewAbs);
 
     // Rayleigh / Mie 산란 기여 비율
-    const rW = (tR[c] * mView) / Math.max(1e-6, tauView);
+    const rW = (tR[c] * mView) / Math.max(1e-6, tauViewScat);
     const mW = 1 - rW;
 
     // 단일산란 — 태양 방향의 붉은 노을을 만듭니다.
-    const single = tSun * (pR * rW + pM * mW) * scatterFrac;
+    const single = tSun * (pR * rW + pM * mW) * w0 * scatterFrac;
     // 다중산란 — 등방적. 천정의 파랑과 지평선 airlight를 유지시킵니다.
-    const multi = tSunMS * scatterFrac * MULTI_SCATTER_GAIN * (1 / (4 * Math.PI));
+    const multi = tSunMS * w0 * scatterFrac * MULTI_SCATTER_GAIN * (1 / (4 * Math.PI));
 
     // 지구 그림자를 두 성분에 **다르게** 겁니다.
     //
@@ -990,10 +1105,18 @@ vec3 atm_skyRadiance(
   float hFrac = mix(SH_HORIZON, SH_ZENITH, smoothstep(0.0, 70.0, viewElevDeg));
   float mSun   = atm_airMass(sunAltForT) * exp(-hFrac);
   float mSunMS = min(mSun, max(MS_AM_CAP, mSun * MS_AM_FRAC));
+  // 박명 조명이 지나는 공기의 얇기 — 오존층(22km)은 그림자 위에 남습니다.
+  // TS skyRadiance의 litAirFrac과 같은 식이어야 합니다.
+  float litAirFrac = sunAltDeg >= 0.0
+    ? 1.0
+    : exp(-atm_earthShadowHeightKm(-sunAltDeg) / SCALE_H_KM);
 
   vec3 tR = atm_tauRayleigh(elevScale);
   vec3 tM = atm_tauMie(beta, angstrom, elevScale);
   vec2 ozAM = atm_ozoneAirMass(max(sunAltForT, 0.5), sunAltDeg);
+  // 시선 방향 오존 경로 — 지평선에서 배수 10을 넘습니다. TS와 같은 식.
+  float ozAMView = max(0.0,
+    atm_ozoneAirMass(viewElevDeg, 0.0).x - atm_ozoneAirMass(90.0, 0.0).x);
   float ozScale = ozoneDU / 300.0;
 
   float pR = atm_rayleighPhase(cosGamma) * RAY_GAIN;
@@ -1006,17 +1129,30 @@ vec3 atm_skyRadiance(
   vec3 tauZenith = tR + tM;
   vec3 ozone   = OZONE_TAU * ozScale * ozAM.x;
   vec3 ozoneMS = OZONE_TAU * ozScale * ozAM.y;
-  vec3 tSun   = exp(-tauZenith * mSun   - ozone);
-  vec3 tSunMS = exp(-tauZenith * mSunMS - ozoneMS);
 
-  vec3 tauView = tauZenith * mView;
-  vec3 scatterFrac = 1.0 - exp(-tauView);
+  // 조명 투과율 — 색은 얇은 공기 경로에서, 밝기는 옛 경로에서.
+  // 둘을 그냥 곱하면 고도를 두 번 세어 해가 진 뒤 오히려 밝아집니다.
+  // TS skyRadiance의 normS/normMS와 같은 식이어야 합니다.
+  vec3 tSunThin   = exp(-tauZenith * mSun   * litAirFrac - ozone);
+  vec3 tSunThick  = exp(-tauZenith * mSun   - ozone);
+  vec3 tSunMsThin = exp(-tauZenith * mSunMS * litAirFrac - ozoneMS);
+  vec3 tSunMsThick= exp(-tauZenith * mSunMS - ozoneMS);
+  vec3 LUM_W = vec3(0.2126, 0.7152, 0.0722);
+  vec3 tSun   = tSunThin   * (dot(LUM_W, tSunThick)  / max(1e-12, dot(LUM_W, tSunThin)));
+  vec3 tSunMS = tSunMsThin * (dot(LUM_W, tSunMsThick)/ max(1e-12, dot(LUM_W, tSunMsThin)));
 
-  vec3 rW = (tR * mView) / max(vec3(1e-6), tauView);
+  // 시선 경로 — 산란(공기+에어로졸)과 흡수(오존)를 나눕니다.
+  vec3 tauViewScat = tauZenith * mView;
+  vec3 tauViewAbs  = OZONE_TAU * ozScale * ozAMView;
+  vec3 scatterFrac = 1.0 - exp(-(tauViewScat + tauViewAbs));
+  // 단일산란 알베도 — 두꺼운 대기의 airlight는 τ가 아니라 여기에 수렴합니다.
+  vec3 w0 = tauViewScat / max(vec3(1e-6), tauViewScat + tauViewAbs);
+
+  vec3 rW = (tR * mView) / max(vec3(1e-6), tauViewScat);
   vec3 mW = 1.0 - rW;
 
-  vec3 single = tSun   * (pR * rW + pM * mW) * scatterFrac;
-  vec3 multi  = tSunMS * scatterFrac * MS_GAIN * (1.0 / (4.0 * PI_));
+  vec3 single = tSun   * (pR * rW + pM * mW) * w0 * scatterFrac;
+  vec3 multi  = tSunMS * w0 * scatterFrac * MS_GAIN * (1.0 / (4.0 * PI_));
 
   // 지구 그림자를 두 성분에 다르게 적용 — TS skyRadiance와 같아야 합니다.
   vec3 col = (single * sunLit + multi * sunLitMS) * SKY_EXPOSURE;

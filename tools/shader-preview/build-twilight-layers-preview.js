@@ -113,8 +113,8 @@ function apply(sunAltDeg) {
       const gU = angularSeparationDeg(azDeg, 70, SUN_AZ, sunAltDeg);
       const gD = angularSeparationDeg(azDeg, 15, SUN_AZ, sunAltDeg);
       return {
-        up: applyCloudDimming(skyRadiance(70, gU, sunAltDeg, atmosphere), f),
-        down: applyCloudDimming(skyRadiance(15, gD, sunAltDeg, atmosphere), f),
+        up: applyCloudDimming(skyRadiance(70, gU, sunAltDeg, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
+        down: applyCloudDimming(skyRadiance(15, gD, sunAltDeg, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
       };
     },
     sunDir, sunAltDeg,

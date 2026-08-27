@@ -518,7 +518,8 @@ function placeClouds(
 
     const gammaDeg = angularSeparationDeg(azimuthDeg, elevationDeg, sunAzDeg, sunAltDeg);
 
-    const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere);
+    // 주변광도 **그 빌보드의 고도에서** 본 하늘입니다 (덱과 같은 이유).
+    const rawAmbient = skyRadiance(elevationDeg, gammaDeg, sunAltDeg, atmosphere, altKm);
 
     // 위층이 두꺼우면 아래는 파란 천공광이 아니라 **덱 바닥에서 내려오는
     // 회백색 확산광**으로 조명됩니다. 이 항이 없으면 평행광을 죽인 순간

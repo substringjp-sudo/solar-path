@@ -61,6 +61,7 @@ const html = `<!doctype html>
 <script type="module">
 import * as THREE from './app/vendor/three.module.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
+import { LAYER_ALTITUDE_KM } from './app/components/SkyScene3D/cloudPlacement.js';
 import { PRESET_OPTICS, blendedOpticsFromWeather } from './app/utils/cloudPresets.js';
 import { WeatherFan, buildSkyColumns, solveColumnOptics, solveDirectionalShade,
          PLACEHOLDER_WIND_SPEED_KMH, PLACEHOLDER_WIND_BEARING_DEG }
@@ -143,8 +144,8 @@ function render(scale, bg) {
       const gU = angularSeparationDeg(azDeg, 70, SUN_AZ, SUN_ALT);
       const gD = angularSeparationDeg(azDeg, 15, SUN_AZ, SUN_ALT);
       return {
-        up: applyCloudDimming(skyRadiance(70, gU, SUN_ALT, atmosphere), f),
-        down: applyCloudDimming(skyRadiance(15, gD, SUN_ALT, atmosphere), f),
+        up: applyCloudDimming(skyRadiance(70, gU, SUN_ALT, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
+        down: applyCloudDimming(skyRadiance(15, gD, SUN_ALT, atmosphere, LAYER_ALTITUDE_KM[layer]), f),
       };
     },
     sunDir, sunAltDeg: SUN_ALT,
