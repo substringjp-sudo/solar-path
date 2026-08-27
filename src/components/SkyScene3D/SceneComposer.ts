@@ -91,6 +91,60 @@ void main() {
 `;
 
 /**
+ * 디더 — 8비트로 내려앉을 때 생기는 **밴딩**을 흩습니다.
+ *
+ * 넓고 완만한 그라데이션(노을 하늘이 정확히 그것입니다)에서는 인접한
+ * 두 픽셀의 참값 차이가 1/255보다 작습니다. 그러면 여러 픽셀이 같은
+ * 정수로 내려앉아 평평한 띠가 되고, 띠와 띠 사이에 눈에 띄는 계단이
+ * 생깁니다. 양자화 직전에 1단계 미만의 잡음을 얹으면 그 경계가 픽셀마다
+ * 다른 곳에서 갈려 계단이 흩어집니다.
+ *
+ * ⚠ **마지막 패스에서 해야 합니다.** 예전에는 스카이돔 셰이더가 자기
+ * 디더를 뿌렸는데, 분리 해상도 합성이 들어오면서 스카이돔이 절반
+ * 해상도로 그려지게 됐습니다. 절반에서 뿌린 디더는 쌍선형 확대에 섞여
+ * 2×2 덩어리 잡음이 되고, 정작 화면 양자화는 확대 **뒤**에 일어나므로
+ * 밴딩은 그대로 남습니다. 잡음만 얹고 문제는 못 잡는 상태였습니다.
+ *
+ * 해시는 sin 대신 Jimenez의 interleaved gradient noise를 씁니다. GLES2
+ * mediump에서 `fract(sin(...))`는 기기마다 값이 갈려 디더가 줄무늬로
+ * 뭉치는 일이 있습니다.
+ */
+const DITHER_GLSL = `
+float ditherNoise(vec2 p) {
+  return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+`;
+
+/**
+ * 저해상도 배경을 원해상도로 올리면서 디더를 겁니다.
+ *
+ * ⚠ **여기가 유일하게 맞는 자리입니다.** 세 군데를 재 보고 알았습니다.
+ *
+ *  - **후처리 마지막 패스**: 아무 일도 안 합니다. 중간 렌더 타깃이 8비트라
+ *    합성이 읽는 값은 이미 정수로 내려앉아 있고, 거기에 ±0.5단계를 얹고
+ *    다시 반올림하면 같은 정수로 돌아옵니다 (평탄구간 30.37 → 30.36).
+ *  - **스카이돔 셰이더 안**: 듣기는 듣지만(30.37 → 5.85) 절반 해상도에서
+ *    뿌린 잡음이라 쌍선형 확대에 절반쯤 깎이고, 세기를 3배로 올려도
+ *    평탄구간이 3.13에서 더 안 내려갑니다. 원해상도 두 픽셀이 같은
+ *    텍셀 쌍에서 나오는 한 구조적으로 못 내려갑니다.
+ *  - **확대하는 이 패스**: 쌍선형 보간이 두 텍셀을 섞어 준 **연속값**을
+ *    원해상도로 다시 양자화하는 지점입니다. 값이 아직 연속이고 해상도가
+ *    이미 원해상도인 곳은 여기뿐입니다.
+ */
+const UPSCALE_FRAG = `
+precision mediump float;
+uniform sampler2D uTex;
+uniform float uDither;
+varying vec2 vUv;
+${DITHER_GLSL}
+void main() {
+  vec3 c = texture2D(uTex, vUv).rgb;
+  c += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
+  gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+/**
  * 밝은 부분만 뽑아내기 — 부드러운 무릎(soft knee).
  *
  * 딱딱한 문턱으로 자르면 밝기가 문턱을 넘나드는 경계에서 블룸이 **깜빡입니다**
@@ -210,7 +264,7 @@ void main() {
 }
 `;
 
-/** (원본 + 블룸) × 그늘. 블룸은 더하고 광선은 곱합니다. */
+/** (원본 + 블룸) × 그늘. 디더는 여기가 아니라 확대 패스가 겁니다. */
 const BLOOM_COMPOSITE_FRAG = `
 precision mediump float;
 uniform sampler2D uTex;
@@ -312,6 +366,12 @@ const RAY_ALT_HIGH_OFF = 12;
  */
 const RAY_OFFSCREEN_MARGIN = 1.0;
 
+/**
+ * 디더 세기 (1/255 단위). 1이면 ±0.5단계 — 밴딩을 흩기에는 충분하고
+ * 잡음으로 보이기에는 모자란 크기입니다.
+ */
+export const DEFAULT_DITHER = 1;
+
 /** 0~1 구간으로 부드럽게 올리는 램프. 문턱으로 자르면 툭 튑니다. */
 function ramp(x: number, edge0: number, edge1: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -344,6 +404,15 @@ export interface SceneComposerHandle {
    */
   setSun: (dirWorld: THREE.Vector3 | null, altitudeDeg: number) => void;
   /**
+   * 디더 세기 (1/255 단위). 0이면 끕니다.
+   *
+   * 저해상도 배경을 원해상도로 확대하는 패스에서 걸립니다 — 값이 아직
+   * 연속이면서 해상도가 이미 원해상도인 유일한 지점입니다. 배율 1(한 번에
+   * 그리는 경로)에는 그 패스가 없으므로 디더도 없습니다.
+   */
+  setDither: (amount: number) => void;
+  getDither: () => number;
+  /**
    * 검증용 — 마지막 프레임에 실제로 들어간 광선 세기. 고도·화면 밖 감쇠가
    * 모두 곱해진 뒤의 값이라, 밤에 0인지 같은 것을 이걸로 잽니다.
    */
@@ -366,13 +435,15 @@ export function createSceneComposer(
   height: number,
   softScale: number = DEFAULT_SOFT_SCALE,
   bloomCfg: BloomConfig = DEFAULT_BLOOM,
-  rayCfg: GodRayConfig = DEFAULT_GOD_RAYS
+  rayCfg: GodRayConfig = DEFAULT_GOD_RAYS,
+  ditherAmount: number = DEFAULT_DITHER
 ): SceneComposerHandle {
   let w = Math.max(1, Math.floor(width));
   let h = Math.max(1, Math.floor(height));
   let scale = Math.max(1, softScale);
   const bloom: BloomConfig = { ...bloomCfg };
   const rays: GodRayConfig = { ...rayCfg };
+  let dither = Math.max(0, ditherAmount);
 
   let sunDirWorld: THREE.Vector3 | null = null;
   let sunAltDeg = 90;
@@ -414,11 +485,14 @@ export function createSceneComposer(
   const quad = new THREE.PlaneGeometry(2, 2);
   const blitCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-  // 배경 blit — 그대로 덮어씁니다.
+  // 배경 blit — 저해상도 하늘을 원해상도로 올리면서 디더를 겁니다.
   const opaqueMat = new THREE.ShaderMaterial({
-    uniforms: { uTex: { value: null as THREE.Texture | null } },
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uDither: { value: dither },
+    },
     vertexShader: BLIT_VERT,
-    fragmentShader: BLIT_FRAG,
+    fragmentShader: UPSCALE_FRAG,
     depthTest: false,
     depthWrite: false,
   });
@@ -667,6 +741,7 @@ export function createSceneComposer(
       // ── 3) 합성 ──────────────────────────────────────────────────────
       renderer.setRenderTarget(sceneTarget);
       renderer.autoClear = true;
+      opaqueMat.uniforms.uDither.value = dither;
       blit(renderer, opaqueQuad, rtSky.texture);
 
       renderer.autoClear = false;
@@ -734,6 +809,10 @@ export function createSceneComposer(
       }
       sunAltDeg = altitudeDeg;
     },
+    setDither: (amount: number) => {
+      dither = Math.max(0, amount);
+    },
+    getDither: () => dither,
     lastRayGain: () => rayGain,
     dispose: () => {
       rtSky.dispose();
