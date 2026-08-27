@@ -90,6 +90,97 @@ void main() {
 }
 `;
 
+/**
+ * 밝은 부분만 뽑아내기 — 부드러운 무릎(soft knee).
+ *
+ * 딱딱한 문턱으로 자르면 밝기가 문턱을 넘나드는 경계에서 블룸이 **깜빡입니다**
+ * (구름이 흐르거나 시각이 바뀔 때). 무릎 구간에서 이차로 올라오게 하면
+ * 그 전이가 매끄럽습니다.
+ *
+ * ⚠ **이 파이프라인은 톤매핑 뒤(LDR)에서 블룸합니다.** 물리적으로는 톤매핑
+ * 전 HDR에서 하는 것이 맞지만, 그러려면 렌더 타깃이 half-float 이어야 하고
+ * GLES2 기기에서 색 버퍼로 쓸 수 있는지가 갈립니다. 대가는 태양 원반처럼
+ * 이미 1.0에 포화된 것과 거의 흰 구름이 **같은 세기로** 번진다는 점입니다.
+ * 문턱을 높게 잡아 정말 밝은 것만 걸리게 해 그 대가를 줄입니다.
+ */
+const BRIGHT_FRAG = `
+precision mediump float;
+uniform sampler2D uTex;
+uniform float uThreshold;
+uniform float uKnee;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D(uTex, vUv).rgb;
+  float l = max(max(c.r, c.g), c.b);
+  float soft = clamp(l - uThreshold + uKnee, 0.0, 2.0 * uKnee);
+  soft = soft * soft / (4.0 * uKnee + 1e-5);
+  float contrib = max(soft, l - uThreshold) / max(l, 1e-5);
+  gl_FragColor = vec4(c * contrib, 1.0);
+}
+`;
+
+/**
+ * 분리 가능 가우시안 — 선형 표본 5탭으로 9픽셀 폭을 냅니다.
+ *
+ * 텍스처 필터가 두 텍셀을 섞어 주므로, 오프셋을 텍셀 중간에 두면 표본
+ * 하나가 두 개 몫을 합니다. 블룸 버퍼는 어차피 1/4 해상도라 이 정도면
+ * 화면에서 충분히 넓게 번집니다.
+ */
+const BLUR_FRAG = `
+precision mediump float;
+uniform sampler2D uTex;
+uniform vec2 uStep;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D(uTex, vUv).rgb * 0.2270270270;
+  c += texture2D(uTex, vUv + uStep * 1.3846153846).rgb * 0.3162162162;
+  c += texture2D(uTex, vUv - uStep * 1.3846153846).rgb * 0.3162162162;
+  c += texture2D(uTex, vUv + uStep * 3.2307692308).rgb * 0.0702702703;
+  c += texture2D(uTex, vUv - uStep * 3.2307692308).rgb * 0.0702702703;
+  gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+/** 원본 + 블룸. 더하기라 어두운 곳은 그대로 두고 밝은 곳만 번집니다. */
+const BLOOM_COMPOSITE_FRAG = `
+precision mediump float;
+uniform sampler2D uTex;
+uniform sampler2D uBloom;
+uniform float uStrength;
+varying vec2 vUv;
+void main() {
+  vec3 base = texture2D(uTex, vUv).rgb;
+  vec3 glow = texture2D(uBloom, vUv).rgb;
+  gl_FragColor = vec4(base + glow * uStrength, 1.0);
+}
+`;
+
+/** 블룸 설정. `strength: 0`이면 체인 전체를 건너뜁니다. */
+export interface BloomConfig {
+  /** 더할 세기. 0 = 끔 */
+  strength: number;
+  /** 이 밝기를 넘는 부분만 번집니다 (0~1, 톤매핑 뒤 기준) */
+  threshold: number;
+  /** 문턱 전이 폭. 0이면 경계에서 깜빡입니다 */
+  knee: number;
+  /** 블룸 버퍼를 화면의 몇 분의 1로 잡을 것인가 */
+  scale: number;
+}
+
+export const DEFAULT_BLOOM: BloomConfig = {
+  // 세기를 훑어서 골랐습니다(`build-bloom-sweep.js`). 밝기 백분위만 보면
+  // 더 센 쪽이 좋아 보이지만, 블룸의 대가는 **포화**에 있습니다 — 태양 +2°
+  // 화면에서 밝기 250 이상인 픽셀 비율이 0.29% → 3.28%(0.35) → 7.21%(0.55)
+  // → 12.85%(0.85)로 늘고, 그 영역의 구름 구조는 흰색으로 뭉개져 사라집니다.
+  // 0.35는 봉우리를 확실히 들어올리면서(상위10 +16.4) 포화를 3%대로 묶습니다.
+  strength: 0.35,
+  // 톤매핑 뒤 기준이라 꽤 높게 잡습니다 — 태양 원반과 지평선 노을,
+  // 역광 받은 구름 가장자리만 걸리는 지점입니다.
+  threshold: 0.72,
+  knee: 0.22,
+  scale: 4,
+};
+
 export interface SceneComposerHandle {
   /** 저해상도 배율. 1이면 합성을 건너뛰고 한 번에 그립니다. */
   softScale: number;
@@ -100,6 +191,9 @@ export interface SceneComposerHandle {
   dispose: () => void;
   /** 검증용 — 실제로 쓰인 저해상도 버퍼 크기 */
   softSize: () => { width: number; height: number };
+  /** 블룸 설정. `strength: 0`이면 체인 전체를 건너뜁니다. */
+  setBloom: (cfg: Partial<BloomConfig>) => void;
+  getBloom: () => BloomConfig;
 }
 
 /**
@@ -116,11 +210,13 @@ export function assignLayer(obj: THREE.Object3D, layer: number): void {
 export function createSceneComposer(
   width: number,
   height: number,
-  softScale: number = DEFAULT_SOFT_SCALE
+  softScale: number = DEFAULT_SOFT_SCALE,
+  bloomCfg: BloomConfig = DEFAULT_BLOOM
 ): SceneComposerHandle {
   let w = Math.max(1, Math.floor(width));
   let h = Math.max(1, Math.floor(height));
   let scale = Math.max(1, softScale);
+  const bloom: BloomConfig = { ...bloomCfg };
 
   const rtOptions: THREE.RenderTargetOptions = {
     minFilter: THREE.LinearFilter,
@@ -134,8 +230,19 @@ export function createSceneComposer(
   const softW = () => Math.max(1, Math.round(w / scale));
   const softH = () => Math.max(1, Math.round(h / scale));
 
-  let rtSky = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
-  let rtCloud = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
+  const bloomW = () => Math.max(1, Math.round(w / Math.max(1, bloom.scale)));
+  const bloomH = () => Math.max(1, Math.round(h / Math.max(1, bloom.scale)));
+
+  const rtSky = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
+  const rtCloud = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
+  /**
+   * 블룸을 켜면 씬을 화면이 아니라 여기에 그립니다 — 밝은 부분을 뽑으려면
+   * 완성된 그림을 **다시 읽어야** 하는데, 기본 프레임버퍼는 그럴 수
+   * 없습니다. 블룸이 꺼져 있으면 이 버퍼는 쓰이지 않습니다.
+   */
+  const rtScene = new THREE.WebGLRenderTarget(w, h, rtOptions);
+  const rtBloomA = new THREE.WebGLRenderTarget(bloomW(), bloomH(), rtOptions);
+  const rtBloomB = new THREE.WebGLRenderTarget(bloomW(), bloomH(), rtOptions);
 
   const quad = new THREE.PlaneGeometry(2, 2);
   const blitCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -163,8 +270,47 @@ export function createSceneComposer(
     blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
   });
 
+  const brightMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uThreshold: { value: bloom.threshold },
+      uKnee: { value: bloom.knee },
+    },
+    vertexShader: BLIT_VERT,
+    fragmentShader: BRIGHT_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const blurMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uStep: { value: new THREE.Vector2() },
+    },
+    vertexShader: BLIT_VERT,
+    fragmentShader: BLUR_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const bloomMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uBloom: { value: null as THREE.Texture | null },
+      uStrength: { value: bloom.strength },
+    },
+    vertexShader: BLIT_VERT,
+    fragmentShader: BLOOM_COMPOSITE_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+
   const opaqueQuad = new THREE.Mesh(quad, opaqueMat);
   const overQuad = new THREE.Mesh(quad, overMat);
+  const brightQuad = new THREE.Mesh(quad, brightMat);
+  const blurQuad = new THREE.Mesh(quad, blurMat);
+  const bloomQuad = new THREE.Mesh(quad, bloomMat);
+  brightQuad.frustumCulled = false;
+  blurQuad.frustumCulled = false;
+  bloomQuad.frustumCulled = false;
   opaqueQuad.frustumCulled = false;
   overQuad.frustumCulled = false;
   const blitScene = new THREE.Scene();
@@ -182,6 +328,37 @@ export function createSceneComposer(
   const resize = () => {
     rtSky.setSize(softW(), softH());
     rtCloud.setSize(softW(), softH());
+    rtScene.setSize(w, h);
+    rtBloomA.setSize(bloomW(), bloomH());
+    rtBloomB.setSize(bloomW(), bloomH());
+  };
+
+  /** 블룸 체인. 완성된 씬(rtScene)을 읽어 화면에 원본+번짐을 씁니다. */
+  const runBloom = (renderer: THREE.WebGLRenderer) => {
+    // 1) 밝은 부분 뽑기 (1/4 해상도)
+    brightMat.uniforms.uThreshold.value = bloom.threshold;
+    brightMat.uniforms.uKnee.value = bloom.knee;
+    renderer.setRenderTarget(rtBloomA);
+    renderer.clear(true, false, false);
+    blit(renderer, brightQuad, rtScene.texture);
+
+    // 2) 가로 → 세로 분리 블러
+    const bw = bloomW(), bh = bloomH();
+    (blurMat.uniforms.uStep.value as THREE.Vector2).set(1 / bw, 0);
+    renderer.setRenderTarget(rtBloomB);
+    renderer.clear(true, false, false);
+    blit(renderer, blurQuad, rtBloomA.texture);
+
+    (blurMat.uniforms.uStep.value as THREE.Vector2).set(0, 1 / bh);
+    renderer.setRenderTarget(rtBloomA);
+    renderer.clear(true, false, false);
+    blit(renderer, blurQuad, rtBloomB.texture);
+
+    // 3) 화면에 원본 + 번짐
+    renderer.setRenderTarget(null);
+    bloomMat.uniforms.uBloom.value = rtBloomA.texture;
+    bloomMat.uniforms.uStrength.value = bloom.strength;
+    blit(renderer, bloomQuad, rtScene.texture);
   };
 
   const render = (
@@ -193,51 +370,57 @@ export function createSceneComposer(
     const prevAutoClear = renderer.autoClear;
     const prevMask = camera.layers.mask;
 
+    const bloomOn = bloom.strength > 0.001;
+    // 블룸을 켜면 씬을 버퍼에 그립니다 — 밝은 부분을 다시 읽어야 하므로.
+    const sceneTarget = bloomOn ? rtScene : null;
+
     if (scale <= 1.0001) {
-      // 합성을 건너뜁니다 — 저해상도 이득이 없으므로 패스 비용만 늘어납니다.
+      // 층을 나눌 이득이 없으면 한 번에 그립니다 (패스 비용만 늘어납니다).
       camera.layers.enableAll();
       renderer.autoClear = true;
-      renderer.setRenderTarget(null);
+      renderer.setRenderTarget(sceneTarget);
       renderer.render(scene, camera);
-      camera.layers.mask = prevMask;
-      renderer.autoClear = prevAutoClear;
-      return;
+    } else {
+      // ── 1) 배경 (저해상도, 불투명) ───────────────────────────────────
+      camera.layers.set(LAYER_SOFT_SKY);
+      renderer.autoClear = true;
+      renderer.setRenderTarget(rtSky);
+      renderer.render(scene, camera);
+
+      // ── 2) 구름 덱 (저해상도, 투명) ──────────────────────────────────
+      //
+      // 투명 검정으로 지웁니다. 덱 재질의 알파 블렌딩이 (One, 1−SrcAlpha)라
+      // 여기 쌓인 결과가 미리곱해진 형태가 됩니다.
+      camera.layers.set(LAYER_SOFT_CLOUD);
+      renderer.setRenderTarget(rtCloud);
+      renderer.setClearAlpha(0);
+      renderer.clear(true, true, true);
+      renderer.autoClear = false;
+      renderer.render(scene, camera);
+      renderer.setClearAlpha(1);
+
+      // ── 3) 합성 ──────────────────────────────────────────────────────
+      renderer.setRenderTarget(sceneTarget);
+      renderer.autoClear = true;
+      blit(renderer, opaqueQuad, rtSky.texture);
+
+      renderer.autoClear = false;
+      // 별·은하수·지형·태양 — 원해상도, 구름 아래.
+      camera.layers.set(LAYER_MID);
+      renderer.render(scene, camera);
+
+      // 구름을 얹습니다.
+      blit(renderer, overQuad, rtCloud.texture);
+
+      // 빌보드·경로·달 — 원해상도, 구름 위.
+      camera.layers.set(LAYER_FRONT);
+      renderer.render(scene, camera);
     }
 
-    // ── 1) 배경 (저해상도, 불투명) ───────────────────────────────────────
-    camera.layers.set(LAYER_SOFT_SKY);
-    renderer.autoClear = true;
-    renderer.setRenderTarget(rtSky);
-    renderer.render(scene, camera);
-
-    // ── 2) 구름 덱 (저해상도, 투명) ──────────────────────────────────────
-    //
-    // 투명 검정으로 지웁니다. 덱 재질의 알파 블렌딩이 (One, 1−SrcAlpha)라
-    // 여기 쌓인 결과가 미리곱해진 형태가 됩니다.
-    camera.layers.set(LAYER_SOFT_CLOUD);
-    renderer.setRenderTarget(rtCloud);
-    renderer.setClearAlpha(0);
-    renderer.clear(true, true, true);
-    renderer.autoClear = false;
-    renderer.render(scene, camera);
-    renderer.setClearAlpha(1);
-
-    // ── 3) 화면 합성 ─────────────────────────────────────────────────────
-    renderer.setRenderTarget(null);
-    renderer.autoClear = true;
-    blit(renderer, opaqueQuad, rtSky.texture);
-
-    renderer.autoClear = false;
-    // 별·은하수·지형·태양 — 원해상도, 구름 아래.
-    camera.layers.set(LAYER_MID);
-    renderer.render(scene, camera);
-
-    // 구름을 얹습니다.
-    blit(renderer, overQuad, rtCloud.texture);
-
-    // 빌보드·경로·달 — 원해상도, 구름 위.
-    camera.layers.set(LAYER_FRONT);
-    renderer.render(scene, camera);
+    if (bloomOn) {
+      renderer.autoClear = false;
+      runBloom(renderer);
+    }
 
     camera.layers.mask = prevMask;
     renderer.autoClear = prevAutoClear;
@@ -263,12 +446,26 @@ export function createSceneComposer(
     },
     render,
     softSize: () => ({ width: softW(), height: softH() }),
+    setBloom: (cfg: Partial<BloomConfig>) => {
+      Object.assign(bloom, cfg);
+      if (cfg.scale !== undefined) {
+        rtBloomA.setSize(bloomW(), bloomH());
+        rtBloomB.setSize(bloomW(), bloomH());
+      }
+    },
+    getBloom: () => ({ ...bloom }),
     dispose: () => {
       rtSky.dispose();
       rtCloud.dispose();
+      rtScene.dispose();
+      rtBloomA.dispose();
+      rtBloomB.dispose();
       quad.dispose();
       opaqueMat.dispose();
       overMat.dispose();
+      brightMat.dispose();
+      blurMat.dispose();
+      bloomMat.dispose();
     },
   };
 }

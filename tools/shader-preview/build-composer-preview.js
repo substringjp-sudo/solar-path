@@ -37,7 +37,7 @@ const SUN_ALT = -6.5, SUN_AZ = 268;
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
  body{margin:0;background:#0b0f15;font-family:sans-serif;color:#dde}
- #wrap{position:relative;width:${TW * 4 + 24}px;padding:12px}
+ #wrap{position:relative;width:${TW * 6 + 24}px;padding:12px}
  .lbl{position:absolute;color:#fff;font-size:12px;font-family:monospace;
    pointer-events:none;line-height:1.45;background:rgba(6,10,16,.8);
    padding:5px 8px;border-radius:5px}
@@ -45,7 +45,7 @@ const html = `<!doctype html>
  .sub{font-size:11px;color:#8aa;margin:0 0 8px}
 </style></head><body>
 <div id="wrap">
-<h3>분리 해상도 합성 — 1·2칸: 구름 (태양 +2°) &nbsp;|&nbsp; 3·4칸: 별만, 덱 숨김 (태양 ${SUN_ALT}°)</h3>
+<h3>1·2칸 구름 (태양 +2°) &nbsp;|&nbsp; 3·4칸 별만, 덱 숨김 (태양 ${SUN_ALT}°) &nbsp;|&nbsp; 5·6칸 블룸 (태양 +2° / 별)</h3>
 <p class="sub">두 질문을 <b>따로</b> 봅니다. 한 화면에 섞으면 밝은 구름이 별 측정을 오염시킵니다 (실제로 한 번 그랬습니다).</p>
 <canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
@@ -55,7 +55,7 @@ import { createStarField, updateStarField, computeEquToHorizon }
   from './app/components/SkyScene3D/StarField.js';
 import { createCloudDeck, updateCloudDeck } from './app/components/SkyScene3D/CloudDeck.js';
 import {
-  createSceneComposer, assignLayer,
+  createSceneComposer, assignLayer, DEFAULT_BLOOM,
   LAYER_SOFT_SKY, LAYER_MID, LAYER_SOFT_CLOUD, LAYER_FRONT,
 } from './app/components/SkyScene3D/SceneComposer.js';
 import { PRESET_OPTICS, blendedOpticsFromWeather } from './app/utils/cloudPresets.js';
@@ -75,7 +75,7 @@ const SUN_TWILIGHT=${SUN_ALT}, SUN_AZ=${SUN_AZ};
 const SUN_DAY = 2.0;
 
 const canvas = document.getElementById('c');
-canvas.width = TW*4; canvas.height = TH;
+canvas.width = TW*6; canvas.height = TH;
 const ctx2d = canvas.getContext('2d');
 
 const glCanvas = document.createElement('canvas');
@@ -168,12 +168,13 @@ function setSun(sunAlt) {
   });
 }
 
-const composer = createSceneComposer(TW, TH, 2);
+const composer = createSceneComposer(TW, TH, 2, { ...DEFAULT_BLOOM, strength: 0 });
 const gl = renderer.getContext();
 const labels = document.getElementById('labels');
 
-function shoot(scale) {
+function shoot(scale, bloomStrength = 0) {
   composer.setSoftScale(scale);
+  composer.setBloom({ ...DEFAULT_BLOOM, strength: bloomStrength });
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 1);
   composer.render(renderer, scene, cam);
@@ -239,6 +240,19 @@ function starSharpness(buf) {
            대비: +(mean - median).toFixed(1) };
 }
 
+/**
+ * 밝기 분포. 블룸이 **밝은 곳만** 건드렸는지 보려면 어두운 쪽과 밝은 쪽을
+ * 따로 봐야 합니다. 전체 평균만 보면 "화면을 밝게 칠한 것"과 구분이 안 됩니다.
+ */
+function brightnessProfile(buf) {
+  const vals = [];
+  for (let p = 0; p < TW*TH; p++) vals.push(lum(buf, p));
+  vals.sort((a,b) => a-b);
+  const at = (q) => vals[Math.floor(vals.length * q)];
+  return { 하위10: +at(0.10).toFixed(1), 중앙: +at(0.50).toFixed(1),
+           상위10: +at(0.90).toFixed(1), 상위1: +at(0.99).toFixed(1) };
+}
+
 // ── 1·2칸: 구름 (색이 정상인 시각) ──────────────────────────────────────
 setSun(SUN_DAY);
 deck.group.visible = true;
@@ -252,6 +266,17 @@ const 별직접 = shoot(1); paint(별직접, TW*2);
 const 별합성 = shoot(2); paint(별합성, TW*3);
 deck.group.visible = true;
 
+// ── 5·6칸: 블룸 ────────────────────────────────────────────────────────
+// 5칸은 구름(태양 +2°), 6칸은 별. 둘 다 합성 ×2 위에 블룸만 켠 것이라
+// 앞 칸들과 **한 가지만** 다릅니다.
+setSun(SUN_DAY);
+deck.group.visible = true;
+const 블룸구름 = shoot(2, DEFAULT_BLOOM.strength); paint(블룸구름, TW*4);
+setSun(SUN_TWILIGHT);
+deck.group.visible = false;
+const 블룸별 = shoot(2, DEFAULT_BLOOM.strength); paint(블룸별, TW*5);
+deck.group.visible = true;
+
 const soft = composer.softSize();
 const 결과 = {
   구름: {
@@ -259,6 +284,15 @@ const 결과 = {
     합성: +(edgeDensity(구름합성)*100).toFixed(3),
   },
   별: { 직접: starSharpness(별직접), 합성: starSharpness(별합성) },
+  블룸: {
+    설정: DEFAULT_BLOOM,
+    // 블룸은 밝은 곳만 더합니다 — 화면 평균은 오르고 어두운 곳은 그대로여야
+    // 합니다. 어두운 곳까지 오르면 그냥 화면을 밝게 칠한 것입니다.
+    구름: brightnessProfile(블룸구름),
+    구름기준선: brightnessProfile(구름합성),
+    별: brightnessProfile(블룸별),
+    별기준선: brightnessProfile(별합성),
+  },
   저해상도버퍼: soft.width + '×' + soft.height,
   화면: TW + '×' + TH,
 };
@@ -269,6 +303,12 @@ const 결과 = {
   ['2 구름 · 합성 ×2', TW, '경계밀도 ' + 결과.구름.합성 + '%'],
   ['3 별 · 직접', TW*2, '상위평균 ' + 결과.별.직접.상위평균 + '<br>대비 ' + 결과.별.직접.대비],
   ['4 별 · 합성 ×2', TW*3, '상위평균 ' + 결과.별.합성.상위평균 + '<br>대비 ' + 결과.별.합성.대비],
+  ['5 구름 · 합성 + 블룸', TW*4,
+    '하위10 ' + 결과.블룸.구름.하위10 + ' (기준 ' + 결과.블룸.구름기준선.하위10 + ')' +
+    '<br>상위1 ' + 결과.블룸.구름.상위1 + ' (기준 ' + 결과.블룸.구름기준선.상위1 + ')'],
+  ['6 별 · 합성 + 블룸', TW*5,
+    '하위10 ' + 결과.블룸.별.하위10 + ' (기준 ' + 결과.블룸.별기준선.하위10 + ')' +
+    '<br>상위1 ' + 결과.블룸.별.상위1 + ' (기준 ' + 결과.블룸.별기준선.상위1 + ')'],
 ].forEach(([name, x, txt]) => {
   const d = document.createElement('div');
   d.className = 'lbl';
