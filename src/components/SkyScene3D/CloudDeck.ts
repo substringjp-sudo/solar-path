@@ -570,7 +570,23 @@ export function createCloudDeck(opts: {
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,
-      blending: THREE.NormalBlending,
+      // ── 색은 보통 알파 블렌딩, **알파는 따로** ─────────────────────────
+      //
+      // 색 쪽은 NormalBlending과 같습니다. 다른 것은 알파 쪽뿐입니다:
+      // 기본값은 `a_src·a_src + (1−a_src)·a_dst` 라 누적이 틀립니다.
+      // `(One, 1−SrcAlpha)` 여야 여러 층이 겹쳤을 때 알파가 제대로 쌓입니다.
+      //
+      // 왜 필요한가: `SceneComposer`가 덱을 **투명 버퍼**에 그린 뒤 화면에
+      // 얹습니다(저해상도 합성). 그때 버퍼의 알파가 곧 구름의 불투명도라
+      // 틀리면 합성이 어긋납니다. 기본 프레임버퍼에 직접 그리는 경로에서는
+      // 목적지 알파가 무시되므로 동작이 전과 같습니다.
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.SrcAlphaFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendEquationAlpha: THREE.AddEquation,
+      blendSrcAlpha: THREE.OneFactor,
+      blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
