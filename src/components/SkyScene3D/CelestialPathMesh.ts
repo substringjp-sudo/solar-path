@@ -21,6 +21,13 @@ const PATH_RADIUS = 445;
 /** 리본 반폭 (월드 단위). 반경 445에서 ±3.2면 약 0.8° — AR 가이드로 읽히는 두께입니다. */
 const RIBBON_HALF_WIDTH = 3.2;
 
+/**
+ * 실제 태양·달 원반 근처에서 리본을 지우는 폭 (시간 단위).
+ * FRAG의 nearMask 주석 참고 — 15°/시간 근사로 각도를 시간차로 바꿉니다.
+ */
+export const NEAR_FADE_INNER_HOURS = 0.12; // 약 1.8° 안쪽은 완전히 투명
+export const NEAR_FADE_OUTER_HOURS = 0.4;  // 약 6° 밖에서 완전히 복귀
+
 const VERT = `
 precision highp float;
 
@@ -62,6 +69,8 @@ precision highp float;
 uniform vec3  uColor;
 uniform float uNowHours;
 uniform float uOpacity;
+uniform float uNearFadeInner;   // 이 시간차(시) 안쪽은 완전히 투명
+uniform float uNearFadeOuter;   // 이 시간차 밖에서 완전히 보임
 
 varying float vHours;
 varying float vAltDeg;
@@ -76,8 +85,21 @@ void main() {
   float past = smoothstep(-3.5, 0.0, dt);      // 과거일수록 0
   float timeFade = mix(0.28, 1.0, past);
 
-  // 현재 시각 부근에 밝은 마커
-  float nowGlow = exp(-pow(dt * 3.2, 2.0));
+  /**
+   * **실제 태양·달 원반 근처를 투명하게.**
+   *
+   * 리본은 그 순간의 실제 위치를 지나므로, uNowHours 부근(dt≈0)에서
+   * 태양·달 원반과 정확히 겹칩니다. 각지름이 리본 폭과 비슷해(둘 다
+   * 약 0.5~0.8°) 원반을 거의 덮어버립니다.
+   *
+   * dt(시간차)를 각도의 대용으로 씁니다 — 태양·달의 겉보기 이동은 대략
+   * 15°/시간이므로, uNearFadeInner=0.12h → 약 1.8°(원반 지름의 3~4배)
+   * 안쪽은 완전히 비우고, uNearFadeOuter=0.4h → 약 6° 밖에서 완전히
+   * 되살아납니다. 정확한 각거리가 아니라 근사치입니다 — 실제 이동 속도는
+   * 위도·계절·시각에 따라 달라지지만, 이미 timeFade 등 다른 효과도 같은
+   * 시간 기준을 쓰고 있어 일관됩니다.
+   */
+  float nearMask = smoothstep(uNearFadeInner, uNearFadeOuter, abs(dt));
 
   // 정시 눈금
   float tick = smoothstep(0.93, 1.0, abs(fract(vHours) * 2.0 - 1.0));
@@ -93,13 +115,15 @@ void main() {
   float belowMask = mix(1.0, dash * 0.45, below);
 
   float a = core * timeFade * belowMask * uOpacity;
-  a += nowGlow * core * 0.9;
   a += tick * core * 0.35;
   a += arrowLine * 0.75;
+  // 근접 마스크는 마지막에 한 번만 곱합니다 — "현재 위치" 발광 마커도
+  // 여기 포함해 실제 원반과 겹치는 밝은 점 자체를 없앱니다.
+  a *= nearMask;
 
   if (a <= 0.004) discard;
 
-  vec3 col = uColor + vec3(1.0) * (nowGlow * 0.55 + tick * 0.25 + arrowLine * 0.6);
+  vec3 col = uColor + vec3(1.0) * (tick * 0.25 + arrowLine * 0.6);
   gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
 }
 `;
@@ -141,6 +165,8 @@ function createRibbon(color: THREE.Color, maxPoints: number): PathRibbon {
       uWidth: { value: RIBBON_HALF_WIDTH },
       uNowHours: { value: 12 },
       uOpacity: { value: 0.85 },
+      uNearFadeInner: { value: NEAR_FADE_INNER_HOURS },
+      uNearFadeOuter: { value: NEAR_FADE_OUTER_HOURS },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
