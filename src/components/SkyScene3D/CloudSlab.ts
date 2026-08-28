@@ -153,7 +153,7 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
  * 옳은 물리이기도 합니다 — 90km 밖 구름의 낱개 봉우리는 실제로도 안 보입니다
  * (계획 8절 - 선명도는 확신도에 비례합니다).
  */
-float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det){
+float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float billowAmt){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
   
@@ -177,6 +177,12 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   // 구름이 완전히 덮인 흐린 날(cover -> 1.0)일 경우 노이즈 틈새(구멍)가 뚫리지 않도록 덩어리로 만들어 줍니다.
   m = mix(m, cover * 1.5, smoothstep(0.9, 1.0, cover));
   
+  // 구름 자체의 잔결(빌로우). 셀의 12분의 1 규모라, 천정처럼 지상 좌표가
+  // 한 점으로 모이는 곳에서도 구조가 남습니다. 평균이 1인 곱셈이라
+  // 예보 운량을 밀지 않습니다. 발자국이 감당 못 하면(지평선) 꺼집니다.
+  float billowFine = mix(0.5, slab_fbm(p * 12.0 + 13.7, 3), billowAmt);
+  m *= 0.82 + 0.36 * billowFine;
+
   float baseSub = layer == 0 ? 0.38 : (layer == 1 ? 0.40 : 0.42);
   return max(0.0, m - baseSub);
 }
@@ -289,6 +295,26 @@ void main(){
     // 발자국이 셀 반쯤을 넘어서면 잔무늬를 믿을 수 없습니다.
     float det = 1.0 - smoothstep(0.45, 2.0, footKm / cellKm);
 
+    // 반대쪽 극단 — **천정** 입니다. 위를 보면 지상거리가 0 으로 수렴하므로
+    // 노이즈 좌표도 한 점에 모입니다. 저층 기준 고도 75~90°가 통틀어
+    // 0.19셀이라, 셀 규모 무늬로는 **아무 구조도 안 생깁니다**.
+    //
+    // ⚠ 옥타브를 더 켜는 것으로는 안 됩니다. fbm 은 옥타브마다 진폭이
+    // 절반이라 8옥타브째 기여가 전체의 0.4% 입니다 — 실제로 +4 까지
+    // 올려 봤지만 그림이 거의 그대로였습니다. 필요한 것은 스펙트럼 꼬리가
+    // 아니라 **셀보다 훨씬 잔 규모의 독립 항**, 곧 구름 자체의 빌로우입니다.
+    //
+    // 그래서 세부 계수를 두 개로 나눕니다: det 는 지평선 쪽에서 잔무늬를
+    // 끄고, billowAmt 는 천정 쪽에서 빌로우를 켭니다.
+    //
+    // ⚠ 빌로우를 하늘 전체에 켜면 노을이 망가집니다 — 셀 규모의 큰 덩어리를
+    // 잔결로 잘게 부수기 때문입니다 (측정: 태양 0° 명암폭 95.5 → 67.7).
+    // 그래서 **지상 좌표가 셀 하나도 못 채우는 곳**에서만 켭니다. 저층
+    // 기준으로 천정이 0.125, 고도 50°가 0.59, 고도 14°(노을 시선)가 2.8
+    // 입니다. 문턱을 넓게 잡으면 노을 시선까지 켜져 대비를 먹으므로
+    // 0.4~2.0 으로 잡습니다 — 대체로 위를 올려다볼 때 켜집니다.
+    float billowAmt = det * (1.0 - smoothstep(0.4, 2.0, length(km) / cellKm));
+
     // ── 수직 체적 스텝 (같은 구름의 위아래) ────────────────────────────
     for (int S = 0; S < 3; S++){
       if (S >= nSteps) break;
@@ -308,13 +334,13 @@ void main(){
       // 노이즈를 빼는 셈이라 기울기가 난수가 되고, 그걸 6배 키운 노멀이
       // 입체감을 만들기는커녕 지웁니다.
       float sSeed = seed;
-      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det);
+      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
       if (thick <= 0.0) continue;
 
       // ── 3D 입체 릴리프 음영 ──
       float eps = cellKm * 0.08;
-      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det);
-      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det);
+      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
+      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
       float dhdx = (tX - thick) / eps;
       float dhdy = (tY - thick) / eps;
       // 노멀 강도를 높여 구름 덩어리의 두께감(Bumpiness)을 강조합니다
@@ -333,7 +359,7 @@ void main(){
       float stepAlpha = 1.0 - T;
 
       // 자기그림자 (Self-shadow)
-      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det);
+      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
       float reach = exp(-thickSun * tauK * 0.55);
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
@@ -362,6 +388,17 @@ void main(){
               * (0.25 + 0.75 * reach);
       lit += ms * uMultiScatter;
 
+      // 두꺼운 덱의 **밑면**도 하늘빛을 받습니다.
+      //
+      // 예전에는 (0.26 + 0.30*T) 뿐이라 T→0 이면 26% 로 굳었습니다. 태양이
+      // 지평선에 있으면 beam 이 거의 0 인데 nightFactor 도 아직 0 이라
+      // 달·도시광이 안 켜집니다. 그 틈에서 흐린 하늘을 밝힐 항이 하나도
+      // 없어 **화면이 통째로 검어졌습니다** (전천후 격자: 흐림·천정·노을
+      // 평균 휘도 0, 구름덮임 0 — 검은 구름이 하늘을 다 덮은 것입니다).
+      //
+      // 이미 계산해 둔 2-stream 투과율을 주변광에도 태웁니다. 얇으면
+      // 1.11배(하늘과 거의 같음), 광학두께 15의 두꺼운 덱이면 0.52배로
+      // 붙습니다 — 흐린 날 낮이 어둡긴 해도 캄캄하지는 않습니다.
       vec3 amb = ambBase * (0.26 + 0.30 * T) * vertShadow;
       vec3 cc = lit + amb;
 
@@ -375,7 +412,9 @@ void main(){
       // 밤하늘 지상 도시 불빛 (구름 밑면 S=0에 가장 강하게 집중 투영)
       if (nightFactor > 0.01 && uCityLight > 0.01) {
         float layerHeightAtten = L == 2 ? 1.0 : (L == 1 ? 0.40 : 0.10);
-        float bottomWeight = 0.85 - 0.40 * sFrac; // 밑면 집중
+        // 밑면 집중. 스텝이 하나뿐이면 프로파일이 없으므로 3스텝 시절의
+        // 평균(0.65)을 씁니다 — 안 그러면 0.85 로 굳어 밤이 밝아집니다.
+        float bottomWeight = nSteps > 1 ? (0.85 - 0.40 * sFrac) : 0.65;
         float upwellingScatter = (1.0 - exp(-thick * tauK * 0.80)) * layerHeightAtten * bottomWeight;
         vec3 cityAmb = cityGlowColor * upwellingScatter * (0.45 + 0.55 * max(n.z, 0.1));
         cc += cityAmb * nightFactor * 0.6; // 너무 과하지 않게 줄임
@@ -383,6 +422,29 @@ void main(){
 
       // 입체 릴리프 음영 부여
       cc *= (0.76 + 0.50 * clamp(relief, -0.6, 1.0));
+
+      // 구름은 자기가 가린 하늘보다 어두울 수 있어도 **완전히 검을 수는
+      // 없습니다.** 두꺼운 덱의 밑면도 옆과 아래에서 들어오는 빛을 받습니다.
+      //
+      // 이게 없으면 태양이 지평선에 있어 beam 이 거의 0 인데 nightFactor 도
+      // 아직 0 이라 달·도시광이 안 켜지는 틈에서, 흐린 하늘이 통째로
+      // 검어집니다 (전천후 격자: 흐림·천정·노을 화면 평균 휘도 1.9).
+      //
+      // 바닥으로 두는 것이 핵심입니다. 주변광 공식에 더하거나 곱하면 얇은
+      // 구름까지 밝아져 노을 대비를 먹습니다 (측정: 태양 0° 명암폭
+      // 95.5 → 67.7). 바닥은 원래 그보다 어두운 화소만 건드립니다.
+      // (1 - T) 를 곱하는 것이 핵심입니다. 바닥은 **두꺼운 구름 속에서
+      // 여러 번 산란된 빛**이므로 얇은 구름에는 있을 이유가 없고, 얇은
+      // 구름까지 들어 올리면 노을 대비를 깎습니다 (측정: 고정 바닥 0.40
+      // 이면 태양 -3° 명암폭 105.7 → 87.8).
+      //
+      // ⚠ 이 바닥은 안전망일 뿐입니다. "흐린 날 노을에 화면이 검다"의
+      // 진짜 원인은 구름이 아니라 **하늘돔**입니다 — 흐림·천정·노을에서
+      // 슬랩 덮임이 0.093 인데도 화면 평균 휘도가 1.7 이고, 같은 시각
+      // 맑음은 146.8 입니다. 두 경우의 천정 복사휘도는 0.045 로 같으니
+      // 차이는 betaMie(0.046 대 0.219)를 받는 쪽에 있습니다.
+      // docs/SKY_REBUILD_PLAN.md 15절에 남겼습니다.
+      cc = max(cc, ambBase * 0.18 * (1.0 - T));
 
       // 층별 틴트 & 깊이감
       vec3 tint = L == 0 ? vec3(1.05, 0.98, 1.03) : (L == 1 ? vec3(1.00, 1.00, 1.01) : vec3(0.97, 0.99, 1.00));
@@ -397,8 +459,13 @@ void main(){
       float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0030);
       cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85) * uAerialScale);
 
+      // 채도 부스트. mix 의 계수가 1을 넘으므로 이건 보간이 아니라 **외삽**
+      // 입니다 — 휘도보다 낮은 채널이 음수로 밀리고, 출력에서 0 으로
+      // 잘립니다. 어두운 장면에서는 그게 곧 색이 통째로 빠지는 것입니다:
+      // 전천후 격자의 흐림·천정·노을에서 파랑이 전 화소 0 이 되어 R/B 가
+      // 98만까지 튀었습니다. 음수만 막으면 됩니다.
       float l = dot(cc, vec3(0.2126, 0.7152, 0.0722));
-      cc = mix(vec3(l), cc, 1.0 + clamp(thick * 0.5, 0.0, 0.7) * 0.35);
+      cc = max(vec3(0.0), mix(vec3(l), cc, 1.0 + clamp(thick * 0.5, 0.0, 0.7) * 0.35));
 
       // 체적 누적 합성
       lin = cc * stepAlpha + lin * (1.0 - stepAlpha);
