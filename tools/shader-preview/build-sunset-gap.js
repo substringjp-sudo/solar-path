@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { PREVIEW } = require('./paths');
 
-const TW = 300, TH = 300;
+const TW = 260, TH = 260;
 const FOV_DEG = 62;
 const VIEW_AZ = 262, VIEW_ELEV = 14, SUN_AZ = 268;
 const SUNS = [0, -3];
@@ -27,7 +27,7 @@ const SUNS = [0, -3];
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
  body{margin:0;background:#0b0f15;font-family:sans-serif;color:#dde}
- #wrap{position:relative;width:${TW * 4 + 24}px;padding:12px}
+ #wrap{position:relative;width:${TW * 5 + 24}px;padding:12px}
  .lbl{position:absolute;color:#fff;font-size:11px;font-family:monospace;
    pointer-events:none;line-height:1.4;background:rgba(6,10,16,.78);
    padding:4px 7px;border-radius:4px}
@@ -36,7 +36,7 @@ const html = `<!doctype html>
 </style></head><body>
 <div id="wrap">
 <h3>노을 색이 어디서 사라졌나 — 장면은 build-cloud-slab 과 동일</h3>
-<p class="sub">가로: PR #14 / 현재 / 현재+다중산란 0.2 / 현재+셀 2.0km+다중산란 0.2</p>
+<p class="sub">가로: PR #14 / 수정 후(기본값) / 3스텝 되살림 / 산란 0 / 대기원근 0</p>
 <canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
 import * as THREE from './app/vendor/three.module.js';
@@ -59,7 +59,7 @@ const VIEW_AZ=${VIEW_AZ}, VIEW_ELEV=${VIEW_ELEV}, SUN_AZ=${SUN_AZ};
 const SUNS=${JSON.stringify(SUNS)};
 
 const canvas = document.getElementById('c');
-canvas.width = TW*4; canvas.height = TH*SUNS.length;
+canvas.width = TW*5; canvas.height = TH*SUNS.length;
 const ctx2d = canvas.getContext('2d');
 const glCanvas = document.createElement('canvas');
 glCanvas.width = TW; glCanvas.height = TH;
@@ -192,9 +192,9 @@ function contrast(buf){
  * 반대편 그림자)는 전부 **대비** 현상이라, 하늘이 구름으로 꽉 차면 채도를
  * 아무리 올려도 안 나옵니다.
  */
-function coverage(which, aerial, ms, sunAlt){
+function coverage(which, aerial, ms, sunAlt, steps){
   skydome.mesh.visible=false; terrain.visible=false; ground.visible=false;
-  const buf = shootRaw(sunAlt, which, aerial, ms);
+  const buf = shootRaw(sunAlt, which, aerial, ms, steps);
   skydome.mesh.visible=true; terrain.visible=true; ground.visible=true;
   let n=0, tot=0;
   for(let y=Math.floor(TH*0.30);y<TH;y++) for(let x=0;x<TW;x++){
@@ -203,7 +203,7 @@ function coverage(which, aerial, ms, sunAlt){
   return +(n/Math.max(1,tot)).toFixed(3);
 }
 
-function shootRaw(sunAlt, which, aerial, ms){
+function shootRaw(sunAlt, which, aerial, ms, steps){
   const a=sunAlt*Math.PI/180, z=SUN_AZ*Math.PI/180;
   const sunDir=new THREE.Vector3(Math.cos(a)*Math.sin(z), Math.sin(a), -Math.cos(a)*Math.cos(z)).normalize();
   updateSkydome(skydome, sunAlt, SUN_AZ, atmosphere);
@@ -217,8 +217,8 @@ function shootRaw(sunAlt, which, aerial, ms){
     driftHours:0, visible:true };
   cur.mesh.visible = which==='cur'; prev.mesh.visible = which==='prev';
   wide.mesh.visible = which==='wide';
-  if (which==='cur') updateCloudSlab(cur, { ...common, cityLight:0, aerialScale:aerial, multiScatter:ms });
-  else if (which==='wide') updateCloudSlab(wide, { ...common, cityLight:0, aerialScale:aerial, multiScatter:ms });
+  if (which==='cur') updateCloudSlab(cur, { ...common, cityLight:0, aerialScale:aerial, multiScatter:ms, volSteps:steps });
+  else if (which==='wide') updateCloudSlab(wide, { ...common, cityLight:0, aerialScale:aerial, multiScatter:ms, volSteps:steps });
   else updatePrevSlab(prev, common);
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 1);
@@ -237,17 +237,18 @@ function paint(buf,x,y){
 
 const 결과=[];
 const CASES=[
-  ['PR #14',              'prev', 1, 1],
-  ['현재',                'cur',  1, 1],
-  ['+다중산란 0.2',       'cur',  1, 0.2],
-  ['+셀 2.0 +다중산란',   'wide', 1, 0.2],
+  ['PR #14',        'prev', 1, 1, 3],
+  ['수정 후(기본)', 'cur',  1, 1, 1],
+  ['3스텝 되살림',  'cur',  1, 1, 3],
+  ['산란 0',        'cur',  1, 0, 1],
+  ['대기원근 0',    'cur',  0, 1, 1],
 ];
 SUNS.forEach((sunAlt, si)=>{
-  CASES.forEach(([tag, which, aerial, ms], ci)=>{
-    const buf=shoot(sunAlt, which, aerial, ms);
+  CASES.forEach(([tag, which, aerial, ms, steps], ci)=>{
+    const buf=shoot(sunAlt, which, aerial, ms, steps);
     paint(buf, ci*TW, si*TH);
     const ch=chroma(buf), hu=hueSpread(buf), co=contrast(buf);
-    const cv=coverage(which, aerial, ms, sunAlt);
+    const cv=coverage(which, aerial, ms, sunAlt, steps);
     const vg=vertGrad(buf);
     const d=document.createElement('div');
     d.className='lbl'; d.style.left=(ci*TW+12)+'px'; d.style.top=(si*TH+46)+'px';

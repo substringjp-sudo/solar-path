@@ -557,3 +557,32 @@ node tools/shader-preview/verify-device-repro.js       # 11개
   입력으로** 나란히 그립니다. `src/components/SkyScene3D/CloudSlabPrev.ts`
   가 그때 사본이고, 앱은 임포트하지 않습니다. 이 비교가 "PR #14 은 밤에
   아무것도 안 그린다(휘도 0)"를 드러냈고, 되돌리기가 답이 아님을 정했습니다.
+
+## 노을 대비 — `verify-sunset-gap.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-sunset-gap.js
+node tools/shader-preview/shoot.js sunset-gap.html sunset-gap.png 40
+node tools/shader-preview/verify-sunset-gap.js       # 11개
+```
+
+`verify-cloud-slab.js` 의 **채도만으로는 이 그림이 안 지켜집니다.** 실제로
+채도가 8/8 통과하는 동안 명암폭이 124 → 28 로 4.4배 무너졌고, 그게
+"지평선쪽만 빛나고, 구름 틈으로 하늘이 보이고, 반대편에 그림자가 지는"
+세 가지가 사라진 정체였습니다. 셋 다 대비 현상이라 평균에 안 잡힙니다.
+
+지표 셋:
+
+- **세로기울기** = 천정 밝기 ÷ 지평선 바로 위 밝기. 작을수록 지평선만 탑니다.
+- **명암폭** = 하늘 화소 휘도의 p90 - p10.
+- **색상변화** = 색상각의 **원형** 표준편차. 색상각은 360°에서 이어지므로
+  산술 표준편차를 쓰면 빨강 부근이 0°와 359°로 갈려 거짓으로 커집니다.
+
+기준선은 PR #14 슬랩(`CloudSlabPrev.ts`)을 같은 페이지에 같이 그려 둔
+값입니다 — 절대 숫자가 아니라 **그 그림과의 거리**로 봅니다.
+
+⚠ `readPixels` 는 **아래가 y=0** 입니다. 이 습작의 첫 판에서 "하늘"이라고
+쓴 영역이 지면을 포함하고 상단 하늘을 빼는 바람에 세로기울기가 거꾸로
+나왔습니다. 새 지표를 만들 때는 **먼저 뒤집힌 값이 나오는지** 확인하는 게
+싸게 먹힙니다.

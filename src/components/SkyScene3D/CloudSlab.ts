@@ -50,7 +50,7 @@ export const SLAB_RANGE_KM = 360;
 export const SLAB_TEX = 128;
 
 /** 층별 노이즈 셀 크기 (km) — 저층 적운은 덩어리가 크고, 고층 권운은 섬세한 필라멘트. (층간 거리감 부각을 위해 격차를 늘림) */
-const CELL_KM: Record<LayerKey, number> = { low: 1.2, mid: 3.8, high: 12.0 };
+const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
 /** 층별 두께 → 광학두께 배율. 두꺼운 저층일수록 큽니다. */
 const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
 
@@ -209,6 +209,7 @@ uniform float uDriftHours;
 uniform float uPixelAngleRad;
 uniform float uAerialScale;
 uniform float uMultiScatter;
+uniform float uVolSteps;
 uniform float uSaturation;
 
 void main(){
@@ -252,6 +253,11 @@ void main(){
     float hBase  = L == 0 ? ALT_HIGH : (L == 1 ? ALT_MID : ALT_LOW);
     float hThick = L == 0 ? 0.0 : (L == 1 ? 1.0 : 1.6); // 수직 체적 두께 (km)
     int nSteps   = L == 0 ? 1 : (L == 1 ? 2 : 3);       // 체적 샘플링 스텝 수
+    // 주의: 스텝마다 h 가 달라 slab_sphereIntersect 를 다시 풀므로, 세 스텝은
+    // 같은 구름의 위아래가 아니라 **지상 위치가 다른 세 겹**입니다. 틈이
+    // 겹칠 확률이 p^3 으로 줄어 대비가 사라집니다. 얼마나 먹는지 재려고
+    // 스텝 수를 밖에서 누를 수 있게 했습니다.
+    nSteps = int(min(float(nSteps), uVolSteps));
 
     vec3  beam   = L == 0 ? uBeamHigh : (L == 1 ? uBeamMid : uBeamLow);
     float cellKm = L == 0 ? CELL_HIGH : (L == 1 ? CELL_MID : CELL_LOW);
@@ -260,33 +266,48 @@ void main(){
     vec2  wind   = L == 0 ? uWindHigh : (L == 1 ? uWindMid : uWindLow);
     vec2  windNorm = length(wind) > 1e-3 ? normalize(wind) : vec2(1.0, 0.0);
 
-    // ── 수직 체적 스텝 적분 (Volumetric Slices) ──
+    // ── 지상 위치는 층 밑면에서 **한 번만** 풉니다 ─────────────────────
+    //
+    // 예전에는 스텝마다 h 를 바꿔 다시 투영했습니다. 시선이 누울수록
+    // 지상거리는 h 에 거의 비례하므로, 밑면 1.4km / 꼭대기 3.0km 면
+    // **지상 위치가 두 배 벌어집니다.** 그러면 세 스텝이 같은 구름의
+    // 위아래가 아니라 서로 무관한 세 겹이 되고, 틈이 겹칠 확률이 p^3 으로
+    // 줄어 대비가 통째로 사라집니다.
+    //
+    // 측정(태양 0°, build-sunset-gap): 명암폭 28.1 → 65.2, 세로기울기
+    // 0.954 → 0.857. 체적 스텝은 이제 **음영만** 나눕니다.
+    SlabGeom geom = slab_sphereIntersect(sinE, cosE, hBase);
+    vec2 km = dir.xz * geom.distRatio;
+    vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
+    float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
+    float conf  = cv.a;
+    vec2 kmN = km + wind * uDriftHours;
+
+    // 이 화소가 담당하는 지상 거리(반경 방향). 지평선으로 갈수록 시선이
+    // 층을 스치듯 지나 급격히 늘어납니다.
+    float footKm = uPixelAngleRad * geom.sDistKm / max(sinE, 0.02);
+    // 발자국이 셀 반쯤을 넘어서면 잔무늬를 믿을 수 없습니다.
+    float det = 1.0 - smoothstep(0.45, 2.0, footKm / cellKm);
+
+    // ── 수직 체적 스텝 (같은 구름의 위아래) ────────────────────────────
     for (int S = 0; S < 3; S++){
       if (S >= nSteps) break;
       float sFrac = nSteps > 1 ? float(S) / float(nSteps - 1) : 0.0;
-      float h = hBase + sFrac * hThick;
 
-      // 구형 지구 돔 곡률 투영
-      SlabGeom geom = slab_sphereIntersect(sinE, cosE, h);
-      vec2 km = dir.xz * geom.distRatio;
-      vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
-      float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
-      float conf  = cv.a;
-
-      vec2 kmN = km + wind * uDriftHours;
-
-      // 이 화소가 담당하는 지상 거리(반경 방향). 지평선으로 갈수록 시선이
-      // 층을 스치듯 지나 급격히 늘어납니다.
-      float footKm = uPixelAngleRad * geom.sDistKm / max(sinE, 0.02);
-      // 발자국이 셀 반쯤을 넘어서면 잔무늬를 믿을 수 없습니다.
-      float det = 1.0 - smoothstep(0.45, 2.0, footKm / cellKm);
 
       // 윗면으로 갈수록 돔 형태로 둥글게 모이는 체적 프로파일
       float shape = 1.0 - sFrac * sFrac * 0.45;
-      // 이 스텝의 씨앗. 아래 릴리프·자기그림자가 **반드시 같은 값**을 써야
-      // 합니다 — 다르면 서로 무관한 두 노이즈를 빼는 셈이라 기울기가
-      // 난수가 되고, 그걸 6배 키운 노멀이 입체감을 만들기는커녕 지웁니다.
-      float sSeed = seed + float(S) * 0.15;
+      // 스텝이 달라도 씨앗은 **같습니다.**
+      //
+      // 예전에는 seed + S*0.15 였습니다. 0.15셀만큼 어긋난 노이즈를 세 겹
+      // 겹치는 셈이라, 한 겹의 틈을 다른 겹이 메웁니다. 수직 체적이란
+      // 같은 구름의 위아래이지 서로 다른 세 구름이 아닙니다. 두께장을
+      // 공유하고 **음영만** 스텝별로 나눠야 틈이 틈으로 남습니다.
+      //
+      // 릴리프·자기그림자도 반드시 이 값을 씁니다 — 다르면 서로 무관한 두
+      // 노이즈를 빼는 셈이라 기울기가 난수가 되고, 그걸 6배 키운 노멀이
+      // 입체감을 만들기는커녕 지웁니다.
+      float sSeed = seed;
       float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det);
       if (thick <= 0.0) continue;
 
@@ -316,8 +337,11 @@ void main(){
       float reach = exp(-thickSun * tauK * 0.55);
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
-      float vertLit = 0.65 + 0.55 * sFrac;
-      float vertShadow = 0.50 + 0.50 * sFrac;
+      // 체적 수직 조명 프로파일. 스텝이 하나뿐이면 프로파일이 의미가 없고
+      // 0.65 / 0.50 이 그냥 **상수 감광**으로 남아 구름만 어두워집니다.
+      // 그건 대비를 얻는 정직한 방법이 아니므로 1.0 으로 둡니다.
+      float vertLit = nSteps > 1 ? (0.65 + 0.55 * sFrac) : 1.0;
+      float vertShadow = nSteps > 1 ? (0.50 + 0.50 * sFrac) : 1.0;
 
       float ph = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
       vec3 lit = beam * reach * ph * (0.20 + 1.15 * T) * vertLit;
@@ -326,10 +350,16 @@ void main(){
       // 두꺼운 구름이라도 직달광(reach=0)이 산란을 통해 내부와 밑면을 밝힘
       float totalTau = max(thickSun, thick) * tauK; 
       float msTransmittance = 2.0 / (totalTau * 0.15 + 2.0); // 2-stream 근사
-      vec3 ms = beam * msTransmittance * 0.5 * (0.3 + 0.7 * vertShadow);
-      // 주의: 이 항은 reach 를 안 봅니다 — 자기그림자에 든 구름에도 같은
-      // 양이 들어갑니다. 그림자를 메우고 얇은 가장자리와 두꺼운 속의 차이를
-      // 줄이므로, 노을에서 무엇이 사라지는지 잴 수 있게 세기를 뺐습니다.
+      // 다중산란. 두 가지를 고쳤습니다.
+      //
+      // (1) 세기가 0.5 로 커서 노을 대비를 통째로 먹었습니다 — 이 항만
+      //     빼면 태양 0° 명암폭이 47.9 → 102 로 두 배가 됩니다.
+      // (2) reach 를 안 봐서 **자기그림자에 든 구름에도 같은 양**이
+      //     들어갔습니다. 그게 "태양 반대편 그림자"가 사라진 이유입니다.
+      //     완전히 게이트하면 두꺼운 속이 새까매지므로, 그늘에서도 4분의 1은
+      //     남깁니다 — 다중산란은 원래 직달광이 안 닿는 곳도 밝히니까요.
+      vec3 ms = beam * msTransmittance * 0.12 * (0.3 + 0.7 * vertShadow)
+              * (0.25 + 0.75 * reach);
       lit += ms * uMultiScatter;
 
       vec3 amb = ambBase * (0.26 + 0.30 * T) * vertShadow;
@@ -362,7 +392,9 @@ void main(){
       // 대기 원근감. 100km 에서 이미 42%, 357km 에서 85% 를 한 가지 안개색
       // 으로 덮으므로, 노을의 분홍·보라·파랑 **변화**를 지우는 쪽으로도
       // 작용합니다. 세기를 uniform 으로 빼 얼마나 먹는지 잽니다.
-      float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0055);
+      // 0.0055 는 100km 에서 벌써 42% 를 한 가지 안개색으로 덮어 노을의
+      // 색 변화를 지웠습니다. 절반으로 낮추면 깊이감은 남고 대비는 돌아옵니다.
+      float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0030);
       cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85) * uAerialScale);
 
       float l = dot(cc, vec3(0.2126, 0.7152, 0.0722));
@@ -457,6 +489,13 @@ export function createCloudSlab(opts: {
       uPixelAngleRad: { value: 0.001 },
       uAerialScale: { value: 1 },
       uMultiScatter: { value: 1 },
+      // 수직 체적 스텝 기본값 1.
+      //
+      // 3스텝은 같은 구름의 위아래를 그리는 대신 **조금씩 어긋난 세 겹**을
+      // 겹쳐, 한 겹의 틈을 다른 겹이 메웁니다. 태양 0° 에서 명암폭
+      // 30.5 → 47.9, 세로기울기 0.967 → 0.952. 값에 비해 대가가 큽니다.
+      // 구조는 남겨 두었으니 되살리려면 이 값만 올리면 됩니다.
+      uVolSteps: { value: 1 },
       uSaturation: { value: 1 },
     },
     vertexShader: VERT,
@@ -562,6 +601,8 @@ export interface CloudSlabUpdate {
   aerialScale?: number;
   /** 다중산란 세기 (기본 1). 그림자를 얼마나 메우는지 조절합니다. */
   multiScatter?: number;
+  /** 수직 체적 스텝 수 상한 (기본 1). 올리면 층을 여러 겹으로 나눕니다. */
+  volSteps?: number;
   visible: boolean;
 }
 
@@ -625,6 +666,7 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uSaturation.value = u.saturation ?? 1;
   uni.uAerialScale.value = u.aerialScale ?? 1;
   uni.uMultiScatter.value = u.multiScatter ?? 1;
+  uni.uVolSteps.value = u.volSteps ?? 1;
 }
 
 /**
