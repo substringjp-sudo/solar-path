@@ -207,6 +207,8 @@ uniform float uBeta, uAngstrom, uElevScale, uOzoneDU;
 uniform vec2  uWindLow, uWindMid, uWindHigh;
 uniform float uDriftHours;
 uniform float uPixelAngleRad;
+uniform float uAerialScale;
+uniform float uMultiScatter;
 uniform float uSaturation;
 
 void main(){
@@ -325,7 +327,10 @@ void main(){
       float totalTau = max(thickSun, thick) * tauK; 
       float msTransmittance = 2.0 / (totalTau * 0.15 + 2.0); // 2-stream 근사
       vec3 ms = beam * msTransmittance * 0.5 * (0.3 + 0.7 * vertShadow);
-      lit += ms;
+      // 주의: 이 항은 reach 를 안 봅니다 — 자기그림자에 든 구름에도 같은
+      // 양이 들어갑니다. 그림자를 메우고 얇은 가장자리와 두꺼운 속의 차이를
+      // 줄이므로, 노을에서 무엇이 사라지는지 잴 수 있게 세기를 뺐습니다.
+      lit += ms * uMultiScatter;
 
       vec3 amb = ambBase * (0.26 + 0.30 * T) * vertShadow;
       vec3 cc = lit + amb;
@@ -354,8 +359,11 @@ void main(){
       cc *= tint;
 
       // 대기 원근감 (Aerial Perspective)
+      // 대기 원근감. 100km 에서 이미 42%, 357km 에서 85% 를 한 가지 안개색
+      // 으로 덮으므로, 노을의 분홍·보라·파랑 **변화**를 지우는 쪽으로도
+      // 작용합니다. 세기를 uniform 으로 빼 얼마나 먹는지 잽니다.
       float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0055);
-      cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85));
+      cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85) * uAerialScale);
 
       float l = dot(cc, vec3(0.2126, 0.7152, 0.0722));
       cc = mix(vec3(l), cc, 1.0 + clamp(thick * 0.5, 0.0, 0.7) * 0.35);
@@ -388,9 +396,18 @@ export interface CloudSlabHandle {
   dispose: () => void;
 }
 
-export function createCloudSlab(opts: { rangeKm?: number; texSize?: number } = {}): CloudSlabHandle {
+export function createCloudSlab(opts: {
+  rangeKm?: number;
+  texSize?: number;
+  /** 층별 노이즈 셀 크기(km) 덮어쓰기. 하네스가 값을 훑을 때 씁니다. */
+  cellKm?: Partial<Record<LayerKey, number>>;
+  /** 층별 두께→광학두께 배율 덮어쓰기. */
+  tauK?: Partial<Record<LayerKey, number>>;
+} = {}): CloudSlabHandle {
   const rangeKm = opts.rangeKm ?? SLAB_RANGE_KM;
   const size = opts.texSize ?? SLAB_TEX;
+  const cell = { ...CELL_KM, ...(opts.cellKm ?? {}) };
+  const tau = { ...TAU_K, ...(opts.tauK ?? {}) };
 
   const data = new Uint8Array(size * size * 4);
   const coverTex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
@@ -404,12 +421,12 @@ export function createCloudSlab(opts: { rangeKm?: number; texSize?: number } = {
     .replace(/ALT_LOW/g, LAYER_ALTITUDE_KM.low.toFixed(2))
     .replace(/ALT_MID/g, LAYER_ALTITUDE_KM.mid.toFixed(2))
     .replace(/ALT_HIGH/g, LAYER_ALTITUDE_KM.high.toFixed(2))
-    .replace(/CELL_LOW/g, CELL_KM.low.toFixed(2))
-    .replace(/CELL_MID/g, CELL_KM.mid.toFixed(2))
-    .replace(/CELL_HIGH/g, CELL_KM.high.toFixed(2))
-    .replace(/TAUK_LOW/g, TAU_K.low.toFixed(2))
-    .replace(/TAUK_MID/g, TAU_K.mid.toFixed(2))
-    .replace(/TAUK_HIGH/g, TAU_K.high.toFixed(2));
+    .replace(/CELL_LOW/g, cell.low.toFixed(2))
+    .replace(/CELL_MID/g, cell.mid.toFixed(2))
+    .replace(/CELL_HIGH/g, cell.high.toFixed(2))
+    .replace(/TAUK_LOW/g, tau.low.toFixed(2))
+    .replace(/TAUK_MID/g, tau.mid.toFixed(2))
+    .replace(/TAUK_HIGH/g, tau.high.toFixed(2));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -438,6 +455,8 @@ export function createCloudSlab(opts: { rangeKm?: number; texSize?: number } = {
       uWindHigh: { value: new THREE.Vector2() },
       uDriftHours: { value: 0 },
       uPixelAngleRad: { value: 0.001 },
+      uAerialScale: { value: 1 },
+      uMultiScatter: { value: 1 },
       uSaturation: { value: 1 },
     },
     vertexShader: VERT,
@@ -539,6 +558,10 @@ export interface CloudSlabUpdate {
    */
   driftHours: number;
   saturation?: number;
+  /** 대기 원근감 세기 (기본 1). 노을 색 변화를 얼마나 덮는지 조절합니다. */
+  aerialScale?: number;
+  /** 다중산란 세기 (기본 1). 그림자를 얼마나 메우는지 조절합니다. */
+  multiScatter?: number;
   visible: boolean;
 }
 
@@ -600,6 +623,8 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   const fovDeg = typeof persp.fov === 'number' ? persp.fov : 60;
   uni.uPixelAngleRad.value = ((fovDeg * Math.PI) / 180) / Math.max(1, u.heightPx);
   uni.uSaturation.value = u.saturation ?? 1;
+  uni.uAerialScale.value = u.aerialScale ?? 1;
+  uni.uMultiScatter.value = u.multiScatter ?? 1;
 }
 
 /**
