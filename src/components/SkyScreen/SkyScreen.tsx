@@ -37,7 +37,7 @@ import { PeekSheet } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
 import { SimReportQR } from './SimReportQR';
 import { buildSimReportPayload, encodeSimReportPayload } from '../../utils/simReport';
-import { PLACEHOLDER_WIND_SPEED_KMH, PLACEHOLDER_WIND_BEARING_DEG } from '../../utils/skyColumn';
+import { resolveLayerWinds } from '../../utils/skyColumn';
 import SunCalc from 'suncalc';
 
 interface SkyScreenProps {
@@ -456,8 +456,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           sunAltDeg: sunAltitude,
           sunAzDeg: sunAzimuth,
           obs: sceneWeather[0],
-          windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
-          windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
+          // 보고서에는 하층(850 hPa) 바람을 대표로 싣습니다. `synthetic` 이
+          // 실측인지 대용값인지를 캡처에 남깁니다.
+          ...(({ winds, measured }) => ({
+            windSpeedKmh: winds.low.speedKmh,
+            windBearingDeg: winds.low.bearingDeg,
+            windSynthetic: !measured,
+          }))(resolveLayerWinds(sceneWeather[0])),
         })
       ),
     [currentTime, latitude, longitude, terrainData.observerElevation, sunAltitude, sunAzimuth, sceneWeather]

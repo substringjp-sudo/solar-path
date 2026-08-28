@@ -39,6 +39,7 @@ import {
   WeatherFan,
   PLACEHOLDER_WIND_SPEED_KMH,
   PLACEHOLDER_WIND_BEARING_DEG,
+  resolveLayerWinds,
   type LayerSample,
   type LayerKey,
   type ColumnOptics,
@@ -222,9 +223,12 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
       // 이류는 그 날 00:00 기준 경과 분으로 둡니다 — 시간이 흐르면 구조가
       // 하늘을 가로질러 흐르고, 같은 시각이면 항상 같은 그림이 나옵니다.
       driftMinutes: i * stepMinutes,
-      // **실측이 아니라 대용 상수입니다** (skyColumn.ts 주석 참고).
       windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
       windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
+      // 층별 바람 — 관측점 기압면 실측(850/600/250 hPa)이 있으면 그것,
+      // 없으면 대용값입니다. **프레임마다** 다시 풉니다: 하루 사이에
+      // 바람이 바뀌면 구름이 흐르는 속도도 같이 바뀌어야 합니다.
+      layerWinds: resolveLayerWinds(obs).winds,
     });
 
     if (!layout) {

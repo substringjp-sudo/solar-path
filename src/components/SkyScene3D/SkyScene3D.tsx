@@ -92,7 +92,8 @@ import {
 const _genusOut: BlendedOptics = {
   tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
 };
-import { PLACEHOLDER_WIND_BEARING_DEG, PLACEHOLDER_WIND_SPEED_KMH } from '../../utils/skyColumn';
+import { resolveLayerWinds } from '../../utils/skyColumn';
+import type { LayerWinds } from '../../utils/weather';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -333,6 +334,24 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     const w = weatherRef.current;
     return w && w.length > 0 ? w[0] : undefined;
   }, []);
+
+  /**
+   * 층별 바람. 관측점 기압면 실측(850/600/250 hPa)이 있으면 그것, 없으면
+   * 대용값입니다 — 판단은 `resolveLayerWinds` 한 곳에서만 합니다.
+   *
+   * ⚠ 렌더 루프가 **매 프레임** 부릅니다. `resolveLayerWinds` 는 층마다
+   * 객체를 새로 만드니 그대로 두면 60fps × 4개가 쓰레기로 쌓입니다.
+   * 관측점 기상 객체가 바뀔 때만 다시 풀고 나머지는 캐시를 돌려줍니다.
+   */
+  const windCacheRef = useRef<{ src: unknown; winds: LayerWinds } | null>(null);
+  const layerWindsNow = useCallback(() => {
+    const obs = observerWeather();
+    const c = windCacheRef.current;
+    if (c && c.src === obs) return c.winds;
+    const winds = resolveLayerWinds(obs).winds;
+    windCacheRef.current = { src: obs, winds };
+    return winds;
+  }, [observerWeather]);
 
 
   /**
@@ -693,7 +712,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
               sunAzDeg: sunAzRef.current,
               beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
               atmosphere: atmos,
-              timeSeconds: 0,
+              layerWinds: layerWindsNow(),
+              // `cloudPlacement` 의 `driftMinutes` 와 **같은 기준**입니다
+              // (자정 기준 경과 분). 운량장과 잔무늬가 같이 흘러야 합니다.
+              driftHours: ((targetTimeMsRef.current / 60000) % 1440) / 60,
               visible: layersRef.current.clouds !== false,
             });
           }
@@ -856,7 +878,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         waterTex: waterTexRef.current,
         // ⚠ 실측 바람이 아닙니다 — 권운 이방성과 같은 자리표시자입니다
         // (docs/CLOUD_TEXTURE_PLAN.md §15). 윤슬 폭이 실제 바람을 안 따릅니다.
-        windSpeedMs: PLACEHOLDER_WIND_SPEED_KMH / 3.6,
+        // 윤슬 폭은 수면을 흔드는 **지표 부근** 바람이 정합니다 — 하층(850 hPa)
+        // 값을 씁니다. 실측이 없으면 예전과 같은 대용 상수로 내려앉습니다.
+        windSpeedMs: layerWindsNow().low.speedKmh / 3.6,
         beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
         sunTransmittance: 1 - overcast,
         sunAzimuthDeg: sunAzRef.current,
@@ -1197,9 +1221,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         // 0.5로 두면 운형 차이는 오직 데이터(운량·강수·습도)에서 옵니다.
         genusFor: (layer, sample) => genusOptics(layer, sample),
         pixelAngleRad: pixelAngleRad(),
-        // 6단계: 권운 필라멘트를 빗을 방향. 실측이 아니라 대용 상수입니다
-        // (skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG).
-        windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
+        // 6단계: 권운 필라멘트를 빗을 방향. 권운이므로 **상층(250 hPa)**
+        // 바람입니다 — 필라멘트가 정렬되는 것이 바로 그 바람입니다.
+        windBearingDeg: layerWindsNow().high.bearingDeg,
         // 4단계: 대기 투시 — 빌보드(updateCloudField)와 같은 값.
         betaMie: atmosphere.betaMie,
         angstrom: atmosphere.angstrom,

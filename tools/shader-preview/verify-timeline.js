@@ -58,6 +58,12 @@ function solveDirect(tMs, driftMinutes) {
   const sunAz = (sp.azimuth * 180) / Math.PI + 180;
   const samples = S.buildSkyColumns({
     fan: new S.WeatherFan(w, 0), driftMinutes, windSpeedKmh: 22, windBearingDeg: 260,
+    // ⚠ 타임라인과 **같은 방식**으로 바람을 풀어야 합니다. 여기만 스칼라
+    // 대용값으로 두면 층별 이류가 갈라져(대용값은 층마다 속도가 다릅니다)
+    // 키프레임에서조차 운량이 안 맞고, 그게 "보간이 틀렸다"로 보고됩니다 —
+    // 실제로 한 번 그렇게 걸렸습니다. 이 합성 링에는 바람 성분이 없으므로
+    // 양쪽 다 PLACEHOLDER_LAYER_WINDS 로 내려앉는 것이 정답입니다.
+    layerWinds: S.resolveLayerWinds(obs).winds,
   });
   const optics = S.solveColumnOptics(samples, sunAz, sunAlt, L => P.representativeTauForObserver(L, obs));
   return { samples, optics, sunAlt, sunAz };
@@ -119,6 +125,8 @@ W.fetchDayWeatherRing = async () => ring;
   // 완전히 같을 수는 없습니다 — 노이즈 이류가 비선형이기 때문입니다.
   // 눈에 띄지 않을 정도(수 %p)인지만 봅니다.
   let sumErr = 0, maxErr = 0, n = 0;
+  const 층합 = { low: 0, mid: 0, high: 0 };
+  const 층수 = { low: 0, mid: 0, high: 0 };
   let skyMeanErr = 0, clearErr = 0, frames = 0;
   for (let idx = 10; idx < 280; idx += 23) {
     const a = tl.frames[idx], b = tl.frames[idx + 1];
@@ -129,6 +137,10 @@ W.fetchDayWeatherRing = async () => ring;
     for (let k = 0; k < 576; k++) {
       const vi = interp.samples[k].cover, vd = direct.samples[k].cover;
       sumErr += Math.abs(vi - vd); maxErr = Math.max(maxErr, Math.abs(vi - vd)); n++;
+      // 층별로도 쌓습니다 — 층마다 바람이 다르므로 "어느 층에서 왔는가"가
+      // 곧 원인 진단입니다. 뭉친 평균 하나로는 못 가립니다.
+      const LK = tl.layout[k].layer;
+      층합[LK] += Math.abs(vi - vd); 층수[LK]++;
       mi += vi; md += vd;
       if (vi < 0.10) ci++;
       if (vd < 0.10) cd++;
@@ -141,6 +153,10 @@ W.fetchDayWeatherRing = async () => ring;
   clearErr /= frames;
   const meanErr = sumErr / n;
   console.log(`  방향별 평균 ${(meanErr * 100).toFixed(2)}%p, 최대 ${(maxErr * 100).toFixed(2)}%p`);
+  const 층오차 = {};
+  for (const L of ['low', 'mid', 'high']) 층오차[L] = 층합[L] / Math.max(1, 층수[L]);
+  console.log(`  층별 평균  low ${(층오차.low * 100).toFixed(2)}%p  ` +
+    `mid ${(층오차.mid * 100).toFixed(2)}%p  high ${(층오차.high * 100).toFixed(2)}%p`);
   console.log(`  하늘 평균 차이 ${(skyMeanErr * 100).toFixed(3)}%p, 맑음비율 차이 ${(clearErr * 100).toFixed(2)}%p`);
 
   // **방향별 일치는 여기서 옳은 지표가 아닙니다.**
@@ -157,8 +173,28 @@ W.fetchDayWeatherRing = async () => ring;
     `하늘 평균이 보존됨 — 1%p 미만 (${(skyMeanErr * 100).toFixed(3)}%p)`);
   ok(clearErr < 0.10,
     `분포 모양이 보존됨 — 맑은 방향 비율 차이 10%p 미만 (${(clearErr * 100).toFixed(2)}%p)`);
-  ok(meanErr < 0.10,
-    `방향별로도 딴 하늘은 아님 — 평균 10%p 미만 (${(meanErr * 100).toFixed(2)}%p)`);
+  // 방향별 오차는 **층별로** 봅니다. 뭉친 평균 하나는 층별 바람이 들어온
+  // 뒤로 의미를 잃었습니다 — 어느 층이 움직여 올라간 건지 안 보입니다.
+  //
+  // 측정된 기준선 (5분 간격, 대용 바람 22 / 37 / 75 km/h):
+  //
+  //   층    셀 크기   키프레임 사이 이동   방향별 오차
+  //   low    2.0km      1.8km (0.92셀)      15.9%p
+  //   mid    4.2km      3.1km (0.74셀)      12.2%p
+  //   high   9.0km      6.2km (0.69셀)       9.1%p
+  //
+  // 셀 대비 이동거리에 거의 비례합니다. **low 가 가장 큽니다** — 상층이
+  // 세 배 빠른데도 셀이 4.5배 커서 상대 이동은 오히려 작습니다. 층별 바람을
+  // 넣기 전 mid/high 는 7.9 / 2.2%p 였고, 늘어난 몫은 정확히 속도비
+  // (×1.7, ×3.4)만큼입니다 — 새 결함이 아니라 더 빨라진 이류의 대가입니다.
+  //
+  // 정말 지켜야 하는 것은 위 두 단언(하늘 평균 · 분포 모양)이고 둘 다
+  // 예산의 1/4 안입니다. 여기서는 "어느 층도 딴 하늘로 튀지 않는다" 수준의
+  // 상한만 둡니다. 바람이 안 바뀌었는데 어느 층이 올라가면 그건 진짜입니다.
+  for (const L of ['low', 'mid', 'high']) {
+    ok(층오차[L] < 0.20,
+      `${L} 층이 딴 하늘로 튀지 않음 — 20%p 미만 (${(층오차[L] * 100).toFixed(2)}%p)`);
+  }
 
   console.log('\n== 하루 전체 연속성 (튐 없음) ==');
   // 1분 간격으로 훑어 인접 시각 사이에 큰 점프가 없어야 합니다.

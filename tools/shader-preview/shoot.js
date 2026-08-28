@@ -1,8 +1,10 @@
 /**
  * 미리보기 페이지를 헤드리스 크로미움(SwiftShader)에서 렌더해 PNG로 저장합니다.
  *
- * 사용: node shoot.js [페이지.html] [출력.png]
- *   기본값은 full.html → full-preview.png
+ * 사용: node shoot.js [페이지.html] [출력.png] [대기ms]
+ *   기본값은 full.html → full-preview.png, 대기 8000ms
+ *   SwiftShader에서 20초 넘게 도는 페이지(패널이 많거나 층 분리를 위해
+ *   여러 번 굽는 것들)는 대기를 늘려야 빈 캔버스를 찍지 않습니다.
  * 미리 preview 디렉터리에서 `python3 -m http.server 8123` 을 띄워두세요
  * (file:// 로는 ES 모듈이 CORS에 막힙니다).
  */
@@ -10,13 +12,14 @@ const { chromium } = require('/opt/node22/lib/node_modules/playwright');
 const { SCRATCH: SP } = require('./paths');
 const page = process.argv[2] || 'full.html';
 const out = process.argv[3] || 'full-preview.png';
+const waitMs = Number(process.argv[4]) || 8000;
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium',
     args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
   const p = await b.newPage({ viewport: { width: 1220, height: 800 } });
   p.on('pageerror', e => console.log('PAGEERROR:', e.message));
   await p.goto('http://localhost:8123/' + page);
-  await p.waitForTimeout(8000);
+  await p.waitForTimeout(waitMs);
   console.log('TITLE:', await p.title());
   const errs = await p.evaluate(() => window.__errors || []);
   errs.forEach(e => {

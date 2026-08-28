@@ -813,10 +813,10 @@ export interface DeckUpdate {
   /**
    * 필라멘트를 빗을 바람 방향 (도, 6단계).
    *
-   * ⚠ 지금은 **실측이 아니라 대용 상수**입니다
-   * (`skyColumn.ts: PLACEHOLDER_WIND_BEARING_DEG`). 이 앱은 바람을 받아오지
-   * 않습니다. 등방 운형(cellAspect = 1)에는 아무 영향이 없고, 권운에만
-   * 필라멘트 축으로 쓰입니다.
+   * 권운에 쓰이므로 **상층(250 hPa)** 바람을 넣으세요 — 필라멘트를 눕히는
+   * 것이 바로 그 바람입니다. 실측을 못 받으면 호출부가 대용값으로 내려앉습니다
+   * (`skyColumn.ts: resolveLayerWinds`). 등방 운형(cellAspect = 1)에는
+   * 아무 영향이 없습니다.
    */
   windBearingDeg: number;
   /**

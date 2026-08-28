@@ -42,7 +42,7 @@ import { createTerrainRing, createGroundPlane, updateTerrainColors, updateGround
          setGroundHorizon } from './app/components/SkyScene3D/TerrainRing.js';
 import { createCloudSlab, updateCloudSlab, bakeCloudSlabCoverage }
   from './app/components/SkyScene3D/CloudSlab.js';
-import { WeatherFan } from './app/utils/skyColumn.js';
+import { WeatherFan, PLACEHOLDER_LAYER_WINDS } from './app/utils/skyColumn.js';
 import { makeAtmosphereParams, beamAtAltitude } from './app/utils/atmosphere.js';
 
 const errors = [];
@@ -137,7 +137,11 @@ function shoot(sunAlt){
     camera: cam, widthPx: TW, heightPx: TH,
     sunDir, sunAltDeg: sunAlt, sunAzDeg: SUN_AZ,
     beamFor: (altKm) => beamAtAltitude(sunAlt, altKm, atmosphere),
-    atmosphere, timeSeconds: 0, visible: true,
+    atmosphere,
+    // 이 습작은 바람 효과가 아니라 태양 고도만 봅니다 — 이류를 0으로 묶어
+    // 네 칸이 **같은 구름**을 보게 합니다.
+    layerWinds: PLACEHOLDER_LAYER_WINDS, driftHours: 0,
+    visible: true,
   });
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 1);
