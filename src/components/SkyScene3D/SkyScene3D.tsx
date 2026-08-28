@@ -15,7 +15,7 @@
  * - CloudField: 10종 SVG 템플릿 아틀라스 기반 InstancedMesh 구름 (draw call 1개)
  */
 import React, { useRef, useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -107,6 +107,7 @@ const trackingMwVec = new THREE.Vector3();
 const sunDirDeckVec = new THREE.Vector3();
 /** 박명광선의 기준점. 렌더 루프에서 매 프레임 다시 채웁니다. */
 const sunDirRayVec = new THREE.Vector3();
+const tempMoonDirVec = new THREE.Vector3();
 
 function getPlanetDirectionVector(
   key: PlanetKey,
@@ -129,6 +130,7 @@ export interface LayerState {
   planets: boolean;
   clouds: boolean;
   paths: boolean;
+  cityLights: boolean;
 }
 
 /** 별 표현을 사용자가 조절하는 값 (레이어 ON/OFF와 달리 연속값이라 따로 둡니다) */
@@ -175,6 +177,7 @@ const DEFAULT_LAYERS: LayerState = {
   planets: true,
   clouds: true,
   paths: true,
+  cityLights: true,
 };
 
 const DRAG_SENSITIVITY = 0.3;
@@ -223,7 +226,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const { width, height } = useWindowDimensions();
   
   const SCENE_WIDTH = width - 32;
-  const SCENE_HEIGHT = Math.round(height * 0.45);
+  const SCENE_HEIGHT = Math.round(SCENE_WIDTH * (3 / 4));
 
   // 실시간 UI 방위 표시용 State
   const [cameraAzimuth, setCameraAzimuth] = useState<number>(sunAzimuth);
@@ -258,6 +261,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const cloudSlabRef = useRef<CloudSlabHandle | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
+  const isSceneReadyRef = useRef<boolean>(false);
 
   // 카메라 회전 state (ref로 관리)
   const cameraAzRef = useRef(sunAzimuth);
@@ -707,13 +711,39 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           const slabFrame = cloudSlabRef.current;
           const atmos = cachedAtmosphereRef.current;
           if (slabFrame && atmos) {
+            const isSoft = composerNow.softScale > 1.0001;
+            const sSize = composerNow.softSize();
+            const slabW = isSoft ? sSize.width : gl.drawingBufferWidth;
+            const slabH = isSoft ? sSize.height : gl.drawingBufferHeight;
+
+            // 달의 위치 및 조도 계산
+            const lat = location?.coords?.latitude ?? 37.5;
+            const lng = location?.coords?.longitude ?? 127.0;
+            const targetDate = new Date(targetTimeMsRef.current);
+            const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+            const moonIllum = SunCalc.getMoonIllumination(targetDate);
+            const mAlt = moonPos.altitude;
+            const mAz = moonPos.azimuth + Math.PI; // SunCalc South=0 -> Three.js North=0
+            const mAltDeg = (mAlt * 180) / Math.PI;
+            const mAzDeg = (mAz * 180) / Math.PI;
+
+            tempMoonDirVec.set(
+              Math.cos(mAlt) * Math.sin(mAz),
+              Math.sin(mAlt),
+              -Math.cos(mAlt) * Math.cos(mAz)
+            );
+
             updateCloudSlab(slabFrame, {
               camera,
-              widthPx: gl.drawingBufferWidth,
-              heightPx: gl.drawingBufferHeight,
+              widthPx: slabW,
+              heightPx: slabH,
               sunDir: sunDirRayVec,
               sunAltDeg: sunAltRef.current,
               sunAzDeg: sunAzRef.current,
+              moonDir: tempMoonDirVec,
+              moonAltDeg: mAltDeg,
+              moonIllum: moonIllum.fraction,
+              cityLight: layersRef.current.cityLights !== false,
               beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
               atmosphere: atmos,
               layerWinds: layerWindsNow(),
@@ -726,6 +756,12 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
         } else renderer.render(scene, camera);
         consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
+
+        // 첫 프레임 렌더 완료 시 앱 스플래시 완료 트리거
+        if (!isSceneReadyRef.current) {
+          isSceneReadyRef.current = true;
+          useCelestialStore.getState().setAppReady(true);
+        }
 
         // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
         // ── 250ms(4fps) 스로틀: React setState가 렌더루프보다 훨씬 무거움 ──────
@@ -921,31 +957,27 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       moonRef.current.group.visible = currentLayers.moon && moonRef.current.group.visible;
     }
 
-    // ── computeEquToHorizon: 30초 캐시 ───────────────────────────────────────
-    // LST 변화(4초/초)는 별 위치에 실질적 영향 없음. 30초면 충분.
-    if (nowMs - cachedEquToHorizonMsRef.current > 30_000) {
-      computeEquToHorizon(targetDate, lat, lng, equToHorizonRef.current);
-      cachedEquToHorizonMsRef.current = nowMs;
-    }
+    // ── computeEquToHorizon: targetDate 기준으로 실시간 계산 ───────────────────
+    // LST 계산 및 3x3 회전 행렬 구성은 0.001ms 미만의 단순 삼각함수 연산으로,
+    // 슬라이더를 움직일 때 실시간으로 지구 자전(별자리 이동)이 자연스럽게 회전합니다.
+    computeEquToHorizon(targetDate, lat, lng, equToHorizonRef.current);
     const equToHorizon = equToHorizonRef.current;
     const settings = skySettingsRef.current;
 
-    // ── buildPlanetPoints: 30초 캐시 ──────────────────────────────────────────
-    // 행성 위치는 시간 단위로 변화. 30초마다 갱신이면 충분.
-    if (!cachedPlanetPointsRef.current || nowMs - cachedPlanetPointsMsRef.current > 30_000) {
+    // ── buildPlanetPoints: 씬 시각 10분 단위 갱신 ────────────────────────────
+    const targetTimeMs = targetDate.getTime();
+    if (!cachedPlanetPointsRef.current || Math.abs(targetTimeMs - cachedPlanetPointsMsRef.current) > 600_000) {
       cachedPlanetPointsRef.current = buildPlanetPoints(targetDate);
-      cachedPlanetPointsMsRef.current = nowMs;
+      cachedPlanetPointsMsRef.current = targetTimeMs;
     }
 
-    // ── 달빛이 깎아먹는 한계등급: 30초 캐시 ──────────────────────────────
-    // 별 위치(equToHorizon)와 같은 주기입니다 — 달의 고도·위상 둘 다 초 단위로는
-    // 안 바뀝니다.
-    if (nowMs - cachedMoonMagMsRef.current > 30_000) {
+    // ── 달빛이 깎아먹는 한계등급: 씬 시각 5분 단위 갱신 ─────────────────────────
+    if (Math.abs(targetTimeMs - cachedMoonMagMsRef.current) > 300_000) {
       const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
       const moonAltDeg = (moonPos.altitude * 180) / Math.PI;
       const illum = SunCalc.getMoonIllumination(targetDate).fraction;
       cachedMoonMagLimitRef.current = effectiveMagLimit(settings.starMagLimit, moonAltDeg, illum);
-      cachedMoonMagMsRef.current = nowMs;
+      cachedMoonMagMsRef.current = targetTimeMs;
     }
     const liveMagLimit = cachedMoonMagLimitRef.current;
 
@@ -974,21 +1006,23 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       milkyWayRef.current.mesh.visible = currentLayers.milkyway;
     }
 
-    // ── updateCelestialPaths: 30초 캐시 ──────────────────────────────────────
-    // getSunPath/getMoonPath 각각 SunCalc 48+24 = 72회 호출 → 매 프레임은 과부하
+    // ── updateCelestialPaths: 씬 날짜 변경 또는 1시간 단위 갱신 ──────────────────
     if (celestialPathsRef.current) {
-      if (nowMs - lastCelestialPathsMsRef.current > 30_000) {
+      if (Math.abs(targetTimeMs - lastCelestialPathsMsRef.current) > 3600_000) {
         updateCelestialPaths(celestialPathsRef.current, targetDate, lat, lng, sunAltRef.current, sunAzRef.current);
-        lastCelestialPathsMsRef.current = nowMs;
+        lastCelestialPathsMsRef.current = targetTimeMs;
       }
       celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
     }
 
     if (cloudFieldRef.current) {
-      cloudFieldRef.current.mesh.visible = currentLayers.clouds;
+      cloudFieldRef.current.mesh.visible = false;
     }
     if (cloudDeckRef.current) {
-      cloudDeckRef.current.group.visible = currentLayers.clouds;
+      cloudDeckRef.current.group.visible = false;
+    }
+    if (cloudSlabRef.current) {
+      cloudSlabRef.current.mesh.visible = currentLayers.clouds;
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
@@ -1015,7 +1049,6 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     if (weatherChanged || sceneDeltaMin > sceneThresholdMin || altDelta > 1.0 || wallDeltaSec > 30) {
       const isScrubbing = useCelestialStore.getState().isGestureBlocked;
 
-      // 이전 구름 빌드 예약 취소 (Cancel pending rebuild tasks to prevent lag and memory accumulation)
       if (cloudRebuildTimerRef.current) {
         clearTimeout(cloudRebuildTimerRef.current);
         cloudRebuildTimerRef.current = null;
@@ -1029,9 +1062,10 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         lastCloudWeatherRef.current = weatherRef.current;
       };
 
+      // 타임라인이 준비되었을 때는 가벼운 보간이므로 즉시 실행,
+      // 타임라인이 없는 상태에서 드래그 중일 때는 70ms 디바운스로 CPU 폭주 방지
       if (isScrubbing && !sampled) {
-        // 빠른 드래그 스크럽 중에는 이전 연산을 취소하고 손을 뗀 시점(120ms 후)에 1회만 계산
-        cloudRebuildTimerRef.current = setTimeout(executeRebuild, 120);
+        cloudRebuildTimerRef.current = setTimeout(executeRebuild, 70);
       } else {
         executeRebuild();
       }
@@ -1042,10 +1076,6 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
 
   const rebuildCloudsForDate = useCallback((targetDate: Date, sampled?: SampledSky | null) => {
-    const field = cloudFieldRef.current;
-    const atlas = cloudAtlasRef.current;
-    if (!field || !atlas) return;
-
     const lat = location?.coords?.latitude ?? 37.5;
 
     const atmosphere =
@@ -1062,7 +1092,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     // fBm도, 기둥 광학도 이미 계산돼 있습니다. 여기서는 조명만 다시 겁니다.
     const built = sampled
       ? buildCloudsFromColumns({
-          atlas,
+          atlas: cloudAtlasRef.current ?? ({} as any),
           sunAltDeg: sunAltRef.current,
           sunAzDeg: sunAzRef.current,
           atmosphere,
@@ -1073,7 +1103,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           maxTotal: getTuning().maxClouds,
         })
       : buildCloudInstances({
-          atlas,
+          atlas: cloudAtlasRef.current ?? ({} as any),
           currentTime: targetDate,
           sunAltDeg: sunAltRef.current,
           sunAzDeg: sunAzRef.current,
@@ -1082,173 +1112,28 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           maxTotal: getTuning().maxClouds,
         });
 
-    const horizonGlow = skyRadiance(0.5, 5, sunAltRef.current, atmosphere);
-    const zenithSky = skyRadiance(88, 90, sunAltRef.current, atmosphere);
-
-    updateCloudField(field, atlas, built.instances, sunAzRef.current, sunAltRef.current, {
-      horizonGlow,
-      zenithSky,
-      betaMie: atmosphere.betaMie,
-      angstrom: atmosphere.angstrom,
-      elevScale: atmosphere.elevScale,
-      cloudDiffuse: built.optics.diffuseToGround,
-    });
-    field.mesh.visible = layersRef.current.clouds;
     lastCloudBuildRef.current = built;
 
-    // 하늘도 구름층 아래로 들어갑니다. 이게 없으면 덱 구멍으로 맑은 날
-    // 노을이 그대로 새어 나와 흐린 일몰이 시뻘겋게 탑니다.
+    // 하늘도 구름층 아래로 들어갑니다.
     if (skydomeRef.current) {
       const su = skydomeRef.current.material.uniforms;
       su.uCloudDiffuse.value = layersRef.current.clouds ? built.optics.diffuseToGround : 1;
-      // 22° 무리 — 권층운의 얼음 결정 굴절
       su.uHaloStrength.value = layersRef.current.clouds ? built.halo : 0;
     }
 
-    // 태양 원반 차폐. 구름을 푼 뒤에 적용해야 같은 프레임의 값을 씁니다.
+    // 태양 원반 차폐
     if (sunRef.current) {
       sunRef.current.material.uniforms.uOcclusion.value = layersRef.current.clouds
         ? built.optics.sunTransmittance
         : 1;
     }
 
-    // 연속 구름층. 빌보드와 같은 샘플·같은 대기 상태를 씁니다.
-    const deck = cloudDeckRef.current;
-    if (deck) {
-      const sAlt = (sunAltRef.current * Math.PI) / 180;
-      const sAz = (sunAzRef.current * Math.PI) / 180;
-      const sunDir = sunDirDeckVec.set(
-        Math.cos(sAlt) * Math.sin(sAz),
-        Math.sin(sAlt),
-        -Math.cos(sAlt) * Math.cos(sAz)
-      );
-      // ── 층별 대표 광학두께·그늘 (docs/CLOUD_VARIETY_PLAN.md 1단계) ─────────
-      //
-      // 기본은 **그 층의 대표 운형 도감값**입니다. 빌보드가 실제로 뽑힌
-      // 층에서만 그 중앙값으로 덮어씁니다 — 빌보드 τ에는 DNI 관측 보정이
-      // 들어 있어서 도감보다 그 하늘을 더 잘 압니다.
-      //
-      // ⚠ 예전에는 폴백이 상수 25/0.5였는데, `CLOUD_TEXTURE_PLAN.md` 5단계에서
-      // 빌보드를 적운·적란운으로 제한한 뒤로 그 둘은 `low` 층에서만 나옵니다
-      // (`resolvePresetFromWeather`의 mid/high 분기는 절대 반환하지 않음).
-      // 그래서 **중·상층은 언제나 폴백에 갇혀 있었습니다.** 권운(τ=3, 투과율
-      // 0.82)이 τ=25(투과율 0.35)로 그려져 해가 비치지 않는 회색 판이 됐고,
-      // 실측으로 밝기 208.7 → 179.2 였습니다.
-      const byLayer = (layer: 'low' | 'mid' | 'high') =>
-        built.instances.filter(c => c.layer === layer);
-      const medianOf = (arr: number[], fallback: number) => {
-        if (arr.length === 0) return fallback;
-        const s2 = [...arr].sort((a, b) => a - b);
-        return s2[Math.floor(s2.length / 2)];
-      };
-      const layerOptics = {
-        low: opticsForLayer('low', observerWeather()),
-        mid: opticsForLayer('mid', observerWeather()),
-        high: opticsForLayer('high', observerWeather()),
-      };
-
-      // ── 방향별 운형 광학 (docs/CLOUD_VARIETY_PLAN.md 2·3단계) ───────────
-      //
-      // DNI 보정은 `placeClouds`의 빌보드 경로와 **같은 규칙**입니다. 두 곳이
-      // 갈라지면 덱과 빌보드가 이어지는 BKN 경계에서 두께가 어긋납니다.
-      // (DNI는 τ ≲ 5까지만 분해하므로 포화하지 않았을 때만 상한으로 씁니다.)
-      const dniTau = built.dniTau;
-      const genusOptics = (layer: 'low' | 'mid' | 'high', s: GenusInput) => {
-        // 3단계: 강수·습도·상층 운량이 **그 방향 지점의 값**입니다.
-        // 예전에는 셋 다 관측점 값이라, 서쪽 30km에 비가 와도 그 방향이
-        // 비구름이 되지 않았습니다.
-        //
-        // 문턱을 입력 공간에서 뭉갠 값을 씁니다 — 계단을 15° 격자로 표본하면
-        // 등고선이 격자선에 붙어 하늘에 네모난 상자가 찍힙니다
-        // (blendedOpticsFromWeather 주석).
-        const o = blendedOpticsFromWeather(
-          layer,
-          s.cover,
-          {
-            precipitation: s.precipMmH,
-            humidity: s.humidityPct,
-            lowPct: 0,
-            highPct: s.highPct,
-          },
-          0.5,
-          _genusOut
-        );
-        if (dniTau && !dniTau.saturated) {
-          const share = layer === 'low' ? 0.6 : layer === 'mid' ? 0.3 : 0.1;
-          const fromDni = (dniTau.tauVert * share) / Math.max(0.15, s.cover);
-          o.tau = Math.min(o.tau, Math.max(0.5, fromDni));
-        }
-        o.tau = Math.max(0.5, Math.min(400, o.tau));
-        return o;
-      };
-
-      // 슬랩의 운량장은 **기상이 바뀔 때만** 굽습니다 (128×128 = 16,384회
-      // 조회라 매 프레임은 불가능합니다).
-      const slabNow = cloudSlabRef.current;
-      if (slabNow) {
-        bakeCloudSlabCoverage(slabNow, coverageFromSamples(built.samples));
-      }
-
-      updateCloudDeck(deck, {
-        samples: built.samples,
-        // 4단계: 여기서는 **맑은 하늘 직달광**만 줍니다. 위층이 가리는 몫은
-        // 방향마다 다르므로 `beamShade`가 정점 속성으로 따로 나릅니다
-        // (예전에는 관측점 기둥 하나로 구한 배율을 하늘 전체에 곱했습니다).
-        beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmosphere),
-        beamShade: built.beamShade,
-        // 덱 환경광도 빌보드와 **같은 식**으로 감광합니다.
-        // 이게 없으면 8/8에서 화면을 덮는 덱이 맑은 하늘빛으로 빛나서,
-        // 운량을 올릴수록 오히려 밝아집니다.
-        //
-        // 3단계: 방향(azDeg)마다 실제 하늘 복사휘도를 잽니다. 태양 쪽
-        // azDeg는 gamma가 작아 따뜻하게, 반대쪽은 gamma가 커 파랗게 나옵니다
-        // — 예전에는 gamma를 고정해(위 45°, 아래 90°) 360° 덱이 한 색이었습니다.
-        ambientFor: (layer, azDeg, elevDeg) => {
-          const f = built.optics.diffuseFactor[layer];
-          const gammaUp = angularSeparationDeg(azDeg, 70, sunAzRef.current, sunAltRef.current);
-          const gammaDown = angularSeparationDeg(azDeg, 15, sunAzRef.current, sunAltRef.current);
-          // ⚠ 하늘을 **그 층의 고도에서** 봅니다. 지상 하늘을 주면 10km
-          // 권운이 아직 햇빛을 받는 시각에도 지상의 깊은 파란 박명을
-          // 주변광으로 받아, 붉게 남아야 할 층이 파래집니다.
-          const altKm = LAYER_ALTITUDE_KM[layer];
-          return {
-            up: applyCloudDimming(
-              skyRadiance(70, gammaUp, sunAltRef.current, atmosphere, altKm), f),
-            down: applyCloudDimming(
-              skyRadiance(15, gammaDown, sunAltRef.current, atmosphere, altKm), f),
-          };
-        },
-        sunDir,
-        sunAltDeg: sunAltRef.current,
-        tauFor: layer => medianOf(byLayer(layer).map(c => c.tau), layerOptics[layer].tau),
-        shadowFor: layer =>
-          medianOf(byLayer(layer).map(c => c.shadowContrast), layerOptics[layer].shadowContrast),
-        // 채널(billow/fbm)만 층 대표에서 옵니다 — 방향마다 바꾸면 두 균등분포를
-        // 섞게 되어 운량 보장이 깨집니다 (CloudDeck.ts genusFor 주석).
-        cellFor: layer => layerOptics[layer],
-        // ── 2단계: 방향별 운형 ───────────────────────────────────────────
-        //
-        // 판정은 빌보드 경로(`placeClouds`)가 이미 방향마다 하고 있습니다.
-        // 다만 거기서는 적운·적란운이 아닌 여덟 종을 **버립니다**(빌보드
-        // 제한). 버리는 대신 덱이 받습니다.
-        //
-        // seed는 0.5 고정입니다. 방향마다 난수를 넣으면 이웃한 두 방향이
-        // 무작위로 다른 운형이 되어 **기상이 아니라 노이즈**가 됩니다.
-        // 0.5로 두면 운형 차이는 오직 데이터(운량·강수·습도)에서 옵니다.
-        genusFor: (layer, sample) => genusOptics(layer, sample),
-        pixelAngleRad: pixelAngleRad(),
-        // 6단계: 권운 필라멘트를 빗을 방향. 권운이므로 **상층(250 hPa)**
-        // 바람입니다 — 필라멘트가 정렬되는 것이 바로 그 바람입니다.
-        windBearingDeg: layerWindsNow().high.bearingDeg,
-        // 4단계: 대기 투시 — 빌보드(updateCloudField)와 같은 값.
-        betaMie: atmosphere.betaMie,
-        angstrom: atmosphere.angstrom,
-        elevScale: atmosphere.elevScale,
-        timeSeconds: (targetDate.getTime() / 1000) % 100000,
-        visible: layersRef.current.clouds,
-      });
+    // 슬랩의 운량장 베이킹
+    const slabNow = cloudSlabRef.current;
+    if (slabNow) {
+      bakeCloudSlabCoverage(slabNow, coverageFromSamples(built.samples));
     }
-  }, [currentTime, location]);
+  }, [location]);
 
   useEffect(() => {
     if (sceneRef.current) {
@@ -1387,6 +1272,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         onContextCreate={onContextCreate}
         {...panResponder.panHandlers}
       />
+
       <View style={styles.hudOverlay} pointerEvents="none">
         <View style={[styles.fovBadge, { backgroundColor: theme?.glass ?? 'rgba(15, 23, 42, 0.75)' }]}>
           <Text style={[styles.fovText, { color: theme?.subText ?? 'rgba(255,255,255,0.7)' }]}>

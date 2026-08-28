@@ -49,10 +49,10 @@ export const SLAB_RANGE_KM = 360;
 /** 운량장 텍스처 한 변. 제곱근 사상이라 중심 근처가 촘촘합니다. */
 export const SLAB_TEX = 128;
 
-/** 층별 노이즈 셀 크기 (km) — 예보가 못 담는 잔여 형태의 규모. */
-const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
+/** 층별 노이즈 셀 크기 (km) — 저층 적운은 덩어리가 크고, 고층 권운은 섬세한 필라멘트. (층간 거리감 부각을 위해 격차를 늘림) */
+const CELL_KM: Record<LayerKey, number> = { low: 1.2, mid: 3.8, high: 12.0 };
 /** 층별 두께 → 광학두께 배율. 두꺼운 저층일수록 큽니다. */
-const TAU_K: Record<LayerKey, number> = { low: 13.0, mid: 9.0, high: 3.2 };
+const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
 
 export const CLOUD_SLAB_GLSL = `
 const float SLAB_R_EARTH = 6371.0;
@@ -78,19 +78,32 @@ float slab_fbm(vec2 p, int oct){
 }
 
 /**
- * 고도각 → 그 고도 구름층까지의 지상거리 (구면).
+ * 구형 지구(Spherical Earth Shell) 기하학:
+ * 관측자(0, RE, 0)에서 고도 h인 구형 대기 껍질(반지름 RE + h)까지의 3D 직선 교점 거리 s 및
+ * 지상 호(Arc) 거리 비율 계산.
  *
- * 평면 근사 h·cot(ε) 는 지평선에서 발산합니다. 아래 형태는 켤레를 곱해
- * 정리한 것이라 천정에서도 큰 수의 상쇄가 없고, ε→0 에서 스스로
- * 수렴합니다.
+ * 천정(sinE -> 1.0, cosE -> 0.0)에서는 s -> h, d / cosE -> h 로 완벽 수렴.
+ * 지평선(sinE -> 0.0)에서는 s -> sqrt(2*RE*h + h^2) (지평선 한계 거리: 저층 138km, 고층 357km)로
+ * 구름이 평면 소실점으로 발산하지 않고 둥근 지구 곡면을 따라 지평선 밑으로 휘어집니다.
  */
-float slab_groundDist(float sinE, float cosE, float h){
+struct SlabGeom {
+  float sDistKm;   // 3D 직선 교점 거리 (km)
+  float distRatio; // 수평 정규화 거리 비율 (km / cosE)
+};
+
+SlabGeom slab_sphereIntersect(float sinE, float cosE, float h){
   float chord = 2.0*SLAB_R_EARTH*h + h*h;
-  float r = chord / (SLAB_R_EARTH*sinE + sqrt(SLAB_R_EARTH*SLAB_R_EARTH*sinE*sinE + chord));
-  return (SLAB_R_EARTH + h) * asin(clamp(r*cosE/(SLAB_R_EARTH + h), 0.0, 1.0));
+  float s = chord / (SLAB_R_EARTH*sinE + sqrt(SLAB_R_EARTH*SLAB_R_EARTH*sinE*sinE + chord));
+  float angle = asin(clamp(s * cosE / (SLAB_R_EARTH + h), 0.0, 1.0));
+  float safeRatio = (cosE > 1e-4) ? (angle / cosE) : (s / (SLAB_R_EARTH + h));
+  
+  SlabGeom res;
+  res.sDistKm = s;
+  res.distRatio = (SLAB_R_EARTH + h) * safeRatio;
+  return res;
 }
 
-/** 지상 km → 운량장 uv. 반지름을 제곱근으로 굽습니다 (파일 위 주석). */
+/** 지상 km → 운량장 uv. 반지름을 제곱근으로 굽습니다. */
 vec2 slab_coverUv(vec2 km, float rangeKm){
   float d = length(km);
   if (d < 1e-4) return vec2(0.5);
@@ -99,18 +112,37 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
 }
 
 /**
- * 한 층의 두께. **문턱이 없습니다** — 운량이 두께를 정하고 가장자리는
- * 저절로 얇아집니다.
- *
- * conf 는 예보 확신도입니다. 낮으면 잔 무늬 진폭을 줄여 **암시로**
- * 남깁니다 — 아는 곳은 또렷하게, 모르는 곳은 풀어서 (계획 8절).
+ * 고도층별 고유 운형 물리 텍스처:
+ * - 저층(L=2, 1.4km): 큼직하고 둥근 적운(Cumulus) 덩어리와 육중한 체적감
+ * - 중층(L=1, 4.5km): 리듬감 있는 물결무늬 양떼구름(Altocumulus)
+ * - 고층(L=0, 11km): 상층 바람 방향으로 빗겨진 섬세한 비단결 권운(Cirrus Fibers)
  */
-float slab_thickness(vec2 km, float cover, float cellKm, float conf, float seed){
+float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm){
   vec2 p = km / cellKm + seed;
-  float form = slab_fbm(p * 0.55, 4);
-  float fine = slab_fbm(p * 1.60, 4);
-  float m = cover * 1.75 * (0.50 + 0.50*form) + (fine - 0.5) * 0.34 * conf;
-  return max(0.0, m - 0.42);
+  float m = 0.0;
+  
+  if (layer == 0) {
+    // 고층 권운: 바람 방향으로 늘어난 비등방성 섬유질 스트릭
+    vec2 pWind = vec2(dot(p, windNorm) * 0.28, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.6);
+    float fibrous = slab_fbm(pWind, 5);
+    m = cover * 1.55 * (0.35 + 0.65 * fibrous) + (fibrous - 0.5) * 0.28 * conf;
+  } else if (layer == 1) {
+    // 중층 고적운: 부드러운 물결 파동과 중간 규모 셀
+    float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18;
+    float form = slab_fbm(p * 0.75, 4);
+    m = cover * 1.65 * (0.45 + 0.55 * form + wave) + (form - 0.5) * 0.30 * conf;
+  } else {
+    // 저층 적운: 볼록하고 묵직한 솜사탕형 빌로우
+    float billow = 1.0 - abs(slab_fbm(p * 0.60, 4) * 2.0 - 1.0);
+    float detail = slab_fbm(p * 1.8, 4);
+    m = cover * 1.85 * (0.55 * billow + 0.45 * detail) + (detail - 0.5) * 0.35 * conf;
+  }
+  
+  // 구름이 완전히 덮인 흐린 날(cover -> 1.0)일 경우 노이즈 틈새(구멍)가 뚫리지 않도록 덩어리로 만들어 줍니다.
+  m = mix(m, cover * 1.5, smoothstep(0.9, 1.0, cover));
+  
+  float baseSub = layer == 0 ? 0.38 : (layer == 1 ? 0.40 : 0.42);
+  return max(0.0, m - baseSub);
 }
 `;
 
@@ -128,6 +160,10 @@ uniform mat4  uInvViewProj;
 uniform vec3  uCamPos;
 uniform vec3  uSunDir;
 uniform float uSunAltDeg, uSunAzDeg;
+uniform vec3  uMoonDir;
+uniform float uMoonAltDeg;
+uniform float uMoonIllum;
+uniform float uCityLight;
 uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
 uniform sampler2D uCoverTex;
 uniform float uRangeKm;
@@ -137,73 +173,154 @@ uniform float uDriftHours;
 uniform float uSaturation;
 
 void main(){
-  // 화면 → 광선. 카메라 기저를 손으로 넘기지 않고 역행렬로 복원합니다.
+  // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
   vec2 ndc = (gl_FragCoord.xy / uRes) * 2.0 - 1.0;
   vec4 far = uInvViewProj * vec4(ndc, 1.0, 1.0);
   vec3 dir = normalize(far.xyz / far.w - uCamPos);
 
   float sinE = dir.y;
-  if (sinE <= 0.004) discard;          // 지평선 아래는 지형이 담당합니다
+  if (sinE <= 0.003) discard;          // 지평선 아래는 지형과 지면이 담당
   float cosE = max(sqrt(max(0.0, 1.0 - sinE*sinE)), 1e-4);
   float cosG = clamp(dot(dir, uSunDir), -1.0, 1.0);
+  float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
 
-  vec2 dirXZ = normalize(dir.xz + vec2(1e-6));
-  vec2 sunXZ = normalize(uSunDir.xz + vec2(1e-6));
+  vec2 sunXZ = length(uSunDir.xz) > 1e-4 ? normalize(uSunDir.xz) : vec2(0.0, 1.0);
 
-  // 층 주변광 — 그 층 고도에서 본 하늘 (계획 4절).
+  // 층 주변광 — 그 층 고도에서 본 하늘
   vec3 ambUp   = atm_skyRadiance(72.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
   vec3 ambDown = atm_skyRadiance(12.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
   vec3 ambBase = mix(ambDown, ambUp, 0.35);
 
-  // 먼 층(상)부터 가까운 층(저) 순으로 over 합성합니다.
+  // 지평선 부근 대기 색상 (먼 구름이 지평선과 융합될 때 쓸 안개 빛)
+  vec3 horizonHaze = atm_skyRadiance(1.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+
+  // 밤 환경 계수 (달빛과 도시 불빛 반사율 상향)
+  float nightFactor = clamp((-uSunAltDeg - 2.0) / 10.0, 0.0, 1.0);
+  float moonAltFactor = clamp((uMoonAltDeg + 2.0) / 10.0, 0.0, 1.0);
+  vec3 moonColor = vec3(0.045, 0.068, 0.098) * uMoonIllum * moonAltFactor * 2.5;
+  vec3 cityGlowColor = vec3(0.14, 0.082, 0.032) * uCityLight * 2.5;
+
+  // 먼 층(고층 11km)부터 가까운 층(저층 1.4km) 순으로 over 합성
   vec3 lin = vec3(0.0);
   float acc = 0.0;
 
   for (int L = 0; L < 3; L++){
-    float h      = L == 0 ? ALT_HIGH : (L == 1 ? ALT_MID : ALT_LOW);
+    float hBase  = L == 0 ? ALT_HIGH : (L == 1 ? ALT_MID : ALT_LOW);
+    float hThick = L == 0 ? 0.0 : (L == 1 ? 1.0 : 1.6); // 수직 체적 두께 (km)
+    int nSteps   = L == 0 ? 1 : (L == 1 ? 2 : 3);       // 체적 샘플링 스텝 수
+
     vec3  beam   = L == 0 ? uBeamHigh : (L == 1 ? uBeamMid : uBeamLow);
     float cellKm = L == 0 ? CELL_HIGH : (L == 1 ? CELL_MID : CELL_LOW);
     float tauK   = L == 0 ? TAUK_HIGH : (L == 1 ? TAUK_MID : TAUK_LOW);
     float seed   = float(L) * 31.7;
     vec2  wind   = L == 0 ? uWindHigh : (L == 1 ? uWindMid : uWindLow);
+    vec2  windNorm = length(wind) > 1e-3 ? normalize(wind) : vec2(1.0, 0.0);
 
-    float d = slab_groundDist(sinE, cosE, h);
-    vec2 km = dirXZ * d;
-    vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
-    float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
-    float conf  = cv.a;
+    // ── 수직 체적 스텝 적분 (Volumetric Slices) ──
+    for (int S = 0; S < 3; S++){
+      if (S >= nSteps) break;
+      float sFrac = nSteps > 1 ? float(S) / float(nSteps - 1) : 0.0;
+      float h = hBase + sFrac * hThick;
 
-    // 주의: 이류는 **잔무늬 좌표에만** 겁니다. 운량장(uCoverTex)은 이미
-    // buildSkyColumns 에서 층별 바람으로 밀린 뒤 구워졌으므로, 여기서
-    // 또 밀면 구조가 두 배 속도로 흐릅니다. 층마다 바람이 다르니
-    // 상층 권운이 하층운보다 서너 배 빨리 지나갑니다.
-    vec2 kmN = km + wind * uDriftHours;
+      // 구형 지구 돔 곡률 투영
+      SlabGeom geom = slab_sphereIntersect(sinE, cosE, h);
+      vec2 km = dir.xz * geom.distRatio;
+      vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
+      float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
+      float conf  = cv.a;
 
-    float thick = slab_thickness(kmN, cover, cellKm, conf, seed);
-    if (thick <= 0.0) continue;
+      vec2 kmN = km + wind * uDriftHours;
 
-    float tau = thick * tauK;
-    float T = exp(-tau);
-    float alpha = 1.0 - T;
+      // 윗면으로 갈수록 돔 형태로 둥글게 모이는 체적 프로파일
+      float shape = 1.0 - sFrac * sFrac * 0.45;
+      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, seed + float(S) * 0.15, windNorm);
+      if (thick <= 0.0) continue;
 
-    // 자기그림자 — 태양 쪽으로 한 걸음 가서 두께를 다시 읽습니다.
-    // 그 앞이 두꺼우면 여기는 그늘 → 어두운 실루엣.
-    float thickSun = slab_thickness(kmN + sunXZ * (cellKm * 0.55), cover, cellKm, conf, seed);
-    float reach = exp(-thickSun * tauK * 0.55);
+      // ── 3D 입체 릴리프 음영 ──
+      float eps = cellKm * 0.08;
+      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, seed, windNorm);
+      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, seed, windNorm);
+      float dhdx = (tX - thick) / eps;
+      float dhdy = (tY - thick) / eps;
+      // 노멀 강도를 높여 구름 덩어리의 두께감(Bumpiness)을 강조합니다
+      vec3 n = normalize(vec3(-dhdx * 6.0, -dhdy * 6.0, 1.0));
 
-    float ph = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
-    // ⚠ 빔에 T를 곱하는 것이 핵심입니다. 얇을수록 빛이 통과해 빛나고,
-    // 두꺼울수록 막혀 주변광만 남습니다.
-    vec3 cc = beam * reach * ph * (0.20 + 1.15 * T) + ambBase * (0.26 + 0.30 * T);
+      // 태양광 릴리프 + 빗각 조명
+      vec3 sunLightDir = normalize(vec3(sunXZ.x, sunXZ.y, max(sinE, 0.25)));
+      float sunRelief = dot(n, sunLightDir);
+      vec3 rake = normalize(vec3(-0.50, 0.60, 0.62));
+      float ambRelief = dot(n, rake);
+      float relief = mix(ambRelief, sunRelief, clamp(uSunAltDeg * 0.1 + 0.5, 0.0, 1.0));
 
-    lin = cc * alpha + lin * (1.0 - alpha);
-    acc = alpha + acc * (1.0 - alpha);
+      // 스텝별 분할 광학 두께
+      float stepTau = (thick * tauK) / float(nSteps);
+      float T = exp(-stepTau);
+      float stepAlpha = 1.0 - T;
+
+      // 자기그림자 (Self-shadow)
+      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, seed, windNorm);
+      float reach = exp(-thickSun * tauK * 0.55);
+
+      // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
+      float vertLit = 0.65 + 0.55 * sFrac;
+      float vertShadow = 0.50 + 0.50 * sFrac;
+
+      float ph = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
+      vec3 lit = beam * reach * ph * (0.20 + 1.15 * T) * vertLit;
+      
+      // 다중 산란(Multiple Scattering) 투과광: 
+      // 두꺼운 구름이라도 직달광(reach=0)이 산란을 통해 내부와 밑면을 밝힘
+      float totalTau = max(thickSun, thick) * tauK; 
+      float msTransmittance = 2.0 / (totalTau * 0.15 + 2.0); // 2-stream 근사
+      vec3 ms = beam * msTransmittance * 0.5 * (0.3 + 0.7 * vertShadow);
+      lit += ms;
+
+      vec3 amb = ambBase * (0.26 + 0.30 * T) * vertShadow;
+      vec3 cc = lit + amb;
+
+      // 밤하늘 달빛 직달광 & 산란광
+      if (nightFactor > 0.01 && moonAltFactor > 0.01) {
+        float moonPh = 0.40 + 0.60 * pow(max(cosMoon, 0.0), 4.0);
+        vec3 moonLit = moonColor * reach * moonPh * (0.25 + 0.60 * T) * vertLit;
+        cc += moonLit * nightFactor;
+      }
+
+      // 밤하늘 지상 도시 불빛 (구름 밑면 S=0에 가장 강하게 집중 투영)
+      if (nightFactor > 0.01 && uCityLight > 0.01) {
+        float layerHeightAtten = L == 2 ? 1.0 : (L == 1 ? 0.40 : 0.10);
+        float bottomWeight = 0.85 - 0.40 * sFrac; // 밑면 집중
+        float upwellingScatter = (1.0 - exp(-thick * tauK * 0.80)) * layerHeightAtten * bottomWeight;
+        vec3 cityAmb = cityGlowColor * upwellingScatter * (0.45 + 0.55 * max(n.z, 0.1));
+        cc += cityAmb * nightFactor * 0.6; // 너무 과하지 않게 줄임
+      }
+
+      // 입체 릴리프 음영 부여
+      cc *= (0.76 + 0.50 * clamp(relief, -0.6, 1.0));
+
+      // 층별 틴트 & 깊이감
+      vec3 tint = L == 0 ? vec3(1.05, 0.98, 1.03) : (L == 1 ? vec3(1.00, 1.00, 1.01) : vec3(0.97, 0.99, 1.00));
+      cc *= tint;
+
+      // 대기 원근감 (Aerial Perspective)
+      float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0055);
+      cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85));
+
+      float l = dot(cc, vec3(0.2126, 0.7152, 0.0722));
+      cc = mix(vec3(l), cc, 1.0 + clamp(thick * 0.5, 0.0, 0.7) * 0.35);
+
+      // 체적 누적 합성
+      lin = cc * stepAlpha + lin * (1.0 - stepAlpha);
+      acc = stepAlpha + acc * (1.0 - stepAlpha);
+      if (acc > 0.98) break;
+    }
   }
+
+  // 지평선 곡률 융합: 지평선 끝으로 갈수록 구름이 지구 어깨 뒤로 침강하며 대기에 녹아듬
+  float horizonFade = smoothstep(0.003, 0.080, sinE);
+  acc *= horizonFade;
 
   if (acc <= 0.002) discard;
 
-  // 평균 색을 화면 색으로 옮긴 뒤 알파로 미리곱합니다 —
-  // 합성기의 구름 버퍼가 미리곱 형태를 기대합니다 (SceneComposer 주석).
   vec3 disp = atm_display(lin / max(acc, 1e-4), uSaturation, uSunAltDeg);
   gl_FragColor = vec4(disp * acc, acc);
 }
@@ -251,6 +368,10 @@ export function createCloudSlab(opts: { rangeKm?: number; texSize?: number } = {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
       uSunAzDeg: { value: 0 },
+      uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+      uMoonAltDeg: { value: -90 },
+      uMoonIllum: { value: 0 },
+      uCityLight: { value: 1.0 },
       uBeamLow: { value: new THREE.Vector3(1, 1, 1) },
       uBeamMid: { value: new THREE.Vector3(1, 1, 1) },
       uBeamHigh: { value: new THREE.Vector3(1, 1, 1) },
@@ -340,6 +461,10 @@ export interface CloudSlabUpdate {
   sunDir: THREE.Vector3;
   sunAltDeg: number;
   sunAzDeg: number;
+  moonDir?: THREE.Vector3;
+  moonAltDeg?: number;
+  moonIllum?: number;
+  cityLight?: boolean;
   /** 층 고도(km)에서 본 직달광. `beamAtAltitude` 를 그대로 넘기세요. */
   beamFor: (altKm: number) => RGB;
   atmosphere: AtmosphereParams;
@@ -374,6 +499,17 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir).normalize();
   uni.uSunAltDeg.value = u.sunAltDeg;
   uni.uSunAzDeg.value = u.sunAzDeg;
+
+  if (u.moonDir) {
+    (uni.uMoonDir.value as THREE.Vector3).copy(u.moonDir).normalize();
+  }
+  if (u.moonAltDeg !== undefined) {
+    uni.uMoonAltDeg.value = u.moonAltDeg;
+  }
+  if (u.moonIllum !== undefined) {
+    uni.uMoonIllum.value = u.moonIllum;
+  }
+  uni.uCityLight.value = u.cityLight === false ? 0.0 : 1.0;
 
   const bl = u.beamFor(LAYER_ALTITUDE_KM.low);
   const bm = u.beamFor(LAYER_ALTITUDE_KM.mid);

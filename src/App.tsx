@@ -137,6 +137,19 @@ export default function App() {
   const progressVal = React.useRef(new Animated.Value(0.15)).current;
   const contentFade = React.useRef(new Animated.Value(0)).current;
 
+  const [isSplashDismissed, setIsSplashDismissed] = React.useState(false);
+  const splashFadeAnim = React.useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    if (isAppReady) {
+      Animated.timing(splashFadeAnim, {
+        toValue: 0,
+        duration: 450,
+        useNativeDriver: true,
+      }).start(() => setIsSplashDismissed(true));
+    }
+  }, [isAppReady]);
+
   React.useEffect(() => {
     if (!isAppReady) {
       Animated.timing(contentFade, {
@@ -210,92 +223,29 @@ export default function App() {
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
 
-  // 로딩 진행 중(스플래시 화면 유지 중)에는 커스텀 로딩 화면을 렌더링합니다.
-  if (!isAppReady) {
-    const imageAspect = 4 / 3;
-    const scaledWidth = screenHeight * imageAspect;
-    const sunX = randomImageRef.current.sunX ?? 0.5;
-    const sunPositionInImage = scaledWidth * sunX;
-    
-    // 태양이 화면 가로의 정중앙에 위치하도록 left 오프셋 조절
-    let leftOffset = (screenWidth / 2) - sunPositionInImage;
-    // 이미지가 기기 화면을 벗어나 여백이 남지 않도록 left 오프셋을 최대/최소 한도 내로 가둡니다(Clamping)
-    leftOffset = Math.max(screenWidth - scaledWidth, Math.min(0, leftOffset));
-
-    return (
-      <View style={styles.loadingContainer}>
-        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-        {/* Fullscreen splash background matching native splash */}
-        <Image
-          source={randomImageRef.current.source}
-          style={{
-            position: 'absolute',
-            width: scaledWidth,
-            height: screenHeight,
-            left: leftOffset,
-            top: 0
-          }}
-          resizeMode="cover"
-        />
-
-        {/* Paper texture feel overlay */}
-        <View style={styles.paperOverlay} />
-
-        {/* Content Overlay */}
-        <SafeAreaView style={styles.loadingOverlay}>
-          {/* Header Area for App Name (Keeps it high on the dark sky part, fully visible) */}
-          <Animated.View style={[styles.loadingHeader, { opacity: contentFade }]}>
-            <Text style={styles.appNameText}>BeforeGlow</Text>
-            <Text style={styles.appSubtitleText}>The Solar & Sunset Tracker</Text>
-          </Animated.View>
-
-          {/* Footer Area for custom progress bar & state details */}
-          <Animated.View style={[styles.loadingFooter, { opacity: contentFade }]}>
-            <View style={styles.glassContainer}>
-              {/* Custom concept-matching progress bar */}
-              <View style={styles.progressBarBg}>
-                <Animated.View style={[
-                  styles.progressBarFill,
-                  {
-                    width: progressVal.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0%', '100%']
-                    })
-                  }
-                ]} />
-              </View>
-              <Text style={styles.preloadStatusText}>
-                {t(preloadStatus as any, language)}
-              </Text>
-              
-              {/* 촬영지 정보 출력 */}
-              <Text style={styles.capturedText}>
-                {language === 'ko'
-                  ? `📸 ${randomImageRef.current.location.ko}에서 촬영된 노을`
-                  : `📸 Sunset captured in ${randomImageRef.current.location.en}`}
-              </Text>
-            </View>
-          </Animated.View>
-        </SafeAreaView>
-      </View>
-    );
-  }
-
   // 권한 체크 후 권한 거부 시 권한 요청 화면 렌더링
-  if (locationPermission !== 'granted') {
+  if (locationPermission !== 'granted' && locationPermission !== null) {
     return <PermissionRequestView />;
   }
 
-  // 프리로더 완료 후 위치가 정상적으로 설정되지 않았을 경우 (대비책)
+  // 프리로더 완료 전 임시 대비책
   if (!location) {
     return null;
   }
 
+  const imageAspect = 4 / 3;
+  const scaledWidth = screenHeight * imageAspect;
+  const sunX = randomImageRef.current.sunX ?? 0.5;
+  const sunPositionInImage = scaledWidth * sunX;
+  let leftOffset = (screenWidth / 2) - sunPositionInImage;
+  leftOffset = Math.max(screenWidth - scaledWidth, Math.min(0, leftOffset));
+
   return (
-    <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
-      <StatusBar barStyle={isDay ? "dark-content" : "light-content"} translucent backgroundColor="transparent" />
-      
-      <View style={styles.mainContent}>
+    <Animated.View style={{ flex: 1, backgroundColor: dynamicTheme.bg }}>
+      <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
+        <StatusBar barStyle={isDay ? "dark-content" : "light-content"} translucent backgroundColor="transparent" />
+        
+        <View style={styles.mainContent}>
         <AppHeader
           activeTab={activeTab as AppTab}
           setActiveTab={setActiveTab}
@@ -479,7 +429,76 @@ export default function App() {
           </Animated.View>
         </View>
       </Modal>
-    </AnimatedSafeAreaView>
+      </AnimatedSafeAreaView>
+
+      {/* 앱 초기 기동 스플래시 오버레이: 3D 씬이 백그라운드에서 완전히 준비될 때까지 유지되다 부드럽게 페이드아웃 */}
+      {!isSplashDismissed && (
+        <Animated.View
+          style={[
+            styles.loadingContainer,
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9999,
+              opacity: splashFadeAnim,
+            },
+          ]}
+          pointerEvents={isAppReady ? 'none' : 'auto'}
+        >
+          <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+          <Image
+            source={randomImageRef.current.source}
+            style={{
+              position: 'absolute',
+              width: scaledWidth,
+              height: screenHeight,
+              left: leftOffset,
+              top: 0,
+            }}
+            resizeMode="cover"
+          />
+
+          <View style={styles.paperOverlay} />
+
+          <SafeAreaView style={styles.loadingOverlay}>
+            <Animated.View style={[styles.loadingHeader, { opacity: contentFade }]}>
+              <Text style={styles.appNameText}>BeforeGlow</Text>
+              <Text style={styles.appSubtitleText}>The Solar & Sunset Tracker</Text>
+            </Animated.View>
+
+            <Animated.View style={[styles.loadingFooter, { opacity: contentFade }]}>
+              <View style={styles.glassContainer}>
+                <View style={styles.progressBarBg}>
+                  <Animated.View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: progressVal.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0%', '100%'],
+                        }),
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.preloadStatusText}>
+                  {t(preloadStatus as any, language)}
+                </Text>
+
+                <Text style={styles.capturedText}>
+                  {language === 'ko'
+                    ? `📸 ${randomImageRef.current.location.ko}에서 촬영된 노을`
+                    : `📸 Sunset captured in ${randomImageRef.current.location.en}`}
+                </Text>
+              </View>
+            </Animated.View>
+          </SafeAreaView>
+        </Animated.View>
+      )}
+    </Animated.View>
   );
 }
 

@@ -8,7 +8,7 @@ import React from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import { GenericSlider } from '../GenericSlider';
-import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag } from 'lucide-react-native';
+import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building2 } from 'lucide-react-native';
 
 interface LayerControlModalProps {
   visible: boolean;
@@ -55,6 +55,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
     { key: 'milkyway', label: '은하수 (Milky Way)', icon: <Milestone size={18} color="#c4b5fd" />, iconBg: 'rgba(196, 181, 253, 0.15)' },
     { key: 'planets', label: '행성 (Planets)', icon: <Star size={18} color="#f43f5e" />, iconBg: 'rgba(244, 63, 94, 0.15)' },
     { key: 'clouds', label: '구름 (Clouds)', icon: <Cloud size={18} color="#94a3b8" />, iconBg: 'rgba(148, 163, 184, 0.15)' },
+    { key: 'cityLights', label: '도시 불빛 (City Lights)', icon: <Building2 size={18} color="#f59e0b" />, iconBg: 'rgba(245, 158, 11, 0.15)' },
     { key: 'paths', label: '궤적 & 라벨 (Paths & Labels)', icon: <Navigation size={18} color="#22c55e" />, iconBg: 'rgba(34, 197, 94, 0.15)' },
   ];
 

@@ -76,7 +76,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   setMapVisible,
   isActive = true,
 }) => {
-  const { location } = useCelestialStore();
+  const { location, weatherCacheList, terrainCacheList } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   // 분석용 QR — 이 프레임의 기상·태양 입력값을 캡처에 함께 담습니다
   // (utils/simReport.ts). 기본은 꺼짐: 일반 사용자의 노을 사진에는
@@ -93,23 +93,37 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     planets: true,
     clouds: true,
     paths: true,
+    cityLights: true,
   });
   const [skySettings, setSkySettings] = useState<SkySettings>(DEFAULT_SKY_SETTINGS);
 
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.9780;
 
-  // 3D 지형 실루엣 및 사용자 해발 고도 State
-  const [terrainData, setTerrainData] = useState<{
-    panoramicAngles: number[];
-    observerElevation: number;
-  }>({
-    panoramicAngles: [],
-    observerElevation: location?.coords.altitude ?? 50,
-  });
+  const currentDateStr = useMemo(
+    () => `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`,
+    [currentTime]
+  );
+
+  // 3D 지형 실루엣 및 사용자 해발 고도 State (스플래시 캐시 우선 초기화)
+  const initialTerrain = useMemo(() => {
+    const cached = terrainCacheList.find(c => Math.abs(c.latitude - latitude) < 0.05 && Math.abs(c.longitude - longitude) < 0.05);
+    if (cached?.data && Array.isArray((cached.data as any).panoramicAngles)) {
+      return {
+        panoramicAngles: (cached.data as any).panoramicAngles,
+        observerElevation: (cached.data as any).observerElevation ?? location?.coords?.altitude ?? 50,
+      };
+    }
+    return {
+      panoramicAngles: [],
+      observerElevation: location?.coords.altitude ?? 50,
+    };
+  }, [terrainCacheList, latitude, longitude, location?.coords.altitude]);
+
+  const [terrainData, setTerrainData] = useState(initialTerrain);
 
   useEffect(() => {
-    if (latitude && longitude) {
+    if (terrainData.panoramicAngles.length === 0 && latitude && longitude) {
       fetchTerrainProfile(latitude, longitude, 0, 360)
         .then(tData => {
           if (tData && Array.isArray(tData.panoramicAngles)) {
@@ -123,7 +137,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           console.log('3D terrain profile fetch error:', err);
         });
     }
-  }, [latitude, longitude]);
+  }, [latitude, longitude, terrainData.panoramicAngles.length, location?.coords?.altitude]);
 
   const simObj = useMemo(() => ({
     terrain: {
@@ -140,23 +154,30 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const moonAltitude = (moonPos.altitude * 180) / Math.PI;
   const moonAzimuth = (moonPos.azimuth * 180) / Math.PI + 180;
 
-  // ── 실제 기상 데이터 ─────────────────────────────────────────────────────
-  // 이게 없으면 3D 씬의 구름은 전부 위경도 해시로만 만들어져서
-  // 흐린 날과 맑은 날의 화면이 완전히 같아집니다.
-  const [pathData, setPathData] = useState<CloudPathData[]>([]);
-  // 초단기 실황(nowcast). 예전 2D 시뮬 탭의 ⚡ 버튼이 하던 일입니다.
+  // ── 실제 기상 데이터 (스플래시 캐시 우선 초기화) ──────────────────────────
+  const initialWeather = useMemo(() => {
+    const cached = weatherCacheList.find(c => 
+      c.key.includes(currentDateStr) && 
+      Math.abs(c.latitude - latitude) < 0.05 && 
+      Math.abs(c.longitude - longitude) < 0.05
+    );
+    if (cached?.data && Array.isArray(cached.data)) {
+      return cached.data as CloudPathData[];
+    }
+    return [];
+  }, [weatherCacheList, currentDateStr, latitude, longitude]);
+
+  const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
   const [useNowcast, setUseNowcast] = useState(false);
   const [isNowcastLoading, setNowcastLoading] = useState(false);
-  const currentDateStr = useMemo(
-    () => `${currentTime.getFullYear()}-${currentTime.getMonth() + 1}-${currentTime.getDate()}`,
-    [currentTime]
-  );
-  // 방위는 30° 버킷으로 캐시되므로 태양 방위가 조금 움직여도 재요청이 없습니다.
   const bucketedSunAz = useMemo(() => Math.round(sunAzimuth / 30) * 30, [sunAzimuth]);
 
   useEffect(() => {
     let cancelled = false;
     if (!latitude || !longitude) return;
+
+    // 이미 유효한 캐시 데이터가 있고 nowcast 갱신 요청이 아니라면 네트워크 스킵
+    if (pathData.length > 0 && !useNowcast) return;
 
     setNowcastLoading(true);
     fetchSunsetWeather(latitude, longitude, bucketedSunAz, useNowcast, currentTime)
@@ -173,8 +194,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return () => {
       cancelled = true;
     };
-    // currentTime 전체가 아니라 날짜·방위 버킷에만 반응해야 슬라이더마다 재요청하지 않습니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latitude, longitude, currentDateStr, bucketedSunAz, useNowcast]);
 
   // ── 하루치 사전 계산 ─────────────────────────────────────────────────────
@@ -247,6 +266,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       setBuildProgress(0);
     }
   }, [timeline, latitude, longitude, currentDateStr]);
+
+  // 날짜/위치 준비 완료 시 백그라운드 자동 타임라인 사전 계산 (수동 버튼 불필요)
+  useEffect(() => {
+    if (!latitude || !longitude || isBuilding || timelineValid) return;
+
+    const timer = setTimeout(() => {
+      handleBuildTimeline();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [latitude, longitude, currentDateStr, timelineValid, isBuilding, handleBuildTimeline]);
 
   const interpolatedWeather = useMemo(
     () => (pathData.length ? getInterpolatedWeather(pathData, currentTime) : []),
@@ -758,10 +788,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  // 씬은 화면을 꽉 채웁니다. 고정 높이(380px)를 쓰면 큰 화면에서 여백이,
-  // 작은 화면에서는 답답함이 생깁니다.
   sceneWrapper: {
-    flex: 1,
+    width: '100%',
+    aspectRatio: 4 / 3,
     position: 'relative',
     overflow: 'hidden',
   },

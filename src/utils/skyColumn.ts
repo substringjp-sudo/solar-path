@@ -17,6 +17,7 @@
  * 층별로 따로 리샘플링해야 합니다.
  */
 import { layerWindsFrom, type CloudData, type LayerWinds } from './weather';
+import { PRESET_OPTICS, resolvePresetFromWeather } from './cloudPresets';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -767,11 +768,25 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
         else if (R < T - 1e-9 && R < 1 - 1e-9) {
           shaped = 1 - (1 - shaped) * ((1 - T) / (1 - R));
         }
-        // 신뢰도가 낮은 방향(실측 팬 밖)은 U자 구조를 더 강하게 씁니다 —
-        // 어차피 실측이 없으니 구조라도 그럴듯해야 합니다. 이 혼합은
-        // `c + (shaped − c)·k` 라 평균이 c 그대로입니다.
-        const k = Math.min(1, U_SHAPE_MIX * (1 + (1 - s.confidence) * 0.3));
-        const cover = Math.max(0, Math.min(1, c + (shaped - c) * k));
+        // U자 구조 혼합
+        // Nimbostratus나 Stratus처럼 cellStrength가 없는 층은 틈새(파란 하늘)를 허용하면 안 되므로
+        // U-shape 효과를 무효화하고 cover를 강제로 올려 틈을 메웁니다.
+        const preset = resolvePresetFromWeather(layer, c, {
+          precipitation: s.precipMmH,
+          humidity: s.humidityPct,
+          lowPct: s.lowPct,
+          highPct: s.highPct,
+        }, i * 13.7);
+        const cellStrength = PRESET_OPTICS[preset]?.cellStrength ?? 1.0;
+        
+        let k = Math.min(1, U_SHAPE_MIX * (1 + (1 - s.confidence) * 0.3));
+        let targetC = c;
+        if (cellStrength < 0.1) {
+          k = 0; // U자형 구조(빈 틈과 두꺼운 덩어리)를 없앱니다.
+          targetC = Math.max(targetC, 0.98); // 강제로 빈 틈을 메움
+        }
+        
+        const cover = Math.max(0, Math.min(1, targetC + (shaped - targetC) * k));
 
         out.push({
           layer,

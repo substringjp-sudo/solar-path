@@ -9,7 +9,7 @@ import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData, fetchSunsetWeather, fetchTerrainProfile } from '../utils/weather';
+import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing } from '../utils/weather';
 import SunCalc from 'suncalc';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -273,26 +273,14 @@ export const useCelestialStore = create<CelestialState>()(
       setLocation: async (loc) => {
         set({ location: loc });
         if (loc) {
-          const { latitude, longitude } = loc.coords;
+          const { longitude } = loc.coords;
           try {
-            const response = await fetch(
-              `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&timezone=auto`
-            );
-            const data = await response.json();
-            if (data && typeof data.utc_offset_seconds === 'number') {
-              const offsetHours = data.utc_offset_seconds / 3600;
-              const tzName = data.timezone || `GMT${offsetHours >= 0 ? '+' : ''}${offsetHours}`;
-              const cleanLabel = `${tzName} (GMT${offsetHours >= 0 ? '+' : ''}${offsetHours})`;
-              set({ timezoneOffsetHours: offsetHours, timezoneLabel: cleanLabel });
-            } else {
-              const solarOffset = Math.floor((longitude + 7.5) / 15);
-              set({
-                timezoneOffsetHours: solarOffset,
-                timezoneLabel: `GMT${solarOffset >= 0 ? '+' : ''}${solarOffset}`
-              });
-            }
-          } catch (error) {
-            console.warn('Failed to fetch timezone from API:', error);
+            // 시스템 로컬 타임존 우선 활용 (네트워크 호출 0회)
+            const localOffsetHours = -new Date().getTimezoneOffset() / 60;
+            const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || `GMT${localOffsetHours >= 0 ? '+' : ''}${localOffsetHours}`;
+            const cleanLabel = `${tzName} (GMT${localOffsetHours >= 0 ? '+' : ''}${localOffsetHours})`;
+            set({ timezoneOffsetHours: localOffsetHours, timezoneLabel: cleanLabel });
+          } catch {
             const solarOffset = Math.floor((longitude + 7.5) / 15);
             set({
               timezoneOffsetHours: solarOffset,
@@ -952,7 +940,7 @@ export const useCelestialStore = create<CelestialState>()(
           const dateStr = localTime.toISOString().split('T')[0];
  
           if (__DEV__) {
-            console.log(`[Preload] Fetching weather/terrain for lat=${lat}, lon=${lon}`);
+            console.log(`[Preload] Fetching weather/terrain/ring for lat=${lat}, lon=${lon}`);
           }
           set({ preloadStatus: 'analyzingData' });
           await Promise.all([
@@ -966,7 +954,8 @@ export const useCelestialStore = create<CelestialState>()(
                   longitude: lon
                 });
               }
-            }).catch(err => console.warn('Preload Weather failed:', err)),
+            }).catch((err: any) => console.warn('Preload Weather failed:', err)),
+            fetchDayWeatherRing(lat, lon, targetEvent).catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
             fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
               if (terrainData && !terrainData.isFallback) {
                 get().addTerrainCache({
@@ -977,7 +966,7 @@ export const useCelestialStore = create<CelestialState>()(
                   longitude: lon
                 });
               }
-            }).catch(err => console.warn('Preload Terrain failed:', err))
+            }).catch((err: any) => console.warn('Preload Terrain failed:', err))
           ]);
  
           let initialTab: 'sky' | 'map' | 'log' = 'sky';
@@ -998,7 +987,12 @@ export const useCelestialStore = create<CelestialState>()(
         } catch (err) {
           console.warn('[Preload] Error during initialization preloading:', err);
         } finally {
-          set({ isAppReady: true });
+          // 3D 씬 렌더 완료 트리거의 안전망 (2초 후 강제 완료)
+          setTimeout(() => {
+            if (!get().isAppReady) {
+              set({ isAppReady: true });
+            }
+          }, 2000);
         }
       },
     }),

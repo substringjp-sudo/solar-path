@@ -6,6 +6,12 @@
 const EARTH_RADIUS_KM = 6371;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ── In-Memory Weather & Terrain Cache (30 min TTL) ──
+const MEM_SUNSET_CACHE = new Map<string, { data: CloudPathData[]; time: number }>();
+const MEM_RING_CACHE = new Map<string, { data: CloudPathData[]; time: number }>();
+const INFLIGHT_REQUESTS = new Map<string, Promise<any>>();
+const CACHE_TTL_MS = 30 * 60 * 1000;
+
 const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -176,20 +182,27 @@ export const fetchSunsetWeather = async (
   useNowcast: boolean = false,
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
-  // Bucket azimuth to nearest 30 degrees to reduce weather API requests on tiny azimuth adjustments
-  const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const dateKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+  const targetDateStr = targetDate.toISOString().split('T')[0];
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
-  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${bucketedAzimuth}_nowcast_${useNowcast}_date_${targetDateStr}`;
-  if (weatherCache.has(cacheKey)) {
-    return weatherCache.get(cacheKey)!;
-  }
-  
-  const startTime = Date.now();
-  if (__DEV__) {
-    console.log(`[WeatherAPI] Fetching weather data for lat=${lat.toFixed(4)}, lon=${lon.toFixed(4)}, azimuth=${azimuth.toFixed(1)} (Date: ${targetDateStr}, Nowcast: ${useNowcast})`);
+  const sunsetCacheKey = `sunset_${lat.toFixed(3)}_${lon.toFixed(3)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
+
+  const cachedSunset = MEM_SUNSET_CACHE.get(sunsetCacheKey);
+  if (cachedSunset && Date.now() - cachedSunset.time < CACHE_TTL_MS) {
+    if (__DEV__) console.log(`[WeatherAPI] Cache hit for ${sunsetCacheKey}`);
+    return cachedSunset.data;
   }
 
-  // Define 36 virtual points representing the full 5-Ray * 7-Distance grid
+  if (INFLIGHT_REQUESTS.has(sunsetCacheKey)) {
+    if (__DEV__) console.log(`[WeatherAPI] Joining inflight request for ${sunsetCacheKey}`);
+    return INFLIGHT_REQUESTS.get(sunsetCacheKey)!;
+  }
+
+  const startTime = Date.now();
+  if (__DEV__) {
+    console.log(`[WeatherAPI] Fetching 36 multi-point cloud data along solar vector for Azimuth: ${azimuth}° (Bucketed: ${bucketedAzimuth}°), Lat: ${lat}, Lon: ${lon}, Date: ${dateKey}`);
+  }
+
   const angles = [-20, -10, 0, 10, 20];
   const distances = [10, 30, 70, 130, 200, 280, 380];
   const virtualPoints: { dist: number; azOffset: number; lat: number; lon: number; targetLat: number; targetLon: number }[] = [
@@ -377,9 +390,12 @@ export const fetchSunsetWeather = async (
       };
     });
 
-    weatherCache.set(cacheKey, fetched);
+    weatherCache.set(sunsetCacheKey, fetched);
+    MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fetched, time: Date.now() });
+    INFLIGHT_REQUESTS.delete(sunsetCacheKey);
     return fetched;
   } catch (error) {
+    INFLIGHT_REQUESTS.delete(sunsetCacheKey);
     console.error("Failed to fetch weather data:", error);
     throw error;
   }
@@ -552,96 +568,113 @@ export const fetchDayWeatherRing = async (
 ): Promise<CloudPathData[]> => {
   const targetDateStr = targetDate.toISOString().split('T')[0];
   const cacheKey = `ring_${lat.toFixed(3)},${lon.toFixed(3)}_${targetDateStr}`;
-  const cached = ringCache.get(cacheKey);
-  if (cached) return cached;
-
-  // 관측점 + 12방위 × 7거리
-  const virtualPoints: { dist: number; az: number; lat: number; lon: number }[] = [
-    { dist: 0, az: 0, lat, lon },
-  ];
-  for (const az of RING_AZIMUTHS) {
-    for (const d of RING_DISTANCES) {
-      const dest = calculateDestination(lat, lon, d, az);
-      virtualPoints.push({ dist: d, az, lat: dest.latitude, lon: dest.longitude });
-    }
+  const cached = MEM_RING_CACHE.get(cacheKey) || ringCache.get(cacheKey);
+  if (cached) {
+    const data = 'data' in cached ? (cached as any).data : cached;
+    if (__DEV__) console.log(`[WeatherAPI] Ring cache hit for ${cacheKey}`);
+    return data;
   }
 
-  // 가까운 고리는 12방위가 수 km 간격이라 예보 격자(약 11km) 한 칸에 여럿이
-  // 들어갑니다. 좌표를 반올림해 중복 요청을 없앱니다.
-  const uniquePoints: { lat: number; lon: number; key: string }[] = [];
-  const seen = new Map<string, number>();
-  const keyOf = (la: number, lo: number) => `${la.toFixed(4)},${lo.toFixed(4)}`;
-  const idxOf: number[] = virtualPoints.map(vp => {
-    const k = keyOf(vp.lat, vp.lon);
-    let i = seen.get(k);
-    if (i === undefined) {
-      i = uniquePoints.length;
-      seen.set(k, i);
-      uniquePoints.push({ lat: vp.lat, lon: vp.lon, key: k });
-    }
-    return i;
-  });
-
-  const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
-  const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
-
-  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-  const isHistorical = diffDays > 5;
-
-  const url = isHistorical
-    ? `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
-      `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
-      `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
-    : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
-      `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
-      `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`;
-
-  // 바람은 별도 요청이지만 **동시에** 던집니다 — 왕복 한 번 값입니다.
-  // `fetchLayerWinds` 는 실패해도 거절하지 않고 null 을 돌려줍니다.
-  const [response, winds] = await Promise.all([
-    fetchWithTimeout(url, {}, 15000),
-    fetchLayerWinds(lat, lon, targetDate),
-  ]);
-  if (!response.ok) {
-    if (response.status === 429) throw new Error('RATE_LIMIT: API 요청 한도를 초과했습니다.');
-    throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (${response.status})`);
-  }
-  const data = await response.json();
-  if (data?.error) throw new Error(`HTTP_ERROR: ${data.reason || 'Unknown'}`);
-  const results = Array.isArray(data) ? data : [data];
-
-  const out: CloudPathData[] = virtualPoints.map((vp, i) => {
-    const res = results[idxOf[i]];
-    const rh = res?.hourly;
-    const time: string[] = rh?.time ?? [];
-    const fill = (a: any) => (Array.isArray(a) && a.length ? a : Array(Math.max(1, time.length)).fill(0));
-    const hourly: HourlyCloudData = {
-      time,
-      timeMs: time.map((t: string) => new Date(t).getTime()),
-      low: fill(rh?.cloud_cover_low),
-      mid: fill(rh?.cloud_cover_mid),
-      high: fill(rh?.cloud_cover_high),
-      directNormalIrradiance: rh?.direct_normal_irradiance,
-      totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
-      precipitation: rh?.precipitation,
-    };
-    // 시정·습도·바람은 관측점에서만 의미가 있습니다.
-    if (i === 0) {
-      if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
-      if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
-      if (winds) attachLayerWinds(hourly, winds);
-    }
-    return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
-  });
-
-  // 이음매: 방위 180°와 -180°는 같은 방향입니다. WeatherFan은 정렬된
-  // 오프셋 사이를 보간하므로, 양 끝을 복제해 두지 않으면 남쪽에 틈이 생깁니다.
-  for (const p of out.filter(p => p.azimuthOffset === 180)) {
-    out.push({ ...p, azimuthOffset: -180 });
+  if (INFLIGHT_REQUESTS.has(cacheKey)) {
+    if (__DEV__) console.log(`[WeatherAPI] Joining inflight ring request for ${cacheKey}`);
+    return INFLIGHT_REQUESTS.get(cacheKey)!;
   }
 
-  ringCache.set(cacheKey, out);
-  return out;
+  const ringPromise = (async () => {
+    // 관측점 + 12방위 × 7거리
+    const virtualPoints: { dist: number; az: number; lat: number; lon: number }[] = [
+      { dist: 0, az: 0, lat, lon },
+    ];
+    for (const az of RING_AZIMUTHS) {
+      for (const d of RING_DISTANCES) {
+        const dest = calculateDestination(lat, lon, d, az);
+        virtualPoints.push({ dist: d, az, lat: dest.latitude, lon: dest.longitude });
+      }
+    }
+
+    // 가까운 고리는 12방위가 수 km 간격이라 예보 격자(약 11km) 한 칸에 여럿이
+    // 들어갑니다. 좌표를 반올림해 중복 요청을 없앱니다.
+    const uniquePoints: { lat: number; lon: number; key: string }[] = [];
+    const seen = new Map<string, number>();
+    const keyOf = (la: number, lo: number) => `${la.toFixed(4)},${lo.toFixed(4)}`;
+    const idxOf: number[] = virtualPoints.map(vp => {
+      const k = keyOf(vp.lat, vp.lon);
+      let i = seen.get(k);
+      if (i === undefined) {
+        i = uniquePoints.length;
+        seen.set(k, i);
+        uniquePoints.push({ lat: vp.lat, lon: vp.lon, key: k });
+      }
+      return i;
+    });
+
+    const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
+    const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
+
+    const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+    const isHistorical = diffDays > 5;
+
+    const url = isHistorical
+      ? `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
+        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
+        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
+      : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
+        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
+        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`;
+
+    // 바람은 별도 요청이지만 **동시에** 던집니다
+    const [response, winds] = await Promise.all([
+      fetchWithTimeout(url, {}, 15000),
+      fetchLayerWinds(lat, lon, targetDate),
+    ]);
+    if (!response.ok) {
+      if (response.status === 429) throw new Error('RATE_LIMIT: API 요청 한도를 초과했습니다.');
+      throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (${response.status})`);
+    }
+    const data = await response.json();
+    if (data?.error) throw new Error(`HTTP_ERROR: ${data.reason || 'Unknown'}`);
+    const results = Array.isArray(data) ? data : [data];
+
+    const out: CloudPathData[] = virtualPoints.map((vp, i) => {
+      const res = results[idxOf[i]];
+      const rh = res?.hourly;
+      const time: string[] = rh?.time ?? [];
+      const fill = (a: any) => (Array.isArray(a) && a.length ? a : Array(Math.max(1, time.length)).fill(0));
+      const hourly: HourlyCloudData = {
+        time,
+        timeMs: time.map((t: string) => new Date(t).getTime()),
+        low: fill(rh?.cloud_cover_low),
+        mid: fill(rh?.cloud_cover_mid),
+        high: fill(rh?.cloud_cover_high),
+        directNormalIrradiance: rh?.direct_normal_irradiance,
+        totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
+        precipitation: rh?.precipitation,
+      };
+      if (i === 0) {
+        if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
+        if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
+        if (winds) attachLayerWinds(hourly, winds);
+      }
+      return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
+    });
+
+    for (const p of out.filter(p => p.azimuthOffset === 180)) {
+      out.push({ ...p, azimuthOffset: -180 });
+    }
+
+    ringCache.set(cacheKey, out);
+    MEM_RING_CACHE.set(cacheKey, { data: out, time: Date.now() });
+    INFLIGHT_REQUESTS.delete(cacheKey);
+    return out;
+  })();
+
+  INFLIGHT_REQUESTS.set(cacheKey, ringPromise);
+  try {
+    return await ringPromise;
+  } catch (err) {
+    INFLIGHT_REQUESTS.delete(cacheKey);
+    throw err;
+  }
 };
 
 /**
