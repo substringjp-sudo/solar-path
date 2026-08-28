@@ -52,6 +52,13 @@ import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } 
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import {
+  createCloudSlab,
+  updateCloudSlab,
+  bakeCloudSlabCoverage,
+  coverageFromSamples,
+  type CloudSlabHandle,
+} from './CloudSlab';
+import {
   buildCloudInstances,
   buildCloudsFromColumns,
   LAYER_ALTITUDE_KM,
@@ -246,6 +253,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   const cloudFieldRef = useRef<CloudField | null>(null);
   const cloudDeckRef = useRef<CloudDeckHandle | null>(null);
   const composerRef = useRef<SceneComposerHandle | null>(null);
+  const cloudSlabRef = useRef<CloudSlabHandle | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -546,6 +554,23 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     assignLayer(cloudDeck.group, LAYER_SOFT_CLOUD);
     cloudDeckRef.current = cloudDeck;
 
+    // ── 구름 슬랩 (docs/SKY_REBUILD_PLAN.md) ─────────────────────────────
+    //
+    // 구면 껍질 덱과 빌보드를 대체합니다. 전체화면 패스 하나로, 화면 픽셀에서
+    // 방향 → 지상거리 → 월드 (x, z) 로 바로 갑니다. 극좌표 격자가 없으므로
+    // 천정 특이점도 지평선 타일 격자도 생기지 않고, 알파가 두께에서 나오므로
+    // 가장자리가 저절로 얇아 노을빛이 투과합니다.
+    //
+    // 덱과 빌보드는 아직 지우지 않았습니다 — 씬에는 남되 숨깁니다. 판정
+    // 하네스가 그 모듈을 직접 세워 쓰고 있고, 실기기에서 슬랩을 확인하기
+    // 전까지는 되돌릴 길을 열어 둡니다.
+    const cloudSlab = createCloudSlab();
+    scene.add(cloudSlab.mesh);
+    assignLayer(cloudSlab.mesh, LAYER_SOFT_CLOUD);
+    cloudSlabRef.current = cloudSlab;
+    cloudDeck.group.visible = false;
+    cloudField.mesh.visible = false;
+
     // ── 분리 해상도 합성 (docs 배율 훑기 결과) ──────────────────────────
     //
     // 하늘돔과 구름 덱만 절반 해상도로 그린 뒤 화면에 얹습니다. 별·태양·
@@ -656,6 +681,22 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
             ),
             sunAltRef.current
           );
+          const slabFrame = cloudSlabRef.current;
+          const atmos = cachedAtmosphereRef.current;
+          if (slabFrame && atmos) {
+            updateCloudSlab(slabFrame, {
+              camera,
+              widthPx: gl.drawingBufferWidth,
+              heightPx: gl.drawingBufferHeight,
+              sunDir: sunDirRayVec,
+              sunAltDeg: sunAltRef.current,
+              sunAzDeg: sunAzRef.current,
+              beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
+              atmosphere: atmos,
+              timeSeconds: 0,
+              visible: layersRef.current.clouds !== false,
+            });
+          }
           composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
         } else renderer.render(scene, camera);
         consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
@@ -1101,6 +1142,13 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         return o;
       };
 
+      // 슬랩의 운량장은 **기상이 바뀔 때만** 굽습니다 (128×128 = 16,384회
+      // 조회라 매 프레임은 불가능합니다).
+      const slabNow = cloudSlabRef.current;
+      if (slabNow) {
+        bakeCloudSlabCoverage(slabNow, coverageFromSamples(built.samples));
+      }
+
       updateCloudDeck(deck, {
         samples: built.samples,
         // 4단계: 여기서는 **맑은 하늘 직달광**만 줍니다. 위층이 가리는 몫은
@@ -1249,6 +1297,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       // 합성기가 잡고 있는 렌더 타깃 두 장 — 화면 크기라 놓치면 큽니다.
       composerRef.current?.dispose();
       composerRef.current = null;
+      cloudSlabRef.current?.dispose();
+      cloudSlabRef.current = null;
 
       cloudAtlasRef.current?.dispose();
       cloudAtlasRef.current = null;
