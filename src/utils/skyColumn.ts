@@ -16,7 +16,7 @@
  * 반대로 고도 10km 권운은 2°에서 286km까지 갑니다. 층마다 보는 거리가 다르므로
  * 층별로 따로 리샘플링해야 합니다.
  */
-import type { CloudData } from './weather';
+import { layerWindsFrom, type CloudData, type LayerWinds } from './weather';
 
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
@@ -387,16 +387,11 @@ export class WeatherFan {
 }
 
 /**
- * 상층풍 대용값 (docs/CLOUD_TEXTURE_PLAN.md 6단계).
+ * 바람 대용값 — **실측을 못 받았을 때만** 쓰입니다.
  *
- * ⚠ **이건 실측이 아니라 상수입니다.** 이 앱은 바람을 받아오지 않습니다 —
- * `weather.ts`가 Open-Meteo에서 긁는 변수 목록에 wind가 없고, `CloudData`에도
- * 필드가 없습니다. 그래서 `cloudPlacement.ts`와 `skyTimeline.ts`가 각자
- * `22 / 260`을 하드코딩하고 있었습니다.
- *
- * 6단계에서 권운 필라멘트를 이 방향으로 빗어 정렬하면서 **덱까지 세 번째로
- * 같은 상수를 필요로 하게** 되어, 여기 한 곳으로 모읍니다. 실측 바람이
- * 들어오면 고칠 자리도 여기 하나입니다.
+ * 이제 `weather.ts: fetchLayerWinds` 가 관측점의 기압면 바람(850 / 600 /
+ * 250 hPa)을 받아옵니다. 이 상수는 그 요청이 실패했을 때(모델이 기압면을
+ * 지원하지 않는 지역·날짜, 네트워크 오류) 내려앉을 자리입니다.
  *
  * 값의 근거: 중위도 편서풍대의 온건한 대표값(서남서 260°, 22km/h).
  * 필라멘트 정렬에는 방향만 쓰이고, 축은 180° 주기라 "불어오는/불어가는"
@@ -404,6 +399,30 @@ export class WeatherFan {
  */
 export const PLACEHOLDER_WIND_SPEED_KMH = 22;
 export const PLACEHOLDER_WIND_BEARING_DEG = 260;
+
+/**
+ * 실측 바람이 없을 때 쓸 층별 대용값.
+ *
+ * 한 값이 아니라 층마다 다른 이유: 대류권에서는 고도가 오를수록 바람이
+ * 세집니다(제트류). 850 / 600 / 250 hPa 의 중위도 대표값을 대략 1 : 1.7 : 3.4
+ * 로 두었습니다. 방향은 셋 다 같게 둡니다 — 실제로는 고도에 따라 도는
+ * (thermal wind) 것이 보통이지만, 근거 없이 각도를 지어내면 층 사이가
+ * 어긋나 보이기만 합니다.
+ */
+export const PLACEHOLDER_LAYER_WINDS: LayerWinds = {
+  low: { speedKmh: PLACEHOLDER_WIND_SPEED_KMH, bearingDeg: PLACEHOLDER_WIND_BEARING_DEG },
+  mid: { speedKmh: PLACEHOLDER_WIND_SPEED_KMH * 1.7, bearingDeg: PLACEHOLDER_WIND_BEARING_DEG },
+  high: { speedKmh: PLACEHOLDER_WIND_SPEED_KMH * 3.4, bearingDeg: PLACEHOLDER_WIND_BEARING_DEG },
+};
+
+/**
+ * 관측점 기상에서 층별 바람을 얻고, 없으면 대용값으로 내려앉습니다.
+ * "바람이 실측인가"를 판단할 자리를 여기 하나로 모읍니다.
+ */
+export function resolveLayerWinds(obs?: CloudData | null): { winds: LayerWinds; measured: boolean } {
+  const real = layerWindsFrom(obs);
+  return real ? { winds: real, measured: true } : { winds: PLACEHOLDER_LAYER_WINDS, measured: false };
+}
 
 /**
  * U자 값 집합과 그 g 사다리.
@@ -502,6 +521,12 @@ export interface SkyColumnParams {
   driftMinutes: number;
   windSpeedKmh: number;
   windBearingDeg: number;
+  /**
+   * 층별 바람. 주면 `windSpeedKmh`/`windBearingDeg` 대신 **층마다** 다른
+   * 이류를 씁니다 — 상층운이 하층운보다 서너 배 빨리 흐르는 것이 실제
+   * 하늘에서 가장 눈에 띄는 바람의 흔적입니다.
+   */
+  layerWinds?: LayerWinds;
   azSteps?: number;
   elevSteps?: number;
 }
@@ -517,6 +542,7 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
     driftMinutes,
     windSpeedKmh,
     windBearingDeg,
+    layerWinds,
     azSteps = AZ_STEPS,
     elevSteps = ELEV_STEPS,
   } = params;
@@ -525,13 +551,20 @@ export function buildSkyColumns(params: SkyColumnParams): LayerSample[] {
   const out: LayerSample[] = [];
 
   // 바람 이류 — 구조가 시간에 따라 흐르도록 노이즈 좌표를 밀어줍니다.
-  const driftKm = (windSpeedKmh * driftMinutes) / 60;
-  const windRad = windBearingDeg * D2R;
-  const driftX = driftKm * Math.sin(windRad);
-  const driftY = driftKm * Math.cos(windRad);
+  //
+  // ⚠ 미는 방향은 **불어오는 쪽**입니다. 노이즈를 `x + d` 에서 읽으면
+  // 무늬는 `-d` 로 움직이므로, 구름이 "불어가는 쪽"으로 흐르게 하려면
+  // 좌표를 "불어오는 쪽"으로 밀어야 합니다. 기상 방위가 곧 그 값입니다.
+  const driftOf = (w: { speedKmh: number; bearingDeg: number }) => {
+    const km = (w.speedKmh * driftMinutes) / 60;
+    const rad = w.bearingDeg * D2R;
+    return { x: km * Math.sin(rad), y: km * Math.cos(rad) };
+  };
+  const fallbackDrift = driftOf({ speedKmh: windSpeedKmh, bearingDeg: windBearingDeg });
 
   (['low', 'mid', 'high'] as LayerKey[]).forEach(layer => {
     const altKm = LAYER_ALTITUDE_KM[layer];
+    const { x: driftX, y: driftY } = layerWinds ? driftOf(layerWinds[layer]) : fallbackDrift;
     // 노이즈 셀 크기.
     //
     // 예전 값은 3.5 / 11 / 28 km — "실제 구름 구조의 규모"를 따른 것이었습니다.

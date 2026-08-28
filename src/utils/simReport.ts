@@ -48,12 +48,14 @@ export interface SimReportPayload {
   /** 관측점 예보 — `resolvePresetFromWeather`·`makeAtmosphereParams`가 그대로 쓰는 값 */
   obs: SimReportObs;
   /**
-   * 바람. **실측이 아니라 대용 상수입니다** — `skyColumn.ts`의
-   * `PLACEHOLDER_WIND_SPEED_KMH`/`PLACEHOLDER_WIND_BEARING_DEG`를 그대로
-   * 옮긴 것입니다. `synthetic: true`로 그 사실을 캡처에도 남겨, 나중에
-   * "왜 이 방향으로 결이 누웠나"를 실제 바람으로 오인하지 않게 합니다.
+   * 하층(850 hPa) 바람.
+   *
+   * `synthetic` 은 이 값의 **출처**입니다 — `false` 면 Open-Meteo 기압면
+   * 실측, `true` 면 그걸 못 받아서 내려앉은 대용 상수
+   * (`skyColumn.ts: PLACEHOLDER_LAYER_WINDS`). 캡처에 남겨 두어야 나중에
+   * "왜 이 방향으로 결이 누웠나"를 실제 바람으로 오인하지 않습니다.
    */
-  wind: { kmh: number; deg: number; synthetic: true };
+  wind: { kmh: number; deg: number; synthetic: boolean };
 }
 
 const round = (v: number, decimals: number): number => {
@@ -86,6 +88,8 @@ export interface BuildSimReportParams {
     | undefined;
   windSpeedKmh: number;
   windBearingDeg: number;
+  /** 위 두 값이 대용 상수인가 (실측이면 false) */
+  windSynthetic: boolean;
 }
 
 export function buildSimReportPayload(params: BuildSimReportParams): SimReportPayload {
@@ -112,7 +116,7 @@ export function buildSimReportPayload(params: BuildSimReportParams): SimReportPa
     wind: {
       kmh: round(params.windSpeedKmh, 1),
       deg: round(params.windBearingDeg, 1),
-      synthetic: true,
+      synthetic: params.windSynthetic,
     },
   };
 }

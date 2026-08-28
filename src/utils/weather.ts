@@ -52,7 +52,50 @@ export interface CloudData {
   directNormalIrradiance?: number;
   totalColumnWaterVapour?: number;
   precipitation?: number;
+  /**
+   * 층별 바람 (km/h), **동/북 성분**. 관측점에서만 채워집니다.
+   *
+   * 방향이 아니라 성분으로 나르는 이유: 시간 보간이 선형이라 350°와 10°를
+   * 각도로 섞으면 180°를 거쳐 반대로 돕니다. 성분은 그런 문제가 없고,
+   * 약한 바람이 방향을 홱 바꿀 때도 자연스럽게 크기가 줄어듭니다.
+   */
+  windULow?: number;
+  windVLow?: number;
+  windUMid?: number;
+  windVMid?: number;
+  windUHigh?: number;
+  windVHigh?: number;
 }
+
+/** 한 층의 바람. `bearingDeg` 는 기상 관례대로 **불어오는 쪽** 방위입니다. */
+export interface LayerWind {
+  speedKmh: number;
+  bearingDeg: number;
+}
+
+export type LayerWinds = Record<'low' | 'mid' | 'high', LayerWind>;
+
+/**
+ * 관측점 `CloudData` 에서 층별 바람을 꺼냅니다. 실측이 없으면 `null`.
+ *
+ * 성분 → (속도, 방위) 역변환입니다. 저장은 "불어가는" 벡터(u=동, v=북)이고
+ * 방위는 "불어오는" 쪽이라 180°를 더합니다.
+ */
+export const layerWindsFrom = (d?: CloudData | null): LayerWinds | null => {
+  if (!d) return null;
+  const one = (u?: number, v?: number): LayerWind | null => {
+    if (u == null || v == null || !Number.isFinite(u) || !Number.isFinite(v)) return null;
+    const speedKmh = Math.hypot(u, v);
+    // atan2(u, v) 는 북에서 시계방향 — 지리 방위 그대로입니다.
+    const toDeg = (Math.atan2(u, v) * 180) / Math.PI;
+    return { speedKmh, bearingDeg: ((toDeg + 180) % 360 + 360) % 360 };
+  };
+  const low = one(d.windULow, d.windVLow);
+  const mid = one(d.windUMid, d.windVMid);
+  const high = one(d.windUHigh, d.windVHigh);
+  if (!low || !mid || !high) return null;
+  return { low, mid, high };
+};
 
 export interface WeatherPoint {
   latitude: number;
@@ -92,6 +135,13 @@ export interface HourlyCloudData {
   directNormalIrradiance?: number[];
   totalColumnWaterVapour?: number[];
   precipitation?: number[];
+  /** 층별 바람의 동/북 성분 (km/h). 관측점에서만 채워집니다. */
+  windULow?: number[];
+  windVLow?: number[];
+  windUMid?: number[];
+  windVMid?: number[];
+  windUHigh?: number[];
+  windVHigh?: number[];
 }
 
 export interface CloudPathData {
@@ -216,6 +266,11 @@ export const fetchSunsetWeather = async (
     console.log(`[WeatherAPI] Request URL: ${url}`);
   }
 
+  // 층별 바람은 별도 요청입니다 (`fetchLayerWinds` 주석: 기압면 변수 하나가
+  // 없다고 운량까지 통째로 실패하면 안 됩니다). 여기서 미리 던져 두고
+  // 아래에서 거둡니다 — 왕복 한 번 값이 겹칩니다.
+  const windsPromise = fetchLayerWinds(lat, lon, targetDate);
+
   try {
     let response;
     try {
@@ -257,6 +312,9 @@ export const fetchSunsetWeather = async (
       console.log(`[WeatherAPI] Successfully fetched weather data in ${duration}ms. Deduplicated size: ${uniquePoints.length} items.`);
     }
     const results = Array.isArray(data) ? data : [data];
+    // 위에서 미리 던져 둔 바람. 실패했으면 null 이고, 그때는 호출부가
+    // 대용값으로 내려앉습니다 (`skyColumn.ts: resolveLayerWinds`).
+    const winds = await windsPromise;
 
     // Reconstruct the 36 CloudPathData items from deduplicated results
     const fetched: CloudPathData[] = virtualPoints.map((vp, i) => {
@@ -304,10 +362,11 @@ export const fetchSunsetWeather = async (
         precipitation: resHourly.precipitation,
       };
       
-      // Visibility and humidity are only meaningful at the observer (index 0)
+      // Visibility, humidity and wind are only meaningful at the observer (index 0)
       if (i === 0) {
         if (Array.isArray(resHourly.visibility)) hourly.visibility = resHourly.visibility;
         if (Array.isArray(resHourly.relative_humidity_2m)) hourly.humidity = resHourly.relative_humidity_2m;
+        if (winds) attachLayerWinds(hourly, winds);
       }
 
       return {
@@ -335,6 +394,139 @@ const RING_AZIMUTHS = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30];
 const RING_DISTANCES = [10, 30, 70, 130, 200, 280, 380];
 
 const ringCache = new Map<string, CloudPathData[]>();
+
+// ---------------------------------------------------------------------------
+// 층별 바람 — 관측점 한 점만, 기압면에서
+// ---------------------------------------------------------------------------
+
+/**
+ * 구름 층 고도에 대응하는 기압면.
+ *
+ * `LAYER_ALTITUDE_KM` 은 1.5 / 4.5 / 10.0 km 이고, 표준대기에서
+ * 850 hPa ≈ 1.5 km, 600 hPa ≈ 4.2 km, 250 hPa ≈ 10.4 km 입니다.
+ * 지상 10 m 바람(`wind_speed_10m`)을 쓰지 않는 이유는 그게 구름이 아니라
+ * 지표 마찰층을 재기 때문입니다 — 상층운은 지상풍의 서너 배로 흐릅니다.
+ */
+const WIND_LEVELS = { low: '850hPa', mid: '600hPa', high: '250hPa' } as const;
+
+/** 하루치 층별 바람 시계열. 성분(동/북, km/h)으로 저장합니다. */
+export interface LayerWindHourly {
+  time: string[];
+  windULow: number[]; windVLow: number[];
+  windUMid: number[]; windVMid: number[];
+  windUHigh: number[]; windVHigh: number[];
+}
+
+const windCache = new Map<string, LayerWindHourly | null>();
+
+/**
+ * 관측점의 층별 바람을 하루치 받아옵니다.
+ *
+ * Why 링과 **따로** 요청하는가:
+ * 1. 기압면 변수는 모델에 따라 없을 수 있습니다. 링 요청에 끼워 넣으면
+ *    변수 하나 때문에 **운량까지 통째로** 실패합니다. 따로 두면 바람만
+ *    포기하고 대용 상수로 내려앉습니다.
+ * 2. 바람은 하늘 전체에 하나의 이류 벡터로 쓰므로 84개 지점이 필요 없습니다.
+ *    한 점이면 충분하고, 그만큼 요청이 가볍습니다.
+ *
+ * 실패하면 `null` 을 돌려주고 **그 사실을 캐시합니다** — 지원하지 않는
+ * 지역/날짜에서 매번 다시 두드리지 않도록.
+ */
+export const fetchLayerWinds = async (
+  lat: number,
+  lon: number,
+  targetDate: Date = new Date()
+): Promise<LayerWindHourly | null> => {
+  const dateStr = targetDate.toISOString().split('T')[0];
+  const key = `wind_${lat.toFixed(3)},${lon.toFixed(3)}_${dateStr}`;
+  if (windCache.has(key)) return windCache.get(key) ?? null;
+
+  const vars = (['low', 'mid', 'high'] as const)
+    .flatMap(k => [`wind_speed_${WIND_LEVELS[k]}`, `wind_direction_${WIND_LEVELS[k]}`])
+    .join(',');
+
+  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+  const base = diffDays > 5
+    ? 'https://archive-api.open-meteo.com/v1/archive'
+    : 'https://api.open-meteo.com/v1/forecast';
+  const url = `${base}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
+    `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
+
+  try {
+    const response = await fetchWithTimeout(url, {}, 12000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data?.error) throw new Error(data.reason || 'unknown');
+    const h = data?.hourly;
+    const time: string[] = Array.isArray(h?.time) ? h.time : [];
+    if (time.length === 0) throw new Error('empty');
+
+    const comps = (k: 'low' | 'mid' | 'high') => {
+      const sp = h[`wind_speed_${WIND_LEVELS[k]}`];
+      const dir = h[`wind_direction_${WIND_LEVELS[k]}`];
+      if (!Array.isArray(sp) || !Array.isArray(dir)) return null;
+      const u = new Array<number>(time.length);
+      const v = new Array<number>(time.length);
+      for (let i = 0; i < time.length; i++) {
+        const speed = sp[i];
+        const from = dir[i];
+        if (speed == null || from == null) { u[i] = 0; v[i] = 0; continue; }
+        // 기상 방위는 **불어오는 쪽**입니다. 이류 벡터는 그 반대이므로
+        // 180°를 돌려 (동, 북) 성분으로 바꿉니다.
+        const rad = ((from + 180) * Math.PI) / 180;
+        u[i] = speed * Math.sin(rad);
+        v[i] = speed * Math.cos(rad);
+      }
+      return { u, v };
+    };
+
+    const cl = comps('low'), cm = comps('mid'), ch = comps('high');
+    if (!cl || !cm || !ch) throw new Error('missing level');
+
+    const out: LayerWindHourly = {
+      time,
+      windULow: cl.u, windVLow: cl.v,
+      windUMid: cm.u, windVMid: cm.v,
+      windUHigh: ch.u, windVHigh: ch.v,
+    };
+    windCache.set(key, out);
+    return out;
+  } catch (error) {
+    // 바람은 있으면 좋은 재료입니다 — 없다고 하늘을 못 그리지 않습니다.
+    console.warn('층별 바람을 받지 못했습니다. 대용 상수로 진행합니다:', error);
+    windCache.set(key, null);
+    return null;
+  }
+};
+
+/**
+ * 바람 시계열을 운량 시계열의 **시각 축에 맞춰** 붙입니다.
+ *
+ * 두 요청은 같은 날짜·같은 `timezone=auto` 라 보통 시각이 그대로 겹치지만,
+ * 모델이 다르면 시간 수가 어긋날 수 있습니다. 길이가 같을 때만 그대로 쓰고,
+ * 다르면 시각 문자열로 맞춥니다. 못 맞춘 시각은 0(무풍)이 아니라
+ * **가장 가까운 앞 시각**을 물려받습니다.
+ */
+function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
+  const keys = ['windULow', 'windVLow', 'windUMid', 'windVMid', 'windUHigh', 'windVHigh'] as const;
+  if (w.time.length === hourly.time.length) {
+    for (const k of keys) hourly[k] = w[k];
+    return;
+  }
+  const pos = new Map<string, number>();
+  w.time.forEach((t, i) => pos.set(t, i));
+  for (const k of keys) {
+    const src = w[k];
+    const dst = new Array<number>(hourly.time.length);
+    let last = 0;
+    for (let i = 0; i < hourly.time.length; i++) {
+      const j = pos.get(hourly.time[i]);
+      if (j !== undefined && src[j] != null) last = src[j];
+      dst[i] = last;
+    }
+    hourly[k] = dst;
+  }
+}
 
 /**
  * 하루치 날씨를 **360° 전 방위**로 한 번에 받아옵니다.
@@ -404,7 +596,12 @@ export const fetchDayWeatherRing = async (
       `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
       `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`;
 
-  const response = await fetchWithTimeout(url, {}, 15000);
+  // 바람은 별도 요청이지만 **동시에** 던집니다 — 왕복 한 번 값입니다.
+  // `fetchLayerWinds` 는 실패해도 거절하지 않고 null 을 돌려줍니다.
+  const [response, winds] = await Promise.all([
+    fetchWithTimeout(url, {}, 15000),
+    fetchLayerWinds(lat, lon, targetDate),
+  ]);
   if (!response.ok) {
     if (response.status === 429) throw new Error('RATE_LIMIT: API 요청 한도를 초과했습니다.');
     throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (${response.status})`);
@@ -428,10 +625,11 @@ export const fetchDayWeatherRing = async (
       totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
       precipitation: rh?.precipitation,
     };
-    // 시정·습도는 관측점에서만 의미가 있습니다.
+    // 시정·습도·바람은 관측점에서만 의미가 있습니다.
     if (i === 0) {
       if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
       if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
+      if (winds) attachLayerWinds(hourly, winds);
     }
     return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
   });
@@ -493,6 +691,13 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
       totalColumnWaterVapour: interpolateOpt(p.hourly.totalColumnWaterVapour),
       precipitation: interpolateOpt(p.hourly.precipitation),
+      // 성분이라 선형 보간이 그대로 맞습니다 (CloudData 주석 참고).
+      windULow: interpolateOpt(p.hourly.windULow),
+      windVLow: interpolateOpt(p.hourly.windVLow),
+      windUMid: interpolateOpt(p.hourly.windUMid),
+      windVMid: interpolateOpt(p.hourly.windVMid),
+      windUHigh: interpolateOpt(p.hourly.windUHigh),
+      windVHigh: interpolateOpt(p.hourly.windVHigh),
     };
   });
 };

@@ -456,3 +456,44 @@ node tools/shader-preview/verify-cirrus-aniso.js         # 11개
 아니라 끊기지 않는 블라인드였습니다. 배율이 모든 옥타브에 한꺼번에 걸려
 큰 덩어리까지 20배로 늘어난 탓입니다. 그래서 `프리셋 종횡비` 단언에
 **위쪽 한계**가 있습니다 — 자세한 것은 docs/CLOUD_TEXTURE_PLAN.md §15.
+
+## 층별 바람 — `verify-wind-data.js` · `verify-wind-drift.js`
+
+```bash
+node tools/shader-preview/stage-node.js
+node tools/shader-preview/verify-wind-data.js            # 27개 (네트워크 불필요)
+
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-wind-drift.js
+node tools/shader-preview/shoot.js wind-drift.html wind-drift.png
+node tools/shader-preview/verify-wind-drift.js           # 20개
+```
+
+두 개로 나뉜 이유는 **틀리는 자리가 두 곳**이고 서로 화면이 다르기
+때문입니다.
+
+`verify-wind-data.js` 는 픽셀을 안 봅니다. `global.fetch` 를 캔드 응답으로
+바꿔치기하고 `fetchLayerWinds` 를 실제로 돌린 뒤, 그 성분을 `CloudData`
+모양으로 옮겨 `layerWindsFrom` 으로 되돌립니다. 속도·방위가 원래 값으로
+돌아오면 왕복이 맞는 것입니다. 350°/10° 이음매를 일부러 넣습니다 — 성분이
+아니라 각도로 보간하면 여기서 반대로 돕니다. 요청을 실패시켜 `null` 이
+돌아오고 `resolveLayerWinds` 가 `measured: false` 로 강등되는지도 봅니다.
+
+`verify-wind-drift.js` 는 픽셀만 봅니다. 이 구간의 오류는 **조용합니다** —
+uniform 이 0으로 남거나 부호가 뒤집혀도 구름은 여전히 그럴듯하게 흐릅니다.
+그래서 네 가지를 잽니다:
+
+1. 무풍 + 1시간 → 평균 휘도차가 **정확히 0**
+2. `uWindLow/Mid/High` 교차 누출 0 (층별로 구운 운량장 3종 × 바람 3종)
+3. 이동량 ∝ 풍속 — 10/20/40 km/h 에서 21.5 / 43.4 / 88.2 px (×2.02, ×4.11)
+4. 방향 — 북쪽을 보고 서풍(270°)이면 화면 **오른쪽**(동)으로
+
+⚠ 운량장을 **균일하게(0.5)** 굽습니다. 슬랩은 이류를 잔무늬 좌표에만 걸고
+운량장은 그대로 두므로(이중 계산 방지), 운량장에 무늬가 있으면 그림이 강체
+평행이동이 아니게 되어 SSD 최소점이 흐려집니다. 균일하게 두면 보이는
+구조가 전부 잔무늬라 정확히 평행이동합니다.
+
+⚠ 이동량은 **중앙 가로띠**(±40행)에서만 잽니다. 세로로 벗어날수록 그
+방향의 지상 거리가 달라져 같은 바람이라도 픽셀 이동량이 달라집니다.
+좁은 화각(30°)과 좁은 띠로 그 편차를 ~3.5%로 눌렀고, 비례 판정의 허용
+오차(±12%)가 그 위에 얹혀 있습니다.

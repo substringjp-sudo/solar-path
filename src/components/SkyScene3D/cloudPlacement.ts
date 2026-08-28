@@ -45,6 +45,7 @@ import {
   LAYER_ALTITUDE_KM,
   PLACEHOLDER_WIND_SPEED_KMH,
   PLACEHOLDER_WIND_BEARING_DEG,
+  resolveLayerWinds,
   type ColumnOptics,
   type LayerSample,
   type LayerKey,
@@ -269,16 +270,17 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
   const fan = new WeatherFan(weather, sunAzDeg);
   const obs = fan.observerData();
 
-  // 바람 — **실측이 아니라 대용 상수입니다** (skyColumn.ts 주석 참고).
-  const windSpeedKmh = PLACEHOLDER_WIND_SPEED_KMH;
-  const windBearingDeg = PLACEHOLDER_WIND_BEARING_DEG;
+  // 바람 — 관측점 기압면 실측이 있으면 그것, 없으면 대용 상수입니다
+  // (skyColumn.ts `resolveLayerWinds`).
+  const { winds: layerWinds } = resolveLayerWinds(obs);
   const driftMinutes = (currentTime.getTime() / 60000) % 1440;
 
   const samples = buildSkyColumns({
     fan,
     driftMinutes,
-    windSpeedKmh,
-    windBearingDeg,
+    windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
+    windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
+    layerWinds,
   });
 
   const dniTau = cloudTauFromDNI(obs?.directNormalIrradiance, sunAltDeg);

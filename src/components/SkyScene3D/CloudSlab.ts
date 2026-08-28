@@ -41,6 +41,7 @@
 import * as THREE from 'three';
 import { ATMOSPHERE_GLSL, makeTuningUniforms, type AtmosphereParams } from '../../utils/atmosphere';
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
+import type { LayerWinds } from '../../utils/weather';
 import type { RGB } from '../../utils/sunsetPhysics';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
@@ -131,7 +132,8 @@ uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
 uniform sampler2D uCoverTex;
 uniform float uRangeKm;
 uniform float uBeta, uAngstrom, uElevScale, uOzoneDU;
-uniform float uDrift;
+uniform vec2  uWindLow, uWindMid, uWindHigh;
+uniform float uDriftHours;
 uniform float uSaturation;
 
 void main(){
@@ -147,7 +149,6 @@ void main(){
 
   vec2 dirXZ = normalize(dir.xz + vec2(1e-6));
   vec2 sunXZ = normalize(uSunDir.xz + vec2(1e-6));
-  vec2 drift = vec2(uDrift * 0.0040, uDrift * 0.0016);
 
   // 층 주변광 — 그 층 고도에서 본 하늘 (계획 4절).
   vec3 ambUp   = atm_skyRadiance(72.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
@@ -164,14 +165,21 @@ void main(){
     float cellKm = L == 0 ? CELL_HIGH : (L == 1 ? CELL_MID : CELL_LOW);
     float tauK   = L == 0 ? TAUK_HIGH : (L == 1 ? TAUK_MID : TAUK_LOW);
     float seed   = float(L) * 31.7;
+    vec2  wind   = L == 0 ? uWindHigh : (L == 1 ? uWindMid : uWindLow);
 
     float d = slab_groundDist(sinE, cosE, h);
-    vec2 km = dirXZ * d + drift;
+    vec2 km = dirXZ * d;
     vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
     float conf  = cv.a;
 
-    float thick = slab_thickness(km, cover, cellKm, conf, seed);
+    // 주의: 이류는 **잔무늬 좌표에만** 겁니다. 운량장(uCoverTex)은 이미
+    // buildSkyColumns 에서 층별 바람으로 밀린 뒤 구워졌으므로, 여기서
+    // 또 밀면 구조가 두 배 속도로 흐릅니다. 층마다 바람이 다르니
+    // 상층 권운이 하층운보다 서너 배 빨리 지나갑니다.
+    vec2 kmN = km + wind * uDriftHours;
+
+    float thick = slab_thickness(kmN, cover, cellKm, conf, seed);
     if (thick <= 0.0) continue;
 
     float tau = thick * tauK;
@@ -180,7 +188,7 @@ void main(){
 
     // 자기그림자 — 태양 쪽으로 한 걸음 가서 두께를 다시 읽습니다.
     // 그 앞이 두꺼우면 여기는 그늘 → 어두운 실루엣.
-    float thickSun = slab_thickness(km + sunXZ * (cellKm * 0.55), cover, cellKm, conf, seed);
+    float thickSun = slab_thickness(kmN + sunXZ * (cellKm * 0.55), cover, cellKm, conf, seed);
     float reach = exp(-thickSun * tauK * 0.55);
 
     float ph = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
@@ -252,7 +260,10 @@ export function createCloudSlab(opts: { rangeKm?: number; texSize?: number } = {
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1 },
       uOzoneDU: { value: 330 },
-      uDrift: { value: 0 },
+      uWindLow: { value: new THREE.Vector2() },
+      uWindMid: { value: new THREE.Vector2() },
+      uWindHigh: { value: new THREE.Vector2() },
+      uDriftHours: { value: 0 },
       uSaturation: { value: 1 },
     },
     vertexShader: VERT,
@@ -332,8 +343,16 @@ export interface CloudSlabUpdate {
   /** 층 고도(km)에서 본 직달광. `beamAtAltitude` 를 그대로 넘기세요. */
   beamFor: (altKm: number) => RGB;
   atmosphere: AtmosphereParams;
-  /** 바람 이류용 경과 시간 (초) */
-  timeSeconds: number;
+  /**
+   * 층별 바람. `buildSkyColumns` 에 넘긴 것과 **같은 값**이어야 합니다 —
+   * 갈라지면 운량장과 잔무늬가 서로 다른 방향으로 흐릅니다.
+   */
+  layerWinds: LayerWinds;
+  /**
+   * 이류 기준 경과 시간 (시간). `cloudPlacement` 의 `driftMinutes / 60` 을
+   * 그대로 주세요 — 같은 기준을 써야 두 층위가 함께 움직입니다.
+   */
+  driftHours: number;
   saturation?: number;
   visible: boolean;
 }
@@ -367,7 +386,16 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uAngstrom.value = u.atmosphere.angstrom;
   uni.uElevScale.value = u.atmosphere.elevScale;
   uni.uOzoneDU.value = u.atmosphere.ozoneDU;
-  uni.uDrift.value = u.timeSeconds;
+  // 방위 → 월드 XZ. 이 장면은 X=동, Z=−북 이므로 북 성분의 부호가 뒤집힙니다.
+  // 미는 방향은 **불어오는 쪽**입니다 (skyColumn.ts `driftOf` 주석과 같은 이유).
+  const setWind = (v: THREE.Vector2, w: { speedKmh: number; bearingDeg: number }) => {
+    const rad = (w.bearingDeg * Math.PI) / 180;
+    v.set(w.speedKmh * Math.sin(rad), -w.speedKmh * Math.cos(rad));
+  };
+  setWind(uni.uWindLow.value as THREE.Vector2, u.layerWinds.low);
+  setWind(uni.uWindMid.value as THREE.Vector2, u.layerWinds.mid);
+  setWind(uni.uWindHigh.value as THREE.Vector2, u.layerWinds.high);
+  uni.uDriftHours.value = u.driftHours;
   uni.uSaturation.value = u.saturation ?? 1;
 }
 
