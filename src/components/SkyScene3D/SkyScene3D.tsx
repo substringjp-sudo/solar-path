@@ -743,7 +743,14 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
               moonDir: tempMoonDirVec,
               moonAltDeg: mAltDeg,
               moonIllum: moonIllum.fraction,
-              cityLight: layersRef.current.cityLights !== false,
+              // 도시광은 켜짐/꺼짐이 아니라 **그 장소가 얼마나 밝은가**입니다.
+              // 광공해 설정(starMagLimit)에서 끌어옵니다 — 6.5등급(청정)이면
+              // 0, 3.0등급(도심)이면 1. 별이 안 보이는 하늘이면 구름 밑면도
+              // 그만큼 물드는 것이 같은 현상의 양면이라, 두 표현이 한 값을
+              // 공유해야 서로 어긋나지 않습니다.
+              cityLight: layersRef.current.cityLights === false
+                ? 0
+                : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)),
               beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
               atmosphere: atmos,
               layerWinds: layerWindsNow(),

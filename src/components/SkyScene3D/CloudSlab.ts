@@ -57,12 +57,32 @@ const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
 export const CLOUD_SLAB_GLSL = `
 const float SLAB_R_EARTH = 6371.0;
 
+/**
+ * 격자 주기. 이 값보다 큰 좌표는 여기로 접어 넣습니다.
+ *
+ * 왜 접는가: 이 해시는 fract(곱셈)으로 되어 있어 **입력이 커지면 무너집니다.**
+ * FP32에서 좌표 5,918(저층이 이류 24시간을 먹었을 때 실제로 도달하는 값)이면
+ * 인접 4,096칸이 고유값 58개로 주저앉습니다 — 노이즈가 아니라 큼직한
+ * 다각형 얼룩이 됩니다. 접은 뒤에는 어느 좌표에서도 2,600~3,300개를
+ * 유지합니다 (좌표 1에서의 건강한 기준이 3,150).
+ *
+ * 289는 webgl-noise의 mod289 관례를 따릅니다. 네 모서리가 같은 규칙으로
+ * 접히므로 보간은 이음매 없이 이어지고, 노이즈가 289셀 주기가 될 뿐입니다.
+ * 저층은 1.2km × 289 = 347km 로 지평선 한계(138km)보다 크고, 상층도
+ * 12km × 289 = 3,468km 로 357km보다 훨씬 커서 **반복은 보이지 않습니다.**
+ */
+const float SLAB_LATTICE = 289.0;
+
 float slab_hash21(vec2 p){
+  p = mod(p, SLAB_LATTICE);
   p = fract(p * vec2(123.34, 456.21));
   p += dot(p, p + 45.32);
   return fract(p.x * p.y);
 }
 float slab_vnoise(vec2 p){
+  // 접기가 값을 바꾸지 않습니다(해시가 이미 289주기). floor/fract 가
+  // 큰 좌표에서 셀 안 해상도를 잃는 것을 막는 것이 목적입니다.
+  p = mod(p, SLAB_LATTICE);
   vec2 i = floor(p), f = fract(p);
   f = f*f*(3.0-2.0*f);
   return mix(mix(slab_hash21(i), slab_hash21(i+vec2(1.0,0.0)), f.x),
@@ -72,7 +92,10 @@ float slab_fbm(vec2 p, int oct){
   float s = 0.0, a = 0.5, n = 0.0;
   for (int i = 0; i < 6; i++){
     if (i >= oct) break;
-    s += a * slab_vnoise(p); n += a; p = p*2.03 + 7.1; a *= 0.5;
+    s += a * slab_vnoise(p); n += a;
+    // 옥타브마다 접습니다. 안 접으면 5옥타브에서 좌표가 10만을 넘어
+    // fract 해상도가 셀당 128단계까지 떨어집니다.
+    p = mod(p*2.03 + 7.1, SLAB_LATTICE); a *= 0.5;
   }
   return s / max(1e-5, n);
 }
@@ -117,25 +140,38 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
  * - 중층(L=1, 4.5km): 리듬감 있는 물결무늬 양떼구름(Altocumulus)
  * - 고층(L=0, 11km): 상층 바람 방향으로 빗겨진 섬세한 비단결 권운(Cirrus Fibers)
  */
-float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm){
+/**
+ * det 은 이 화소에서 **잔무늬를 얼마나 믿을 수 있는가** 입니다 (1 = 온전히,
+ * 0 = 평균만).
+ *
+ * 지평선으로 갈수록 한 화소가 담당하는 지상 거리가 폭발합니다. 고도각 2°
+ * 에서 저층은 화소당 2.2km — 셀(1.2km)의 1.9배이고, 0.5°에서는 7.8배입니다.
+ * 거기서 4옥타브 fbm 을 그대로 평가하면 표본이 무늬보다 성글어 **앨리어싱이
+ * 방사형 줄무늬**로 나옵니다. 실기기 화면의 "기괴함"의 정체가 이것입니다.
+ *
+ * 해상 못 하는 무늬는 평균으로 녹입니다. 안티에일리어싱이면서 동시에
+ * 옳은 물리이기도 합니다 — 90km 밖 구름의 낱개 봉우리는 실제로도 안 보입니다
+ * (계획 8절 - 선명도는 확신도에 비례합니다).
+ */
+float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
   
   if (layer == 0) {
     // 고층 권운: 바람 방향으로 늘어난 비등방성 섬유질 스트릭
     vec2 pWind = vec2(dot(p, windNorm) * 0.28, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.6);
-    float fibrous = slab_fbm(pWind, 5);
+    float fibrous = mix(0.5, slab_fbm(pWind, 5), det);
     m = cover * 1.55 * (0.35 + 0.65 * fibrous) + (fibrous - 0.5) * 0.28 * conf;
   } else if (layer == 1) {
     // 중층 고적운: 부드러운 물결 파동과 중간 규모 셀
-    float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18;
-    float form = slab_fbm(p * 0.75, 4);
+    float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18 * det;
+    float form = mix(0.5, slab_fbm(p * 0.75, 4), det);
     m = cover * 1.65 * (0.45 + 0.55 * form + wave) + (form - 0.5) * 0.30 * conf;
   } else {
     // 저층 적운: 볼록하고 묵직한 솜사탕형 빌로우
-    float billow = 1.0 - abs(slab_fbm(p * 0.60, 4) * 2.0 - 1.0);
-    float detail = slab_fbm(p * 1.8, 4);
-    m = cover * 1.85 * (0.55 * billow + 0.45 * detail) + (detail - 0.5) * 0.35 * conf;
+    float billow = mix(0.5, 1.0 - abs(slab_fbm(p * 0.60, 4) * 2.0 - 1.0), det);
+    float detailN = mix(0.5, slab_fbm(p * 1.8, 4), det);
+    m = cover * 1.85 * (0.55 * billow + 0.45 * detailN) + (detailN - 0.5) * 0.35 * conf;
   }
   
   // 구름이 완전히 덮인 흐린 날(cover -> 1.0)일 경우 노이즈 틈새(구멍)가 뚫리지 않도록 덩어리로 만들어 줍니다.
@@ -170,6 +206,7 @@ uniform float uRangeKm;
 uniform float uBeta, uAngstrom, uElevScale, uOzoneDU;
 uniform vec2  uWindLow, uWindMid, uWindHigh;
 uniform float uDriftHours;
+uniform float uPixelAngleRad;
 uniform float uSaturation;
 
 void main(){
@@ -198,7 +235,12 @@ void main(){
   float nightFactor = clamp((-uSunAltDeg - 2.0) / 10.0, 0.0, 1.0);
   float moonAltFactor = clamp((uMoonAltDeg + 2.0) / 10.0, 0.0, 1.0);
   vec3 moonColor = vec3(0.045, 0.068, 0.098) * uMoonIllum * moonAltFactor * 2.5;
-  vec3 cityGlowColor = vec3(0.14, 0.082, 0.032) * uCityLight * 2.5;
+  // 도시 스카이글로. 예전 값 vec3(0.14,0.082,0.032)*2.5 는 두 가지가
+  // 틀렸습니다: (1) 세기가 커서 한밤중(태양 -42°) 화면 평균 휘도가 124로
+  // 대낮(145)에 육박했고, (2) R:B 가 4.4:1 이라 순금색이었습니다.
+  // 실제 도시광은 대기 산란을 거치면서 **채도가 낮은 호박빛 회색**으로
+  // 사진에 찍히고, 요즘 가로등은 나트륨등보다 훨씬 하얗습니다.
+  vec3 cityGlowColor = vec3(0.028, 0.022, 0.016) * uCityLight * 2.5;
 
   // 먼 층(고층 11km)부터 가까운 층(저층 1.4km) 순으로 over 합성
   vec3 lin = vec3(0.0);
@@ -231,15 +273,25 @@ void main(){
 
       vec2 kmN = km + wind * uDriftHours;
 
+      // 이 화소가 담당하는 지상 거리(반경 방향). 지평선으로 갈수록 시선이
+      // 층을 스치듯 지나 급격히 늘어납니다.
+      float footKm = uPixelAngleRad * geom.sDistKm / max(sinE, 0.02);
+      // 발자국이 셀 반쯤을 넘어서면 잔무늬를 믿을 수 없습니다.
+      float det = 1.0 - smoothstep(0.45, 2.0, footKm / cellKm);
+
       // 윗면으로 갈수록 돔 형태로 둥글게 모이는 체적 프로파일
       float shape = 1.0 - sFrac * sFrac * 0.45;
-      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, seed + float(S) * 0.15, windNorm);
+      // 이 스텝의 씨앗. 아래 릴리프·자기그림자가 **반드시 같은 값**을 써야
+      // 합니다 — 다르면 서로 무관한 두 노이즈를 빼는 셈이라 기울기가
+      // 난수가 되고, 그걸 6배 키운 노멀이 입체감을 만들기는커녕 지웁니다.
+      float sSeed = seed + float(S) * 0.15;
+      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det);
       if (thick <= 0.0) continue;
 
       // ── 3D 입체 릴리프 음영 ──
       float eps = cellKm * 0.08;
-      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, seed, windNorm);
-      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, seed, windNorm);
+      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det);
+      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det);
       float dhdx = (tX - thick) / eps;
       float dhdy = (tY - thick) / eps;
       // 노멀 강도를 높여 구름 덩어리의 두께감(Bumpiness)을 강조합니다
@@ -258,7 +310,7 @@ void main(){
       float stepAlpha = 1.0 - T;
 
       // 자기그림자 (Self-shadow)
-      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, seed, windNorm);
+      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det);
       float reach = exp(-thickSun * tauK * 0.55);
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
@@ -385,6 +437,7 @@ export function createCloudSlab(opts: { rangeKm?: number; texSize?: number } = {
       uWindMid: { value: new THREE.Vector2() },
       uWindHigh: { value: new THREE.Vector2() },
       uDriftHours: { value: 0 },
+      uPixelAngleRad: { value: 0.001 },
       uSaturation: { value: 1 },
     },
     vertexShader: VERT,
@@ -464,7 +517,14 @@ export interface CloudSlabUpdate {
   moonDir?: THREE.Vector3;
   moonAltDeg?: number;
   moonIllum?: number;
-  cityLight?: boolean;
+  /**
+   * 지상 도시 불빛의 세기 (0~1). 구름 밑면을 주황으로 물들입니다.
+   *
+   * `boolean` 도 받습니다(예전 호출부 호환) — `true` 는 1.0 입니다. 다만
+   * 이건 켜짐/꺼짐이 아니라 **그 장소가 얼마나 밝은가**이므로, 앱은
+   * 광공해 설정(`starMagLimit`)에서 끌어와 넘깁니다.
+   */
+  cityLight?: boolean | number;
   /** 층 고도(km)에서 본 직달광. `beamAtAltitude` 를 그대로 넘기세요. */
   beamFor: (altKm: number) => RGB;
   atmosphere: AtmosphereParams;
@@ -509,7 +569,9 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   if (u.moonIllum !== undefined) {
     uni.uMoonIllum.value = u.moonIllum;
   }
-  uni.uCityLight.value = u.cityLight === false ? 0.0 : 1.0;
+  uni.uCityLight.value =
+    typeof u.cityLight === 'number' ? Math.max(0, Math.min(1, u.cityLight))
+      : u.cityLight === false ? 0.0 : 1.0;
 
   const bl = u.beamFor(LAYER_ALTITUDE_KM.low);
   const bm = u.beamFor(LAYER_ALTITUDE_KM.mid);
@@ -532,6 +594,11 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   setWind(uni.uWindMid.value as THREE.Vector2, u.layerWinds.mid);
   setWind(uni.uWindHigh.value as THREE.Vector2, u.layerWinds.high);
   uni.uDriftHours.value = u.driftHours;
+  // 화소 하나의 각크기. 잔무늬를 어디서부터 평균으로 녹일지 정하는 값입니다.
+  // 원근 카메라가 아니면 보수적으로 넓게 잡아 앨리어싱 쪽으로 기울지 않게 합니다.
+  const persp = u.camera as THREE.PerspectiveCamera;
+  const fovDeg = typeof persp.fov === 'number' ? persp.fov : 60;
+  uni.uPixelAngleRad.value = ((fovDeg * Math.PI) / 180) / Math.max(1, u.heightPx);
   uni.uSaturation.value = u.saturation ?? 1;
 }
 
