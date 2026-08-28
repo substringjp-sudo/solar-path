@@ -97,6 +97,7 @@ import type { LayerWinds } from '../../utils/weather';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
+import { effectiveMagLimit } from '../../utils/moonlight';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
 // 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
@@ -302,6 +303,9 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** buildPlanetPoints 결과 캐시 (30초 간격) */
   const cachedPlanetPointsRef = useRef<ReturnType<typeof buildPlanetPoints> | null>(null);
   const cachedPlanetPointsMsRef = useRef(0);
+  /** 달빛이 깎은 실효 한계등급 캐시 (30초 간격) */
+  const cachedMoonMagLimitRef = useRef(6.5);
+  const cachedMoonMagMsRef = useRef(0);
   /** updateCelestialPaths 마지막 갱신 시각 (30초 간격) */
   const lastCelestialPathsMsRef = useRef(0);
   /** getSunPath/getMoonPath 날짜 키 캐시 (같은 날이면 재계산 생략) */
@@ -933,12 +937,24 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       cachedPlanetPointsMsRef.current = nowMs;
     }
 
+    // ── 달빛이 깎아먹는 한계등급: 30초 캐시 ──────────────────────────────
+    // 별 위치(equToHorizon)와 같은 주기입니다 — 달의 고도·위상 둘 다 초 단위로는
+    // 안 바뀝니다.
+    if (nowMs - cachedMoonMagMsRef.current > 30_000) {
+      const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+      const moonAltDeg = (moonPos.altitude * 180) / Math.PI;
+      const illum = SunCalc.getMoonIllumination(targetDate).fraction;
+      cachedMoonMagLimitRef.current = effectiveMagLimit(settings.starMagLimit, moonAltDeg, illum);
+      cachedMoonMagMsRef.current = nowMs;
+    }
+    const liveMagLimit = cachedMoonMagLimitRef.current;
+
     if (starFieldRef.current) {
       updateStarField(starFieldRef.current, {
         equToHorizon,
         sunAltDeg: sunAltRef.current,
         brightness: settings.starBrightness,
-        magLimit: settings.starMagLimit,
+        magLimit: liveMagLimit,
         pixelRatio: pixelRatioRef.current,
         planets: cachedPlanetPointsRef.current,
         showStars: currentLayers.stars,
@@ -953,7 +969,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         equToHorizon,
         sunAltRef.current,
         settings.starBrightness,
-        settings.starMagLimit
+        liveMagLimit
       );
       milkyWayRef.current.mesh.visible = currentLayers.milkyway;
     }
