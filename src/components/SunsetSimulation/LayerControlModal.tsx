@@ -168,7 +168,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
-                <Text style={[styles.sliderLabel, { color: textColor }]}>한계 등급</Text>
+                <Text style={[styles.sliderLabel, { color: textColor }]}>이 장소의 하늘</Text>
                 <Text style={[styles.sliderValue, { color: subTextColor }]}>
                   {skySettings.starMagLimit.toFixed(1)}등급 · {skyQualityLabel(skySettings.starMagLimit)}
                 </Text>
@@ -185,7 +185,9 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 knobColor="#e0f2fe"
               />
               <Text style={[styles.sliderHint, { color: subTextColor }]}>
-                6.5등급이면 맨눈으로 볼 수 있는 8,355개 항성이 모두 표시됩니다.
+                광공해 없는 밤 6.5등급 기준입니다. 여기에 그날 밤 달빛이 얼마나
+                밝은지가 실시간으로 더 깎입니다 — 달이 뜨고 차오르면 흐린 별부터
+                사라집니다.
               </Text>
             </View>
           </View>
