@@ -175,6 +175,34 @@ function vertGrad(buf){
   const bot=band(Math.floor(TH*0.30), Math.floor(TH*0.53)); // 지평선 바로 위
   return +(top/Math.max(1,bot)).toFixed(3);
 }
+/**
+ * **빛 받은 구름의 평균 색상각** — 실제 노을 사진과 같은 잣대로 잽니다.
+ *
+ * 밝기 상위 30% 만 보고(빛 받은 면), 채도 0.05 미만(흰 속살)은 뺍니다.
+ * 사용자가 서울에서 찍은 노을 사진 셋을 같은 식으로 재면 11.6° / 12.3° /
+ * 30.6° (빨강~주황)이고 연두(70~100°) 비율이 0% 입니다. 렌더가 그 밖으로
+ * 나가면 "노을 같지 않다"가 숫자로 잡힙니다.
+ */
+function litHue(buf){
+  const idx=[];
+  for(let y=Math.floor(TH*0.30);y<TH;y++) for(let x=0;x<TW;x++) idx.push(y*TW+x);
+  const ls=idx.map(i=>lum(buf,i)).sort((a,b)=>a-b);
+  const cut=ls[Math.floor(ls.length*0.70)];
+  let sx=0, sy=0, n=0, green=0;
+  for(const i of idx){
+    if(lum(buf,i)<cut) continue;
+    const r=buf[i*4]/255, g=buf[i*4+1]/255, b=buf[i*4+2]/255;
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
+    if(mx<=0 || d/mx<0.05) continue;
+    let h; if(mx===r) h=((g-b)/d)%6; else if(mx===g) h=(b-r)/d+2; else h=(r-g)/d+4;
+    h*=60; if(h<0)h+=360;
+    if(h>=70 && h<160) green++;
+    const rad=h*Math.PI/180; sx+=Math.cos(rad); sy+=Math.sin(rad); n++;
+  }
+  if(!n) return { 색상:0, 연두비:0 };
+  let mh=Math.atan2(sy/n, sx/n)*180/Math.PI; if(mh<0) mh+=360;
+  return { 색상:+mh.toFixed(1), 연두비:+(100*green/n).toFixed(0) };
+}
 /** 명암폭 — 하늘 화소 휘도의 p90 - p10. 구름 틈이 빛나고 그림자가 지면 커집니다. */
 function contrast(buf){
   const v=[];
@@ -250,11 +278,12 @@ SUNS.forEach((sunAlt, si)=>{
     const ch=chroma(buf), hu=hueSpread(buf), co=contrast(buf);
     const cv=coverage(which, aerial, ms, sunAlt, steps);
     const vg=vertGrad(buf);
+    const lh=litHue(buf);
     const d=document.createElement('div');
     d.className='lbl'; d.style.left=(ci*TW+12)+'px'; d.style.top=(si*TH+46)+'px';
-    d.innerHTML='태양 '+sunAlt+'° <b>'+tag+'</b><br>채도 '+ch+'<br>색상변화 '+hu+'°<br>명암폭 '+co+'<br>구름덮임 '+cv+'<br><b>세로기울기 '+vg+'</b>';
+    d.innerHTML='태양 '+sunAlt+'° <b>'+tag+'</b><br>채도 '+ch+'<br>색상변화 '+hu+'°<br>명암폭 '+co+'<br>세로기울기 '+vg+'<br><b>색상 '+lh.색상+'° 연두 '+lh.연두비+'%</b>';
     labels.appendChild(d);
-    결과.push({ 태양고도:sunAlt, 조건:tag, 채도:ch, 색상변화:hu, 명암폭:co, 구름덮임:cv, 세로기울기:vg });
+    결과.push({ 태양고도:sunAlt, 조건:tag, 채도:ch, 색상변화:hu, 명암폭:co, 구름덮임:cv, 세로기울기:vg, 색상각:lh.색상, 연두비:lh.연두비 });
   });
 });
 
