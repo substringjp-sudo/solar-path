@@ -620,11 +620,73 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     let consecutiveErrors = 0;
     (gl as any).__contextLostRef = (v: boolean) => { contextLost = v; };
 
+    /**
+     * **적응 해상도** — 기기가 감당하는 만큼만 선명하게.
+     *
+     * 하늘·구름은 저해상도 버퍼에 그린 뒤 확대합니다. 배율이 그림을 얼마나
+     * 깎는지 재봤습니다 (`build-app-vs-harness.js`, 세부 = 이웃 화소 밝기차
+     * 평균, 원해상도를 100%로):
+     *
+     *   배율 2 (예전 고정값)  세부 77~81%   렌더 비용 0.35배
+     *   배율 1.5              세부 84~87%   렌더 비용 0.53배
+     *   배율 1                세부 98~100%  렌더 비용 0.97배
+     *
+     * 색·휘도·채도는 세 배율에서 소수점까지 같습니다. 배율은 **선명도만**
+     * 바꿉니다. 그래서 고정값 하나로 정할 문제가 아닙니다 — 빠른 기기는
+     * 배율 1로 하네스 습작과 같은 그림을 낼 수 있고, 느린 기기는 2가 아니면
+     * 프레임을 못 맞춥니다.
+     *
+     * 2에서 **시작**해 여유가 확인되면 내려갑니다. 반대 방향(느려서 올림)이
+     * 즉시 반응하도록 비대칭으로 둡니다 — 끊기는 것이 흐린 것보다 나쁩니다.
+     */
+    const ADAPT_MIN = 1.0;
+    const ADAPT_MAX = 2.0;
+    const ADAPT_STEP = 0.5;
+    /** 이 프레임 시간을 넘으면 무겁다고 보고 배율을 올립니다 (약 38fps). */
+    const ADAPT_SLOW_MS = 26;
+    /** 이보다 빠르면 여유가 있다고 보고 배율을 내립니다 (약 55fps). */
+    const ADAPT_FAST_MS = 18;
+    /** 판단에 쓰는 프레임 수. 너무 짧으면 한 번 튄 프레임에 흔들립니다. */
+    const ADAPT_WINDOW = 45;
+    let adaptAccMs = 0;
+    let adaptCount = 0;
+    let adaptLastTs = 0;
+    /** 배율을 막 바꾼 직후 몇 프레임은 렌더 타깃 재생성 비용이 섞이므로 버립니다. */
+    let adaptSettle = 0;
+
     const animate = () => {
       if (contextLost) return; // 컨텍스트 소실 시 루프 중단
       animFrameRef.current = requestAnimationFrame(animate);
 
       if (!isActiveRef.current) return; // 탭 비활성화 시 렌더링 스킵 (GPU/CPU 부하 및 메모리 절감)
+
+      // ── 프레임 시간 적산 ──────────────────────────────────────────────
+      {
+        const now = performance.now();
+        if (adaptLastTs > 0) {
+          const dt = now - adaptLastTs;
+          // 탭 복귀·시간 점프로 생긴 거대한 간격은 표본에서 뺍니다.
+          if (dt < 200) {
+            if (adaptSettle > 0) adaptSettle--;
+            else { adaptAccMs += dt; adaptCount++; }
+          }
+        }
+        adaptLastTs = now;
+
+        const composerAdapt = composerRef.current;
+        if (composerAdapt && adaptCount >= ADAPT_WINDOW) {
+          const avg = adaptAccMs / adaptCount;
+          adaptAccMs = 0; adaptCount = 0;
+          const cur = composerAdapt.softScale;
+          let next = cur;
+          if (avg > ADAPT_SLOW_MS) next = Math.min(ADAPT_MAX, cur + ADAPT_STEP);
+          else if (avg < ADAPT_FAST_MS) next = Math.max(ADAPT_MIN, cur - ADAPT_STEP);
+          if (Math.abs(next - cur) > 1e-3) {
+            composerAdapt.setSoftScale(next);
+            adaptSettle = 5;
+          }
+        }
+      }
 
       try {
         // 즉시(0ms) 시간 이동 (타임 슬라이더 변경 시 부드러운 보간 없이 즉각 적용)

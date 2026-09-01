@@ -618,3 +618,36 @@ node tools/shader-preview/shoot.js allsky-matrix.html allsky.png 55
 수치를 볼 때 주의: 이 격자는 `cover()` 를 **하늘돔을 끄고 검은 배경에
 슬랩만** 그려서 잽니다. 검은 구름은 덮임 0 으로 나오므로, 덮임이 낮은데
 휘도도 낮으면 "구름이 없다"가 아니라 "구름이 검다"일 수 있습니다.
+
+## 앱 그림 vs 하네스 그림 — `verify-app-vs-harness.js`
+
+```bash
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-app-vs-harness.js
+node tools/shader-preview/shoot.js app-vs-harness.html app-vs-harness.png 90
+node tools/shader-preview/verify-app-vs-harness.js      # 26개
+```
+
+**하네스는 원해상도로 곧장 그리고, 앱은 그렇지 않습니다.** 앱은 하늘·구름을
+저해상도 버퍼에 그린 뒤 확대하며 블룸·박명광선·디더를 얹습니다. 그동안
+모든 튜닝을 하네스 그림 위에서 했으므로, 그 차이를 재서 못으로 박습니다.
+
+측정 결과 갈리는 것은 **선명도 하나뿐**이었습니다 — 색·휘도·채도는 배율과
+후처리에 관계없이 소수점까지 같습니다:
+
+| | 세부 (하네스 대비) | 렌더 비용 |
+|---|---|---|
+| 배율 2 · 이중선형 (예전) | 70~71% | 0.35배 |
+| 배율 2 · Catmull-Rom | 77~81% | 0.35배 |
+| 배율 1.5 | 84~87% | 0.53배 |
+| 배율 1 | 98~100% | 0.97배 |
+
+⚠ 이 시간은 **swiftshader(CPU 래스터라이저)** 값입니다. 실기기 GPU 의 절대
+시간이 아니라 **배율 사이의 상대비**로만 읽으세요.
+
+⚠ 이 습작은 배율마다 6번씩 다시 그려 시간을 재므로 **다른 것보다 느립니다**
+(90초쯤). `shoot.js` 대기 시간을 넉넉히 주세요.
+
+전환 직후 프레임도 함께 봅니다 — 앱은 프레임 시간을 보고 배율을 실시간으로
+바꾸므로(적응 해상도), 렌더 타깃을 다시 만드는 그 프레임이 검게 나오면
+화면이 깜빡입니다.
