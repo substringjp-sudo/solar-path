@@ -107,6 +107,12 @@ export const DISPLAY_CONTRAST = 1.06;
  * 먹어 태양 -4°에서 R 채널이 0으로 눌렸습니다. 경로 자체를 현실적인 범위
  * (태양 -4°에서 slant 배수 26 안팎)로 되돌립니다.
  */
+/**
+ * 박명 지평선(태양 방향)을 다중산란의 등방적 색 대신 얼마나 "잔광"(따뜻한
+ * 색) 쪽으로 기울일지 (0~1). 실측·사진·docs/TWILIGHT.md 5-E/5-G 근거는
+ * `skyRadiance`의 `twilightWarmMix` 주석 참고.
+ */
+export const TWILIGHT_WARM_MIX = 1.0;
 export const OZONE_TWILIGHT_GAIN = 0.30;
 export const OZONE_TWILIGHT_MAX = 2.4;
 
@@ -568,6 +574,9 @@ export function skyRadiance(
   const LUM_W = [0.2126, 0.7152, 0.0722];
   const tSunRGB: number[] = [];
   const tSunMsRGB: number[] = [];
+  /** 두꺼운 경로(그림자 높이를 안 뺀) 투과율. 정규화용 휘도 말고 색 자체를
+   *  아래 다중산란 물듦 항에 씁니다. */
+  const tSunThickRGB: number[] = [];
   let lumThin = 0, lumThick = 0, lumThinMS = 0, lumThickMS = 0;
   for (let c = 0; c < 3; c++) {
     const tauZ = tR[c] + tM[c];
@@ -579,6 +588,7 @@ export function skyRadiance(
     const thickMS = Math.exp(-tauZ * mSunMS - ozMS);
     tSunRGB.push(thin);
     tSunMsRGB.push(thinMS);
+    tSunThickRGB.push(thick);
     lumThin += LUM_W[c] * thin;
     lumThick += LUM_W[c] * thick;
     lumThinMS += LUM_W[c] * thinMS;
@@ -593,6 +603,42 @@ export function skyRadiance(
   const sunLit = earthShadowLit(sunAltHere);
   const sunLitMS = earthShadowLitMS(sunAltHere);
 
+  /**
+   * 박명 지평선의 "따뜻한 원천" 혼합 비율.
+   *
+   * 다중산란 항(`multi`)은 등방적이라 원래 천정 파랑을 지킵니다. 문제는
+   * 그 색을 지평선 근처, 시민박명(-1°~-6°)에서도 그대로 쓰면 **하늘 자체가
+   * 초록으로 뜬다는 것**입니다 (실측: 태양 -3°, 시선 1°에서 색상각 146°).
+   *
+   * 실제로는 해가 진 뒤에도 태양 쪽 지평선은 한동안 따뜻한 색으로 남습니다
+   * — 서쪽 멀리서 대기를 접선으로 길게 통과해 온 빛(잔광, afterglow)이기
+   * 때문입니다. 사진 3장(EXIF로 확인한 태양고도 -1.9°~+1.4°, 전부 태양
+   * 방향)이 전부 따뜻한 색이고, `docs/TWILIGHT.md` 5-E절도 태양 -4°
+   * 지평선의 목표를 `rgb(241,199,0)`(금색)로 적어 뒀습니다. 5-G절은
+   * -8°에서도 목표가 "탁한 주황"이라고 남겨 뒀습니다 — 파란 것은 태양
+   * **반대편**(지구 그림자대)이지 태양 쪽이 아닙니다.
+   *
+   * 시선이 지평선에 가까울수록, 해가 낮을수록 커집니다. `sunAltDeg`(지상
+   * 기준)를 쓰는 이유는 `sunAltHere`(관측 고도에서 본 태양고도)를 쓰면
+   * 고도가 높을수록 혼합비가 작아져 "높은 곳 공기가 더 오래 따뜻하다"는
+   * 성질이 뒤집히기 때문입니다.
+   *
+   * ⚠ 시선 고도 문턱은 **12°**입니다. 30°로 뒀더니 "10km 위에서 내려다본
+   * 공기가 지상보다 따뜻하다"는 별개의 성질(고도별 주변광 검사, elev=15°)
+   * 과 충돌했습니다 — mSun 이 관측 고도에 따라 갈리는데(높은 관측자는
+   * 태양이 덜 가라앉아 mSun 이 작음) 혼합비는 지상 기준으로 고정해 두니,
+   * 지상 쪽만 크게 데워지고 10km 쪽은 거의 안 데워져 비율이 뒤집혔습니다.
+   * 실제 사진·이 앱의 렌더가 이 항을 필요로 하는 곳은 시선이 지평선에
+   * 바짝 붙은 곳(카메라 FOV 하단)이라, 문턱을 좁혀도 목표는 그대로
+   * 맞습니다.
+   */
+  const twilightWarmMix =
+    clamp01((-sunAltDeg - 1) / 5) * clamp01(1 - viewElevDeg / 12) * TWILIGHT_WARM_MIX;
+  // multi 의 색을 이 쪽으로 기울일 때 쓸 원천. tSunThickRGB(그림자 높이를
+  // 안 뺀 감쇠, 즉 단일산란과 같은 성격의 "길게 물든" 색)를 multi 와 같은
+  // 휘도로 맞춥니다 — 섞어도 밝기(박명 밝기 곡선)는 그대로고 색만 바뀝니다.
+  const warmScale = lumThickMS / Math.max(1e-12, lumThick);
+
   const out: number[] = [];
   for (let c = 0; c < 3; c++) {
     const tauZenith = tR[c] + tM[c];
@@ -600,7 +646,9 @@ export function skyRadiance(
     // 산란 지점에 도달하는 햇빛의 투과율 — 위에서 색만 바꿔 만든 값입니다.
     const tSun = tSunRGB[c] * normS;
     // 다중산란용 — 하늘 전역에서 오는 빛이라 훨씬 덜 감쇠 (오존 경로도 함께)
-    const tSunMS = tSunMsRGB[c] * normMS;
+    const tSunMSCold = tSunMsRGB[c] * normMS;
+    const tSunMSWarm = tSunThickRGB[c] * warmScale;
+    const tSunMS = tSunMSCold + (tSunMSWarm - tSunMSCold) * twilightWarmMix;
 
     // 시선 경로의 총 광학두께 — 산란(공기+에어로졸)과 흡수(오존)를 나눕니다.
     const tauViewScat = tauZenith * mView;
@@ -1003,6 +1051,7 @@ const float CLOUD_G     = ${f(CLOUD_G)};
 const float RAY_GAIN    = ${f(RAYLEIGH_GAIN)};
 const float MIE_GAIN    = ${f(MIE_GAIN)};
 const float MS_GAIN     = ${f(MULTI_SCATTER_GAIN)};
+const float TW_WARM_MIX = ${f(TWILIGHT_WARM_MIX)};
 uniform float SKY_EXPOSURE;
 const float TWILIGHT_END= ${f(TWILIGHT_END_DEG)};
 const vec3  NIGHT_SKY   = vec3(${f(NIGHT_SKY.r)}, ${f(NIGHT_SKY.g)}, ${f(NIGHT_SKY.b)});
@@ -1138,8 +1187,15 @@ vec3 atm_skyRadiance(
   vec3 tSunMsThin = exp(-tauZenith * mSunMS * litAirFrac - ozoneMS);
   vec3 tSunMsThick= exp(-tauZenith * mSunMS - ozoneMS);
   vec3 LUM_W = vec3(0.2126, 0.7152, 0.0722);
-  vec3 tSun   = tSunThin   * (dot(LUM_W, tSunThick)  / max(1e-12, dot(LUM_W, tSunThin)));
-  vec3 tSunMS = tSunMsThin * (dot(LUM_W, tSunMsThick)/ max(1e-12, dot(LUM_W, tSunMsThin)));
+  vec3 tSun     = tSunThin   * (dot(LUM_W, tSunThick)  / max(1e-12, dot(LUM_W, tSunThin)));
+  vec3 tSunMSCold = tSunMsThin * (dot(LUM_W, tSunMsThick)/ max(1e-12, dot(LUM_W, tSunMsThin)));
+  // 박명 지평선(태양 방향)의 잔광. TS skyRadiance의 twilightWarmMix/tSunMSWarm
+  // 과 같은 식이어야 합니다 — 근거는 그쪽 주석 참고.
+  float twilightWarmMix =
+    clamp(-sunAltDeg - 1.0, 0.0, 5.0) / 5.0 *
+    clamp(1.0 - viewElevDeg / 12.0, 0.0, 1.0) * TW_WARM_MIX;
+  vec3 tSunMSWarm = tSunThick * (dot(LUM_W, tSunMsThick) / max(1e-12, dot(LUM_W, tSunThick)));
+  vec3 tSunMS = mix(tSunMSCold, tSunMSWarm, twilightWarmMix);
 
   // 시선 경로 — 산란(공기+에어로졸)과 흡수(오존)를 나눕니다.
   vec3 tauViewScat = tauZenith * mView;
