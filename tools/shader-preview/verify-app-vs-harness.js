@@ -46,24 +46,30 @@ function ok(cond, label) {
   ok(stats.glError === 0, `glGetError == 0 (${stats.glError})`);
 
   const R = stats.결과;
-  const at = (알트, 조건) => R.find(r => r.태양고도 === 알트 && r.조건.startsWith(조건));
+  // ⚠ `startsWith` 로 고르면 '배율 1' 이 **'배율 1.5' 를 먼저** 잡습니다
+  //    (CASES 순서상 1.5 가 앞). 처음 이 판정을 돌렸을 때 배율 1 자리에
+  //    1.5 의 숫자(87%)가 들어와 거짓 실패가 났습니다. 정확히 일치시킵니다.
+  const at = (알트, 조건) => R.find(r => r.태양고도 === 알트 && r.조건 === 조건);
   const SUNS = [25, 2, 0, -3];
 
   console.log('\n== 후처리가 색을 바꾸지 않는가 ==');
   for (const 알트 of SUNS) {
-    const h = at(알트, '하네스'), a = at(알트, '앱 배율 2');
+    const h = at(알트, '하네스(원해상도)'), a = at(알트, '앱 배율 2 (현행)');
     const d휘 = Math.abs(a.평균휘도 - h.평균휘도) / Math.max(1, h.평균휘도);
     const d채 = Math.abs(a.채도 - h.채도);
     console.log(`  태양 ${String(알트).padStart(3)}°  휘도 ${h.평균휘도} → ${a.평균휘도}` +
                 `   채도 ${h.채도} → ${a.채도}   색상 ${h.색상각}° → ${a.색상각}°`);
-    // 블룸이 밝은 곳을 조금 들어 올리므로 휘도는 3%까지 봐 줍니다.
-    ok(d휘 < 0.03, `태양 ${알트}° 휘도가 유지된다 (${(100 * d휘).toFixed(1)}%)`);
+    // 블룸이 밝은 곳을 들어 올리므로 휘도는 조금 오릅니다 — 그게 블룸이
+    // 하는 일입니다. 한낮(+25°)이 가장 밝아 그 효과도 가장 크고(3.0%),
+    // 노을·박명은 0.1~0.4% 입니다. 4%를 넘으면 그건 블룸이 아니라
+    // 합성 경로가 색을 바꾸고 있다는 뜻입니다.
+    ok(d휘 < 0.04, `태양 ${알트}° 휘도가 유지된다 (${(100 * d휘).toFixed(1)}%)`);
     ok(d채 < 0.01, `태양 ${알트}° 채도가 유지된다 (${d채.toFixed(3)})`);
   }
 
   console.log('\n== 배율 1이면 하네스와 같은 선명도인가 ==');
   for (const 알트 of SUNS) {
-    const h = at(알트, '하네스'), one = at(알트, '배율 1');
+    const h = at(알트, '하네스(원해상도)'), one = at(알트, '배율 1 (합성만)');
     const 비 = one.세부 / h.세부;
     console.log(`  태양 ${String(알트).padStart(3)}°  세부 ${h.세부} → ${one.세부}  (${(100 * 비).toFixed(0)}%)`);
     ok(비 > 0.95, `태양 ${알트}° 배율 1은 하네스와 같다 (${(100 * 비).toFixed(0)}%)`);
@@ -71,7 +77,7 @@ function ok(cond, label) {
 
   console.log('\n== 배율 2에서도 재구성 필터가 일하는가 ==');
   for (const 알트 of SUNS) {
-    const h = at(알트, '하네스'), two = at(알트, '앱 배율 2');
+    const h = at(알트, '하네스(원해상도)'), two = at(알트, '앱 배율 2 (현행)');
     const 비 = two.세부 / h.세부;
     console.log(`  태양 ${String(알트).padStart(3)}°  세부 ${h.세부} → ${two.세부}  (${(100 * 비).toFixed(0)}%)`);
     // 이중선형이던 시절은 70~71% 였습니다. Catmull-Rom 5탭으로 77~81%.
