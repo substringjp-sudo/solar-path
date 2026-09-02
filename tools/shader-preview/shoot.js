@@ -18,7 +18,10 @@ const waitMs = Number(process.argv[4]) || 8000;
     args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
   const p = await b.newPage({ viewport: { width: 1220, height: 800 } });
   p.on('pageerror', e => console.log('PAGEERROR:', e.message));
-  await p.goto('http://localhost:8123/' + page);
+  // ⚠ page.goto 의 기본 제한은 30초입니다. 레이마치처럼 무거운 습작은
+  // 로드 중에 이미 그리기 때문에 그 안에 못 끝나고, 그러면 그림이 아니라
+  // TimeoutError 만 남습니다. 대기 시간에 맞춰 넉넉히 줍니다.
+  await p.goto('http://localhost:8123/' + page, { timeout: waitMs + 60000 });
   await p.waitForTimeout(waitMs);
   console.log('TITLE:', await p.title());
   const errs = await p.evaluate(() => window.__errors || []);
