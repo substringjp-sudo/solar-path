@@ -521,7 +521,7 @@ export function skyRadiance(
     ? 1
     : Math.exp(-earthShadowHeightKm(-sunAltHere) / SCALE_HEIGHT_KM);
   // 시선 고도가 높을수록 산란점이 높아 → 햇빛이 통과하는 대기가 얇아집니다.
-  const t = clamp01(viewElevDeg / 70);
+  const t = clamp01(viewElevDeg / getTuning().scatterHeightKneeDeg);
   const smooth = t * t * (3 - 2 * t);
   const shZen = getTuning().scatterHeightZenith;
   const hFrac = SCATTER_HEIGHT_HORIZON + (shZen - SCATTER_HEIGHT_HORIZON) * smooth;
@@ -694,7 +694,7 @@ export function skyRadiance(
     // 단일산란 — 태양 방향의 붉은 노을을 만듭니다.
     const single = tSun * (pR * rW + pM * mW) * w0 * scatterFrac;
     // 다중산란 — 등방적. 천정의 파랑과 지평선 airlight를 유지시킵니다.
-    const multi = tSunMS * w0 * scatterFrac * MULTI_SCATTER_GAIN * (1 / (4 * Math.PI));
+    const multi = tSunMS * w0 * scatterFrac * getTuning().msGain * (1 / (4 * Math.PI));
 
     // 지구 그림자를 두 성분에 **다르게** 겁니다.
     //
@@ -1084,7 +1084,7 @@ const float MIE_G       = ${f(MIE_G)};
 const float CLOUD_G     = ${f(CLOUD_G)};
 const float RAY_GAIN    = ${f(RAYLEIGH_GAIN)};
 const float MIE_GAIN    = ${f(MIE_GAIN)};
-const float MS_GAIN     = ${f(MULTI_SCATTER_GAIN)};
+uniform float MS_GAIN;
 const float TW_WARM_MIX = ${f(TWILIGHT_WARM_MIX)};
 uniform float SKY_EXPOSURE;
 const float TWILIGHT_END= ${f(TWILIGHT_END_DEG)};
@@ -1096,6 +1096,7 @@ uniform float MS_AZIM_WASH;
 uniform float MS_AM_FRAC;
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
 uniform float SH_ZENITH;
+uniform float SH_KNEE;
 const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
 const float TW_TINT_H   = ${f(TWILIGHT_TINT_HORIZON)};
 const float TW_TINT_Z   = ${f(TWILIGHT_TINT_ZENITH)};
@@ -1211,7 +1212,7 @@ vec3 atm_skyRadiance(
   // 지평선 아래에서는 상층 대기가 조명되므로 색은 하한에서 고정
   float sunAltForT = max(sunAltDeg, T_MIN_SUNALT);
   // 시선 고도가 높을수록 산란점이 높아 → 햇빛이 통과하는 대기가 얇아짐 (박명 아치)
-  float hFrac = mix(SH_HORIZON, SH_ZENITH, smoothstep(0.0, 70.0, viewElevDeg));
+  float hFrac = mix(SH_HORIZON, SH_ZENITH, smoothstep(0.0, SH_KNEE, viewElevDeg));
   float mSun   = atm_airMass(sunAltForT) * exp(-hFrac);
   float mSunMS = min(mSun, max(MS_AM_CAP, mSun * MS_AM_FRAC));
   // 박명 조명이 지나는 공기의 얇기 — 오존층(22km)은 그림자 위에 남습니다.
@@ -1434,9 +1435,11 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     SLAB_FBM_GAIN: { value: t.fbmGain },
     SLAB_RELIEF_EPS: { value: t.reliefEps },
     SH_ZENITH: { value: t.scatterHeightZenith },
+    SH_KNEE: { value: t.scatterHeightKneeDeg },
     MS_AM_FRAC: { value: t.msAirmassFrac },
     MS_AM_CAP: { value: t.msAirmassCap },
     MS_AZIM_WASH: { value: t.msAzimWash },
+    MS_GAIN: { value: t.msGain },
     TW_SCALE_H: { value: t.twilightScaleKm },
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
@@ -1462,9 +1465,11 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('SLAB_FBM_GAIN', t.fbmGain);
   set('SLAB_RELIEF_EPS', t.reliefEps);
   set('SH_ZENITH', t.scatterHeightZenith);
+  set('SH_KNEE', t.scatterHeightKneeDeg);
   set('MS_AM_FRAC', t.msAirmassFrac);
   set('MS_AM_CAP', t.msAirmassCap);
   set('MS_AZIM_WASH', t.msAzimWash);
+  set('MS_GAIN', t.msGain);
   set('TW_SCALE_H', t.twilightScaleKm);
   set('TW_MS_SCALE', t.twilightMsScaleKm);
   set('TW_TINT', t.twilightTint);

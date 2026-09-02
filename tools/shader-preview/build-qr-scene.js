@@ -112,7 +112,7 @@ bakeCloudSlabCoverage(slab, (azDeg, distKm) => {
            confidence: Math.max(0, Math.min(1, confidence)) };
 });
 
-const atmosphere = makeAtmosphereParams({
+let atmosphere = makeAtmosphereParams({
   latitude: QR.lat, observerElevM: QR.elevM, dayOfYear: 245,
   humidityPct: QR.humidity, visibilityM: QR.vis });
 
@@ -148,9 +148,12 @@ function shoot(v){
 }
 
 const 결과=[];
-const SWEEP=[0.0, 0.35, 0.6, 0.85];
+const SWEEP=[14275, 25000, 45000, 90000];
 SWEEP.forEach(sh=>{ VIEWS.forEach((v,i)=>{
-  resetTuning(); setTuning({ msAzimWash: sh });
+  resetTuning();
+  // 시정만 바꿔 에어로졸(Mie) 세기를 훑습니다. QR 실측은 14,275m 입니다.
+  atmosphere = makeAtmosphereParams({ latitude: QR.lat, observerElevM: QR.elevM,
+    dayOfYear: 245, humidityPct: QR.humidity, visibilityM: sh });
   const top = shoot(v);
   // 화각 55°, 시선 고도로 지평선 아래를 잘라 냅니다.
   const horiz = (Math.tan(27.5*Math.PI/180) + Math.tan(v.elev*Math.PI/180))
@@ -160,14 +163,14 @@ SWEEP.forEach(sh=>{ VIEWS.forEach((v,i)=>{
   const l = lightingStats(top, TW, TH, { skyFrac: sky });
   const prof = warmthProfile(top, TW, TH, { skyFrac: sky, bands: 5 });
   결과.push({ SH:sh, 방향:v.name, 하늘비율:+sky.toFixed(2), 따뜻함프로파일:prof, ...s, ...l });
-  if (sh === 0.0) { const img=ctx2d.createImageData(TW,TH); img.data.set(top); ctx2d.putImageData(img, i*TW, 0); }
+  if (sh === 14275) { const img=ctx2d.createImageData(TW,TH); img.data.set(top); ctx2d.putImageData(img, i*TW, 0); }
   const d=document.createElement('div');
   d.className='lbl'; d.style.left=(i*TW+10)+'px'; d.style.top='58px';
   d.innerHTML=v.name+'<br>채도 '+s.채도+'<br>국소대비 '+s.국소대비
     +'<br>밝은쪽따뜻함 '+l.밝은쪽따뜻함+'<br>어두운쪽따뜻함 '+l.어두운쪽따뜻함
     +'<br>따뜻함폭 '+l.따뜻함폭
     +'<br>프로파일 '+prof.join(' ');
-  if (sh === 0.0) labels.appendChild(d);
+  if (sh === 14275) labels.appendChild(d);
 }); });
 resetTuning();
 

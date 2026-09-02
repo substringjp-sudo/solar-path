@@ -108,6 +108,18 @@ export interface SkyTuning {
    * 휘도는 보존하므로 애써 맞춘 박명 밝기 곡선은 안 건드립니다.
    */
   msAzimWash: number;
+  /** 다중산란 이득. 0 이면 다중산란 성분이 사라집니다 — 성분 분리 진단용. */
+  msGain: number;
+  /**
+   * 산란점 높이가 최대에 이르는 시선 고도 (도).
+   *
+   * hFrac = mix(SH_HORIZON, SH_ZENITH, smoothstep(0, KNEE, 시선고도)) 의 KNEE.
+   * **끝점(SH_ZENITH)이 아니라 곡선의 모양**을 정합니다. 끝점만 올리면
+   * 낮은 고도까지 같이 식어 지평선 노을이 죽습니다 — 태양이 낮을 때는
+   * 광로가 조금만 얇아져도 파랑 투과율이 크게 오르기 때문입니다.
+   * KNEE 를 당기면 위쪽만 빨리 식고 아래쪽은 덜 움직입니다.
+   */
+  scatterHeightKneeDeg: number;
 
   // ── 구름 아래 감광 ───────────────────────────────────────────────────────
   /** 구름이 완전히 덮었을 때 남는 하늘빛 밝기 (낮을수록 흐린 날이 어두움) */
@@ -212,6 +224,8 @@ export const DEFAULT_TUNING: SkyTuning = {
   // 이 손잡이는 **방위각 축만** 고칩니다. 태양쪽 위쪽 하늘이 아직 따뜻한 것
   // (+0.10, 사진 -0.112)은 고도 축 문제라 여기서 안 잡힙니다.
   msAzimWash: 0.6,
+  msGain: 0.42,
+  scatterHeightKneeDeg: 70,
 
   cloudDimFloor: 0.30,
   cloudDimDesat: 0.85,
