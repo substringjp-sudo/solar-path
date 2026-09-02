@@ -25,10 +25,12 @@ const { PREVIEW } = require('./paths');
 const TW = 400, TH = 330;
 
 // 가로: 운량 · 세로: 운형(적운 / 먹구름)
+// 같은 장면을 예산별로 — 싼 설정에서 부피감이 남는지 봅니다.
+// 비용은 build-volume-cost.js 로 쟀습니다 (현행 슬랩 대비 배수).
 const CASES = [
-  { name: '적운 운량 30%',  genus: 0, cover: 0.30 },
-  { name: '적운 운량 55%',  genus: 0, cover: 0.55 },
-  { name: '먹구름 운량 85%', genus: 1, cover: 0.85 },
+  { name: '48x6  5.8배 (기준)', genus: 0, cover: 0.45, view: 48, shadow: 6 },
+  { name: '12x2  1.0배 + 흔듦', genus: 0, cover: 0.45, view: 12, shadow: 2 },
+  { name: '16x2  1.2배 + 흔듦', genus: 0, cover: 0.45, view: 16, shadow: 2 },
 ];
 
 const FRAG = `
@@ -41,6 +43,7 @@ uniform vec3  uSunDir;
 uniform float uCover;
 uniform float uGenus;      // 0 적운, 1 먹구름
 uniform float uSteps;
+uniform float uShadowSteps;
 uniform float uThr;      // <0 이면 uCover 에서 유도, 아니면 직접 지정
 
 // ── 3D 값잡음 + fbm ────────────────────────────────────────────────────
@@ -146,12 +149,22 @@ void main(){
 
   int N = int(uSteps);
   float dt = (t1 - t0) / float(N);
+
+  // ── 스텝 밴딩을 흔들어 없앱니다 ────────────────────────────────────
+  //
+  // 스텝을 줄이면 구름이 가로로 저며진 것처럼 갈라집니다 — 모든 화소가
+  // **같은 자리**에서 표본을 뜨기 때문입니다. 시작점을 화소마다 한 스텝
+  // 안에서 흔들면 그 줄무늬가 잡음으로 바뀝니다. 잡음은 훨씬 덜 거슬리고,
+  // 앱은 절반 해상도로 그린 뒤 Catmull-Rom 으로 올리므로 더 뭉개집니다.
+  // 해시 한 번이라 비용은 사실상 0 입니다.
+  float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  float tStart = t0 + jit * dt;
   float trans = 1.0;
   vec3 acc = vec3(0.0);
 
   for (int i = 0; i < 64; i++){
     if (i >= N) break;
-    float s = t0 + (float(i) + 0.5) * dt;
+    float s = tStart + float(i) * dt;
     vec3 p = vec3(0.0, 0.0, 0.0) + dir * s;
     float d = density(p);
     if (d <= 0.001) continue;
@@ -162,10 +175,11 @@ void main(){
     // 태양까지 가는 길에 밀도가 쌓여 어두워지고, 태양을 향한 바깥면은
     // 거의 안 가려져 밝습니다. 껍질 적분으로는 이 차이가 안 나옵니다.
     float shadow = 0.0;
-    float ds = 0.30;                      // km
-    for (int j = 1; j <= 6; j++){
-      vec3 q = p + uSunDir * (float(j) * ds);
-      shadow += density(q);
+    int SN = int(uShadowSteps);
+    float ds = 1.8 / float(SN);           // 총 거리는 같게, 표본만 줄입니다
+    for (int j = 1; j <= 8; j++){
+      if (j > SN) break;
+      shadow += density(p + uSunDir * (float(j) * ds));
     }
     float sunT = exp(-shadow * ds * (uGenus < 0.5 ? 7.0 : 11.0));
 
@@ -192,7 +206,7 @@ const html = `<!doctype html>
  .sub{font-size:11px;color:#8aa;margin:0 0 8px}
 </style></head><body>
 <div id="wrap">
-<h3>근거리 볼륨 구름 원형 — 모양만 (색은 아직)</h3>
+<h3>근거리 볼륨 — 예산별로 부피감이 남는가 (시선스텝 x 그림자스텝, 현행 슬랩 대비 비용)</h3>
 <p class="sub">3D 밀도장을 시선따라 적분하고, 표본마다 태양 쪽으로 6번 더 행진해 자기그림자를 만듭니다.</p>
 <canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
@@ -215,7 +229,7 @@ const mat=new THREE.ShaderMaterial({
     uCamDir:{value:new THREE.Vector3()},
     uFovDeg:{value:62},
     uSunDir:{value:new THREE.Vector3()},
-    uCover:{value:0.5}, uGenus:{value:0}, uSteps:{value:48}, uThr:{value:-1},
+    uCover:{value:0.5}, uGenus:{value:0}, uSteps:{value:48}, uShadowSteps:{value:6}, uThr:{value:-1},
   },
   vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }',
   fragmentShader:${JSON.stringify(FRAG)},
@@ -323,9 +337,11 @@ if (location.search.indexOf('calib') >= 0) {
 
 const 결과=[];
 CASES.forEach((c,i)=>{
-  const 천정덮임 = zenithCover(c.cover, c.genus);
+  const 천정덮임 = 0;
   mat.uniforms.uCover.value=c.cover;
   mat.uniforms.uGenus.value=c.genus;
+  mat.uniforms.uSteps.value=c.view;
+  mat.uniforms.uShadowSteps.value=c.shadow;
   renderer.setRenderTarget(null); renderer.render(scene,cam);
   const buf=new Uint8Array(4*TW*TH);
   gl.readPixels(0,0,TW,TH,gl.RGBA,gl.UNSIGNED_BYTE,buf);
