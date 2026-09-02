@@ -644,6 +644,24 @@ export function skyRadiance(
   // 휘도로 맞춥니다 — 섞어도 밝기(박명 밝기 곡선)는 그대로고 색만 바뀝니다.
   const warmScale = lumThickMS / Math.max(1e-12, lumThick);
 
+  // ── 다중산란 색의 방위각 감쇠 ──────────────────────────────────────
+  //
+  // 세 채널을 먼저 구한 뒤 휘도 쪽으로 섞습니다 — 채널 하나만 보고는
+  // 중성이 뭔지 알 수 없기 때문입니다. ATMOSPHERE_GLSL 의 같은 자리와
+  // **같은 식이어야 합니다.**
+  const msWashed = [0, 0, 0];
+  {
+    for (let c = 0; c < 3; c++) {
+      const cold = tSunMsRGB[c] * normMS;
+      const warm = tSunThickRGB[c] * warmScale;
+      msWashed[c] = cold + (warm - cold) * twilightWarmMix;
+    }
+    const away = 0.5 * (1 - Math.cos(gammaDeg * Math.PI / 180));
+    const wash = away * getTuning().msAzimWash;
+    const luma = 0.2126 * msWashed[0] + 0.7152 * msWashed[1] + 0.0722 * msWashed[2];
+    for (let c = 0; c < 3; c++) msWashed[c] += (luma - msWashed[c]) * wash;
+  }
+
   const out: number[] = [];
   const tauViewTotal = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
@@ -651,10 +669,9 @@ export function skyRadiance(
 
     // 산란 지점에 도달하는 햇빛의 투과율 — 위에서 색만 바꿔 만든 값입니다.
     const tSun = tSunRGB[c] * normS;
-    // 다중산란용 — 하늘 전역에서 오는 빛이라 훨씬 덜 감쇠 (오존 경로도 함께)
-    const tSunMSCold = tSunMsRGB[c] * normMS;
-    const tSunMSWarm = tSunThickRGB[c] * warmScale;
-    const tSunMS = tSunMSCold + (tSunMSWarm - tSunMSCold) * twilightWarmMix;
+    // 다중산란용 — 하늘 전역에서 오는 빛이라 훨씬 덜 감쇠. 위에서 세 채널을
+    // 함께 구하고 방위각 감쇠까지 먹인 값입니다.
+    const tSunMS = msWashed[c];
 
     // 시선 경로의 총 광학두께 — 산란(공기+에어로졸)과 흡수(오존)를 나눕니다.
     const tauViewScat = tauZenith * mView;
@@ -1075,6 +1092,7 @@ const vec3  NIGHT_SKY   = vec3(${f(NIGHT_SKY.r)}, ${f(NIGHT_SKY.g)}, ${f(NIGHT_S
 uniform float CLOUD_DIM_DESAT;
 uniform float CLOUD_DIM_FLOOR;
 uniform float MS_AM_CAP;
+uniform float MS_AZIM_WASH;
 uniform float MS_AM_FRAC;
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
 uniform float SH_ZENITH;
@@ -1238,6 +1256,15 @@ vec3 atm_skyRadiance(
     clamp(1.0 - viewElevDeg / 12.0, 0.0, 1.0) * TW_WARM_MIX;
   vec3 tSunMSWarm = tSunThick * (dot(LUM_W, tSunMsThick) / max(1e-12, dot(LUM_W, tSunThick)));
   vec3 tSunMS = mix(tSunMSCold, tSunMSWarm, twilightWarmMix);
+
+  // 방위각 감쇠 — 다중산란은 산란을 거듭할수록 태양 방향의 기억을 잃습니다.
+  // 태양에서 멀어질수록 그 색이 중성으로 돌아가야, 노을이 반대편 지평선까지
+  // 번지지 않습니다. 휘도는 보존합니다.
+  // TS skyRadiance 와 같은 식이어야 합니다.
+  {
+    float away = 0.5 * (1.0 - cosGamma);            // 0 태양쪽 ~ 1 반대편
+    tSunMS = mix(tSunMS, vec3(dot(LUM_W, tSunMS)), away * MS_AZIM_WASH);
+  }
 
   // 시선 경로 — 산란(공기+에어로졸)과 흡수(오존)를 나눕니다.
   vec3 tauViewScat = tauZenith * mView;
@@ -1409,6 +1436,7 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     SH_ZENITH: { value: t.scatterHeightZenith },
     MS_AM_FRAC: { value: t.msAirmassFrac },
     MS_AM_CAP: { value: t.msAirmassCap },
+    MS_AZIM_WASH: { value: t.msAzimWash },
     TW_SCALE_H: { value: t.twilightScaleKm },
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
@@ -1436,6 +1464,7 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('SH_ZENITH', t.scatterHeightZenith);
   set('MS_AM_FRAC', t.msAirmassFrac);
   set('MS_AM_CAP', t.msAirmassCap);
+  set('MS_AZIM_WASH', t.msAzimWash);
   set('TW_SCALE_H', t.twilightScaleKm);
   set('TW_MS_SCALE', t.twilightMsScaleKm);
   set('TW_TINT', t.twilightTint);
