@@ -291,5 +291,83 @@ function angularSpectrum(data, W, H, opts) {
   };
 }
 
+
+// ── 조명 분리 — "어느 부분이 어느 색으로 물드는가" ──────────────────────
+//
+// 사용자가 실제로 보고 싶다고 한 것은 구름의 정확한 모양이 아니라 **조명**
+// 입니다: 뭉게구름의 태양면은 주황, 나머지는 보라, 어떤 구름은 통째로 회색,
+// 상층운은 아직 흰색.
+//
+// 이걸 재려면 "구름 화소 / 하늘 화소"를 갈라야 할 것 같지만, 그 규칙은 맑은
+// 날에 되는 것이 흐린 날에 깨집니다. 대신 **밝기와 색의 관계**를 봅니다 —
+// 분할이 필요 없고, 말한 내용을 그대로 담습니다.
+function lightingStats(data, W, H, opts) {
+  const cropH = Math.max(2, Math.round(H * ((opts && opts.skyFrac) || 1)));
+  const crop = new Uint8Array(W * cropH * 4);
+  crop.set(data.subarray(0, W * cropH * 4));
+  const r = resampleTo(crop, W, cropH, NORM_W);
+  const d = r.data, w = r.W, h = r.H, n = w * h;
+
+  const L = new Float64Array(n), Wm = new Float64Array(n), S = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = i * 4, R = d[p], G = d[p + 1], B = d[p + 2];
+    L[i] = lumOf(R, G, B);
+    // 따뜻함 — 밝기로 나눠 정규화합니다. 안 그러면 그냥 "밝다"가 잡힙니다.
+    Wm[i] = (R - B) / Math.max(24, Math.max(R, Math.max(G, B)));
+    S[i] = rgb2hsv(R, G, B).s;
+  }
+  const idx = Array.from({ length: n }, (_, i) => i).sort((a, b) => L[a] - L[b]);
+  const q = Math.max(1, Math.round(n * 0.20));
+  const dark = idx.slice(0, q), bright = idx.slice(n - q);
+  const avg = (list, arr) => list.reduce((s, i) => s + arr[i], 0) / list.length;
+
+  const mL = L.reduce((a, b) => a + b, 0) / n, mW = Wm.reduce((a, b) => a + b, 0) / n;
+  let cov = 0, vL = 0, vW = 0;
+  for (let i = 0; i < n; i++) {
+    const dl = L[i] - mL, dw = Wm[i] - mW;
+    cov += dl * dw; vL += dl * dl; vW += dw * dw;
+  }
+  const corr = cov / Math.max(1e-9, Math.sqrt(vL * vW));
+
+  const r3 = v => +v.toFixed(3);
+  return {
+    밝은쪽따뜻함: r3(avg(bright, Wm)),
+    어두운쪽따뜻함: r3(avg(dark, Wm)),
+    따뜻함폭: r3(avg(bright, Wm) - avg(dark, Wm)),
+    밝은쪽채도: r3(avg(bright, S)),
+    어두운쪽채도: r3(avg(dark, S)),
+    밝기따뜻함상관: r3(corr),
+  };
+}
+
+
+/**
+ * **고도각에 따른 따뜻함 프로파일.**
+ *
+ * "태양이 지는 부분은 황금색이지만 높은 고도는 하늘색" — 이 말을 그대로
+ * 재는 자입니다. 화면을 가로 띠로 잘라 위(높은 고도)에서 아래(지평선)로
+ * 따뜻함(R-B)을 냅니다. 실제 하늘은 위로 갈수록 급격히 차가워집니다.
+ *
+ * 띠는 화면 세로를 그냥 n 등분합니다 — 화각과 시선 고도를 알면 각 띠의
+ * 고도각을 계산할 수 있으므로, 부르는 쪽에서 짝지어 읽으면 됩니다.
+ */
+function warmthProfile(data, W, H, opts) {
+  const bands = (opts && opts.bands) || 5;
+  const cropH = Math.max(2, Math.round(H * ((opts && opts.skyFrac) || 1)));
+  const out = [];
+  for (let b = 0; b < bands; b++) {
+    const y0 = Math.round(cropH * b / bands), y1 = Math.round(cropH * (b + 1) / bands);
+    let sw = 0, n = 0;
+    for (let y = y0; y < y1; y += 2) for (let x = 0; x < W; x += 2) {
+      const p = (y * W + x) * 4, R = data[p], G = data[p + 1], B = data[p + 2];
+      sw += (R - B) / Math.max(24, Math.max(R, Math.max(G, B)));
+      n++;
+    }
+    out.push(+(sw / Math.max(1, n)).toFixed(3));
+  }
+  return out;   // [0] = 화면 위 = 높은 고도
+}
+
 if (typeof module !== 'undefined' && module.exports)
-  module.exports = { skyStats, angularSpectrum, resampleTo, rgb2hsv, NORM_W };
+  module.exports = { skyStats, angularSpectrum, lightingStats, warmthProfile,
+                     resampleTo, rgb2hsv, NORM_W };

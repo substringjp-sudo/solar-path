@@ -523,10 +523,11 @@ export function skyRadiance(
   // 시선 고도가 높을수록 산란점이 높아 → 햇빛이 통과하는 대기가 얇아집니다.
   const t = clamp01(viewElevDeg / 70);
   const smooth = t * t * (3 - 2 * t);
-  const hFrac = SCATTER_HEIGHT_HORIZON + (SCATTER_HEIGHT_ZENITH - SCATTER_HEIGHT_HORIZON) * smooth;
+  const shZen = getTuning().scatterHeightZenith;
+  const hFrac = SCATTER_HEIGHT_HORIZON + (shZen - SCATTER_HEIGHT_HORIZON) * smooth;
   const mSun = airMass(sunAltForT) * Math.exp(-hFrac);
   // 다중산란은 하늘 전역에서 오므로 훨씬 약하게 감쇠시킵니다.
-  const mSunMS = Math.min(mSun, Math.max(MS_AIRMASS_CAP, mSun * MS_AIRMASS_FRACTION));
+  const mSunMS = Math.min(mSun, Math.max(getTuning().msAirmassCap, mSun * getTuning().msAirmassFrac));
 
   const tR = tauRayleighRGB(elevScaleHere);
   const tM = tauMieRGB(p.betaMie, p.angstrom, elevScaleHere);
@@ -1073,10 +1074,10 @@ const float TWILIGHT_END= ${f(TWILIGHT_END_DEG)};
 const vec3  NIGHT_SKY   = vec3(${f(NIGHT_SKY.r)}, ${f(NIGHT_SKY.g)}, ${f(NIGHT_SKY.b)});
 uniform float CLOUD_DIM_DESAT;
 uniform float CLOUD_DIM_FLOOR;
-const float MS_AM_CAP   = ${f(MS_AIRMASS_CAP)};
-const float MS_AM_FRAC  = ${f(MS_AIRMASS_FRACTION)};
+uniform float MS_AM_CAP;
+uniform float MS_AM_FRAC;
 const float SH_HORIZON  = ${f(SCATTER_HEIGHT_HORIZON)};
-const float SH_ZENITH   = ${f(SCATTER_HEIGHT_ZENITH)};
+uniform float SH_ZENITH;
 const float T_MIN_SUNALT= ${f(TRANSMITTANCE_MIN_SUN_ALT)};
 const float TW_TINT_H   = ${f(TWILIGHT_TINT_HORIZON)};
 const float TW_TINT_Z   = ${f(TWILIGHT_TINT_ZENITH)};
@@ -1405,6 +1406,9 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     AIR_WASH: { value: t.airWash },
     SLAB_FBM_GAIN: { value: t.fbmGain },
     SLAB_RELIEF_EPS: { value: t.reliefEps },
+    SH_ZENITH: { value: t.scatterHeightZenith },
+    MS_AM_FRAC: { value: t.msAirmassFrac },
+    MS_AM_CAP: { value: t.msAirmassCap },
     TW_SCALE_H: { value: t.twilightScaleKm },
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
@@ -1429,6 +1433,9 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('AIR_WASH', t.airWash);
   set('SLAB_FBM_GAIN', t.fbmGain);
   set('SLAB_RELIEF_EPS', t.reliefEps);
+  set('SH_ZENITH', t.scatterHeightZenith);
+  set('MS_AM_FRAC', t.msAirmassFrac);
+  set('MS_AM_CAP', t.msAirmassCap);
   set('TW_SCALE_H', t.twilightScaleKm);
   set('TW_MS_SCALE', t.twilightMsScaleKm);
   set('TW_TINT', t.twilightTint);

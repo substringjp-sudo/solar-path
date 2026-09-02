@@ -235,6 +235,17 @@ void main(){
   vec2 sunXZ = length(uSunDir.xz) > 1e-4 ? normalize(uSunDir.xz) : vec2(0.0, 1.0);
 
   // 층 주변광 — 그 층 고도에서 본 하늘
+  //
+  // ⚠ cosG(시선-태양 각)를 빼고 **하늘 전체 평균**으로 바꿔 봤다가
+  // 되돌렸습니다. 물리로는 그쪽이 옳습니다 — 구름을 비추는 하늘빛은 내가
+  // 어디서 보느냐로 바뀌지 않으니까요. 그런데 (1) 고치려던 문제(태양쪽
+  // 그늘까지 따뜻한 것)를 **못 고쳤고**, (2) verify-sunset-gap 이 일곱 개
+  // 깨졌습니다 — 세로기울기 0.667 → 0.948 로 천정이 지평선만큼 밝아지고
+  // 명암폭이 80 → 59 로 무너졌습니다. 사용자가 첫 번째로 꼽은
+  // "지평선쪽만 빛나면서"가 바로 그 지표입니다.
+  //
+  // 즉 이 시선 의존이 지금은 지평선 집중을 만드는 일을 겸하고 있습니다.
+  // 걷어 내려면 그 집중을 다른 곳에서 만들어 줘야 합니다(계획 22절).
   vec3 ambUp   = atm_skyRadiance(72.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
   vec3 ambDown = atm_skyRadiance(12.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
   vec3 ambBase = mix(ambDown, ambUp, 0.35);
