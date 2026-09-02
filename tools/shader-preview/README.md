@@ -664,3 +664,46 @@ node tools/shader-preview/verify-app-vs-harness.js      # 30개
 전환 직후 프레임도 함께 봅니다 — 앱은 프레임 시간을 보고 배율을 실시간으로
 바꾸므로(적응 해상도), 렌더 타깃을 다시 만드는 그 프레임이 검게 나오면
 화면이 깜빡입니다.
+
+## 실제 하늘 사진과의 격차 — `verify-photo-match.js`
+
+```bash
+node tools/photo-ref/fetch-sky-refs.js        # 위키미디어 공용에서 9장
+node tools/photo-ref/measure-photos.js        # 과녁 뽑기
+node tools/shader-preview/stage-esm.js
+node tools/shader-preview/build-photo-match.js
+node tools/shader-preview/verify-photo-match.js       # 20개
+
+# 눈으로 보는 쪽 (판정 없음)
+node tools/shader-preview/build-photo-compare.js      # 사진 | 현행 | 중립
+node tools/shader-preview/build-photo-sweep.js        # 손잡이 하나씩
+```
+
+"현실감이 없다"는 지적은 잣대가 없으면 취향 논쟁으로 끝납니다. 실제 하늘
+사진에서 뽑은 값이 과녁이고, 같은 조건의 렌더를 같은 함수로 재서 견줍니다.
+
+**지표 구현은 `tools/photo-ref/sky-stats.js` 한 파일입니다.** 렌더 습작 HTML
+에는 그 소스가 그대로 삽입되므로 사진 쪽과 렌더 쪽이 갈라질 수 없습니다.
+(같은 값을 두 군데 적어 뒀다가 낡은 상수 때문에 단언이 거짓으로 깨진 적이
+있습니다 — 그 병에 대한 처방입니다.)
+
+지표는 **분할을 안 합니다.** "구름 화소 / 하늘 화소"를 가르는 규칙은 맑은 날에
+되는 것이 흐린 날에 깨집니다. 전부 화면 전체에서 나옵니다.
+
+⚠ **크기를 맞춰야 합니다.** 국소대비는 화소 크기에 직접 좌우됩니다. 1280px
+사진과 300px 렌더를 그냥 비교하면 사진이 무조건 거칠게 나옵니다. 둘 다 폭
+320 으로 상자필터 축소한 뒤 잽니다.
+
+⚠ **렌더 기하를 사진에 맞춰야 합니다.** 첫 판에서 두 군데를 틀렸습니다.
+지평선은 화면 위에서부터 `(tan31 + tan(elev)) / (2·tan31)` 자리인데(화각 62°)
+자르는 값을 넉넉히 뒀더니 새까만 지면이 박명 "대비"를 부풀렸고, elev 28°·
+태양쪽 정면이라 **태양이 화면 안에** 걸려 사진과 공정하지 않았습니다.
+
+판정은 절대값이 아니라 **사진 대비 배율**로 씁니다 — 사진마다 노출·현상이
+달라 절대값을 박으면 사진을 바꿀 때마다 낡습니다.
+
+사진은 `.harness/photoref/` 로 갑니다(gitignore). 저장소에는 측정값과
+받아오는 스크립트만 남습니다 — 스크립트가 **제목을 정확히 박아** 두므로
+누가 돌려도 같은 사진을 받습니다. 검색으로 고르게 뒀더니 첫 판에서 비행기
+날개·건물·책 표지를 물어 왔고, 눈으로 확인하기 전에는 그게 하늘 통계인 줄
+알았을 것입니다.

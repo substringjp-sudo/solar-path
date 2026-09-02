@@ -28,26 +28,30 @@ const SUN_AZ = 268;
 // verify-photo-match 가 실패한 세 칸만 봅니다.
 // verify-photo-match 가 실패한 세 칸만 봅니다.
 // 기하는 build-photo-match.js 와 같습니다 — 지면을 자르고 태양을 화면 밖으로.
+// 실패한 두 칸 + 망가지면 안 되는 낮 두 칸을 같이 봅니다.
+// 한 장면만 보고 맞추다 다른 장면을 깬 적이 여러 번 있습니다(15·17절).
 const CASES = [
   { tag:'sunset',       sunAlt:  0, dAz: 45, elev: 28, sky:0.94,
     w:{ low:18, mid:56, high:34, hum:64, vis:24000 } },
-  { tag:'twilight',     sunAlt: -6, dAz:  0, elev: 22, sky:0.83,
-    w:{ low:12, mid:34, high:40, hum:66, vis:26000 } },
   { tag:'day-overcast', sunAlt: 40, dAz: 90, elev: 30, sky:0.97,
     w:{ low:92, mid:88, high:70, hum:92, vis: 9000 } },
+  { tag:'day-cumulus',  sunAlt: 40, dAz: 90, elev: 35, sky:1.00,
+    w:{ low:34, mid:16, high:12, hum:55, vis:32000 } },
+  { tag:'twilight',     sunAlt: -6, dAz:  0, elev: 22, sky:0.83,
+    w:{ low:12, mid:34, high:40, hum:66, vis:26000 } },
 ];
 // 손잡이를 하나씩만 움직입니다 — 둘을 같이 바꾸면 어느 쪽이 먹었는지 못 가립니다.
 // 손잡이를 하나씩만 움직입니다 — 둘을 같이 바꾸면 어느 쪽이 먹었는지 못 가립니다.
 // 표시 변환(위)과 물리 쪽(아래)을 나눠 봅니다.
+// 표시 변환은 이미 중립으로 내렸습니다(계획 20절). 이제 남은 격차 —
+// 복사휘도 모델의 탈색 부족 — 을 AIR_WASH 로 훑습니다.
 const KNOBS = [
-  { name:'현행',            patch:{} },
-  { name:'DISP_SAT 1.00',   patch:{ displaySaturation: 1.00 } },
-  { name:'DISP_CONTR 1.00', patch:{ displayContrast: 1.00 } },
-  { name:'둘 다 중립',       patch:{ displaySaturation: 1.00, displayContrast: 1.00 } },
-  { name:'하늘노출 14',      patch:{ skyExposure: 14 } },
-  { name:'하늘노출 34',      patch:{ skyExposure: 34 } },
-  { name:'오존박명 0.05',    patch:{ ozoneTwilightGain: 0.05 } },
-  { name:'구름밑탈색 0.4',   patch:{ cloudDimDesat: 0.40 } },
+  { name:'AIR_WASH 0 (현행)', patch:{ airWash: 0.0 } },
+  { name:'AIR_WASH 0.15',    patch:{ airWash: 0.15 } },
+  { name:'AIR_WASH 0.30',    patch:{ airWash: 0.30 } },
+  { name:'AIR_WASH 0.45',    patch:{ airWash: 0.45 } },
+  { name:'AIR_WASH 0.60',    patch:{ airWash: 0.60 } },
+  { name:'AIR_WASH 0.80',    patch:{ airWash: 0.80 } },
 ];
 
 const html = `<!doctype html>

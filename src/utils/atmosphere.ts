@@ -90,9 +90,13 @@ export const DISPLAY_EXPOSURE = 0.62;
 export const ADAPT_MAX = 16.0;
 export const ADAPT_START_ALT = 6.0;
 export const ADAPT_END_ALT = -14.0;
-export const DISPLAY_SATURATION = 1.22;
-/** 하단 대비 S커브 강도 — 어두운 쪽을 살짝 눌러 탁함을 걷어냅니다 */
-export const DISPLAY_CONTRAST = 1.06;
+
+// 표시 채도·대비는 skyTuning.ts 가 유일한 출처입니다.
+//
+// 여기에도 `export const DISPLAY_SATURATION = 1.22` 가 있었는데, 아무도
+// import 하지 않는 죽은 상수였습니다. 실제로 화면에 나가는 값은
+// DEFAULT_TUNING 의 같은 이름 필드였고, 둘이 조용히 어긋날 수 있었습니다.
+// 같은 값을 두 곳에 적어 두지 않습니다.
 
 /**
  * 박명 시 오존층 접선 통과 배율.
@@ -640,6 +644,7 @@ export function skyRadiance(
   const warmScale = lumThickMS / Math.max(1e-12, lumThick);
 
   const out: number[] = [];
+  const tauViewTotal = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
     const tauZenith = tR[c] + tM[c];
 
@@ -681,6 +686,17 @@ export function skyRadiance(
     // 그늘에 들어갔다고 사라지지 않습니다. 이게 박명의 긴 꼬리입니다.
     // (파일 위쪽에서 mSun/mSunMS를 나눈 것과 같은 이유입니다.)
     out.push((single * sunLit + multi * sunLitMS) * getTuning().skyExposure);
+    tauViewTotal[c] = tauViewScat + tauViewAbs;
+  }
+
+  // 두꺼운 시선 경로에서 색이 씻깁니다 — ATMOSPHERE_GLSL 의 atm_pathWash 와
+  // **같은 식이어야 합니다.** 여기가 갈라지면 하늘돔과 구름 조명색이 어긋납니다.
+  {
+    const LW = [0.2126, 0.7152, 0.0722];
+    const tau = LW[0] * tauViewTotal[0] + LW[1] * tauViewTotal[1] + LW[2] * tauViewTotal[2];
+    const wash = (1 - Math.exp(-tau * 0.35)) * getTuning().airWash;
+    const luma = LW[0] * out[0] + LW[1] * out[1] + LW[2] * out[2];
+    for (let c = 0; c < 3; c++) out[c] += (luma - out[c]) * wash;
   }
 
   // 지평선 아래로 갈수록 지면 쪽이므로 어둡게 깔아줍니다.
@@ -1078,6 +1094,7 @@ uniform float ADAPT_HI;
 uniform float ADAPT_LO;
 uniform float DISP_SAT;
 uniform float DISP_CONTR;
+uniform float AIR_WASH;
 const vec3  GROUND_DARK = vec3(${f(GROUND_DARKEN.r)}, ${f(GROUND_DARKEN.g)}, ${f(GROUND_DARKEN.b)});
 const float GROUND_FADE = ${f(GROUND_FADE_DEG)};
 const float PI_         = 3.14159265359;
@@ -1138,6 +1155,30 @@ vec2 atm_ozoneAirMass(float altDeg, float trueSunAlt) {
   return vec2(base * tw, base * (1.0 + (tw - 1.0) * OZ_TW_MSFRAC));
 }
 
+
+/**
+ * **두꺼운 시선 경로에서 색이 씻기는 것** — 단일산란 근사의 보정입니다.
+ *
+ * 우리 식은 airlight 를 "한 번 산란된 햇빛"으로 칩니다. 그래서 광로가
+ * 길어져도 색은 태양 투과색 그대로 짙게 남습니다. 실제로는 광로가 길수록
+ * 광자가 **여러 번** 산란되고, 산란마다 파장이 섞여 emergent radiance 가
+ * 중성 쪽으로 끌려갑니다. 지평선 근처 하늘이 늘 뿌연 이유입니다.
+ *
+ * 실제 하늘 사진 9장에서 **예외 없이** 아래쪽 채도가 위쪽보다 낮았는데
+ * (0.25~0.97배), 우리 노을은 1.36배로 **거꾸로** 였습니다 (계획 20절).
+ *
+ * 휘도는 그대로 두고 색만 중성으로 끕니다 — vec3(luma) 로 섞으면 휘도가
+ * 정확히 보존되므로, 애써 맞춰 둔 박명 밝기 곡선을 건드리지 않습니다.
+ *
+ * K = 0.35 는 모양만 정합니다: 맑은 날 천정(τ≈0.1)에서 3%, 지평선(τ≈5)에서
+ * 83% 가 되도록. 세기는 AIR_WASH 로 조절합니다.
+ */
+vec3 atm_pathWash(vec3 col, vec3 tauView) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  float tau = dot(LW, tauView);
+  float wash = (1.0 - exp(-tau * 0.35)) * AIR_WASH;
+  return mix(col, vec3(dot(LW, col)), wash);
+}
 
 /**
  * 시선 방향의 하늘 복사휘도.
@@ -1212,6 +1253,9 @@ vec3 atm_skyRadiance(
 
   // 지구 그림자를 두 성분에 다르게 적용 — TS skyRadiance와 같아야 합니다.
   vec3 col = (single * sunLit + multi * sunLitMS) * SKY_EXPOSURE;
+
+  // 두꺼운 시선 경로에서 색이 씻깁니다 — TS skyRadiance 와 같은 식이어야 합니다.
+  col = atm_pathWash(col, tauViewScat + tauViewAbs);
 
   // 지평선 아래는 지면 쪽 — 어둡고 채도 낮게 깔아 형광 벽이 되지 않게 합니다.
   float below = smoothstep(0.0, -GROUND_FADE, viewElevDeg);
@@ -1338,6 +1382,7 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     ADAPT_LO: { value: t.adaptEndAlt },
     DISP_SAT: { value: t.displaySaturation },
     DISP_CONTR: { value: t.displayContrast },
+    AIR_WASH: { value: t.airWash },
     TW_SCALE_H: { value: t.twilightScaleKm },
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
@@ -1359,6 +1404,7 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('ADAPT_LO', t.adaptEndAlt);
   set('DISP_SAT', t.displaySaturation);
   set('DISP_CONTR', t.displayContrast);
+  set('AIR_WASH', t.airWash);
   set('TW_SCALE_H', t.twilightScaleKm);
   set('TW_MS_SCALE', t.twilightMsScaleKm);
   set('TW_TINT', t.twilightTint);
