@@ -1370,7 +1370,12 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   // 그대로 남습니다.
   float l0 = dot(c, LW);
   float l1 = clamp((l0 - 0.5) * DISP_CONTR + 0.5, 0.0, 1.0);
-  c = clamp(c * (l1 / max(1e-4, l0)), 0.0, 1.0);
+  // 배율이 채널을 천장 위로 밀면 그 채널만 잘려 색이 밀립니다 — 방금 없앤
+  // 것과 같은 종류의 결함입니다. 밝은 화소에서는 배율을 천장에 맞춰 깎아
+  // 잘림 자체를 만들지 않습니다(하이라이트 롤오프).
+  float maxc = max(c.r, max(c.g, c.b));
+  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
+  c = clamp(c * k, 0.0, 1.0);
   return atm_toSrgb(c);
 }
 `;
