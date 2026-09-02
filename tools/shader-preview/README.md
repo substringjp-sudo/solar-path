@@ -582,6 +582,12 @@ node tools/shader-preview/verify-sunset-gap.js       # 11개
 기준선은 PR #14 슬랩(`CloudSlabPrev.ts`)을 같은 페이지에 같이 그려 둔
 값입니다 — 절대 숫자가 아니라 **그 그림과의 거리**로 봅니다.
 
+⚠ **볼륨 스텝 수는 두 지표를 반대로 움직입니다.** 3스텝이 명암폭은 12%
+높지만(95.8 → 107.8) 세로기울기를 0.667 → 0.846 으로 크게 망칩니다. 앱은
+1스텝을 씁니다 — 사용자가 첫 번째로 꼽은 "지평선쪽만 빛나면서"를 직접
+재는 것이 세로기울기이기 때문입니다. 이 습작의 판정도 명암폭이 아니라
+세로기울기로 씁니다.
+
 ⚠ `readPixels` 는 **아래가 y=0** 입니다. 이 습작의 첫 판에서 "하늘"이라고
 쓴 영역이 지면을 포함하고 상단 하늘을 빼는 바람에 세로기울기가 거꾸로
 나왔습니다. 새 지표를 만들 때는 **먼저 뒤집힌 값이 나오는지** 확인하는 게
@@ -625,7 +631,7 @@ node tools/shader-preview/shoot.js allsky-matrix.html allsky.png 55
 node tools/shader-preview/stage-esm.js
 node tools/shader-preview/build-app-vs-harness.js
 node tools/shader-preview/shoot.js app-vs-harness.html app-vs-harness.png 90
-node tools/shader-preview/verify-app-vs-harness.js      # 26개
+node tools/shader-preview/verify-app-vs-harness.js      # 30개
 ```
 
 **하네스는 원해상도로 곧장 그리고, 앱은 그렇지 않습니다.** 앱은 하늘·구름을
@@ -637,10 +643,17 @@ node tools/shader-preview/verify-app-vs-harness.js      # 26개
 
 | | 세부 (하네스 대비) | 렌더 비용 |
 |---|---|---|
-| 배율 2 · 이중선형 (예전) | 70~71% | 0.35배 |
-| 배율 2 · Catmull-Rom | 77~81% | 0.35배 |
+| 배율 2 · 이중선형 | 65~68% | 0.35배 |
+| 배율 2 · Catmull-Rom (현행) | 75~80% | 0.35배 |
 | 배율 1.5 | 84~87% | 0.53배 |
 | 배율 1 | 98~100% | 0.97배 |
+
+⚠ **이 표의 숫자를 단언에 박지 마세요.** 셰이더의 주파수 성분이 바뀌면
+같이 움직입니다 — 경사 광로(19절)를 넣자 태양 -3° 칸이 78% → 75% 로
+내려갔고, 그건 회귀가 아닙니다. 그래서 이 습작은 배율 2를 **두 번** 찍어
+카트멀롬과 이중선형을 같은 프레임에서 견줍니다(합성기의
+`setReconstruct('bilinear')`). 지켜야 하는 것은 "재구성 필터가 아직
+카트멀롬인가" 하나이고, 그 이득은 어느 고도에서나 **+13~14%** 로 안정적입니다.
 
 ⚠ 이 시간은 **swiftshader(CPU 래스터라이저)** 값입니다. 실기기 GPU 의 절대
 시간이 아니라 **배율 사이의 상대비**로만 읽으세요.

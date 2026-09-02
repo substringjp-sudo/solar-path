@@ -112,7 +112,9 @@ void main() {
  * 잘라 내보냅니다.
  */
 const CATMULL_GLSL = `
+uniform float uCatmull;   // 0 이면 이중선형 — 하네스가 기준선을 재는 스위치
 vec4 catmullRom(sampler2D tex, vec2 uv, vec2 texSize){
+  if (uCatmull < 0.5) return max(vec4(0.0), texture2D(tex, uv));
   vec2 samplePos = uv * texSize;
   vec2 texPos1 = floor(samplePos - 0.5) + 0.5;
   vec2 f = samplePos - texPos1;
@@ -481,6 +483,15 @@ export interface SceneComposerHandle {
   setDither: (amount: number) => void;
   getDither: () => number;
   /**
+   * 저해상도 버퍼를 원해상도로 되돌릴 때 쓰는 재구성 필터.
+   *
+   * 앱은 늘 'catmull' 입니다 — 이 스위치는 하네스가 **기준선을 재기 위해**
+   * 씁니다. "카트멀롬이 이중선형보다 세부를 몇 % 더 살리는가"를 상수로
+   * 적어 두면 셰이더를 손볼 때마다 그 상수가 낡습니다. 두 경로를 같은
+   * 프레임에서 나란히 재면 낡을 일이 없습니다.
+   */
+  setReconstruct: (mode: 'catmull' | 'bilinear') => void;
+  /**
    * 검증용 — 마지막 프레임에 실제로 들어간 광선 세기. 고도·화면 밖 감쇠가
    * 모두 곱해진 뒤의 값이라, 밤에 0인지 같은 것을 이걸로 잽니다.
    */
@@ -558,6 +569,7 @@ export function createSceneComposer(
     uniforms: {
       uTex: { value: null as THREE.Texture | null },
       uTexSize: { value: new THREE.Vector2(1, 1) },
+      uCatmull: { value: 1 },
       uDither: { value: dither },
     },
     vertexShader: BLIT_VERT,
@@ -570,6 +582,7 @@ export function createSceneComposer(
     uniforms: {
       uTex: { value: null as THREE.Texture | null },
       uTexSize: { value: new THREE.Vector2(1, 1) },
+      uCatmull: { value: 1 },
     },
     vertexShader: BLIT_VERT,
     fragmentShader: BLIT_FRAG,
@@ -895,6 +908,11 @@ export function createSceneComposer(
       dither = Math.max(0, amount);
     },
     getDither: () => dither,
+    setReconstruct: (mode: 'catmull' | 'bilinear') => {
+      const v = mode === 'bilinear' ? 0 : 1;
+      opaqueMat.uniforms.uCatmull.value = v;
+      overMat.uniforms.uCatmull.value = v;
+    },
     lastRayGain: () => rayGain,
     dispose: () => {
       rtSky.dispose();

@@ -24,6 +24,7 @@ const path = require('path');
 const { PREVIEW } = require('./paths');
 
 const TW = 300, TH = 300;
+const CASE_COUNT = 5;   // 아래 CASES 와 같아야 합니다 — 캔버스 폭을 정합니다.
 const FOV_DEG = 62;
 const VIEW_AZ = 262, VIEW_ELEV = 14, SUN_AZ = 268;
 const SUNS = [25, 2, 0, -3];
@@ -31,7 +32,7 @@ const SUNS = [25, 2, 0, -3];
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
  body{margin:0;background:#0b0f15;font-family:sans-serif;color:#dde}
- #wrap{position:relative;width:${TW * 4 + 24}px;padding:12px}
+ #wrap{position:relative;width:${TW * CASE_COUNT + 24}px;padding:12px}
  .lbl{position:absolute;color:#fff;font-size:11px;font-family:monospace;
    pointer-events:none;line-height:1.4;background:rgba(6,10,16,.78);
    padding:4px 7px;border-radius:4px}
@@ -39,7 +40,7 @@ const html = `<!doctype html>
  .sub{font-size:11px;color:#8aa;margin:0 0 8px}
 </style></head><body>
 <div id="wrap">
-<h3>하네스 그림 → 앱 그림. 가로: 원해상도 / 배율2(현행) / 배율1.5 / 배율1</h3>
+<h3>하네스 그림 → 앱 그림. 가로: 원해상도 / 배율2(현행) / 배율2 이중선형 / 배율1.5 / 배율1</h3>
 <p class="sub">세로: 태양 +25° / +2° / 0° / -3°. 배율 외 조건은 전부 앱과 같습니다(블룸·박명광선·디더 켜짐).</p>
 <canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
@@ -61,11 +62,12 @@ const oe = console.error;
 console.error = (...a) => { errors.push(a.join(' ')); oe(...a); };
 
 const TW=${TW}, TH=${TH}, FOV_DEG=${FOV_DEG};
+const CASE_COUNT=${CASE_COUNT};
 const VIEW_AZ=${VIEW_AZ}, VIEW_ELEV=${VIEW_ELEV}, SUN_AZ=${SUN_AZ};
 const SUNS=${JSON.stringify(SUNS)};
 
 const canvas = document.getElementById('c');
-canvas.width = TW*4; canvas.height = TH*SUNS.length;
+canvas.width = TW*CASE_COUNT; canvas.height = TH*SUNS.length;
 const ctx2d = canvas.getContext('2d');
 const glCanvas = document.createElement('canvas');
 glCanvas.width = TW; glCanvas.height = TH;
@@ -197,8 +199,9 @@ function shootDirect(sunAlt){
   return grab();
 }
 /** 앱 경로 — 합성기를 통과. bloom/rays 를 꺼서 단계를 가릅니다. */
-function shootComposed(sunAlt, scale, bloom, rays){
+function shootComposed(sunAlt, scale, bloom, rays, filt){
   const { dir, common } = setupSun(sunAlt);
+  composer.setReconstruct(filt || 'catmull');
   composer.setSoftScale(scale);
   composer.setBloom({ strength: bloom });
   composer.setGodRays({ strength: rays });
@@ -221,22 +224,26 @@ function paint(buf,x,y){
 const 결과=[];
 // 블룸·박명광선·디더가 거의 무해하다는 것은 이미 쟀습니다(세부 1.700 대
 // 1.719). 이제 남은 유일한 레버 — **해상도 배율**을 훑습니다.
+// 배율 2 는 **두 번** 찍습니다 — 현행 카트멀롬과 이중선형. 재구성 필터가
+// 세부를 얼마나 살리는지는 셰이더가 바뀔 때마다 움직이는 값이라, 상수로
+// 적어 두는 대신 같은 프레임에서 나란히 잽니다.
 const CASES=[
-  ['하네스(원해상도)', 'direct', 2,   0, 0],
-  ['앱 배율 2 (현행)', 'comp',   2,   0.5, 0.35],
-  ['배율 1.5',         'comp',   1.5, 0.5, 0.35],
-  ['배율 1 (합성만)',  'comp',   1,   0.5, 0.35],
+  ['하네스(원해상도)', 'direct', 2,   0, 0,    'catmull'],
+  ['앱 배율 2 (현행)', 'comp',   2,   0.5, 0.35, 'catmull'],
+  ['배율 2 이중선형',  'comp',   2,   0.5, 0.35, 'bilinear'],
+  ['배율 1.5',         'comp',   1.5, 0.5, 0.35, 'catmull'],
+  ['배율 1 (합성만)',  'comp',   1,   0.5, 0.35, 'catmull'],
 ];
 SUNS.forEach((sunAlt, si)=>{
-  CASES.forEach(([tag, mode, sc, bl, ry], ci)=>{
-    const buf = mode==='direct' ? shootDirect(sunAlt) : shootComposed(sunAlt, sc, bl, ry);
+  CASES.forEach(([tag, mode, sc, bl, ry, filt], ci)=>{
+    const buf = mode==='direct' ? shootDirect(sunAlt) : shootComposed(sunAlt, sc, bl, ry, filt);
     paint(buf, ci*TW, si*TH);
     // 프래그먼트 비용의 대용 — swiftshader 는 CPU 래스터라이저라 벽시계
     // 시간이 화소 수에 거의 비례합니다. 실기기 GPU 의 절대값은 아니지만
     // **배율 사이의 상대비**는 이걸로 봅니다.
     let t0=performance.now();
     for(let k=0;k<6;k++){
-      if(mode==='direct') shootDirect(sunAlt); else shootComposed(sunAlt, sc, bl, ry);
+      if(mode==='direct') shootDirect(sunAlt); else shootComposed(sunAlt, sc, bl, ry, filt);
     }
     const ms=+((performance.now()-t0)/6).toFixed(1);
     const row={ 태양고도:sunAlt, 조건:tag, 평균휘도:meanLum(buf), 명암폭:contrast(buf),

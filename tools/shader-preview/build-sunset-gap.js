@@ -36,7 +36,7 @@ const html = `<!doctype html>
 </style></head><body>
 <div id="wrap">
 <h3>노을 색이 어디서 사라졌나 — 장면은 build-cloud-slab 과 동일</h3>
-<p class="sub">가로: PR #14 / 수정 후(기본값) / 3스텝 되살림 / 산란 0 / 대기원근 0</p>
+<p class="sub">가로: PR #14 / 수정 후(기본 1스텝) / 3스텝 / 산란 0 / 대기원근 0</p>
 <canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
 import * as THREE from './app/vendor/three.module.js';
@@ -267,7 +267,7 @@ const 결과=[];
 const CASES=[
   ['PR #14',        'prev', 1, 1, 3],
   ['수정 후(기본)', 'cur',  1, 1, 1],
-  ['3스텝 되살림',  'cur',  1, 1, 3],
+  ['3스텝',         'cur',  1, 1, 3],
   ['산란 0',        'cur',  1, 0, 1],
   ['대기원근 0',    'cur',  0, 1, 1],
 ];
