@@ -88,6 +88,8 @@ float slab_vnoise(vec2 p){
   return mix(mix(slab_hash21(i), slab_hash21(i+vec2(1.0,0.0)), f.x),
              mix(slab_hash21(i+vec2(0.0,1.0)), slab_hash21(i+vec2(1.0,1.0)), f.x), f.y);
 }
+uniform float SLAB_FBM_GAIN;
+uniform float SLAB_RELIEF_EPS;
 float slab_fbm(vec2 p, int oct){
   float s = 0.0, a = 0.5, n = 0.0;
   for (int i = 0; i < 6; i++){
@@ -95,7 +97,7 @@ float slab_fbm(vec2 p, int oct){
     s += a * slab_vnoise(p); n += a;
     // 옥타브마다 접습니다. 안 접으면 5옥타브에서 좌표가 10만을 넘어
     // fract 해상도가 셀당 128단계까지 떨어집니다.
-    p = mod(p*2.03 + 7.1, SLAB_LATTICE); a *= 0.5;
+    p = mod(p*2.03 + 7.1, SLAB_LATTICE); a *= SLAB_FBM_GAIN;
   }
   return s / max(1e-5, n);
 }
@@ -362,7 +364,7 @@ void main(){
       if (thick <= 0.0) continue;
 
       // ── 3D 입체 릴리프 음영 ──
-      float eps = cellKm * 0.08;
+      float eps = cellKm * SLAB_RELIEF_EPS;
       float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
       float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
       float dhdx = (tX - thick) / eps;

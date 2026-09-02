@@ -1403,6 +1403,8 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     DISP_SAT: { value: t.displaySaturation },
     DISP_CONTR: { value: t.displayContrast },
     AIR_WASH: { value: t.airWash },
+    SLAB_FBM_GAIN: { value: t.fbmGain },
+    SLAB_RELIEF_EPS: { value: t.reliefEps },
     TW_SCALE_H: { value: t.twilightScaleKm },
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
@@ -1425,6 +1427,8 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('DISP_SAT', t.displaySaturation);
   set('DISP_CONTR', t.displayContrast);
   set('AIR_WASH', t.airWash);
+  set('SLAB_FBM_GAIN', t.fbmGain);
+  set('SLAB_RELIEF_EPS', t.reliefEps);
   set('TW_SCALE_H', t.twilightScaleKm);
   set('TW_MS_SCALE', t.twilightMsScaleKm);
   set('TW_TINT', t.twilightTint);

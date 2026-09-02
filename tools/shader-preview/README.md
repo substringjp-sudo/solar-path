@@ -707,3 +707,32 @@ node tools/shader-preview/build-photo-sweep.js        # 손잡이 하나씩
 누가 돌려도 같은 사진을 받습니다. 검색으로 고르게 뒀더니 첫 판에서 비행기
 날개·건물·책 표지를 물어 왔고, 눈으로 확인하기 전에는 그게 하늘 통계인 줄
 알았을 것입니다.
+
+### 구름 크기·모양 — `angularSpectrum`
+
+`verify-photo-match` 는 색뿐 아니라 **구름 크기와 모양**도 봅니다.
+
+```bash
+node tools/photo-ref/harvest-candidates.js   # 화각 있는 후보 모으기
+node tools/photo-ref/screen-candidates.js    # 자동 선별 + 접촉인화
+#   → .harness/photoref/sheet-*.png 을 **눈으로 확인하세요**
+node tools/photo-ref/measure-photos.js
+node tools/photo-ref/exif-fov.js             # 화각 확인용
+```
+
+⚠ **화각을 모르는 사진은 쓰면 안 됩니다.** 구름 크기는 화소가 아니라 각도라,
+같은 적운도 렌즈에 따라 크기가 달라집니다. 첫 표본에 300mm(화각 6.9°)로 찍은
+사진이 있었고, 우리 렌더(62°)와 화소로 견줬다면 9배 어긋난 채 판정했을
+것입니다. EXIF 의 FocalLengthIn35mmFilm 이 있는 것만 씁니다 — 위키미디어
+**썸네일은 EXIF 를 지우므로** 화각은 API metadata 에서 받습니다.
+
+⚠ **조건 라벨(검색어·분류)을 믿지 마세요.** "흐린 하늘"로 받은 43장이 대부분
+노을이었습니다. 큐레이션된 `Category:Overcast` 도 마찬가지였습니다. 그래서
+구조 판정은 조건별 과녁을 안 쓰고 **사진 129장 전체 분포**를 씁니다 — 다행히
+구조 지표는 조건과 거의 무관합니다(조건별 β 중앙값 2.6~3.17).
+
+⚠ **접촉인화를 꼭 보세요.** 자동 선별만으로는 비행기 날개·건물·책 표지가
+통과합니다. `sheet-<조건>.png` 가 **자른 뒤**의 그림이라, 실제로 재는 화면을
+그대로 봅니다.
+
+지표 검산: 20° 조각에 정확히 10주기를 넣으면 구름각크기 2.00° 가 나옵니다.

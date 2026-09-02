@@ -22,7 +22,7 @@ const STATS_SRC = fs.readFileSync(
   path.join(__dirname, '../photo-ref/sky-stats.js'), 'utf8')
   .replace(/if \(typeof module[\s\S]*$/, '');
 
-const TW = 220, TH = 220;
+const TW = 240, TH = 240;
 const SUN_AZ = 268;
 
 // verify-photo-match 가 실패한 세 칸만 봅니다.
@@ -30,15 +30,22 @@ const SUN_AZ = 268;
 // 기하는 build-photo-match.js 와 같습니다 — 지면을 자르고 태양을 화면 밖으로.
 // 실패한 두 칸 + 망가지면 안 되는 낮 두 칸을 같이 봅니다.
 // 한 장면만 보고 맞추다 다른 장면을 깬 적이 여러 번 있습니다(15·17절).
+// 일곱 조건 전부 — 한 장면만 보고 맞추다 다른 장면을 깬 적이 여러 번입니다.
 const CASES = [
-  { tag:'sunset',       sunAlt:  0, dAz: 45, elev: 28, sky:0.94,
-    w:{ low:18, mid:56, high:34, hum:64, vis:24000 } },
-  { tag:'day-overcast', sunAlt: 40, dAz: 90, elev: 30, sky:0.97,
-    w:{ low:92, mid:88, high:70, hum:92, vis: 9000 } },
   { tag:'day-cumulus',  sunAlt: 40, dAz: 90, elev: 35, sky:1.00,
     w:{ low:34, mid:16, high:12, hum:55, vis:32000 } },
+  { tag:'day-cirrus',   sunAlt: 40, dAz: 90, elev: 35, sky:1.00,
+    w:{ low: 4, mid: 8, high:62, hum:48, vis:35000 } },
+  { tag:'day-zenith',   sunAlt: 30, dAz:  0, elev: 72, sky:1.00,
+    w:{ low: 8, mid:52, high:38, hum:58, vis:28000 } },
+  { tag:'day-overcast', sunAlt: 40, dAz: 90, elev: 30, sky:0.97,
+    w:{ low:92, mid:88, high:70, hum:92, vis: 9000 } },
+  { tag:'sunset',       sunAlt:  0, dAz: 45, elev: 28, sky:0.94,
+    w:{ low:18, mid:56, high:34, hum:64, vis:24000 } },
   { tag:'twilight',     sunAlt: -6, dAz:  0, elev: 22, sky:0.83,
     w:{ low:12, mid:34, high:40, hum:66, vis:26000 } },
+  { tag:'night',        sunAlt:-30, dAz:  0, elev: 35, sky:1.00,
+    w:{ low:16, mid:38, high:30, hum:70, vis:22000 } },
 ];
 // 손잡이를 하나씩만 움직입니다 — 둘을 같이 바꾸면 어느 쪽이 먹었는지 못 가립니다.
 // 손잡이를 하나씩만 움직입니다 — 둘을 같이 바꾸면 어느 쪽이 먹었는지 못 가립니다.
@@ -49,13 +56,18 @@ const CASES = [
 // 깊은 황혼에 저층이 안 꺼지고(6/255 문턱에 37.7) 노을 명암폭이 90 → 80.3 으로
 // 떨어져, 사용자가 처음에 꼽은 "지평선쪽만 빛나면서"를 깎았습니다.
 // 그래서 색은 **채도 쪽만으로** 잡아야 합니다. 얼마나 내려야 하는지 훑습니다.
+// fbm 의 옥타브당 진폭 감쇠. β = 2*log2(1/a) 이므로
+//   0.50 → β 2.0 (현행, 흐린 하늘 실측 2.03 과 일치)
+//   0.42 → β 2.5
+//   0.35 → β 3.0   ← 사진 중앙값 2.6~3.5 의 한가운데
+//   0.30 → β 3.5
+// 릴리프 유한차분 간격. 작으면 잔무늬의 미분(≈백색잡음)에 음영이 붙고,
+// 크면 구름 덩어리의 모양에 붙습니다.
 const KNOBS = [
-  { name:'SAT 1.22 (원래)', patch:{ displaySaturation: 1.22 } },
-  { name:'SAT 1.00',       patch:{ displaySaturation: 1.00 } },
-  { name:'SAT 0.90',       patch:{ displaySaturation: 0.90 } },
-  { name:'SAT 0.80',       patch:{ displaySaturation: 0.80 } },
-  { name:'SAT 0.70',       patch:{ displaySaturation: 0.70 } },
-  { name:'SAT 0.60',       patch:{ displaySaturation: 0.60 } },
+  { name:'eps 0.08 (현행)', patch:{ reliefEps: 0.08 } },
+  { name:'eps 0.12',       patch:{ reliefEps: 0.12 } },
+  { name:'eps 0.16',       patch:{ reliefEps: 0.16 } },
+  { name:'eps 0.20',       patch:{ reliefEps: 0.20 } },
 ];
 
 const html = `<!doctype html>
@@ -172,11 +184,12 @@ CASES.forEach((c,ci)=>{
     resetTuning(); setTuning(k.patch);
     const top = shoot(c);
     const s = skyStats(top, TW, TH, { skyFrac: c.sky });
-    결과.push({ tag:c.tag, knob:k.name, ...s });
+    const sp = angularSpectrum(top, TW, TH, { skyFrac:c.sky, fovDeg:62 }) || {};
+    결과.push({ tag:c.tag, knob:k.name, ...s, ...sp });
     paint(top, ki*TW, ci*TH);
     const d=document.createElement('div');
     d.className='lbl'; d.style.left=(ki*TW+8)+'px'; d.style.top=(ci*TH+36)+'px';
-    d.innerHTML=k.name+'<br>채도 '+s.채도+'<br>원색 '+s.원색+'<br>국소 '+s.국소대비;
+    d.innerHTML=k.name+'<br>국소 '+s.국소대비+'<br>크기 '+sp.구름각크기+'°<br>β '+sp.무늬기울기;
     labels.appendChild(d);
   });
 });

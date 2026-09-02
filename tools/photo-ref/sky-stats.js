@@ -152,5 +152,144 @@ function skyStats(data, W, H, opts) {
   };
 }
 
+
+
+// ── 구름 크기와 모양 — 각도 기준 파워 스펙트럼 ──────────────────────────
+//
+// 지금까지 잰 것은 전부 **색**이었습니다. "구름크기·구름모양이 비슷한가"는
+// 다른 자가 필요합니다.
+//
+// 핵심은 **화소가 아니라 각도**로 재는 것입니다. 같은 적운도 광각으로 찍으면
+// 작게, 망원으로 찍으면 크게 찍힙니다. 실제로 첫 표본에 300mm(화각 6.9°)로
+// 찍은 박명 사진이 있었는데, 우리 렌더(62°)와 화소로 견줬다면 구름 크기가
+// 9배 어긋난 채로 "맞다/틀리다"를 말했을 것입니다.
+//
+// 두 가지를 냅니다:
+//   구름각크기 — 파워의 절반이 실리는 파장(도). "얼마나 큰가".
+//   무늬기울기 — log-log 스펙트럼 기울기 β. "얼마나 거친가/부드러운가".
+//                β 가 크면 큰 덩어리 위주(부드러움), 작으면 잔무늬가 많음.
+
+/** 제자리 복소 FFT (radix-2). N 은 2의 거듭제곱. */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k], ui = im[i + k];
+        const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+
+const SPEC_N = 256;   // 스펙트럼용 정사각 표본 크기
+
+/**
+ * @param opts.fovDeg  사진/렌더의 **가로** 화각. 없으면 각도 지표를 안 냅니다.
+ * @param opts.skyFrac 위에서부터 하늘인 비율
+ */
+function angularSpectrum(data, W, H, opts) {
+  const fovDeg = opts && opts.fovDeg;
+  if (!fovDeg) return null;
+  const cropH = Math.max(2, Math.round(H * (opts.skyFrac || 1)));
+  const S = Math.min(W, cropH);
+  if (S < 64) return null;
+
+  // 정사각 조각이 하늘에서 몇 도를 덮는가 — 원근투영이라 화각/폭 로 나누면
+  // 넓은 화각에서 틀립니다. 초점거리(화소)로 되돌려 정확히 구합니다.
+  const focalPx = (W / 2) / Math.tan(fovDeg * Math.PI / 360);
+  const angW = 2 * Math.atan((S / 2) / focalPx) * 180 / Math.PI;
+
+  // 위쪽 가운데에서 정사각을 떼어 SPEC_N 으로 상자필터 축소합니다.
+  const x0 = Math.floor((W - S) / 2);
+  const g = new Float64Array(SPEC_N * SPEC_N);
+  const step = S / SPEC_N;
+  for (let y = 0; y < SPEC_N; y++) for (let x = 0; x < SPEC_N; x++) {
+    let sum = 0, n = 0;
+    const sy0 = Math.floor(y * step), sy1 = Math.max(sy0 + 1, Math.floor((y + 1) * step));
+    const sx0 = Math.floor(x * step), sx1 = Math.max(sx0 + 1, Math.floor((x + 1) * step));
+    for (let sy = sy0; sy < sy1; sy++) for (let sx = sx0; sx < sx1; sx++) {
+      const p = ((sy) * W + x0 + sx) * 4;
+      sum += 0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2]; n++;
+    }
+    g[y * SPEC_N + x] = sum / Math.max(1, n);
+  }
+
+  // 평균을 빼고 한(Hann) 창을 씌웁니다 — 안 씌우면 가장자리 불연속이
+  // 스펙트럼 전체에 십자 무늬로 새어 들어옵니다.
+  let mean = 0;
+  for (let i = 0; i < g.length; i++) mean += g[i];
+  mean /= g.length;
+  const win = new Float64Array(SPEC_N);
+  for (let i = 0; i < SPEC_N; i++) win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (SPEC_N - 1)));
+  const re = [], im = [];
+  for (let y = 0; y < SPEC_N; y++) {
+    re.push(new Float64Array(SPEC_N)); im.push(new Float64Array(SPEC_N));
+    for (let x = 0; x < SPEC_N; x++) re[y][x] = (g[y * SPEC_N + x] - mean) * win[y] * win[x];
+  }
+  for (let y = 0; y < SPEC_N; y++) fft(re[y], im[y]);
+  const cr = new Float64Array(SPEC_N), ci = new Float64Array(SPEC_N);
+  for (let x = 0; x < SPEC_N; x++) {
+    for (let y = 0; y < SPEC_N; y++) { cr[y] = re[y][x]; ci[y] = im[y][x]; }
+    fft(cr, ci);
+    for (let y = 0; y < SPEC_N; y++) { re[y][x] = cr[y]; im[y][x] = ci[y]; }
+  }
+
+  // 반지름별 평균 파워.
+  const half = SPEC_N / 2;
+  const P = new Float64Array(half), C = new Float64Array(half);
+  for (let y = 0; y < SPEC_N; y++) {
+    const fy = y < half ? y : y - SPEC_N;
+    for (let x = 0; x < SPEC_N; x++) {
+      const fx = x < half ? x : x - SPEC_N;
+      const r = Math.round(Math.sqrt(fx * fx + fy * fy));
+      if (r < 1 || r >= half) continue;
+      P[r] += re[y][x] * re[y][x] + im[y][x] * im[y][x]; C[r]++;
+    }
+  }
+  for (let r = 1; r < half; r++) if (C[r]) P[r] /= C[r];
+
+  // JPEG 압축과 축소가 만드는 잔무늬를 피해 윗쪽 1/4 은 버립니다.
+  const rMax = Math.floor(half / 4);
+  let tot = 0;
+  for (let r = 1; r <= rMax; r++) tot += P[r] * r;      // 고리 넓이 가중
+  let acc = 0, r50 = rMax;
+  for (let r = 1; r <= rMax; r++) {
+    acc += P[r] * r;
+    if (acc >= tot * 0.5) { r50 = r; break; }
+  }
+  // 반지름 r 은 "정사각 하나에 몇 주기" → 도 단위 파장 = angW / r
+  const 구름각크기 = angW / Math.max(1, r50);
+
+  // log-log 기울기 — 신호가 있는 구간에서만.
+  const lo = Math.max(2, Math.round(rMax * 0.12)), hi = rMax;
+  let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let r = lo; r <= hi; r++) {
+    if (!(P[r] > 0)) continue;
+    const X = Math.log(r), Y = Math.log(P[r]);
+    n++; sx += X; sy += Y; sxx += X * X; sxy += X * Y;
+  }
+  const beta = n > 3 ? -(n * sxy - sx * sy) / Math.max(1e-9, n * sxx - sx * sx) : 0;
+
+  return {
+    구름각크기: +구름각크기.toFixed(2),
+    무늬기울기: +beta.toFixed(2),
+    조각각폭: +angW.toFixed(1),
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports)
-  module.exports = { skyStats, resampleTo, rgb2hsv, NORM_W };
+  module.exports = { skyStats, angularSpectrum, resampleTo, rgb2hsv, NORM_W };

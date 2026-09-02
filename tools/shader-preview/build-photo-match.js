@@ -55,6 +55,8 @@ const CASES = [
     w:{ low:18, mid:56, high:34, hum:64, vis:24000 } },
   { tag:'twilight',     sunAlt: -6, dAz:   0, elev: 22, sky:0.83,
     w:{ low:12, mid:34, high:40, hum:66, vis:26000 } },
+  { tag:'night',        sunAlt:-30, dAz:   0, elev: 35, sky:1.00,
+    w:{ low:16, mid:38, high:30, hum:70, vis:22000 } },
 ];
 
 const html = `<!doctype html>
@@ -93,7 +95,7 @@ const TW=${TW}, TH=${TH}, SUN_AZ=${SUN_AZ};
 const CASES=${JSON.stringify(CASES)};
 
 const canvas = document.getElementById('c');
-canvas.width = TW*3; canvas.height = TH*2;
+canvas.width = TW*3; canvas.height = TH*3;
 const ctx2d = canvas.getContext('2d');
 const glCanvas = document.createElement('canvas');
 glCanvas.width = TW; glCanvas.height = TH;
@@ -174,12 +176,15 @@ CASES.forEach((c,i)=>{
   bake(c.w);
   const top = flip(shoot(c));
   const s = skyStats(top, TW, TH, { skyFrac: c.sky });
-  결과.push({ tag:c.tag, ...s });
+  // 렌더의 가로 화각은 62° 입니다 — 사진 쪽 중앙값(63~67°)과 같은 대역이라
+  // 각도로 환산한 크기·모양을 바로 견줄 수 있습니다.
+  const sp = angularSpectrum(top, TW, TH, { skyFrac: c.sky, fovDeg: 62 }) || {};
+  결과.push({ tag:c.tag, ...s, ...sp });
   paint(top, (i%3)*TW, Math.floor(i/3)*TH);
   const d=document.createElement('div');
   d.className='lbl'; d.style.left=((i%3)*TW+10)+'px'; d.style.top=(Math.floor(i/3)*TH+40)+'px';
-  d.innerHTML=c.tag+'<br>채도 '+s.채도+'<br>대비 '+s.대비+'<br>국소 '+s.국소대비
-             +'<br>기울기 '+s.채도기울기+'<br>원색 '+s.원색;
+  d.innerHTML=c.tag+'<br>채도 '+s.채도+'<br>국소 '+s.국소대비
+             +'<br>구름각크기 '+sp.구름각크기+'°<br>무늬기울기 '+sp.무늬기울기;
   labels.appendChild(d);
 });
 
