@@ -1352,10 +1352,25 @@ float atm_adaptation(float sunAltDeg) {
  * 채도를 톤매핑 뒤에 거는 것이 핵심입니다(압축으로 깎인 색을 되살림).
  */
 vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
   vec3 c = atm_tonemapACES(radiance * DISP_EXPO * atm_adaptation(sunAltDeg));
-  float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float luma = dot(c, LW);
   c = mix(vec3(luma), c, DISP_SAT * saturation);
-  c = clamp((c - 0.5) * DISP_CONTR + 0.5, 0.0, 1.0);
+
+  // 대비는 **휘도에만** 겁니다.
+  //
+  // 예전에는 clamp((c - 0.5) * DISP_CONTR + 0.5) 를 채널마다 따로 걸었습니다.
+  // 0.5 를 중심으로 채널을 각각 벌리면 밝은 채널은 더 밝아지고 어두운 채널은
+  // 더 어두워지므로 **채도가 같이 올라갑니다** — 톤 커브가 색까지 건드린
+  // 것입니다. 노을이 원색으로 뜨던 원인의 절반이 여기였습니다(계획 20절).
+  //
+  // 휘도만 옮기고 그 비율로 세 채널을 같이 곱하면 색상·채도는 정확히
+  // 그대로고 밝기 관계만 바뀝니다. 사용자가 꼽은 "지평선쪽만 빛나면서"
+  // (명암폭)와 깊은 황혼에 저층이 꺼지는 것은 둘 다 **휘도** 현상이라
+  // 그대로 남습니다.
+  float l0 = dot(c, LW);
+  float l1 = clamp((l0 - 0.5) * DISP_CONTR + 0.5, 0.0, 1.0);
+  c = clamp(c * (l1 / max(1e-4, l0)), 0.0, 1.0);
   return atm_toSrgb(c);
 }
 `;

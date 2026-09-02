@@ -45,13 +45,17 @@ const CASES = [
 // 표시 변환(위)과 물리 쪽(아래)을 나눠 봅니다.
 // 표시 변환은 이미 중립으로 내렸습니다(계획 20절). 이제 남은 격차 —
 // 복사휘도 모델의 탈색 부족 — 을 AIR_WASH 로 훑습니다.
+// displayContrast 는 1.06 으로 되돌린 상태입니다 — 1.00 으로 내렸더니
+// 깊은 황혼에 저층이 안 꺼지고(6/255 문턱에 37.7) 노을 명암폭이 90 → 80.3 으로
+// 떨어져, 사용자가 처음에 꼽은 "지평선쪽만 빛나면서"를 깎았습니다.
+// 그래서 색은 **채도 쪽만으로** 잡아야 합니다. 얼마나 내려야 하는지 훑습니다.
 const KNOBS = [
-  { name:'AIR_WASH 0 (현행)', patch:{ airWash: 0.0 } },
-  { name:'AIR_WASH 0.15',    patch:{ airWash: 0.15 } },
-  { name:'AIR_WASH 0.30',    patch:{ airWash: 0.30 } },
-  { name:'AIR_WASH 0.45',    patch:{ airWash: 0.45 } },
-  { name:'AIR_WASH 0.60',    patch:{ airWash: 0.60 } },
-  { name:'AIR_WASH 0.80',    patch:{ airWash: 0.80 } },
+  { name:'SAT 1.22 (원래)', patch:{ displaySaturation: 1.22 } },
+  { name:'SAT 1.00',       patch:{ displaySaturation: 1.00 } },
+  { name:'SAT 0.90',       patch:{ displaySaturation: 0.90 } },
+  { name:'SAT 0.80',       patch:{ displaySaturation: 0.80 } },
+  { name:'SAT 0.70',       patch:{ displaySaturation: 0.70 } },
+  { name:'SAT 0.60',       patch:{ displaySaturation: 0.60 } },
 ];
 
 const html = `<!doctype html>
