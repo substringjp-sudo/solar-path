@@ -32,15 +32,15 @@ const STATS_SRC = fs.readFileSync(
 const TW = 380, TH = 380;
 // QR 디코드 값 그대로입니다 — 지어낸 값이 하나도 없습니다.
 const QR = {
-  lat: 37.454, lon: 127.0489, elevM: 34,
-  sunAlt: 9.52, sunAz: 87.4,
-  low: 3, mid: 2, high: 0, humidity: 91, vis: 7340,
-  windKmh: 7.8, windDeg: 87,
+  lat: 37.2531, lon: 127.0459, elevM: 28,
+  sunAlt: 60.22, sunAz: 171.17,
+  low: 4, mid: 1, high: 0, humidity: 65, vis: 22035,
+  windKmh: 17.5, windDeg: 75,
 };
 // 앱 화면의 화각이 55° 입니다. 시선 고도는 사진이 올려다본 각도에 맞춥니다.
 const VIEWS = [
-  { name: '태양쪽',  dAz: 0,   elev: 20 },
-  { name: '반대편',  dAz: 180, elev: 20 },
+  { name: '태양쪽',  dAz: 0,   elev: 65 },
+  { name: '반대편',  dAz: 180, elev: 65 },
 ];
 
 const html = `<!doctype html>
@@ -54,7 +54,7 @@ const html = `<!doctype html>
  .sub{font-size:11px;color:#8aa;margin:0 0 8px}
 </style></head><body>
 <div id="wrap">
-<h3>QR 재현 — 2026-09-03 06:55 KST, 태양 +9.52° / 87°, 저3 중2 상0, 시정 7.3km</h3>
+<h3>QR 재현 — 2026-09-03 12:14 KST, 태양 +60.22° / 171°, 저4 중1 상0, 시정 22km</h3>
 <p class="sub">왼쪽 태양쪽, 오른쪽 반대편. 사용자 사진과 같은 순간·같은 예보입니다.</p>
 <canvas id="c"></canvas><div id="labels"></div></div>
 <script type="module">
@@ -148,7 +148,7 @@ function shoot(v){
 }
 
 const 결과=[];
-const SWEEP=[7340];
+const SWEEP=[22035];
 SWEEP.forEach(sh=>{ VIEWS.forEach((v,i)=>{
   resetTuning();
   // 시정만 바꿔 에어로졸(Mie) 세기를 훑습니다. QR 실측은 14,275m 입니다.
@@ -163,14 +163,14 @@ SWEEP.forEach(sh=>{ VIEWS.forEach((v,i)=>{
   const l = lightingStats(top, TW, TH, { skyFrac: sky });
   const prof = warmthProfile(top, TW, TH, { skyFrac: sky, bands: 5 });
   결과.push({ SH:sh, 방향:v.name, 하늘비율:+sky.toFixed(2), 따뜻함프로파일:prof, ...s, ...l });
-  if (sh === 7340) { const img=ctx2d.createImageData(TW,TH); img.data.set(top); ctx2d.putImageData(img, i*TW, 0); }
+  if (sh === 22035) { const img=ctx2d.createImageData(TW,TH); img.data.set(top); ctx2d.putImageData(img, i*TW, 0); }
   const d=document.createElement('div');
   d.className='lbl'; d.style.left=(i*TW+10)+'px'; d.style.top='58px';
   d.innerHTML=v.name+'<br>채도 '+s.채도+'<br>국소대비 '+s.국소대비
     +'<br>밝은쪽따뜻함 '+l.밝은쪽따뜻함+'<br>어두운쪽따뜻함 '+l.어두운쪽따뜻함
     +'<br>따뜻함폭 '+l.따뜻함폭
     +'<br>프로파일 '+prof.join(' ');
-  if (sh === 7340) labels.appendChild(d);
+  if (sh === 22035) labels.appendChild(d);
 }); });
 resetTuning();
 
