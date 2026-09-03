@@ -62,10 +62,10 @@ const VIEW_AZ=${VIEW_AZ}, VIEW_ELEV=${VIEW_ELEV}, FOV_DEG=${FOV_DEG};
 const TW=${TW}, TH=${TH};
 
 const canvas = document.getElementById('c');
-canvas.width = TW*2; canvas.height = TH;
+canvas.width = TW*4; canvas.height = TH;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, alpha:false });
 renderer.setPixelRatio(1);
-renderer.setSize(TW*2, TH, false);
+renderer.setSize(TW*4, TH, false);
 
 const deck = createCloudDeck({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
 const scene = new THREE.Scene();
@@ -145,12 +145,17 @@ function shoot(label, x, genusFor) {
   // 경계에서 ±15°가 섞입니다).
   const quarter = Math.floor(TW/4);
   const band = (x0,x1) => {
-    let n=0, sumL=0, sumL2=0, sumA=0, nA=0, mid=0;
-    for (let py=0; py<TH; py++) {
+    let n=0, sumL=0, sumL2=0, sumA=0, sumA2=0, nA=0, mid=0;
+    // ⚠ 세로도 잘라야 합니다. 화면 아래쪽은 덱을 **스침각**으로 보는
+    // 구간이라 조각이 화소보다 작아지며 얼룩집니다 — 운형과 무관한 현상이고,
+    // 여기를 포함하면 "층상형이 균질한가"를 묻는 지표가 그 얼룩을 셉니다.
+    // 실제로 하늘 전체를 고층운(cellStrength=0)으로 채워도 오른쪽 이항성이
+    // 0.726 이 나왔는데, 그림을 보니 위쪽은 제대로 균질한 판이었습니다.
+    for (let py=Math.floor(TH*0.45); py<TH; py++) {
       for (let px=x0; px<x1; px++) {
         const p = py*TW+px;
         const a = Math.max(0, Math.min(1, 1 - (kw[p*4+1]-kb[p*4+1])/255));
-        sumA += a; nA++;
+        sumA += a; sumA2 += a*a; nA++;
         // ── 조각이 얼마나 또렷한가 ─────────────────────────────────────
         //
         // 조각형(cellStrength ≈ 1)은 알파가 문턱으로 잘려 **0 아니면 1**에
@@ -168,10 +173,23 @@ function shoot(label, x, genusFor) {
       }
     }
     const mA = sumA/nA;
+    // ── 이항성 — 운량과 무관한 "조각 세기" ────────────────────────────
+    //
+    // 알파가 0/1 로 몰릴수록(조각형) 분산은 이항분포의 최대치 p(1-p) 에
+    // 다가가고, 운량이 그대로 알파면(층상형) 분산은 0 에 가깝습니다.
+    // **p(1-p) 로 나누면 운량 의존이 정확히 사라집니다.**
+    //
+    // 중간알파(0.15~0.85 비율)로는 안 됩니다. 층상형 쪽 운량이 90% 면
+    // 완벽한 균질 판의 알파가 0.90 이라 그 밴드 **밖**입니다 — 잘 그릴수록
+    // 지표가 낮아집니다. 앞서 표준편차를 버리고 중간알파로 옮긴 것도
+    // 정규화를 안 한 채로 옮긴 것이라 같은 병을 옮겨 심은 셈이었습니다.
+    const varA = Math.max(0, sumA2/nA - mA*mA);
+    const binMax = Math.max(1e-4, mA*(1-mA));
     const mL = n ? sumL/n : 0;
     return {
       운량: +mA.toFixed(4),
       중간알파: +(mid/nA).toFixed(4),
+      이항성: +(varA/binMax).toFixed(4),
       밝기: +mL.toFixed(1),
       밝기결: +(n ? Math.sqrt(Math.max(0, sumL2/n - mL*mL)) : 0).toFixed(2),
     };
@@ -193,7 +211,8 @@ function shoot(label, x, genusFor) {
     '<br>왼(서 20%)  밝기 ' + 왼쪽.밝기 + '  중간알파 ' + (왼쪽.중간알파*100).toFixed(1) + '%  운량 ' + (왼쪽.운량*100).toFixed(0) + '%' +
     '<br>오른(동 90%) 밝기 ' + 오른쪽.밝기 + '  중간알파 ' + (오른쪽.중간알파*100).toFixed(1) + '%  운량 ' + (오른쪽.운량*100).toFixed(0) + '%' +
     '<br>밝기차 ' + (왼쪽.밝기-오른쪽.밝기).toFixed(1) +
-    '   중간알파차 ' + ((오른쪽.중간알파-왼쪽.중간알파)*100).toFixed(1) + '%p';
+    '   중간알파차 ' + ((오른쪽.중간알파-왼쪽.중간알파)*100).toFixed(1) + '%p' +
+    '<br>이항성 왼 ' + 왼쪽.이항성 + '  오른 ' + 오른쪽.이항성;
   labels.appendChild(d);
   return { 왼쪽, 오른쪽 };
 }
@@ -201,6 +220,17 @@ function shoot(label, x, genusFor) {
 const 이전 = shoot('층 대표 스칼라 (2단계 이전)', 0, undefined);
 const 방향별 = shoot('방향별 운형 (2단계)', TW,
   (layer, at) => blendedOpticsFromWeather(layer, at.cover, wx, 0.5));
+
+// ── 진단: 하늘 전체를 한 운형으로만 채워 봅니다 ──────────────────────────
+//
+// 갈린 화면에서 조각형 쪽 이항성이 0.816 → 0.529 로 **떨어지고** 층상형 쪽은
+// 0.917 → 0.732 로 덜 떨어졌습니다. 양쪽 다 중간으로 뭉개진 모양이라,
+// 원인이 (가) 셰이더가 cellStrength 를 안 듣는 것인지 (나) 정점 속성 보간이
+// 두 운형을 섞는 것인지 갈라야 합니다. 하늘 전체를 한 운형으로 채우면
+// 섞일 상대가 없으므로, 그래도 안 갈리면 (가)입니다.
+const 모두조각 = shoot('진단: 전부 고적운', TW*2, () => PRESET_OPTICS.Altocumulus);
+const 모두층상 = shoot('진단: 전부 고층운', TW*3, () => PRESET_OPTICS.Altostratus);
+
 
 // 이 링에서 방향별 판정이 실제로 어떤 운형을 얼마나 골랐는가.
 // 렌더가 아니라 판정 자체를 세는 것이라, 화면에서 본 차이의 **원인**입니다.
@@ -220,7 +250,7 @@ for (const s of midS) {
 const 운형분포 = { 방향수: midS.length, 분포, τ최소: tMin, τ최대: tMax };
 
 const glErr = gl.getError();
-window.__stats = { glError: glErr, 이전, 방향별, 운형표, 운형분포 };
+window.__stats = { glError: glErr, 이전, 방향별, 모두조각, 모두층상, 운형표, 운형분포 };
 window.__errors = errors;
 document.title = 'DONE::' + (errors.length?'SHADER_ERR':'OK') + '::' + glErr;
 </script></body></html>`;

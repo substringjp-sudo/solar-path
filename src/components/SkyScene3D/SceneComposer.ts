@@ -81,12 +81,76 @@ void main() {
 }
 `;
 
+/**
+ * **Catmull-Rom 재구성 (5탭)** — 저해상도 버퍼를 원해상도로 늘릴 때 씁니다.
+ *
+ * 왜 필요한가: 하늘과 구름은 절반 해상도로 그린 뒤 확대합니다. 그동안
+ * 확대는 `texture2D` 한 번, 곧 **이중선형**이었습니다. 2배 확대에서
+ * 이중선형은 삼각형 커널이라 원본에 있던 잔결을 그대로 뭉갭니다.
+ *
+ * 재봤습니다 (`build-app-vs-harness.js`, 세부 = 이웃 화소 밝기차 평균):
+ *
+ *   태양   원해상도   절반+이중선형   손실
+ *    +25°    1.419        0.987       -30%
+ *     +2°    1.834        1.355       -26%
+ *      0°    2.145        1.532       -29%
+ *     -3°    2.156        1.511       -30%
+ *
+ * 색·휘도·채도는 소수점까지 같았습니다. 앱 그림이 하네스 그림과 다른 것은
+ * **오직 이 선명도 손실**이었습니다 (블룸·박명광선·디더는 거의 무해).
+ *
+ * Catmull-Rom 은 음의 로브가 있어 가장자리를 되살립니다. 5탭 근사는
+ * 4×4 바이큐빅의 모서리 넷을 버리고 남은 무게로 정규화한 것으로,
+ * 게임 엔진의 TAA 업스케일러가 쓰는 표준형입니다.
+ *
+ * ⚠ **highp 가 필요합니다.** 좌표 계산이 텍셀 단위(수백)로 올라가는데
+ * mediump 는 그 크기에서 해상도가 0.5 텍셀이라 `floor(p - 0.5)` 가
+ * 깨집니다.
+ *
+ * ⚠ 음의 로브 때문에 결과가 음수가 될 수 있습니다. 구름 버퍼는 **미리곱된**
+ * 알파라 음수 알파가 그대로 합성에 들어가면 검은 테가 생깁니다. 0으로
+ * 잘라 내보냅니다.
+ */
+const CATMULL_GLSL = `
+uniform float uCatmull;   // 0 이면 이중선형 — 하네스가 기준선을 재는 스위치
+vec4 catmullRom(sampler2D tex, vec2 uv, vec2 texSize){
+  if (uCatmull < 0.5) return max(vec4(0.0), texture2D(tex, uv));
+  vec2 samplePos = uv * texSize;
+  vec2 texPos1 = floor(samplePos - 0.5) + 0.5;
+  vec2 f = samplePos - texPos1;
+
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  vec2 w3 = f * f * (-0.5 + 0.5 * f);
+
+  vec2 w12 = w1 + w2;
+  vec2 off12 = w2 / w12;
+
+  vec2 p0  = (texPos1 - 1.0) / texSize;
+  vec2 p3  = (texPos1 + 2.0) / texSize;
+  vec2 p12 = (texPos1 + off12) / texSize;
+
+  vec4 acc = vec4(0.0);
+  float wsum = 0.0;
+  float wa = w12.x * w0.y;  acc += texture2D(tex, vec2(p12.x, p0.y))  * wa; wsum += wa;
+  float wb = w0.x  * w12.y; acc += texture2D(tex, vec2(p0.x,  p12.y)) * wb; wsum += wb;
+  float wc = w12.x * w12.y; acc += texture2D(tex, vec2(p12.x, p12.y)) * wc; wsum += wc;
+  float wd = w3.x  * w12.y; acc += texture2D(tex, vec2(p3.x,  p12.y)) * wd; wsum += wd;
+  float we = w12.x * w3.y;  acc += texture2D(tex, vec2(p12.x, p3.y))  * we; wsum += we;
+
+  return max(vec4(0.0), acc / max(1e-4, wsum));
+}
+`;
+
 const BLIT_FRAG = `
-precision mediump float;
+precision highp float;
 uniform sampler2D uTex;
+uniform vec2 uTexSize;
 varying vec2 vUv;
+${CATMULL_GLSL}
 void main() {
-  gl_FragColor = texture2D(uTex, vUv);
+  gl_FragColor = catmullRom(uTex, vUv, uTexSize);
 }
 `;
 
@@ -132,13 +196,15 @@ float ditherNoise(vec2 p) {
  *    이미 원해상도인 곳은 여기뿐입니다.
  */
 const UPSCALE_FRAG = `
-precision mediump float;
+precision highp float;
 uniform sampler2D uTex;
+uniform vec2 uTexSize;
 uniform float uDither;
 varying vec2 vUv;
 ${DITHER_GLSL}
+${CATMULL_GLSL}
 void main() {
-  vec3 c = texture2D(uTex, vUv).rgb;
+  vec3 c = catmullRom(uTex, vUv, uTexSize).rgb;
   c += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
   gl_FragColor = vec4(c, 1.0);
 }
@@ -417,6 +483,15 @@ export interface SceneComposerHandle {
   setDither: (amount: number) => void;
   getDither: () => number;
   /**
+   * 저해상도 버퍼를 원해상도로 되돌릴 때 쓰는 재구성 필터.
+   *
+   * 앱은 늘 'catmull' 입니다 — 이 스위치는 하네스가 **기준선을 재기 위해**
+   * 씁니다. "카트멀롬이 이중선형보다 세부를 몇 % 더 살리는가"를 상수로
+   * 적어 두면 셰이더를 손볼 때마다 그 상수가 낡습니다. 두 경로를 같은
+   * 프레임에서 나란히 재면 낡을 일이 없습니다.
+   */
+  setReconstruct: (mode: 'catmull' | 'bilinear') => void;
+  /**
    * 검증용 — 마지막 프레임에 실제로 들어간 광선 세기. 고도·화면 밖 감쇠가
    * 모두 곱해진 뒤의 값이라, 밤에 0인지 같은 것을 이걸로 잽니다.
    */
@@ -493,6 +568,8 @@ export function createSceneComposer(
   const opaqueMat = new THREE.ShaderMaterial({
     uniforms: {
       uTex: { value: null as THREE.Texture | null },
+      uTexSize: { value: new THREE.Vector2(1, 1) },
+      uCatmull: { value: 1 },
       uDither: { value: dither },
     },
     vertexShader: BLIT_VERT,
@@ -502,7 +579,11 @@ export function createSceneComposer(
   });
   // 구름 blit — **미리곱해진** 색을 얹습니다 (파일 상단 알파 합성 주석).
   const overMat = new THREE.ShaderMaterial({
-    uniforms: { uTex: { value: null as THREE.Texture | null } },
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uTexSize: { value: new THREE.Vector2(1, 1) },
+      uCatmull: { value: 1 },
+    },
     vertexShader: BLIT_VERT,
     fragmentShader: BLIT_FRAG,
     transparent: true,
@@ -580,7 +661,17 @@ export function createSceneComposer(
   const blitScene = new THREE.Scene();
 
   const blit = (renderer: THREE.WebGLRenderer, mesh: THREE.Mesh, tex: THREE.Texture) => {
-    (mesh.material as THREE.ShaderMaterial).uniforms.uTex.value = tex;
+    const uni = (mesh.material as THREE.ShaderMaterial).uniforms;
+    uni.uTex.value = tex;
+    // 재구성 필터가 텍셀 격자를 알아야 합니다. 렌더 타깃 텍스처는
+    // `image` 에 크기를 들고 있으므로 크기 변경에도 저절로 따라갑니다.
+    if (uni.uTexSize) {
+      const img = tex.image as { width?: number; height?: number } | undefined;
+      (uni.uTexSize.value as THREE.Vector2).set(
+        Math.max(1, img?.width ?? 1),
+        Math.max(1, img?.height ?? 1)
+      );
+    }
     blitScene.clear();
     blitScene.add(mesh);
     // blit 자체는 층과 무관합니다 — 전용 씬이라 카메라 층 마스크를 되돌려 둡니다.
@@ -817,6 +908,11 @@ export function createSceneComposer(
       dither = Math.max(0, amount);
     },
     getDither: () => dither,
+    setReconstruct: (mode: 'catmull' | 'bilinear') => {
+      const v = mode === 'bilinear' ? 0 : 1;
+      opaqueMat.uniforms.uCatmull.value = v;
+      overMat.uniforms.uCatmull.value = v;
+    },
     lastRayGain: () => rayGain,
     dispose: () => {
       rtSky.dispose();

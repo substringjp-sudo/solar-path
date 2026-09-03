@@ -640,6 +640,53 @@ const _stencilWx: {
 } = { lowPct: 0, highPct: 0 };
 
 /**
+ * 저층 운형의 두 큰 갈래 — 근거리 볼륨이 쓰는 값입니다 (계획 27·33절).
+ *
+ * 0 = 적운형(뭉게, 볼록한 덩어리) · 1 = 층운형(먹구름, 평평한 시트).
+ * 적란운은 별도 원뿔 표현 몫(계획 23절)이라 아직 없어 당분간 적운형에
+ * 둡니다 — 평평한 것보다는 낫습니다.
+ */
+const LOW_GENUS: Partial<Record<CloudPresetName, number>> = {
+  Cumulus: 0,
+  Cumulonimbus: 0,
+  Stratocumulus: 1,
+  Stratus: 1,
+};
+
+/**
+ * 저층 운형을 **적운형/층운형 스칼라**(0..1)로 뽑습니다.
+ *
+ * `resolvePresetFromWeather`는 문턱에서 뚝 갈리는 계단함수입니다. 그걸
+ * 그대로 쓰면 근거리 볼륨의 뭉게/먹구름 경계가 하늘에 뚜렷한 선으로
+ * 보입니다(방위 격자가 성긴 것과 같은 이유 — 위 `blendedOpticsFromWeather`
+ * 주석). 같은 5점 스텐실로 부드럽게 섞습니다. 문턱 상수는 새로 만들지 않고
+ * `resolvePresetFromWeather`에서 그대로 가져오므로, 개발자 패널의 "운형
+ * 판정" 슬라이더가 여기도 같이 움직입니다.
+ */
+export function lowLayerGenus(
+  cover: number,
+  wx: { precipitation?: number; humidity?: number; lowPct: number; highPct: number },
+  seed: number
+): number {
+  const precip = wx.precipitation ?? 0;
+  let sum = 0;
+  const add = (c: number, p: number, w: number) => {
+    _stencilWx.precipitation = p;
+    _stencilWx.humidity = wx.humidity;
+    _stencilWx.lowPct = wx.lowPct;
+    _stencilWx.highPct = wx.highPct;
+    const name = resolvePresetFromWeather('low', Math.max(0, Math.min(1, c)), _stencilWx, seed);
+    sum += (LOW_GENUS[name] ?? 0) * w;
+  };
+  add(cover, precip, STENCIL_CENTER);
+  add(Math.max(0, cover - COVER_STENCIL), precip, STENCIL_SIDE);
+  add(Math.min(1, cover + COVER_STENCIL), precip, STENCIL_SIDE);
+  add(cover, Math.max(0, precip - PRECIP_STENCIL), STENCIL_SIDE);
+  add(cover, precip + PRECIP_STENCIL, STENCIL_SIDE);
+  return sum;
+}
+
+/**
  * 관측점 기상에서 층별 대표 광학두께를 뽑습니다.
  *
  * 태양 방향 기둥을 풀 때 필요합니다. 운형 판정이 방향마다 달라질 수 있으므로

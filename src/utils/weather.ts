@@ -407,7 +407,55 @@ export const fetchSunsetWeather = async (
 
 /** 링 방위 (12방위, 30° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
 const RING_AZIMUTHS = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30];
-const RING_DISTANCES = [10, 30, 70, 130, 200, 280, 380];
+/** 가까운 고리용 6방위 (60° 간격). 아래 `RING` 주석 참고. */
+const RING_AZIMUTHS_NEAR = [0, 60, 120, 180, -120, -60];
+
+/**
+ * 링의 거리 고리와 각 고리가 쓸 방위.
+ *
+ * ## 왜 5km 고리를 더했나 — 머리 위 하늘이 값 하나였습니다
+ *
+ * 예전 최단 거리는 10km 였습니다. 그 거리가 하늘 어디에 떨어지는지 재보면:
+ *
+ *   | 층 | 10km 가 놓이는 고도각 | 그 **위**는 전부 관측점 값 하나 |
+ *   |---|---|---|
+ *   | 저 1.5km | 8.5° | 하늘의 거의 전부 |
+ *   | 중 4.5km | 24.2° | |
+ *   | 상 10km | 44.9° | |
+ *
+ * 저층은 **고도 8.5° 위가 통째로 단일값**이었습니다. 황금비로 잘라 배치를
+ * 맞춰 보는 판정(1절)이 원리적으로 통과할 수 없는 구조입니다.
+ *
+ * 5km 고리를 더하면 그 경계가 저층 15°, 중층 38°, 상층 60°로 올라갑니다.
+ *
+ * ## 왜 5km 인가 — 그보다 가까우면 같은 격자칸입니다
+ *
+ * 관측점에서 동쪽으로 0/1/2/3/5/8/12/20/30km 떨어진 점을 한 번에 물어
+ * 모델이 언제 다른 칸을 주는지 쟀습니다 (2026-09, 서울):
+ *
+ *   0~3km  → 전부 같은 칸, 값도 소수점까지 동일
+ *   5km    → 처음으로 다른 칸
+ *
+ * 유효 격자가 **약 5.5km** 입니다(경도 0.0625°). `best_match` 가 이 지역에서
+ * 실제로 JMA MSM 을 쓰고 있고, 둘의 응답이 완전히 같습니다. 2~3km 고리를
+ * 더해 봐야 관측점 값의 복사본만 늘어납니다.
+ *
+ * ## 왜 가까운 고리만 방위 6개인가
+ *
+ * 반경 5km 에서 12방위는 이웃 점 간격이 2.6km 로 격자(5.5km)보다 촘촘합니다 —
+ * 같은 값 12개를 받으려고 요청을 12번 하는 셈입니다. 6방위면 간격이 5km 라
+ * 격자와 맞고, 요청점은 85 → 91 로 7%만 늘어납니다.
+ */
+const RING: { dist: number; azimuths: number[] }[] = [
+  { dist: 5, azimuths: RING_AZIMUTHS_NEAR },
+  { dist: 10, azimuths: RING_AZIMUTHS },
+  { dist: 30, azimuths: RING_AZIMUTHS },
+  { dist: 70, azimuths: RING_AZIMUTHS },
+  { dist: 130, azimuths: RING_AZIMUTHS },
+  { dist: 200, azimuths: RING_AZIMUTHS },
+  { dist: 280, azimuths: RING_AZIMUTHS },
+  { dist: 380, azimuths: RING_AZIMUTHS },
+];
 
 const ringCache = new Map<string, CloudPathData[]>();
 
@@ -581,14 +629,14 @@ export const fetchDayWeatherRing = async (
   }
 
   const ringPromise = (async () => {
-    // 관측점 + 12방위 × 7거리
+    // 관측점 + 고리별 방위 (위 `RING` 주석: 가까운 고리는 방위 6개)
     const virtualPoints: { dist: number; az: number; lat: number; lon: number }[] = [
       { dist: 0, az: 0, lat, lon },
     ];
-    for (const az of RING_AZIMUTHS) {
-      for (const d of RING_DISTANCES) {
-        const dest = calculateDestination(lat, lon, d, az);
-        virtualPoints.push({ dist: d, az, lat: dest.latitude, lon: dest.longitude });
+    for (const ring of RING) {
+      for (const az of ring.azimuths) {
+        const dest = calculateDestination(lat, lon, ring.dist, az);
+        virtualPoints.push({ dist: ring.dist, az, lat: dest.latitude, lon: dest.longitude });
       }
     }
 
