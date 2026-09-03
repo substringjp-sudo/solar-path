@@ -291,6 +291,7 @@ uniform float uVolSteps;
 uniform float uSaturation;
 uniform sampler2D uGenusTex;
 uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
+uniform float uCloudLitFloor, uCloudAmbFloor, uCloudPhaseFloor;
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -590,8 +591,32 @@ void main(){
       float vertLit = nSteps > 1 ? (0.65 + 0.55 * sFrac) : 1.0;
       float vertShadow = nSteps > 1 ? (0.50 + 0.50 * sFrac) : 1.0;
 
-      float ph = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
-      vec3 lit = beam * reach * ph * (0.20 + 1.15 * T) * vertLit;
+      // ── 구름의 위상함수는 거의 등방입니다 ──────────────────────────────
+      //
+      // 바닥 0.45 는 **단일산란** 위상함수의 모양입니다. 그런데 광학두께가
+      // 1 을 넘는 구름 속에서는 빛이 여러 번 튀며 방향 기억을 잃어, 밖에서
+      // 보는 밝기는 각도에 거의 무관해집니다(램버트에 가까움). 실제로 맑은
+      // 날 뭉게구름은 산란각 60°에서 보든 120°에서 보든 똑같이 하얗습니다 —
+      // 태양 쪽 가장자리만 전방산란으로 더 밝습니다(은테).
+      //
+      // 바닥이 0.45 면 옆에서 본 구름이 절반으로 죽습니다. 그게 맑은 날
+      // 구름이 하늘보다 어둡게 나오는 가장 큰 몫이라 uniform 으로 뺍니다
+      // (계획 36절). 은테를 만드는 cosG^5 항은 그대로 둡니다.
+      float ph = uCloudPhaseFloor + (1.0 - uCloudPhaseFloor) * pow(max(cosG, 0.0), 5.0);
+      // ── 두꺼워질수록 어두워지는 것은 직달광이 아닙니다 ──────────────────
+      //
+      // T 는 **이 표본을 시선 방향으로 뚫는 투과율**이라, 이 표본이 태양빛을
+      // 얼마나 받는지와는 상관이 없습니다(그건 이미 reach 가 셉니다). 화면을
+      // 얼마나 덮는지도 stepAlpha 가 따로 셉니다. 그러니 여기 T 를 한 번 더
+      // 곱하는 것은 소멸을 두 번 세는 것이고, 얇은 가장자리를 빛나게 하려고
+      // 넣은 장치입니다.
+      //
+      // 문제는 바닥이 0.20 이라 조금만 두꺼워지면 직달광이 5분의 1로 죽는다는
+      // 것입니다. 구름은 빛을 거의 **흡수하지 않는** 산란체라(가시광 단일산란
+      // 알베도 ≈ 0.9999) 두꺼워질수록 어두워질 이유가 없습니다 — 두꺼운
+      // 적운의 햇빛 받는 면이 눈부시게 흰 것이 그 때문입니다.
+      // 바닥을 uniform 으로 빼서 잽니다(계획 36절).
+      vec3 lit = beam * reach * ph * (uCloudLitFloor + (1.35 - uCloudLitFloor) * T) * vertLit;
       
       // 다중 산란(Multiple Scattering) 투과광: 
       // 두꺼운 구름이라도 직달광(reach=0)이 산란을 통해 내부와 밑면을 밝힘
@@ -620,7 +645,11 @@ void main(){
       // 이미 계산해 둔 2-stream 투과율을 주변광에도 태웁니다. 얇으면
       // 1.11배(하늘과 거의 같음), 광학두께 15의 두꺼운 덱이면 0.52배로
       // 붙습니다 — 흐린 날 낮이 어둡긴 해도 캄캄하지는 않습니다.
-      vec3 amb = ambBase * (0.26 + 0.30 * T) * vertShadow;
+      // ⚠ 바닥 0.26 은 **구름이 하늘의 26% 만 본다**는 뜻입니다. 실제 구름은
+      // 하늘 반구 전체에서 확산광을 받으므로 그보다 훨씬 많이 받습니다.
+      // 맑은 날 얇은 구름이 하늘보다 어둡게 나오는 주된 원인이라 여기도
+      // uniform 으로 빼서 잽니다(계획 36절).
+      vec3 amb = ambBase * (uCloudAmbFloor + 0.30 * T) * vertShadow;
       vec3 cc = lit + amb;
 
       // 밤하늘 달빛 직달광 & 산란광
@@ -828,6 +857,19 @@ export function createCloudSlab(opts: {
       uNfCapKm: { value: 22 },
       uNfViewSteps: { value: 28 },
       uNfShadowSteps: { value: 5 },
+      // ── 구름 밝기의 바닥 셋 (계획 36절) ────────────────────────────
+      //
+      // 사용자가 실기기에서 "맑은 날인데 구름이 너무 어둡다" 고 짚었고,
+      // 같은 순간 QR·사진으로 재니 **구름이 자기가 가린 하늘보다 어두웠습니다**
+      // (구름밝기비 0.76~0.95, 1 을 넘어야 정상). 셋 다 구름을 흡수체처럼
+      // 다루던 값이라, 비흡수 산란체 쪽으로 옮긴 값입니다. 훑어서 골랐고
+      // (build-cloud-lit-sweep) 노을 지표는 오히려 좋아집니다:
+      //
+      //   구름밝기비 0.818 → 1.000   어두운쪽채도 0.358 → 0.423 (사진 0.44)
+      //   노을 명암폭 142 → 167      노을 세로기울기 0.259 → 0.157
+      uCloudLitFloor: { value: 0.70 },
+      uCloudAmbFloor: { value: 0.55 },
+      uCloudPhaseFloor: { value: 0.90 },
     },
     vertexShader: VERT,
     fragmentShader: frag,
@@ -966,6 +1008,12 @@ export interface CloudSlabUpdate {
   nfViewSteps?: number;
   /** 근거리 볼륨 그림자 스텝 수 상한 (기본 5, 최대 8). */
   nfShadowSteps?: number;
+  /** 두꺼운 표본의 직달광 바닥 (기본 0.70). 올리면 햇빛 받는 구름면이 밝아집니다. */
+  cloudLitFloor?: number;
+  /** 구름이 받는 하늘 확산광의 바닥 (기본 0.55). 올리면 구름 전체가 밝아집니다. */
+  cloudAmbFloor?: number;
+  /** 구름 위상함수의 바닥 (기본 0.90). 올리면 옆에서 본 구름이 밝아집니다. */
+  cloudPhaseFloor?: number;
   visible: boolean;
 }
 
@@ -1035,6 +1083,9 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uNfCapKm.value = u.nfCapKm ?? 22;
   uni.uNfViewSteps.value = u.nfViewSteps ?? 28;
   uni.uNfShadowSteps.value = u.nfShadowSteps ?? 5;
+  uni.uCloudLitFloor.value = u.cloudLitFloor ?? 0.70;
+  uni.uCloudAmbFloor.value = u.cloudAmbFloor ?? 0.55;
+  uni.uCloudPhaseFloor.value = u.cloudPhaseFloor ?? 0.90;
 }
 
 /**

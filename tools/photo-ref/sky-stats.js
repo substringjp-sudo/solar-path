@@ -329,6 +329,18 @@ function lightingStats(data, W, H, opts) {
   }
   const corr = cov / Math.max(1e-9, Math.sqrt(vL * vW));
 
+  // ── 파랑이 남아 있는가, 밝은 것이 구름인가 ────────────────────────────
+  //
+  // 사용자가 실기기에서 짚은 둘 — "화면이 그렇게까지 파랗지 않다",
+  // "구름색이 너무 어둡다" — 를 그대로 재는 자입니다 (계획 36절).
+  //
+  // 맑은 날 사진은 **어두운 화소가 짙은 파랑(하늘), 밝은 화소가 흰 구름**
+  // 입니다. 하늘이 씻겨 중성이 되면 어두운쪽청색비가 1 쪽으로 내려오고,
+  // 구름이 어두우면 밝기비가 1 쪽으로 눌립니다. 둘 다 분할이 필요 없습니다.
+  const Rc = new Float64Array(n), Bc = new Float64Array(n);
+  for (let i = 0; i < n; i++) { const p = i * 4; Rc[i] = d[p]; Bc[i] = d[p + 2]; }
+  const blueRatio = list => avg(list, Bc) / Math.max(1, avg(list, Rc));
+
   const r3 = v => +v.toFixed(3);
   return {
     밝은쪽따뜻함: r3(avg(bright, Wm)),
@@ -337,6 +349,12 @@ function lightingStats(data, W, H, opts) {
     밝은쪽채도: r3(avg(bright, S)),
     어두운쪽채도: r3(avg(dark, S)),
     밝기따뜻함상관: r3(corr),
+    /** 어두운 화소(=하늘)의 파랑 정도. 1 이하면 파랑이 아예 없습니다. */
+    어두운쪽청색비: r3(blueRatio(dark)),
+    /** 밝은 화소(=구름)의 파랑 정도. 흰 구름이면 1 근처입니다. */
+    밝은쪽청색비: r3(blueRatio(bright)),
+    /** 밝은쪽 ÷ 어두운쪽 휘도. 흰 구름이 파란 하늘 위에 서면 1 보다 큽니다. */
+    밝기비: r3(avg(bright, L) / Math.max(1, avg(dark, L))),
   };
 }
 
