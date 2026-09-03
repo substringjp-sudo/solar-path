@@ -402,7 +402,10 @@ void main(){
         // 화소마다 시작점을 흔들어 스텝 밴딩을 잡음으로 바꿉니다 — 슬랩의
         // 잔무늬 발자국 LOD 와 같은 이유(계획 8절), 스텝이 성글어 안
         // 흔들면 가로줄이 보입니다.
-        float nfJit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        // slab_hash21 을 씁니다 — sin·dot 해시(예전 여기 값)는 낮은 정밀도에서
+        // 방향성 얼룩을 남깁니다. 그 결과가 verify-device-repro 의
+        // 격자성(축 정렬 무늬) 판정에 그대로 잡혔습니다.
+        float nfJit = slab_hash21(gl_FragCoord.xy);
         float nfTrans = 1.0;
         vec3 nfAcc = vec3(0.0);
         for (int i = 0; i < 48; i++){
@@ -418,10 +421,22 @@ void main(){
           // 밑면까지 못 와 그 기둥을 연직으로 뚫고 내려온 확산광이 정합니다
           // (계획 33.3절 — 고정 걸음이 아니라 **남은 두께를 등분**해야
           // sunT 가 기둥의 연직 광학두께 그 자체가 됩니다).
-          vec3 nfLightDir = normalize(mix(uSunDir, vec3(0.0, 1.0, 0.0), genus));
+          //
+          // ⚠ 태양이 지평선 아래(uSunDir.y < 0)면 적운 쪽 행진이 판 밑으로
+          // 빠져나갑니다 — 이 층은 1.6~2.6km 두께뿐이라, 아래로 꺾인 방향은
+          // 한두 걸음 만에 구름을 벗어나 빈 공기만 잽니다. 그러면
+          // nfShadow≈0, nfSunT≈1(안 가려짐)이 **밤에도** 나와, 그 값을 쓰는
+          // 달빛 항이 감쇠 없이 구름 전체를 밝힙니다(실기기 재현 하네스에서
+          // 잡힘 — 한밤중 화면 평균 휘도가 대낮과 맞먹었습니다). y 성분에
+          // 바닥을 둬 행진이 항상 위쪽으로 기울게 합니다.
+          vec3 nfSunDirUp = vec3(uSunDir.x, max(uSunDir.y, 0.15), uSunDir.z);
+          vec3 nfLightDir = normalize(mix(nfSunDirUp, vec3(0.0, 1.0, 0.0), genus));
           float nfRemain = max(0.05, nfB + nfT - p.y);
           float nfDs = mix(1.8, nfRemain, genus) / float(nfSN);
-          float nfSj = 0.5 + 0.5 * nfJit;
+          // 화소 하나로는 모자랍니다 — 그림자 스텝이 몇 개뿐이라(기본 5개)
+          // 시선을 따라 흔들지 않으면 표본 높이(p.y)에 걸린 계단이 그대로
+          // 가로줄로 남습니다. 표본 순번 i도 황금각으로 섞어 줄을 깹니다.
+          float nfSj = fract(nfJit + float(i) * 0.6180339887);
           float nfShadow = 0.0;
           for (int j = 0; j < 8; j++){
             if (j >= nfSN) break;
