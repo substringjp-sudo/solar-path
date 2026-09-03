@@ -814,10 +814,17 @@ export function createCloudSlab(opts: {
       uVolSteps: { value: 1 },
       uSaturation: { value: 1 },
       uGenusTex: { value: genusTex },
-      // 근거리 볼륨 (계획 27·33절). 기본값은 하네스가 잰 값입니다 —
-      // 상한 22km, 시선스텝은 실기기 예산을 몰라 48(하네스 값)보다
-      // 낮춰 시작합니다. 느리면 uNfViewSteps/uNfShadowSteps를 내리세요.
-      uNfEnable: { value: 1 },
+      // 근거리 볼륨 (계획 27·33·35절). **기본은 끔입니다.**
+      //
+      // ⚠ 켜고 A/B(build-nf-seam-check.js)로 재보니 지평선 바로 위에
+      // 회색 얼룩 띠가 생겼습니다 — 노을의 따뜻한 지평선과 위쪽 차가운
+      // 구름 사이에 있어야 할 자리가 탁한 회색으로 뭉갭니다. 사용자가
+      // "어두운 부분과 밝은 부분의 경계가 이상하다"고 짚은 것이 이것으로
+      // 보이고, 회귀(34.4절: sunset-gap·photo-match)도 이 방향입니다.
+      // 원인을 아직 못 갈랐습니다(35절) — 갈라질 때까지 예전에 검증된
+      // 껍질 그대로 나가는 쪽이 낫습니다. 코드·유니폼은 그대로 두었으니
+      // `nfEnabled:true` 로 언제든 다시 켜서 이어 갈 수 있습니다.
+      uNfEnable: { value: 0 },
       uNfCapKm: { value: 22 },
       uNfViewSteps: { value: 28 },
       uNfShadowSteps: { value: 5 },
@@ -947,7 +954,11 @@ export interface CloudSlabUpdate {
   multiScatter?: number;
   /** 수직 체적 스텝 수 상한 (기본 1). 올리면 층을 여러 겹으로 나눕니다. */
   volSteps?: number;
-  /** 근거리 볼륨 켬/끔 (기본 켬). 실기기에서 무거우면 끄고 비교하세요. */
+  /**
+   * 근거리 볼륨 켬/끔 (기본 **끔** — 계획 35절, 노을 경계에 회색 얼룩
+   * 띠가 생기는 결함을 원인을 갈라내기 전까지는 예전 껍질로 갑니다).
+   * `true`로 켜면 A/B 비교나 이어지는 수정 작업에 씁니다.
+   */
   nfEnabled?: boolean;
   /** 근거리 볼륨이 담당하는 수평 반경 (km, 기본 22 — 계획 33절에서 검증한 값). */
   nfCapKm?: number;
@@ -1019,7 +1030,8 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uAerialScale.value = u.aerialScale ?? 1;
   uni.uMultiScatter.value = u.multiScatter ?? 1;
   uni.uVolSteps.value = u.volSteps ?? 1;
-  uni.uNfEnable.value = u.nfEnabled === false ? 0 : 1;
+  // 기본 끔 — 재질 기본값과 같은 이유(위 uNfEnable 주석, 계획 35절).
+  uni.uNfEnable.value = u.nfEnabled === true ? 1 : 0;
   uni.uNfCapKm.value = u.nfCapKm ?? 22;
   uni.uNfViewSteps.value = u.nfViewSteps ?? 28;
   uni.uNfShadowSteps.value = u.nfShadowSteps ?? 5;
