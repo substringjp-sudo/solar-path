@@ -43,6 +43,7 @@ import { ATMOSPHERE_GLSL, makeTuningUniforms, type AtmosphereParams } from '../.
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import type { RGB } from '../../utils/sunsetPhysics';
+import { lowLayerGenus } from '../../utils/cloudPresets';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
@@ -188,6 +189,75 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   float baseSub = layer == 0 ? 0.38 : (layer == 1 ? 0.40 : 0.42);
   return max(0.0, m - baseSub);
 }
+
+// ── 근거리 볼륨 (계획 27·33절) ────────────────────────────────────────────
+//
+// 저층만 담당합니다. 위 슬랩은 껍질 하나를 얇게 갈라 체적을 흉내 내는데,
+// 저층 뭉게구름은 고도각 6°만 넘으면 깊이비가 1.2를 넘어 껍질로는 원근이
+// 안 생깁니다(계획 27절). 그래서 근거리(수평 uNfCapKm 안)만은 3D 값잡음
+// 밀도장을 시선따라 직접 적분하고, 표본마다 한 번 더 걸어 자기그림자를
+// 만듭니다. 그 밖은 위 슬랩이 그대로 맡습니다 — 하나가 이깁니다, 섞지
+// 않습니다 (33.6절: 이음매는 아직 없어 22km 경계에서 구름 밑면 높이가
+// 뚝 바뀝니다).
+//
+// 노이즈를 따로 두는 이유: 위 slab_* 는 **2D**(지상 좌표 하나)이고 이건
+// **3D**(높이까지)라 격자 접기 상수만 같고 나머지 수식이 다릅니다. 같은
+// 이름을 쓰면 오버로드가 아니라 재정의라 GLSL이 컴파일을 거부합니다.
+float nf_hash31(vec3 p){
+  p = mod(p, SLAB_LATTICE);
+  return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+float nf_vnoise3(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  float n000=nf_hash31(i), n100=nf_hash31(i+vec3(1.0,0.0,0.0));
+  float n010=nf_hash31(i+vec3(0.0,1.0,0.0)), n110=nf_hash31(i+vec3(1.0,1.0,0.0));
+  float n001=nf_hash31(i+vec3(0.0,0.0,1.0)), n101=nf_hash31(i+vec3(1.0,0.0,1.0));
+  float n011=nf_hash31(i+vec3(0.0,1.0,1.0)), n111=nf_hash31(i+vec3(1.0,1.0,1.0));
+  float x00=mix(n000,n100,f.x), x10=mix(n010,n110,f.x);
+  float x01=mix(n001,n101,f.x), x11=mix(n011,n111,f.x);
+  return mix(mix(x00,x10,f.y), mix(x01,x11,f.y), f.z);
+}
+float nf_fbm3(vec3 p){
+  float s=0.0, a=0.5, n=0.0;
+  for (int i=0;i<5;i++){ s += a*nf_vnoise3(p); n += a; p = mod(p*2.03+7.1, SLAB_LATTICE); a *= 0.5; }
+  return s/max(1e-5,n);
+}
+
+/**
+ * genus 는 텍스처에서 이중선형으로 흘러나오는 **연속값**(0..1)입니다.
+ * 그래서 아래 상수들도 하드 분기(genus<0.5?:) 대신 전부 mix로
+ * 섞습니다 — 안 그러면 두 운형의 fbm 좌표(scale)가 경계에서 뚝 끊겨
+ * 뭉게/먹구름 사이에 눈에 띄는 선이 생깁니다.
+ *
+ * 상수는 tools/shader-preview/build-nearfield-volume.js 에서 재서 고른
+ * 값과 같습니다(계획 33절) — genus=0/1 양끝에서 거기서 잰 결과가
+ * 그대로 나오게 하려는 것입니다.
+ */
+float nf_baseKm(float genus){ return ALT_LOW - mix(0.4, 0.8, genus); }
+float nf_thickKm(float genus){ return mix(2.6, 1.6, genus); }
+
+float nf_density(vec3 p, float genus, float cover){
+  float b = nf_baseKm(genus), t = nf_thickKm(genus);
+  float h = (p.y - b) / t;
+  if (h < 0.0 || h > 1.0) return 0.0;
+
+  float prof = smoothstep(0.0, mix(0.08, 0.03, genus), h)
+             * (1.0 - smoothstep(mix(0.40, 0.80, genus), 1.0, h));
+
+  float scale = mix(0.55, 0.30, genus);
+  float n = nf_fbm3(p * scale);
+
+  float thrAuto = mix(0.574 - 0.281 * cover, 0.433 - 0.211 * cover, genus);
+  float d = max(0.0, (n - thrAuto) / max(0.08, 1.0 - thrAuto));
+
+  float fine = nf_fbm3(p * (scale * 5.0) + 31.7);
+  d -= mix(0.55, 0.25, genus) * (1.0 - smoothstep(0.0, 0.45, d)) * (1.0 - fine);
+  d = max(0.0, d);
+  d = pow(d, mix(0.75, 1.0, genus));
+
+  return d * prof;
+}
 `;
 
 const VERT = `
@@ -219,6 +289,8 @@ uniform float uAerialScale;
 uniform float uMultiScatter;
 uniform float uVolSteps;
 uniform float uSaturation;
+uniform sampler2D uGenusTex;
+uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -307,6 +379,99 @@ void main(){
     float conf  = cv.a;
     vec2 kmN = km + wind * uDriftHours;
 
+    // ── 근거리 볼륨 (계획 27·33절) ──────────────────────────────────────
+    //
+    // 저층에서만, 관측자 기준 수평 uNfCapKm 안에서만 씁니다. 그 밖은 아래
+    // 껍질 근사가 그대로 맡습니다. 평판 근사입니다(구면 보정 없음) — 22km
+    // 안에서 곡률 오차는 지구 반지름 대비 38m로 층 두께의 몇 % 뿐이고,
+    // 근거리 볼륨 하네스가 그 근사로 이미 검증됐습니다(계획 27·33절).
+    //
+    // ⚠ **이음매가 없습니다.** 이 볼륨의 구름 밑면(genus에 따라
+    // 0.7~1.1km)이 아래 껍질의 밑면(hBase=1.5km)과 다른 높이라, uNfCapKm
+    // 경계에서 밑면이 뚝 바뀝니다. 다음에 볼 자리로 33.6절에 적어 뒀습니다.
+    float genus = (L == 2) ? texture2D(uGenusTex, slab_coverUv(km, uRangeKm)).r : 0.0;
+    bool nfUsed = false;
+    if (L == 2 && uNfEnable > 0.5 && cover > 0.02) {
+      float nfB = nf_baseKm(genus), nfT = nf_thickKm(genus);
+      float nfT0 = nfB / sinE;
+      float nfT1 = min((nfB + nfT) / sinE, uNfCapKm / cosE);
+      if (nfT1 > nfT0) {
+        int nfN  = int(min(uNfViewSteps, 48.0));
+        int nfSN = int(min(uNfShadowSteps, 8.0));
+        float nfDt = (nfT1 - nfT0) / float(nfN);
+        // 화소마다 시작점을 흔들어 스텝 밴딩을 잡음으로 바꿉니다 — 슬랩의
+        // 잔무늬 발자국 LOD 와 같은 이유(계획 8절), 스텝이 성글어 안
+        // 흔들면 가로줄이 보입니다.
+        float nfJit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        float nfTrans = 1.0;
+        vec3 nfAcc = vec3(0.0);
+        for (int i = 0; i < 48; i++){
+          if (i >= nfN) break;
+          float nfS = nfT0 + (float(i) + nfJit) * nfDt;
+          vec3 p = dir * nfS;
+          p.xz += kmN - km;   // 슬랩과 같은 이류 — 같은 바람에 같이 흐릅니다.
+          float d = nf_density(p, genus, cover);
+          if (d <= 0.001) continue;
+
+          // 자기그림자 / 연직 투과 — 운형에 따라 빛이 오는 방향이 다릅니다.
+          // 적운은 직달광이 지배해 태양 쪽으로 걷고, 먹구름은 직달광이
+          // 밑면까지 못 와 그 기둥을 연직으로 뚫고 내려온 확산광이 정합니다
+          // (계획 33.3절 — 고정 걸음이 아니라 **남은 두께를 등분**해야
+          // sunT 가 기둥의 연직 광학두께 그 자체가 됩니다).
+          vec3 nfLightDir = normalize(mix(uSunDir, vec3(0.0, 1.0, 0.0), genus));
+          float nfRemain = max(0.05, nfB + nfT - p.y);
+          float nfDs = mix(1.8, nfRemain, genus) / float(nfSN);
+          float nfSj = 0.5 + 0.5 * nfJit;
+          float nfShadow = 0.0;
+          for (int j = 0; j < 8; j++){
+            if (j >= nfSN) break;
+            nfShadow += nf_density(p + nfLightDir * ((float(j) + nfSj) * nfDs), genus, cover);
+          }
+          float nfSunT = exp(-nfShadow * nfDs * mix(7.0, 5.0, genus));
+
+          float nfTau = d * nfDt * mix(9.0, 14.0, genus);
+          float nfA = 1.0 - exp(-nfTau);
+          float nfT_ = 1.0 - nfA;
+
+          // 아래부터는 위 껍질 경로와 같은 조명 재료(beam·ambBase·
+          // horizonHaze·채도부스트)를 씁니다 — 색이 갈라지면 22km 경계가
+          // 눈에 띕니다. reach 자리에 nfSunT, thick 자리에 d 를 씁니다.
+          float nfPh = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
+          vec3 cc = uBeamLow * nfSunT * nfPh * (0.20 + 1.15 * nfT_)
+                  + ambBase * (0.26 + 0.30 * nfT_);
+
+          if (nightFactor > 0.01 && moonAltFactor > 0.01) {
+            float nfMoonPh = 0.40 + 0.60 * pow(max(cosMoon, 0.0), 4.0);
+            cc += moonColor * nfSunT * nfMoonPh * (0.25 + 0.60 * nfT_) * nightFactor;
+          }
+          if (nightFactor > 0.01 && uCityLight > 0.01) {
+            float nfHFrac = clamp((p.y - nfB) / nfT, 0.0, 1.0);
+            float nfUpwell = (1.0 - exp(-nfTau * 0.80)) * (0.85 - 0.40 * nfHFrac);
+            cc += cityGlowColor * nfUpwell * nightFactor * 0.6;
+          }
+
+          cc = max(cc, ambBase * 0.18 * nfA);
+          cc *= vec3(0.97, 0.99, 1.00);   // 저층 틴트 — 껍질 경로와 같은 값.
+
+          float nfHaze = 1.0 - exp(-nfS * 0.0030);
+          cc = mix(cc, horizonHaze, clamp(nfHaze, 0.0, 0.85) * uAerialScale);
+
+          float nfL = dot(cc, vec3(0.2126, 0.7152, 0.0722));
+          cc = max(vec3(0.0), mix(vec3(nfL), cc, 1.0 + clamp(d * 0.5, 0.0, 0.7) * 0.35));
+
+          nfAcc += nfTrans * nfA * cc;
+          nfTrans *= nfT_;
+          if (nfTrans < 0.01) break;
+        }
+        float nfAlpha = 1.0 - nfTrans;
+        if (nfAlpha > 0.0015) {
+          lin = nfAcc + lin * nfTrans;
+          acc = nfAlpha + acc * nfTrans;
+          nfUsed = true;
+        }
+      }
+    }
+
     // ── 비스듬히 뚫고 지나가는 거리 ────────────────────────────────────
     //
     // 구름 층은 두께가 있는 판입니다. 천정을 보면 시선이 그 두께를 수직으로
@@ -353,6 +518,10 @@ void main(){
     float billowAmt = det * (1.0 - smoothstep(0.4, 2.0, length(km) / cellKm));
 
     // ── 수직 체적 스텝 (같은 구름의 위아래) ────────────────────────────
+    //
+    // 근거리 볼륨이 이 층·이 화소를 이미 그렸으면 건너뜁니다 — 같은 구름을
+    // 두 방식으로 겹쳐 그리지 않습니다.
+    if (!nfUsed)
     for (int S = 0; S < 3; S++){
       if (S >= nSteps) break;
       float sFrac = nSteps > 1 ? float(S) / float(nSteps - 1) : 0.0;
@@ -532,6 +701,11 @@ export interface CloudSlabHandle {
   material: THREE.ShaderMaterial;
   /** 운량장. 검증 하네스가 내용을 읽습니다. */
   coverTex: THREE.DataTexture;
+  /**
+   * 저층 운형장 — R 채널에 0(적운형)~1(층운형)을 담습니다. `coverTex`와
+   * 같은 크기·매핑을 씁니다(계획 33절 근거리 볼륨).
+   */
+  genusTex: THREE.DataTexture;
   /** 운량장이 덮는 반경 (km) */
   rangeKm: number;
   dispose: () => void;
@@ -557,6 +731,17 @@ export function createCloudSlab(opts: {
   coverTex.wrapS = THREE.ClampToEdgeWrapping;
   coverTex.wrapT = THREE.ClampToEdgeWrapping;
   coverTex.needsUpdate = true;
+
+  // coverTex와 같은 크기·같은 sqrt 매핑(slab_coverUv)을 씁니다 — 같은
+  // 방향의 조회가 두 텍스처에서 같은 텍셀을 가리켜야 근거리 볼륨의 운량과
+  // 운형이 서로 어긋나지 않습니다.
+  const genusData = new Uint8Array(size * size * 4);
+  const genusTex = new THREE.DataTexture(genusData, size, size, THREE.RGBAFormat);
+  genusTex.minFilter = THREE.LinearFilter;
+  genusTex.magFilter = THREE.LinearFilter;
+  genusTex.wrapS = THREE.ClampToEdgeWrapping;
+  genusTex.wrapT = THREE.ClampToEdgeWrapping;
+  genusTex.needsUpdate = true;
 
   const frag = FRAG
     .replace(/ALT_LOW/g, LAYER_ALTITUDE_KM.low.toFixed(2))
@@ -613,6 +798,14 @@ export function createCloudSlab(opts: {
       // 아닙니다. 구조는 남겨 뒀으니 되살리려면 이 값만 올리면 됩니다.
       uVolSteps: { value: 1 },
       uSaturation: { value: 1 },
+      uGenusTex: { value: genusTex },
+      // 근거리 볼륨 (계획 27·33절). 기본값은 하네스가 잰 값입니다 —
+      // 상한 22km, 시선스텝은 실기기 예산을 몰라 48(하네스 값)보다
+      // 낮춰 시작합니다. 느리면 uNfViewSteps/uNfShadowSteps를 내리세요.
+      uNfEnable: { value: 1 },
+      uNfCapKm: { value: 22 },
+      uNfViewSteps: { value: 28 },
+      uNfShadowSteps: { value: 5 },
     },
     vertexShader: VERT,
     fragmentShader: frag,
@@ -637,11 +830,13 @@ export function createCloudSlab(opts: {
     mesh,
     material,
     coverTex,
+    genusTex,
     rangeKm,
     dispose: () => {
       geometry.dispose();
       material.dispose();
       coverTex.dispose();
+      genusTex.dispose();
     },
   };
 }
@@ -650,16 +845,27 @@ export function createCloudSlab(opts: {
 export interface CoverageSource {
   (azimuthDeg: number, distanceKm: number): {
     low: number; mid: number; high: number; confidence: number;
+    /**
+     * 저층 운형 — 0(적운형)~1(층운형), 근거리 볼륨이 씁니다(계획 33절).
+     * 생략하면 0(적운형)으로 굽습니다 — 이 함수를 직접 구현한 예전
+     * 호출부(하네스 습작들)가 이 값 없이도 그대로 컴파일·실행되게
+     * 하려는 것입니다.
+     */
+    lowGenus?: number;
   };
 }
 
 /**
  * 운량장을 다시 굽습니다. **매 프레임 부르면 안 됩니다** — 128×128 이면
  * 16,384 회 조회라 수십 ms 가 듭니다. 기상이나 시각이 바뀔 때만 부르세요.
+ *
+ * 운형장(`genusTex`)도 같은 루프에서 같이 굽습니다 — 조회를 두 번 하면
+ * 16,384 회가 배로 늡니다.
  */
 export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSource): void {
   const size = handle.coverTex.image.width as number;
   const data = handle.coverTex.image.data as Uint8Array;
+  const genusData = handle.genusTex.image.data as Uint8Array;
   const R = handle.rangeKm;
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
@@ -668,7 +874,11 @@ export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSour
       const py = ((j + 0.5) / size) * 2 - 1;
       const r = Math.hypot(px, py);
       const k = (j * size + i) * 4;
-      if (r > 1) { data[k] = data[k + 1] = data[k + 2] = data[k + 3] = 0; continue; }
+      if (r > 1) {
+        data[k] = data[k + 1] = data[k + 2] = data[k + 3] = 0;
+        genusData[k] = genusData[k + 1] = genusData[k + 2] = 0; genusData[k + 3] = 255;
+        continue;
+      }
       const d = R * r * r;
       const az = r < 1e-6 ? 0 : (Math.atan2(px / r, -py / r) * 180) / Math.PI;
       const c = src((az + 360) % 360, d);
@@ -676,9 +886,12 @@ export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSour
       data[k + 1] = Math.max(0, Math.min(255, c.mid * 255));
       data[k + 2] = Math.max(0, Math.min(255, c.high * 255));
       data[k + 3] = Math.max(0, Math.min(255, c.confidence * 255));
+      const g = Math.max(0, Math.min(255, (c.lowGenus ?? 0) * 255));
+      genusData[k] = g; genusData[k + 1] = g; genusData[k + 2] = g; genusData[k + 3] = 255;
     }
   }
   handle.coverTex.needsUpdate = true;
+  handle.genusTex.needsUpdate = true;
 }
 
 export interface CloudSlabUpdate {
@@ -719,6 +932,14 @@ export interface CloudSlabUpdate {
   multiScatter?: number;
   /** 수직 체적 스텝 수 상한 (기본 1). 올리면 층을 여러 겹으로 나눕니다. */
   volSteps?: number;
+  /** 근거리 볼륨 켬/끔 (기본 켬). 실기기에서 무거우면 끄고 비교하세요. */
+  nfEnabled?: boolean;
+  /** 근거리 볼륨이 담당하는 수평 반경 (km, 기본 22 — 계획 33절에서 검증한 값). */
+  nfCapKm?: number;
+  /** 근거리 볼륨 시선 스텝 수 상한 (기본 28, 최대 48). 내리면 가벼워집니다. */
+  nfViewSteps?: number;
+  /** 근거리 볼륨 그림자 스텝 수 상한 (기본 5, 최대 8). */
+  nfShadowSteps?: number;
   visible: boolean;
 }
 
@@ -783,6 +1004,10 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uAerialScale.value = u.aerialScale ?? 1;
   uni.uMultiScatter.value = u.multiScatter ?? 1;
   uni.uVolSteps.value = u.volSteps ?? 1;
+  uni.uNfEnable.value = u.nfEnabled === false ? 0 : 1;
+  uni.uNfCapKm.value = u.nfCapKm ?? 22;
+  uni.uNfViewSteps.value = u.nfViewSteps ?? 28;
+  uni.uNfShadowSteps.value = u.nfShadowSteps ?? 5;
 }
 
 /**
@@ -797,9 +1022,13 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
  * 값이 한 점으로 빨려들며 부챗살이 됐습니다 (PR #14의 진단).
  */
 export function coverageFromSamples(
-  samples: { layer: LayerKey; azimuthDeg: number; distanceKm: number; cover: number; confidence: number }[]
+  samples: {
+    layer: LayerKey; azimuthDeg: number; distanceKm: number; cover: number; confidence: number;
+    /** 저층 운형 판정 입력 (계획 33절) — `LayerSample`이 이미 들고 있는 값입니다. */
+    precipMmH?: number; humidityPct?: number; lowPct?: number; highPct?: number;
+  }[]
 ): CoverageSource {
-  type Row = { az: number[]; dist: number[]; cover: Float32Array; conf: Float32Array };
+  type Row = { az: number[]; dist: number[]; cover: Float32Array; conf: Float32Array; genus?: Float32Array };
   const byLayer: Record<string, Row> = {};
 
   for (const key of ['low', 'mid', 'high'] as LayerKey[]) {
@@ -809,19 +1038,32 @@ export function coverageFromSamples(
     const dist = Array.from(new Set(mine.map(s => s.distanceKm))).sort((a, b) => a - b);
     const cover = new Float32Array(az.length * dist.length);
     const conf = new Float32Array(az.length * dist.length);
+    // 저층만 운형이 필요합니다(근거리 볼륨이 저층만 담당). 방향마다 다른
+    // 씨앗을 줘 문턱 경계 판정(적운/층적운)이 모든 방위에서 똑같이 튀지
+    // 않게 합니다 — CloudDeck 등 다른 곳의 방향별 씨앗과 같은 관례입니다.
+    const genus = key === 'low' ? new Float32Array(az.length * dist.length) : undefined;
     const ai = new Map(az.map((v, i) => [v, i]));
     const di = new Map(dist.map((v, i) => [v, i]));
     for (const s of mine) {
       const i = ai.get(s.azimuthDeg)!, j = di.get(s.distanceKm)!;
-      cover[j * az.length + i] = s.cover;
-      conf[j * az.length + i] = s.confidence;
+      const idx = j * az.length + i;
+      cover[idx] = s.cover;
+      conf[idx] = s.confidence;
+      if (genus) {
+        const seed = ((Math.sin(s.azimuthDeg * 12.9898 + s.distanceKm * 0.037 + 17.3) * 43758.5453) % 1 + 1) % 1;
+        genus[idx] = lowLayerGenus(
+          s.cover,
+          { precipitation: s.precipMmH, humidity: s.humidityPct, lowPct: s.lowPct ?? s.cover * 100, highPct: s.highPct ?? 0 },
+          seed
+        );
+      }
     }
-    byLayer[key] = { az, dist, cover, conf };
+    byLayer[key] = { az, dist, cover, conf, genus };
   }
 
   const lookup = (row: Row | undefined, azDeg: number, distKm: number) => {
-    if (!row) return { c: 0, f: 0 };
-    const { az, dist, cover, conf } = row;
+    if (!row) return { c: 0, f: 0, g: 0 };
+    const { az, dist, cover, conf, genus } = row;
     const nA = az.length;
     // 방위는 360°에서 되감깁니다.
     let a0 = 0;
@@ -839,7 +1081,7 @@ export function coverageFromSamples(
     const mix = (arr: Float32Array) =>
       (at(arr, a0, d0) * (1 - tA) + at(arr, a1, d0) * tA) * (1 - tD) +
       (at(arr, a0, d1) * (1 - tA) + at(arr, a1, d1) * tA) * tD;
-    return { c: mix(cover), f: mix(conf) };
+    return { c: mix(cover), f: mix(conf), g: genus ? mix(genus) : 0 };
   };
 
   return (azimuthDeg: number, distanceKm: number) => {
@@ -849,6 +1091,7 @@ export function coverageFromSamples(
     return {
       low: lo.c, mid: mi.c, high: hi.c,
       confidence: Math.max(lo.f, mi.f, hi.f),
+      lowGenus: lo.g,
     };
   };
 }
