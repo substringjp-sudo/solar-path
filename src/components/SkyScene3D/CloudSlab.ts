@@ -305,6 +305,8 @@ uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
 uniform float uCloudLitFloor, uCloudAmbFloor, uCloudPhaseFloor;
 uniform float uClusterAmt, uClusterMul;
 uniform float uAmbDownDeg;
+uniform float uCloudModel, uCloudAsym, uCloudAniso, uCloudAnisoW,
+              uCloudGroundAlb, uCloudSideLit, uCloudFaceUp;
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -347,6 +349,70 @@ void main(){
   vec3 ambDown = atm_skyRadiance(uAmbDownDeg, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
   vec3 ambBase = mix(ambDown, ambUp, 0.35);
 
+  // ── 구름을 비추는 하늘: 시선과 무관한 **반구 조도** (계획 40절) ──────
+  //
+  // ambBase 는 cosG(시선-태양 각)를 물고 있습니다. 그건 구름이 받는 빛이
+  // 카메라를 어디로 돌리느냐에 따라 바뀐다는 뜻이라 물리로 틀렸고, 크기도
+  // 틀렸습니다 — 태양 쪽을 볼 때(감마 0) 진짜 반구 적분의 **4~20배**입니다:
+  //
+  //   태양 30도 18.4배 · 12도 20.6배 · 0도 14.6배 · -3도 8.5배
+  //
+  // 광환(aureole) 한 점을 반구 전체인 양 쓴 탓입니다. 그래서 노을에 태양
+  // 쪽 구름이 전부 밝게 떠 버립니다.
+  //
+  // 대신 진짜 조도 적분을 6점 구적으로 칩니다. 가중치는 수평면 조도의
+  // sin(e)cos(e) 이고, 마디는 고도 22·56도 × 태양기준 방위 28·70·145도
+  // 입니다. 태양고도 -6~60도, 구름고도 0.6~8km 전 범위에서 진짜 적분의
+  // **0.91~1.01배**로 들어옵니다(tools 의 quad3 탐색).
+  float qSinS = uSunDir.y;
+  float qCosS = sqrt(max(0.0, 1.0 - qSinS * qSinS));
+  vec3 ambHemi = vec3(0.0);
+  vec3 ambVertSun = vec3(0.0), ambVertAnti = vec3(0.0);
+  // 구적 열두 번은 legacy 경로에서 쓰이지 않으므로 켤 때만 칩니다.
+  if (uCloudModel > 0.5) {
+  for (int qe = 0; qe < 2; qe++){
+    float qElev = qe == 0 ? 22.0 : 56.0;
+    float qSe = sin(qElev * 0.017453293), qCe = cos(qElev * 0.017453293);
+    for (int qa = 0; qa < 3; qa++){
+      float qAz = qa == 0 ? 28.0 : (qa == 1 ? 70.0 : 145.0);
+      float qCg = qSe * qSinS + qCe * qCosS * cos(qAz * 0.017453293);
+      ambHemi += atm_skyRadiance(qElev, qCg, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+    }
+  }
+  ambHemi *= (1.0 / 6.0);
+
+  // ── 수직면이 받는 하늘 — 노을 구름이 분홍인 진짜 이유 ────────────────
+  //
+  // 위 적분은 **수평 윗면**의 것입니다(가중치 sin(e)cos(e)). 그런데 노을에
+  // 타오르는 것은 구름의 **옆면**이고, 수직면의 가중치는 cos^2(e)cos(phi)
+  // 라 무게가 지평선에 쏠립니다 — 곧 박명 아치를 정면으로 봅니다.
+  // 같은 태양·같은 고도에서 잰 차이가 이만큼입니다:
+  //
+  //   태양  0도: 수평 L 1.13e-1 따뜻 -0.387  |  태양쪽 수직 L 2.24e-1 따뜻 +0.342
+  //   태양 -3도: 수평 L 6.07e-2 따뜻 -0.524  |  태양쪽 수직 L 7.48e-2 따뜻 -0.027
+  //
+  // 밝기는 2배, 색은 파랑에서 주황으로 뒤집힙니다. 수평면만 쓰면 노을
+  // 구름이 남색이 되는 것이 당연합니다.
+  //
+  // 마디는 고도 8·34도 × 면 기준 방위 -25·+15·+40도. 태양을 향한 면과
+  // 등진 면 양쪽에서 진짜 적분의 0.92~1.11배입니다(quad4 탐색).
+  // 면의 방위는 화소마다 다르므로 여기서는 **태양쪽**과 **반대쪽** 둘만
+  // 굽고, 실제 면은 그 사이를 코사인으로 잇습니다.
+  for (int ve = 0; ve < 2; ve++){
+    float vElev = ve == 0 ? 8.0 : 34.0;
+    float vSe = sin(vElev * 0.017453293), vCe = cos(vElev * 0.017453293);
+    for (int va = 0; va < 3; va++){
+      float vAz = va == 0 ? -25.0 : (va == 1 ? 15.0 : 40.0);
+      float cS0 = vSe * qSinS + vCe * qCosS * cos(vAz * 0.017453293);
+      float cS1 = vSe * qSinS + vCe * qCosS * cos((180.0 + vAz) * 0.017453293);
+      ambVertSun  += atm_skyRadiance(vElev, cS0, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+      ambVertAnti += atm_skyRadiance(vElev, cS1, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+    }
+  }
+  ambVertSun *= (1.0 / 6.0);
+  ambVertAnti *= (1.0 / 6.0);
+  }
+
   // 지평선 부근 대기 색상 (먼 구름이 지평선과 융합될 때 쓸 안개 빛)
   vec3 horizonHaze = atm_skyRadiance(1.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
 
@@ -372,6 +438,19 @@ void main(){
 
   for (int L = 0; L < 3; L++){
     float hBase  = L == 0 ? ALT_HIGH : (L == 1 ? ALT_MID : ALT_LOW);
+    // 구름 고도에서 본 태양. 지평선이 dip 만큼 내려가므로 관측자에게
+    // 진 해도 구름에는 아직 떠 있습니다 — 저층 2km 는 1.44도, 중층 6km 는
+    // 2.49도. beamAtAltitude 가 이미 같은 보정을 씁니다.
+    float dipDeg = degrees(acos(SLAB_R_EARTH / (SLAB_R_EARTH + hBase)));
+    float sunElevC = radians(uSunAltDeg + dipDeg);
+    float sinSunC = sin(sunElevC), cosSunC = cos(sunElevC);
+    // 구름 국소좌표(수평 xy · 위 z)에서 본 태양 방향.
+    //
+    // ⚠ 예전 sunLightDir 은 세로 성분에 **sinE(시선 고도)** 를 넣고 있었습니다.
+    // 태양의 높이 자리에 카메라의 높이가 들어간 셈이라, 위를 보면 태양이
+    // 머리 위로 올라오고 지평선을 보면 옆으로 눕습니다. 조명이 시선을
+    // 따라다니면 안 됩니다(40절).
+    vec3 sunDirLocal = normalize(vec3(sunXZ * cosSunC, sinSunC));
     float hThick = L == 0 ? 0.6 : (L == 1 ? 1.0 : 1.6); // 층의 수직 두께 (km)
     int nSteps   = L == 0 ? 1 : (L == 1 ? 2 : 3);       // 체적 샘플링 스텝 수
     // 주의: 스텝마다 h 가 달라 slab_sphereIntersect 를 다시 풀므로, 세 스텝은
@@ -626,8 +705,32 @@ void main(){
       float stepAlpha = 1.0 - T;
 
       // 자기그림자 (Self-shadow)
-      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
-      float reach = exp(-thickSun * tauK * 0.55);
+      // ── 태양 투과율 ────────────────────────────────────────────────
+      //
+      // 예전에는 셀의 0.55 배만큼 옆으로 **한 번** 떠서 끝냈습니다. 태양이
+      // 어디에 있든 같은 거리라, 노을의 긴 그림자가 아예 생기지 않습니다.
+      // 광선이 두께 hThick 인 층을 옆으로 뚫고 나가는 수평 거리는
+      // hThick/tan(태양고도) 이고 해가 낮을수록 급히 길어집니다 —
+      // 태양 45도면 1.6km, 5도면 18km. 그 경로를 3점으로 적분하고,
+      // 광학두께도 수직이 아니라 **빗변** 길이로 셉니다.
+      float thickSun;
+      float reach;
+      if (uCloudModel > 0.5) {
+        float runKm = min(hThick / max(0.02, tan(max(sunElevC, 0.007))), cellKm * 6.0);
+        float acc = 0.0, wsum = 0.0;
+        for (int ks = 1; ks <= 3; ks++){
+          float f = float(ks) / 3.0;
+          float w = 1.0 - 0.25 * f;      // 멀리 있는 표본은 조금 덜 셉니다
+          acc += slab_layer_thickness(L, kmN + sunXZ * (runKm * f), cover * shape,
+                                      cellKm, conf, sSeed, windNorm, det, billowAmt, cluster) * w;
+          wsum += w;
+        }
+        thickSun = acc / wsum;
+        reach = exp(-thickSun * tauK * min(1.0 / max(0.10, sinSunC), 8.0) * 0.55);
+      } else {
+        thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
+        reach = exp(-thickSun * tauK * 0.55);
+      }
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
       // 체적 수직 조명 프로파일. 스텝이 하나뿐이면 프로파일이 의미가 없고
@@ -636,66 +739,132 @@ void main(){
       float vertLit = nSteps > 1 ? (0.65 + 0.55 * sFrac) : 1.0;
       float vertShadow = nSteps > 1 ? (0.50 + 0.50 * sFrac) : 1.0;
 
-      // ── 구름의 위상함수는 거의 등방입니다 ──────────────────────────────
+      // ── 구름 안의 빛: 보존산란 2-stream 슬랩 해 (계획 40절) ────────
       //
-      // 바닥 0.45 는 **단일산란** 위상함수의 모양입니다. 그런데 광학두께가
-      // 1 을 넘는 구름 속에서는 빛이 여러 번 튀며 방향 기억을 잃어, 밖에서
-      // 보는 밝기는 각도에 거의 무관해집니다(램버트에 가까움). 실제로 맑은
-      // 날 뭉게구름은 산란각 60°에서 보든 120°에서 보든 똑같이 하얗습니다 —
-      // 태양 쪽 가장자리만 전방산란으로 더 밝습니다(은테).
+      // 예전에는 세 항(직달 lit · 주변 amb · 다중산란 ms)을 각자 다른 바닥
+      // 상수로 만들어 더했습니다. 바닥이 여섯 개였고 그중 어느 것도 서로를
+      // 모르므로 에너지가 보존되지 않았습니다 — 하나를 올리면 다른 곳이
+      // 깨지는 것이 그 때문입니다(39절).
       //
-      // 바닥이 0.45 면 옆에서 본 구름이 절반으로 죽습니다. 그게 맑은 날
-      // 구름이 하늘보다 어둡게 나오는 가장 큰 몫이라 uniform 으로 뺍니다
-      // (계획 36절). 은테를 만드는 cosG^5 항은 그대로 둡니다.
-      float ph = uCloudPhaseFloor + (1.0 - uCloudPhaseFloor) * pow(max(cosG, 0.0), 5.0);
-      // ── 두꺼워질수록 어두워지는 것은 직달광이 아닙니다 ──────────────────
+      // 구름은 가시광에서 거의 흡수하지 않습니다(단일산란 알베도 ≈ 0.9999).
+      // 흡수가 없는 평면평행 슬랩의 2-stream 해는 **정확히** R + Tr = 1 을
+      // 만족합니다:
       //
-      // T 는 **이 표본을 시선 방향으로 뚫는 투과율**이라, 이 표본이 태양빛을
-      // 얼마나 받는지와는 상관이 없습니다(그건 이미 reach 가 셉니다). 화면을
-      // 얼마나 덮는지도 stepAlpha 가 따로 셉니다. 그러니 여기 T 를 한 번 더
-      // 곱하는 것은 소멸을 두 번 세는 것이고, 얇은 가장자리를 빛나게 하려고
-      // 넣은 장치입니다.
+      //   R = tp/(tp+2),   Tr = 2/(tp+2),   tp = (1-g)*tau   (유사변환)
       //
-      // 문제는 바닥이 0.20 이라 조금만 두꺼워지면 직달광이 5분의 1로 죽는다는
-      // 것입니다. 구름은 빛을 거의 **흡수하지 않는** 산란체라(가시광 단일산란
-      // 알베도 ≈ 0.9999) 두꺼워질수록 어두워질 이유가 없습니다 — 두꺼운
-      // 적운의 햇빛 받는 면이 눈부시게 흰 것이 그 때문입니다.
-      // 바닥을 uniform 으로 빼서 잽니다(계획 36절).
-      vec3 lit = beam * reach * ph * (uCloudLitFloor + (1.35 - uCloudLitFloor) * T) * vertLit;
+      // 내부 평균복사 Jbar 도 깊이에 대해 **선형**으로 닫힙니다. 등방
+      // 산란원이므로 이 Jbar 가 곧 시선으로 나가는 원천함수입니다.
+      // 바닥 상수도, 2-stream 흉내 곱셈도 필요 없습니다.
+      vec3 cc;
+      if (uCloudModel > 0.5) {
+        // 단위를 **플럭스/파이(등가 등방 복사휘도)** 로 통일합니다. 그래야
+        // 직달 beam 과 하늘 ambBase 를 그냥 더할 수 있습니다.
+        // 직달광이 이 조각에 얼마나 실리는가는 **면의 코사인**이 정합니다.
+        // 평면평행처럼 sin(태양고도)를 쓰면 해가 지평선에 있을 때 0 이 되어
+        // 노을 구름이 통째로 죽습니다. 실제로 노을에 구름이 타오르는 이유가
+        // 바로 3차원 구름의 **옆면**이 수평 광선을 정면으로 받기 때문입니다.
+        // 릴리프 노멀 n 이 우리가 가진 유일한 모양 정보이므로 그걸 씁니다.
+        float cosFace = max(0.0, dot(n, sunDirLocal));
+        // uCloudSideLit 은 노멀이 못 담는 잔여(구름 덩어리 사이 반사 등)
+        // 바닥입니다. 0 이면 노멀이 등지는 면은 직달광이 정확히 0.
+        vec3 Edir = beam * reach * (cosFace + uCloudSideLit * (1.0 - cosFace) * max(0.0, sinSunC));
+        // 하늘빛은 reach 를 곱하지 **않습니다** — 자기그림자에 든 구름도
+        // 하늘 전체에서 확산광을 받습니다. 대신 **어느 쪽을 보는 면인가**로
+        // 세 적분을 잇습니다: 위를 보면 ambHemi, 옆을 보면 태양쪽/반대쪽
+        // 수직면 적분.
+        //
+        // uCloudFaceUp 이 1 보다 작은 이유: 높이장의 노멀은 구름을 위에서
+        // 눌러 본 것이라 옆면을 과소평가합니다. 실제 뭉게구름은 노멀이
+        // 곧추서 있어도 옆구리가 있습니다.
+        float faceUp = clamp(n.z * uCloudFaceUp, 0.0, 1.0);
+        vec2 nh = n.xy;
+        float faceSun = length(nh) > 1e-4 ? dot(normalize(nh), sunXZ) : 0.0;
+        vec3 ambSide = mix(ambVertAnti, ambVertSun, 0.5 + 0.5 * faceSun);
+        vec3 Fdn = Edir + mix(ambSide, ambHemi, faceUp);
+        float tp = thick * tauK * (1.0 - uCloudAsym);
+        float ag = uCloudGroundAlb;
+        float kk = (1.0 - ag) / (2.0 + tp * (1.0 - ag));
+        // 깊이 xd: 윗면 0 → 밑면 tp.
+        //
+        // 스텝이 하나뿐이면 그 표본이 기둥 전체를 대표해야 하는데, 한가운데를
+        // 쓰면 **깊이 의존이 통째로 사라집니다** — Jbar 가 tp 에 거의 무관한
+        // 상수(F의 0.53~0.58배)가 되어 노을이 평평해집니다(측정: 태양 -3°
+        // 명암폭 97.3 → 62.3).
+        //
+        // 실제로는 어디를 보느냐가 정합니다. 위를 올려다보면 구름의 **밑면**을
+        // 보므로 기둥 전체를 통과한 빛(Tr, 두꺼우면 어둡다)이고, 지평선을
+        // 스치듯 보면 옆면과 윗면이 같이 들어옵니다. sinE 가 그 기하입니다.
+        float xd = tp * mix(0.45, 1.0, sinE) * (nSteps > 1 ? (1.0 - sFrac) * 2.0 : 1.0);
+        vec3 Jbar = Fdn * max(0.0, 1.0 - kk * (1.0 + xd));
+        // 남은 것은 위상함수의 **등방 초과분**뿐입니다. 구면 평균이 1 인
+        // HG 에서 1 을 빼므로 이 항은 평균 0 — 에너지를 더하지도 빼지도
+        // 않고 태양쪽 은테와 반대쪽 감광만 만듭니다. 전방 첨두는 유사변환
+        // 때 이미 잘라 냈으므로 잔여 비등방은 작습니다.
+        float g2 = uCloudAniso * uCloudAniso;
+        float hg = (1.0 - g2) / pow(max(1e-3, 1.0 + g2 - 2.0 * uCloudAniso * cosG), 1.5);
+        cc = max(Jbar + Edir * (hg - 1.0) * uCloudAnisoW, vec3(0.0));
+      } else {
+        // ── 구름의 위상함수는 거의 등방입니다 ──────────────────────────────
+        //
+        // 바닥 0.45 는 **단일산란** 위상함수의 모양입니다. 그런데 광학두께가
+        // 1 을 넘는 구름 속에서는 빛이 여러 번 튀며 방향 기억을 잃어, 밖에서
+        // 보는 밝기는 각도에 거의 무관해집니다(램버트에 가까움). 실제로 맑은
+        // 날 뭉게구름은 산란각 60°에서 보든 120°에서 보든 똑같이 하얗습니다 —
+        // 태양 쪽 가장자리만 전방산란으로 더 밝습니다(은테).
+        //
+        // 바닥이 0.45 면 옆에서 본 구름이 절반으로 죽습니다. 그게 맑은 날
+        // 구름이 하늘보다 어둡게 나오는 가장 큰 몫이라 uniform 으로 뺍니다
+        // (계획 36절). 은테를 만드는 cosG^5 항은 그대로 둡니다.
+        float ph = uCloudPhaseFloor + (1.0 - uCloudPhaseFloor) * pow(max(cosG, 0.0), 5.0);
+        // ── 두꺼워질수록 어두워지는 것은 직달광이 아닙니다 ──────────────────
+        //
+        // T 는 **이 표본을 시선 방향으로 뚫는 투과율**이라, 이 표본이 태양빛을
+        // 얼마나 받는지와는 상관이 없습니다(그건 이미 reach 가 셉니다). 화면을
+        // 얼마나 덮는지도 stepAlpha 가 따로 셉니다. 그러니 여기 T 를 한 번 더
+        // 곱하는 것은 소멸을 두 번 세는 것이고, 얇은 가장자리를 빛나게 하려고
+        // 넣은 장치입니다.
+        //
+        // 문제는 바닥이 0.20 이라 조금만 두꺼워지면 직달광이 5분의 1로 죽는다는
+        // 것입니다. 구름은 빛을 거의 **흡수하지 않는** 산란체라(가시광 단일산란
+        // 알베도 ≈ 0.9999) 두꺼워질수록 어두워질 이유가 없습니다 — 두꺼운
+        // 적운의 햇빛 받는 면이 눈부시게 흰 것이 그 때문입니다.
+        // 바닥을 uniform 으로 빼서 잽니다(계획 36절).
+        vec3 lit = beam * reach * ph * (uCloudLitFloor + (1.35 - uCloudLitFloor) * T) * vertLit;
       
-      // 다중 산란(Multiple Scattering) 투과광: 
-      // 두꺼운 구름이라도 직달광(reach=0)이 산란을 통해 내부와 밑면을 밝힘
-      float totalTau = max(thickSun, thick) * tauK; 
-      float msTransmittance = 2.0 / (totalTau * 0.15 + 2.0); // 2-stream 근사
-      // 다중산란. 두 가지를 고쳤습니다.
-      //
-      // (1) 세기가 0.5 로 커서 노을 대비를 통째로 먹었습니다 — 이 항만
-      //     빼면 태양 0° 명암폭이 47.9 → 102 로 두 배가 됩니다.
-      // (2) reach 를 안 봐서 **자기그림자에 든 구름에도 같은 양**이
-      //     들어갔습니다. 그게 "태양 반대편 그림자"가 사라진 이유입니다.
-      //     완전히 게이트하면 두꺼운 속이 새까매지므로, 그늘에서도 4분의 1은
-      //     남깁니다 — 다중산란은 원래 직달광이 안 닿는 곳도 밝히니까요.
-      vec3 ms = beam * msTransmittance * 0.12 * (0.3 + 0.7 * vertShadow)
+        // 다중 산란(Multiple Scattering) 투과광: 
+        // 두꺼운 구름이라도 직달광(reach=0)이 산란을 통해 내부와 밑면을 밝힘
+        float totalTau = max(thickSun, thick) * tauK; 
+        float msTransmittance = 2.0 / (totalTau * 0.15 + 2.0); // 2-stream 근사
+        // 다중산란. 두 가지를 고쳤습니다.
+        //
+        // (1) 세기가 0.5 로 커서 노을 대비를 통째로 먹었습니다 — 이 항만
+        //     빼면 태양 0° 명암폭이 47.9 → 102 로 두 배가 됩니다.
+        // (2) reach 를 안 봐서 **자기그림자에 든 구름에도 같은 양**이
+        //     들어갔습니다. 그게 "태양 반대편 그림자"가 사라진 이유입니다.
+        //     완전히 게이트하면 두꺼운 속이 새까매지므로, 그늘에서도 4분의 1은
+        //     남깁니다 — 다중산란은 원래 직달광이 안 닿는 곳도 밝히니까요.
+        vec3 ms = beam * msTransmittance * 0.12 * (0.3 + 0.7 * vertShadow)
               * (0.25 + 0.75 * reach);
-      lit += ms * uMultiScatter;
+        lit += ms * uMultiScatter;
 
-      // 두꺼운 덱의 **밑면**도 하늘빛을 받습니다.
-      //
-      // 예전에는 (0.26 + 0.30*T) 뿐이라 T→0 이면 26% 로 굳었습니다. 태양이
-      // 지평선에 있으면 beam 이 거의 0 인데 nightFactor 도 아직 0 이라
-      // 달·도시광이 안 켜집니다. 그 틈에서 흐린 하늘을 밝힐 항이 하나도
-      // 없어 **화면이 통째로 검어졌습니다** (전천후 격자: 흐림·천정·노을
-      // 평균 휘도 0, 구름덮임 0 — 검은 구름이 하늘을 다 덮은 것입니다).
-      //
-      // 이미 계산해 둔 2-stream 투과율을 주변광에도 태웁니다. 얇으면
-      // 1.11배(하늘과 거의 같음), 광학두께 15의 두꺼운 덱이면 0.52배로
-      // 붙습니다 — 흐린 날 낮이 어둡긴 해도 캄캄하지는 않습니다.
-      // ⚠ 바닥 0.26 은 **구름이 하늘의 26% 만 본다**는 뜻입니다. 실제 구름은
-      // 하늘 반구 전체에서 확산광을 받으므로 그보다 훨씬 많이 받습니다.
-      // 맑은 날 얇은 구름이 하늘보다 어둡게 나오는 주된 원인이라 여기도
-      // uniform 으로 빼서 잽니다(계획 36절).
-      vec3 amb = ambBase * (uCloudAmbFloor + 0.30 * T) * vertShadow;
-      vec3 cc = lit + amb;
+        // 두꺼운 덱의 **밑면**도 하늘빛을 받습니다.
+        //
+        // 예전에는 (0.26 + 0.30*T) 뿐이라 T→0 이면 26% 로 굳었습니다. 태양이
+        // 지평선에 있으면 beam 이 거의 0 인데 nightFactor 도 아직 0 이라
+        // 달·도시광이 안 켜집니다. 그 틈에서 흐린 하늘을 밝힐 항이 하나도
+        // 없어 **화면이 통째로 검어졌습니다** (전천후 격자: 흐림·천정·노을
+        // 평균 휘도 0, 구름덮임 0 — 검은 구름이 하늘을 다 덮은 것입니다).
+        //
+        // 이미 계산해 둔 2-stream 투과율을 주변광에도 태웁니다. 얇으면
+        // 1.11배(하늘과 거의 같음), 광학두께 15의 두꺼운 덱이면 0.52배로
+        // 붙습니다 — 흐린 날 낮이 어둡긴 해도 캄캄하지는 않습니다.
+        // ⚠ 바닥 0.26 은 **구름이 하늘의 26% 만 본다**는 뜻입니다. 실제 구름은
+        // 하늘 반구 전체에서 확산광을 받으므로 그보다 훨씬 많이 받습니다.
+        // 맑은 날 얇은 구름이 하늘보다 어둡게 나오는 주된 원인이라 여기도
+        // uniform 으로 빼서 잽니다(계획 36절).
+        vec3 amb = ambBase * (uCloudAmbFloor + 0.30 * T) * vertShadow;
+        cc = lit + amb;
+      }
 
       // 밤하늘 달빛 직달광 & 산란광
       if (nightFactor > 0.01 && moonAltFactor > 0.01) {
@@ -715,8 +884,13 @@ void main(){
         cc += cityAmb * nightFactor * 0.6; // 너무 과하지 않게 줄임
       }
 
-      // 입체 릴리프 음영 부여
-      cc *= (0.76 + 0.50 * clamp(relief, -0.6, 1.0));
+      // 입체 릴리프 음영 부여.
+      //
+      // 2-stream 에서는 릴리프가 이미 **물리적으로** 들어가 있습니다 —
+      // 직달은 면 코사인(cosFace), 하늘은 면이 보는 입체각(0.5+0.5*n.z).
+      // 여기서 한 번 더 곱하면 같은 기하를 두 번 세고, 게다가 relief 는
+      // 태양 아래에서 rake 라는 **가짜 광원**으로 갈아탑니다.
+      if (uCloudModel <= 0.5) cc *= (0.76 + 0.50 * clamp(relief, -0.6, 1.0));
 
       // 구름은 자기가 가린 하늘보다 어두울 수 있어도 **완전히 검을 수는
       // 없습니다.** 두꺼운 덱의 밑면도 옆과 아래에서 들어오는 빛을 받습니다.
@@ -739,7 +913,12 @@ void main(){
       // 맑음은 146.8 입니다. 두 경우의 천정 복사휘도는 0.045 로 같으니
       // 차이는 betaMie(0.046 대 0.219)를 받는 쪽에 있습니다.
       // docs/SKY_REBUILD_PLAN.md 15절에 남겼습니다.
-      cc = max(cc, ambBase * 0.18 * (1.0 - T));
+      // ⚠ 이 바닥은 **legacy 전용**입니다. 2-stream 에는 필요가 없고
+      // 있으면 해롭습니다: Jbar 는 구조상 0 이 될 수 없고(가장 두꺼운
+      // 밑면도 F 의 0.11배), 반대로 ambBase 는 태양 쪽에서 진짜 반구
+      // 조도의 8.5배라 바닥이 본체보다 커집니다. 실제로 켜 둔 채 재 보니
+      // 노을 화면이 통째로 균일한 잿빛으로 덮여 구름 구조가 사라졌습니다.
+      if (uCloudModel <= 0.5) cc = max(cc, ambBase * 0.18 * (1.0 - T));
 
       // 층별 틴트 & 깊이감
       vec3 tint = L == 0 ? vec3(1.05, 0.98, 1.03) : (L == 1 ? vec3(1.00, 1.00, 1.01) : vec3(0.97, 0.99, 1.00));
@@ -924,6 +1103,14 @@ export function createCloudSlab(opts: {
       uCloudLitFloor: { value: 0.45 },
       uCloudAmbFloor: { value: 0.26 },
       uCloudPhaseFloor: { value: 0.90 },
+      // 40절 — 0 이면 예전 삼항 합, 1 이면 보존산란 2-stream 슬랩 해.
+      uCloudModel: { value: 0 },
+      uCloudAsym: { value: 0.85 },      // 물방울 비대칭 인자 g (유사변환용)
+      uCloudAniso: { value: 0.45 },     // 절단 후 잔여 비등방
+      uCloudAnisoW: { value: 0.35 },
+      uCloudGroundAlb: { value: 0.15 }, // 지면 알베도 (육지)
+      uCloudSideLit: { value: 0.25 },   // 노멀이 못 담는 잔여 직달광
+      uCloudFaceUp: { value: 0.65 },    // 높이장 노멀이 과소평가하는 옆면 보정
       // 구름 군집 (계획 37절). 규모는 셀의 3배 — 저층 6km 입니다.
       // ⚠ 셀×7(14km)로는 **아무 일도 안 일어납니다.** 한 화면 안에서
       // 너무 천천히 변해 군집으로 안 보입니다(먼 하늘 구름각크기
@@ -1076,6 +1263,14 @@ export interface CloudSlabUpdate {
   cloudAmbFloor?: number;
   /** 구름 위상함수의 바닥 (기본 0.90). 올리면 옆에서 본 구름이 밝아집니다. */
   cloudPhaseFloor?: number;
+  /** 40절 — 'twoStream' 이면 보존산란 슬랩 해, 'legacy' 면 예전 삼항 합. */
+  cloudModel?: 'legacy' | 'twoStream';
+  cloudAsym?: number;
+  cloudAniso?: number;
+  cloudAnisoW?: number;
+  cloudGroundAlb?: number;
+  cloudSideLit?: number;
+  cloudFaceUp?: number;
   /** 구름 군집 세기 (0 = 없음). 셀보다 큰 규모의 덩어리를 만듭니다. */
   clusterAmt?: number;
   /** 군집 규모 = 셀 크기 × 이 값 (기본 3 → 저층 6km). */
@@ -1154,6 +1349,13 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uCloudLitFloor.value = u.cloudLitFloor ?? 0.45;
   uni.uCloudAmbFloor.value = u.cloudAmbFloor ?? 0.26;
   uni.uCloudPhaseFloor.value = u.cloudPhaseFloor ?? 0.90;
+  uni.uCloudModel.value = u.cloudModel === 'twoStream' ? 1 : 0;
+  uni.uCloudAsym.value = u.cloudAsym ?? 0.85;
+  uni.uCloudAniso.value = u.cloudAniso ?? 0.45;
+  uni.uCloudAnisoW.value = u.cloudAnisoW ?? 0.35;
+  uni.uCloudGroundAlb.value = u.cloudGroundAlb ?? 0.15;
+  uni.uCloudSideLit.value = u.cloudSideLit ?? 0.25;
+  uni.uCloudFaceUp.value = u.cloudFaceUp ?? 0.65;
   uni.uClusterAmt.value = u.clusterAmt ?? 0.7;
   uni.uClusterMul.value = u.clusterMul ?? 3.0;
   // ── 아래쪽 주변광 표본 고도는 **태양을 따라 내려갑니다** (계획 38절) ──
