@@ -862,13 +862,22 @@ export function createCloudSlab(opts: {
       // 사용자가 실기기에서 "맑은 날인데 구름이 너무 어둡다" 고 짚었고,
       // 같은 순간 QR·사진으로 재니 **구름이 자기가 가린 하늘보다 어두웠습니다**
       // (구름밝기비 0.76~0.95, 1 을 넘어야 정상). 셋 다 구름을 흡수체처럼
-      // 다루던 값이라, 비흡수 산란체 쪽으로 옮긴 값입니다. 훑어서 골랐고
-      // (build-cloud-lit-sweep) 노을 지표는 오히려 좋아집니다:
+      // 다루던 값이라 비흡수 산란체 쪽으로 옮겼습니다.
       //
-      //   구름밝기비 0.818 → 1.000   어두운쪽채도 0.358 → 0.423 (사진 0.44)
-      //   노을 명암폭 142 → 167      노을 세로기울기 0.259 → 0.157
-      uCloudLitFloor: { value: 0.70 },
-      uCloudAmbFloor: { value: 0.55 },
+      // ⚠ **주변광 바닥(amb)은 0.26 그대로 둡니다.** 셋 중 구름을 가장 크게
+      // 밝히지만(+0.077), 그늘진 구름까지 같이 들어 올려 노을 실루엣을
+      // 지웁니다 — 0.35 로만 올려도 verify-sunset-gap 의 태양 -3° 명암폭이
+      // 88.4 로 문턱(90) 아래로 떨어집니다. 반대로 직달 쪽 둘(lit·ph)은
+      // 햇빛 받는 면만 밝히므로 빛/그늘 대비가 보존됩니다.
+      //
+      // 캐노니컬 판정으로 고른 값입니다(내 훑기 습작의 노을 장면이 판정과
+      // 달라 한 번 거짓말했습니다 — 36.4절):
+      //
+      //   구름밝기비 0.814 → 0.895 (화면 48°) · 0.760 → 0.945 (옆 90°)
+      //   어두운쪽채도 0.359 → 0.415 (사진 0.44)
+      //   노을 명암폭 92.2 → 103.3 (오히려 좋아짐) · 네 단언 모두 통과
+      uCloudLitFloor: { value: 0.45 },
+      uCloudAmbFloor: { value: 0.26 },
       uCloudPhaseFloor: { value: 0.90 },
     },
     vertexShader: VERT,
@@ -1083,8 +1092,8 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uNfCapKm.value = u.nfCapKm ?? 22;
   uni.uNfViewSteps.value = u.nfViewSteps ?? 28;
   uni.uNfShadowSteps.value = u.nfShadowSteps ?? 5;
-  uni.uCloudLitFloor.value = u.cloudLitFloor ?? 0.70;
-  uni.uCloudAmbFloor.value = u.cloudAmbFloor ?? 0.55;
+  uni.uCloudLitFloor.value = u.cloudLitFloor ?? 0.45;
+  uni.uCloudAmbFloor.value = u.cloudAmbFloor ?? 0.26;
   uni.uCloudPhaseFloor.value = u.cloudPhaseFloor ?? 0.90;
 }
 
