@@ -156,7 +156,7 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
  * 옳은 물리이기도 합니다 — 90km 밖 구름의 낱개 봉우리는 실제로도 안 보입니다
  * (계획 8절 - 선명도는 확신도에 비례합니다).
  */
-float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float billowAmt){
+float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float billowAmt, float cluster){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
   
@@ -179,6 +179,17 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   
   // 구름이 완전히 덮인 흐린 날(cover -> 1.0)일 경우 노이즈 틈새(구멍)가 뚫리지 않도록 덩어리로 만들어 줍니다.
   m = mix(m, cover * 1.5, smoothstep(0.9, 1.0, cover));
+
+  // ── 군집 (계획 37절) ────────────────────────────────────────────────
+  //
+  // ⚠ **문턱(baseSub)을 넘기 전에** 곱해야 합니다. 두께에 곱했더니 아무
+  // 일도 안 일어났습니다 — 이 광학두께에서는 알파가 이미 포화라 두께를
+  // ±45% 흔들어도 불투명한 채 그대로입니다. 실루엣을 정하는 것은
+  // m 이 baseSub 를 넘느냐이므로, 거기를 흔들어야 군집과 틈이 생깁니다.
+  //
+  // 흐린 날에는 끕니다 — 운량 90% 하늘은 군집이 아니라 한 장의 판이고,
+  // 여기서 구멍을 뚫으면 위의 밀폐 처리를 되돌리는 셈입니다.
+  m *= mix(1.0, cluster, 1.0 - smoothstep(0.75, 0.95, cover));
   
   // 구름 자체의 잔결(빌로우). 셀의 12분의 1 규모라, 천정처럼 지상 좌표가
   // 한 점으로 모이는 곳에서도 구조가 남습니다. 평균이 1인 곱셈이라
@@ -292,6 +303,7 @@ uniform float uSaturation;
 uniform sampler2D uGenusTex;
 uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
 uniform float uCloudLitFloor, uCloudAmbFloor, uCloudPhaseFloor;
+uniform float uClusterAmt, uClusterMul;
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -379,6 +391,25 @@ void main(){
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
     float conf  = cv.a;
     vec2 kmN = km + wind * uDriftHours;
+
+    // ── 구름 군집 — 셀보다 **큰** 규모 (계획 37절) ────────────────────
+    //
+    // slab_fbm 은 셀 크기에서 시작해 옥타브마다 **더 잘게만** 갑니다.
+    // 그래서 이 필드의 최대 특징이 셀의 1.7배 — 저층 3.3km 뿐입니다.
+    // 실제 적운 벌판은 수십 km 짜리 군집과 구름거리로 조직됩니다.
+    //
+    // 그게 없으면 먼 하늘이 무너집니다. 고도 5°에서 3.3km 구름은 가로
+    // 11° · 세로 0.95° 짜리 얇은 조각이라, 여러 개가 겹쳐 균일한 띠로
+    // 뭉갭니다. 같은 고도에서 20km 군집이면 가로 60° 로 남습니다.
+    // ("먼거리 구름이 갈수록 작게 보이고 뭉쳐 있다" 는 지적의 정체)
+    //
+    // 원근으로 작아지는 것 자체는 옳으므로 건드리지 않습니다. 모자란
+    // 것은 **큰 규모**이지 원근이 아닙니다.
+    //
+    // 평균이 1 이라 예보 운량을 밀지 않습니다 (fbm 평균 0.5 → 0.55+0.45).
+    float cluster = mix(1.0,
+      0.55 + 0.9 * slab_fbm(kmN / max(1e-3, cellKm * uClusterMul) + 71.3, 3),
+      uClusterAmt);
 
     // ── 근거리 볼륨 (계획 27·33절) ──────────────────────────────────────
     //
@@ -556,13 +587,15 @@ void main(){
       // 노이즈를 빼는 셈이라 기울기가 난수가 되고, 그걸 6배 키운 노멀이
       // 입체감을 만들기는커녕 지웁니다.
       float sSeed = seed;
-      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
+      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
       if (thick <= 0.0) continue;
 
       // ── 3D 입체 릴리프 음영 ──
       float eps = cellKm * SLAB_RELIEF_EPS;
-      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
-      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
+      // ⚠ 릴리프도 **같은 cluster** 를 써야 합니다. 다르면 서로 무관한
+      // 두 필드를 빼는 셈이라 기울기가 난수가 됩니다(실기기 결함 2번).
+      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
+      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
       float dhdx = (tX - thick) / eps;
       float dhdy = (tY - thick) / eps;
       // 노멀 강도를 높여 구름 덩어리의 두께감(Bumpiness)을 강조합니다
@@ -581,7 +614,7 @@ void main(){
       float stepAlpha = 1.0 - T;
 
       // 자기그림자 (Self-shadow)
-      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt);
+      float thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
       float reach = exp(-thickSun * tauK * 0.55);
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
@@ -879,6 +912,12 @@ export function createCloudSlab(opts: {
       uCloudLitFloor: { value: 0.45 },
       uCloudAmbFloor: { value: 0.26 },
       uCloudPhaseFloor: { value: 0.90 },
+      // 구름 군집 (계획 37절). 규모는 셀의 3배 — 저층 6km 입니다.
+      // ⚠ 셀×7(14km)로는 **아무 일도 안 일어납니다.** 한 화면 안에서
+      // 너무 천천히 변해 군집으로 안 보입니다(먼 하늘 구름각크기
+      // 5.88° 그대로). 셀×3 에서 8.83° 로 커집니다.
+      uClusterAmt: { value: 0.7 },
+      uClusterMul: { value: 3.0 },
     },
     vertexShader: VERT,
     fragmentShader: frag,
@@ -1023,6 +1062,10 @@ export interface CloudSlabUpdate {
   cloudAmbFloor?: number;
   /** 구름 위상함수의 바닥 (기본 0.90). 올리면 옆에서 본 구름이 밝아집니다. */
   cloudPhaseFloor?: number;
+  /** 구름 군집 세기 (0 = 없음). 셀보다 큰 규모의 덩어리를 만듭니다. */
+  clusterAmt?: number;
+  /** 군집 규모 = 셀 크기 × 이 값 (기본 7 → 저층 14km). */
+  clusterMul?: number;
   visible: boolean;
 }
 
@@ -1095,6 +1138,8 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uCloudLitFloor.value = u.cloudLitFloor ?? 0.45;
   uni.uCloudAmbFloor.value = u.cloudAmbFloor ?? 0.26;
   uni.uCloudPhaseFloor.value = u.cloudPhaseFloor ?? 0.90;
+  uni.uClusterAmt.value = u.clusterAmt ?? 0.7;
+  uni.uClusterMul.value = u.clusterMul ?? 3.0;
 }
 
 /**
