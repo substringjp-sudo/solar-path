@@ -91,6 +91,8 @@ float slab_vnoise(vec2 p){
 }
 uniform float SLAB_FBM_GAIN;
 uniform float SLAB_RELIEF_EPS;
+uniform float uShapeMode, uShapeDepth, uShapeEdge, uShapeSigma;
+uniform float uFbmRot;
 float slab_fbm(vec2 p, int oct){
   float s = 0.0, a = 0.5, n = 0.0;
   for (int i = 0; i < 6; i++){
@@ -98,7 +100,21 @@ float slab_fbm(vec2 p, int oct){
     s += a * slab_vnoise(p); n += a;
     // 옥타브마다 접습니다. 안 접으면 5옥타브에서 좌표가 10만을 넘어
     // fract 해상도가 셀당 128단계까지 떨어집니다.
-    p = mod(p*2.03 + 7.1, SLAB_LATTICE); a *= SLAB_FBM_GAIN;
+    p = p * 2.03 + 7.1;
+    // ── 옥타브마다 **돌립니다** (계획 41절) ──────────────────────────
+    //
+    // slab_vnoise 는 정수 격자 위의 값잡음이라 등고선이 원래 마름모·사각
+    // 으로 눕습니다. 그런데 옥타브 전이가 확대·평행이동뿐이라 다섯 겹이
+    // 전부 **같은 축**을 씁니다 — 축 정렬이 상쇄되기는커녕 겹쳐 쌓입니다.
+    // 두께장은 문턱으로 잘리므로 그 각진 등고선이 곧 구름 실루엣입니다.
+    // (측정: 구름 경계 기울기 방향 축정렬도가 지평선 시선에서 6.1)
+    //
+    // 0.5 rad(28.6도)는 2파이의 무리수 배에 가까워 옥타브가 겹쳐도 주기가
+    // 생기지 않습니다. 회전을 접기 **앞**에 두어야 이음매가 유지됩니다 —
+    // 해시가 289 주기라 vnoise(mod(Rp)) == vnoise(Rp) 이기 때문입니다.
+    if (uFbmRot > 0.5) p = vec2(p.x * 0.87758 - p.y * 0.47943,
+                                p.x * 0.47943 + p.y * 0.87758);
+    p = mod(p, SLAB_LATTICE); a *= SLAB_FBM_GAIN;
   }
   return s / max(1e-5, n);
 }
@@ -159,22 +175,41 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
 float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float billowAmt, float cluster){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
+  // 모양장 f: 0~1, **운량과 무관한** 구름의 생김새 (41절의 문턱형에서 씀).
+  float f = 0.5;
+  // 느린 항(군집·물결)은 국소 **운량**을 밀지, 모양장을 밀지 않습니다.
+  float cvSlow = 1.0;
+  // 두께 배수 — 실루엣이 아니라 단면을 만드는 항이 여기로 옵니다.
+  float depthMul = 1.0;
   
   if (layer == 0) {
     // 고층 권운: 바람 방향으로 늘어난 비등방성 섬유질 스트릭
     vec2 pWind = vec2(dot(p, windNorm) * 0.28, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.6);
     float fibrous = mix(0.5, slab_fbm(pWind, 5), det);
     m = cover * 1.55 * (0.35 + 0.65 * fibrous) + (fibrous - 0.5) * 0.28 * conf;
+    f = fibrous;
   } else if (layer == 1) {
     // 중층 고적운: 부드러운 물결 파동과 중간 규모 셀
     float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18 * det;
     float form = mix(0.5, slab_fbm(p * 0.75, 4), det);
     m = cover * 1.65 * (0.45 + 0.55 * form + wave) + (form - 0.5) * 0.30 * conf;
+    f = form;
+    // 물결은 **느린** 항이라 백분위 입력에 넣으면 안 됩니다 — 한 화면 안에서
+    // 거의 상수라 국소 평균을 통째로 밀어 버립니다. 양떼구름의 줄무늬는
+    // 원래 "여기 더 많고 저기 덜 많다"는 이야기이므로 운량 쪽으로 보냅니다.
+    cvSlow *= 1.0 + wave * 1.6;
   } else {
     // 저층 적운: 볼록하고 묵직한 솜사탕형 빌로우
     float billow = mix(0.5, 1.0 - abs(slab_fbm(p * 0.60, 4) * 2.0 - 1.0), det);
     float detailN = mix(0.5, slab_fbm(p * 1.8, 4), det);
     m = cover * 1.85 * (0.55 * billow + 0.45 * detailN) + (detailN - 0.5) * 0.35 * conf;
+    // billow 는 fbm 을 접은 것(1-|2f-1|)이라 **치우친** 분포입니다 —
+    // 평균이 0.5 가 아니라 0.8 쯤입니다. 백분위 입력에 섞었더니 모양장
+    // 평균이 0.39 로 내려가 저층이 통째로 사라졌습니다(운량 25% → 면적
+    // 0.03). 실루엣은 대칭 잡음에 맡기고, 뭉게구름의 볼록한 덩어리감은
+    // **두께 단면**으로 옮깁니다 — 원래 거기가 제자리입니다.
+    f = detailN;
+    depthMul = 0.70 + 0.60 * billow;
   }
   
   // 구름이 완전히 덮인 흐린 날(cover -> 1.0)일 경우 노이즈 틈새(구멍)가 뚫리지 않도록 덩어리로 만들어 줍니다.
@@ -198,7 +233,47 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   m *= 0.82 + 0.36 * billowFine;
 
   float baseSub = layer == 0 ? 0.38 : (layer == 1 ? 0.40 : 0.42);
-  return max(0.0, m - baseSub);
+  if (uShapeMode <= 0.5) return max(0.0, m - baseSub);
+
+  // ── 41절 · 백분위 문턱 — 면적은 운량이, 두께는 물리가 정한다 ────────
+  //
+  // 예전 식은 m 이 통째로 cover 에 비례합니다. 그래서 운량이 낮으면
+  // **면적과 두께가 같이** 줄어듭니다. 측정하면 이렇게 나옵니다:
+  //
+  //   예보 10% → 화면 면적 0.00 · 25% → 0.06 · 50% → 0.83 · 75% → 0.99
+  //
+  // 계단입니다. 예보 25% 인 맑은 날이 화면에서 6% 로 사라지고, 50% 는
+  // 83% 를 덮습니다. 게다가 넘어선 화소도 두께가 0.2 를 못 넘어(광학두께 3)
+  // 구름 화소의 **1.6~8.4% 만 불투명**했습니다 — 온 하늘이 옅은 베일.
+  //
+  // 원인은 잡음의 폭이 좁다는 것입니다. 저층 모양장은 평균 0.72 · 표준편차
+  // 0.10 근처에 몰려 있어, 문턱을 선형으로 움직이면 좁은 구간에서 화면이
+  // 통째로 뒤집힙니다. 그래서 **백분위**로 바꿉니다 — 정규 CDF 를 로지스틱
+  // 으로 근사하면 q 가 0~1 로 고르므로 P(q > 1-cover) = cover 가 항등식이
+  // 됩니다. 문턱이 곧 면적입니다.
+  //
+  // 두께는 그 다음에 **따로** 정합니다. 구름의 깊이는 운량이 아니라 대류가
+  // 정하니까요. 가장자리 0 에서 중심 1 로 가는 t 를 돔 단면으로 폅니다.
+  // 모양장은 이제 **빠른 잡음만**이라 평균 0.5 근처에 대칭입니다.
+  // 폭은 옥타브 수에 따라 층마다 조금 다릅니다.
+  float fSig = uShapeSigma;
+  // 잔결은 빠른 항이라 그대로 모양장에 섞습니다(평균 0 이 되게 뺍니다).
+  float fm = f + (billowFine - 0.5) * 0.22 * billowAmt;
+  float q = 1.0 / (1.0 + exp(-1.702 * (fm - 0.5) / max(0.02, fSig)));
+  // 군집은 **면적**을 흔듭니다 — 여기 더 많고 저기 덜 많다는 이야기이므로.
+  float cvEff = clamp(cover * cvSlow * cluster, 0.0, 1.0);
+  float t = clamp((q - (1.0 - cvEff)) / max(0.05, cvEff), 0.0, 1.0);
+  // 가장자리 단면.
+  //
+  // pow(t, 0.85) 만 쓰면 문턱 바로 위 얇은 띠까지 광학두께 2 를 넘어 통째로
+  // 불투명해집니다 — 실루엣이 칼같이 서고, verify-photo-match 가 국소대비를
+  // 사진의 **2.0~2.4배**로 잡았습니다. smoothstep 은 t=0 에서 기울기가 0 이라
+  // 바깥쪽 몇 화소가 실제로 반투명하게 남습니다.
+  float prof = smoothstep(0.0, 1.0, t);
+  float d = uShapeDepth * depthMul * pow(prof, uShapeEdge);
+  // 흐린 날은 한 장의 판입니다 — 빈틈이 남지 않게 밀폐합니다.
+  d = mix(d, uShapeDepth * depthMul, smoothstep(0.90, 1.0, cover));
+  return clamp(d, 0.0, 1.8);
 }
 
 // ── 근거리 볼륨 (계획 27·33절) ────────────────────────────────────────────
@@ -794,7 +869,12 @@ void main(){
         // 실제로는 어디를 보느냐가 정합니다. 위를 올려다보면 구름의 **밑면**을
         // 보므로 기둥 전체를 통과한 빛(Tr, 두꺼우면 어둡다)이고, 지평선을
         // 스치듯 보면 옆면과 윗면이 같이 들어옵니다. sinE 가 그 기하입니다.
-        float xd = tp * mix(0.45, 1.0, sinE) * (nSteps > 1 ? (1.0 - sFrac) * 2.0 : 1.0);
+        // ⚠ 예전에 여기 (1-sFrac)*2.0 을 썼습니다. sFrac 은 이미 0(밑면)
+        // ~1(윗면) 이라 (1-sFrac) 만으로 기둥 전체를 덮는데, 2 를 곱하면
+        // 맨 아래 표본이 기둥의 **두 배** 깊이를 봅니다. 그러면 밑면이
+        // 과하게 어두워져 3스텝이 대비를 부풀립니다 — verify-photo-match 가
+        // 국소대비를 사진의 2.0~2.6배로 잡은 것이 그것이었습니다.
+        float xd = tp * mix(0.45, 1.0, sinE) * (nSteps > 1 ? (1.0 - sFrac) : 1.0);
         vec3 Jbar = Fdn * max(0.0, 1.0 - kk * (1.0 + xd));
         // 남은 것은 위상함수의 **등방 초과분**뿐입니다. 구면 평균이 1 인
         // HG 에서 1 을 빼므로 이 항은 평균 0 — 에너지를 더하지도 빼지도
@@ -1104,13 +1184,19 @@ export function createCloudSlab(opts: {
       uCloudAmbFloor: { value: 0.26 },
       uCloudPhaseFloor: { value: 0.90 },
       // 40절 — 0 이면 예전 삼항 합, 1 이면 보존산란 2-stream 슬랩 해.
-      uCloudModel: { value: 0 },
+      uCloudModel: { value: 1 },
       uCloudAsym: { value: 0.85 },      // 물방울 비대칭 인자 g (유사변환용)
       uCloudAniso: { value: 0.45 },     // 절단 후 잔여 비등방
       uCloudAnisoW: { value: 0.35 },
       uCloudGroundAlb: { value: 0.15 }, // 지면 알베도 (육지)
       uCloudSideLit: { value: 0.25 },   // 노멀이 못 담는 잔여 직달광
       uCloudFaceUp: { value: 0.65 },    // 높이장 노멀이 과소평가하는 옆면 보정
+      // 41절 — 0 이면 예전(면적·두께가 같이 운량에 비례), 1 이면 문턱형.
+      uShapeMode: { value: 1 },
+      uShapeDepth: { value: 1.2 },      // 구름 한가운데의 광학 두께 배수
+      uShapeEdge: { value: 0.70 },      // 가장자리 단면 (작을수록 칼같이 섬)
+      uShapeSigma: { value: 0.16 },     // 모양장(빠른 잡음)의 표준편차
+      uFbmRot: { value: 1 },            // 41절 — fbm 옥타브 회전
       // 구름 군집 (계획 37절). 규모는 셀의 3배 — 저층 6km 입니다.
       // ⚠ 셀×7(14km)로는 **아무 일도 안 일어납니다.** 한 화면 안에서
       // 너무 천천히 변해 군집으로 안 보입니다(먼 하늘 구름각크기
@@ -1271,6 +1357,12 @@ export interface CloudSlabUpdate {
   cloudGroundAlb?: number;
   cloudSideLit?: number;
   cloudFaceUp?: number;
+  /** 41절 — 'threshold' 면 면적은 운량이·두께는 물리가 정합니다. */
+  cloudShape?: 'legacy' | 'threshold';
+  shapeDepth?: number;
+  shapeEdge?: number;
+  shapeSigma?: number;
+  fbmRotate?: boolean;
   /** 구름 군집 세기 (0 = 없음). 셀보다 큰 규모의 덩어리를 만듭니다. */
   clusterAmt?: number;
   /** 군집 규모 = 셀 크기 × 이 값 (기본 3 → 저층 6km). */
@@ -1349,13 +1441,18 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uCloudLitFloor.value = u.cloudLitFloor ?? 0.45;
   uni.uCloudAmbFloor.value = u.cloudAmbFloor ?? 0.26;
   uni.uCloudPhaseFloor.value = u.cloudPhaseFloor ?? 0.90;
-  uni.uCloudModel.value = u.cloudModel === 'twoStream' ? 1 : 0;
+  uni.uCloudModel.value = u.cloudModel === 'legacy' ? 0 : 1;
   uni.uCloudAsym.value = u.cloudAsym ?? 0.85;
   uni.uCloudAniso.value = u.cloudAniso ?? 0.45;
   uni.uCloudAnisoW.value = u.cloudAnisoW ?? 0.35;
   uni.uCloudGroundAlb.value = u.cloudGroundAlb ?? 0.15;
   uni.uCloudSideLit.value = u.cloudSideLit ?? 0.25;
   uni.uCloudFaceUp.value = u.cloudFaceUp ?? 0.65;
+  uni.uShapeMode.value = u.cloudShape === 'legacy' ? 0 : 1;
+  uni.uShapeDepth.value = u.shapeDepth ?? 1.2;
+  uni.uShapeEdge.value = u.shapeEdge ?? 0.70;
+  uni.uShapeSigma.value = u.shapeSigma ?? 0.16;
+  uni.uFbmRot.value = u.fbmRotate === false ? 0 : 1;
   uni.uClusterAmt.value = u.clusterAmt ?? 0.7;
   uni.uClusterMul.value = u.clusterMul ?? 3.0;
   // ── 아래쪽 주변광 표본 고도는 **태양을 따라 내려갑니다** (계획 38절) ──
