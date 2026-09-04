@@ -304,6 +304,7 @@ uniform sampler2D uGenusTex;
 uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
 uniform float uCloudLitFloor, uCloudAmbFloor, uCloudPhaseFloor;
 uniform float uClusterAmt, uClusterMul;
+uniform float uAmbDownDeg;
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -332,7 +333,18 @@ void main(){
   // 즉 이 시선 의존이 지금은 지평선 집중을 만드는 일을 겸하고 있습니다.
   // 걷어 내려면 그 집중을 다른 곳에서 만들어 줘야 합니다(계획 22절).
   vec3 ambUp   = atm_skyRadiance(72.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
-  vec3 ambDown = atm_skyRadiance(12.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+  // ⚠ 아래쪽 주변광을 **12°에서 뜨면 노을빛을 통째로 놓칩니다.**
+  //
+  // 해가 지평선 아래로 내려가면 따뜻한 띠가 고도 0~6°로 얇게 내려앉습니다.
+  // 태양 -3°·이격 20°에서 재면 고도 1°가 따뜻함 +0.485 인데 12°는 이미
+  // **-0.325(파랑)** 입니다. 그런데 저층 구름은 그 시각에 직달광이
+  // 0.0006 까지 죽어 사실상 이 주변광만으로 칠해집니다 — 그래서 노을에
+  // 구름이 분홍이 아니라 남색이 됩니다(계획 38절).
+  //
+  // 태양 0°에서는 12°도 +0.756 이라 멀쩡합니다. 결함은 해가 진 뒤에만
+  // 나타나고, 사용자가 준 19:01(따뜻) → 19:11·19:16(남색) 화면이 그 전이
+  // 그대로입니다.
+  vec3 ambDown = atm_skyRadiance(uAmbDownDeg, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
   vec3 ambBase = mix(ambDown, ambUp, 0.35);
 
   // 지평선 부근 대기 색상 (먼 구름이 지평선과 융합될 때 쓸 안개 빛)
@@ -918,6 +930,8 @@ export function createCloudSlab(opts: {
       // 5.88° 그대로). 셀×3 에서 8.83° 로 커집니다.
       uClusterAmt: { value: 0.7 },
       uClusterMul: { value: 3.0 },
+      // 구름을 비추는 아래쪽 하늘을 어느 고도에서 뜨는가 (계획 38절).
+      uAmbDownDeg: { value: 12.0 },
     },
     vertexShader: VERT,
     fragmentShader: frag,
@@ -1064,8 +1078,10 @@ export interface CloudSlabUpdate {
   cloudPhaseFloor?: number;
   /** 구름 군집 세기 (0 = 없음). 셀보다 큰 규모의 덩어리를 만듭니다. */
   clusterAmt?: number;
-  /** 군집 규모 = 셀 크기 × 이 값 (기본 7 → 저층 14km). */
+  /** 군집 규모 = 셀 크기 × 이 값 (기본 3 → 저층 6km). */
   clusterMul?: number;
+  /** 구름을 비추는 아래쪽 하늘의 표본 고도 (기본 12°). 낮출수록 노을빛을 받습니다. */
+  ambDownDeg?: number;
   visible: boolean;
 }
 
@@ -1140,6 +1156,20 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uCloudPhaseFloor.value = u.cloudPhaseFloor ?? 0.90;
   uni.uClusterAmt.value = u.clusterAmt ?? 0.7;
   uni.uClusterMul.value = u.clusterMul ?? 3.0;
+  // ── 아래쪽 주변광 표본 고도는 **태양을 따라 내려갑니다** (계획 38절) ──
+  //
+  // 낮에는 12°가 맞습니다(태양 0°에서도 그 고도가 따뜻함 +0.756). 그런데
+  // 해가 지면 따뜻한 띠가 0~6°로 얇게 내려앉아 12°는 이미 파랗습니다
+  // (태양 -3°에서 -0.325). 저층 구름은 그 시각 직달광이 0.0006 까지 죽어
+  // 이 표본만으로 칠해지므로, 12°를 고집하면 노을 구름이 남색이 됩니다.
+  //
+  // 고정 6°로도 고쳐지지만 낮까지 같이 바뀝니다. 태양 고도를 따라가면
+  // **낮은 손대지 않고** 박명만 고칠 수 있습니다.
+  const _ss = (e0: number, e1: number, x: number) => {
+    const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  };
+  uni.uAmbDownDeg.value = u.ambDownDeg ?? (12.0 - 8.0 * _ss(6, -4, u.sunAltDeg));
 }
 
 /**
