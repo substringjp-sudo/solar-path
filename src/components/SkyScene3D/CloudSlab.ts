@@ -380,6 +380,10 @@ uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
 uniform float uCloudLitFloor, uCloudAmbFloor, uCloudPhaseFloor;
 uniform float uClusterAmt, uClusterMul;
 uniform float uAmbDownDeg;
+// 43절 — 스타일 보드용 자료 출력. 0 = 보통(색), 1 = 표시색+알파(미합성),
+// 2 = (광학두께/40, 층, 태양비, 알파). 스타일화 패스가 구름 **자료**를
+// 받아 제 방식으로 그리게 하려는 것입니다.
+uniform float uDataOut;
 uniform float uCloudModel, uCloudAsym, uCloudAniso, uCloudAnisoW,
               uCloudGroundAlb, uCloudSideLit, uCloudFaceUp;
 
@@ -510,6 +514,8 @@ void main(){
   // 먼 층(고층 11km)부터 가까운 층(저층 1.4km) 순으로 over 합성
   vec3 lin = vec3(0.0);
   float acc = 0.0;
+  // 43절 자료 출력용 — 시선 광학두께 합, 층·태양비의 알파 가중 합성
+  float tauAcc = 0.0, layerAcc = 0.0, sunAcc = 0.0;
 
   for (int L = 0; L < 3; L++){
     float hBase  = L == 0 ? ALT_HIGH : (L == 1 ? ALT_MID : ALT_LOW);
@@ -831,6 +837,8 @@ void main(){
       // 산란원이므로 이 Jbar 가 곧 시선으로 나가는 원천함수입니다.
       // 바닥 상수도, 2-stream 흉내 곱셈도 필요 없습니다.
       vec3 cc;
+      // 이 표본이 받는 빛 중 직달의 몫(0=그늘, 1=햇빛). 43절 자료 출력용.
+      float stepSunFrac = reach;
       if (uCloudModel > 0.5) {
         // 단위를 **플럭스/파이(등가 등방 복사휘도)** 로 통일합니다. 그래야
         // 직달 beam 과 하늘 ambBase 를 그냥 더할 수 있습니다.
@@ -856,6 +864,8 @@ void main(){
         float faceSun = length(nh) > 1e-4 ? dot(normalize(nh), sunXZ) : 0.0;
         vec3 ambSide = mix(ambVertAnti, ambVertSun, 0.5 + 0.5 * faceSun);
         vec3 Fdn = Edir + mix(ambSide, ambHemi, faceUp);
+        stepSunFrac = dot(Edir, vec3(0.2126, 0.7152, 0.0722))
+                    / max(1e-6, dot(Fdn, vec3(0.2126, 0.7152, 0.0722)));
         float tp = thick * tauK * (1.0 - uCloudAsym);
         float ag = uCloudGroundAlb;
         float kk = (1.0 - ag) / (2.0 + tp * (1.0 - ag));
@@ -1023,6 +1033,9 @@ void main(){
 
       // 체적 누적 합성
       lin = cc * stepAlpha + lin * (1.0 - stepAlpha);
+      tauAcc += stepTau;
+      layerAcc = float(L) * stepAlpha + layerAcc * (1.0 - stepAlpha);
+      sunAcc = stepSunFrac * stepAlpha + sunAcc * (1.0 - stepAlpha);
       acc = stepAlpha + acc * (1.0 - stepAlpha);
       if (acc > 0.98) break;
     }
@@ -1040,6 +1053,19 @@ void main(){
   if (acc <= 0.002) discard;
 
   vec3 disp = atm_display(lin / max(acc, 1e-4), uSaturation, uSunAltDeg);
+  if (uDataOut > 1.5) {
+    // 자료 2: 두께(0~40 → 0~1) · 층(0 상 · 0.5 중 · 1 저) · 태양비 · 알파
+    gl_FragColor = vec4(min(tauAcc, 40.0) / 40.0,
+                        layerAcc / max(acc, 1e-4) * 0.5,
+                        sunAcc / max(acc, 1e-4),
+                        acc);
+    return;
+  }
+  if (uDataOut > 0.5) {
+    // 자료 1: 표시색(미합성) · 알파. 합성은 스타일 패스가 합니다.
+    gl_FragColor = vec4(disp, acc);
+    return;
+  }
   gl_FragColor = vec4(disp * acc, acc);
 }
 `;
@@ -1205,6 +1231,7 @@ export function createCloudSlab(opts: {
       uClusterMul: { value: 3.0 },
       // 구름을 비추는 아래쪽 하늘을 어느 고도에서 뜨는가 (계획 38절).
       uAmbDownDeg: { value: 12.0 },
+      uDataOut: { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: frag,
@@ -1369,6 +1396,8 @@ export interface CloudSlabUpdate {
   clusterMul?: number;
   /** 구름을 비추는 아래쪽 하늘의 표본 고도 (기본 12°). 낮출수록 노을빛을 받습니다. */
   ambDownDeg?: number;
+  /** 43절 — 0 보통 · 1 표시색+알파 · 2 (두께, 층, 태양비, 알파). 스타일 보드용. */
+  dataOut?: number;
   visible: boolean;
 }
 
@@ -1469,6 +1498,7 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
     return t * t * (3 - 2 * t);
   };
   uni.uAmbDownDeg.value = u.ambDownDeg ?? (12.0 - 8.0 * _ss(6, -4, u.sunAltDeg));
+  uni.uDataOut.value = u.dataOut ?? 0;
 }
 
 /**
