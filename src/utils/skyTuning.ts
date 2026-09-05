@@ -31,6 +31,14 @@ export interface SkyTuning {
   // ── 표시 변환 ────────────────────────────────────────────────────────────
   /** 물리 복사휘도 → 화면 밝기 노출 */
   displayExposure: number;
+  /**
+   * 톤매핑 커브 (계획 42절 0단계).
+   *
+   * 'aces' 는 밝고 채도 높은 색의 색상을 밉니다(빨강→주황, 파랑→보라).
+   * 노을이 정확히 그 경우라 Blender 4.0 도 같은 이유로 ACES 를 버렸습니다.
+   * 'agx' 는 로그 공간을 길게 펴 밝은 쪽에도 계조와 색상이 남습니다.
+   */
+  tonemap: 'aces' | 'agx';
   /** 어두울수록 올라가는 눈 순응 노출의 최댓값 */
   adaptMax: number;
   /** 순응이 시작되는 태양 고도 (이보다 높으면 순응 없음) */
@@ -161,7 +169,24 @@ export interface SkyTuning {
 }
 
 export const DEFAULT_TUNING: SkyTuning = {
+  // ⚠ 42절에서 AgX 를 기본으로 바꿨다가 **되돌렸습니다.** 이력을 남깁니다.
+  //
+  // 처음 측정에서 AgX 가 겨자 노을·올리브 새벽을 확실히 고치는 것으로
+  // 나왔습니다(무채색비율 0.303 → 0.000, 채도 0.181 → 0.411). 그런데 그건
+  // **제가 적은 행렬이 틀려서** 생긴 결과였습니다 — 행 합이 1.106 / 0.845 라
+  // 중성색이 보존되지 않아 흰색이 0.68 에서 천장을 쳤고, 화면이 통째로
+  // 어두워진 것이 "차분해 보인" 정체였습니다.
+  //
+  // 표준 행렬(Wrensch, 두 행렬 모두 행 합 1.0000)로 고치자 AgX 는 ACES 와
+  // 거의 같아지고 겨자 노을도 그대로입니다. 채도만 30% 낮아집니다
+  // (0.371 → 0.248 · 0.297 → 0.195). 전체 회귀도 실패 단언 20 → 25.
+  //
+  // 배운 것: **겨자색의 원인은 톤 커브가 아니라 복사 모형**입니다. 태양 0°
+  // 에서 하늘 전체(감마 3°~120°)의 복사휘도 폭이 1.7배뿐이라, 어떤 커브를
+  // 씌워도 한 색이 됩니다. 42절 1단계(Hillaire LUT)가 그걸 고칠 자리입니다.
+  // AgX 구현은 남겨 둡니다 — 복사 폭이 넓어지면 그때 다시 잽니다.
   displayExposure: 0.62,
+  tonemap: 'aces',
   adaptMax: 16.0,
   adaptStartAlt: 6.0,
   adaptEndAlt: -14.0,
@@ -344,9 +369,16 @@ export function subscribeTuning(fn: (t: SkyTuning) => void): () => void {
 
 /** 기본값에서 달라진 것만 — 패널의 "코드로 복사"에 씁니다. */
 export function tuningDiff(): Partial<SkyTuning> {
-  const out: Record<string, number> = {};
+  const out: Record<string, unknown> = {};
+  // ⚠ 예전에는 전 필드를 숫자로 가정하고 뺄셈을 했습니다. 42절에서 톤매핑
+  // 커브('aces' | 'agx')가 들어오면서 문자열 필드가 생겼으므로, 숫자만
+  // 오차로 비교하고 나머지는 값이 다른지로 봅니다.
   (Object.keys(DEFAULT_TUNING) as (keyof SkyTuning)[]).forEach(k => {
-    if (Math.abs(current[k] - DEFAULT_TUNING[k]) > 1e-9) out[k] = current[k];
+    const cur = current[k], def = DEFAULT_TUNING[k];
+    const differs = typeof cur === 'number' && typeof def === 'number'
+      ? Math.abs(cur - def) > 1e-9
+      : cur !== def;
+    if (differs) out[k] = cur;
   });
   return out as Partial<SkyTuning>;
 }
@@ -361,6 +393,10 @@ export function tuningAsCode(): string {
   if (keys.length === 0) return '// 기본값과 동일';
   return (
     '// src/utils/skyTuning.ts 의 DEFAULT_TUNING 에 반영하세요\n' +
-    keys.map(k => `  ${k}: ${(diff[k] as number).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')},`).join('\n')
+    keys.map(k => {
+      const v = diff[k];
+      if (typeof v !== 'number') return `  ${k}: '${String(v)}',`;
+      return `  ${k}: ${v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')},`;
+    }).join('\n')
   );
 }

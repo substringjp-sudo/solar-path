@@ -1115,6 +1115,7 @@ uniform float ADAPT_LO;
 uniform float DISP_SAT;
 uniform float DISP_CONTR;
 uniform float AIR_WASH;
+uniform float TONEMAP;
 const vec3  GROUND_DARK = vec3(${f(GROUND_DARKEN.r)}, ${f(GROUND_DARKEN.g)}, ${f(GROUND_DARKEN.b)});
 const float GROUND_FADE = ${f(GROUND_FADE_DEG)};
 const float PI_         = 3.14159265359;
@@ -1371,6 +1372,65 @@ vec3 atm_tonemapACES(vec3 x) {
   return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
 
+/**
+ * **AgX 톤매핑** (Blender 4.0 / three.js r160+ 가 ACES 를 대신해 쓰는 것).
+ *
+ * 왜 바꾸는가 — ACES 는 밝고 채도 높은 색의 **색상을 밉니다**(빨강→주황,
+ * 파랑→보라). 노을은 정확히 "밝고 채도 높은 빨강·주황"이라 그 약점을
+ * 정면으로 맞습니다. Blender 가 4.0 에서 ACES 를 버린 이유가 그것입니다.
+ *
+ * 그리고 실측하면 어깨에서 **계조가 통째로 사라집니다.** 태양 10도·이격
+ * 15도에서 고도 1~12도의 선형 휘도는 3.39 → 2.44 로 1.4배 차이인데,
+ * ACES 를 지나면 0.93 → 0.88 로 거의 같아집니다. 채도도 0.06~0.08 —
+ * 사용자 화면의 "회백색으로 뭉갠 지평선"이 이것입니다.
+ *
+ * AgX 는 로그 공간에서 훨씬 긴 구간(-12.5 ~ +4.0 EV)을 편 뒤 시그모이드를
+ * 걸어, 밝은 쪽에서도 계조와 색상이 남습니다. 대신 중간 채도가 낮아지므로
+ * 뒤의 채도 복원(DISP_SAT)이 그만큼 더 일합니다.
+ *
+ * 행렬은 Benjamin Wrensch 의 최소 구현(선형 sRGB 직접)입니다.
+ */
+// ⚠ 이 행렬은 **중성색을 보존해야** 합니다 — 행 합이 1 이어야 (1,1,1) 이
+// (1,1,1) 로 갑니다. 처음에 다른 변종의 값을 적었다가 행 합이 1.106 / 0.845
+// 가 되어, 아무리 밝아도 흰색이 **0.68 에서 천장**을 쳤습니다. 태양 원반이
+// 회색이 되고 블룸이 아예 안 걸렸습니다(verify-bloom 포화 0%).
+// 아래는 Benjamin Wrensch 의 표준값이고 두 행렬 모두 행 합이 1.0000 입니다.
+const mat3 AGX_IN = mat3(
+  0.842479062253094,  0.0423282422610123, 0.0423756549057051,
+  0.0784335999999992, 0.878468636469772,  0.0784336,
+  0.0792237451477643, 0.0791661274605434, 0.879142973793104
+);
+const mat3 AGX_OUT = mat3(
+   1.19687900512017,   -0.0528968517574562, -0.0529716355144438,
+  -0.0980208811401368,  1.15190312990417,   -0.0980434501171241,
+  -0.0990297440797205, -0.0989611768448433,  1.15107367264116
+);
+const float AGX_MIN_EV = -12.47393;
+const float AGX_MAX_EV = 4.026069;
+
+vec3 atm_agxContrast(vec3 x) {
+  vec3 x2 = x * x;
+  vec3 x4 = x2 * x2;
+  return 15.5 * x4 * x2
+       - 40.14 * x4 * x
+       + 31.96 * x4
+       - 6.868 * x2 * x
+       + 0.4298 * x2
+       + 0.1191 * x
+       - 0.00232;
+}
+
+vec3 atm_tonemapAgX(vec3 x) {
+  vec3 c = AGX_IN * max(x, vec3(0.0));
+  c = clamp(log2(max(c, vec3(1e-10))), AGX_MIN_EV, AGX_MAX_EV);
+  c = (c - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
+  c = atm_agxContrast(c);
+  c = AGX_OUT * c;
+  // AgX 는 2.2 감마가 실린 표시 공간으로 나옵니다. 뒤에 sRGB OETF 가
+  // 한 번 더 걸리므로 여기서 선형으로 되돌립니다.
+  return clamp(pow(max(c, vec3(0.0)), vec3(2.2)), 0.0, 1.0);
+}
+
 /** 태양이 낮아질수록 노출을 올립니다 (눈의 순응) */
 float atm_adaptation(float sunAltDeg) {
   return 1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg);
@@ -1382,7 +1442,9 @@ float atm_adaptation(float sunAltDeg) {
  */
 vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   vec3 LW = vec3(0.2126, 0.7152, 0.0722);
-  vec3 c = atm_tonemapACES(radiance * DISP_EXPO * atm_adaptation(sunAltDeg));
+  vec3 hdr = radiance * DISP_EXPO * atm_adaptation(sunAltDeg);
+  // TONEMAP 0 = ACES(예전) · 1 = AgX (계획 42절 0단계)
+  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
   float luma = dot(c, LW);
   c = mix(vec3(luma), c, DISP_SAT * saturation);
 
@@ -1444,6 +1506,7 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
     OZ_TW_GAIN: { value: t.ozoneTwilightGain },
+    TONEMAP: { value: t.tonemap === 'agx' ? 1 : 0 },
   };
 }
 
@@ -1474,4 +1537,5 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('TW_MS_SCALE', t.twilightMsScaleKm);
   set('TW_TINT', t.twilightTint);
   set('OZ_TW_GAIN', t.ozoneTwilightGain);
+  set('TONEMAP', t.tonemap === 'agx' ? 1 : 0);
 }
