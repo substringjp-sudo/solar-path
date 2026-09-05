@@ -3155,3 +3155,201 @@ float xd = tp * mix(0.45, 1.0, sinE) * (nSteps > 1 ? (1.0 - sFrac) * 2.0 : 1.0);
 4. **중·고층이 천정에서 무너집니다.** 셀이 커서 천정 부근 가시 영역이
    셀 하나를 못 채우고, 그러면 모양장이 거의 상수라 전부 덮이거나 전부
    비거나 합니다. 저층의 빌로우(28절)와 같은 처방이 필요합니다.
+
+---
+
+## 42. 시각적 현실감 — 근본 재설계를 위한 조사와 개선책
+
+사용자 평가(실기기 화면 5장): "구름의 형태와 하늘의 색은 전혀 현실감이 없고
+매우 후지다. 구름이 있어야 할 위치에 구름을 그리고 날씨로 하늘색을 바꾸는
+**방향**은 맞다. 발목을 잡는 것은 시각이다 — ① 지평선으로 갈수록 작아지는
+구름, ② 대기에 녹아들지 않고 끊기는 테두리, ③ 튀는 일출·일몰 전후의 색."
+
+이 절은 수치 조정이 아니라 **구조 선택**을 다룹니다. 다른 앱·게임·논문이
+같은 문제를 어떻게 풀었는지 조사하고, 우리 조건(모바일 · WebGL2 · 실시간이
+아니라 **뷰어**)에 맞는 길을 고릅니다.
+
+### 42.1 화면 5장을 코드에 맞대어 본 진단
+
+| 화면 | 보이는 것 | 코드에서의 원인 |
+|---|---|---|
+| FOV 32° 한낮 | 회색 **얼룩** 두 덩이, 질감 없음 | 저층 셀 2.0km · 값잡음 4옥타브. 32°로 당기면 화면에 셀 하나가 들어와 **잡음의 가장 잔 옥타브가 화면 폭의 1/8**. 실제 구름은 미터 단위까지 결이 있음. 확대에 따라 세부를 더하는 **LOD 가 없음** |
+| FOV 66° 새벽 NE·E | **올리브·청록 회색** 하늘 | `atm_skyRadiance` 가 따뜻한 지평선 항(`TW_WARM_MIX`)과 파란 다중산란(`MS_AZIM_WASH`)을 **RGB 스칼라로 섞음**. 주황(1,.5,0)+파랑(0,.3,1)의 중간은 회록색 — 분광이 아닌 RGB 보간의 고전적 결함. 그 위에 ACES 가 채도 높은 파랑을 보라로 밀고 채도 복원이 회록을 다시 키움 |
+| FOV 66° 노을 W | 화면 전체가 **한 색 겨자색**, 그라데이션 없음 | 태양 근처 광환이 `DISP_EXPO × atm_adaptation` 을 지나 ACES 어깨에서 **포화**. 포화된 화소는 색상이 뭉개져 한 색이 됨. 눈 순응이 태양 고도만 보고 화면 휘도를 안 봄 |
+| 밤 | 검붉은 **멍**처럼 보이는 구름 | 밤 구름 = 도시광 상향 산란 × 두께. 문턱형 모양으로 두께가 커져 상향 산란이 포화(41.7 `device-repro` R/B 1.59). 별은 구름 뒤에서도 보임(구름이 별을 가리지 않음) |
+| 공통 | 지평선 구름이 작아지며 뭉개짐 · 테두리가 칼같음 | 원근으로 작아지는 것은 옳음. 문제는 (a) 큰 규모(10~100km 구름 거리·띠)가 없어 멀리서 **콘페티**가 되고, (b) 대기원근이 `mix(cc, horizonHaze, 1-exp(-d·0.003))` 한 색 덮기라 **경로 내산란**이 없어 구름이 하늘에 녹지 않으며, (c) 실루엣이 잡음 등고선 하나라 **가장자리 침식(erosion)** 이 없음 |
+
+세 지적이 세 층에서 옵니다 — **데이터(어디에)** · **렌더(어떤 모양·어떤 빛)** ·
+**표시(어떤 색으로 화면에)**. 지금 구조는 셋이 한 셰이더에 엉켜 있어 하나를
+고치면 다른 것이 깨졌습니다(36~41절이 그 기록입니다).
+
+### 42.2 다른 앱·게임·연구는 어떻게 하는가
+
+**Microsoft Flight Simulator (2020~)** — 우리 목표와 가장 가깝습니다. 실제 기상
+(meteoblue)으로 전 지구 구름을 **볼륨으로** 그립니다. 지구를 약 2.5억 격자로
+나누고 격자마다 60개 고도층의 기상값을 두며, 15분 간격으로 갱신합니다. 적운형·
+층운형을 구분하고 강수는 습도·연직 발달이 충분한 구름에서 자연히 나옵니다.
+[meteoblue 파트너십](https://business.meteoblue.com/articles/microsoft-flight-simulator-partnership-meteoblue) ·
+[MSFS 라이브 웨더 해설](https://flightsimulator.blog/microsoft-flight-simulator-live-weather/)
+
+**Nubis (Guerrilla, Horizon 시리즈)** — 게임 볼륨 구름의 사실상 표준입니다.
+2D **날씨 지도**(운량·운형·강수)를 저해상도 텍스처로 두고, 3D Perlin-Worley
+기본 잡음 + 고주파 침식 잡음으로 모양을 만들며, 광선행진 + 태양 방향 그림자
+행진 + Beer-Powder 로 빛을 냅니다. PS4 에서 **2ms**. 날씨 지도가 곧 우리의
+"구름이 있어야 할 위치"입니다.
+[Nubis 2017](https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine) ·
+[Nubis Evolved](https://www.guerrilla-games.com/read/nubis-evolved) ·
+[HZD 원 논문](https://www.guerrilla-games.com/read/the-real-time-volumetric-cloudscapes-of-horizon-zero-dawn)
+
+**Hillaire 2020 (Unreal Engine Sky Atmosphere)** — 투과율·다중산란·스카이뷰
+**LUT 셋**으로 하늘을 그립니다. 고차원 LUT 없이 다중산란을 실시간으로 근사하고,
+**모바일부터 고사양 PC까지** 한 구조로 스케일됩니다. WebGPU 구현이 공개되어
+있고 셰이더토이에도 있습니다. 39.5절의 판단 그대로 — 우리 `MS_GAIN` 등
+스칼라 여섯 개를 대체합니다.
+[논문](https://onlinelibrary.wiley.com/doi/abs/10.1111/cgf.14050) ·
+[WebGPU 구현](https://github.com/JolifantoBambla/webgpu-sky-atmosphere) ·
+[Shadertoy](https://www.shadertoy.com/view/slSXRW)
+
+**Hosek-Wilkie 해석 모델** — 맑은 하늘을 수식 하나로 그리는 가장 싼 길. 그러나
+**태양이 지평선 아래면 못 씁니다** — 어두운 파랑으로 꺼져 버리고 낮은 태양에서
+밝기가 오히려 늘어나는 결함이 있습니다. 노을 앱에는 부적합.
+[8개 맑은하늘 모델 비교](https://www.researchgate.net/publication/309516588_A_Qualitative_and_Quantitative_Evaluation_of_8_Clear_Sky_Models)
+
+**톤매핑 — ACES 의 색상 왜곡** — ACES 는 밝은 채도색의 색상을 밉니다(빨강→주황,
+파랑→보라). Blender 4.0 이 ACES 를 버리고 **AgX** 로 간 이유가 그것이고, 3D
+제품 렌더에는 **Khronos PBR Neutral** 이 나왔습니다. 노을은 정확히 "밝고
+채도 높은 빨강·주황"이라 ACES 의 약점을 정면으로 맞습니다.
+[AgX vs ACES](https://www.linkedin.com/posts/virtualrepublic_color-management-tone-mapping-agx-versus-activity-7033776158114508801-5QJv) ·
+[Khronos PBR Neutral](https://www.khronos.org/news/press/khronos-pbr-neutral-tone-mapper-released-for-true-to-life-color-rendering-of-3d-products) ·
+[three.js AgX 논의](https://discourse.threejs.org/t/is-agx-tonemapping-implemented-correctly/60609)
+
+**기상 그래픽 상용 SDK** — SilverLining(Sundog), REX Sky Force, The Weather
+Company 의 Max Sky·Weatherverse Sim(Unreal 플러그인, GRAF 모델 실황 주입).
+공통점: **볼륨 구름 + 물리 하늘 + 실황 데이터 주입**. 우리와 같은 삼단 구조.
+[SilverLining](https://sundog-soft.com/features/real-time-3d-clouds/) ·
+[Weatherverse Sim](https://www.weathercompany.com/news/unreal-engine-plugin-weatherverse-sim/)
+
+**노을 예보 앱(Alpenglow / SunsetWx)** — 하늘을 **그리지 않습니다.** 점수와
+지도만 냅니다. 우리가 하려는 "그려서 미리 본다"를 하는 소비자 앱은 조사 범위에서
+찾지 못했습니다 — 사용자의 판단("이 정도로 시뮬레이션하려는 앱은 거의 없다")이
+맞습니다.
+[Alpenglow](https://alpenglowapp.com/)
+
+**신경망 합성** — 스위스 COSMO-1 예보를 조건으로 웹캠 사진을 GAN 으로 합성한
+연구: 사람이 진짜와 구분을 거의 못 했고 대기·지면·조명 조건이 89% 이상 일치.
+단, 카메라 **3곳**에서만, 그 자리 사진으로 학습.
+[Photographic Visualization of Weather Forecasts with GANs](https://arxiv.org/abs/2203.15601)
+
+**위성 실측** — 천리안 2A 는 한반도를 **2분**, 동아시아를 10분 간격으로 관측하고
+L2 산출물로 **구름탐지 · 운정고도 · 운정기압 · 운상 · 구름광학두께 · 유효반경**
+을 NetCDF/PNG 로 냅니다(기상청 API허브).
+[산출물 목록](https://datawiki.kma.go.kr/doku.php?id=%EA%B8%B0%EC%83%81%EC%9C%84%EC%84%B1%3A%EC%A0%95%EC%A7%80%EA%B6%A4%EB%8F%84%EA%B8%B0%EC%83%81%EC%9C%84%EC%84%B1%3A%EC%B2%9C%EB%A6%AC%EC%95%88%EC%9C%84%EC%84%B1_2a%ED%98%B8_%EA%B8%B0%EC%83%81%EC%82%B0%EC%B6%9C%EB%AC%BC_l2) ·
+[API허브](https://apihub.kma.go.kr/apiList.do?seqApi=6)
+
+### 42.3 가능한 길 다섯 — 장단점
+
+| 길 | 무엇 | 장점 | 단점 · 위험 | 우리 조건에서 |
+|---|---|---|---|---|
+| **A. 물리 볼륨 + LUT 하늘** (MSFS·Nubis·Hillaire) | 3D 밀도장 광선행진, 날씨 지도가 위치, LUT 로 하늘·대기원근 | 검증된 표준. 테두리·녹아듦·노을색 셋 다 구조적으로 해결. WebGL2 (`sampler3D`·float RT) 로 가능 | 비용. 모바일 실시간은 어렵다 | **가능** — 우리는 60fps 게임이 아니라 뷰어. 반해상도·점진 누적으로 1~2 fps 면 충분 |
+| **B. 사진 임포스터 하이브리드** | 사진에서 딴 구름 스프라이트를 층 고도에 배치, 물리 조명으로 착색 | 질감이 사진이라 즉시 현실적. 싸다 | 조명 불일치(스프라이트의 음영이 태양과 안 맞음) · 반복 · 시선 회전 시 판판함 | 먼 구름(지평선 띠)에 유효. 가까운 구름엔 A 가 낫다 |
+| **C. 위성·모델 격자로 위치 실측** | GK-2A 구름탐지·운정고도를 날씨 지도로 직접 사용(과거·현재), 예보는 NWP 저·중·고 운량 | "있어야 할 위치"를 **실측**으로 채운다. 2km·2분 | 미래는 예보 해상도(km~수 km)에 갇힘. 위성은 위에서 본 것이라 다층 구조는 추정 | **A 와 짝**. 지금의 팬 보간(`WeatherFan`)을 격자로 갈아탐 |
+| **D. 신경망 합성** | 기상값 → 하늘 사진 (GAN/디퓨전) | 가장 사진 같을 수 있음 | 카메라별 학습이 필요했음(3곳). 임의 방위·화각·시각으로 일반화 미검증. 서버 비용·지연. **환각** 통제 불가 — 없는 구름을 그림 | 장기 연구 과제. 지금 축은 아님 |
+| **E. HDRI 룩업 + 틴트** | 날씨·시각별 파노라마 사진을 골라 덧씌움 | 가장 싸고 사진 같음 | 조합 폭발. "그 날 그 자리 구름"이 아님 — 우리 정체성과 어긋남 | 폴백·배경으로만 |
+
+### 42.4 추천 — 세 층을 따로 세운다
+
+```
+[데이터: 어디에]   위성(과거·현재) + NWP(미래) → 저·중·고 3장 날씨 지도(운량·운형·운저·운정)
+        │
+[렌더: 어떤 모양·빛] Nubis 형 볼륨 행진 (3D 잡음 sampler3D · 침식 · 태양 행진)
+                    + Hillaire LUT 하늘 · 대기원근 LUT
+        │
+[표시: 어떤 색]     선형 HDR → 화면 휘도 기반 순응 → AgX(또는 PBR Neutral) → sRGB
+```
+
+**왜 이 순서로 갈라야 하나.** 36~41절에서 한 셰이더 안의 상수를 옮길 때마다
+다른 판정이 깨진 이유가, 세 층의 책임이 한 수식에 겹쳐 있어서입니다. 예:
+`ambBase` 가 조명(렌더)이면서 지평선 집중(표시)을 겸했고, `cover*1.85`가
+위치(데이터)이면서 두께(렌더)였습니다.
+
+**기대치를 정직하게 적습니다.** 구름의 **정확한 모양**은 어느 길로도 못 그립니다
+— 위성도 2km, 예보는 그보다 성글고, 구름은 분 단위로 바뀝니다. 할 수 있는 것은
+"**그 시각 그 방위에 그 정도 높이·양·종류의 구름이, 그 빛을 받아**" 입니다.
+MSFS 도 정확히 그 수준이고, 그걸로 충분히 그럴싸합니다.
+
+### 42.5 단계
+
+**0단계 — 표시 층부터 (1~2일, 즉효)**
+사진 5장 중 셋(올리브 새벽·겨자 노을·멍 밤)이 여기서 절반은 풀립니다.
+- ACES → **AgX** (three.js r185 에 `AgXToneMapping` 내장). 노을 채도가 색상을 안 밈.
+- 눈 순응을 태양 고도가 아니라 **화면 평균 휘도**(스카이돔 다운샘플 1×1)로.
+  겨자색 포화가 사라짐.
+- `TW_WARM_MIX` · `MS_AZIM_WASH` 의 RGB 보간을 **휘도 보존 색상 보간**(Oklab)으로.
+  올리브가 사라짐. 판정: `photo-match` 의 twilight 원색·하단채도.
+- 밤: 별을 **구름 뒤로**(슬랩 알파로 가림). 도시광 상향 산란 재측정.
+
+**1단계 — 하늘을 Hillaire LUT 로 (1주)**
+- 투과율 LUT 256×64, 다중산란 LUT 32×32, 스카이뷰 LUT 192×108 — 전부 WebGL2
+  float RT. 태양이 움직일 때만 다시 굽는다(뷰어라 매 프레임이 아니다).
+- 오존 포함(우리 `OZONE_TAU` 유도값 재사용). 박명의 파랑·분홍이 물리로 나옴.
+- **대기원근 LUT**(32×32×32 sampler3D)를 같이 굽는다. 구름이 하늘에 녹는 것은
+  이것으로 해결 — 한 색 덮기가 아니라 거리별 투과율·내산란.
+- 기존 `atm_skyRadiance` 의 스칼라 여섯 개 삭제. 판정: `verify-atmosphere`
+  · `photo-match` 전 장면.
+
+**2단계 — 구름을 Nubis 형 볼륨으로 (2~3주)**
+- 3D 잡음을 **sampler3D 텍스처**로: 128³ Perlin-Worley 기본 + 32³ Worley 침식.
+  근거리 볼륨(27·33절)의 뼈대를 재사용하고, 절차 잡음 336회/화소(28절)를 텍스처
+  페치 몇 번으로.
+- 날씨 지도 3장(저·중·고): R=운량 G=운형(층운↔적운) B=운저 A=운정. 지금
+  `uCoverTex`·`uGenusTex` 가 그 자리.
+- 광선행진 32~64 스텝, 태양 방향 6 스텝, Beer-Powder + 다중 옥타브 산란
+  (Wrenninge). 침식 잡음이 테두리를 먹어 실루엣이 잡음 등고선 하나가 아니게 됨.
+- **LOD**: 시선 거리·화각으로 침식 옥타브를 켜고 끔. FOV 32° 얼룩이 사라짐.
+- 큰 규모: 날씨 지도 위에 10~100km 구름 거리(street)·띠 변조를 **데이터 층**에서
+  넣는다(37절 군집의 제자리).
+- 성능: 반해상도 + 시간 누적(뷰어이므로 8프레임 모아도 됨). 목표 S25 Ultra
+  30fps · 중급기 10fps.
+
+**3단계 — 위치를 실측으로 (2주, 서버 포함)**
+- 과거·현재: GK-2A 구름탐지 + 운정고도 + 광학두께 → 관측점 반경 400km 를
+  저·중·고 지도로 재투영(운정고도로 층 배정). 2분 간격이라 "**돌아보기**"가
+  실측이 된다.
+- 미래: NWP(KMA LDAPS 1.5km 또는 ECMWF/Open-Meteo 저·중·고 운량)로 같은 지도.
+- 팬 보간 `WeatherFan` → 격자 재투영으로 교체. `verify-region-cover` 가 판정.
+
+**4단계 — 먼 구름 사진 임포스터 (선택, 1주)**
+- 지평선 10° 아래 띠는 볼륨 행진이 가장 비싸고 가장 안 보인다. 사진 스프라이트
+  (운형별 20~30장, 알파 포함)를 층 고도에 세워 1단계 대기원근으로 착색. B 의
+  장점만 취한다.
+
+### 42.6 성능 예산 — 우리는 게임이 아니다
+
+MSFS·HZD 는 60fps 에 카메라가 움직입니다. 우리는 **정지 화면에 가까운 뷰어**
+입니다. 시각을 넘기면 프레임 하나를 새로 만들면 되고, 회전은 느립니다. 그래서:
+
+- 반해상도(또는 1/4) 렌더 + 업스케일. 구름은 저주파라 티가 덜 납니다.
+- 시간 누적: 카메라가 멈춰 있으면 8~16 프레임을 평균. 표본 예산이 8~16배.
+- LUT 는 태양이 0.5° 움직일 때만 재계산.
+- 39.4 의 발견 그대로 — WebGL2 를 WebGL2 처럼 쓴다. `sampler3D` · `glslVersion:
+  GLSL3` · float 렌더타깃. 컴퓨트도 하드웨어 RT 도 필요 없습니다.
+
+### 42.7 판정 — 무엇이 되면 된 것인가
+
+지금 있는 자(`photo-match` 129장 분포, `sunset-gap`, `cloud-edge`, `shape-sweep`)를
+그대로 쓰되, 두 개를 더합니다.
+
+1. **위성 대조** — 3단계 뒤, 같은 시각 GK-2A 가시영상을 관측점 상공에서 재투영한
+   것과 우리 화면의 운량 분포를 방위별로 견줍니다(24.4 의 사진 대조와 같은 방법,
+   대상만 위성).
+2. **사용자 사진 대조 확대** — 실기기 QR 화면과 같은 순간 사진을 계속 모읍니다
+   (지금 세 쌍). 시각·날씨별로 30쌍이 되면 그 자체가 학습·판정 데이터입니다.
+
+### 42.8 지금 당장 — 0단계에서 손댈 파일
+
+- `src/utils/atmosphere.ts` `atm_display` — ACES → AgX, 순응 입력 교체.
+- `src/utils/atmosphere.ts` `atm_skyRadiance` — `TW_WARM_MIX`/`MS_AZIM_WASH` 보간을
+  Oklab 으로.
+- `src/components/SkyScene3D/CloudSlab.ts` — 별 가림, 도시광 재측정.
+- `tools/shader-preview/build-photo-match.js` — twilight NE/E 방위 장면 추가(올리브
+  하늘을 잡는 자가 지금 없습니다).
