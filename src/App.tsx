@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, TouchableOpacity, Animated, Platform, Modal, ScrollView, Image, Dimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, TouchableOpacity, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X, Camera } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
@@ -109,15 +109,13 @@ export default function App() {
     sunPath,
     moonPath,
     events,
-    goldenTimeInfo,
     dynamicTheme,
     theme,
+    goldenTimeInfo,
     
     handleToggleTimeMachine,
     handleTimeChange,
     handleDateChange,
-    handleCameraPress,
-    handleCameraLongPress,
     handleSaveLocation,
     handleSelectSavedLocation,
     defaultCoords,
@@ -220,6 +218,27 @@ export default function App() {
     }
   }, [isSavedListVisible]);
 
+  // 앱 숏컷 및 외부 딥링크 처리 (beforeglow://camera 등)
+  React.useEffect(() => {
+    const handleUrl = (event: { url: string }) => {
+      if (event.url && event.url.toLowerCase().includes('camera')) {
+        setSunCameraVisible(true);
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', handleUrl);
+
+    Linking.getInitialURL().then((url) => {
+      if (url && url.toLowerCase().includes('camera')) {
+        setSunCameraVisible(true);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [setSunCameraVisible]);
+
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
 
@@ -250,9 +269,7 @@ export default function App() {
           activeTab={activeTab as AppTab}
           setActiveTab={setActiveTab}
           setSettingsVisible={setSettingsVisible}
-          handleCameraPress={handleCameraPress}
-          handleCameraLongPress={handleCameraLongPress}
-          goldenTimeInfo={goldenTimeInfo}
+          setMapVisible={setMapVisible}
           setShowDatePicker={setShowDatePicker}
           handleDateChange={handleDateChange}
           theme={theme}
@@ -278,6 +295,8 @@ export default function App() {
           myPhotos={myPhotos}
           removeGlobalPhoto={removeGlobalPhoto}
           setMapVisible={setMapVisible}
+          onCameraPress={() => setSunCameraVisible(true)}
+          isSuspended={isSunCameraVisible || isMapVisible || isSettingsVisible || isSavedListVisible}
         />
       </View>
 
@@ -360,15 +379,17 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* AR 노을 촬영 카메라 */}
-      <SunCamera
-        visible={isSunCameraVisible}
-        onClose={() => setSunCameraVisible(false)}
-        latitude={location?.coords.latitude || defaultCoords.latitude}
-        longitude={location?.coords.longitude || defaultCoords.longitude}
-        currentTime={currentTime}
-        goldenTimeInfo={goldenTimeInfo}
-      />
+      {/* AR 노을 촬영 카메라 (닫힐 때 메모리/GPU/센서 완전 해제) */}
+      {isSunCameraVisible && (
+        <SunCamera
+          visible={isSunCameraVisible}
+          onClose={() => setSunCameraVisible(false)}
+          latitude={location?.coords.latitude || defaultCoords.latitude}
+          longitude={location?.coords.longitude || defaultCoords.longitude}
+          currentTime={currentTime}
+          goldenTimeInfo={goldenTimeInfo}
+        />
+      )}
 
       {/* 설정 모달 */}
       <SettingsModal

@@ -54,6 +54,7 @@ interface SkyScreenProps {
   };
   setMapVisible?: (visible: boolean) => void;
   isActive?: boolean;
+  onCameraPress?: () => void;
 }
 
 export interface EventItem {
@@ -75,6 +76,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   events,
   setMapVisible,
   isActive = true,
+  onCameraPress,
 }) => {
   const { location, weatherCacheList, terrainCacheList } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
@@ -745,7 +747,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </PeekSheet>
 
       {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
-      <View style={[styles.bottomPanel, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+      <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
         <TimeSlider
           value={currentTime}
           onChange={setCurrentTime}
@@ -754,6 +756,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           theme={theme}
           isDay={sunAltitude > 0}
           onPressMap={() => setMapVisible && setMapVisible(true)}
+          onCameraPress={onCameraPress}
           markers={events ? [
             { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
             { time: events.sunset || null, color: '#FF4500', type: 'set' },
@@ -804,7 +807,7 @@ const styles = StyleSheet.create({
   overlayButton: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: 4,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -820,8 +823,10 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     bottom: 14,
-    backgroundColor: 'rgba(5, 8, 16, 0.88)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(8, 11, 17, 0.95)',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     paddingHorizontal: 12,
     paddingVertical: 9,
     zIndex: 25,
@@ -859,18 +864,20 @@ const styles = StyleSheet.create({
     left: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(11, 19, 43, 0.85)',
     borderColor: '#38BDF8',
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: 4,
     zIndex: 20,
+    gap: 4,
   },
   trackingText: {
     fontSize: 10,
     fontWeight: '800',
     color: '#F8FAFC',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   trackingCancel: {
     fontSize: 10,
@@ -888,6 +895,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
     letterSpacing: -0.3,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   summaryValue: {
     fontSize: 12,
@@ -905,9 +913,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   numberFrame: {
-    borderRadius: 16,
+    borderRadius: 4,
     padding: 10,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   frameHeader: {
     flexDirection: 'row',
@@ -939,11 +948,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
   },
   tabButtonActive: {
-    backgroundColor: 'rgba(59, 130, 246, 0.22)',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: 'rgba(56, 189, 248, 0.45)',
   },
   tabText: {
     fontSize: 11,
@@ -951,7 +963,7 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
   },
   tabTextActive: {
-    color: '#F8FAFC',
+    color: '#38BDF8',
     fontWeight: '900',
   },
   // 이벤트를 가로 스크롤 카드가 아니라 세로 목록으로 바꿨습니다.
@@ -962,12 +974,13 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 9,
     paddingHorizontal: 11,
-    borderRadius: 12,
+    borderRadius: 4,
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   eventRowFeatured: {
-    borderColor: 'rgba(249, 115, 22, 0.45)',
-    backgroundColor: 'rgba(249, 115, 22, 0.08)',
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
   },
   eventRowText: {
     flex: 1,
@@ -983,11 +996,12 @@ const styles = StyleSheet.create({
   eventTime: {
     fontSize: 12,
     fontWeight: '900',
-    fontVariant: ['tabular-nums'],
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 
   bottomPanel: {
-    paddingVertical: 8,
-    borderTopWidth: Platform.OS === 'android' ? 0 : 1,
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
 });

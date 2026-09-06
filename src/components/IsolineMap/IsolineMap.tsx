@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions, ScrollView } from 'react-native';
-import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, MapPin, Hourglass, Globe } from 'lucide-react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
+import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
@@ -10,18 +10,6 @@ import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
 import { MapGlobe } from './MapGlobe';
 import * as d3 from 'd3-geo';
-
-// InfoCard는 window 폭 기준 고정 width(30%)를 쓰기 때문에 태블릿 2단 레이아웃의
-// 좁은 사이드 패널 안에서는 넘칠 수 있어, 여기서는 flex 기반의 자체 타일을 사용합니다.
-const StatTile: React.FC<{ icon: React.ReactNode; label: string; value: string; theme: any }> = ({ icon, label, value, theme }) => (
-  <View style={styles.statTile}>
-    <View style={[styles.statIconWrap, { backgroundColor: theme.bg }]}>{icon}</View>
-    <View style={{ flex: 1 }}>
-      <Text style={[styles.statLabel, { color: theme.subText }]} numberOfLines={1}>{label}</Text>
-      <Text style={[styles.statValue, { color: theme.text }]} numberOfLines={1}>{value}</Text>
-    </View>
-  </View>
-);
 
 interface IsolineMapProps {
   theme: any;
@@ -175,11 +163,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const handleSlidingStart = () => setIsPlaying(false);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.headerRow}>
         <View style={[styles.headerChip, { backgroundColor: theme.glass, borderColor: theme.border }]}>
           <View style={[styles.headerIconWrap, { backgroundColor: theme.bg }]}>
@@ -201,211 +185,161 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         </View>
       </View>
 
-      <View style={[styles.mainWrapper, isTablet && styles.tabletMainWrapper]}>
-        <View 
-          style={[styles.mapCard, isTablet && styles.tabletMapCard, { borderColor: theme.border }]}
-          onTouchStart={() => useCelestialStore.getState().setGestureBlocked(true)}
-          onTouchEnd={() => useCelestialStore.getState().setGestureBlocked(false)}
-          onTouchCancel={() => useCelestialStore.getState().setGestureBlocked(false)}
+      {/* 가변 메인 프레임: 지도가 화면의 남은 높이를 꽉 채웁니다 */}
+      <View 
+        style={[styles.mapCard, { borderColor: theme.border }]}
+        onTouchStart={() => useCelestialStore.getState().setGestureBlocked(true)}
+        onTouchEnd={() => useCelestialStore.getState().setGestureBlocked(false)}
+        onTouchCancel={() => useCelestialStore.getState().setGestureBlocked(false)}
+      >
+        {projectionType === '2D' ? (
+          <MapCanvas
+            lat={lat}
+            lon={lon}
+            hasLocation={!!location}
+            subsolar={subsolar}
+            terminator={terminator}
+            allTerminators={allTerminators}
+            nightPolygonCoords={nightPolygonCoords}
+            onRegionChangeComplete={handleRegionChangeComplete}
+            theme={theme}
+            selectedDate={selectedDate}
+          />
+        ) : (
+          <MapGlobe
+            subsolar={subsolar}
+            terminator={terminator}
+            allTerminators={allTerminators}
+            lat={lat}
+            lon={lon}
+            hasLocation={!!location}
+            theme={theme}
+            isActive={isActive}
+            initialScale={globeScale}
+            selectedDate={selectedDate}
+            onScaleChange={setGlobeScale}
+          />
+        )}
+
+        <TouchableOpacity
+          onPress={() => setProjectionType((p) => (p === '2D' ? '3D' : '2D'))}
+          style={[styles.projectionBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          activeOpacity={0.7}
         >
           {projectionType === '2D' ? (
-            <MapCanvas
-              lat={lat}
-              lon={lon}
-              hasLocation={!!location}
-              subsolar={subsolar}
-              terminator={terminator}
-              allTerminators={allTerminators}
-              nightPolygonCoords={nightPolygonCoords}
-              onRegionChangeComplete={handleRegionChangeComplete}
-              theme={theme}
-              selectedDate={selectedDate}
-            />
+            <Globe size={16} color={theme.text} />
           ) : (
-            <MapGlobe
-              subsolar={subsolar}
-              terminator={terminator}
-              allTerminators={allTerminators}
-              lat={lat}
-              lon={lon}
-              hasLocation={!!location}
-              theme={theme}
-              isActive={isActive}
-              initialScale={globeScale}
-              selectedDate={selectedDate}
-              onScaleChange={setGlobeScale}
-            />
+            <Compass size={16} color={theme.accent} />
           )}
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => setProjectionType((p) => (p === '2D' ? '3D' : '2D'))}
-            style={[styles.projectionBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
-            activeOpacity={0.7}
-          >
-            {projectionType === '2D' ? (
-              <Globe size={16} color={theme.text} />
-            ) : (
-              <Compass size={16} color={theme.accent} />
-            )}
-          </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setGuideVisible(true)}
+          style={[styles.guideBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          activeOpacity={0.7}
+        >
+          <Info size={16} color={theme.text} />
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => setGuideVisible(true)}
-            style={[styles.guideBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
-            activeOpacity={0.7}
-          >
-            <Info size={16} color={theme.text} />
-          </TouchableOpacity>
-
-          <View style={[styles.legend, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendLine, { backgroundColor: '#FFA500' }]} />
-              <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunriseLine', language)}</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendLine, { backgroundColor: '#FF4500' }]} />
-              <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunsetLine', language)}</Text>
-            </View>
+        {/* 지도 우측 상단 태양 정보 오버레이 배지 */}
+        <View style={[styles.solarOverlay, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={styles.solarOverlayItem}>
+            <Sun size={11} color="#FFD700" />
+            <Text style={[styles.solarOverlayText, { color: theme.text }]}>
+              {sunPosAtSelected.altitude.toFixed(0)}° / {sunPosAtSelected.azimuth.toFixed(0)}°
+            </Text>
+          </View>
+          <View style={[styles.solarOverlayDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.solarOverlayItem}>
+            <Sunrise size={11} color="#FFA500" />
+            <Text style={[styles.solarOverlayText, { color: theme.text }]}>
+              {formatLocalTime(localSunrise, 'HH:mm')}
+            </Text>
+          </View>
+          <View style={[styles.solarOverlayDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.solarOverlayItem}>
+            <Sunset size={11} color="#FF4500" />
+            <Text style={[styles.solarOverlayText, { color: theme.text }]}>
+              {formatLocalTime(localSunset, 'HH:mm')}
+            </Text>
           </View>
         </View>
 
-        <View style={[styles.sidePanel, isTablet && styles.tabletSidePanel]}>
-          <IsolineControls
-            selectedDate={selectedDate}
-            onChangeDate={setSelectedDate}
-            onSlidingStart={handleSlidingStart}
-            isPlaying={isPlaying}
-            onTogglePlay={() => setIsPlaying((p) => !p)}
-            theme={theme}
-          />
-
-          <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <View style={styles.frameHeader}>
-              <MapPin size={12} color={theme.accent} />
-              <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('isolineLocationInfo', language)}</Text>
-            </View>
-            <View style={styles.grid}>
-              <StatTile
-                icon={<MapPin size={14} color={theme.accent} />}
-                label={t('latitude', language)}
-                value={`${lat.toFixed(2)}°`}
-                theme={theme}
-              />
-              <StatTile
-                icon={<MapPin size={14} color={theme.accent} />}
-                label={t('longitude', language)}
-                value={`${lon.toFixed(2)}°`}
-                theme={theme}
-              />
-            </View>
+        <View style={[styles.legend, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendLine, { backgroundColor: '#FFA500' }]} />
+            <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunriseLine', language)}</Text>
           </View>
-
-          <View style={[styles.infoFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <View style={styles.frameHeader}>
-              <Sun size={12} color="#FFD700" />
-              <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('isolineSolarInfo', language)}</Text>
-            </View>
-            <View style={styles.grid}>
-              <StatTile
-                icon={<Compass size={14} color="#FFD700" />}
-                label={t('solarAltitude', language)}
-                value={`${sunPosAtSelected.altitude.toFixed(0)}°`}
-                theme={theme}
-              />
-              <StatTile
-                icon={<Compass size={14} color="#FFD700" />}
-                label={t('solarAzimuth', language)}
-                value={`${sunPosAtSelected.azimuth.toFixed(0)}°`}
-                theme={theme}
-              />
-            </View>
-            <View style={styles.grid}>
-              <StatTile
-                icon={<Sunrise size={14} color="#FFA500" />}
-                label={t('sunrise', language)}
-                value={formatLocalTime(localSunrise, 'HH:mm')}
-                theme={theme}
-              />
-              <StatTile
-                icon={<Sunset size={14} color="#FF4500" />}
-                label={t('sunset', language)}
-                value={formatLocalTime(localSunset, 'HH:mm')}
-                theme={theme}
-              />
-              <StatTile
-                icon={<Hourglass size={14} color="#38BDF8" />}
-                label={t('dayLength', language)}
-                value={dayLengthLabel}
-                theme={theme}
-              />
-            </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendLine, { backgroundColor: '#FF4500' }]} />
+            <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunsetLine', language)}</Text>
           </View>
         </View>
       </View>
 
+      {/* 화면 최하단 시간/날짜 조작 컨트롤러 */}
+      <View style={styles.bottomControls}>
+        <IsolineControls
+          selectedDate={selectedDate}
+          onChangeDate={setSelectedDate}
+          onSlidingStart={handleSlidingStart}
+          isPlaying={isPlaying}
+          onTogglePlay={() => setIsPlaying((p) => !p)}
+          theme={theme}
+        />
+      </View>
+
       <IsolineGuideModal visible={guideVisible} onClose={() => setGuideVisible(false)} theme={theme} />
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingHorizontal: 14,
+    paddingBottom: 6,
   },
   headerRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 6,
   },
   headerChip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    padding: 8,
-    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
   },
   headerIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
+    width: 26,
+    height: 26,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerLabel: {
-    fontSize: 8.5,
+    fontSize: 8,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 1,
   },
   headerValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
   },
-  mainWrapper: {
-    gap: 12,
-  },
-  tabletMainWrapper: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
   mapCard: {
-    height: 280,
-    borderRadius: 24,
+    flex: 1,
+    width: '100%',
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: Platform.OS === 'android' ? 0 : 1,
     position: 'relative',
-  },
-  tabletMapCard: {
-    flex: 1,
-    height: 520,
   },
   guideBtn: {
     position: 'absolute',
@@ -422,6 +356,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
+    zIndex: 10,
   },
   projectionBtn: {
     position: 'absolute',
@@ -438,88 +373,62 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
+    zIndex: 10,
   },
-  legend: {
+  solarOverlay: {
     position: 'absolute',
-    bottom: 10,
+    top: 10,
     left: 10,
     flexDirection: 'row',
-    gap: 10,
-    paddingVertical: 6,
+    alignItems: 'center',
+    paddingVertical: 5,
     paddingHorizontal: 10,
     borderRadius: 12,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
+    gap: 8,
+    zIndex: 10,
+  },
+  solarOverlayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  solarOverlayText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  solarOverlayDivider: {
+    width: 1,
+    height: 10,
+    opacity: 0.4,
+  },
+  legend: {
+    position: 'absolute',
+    bottom: 8,
+    left: 10,
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    zIndex: 10,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
   legendLine: {
-    width: 12,
+    width: 10,
     height: 3,
     borderRadius: 1.5,
   },
   legendText: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '700',
   },
-  sidePanel: {
-    gap: 10,
-    marginTop: 12,
-  },
-  tabletSidePanel: {
-    flex: 1,
-    marginTop: 0,
-    marginLeft: 12,
-  },
-  infoFrame: {
-    borderRadius: 20,
-    padding: 10,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
-  },
-  frameHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 4,
-    marginBottom: 4,
-    gap: 6,
-  },
-  frameLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  statTile: {
-    flexBasis: '50%',
-    flexGrow: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    minWidth: 100,
-  },
-  statIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 8,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 1,
-  },
-  statValue: {
-    fontSize: 13,
-    fontWeight: '800',
+  bottomControls: {
+    marginTop: 6,
   },
 });

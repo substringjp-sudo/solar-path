@@ -665,7 +665,7 @@ export function createGroundPlane(): THREE.Mesh {
     vertexShader: GROUND_VERT,
     fragmentShader: GROUND_FRAG,
     side: THREE.DoubleSide,
-    depthWrite: false,
+    depthWrite: true,
     polygonOffset: true,
     polygonOffsetFactor: 3,
     polygonOffsetUnits: 3,

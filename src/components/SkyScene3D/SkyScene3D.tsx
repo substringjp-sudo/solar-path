@@ -14,7 +14,7 @@
  * - CelestialPathMesh: 태양/달 24h 이동 궤적 리본 & 관측자 그림자
  * - CloudField: 10종 SVG 템플릿 아틀라스 기반 InstancedMesh 구름 (draw call 1개)
  */
-import React, { useRef, useCallback, useEffect, useState } from 'react';
+import React, { useRef, useCallback, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer } from 'expo-three';
@@ -58,6 +58,7 @@ import {
   coverageFromSamples,
   type CloudSlabHandle,
 } from './CloudSlab';
+import { ViewfinderOverlay } from './ViewfinderOverlay';
 import {
   buildCloudInstances,
   buildCloudsFromColumns,
@@ -166,6 +167,21 @@ interface SkyScene3DProps {
    */
   timeline?: SkyTimeline | null;
   isActive?: boolean;
+  /** 외부에서 강제 주입하는 카메라 방위각 (AR 카메라 실시간 연동 시 사용) */
+  cameraAzimuthProp?: number;
+  /** 외부에서 강제 주입하는 카메라 고도각 (AR 카메라 실시간 연동 시 사용) */
+  cameraElevationProp?: number;
+  /** 외부에서 강제 주입하는 카메라 시야각 FOV (카메라 줌 배율 연동 시 사용) */
+  fovProp?: number;
+  /** 내부 FOV HUD 배지 숨김 여부 */
+  hideHudOverlay?: boolean;
+  /** 내부 하단 나침반 눈금자 Bar 숨김 여부 */
+  hideCompassBar?: boolean;
+}
+
+/** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
+export interface SkyScene3DHandle {
+  takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -181,6 +197,21 @@ const DEFAULT_LAYERS: LayerState = {
 };
 
 const DRAG_SENSITIVITY = 0.3;
+
+/**
+ * 땅(지평선 아래)이 화면 세로 높이의 지정된 비율(기본 30%)을 넘지 않도록 하는 최소 카메라 고도(도).
+ *
+ * Why: 카메라를 아래로 과도하게 내리면 지평선이 화면 위로 올라와 땅이 화면의 절반 이상을 덮습니다.
+ * PerspectiveCamera 투영에서 지평선(고도 0°)의 정규화 y좌표(NDC [-1, 1])가 하단 maxRatio 위치에 머물도록
+ * 최소 시선 고도를 기하학적으로 계산합니다:
+ *   y_horizon = -tan(elevRad) / tan(fovRad / 2) <= -1 + 2 * maxRatio
+ *   tan(elevRad) >= (1 - 2 * maxRatio) * tan(fovRad / 2)
+ */
+export function getMinCameraElevForGroundRatio(fovDeg: number, maxGroundRatio: number = 0.3): number {
+  const halfFovRad = ((fovDeg / 2) * Math.PI) / 180;
+  const targetTan = (1 - 2 * maxGroundRatio) * Math.tan(halfFovRad);
+  return (Math.atan(Math.max(0, targetTan)) * 180) / Math.PI;
+}
 
 /** InstancedMesh 용량. 29셀 × 최대 4개 ≈ 116이지만 여유를 둡니다. */
 const MAX_CLOUDS = 160; // 320 → 160: 모바일 GPU 부하 절반 절감
@@ -206,30 +237,40 @@ function formatCompassText(azimuth: number): string {
   return `${dir} ${Math.round(az)}°`;
 }
 
-export const SkyScene3D: React.FC<SkyScene3DProps> = ({
-  sim,
-  currentTime,
-  sunAltitude,
-  sunAzimuth,
-  prediction,
-  location,
-  interpolatedWeather,
-  theme,
-  layers = DEFAULT_LAYERS,
-  fullScreen = false,
-  skySettings = DEFAULT_SKY_SETTINGS,
-  trackingTarget,
-  onSelectTrackingTarget,
-  timeline = null,
-  isActive = true,
-}) => {
+export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
+  {
+    sim,
+    currentTime,
+    sunAltitude,
+    sunAzimuth,
+    prediction,
+    location,
+    interpolatedWeather,
+    theme,
+    layers = DEFAULT_LAYERS,
+    fullScreen = false,
+    skySettings = DEFAULT_SKY_SETTINGS,
+    trackingTarget,
+    onSelectTrackingTarget,
+    timeline = null,
+    isActive = true,
+    cameraAzimuthProp,
+    cameraElevationProp,
+    fovProp,
+    hideHudOverlay = false,
+    hideCompassBar = false,
+  },
+  ref
+) => {
   const { width, height } = useWindowDimensions();
   
   const SCENE_WIDTH = width - 32;
   const SCENE_HEIGHT = Math.round(SCENE_WIDTH * (3 / 4));
 
-  // 실시간 UI 방위 표시용 State
-  const [cameraAzimuth, setCameraAzimuth] = useState<number>(sunAzimuth);
+  // 실시간 UI 방위 및 뷰파인더 눈금자용 State
+  const [cameraAzimuth, setCameraAzimuth] = useState<number>(cameraAzimuthProp ?? sunAzimuth);
+  const [cameraElevation, setCameraElevation] = useState<number>(cameraElevationProp ?? 13);
+  const [cameraFov, setCameraFov] = useState<number>(fovProp ?? 60);
   const [celestialLabels, setCelestialLabels] = useState<Array<{ id: string; name: string; x: number; y: number; color: string }>>([]);
 
   // Three.js refs
@@ -265,7 +306,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
   // 카메라 회전 state (ref로 관리)
   const cameraAzRef = useRef(sunAzimuth);
-  const cameraElevRef = useRef(5);
+  const cameraElevRef = useRef(13); // 기본 FOV 60° 기준 땅이 30%를 넘지 않도록 13°로 초기화
   const fovRef = useRef(60);
   const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
   const pinchDistRef = useRef<number | null>(null);
@@ -296,7 +337,61 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** 슬라이더 패스트 스크럽 시 구름 재빌드 디바운스/취소용 타이머 ref */
   const cloudRebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  // ── 스마트 온디맨드 렌더링 & GPU/CPU 유휴 절전 컨트롤러 ──────────────────
+  const animateRef = useRef<() => void>(() => {});
+  const framesToRenderRef = useRef<number>(5);
+  const isLoopRunningRef = useRef<boolean>(false);
+  const lastRenderTsRef = useRef<number>(0);
+  const lastRenderedSceneTimeMsRef = useRef<number>(0);
+
+  /** 렌더링 요청: 화면 변화 시 루프를 깨우고 지정 프레임 수만큼 렌더링 후 자동 슬립 */
+  const requestRender = useCallback((frames = 4) => {
+    framesToRenderRef.current = Math.max(framesToRenderRef.current, frames);
+    if (!isLoopRunningRef.current && isActiveRef.current && glRef.current) {
+      isLoopRunningRef.current = true;
+      animFrameRef.current = requestAnimationFrame(animateRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    isActiveRef.current = isActive;
+    if (isActive) {
+      requestRender(5);
+    } else {
+      isLoopRunningRef.current = false;
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = 0;
+      }
+    }
+  }, [isActive, requestRender]);
+
+  // 외부(SunCamera 등)에서 3D 씬 고화질 스냅샷을 캡처할 수 있도록 핸들 노출
+  useImperativeHandle(ref, () => ({
+    takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
+      try {
+        if (rendererRef.current && sceneRef.current && cameraRef.current) {
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
+          if (glRef.current) {
+            glRef.current.endFrameEXP();
+          }
+        }
+        if (glRef.current) {
+          const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
+            format: options.format ?? 'jpeg',
+            compress: options.compress ?? 0.85,
+          });
+          if (snapshot && snapshot.uri) {
+            const uriStr = typeof snapshot.uri === 'string' ? snapshot.uri : (snapshot as any).localUri || '';
+            return uriStr;
+          }
+        }
+      } catch (e) {
+        console.warn('[SkyScene3D] takeSnapshot failed:', e);
+      }
+      return null;
+    },
+  }), []);
 
   // ── 성능 캐시 ref ──────────────────────────────────────────────────────────
   /** makeAtmosphereParams 결과 캐시 (2분 간격) */
@@ -317,26 +412,61 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
   /** setCelestialLabels 마지막 호출 시각 (4fps = 250ms 스로틀) */
   const lastLabelUpdateMsRef = useRef(0);
 
+  /** skyRadiance 연산(24회 루프) 캐시: 태양 각도가 0.04° 이상 변하지 않으면 재사용 */
+  const lastSkyMeanSunAltRef = useRef<number>(-999);
+  const lastSkyMeanSunAzRef = useRef<number>(-999);
+  const lastSkyMeanAtmosRef = useRef<any>(null);
+  const cachedSkyMeanRGBRef = useRef<{ r: number; g: number; b: number }>({ r: 0.2, g: 0.3, b: 0.5 });
 
-  useEffect(() => { sceneWidthRef.current = SCENE_WIDTH; }, [SCENE_WIDTH]);
-  useEffect(() => { skySettingsRef.current = skySettings; }, [skySettings]);
-  useEffect(() => { sunAltRef.current = sunAltitude; }, [sunAltitude]);
-  useEffect(() => { sunAzRef.current = sunAzimuth; }, [sunAzimuth]);
-  useEffect(() => { predictionRef.current = prediction; }, [prediction]);
-  useEffect(() => { simRef.current = sim; }, [sim]);
-  useEffect(() => { weatherRef.current = interpolatedWeather; }, [interpolatedWeather]);
-  useEffect(() => { layersRef.current = layers; }, [layers]);
-  useEffect(() => { timelineRef.current = timeline; }, [timeline]);
+  useEffect(() => { sceneWidthRef.current = SCENE_WIDTH; requestRender(3); }, [SCENE_WIDTH, requestRender]);
+  useEffect(() => { skySettingsRef.current = skySettings; requestRender(3); }, [skySettings, requestRender]);
+  useEffect(() => { sunAltRef.current = sunAltitude; requestRender(3); }, [sunAltitude, requestRender]);
+  useEffect(() => { sunAzRef.current = sunAzimuth; requestRender(3); }, [sunAzimuth, requestRender]);
+  useEffect(() => { predictionRef.current = prediction; requestRender(3); }, [prediction, requestRender]);
+  useEffect(() => { simRef.current = sim; requestRender(3); }, [sim, requestRender]);
+  useEffect(() => { weatherRef.current = interpolatedWeather; requestRender(3); }, [interpolatedWeather, requestRender]);
+  useEffect(() => { layersRef.current = layers; requestRender(3); }, [layers, requestRender]);
+  useEffect(() => { timelineRef.current = timeline; requestRender(3); }, [timeline, requestRender]);
 
   // 운형 문턱·덱 밀폐·빌보드 수는 uniform이 아니라 배치 로직에 들어갑니다.
   // 바뀌면 다음 프레임에 다시 배치하도록 재빌드 조건을 깨워 둡니다.
   useEffect(() => subscribeTuning(() => {
     lastCloudSceneMsRef.current = -1e15;
     lastCloudSunAltRef.current = -999;
-  }), []);
-  useEffect(() => { trackingTargetRef.current = trackingTarget; }, [trackingTarget]);
+    requestRender(4);
+  }), [requestRender]);
+  useEffect(() => { trackingTargetRef.current = trackingTarget; if (trackingTarget) requestRender(15); }, [trackingTarget, requestRender]);
   useEffect(() => { onSelectTrackingTargetRef.current = onSelectTrackingTarget; }, [onSelectTrackingTarget]);
-  useEffect(() => { targetTimeMsRef.current = currentTime.getTime(); }, [currentTime]);
+  useEffect(() => {
+    targetTimeMsRef.current = currentTime.getTime();
+    requestRender(4);
+  }, [currentTime, requestRender]);
+
+  const cameraAzimuthPropRef = useRef(cameraAzimuthProp);
+  const cameraElevationPropRef = useRef(cameraElevationProp);
+  const fovPropRef = useRef(fovProp);
+
+  useEffect(() => {
+    cameraAzimuthPropRef.current = cameraAzimuthProp;
+    if (cameraAzimuthProp !== undefined) {
+      setCameraAzimuth(cameraAzimuthProp);
+      requestRender(3);
+    }
+  }, [cameraAzimuthProp, requestRender]);
+  useEffect(() => {
+    cameraElevationPropRef.current = cameraElevationProp;
+    if (cameraElevationProp !== undefined) {
+      setCameraElevation(cameraElevationProp);
+      requestRender(3);
+    }
+  }, [cameraElevationProp, requestRender]);
+  useEffect(() => {
+    fovPropRef.current = fovProp;
+    if (fovProp !== undefined) {
+      setCameraFov(fovProp);
+      requestRender(3);
+    }
+  }, [fovProp, requestRender]);
 
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
@@ -392,8 +522,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => cameraAzimuthPropRef.current === undefined,
+      onMoveShouldSetPanResponder: () => cameraAzimuthPropRef.current === undefined,
       /**
        * 씬을 잡은 동안에는 아무에게도 responder를 넘기지 않습니다.
        *
@@ -411,6 +541,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       onPanResponderGrant: (evt) => {
         // 드래그 시작: TabNavigator가 수평 스와이프를 가로채지 않도록 차단
         useCelestialStore.getState().setGestureBlocked(true);
+        requestRender(4);
         // 드래그 시 자동 천체 트래킹 해제 -> 자유 조작 모드로 전환
         if (trackingTargetRef.current && onSelectTrackingTargetRef.current) {
           onSelectTrackingTargetRef.current(null);
@@ -424,6 +555,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         }
       },
       onPanResponderMove: (evt) => {
+        requestRender(2);
         const touches = evt.nativeEvent.touches;
         if (touches.length >= 2) {
           if (pinchDistRef.current === null) {
@@ -439,6 +571,17 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
               cameraRef.current.fov = fovRef.current;
               cameraRef.current.updateProjectionMatrix();
             }
+            // 줌 변경 시에도 땅 점유율이 30%를 넘지 않도록 카메라 고도 하한 보정
+            const minElev = getMinCameraElevForGroundRatio(fovRef.current, 0.3);
+            if (cameraElevRef.current < minElev) {
+              cameraElevRef.current = minElev;
+            }
+            const nowZoom = Date.now();
+            if (nowZoom - lastAzUpdateMsRef.current > 80) {
+              lastAzUpdateMsRef.current = nowZoom;
+              setCameraFov(fovRef.current);
+              setCameraElevation(cameraElevRef.current);
+            }
           }
         } else {
           if (lastTouchRef.current) {
@@ -446,28 +589,38 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
             const dy = touches[0].pageY - lastTouchRef.current.y;
             const nextAz = (cameraAzRef.current - dx * DRAG_SENSITIVITY + 360) % 360;
             cameraAzRef.current = nextAz;
-            cameraElevRef.current = Math.max(-10, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
-            // setCameraAzimuth 를 여기서 호출하지 않음 — 드래그 중 리렌더 차단
+            // 땅이 화면의 30%를 넘지 않도록 최소 고도 제한
+            const minElev = getMinCameraElevForGroundRatio(fovRef.current, 0.3);
+            cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
           }
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
           pinchDistRef.current = null;
-          // 나침반 UI는 100ms 스로싸럁 — 매 이벤트 React 리렌더 금지
+          // 뷰파인더 눈금자 UI는 80ms 스로틀 — 매 터치 이벤트마다 React 리렌더 방지
           const nowAz = Date.now();
-          if (nowAz - lastAzUpdateMsRef.current > 100) {
+          if (nowAz - lastAzUpdateMsRef.current > 80) {
             lastAzUpdateMsRef.current = nowAz;
             setCameraAzimuth(cameraAzRef.current);
+            setCameraElevation(cameraElevRef.current);
           }
         }
       },
       onPanResponderRelease: () => {
         lastTouchRef.current = null;
         pinchDistRef.current = null;
+        setCameraAzimuth(cameraAzRef.current);
+        setCameraElevation(cameraElevRef.current);
+        setCameraFov(fovRef.current);
+        requestRender(5);
         // 드래그 종료: TabNavigator 스와이프 다시 허용
         useCelestialStore.getState().setGestureBlocked(false);
       },
       onPanResponderTerminate: () => {
         lastTouchRef.current = null;
         pinchDistRef.current = null;
+        setCameraAzimuth(cameraAzRef.current);
+        setCameraElevation(cameraElevRef.current);
+        setCameraFov(fovRef.current);
+        requestRender(3);
         useCelestialStore.getState().setGestureBlocked(false);
       },
     })
@@ -655,17 +808,29 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     let adaptSettle = 0;
 
     const animate = () => {
-      if (contextLost) return; // 컨텍스트 소실 시 루프 중단
-      animFrameRef.current = requestAnimationFrame(animate);
+      if (contextLost) {
+        isLoopRunningRef.current = false;
+        return;
+      }
 
-      if (!isActiveRef.current) return; // 탭 비활성화 시 렌더링 스킵 (GPU/CPU 부하 및 메모리 절감)
+      if (!isActiveRef.current) {
+        // 탭 비활성화 시 렌더링 및 루프 완전 중단 (GPU/CPU 0% 절전)
+        isLoopRunningRef.current = false;
+        return;
+      }
 
-      // ── 프레임 시간 적산 ──────────────────────────────────────────────
+      const now = performance.now();
+
+      // ── 60fps 캡 (120Hz ProMotion 과열 방지: 최소 15.5ms 간격 보장) ───────────
+      if (lastRenderTsRef.current > 0 && now - lastRenderTsRef.current < 15.5) {
+        animFrameRef.current = requestAnimationFrame(animate);
+        return;
+      }
+
+      // ── 프레임 시간 적산 (적응 해상도) ───────────────────────────────────
       {
-        const now = performance.now();
         if (adaptLastTs > 0) {
           const dt = now - adaptLastTs;
-          // 탭 복귀·시간 점프로 생긴 거대한 간격은 표본에서 뺍니다.
           if (dt < 200) {
             if (adaptSettle > 0) adaptSettle--;
             else { adaptAccMs += dt; adaptCount++; }
@@ -687,6 +852,8 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
           }
         }
       }
+
+      let isTrackingMoving = false;
 
       try {
         // 즉시(0ms) 시간 이동 (타임 슬라이더 변경 시 부드러운 보간 없이 즉각 적용)
@@ -726,10 +893,32 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
             while (azDiff > 180) azDiff -= 360;
             while (azDiff < -180) azDiff += 360;
 
+            const minElev = getMinCameraElevForGroundRatio(fovRef.current, 0.3);
+            const clampedTargetElev = Math.max(minElev, targetElev);
+            const elevDiff = clampedTargetElev - cameraElevRef.current;
+
+            if (Math.abs(azDiff) > 0.05 || Math.abs(elevDiff) > 0.05) {
+              isTrackingMoving = true;
+            }
+
             cameraAzRef.current = (cameraAzRef.current + azDiff * 0.14 + 360) % 360;
-            cameraElevRef.current += (targetElev - cameraElevRef.current) * 0.14;
+            cameraElevRef.current += elevDiff * 0.14;
             setCameraAzimuth(cameraAzRef.current);
+            setCameraElevation(cameraElevRef.current);
           }
+        }
+
+        // 외부 주입 카메라 각도/FOV 실시간 반영 (AR 카메라 연동)
+        if (cameraAzimuthPropRef.current !== undefined) {
+          cameraAzRef.current = cameraAzimuthPropRef.current;
+        }
+        if (cameraElevationPropRef.current !== undefined) {
+          cameraElevRef.current = cameraElevationPropRef.current;
+        }
+        if (fovPropRef.current !== undefined && Math.abs(fovRef.current - fovPropRef.current) > 0.05) {
+          fovRef.current = fovPropRef.current;
+          camera.fov = fovPropRef.current;
+          camera.updateProjectionMatrix();
         }
 
         const observerElev = simRef.current?.terrain?.observerElevation ?? 0;
@@ -805,19 +994,12 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
               moonDir: tempMoonDirVec,
               moonAltDeg: mAltDeg,
               moonIllum: moonIllum.fraction,
-              // 도시광은 켜짐/꺼짐이 아니라 **그 장소가 얼마나 밝은가**입니다.
-              // 광공해 설정(starMagLimit)에서 끌어옵니다 — 6.5등급(청정)이면
-              // 0, 3.0등급(도심)이면 1. 별이 안 보이는 하늘이면 구름 밑면도
-              // 그만큼 물드는 것이 같은 현상의 양면이라, 두 표현이 한 값을
-              // 공유해야 서로 어긋나지 않습니다.
               cityLight: layersRef.current.cityLights === false
                 ? 0
                 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)),
               beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
               atmosphere: atmos,
               layerWinds: layerWindsNow(),
-              // `cloudPlacement` 의 `driftMinutes` 와 **같은 기준**입니다
-              // (자정 기준 경과 분). 운량장과 잔무늬가 같이 흘러야 합니다.
               driftHours: ((targetTimeMsRef.current / 60000) % 1440) / 60,
               visible: layersRef.current.clouds !== false,
             });
@@ -898,17 +1080,34 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       } catch (e) {
         consecutiveErrors++;
         console.warn(`[SkyScene] Render frame warning (${consecutiveErrors}/10):`, e);
-        // 단발성 렌더 에러로 루프 전체가 무조건 멈춰서 화면이 백화되는 현상 예방
-        // 연속 10회 이상 에러 시에만 멈춤
         if (consecutiveErrors >= 10) {
           console.error('[SkyScene] Exceeded consecutive render error limit, pausing loop.');
           contextLost = true;
+          isLoopRunningRef.current = false;
           return;
         }
       }
 
       gl.endFrameEXP();
+      lastRenderTsRef.current = performance.now();
+      lastRenderedSceneTimeMsRef.current = targetTimeMsRef.current;
+
+      // ── 온디맨드 렌더링 스케줄링 결정 ─────────────────────────────────
+      if (framesToRenderRef.current > 0) {
+        framesToRenderRef.current--;
+      }
+
+      // 첫 렌더 미완료, 잔여 프레임 잔존, 또는 카메라 트래킹 중일 때만 다음 프레임 예약
+      if (!isSceneReadyRef.current || framesToRenderRef.current > 0 || isTrackingMoving) {
+        animFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        // 정적 상태: 루프 완전 정지(Sleep, 0 FPS) ➔ GPU/CPU 100% 휴식
+        isLoopRunningRef.current = false;
+      }
     };
+
+    animateRef.current = animate;
+    isLoopRunningRef.current = true;
     animate();
   }, []);
 
@@ -964,56 +1163,61 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
     // **코사인 가중이 핵심입니다.** 수평면이 받는 조도는 ∫L·cosθ dΩ 이라
     // 천정 쪽이 크게, 지평선 쪽이 작게 기여합니다. 균등 평균으로 내면
     // 지평선의 노을빛을 과대 반영해 지면이 실제보다 따뜻해집니다.
-    let sr = 0, sg = 0, sb = 0, sw = 0;
-    for (const elev of [10, 30, 50, 75]) {
-      const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
-      for (let a = 0; a < 6; a++) {
-        const az = (a * 360) / 6;
-        const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
-        const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
-        sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
+    // ── skyRadiance 조도 연산(24회 삼각함수 루프) 캐싱 ────────────────────────
+    // 태양 고도/방위 또는 대기 파라미터가 0.04° 이상 변했을 때만 무거운 물리 연산 재계산
+    const sunMoved =
+      Math.abs(sunAltRef.current - lastSkyMeanSunAltRef.current) > 0.04 ||
+      Math.abs(sunAzRef.current - lastSkyMeanSunAzRef.current) > 0.04 ||
+      atmosphere !== lastSkyMeanAtmosRef.current;
+
+    if (sunMoved) {
+      lastSkyMeanSunAltRef.current = sunAltRef.current;
+      lastSkyMeanSunAzRef.current = sunAzRef.current;
+      lastSkyMeanAtmosRef.current = atmosphere;
+
+      let sr = 0, sg = 0, sb = 0, sw = 0;
+      for (const elev of [10, 30, 50, 75]) {
+        const w = Math.sin((elev * Math.PI) / 180);   // cos(천정각)
+        for (let a = 0; a < 6; a++) {
+          const az = (a * 360) / 6;
+          const gamma = angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current);
+          const L = skyRadiance(elev, gamma, sunAltRef.current, atmosphere);
+          sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
+        }
       }
-    }
-    const skyMeanRGB = { r: sr / sw, g: sg / sw, b: sb / sw };
+      cachedSkyMeanRGBRef.current = { r: sr / sw, g: sg / sw, b: sb / sw };
 
-    if (groundRef.current) {
-      updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
-        skyMean: skyMeanRGB,
-        // 물이 되비출 하늘은 **셰이더가 거울 방향으로 직접** 계산합니다
-        // (atm_skyRadiance). 여기서는 대기 파라미터만 넘깁니다.
-        betaMie: atmosphere.betaMie,
-        angstrom: atmosphere.angstrom,
-        elevScale: atmosphere.elevScale,
-        waterTex: waterTexRef.current,
-        // ⚠ 실측 바람이 아닙니다 — 권운 이방성과 같은 자리표시자입니다
-        // (docs/CLOUD_TEXTURE_PLAN.md §15). 윤슬 폭이 실제 바람을 안 따릅니다.
-        // 윤슬 폭은 수면을 흔드는 **지표 부근** 바람이 정합니다 — 하층(850 hPa)
-        // 값을 씁니다. 실측이 없으면 예전과 같은 대용 상수로 내려앉습니다.
-        windSpeedMs: layerWindsNow().low.speedKmh / 3.6,
-        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
-        sunTransmittance: 1 - overcast,
-        sunAzimuthDeg: sunAzRef.current,
-      });
-    }
+      if (groundRef.current) {
+        updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
+          skyMean: cachedSkyMeanRGBRef.current,
+          betaMie: atmosphere.betaMie,
+          angstrom: atmosphere.angstrom,
+          elevScale: atmosphere.elevScale,
+          waterTex: waterTexRef.current,
+          windSpeedMs: layerWindsNow().low.speedKmh / 3.6,
+          beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+          sunTransmittance: 1 - overcast,
+          sunAzimuthDeg: sunAzRef.current,
+        });
+      }
 
-    if (terrainBandsRef.current) {
-      // 지면 원반과 **같은 조도**를 씁니다 (바로 위에서 계산한 skyMean).
-      // 연무색은 방위·고도별로 뽑아, 먼 능선이 자기 뒤 하늘에 잠기게 합니다.
-      updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
-        skyMean: skyMeanRGB,
-        hazeAt: (az: number, elev: number) =>
-          skyRadiance(
-            elev,
-            angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current),
-            sunAltRef.current,
-            atmosphere
-          ),
-        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
-        sunTransmittance: 1 - overcast,
-        betaMie: atmosphere.betaMie,
-        angstrom: atmosphere.angstrom,
-        elevScale: atmosphere.elevScale,
-      });
+      if (terrainBandsRef.current) {
+        updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
+          skyMean: cachedSkyMeanRGBRef.current,
+          hazeAt: (az: number, elev: number) =>
+            skyRadiance(
+              elev,
+              angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current),
+              sunAltRef.current,
+              atmosphere
+            ),
+          beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+          sunTransmittance: 1 - overcast,
+          betaMie: atmosphere.betaMie,
+          angstrom: atmosphere.angstrom,
+          elevScale: atmosphere.elevScale,
+        });
+      }
     }
 
     if (sunRef.current) {
@@ -1342,66 +1546,15 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
         {...panResponder.panHandlers}
       />
 
-      <View style={styles.hudOverlay} pointerEvents="none">
-        <View style={[styles.fovBadge, { backgroundColor: theme?.glass ?? 'rgba(15, 23, 42, 0.75)' }]}>
-          <Text style={[styles.fovText, { color: theme?.subText ?? 'rgba(255,255,255,0.7)' }]}>
-            FOV {Math.round(fovRef.current)}°
-          </Text>
-        </View>
-      </View>
-
-      {/* 시뮬레이션 하단 수평 눈금 나침반 Bar */}
-      <View style={styles.compassBarContainer} pointerEvents="none">
-        <View style={styles.compassCenterPointer} />
-        <View style={styles.compassTicksWrapper}>
-          {(() => {
-            const ticks = [];
-            const centerAz = cameraAzimuth;
-            const pxPerDeg = 1.8;
-            for (let deg = -70; deg <= 70; deg += 5) {
-              const targetAz = (centerAz + deg + 360) % 360;
-              const roundedAz = Math.round(targetAz / 5) * 5 % 360;
-              const x = deg * pxPerDeg;
-
-              let label = '';
-              if (roundedAz === 0) label = 'N';
-              else if (roundedAz === 45) label = 'NE';
-              else if (roundedAz === 90) label = 'E';
-              else if (roundedAz === 135) label = 'SE';
-              else if (roundedAz === 180) label = 'S';
-              else if (roundedAz === 225) label = 'SW';
-              else if (roundedAz === 270) label = 'W';
-              else if (roundedAz === 315) label = 'NW';
-
-              const isMajor = roundedAz % 45 === 0;
-              const isMedium = roundedAz % 15 === 0;
-
-              ticks.push(
-                <View key={deg} style={[styles.tickItem, { transform: [{ translateX: x }] }]}>
-                  <View
-                    style={{
-                      width: isMajor ? 2 : 1,
-                      height: isMajor ? 10 : isMedium ? 7 : 4,
-                      backgroundColor: isMajor ? '#38BDF8' : 'rgba(255,255,255,0.5)',
-                    }}
-                  />
-                  {label !== '' && (
-                    <Text style={[styles.tickLabel, { color: isMajor ? '#38BDF8' : '#E2E8F0' }]}>
-                      {label}
-                    </Text>
-                  )}
-                </View>
-              );
-            }
-            return ticks;
-          })()}
-        </View>
-      </View>
-
-      {/* 방위각 숫자 배지 — compassBarContainer 밖에 별도 배치하여 눈금 가림 방지 */}
-      <View style={styles.compassDegBadge} pointerEvents="none">
-        <Text style={styles.compassDegText}>{Math.round(cameraAzimuth)}°</Text>
-      </View>
+      {/* ── 전문가용 카메라 뷰파인더 오버레이 (3등분선, 위아래 방위 눈금자, 우측 고도각 눈금자, 좌측 시야각 눈금자) ── */}
+      {!hideHudOverlay && !hideCompassBar && (
+        <ViewfinderOverlay
+          cameraAzimuth={cameraAzimuth}
+          cameraElevation={cameraElevation}
+          cameraFov={cameraFov}
+          theme={theme}
+        />
+      )}
 
       {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (충돌 방지 적용) */}
       {layers?.labels !== false && (() => {
@@ -1466,7 +1619,7 @@ export const SkyScene3D: React.FC<SkyScene3DProps> = ({
       })()}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -1476,81 +1629,6 @@ const styles = StyleSheet.create({
   },
   glView: {
     flex: 1,
-  },
-  hudOverlay: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    flexDirection: 'row',
-  },
-  fovBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  fovText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  compassBarContainer: {
-    position: 'absolute',
-    bottom: 12,
-    left: 20,
-    right: 20,
-    height: 38,
-    backgroundColor: 'rgba(10, 15, 30, 0.75)',
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  compassCenterPointer: {
-    position: 'absolute',
-    top: 2,
-    width: 2,
-    height: 12,
-    backgroundColor: '#FF4500',
-    borderRadius: 1,
-    zIndex: 10,
-  },
-  compassTicksWrapper: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  tickItem: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    top: 6,
-  },
-  tickLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  compassDegBadge: {
-    position: 'absolute',
-    // compassBarContainer (bottom: 12, height: 38) 바로 위에 배치 → bottom: 12 + 38 + 4 = 54
-    bottom: 54,
-    right: 22,
-    backgroundColor: 'rgba(56, 189, 248, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.4)',
-  },
-  compassDegText: {
-    color: '#38BDF8',
-    fontSize: 10,
-    fontWeight: '800',
   },
   modeBadge: {
     position: 'absolute',

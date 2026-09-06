@@ -35,6 +35,8 @@ interface TabNavigatorProps {
   myPhotos: any[];
   removeGlobalPhoto: (id: string) => Promise<void>;
   setMapVisible: (visible: boolean) => void;
+  onCameraPress?: () => void;
+  isSuspended?: boolean;
 }
 
 export const TabNavigator: React.FC<TabNavigatorProps> = ({
@@ -52,6 +54,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   myPhotos,
   removeGlobalPhoto,
   setMapVisible,
+  onCameraPress,
+  isSuspended = false,
 }) => {
   const { width } = Dimensions.get('window');
 
@@ -138,11 +142,21 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           setTimeMachineEnabled={setTimeMachineEnabled}
           events={events}
           setMapVisible={setMapVisible}
-          isActive={activeTab === 'sky'}
+          onCameraPress={onCameraPress}
+          isActive={activeTab === 'sky' && !isSuspended}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'map' && styles.hiddenPage]}>
-        <MapScreen theme={theme} currentTime={currentTime} isActive={activeTab === 'map'} />
+        <MapScreen
+          theme={theme}
+          currentTime={currentTime}
+          setCurrentTime={setCurrentTime}
+          isTimeMachineEnabled={isTimeMachineEnabled}
+          setTimeMachineEnabled={setTimeMachineEnabled}
+          events={events}
+          onCameraPress={onCameraPress}
+          isActive={activeTab === 'map'}
+        />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>
         <Gallery

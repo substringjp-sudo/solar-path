@@ -21,7 +21,7 @@ import {
   ChevronRight,
   Calendar,
   RotateCcw,
-  Camera as CameraIcon,
+  MapPin,
   Settings,
 } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -44,9 +44,7 @@ interface AppHeaderProps {
   activeTab: AppTab;
   setActiveTab: (tab: AppTab) => void;
   setSettingsVisible: (visible: boolean) => void;
-  handleCameraPress: () => void;
-  handleCameraLongPress: () => void;
-  goldenTimeInfo: { isActive: boolean; type: 'sunrise' | 'sunset' | null };
+  setMapVisible?: (visible: boolean) => void;
   setShowDatePicker: (visible: boolean) => void;
   handleDateChange: (date: Date) => void;
   theme: any;
@@ -60,9 +58,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   activeTab,
   setActiveTab,
   setSettingsVisible,
-  handleCameraPress,
-  handleCameraLongPress,
-  goldenTimeInfo,
+  setMapVisible,
   setShowDatePicker,
   handleDateChange,
   theme,
@@ -142,38 +138,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </Animated.View>
 
         <View style={styles.rightButtons}>
+          {setMapVisible && (
+            <TouchableOpacity
+              onPress={() => setMapVisible(true)}
+              style={[styles.iconBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+              accessibilityLabel="현재위치 변경"
+              accessibilityRole="button"
+            >
+              <MapPin size={15} color={theme.accent || '#38BDF8'} />
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             onPress={() => setSettingsVisible(true)}
             style={[styles.iconBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+            accessibilityLabel="설정"
+            accessibilityRole="button"
           >
             <Settings size={14} color={theme.text} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            disabled={isSimulationLoading || !goldenTimeInfo.isActive}
-            onPress={handleCameraPress}
-            onLongPress={handleCameraLongPress}
-            delayLongPress={1500}
-            style={[
-              styles.iconBtn,
-              isSimulationLoading
-                ? { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1, opacity: 0.2 }
-                : goldenTimeInfo.isActive
-                  ? {
-                      backgroundColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
-                      shadowColor: goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.4,
-                      shadowRadius: 6,
-                      elevation: 5,
-                    }
-                  : { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1, opacity: 0.2 },
-            ]}
-          >
-            <CameraIcon
-              size={14}
-              color={goldenTimeInfo.isActive && !isSimulationLoading ? '#FFF' : theme.text}
-            />
           </TouchableOpacity>
         </View>
       </View>
@@ -244,30 +226,30 @@ const styles = StyleSheet.create({
   },
   navToggle: {
     flexDirection: 'row',
-    padding: 3,
-    borderRadius: 20,
+    padding: 2.5,
+    borderRadius: 4,
     borderWidth: Platform.OS === 'android' ? 0.5 : 1,
     flex: 1,
     position: 'relative',
   },
   navIndicator: {
     position: 'absolute',
-    top: 3,
-    bottom: 3,
-    borderRadius: 17,
+    top: 2.5,
+    bottom: 2.5,
+    borderRadius: 3,
   },
   navButton: {
     flex: 1,
     paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 17,
+    borderRadius: 3,
     zIndex: 2,
   },
   navText: {
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: -0.2,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   rightButtons: {
     flexDirection: 'row',
@@ -275,22 +257,21 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   iconBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 3,
   },
   dateNavigator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 4,
     borderWidth: Platform.OS === 'android' ? 0.5 : 1,
-    height: 38,
+    height: 36,
   },
   dateControl: {
     padding: 4,
@@ -302,16 +283,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dateText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: -0.2,
+    letterSpacing: 0.6,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   todayButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 3,
     gap: 4,
   },
   dateRightControls: {
@@ -322,15 +304,19 @@ const styles = StyleSheet.create({
   todayText: {
     fontSize: 9,
     fontWeight: '900',
+    letterSpacing: 0.3,
   },
   timezoneBadge: {
     marginLeft: 6,
     paddingHorizontal: 5,
     paddingVertical: 1.5,
-    borderRadius: 6,
+    borderRadius: 3,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   timezoneText: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 });

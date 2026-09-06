@@ -209,21 +209,22 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
 const styles = StyleSheet.create({
   container: { height: 44, justifyContent: 'center', width: '100%', paddingHorizontal: 27 },
-  track: { height: 6, borderRadius: 3, width: '100%', position: 'relative' },
-  fill: { height: '100%', borderRadius: 3, position: 'absolute', left: 0 },
+  track: { height: 4, borderRadius: 2, width: '100%', position: 'relative' },
+  fill: { height: '100%', borderRadius: 2, position: 'absolute', left: 0 },
   knob: { 
     position: 'absolute', 
     top: -14, 
-    width: 54, 
-    height: 34, 
-    borderRadius: 12, 
-    marginLeft: -27, 
+    width: 56, 
+    height: 32, 
+    borderRadius: 4, 
+    marginLeft: -28, 
     justifyContent: 'center', 
     alignItems: 'center', 
     shadowColor: '#000', 
-    shadowOpacity: 0.2, 
-    shadowRadius: 4, 
-    elevation: 5, 
-    borderWidth: 2 
+    shadowOpacity: 0.35, 
+    shadowRadius: 6, 
+    elevation: 6, 
+    borderWidth: 1.5,
+    borderColor: 'rgba(56, 189, 248, 0.65)',
   },
 });

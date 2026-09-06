@@ -12,12 +12,14 @@
  * 움직이나"를 답합니다. 두 정보가 다른 탭에 흩어져 있으면 사용자가 머릿속에서
  * 합쳐야 합니다. 같은 화면에 두면 "빛이 도착하기 전에 걷힐까"가 한눈에 보입니다.
  */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
 import { Globe2, CloudSun, Compass } from 'lucide-react-native';
+import SunCalc from 'suncalc';
 import { IsolineMap } from '../IsolineMap/IsolineMap';
 import { CloudTrackerChart } from '../CloudTrackerChart';
 import { SunAzimuthView } from './SunAzimuthView';
+import { TimeSlider } from '../TimeSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
 type MapView = 'isoline' | 'clouds' | 'sunpath';
@@ -26,37 +28,56 @@ interface MapScreenProps {
   theme: any;
   currentTime: Date;
   isActive: boolean;
+  setCurrentTime?: (time: Date) => void;
+  isTimeMachineEnabled?: boolean;
+  setTimeMachineEnabled?: (enabled: boolean) => void;
+  events?: any;
+  onCameraPress?: () => void;
 }
 
-export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActive }) => {
+export const MapScreen: React.FC<MapScreenProps> = ({
+  theme,
+  currentTime,
+  isActive,
+  setCurrentTime,
+  isTimeMachineEnabled = true,
+  setTimeMachineEnabled,
+  events,
+  onCameraPress,
+}) => {
   const { location } = useCelestialStore();
   const [view, setView] = useState<MapView>('isoline');
 
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.978;
 
+  const isDay = useMemo(() => {
+    const sp = SunCalc.getPosition(currentTime, latitude, longitude);
+    return sp.altitude > 0;
+  }, [currentTime, latitude, longitude]);
+
   const views: { id: MapView; label: string; icon: (active: boolean) => React.ReactNode }[] = [
     {
       id: 'isoline',
-      label: '등시선',
-      icon: (a) => <Globe2 size={13} color={a ? '#F8FAFC' : '#94A3B8'} />,
+      label: '일조 등치선',
+      icon: (a) => <Globe2 size={13} color={a ? '#38BDF8' : '#94A3B8'} />,
     },
     {
       id: 'clouds',
-      label: '구름 이동',
-      icon: (a) => <CloudSun size={13} color={a ? '#F8FAFC' : '#94A3B8'} />,
+      label: '구름 레이더',
+      icon: (a) => <CloudSun size={13} color={a ? '#38BDF8' : '#94A3B8'} />,
     },
     {
       id: 'sunpath',
       label: '태양 경로',
-      icon: (a) => <Compass size={13} color={a ? '#F8FAFC' : '#94A3B8'} />,
+      icon: (a) => <Compass size={13} color={a ? '#38BDF8' : '#94A3B8'} />,
     },
   ];
 
   return (
     <View style={styles.container}>
-      {/* 같은 공간 프레임 안의 레이어 — 탭이 아니라 세그먼트로 전환합니다. */}
-      <View style={[styles.segment, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+      {/* ── 상단 3단 계측 세그먼트 (Astro-HUD 스타일) ────────────────────── */}
+      <View style={[styles.segment, { backgroundColor: 'rgba(10, 14, 23, 0.85)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
         {views.map(v => {
           const isActiveView = view === v.id;
           return (
@@ -65,7 +86,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActi
               onPress={() => setView(v.id)}
               style={[
                 styles.segmentBtn,
-                isActiveView && { backgroundColor: 'rgba(59, 130, 246, 0.22)' },
+                isActiveView && styles.segmentBtnActive,
               ]}
               activeOpacity={0.8}
             >
@@ -73,7 +94,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActi
               <Text
                 style={[
                   styles.segmentText,
-                  { color: isActiveView ? '#F8FAFC' : theme.subText },
+                  { color: isActiveView ? '#38BDF8' : 'rgba(148, 163, 184, 0.8)' },
                   isActiveView && { fontWeight: '900' },
                 ]}
               >
@@ -88,11 +109,32 @@ export const MapScreen: React.FC<MapScreenProps> = ({ theme, currentTime, isActi
         {view === 'isoline' ? (
           <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
         ) : view === 'clouds' ? (
-          <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} />
+          <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} currentTime={currentTime} />
         ) : (
           <SunAzimuthView theme={theme} currentTime={currentTime} />
         )}
       </View>
+
+      {/* ── 태양 경로 뷰 최하단 상시 노출 타임 슬라이더 ─────────────────────── */}
+      {view === 'sunpath' && setCurrentTime && (
+        <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
+          <TimeSlider
+            value={currentTime}
+            onChange={setCurrentTime}
+            isTimeMachineEnabled={isTimeMachineEnabled}
+            onToggleTimeMachine={setTimeMachineEnabled}
+            theme={theme}
+            isDay={isDay}
+            onCameraPress={onCameraPress}
+            markers={events ? [
+              { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
+              { time: events.sunset || null, color: '#FF4500', type: 'set' },
+              { time: events.moonrise || null, color: '#888', type: 'rise' },
+              { time: events.moonset || null, color: '#888', type: 'set' },
+            ] : []}
+          />
+        </View>
+      )}
     </View>
   );
 };
@@ -106,8 +148,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     marginBottom: 6,
     padding: 3,
-    borderRadius: 14,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    borderRadius: 6,
+    borderWidth: 1,
     gap: 3,
   },
   segmentBtn: {
@@ -115,15 +157,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5,
+    gap: 6,
     paddingVertical: 7,
-    borderRadius: 11,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  segmentBtnActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.14)',
+    borderColor: 'rgba(56, 189, 248, 0.4)',
   },
   segmentText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
+    letterSpacing: 0.3,
   },
   body: {
     flex: 1,
+  },
+  bottomPanel: {
+    paddingVertical: 6,
+    borderTopWidth: 1,
   },
 });

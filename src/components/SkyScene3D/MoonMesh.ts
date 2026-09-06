@@ -11,7 +11,7 @@ import { getMoonPosition } from '../../utils/celestial';
 
 /** 사람 눈 체감 감성 착시 스케일 반영 (반지름 약 8.0 유닛) */
 const MOON_ANGULAR_RADIUS_DEG = 1.02;
-const MOON_DISTANCE = 445;
+const MOON_DISTANCE = 490;
 
 const VERT = `
 varying vec2 vUv;
@@ -138,7 +138,8 @@ export function createMoonGroup(): MoonHandle {
 
   const moonMesh = new THREE.Mesh(moonGeo, material);
   moonMesh.name = 'moonDisk';
-  moonMesh.renderOrder = 6; // 천체 경로선 및 가이드라인보다 위에 선명하게 표현
+  // 지면(-0.5) 및 지형(-0.4)보다 뒤에 그려져 일몰/월몰 시 땅 뒤로 가려지도록 설정
+  moonMesh.renderOrder = -0.53;
   group.add(moonMesh);
 
   return {

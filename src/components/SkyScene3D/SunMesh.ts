@@ -9,7 +9,7 @@ import { sunDiskColor, ATMOSPHERE_GLSL, type AtmosphereParams, makeTuningUniform
 
 /** 실제 시직경 0.533° 기반 사람 눈 체감 착시 스케일 반영 (반지름 약 8.5 유닛) */
 const SUN_ANGULAR_RADIUS_DEG = 1.08;
-const SUN_DISTANCE = 450;
+const SUN_DISTANCE = 490;
 
 const VERT = `
 varying vec2 vUv;
@@ -96,9 +96,9 @@ export function createSun(): SunHandle {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'sunDisk';
-  // 구름(빌보드 2, 덱 1)보다 **뒤**에 그려야 구름이 태양을 가릴 수 있습니다.
-  // 이전에는 5라서 8/8 난층운 뒤에서도 원반이 그대로 보였습니다.
-  mesh.renderOrder = 0.5;
+  // 지면(-0.5) 및 지형(-0.4)보다 **뒤**에 그려야 일출/일몰 시 땅 뒤에서 솟아오릅니다.
+  // 스카이돔(-1)보다는 위에, 지면/지형 및 구름(1~2)보다는 뒤에 그립니다.
+  mesh.renderOrder = -0.55;
   mesh.frustumCulled = false;
 
   return {

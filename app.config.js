@@ -60,6 +60,7 @@ module.exports = {
   expo: {
     name: "BeforeGlow",
     slug: "beforeglow",
+    scheme: "beforeglow",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { Clock, Zap, MapPin } from 'lucide-react-native';
+import { Clock, Zap, MapPin, Camera } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
@@ -17,6 +17,7 @@ interface TimeSliderProps {
   isDay: boolean;
   markers?: Array<{ time: Date | null; color: string; type: 'rise' | 'set' }>;
   onPressMap?: () => void;
+  onCameraPress?: () => void;
   onSlidingStart?: () => void;
   onSlidingComplete?: () => void;
 }
@@ -32,6 +33,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   isDay,
   markers = [],
   onPressMap,
+  onCameraPress,
   onSlidingStart,
   onSlidingComplete,
 }) => {
@@ -89,9 +91,8 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   }, [localBaseTime, getPercentageFromTime]);
 
   const getKnobColors = (p: number) => {
-    // Always return white background for the knob and dark text for the tooltip,
-    // keeping the styling consistent with the forced light theme.
-    return { color: '#FFFFFF', textColor: '#1A1A1A' };
+    // Astro-HUD: 흑연 옵시디언 다크 노브 + 일렉트릭 시안 발광 타임코드
+    return { color: '#0B132B', textColor: '#38BDF8' };
   };
 
   const sunriseTime = useMemo(() => {
@@ -276,124 +277,246 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Clock size={14} color={theme.subText} />
-          <Text style={[styles.title, { color: theme.subText }]}>
-            {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
-          </Text>
-        </View>
-        <View style={styles.headerButtons}>
-          {onPressMap && (
-            <TouchableOpacity 
-              style={[styles.nowButton, { backgroundColor: theme.accent }]} 
-              onPress={onPressMap}
-              activeOpacity={0.7}
-            >
-              <MapPin size={10} color="#000" />
-              <Text style={styles.nowText}>{t('mapLabel', language)}</Text>
-            </TouchableOpacity>
-          )}
-          {isFullDay && isTimeMachineEnabled && (
-            <TouchableOpacity 
-              style={[styles.nowButton, { backgroundColor: theme.accent }]} 
-              onPress={() => onToggleTimeMachine(false)}
-              activeOpacity={0.7}
-            >
-              <Zap size={10} color="#000" fill="#000" />
-              <Text style={styles.nowText}>{t('now', language)}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
- 
-      <View style={styles.sliderWrapper}>
-        <GenericSlider
-          value={currentPct}
-          onChange={(p) => {
-            const selectedLocalTime = getTimeFromPercentage(p);
-            const systemTime = getSystemTimeFromLocationTime(selectedLocalTime, timezoneOffsetHours);
-            onChange(systemTime);
-          }}
-          onGrant={() => {
-            onToggleTimeMachine(true);
-            onSlidingStart?.();
-          }}
-          onRelease={onSlidingComplete}
-          theme={theme}
-          trackColor={isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)'}
-          fillColor={getFillColor()}
-          colorMap={colorMap}
-          knobColor={getKnobColors(currentPct).color}
-          trackOverlay={
-            <View style={styles.markerOverlay} pointerEvents="none">
-              {localMarkers.map((marker, i) => {
-                if (!marker.time) return null;
-                const p = getPercentageFromTime(marker.time);
-                if (p < 0 || p > 100) return null;
-                const markerColor = marker.color === '#888' ? '#888888' : marker.color;
-                return (
-                  <View 
-                    key={i} 
-                    style={[styles.markerContainer, { left: `${p}%` }]} 
-                  >
-                    {marker.type === 'rise' && (
-                      <Text style={[styles.directionIndicator, { color: markerColor, marginBottom: 2 }]}>▲</Text>
-                    )}
-                    {/* 게이지가 차올라도 링 실루엣이 묻히지 않도록 배경을 불투명 흰색(#FFFFFF)으로 변경 */}
-                    <View style={[styles.auraRing, { borderColor: markerColor, backgroundColor: '#FFFFFF' }]}>
-                      <View style={[styles.coreDot, { backgroundColor: markerColor }]} />
-                    </View>
-                    {marker.type === 'set' && (
-                      <Text style={[styles.directionIndicator, { color: markerColor, marginTop: 2 }]}>▼</Text>
-                    )}
-                  </View>
-                );
-              })}
+      {/* ── 좌측: 타임라인 스크러버 섹션 ─────────────────────────────────── */}
+      <View style={styles.sliderSection}>
+        <View style={styles.header}>
+          <View style={styles.titleRow}>
+            <Clock size={12} color="#38BDF8" />
+            <Text style={[styles.title, { color: '#E2E8F0' }]}>
+              {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
+            </Text>
+            <View style={styles.telemetryTagWrap}>
+              <View style={[styles.telemetryDot, { backgroundColor: isTimeMachineEnabled ? '#F59E0B' : '#34D399' }]} />
+              <Text style={styles.telemetryTag}>
+                {isTimeMachineEnabled ? 'SIM' : 'LIVE'}
+              </Text>
             </View>
-          }
-        >
-          <Text style={[styles.tooltipText, { color: getKnobColors(currentPct).textColor }]}>
-            {formatLocalTime(localValue, 'HH:mm')}
+          </View>
+
+          <View style={styles.headerButtons}>
+            {onPressMap && (
+              <TouchableOpacity 
+                style={styles.actionBtn} 
+                onPress={onPressMap}
+                activeOpacity={0.75}
+              >
+                <MapPin size={10} color="#38BDF8" />
+                <Text style={styles.actionBtnText}>{t('mapLabel', language)}</Text>
+              </TouchableOpacity>
+            )}
+            {isFullDay && isTimeMachineEnabled && (
+              <TouchableOpacity 
+                style={styles.nowBtn} 
+                onPress={() => onToggleTimeMachine(false)}
+                activeOpacity={0.75}
+              >
+                <Zap size={10} color="#000" fill="#000" />
+                <Text style={styles.nowBtnText}>{t('now', language)}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+   
+        <View style={styles.sliderWrapper}>
+          <GenericSlider
+            value={currentPct}
+            onChange={(p) => {
+              const selectedLocalTime = getTimeFromPercentage(p);
+              const systemTime = getSystemTimeFromLocationTime(selectedLocalTime, timezoneOffsetHours);
+              onChange(systemTime);
+            }}
+            onGrant={() => {
+              onToggleTimeMachine(true);
+              onSlidingStart?.();
+            }}
+            onRelease={onSlidingComplete}
+            theme={theme}
+            trackColor={isDay ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.08)'}
+            fillColor={getFillColor()}
+            colorMap={colorMap}
+            knobColor={getKnobColors(currentPct).color}
+            trackOverlay={
+              <View style={styles.markerOverlay} pointerEvents="none">
+                {localMarkers.map((marker, i) => {
+                  if (!marker.time) return null;
+                  const p = getPercentageFromTime(marker.time);
+                  if (p < 0 || p > 100) return null;
+                  const markerColor = marker.color === '#888' ? '#888888' : marker.color;
+                  return (
+                    <View 
+                      key={i} 
+                      style={[styles.markerContainer, { left: `${p}%` }]} 
+                    >
+                      {marker.type === 'rise' && (
+                        <Text style={[styles.directionIndicator, { color: markerColor, marginBottom: 2 }]}>▲</Text>
+                      )}
+                      <View style={[styles.auraRing, { borderColor: markerColor, backgroundColor: '#0B132B' }]}>
+                        <View style={[styles.coreDot, { backgroundColor: markerColor }]} />
+                      </View>
+                      {marker.type === 'set' && (
+                        <Text style={[styles.directionIndicator, { color: markerColor, marginTop: 2 }]}>▼</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            }
+          >
+            <Text style={[styles.tooltipText, { color: getKnobColors(currentPct).textColor }]}>
+              {formatLocalTime(localValue, 'HH:mm')}
+            </Text>
+          </GenericSlider>
+        </View>
+   
+        <View style={styles.timeLabels}>
+          <Text style={styles.timeLabel}>
+            {isFullDay ? "00:00" : `${startOffset >= 0 ? '+' : ''}${(startOffset / 60).toFixed(1)}h`}
           </Text>
-        </GenericSlider>
+          {isFullDay ? (
+            <Text style={styles.timeLabel}>12:00</Text>
+          ) : (
+            localBaseTime && (
+              <View style={styles.absoluteLabelOverlay} pointerEvents="none">
+                <View style={[styles.absoluteLabelContainer, { left: `${baseTimePercentage}%` }]}>
+                  <Text style={styles.timeLabel}>
+                    {formatLocalTime(localBaseTime, 'HH:mm')}
+                  </Text>
+                </View>
+              </View>
+            )
+          )}
+          <Text style={styles.timeLabel}>
+            {isFullDay ? "23:59" : `+${((startOffset + totalRange) / 60).toFixed(1)}h`}
+          </Text>
+        </View>
       </View>
- 
-      <View style={styles.timeLabels}>
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>
-          {isFullDay ? "00:00" : `${startOffset >= 0 ? '+' : ''}${(startOffset / 60).toFixed(1)}h`}
-        </Text>
-        {isFullDay ? (
-          <Text style={[styles.timeLabel, { color: theme.subText }]}>12:00</Text>
-        ) : (
-          localBaseTime && (
-            <View style={styles.absoluteLabelOverlay} pointerEvents="none">
-              <View style={[styles.absoluteLabelContainer, { left: `${baseTimePercentage}%` }]}>
-                <Text style={[styles.timeLabel, { color: theme.subText }]}>
-                  {formatLocalTime(localBaseTime, 'HH:mm')}
-                </Text>
+
+      {/* ── 우측: Astro-HUD 카메라 셔터 모듈 ────────────────────────────── */}
+      {onCameraPress && (
+        <View style={styles.shutterModule}>
+          <View style={styles.shutterStatusRow}>
+            <View style={styles.shutterLed} />
+            <Text style={styles.shutterStatusText}>READY</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.shutterBtn}
+            onPress={onCameraPress}
+            activeOpacity={0.78}
+            accessibilityLabel="AR 카메라 열기"
+            accessibilityRole="button"
+          >
+            <View style={styles.shutterOuterRing}>
+              <View style={styles.shutterInnerCore}>
+                <Camera size={19} color="#000000" strokeWidth={2.4} />
               </View>
             </View>
-          )
-        )}
-        <Text style={[styles.timeLabel, { color: theme.subText }]}>
-          {isFullDay ? "23:59" : `+${((startOffset + totalRange) / 60).toFixed(1)}h`}
-        </Text>
-      </View>
+          </TouchableOpacity>
+          <Text style={styles.shutterLabel}>CAM / AR</Text>
+        </View>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 16, paddingVertical: 8 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, height: 28 },
-  titleRow: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: 11, fontWeight: '800', marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  headerButtons: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  nowButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, gap: 3 },
-  nowText: { color: '#000', fontSize: 10, fontWeight: '900' },
-  sliderWrapper: { position: 'relative', height: 44, justifyContent: 'center' },
-  markerOverlay: { width: '100%', height: '100%' },
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  sliderSection: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    height: 24,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  title: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  telemetryTagWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 3,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    marginLeft: 4,
+  },
+  telemetryDot: {
+    width: 4.5,
+    height: 4.5,
+    borderRadius: 2.25,
+  },
+  telemetryTag: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.75)',
+    letterSpacing: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 3,
+  },
+  actionBtnText: {
+    color: '#38BDF8',
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  nowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 3,
+  },
+  nowBtnText: {
+    color: '#000',
+    fontSize: 9.5,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  sliderWrapper: {
+    position: 'relative',
+    height: 40,
+    justifyContent: 'center',
+  },
+  markerOverlay: {
+    width: '100%',
+    height: '100%',
+  },
   markerContainer: {
     position: 'absolute',
     alignItems: 'center',
@@ -404,26 +527,42 @@ const styles = StyleSheet.create({
     marginLeft: -12,
   },
   auraRing: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   coreDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
+    width: 2.5,
+    height: 2.5,
+    borderRadius: 1.25,
   },
   directionIndicator: {
     fontSize: 7,
     fontWeight: '900',
-    opacity: 0.8,
+    opacity: 0.85,
   },
-  tooltipText: { fontSize: 13, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  timeLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingHorizontal: 27, position: 'relative' },
-  timeLabel: { fontSize: 10, fontWeight: '700', opacity: 0.6 },
+  tooltipText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.5,
+  },
+  timeLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 3,
+    paddingHorizontal: 27,
+    position: 'relative',
+  },
+  timeLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: 'rgba(148, 163, 184, 0.75)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
   absoluteLabelOverlay: {
     position: 'absolute',
     left: 27,
@@ -436,8 +575,76 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: 60,
-    marginLeft: -30, // 60px 너비의 딱 절반만큼 왼쪽으로 밀어 마커 중심선과 완전 정렬
+    marginLeft: -30,
     top: 0,
     bottom: 0,
+  },
+
+  /* ── Astro-HUD 카메라 셔터 모듈 스타일 ─────────────────────────── */
+  shutterModule: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(11, 19, 43, 0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+    borderRadius: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    gap: 3,
+    height: 74,
+  },
+  shutterStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  shutterLed: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#34D399',
+    shadowColor: '#34D399',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 3,
+  },
+  shutterStatusText: {
+    color: '#34D399',
+    fontSize: 7.5,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  shutterBtn: {
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  shutterOuterRing: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(245, 158, 11, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shutterInnerCore: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F59E0B',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shutterLabel: {
+    color: 'rgba(255, 255, 255, 0.65)',
+    fontSize: 7.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 });

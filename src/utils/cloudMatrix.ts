@@ -136,3 +136,171 @@ export function computeCloudCellData(
     windBearingDeg,
   };
 }
+
+/**
+ * ── 2D 주파수(FBM) 노이즈 & 유기적 레이더 에코 생성 ───────────────────────
+ * 3D CloudSlab.ts 의 노이즈 주파수 모델을 2D 레이더 평면으로 투영합니다.
+ */
+
+function slabHash21(x: number, y: number): number {
+  const pX = (x * 123.34 + y * 456.21) % 289;
+  const dot = pX * pX + pX + 45.32;
+  return Math.abs(Math.sin(dot) * 43758.5453) % 1;
+}
+
+function slabVNoise(x: number, y: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+
+  const a = slabHash21(ix, iy);
+  const b = slabHash21(ix + 1, iy);
+  const c = slabHash21(ix, iy + 1);
+  const d = slabHash21(ix + 1, iy + 1);
+
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+
+export function slabFbm2D(x: number, y: number, octaves = 3): number {
+  let sum = 0;
+  let amp = 0.5;
+  let norm = 0;
+  let freq = 1.0;
+  for (let i = 0; i < octaves; i++) {
+    sum += amp * slabVNoise(x * freq, y * freq);
+    norm += amp;
+    amp *= 0.5;
+    freq *= 2.0;
+  }
+  return sum / norm;
+}
+
+/** Catmull-Rom 기반 닫힌 부드러운 큐빅 베지어 패스 생성 */
+export function getClosedSplinePath(points: { x: number; y: number }[]): string {
+  const len = points.length;
+  if (len < 3) return '';
+  let d = `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  for (let i = 0; i < len; i++) {
+    const p0 = points[(i - 1 + len) % len];
+    const p1 = points[i];
+    const p2 = points[(i + 1) % len];
+    const p3 = points[(i + 2) % len];
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+    d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  return d + ' Z';
+}
+
+export interface RadarEchoBlob {
+  id: string;
+  cx: number;
+  cy: number;
+  outerPath: string;
+  corePath?: string;
+  outerColor: string;
+  coreColor?: string;
+  glowColor: string;
+  cell: CloudCellData;
+}
+
+/**
+ * 구름 셀과 레이더 좌표를 결합해 유기적 주파수 에코 형태를 만듭니다.
+ */
+export function buildRadarEchoBlob(
+  cell: CloudCellData,
+  cx: number,
+  cy: number,
+  scale: number = 1.0
+): RadarEchoBlob {
+  // 셀 고유 주파수 시드
+  const seedX = (cell.bearingDeg * 0.13 + cell.distanceKm * 0.27) % 50;
+  const seedY = (cell.lat * 3.1 + cell.lon * 2.7) % 50;
+
+  // 운량 및 구름 유형에 따른 기준 반경
+  const isCenter = cell.distanceKm === 0;
+  const baseR = (isCenter ? 18 : 13 + cell.cloudCover * (cell.distanceKm > 100 ? 25 : 18)) * scale;
+
+  const windRad = (cell.windBearingDeg * Math.PI) / 180;
+  const numSteps = 16;
+  const outerPoints: { x: number; y: number }[] = [];
+  const corePoints: { x: number; y: number }[] = [];
+
+  for (let i = 0; i < numSteps; i++) {
+    const angle = (i * 2 * Math.PI) / numSteps;
+    // 바람 방향으로 약간 늘어나는 이류 연신
+    const windElongation = 1.0 + 0.22 * Math.cos(angle - windRad);
+
+    // 2D FBM 주파수 변위 (유기적인 구름 가장자리 주름)
+    const noiseVal = slabFbm2D(seedX + Math.cos(angle) * 2.2, seedY + Math.sin(angle) * 2.2, 3);
+    const noiseFactor = 0.7 + 0.6 * noiseVal;
+
+    const rOuter = baseR * windElongation * noiseFactor;
+    outerPoints.push({
+      x: cx + rOuter * Math.cos(angle),
+      y: cy + rOuter * Math.sin(angle),
+    });
+
+    // 구름 코어 (고반사도 영역)
+    const rCore = rOuter * (0.42 + cell.cloudCover * 0.24);
+    corePoints.push({
+      x: cx + rCore * Math.cos(angle),
+      y: cy + rCore * Math.sin(angle),
+    });
+  }
+
+  const outerPath = getClosedSplinePath(outerPoints);
+  const hasCore = cell.cloudCover > 0.35 || cell.isSpecial;
+  const corePath = hasCore ? getClosedSplinePath(corePoints) : undefined;
+
+  // 기상 레이더 에코 반사도 색상 매핑
+  let outerColor = 'rgba(56, 189, 248, 0.22)';
+  let coreColor: string | undefined = undefined;
+  let glowColor = 'rgba(56, 189, 248, 0.4)';
+
+  switch (cell.cloudType) {
+    case 'cumulonimbus': // 적란운 (위험 기상 - 강한 반사도 붉은 에코)
+      outerColor = 'rgba(249, 115, 22, 0.38)';
+      coreColor = 'rgba(239, 68, 68, 0.85)';
+      glowColor = 'rgba(239, 68, 68, 0.6)';
+      break;
+    case 'stratus': // 층운 / 비구름 (연두~녹색 비구름 에코)
+      outerColor = 'rgba(34, 197, 94, 0.28)';
+      coreColor = 'rgba(52, 211, 153, 0.68)';
+      glowColor = 'rgba(34, 197, 94, 0.45)';
+      break;
+    case 'cirrus': // 권운 (노을빛/자줏빛 얇은 에코)
+      outerColor = 'rgba(168, 85, 247, 0.24)';
+      coreColor = hasCore ? 'rgba(216, 180, 254, 0.55)' : undefined;
+      glowColor = 'rgba(168, 85, 247, 0.4)';
+      break;
+    case 'lenticularis': // 렌즈구름
+      outerColor = 'rgba(236, 72, 153, 0.32)';
+      coreColor = 'rgba(244, 114, 182, 0.75)';
+      glowColor = 'rgba(236, 72, 153, 0.5)';
+      break;
+    case 'fair_cumulus':
+    default:
+      outerColor = 'rgba(56, 189, 248, 0.25)';
+      coreColor = hasCore ? 'rgba(226, 232, 240, 0.6)' : undefined;
+      glowColor = 'rgba(56, 189, 248, 0.4)';
+      break;
+  }
+
+  return {
+    id: cell.id,
+    cx,
+    cy,
+    outerPath,
+    corePath,
+    outerColor,
+    coreColor,
+    glowColor,
+    cell,
+  };
+}

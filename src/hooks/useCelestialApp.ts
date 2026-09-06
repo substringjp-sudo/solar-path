@@ -481,23 +481,12 @@ export function useCelestialApp() {
   
   const handleCameraPress = () => {
     if (isSimulationLoading) return;
-    if (goldenTimeInfo.isActive) {
-      setSunCameraVisible(true);
-    } else {
-      setCameraWarningVisible(true);
-    }
+    setSunCameraVisible(true);
   };
 
   const handleCameraLongPress = () => {
     if (isSimulationLoading) return;
-    Alert.alert(
-      'Developer Test Mode',
-      'Would you like to bypass the Golden Hour constraint and force open the AR Camera?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Force Open', style: 'destructive', onPress: () => setSunCameraVisible(true) }
-      ]
-    );
+    setSunCameraVisible(true);
   };
 
   const handleSaveLocation = async () => {

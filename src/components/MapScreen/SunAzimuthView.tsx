@@ -46,8 +46,8 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
   const lat = location?.coords.latitude ?? 37.5665;
   const lng = location?.coords.longitude ?? 126.978;
 
-  const { width } = Dimensions.get('window');
-  const size = Math.min(width - 32, 360);
+  const { width, height } = Dimensions.get('window');
+  const size = Math.min(width - 32, Math.min(360, height * 0.45));
   const cx = size / 2;
   const cy = size / 2;
   const R = size / 2 - 24; // 패딩 24
@@ -76,15 +76,13 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
   const sunXY = polarToXY(sunPos.azimuth, sunPos.altitude, cx, cy, R);
   const isAbove = sunPos.altitude > 0;
 
-  // ── 주요 이벤트 (일출·일몰·황금·남중) ─────────────────────────────────────
+  // ── 주요 이벤트 (일출·정오·일몰) ─────────────────────────────────────────
   const events = useMemo(() => {
     const times = SunCalc.getTimes(currentTime, lat, lng);
     const items: { label: string; time: Date; color: string }[] = [
       { label: '일출', time: times.sunrise, color: '#FB923C' },
-      { label: '일몰', time: times.sunset, color: '#F472B6' },
-      { label: '황금', time: times.goldenHour, color: '#FBBF24' },
-      { label: '황금끝', time: times.goldenHourEnd, color: '#FBBF24' },
-      { label: '남중', time: times.solarNoon, color: '#38BDF8' },
+      { label: '정오', time: times.solarNoon, color: '#38BDF8' },
+      { label: '일몰', time: times.sunset, color: '#F43F5E' },
     ];
     return items
       .filter(e => e.time && !isNaN(e.time.getTime()))
@@ -92,10 +90,13 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
         const sp = SunCalc.getPosition(e.time, lat, lng);
         const az = (sp.azimuth * 180) / Math.PI + 180;
         const alt = (sp.altitude * 180) / Math.PI;
-        return { ...e, az, alt, xy: polarToXY(az, alt, cx, cy, R) };
+        const timeStr = e.time.toLocaleTimeString('ko-KR', {
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        });
+        return { ...e, az, alt, xy: polarToXY(az, alt, cx, cy, R), timeStr };
       })
       .filter(e => e.alt > 0);
-  }, [currentTime.toDateString(), lat, lng]);
+  }, [currentTime.toDateString(), lat, lng, cx, cy, R]);
 
   // ── 방위 레이블 ────────────────────────────────────────────────────────────
   const directions = [
@@ -124,6 +125,18 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
     <View style={[styles.container]}>
       <Svg width={size} height={size}>
         <Defs>
+          {/* 원판 배경 그라디언트 */}
+          <RadialGradient id="diskGrad" cx="50%" cy="50%" r="50%">
+            <Stop offset="0%" stopColor="#1E293B" stopOpacity="0.95" />
+            <Stop offset="70%" stopColor="#0F172A" stopOpacity="0.95" />
+            <Stop offset="100%" stopColor="#020617" stopOpacity="0.98" />
+          </RadialGradient>
+          {/* 외곽 림 그라디언트 */}
+          <LinearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="rgba(148, 163, 184, 0.45)" />
+            <Stop offset="50%" stopColor="rgba(56, 189, 248, 0.35)" />
+            <Stop offset="100%" stopColor="rgba(148, 163, 184, 0.25)" />
+          </LinearGradient>
           {/* 태양 글로우 */}
           <RadialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
             <Stop offset="0%" stopColor="#FDE68A" stopOpacity="1" />
@@ -132,14 +145,14 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
           </RadialGradient>
           {/* 경로 그라디언트 */}
           <LinearGradient id="pathGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <Stop offset="0%" stopColor="#FB923C" stopOpacity="0.3" />
-            <Stop offset="50%" stopColor="#FDE68A" stopOpacity="0.8" />
-            <Stop offset="100%" stopColor="#F472B6" stopOpacity="0.3" />
+            <Stop offset="0%" stopColor="#FB923C" stopOpacity="0.5" />
+            <Stop offset="50%" stopColor="#FDE68A" stopOpacity="0.95" />
+            <Stop offset="100%" stopColor="#F43F5E" stopOpacity="0.5" />
           </LinearGradient>
         </Defs>
 
-        {/* ── 배경 원 ─────────────────────────────────────────────── */}
-        <Circle cx={cx} cy={cy} r={R} fill="rgba(15,23,42,0.6)" stroke="rgba(148,163,184,0.15)" strokeWidth={1} />
+        {/* ── 배경 원판 & 림 테두리 ──────────────────────────────────── */}
+        <Circle cx={cx} cy={cy} r={R} fill="url(#diskGrad)" stroke="url(#rimGrad)" strokeWidth={2} />
 
         {/* ── 고도 동심원 + 레이블 ─────────────────────────────────── */}
         {altCircles.map(({ alt, r }) => (
@@ -147,14 +160,16 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
             <Circle
               cx={cx} cy={cy} r={r}
               fill="none"
-              stroke={alt === 0 ? 'rgba(148,163,184,0.35)' : 'rgba(148,163,184,0.12)'}
-              strokeWidth={alt === 0 ? 1.5 : 1}
+              stroke={alt === 0 ? 'rgba(203,213,225,0.45)' : 'rgba(148,163,184,0.22)'}
+              strokeWidth={alt === 0 ? 1.8 : 1}
               strokeDasharray={alt > 0 ? '4 4' : undefined}
             />
             {alt > 0 && (
               <SvgText
-                x={cx + 4} y={cy - r + 12}
-                fontSize={9} fill="rgba(148,163,184,0.5)"
+                x={cx + 4} y={cy - r + 13}
+                fontSize={10}
+                fontWeight="700"
+                fill="rgba(226,232,240,0.85)"
                 textAnchor="middle"
               >
                 {alt}°
@@ -170,10 +185,25 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
             <Line
               key={az}
               x1={cx} y1={cy} x2={end.x} y2={end.y}
-              stroke="rgba(148,163,184,0.12)" strokeWidth={1}
+              stroke="rgba(148,163,184,0.25)" strokeWidth={1.2}
             />
           );
         })}
+
+        {/* ── 정가운데 관측자('내 위치') 마커 ───────────────────────────── */}
+        <G>
+          <Circle cx={cx} cy={cy} r={14} fill="rgba(56,189,248,0.12)" stroke="rgba(56,189,248,0.35)" strokeWidth={1} />
+          <Circle cx={cx} cy={cy} r={4.5} fill="#38BDF8" stroke="#FFFFFF" strokeWidth={1.5} />
+          <SvgText
+            x={cx} y={cy + 25}
+            fontSize={9.5}
+            fontWeight="700"
+            fill="#38BDF8"
+            textAnchor="middle"
+          >
+            내 위치
+          </SvgText>
+        </G>
 
         {/* ── 태양 궤적 경로 ───────────────────────────────────────── */}
         {pathPoints.length > 1 && (
@@ -181,34 +211,51 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
             d={toPathD(pathPoints)}
             fill="none"
             stroke="url(#pathGrad)"
-            strokeWidth={2.5}
+            strokeWidth={3}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
         )}
 
-        {/* ── 이벤트 마커 ─────────────────────────────────────────── */}
-        {events.map((e, i) => (
-          <G key={i}>
-            <Circle cx={e.xy.x} cy={e.xy.y} r={4} fill={e.color} opacity={0.9} />
-            <SvgText
-              x={e.xy.x + 7} y={e.xy.y + 4}
-              fontSize={8.5} fill={e.color}
-              textAnchor="start"
-            >
-              {e.label}
-            </SvgText>
-          </G>
-        ))}
+        {/* ── 이벤트 마커 (일출 / 정오 / 일몰) ───────────────────────── */}
+        {events.map((e, i) => {
+          const isLeft = e.xy.x < cx;
+          const textAnchor = isLeft ? 'end' : 'start';
+          const textX = isLeft ? e.xy.x - 8 : e.xy.x + 8;
+
+          return (
+            <G key={i}>
+              <Circle cx={e.xy.x} cy={e.xy.y} r={4.5} fill={e.color} stroke="#FFFFFF" strokeWidth={1.2} />
+              <SvgText
+                x={textX} y={e.xy.y - 3}
+                fontSize={9.5}
+                fontWeight="800"
+                fill={e.color}
+                textAnchor={textAnchor}
+              >
+                {e.label}
+              </SvgText>
+              <SvgText
+                x={textX} y={e.xy.y + 9}
+                fontSize={8.5}
+                fontWeight="600"
+                fill="#E2E8F0"
+                textAnchor={textAnchor}
+              >
+                {e.timeStr}
+              </SvgText>
+            </G>
+          );
+        })}
 
         {/* ── 태양 현재 위치 ───────────────────────────────────────── */}
         {isAbove && (
           <G>
             {/* 글로우 */}
-            <Circle cx={sunXY.x} cy={sunXY.y} r={16} fill="url(#sunGlow)" />
+            <Circle cx={sunXY.x} cy={sunXY.y} r={18} fill="url(#sunGlow)" />
             {/* 본체 */}
-            <Circle cx={sunXY.x} cy={sunXY.y} r={7} fill="#FDE68A" />
-            <Circle cx={sunXY.x} cy={sunXY.y} r={5} fill="#F97316" />
+            <Circle cx={sunXY.x} cy={sunXY.y} r={8} fill="#FDE68A" />
+            <Circle cx={sunXY.x} cy={sunXY.y} r={5.5} fill="#F97316" />
           </G>
         )}
 
@@ -220,8 +267,8 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
               const onHorizon = polarToXY(sunPos.azimuth, 0, cx, cy, R);
               return (
                 <>
-                  <Circle cx={onHorizon.x} cy={onHorizon.y} r={6} fill="rgba(251,146,60,0.3)" stroke="#FB923C" strokeWidth={1.5} />
-                  <SvgText x={onHorizon.x} y={onHorizon.y + 4} fontSize={7} fill="#FB923C" textAnchor="middle">☽</SvgText>
+                  <Circle cx={onHorizon.x} cy={onHorizon.y} r={7} fill="rgba(251,146,60,0.3)" stroke="#FB923C" strokeWidth={1.5} />
+                  <SvgText x={onHorizon.x} y={onHorizon.y + 4} fontSize={8} fill="#FB923C" textAnchor="middle">☽</SvgText>
                 </>
               );
             })()}
@@ -231,14 +278,15 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
         {/* ── 방위 레이블 ─────────────────────────────────────────── */}
         {directions.map(({ label, az }) => {
           const isCardinal = label.length === 1;
-          const pos = polarToXY(az, 0, cx, cy, R + (isCardinal ? 14 : 11));
+          const isNorth = label === 'N';
+          const pos = polarToXY(az, 0, cx, cy, R + (isCardinal ? 15 : 12));
           return (
             <SvgText
               key={az}
               x={pos.x} y={pos.y + 4}
-              fontSize={isCardinal ? 12 : 9}
-              fontWeight={isCardinal ? '700' : '400'}
-              fill={isCardinal ? '#F8FAFC' : 'rgba(148,163,184,0.7)'}
+              fontSize={isCardinal ? 13 : 9.5}
+              fontWeight={isCardinal ? '900' : '600'}
+              fill={isNorth ? '#38BDF8' : isCardinal ? '#FFFFFF' : 'rgba(203,213,225,0.75)'}
               textAnchor="middle"
             >
               {label}

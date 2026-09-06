@@ -7,9 +7,12 @@ import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
-import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star } from 'lucide-react-native';
+import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect, Polygon } from 'react-native-svg';
+import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star, QrCode } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
+import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
+import { resolveLayerWinds } from '../utils/skyColumn';
+import { SimReportQR } from './SkyScreen/SimReportQR';
 
 
 import {
@@ -32,9 +35,11 @@ import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
 import { t, Language, translateSunsetDesc } from '../utils/i18n';
-import { captureVisualizerSnapshot } from '../utils/simulationImage';
-import { Visualizer } from './SunsetSimulation/Visualizer';
 import { PostDetailModal } from './PostDetailModal';
+import { SkyScene3D, type SkyScene3DHandle } from './SkyScene3D';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CAM_PREVIEW_HEIGHT = Math.round(SCREEN_WIDTH * (3 / 4));
 
 interface SunCameraProps {
   visible: boolean;
@@ -143,10 +148,34 @@ const stampPhoto = async (
   }
 };
 
+const getAzimuthCardinal = (az: number): string => {
+  const norm = (az % 360 + 360) % 360;
+  if (norm >= 337.5 || norm < 22.5) return 'N';
+  if (norm >= 22.5 && norm < 67.5) return 'NE';
+  if (norm >= 67.5 && norm < 112.5) return 'E';
+  if (norm >= 112.5 && norm < 157.5) return 'SE';
+  if (norm >= 157.5 && norm < 202.5) return 'S';
+  if (norm >= 202.5 && norm < 247.5) return 'SW';
+  if (norm >= 247.5 && norm < 292.5) return 'W';
+  return 'NW';
+};
+
 export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
+  // 스크롤 없이 단일 화면에 상단 카메라 + 눈금자 + 하단 시뮬레이터가 4:3으로 딱 맞게 들어가도록 가용 높이 계산
+  const topReserved = Platform.OS === 'ios' ? 74 : 56;
+  const bottomReserved = Platform.OS === 'ios' ? 96 : 80;
+  const RULER_HEIGHT = 26;
+  const GAP_HEIGHT = 8;
+  const availH = H - topReserved - bottomReserved - (RULER_HEIGHT + GAP_HEIGHT);
+  const maxBoxH = Math.floor(availH / 2);
+  const BOX_HEIGHT = Math.min(Math.round(W * (3 / 4)), maxBoxH);
+  const BOX_WIDTH = Math.round(BOX_HEIGHT * (4 / 3));
+  const CAM_HEIGHT = BOX_HEIGHT;
+  const CAM_WIDTH = BOX_WIDTH;
+
   const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language, currentSimulationUri } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
@@ -155,6 +184,24 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [cameraFacing, setCameraFacing] = useState<CameraType>('back');
   const [zoom, setZoom] = useState(0); // 0 (1.0x) ~ 1 (5.0x)
   const [exposure, setExposure] = useState(0); // -1.0 ~ 1.0 (디폴트 0)
+
+  // 줌 배율 M: 1.0x (zoom=0) ~ 5.0x (zoom=1)
+  const currentMagnification = useMemo(() => {
+    return 1.0 + zoom * 4.0;
+  }, [zoom]);
+
+  // 카메라 화각(FOV, 기본 1x일 때 60°) 연동
+  const currentFov = useMemo(() => {
+    const baseFovRad = (60 * Math.PI) / 180;
+    const tanHalf = Math.tan(baseFovRad / 2) / currentMagnification;
+    return (2 * Math.atan(tanHalf) * 180) / Math.PI;
+  }, [currentMagnification]);
+
+  // 배율 직접 설정 헬퍼 (1x, 2x, 3x)
+  const setMagnification = useCallback((mag: number) => {
+    const clampedMag = Math.max(1.0, Math.min(5.0, mag));
+    setZoom((clampedMag - 1.0) / 4.0);
+  }, []);
 
   const initialZoom = useRef(0);
   const initialDistance = useRef(0);
@@ -246,13 +293,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   });
 
   // 촬영 상태
-  const offscreenVisualizerRef = useRef<any>(null);
+  const sky3dRef = useRef<SkyScene3DHandle>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureResult, setCaptureResult] = useState<string | null>(null);
 
   // 촬영 후 미리보기 상태
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
+  const [capturedQrData, setCapturedQrData] = useState<string | null>(null);
 
   // 점수 입력 상태
   const [landscapeScore, setLandscapeScore] = useState<number>(5);
@@ -267,19 +315,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [uploadedPhotoForModal, setUploadedPhotoForModal] = useState<MyPhoto | null>(null);
 
 
-  // AR 멀티 레이어 활성화 토글 상태
-  const [arLayers, setArLayers] = useState({
-    sun: true,
-    moon: true,
-    planets: true,
-    stars: true,
-    milkyWay: true,
-    clouds: true,
-  });
-
-  const toggleArLayer = (layerKey: keyof typeof arLayers) => {
-    setArLayers(prev => ({ ...prev, [layerKey]: !prev[layerKey] }));
-  };
 
   // 현재 태양 위치
   const sunPos = useMemo(() => {
@@ -334,6 +369,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset]);
 
+  // 3D 시뮬레이터 전달용 노을 예측 결과
+  const currentPrediction = useMemo(() => {
+    return predictSunset(
+      weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : [],
+      currentTime,
+      sunPos.altitude,
+      15000,
+      50,
+      latitude,
+      0
+    );
+  }, [weatherCacheList, currentTime, sunPos.altitude, latitude]);
+
   // 하루 태양 궤적
   const trajectory = useMemo(() => {
     return getDaySunTrajectory(currentTime, latitude, longitude);
@@ -351,79 +399,88 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
   // ── DeviceMotion: Rotation Matrix로 Heading + Pitch 동시 추출 ──────────────
   // Why: β 하나만 쓰면 roll(γ)을 무시하여 폰을 옆으로 기울이면 pitch가 부정확.
-  //      Rotation Matrix R = Rz(α)·Rx(β)·Ry(γ) 에서 카메라 전방 벡터를 직접 추출하면
-  //      어떤 기기 자세에서도 정확한 heading/pitch를 얻을 수 있다.
+  //      Euler angles → Rotation Matrix 재구성하여 카메라 전방 벡터(-Z)의
+  //      방위각과 앙각을 직접 계산 → 폰 회전 방향과 무관하게 정확한 pitch 유지.
   useEffect(() => {
     if (!visible) return;
-    DeviceMotion.setUpdateInterval(16); // ~60fps for smooth AR tracking
-    const sub = DeviceMotion.addListener((data) => {
-      if (!data.rotation) return;
 
-      const { alpha: aRad, beta: bRad, gamma: gRad } = data.rotation;
+    DeviceMotion.setUpdateInterval(16); // 60Hz 갱신
+    const sub = DeviceMotion.addListener((dm) => {
+      if (!dm.rotation) return;
+      const { alpha: aRad, beta: bRad, gamma: gRad } = dm.rotation;
 
-      // === W3C DeviceOrientation Rotation Matrix 재구성 ===
-      // R = Rz(α) · Rx(β) · Ry(γ), 카메라 forward = (0, 0, -1) in device frame
+      // W3C Rotation Matrix: R = Rz(α) * Rx(β) * Ry(γ)
       const sa = Math.sin(aRad), ca = Math.cos(aRad);
       const sb = Math.sin(bRad), cb = Math.cos(bRad);
       const sg = Math.sin(gRad), cg = Math.cos(gRad);
 
-      // forward vector in Earth frame: R * (0, 0, -1)
-      const fx = -(ca * sg + sa * sb * cg);
-      const fy = -(sa * sg - ca * sb * cg);
-      const fz = -(cb * cg);
+      // 카메라 전방 벡터 (화면 반대쪽 = -Z축)
+      const fwdX = -(ca * sg + sa * sb * cg);
+      const fwdY = -(sa * sg - ca * sb * cg);
+      const fwdZ = -(cb * cg);
 
-      // Heading (방위각): atan2(East 성분, North 성분)
-      const rawHeading = (Math.atan2(fx, fy) * 180 / Math.PI + 360) % 360;
+      // Raw heading (자이로 기준, 0=북, 시계방향)
+      const rawHeading = (Math.atan2(fwdX, fwdY) * 180 / Math.PI + 360) % 360;
       rawGyroHeadingRef.current = rawHeading;
 
-      // 진북 보정 오프셋 적용
+      // 진북 보정 적용
       const calibratedHeading = (rawHeading + northOffsetRef.current + 360) % 360;
 
-      // Pitch (고도각): 수직 성분의 asin (양수 = 위를 향함)
-      const rawPitch = Math.asin(Math.max(-1, Math.min(1, -fz))) * 180 / Math.PI;
+      // Raw pitch: 카메라 전방 벡터의 수평면 대비 앙각
+      const horizDist = Math.sqrt(fwdX * fwdX + fwdY * fwdY);
+      const rawPitch = Math.atan2(fwdZ, horizDist) * 180 / Math.PI;
 
-      // === One Euro Filter 적용 ===
-      const dt = 0.016; // 60fps
+      // --- One Euro Filter ---
+      const now = Date.now();
       const state = filterRef.current;
 
       if (!state.initialized) {
-        const azRad = calibratedHeading * Math.PI / 180;
-        state.prevAzX = Math.cos(azRad);
-        state.prevAzY = Math.sin(azRad);
+        state.prevAzX = Math.cos(calibratedHeading * Math.PI / 180);
+        state.prevAzY = Math.sin(calibratedHeading * Math.PI / 180);
+        state.prevAzDx = 0;
+        state.prevAzDy = 0;
         state.prevPitch = rawPitch;
+        state.prevPitchD = 0;
+        state.lastTime = now;
         state.initialized = true;
+
+        deviceAzimuthRef.current = calibratedHeading;
+        setDeviceAzimuth(calibratedHeading);
+        devicePitchRef.current = rawPitch;
+        setDevicePitch(rawPitch);
+        return;
       }
 
-      // --- Heading filter (2D 단위벡터, 360° 경계 튐 방지) ---
-      const azRad = calibratedHeading * Math.PI / 180;
-      const tx = Math.cos(azRad);
-      const ty = Math.sin(azRad);
+      const dt = Math.max((now - state.lastTime) / 1000, 0.001);
+      state.lastTime = now;
 
-      // DeviceMotion은 이미 자이로 융합이라 노이즈가 적음 → 필터를 가볍게
+      // --- Azimuth filter ---
+      const minCutoff_az = 0.15;
+      const beta_az = 0.05;
       const dcutoff = 1.0;
-      const minCutoff_az = 0.15;   // 지터링 차단을 위해 차단 주파수 하향 (0.8 → 0.15)
-      const beta_az = 0.05;        // 속도 비례 가중치 억제 (0.4 → 0.05)
+
+      const tx = Math.cos(calibratedHeading * Math.PI / 180);
+      const ty = Math.sin(calibratedHeading * Math.PI / 180);
 
       const dxX = (tx - state.prevAzX) / dt;
+      const dyY = (ty - state.prevAzY) / dt;
       const alphaDx = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
       state.prevAzDx += (dxX - state.prevAzDx) * alphaDx;
+      state.prevAzDy += (dyY - state.prevAzDy) * alphaDx;
 
-      const cutoffX = minCutoff_az + beta_az * Math.abs(state.prevAzDx);
-      const alphaX = (2 * Math.PI * dt * cutoffX) / (1 + 2 * Math.PI * dt * cutoffX);
+      const speedAz = Math.sqrt(state.prevAzDx * state.prevAzDx + state.prevAzDy * state.prevAzDy);
+      const cutoffAz = minCutoff_az + beta_az * speedAz;
+      const alphaX = (2 * Math.PI * dt * cutoffAz) / (1 + 2 * Math.PI * dt * cutoffAz);
+      const alphaY = (2 * Math.PI * dt * cutoffAz) / (1 + 2 * Math.PI * dt * cutoffAz);
+
       state.prevAzX += (tx - state.prevAzX) * alphaX;
-
-      const dxY = (ty - state.prevAzY) / dt;
-      state.prevAzDy += (dxY - state.prevAzDy) * alphaDx;
-
-      const cutoffY = minCutoff_az + beta_az * Math.abs(state.prevAzDy);
-      const alphaY = (2 * Math.PI * dt * cutoffY) / (1 + 2 * Math.PI * dt * cutoffY);
       state.prevAzY += (ty - state.prevAzY) * alphaY;
 
       const filteredAz = (Math.atan2(state.prevAzY, state.prevAzX) * 180 / Math.PI + 360) % 360;
 
       // --- Pitch filter ---
-      const minCutoff_p = 0.15;    // 지터링 차단을 위해 차단 주파수 하향 (0.6 → 0.15)
-      const beta_p = 0.05;         // 속도 비례 가중치 억제 (0.3 → 0.05)
+      const minCutoff_p = 0.15;
+      const beta_p = 0.05;
 
       const dxP = (rawPitch - state.prevPitch) / dt;
       const alphaDxP = (2 * Math.PI * dt * dcutoff) / (1 + 2 * Math.PI * dt * dcutoff);
@@ -542,123 +599,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     );
   }, [sunPos.azimuth]);
 
-  // 오프셋 없이 물리 장치 방위각/고도각 그대로 사용
+  // 오프셋 없이 물리 장치 방위각/고도각 사용 (전면 카메라 전환 시 전면 렌즈 시점에 맞춤)
   const effectiveAz = useMemo(() => {
-    return (deviceAzimuth + 360) % 360;
-  }, [deviceAzimuth]);
+    const baseAz = cameraFacing === 'front' ? deviceAzimuth + 180 : deviceAzimuth;
+    return (baseAz % 360 + 360) % 360;
+  }, [deviceAzimuth, cameraFacing]);
 
   const effectivePitch = useMemo(() => {
-    return Math.max(-90, Math.min(90, -devicePitch));
-  }, [devicePitch]);
+    const basePitch = cameraFacing === 'front' ? -devicePitch : devicePitch;
+    return Math.max(-90, Math.min(90, basePitch));
+  }, [devicePitch, cameraFacing]);
 
-  // 태양의 화면 좌표 계산
-  const sunScreenPos = useMemo((): ScreenPoint => {
-    return getSunScreenPosition(
-      deviceRotation,
-      sunPos.azimuth,
-      sunPos.altitude,
-      60, // 수평 FOV (대부분의 스마트폰 카메라)
-      80, // 수직 FOV
-    );
-  }, [deviceRotation, sunPos.azimuth, sunPos.altitude]);
-
-  // 달 화면 좌표 계산
-  const moonScreenPos = useMemo((): ScreenPoint => {
-    return getSunScreenPosition(deviceRotation, moonPos.azimuth, moonPos.altitude, 60, 80);
-  }, [deviceRotation, moonPos.azimuth, moonPos.altitude]);
-
-  // 행성 화면 좌표 계산
-  const planetsScreenPos = useMemo(() => {
-    return planetsPos.map(p => ({
-      ...p,
-      screen: getSunScreenPosition(deviceRotation, p.azimuth, p.altitude, 60, 80),
-    }));
-  }, [deviceRotation, planetsPos]);
-
-  // 별 화면 좌표 계산 (지평선 위 상공 별만 계산)
-  const starsScreenPos = useMemo(() => {
-    return starsPos
-      .filter(s => s.altitude > -10)
-      .map(s => ({
-        ...s,
-        screen: getSunScreenPosition(deviceRotation, s.azimuth, s.altitude, 60, 80),
-      }));
-  }, [deviceRotation, starsPos]);
-
-  // 은하수 궤적 화면 좌표 변환
-  const milkyWayScreenPoints = useMemo(() => {
-    return milkyWayPos.map(pt => ({
-      ...pt,
-      screen: getSunScreenPosition(deviceRotation, pt.azimuth, pt.altitude, 60, 80),
-    }));
-  }, [deviceRotation, milkyWayPos]);
-
-  // 200km 구름 29개 셀 화면 좌표 변환 (거리 50~200km에 따른 가상 고도각 5~25도 투영)
-  const cloudsScreenPoints = useMemo(() => {
-    return cloudCellsPos.map(c => {
-      // 0km = 고도 45°, 50km = 25°, 100km = 15°, 200km = 8° (시야 투영)
-      const virtAlt = c.distanceKm === 0 ? 45 : c.distanceKm <= 50 ? 25 : c.distanceKm <= 100 ? 15 : 8;
-      return {
-        ...c,
-        screen: getSunScreenPosition(deviceRotation, c.bearingDeg, virtAlt, 60, 80),
-      };
-    });
-  }, [deviceRotation, cloudCellsPos]);
-
-  // 태양 궤적의 화면 좌표 변환
-  const trajectoryScreenPoints = useMemo(() => {
-    return trajectory.map(pt => {
-      // 밤 시간대(고도 -5도 이하)는 화면에 그리지 않고 선을 끊기 위해 NaN 좌표로 설정
-      if (pt.altitude <= -5) {
-        return {
-          ...pt,
-          screen: { x: NaN, y: NaN, isVisible: false }
-        };
-      }
-      return {
-        ...pt,
-        screen: getSunScreenPosition(deviceRotation, pt.azimuth, pt.altitude, 60, 80),
-      };
-    });
-  }, [trajectory, deviceRotation]);
-
-  // 궤적 SVG 경로 생성
-  const trajectoryPathD = useMemo(() => {
-    if (trajectoryScreenPoints.length < 2) return '';
-
-    let path = '';
-    let lastX = 0;
-    let isDrawing = false;
-
-    trajectoryScreenPoints.forEach((p) => {
-      // 카메라 뒤쪽에 있는 유령 좌표(NaN)는 그리거나 연결하지 않고 선을 끊습니다.
-      if (isNaN(p.screen.x) || isNaN(p.screen.y)) {
-        isDrawing = false;
-        return;
-      }
-
-      const px = p.screen.x * W;
-      const py = p.screen.y * H;
-
-      if (!isDrawing) {
-        path += ` M ${px.toFixed(1)} ${py.toFixed(1)}`;
-        isDrawing = true;
-      } else {
-        // 탄젠트 무한 발산 임계점 등에서 화면 양 끝으로 순간이동하는 현상 감지
-        const isScreenJump = Math.abs(px - lastX) > W * 1.5;
-
-        if (isScreenJump) {
-          path += ` M ${px.toFixed(1)} ${py.toFixed(1)}`;
-        } else {
-          path += ` L ${px.toFixed(1)} ${py.toFixed(1)}`;
-        }
-      }
-
-      lastX = px;
-    });
-
-    return path.trim();
-  }, [trajectoryScreenPoints, W, H]);
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || isCapturing) return;
 
@@ -811,14 +762,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
       }
 
-      // 1. 현재 시뮬레이션 이미지 연동 (없을 경우 오프스크린 Visualizer SVG 뷰 스냅샷 즉시 캡처)
-      let simUri = currentSimulationUri || '';
-      if (!simUri && offscreenVisualizerRef.current) {
+      // 1. 현재 3D 시뮬레이션 화면 스냅샷 직접 캡처 (실제 촬영 방위/고도/화각 동기화)
+      let simUri = '';
+      if (sky3dRef.current) {
         try {
-          simUri = await captureVisualizerSnapshot(offscreenVisualizerRef, { quality: 0.85 });
+          const snapUri = await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 });
+          if (snapUri) {
+            simUri = snapUri;
+          }
         } catch (simGenErr) {
-          console.warn('[SunCamera] Failed to capture offscreen Visualizer snapshot:', simGenErr);
+          console.warn('[SunCamera] Failed to capture 3D simulation snapshot:', simGenErr);
         }
+      }
+      if (!simUri && currentSimulationUri) {
+        simUri = currentSimulationUri;
       }
 
       // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
@@ -842,11 +799,35 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         sunAzimuth: currentSunPos.azimuth
       };
 
-      // 3. 임시 상태에 저장하여 프리뷰 화면 전환
+      // 3. 기상 정보 QR 페이로드 생성
+      let qrPayload: string | null = null;
+      try {
+        const obsData = nearestWeather && nearestWeather.data ? getInterpolatedWeather(nearestWeather.data, captureTime)[0] : undefined;
+        const windsInfo = resolveLayerWinds(obsData);
+        qrPayload = encodeSimReportPayload(
+          buildSimReportPayload({
+            simTimeMs: captureTime.getTime(),
+            latitude,
+            longitude,
+            observerElevM: 0,
+            sunAltDeg: currentSunPos.altitude,
+            sunAzDeg: currentSunPos.azimuth,
+            obs: obsData,
+            windSpeedKmh: windsInfo.winds.low.speedKmh,
+            windBearingDeg: windsInfo.winds.low.bearingDeg,
+            windSynthetic: !windsInfo.measured,
+          })
+        );
+      } catch (qrErr) {
+        console.warn('[SunCamera] Failed to build QR payload:', qrErr);
+      }
+
+      // 4. 임시 상태에 저장하여 프리뷰 화면 전환
       setCapturedWeatherInfo(weatherInfo);
       setCapturedSimSample(simulationSample);
       setPreviewUri(stampedUri);
       setSimPreviewUri(simUri);
+      setCapturedQrData(qrPayload);
       
       // 초기 점수 리셋
       setLandscapeScore(5);
@@ -988,6 +969,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 성공 후 프리뷰 초기화
       setPreviewUri(null);
       setSimPreviewUri(null);
+      setCapturedQrData(null);
       setIsUploading(false);
 
     } catch (uploadError: any) {
@@ -1032,6 +1014,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const minutesBefore = Math.abs(Math.round(goldenTimeInfo.minutesToEvent));
   const isBeforeEvent = goldenTimeInfo.minutesToEvent < 0;
 
+  if (!visible) return null;
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
@@ -1044,19 +1028,61 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             >
               <Text style={styles.previewTitle}>{t('recordSunset', language)}</Text>
               
-              {/* 이미지 비교 영역 */}
+              {/* 이미지 비교 영역 (촬영 결과물 & 시뮬레이션 예측) */}
               <View style={styles.compareImagesRow}>
                 <View style={styles.compareImageWrapper}>
                   <Image source={{ uri: previewUri }} style={styles.compareImage} />
-                  <Text style={styles.compareImageLabel}>{t('actualLandscape', language)}</Text>
+                  <Text style={styles.compareImageLabel}>📷 {t('actualLandscape', language)}</Text>
                 </View>
                 {simPreviewUri ? (
                   <View style={styles.compareImageWrapper}>
                     <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
-                    <Text style={styles.compareImageLabel}>{t('simulationPrediction', language)}</Text>
+                    <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
                   </View>
                 ) : null}
               </View>
+
+              {/* 날씨 정보 QR 리포트 카드 */}
+              {capturedQrData && (
+                <View style={styles.weatherQrCard}>
+                  <View style={styles.weatherQrHeader}>
+                    <QrCode size={15} color="#00E5FF" />
+                    <Text style={styles.weatherQrTitle}>
+                      {language === 'ko' ? '기상 분석 리포트 QR' : 'Weather Report QR'}
+                    </Text>
+                  </View>
+                  <View style={styles.weatherQrBody}>
+                    <View style={styles.qrPlateWrapper}>
+                      <SimReportQR data={capturedQrData} />
+                    </View>
+                    <View style={styles.weatherQrMetaList}>
+                      <View style={styles.metaRow}>
+                        <Text style={styles.metaLabel}>{language === 'ko' ? '기상 상태' : 'Sky'}</Text>
+                        <Text style={styles.metaValue}>
+                          {capturedWeatherInfo ? translateSunsetDesc(capturedWeatherInfo.description, language) : 'Clear'}
+                        </Text>
+                      </View>
+                      <View style={styles.metaRow}>
+                        <Text style={styles.metaLabel}>{language === 'ko' ? '습도 / 미세먼지' : 'Hum / PM2.5'}</Text>
+                        <Text style={styles.metaValue}>
+                          {capturedWeatherInfo?.humidity ?? 50}% · {capturedWeatherInfo?.pm25 ?? 20}㎍
+                        </Text>
+                      </View>
+                      <View style={styles.metaRow}>
+                        <Text style={styles.metaLabel}>{language === 'ko' ? '태양 고도 / 방위' : 'Sun Alt / Az'}</Text>
+                        <Text style={styles.metaValue}>
+                          {capturedSimSample ? `${Math.round(capturedSimSample.sunAltitude)}° / ${Math.round(capturedSimSample.sunAzimuth)}°` : '-'}
+                        </Text>
+                      </View>
+                      <Text style={styles.qrExplanationText}>
+                        {language === 'ko' 
+                          ? 'QR 코드로 촬영 당시의 관측 기상과 3D 물리 파라미터를 그대로 복원할 수 있습니다.' 
+                          : 'Scan QR to restore exact atmospheric input and solar angles.'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
   
               {/* 별점 평가 카드 */}
               <View style={styles.scoreCard}>
@@ -1115,6 +1141,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   onPress={() => {
                     setPreviewUri(null);
                     setSimPreviewUri(null);
+                    setCapturedQrData(null);
                   }}
                   disabled={isUploading}
                 >
@@ -1140,264 +1167,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             </ScrollView>
           </View>
         ) : (
-          // 기존 카메라 뷰 및 AR 오버레이
-          <>
-            <CameraView
-              ref={cameraRef}
-              style={StyleSheet.absoluteFill}
-              facing={cameraFacing}
-              zoom={zoom}
-            />
-
-            {/* 소프트웨어 노출 조절 프리뷰 오버레이 */}
-            {exposure < 0 && (
-              <View 
-                style={[
-                  StyleSheet.absoluteFill, 
-                  { backgroundColor: `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})` }
-                ]} 
-                pointerEvents="none" 
-              />
-            )}
-            {exposure > 0 && (
-              <View 
-                style={[
-                  StyleSheet.absoluteFill, 
-                  { backgroundColor: `rgba(255, 255, 255, ${exposure * 0.4})` }
-                ]} 
-                pointerEvents="none" 
-              />
-            )}
-
-            {/* 핀치 제스처 인식을 위한 전체 투명 오버레이 뷰 (touches === 2 일 때만 작동) */}
-            <View 
-              style={StyleSheet.absoluteFill} 
-              {...pinchPanResponder.panHandlers} 
-              pointerEvents="box-none" 
-            />
-
-            {/* 줌 배율 인디케이터 */}
-            <View style={styles.zoomIndicatorContainer} pointerEvents="none">
-              <Text style={styles.zoomIndicatorText}>{(1 + zoom * 4).toFixed(1)}x</Text>
-            </View>
-
-            {/* 우측 노출 조절 수직 슬라이더 UI (Glassmorphism 컨테이너) */}
-            <View style={styles.exposureSliderWrapper}>
-              <Sun size={14} color="#FFD700" style={styles.exposureIconTop} />
-              <View 
-                style={styles.exposureSliderTrackContainer}
-                {...exposurePanResponder.panHandlers}
-              >
-                <View style={styles.exposureTrack} />
-                <View 
-                  style={[
-                    styles.exposureActiveBar, 
-                    { height: `${((exposure + 1) / 2) * 100}%` }
-                  ]} 
-                />
-                <View 
-                  style={[
-                    styles.exposureKnob, 
-                    { bottom: `${((exposure + 1) / 2) * 100}%`, marginBottom: -6 }
-                  ]} 
-                />
-              </View>
-              <Sun size={12} color="rgba(255,255,255,0.4)" style={styles.exposureIconBottom} />
-            </View>
-
-            {/* AR 오버레이 */}
-            <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-              {currentEnhancement.warmth > 0 && (
-                <>
-                  <Defs>
-                    <LinearGradient id="sunsetGlow" x1="0" y1="0" x2="0" y2="1">
-                      <Stop offset="0%" stopColor="#FF8C00" stopOpacity={Math.min(0.12, currentEnhancement.warmth * 0.2)} />
-                      <Stop offset="50%" stopColor="#FF4500" stopOpacity={Math.min(0.18, currentEnhancement.warmth * 0.3)} />
-                      <Stop offset="100%" stopColor="#8A2BE2" stopOpacity={Math.min(0.08, currentEnhancement.warmth * 0.15)} />
-                    </LinearGradient>
-                  </Defs>
-                  <Rect width={W} height={H} fill="url(#sunsetGlow)" />
-                </>
-              )}
-
-              {/* AR 멀티 레이어 오버레이 렌더링 */}
-              {true && (
-                <>
-                  {/* 1. 태양 궤적 (Sun Layer) */}
-                  {arLayers.sun && trajectoryPathD.length > 0 && (
-                    <Path
-                      d={trajectoryPathD}
-                      stroke="rgba(255,215,0,0.45)"
-                      strokeWidth={2}
-                      strokeDasharray="6,4"
-                      fill="none"
-                    />
-                  )}
-
-                  {/* 2. 수평선 가이드 라인 */}
-                  {(() => {
-                    const horizonY = getSunScreenPosition(deviceRotation, deviceAzimuth, 0, 60, 80).y * H;
-                    if (horizonY > 0 && horizonY < H) {
-                      return (
-                        <Line
-                          x1={0} y1={horizonY} x2={W} y2={horizonY}
-                          stroke="rgba(255,255,255,0.2)"
-                          strokeWidth={1}
-                          strokeDasharray="10,5"
-                        />
-                      );
-                    }
-                    return null;
-                  })()}
-
-                  {/* 3. 태양 노드 (Sun Layer) */}
-                  {arLayers.sun && sunScreenPos.isVisible && sunPos.altitude > -5 && (
-                    <>
-                      <Circle
-                        cx={sunScreenPos.x * W}
-                        cy={sunScreenPos.y * H}
-                        r={30}
-                        fill="rgba(255,200,50,0.2)"
-                        stroke="#FFD700"
-                        strokeWidth={1.5}
-                      />
-                      <Circle
-                        cx={sunScreenPos.x * W}
-                        cy={sunScreenPos.y * H}
-                        r={16}
-                        fill="#FFA500"
-                      />
-                      <SvgText
-                        x={sunScreenPos.x * W}
-                        y={sunScreenPos.y * H - 36}
-                        fill="#FFD700"
-                        fontSize={11}
-                        fontWeight="900"
-                        textAnchor="middle"
-                      >
-                        ☀️ 태양 ({Math.round(sunPos.altitude)}°)
-                      </SvgText>
-                    </>
-                  )}
-
-                  {/* 4. 달 노드 (Moon Layer) */}
-                  {arLayers.moon && moonScreenPos.isVisible && (
-                    <>
-                      <Circle
-                        cx={moonScreenPos.x * W}
-                        cy={moonScreenPos.y * H}
-                        r={22}
-                        fill="rgba(220,230,242,0.2)"
-                        stroke="#ECEFF4"
-                        strokeWidth={1.5}
-                      />
-                      <Circle
-                        cx={moonScreenPos.x * W}
-                        cy={moonScreenPos.y * H}
-                        r={12}
-                        fill="#E5E9F0"
-                      />
-                      <SvgText
-                        x={moonScreenPos.x * W}
-                        y={moonScreenPos.y * H - 28}
-                        fill="#ECEFF4"
-                        fontSize={11}
-                        fontWeight="900"
-                        textAnchor="middle"
-                      >
-                        🌙 달 ({Math.round(moonPos.altitude)}°)
-                      </SvgText>
-                    </>
-                  )}
-
-                  {/* 5. 5대 행성 노드 (Planets Layer) */}
-                  {arLayers.planets && planetsScreenPos.map((p) => {
-                    if (!p.screen.isVisible || p.altitude <= -5) return null;
-                    const px = p.screen.x * W;
-                    const py = p.screen.y * H;
-                    return (
-                      <React.Fragment key={`planet-${p.key}`}>
-                        <Circle cx={px} cy={py} r={10} fill="rgba(255, 140, 0, 0.4)" stroke="#FF8C00" strokeWidth={1.5} />
-                        <SvgText x={px} y={py - 14} fill="#FF8C00" fontSize={10} fontWeight="bold" textAnchor="middle">
-                          🪐 {p.nameKo}
-                        </SvgText>
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* 6. 별 & 별자리 노드 (Stars Layer) */}
-                  {arLayers.stars && starsScreenPos.map((s) => {
-                    if (!s.screen.isVisible) return null;
-                    const px = s.screen.x * W;
-                    const py = s.screen.y * H;
-                    return (
-                      <React.Fragment key={`star-${s.id}`}>
-                        <Circle cx={px} cy={py} r={s.magnitude < 1.0 ? 5 : 3} fill="#FFF" />
-                        {s.magnitude < 1.0 && (
-                          <SvgText x={px} y={py - 8} fill="rgba(255,255,255,0.8)" fontSize={9} fontWeight="bold" textAnchor="middle">
-                            ⭐ {s.nameKo}
-                          </SvgText>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* 7. 은하수 노드 (Milky Way Layer) */}
-                  {arLayers.milkyWay && milkyWayScreenPoints.map((mw, i) => {
-                    if (!mw.screen.isVisible || mw.altitude <= -5) return null;
-                    const px = mw.screen.x * W;
-                    const py = mw.screen.y * H;
-                    return (
-                      <React.Fragment key={`mw-${i}`}>
-                        <Circle cx={px} cy={py} r={mw.isCenter ? 12 : 5} fill={mw.isCenter ? "rgba(180,140,252,0.6)" : "rgba(180,140,252,0.3)"} />
-                        {mw.isCenter && (
-                          <SvgText x={px} y={py - 16} fill="#B48EAD" fontSize={10} fontWeight="bold" textAnchor="middle">
-                            🌌 은하수 중심부
-                          </SvgText>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* 8. 주변 200km 구름 29개 노드 (Clouds Layer) */}
-                  {arLayers.clouds && cloudsScreenPoints.map((c) => {
-                    if (!c.screen.isVisible) return null;
-                    const px = c.screen.x * W;
-                    const py = c.screen.y * H;
-                    return (
-                      <React.Fragment key={`cloud-ar-${c.id}`}>
-                        {c.isSpecial && (
-                          <Circle cx={px} cy={py} r={18} fill="rgba(255, 140, 0, 0.25)" stroke="#FF8C00" strokeWidth={1} />
-                        )}
-                        <Circle cx={px} cy={py} r={10} fill="rgba(0, 0, 0, 0.4)" stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
-                        <SvgText x={px} y={py - 14} fill="#88C0D0" fontSize={9} fontWeight="bold" textAnchor="middle">
-                          ☁️ {c.cloudName.split(' ')[0]} ({c.distanceKm}km)
-                        </SvgText>
-                      </React.Fragment>
-                    );
-                  })}
-                </>
-              )}
-            </Svg>
-
-            {hasInterference && (
-              <View style={styles.warningBanner}>
-                <Text style={styles.warningText}>
-                  ⚠️ Magnetic Interference! Move your phone in an "8" shape to calibrate.
-                </Text>
-              </View>
-            )}
-
-            {/* 상단 HUD 및 AR 레이어 선택 칩 스크롤 바 */}
-            <View style={styles.topHud}>
-              <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-                <X size={24} color="#FFF" />
+          // 스크롤 없는 풀스크린 맞춤형 4:3 듀얼 뷰 레이아웃
+          <View style={styles.fullscreenContainer}>
+            {/* 1. 상단 고정 통합 HUD 바 */}
+            <View style={styles.topHudBar}>
+              <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <X size={22} color="#FFF" />
               </TouchableOpacity>
 
               <View style={styles.eventBadge}>
-                <Sun size={14} color={eventColor} />
+                <Sun size={13} color={eventColor} />
                 <Text style={[styles.eventText, { color: eventColor }]}>
-                  {eventLabel} {isBeforeEvent ? `${minutesBefore}m before` : `${minutesBefore}m after`}
+                  {goldenTimeInfo.isActive
+                    ? `${eventLabel} ${isBeforeEvent ? `${minutesBefore}m before` : `${minutesBefore}m after`}`
+                    : `${eventLabel} Ready`}
                 </Text>
               </View>
 
@@ -1408,117 +1191,272 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               </View>
             </View>
 
-            {/* AR 멀티 레이어 선택 칩 스크롤 바 */}
-            <View style={{ position: 'absolute', top: 100, left: 16, right: 16, zIndex: 90 }}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                <TouchableOpacity
-                  style={[styles.arLayerChip, arLayers.sun && styles.arLayerChipActive]}
-                  onPress={() => toggleArLayer('sun')}
-                >
-                  <Text style={[styles.arLayerChipText, arLayers.sun && styles.arLayerChipTextActive]}>☀️ 태양</Text>
-                </TouchableOpacity>
+            {hasInterference && (
+              <View style={styles.warningBannerFloating}>
+                <Text style={styles.warningText}>
+                  ⚠️ Magnetic Interference! Move phone in "8" shape
+                </Text>
+              </View>
+            )}
 
-                <TouchableOpacity
-                  style={[styles.arLayerChip, arLayers.moon && styles.arLayerChipActive]}
-                  onPress={() => toggleArLayer('moon')}
-                >
-                  <Text style={[styles.arLayerChipText, arLayers.moon && styles.arLayerChipTextActive]}>🌙 달</Text>
-                </TouchableOpacity>
+            {/* 2. 가운데 듀얼 4:3 뷰 영역 (화면 높이에 정확히 맞춰져 스크롤 불필요) */}
+            <View style={styles.dualViewCenter}>
+              {/* 상단 4:3 실제 카메라 박스 */}
+              <View style={[styles.cameraBox, { width: BOX_WIDTH, height: BOX_HEIGHT }]}>
+                <CameraView
+                  ref={cameraRef}
+                  style={StyleSheet.absoluteFill}
+                  facing={cameraFacing}
+                  zoom={zoom}
+                />
 
-                <TouchableOpacity
-                  style={[styles.arLayerChip, arLayers.planets && styles.arLayerChipActive]}
-                  onPress={() => toggleArLayer('planets')}
-                >
-                  <Text style={[styles.arLayerChipText, arLayers.planets && styles.arLayerChipTextActive]}>🪐 행성</Text>
-                </TouchableOpacity>
+                {/* 소프트웨어 노출 조절 오버레이 */}
+                {exposure < 0 && (
+                  <View 
+                    style={[
+                      StyleSheet.absoluteFill, 
+                      { backgroundColor: `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})` }
+                    ]} 
+                    pointerEvents="none" 
+                  />
+                )}
+                {exposure > 0 && (
+                  <View 
+                    style={[
+                      StyleSheet.absoluteFill, 
+                      { backgroundColor: `rgba(255, 255, 255, ${exposure * 0.4})` }
+                    ]} 
+                    pointerEvents="none" 
+                  />
+                )}
 
-                <TouchableOpacity
-                  style={[styles.arLayerChip, arLayers.stars && styles.arLayerChipActive]}
-                  onPress={() => toggleArLayer('stars')}
-                >
-                  <Text style={[styles.arLayerChipText, arLayers.stars && styles.arLayerChipTextActive]}>⭐ 별/별자리</Text>
-                </TouchableOpacity>
+                {/* 핀치 제스처 인식을 위한 오버레이 */}
+                <View 
+                  style={StyleSheet.absoluteFill} 
+                  {...pinchPanResponder.panHandlers} 
+                  pointerEvents="box-none" 
+                />
 
-                <TouchableOpacity
-                  style={[styles.arLayerChip, arLayers.milkyWay && styles.arLayerChipActive]}
-                  onPress={() => toggleArLayer('milkyWay')}
-                >
-                  <Text style={[styles.arLayerChipText, arLayers.milkyWay && styles.arLayerChipTextActive]}>🌌 은하수</Text>
-                </TouchableOpacity>
+                {/* 카메라 뷰 헤더 (좌: 뷰 이름, 우: 보정 프리셋 배지) */}
+                <View style={styles.cameraHeaderOverlay} pointerEvents="none">
+                  <View style={styles.viewHeaderBadge}>
+                    <Camera size={11} color="#FFD700" />
+                    <Text style={styles.viewHeaderText}>REAL CAMERA (4:3)</Text>
+                  </View>
+                  <View style={[styles.enhancementBadgeCompact, { borderColor: getSceneColor(currentEnhancement.sceneType) }]}>
+                    <Aperture size={10} color={getSceneColor(currentEnhancement.sceneType)} />
+                    <Text style={styles.enhancementTextCompact}>{currentEnhancement.description}</Text>
+                  </View>
+                </View>
 
-                <TouchableOpacity
-                  style={[styles.arLayerChip, arLayers.clouds && styles.arLayerChipActive]}
-                  onPress={() => toggleArLayer('clouds')}
-                >
-                  <Text style={[styles.arLayerChipText, arLayers.clouds && styles.arLayerChipTextActive]}>☁️ 구름 200km</Text>
-                </TouchableOpacity>
-              </ScrollView>
+                {/* 줌 퀵 프리셋 버튼 바 (1x, 2x, 3x, 5x) 및 실시간 배율 배지 */}
+                <View style={styles.zoomQuickRow} pointerEvents="box-none">
+                  {[1, 2, 3, 5].map((mag) => {
+                    const isSelected = Math.abs(currentMagnification - mag) < 0.25;
+                    return (
+                      <TouchableOpacity
+                        key={mag}
+                        style={[styles.zoomQuickBtn, isSelected && styles.zoomQuickBtnActive]}
+                        onPress={() => setMagnification(mag)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.zoomQuickText, isSelected && styles.zoomQuickTextActive]}>
+                          {mag}x
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <View style={styles.zoomLiveBadge}>
+                    <Text style={styles.zoomLiveText}>{currentMagnification.toFixed(1)}x</Text>
+                  </View>
+                </View>
+
+                {/* 우측 슬림 노출 조절 슬라이더 */}
+                <View style={styles.exposureSliderWrapper}>
+                  <Sun size={10} color="#FFD700" style={styles.exposureIconTop} />
+                  <View 
+                    style={styles.exposureSliderTrackContainer}
+                    {...exposurePanResponder.panHandlers}
+                  >
+                    <View style={styles.exposureTrack} />
+                    <View 
+                      style={[
+                        styles.exposureActiveBar, 
+                        { height: `${((exposure + 1) / 2) * 100}%` }
+                      ]} 
+                    />
+                    <View 
+                      style={[
+                        styles.exposureKnob, 
+                        { bottom: `${((exposure + 1) / 2) * 100}%`, marginBottom: -5 }
+                      ]} 
+                    />
+                  </View>
+                  <Sun size={8} color="rgba(255,255,255,0.4)" style={styles.exposureIconBottom} />
+                </View>
+              </View>
+
+              {/* 시뮬레이터 밖 전용 나침반 눈금자 (Compass Ruler) */}
+              <View style={[styles.compassRulerBar, { width: BOX_WIDTH, height: RULER_HEIGHT }]}>
+                <Svg width={BOX_WIDTH} height={RULER_HEIGHT}>
+                  <Rect width={BOX_WIDTH} height={RULER_HEIGHT} fill="rgba(8, 12, 22, 0.88)" rx={6} />
+                  {(() => {
+                    const centerX = BOX_WIDTH / 2;
+                    const pxPerDeg = (BOX_WIDTH - 24) / 70;
+                    const ticks = [];
+                    for (let offset = -40; offset <= 40; offset += 5) {
+                      const tickDeg = Math.round((effectiveAz + offset) / 5) * 5;
+                      const normDeg = (tickDeg % 360 + 360) % 360;
+                      const x = centerX + (tickDeg - effectiveAz) * pxPerDeg;
+                      if (x < 6 || x > BOX_WIDTH - 6) continue;
+
+                      const isCardinal = normDeg % 45 === 0;
+                      const isTen = normDeg % 10 === 0;
+
+                      let label = '';
+                      if (normDeg === 0) label = 'N';
+                      else if (normDeg === 45) label = 'NE';
+                      else if (normDeg === 90) label = 'E';
+                      else if (normDeg === 135) label = 'SE';
+                      else if (normDeg === 180) label = 'S';
+                      else if (normDeg === 225) label = 'SW';
+                      else if (normDeg === 270) label = 'W';
+                      else if (normDeg === 315) label = 'NW';
+
+                      const strokeColor = isCardinal 
+                        ? (normDeg === 0 ? '#FF5252' : '#00E5FF') 
+                        : (isTen ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.25)');
+                      const tickH = isCardinal ? 8 : (isTen ? 5 : 3.5);
+
+                      ticks.push(
+                        <React.Fragment key={`ruler-${tickDeg}`}>
+                          <Line
+                            x1={x}
+                            y1={RULER_HEIGHT - tickH}
+                            x2={x}
+                            y2={RULER_HEIGHT}
+                            stroke={strokeColor}
+                            strokeWidth={isCardinal ? 1.5 : 0.9}
+                          />
+                          {label !== '' && (
+                            <SvgText
+                              x={x}
+                              y={RULER_HEIGHT - tickH - 2}
+                              fill={normDeg === 0 ? '#FF5252' : '#00E5FF'}
+                              fontSize={8}
+                              fontWeight="bold"
+                              textAnchor="middle"
+                            >
+                              {label}
+                            </SvgText>
+                          )}
+                          {label === '' && isTen && (
+                            <SvgText
+                              x={x}
+                              y={RULER_HEIGHT - tickH - 2}
+                              fill="rgba(255,255,255,0.45)"
+                              fontSize={7}
+                              textAnchor="middle"
+                            >
+                              {normDeg}°
+                            </SvgText>
+                          )}
+                        </React.Fragment>
+                      );
+                    }
+                    return ticks;
+                  })()}
+                  {/* 중앙 포인터 인디케이터 */}
+                  <Polygon
+                    points={`${BOX_WIDTH / 2 - 4},0 ${BOX_WIDTH / 2 + 4},0 ${BOX_WIDTH / 2},5`}
+                    fill="#FFD700"
+                  />
+                  <Line
+                    x1={BOX_WIDTH / 2}
+                    y1={0}
+                    x2={BOX_WIDTH / 2}
+                    y2={RULER_HEIGHT}
+                    stroke="#FFD700"
+                    strokeWidth={1}
+                    strokeDasharray="2,2"
+                  />
+                </Svg>
+                {/* 중앙 현재 방위각 배지 */}
+                <View style={styles.compassCenterBadge} pointerEvents="none">
+                  <Text style={styles.compassCenterText}>
+                    {Math.round(effectiveAz)}° {getAzimuthCardinal(effectiveAz)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* 하단 4:3 시뮬레이터 박스 (실시간 동기화) */}
+              <View style={[styles.simBox, { width: BOX_WIDTH, height: BOX_HEIGHT }]}>
+                <SkyScene3D
+                  ref={sky3dRef}
+                  sim={cameraSimState}
+                  currentTime={currentTime}
+                  sunAltitude={sunPos.altitude}
+                  sunAzimuth={sunPos.azimuth}
+                  prediction={currentPrediction}
+                  location={{ latitude, longitude }}
+                  interpolatedWeather={weatherCacheList && weatherCacheList.length > 0 ? getInterpolatedWeather(weatherCacheList[0].data, currentTime) : []}
+                  theme={{ accent: '#FF9800' }}
+                  cameraAzimuthProp={effectiveAz}
+                  cameraElevationProp={effectivePitch}
+                  fovProp={currentFov}
+                  fullScreen={true}
+                  hideHudOverlay={true}
+                  hideCompassBar={true}
+                  isActive={visible}
+                />
+
+                {/* 시뮬레이터 헤더 오버레이 배지 (가림/중복 없이 좌측 배지와 우측 단일 FOV 배지 분리) */}
+                <View style={styles.simHeaderOverlay} pointerEvents="none">
+                  <View style={[styles.viewHeaderBadge, { backgroundColor: 'rgba(0, 160, 255, 0.25)', borderColor: '#00E5FF' }]}>
+                    <Aperture size={10} color="#00E5FF" />
+                    <Text style={[styles.viewHeaderText, { color: '#00E5FF', fontSize: 9 }]}>3D SIM</Text>
+                  </View>
+                  <View style={styles.fovBadge}>
+                    <Text style={styles.fovBadgeText}>FOV {Math.round(currentFov)}°</Text>
+                  </View>
+                </View>
+              </View>
             </View>
 
-            {/* 보정 정보 패널 */}
-            <View style={styles.enhancementPanel}>
-              <View style={[styles.enhancementBadge, { borderColor: getSceneColor(currentEnhancement.sceneType) }]}>
-                <Aperture size={12} color={getSceneColor(currentEnhancement.sceneType)} />
-                <Text style={styles.enhancementText}>{currentEnhancement.description}</Text>
-              </View>
-              <View style={styles.enhancementDetails}>
-                <EnhancementIndicator label="Brightness" value={currentEnhancement.brightness} />
-                <EnhancementIndicator label="Contrast" value={currentEnhancement.contrast - 1} />
-                <EnhancementIndicator label="Saturation" value={currentEnhancement.saturation - 1} />
-                <EnhancementIndicator label="Warmth" value={currentEnhancement.warmth} />
-              </View>
-            </View>
-
-
-
-            {/* 하단 컨트롤 */}
-            <View style={styles.bottomControls}>
+            {/* 3. 하단 고정 컨트롤 바 */}
+            <View style={styles.bottomControlsBar}>
               <TouchableOpacity style={styles.sideBtn} onPress={handleSunSnap}>
-                <Sun size={24} color="#FFD700" />
+                <Sun size={22} color="#FFD700" />
                 <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>Sun-Snap</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
-                <RotateCcw size={20} color="#FFF" />
+                <RotateCcw size={18} color="#FFF" />
                 <Text style={styles.sideBtnText}>Calibrate</Text>
               </TouchableOpacity>
 
-              {(() => {
-                const isCaptureDisabled = isCapturing || !goldenTimeInfo.isActive;
-                return (
-                  <>
-                    {!goldenTimeInfo.isActive && (
-                      <Text style={styles.captureDisabledHint}>
-                        {goldenTimeInfo.type === 'sunrise'
-                          ? `일출 골든타임 밖 (±60–90min)`
-                          : `일몰 골든타임 밖 (±60–90min)`}
-                      </Text>
-                    )}
-                    <TouchableOpacity
-                      style={[styles.captureBtn, isCaptureDisabled && { opacity: 0.3 }]}
-                      onPress={handleCapture}
-                      disabled={isCaptureDisabled}
-                      activeOpacity={0.7}
-                    >
-                      {isCapturing ? (
-                        <ActivityIndicator size="small" color="#000" />
-                      ) : (
-                        <View style={styles.captureBtnInner} />
-                      )}
-                    </TouchableOpacity>
-                  </>
-                );
-              })()}
+              <TouchableOpacity
+                style={[styles.captureBtn, isCapturing && { opacity: 0.5 }]}
+                onPress={handleCapture}
+                disabled={isCapturing}
+                activeOpacity={0.7}
+              >
+                {isCapturing ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <View style={styles.captureBtnInner} />
+                )}
+              </TouchableOpacity>
 
               <TouchableOpacity 
                 style={styles.sideBtn} 
                 onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
               >
-                <RefreshCw size={20} color="#FFF" />
+                <RefreshCw size={18} color="#FFF" />
                 <Text style={styles.sideBtnText}>Flip</Text>
               </TouchableOpacity>
             </View>
-          </>
+          </View>
         )}
 
         {/* 촬영 성공 오버레이 */}
@@ -1529,33 +1467,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           </View>
         )}
 
-        {/* Offscreen Visualizer Component for exact capture time simulation snapshot */}
-        <View 
-          style={{ 
-            position: 'absolute', 
-            top: 0, 
-            left: 0, 
-            width: W, 
-            height: Math.round(H * 0.38), 
-            zIndex: -9999, 
-            opacity: 0.01 
-          }}
-          pointerEvents="none"
-        >
-          <Visualizer
-            snapshotRef={offscreenVisualizerRef}
-            prediction={predictSunset(weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : [], currentTime, sunPos.altitude, 15000, 50, latitude, 0)}
-            sim={cameraSimState}
-            interpolatedWeather={weatherCacheList && weatherCacheList.length > 0 ? getInterpolatedWeather(weatherCacheList[0].data, currentTime) : []}
-            heading={dynamicEventAzimuths.sunset}
-            visualFov={60}
-            currentTime={currentTime}
-            sunAltitude={sunPos.altitude}
-            eventAzimuths={dynamicEventAzimuths}
-            theme={{ accent: '#FF9800' }}
-            panHandlers={{}}
-          />
-        </View>
 
         {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
         <PostDetailModal
@@ -1581,19 +1492,6 @@ const getSceneColor = (sceneType: EnhancementParams['sceneType']): string => {
   }
 };
 
-// 보정 수치 인디케이터
-const EnhancementIndicator: React.FC<{ label: string; value: number }> = ({ label, value }) => {
-  const percent = Math.round(value * 100);
-  const color = percent > 0 ? '#FFD700' : percent < 0 ? '#6BA3FF' : '#888';
-  const sign = percent > 0 ? '+' : '';
-
-  return (
-    <View style={styles.indicator}>
-      <Text style={styles.indicatorLabel}>{label}</Text>
-      <Text style={[styles.indicatorValue, { color }]}>{sign}{percent}%</Text>
-    </View>
-  );
-};
 
 const styles = StyleSheet.create({
   container: {
@@ -1682,95 +1580,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  enhancementPanel: {
-    position: 'absolute',
-    bottom: 160,
-    left: 16,
-    right: 16,
-    alignItems: 'center',
-    gap: 8,
-  },
-  enhancementBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 6,
-  },
-  enhancementText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  enhancementDetails: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  indicator: {
-    alignItems: 'center',
-    gap: 2,
-  },
-  indicatorLabel: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  indicatorValue: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  bottomControls: {
-    position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 50 : 30,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingHorizontal: 30,
-  },
   sideBtn: {
     alignItems: 'center',
-    gap: 6,
-    minWidth: 60,
+    gap: 4,
+    minWidth: 56,
   },
   sideBtnText: {
     color: '#FFF',
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '700',
   },
   captureBtn: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 4,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 3.5,
     borderColor: '#FFF',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   captureBtnInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: '#FFF',
-  },
-  captureDisabledHint: {
-    position: 'absolute',
-    bottom: 90,
-    alignSelf: 'center',
-    color: 'rgba(255,200,80,0.9)',
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
   },
   captureOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1907,6 +1741,71 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 6,
   },
+  weatherQrCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.25)',
+    marginVertical: 10,
+    gap: 10,
+  },
+  weatherQrHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  weatherQrTitle: {
+    color: '#00E5FF',
+    fontSize: 12.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  weatherQrBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  qrPlateWrapper: {
+    backgroundColor: '#FFF',
+    padding: 4,
+    borderRadius: 8,
+    shadowColor: '#00E5FF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  weatherQrMetaList: {
+    flex: 1,
+    gap: 5,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
+  },
+  metaLabel: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  metaValue: {
+    color: '#FFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  qrExplanationText: {
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontSize: 9,
+    lineHeight: 12.5,
+    marginTop: 2,
+  },
   scoreCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 24,
@@ -2019,24 +1918,24 @@ const styles = StyleSheet.create({
   },
   exposureSliderWrapper: {
     position: 'absolute',
-    right: 20,
-    top: '30%',
-    height: 220,
-    width: 36,
-    borderRadius: 18,
+    right: 12,
+    top: '20%',
+    height: 140,
+    width: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.25)',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    zIndex: 200,
+    paddingVertical: 8,
+    zIndex: 20,
   },
   exposureIconTop: {
-    marginBottom: 4,
+    marginBottom: 2,
   },
   exposureIconBottom: {
-    marginTop: 4,
+    marginTop: 2,
   },
   exposureSliderTrackContainer: {
     flex: 1,
@@ -2047,23 +1946,23 @@ const styles = StyleSheet.create({
   },
   exposureTrack: {
     position: 'absolute',
-    width: 4,
+    width: 3,
     height: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
   exposureActiveBar: {
     position: 'absolute',
     bottom: 0,
-    width: 4,
+    width: 3,
     backgroundColor: '#FFD700',
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
   exposureKnob: {
     position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#FFD700',
@@ -2092,5 +1991,201 @@ const styles = StyleSheet.create({
   arLayerChipTextActive: {
     color: '#FFF',
     fontWeight: '900',
+  },
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  topHudBar: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 52 : 36,
+    paddingBottom: 4,
+    zIndex: 50,
+  },
+  warningBannerFloating: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 96 : 80,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255, 152, 0, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    zIndex: 100,
+  },
+  dualViewCenter: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  cameraBox: {
+    backgroundColor: '#000',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  simBox: {
+    backgroundColor: '#03050C',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.25)',
+  },
+  cameraHeaderOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 15,
+  },
+  viewHeaderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255, 215, 0, 0.5)',
+  },
+  viewHeaderText: {
+    color: '#FFD700',
+    fontSize: 9.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  enhancementBadgeCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 0.8,
+    gap: 4,
+  },
+  enhancementTextCompact: {
+    color: '#FFF',
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  simHeaderOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 15,
+  },
+  fovBadge: {
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 0.8,
+    borderColor: 'rgba(0, 229, 255, 0.5)',
+  },
+  fovBadgeText: {
+    color: '#00E5FF',
+    fontSize: 9.5,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  zoomQuickRow: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    padding: 3,
+    borderRadius: 14,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    zIndex: 20,
+  },
+  zoomQuickBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 8,
+  },
+  zoomQuickBtnActive: {
+    backgroundColor: '#FFD700',
+  },
+  zoomQuickText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  zoomQuickTextActive: {
+    color: '#000',
+    fontWeight: '900',
+  },
+  zoomLiveBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderLeftWidth: 0.8,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  zoomLiveText: {
+    color: '#FFD700',
+    fontSize: 10,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  compassRulerBar: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 6,
+    borderWidth: 0.8,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#080C16',
+  },
+  compassCenterBadge: {
+    position: 'absolute',
+    top: 2,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+    borderWidth: 0.6,
+    borderColor: 'rgba(255, 215, 0, 0.4)',
+  },
+  compassCenterText: {
+    color: '#FFD700',
+    fontSize: 8,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+
+  bottomControlsBar: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
+    zIndex: 50,
   },
 });
