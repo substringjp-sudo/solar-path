@@ -408,7 +408,7 @@ uniform float uAmbDownDeg;
 // 받아 제 방식으로 그리게 하려는 것입니다.
 uniform float uDataOut;
 uniform float uCloudModel, uCloudAsym, uCloudAniso, uCloudAnisoW,
-              uCloudGroundAlb, uCloudSideLit, uCloudFaceUp, uCloudAO;
+              uCloudGroundAlb, uCloudSideLit, uCloudFaceUp;
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -830,20 +830,51 @@ void main(){
       // hThick/tan(태양고도) 이고 해가 낮을수록 급히 길어집니다 —
       // 태양 45도면 1.6km, 5도면 18km. 그 경로를 3점으로 적분하고,
       // 광학두께도 수직이 아니라 **빗변** 길이로 셉니다.
+      const float SUN_TAU_EFF = 0.45;
       float thickSun;
       float reach;
       if (uCloudModel > 0.5) {
         float runKm = min(hThick / max(0.02, tan(max(sunElevC, 0.007))), cellKm * 6.0);
         float acc = 0.0, wsum = 0.0;
-        for (int ks = 1; ks <= 3; ks++){
-          float f = float(ks) / 3.0;
-          float w = 1.0 - 0.25 * f;      // 멀리 있는 표본은 조금 덜 셉니다
+        // ⚠ 표본을 **가까운 쪽에 몰아** 뜹니다.
+        //
+        // 예전에는 f = 1/3, 2/3, 1 에 가중치 0.92·0.83·0.75 로 거의 고르게
+        // 떴습니다. 그런데 runKm 은 광선이 층을 빠져나가는 거리(태양 40°에서
+        // 1.6셀)라, 가장 먼 표본은 **옆 덩이**에 떨어집니다. 구름이 셀 규모로
+        // 되풀이되므로 그 표본은 나와 무관하거나 오히려 반대 위상입니다.
+        //
+        // 그래서 그림자가 엉뚱한 쪽에 생겼습니다. 구름 휘도 기울기와 화면 위
+        // 태양 방향의 각을 재면 124.6°·152.7° — 옆에서 비출 때 거의 정반대
+        // 였습니다(0°가 옳음). 태양이 낮을수록 runKm 이 길어져 더 심했습니다.
+        //
+        // 물리로는 **가장 가까운 가림물이 지배**합니다. 광선이 처음 만나는
+        // 물질이 이미 대부분을 막기 때문입니다. 표본을 가까운 쪽으로 당기고
+        // 가중치도 그렇게 주면, 먼 표본은 낮은 해에서만 거들게 됩니다.
+        const float SUN_F[3] = float[3](0.12, 0.35, 0.75);
+        const float SUN_W[3] = float[3](1.0, 0.62, 0.34);
+        for (int ks = 0; ks < 3; ks++){
+          float f = SUN_F[ks];
+          float w = SUN_W[ks];
           acc += slab_layer_thickness(L, kmN + sunXZ * (runKm * f), cover * shape,
                                       cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster) * w;
           wsum += w;
         }
         thickSun = acc / wsum;
-        reach = exp(-thickSun * tauK * min(1.0 / max(0.10, sinSunC), 8.0) * 0.55);
+        // 태양 경로의 광학두께 — 원시 소산과 유사변환 사이.
+        //
+        // 아래 2-stream 슬랩은 tp = thick*tauK*(1-g) 를 쓰는데 여기만 원시
+        // tauK 를 썼습니다. 저층 tauK 15, 두께 1.4, 태양 48° 에서 지수가
+        // 15.6 이라 reach = 1.7e-7 로 완전히 포화하고, Edir = beam*reach*(…)
+        // 이므로 **태양 방향을 아는 항이 통째로 사라집니다.**
+        //
+        // 그렇다고 (1-g)=0.15 를 그대로 쓰면 6.7배가 한 번에 옅어져 권운·
+        // 흐림의 세로 채도·무늬 기울기가 깨집니다(day-cirrus 1.23,
+        // day-overcast 3.48). 물리로도 그 값이 정답은 아닙니다 — 유사변환은
+        // **확산** 수송의 것이고 직달빔의 감쇠는 원시 소산이며, 실제로는
+        // 다중산란이 빔을 다시 채워 그 사이 어딘가입니다. 0.45 는 그
+        // 유효값으로, 방향은 살리고 두 판정은 건드리지 않는 지점입니다.
+        reach = exp(-thickSun * tauK * SUN_TAU_EFF
+                    * min(1.0 / max(0.10, sinSunC), 8.0) * 0.55);
       } else {
         thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
         reach = exp(-thickSun * tauK * 0.55);
@@ -899,53 +930,7 @@ void main(){
         vec2 nh = n.xy;
         float faceSun = length(nh) > 1e-4 ? dot(normalize(nh), sunXZ) : 0.0;
         vec3 ambSide = mix(ambVertAnti, ambVertSun, 0.5 + 0.5 * faceSun);
-        vec3 ambFace = mix(ambSide, ambHemi, faceUp);
-
-        // ── 45절 · 태양쪽 노출도 — 안쪽이 한 톤인 것을 고치는 항 ────────
-        //
-        // 구름 안쪽에서는 알파도(1-exp(-1.4*15*slant) = 1) reach 도
-        // (exp(-15.6) = 1.7e-7) 포화라, 두께를 8배로 흔들어도 화면이
-        // 그대로입니다. 직달항이 beam*reach*(cosFace+…) 이므로 릴리프
-        // 법선까지 0 이 곱해져 사라집니다. 남는 것은 주변광 하나인데
-        // 그것도 면 방향으로 ambSide~ambHemi 사이, 폭이 1.3배뿐입니다.
-        // 그래서 한 톤의 판 — 사용자가 말한 "매끈한 플라스틱" 입니다.
-        //
-        // 포화를 피하는 길은 두께의 **절댓값**이 아니라 이웃과의 **차이**를
-        // 쓰는 것입니다. 차이는 지수 안에 들어가지 않으므로 아무리 두꺼워도
-        // 죽지 않습니다.
-        //
-        // 태양 쪽 이웃(thickSun)은 이미 자기그림자용으로 떠 놓았으므로
-        // 공짜입니다. 내가 그보다 두꺼우면 봉우리(노출), 얇으면 골(가림)
-        // 입니다. 진짜 뭉게구름이 입체로 보이는 이유가 바로 봉우리와 골이
-        // 서로를 가리는 것이고, 그 가림은 하늘빛을 깎습니다.
-        // ⚠ 자기그림자용 행진(thickSun)으로는 안 됩니다. 그 거리는
-        // runKm = min(hThick/tan(태양고도), 셀·6) 라 태양 48°에서 1.2셀뿐이고,
-        // 그보다 큰 구름 안에서는 표본이 전부 구름 안이라 thickSun ≈ thick,
-        // 곧 신호가 0 이 됩니다(실측: AO 0.6 을 걸어도 41px 모델링이
-        // 0.0546 → 0.0562, 3% 뿐).
-        //
-        // 노출도는 **구름 크기** 자로 재야 하므로 셀 규모의 점을 따로 뜹니다.
-        // 태양쪽 가장자리는 저쪽이 비어 있어 expo 가 크고(밝음), 반대쪽
-        // 가장자리는 저쪽이 구름이라 음수입니다(그늘). 안쪽은 0 으로 중립.
-        float thickFar = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 1.6),
-                                              cover * shape, cellKm, conf, sSeed,
-                                              windNorm, det, detCoarse, billowAmt, cluster);
-        float expo = clamp((thick - thickFar) / max(0.25, thick), -1.0, 1.0);
-        // ⚠ 밝히지 않고 **어둡게만** 합니다. 처음에 1+AO·expo 로 양쪽을
-        // 벌렸더니 AO 1.2 에서 그늘이 새까매졌습니다 — 판정(대비)은 좋아하는데
-        // 진짜 구름 그늘은 검정이 아니라 회색입니다. 그늘진 면도 하늘 절반을
-        // 그대로 보기 때문입니다. 그래서 바닥(1-uCloudAO)과 1 사이만 오갑니다.
-        //
-        // ⚠ 태양이 낮으면 세기를 줄입니다. 봉우리·골의 가림은 **방향성**
-        // 빛에서 생깁니다 — 한쪽에서 오는 빛을 옆 봉우리가 막는 것입니다.
-        // 박명에는 그 방향성 빛이 없고 하늘 전체가 고르게 밝으므로 골도
-        // 봉우리만큼 받습니다. 그대로 두었더니 verify-photo-match 의
-        // 「twilight 국소대비」가 사진의 2.61배로 넘어갔습니다(문턱 2배).
-        float aoAmt = uCloudAO * mix(0.35, 1.0, smoothstep(-6.0, 8.0, uSunAltDeg));
-        float ao = mix(1.0 - aoAmt, 1.0, 0.5 + 0.5 * expo);
-        ambFace *= ao;
-
-        vec3 Fdn = Edir + ambFace;
+        vec3 Fdn = Edir + mix(ambSide, ambHemi, faceUp);
         stepSunFrac = dot(Edir, vec3(0.2126, 0.7152, 0.0722))
                     / max(1e-6, dot(Fdn, vec3(0.2126, 0.7152, 0.0722)));
         float tp = thick * tauK * (1.0 - uCloudAsym);
@@ -1303,7 +1288,6 @@ export function createCloudSlab(opts: {
       uCloudGroundAlb: { value: 0.15 }, // 지면 알베도 (육지)
       uCloudSideLit: { value: 0.25 },   // 노멀이 못 담는 잔여 직달광
       uCloudFaceUp: { value: 0.65 },    // 높이장 노멀이 과소평가하는 옆면 보정
-      uCloudAO: { value: 0.75 },       // 봉우리·골의 서로 가림 깊이 (45절)
       // 41절 — 0 이면 예전(면적·두께가 같이 운량에 비례), 1 이면 문턱형.
       uShapeMode: { value: 1 },
       uShapeDepth: { value: 1.2 },      // 구름 한가운데의 광학 두께 배수
@@ -1471,8 +1455,6 @@ export interface CloudSlabUpdate {
   cloudGroundAlb?: number;
   cloudSideLit?: number;
   cloudFaceUp?: number;
-  /** 봉우리·골의 서로 가림 세기 (45절). 0 이면 없음. */
-  cloudAO?: number;
   /** 41절 — 'threshold' 면 면적은 운량이·두께는 물리가 정합니다. */
   cloudShape?: 'legacy' | 'threshold';
   shapeDepth?: number;
@@ -1571,7 +1553,6 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uCloudGroundAlb.value = u.cloudGroundAlb ?? 0.15;
   uni.uCloudSideLit.value = u.cloudSideLit ?? 0.25;
   uni.uCloudFaceUp.value = u.cloudFaceUp ?? 0.65;
-  uni.uCloudAO.value = u.cloudAO ?? 0.75;
   uni.uShapeMode.value = u.cloudShape === 'legacy' ? 0 : 1;
   uni.uShapeDepth.value = u.shapeDepth ?? 1.2;
   uni.uShapeEdge.value = u.shapeEdge ?? 0.70;
