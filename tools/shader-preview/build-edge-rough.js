@@ -33,11 +33,13 @@ const TW = 300, TH = 300;
 const FOV = 66, VIEW_ELEV = 35, VIEW_AZ = 200, SUN_AZ = 250, SUN_ALT = 48;
 /** 견줄 사진 — 테두리가 뚜렷한 적운 위주 */
 const PHOTOS = ['day-cumulus_01.jpg', 'day-cumulus_02.jpg', 'day-zenith_04.jpg'];
+/** 봉우리·골 가림 세기를 나란히 봅니다 (45절) */
+const AOS = [0, 0.75];
 
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
  body{margin:0;background:#0b0f15;font-family:sans-serif;color:#dde}
- #wrap{position:relative;width:${TW * 4 + 24}px;padding:12px}
+ #wrap{position:relative;width:${TW * Math.max(4, AOS.length) + 24}px;padding:12px}
  h3{font-size:14px;margin:6px 0}
  .sub{font-size:11px;color:#8aa;margin:0 0 10px;max-width:900px;line-height:1.5}
  table{border-collapse:collapse;font:11px monospace;margin-top:10px}
@@ -62,9 +64,10 @@ const errors=[]; const oe=console.error; console.error=(...a)=>{errors.push(a.jo
 const TW=${TW}, TH=${TH}, FOV=${FOV};
 const VIEW_ELEV=${VIEW_ELEV}, VIEW_AZ=${VIEW_AZ}, SUN_AZ=${SUN_AZ}, SUN_ALT=${SUN_ALT};
 const PHOTOS=${JSON.stringify(PHOTOS)};
+const AOS=${JSON.stringify(AOS)};
 
 const canvas=document.getElementById('c');
-canvas.width=TW*4; canvas.height=TH*2;
+canvas.width=TW*Math.max(4,AOS.length); canvas.height=TH*2;
 const ctx2d=canvas.getContext('2d', {willReadFrequently:true});
 const glCanvas=document.createElement('canvas'); glCanvas.width=TW; glCanvas.height=TH;
 const renderer=new THREE.WebGLRenderer({canvas:glCanvas,antialias:false,alpha:false});
@@ -91,7 +94,7 @@ const W={low:35,mid:8,high:0,hum:55,vis:30000};
             confidence:Math.max(0,Math.min(1,confidence))};});
 }
 
-function shoot(){
+function shoot(ao){
   const atm=makeAtmosphereParams({latitude:37.5,observerElevM:24,dayOfYear:200,
     humidityPct:W.hum,visibilityM:W.vis});
   const cam=new THREE.PerspectiveCamera(FOV,TW/TH,0.1,2000);
@@ -109,7 +112,7 @@ function shoot(){
     beamFor:(altKm)=>beamAtAltitude(SUN_ALT,altKm,atm),atmosphere:atm,
     layerWinds:{low:{speedKmh:16,bearingDeg:250},mid:{speedKmh:30,bearingDeg:235},
                 high:{speedKmh:70,bearingDeg:220}},
-    driftHours:0,visible:true});
+    driftHours:0,visible:true, cloudAO:ao});
   applyTuningUniforms(slab.mesh.material.uniforms);
   renderer.setRenderTarget(null); renderer.setClearColor(0x000000,1);
   renderer.render(scene,cam);
@@ -226,18 +229,20 @@ function photoAt(img, fovDeg){
 }
 
 const rows=[];
-const ours=shoot();
-rows.push({이름:'우리 렌더', ...measure(ours,TW,TH)});
-{ const im=ctx2d.createImageData(TW,TH); im.data.set(ours); ctx2d.putImageData(im,0,0); }
+AOS.forEach((ao,i)=>{
+  const img=shoot(ao);
+  rows.push({이름:'우리 AO '+ao.toFixed(1), ...measure(img,TW,TH)});
+  const im=ctx2d.createImageData(TW,TH); im.data.set(img); ctx2d.putImageData(im,i*TW,0);
+});
 
-let col=1;
+let col=0;
 for(const f of PHOTOS){
   const img=new Image();
   await new Promise(r=>{img.onload=r; img.onerror=r; img.src='../photoref/'+f;});
   if(!img.width){ rows.push({이름:f+' (못 읽음)'}); continue; }
   const id=photoAt(img);
   rows.push({이름:'사진 '+f.replace('.jpg',''), ...measure(id.data,TW,TH)});
-  ctx2d.putImageData(id, col*TW, 0); col++;
+  ctx2d.putImageData(id, col*TW, TH); col++;
 }
 
 document.getElementById('tbl').innerHTML=
