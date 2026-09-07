@@ -31,16 +31,17 @@ const TW = 300, TH = 300;
 const FOV = 66, VIEW_ELEV = 35, VIEW_AZ = 200;
 /** 태양을 화면 안 여러 곳에 두고 봅니다 — 한 자리만 맞는 우연을 배제합니다. */
 const SUNS = [
-  { name: '태양 왼쪽 위',  az: 160, alt: 52 },
-  { name: '태양 오른쪽',   az: 250, alt: 40 },
-  { name: '태양 뒤',       az: 20,  alt: 45 },
+  { name: '왼쪽위', az: 160, alt: 52 },
+  { name: '오른쪽', az: 250, alt: 40 },
 ];
+/** 세로 체적 스텝 수. 1 이면 구름에 윗면도 밑면도 없습니다 (47절). */
+const STEPSES = [1];
 const PHOTOS = ['day-cumulus_01.jpg', 'day-cumulus_02.jpg'];
 
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
  body{margin:0;background:#0b0f15;font-family:sans-serif;color:#dde}
- #wrap{position:relative;width:${TW * 3 + 24}px;padding:12px}
+ #wrap{position:relative;width:${TW * 4 + 24}px;padding:12px}
  h3{font-size:14px;margin:6px 0}
  .sub{font-size:11px;color:#8aa;margin:0 0 10px;max-width:880px;line-height:1.5}
  table{border-collapse:collapse;font:11px monospace;margin-top:10px}
@@ -61,13 +62,15 @@ import { createCloudSlab, updateCloudSlab, bakeCloudSlabCoverage }
   from './app/components/SkyScene3D/CloudSlab.js';
 import { WeatherFan } from './app/utils/skyColumn.js';
 import { makeAtmosphereParams, beamAtAltitude, applyTuningUniforms } from './app/utils/atmosphere.js';
+import { setTuning, resetTuning } from './app/utils/skyTuning.js';
 
 const errors=[]; const oe=console.error; console.error=(...a)=>{errors.push(a.join(' ')); oe(...a);};
 const TW=${TW}, TH=${TH}, FOV=${FOV}, VIEW_ELEV=${VIEW_ELEV}, VIEW_AZ=${VIEW_AZ};
 const SUNS=${JSON.stringify(SUNS)}, PHOTOS=${JSON.stringify(PHOTOS)};
+const STEPSES=${JSON.stringify(STEPSES)};
 
 const canvas=document.getElementById('c');
-canvas.width=TW*3; canvas.height=TH*2;
+canvas.width=TW*4; canvas.height=TH*3;
 const ctx2d=canvas.getContext('2d',{willReadFrequently:true});
 const glCanvas=document.createElement('canvas'); glCanvas.width=TW; glCanvas.height=TH;
 const renderer=new THREE.WebGLRenderer({canvas:glCanvas,antialias:false,alpha:false});
@@ -96,7 +99,8 @@ function bake(sunAz){
 }
 
 /** 렌더하고, 화면에 투영한 태양 방향(화소 좌표, y는 아래로 증가)도 같이 냅니다. */
-function shoot(S){
+function shoot(S, vs){
+  resetTuning();
   const atm=makeAtmosphereParams({latitude:37.5,observerElevM:24,dayOfYear:200,
     humidityPct:W.hum,visibilityM:W.vis});
   const cam=new THREE.PerspectiveCamera(FOV,TW/TH,0.1,2000);
@@ -114,7 +118,7 @@ function shoot(S){
     beamFor:(altKm)=>beamAtAltitude(S.alt,altKm,atm),atmosphere:atm,
     layerWinds:{low:{speedKmh:16,bearingDeg:250},mid:{speedKmh:30,bearingDeg:235},
                 high:{speedKmh:70,bearingDeg:220}},
-    driftHours:0,visible:true});
+    driftHours:0,visible:true, volSteps:vs});
   applyTuningUniforms(slab.mesh.material.uniforms);
   renderer.setRenderTarget(null); renderer.setClearColor(0x000000,1);
   renderer.render(scene,cam);
@@ -220,8 +224,9 @@ function shadowHue(d,m,w,h){
   const br=(arr)=>{let R=0,B=0;for(const [,i] of arr){R+=toLin(d[i*4]);B+=toLin(d[i*4+2]);}
     return B/Math.max(1e-6,R);};
   const dark=br(px.slice(0,q)), lit=br(px.slice(-q));
+  let L=0; for(const [l] of px) L+=l;
   return {어두운쪽BR:+dark.toFixed(3), 밝은쪽BR:+lit.toFixed(3),
-          그늘파랑비:+(dark/lit).toFixed(3)};
+          그늘파랑비:+(dark/lit).toFixed(3), 평균휘도:+(L/px.length).toFixed(1)};
 }
 
 /**
@@ -235,10 +240,11 @@ function shadowHue(d,m,w,h){
  * 똑같이** 들어가므로 차이에서 지워집니다. 남는 것은 순수한 조명 차이이고,
  * 제대로면 A 쪽이 밝아야 하므로 차이의 기울기가 A 를 가리킵니다.
  */
+let VS=1;
 function diffTest(S){
   bake(S.az);                                  // 구름장은 한 번만 굽습니다
-  const a=shoot(S);
-  const b=shoot({name:S.name, az:(S.az+180)%360, alt:S.alt});
+  const a=shoot(S, VS);
+  const b=shoot({name:S.name, az:(S.az+180)%360, alt:S.alt}, VS);
   const m=cloudMask(a.img,TW,TH);
   let gx=0,gy=0,n=0;
   const df=new Float32Array(TW*TH);
@@ -262,9 +268,12 @@ function diffTest(S){
 }
 
 const rows=[];
-SUNS.forEach((S,i)=>{
+let panel=0;
+for(const vs of STEPSES){
+ VS=vs;
+ SUNS.forEach((S,i)=>{
   bake(S.az);
-  const {img,sun,behind}=shoot(S);
+  const {img,sun,behind}=shoot(S, vs);
   const m=cloudMask(img,TW,TH);
   const g=litDir(img,m,TW,TH);
   // 대조군: **하늘** 화소의 기울기. 하늘은 반드시 태양 쪽이 밝으므로,
@@ -289,16 +298,18 @@ SUNS.forEach((S,i)=>{
   }
   const dt=diffTest(S);
   bake(S.az);
-  rows.push({이름:S.name+(behind?' (뒤)':''), 하늘대조:skyAngle, 조명각:angle,
+  rows.push({이름:'스텝 '+vs+' · '+S.name, 하늘대조:skyAngle, 조명각:angle,
              차분각:dt?dt.각:null, 차분세기:dt?dt.세기:null,
              기울기세기:g?+Math.hypot(g.gx,g.gy).toFixed(3):null, ...(hue||{})});
-  const im=ctx2d.createImageData(TW,TH); im.data.set(img); ctx2d.putImageData(im,i*TW,0);
+  const im=ctx2d.createImageData(TW,TH); im.data.set(img);
+  ctx2d.putImageData(im,(panel%4)*TW, Math.floor(panel/4)*TH); panel++;
   // 태양 방향을 화살표로
   ctx2d.strokeStyle='#ff0'; ctx2d.lineWidth=2; ctx2d.beginPath();
-  const cx=i*TW+TW/2, cy=TH/2;
+  const cx=((panel-1)%4)*TW+TW/2, cy=Math.floor((panel-1)/4)*TH+TH/2;
   ctx2d.moveTo(cx,cy); ctx2d.lineTo(cx+sun[0]*60, cy+sun[1]*60); ctx2d.stroke();
   ctx2d.fillStyle='#ff0'; ctx2d.fillRect(cx+sun[0]*60-3, cy+sun[1]*60-3, 6, 6);
-});
+ });
+}
 
 let col=0;
 for(const f of PHOTOS){
@@ -313,7 +324,7 @@ for(const f of PHOTOS){
   const m=cloudMask(id.data,TW,TH);
   rows.push({이름:'사진 '+f.replace('.jpg',''), 조명각:null, 기울기세기:null,
              ...(shadowHue(id.data,m,TW,TH)||{})});
-  ctx2d.putImageData(id, col*TW, TH); col++;
+  ctx2d.putImageData(id, col*TW, TH*2); col++;
 }
 
 document.getElementById('tbl').innerHTML=
