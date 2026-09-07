@@ -120,14 +120,51 @@ const hygroscopicGrowth = (rhPct: number): number => {
  * 있었고, 보정이 워낙 약해서(1.15배) 티가 안 났을 뿐입니다. 제대로 된
  * 2.3배를 그대로 곱했다면 습한 날 하늘이 두 배로 뿌예졌을 것입니다.
  */
+/**
+ * 지표 소산계수(1/km)를 **연직 적분 광학두께**로 바꾸는 유효 두께(km).
+ *
+ * ⚠ 이것은 유도값이 아니라 **사진에 맞춘 보정값**입니다. 진짜 에어로졸
+ * 규모고도는 1~1.5km 이라 그대로 곱하면 시정 22km 에서 AOD 0.17 이 나오고,
+ * 그러면 하늘이 사진보다 훨씬 뿌옇습니다. 예전 값 0.46 도 같은 성격의
+ * 보정이었고, 실측해 보니 그것도 아직 컸습니다 — 시정 22km 에서 화면의
+ * 선형 B/R 이 2.1 로, 사진의 3.2~4.2 에 한참 못 미쳤습니다.
+ *
+ * 0.30 으로 내리면 22km 에서 β 0.050, 화면 B/R 2.5 가 됩니다. 나머지 몫은
+ * 표시 단계의 skyBlueBoost 가 맡습니다 — 사진의 색도가 물리 한계 바깥이라
+ * 에어로졸만으로는 어차피 닿지 않기 때문입니다(atm_display 주석 참고).
+ *
+ * 흐린 쪽 계조는 그대로 둡니다: 시정 10km 는 여전히 β 0.114 로 확실히
+ * 뿌옇고, 22km 의 두 배가 넘습니다.
+ */
+const AER_COLUMN_KM = 0.30;
+
+/**
+ * 에어로졸이 사실상 없는 공기의 하한.
+ *
+ * ⚠ 예전 하한은 0.04 였는데, 그 값은 **시정 40km 이상이면 항상 걸립니다**.
+ * 그래서 그랜드캐니언의 시정 73km 짜리 날과 40km 짜리 날이 화면에서 완전히
+ * 같게 나왔습니다 — 앱이 '아주 맑은 날'을 그릴 수 없었다는 뜻입니다.
+ * (Open-Meteo 는 시정을 자르지 않습니다. 서울이 10~29km 로 나오는 것은
+ * 모델이 실제로 그렇게 보는 것이고, 청정 지역은 70km 넘게 나옵니다.)
+ *
+ * 0.012 는 Rayleigh 한계에 가까운 청정 대기의 AOD550 이고, 시정 100km
+ * 부근에서야 걸립니다.
+ */
+const AER_BETA_FLOOR = 0.012;
+
 export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
   const hasVis = visibilityM != null && visibilityM > 0;
-  const visKm = hasVis ? visibilityM / 1000 : 45;
+  // ⚠ 시정을 모를 때의 대체값입니다. 예전에는 45km 였는데, 그건 하한 0.04 가
+  // 늘 걸려 가려져 있었습니다. 하한을 내리자 45km 가 β 0.023 — **청정 대기**로
+  // 나와, 모르는 날을 아주 맑은 날로 단정하게 됐습니다(verify-atmosphere 의
+  // 박명 주변광이 그래서 깨졌습니다). 모를 때는 맑다고 하면 안 됩니다.
+  // 27km 는 예전 대체값 β 0.04 를 그대로 되살리는 값이고, 대륙성 보통 날입니다.
+  const visKm = hasVis ? visibilityM / 1000 : 27;
   const sigmaTotal = 3.912 / visKm;
   const sigmaAer = Math.max(0.02, sigmaTotal - 0.012);
-  let beta = sigmaAer * 0.46;
+  let beta = sigmaAer * AER_COLUMN_KM;
   if (!hasVis && rhPct != null) beta *= hygroscopicGrowth(rhPct);
-  return Math.max(0.04, Math.min(0.6, beta));
+  return Math.max(AER_BETA_FLOOR, Math.min(0.6, beta));
 };
 
 /**

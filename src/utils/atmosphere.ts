@@ -1114,6 +1114,8 @@ uniform float ADAPT_HI;
 uniform float ADAPT_LO;
 uniform float DISP_SAT;
 uniform float DISP_CONTR;
+uniform float DISP_BLUE;
+uniform float DISP_BLUE_CAP;
 uniform float AIR_WASH;
 uniform float TONEMAP;
 const vec3  GROUND_DARK = vec3(${f(GROUND_DARKEN.r)}, ${f(GROUND_DARKEN.g)}, ${f(GROUND_DARKEN.b)});
@@ -1448,6 +1450,40 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   float luma = dot(c, LW);
   c = mix(vec3(luma), c, DISP_SAT * saturation);
 
+  // **푸른 하늘에만** 채도를 더 밉니다.
+  //
+  // 사진의 하늘 색도 [1, 1.65, 4.07] 은 에어로졸을 0 으로 둔 순수 Rayleigh
+  // [1, 1.92, 3.55] 보다도 파랗습니다 — 물리로는 닿지 않는 값이고, 사진이
+  // 휴대폰에서 이미 채도가 올라간 JPEG 이기 때문입니다. 그래서 물리를
+  // 비틀지 않고 여기 표시 단계에서 카메라 응답으로 따로 겁니다.
+  //
+  // 전역 채도를 올리면 노을이 원색으로 뜹니다(20절에서 한 번 고친 결함).
+  // 파랑 우세도로 가중하면 노을·구름·태양은 B<=R 이라 가중치가 정확히 0 이고,
+  // 낮 하늘만 움직입니다.
+  //
+  // ⚠ 그리고 **천장이 필요합니다.** 파랑 우세도만 쓰면 이미 짙푸른 곳
+  // — 천정, 그리고 박명 — 이 가장 세게 밀립니다. 재 보니 천정의 HSV 채도
+  // 0.60 초과 화소가 0.2%(사진) 대 17.3%(우리)까지 갔습니다. 사진에 아예
+  // 없는 색 영역이라 형광 파랑으로 보입니다.
+  //
+  // 그래서 결과 채도를 DISP_BLUE_CAP 아래로 묶습니다. mix 는 luma 로부터의
+  // 편차를 배율만큼 늘리므로 채도도 대략 그 배율로 늘어납니다 — 배율을
+  // CAP/현재채도 로 깎으면 넘지 않습니다(선형 근사라 보수적입니다).
+  // 태양에서 먼 낮 하늘은 보정 전 채도가 0.35 라 천장에 안 닿고 그대로
+  // 다 받습니다. 깎이는 것은 천정과 박명뿐입니다.
+  // ⚠ 채도는 **sRGB 로 인코딩한 뒤**의 값으로 재야 합니다. 판정이 보는
+  // 화소는 감마가 실린 값이고, 인코딩은 어두운 쪽을 더 들어올려 min/max
+  // 비를 바꿉니다 — 같은 색이 선형에서 0.59, sRGB 에서 0.35 입니다. 처음에
+  // 선형 채도로 재고 sRGB 문턱과 비교했더니 낮 하늘에서도 천장이 걸려
+  // 보정이 통째로 꺼졌습니다(선형 B/R 3.4 → 2.46). 2.2 감마로 근사합니다.
+  float blueness = clamp((c.b - c.r) / max(1e-4, c.b), 0.0, 1.0);
+  vec3 g = pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
+  float mxg = max(g.r, max(g.g, g.b));
+  float chroma = (mxg - min(g.r, min(g.g, g.b))) / max(1e-4, mxg);
+  float want = 1.0 + blueness * (DISP_BLUE - 1.0);
+  float cap = chroma > 1e-4 ? DISP_BLUE_CAP / chroma : want;
+  c = mix(vec3(luma), c, min(want, max(1.0, cap)));
+
   // 대비는 **휘도에만** 겁니다.
   //
   // 예전에는 clamp((c - 0.5) * DISP_CONTR + 0.5) 를 채널마다 따로 걸었습니다.
@@ -1506,6 +1542,8 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     TW_MS_SCALE: { value: t.twilightMsScaleKm },
     TW_TINT: { value: t.twilightTint },
     OZ_TW_GAIN: { value: t.ozoneTwilightGain },
+    DISP_BLUE: { value: t.skyBlueBoost },
+    DISP_BLUE_CAP: { value: t.skyBlueCap },
     TONEMAP: { value: t.tonemap === 'agx' ? 1 : 0 },
   };
 }
@@ -1524,6 +1562,8 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('ADAPT_LO', t.adaptEndAlt);
   set('DISP_SAT', t.displaySaturation);
   set('DISP_CONTR', t.displayContrast);
+  set('DISP_BLUE', t.skyBlueBoost);
+  set('DISP_BLUE_CAP', t.skyBlueCap);
   set('AIR_WASH', t.airWash);
   set('SLAB_FBM_GAIN', t.fbmGain);
   set('SLAB_RELIEF_EPS', t.reliefEps);

@@ -49,6 +49,30 @@ export interface SkyTuning {
   displaySaturation: number;
   /** 하단 대비 S커브 */
   displayContrast: number;
+  /**
+   * **푸른 하늘에만 거는 채도 배율** (1이면 없음).
+   *
+   * 사진 3장을 재 보니 태양에서 먼 하늘의 **선형** B/R 이 3.2~4.2 인데
+   * 우리는 2.1 이었습니다. 그런데 이건 에어로졸을 아무리 걷어내도
+   * 닿지 않습니다 — 에어로졸 0 인 순수 Rayleigh 의 색도가 [1, 1.92, 3.55]
+   * 인데 사진이 요구하는 것은 [1, 1.65, 4.07] 로, **물리 한계 바깥**입니다.
+   * 사진은 휴대폰이 이미 채도를 올려 저장한 JPEG 이라 그렇습니다.
+   *
+   * 그래서 이것은 물리가 아니라 **카메라 응답**으로 따로 둡니다. 전역
+   * 채도(displaySaturation)를 올리면 노을까지 같이 뜨는데, 노을이 원색으로
+   * 뜨는 것은 이미 한 번 고친 결함입니다(20절). 그래서 파랑이 우세한
+   * 화소에만 겁니다 — 노을·구름·태양은 B<R 이라 가중치가 0 입니다.
+   */
+  skyBlueBoost: number;
+  /**
+   * 그 파랑 보정의 **채도 천장** (HSV 채도).
+   *
+   * 천장이 없으면 이미 짙푸른 천정과 박명이 가장 세게 밀려 사진에 없는
+   * 형광 파랑이 됩니다 — 재 보니 천정의 채도 0.60 초과 화소가 사진 0.2% 대
+   * 우리 17.3% 였습니다. 판정(verify-photo-match)이 0.60 을 보므로 그 아래
+   * 0.52 로 묶습니다.
+   */
+  skyBlueCap: number;
   /** 산란 → 화면 밝기 이득 */
   skyExposure: number;
   /**
@@ -208,6 +232,11 @@ export const DEFAULT_TUNING: SkyTuning = {
   // 이 값들을 그대로 두고도 노을 채도가 4.96 → 3.15배로 내려갑니다.
   displaySaturation: 1.22,
   displayContrast: 1.06,
+  // 1.55 — 계측으로 고른 값입니다. β 보정(0.076→0.050)과 합쳐 태양에서 먼
+  // 하늘이 사진의 [114,151,207] · 선형 B/R 3.7 · 채도 0.45 에 옵니다 —
+  // 실측 [109,161,198] · 3.70 · 0.450. 더 올리면 형광 파랑으로 넘어갑니다.
+  skyBlueBoost: 1.55,
+  skyBlueCap: 0.52,
   skyExposure: 22.0,
   // 0.35 — 훑어서 고른 값입니다. 더 올리면 노을 채도기울기가 조금 더
   // 내려가지만(0.8 에서 1.115), 낮 하늘이 이미 사진보다 채도가 낮아
@@ -306,6 +335,8 @@ export const TUNING_GROUPS: TuningGroup[] = [
     fields: [
       { key: 'displaySaturation', label: '채도', min: 0.3, max: 2.5, step: 0.01, hint: '올리면 색이 진해짐', live: true },
       { key: 'displayContrast', label: '대비', min: 0.7, max: 1.8, step: 0.01, hint: '올리면 어두운 쪽이 더 눌림', live: true },
+      { key: 'skyBlueBoost', label: '하늘 파랑', min: 1.0, max: 4.0, step: 0.01, hint: '푸른 하늘만 진해짐 (노을은 안 건드림)', live: true },
+      { key: 'skyBlueCap', label: '파랑 천장', min: 0.3, max: 0.9, step: 0.01, hint: '이 채도 위로는 안 밀림', live: true },
     ],
   },
   {

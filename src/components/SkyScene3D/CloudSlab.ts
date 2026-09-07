@@ -44,6 +44,9 @@ import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import type { RGB } from '../../utils/sunsetPhysics';
 import { lowLayerGenus } from '../../utils/cloudPresets';
+// ⚠ 지평선은 **지면과 같은 함수**로 구합니다. 식을 복사해 두면 한쪽만
+// 바뀌었을 때 그 차이가 그대로 하늘이 비치는 띠가 됩니다.
+import { seaHorizonDipDeg } from './TerrainRing';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
@@ -171,8 +174,19 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
  * 해상 못 하는 무늬는 평균으로 녹입니다. 안티에일리어싱이면서 동시에
  * 옳은 물리이기도 합니다 — 90km 밖 구름의 낱개 봉우리는 실제로도 안 보입니다
  * (계획 8절 - 선명도는 확신도에 비례합니다).
+ *
+ * ⚠ **그런데 상수로 녹이면 안 됩니다.** det 이 0 이 되는 곳은 고도 2° 아래고,
+ * 거기서 모양장이 통째로 0.5 가 되면 백분위 문턱이 균일한 운량을 뱉어
+ * **매끈한 띠 한 장**이 됩니다. 사용자가 "구름이 2.8° 위에서 끊기고 그
+ * 아래는 밝고 매끈한 띠"라고 한 것이 이것입니다.
+ *
+ * 낱개 봉우리가 안 보이는 것이지 **구름이 균일해지는 것이 아닙니다.** 90km
+ * 밖에도 구름 거리·큰 틈 같은 10~50km 규모 조직은 그대로 보입니다. 발자국이
+ * 죽이는 것은 잔 옥타브뿐이므로, 상수가 아니라 **아직 해상되는 굵은 옥타브**로
+ * 물러납니다. detCoarse 가 그 두 번째 단계입니다 — 발자국이 셀의 3배를 넘으면
+ * 굵은 장도 놓기 시작해 9배에서 비로소 상수가 됩니다(고도 0.4° 아래).
  */
-float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float billowAmt, float cluster){
+float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float detCoarse, float billowAmt, float cluster){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
   // 모양장 f: 0~1, **운량과 무관한** 구름의 생김새 (41절의 문턱형에서 씀).
@@ -185,13 +199,16 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   if (layer == 0) {
     // 고층 권운: 바람 방향으로 늘어난 비등방성 섬유질 스트릭
     vec2 pWind = vec2(dot(p, windNorm) * 0.28, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.6);
-    float fibrous = mix(0.5, slab_fbm(pWind, 5), det);
+    // 굵은 폴백: 잔 옥타브가 죽어도 상층 흐름 규모의 띠는 남습니다.
+    float fibCoarse = mix(0.5, slab_fbm(pWind * 0.16, 2), detCoarse);
+    float fibrous = mix(fibCoarse, slab_fbm(pWind, 5), det);
     m = cover * 1.55 * (0.35 + 0.65 * fibrous) + (fibrous - 0.5) * 0.28 * conf;
     f = fibrous;
   } else if (layer == 1) {
     // 중층 고적운: 부드러운 물결 파동과 중간 규모 셀
     float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18 * det;
-    float form = mix(0.5, slab_fbm(p * 0.75, 4), det);
+    float formCoarse = mix(0.5, slab_fbm(p * 0.13, 2), detCoarse);
+    float form = mix(formCoarse, slab_fbm(p * 0.75, 4), det);
     m = cover * 1.65 * (0.45 + 0.55 * form + wave) + (form - 0.5) * 0.30 * conf;
     f = form;
     // 물결은 **느린** 항이라 백분위 입력에 넣으면 안 됩니다 — 한 화면 안에서
@@ -201,7 +218,10 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   } else {
     // 저층 적운: 볼록하고 묵직한 솜사탕형 빌로우
     float billow = mix(0.5, 1.0 - abs(slab_fbm(p * 0.60, 4) * 2.0 - 1.0), det);
-    float detailN = mix(0.5, slab_fbm(p * 1.8, 4), det);
+    // 굵은 폴백은 **실루엣을 정하는 detailN 에만** 겁니다. billow 는 두께
+    // 단면(depthMul)으로 가는 항이라 멀리서 안 보여도 됩니다.
+    float nCoarse = mix(0.5, slab_fbm(p * 0.15, 2), detCoarse);
+    float detailN = mix(nCoarse, slab_fbm(p * 1.8, 4), det);
     m = cover * 1.85 * (0.55 * billow + 0.45 * detailN) + (detailN - 0.5) * 0.35 * conf;
     // billow 는 fbm 을 접은 것(1-|2f-1|)이라 **치우친** 분포입니다 —
     // 평균이 0.5 가 아니라 0.8 쯤입니다. 백분위 입력에 섞었더니 모양장
@@ -358,6 +378,9 @@ ${CLOUD_SLAB_GLSL}
 uniform vec2  uRes;
 uniform mat4  uInvViewProj;
 uniform vec3  uCamPos;
+// 관측 고도에서 지평선이 내려앉은 만큼의 sin (음수). 지면과 구름이
+// **정확히 같은 선에서** 만나게 하는 값입니다.
+uniform float uHorizonSinE;
 uniform vec3  uSunDir;
 uniform float uSunAltDeg, uSunAzDeg;
 uniform vec3  uMoonDir;
@@ -394,7 +417,17 @@ void main(){
   vec3 dir = normalize(far.xyz / far.w - uCamPos);
 
   float sinE = dir.y;
-  if (sinE <= 0.003) discard;          // 지평선 아래는 지형과 지면이 담당
+  // ⚠ 예전에는 여기서 **+0.17°** 에서 잘랐습니다(sinE 0.003). 그런데 지면은
+  // 관측 고도의 내려앉음(24m 면 -0.157°)에 놓입니다. 그래서 구름 밑과 지면
+  // 위 사이에 하늘이 그대로 비치는 띠가 남았습니다 — 아래 horizonFade 가
+  // 0.63° 에서야 다 차는 것까지 합치면 **0.79°** 입니다. 사용자가 말한
+  // "지구곡면으로 구름이 지평선 아래로 흘러야 하는데 중간에 생기는 공백"이
+  // 이것입니다.
+  //
+  // 껍질 교점은 sinE 가 음수여도 발산하지 않습니다 — 분모가
+  // R·sinE + sqrt(R²sin²E + chord) 라 sinE<0 이면 커질 뿐입니다
+  // (고도 -0.155° 에서 저층까지 152km, 0° 의 132km 보다 조금 멉니다).
+  if (sinE <= uHorizonSinE) discard;   // 그 아래는 지형과 지면이 담당
   float cosE = max(sqrt(max(0.0, 1.0 - sinE*sinE)), 1e-4);
   float cosG = clamp(dot(dir, uSunDir), -1.0, 1.0);
   float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
@@ -715,6 +748,9 @@ void main(){
     float footKm = uPixelAngleRad * geom.sDistKm / max(sinE, 0.02);
     // 발자국이 셀 반쯤을 넘어서면 잔무늬를 믿을 수 없습니다.
     float det = 1.0 - smoothstep(0.45, 2.0, footKm / cellKm);
+    // 잔 옥타브가 죽은 뒤에도 굵은 장은 한동안 더 해상됩니다. 셀의 3배에서
+    // 놓기 시작해 9배(고도 0.4° 부근)에서 상수가 됩니다.
+    float detCoarse = 1.0 - smoothstep(3.0, 9.0, footKm / cellKm);
 
     // 반대쪽 극단 — **천정** 입니다. 위를 보면 지상거리가 0 으로 수렴하므로
     // 노이즈 좌표도 한 점에 모입니다. 저층 기준 고도 75~90°가 통틀어
@@ -759,15 +795,15 @@ void main(){
       // 노이즈를 빼는 셈이라 기울기가 난수가 되고, 그걸 6배 키운 노멀이
       // 입체감을 만들기는커녕 지웁니다.
       float sSeed = seed;
-      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
+      float thick = slab_layer_thickness(L, kmN, cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
       if (thick <= 0.0) continue;
 
       // ── 3D 입체 릴리프 음영 ──
       float eps = cellKm * SLAB_RELIEF_EPS;
       // ⚠ 릴리프도 **같은 cluster** 를 써야 합니다. 다르면 서로 무관한
       // 두 필드를 빼는 셈이라 기울기가 난수가 됩니다(실기기 결함 2번).
-      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
-      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
+      float tX = slab_layer_thickness(L, kmN + vec2(eps, 0.0), cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
+      float tY = slab_layer_thickness(L, kmN + vec2(0.0, eps), cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
       float dhdx = (tX - thick) / eps;
       float dhdy = (tY - thick) / eps;
       // 노멀 강도를 높여 구름 덩어리의 두께감(Bumpiness)을 강조합니다
@@ -803,13 +839,13 @@ void main(){
           float f = float(ks) / 3.0;
           float w = 1.0 - 0.25 * f;      // 멀리 있는 표본은 조금 덜 셉니다
           acc += slab_layer_thickness(L, kmN + sunXZ * (runKm * f), cover * shape,
-                                      cellKm, conf, sSeed, windNorm, det, billowAmt, cluster) * w;
+                                      cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster) * w;
           wsum += w;
         }
         thickSun = acc / wsum;
         reach = exp(-thickSun * tauK * min(1.0 / max(0.10, sinSunC), 8.0) * 0.55);
       } else {
-        thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, billowAmt, cluster);
+        thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
         reach = exp(-thickSun * tauK * 0.55);
       }
 
@@ -1047,7 +1083,10 @@ void main(){
   // 곡률이 아니라 위 slant 항이 없어서 옅어진 지평선을 가리는 덮개였습니다.
   // 이제 지평선은 물리대로 두꺼워지므로, 실제로 층이 시야에서 사라지는
   // 마지막 0.6° 만 남깁니다.
-  float horizonFade = smoothstep(0.003, 0.011, sinE);
+  // 지평선에서 위로 0.23° 만 남깁니다. 시작점을 지면과 같은 선(uHorizonSinE)에
+  // 두는 것이 핵심입니다 — 예전에는 여기가 0.17° 로 지면보다 위에 있어
+  // 둘 사이가 벌어졌습니다.
+  float horizonFade = smoothstep(uHorizonSinE, uHorizonSinE + 0.004, sinE);
   acc *= horizonFade;
 
   if (acc <= 0.002) discard;
@@ -1134,6 +1173,7 @@ export function createCloudSlab(opts: {
       uRes: { value: new THREE.Vector2(1, 1) },
       uInvViewProj: { value: new THREE.Matrix4() },
       uCamPos: { value: new THREE.Vector3() },
+      uHorizonSinE: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
       uSunAzDeg: { value: 0 },
@@ -1414,6 +1454,11 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
     .multiplyMatrices(u.camera.projectionMatrix, u.camera.matrixWorldInverse)
     .invert();
   (uni.uCamPos.value as THREE.Vector3).setFromMatrixPosition(u.camera.matrixWorld);
+  // 지면(TerrainRing 의 setGroundHorizon)과 **같은 식**으로 지평선을 구합니다.
+  // 둘이 어긋나면 그 차이가 그대로 하늘이 비치는 띠가 됩니다.
+  uni.uHorizonSinE.value = -Math.sin(
+    (seaHorizonDipDeg(u.atmosphere.observerElevM ?? 0) * Math.PI) / 180,
+  );
 
   (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir).normalize();
   uni.uSunAltDeg.value = u.sunAltDeg;
