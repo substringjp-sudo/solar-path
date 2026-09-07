@@ -59,25 +59,25 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   const views: { id: MapView; label: string; icon: (active: boolean) => React.ReactNode }[] = [
     {
       id: 'isoline',
-      label: '일조 등치선',
-      icon: (a) => <Globe2 size={13} color={a ? '#38BDF8' : '#94A3B8'} />,
+      label: '01 등치선',
+      icon: (a) => <Globe2 size={12} color={a ? '#38BDF8' : '#64748B'} />,
     },
     {
       id: 'clouds',
-      label: '구름 레이더',
-      icon: (a) => <CloudSun size={13} color={a ? '#38BDF8' : '#94A3B8'} />,
+      label: '02 레이더',
+      icon: (a) => <CloudSun size={12} color={a ? '#38BDF8' : '#64748B'} />,
     },
     {
       id: 'sunpath',
-      label: '태양 경로',
-      icon: (a) => <Compass size={13} color={a ? '#38BDF8' : '#94A3B8'} />,
+      label: '03 태양경로',
+      icon: (a) => <Compass size={12} color={a ? '#38BDF8' : '#64748B'} />,
     },
   ];
 
   return (
     <View style={styles.container}>
       {/* ── 상단 3단 계측 세그먼트 (Astro-HUD 스타일) ────────────────────── */}
-      <View style={[styles.segment, { backgroundColor: 'rgba(10, 14, 23, 0.85)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
+      <View style={[styles.segment, { backgroundColor: 'rgba(9, 13, 24, 0.95)', borderColor: 'rgba(255, 255, 255, 0.14)' }]}>
         {views.map(v => {
           const isActiveView = view === v.id;
           return (
@@ -94,7 +94,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
               <Text
                 style={[
                   styles.segmentText,
-                  { color: isActiveView ? '#38BDF8' : 'rgba(148, 163, 184, 0.8)' },
+                  { color: isActiveView ? '#38BDF8' : '#64748B' },
                   isActiveView && { fontWeight: '900' },
                 ]}
               >
@@ -147,30 +147,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 14,
     marginBottom: 6,
-    padding: 3,
-    borderRadius: 6,
+    padding: 2,
+    borderRadius: 4,
     borderWidth: 1,
-    gap: 3,
+    gap: 2,
   },
   segmentBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 7,
-    borderRadius: 4,
+    gap: 5,
+    paddingVertical: 6,
+    borderRadius: 2,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   segmentBtnActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.14)',
-    borderColor: 'rgba(56, 189, 248, 0.4)',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: 'rgba(56, 189, 248, 0.45)',
   },
   segmentText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontSize: 10.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.4,
   },
   body: {
     flex: 1,

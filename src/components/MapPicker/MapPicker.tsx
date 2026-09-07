@@ -162,71 +162,73 @@ export const MapPicker = ({
     handleJumpToLocation(saved.latitude, saved.longitude);
   };
 
-  // UI 테마 토큰 설정
+  // UI 테마 토큰 설정 (Astro-HUD 규격: 4px 샤프 엣지 & 딥 흑연 계측기)
   const m3Style = {
     modalContent: {
-      backgroundColor: isDay ? '#F3F4F6' : '#121216',
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      borderWidth: 0,
+      backgroundColor: '#090D18',
+      borderTopLeftRadius: 4,
+      borderTopRightRadius: 4,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.15)',
     },
     section: {
-      backgroundColor: isDay ? '#FFFFFF' : '#1E1F28',
-      borderRadius: 16,
-      borderWidth: 0,
+      backgroundColor: '#0E1424',
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.1)',
       elevation: 2,
     },
     input: {
-      backgroundColor: isDay ? '#E5E7EB' : '#2C2D35',
-      borderRadius: 8,
-      borderWidth: 0,
-      borderBottomWidth: 2,
-      borderBottomColor: theme.accent,
-      height: 48,
+      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.15)',
+      height: 44,
     },
     button: {
-      borderRadius: 100,
-      height: 48,
+      borderRadius: 4,
+      height: 46,
       elevation: 3,
     },
     savedItem: {
-      backgroundColor: isDay ? '#FFFFFF' : '#1E1F28',
-      borderRadius: 12,
-      borderWidth: 0,
+      backgroundColor: '#0E1424',
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.08)',
       elevation: 1,
     }
   };
 
   const glassStyle = {
     modalContent: {
-      backgroundColor: isDay ? 'rgba(255, 255, 255, 0.82)' : 'rgba(10, 10, 16, 0.82)',
-      borderTopLeftRadius: 32,
-      borderTopRightRadius: 32,
+      backgroundColor: 'rgba(9, 13, 24, 0.95)',
+      borderTopLeftRadius: 4,
+      borderTopRightRadius: 4,
       borderWidth: 1,
-      borderColor: isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+      borderColor: 'rgba(255, 255, 255, 0.15)',
     },
     section: {
-      backgroundColor: isDay ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255,255,255,0.03)',
-      borderRadius: 24,
+      backgroundColor: 'rgba(14, 20, 36, 0.75)',
+      borderRadius: 4,
       borderWidth: 1,
-      borderColor: isDay ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+      borderColor: 'rgba(255, 255, 255, 0.1)',
     },
     input: {
-      backgroundColor: isDay ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255,255,255,0.05)',
-      borderRadius: 12,
+      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      borderRadius: 4,
       borderWidth: 1,
-      borderColor: isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+      borderColor: 'rgba(255, 255, 255, 0.15)',
       height: 44,
     },
     button: {
-      borderRadius: 16,
-      height: 52,
+      borderRadius: 4,
+      height: 46,
     },
     savedItem: {
-      backgroundColor: isDay ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255,255,255,0.03)',
-      borderRadius: 16,
+      backgroundColor: 'rgba(14, 20, 36, 0.65)',
+      borderRadius: 4,
       borderWidth: 1,
-      borderColor: isDay ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+      borderColor: 'rgba(255, 255, 255, 0.08)',
     }
   };
 
@@ -430,16 +432,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   dragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
+    width: 32,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   modalOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  modalContent: { height: height * 0.9, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingHorizontal: 24, paddingTop: 12 },
+  modalContent: { height: height * 0.9, borderTopLeftRadius: 4, borderTopRightRadius: 4, paddingHorizontal: 20, paddingTop: 10 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  title: { fontSize: 24, fontWeight: '900' },
-  subtitle: { fontSize: 13, marginTop: 2, opacity: 0.8 },
-  closeBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12 },
+  title: { fontSize: 20, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 0.5 },
+  subtitle: { fontSize: 11.5, marginTop: 2, opacity: 0.8, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  closeBtn: { padding: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   
   mapWrapper: {
     position: 'relative',
@@ -447,10 +450,10 @@ const styles = StyleSheet.create({
     minHeight: 280,
     maxHeight: 340,
     marginBottom: 16,
-    borderRadius: 24,
+    borderRadius: 4,
     overflow: 'hidden',
   },
-  mapContainer: { flex: 1, borderRadius: 24, borderWidth: 1, overflow: 'hidden' },
+  mapContainer: { flex: 1, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', overflow: 'hidden' },
   crosshairContainer: {
     position: 'absolute',
     top: '50%',

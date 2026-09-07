@@ -181,10 +181,10 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 24,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
-    padding: 16,
-    gap: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
   },
   seasonRow: {
     flexDirection: 'row',
@@ -196,18 +196,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    paddingVertical: 7,
+    borderRadius: 4,
+    borderWidth: 1,
   },
   seasonDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 1,
   },
   seasonBtnText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.3,
   },
   sliderBlock: {
     gap: 2,
@@ -225,15 +227,17 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   sliderLabel: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   sliderValue: {
     fontSize: 12,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.4,
   },
   sliderWrapper: {
     position: 'relative',
@@ -252,9 +256,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tickDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 4,
+    height: 4,
+    borderRadius: 1,
   },
   tooltipText: {
     fontSize: 11,
@@ -268,21 +272,26 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   timeLabel: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '700',
-    opacity: 0.6,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    opacity: 0.7,
   },
   playBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    height: 44,
-    borderRadius: 16,
+    gap: 6,
+    height: 38,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   playBtnText: {
-    fontSize: 13,
+    fontSize: 11.5,
     fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.8,
     color: '#000',
   },
 });

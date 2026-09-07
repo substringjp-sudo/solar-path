@@ -900,6 +900,7 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 12,
     fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   summaryDot: {
     fontSize: 12,
@@ -929,6 +930,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   numberGrid: {
     flexDirection: 'row',
@@ -961,6 +963,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#94A3B8',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.3,
   },
   tabTextActive: {
     color: '#38BDF8',
@@ -992,11 +996,13 @@ const styles = StyleSheet.create({
   eventDesc: {
     fontSize: 10.5,
     marginTop: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   eventTime: {
     fontSize: 12,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.4,
   },
 
   bottomPanel: {

@@ -94,16 +94,17 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
 
 const styles = StyleSheet.create({
   predictionCard: {
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 24,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     flexShrink: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    elevation: Platform.OS === 'android' ? 4 : 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   predictionHeader: {
     flexDirection: 'row',
@@ -112,7 +113,7 @@ const styles = StyleSheet.create({
   },
   predictionLeftCol: {
     flexDirection: 'column',
-    gap: 2,
+    gap: 3,
   },
   labelRow: {
     flexDirection: 'row',
@@ -120,28 +121,32 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   mainLabel: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   subLabel: {
     fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   sourceBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 3,
     borderWidth: 1,
   },
   sourceBadgeText: {
     color: '#4DA0B0',
     fontSize: 8,
-    fontWeight: '700',
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   colorLabelWrap: {
     flexDirection: 'column',
     alignItems: 'flex-end',
-    gap: 2,
+    gap: 3,
   },
 });
