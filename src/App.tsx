@@ -13,6 +13,7 @@ import { SunCamera } from './components/SunCamera';
 import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
+import { parseTeleportUrl } from './utils/teleport';
 import { t } from './utils/i18n';
 
 // 앱 초기 기동 시 Native Splash Screen을 유지하도록 고정합니다.
@@ -66,7 +67,7 @@ const LOAD_IMAGES = [
 
 export default function App() {
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const { language, isAppReady, preloadInitialData, preloadStatus } = useCelestialStore();
+  const { language, isAppReady, preloadInitialData, preloadStatus, setCurrentTime, setTimeMachineEnabled, setTeleportTarget } = useCelestialStore();
   const {
     showDatePicker,
     setShowDatePicker,
@@ -218,26 +219,53 @@ export default function App() {
     }
   }, [isSavedListVisible]);
 
-  // 앱 숏컷 및 외부 딥링크 처리 (beforeglow://camera 등)
+  // 앱 숏컷 및 외부 딥링크 처리 (beforeglow://camera, beforeglow://teleport 등)
   React.useEffect(() => {
     const handleUrl = (event: { url: string }) => {
-      if (event.url && event.url.toLowerCase().includes('camera')) {
+      const url = event.url;
+      if (!url) return;
+
+      if (url.toLowerCase().includes('camera')) {
         setSunCameraVisible(true);
+        return;
+      }
+
+      const teleportData = parseTeleportUrl(url, currentTime);
+      if (teleportData) {
+        if (__DEV__) console.log('[DeepLink] Teleport received:', teleportData);
+        // 열려있는 모달들을 모두 닫고 3D 씬 탭으로 즉시 워프
+        setMapVisible(false);
+        setSavedListVisible(false);
+        setShowDatePicker(false);
+        setSettingsVisible(false);
+        setSunCameraVisible(false);
+        setActiveTab('sky');
+
+        if (teleportData.location) {
+          setLocation(teleportData.location);
+        }
+        if (teleportData.time) {
+          setTimeMachineEnabled(true);
+          setCurrentTime(teleportData.time);
+        }
+        if (teleportData.camera) {
+          setTeleportTarget(teleportData.camera);
+        }
       }
     };
 
     const subscription = Linking.addEventListener('url', handleUrl);
 
     Linking.getInitialURL().then((url) => {
-      if (url && url.toLowerCase().includes('camera')) {
-        setSunCameraVisible(true);
+      if (url) {
+        handleUrl({ url });
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [setSunCameraVisible]);
+  }, [currentTime, setLocation, setCurrentTime, setTimeMachineEnabled, setTeleportTarget, setActiveTab, setSunCameraVisible, setMapVisible, setSavedListVisible, setShowDatePicker, setSettingsVisible]);
 
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);

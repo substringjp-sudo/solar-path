@@ -200,6 +200,15 @@ interface CelestialState {
   setCurrentSimulationUri: (uri: string | null) => void;
   isGestureBlocked: boolean;
   setGestureBlocked: (blocked: boolean) => void;
+  teleportTarget: TeleportTarget | null;
+  setTeleportTarget: (target: Omit<TeleportTarget, 'nonce'>) => void;
+}
+
+export interface TeleportTarget {
+  cameraAz?: number;
+  cameraElev?: number;
+  fov?: number;
+  nonce: number;
 }
 
 export const useCelestialStore = create<CelestialState>()(
@@ -238,10 +247,12 @@ export const useCelestialStore = create<CelestialState>()(
       selectedCategory: 'sun',
       currentSimulationUri: null,
       isGestureBlocked: false,
+      teleportTarget: null,
 
       setSelectedCategory: (category) => set({ selectedCategory: category }),
       setCurrentSimulationUri: (uri) => set({ currentSimulationUri: uri }),
       setGestureBlocked: (blocked) => set({ isGestureBlocked: blocked }),
+      setTeleportTarget: (target) => set({ teleportTarget: { ...target, nonce: Date.now() } }),
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
       addWeatherCache: (cache) => set((state) => {

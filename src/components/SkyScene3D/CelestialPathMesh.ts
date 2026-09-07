@@ -17,9 +17,11 @@
 import * as THREE from 'three';
 import { getSunPath, getMoonPath } from '../../utils/celestial';
 
-const PATH_RADIUS = 445;
-/** 리본 반폭 (월드 단위). 반경 445에서 ±3.2면 약 0.8° — AR 가이드로 읽히는 두께입니다. */
-const RIBBON_HALF_WIDTH = 3.2;
+// ⚠ 지형 링(475) 뒤, 태양(490) 앞에 위치하도록 반경을 478로 설정합니다.
+// 이렇게 해야 지형 산 능선과 지면 뒤로 경로가 자연스럽게 차폐됩니다.
+const PATH_RADIUS = 478;
+/** 리본 반폭 (월드 단위). 반경 478에서 ±3.4면 약 0.8° — AR 가이드로 읽히는 두께입니다. */
+const RIBBON_HALF_WIDTH = 3.4;
 
 /**
  * 실제 태양·달 원반 근처에서 리본을 지우는 폭 (시간 단위).
@@ -172,13 +174,14 @@ function createRibbon(color: THREE.Color, maxPoints: number): PathRibbon {
     fragmentShader: FRAG,
     transparent: true,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
     side: THREE.DoubleSide,
   });
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
-  mesh.renderOrder = 2; // 구름(1) 위에 가이드로 얹힘
+  // 지면(-0.45) 및 지형(-0.35)보다 먼저 렌더링되어 지형 산/대지에 의해 깊이 차폐되도록 설정
+  mesh.renderOrder = -0.5;
 
   return { mesh, material };
 }

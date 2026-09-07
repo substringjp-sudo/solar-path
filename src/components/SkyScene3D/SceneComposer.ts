@@ -846,14 +846,16 @@ export function createSceneComposer(
       blit(renderer, opaqueQuad, rtSky.texture);
 
       renderer.autoClear = false;
-      // 별·은하수·지형·태양 — 원해상도, 구름 아래.
+
+      // 3-1) 구름 덱을 하늘 위에 먼저 얹습니다.
+      blit(renderer, overQuad, rtCloud.texture);
+
+      // 3-2) 별·은하수·태양·달·지면·산 능선(지형) — 원해상도.
+      // ⚠ 산 능선이 불투명하게 구름 앞을 가려야 하므로 구름 위에 산을 그립니다.
       camera.layers.set(LAYER_MID);
       renderer.render(scene, camera);
 
-      // 구름을 얹습니다.
-      blit(renderer, overQuad, rtCloud.texture);
-
-      // 빌보드·경로·달 — 원해상도, 구름 위.
+      // 3-3) 최상위 가이드/경로 — 원해상도.
       camera.layers.set(LAYER_FRONT);
       renderer.render(scene, camera);
     }

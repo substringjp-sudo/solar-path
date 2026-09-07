@@ -138,8 +138,8 @@ export function createMoonGroup(): MoonHandle {
 
   const moonMesh = new THREE.Mesh(moonGeo, material);
   moonMesh.name = 'moonDisk';
-  // 지면(-0.5) 및 지형(-0.4)보다 뒤에 그려져 일몰/월몰 시 땅 뒤로 가려지도록 설정
-  moonMesh.renderOrder = -0.53;
+  // 지면(-0.45) 및 지형(-0.35)보다 뒤에 그려져 일몰/월몰 시 땅 뒤로 가려지도록 설정
+  moonMesh.renderOrder = -0.55;
   group.add(moonMesh);
 
   return {
