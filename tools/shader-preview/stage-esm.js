@@ -40,6 +40,8 @@ const ENTRIES = [
   // 여기 목록에 안 들어와 있었습니다 — 그래서 물 하네스가 낡은 1D 텍스처를
   // 계속 쓰고 있었습니다.
   'src/utils/waterMask.ts',
+  // DEM 타일 (해안선 계획 1단계)
+  'src/utils/demTiles.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });
