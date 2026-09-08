@@ -22,10 +22,6 @@
  * 표본 차이를 결함으로 잘못 읽습니다. 대신 촘촘하게 훑은 값도 같이 내서
  * **고리 수가 모자란지**를 따로 봅니다.
  *
- * ⚠ 가장자리 페이드는 꺼 둡니다(`uFarM` 을 크게). 페이드가 걸리면 바깥
- * 고리가 알파로 사라져 실루엣이 앞 고리에서 잡히는데, 그건 실루엣 결함이
- * 아니라 넘겨주기 방식입니다. 페이드는 따로 봅니다.
- *
  * 사용: node tools/shader-preview/build-terrain-field.js
  *       node tools/shader-preview/verify-terrain-field.js
  */
@@ -44,9 +40,16 @@ const BLOCK = 3;
 const EYE_M = 1.6;
 
 /** TerrainField.ts 와 같은 값이어야 합니다. */
-const FIELD_NEAR_M = 12, FIELD_FAR_M = 3000, RINGS = 128;
-const ringDist = (k, rings) =>
-  FIELD_NEAR_M * Math.pow(FIELD_FAR_M / FIELD_NEAR_M, rings <= 1 ? 0 : k / (rings - 1));
+const FIELD_FAR_M = 3000, RINGS = 152;  // 발밑 24 + 바깥 128
+// ⚠ groundProjection.ts 의 ringDistanceM 과 **같은 식** 이어야 합니다.
+//    (참조가 메시와 다른 거리를 훑으면 표본 차이를 결함으로 잘못 읽습니다.)
+const FOOT_M = 0.6, HINGE_M = 12, INNER_RINGS = 24;
+const logStep = (k, n, a, b) => a * Math.pow(b / a, n <= 1 ? 0 : k / (n - 1));
+const ringDist = (k, rings) => {
+  const inner = Math.min(INNER_RINGS, Math.max(0, rings - 2));
+  return k < inner ? logStep(k, inner + 1, FOOT_M, HINGE_M)
+                   : logStep(k - inner, rings - inner, HINGE_M, FIELD_FAR_M);
+};
 
 /** 12장 × 30° = 한 바퀴. 열 128개면 방위 0.234° 간격입니다. */
 const VIEWS = 12, FOV_DEG = 30, W = 128, H = 512;
@@ -208,7 +211,6 @@ if (patch) {
   {
     const f0=createTerrainField({ eyeHeightM:EYE, observerElevM:0 });
     f0.material.uniforms.uDemValid.value=0;
-    f0.material.uniforms.uFarM.value=1e9;
     f0.material.uniforms.uSurfaceIrr.value.set(0.5,0.5,0.5);
     f0.material.uniforms.uSunRadiance.value.set(0,0,0);
     const sc=new THREE.Scene(); sc.add(f0.mesh);
@@ -247,7 +249,6 @@ if (patch) {
   const 살훑기=[];
   for (const sp of SPOKE_SWEEP){
     const f2=createTerrainField({patch, eyeHeightM:EYE, spokes:sp});
-    f2.material.uniforms.uFarM.value=1e9;
     f2.material.uniforms.uSurfaceIrr.value.set(0.5,0.5,0.5);
     f2.material.uniforms.uSunRadiance.value.set(0,0,0);
     const sc=new THREE.Scene(); sc.add(f2.mesh);
@@ -282,8 +283,6 @@ if (patch) {
   }
 
   const field = createTerrainField({ patch, eyeHeightM: EYE });
-  // ⚠ 가장자리 페이드를 꺼서 실루엣만 봅니다 (윗주석 참고).
-  field.material.uniforms.uFarM.value = 1e9;
   // 실루엣만 보면 되므로 칠은 확실히 구분되게 둡니다.
   field.material.uniforms.uSurfaceIrr.value.set(0.5,0.5,0.5);
   field.material.uniforms.uSunRadiance.value.set(0,0,0);

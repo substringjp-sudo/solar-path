@@ -36,17 +36,12 @@
  */
 import * as THREE from 'three';
 import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import {
+  EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
+  GROUND_PROJECT_GLSL, createConcentricGeometry, ringDistanceM, ringRadius,
+} from './groundProjection';
 
-/** `utils/weather.ts` · `seaHorizonDipDeg` 와 **같은 지구**여야 합니다. */
-const EARTH_RADIUS_M = 6371000;
-
-/** 격자가 덮는 안쪽·바깥쪽 지상 거리 (m). */
-export const FIELD_NEAR_M = 12;
-export const FIELD_FAR_M = 3000;
-
-/** 깊이 순서용 반경. 스카이돔(500)·능선 띠(480) 안쪽에 둡니다. */
-const RADIUS_NEAR = 120;
-const RADIUS_FAR = 460;
+export { FIELD_NEAR_M, FIELD_FAR_M };
 
 /**
  * 고리 수 × 살 수.
@@ -54,98 +49,37 @@ const RADIUS_FAR = 460;
  * 살(방위)이 실루엣을 정합니다 — 256 이면 1.41°, 지금 띠의 12° 보다
  * 8.5배 촘촘합니다. 고리는 로그 간격이라 가까울수록 촘촘합니다.
  */
-export const FIELD_RINGS = 128;
+// 발밑 24 + 바깥 128. 발밑 고리를 바깥에서 빼내면 먼 쪽 실루엣이 나빠집니다
+// (최대오차 0.119° → 0.161°). 새로 덮는 구간이므로 **더합니다**.
+export const FIELD_RINGS = 152;
 export const FIELD_SPOKES = 256;
 
 /**
- * 고리 k 의 지상 거리 (m). **로그 간격**입니다.
- *
- * 등간격이면 발밑이 성기고 먼 곳이 과하게 촘촘합니다. 로그 간격은 Δd/d 가
- * 일정해서 화면 화소당 삼각형 수가 훨씬 고릅니다. 여기 값이 곧 반지름 방향
- * 표본이므로, 판정(`verify-terrain-field.js`)의 CPU 참조도 **같은 거리**를
- * 씁니다 — 안 그러면 표본 간격 차이를 결함으로 잘못 읽습니다.
+ * 고리 k 의 지상 거리 (m). 판정(`verify-terrain-field.js`)의 CPU 참조도
+ * **같은 거리**를 씁니다 — 안 그러면 표본 간격 차이를 결함으로 잘못 읽습니다.
  */
 export function fieldRingDistanceM(k: number, rings: number = FIELD_RINGS): number {
-  const t = rings <= 1 ? 0 : k / (rings - 1);
-  return FIELD_NEAR_M * Math.pow(FIELD_FAR_M / FIELD_NEAR_M, t);
+  return ringDistanceM(k, rings, FIELD_FAR_M);
 }
 
-/** 그 거리에 주는 씬 반경 (깊이 순서 전용, d 에 단조 증가). */
-export function fieldRingRadius(distM: number): number {
-  const t =
-    Math.log(distM / FIELD_NEAR_M) / Math.log(FIELD_FAR_M / FIELD_NEAR_M);
-  return RADIUS_NEAR + (RADIUS_FAR - RADIUS_NEAR) * Math.min(1, Math.max(0, t));
-}
-
-/**
- * 동심원 격자를 만듭니다.
- *
- * `position.xz` 에 **지상 좌표(동, 남) m** 를 담고, `position.y` 에는 깊이
- * 순서용 반경을 담습니다. 버텍스 셰이더가 이 셋으로 실제 자리를 계산합니다.
- * (미터를 그대로 두는 이유는 셰이더가 DEM 을 그 좌표로 읽기 때문입니다.)
- */
+/** 동심원 격자. 배치와 규약은 `groundProjection.ts` 에 있습니다. */
 export function createFieldGeometry(
   rings: number = FIELD_RINGS,
   spokes: number = FIELD_SPOKES,
 ): THREE.BufferGeometry {
-  const count = rings * spokes;
-  const pos = new Float32Array(count * 3);
-  for (let k = 0; k < rings; k++) {
-    const d = fieldRingDistanceM(k, rings);
-    const r = fieldRingRadius(d);
-    for (let j = 0; j < spokes; j++) {
-      const az = (j / spokes) * Math.PI * 2;   // 북에서 시계방향
-      // 씬 규약: +x = 동, **−z = 북** — 그러므로 남 = −cos(az).
-      // ⚠ 여기서 부호를 빠뜨리면 격자 자체는 (한 바퀴를 반대로 돌 뿐이라)
-      //   멀쩡해 보이지만, 같은 실수를 `horizonAngleDeg` 나 판정 참조에서
-      //   하면 방위가 180° − A 로 **거울상**이 됩니다. 실제로 그렇게 나서
-      //   실루엣 중앙오차가 1.34° 로 잡혔습니다.
-      const east = Math.sin(az) * d;
-      const south = -Math.cos(az) * d;
-      const i = (k * spokes + j) * 3;
-      pos[i] = east;
-      pos[i + 1] = r;
-      pos[i + 2] = south;
-    }
-  }
-
-  // 고리 사이를 잇습니다. 살은 한 바퀴 도므로 마지막과 0 번을 이어 붙입니다.
-  const idx = new Uint32Array((rings - 1) * spokes * 6);
-  let o = 0;
-  for (let k = 0; k < rings - 1; k++) {
-    for (let j = 0; j < spokes; j++) {
-      const j1 = (j + 1) % spokes;
-      const a = k * spokes + j;
-      const b = k * spokes + j1;
-      const c = (k + 1) * spokes + j;
-      const dI = (k + 1) * spokes + j1;
-      idx[o++] = a; idx[o++] = c; idx[o++] = b;
-      idx[o++] = b; idx[o++] = c; idx[o++] = dI;
-    }
-  }
-
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setIndex(new THREE.BufferAttribute(idx, 1));
-  // 정점을 셰이더가 옮기므로 자동 바운딩은 뜻이 없습니다. 돔을 통째로 덮는
-  // 구로 박아 둡니다 — 안 그러면 프러스텀 컬링이 메시를 통째로 지웁니다.
-  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), RADIUS_FAR * 2);
-  return g;
+  return createConcentricGeometry(rings, spokes, FIELD_FAR_M);
 }
 
 /** 격자 정점을 실제로 보이는 각도에 놓는 버텍스 셰이더. */
 export const FIELD_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
+${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;    // DEM 이 없을 때만 쓰는 발밑 고도 (m)
 uniform float uEyeHeightM;  // 발밑에서 눈까지 (m)
-uniform float uFarM;        // 격자 바깥 반경 (m) — 가장자리 페이드용
 varying float vDistM;
 varying float vElevM;
-varying float vFade;
 varying vec3  vNormal;
-
-const float R_EARTH = ${EARTH_RADIUS_M}.0;
 
 /**
  * 관측자 **발밑** 고도 — 반드시 DEM 자신이 정합니다.
@@ -156,7 +90,8 @@ const float R_EARTH = ${EARTH_RADIUS_M}.0;
  * 돌렸을 때 바깥 고도 0m 를 믿었다가 DEM 이 말하는 42m 에 파묻혀 지평선각이
  * 72° 로 나왔습니다.
  *
- * DEM 에서 읽으면 눈은 **항상 그려지는 그 면 위**에 섭니다.
+ * ⚠ **해수면(SeaPlane)도 같은 값을 씁니다.** 눈높이가 어긋나면 해안선이
+ * 두 면의 교선이 아니게 됩니다.
  */
 float groundAtEye() {
   return uDemValid > 0.5 ? dem_elevationAt(vec2(0.0)) : uObsElevM;
@@ -184,17 +119,12 @@ void main() {
   // (동, 남) 평면에서의 기울기 → 씬 좌표 법선 (+x 동, +z 남, +y 위)
   vNormal = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
 
-  // 실제로 보이는 각도 — 지구 곡률 낙차를 뺍니다.
-  float drop = (d * d) / (2.0 * R_EARTH);
-  float dy   = h - (groundAtEye() + uEyeHeightM) - drop;
-  float elev = atan(dy, d);
+  vec3 p = gp_project(g, h, groundAtEye() + uEyeHeightM, r);
 
-  vec3 dir = vec3(g.x, 0.0, g.y) / d;
-  vec3 p = vec3(dir.x * cos(elev) * r, sin(elev) * r, dir.z * cos(elev) * r);
-
-  // 바깥 두 고리에서 서서히 넘겨줍니다 — 밖은 기존 능선 띠가 받습니다.
-  vFade = 1.0 - smoothstep(uFarM * 0.88, uFarM, d);
-
+  // ⚠ 가장자리를 알파로 흐리지 **않습니다.** 예전에는 바깥 고리를 페이드로
+  //   넘겼는데, 해수면(4단계)이 생긴 지금 그러면 물가의 땅이 하늘로 사라져
+  //   구멍이 남습니다. 격자는 자기 끝까지 불투명하고, 그 너머는 바다가
+  //   이어받습니다.
   vec4 wp = modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -213,12 +143,29 @@ uniform float uSunAzRad;
 uniform float uSunAltRad;
 uniform vec3  uAlbedo;
 uniform float uExposure;
+uniform float uDemValid;
 varying float vDistM;
 varying float vElevM;
-varying float vFade;
 varying vec3  vNormal;
 
 void main() {
+  // ⚠ **해수면 아래는 그리지 않습니다.** 거기서 보이는 것은 땅이 아니라
+  //    물이고, 물은 SeaPlane 이 그립니다.
+  //
+  //    이걸 안 하면 Terrarium 이 **먼바다를 정확히 0 으로 자른다**는 성질에
+  //    걸립니다 (조사 때 표본 1024개 중 406개가 정확히 0). 그러면 지면
+  //    메시가 해수면과 **똑같은 높이**에 면을 깔고, 깊이 동률에서 지면이
+  //    이겨서 먼바다가 통째로 뭍으로 그려집니다. 실측: 맨 위 물이 이론
+  //    −0.053° 대신 평균 −0.48° (약 320m 앞)에서 잘렸습니다.
+  //
+  //    알려진 한계: 고도가 정확히 0m 인 **간척지·갯벌**도 물로 읽힙니다.
+  //    자료가 그 둘을 구분해 주지 않습니다.
+  //
+  // ⚠ **자료가 있을 때만** 자릅니다. DEM 을 못 받으면 대비책 지면이 고도 0 인
+  //    평평한 판인데, 조건 없이 자르면 그 판이 통째로 사라져 지면이 아예 안
+  //    그려집니다 (판정의 평판 대조가 0/1536 으로 잡았습니다).
+  if (uDemValid > 0.5 && vElevM <= 0.0) discard;
+
   vec3 n = normalize(vNormal);
   vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad),
                   sin(uSunAltRad),
@@ -226,12 +173,8 @@ void main() {
   float ndl = max(0.0, dot(n, sun));
 
   // 조도 × 알베도. 하늘 몫은 등방이라 각도가 없고, 직달 몫만 방향을 탑니다.
-  vec3 alb = uAlbedo;
-  // 해수면 아래는 젖은 쪽으로 — 4단계에서 진짜 수면이 덮을 자리입니다.
-  alb = mix(alb, vec3(0.012, 0.030, 0.040), step(vElevM, 0.0));
-
-  vec3 lit = alb * (uSurfaceIrr + uSunRadiance * ndl);
-  gl_FragColor = vec4(lit * uExposure, vFade);
+  vec3 lit = uAlbedo * (uSurfaceIrr + uSunRadiance * ndl);
+  gl_FragColor = vec4(lit * uExposure, 1.0);
 }
 `;
 
@@ -258,7 +201,6 @@ export function createTerrainField(opts: {
       ...makeDemUniforms(opts.patch ?? null),
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
-      uFarM: { value: FIELD_FAR_M },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
       uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uSunAzRad: { value: 0 },
@@ -269,7 +211,6 @@ export function createTerrainField(opts: {
     vertexShader: FIELD_VERT,
     fragmentShader: FIELD_FRAG,
     side: THREE.DoubleSide,
-    transparent: true,
     depthWrite: true,
     depthTest: true,
   });
