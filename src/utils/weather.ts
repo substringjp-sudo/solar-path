@@ -783,6 +783,13 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
   });
 };
 
+/**
+ * 지구 반지름 (m). `TerrainRing.seaHorizonDipDeg` 와 **같은 값**이어야 합니다 —
+ * 지형각의 곡률 낙차와 바다 수평선이 어긋나면 능선 띠와 지면 원반이 서로 다른
+ * 수평선을 그립니다(44절에서 지면과 구름 사이에 같은 결함이 있었습니다).
+ */
+const EARTH_RADIUS_M = 6371000;
+
 export interface TerrainData {
   panoramicAngles: number[]; // Max of all distances (near/mid/far)
   farAngles: number[];       // Only distant mountains (15km, 40km)
@@ -796,6 +803,16 @@ export interface TerrainData {
   bandAngles: number[][];
   /** `bandAngles`의 거리 (km) */
   bandDistancesKm: number[];
+  /**
+   * **거리대별** 수역 여부 `[거리대][방위]` (0 = 육지, 1 = 물).
+   *
+   * ⚠ 아래 `waterFrac` 과 다릅니다. 그쪽은 세 거리를 **하나로 뭉갠** 비율이라
+   * "5km 는 만, 40km 는 산"을 구분하지 못합니다. 능선을 그릴 때 그 비율을
+   * 방위 전체에 곱하면 만 너머 산이 절반으로 줄어듭니다(실측: water 1/3 →
+   * 높이 ×0.533, 2/3 → ×0.067). 물은 **그 거리대에서만** 물이므로 거리대별로
+   * 들고 있어야 합니다.
+   */
+  bandWater: number[][];
   /**
    * 방위별 수역 비율 0~1.
    *
@@ -919,6 +936,7 @@ export const fetchTerrainProfile = async (
     // 내보냅니다 — 거리별 대기 투시(docs/GROUND_PLAN.md 3단계)에 씁니다.
     // 모양: [거리대][방위]  (기존 두 배열은 호환을 위해 그대로 둡니다)
     const bandAngles: number[][] = DISTANCES.map(() => []);
+    const bandWater: number[][] = DISTANCES.map(() => []);
     // 바다 판정. Open-Meteo elevation API는 **해상에서 정확히 0.0**을
     // 반환합니다 (육지는 0이 아닌 정수). 새 데이터원 없이 방위별 수역 여부를
     // 읽을 수 있습니다. 한계: 해수면 높이의 해안 평야도 0으로 읽힙니다.
@@ -931,16 +949,30 @@ export const fetchTerrainProfile = async (
       for (let j = 0; j < DISTANCES.length; j++) {
         const idx = i * DISTANCES.length + j;
         const elev = terrainPoints[idx];
-        if (elev === undefined) { bandAngles[j].push(0); continue; }
+        if (elev === undefined) { bandAngles[j].push(0); bandWater[j].push(0); continue; }
 
         const distMeters = DISTANCES[j] * 1000;
-        const elevDiff = elev - observerElev;
+        // ⚠ **지구 곡률**을 빼야 합니다. 멀리 있는 지면은 그만큼 발밑으로
+        // 휘어 내려갑니다 — 낙차는 d²/2R 로, 5km 에서 2m 지만 40km 면
+        // **108m** 입니다. 이게 없으면 40km 의 해수면이 -0.043° 로 읽혀
+        // 진짜 수평선(-0.176°)보다 위에 뜨고, 능선 띠와 지면 원반이 서로
+        // 다른 수평선을 그려 경계가 어긋납니다.
+        //
+        // R 은 `TerrainRing.seaHorizonDipDeg` 와 **같은 값**을 씁니다.
+        // 44절에서 지면과 구름이 서로 다른 지평선을 써서 띠가 벌어진 적이
+        // 있습니다 — 같은 종류의 결함을 만들지 않으려고 맞춰 둡니다.
+        // (둘 다 대기 굴절은 넣지 않았습니다. 넣으면 낙차가 약 13% 줄어들고,
+        //  올릴 때는 **두 곳을 같이** 올려야 합니다.)
+        const curvatureDropM = (distMeters * distMeters) / (2 * EARTH_RADIUS_M);
+        const elevDiff = elev - observerElev - curvatureDropM;
         const angle = (Math.atan2(elevDiff, distMeters) * 180) / Math.PI;
 
         bandAngles[j].push(angle);
+        const isWater = elev === 0 ? 1 : 0;
+        bandWater[j].push(isWater);
         if (angle > maxAzAngle) maxAzAngle = angle;
         if (j >= 1 && angle > maxFarAngle) maxFarAngle = angle;
-        if (elev === 0) water++;
+        water += isWater;
         counted++;
       }
       panoramicAngles.push(maxAzAngle);
@@ -949,7 +981,7 @@ export const fetchTerrainProfile = async (
     }
 
     const terrainData = {
-      panoramicAngles, farAngles, bandAngles, waterFrac,
+      panoramicAngles, farAngles, bandAngles, bandWater, waterFrac,
       bandDistancesKm: DISTANCES.slice(),
       minAz, maxAz, observerElevation: observerElev,
     };
@@ -962,6 +994,7 @@ export const fetchTerrainProfile = async (
     return {
       panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0),
       bandAngles: DISTANCES.map(() => Array(SAMPLES).fill(0)),
+      bandWater: DISTANCES.map(() => Array(SAMPLES).fill(0)),
       waterFrac: Array(SAMPLES).fill(0),
       bandDistancesKm: DISTANCES.slice(),
       minAz, maxAz, observerElevation: 0, isFallback: true,

@@ -1424,8 +1424,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       terrainBandsRef.current = null;
     }
 
+    // ⚠ 물은 **거리대별**로 넘깁니다. 예전에는 방위별 비율 하나
+    // (`waterFrac`)를 넘겼고 그게 모든 거리대의 능선 높이를 곱으로 깎아,
+    // 만 너머 산이 절반으로 줄었습니다(TerrainRing 의 bandWater 주석).
     const bands = createTerrainBands(
-      sim.terrain.bandAngles, sim.terrain.bandDistancesKm, undefined, sim.terrain.waterFrac);
+      sim.terrain.bandAngles, sim.terrain.bandDistancesKm, undefined,
+      sim.terrain.bandWater, sim.terrain.observerElevation ?? 0);
     scene.add(bands.group);
     // 지형은 다시 만들어질 수 있습니다 — 그때도 층 배정을 잊으면 안 됩니다.
     assignLayer(bands.group, LAYER_MID);

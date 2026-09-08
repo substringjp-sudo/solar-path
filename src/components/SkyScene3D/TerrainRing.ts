@@ -372,9 +372,21 @@ export function makeWaterTexture(waterFrac: number[] | null): THREE.DataTexture 
     let v = 0;
     if (waterFrac && waterFrac.length > 0) {
       // 방위 i/N 에 해당하는 입력 표본을 선형 보간합니다.
-      const t = (i / N) * waterFrac.length;
-      const a = Math.floor(t) % waterFrac.length;
-      const b = (a + 1) % waterFrac.length;
+      //
+      // ⚠ **`length` 가 아니라 `length - 1`** 로 나눠야 합니다.
+      //
+      // 표본 배열은 `minAz + i*range/(SAMPLES-1)` 로 만들어져 0°와 360°가
+      // **중복**됩니다(31개 중 0번과 30번이 같은 방위). `length` 로 나누고
+      // 나머지 연산으로 감으면 360°를 31분의 30 에 욱여넣는 셈이라, 방위가
+      // 최대 360/31 = **11.6° 어긋납니다.**
+      //
+      // `createTerrainBands` 는 `azFrac * (angles.length - 1)` 로 제대로
+      // 매핑합니다. 즉 **수역 마스크와 능선이 서로 다른 방위를 가리키고**
+      // 있었습니다 — 물이라고 칠한 자리와 능선이 접힌 자리가 달라지니
+      // 경계가 어긋나 보입니다. 둘을 같은 식으로 맞춥니다.
+      const t = (i / N) * (waterFrac.length - 1);
+      const a = Math.min(Math.floor(t), waterFrac.length - 1);
+      const b = Math.min(a + 1, waterFrac.length - 1);
       const f = t - Math.floor(t);
       v = waterFrac[a] * (1 - f) + waterFrac[b] * f;
     }
@@ -450,13 +462,26 @@ export function createTerrainBands(
   distancesKm: number[],
   maxVisualAngle: number = TERRAIN_MAX_ANGLE_DEG,
   /**
-   * 방위별 수역 비율. 물인 방위에서는 능선을 접습니다 — 안 그러면 해면 위에
-   * 육지색 띠가 얹혀 수평선이 지형선처럼 보입니다. (바다 표본은 고도 0이라
-   * 지형각이 음수로 나오고, 그걸 0으로 클램프하면 지평선에 딱 붙은 얇은
-   * 띠가 되어 그 자리를 가립니다.)
+   * **거리대별** 수역 여부 `[거리대][방위]` (0 = 육지, 1 = 물).
+   *
+   * ⚠ 예전에는 방위별 비율 하나(`waterFrac`)를 받아 **모든 거리대에** 곱했고,
+   * 그 곱이 능선 높이를 줄였습니다:
+   *
+   *     topDeg *= (1 - min(1, water * 1.4))
+   *
+   * 그래서 5km 가 만이고 40km 가 산인 방위에서 water 가 1/3 이 되어 **산이
+   * 절반(×0.533)으로** 줄었습니다. 5·15km 가 물이면 ×0.067 — 사실상 사라집니다.
+   * 사용자가 말한 "땅이 실제 고도보다 낮게 나온다"가 이것입니다.
+   *
+   * 물은 그 **거리대에서만** 물이므로 거리대별로 받고, 능선을 줄이는 것이
+   * 아니라 **바다 수평선으로 바꿉니다**(아래).
    */
-  waterFrac?: number[] | null
+  bandWater?: number[][] | null,
+  /** 관측 고도 (m). 바다 수평선 각도를 정합니다. */
+  observerElevM: number = 0
 ): TerrainBandsHandle {
+  // 물인 방위가 놓일 자리 — 지면 원반의 가장자리와 **같은 각도**입니다.
+  const seaHorizonDeg = -seaHorizonDipDeg(observerElevM);
   const group = new THREE.Group();
   group.name = 'terrainBands';
   const bands: TerrainBand[] = [];
@@ -476,6 +501,13 @@ export function createTerrainBands(
     const hazeAttr = new Float32Array(vertexCount * 3);
     const indices: number[] = [];
 
+    // 이 띠가 실제로 내려가는 최저각. 물인 방위는 바다 수평선까지 내려갑니다.
+    let bandMinDeg = seaHorizonDeg;
+    for (let k = 0; k < angles.length; k++) {
+      const a = Math.min(angles[k], maxVisualAngle);
+      if (a < bandMinDeg) bandMinDeg = a;
+    }
+
     for (let s = 0; s < TERRAIN_SEGMENTS; s++) {
       const azFrac = s / TERRAIN_SEGMENTS;
       const azRad = azFrac * Math.PI * 2;
@@ -485,29 +517,40 @@ export function createTerrainBands(
       const i1 = Math.min(i0 + 1, angles.length - 1);
       const f = angleIdx - i0;
       const raw = angles[i0] * (1 - f) + angles[i1] * f;
-      let topDeg = Math.min(Math.max(raw, 0), maxVisualAngle);
+      // ⚠ 음수를 0 으로 자르지 않습니다.
+      //
+      // 예전에는 `Math.max(raw, 0)` 이라, 관측자보다 낮은 골짜기도 바다도
+      // 전부 **지평선에 딱 붙었습니다.** 그러면 수평선 자리에 얇은 육지색
+      // 띠가 얹혀 물과 땅의 경계가 지형선처럼 보입니다. 지형각은 이제
+      // 곡률까지 넣은 진짜 각이므로 그대로 씁니다.
+      let topDeg = Math.min(raw, maxVisualAngle);
 
-      if (waterFrac && waterFrac.length > 0) {
-        const wIdx = azFrac * (waterFrac.length - 1);
+      const wRow = bandWater?.[i];
+      if (wRow && wRow.length > 0) {
+        const wIdx = azFrac * (wRow.length - 1);
         const w0 = Math.floor(wIdx);
-        const w1 = Math.min(w0 + 1, waterFrac.length - 1);
+        const w1 = Math.min(w0 + 1, wRow.length - 1);
         const wf = wIdx - w0;
-        const water = waterFrac[w0] * (1 - wf) + waterFrac[w1] * wf;
-        // 물이 우세한 방위는 능선을 지평선 아래로 접습니다.
-        topDeg = topDeg * (1 - Math.min(1, water * 1.4));
+        const water = Math.min(1, Math.max(0, wRow[w0] * (1 - wf) + wRow[w1] * wf));
+        // 물은 능선을 **줄이는** 것이 아니라 **바다 수평선으로 바꿉니다.**
+        // 그 자리에 실제로 있는 것이 해수면이기 때문입니다. 줄이기(×)로는
+        // 물이 반쯤 섞인 방위가 "낮은 육지"가 되는데, 그런 지형은 없습니다.
+        topDeg = topDeg * (1 - water) + seaHorizonDeg * water;
       }
 
-      // ⚠ 아래로 얼마나 내릴지가 중요합니다.
+      // 아래로 얼마나 내릴지.
       //
       // 처음에 -30°까지 내렸더니 띠가 **지면 원반을 통째로 덮었습니다**
       // (띠가 지면보다 나중에 그려집니다). 그러면 지평선 아래 전부가 "5km
       // 거리의 대기 투시를 먹은 색"이 되는데, 발밑 땅은 5km가 아니라 수십
-      // 미터 앞이라 연무가 거의 없습니다. 태양 쪽을 볼 때 특히 어긋납니다 —
-      // 어두워야 할 전경이 연무색으로 밝아집니다.
+      // 미터 앞이라 연무가 거의 없습니다.
       //
-      // 지면 원반의 가장자리가 고도 -0.95°이므로, 그보다 조금만 내려
-      // 틈은 없애고 겹침은 최소로 둡니다.
-      const botDeg = -2.5;
+      // ⚠ 예전 주석은 "지면 원반의 가장자리가 -0.95°"라며 -2.5° 로 고정해
+      // 두었는데, 원반은 `setGroundHorizon` 이 **관측 고도로** 내립니다
+      // (30m 면 -0.176°). 주석이 낡아 상수도 같이 낡았습니다. 게다가 이제
+      // topDeg 가 음수로 내려갈 수 있으므로(골짜기·바다) 고정값이면 띠가
+      // 뒤집힙니다. 이 띠의 실제 최저 지형각보다 조금만 더 내립니다.
+      const botDeg = Math.min(-2.5, bandMinDeg - 1.0);
       const dirX = Math.sin(azRad);
       const dirZ = -Math.cos(azRad);
 
