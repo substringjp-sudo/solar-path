@@ -35,10 +35,13 @@
  * 까지 틀립니다. `updateTerrainFieldEye` 로 매 프레임 맞춥니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
 } from '../../utils/atmosphere';
+import {
+  CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
+} from '../../utils/cloudShadowMap';
 import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, createConcentricGeometry, ringDistanceM, ringRadius,
@@ -69,20 +72,41 @@ export function fieldRingDistanceM(k: number, rings: number = FIELD_RINGS): numb
 export function createFieldGeometry(
   rings: number = FIELD_RINGS,
   spokes: number = FIELD_SPOKES,
+  farM: number = FIELD_FAR_M,
+  nearM?: number,
 ): THREE.BufferGeometry {
-  return createConcentricGeometry(rings, spokes, FIELD_FAR_M);
+  return createConcentricGeometry(rings, spokes, farM, nearM);
 }
+
+/**
+ * **먼 지형** 격자의 범위 (m).
+ *
+ * 3km 밖은 오랫동안 옛 31방위 능선 띠가 맡았습니다. 그 띠는 방위마다
+ * **5·15·40km 딱 세 점**만 보므로 진짜 봉우리를 대부분 놓칩니다 — 도곡동에서
+ * 재 보니 먼 산이 최대 **3.26° 낮게** 깔렸습니다(`verify-far-terrain.js`).
+ * 그러면 3km 안의 앞산만 제 높이로 서서, 앞산이 실제보다 우뚝해 보입니다.
+ * 실기에서 "산의 높이나 기울기가 조금 과장돼 보인다"고 한 것이 이것입니다.
+ *
+ * 여기서 같은 높이장 방식을 3km 밖으로 잇습니다. 성긴 패치(줌 9, 화소 약
+ * 243m)를 쓰므로 봉우리가 조금 깎이지만, 12° 간격 세 점보다는 비교가 안 되게
+ * 낫습니다.
+ */
+export const FAR_FIELD_NEAR_M = FIELD_FAR_M;
+export const FAR_FIELD_FAR_M = 55000;
+export const FAR_FIELD_RINGS = 96;
 
 /** 격자 정점을 실제로 보이는 각도에 놓는 버텍스 셰이더. */
 export const FIELD_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
+${demGlsl('demEye')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;    // DEM 이 없을 때만 쓰는 발밑 고도 (m)
 uniform float uEyeHeightM;  // 발밑에서 눈까지 (m)
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
+varying vec2  vGround;   // 지상 좌표 (동, 남) m — 그림자 레이마치가 씁니다
 
 /**
  * 관측자 **발밑** 고도 — 반드시 DEM 자신이 정합니다.
@@ -97,6 +121,12 @@ varying vec3  vNormal;
  * 두 면의 교선이 아니게 됩니다.
  */
 float groundAtEye() {
+  // ⚠ 먼 지형 격자는 **성긴** 패치로 그리는데, 발밑 고도까지 성긴 것으로
+  // 읽으면 안 됩니다. 같은 자리가 줌 13 에서 70.7m, 줌 9 에서 59.8m —
+  // 3km 이음매에서 10.9m 는 0.21° 의 층계입니다. 그래서 발밑만은 늘
+  // **촘촘한** 패치(demEye)로 짚습니다. 근거리 격자는 이 자리에 자기
+  // 패치를 그대로 넣으므로 예전과 같은 값입니다.
+  if (uDemEyeValid > 0.5) return demEye_elevationAt(vec2(0.0));
   return uDemValid > 0.5 ? dem_elevationAt(vec2(0.0)) : uObsElevM;
 }
 
@@ -113,6 +143,7 @@ void main() {
   float h = fieldElev(g);
   vElevM = h;
   vDistM = d;
+  vGround = g;
 
   // 법선은 실제 지상 간격으로 낸 유한차분입니다. 고리 간격에 비례해 떨어져야
   // 가까이서 너무 잘고 멀리서 너무 뭉개지는 것을 피합니다.
@@ -180,6 +211,8 @@ export const FIELD_FRAG = /* glsl */ `
 precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
+${DEM_GLSL}
+${CLOUD_SHADOW_GLSL}
 uniform vec3  uSurfaceIrr;    // 수평면이 받는 조도 (하늘 + 직달)
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -188,16 +221,48 @@ uniform float uSunAltDeg;
 uniform vec3  uAlbedo;
 uniform float uExposure;
 uniform float uSaturation;
-uniform float uDemValid;
 uniform vec3  uHazeRadiance;  // 지평선 부근 하늘빛 (선형) — 공기원근의 끝값
 uniform float uAerial;        // 0 이면 공기원근 끔 (기하 판정용)
 uniform float uWetBandM;      // 조간대 폭 (m 단위 **고도**)
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
+uniform float uShadow;        // 0 이면 드리운 그림자를 끕니다 (대조 판정용)
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
+varying vec2  vGround;
+
+/**
+ * 이 점에서 **태양 쪽 지평선각** (rad).
+ *
+ * 램버트(ndl)만으로는 **제 사면이 해를 등졌는가**밖에 못 봅니다. 산이 그
+ * 뒤 땅에 드리우는 그림자는 다른 질문입니다 — "여기서 해를 보면 뭔가가
+ * 가리고 있는가". 그건 태양 쪽으로 지형을 훑어야 답이 나옵니다.
+ *
+ * 간격은 로그입니다. 가까운 둔덕도 놓치지 않으면서(6m 부터) DEM 패치
+ * 끝(약 3.5km)까지 닿아야 하는데, 등간격으로 그러려면 표본이 수백 개
+ * 필요합니다. 낮은 해의 그림자는 길어서(300m 봉우리 · 해 5° → 3.4km)
+ * 이 거리가 그냥 여유가 아니라 필요한 값입니다.
+ *
+ * ⚠ 자료 밖으로 나가면 **거기서 멈춥니다.** 가장자리 값이 늘어난 것을
+ * 지형으로 읽으면 패치 경계에 가짜 그림자 벽이 생깁니다.
+ */
+float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
+  float best = -1.5;
+  // 첫 걸음은 **화소 한 칸**입니다. 그보다 잘게 떼면 같은 화소를 여러 번
+  // 읽을 뿐이고, 성긴 패치(먼 지형)에서는 걸음이 너무 짧아 닿는 거리가
+  // 모자랍니다.
+  float t = max(6.0, uDemSpanM / 256.0);
+  for (int i = 0; i < 36; i++) {
+    vec2 g = g0 + sunHoriz * t;
+    if (dem_inside(g) < 0.5) break;
+    float h = dem_elevationAt(g);
+    best = max(best, atan(h - h0, t));
+    t *= 1.2;
+  }
+  return best;
+}
 
 void main() {
   // ⚠ **해수면 아래는 그리지 않습니다.** 거기서 보이는 것은 땅이 아니라
@@ -222,6 +287,30 @@ void main() {
                   sin(uSunAltRad),
                  -cos(uSunAltRad) * cos(uSunAzRad));
   float ndl = max(0.0, dot(n, sun));
+
+  // ── 산이 드리우는 그림자 ────────────────────────────────────────────────
+  //
+  // 태양 쪽 지평선각이 태양 고도보다 높으면 이 점은 그늘입니다. 경계는
+  // **태양 원반**만큼 흐립니다 — 각반경 0.265° 라 그만큼이 반그림자입니다.
+  //
+  // ⚠ 깎는 것은 **직달 몫뿐**입니다. 그늘진 사면도 하늘은 그대로 봅니다.
+  // 조도에서 통째로 빼면 그늘이 새까매지는데, 실제 그늘은 하늘빛을 받아
+  // 푸르스름합니다.
+  float shade = 0.0;
+  if (uShadow > 0.5 && uDemValid > 0.5) {
+    vec2 sunHoriz = vec2(sun.x, sun.z);
+    float sl = length(sunHoriz);
+    if (sl > 1e-4) {
+      float hz = terrainHorizonAngle(vGround, vElevM, sunHoriz / sl);
+      shade = smoothstep(uSunAltRad - 0.00463, uSunAltRad + 0.00463, hz);
+    }
+  }
+  ndl *= 1.0 - shade;
+
+  // ── 구름이 드리우는 그림자 ──────────────────────────────────────────────
+  // 지상 좌표별 직달 투과율을 구운 지도에서 읽습니다 (utils/cloudShadowMap).
+  // 여기서도 깎는 것은 직달뿐입니다 — 구름 그늘도 하늘은 봅니다.
+  ndl *= cloudShadowAt(vGround);
 
   // ── 경사: 급하면 암반(밝고 회색), 완만하면 흙·수풀(어둡고 따뜻) ──────────
   //
@@ -262,23 +351,34 @@ export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
   /** DEM 패치를 갈아 끼웁니다. `null` 이면 평평하게 물러납니다. */
-  setPatch: (patch: DemPatch | null) => void;
+  /** 둘째 인자는 **발밑 고도용** 패치입니다. 안 주면 그대로 둡니다. */
+  setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null) => void;
   dispose: () => void;
 }
 
 export function createTerrainField(opts: {
   patch?: DemPatch | null;
+  /**
+   * **발밑 고도만** 이 패치로 짚습니다. 먼 지형 격자가 성긴 패치로 그릴 때
+   * 눈높이가 어긋나 이음매에 층계가 생기는 것을 막습니다 (groundAtEye 참고).
+   * 안 주면 `patch` 자신이 정합니다 — 근거리 격자의 예전 동작 그대로입니다.
+   */
+  eyePatch?: DemPatch | null;
   /** DEM 이 없을 때만 쓰이는 대비책. 있으면 DEM 이 정합니다. */
   observerElevM?: number;
   eyeHeightM?: number;
   albedo?: { r: number; g: number; b: number };
   rings?: number;
   spokes?: number;
+  /** 격자 안쪽·바깥쪽 거리 (m). 먼 지형 격자가 3km~55km 로 씁니다. */
+  nearM?: number;
+  farM?: number;
 }): TerrainFieldHandle {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeDemUniforms(opts.patch ?? null),
+      ...makeDemUniforms(opts.eyePatch ?? null, 'demEye'),
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
@@ -292,6 +392,10 @@ export function createTerrainField(opts: {
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
+      uShadow: { value: 1.0 },
+      uCloudShadowTex: { value: createOpenSkyShadowTexture() },
+      uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
+      uCloudShadow: { value: 1.0 },
       // 조간대 폭 — **고도** 기준. 조수간만 1~2m 인 서해안 기준.
       uWetBandM: { value: 1.2 },
       uBeta: { value: 0.08 },
@@ -307,7 +411,8 @@ export function createTerrainField(opts: {
   });
 
   const mesh = new THREE.Mesh(
-    createFieldGeometry(opts.rings ?? FIELD_RINGS, opts.spokes ?? FIELD_SPOKES),
+    createFieldGeometry(opts.rings ?? FIELD_RINGS, opts.spokes ?? FIELD_SPOKES,
+                        opts.farM ?? FIELD_FAR_M, opts.nearM),
     material,
   );
   mesh.name = 'terrainField';
@@ -316,11 +421,14 @@ export function createTerrainField(opts: {
   return {
     mesh,
     material,
-    setPatch: (patch) => {
-      const u = makeDemUniforms(patch);
-      Object.entries(u).forEach(([k, v]) => {
-        if (material.uniforms[k]) material.uniforms[k].value = v.value;
-      });
+    setPatch: (patch, eyePatch) => {
+      const put = (u: Record<string, { value: unknown }>) => {
+        Object.entries(u).forEach(([k, v]) => {
+          if (material.uniforms[k]) material.uniforms[k].value = v.value;
+        });
+      };
+      put(makeDemUniforms(patch));
+      if (eyePatch !== undefined) put(makeDemUniforms(eyePatch, 'demEye'));
     },
     dispose: () => {
       mesh.geometry.dispose();

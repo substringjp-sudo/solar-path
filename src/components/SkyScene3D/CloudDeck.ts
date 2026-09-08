@@ -619,7 +619,12 @@ export function createCloudDeck(opts: {
  * 샘플 격자(방위 24 × 고도 8)를 덱 메시 정점(72 × 32)으로 보간합니다.
  * 최근접 4점 이중선형 — 격자가 규칙적이라 인덱스로 바로 찾습니다.
  */
-function sampleCoverAt(
+/**
+ * ⚠ **export 합니다.** 땅에 지는 구름 그림자(`utils/cloudShadowMap.ts`)가
+ * 같은 운량장을 읽어야 합니다. 따로 구현하면 하늘의 구름과 땅의 그늘이
+ * 서로 다른 구름을 가리키게 됩니다 — 44절의 "지평선 두 벌"과 같은 결함입니다.
+ */
+export function sampleCoverAt(
   samples: LayerSample[],
   layer: LayerKey,
   azSteps: number,
@@ -833,9 +838,17 @@ export interface DeckUpdate {
 
 const _genusAt: GenusInput = { cover: 0, precipMmH: 0, humidityPct: 60, highPct: 0 };
 
+/**
+ * 표본 격자의 방위 칸 수.
+ *
+ * ⚠ 땅에 지는 구름 그림자(`utils/cloudShadowMap.ts`)가 **같은 값**을 써야
+ * 같은 운량장을 가리킵니다. 그래서 지역 상수로 두지 않고 내보냅니다.
+ */
+export const CLOUD_SAMPLE_AZ_STEPS = 24;
+
 export function updateCloudDeck(handle: CloudDeckHandle, u: DeckUpdate): void {
   const elevs = elevationGrid();
-  const azSteps = 24;
+  const azSteps = CLOUD_SAMPLE_AZ_STEPS;
   const nE = elevs.length;
 
   for (const l of handle.layers) {

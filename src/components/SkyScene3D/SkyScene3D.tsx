@@ -43,13 +43,20 @@ import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
 import { loadDemPatch, clearDemCache, type DemPatch } from '../../utils/demTiles';
 import {
+  buildCloudShadowTexture, CLOUD_SHADOW_HALF_M,
+} from '../../utils/cloudShadowMap';
+import {
   createTerrainField,
   updateTerrainFieldEye,
   FIELD_FAR_M,
+  FAR_FIELD_NEAR_M,
+  FAR_FIELD_FAR_M,
+  FAR_FIELD_RINGS,
   type TerrainFieldHandle,
 } from './TerrainField';
 import {
   createSeaPlane,
+  SEA_MASK_RADIUS_M,
   updateSeaPlaneEye,
   type SeaPlaneHandle,
 } from './SeaPlane';
@@ -82,6 +89,7 @@ import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/s
 import {
   createCloudDeck,
   updateCloudDeck,
+  CLOUD_SAMPLE_AZ_STEPS,
   type CloudDeckHandle,
   type GenusInput,
 } from './CloudDeck';
@@ -106,7 +114,7 @@ import {
 const _genusOut: BlendedOptics = {
   tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
 };
-import { resolveLayerWinds } from '../../utils/skyColumn';
+import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
@@ -310,8 +318,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
   const demPatchRef = useRef<DemPatch | null>(null);
+  /** 3km 밖을 맡는 성긴 높이장 격자. 옛 능선 띠를 대신합니다. */
+  const terrainFarRef = useRef<TerrainFieldHandle | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
+  /** 땅에 지는 구름 그림자 지도. 구름·해가 바뀔 때만 다시 굽습니다. */
+  const cloudShadowTexRef = useRef<THREE.DataTexture | null>(null);
+  const cloudShadowKeyRef = useRef<string>('');
   const demLoadedKeyRef = useRef<string | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
@@ -724,14 +737,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     // 2a′. DEM 높이장 근거리 지형 · 해수면 (docs/COASTLINE_PLAN.md).
     //
-    // ⚠ **원반을 대체하지 않습니다.** DEM 패치가 아직 없으면(uDemValid=0)
-    // 지면은 평평하게 물러나고, 3km 밖은 이 메시 자체가 없어 원반이
-    // 그대로 비칩니다 — depthWrite:true 라 실제 깊이로 겨루므로, 렌더
-    // 순서만 원반(−0.5)보다 앞에 두면 있는 곳에서는 이 메시가, 없는
-    // 곳에서는 원반이 자연히 이어받습니다 (2단계·4단계 판정에서 검증한
-    // 그 기하 그대로입니다).
+    // ⚠ **원반보다 나중에** 그립니다 (−0.48 / −0.47 > 원반 −0.5).
+    //
+    // 처음엔 반대로 짰습니다 — 원반보다 **먼저**(−0.6/−0.55) 두고 "깊이로
+    // 겨루니 있는 곳에서는 새 메시가 이긴다"고 적었습니다. 틀렸습니다.
+    // 원반은 눈 아래 0.5 에 놓인 **평평한 판**이라, 내려다보는 각 θ 에서
+    // 깊이가 `0.5/sin θ` 입니다 — θ=1° 에서 29, θ=7° 에서 4.1. 새 지형과
+    // 해수면은 반지름 120~470 의 각도 돔 위에 있으니 **거의 언제나 원반이
+    // 더 가깝습니다.** 원반은 depthWrite:false 라 깊이를 안 쓰지만
+    // depthTest:true 로 이겨서 **색을 덮어씁니다.**
+    //
+    // 그래서 실기에서 새 지형이 거의 안 보였습니다: 수평선 바로 아래
+    // 얇은 띠(polygonOffset 이 스치는 각에서 크게 밀어 주는 자리)만 남고
+    // 나머지는 평평한 원반이었습니다. 사용자가 "내가 선 자리 둘레 땅이
+    // 전부 해발 0 처럼 평평하고 물이 고여 있다"고 본 것이 이것입니다.
+    // 하네스로 재 보니 원반을 빼는 것만으로 보이는 바다가 675 → 5,307화소
+    // (마니산 정상에서는 1,328 → 14,740화소, 띠 0.31° → 8.58°)였습니다.
+    //
+    // 고침은 순서 하나입니다. 원반이 **먼저** 배경을 칠하고, 새 메시가 그
+    // 위에 그립니다. 새 메시가 없거나 버리는 자리(뭍의 물, 3km 밖)에는
+    // 원반이 그대로 남아 이어받습니다. 하늘 천체(은하수 −0.6, 해·달
+    // −0.55, 별 −0.5)와 원반의 앞뒤는 **건드리지 않습니다** — 그걸 뒤집으면
+    // 지평선 아래로 진 해가 땅 위에 뜹니다.
     const terrainField = createTerrainField({ eyeHeightM: 1.6 });
-    terrainField.mesh.renderOrder = -0.6;
+    terrainField.mesh.renderOrder = -0.48;
     // DEM 이 오기 전엔 발밑 고도를 모르니 uObsElevM 대비책(0m)으로
     // 평평하게 그립니다 — 그 근사가 화면에 잠깐이라도 비치지 않도록,
     // 패치가 실제로 들어올 때까지는 아예 숨겨 둡니다(아래 DEM 요청
@@ -741,8 +770,29 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     assignLayer(terrainField.mesh, LAYER_MID);
     terrainFieldRef.current = terrainField;
 
+    // 2a″. **먼 지형** (3km ~ 55km) — 같은 높이장 방식을 성긴 패치로 잇습니다.
+    //
+    // 옛 31방위 능선 띠는 방위마다 5·15·40km 딱 세 점만 봐서 진짜 봉우리를
+    // 대부분 놓쳤습니다. 도곡동에서 재 보니 먼 산이 최대 3.26° 낮게 깔렸고
+    // (verify-far-terrain.js), 그러면 3km 안의 앞산만 제 높이로 서서 앞산이
+    // 실제보다 우뚝해 보입니다. 실기의 "산이 조금 과장돼 보인다"가 이것입니다.
+    //
+    // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다(eyePatch). 성긴 것으로 읽으면
+    // 같은 자리가 10.9m 낮아, 3km 이음매에 0.21° 층계가 생깁니다.
+    const terrainFar = createTerrainField({
+      eyeHeightM: 1.6,
+      nearM: FAR_FIELD_NEAR_M,
+      farM: FAR_FIELD_FAR_M,
+      rings: FAR_FIELD_RINGS,
+    });
+    terrainFar.mesh.renderOrder = -0.49;   // 근거리 격자(−0.48)보다 먼저
+    terrainFar.mesh.visible = false;
+    scene.add(terrainFar.mesh);
+    assignLayer(terrainFar.mesh, LAYER_MID);
+    terrainFarRef.current = terrainFar;
+
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
-    seaPlane.mesh.renderOrder = -0.55;
+    seaPlane.mesh.renderOrder = -0.47;
     seaPlane.mesh.visible = false;
     scene.add(seaPlane.mesh);
     assignLayer(seaPlane.mesh, LAYER_MID);
@@ -1048,6 +1098,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 계산하므로, X/Z(둘 다 항상 0)만 따라가고 Y 는 안 따라갑니다 —
         // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
         if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
+        if (terrainFarRef.current) updateTerrainFieldEye(terrainFarRef.current, camera);
         if (seaPlaneRef.current) updateSeaPlaneEye(seaPlaneRef.current, camera);
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
@@ -1059,6 +1110,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
         if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
         if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
+        if (terrainFarRef.current) applyTuningUniforms(terrainFarRef.current.material.uniforms);
         if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
 
         // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
@@ -1358,8 +1410,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const sunAltRad = (sunAltRef.current * Math.PI) / 180;
       const horizon = cachedHorizonRGBRef.current;
 
-      if (terrainFieldRef.current) {
-        const u = terrainFieldRef.current.material.uniforms;
+      for (const h of [terrainFieldRef.current, terrainFarRef.current]) {
+        if (!h) continue;
+        const u = h.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
         (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
         u.uSunAzRad.value = sunAzRad;
@@ -1374,6 +1427,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const u = seaPlaneRef.current.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
         (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        // Cox & Munk (1954) — **윤슬 폭을 정하는 것은 이 값 하나**입니다.
+        // 옛 원반 물(updateGroundColors)과 같은 바람을 씁니다.
+        u.uSlopeVar.value = 0.003 + 0.00512 * Math.max(0, layerWindsNow().low.speedKmh / 3.6);
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
         u.uSunAltDeg.value = sunAltRef.current;
@@ -1569,6 +1625,43 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     lastCloudBuildRef.current = built;
 
+    // ── 땅에 지는 구름 그림자 지도 ─────────────────────────────────────────
+    //
+    // 하늘의 구름과 **같은 표본 배열**을 읽습니다 (utils/cloudShadowMap).
+    // 따로 만들면 하늘의 구름과 땅의 그늘이 서로 다른 구름을 가리킵니다.
+    //
+    // 구름·해가 안 바뀌면 다시 굽지 않습니다 — 4,096번 조회라 싸지만
+    // 매 프레임 할 일은 아닙니다.
+    {
+      const obsNow = observerWeather();
+      const key = [
+        sunAltRef.current.toFixed(1), sunAzRef.current.toFixed(1),
+        built.samples.length, layerMeanCover(built.samples, 'low').toFixed(3),
+        layerMeanCover(built.samples, 'mid').toFixed(3),
+        layerMeanCover(built.samples, 'high').toFixed(3),
+      ].join('|');
+      if (key !== cloudShadowKeyRef.current) {
+        cloudShadowKeyRef.current = key;
+        cloudShadowTexRef.current = buildCloudShadowTexture({
+          samples: built.samples,
+          azSteps: CLOUD_SAMPLE_AZ_STEPS,
+          elevs: elevationGrid(),
+          sunAltDeg: sunAltRef.current,
+          sunAzDeg: sunAzRef.current,
+          tauFor: (layer) => opticsForLayer(layer, obsNow).tau,
+        }, cloudShadowTexRef.current);
+      }
+      for (const h of [terrainFieldRef.current, terrainFarRef.current, seaPlaneRef.current]) {
+        if (!h) continue;
+        const cu = h.material.uniforms;
+        if (cu.uCloudShadowTex && cloudShadowTexRef.current) {
+          cu.uCloudShadowTex.value = cloudShadowTexRef.current;
+          cu.uCloudShadowHalfM.value = CLOUD_SHADOW_HALF_M;
+          cu.uCloudShadow.value = layersRef.current.clouds ? 1 : 0;
+        }
+      }
+    }
+
     // 하늘도 구름층 아래로 들어갑니다.
     if (skydomeRef.current) {
       const su = skydomeRef.current.material.uniforms;
@@ -1672,10 +1765,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const renderer = rendererRef.current;
       if (!renderer) { demLoadingKeyRef.current = null; return; }
       try {
-        const patch = await loadDemPatch(lat, lng, FIELD_FAR_M, {
+        const load = (radiusM: number) => loadDemPatch(lat, lng, radiusM, {
           renderer,
           loadTexture: (url: string) => loadTextureAsync({ asset: url }),
         });
+        const patch = await load(FIELD_FAR_M);
+        // 물 마스크는 따로 받습니다 — 같은 3×3 블록을 훨씬 낮은 줌으로
+        // 받아 60km 를 덮습니다. 이게 없으면 3km 밖이 "모르는 곳"이 되고,
+        // 예전에는 그걸 물로 두어 **내륙에서도 사방에 물이 고였습니다**.
+        // 실패해도 치명적이지 않습니다 — 촘촘한 패치의 가장자리 값으로
+        // 물러납니다(SeaPlane.ts 의 vWater 참고).
+        const maskPatch = await load(SEA_MASK_RADIUS_M).catch(() => null);
         // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
         // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
         // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
@@ -1685,11 +1785,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
         if (cancelled) return;
         demPatchRef.current = patch;
-        terrainFieldRef.current?.setPatch(patch);
-        seaPlaneRef.current?.setPatch(patch);
+        terrainFieldRef.current?.setPatch(patch, patch);
+        // 먼 지형은 성긴 패치로 그리되 발밑만 촘촘한 것으로 짚습니다.
+        terrainFarRef.current?.setPatch(maskPatch, patch);
+        seaPlaneRef.current?.setPatch(patch, maskPatch);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
+        if (maskPatch && terrainFarRef.current) terrainFarRef.current.mesh.visible = true;
         if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
         demLoadedKeyRef.current = key;
         requestRender(10);
@@ -1735,6 +1838,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (terrainFieldRef.current) {
         terrainFieldRef.current.dispose();
         terrainFieldRef.current = null;
+      }
+      if (terrainFarRef.current) {
+        terrainFarRef.current.dispose();
+        terrainFarRef.current = null;
       }
       if (seaPlaneRef.current) {
         seaPlaneRef.current.dispose();

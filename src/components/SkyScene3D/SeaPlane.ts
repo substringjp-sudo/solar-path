@@ -26,13 +26,16 @@
  * 잘라 정점을 수평선 위에 모읍니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 import {
   GROUND_PROJECT_GLSL, createConcentricGeometry, seaHorizonDistM,
 } from './groundProjection';
 import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
 } from '../../utils/atmosphere';
+import {
+  CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
+} from '../../utils/cloudShadowMap';
 
 /**
  * 바다 격자가 뻗는 거리 (m).
@@ -45,14 +48,28 @@ export const SEA_FAR_M = 60000;
 export const SEA_RINGS = 96;
 export const SEA_SPOKES = 256;
 
+/**
+ * **물이 있는지 없는지**만 가리는 성긴 높이장의 반경 (m).
+ *
+ * 수심·포말을 재는 촘촘한 패치는 3km 에서 끝납니다. 그 밖을 "모르니까 물"
+ * 로 두었더니 **내륙 한복판에도 수평선까지 바다가 깔렸습니다** — 서울
+ * 도곡동(해발 70m)에서 사방에 물이 고여 보인다는 실기 보고가 그것입니다.
+ * 물 마스크는 30m 가 필요 없으므로(3km 밖의 바다는 수평선 근처 1° 안으로
+ * 눌립니다) 같은 3×3 블록을 **훨씬 낮은 줌**으로 받아 60km 를 덮습니다 —
+ * 줌 9, 화소 약 243m, 타일 아홉 장.
+ */
+export const SEA_MASK_RADIUS_M = 60000;
+
 export const SEA_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
+${demGlsl('seaMask')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;
 uniform float uEyeHeightM;
 varying float vDistM;
 varying float vDepthM;   // 수심 (m) — 물가 표현의 재료 (5단계)
+varying float vWater;    // 1 = 물, 0 = 뭍 (프래그먼트에서 버립니다)
 varying vec3  vGround;
 // 눈(메시 원점)에서 이 점으로 가는 단위 방향. 하늘 되비침의 거울 방향을
 // 여기서 뒤집어 씁니다 (프래그먼트 셰이더 주석 참고).
@@ -91,6 +108,25 @@ void main() {
   vDepthM = known ? -hs : 999.0;
   vGround = vec3(gc.x, 0.0, gc.y);
 
+  // ── 여기가 물이긴 한가 ──────────────────────────────────────────────────
+  // 수심(위)은 **물빛**만 정합니다. 물이 **있는지**는 따로 물어야 합니다.
+  // 예전에는 안 물었고, 그래서 해수면이 방위를 가리지 않고 수평선까지
+  // 깔렸습니다. 3km 안에서는 지형 격자가 가려 주니 안 보였지만, 그 밖에는
+  // 가려 줄 것이 없어 **내륙에서도 사방에 물 띠**가 났습니다(0.46°).
+  //
+  // ⚠ **촘촘한 것이 먼저** 입니다. 성긴 마스크를 앞에 두었더니 물가가
+  // 통째로 죽었습니다 — 화소 한 칸이 243m 라 해안선이 뭍 쪽으로 뭉개지고,
+  // 바닷가에 선 관측자의 발밑 물이 전부 뭍으로 읽혔습니다(대조 판정에서
+  // 727화소 → 128화소). 그래서 3km 안은 30m 자료가 정하고, 성긴 마스크는
+  // **그 밖에서만** 말합니다. 둘 다 없으면 예전처럼 전부 물 — 높이장이
+  // 아예 없을 때의 평판 대체는 그대로 둡니다.
+  float hm =
+      (uDemValid > 0.5 && dem_inside(gc) > 0.5) ? dem_elevationAt(gc)
+    : (uSeaMaskValid > 0.5)                     ? seaMask_elevationExtended(gc)
+    : (uDemValid > 0.5)                         ? dem_elevationExtended(gc)
+    :                                             -1.0;
+  vWater = hm <= 0.0 ? 1.0 : 0.0;
+
   // 해수면 고도는 0 — 정의상 이것이 기준면입니다.
   vec3 p = gp_project(gc, 0.0, eye, r);
   // ⚠ 눈은 메시 원점(로컬 좌표계 원점)에 있습니다 — p 자체가 이미 "눈에서
@@ -127,14 +163,30 @@ void main() {
  * 씁니다. **카메라의 world Y 는 여기서 절대 다시 읽지 않습니다** — 그건
  * 화면단위 dip 트릭 값이라, 물리 눈높이(미터)와 섞이면 이중으로 셉니다.
  *
- * 파도 잔물결(Cox-Munk 윤슬)은 아직 안 옮겼습니다 — 이 메시는 아직 파도
- * 없는 평균면이라 미세면 분포를 걸 표면 법선이 없습니다. 다음에 파도를
- * 넣을 때 같이 옵니다.
+ * ## 윤슬 — Cox-Munk 가 폭을 정합니다
+ *
+ * 프레넬 × 하늘만 있으면 태양 둘레가 통째로 뭉근하게 밝아질 뿐 **좁고
+ * 반짝이는 길**이 안 생깁니다. 실기에서 "파도 진폭이 어마어마하게 큰지
+ * 윤슬 폭이 너무 넓어 물 같지 않다"는 말이 나온 것이 이것입니다 —
+ * 재 보니 밝은 길의 반높이 폭이 43~68°, 봉우리 대비는 겨우 1.06~1.19배
+ * 였고, 풍속을 1 → 8 m/s 로 올려도 **꿈쩍도 안 했습니다**(항이 아예
+ * 없었으니 당연합니다).
+ *
+ * 평균면(법선 수직) 기준으로 반각 벡터 H 를 세우면, 그 화소가 태양을 눈에
+ * 보내려면 수면 조각이 얼마나 기울어야 하는지를 `H.y` 가 그대로 말해
+ * 줍니다. Cox-Munk 의 경사 확률밀도
+ *
+ *     p = exp(−tan²θ / σ²) / (π σ² cos⁴θ),   σ² = 0.003 + 0.00512·U
+ *
+ * 를 그대로 씁니다 — **폭을 정하는 것은 이 σ 하나** 입니다. `TerrainRing`
+ * 에서 여기에 풍속과 무관한 고정 로브를 얹었다가 폭이 29.8° 에 붙박여
+ * 움직이지 않은 적이 있어, 여기서는 아예 얹지 않습니다.
  */
 export const SEA_FRAG = /* glsl */ `
 precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
+${CLOUD_SHADOW_GLSL}
 uniform vec3  uSurfaceIrr;
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -148,12 +200,16 @@ uniform float uSunAltDeg;
 uniform vec3  uHazeRadiance;
 uniform float uAerial;
 uniform float uFresnel;       // 0 이면 하늘 되비침을 끕니다 (기하 판정용)
+uniform float uSlopeVar;      // Cox-Munk 파면 경사 분산 σ² = 0.003 + 0.00512·U
+uniform float uGlitter;       // 0 이면 윤슬을 끕니다 (대조 판정용)
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uOzoneDU;
 varying float vDistM;
 varying float vDepthM;
+varying float vWater;
+varying vec3  vGround;
 varying vec3  vViewDir;
 
 /** 청정 해수 흡수계수 (1/m). 붉은빛이 먼저 먹힙니다. */
@@ -166,6 +222,22 @@ float waterFresnel(float cosTheta) {
 }
 
 void main() {
+  // ⚠ 되비침(하늘·태양)은 **거울에 비친 것**이라, 어두운 흙바닥을 살리려고
+  // 둔 지면용 눈 순응(최대 3배)을 그대로 먹으면 안 됩니다. 먹였더니 물이
+  // **제가 비추는 하늘보다 1.20배 밝아졌습니다** — 프레넬 반사율이 1 이하인
+  // 거울에서는 있을 수 없는 일입니다. 화면 전체가 톤 곡선 꼭대기(220~255)에
+  // 눌려, 윤슬을 얹어도 폭이 한 도도 안 움직였습니다.
+  //
+  // atm_display_ground 가 곱할 그 배수를 되비침에서만 미리 나눠, 되비침이
+  // 하늘과 **같은 노출**로 표시되게 합니다. 수체·바닥·포말은 조도 × 알베도
+  // 라 지면과 같은 것이므로 그대로 둡니다.
+  float eyeAdapt = atm_groundEyeAdapt(uSunAltDeg);
+
+  // 물이 아닌 곳에는 아무것도 안 그립니다 — 먼저 그린 옛 지면 원반이
+  // 그 자리를 그대로 이어받습니다. 삼각형이 물가를 걸치면 0.5 등고선이
+  // 경계가 되고, 그건 땅 격자가 vElevM <= 0 에서 버리는 자리와 같습니다.
+  if (vWater < 0.5) discard;
+
   // 왕복 경로라 수심의 두 배를 지납니다.
   vec3 thru = exp(-SEA_ABSORB * 2.0 * clamp(vDepthM, 0.0, 40.0));
 
@@ -201,7 +273,36 @@ void main() {
     // 쪽(cosV↓)은 하늘이 이깁니다. 그 대비가 물을 물로 보이게 합니다.
     float cosV = max(0.02, -dir.y);
     float Fv = waterFresnel(cosV);
-    col = mix(body, skyRefl, Fv);
+    col = mix(body, skyRefl / eyeAdapt, Fv);
+  }
+
+  // ── 윤슬 (Cox-Munk) ─────────────────────────────────────────────────────
+  //
+  // ⚠ p 는 경사의 **확률분포**이므로 평균면(수직) 기준으로 재야 합니다.
+  // 흔들린 법선에 대고 재면 같은 파도를 두 번 세는 셈입니다.
+  if (uGlitter > 0.5) {
+    vec3 dir = normalize(vViewDir);
+    vec3 V = -dir;                       // 수면 → 눈
+    vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad), sin(uSunAltRad),
+                 -cos(uSunAltRad) * cos(uSunAzRad));
+    vec3 H = normalize(V + L + vec3(1e-5, 1e-4, 1e-5));
+    float cosN = max(H.y, 1e-3);
+    float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);
+    float sv = max(1e-3, uSlopeVar);
+    float p = exp(-clamp(tan2 / sv, 0.0, 50.0)) / (3.14159265 * sv * pow(cosN, 4.0));
+    p = clamp(p, 0.0, 220.0);
+    float cosVg = max(0.02, V.y);
+    float Fg = waterFresnel(clamp(dot(V, H), 0.0, 1.0));
+    // ⚠ 상한을 8 로 두면 윤슬이 **아예 안 보입니다.** 태양 쪽 하늘 되비침이
+    // 이미 4 쯤이라 2배도 못 되고, 그 자리는 톤 곡선이 거의 평평해 화면에서
+    // 251 → 255 로 끝납니다. 되비친 태양은 되비친 하늘보다 자릿수로 밝은
+    // 것이 물리이므로, 잘리는 자리를 훨씬 위로 올립니다. 폭은 여전히 σ
+    // 하나가 정합니다 — 상한은 봉우리 높이만 건드립니다.
+    // 윤슬은 **직달광**입니다 — 구름이 가리면 같이 죽습니다. 그래야 구름이
+    // 지나갈 때 물 위의 빛줄기가 함께 흐려집니다.
+    vec3 glitter = uSunRadiance * cloudShadowAt(vGround.xz) * Fg
+                 * (p / max(1.0, 4.0 * cosVg)) * 3.0;
+    col += clamp(glitter, vec3(0.0), vec3(60.0)) / eyeAdapt;
   }
 
   // 포말 — 수심으로 재므로 폭이 지형 경사를 따릅니다. 프레넬보다 위에 얹어
@@ -222,12 +323,18 @@ void main() {
 export interface SeaPlaneHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
-  setPatch: (patch: DemPatch | null) => void;
+  /**
+   * 높이장을 갈아 끼웁니다. 둘째 인자는 **물 마스크**(성긴 60km 패치)이고,
+   * 안 주면 예전 값을 그대로 둡니다.
+   */
+  setPatch: (patch: DemPatch | null, maskPatch?: DemPatch | null) => void;
   dispose: () => void;
 }
 
 export function createSeaPlane(opts: {
   patch?: DemPatch | null;
+  /** 물이 있는 자리를 가리는 성긴 높이장 (`SEA_MASK_RADIUS_M` 반경). */
+  maskPatch?: DemPatch | null;
   observerElevM?: number;
   eyeHeightM?: number;
   waterAlbedo?: { r: number; g: number; b: number };
@@ -238,6 +345,7 @@ export function createSeaPlane(opts: {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeDemUniforms(opts.patch ?? null),
+      ...makeDemUniforms(opts.maskPatch ?? null, 'seaMask'),
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
@@ -255,6 +363,12 @@ export function createSeaPlane(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
       uFresnel: { value: 1.0 },
+      uCloudShadowTex: { value: createOpenSkyShadowTexture() },
+      uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
+      uCloudShadow: { value: 1.0 },
+      // Cox & Munk (1954). 바람이 0 이어도 잔물결이 있어 0.003 이 바닥입니다.
+      uSlopeVar: { value: 0.003 + 0.00512 * 5.5 },
+      uGlitter: { value: 1.0 },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
@@ -284,11 +398,14 @@ export function createSeaPlane(opts: {
   return {
     mesh,
     material,
-    setPatch: (patch) => {
-      const u = makeDemUniforms(patch);
-      Object.entries(u).forEach(([k, v]) => {
-        if (material.uniforms[k]) material.uniforms[k].value = v.value;
-      });
+    setPatch: (patch, maskPatch) => {
+      const put = (u: Record<string, { value: unknown }>) => {
+        Object.entries(u).forEach(([k, v]) => {
+          if (material.uniforms[k]) material.uniforms[k].value = v.value;
+        });
+      };
+      put(makeDemUniforms(patch));
+      if (maskPatch !== undefined) put(makeDemUniforms(maskPatch, 'seaMask'));
     },
     dispose: () => {
       mesh.geometry.dispose();

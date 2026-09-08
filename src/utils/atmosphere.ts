@@ -1538,10 +1538,24 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
  * `ATMOSPHERE_GLSL` 이 먼저 들어가 있어야 합니다.
  */
 export const GROUND_DISPLAY_GLSL = /* glsl */ `
+/**
+ * 지면용 **눈 순응** 배수 (1 ~ 3).
+ *
+ * 해가 지면 눈이 어두운 지면 쪽으로 순응합니다 — 이게 없으면 노을에
+ * 지면이 검은 띠가 됩니다. 하늘 표시(atm_display)에는 없는 항입니다.
+ *
+ * ⚠ 지면이 **아닌** 것을 이 함수로 표시할 때는 이 배수를 미리 나눠야
+ * 합니다. 수면의 하늘 되비침이 그렇습니다 — 거울인데 지면용 순응을
+ * 그대로 먹어 **제가 비추는 하늘보다 1.20배 밝아졌습니다**(측정).
+ */
+float atm_groundEyeAdapt(float sunAltDeg) {
+  return 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
+}
+
 vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
   vec3 LW = vec3(0.2126, 0.7152, 0.0722);
   float adapt = atm_adaptation(sunAltDeg);
-  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
+  float eyeAdapt = atm_groundEyeAdapt(sunAltDeg);
   vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
   vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
   float luma = dot(c, LW);

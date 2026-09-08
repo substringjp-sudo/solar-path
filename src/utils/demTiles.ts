@@ -143,7 +143,7 @@ export function pickBlockOrigin(
 }
 
 /**
- * 높이장을 읽는 GLSL.
+ * 높이장을 읽는 GLSL 을 **접두사를 갈아 끼워** 찍어 냅니다.
  *
  * `uDemTex` 는 block×block 을 합친 높이장, `uDemSpanM` 은 타일 한 장의 지상
  * 거리, `uDemObs` 는 관측자의 블록 내 소수 타일 좌표(0~block)입니다.
@@ -151,24 +151,44 @@ export function pickBlockOrigin(
  * 씬 좌표 규약: **+x = 동, −z = 북** (`dirX = sin(az)`, `dirZ = -cos(az)` 와
  * 같은 규약). Web Mercator 는 x 가 동, y 가 **남**으로 증가하므로 +z 와
  * 그대로 맞아떨어집니다 — 뒤집을 것이 없습니다.
+ *
+ * ## 왜 접두사를 받나
+ *
+ * 해수면은 높이장을 **두 벌** 씁니다: 물가의 수심을 재는 촘촘한 것(3km)과,
+ * 물이 있는지 없는지만 가리는 성긴 것(60km). 하나만 쓰면 촘촘한 패치 밖은
+ * "모른다" 가 되고, 그때 물을 그려 버리면 **내륙 한복판에도 수평선까지
+ * 바다가 깔립니다** — 실기에서 그렇게 났습니다(서울 도곡동, 해발 70m).
  */
-export const DEM_GLSL = /* glsl */ `
-uniform sampler2D uDemTex;
-uniform vec2  uDemObs;      // 관측자의 블록 내 타일 좌표 (0~uDemBlock)
-uniform float uDemSpanM;    // 타일 한 장의 지상 거리 (m)
-uniform float uDemBlock;    // 블록 한 변의 타일 수
-uniform float uDemValid;    // 0 이면 자료 없음 — 호출부가 물러날 수 있게
+export function demGlsl(prefix: string = 'dem'): string {
+  const p = prefix;
+  const U = p.charAt(0).toUpperCase() + p.slice(1);
+  return /* glsl */ `
+uniform sampler2D u${U}Tex;
+uniform vec2  u${U}Obs;      // 관측자의 블록 내 타일 좌표 (0~u${U}Block)
+uniform float u${U}SpanM;    // 타일 한 장의 지상 거리 (m)
+uniform float u${U}Block;    // 블록 한 변의 타일 수
+uniform float u${U}Valid;    // 0 이면 자료 없음 — 호출부가 물러날 수 있게
 
 /** 씬의 지상 좌표(m, 관측자 원점) → 블록 UV (0~1) */
-vec2 dem_uv(vec2 groundM) {
-  return (uDemObs + groundM / uDemSpanM) / uDemBlock;
+vec2 ${p}_uv(vec2 groundM) {
+  return (u${U}Obs + groundM / u${U}SpanM) / u${U}Block;
 }
 
 /** 그 지점이 받아 둔 블록 **안**인가 (1/0). 밖은 가장자리 값이 늘어납니다. */
-float dem_inside(vec2 groundM) {
-  vec2 uv = dem_uv(groundM);
+float ${p}_inside(vec2 groundM) {
+  vec2 uv = ${p}_uv(groundM);
   vec2 k = step(vec2(0.0), uv) * step(uv, vec2(1.0));
   return k.x * k.y;
+}
+
+/**
+ * 관측자에서 **어느 방향으로도 보장되는** 블록 안쪽 반지름 (m).
+ *
+ * 관측자 타일이 정중앙 한 칸을 차지하므로 여유는 (한 변 − 1) / 2 타일입니다.
+ * 가장자리 화소가 늘어나는 것을 피하려고 조금 안쪽으로 잡습니다.
+ */
+float ${p}_probeRadiusM() {
+  return 0.98 * 0.5 * (u${U}Block - 1.0) * u${U}SpanM;
 }
 
 /**
@@ -178,15 +198,30 @@ float dem_inside(vec2 groundM) {
  * 이 식은 채널에 대해 **선형**이라 텍스처 선형보간과 교환됩니다 —
  * 그래서 보간을 켜 둬도 안전합니다(실측 오차 0.0m).
  */
-float dem_elevation(vec2 uv) {
-  vec3 t = texture2D(uDemTex, clamp(uv, 0.0, 1.0)).rgb * 255.0;
+float ${p}_elevation(vec2 uv) {
+  vec3 t = texture2D(u${U}Tex, clamp(uv, 0.0, 1.0)).rgb * 255.0;
   return t.r * 256.0 + t.g + t.b / 256.0 - 32768.0;
 }
 
-float dem_elevationAt(vec2 groundM) {
-  return dem_elevation(dem_uv(groundM));
+float ${p}_elevationAt(vec2 groundM) {
+  return ${p}_elevation(${p}_uv(groundM));
+}
+
+/**
+ * 블록 **밖**은 같은 방위의 가장자리 값으로 잇습니다 — "마지막으로 본 것이
+ * 계속된다". 모르는 곳을 0m(=물)로 두는 것보다 훨씬 덜 틀립니다.
+ */
+float ${p}_elevationExtended(vec2 groundM) {
+  float r = length(groundM);
+  float rp = ${p}_probeRadiusM();
+  vec2 g = r > rp ? groundM * (rp / max(r, 1e-4)) : groundM;
+  return ${p}_elevationAt(g);
 }
 `;
+}
+
+/** 기본 접두사(`dem`) 판. 예전 그대로입니다. */
+export const DEM_GLSL = demGlsl('dem');
 
 /**
  * block×block 타일을 받아 **GPU 에서** 한 장으로 합칩니다.
@@ -198,12 +233,22 @@ float dem_elevationAt(vec2 groundM) {
  * 고도가 흐려지고, 그건 해안선이 흐려진다는 뜻입니다. (완성된 텍스처를
  * 나중에 읽을 때는 선형보간이 안전합니다 — 위 주석 참고.)
  */
-let cached: { key: string; patch: DemPatch } | null = null;
+/**
+ * 받아 둔 패치들.
+ *
+ * ⚠ 예전에는 **한 칸짜리** 캐시였습니다. 그때는 부르는 데가 하나뿐이라
+ * 괜찮았지만, 이제 해수면이 성긴 물 마스크(60km)를 따로 씁니다 — 한 칸이면
+ * 두 패치가 서로를 밀어내며 매 프레임 타일을 다시 받습니다. 그래서 작은
+ * 키 맵으로 바꾸고 개수만 묶어 둡니다.
+ */
+const cache = new Map<string, DemPatch>();
+const CACHE_MAX = 4;
 
 /** 캐시를 버립니다 (시험용, 그리고 관측지가 크게 바뀔 때). */
 export function clearDemCache(): void {
-  cached?.patch.dispose();
-  cached = null;
+  const all = [...cache.values()];
+  cache.clear();
+  all.forEach((p) => p.dispose());
 }
 
 export async function loadDemPatch(
@@ -232,12 +277,16 @@ export async function loadDemPatch(
   // 같은 블록이면 다시 받지 않습니다. 관측지가 한 타일 안에서 움직이는 동안
   // (걸어다니는 정도) 계속 재사용됩니다.
   const key = `${zoom}/${originX}/${originY}/${block}`;
-  if (cached && cached.key === key) {
+  const hit = cache.get(key);
+  if (hit) {
     // 같은 객체를 돌려줍니다 (복사본이 아니라). 텍스처가 그대로이므로 호출부가
     // 유니폼을 다시 꽂을 필요가 없고, 객체 동일성으로 비교하는 쪽도 안 흔들립니다.
-    cached.patch.observerU = t.x - originX;
-    cached.patch.observerV = t.y - originY;
-    return cached.patch;
+    hit.observerU = t.x - originX;
+    hit.observerV = t.y - originY;
+    // 방금 쓴 것을 맨 뒤로 — 아래에서 가장 오래된 것부터 버립니다.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
   }
 
   const tiles: (THREE.Texture | null)[] = [];
@@ -321,29 +370,38 @@ export async function loadDemPatch(
     observerV: t.y - originY,
     coverage: got / (block * block),
     dispose: () => {
-      if (cached?.patch.texture === target.texture) cached = null;
+      if (cache.get(key)?.texture === target.texture) cache.delete(key);
       target.dispose();
     },
   };
-  cached?.patch.dispose();
-  cached = { key, patch };
+  cache.set(key, patch);
+  while (cache.size > CACHE_MAX) {
+    const oldestKey = cache.keys().next().value as string;
+    const oldest = cache.get(oldestKey);
+    cache.delete(oldestKey);
+    oldest?.dispose();
+  }
   return patch;
 }
 
-/** `DEM_GLSL` 이 기대하는 유니폼을 만듭니다. */
-export function makeDemUniforms(patch: DemPatch | null): Record<string, { value: unknown }> {
+/** `demGlsl(prefix)` 가 기대하는 유니폼을 만듭니다 (기본 접두사 `dem`). */
+export function makeDemUniforms(
+  patch: DemPatch | null,
+  prefix: string = 'dem',
+): Record<string, { value: unknown }> {
   const block = patch?.blockTiles ?? DEM_BLOCK_TILES;
+  const U = prefix.charAt(0).toUpperCase() + prefix.slice(1);
   return {
-    uDemTex: { value: patch?.texture ?? null },
-    uDemObs: {
+    [`u${U}Tex`]: { value: patch?.texture ?? null },
+    [`u${U}Obs`]: {
       value: new THREE.Vector2(
         patch?.observerU ?? block / 2,
         patch?.observerV ?? block / 2,
       ),
     },
-    uDemSpanM: { value: patch?.tileSpanM ?? 1 },
-    uDemBlock: { value: block },
-    uDemValid: { value: patch ? 1 : 0 },
+    [`u${U}SpanM`]: { value: patch?.tileSpanM ?? 1 },
+    [`u${U}Block`]: { value: block },
+    [`u${U}Valid`]: { value: patch ? 1 : 0 },
   };
 }
 

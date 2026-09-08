@@ -98,9 +98,9 @@ if (patch) {
   const ground = createGroundPlane();
   setGroundHorizon(ground, OBS);
   const terrainField = createTerrainField({ patch, eyeHeightM: EYE });
-  terrainField.mesh.renderOrder = -0.6;
+  terrainField.mesh.renderOrder = -0.48;
   const seaPlane = createSeaPlane({ patch, eyeHeightM: EYE });
-  seaPlane.mesh.renderOrder = -0.55;
+  seaPlane.mesh.renderOrder = -0.47;
 
   const scene = new THREE.Scene();
   scene.add(ground); scene.add(terrainField.mesh); scene.add(seaPlane.mesh);
