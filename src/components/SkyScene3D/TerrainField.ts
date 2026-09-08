@@ -35,7 +35,7 @@
  * 까지 틀립니다. `updateTerrainFieldEye` 로 매 프레임 맞춥니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
 } from '../../utils/atmosphere';
@@ -72,14 +72,34 @@ export function fieldRingDistanceM(k: number, rings: number = FIELD_RINGS): numb
 export function createFieldGeometry(
   rings: number = FIELD_RINGS,
   spokes: number = FIELD_SPOKES,
+  farM: number = FIELD_FAR_M,
+  nearM?: number,
 ): THREE.BufferGeometry {
-  return createConcentricGeometry(rings, spokes, FIELD_FAR_M);
+  return createConcentricGeometry(rings, spokes, farM, nearM);
 }
+
+/**
+ * **먼 지형** 격자의 범위 (m).
+ *
+ * 3km 밖은 오랫동안 옛 31방위 능선 띠가 맡았습니다. 그 띠는 방위마다
+ * **5·15·40km 딱 세 점**만 보므로 진짜 봉우리를 대부분 놓칩니다 — 도곡동에서
+ * 재 보니 먼 산이 최대 **3.26° 낮게** 깔렸습니다(`verify-far-terrain.js`).
+ * 그러면 3km 안의 앞산만 제 높이로 서서, 앞산이 실제보다 우뚝해 보입니다.
+ * 실기에서 "산의 높이나 기울기가 조금 과장돼 보인다"고 한 것이 이것입니다.
+ *
+ * 여기서 같은 높이장 방식을 3km 밖으로 잇습니다. 성긴 패치(줌 9, 화소 약
+ * 243m)를 쓰므로 봉우리가 조금 깎이지만, 12° 간격 세 점보다는 비교가 안 되게
+ * 낫습니다.
+ */
+export const FAR_FIELD_NEAR_M = FIELD_FAR_M;
+export const FAR_FIELD_FAR_M = 55000;
+export const FAR_FIELD_RINGS = 96;
 
 /** 격자 정점을 실제로 보이는 각도에 놓는 버텍스 셰이더. */
 export const FIELD_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
+${demGlsl('demEye')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;    // DEM 이 없을 때만 쓰는 발밑 고도 (m)
 uniform float uEyeHeightM;  // 발밑에서 눈까지 (m)
@@ -101,6 +121,12 @@ varying vec2  vGround;   // 지상 좌표 (동, 남) m — 그림자 레이마�
  * 두 면의 교선이 아니게 됩니다.
  */
 float groundAtEye() {
+  // ⚠ 먼 지형 격자는 **성긴** 패치로 그리는데, 발밑 고도까지 성긴 것으로
+  // 읽으면 안 됩니다. 같은 자리가 줌 13 에서 70.7m, 줌 9 에서 59.8m —
+  // 3km 이음매에서 10.9m 는 0.21° 의 층계입니다. 그래서 발밑만은 늘
+  // **촘촘한** 패치(demEye)로 짚습니다. 근거리 격자는 이 자리에 자기
+  // 패치를 그대로 넣으므로 예전과 같은 값입니다.
+  if (uDemEyeValid > 0.5) return demEye_elevationAt(vec2(0.0));
   return uDemValid > 0.5 ? dem_elevationAt(vec2(0.0)) : uObsElevM;
 }
 
@@ -224,7 +250,10 @@ varying vec2  vGround;
  */
 float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
   float best = -1.5;
-  float t = 6.0;
+  // 첫 걸음은 **화소 한 칸**입니다. 그보다 잘게 떼면 같은 화소를 여러 번
+  // 읽을 뿐이고, 성긴 패치(먼 지형)에서는 걸음이 너무 짧아 닿는 거리가
+  // 모자랍니다.
+  float t = max(6.0, uDemSpanM / 256.0);
   for (int i = 0; i < 36; i++) {
     vec2 g = g0 + sunHoriz * t;
     if (dem_inside(g) < 0.5) break;
@@ -322,23 +351,34 @@ export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
   /** DEM 패치를 갈아 끼웁니다. `null` 이면 평평하게 물러납니다. */
-  setPatch: (patch: DemPatch | null) => void;
+  /** 둘째 인자는 **발밑 고도용** 패치입니다. 안 주면 그대로 둡니다. */
+  setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null) => void;
   dispose: () => void;
 }
 
 export function createTerrainField(opts: {
   patch?: DemPatch | null;
+  /**
+   * **발밑 고도만** 이 패치로 짚습니다. 먼 지형 격자가 성긴 패치로 그릴 때
+   * 눈높이가 어긋나 이음매에 층계가 생기는 것을 막습니다 (groundAtEye 참고).
+   * 안 주면 `patch` 자신이 정합니다 — 근거리 격자의 예전 동작 그대로입니다.
+   */
+  eyePatch?: DemPatch | null;
   /** DEM 이 없을 때만 쓰이는 대비책. 있으면 DEM 이 정합니다. */
   observerElevM?: number;
   eyeHeightM?: number;
   albedo?: { r: number; g: number; b: number };
   rings?: number;
   spokes?: number;
+  /** 격자 안쪽·바깥쪽 거리 (m). 먼 지형 격자가 3km~55km 로 씁니다. */
+  nearM?: number;
+  farM?: number;
 }): TerrainFieldHandle {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeDemUniforms(opts.patch ?? null),
+      ...makeDemUniforms(opts.eyePatch ?? null, 'demEye'),
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
@@ -371,7 +411,8 @@ export function createTerrainField(opts: {
   });
 
   const mesh = new THREE.Mesh(
-    createFieldGeometry(opts.rings ?? FIELD_RINGS, opts.spokes ?? FIELD_SPOKES),
+    createFieldGeometry(opts.rings ?? FIELD_RINGS, opts.spokes ?? FIELD_SPOKES,
+                        opts.farM ?? FIELD_FAR_M, opts.nearM),
     material,
   );
   mesh.name = 'terrainField';
@@ -380,11 +421,14 @@ export function createTerrainField(opts: {
   return {
     mesh,
     material,
-    setPatch: (patch) => {
-      const u = makeDemUniforms(patch);
-      Object.entries(u).forEach(([k, v]) => {
-        if (material.uniforms[k]) material.uniforms[k].value = v.value;
-      });
+    setPatch: (patch, eyePatch) => {
+      const put = (u: Record<string, { value: unknown }>) => {
+        Object.entries(u).forEach(([k, v]) => {
+          if (material.uniforms[k]) material.uniforms[k].value = v.value;
+        });
+      };
+      put(makeDemUniforms(patch));
+      if (eyePatch !== undefined) put(makeDemUniforms(eyePatch, 'demEye'));
     },
     dispose: () => {
       mesh.geometry.dispose();

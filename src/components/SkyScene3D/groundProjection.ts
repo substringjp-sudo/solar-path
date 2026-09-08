@@ -82,9 +82,17 @@ const logStep = (k: number, n: number, a: number, b: number): number =>
  * 안쪽 `FIELD_INNER_RINGS` 개가 발밑(`FIELD_FOOT_M`)에서 경첩까지, 나머지가
  * 경첩에서 `farM` 까지입니다. 발밑 구멍을 막으면서 먼 쪽 Δd/d 를 안 잃습니다.
  */
-export function ringDistanceM(k: number, rings: number, farM: number): number {
+export function ringDistanceM(
+  k: number,
+  rings: number,
+  farM: number,
+  nearM: number = FIELD_FOOT_M,
+): number {
+  // ⚠ 발밑에서 시작하지 **않는** 격자(먼 지형 3km~)는 두 구간이 필요
+  // 없습니다. 발밑 구멍이 없으니 한 구간 로그로 균일하게 나눕니다.
+  if (nearM > FIELD_HINGE_M) return logStep(k, rings, nearM, farM);
   const inner = Math.min(FIELD_INNER_RINGS, Math.max(0, rings - 2));
-  if (k < inner) return logStep(k, inner + 1, FIELD_FOOT_M, FIELD_HINGE_M);
+  if (k < inner) return logStep(k, inner + 1, nearM, FIELD_HINGE_M);
   return logStep(k - inner, rings - inner, FIELD_HINGE_M, farM);
 }
 
@@ -106,11 +114,12 @@ export function createConcentricGeometry(
   rings: number,
   spokes: number,
   farM: number,
+  nearM: number = FIELD_FOOT_M,
 ): THREE.BufferGeometry {
   const count = rings * spokes;
   const pos = new Float32Array(count * 3);
   for (let k = 0; k < rings; k++) {
-    const d = ringDistanceM(k, rings, farM);
+    const d = ringDistanceM(k, rings, farM, nearM);
     const r = ringRadius(d);
     for (let j = 0; j < spokes; j++) {
       const az = (j / spokes) * Math.PI * 2; // 북에서 시계방향
