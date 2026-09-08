@@ -388,10 +388,12 @@ Plane`)·능선 띠(`terrainBands`)는 그대로 둡니다** — 새 메시는 �
 **아직 실기(RN 앱)로 확인하지 못한 것:**
 
 - 이 세션엔 기기·시뮬레이터가 없어 **화면으로 직접 본 적이 없습니다.**
-  `npx tsc --noEmit` 통과와 하네스 판정까지만 확인했습니다. 해안선 계열은
-  6·7·8절의 고침 뒤에도 전부 통과합니다 — shore 21, coastline 17, inland 9,
-  sea-reflect 12, glitter 9, handoff 8, terrain-field 17, terrain-shadow 12,
-  far-terrain 8, despike 11, relief 14, shorepatch 10, haze 12.
+  `npx tsc --noEmit` 통과와 하네스 판정까지만 확인했습니다. 전체 **43/53 ·
+  단언 796개 통과**이고, 실패하는 판정 열(단언 19개)은 손대기 전과 같은
+  것들입니다. 해안선 계열은 6·7·8절의 고침 뒤에도 전부 통과합니다 —
+  shore 21, coastline 17, inland 9, sea-reflect 12, glitter 9, handoff 8,
+  terrain-field 17, terrain-shadow 12, far-terrain 8, despike 11, relief 14,
+  shorepatch 10, haze 12.
 - DEM 패치 요청이 `location` 이 바뀔 때마다 새로 도는데, 실기에서
   위경도가 자주 흔들리는 기기(GPS 잡음)를 만나면 재요청이 잦을 수
   있습니다 — 지금은 소수점 3자리(≈110m) 단위로만 거릅니다.
