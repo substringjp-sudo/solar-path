@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { clamp01 } from '../../utils/sunsetPhysics';
+import { seaHorizonDipDeg as earthSeaHorizonDipDeg } from '../../utils/earth';
 import { ATMOSPHERE_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
 
 /**
@@ -618,9 +619,10 @@ export function makeWaterTexture(waterFrac: number[] | null): THREE.DataTexture 
  * 입니다.
  */
 export function seaHorizonDipDeg(observerElevM: number): number {
-  const R = 6371000;
-  const h = Math.max(0, observerElevM);
-  return (Math.acos(R / (R + h)) * 180) / Math.PI;
+  // ⚠ 지구는 utils/earth.ts 한 곳에서만 정의합니다. 여기와 지형각(weather.ts),
+  //   지면·해수면 메시(groundProjection.ts)가 **같은 지구**를 써야 합니다 —
+  //   44절에서 지면과 구름이 갈라져 0.79° 띠가 벌어진 적이 있습니다.
+  return earthSeaHorizonDipDeg(observerElevM);
 }
 
 /**

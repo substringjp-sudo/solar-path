@@ -10,6 +10,7 @@
 
 import { CloudDensityGrid, CloudGridPoint } from './cloudGrid';
 import { getApparentAltitude } from './sunsetPhysics';
+import { EARTH_RADIUS_KM } from './earth';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,7 +46,7 @@ const LAYER_ALTITUDES: Record<string, number> = {
   low: 1.5,
 };
 
-const EARTH_RADIUS = 6371; // km
+const EARTH_RADIUS = EARTH_RADIUS_KM; // km
 
 // ---------------------------------------------------------------------------
 // Helper: cluster adjacent points

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useEffect } from 'react';
+import { EARTH_RADIUS_KM } from '../../utils/earth';
 import { StyleSheet, View, Text, useWindowDimensions, Platform, GestureResponderHandlers, PanResponder, TouchableOpacity, Alert } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Polygon, Path, G, Polyline, ClipPath } from 'react-native-svg';
 import { Sun, Download } from 'lucide-react-native';
@@ -444,7 +445,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const results: any[] = [];
     if (!eventWeather || eventWeather.length === 0) return results;
 
-    const R_E = 6371; // Earth radius in km
+    const R_E = EARTH_RADIUS_KM; // Earth radius in km
     const h_v = (sim?.terrain?.observerElevation ?? 50) / 1000; // Observer altitude in km (default 50m)
 
     const types: ('high' | 'mid' | 'low')[] = ['high', 'mid', 'low'];
@@ -1053,7 +1054,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
       azDiff = ((azDiff + 180) % 360) - 180;
       
       const dProjection = item.d * Math.cos((azDiff * Math.PI) / 180);
-      const phiProjection = dProjection / 6371;
+      const phiProjection = dProjection / EARTH_RADIUS_KM;
       const sunAltFromCloud = sunAltitude + phiProjection * (180 / Math.PI);
       const cloudBeam = getSunBeamColor(sunAltFromCloud);
 
@@ -1355,7 +1356,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         azDiff = ((azDiff + 180) % 360) - 180;
         
         const dProjection = shape.centerDist * Math.cos((azDiff * Math.PI) / 180);
-        const phiProjection = dProjection / 6371;
+        const phiProjection = dProjection / EARTH_RADIUS_KM;
         const sunAltFromCloud = sunAltitude + phiProjection * (180 / Math.PI);
         const cloudBeam = getSunBeamColor(sunAltFromCloud);
 

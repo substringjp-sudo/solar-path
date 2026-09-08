@@ -26,9 +26,10 @@
  * 즉 해안선은 **두 면이 실제로 만나는 자리**이고, 마스크가 아닙니다.
  */
 import * as THREE from 'three';
+import { EARTH_RADIUS_M, EARTH_RADIUS_M_GLSL, seaHorizonDipDeg, seaHorizonDistM } from '../../utils/earth';
 
-/** `utils/weather.ts` · `seaHorizonDipDeg` 와 **같은 지구**여야 합니다. */
-export const EARTH_RADIUS_M = 6371000;
+/** 지구는 `utils/earth.ts` 한 곳에서만 정의합니다. 여기서는 재수출만 합니다. */
+export { EARTH_RADIUS_M, seaHorizonDipDeg, seaHorizonDistM };
 
 /**
  * 격자의 **발밑** 거리 (m).
@@ -70,19 +71,6 @@ export const RADIUS_FAR = 470;
  */
 export const RADIUS_REF_NEAR_M = FIELD_FOOT_M;
 export const RADIUS_REF_FAR_M = 30000;
-
-/** 눈높이 `eyeM` 에서 바다 수평선까지의 지상 거리 (m). */
-export function seaHorizonDistM(eyeM: number): number {
-  return Math.sqrt(2 * EARTH_RADIUS_M * Math.max(0, eyeM));
-}
-
-/** 눈높이 `eyeM` 에서 수평선이 내려앉는 각 (도, 양수). */
-export function seaHorizonDipDeg(eyeM: number): number {
-  return (
-    (Math.acos(EARTH_RADIUS_M / (EARTH_RADIUS_M + Math.max(0, eyeM))) * 180) /
-    Math.PI
-  );
-}
 
 /** 한 구간 로그 간격. Δd/d 가 일정합니다. */
 const logStep = (k: number, n: number, a: number, b: number): number =>
@@ -165,7 +153,7 @@ export function createConcentricGeometry(
  * ⚠ 한쪽만 고치면 그 순간 해안선이 교선이 아니게 됩니다.
  */
 export const GROUND_PROJECT_GLSL = /* glsl */ `
-const float GP_R_EARTH = ${EARTH_RADIUS_M}.0;
+const float GP_R_EARTH = ${EARTH_RADIUS_M_GLSL};
 
 /** 지구 곡률 낙차 (m). 5km 에서 2m, 40km 면 108m 입니다. */
 float gp_drop(float d) { return (d * d) / (2.0 * GP_R_EARTH); }

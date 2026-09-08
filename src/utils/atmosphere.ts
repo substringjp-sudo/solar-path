@@ -18,6 +18,8 @@
  * GLSL 문자열에 주입합니다. 두 구현이 갈라지는 것을 구조적으로 막습니다.
  */
 import { directBeamRGB, aerosolBeta, airMass, clamp01, type RGB } from './sunsetPhysics';
+import { EARTH_RADIUS_KM } from './earth';
+import { EARTH_RADIUS_KM_GLSL } from './earth';
 import { getTuning } from './skyTuning';
 
 // ── 물리 상수 (TS·GLSL 공용) ───────────────────────────────────────────────
@@ -207,7 +209,7 @@ export const SCATTER_HEIGHT_ZENITH = 1.6;
 export const TRANSMITTANCE_MIN_SUN_ALT = 0.0;
 
 /** 지구 반경 (km) — 지구 그림자 높이 계산용 */
-const EARTH_RADIUS_KM_ATM = 6371;
+const EARTH_RADIUS_KM_ATM = EARTH_RADIUS_KM;
 
 /**
  * 태양이 지평선 아래 δ도일 때, 아직 햇빛이 닿는 **최저 고도** (km).
@@ -422,7 +424,7 @@ function ozoneAirMass(
   trueSunAltDeg: number = altDeg
 ): { single: number; multi: number } {
   const altRad = (altDeg * Math.PI) / 180;
-  const rOzone = 22.0 / 6371;
+  const rOzone = 22.0 / EARTH_RADIUS_KM;
   const base = (1 + rOzone) / Math.sqrt(Math.max(0.001, Math.sin(altRad) ** 2 + 2 * rOzone));
   const twilight = trueSunAltDeg < 0
     ? 1 + Math.min(OZONE_TWILIGHT_MAX, -trueSunAltDeg * getTuning().ozoneTwilightGain)
@@ -750,7 +752,9 @@ export function beamAtAltitude(
   cloudAltKm: number,
   p: AtmosphereParams
 ): RGB {
-  const dip = (Math.acos(6371 / (6371 + Math.max(0, cloudAltKm))) * 180) / Math.PI;
+  const dip =
+    (Math.acos(EARTH_RADIUS_KM / (EARTH_RADIUS_KM + Math.max(0, cloudAltKm))) * 180) /
+    Math.PI;
   return directBeamRGB(
     sunAltDeg + dip,
     p.observerElevM + cloudAltKm * 1000,
@@ -1132,7 +1136,7 @@ float atm_airMass(float altDeg) {
 // 지구 그림자 높이 (km) — 태양 복각 δ에서 아직 햇빛이 닿는 최저 고도.
 // TS의 earthShadowHeightKm과 같은 식이어야 합니다.
 float atm_earthShadowHeightKm(float depressionDeg) {
-  return 6371.0 * (1.0 / cos(radians(max(0.0, depressionDeg))) - 1.0);
+  return ${EARTH_RADIUS_KM_GLSL} * (1.0 / cos(radians(max(0.0, depressionDeg))) - 1.0);
 }
 
 // 아직 햇빛을 받는 산란 대기 비율. 지평선 아래 어두워짐을 전부 담당합니다.
@@ -1171,7 +1175,7 @@ vec3 atm_tauMie(float beta, float angstrom, float elevScale) {
 // x = 단일산란용 경로, y = 다중산란용 경로 (TS ozoneAirMass와 같아야 합니다)
 vec2 atm_ozoneAirMass(float altDeg, float trueSunAlt) {
   float s = sin(radians(altDeg));
-  float rO = 22.0 / 6371.0;
+  float rO = 22.0 / ${EARTH_RADIUS_KM_GLSL};
   float base = (1.0 + rO) / sqrt(max(0.001, s * s + 2.0 * rO));
   // 박명에는 오존층을 접선 방향으로 길게 통과 → 주황이 걷히고 파랑이 남음
   float tw = trueSunAlt < 0.0 ? 1.0 + min(OZ_TW_MAX, -trueSunAlt * OZ_TW_GAIN) : 1.0;

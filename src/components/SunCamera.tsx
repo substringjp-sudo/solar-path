@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { EARTH_RADIUS_M } from '../utils/earth';
 import {
   StyleSheet, View, Text, TouchableOpacity, Modal,
   Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
@@ -638,7 +639,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       let description = currentEnhancement.description || 'Clear';
 
       const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const R = 6371000;
+        const R = EARTH_RADIUS_M;
         const dLat = ((lat2 - lat1) * Math.PI) / 180;
         const dLon = ((lon2 - lon1) * Math.PI) / 180;
         const a =

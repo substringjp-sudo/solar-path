@@ -17,6 +17,7 @@
  * 층별로 따로 리샘플링해야 합니다.
  */
 import { layerWindsFrom, type CloudData, type LayerWinds } from './weather';
+import { EARTH_RADIUS_KM } from './earth';
 import { PRESET_OPTICS, resolvePresetFromWeather } from './cloudPresets';
 
 const D2R = Math.PI / 180;
@@ -116,8 +117,8 @@ export function elevationGrid(steps: number = ELEV_STEPS): number[] {
   return out;
 }
 
-/** 지구 반지름 (km). 구면 투영의 기준. */
-export const EARTH_RADIUS_KM = 6371;
+/** 지구 반지름 (km). 구면 투영의 기준. `utils/earth.ts` 가 원본입니다. */
+export { EARTH_RADIUS_KM };
 
 /**
  * 운량 U자 곡선의 세기. 1이면 균등분포, 클수록 맑음/흐림 양 끝으로 몰립니다.

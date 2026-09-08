@@ -4,8 +4,9 @@
  */
 
 import { findPresetTerrain } from './presetTerrains';
+import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 
-const EARTH_RADIUS_KM = 6371;
+// 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ── In-Memory Weather & Terrain Cache (30 min TTL) ──
@@ -34,7 +35,7 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutM
  * Calculates the distance between two points in meters using the Haversine formula.
  */
 export const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371000; // Earth radius in meters
+  const R = EARTH_RADIUS_M;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -857,7 +858,7 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
  * 뜨고, 그러면 바다가 산으로 오인돼 수면 위에 회색 띠가 남습니다.
  * (44절에서 지면과 구름이 서로 다른 지평선을 써서 띠가 벌어진 적이 있습니다.)
  */
-const EARTH_RADIUS_M = 6371000;
+
 
 export interface TerrainData {
   panoramicAngles: number[]; // Max of all distances (near/mid/far)
