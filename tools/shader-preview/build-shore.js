@@ -276,6 +276,13 @@ let 결과=null;
 if (patch){
   const land=createTerrainField({patch, eyeHeightM:EYE});
   const sea=createSeaPlane({patch, eyeHeightM:EYE});
+  // ⚠ 하늘 되비침(프레넬)을 끕니다. 이 판정은 **수심이 물빛을 바꾸는가**를
+  //   재는데, 물가 시야는 화각이 8° 로 좁아 어디를 봐도 스치는 각에 가깝고
+  //   (프레넬 Fv → 1), 켜 두면 화소 대부분이 거의 상수인 하늘색으로
+  //   덮여 수심에 따른 밝기 변화가 사라집니다 — 실제로 켜 두고 쟀더니
+  //   "얕을수록 밝다"가 뒤집혔습니다(1.160배 → 0.951배). 되비침은
+  //   4단계 판정처럼 여기서도 **색을 흐리는 항**입니다.
+  sea.material.uniforms.uFresnel.value = 0;
   // 낮 조건. 조도는 하늘 몫만 — 방향 조명을 빼면 색 차이가 알베도에서만 옵니다.
   for (const m of [land.material, sea.material]){
     // ⚠ 조도를 (0.30,0.33,0.40) 으로 뒀다가 **지면이 통째로 표시 하한

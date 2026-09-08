@@ -332,12 +332,22 @@ export function createTerrainField(opts: {
 /**
  * ⚠ 메시 원점을 **눈**에 맞춥니다. 매 프레임 카메라가 움직이면 같이 옮겨야
  * 각도가 안 어긋납니다 (씬 원점에 두면 가장 가까운 고리에서 0.9° 틀립니다).
+ *
+ * ⚠ **Y(세로)는 카메라를 따라가지 않고 항상 0 입니다.** 이 씬의 카메라
+ * `camera.position.y` 는 실제 미터가 아니라 화면단위 dip 트릭 값입니다
+ * (지면 원반을 기울여 수평선 침강을 흉내 내던 예전 방식 — `TerrainRing.
+ * setGroundHorizon`). 이 메시는 눈높이를 이미 **미터** 단위로
+ * (`uEyeHeightM` + DEM 고도) 셰이더 안에서 정확히 계산하므로, 카메라의
+ * Y 를 메시 위치에도 더하면 **두 셈법이 겹쳐 이중으로 셉니다** — 예를
+ * 들어 카메라가 화면단위로 −17 만큼 내려가 있으면 지형 전체가 그만큼
+ * 한 번 더 가라앉아 보입니다. 그래서 X/Z(수평 이동, 지금은 항상 0)만
+ * 따라가고 Y 는 고정합니다.
  */
 export function updateTerrainFieldEye(
   handle: TerrainFieldHandle,
   camera: THREE.Camera,
 ): void {
-  handle.mesh.position.copy(camera.position);
+  handle.mesh.position.set(camera.position.x, 0, camera.position.z);
 }
 
 /**

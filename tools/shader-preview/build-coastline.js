@@ -242,8 +242,10 @@ if (patch) {
   // 땅은 빨강, 물은 파랑 — 화소로 종류를 가르려고 알베도만 바꿉니다.
   // ⚠ 이 판정은 **기하**를 봅니다. 그래서 색을 흐리는 항을 전부 끕니다:
   //    공기원근(먼 지형을 하늘빛으로 끌고 감), 바닥 비침·포말(얕은 물을
-  //    모래색으로 만듦). 안 끄면 빨강/파랑 분류가 무너집니다.
-  //    5단계 판정(verify-shore.js)이 그 항들을 따로 봅니다.
+  //    모래색으로 만듦), 하늘 되비침(스치는 각의 물을 하늘색으로 끌고 감
+  //    — 처음에 안 끄고 쟀다가 다중 전환이 986→821 로 무너졌습니다).
+  //    안 끄면 빨강/파랑 분류가 무너집니다. 5단계 판정(verify-shore.js)이
+  //    그 항들을 따로 봅니다.
   const land = createTerrainField({ patch, eyeHeightM: EYE, albedo:{r:1,g:0,b:0} });
   land.material.uniforms.uSurfaceIrr.value.set(1,1,1);
   land.material.uniforms.uSunRadiance.value.set(0,0,0);
@@ -252,6 +254,7 @@ if (patch) {
   const sea = createSeaPlane({ patch, eyeHeightM: EYE, waterAlbedo:{r:0,g:0,b:1} });
   sea.material.uniforms.uSurfaceIrr.value.set(1,1,1);
   sea.material.uniforms.uAerial.value = 0;
+  sea.material.uniforms.uFresnel.value = 0;
   sea.material.uniforms.uBedAlbedo.value.set(0,0,0);
   sea.material.uniforms.uFoamDepthM.value = 0;
 
