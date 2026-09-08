@@ -50,6 +50,7 @@ import {
 } from './TerrainField';
 import {
   createSeaPlane,
+  SEA_MASK_RADIUS_M,
   updateSeaPlaneEye,
   type SeaPlaneHandle,
 } from './SeaPlane';
@@ -724,14 +725,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
     // 2a′. DEM 높이장 근거리 지형 · 해수면 (docs/COASTLINE_PLAN.md).
     //
-    // ⚠ **원반을 대체하지 않습니다.** DEM 패치가 아직 없으면(uDemValid=0)
-    // 지면은 평평하게 물러나고, 3km 밖은 이 메시 자체가 없어 원반이
-    // 그대로 비칩니다 — depthWrite:true 라 실제 깊이로 겨루므로, 렌더
-    // 순서만 원반(−0.5)보다 앞에 두면 있는 곳에서는 이 메시가, 없는
-    // 곳에서는 원반이 자연히 이어받습니다 (2단계·4단계 판정에서 검증한
-    // 그 기하 그대로입니다).
+    // ⚠ **원반보다 나중에** 그립니다 (−0.48 / −0.47 > 원반 −0.5).
+    //
+    // 처음엔 반대로 짰습니다 — 원반보다 **먼저**(−0.6/−0.55) 두고 "깊이로
+    // 겨루니 있는 곳에서는 새 메시가 이긴다"고 적었습니다. 틀렸습니다.
+    // 원반은 눈 아래 0.5 에 놓인 **평평한 판**이라, 내려다보는 각 θ 에서
+    // 깊이가 `0.5/sin θ` 입니다 — θ=1° 에서 29, θ=7° 에서 4.1. 새 지형과
+    // 해수면은 반지름 120~470 의 각도 돔 위에 있으니 **거의 언제나 원반이
+    // 더 가깝습니다.** 원반은 depthWrite:false 라 깊이를 안 쓰지만
+    // depthTest:true 로 이겨서 **색을 덮어씁니다.**
+    //
+    // 그래서 실기에서 새 지형이 거의 안 보였습니다: 수평선 바로 아래
+    // 얇은 띠(polygonOffset 이 스치는 각에서 크게 밀어 주는 자리)만 남고
+    // 나머지는 평평한 원반이었습니다. 사용자가 "내가 선 자리 둘레 땅이
+    // 전부 해발 0 처럼 평평하고 물이 고여 있다"고 본 것이 이것입니다.
+    // 하네스로 재 보니 원반을 빼는 것만으로 보이는 바다가 675 → 5,307화소
+    // (마니산 정상에서는 1,328 → 14,740화소, 띠 0.31° → 8.58°)였습니다.
+    //
+    // 고침은 순서 하나입니다. 원반이 **먼저** 배경을 칠하고, 새 메시가 그
+    // 위에 그립니다. 새 메시가 없거나 버리는 자리(뭍의 물, 3km 밖)에는
+    // 원반이 그대로 남아 이어받습니다. 하늘 천체(은하수 −0.6, 해·달
+    // −0.55, 별 −0.5)와 원반의 앞뒤는 **건드리지 않습니다** — 그걸 뒤집으면
+    // 지평선 아래로 진 해가 땅 위에 뜹니다.
     const terrainField = createTerrainField({ eyeHeightM: 1.6 });
-    terrainField.mesh.renderOrder = -0.6;
+    terrainField.mesh.renderOrder = -0.48;
     // DEM 이 오기 전엔 발밑 고도를 모르니 uObsElevM 대비책(0m)으로
     // 평평하게 그립니다 — 그 근사가 화면에 잠깐이라도 비치지 않도록,
     // 패치가 실제로 들어올 때까지는 아예 숨겨 둡니다(아래 DEM 요청
@@ -742,7 +759,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainFieldRef.current = terrainField;
 
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
-    seaPlane.mesh.renderOrder = -0.55;
+    seaPlane.mesh.renderOrder = -0.47;
     seaPlane.mesh.visible = false;
     scene.add(seaPlane.mesh);
     assignLayer(seaPlane.mesh, LAYER_MID);
@@ -1672,10 +1689,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const renderer = rendererRef.current;
       if (!renderer) { demLoadingKeyRef.current = null; return; }
       try {
-        const patch = await loadDemPatch(lat, lng, FIELD_FAR_M, {
+        const load = (radiusM: number) => loadDemPatch(lat, lng, radiusM, {
           renderer,
           loadTexture: (url: string) => loadTextureAsync({ asset: url }),
         });
+        const patch = await load(FIELD_FAR_M);
+        // 물 마스크는 따로 받습니다 — 같은 3×3 블록을 훨씬 낮은 줌으로
+        // 받아 60km 를 덮습니다. 이게 없으면 3km 밖이 "모르는 곳"이 되고,
+        // 예전에는 그걸 물로 두어 **내륙에서도 사방에 물이 고였습니다**.
+        // 실패해도 치명적이지 않습니다 — 촘촘한 패치의 가장자리 값으로
+        // 물러납니다(SeaPlane.ts 의 vWater 참고).
+        const maskPatch = await load(SEA_MASK_RADIUS_M).catch(() => null);
         // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
         // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
         // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
@@ -1686,7 +1710,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (cancelled) return;
         demPatchRef.current = patch;
         terrainFieldRef.current?.setPatch(patch);
-        seaPlaneRef.current?.setPatch(patch);
+        seaPlaneRef.current?.setPatch(patch, maskPatch);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;

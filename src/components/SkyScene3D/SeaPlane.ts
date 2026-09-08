@@ -26,7 +26,7 @@
  * 잘라 정점을 수평선 위에 모읍니다.
  */
 import * as THREE from 'three';
-import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 import {
   GROUND_PROJECT_GLSL, createConcentricGeometry, seaHorizonDistM,
 } from './groundProjection';
@@ -45,14 +45,28 @@ export const SEA_FAR_M = 60000;
 export const SEA_RINGS = 96;
 export const SEA_SPOKES = 256;
 
+/**
+ * **물이 있는지 없는지**만 가리는 성긴 높이장의 반경 (m).
+ *
+ * 수심·포말을 재는 촘촘한 패치는 3km 에서 끝납니다. 그 밖을 "모르니까 물"
+ * 로 두었더니 **내륙 한복판에도 수평선까지 바다가 깔렸습니다** — 서울
+ * 도곡동(해발 70m)에서 사방에 물이 고여 보인다는 실기 보고가 그것입니다.
+ * 물 마스크는 30m 가 필요 없으므로(3km 밖의 바다는 수평선 근처 1° 안으로
+ * 눌립니다) 같은 3×3 블록을 **훨씬 낮은 줌**으로 받아 60km 를 덮습니다 —
+ * 줌 9, 화소 약 243m, 타일 아홉 장.
+ */
+export const SEA_MASK_RADIUS_M = 60000;
+
 export const SEA_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
+${demGlsl('seaMask')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;
 uniform float uEyeHeightM;
 varying float vDistM;
 varying float vDepthM;   // 수심 (m) — 물가 표현의 재료 (5단계)
+varying float vWater;    // 1 = 물, 0 = 뭍 (프래그먼트에서 버립니다)
 varying vec3  vGround;
 // 눈(메시 원점)에서 이 점으로 가는 단위 방향. 하늘 되비침의 거울 방향을
 // 여기서 뒤집어 씁니다 (프래그먼트 셰이더 주석 참고).
@@ -90,6 +104,25 @@ void main() {
   bool known = uDemValid > 0.5 && dem_inside(gc) > 0.5 && hs < 0.0;
   vDepthM = known ? -hs : 999.0;
   vGround = vec3(gc.x, 0.0, gc.y);
+
+  // ── 여기가 물이긴 한가 ──────────────────────────────────────────────────
+  // 수심(위)은 **물빛**만 정합니다. 물이 **있는지**는 따로 물어야 합니다.
+  // 예전에는 안 물었고, 그래서 해수면이 방위를 가리지 않고 수평선까지
+  // 깔렸습니다. 3km 안에서는 지형 격자가 가려 주니 안 보였지만, 그 밖에는
+  // 가려 줄 것이 없어 **내륙에서도 사방에 물 띠**가 났습니다(0.46°).
+  //
+  // ⚠ **촘촘한 것이 먼저** 입니다. 성긴 마스크를 앞에 두었더니 물가가
+  // 통째로 죽었습니다 — 화소 한 칸이 243m 라 해안선이 뭍 쪽으로 뭉개지고,
+  // 바닷가에 선 관측자의 발밑 물이 전부 뭍으로 읽혔습니다(대조 판정에서
+  // 727화소 → 128화소). 그래서 3km 안은 30m 자료가 정하고, 성긴 마스크는
+  // **그 밖에서만** 말합니다. 둘 다 없으면 예전처럼 전부 물 — 높이장이
+  // 아예 없을 때의 평판 대체는 그대로 둡니다.
+  float hm =
+      (uDemValid > 0.5 && dem_inside(gc) > 0.5) ? dem_elevationAt(gc)
+    : (uSeaMaskValid > 0.5)                     ? seaMask_elevationExtended(gc)
+    : (uDemValid > 0.5)                         ? dem_elevationExtended(gc)
+    :                                             -1.0;
+  vWater = hm <= 0.0 ? 1.0 : 0.0;
 
   // 해수면 고도는 0 — 정의상 이것이 기준면입니다.
   vec3 p = gp_project(gc, 0.0, eye, r);
@@ -154,6 +187,7 @@ uniform float uElevScale;
 uniform float uOzoneDU;
 varying float vDistM;
 varying float vDepthM;
+varying float vWater;
 varying vec3  vViewDir;
 
 /** 청정 해수 흡수계수 (1/m). 붉은빛이 먼저 먹힙니다. */
@@ -166,6 +200,11 @@ float waterFresnel(float cosTheta) {
 }
 
 void main() {
+  // 물이 아닌 곳에는 아무것도 안 그립니다 — 먼저 그린 옛 지면 원반이
+  // 그 자리를 그대로 이어받습니다. 삼각형이 물가를 걸치면 0.5 등고선이
+  // 경계가 되고, 그건 땅 격자가 vElevM <= 0 에서 버리는 자리와 같습니다.
+  if (vWater < 0.5) discard;
+
   // 왕복 경로라 수심의 두 배를 지납니다.
   vec3 thru = exp(-SEA_ABSORB * 2.0 * clamp(vDepthM, 0.0, 40.0));
 
@@ -222,12 +261,18 @@ void main() {
 export interface SeaPlaneHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
-  setPatch: (patch: DemPatch | null) => void;
+  /**
+   * 높이장을 갈아 끼웁니다. 둘째 인자는 **물 마스크**(성긴 60km 패치)이고,
+   * 안 주면 예전 값을 그대로 둡니다.
+   */
+  setPatch: (patch: DemPatch | null, maskPatch?: DemPatch | null) => void;
   dispose: () => void;
 }
 
 export function createSeaPlane(opts: {
   patch?: DemPatch | null;
+  /** 물이 있는 자리를 가리는 성긴 높이장 (`SEA_MASK_RADIUS_M` 반경). */
+  maskPatch?: DemPatch | null;
   observerElevM?: number;
   eyeHeightM?: number;
   waterAlbedo?: { r: number; g: number; b: number };
@@ -238,6 +283,7 @@ export function createSeaPlane(opts: {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeDemUniforms(opts.patch ?? null),
+      ...makeDemUniforms(opts.maskPatch ?? null, 'seaMask'),
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
@@ -284,11 +330,14 @@ export function createSeaPlane(opts: {
   return {
     mesh,
     material,
-    setPatch: (patch) => {
-      const u = makeDemUniforms(patch);
-      Object.entries(u).forEach(([k, v]) => {
-        if (material.uniforms[k]) material.uniforms[k].value = v.value;
-      });
+    setPatch: (patch, maskPatch) => {
+      const put = (u: Record<string, { value: unknown }>) => {
+        Object.entries(u).forEach(([k, v]) => {
+          if (material.uniforms[k]) material.uniforms[k].value = v.value;
+        });
+      };
+      put(makeDemUniforms(patch));
+      if (maskPatch !== undefined) put(makeDemUniforms(maskPatch, 'seaMask'));
     },
     dispose: () => {
       mesh.geometry.dispose();
