@@ -32,6 +32,24 @@ import { ATMOSPHERE_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
 export const GROUND_ALBEDO = { r: 0.22, g: 0.17, b: 0.13 };
 
 /**
+ * **수체(water body) 알베도** — 물속으로 들어갔다 되돌아 나오는 몫.
+ *
+ * 물은 가시광에서 알베도가 0.02~0.06 로 아주 낮고, 붉은빛은 몇 m 안에
+ * 흡수돼 청록만 되돌아옵니다. 그래서 물은 **어둡고**, 밝아 보이는 것은
+ * 거의 전부 **표면 반사**(하늘·태양)입니다.
+ *
+ * ⚠ 예전에는 이 항이 `oceanBodyColor * 1.5` 라는 **상수 발광**이었습니다
+ * (에메랄드 0.6 / 코발트 1.1 수준). 조도와 무관하니 한밤에도 바다가
+ * 보라색으로 빛나고, 이미 톤 곡선 꼭대기라 윤슬이 얹힐 자리가 없었습니다.
+ * 실측: 태양 반대쪽 물 238.8 대 육지 119 — 물이 육지보다 **두 배 밝고**
+ * 태양 쪽(212.2)보다도 밝았습니다. 윤슬 폭은 두 풍속 모두 0 이었습니다.
+ *
+ * 땅과 **같은 식**(조도 × 알베도)으로 바꿉니다. 그러면 낮·노을·밤이
+ * 저절로 맞습니다 — 둘 다 같은 하늘빛에서 나오기 때문입니다.
+ */
+export const WATER_BODY_ALBEDO = { r: 0.005, g: 0.038, b: 0.055 };
+
+/**
  * 지면에만 거는 국소 순응 배율. 물리가 아니라 **표시** 선택입니다 —
  * 자세한 근거는 `GROUND_FRAG`의 "국소 순응" 주석.
  *
@@ -247,6 +265,7 @@ uniform float uNightFactor;     // 밤 비율 (0: 낮, 1: 밤)
 
 // ── 2D 수역 마스크 (해안선, 만, 반도, 강, 호수) ────────────────────────────
 uniform sampler2D uWaterTex2D;  // 2D 수역 마스크 (0=육지, 1=수면)
+uniform vec3 uSurfaceIrr;       // 수면에 닿는 조도 (하늘+직달, E/pi. 알베도 곱하기 전)
 uniform float uHasWater;        // 0이면 물 경로를 통째로 건너뜁니다
 uniform vec3  uSunRadiance;     // 지면 고도에서의 직달광 (선형)
 uniform float uSunAltRad;
@@ -285,6 +304,11 @@ vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
 /**
  * 프레넬 반사율 (Schlick, 물 n=1.33 → F0 = 0.02).
  */
+// 수체 알베도 (JS 의 WATER_BODY_ALBEDO 와 같은 값). 가시광 0.02~0.06.
+const vec3 WATER_BODY_ALB = vec3(0.005, 0.038, 0.055);
+// 거품(흰 물)의 알베도. 공기를 머금어 높습니다.
+const float FOAM_ALB = 0.70;
+
 float waterFresnel(float cosTheta) {
   float f = pow(1.0 - clamp(cosTheta, 0.0, 1.0), 5.0);
   return 0.02 + 0.98 * f;
@@ -354,13 +378,37 @@ void main() {
   float sheen = uSheen * 0.32 * max(0.0, dAz) * pow(grazing, 2.2);
 
   // ── 밤 대지 조명 (달빛 전방산란 + 밤하늘 대기광 산란) ─────────────────────
-  vec3 nightAirglow = vec3(0.020, 0.025, 0.035) * uNightFactor;
+  // ⚠ 밤빛 상수는 **표시 단계의 순응을 지납니다.**
+  //
+  // 밤에는 DISP_EXPO 0.62 × adapt(최대 16) × eyeAdapt(최대 3) ×
+  // GROUND_EXPOSURE 2.2 = 약 65배가 걸립니다. 그래서 이 상수 0.02~0.035
+  // 하나만으로 화면이 1.1 이 되어 **지평선 아래가 통째로 하얘졌습니다**
+  // (실측: 태양 -14°에서 육지도 바다도 흰색).
+  //
+  // 이 값은 "밤에 이 정도로 보였으면" 하는 **표시 밝기**로 고른 것이므로,
+  // 순응이 곱해질 몫만큼 미리 나눠 둡니다. 그러면 의도한 밝기는 그대로고
+  // 날아가지만 않습니다. (달빛 uMoonRadiance 는 진짜 물리값이라 그대로
+  // 두고 순응이 올리게 둡니다 — 그게 순응의 존재 이유입니다.)
+  float nightAdapt = max(1.0, atm_adaptation(uSunAltDeg)
+                              * (1.0 + 2.0 * smoothstep(18.0, -3.0, uSunAltDeg)));
+  vec3 nightAirglow = vec3(0.020, 0.025, 0.035) * uNightFactor / nightAdapt;
   float dMoonAz = cos(az - uMoonAzRad);
   float moonSheen = max(0.0, dMoonAz) * pow(grazing, 2.0) * 0.75;
   vec3 moonScatter = uMoonRadiance * (1.0 + moonSheen);
   vec3 nightGround = (nightAirglow + moonScatter) * vec3(0.28, 0.25, 0.20) * 2.8;
 
-  vec3 groundLight = max(vec3(0.035, 0.040, 0.050), uGroundRadiance);
+  // ⚠ **절대 복사휘도 바닥을 깔면 안 됩니다.**
+  //
+  // 예전에는 max(vec3(0.035, 0.040, 0.050), uGroundRadiance) 였습니다.
+  // "지면이 새까매지지 않게" 하려는 것이었는데, 밤에는 순응이 통째로
+  // 65배(DISP_EXPO 0.62 × adapt 16 × eyeAdapt 3 × GROUND_EXPOSURE 2.2)라
+  // 그 바닥 하나만으로 0.04 × 65 = 2.6 이 되어 **화면이 하얗게 날아갑니다.**
+  // 실측: 태양 -14°에서 지평선 아래가 육지도 바다도 전부 흰색이었습니다.
+  //
+  // 검게 죽는 것을 막는 일은 표시 단계의 minGlow 가 이미 합니다 — 그쪽은
+  // 순응을 **지난 뒤** 걸리므로 밤이든 낮이든 같은 밝기로 바닥을 깝니다.
+  // 여기서는 물리값을 그대로 쓰고, 밤빛은 아래 nightGround 가 맡습니다.
+  vec3 groundLight = max(vec3(0.0), uGroundRadiance);
   vec3 col = (groundLight * soilSunDiff * soilBlend * (1.0 + sheen) + nightGround) * uExposure * soilRoughness;
 
   // ── 2D 수면 (청명한 에메랄드-사파이어 수체광, 4-옥타브 파도, 찬란한 황금빛 윤슬) ───────
@@ -400,12 +448,19 @@ void main() {
 
       // ── 면적형 파도 윤슬 (Wave Glitter Carpet) ────────────────────────
       vec3 H = normalize(V + L + vec3(1e-5, 1e-4, 1e-5));
-      float cosN = max(dot(waveNormal, H), 1e-3);
+      // ⚠ Cox-Munk 의 p 는 경사의 **확률분포**입니다 — 그러니 이미 흔들린
+      // waveNormal 이 아니라 **평균면(수직)** 기준으로 재야 합니다. 흔들린
+      // 법선에 대고 재면 같은 파도를 두 번 세는 셈이고, 실제로 그래서
+      // 반사각을 맞추는 화소가 거의 없어 윤슬이 안 섰습니다(봉우리 +4.6).
+      //
+      // H 는 시선과 태양의 반각 벡터이므로, 그 화소가 태양을 눈으로 보내려면
+      // 수면 조각이 얼마나 기울어야 하는지를 H.y 가 그대로 말해 줍니다.
+      float cosN = max(H.y, 1e-3);
       float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);
       float slopeVarClamped = max(1e-3, uSlopeVar);
       float p = exp(-clamp(tan2 / slopeVarClamped, 0.0, 50.0))
               / (3.14159265 * slopeVarClamped * pow(cosN, 4.0));
-      p = clamp(p, 0.0, 30.0);
+      p = clamp(p, 0.0, 220.0);
 
       vec3 waveRefl = reflect(-L, waveNormal);
       float waveGlint = pow(max(0.0, dot(waveRefl, V)), 24.0);
@@ -417,24 +472,41 @@ void main() {
       vec3 sunReflIdeal = reflect(-L, vec3(0.0, 1.0, 0.0));
       float sunAlign = max(0.0, dot(V, sunReflIdeal));
       float specDenom = max(1.0, 4.0 * cosV);
-      float microSpec = (p * 0.45 + waveGlint * 2.5) / specDenom;
-      // 태양 반사 경로에 정렬되었을 때만 윤슬 카펫이 빛나도록 제한
-      vec3 glitter = uSunRadiance * (F * microSpec * pow(sunAlign, 2.0) + pow(sunAlign, 6.0) * 1.8) * 2.2;
-      glitter = clamp(glitter, vec3(0.0), vec3(6.0));
+      // ── 윤슬의 폭은 **Cox-Munk 가 정합니다** ──────────────────────────
+      //
+      // ⚠ 예전에는 여기에 풍속과 무관한 고정 로브가 둘 얹혀 있었습니다:
+      // pow(sunAlign, 6.0)*1.8 (반각 27°) 과 waveGlint = pow(...,24)*2.5.
+      // 그 둘이 물리항 p 를 덮어, 풍속을 2 → 8 m/s 로 올려도 윤슬 폭이
+      // 29.8° 에서 꿈쩍하지 않았습니다 — 27° 는 정확히 sunAlign^6 의 반각
+      // 입니다. 이 모형에서 관측 가능한 유일한 결과가 풍속 의존인데 그것을
+      // 가리고 있었던 것입니다.
+      //
+      // p 는 경사 확률밀도라 폭이 σ = sqrt(0.003 + 0.00512·U) 로 정해집니다
+      // (2m/s 0.115, 8m/s 0.210 rad). 그것만 남기고, 잔물결 반짝임은 결을
+      // 주는 정도로만 조금 섞습니다.
+      //
+      // ⚠ clamp 상한도 올렸습니다. 30 에서 자르면 약풍의 뾰족한 봉우리가
+      // 평평한 고원이 되어 오히려 **넓어 보입니다** — 폭 차이를 지우는
+      // 또 하나의 길입니다.
+      float microSpec = (p + waveGlint * 0.30) / specDenom;
+      vec3 glitter = uSunRadiance * F * microSpec * 3.0;
+      glitter = clamp(glitter, vec3(0.0), vec3(8.0));
 
-      // ── 맑고 눈부신 에메랄드-코발트 바다 수체 고유광 (Vibrant Ocean Body Color) ──
-      // 천해/연안/발밑: 청명하고 투명한 트로피컬 에메랄드 터콰이즈 그린/블루
-      vec3 shallowSea = vec3(0.04, 0.70, 0.80);
-      // 심해/먼바다: 웅장하고 깊은 로열 사파이어 코발트 블루
-      vec3 deepSea    = vec3(0.01, 0.28, 0.72);
-      float depthMix  = smoothstep(3.0, 100.0, groundDist);
-      vec3 noonWater  = mix(shallowSea, deepSea, depthMix);
-
-      // 노을 시 수체: 붉은 노을빛을 품은 그윽한 마린 퍼플 & 앰버 인디고
-      vec3 sunsetSea  = mix(vec3(0.24, 0.14, 0.30), vec3(0.12, 0.10, 0.26), depthMix);
-      float sunWarmth = smoothstep(-2.0, 12.0, uSunAltDeg);
-      vec3 oceanBodyColor = mix(sunsetSea, noonWater, sunWarmth);
-      vec3 body = oceanBodyColor * 1.5;
+      // ── 수체 고유광 = **조도 × 물 알베도** ────────────────────────────
+      //
+      // 예전에는 여기가 상수 발광이었습니다(에메랄드 0.70 / 코발트 0.72 를
+      // 1.5배). 조도와 무관하니 한밤에도 바다가 빛났고, 이미 톤 곡선
+      // 꼭대기라 윤슬이 얹힐 자리가 없었습니다. 땅과 같은 식으로 바꿉니다 —
+      // uWaterBody 는 JS 에서 하늘·직달 조도에 WATER_BODY_ALBEDO 를 곱해
+      // 넘긴 값이라, 낮·노을·밤이 저절로 따라옵니다.
+      //
+      // 남은 두 색은 **색조 배수**입니다(밝기가 아니라 색만). 얕은 물은
+      // 바닥이 되쏘아 초록끼가 돌고, 깊은 물은 붉은빛이 더 먹혀 파랗습니다.
+      vec3 shallowTint = vec3(0.75, 1.20, 1.05);
+      vec3 deepTint    = vec3(0.35, 0.85, 1.35);
+      float depthMix   = smoothstep(3.0, 100.0, groundDist);
+      float sunWarmth  = smoothstep(-2.0, 12.0, uSunAltDeg);
+      vec3 body = uSurfaceIrr * WATER_BODY_ALB * mix(shallowTint, deepTint, depthMix);
 
       // ── 파도 법선 기반 하늘 되비침 ─────────────────────────────────────
       vec3 mirrorDir = normalize(reflect(dir, waveNormal) + vec3(0.0, 1e-4, 0.0));
@@ -442,17 +514,38 @@ void main() {
       float cosG = clamp(dot(mirrorDir, L), -1.0, 1.0);
       vec3 skyRefl = atm_skyRadiance(mirrorElev, cosG, uSunAltDeg,
                                      max(0.001, uBeta), max(0.1, uAngstrom), max(0.1, uElevScale), max(50.0, uOzoneDU));
-      vec3 skyFallback = mix(vec3(0.20, 0.12, 0.08), vec3(0.18, 0.35, 0.62), sunWarmth);
+      // ⚠ 바닥값도 **조도에 비례**해야 합니다. 상수 0.2 를 깔면 한밤에도
+      // 수면이 그만큼 빛납니다. 하늘 복사휘도가 이상할 때를 막는 것이
+      // 목적이므로, 그 자리의 조도에 맞춘 값으로 깝니다.
+      // 바닥은 **가드**이지 기여가 아닙니다. 조도의 0.8배를 깔았더니 반사가
+      // 어디서나 그만큼 밝아져, 태양 반대쪽 수면이 육지보다 밝아졌습니다
+      // (실측 125.1 대 119). 하늘 복사휘도가 이상할 때 검게 죽는 것만
+      // 막으면 되므로 아주 작게 깝니다.
+      vec3 skyFallback = uSurfaceIrr * 0.05 * mix(vec3(1.2, 0.8, 0.6), vec3(0.7, 0.95, 1.4), sunWarmth);
       skyRefl = clamp(max(skyFallback, skyRefl), vec3(0.0), vec3(12.0));
 
-      // 수면 고유의 에메랄드/사파이어 색상이 65% 이상 주도하도록 반사율 완화
+      // ── 반사와 수체의 몫은 **프레넬이 정합니다** ──────────────────────
+      //
+      // ⚠ 예전에는 mix(0.10, 0.35, Fv) 로 반사를 0.35 에서 잘랐습니다
+      // ("에메랄드 색이 65% 이상 주도하도록"). 그런데 물이 하늘을 비추는
+      // 정도는 취향이 아니라 **보는 각도**가 정합니다. 지평선 쪽 수면은
+      // 스침각이라 Fv → 1 이고, 그래서 먼 바다가 하늘색으로 빛납니다.
+      // 발밑을 내려다보면 Fv → 0.02 라 어두운 청록이 보입니다. 그 대비가
+      // 물을 물로 보이게 하는 전부인데, 0.35 로 자르면 둘 다 잃습니다.
       float Fv = waterFresnel(cosV);
-      float reflWeight = mix(0.10, 0.35, Fv);
-      vec3 waterCol = mix(body, skyRefl, reflWeight);
+      vec3 waterCol = mix(body, skyRefl, Fv);
 
-      // ── 파도 피크 하얀 포말 (Sea Foam Line) ────────────────────────────
+      // ── 파도 피크 하얀 포말 ────────────────────────────────────────────
+      //
+      // ⚠ 거품도 **조도 × 알베도**입니다. 예전에는 상수 0.35 를 그냥 더했고,
+      // 수체가 상수 발광이던 시절에는 그 안에 묻혀 안 보였습니다. 수체를
+      // 물리로 되돌리자 이 항이 근거리 수면을 통째로 덮었습니다 — 발밑이
+      // 가장 밝고 수평선 아래가 어두운, 뒤집힌 그림이 됐습니다.
+      //
+      // 거품은 공기를 머금은 흰 물이라 알베도가 0.6~0.8 로 높습니다. 그
+      // 대비가 곧 파도의 결이므로 항은 남기되, 밝기는 조도가 정합니다.
       float foam = smoothstep(0.70, 0.95, waveElev) * (0.6 + 0.4 * groundNoise(vWorld.xz * 6.0)) * 0.35;
-      waterCol += vec3(0.95, 0.98, 1.0) * foam * (0.4 + 0.6 * sunWarmth);
+      waterCol += uSurfaceIrr * FOAM_ALB * vec3(0.98, 0.99, 1.0) * foam;
 
       // 밤바다 달빛 반사 보조
       if (uNightFactor > 0.01) {
@@ -780,6 +873,7 @@ export function createGroundPlane(): THREE.Mesh {
       uSheen: { value: 0.0 },
       uExposure: { value: 1.0 },
       uWaterTex2D: { value: createDummyWaterMask2D() },
+      uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
       uHasWater: { value: 0.0 },
       uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uSunAltRad: { value: 0.5 },
@@ -1093,6 +1187,16 @@ export function updateGroundColors(
   const b = sky.b * GROUND_ALBEDO.b + beam.b * direct * GROUND_ALBEDO.b;
 
   (u.uGroundRadiance.value as THREE.Vector3).set(r, g, b);
+  // 수면에 닿는 **조도**를 알베도 곱하기 전 상태로 넘깁니다. 수체·거품·
+  // 하늘 되비침이 전부 이 하나에서 나오므로, 낮·노을·밤이 따로 손대지
+  // 않아도 맞습니다.
+  if (u.uSurfaceIrr) {
+    (u.uSurfaceIrr.value as THREE.Vector3).set(
+      sky.r + beam.r * direct,
+      sky.g + beam.g * direct,
+      sky.b + beam.b * direct,
+    );
+  }
   u.uSunAltDeg.value = sunAltitude;
   u.uSunAzRad.value = ((opts?.sunAzimuthDeg ?? 180) * Math.PI) / 180;
   // 지면 채도는 하늘보다 낮춥니다.

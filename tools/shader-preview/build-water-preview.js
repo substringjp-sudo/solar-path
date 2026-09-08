@@ -54,6 +54,7 @@ const html = `<!doctype html>
 <script type="module">
 import * as THREE from './app/vendor/three.module.js';
 import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydome.js';
+import { createWaterMask2DTexture } from './app/utils/waterMask.js';
 import { createGroundPlane, createTerrainBands, makeWaterTexture,
          setGroundHorizon, seaHorizonDipDeg,
          updateGroundColors, updateTerrainBands }
@@ -122,7 +123,17 @@ const hazeAt = (az, elev) =>
 const horizonSky = skyRadiance(0.6,
   angularSeparationDeg(SUN_AZ, 0.6, SUN_AZ, SUN_ALT), SUN_ALT, atmosphere);
 
-const seaTex = makeWaterTexture(waterFrac);
+// ⚠ **2D 마스크**를 씁니다.
+//
+// 예전에는 makeWaterTexture 로 구운 64×1 짜리 1D 텍스처를 넘겼습니다.
+// 그런데 지면 셰이더는 main 에서 uWaterTex2D 로 바뀌어 월드 xz 를 2D UV 로
+// 찍습니다. 1D 텍스처를 그 샘플러에 물리면 V 가 한 줄에 고정돼, 마스크가
+// **월드 x 하나의 함수**가 됩니다 — 바다가 세로 줄무늬로 깔립니다.
+// 그 상태로 잰 값에 맞춰 셰이더를 고치면 엉뚱한 곳을 고치게 됩니다.
+const seaMask = createWaterMask2DTexture({
+  latitude: 37.5, longitude: 127.0, observerElevation: OBS_ELEV_M, waterFrac,
+});
+const seaTex = seaMask.texture;
 
 updateTerrainBands(bandsLand, SUN_ALT, {
   skyMean, hazeAt, beam, sunTransmittance: 1,
