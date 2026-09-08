@@ -1425,6 +1425,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uBeta.value = atmosphere.betaMie;
         u.uAngstrom.value = atmosphere.angstrom;
         u.uElevScale.value = atmosphere.elevScale;
+        if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
       }
       if (seaPlaneRef.current) {
         const u = seaPlaneRef.current.material.uniforms;
@@ -1440,6 +1441,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uBeta.value = atmosphere.betaMie;
         u.uAngstrom.value = atmosphere.angstrom;
         u.uElevScale.value = atmosphere.elevScale;
+        if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
       }
     }
 

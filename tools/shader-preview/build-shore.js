@@ -249,6 +249,7 @@ import { loadDemPatch } from './app/utils/demTiles.js';
 import { createTerrainField, updateTerrainFieldEye } from './app/components/SkyScene3D/TerrainField.js';
 import { createSeaPlane, updateSeaPlaneEye } from './app/components/SkyScene3D/SeaPlane.js';
 
+const SUN_AZ_DEG=200;   // 카메라가 보는 쪽과 무관한 고정 방위
 const errors=[]; const oe=console.error; console.error=(...a)=>{errors.push(a.join(' ')); oe(...a);};
 window.addEventListener('error', e=>errors.push(String(e.message)));
 
@@ -293,6 +294,12 @@ if (patch){
     //   (알베도만 보려고) 총량을 현실적인 값으로 올립니다.
     m.uniforms.uSurfaceIrr.value.set(1.20,1.26,1.38);
     m.uniforms.uSunAltDeg.value=35;
+    // ⚠ 연무의 끝색이 **방향별 하늘색**이 된 뒤로는 태양 자리도 넣어야
+    //   뜻이 있습니다. 안 넣으면 하늘 모형이 기본값(방위 0°)을 쓰고,
+    //   여기서 재는 공기원근이 이 하네스가 못 정하는 값에 좌우됩니다.
+    m.uniforms.uSunAltRad.value=35*Math.PI/180;
+    m.uniforms.uSunAzRad.value=SUN_AZ_DEG*Math.PI/180;
+    if (m.uniforms.uOzoneDU) m.uniforms.uOzoneDU.value=330;
     m.uniforms.uHazeRadiance.value.set(HAZE[0],HAZE[1],HAZE[2]);
   }
   land.material.uniforms.uSunRadiance.value.set(0,0,0);

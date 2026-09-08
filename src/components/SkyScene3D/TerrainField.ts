@@ -107,6 +107,7 @@ varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
 varying vec2  vGround;   // 지상 좌표 (동, 남) m — 그림자 레이마치가 씁니다
+varying vec3  vViewDir;  // 눈(메시 원점)에서 이 점으로 — 연무 색이 씁니다
 
 /**
  * 관측자 **발밑** 고도 — 반드시 DEM 자신이 정합니다.
@@ -154,6 +155,9 @@ void main() {
   vNormal = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
 
   vec3 p = gp_project(g, h, groundAtEye() + uEyeHeightM, r);
+  // ⚠ 눈은 메시 원점에 있으므로 p 자체가 "눈에서 이 점으로" 입니다
+  //   (SeaPlane 과 같은 규약). 카메라의 world Y 를 여기서 읽으면 안 됩니다.
+  vViewDir = normalize(p);
 
   // ⚠ 가장자리를 알파로 흐리지 **않습니다.** 예전에는 바깥 고리를 페이드로
   //   넘겼는데, 해수면(4단계)이 생긴 지금 그러면 물가의 땅이 하늘로 사라져
@@ -221,7 +225,9 @@ uniform float uSunAltDeg;
 uniform vec3  uAlbedo;
 uniform float uExposure;
 uniform float uSaturation;
-uniform vec3  uHazeRadiance;  // 지평선 부근 하늘빛 (선형) — 공기원근의 끝값
+uniform vec3  uHazeRadiance;  // 방위 평균 지평선 하늘빛 — 대비책일 뿐입니다
+uniform float uOzoneDU;
+uniform float uHazeDirectional;  // 0 이면 옛 평균 한 값 (A/B 판정용)
 uniform float uAerial;        // 0 이면 공기원근 끔 (기하 판정용)
 uniform float uWetBandM;      // 조간대 폭 (m 단위 **고도**)
 uniform float uBeta;
@@ -232,6 +238,7 @@ varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
 varying vec2  vGround;
+varying vec3  vViewDir;
 
 /**
  * 이 점에서 **태양 쪽 지평선각** (rad).
@@ -346,10 +353,30 @@ void main() {
   vec3 col = alb * (uSurfaceIrr + uSunRadiance * ndl);
 
   // ── 공기원근 ─────────────────────────────────────────────────────────────
+  //
+  // ⚠ 연무의 끝색은 **그 방향의 하늘**이어야 합니다. 예전에는 방위 여섯 곳의
+  // 평균 한 값(uHazeRadiance)을 하늘 전체에 썼습니다. 그러면 새벽에 해 쪽
+  // 산이 **반대쪽 하늘색**을 뒤집어씁니다 — 뒤의 하늘은 주황인데 산만
+  // 푸르스름해지는 것이고, 실기에서 "앞산이 원인불명으로 파랗다"고 한
+  // 자리가 그쪽이었습니다. 옛 능선 띠는 이미 방향별 하늘색(hazeAt)을
+  // 쓰고 있었으니, 새 지형만 뒤처져 있었던 셈입니다.
   if (uAerial > 0.5) {
     vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0,
                                      uBeta, uAngstrom, uElevScale);
-    col = col * T + uHazeRadiance * (1.0 - T);
+    vec3 haze = uHazeRadiance;
+    if (uHazeDirectional > 0.5) {
+      vec3 dir = normalize(vViewDir);
+      vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad), sin(uSunAltRad),
+                   -cos(uSunAltRad) * cos(uSunAzRad));
+      float elevDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+      float cosG = clamp(dot(dir, L), -1.0, 1.0);
+      // 지평선 아래를 보는 화소도 있으므로 하늘 모형에는 0.5° 를 하한으로
+      // 넣습니다 — 그 아래로는 하늘이 정의되지 않습니다.
+      haze = atm_skyRadiance(max(0.5, elevDeg), cosG, uSunAltDeg,
+        max(0.001, uBeta), max(0.1, uAngstrom), max(0.1, uElevScale), max(50.0, uOzoneDU));
+      haze = max(haze, vec3(0.0));
+    }
+    col = col * T + haze * (1.0 - T);
   }
 
   gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
@@ -406,6 +433,8 @@ export function createTerrainField(opts: {
       uSaturation: { value: 1.0 },
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
+      uOzoneDU: { value: 330 },
+      uHazeDirectional: { value: 1.0 },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
       uDemDespike: { value: opts.despike ? 1 : 0 },
