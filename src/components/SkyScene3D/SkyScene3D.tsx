@@ -1391,6 +1391,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const u = seaPlaneRef.current.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
         (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        // Cox & Munk (1954) — **윤슬 폭을 정하는 것은 이 값 하나**입니다.
+        // 옛 원반 물(updateGroundColors)과 같은 바람을 씁니다.
+        u.uSlopeVar.value = 0.003 + 0.00512 * Math.max(0, layerWindsNow().low.speedKmh / 3.6);
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
         u.uSunAltDeg.value = sunAltRef.current;

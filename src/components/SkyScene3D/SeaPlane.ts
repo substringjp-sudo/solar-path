@@ -160,9 +160,24 @@ void main() {
  * 씁니다. **카메라의 world Y 는 여기서 절대 다시 읽지 않습니다** — 그건
  * 화면단위 dip 트릭 값이라, 물리 눈높이(미터)와 섞이면 이중으로 셉니다.
  *
- * 파도 잔물결(Cox-Munk 윤슬)은 아직 안 옮겼습니다 — 이 메시는 아직 파도
- * 없는 평균면이라 미세면 분포를 걸 표면 법선이 없습니다. 다음에 파도를
- * 넣을 때 같이 옵니다.
+ * ## 윤슬 — Cox-Munk 가 폭을 정합니다
+ *
+ * 프레넬 × 하늘만 있으면 태양 둘레가 통째로 뭉근하게 밝아질 뿐 **좁고
+ * 반짝이는 길**이 안 생깁니다. 실기에서 "파도 진폭이 어마어마하게 큰지
+ * 윤슬 폭이 너무 넓어 물 같지 않다"는 말이 나온 것이 이것입니다 —
+ * 재 보니 밝은 길의 반높이 폭이 43~68°, 봉우리 대비는 겨우 1.06~1.19배
+ * 였고, 풍속을 1 → 8 m/s 로 올려도 **꿈쩍도 안 했습니다**(항이 아예
+ * 없었으니 당연합니다).
+ *
+ * 평균면(법선 수직) 기준으로 반각 벡터 H 를 세우면, 그 화소가 태양을 눈에
+ * 보내려면 수면 조각이 얼마나 기울어야 하는지를 `H.y` 가 그대로 말해
+ * 줍니다. Cox-Munk 의 경사 확률밀도
+ *
+ *     p = exp(−tan²θ / σ²) / (π σ² cos⁴θ),   σ² = 0.003 + 0.00512·U
+ *
+ * 를 그대로 씁니다 — **폭을 정하는 것은 이 σ 하나** 입니다. `TerrainRing`
+ * 에서 여기에 풍속과 무관한 고정 로브를 얹었다가 폭이 29.8° 에 붙박여
+ * 움직이지 않은 적이 있어, 여기서는 아예 얹지 않습니다.
  */
 export const SEA_FRAG = /* glsl */ `
 precision highp float;
@@ -181,6 +196,8 @@ uniform float uSunAltDeg;
 uniform vec3  uHazeRadiance;
 uniform float uAerial;
 uniform float uFresnel;       // 0 이면 하늘 되비침을 끕니다 (기하 판정용)
+uniform float uSlopeVar;      // Cox-Munk 파면 경사 분산 σ² = 0.003 + 0.00512·U
+uniform float uGlitter;       // 0 이면 윤슬을 끕니다 (대조 판정용)
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
@@ -200,6 +217,17 @@ float waterFresnel(float cosTheta) {
 }
 
 void main() {
+  // ⚠ 되비침(하늘·태양)은 **거울에 비친 것**이라, 어두운 흙바닥을 살리려고
+  // 둔 지면용 눈 순응(최대 3배)을 그대로 먹으면 안 됩니다. 먹였더니 물이
+  // **제가 비추는 하늘보다 1.20배 밝아졌습니다** — 프레넬 반사율이 1 이하인
+  // 거울에서는 있을 수 없는 일입니다. 화면 전체가 톤 곡선 꼭대기(220~255)에
+  // 눌려, 윤슬을 얹어도 폭이 한 도도 안 움직였습니다.
+  //
+  // atm_display_ground 가 곱할 그 배수를 되비침에서만 미리 나눠, 되비침이
+  // 하늘과 **같은 노출**로 표시되게 합니다. 수체·바닥·포말은 조도 × 알베도
+  // 라 지면과 같은 것이므로 그대로 둡니다.
+  float eyeAdapt = atm_groundEyeAdapt(uSunAltDeg);
+
   // 물이 아닌 곳에는 아무것도 안 그립니다 — 먼저 그린 옛 지면 원반이
   // 그 자리를 그대로 이어받습니다. 삼각형이 물가를 걸치면 0.5 등고선이
   // 경계가 되고, 그건 땅 격자가 vElevM <= 0 에서 버리는 자리와 같습니다.
@@ -240,7 +268,33 @@ void main() {
     // 쪽(cosV↓)은 하늘이 이깁니다. 그 대비가 물을 물로 보이게 합니다.
     float cosV = max(0.02, -dir.y);
     float Fv = waterFresnel(cosV);
-    col = mix(body, skyRefl, Fv);
+    col = mix(body, skyRefl / eyeAdapt, Fv);
+  }
+
+  // ── 윤슬 (Cox-Munk) ─────────────────────────────────────────────────────
+  //
+  // ⚠ p 는 경사의 **확률분포**이므로 평균면(수직) 기준으로 재야 합니다.
+  // 흔들린 법선에 대고 재면 같은 파도를 두 번 세는 셈입니다.
+  if (uGlitter > 0.5) {
+    vec3 dir = normalize(vViewDir);
+    vec3 V = -dir;                       // 수면 → 눈
+    vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad), sin(uSunAltRad),
+                 -cos(uSunAltRad) * cos(uSunAzRad));
+    vec3 H = normalize(V + L + vec3(1e-5, 1e-4, 1e-5));
+    float cosN = max(H.y, 1e-3);
+    float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);
+    float sv = max(1e-3, uSlopeVar);
+    float p = exp(-clamp(tan2 / sv, 0.0, 50.0)) / (3.14159265 * sv * pow(cosN, 4.0));
+    p = clamp(p, 0.0, 220.0);
+    float cosVg = max(0.02, V.y);
+    float Fg = waterFresnel(clamp(dot(V, H), 0.0, 1.0));
+    // ⚠ 상한을 8 로 두면 윤슬이 **아예 안 보입니다.** 태양 쪽 하늘 되비침이
+    // 이미 4 쯤이라 2배도 못 되고, 그 자리는 톤 곡선이 거의 평평해 화면에서
+    // 251 → 255 로 끝납니다. 되비친 태양은 되비친 하늘보다 자릿수로 밝은
+    // 것이 물리이므로, 잘리는 자리를 훨씬 위로 올립니다. 폭은 여전히 σ
+    // 하나가 정합니다 — 상한은 봉우리 높이만 건드립니다.
+    vec3 glitter = uSunRadiance * Fg * (p / max(1.0, 4.0 * cosVg)) * 3.0;
+    col += clamp(glitter, vec3(0.0), vec3(60.0)) / eyeAdapt;
   }
 
   // 포말 — 수심으로 재므로 폭이 지형 경사를 따릅니다. 프레넬보다 위에 얹어
@@ -301,6 +355,9 @@ export function createSeaPlane(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
       uFresnel: { value: 1.0 },
+      // Cox & Munk (1954). 바람이 0 이어도 잔물결이 있어 0.003 이 바닥입니다.
+      uSlopeVar: { value: 0.003 + 0.00512 * 5.5 },
+      uGlitter: { value: 1.0 },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },

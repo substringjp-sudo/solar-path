@@ -122,6 +122,11 @@ sea.material.uniforms.uSunAzRad.value = 0;
 
 function shoot(azDeg, fresnelOn){
   sea.material.uniforms.uFresnel.value = fresnelOn ? 1 : 0;
+  // ⚠ 윤슬도 **되비침**입니다. 이 대조의 뜻은 "되비침을 끄면 body 하나만
+  // 남는다"이므로 같이 꺼야 합니다. 안 껐더니 상수여야 할 대조가 변동폭
+  // 182.68 로 깨졌습니다 — 대조가 깨진 게 아니라 대조가 낡은 것입니다.
+  if (sea.material.uniforms.uGlitter)
+    sea.material.uniforms.uGlitter.value = fresnelOn ? 1 : 0;
   const ar=azDeg*Math.PI/180, pr=PITCH*Math.PI/180;
   cam.up.set(0,1,0);
   cam.lookAt(Math.cos(pr)*Math.sin(ar), Math.sin(pr), -Math.cos(pr)*Math.cos(ar));
