@@ -31,11 +31,20 @@ const ENTRIES = [
   'src/components/SkyScene3D/cloudCellTexture.ts',
   'src/components/SkyScene3D/Skydome.ts',
   'src/components/SkyScene3D/TerrainRing.ts',
+  'src/components/SkyScene3D/groundProjection.ts',
+  'src/components/SkyScene3D/TerrainField.ts',
+  'src/components/SkyScene3D/SeaPlane.ts',
   // 박명광선 습작이 씁니다 — 광선의 원천(태양 원반)과, 끌려오면 안 되는
   // 밝은 것(달)이 화면에 없으면 무엇을 재는지 알 수 없습니다.
   'src/components/SkyScene3D/SunMesh.ts',
   'src/components/SkyScene3D/MoonMesh.ts',
   'src/utils/cloudGridAdapter.ts',
+  // 2D 수역 마스크. main 이 지면 셰이더를 uWaterTex2D 로 바꾸면서 필요해졌는데
+  // 여기 목록에 안 들어와 있었습니다 — 그래서 물 하네스가 낡은 1D 텍스처를
+  // 계속 쓰고 있었습니다.
+  'src/utils/waterMask.ts',
+  // DEM 타일 (해안선 계획 1단계)
+  'src/utils/demTiles.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });

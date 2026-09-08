@@ -39,6 +39,7 @@
  * 11km/텍셀 — 예보 모델 격자(2~11km)와 그대로 맞습니다.
  */
 import * as THREE from 'three';
+import { EARTH_RADIUS_KM_GLSL } from '../../utils/earth';
 import { ATMOSPHERE_GLSL, makeTuningUniforms, type AtmosphereParams } from '../../utils/atmosphere';
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
@@ -55,7 +56,7 @@ const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
 const TAU_K: Record<LayerKey, number> = { low: 13.0, mid: 9.0, high: 3.2 };
 
 export const PREV_CLOUD_SLAB_GLSL = `
-const float SLAB_R_EARTH = 6371.0;
+const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
 
 float prev_slab_hash21(vec2 p){
   p = fract(p * vec2(123.34, 456.21));

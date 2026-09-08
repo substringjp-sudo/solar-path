@@ -2,6 +2,7 @@ import { captureRef } from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import React from 'react';
+import { EARTH_RADIUS_KM } from './earth';
 
 export interface WidgetResImages {
   small: string;  // 180x120
@@ -25,7 +26,7 @@ export interface SunsetWidgetSequenceData {
  * 하버스사인 위경도 거리 계산 (km 단위)
  */
 export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // 지구 반경 (km)
+  const R = EARTH_RADIUS_KM; // 지구 반경 (km)
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =

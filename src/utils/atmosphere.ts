@@ -18,6 +18,8 @@
  * GLSL 문자열에 주입합니다. 두 구현이 갈라지는 것을 구조적으로 막습니다.
  */
 import { directBeamRGB, aerosolBeta, airMass, clamp01, type RGB } from './sunsetPhysics';
+import { EARTH_RADIUS_KM } from './earth';
+import { EARTH_RADIUS_KM_GLSL } from './earth';
 import { getTuning } from './skyTuning';
 
 // ── 물리 상수 (TS·GLSL 공용) ───────────────────────────────────────────────
@@ -207,7 +209,7 @@ export const SCATTER_HEIGHT_ZENITH = 1.6;
 export const TRANSMITTANCE_MIN_SUN_ALT = 0.0;
 
 /** 지구 반경 (km) — 지구 그림자 높이 계산용 */
-const EARTH_RADIUS_KM_ATM = 6371;
+const EARTH_RADIUS_KM_ATM = EARTH_RADIUS_KM;
 
 /**
  * 태양이 지평선 아래 δ도일 때, 아직 햇빛이 닿는 **최저 고도** (km).
@@ -422,7 +424,7 @@ function ozoneAirMass(
   trueSunAltDeg: number = altDeg
 ): { single: number; multi: number } {
   const altRad = (altDeg * Math.PI) / 180;
-  const rOzone = 22.0 / 6371;
+  const rOzone = 22.0 / EARTH_RADIUS_KM;
   const base = (1 + rOzone) / Math.sqrt(Math.max(0.001, Math.sin(altRad) ** 2 + 2 * rOzone));
   const twilight = trueSunAltDeg < 0
     ? 1 + Math.min(OZONE_TWILIGHT_MAX, -trueSunAltDeg * getTuning().ozoneTwilightGain)
@@ -750,7 +752,9 @@ export function beamAtAltitude(
   cloudAltKm: number,
   p: AtmosphereParams
 ): RGB {
-  const dip = (Math.acos(6371 / (6371 + Math.max(0, cloudAltKm))) * 180) / Math.PI;
+  const dip =
+    (Math.acos(EARTH_RADIUS_KM / (EARTH_RADIUS_KM + Math.max(0, cloudAltKm))) * 180) /
+    Math.PI;
   return directBeamRGB(
     sunAltDeg + dip,
     p.observerElevM + cloudAltKm * 1000,
@@ -1132,7 +1136,7 @@ float atm_airMass(float altDeg) {
 // 지구 그림자 높이 (km) — 태양 복각 δ에서 아직 햇빛이 닿는 최저 고도.
 // TS의 earthShadowHeightKm과 같은 식이어야 합니다.
 float atm_earthShadowHeightKm(float depressionDeg) {
-  return 6371.0 * (1.0 / cos(radians(max(0.0, depressionDeg))) - 1.0);
+  return ${EARTH_RADIUS_KM_GLSL} * (1.0 / cos(radians(max(0.0, depressionDeg))) - 1.0);
 }
 
 // 아직 햇빛을 받는 산란 대기 비율. 지평선 아래 어두워짐을 전부 담당합니다.
@@ -1171,7 +1175,7 @@ vec3 atm_tauMie(float beta, float angstrom, float elevScale) {
 // x = 단일산란용 경로, y = 다중산란용 경로 (TS ozoneAirMass와 같아야 합니다)
 vec2 atm_ozoneAirMass(float altDeg, float trueSunAlt) {
   float s = sin(radians(altDeg));
-  float rO = 22.0 / 6371.0;
+  float rO = 22.0 / ${EARTH_RADIUS_KM_GLSL};
   float base = (1.0 + rO) / sqrt(max(0.001, s * s + 2.0 * rO));
   // 박명에는 오존층을 접선 방향으로 길게 통과 → 주황이 걷히고 파랑이 남음
   float tw = trueSunAlt < 0.0 ? 1.0 + min(OZ_TW_MAX, -trueSunAlt * OZ_TW_GAIN) : 1.0;
@@ -1517,6 +1521,46 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
 // 셰이더가 안 쓰는 uniform은 GLSL 컴파일러가 지우고 three가 조용히 건너뜁니다.
 
 /** 머티리얼 생성 시 uniforms에 펼쳐 넣습니다. */
+/**
+ * **지면·수면용 표시 변환.**
+ *
+ * 하늘의 `atm_display` 와 같은 톤매핑·순응을 쓰되, 지면에만 필요한 두 가지가
+ * 더 있습니다:
+ *
+ * - `eyeAdapt` — 해가 지면 눈이 어두운 지면 쪽으로 더 순응합니다. 이게 없으면
+ *   노을에 지면이 검은 띠가 됩니다.
+ * - `minGlow` — 노을·야간에 지면이 완전히 뭉개지지 않게 하는 최소 밝기.
+ *
+ * ⚠ 이 함수는 `TerrainRing` 의 두 셰이더에 **복사되어** 있었습니다. 값은 같고
+ * 주석 한 줄만 달랐는데, 그대로 뒀으면 언젠가 갈라졌을 자리입니다 (44절이
+ * 정확히 그렇게 났습니다). 지면·수면·높이장이 전부 여기 하나를 씁니다.
+ *
+ * `ATMOSPHERE_GLSL` 이 먼저 들어가 있어야 합니다.
+ */
+export const GROUND_DISPLAY_GLSL = /* glsl */ `
+vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  float adapt = atm_adaptation(sunAltDeg);
+  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
+  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
+  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
+  float luma = dot(c, LW);
+  c = mix(vec3(luma), c, DISP_SAT * saturation);
+
+  float l0 = dot(c, LW);
+  float l1 = pow(max(1e-4, l0), 0.92);
+  float maxc = max(c.r, max(c.g, c.b));
+  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
+  c = clamp(c * k, 0.0, 1.0);
+
+  // 노을 및 야간 최소 앰비언트 가시성 보장
+  vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
+  c = max(c, minGlow);
+
+  return atm_toSrgb(c);
+}
+`;
+
 export function makeTuningUniforms(): Record<string, { value: number }> {
   const t = getTuning();
   return {

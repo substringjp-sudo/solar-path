@@ -17,7 +17,7 @@
 import React, { useRef, useCallback, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
-import { Renderer } from 'expo-three';
+import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
@@ -41,6 +41,18 @@ import {
 import { createSun, updateSun, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
+import { loadDemPatch, clearDemCache, type DemPatch } from '../../utils/demTiles';
+import {
+  createTerrainField,
+  updateTerrainFieldEye,
+  FIELD_FAR_M,
+  type TerrainFieldHandle,
+} from './TerrainField';
+import {
+  createSeaPlane,
+  updateSeaPlaneEye,
+  type SeaPlaneHandle,
+} from './SeaPlane';
 import {
   createStarField,
   updateStarField,
@@ -287,6 +299,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const waterMaskHandleRef = useRef<WaterMaskHandle | null>(null);
   const waterTexRef = useRef<THREE.DataTexture | null>(null);
   const compassGroupRef = useRef<THREE.Group | null>(null);
+  /**
+   * **DEM 높이장 근거리 지형·해수면** (docs/COASTLINE_PLAN.md 1~5단계).
+   *
+   * `groundRef`(평평한 원반)·`terrainBandsRef`(5/15/40km 능선 실루엣)는
+   * 그대로 둡니다 — 이 메시들은 그 **위에 얹히는 근거리(0~3km) 보강**이라,
+   * DEM 을 못 받거나 아직 받는 중이면 기존 화면으로 그대로 물러납니다
+   * (아래 렌더 순서 참고). 절대 기존 경로를 대체하지 않습니다.
+   */
+  const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
+  const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
+  const demPatchRef = useRef<DemPatch | null>(null);
+  /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
+  const demLoadingKeyRef = useRef<string | null>(null);
+  const demLoadedKeyRef = useRef<string | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
   const starFieldRef = useRef<StarFieldHandle | null>(null);
@@ -419,6 +445,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastSkyMeanSunAzRef = useRef<number>(-999);
   const lastSkyMeanAtmosRef = useRef<any>(null);
   const cachedSkyMeanRGBRef = useRef<{ r: number; g: number; b: number }>({ r: 0.2, g: 0.3, b: 0.5 });
+  /**
+   * 지평선 부근 하늘빛 — DEM 지형·해수면의 공기원근(먼 지형이 이 색으로
+   * 수렴)과 하늘 되비침(수평선 쪽 물의 바탕색)이 씁니다. `cachedSkyMeanRGB`
+   * 는 반구 평균이라 지평선보다 밝습니다(천정 쪽 가중), 그래서 따로 둡니다.
+   */
+  const cachedHorizonRGBRef = useRef<{ r: number; g: number; b: number }>({ r: 0.05, g: 0.06, b: 0.09 });
 
   useEffect(() => { sceneWidthRef.current = SCENE_WIDTH; requestRender(3); }, [SCENE_WIDTH, requestRender]);
   useEffect(() => { skySettingsRef.current = skySettings; requestRender(3); }, [skySettings, requestRender]);
@@ -682,11 +714,39 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     assignLayer(skydome.mesh, LAYER_SOFT_SKY);
     skydomeRef.current = skydome;
 
-    // 2a. Ground Plane (3D 대지 원반)
+    // 2a. Ground Plane (3D 대지 원반) — 지금은 근거리(0~3km)의 **대비책**입니다.
+    // DEM 이 없거나 아직 못 받았을 때, 그리고 3km 밖에서 계속 이 자리를
+    // 채웁니다. 아래 2a′ 가 그 위에 실제 지형을 얹습니다.
     const ground = createGroundPlane();
     scene.add(ground);
     assignLayer(ground, LAYER_MID);
     groundRef.current = ground;
+
+    // 2a′. DEM 높이장 근거리 지형 · 해수면 (docs/COASTLINE_PLAN.md).
+    //
+    // ⚠ **원반을 대체하지 않습니다.** DEM 패치가 아직 없으면(uDemValid=0)
+    // 지면은 평평하게 물러나고, 3km 밖은 이 메시 자체가 없어 원반이
+    // 그대로 비칩니다 — depthWrite:true 라 실제 깊이로 겨루므로, 렌더
+    // 순서만 원반(−0.5)보다 앞에 두면 있는 곳에서는 이 메시가, 없는
+    // 곳에서는 원반이 자연히 이어받습니다 (2단계·4단계 판정에서 검증한
+    // 그 기하 그대로입니다).
+    const terrainField = createTerrainField({ eyeHeightM: 1.6 });
+    terrainField.mesh.renderOrder = -0.6;
+    // DEM 이 오기 전엔 발밑 고도를 모르니 uObsElevM 대비책(0m)으로
+    // 평평하게 그립니다 — 그 근사가 화면에 잠깐이라도 비치지 않도록,
+    // 패치가 실제로 들어올 때까지는 아예 숨겨 둡니다(아래 DEM 요청
+    // 이펙트가 켭니다). 그동안은 원반이 그 자리를 이어받습니다.
+    terrainField.mesh.visible = false;
+    scene.add(terrainField.mesh);
+    assignLayer(terrainField.mesh, LAYER_MID);
+    terrainFieldRef.current = terrainField;
+
+    const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
+    seaPlane.mesh.renderOrder = -0.55;
+    seaPlane.mesh.visible = false;
+    scene.add(seaPlane.mesh);
+    assignLayer(seaPlane.mesh, LAYER_MID);
+    seaPlaneRef.current = seaPlane;
 
     // 2b. Compass Ring & Direction Markers (3D 지평선 방위 마커)
     const compassGroup = createCompassGroup();
@@ -983,6 +1043,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           -lookDist * Math.cos(elevRad) * Math.cos(azRad)
         );
 
+        // ⚠ 이 카메라의 Y(`cameraY`)는 실제 미터가 아니라 화면단위 dip
+        // 트릭 값입니다. DEM 지형·해수면은 눈높이를 자체적으로 미터로
+        // 계산하므로, X/Z(둘 다 항상 0)만 따라가고 Y 는 안 따라갑니다 —
+        // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
+        if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
+        if (seaPlaneRef.current) updateSeaPlaneEye(seaPlaneRef.current, camera);
+
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
         // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
         applyTuningUniforms(skydomeRef.current?.material.uniforms);
@@ -991,6 +1058,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const deckLayers = cloudDeckRef.current?.layers;
         if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
         if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
+        if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
+        if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
 
         // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
         // 등) 예전처럼 한 번에 그립니다 — 화면이 안 나오는 것보다 낫습니다.
@@ -1235,6 +1304,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
       }
       cachedSkyMeanRGBRef.current = { r: sr / sw, g: sg / sw, b: sb / sw };
+
+      // 지평선 부근(고도 2°) 하늘빛 — 방위 6곳 균등 평균. 공기원근이 먼
+      // 지형을 이 색으로 끌고 갑니다.
+      let hr = 0, hg = 0, hb = 0;
+      for (let a = 0; a < 6; a++) {
+        const az = (a * 360) / 6;
+        const gamma = angularSeparationDeg(az, 2, sunAzRef.current, sunAltRef.current);
+        const L = skyRadiance(2, gamma, sunAltRef.current, atmosphere);
+        hr += L.r; hg += L.g; hb += L.b;
+      }
+      cachedHorizonRGBRef.current = { r: hr / 6, g: hg / 6, b: hb / 6 };
     }
 
     if (groundRef.current) {
@@ -1254,6 +1334,54 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         moonAzimuthDeg: (moonPos.azimuth * 180) / Math.PI + 180,
         moonFraction: moonIllum.fraction,
       });
+    }
+
+    // ── DEM 근거리 지형 · 해수면 물빛 ─────────────────────────────────────────
+    //
+    // `updateGroundColors`(위)와 **같은 물리량**을 씁니다 — 조도 = 하늘 몫
+    // + 직달 몫, 태양 복사휘도 = beam × 태양가림률. 값을 다시 유도하지
+    // 않고 그대로 받아씁니다. 이 메시들엔 채도 하한을 따로 안 낮춥니다
+    // (`updateGroundColors` 가 지면 채도를 0.55배 하는 것과 달리, 여기는
+    // 아직 실측으로 맞출 대상이 이 메시 자체뿐이라 1.0 그대로 둡니다).
+    {
+      const sky = cachedSkyMeanRGBRef.current;
+      const beam = beamAtAltitude(sunAltRef.current, 0, atmosphere);
+      const sunT = 1 - overcast;
+      const sinAlt = Math.max(0, Math.sin((sunAltRef.current * Math.PI) / 180));
+      const direct = (sinAlt * sunT) / Math.PI;
+      const surfaceIrr = {
+        r: sky.r + beam.r * direct,
+        g: sky.g + beam.g * direct,
+        b: sky.b + beam.b * direct,
+      };
+      const sunAzRad = (sunAzRef.current * Math.PI) / 180;
+      const sunAltRad = (sunAltRef.current * Math.PI) / 180;
+      const horizon = cachedHorizonRGBRef.current;
+
+      if (terrainFieldRef.current) {
+        const u = terrainFieldRef.current.material.uniforms;
+        (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
+        (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        u.uSunAzRad.value = sunAzRad;
+        u.uSunAltRad.value = sunAltRad;
+        u.uSunAltDeg.value = sunAltRef.current;
+        (u.uHazeRadiance.value as THREE.Vector3).set(horizon.r, horizon.g, horizon.b);
+        u.uBeta.value = atmosphere.betaMie;
+        u.uAngstrom.value = atmosphere.angstrom;
+        u.uElevScale.value = atmosphere.elevScale;
+      }
+      if (seaPlaneRef.current) {
+        const u = seaPlaneRef.current.material.uniforms;
+        (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
+        (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        u.uSunAzRad.value = sunAzRad;
+        u.uSunAltRad.value = sunAltRad;
+        u.uSunAltDeg.value = sunAltRef.current;
+        (u.uHazeRadiance.value as THREE.Vector3).set(horizon.r, horizon.g, horizon.b);
+        u.uBeta.value = atmosphere.betaMie;
+        u.uAngstrom.value = atmosphere.angstrom;
+        u.uElevScale.value = atmosphere.elevScale;
+      }
     }
 
     if (terrainBandsRef.current) {
@@ -1517,6 +1645,64 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     requestRender(10);
   }, [sim?.terrain?.bandAngles, location, requestRender]);
 
+  /**
+   * **DEM 높이장 패치 요청** (docs/COASTLINE_PLAN.md 1단계).
+   *
+   * ⚠ `sim.terrain`(Open-Meteo 31방위 프로필)과는 **독립**입니다. 새 지형은
+   * 발밑 고도까지 DEM 자신이 정하므로(`TerrainField`·`SeaPlane` 의
+   * `groundAtEye`), 여기서는 위경도만 있으면 됩니다 — `observerElevation`
+   * 을 넘길 필요가 없습니다.
+   *
+   * 자리가 바뀌면(위경도가 눈에 띄게 달라지면) 다시 받습니다. 소수점
+   * 3자리(≈110m)면 같은 타일 블록 안에 머물 확률이 높아 재요청을
+   * 걸러내되, 도보로 이동하는 정도는 못 잡습니다 — `loadDemPatch` 자체가
+   * 같은 블록이면 캐시를 쓰므로 크게 문제되지 않습니다.
+   */
+  useEffect(() => {
+    const lat = location?.coords?.latitude;
+    const lng = location?.coords?.longitude;
+    if (typeof lat !== 'number' || typeof lng !== 'number') return;
+
+    const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+    if (demLoadedKeyRef.current === key || demLoadingKeyRef.current === key) return;
+    demLoadingKeyRef.current = key;
+
+    let cancelled = false;
+    (async () => {
+      const renderer = rendererRef.current;
+      if (!renderer) { demLoadingKeyRef.current = null; return; }
+      try {
+        const patch = await loadDemPatch(lat, lng, FIELD_FAR_M, {
+          renderer,
+          loadTexture: (url: string) => loadTextureAsync({ asset: url }),
+        });
+        // ⚠ 직접 dispose 하지 않습니다. `loadDemPatch` 는 모듈 안에 블록
+        // 하나짜리 캐시를 두고, 자리를 옮겨 새로 받을 때 **이전 패치를
+        // 스스로 정리**합니다(demTiles.ts 참고). 같은 블록 안이면 오히려
+        // *같은 객체*를 돌려주므로, 여기서 "이전" 패치를 지운다며
+        // `demPatchRef.current`를 dispose 하면 방금 받은 새 패치를
+        // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
+        // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
+        if (cancelled) return;
+        demPatchRef.current = patch;
+        terrainFieldRef.current?.setPatch(patch);
+        seaPlaneRef.current?.setPatch(patch);
+        // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
+        // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
+        if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
+        if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
+        demLoadedKeyRef.current = key;
+        requestRender(10);
+      } catch (e) {
+        if (__DEV__) console.warn('[DEM] 높이장을 못 받았습니다 — 기존 화면으로 물러납니다.', e);
+      } finally {
+        if (!cancelled) demLoadingKeyRef.current = null;
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [location, requestRender]);
+
   useEffect(() => {
     return () => {
       if (animFrameRef.current) {
@@ -1545,6 +1731,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         disposeGroundPlane(groundRef.current);
         groundRef.current = null;
       }
+
+      if (terrainFieldRef.current) {
+        terrainFieldRef.current.dispose();
+        terrainFieldRef.current = null;
+      }
+      if (seaPlaneRef.current) {
+        seaPlaneRef.current.dispose();
+        seaPlaneRef.current = null;
+      }
+      // DEM 은 모듈 안 캐시에 하나 살아 있습니다 — 씬이 통째로 내려갈 때만
+      // 지웁니다(다음 마운트에서 죽은 GL 컨텍스트의 텍스처를 들고 있지
+      // 않도록). 도중에 자리를 옮길 때는 loadDemPatch 자신이 정리합니다.
+      demPatchRef.current = null;
+      demLoadingKeyRef.current = null;
+      demLoadedKeyRef.current = null;
+      clearDemCache();
 
       waterMaskHandleRef.current?.dispose();
       waterMaskHandleRef.current = null;

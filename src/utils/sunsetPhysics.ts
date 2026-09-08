@@ -5,8 +5,9 @@
 
 import { CloudData, CloudPathData, getInterpolatedWeather } from './weather';
 import skyWeights from './sky_weights_v2.json';
+import { EARTH_RADIUS_KM } from './earth';
 
-const EARTH_RADIUS_KM = 6371;
+// 지구는 utils/earth.ts 한 곳에서만 정의합니다 — 이유는 그 파일 주석 참고.
 
 export type RGB = { r: number; g: number; b: number };
 

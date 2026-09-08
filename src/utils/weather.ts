@@ -4,8 +4,9 @@
  */
 
 import { findPresetTerrain } from './presetTerrains';
+import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 
-const EARTH_RADIUS_KM = 6371;
+// 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ── In-Memory Weather & Terrain Cache (30 min TTL) ──
@@ -34,7 +35,7 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutM
  * Calculates the distance between two points in meters using the Haversine formula.
  */
 export const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371000; // Earth radius in meters
+  const R = EARTH_RADIUS_M;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -848,6 +849,17 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
   });
 };
 
+/**
+ * 지구 반지름 (m). `TerrainRing.seaHorizonDipDeg` 와 **같은 값**이어야 합니다.
+ *
+ * `createTerrainBands` 는 `raw > -dipDeg` 로 "산인가 물인가"를 가릅니다.
+ * 그 판정이 성립하려면 지형각과 수평선이 **같은 지구**를 써야 합니다 —
+ * 곡률이 빠지면 40km 의 해수면이 -0.043° 로 읽혀 수평선(-0.176°)보다 위에
+ * 뜨고, 그러면 바다가 산으로 오인돼 수면 위에 회색 띠가 남습니다.
+ * (44절에서 지면과 구름이 서로 다른 지평선을 써서 띠가 벌어진 적이 있습니다.)
+ */
+
+
 export interface TerrainData {
   panoramicAngles: number[]; // Max of all distances (near/mid/far)
   farAngles: number[];       // Only distant mountains (15km, 40km)
@@ -1031,13 +1043,26 @@ export const fetchTerrainProfile = async (
         if (elev === undefined) { bandAngles[j].push(0); continue; }
 
         const distMeters = DISTANCES[j] * 1000;
-        const elevDiff = elev - observerElev;
+        // ⚠ **지구 곡률**을 빼야 합니다. 멀리 있는 지면은 그만큼 발밑으로
+        // 휘어 내려갑니다 — 낙차는 d²/2R 로, 5km 에서 2m 지만 40km 면
+        // **108m** 입니다. 이게 없으면 40km 의 해수면이 -0.043° 로 읽혀
+        // 진짜 수평선(-0.176°)보다 위에 뜨고, 능선 띠와 지면 원반이 서로
+        // 다른 수평선을 그려 경계가 어긋납니다.
+        //
+        // R 은 `TerrainRing.seaHorizonDipDeg` 와 **같은 값**을 씁니다.
+        // 44절에서 지면과 구름이 서로 다른 지평선을 써서 띠가 벌어진 적이
+        // 있습니다 — 같은 종류의 결함을 만들지 않으려고 맞춰 둡니다.
+        // (둘 다 대기 굴절은 넣지 않았습니다. 넣으면 낙차가 약 13% 줄어들고,
+        //  올릴 때는 **두 곳을 같이** 올려야 합니다.)
+        const curvatureDropM = (distMeters * distMeters) / (2 * EARTH_RADIUS_M);
+        const elevDiff = elev - observerElev - curvatureDropM;
         const angle = (Math.atan2(elevDiff, distMeters) * 180) / Math.PI;
 
         bandAngles[j].push(angle);
+        const isWater = elev === 0 ? 1 : 0;
         if (angle > maxAzAngle) maxAzAngle = angle;
         if (j >= 1 && angle > maxFarAngle) maxFarAngle = angle;
-        if (elev === 0) water++;
+        water += isWater;
         counted++;
       }
       panoramicAngles.push(maxAzAngle);
