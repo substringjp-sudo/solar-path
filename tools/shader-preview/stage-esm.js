@@ -31,6 +31,7 @@ const ENTRIES = [
   'src/components/SkyScene3D/cloudCellTexture.ts',
   'src/components/SkyScene3D/Skydome.ts',
   'src/components/SkyScene3D/TerrainRing.ts',
+  'src/components/SkyScene3D/TerrainField.ts',
   // 박명광선 습작이 씁니다 — 광선의 원천(태양 원반)과, 끌려오면 안 되는
   // 밝은 것(달)이 화면에 없으면 무엇을 재는지 알 수 없습니다.
   'src/components/SkyScene3D/SunMesh.ts',
