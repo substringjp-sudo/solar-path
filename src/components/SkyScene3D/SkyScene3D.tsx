@@ -40,6 +40,7 @@ import {
 } from './TerrainRing';
 import { createSun, updateSun, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
+import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
 import {
   createStarField,
   updateStarField,
@@ -282,7 +283,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** 거리대별 능선 (docs/GROUND_PLAN.md 3단계) */
   const terrainBandsRef = useRef<TerrainBandsHandle | null>(null);
   const groundRef = useRef<THREE.Mesh | null>(null);
-  /** 방위별 수역 마스크 (docs/GROUND_PLAN.md 4단계) */
+  /** 2D 수역 마스크 (해안선·만·반도 + 강·호수) */
+  const waterMaskHandleRef = useRef<WaterMaskHandle | null>(null);
   const waterTexRef = useRef<THREE.DataTexture | null>(null);
   const compassGroupRef = useRef<THREE.Group | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
@@ -468,6 +470,32 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
   }, [fovProp, requestRender]);
 
+  const teleportTarget = useCelestialStore((s) => s.teleportTarget);
+  useEffect(() => {
+    if (!teleportTarget) return;
+    if (teleportTarget.cameraAz !== undefined) {
+      cameraAzRef.current = (teleportTarget.cameraAz % 360 + 360) % 360;
+      setCameraAzimuth(cameraAzRef.current);
+    }
+    if (teleportTarget.cameraElev !== undefined) {
+      cameraElevRef.current = Math.max(-45, Math.min(85, teleportTarget.cameraElev));
+      setCameraElevation(cameraElevRef.current);
+    }
+    if (teleportTarget.fov !== undefined) {
+      fovRef.current = Math.max(20, Math.min(120, teleportTarget.fov));
+      if (cameraRef.current) {
+        cameraRef.current.fov = fovRef.current;
+        cameraRef.current.updateProjectionMatrix();
+      }
+      setCameraFov(fovRef.current);
+    }
+    trackingTargetRef.current = null;
+    if (onSelectTrackingTargetRef.current) {
+      onSelectTrackingTargetRef.current(null);
+    }
+    requestRender(10);
+  }, [teleportTarget?.nonce, requestRender]);
+
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
     return w && w.length > 0 ? w[0] : undefined;
@@ -571,8 +599,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               cameraRef.current.fov = fovRef.current;
               cameraRef.current.updateProjectionMatrix();
             }
-            // 줌 변경 시에도 땅 점유율이 30%를 넘지 않도록 카메라 고도 하한 보정
-            const minElev = getMinCameraElevForGroundRatio(fovRef.current, 0.3);
+            // 사용자가 발밑 지면과 바다 수면을 자연스럽게 조망할 수 있도록 -45°까지 내려다보기 허용
+            const minElev = -45;
             if (cameraElevRef.current < minElev) {
               cameraElevRef.current = minElev;
             }
@@ -589,8 +617,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const dy = touches[0].pageY - lastTouchRef.current.y;
             const nextAz = (cameraAzRef.current - dx * DRAG_SENSITIVITY + 360) % 360;
             cameraAzRef.current = nextAz;
-            // 땅이 화면의 30%를 넘지 않도록 최소 고도 제한
-            const minElev = getMinCameraElevForGroundRatio(fovRef.current, 0.3);
+            // 발밑 수면 및 지면까지 자유롭게 내려다볼 수 있도록 최소 고도 -45° 허용
+            const minElev = -45;
             cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
           }
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
@@ -644,7 +672,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       0.1,
       1000
     );
-    camera.position.set(0, 0, 0);
+    // 지면 위 160cm(1.6 유닛) 사람 눈높이 시점
+    camera.position.set(0, 1.6, 0);
     cameraRef.current = camera;
 
     // 1. Skydome (물리 대기 산란 셰이더)
@@ -674,11 +703,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const bandAngles = simRef.current?.terrain?.bandAngles;
     const bandDist = simRef.current?.terrain?.bandDistancesKm;
     if (bandAngles && bandDist && bandAngles.length > 0) {
-      const bands = createTerrainBands(bandAngles, bandDist);
+      const bands = createTerrainBands(
+        bandAngles,
+        bandDist,
+        undefined,
+        simRef.current?.terrain?.waterFrac,
+        simRef.current?.terrain?.observerElevation ?? 50
+      );
       scene.add(bands.group);
       assignLayer(bands.group, LAYER_MID);
       terrainBandsRef.current = bands;
     }
+
+    // 초기 2D 수역 마스크(해안선·만·반도·강·호수) 즉시 생성
+    const initLat = location?.coords?.latitude ?? 37.5;
+    const initLng = location?.coords?.longitude ?? 127.0;
+    const initWaterHandle = createWaterMask2DTexture({
+      latitude: initLat,
+      longitude: initLng,
+      observerElevation: simRef.current?.terrain?.observerElevation ?? 50,
+      elevations: (simRef.current?.terrain as any)?.elevations,
+      waterFrac: simRef.current?.terrain?.waterFrac,
+    });
+    waterMaskHandleRef.current = initWaterHandle;
+    waterTexRef.current = initWaterHandle.texture;
 
     // 3. Sun
     const sun = createSun();
@@ -689,7 +737,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 4. Moon
     const moon = createMoonGroup();
     scene.add(moon.group);
-    assignLayer(moon.group, LAYER_FRONT);
+    assignLayer(moon.group, LAYER_MID);
     moonRef.current = moon;
 
     // 5a. 은하수
@@ -713,7 +761,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 6. Celestial Paths & Standard Gnomon Shadow Pole (160cm/100cm)
     const celPaths = createCelestialPathsGroup();
     scene.add(celPaths.containerGroup);
-    assignLayer(celPaths.containerGroup, LAYER_FRONT);
+    assignLayer(celPaths.containerGroup, LAYER_MID);
     celestialPathsRef.current = celPaths;
 
     // 7. Clouds
@@ -721,9 +769,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     cloudAtlasRef.current = atlas;
     const cloudField = createCloudField(atlas, MAX_CLOUDS);
     scene.add(cloudField.mesh);
-    // 빌보드는 원해상도 — 잔 파편을 만드는 것은 덱이고, 빌보드는
-    // depthTest 로 지형과 깊이 비교를 합니다 (SceneComposer 주석).
-    assignLayer(cloudField.mesh, LAYER_FRONT);
+    // 빌보드 구름은 산 능선 뒤에 가려져야 하므로 LAYER_MID에서 산(-0.35)보다 먼저(-0.42) 렌더링
+    assignLayer(cloudField.mesh, LAYER_MID);
     cloudFieldRef.current = cloudField;
 
     // 연속 구름층 — 운량이 병합 임계를 넘으면 빌보드 위로 덮입니다.
@@ -893,7 +940,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             while (azDiff > 180) azDiff -= 360;
             while (azDiff < -180) azDiff += 360;
 
-            const minElev = getMinCameraElevForGroundRatio(fovRef.current, 0.3);
+            const minElev = -20;
             const clampedTargetElev = Math.max(minElev, targetElev);
             const elevDiff = clampedTargetElev - cameraElevRef.current;
 
@@ -921,9 +968,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           camera.updateProjectionMatrix();
         }
 
-        const observerElev = simRef.current?.terrain?.observerElevation ?? 0;
-        // 해발 고도(m) 반영: 100m당 0.2 유닛 (예: 500m 산 정상 = 1.0 유닛 오프셋)
-        const cameraY = Math.max(0, observerElev * 0.002);
+        // 카메라 높이: 해당 지점의 지면 위 160cm (1.6 유닛) 사람 눈높이
+        const groundY = groundRef.current ? groundRef.current.position.y : 0;
+        const EYE_HEIGHT = 1.6; // 160cm
+        const cameraY = groundY + EYE_HEIGHT;
         camera.position.set(0, cameraY, 0);
 
         const azRad = (cameraAzRef.current * Math.PI) / 180;
@@ -942,6 +990,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
         const deckLayers = cloudDeckRef.current?.layers;
         if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
+        if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
 
         // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
         // 등) 예전처럼 한 번에 그립니다 — 화면이 안 나오는 것보다 낫습니다.
@@ -1186,38 +1235,43 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
       }
       cachedSkyMeanRGBRef.current = { r: sr / sw, g: sg / sw, b: sb / sw };
+    }
 
-      if (groundRef.current) {
-        updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
-          skyMean: cachedSkyMeanRGBRef.current,
-          betaMie: atmosphere.betaMie,
-          angstrom: atmosphere.angstrom,
-          elevScale: atmosphere.elevScale,
-          waterTex: waterTexRef.current,
-          windSpeedMs: layerWindsNow().low.speedKmh / 3.6,
-          beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
-          sunTransmittance: 1 - overcast,
-          sunAzimuthDeg: sunAzRef.current,
-        });
-      }
+    if (groundRef.current) {
+      const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+      const moonIllum = SunCalc.getMoonIllumination(targetDate);
+      updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
+        skyMean: cachedSkyMeanRGBRef.current,
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
+        waterTex2D: waterTexRef.current,
+        windSpeedMs: layerWindsNow().low.speedKmh / 3.6,
+        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+        sunTransmittance: 1 - overcast,
+        sunAzimuthDeg: sunAzRef.current,
+        moonAltitudeDeg: (moonPos.altitude * 180) / Math.PI,
+        moonAzimuthDeg: (moonPos.azimuth * 180) / Math.PI + 180,
+        moonFraction: moonIllum.fraction,
+      });
+    }
 
-      if (terrainBandsRef.current) {
-        updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
-          skyMean: cachedSkyMeanRGBRef.current,
-          hazeAt: (az: number, elev: number) =>
-            skyRadiance(
-              elev,
-              angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current),
-              sunAltRef.current,
-              atmosphere
-            ),
-          beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
-          sunTransmittance: 1 - overcast,
-          betaMie: atmosphere.betaMie,
-          angstrom: atmosphere.angstrom,
-          elevScale: atmosphere.elevScale,
-        });
-      }
+    if (terrainBandsRef.current) {
+      updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
+        skyMean: cachedSkyMeanRGBRef.current,
+        hazeAt: (az: number, elev: number) =>
+          skyRadiance(
+            elev,
+            angularSeparationDeg(az, elev, sunAzRef.current, sunAltRef.current),
+            sunAltRef.current,
+            atmosphere
+          ),
+        beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
+        sunTransmittance: 1 - overcast,
+        betaMie: atmosphere.betaMie,
+        angstrom: atmosphere.angstrom,
+        elevScale: atmosphere.elevScale,
+      });
     }
 
     if (sunRef.current) {
@@ -1424,25 +1478,44 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       terrainBandsRef.current = null;
     }
 
-    // ⚠ 물은 **거리대별**로 넘깁니다. 예전에는 방위별 비율 하나
-    // (`waterFrac`)를 넘겼고 그게 모든 거리대의 능선 높이를 곱으로 깎아,
-    // 만 너머 산이 절반으로 줄었습니다(TerrainRing 의 bandWater 주석).
     const bands = createTerrainBands(
-      sim.terrain.bandAngles, sim.terrain.bandDistancesKm, undefined,
-      sim.terrain.bandWater, sim.terrain.observerElevation ?? 0);
+      sim.terrain.bandAngles,
+      sim.terrain.bandDistancesKm,
+      undefined,
+      sim.terrain.waterFrac,
+      sim.terrain.observerElevation ?? 50
+    );
     scene.add(bands.group);
     // 지형은 다시 만들어질 수 있습니다 — 그때도 층 배정을 잊으면 안 됩니다.
     assignLayer(bands.group, LAYER_MID);
     terrainBandsRef.current = bands;
 
-    // 수역 마스크와 **바다 수평선 각도**를 같이 갱신합니다. 수평선은 관측
-    // 고도로 정해집니다 (30m → 0.176° 내려앉음).
-    waterTexRef.current?.dispose();
-    waterTexRef.current = makeWaterTexture(sim.terrain.waterFrac ?? null);
+    // 2D 수역 마스크(해안선·만·반도 + 강·호수)와 바다 수평선 각도 갱신
+    const lat = location?.coords?.latitude ?? 37.5;
+    const lng = location?.coords?.longitude ?? 127.0;
+
+    waterMaskHandleRef.current?.dispose();
+    const waterHandle = createWaterMask2DTexture({
+      latitude: lat,
+      longitude: lng,
+      observerElevation: sim.terrain.observerElevation ?? 50,
+      elevations: (sim.terrain as any).elevations,
+      waterFrac: sim.terrain.waterFrac,
+    });
+    waterMaskHandleRef.current = waterHandle;
+    waterTexRef.current = waterHandle.texture;
+
     if (groundRef.current) {
       setGroundHorizon(groundRef.current, sim.terrain.observerElevation ?? 0);
+      const mat = groundRef.current.material as THREE.ShaderMaterial;
+      if (mat?.uniforms?.uWaterTex2D) {
+        mat.uniforms.uWaterTex2D.value = waterHandle.texture;
+        mat.uniforms.uHasWater.value = 1.0;
+      }
     }
-  }, [sim?.terrain?.bandAngles]);
+    lastSkyMeanSunAltRef.current = -999;
+    requestRender(10);
+  }, [sim?.terrain?.bandAngles, location, requestRender]);
 
   useEffect(() => {
     return () => {
@@ -1472,6 +1545,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         disposeGroundPlane(groundRef.current);
         groundRef.current = null;
       }
+
+      waterMaskHandleRef.current?.dispose();
+      waterMaskHandleRef.current = null;
+      waterTexRef.current = null;
 
       if (compassGroupRef.current) {
         disposeCompassGroup(compassGroupRef.current);
@@ -1562,9 +1639,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (충돌 방지 적용) */}
       {layers?.labels !== false && (() => {
-        // 라벨 크기 추정 (px): 가로 85, 세로 22
+        // 라벨 크기 추정 (px): 가로 90, 세로 24
         const LBL_W = 90;
         const LBL_H = 24;
+        const maxY = fullScreen ? Math.max(380, height - 200) : 380;
         // 배치된 라벨 bounding box 목록
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
 
@@ -1583,7 +1661,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 아래로 먼저 밀고, 아래가 화면 밖이면 위로
             const downY = y + LBL_H + MARGIN;
             const upY   = y - LBL_H - MARGIN;
-            if (downY + LBL_H <= 380) {
+            if (downY + LBL_H <= maxY) {
               y = downY;
             } else {
               y = Math.max(10, upY);
@@ -1595,7 +1673,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         return celestialLabels.map(lbl => {
           const isTrackingThis = trackingTarget === lbl.id;
           const rawX = Math.max(10, Math.min(SCENE_WIDTH - LBL_W - 10, lbl.x - 30));
-          const rawY = Math.max(10, Math.min(380 - LBL_H - 10, lbl.y - 28));
+          const rawY = Math.max(10, Math.min(maxY - LBL_H - 10, lbl.y - 28));
           const finalY = resolveY(rawX, rawY);
           placed.push({ x: rawX, y: finalY, w: LBL_W, h: LBL_H });
 

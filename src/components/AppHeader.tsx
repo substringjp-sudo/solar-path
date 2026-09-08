@@ -31,10 +31,10 @@ import { t } from '../utils/i18n';
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'map' | 'log';
 
-export const APP_TABS: { id: AppTab; label: string }[] = [
-  { id: 'sky', label: '하늘' },
-  { id: 'map', label: '지도' },
-  { id: 'log', label: '기록' },
+export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
+  { id: 'sky', code: '01', label: '01 SKY' },
+  { id: 'map', code: '02', label: '02 MAP' },
+  { id: 'log', code: '03', label: '03 LOG' },
 ];
 
 /** 스와이프 순서 = 탭 순서. 둘이 어긋날 수 없도록 같은 배열에서 유도합니다. */
@@ -104,14 +104,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
-        <Animated.View
-          style={[styles.navToggle, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}
-        >
+        <View style={styles.navToggle}>
           <Animated.View
             style={[
               styles.navIndicator,
               {
-                backgroundColor: theme.text,
                 left: indicatorLeft,
                 width: `${100 / APP_TABS.length}%`,
               },
@@ -128,62 +125,60 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               >
                 <Text
                   numberOfLines={1}
-                  style={[styles.navText, { color: isActive ? theme.bg : dynamicTheme.subText }]}
+                  style={[
+                    styles.navText,
+                    { color: isActive ? '#38BDF8' : '#64748B' },
+                    isActive && { fontWeight: '900' }
+                  ]}
                 >
                   {tab.label}
                 </Text>
               </TouchableOpacity>
             );
           })}
-        </Animated.View>
+        </View>
 
         <View style={styles.rightButtons}>
           {setMapVisible && (
             <TouchableOpacity
               onPress={() => setMapVisible(true)}
-              style={[styles.iconBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+              style={styles.iconBtn}
               accessibilityLabel="현재위치 변경"
               accessibilityRole="button"
             >
-              <MapPin size={15} color={theme.accent || '#38BDF8'} />
+              <MapPin size={14} color="#38BDF8" />
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
             onPress={() => setSettingsVisible(true)}
-            style={[styles.iconBtn, { backgroundColor: theme.glass, borderColor: theme.border, borderWidth: 1 }]}
+            style={styles.iconBtn}
             accessibilityLabel="설정"
             accessibilityRole="button"
           >
-            <Settings size={14} color={theme.text} />
+            <Settings size={14} color="#94A3B8" />
           </TouchableOpacity>
         </View>
       </View>
 
       {showDateBar && (
-        <Animated.View
-          style={[styles.dateNavigator, { backgroundColor: dynamicTheme.glass, borderColor: dynamicTheme.border }]}
-        >
+        <View style={styles.dateNavigator}>
           <TouchableOpacity
             onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))}
             style={styles.dateControl}
           >
-            <ChevronLeft size={16} color={theme.text} />
+            <ChevronLeft size={16} color="#94A3B8" />
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
-            <Calendar size={12} color={theme.subText} style={{ marginRight: 6 }} />
-            <Animated.Text style={[styles.dateText, { color: dynamicTheme.text }]}>
-              {formatLocalTime(currentTimeLocal || currentTime, 'yyyy/MM/dd')}
-            </Animated.Text>
+            <Calendar size={11} color="#38BDF8" style={{ marginRight: 6 }} />
+            <Text style={styles.datePrefix}>DATE // </Text>
+            <Text style={styles.dateText}>
+              {formatLocalTime(currentTimeLocal || currentTime, 'yyyy.MM.dd')}
+            </Text>
             {timezoneLabel && (
-              <View
-                style={[
-                  styles.timezoneBadge,
-                  { backgroundColor: theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)' },
-                ]}
-              >
-                <Text style={[styles.timezoneText, { color: theme.subText }]}>{timezoneLabel}</Text>
+              <View style={styles.timezoneBadge}>
+                <Text style={styles.timezoneText}>{timezoneLabel}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -192,20 +187,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             {!isTodayLocal && (
               <TouchableOpacity
                 onPress={() => handleDateChange(new Date())}
-                style={[styles.todayButton, { backgroundColor: theme.text }]}
+                style={styles.todayButton}
               >
-                <RotateCcw size={10} color={theme.bg} />
-                <Text style={[styles.todayText, { color: theme.bg }]}>{t('today', language)}</Text>
+                <RotateCcw size={10} color="#38BDF8" />
+                <Text style={styles.todayText}>{t('today', language)}</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
               onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))}
               style={styles.dateControl}
             >
-              <ChevronRight size={16} color={theme.text} />
+              <ChevronRight size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
-        </Animated.View>
+        </View>
       )}
     </View>
   );
@@ -226,30 +221,35 @@ const styles = StyleSheet.create({
   },
   navToggle: {
     flexDirection: 'row',
-    padding: 2.5,
+    padding: 2,
     borderRadius: 4,
-    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    backgroundColor: 'rgba(9, 13, 24, 0.95)',
     flex: 1,
     position: 'relative',
   },
   navIndicator: {
     position: 'absolute',
-    top: 2.5,
-    bottom: 2.5,
-    borderRadius: 3,
+    top: 2,
+    bottom: 2,
+    borderRadius: 2,
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderBottomWidth: 2,
+    borderBottomColor: '#38BDF8',
   },
   navButton: {
     flex: 1,
-    paddingVertical: 6,
+    paddingVertical: 5.5,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 3,
+    borderRadius: 2,
     zIndex: 2,
   },
   navText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    fontSize: 10.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.5,
   },
   rightButtons: {
     flexDirection: 'row',
@@ -260,6 +260,9 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    backgroundColor: 'rgba(9, 13, 24, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -267,14 +270,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
     borderRadius: 4,
-    borderWidth: Platform.OS === 'android' ? 0.5 : 1,
-    height: 36,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    height: 34,
   },
   dateControl: {
-    padding: 4,
+    padding: 3,
   },
   dateCenter: {
     flexDirection: 'row',
@@ -282,18 +287,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  datePrefix: {
+    fontSize: 9.5,
+    color: '#64748B',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontWeight: '700',
+  },
   dateText: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.6,
+    fontSize: 11.5,
+    color: '#F8FAFC',
+    fontWeight: '900',
+    letterSpacing: 0.8,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   todayButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 3,
-    paddingHorizontal: 7,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
     borderRadius: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.4)',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
     gap: 4,
   },
   dateRightControls: {
@@ -304,18 +319,22 @@ const styles = StyleSheet.create({
   todayText: {
     fontSize: 9,
     fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#38BDF8',
     letterSpacing: 0.3,
   },
   timezoneBadge: {
     marginLeft: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 2,
     borderWidth: 0.5,
     borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   timezoneText: {
-    fontSize: 8.5,
+    fontSize: 8,
+    color: '#94A3B8',
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },

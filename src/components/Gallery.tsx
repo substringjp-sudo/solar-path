@@ -67,16 +67,16 @@ export const Gallery: React.FC<GalleryProps> = ({
         {/* Filter Container */}
         <View style={styles.filterContainer}>
           <TouchableOpacity
-            style={[styles.filterChip, galleryFilter === 'all' && [styles.activeFilterChip, { backgroundColor: theme.text }]]}
+            style={[styles.filterChip, galleryFilter === 'all' && styles.activeFilterChip]}
             onPress={() => setGalleryFilter('all')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? theme.bg : theme.subText }]}>{t('all', language)}</Text>
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? '#38BDF8' : theme.subText }]}>{t('all', language)}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.filterChip, galleryFilter === 'mine' && [styles.activeFilterChip, { backgroundColor: theme.text }]]}
+            style={[styles.filterChip, galleryFilter === 'mine' && styles.activeFilterChip]}
             onPress={() => setGalleryFilter('mine')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? theme.bg : theme.subText }]}>{t('mine', language)}</Text>
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? '#38BDF8' : theme.subText }]}>{t('mine', language)}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -84,7 +84,7 @@ export const Gallery: React.FC<GalleryProps> = ({
       {displayedPhotos.length === 0 ? (
         <View style={[styles.emptyState, { borderColor: theme.border }]}>
           <ImageIcon size={32} color={theme.subText} style={{ marginBottom: 10 }} />
-          <Text style={{ color: theme.subText, fontSize: 14 }}>{t('noPhotos', language)}</Text>
+          <Text style={{ color: theme.subText, fontSize: 13, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{t('noPhotos', language)}</Text>
         </View>
       ) : (
         <FlatList
@@ -134,7 +134,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                     )}
                   </View>
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
                     <TouchableOpacity
                       style={styles.photoShareBtn}
                       onPress={() => {
@@ -145,33 +145,33 @@ export const Gallery: React.FC<GalleryProps> = ({
                         });
                       }}
                     >
-                    <Share2 size={13} color="#FFD700" />
-                  </TouchableOpacity>
-
-                  {(item.userId === auth.currentUser?.uid || item.isPending) && (
-                    <TouchableOpacity
-                      style={styles.photoDeleteBtn}
-                      onPress={() => {
-                        Alert.alert(
-                          t('deletePhotoConfirmTitle', language),
-                          t('deletePhotoConfirmMsg', language),
-                          [
-                            { text: t('cancel', language), style: 'cancel' },
-                            { 
-                              text: t('delete', language), 
-                              style: 'destructive',
-                              onPress: () => removeMyPhoto(item.id)
-                            }
-                          ]
-                        );
-                      }}
-                    >
-                      <Trash2 size={12} color="#FF6F61" />
+                      <Share2 size={12} color="#38BDF8" />
                     </TouchableOpacity>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
+
+                    {(item.userId === auth.currentUser?.uid || item.isPending) && (
+                      <TouchableOpacity
+                        style={styles.photoDeleteBtn}
+                        onPress={() => {
+                          Alert.alert(
+                            t('deletePhotoConfirmTitle', language),
+                            t('deletePhotoConfirmMsg', language),
+                            [
+                              { text: t('cancel', language), style: 'cancel' },
+                              { 
+                                text: t('delete', language), 
+                                style: 'destructive',
+                                onPress: () => removeMyPhoto(item.id)
+                              }
+                            ]
+                          );
+                        }}
+                      >
+                        <Trash2 size={12} color="#FF6F61" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
           }}
         />
       )}
@@ -189,45 +189,49 @@ export const Gallery: React.FC<GalleryProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingHorizontal: 14,
+    paddingTop: 8,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   title: {
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: '900',
-    letterSpacing: -0.5,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   filterContainer: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 4,
     alignItems: 'center',
   },
   filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   activeFilterChip: {
-    borderColor: 'transparent',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: 'rgba(56, 189, 248, 0.45)',
   },
   filterChipText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.3,
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 24,
+    borderRadius: 4,
     borderWidth: 1,
     borderStyle: 'dashed',
     marginVertical: 20,
@@ -235,14 +239,14 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 40,
-    gap: 12,
+    gap: 10,
   },
   galleryItem: {
-    borderRadius: 16,
+    borderRadius: 4,
     overflow: 'hidden',
     borderWidth: 1,
     position: 'relative',
-    margin: 5,
+    margin: 4,
   },
   galleryImage: {
     width: '100%',
@@ -250,54 +254,61 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.1)',
   },
   galleryMeta: {
-    padding: 10,
+    padding: 8,
   },
   galleryTitle: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11.5,
+    fontWeight: '800',
   },
   galleryDate: {
-    fontSize: 9,
-    opacity: 0.6,
-    marginTop: 3,
+    fontSize: 8.5,
+    opacity: 0.65,
+    marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   galleryGuide: {
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 8.5,
+    fontWeight: '800',
     marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.2,
   },
   photoShareBtn: {
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    width: 26,
+    height: 26,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
   },
   photoDeleteBtn: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    backgroundColor: 'rgba(255, 82, 82, 0.12)',
+    width: 26,
+    height: 26,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 82, 82, 0.3)',
   },
   pendingBadge: {
     position: 'absolute',
     top: 6,
     left: 6,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0,0,0,0.85)',
     paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
     borderWidth: 1,
-    borderColor: 'rgba(255,111,97,0.3)',
+    borderColor: 'rgba(255,111,97,0.4)',
   },
   pendingText: {
     color: '#FF6F61',
     fontSize: 8,
     fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.4,
   },
 });

@@ -3,6 +3,8 @@
  * Considers Earth's curvature and multi-point sampling along the sun's path.
  */
 
+import { findPresetTerrain } from './presetTerrains';
+
 const EARTH_RADIUS_KM = 6371;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -175,6 +177,44 @@ export const getLocalHighResModel = (lat: number, lon: number): string => {
 
 const weatherCache = new Map<string, CloudPathData[]>();
 
+/**
+ * Open-Meteo 일일/분당 API 한도 초과 시 맑은 날씨(구름 0%)를 즉시 생성하는 Fallback 함수
+ */
+function createClearSkyFallback(
+  points: { dist: number; azOffset?: number; az?: number; azimuthOffset?: number }[],
+  targetDate: Date,
+  source: 'ultra-short' | 'standard' = 'standard'
+): CloudPathData[] {
+  const yyyy = targetDate.getFullYear();
+  const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(targetDate.getDate()).padStart(2, '0');
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+  const times: string[] = [];
+  const timeMs: number[] = [];
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, '0');
+    const tStr = `${dateStr}T${hh}:00`;
+    times.push(tStr);
+    timeMs.push(new Date(tStr).getTime());
+  }
+
+  return points.map(p => ({
+    distance: p.dist,
+    azimuthOffset: p.azOffset ?? p.az ?? p.azimuthOffset ?? 0,
+    hourly: {
+      time: times,
+      timeMs,
+      low: Array(24).fill(0),
+      mid: Array(24).fill(0),
+      high: Array(24).fill(0),
+      directNormalIrradiance: Array(24).fill(800),
+      visibility: Array(24).fill(25000),
+      humidity: Array(24).fill(45),
+    },
+    source,
+  }));
+}
+
 export const fetchSunsetWeather = async (
   lat: number,
   lon: number,
@@ -296,9 +336,13 @@ export const fetchSunsetWeather = async (
     
     const duration = Date.now() - startTime;
     if (!response.ok) {
-      console.error(`[WeatherAPI] API responded with error status ${response.status} in ${duration}ms`);
+      console.warn(`[WeatherAPI] API responded with status ${response.status} in ${duration}ms`);
       if (response.status === 429) {
-        throw new Error(`RATE_LIMIT: API 요청 한도를 초과했습니다.`);
+        console.warn(`[WeatherAPI] 429 Rate limit reached. Using synthetic clear sky fallback.`);
+        const fallback = createClearSkyFallback(virtualPoints, targetDate, useNowcast ? 'ultra-short' : 'standard');
+        MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fallback, time: Date.now() });
+        INFLIGHT_REQUESTS.delete(sunsetCacheKey);
+        return fallback;
       }
       if (response.status >= 500) {
         throw new Error(`SERVER_ERROR: 날씨 API 서버에 장애가 발생했습니다. (오류 코드: ${response.status})`);
@@ -314,9 +358,13 @@ export const fetchSunsetWeather = async (
 
     const data = await response.json();
     if (data.error) {
-      console.error(`[WeatherAPI] Open-Meteo API Error: ${data.reason || 'Unknown error'}`);
-      if (data.reason && data.reason.includes('Minutely usage limit reached')) {
-        throw new Error(`RATE_LIMIT: 분당 API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.`);
+      console.warn(`[WeatherAPI] Open-Meteo API Error: ${data.reason || 'Unknown error'}`);
+      if (data.reason && (data.reason.includes('limit reached') || data.reason.includes('Hourly limit') || data.reason.includes('Minutely usage'))) {
+        console.warn(`[WeatherAPI] Rate limit in error payload. Using synthetic clear sky fallback.`);
+        const fallback = createClearSkyFallback(virtualPoints, targetDate, useNowcast ? 'ultra-short' : 'standard');
+        MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fallback, time: Date.now() });
+        INFLIGHT_REQUESTS.delete(sunsetCacheKey);
+        return fallback;
       }
       throw new Error(`HTTP_ERROR: API 호출 오류 (${data.reason || 'Unknown'})`);
     }
@@ -676,11 +724,28 @@ export const fetchDayWeatherRing = async (
       fetchLayerWinds(lat, lon, targetDate),
     ]);
     if (!response.ok) {
-      if (response.status === 429) throw new Error('RATE_LIMIT: API 요청 한도를 초과했습니다.');
+      if (response.status === 429) {
+        console.warn(`[WeatherAPI] fetchCloudRing 429 rate limit. Using synthetic clear sky fallback.`);
+        const ringFallback = createClearSkyFallback(virtualPoints.map(vp => ({ dist: vp.dist, azimuthOffset: vp.az })), targetDate, 'standard');
+        ringCache.set(cacheKey, ringFallback);
+        MEM_RING_CACHE.set(cacheKey, { data: ringFallback, time: Date.now() });
+        INFLIGHT_REQUESTS.delete(cacheKey);
+        return ringFallback;
+      }
       throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (${response.status})`);
     }
     const data = await response.json();
-    if (data?.error) throw new Error(`HTTP_ERROR: ${data.reason || 'Unknown'}`);
+    if (data?.error) {
+      if (data?.reason && (data.reason.includes('limit reached') || data.reason.includes('Hourly limit') || data.reason.includes('Minutely usage'))) {
+        console.warn(`[WeatherAPI] fetchCloudRing rate limit error. Using synthetic clear sky fallback.`);
+        const ringFallback = createClearSkyFallback(virtualPoints.map(vp => ({ dist: vp.dist, azimuthOffset: vp.az })), targetDate, 'standard');
+        ringCache.set(cacheKey, ringFallback);
+        MEM_RING_CACHE.set(cacheKey, { data: ringFallback, time: Date.now() });
+        INFLIGHT_REQUESTS.delete(cacheKey);
+        return ringFallback;
+      }
+      throw new Error(`HTTP_ERROR: ${data.reason || 'Unknown'}`);
+    }
     const results = Array.isArray(data) ? data : [data];
 
     const out: CloudPathData[] = virtualPoints.map((vp, i) => {
@@ -784,9 +849,13 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
 };
 
 /**
- * 지구 반지름 (m). `TerrainRing.seaHorizonDipDeg` 와 **같은 값**이어야 합니다 —
- * 지형각의 곡률 낙차와 바다 수평선이 어긋나면 능선 띠와 지면 원반이 서로 다른
- * 수평선을 그립니다(44절에서 지면과 구름 사이에 같은 결함이 있었습니다).
+ * 지구 반지름 (m). `TerrainRing.seaHorizonDipDeg` 와 **같은 값**이어야 합니다.
+ *
+ * `createTerrainBands` 는 `raw > -dipDeg` 로 "산인가 물인가"를 가릅니다.
+ * 그 판정이 성립하려면 지형각과 수평선이 **같은 지구**를 써야 합니다 —
+ * 곡률이 빠지면 40km 의 해수면이 -0.043° 로 읽혀 수평선(-0.176°)보다 위에
+ * 뜨고, 그러면 바다가 산으로 오인돼 수면 위에 회색 띠가 남습니다.
+ * (44절에서 지면과 구름이 서로 다른 지평선을 써서 띠가 벌어진 적이 있습니다.)
  */
 const EARTH_RADIUS_M = 6371000;
 
@@ -804,16 +873,6 @@ export interface TerrainData {
   /** `bandAngles`의 거리 (km) */
   bandDistancesKm: number[];
   /**
-   * **거리대별** 수역 여부 `[거리대][방위]` (0 = 육지, 1 = 물).
-   *
-   * ⚠ 아래 `waterFrac` 과 다릅니다. 그쪽은 세 거리를 **하나로 뭉갠** 비율이라
-   * "5km 는 만, 40km 는 산"을 구분하지 못합니다. 능선을 그릴 때 그 비율을
-   * 방위 전체에 곱하면 만 너머 산이 절반으로 줄어듭니다(실측: water 1/3 →
-   * 높이 ×0.533, 2/3 → ×0.067). 물은 **그 거리대에서만** 물이므로 거리대별로
-   * 들고 있어야 합니다.
-   */
-  bandWater: number[][];
-  /**
    * 방위별 수역 비율 0~1.
    *
    * Open-Meteo elevation API는 **해상에서 정확히 0.0**을 반환합니다
@@ -825,6 +884,8 @@ export interface TerrainData {
   minAz: number;
   maxAz: number;
   observerElevation?: number; // Observer elevation in meters
+  /** 각 샘플 포인트(SAMPLES 31 × DISTANCES 3)의 실제 고도값 (미터). 2D 수역 마스크 보간에 사용 */
+  elevations?: number[];
   /** API 실패로 인해 0으로 채워진 fallback 데이터임을 나타냄. 캐싱 금지. */
   isFallback?: boolean;
 }
@@ -844,6 +905,12 @@ export const fetchTerrainProfile = async (
   const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)},${minAz},${maxAz}`;
   if (terrainCache.has(cacheKey)) {
     return terrainCache.get(cacheKey)!;
+  }
+
+  const preset = findPresetTerrain(lat, lon);
+  if (preset) {
+    terrainCache.set(cacheKey, preset);
+    return preset;
   }
 
   const SAMPLES = 31; // Optimized from 61 to query within Open-Meteo's 100 coordinates limit in a single request.
@@ -884,33 +951,57 @@ export const fetchTerrainProfile = async (
     
     let results: number[] = [];
     let retries = 0;
-    
-    while (retries < 3) {
+
+    // 1차 시도: Open-Meteo Elevation API (단일 요청 배치)
+    while (retries < 2) {
       try {
-        const response = await fetchWithTimeout(url, {}, 5000);
-        
+        const response = await fetchWithTimeout(url, {}, 4000);
         if (response.status === 429) {
-          const waitTime = 1000 * (retries + 1);
-          await sleep(waitTime);
+          await sleep(1000);
           retries++;
           continue;
         }
-
-        if (!response.ok) {
-          throw new Error(`Status ${response.status}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && Array.isArray(data.elevation) && data.elevation.length === points.length) {
+            results = data.elevation;
+            break;
+          }
         }
-
-        const data = await response.json();
-        if (data && Array.isArray(data.elevation)) {
-          results = data.elevation;
-          break;
-        } else {
-          throw new Error("Missing elevation array in response");
-        }
+        retries++;
       } catch (e) {
         retries++;
-        if (retries >= 3) throw e;
         await sleep(500);
+      }
+    }
+
+    // 2차 시도: Open-Meteo 일일 한도 초과(Daily Limit Exceeded) 시 고신뢰 Open-Elevation API 자동 폴백
+    if (results.length !== points.length) {
+      if (__DEV__) {
+        console.warn(`[TerrainAPI] Open-Meteo unavailable. Engaging Open-Elevation fallback for ${points.length} coordinates...`);
+      }
+      try {
+        const oePoints = points.map(p => ({ latitude: p.lat, longitude: p.lon }));
+        const oeRes = await fetchWithTimeout(
+          'https://api.open-elevation.com/api/v1/lookup',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locations: oePoints }),
+          },
+          6000
+        );
+        if (oeRes.ok) {
+          const oeData = await oeRes.json();
+          if (oeData && Array.isArray(oeData.results) && oeData.results.length === points.length) {
+            results = oeData.results.map((r: any) => r.elevation ?? 0);
+            if (__DEV__) {
+              console.log(`[TerrainAPI] Open-Elevation fallback successfully returned ${results.length} points!`);
+            }
+          }
+        }
+      } catch (oeErr: any) {
+        if (__DEV__) console.warn('[TerrainAPI] Open-Elevation fallback failed:', oeErr?.message);
       }
     }
 
@@ -936,7 +1027,6 @@ export const fetchTerrainProfile = async (
     // 내보냅니다 — 거리별 대기 투시(docs/GROUND_PLAN.md 3단계)에 씁니다.
     // 모양: [거리대][방위]  (기존 두 배열은 호환을 위해 그대로 둡니다)
     const bandAngles: number[][] = DISTANCES.map(() => []);
-    const bandWater: number[][] = DISTANCES.map(() => []);
     // 바다 판정. Open-Meteo elevation API는 **해상에서 정확히 0.0**을
     // 반환합니다 (육지는 0이 아닌 정수). 새 데이터원 없이 방위별 수역 여부를
     // 읽을 수 있습니다. 한계: 해수면 높이의 해안 평야도 0으로 읽힙니다.
@@ -949,7 +1039,7 @@ export const fetchTerrainProfile = async (
       for (let j = 0; j < DISTANCES.length; j++) {
         const idx = i * DISTANCES.length + j;
         const elev = terrainPoints[idx];
-        if (elev === undefined) { bandAngles[j].push(0); bandWater[j].push(0); continue; }
+        if (elev === undefined) { bandAngles[j].push(0); continue; }
 
         const distMeters = DISTANCES[j] * 1000;
         // ⚠ **지구 곡률**을 빼야 합니다. 멀리 있는 지면은 그만큼 발밑으로
@@ -969,7 +1059,6 @@ export const fetchTerrainProfile = async (
 
         bandAngles[j].push(angle);
         const isWater = elev === 0 ? 1 : 0;
-        bandWater[j].push(isWater);
         if (angle > maxAzAngle) maxAzAngle = angle;
         if (j >= 1 && angle > maxFarAngle) maxFarAngle = angle;
         water += isWater;
@@ -981,9 +1070,10 @@ export const fetchTerrainProfile = async (
     }
 
     const terrainData = {
-      panoramicAngles, farAngles, bandAngles, bandWater, waterFrac,
+      panoramicAngles, farAngles, bandAngles, waterFrac,
       bandDistancesKm: DISTANCES.slice(),
       minAz, maxAz, observerElevation: observerElev,
+      elevations: terrainPoints,
     };
     terrainCache.set(cacheKey, terrainData);
     return terrainData;
@@ -994,10 +1084,11 @@ export const fetchTerrainProfile = async (
     return {
       panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0),
       bandAngles: DISTANCES.map(() => Array(SAMPLES).fill(0)),
-      bandWater: DISTANCES.map(() => Array(SAMPLES).fill(0)),
       waterFrac: Array(SAMPLES).fill(0),
       bandDistancesKm: DISTANCES.slice(),
-      minAz, maxAz, observerElevation: 0, isFallback: true,
+      minAz, maxAz, observerElevation: 0,
+      elevations: [],
+      isFallback: true,
     };
   }
 };

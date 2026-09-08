@@ -328,47 +328,43 @@ export function useCelestialApp() {
   const dynamicTheme = {
     bg: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#E8EDF2', '#08080C'] // Deeper background for pro look
+      outputRange: ['#090D18', '#05070D'] // Astro-HUD deep graphite telemetry base
     }),
     card: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#FFFFFF', '#14141C']
+      outputRange: ['#0E1424', '#0B101D']
     }),
     glass: themeAnim.interpolate({
       inputRange: [0, 1],
       outputRange: isAndroid
-        ? ['#FFFFFF', '#14141C']
-        : ['rgba(255,255,255,0.4)', 'rgba(255,255,255,0.08)'] // More transparent for true glass feel
+        ? ['#0E1424', '#0B101D']
+        : ['rgba(14, 20, 36, 0.85)', 'rgba(11, 16, 29, 0.88)']
     }),
     text: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#1A1A1A', '#FFFFFF']
+      outputRange: ['#F8FAFC', '#F8FAFC']
     }),
     subText: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#555555', '#AAAAAA']
+      outputRange: ['#94A3B8', '#64748B']
     }),
     border: themeAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: isAndroid
-        ? ['rgba(0,0,0,0.06)', 'rgba(255,255,255,0.04)']
-        : ['rgba(0,0,0,0.08)', 'rgba(255,255,255,0.1)']
+      outputRange: ['rgba(255,255,255,0.12)', 'rgba(255,255,255,0.08)']
     }),
-    accent: '#FFD700',
+    accent: isDay ? '#F59E0B' : '#38BDF8',
   };
 
   const theme = {
-    bg: isDay ? '#E8EDF2' : '#08080C',
-    card: isDay ? '#FFFFFF' : '#14141C',
+    bg: isDay ? '#090D18' : '#05070D',
+    card: isDay ? '#0E1424' : '#0B101D',
     glass: isAndroid
-      ? (isDay ? '#FFFFFF' : '#14141C')
-      : (isDay ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)'),
-    text: isDay ? '#1A1A1A' : '#FFFFFF',
-    subText: isDay ? '#555' : '#AAA',
-    border: isAndroid
-      ? (isDay ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)')
-      : (isDay ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)'),
-    accent: '#FFD700',
+      ? (isDay ? '#0E1424' : '#0B101D')
+      : (isDay ? 'rgba(14, 20, 36, 0.85)' : 'rgba(11, 16, 29, 0.88)'),
+    text: '#F8FAFC',
+    subText: isDay ? '#94A3B8' : '#64748B',
+    border: isDay ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)',
+    accent: isDay ? '#F59E0B' : '#38BDF8',
   };
 
   // Compass Sync Logic with OS-Compensated Heading

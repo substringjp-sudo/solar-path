@@ -10,9 +10,9 @@
  *
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, Wand2, X, SlidersVertical, QrCode } from 'lucide-react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical } from 'lucide-react-native';
 import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { TimeSlider } from '../TimeSlider';
@@ -22,7 +22,9 @@ import {
   fetchSunsetWeather,
   getInterpolatedWeather,
   type CloudPathData,
+  type TerrainData,
 } from '../../utils/weather';
+import { findPresetTerrain } from '../../utils/presetTerrains';
 import { predictSunset } from '../../utils/sunsetPhysics';
 import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
 import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
@@ -35,9 +37,6 @@ import { PredictionCard } from '../SunsetSimulation/PredictionCard';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
-import { SimReportQR } from './SimReportQR';
-import { buildSimReportPayload, encodeSimReportPayload } from '../../utils/simReport';
-import { resolveLayerWinds } from '../../utils/skyColumn';
 import SunCalc from 'suncalc';
 
 interface SkyScreenProps {
@@ -78,12 +77,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   isActive = true,
   onCameraPress,
 }) => {
-  const { location, weatherCacheList, terrainCacheList } = useCelestialStore();
+  const { location, weatherCacheList, terrainCacheList, addTerrainCache } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
-  // 분석용 QR — 이 프레임의 기상·태양 입력값을 캡처에 함께 담습니다
-  // (utils/simReport.ts). 기본은 꺼짐: 일반 사용자의 노을 사진에는
-  // 필요 없는 오버레이입니다.
-  const [showSimReportQR, setShowSimReportQR] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerState>({
@@ -107,45 +102,106 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     [currentTime]
   );
 
-  // 3D 지형 실루엣 및 사용자 해발 고도 State (스플래시 캐시 우선 초기화)
-  const initialTerrain = useMemo(() => {
+  // 3D 지형 실루엣 및 사용자 해발 고도 State (프리셋 및 캐시 우선 초기화)
+  const initialTerrain: TerrainData = useMemo(() => {
+    const preset = findPresetTerrain(latitude, longitude);
+    if (preset) return preset;
+
     const cached = terrainCacheList.find(c => Math.abs(c.latitude - latitude) < 0.05 && Math.abs(c.longitude - longitude) < 0.05);
     if (cached?.data && Array.isArray((cached.data as any).panoramicAngles)) {
+      const d = cached.data as any;
       return {
-        panoramicAngles: (cached.data as any).panoramicAngles,
-        observerElevation: (cached.data as any).observerElevation ?? location?.coords?.altitude ?? 50,
+        panoramicAngles: d.panoramicAngles ?? [],
+        farAngles: d.farAngles ?? [],
+        bandAngles: d.bandAngles ?? [],
+        bandDistancesKm: d.bandDistancesKm ?? [5, 15, 40],
+        waterFrac: d.waterFrac ?? [],
+        minAz: d.minAz ?? 0,
+        maxAz: d.maxAz ?? 360,
+        observerElevation: d.observerElevation ?? location?.coords?.altitude ?? 50,
+        elevations: d.elevations ?? [],
       };
     }
     return {
       panoramicAngles: [],
+      farAngles: [],
+      bandAngles: [],
+      bandDistancesKm: [5, 15, 40],
+      waterFrac: [],
+      minAz: 0,
+      maxAz: 360,
       observerElevation: location?.coords.altitude ?? 50,
+      elevations: [],
     };
   }, [terrainCacheList, latitude, longitude, location?.coords.altitude]);
 
-  const [terrainData, setTerrainData] = useState(initialTerrain);
+  const [terrainData, setTerrainData] = useState<TerrainData>(initialTerrain);
+  const lastFetchedCoordRef = useRef<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
-    if (terrainData.panoramicAngles.length === 0 && latitude && longitude) {
-      fetchTerrainProfile(latitude, longitude, 0, 360)
-        .then(tData => {
-          if (tData && Array.isArray(tData.panoramicAngles)) {
-            setTerrainData({
-              panoramicAngles: tData.panoramicAngles,
-              observerElevation: tData.observerElevation ?? location?.coords?.altitude ?? 50,
+    if (!latitude || !longitude) return;
+
+    const isDifferentLocation =
+      !lastFetchedCoordRef.current ||
+      Math.abs(lastFetchedCoordRef.current.lat - latitude) > 0.005 ||
+      Math.abs(lastFetchedCoordRef.current.lon - longitude) > 0.005;
+
+    if (isDifferentLocation) {
+      lastFetchedCoordRef.current = { lat: latitude, lon: longitude };
+
+      // 1. 오프라인 고정밀 프리셋 지형 우선 확인 (0ms 즉시 로드)
+      const preset = findPresetTerrain(latitude, longitude);
+      if (preset) {
+        setTerrainData(preset);
+        return;
+      }
+
+      // 2. 캐시 목록에서 탐색
+      const cached = terrainCacheList.find(
+        (item) => Math.abs(item.latitude - latitude) < 0.005 && Math.abs(item.longitude - longitude) < 0.005
+      );
+
+      if (cached && cached.data?.bandAngles?.length > 0) {
+        setTerrainData(cached.data);
+        return;
+      }
+
+      // 3. 캐시가 없으면 Open-Meteo 지형 고도 API 호출
+      const reqLat = latitude;
+      const reqLon = longitude;
+      fetchTerrainProfile(reqLat, reqLon, 0, 360)
+        .then((tData) => {
+          // 요청 당시 위치와 현재 위치가 다르면 무시 (Stale Request 차단)
+          if (
+            !lastFetchedCoordRef.current ||
+            Math.abs(lastFetchedCoordRef.current.lat - reqLat) > 0.005 ||
+            Math.abs(lastFetchedCoordRef.current.lon - reqLon) > 0.005
+          ) {
+            return;
+          }
+          // API 실패로 인한 fallback 데이터인 경우 이미 유효한 데이터가 있으면 덮어쓰지 않음
+          if (tData.isFallback) {
+            return;
+          }
+          if (tData && Array.isArray(tData.panoramicAngles) && tData.panoramicAngles.length > 0) {
+            setTerrainData(tData);
+            addTerrainCache({
+              key: `terrain_${reqLat.toFixed(3)}_${reqLon.toFixed(3)}`,
+              latitude: reqLat,
+              longitude: reqLon,
+              data: tData,
+              timestamp: Date.now(),
             });
           }
         })
-        .catch(err => {
+        .catch((err) => {
           console.log('3D terrain profile fetch error:', err);
         });
     }
-  }, [latitude, longitude, terrainData.panoramicAngles.length, location?.coords?.altitude]);
+  }, [latitude, longitude, terrainCacheList, addTerrainCache]);
 
   const simObj = useMemo(() => ({
-    terrain: {
-      panoramicAngles: terrainData.panoramicAngles,
-      observerElevation: terrainData.observerElevation,
-    },
+    terrain: terrainData,
   }), [terrainData]);
 
   const sunPos = SunCalc.getPosition(currentTime, latitude, longitude);
@@ -259,6 +315,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
   }, [isBuilding, latitude, longitude, currentTime, terrainData.observerElevation]);
 
+  useEffect(() => {
+    if (buildError) {
+      const t = setTimeout(() => setBuildError(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [buildError]);
+
   // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.
   const timelineValid = isTimelineUsable(timeline, latitude, longitude, currentTime);
   useEffect(() => {
@@ -269,11 +332,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
   }, [timeline, latitude, longitude, currentDateStr]);
 
-  // 날짜/위치 준비 완료 시 백그라운드 자동 타임라인 사전 계산 (수동 버튼 불필요)
+  // 날짜/위치 준비 완료 시 백그라운드 자동 타임라인 사전 계산 (동일 위치/날짜당 1회만 시도하여 API 429 폭주 방지)
+  const lastAutoBuildKeyRef = useRef<string>('');
   useEffect(() => {
     if (!latitude || !longitude || isBuilding || timelineValid) return;
 
+    const buildKey = `${latitude.toFixed(3)}_${longitude.toFixed(3)}_${currentDateStr}`;
+    if (lastAutoBuildKeyRef.current === buildKey) return;
+
     const timer = setTimeout(() => {
+      lastAutoBuildKeyRef.current = buildKey;
       handleBuildTimeline();
     }, 400);
 
@@ -474,32 +542,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     : '--:--';
   const highCloudPct = interpolatedWeather[0]?.high;
 
-  // 분석용 QR 페이로드. **씬에 실제로 넘어가는 값**(sceneWeather — 강화
-  // 격자가 켜져 있으면 그쪽)에서 뽑아야 화면에 그려진 것과 QR이 말하는
-  // 것이 어긋나지 않습니다.
-  const simReportData = useMemo(
-    () =>
-      encodeSimReportPayload(
-        buildSimReportPayload({
-          simTimeMs: currentTime.getTime(),
-          latitude,
-          longitude,
-          observerElevM: terrainData.observerElevation,
-          sunAltDeg: sunAltitude,
-          sunAzDeg: sunAzimuth,
-          obs: sceneWeather[0],
-          // 보고서에는 하층(850 hPa) 바람을 대표로 싣습니다. `synthetic` 이
-          // 실측인지 대용값인지를 캡처에 남깁니다.
-          ...(({ winds, measured }) => ({
-            windSpeedKmh: winds.low.speedKmh,
-            windBearingDeg: winds.low.bearingDeg,
-            windSynthetic: !measured,
-          }))(resolveLayerWinds(sceneWeather[0])),
-        })
-      ),
-    [currentTime, latitude, longitude, terrainData.observerElevation, sunAltitude, sunAzimuth, sceneWeather]
-  );
-
   return (
     <View style={styles.container}>
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
@@ -536,29 +578,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </TouchableOpacity>
         )}
 
-        {/* 씬 위 오버레이 버튼: 하루치 사전 계산 & 3D 표시 설정 */}
+        {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
         <View style={styles.sceneOverlayButtons}>
-          {/* 하루치 사전 계산. 눌러 두면 이후 스크럽이 네트워크 없이 돌아갑니다. */}
-          <TouchableOpacity
-            style={[
-              styles.overlayButton,
-              {
-                backgroundColor: isBuilding
-                  ? 'rgba(239, 68, 68, 0.32)'
-                  : timelineValid
-                    ? 'rgba(52, 211, 153, 0.32)'
-                    : 'rgba(5, 5, 10, 0.65)',
-                borderColor: isBuilding ? '#EF4444' : timelineValid ? '#34D399' : theme.border,
-              },
-            ]}
-            onPress={handleBuildTimeline}
-            activeOpacity={0.7}
-          >
-            {isBuilding
-              ? <X size={14} color="#FCA5A5" />
-              : <Wand2 size={14} color={timelineValid ? '#34D399' : '#FFFFFF'} />}
-          </TouchableOpacity>
-
           {/* 3D 요소 표시 설정 모달 */}
           <TouchableOpacity
             style={[styles.overlayButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
@@ -568,20 +589,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             activeOpacity={0.7}
           >
             <SlidersHorizontal size={14} color="#FFFFFF" />
-          </TouchableOpacity>
-
-          {/* 분석용 QR — 켜면 화면 왼쪽 아래에 이 프레임의 기상값 QR이 뜹니다 */}
-          <TouchableOpacity
-            style={[
-              styles.overlayButton,
-              showSimReportQR
-                ? { backgroundColor: 'rgba(56, 189, 248, 0.32)', borderColor: '#38BDF8' }
-                : { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border },
-            ]}
-            onPress={() => setShowSimReportQR(v => !v)}
-            activeOpacity={0.7}
-          >
-            <QrCode size={14} color={showSimReportQR ? '#38BDF8' : '#FFFFFF'} />
           </TouchableOpacity>
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
@@ -595,13 +602,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </TouchableOpacity>
           )}
         </View>
-
-        {/* 분석용 QR — 씬 왼쪽 아래. 진행률 배너와 자리가 겹치므로 그때는 숨깁니다. */}
-        {showSimReportQR && !isBuilding && !buildError && (
-          <View style={styles.simReportQrWrap}>
-            <SimReportQR data={simReportData} />
-          </View>
-        )}
 
         {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
         {(isBuilding || buildError) && (
@@ -755,7 +755,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onToggleTimeMachine={setTimeMachineEnabled}
           theme={theme}
           isDay={sunAltitude > 0}
-          onPressMap={() => setMapVisible && setMapVisible(true)}
           onCameraPress={onCameraPress}
           markers={events ? [
             { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
@@ -792,8 +791,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sceneWrapper: {
+    flex: 1,
     width: '100%',
-    aspectRatio: 4 / 3,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -811,12 +810,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  simReportQrWrap: {
-    position: 'absolute',
-    left: 12,
-    bottom: 14,
-    zIndex: 22,
   },
   buildBanner: {
     position: 'absolute',
@@ -900,6 +893,7 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 12,
     fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   summaryDot: {
     fontSize: 12,
@@ -929,6 +923,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   numberGrid: {
     flexDirection: 'row',
@@ -961,6 +956,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#94A3B8',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.3,
   },
   tabTextActive: {
     color: '#38BDF8',
@@ -992,11 +989,13 @@ const styles = StyleSheet.create({
   eventDesc: {
     fontSize: 10.5,
     marginTop: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   eventTime: {
     fontSize: 12,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.4,
   },
 
   bottomPanel: {

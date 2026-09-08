@@ -171,26 +171,41 @@ varying float vElevDeg;
 varying vec3  vDir;
 varying vec3  vHaze;
 
+/**
+ * 지형/대지 전용 표시 파이프라인.
+ * 하늘 전용 하단 절단(DISP_CONTR)으로 인한 블랙 크러시를 방지하고
+ * 황혼/야간에도 산과 대지의 입체적 실루엣과 계조를 보존합니다.
+ */
+vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  float adapt = atm_adaptation(sunAltDeg);
+  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
+  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
+  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
+  float luma = dot(c, LW);
+  c = mix(vec3(luma), c, DISP_SAT * saturation);
+
+  float l0 = dot(c, LW);
+  float l1 = pow(max(1e-4, l0), 0.92);
+  float maxc = max(c.r, max(c.g, c.b));
+  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
+  c = clamp(c * k, 0.0, 1.0);
+
+  vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
+  c = max(c, minGlow);
+
+  return atm_toSrgb(c);
+}
+
 void main() {
   // ── 거리별 대기 투시 ────────────────────────────────────────────────────
-  //
-  // 풍경 사진에서 깊이를 만드는 가장 강한 단서입니다. 능선은 멀어진다고
-  // 투명해지지 않고 **색이 연무와 같아집니다** — 구름에서 쓴 것과 같은 원리.
-  //
-  // 5 / 15 / 40 km 세 거리대를 각각 다른 투과율로 칠하면, 가까운 능선은
-  // 짙게 남고 먼 능선은 하늘색에 잠겨 겹쳐 보입니다. 예전에는 세 거리를
-  // 최댓값으로 뭉개 하나의 띠로 그렸으므로 이 겹침이 아예 없었습니다.
   vec3 T = atm_aerialTransmittance(uDistanceKm, 0.0, uBeta, uAngstrom, uElevScale);
-  // ⚠ 연무색은 **방위마다** 달라야 합니다. 하나로 고정하면 먼 능선이 태양
-  // 쪽 색으로 온 하늘에 칠해져, 하늘과 경계가 생기고 반대쪽은 엉뚱하게
-  // 밝아집니다. 정점 속성으로 그 방위의 지평선 하늘색을 받습니다 — 그래야
-  // 먼 능선이 **자기 뒤 하늘에** 잠깁니다.
   vec3 col = uTerrainRadiance * uExposure * T + vHaze * (1.0 - T);
 
   // 능선 위쪽(하늘에 가까운 쪽)이 조금 밝습니다 — 사면이 하늘을 더 봅니다.
   col *= 0.82 + 0.30 * smoothstep(-2.0, 6.0, vElevDeg);
 
-  gl_FragColor = vec4(atm_display(col, uSaturation, uSunAltDeg), 1.0);
+  gl_FragColor = vec4(atm_display_ground(col, uSaturation, uSunAltDeg), 1.0);
 }
 `;
 
@@ -224,8 +239,14 @@ uniform float uSaturation;
 uniform float uSheen;           // 태양 쪽 전방산란 광택 세기
 uniform float uExposure;        // 국소 순응 보정 (아래 주석)
 
-// ── 물 (docs/GROUND_PLAN.md 4·5단계) ────────────────────────────────────────
-uniform sampler2D uWaterTex;    // 방위별 수역 비율 (0~1), 가로 = 방위
+// ── 밤 대지 조명 & 달빛 산란 ───────────────────────────────────────────────
+uniform vec3  uMoonRadiance;    // 달빛 조도 (밤에 달이 비출 때)
+uniform float uMoonAzRad;
+uniform float uMoonAltRad;
+uniform float uNightFactor;     // 밤 비율 (0: 낮, 1: 밤)
+
+// ── 2D 수역 마스크 (해안선, 만, 반도, 강, 호수) ────────────────────────────
+uniform sampler2D uWaterTex2D;  // 2D 수역 마스크 (0=육지, 1=수면)
 uniform float uHasWater;        // 0이면 물 경로를 통째로 건너뜁니다
 uniform vec3  uSunRadiance;     // 지면 고도에서의 직달광 (선형)
 uniform float uSunAltRad;
@@ -238,121 +259,224 @@ uniform float uOzoneDU;
 
 varying vec3 vWorld;
 
+// ── 대지 및 바다 전용 표시 파이프라인 (Anti-Black-Crush & Scotopic Adaptation) ──
+vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  float adapt = atm_adaptation(sunAltDeg);
+  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
+  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
+  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
+  float luma = dot(c, LW);
+  c = mix(vec3(luma), c, DISP_SAT * saturation);
+
+  float l0 = dot(c, LW);
+  float l1 = pow(max(1e-4, l0), 0.92);
+  float maxc = max(c.r, max(c.g, c.b));
+  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
+  c = clamp(c * k, 0.0, 1.0);
+
+  // 노을 및 야간 최소 앰비언트 가시성 보장
+  vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
+  c = max(c, minGlow);
+
+  return atm_toSrgb(c);
+}
+
 /**
  * 프레넬 반사율 (Schlick, 물 n=1.33 → F0 = 0.02).
- *
- * 물이 특별한 이유가 이 함수에 있습니다. 수직으로 내려다보면 2%만 반사해
- * 거의 검지만, **스치는 각에서는 급격히 1에 가까워집니다** (85°에서 0.6 이상).
- * 해 질 녘 물이 타오르는 것이 정확히 이것입니다.
  */
 float waterFresnel(float cosTheta) {
   float f = pow(1.0 - clamp(cosTheta, 0.0, 1.0), 5.0);
   return 0.02 + 0.98 * f;
 }
 
+// ── 거친 흙땅 및 자갈 질감 해시 노이즈 ──────────────────────────────────
+float groundHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float groundNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(groundHash(i + vec2(0.0, 0.0)), groundHash(i + vec2(1.0, 0.0)), u.x),
+    mix(groundHash(i + vec2(0.0, 1.0)), groundHash(i + vec2(1.0, 1.0)), u.x),
+    u.y
+  );
+}
+
 void main() {
-  // 관측자는 원점에 있습니다. 이 픽셀이 보이는 방향.
-  vec3 dir = normalize(vWorld);
-  float sinDown = max(1e-3, -dir.y);   // 아래를 볼수록 1에 가까움
+  // 관측자 눈높이는 지면 위 160cm에 있습니다.
+  vec3 eyePos = vec3(0.0, vWorld.y + 1.6, 0.0);
+  vec3 dir = normalize(vWorld - eyePos);
+  float sinDown = clamp(-dir.y, 0.0, 1.0);   // 아래를 볼수록 1에 가까움
+  float grazing = clamp(1.0 - sinDown, 0.0, 1.0);
+
+  // ── 거친 흙땅/모래사장 고밀도 마이크로 재질 (Micro-Detail Soil & Sand) ────────
+  float groundDist = length(vWorld.xz);
+  float distFade = smoothstep(80.0, 4.0, groundDist); // 근거리일수록 마이크로 디테일 선명화
+
+  // 4단계 멀티스케일 프랙탈 노이즈 (매크로 흙무늬 + 중간 자갈 + 미세 모래알)
+  float n1 = groundNoise(vWorld.xz * 0.20);
+  float n2 = groundNoise(vWorld.xz * 1.25);
+  float n3 = groundNoise(vWorld.xz * 4.8);
+  float n4 = groundNoise(vWorld.xz * 16.0) * distFade; // 발밑 5cm급 초미세 모래알
+
+  // 입체적 요철 법선 범프 (Normal Bump)
+  float eps = 0.08;
+  float nH1 = groundNoise(vWorld.xz * 1.25 + vec2(eps, 0.0));
+  float nH2 = groundNoise(vWorld.xz * 1.25 + vec2(0.0, eps));
+  float nH3 = groundNoise(vWorld.xz * 4.8 + vec2(eps, 0.0));
+  float nH4 = groundNoise(vWorld.xz * 4.8 + vec2(0.0, eps));
+  vec2 soilGrad = (vec2(nH1, nH2) - n2) * 0.65 + (vec2(nH3, nH4) - n3) * 0.45 * distFade;
+  vec3 soilNormal = normalize(vec3(-soilGrad.x, 1.0, -soilGrad.y));
+
+  // 태양 직달광 방향 벡터
+  vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad),
+                sin(uSunAltRad),
+                -cos(uSunAltRad) * cos(uSunAzRad));
+  float soilSunDiff = max(0.45, dot(soilNormal, L));
+
+  // 모래·자갈·황토 유기적 색상 블렌딩 (풍부하고 입체적인 대지 색감)
+  vec3 sandBright = vec3(1.18, 1.08, 0.90);
+  vec3 gravelTone = vec3(0.90, 0.82, 0.70);
+  vec3 darkSoil   = vec3(0.68, 0.58, 0.46);
+  vec3 soilBlend  = mix(sandBright, gravelTone, n1 * 0.65 + n2 * 0.35);
+  soilBlend       = mix(soilBlend, darkSoil, n3 * 0.45);
+  float soilRoughness = mix(0.82, 1.28, n3 * 0.6 + n4 * 0.4);
 
   // ── 방위별 전방산란 광택 ────────────────────────────────────────────────
-  //
-  // 지면은 램버시안이 아닙니다. 풀·아스팔트·젖은 표면 모두 **태양 쪽으로
-  // 강한 전방산란 로브**를 갖습니다. 낮은 태양에서 태양 쪽 지면을 보면
-  // 번들거리고 반대쪽은 어두운 것이 그 때문입니다.
-  //
-  // 이 항이 없으면 지면이 방향에 무관한 한 가지 색이 되어 회색 판때기로
-  // 보입니다 — 실루엣을 못 그리는 만큼, 이 각도 의존성이 "표면임"을 알려주는
-  // 몇 안 되는 단서입니다.
   float az = atan(dir.x, -dir.z);
   float dAz = cos(az - uSunAzRad);            // 태양 쪽 +1, 반대쪽 -1
-  // 스치는 각(지평선 쪽)일수록 전방산란이 강합니다.
-  float grazing = 1.0 - sinDown;
-  float sheen = uSheen * max(0.0, dAz) * pow(grazing, 2.0);
+  float sheen = uSheen * 0.32 * max(0.0, dAz) * pow(grazing, 2.2);
 
-  // ── 발밑 감광 ───────────────────────────────────────────────────────────
-  //
-  // 눈높이 1.6m에서 아래를 보면 **거의 발밑**입니다 (고도각 -10°면 9m).
-  // 그 근처는 자기 그림자와 주변 가림으로 하늘을 덜 봅니다.
-  // 0.55까지 떨어뜨리면 톤 곡선을 지나며 화면 아래가 **완전히 검게** 됩니다
-  // (측정: rgb(0,1,1)). 어두운 건 맞지만 새까매지면 표면이라는 감각이 사라져
-  // 오히려 UI 배경처럼 보입니다. 0.78이 렌더로 고른 값입니다.
-  float nearShade = mix(1.0, 0.78, smoothstep(0.05, 0.6, sinDown));
+  // ── 밤 대지 조명 (달빛 전방산란 + 밤하늘 대기광 산란) ─────────────────────
+  vec3 nightAirglow = vec3(0.020, 0.025, 0.035) * uNightFactor;
+  float dMoonAz = cos(az - uMoonAzRad);
+  float moonSheen = max(0.0, dMoonAz) * pow(grazing, 2.0) * 0.75;
+  vec3 moonScatter = uMoonRadiance * (1.0 + moonSheen);
+  vec3 nightGround = (nightAirglow + moonScatter) * vec3(0.28, 0.25, 0.20) * 2.8;
 
-  // ── 국소 순응 ───────────────────────────────────────────────────────────
-  //
-  // 지면 복사휘도는 하늘의 알베도 배(≈0.2)라 **톤 곡선의 발끝**에 박힙니다.
-  // ACES의 발끝은 거의 이차식이라 그 구간에서 화면값이 0에 붙어, 물리적으로
-  // 맞는 값을 넣어도 검은 띠가 됩니다 (측정: rgb(0,1,1)).
-  //
-  // 사진에서 전경이 새까만 것은 사실이지만, **사람 눈은 국소로 순응합니다** —
-  // 노을을 보다 발밑을 보면 땅이 보입니다. 전역 톤 곡선 하나로는 그 둘을
-  // 동시에 담을 수 없어서, 사진가가 그래듀에이티드 ND를 쓰는 것과 같은 이유로
-  // 지면에만 노출을 올립니다. 알베도를 부풀리는 것과 달리 **물리를 고치지 않고
-  // 표시만 고치는** 선택이라 여기 한 줄로 분리해 둡니다.
-  vec3 col = uGroundRadiance * uExposure * nearShade * (1.0 + sheen);
+  vec3 groundLight = max(vec3(0.035, 0.040, 0.050), uGroundRadiance);
+  vec3 col = (groundLight * soilSunDiff * soilBlend * (1.0 + sheen) + nightGround) * uExposure * soilRoughness;
 
-  // ── 물 ──────────────────────────────────────────────────────────────────
+  // ── 2D 수면 (청명한 에메랄드-사파이어 수체광, 4-옥타브 파도, 찬란한 황금빛 윤슬) ───────
   if (uHasWater > 0.5) {
-    float azFrac = fract((az / 6.2831853) + 1.0);
-    float water = texture2D(uWaterTex, vec2(azFrac, 0.5)).r;
+    vec2 waterUV = clamp((vWorld.xz / (475.0 * 2.0)) + 0.5, 0.0, 1.0);
+    float rawWaterMask = texture2D(uWaterTex2D, waterUV).r;
+    float waterMask = smoothstep(0.005, 0.12, rawWaterMask);
 
-    if (water > 0.003) {
-      // V = 수면에서 눈으로, L = 수면에서 태양으로.
+    if (waterMask > 0.001) {
       vec3 V = -dir;
-      vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad),
-                    sin(uSunAltRad),
-                    -cos(uSunAltRad) * cos(uSunAzRad));
 
-      // ── 윤슬: Cox-Munk 파면 경사 ─────────────────────────────────────
-      //
-      // 잔물결 하나하나를 그릴 수는 없지만, **경사의 분포**는 압니다.
-      // Cox & Munk (1954)가 풍속의 함수로 재 놓았습니다:
-      //     σ² = 0.003 + 0.00512 · U      (U = 10m 풍속, m/s)
-      //
-      // 눈과 태양을 잇는 반벡터 H가 그 지점에서 정반사를 일으키는 면의
-      // 법선입니다. H가 수직에서 얼마나 기울었는지를 가우시안에 넣으면
-      // 그 경사를 가진 면의 비율 = 그 방향의 밝기가 됩니다.
-      //
-      // 풍속이 낮으면 좁고 날카로운 기둥, 높으면 넓고 부드러운 띠가 되는
-      // 것이 σ² 하나에서 나옵니다.
-      vec3 H = normalize(V + L);
-      float cosN = max(H.y, 1e-3);            // 면 법선이 수직에서 기운 정도
-      float tan2 = (1.0 - cosN * cosN) / (cosN * cosN);
-      float p = exp(-tan2 / max(1e-4, uSlopeVar))
-              / (3.14159265 * max(1e-4, uSlopeVar) * pow(cosN, 4.0));
+      // ── 4-옥타브 프랙탈 해양 파도 (밭고랑 줄무늬 제거) ───────────────────
+      vec2 pW = vWorld.xz * 0.14;
+      // 1. 주 파도 (바람 방향 25도, 파장 약 7m)
+      float w1 = sin(dot(pW, vec2(0.906, 0.423)) * 2.4 + groundNoise(pW * 0.6) * 1.8) * 0.5 + 0.5;
+      // 2. 보조 파도 (방향 -35도, 파장 약 4.5m)
+      float w2 = sin(dot(pW, vec2(0.819, -0.573)) * 3.8) * 0.5 + 0.5;
+      // 3. 횡방향 잔물결 (방향 75도, 파장 약 2.2m)
+      float w3 = sin(dot(pW, vec2(0.258, 0.965)) * 6.5) * 0.5 + 0.5;
+      // 4. 고주파 마이크로 리플 (근거리 잔물결)
+      float w4 = groundNoise(vWorld.xz * 1.6);
 
-      float cosV = max(-dir.y, 1e-3);         // 시선이 수면과 이루는 각
-      float F = waterFresnel(dot(V, H));
-      vec3 glitter = uSunRadiance * (F * p / (4.0 * cosV));
+      // Trochoidal 피크 (골은 넓고 둥글며, 봉우리는 뾰족한 비대칭 해양 파형)
+      float waveElev = pow(max(0.0, w1 * 0.44 + w2 * 0.32 + w3 * 0.16 + w4 * 0.08), 1.35);
 
-      // ── 하늘 되비침 ──────────────────────────────────────────────────
-      //
-      // 반짝임이 없는 곳의 물은 **하늘을 비춥니다.** 스치는 각일수록 프레넬이
-      // 커져 더 많이 비추고, 내려다볼수록 물 자체 색(거의 검음)이 드러납니다.
-      //
-      // ⚠ **거울 방향의 하늘**을 봐야 합니다. 처음에 수평선 하늘색 하나를 모든
-      // 시선각에 썼더니 수면 전체가 노을색으로 포화돼 윤슬이 파묻혔습니다
-      // (측정: 수면 평균 238/255, 풍속을 4배 올려도 기둥 폭 0.56 → 0.59).
-      // 고도 -10°로 내려다본 물은 +10° 하늘을 비추지 수평선을 비추지 않습니다.
-      vec3 mirrorDir = vec3(dir.x, -dir.y, dir.z);
-      float mirrorElev = degrees(asin(clamp(mirrorDir.y, -1.0, 1.0)));
-      float cosG = dot(normalize(mirrorDir), L);
+      // 거리 기반 파도 세기 감쇠
+      float waveStrength = mix(0.25, 0.06, smoothstep(4.0, 300.0, groundDist));
+      vec2 waveGrad = vec2(
+        (cos(dot(pW, vec2(0.906, 0.423)) * 2.4) * 0.906 * 0.44 +
+         cos(dot(pW, vec2(0.819, -0.573)) * 3.8) * 0.819 * 0.32 +
+         cos(dot(pW, vec2(0.258, 0.965)) * 6.5) * 0.258 * 0.16) * waveStrength * 2.2,
+        (cos(dot(pW, vec2(0.906, 0.423)) * 2.4) * 0.423 * 0.44 -
+         cos(dot(pW, vec2(0.819, -0.573)) * 3.8) * 0.573 * 0.32 +
+         cos(dot(pW, vec2(0.258, 0.965)) * 6.5) * 0.965 * 0.16) * waveStrength * 2.2
+      );
+      vec3 waveNormal = normalize(vec3(waveGrad.x, 1.0, waveGrad.y));
+
+      // ── 면적형 파도 윤슬 (Wave Glitter Carpet) ────────────────────────
+      vec3 H = normalize(V + L + vec3(1e-5, 1e-4, 1e-5));
+      float cosN = max(dot(waveNormal, H), 1e-3);
+      float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);
+      float slopeVarClamped = max(1e-3, uSlopeVar);
+      float p = exp(-clamp(tan2 / slopeVarClamped, 0.0, 50.0))
+              / (3.14159265 * slopeVarClamped * pow(cosN, 4.0));
+      p = clamp(p, 0.0, 30.0);
+
+      vec3 waveRefl = reflect(-L, waveNormal);
+      float waveGlint = pow(max(0.0, dot(waveRefl, V)), 24.0);
+
+      float cosV = max(0.02, dot(V, waveNormal));
+      float F = waterFresnel(clamp(dot(V, H), 0.0, 1.0));
+
+      // ── 찬란한 태양 윤슬 카펫 (Sunlight Glitter Path - 안정화 수식) ──────────────────
+      vec3 sunReflIdeal = reflect(-L, vec3(0.0, 1.0, 0.0));
+      float sunAlign = max(0.0, dot(V, sunReflIdeal));
+      float specDenom = max(1.0, 4.0 * cosV);
+      float microSpec = (p * 0.45 + waveGlint * 2.5) / specDenom;
+      // 태양 반사 경로에 정렬되었을 때만 윤슬 카펫이 빛나도록 제한
+      vec3 glitter = uSunRadiance * (F * microSpec * pow(sunAlign, 2.0) + pow(sunAlign, 6.0) * 1.8) * 2.2;
+      glitter = clamp(glitter, vec3(0.0), vec3(6.0));
+
+      // ── 맑고 눈부신 에메랄드-코발트 바다 수체 고유광 (Vibrant Ocean Body Color) ──
+      // 천해/연안/발밑: 청명하고 투명한 트로피컬 에메랄드 터콰이즈 그린/블루
+      vec3 shallowSea = vec3(0.04, 0.70, 0.80);
+      // 심해/먼바다: 웅장하고 깊은 로열 사파이어 코발트 블루
+      vec3 deepSea    = vec3(0.01, 0.28, 0.72);
+      float depthMix  = smoothstep(3.0, 100.0, groundDist);
+      vec3 noonWater  = mix(shallowSea, deepSea, depthMix);
+
+      // 노을 시 수체: 붉은 노을빛을 품은 그윽한 마린 퍼플 & 앰버 인디고
+      vec3 sunsetSea  = mix(vec3(0.24, 0.14, 0.30), vec3(0.12, 0.10, 0.26), depthMix);
+      float sunWarmth = smoothstep(-2.0, 12.0, uSunAltDeg);
+      vec3 oceanBodyColor = mix(sunsetSea, noonWater, sunWarmth);
+      vec3 body = oceanBodyColor * 1.5;
+
+      // ── 파도 법선 기반 하늘 되비침 ─────────────────────────────────────
+      vec3 mirrorDir = normalize(reflect(dir, waveNormal) + vec3(0.0, 1e-4, 0.0));
+      float mirrorElev = max(1.0, degrees(asin(clamp(mirrorDir.y, 0.0, 1.0))));
+      float cosG = clamp(dot(mirrorDir, L), -1.0, 1.0);
       vec3 skyRefl = atm_skyRadiance(mirrorElev, cosG, uSunAltDeg,
-                                     uBeta, uAngstrom, uElevScale, uOzoneDU);
+                                     max(0.001, uBeta), max(0.1, uAngstrom), max(0.1, uElevScale), max(50.0, uOzoneDU));
+      vec3 skyFallback = mix(vec3(0.20, 0.12, 0.08), vec3(0.18, 0.35, 0.62), sunWarmth);
+      skyRefl = clamp(max(skyFallback, skyRefl), vec3(0.0), vec3(12.0));
 
+      // 수면 고유의 에메랄드/사파이어 색상이 65% 이상 주도하도록 반사율 완화
       float Fv = waterFresnel(cosV);
-      vec3 body = uGroundRadiance * (WATER_ALBEDO_REL);   // 물 자체는 거의 검음
-      vec3 waterCol = skyRefl * Fv + body * (1.0 - Fv);
+      float reflWeight = mix(0.10, 0.35, Fv);
+      vec3 waterCol = mix(body, skyRefl, reflWeight);
 
-      vec3 wet = (waterCol + glitter) * uExposure;
-      col = mix(col, wet, water);
+      // ── 파도 피크 하얀 포말 (Sea Foam Line) ────────────────────────────
+      float foam = smoothstep(0.70, 0.95, waveElev) * (0.6 + 0.4 * groundNoise(vWorld.xz * 6.0)) * 0.35;
+      waterCol += vec3(0.95, 0.98, 1.0) * foam * (0.4 + 0.6 * sunWarmth);
+
+      // 밤바다 달빛 반사 보조
+      if (uNightFactor > 0.01) {
+        vec3 moonL = vec3(cos(uMoonAltRad) * sin(uMoonAzRad),
+                          sin(uMoonAltRad),
+                          -cos(uMoonAltRad) * cos(uMoonAzRad));
+        vec3 moonRefl = reflect(-moonL, waveNormal);
+        float moonGlint = pow(max(0.0, dot(moonRefl, V)), 20.0);
+        waterCol += uMoonRadiance * moonGlint * 1.2;
+      }
+
+      // ── 해변 젖은 모래(Wet Sand) 및 부드러운 해안선 블렌딩 ─────────────────
+      vec3 wetSand = col * 0.45;
+      col = mix(col, wetSand, smoothstep(0.001, 0.40, waterMask));
+
+      vec3 wet = clamp(waterCol + glitter, vec3(0.0), vec3(40.0));
+      col = mix(col, wet, waterMask);
     }
   }
 
-  // 하늘과 **같은 표시 경로**를 통과시킵니다. 이게 없으면 두 축이 달라져
-  // 상수를 손으로 맞출 수밖에 없습니다 (예전이 그랬습니다).
-  gl_FragColor = vec4(atm_display(col, uSaturation, uSunAltDeg), 1.0);
+  // ── 대지와 바다의 로컬 표시 파이프라인 (Anti-Black-Crush & Scotopic Adaptation) ──
+  vec3 dispCol = atm_display_ground(col, uSaturation, uSunAltDeg);
+
+  gl_FragColor = vec4(dispCol, 1.0);
 }
 `;
 
@@ -372,21 +496,9 @@ export function makeWaterTexture(waterFrac: number[] | null): THREE.DataTexture 
     let v = 0;
     if (waterFrac && waterFrac.length > 0) {
       // 방위 i/N 에 해당하는 입력 표본을 선형 보간합니다.
-      //
-      // ⚠ **`length` 가 아니라 `length - 1`** 로 나눠야 합니다.
-      //
-      // 표본 배열은 `minAz + i*range/(SAMPLES-1)` 로 만들어져 0°와 360°가
-      // **중복**됩니다(31개 중 0번과 30번이 같은 방위). `length` 로 나누고
-      // 나머지 연산으로 감으면 360°를 31분의 30 에 욱여넣는 셈이라, 방위가
-      // 최대 360/31 = **11.6° 어긋납니다.**
-      //
-      // `createTerrainBands` 는 `azFrac * (angles.length - 1)` 로 제대로
-      // 매핑합니다. 즉 **수역 마스크와 능선이 서로 다른 방위를 가리키고**
-      // 있었습니다 — 물이라고 칠한 자리와 능선이 접힌 자리가 달라지니
-      // 경계가 어긋나 보입니다. 둘을 같은 식으로 맞춥니다.
-      const t = (i / N) * (waterFrac.length - 1);
-      const a = Math.min(Math.floor(t), waterFrac.length - 1);
-      const b = Math.min(a + 1, waterFrac.length - 1);
+      const t = (i / N) * waterFrac.length;
+      const a = Math.floor(t) % waterFrac.length;
+      const b = (a + 1) % waterFrac.length;
       const f = t - Math.floor(t);
       v = waterFrac[a] * (1 - f) + waterFrac[b] * f;
     }
@@ -461,30 +573,15 @@ export function createTerrainBands(
   bandAngles: number[][],
   distancesKm: number[],
   maxVisualAngle: number = TERRAIN_MAX_ANGLE_DEG,
-  /**
-   * **거리대별** 수역 여부 `[거리대][방위]` (0 = 육지, 1 = 물).
-   *
-   * ⚠ 예전에는 방위별 비율 하나(`waterFrac`)를 받아 **모든 거리대에** 곱했고,
-   * 그 곱이 능선 높이를 줄였습니다:
-   *
-   *     topDeg *= (1 - min(1, water * 1.4))
-   *
-   * 그래서 5km 가 만이고 40km 가 산인 방위에서 water 가 1/3 이 되어 **산이
-   * 절반(×0.533)으로** 줄었습니다. 5·15km 가 물이면 ×0.067 — 사실상 사라집니다.
-   * 사용자가 말한 "땅이 실제 고도보다 낮게 나온다"가 이것입니다.
-   *
-   * 물은 그 **거리대에서만** 물이므로 거리대별로 받고, 능선을 줄이는 것이
-   * 아니라 **바다 수평선으로 바꿉니다**(아래).
-   */
-  bandWater?: number[][] | null,
-  /** 관측 고도 (m). 바다 수평선 각도를 정합니다. */
-  observerElevM: number = 0
+  waterFrac?: number[] | null,
+  observerElevM: number = 50
 ): TerrainBandsHandle {
-  // 물인 방위가 놓일 자리 — 지면 원반의 가장자리와 **같은 각도**입니다.
-  const seaHorizonDeg = -seaHorizonDipDeg(observerElevM);
   const group = new THREE.Group();
   group.name = 'terrainBands';
   const bands: TerrainBand[] = [];
+
+  // 관측자 해발 고도에 따른 바다 수평선 침강각 (도, 음수)
+  const dipDeg = seaHorizonDipDeg(observerElevM);
 
   // 먼 거리대를 먼저 그립니다. renderOrder가 클수록 나중이므로 가까울수록 큽니다.
   const order = distancesKm
@@ -501,13 +598,6 @@ export function createTerrainBands(
     const hazeAttr = new Float32Array(vertexCount * 3);
     const indices: number[] = [];
 
-    // 이 띠가 실제로 내려가는 최저각. 물인 방위는 바다 수평선까지 내려갑니다.
-    let bandMinDeg = seaHorizonDeg;
-    for (let k = 0; k < angles.length; k++) {
-      const a = Math.min(angles[k], maxVisualAngle);
-      if (a < bandMinDeg) bandMinDeg = a;
-    }
-
     for (let s = 0; s < TERRAIN_SEGMENTS; s++) {
       const azFrac = s / TERRAIN_SEGMENTS;
       const azRad = azFrac * Math.PI * 2;
@@ -517,40 +607,15 @@ export function createTerrainBands(
       const i1 = Math.min(i0 + 1, angles.length - 1);
       const f = angleIdx - i0;
       const raw = angles[i0] * (1 - f) + angles[i1] * f;
-      // ⚠ 음수를 0 으로 자르지 않습니다.
-      //
-      // 예전에는 `Math.max(raw, 0)` 이라, 관측자보다 낮은 골짜기도 바다도
-      // 전부 **지평선에 딱 붙었습니다.** 그러면 수평선 자리에 얇은 육지색
-      // 띠가 얹혀 물과 땅의 경계가 지형선처럼 보입니다. 지형각은 이제
-      // 곡률까지 넣은 진짜 각이므로 그대로 씁니다.
-      let topDeg = Math.min(raw, maxVisualAngle);
 
-      const wRow = bandWater?.[i];
-      if (wRow && wRow.length > 0) {
-        const wIdx = azFrac * (wRow.length - 1);
-        const w0 = Math.floor(wIdx);
-        const w1 = Math.min(w0 + 1, wRow.length - 1);
-        const wf = wIdx - w0;
-        const water = Math.min(1, Math.max(0, wRow[w0] * (1 - wf) + wRow[w1] * wf));
-        // 물은 능선을 **줄이는** 것이 아니라 **바다 수평선으로 바꿉니다.**
-        // 그 자리에 실제로 있는 것이 해수면이기 때문입니다. 줄이기(×)로는
-        // 물이 반쯤 섞인 방위가 "낮은 육지"가 되는데, 그런 지형은 없습니다.
-        topDeg = topDeg * (1 - water) + seaHorizonDeg * water;
-      }
+      // 산 능선 고도각 처리:
+      // 관측자 해발 고도에 따른 바다 수평선 침강각(-dipDeg)보다 위로 솟아오른 실제 산 지형만 메쉬를 만듭니다.
+      // 바다 방위이거나 수평선 아래인 지형(raw <= -dipDeg + 0.005)은 topDeg = botDeg = -dipDeg로 높이를 0으로 두어
+      // 발밑부터 수평선까지 펼쳐지는 바다 수면(푸른 물과 윤슬)을 가리는 회색 벽이 생기지 않도록 합니다.
+      const hasMountain = raw > (-dipDeg + 0.005);
+      const topDeg = hasMountain ? Math.min(raw, maxVisualAngle) : -dipDeg;
+      const botDeg = -dipDeg; // 산의 기슭은 지평선/수면(-dipDeg)과 빈틈없이 밀착됩니다.
 
-      // 아래로 얼마나 내릴지.
-      //
-      // 처음에 -30°까지 내렸더니 띠가 **지면 원반을 통째로 덮었습니다**
-      // (띠가 지면보다 나중에 그려집니다). 그러면 지평선 아래 전부가 "5km
-      // 거리의 대기 투시를 먹은 색"이 되는데, 발밑 땅은 5km가 아니라 수십
-      // 미터 앞이라 연무가 거의 없습니다.
-      //
-      // ⚠ 예전 주석은 "지면 원반의 가장자리가 -0.95°"라며 -2.5° 로 고정해
-      // 두었는데, 원반은 `setGroundHorizon` 이 **관측 고도로** 내립니다
-      // (30m 면 -0.176°). 주석이 낡아 상수도 같이 낡았습니다. 게다가 이제
-      // topDeg 가 음수로 내려갈 수 있으므로(골짜기·바다) 고정값이면 띠가
-      // 뒤집힙니다. 이 띠의 실제 최저 지형각보다 조금만 더 내립니다.
-      const botDeg = Math.min(-2.5, bandMinDeg - 1.0);
       const dirX = Math.sin(azRad);
       const dirZ = -Math.cos(azRad);
 
@@ -566,6 +631,14 @@ export function createTerrainBands(
       };
       put(s * 2, botDeg);
       put(s * 2 + 1, topDeg);
+
+      // 연무 버퍼 어트리뷰트(aHaze) 기본값 초기화 (첫 프레임에서 검은색 잔상 방지)
+      hazeAttr[s * 2 * 3] = 0.20;
+      hazeAttr[s * 2 * 3 + 1] = 0.28;
+      hazeAttr[s * 2 * 3 + 2] = 0.42;
+      hazeAttr[(s * 2 + 1) * 3] = 0.20;
+      hazeAttr[(s * 2 + 1) * 3 + 1] = 0.28;
+      hazeAttr[(s * 2 + 1) * 3 + 2] = 0.42;
 
       const n = (s + 1) % TERRAIN_SEGMENTS;
       indices.push(s * 2, s * 2 + 1, n * 2);
@@ -600,7 +673,7 @@ export function createTerrainBands(
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `terrainBand_${d}km`;
-    // 지면 원반(−0.5)보다 뒤, 구름(1)보다 앞. 먼 거리대일수록 먼저.
+    // 지면 원반(−0.5)보다 뒤(화면 앞쪽), 천체 궤적(-0.2)보다 뒤. 먼 거리대일수록 먼저.
     mesh.renderOrder = -0.4 + rank * 0.05;
     group.add(mesh);
     bands.push({ mesh, material, distanceKm: d });
@@ -680,6 +753,17 @@ export function updateTerrainBands(
 }
 
 /**
+ * 1x1 기본 육지 마스크 2D 텍스처를 생성합니다.
+ */
+export function createDummyWaterMask2D(): THREE.DataTexture {
+  const data = new Uint8Array(4);
+  data[0] = 0; data[1] = 0; data[2] = 0; data[3] = 255;
+  const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
  * 지평선 발 아래 전체를 덮는 3D 대지(Ground Plane) 원반 Mesh를 생성합니다.
  */
 export function createGroundPlane(): THREE.Mesh {
@@ -695,7 +779,7 @@ export function createGroundPlane(): THREE.Mesh {
       uSaturation: { value: 1.0 },
       uSheen: { value: 0.0 },
       uExposure: { value: 1.0 },
-      uWaterTex: { value: makeWaterTexture(null) },
+      uWaterTex2D: { value: createDummyWaterMask2D() },
       uHasWater: { value: 0.0 },
       uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uSunAltRad: { value: 0.5 },
@@ -704,11 +788,16 @@ export function createGroundPlane(): THREE.Mesh {
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
       uOzoneDU: { value: 330 },
+      uMoonRadiance: { value: new THREE.Vector3(0, 0, 0) },
+      uMoonAzRad: { value: 0 },
+      uMoonAltRad: { value: 0 },
+      uNightFactor: { value: 0.0 },
     },
     vertexShader: GROUND_VERT,
     fragmentShader: GROUND_FRAG,
     side: THREE.DoubleSide,
-    depthWrite: true,
+    depthWrite: false, // 산 능선 메쉬를 가리지 않도록 깊이 기록을 끕니다.
+    depthTest: true,
     polygonOffset: true,
     polygonOffsetFactor: 3,
     polygonOffsetUnits: 3,
@@ -717,21 +806,8 @@ export function createGroundPlane(): THREE.Mesh {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'groundPlane';
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = -8.0; // Z-fighting 차단을 위해 지형 링 하단 아래로 배치
-  // ── renderOrder: 스카이돔(−1) **뒤에** 그려야 합니다 ──────────────────────
-  //
-  // 예전에는 −2 였습니다. 그러면 지면이 먼저 그려지는데 `depthWrite: false`라
-  // 깊이를 안 남기고, 곧이어 스카이돔이 **`depthTest: false`로 전체 구를**
-  // 칠하면서 지면을 통째로 덮어 버립니다.
-  //
-  // 측정: 지면 원반을 씬에서 아예 빼도 화면 최대 픽셀차가 **1/255** 였습니다.
-  // 매 프레임 `updateGroundColors`로 색을 다시 칠하는데 한 픽셀도 안 나오고
-  // 있었고, 지평선 아래에 보이던 금빛은 땅이 아니라 **하늘 셰이더의 아래쪽
-  // 반구**였습니다 (docs/GROUND_PLAN.md §1).
-  //
-  // 스카이돔의 `depthTest: false`는 "항상 배경"이라는 의도이므로 건드리지
-  // 않고, 지면을 그 뒤로 옮깁니다. 지형 링(0)보다는 앞에 두어 능선이 지면
-  // 위에 얹히게 합니다.
+  mesh.position.y = -0.5; // 발밑 바로 아래 배치하여 산 능선 및 바다 링과 z-fighting 차단
+  // ── renderOrder: 스카이돔(−1) 뒤, 지형 링(-0.4 ~ -0.3) 앞 ──────────────────────
   mesh.renderOrder = -0.5;
 
   return mesh;
@@ -980,7 +1056,9 @@ export function updateGroundColors(
     sunTransmittance?: number;
     sunAzimuthDeg?: number;
     saturation?: number;
-    /** 방위별 수역 비율. `makeWaterTexture`로 구운 것을 넘깁니다. */
+    /** 2D 수역 마스크 (해안선·만·반도 + 강·호수). createWaterMask2DTexture로 구운 것을 넘깁니다. */
+    waterTex2D?: THREE.DataTexture | null;
+    /** 하위 호환용 방위별 수역 텍스처 */
     waterTex?: THREE.DataTexture | null;
     /** 대기 파라미터 — 물이 되비출 하늘을 셰이더 안에서 직접 계산합니다. */
     betaMie?: number;
@@ -989,6 +1067,10 @@ export function updateGroundColors(
     ozoneDU?: number;
     /** 10m 고도 풍속 (m/s). 윤슬 폭이 이걸로 정해집니다. */
     windSpeedMs?: number;
+    /** 달 고도, 방위각 및 위상 (밤 대지 조명용) */
+    moonAltitudeDeg?: number;
+    moonAzimuthDeg?: number;
+    moonFraction?: number;
   }
 ): void {
   const mat = mesh.material as THREE.ShaderMaterial;
@@ -1013,28 +1095,55 @@ export function updateGroundColors(
   (u.uGroundRadiance.value as THREE.Vector3).set(r, g, b);
   u.uSunAltDeg.value = sunAltitude;
   u.uSunAzRad.value = ((opts?.sunAzimuthDeg ?? 180) * Math.PI) / 180;
-  // 지면 채도는 하늘보다 낮춥니다. `DISP_SAT`은 하늘을 기준으로 맞춘 값이라
-  // 그대로 지면에 걸면 흙색이 청록으로 뜹니다 — 지면은 이미 여러 색을 섞어
-  // 되쏜 빛이라 실제로도 채도가 낮습니다.
+  // 지면 채도는 하늘보다 낮춥니다.
   u.uSaturation.value = (opts?.saturation ?? 1.0) * 0.55;
 
-  // 전방산란 광택은 **직달광이 있을 때만** 의미가 있습니다. 흐리면 방향성이
-  // 없어져 사라져야 맞습니다.
+  // 전방산란 광택은 직달광이 있을 때만 의미가 있습니다.
   const lowSun = clamp01(1 - Math.abs(sunAltitude) / 25);
-  // 1.6이면 광택이 그라데이션을 통째로 지배해, 지평선 쪽만 밝고 아래는
-  // 까맣게 됩니다. 방향성이 읽힐 만큼만 남깁니다.
   u.uSheen.value = 0.75 * sunT * lowSun * clamp01(sunAltitude / 3 + 1);
 
-  // 국소 순응 배율. 렌더로 고른 값입니다 — 이보다 낮으면 지평선 아래가 검은
-  // 띠가 되고, 높이면 땅이 하늘만큼 밝아져 다시 거짓말이 됩니다.
-  // 목표는 "명백히 어둡지만 표면으로 읽히는" 구간입니다.
+  // 국소 순응 배율
   u.uExposure.value = GROUND_EXPOSURE;
 
+  // ── 밤 대지 조명 & 달빛 산란 (Night Factor & Moonlight) ───────────────────
+  // 태양 고도가 0도 아래로 내려갈수록 밤 인자가 1에 가까워집니다.
+  const nightFactor = clamp01((-sunAltitude) / 12);
+  if (u.uNightFactor) {
+    u.uNightFactor.value = nightFactor;
+  }
+
+  const moonAltDeg = opts?.moonAltitudeDeg ?? -90;
+  const moonAzDeg = opts?.moonAzimuthDeg ?? 180;
+  const moonFrac = opts?.moonFraction ?? 0;
+  const moonSinAlt = Math.max(0, Math.sin((moonAltDeg * Math.PI) / 180));
+
+  if (u.uMoonRadiance) {
+    if (nightFactor > 0.01 && moonSinAlt > 0) {
+      // 보름달 기준 약 0.04 은빛 달빛 조도
+      const moonIntensity = moonSinAlt * (moonFrac * 0.038 + 0.006);
+      (u.uMoonRadiance.value as THREE.Vector3).set(
+        moonIntensity * 0.7,
+        moonIntensity * 0.85,
+        moonIntensity * 1.15
+      );
+    } else {
+      (u.uMoonRadiance.value as THREE.Vector3).set(0, 0, 0);
+    }
+  }
+
+  if (u.uMoonAzRad) {
+    u.uMoonAzRad.value = (moonAzDeg * Math.PI) / 180;
+  }
+  if (u.uMoonAltRad) {
+    u.uMoonAltRad.value = (moonAltDeg * Math.PI) / 180;
+  }
+
   // ── 물 ────────────────────────────────────────────────────────────────
-  if (opts?.waterTex) {
-    u.uWaterTex.value = opts.waterTex;
+  const wTex = opts?.waterTex2D ?? opts?.waterTex;
+  if (wTex && u.uWaterTex2D) {
+    u.uWaterTex2D.value = wTex;
     u.uHasWater.value = 1.0;
-  } else {
+  } else if (u.uHasWater) {
     u.uHasWater.value = 0.0;
   }
   const bm = opts?.beam ?? { r: 0, g: 0, b: 0 };
@@ -1054,7 +1163,7 @@ export function updateGroundColors(
  */
 function fallbackSkyMean(sunAltDeg: number): { r: number; g: number; b: number } {
   const day = clamp01((sunAltDeg + 6) / 14);
-  const night = 0.0015;
+  const night = 0.006;
   const noon = 0.55;
   const s = night + (noon - night) * day * day;
   return { r: s * 0.85, g: s * 0.95, b: s * 1.15 };

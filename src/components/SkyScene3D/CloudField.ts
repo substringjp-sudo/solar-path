@@ -209,7 +209,8 @@ export function createCloudField(atlas: CloudAtlas, capacity: number = 320): Clo
   mesh.name = 'cloudField';
   mesh.count = 0;
   mesh.frustumCulled = false;
-  mesh.renderOrder = 2; // 지형(0) 및 스카이돔(-1)보다 위에 렌더
+  // 지형 산 능선(-0.35) 뒤, 지면 원반(-0.45) 위에 렌더되어 산에 자연스럽게 가려지도록 설정
+  mesh.renderOrder = -0.42;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
   return {

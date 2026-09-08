@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { LucideIcon } from 'lucide-react-native';
 
 interface InfoCardProps {
@@ -14,7 +14,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue
   const { width } = Dimensions.get('window');
   return (
     <View style={[styles.card, { width: width * 0.3 }]}>
-      <View style={[styles.iconContainer, { backgroundColor: theme.glass }]}>
+      <View style={[styles.iconContainer, { backgroundColor: theme.glass, borderColor: theme.border }]}>
         {icon}
       </View>
       <View style={styles.content}>
@@ -28,7 +28,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue
 
 const styles = StyleSheet.create({
   card: {
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 4,
     flexDirection: 'row',
     alignItems: 'center',
@@ -37,7 +37,8 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 28,
     height: 28,
-    borderRadius: 8,
+    borderRadius: 3,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -47,18 +48,21 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 8,
-    fontWeight: '700',
+    fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
     marginBottom: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   value: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   subValue: {
-    fontSize: 8,
-    fontWeight: '600',
+    fontSize: 8.5,
+    fontWeight: '700',
     marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 });

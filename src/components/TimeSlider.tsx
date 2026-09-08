@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { Clock, Zap, MapPin, Camera } from 'lucide-react-native';
+import { Clock, Zap, Camera } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
@@ -294,16 +294,6 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           </View>
 
           <View style={styles.headerButtons}>
-            {onPressMap && (
-              <TouchableOpacity 
-                style={styles.actionBtn} 
-                onPress={onPressMap}
-                activeOpacity={0.75}
-              >
-                <MapPin size={10} color="#38BDF8" />
-                <Text style={styles.actionBtnText}>{t('mapLabel', language)}</Text>
-              </TouchableOpacity>
-            )}
             {isFullDay && isTimeMachineEnabled && (
               <TouchableOpacity 
                 style={styles.nowBtn} 

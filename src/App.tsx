@@ -13,6 +13,7 @@ import { SunCamera } from './components/SunCamera';
 import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
+import { parseTeleportUrl } from './utils/teleport';
 import { t } from './utils/i18n';
 
 // 앱 초기 기동 시 Native Splash Screen을 유지하도록 고정합니다.
@@ -66,7 +67,7 @@ const LOAD_IMAGES = [
 
 export default function App() {
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const { language, isAppReady, preloadInitialData, preloadStatus } = useCelestialStore();
+  const { language, isAppReady, preloadInitialData, preloadStatus, setCurrentTime, setTimeMachineEnabled, setTeleportTarget } = useCelestialStore();
   const {
     showDatePicker,
     setShowDatePicker,
@@ -218,26 +219,53 @@ export default function App() {
     }
   }, [isSavedListVisible]);
 
-  // 앱 숏컷 및 외부 딥링크 처리 (beforeglow://camera 등)
+  // 앱 숏컷 및 외부 딥링크 처리 (beforeglow://camera, beforeglow://teleport 등)
   React.useEffect(() => {
     const handleUrl = (event: { url: string }) => {
-      if (event.url && event.url.toLowerCase().includes('camera')) {
+      const url = event.url;
+      if (!url) return;
+
+      if (url.toLowerCase().includes('camera')) {
         setSunCameraVisible(true);
+        return;
+      }
+
+      const teleportData = parseTeleportUrl(url, currentTime);
+      if (teleportData) {
+        if (__DEV__) console.log('[DeepLink] Teleport received:', teleportData);
+        // 열려있는 모달들을 모두 닫고 3D 씬 탭으로 즉시 워프
+        setMapVisible(false);
+        setSavedListVisible(false);
+        setShowDatePicker(false);
+        setSettingsVisible(false);
+        setSunCameraVisible(false);
+        setActiveTab('sky');
+
+        if (teleportData.location) {
+          setLocation(teleportData.location);
+        }
+        if (teleportData.time) {
+          setTimeMachineEnabled(true);
+          setCurrentTime(teleportData.time);
+        }
+        if (teleportData.camera) {
+          setTeleportTarget(teleportData.camera);
+        }
       }
     };
 
     const subscription = Linking.addEventListener('url', handleUrl);
 
     Linking.getInitialURL().then((url) => {
-      if (url && url.toLowerCase().includes('camera')) {
-        setSunCameraVisible(true);
+      if (url) {
+        handleUrl({ url });
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [setSunCameraVisible]);
+  }, [currentTime, setLocation, setCurrentTime, setTimeMachineEnabled, setTeleportTarget, setActiveTab, setSunCameraVisible, setMapVisible, setSavedListVisible, setShowDatePicker, setSettingsVisible]);
 
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
@@ -262,7 +290,7 @@ export default function App() {
   return (
     <Animated.View style={{ flex: 1, backgroundColor: dynamicTheme.bg }}>
       <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
-        <StatusBar barStyle={isDay ? "dark-content" : "light-content"} translucent backgroundColor="transparent" />
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         
         <View style={styles.mainContent}>
         <AppHeader
@@ -550,29 +578,38 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.82)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
   },
   savedModal: {
     width: '100%',
-    maxHeight: '70%',
-    borderRadius: 32,
-    borderWidth: Platform.OS === 'android' ? 0 : 1,
+    maxHeight: '75%',
+    borderRadius: 4,
+    borderWidth: 1,
     overflow: 'hidden',
-    padding: 24,
-    elevation: Platform.OS === 'android' ? 24 : 0,
+    padding: 18,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    paddingBottom: 10,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: '900',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   savedScroll: {
     flexGrow: 0,
@@ -580,7 +617,7 @@ const styles = StyleSheet.create({
   savedItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
   },
   savedItemLeft: {
@@ -589,77 +626,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   savedName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     marginBottom: 2,
   },
   savedCoords: {
-    fontSize: 12,
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   deleteBtn: {
-    padding: 8,
+    padding: 6,
   },
   emptySaved: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 32,
   },
   closeBtn: {
     padding: 4,
   },
   warningModal: {
-    width: '85%',
-    borderRadius: 24,
+    width: '88%',
+    borderRadius: 4,
     borderWidth: 1,
-    padding: 24,
+    padding: 20,
     alignItems: 'center',
     elevation: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
   },
   warningIconContainer: {
-    marginBottom: 16,
+    marginBottom: 14,
   },
   warningIconBg: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 48,
+    height: 48,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   warningTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
-    marginBottom: 12,
+    marginBottom: 10,
     textAlign: 'center',
+    letterSpacing: 0.3,
   },
   warningMessage: {
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 12.5,
+    lineHeight: 18,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   warningConfirmBtn: {
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 10,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
   warningCancelBtn: {
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 10,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
   },
   warningConfirmText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 12.5,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.4,
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#F4EBE6',
+    backgroundColor: '#05070D',
   },
   loadingOverlay: {
     flex: 1,
@@ -672,20 +715,22 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   appNameText: {
-    color: '#3D312A',
-    fontSize: 34,
+    color: '#F8FAFC',
+    fontSize: 32,
     fontWeight: '900',
-    letterSpacing: 3,
-    textShadowColor: 'rgba(61, 49, 42, 0.12)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
+    letterSpacing: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    textShadowColor: 'rgba(56, 189, 248, 0.4)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
   },
   appSubtitleText: {
-    color: '#D86A4F',
-    fontSize: 12,
+    color: '#38BDF8',
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 2,
+    letterSpacing: 2.5,
     marginTop: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     opacity: 0.9,
     textTransform: 'uppercase',
   },
@@ -697,46 +742,47 @@ const styles = StyleSheet.create({
   },
   glassContainer: {
     width: '100%',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(9, 13, 24, 0.88)',
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.35,
     shadowRadius: 10,
     elevation: 4,
   },
   progressBarBg: {
     width: '100%',
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 3,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#D86A4F',
-    borderRadius: 3,
-    shadowColor: '#D86A4F',
+    backgroundColor: '#38BDF8',
+    borderRadius: 2,
+    shadowColor: '#38BDF8',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 2,
   },
   preloadStatusText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
     marginTop: 14,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     letterSpacing: 0.5,
   },
   paperOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(244, 235, 230, 0.18)',
+    backgroundColor: 'transparent',
   },
   capturedText: {
     color: 'rgba(255, 255, 255, 0.75)',
