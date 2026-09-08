@@ -1538,6 +1538,8 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
  * `ATMOSPHERE_GLSL` 이 먼저 들어가 있어야 합니다.
  */
 export const GROUND_DISPLAY_GLSL = /* glsl */ `
+uniform float GROUND_MIN_GLOW;   // 최소 밝기 바닥의 배율 (0 이면 바닥 없음)
+
 /**
  * 지면용 **눈 순응** 배수 (1 ~ 3).
  *
@@ -1567,9 +1569,15 @@ vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
   float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
   c = clamp(c * k, 0.0, 1.0);
 
-  // 노을 및 야간 최소 앰비언트 가시성 보장
+  // ── 노을·야간 최소 가시성 ────────────────────────────────────────────────
+  //
+  // ⚠ 이건 **바닥**입니다. 이보다 어두운 것은 전부 한 색으로 뭉갭니다.
+  // 어두운 장면에서 지형 음영을 지우는 게 아닌지 의심해 들어 올려 봤지만, 앱이 실제로 쓰는 조도(해 1° 에서 하늘 0.18, 눈 순응
+  // ×16)로 재 보니 지형 밝기가 155 라 **바닥(54)이 애초에 안 물립니다.**
+  // 근거 없이 튜닝된 상수를 건드리지 않으려고 원래대로 두고, 껐다 켜는
+  // 유니폼만 남깁니다(판정이 씁니다).
   vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
-  c = max(c, minGlow);
+  c = max(c, minGlow * GROUND_MIN_GLOW);
 
   return atm_toSrgb(c);
 }
@@ -1603,6 +1611,8 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     DISP_BLUE: { value: t.skyBlueBoost },
     DISP_BLUE_CAP: { value: t.skyBlueCap },
     TONEMAP: { value: t.tonemap === 'agx' ? 1 : 0 },
+    // 지면 표시의 최소 밝기 바닥 배율. 판정이 0 으로 껐다 켭니다.
+    GROUND_MIN_GLOW: { value: 1 },
   };
 }
 
