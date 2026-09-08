@@ -132,7 +132,7 @@ float groundAtEye() {
 
 /** 그 지상 좌표의 고도 (m). 자료가 없으면 발밑 높이로 평평하게. */
 float fieldElev(vec2 g) {
-  return uDemValid > 0.5 ? dem_elevationAt(g) : uObsElevM;
+  return uDemValid > 0.5 ? dem_elevationDespiked(g) : uObsElevM;
 }
 
 void main() {
@@ -373,6 +373,12 @@ export function createTerrainField(opts: {
   /** 격자 안쪽·바깥쪽 거리 (m). 먼 지형 격자가 3km~55km 로 씁니다. */
   nearM?: number;
   farM?: number;
+  /**
+   * 튀는 화소를 걷어냅니다. **성긴 패치(먼 지형)에서만** 켭니다 — 저줌
+   * Terrarium 타일의 R 채널 결함이 첨탑으로 서는 것을 막습니다
+   * (demTiles.ts 의 dem_elevationDespiked 참고).
+   */
+  despike?: boolean;
 }): TerrainFieldHandle {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
   const material = new THREE.ShaderMaterial({
@@ -393,6 +399,7 @@ export function createTerrainField(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
+      uDemDespike: { value: opts.despike ? 1 : 0 },
       uCloudShadowTex: { value: createOpenSkyShadowTexture() },
       uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
       uCloudShadow: { value: 1.0 },
@@ -427,7 +434,11 @@ export function createTerrainField(opts: {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;
         });
       };
+      // ⚠ makeDemUniforms 는 uDemDespike 를 0 으로 되돌립니다 — 격자가
+      // 만들어질 때 정한 값을 지키려고 여기서 다시 씌웁니다.
+      const despike = material.uniforms.uDemDespike?.value;
       put(makeDemUniforms(patch));
+      if (material.uniforms.uDemDespike) material.uniforms.uDemDespike.value = despike;
       if (eyePatch !== undefined) put(makeDemUniforms(eyePatch, 'demEye'));
     },
     dispose: () => {

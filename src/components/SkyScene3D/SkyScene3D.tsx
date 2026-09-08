@@ -784,6 +784,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       nearM: FAR_FIELD_NEAR_M,
       farM: FAR_FIELD_FAR_M,
       rings: FAR_FIELD_RINGS,
+      // 성긴 타일의 R 채널 결함이 첨탑으로 서는 것을 막습니다 — 대부도
+      // 서쪽 바다 한복판에 8.96° 짜리 가짜 봉우리가 있었습니다.
+      despike: true,
     });
     terrainFar.mesh.renderOrder = -0.49;   // 근거리 격자(−0.48)보다 먼저
     terrainFar.mesh.visible = false;

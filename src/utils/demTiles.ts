@@ -168,6 +168,7 @@ uniform vec2  u${U}Obs;      // 관측자의 블록 내 타일 좌표 (0~u${U}Bl
 uniform float u${U}SpanM;    // 타일 한 장의 지상 거리 (m)
 uniform float u${U}Block;    // 블록 한 변의 타일 수
 uniform float u${U}Valid;    // 0 이면 자료 없음 — 호출부가 물러날 수 있게
+uniform float u${U}Despike;  // 1 이면 튀는 화소를 걷어냅니다 (저줌 타일용)
 
 /** 씬의 지상 좌표(m, 관측자 원점) → 블록 UV (0~1) */
 vec2 ${p}_uv(vec2 groundM) {
@@ -205,6 +206,43 @@ float ${p}_elevation(vec2 uv) {
 
 float ${p}_elevationAt(vec2 groundM) {
   return ${p}_elevation(${p}_uv(groundM));
+}
+
+/**
+ * 대각선 이웃 **넷의 중앙값**.
+ *
+ * ⚠ 대각선만 씁니다. 저줌 Terrarium 타일의 결함은 **한 화소 폭의 줄**로
+ * 나타나는데(아래 참고), 상하좌우 이웃은 그 줄 위에 같이 얹힐 수 있어도
+ * 대각선은 행도 열도 다르므로 성합니다.
+ */
+float ${p}_diagMedian(vec2 groundM, float t) {
+  float a = ${p}_elevationAt(groundM + vec2( t,  t));
+  float b = ${p}_elevationAt(groundM + vec2( t, -t));
+  float c = ${p}_elevationAt(groundM + vec2(-t,  t));
+  float d = ${p}_elevationAt(groundM + vec2(-t, -t));
+  // 넷을 정렬했을 때 가운데 둘의 평균 = max(작은것들) 과 min(큰것들) 의 평균.
+  return 0.5 * (max(min(a, b), min(c, d)) + min(max(a, b), max(c, d)));
+}
+
+/**
+ * **튀는 화소를 걷어낸** 높이장 표본.
+ *
+ * 저줌 Terrarium 타일에는 R 채널이 한두 단계 어긋난 화소 줄이 있습니다.
+ * 대부도 서쪽 6.6km 바다 한복판에서 이웃이 전부 0~31m 인데 한 열만
+ * R = 128 → 125·134 로 튀어 **−648m 와 +1572m** 가 나왔고, 화면에는 고도각
+ * 8.96° 짜리 가늘고 높은 첨탑으로 섰습니다(그 방위의 99.9% 값은 0.87°).
+ *
+ * R 채널 한 단계가 곧 **256m** 이므로 결함은 반드시 그만큼씩 어긋납니다.
+ * 반면 실제 지형이 화소 한 칸(줌 9 에서 243m)에서 200m 를 뛰려면 39° 절벽
+ * 이어야 하고, 그런 것은 이 해상도로 평균 내고 나면 남지 않습니다. 그래서
+ * 이웃 중앙값에서 200m 넘게 벗어나면 결함으로 보고 갈아 끼웁니다 —
+ * **중앙값으로 늘 뭉개지 않습니다.** 그러면 진짜 능선까지 깎입니다.
+ */
+float ${p}_elevationDespiked(vec2 groundM) {
+  float h = ${p}_elevationAt(groundM);
+  if (u${U}Despike < 0.5) return h;
+  float m = ${p}_diagMedian(groundM, u${U}SpanM / 256.0);
+  return abs(h - m) > 200.0 ? m : h;
 }
 
 /**
@@ -402,6 +440,7 @@ export function makeDemUniforms(
     [`u${U}SpanM`]: { value: patch?.tileSpanM ?? 1 },
     [`u${U}Block`]: { value: block },
     [`u${U}Valid`]: { value: patch ? 1 : 0 },
+    [`u${U}Despike`]: { value: 0 },
   };
 }
 
