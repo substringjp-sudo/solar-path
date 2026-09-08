@@ -43,6 +43,9 @@ import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
 import { loadDemPatch, clearDemCache, type DemPatch } from '../../utils/demTiles';
 import {
+  buildCloudShadowTexture, CLOUD_SHADOW_HALF_M,
+} from '../../utils/cloudShadowMap';
+import {
   createTerrainField,
   updateTerrainFieldEye,
   FIELD_FAR_M,
@@ -83,6 +86,7 @@ import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/s
 import {
   createCloudDeck,
   updateCloudDeck,
+  CLOUD_SAMPLE_AZ_STEPS,
   type CloudDeckHandle,
   type GenusInput,
 } from './CloudDeck';
@@ -107,7 +111,7 @@ import {
 const _genusOut: BlendedOptics = {
   tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
 };
-import { resolveLayerWinds } from '../../utils/skyColumn';
+import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
@@ -313,6 +317,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const demPatchRef = useRef<DemPatch | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
+  /** 땅에 지는 구름 그림자 지도. 구름·해가 바뀔 때만 다시 굽습니다. */
+  const cloudShadowTexRef = useRef<THREE.DataTexture | null>(null);
+  const cloudShadowKeyRef = useRef<string>('');
   const demLoadedKeyRef = useRef<string | null>(null);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
@@ -1588,6 +1595,43 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         });
 
     lastCloudBuildRef.current = built;
+
+    // ── 땅에 지는 구름 그림자 지도 ─────────────────────────────────────────
+    //
+    // 하늘의 구름과 **같은 표본 배열**을 읽습니다 (utils/cloudShadowMap).
+    // 따로 만들면 하늘의 구름과 땅의 그늘이 서로 다른 구름을 가리킵니다.
+    //
+    // 구름·해가 안 바뀌면 다시 굽지 않습니다 — 4,096번 조회라 싸지만
+    // 매 프레임 할 일은 아닙니다.
+    {
+      const obsNow = observerWeather();
+      const key = [
+        sunAltRef.current.toFixed(1), sunAzRef.current.toFixed(1),
+        built.samples.length, layerMeanCover(built.samples, 'low').toFixed(3),
+        layerMeanCover(built.samples, 'mid').toFixed(3),
+        layerMeanCover(built.samples, 'high').toFixed(3),
+      ].join('|');
+      if (key !== cloudShadowKeyRef.current) {
+        cloudShadowKeyRef.current = key;
+        cloudShadowTexRef.current = buildCloudShadowTexture({
+          samples: built.samples,
+          azSteps: CLOUD_SAMPLE_AZ_STEPS,
+          elevs: elevationGrid(),
+          sunAltDeg: sunAltRef.current,
+          sunAzDeg: sunAzRef.current,
+          tauFor: (layer) => opticsForLayer(layer, obsNow).tau,
+        }, cloudShadowTexRef.current);
+      }
+      for (const h of [terrainFieldRef.current, seaPlaneRef.current]) {
+        if (!h) continue;
+        const cu = h.material.uniforms;
+        if (cu.uCloudShadowTex && cloudShadowTexRef.current) {
+          cu.uCloudShadowTex.value = cloudShadowTexRef.current;
+          cu.uCloudShadowHalfM.value = CLOUD_SHADOW_HALF_M;
+          cu.uCloudShadow.value = layersRef.current.clouds ? 1 : 0;
+        }
+      }
+    }
 
     // 하늘도 구름층 아래로 들어갑니다.
     if (skydomeRef.current) {

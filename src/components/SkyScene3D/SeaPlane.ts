@@ -33,6 +33,9 @@ import {
 import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
 } from '../../utils/atmosphere';
+import {
+  CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
+} from '../../utils/cloudShadowMap';
 
 /**
  * 바다 격자가 뻗는 거리 (m).
@@ -183,6 +186,7 @@ export const SEA_FRAG = /* glsl */ `
 precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
+${CLOUD_SHADOW_GLSL}
 uniform vec3  uSurfaceIrr;
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -205,6 +209,7 @@ uniform float uOzoneDU;
 varying float vDistM;
 varying float vDepthM;
 varying float vWater;
+varying vec3  vGround;
 varying vec3  vViewDir;
 
 /** 청정 해수 흡수계수 (1/m). 붉은빛이 먼저 먹힙니다. */
@@ -293,7 +298,10 @@ void main() {
     // 251 → 255 로 끝납니다. 되비친 태양은 되비친 하늘보다 자릿수로 밝은
     // 것이 물리이므로, 잘리는 자리를 훨씬 위로 올립니다. 폭은 여전히 σ
     // 하나가 정합니다 — 상한은 봉우리 높이만 건드립니다.
-    vec3 glitter = uSunRadiance * Fg * (p / max(1.0, 4.0 * cosVg)) * 3.0;
+    // 윤슬은 **직달광**입니다 — 구름이 가리면 같이 죽습니다. 그래야 구름이
+    // 지나갈 때 물 위의 빛줄기가 함께 흐려집니다.
+    vec3 glitter = uSunRadiance * cloudShadowAt(vGround.xz) * Fg
+                 * (p / max(1.0, 4.0 * cosVg)) * 3.0;
     col += clamp(glitter, vec3(0.0), vec3(60.0)) / eyeAdapt;
   }
 
@@ -355,6 +363,9 @@ export function createSeaPlane(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
       uFresnel: { value: 1.0 },
+      uCloudShadowTex: { value: createOpenSkyShadowTexture() },
+      uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
+      uCloudShadow: { value: 1.0 },
       // Cox & Munk (1954). 바람이 0 이어도 잔물결이 있어 0.003 이 바닥입니다.
       uSlopeVar: { value: 0.003 + 0.00512 * 5.5 },
       uGlitter: { value: 1.0 },

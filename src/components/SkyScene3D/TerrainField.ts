@@ -40,6 +40,9 @@ import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
 } from '../../utils/atmosphere';
 import {
+  CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
+} from '../../utils/cloudShadowMap';
+import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, createConcentricGeometry, ringDistanceM, ringRadius,
 } from './groundProjection';
@@ -183,6 +186,7 @@ precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
 ${DEM_GLSL}
+${CLOUD_SHADOW_GLSL}
 uniform vec3  uSurfaceIrr;    // 수평면이 받는 조도 (하늘 + 직달)
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -274,6 +278,11 @@ void main() {
   }
   ndl *= 1.0 - shade;
 
+  // ── 구름이 드리우는 그림자 ──────────────────────────────────────────────
+  // 지상 좌표별 직달 투과율을 구운 지도에서 읽습니다 (utils/cloudShadowMap).
+  // 여기서도 깎는 것은 직달뿐입니다 — 구름 그늘도 하늘은 봅니다.
+  ndl *= cloudShadowAt(vGround);
+
   // ── 경사: 급하면 암반(밝고 회색), 완만하면 흙·수풀(어둡고 따뜻) ──────────
   //
   // ⚠ 경사는 **기울기(rise/run = tanθ)** 로 재야 합니다. 흔히 쓰는
@@ -344,6 +353,9 @@ export function createTerrainField(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
+      uCloudShadowTex: { value: createOpenSkyShadowTexture() },
+      uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
+      uCloudShadow: { value: 1.0 },
       // 조간대 폭 — **고도** 기준. 조수간만 1~2m 인 서해안 기준.
       uWetBandM: { value: 1.2 },
       uBeta: { value: 0.08 },
