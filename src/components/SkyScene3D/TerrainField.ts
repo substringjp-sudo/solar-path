@@ -83,6 +83,7 @@ uniform float uEyeHeightM;  // 발밑에서 눈까지 (m)
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
+varying vec2  vGround;   // 지상 좌표 (동, 남) m — 그림자 레이마치가 씁니다
 
 /**
  * 관측자 **발밑** 고도 — 반드시 DEM 자신이 정합니다.
@@ -113,6 +114,7 @@ void main() {
   float h = fieldElev(g);
   vElevM = h;
   vDistM = d;
+  vGround = g;
 
   // 법선은 실제 지상 간격으로 낸 유한차분입니다. 고리 간격에 비례해 떨어져야
   // 가까이서 너무 잘고 멀리서 너무 뭉개지는 것을 피합니다.
@@ -180,6 +182,7 @@ export const FIELD_FRAG = /* glsl */ `
 precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
+${DEM_GLSL}
 uniform vec3  uSurfaceIrr;    // 수평면이 받는 조도 (하늘 + 직달)
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -188,16 +191,45 @@ uniform float uSunAltDeg;
 uniform vec3  uAlbedo;
 uniform float uExposure;
 uniform float uSaturation;
-uniform float uDemValid;
 uniform vec3  uHazeRadiance;  // 지평선 부근 하늘빛 (선형) — 공기원근의 끝값
 uniform float uAerial;        // 0 이면 공기원근 끔 (기하 판정용)
 uniform float uWetBandM;      // 조간대 폭 (m 단위 **고도**)
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
+uniform float uShadow;        // 0 이면 드리운 그림자를 끕니다 (대조 판정용)
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
+varying vec2  vGround;
+
+/**
+ * 이 점에서 **태양 쪽 지평선각** (rad).
+ *
+ * 램버트(ndl)만으로는 **제 사면이 해를 등졌는가**밖에 못 봅니다. 산이 그
+ * 뒤 땅에 드리우는 그림자는 다른 질문입니다 — "여기서 해를 보면 뭔가가
+ * 가리고 있는가". 그건 태양 쪽으로 지형을 훑어야 답이 나옵니다.
+ *
+ * 간격은 로그입니다. 가까운 둔덕도 놓치지 않으면서(6m 부터) DEM 패치
+ * 끝(약 3.5km)까지 닿아야 하는데, 등간격으로 그러려면 표본이 수백 개
+ * 필요합니다. 낮은 해의 그림자는 길어서(300m 봉우리 · 해 5° → 3.4km)
+ * 이 거리가 그냥 여유가 아니라 필요한 값입니다.
+ *
+ * ⚠ 자료 밖으로 나가면 **거기서 멈춥니다.** 가장자리 값이 늘어난 것을
+ * 지형으로 읽으면 패치 경계에 가짜 그림자 벽이 생깁니다.
+ */
+float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
+  float best = -1.5;
+  float t = 6.0;
+  for (int i = 0; i < 36; i++) {
+    vec2 g = g0 + sunHoriz * t;
+    if (dem_inside(g) < 0.5) break;
+    float h = dem_elevationAt(g);
+    best = max(best, atan(h - h0, t));
+    t *= 1.2;
+  }
+  return best;
+}
 
 void main() {
   // ⚠ **해수면 아래는 그리지 않습니다.** 거기서 보이는 것은 땅이 아니라
@@ -222,6 +254,25 @@ void main() {
                   sin(uSunAltRad),
                  -cos(uSunAltRad) * cos(uSunAzRad));
   float ndl = max(0.0, dot(n, sun));
+
+  // ── 산이 드리우는 그림자 ────────────────────────────────────────────────
+  //
+  // 태양 쪽 지평선각이 태양 고도보다 높으면 이 점은 그늘입니다. 경계는
+  // **태양 원반**만큼 흐립니다 — 각반경 0.265° 라 그만큼이 반그림자입니다.
+  //
+  // ⚠ 깎는 것은 **직달 몫뿐**입니다. 그늘진 사면도 하늘은 그대로 봅니다.
+  // 조도에서 통째로 빼면 그늘이 새까매지는데, 실제 그늘은 하늘빛을 받아
+  // 푸르스름합니다.
+  float shade = 0.0;
+  if (uShadow > 0.5 && uDemValid > 0.5) {
+    vec2 sunHoriz = vec2(sun.x, sun.z);
+    float sl = length(sunHoriz);
+    if (sl > 1e-4) {
+      float hz = terrainHorizonAngle(vGround, vElevM, sunHoriz / sl);
+      shade = smoothstep(uSunAltRad - 0.00463, uSunAltRad + 0.00463, hz);
+    }
+  }
+  ndl *= 1.0 - shade;
 
   // ── 경사: 급하면 암반(밝고 회색), 완만하면 흙·수풀(어둡고 따뜻) ──────────
   //
@@ -292,6 +343,7 @@ export function createTerrainField(opts: {
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
+      uShadow: { value: 1.0 },
       // 조간대 폭 — **고도** 기준. 조수간만 1~2m 인 서해안 기준.
       uWetBandM: { value: 1.2 },
       uBeta: { value: 0.08 },
