@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { clamp01 } from '../../utils/sunsetPhysics';
 import { seaHorizonDipDeg as earthSeaHorizonDipDeg } from '../../utils/earth';
-import { ATMOSPHERE_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
+import { ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms } from '../../utils/atmosphere';
 
 /**
  * 지표 알베도 — 지면이 받은 빛 중 되쏘는 비율.
@@ -195,26 +195,7 @@ varying vec3  vHaze;
  * 하늘 전용 하단 절단(DISP_CONTR)으로 인한 블랙 크러시를 방지하고
  * 황혼/야간에도 산과 대지의 입체적 실루엣과 계조를 보존합니다.
  */
-vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
-  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
-  float adapt = atm_adaptation(sunAltDeg);
-  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
-  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
-  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
-  float luma = dot(c, LW);
-  c = mix(vec3(luma), c, DISP_SAT * saturation);
-
-  float l0 = dot(c, LW);
-  float l1 = pow(max(1e-4, l0), 0.92);
-  float maxc = max(c.r, max(c.g, c.b));
-  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
-  c = clamp(c * k, 0.0, 1.0);
-
-  vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
-  c = max(c, minGlow);
-
-  return atm_toSrgb(c);
-}
+${GROUND_DISPLAY_GLSL}
 
 void main() {
   // ── 거리별 대기 투시 ────────────────────────────────────────────────────
@@ -280,27 +261,7 @@ uniform float uOzoneDU;
 varying vec3 vWorld;
 
 // ── 대지 및 바다 전용 표시 파이프라인 (Anti-Black-Crush & Scotopic Adaptation) ──
-vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
-  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
-  float adapt = atm_adaptation(sunAltDeg);
-  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
-  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
-  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
-  float luma = dot(c, LW);
-  c = mix(vec3(luma), c, DISP_SAT * saturation);
-
-  float l0 = dot(c, LW);
-  float l1 = pow(max(1e-4, l0), 0.92);
-  float maxc = max(c.r, max(c.g, c.b));
-  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
-  c = clamp(c * k, 0.0, 1.0);
-
-  // 노을 및 야간 최소 앰비언트 가시성 보장
-  vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
-  c = max(c, minGlow);
-
-  return atm_toSrgb(c);
-}
+${GROUND_DISPLAY_GLSL}
 
 /**
  * 프레넬 반사율 (Schlick, 물 n=1.33 → F0 = 0.02).

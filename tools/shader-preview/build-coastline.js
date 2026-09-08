@@ -240,11 +240,20 @@ const patch = await loadDemPatch(LAT, LON, FAR, {
 let 결과=null;
 if (patch) {
   // 땅은 빨강, 물은 파랑 — 화소로 종류를 가르려고 알베도만 바꿉니다.
+  // ⚠ 이 판정은 **기하**를 봅니다. 그래서 색을 흐리는 항을 전부 끕니다:
+  //    공기원근(먼 지형을 하늘빛으로 끌고 감), 바닥 비침·포말(얕은 물을
+  //    모래색으로 만듦). 안 끄면 빨강/파랑 분류가 무너집니다.
+  //    5단계 판정(verify-shore.js)이 그 항들을 따로 봅니다.
   const land = createTerrainField({ patch, eyeHeightM: EYE, albedo:{r:1,g:0,b:0} });
   land.material.uniforms.uSurfaceIrr.value.set(1,1,1);
   land.material.uniforms.uSunRadiance.value.set(0,0,0);
+  land.material.uniforms.uAerial.value = 0;
+  land.material.uniforms.uWetBandM.value = 0;
   const sea = createSeaPlane({ patch, eyeHeightM: EYE, waterAlbedo:{r:0,g:0,b:1} });
   sea.material.uniforms.uSurfaceIrr.value.set(1,1,1);
+  sea.material.uniforms.uAerial.value = 0;
+  sea.material.uniforms.uBedAlbedo.value.set(0,0,0);
+  sea.material.uniforms.uFoamDepthM.value = 0;
 
   const scene=new THREE.Scene(); scene.add(sea.mesh); scene.add(land.mesh);
   const cam=new THREE.PerspectiveCamera(FOV,1,0.1,2000); cam.position.set(0,0,0);
@@ -287,9 +296,12 @@ if (patch) {
       for (let y=H-1;y>=0;y--){
         const o=(y*W+x)*4, a=buf[o+3], r=buf[o], bl=buf[o+2];
         let k;
+        // ⚠ 절대 문턱을 쓰면 안 됩니다 — 톤매퍼(atm_display_ground)를 지나면
+        //   (1,0,0) 도 (0,0,1) 도 더 이상 255 가 아닙니다. **상대 우열**로 봅니다.
+        const g=buf[o+1];
         if (a<=128) { 빈화소++; k=null; }
-        else if (r>128 && r>=bl) k='land';
-        else if (bl>128) k='sea';
+        else if (r>bl && r>g) k='land';
+        else if (bl>r && bl>g) k='sea';
         else { 미분류++; k=null; }
         // 화소 단위 대조 — 화소 가운데 각으로 봅니다.
         {

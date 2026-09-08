@@ -30,6 +30,9 @@ import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 import {
   GROUND_PROJECT_GLSL, createConcentricGeometry, seaHorizonDistM,
 } from './groundProjection';
+import {
+  ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
+} from '../../utils/atmosphere';
 
 /**
  * 바다 격자가 뻗는 거리 (m).
@@ -68,9 +71,21 @@ void main() {
   vec2 gc = d > dHor ? g * (dHor / max(d, 1e-4)) : g;
 
   vDistM = min(d, dHor);
-  // 수심은 DEM 이 있는 데까지만 뜻이 있습니다. 밖은 0(모름)으로 둡니다.
-  vDepthM = (uDemValid > 0.5 && dem_inside(gc) > 0.5)
-    ? max(0.0, -dem_elevationAt(gc)) : 0.0;
+
+  // ── 수심 ────────────────────────────────────────────────────────────────
+  // ⚠ 여기에 함정이 둘 있고 **둘 다 "0 을 0m 로 믿는 것"** 입니다.
+  //
+  //  ① 패치 **밖**을 0 으로 두면 수심 0m, 즉 온 바다가 물가가 되어 포말이
+  //     수평선까지 깔립니다.
+  //  ② 패치 **안**이라도 Terrarium 은 **먼바다를 정확히 0 으로 자릅니다**
+  //     (조사 때 표본 1024개 중 406개가 정확히 0). 그걸 0m 로 믿으면 바닥이
+  //     그대로 다 비치고 포말이 1 이 되어, 만 전체가 밝은 모래펄로 그려집니다.
+  //
+  // 그래서 **모르는 곳은 깊다**고 둡니다. 쌍선형 보간 덕에 물가 근처는 0 이
+  // 아닌 작은 값이 나오므로, 정확히 0 인 곳만 "자료 없음"으로 갈립니다.
+  float hs = dem_elevationAt(gc);
+  bool known = uDemValid > 0.5 && dem_inside(gc) > 0.5 && hs < 0.0;
+  vDepthM = known ? -hs : 999.0;
   vGround = vec3(gc.x, 0.0, gc.y);
 
   // 해수면 고도는 0 — 정의상 이것이 기준면입니다.
@@ -85,18 +100,66 @@ void main() {
  * 확실히 갈리게만 둡니다 — 49절에서 물리로 되돌린 물빛(조도 × 알베도,
  * 진짜 프레넬, Cox-Munk 윤슬)은 5단계에서 이 위에 얹힙니다.
  */
+/**
+ * 물빛 — **수심 하나**에서 물가가 전부 따라옵니다 (5단계).
+ *
+ * 49절에서 물빛을 조도 × 알베도로 되돌렸습니다. 여기에 수심이 붙으면
+ * 계획서의 표가 그대로 나옵니다:
+ *
+ * | 보이는 것 | 수심에서 |
+ * |---|---|
+ * | 얕은 물의 청록 | 흡수 `exp(−k·2d)` — 붉은빛이 먼저 먹힙니다 |
+ * | 바닥이 비침 | 같은 투과율로 바닥 알베도가 올라옵니다 |
+ * | 물가 포말 띠 | 수심 < `uFoamDepthM` |
+ * | **포말 폭이 지형마다 다름** | 거리가 아니라 **수심**으로 재니 저절로 |
+ *
+ * 마지막 줄이 핵심입니다. 완만한 모래밭은 얕은 구간이 길어 띠가 넓고,
+ * 절벽은 바로 깊어져 띠가 좁습니다. 폭을 거리로 재면 이게 안 나옵니다.
+ *
+ * 흡수계수는 청정 해수의 실측 근사입니다 (1/m):
+ * 빨강 0.45 · 초록 0.09 · 파랑 0.035. 붉은빛이 몇 m 안에 사라지고 청록만
+ * 남는다는 사실이 그대로 들어갑니다.
+ */
 export const SEA_FRAG = /* glsl */ `
 precision highp float;
+${ATMOSPHERE_GLSL}
+${GROUND_DISPLAY_GLSL}
 uniform vec3  uSurfaceIrr;
 uniform vec3  uWaterAlbedo;
+uniform vec3  uBedAlbedo;     // 바닥(모래·펄) 알베도
+uniform float uFoamDepthM;
 uniform float uExposure;
+uniform float uSaturation;
+uniform float uSunAltDeg;
+uniform vec3  uHazeRadiance;
+uniform float uAerial;
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
 varying float vDistM;
 varying float vDepthM;
 
+/** 청정 해수 흡수계수 (1/m). 붉은빛이 먼저 먹힙니다. */
+const vec3 SEA_ABSORB = vec3(0.45, 0.09, 0.035);
+
 void main() {
-  // 조도 × 알베도. 49절과 같은 식입니다.
-  vec3 lit = uSurfaceIrr * uWaterAlbedo;
-  gl_FragColor = vec4(lit * uExposure, 1.0);
+  // 왕복 경로라 수심의 두 배를 지납니다.
+  vec3 thru = exp(-SEA_ABSORB * 2.0 * clamp(vDepthM, 0.0, 40.0));
+
+  // 수체가 되돌리는 몫 + 바닥이 비치는 몫. 둘 다 조도 × 알베도입니다.
+  vec3 col = uSurfaceIrr * (uWaterAlbedo + uBedAlbedo * thru);
+
+  // 포말 — 수심으로 재므로 폭이 지형 경사를 따릅니다.
+  float foam = 1.0 - smoothstep(0.0, max(0.02, uFoamDepthM), vDepthM);
+  col = mix(col, uSurfaceIrr * vec3(0.70, 0.71, 0.72), foam);
+
+  if (uAerial > 0.5) {
+    vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0,
+                                     uBeta, uAngstrom, uElevScale);
+    col = col * T + uHazeRadiance * (1.0 - T);
+  }
+
+  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
 }
 `;
 
@@ -123,7 +186,19 @@ export function createSeaPlane(opts: {
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
       uWaterAlbedo: { value: new THREE.Vector3(a.r, a.g, a.b) },
+      // 서해안 갯벌·모래 바닥. 얕은 데서만 보입니다.
+      uBedAlbedo: { value: new THREE.Vector3(0.26, 0.22, 0.17) },
+      // 부서지는 자리 — 수심 0.5m 안쪽.
+      uFoamDepthM: { value: 0.5 },
       uExposure: { value: 1.0 },
+      uSaturation: { value: 1.0 },
+      uSunAltDeg: { value: 30 },
+      uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
+      uAerial: { value: 1.0 },
+      uBeta: { value: 0.08 },
+      uAngstrom: { value: 1.3 },
+      uElevScale: { value: 1.0 },
+      ...makeTuningUniforms(),
     },
     vertexShader: SEA_VERT,
     fragmentShader: SEA_FRAG,

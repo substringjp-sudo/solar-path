@@ -1521,6 +1521,46 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
 // 셰이더가 안 쓰는 uniform은 GLSL 컴파일러가 지우고 three가 조용히 건너뜁니다.
 
 /** 머티리얼 생성 시 uniforms에 펼쳐 넣습니다. */
+/**
+ * **지면·수면용 표시 변환.**
+ *
+ * 하늘의 `atm_display` 와 같은 톤매핑·순응을 쓰되, 지면에만 필요한 두 가지가
+ * 더 있습니다:
+ *
+ * - `eyeAdapt` — 해가 지면 눈이 어두운 지면 쪽으로 더 순응합니다. 이게 없으면
+ *   노을에 지면이 검은 띠가 됩니다.
+ * - `minGlow` — 노을·야간에 지면이 완전히 뭉개지지 않게 하는 최소 밝기.
+ *
+ * ⚠ 이 함수는 `TerrainRing` 의 두 셰이더에 **복사되어** 있었습니다. 값은 같고
+ * 주석 한 줄만 달랐는데, 그대로 뒀으면 언젠가 갈라졌을 자리입니다 (44절이
+ * 정확히 그렇게 났습니다). 지면·수면·높이장이 전부 여기 하나를 씁니다.
+ *
+ * `ATMOSPHERE_GLSL` 이 먼저 들어가 있어야 합니다.
+ */
+export const GROUND_DISPLAY_GLSL = /* glsl */ `
+vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  float adapt = atm_adaptation(sunAltDeg);
+  float eyeAdapt = 1.0 + 2.0 * smoothstep(18.0, -3.0, sunAltDeg);
+  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
+  vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
+  float luma = dot(c, LW);
+  c = mix(vec3(luma), c, DISP_SAT * saturation);
+
+  float l0 = dot(c, LW);
+  float l1 = pow(max(1e-4, l0), 0.92);
+  float maxc = max(c.r, max(c.g, c.b));
+  float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
+  c = clamp(c * k, 0.0, 1.0);
+
+  // 노을 및 야간 최소 앰비언트 가시성 보장
+  vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
+  c = max(c, minGlow);
+
+  return atm_toSrgb(c);
+}
+`;
+
 export function makeTuningUniforms(): Record<string, { value: number }> {
   const t = getTuning();
   return {

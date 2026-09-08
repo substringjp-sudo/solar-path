@@ -37,6 +37,9 @@
 import * as THREE from 'three';
 import { DEM_GLSL, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 import {
+  ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
+} from '../../utils/atmosphere';
+import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, createConcentricGeometry, ringDistanceM, ringRadius,
 } from './groundProjection';
@@ -135,15 +138,63 @@ void main() {
  * 있을 만큼만 합니다 — 조도 × 알베도에 램버트, 그리고 물은 해수면 아래로
  * 표시만 해 둡니다(진짜 물은 4단계에서 별도의 면으로 옵니다).
  */
+/**
+ * 땅색 — **조도 × 알베도**, 그 위에 경사·조간대·공기원근.
+ *
+ * ## 왜 한 가지 색으로는 안 되나
+ *
+ * 지금까지 지면은 알베도 하나(0.22, 0.17, 0.13)로 통째로 칠했습니다. 그러면
+ * 실루엣이 아무리 정확해도 **판지 오려 붙인 것**처럼 보입니다. 자료에서
+ * 공짜로 나오는 단서가 둘 있습니다.
+ *
+ * ### 1. 경사
+ *
+ * 지형 채색의 표준 수법입니다 — 완만한 곳은 흙이 남고 풀이 자라며, 급한
+ * 사면은 씻겨 **암반이 드러납니다.** 법선의 y 하나로 나옵니다.
+ *
+ * 실측 알베도: 숲 0.12 · 마른 풀 0.23 · 흙 0.17 · 암반 0.20~0.25 ·
+ * 마른 모래 0.35~0.40. 그래서 급사면은 **밝고 덜 붉게**, 완사면은 **어둡고
+ * 따뜻하게** 기울입니다.
+ *
+ * ### 2. 조간대 (젖은 모래)
+ *
+ * 젖은 모래는 마른 모래보다 알베도가 **절반쯤**입니다. 물이 알갱이 사이를
+ * 채우면 밖으로 산란돼 나올 빛이 내부 전반사로 되돌아가기 때문입니다.
+ * 색만 바꾸면 안 되고 **어두워져야** 맞습니다.
+ *
+ * 폭은 거리가 아니라 **고도**로 잽니다. 그러면 완만한 모래밭은 띠가 넓고
+ * 절벽은 좁은 것이 저절로 나옵니다 — 4·5단계 판정이 그걸 확인합니다.
+ *
+ * ## 공기원근
+ *
+ * 노을에는 지면을 **수 km 의 대기를 통해** 봅니다. 먼 곶이 납작한 청회색
+ * 실루엣이 되는 것이 사진에서 가장 눈에 띄는 특징이고, 이게 없으면 원경이
+ * 앞과 똑같은 색으로 서서 깊이가 죽습니다.
+ *
+ *     보이는 색 = 지면색 · T(d) + 그쪽 하늘빛 · (1 − T(d))
+ *
+ * 예전 능선 띠는 거리대 **세 개**에만 이걸 걸었습니다. 높이장은 화소마다
+ * 진짜 거리가 있으므로 **연속으로** 겁니다.
+ */
 export const FIELD_FRAG = /* glsl */ `
 precision highp float;
+${ATMOSPHERE_GLSL}
+${GROUND_DISPLAY_GLSL}
 uniform vec3  uSurfaceIrr;    // 수평면이 받는 조도 (하늘 + 직달)
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
 uniform float uSunAltRad;
+uniform float uSunAltDeg;
 uniform vec3  uAlbedo;
 uniform float uExposure;
+uniform float uSaturation;
 uniform float uDemValid;
+uniform vec3  uHazeRadiance;  // 지평선 부근 하늘빛 (선형) — 공기원근의 끝값
+uniform float uAerial;        // 0 이면 공기원근 끔 (기하 판정용)
+uniform float uWetBandM;      // 조간대 폭 (m 단위 **고도**)
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
@@ -172,9 +223,38 @@ void main() {
                  -cos(uSunAltRad) * cos(uSunAzRad));
   float ndl = max(0.0, dot(n, sun));
 
-  // 조도 × 알베도. 하늘 몫은 등방이라 각도가 없고, 직달 몫만 방향을 탑니다.
-  vec3 lit = uAlbedo * (uSurfaceIrr + uSunRadiance * ndl);
-  gl_FragColor = vec4(lit * uExposure, 1.0);
+  // ── 경사: 급하면 암반(밝고 회색), 완만하면 흙·수풀(어둡고 따뜻) ──────────
+  //
+  // ⚠ 경사는 **기울기(rise/run = tanθ)** 로 재야 합니다. 흔히 쓰는
+  //   1 − n.y 는 전혀 다른 값입니다 — 작은 각에서 θ²/2 라서, 기울기 0.21
+  //   (12°) 인 사면도 0.022 밖에 안 됩니다. 그걸 기울기 기준 문턱
+  //   (0.10~0.50) 에 넣으면 **이 항이 통째로 죽습니다.** 실제로 그렇게 짰다가
+  //   화소 11,366 개의 색조가 0.5918 **하나로 고정**돼 나왔습니다.
+  //   땅이 판지처럼 보이던 원인이 이것입니다.
+  float ny = max(n.y, 1e-3);
+  float slope = sqrt(max(0.0, 1.0 - ny * ny)) / ny;   // = tanθ
+  vec3 albRock = uAlbedo * vec3(1.10, 1.18, 1.32);
+  vec3 albSoil = uAlbedo * vec3(1.00, 0.90, 0.76);
+  vec3 alb = mix(albSoil, albRock, smoothstep(0.10, 0.50, slope));
+
+  // ── 조간대: 젖은 모래는 마른 것의 절반쯤 밝기 ────────────────────────────
+  // 폭을 **고도**로 재므로 완만한 모래밭은 넓고 절벽은 좁습니다.
+  float wet = uDemValid > 0.5
+    ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), vElevM) : 0.0;
+  alb = mix(alb, alb * 0.52, wet);
+
+  // ── 조도 × 알베도 ────────────────────────────────────────────────────────
+  // 하늘 몫은 등방이라 각도가 없고, 직달 몫만 방향을 탑니다.
+  vec3 col = alb * (uSurfaceIrr + uSunRadiance * ndl);
+
+  // ── 공기원근 ─────────────────────────────────────────────────────────────
+  if (uAerial > 0.5) {
+    vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0,
+                                     uBeta, uAngstrom, uElevScale);
+    col = col * T + uHazeRadiance * (1.0 - T);
+  }
+
+  gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
 }
 `;
 
@@ -205,8 +285,19 @@ export function createTerrainField(opts: {
       uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uSunAzRad: { value: 0 },
       uSunAltRad: { value: 0.5 },
+      uSunAltDeg: { value: 30 },
       uAlbedo: { value: new THREE.Vector3(alb.r, alb.g, alb.b) },
       uExposure: { value: 1.0 },
+      uSaturation: { value: 1.0 },
+      // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
+      uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
+      uAerial: { value: 1.0 },
+      // 조간대 폭 — **고도** 기준. 조수간만 1~2m 인 서해안 기준.
+      uWetBandM: { value: 1.2 },
+      uBeta: { value: 0.08 },
+      uAngstrom: { value: 1.3 },
+      uElevScale: { value: 1.0 },
+      ...makeTuningUniforms(),
     },
     vertexShader: FIELD_VERT,
     fragmentShader: FIELD_FRAG,
