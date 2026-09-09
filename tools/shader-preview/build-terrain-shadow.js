@@ -106,6 +106,11 @@ function makeField(p){
   const f=createTerrainField({patch:p, eyeHeightM:EYE});
   scene.add(f.mesh); updateTerrainFieldEye(f, cam);
   const u=f.material.uniforms;
+  // ⚠ 이 값은 **앱이 실제로 쓰는 것보다 직달이 훨씬 셉니다**(비 24:1).
+  //   앱의 대기 모형은 해 25° 에서 하늘 1.03 · 직달 0.66 — 비가 0.27:1 로
+  //   거꾸로입니다. 그림자는 **직달만** 깎으므로, 직달이 전체 빛의 21%
+  //   뿐이면 그늘이 아무리 짙어도 화면은 그만큼밖에 안 어두워집니다.
+  //   아래 조도대조 가 그 차이를 잽니다.
   u.uSurfaceIrr.value.set(0.10, 0.11, 0.14);   // 하늘 몫 (그늘도 이건 받습니다)
   u.uSunRadiance.value.set(2.4, 2.1, 1.7);
   u.uAerial.value=0;                            // 공기원근은 면적 측정에 방해
@@ -177,6 +182,24 @@ if (patch) {
   const a1=shadowSet(f, 12, SUN_AZ, '해 12° · 방위 '+SUN_AZ+'°');
   const a2=shadowSet(f, 12, (SUN_AZ+180)%360, '해 12° · 방위 '+((SUN_AZ+180)%360)+'°');
   결과.방위대조={ 앞:a1.그늘화소, 뒤:a2.그늘화소, IoU:+iou(a1.mask,a2.mask).toFixed(4) };
+
+  // ── 조도 대조: 앱이 실제로 쓰는 직달/확산 비에서 그림자가 얼마나 짙은가 ──
+  {
+    const u2=f.material.uniforms;
+    const 재기=(irr, sun, label)=>{
+      u2.uSurfaceIrr.value.set(irr[0],irr[1],irr[2]);
+      u2.uSunRadiance.value.set(sun[0],sun[1],sun[2]);
+      const r=shadowSet(f, 12, SUN_AZ, label);
+      return { 그늘화소:r.그늘화소, 그늘평균밝기:r.그늘평균밝기, 양지평균밝기:r.양지평균밝기,
+               그늘대양지:+(r.그늘평균밝기/Math.max(1,r.양지평균밝기)).toFixed(3) };
+    };
+    결과.조도대조={
+      앱값: 재기([0.83,1.03,1.27], [0.78,0.66,0.52], '앱 조도 (하늘 1.03 · 직달 0.66)'),
+      물리비: 재기([0.83,1.03,1.27], [7.56*0.78/0.66, 7.56, 7.56*0.52/0.66], '물리 비 (직달 ×11.5)'),
+      하네스값: 재기([0.10,0.11,0.14], [2.4,2.1,1.7], '하네스 조도 (직달이 24배)'),
+    };
+    u2.uSurfaceIrr.value.set(0.10,0.11,0.14); u2.uSunRadiance.value.set(2.4,2.1,1.7);
+  }
 
   scene.remove(f.mesh); f.dispose?.();
 
