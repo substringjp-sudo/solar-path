@@ -204,6 +204,8 @@ interface SkyScene3DProps {
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
 export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
+  /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
+  getLastSnapshotError: () => string | null;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -415,27 +417,42 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [isActive, requestRender]);
 
   // 외부(SunCamera 등)에서 3D 씬 고화질 스냅샷을 캡처할 수 있도록 핸들 노출
+  //
+  // ⚠ **실패하면 왜 실패했는지 남깁니다.** 예전에는 어떤 이유로 실패하든
+  //   `null` 하나만 돌려줬고, 부르는 쪽(SunCamera 촬영 결과 화면)은 그걸
+  //   받으면 썸네일 칸을 **통째로 안 그렸습니다**. 그래서 화면에서는 아무
+  //   설명 없이 시뮬레이터 썸네일만 사라졌습니다 — 실기 보고 그대로입니다.
+  //   이유를 `lastSnapshotErrorRef` 에 담아 두면 그 칸에 대신 적을 수 있습니다.
+  const lastSnapshotErrorRef = useRef<string | null>(null);
   useImperativeHandle(ref, () => ({
+    getLastSnapshotError: () => lastSnapshotErrorRef.current,
     takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
-      try {
-        if (rendererRef.current && sceneRef.current && cameraRef.current) {
-          rendererRef.current.render(sceneRef.current, cameraRef.current);
-          if (glRef.current) {
-            glRef.current.endFrameEXP();
+      lastSnapshotErrorRef.current = null;
+      // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
+      //   있어 첫 시도가 던지는 경우가 있습니다. 한 프레임 쉬고 다시 겁니다.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 50));
+        try {
+          if (!glRef.current) { lastSnapshotErrorRef.current = 'GL 컨텍스트 없음'; continue; }
+          if (!rendererRef.current || !sceneRef.current || !cameraRef.current) {
+            lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
+            continue;
           }
-        }
-        if (glRef.current) {
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
+          glRef.current.endFrameEXP();
           const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
             format: options.format ?? 'jpeg',
             compress: options.compress ?? 0.85,
           });
-          if (snapshot && snapshot.uri) {
-            const uriStr = typeof snapshot.uri === 'string' ? snapshot.uri : (snapshot as any).localUri || '';
-            return uriStr;
-          }
+          const uriStr = snapshot
+            ? (typeof snapshot.uri === 'string' ? snapshot.uri : snapshot.localUri || '')
+            : '';
+          if (uriStr) return uriStr;
+          lastSnapshotErrorRef.current = '스냅샷이 빈 주소를 돌려줌';
+        } catch (e) {
+          lastSnapshotErrorRef.current = e instanceof Error ? e.message : String(e);
+          console.warn(`[SkyScene3D] takeSnapshot failed (시도 ${attempt + 1}/2):`, e);
         }
-      } catch (e) {
-        console.warn('[SkyScene3D] takeSnapshot failed:', e);
       }
       return null;
     },

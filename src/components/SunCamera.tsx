@@ -178,7 +178,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const CAM_HEIGHT = BOX_HEIGHT;
   const CAM_WIDTH = BOX_WIDTH;
 
-  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language, currentSimulationUri } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -323,6 +323,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 후 미리보기 상태
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
+  /** 3D 썸네일을 못 만든 이유. 칸을 조용히 지우지 않고 여기 적습니다. */
+  const [simPreviewError, setSimPreviewError] = useState<string | null>(null);
   const [capturedQrData, setCapturedQrData] = useState<string | null>(null);
 
   // 점수 입력 상태
@@ -639,6 +641,23 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setIsCapturing(true);
 
     try {
+      // ── 3D 스냅샷을 **사진보다 먼저** 찍습니다 ────────────────────────
+      //
+      // ⚠ 예전에는 takePictureAsync 가 끝난 뒤에 찍었습니다. 그런데 사진
+      //   촬영은 1~3초가 걸리고 그동안 카메라가 GPU·표면을 크게 물어
+      //   GL 컨텍스트가 잠깐 뺏길 수 있습니다. 그러면 스냅샷이 던지고,
+      //   부르는 쪽은 null 을 받아 **썸네일 칸을 통째로 안 그렸습니다.**
+      //   먼저 찍으면 그 창을 아예 안 지나고, 덤으로 3D 장면이 셔터를
+      //   누른 **그 순간**의 방위·고도를 담습니다 — 원래 의도한 것입니다.
+      let simUri = '';
+      let simFailReason: string | null = null;
+      if (sky3dRef.current) {
+        simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
+      } else {
+        simFailReason = '3D 화면이 아직 준비되지 않음';
+      }
+
       // EXIF 활성화하여 촬영
       const photo = await cameraRef.current.takePictureAsync({
         quality: 1,
@@ -785,21 +804,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
       }
 
-      // 1. 현재 3D 시뮬레이션 화면 스냅샷 직접 캡처 (실제 촬영 방위/고도/화각 동기화)
-      let simUri = '';
-      if (sky3dRef.current) {
-        try {
-          const snapUri = await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 });
-          if (snapUri) {
-            simUri = snapUri;
-          }
-        } catch (simGenErr) {
-          console.warn('[SunCamera] Failed to capture 3D simulation snapshot:', simGenErr);
-        }
+      // 1. 셔터 직전에 못 찍었으면 여기서 한 번 더 시도합니다.
+      if (!simUri && sky3dRef.current) {
+        simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        if (simUri) simFailReason = null;
+        else simFailReason = sky3dRef.current.getLastSnapshotError() ?? simFailReason;
       }
-      if (!simUri && currentSimulationUri) {
-        simUri = currentSimulationUri;
-      }
+      // ⚠ **스토어의 currentSimulationUri 를 대체품으로 쓰지 않습니다.**
+      //   그 값은 `generateSimulationImage` 가 만드는데, 지금 그 함수는
+      //   `getSafeBase64JpegPixel()` 을 그대로 돌려주는 **더미**입니다 —
+      //   1×1 화소 JPEG 한 장. 그걸 cover 로 늘려 "🔮 3D 시뮬레이션 예측"
+      //   이라고 붙이면 단색 사각형을 예측 결과라고 내보이는 셈입니다.
+      //   못 찍었으면 못 찍었다고 적는 편이 낫습니다.
+      if (!simUri && !simFailReason) simFailReason = '알 수 없는 이유로 스냅샷 실패';
 
       // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
       const weatherInfo = {
@@ -849,7 +866,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setCapturedWeatherInfo(weatherInfo);
       setCapturedSimSample(simulationSample);
       setPreviewUri(stampedUri);
-      setSimPreviewUri(simUri);
+      setSimPreviewUri(simUri || null);
+      setSimPreviewError(simUri ? null : simFailReason);
       setCapturedQrData(qrPayload);
       
       // 초기 점수 리셋
@@ -1057,12 +1075,27 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Image source={{ uri: previewUri }} style={styles.compareImage} />
                   <Text style={styles.compareImageLabel}>📷 {t('actualLandscape', language)}</Text>
                 </View>
-                {simPreviewUri ? (
-                  <View style={styles.compareImageWrapper}>
+                {/* ⚠ 칸을 **조용히 지우지 않습니다.** 예전에는 simPreviewUri 가
+                    없으면 이 칸을 통째로 안 그려서, 화면에서는 아무 설명 없이
+                    시뮬레이터 썸네일만 사라졌습니다. 이제 자리를 지키고 왜
+                    없는지 적습니다. */}
+                <View style={styles.compareImageWrapper}>
+                  {simPreviewUri ? (
                     <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
-                    <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
-                  </View>
-                ) : null}
+                  ) : (
+                    <View style={styles.compareImageMissing}>
+                      <Text style={styles.compareImageMissingText}>
+                        {language === 'ko' ? '3D 스냅샷을 못 찍었습니다' : '3D snapshot unavailable'}
+                      </Text>
+                      {simPreviewError ? (
+                        <Text style={styles.compareImageMissingReason} numberOfLines={3}>
+                          {simPreviewError}
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
+                  <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
+                </View>
               </View>
 
               {/* 날씨 정보 QR 리포트 카드 */}
@@ -1766,6 +1799,24 @@ const styles = StyleSheet.create({
   compareImage: {
     flex: 1,
     resizeMode: 'cover',
+  },
+  compareImageMissing: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+  compareImageMissingText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  compareImageMissingReason: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 9,
+    textAlign: 'center',
   },
   compareImageLabel: {
     position: 'absolute',
