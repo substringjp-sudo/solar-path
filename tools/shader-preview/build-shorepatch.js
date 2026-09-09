@@ -147,20 +147,34 @@ function measure(label){
   // 2차 차분 |x(y+1) − 2x(y) + x(y−1)| 을 평균 냅니다. 매끄럽게 휘는 경계는
   // 이 값이 작고, 화소 모서리를 따라가는 계단은 큽니다 — 실기에서 "상자
   // 모양으로 각진다"고 한 것이 곧 이 값입니다.
-  const xs=[];
+  // ⚠ **예전 자는 너무 얇았습니다.** 줄마다 "뭍에서 물로 넘어가는 **첫**
+  //   자리" 하나만 적었더니 384줄 중 **29~37줄**만 쓰였습니다. 그 표본으로는
+  //   1.4 와 2.5 를 못 가릅니다 — 실제로 격자를 촘촘히 할수록 값이 오르락
+  //   내리락 해서 결론을 못 냈습니다.
+  //
+  //   이제 **모든 경계**를 적습니다. 뭍↔물이 바뀌는 자리를 방향 가리지 않고
+  //   전부 모으고, 이웃 줄에서 8화소 안에 있는 것끼리 짝지어 2차 차분을
+  //   냅니다. 만이 여럿이어도 각자 제 갈래로 이어집니다.
+  const isLand=v=>v===1, isWet=v=>v===2||v===3;
+  const rowsX=[];
   for(let y=0;y<H;y++){
-    let x0=-1;
+    const xs=[];
     for(let x=1;x<W;x++){
       const a=cls[y*W+x-1], b=cls[y*W+x];
-      if(a===1 && (b===2||b===3)){ x0=x; break; }
+      if((isLand(a)&&isWet(b))||(isWet(a)&&isLand(b))) xs.push(x);
     }
-    xs.push(x0);
+    rowsX.push(xs);
   }
+  const nearest=(arr,v)=>{ let best=-1,bd=1e9;
+    for(const x of arr){ const d=Math.abs(x-v); if(d<bd){bd=d;best=x;} }
+    return bd<=8?best:-1; };
   let jag=0, jn=0;
   for(let y=1;y<H-1;y++){
-    if(xs[y-1]<0||xs[y]<0||xs[y+1]<0) continue;
-    if(Math.abs(xs[y+1]-xs[y])>20||Math.abs(xs[y]-xs[y-1])>20) continue;  // 다른 만으로 건너뛴 것
-    jag+=Math.abs(xs[y+1]-2*xs[y]+xs[y-1]); jn++;
+    for(const x of rowsX[y]){
+      const xm=nearest(rowsX[y-1],x), xp=nearest(rowsX[y+1],x);
+      if(xm<0||xp<0) continue;
+      jag+=Math.abs(xp-2*x+xm); jn++;
+    }
   }
 
   return { 지면화소:뭍+포말+물, 뭍, 포말, 물,
