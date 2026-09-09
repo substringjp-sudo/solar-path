@@ -207,7 +207,22 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
     f = fibrous;
   } else if (layer == 1) {
     // 중층 고적운: 부드러운 물결 파동과 중간 규모 셀
-    float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18 * det;
+    //
+    // ⚠ **물결은 바람 축에서 셉니다.** 예전에는 sin(p.x*1.8 + p.y*1.2) 로
+    //   월드 XZ 에서 바로 셌습니다. 그러면 물결이 바람이 어디로 불든 **늘
+    //   같은 나침반 방향**(약 33.7°)으로 눕습니다. 상층 권운은 바람 축으로
+    //   회전하는데 중층만 고정이니, 바람이 돌 때마다 두 층이 어긋나는 각이
+    //   제멋대로가 됩니다 — 실기에서 "저층과 상층 방향 차가 현실보다 과하다"
+    //   고 한 것이 이것입니다.
+    //
+    //   측정(build-layer-grain, 바람 0/45/90°): 상층 주방향 48.7°→130.8°
+    //   →172.5° 로 도는 동안 중층은 23.6° 에 붙박여 있었습니다.
+    //
+    //   파수 벡터가 바람 쪽으로 기울어 있으므로(1.8 대 1.2) 마루는 바람을
+    //   가로지릅니다 — 고적운 두루마리가 실제로 그렇습니다. 파장과 생김새는
+    //   그대로 두고 **기준 축만** 바람으로 옮깁니다.
+    vec2 pw = vec2(dot(p, windNorm), dot(p, vec2(-windNorm.y, windNorm.x)));
+    float wave = sin(pw.x * 1.8 + pw.y * 1.2) * 0.18 * det;
     float formCoarse = mix(0.5, slab_fbm(p * 0.13, 2), detCoarse);
     float form = mix(formCoarse, slab_fbm(p * 0.75, 4), det);
     m = cover * 1.65 * (0.45 + 0.55 * form + wave) + (form - 0.5) * 0.30 * conf;
