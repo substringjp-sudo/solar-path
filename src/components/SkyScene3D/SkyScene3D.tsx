@@ -52,6 +52,7 @@ import {
   FAR_FIELD_NEAR_M,
   FAR_FIELD_FAR_M,
   FAR_FIELD_RINGS,
+  FIELD_RINGS,
   type TerrainFieldHandle,
 } from './TerrainField';
 import {
@@ -116,7 +117,7 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -203,6 +204,8 @@ interface SkyScene3DProps {
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
 export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
+  /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
+  getLastSnapshotError: () => string | null;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -318,14 +321,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
   const demPatchRef = useRef<DemPatch | null>(null);
-  /** 3km 밖을 맡는 성긴 높이장 격자. 옛 능선 띠를 대신합니다. */
-  const terrainFarRef = useRef<TerrainFieldHandle | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
+  /** DEM 요청 재시도 타이머와 실패 횟수 — 아래 요청 이펙트가 씁니다. */
+  const demRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demRetryCountRef = useRef(0);
   /** 땅에 지는 구름 그림자 지도. 구름·해가 바뀔 때만 다시 굽습니다. */
   const cloudShadowTexRef = useRef<THREE.DataTexture | null>(null);
   const cloudShadowKeyRef = useRef<string>('');
   const demLoadedKeyRef = useRef<string | null>(null);
+  /**
+   * 재시도를 이펙트에 알리는 눈금. ref 만 바꾸면 리액트가 이펙트를 다시
+   * 돌리지 않으므로, 타이머가 이 값을 올려 재요청을 깨웁니다.
+   */
+  const [demRetryTick, setDemRetryTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
   const starFieldRef = useRef<StarFieldHandle | null>(null);
@@ -408,27 +417,42 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [isActive, requestRender]);
 
   // 외부(SunCamera 등)에서 3D 씬 고화질 스냅샷을 캡처할 수 있도록 핸들 노출
+  //
+  // ⚠ **실패하면 왜 실패했는지 남깁니다.** 예전에는 어떤 이유로 실패하든
+  //   `null` 하나만 돌려줬고, 부르는 쪽(SunCamera 촬영 결과 화면)은 그걸
+  //   받으면 썸네일 칸을 **통째로 안 그렸습니다**. 그래서 화면에서는 아무
+  //   설명 없이 시뮬레이터 썸네일만 사라졌습니다 — 실기 보고 그대로입니다.
+  //   이유를 `lastSnapshotErrorRef` 에 담아 두면 그 칸에 대신 적을 수 있습니다.
+  const lastSnapshotErrorRef = useRef<string | null>(null);
   useImperativeHandle(ref, () => ({
+    getLastSnapshotError: () => lastSnapshotErrorRef.current,
     takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
-      try {
-        if (rendererRef.current && sceneRef.current && cameraRef.current) {
-          rendererRef.current.render(sceneRef.current, cameraRef.current);
-          if (glRef.current) {
-            glRef.current.endFrameEXP();
+      lastSnapshotErrorRef.current = null;
+      // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
+      //   있어 첫 시도가 던지는 경우가 있습니다. 한 프레임 쉬고 다시 겁니다.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 50));
+        try {
+          if (!glRef.current) { lastSnapshotErrorRef.current = 'GL 컨텍스트 없음'; continue; }
+          if (!rendererRef.current || !sceneRef.current || !cameraRef.current) {
+            lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
+            continue;
           }
-        }
-        if (glRef.current) {
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
+          glRef.current.endFrameEXP();
           const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
             format: options.format ?? 'jpeg',
             compress: options.compress ?? 0.85,
           });
-          if (snapshot && snapshot.uri) {
-            const uriStr = typeof snapshot.uri === 'string' ? snapshot.uri : (snapshot as any).localUri || '';
-            return uriStr;
-          }
+          const uriStr = snapshot
+            ? (typeof snapshot.uri === 'string' ? snapshot.uri : snapshot.localUri || '')
+            : '';
+          if (uriStr) return uriStr;
+          lastSnapshotErrorRef.current = '스냅샷이 빈 주소를 돌려줌';
+        } catch (e) {
+          lastSnapshotErrorRef.current = e instanceof Error ? e.message : String(e);
+          console.warn(`[SkyScene3D] takeSnapshot failed (시도 ${attempt + 1}/2):`, e);
         }
-      } catch (e) {
-        console.warn('[SkyScene3D] takeSnapshot failed:', e);
       }
       return null;
     },
@@ -759,7 +783,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 원반이 그대로 남아 이어받습니다. 하늘 천체(은하수 −0.6, 해·달
     // −0.55, 별 −0.5)와 원반의 앞뒤는 **건드리지 않습니다** — 그걸 뒤집으면
     // 지평선 아래로 진 해가 땅 위에 뜹니다.
-    const terrainField = createTerrainField({ eyeHeightM: 1.6 });
+    // ⚠ **격자는 하나입니다** (구조 개편 ②). 예전에는 근거리(0.6m~3km, 줌 13)와
+    //   먼 지형(3km~55km, 줌 9) 둘이었고 3km 에서 딱 맞닿았습니다 — 서로 다른
+    //   자료로 그려진 하드 이음매였습니다. 이제 한 메시가 발밑부터 55km 까지
+    //   맡고, 촘촘한 패치가 보장하는 반지름의 30% 지점부터 가장자리까지
+    //   부드럽게 성긴 자료로 넘깁니다.
+    //
+    //   섞는 폭 0.30 은 훑어서 골랐습니다. 좁히면 나빠집니다 — 섞는 구간의
+    //   가짜 기울기가 w'(r)·Δh 인데 두 자료가 10.9m 어긋나므로, 폭이 좁으면
+    //   그 어긋남이 한 자리에 몰립니다(0.75 에서 이음매 0.84 → 1.35).
+    //
+    //   ⚠ 이음매가 **좋아지지는 않습니다** — 두 격자와 비슷합니다(평균 0.838
+    //     대 0.818). 얻는 것은 메시가 하나가 되는 것입니다: 자료 경계가
+    //     구조적으로 사라지고 드로우 콜이 하나 줄고, 실루엣 정확도는 동률
+    //     입니다(절대중앙 0.0872). verify-unified-field.js 참고.
+    const terrainField = createTerrainField({
+      eyeHeightM: 1.6,
+      farM: FAR_FIELD_FAR_M,
+      rings: FIELD_RINGS + FAR_FIELD_RINGS,
+    });
     terrainField.mesh.renderOrder = -0.48;
     // DEM 이 오기 전엔 발밑 고도를 모르니 uObsElevM 대비책(0m)으로
     // 평평하게 그립니다 — 그 근사가 화면에 잠깐이라도 비치지 않도록,
@@ -769,27 +811,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     scene.add(terrainField.mesh);
     assignLayer(terrainField.mesh, LAYER_MID);
     terrainFieldRef.current = terrainField;
-
-    // 2a″. **먼 지형** (3km ~ 55km) — 같은 높이장 방식을 성긴 패치로 잇습니다.
-    //
-    // 옛 31방위 능선 띠는 방위마다 5·15·40km 딱 세 점만 봐서 진짜 봉우리를
-    // 대부분 놓쳤습니다. 도곡동에서 재 보니 먼 산이 최대 3.26° 낮게 깔렸고
-    // (verify-far-terrain.js), 그러면 3km 안의 앞산만 제 높이로 서서 앞산이
-    // 실제보다 우뚝해 보입니다. 실기의 "산이 조금 과장돼 보인다"가 이것입니다.
-    //
-    // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다(eyePatch). 성긴 것으로 읽으면
-    // 같은 자리가 10.9m 낮아, 3km 이음매에 0.21° 층계가 생깁니다.
-    const terrainFar = createTerrainField({
-      eyeHeightM: 1.6,
-      nearM: FAR_FIELD_NEAR_M,
-      farM: FAR_FIELD_FAR_M,
-      rings: FAR_FIELD_RINGS,
-    });
-    terrainFar.mesh.renderOrder = -0.49;   // 근거리 격자(−0.48)보다 먼저
-    terrainFar.mesh.visible = false;
-    scene.add(terrainFar.mesh);
-    assignLayer(terrainFar.mesh, LAYER_MID);
-    terrainFarRef.current = terrainFar;
 
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
     seaPlane.mesh.renderOrder = -0.47;
@@ -1098,7 +1119,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 계산하므로, X/Z(둘 다 항상 0)만 따라가고 Y 는 안 따라갑니다 —
         // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
         if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
-        if (terrainFarRef.current) updateTerrainFieldEye(terrainFarRef.current, camera);
         if (seaPlaneRef.current) updateSeaPlaneEye(seaPlaneRef.current, camera);
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
@@ -1110,7 +1130,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
         if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
         if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
-        if (terrainFarRef.current) applyTuningUniforms(terrainFarRef.current.material.uniforms);
         if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
 
         // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
@@ -1410,11 +1429,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const sunAltRad = (sunAltRef.current * Math.PI) / 180;
       const horizon = cachedHorizonRGBRef.current;
 
-      for (const h of [terrainFieldRef.current, terrainFarRef.current]) {
+      // ── 지형만은 **물리 직달/확산 비**로 갑니다 ─────────────────────────
+      //
+      // 직달에 빠져 있던 눈금(SOLAR_BEAM_SCALE)을 채우고, 같은 자리에서
+      // 노출을 나눠 평평한 지면의 밝기를 그대로 지킵니다. 사면만 밝고
+      // 어두워지므로 물·옛 원반과의 밝기 견줌도 그대로 성립합니다.
+      //
+      // ⚠ 물(SeaPlane)과 옛 원반에는 걸지 않습니다. 수면은 평평해서 ndl 로
+      // 얻을 입체감이 없고, 윤슬은 이미 클램프가 봉우리를 자르고 있어
+      // 스물여섯 배를 그대로 넣으면 **잘리는 자리가 넓어져 윤슬이 다시
+      // 두꺼워집니다** — 실기에서 한 번 고친 결함입니다.
+      const lit = groundLighting(sunAltRef.current, sky, beam, sunT);
+
+      for (const h of [terrainFieldRef.current]) {
         if (!h) continue;
         const u = h.material.uniforms;
-        (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
-        (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        (u.uSurfaceIrr.value as THREE.Vector3).set(
+          lit.surfaceIrr.r, lit.surfaceIrr.g, lit.surfaceIrr.b);
+        (u.uSunRadiance.value as THREE.Vector3).set(
+          lit.sunRadiance.r, lit.sunRadiance.g, lit.sunRadiance.b);
+        u.uExposure.value = lit.exposure;
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
         u.uSunAltDeg.value = sunAltRef.current;
@@ -1422,6 +1456,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uBeta.value = atmosphere.betaMie;
         u.uAngstrom.value = atmosphere.angstrom;
         u.uElevScale.value = atmosphere.elevScale;
+        if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
       }
       if (seaPlaneRef.current) {
         const u = seaPlaneRef.current.material.uniforms;
@@ -1437,10 +1472,65 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uBeta.value = atmosphere.betaMie;
         u.uAngstrom.value = atmosphere.angstrom;
         u.uElevScale.value = atmosphere.elevScale;
+        if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
       }
     }
 
+    // ── 옛 능선 띠는 DEM 이 실리면 **끕니다** ──────────────────────────────
+    //
+    // 먼 지형 격자(3~55km)가 같은 자리를 훨씬 촘촘히 그립니다 — 띠는 방위마다
+    // 5·15·40km 딱 세 점만 보고, 격자는 96 고리 × 256 살입니다. 껐다 켠 두
+    // 장의 차이 화소를 세 보니 DEM 이 있을 때 띠가 이기는 자리가 거의
+    // 없습니다 (내륙 0.007% · 바닷가 0% · 높은 곳 0%).
+    //
+    // ⚠ 그런데 **지우지는 않습니다.** DEM 이 없으면 띠가 유일한 능선
+    //   실루엣이고(0.46%), 무엇보다 자료원이 다릅니다 — 띠는 고도 API,
+    //   격자는 AWS 타일이라 한쪽이 죽어도 다른 쪽은 살아 있을 수 있습니다.
+    //   원반과 같은 규약입니다: 죽은 코드가 아니라 대비책이므로 끕니다.
+    //
+    // 수치는 tools/shader-preview/verify-bands-need.js 에 못 박혀 있습니다.
+    // ── 옛 지면 원반도 같은 규약으로 끕니다 ───────────────────────────────
+    //
+    // 원반은 DEM 이 있어도 화면의 0.016~0.809% 를 칠하고 있었는데, 그 몫이
+    // 두 가지로 갈립니다:
+    //
+    //   ① 바닷가 4,821화소 — 지형과 해수면 사이의 **구멍**이었습니다.
+    //      원반이 뒤에서 메워 주고 있었을 뿐입니다. 해수면 한쪽 겹침
+    //      (uShoreOverlapM)으로 구멍 자체를 닫았으니 이제 0 입니다.
+    //   ② 산꼭대기 75,742화소 — **하늘을 지면으로 칠하던 것**입니다.
+    //      setGroundHorizon 이 원반을 내리는데 카메라도 같이 내려가 서로
+    //      지워, 테두리가 고도와 무관하게 −0.191° 에 고정됩니다. 진짜
+    //      수평선은 455m 에서 −0.686° 라 그 사이 0.495° 가 가짜 지면이었습니다.
+    //      끄면 그 자리가 하늘로 돌아옵니다 — 고치는 것이 아니라 없애는 쪽.
+    //
+    // ⚠ 껐을 때 하늘에 구멍이 나면 안 됩니다. 원반을 끈 장면에서 지평선
+    //   아래인데 아무것도 안 그려진 화소를 세어 못 박아 뒀습니다 —
+    //   바닷가 0 · 내륙 3 · 산꼭대기 1,134(화면의 0.108%). 켜 두면 대신
+    //   0.495° 짜리 가짜 지평선을 얻으므로 끄는 쪽이 낫습니다.
+    //
+    //   산꼭대기의 1,134 는 처음에 "해수면 격자가 60km 에서 끝나 76km
+    //   수평선에 못 닿는다" 한 가지로 적었는데 **틀렸습니다.** 방위별로
+    //   갈라 보니 74% 는 수평선과 무관한 16~22km 밖의 복잡한 실제 해안선을
+    //   근거리·광역 격자가 다르게 근사해 생기는 별개의 결함이고, 수평선
+    //   문제는 6% 뿐입니다. 그 6% 는 `createConcentricGeometry` 의 꼬리
+    //   고리(SeaPlane 의 `SEA_TAIL_*`)로 화소 폭 아래까지 줄였습니다 —
+    //   SEA_FAR_M 자체를 늘리면(200km) 기존 고리가 옅어져 되레 나빠집니다.
+    //   나머지 74% 는 아직 안 고쳤습니다. 수치는 verify-disc-horizon.js 에.
+    //
+    // ⚠ 원반에는 내륙 강·호수의 OSM 마스크(uWaterTex2D)가 달려 있습니다.
+    //   반경 475m 짜리 128×128 이라 지금도 사실상 안 보이지만(원반이 이기는
+    //   화소가 내륙에서 3개), 끄면 **내륙 물의 코드 경로가 사라집니다.**
+    //   나중에 강·호수를 그리려면 해수면이나 지형 셰이더에 새로 넣어야 합니다.
+    // ⚠ **끄는 것은 그리기뿐입니다 — 원반 객체는 살려 둡니다.** 카메라 높이가
+    //   `groundRef.position.y + 1.6` 이라(setGroundHorizon) 원반을 없애면
+    //   눈높이가 같이 사라집니다. visible 만 내리면 위치 계산은 그대로입니다.
+    const demOn = !!terrainFieldRef.current?.mesh.visible;
+    if (groundRef.current) groundRef.current.visible = !demOn;
     if (terrainBandsRef.current) {
+      terrainBandsRef.current.group.visible = !demOn;
+    }
+
+    if (terrainBandsRef.current && terrainBandsRef.current.group.visible) {
       updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
         skyMean: cachedSkyMeanRGBRef.current,
         hazeAt: (az: number, elev: number) =>
@@ -1651,7 +1741,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           tauFor: (layer) => opticsForLayer(layer, obsNow).tau,
         }, cloudShadowTexRef.current);
       }
-      for (const h of [terrainFieldRef.current, terrainFarRef.current, seaPlaneRef.current]) {
+      for (const h of [terrainFieldRef.current, seaPlaneRef.current]) {
         if (!h) continue;
         const cu = h.material.uniforms;
         if (cu.uCloudShadowTex && cloudShadowTexRef.current) {
@@ -1784,27 +1874,58 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
         if (cancelled) return;
+        // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
+        // 구멍이 있는 채로 패치를 돌려줍니다.
+        if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
         demPatchRef.current = patch;
-        terrainFieldRef.current?.setPatch(patch, patch);
-        // 먼 지형은 성긴 패치로 그리되 발밑만 촘촘한 것으로 짚습니다.
-        terrainFarRef.current?.setPatch(maskPatch, patch);
+        // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
+        // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
+        //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
+        terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
-        if (maskPatch && terrainFarRef.current) terrainFarRef.current.mesh.visible = true;
         if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
         demLoadedKeyRef.current = key;
         requestRender(10);
+        demRetryCountRef.current = 0;
       } catch (e) {
         if (__DEV__) console.warn('[DEM] 높이장을 못 받았습니다 — 기존 화면으로 물러납니다.', e);
+        // ── 다시 걸어 봅니다 ────────────────────────────────────────────────
+        //
+        // 이 이펙트는 location 에만 걸려 있고 **성공했을 때만**
+        // demLoadedKeyRef 를 찍습니다. 재시도가 없으면 한 번 실패한 뒤로는
+        // 위치가 110m(소수점 3자리) 넘게 바뀌기 전까지 다시 안 받습니다 —
+        // 지하철에서 앱을 켜면 지상에 나와 네트워크가 돌아와도 옛 원반만
+        // 보입니다.
+        //
+        // 그동안 화면이 비지는 않습니다. 원반이 지면의 70% 를 이어받습니다
+        // (verify-disc-need.js). 다만 그건 대비책이지 보여 주려던 것이
+        // 아닙니다.
+        //
+        // 2·4·8·16·32초, 그다음은 60초로 묶습니다. 그래도 안 되면 네트워크나
+        // 서버 쪽 문제이므로 계속 두드리지 않고 60초 간격으로만 지켜봅니다 —
+        // 앱이 할 수 있는 일은 여기까지입니다.
+        if (!cancelled) {
+          const n = demRetryCountRef.current + 1;
+          demRetryCountRef.current = n;
+          const waitMs = Math.min(60000, 1000 * 2 ** n);
+          if (demRetryTimerRef.current) clearTimeout(demRetryTimerRef.current);
+          demRetryTimerRef.current = setTimeout(() => {
+            demRetryTimerRef.current = null;
+            // 키를 지우면 위 가드가 풀려 이펙트가 다시 요청합니다.
+            demLoadingKeyRef.current = null;
+            setDemRetryTick(t => t + 1);
+          }, waitMs);
+        }
       } finally {
         if (!cancelled) demLoadingKeyRef.current = null;
       }
     })();
 
     return () => { cancelled = true; };
-  }, [location, requestRender]);
+  }, [location, requestRender, demRetryTick]);
 
   useEffect(() => {
     return () => {
@@ -1839,10 +1960,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         terrainFieldRef.current.dispose();
         terrainFieldRef.current = null;
       }
-      if (terrainFarRef.current) {
-        terrainFarRef.current.dispose();
-        terrainFarRef.current = null;
-      }
       if (seaPlaneRef.current) {
         seaPlaneRef.current.dispose();
         seaPlaneRef.current = null;
@@ -1851,6 +1968,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 지웁니다(다음 마운트에서 죽은 GL 컨텍스트의 텍스처를 들고 있지
       // 않도록). 도중에 자리를 옮길 때는 loadDemPatch 자신이 정리합니다.
       demPatchRef.current = null;
+      if (demRetryTimerRef.current) {
+        clearTimeout(demRetryTimerRef.current);
+        demRetryTimerRef.current = null;
+      }
       demLoadingKeyRef.current = null;
       demLoadedKeyRef.current = null;
       clearDemCache();

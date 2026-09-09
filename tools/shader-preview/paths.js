@@ -39,4 +39,55 @@ const PORT = Number(process.env.SKY_PREVIEW_PORT || 8123);
 
 const ORIGIN = `http://localhost:${PORT}`;
 
+/**
+ * ⚠ **스테이징이 낡았으면 큰 소리로 알립니다.**
+ *
+ * 하네스는 앱 소스를 직접 읽지 않고 `stage-esm.js` 가 떠 놓은
+ * `<PREVIEW>/app/` 사본을 읽습니다. `run-all.js` 는 늘 스테이징부터 하지만
+ * **낱개 `build-*` 는 안 합니다.** 그래서 앱 상수를 고치고 낱개로 재면
+ * 화면이 안 움직이고, 그걸 "그 상수는 영향이 없다" 로 읽게 됩니다.
+ *
+ * 실제로 한 세션에서 두 번 당했습니다. SEA_FAR_M 을 60km/200km 로 오가며
+ * 세 번 잰 값이 전부 같아 A/B 결론을 뒤집을 뻔했고, 되돌린 뒤 다시 재다가
+ * 이번엔 사본에 없는 유니폼을 건드려 페이지가 죽었습니다.
+ *
+ * 막지는 않습니다 — 스테이징을 일부러 안 하는 경우(자료만 바꾼 A/B)가
+ * 있습니다. 다만 **모르고 지나가지는 못하게** 합니다.
+ */
+function warnIfStale() {
+  const fs = require('fs');
+  const APP = path.join(PREVIEW, 'app');
+  if (!fs.existsSync(APP)) return;   // 아직 한 번도 안 떴으면 할 말이 없습니다.
+  let staged = Infinity;
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else staged = Math.min(staged, fs.statSync(f).mtimeMs);
+    }
+  };
+  walk(APP);
+  const newer = [];
+  const scan = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) scan(f);
+      else if (/\.tsx?$/.test(e.name) && fs.statSync(f).mtimeMs > staged) {
+        newer.push(path.relative(REPO_ROOT, f));
+      }
+    }
+  };
+  const SRC = path.join(REPO_ROOT, 'src');
+  if (!fs.existsSync(SRC)) return;
+  scan(SRC);
+  if (!newer.length) return;
+  process.stderr.write(
+    '\n⚠ 스테이징이 낡았습니다 — 하네스는 ' + path.relative(REPO_ROOT, APP)
+    + ' 의 사본을 읽습니다.\n'
+    + '  그보다 새 앱 소스 ' + newer.length + '개: '
+    + newer.slice(0, 4).join(', ') + (newer.length > 4 ? ' …' : '') + '\n'
+    + '  앱을 고친 뒤라면 먼저: node tools/shader-preview/stage-esm.js\n\n');
+}
+warnIfStale();
+
 module.exports = { REPO_ROOT, SCRATCH, PREVIEW, PORT, ORIGIN };

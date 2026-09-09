@@ -45,6 +45,9 @@ const ENTRIES = [
   'src/utils/waterMask.ts',
   // DEM 타일 (해안선 계획 1단계)
   'src/utils/demTiles.ts',
+  // AR 방위각 ↔ 화소 사상. 나침반 눈금자와 시뮬레이터가 **같은 함수**를
+  // 쓰게 하려고 뽑아낸 것이라, 하네스도 베끼지 말고 이것을 임포트합니다.
+  'src/utils/arProjection.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });

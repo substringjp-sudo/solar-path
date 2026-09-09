@@ -44,7 +44,8 @@ import {
 } from '../../utils/cloudShadowMap';
 import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
-  GROUND_PROJECT_GLSL, createConcentricGeometry, ringDistanceM, ringRadius,
+  GROUND_PROJECT_GLSL, TERRAIN_NOISE_GLSL,
+  createConcentricGeometry, ringDistanceM, ringRadius,
 } from './groundProjection';
 
 export { FIELD_NEAR_M, FIELD_FAR_M };
@@ -100,6 +101,7 @@ export const FIELD_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
 ${demGlsl('demEye')}
+${demGlsl('demFar')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;    // DEM 이 없을 때만 쓰는 발밑 고도 (m)
 uniform float uEyeHeightM;  // 발밑에서 눈까지 (m)
@@ -107,6 +109,7 @@ varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
 varying vec2  vGround;   // 지상 좌표 (동, 남) m — 그림자 레이마치가 씁니다
+varying vec3  vViewDir;  // 눈(메시 원점)에서 이 점으로 — 연무 색이 씁니다
 
 /**
  * 관측자 **발밑** 고도 — 반드시 DEM 자신이 정합니다.
@@ -130,9 +133,42 @@ float groundAtEye() {
   return uDemValid > 0.5 ? dem_elevationAt(vec2(0.0)) : uObsElevM;
 }
 
-/** 그 지상 좌표의 고도 (m). 자료가 없으면 발밑 높이로 평평하게. */
+/**
+ * **촘촘한 패치와 성긴 패치를 하나의 높이장으로 잇습니다.**
+ *
+ * 예전에는 격자가 둘이었습니다 — 근거리(0.6m~3km, 줌 13)와 먼 지형
+ * (3km~55km, 줌 9). 3km 에서 **두 메시가 딱 맞닿았고**, 그 자리가 서로 다른
+ * 자료로 그려진 하드 이음매였습니다.
+ *
+ * 이제 한 격자가 거리에 따라 자료를 **섞어** 읽습니다. 촘촘한 패치가
+ * 보장하는 반지름(dem_probeRadiusM, 줌 13 블록 3 에서 3,816m)의 안쪽
+ * 4분의 3 까지는 촘촘한 것만 쓰고, 거기서 가장자리까지 부드럽게 넘깁니다.
+ * 이음매가 선이 아니라 띠가 되므로 층계가 안 생깁니다.
+ *
+ * ⚠ 성긴 패치에만 despike 가 필요합니다 — 저줌 타일의 R 채널 결함이
+ *   첨탑으로 서기 때문입니다. 촘촘한 쪽은 그대로 둡니다(진짜 능선이 깎임).
+ *
+ * ⚠ 성긴 패치가 없으면(uDemFarValid = 0) **예전 한 장짜리 경로 그대로**
+ *   입니다. 근거리 격자와 먼 지형 격자를 따로 만들던 방식이 계속 돕니다.
+ */
+uniform float uBlendInner;   // 촘촘→성김 넘기기를 시작하는 반지름 비율
+
+float tf_fineWeight(vec2 g) {
+  if (uDemValid < 0.5) return 0.0;
+  float rp = dem_probeRadiusM();
+  return 1.0 - smoothstep(rp * uBlendInner, rp * 0.98, length(g));
+}
+
 float fieldElev(vec2 g) {
-  return uDemValid > 0.5 ? dem_elevationAt(g) : uObsElevM;
+  bool hasFine = uDemValid > 0.5;
+  bool hasFar = uDemFarValid > 0.5;
+  if (!hasFine && !hasFar) return uObsElevM;
+  if (!hasFar) return dem_elevationDespiked(g);
+  if (!hasFine) return demFar_elevationDespiked(g);
+  float w = tf_fineWeight(g);
+  if (w <= 0.001) return demFar_elevationDespiked(g);
+  if (w >= 0.999) return dem_elevationDespiked(g);
+  return mix(demFar_elevationDespiked(g), dem_elevationDespiked(g), w);
 }
 
 void main() {
@@ -154,6 +190,9 @@ void main() {
   vNormal = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
 
   vec3 p = gp_project(g, h, groundAtEye() + uEyeHeightM, r);
+  // ⚠ 눈은 메시 원점에 있으므로 p 자체가 "눈에서 이 점으로" 입니다
+  //   (SeaPlane 과 같은 규약). 카메라의 world Y 를 여기서 읽으면 안 됩니다.
+  vViewDir = normalize(p);
 
   // ⚠ 가장자리를 알파로 흐리지 **않습니다.** 예전에는 바깥 고리를 페이드로
   //   넘겼는데, 해수면(4단계)이 생긴 지금 그러면 물가의 땅이 하늘로 사라져
@@ -212,7 +251,18 @@ precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
 ${DEM_GLSL}
+${demGlsl('demFar')}
 ${CLOUD_SHADOW_GLSL}
+${TERRAIN_NOISE_GLSL}
+uniform float uBlendInner;    // 촘촘→성김 넘기기를 시작하는 반지름 비율
+uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m). 0 이면 예전처럼 딱 맞닿음
+uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
+uniform float uDetail;        // 자료 아래 규모 결의 세기, 0 이면 끔 (②)
+                              // 기본 0.10 — 세기를 훑어 **평균 밝기가 5% 넘게
+                              // 안 움직이는** 가장 큰 값으로 잡았습니다. 법선을
+                              // 세게 흔들면 ndl 이 0 에서 잘려 화면이 통째로
+                              // 어두워집니다(0.6 이면 평균 109 → 77).
+uniform float uHurst;         // 그 결의 허스트 지수 — 자료에서 잰 값
 uniform vec3  uSurfaceIrr;    // 수평면이 받는 조도 (하늘 + 직달)
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -221,7 +271,9 @@ uniform float uSunAltDeg;
 uniform vec3  uAlbedo;
 uniform float uExposure;
 uniform float uSaturation;
-uniform vec3  uHazeRadiance;  // 지평선 부근 하늘빛 (선형) — 공기원근의 끝값
+uniform vec3  uHazeRadiance;  // 방위 평균 지평선 하늘빛 — 대비책일 뿐입니다
+uniform float uOzoneDU;
+uniform float uHazeDirectional;  // 0 이면 옛 평균 한 값 (A/B 판정용)
 uniform float uAerial;        // 0 이면 공기원근 끔 (기하 판정용)
 uniform float uWetBandM;      // 조간대 폭 (m 단위 **고도**)
 uniform float uBeta;
@@ -232,6 +284,7 @@ varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
 varying vec2  vGround;
+varying vec3  vViewDir;
 
 /**
  * 이 점에서 **태양 쪽 지평선각** (rad).
@@ -253,11 +306,15 @@ float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
   // 첫 걸음은 **화소 한 칸**입니다. 그보다 잘게 떼면 같은 화소를 여러 번
   // 읽을 뿐이고, 성긴 패치(먼 지형)에서는 걸음이 너무 짧아 닿는 거리가
   // 모자랍니다.
-  float t = max(6.0, uDemSpanM / 256.0);
+  // 한 격자가 두 해상도를 걸치므로 걸음도 그 자리의 화소로 잡습니다.
+  float spanFar = uDemFarValid > 0.5 ? uDemFarSpanM : uDemSpanM;
+  float t = max(6.0, min(uDemSpanM, spanFar) / 256.0);
   for (int i = 0; i < 36; i++) {
     vec2 g = g0 + sunHoriz * t;
-    if (dem_inside(g) < 0.5) break;
-    float h = dem_elevationAt(g);
+    float inFine = uDemValid > 0.5 ? dem_inside(g) : 0.0;
+    float inFar = uDemFarValid > 0.5 ? demFar_inside(g) : 0.0;
+    if (inFine < 0.5 && inFar < 0.5) break;
+    float h = inFine > 0.5 ? dem_elevationAt(g) : demFar_elevationDespiked(g);
     best = max(best, atan(h - h0, t));
     t *= 1.2;
   }
@@ -280,9 +337,101 @@ void main() {
   // ⚠ **자료가 있을 때만** 자릅니다. DEM 을 못 받으면 대비책 지면이 고도 0 인
   //    평평한 판인데, 조건 없이 자르면 그 판이 통째로 사라져 지면이 아예 안
   //    그려집니다 (판정의 평판 대조가 0/1536 으로 잡았습니다).
+  // ⚠ 물가를 **매끄럽게 한 고도**(중앙+대각선 다섯 점 평균)로 가르는 것도
+  //   해 봤습니다. 실기의 "상자 모양으로 각진 경계"를 노린 것이었는데, 재 보니
+  //   경계의 각짐(2차 차분)이 **오히려 나빠졌습니다** (그때 잰 값으로
+  //   1.774 → 1.945; 해수면 겹침 뒤로 눈금이 내려가 지금은 1.349 → 1.551
+  //   이지만 방향은 같습니다 — COASTLINE_PLAN 10.5절).
+  //   (예전엔 2.286 → 2.571 로 적혀 있었습니다. 그 값을 낸 자가 줄마다
+  //   경계를 하나만 세어 표본이 29~37줄뿐이었고, 지금은 모든 경계를 세어
+  //   176~254줄입니다 — tools/shader-preview/verify-shore-sdf.js.)
+  //   섞어도 등고선이 다른 화소 모서리로 옮겨갈 뿐이었습니다. 그래서 뺐습니다.
+  // ⚠ 물가의 겹침은 **해수면 쪽에만** 줍니다. 여기는 0 그대로입니다.
+  //
+  //   지형은 정점에서 보간한 vElevM 로, 해수면은 프래그먼트마다 DEM 에서
+  //   직접 읽은 값으로 같은 0 등고선을 각자 계산합니다. 표본이 다르니
+  //   어긋나고, 어긋난 화소는 양쪽 다 버려 **구멍**이 됩니다(바닷가에서
+  //   4,821화소 — 지금은 옛 원반이 메우고 있었습니다).
+  //
+  //   그래서 해수면을 뭍 쪽으로 조금 넘겨 그립니다(SeaPlane 의
+  //   uShoreOverlapM). 반대로 **지형을 물 쪽으로 넘기면 안 됩니다** —
+  //   Terrarium 이 먼바다를 정확히 0 으로 자르므로, 문턱을 조금만 내려도
+  //   그 고원(근거리 패치의 38~41%)이 통째로 뭍으로 그려집니다. 실제로
+  //   −3m 로 해 봤다가 물 맨위가 −0.05° 에서 −0.48° 로 잘렸고
+  //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
 
+  // ── 법선 ────────────────────────────────────────────────────────────────
+  //
+  // ① 텍셀 규모의 법선을 **프래그먼트에서** 3차 B-스플라인으로 다시 냅니다.
+  //    정점에서 낸 것을 보간하면 살 간격(2km 에서 49m, 3km 에서 74m)이
+  //    자료(15.14m)보다 성겨 법선이 모자라고, 이중선형은 C0 라 텍셀마다
+  //    꺾입니다. 자세한 것은 demTiles.ts 의 dem_gradientBicubic 주석.
+  //
+  // ⚠ 높이는 안 건드립니다 — 실루엣은 정점이 정한 그대로입니다.
+  //
+  // ⚠ 먼 지형(despike 켬)에는 안 겁니다. 튀는 화소를 걷어내는 일이 표본
+  //   열여섯 개마다 붙으면 너무 비싸고, 3km 밖은 연무에 잠겨 면의 결이
+  //   보이지도 않습니다.
   vec3 n = normalize(vNormal);
+  vec2 texGrad = vec2(0.0);
+  // 세배 법선은 **촘촘한 패치가 맡는 자리**에만 겁니다. 성긴 쪽은 despike 가
+  // 필요한데 표본 열여섯 개마다 그걸 붙이면 너무 비싸고, 3km 밖은 연무에
+  // 잠겨 면의 결이 보이지도 않습니다.
+  float fineW = uDemValid > 0.5 ? 1.0 - smoothstep(dem_probeRadiusM() * uBlendInner,
+                                                   dem_probeRadiusM() * 0.98,
+                                                   length(vGround)) : 0.0;
+  if (uBicubicNormal > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5 && fineW > 0.5) {
+    texGrad = dem_gradientBicubic(vGround);
+    n = normalize(vec3(-texGrad.x, 1.0, -texGrad.y));
+  } else {
+    // 정점 법선에서 기울기를 되찾습니다 (아래 ② 의 세기가 이것에 비례).
+    float ny0 = max(n.y, 1e-3);
+    texGrad = vec2(-n.x, -n.z) / ny0;
+  }
+
+  // ② **자료 아래 규모의 결** — 있는 것을 흉내내는 것이 아니라, 자료가
+  //    말해 준 법칙을 이어 씁니다.
+  //
+  //    거리별 RMS 고도차를 재 보니 15m~485m 다섯 옥타브에서 거듭제곱
+  //    법칙이 R² = 0.996 으로 깨끗합니다 — 허스트 지수 H = 0.84(마니산) ·
+  //    0.80(도곡동). 그러면 파장 L 에서의 기울기는
+  //
+  //        slope(L) = slope(L0) · (L / L0)^(H − 1)
+  //
+  //    이고, L0 는 자료가 아는 가장 작은 규모(텍셀 두 칸)입니다. 진폭을
+  //    취향으로 고르지 않고 **그 자리의 기울기에 비례**시키므로, 갯벌은
+  //    거의 0 이고 산은 제 값을 받습니다.
+  //
+  // ⚠ 법선만 흔듭니다. 높이에 더하면 진짜 능선 자리에 허구가 섞이고
+  //   실루엣이 바뀝니다.
+  //
+  // ⚠ 화면 화소보다 잔 옥타브는 결이 아니라 **에일리어싱**입니다. 거리에
+  //   따라 잔 옥타브를 끕니다 — 밉맵과 같은 이치.
+  if (uDetail > 0.0 && uDemValid > 0.5) {
+    float texelM = max(1.0, uDemSpanM / 256.0);
+    float L0 = 2.0 * texelM;                 // 자료가 아는 가장 짧은 파장
+    float s0 = length(texGrad);              // 그 자리의 텍셀 규모 기울기
+    float pixM = max(0.05, vDistM * 0.0015); // 화면 한 화소가 덮는 지상 거리
+    vec2 g = vGround;
+    vec2 add = vec2(0.0);
+    float L = L0;
+    for (int o = 0; o < 4; o++) {
+      L *= 0.5;
+      // 화소보다 잔 옥타브는 매끄럽게 꺼집니다 (딱 끊으면 띠가 집니다).
+      float vis = smoothstep(1.0, 3.0, L / pixM);
+      if (vis > 0.001) {
+        float amp = s0 * pow(L / L0, uHurst - 1.0) * vis;
+        float e = L * 0.25;
+        float c = tn_noise(g / L);
+        add += amp * vec2(tn_noise((g + vec2(e, 0.0)) / L) - c,
+                          tn_noise((g + vec2(0.0, e)) / L) - c) * 2.0;
+      }
+    }
+    vec2 gd = texGrad + add * uDetail;
+    n = normalize(vec3(-gd.x, 1.0, -gd.y));
+  }
+
   vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad),
                   sin(uSunAltRad),
                  -cos(uSunAltRad) * cos(uSunAzRad));
@@ -333,14 +482,50 @@ void main() {
   alb = mix(alb, alb * 0.52, wet);
 
   // ── 조도 × 알베도 ────────────────────────────────────────────────────────
-  // 하늘 몫은 등방이라 각도가 없고, 직달 몫만 방향을 탑니다.
-  vec3 col = alb * (uSurfaceIrr + uSunRadiance * ndl);
+  //
+  // ⚠ 여기에 천공률(그 점이 보는 하늘의 몫)을 넣어 봤습니다. 물리로는 맞지만
+  // 재 보니 **음영이 오히려 줄었습니다**(σ 1.192 → 0.618) — 급한 사면을
+  // 밝게 하는 위의 암반 알베도와 정확히 반대로 작용해 서로를 지웁니다.
+  // 근거 없이 남기지 않고 뺐습니다. 자세한 것은 tools/shader-preview/
+  // build-relief.js 주석에 있습니다.
+  // ⚠ **직달을 두 번 세고 있었습니다.** uSurfaceIrr 에는 이미 수평면이 받는
+  // 직달 몫(beam·sin(고도)/π)이 들어 있는데, 거기에 uSunRadiance·ndl 을 또
+  // 더했습니다. 그러면 사면의 향과 **무관한** 직달 받침이 깔려, 해를 등진
+  // 면도 마주한 면과 같은 몫을 먼저 받습니다. 산에 입체감이 없던 두 원인
+  // 가운데 하나가 이것입니다 (다른 하나는 직달 눈금 자체였습니다 —
+  // atmosphere.ts 의 SOLAR_BEAM_SCALE 주석).
+  //
+  // 받침을 빼고 그 자리에 **제 각도의 몫**을 넣습니다. 평평하고 위를 보는
+  // 면은 ndl = sin(고도) 라 값이 정확히 같고, 기울어진 곳만 달라집니다.
+  float sunUp = max(0.0, sin(uSunAltRad));
+  vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - uSunRadiance * sunUp / 3.14159265);
+  vec3 col = alb * (skyIrr + uSunRadiance * ndl / 3.14159265);
 
   // ── 공기원근 ─────────────────────────────────────────────────────────────
+  //
+  // ⚠ 연무의 끝색은 **그 방향의 하늘**이어야 합니다. 예전에는 방위 여섯 곳의
+  // 평균 한 값(uHazeRadiance)을 하늘 전체에 썼습니다. 그러면 새벽에 해 쪽
+  // 산이 **반대쪽 하늘색**을 뒤집어씁니다 — 뒤의 하늘은 주황인데 산만
+  // 푸르스름해지는 것이고, 실기에서 "앞산이 원인불명으로 파랗다"고 한
+  // 자리가 그쪽이었습니다. 옛 능선 띠는 이미 방향별 하늘색(hazeAt)을
+  // 쓰고 있었으니, 새 지형만 뒤처져 있었던 셈입니다.
   if (uAerial > 0.5) {
     vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0,
                                      uBeta, uAngstrom, uElevScale);
-    col = col * T + uHazeRadiance * (1.0 - T);
+    vec3 haze = uHazeRadiance;
+    if (uHazeDirectional > 0.5) {
+      vec3 dir = normalize(vViewDir);
+      vec3 L = vec3(cos(uSunAltRad) * sin(uSunAzRad), sin(uSunAltRad),
+                   -cos(uSunAltRad) * cos(uSunAzRad));
+      float elevDeg = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+      float cosG = clamp(dot(dir, L), -1.0, 1.0);
+      // 지평선 아래를 보는 화소도 있으므로 하늘 모형에는 0.5° 를 하한으로
+      // 넣습니다 — 그 아래로는 하늘이 정의되지 않습니다.
+      haze = atm_skyRadiance(max(0.5, elevDeg), cosG, uSunAltDeg,
+        max(0.001, uBeta), max(0.1, uAngstrom), max(0.1, uElevScale), max(50.0, uOzoneDU));
+      haze = max(haze, vec3(0.0));
+    }
+    col = col * T + haze * (1.0 - T);
   }
 
   gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
@@ -350,9 +535,13 @@ void main() {
 export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
-  /** DEM 패치를 갈아 끼웁니다. `null` 이면 평평하게 물러납니다. */
-  /** 둘째 인자는 **발밑 고도용** 패치입니다. 안 주면 그대로 둡니다. */
-  setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null) => void;
+  /** DEM 패치를 갈아 끼웁니다. null 이면 평평하게 물러납니다. */
+  /** 둘째는 **발밑 고도용**, 셋째는 **성긴(먼 거리)** 패치입니다. 안 주면 그대로 둡니다. */
+  setPatch: (
+    patch: DemPatch | null,
+    eyePatch?: DemPatch | null,
+    farPatch?: DemPatch | null,
+  ) => void;
   dispose: () => void;
 }
 
@@ -373,14 +562,54 @@ export function createTerrainField(opts: {
   /** 격자 안쪽·바깥쪽 거리 (m). 먼 지형 격자가 3km~55km 로 씁니다. */
   nearM?: number;
   farM?: number;
+  /**
+   * 튀는 화소를 걷어냅니다. **성긴 패치(먼 지형)에서만** 켭니다 — 저줌
+   * Terrarium 타일의 R 채널 결함이 첨탑으로 서는 것을 막습니다
+   * (demTiles.ts 의 dem_elevationDespiked 참고).
+   */
+  despike?: boolean;
+  /**
+   * **성긴 패치** (줌 9, 60km). 주면 이 격자 하나가 발밑부터 55km 까지
+   * 맡습니다 — 촘촘한 패치가 보장하는 반지름 안쪽은 촘촘한 것으로, 밖은
+   * 이것으로, 사이는 섞어서. 안 주면 예전대로 한 장만 씁니다.
+   */
+  farPatch?: DemPatch | null;
 }): TerrainFieldHandle {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
+  // 성긴 패치는 **늘** 튀는 화소를 걷어냅니다. 저줌 Terrarium 타일의 R 채널
+  // 결함이 8.96° 짜리 첨탑으로 서는 것을 막습니다(계획서 8.1절). 촘촘한
+  // 패치에는 걸지 않습니다 — 진짜 능선이 깎입니다.
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeDemUniforms(opts.patch ?? null),
       ...makeDemUniforms(opts.eyePatch ?? null, 'demEye'),
+      ...makeDemUniforms(opts.farPatch ?? null, 'demFar'),
+      uDemFarDespike: { value: 1 },
+      // 0.30 은 훑어서 고른 값입니다. 섞는 구간에서 **가짜 기울기가 w'(r)·Δh
+      // 로 생깁니다** — 촘촘한 패치(줌 13)와 성긴 패치(줌 9)가 같은 자리를
+      // 10.9m 다르게 읽으므로, 폭이 좁으면 w' 이 커져 그 어긋남이 한 자리에
+      // 몰립니다. 0.75 면 이음매 각짐이 0.84 → 1.35 (최대 5.1 → 8.8) 로
+      // 나빠집니다.
+      //
+      // ⚠ 넓힌다고 **좋아지지는 않습니다.** 0.30 에서 두 격자와 비슷합니다
+      //   (평균 0.838 대 0.818, 최대 5.13 대 5.02). 합치는 값은 이음매
+      //   품질이 아니라 **메시가 하나가 되는 것**입니다 — 자료 경계가
+      //   구조적으로 사라지고 드로우 콜이 줄어듭니다.
+      //   (처음에 "−56%" 로 읽었는데 그건 자가 얇아서(한 방위 12줄) 난
+      //   착시였습니다. 지금 자는 방위 넷 × 108줄이고 재현됩니다.)
+      uBlendInner: { value: 0.30 },
+      // 3m 는 어림이 아니라 **어긋남의 크기**에서 나옵니다. 지형은 정점에서,
+      // 해수면은 프래그먼트에서 같은 0 등고선을 계산하므로 어긋남은 대략
+      // "살 간격의 절반 × 물가 기울기" 입니다 — 물가가 흔한 1~3km 에서
+      // 살 간격이 25~74m, 물가 기울기가 1:31(대부도에서 잰 값)이라 0.4~1.2m
+      // 입니다. 재 보니 1m 로 이미 구멍이 다 닫히므로(4,821 → 0) 여유를
+      // 두어 3m 로 잡습니다. 10m 를 줘도 내륙에 물이 안 번집니다(물화소 불변).
+      uShoreOverlapM: { value: 3 },
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
+      uBicubicNormal: { value: 1 },
+      uDetail: { value: 0.10 },
+      uHurst: { value: 0.82 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
       uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uSunAzRad: { value: 0 },
@@ -391,8 +620,11 @@ export function createTerrainField(opts: {
       uSaturation: { value: 1.0 },
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
+      uOzoneDU: { value: 330 },
+      uHazeDirectional: { value: 1.0 },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
+      uDemDespike: { value: opts.despike ? 1 : 0 },
       uCloudShadowTex: { value: createOpenSkyShadowTexture() },
       uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
       uCloudShadow: { value: 1.0 },
@@ -421,14 +653,22 @@ export function createTerrainField(opts: {
   return {
     mesh,
     material,
-    setPatch: (patch, eyePatch) => {
+    setPatch: (patch, eyePatch, farPatch) => {
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;
         });
       };
+      // ⚠ makeDemUniforms 는 despike 를 0 으로 되돌립니다 — 격자가 만들어질
+      // 때 정한 값을 지키려고 여기서 다시 씌웁니다.
+      const despike = material.uniforms.uDemDespike?.value;
       put(makeDemUniforms(patch));
+      if (material.uniforms.uDemDespike) material.uniforms.uDemDespike.value = despike;
       if (eyePatch !== undefined) put(makeDemUniforms(eyePatch, 'demEye'));
+      if (farPatch !== undefined) {
+        put(makeDemUniforms(farPatch, 'demFar'));
+        if (material.uniforms.uDemFarDespike) material.uniforms.uDemFarDespike.value = 1;
+      }
     },
     dispose: () => {
       mesh.geometry.dispose();
@@ -455,7 +695,24 @@ export function updateTerrainFieldEye(
   handle: TerrainFieldHandle,
   camera: THREE.Camera,
 ): void {
-  handle.mesh.position.set(camera.position.x, 0, camera.position.z);
+  // ⚠ **Y 도 따라가야 합니다.** 이 격자의 정점은 버텍스 셰이더가 눈에서 본
+  // 진짜 고도각으로 놓고, 그 각의 기준점이 **메시 원점**입니다. 카메라가
+  // 원점에서 벗어나 있으면 그 각이 그대로 화면에 나오지 않습니다.
+  //
+  // 예전에는 Y 를 0 으로 두었습니다 — "카메라 Y 는 실제 미터가 아니라 옛
+  // 원반용 dip 트릭 값이니 따라가지 않는다" 는 이유였는데, 트릭 값이든
+  // 아니든 **시차는 생깁니다.** 재 보니 하늘금이 이만큼 어긋났습니다:
+  //
+  //   해수면 관측지 (카메라 +1.26) : 0.13°~0.36° **아래로**
+  //   마니산 350m  (카메라 −3.43) : 0.51°~0.90° **위로**
+  //
+  // 부호가 관측지 고도에 따라 뒤집히고, 방위마다 크기가 다릅니다(하늘금이
+  // 걸리는 거리가 달라 고리 반경이 다르기 때문). 그래서 전체를 한 값으로
+  // 보정할 수도 없는, 하늘금의 **모양**을 바꾸는 어긋남입니다.
+  //
+  // ⚠ 하네스가 이걸 못 잡은 이유: 거의 모두 카메라를 (0,0,0) 에 둡니다.
+  //   verify-eye-origin.js 가 일부러 높이를 바꿔 가며 봅니다.
+  handle.mesh.position.copy(camera.position);
 }
 
 /**

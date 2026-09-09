@@ -109,17 +109,43 @@ export function ringRadius(distM: number): number {
  *
  * `position.xz` 에 **지상 좌표(동, 남) m**, `position.y` 에 깊이 순서용 반경을
  * 담습니다. 버텍스 셰이더가 이 셋으로 실제 자리를 계산합니다.
+ *
+ * ## `tail` — 산꼭대기 수평선 구멍 (disc-horizon 12절)
+ *
+ * 해수면 정점 셰이더는 관측자의 진짜 수평선 거리 `dHor = sqrt(2Rh)` 보다
+ * 먼 정점을 **`dHor` 위로 접습니다** — 그러니 격자가 `dHor` 까지만 뻗으면
+ * 발밑 고도와 무관하게 수평선에서 정확히 만나야 정상입니다. 그런데
+ * `SEA_FAR_M`(60km)은 고정값이라, 455m 산꼭대기의 `dHor`(76km)보다
+ * **짧습니다.** 어떤 정점도 접힘 문턱을 안 넘으니 마지막 고리(60km, 각
+ * −0.706°)에서 뚝 끊기고, 그 위 −0.686° 까지 0.02° 짜리 하늘 구멍이
+ * 남습니다(verify-disc-horizon, 1,134화소).
+ *
+ * `SEA_FAR_M` 자체를 늘려 봤지만(200km) **더 나빠졌습니다**(1,785화소) —
+ * 기존 72 개 고리가 12m~200km 전체에 로그 간격으로 다시 퍼지면서 60km
+ * 언저리(경계·물가 판정이 재던 자리)의 밀도가 함께 옅어졌기 때문입니다.
+ *
+ * `tail` 은 그 대신 **`farM` 이후에만** 로그 간격 고리를 추가로 붙입니다.
+ * `0..farM` 구간의 기존 고리는 단 하나도 옮기지 않으므로 물가 각짐 —
+ * verify-shore-sdf · verify-shorepatch — 는 손대지 않고, 꼬리만 늘어나
+ * 산꼭대기의 `dHor`(76km 안팎)를 덮습니다.
  */
 export function createConcentricGeometry(
   rings: number,
   spokes: number,
   farM: number,
   nearM: number = FIELD_FOOT_M,
+  tail?: { rings: number; farM: number },
 ): THREE.BufferGeometry {
-  const count = rings * spokes;
+  const tailRings = tail && tail.rings > 0 && tail.farM > farM ? tail.rings : 0;
+  const total = rings + tailRings;
+  const count = total * spokes;
   const pos = new Float32Array(count * 3);
-  for (let k = 0; k < rings; k++) {
-    const d = ringDistanceM(k, rings, farM, nearM);
+  for (let k = 0; k < total; k++) {
+    // ⚠ 꼬리 고리는 `farM` 을 새 원점으로 삼아 로그 이어 붙입니다 —
+    //   k=rings 가 farM 바로 다음 걸음이고, k=total-1 이 tail.farM 입니다.
+    const d = k < rings
+      ? ringDistanceM(k, rings, farM, nearM)
+      : logStep(k - rings + 1, tailRings + 1, farM, tail!.farM);
     const r = ringRadius(d);
     for (let j = 0; j < spokes; j++) {
       const az = (j / spokes) * Math.PI * 2; // 북에서 시계방향
@@ -134,9 +160,9 @@ export function createConcentricGeometry(
     }
   }
 
-  const idx = new Uint32Array((rings - 1) * spokes * 6);
+  const idx = new Uint32Array((total - 1) * spokes * 6);
   let o = 0;
-  for (let k = 0; k < rings - 1; k++) {
+  for (let k = 0; k < total - 1; k++) {
     for (let j = 0; j < spokes; j++) {
       const j1 = (j + 1) % spokes;
       const a = k * spokes + j;
@@ -161,6 +187,31 @@ export function createConcentricGeometry(
  *
  * ⚠ 한쪽만 고치면 그 순간 해안선이 교선이 아니게 됩니다.
  */
+/**
+ * **값 잡음(value noise)** — 지형의 자료 아래 규모 결에 씁니다.
+ *
+ * ⚠ TerrainRing.ts 에 같은 함수가 groundHash/groundNoise 라는 이름으로
+ * 따로 있습니다. 그쪽은 옛 원반의 흙·자갈 질감에 쓰는 것이라 아직 합치지
+ * 않았습니다 — 합칠 때 이 정의 하나만 남기세요. (44절에서 표시 변환이
+ * 복사되어 갈라진 적이 있습니다.)
+ */
+export const TERRAIN_NOISE_GLSL = /* glsl */ `
+float tn_hash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+/** 0~1. 이중 부드럼(smoothstep)으로 보간해 C1 입니다. */
+float tn_noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(tn_hash(i + vec2(0.0, 0.0)), tn_hash(i + vec2(1.0, 0.0)), u.x),
+             mix(tn_hash(i + vec2(0.0, 1.0)), tn_hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+`;
+
 export const GROUND_PROJECT_GLSL = /* glsl */ `
 const float GP_R_EARTH = ${EARTH_RADIUS_M_GLSL};
 

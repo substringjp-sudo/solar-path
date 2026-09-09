@@ -5,6 +5,7 @@ import {
   Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
+import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
@@ -177,7 +178,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const CAM_HEIGHT = BOX_HEIGHT;
   const CAM_WIDTH = BOX_WIDTH;
 
-  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language, currentSimulationUri } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -191,9 +192,30 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return 1.0 + zoom * 4.0;
   }, [zoom]);
 
-  // 카메라 화각(FOV, 기본 1x일 때 60°) 연동
+  // 카메라 화각(FOV, 기본 1x일 때) 연동.
+  //
+  // ⚠ **이 60° 는 근거 없는 추측값입니다.** three.js 의 `fov` 는 **세로**
+  //   화각이고 상자가 4:3 이므로 시뮬레이터의 가로 화각은 75.18° 가 됩니다
+  //   (build-ar-azimuth 로 렌더 화소에서 확인). 그런데 위 상자의 진짜
+  //   카메라가 가로로 몇 도를 담는지는 아무도 안 쟀습니다 — expo-camera 는
+  //   화각을 알려주지 않습니다.
+  //
+  //   두 상자가 얼마나 어긋나는지는 그 값에 그대로 걸립니다. 중심에서 20°
+  //   옆 물체가 두 상자에서 벌어지는 거리(상자 폭 480px 기준):
+  //
+  //     카메라 가로 50° → +73.9px (방위로 +11.00°)
+  //     카메라 가로 54° → +58.0px (+8.81°)
+  //     카메라 가로 60° → +37.8px (+5.89°)
+  //     카메라 가로 70° → +11.3px (+1.81°)
+  //     카메라 가로 75.18° →   0px (0°)  ← 여기서만 맞습니다
+  //
+  //   곧 "카메라와 시뮬레이터의 방위각이 많이 다르다"의 크기는 이 상수
+  //   하나가 정합니다. 기기에서 재서 정해야 하고, 지금은 못 정했습니다
+  //   (SKY_REBUILD_PLAN 49.3절).
+  const BASE_CAMERA_FOV_DEG = 60;
+
   const currentFov = useMemo(() => {
-    const baseFovRad = (60 * Math.PI) / 180;
+    const baseFovRad = (BASE_CAMERA_FOV_DEG * Math.PI) / 180;
     const tanHalf = Math.tan(baseFovRad / 2) / currentMagnification;
     return (2 * Math.atan(tanHalf) * 180) / Math.PI;
   }, [currentMagnification]);
@@ -301,6 +323,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 후 미리보기 상태
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
+  /** 3D 썸네일을 못 만든 이유. 칸을 조용히 지우지 않고 여기 적습니다. */
+  const [simPreviewError, setSimPreviewError] = useState<string | null>(null);
   const [capturedQrData, setCapturedQrData] = useState<string | null>(null);
 
   // 점수 입력 상태
@@ -617,6 +641,23 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setIsCapturing(true);
 
     try {
+      // ── 3D 스냅샷을 **사진보다 먼저** 찍습니다 ────────────────────────
+      //
+      // ⚠ 예전에는 takePictureAsync 가 끝난 뒤에 찍었습니다. 그런데 사진
+      //   촬영은 1~3초가 걸리고 그동안 카메라가 GPU·표면을 크게 물어
+      //   GL 컨텍스트가 잠깐 뺏길 수 있습니다. 그러면 스냅샷이 던지고,
+      //   부르는 쪽은 null 을 받아 **썸네일 칸을 통째로 안 그렸습니다.**
+      //   먼저 찍으면 그 창을 아예 안 지나고, 덤으로 3D 장면이 셔터를
+      //   누른 **그 순간**의 방위·고도를 담습니다 — 원래 의도한 것입니다.
+      let simUri = '';
+      let simFailReason: string | null = null;
+      if (sky3dRef.current) {
+        simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
+      } else {
+        simFailReason = '3D 화면이 아직 준비되지 않음';
+      }
+
       // EXIF 활성화하여 촬영
       const photo = await cameraRef.current.takePictureAsync({
         quality: 1,
@@ -763,21 +804,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         console.log('[SolarPath EXIF Metadata Injection Success]', metadata);
       }
 
-      // 1. 현재 3D 시뮬레이션 화면 스냅샷 직접 캡처 (실제 촬영 방위/고도/화각 동기화)
-      let simUri = '';
-      if (sky3dRef.current) {
-        try {
-          const snapUri = await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 });
-          if (snapUri) {
-            simUri = snapUri;
-          }
-        } catch (simGenErr) {
-          console.warn('[SunCamera] Failed to capture 3D simulation snapshot:', simGenErr);
-        }
+      // 1. 셔터 직전에 못 찍었으면 여기서 한 번 더 시도합니다.
+      if (!simUri && sky3dRef.current) {
+        simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        if (simUri) simFailReason = null;
+        else simFailReason = sky3dRef.current.getLastSnapshotError() ?? simFailReason;
       }
-      if (!simUri && currentSimulationUri) {
-        simUri = currentSimulationUri;
-      }
+      // ⚠ **스토어의 currentSimulationUri 를 대체품으로 쓰지 않습니다.**
+      //   그 값은 `generateSimulationImage` 가 만드는데, 지금 그 함수는
+      //   `getSafeBase64JpegPixel()` 을 그대로 돌려주는 **더미**입니다 —
+      //   1×1 화소 JPEG 한 장. 그걸 cover 로 늘려 "🔮 3D 시뮬레이션 예측"
+      //   이라고 붙이면 단색 사각형을 예측 결과라고 내보이는 셈입니다.
+      //   못 찍었으면 못 찍었다고 적는 편이 낫습니다.
+      if (!simUri && !simFailReason) simFailReason = '알 수 없는 이유로 스냅샷 실패';
 
       // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
       const weatherInfo = {
@@ -827,7 +866,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setCapturedWeatherInfo(weatherInfo);
       setCapturedSimSample(simulationSample);
       setPreviewUri(stampedUri);
-      setSimPreviewUri(simUri);
+      setSimPreviewUri(simUri || null);
+      setSimPreviewError(simUri ? null : simFailReason);
       setCapturedQrData(qrPayload);
       
       // 초기 점수 리셋
@@ -1035,12 +1075,27 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Image source={{ uri: previewUri }} style={styles.compareImage} />
                   <Text style={styles.compareImageLabel}>📷 {t('actualLandscape', language)}</Text>
                 </View>
-                {simPreviewUri ? (
-                  <View style={styles.compareImageWrapper}>
+                {/* ⚠ 칸을 **조용히 지우지 않습니다.** 예전에는 simPreviewUri 가
+                    없으면 이 칸을 통째로 안 그려서, 화면에서는 아무 설명 없이
+                    시뮬레이터 썸네일만 사라졌습니다. 이제 자리를 지키고 왜
+                    없는지 적습니다. */}
+                <View style={styles.compareImageWrapper}>
+                  {simPreviewUri ? (
                     <Image source={{ uri: simPreviewUri }} style={styles.compareImage} />
-                    <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
-                  </View>
-                ) : null}
+                  ) : (
+                    <View style={styles.compareImageMissing}>
+                      <Text style={styles.compareImageMissingText}>
+                        {language === 'ko' ? '3D 스냅샷을 못 찍었습니다' : '3D snapshot unavailable'}
+                      </Text>
+                      {simPreviewError ? (
+                        <Text style={styles.compareImageMissingReason} numberOfLines={3}>
+                          {simPreviewError}
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
+                  <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
+                </View>
               </View>
 
               {/* 날씨 정보 QR 리포트 카드 */}
@@ -1303,12 +1358,27 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Rect width={BOX_WIDTH} height={RULER_HEIGHT} fill="rgba(8, 12, 22, 0.88)" rx={6} />
                   {(() => {
                     const centerX = BOX_WIDTH / 2;
-                    const pxPerDeg = (BOX_WIDTH - 24) / 70;
+                    // ⚠ 예전에는 `pxPerDeg = (BOX_WIDTH - 24) / 70` 이었습니다 —
+                    //   70° 상수를 **선형**으로 폈고 `currentFov` 를 안 봤습니다.
+                    //   그런데 시뮬레이터 상자는 세로 화각 currentFov 의 원근
+                    //   투영이라 가로 화각이 75.18°(1배)이고 화소는 각이 아니라
+                    //   탄젠트에 비례합니다. 재 보니(build-ar-azimuth) 눈금이
+                    //   가리키는 각과 그 화소에 실제로 그려진 각이 1배에서
+                    //   최대 2.68°, 2배 −8.2°, 5배 −15.2° 어긋났습니다.
+                    //   줌에서 벌어지는 것은 눈금자가 줌을 아예 안 봤기 때문입니다.
+                    //   이제 렌더와 **같은 함수**를 씁니다 (utils/arProjection).
+                    const hFov = horizontalFovDeg(currentFov, BOX_WIDTH / BOX_HEIGHT);
                     const ticks = [];
                     for (let offset = -40; offset <= 40; offset += 5) {
                       const tickDeg = Math.round((effectiveAz + offset) / 5) * 5;
                       const normDeg = (tickDeg % 360 + 360) % 360;
-                      const x = centerX + (tickDeg - effectiveAz) * pxPerDeg;
+                      // 방위 차는 -180~180 으로 접습니다 — 0°/360° 를 지날 때
+                      // 눈금이 화면 밖으로 튀지 않게.
+                      let d = tickDeg - effectiveAz;
+                      d = ((d + 540) % 360) - 180;
+                      const dx = azimuthOffsetToPx(d, BOX_WIDTH, hFov);
+                      if (dx === null) continue;
+                      const x = centerX + dx;
                       if (x < 6 || x > BOX_WIDTH - 6) continue;
 
                       const isCardinal = normDeg % 45 === 0;
@@ -1729,6 +1799,24 @@ const styles = StyleSheet.create({
   compareImage: {
     flex: 1,
     resizeMode: 'cover',
+  },
+  compareImageMissing: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+  compareImageMissingText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  compareImageMissingReason: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 9,
+    textAlign: 'center',
   },
   compareImageLabel: {
     position: 'absolute',

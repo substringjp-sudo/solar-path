@@ -42,11 +42,48 @@ import {
  *
  * 눈높이 1.6m 면 수평선이 4.5km, 100m 산이면 35.7km 입니다. 셰이더가 실제
  * 수평선 거리로 자르므로 여기는 **넉넉하게** 잡으면 됩니다.
+ *
+ * ⚠ **다만 "넉넉하게" 를 여기 숫자 하나로 올리면 안 됩니다.** 산꼭대기처럼
+ * 눈높이가 이 값의 진짜 수평선 거리보다 낮은 자리에서 격자가 수평선에
+ * 못 닿아 하늘 구멍이 남는데, 이 상수를 200km 로 올려 봤더니 (구멍화소로
+ * 재면) **오히려 나빠졌습니다**(1,134 → 1,785화소, verify-disc-horizon) —
+ * 아래 고정 고리 수(SEA_RINGS)가 12m~200km 전체에 다시 퍼지며 60km 언저리
+ * (물가 판정이 재는 자리)의 밀도까지 옅어졌기 때문입니다. 수평선에 닿아야
+ * 하는 자리는 SEA_TAIL_* 로 따로 늘립니다 — 아래 참고.
  */
 export const SEA_FAR_M = 60000;
 
 export const SEA_RINGS = 96;
 export const SEA_SPOKES = 256;
+
+/**
+ * **산꼭대기 수평선 구멍을 막는 꼬리 고리** (disc-horizon 12절).
+ *
+ * `SEA_FAR_M`(60km)은 해수면 관측지 기준으로 잡은 값이라, 눈높이가 그보다
+ * 높은 자리(예: 455m 산꼭대기, 진짜 수평선 76km)에서는 격자가 수평선에
+ * 못 미칩니다. 정점 셰이더가 관측자의 진짜 수평선(`dHor = sqrt(2Rh)`) 보다
+ * 먼 정점을 그 위로 접으므로, 격자가 `dHor` 를 **넘기만** 하면 발밑 고도와
+ * 무관하게 수평선에서 정확히 만납니다.
+ *
+ * `SEA_FAR_M` 자체를 늘리는 대신(위 ⚠) `createConcentricGeometry` 의 `tail`
+ * 로 60km **이후에만** 로그 고리를 추가합니다 — 0~60km 구간의 기존 96개
+ * 고리는 하나도 안 옮기므로 물가 각짐(verify-shore-sdf · shorepatch)에는
+ * 영향이 없습니다.
+ *
+ * ⚠ **`구멍화소` 총합으로는 이 꼬리의 효과가 안 보입니다.** 산꼭대기의
+ * 1,134화소 중 74% 는 수평선과 무관한 별개 결함(16~22km 밖의 복잡한 실제
+ * 해안선을 근거리·광역 격자가 다르게 근사)이라, 꼬리를 넣어도 총합은 그대로
+ * 1,134입니다. **수평선-도달만 따로** 재면(물이 확실한 방위 하나에서 진짜
+ * 수평선까지 남는 틈 — build-disc-horizon.js 의 `수평선틈`) 0.0208° →
+ * **0.0052°** 로, 화소 한 칸 폭(0.0078°)보다 좁아집니다. verify-disc-horizon
+ * 에 이 틈을 직접 못 박아 뒀습니다.
+ *
+ * 90km 는 눈높이 `90000² / (2R) ≈ 636m` 까지의 수평선을 덮습니다 —
+ * 한라산·지리산·설악산 같은 고봉을 빼면 국내 대부분의 능선·전망대를
+ * 포괄합니다. 그 이상은 다음에 필요할 때 늘립니다.
+ */
+export const SEA_TAIL_FAR_M = 90000;
+export const SEA_TAIL_RINGS = 16;
 
 /**
  * **물이 있는지 없는지**만 가리는 성긴 높이장의 반경 (m).
@@ -67,9 +104,12 @@ ${demGlsl('seaMask')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;
 uniform float uEyeHeightM;
+uniform float uShoreLegacy;   // 1 이면 옛 물가 규칙 (판정이 A/B 로 씁니다)
+uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m)
 varying float vDistM;
 varying float vDepthM;   // 수심 (m) — 물가 표현의 재료 (5단계)
 varying float vWater;    // 1 = 물, 0 = 뭍 (프래그먼트에서 버립니다)
+varying float vBedSlope; // 바닥 기울기 (rise/run) — 포말 폭을 정합니다
 varying vec3  vGround;
 // 눈(메시 원점)에서 이 점으로 가는 단위 방향. 하늘 되비침의 거울 방향을
 // 여기서 뒤집어 씁니다 (프래그먼트 셰이더 주석 참고).
@@ -104,8 +144,52 @@ void main() {
   // 그래서 **모르는 곳은 깊다**고 둡니다. 쌍선형 보간 덕에 물가 근처는 0 이
   // 아닌 작은 값이 나오므로, 정확히 0 인 곳만 "자료 없음"으로 갈립니다.
   float hs = dem_elevationAt(gc);
-  bool known = uDemValid > 0.5 && dem_inside(gc) > 0.5 && hs < 0.0;
-  vDepthM = known ? -hs : 999.0;
+
+  // ── 수심, 그리고 "이 0 을 믿어도 되는가" ─────────────────────────────────
+  //
+  // Terrarium 은 먼바다를 **정확히 0** 으로 자릅니다. 대부도 근거리 자료는
+  // 38.55% 가 정확히 0 이고, 10.21% 가 −0.5~0 입니다.
+  //
+  // ⚠ **이건 근거리(줌 13) 이야기입니다.** 광역 마스크 패치(줌 9)를 같은
+  //   자로 재 보니 정확히 0 은 0.08% 뿐이고 43.87% 가 음수, 가장 깊은 곳이
+  //   −648m — **수심이 들어 있습니다.** 낮은 줌의 바다는 육지 전용 SRTM 이
+  //   아니라 해저 지형 자료에서 오기 때문입니다. 그래서 아래 "고원이라
+  //   못 믿는다" 논리는 근거리에서만 필요하고, 마스크 쪽에서는 0 이하가
+  //   그냥 바다입니다 (COASTLINE_PLAN 11.5절).
+  //
+  // 옛 규칙은 "정확히 0 = 모르는 곳 = 999m" 였습니다. 값 하나로 가르니
+  // 화소 한 칸 차이로 수심이 999m 와 0.2m 를 오가고, 갯벌이 「깊은 바다 ·
+  // 흰 포말 · 갈색 뭍」 격자무늬가 됐습니다.
+  //
+  // 가르는 **재료**를 바꿉니다: 잘린 먼바다는 값이 0 일 뿐 아니라 **기울기가
+  // 0 인 고원**입니다. 반대로 진짜 얕은 바닥은 기울어져 있습니다. 그러니
+  // 바닥 기울기로 "이 값을 믿을 만한가"를 정합니다 — 연속이라 격자무늬가
+  // 안 생기고, **거리와 무관**합니다.
+  //
+  // ⚠ 두 가지를 먼저 시도했다가 판정에 걸렸습니다.
+  //   ① "반경 150m 안에 뭍이 있으면 얕다" → 5단계에서 없앤 **거리 고리**를
+  //      다시 들여온 것이라 물빛이 거리를 따라갔습니다(변동 69.44%).
+  //   ② "값이 0 에 가까울수록 못 믿는다" → 진짜 얕은 물까지 깊게 만들어
+  //      **얕을수록 밝다**가 뒤집혔습니다(0.488배).
+  float tx = max(8.0, uDemSpanM / 256.0);
+  float bx = dem_elevationAt(gc + vec2(tx, 0.0)) - dem_elevationAt(gc - vec2(tx, 0.0));
+  float bz = dem_elevationAt(gc + vec2(0.0, tx)) - dem_elevationAt(gc - vec2(0.0, tx));
+  bool inside = uDemValid > 0.5 && dem_inside(gc) > 0.5;
+  vBedSlope = inside ? length(vec2(bx, bz)) / (2.0 * tx) : 0.0;
+
+  // 기울기 0 인 고원이면 0(못 믿음), 조금이라도 기울어져 있으면 1(믿음).
+  // 문턱 0.002 는 화소 한 칸(15m)에 3cm — 자료의 눈금(1/256m)보다 크고
+  // 진짜 갯벌 기울기(약 0.0005~)보다 작은 자리입니다.
+  float trust = smoothstep(0.0, 0.002, vBedSlope);
+  // 먼바다는 30m 로 둡니다 — 흡수가 다 먹는 깊이라 999 와 같은 값이면서
+  // 섞을 때 얌전합니다(999 와 섞으면 경계에서 수백 m 가 튑니다).
+  if (uShoreLegacy > 0.5) {
+    vDepthM = (inside && hs < 0.0) ? -hs : 999.0;
+    vBedSlope = 1.0;   // 옛 규칙에는 기울기 개념이 없었습니다
+  } else {
+    vDepthM = inside ? mix(30.0, max(0.0, -hs), trust) : 30.0;
+  }
+
   vGround = vec3(gc.x, 0.0, gc.y);
 
   // ── 여기가 물이긴 한가 ──────────────────────────────────────────────────
@@ -125,7 +209,10 @@ void main() {
     : (uSeaMaskValid > 0.5)                     ? seaMask_elevationExtended(gc)
     : (uDemValid > 0.5)                         ? dem_elevationExtended(gc)
     :                                             -1.0;
-  vWater = hm <= 0.0 ? 1.0 : 0.0;
+  // ⚠ 지형과 **조금 겹치게** 이어 그립니다(uShoreOverlapM) — TerrainField 의
+  //   같은 이름 주석 참고. 뭍 쪽으로 조금 넘어가도 그 자리에는 지형이 위에
+  //   그려지므로 보이지 않고, 두 면이 어긋나 생기던 구멍만 없어집니다.
+  vWater = hm <= uShoreOverlapM ? 1.0 : 0.0;
 
   // 해수면 고도는 0 — 정의상 이것이 기준면입니다.
   vec3 p = gp_project(gc, 0.0, eye, r);
@@ -200,6 +287,7 @@ uniform float uSunAltDeg;
 uniform vec3  uHazeRadiance;
 uniform float uAerial;
 uniform float uFresnel;       // 0 이면 하늘 되비침을 끕니다 (기하 판정용)
+uniform float uShoreOverlapM;  // 물가에서 겹쳐 그릴 폭 (m)
 uniform float uSlopeVar;      // Cox-Munk 파면 경사 분산 σ² = 0.003 + 0.00512·U
 uniform float uGlitter;       // 0 이면 윤슬을 끕니다 (대조 판정용)
 uniform float uBeta;
@@ -209,6 +297,7 @@ uniform float uOzoneDU;
 varying float vDistM;
 varying float vDepthM;
 varying float vWater;
+varying float vBedSlope;
 varying vec3  vGround;
 varying vec3  vViewDir;
 
@@ -305,9 +394,21 @@ void main() {
     col += clamp(glitter, vec3(0.0), vec3(60.0)) / eyeAdapt;
   }
 
-  // 포말 — 수심으로 재므로 폭이 지형 경사를 따릅니다. 프레넬보다 위에 얹어
-  // 거품은 반사와 무관하게 항상 보이게 합니다.
-  float foam = 1.0 - smoothstep(0.0, max(0.02, uFoamDepthM), vDepthM);
+  // ── 포말 ────────────────────────────────────────────────────────────────
+  //
+  // 파도가 부서지는 곳, 곧 수심이 파고에 견줄 만큼 얕은 자리입니다. 그런데
+  // **수심만으로 재면 갯벌이 통째로 하얘집니다.** 바닥이 1/1000 로 완만하면
+  // 수심 0.5m 인 띠가 500m 나 되기 때문입니다(대부도 근거리 자료의 10.21%가
+  // 그 띠 안에 듭니다).
+  //
+  // 같은 파도 에너지가 넓게 퍼지면 옅어집니다. 부서지는 띠의 폭은
+  // 수심 나누기 기울기라, 그 폭이 넓을수록 세기를 그만큼 나눕니다 —
+  // 기준 폭 40m 는 잔파도의 쇄파대 폭입니다. 가파른 해변(기울기 0.05)이면
+  // 띠가 10m 라 그대로 1, 갯벌(0.0005)이면 1000m 라 0.04 로 잦아듭니다.
+  float foamDepth = max(0.02, uFoamDepthM);
+  float surfWidthM = foamDepth / max(vBedSlope, 1e-5);
+  float foamGain = clamp(40.0 / surfWidthM, 0.0, 1.0);
+  float foam = (1.0 - smoothstep(0.0, foamDepth, vDepthM)) * foamGain;
   col = mix(col, uSurfaceIrr * vec3(0.70, 0.71, 0.72), foam);
 
   if (uAerial > 0.5) {
@@ -363,11 +464,14 @@ export function createSeaPlane(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uAerial: { value: 1.0 },
       uFresnel: { value: 1.0 },
+      uShoreLegacy: { value: 0.0 },
       uCloudShadowTex: { value: createOpenSkyShadowTexture() },
       uCloudShadowHalfM: { value: CLOUD_SHADOW_HALF_M },
       uCloudShadow: { value: 1.0 },
       // Cox & Munk (1954). 바람이 0 이어도 잔물결이 있어 0.003 이 바닥입니다.
       uSlopeVar: { value: 0.003 + 0.00512 * 5.5 },
+      // TerrainField 의 같은 이름 유니폼과 **같은 값**이어야 합니다.
+      uShoreOverlapM: { value: 3 },
       uGlitter: { value: 1.0 },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
@@ -389,7 +493,8 @@ export function createSeaPlane(opts: {
 
   const mesh = new THREE.Mesh(
     createConcentricGeometry(
-      opts.rings ?? SEA_RINGS, opts.spokes ?? SEA_SPOKES, SEA_FAR_M),
+      opts.rings ?? SEA_RINGS, opts.spokes ?? SEA_SPOKES, SEA_FAR_M,
+      undefined, { rings: SEA_TAIL_RINGS, farM: SEA_TAIL_FAR_M }),
     material,
   );
   mesh.name = 'seaPlane';
@@ -423,7 +528,10 @@ export function createSeaPlane(opts: {
  * 눈높이와 겹쳐 이중으로 셉니다.
  */
 export function updateSeaPlaneEye(handle: SeaPlaneHandle, camera: THREE.Camera): void {
-  handle.mesh.position.set(camera.position.x, 0, camera.position.z);
+  // 지형 격자와 **같은 규약**입니다 — 눈이 메시 원점에 있어야 버텍스가
+  // 계산한 고도각이 화면에 그대로 나옵니다. 어긋나면 물가가 두 면의
+  // 교선이 아니게 됩니다. 자세한 것은 updateTerrainFieldEye 주석.
+  handle.mesh.position.copy(camera.position);
 }
 
 /** 눈높이에서 수평선까지의 지상 거리 (m) — 판정이 같이 씁니다. */

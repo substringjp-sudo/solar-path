@@ -199,7 +199,20 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   
   if (layer == 0) {
     // 고층 권운: 바람 방향으로 늘어난 비등방성 섬유질 스트릭
-    vec2 pWind = vec2(dot(p, windNorm) * 0.28, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.6);
+    //
+    // ⚠ **종횡비 4:1.** 예전에는 0.28 · 1.6, 곧 5.71:1 이었습니다. 그 값은
+    //   한 번도 훑어본 적이 없었고(옛 CloudDeck 은 같은 성질을 훑어 4 를
+    //   골랐습니다 — cloudPresets.ts 의 cellAspect), 실기에서 "낮은 층과
+    //   높은 층 구름 방향 차가 현실보다 과하다"고 한 것의 대부분이 여기서
+    //   왔습니다: 재 보면 층 사이 격차는 방향이 아니라 **결집도**이고
+    //   (상층 0.745 대 저층 0.287, 2.60배), 상층만 뚜렷한 줄무늬라 두 층이
+    //   서로 무관한 그림으로 읽힙니다.
+    //
+    //   두 배율을 아무렇게나 만지면 종횡비와 **특징 크기가 같이** 움직여
+    //   무엇이 그림을 바꿨는지 못 가립니다. 기하평균 √(0.28·1.6) = 0.6693 을
+    //   고정하고 비만 바꿨습니다 — 0.3347 · 1.3387 이 정확히 4:1 이고
+    //   기하평균은 그대로입니다.
+    vec2 pWind = vec2(dot(p, windNorm) * 0.3347, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.3387);
     // 굵은 폴백: 잔 옥타브가 죽어도 상층 흐름 규모의 띠는 남습니다.
     float fibCoarse = mix(0.5, slab_fbm(pWind * 0.16, 2), detCoarse);
     float fibrous = mix(fibCoarse, slab_fbm(pWind, 5), det);
@@ -207,7 +220,22 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
     f = fibrous;
   } else if (layer == 1) {
     // 중층 고적운: 부드러운 물결 파동과 중간 규모 셀
-    float wave = sin(p.x * 1.8 + p.y * 1.2) * 0.18 * det;
+    //
+    // ⚠ **물결은 바람 축에서 셉니다.** 예전에는 sin(p.x*1.8 + p.y*1.2) 로
+    //   월드 XZ 에서 바로 셌습니다. 그러면 물결이 바람이 어디로 불든 **늘
+    //   같은 나침반 방향**(약 33.7°)으로 눕습니다. 상층 권운은 바람 축으로
+    //   회전하는데 중층만 고정이니, 바람이 돌 때마다 두 층이 어긋나는 각이
+    //   제멋대로가 됩니다 — 실기에서 "저층과 상층 방향 차가 현실보다 과하다"
+    //   고 한 것이 이것입니다.
+    //
+    //   측정(build-layer-grain, 바람 0/45/90°): 상층 주방향 48.7°→130.8°
+    //   →172.5° 로 도는 동안 중층은 23.6° 에 붙박여 있었습니다.
+    //
+    //   파수 벡터가 바람 쪽으로 기울어 있으므로(1.8 대 1.2) 마루는 바람을
+    //   가로지릅니다 — 고적운 두루마리가 실제로 그렇습니다. 파장과 생김새는
+    //   그대로 두고 **기준 축만** 바람으로 옮깁니다.
+    vec2 pw = vec2(dot(p, windNorm), dot(p, vec2(-windNorm.y, windNorm.x)));
+    float wave = sin(pw.x * 1.8 + pw.y * 1.2) * 0.18 * det;
     float formCoarse = mix(0.5, slab_fbm(p * 0.13, 2), detCoarse);
     float form = mix(formCoarse, slab_fbm(p * 0.75, 4), det);
     m = cover * 1.65 * (0.45 + 0.55 * form + wave) + (form - 0.5) * 0.30 * conf;
