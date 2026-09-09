@@ -42,11 +42,48 @@ import {
  *
  * 눈높이 1.6m 면 수평선이 4.5km, 100m 산이면 35.7km 입니다. 셰이더가 실제
  * 수평선 거리로 자르므로 여기는 **넉넉하게** 잡으면 됩니다.
+ *
+ * ⚠ **다만 "넉넉하게" 를 여기 숫자 하나로 올리면 안 됩니다.** 산꼭대기처럼
+ * 눈높이가 이 값의 진짜 수평선 거리보다 낮은 자리에서 격자가 수평선에
+ * 못 닿아 하늘 구멍이 남는데, 이 상수를 200km 로 올려 봤더니 (구멍화소로
+ * 재면) **오히려 나빠졌습니다**(1,134 → 1,785화소, verify-disc-horizon) —
+ * 아래 고정 고리 수(SEA_RINGS)가 12m~200km 전체에 다시 퍼지며 60km 언저리
+ * (물가 판정이 재는 자리)의 밀도까지 옅어졌기 때문입니다. 수평선에 닿아야
+ * 하는 자리는 SEA_TAIL_* 로 따로 늘립니다 — 아래 참고.
  */
 export const SEA_FAR_M = 60000;
 
 export const SEA_RINGS = 96;
 export const SEA_SPOKES = 256;
+
+/**
+ * **산꼭대기 수평선 구멍을 막는 꼬리 고리** (disc-horizon 12절).
+ *
+ * `SEA_FAR_M`(60km)은 해수면 관측지 기준으로 잡은 값이라, 눈높이가 그보다
+ * 높은 자리(예: 455m 산꼭대기, 진짜 수평선 76km)에서는 격자가 수평선에
+ * 못 미칩니다. 정점 셰이더가 관측자의 진짜 수평선(`dHor = sqrt(2Rh)`) 보다
+ * 먼 정점을 그 위로 접으므로, 격자가 `dHor` 를 **넘기만** 하면 발밑 고도와
+ * 무관하게 수평선에서 정확히 만납니다.
+ *
+ * `SEA_FAR_M` 자체를 늘리는 대신(위 ⚠) `createConcentricGeometry` 의 `tail`
+ * 로 60km **이후에만** 로그 고리를 추가합니다 — 0~60km 구간의 기존 96개
+ * 고리는 하나도 안 옮기므로 물가 각짐(verify-shore-sdf · shorepatch)에는
+ * 영향이 없습니다.
+ *
+ * ⚠ **`구멍화소` 총합으로는 이 꼬리의 효과가 안 보입니다.** 산꼭대기의
+ * 1,134화소 중 74% 는 수평선과 무관한 별개 결함(16~22km 밖의 복잡한 실제
+ * 해안선을 근거리·광역 격자가 다르게 근사)이라, 꼬리를 넣어도 총합은 그대로
+ * 1,134입니다. **수평선-도달만 따로** 재면(물이 확실한 방위 하나에서 진짜
+ * 수평선까지 남는 틈 — build-disc-horizon.js 의 `수평선틈`) 0.0208° →
+ * **0.0052°** 로, 화소 한 칸 폭(0.0078°)보다 좁아집니다. verify-disc-horizon
+ * 에 이 틈을 직접 못 박아 뒀습니다.
+ *
+ * 90km 는 눈높이 `90000² / (2R) ≈ 636m` 까지의 수평선을 덮습니다 —
+ * 한라산·지리산·설악산 같은 고봉을 빼면 국내 대부분의 능선·전망대를
+ * 포괄합니다. 그 이상은 다음에 필요할 때 늘립니다.
+ */
+export const SEA_TAIL_FAR_M = 90000;
+export const SEA_TAIL_RINGS = 16;
 
 /**
  * **물이 있는지 없는지**만 가리는 성긴 높이장의 반경 (m).
@@ -456,7 +493,8 @@ export function createSeaPlane(opts: {
 
   const mesh = new THREE.Mesh(
     createConcentricGeometry(
-      opts.rings ?? SEA_RINGS, opts.spokes ?? SEA_SPOKES, SEA_FAR_M),
+      opts.rings ?? SEA_RINGS, opts.spokes ?? SEA_SPOKES, SEA_FAR_M,
+      undefined, { rings: SEA_TAIL_RINGS, farM: SEA_TAIL_FAR_M }),
     material,
   );
   mesh.name = 'seaPlane';

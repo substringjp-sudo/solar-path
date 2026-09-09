@@ -174,7 +174,22 @@ async function run(site, withDem, overlapM){
     near.mesh.visible=!!patch; far.mesh.visible=!!maskPatch; sea.mesh.visible=!!patch;
   }
 
-  let 위끝=-90, 화소=0, 방위별=[];
+  // ⚠ **해수면이 실제로 진짜 수평선까지 닿는가.** '구멍화소' 는 여러
+  //   결함을 한데 뭉뚱그립니다 — 재 보니 산꼭대기의 대다수는 수평선(76km)
+  //   문제가 아니라, 16~22km 안의 실제 복잡한 해안선(강화도 남쪽 섬·개펄)을
+  //   지형·해수면이 각자 다른 격자로 근사하다 어긋나는, 전혀 다른 결함
+  //   이었습니다(disc-horizon 12절 참고 — build-disc-horizon.js 개정 이력에
+  //   상세 진단을 남겼습니다). 그 결함에 섞이지 않고 "수평선 도달" 하나만
+  //   보려면 **닿아야 할 좁은 띠 안에서만, 물이 확실히 있는 방위 하나**를
+  //   재야 합니다. 처음엔 "화소 색이 파란가"로 물을 가르려 했는데, 먼
+  //   지형은 공중원근(우 3절)으로 하늘색이 배어들어 파랑끼가 뜨고, 그러면
+  //   먼 땅을 물로 오인해 이 자가 스스로 속습니다. 대신 **거리로** 압니다
+  //   — CPU 로 미리 재 보면(마니산 예) 방위 225° 는 접히는 자리(수평선)
+  //   까지 사방이 물입니다. 그 방위 하나에서, 수평선 바로 위아래 좁은
+  //   띠(±0.3°) 안의 화소만 봅니다 — 그 밖은 이 자가 묻는 질문과 무관한
+  //   먼 산·하늘입니다.
+  const WATER_AZ = 225;
+  let 위끝=-90, 화소=0, 방위별=[], 물맨위각=-90;
   for(const az of AZ){
     const a=az*Math.PI/180;
     cam.up.set(0,1,0);
@@ -195,6 +210,10 @@ async function run(site, withDem, overlapM){
       if(bufA[o+3]>128){ if(bufA[o+2]>bufA[o]) 물화소++; else 뭍화소++; }
       // bufB 는 원반을 끈 장면입니다. 지평선 아래인데 비어 있으면 구멍.
       if(bufB[o+3]<128 && rowElev(y) < -dip-0.02) 구멍화소++;
+      if(az===WATER_AZ){
+        const e=rowElev(y);
+        if(bufB[o+3]>128 && Math.abs(e-(-dip))<0.3 && e>물맨위각) 물맨위각=e;
+      }
     }
     방위별.push(+top.toFixed(4));
     화소+=n; if(top>위끝) 위끝=top;
@@ -213,7 +232,8 @@ async function run(site, withDem, overlapM){
   return { 물화소, 뭍화소, 구멍화소, 발밑고도:+obs.toFixed(1), 수평선처짐:+dip.toFixed(4),
            원반테두리:+테두리.toFixed(4),
            원반위끝:+위끝.toFixed(4), 원반화소:화소,
-           거짓띠:+Math.max(0, 위끝-(-dip)).toFixed(4), 방위별 };
+           거짓띠:+Math.max(0, 위끝-(-dip)).toFixed(4), 방위별,
+           물맨위각:+물맨위각.toFixed(4), 수평선틈:+Math.max(0, -dip-물맨위각).toFixed(4) };
 }
 
 const 결과={};
