@@ -39,6 +39,8 @@ const D = require('./dem-cpu');
 
 const BLOCK = 3, FIELD_FAR_M = 3000, MASK_RADIUS_M = 60000, EYE_M = 1.6;
 /** 고도가 다른 세 자리. 발밑 고도는 DEM 이 정하므로 여기 숫자는 참고값입니다. */
+/** 물가 겹침 폭 훑기 (m). 0 은 지금(딱 맞닿음). */
+const OVERLAPS = [0, 1, 3, 10];
 const SITES = [
   { key: '바닷가', lat: 37.24102, lon: 126.55969, near: 'dem', wide: 'wide-daebu' },
   { key: '내륙', lat: 37.489130, lon: 127.043169, near: 'dem-dogok', wide: 'wide-dogok' },
@@ -84,6 +86,7 @@ const errors=[]; const oe=console.error; console.error=(...a)=>{errors.push(a.jo
 window.addEventListener('error', e=>errors.push(String(e.message)));
 
 const SITES=${JSON.stringify(SITES)};
+const OVERLAPS=${JSON.stringify(OVERLAPS)};
 const BLOCK=${BLOCK}, FAR=${FIELD_FAR_M}, MASK_R=${MASK_RADIUS_M}, EYE=${EYE_M};
 const IRR=${JSON.stringify(LIGHT.surfaceIrr)}, SUNR=${JSON.stringify(LIGHT.sunRadiance)};
 const EXPO=${LIGHT.exposure};
@@ -100,7 +103,7 @@ const tanV=Math.tan(FOVY*Math.PI/360);
 const rowElev=y=>Math.atan(tanV*(2*(y+0.5)/H-1))*180/Math.PI;
 const loadTexture=u=>new Promise((res,rej)=>{new THREE.TextureLoader().load(u,res,undefined,rej);});
 
-async function run(site, withDem){
+async function run(site, withDem, overlapM){
   clearDemCache();
   let patch=null, maskPatch=null;
   if(withDem){
@@ -129,6 +132,7 @@ async function run(site, withDem){
   sea.mesh.renderOrder=-0.47; sea.mesh.visible=!!patch; scene.add(sea.mesh);
 
   for(const h of [near,far,sea]){ updateTerrainFieldEye(h,cam);
+    if(h.material.uniforms.uShoreOverlapM) h.material.uniforms.uShoreOverlapM.value=overlapM||0;
     const u=h.material.uniforms;
     u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
     u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
@@ -143,6 +147,7 @@ async function run(site, withDem){
   //   테두리가 아니라 *지형이 안 덮은 자리* 라, 사방이 뭍인 내륙에서는 땅이
   //   테두리를 가려 버려 엉뚱한 값이 나옵니다 (처음에 그걸 테두리로 읽고
   //   판정을 잘못 짰습니다). 지형·해수면을 숨기고 원반만 그려 잽니다.
+  let 물화소=0, 뭍화소=0;
   let 테두리=-90;
   {
     for(const h of [near,far,sea]) h.mesh.visible=false;
@@ -176,6 +181,7 @@ async function run(site, withDem){
       const d=Math.abs(bufA[o]-bufB[o])+Math.abs(bufA[o+1]-bufB[o+1])
              +Math.abs(bufA[o+2]-bufB[o+2])+Math.abs(bufA[o+3]-bufB[o+3]);
       if(d>6){ n++; const e=rowElev(y); if(e>top) top=e; }
+      if(bufA[o+3]>128){ if(bufA[o+2]>bufA[o]) 물화소++; else 뭍화소++; }
     }
     방위별.push(+top.toFixed(4));
     화소+=n; if(top>위끝) 위끝=top;
@@ -191,15 +197,16 @@ async function run(site, withDem){
 
   scene.remove(ground);
   for(const h of [near,far,sea]){ scene.remove(h.mesh); h.dispose?.(); }
-  return { 발밑고도:+obs.toFixed(1), 수평선처짐:+dip.toFixed(4),
+  return { 물화소, 뭍화소, 발밑고도:+obs.toFixed(1), 수평선처짐:+dip.toFixed(4),
            원반테두리:+테두리.toFixed(4),
            원반위끝:+위끝.toFixed(4), 원반화소:화소,
            거짓띠:+Math.max(0, 위끝-(-dip)).toFixed(4), 방위별 };
 }
 
 const 결과={};
-for(const s of SITES) 결과[s.key]=await run(s,true);
-결과['DEM 없음']=await run(SITES[0],false);
+for(const s of SITES) for(const ov of OVERLAPS)
+  결과[s.key+' 겹침'+ov+'m']=await run(s,true,ov);
+결과['DEM 없음']=await run(SITES[0],false,0);
 
 document.getElementById('out').innerHTML='<p>'+JSON.stringify(결과)+'</p>';
 window.__stats={ glError:r.getContext().getError(), 결과 };

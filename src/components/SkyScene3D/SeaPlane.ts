@@ -68,6 +68,7 @@ ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;
 uniform float uEyeHeightM;
 uniform float uShoreLegacy;   // 1 이면 옛 물가 규칙 (판정이 A/B 로 씁니다)
+uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m)
 varying float vDistM;
 varying float vDepthM;   // 수심 (m) — 물가 표현의 재료 (5단계)
 varying float vWater;    // 1 = 물, 0 = 뭍 (프래그먼트에서 버립니다)
@@ -164,7 +165,10 @@ void main() {
     : (uSeaMaskValid > 0.5)                     ? seaMask_elevationExtended(gc)
     : (uDemValid > 0.5)                         ? dem_elevationExtended(gc)
     :                                             -1.0;
-  vWater = hm <= 0.0 ? 1.0 : 0.0;
+  // ⚠ 지형과 **조금 겹치게** 이어 그립니다(uShoreOverlapM) — TerrainField 의
+  //   같은 이름 주석 참고. 뭍 쪽으로 조금 넘어가도 그 자리에는 지형이 위에
+  //   그려지므로 보이지 않고, 두 면이 어긋나 생기던 구멍만 없어집니다.
+  vWater = hm <= uShoreOverlapM ? 1.0 : 0.0;
 
   // 해수면 고도는 0 — 정의상 이것이 기준면입니다.
   vec3 p = gp_project(gc, 0.0, eye, r);
@@ -239,6 +243,7 @@ uniform float uSunAltDeg;
 uniform vec3  uHazeRadiance;
 uniform float uAerial;
 uniform float uFresnel;       // 0 이면 하늘 되비침을 끕니다 (기하 판정용)
+uniform float uShoreOverlapM;  // 물가에서 겹쳐 그릴 폭 (m)
 uniform float uSlopeVar;      // Cox-Munk 파면 경사 분산 σ² = 0.003 + 0.00512·U
 uniform float uGlitter;       // 0 이면 윤슬을 끕니다 (대조 판정용)
 uniform float uBeta;
@@ -421,6 +426,8 @@ export function createSeaPlane(opts: {
       uCloudShadow: { value: 1.0 },
       // Cox & Munk (1954). 바람이 0 이어도 잔물결이 있어 0.003 이 바닥입니다.
       uSlopeVar: { value: 0.003 + 0.00512 * 5.5 },
+      // TerrainField 의 같은 이름 유니폼과 **같은 값**이어야 합니다.
+      uShoreOverlapM: { value: 3 },
       uGlitter: { value: 1.0 },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },

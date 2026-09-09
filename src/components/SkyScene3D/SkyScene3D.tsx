@@ -321,10 +321,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const demPatchRef = useRef<DemPatch | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
+  /** DEM 요청 재시도 타이머와 실패 횟수 — 아래 요청 이펙트가 씁니다. */
+  const demRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demRetryCountRef = useRef(0);
   /** 땅에 지는 구름 그림자 지도. 구름·해가 바뀔 때만 다시 굽습니다. */
   const cloudShadowTexRef = useRef<THREE.DataTexture | null>(null);
   const cloudShadowKeyRef = useRef<string>('');
   const demLoadedKeyRef = useRef<string | null>(null);
+  /**
+   * 재시도를 이펙트에 알리는 눈금. ref 만 바꾸면 리액트가 이펙트를 다시
+   * 돌리지 않으므로, 타이머가 이 값을 올려 재요청을 깨웁니다.
+   */
+  const [demRetryTick, setDemRetryTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
   const starFieldRef = useRef<StarFieldHandle | null>(null);
@@ -1812,6 +1820,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
         if (cancelled) return;
+        // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
+        // 구멍이 있는 채로 패치를 돌려줍니다.
+        if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
         demPatchRef.current = patch;
         // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
         // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
@@ -1824,15 +1835,43 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
         demLoadedKeyRef.current = key;
         requestRender(10);
+        demRetryCountRef.current = 0;
       } catch (e) {
         if (__DEV__) console.warn('[DEM] 높이장을 못 받았습니다 — 기존 화면으로 물러납니다.', e);
+        // ── 다시 걸어 봅니다 ────────────────────────────────────────────────
+        //
+        // 이 이펙트는 location 에만 걸려 있고 **성공했을 때만**
+        // demLoadedKeyRef 를 찍습니다. 재시도가 없으면 한 번 실패한 뒤로는
+        // 위치가 110m(소수점 3자리) 넘게 바뀌기 전까지 다시 안 받습니다 —
+        // 지하철에서 앱을 켜면 지상에 나와 네트워크가 돌아와도 옛 원반만
+        // 보입니다.
+        //
+        // 그동안 화면이 비지는 않습니다. 원반이 지면의 70% 를 이어받습니다
+        // (verify-disc-need.js). 다만 그건 대비책이지 보여 주려던 것이
+        // 아닙니다.
+        //
+        // 2·4·8·16·32초, 그다음은 60초로 묶습니다. 그래도 안 되면 네트워크나
+        // 서버 쪽 문제이므로 계속 두드리지 않고 60초 간격으로만 지켜봅니다 —
+        // 앱이 할 수 있는 일은 여기까지입니다.
+        if (!cancelled) {
+          const n = demRetryCountRef.current + 1;
+          demRetryCountRef.current = n;
+          const waitMs = Math.min(60000, 1000 * 2 ** n);
+          if (demRetryTimerRef.current) clearTimeout(demRetryTimerRef.current);
+          demRetryTimerRef.current = setTimeout(() => {
+            demRetryTimerRef.current = null;
+            // 키를 지우면 위 가드가 풀려 이펙트가 다시 요청합니다.
+            demLoadingKeyRef.current = null;
+            setDemRetryTick(t => t + 1);
+          }, waitMs);
+        }
       } finally {
         if (!cancelled) demLoadingKeyRef.current = null;
       }
     })();
 
     return () => { cancelled = true; };
-  }, [location, requestRender]);
+  }, [location, requestRender, demRetryTick]);
 
   useEffect(() => {
     return () => {
@@ -1875,6 +1914,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 지웁니다(다음 마운트에서 죽은 GL 컨텍스트의 텍스처를 들고 있지
       // 않도록). 도중에 자리를 옮길 때는 loadDemPatch 자신이 정리합니다.
       demPatchRef.current = null;
+      if (demRetryTimerRef.current) {
+        clearTimeout(demRetryTimerRef.current);
+        demRetryTimerRef.current = null;
+      }
       demLoadingKeyRef.current = null;
       demLoadedKeyRef.current = null;
       clearDemCache();

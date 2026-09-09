@@ -255,6 +255,7 @@ ${demGlsl('demFar')}
 ${CLOUD_SHADOW_GLSL}
 ${TERRAIN_NOISE_GLSL}
 uniform float uBlendInner;    // 촘촘→성김 넘기기를 시작하는 반지름 비율
+uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m). 0 이면 예전처럼 딱 맞닿음
 uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
 uniform float uDetail;        // 자료 아래 규모 결의 세기, 0 이면 끔 (②)
                               // 기본 0.10 — 세기를 훑어 **평균 밝기가 5% 넘게
@@ -343,6 +344,19 @@ void main() {
   //   경계를 하나만 세어 표본이 29~37줄뿐이었고, 지금은 모든 경계를 세어
   //   176~254줄입니다 — tools/shader-preview/verify-shore-sdf.js.)
   //   섞어도 등고선이 다른 화소 모서리로 옮겨갈 뿐이었습니다. 그래서 뺐습니다.
+  // ⚠ 물가의 겹침은 **해수면 쪽에만** 줍니다. 여기는 0 그대로입니다.
+  //
+  //   지형은 정점에서 보간한 vElevM 로, 해수면은 프래그먼트마다 DEM 에서
+  //   직접 읽은 값으로 같은 0 등고선을 각자 계산합니다. 표본이 다르니
+  //   어긋나고, 어긋난 화소는 양쪽 다 버려 **구멍**이 됩니다(바닷가에서
+  //   4,821화소 — 지금은 옛 원반이 메우고 있었습니다).
+  //
+  //   그래서 해수면을 뭍 쪽으로 조금 넘겨 그립니다(SeaPlane 의
+  //   uShoreOverlapM). 반대로 **지형을 물 쪽으로 넘기면 안 됩니다** —
+  //   Terrarium 이 먼바다를 정확히 0 으로 자르므로, 문턱을 조금만 내려도
+  //   그 고원(근거리 패치의 38~41%)이 통째로 뭍으로 그려집니다. 실제로
+  //   −3m 로 해 봤다가 물 맨위가 −0.05° 에서 −0.48° 로 잘렸고
+  //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
 
   // ── 법선 ────────────────────────────────────────────────────────────────
@@ -582,6 +596,13 @@ export function createTerrainField(opts: {
       //   (처음에 "−56%" 로 읽었는데 그건 자가 얇아서(한 방위 12줄) 난
       //   착시였습니다. 지금 자는 방위 넷 × 108줄이고 재현됩니다.)
       uBlendInner: { value: 0.30 },
+      // 3m 는 어림이 아니라 **어긋남의 크기**에서 나옵니다. 지형은 정점에서,
+      // 해수면은 프래그먼트에서 같은 0 등고선을 계산하므로 어긋남은 대략
+      // "살 간격의 절반 × 물가 기울기" 입니다 — 물가가 흔한 1~3km 에서
+      // 살 간격이 25~74m, 물가 기울기가 1:31(대부도에서 잰 값)이라 0.4~1.2m
+      // 입니다. 재 보니 1m 로 이미 구멍이 다 닫히므로(4,821 → 0) 여유를
+      // 두어 3m 로 잡습니다. 10m 를 줘도 내륙에 물이 안 번집니다(물화소 불변).
+      uShoreOverlapM: { value: 3 },
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uBicubicNormal: { value: 1 },
