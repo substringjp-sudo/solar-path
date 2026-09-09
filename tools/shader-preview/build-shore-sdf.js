@@ -50,6 +50,12 @@ const LAT = 37.24102, LON = 126.55969, MASK_DIR = 'wide-daebu';
 const CASES = [
   ['앱 그대로', 'dem', 152, 256, 'app'],
   ['원본 기본', 'dem', 152, 256],
+  // ⚠ **겹침 0 대조.** 해수면 한쪽 겹침(uShoreOverlapM)이 들어간 뒤로 위 두
+  //   칸이 **같은 값**을 냅니다 — 해수면 격자 밀도가 경계에 영향을 안 줍니다.
+  //   그게 겹침 때문이라는 것을 논증이 아니라 측정으로 보이려고, 같은 두 칸을
+  //   겹침만 0 으로 두고 한 번 더 잽니다. 거기서는 밀도 의존이 돌아와야 합니다.
+  ['겹침0 앱', 'dem', 152, 256, 'app0'],
+  ['겹침0 기본', 'dem', 152, 256, 'plain0'],
   ['원본 살2배', 'dem', 152, 512],
   ['원본 살4배', 'dem', 152, 1024],
   ['원본 고리살2배', 'dem', 304, 512],
@@ -121,7 +127,8 @@ async function build(nearDir, rings, spokes, mode){
   field.mesh.renderOrder=-0.48; scene.add(field.mesh); updateTerrainFieldEye(field, cam);
   // 해수면도 같은 밀도로 — 경계는 두 면의 교선이라 한쪽만 늘리면 못 읽습니다.
   // 다만 'app' 칸에서는 해수면을 **기본값 그대로**(96 고리) 둡니다.
-  sea = mode==='app'
+  const 앱해수면 = mode==='app' || mode==='app0';
+  sea = 앱해수면
     ? createSeaPlane({patch, maskPatch, eyeHeightM:EYE_TOWER_M})
     : createSeaPlane({patch, maskPatch, eyeHeightM:EYE_TOWER_M, rings, spokes});
   sea.mesh.renderOrder=-0.47; scene.add(sea.mesh); updateSeaPlaneEye(sea, cam);
@@ -135,6 +142,11 @@ async function build(nearDir, rings, spokes, mode){
     m.uniforms.uAerial.value=0;   // 거리로 색이 변하면 갈래 나누기가 흐려집니다
   }
   sea.material.uniforms.uShoreLegacy.value=0;   // 지금 규칙 하나만 봅니다
+  if(mode==='app0'||mode==='plain0'){
+    // 겹침을 끕니다 — 지형과 해수면이 각자 0 등고선을 계산해 딱 맞닿던 옛 상태.
+    sea.material.uniforms.uShoreOverlapM.value=0;
+    field.material.uniforms.uShoreOverlapM.value=0;
+  }
 }
 function teardown(){
   if(ground) scene.remove(ground);
