@@ -31,6 +31,8 @@ const path = require('path');
 const { PREVIEW } = require('./paths');
 
 const BLOCK = 3, FIELD_FAR_M = 3000, MASK_RADIUS_M = 60000, EYE_M = 1.6;
+/** 조명은 앱에서 가져옵니다 — 하네스가 지어낸 조도는 세 번 판정을 망쳤습니다. */
+const LIGHT = require('./app-lighting').appLighting(30, 200);
 const SITES = [
   { key: '내륙', lat: 37.489130, lon: 127.043169, near: 'dem-dogok', wide: 'wide-dogok' },
   { key: '바닷가', lat: 37.24102, lon: 126.55969, near: 'dem', wide: 'wide-daebu' },
@@ -60,6 +62,7 @@ window.addEventListener('error', e=>errors.push(String(e.message)));
 const SITES=${JSON.stringify(SITES)};
 const BLOCK=${BLOCK}, FAR=${FIELD_FAR_M}, MASK_R=${MASK_RADIUS_M}, EYE=${EYE_M};
 const BAND_DIST=[5,15,40], SAMPLES=31;
+const IRR=${JSON.stringify(LIGHT.surfaceIrr)}, SUNR=${JSON.stringify(LIGHT.sunRadiance)}, EXPO=${LIGHT.exposure};
 
 const W=256, H=256, FOV=70;
 const PITCHES=[-6, -25];
@@ -107,8 +110,9 @@ async function run(site, withDem){
 
   for (const h of [near, far, sea]) { updateTerrainFieldEye(h, cam);
     const u=h.material.uniforms;
-    u.uSkyIrr.value.set(sky.r,sky.g,sky.b);
-    u.uSunRadiance.value.set(0.78,0.66,0.52);
+    u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
+    u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
+    u.uExposure.value=EXPO;
     u.uSunAltDeg.value=30; u.uSunAltRad.value=30*Math.PI/180;
     u.uSunAzRad.value=200*Math.PI/180;
     u.uHazeRadiance.value.set(sky.r*0.7, sky.g*0.75, sky.b*0.85); }

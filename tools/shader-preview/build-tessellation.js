@@ -49,6 +49,27 @@ const AZIMUTHS = 24;
 /** [고리, 살] — 지금 값과 그 두 배·네 배. */
 const LEVELS = [[152, 256], [304, 512], [608, 1024]];
 
+const SUN_ALT = 25;
+const SKY_MEAN = { r: 0.83, g: 1.03, b: 1.27 };
+const BEAM = { r: 0.78, g: 0.66, b: 0.52 };
+
+/**
+ * ⚠ 조명 배선은 **앱에서 가져옵니다**. 손으로 적으면 앱이 바뀔 때 하네스만
+ * 옛 배선을 재게 됩니다 — 실제로 그렇게 됐습니다. 이 시험이 처음 잰 것은
+ * "직달을 물리 비율로 올리면 어떻게 되나" 였고, 그 답이 앱에 들어간 뒤로는
+ * 하드코딩한 7.56 이 옛 값이 되어 판정이 거꾸로 뒤집혔습니다.
+ */
+const ATM = require('/tmp/skybuild/atmosphere.js');
+const LIT = ATM.groundLighting(SUN_ALT, SKY_MEAN, BEAM, 1);
+const IRR = [LIT.surfaceIrr.r, LIT.surfaceIrr.g, LIT.surfaceIrr.b];
+const SUNR = [LIT.sunRadiance.r, LIT.sunRadiance.g, LIT.sunRadiance.b];
+const EXPO = LIT.exposure;
+
+/** 대조 — 직달 눈금만 1 로 되돌린 같은 셰이더. */
+const S1 = Math.max(0, Math.sin((SUN_ALT * Math.PI) / 180)) / Math.PI;
+const OLD_IRR = [SKY_MEAN.r + BEAM.r * S1, SKY_MEAN.g + BEAM.g * S1, SKY_MEAN.b + BEAM.b * S1];
+const OLD_SUN = [BEAM.r, BEAM.g, BEAM.b];
+
 const dem = D.makeCpuDem({
   demDir: path.join(PREVIEW, DIR), zoom: D.demZoomForRadius(FIELD_FAR_M, LAT, BLOCK),
   lat: LAT, lon: LON,
@@ -90,6 +111,8 @@ window.addEventListener('error', e=>errors.push(String(e.message)));
 
 const LAT=${LAT}, LON=${LON}, DIR='${DIR}', BLOCK=${BLOCK}, FAR=${FIELD_FAR_M}, EYE=${EYE_M};
 const LEVELS=${JSON.stringify(LEVELS)}, 참조=${JSON.stringify(참조)}, AZIMUTHS=${AZIMUTHS};
+const IRR=${JSON.stringify(IRR)}, SUNR=${JSON.stringify(SUNR)}, EXPO=${EXPO};
+const OLD_IRR=${JSON.stringify(OLD_IRR)}, OLD_SUN=${JSON.stringify(OLD_SUN)};
 
 const WS=64, HS=512, FOVS=24;      // 실루엣용 좁은 화각
 const WR=320, HR=320, FOVR=70;     // 거칠기용 넓은 화각
@@ -118,8 +141,9 @@ for (const [rings, spokes] of LEVELS) {
   const field=createTerrainField({patch, eyePatch:patch, eyeHeightM:EYE, rings, spokes});
   scene.add(field.mesh);
   const u=field.material.uniforms;
-  u.uSurfaceIrr.value.set(0.83,1.03,1.27);
-  u.uSunRadiance.value.set(0.78,0.66,0.52);
+  u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
+  u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
+  u.uExposure.value=EXPO;
   u.uAerial.value=0; u.uShadow.value=1;
   u.uSunAltDeg.value=25; u.uSunAltRad.value=25*Math.PI/180;
   u.uSunAzRad.value=135*Math.PI/180;
@@ -180,19 +204,22 @@ for (const [rings, spokes] of LEVELS) {
              이웃차이:+(grad/Math.max(1,gn)).toFixed(4) };
   }
 
-  const 지금조명=shootRough(key+' · 지금 조명');
-  // 물리 비율: 수평면 직달이 하늘의 3.4배가 되도록. 노출을 낮춰 평균을 맞춥니다.
-  u.uSunRadiance.value.set(7.56*0.78/0.66, 7.56, 7.56*0.52/0.66);
-  u.uExposure.value=0.22;
-  const 물리조명=shootRough(key+' · 물리 직달/확산');
-  u.uSunRadiance.value.set(0.78,0.66,0.52); u.uExposure.value=1;
+  const 물리눈금=shootRough(key+' · 물리 눈금 (지금 앱)');
+  // 대조: 직달 눈금만 1 로. 노출도 그 눈금에 맞춰 1 이 됩니다 — 두 벌의
+  // 차이는 SOLAR_BEAM_SCALE 하나뿐입니다.
+  u.uSurfaceIrr.value.set(OLD_IRR[0],OLD_IRR[1],OLD_IRR[2]);
+  u.uSunRadiance.value.set(OLD_SUN[0],OLD_SUN[1],OLD_SUN[2]);
+  u.uExposure.value=1;
+  const 옛눈금=shootRough(key+' · 옛 눈금 (S=1)');
+  u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
+  u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]); u.uExposure.value=EXPO;
 
   결과[key]={
     고리:rings, 살:spokes, 삼각형:(rings-1)*spokes*2, 정점:rings*spokes,
     실루엣치우침:+(errs.reduce((a,b)=>a+b,0)/(errs.length||1)).toFixed(4),
     실루엣절대중앙값:+(abs[abs.length>>1]??0).toFixed(4),
     실루엣최대:+(abs[abs.length-1]??0).toFixed(4),
-    지금조명, 물리조명,
+    옛눈금, 물리눈금,
   };
   scene.remove(field.mesh); field.dispose?.();
 }

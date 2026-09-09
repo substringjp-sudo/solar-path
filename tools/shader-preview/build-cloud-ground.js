@@ -28,6 +28,8 @@
  *       node tools/shader-preview/verify-cloud-ground.js
  */
 const fs = require('fs');
+/** 화면 시험의 조명 — 앱에서 가져옵니다 (해 45° · 방위 180°). */
+const LIGHT = require('./app-lighting').appLighting(45, 180);
 const path = require('path');
 const { PREVIEW } = require('./paths');
 
@@ -146,6 +148,12 @@ const SUN_ALT=20, SUN_AZ=180;
 //    보입니다. DEM 은 여전히 없으므로 지형 그림자는 정의상 0 이고, 땅이
 //    얼룩진다면 원인은 오직 구름입니다.
 const RENDER_SUN_ALT=45, RENDER_EYE_M=1000, RENDER_LOOK_AZ=0;
+// ⚠ 조명은 **앱에서 가져옵니다** (아래 IRR/SUNR/EXPO). 예전에는 여기에
+//   어림값(하늘 0.11 · 직달 2.4)을 적어 뒀는데, 앱의 실제 값은 그 반대
+//   (하늘이 직달보다 큼)입니다. 같은 어림값이 build-relief 에서 판정을
+//   통째로 무효로 만든 적이 있습니다.
+const IRR=${JSON.stringify(LIGHT.surfaceIrr)}, SUNR=${JSON.stringify(LIGHT.sunRadiance)};
+const EXPO=${LIGHT.exposure};
 const W=320, H=320, FOV=70, PITCH=-30;
 const canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;
 const renderer=new THREE.WebGLRenderer({canvas, antialias:false, alpha:true});
@@ -161,8 +169,9 @@ const scene=new THREE.Scene(); scene.add(field.mesh);
 const cam=new THREE.PerspectiveCamera(FOV, 1, 0.1, 2000); cam.position.set(0,0,0);
 updateTerrainFieldEye(field, cam);
 const u=field.material.uniforms;
-u.uSurfaceIrr.value.set(0.10,0.11,0.14);
-u.uSunRadiance.value.set(2.4,2.1,1.7);
+u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
+u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
+u.uExposure.value=EXPO;
 u.uAerial.value=0;
 u.uSunAltDeg.value=RENDER_SUN_ALT; u.uSunAltRad.value=RENDER_SUN_ALT*Math.PI/180;
 u.uSunAzRad.value=SUN_AZ*Math.PI/180;
