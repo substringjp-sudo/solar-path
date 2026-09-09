@@ -101,6 +101,7 @@ export const FIELD_VERT = /* glsl */ `
 precision highp float;
 ${DEM_GLSL}
 ${demGlsl('demEye')}
+${demGlsl('demFar')}
 ${GROUND_PROJECT_GLSL}
 uniform float uObsElevM;    // DEM 이 없을 때만 쓰는 발밑 고도 (m)
 uniform float uEyeHeightM;  // 발밑에서 눈까지 (m)
@@ -132,9 +133,42 @@ float groundAtEye() {
   return uDemValid > 0.5 ? dem_elevationAt(vec2(0.0)) : uObsElevM;
 }
 
-/** 그 지상 좌표의 고도 (m). 자료가 없으면 발밑 높이로 평평하게. */
+/**
+ * **촘촘한 패치와 성긴 패치를 하나의 높이장으로 잇습니다.**
+ *
+ * 예전에는 격자가 둘이었습니다 — 근거리(0.6m~3km, 줌 13)와 먼 지형
+ * (3km~55km, 줌 9). 3km 에서 **두 메시가 딱 맞닿았고**, 그 자리가 서로 다른
+ * 자료로 그려진 하드 이음매였습니다.
+ *
+ * 이제 한 격자가 거리에 따라 자료를 **섞어** 읽습니다. 촘촘한 패치가
+ * 보장하는 반지름(dem_probeRadiusM, 줌 13 블록 3 에서 3,816m)의 안쪽
+ * 4분의 3 까지는 촘촘한 것만 쓰고, 거기서 가장자리까지 부드럽게 넘깁니다.
+ * 이음매가 선이 아니라 띠가 되므로 층계가 안 생깁니다.
+ *
+ * ⚠ 성긴 패치에만 despike 가 필요합니다 — 저줌 타일의 R 채널 결함이
+ *   첨탑으로 서기 때문입니다. 촘촘한 쪽은 그대로 둡니다(진짜 능선이 깎임).
+ *
+ * ⚠ 성긴 패치가 없으면(uDemFarValid = 0) **예전 한 장짜리 경로 그대로**
+ *   입니다. 근거리 격자와 먼 지형 격자를 따로 만들던 방식이 계속 돕니다.
+ */
+uniform float uBlendInner;   // 촘촘→성김 넘기기를 시작하는 반지름 비율
+
+float tf_fineWeight(vec2 g) {
+  if (uDemValid < 0.5) return 0.0;
+  float rp = dem_probeRadiusM();
+  return 1.0 - smoothstep(rp * uBlendInner, rp * 0.98, length(g));
+}
+
 float fieldElev(vec2 g) {
-  return uDemValid > 0.5 ? dem_elevationDespiked(g) : uObsElevM;
+  bool hasFine = uDemValid > 0.5;
+  bool hasFar = uDemFarValid > 0.5;
+  if (!hasFine && !hasFar) return uObsElevM;
+  if (!hasFar) return dem_elevationDespiked(g);
+  if (!hasFine) return demFar_elevationDespiked(g);
+  float w = tf_fineWeight(g);
+  if (w <= 0.001) return demFar_elevationDespiked(g);
+  if (w >= 0.999) return dem_elevationDespiked(g);
+  return mix(demFar_elevationDespiked(g), dem_elevationDespiked(g), w);
 }
 
 void main() {
@@ -217,8 +251,10 @@ precision highp float;
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
 ${DEM_GLSL}
+${demGlsl('demFar')}
 ${CLOUD_SHADOW_GLSL}
 ${TERRAIN_NOISE_GLSL}
+uniform float uBlendInner;    // 촘촘→성김 넘기기를 시작하는 반지름 비율
 uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
 uniform float uDetail;        // 자료 아래 규모 결의 세기, 0 이면 끔 (②)
                               // 기본 0.10 — 세기를 훑어 **평균 밝기가 5% 넘게
@@ -269,11 +305,15 @@ float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
   // 첫 걸음은 **화소 한 칸**입니다. 그보다 잘게 떼면 같은 화소를 여러 번
   // 읽을 뿐이고, 성긴 패치(먼 지형)에서는 걸음이 너무 짧아 닿는 거리가
   // 모자랍니다.
-  float t = max(6.0, uDemSpanM / 256.0);
+  // 한 격자가 두 해상도를 걸치므로 걸음도 그 자리의 화소로 잡습니다.
+  float spanFar = uDemFarValid > 0.5 ? uDemFarSpanM : uDemSpanM;
+  float t = max(6.0, min(uDemSpanM, spanFar) / 256.0);
   for (int i = 0; i < 36; i++) {
     vec2 g = g0 + sunHoriz * t;
-    if (dem_inside(g) < 0.5) break;
-    float h = dem_elevationAt(g);
+    float inFine = uDemValid > 0.5 ? dem_inside(g) : 0.0;
+    float inFar = uDemFarValid > 0.5 ? demFar_inside(g) : 0.0;
+    if (inFine < 0.5 && inFar < 0.5) break;
+    float h = inFine > 0.5 ? dem_elevationAt(g) : demFar_elevationDespiked(g);
     best = max(best, atan(h - h0, t));
     t *= 1.2;
   }
@@ -319,7 +359,13 @@ void main() {
   //   보이지도 않습니다.
   vec3 n = normalize(vNormal);
   vec2 texGrad = vec2(0.0);
-  if (uBicubicNormal > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5) {
+  // 세배 법선은 **촘촘한 패치가 맡는 자리**에만 겁니다. 성긴 쪽은 despike 가
+  // 필요한데 표본 열여섯 개마다 그걸 붙이면 너무 비싸고, 3km 밖은 연무에
+  // 잠겨 면의 결이 보이지도 않습니다.
+  float fineW = uDemValid > 0.5 ? 1.0 - smoothstep(dem_probeRadiusM() * uBlendInner,
+                                                   dem_probeRadiusM() * 0.98,
+                                                   length(vGround)) : 0.0;
+  if (uBicubicNormal > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5 && fineW > 0.5) {
     texGrad = dem_gradientBicubic(vGround);
     n = normalize(vec3(-texGrad.x, 1.0, -texGrad.y));
   } else {
@@ -473,9 +519,13 @@ void main() {
 export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
-  /** DEM 패치를 갈아 끼웁니다. `null` 이면 평평하게 물러납니다. */
-  /** 둘째 인자는 **발밑 고도용** 패치입니다. 안 주면 그대로 둡니다. */
-  setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null) => void;
+  /** DEM 패치를 갈아 끼웁니다. null 이면 평평하게 물러납니다. */
+  /** 둘째는 **발밑 고도용**, 셋째는 **성긴(먼 거리)** 패치입니다. 안 주면 그대로 둡니다. */
+  setPatch: (
+    patch: DemPatch | null,
+    eyePatch?: DemPatch | null,
+    farPatch?: DemPatch | null,
+  ) => void;
   dispose: () => void;
 }
 
@@ -502,12 +552,36 @@ export function createTerrainField(opts: {
    * (demTiles.ts 의 dem_elevationDespiked 참고).
    */
   despike?: boolean;
+  /**
+   * **성긴 패치** (줌 9, 60km). 주면 이 격자 하나가 발밑부터 55km 까지
+   * 맡습니다 — 촘촘한 패치가 보장하는 반지름 안쪽은 촘촘한 것으로, 밖은
+   * 이것으로, 사이는 섞어서. 안 주면 예전대로 한 장만 씁니다.
+   */
+  farPatch?: DemPatch | null;
 }): TerrainFieldHandle {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
+  // 성긴 패치는 **늘** 튀는 화소를 걷어냅니다. 저줌 Terrarium 타일의 R 채널
+  // 결함이 8.96° 짜리 첨탑으로 서는 것을 막습니다(계획서 8.1절). 촘촘한
+  // 패치에는 걸지 않습니다 — 진짜 능선이 깎입니다.
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeDemUniforms(opts.patch ?? null),
       ...makeDemUniforms(opts.eyePatch ?? null, 'demEye'),
+      ...makeDemUniforms(opts.farPatch ?? null, 'demFar'),
+      uDemFarDespike: { value: 1 },
+      // 0.30 은 훑어서 고른 값입니다. 섞는 구간에서 **가짜 기울기가 w'(r)·Δh
+      // 로 생깁니다** — 촘촘한 패치(줌 13)와 성긴 패치(줌 9)가 같은 자리를
+      // 10.9m 다르게 읽으므로, 폭이 좁으면 w' 이 커져 그 어긋남이 한 자리에
+      // 몰립니다. 0.75 면 이음매 각짐이 0.84 → 1.35 (최대 5.1 → 8.8) 로
+      // 나빠집니다.
+      //
+      // ⚠ 넓힌다고 **좋아지지는 않습니다.** 0.30 에서 두 격자와 비슷합니다
+      //   (평균 0.838 대 0.818, 최대 5.13 대 5.02). 합치는 값은 이음매
+      //   품질이 아니라 **메시가 하나가 되는 것**입니다 — 자료 경계가
+      //   구조적으로 사라지고 드로우 콜이 줄어듭니다.
+      //   (처음에 "−56%" 로 읽었는데 그건 자가 얇아서(한 방위 12줄) 난
+      //   착시였습니다. 지금 자는 방위 넷 × 108줄이고 재현됩니다.)
+      uBlendInner: { value: 0.30 },
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uBicubicNormal: { value: 1 },
@@ -556,18 +630,22 @@ export function createTerrainField(opts: {
   return {
     mesh,
     material,
-    setPatch: (patch, eyePatch) => {
+    setPatch: (patch, eyePatch, farPatch) => {
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;
         });
       };
-      // ⚠ makeDemUniforms 는 uDemDespike 를 0 으로 되돌립니다 — 격자가
-      // 만들어질 때 정한 값을 지키려고 여기서 다시 씌웁니다.
+      // ⚠ makeDemUniforms 는 despike 를 0 으로 되돌립니다 — 격자가 만들어질
+      // 때 정한 값을 지키려고 여기서 다시 씌웁니다.
       const despike = material.uniforms.uDemDespike?.value;
       put(makeDemUniforms(patch));
       if (material.uniforms.uDemDespike) material.uniforms.uDemDespike.value = despike;
       if (eyePatch !== undefined) put(makeDemUniforms(eyePatch, 'demEye'));
+      if (farPatch !== undefined) {
+        put(makeDemUniforms(farPatch, 'demFar'));
+        if (material.uniforms.uDemFarDespike) material.uniforms.uDemFarDespike.value = 1;
+      }
     },
     dispose: () => {
       mesh.geometry.dispose();

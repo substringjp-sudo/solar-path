@@ -52,6 +52,7 @@ import {
   FAR_FIELD_NEAR_M,
   FAR_FIELD_FAR_M,
   FAR_FIELD_RINGS,
+  FIELD_RINGS,
   type TerrainFieldHandle,
 } from './TerrainField';
 import {
@@ -318,8 +319,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
   const demPatchRef = useRef<DemPatch | null>(null);
-  /** 3km 밖을 맡는 성긴 높이장 격자. 옛 능선 띠를 대신합니다. */
-  const terrainFarRef = useRef<TerrainFieldHandle | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
   /** 땅에 지는 구름 그림자 지도. 구름·해가 바뀔 때만 다시 굽습니다. */
@@ -759,7 +758,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 원반이 그대로 남아 이어받습니다. 하늘 천체(은하수 −0.6, 해·달
     // −0.55, 별 −0.5)와 원반의 앞뒤는 **건드리지 않습니다** — 그걸 뒤집으면
     // 지평선 아래로 진 해가 땅 위에 뜹니다.
-    const terrainField = createTerrainField({ eyeHeightM: 1.6 });
+    // ⚠ **격자는 하나입니다** (구조 개편 ②). 예전에는 근거리(0.6m~3km, 줌 13)와
+    //   먼 지형(3km~55km, 줌 9) 둘이었고 3km 에서 딱 맞닿았습니다 — 서로 다른
+    //   자료로 그려진 하드 이음매였습니다. 이제 한 메시가 발밑부터 55km 까지
+    //   맡고, 촘촘한 패치가 보장하는 반지름의 30% 지점부터 가장자리까지
+    //   부드럽게 성긴 자료로 넘깁니다.
+    //
+    //   섞는 폭 0.30 은 훑어서 골랐습니다. 좁히면 나빠집니다 — 섞는 구간의
+    //   가짜 기울기가 w'(r)·Δh 인데 두 자료가 10.9m 어긋나므로, 폭이 좁으면
+    //   그 어긋남이 한 자리에 몰립니다(0.75 에서 이음매 0.84 → 1.35).
+    //
+    //   ⚠ 이음매가 **좋아지지는 않습니다** — 두 격자와 비슷합니다(평균 0.838
+    //     대 0.818). 얻는 것은 메시가 하나가 되는 것입니다: 자료 경계가
+    //     구조적으로 사라지고 드로우 콜이 하나 줄고, 실루엣 정확도는 동률
+    //     입니다(절대중앙 0.0872). verify-unified-field.js 참고.
+    const terrainField = createTerrainField({
+      eyeHeightM: 1.6,
+      farM: FAR_FIELD_FAR_M,
+      rings: FIELD_RINGS + FAR_FIELD_RINGS,
+    });
     terrainField.mesh.renderOrder = -0.48;
     // DEM 이 오기 전엔 발밑 고도를 모르니 uObsElevM 대비책(0m)으로
     // 평평하게 그립니다 — 그 근사가 화면에 잠깐이라도 비치지 않도록,
@@ -769,30 +786,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     scene.add(terrainField.mesh);
     assignLayer(terrainField.mesh, LAYER_MID);
     terrainFieldRef.current = terrainField;
-
-    // 2a″. **먼 지형** (3km ~ 55km) — 같은 높이장 방식을 성긴 패치로 잇습니다.
-    //
-    // 옛 31방위 능선 띠는 방위마다 5·15·40km 딱 세 점만 봐서 진짜 봉우리를
-    // 대부분 놓쳤습니다. 도곡동에서 재 보니 먼 산이 최대 3.26° 낮게 깔렸고
-    // (verify-far-terrain.js), 그러면 3km 안의 앞산만 제 높이로 서서 앞산이
-    // 실제보다 우뚝해 보입니다. 실기의 "산이 조금 과장돼 보인다"가 이것입니다.
-    //
-    // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다(eyePatch). 성긴 것으로 읽으면
-    // 같은 자리가 10.9m 낮아, 3km 이음매에 0.21° 층계가 생깁니다.
-    const terrainFar = createTerrainField({
-      eyeHeightM: 1.6,
-      nearM: FAR_FIELD_NEAR_M,
-      farM: FAR_FIELD_FAR_M,
-      rings: FAR_FIELD_RINGS,
-      // 성긴 타일의 R 채널 결함이 첨탑으로 서는 것을 막습니다 — 대부도
-      // 서쪽 바다 한복판에 8.96° 짜리 가짜 봉우리가 있었습니다.
-      despike: true,
-    });
-    terrainFar.mesh.renderOrder = -0.49;   // 근거리 격자(−0.48)보다 먼저
-    terrainFar.mesh.visible = false;
-    scene.add(terrainFar.mesh);
-    assignLayer(terrainFar.mesh, LAYER_MID);
-    terrainFarRef.current = terrainFar;
 
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
     seaPlane.mesh.renderOrder = -0.47;
@@ -1101,7 +1094,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 계산하므로, X/Z(둘 다 항상 0)만 따라가고 Y 는 안 따라갑니다 —
         // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
         if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
-        if (terrainFarRef.current) updateTerrainFieldEye(terrainFarRef.current, camera);
         if (seaPlaneRef.current) updateSeaPlaneEye(seaPlaneRef.current, camera);
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
@@ -1113,7 +1105,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
         if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
         if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
-        if (terrainFarRef.current) applyTuningUniforms(terrainFarRef.current.material.uniforms);
         if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
 
         // 층마다 다른 해상도로 그려 합성합니다. 합성기가 없으면(생성 실패
@@ -1425,7 +1416,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 두꺼워집니다** — 실기에서 한 번 고친 결함입니다.
       const lit = groundLighting(sunAltRef.current, sky, beam, sunT);
 
-      for (const h of [terrainFieldRef.current, terrainFarRef.current]) {
+      for (const h of [terrainFieldRef.current]) {
         if (!h) continue;
         const u = h.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(
@@ -1474,7 +1465,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     //
     // 수치는 tools/shader-preview/verify-bands-need.js 에 못 박혀 있습니다.
     if (terrainBandsRef.current) {
-      terrainBandsRef.current.group.visible = !terrainFarRef.current;
+      terrainBandsRef.current.group.visible = !terrainFieldRef.current?.mesh.visible;
     }
 
     if (terrainBandsRef.current && terrainBandsRef.current.group.visible) {
@@ -1688,7 +1679,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           tauFor: (layer) => opticsForLayer(layer, obsNow).tau,
         }, cloudShadowTexRef.current);
       }
-      for (const h of [terrainFieldRef.current, terrainFarRef.current, seaPlaneRef.current]) {
+      for (const h of [terrainFieldRef.current, seaPlaneRef.current]) {
         if (!h) continue;
         const cu = h.material.uniforms;
         if (cu.uCloudShadowTex && cloudShadowTexRef.current) {
@@ -1822,14 +1813,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
         if (cancelled) return;
         demPatchRef.current = patch;
-        terrainFieldRef.current?.setPatch(patch, patch);
-        // 먼 지형은 성긴 패치로 그리되 발밑만 촘촘한 것으로 짚습니다.
-        terrainFarRef.current?.setPatch(maskPatch, patch);
+        // 한 격자가 셋을 다 받습니다 — 촘촘한 것, 발밑용(촘촘한 것), 성긴 것.
+        // ⚠ 발밑 고도는 **촘촘한** 패치로 짚습니다. 성긴 것으로 읽으면 같은
+        //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
+        terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
-        if (maskPatch && terrainFarRef.current) terrainFarRef.current.mesh.visible = true;
         if (patch && seaPlaneRef.current) seaPlaneRef.current.mesh.visible = true;
         demLoadedKeyRef.current = key;
         requestRender(10);
@@ -1875,10 +1866,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (terrainFieldRef.current) {
         terrainFieldRef.current.dispose();
         terrainFieldRef.current = null;
-      }
-      if (terrainFarRef.current) {
-        terrainFarRef.current.dispose();
-        terrainFarRef.current = null;
       }
       if (seaPlaneRef.current) {
         seaPlaneRef.current.dispose();
