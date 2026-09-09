@@ -199,7 +199,20 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   
   if (layer == 0) {
     // 고층 권운: 바람 방향으로 늘어난 비등방성 섬유질 스트릭
-    vec2 pWind = vec2(dot(p, windNorm) * 0.28, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.6);
+    //
+    // ⚠ **종횡비 4:1.** 예전에는 0.28 · 1.6, 곧 5.71:1 이었습니다. 그 값은
+    //   한 번도 훑어본 적이 없었고(옛 CloudDeck 은 같은 성질을 훑어 4 를
+    //   골랐습니다 — cloudPresets.ts 의 cellAspect), 실기에서 "낮은 층과
+    //   높은 층 구름 방향 차가 현실보다 과하다"고 한 것의 대부분이 여기서
+    //   왔습니다: 재 보면 층 사이 격차는 방향이 아니라 **결집도**이고
+    //   (상층 0.745 대 저층 0.287, 2.60배), 상층만 뚜렷한 줄무늬라 두 층이
+    //   서로 무관한 그림으로 읽힙니다.
+    //
+    //   두 배율을 아무렇게나 만지면 종횡비와 **특징 크기가 같이** 움직여
+    //   무엇이 그림을 바꿨는지 못 가립니다. 기하평균 √(0.28·1.6) = 0.6693 을
+    //   고정하고 비만 바꿨습니다 — 0.3347 · 1.3387 이 정확히 4:1 이고
+    //   기하평균은 그대로입니다.
+    vec2 pWind = vec2(dot(p, windNorm) * 0.3347, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.3387);
     // 굵은 폴백: 잔 옥타브가 죽어도 상층 흐름 규모의 띠는 남습니다.
     float fibCoarse = mix(0.5, slab_fbm(pWind * 0.16, 2), detCoarse);
     float fibrous = mix(fibCoarse, slab_fbm(pWind, 5), det);
