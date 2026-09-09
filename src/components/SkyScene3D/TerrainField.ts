@@ -350,7 +350,18 @@ void main() {
   // 밝게 하는 위의 암반 알베도와 정확히 반대로 작용해 서로를 지웁니다.
   // 근거 없이 남기지 않고 뺐습니다. 자세한 것은 tools/shader-preview/
   // build-relief.js 주석에 있습니다.
-  vec3 col = alb * (uSurfaceIrr + uSunRadiance * ndl);
+  // ⚠ **직달을 두 번 세고 있었습니다.** uSurfaceIrr 에는 이미 수평면이 받는
+  // 직달 몫(beam·sin(고도)/π)이 들어 있는데, 거기에 uSunRadiance·ndl 을 또
+  // 더했습니다. 그러면 사면의 향과 **무관한** 직달 받침이 깔려, 해를 등진
+  // 면도 마주한 면과 같은 몫을 먼저 받습니다. 산에 입체감이 없던 두 원인
+  // 가운데 하나가 이것입니다 (다른 하나는 직달 눈금 자체였습니다 —
+  // atmosphere.ts 의 SOLAR_BEAM_SCALE 주석).
+  //
+  // 받침을 빼고 그 자리에 **제 각도의 몫**을 넣습니다. 평평하고 위를 보는
+  // 면은 ndl = sin(고도) 라 값이 정확히 같고, 기울어진 곳만 달라집니다.
+  float sunUp = max(0.0, sin(uSunAltRad));
+  vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - uSunRadiance * sunUp / 3.14159265);
+  vec3 col = alb * (skyIrr + uSunRadiance * ndl / 3.14159265);
 
   // ── 공기원근 ─────────────────────────────────────────────────────────────
   //

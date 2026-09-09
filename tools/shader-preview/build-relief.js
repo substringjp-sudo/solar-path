@@ -55,15 +55,37 @@ const SUN_ALT = 25;
  * 어림값은 하늘을 10배 작게 잡아, 표시의 최소 밝기 바닥(0.038)이 신호를
  * 통째로 삼켰습니다. 그 상태로 재면 무엇을 켜든 σ 가 안 움직입니다.
  */
-const SURFACE_IRR = [0.83, 1.03, 1.27];
-const SUN_RADIANCE = [0.78, 0.66, 0.52];
+const SKY_MEAN = { r: 0.83, g: 1.03, b: 1.27 };
+const BEAM = { r: 0.78, g: 0.66, b: 0.52 };
+
+/**
+ * ⚠ 조명 배선은 **앱에서 가져옵니다** — 여기 손으로 적으면 앱이 바뀔 때
+ * 하네스만 옛 배선을 재게 됩니다. groundLighting 이 앱과 같은 한 벌
+ * (수평면 조도 · 직달 복사휘도 · 노출 보정)을 돌려줍니다.
+ */
+const ATM = require('/tmp/skybuild/atmosphere.js');
+const LIT = ATM.groundLighting(SUN_ALT, SKY_MEAN, BEAM, 1);
+const SURFACE_IRR = [LIT.surfaceIrr.r, LIT.surfaceIrr.g, LIT.surfaceIrr.b];
+const SUN_RADIANCE = [LIT.sunRadiance.r, LIT.sunRadiance.g, LIT.sunRadiance.b];
+const EXPO = LIT.exposure;
+
+/**
+ * 대조군 — **직달 눈금만 1 로 되돌린** 같은 셰이더. 노출도 그 눈금에 맞춰
+ * 1 이 됩니다. 두 벌의 차이는 오직 SOLAR_BEAM_SCALE 하나이므로, σ 가
+ * 벌어진다면 그것은 눈금이 만든 것입니다.
+ */
+const S1 = Math.max(0, Math.sin((SUN_ALT * Math.PI) / 180)) / Math.PI;
+const OLD_IRR = [SKY_MEAN.r + BEAM.r * S1, SKY_MEAN.g + BEAM.g * S1, SKY_MEAN.b + BEAM.b * S1];
+const OLD_SUN = [BEAM.r, BEAM.g, BEAM.b];
 /**
  * 새벽/해질녘(해 1°) — 실기 넷째 사진이 이 자리입니다. 앱의 대기 모형이
  * 주는 값: 하늘 평균 0.180, beam 0.03. 표시의 최소 밝기 바닥(0.038)과
  * **같은 자릿수**라, 바닥으로 자르면 지형이 통째로 바닥색이 됩니다.
  */
-const DAWN_IRR = [0.169, 0.180, 0.154];
-const DAWN_SUN = [0.12, 0.03, 0.00];
+const DAWN_LIT = ATM.groundLighting(1, { r: 0.169, g: 0.180, b: 0.154 },
+                                       { r: 0.12, g: 0.03, b: 0.00 }, 1);
+const DAWN_IRR = [DAWN_LIT.surfaceIrr.r, DAWN_LIT.surfaceIrr.g, DAWN_LIT.surfaceIrr.b];
+const DAWN_SUN = [DAWN_LIT.sunRadiance.r, DAWN_LIT.sunRadiance.g, DAWN_LIT.sunRadiance.b];
 
 const get = (u) => new Promise((res, rej) => {
   https.get(u, r => {
@@ -105,6 +127,8 @@ window.addEventListener('error', e=>errors.push(String(e.message)));
 const LAT=${LAT}, LON=${LON}, DIR='${DIR}', BLOCK=${BLOCK};
 const FAR=${FIELD_FAR_M}, EYE=${EYE_M}, LOOK_AZ=${LOOK_AZ}, SUN=${JSON.stringify(SUN)}, SUN_ALT=${SUN_ALT};
 const IRR=${JSON.stringify(SURFACE_IRR)}, SUNR=${JSON.stringify(SUN_RADIANCE)};
+const EXPO=${EXPO};
+const OLD_IRR=${JSON.stringify(OLD_IRR)}, OLD_SUN=${JSON.stringify(OLD_SUN)};
 const DAWN_IRR=${JSON.stringify(DAWN_IRR)}, DAWN_SUN=${JSON.stringify(DAWN_SUN)};
 
 const W=320, H=320, FOV=70, PITCH=-20;
@@ -128,6 +152,7 @@ scene.add(field.mesh); updateTerrainFieldEye(field, cam);
 const u=field.material.uniforms;
 u.uSurfaceIrr.value.set(IRR[0], IRR[1], IRR[2]);
 u.uSunRadiance.value.set(SUNR[0], SUNR[1], SUNR[2]);
+u.uExposure.value=EXPO;
 u.uAerial.value=0;
 u.uSunAltDeg.value=SUN_ALT; u.uSunAltRad.value=SUN_ALT*Math.PI/180;
 
@@ -201,22 +226,21 @@ if(u.GROUND_MIN_GLOW) u.GROUND_MIN_GLOW.value=1;
 u.uSunAltRad.value=SUN_ALT*Math.PI/180; u.uSunAltDeg.value=SUN_ALT;
 u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]); u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
 
-// ── 결정적 실험: 직달/확산 비를 **물리값**으로 맞추면 입체감이 생기는가 ──
+// ── 결정적 실험: 직달 눈금 하나만 바꾼 A/B ────────────────────────────
 //
-// 맑은 날 해 25° 면 수평면 직달 조도가 확산의 약 3.4배입니다. 이 셰이더에서
-// 수평면(ndl = sin25 = 0.4226)의 직달 항이 하늘 항의 3.4배가 되려면
-// uSunRadiance = 3.4 × 0.94 / 0.4226 = 7.56 이어야 합니다. 앱이 실제로
-// 넣는 값은 0.66 — **11.5배 작습니다.**
+// 직달(directBeamRGB)이 돌려주는 것은 투과율이라 태양 상수가 빠져 있었고,
+// 그래서 수평면 직달이 확산의 0.14배였습니다 (맑은 하늘은 3.7배).
+// SOLAR_BEAM_SCALE 이 그 눈금을 채웁니다. 두 벌의 차이는 그 상수 하나뿐이고,
+// 노출은 각자 **평평한 지면의 밝기를 지키도록** 따라옵니다 — 평균을 같은
+// 자리에 두고 모양만 견주기 위해서입니다 (예전에 이 짝을 안 맞췄더니 평균
+// 226 이 톤 곡선 어깨에서 뭉개져 시험이 통째로 무효였습니다).
 u.uSunAltRad.value=SUN_ALT*Math.PI/180; u.uSunAltDeg.value=SUN_ALT;
 u.uSunAzRad.value=SUN[1].az*Math.PI/180;
-diag('물리비율 직달 (×11.5)', ()=>{ u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
-  u.uSunRadiance.value.set(7.56*0.78/0.66, 7.56, 7.56*0.52/0.66); });
-// ⚠ 위 시험은 평균이 226 까지 올라가 톤 곡선 어깨에서 뭉갰습니다. 노출을
-//   낮춰 평균을 같은 자리에 두고 **모양만** 견줍니다.
-diag('물리비율 직달 · 노출맞춤', ()=>{ u.uExposure.value=0.22; });
-u.uExposure.value=1;
-u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
-diag('지금 비율 · 노출맞춤', ()=>{ u.uExposure.value=1.0; });
+diag('옛 눈금 (S=1)', ()=>{ u.uSurfaceIrr.value.set(OLD_IRR[0],OLD_IRR[1],OLD_IRR[2]);
+  u.uSunRadiance.value.set(OLD_SUN[0],OLD_SUN[1],OLD_SUN[2]); u.uExposure.value=1; });
+diag('물리 눈금 (S=26)', ()=>{ u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]);
+  u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]); u.uExposure.value=EXPO; });
+u.uExposure.value=EXPO;
 
 diag('수평 해 (=n.x)', ()=>{ u.uSurfaceIrr.value.set(0,0,0);
   u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
@@ -224,7 +248,7 @@ diag('수평 해 (=n.x)', ()=>{ u.uSurfaceIrr.value.set(0,0,0);
   if(u.GROUND_MIN_GLOW) u.GROUND_MIN_GLOW.value=0; });
 // 같은 조건에서 법선 유한차분 간격만 바꿔 봅니다 (셰이더는 e = max(8, d·0.03)).
 u.uSunAltRad.value=SUN_ALT*Math.PI/180; u.uSunAltDeg.value=SUN_ALT;
-u.uExposure.value=1; if(u.GROUND_MIN_GLOW) u.GROUND_MIN_GLOW.value=1;
+u.uExposure.value=EXPO; if(u.GROUND_MIN_GLOW) u.GROUND_MIN_GLOW.value=1;
 u.uSurfaceIrr.value.set(IRR[0],IRR[1],IRR[2]); u.uSunRadiance.value.set(SUNR[0],SUNR[1],SUNR[2]);
 scene.remove(field.mesh);
 

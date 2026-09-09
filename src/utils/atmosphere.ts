@@ -847,6 +847,92 @@ export function cloudOpticalDepthFromDb(scattering: number, cover: number): numb
 /** 태양 상수 (W/m²) */
 export const SOLAR_CONSTANT = 1361;
 
+/**
+ * **직달광을 하늘과 같은 눈금으로 올리는 배수.**
+ *
+ * ## 왜 필요한가 — 직달에는 태양 상수가 빠져 있었습니다
+ *
+ * directBeamRGB 가 돌려주는 것은 **투과율**입니다 (0~1). 대기가 얼마나
+ * 깎아 먹는지만 있고, 깎이기 전의 절대 밝기가 없습니다. 반면 하늘 쪽
+ * skyRadiance 는 사진에 맞춰 눈금이 잡힌 복사휘도입니다. 둘을 그대로
+ * 더하면 **직달이 확산보다 어두운** 세상이 됩니다:
+ *
+ *   해 30° 에서 하늘 L̄ = 0.74, 수평면 직달 = beam·sin/π = 0.10
+ *   → 직달/확산 = 0.14. 실제 맑은 하늘은 3.7 입니다.
+ *
+ * 스물여섯 배가 통째로 빠져 있었던 것이고, 이것이 낮 지형에 입체감이 없던
+ * 진짜 원인입니다 — 사면이 향을 바꿔도 움직이는 몫이 전체의 12% 뿐이라
+ * 어느 쪽을 보든 같은 밝기가 나옵니다.
+ *
+ * ## 값의 근거 — 하나의 상수로 맞는가
+ *
+ * 필요한 배수는 "물리 직달/확산 비"를 우리 눈금으로 되돌린 값입니다:
+ *
+ *   S(고도) = ρ(고도) · π · L̄ / (beam · sin(고도))
+ *
+ * ρ 는 이 파일이 이미 쓰는 Meinel & Meinel 짝: 직달 0.7^(AM^0.678),
+ * 확산 0.3·(1 − 0.7^AM). 태양 고도 6°~80° 에서 재면
+ *
+ *   80° 35.7 · 60° 25.7 · 40° 24.8 · 20° 22.7 · 10° 25.7 · 6° 30.2
+ *
+ * 중앙값 26, 폭 22.7~35.7. **상수 하나로 −12%/+37% 안에 듭니다** — 빠져
+ * 있던 것이 고도에 따라 변하는 무엇이 아니라 그냥 눈금이었다는 뜻입니다.
+ *
+ * ⚠ 4° 아래에서는 S 가 발산합니다 (3° 45, 1° 110). Meinel 의 확산 근사가
+ * 큰 대기질량에서 무너지기 때문입니다. 그 자리에서는 sin(고도) 가 작아
+ * 직달 항 자체가 거의 0 이라 화면에 안 나타납니다. 억지로 맞추려고 고도별
+ * 곡선을 넣지 않습니다 — 근거가 없는 자리입니다.
+ */
+export const SOLAR_BEAM_SCALE = 26;
+
+/** groundLighting 이 지형 셰이더에 넘길 한 벌. */
+export interface GroundLighting {
+  /** 수평면 총조도 / π (하늘 + 직달의 수평면 몫). uSurfaceIrr 로 갑니다. */
+  surfaceIrr: RGB;
+  /** 직달 복사휘도 × 태양 가림률. uSunRadiance 로 갑니다. */
+  sunRadiance: RGB;
+  /** 평균 밝기를 그대로 지키는 노출 보정. uExposure 에 곱합니다. */
+  exposure: number;
+}
+
+/**
+ * 지형 조명 한 벌 — **직달을 물리 비율로 올리고, 노출로 되맞춥니다.**
+ *
+ * 배수만 올리면 낮 화면이 통째로 날아갑니다. 그래서 같은 자리에서 노출을
+ * 나눕니다: 평평하고 위를 보는 지면의 밝기는 **정확히 그대로**이고, 기울어진
+ * 곳만 밝고 어두워집니다. 바꾸려던 것이 딱 그것입니다.
+ *
+ *   보정 = (L̄ + beam·sin/π) / (L̄ + S·beam·sin/π)
+ *
+ * 휘도로 한 번만 계산해 세 채널에 같이 겁니다 — 채널마다 따로 하면 노출이
+ * 색을 바꿔 버립니다.
+ */
+export function groundLighting(
+  sunAltDeg: number,
+  skyMean: RGB,
+  beam: RGB,
+  sunTransmittance = 1
+): GroundLighting {
+  const sunT = clamp01(sunTransmittance);
+  const sinAlt = Math.max(0, Math.sin((sunAltDeg * Math.PI) / 180));
+  const direct = (sinAlt * sunT) / Math.PI;
+  const lum = (c: RGB) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  const S = SOLAR_BEAM_SCALE;
+
+  const before = lum(skyMean) + lum(beam) * direct;
+  const after = lum(skyMean) + S * lum(beam) * direct;
+
+  return {
+    surfaceIrr: {
+      r: skyMean.r + S * beam.r * direct,
+      g: skyMean.g + S * beam.g * direct,
+      b: skyMean.b + S * beam.b * direct,
+    },
+    sunRadiance: { r: S * beam.r * sunT, g: S * beam.g * sunT, b: S * beam.b * sunT },
+    exposure: before / Math.max(1e-6, after),
+  };
+}
+
 /** 구름 아래에서 하늘빛이 잃는 채도 비율 */
 export const CLOUD_DIM_DESAT = 0.85;
 /** 구름이 완전히 덮었을 때 남는 하늘빛 밝기 */

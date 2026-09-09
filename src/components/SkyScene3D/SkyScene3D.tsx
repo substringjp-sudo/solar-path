@@ -116,7 +116,7 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -1413,11 +1413,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const sunAltRad = (sunAltRef.current * Math.PI) / 180;
       const horizon = cachedHorizonRGBRef.current;
 
+      // ── 지형만은 **물리 직달/확산 비**로 갑니다 ─────────────────────────
+      //
+      // 직달에 빠져 있던 눈금(SOLAR_BEAM_SCALE)을 채우고, 같은 자리에서
+      // 노출을 나눠 평평한 지면의 밝기를 그대로 지킵니다. 사면만 밝고
+      // 어두워지므로 물·옛 원반과의 밝기 견줌도 그대로 성립합니다.
+      //
+      // ⚠ 물(SeaPlane)과 옛 원반에는 걸지 않습니다. 수면은 평평해서 ndl 로
+      // 얻을 입체감이 없고, 윤슬은 이미 클램프가 봉우리를 자르고 있어
+      // 스물여섯 배를 그대로 넣으면 **잘리는 자리가 넓어져 윤슬이 다시
+      // 두꺼워집니다** — 실기에서 한 번 고친 결함입니다.
+      const lit = groundLighting(sunAltRef.current, sky, beam, sunT);
+
       for (const h of [terrainFieldRef.current, terrainFarRef.current]) {
         if (!h) continue;
         const u = h.material.uniforms;
-        (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
-        (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        (u.uSurfaceIrr.value as THREE.Vector3).set(
+          lit.surfaceIrr.r, lit.surfaceIrr.g, lit.surfaceIrr.b);
+        (u.uSunRadiance.value as THREE.Vector3).set(
+          lit.sunRadiance.r, lit.sunRadiance.g, lit.sunRadiance.b);
+        u.uExposure.value = lit.exposure;
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
         u.uSunAltDeg.value = sunAltRef.current;
