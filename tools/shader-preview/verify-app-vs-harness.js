@@ -31,8 +31,15 @@ function ok(cond, label) {
   const p = await b.newPage({ viewport: { width: 1300, height: 1300 } });
   const pageErrors = [];
   p.on('pageerror', e => pageErrors.push(e.message));
-  await p.goto(`${ORIGIN}/app-vs-harness.html`);
-  await p.waitForTimeout(95000);
+  // ⚠ 이 판정만 goto 에 타임아웃을 안 걸고 기본값(30초)을 쓰고 있었습니다.
+  //   페이지가 load 까지 38초가 걸리므로 **판정이 열리기도 전에 죽습니다.**
+  //   기능이 쌓이며 페이지가 무거워져 그 선을 넘은 것이고, 넘은 뒤로는
+  //   "무엇이 틀렸다"가 아니라 스택 트레이스만 남아 원인이 안 보였습니다.
+  //   나머지 판정이 다 쓰는 방식(긴 타임아웃 + DONE:: 기다리기)으로 맞춥니다
+  //   — 고정 95초 잠들기도 없애므로 일찍 끝나면 그만큼 빨라집니다.
+  await p.goto(`${ORIGIN}/app-vs-harness.html`, { timeout: 300000 });
+  await p.waitForFunction(() => /^DONE::/.test(document.title), null,
+    { timeout: 300000, polling: 500 }).catch(() => {});
   const title = await p.title();
   const stats = await p.evaluate(() => window.__stats || null);
   const errs = await p.evaluate(() => window.__errors || []);
