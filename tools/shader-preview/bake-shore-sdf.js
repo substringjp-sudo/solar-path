@@ -11,9 +11,9 @@
  * 기울기가 정확히 0 이라 **텍셀 안 어디에 물가가 있는지에 대한 정보가
  * 아예 없습니다.** 그래서 0 등고선이 곡선이 아니라 텍셀 모서리를 따라갑니다.
  *
- * ⚠ 예전에 **고도를 매끄럽게** 해서 물가를 갈라 봤습니다. 2.286 → 2.571 로
- * 오히려 나빠졌습니다. 고원 위에서 고도를 흐려 봐야 여전히 0 이라 등고선이
- * 다른 모서리로 옮겨갈 뿐입니다.
+ * ⚠ **고도를 매끄럽게** 해서 물가를 갈라 봐야 오히려 나빠집니다
+ * (1.774 → 1.945). 고원 위에서 고도를 흐려 봐야 여전히 0 이라 등고선이 다른
+ * 모서리로 옮겨갈 뿐입니다. 그 대조군도 여기서 함께 굽습니다(`dem-blur`).
  *
  * ## 거리장은 다른 물건입니다
  *
@@ -46,6 +46,15 @@ const D = require('./dem-cpu');
 
 const LAT = 37.24102, LON = 126.55969, BLOCK = 3, FIELD_FAR_M = 3000;
 const SRC = 'dem', DST = 'dem-sdf';
+/**
+ * 대조군 — **고도를 그냥 흐린** 타일.
+ *
+ * "거리장은 고도 흐리기와 다른 물건" 이라는 말은 논증이지 측정이 아닙니다.
+ * 같은 σ 로 **고도장을** 흐려 함께 구워 두면, 그 말이 화면에서 참인지
+ * 판정이 가릅니다. 예전에 이 시험을 한 번 했었는데 그때 자가 얇아
+ * (384줄 중 29~37줄) 값을 믿을 수 없었으므로 다시 잽니다.
+ */
+const DST_BLUR = 'dem-blur';
 /** 물가 띠 반폭 (m). 이 밖은 원래 고도 그대로입니다. */
 const BAND_M = 90;
 /** 거리장 저역통과 폭 (텍셀). 계단 한 칸이 1 텍셀이므로 그 언저리로 잡습니다. */
@@ -194,6 +203,32 @@ for (let ty = 0; ty < BLOCK; ty++) for (let tx = 0; tx < BLOCK; tx++) {
     png.data[o] = R; png.data[o + 1] = G; png.data[o + 2] = B; png.data[o + 3] = 255;
   }
   fs.writeFileSync(path.join(dstDir, `${zoom}_${originX + tx}_${originY + ty}.png`), PNG.sync.write(png));
+}
+
+// ── 대조군: 같은 띠 · 같은 σ 로 **고도장을** 흐립니다 ─────────────────────
+const blurDir = path.join(PREVIEW, DST_BLUR);
+fs.mkdirSync(blurDir, { recursive: true });
+{
+  const eBlur = blur(elev, W, H, SIGMA_TX);
+  const ob = new Float64Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const a = Math.abs(sdfTx[i] * pxM);
+    if (a >= BAND_M) { ob[i] = elev[i]; continue; }
+    const tt = a / BAND_M, w = tt * tt * (3 - 2 * tt);
+    ob[i] = w * elev[i] + (1 - w) * eBlur[i];
+  }
+  let bFlip = 0;
+  for (let i = 0; i < W * H; i++) if ((elev[i] > 0) !== (ob[i] > 0)) bFlip++;
+  for (let ty = 0; ty < BLOCK; ty++) for (let tx = 0; tx < BLOCK; tx++) {
+    const png = new PNG({ width: TILE, height: TILE });
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const [R, G, B] = enc(ob[(ty * TILE + y) * W + (tx * TILE + x)]);
+      const o = (y * TILE + x) * 4;
+      png.data[o] = R; png.data[o + 1] = G; png.data[o + 2] = B; png.data[o + 3] = 255;
+    }
+    fs.writeFileSync(path.join(blurDir, `${zoom}_${originX + tx}_${originY + ty}.png`), PNG.sync.write(png));
+  }
+  console.log(`대조(고도 흐리기): 갈래가 바뀐 화소 ${bFlip} (${(100 * bFlip / (W * H)).toFixed(3)}%) → ${blurDir}`);
 }
 
 // 되읽어 인코딩이 무손실인지 확인합니다 — 여기서 어긋나면 A/B 가 거짓말입니다.

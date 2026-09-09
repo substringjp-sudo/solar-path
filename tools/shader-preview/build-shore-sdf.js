@@ -15,8 +15,9 @@
  * 나아진다면 원인은 **자료 구조**입니다 — 렌더링으로 더 짜낼 것이 아니라.
  *
  * ⚠ 자는 `build-shorepatch.js` 의 것을 그대로 씁니다 (같은 자리·같은 카메라·
- * 같은 갈래 나누기·같은 2차 차분). 그래야 거기서 못 박은 **2.286** 과 곧바로
- * 견줄 수 있습니다. 자를 새로 만들면 견줌이 거짓말을 합니다.
+ * 같은 갈래 나누기·같은 2차 차분). 그래야 거기서 못 박은 값과 곧바로 견줄
+ * 수 있습니다 — 첫 칸 '앱 그대로' 가 **1.634** 로 그것과 같아야 두 자가 같은
+ * 것을 재고 있다고 말할 수 있습니다. 자를 새로 만들면 견줌이 거짓말을 합니다.
  *
  * ⚠ 대조가 필요합니다: 경계 각짐만 보면 **"물을 다 지우기"** 가 만점을
  * 받습니다. 그래서 뭍·물·포말 화소 수도 함께 보고, 해안선이 통째로
@@ -43,13 +44,20 @@ const LAT = 37.24102, LON = 126.55969, MASK_DIR = 'wide-daebu';
  * 그래서 **같은 자료로 격자만 늘린 대조**를 반드시 함께 잽니다. 그것이
  * 안 줄면 자료 탓이고, 줄면 자료를 바꾸기 전에 격자부터입니다.
  */
+// ⚠ 첫 칸이 **앱 그대로**입니다. 해수면 격자의 기본값은 96 고리라, 아래
+//   밀도 훑기처럼 지형과 같은 값을 넣으면 앱이 아닌 설정을 재게 됩니다.
+//   이 칸이 `verify-shorepatch` 의 값과 같아야 두 자가 서로를 확인합니다.
 const CASES = [
+  ['앱 그대로', 'dem', 152, 256, 'app'],
   ['원본 기본', 'dem', 152, 256],
   ['원본 살2배', 'dem', 152, 512],
   ['원본 살4배', 'dem', 152, 1024],
   ['원본 고리살2배', 'dem', 304, 512],
   ['거리장 기본', 'dem-sdf', 152, 256],
   ['거리장 살4배', 'dem-sdf', 152, 1024],
+  // 대조 — 같은 띠·같은 σ 로 **고도장을** 흐린 것. "거리장은 고도 흐리기와
+  // 다른 물건" 이 논증이 아니라 측정이 되게 합니다.
+  ['고도흐림 기본', 'dem-blur', 152, 256],
 ];
 const BLOCK = 3, FIELD_FAR_M = 3000, MASK_RADIUS_M = 60000, EYE_M = 1.6;
 
@@ -103,7 +111,7 @@ const maskPatch=await loadDemPatch(LAT, LON, MASK_R, {renderer, loadTexture, blo
 if(!maskPatch) errors.push('먼 패치 없음');
 
 let ground=null, field=null, sea=null;
-async function build(nearDir, rings, spokes){
+async function build(nearDir, rings, spokes, mode){
   clearDemCache();
   const patch=await loadDemPatch(LAT, LON, FAR, {renderer, loadTexture, block:BLOCK,
     tileUrl:(z,x,y)=>\`./\${nearDir}/\${z}_\${x}_\${y}.png\`});
@@ -112,7 +120,10 @@ async function build(nearDir, rings, spokes){
   field=createTerrainField({patch, eyePatch:patch, eyeHeightM:EYE_TOWER_M, rings, spokes});
   field.mesh.renderOrder=-0.48; scene.add(field.mesh); updateTerrainFieldEye(field, cam);
   // 해수면도 같은 밀도로 — 경계는 두 면의 교선이라 한쪽만 늘리면 못 읽습니다.
-  sea=createSeaPlane({patch, maskPatch, eyeHeightM:EYE_TOWER_M, rings, spokes});
+  // 다만 'app' 칸에서는 해수면을 **기본값 그대로**(96 고리) 둡니다.
+  sea = mode==='app'
+    ? createSeaPlane({patch, maskPatch, eyeHeightM:EYE_TOWER_M})
+    : createSeaPlane({patch, maskPatch, eyeHeightM:EYE_TOWER_M, rings, spokes});
   sea.mesh.renderOrder=-0.47; scene.add(sea.mesh); updateSeaPlaneEye(sea, cam);
   updateGroundColors(ground, 30, 0, {skyMean:sky, betaMie:0.08, angstrom:1.3, elevScale:1.0});
   for (const m of [field.material, sea.material]) {
@@ -210,8 +221,8 @@ function measure(label){
 }
 
 const 결과={};
-for (const [key, dir, rings, spokes] of CASES) {
-  await build(dir, rings, spokes);
+for (const [key, dir, rings, spokes, mode] of CASES) {
+  await build(dir, rings, spokes, mode);
   결과[key]=measure(key+' ('+rings+'×'+spokes+')');
   결과[key].고리=rings; 결과[key].살=spokes;
   teardown();
