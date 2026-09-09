@@ -1460,7 +1460,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
     }
 
+    // ── 옛 능선 띠는 DEM 이 실리면 **끕니다** ──────────────────────────────
+    //
+    // 먼 지형 격자(3~55km)가 같은 자리를 훨씬 촘촘히 그립니다 — 띠는 방위마다
+    // 5·15·40km 딱 세 점만 보고, 격자는 96 고리 × 256 살입니다. 껐다 켠 두
+    // 장의 차이 화소를 세 보니 DEM 이 있을 때 띠가 이기는 자리가 거의
+    // 없습니다 (내륙 0.007% · 바닷가 0% · 높은 곳 0%).
+    //
+    // ⚠ 그런데 **지우지는 않습니다.** DEM 이 없으면 띠가 유일한 능선
+    //   실루엣이고(0.46%), 무엇보다 자료원이 다릅니다 — 띠는 고도 API,
+    //   격자는 AWS 타일이라 한쪽이 죽어도 다른 쪽은 살아 있을 수 있습니다.
+    //   원반과 같은 규약입니다: 죽은 코드가 아니라 대비책이므로 끕니다.
+    //
+    // 수치는 tools/shader-preview/verify-bands-need.js 에 못 박혀 있습니다.
     if (terrainBandsRef.current) {
+      terrainBandsRef.current.group.visible = !terrainFarRef.current;
+    }
+
+    if (terrainBandsRef.current && terrainBandsRef.current.group.visible) {
       updateTerrainBands(terrainBandsRef.current, sunAltRef.current, {
         skyMean: cachedSkyMeanRGBRef.current,
         hazeAt: (az: number, elev: number) =>
