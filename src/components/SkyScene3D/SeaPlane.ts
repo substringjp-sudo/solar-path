@@ -476,7 +476,10 @@ export function createSeaPlane(opts: {
  * 눈높이와 겹쳐 이중으로 셉니다.
  */
 export function updateSeaPlaneEye(handle: SeaPlaneHandle, camera: THREE.Camera): void {
-  handle.mesh.position.set(camera.position.x, 0, camera.position.z);
+  // 지형 격자와 **같은 규약**입니다 — 눈이 메시 원점에 있어야 버텍스가
+  // 계산한 고도각이 화면에 그대로 나옵니다. 어긋나면 물가가 두 면의
+  // 교선이 아니게 됩니다. 자세한 것은 updateTerrainFieldEye 주석.
+  handle.mesh.position.copy(camera.position);
 }
 
 /** 눈높이에서 수평선까지의 지상 거리 (m) — 판정이 같이 씁니다. */
