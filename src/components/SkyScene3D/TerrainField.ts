@@ -44,7 +44,8 @@ import {
 } from '../../utils/cloudShadowMap';
 import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
-  GROUND_PROJECT_GLSL, createConcentricGeometry, ringDistanceM, ringRadius,
+  GROUND_PROJECT_GLSL, TERRAIN_NOISE_GLSL,
+  createConcentricGeometry, ringDistanceM, ringRadius,
 } from './groundProjection';
 
 export { FIELD_NEAR_M, FIELD_FAR_M };
@@ -217,6 +218,14 @@ ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
 ${DEM_GLSL}
 ${CLOUD_SHADOW_GLSL}
+${TERRAIN_NOISE_GLSL}
+uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
+uniform float uDetail;        // 자료 아래 규모 결의 세기, 0 이면 끔 (②)
+                              // 기본 0.10 — 세기를 훑어 **평균 밝기가 5% 넘게
+                              // 안 움직이는** 가장 큰 값으로 잡았습니다. 법선을
+                              // 세게 흔들면 ndl 이 0 에서 잘려 화면이 통째로
+                              // 어두워집니다(0.6 이면 평균 109 → 77).
+uniform float uHurst;         // 그 결의 허스트 지수 — 자료에서 잰 값
 uniform vec3  uSurfaceIrr;    // 수평면이 받는 조도 (하늘 + 직달)
 uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
@@ -296,7 +305,71 @@ void main() {
   //   섞어도 등고선이 다른 화소 모서리로 옮겨갈 뿐이었습니다. 그래서 뺐습니다.
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
 
+  // ── 법선 ────────────────────────────────────────────────────────────────
+  //
+  // ① 텍셀 규모의 법선을 **프래그먼트에서** 3차 B-스플라인으로 다시 냅니다.
+  //    정점에서 낸 것을 보간하면 살 간격(2km 에서 49m, 3km 에서 74m)이
+  //    자료(15.14m)보다 성겨 법선이 모자라고, 이중선형은 C0 라 텍셀마다
+  //    꺾입니다. 자세한 것은 demTiles.ts 의 dem_gradientBicubic 주석.
+  //
+  // ⚠ 높이는 안 건드립니다 — 실루엣은 정점이 정한 그대로입니다.
+  //
+  // ⚠ 먼 지형(despike 켬)에는 안 겁니다. 튀는 화소를 걷어내는 일이 표본
+  //   열여섯 개마다 붙으면 너무 비싸고, 3km 밖은 연무에 잠겨 면의 결이
+  //   보이지도 않습니다.
   vec3 n = normalize(vNormal);
+  vec2 texGrad = vec2(0.0);
+  if (uBicubicNormal > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5) {
+    texGrad = dem_gradientBicubic(vGround);
+    n = normalize(vec3(-texGrad.x, 1.0, -texGrad.y));
+  } else {
+    // 정점 법선에서 기울기를 되찾습니다 (아래 ② 의 세기가 이것에 비례).
+    float ny0 = max(n.y, 1e-3);
+    texGrad = vec2(-n.x, -n.z) / ny0;
+  }
+
+  // ② **자료 아래 규모의 결** — 있는 것을 흉내내는 것이 아니라, 자료가
+  //    말해 준 법칙을 이어 씁니다.
+  //
+  //    거리별 RMS 고도차를 재 보니 15m~485m 다섯 옥타브에서 거듭제곱
+  //    법칙이 R² = 0.996 으로 깨끗합니다 — 허스트 지수 H = 0.84(마니산) ·
+  //    0.80(도곡동). 그러면 파장 L 에서의 기울기는
+  //
+  //        slope(L) = slope(L0) · (L / L0)^(H − 1)
+  //
+  //    이고, L0 는 자료가 아는 가장 작은 규모(텍셀 두 칸)입니다. 진폭을
+  //    취향으로 고르지 않고 **그 자리의 기울기에 비례**시키므로, 갯벌은
+  //    거의 0 이고 산은 제 값을 받습니다.
+  //
+  // ⚠ 법선만 흔듭니다. 높이에 더하면 진짜 능선 자리에 허구가 섞이고
+  //   실루엣이 바뀝니다.
+  //
+  // ⚠ 화면 화소보다 잔 옥타브는 결이 아니라 **에일리어싱**입니다. 거리에
+  //   따라 잔 옥타브를 끕니다 — 밉맵과 같은 이치.
+  if (uDetail > 0.0 && uDemValid > 0.5) {
+    float texelM = max(1.0, uDemSpanM / 256.0);
+    float L0 = 2.0 * texelM;                 // 자료가 아는 가장 짧은 파장
+    float s0 = length(texGrad);              // 그 자리의 텍셀 규모 기울기
+    float pixM = max(0.05, vDistM * 0.0015); // 화면 한 화소가 덮는 지상 거리
+    vec2 g = vGround;
+    vec2 add = vec2(0.0);
+    float L = L0;
+    for (int o = 0; o < 4; o++) {
+      L *= 0.5;
+      // 화소보다 잔 옥타브는 매끄럽게 꺼집니다 (딱 끊으면 띠가 집니다).
+      float vis = smoothstep(1.0, 3.0, L / pixM);
+      if (vis > 0.001) {
+        float amp = s0 * pow(L / L0, uHurst - 1.0) * vis;
+        float e = L * 0.25;
+        float c = tn_noise(g / L);
+        add += amp * vec2(tn_noise((g + vec2(e, 0.0)) / L) - c,
+                          tn_noise((g + vec2(0.0, e)) / L) - c) * 2.0;
+      }
+    }
+    vec2 gd = texGrad + add * uDetail;
+    n = normalize(vec3(-gd.x, 1.0, -gd.y));
+  }
+
   vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad),
                   sin(uSunAltRad),
                  -cos(uSunAltRad) * cos(uSunAzRad));
@@ -437,6 +510,9 @@ export function createTerrainField(opts: {
       ...makeDemUniforms(opts.eyePatch ?? null, 'demEye'),
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
+      uBicubicNormal: { value: 1 },
+      uDetail: { value: 0.10 },
+      uHurst: { value: 0.82 },
       uSurfaceIrr: { value: new THREE.Vector3(0.05, 0.06, 0.08) },
       uSunRadiance: { value: new THREE.Vector3(0, 0, 0) },
       uSunAzRad: { value: 0 },

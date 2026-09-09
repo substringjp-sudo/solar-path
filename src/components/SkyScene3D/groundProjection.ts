@@ -161,6 +161,31 @@ export function createConcentricGeometry(
  *
  * ⚠ 한쪽만 고치면 그 순간 해안선이 교선이 아니게 됩니다.
  */
+/**
+ * **값 잡음(value noise)** — 지형의 자료 아래 규모 결에 씁니다.
+ *
+ * ⚠ TerrainRing.ts 에 같은 함수가 groundHash/groundNoise 라는 이름으로
+ * 따로 있습니다. 그쪽은 옛 원반의 흙·자갈 질감에 쓰는 것이라 아직 합치지
+ * 않았습니다 — 합칠 때 이 정의 하나만 남기세요. (44절에서 표시 변환이
+ * 복사되어 갈라진 적이 있습니다.)
+ */
+export const TERRAIN_NOISE_GLSL = /* glsl */ `
+float tn_hash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+/** 0~1. 이중 부드럼(smoothstep)으로 보간해 C1 입니다. */
+float tn_noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(tn_hash(i + vec2(0.0, 0.0)), tn_hash(i + vec2(1.0, 0.0)), u.x),
+             mix(tn_hash(i + vec2(0.0, 1.0)), tn_hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+`;
+
 export const GROUND_PROJECT_GLSL = /* glsl */ `
 const float GP_R_EARTH = ${EARTH_RADIUS_M_GLSL};
 

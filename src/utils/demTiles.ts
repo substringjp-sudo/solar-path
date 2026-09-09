@@ -209,6 +209,91 @@ float ${p}_elevationAt(vec2 groundM) {
 }
 
 /**
+ * 텍셀 격자에 직접 찍어 읽습니다 (정수 텍셀 좌표, 중심 보정 포함).
+ * 재구성 필터가 쓰는 저수준 접근이라 보간에 기대지 않습니다.
+ */
+float ${p}_elevTexel(vec2 t) {
+  return ${p}_elevation((t + 0.5) / (u${U}Block * 256.0));
+}
+
+/** 3차 B-스플라인 기저 (t ∈ [0,1), 제어점 i−1·i·i+1·i+2) */
+vec4 ${p}_bs(float t) {
+  float t2 = t * t, t3 = t2 * t;
+  return vec4(1.0 - 3.0 * t + 3.0 * t2 - t3,
+              4.0 - 6.0 * t2 + 3.0 * t3,
+              1.0 + 3.0 * t + 3.0 * t2 - 3.0 * t3,
+              t3) / 6.0;
+}
+
+/** 그 기저의 도함수. 넷의 합은 항상 0 입니다(상수를 기울이지 않음). */
+vec4 ${p}_bsD(float t) {
+  float t2 = t * t;
+  return vec4(-3.0 + 6.0 * t - 3.0 * t2,
+              -12.0 * t + 9.0 * t2,
+               3.0 + 6.0 * t - 9.0 * t2,
+               3.0 * t2) / 6.0;
+}
+
+/**
+ * **3차 B-스플라인으로 재구성한 기울기** (m/m, x = 동 · y = 남).
+ *
+ * ## 왜 필요한가 — 이중선형은 C0 라 텍셀마다 꺾입니다
+ *
+ * 텍스처 선형보간이 만드는 면은 텍셀 경계에서 기울기가 **불연속**입니다.
+ * 그 위에서 유한차분으로 법선을 내면 경계마다 법선이 튀어 면이 각져 보입니다.
+ * 재 보니 마니산에서 이웃 텍셀 사이 경사각이 평균 0.85°, 상위 10% 2.67°
+ * 씩 튑니다.
+ *
+ * 게다가 자료가 **1m 계단**입니다 — 도곡동 근거리 패치는 바다를 빼고
+ * 91.4% 가 정수 고도이고, 이웃 텍셀 차이가 0·1·2·3m 에 몰려 있습니다
+ * (한국 쪽 Terrarium 은 SRTM 계열). 화소 간격 15.14m 에서 1m 계단은
+ * 경사가 **3.78° 단위**로 양자화된다는 뜻입니다.
+ *
+ * 3차 B-스플라인은 **C2** 라 꺾임이 아예 없고, 보간이 아니라 **근사** 필터라
+ * 그 계단을 자연스럽게 저역통과합니다. 그리고 도함수가 해석적으로 나오므로
+ * "적당한 ε 을 고른다" 는 임시방편이 사라집니다 — 예전 ε 은
+ * max(8, d·0.03) 이라 270m 안쪽에서 텍셀(15.14m)보다 **좁아**, 셀 안쪽만
+ * 읽어 꺾임을 그대로 물려받고 있었습니다.
+ *
+ * ⚠ 근사 필터라 봉우리가 살짝 깎입니다. 이 함수는 **법선에만** 쓰고 높이는
+ * 건드리지 않으므로 실루엣은 그대로입니다 — 그래야 기존 실루엣 판정이 전부
+ * 유효한 채로 음영만 따로 잴 수 있습니다.
+ *
+ * 표본 열여섯 개를 씁니다. 값과 두 편미분이 **같은 열여섯 개**에서 나옵니다.
+ */
+vec2 ${p}_gradientBicubic(vec2 groundM) {
+  vec2 T = (u${U}Obs + groundM / u${U}SpanM) * 256.0 - 0.5;
+  vec2 fi = floor(T);
+  vec2 f = T - fi;
+  vec4 wx = ${p}_bs(f.x), dwx = ${p}_bsD(f.x);
+  vec4 wy = ${p}_bs(f.y), dwy = ${p}_bsD(f.y);
+
+  // ⚠ GLSL ES 1.00 은 벡터에 변수 첨자를 못 씁니다 — 펼쳐 씁니다.
+  vec4 h0 = vec4(${p}_elevTexel(fi + vec2(-1.0, -1.0)),
+                 ${p}_elevTexel(fi + vec2( 0.0, -1.0)),
+                 ${p}_elevTexel(fi + vec2( 1.0, -1.0)),
+                 ${p}_elevTexel(fi + vec2( 2.0, -1.0)));
+  vec4 h1 = vec4(${p}_elevTexel(fi + vec2(-1.0,  0.0)),
+                 ${p}_elevTexel(fi + vec2( 0.0,  0.0)),
+                 ${p}_elevTexel(fi + vec2( 1.0,  0.0)),
+                 ${p}_elevTexel(fi + vec2( 2.0,  0.0)));
+  vec4 h2 = vec4(${p}_elevTexel(fi + vec2(-1.0,  1.0)),
+                 ${p}_elevTexel(fi + vec2( 0.0,  1.0)),
+                 ${p}_elevTexel(fi + vec2( 1.0,  1.0)),
+                 ${p}_elevTexel(fi + vec2( 2.0,  1.0)));
+  vec4 h3 = vec4(${p}_elevTexel(fi + vec2(-1.0,  2.0)),
+                 ${p}_elevTexel(fi + vec2( 0.0,  2.0)),
+                 ${p}_elevTexel(fi + vec2( 1.0,  2.0)),
+                 ${p}_elevTexel(fi + vec2( 2.0,  2.0)));
+
+  vec4 rowV = vec4(dot(h0, wx),  dot(h1, wx),  dot(h2, wx),  dot(h3, wx));
+  vec4 rowD = vec4(dot(h0, dwx), dot(h1, dwx), dot(h2, dwx), dot(h3, dwx));
+
+  float texelM = u${U}SpanM / 256.0;
+  return vec2(dot(rowD, wy), dot(rowV, dwy)) / texelM;
+}
+
+/**
  * 대각선 이웃 **넷의 중앙값**.
  *
  * ⚠ 대각선만 씁니다. 저줌 Terrarium 타일의 결함은 **한 화소 폭의 줄**로
