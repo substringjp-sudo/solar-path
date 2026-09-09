@@ -28,8 +28,15 @@
  *      나온다면 자가 지형·해수면 격자의 끝을 잘못 읽는 것입니다.
  *   ② DEM 없음 — 그때는 원반이 지면의 전부이므로 띠 이야기가 무의미합니다.
  *
+ * 준비: node tools/shader-preview/stage-esm.js
  * 사용: node tools/shader-preview/build-disc-horizon.js
  *       node tools/shader-preview/verify-disc-horizon.js
+ *
+ * ⚠ **준비를 빠뜨리면 앱을 고쳐도 수치가 안 움직입니다.** 이 하네스는
+ *   `.harness/preview/app/` 에 스테이징된 사본을 읽습니다. `stage-esm.js`
+ *   를 다시 안 돌리면 옛 사본이 그대로 돕니다 — SEA_FAR_M 을 60km/200km
+ *   로 바꿔 가며 재다가 세 번 연속 같은 값이 나와 A/B 를 잘못 뒤집을
+ *   뻔했습니다. 앱 상수를 만졌으면 반드시 stage-esm 부터입니다.
  */
 const fs = require('fs');
 const path = require('path');
@@ -148,6 +155,10 @@ async function run(site, withDem, overlapM){
   //   테두리를 가려 버려 엉뚱한 값이 나옵니다 (처음에 그걸 테두리로 읽고
   //   판정을 잘못 짰습니다). 지형·해수면을 숨기고 원반만 그려 잽니다.
   let 물화소=0, 뭍화소=0;
+  // ⚠ **원반을 껐을 때 하늘 구멍이 생기는가.** 이것이 원반을 끌 수 있는지를
+  //   가르는 자입니다. 지평선(−처짐) **아래**인데 아무것도 안 그려진 화소를
+  //   셉니다 — 거기는 땅이나 물이어야 합니다.
+  let 구멍화소=0;
   let 테두리=-90;
   {
     for(const h of [near,far,sea]) h.mesh.visible=false;
@@ -182,6 +193,8 @@ async function run(site, withDem, overlapM){
              +Math.abs(bufA[o+2]-bufB[o+2])+Math.abs(bufA[o+3]-bufB[o+3]);
       if(d>6){ n++; const e=rowElev(y); if(e>top) top=e; }
       if(bufA[o+3]>128){ if(bufA[o+2]>bufA[o]) 물화소++; else 뭍화소++; }
+      // bufB 는 원반을 끈 장면입니다. 지평선 아래인데 비어 있으면 구멍.
+      if(bufB[o+3]<128 && rowElev(y) < -dip-0.02) 구멍화소++;
     }
     방위별.push(+top.toFixed(4));
     화소+=n; if(top>위끝) 위끝=top;
@@ -197,7 +210,7 @@ async function run(site, withDem, overlapM){
 
   scene.remove(ground);
   for(const h of [near,far,sea]){ scene.remove(h.mesh); h.dispose?.(); }
-  return { 물화소, 뭍화소, 발밑고도:+obs.toFixed(1), 수평선처짐:+dip.toFixed(4),
+  return { 물화소, 뭍화소, 구멍화소, 발밑고도:+obs.toFixed(1), 수평선처짐:+dip.toFixed(4),
            원반테두리:+테두리.toFixed(4),
            원반위끝:+위끝.toFixed(4), 원반화소:화소,
            거짓띠:+Math.max(0, 위끝-(-dip)).toFixed(4), 방위별 };

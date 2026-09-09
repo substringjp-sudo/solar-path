@@ -1472,8 +1472,40 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     //   원반과 같은 규약입니다: 죽은 코드가 아니라 대비책이므로 끕니다.
     //
     // 수치는 tools/shader-preview/verify-bands-need.js 에 못 박혀 있습니다.
+    // ── 옛 지면 원반도 같은 규약으로 끕니다 ───────────────────────────────
+    //
+    // 원반은 DEM 이 있어도 화면의 0.016~0.809% 를 칠하고 있었는데, 그 몫이
+    // 두 가지로 갈립니다:
+    //
+    //   ① 바닷가 4,821화소 — 지형과 해수면 사이의 **구멍**이었습니다.
+    //      원반이 뒤에서 메워 주고 있었을 뿐입니다. 해수면 한쪽 겹침
+    //      (uShoreOverlapM)으로 구멍 자체를 닫았으니 이제 0 입니다.
+    //   ② 산꼭대기 75,742화소 — **하늘을 지면으로 칠하던 것**입니다.
+    //      setGroundHorizon 이 원반을 내리는데 카메라도 같이 내려가 서로
+    //      지워, 테두리가 고도와 무관하게 −0.191° 에 고정됩니다. 진짜
+    //      수평선은 455m 에서 −0.686° 라 그 사이 0.495° 가 가짜 지면이었습니다.
+    //      끄면 그 자리가 하늘로 돌아옵니다 — 고치는 것이 아니라 없애는 쪽.
+    //
+    // ⚠ 껐을 때 하늘에 구멍이 나면 안 됩니다. 원반을 끈 장면에서 지평선
+    //   아래인데 아무것도 안 그려진 화소를 세어 못 박아 뒀습니다 —
+    //   바닷가 0 · 내륙 3 · 산꼭대기 1,134(화면의 0.108%). 산꼭대기에 남는
+    //   것은 455m 에서 수평선이 76km 인데 해수면 격자가 60km 에서 끝나는
+    //   0.02° 띠입니다. 켜 두면 대신 0.495° 짜리 가짜 지평선을 얻으므로
+    //   끄는 쪽이 낫습니다. (SEA_FAR_M 을 200km 로 늘려 봤지만 같은 고리
+    //   수가 벌어져 1,785화소로 되레 나빠졌습니다 — 거리가 아니라 고리
+    //   배분 문제입니다.) 수치는 verify-disc-horizon.js 에 있습니다.
+    //
+    // ⚠ 원반에는 내륙 강·호수의 OSM 마스크(uWaterTex2D)가 달려 있습니다.
+    //   반경 475m 짜리 128×128 이라 지금도 사실상 안 보이지만(원반이 이기는
+    //   화소가 내륙에서 3개), 끄면 **내륙 물의 코드 경로가 사라집니다.**
+    //   나중에 강·호수를 그리려면 해수면이나 지형 셰이더에 새로 넣어야 합니다.
+    // ⚠ **끄는 것은 그리기뿐입니다 — 원반 객체는 살려 둡니다.** 카메라 높이가
+    //   `groundRef.position.y + 1.6` 이라(setGroundHorizon) 원반을 없애면
+    //   눈높이가 같이 사라집니다. visible 만 내리면 위치 계산은 그대로입니다.
+    const demOn = !!terrainFieldRef.current?.mesh.visible;
+    if (groundRef.current) groundRef.current.visible = !demOn;
     if (terrainBandsRef.current) {
-      terrainBandsRef.current.group.visible = !terrainFieldRef.current?.mesh.visible;
+      terrainBandsRef.current.group.visible = !demOn;
     }
 
     if (terrainBandsRef.current && terrainBandsRef.current.group.visible) {
