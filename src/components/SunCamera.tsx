@@ -5,6 +5,7 @@ import {
   Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
+import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
@@ -191,9 +192,30 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return 1.0 + zoom * 4.0;
   }, [zoom]);
 
-  // 카메라 화각(FOV, 기본 1x일 때 60°) 연동
+  // 카메라 화각(FOV, 기본 1x일 때) 연동.
+  //
+  // ⚠ **이 60° 는 근거 없는 추측값입니다.** three.js 의 `fov` 는 **세로**
+  //   화각이고 상자가 4:3 이므로 시뮬레이터의 가로 화각은 75.18° 가 됩니다
+  //   (build-ar-azimuth 로 렌더 화소에서 확인). 그런데 위 상자의 진짜
+  //   카메라가 가로로 몇 도를 담는지는 아무도 안 쟀습니다 — expo-camera 는
+  //   화각을 알려주지 않습니다.
+  //
+  //   두 상자가 얼마나 어긋나는지는 그 값에 그대로 걸립니다. 중심에서 20°
+  //   옆 물체가 두 상자에서 벌어지는 거리(상자 폭 480px 기준):
+  //
+  //     카메라 가로 50° → +73.9px (방위로 +11.00°)
+  //     카메라 가로 54° → +58.0px (+8.81°)
+  //     카메라 가로 60° → +37.8px (+5.89°)
+  //     카메라 가로 70° → +11.3px (+1.81°)
+  //     카메라 가로 75.18° →   0px (0°)  ← 여기서만 맞습니다
+  //
+  //   곧 "카메라와 시뮬레이터의 방위각이 많이 다르다"의 크기는 이 상수
+  //   하나가 정합니다. 기기에서 재서 정해야 하고, 지금은 못 정했습니다
+  //   (SKY_REBUILD_PLAN 49.3절).
+  const BASE_CAMERA_FOV_DEG = 60;
+
   const currentFov = useMemo(() => {
-    const baseFovRad = (60 * Math.PI) / 180;
+    const baseFovRad = (BASE_CAMERA_FOV_DEG * Math.PI) / 180;
     const tanHalf = Math.tan(baseFovRad / 2) / currentMagnification;
     return (2 * Math.atan(tanHalf) * 180) / Math.PI;
   }, [currentMagnification]);
@@ -1303,12 +1325,27 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Rect width={BOX_WIDTH} height={RULER_HEIGHT} fill="rgba(8, 12, 22, 0.88)" rx={6} />
                   {(() => {
                     const centerX = BOX_WIDTH / 2;
-                    const pxPerDeg = (BOX_WIDTH - 24) / 70;
+                    // ⚠ 예전에는 `pxPerDeg = (BOX_WIDTH - 24) / 70` 이었습니다 —
+                    //   70° 상수를 **선형**으로 폈고 `currentFov` 를 안 봤습니다.
+                    //   그런데 시뮬레이터 상자는 세로 화각 currentFov 의 원근
+                    //   투영이라 가로 화각이 75.18°(1배)이고 화소는 각이 아니라
+                    //   탄젠트에 비례합니다. 재 보니(build-ar-azimuth) 눈금이
+                    //   가리키는 각과 그 화소에 실제로 그려진 각이 1배에서
+                    //   최대 2.68°, 2배 −8.2°, 5배 −15.2° 어긋났습니다.
+                    //   줌에서 벌어지는 것은 눈금자가 줌을 아예 안 봤기 때문입니다.
+                    //   이제 렌더와 **같은 함수**를 씁니다 (utils/arProjection).
+                    const hFov = horizontalFovDeg(currentFov, BOX_WIDTH / BOX_HEIGHT);
                     const ticks = [];
                     for (let offset = -40; offset <= 40; offset += 5) {
                       const tickDeg = Math.round((effectiveAz + offset) / 5) * 5;
                       const normDeg = (tickDeg % 360 + 360) % 360;
-                      const x = centerX + (tickDeg - effectiveAz) * pxPerDeg;
+                      // 방위 차는 -180~180 으로 접습니다 — 0°/360° 를 지날 때
+                      // 눈금이 화면 밖으로 튀지 않게.
+                      let d = tickDeg - effectiveAz;
+                      d = ((d + 540) % 360) - 180;
+                      const dx = azimuthOffsetToPx(d, BOX_WIDTH, hFov);
+                      if (dx === null) continue;
+                      const x = centerX + dx;
                       if (x < 6 || x > BOX_WIDTH - 6) continue;
 
                       const isCardinal = normDeg % 45 === 0;
