@@ -7,6 +7,7 @@ import {
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
+import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
@@ -298,6 +299,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const deviceAzimuthRef = useRef(0);
   const devicePitchRef = useRef(0);
   const deviceRotationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
+  /**
+   * 가장 최근 기기 자세. 나침반 값을 **카메라 기준**으로 옮기는 데 씁니다 —
+   * `watchHeadingAsync` 는 상단 모서리 방위를 주므로 그대로 쓰면 하늘을 겨눌 때
+   * 180° 뒤집힙니다(`utils/devicePose.ts`).
+   */
+  const posePoseRef = useRef<DevicePose | null>(null);
 
   // 자기계 raw Ref
   const magRef = useRef({ x: 0, y: 0, z: 0 });
@@ -457,6 +464,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const fwdY = -(sa * sg - ca * sb * cg);
       const fwdZ = -(cb * cg);
 
+      // 나침반 값을 옮길 때 쓰도록 자세를 담아 둡니다.
+      posePoseRef.current = poseFromRotation(aRad, bRad, gRad);
+
       // Raw heading (자이로 기준, 0=북, 시계방향)
       const rawHeading = (Math.atan2(fwdX, fwdY) * 180 / Math.PI + 360) % 360;
       // 전방 벡터의 **수평 길이** — 이게 짧으면(폰을 눕혀 천정·바닥을 보면)
@@ -584,9 +594,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           // ⚠ trueHeading 을 못 받으면 **자북**입니다 — 한국에서 약 8° 어긋
           //   납니다. 융합에 그 사실을 그대로 넘겨 화면이 알릴 수 있게 합니다.
           const isTrue = data.trueHeading !== -1;
-          const heading = isTrue ? data.trueHeading : data.magHeading;
-          fusionRef.current.pushMagnetic(heading, isTrue);
-          setHeadingStatus(fusionRef.current.status());
+          const rawCompass = isTrue ? data.trueHeading : data.magHeading;
+
+          // ⚠ 이 값은 **기기 상단 모서리**의 방위입니다(expo-location 이
+          //   getOrientation()[0] 을 그대로 넘깁니다). 카메라가 지평선 위를
+          //   보면 상단 모서리가 뒤로 넘어가 180° 뒤집히므로, 자세에서 두 방위의
+          //   차이를 꺼내 **카메라 기준으로 옮겨** 넣습니다. 폰을 정확히 세워
+          //   나침반이 0/0 이 되는 자세면 null 이고, 그때는 아예 안 씁니다.
+          const pose = posePoseRef.current;
+          const camHeading = pose ? compassToCameraHeading(rawCompass, pose) : null;
+          if (camHeading !== null) {
+            fusionRef.current.pushMagnetic(camHeading, isTrue);
+            setHeadingStatus(fusionRef.current.status());
+          }
         });
       } catch (err) {
         console.warn('[SunCamera] watchHeadingAsync error:', err);
