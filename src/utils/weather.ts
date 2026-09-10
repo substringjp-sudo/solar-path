@@ -54,6 +54,8 @@ export interface CloudData {
   low: number;
   mid: number;
   high: number;
+  /** 모델이 스스로 낸 총운량(%). `HourlyCloudData.total` 주석 참고. */
+  total?: number;
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -141,6 +143,14 @@ export interface HourlyCloudData {
   low: number[];
   mid: number[];
   high: number[];
+  /**
+   * 모델이 스스로 낸 **총운량**(%). 층을 합친 값이 아닙니다.
+   *
+   * 위성 관측과 견줘 보니 총량을 만드는 네 방식 중 이것이 가장 맞습니다(§60):
+   * 모델 총량 τ오차 16.5 · 무작위 겹침 17.5 · 최대 겹침 19.1 ·
+   * 앱의 `cloudWeight`(0.95/0.55/0.25 가중합) 24.3.
+   */
+  total?: number[];
   visibility?: number[];
   humidity?: number[];
   directNormalIrradiance?: number[];
@@ -302,9 +312,13 @@ export const fetchSunsetWeather = async (
   // 한국처럼 국지 모델이 없어 ecmwf+icon 으로 내려앉는 곳은 전지구 모델이라
   // 둘 다 줍니다(§56). 예전에는 그 경우에도 DNI 를 안 받아 흐림 문장이
   // 근거를 잃었습니다.
+  // ⚠ `visibility` 를 여기서 뺐습니다. ecmwf·icon 은 시정을 전부 null 로 주므로
+  // 받아 봐야 버리는 자리였습니다. 시정은 §58 에서 관측점 1점 요청으로 옮겼습니다.
+  // 그 빈 자리에 모델 자체 총운량 `cloud_cover` 를 넣습니다 — 변수 수가 그대로라
+  // 호출 가중치도 그대로입니다(8 × 2모델 = 16 → 1.6회).
   const hourlyVariables = modelName
-    ? 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
-    : 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
+    ? 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
+    : 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
 
   const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
   const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
@@ -316,7 +330,8 @@ export const fetchSunsetWeather = async (
   let url = '';
   if (isHistorical) {
     // Open-Meteo Archive API (total_column_integrated_water_vapour excluded due to archive support limits)
-    const archiveVariables = 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation';
+    // 아카이브는 모델을 안 붙이므로 시정이 제대로 옵니다 — 그대로 둡니다.
+    const archiveVariables = 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation';
     url = `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
       `&hourly=${archiveVariables}` +
       `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
@@ -435,6 +450,7 @@ export const fetchSunsetWeather = async (
         low,
         mid,
         high,
+        total: Array.isArray(resHourly.cloud_cover) ? resHourly.cloud_cover : undefined,
         directNormalIrradiance: resHourly.direct_normal_irradiance,
         totalColumnWaterVapour: resHourly.total_column_integrated_water_vapour,
         precipitation: resHourly.precipitation,
@@ -759,10 +775,10 @@ export const fetchDayWeatherRing = async (
 
     const url = isHistorical
       ? `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
+        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
       : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
+        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
 
     // 바람은 별도 요청이지만 **동시에** 던집니다
@@ -806,6 +822,7 @@ export const fetchDayWeatherRing = async (
         low: fill(rh?.cloud_cover_low),
         mid: fill(rh?.cloud_cover_mid),
         high: fill(rh?.cloud_cover_high),
+        total: Array.isArray(rh?.cloud_cover) ? rh.cloud_cover : undefined,
         directNormalIrradiance: rh?.direct_normal_irradiance,
         totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
         precipitation: rh?.precipitation,
@@ -879,6 +896,7 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       low: interpolate(p.hourly.low[i] ?? 0, p.hourly.low[i+1] ?? p.hourly.low[i] ?? 0),
       mid: interpolate(p.hourly.mid[i] ?? 0, p.hourly.mid[i+1] ?? p.hourly.mid[i] ?? 0),
       high: interpolate(p.hourly.high[i] ?? 0, p.hourly.high[i+1] ?? p.hourly.high[i] ?? 0),
+      total: interpolateOpt(p.hourly.total),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),

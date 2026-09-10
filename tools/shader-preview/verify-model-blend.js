@@ -54,6 +54,23 @@ const near = (a, b, tol = 1e-9) => typeof a === 'number' && Math.abs(a - b) <= t
     ok(!('cloud_cover_mid_ecmwf_ifs025' in out), '접미사 붙은 이름은 안 남는다');
   }
 
+  console.log('\n[2-b] 총운량과 층운량을 안 헷갈린다');
+  {
+    // `cloud_cover` 와 `cloud_cover_low` 는 둘 다 모델 이름으로 끝납니다.
+    // 접미사를 **뒤에서** 떼므로 서로 섞이면 안 됩니다.
+    const out = blendHourly({
+      time: ['t'],
+      cloud_cover_ecmwf_ifs025: [90], cloud_cover_icon_seamless: [80],
+      cloud_cover_low_ecmwf_ifs025: [10], cloud_cover_low_icon_seamless: [20],
+      cloud_cover_high_ecmwf_ifs025: [60], cloud_cover_high_icon_seamless: [40],
+    });
+    ok(near(out.cloud_cover[0], 85), '총운량은 총운량끼리 (90·80 → 85)');
+    ok(near(out.cloud_cover_low[0], 15), '저층은 저층끼리 (10·20 → 15)');
+    ok(near(out.cloud_cover_high[0], 50), '상층은 상층끼리 (60·40 → 50)');
+    ok(Object.keys(out).sort().join(',') === 'cloud_cover,cloud_cover_high,cloud_cover_low,time',
+       '없던 이름이 생기지 않는다');
+  }
+
   console.log('\n[3] best_match 는 평균에 안 들어간다  ← 핵심');
   {
     // 실제로 겪은 꼴: 짙게 흐린 하늘을 best_match 만 맑다고 말한다.

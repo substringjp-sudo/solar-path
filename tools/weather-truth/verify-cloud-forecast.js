@@ -18,6 +18,9 @@
  *   부근 등)도 못 믿는다.
  */
 const MODELS = ['best_match','ecmwf_ifs025','icon_seamless','gfs_seamless'];
+/** 앱이 실제로 섞는 둘. 아래 '총운량을 내는 네 방식' 견주기에 씁니다. */
+const APP_MODELS = ['ecmwf_ifs025','icon_seamless'];
+const clamp01 = x => Math.min(1, Math.max(0, x));
 const PLACES = [
   { name:'서울 도곡동',     lat:37.4863, lon:127.0443 },
   { name:'강원 인제',       lat:38.0695, lon:128.1704 },
@@ -51,12 +54,12 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
   console.log(`견줌: 투과율 τ (1=맑음, 0=완전차단). 표의 수치는 τ 평균절대오차 ×100\n`);
   const tot=Object.fromEntries(MODELS.map(m=>[m,{n:0,ae:0,bias:0}]));
   const totCons={n:0,ae:0,bias:0}, spreadBins=[[],[],[],[]], obsBins=[[],[],[],[]];
-  const rows=[]; const allSamples=[];
+  const rows=[]; const allSamples=[]; const totalWays=[];
   for(const P of PLACES){
     let sat,fc;
     try{
       sat=JSON.parse(await(await fetch(`https://satellite-api.open-meteo.com/v1/archive?latitude=${P.lat}&longitude=${P.lon}&hourly=shortwave_radiation&models=satellite_radiation_seamless&start_date=${iso(start)}&end_date=${iso(end)}&timezone=UTC`)).text());
-      fc=JSON.parse(await(await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${P.lat}&longitude=${P.lon}&hourly=cloud_cover&models=${MODELS.join(',')}&start_date=${iso(start)}&end_date=${iso(end)}&timezone=UTC`)).text());
+      fc=JSON.parse(await(await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${P.lat}&longitude=${P.lon}&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&models=${MODELS.join(',')}&start_date=${iso(start)}&end_date=${iso(end)}&timezone=UTC`)).text());
     }catch(e){ console.log(`  ${P.name.padEnd(14)} 위성 미포함 지역`); continue; }
     if(!sat.hourly||!fc.hourly){ console.log(`  ${P.name.padEnd(14)} 위성 미포함 지역`); continue; }
     const st=sat.hourly.time, sv=sat.hourly.shortwave_radiation;
@@ -71,8 +74,16 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
       const fi=idx.get(st[i]); if(fi===undefined) continue;
       const vs=MODELS.map(m=>fc.hourly[`cloud_cover_${m}`]?.[fi]);
       if(vs.some(v=>v==null)) continue;
+      // 총량을 내는 네 방식용 — 앱이 섞는 ecmwf+icon 평균.
+      // ⚠ 바깥 누적기 `tot` 과 겹치지 않게 `appTot` 로 둡니다.
+      const app = base => {
+        const a = APP_MODELS.map(m=>fc.hourly[`${base}_${m}`]?.[fi]).filter(v=>v!=null);
+        return a.length ? mean(a) : null;
+      };
+      const appTot=app('cloud_cover'), lo=app('cloud_cover_low'),
+            mi=app('cloud_cover_mid'), hi=app('cloud_cover_high');
       const tauRaw=sv[i]/cs;
-      samples.push({tauRaw,vs});
+      samples.push({tauRaw,vs,appTot,lo,mi,hi});
       if(Math.max(...vs)<=20) clearTaus.push(tauRaw);
     }
     if(samples.length<50){ console.log(`  ${P.name.padEnd(14)} 표본 부족 (${samples.length})`); continue; }
@@ -98,6 +109,15 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
       spreadBins[Math.min(3,Math.floor(sp/25))].push(Math.abs(eC));
       // 실제 하늘이 얼마나 흐렸나로 나눠 담는다: τ 1.0=맑음 … 0.25=완전흐림
       allSamples.push({tObs, vs:s.vs});
+      if(s.appTot!=null && s.lo!=null && s.mi!=null && s.hi!=null){
+        totalWays.push({
+          tObs,
+          A: tauOf(s.appTot),                                              // 모델 자체 총운량
+          B: 1 - clamp01(s.lo/100*0.95 + s.mi/100*0.55 + s.hi/100*0.25),   // 앱의 cloudWeight
+          C: tauOf(100*(1-(1-s.lo/100)*(1-s.mi/100)*(1-s.hi/100))),        // 무작위 겹침
+          D: tauOf(Math.max(s.lo,s.mi,s.hi)),                              // 최대 겹침
+        });
+      }
       const b = tObs>=0.85?0 : tObs>=0.65?1 : tObs>=0.45?2 : 3;
       obsBins[b].push({e:eC, per:MODELS.map((m,k)=>tauOf(s.vs[k])-tObs)});
     }
@@ -130,6 +150,21 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
     const a=spreadBins[i];
     console.log(`   갈림 ${l.padEnd(9)} n=${pad(a.length,4)}  τ오차 ${a.length?(mean(a)*100).toFixed(1):'-'}`);
   });
+  if(totalWays.length){
+    console.log('\n  총운량을 내는 네 방식 (앱이 섞는 ecmwf+icon 기준)');
+    console.log('   방식                      τ오차×100   짙은흐림 오차 / 편향');
+    const lbl={A:'A 모델 자체 총운량',B:'B 앱의 cloudWeight',C:'C 무작위 겹침',D:'D 최대 겹침'};
+    const dk=totalWays.filter(r=>r.tObs<0.45);
+    for(const k of ['A','B','C','D']){
+      console.log(`   ${lbl[k].padEnd(24)} ${(mean(totalWays.map(r=>Math.abs(r[k]-r.tObs)))*100).toFixed(1).padStart(6)}      `
+        + `${(mean(dk.map(r=>Math.abs(r[k]-r.tObs)))*100).toFixed(1).padStart(5)} / `
+        + `${(mean(dk.map(r=>r[k]-r.tObs))>=0?'+':'')}${(mean(dk.map(r=>r[k]-r.tObs))*100).toFixed(1)}`);
+    }
+    console.log(`   n=${totalWays.length} (짙은흐림 ${dk.length})`);
+    console.log('   → 앱의 sunsetPhysics 는 지금 B 를 씁니다. 넷 중 가장 나쁘고,');
+    console.log('     편향이 음수라 **실제보다 어둡다고** 말합니다.');
+  }
+
   console.log('\n  실제 하늘이 흐릴수록 더 틀리나 (τ오차×100, +는 예보가 실제보다 맑다고 함)');
   ['맑음 τ≥.85','엷음 .65-.85','흐림 .45-.65','짙음 τ<.45'].forEach((l,i)=>{
     const a=obsBins[i]; if(!a.length){console.log(`   ${l.padEnd(12)} 없음`);return;}

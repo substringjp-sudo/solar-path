@@ -23,6 +23,8 @@ export interface SimReportObs {
   low: number;
   mid: number;
   high: number;
+  /** 모델이 스스로 낸 **총운량** (%). 층 합이 아닙니다 (§60). */
+  total?: number;
   /** 2m 상대습도 (%) */
   humidity?: number;
   /** 강수 (mm/h) */
@@ -79,6 +81,7 @@ export interface BuildSimReportParams {
         low?: number;
         mid?: number;
         high?: number;
+        total?: number;
         humidity?: number;
         precipitation?: number;
         visibility?: number;
@@ -107,6 +110,9 @@ export function buildSimReportPayload(params: BuildSimReportParams): SimReportPa
       low: Math.round(obs?.low ?? 0),
       mid: Math.round(obs?.mid ?? 0),
       high: Math.round(obs?.high ?? 0),
+      // 모델이 스스로 낸 총운량. 층을 합친 값이 아니라 별도 변수입니다(§60).
+      // 다음 기기 판정에서 "층 합보다 이게 하늘과 맞나" 를 눈으로 갈리려고 싣습니다.
+      total: roundOpt(obs?.total, 0),
       humidity: roundOpt(obs?.humidity, 0),
       precip: roundOpt(obs?.precipitation, 2),
       vis: roundOpt(obs?.visibility, 0),
