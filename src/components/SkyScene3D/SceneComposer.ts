@@ -558,7 +558,28 @@ export function createSceneComposer(
    * 완성된 그림을 **다시 읽어야** 하는데, 기본 프레임버퍼는 그럴 수
    * 없습니다. 블룸이 꺼져 있으면 이 버퍼는 쓰이지 않습니다.
    */
-  const rtScene = new THREE.WebGLRenderTarget(w, h, rtOptions);
+  /**
+   * ⚠ **씬 버퍼만 깊이를 가집니다.**
+   *
+   * 나머지 버퍼는 전면 사각형을 한 번 칠할 뿐이라 깊이가 필요 없습니다.
+   * 그런데 씬 버퍼는 다릅니다 — 여기에 지형·태양·달·별이 함께 그려집니다.
+   *
+   * 깊이 없이 두면 순서가 **화가 알고리즘뿐**인데, three.js 는 불투명을
+   * 전부 그린 뒤 투명을 그리고 `renderOrder` 는 각 큐 안에서만 정렬합니다.
+   * 태양은 `transparent: true` 이고 지형은 불투명이므로, 태양의
+   * `renderOrder = -0.55`("지형보다 뒤에 그려야 땅 뒤에서 솟아오릅니다")가
+   * **의도대로 동작한 적이 없었습니다.** 태양의 `depthTest: true` 도 깊이
+   * 버퍼가 없어 무의미했습니다.
+   *
+   * 잰 것(`verify-terrain-occlusion.js`, 8° 능선 아래 5.98° 태양):
+   * 산이 있으나 없으나 태양 밝기가 248.25 로 **같았습니다.**
+   *
+   * 깊이를 켜면 `depthTest: true` 인 것들(태양·달·빌보드·천체경로)이 지형과
+   * 제대로 겨룹니다 — 이 파일 머리말이 원래 그렇게 적고 있습니다
+   * ("빌보드는 `depthTest: true`라 지형과 깊이 비교를 합니다").
+   */
+  const rtSceneOptions: THREE.RenderTargetOptions = { ...rtOptions, depthBuffer: true };
+  const rtScene = new THREE.WebGLRenderTarget(w, h, rtSceneOptions);
   const rtBloomA = new THREE.WebGLRenderTarget(bloomW(), bloomH(), rtOptions);
   const rtBloomB = new THREE.WebGLRenderTarget(bloomW(), bloomH(), rtOptions);
   /**

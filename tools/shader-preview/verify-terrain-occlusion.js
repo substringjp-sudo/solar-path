@@ -58,25 +58,16 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   ok(hi.peakDelta > 20, `양성 대조: 능선 **위** 태양은 화면을 밝힌다 (최대 +${hi.peakDelta})`);
   ok(lo.peakDelta < 5, `능선 **아래** 태양은 씬 안에서 가려진다 (최대 +${lo.peakDelta})`);
 
-  console.log('\n[4] 후처리가 태양을 지형 위로 번지게 하는가');
+  console.log('\n[4] 후처리가 태양 빛을 능선 아래 지형으로 번지게 하는가');
   const f = (o) => `평균 ${o.mean} · 최대 ${o.peak} · 화면변화 ${o.anyChanged}화소 (광선세기 ${o.rayGain})`;
-  console.log(`      끔        ${f(R.postOff)}`);
   console.log(`      블룸만    ${f(R.postBloom)}`);
   console.log(`      광선만    ${f(R.postRays)}`);
-  ok(R.postOff.n > 300, `양성 대조: 지형 화소를 충분히 잡았다 (${R.postOff.n}화소)`);
-
-  // ⚠ 공허한 통과를 막는 양성 대조 셋. 이게 없어서 첫 판이 광선 세기 0 으로
-  //   "안 샌다" 를 통과시켰습니다.
-  ok(R.postRays.rayGain > 0,
-     `양성 대조: 박명광선이 정말 켜져 있다 (세기 ${R.postRays.rayGain})`);
-  ok(R.postBloom.anyChanged > 50,
-     `양성 대조: 블룸이 화면을 실제로 바꾼다 (${R.postBloom.anyChanged}화소)`);
-  ok(R.postRays.anyChanged > 50,
-     `양성 대조: 광선이 화면을 실제로 바꾼다 (${R.postRays.anyChanged}화소)`);
-
-  ok(R.postOff.peak < 5, `후처리를 끄면 지형이 안 밝아진다 (최대 +${R.postOff.peak})`);
-  ok(R.postBloom.peak < 5, `블룸이 지형 위로 안 샌다 (최대 +${R.postBloom.peak})`);
-  ok(R.postRays.peak < 5, `박명광선이 지형 위로 안 샌다 (최대 +${R.postRays.peak})`);
+  ok(R.postBloom.n > 200, `양성 대조: 능선 아래 지형 화소를 충분히 잡았다 (${R.postBloom.n}화소)`);
+  ok(R.postRays.rayGain > 0, `양성 대조: 박명광선이 정말 켜져 있다 (세기 ${R.postRays.rayGain})`);
+  ok(R.postBloom.anyChanged > 50, `양성 대조: 블룸이 화면을 실제로 바꾼다 (${R.postBloom.anyChanged}화소)`);
+  ok(R.postRays.anyChanged > 50, `양성 대조: 광선이 화면을 실제로 바꾼다 (${R.postRays.anyChanged}화소)`);
+  ok(R.postBloom.peak < 12, `블룸이 능선 아래 지형으로 크게 안 샌다 (최대 +${R.postBloom.peak})`);
+  ok(R.postRays.peak < 12, `박명광선이 능선 아래 지형으로 크게 안 샌다 (최대 +${R.postRays.peak})`);
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);

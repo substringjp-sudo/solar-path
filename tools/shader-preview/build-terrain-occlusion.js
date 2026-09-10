@@ -142,7 +142,12 @@ scene.add(near.mesh); scene.add(far.mesh);
 // ⚠ 도곡동 DEM 은 방위 90° 에 지평선 위로 솟은 산이 **없습니다**(능선 −0.72°).
 //   그러면 "산이 태양을 가리는가" 를 물을 수가 없습니다. 사진 1 에 나오는 것도
 //   DEM 근거리가 아니라 **원경 산줄기 밴드**이므로, 8° 능선을 세워 둡니다.
-const RIDGE_DEG=8;
+// ⚠ 능선 높이는 **박명광선 구간에 맞춰** 정합니다. 광선은 태양 고도
+//   −8°~+12° 에서만 살고 +6° 부터 잦아듭니다(SceneComposer 의 RAY_ALT_*).
+//   능선을 8° 로 두면 "능선 위 태양"이 12° 가 되어 광선이 죽고, 광선 판정이
+//   세기 0 으로 **공허하게 통과**합니다. 3° 면 능선 위 태양이 7° 라 광선이
+//   살아 있고 능선 아래 1° 도 지평선 위에 남습니다.
+const RIDGE_DEG=3;
 const bandAngles=[new Array(64).fill(RIDGE_DEG)];
 const bands=createTerrainBands(bandAngles,[30],undefined,null,obs);
 scene.add(bands.group);
@@ -153,8 +158,11 @@ const sun=createSun(); scene.add(sun.mesh);
 // 그 버퍼가 비어 광선이 아무것도 안 만들고, 그러면 "광선이 안 샌다" 는 판정이
 // **공허하게 통과**합니다. 하늘에 판을 하나 띄워 버퍼를 채웁니다.
 const cloudMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,side:THREE.DoubleSide});
-const cloudQuad=new THREE.Mesh(new THREE.PlaneGeometry(400,120),cloudMat);
-cloudQuad.position.set(Math.sin(azR)*300,120,-Math.cos(azR)*300);
+// ⚠ 화각(세로 24°) **안**에 두어야 합니다. 처음에 고도 21.8° 에 두었다가
+//   시야 밖이라 그늘 지도가 비었고, 광선이 켜져 있는데도 화면이 하나도 안
+//   바뀌어 판정이 또 공허해질 뻔했습니다. 태양(능선 위) 언저리에 둡니다.
+const cloudQuad=new THREE.Mesh(new THREE.PlaneGeometry(220,70),cloudMat);
+cloudQuad.position.set(Math.sin(azR)*300,300*Math.tan(9*Math.PI/180),-Math.cos(azR)*300);
 cloudQuad.lookAt(0,0,0);
 scene.add(cloudQuad);
 
@@ -268,37 +276,37 @@ const aboveAlt=ridgeTopDeg+4.0;
 R.sunBelowRidge=sunDelta(belowAlt);
 R.sunAboveRidge=sunDelta(aboveAlt);
 
-// ── 4) 후처리(블룸·광선)가 태양을 지형 위로 번지게 하는가 ────────────────────
-// 능선 **아래** 태양으로 둡니다 — 씬 안에서는 3)이 "안 보인다" 고 했습니다.
-updateSun(sun,belowAlt,AZ,ATMOS,1);
+// ── 4) 후처리가 태양 빛을 지형 위로 번지게 하는가 ───────────────────────────
+// ⚠ **태양을 껐다 켜서 재면 안 됩니다.** 3)을 고친 뒤로는 능선 아래 태양이
+//   제대로 가려져서 블룸이 번질 밝은 원천 자체가 없어집니다 — 양성 대조가
+//   0 으로 죽습니다. 그래서 **태양은 능선 위에 두어 보이게 하고, 후처리만**
+//   껐다 켜서 그 빛이 능선 **아래 지형**으로 새는지 봅니다.
+updateSun(sun,aboveAlt,AZ,ATMOS,1);
 sun.mesh.visible=true;
 cloudQuad.visible=true;
-// ⚠ **이걸 안 부르면 광선이 아예 안 켜집니다.** 처음에 빠뜨려 광선 세기 0 으로
-//   "안 샌다" 가 공허하게 통과했습니다. 판정에서 세기 > 0 을 못 박습니다.
 {
-  const a=belowAlt*Math.PI/180;
-  composer.setSun(new THREE.Vector3(Math.sin(azR)*Math.cos(a),Math.sin(a),-Math.cos(azR)*Math.cos(a)),belowAlt);
+  const a=aboveAlt*Math.PI/180;
+  composer.setSun(new THREE.Vector3(Math.sin(azR)*Math.cos(a),Math.sin(a),-Math.cos(azR)*Math.cos(a)),aboveAlt);
 }
-function postLeak(setup){
+// 지형 화소 = 지형을 껐을 때 달라지는 자리. 그중 능선 아래만 봅니다.
+composer.setBloom({strength:0}); composer.setGodRays({strength:0});
+const base=shot();
+function postDelta(setup){
   setup();
-  const withSun=shot();
-  sun.mesh.visible=false; const noSun=shot(); sun.mesh.visible=true;
-  // 지형인 화소(= 지형을 끄면 달라지는 자리)에서만 잽니다.
-  let s=0,n=0,peak=0;
+  const now=shot();
+  let s=0,n=0,peak=0,anyChanged=0;
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){
-    if(!differs(onA,off,x,y)) continue;
-    const d=at(withSun,x,y)-at(noSun,x,y);
+    if(differs(now,base,x,y)) anyChanged++;
+    if(!differs(onA,off,x,y)) continue;          // 지형인 자리만
+    if(rowElev(y) > ridgeTopDeg-0.5) continue;   // 능선 위는 하늘이니 뺍니다
+    const d=at(now,x,y)-at(base,x,y);
     s+=d; n++; peak=Math.max(peak,d);
   }
-  // 화면 어디서든 달라졌는가 — 그 패스가 정말 일하고 있는지 보는 양성 대조.
-  let anyChanged=0;
-  for(let y=0;y<H;y++)for(let x=0;x<W;x++) if(differs(withSun,noSun,x,y)) anyChanged++;
   return {n,mean:n?+(s/n).toFixed(3):null,peak:+peak.toFixed(2),
           anyChanged,rayGain:+composer.lastRayGain().toFixed(4)};
 }
-R.postOff   = postLeak(()=>{ composer.setBloom({strength:0}); composer.setGodRays({strength:0}); });
-R.postBloom = postLeak(()=>{ composer.setBloom({strength:0.6}); composer.setGodRays({strength:0}); });
-R.postRays  = postLeak(()=>{ composer.setBloom({strength:0}); composer.setGodRays({strength:0.35}); });
+R.postBloom = postDelta(()=>{ composer.setBloom({strength:0.6}); composer.setGodRays({strength:0}); });
+R.postRays  = postDelta(()=>{ composer.setBloom({strength:0}); composer.setGodRays({strength:0.35}); });
 composer.setBloom({strength:0}); composer.setGodRays({strength:0});
 
 R.errors=errors;
