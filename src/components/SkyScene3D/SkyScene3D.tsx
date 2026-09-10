@@ -206,6 +206,15 @@ export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
   /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
   getLastSnapshotError: () => string | null;
+  /**
+   * 마지막 스냅샷 **직전에** GL 버퍼에서 직접 잰 가운데 32×32 평균 밝기
+   * (0~255, −1 = 못 쟀음).
+   *
+   * 왜 필요한가: 저장된 그림이 검을 때 "그린 것이 검다"와 "스냅샷 경로가
+   * 잃는다"를 가릅니다. 이 값이 0 이면 앞쪽, 0 이 아닌데 그림이 검으면
+   * 뒤쪽입니다.
+   */
+  getLastBufferMean: () => number;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -424,8 +433,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   //   설명 없이 시뮬레이터 썸네일만 사라졌습니다 — 실기 보고 그대로입니다.
   //   이유를 `lastSnapshotErrorRef` 에 담아 두면 그 칸에 대신 적을 수 있습니다.
   const lastSnapshotErrorRef = useRef<string | null>(null);
+  /** 스냅샷 직전에 GL 버퍼에서 직접 잰 가운데 32×32 평균 밝기. −1 = 못 쟀음. */
+  const lastBufferMeanRef = useRef<number>(-1);
   useImperativeHandle(ref, () => ({
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
+    getLastBufferMean: () => lastBufferMeanRef.current,
     takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
       lastSnapshotErrorRef.current = null;
       // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
@@ -438,8 +450,68 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
             continue;
           }
-          rendererRef.current.render(sceneRef.current, cameraRef.current);
+          // ── **컴포저로 그립니다** ────────────────────────────────────
+          //
+          // ⚠ 실기에서 썸네일이 **검게** 나왔습니다. 칸도 보이고 실패 사유도
+          //   안 떴으니 스냅샷은 성공했고 내용만 비었다는 뜻이었습니다.
+          //
+          //   원인은 스냅샷 경로가 아니라 **무엇을 그렸는가** 였습니다.
+          //   여기서는 `renderer.render(scene, camera)` 를 직접 불렀는데,
+          //   이 장면의 객체는 전부 레이어 1~4 에 배정돼 있습니다
+          //   (LAYER_SOFT_SKY 1 · LAYER_MID 2 · LAYER_SOFT_CLOUD 3 ·
+          //   LAYER_FRONT 4 — 위 assignLayer 호출들). **레이어 0 에는
+          //   아무것도 없습니다.** three.js 카메라의 기본 마스크는 레이어 0
+          //   하나만 켜므로 그 호출은 **아무것도 안 그리고**, 남는 것은
+          //   지우기색(검정)뿐입니다. 실기 화면의 검은 사각형이 그것입니다.
+          //
+          //   실시간 루프는 `composer.render(...)` 로 그립니다(아래 animate).
+          //   스냅샷도 같은 길로 가야 같은 그림이 나옵니다 — 레이어를 나눠
+          //   그리는 것도, 블룸·박명광선 후처리도 전부 그 안에 있습니다.
+          const composer = composerRef.current;
+          const drawOnce = () => {
+            if (composer) {
+              composer.render(rendererRef.current as unknown as THREE.WebGLRenderer,
+                              sceneRef.current!, cameraRef.current!);
+            } else {
+              // 컴포저가 아직 없으면(첫 프레임 전) 최소한 레이어는 다 켭니다.
+              cameraRef.current!.layers.enableAll();
+              rendererRef.current!.setRenderTarget(null);
+              rendererRef.current!.render(sceneRef.current!, cameraRef.current!);
+            }
+          };
+          // ⚠ 두 번 그립니다. takeSnapshotAsync 가 앞버퍼를 읽는지 뒷버퍼를
+          //   읽는지는 expo-gl 구현에 달렸고 기기 없이는 못 정합니다. 한 번
+          //   그려 넘기고 한 번 더 그리면 **어느 쪽을 읽든** 같은 최신
+          //   프레임입니다. 한 컷 캡처라 프레임 하나가 더 드는 것은 문제가
+          //   안 됩니다.
+          drawOnce();
           glRef.current.endFrameEXP();
+          drawOnce();
+          glRef.current.flush();
+
+          // ── 자가 진단 ───────────────────────────────────────────────
+          //
+          // ⚠ 위 손질이 맞는지는 기기에서만 압니다. 그래서 **GL 버퍼를 직접
+          //   찍어** 두 후보를 가릅니다. 여기서 잰 밝기가 0 이면 그린 것
+          //   자체가 검은 것이고(장면·카메라 문제), 0 이 아닌데 저장된
+          //   그림이 검으면 스냅샷 경로가 잃는 것입니다.
+          //   전체를 읽으면 비싸므로 화면 가운데 32×32 만 봅니다.
+          let bufMean = -1;
+          try {
+            const g = glRef.current;
+            const w = g.drawingBufferWidth, h = g.drawingBufferHeight;
+            const n = 32;
+            const px = new Uint8Array(n * n * 4);
+            g.readPixels(Math.max(0, (w >> 1) - (n >> 1)), Math.max(0, (h >> 1) - (n >> 1)),
+                         n, n, g.RGBA, g.UNSIGNED_BYTE, px);
+            let sum = 0;
+            for (let i = 0; i < n * n; i++) {
+              sum += 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+            }
+            bufMean = sum / (n * n);
+          } catch (_) { /* readPixels 를 못 해도 스냅샷은 계속합니다 */ }
+          lastBufferMeanRef.current = bufMean;
+
           const snapshot = await GLView.takeSnapshotAsync(glRef.current, {
             format: options.format ?? 'jpeg',
             compress: options.compress ?? 0.85,

@@ -5,6 +5,8 @@
 
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
+import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
+import { localDateString } from './localDate';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -52,6 +54,8 @@ export interface CloudData {
   low: number;
   mid: number;
   high: number;
+  /** 모델이 스스로 낸 총운량(%). `HourlyCloudData.total` 주석 참고. */
+  total?: number;
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -139,6 +143,14 @@ export interface HourlyCloudData {
   low: number[];
   mid: number[];
   high: number[];
+  /**
+   * 모델이 스스로 낸 **총운량**(%). 층을 합친 값이 아닙니다.
+   *
+   * 위성 관측과 견줘 보니 총량을 만드는 네 방식 중 이것이 가장 맞습니다(§60):
+   * 모델 총량 τ오차 16.5 · 무작위 겹침 17.5 · 최대 겹침 19.1 ·
+   * 앱의 `cloudWeight`(0.95/0.55/0.25 가중합) 24.3.
+   */
+  total?: number[];
   visibility?: number[];
   humidity?: number[];
   directNormalIrradiance?: number[];
@@ -223,8 +235,10 @@ export const fetchSunsetWeather = async (
   useNowcast: boolean = false,
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
-  const dateKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
-  const targetDateStr = targetDate.toISOString().split('T')[0];
+  // 캐시 키와 요청 날짜는 **같은 날짜**여야 합니다. 예전에는 키만 현지 날짜,
+  // 요청은 UTC 날짜여서 한국 현지 00~08시에 서로 어긋났습니다(§59).
+  const dateKey = localDateString(targetDate);
+  const targetDateStr = dateKey;
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
   const sunsetCacheKey = `sunset_${lat.toFixed(3)}_${lon.toFixed(3)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
 
@@ -285,13 +299,26 @@ export const fetchSunsetWeather = async (
     }
   });
 
-  const modelName = useNowcast ? getLocalHighResModel(lat, lon) : '';
-  const modelParam = modelName ? `&models=${modelName}` : '';
+  // 국지 고해상도 모델이 **진짜로 있는 곳**에서만 그것을 씁니다. 없는 곳에서
+  // `getLocalHighResModel` 은 'best_match' 를 돌려주는데, §56 에서 재 보니
+  // best_match 는 짙게 흐린 하늘에서 τ 를 +34 만큼 맑은 쪽으로 틀립니다.
+  // 그럴 바에는 예보 경로와 같은 ecmwf+icon 을 쓰는 편이 낫습니다.
+  const localModel = useNowcast ? getLocalHighResModel(lat, lon) : '';
+  const modelName = localModel && localModel !== 'best_match' ? localModel : '';
+  const modelParam = modelName ? `&models=${modelName}` : BLEND_MODELS_PARAM;
 
-  // 국지 고해상도 모델은 direct_normal_irradiance 및 total_column_integrated_water_vapour를 미지원하므로 제외하고 요청
-  const hourlyVariables = useNowcast
-    ? 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
-    : 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
+  // 국지 고해상도 모델은 direct_normal_irradiance 및 total_column_integrated_water_vapour를 미지원하므로 제외하고 요청.
+  // 판정 기준이 `useNowcast` 가 아니라 **정말 국지 모델을 쓰는가** 로 바뀌었습니다 —
+  // 한국처럼 국지 모델이 없어 ecmwf+icon 으로 내려앉는 곳은 전지구 모델이라
+  // 둘 다 줍니다(§56). 예전에는 그 경우에도 DNI 를 안 받아 흐림 문장이
+  // 근거를 잃었습니다.
+  // ⚠ `visibility` 를 여기서 뺐습니다. ecmwf·icon 은 시정을 전부 null 로 주므로
+  // 받아 봐야 버리는 자리였습니다. 시정은 §58 에서 관측점 1점 요청으로 옮겼습니다.
+  // 그 빈 자리에 모델 자체 총운량 `cloud_cover` 를 넣습니다 — 변수 수가 그대로라
+  // 호출 가중치도 그대로입니다(8 × 2모델 = 16 → 1.6회).
+  const hourlyVariables = modelName
+    ? 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
+    : 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
 
   const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
   const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
@@ -303,7 +330,8 @@ export const fetchSunsetWeather = async (
   let url = '';
   if (isHistorical) {
     // Open-Meteo Archive API (total_column_integrated_water_vapour excluded due to archive support limits)
-    const archiveVariables = 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation';
+    // 아카이브는 모델을 안 붙이므로 시정이 제대로 옵니다 — 그대로 둡니다.
+    const archiveVariables = 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation';
     url = `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
       `&hourly=${archiveVariables}` +
       `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
@@ -383,11 +411,14 @@ export const fetchSunsetWeather = async (
       const targetKey = `${vp.targetLat.toFixed(5)},${vp.targetLon.toFixed(5)}`;
       const uniqueIdx = uniquePoints.findIndex(up => up.key === targetKey);
       const res = results[uniqueIdx];
-      const resHourly = res?.hourly || (modelName ? res?.[`hourly_${modelName}`] : null);
+      // 모델을 둘 이상 요청하면 Open-Meteo 가 변수 이름에 모델 이름을 접미사로
+      // 답니다(`cloud_cover_mid_ecmwf_ifs025`). `blendHourly` 가 접미사를 떼고
+      // 섞어 주므로 아래 코드는 그대로입니다.
+      const resHourly = blendHourly(res?.hourly) as any;
 
       if (!res || !resHourly) {
         console.warn(`Weather data missing for virtual point ${i} (${vp.dist}km, offset ${vp.azOffset}°). Using clear sky fallback.`);
-        const fallbackTime: string[] = results[0]?.hourly?.time || results[0]?.[`hourly_${modelName}`]?.time || [];
+        const fallbackTime: string[] = (blendHourly(results[0]?.hourly)?.time as string[]) || [];
         return {
           distance: vp.dist,
           azimuthOffset: vp.azOffset,
@@ -419,6 +450,7 @@ export const fetchSunsetWeather = async (
         low,
         mid,
         high,
+        total: Array.isArray(resHourly.cloud_cover) ? resHourly.cloud_cover : undefined,
         directNormalIrradiance: resHourly.direct_normal_irradiance,
         totalColumnWaterVapour: resHourly.total_column_integrated_water_vapour,
         precipitation: resHourly.precipitation,
@@ -528,6 +560,16 @@ export interface LayerWindHourly {
   windULow: number[]; windVLow: number[];
   windUMid: number[]; windVMid: number[];
   windUHigh: number[]; windVHigh: number[];
+  /**
+   * 시정(m). 바람과 상관없지만 **여기 얹혀 옵니다.**
+   *
+   * 큰 팬 요청은 ecmwf+icon 을 쓰는데 둘 다 시정을 null 로 줍니다. 그것 하나
+   * 때문에 큰 요청에 best_match 를 더하면 변수가 8→24 가 되어 호출 수가
+   * 2.4배로 셉니다(Open-Meteo 는 변수 10개 초과분을 곱해 셉니다).
+   * 이 요청은 관측점 1점 · 변수 6개라 하나 더 실어도 10 미만 — 공짜입니다.
+   * 그리고 시정은 원래 **관측점에서만** 쓰입니다.
+   */
+  visibility?: number[];
 }
 
 const windCache = new Map<string, LayerWindHourly | null>();
@@ -550,12 +592,14 @@ export const fetchLayerWinds = async (
   lon: number,
   targetDate: Date = new Date()
 ): Promise<LayerWindHourly | null> => {
-  const dateStr = targetDate.toISOString().split('T')[0];
+  const dateStr = localDateString(targetDate);
   const key = `wind_${lat.toFixed(3)},${lon.toFixed(3)}_${dateStr}`;
   if (windCache.has(key)) return windCache.get(key) ?? null;
 
+  // 바람 6개 + 시정 1개 = 7개. 10개를 안 넘으므로 호출 수는 1회 그대로입니다.
   const vars = (['low', 'mid', 'high'] as const)
     .flatMap(k => [`wind_speed_${WIND_LEVELS[k]}`, `wind_direction_${WIND_LEVELS[k]}`])
+    .concat(['visibility'])
     .join(',');
 
   const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -602,6 +646,10 @@ export const fetchLayerWinds = async (
       windUMid: cm.u, windVMid: cm.v,
       windUHigh: ch.u, windVHigh: ch.v,
     };
+    // 시정은 없어도 바람은 살립니다 — 있을 때만 싣습니다.
+    if (Array.isArray(h.visibility) && h.visibility.some((v: unknown) => v != null)) {
+      out.visibility = h.visibility;
+    }
     windCache.set(key, out);
     return out;
   } catch (error) {
@@ -622,6 +670,20 @@ export const fetchLayerWinds = async (
  */
 function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
   const keys = ['windULow', 'windVLow', 'windUMid', 'windVMid', 'windUHigh', 'windVHigh'] as const;
+  // 시정은 이 요청에 얹혀 옵니다(LayerWindHourly.visibility 주석). 큰 요청이
+  // 이미 시정을 받았으면 덮지 않습니다 — 아카이브 경로가 그렇습니다.
+  if (w.visibility && !hourly.visibility) {
+    if (w.time.length === hourly.time.length) {
+      hourly.visibility = w.visibility;
+    } else {
+      const at = new Map<string, number>();
+      w.time.forEach((t, i) => at.set(t, i));
+      hourly.visibility = hourly.time.map(t => {
+        const j = at.get(t);
+        return j !== undefined ? w.visibility![j] : 10000;
+      });
+    }
+  }
   if (w.time.length === hourly.time.length) {
     for (const k of keys) hourly[k] = w[k];
     return;
@@ -663,7 +725,7 @@ export const fetchDayWeatherRing = async (
   lon: number,
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
-  const targetDateStr = targetDate.toISOString().split('T')[0];
+  const targetDateStr = localDateString(targetDate);
   const cacheKey = `ring_${lat.toFixed(3)},${lon.toFixed(3)}_${targetDateStr}`;
   const cached = MEM_RING_CACHE.get(cacheKey) || ringCache.get(cacheKey);
   if (cached) {
@@ -713,11 +775,11 @@ export const fetchDayWeatherRing = async (
 
     const url = isHistorical
       ? `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
+        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
       : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
-        `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
-        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`;
+        `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
+        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
 
     // 바람은 별도 요청이지만 **동시에** 던집니다
     const [response, winds] = await Promise.all([
@@ -751,7 +813,7 @@ export const fetchDayWeatherRing = async (
 
     const out: CloudPathData[] = virtualPoints.map((vp, i) => {
       const res = results[idxOf[i]];
-      const rh = res?.hourly;
+      const rh = blendHourly(res?.hourly) as any;
       const time: string[] = rh?.time ?? [];
       const fill = (a: any) => (Array.isArray(a) && a.length ? a : Array(Math.max(1, time.length)).fill(0));
       const hourly: HourlyCloudData = {
@@ -760,6 +822,7 @@ export const fetchDayWeatherRing = async (
         low: fill(rh?.cloud_cover_low),
         mid: fill(rh?.cloud_cover_mid),
         high: fill(rh?.cloud_cover_high),
+        total: Array.isArray(rh?.cloud_cover) ? rh.cloud_cover : undefined,
         directNormalIrradiance: rh?.direct_normal_irradiance,
         totalColumnWaterVapour: rh?.total_column_integrated_water_vapour,
         precipitation: rh?.precipitation,
@@ -833,6 +896,7 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       low: interpolate(p.hourly.low[i] ?? 0, p.hourly.low[i+1] ?? p.hourly.low[i] ?? 0),
       mid: interpolate(p.hourly.mid[i] ?? 0, p.hourly.mid[i+1] ?? p.hourly.mid[i] ?? 0),
       high: interpolate(p.hourly.high[i] ?? 0, p.hourly.high[i+1] ?? p.hourly.high[i] ?? 0),
+      total: interpolateOpt(p.hourly.total),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),

@@ -6,6 +6,8 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
+import { localDateString } from '../utils/localDate';
+import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
@@ -300,11 +302,20 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 자기계 raw Ref
   const magRef = useRef({ x: 0, y: 0, z: 0 });
 
-  // Rotation Matrix에서 추출한 보정 전 heading (진북 오프셋 계산에 사용)
-  const rawGyroHeadingRef = useRef(0);
-  // gyro heading → 진북 방위각 보정 오프셋
-  const northOffsetRef = useRef(0);
-  const northOffsetInitialized = useRef(false);
+  // ── 자이로·자기 방위 융합 ────────────────────────────────────────────
+  //
+  // ⚠ 예전에는 이 논리가 여기 흩어져 있었고 결함이 넷 있었습니다:
+  //   ① rawGyroHeadingRef 가 0 으로 시작하는데 자기 콜백이 자이로 도착을
+  //      확인 안 하고 첫 표본으로 오프셋을 확정 — 자기 쪽이 먼저 오면
+  //      통째로 어긋납니다(판정에서 46.4° 재현).
+  //   ② 폰이 누워 있어 방위가 무의미한 자세도 그대로 씨앗으로 씀.
+  //   ③ 표본 하나로 확정.
+  //   ④ 보정률 0.001 — 잘못 잡히면 표본 1000개(2~3분) 동안 그대로.
+  //      "8자로 흔들어도 잘 안 맞는다" 가 이것입니다.
+  // 이제 utils/headingFusion 이 맡고, 가짜 센서 열로 판정합니다
+  // (verify-heading-fusion.js).
+  const fusionRef = useRef(createHeadingFusion());
+  const [headingStatus, setHeadingStatus] = useState<HeadingFusionStatus | null>(null);
 
   // One Euro Filter 상태 Ref
   const filterRef = useRef({
@@ -325,6 +336,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
   /** 3D 썸네일을 못 만든 이유. 칸을 조용히 지우지 않고 여기 적습니다. */
   const [simPreviewError, setSimPreviewError] = useState<string | null>(null);
+  /** 스냅샷 직전 GL 버퍼 밝기(0~255, −1 = 못 쟀음). 검은 썸네일 진단용. */
+  const [simBufferMean, setSimBufferMean] = useState<number>(-1);
   const [capturedQrData, setCapturedQrData] = useState<string | null>(null);
 
   // 점수 입력 상태
@@ -446,10 +459,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
       // Raw heading (자이로 기준, 0=북, 시계방향)
       const rawHeading = (Math.atan2(fwdX, fwdY) * 180 / Math.PI + 360) % 360;
-      rawGyroHeadingRef.current = rawHeading;
+      // 전방 벡터의 **수평 길이** — 이게 짧으면(폰을 눕혀 천정·바닥을 보면)
+      // 방위가 수치적으로 무의미하므로 융합이 그 표본을 씨앗으로 안 씁니다.
+      const horiz = Math.sqrt(fwdX * fwdX + fwdY * fwdY);
+      fusionRef.current.pushGyro(rawHeading, horiz);
 
       // 진북 보정 적용
-      const calibratedHeading = (rawHeading + northOffsetRef.current + 360) % 360;
+      const calibratedHeading = fusionRef.current.heading() ?? rawHeading;
 
       // Raw pitch: 카메라 전방 벡터의 수평면 대비 앙각
       const horizDist = Math.sqrt(fwdX * fwdX + fwdY * fwdY);
@@ -524,7 +540,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setDevicePitch(filteredPitch);
 
       // 진북 보정 각도로 보정된 3D Rotation Matrix 각도 세트 전개
-      const radOffset = (northOffsetRef.current * Math.PI) / 180;
+      const radOffset = (((fusionRef.current.status().offsetDeg) * Math.PI) / 180);
       const calibratedAlpha = (aRad + radOffset + 2 * Math.PI) % (2 * Math.PI);
       
       const currentRotation = {
@@ -565,23 +581,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const startWatching = async () => {
       try {
         subscription = await Location.watchHeadingAsync((data) => {
-          const heading = data.trueHeading !== -1 ? data.trueHeading : data.magHeading;
-
-          // gyro heading(보정 전)과 magnetometer heading의 차이로 오프셋 계산
-          const rawGyroHeading = rawGyroHeadingRef.current;
-          let rawOffset = heading - rawGyroHeading;
-          rawOffset = ((rawOffset + 540) % 360) - 180; // -180~180 정규화
-
-          if (!northOffsetInitialized.current) {
-            // 최초 캘리브레이션: 즉시 적용
-            northOffsetRef.current = rawOffset;
-            northOffsetInitialized.current = true;
-          } else {
-            // 점진적 보정: 지자기 센서 순간 노이즈 차단을 위해 보정률을 0.001로 극단적 억제
-            let diff = rawOffset - northOffsetRef.current;
-            diff = ((diff + 540) % 360) - 180;
-            northOffsetRef.current += diff * 0.001;
-          }
+          // ⚠ trueHeading 을 못 받으면 **자북**입니다 — 한국에서 약 8° 어긋
+          //   납니다. 융합에 그 사실을 그대로 넘겨 화면이 알릴 수 있게 합니다.
+          const isTrue = data.trueHeading !== -1;
+          const heading = isTrue ? data.trueHeading : data.magHeading;
+          fusionRef.current.pushMagnetic(heading, isTrue);
+          setHeadingStatus(fusionRef.current.status());
         });
       } catch (err) {
         console.warn('[SunCamera] watchHeadingAsync error:', err);
@@ -600,7 +605,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 센서 캘리브레이션 초기화 (기본)
   const handleCalibrate = useCallback(() => {
     filterRef.current.initialized = false;
-    northOffsetInitialized.current = false; // 진북 보정도 리셋
+    fusionRef.current.reset();
+    setHeadingStatus(fusionRef.current.status());
     Alert.alert(t('calibratedTitle', language), t('calibratedMsg', language));
   }, [language]);
 
@@ -608,14 +614,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 사용자가 화면 중앙에 태양(또는 일몰 방향)을 맞추고 탭하면
   // 실제 천문학적 태양 방위각(sunPos.azimuth)으로 AR 오버레이를 ±1° 이내로 정밀 맞춤.
   const handleSunSnap = useCallback(() => {
-    const rawHeading = rawGyroHeadingRef.current;
     const trueSunAz = sunPos.azimuth; // SunCalc 계산 방위각
-
-    let offset = trueSunAz - rawHeading;
-    offset = ((offset + 540) % 360) - 180;
-
-    northOffsetRef.current = offset;
-    northOffsetInitialized.current = true;
+    // 정답을 아는 경우라 오프셋을 바로 못 박습니다. 그 뒤로는 자기계가
+    // 천천히만 끌어갑니다(융합이 그렇게 잡아 둡니다).
+    fusionRef.current.snapTo(trueSunAz);
+    setHeadingStatus(fusionRef.current.status());
 
     Alert.alert(
       '☀️ Sun-Snap 보정 완료',
@@ -651,8 +654,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       //   누른 **그 순간**의 방위·고도를 담습니다 — 원래 의도한 것입니다.
       let simUri = '';
       let simFailReason: string | null = null;
+      // ⚠ 스냅샷 **직전의 GL 버퍼 밝기**를 같이 들고 옵니다. 저장된 그림이
+      //   검을 때 "그린 것이 검다"와 "스냅샷 경로가 잃는다"를 가르는 유일한
+      //   단서입니다 — 실기에서 썸네일이 검게 나온 뒤 넣었습니다.
+      let simBufMean = -1;
       if (sky3dRef.current) {
         simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        simBufMean = sky3dRef.current.getLastBufferMean();
         if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
       } else {
         simFailReason = '3D 화면이 아직 준비되지 않음';
@@ -713,7 +721,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           }
           const weatherData = await fetchSunsetWeather(latitude, longitude, currentSunPos.azimuth, false, captureTime);
           if (weatherData && weatherData.length > 0) {
-            const dateStr = new Date(captureTime.getTime() + (9 * 3600 * 1000)).toISOString().split('T')[0];
+            // 예전에는 +9시간을 박아 넣어 한국 밖에서는 엉뚱한 날짜가 나왔고,
+            // 같은 키를 만드는 useCelestialStore 와도 어긋났습니다(§59).
+            const dateStr = localDateString(captureTime);
             const newCacheItem = {
               key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${dateStr}`,
               data: weatherData,
@@ -807,6 +817,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 1. 셔터 직전에 못 찍었으면 여기서 한 번 더 시도합니다.
       if (!simUri && sky3dRef.current) {
         simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        simBufMean = sky3dRef.current.getLastBufferMean();
         if (simUri) simFailReason = null;
         else simFailReason = sky3dRef.current.getLastSnapshotError() ?? simFailReason;
       }
@@ -868,6 +879,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setPreviewUri(stampedUri);
       setSimPreviewUri(simUri || null);
       setSimPreviewError(simUri ? null : simFailReason);
+      setSimBufferMean(simBufMean);
       setCapturedQrData(qrPayload);
       
       // 초기 점수 리셋
@@ -1095,6 +1107,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </View>
                   )}
                   <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
+                  {/* ⚠ 썸네일이 검게 나올 때를 가르는 단서. 스냅샷 직전 GL
+                      버퍼의 가운데 밝기입니다 — 0 에 가까우면 그린 것 자체가
+                      검은 것이고, 0 이 아닌데 그림이 검으면 스냅샷 경로가
+                      잃는 것입니다. 원인을 못 박으면 지웁니다. */}
+                  {simBufferMean >= 0 && (
+                    <View style={styles.simBufBadge} pointerEvents="none">
+                      <Text style={styles.simBufBadgeText}>GL {simBufferMean.toFixed(0)}</Text>
+                    </View>
+                  )}
                 </View>
               </View>
 
@@ -1251,6 +1272,38 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               <View style={styles.warningBannerFloating}>
                 <Text style={styles.warningText}>
                   ⚠️ Magnetic Interference! Move phone in "8" shape
+                </Text>
+              </View>
+            )}
+
+            {/* ⚠ 방위 보정 상태. 실기 보고 "지자기 초기화가 잘 동작 안 하는
+                것 같다" 는 **되고 있는지 볼 길이 없어서** 나온 말입니다.
+                이제 보입니다:
+                  · 씨앗을 아직 못 잡았으면 왜 못 잡는지(자이로 없음 /
+                    폰이 누워 있음)를 그대로 적습니다.
+                  · 자북만 받고 있으면 편각만큼 어긋난다고 알립니다.
+                    이때는 Sun-Snap 이 확실한 길입니다. */}
+            {headingStatus && !headingStatus.seeded && (
+              <View style={styles.headingBanner}>
+                <Text style={styles.headingBannerText}>
+                  {headingStatus.lastReject === 'ill-pose'
+                    ? (language === 'ko'
+                        ? '🧭 방위 보정 중 — 폰을 세워 지평선을 향해 주세요'
+                        : '🧭 Calibrating — hold the phone upright toward the horizon')
+                    : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
+                      ? (language === 'ko' ? '🧭 자이로 신호를 기다리는 중' : '🧭 Waiting for motion sensor')
+                      : (language === 'ko'
+                          ? `🧭 방위 보정 중 (${headingStatus.seedCount}/8)`
+                          : `🧭 Calibrating heading (${headingStatus.seedCount}/8)`)}
+                </Text>
+              </View>
+            )}
+            {headingStatus && headingStatus.seeded && !headingStatus.trueNorth && (
+              <View style={styles.headingBanner}>
+                <Text style={styles.headingBannerText}>
+                  {language === 'ko'
+                    ? '🧭 자북 기준입니다 — 약 8° 어긋납니다. Sun-Snap 으로 맞추세요'
+                    : '🧭 Magnetic north only (~8° off). Use Sun-Snap to correct'}
                 </Text>
               </View>
             )}
@@ -1799,6 +1852,36 @@ const styles = StyleSheet.create({
   compareImage: {
     flex: 1,
     resizeMode: 'cover',
+  },
+  headingBanner: {
+    marginTop: 4,
+    alignSelf: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 160, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 229, 255, 0.45)',
+  },
+  headingBannerText: {
+    color: '#9FE8FF',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  simBufBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  simBufBadgeText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 9,
+    fontFamily: 'monospace',
   },
   compareImageMissing: {
     flex: 1,

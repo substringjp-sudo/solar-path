@@ -59,6 +59,44 @@ const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
 /** 층별 두께 → 광학두께 배율. 두꺼운 저층일수록 큽니다. */
 const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
 
+/**
+ * 모양장의 **실제** 중심과 폭 — 층마다 다릅니다.
+ *
+ * 41절의 백분위 문턱은 모양장이 `N(0.5, uShapeSigma)` 라고 **가정**하고
+ * `P(q > 1-cover) = cover` 를 항등식으로 만듭니다. 그런데 그 가정이 세
+ * 층에 다 맞지는 않습니다. `build-layer-elev.js` 로 예보 운량 → 화면 면적
+ * 사상을 재고(광학두께 자료 출구를 써서 조명과 무관하게) 로지스틱-정규
+ * 모형으로 역산하면:
+ *
+ *   층    유효 중심   유효 폭    가정
+ *   저층    0.597     0.105     0.5 · 0.16
+ *   중층    0.377     0.104     0.5 · 0.16
+ *   상층    0.515     0.158     0.5 · 0.16
+ *
+ * ⚠ 두 번 돌려 수렴시킨 값입니다. 한 번 넣고 다시 재면 사상이 달라지므로
+ * (문턱이 바뀌면 표본도 바뀝니다) 그 새 곡선으로 다시 역산했습니다.
+ *
+ * 그래서 사상이 이렇게 어긋났습니다 (고도 45°, 왼쪽이 예보):
+ *
+ *   예보    10%    25%    50%    75%    90%
+ *   저층   0.140  0.500  0.818  0.942  0.991   ← 과하게 덮음
+ *   중층   0.001  0.010  0.125  0.340  0.561   ← 턱없이 모자람
+ *   상층   0.095  0.336  0.600  0.759  0.907   ← 대체로 맞음
+ *
+ * 실기 보고 "하늘이 구름으로 가득 찼는데 너무 텅빈 구름만 있어" 의 정체가
+ * 중층 줄입니다 — 그날 아침은 양떼구름(중층) 하늘이었고 예보는 33% 였는데,
+ * 위 사상이면 화면에는 3~5% 밖에 안 나옵니다. 같은 보고에서 "고층부 구름은
+ * 괜찮아 보인다" 고 한 것도 상층 줄과 맞습니다.
+ *
+ * ⚠ 이 값들은 모양장의 **참 모멘트가 아니라 유효값**입니다 — 군집(cluster)
+ * 처럼 운량을 흔드는 항과 문턱 뒤의 두께 곡선까지 다 이 두 수에 묻혀
+ * 들어갑니다. 그래도 고치려는 것이 바로 "예보가 화면 면적이 되는가" 이므로
+ * 유효값이 맞는 눈금입니다. 값을 바꾸면 `verify-layer-elev.js` 가 웁니다.
+ */
+const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.597, mid: 0.377, high: 0.515 };
+/** 위 폭 ÷ uShapeSigma 기본값(0.16). uShapeSigma 를 바꿔도 비율은 유지됩니다. */
+const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 0.654, mid: 0.652, high: 0.986 };
+
 export const CLOUD_SLAB_GLSL = `
 const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
 
@@ -304,11 +342,17 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   // 두께는 그 다음에 **따로** 정합니다. 구름의 깊이는 운량이 아니라 대류가
   // 정하니까요. 가장자리 0 에서 중심 1 로 가는 t 를 돔 단면으로 폅니다.
   // 모양장은 이제 **빠른 잡음만**이라 평균 0.5 근처에 대칭입니다.
-  // 폭은 옥타브 수에 따라 층마다 조금 다릅니다.
-  float fSig = uShapeSigma;
+  // 폭은 옥타브 수에 따라 층마다 조금 다릅니다 — 그 '조금' 이 실제로는 큽니다.
+  // ⚠ 예전에는 fSig = uShapeSigma 하나에 중심 0.5 를 세 층에 똑같이
+  //   썼습니다. 재 보면 층마다 다릅니다(위 SHAPE_MEAN 주석의 표) — 그래서
+  //   예보 50% 가 저층에서는 화면 82%, 중층에서는 12.5% 가 됐습니다.
+  //   측정한 층별 값을 넣어 "문턱이 곧 면적" 을 되돌립니다.
+  float fMid = layer == 0 ? SHAPE_MEAN_HIGH : (layer == 1 ? SHAPE_MEAN_MID : SHAPE_MEAN_LOW);
+  float fSig = uShapeSigma * (layer == 0 ? SHAPE_SIGR_HIGH
+                            : (layer == 1 ? SHAPE_SIGR_MID : SHAPE_SIGR_LOW));
   // 잔결은 빠른 항이라 그대로 모양장에 섞습니다(평균 0 이 되게 뺍니다).
   float fm = f + (billowFine - 0.5) * 0.22 * billowAmt;
-  float q = 1.0 / (1.0 + exp(-1.702 * (fm - 0.5) / max(0.02, fSig)));
+  float q = 1.0 / (1.0 + exp(-1.702 * (fm - fMid) / max(0.02, fSig)));
   // 군집은 **면적**을 흔듭니다 — 여기 더 많고 저기 덜 많다는 이야기이므로.
   float cvEff = clamp(cover * cvSlow * cluster, 0.0, 1.0);
   float t = clamp((q - (1.0 - cvEff)) / max(0.05, cvEff), 0.0, 1.0);
@@ -1211,11 +1255,17 @@ export function createCloudSlab(opts: {
   cellKm?: Partial<Record<LayerKey, number>>;
   /** 층별 두께→광학두께 배율 덮어쓰기. */
   tauK?: Partial<Record<LayerKey, number>>;
+  /** 모양장의 층별 유효 중심. 훑어보려고 열어 둡니다 (기본 SHAPE_MEAN). */
+  shapeMean?: Partial<Record<LayerKey, number>>;
+  /** 모양장의 층별 유효 폭 ÷ uShapeSigma (기본 SHAPE_SIG_RATIO). */
+  shapeSigRatio?: Partial<Record<LayerKey, number>>;
 } = {}): CloudSlabHandle {
   const rangeKm = opts.rangeKm ?? SLAB_RANGE_KM;
   const size = opts.texSize ?? SLAB_TEX;
   const cell = { ...CELL_KM, ...(opts.cellKm ?? {}) };
   const tau = { ...TAU_K, ...(opts.tauK ?? {}) };
+  const shapeMean = { ...SHAPE_MEAN, ...(opts.shapeMean ?? {}) };
+  const shapeSigRatio = { ...SHAPE_SIG_RATIO, ...(opts.shapeSigRatio ?? {}) };
 
   const data = new Uint8Array(size * size * 4);
   const coverTex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
@@ -1245,7 +1295,13 @@ export function createCloudSlab(opts: {
     .replace(/CELL_HIGH/g, cell.high.toFixed(2))
     .replace(/TAUK_LOW/g, tau.low.toFixed(2))
     .replace(/TAUK_MID/g, tau.mid.toFixed(2))
-    .replace(/TAUK_HIGH/g, tau.high.toFixed(2));
+    .replace(/TAUK_HIGH/g, tau.high.toFixed(2))
+    .replace(/SHAPE_MEAN_LOW/g, shapeMean.low.toFixed(4))
+    .replace(/SHAPE_MEAN_MID/g, shapeMean.mid.toFixed(4))
+    .replace(/SHAPE_MEAN_HIGH/g, shapeMean.high.toFixed(4))
+    .replace(/SHAPE_SIGR_LOW/g, shapeSigRatio.low.toFixed(4))
+    .replace(/SHAPE_SIGR_MID/g, shapeSigRatio.mid.toFixed(4))
+    .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {

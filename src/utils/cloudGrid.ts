@@ -6,6 +6,7 @@
  * ~100 points in a single HTTP request, completes in 1-2 seconds.
  */
 
+import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { calculateDestination } from './weather';
 
 // ---------------------------------------------------------------------------
@@ -135,9 +136,12 @@ export const fetchCloudGrid = async (
 
   const lats = gridPoints.map(p => p.lat.toFixed(5)).join(',');
   const lons = gridPoints.map(p => p.lon.toFixed(5)).join(',');
+  // 모델을 고르지 않으면 Open-Meteo 기본값 `best_match` 가 오는데, §56 에서
+  // 재 보니 짙게 흐린 하늘에서 τ 를 +34 만큼 맑은 쪽으로 틀립니다. ecmwf+icon
+  // 을 섞으면 그 편향이 +10.3 으로 줄어듭니다.
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
     `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high` +
-    `&timezone=auto`;
+    `&timezone=auto${BLEND_MODELS_PARAM}`;
 
   const startTime = Date.now();
   if (__DEV__) {
@@ -163,7 +167,9 @@ export const fetchCloudGrid = async (
     const targetMs = targetTime.getTime();
 
     const points: CloudGridPoint[] = gridPoints.map((gp, i) => {
-      const res = results[i];
+      // 모델을 둘 이상 요청하면 변수 이름에 모델 이름이 접미사로 붙습니다.
+      // `blendHourly` 가 그것을 떼고 섞어 접미사 없는 꼴로 되돌립니다.
+      const res = { hourly: blendHourly(results[i]?.hourly) as any };
       if (!res?.hourly?.time) {
         return { ...gp, latitude: gp.lat, longitude: gp.lon, distance: gp.dist, low: 0, mid: 0, high: 0 };
       }
