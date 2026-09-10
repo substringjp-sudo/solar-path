@@ -14,6 +14,7 @@ import SunCalc from 'suncalc';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
+import { localDateString } from '../utils/localDate';
 
 const uploadTimers: { [photoId: string]: any } = {};
 
@@ -946,9 +947,8 @@ export const useCelestialStore = create<CelestialState>()(
           const pos = SunCalc.getPosition(targetEvent, lat, lon);
           const az = (pos.azimuth * 180 / Math.PI) + 180;
  
-          const offsetHours = get().timezoneOffsetHours || 9;
-          const localTime = new Date(now.getTime() + offsetHours * 3600 * 1000);
-          const dateStr = localTime.toISOString().split('T')[0];
+          // SunCamera 와 **같은 키**를 만들어야 하므로 같은 함수를 씁니다(§59).
+          const dateStr = localDateString(now);
  
           if (__DEV__) {
             console.log(`[Preload] Fetching weather/terrain/ring for lat=${lat}, lon=${lon}`);

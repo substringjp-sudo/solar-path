@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
+import { localDateString } from '../utils/localDate';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
@@ -720,7 +721,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           }
           const weatherData = await fetchSunsetWeather(latitude, longitude, currentSunPos.azimuth, false, captureTime);
           if (weatherData && weatherData.length > 0) {
-            const dateStr = new Date(captureTime.getTime() + (9 * 3600 * 1000)).toISOString().split('T')[0];
+            // 예전에는 +9시간을 박아 넣어 한국 밖에서는 엉뚱한 날짜가 나왔고,
+            // 같은 키를 만드는 useCelestialStore 와도 어긋났습니다(§59).
+            const dateStr = localDateString(captureTime);
             const newCacheItem = {
               key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${dateStr}`,
               data: weatherData,

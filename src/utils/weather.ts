@@ -6,6 +6,7 @@
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
+import { localDateString } from './localDate';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -224,8 +225,10 @@ export const fetchSunsetWeather = async (
   useNowcast: boolean = false,
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
-  const dateKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
-  const targetDateStr = targetDate.toISOString().split('T')[0];
+  // 캐시 키와 요청 날짜는 **같은 날짜**여야 합니다. 예전에는 키만 현지 날짜,
+  // 요청은 UTC 날짜여서 한국 현지 00~08시에 서로 어긋났습니다(§59).
+  const dateKey = localDateString(targetDate);
+  const targetDateStr = dateKey;
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
   const sunsetCacheKey = `sunset_${lat.toFixed(3)}_${lon.toFixed(3)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
 
@@ -573,7 +576,7 @@ export const fetchLayerWinds = async (
   lon: number,
   targetDate: Date = new Date()
 ): Promise<LayerWindHourly | null> => {
-  const dateStr = targetDate.toISOString().split('T')[0];
+  const dateStr = localDateString(targetDate);
   const key = `wind_${lat.toFixed(3)},${lon.toFixed(3)}_${dateStr}`;
   if (windCache.has(key)) return windCache.get(key) ?? null;
 
@@ -706,7 +709,7 @@ export const fetchDayWeatherRing = async (
   lon: number,
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
-  const targetDateStr = targetDate.toISOString().split('T')[0];
+  const targetDateStr = localDateString(targetDate);
   const cacheKey = `ring_${lat.toFixed(3)},${lon.toFixed(3)}_${targetDateStr}`;
   const cached = MEM_RING_CACHE.get(cacheKey) || ringCache.get(cacheKey);
   if (cached) {
