@@ -8,6 +8,7 @@ import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
+import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
@@ -181,7 +182,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const CAM_HEIGHT = BOX_HEIGHT;
   const CAM_WIDTH = BOX_WIDTH;
 
-  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -406,13 +407,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 오프스크린 시뮬레이터용 29개 다지점 공간 샘플링 시뮬레이션 상태 ──
   const cameraSimState = useMemo(() => {
     const pathData = weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : undefined;
+    // ⚠ 예전에는 `terrain: { observerElevation: 50 }` 만 넘겼습니다. 그러면
+    //   `SkyScene3D` 가 `sim.terrain.bandAngles` 를 못 찾아 `createTerrainBands`
+    //   를 **아예 안 부릅니다** — AR 시뮬레이터와 촬영 썸네일에 산이 통째로
+    //   안 나오던 원인입니다(§62). SkyScreen 과 **같은 스토어 캐시**를 봅니다.
+    //   캐시가 없으면 예전처럼 빈 지형으로 물러납니다(산만 안 나올 뿐 나머지는 그립니다).
+    const cachedTerrain = pickTerrainForLocation(terrainCacheList as any, latitude, longitude);
     return {
       pathData,
       azimuth: dynamicEventAzimuths.sunset,
       eventTime: currentTime,
-      terrain: { observerElevation: 50 },
+      terrain: cachedTerrain ?? fallbackTerrain(),
     };
-  }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset]);
+  }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
 
   // 3D 시뮬레이터 전달용 노을 예측 결과
   const currentPrediction = useMemo(() => {
