@@ -5,6 +5,7 @@
 
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
+import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -285,11 +286,20 @@ export const fetchSunsetWeather = async (
     }
   });
 
-  const modelName = useNowcast ? getLocalHighResModel(lat, lon) : '';
-  const modelParam = modelName ? `&models=${modelName}` : '';
+  // 국지 고해상도 모델이 **진짜로 있는 곳**에서만 그것을 씁니다. 없는 곳에서
+  // `getLocalHighResModel` 은 'best_match' 를 돌려주는데, §56 에서 재 보니
+  // best_match 는 짙게 흐린 하늘에서 τ 를 +34 만큼 맑은 쪽으로 틀립니다.
+  // 그럴 바에는 예보 경로와 같은 ecmwf+icon 을 쓰는 편이 낫습니다.
+  const localModel = useNowcast ? getLocalHighResModel(lat, lon) : '';
+  const modelName = localModel && localModel !== 'best_match' ? localModel : '';
+  const modelParam = modelName ? `&models=${modelName}` : BLEND_MODELS_PARAM;
 
-  // 국지 고해상도 모델은 direct_normal_irradiance 및 total_column_integrated_water_vapour를 미지원하므로 제외하고 요청
-  const hourlyVariables = useNowcast
+  // 국지 고해상도 모델은 direct_normal_irradiance 및 total_column_integrated_water_vapour를 미지원하므로 제외하고 요청.
+  // 판정 기준이 `useNowcast` 가 아니라 **정말 국지 모델을 쓰는가** 로 바뀌었습니다 —
+  // 한국처럼 국지 모델이 없어 ecmwf+icon 으로 내려앉는 곳은 전지구 모델이라
+  // 둘 다 줍니다(§56). 예전에는 그 경우에도 DNI 를 안 받아 흐림 문장이
+  // 근거를 잃었습니다.
+  const hourlyVariables = modelName
     ? 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
     : 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
 
@@ -383,11 +393,14 @@ export const fetchSunsetWeather = async (
       const targetKey = `${vp.targetLat.toFixed(5)},${vp.targetLon.toFixed(5)}`;
       const uniqueIdx = uniquePoints.findIndex(up => up.key === targetKey);
       const res = results[uniqueIdx];
-      const resHourly = res?.hourly || (modelName ? res?.[`hourly_${modelName}`] : null);
+      // 모델을 둘 이상 요청하면 Open-Meteo 가 변수 이름에 모델 이름을 접미사로
+      // 답니다(`cloud_cover_mid_ecmwf_ifs025`). `blendHourly` 가 접미사를 떼고
+      // 섞어 주므로 아래 코드는 그대로입니다.
+      const resHourly = blendHourly(res?.hourly) as any;
 
       if (!res || !resHourly) {
         console.warn(`Weather data missing for virtual point ${i} (${vp.dist}km, offset ${vp.azOffset}°). Using clear sky fallback.`);
-        const fallbackTime: string[] = results[0]?.hourly?.time || results[0]?.[`hourly_${modelName}`]?.time || [];
+        const fallbackTime: string[] = (blendHourly(results[0]?.hourly)?.time as string[]) || [];
         return {
           distance: vp.dist,
           azimuthOffset: vp.azOffset,
@@ -717,7 +730,7 @@ export const fetchDayWeatherRing = async (
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
       : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
         `&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
-        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`;
+        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
 
     // 바람은 별도 요청이지만 **동시에** 던집니다
     const [response, winds] = await Promise.all([
@@ -751,7 +764,7 @@ export const fetchDayWeatherRing = async (
 
     const out: CloudPathData[] = virtualPoints.map((vp, i) => {
       const res = results[idxOf[i]];
-      const rh = res?.hourly;
+      const rh = blendHourly(res?.hourly) as any;
       const time: string[] = rh?.time ?? [];
       const fill = (a: any) => (Array.isArray(a) && a.length ? a : Array(Math.max(1, time.length)).fill(0));
       const hourly: HourlyCloudData = {

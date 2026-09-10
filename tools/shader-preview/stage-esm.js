@@ -48,6 +48,7 @@ const ENTRIES = [
   // AR 방위각 ↔ 화소 사상. 나침반 눈금자와 시뮬레이터가 **같은 함수**를
   // 쓰게 하려고 뽑아낸 것이라, 하네스도 베끼지 말고 이것을 임포트합니다.
   'src/utils/arProjection.ts',
+  'src/utils/modelBlend.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
