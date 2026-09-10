@@ -50,12 +50,30 @@ export const BLEND_MODELS = ['ecmwf_ifs025', 'icon_seamless'] as const;
  * 24시간 전부 null 을 돌려줍니다. 시정은 하늘의 뿌연 정도와 구름 배치에
  * 쓰이므로(SkyScene3D · cloudPlacement · Visualizer) 잃으면 맑은 날이
  * 실제보다 뿌옇게 그려집니다.
+ *
+ * ⚠ 다만 호출 수 때문에 **큰 요청에는 안 붙입니다**(`BLEND_MODELS_PARAM` 주석).
+ * 시정은 관측점 1점 요청(`fetchLayerWinds`)에서 따로 받습니다. 이 상수와
+ * 아래 대체 논리는 그 길이 막혔을 때를 위해 남겨 둡니다.
  */
 export const FILL_MODEL = 'best_match';
 
-/** 요청 URL 에 그대로 이어 붙일 수 있는 `&models=...` 조각. */
-export const BLEND_MODELS_PARAM =
-  `&models=${[...BLEND_MODELS, FILL_MODEL].join(',')}`;
+/**
+ * 요청 URL 에 그대로 이어 붙일 수 있는 `&models=...` 조각.
+ *
+ * ⚠ **`FILL_MODEL` 은 여기 안 들어갑니다.** Open-Meteo 는 변수 10개를 넘기면
+ * 호출 수를 늘려 셉니다("more than 10 weather variables ... are considered
+ * multiple API calls", 15변수 = 1.5회). 모델 하나가 늘 때마다 변수 수가
+ * 그만큼 곱해지므로, 8변수 요청에 모델을 셋 붙이면 24변수 = **2.4회**가
+ * 됩니다. 둘만 붙이면 16변수 = 1.6회입니다.
+ *
+ * 그래서 `best_match` 는 요청에서 뺐고, 그것만 주던 `visibility` 는
+ * `fetchLayerWinds` 의 **관측점 1점 요청에 얹었습니다**(이미 늘 함께 날아가고
+ * 변수가 6개뿐이라 10 미만 — 공짜입니다). 시정은 원래 관측점에서만 쓰입니다.
+ *
+ * `blendHourly` 의 `FILL_MODEL` 대체 논리는 그대로 둡니다 — 지금은 안 쓰이지만
+ * 틀린 논리가 아니고, 나중에 다시 붙일 때를 위해 판정도 남겨 둡니다.
+ */
+export const BLEND_MODELS_PARAM = `&models=${BLEND_MODELS.join(',')}`;
 
 /** 접미사를 떼어 낼 때 쓸 모델 이름들. 긴 것부터 봐야 안전합니다. */
 const ALL_MODELS: string[] = [...BLEND_MODELS, FILL_MODEL]

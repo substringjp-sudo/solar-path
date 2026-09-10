@@ -11,7 +11,10 @@
  *      +10.3 → +18.1 로 되레 나빠지므로 이건 성능이 아니라 **정확성** 문제입니다.
  *   3. 한 모델이 그 시각에만 null 이면 나머지로 내고, 전부 null 이면 null 로
  *      두는가. **0 으로 메우면 "구름 없음" 이라고 거짓말합니다.**
- *   4. 둘 다 아예 안 주는 변수(`visibility`)를 best_match 로 메우는가.
+ *   4. 둘 다 아예 안 주는 변수를 `FILL_MODEL` 로 메우는가 — 지금 큰 요청에는
+ *      best_match 를 안 붙이므로(호출 수) 이 길은 안 쓰입니다. 논리 자체는
+ *      맞고 나중에 다시 붙일 수 있으므로 판정을 남겨 둡니다. 시정은 지금
+ *      `fetchLayerWinds` 의 관측점 1점 요청에서 받습니다.
  *
  * 사용: node tools/shader-preview/verify-model-blend.js
  *      (stage-esm.js 를 먼저 돌려야 합니다 — 앱 모듈을 임포트합니다)
@@ -31,8 +34,10 @@ const near = (a, b, tol = 1e-9) => typeof a === 'number' && Math.abs(a - b) <= t
   console.log('\n[1] 요청 파라미터');
   ok(BLEND_MODELS_PARAM.includes('ecmwf_ifs025'), 'ecmwf 를 요청한다');
   ok(BLEND_MODELS_PARAM.includes('icon_seamless'), 'icon 을 요청한다');
-  ok(BLEND_MODELS_PARAM.includes('best_match'),
-     'best_match 도 요청한다 (시정을 메우려고 — 섞지는 않는다)');
+  ok(!BLEND_MODELS_PARAM.includes('best_match'),
+     'best_match 를 **요청하지 않는다** — 변수가 10개를 넘으면 호출 수가 곱해진다');
+  ok(BLEND_MODELS_PARAM.split(',').length === 2,
+     '큰 요청에 붙는 모델은 둘뿐이다 (8변수 × 2 = 16 → 1.6회, 셋이면 24 → 2.4회)');
   ok(BLEND_MODELS.length === 2 && !BLEND_MODELS.includes('best_match'),
      '섞을 모델은 둘이고 best_match 는 그 안에 없다');
 
@@ -77,7 +82,7 @@ const near = (a, b, tol = 1e-9) => typeof a === 'number' && Math.abs(a - b) <= t
        '둘 다 없으면 null — 0 으로 메우면 구름 없다고 거짓말이 된다');
   }
 
-  console.log('\n[5] 시정: 둘 다 안 주면 best_match 로 메운다');
+  console.log('\n[5] 대체 논리 (지금 큰 요청에는 안 쓰이지만 맞아야 한다)');
   {
     // 실기 확인: ecmwf·icon 은 visibility 를 24시간 전부 null 로 돌려준다.
     const out = blendHourly({

@@ -541,6 +541,16 @@ export interface LayerWindHourly {
   windULow: number[]; windVLow: number[];
   windUMid: number[]; windVMid: number[];
   windUHigh: number[]; windVHigh: number[];
+  /**
+   * 시정(m). 바람과 상관없지만 **여기 얹혀 옵니다.**
+   *
+   * 큰 팬 요청은 ecmwf+icon 을 쓰는데 둘 다 시정을 null 로 줍니다. 그것 하나
+   * 때문에 큰 요청에 best_match 를 더하면 변수가 8→24 가 되어 호출 수가
+   * 2.4배로 셉니다(Open-Meteo 는 변수 10개 초과분을 곱해 셉니다).
+   * 이 요청은 관측점 1점 · 변수 6개라 하나 더 실어도 10 미만 — 공짜입니다.
+   * 그리고 시정은 원래 **관측점에서만** 쓰입니다.
+   */
+  visibility?: number[];
 }
 
 const windCache = new Map<string, LayerWindHourly | null>();
@@ -567,8 +577,10 @@ export const fetchLayerWinds = async (
   const key = `wind_${lat.toFixed(3)},${lon.toFixed(3)}_${dateStr}`;
   if (windCache.has(key)) return windCache.get(key) ?? null;
 
+  // 바람 6개 + 시정 1개 = 7개. 10개를 안 넘으므로 호출 수는 1회 그대로입니다.
   const vars = (['low', 'mid', 'high'] as const)
     .flatMap(k => [`wind_speed_${WIND_LEVELS[k]}`, `wind_direction_${WIND_LEVELS[k]}`])
+    .concat(['visibility'])
     .join(',');
 
   const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -615,6 +627,10 @@ export const fetchLayerWinds = async (
       windUMid: cm.u, windVMid: cm.v,
       windUHigh: ch.u, windVHigh: ch.v,
     };
+    // 시정은 없어도 바람은 살립니다 — 있을 때만 싣습니다.
+    if (Array.isArray(h.visibility) && h.visibility.some((v: unknown) => v != null)) {
+      out.visibility = h.visibility;
+    }
     windCache.set(key, out);
     return out;
   } catch (error) {
@@ -635,6 +651,20 @@ export const fetchLayerWinds = async (
  */
 function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
   const keys = ['windULow', 'windVLow', 'windUMid', 'windVMid', 'windUHigh', 'windVHigh'] as const;
+  // 시정은 이 요청에 얹혀 옵니다(LayerWindHourly.visibility 주석). 큰 요청이
+  // 이미 시정을 받았으면 덮지 않습니다 — 아카이브 경로가 그렇습니다.
+  if (w.visibility && !hourly.visibility) {
+    if (w.time.length === hourly.time.length) {
+      hourly.visibility = w.visibility;
+    } else {
+      const at = new Map<string, number>();
+      w.time.forEach((t, i) => at.set(t, i));
+      hourly.visibility = hourly.time.map(t => {
+        const j = at.get(t);
+        return j !== undefined ? w.visibility![j] : 10000;
+      });
+    }
+  }
   if (w.time.length === hourly.time.length) {
     for (const k of keys) hourly[k] = w[k];
     return;
