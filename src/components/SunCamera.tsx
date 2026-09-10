@@ -325,6 +325,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
   /** 3D 썸네일을 못 만든 이유. 칸을 조용히 지우지 않고 여기 적습니다. */
   const [simPreviewError, setSimPreviewError] = useState<string | null>(null);
+  /** 스냅샷 직전 GL 버퍼 밝기(0~255, −1 = 못 쟀음). 검은 썸네일 진단용. */
+  const [simBufferMean, setSimBufferMean] = useState<number>(-1);
   const [capturedQrData, setCapturedQrData] = useState<string | null>(null);
 
   // 점수 입력 상태
@@ -651,8 +653,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       //   누른 **그 순간**의 방위·고도를 담습니다 — 원래 의도한 것입니다.
       let simUri = '';
       let simFailReason: string | null = null;
+      // ⚠ 스냅샷 **직전의 GL 버퍼 밝기**를 같이 들고 옵니다. 저장된 그림이
+      //   검을 때 "그린 것이 검다"와 "스냅샷 경로가 잃는다"를 가르는 유일한
+      //   단서입니다 — 실기에서 썸네일이 검게 나온 뒤 넣었습니다.
+      let simBufMean = -1;
       if (sky3dRef.current) {
         simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        simBufMean = sky3dRef.current.getLastBufferMean();
         if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
       } else {
         simFailReason = '3D 화면이 아직 준비되지 않음';
@@ -807,6 +814,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 1. 셔터 직전에 못 찍었으면 여기서 한 번 더 시도합니다.
       if (!simUri && sky3dRef.current) {
         simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+        simBufMean = sky3dRef.current.getLastBufferMean();
         if (simUri) simFailReason = null;
         else simFailReason = sky3dRef.current.getLastSnapshotError() ?? simFailReason;
       }
@@ -868,6 +876,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setPreviewUri(stampedUri);
       setSimPreviewUri(simUri || null);
       setSimPreviewError(simUri ? null : simFailReason);
+      setSimBufferMean(simBufMean);
       setCapturedQrData(qrPayload);
       
       // 초기 점수 리셋
@@ -1095,6 +1104,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </View>
                   )}
                   <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
+                  {/* ⚠ 썸네일이 검게 나올 때를 가르는 단서. 스냅샷 직전 GL
+                      버퍼의 가운데 밝기입니다 — 0 에 가까우면 그린 것 자체가
+                      검은 것이고, 0 이 아닌데 그림이 검으면 스냅샷 경로가
+                      잃는 것입니다. 원인을 못 박으면 지웁니다. */}
+                  {simBufferMean >= 0 && (
+                    <View style={styles.simBufBadge} pointerEvents="none">
+                      <Text style={styles.simBufBadgeText}>GL {simBufferMean.toFixed(0)}</Text>
+                    </View>
+                  )}
                 </View>
               </View>
 
@@ -1799,6 +1817,20 @@ const styles = StyleSheet.create({
   compareImage: {
     flex: 1,
     resizeMode: 'cover',
+  },
+  simBufBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  simBufBadgeText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 9,
+    fontFamily: 'monospace',
   },
   compareImageMissing: {
     flex: 1,

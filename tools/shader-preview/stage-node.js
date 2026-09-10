@@ -67,8 +67,25 @@ for (const job of JOBS) {
 }
 
 // verify-timeline.js가 suncalc를 /tmp 기준으로 해석합니다.
+//
+// ⚠ 이 자리는 **우리 심볼릭 링크 전용**입니다. 그런데 누군가 /tmp 에서
+//   `npm install` 을 하면 여기에 진짜 디렉터리가 생기고, 그러면 아래
+//   `rmSync(force)` 가 EISDIR 로 죽으면서 **판정 전체가 준비 단계에서
+//   멈춥니다** — 실제로 한 번 그렇게 날렸습니다. 그때 메시지가
+//   "Path is a directory: rm returned EISDIR" 뿐이라 무엇을 치워야 하는지
+//   알 수 없었습니다. 그래서 먼저 무엇이 놓여 있는지 보고, 남의 디렉터리면
+//   **지우지 말고 무엇을 어떻게 치우라고 알려 줍니다.**
 try {
-  fs.rmSync('/tmp/node_modules', { force: true });
+  const st = fs.lstatSync('/tmp/node_modules', { throwIfNoEntry: false });
+  if (st && st.isDirectory() && !st.isSymbolicLink()) {
+    throw new Error(
+      '/tmp/node_modules 가 심볼릭 링크가 아니라 진짜 디렉터리입니다.\n' +
+      '  이 자리는 하네스가 suncalc 를 찾으려고 쓰는 링크 자리입니다.\n' +
+      '  /tmp 에서 npm install 을 한 적이 있으면 그 산출물입니다.\n' +
+      '  내용을 확인하고 필요 없으면 지운 뒤 다시 돌리십시오:\n' +
+      '    ls -la /tmp/node_modules && rm -rf /tmp/node_modules');
+  }
+  if (st) fs.unlinkSync('/tmp/node_modules');
   fs.symlinkSync(`${SRC}/node_modules`, '/tmp/node_modules', 'dir');
 } catch (e) {
   if (e.code !== 'EEXIST') throw e;
