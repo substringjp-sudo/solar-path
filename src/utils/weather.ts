@@ -7,6 +7,7 @@ import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { localDateString } from './localDate';
+import { extractProfile, layerAltitudes } from './cloudProfile';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -56,6 +57,10 @@ export interface CloudData {
   high: number;
   /** 모델이 스스로 낸 총운량(%). `HourlyCloudData.total` 주석 참고. */
   total?: number;
+  /** 층별 실제 높이(km). 관측점에서만 채워집니다. */
+  layerAltLowKm?: number;
+  layerAltMidKm?: number;
+  layerAltHighKm?: number;
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -151,6 +156,10 @@ export interface HourlyCloudData {
    * 앱의 `cloudWeight`(0.95/0.55/0.25 가중합) 24.3.
    */
   total?: number[];
+  /** 층별 실제 높이(km). `LayerWindHourly.layerAltLowKm` 주석 참고. */
+  layerAltLowKm?: number[];
+  layerAltMidKm?: number[];
+  layerAltHighKm?: number[];
   visibility?: number[];
   humidity?: number[];
   directNormalIrradiance?: number[];
@@ -555,11 +564,28 @@ const ringCache = new Map<string, CloudPathData[]>();
 const WIND_LEVELS = { low: '850hPa', mid: '600hPa', high: '250hPa' } as const;
 
 /** 하루치 층별 바람 시계열. 성분(동/북, km/h)으로 저장합니다. */
+/**
+ * 단면을 받을 기압면. 16개 전부는 필요 없고 층마다 두세 면이면 무게중심이
+ * 잡힙니다. 늘리면 그만큼 호출 가중치가 오릅니다.
+ */
+export const PROFILE_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200] as const;
+
 export interface LayerWindHourly {
   time: string[];
   windULow: number[]; windVLow: number[];
   windUMid: number[]; windVMid: number[];
   windUHigh: number[]; windVHigh: number[];
+  /**
+   * 예보 단면에서 뽑은 **층별 실제 높이**(km). 시각마다 다릅니다.
+   *
+   * 앱은 예전에 `{1.5, 4.5, 10.0}` 을 박아 썼습니다. 실기에서 상층운이
+   * 9,652m 에 있는데 10,000m 에 그렸고, 같은 "상층운" 이 7,556m 이거나
+   * 12,400m 여도 늘 10km 였습니다(§66.1). 구름이 없는 층은 예전 상수로
+   * 물러납니다 — 그릴 것이 없으면 높이도 뜻이 없습니다.
+   */
+  layerAltLowKm?: number[];
+  layerAltMidKm?: number[];
+  layerAltHighKm?: number[];
   /**
    * 시정(m). 바람과 상관없지만 **여기 얹혀 옵니다.**
    *
@@ -596,10 +622,13 @@ export const fetchLayerWinds = async (
   const key = `wind_${lat.toFixed(3)},${lon.toFixed(3)}_${dateStr}`;
   if (windCache.has(key)) return windCache.get(key) ?? null;
 
-  // 바람 6개 + 시정 1개 = 7개. 10개를 안 넘으므로 호출 수는 1회 그대로입니다.
+  // 바람 6 + 시정 1 + 기압면 단면 20 = 27개 → 가중치 2.7회. **관측점 1점**
+  // 요청이라 절대량은 미미합니다(§58 의 합계 186 에 2.7). 팬에는 안 붙입니다 —
+  // 36점에 붙이면 감당이 안 됩니다.
   const vars = (['low', 'mid', 'high'] as const)
     .flatMap(k => [`wind_speed_${WIND_LEVELS[k]}`, `wind_direction_${WIND_LEVELS[k]}`])
     .concat(['visibility'])
+    .concat(PROFILE_LEVELS.flatMap(p => [`cloud_cover_${p}hPa`, `geopotential_height_${p}hPa`]))
     .join(',');
 
   const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -650,6 +679,17 @@ export const fetchLayerWinds = async (
     if (Array.isArray(h.visibility) && h.visibility.some((v: unknown) => v != null)) {
       out.visibility = h.visibility;
     }
+
+    // 단면에서 시각마다 층 높이를 뽑습니다. 단면이 없으면 아예 안 싣고,
+    // 그러면 소비자가 예전 상수를 그대로 씁니다.
+    if (PROFILE_LEVELS.some(p => Array.isArray(h[`cloud_cover_${p}hPa`]))) {
+      const lo: number[] = [], mi: number[] = [], hi: number[] = [];
+      for (let i = 0; i < time.length; i++) {
+        const a = layerAltitudes(extractProfile(h, i));
+        lo.push(a.lowKm); mi.push(a.midKm); hi.push(a.highKm);
+      }
+      out.layerAltLowKm = lo; out.layerAltMidKm = mi; out.layerAltHighKm = hi;
+    }
     windCache.set(key, out);
     return out;
   } catch (error) {
@@ -670,6 +710,13 @@ export const fetchLayerWinds = async (
  */
 function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
   const keys = ['windULow', 'windVLow', 'windUMid', 'windVMid', 'windUHigh', 'windVHigh'] as const;
+  // 층 높이도 이 요청에 얹혀 옵니다. 시각 축이 그대로 겹칠 때만 씁니다 —
+  // 어긋난 채로 붙이면 엉뚱한 시각의 높이가 들어갑니다.
+  if (w.layerAltLowKm && w.time.length === hourly.time.length) {
+    hourly.layerAltLowKm = w.layerAltLowKm;
+    hourly.layerAltMidKm = w.layerAltMidKm;
+    hourly.layerAltHighKm = w.layerAltHighKm;
+  }
   // 시정은 이 요청에 얹혀 옵니다(LayerWindHourly.visibility 주석). 큰 요청이
   // 이미 시정을 받았으면 덮지 않습니다 — 아카이브 경로가 그렇습니다.
   if (w.visibility && !hourly.visibility) {
@@ -897,6 +944,9 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       mid: interpolate(p.hourly.mid[i] ?? 0, p.hourly.mid[i+1] ?? p.hourly.mid[i] ?? 0),
       high: interpolate(p.hourly.high[i] ?? 0, p.hourly.high[i+1] ?? p.hourly.high[i] ?? 0),
       total: interpolateOpt(p.hourly.total),
+      layerAltLowKm: interpolateOpt(p.hourly.layerAltLowKm),
+      layerAltMidKm: interpolateOpt(p.hourly.layerAltMidKm),
+      layerAltHighKm: interpolateOpt(p.hourly.layerAltHighKm),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),

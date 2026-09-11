@@ -134,6 +134,14 @@ float slab_vnoise(vec2 p){
 uniform float SLAB_FBM_GAIN;
 uniform float SLAB_RELIEF_EPS;
 uniform float uShapeMode, uShapeDepth, uShapeEdge, uShapeSigma;
+/**
+ * 층 높이(km). x=저 y=중 z=상.
+ *
+ * ⚠ 예전에는 ALT_LOW/MID/HIGH 를 **셰이더 소스에 박아** 컴파일했습니다. 그러면
+ *   예보가 갱신될 때마다 셰이더를 다시 만들어야 해서, 높이를 예보에 맞추는
+ *   길 자체가 막혀 있었습니다. uniform 으로 빼 두면 매 갱신에 그냥 넣습니다.
+ */
+uniform vec3 uLayerAltKm;
 uniform float uFbmRot;
 float slab_fbm(vec2 p, int oct){
   float s = 0.0, a = 0.5, n = 0.0;
@@ -413,7 +421,7 @@ float nf_fbm3(vec3 p){
  * 값과 같습니다(계획 33절) — genus=0/1 양끝에서 거기서 잰 결과가
  * 그대로 나오게 하려는 것입니다.
  */
-float nf_baseKm(float genus){ return ALT_LOW - mix(0.4, 0.8, genus); }
+float nf_baseKm(float genus){ return uLayerAltKm.x - mix(0.4, 0.8, genus); }
 float nf_thickKm(float genus){ return mix(2.6, 1.6, genus); }
 
 float nf_density(vec3 p, float genus, float cover){
@@ -624,7 +632,7 @@ void main(){
   float tauAcc = 0.0, layerAcc = 0.0, sunAcc = 0.0;
 
   for (int L = 0; L < 3; L++){
-    float hBase  = L == 0 ? ALT_HIGH : (L == 1 ? ALT_MID : ALT_LOW);
+    float hBase  = L == 0 ? uLayerAltKm.z : (L == 1 ? uLayerAltKm.y : uLayerAltKm.x);
     // 구름 고도에서 본 태양. 지평선이 dip 만큼 내려가므로 관측자에게
     // 진 해도 구름에는 아직 떠 있습니다 — 저층 2km 는 1.44도, 중층 6km 는
     // 2.49도. beamAtAltitude 가 이미 같은 보정을 씁니다.
@@ -1245,6 +1253,11 @@ export interface CloudSlabHandle {
   genusTex: THREE.DataTexture;
   /** 운량장이 덮는 반경 (km) */
   rangeKm: number;
+  /**
+   * 층 높이(km)를 예보 단면에 맞춰 덮습니다(`utils/cloudProfile.ts`).
+   * 안 부르면 예전 상수 그대로입니다.
+   */
+  setLayerAltitudesKm: (lowKm: number, midKm: number, highKm: number) => void;
   dispose: () => void;
 }
 
@@ -1286,10 +1299,8 @@ export function createCloudSlab(opts: {
   genusTex.wrapT = THREE.ClampToEdgeWrapping;
   genusTex.needsUpdate = true;
 
+  // ⚠ ALT_* 는 더 이상 치환하지 않습니다 — uLayerAltKm uniform 입니다.
   const frag = FRAG
-    .replace(/ALT_LOW/g, LAYER_ALTITUDE_KM.low.toFixed(2))
-    .replace(/ALT_MID/g, LAYER_ALTITUDE_KM.mid.toFixed(2))
-    .replace(/ALT_HIGH/g, LAYER_ALTITUDE_KM.high.toFixed(2))
     .replace(/CELL_LOW/g, cell.low.toFixed(2))
     .replace(/CELL_MID/g, cell.mid.toFixed(2))
     .replace(/CELL_HIGH/g, cell.high.toFixed(2))
@@ -1398,6 +1409,10 @@ export function createCloudSlab(opts: {
       uShapeDepth: { value: 1.2 },      // 구름 한가운데의 광학 두께 배수
       uShapeEdge: { value: 0.70 },      // 가장자리 단면 (작을수록 칼같이 섬)
       uShapeSigma: { value: 0.16 },     // 모양장(빠른 잡음)의 표준편차
+      // 층 높이(km). 밑값은 예전에 박아 쓰던 상수이고, 예보 단면이 오면
+      // `setLayerAltitudesKm` 으로 덮습니다(utils/cloudProfile.ts).
+      uLayerAltKm: { value: new THREE.Vector3(
+        LAYER_ALTITUDE_KM.low, LAYER_ALTITUDE_KM.mid, LAYER_ALTITUDE_KM.high) },
       uFbmRot: { value: 1 },            // 41절 — fbm 옥타브 회전
       // 구름 군집 (계획 37절). 규모는 셀의 3배 — 저층 6km 입니다.
       // ⚠ 셀×7(14km)로는 **아무 일도 안 일어납니다.** 한 화면 안에서
@@ -1434,6 +1449,13 @@ export function createCloudSlab(opts: {
     coverTex,
     genusTex,
     rangeKm,
+    setLayerAltitudesKm: (lowKm, midKm, highKm) => {
+      // 터무니없는 값이 오면 무시합니다 — 0 이나 음수가 들어가면 셰이더의
+      // 고도 계산이 통째로 무너집니다.
+      const okv = (v: number) => Number.isFinite(v) && v > 0.05 && v < 25;
+      if (!okv(lowKm) || !okv(midKm) || !okv(highKm)) return;
+      (material.uniforms.uLayerAltKm.value as THREE.Vector3).set(lowKm, midKm, highKm);
+    },
     dispose: () => {
       geometry.dispose();
       material.dispose();
@@ -1613,9 +1635,12 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
     typeof u.cityLight === 'number' ? Math.max(0, Math.min(1, u.cityLight))
       : u.cityLight === false ? 0.0 : 1.0;
 
-  const bl = u.beamFor(LAYER_ALTITUDE_KM.low);
-  const bm = u.beamFor(LAYER_ALTITUDE_KM.mid);
-  const bh = u.beamFor(LAYER_ALTITUDE_KM.high);
+  // ⚠ 셰이더가 쓰는 높이와 **같은 값**이어야 합니다. 예전에는 여기만 상수를
+  //   보고 있어서, 높이를 바꾸면 빛줄기 색만 옛 높이로 남았을 것입니다.
+  const alt = uni.uLayerAltKm.value as THREE.Vector3;
+  const bl = u.beamFor(alt.x);
+  const bm = u.beamFor(alt.y);
+  const bh = u.beamFor(alt.z);
   (uni.uBeamLow.value as THREE.Vector3).set(bl.r, bl.g, bl.b);
   (uni.uBeamMid.value as THREE.Vector3).set(bm.r, bm.g, bm.b);
   (uni.uBeamHigh.value as THREE.Vector3).set(bh.r, bh.g, bh.b);

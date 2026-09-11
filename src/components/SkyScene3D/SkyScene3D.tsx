@@ -1696,6 +1696,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
     if (cloudSlabRef.current) {
       cloudSlabRef.current.mesh.visible = currentLayers.clouds;
+      // 층 높이를 예보 단면에 맞춥니다(§66.1). 단면이 안 왔으면 값이
+      // undefined 라 세터를 안 부르고, 그러면 예전 상수 그대로입니다.
+      const ow = observerWeather();
+      if (ow?.layerAltLowKm != null && ow.layerAltMidKm != null && ow.layerAltHighKm != null) {
+        cloudSlabRef.current.setLayerAltitudesKm(ow.layerAltLowKm, ow.layerAltMidKm, ow.layerAltHighKm);
+      }
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
