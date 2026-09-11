@@ -231,24 +231,8 @@ const DEFAULT_LAYERS: LayerState = {
 
 const DRAG_SENSITIVITY = 0.3;
 
-/**
- * 땅(지평선 아래)이 화면 세로 높이의 지정된 비율(기본 30%)을 넘지 않도록 하는 최소 카메라 고도(도).
- *
- * Why: 카메라를 아래로 과도하게 내리면 지평선이 화면 위로 올라와 땅이 화면의 절반 이상을 덮습니다.
- * PerspectiveCamera 투영에서 지평선(고도 0°)의 정규화 y좌표(NDC [-1, 1])가 하단 maxRatio 위치에 머물도록
- * 최소 시선 고도를 기하학적으로 계산합니다:
- *   y_horizon = -tan(elevRad) / tan(fovRad / 2) <= -1 + 2 * maxRatio
- *   tan(elevRad) >= (1 - 2 * maxRatio) * tan(fovRad / 2)
- */
-export function getMinCameraElevForGroundRatio(fovDeg: number, maxGroundRatio: number = 0.3): number {
-  const halfFovRad = ((fovDeg / 2) * Math.PI) / 180;
-  const targetTan = (1 - 2 * maxGroundRatio) * Math.tan(halfFovRad);
-  return (Math.atan(Math.max(0, targetTan)) * 180) / Math.PI;
-}
-
 /** InstancedMesh 용량. 29셀 × 최대 4개 ≈ 116이지만 여유를 둡니다. */
 const MAX_CLOUDS = 160; // 320 → 160: 모바일 GPU 부하 절반 절감
-
 
 /** 연중 일수 — 지구·태양 거리 보정에 사용 */
 function dayOfYearOf(d: Date): number {
@@ -659,7 +643,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     windCacheRef.current = { src: obs, winds };
     return winds;
   }, [observerWeather]);
-
 
   /**
    * 덱이 쓸 층 대표 운형의 광학 — 조각 기하와 광학두께가 **같은 운형**에서
@@ -1372,7 +1355,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     animate();
   }, []);
 
-
   const updateScene = useCallback((evalDate?: Date) => {
     const targetDate = evalDate || new Date(renderedTimeMsRef.current);
     const overcast = predictionRef.current?.factors?.overheadOvercast ?? 0;
@@ -1750,9 +1732,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
     }
   }, [location]);
-
-
-
 
   const rebuildCloudsForDate = useCallback((targetDate: Date, sampled?: SampledSky | null) => {
     const lat = location?.coords?.latitude ?? 37.5;

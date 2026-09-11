@@ -1,27 +1,4 @@
-/**
- * starCatalog.ts
- *
- * Yale Bright Star Catalog(BSC5) 기반 항성 데이터 — 6.5등급까지 8,355개.
- *
- * Why 압축 형식인가: 8,355개를 JSON 객체 배열로 두면 번들이 300KB 넘게 늘어납니다.
- * 별 하나를 6바이트로 양자화해 base64로 담으면 67KB이고, 앱 시작 시 한 번
- * TypedArray로 풀어 쓰면 됩니다. 양자화 오차는 적경 0.7초각 · 적위 4.9초각으로
- * 화면 1픽셀(수 분각)보다 훨씬 작아 눈에 보이지 않습니다.
- *
- * 레코드 배치 (리틀 엔디언, 6바이트):
- *   [0..1] uint16  적경   : raHours / 24 * 65535
- *   [2..3] int16   적위   : decDeg / 90 * 32767
- *   [4]    uint8   등급   : (Vmag + 2) * 28
- *   [5]    uint8   B-V    : (bv + 0.5) * 56
- *
- * 데이터는 밝은 순으로 정렬되어 있습니다. 등급 상한을 낮춰 그릴 때
- * 앞에서부터 자르기만 하면 되므로 필터링이 필요 없습니다.
- *
- * 출처: Hoffleit & Warren (1991), Yale Bright Star Catalog, 5th ed. (VizieR V/50)
- */
 
-/** 카탈로그에 담긴 별 개수 */
-export const STAR_COUNT = 8355;
 
 /** 가장 어두운 등급 (이보다 어두운 별은 카탈로그에 없음) */
 export const STAR_MAG_LIMIT = 6.5;

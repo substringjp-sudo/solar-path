@@ -48,9 +48,6 @@
  * 합성을 안 쓰는 경로에서도 동작이 같습니다.
  */
 import * as THREE from 'three';
-
-/** 기본값 — 어느 층에도 배정되지 않은 물체 (합성 시 그려지지 않습니다) */
-export const LAYER_DEFAULT = 0;
 /** 저해상도 · 불투명 배경 */
 export const LAYER_SOFT_SKY = 1;
 /** 원해상도 · 구름 아래 (별·은하수·지형·태양) */

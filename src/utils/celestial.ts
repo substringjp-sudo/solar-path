@@ -49,7 +49,6 @@ export const getCelestialEvents = (date: Date, lat: number, lng: number): Celest
   };
 };
 
-
 export const getSunPath = (date: Date, lat: number, lng: number): PathPoint[] => {
   const dayStart = startOfDay(date);
   const points: PathPoint[] = [];
@@ -86,13 +85,6 @@ export interface IsochroneLine {
   points: IsochronePoint[];
   type: 'sunrise' | 'sunset';
 }
-
-export const getIsochroneInterval = (zoom: number): number => {
-  if (zoom >= 10) return 5;
-  if (zoom >= 8) return 10;
-  if (zoom >= 6) return 15;
-  return 30;
-};
 
 /**
  * 태양 적위(declination)와 균시차(equation of time)를 계산합니다.
@@ -274,6 +266,4 @@ export const getSeasonMarkers = (year: number): SeasonMarkers => {
 
   return { springEquinox, summerSolstice, autumnEquinox, winterSolstice };
 };
-
-
 

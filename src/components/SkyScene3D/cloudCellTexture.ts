@@ -194,9 +194,3 @@ export async function createCloudCellTextureAsync(
   cachedKey = key;
   return handle;
 }
-
-/** 테스트·개발용 — 캐시를 버립니다 (텍스처는 dispose하지 않습니다). */
-export function resetCloudCellTextureCache(): void {
-  cached = null;
-  cachedKey = '';
-}

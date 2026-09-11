@@ -364,19 +364,3 @@ export const analyzeScene = (
     }
   }
 };
-
-/**
- * expo-image-manipulator용 Action 배열로 변환한다.
- * brightness/contrast 같은 커스텀 값을 manipulator가 지원하는 범위로 매핑한다.
- */
-export const getManipulatorActions = (params: EnhancementParams) => {
-  // expo-image-manipulator는 기본적으로 crop/resize/rotate/flip만 지원하므로
-  // 보정은 GL 쉐이더나 별도 처리가 필요함.
-  // 여기서는 보정 파라미터를 반환하여 네이티브 단에서 적용할 수 있도록 한다.
-  return {
-    // 이미지 리사이즈 (고해상도 유지)
-    resize: { width: 3840 },
-    // 보정 메타데이터
-    enhancement: params,
-  };
-};

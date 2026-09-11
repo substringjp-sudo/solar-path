@@ -23,40 +23,6 @@ export interface SunsetWidgetSequenceData {
 }
 
 /**
- * 하버스사인 위경도 거리 계산 (km 단위)
- */
-export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = EARTH_RADIUS_KM; // 지구 반경 (km)
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-/**
- * 2km 이내 위치 변동 여부 검증
- */
-export function shouldSkipWidgetSnapshot(
-  lastData: SunsetWidgetSequenceData | null,
-  currentLat: number,
-  currentLon: number
-): boolean {
-  if (!lastData) return false;
-
-  const isSameDay = new Date(lastData.lastTimestamp).toDateString() === new Date().toDateString();
-  if (!isSameDay) return false;
-
-  const dist = calculateDistanceKm(lastData.lastLat, lastData.lastLon, currentLat, currentLon);
-  return dist < 2.0;
-}
-
-/**
  * 안드로이드 RemoteViews 호환용 초경량 1x1 / 2x2 JPEG Base64 픽셀 생성기
  */
 export function getSafeBase64JpegPixel(): string {

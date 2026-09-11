@@ -91,24 +91,3 @@ export function svgPathToShapes(pathStr: string, scale: number = 1.0): THREE.Sha
 
   return shapes;
 }
-
-/**
- * SVG path를 ShapeGeometry로 직접 변환합니다.
- * @param pathStr SVG path 문자열
- * @param scale 좌표 스케일
- * @returns THREE.ShapeGeometry
- */
-export function svgPathToGeometry(pathStr: string, scale: number = 0.01): THREE.ShapeGeometry {
-  const shapes = svgPathToShapes(pathStr, scale);
-  if (shapes.length === 0) {
-    // fallback: 작은 사각형
-    const fallback = new THREE.Shape();
-    fallback.moveTo(-0.5, -0.25);
-    fallback.lineTo(0.5, -0.25);
-    fallback.lineTo(0.5, 0.25);
-    fallback.lineTo(-0.5, 0.25);
-    fallback.closePath();
-    return new THREE.ShapeGeometry(fallback);
-  }
-  return new THREE.ShapeGeometry(shapes);
-}

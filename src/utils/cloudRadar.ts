@@ -50,13 +50,12 @@
  */
 import { CloudPathData, layerWindsFrom } from './weather';
 import { WeatherFan } from './skyColumn';
-import { classifyCloud, CloudClass, buildCloudCells, generate29GridPoints, CloudCellData } from './cloudMatrix';
+import { classifyCloud, CloudClass } from './cloudMatrix';
 
 /** 고리가 실제로 받는 거리(km). `weather.ts` 의 `RING` 과 같아야 합니다. */
 export const RADAR_RINGS_KM = [0, 5, 10, 30, 70, 130, 200, 280, 380] as const;
 /** 원반 반지름(km). */
 export const RADAR_RADIUS_KM = 380;
-
 
 /**
  * ⚠ **문턱은 도(度)가 아니라 km 입니다.**
@@ -254,65 +253,4 @@ export const buildRadarFrame = (
     timeMs,
     outerSpacingKm: (2 * Math.PI * RADAR_RADIUS_KM) / (360 / azStep),
   };
-};
-
-/**
- * 고리 자료로 **29점 격자 셀**을 채웁니다.
- *
- * 지도의 레이더와 **같은 고리·같은 보간기**를 씁니다 — 갈라 두면 같은 화면
- * 안에서 두 그림이 다른 구름을 말하게 됩니다.
- *
- * ⚠ 예전에는 이 자리가 위경도 해시였습니다(`cloudMatrix.ts` 머리말).
- *
- * ⚠ 층별과 강수를 **각각 보간**합니다. `WeatherFan` 은 low/mid/high 세 칸만
- *   나르므로, 강수는 그 세 칸에 같은 값을 실은 팬을 따로 만들어 씁니다.
- *   한 팬에 억지로 섞으면 값이 서로를 덮습니다.
- */
-export const buildCloudCellsFromRing = (
-  ring: CloudPathData[] | null | undefined,
-  lat: number,
-  lon: number,
-  timeMs: number,
-): CloudCellData[] => {
-  if (!ring || ring.length < 2) return [];
-
-  const idxOf = (h: CloudPathData['hourly']): number => {
-    let i = 0;
-    while (i < h.timeMs.length - 1 && h.timeMs[i + 1] <= timeMs) i++;
-    return i;
-  };
-  const pick = (p: CloudPathData, key: 'low' | 'mid' | 'high' | 'precipitation'): number => {
-    const h = p.hourly;
-    if (!h?.timeMs?.length) return 0;
-    const arr = h[key] as number[] | undefined;
-    const i = idxOf(h);
-    return arr && arr[i] != null ? arr[i] : 0;
-  };
-
-  const layerFan = new WeatherFan(
-    ring.map(p => ({ ...p, low: pick(p, 'low'), mid: pick(p, 'mid'), high: pick(p, 'high') })) as any, 0);
-  const precipFan = new WeatherFan(
-    ring.map(p => { const v = pick(p, 'precipitation'); return { ...p, low: v, mid: v, high: v }; }) as any, 0);
-  if (!layerFan.hasData) return [];
-
-  const frame = buildRadarFrame(ring, lat, lon, timeMs, 1);   // 바람만 빌려 씁니다
-  const wind = frame?.wind ?? null;
-
-  return buildCloudCells(
-    generate29GridPoints(lat, lon),
-    (bearingDeg, distanceKm) => {
-      const { data } = layerFan.sample(bearingDeg, distanceKm);
-      if (!data) return null;
-      const pr = precipFan.sample(bearingDeg, distanceKm).data;
-      const low = data.low, mid = data.mid, high = data.high;
-      return {
-        low, mid, high,
-        precipitationMm: pr ? pr.mid : 0,
-        // 총운량은 층을 겹쳐 낸 값이 아니라 **모델 총량**이 가장 잘 맞습니다(§60).
-        // 여기서는 그 값을 레이더 프레임이 이미 쓰고 있으므로 층 최대로 둡니다.
-        total: Math.max(low, mid, high),
-      };
-    },
-    wind ? { speedKmh: wind.speedKmh, bearingDeg: wind.fromBearingDeg } : null,
-  );
 };
