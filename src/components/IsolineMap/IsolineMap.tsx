@@ -54,8 +54,16 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const [globeScale, setGlobeScale] = useState(150);
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * ⚠ 디바운스를 **안 거친** 최신 중심. 십자선은 지도 한가운데에 그려지므로
+   * 늘 실제 중심을 가리키는데, `region` 상태는 350ms 뒤에야 따라옵니다. 그
+   * 사이에 📍를 누르면 **십자선이 가리킨 곳이 아닌 직전 중심**으로 갑니다.
+   * "보고 누르게 한다" 는 약속이 거기서 깨지므로 이 ref 를 씁니다.
+   */
+  const liveRegionRef = useRef({ latitude: lat, longitude: lon });
 
   const handleRegionChangeComplete = useCallback((r: { latitude: number; longitude: number; longitudeDelta: number }) => {
+    liveRegionRef.current = { latitude: r.latitude, longitude: r.longitude };
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
@@ -189,9 +197,10 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   );
 
   const moveToCenter = useCallback(() => {
-    setLocation({ coords: { latitude: region.latitude, longitude: region.longitude } } as any);
+    const { latitude, longitude } = liveRegionRef.current;
+    setLocation({ coords: { latitude, longitude } } as any);
     setLocMenuOpen(false);
-  }, [region.latitude, region.longitude, setLocation]);
+  }, [setLocation]);
 
   const moveToGps = useCallback(async () => {
     setLocMenuOpen(false);
