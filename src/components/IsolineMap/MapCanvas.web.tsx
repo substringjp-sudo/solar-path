@@ -14,6 +14,12 @@ interface MapCanvasProps {
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
   selectedDate?: Date;
+  /**
+   * ⚠ 웹 미리보기는 **줌이 없는 전세계 고정 도법**이라 `longitudeDelta` 가
+   * 안 바뀝니다. 그래서 이 값은 여기서는 늘 null 이고, 태양 오버레이는
+   * 네이티브에서만 뜹니다. 받아만 두어 타입을 맞춥니다.
+   */
+  sunOverlay?: unknown;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,

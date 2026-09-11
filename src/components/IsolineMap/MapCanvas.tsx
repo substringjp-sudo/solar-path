@@ -1,5 +1,6 @@
 import React from 'react';
 import { IsochronePoint } from '../../utils/celestial';
+import { SunOverlay } from '../../utils/solarGeometry';
 
 export interface MapCanvasProps {
   lat: number;
@@ -12,6 +13,8 @@ export interface MapCanvasProps {
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
   selectedDate?: Date;
+  /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
+  sunOverlay?: SunOverlay | null;
 }
 
 export declare const MapCanvas: React.FC<MapCanvasProps>;

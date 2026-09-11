@@ -59,7 +59,7 @@ const TIMES = [
   const {
     angularDistanceDeg, bearingDeg, isoAltitudeBearingDeg, sunAltitudeFromSubsolar,
     lineRayAngleDeg, getSunFan, isIsolineScale, sunriseSpreadMinutes,
-    LOCAL_CROSSOVER_DELTA_DEG,
+    LOCAL_CROSSOVER_DELTA_DEG, destinationPoint, buildSunOverlay,
   } = G;
   const { getSubsolarPoint, getSunPosition } = C;
 
@@ -222,6 +222,82 @@ const TIMES = [
     console.log(`      스발바르 하지 — 일출 ${polar.riseAz} · 일몰 ${polar.setAz} · 지금 ${polar.nowAz.toFixed(1)}°(고도 ${polar.nowAlt.toFixed(1)}°)`);
     ok(polar.riseAz === null && polar.setAz === null, `백야에서는 일출·일몰이 null`);
     ok(Number.isFinite(polar.nowAz) && polar.nowAlt > 0, `그래도 지금 방위·고도는 나온다 — 화살표는 그릴 수 있다`);
+  }
+
+  // ── [8] 목적점 ─────────────────────────────────────────────────────
+  console.log('\n[8] 방위·거리로 간 점');
+  {
+    let worstD = 0, worstB = 0;
+    for (const [, la, lo] of PLACES) {
+      for (const br of [0, 37, 90, 175, 268, 359]) {
+        for (const dist of [0.01, 0.5, 10, 80]) {
+          const p = destinationPoint(la, lo, br, dist);
+          worstD = Math.max(worstD, Math.abs(angularDistanceDeg(la, lo, p.latitude, p.longitude) - dist));
+          let db = Math.abs(((bearingDeg(la, lo, p.latitude, p.longitude) - br) % 360 + 360) % 360);
+          if (db > 180) db = 360 - db;
+          worstB = Math.max(worstB, db);
+        }
+      }
+    }
+    console.log(`      왕복 — 거리 오차 최대 ${worstD.toExponential(1)}° · 방위 오차 최대 ${worstB.toExponential(1)}°`);
+    ok(worstD < 1e-9, `간 거리가 요청한 거리와 같다`);
+    ok(worstB < 1e-9, `간 방향이 요청한 방위와 같다`);
+  }
+
+  // ── [9] 지도 오버레이 ──────────────────────────────────────────────
+  console.log('\n[9] 지도에 얹을 오버레이');
+  {
+    const d = new Date('2026-09-11T09:00:00Z');
+    const la = 37.4863, lo = 127.0443;
+
+    ok(buildSunOverlay(d, la, lo, 60) === null, `넓은 축척(60°)에서는 안 그린다`);
+    ok(buildSunOverlay(d, la, lo, LOCAL_CROSSOVER_DELTA_DEG) === null, `문턱 자신도 안 그린다`);
+    const ov = buildSunOverlay(d, la, lo, 0.3);
+    ok(ov !== null, `0.3° 에서는 그린다`);
+
+    // 등고도선 위의 점들이 **정말로 같은 고도**인가 — 이게 이 선의 정의입니다.
+    const altHere = sunAltitudeFromSubsolar(d, la, lo);
+    let worstAlt = 0;
+    for (const p of ov.isoLine) {
+      worstAlt = Math.max(worstAlt, Math.abs(sunAltitudeFromSubsolar(d, p.latitude, p.longitude) - altHere));
+    }
+    console.log(`      등고도선 16점의 고도 편차 최대 ${worstAlt.toExponential(1)}° (중심 고도 ${altHere.toFixed(2)}°)`);
+    ok(worstAlt < 1e-9, `등고도선 위 모든 점의 고도가 같다 — 이름값을 한다`);
+
+    // ⚠ 대조 — 직선 측지선으로 근사했다면 얼마나 어긋났을까.
+    //    이 값이 0 이면 "제대로 그렸다" 는 말이 공허합니다.
+    const isoB = isoAltitudeBearingDeg(d, la, lo);
+    let worstNaive = 0;
+    for (const f of [-1, 1]) {
+      const p = destinationPoint(la, lo, isoB + (f < 0 ? 180 : 0), ov.spanDeg);
+      worstNaive = Math.max(worstNaive, Math.abs(sunAltitudeFromSubsolar(d, p.latitude, p.longitude) - altHere));
+    }
+    console.log(`      직선으로 근사했다면 끝점 고도가 ${worstNaive.toExponential(1)}° 어긋남 (0.3° 화면)`);
+    const wide = buildSunOverlay(d, la, lo, 0.99);
+    let worstNaiveWide = 0;
+    for (const f of [-1, 1]) {
+      const p = destinationPoint(la, lo, isoB + (f < 0 ? 180 : 0), wide.spanDeg);
+      worstNaiveWide = Math.max(worstNaiveWide, Math.abs(sunAltitudeFromSubsolar(d, p.latitude, p.longitude) - altHere));
+    }
+    console.log(`      같은 근사를 0.99° 화면에 쓰면 ${worstNaiveWide.toExponential(1)}° 어긋남`);
+    ok(worstNaiveWide > worstAlt * 10 || worstNaiveWide > 1e-6,
+       `직선 근사는 실제로 어긋난다 — 소원으로 그린 것이 공허하지 않다`);
+
+    // 반직선의 방위가 부채 값과 같은가.
+    const rayB = bearingDeg(la, lo, ov.nowRay[1].latitude, ov.nowRay[1].longitude);
+    ok(Math.abs(rayB - ov.fan.nowAz) < 1e-6, `지금 방향 반직선이 태양 방위를 가리킨다`);
+    ok(ov.riseRay && ov.setRay, `보통 위도에서는 일출·일몰 반직선이 있다`);
+
+    // 길이가 화면 폭을 따라가는가.
+    const a = buildSunOverlay(d, la, lo, 0.2), b = buildSunOverlay(d, la, lo, 0.8);
+    ok(b.spanDeg > a.spanDeg * 3, `화면이 넓어지면 선도 길어진다 (${a.spanDeg.toFixed(3)}° → ${b.spanDeg.toFixed(3)}°)`);
+
+    // ⚠ 백야 — 반직선 둘이 없어도 화살표와 등고도선은 나와야 합니다.
+    const polar = buildSunOverlay(new Date('2026-06-21T12:00:00Z'), 78, 15, 0.3);
+    ok(polar !== null && polar.riseRay === null && polar.setRay === null,
+       `백야에서는 일출·일몰 반직선이 없다`);
+    ok(polar.isoLine.length > 2 && Number.isFinite(polar.nowRay[1].latitude),
+       `그래도 등고도선과 지금 방향은 그려진다`);
   }
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);

@@ -3,6 +3,7 @@ import { View, StyleSheet, Text } from 'react-native';
 import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon } from 'react-native-maps';
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
+import { SunOverlay } from '../../utils/solarGeometry';
 
 interface MapCanvasProps {
   lat: number;
@@ -15,6 +16,8 @@ interface MapCanvasProps {
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   theme: any;
   selectedDate?: Date;
+  /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
+  sunOverlay?: SunOverlay | null;
 }
 
 export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
@@ -28,6 +31,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   onRegionChangeComplete,
   theme,
   selectedDate,
+  sunOverlay = null,
 }) => {
   const handleRegionChangeComplete = (newRegion: any) => {
     onRegionChangeComplete?.(newRegion);
@@ -58,7 +62,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       onRegionChangeComplete={handleRegionChangeComplete}
     >
       {/* 밤 그림자 영역 오버레이 (d3-geoCircle 기반 곡선 폴리곤) */}
-      {nightPolygonCoords && nightPolygonCoords.map((coords, index) => (
+      {!sunOverlay && nightPolygonCoords && nightPolygonCoords.map((coords, index) => (
         <Polygon
           key={`night-polygon-${index}`}
           coordinates={coords}
@@ -69,8 +73,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         />
       ))}
 
-      {/* 1. 시간별 서브 등시선들 (allTerminators) - 고성능 선형 폴리라인 렌더링 */}
-      {allTerminators && allTerminators.map((term, idx) => (
+      {/* 1. 시간별 서브 등시선들 (allTerminators) - 고성능 선형 폴리라인 렌더링
+             ⚠ 좁은 축척에서는 끕니다. 화면 폭이 1° 아래면 안에서 일출 시각이
+             5분도 안 벌어져 30분 간격 선이 0~1개만 남습니다(§73). 그 자리는
+             아래 태양 오버레이가 맡습니다. */}
+      {!sunOverlay && allTerminators && allTerminators.map((term, idx) => (
         <React.Fragment key={`sub-term-${idx}`}>
           {term.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => (
             <Polyline
@@ -94,7 +101,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       ))}
 
       {/* 2. 현재 선택된 시간의 메인 일출/일몰선 */}
-      {terminator.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => {
+      {!sunOverlay && terminator.sunrise.filter((segment) => segment.length >= 2).map((segment, i) => {
         const eqPt = segment.length > 0 ? segment[Math.floor(segment.length / 2)] : null;
         return (
           <React.Fragment key={`sunrise-${i}`}>
@@ -114,7 +121,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           </React.Fragment>
         );
       })}
-      {terminator.sunset.filter((segment) => segment.length >= 2).map((segment, i) => {
+      {!sunOverlay && terminator.sunset.filter((segment) => segment.length >= 2).map((segment, i) => {
         const eqPt = segment.length > 0 ? segment[Math.floor(segment.length / 2)] : null;
         return (
           <React.Fragment key={`sunset-${i}`}>
@@ -135,12 +142,80 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         );
       })}
 
-      <Marker coordinate={{ latitude: subsolar.latitude, longitude: subsolar.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
-        <View style={styles.sunMarker}>
-          <Sun size={14} color="#78350F" fill="#FFD700" />
-        </View>
-      </Marker>
+      {!sunOverlay && (
+        <Marker coordinate={{ latitude: subsolar.latitude, longitude: subsolar.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
+          <View style={styles.sunMarker}>
+            <Sun size={14} color="#78350F" fill="#FFD700" />
+          </View>
+        </Marker>
+      )}
 
+      {/* ── 태양 오버레이 (좁은 축척) ──────────────────────────────────
+             등고도선 한 줄과, 그 **법선** 위의 태양 방향들입니다.
+             둘의 직교는 우연이 아니라 기하입니다(`solarGeometry.ts`). */}
+      {sunOverlay && (
+        <>
+          {sunOverlay.riseRay && (
+            <Polyline
+              coordinates={sunOverlay.riseRay}
+              strokeColor="rgba(251, 146, 60, 0.55)"
+              strokeWidth={2}
+              lineDashPattern={[6, 5]}
+              geodesic
+            />
+          )}
+          {sunOverlay.setRay && (
+            <Polyline
+              coordinates={sunOverlay.setRay}
+              strokeColor="rgba(248, 113, 113, 0.55)"
+              strokeWidth={2}
+              lineDashPattern={[6, 5]}
+              geodesic
+            />
+          )}
+          <Polyline
+            coordinates={sunOverlay.isoLine}
+            strokeColor="#38BDF8"
+            strokeWidth={2.5}
+            geodesic
+          />
+          {/* 해가 떠 있으면 실선, 지평선 아래면 흐린 점선 */}
+          <Polyline
+            coordinates={sunOverlay.nowRay}
+            strokeColor={sunOverlay.fan.nowAlt > 0 ? '#FB923C' : 'rgba(251, 146, 60, 0.35)'}
+            strokeWidth={3.5}
+            lineDashPattern={sunOverlay.fan.nowAlt > 0 ? undefined : [7, 6]}
+            geodesic
+          />
+          {sunOverlay.riseRay && (
+            <Marker coordinate={sunOverlay.riseRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={styles.fanLabelRise}>
+                <Text style={styles.fanLabelText}>
+                  일출 {Math.round(sunOverlay.fan.riseAz ?? 0)}°
+                </Text>
+              </View>
+            </Marker>
+          )}
+          {sunOverlay.setRay && (
+            <Marker coordinate={sunOverlay.setRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={styles.fanLabelSet}>
+                <Text style={styles.fanLabelText}>
+                  일몰 {Math.round(sunOverlay.fan.setAz ?? 0)}°
+                </Text>
+              </View>
+            </Marker>
+          )}
+          <Marker coordinate={sunOverlay.nowRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.fanLabelNow}>
+              <Text style={styles.fanLabelText}>
+                {sunOverlay.fan.nowAlt > 0 ? '지금' : '지평선 아래'} {Math.round(sunOverlay.fan.nowAz)}°
+              </Text>
+            </View>
+          </Marker>
+        </>
+      )}
+
+      {/* ⚠ 직하점은 좁은 축척에서 늘 화면 밖입니다 — 안 그립니다. */}
       {hasLocation && (
         <Marker coordinate={{ latitude: lat, longitude: lon }} anchor={{ x: 0.5, y: 0.5 }}>
           <View style={[styles.userMarker, { borderColor: theme.accent }]}>
@@ -218,6 +293,35 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1,
+  },
+  fanLabelRise: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(234, 88, 12, 0.85)',
+    borderWidth: 0.8,
+    borderColor: '#7C2D12',
+  },
+  fanLabelSet: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(190, 18, 60, 0.85)',
+    borderWidth: 0.8,
+    borderColor: '#4C0519',
+  },
+  fanLabelNow: {
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    backgroundColor: '#FB923C',
+    borderWidth: 0.8,
+    borderColor: '#7C2D12',
+  },
+  fanLabelText: {
+    color: '#FFFFFF',
+    fontSize: 8.5,
+    fontWeight: 'bold',
   },
   isolineLabelText: {
     color: '#FFFFFF',

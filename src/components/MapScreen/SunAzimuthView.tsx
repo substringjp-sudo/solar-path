@@ -20,6 +20,13 @@ import { useCelestialStore } from '../../store/useCelestialStore';
 interface Props {
   theme: any;
   currentTime: Date;
+  /**
+   * 지도 위 **인셋**으로 쓸 때. 원만 작게 그리고 수치 패널은 뺍니다.
+   *
+   * 지도 평면은 방위는 그려도 **고도**를 못 그립니다 — 이 원이 지키는 값이
+   * 그것이라, 좁은 축척에서 지도 모서리에 얹습니다.
+   */
+  compact?: boolean;
 }
 
 /** 극좌표(az, alt) → SVG (x, y) 변환
@@ -41,16 +48,19 @@ function toPathD(points: { x: number; y: number }[]): string {
     .join(' ');
 }
 
-export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
+export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = false }) => {
   const { location } = useCelestialStore();
   const lat = location?.coords.latitude ?? 37.5665;
   const lng = location?.coords.longitude ?? 126.978;
 
   const { width, height } = Dimensions.get('window');
-  const size = Math.min(width - 32, Math.min(360, height * 0.45));
+  // 인셋은 화면 폭의 1/3 정도로, 너무 작아지지 않게 바닥을 둡니다.
+  const size = compact
+    ? Math.max(96, Math.min(132, width * 0.33))
+    : Math.min(width - 32, Math.min(360, height * 0.45));
   const cx = size / 2;
   const cy = size / 2;
-  const R = size / 2 - 24; // 패딩 24
+  const R = size / 2 - (compact ? 13 : 24); // 인셋은 방위 글자가 작아 여백도 적게
 
   // ── 하루 태양 궤적 (30분 간격, 49점) ─────────────────────────────────────
   const sunPath = useMemo(() => getSunPath(currentTime, lat, lng), [
@@ -256,7 +266,7 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
   });
 
   return (
-    <View style={[styles.container]}>
+    <View style={[compact ? styles.compactContainer : styles.container]}>
       <Svg width={size} height={size}>
         <Defs>
           {/* 태양 중심 다이내믹 원판 조명 그라디언트 */}
@@ -499,7 +509,16 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
         })}
       </Svg>
 
-      {/* ── 수치 패널 (HUD 스타일) ───────────────────────────────────────── */}
+      {/* ── 수치 패널 (HUD 스타일) ─────────────────────────────────────────
+             인셋에서는 뺍니다 — 같은 값이 지도 위 라벨에 이미 있습니다.
+             대신 고도 하나만 남깁니다. 그게 지도가 못 그리는 값입니다. */}
+      {compact ? (
+        <Text style={styles.compactAlt}>
+          고도 <Text style={{ color: isAbove ? '#FDE68A' : '#94A3B8', fontWeight: '900' }}>
+            {sunPos.altitude.toFixed(0)}°
+          </Text>
+        </Text>
+      ) : (
       <View style={styles.infoRow}>
         <InfoChip label="방위각" value={`${sunPos.azimuth.toFixed(1)}°`} color="#FB923C" />
         <InfoChip
@@ -513,7 +532,8 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime }) => {
           color={isAbove ? '#34D399' : '#64748B'}
         />
       </View>
-      <Text style={styles.timeLabel}>{timeStr} 관측 기준</Text>
+      )}
+      {!compact && <Text style={styles.timeLabel}>{timeStr} 관측 기준</Text>}
     </View>
   );
 };
@@ -526,6 +546,17 @@ const InfoChip = ({ label, value, color }: { label: string; value: string; color
 );
 
 const styles = StyleSheet.create({
+  compactContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compactAlt: {
+    marginTop: 1,
+    marginBottom: 2,
+    fontSize: 9,
+    fontFamily: 'monospace',
+    color: 'rgba(203,213,225,0.75)',
+  },
   container: {
     flex: 1,
     alignItems: 'center',

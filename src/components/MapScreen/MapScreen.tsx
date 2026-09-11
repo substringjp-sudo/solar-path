@@ -11,39 +11,42 @@
  * 등시선은 "빛이 언제 여기 도착하나"를, 구름 추적은 "그때까지 구름이 어떻게
  * 움직이나"를 답합니다. 두 정보가 다른 탭에 흩어져 있으면 사용자가 머릿속에서
  * 합쳐야 합니다. 같은 화면에 두면 "빛이 도착하기 전에 걷힐까"가 한눈에 보입니다.
+ *
+ * ## 태양 경로 탭을 없앴습니다 (§73)
+ *
+ * 등치선과 태양경로는 **같은 기하의 두 표현**입니다 — 등고도선은 직하점 중심의
+ * 원이고 태양 방위는 그 원의 법선입니다(잰 잔차 0.213°, `solarGeometry.ts`).
+ * 게다가 둘은 **사는 축척이 다릅니다**: 화면 폭 1° 아래로 내려가면 등치선은
+ * 화면 안에서 5분도 안 벌어져 뜻을 잃고, 바로 그 자리에서 "내 하늘 어디에 해가
+ * 있나"가 뜻을 얻습니다.
+ *
+ * 그래서 따로 둘 이유가 없어 **하나로 합쳤습니다.** 줌만 내리면 같은 화면에서
+ * 등치선이 한 줄로 수렴하며 그 법선으로 태양 방위가 뜹니다. 지도 평면이 못
+ * 그리는 **고도**는 극좌표 인셋이 모서리에서 지킵니다.
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
-import { Globe2, CloudSun, Compass } from 'lucide-react-native';
-import SunCalc from 'suncalc';
+import { Globe2, CloudSun } from 'lucide-react-native';
 import { IsolineMap } from '../IsolineMap/IsolineMap';
 import { CloudTrackerChart } from '../CloudTrackerChart';
-import { SunAzimuthView } from './SunAzimuthView';
-import { TimeSlider } from '../TimeSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
-type MapView = 'isoline' | 'clouds' | 'sunpath';
+type MapView = 'isoline' | 'clouds';
 
 interface MapScreenProps {
   theme: any;
   currentTime: Date;
   isActive: boolean;
-  setCurrentTime?: (time: Date) => void;
-  isTimeMachineEnabled?: boolean;
-  setTimeMachineEnabled?: (enabled: boolean) => void;
-  events?: any;
-  onCameraPress?: () => void;
 }
+// ⚠ 태양경로 탭이 없어지면서 이 화면의 하단 TimeSlider 도 사라졌습니다.
+//   시간·날짜 조작은 합쳐진 화면 안의 `IsolineControls` 가 그대로 맡습니다.
+//   그래서 setCurrentTime · isTimeMachineEnabled · setTimeMachineEnabled ·
+//   events · onCameraPress 를 더 안 받습니다 — 죽은 prop 을 남기지 않습니다.
 
 export const MapScreen: React.FC<MapScreenProps> = ({
   theme,
   currentTime,
   isActive,
-  setCurrentTime,
-  isTimeMachineEnabled = true,
-  setTimeMachineEnabled,
-  events,
-  onCameraPress,
 }) => {
   const { location } = useCelestialStore();
   const [view, setView] = useState<MapView>('isoline');
@@ -51,26 +54,17 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.978;
 
-  const isDay = useMemo(() => {
-    const sp = SunCalc.getPosition(currentTime, latitude, longitude);
-    return sp.altitude > 0;
-  }, [currentTime, latitude, longitude]);
-
   const views: { id: MapView; label: string; icon: (active: boolean) => React.ReactNode }[] = [
     {
       id: 'isoline',
-      label: '01 등치선',
+      // 축척에 따라 등치선이 되기도 태양 방위가 되기도 합니다 — 한 이름으로 묶습니다.
+      label: '01 하늘·지구',
       icon: (a) => <Globe2 size={12} color={a ? '#38BDF8' : '#64748B'} />,
     },
     {
       id: 'clouds',
       label: '02 레이더',
       icon: (a) => <CloudSun size={12} color={a ? '#38BDF8' : '#64748B'} />,
-    },
-    {
-      id: 'sunpath',
-      label: '03 태양경로',
-      icon: (a) => <Compass size={12} color={a ? '#38BDF8' : '#64748B'} />,
     },
   ];
 
@@ -108,33 +102,11 @@ export const MapScreen: React.FC<MapScreenProps> = ({
       <View style={styles.body}>
         {view === 'isoline' ? (
           <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
-        ) : view === 'clouds' ? (
-          <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} currentTime={currentTime} />
         ) : (
-          <SunAzimuthView theme={theme} currentTime={currentTime} />
+          <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} currentTime={currentTime} />
         )}
       </View>
 
-      {/* ── 태양 경로 뷰 최하단 상시 노출 타임 슬라이더 ─────────────────────── */}
-      {view === 'sunpath' && setCurrentTime && (
-        <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
-          <TimeSlider
-            value={currentTime}
-            onChange={setCurrentTime}
-            isTimeMachineEnabled={isTimeMachineEnabled}
-            onToggleTimeMachine={setTimeMachineEnabled}
-            theme={theme}
-            isDay={isDay}
-            onCameraPress={onCameraPress}
-            markers={events ? [
-              { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
-              { time: events.sunset || null, color: '#FF4500', type: 'set' },
-              { time: events.moonrise || null, color: '#888', type: 'rise' },
-              { time: events.moonset || null, color: '#888', type: 'set' },
-            ] : []}
-          />
-        </View>
-      )}
     </View>
   );
 };

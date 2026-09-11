@@ -3,12 +3,14 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions
 import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
+import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { t } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
 import { MapGlobe } from './MapGlobe';
+import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
 
 interface IsolineMapProps {
@@ -85,8 +87,27 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     }
   }, [projectionType, longitudeDelta, globeScale]);
 
+  /**
+   * 좁은 축척에서 지도에 얹을 **태양 오버레이**. 넓으면 null 입니다.
+   *
+   * 등치선과 태양경로는 같은 기하의 두 표현입니다 — 등고도선은 직하점 중심의
+   * 원이고, 태양 방위는 그 원의 법선입니다(`solarGeometry.ts`). 화면 폭이 1°
+   * 아래로 내려가면 등치선은 화면 안에서 5분도 안 벌어져 뜻을 잃으므로,
+   * 같은 기하를 **법선 쪽**으로 바꿔 보여 줍니다.
+   *
+   * ⚠ 3D 지구본에는 안 붙입니다 — 거기서는 축척이 늘 넓습니다.
+   */
+  const sunOverlay = useMemo(
+    () => (projectionType === '2D' ? buildSunOverlay(selectedDate, lat, lon, longitudeDelta) : null),
+    [projectionType, selectedDate, lat, lon, longitudeDelta],
+  );
+  const isLocalScale = sunOverlay !== null;
+
   const dateKey = selectedDate.toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
+    // 좁은 축척에서는 안 그리므로 만들지도 않습니다 — 하루치 터미네이터를
+    // 48번 계산하는 일이라 그냥 두면 값만 버립니다.
+    if (!isIsolineScale(longitudeDelta) && projectionType === '2D') return [];
     const list = [];
     const base = new Date(dateKey);
     base.setUTCHours(0, 0, 0, 0);
@@ -101,7 +122,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       });
     }
     return list;
-  }, [dateKey, step]);
+  }, [dateKey, step, longitudeDelta, projectionType]);
 
   const nightPolygonCoords = useMemo(() => {
     try {
@@ -204,6 +225,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             onRegionChangeComplete={handleRegionChangeComplete}
             theme={theme}
             selectedDate={selectedDate}
+            sunOverlay={sunOverlay}
           />
         ) : (
           <MapGlobe
@@ -265,15 +287,39 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           </View>
         </View>
 
+        {/* ── 극좌표 인셋 ────────────────────────────────────────────────
+               좁은 축척에서만 뜹니다. 지도 평면은 방위는 그려도 **고도**를
+               못 그립니다 — 그건 이 원만 가진 값입니다. */}
+        {isLocalScale && (
+          <View style={[styles.polarInset, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <SunAzimuthView theme={theme} currentTime={selectedDate} compact />
+          </View>
+        )}
+
         <View style={[styles.legend, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendLine, { backgroundColor: '#FFA500' }]} />
-            <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunriseLine', language)}</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendLine, { backgroundColor: '#FF4500' }]} />
-            <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunsetLine', language)}</Text>
-          </View>
+          {isLocalScale ? (
+            <>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendLine, { backgroundColor: '#38BDF8' }]} />
+                <Text style={[styles.legendText, { color: theme.subText }]}>등고도선</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendLine, { backgroundColor: '#FB923C' }]} />
+                <Text style={[styles.legendText, { color: theme.subText }]}>태양 방위 (그 법선)</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendLine, { backgroundColor: '#FFA500' }]} />
+                <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunriseLine', language)}</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendLine, { backgroundColor: '#FF4500' }]} />
+                <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunsetLine', language)}</Text>
+              </View>
+            </>
+          )}
         </View>
       </View>
 
@@ -406,6 +452,15 @@ const styles = StyleSheet.create({
     width: 1,
     height: 10,
     opacity: 0.4,
+  },
+  polarInset: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 4,
+    overflow: 'hidden',
   },
   legend: {
     position: 'absolute',

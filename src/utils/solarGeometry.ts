@@ -159,3 +159,81 @@ export const sunriseSpreadMinutes = (
   if (times.length < 2) return null;
   return (Math.max(...times) - Math.min(...times)) / 60000;
 };
+
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
+/** 한 점에서 방위 `bearingDeg` 로 각거리 `angDistDeg` 만큼 간 점. */
+export const destinationPoint = (
+  lat: number, lon: number, bearingDeg: number, angDistDeg: number,
+): GeoPoint => {
+  const p1 = lat * RAD, br = bearingDeg * RAD, d = angDistDeg * RAD;
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(br));
+  const dl = Math.atan2(
+    Math.sin(br) * Math.sin(d) * Math.cos(p1),
+    Math.cos(d) - Math.sin(p1) * Math.sin(p2),
+  );
+  let lo = lon + dl * DEG;
+  lo = ((lo + 180) % 360 + 360) % 360 - 180;
+  return { latitude: p2 * DEG, longitude: lo };
+};
+
+export interface SunOverlay {
+  /** 관측점을 지나는 **등고도선**. 직선이 아니라 실제 소원의 일부입니다. */
+  isoLine: GeoPoint[];
+  /** 지금 태양 방향. */
+  nowRay: GeoPoint[];
+  /** 그날 해 뜨는 방향. 백야·극야면 null. */
+  riseRay: GeoPoint[] | null;
+  /** 그날 해 지는 방향. 백야·극야면 null. */
+  setRay: GeoPoint[] | null;
+  fan: SunFan;
+  /** 그린 길이(각거리, 도). */
+  spanDeg: number;
+}
+
+/**
+ * 지도에 얹을 **태양 오버레이**. 축척이 넓으면 `null` 을 돌려 아무것도 안
+ * 그립니다 — 그 구간에서는 등치선이 제 일을 하기 때문입니다.
+ *
+ * ⚠ 등고도선을 **직선 측지선으로 근사하지 않습니다.** 직하점 중심의 소원을
+ * 그대로 표본합니다. 국소에서는 어차피 직선으로 보이지만, 근사를 쓰면 축척을
+ * 넓힐 때 조용히 어긋납니다. 판정이 그 차이를 잽니다.
+ */
+export const buildSunOverlay = (
+  date: Date, lat: number, lon: number, longitudeDeltaDeg: number,
+): SunOverlay | null => {
+  if (isIsolineScale(longitudeDeltaDeg)) return null;
+
+  const spanDeg = Math.max(0.02, longitudeDeltaDeg * 0.42);
+  const fan = getSunFan(date, lat, lon);
+  const s = getSubsolarPoint(date);
+
+  // 등고도선 = 직하점 중심, 반지름 = 직하점까지의 각거리인 소원.
+  const radius = angularDistanceDeg(lat, lon, s.latitude, s.longitude);
+  const thetaHere = bearingDeg(s.latitude, s.longitude, lat, lon);
+  // 관측점에서 spanDeg 만큼 가려면 중심각을 이만큼 돌려야 합니다.
+  const sinR = Math.sin(radius * RAD);
+  const dTheta = sinR > 1e-6 ? (spanDeg / DEG) / sinR * DEG : 180;
+
+  const isoLine: GeoPoint[] = [];
+  const STEPS = 16;
+  for (let i = 0; i <= STEPS; i++) {
+    const th = thetaHere + (-dTheta + (2 * dTheta * i) / STEPS);
+    isoLine.push(destinationPoint(s.latitude, s.longitude, th, radius));
+  }
+
+  const ray = (az: number | null): GeoPoint[] | null =>
+    az === null ? null : [{ latitude: lat, longitude: lon }, destinationPoint(lat, lon, az, spanDeg)];
+
+  return {
+    isoLine,
+    nowRay: ray(fan.nowAz) as GeoPoint[],
+    riseRay: ray(fan.riseAz),
+    setRay: ray(fan.setAz),
+    fan,
+    spanDeg,
+  };
+};
