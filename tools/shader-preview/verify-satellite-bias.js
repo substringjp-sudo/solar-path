@@ -15,7 +15,7 @@ const near = (a, b, t) => Math.abs(a - b) <= t;
 
 (async () => {
   const M = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'satelliteBias.js'));
-  const { clearSkyGHI, tauFromCover, coverFromTau, dampingForLead,
+  const { clearSkyGHI, clearSkyGHIMean, tauFromCover, coverFromTau, dampingForLead,
           estimateBias, applyBias, MAX_LEAD_HOURS, BIAS_CLAMP } = M;
 
   console.log('\n[1] τ ↔ 운량 왕복');
@@ -86,6 +86,45 @@ const near = (a, b, t) => Math.abs(a - b) <= t;
     ok(darker > before, '양수 편향이면 운량이 는다 (예보가 너무 맑았으므로)');
     ok(lighter < before, '음수 편향이면 운량이 준다');
     ok(applyBias(before, 0.2, 3) < darker, '앞선 시간이 길수록 덜 옮긴다');
+  }
+
+  console.log('\n[7] 창평균 맑은하늘 — 일사가 시간평균이라 분모도 창에서 평균해야 한다');
+  {
+    // 서울 9월 하루를 가짜 태양으로 흉내 냅니다. 정오 12:00, 일출 06:00,
+    // 일몰 18:00 인 사인 곡선 — 실제 천문이 아니라 **모양만** 씁니다.
+    const H = 3600_000;
+    const noon = Date.parse('2026-09-11T12:00:00Z');
+    const cosZAt = ms => {
+      const h = (ms - noon) / H;                       // 정오에서 몇 시간
+      return Math.cos((h / 6) * (Math.PI / 2));        // ±6h 에서 0
+    };
+    const at = h => {
+      const ms = noon + h * H;
+      return { inst: clearSkyGHI(cosZAt(ms)), mean: clearSkyGHIMean(ms, cosZAt) };
+    };
+
+    const morning = at(-4);   // 08:00 — 해가 오르는 중
+    const evening = at(+4);   // 16:00 — 해가 지는 중
+    const midday  = at(0);    // 12:00 — 꼭대기
+
+    console.log(`      08:00 순간 ${morning.inst.toFixed(0)} / 창평균 ${morning.mean.toFixed(0)}  (${(morning.inst / morning.mean).toFixed(2)}배)`);
+    console.log(`      12:00 순간 ${midday.inst.toFixed(0)} / 창평균 ${midday.mean.toFixed(0)}  (${(midday.inst / midday.mean).toFixed(2)}배)`);
+    console.log(`      16:00 순간 ${evening.inst.toFixed(0)} / 창평균 ${evening.mean.toFixed(0)}  (${(evening.inst / evening.mean).toFixed(2)}배)`);
+
+    // ⚠ **양방향**입니다 — 한쪽으로만 치우치는 보정이 아닙니다.
+    ok(morning.inst > morning.mean * 1.1,
+       `오르는 중엔 순간이 창평균보다 크다 → 순간으로 나누면 아침을 흐리게 읽는다 (${(morning.inst / morning.mean).toFixed(2)}배)`);
+    ok(evening.inst < evening.mean * 0.9,
+       `지는 중엔 순간이 창평균보다 작다 → 순간으로 나누면 **일몰을 맑게** 읽는다 (${(evening.inst / evening.mean).toFixed(2)}배)`);
+    ok(near(midday.inst / midday.mean, 1, 0.1),
+       `꼭대기에서는 둘이 거의 같다 (${(midday.inst / midday.mean).toFixed(2)}배) — 차이는 태양이 빠르게 움직일 때만 난다`);
+
+    // 창 안이 전부 밤이면 0 이어야 합니다.
+    ok(clearSkyGHIMean(noon - 8 * H, cosZAt) === 0, '창이 전부 밤이면 0');
+    // 창평균은 창 안 순간값들의 최대와 최소 사이에 들어야 합니다.
+    const lo = Math.min(clearSkyGHI(cosZAt(noon - 5 * H)), clearSkyGHI(cosZAt(noon - 4 * H)));
+    const hi = Math.max(clearSkyGHI(cosZAt(noon - 5 * H)), clearSkyGHI(cosZAt(noon - 4 * H)));
+    ok(morning.mean >= lo && morning.mean <= hi, `창평균이 창 안 값 사이에 든다 (${lo.toFixed(0)} ≤ ${morning.mean.toFixed(0)} ≤ ${hi.toFixed(0)})`);
   }
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);

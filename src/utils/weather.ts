@@ -10,7 +10,7 @@ import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
-import { clearSkyGHI, estimateBias, applyBias, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
+import { clearSkyGHIMean, estimateBias, applyBias, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -651,8 +651,14 @@ export const fetchSatelliteBias = async (
     for (let i = 0; i < t.length; i++) {
       if (sw[i] == null) continue;
       const d = new Date(trueMs(t[i]));
-      const cz = Math.sin((getSunPosition(d, lat, lon).altitude * Math.PI) / 180);
-      const cs = clearSkyGHI(cz);
+      // ⚠ 일사는 **직전 한 시간의 평균**이므로 분모도 같은 창에서 평균해야
+      //   합니다. 순간값으로 나누다가 재 보니 아침은 1.53배 흐리게, **일몰은
+      //   0.49배 맑게** 읽히고 있었습니다. 배율(p95)은 하루에 하나뿐이라 이
+      //   시각별 오차를 못 지웁니다. 이 앱이 겨누는 일몰에서 가장 컸습니다.
+      const cs = clearSkyGHIMean(
+        d.getTime(),
+        ms => Math.sin((getSunPosition(new Date(ms), lat, lon).altitude * Math.PI) / 180),
+      );
       if (cs < MIN_CLEAR_GHI) continue;            // 태양고도 15° 미만은 버립니다
       const raw = (sw[i] as number) / cs;
       raws.push(raw);
