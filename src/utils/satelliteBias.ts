@@ -35,6 +35,15 @@
 export const LOOKBACK_HOURS = 1;
 /** 편향 크기 한계(τ). 위성 잡음 한 번에 화면이 뒤집히지 않게 자릅니다. */
 export const BIAS_CLAMP = 0.35;
+/**
+ * 쓸 수 있는 가장 낮은 맑은하늘 일사(W/m²) — **태양고도 15°** 에 해당합니다.
+ *
+ * ⚠ 이 문턱이 −45% 를 잰 조건입니다. 더 낮추면 안 됩니다. 처음에 80(고도 약
+ * 4.6°)으로 두고 실기를 돌렸더니 맑은하늘 배율이 **1.658** 로 나왔습니다 —
+ * Haurwitz 가 낮은 태양에서 크게 빗나가는데 그 구간을 받아들인 탓입니다.
+ * 15° 로 올리니 제자리로 왔습니다.
+ */
+export const MIN_CLEAR_GHI = 226;
 /** 이 시간을 넘으면 아예 안 씁니다 — +8h 에서는 되레 나빠졌습니다. */
 export const MAX_LEAD_HOURS = 6;
 /** 감쇠 시정수(시간). 위 표의 최적 감쇠와 맞습니다. */
@@ -85,7 +94,7 @@ export function estimateBias(samples: BiasSample[], clearScale = 1): number | nu
   const diffs: number[] = [];
   for (const s of samples) {
     if (!Number.isFinite(s.observedGHI) || !Number.isFinite(s.clearSkyGHI)) continue;
-    if (s.clearSkyGHI < 80) continue;                // 태양이 너무 낮아 잡음이 큽니다
+    if (s.clearSkyGHI < MIN_CLEAR_GHI) continue;     // 태양이 너무 낮아 잡음이 큽니다
     const tauObs = Math.min(1, Math.max(0, s.observedGHI / s.clearSkyGHI / (clearScale || 1)));
     diffs.push(tauFromCover(s.forecastCoverPct) - tauObs);
   }

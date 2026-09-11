@@ -9,6 +9,8 @@ import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
+import { getSunPosition } from './celestial';
+import { clearSkyGHI, estimateBias, applyBias, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -481,6 +483,15 @@ export const fetchSunsetWeather = async (
       };
     });
 
+    // 위성이 방금 본 하늘로 예보의 치우침을 깎습니다(§70). 실패하면 예보
+    // 그대로 갑니다 — 보정은 있으면 좋은 것입니다.
+    try {
+      const sat = await fetchSatelliteBias(lat, lon, targetDate, fetched[0]?.hourly);
+      if (sat?.biasTau != null) applyBiasToPath(fetched, sat.biasTau, sat.observedUntilMs);
+    } catch (e) {
+      console.warn('위성 보정 적용을 건너뜁니다:', e);
+    }
+
     weatherCache.set(sunsetCacheKey, fetched);
     MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fetched, time: Date.now() });
     INFLIGHT_REQUESTS.delete(sunsetCacheKey);
@@ -570,6 +581,153 @@ const WIND_LEVELS = { low: '850hPa', mid: '600hPa', high: '250hPa' } as const;
  * 잡힙니다. 늘리면 그만큼 호출 가중치가 오릅니다.
  */
 export const PROFILE_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200] as const;
+
+/**
+ * 위성 편향 캐시. 같은 격자칸·같은 날이면 다시 안 받습니다.
+ * `biasTau === null` 은 "받았지만 쓸 수 없었다"(밤·배율 불신 등)는 뜻이고,
+ * 그것도 캐시합니다 — 안 그러면 밤새 같은 요청을 되풀이합니다.
+ */
+const satBiasCache = new Map<string, { biasTau: number | null; observedUntilMs: number }>();
+
+/** 맑은하늘 배율을 잡는 데 쓰는 되돌아보기(일). 7일이면 30일과 거의 같습니다. */
+const SCALE_DAYS = 7;
+/** 배율이 이보다 낮으면 못 믿습니다 — 그 주가 내내 흐렸다는 뜻이라 보정을 안 씁니다. */
+const MIN_CLEAR_SCALE = 0.6;
+
+/**
+ * **위성이 방금 본 하늘과 견줘 예보의 치우침을 잽니다.**
+ *
+ * 왜 이것이 필요한지, 얼마나 듣는지는 `utils/satelliteBias.ts` 머리말에
+ * 있습니다(30일·10지역에서 τ오차 −45%).
+ *
+ * 요청은 **관측점 1점 · 변수 하나 · 8일**입니다 — 가중치 1회입니다.
+ * 과거 예보는 이미 받은 자료 안에 있으므로 따로 안 받습니다.
+ *
+ * @param observer 관측점의 시간별 자료. `total`(모델 총운량)을 씁니다.
+ */
+export const fetchSatelliteBias = async (
+  lat: number,
+  lon: number,
+  targetDate: Date,
+  observer: HourlyCloudData | null | undefined,
+): Promise<{ biasTau: number | null; observedUntilMs: number } | null> => {
+  if (!observer?.time?.length || !observer.total) return null;
+
+  const dateStr = localDateString(targetDate);
+  const key = `sat_${gridBucket(lat, lon)}_${dateStr}`;
+  const hit = satBiasCache.get(key);
+  if (hit) return hit;
+
+  const start = new Date(targetDate.getTime() - SCALE_DAYS * 86400_000);
+  const url = `https://satellite-api.open-meteo.com/v1/archive?latitude=${lat.toFixed(5)}` +
+    `&longitude=${lon.toFixed(5)}&hourly=shortwave_radiation` +
+    `&models=satellite_radiation_seamless&start_date=${localDateString(start)}` +
+    `&end_date=${dateStr}&timezone=auto`;
+
+  try {
+    const res = await fetchWithTimeout(url, {}, 8000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const t: string[] = data?.hourly?.time ?? [];
+    const sw: (number | null)[] = data?.hourly?.shortwave_radiation ?? [];
+    if (t.length === 0) throw new Error('empty');
+
+    // ⚠ `timezone=auto` 가 주는 시각에는 시간대 표시가 없습니다. `new Date(s)`
+    //   로 읽으면 **기기 시간대**로 해석되어, 기기와 관측지가 다르면 태양 위치가
+    //   통째로 어긋납니다(§59 와 같은 부류). 실제로 그렇게 짜 놓고 재니 09:00 의
+    //   맑은하늘이 107W/m² 로 나와 배율이 1.895 가 됐습니다 — 9시간 밀린 것입니다.
+    //   응답이 주는 `utc_offset_seconds` 로 **참 시각**을 못 박습니다.
+    const offsetMs = (data?.utc_offset_seconds ?? 0) * 1000;
+    const trueMs = (local: string) => Date.parse(local + 'Z') - offsetMs;
+
+    // 1) 맑은하늘 배율 — 지난 SCALE_DAYS 일의 τ 상위 5%.
+    //    Haurwitz 는 연무를 무시하므로 지역마다 몇 % 씩 어긋납니다(§56 README).
+    const raws: number[] = [];
+    // ⚠ 원시 τ 만 담으면 안 됩니다. `estimateBias` 는 맑은하늘이 80 미만인
+    //   표본을 버리므로(태양이 낮으면 잡음이 큼), **일사와 맑은하늘을 그대로**
+    //   넘겨야 합니다. 처음에 τ 를 넘기고 맑은하늘을 1 로 뒀다가 전 표본이
+    //   버려져 보정이 한 번도 안 걸릴 뻔했습니다.
+    const obs: { local: string; raw: number; sw: number; cs: number }[] = [];
+    for (let i = 0; i < t.length; i++) {
+      if (sw[i] == null) continue;
+      const d = new Date(trueMs(t[i]));
+      const cz = Math.sin((getSunPosition(d, lat, lon).altitude * Math.PI) / 180);
+      const cs = clearSkyGHI(cz);
+      if (cs < MIN_CLEAR_GHI) continue;            // 태양고도 15° 미만은 버립니다
+      const raw = (sw[i] as number) / cs;
+      raws.push(raw);
+      // 예보와는 **현지 시각 문자열**로 맞춥니다 — 둘 다 같은 자리의
+      // `timezone=auto` 라 문자열이 그대로 겹칩니다. 기기 시간대와 무관합니다.
+      obs.push({ local: t[i], raw, sw: sw[i] as number, cs });
+    }
+    if (raws.length < 20 || obs.length === 0) {
+      const miss = { biasTau: null, observedUntilMs: 0 };
+      satBiasCache.set(key, miss);
+      return miss;
+    }
+    raws.sort((a, b) => a - b);
+    const scale = raws[Math.floor(0.95 * (raws.length - 1))];
+    if (!(scale > MIN_CLEAR_SCALE)) {
+      const miss = { biasTau: null, observedUntilMs: 0 };
+      satBiasCache.set(key, miss);
+      return miss;
+    }
+
+    // 2) 가장 최근 관측 시각에서 LOOKBACK_HOURS 만큼 거슬러 편향을 모읍니다.
+    obs.sort((a, b) => a.local.localeCompare(b.local));
+    const lastLocal = obs[obs.length - 1].local;
+    const lastMs = trueMs(lastLocal);
+    const obsAt = new Map(obs.map(o => [o.local, o]));
+    const fcAt = new Map<string, number>();
+    for (let i = 0; i < observer.time.length; i++) {
+      const v = observer.total?.[i];
+      if (v != null) fcAt.set(observer.time[i], v);
+    }
+
+    const samples: { forecastCoverPct: number; observedGHI: number; clearSkyGHI: number }[] = [];
+    for (let k = 0; k < LOOKBACK_HOURS; k++) {
+      // 현지 시각 문자열을 한 시간씩 거슬러 만듭니다.
+      const local = new Date(Date.parse(lastLocal + 'Z') - k * 3600_000)
+        .toISOString().slice(0, 16);
+      const o = obsAt.get(local);
+      const cover = fcAt.get(local);
+      if (!o || cover == null) continue;
+      samples.push({ forecastCoverPct: cover, observedGHI: o.sw, clearSkyGHI: o.cs });
+    }
+    const biasTau = samples.length ? estimateBias(samples, scale) : null;
+    const out = { biasTau, observedUntilMs: lastMs };
+    satBiasCache.set(key, out);
+    if (__DEV__) {
+      console.log(`[SatBias] ${key} 배율 ${scale.toFixed(3)} 편향 ${biasTau?.toFixed(3) ?? 'none'} 표본 ${samples.length}`);
+    }
+    return out;
+  } catch (error) {
+    // 보정은 있으면 좋은 것입니다 — 없다고 하늘을 못 그리지 않습니다.
+    console.warn('위성 보정을 못 받았습니다. 예보 그대로 갑니다:', error);
+    const miss = { biasTau: null, observedUntilMs: 0 };
+    satBiasCache.set(key, miss);
+    return miss;
+  }
+};
+
+/**
+ * 예보 배열에 편향을 **시각마다** 적용합니다. 앞선 시간이 길수록 덜 적용하고,
+ * 6시간을 넘으면 아예 안 합니다(`satelliteBias.ts` 의 감쇠 곡선).
+ */
+function applyBiasToPath(path: CloudPathData[], bias: number | null, observedUntilMs: number): void {
+  if (bias == null || !Number.isFinite(observedUntilMs) || observedUntilMs <= 0) return;
+  for (const p of path) {
+    const h = p.hourly;
+    if (!h?.timeMs) continue;
+    for (let i = 0; i < h.timeMs.length; i++) {
+      const lead = (h.timeMs[i] - observedUntilMs) / 3600_000;
+      h.low[i] = applyBias(h.low[i] ?? 0, bias, lead);
+      h.mid[i] = applyBias(h.mid[i] ?? 0, bias, lead);
+      h.high[i] = applyBias(h.high[i] ?? 0, bias, lead);
+      if (h.total && h.total[i] != null) h.total[i] = applyBias(h.total[i], bias, lead);
+    }
+  }
+}
 
 export interface LayerWindHourly {
   time: string[];
