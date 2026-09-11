@@ -1,16 +1,17 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Dimensions, Platform, PanResponder, ScrollView } from 'react-native';
 import Svg, { Circle, Line, Text as SvgText, G, Path, Defs, RadialGradient, Stop, ClipPath, Rect, LinearGradient } from 'react-native-svg';
 import { Cloud, Zap, Wind, Eye, CloudRain, CloudLightning, MapPin, Sun, Sparkles } from 'lucide-react-native';
 import SunCalc from 'suncalc';
 import {
   generate29GridPoints,
-  computeCloudCellData,
   CloudCellData,
   CloudTypeCategory,
   buildRadarEchoBlob,
   RadarEchoBlob,
 } from '../utils/cloudMatrix';
+import { buildCloudCellsFromRing } from '../utils/cloudRadar';
+import { fetchDayWeatherRing, CloudPathData } from '../utils/weather';
 
 interface CloudTrackerChartProps {
   theme: any;
@@ -74,15 +75,29 @@ export const CloudTrackerChart: React.FC<CloudTrackerChartProps> = ({ theme, lat
   const [minutesOffset, setMinutesOffset] = useState<number>(0);
   const [selectedCell, setSelectedCell] = useState<CloudCellData | null>(null);
 
-  // 29개 방사형 원형 격자 산출
-  const baseGridPoints = useMemo(() => {
-    return generate29GridPoints(latitude, longitude);
+  /**
+   * ⚠ 예전에는 여기가 **위경도 해시**였습니다 — 운량도 구름종류도 바람도
+   *   `Math.sin(lat*12.9898 + lon*78.233 + …)` 에서 나왔고, 날씨를 받는 경로가
+   *   아예 없었습니다. 이제 **이미 받아 둔 구름 고리**를 씁니다(캐시 적중이라
+   *   추가 요청 없음).
+   */
+  const [ring, setRing] = useState<CloudPathData[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchDayWeatherRing(latitude, longitude, new Date())
+      .then(r => { if (alive) setRing(r); })
+      .catch(err => console.warn('구름 고리를 못 받았습니다:', err));
+    return () => { alive = false; };
   }, [latitude, longitude]);
 
-  // 연속 분 단위(0~60분) 물리 벡터 외삽 계산 29개 셀 데이터
+  /**
+   * ⚠ 고리는 **시간별**입니다. 0~60분 슬라이더를 밀어도 같은 시간 안에서는
+   *   그림이 안 바뀝니다 — 없는 시간 해상도를 지어내지 않습니다.
+   */
   const cloudCells = useMemo(() => {
-    return baseGridPoints.map(pt => computeCloudCellData(pt, Math.round(minutesOffset)));
-  }, [baseGridPoints, minutesOffset]);
+    const base = (currentTime ?? new Date()).getTime();
+    return buildCloudCellsFromRing(ring, latitude, longitude, base + Math.round(minutesOffset) * 60000);
+  }, [ring, latitude, longitude, currentTime, minutesOffset]);
 
   // 특별 강조 구름 개수
   const specialCount = useMemo(() => {

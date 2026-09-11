@@ -33,7 +33,6 @@ import { getSunPosition, getMoonPosition, getCelestialEvents } from '../utils/ce
 import { getCalculatedStars, CONSTELLATION_LINES_DATA } from '../utils/celestialStarsData';
 import { getCalculatedMilkyWay } from '../utils/celestialMilkyWayData';
 import { getCalculatedPlanets } from '../utils/celestialPlanets';
-import { generate29GridPoints, computeCloudCellData } from '../utils/cloudMatrix';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
@@ -386,12 +385,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const milkyWayPos = useMemo(() => {
     return getCalculatedMilkyWay(latitude, longitude, currentTime);
   }, [latitude, longitude, currentTime]);
-
-  // 주변 200km 반경 29개 구름 셀 위치
-  const cloudCellsPos = useMemo(() => {
-    const grid = generate29GridPoints(latitude, longitude);
-    return grid.map(pt => computeCloudCellData(pt, 0));
-  }, [latitude, longitude]);
 
   // ── 동적 일몰/일출 방위각 계산 (현재 날짜 & 위도/경도 물리계산 기준) ──
   const dynamicEventAzimuths = useMemo(() => {

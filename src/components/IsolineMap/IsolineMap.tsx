@@ -320,6 +320,29 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           </View>
         </View>
 
+        {/* ── 구름 읽기값 ─────────────────────────────────────────────────
+               차트 탭이 나르던 것 중 지도가 못 그리는 둘 — **구름 종류**와
+               **바람** — 을 여기로 옮겼습니다. 종류는 층별 운량과 강수로
+               가립니다(`cloudMatrix.classifyCloud`). 예전에는 해시였습니다. */}
+        {radar && (
+          <View style={[styles.cloudReadout, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <Text style={[styles.cloudReadoutTitle, { color: theme.text }]} numberOfLines={1}>
+              {radar.observerClass.name}
+            </Text>
+            <Text style={[styles.cloudReadoutSub, { color: theme.subText }]} numberOfLines={1}>
+              저 {Math.round(radar.observerLayers.low)} · 중 {Math.round(radar.observerLayers.mid)} · 상 {Math.round(radar.observerLayers.high)}
+              {radar.observerLayers.precipitationMm > 0
+                ? `  비 ${radar.observerLayers.precipitationMm.toFixed(1)}mm`
+                : ''}
+            </Text>
+            <Text style={[styles.cloudReadoutSub, { color: theme.subText }]} numberOfLines={1}>
+              {radar.wind
+                ? `구름 ${Math.round(radar.wind.toBearingDeg)}° 쪽으로 ${Math.round(radar.wind.speedKmh)}km/h`
+                : '바람 자료 없음'}
+            </Text>
+          </View>
+        )}
+
         {/* ── 극좌표 인셋 ────────────────────────────────────────────────
                좁은 축척에서만 뜹니다. 지도 평면은 방위는 그려도 **고도**를
                못 그립니다 — 그건 이 원만 가진 값입니다. */}
@@ -494,6 +517,19 @@ const styles = StyleSheet.create({
     height: 10,
     opacity: 0.4,
   },
+  cloudReadout: {
+    position: 'absolute',
+    left: 10,
+    bottom: 10,
+    maxWidth: 176,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 1,
+  },
+  cloudReadoutTitle: { fontSize: 11, fontWeight: '800' },
+  cloudReadoutSub: { fontSize: 9.5, fontFamily: 'monospace' },
   polarInset: {
     position: 'absolute',
     right: 10,

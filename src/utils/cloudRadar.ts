@@ -48,8 +48,9 @@
  * — 블렌드 중 ECMWF 0.25° 가 정합니다), 위로는 원반 지름 **760km** 를 화면이
  * 넘어서면 자료 없는 바다에 섬만 뜨므로 거기서 끊습니다.
  */
-import { CloudPathData } from './weather';
+import { CloudPathData, layerWindsFrom } from './weather';
 import { WeatherFan } from './skyColumn';
+import { classifyCloud, CloudClass, buildCloudCells, generate29GridPoints, CloudCellData } from './cloudMatrix';
 
 /** 고리가 실제로 받는 거리(km). `weather.ts` 의 `RING` 과 같아야 합니다. */
 export const RADAR_RINGS_KM = [0, 5, 10, 30, 70, 130, 200, 280, 380] as const;
@@ -108,6 +109,21 @@ export interface RadarCell {
 
 export interface RadarFrame {
   cells: RadarCell[];
+  /**
+   * 관측점의 구름 종류 — 층별 운량과 강수로 가립니다(`cloudMatrix.classifyCloud`).
+   * 예전 레이더 탭은 이걸 위경도 해시로 지어냈습니다.
+   */
+  observerClass: CloudClass;
+  /** 관측점 층별 운량(%) — 종류를 그렇게 부른 근거를 화면에 같이 적으려고 나릅니다. */
+  observerLayers: { low: number; mid: number; high: number; precipitationMm: number };
+  /**
+   * 구름을 미는 바람. **관측점 값 하나뿐**입니다 — 칸마다 다른 바람은 없습니다.
+   * 자료가 없으면 null 이고, 그때는 화살표를 안 그립니다.
+   *
+   * ⚠ `fromBearingDeg` 는 **불어오는 쪽**(기상 관례)입니다. 구름이 **가는 쪽**은
+   *   `toBearingDeg` 입니다. 화살표를 그릴 때 둘을 헷갈리면 구름이 반대로 갑니다.
+   */
+  wind: { speedKmh: number; fromBearingDeg: number; toBearingDeg: number } | null;
   /** 원반 테두리 — 자료가 여기서 끝난다는 것을 눈에 보이게 합니다. */
   edge: { latitude: number; longitude: number }[];
   /** 이 칸들이 어느 시각인가. */
@@ -145,12 +161,17 @@ export const buildRadarFrame = (
   if (!isRadarScale(longitudeDeltaDeg, lat)) return null;
   if (!ring || ring.length < 2) return null;
 
+  /** 그 시각의 인덱스. */
+  const idxOf = (h: CloudPathData['hourly']): number => {
+    let i = 0;
+    while (i < h.timeMs.length - 1 && h.timeMs[i + 1] <= timeMs) i++;
+    return i;
+  };
   // 그 시각의 총운량을 각 점에서 뽑습니다.
   const at = (p: CloudPathData): number | null => {
     const h = p.hourly;
     if (!h?.timeMs?.length) return null;
-    let i = 0;
-    while (i < h.timeMs.length - 1 && h.timeMs[i + 1] <= timeMs) i++;
+    const i = idxOf(h);
     const pick = (arr?: number[]) => (arr && arr[i] != null ? arr[i] : null);
     // 모델 총운량이 가장 잘 맞습니다(§60). 없으면 층 중 최대로 물러납니다.
     const total = pick(h.total);
@@ -195,10 +216,103 @@ export const buildRadarFrame = (
   const edge: { latitude: number; longitude: number }[] = [];
   for (let a = 0; a <= 360; a += 6) edge.push(dest(lat, lon, RADAR_RADIUS_KM, a));
 
+  // 관측점(0km)의 층별 운량으로 구름 종류를 가립니다.
+  const obs = ring.find(p => (p.distance ?? 0) === 0) ?? ring[0];
+  const oh = obs?.hourly;
+  const oi = oh?.timeMs?.length ? idxOf(oh) : -1;
+  const g = (arr?: number[]) => (oi >= 0 && arr && arr[oi] != null ? arr[oi] : 0);
+  const observerLayers = {
+    low: g(oh?.low), mid: g(oh?.mid), high: g(oh?.high),
+    precipitationMm: g(oh?.precipitation as number[] | undefined),
+  };
+  const observerClass = classifyCloud(observerLayers);
+
+  // 구름을 미는 바람 — 중층을 씁니다. 앱의 `layerWindsFrom` 을 그대로 써서
+  // 지도와 하늘이 같은 바람을 말하게 합니다.
+  let wind: RadarFrame['wind'] = null;
+  if (oi >= 0 && oh) {
+    const lw = layerWindsFrom({
+      windULow: oh.windULow?.[oi], windVLow: oh.windVLow?.[oi],
+      windUMid: oh.windUMid?.[oi], windVMid: oh.windVMid?.[oi],
+      windUHigh: oh.windUHigh?.[oi], windVHigh: oh.windVHigh?.[oi],
+    } as any);
+    if (lw && lw.mid.speedKmh > 0.5) {
+      wind = {
+        speedKmh: lw.mid.speedKmh,
+        fromBearingDeg: lw.mid.bearingDeg,
+        toBearingDeg: (lw.mid.bearingDeg + 180) % 360,
+      };
+    }
+  }
+
   return {
     cells,
     edge,
+    observerClass,
+    observerLayers,
+    wind,
     timeMs,
     outerSpacingKm: (2 * Math.PI * RADAR_RADIUS_KM) / (360 / azStep),
   };
+};
+
+/**
+ * 고리 자료로 **29점 격자 셀**을 채웁니다.
+ *
+ * 지도의 레이더와 **같은 고리·같은 보간기**를 씁니다 — 갈라 두면 같은 화면
+ * 안에서 두 그림이 다른 구름을 말하게 됩니다.
+ *
+ * ⚠ 예전에는 이 자리가 위경도 해시였습니다(`cloudMatrix.ts` 머리말).
+ *
+ * ⚠ 층별과 강수를 **각각 보간**합니다. `WeatherFan` 은 low/mid/high 세 칸만
+ *   나르므로, 강수는 그 세 칸에 같은 값을 실은 팬을 따로 만들어 씁니다.
+ *   한 팬에 억지로 섞으면 값이 서로를 덮습니다.
+ */
+export const buildCloudCellsFromRing = (
+  ring: CloudPathData[] | null | undefined,
+  lat: number,
+  lon: number,
+  timeMs: number,
+): CloudCellData[] => {
+  if (!ring || ring.length < 2) return [];
+
+  const idxOf = (h: CloudPathData['hourly']): number => {
+    let i = 0;
+    while (i < h.timeMs.length - 1 && h.timeMs[i + 1] <= timeMs) i++;
+    return i;
+  };
+  const pick = (p: CloudPathData, key: 'low' | 'mid' | 'high' | 'precipitation'): number => {
+    const h = p.hourly;
+    if (!h?.timeMs?.length) return 0;
+    const arr = h[key] as number[] | undefined;
+    const i = idxOf(h);
+    return arr && arr[i] != null ? arr[i] : 0;
+  };
+
+  const layerFan = new WeatherFan(
+    ring.map(p => ({ ...p, low: pick(p, 'low'), mid: pick(p, 'mid'), high: pick(p, 'high') })) as any, 0);
+  const precipFan = new WeatherFan(
+    ring.map(p => { const v = pick(p, 'precipitation'); return { ...p, low: v, mid: v, high: v }; }) as any, 0);
+  if (!layerFan.hasData) return [];
+
+  const frame = buildRadarFrame(ring, lat, lon, timeMs, 1);   // 바람만 빌려 씁니다
+  const wind = frame?.wind ?? null;
+
+  return buildCloudCells(
+    generate29GridPoints(lat, lon),
+    (bearingDeg, distanceKm) => {
+      const { data } = layerFan.sample(bearingDeg, distanceKm);
+      if (!data) return null;
+      const pr = precipFan.sample(bearingDeg, distanceKm).data;
+      const low = data.low, mid = data.mid, high = data.high;
+      return {
+        low, mid, high,
+        precipitationMm: pr ? pr.mid : 0,
+        // 총운량은 층을 겹쳐 낸 값이 아니라 **모델 총량**이 가장 잘 맞습니다(§60).
+        // 여기서는 그 값을 레이더 프레임이 이미 쓰고 있으므로 층 최대로 둡니다.
+        total: Math.max(low, mid, high),
+      };
+    },
+    wind ? { speedKmh: wind.speedKmh, bearingDeg: wind.fromBearingDeg } : null,
+  );
 };

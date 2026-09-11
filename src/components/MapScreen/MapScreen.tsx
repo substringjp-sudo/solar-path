@@ -12,6 +12,16 @@
  * 움직이나"를 답합니다. 두 정보가 다른 탭에 흩어져 있으면 사용자가 머릿속에서
  * 합쳐야 합니다. 같은 화면에 두면 "빛이 도착하기 전에 걷힐까"가 한눈에 보입니다.
  *
+ * ## 레이더 탭도 없앴습니다 (§74)
+ *
+ * ⚠ 옛 `02 레이더` 는 **날씨 자료를 하나도 안 썼습니다.** 운량·구름종류·풍속·
+ * 풍향이 전부 `Math.sin(lat*12.9898 + lon*78.233 + …)` 해시에서 나왔고, 화면에는
+ * "웅장한 적란운"·"희귀 렌즈구름" 같은 이름이 떴습니다.
+ *
+ * 이제 지도가 **이미 받아 둔 구름 고리**(반경 380km·97점)를 그대로 그립니다.
+ * 차트가 나르던 것 중 지도가 못 그리는 둘 — 구름 종류와 바람 — 은 지도 위
+ * 읽기값과 화살표로 옮겼습니다.
+ *
  * ## 태양 경로 탭을 없앴습니다 (§73)
  *
  * 등치선과 태양경로는 **같은 기하의 두 표현**입니다 — 등고도선은 직하점 중심의
@@ -24,14 +34,9 @@
  * 등치선이 한 줄로 수렴하며 그 법선으로 태양 방위가 뜹니다. 지도 평면이 못
  * 그리는 **고도**는 극좌표 인셋이 모서리에서 지킵니다.
  */
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
-import { Globe2, CloudSun } from 'lucide-react-native';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import { IsolineMap } from '../IsolineMap/IsolineMap';
-import { CloudTrackerChart } from '../CloudTrackerChart';
-import { useCelestialStore } from '../../store/useCelestialStore';
-
-type MapView = 'isoline' | 'clouds';
 
 interface MapScreenProps {
   theme: any;
@@ -48,63 +53,10 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   currentTime,
   isActive,
 }) => {
-  const { location } = useCelestialStore();
-  const [view, setView] = useState<MapView>('isoline');
-
-  const latitude = location?.coords.latitude ?? 37.5665;
-  const longitude = location?.coords.longitude ?? 126.978;
-
-  const views: { id: MapView; label: string; icon: (active: boolean) => React.ReactNode }[] = [
-    {
-      id: 'isoline',
-      // 축척에 따라 등치선이 되기도 태양 방위가 되기도 합니다 — 한 이름으로 묶습니다.
-      label: '01 하늘·지구',
-      icon: (a) => <Globe2 size={12} color={a ? '#38BDF8' : '#64748B'} />,
-    },
-    {
-      id: 'clouds',
-      label: '02 레이더',
-      icon: (a) => <CloudSun size={12} color={a ? '#38BDF8' : '#64748B'} />,
-    },
-  ];
-
   return (
     <View style={styles.container}>
-      {/* ── 상단 3단 계측 세그먼트 (Astro-HUD 스타일) ────────────────────── */}
-      <View style={[styles.segment, { backgroundColor: 'rgba(9, 13, 24, 0.95)', borderColor: 'rgba(255, 255, 255, 0.14)' }]}>
-        {views.map(v => {
-          const isActiveView = view === v.id;
-          return (
-            <TouchableOpacity
-              key={v.id}
-              onPress={() => setView(v.id)}
-              style={[
-                styles.segmentBtn,
-                isActiveView && styles.segmentBtnActive,
-              ]}
-              activeOpacity={0.8}
-            >
-              {v.icon(isActiveView)}
-              <Text
-                style={[
-                  styles.segmentText,
-                  { color: isActiveView ? '#38BDF8' : '#64748B' },
-                  isActiveView && { fontWeight: '900' },
-                ]}
-              >
-                {v.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
       <View style={styles.body}>
-        {view === 'isoline' ? (
-          <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
-        ) : (
-          <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} currentTime={currentTime} />
-        )}
+        <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
       </View>
 
     </View>
@@ -115,40 +67,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  segment: {
-    flexDirection: 'row',
-    marginHorizontal: 14,
-    marginBottom: 6,
-    padding: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    gap: 2,
-  },
-  segmentBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 6,
-    borderRadius: 2,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  segmentBtnActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: 'rgba(56, 189, 248, 0.45)',
-  },
-  segmentText: {
-    fontSize: 10.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.4,
-  },
   body: {
     flex: 1,
-  },
-  bottomPanel: {
-    paddingVertical: 6,
-    borderTopWidth: 1,
   },
 });

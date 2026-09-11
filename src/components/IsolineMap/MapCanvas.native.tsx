@@ -23,6 +23,34 @@ interface MapCanvasProps {
   radar?: RadarFrame | null;
 }
 
+/**
+ * 바람 화살표 — 관측점에서 `toBearingDeg` 쪽으로, 길이는 **한 시간 동안 갈
+ * 거리**입니다. 임의의 길이를 쓰면 화살표가 뜻 없는 장식이 됩니다.
+ */
+function windArrow(lat: number, lon: number, toBearingDeg: number, speedKmh: number) {
+  const R = 6371, RADD = Math.PI / 180, DEGG = 180 / Math.PI;
+  const go = (distKm: number, brg: number) => {
+    const d = distKm / R, b = brg * RADD, p1 = lat * RADD;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+    const l2 = lon * RADD + Math.atan2(
+      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
+  };
+  const len = Math.max(8, Math.min(380, speedKmh));      // 한 시간치
+  const tip = go(len, toBearingDeg);
+  // 화살촉: 끝점에서 뒤로 두 갈래.
+  const back = (off: number) => {
+    const p = go(len, toBearingDeg);
+    const R2 = 6371;
+    const d = (len * 0.16) / R2, b = (toBearingDeg + 180 + off) * RADD, p1 = p.latitude * RADD;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+    const l2 = p.longitude * RADD + Math.atan2(
+      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
+  };
+  return [{ latitude: lat, longitude: lon }, tip, back(28), tip, back(-28)];
+}
+
 export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   lat,
   lon,
@@ -79,6 +107,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           geodesic
         />
       ))}
+      {/* 바람 — 구름이 **가는 쪽**입니다(`toBearingDeg`). 기상 관례의
+             '불어오는 쪽'을 그대로 그리면 구름이 반대로 갑니다. */}
+      {radar?.wind && (
+        <Polyline
+          coordinates={windArrow(lat, lon, radar.wind.toBearingDeg, radar.wind.speedKmh)}
+          strokeColor="rgba(125, 211, 252, 0.9)"
+          strokeWidth={2.5}
+          geodesic
+        />
+      )}
+
       {/* 자료가 여기서 끝난다는 것을 눈에 보이게 합니다. */}
       {radar && (
         <Polyline
