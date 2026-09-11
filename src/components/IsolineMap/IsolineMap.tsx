@@ -4,6 +4,9 @@ import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe } from 'luc
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
+import { buildRadarFrame, isRadarScale } from '../../utils/cloudRadar';
+import { fetchDayWeatherRing, CloudPathData } from '../../utils/weather';
+import { localDateString } from '../../utils/localDate';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { t } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
@@ -102,6 +105,35 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     [projectionType, selectedDate, lat, lon, longitudeDelta],
   );
   const isLocalScale = sunOverlay !== null;
+
+  /**
+   * 구름 레이더 자료. **스토어가 이미 미리 받아 둔 고리**라 캐시 적중입니다 —
+   * 지도를 연다고 요청이 늘지 않습니다.
+   *
+   * ⚠ **오늘 날짜만** 씁니다. 다른 날을 고르면 그 날짜의 고리를 새로 받게 되는데
+   * 97점짜리 요청이라 슬라이더를 미는 동안 계속 나갑니다. 날짜를 옮기면 레이더는
+   * 조용히 사라집니다.
+   */
+  const [ring, setRing] = useState<CloudPathData[] | null>(null);
+  const isToday = useMemo(
+    () => localDateString(selectedDate) === localDateString(new Date()),
+    [selectedDate],
+  );
+  const wantRadar = isToday && projectionType === '2D' && isRadarScale(longitudeDelta, lat);
+
+  useEffect(() => {
+    if (!wantRadar) return;
+    let alive = true;
+    fetchDayWeatherRing(lat, lon, new Date())
+      .then(r => { if (alive) setRing(r); })
+      .catch(err => console.warn('레이더용 구름 고리를 못 받았습니다:', err));
+    return () => { alive = false; };
+  }, [wantRadar, lat, lon]);
+
+  const radar = useMemo(
+    () => (wantRadar ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta) : null),
+    [wantRadar, ring, lat, lon, selectedDate, longitudeDelta],
+  );
 
   const dateKey = selectedDate.toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
@@ -226,6 +258,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             theme={theme}
             selectedDate={selectedDate}
             sunOverlay={sunOverlay}
+            radar={radar}
           />
         ) : (
           <MapGlobe
@@ -297,6 +330,14 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         <View style={[styles.legend, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          {radar && (
+            <View style={styles.legendItem}>
+              <View style={[styles.legendLine, { backgroundColor: 'rgba(226,232,240,0.75)' }]} />
+              <Text style={[styles.legendText, { color: theme.subText }]}>
+                구름 · 바깥 칸 {Math.round(radar.outerSpacingKm)}km
+              </Text>
+            </View>
+          )}
           {isLocalScale ? (
             <>
               <View style={styles.legendItem}>

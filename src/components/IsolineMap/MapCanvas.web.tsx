@@ -20,6 +20,8 @@ interface MapCanvasProps {
    * 네이티브에서만 뜹니다. 받아만 두어 타입을 맞춥니다.
    */
   sunOverlay?: unknown;
+  /** ⚠ 위와 같은 이유로 웹에서는 늘 null 입니다. */
+  radar?: unknown;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,

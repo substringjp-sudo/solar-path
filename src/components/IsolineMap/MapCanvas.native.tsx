@@ -4,6 +4,7 @@ import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon } from 'react-nativ
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 import { SunOverlay } from '../../utils/solarGeometry';
+import { RadarFrame, radarColor } from '../../utils/cloudRadar';
 
 interface MapCanvasProps {
   lat: number;
@@ -18,6 +19,8 @@ interface MapCanvasProps {
   selectedDate?: Date;
   /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
   sunOverlay?: SunOverlay | null;
+  /** 구름 레이더. 축척이 창 밖이거나 자료가 없으면 null 입니다. */
+  radar?: RadarFrame | null;
 }
 
 export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
@@ -32,6 +35,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   theme,
   selectedDate,
   sunOverlay = null,
+  radar = null,
 }) => {
   const handleRegionChangeComplete = (newRegion: any) => {
     onRegionChangeComplete?.(newRegion);
@@ -61,6 +65,31 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       pitchEnabled={false}
       onRegionChangeComplete={handleRegionChangeComplete}
     >
+      {/* ── 구름 레이더 (맨 아래) ────────────────────────────────────────
+             ⚠ 매끈하게 칠하지 않고 **자료가 가진 고리·방위 칸 그대로** 그립니다.
+             바깥 칸은 방위 폭이 199km 입니다 — 부드럽게 보간하면 실제보다 수십
+             배 많이 아는 것처럼 보입니다(`cloudRadar.ts`). */}
+      {radar && radar.cells.map((c, i) => (
+        <Polygon
+          key={`radar-${i}`}
+          coordinates={c.polygon}
+          fillColor={radarColor(c.coverPct)}
+          strokeColor="rgba(148, 163, 184, 0.10)"
+          strokeWidth={0.5}
+          geodesic
+        />
+      ))}
+      {/* 자료가 여기서 끝난다는 것을 눈에 보이게 합니다. */}
+      {radar && (
+        <Polyline
+          coordinates={radar.edge}
+          strokeColor="rgba(148, 163, 184, 0.45)"
+          strokeWidth={1.5}
+          lineDashPattern={[5, 6]}
+          geodesic
+        />
+      )}
+
       {/* 밤 그림자 영역 오버레이 (d3-geoCircle 기반 곡선 폴리곤) */}
       {!sunOverlay && nightPolygonCoords && nightPolygonCoords.map((coords, index) => (
         <Polygon
