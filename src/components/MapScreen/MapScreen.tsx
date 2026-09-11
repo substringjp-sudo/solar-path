@@ -42,6 +42,13 @@ interface MapScreenProps {
   theme: any;
   currentTime: Date;
   isActive: boolean;
+  /**
+   * 좌표를 손으로 넣고 싶을 때 **기존 위치 선택 모달**을 엽니다.
+   *
+   * ⚠ 폼을 새로 만들지 않습니다. 지도 안에서 옮기는 길이 생겼어도 좌표 입력·
+   * 검색은 그 모달이 이미 하고 있으므로, 같은 걸 두 벌 두면 갈라집니다.
+   */
+  onOpenPicker?: () => void;
 }
 // ⚠ 태양경로 탭이 없어지면서 이 화면의 하단 TimeSlider 도 사라졌습니다.
 //   시간·날짜 조작은 합쳐진 화면 안의 `IsolineControls` 가 그대로 맡습니다.
@@ -52,11 +59,12 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   theme,
   currentTime,
   isActive,
+  onOpenPicker,
 }) => {
   return (
     <View style={styles.container}>
       <View style={styles.body}>
-        <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
+        <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} onOpenPicker={onOpenPicker} />
       </View>
 
     </View>

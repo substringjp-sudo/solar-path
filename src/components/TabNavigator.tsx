@@ -151,6 +151,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           theme={theme}
           currentTime={currentTime}
           isActive={activeTab === 'map'}
+          onOpenPicker={() => setMapVisible(true)}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>
