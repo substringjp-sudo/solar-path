@@ -7,6 +7,7 @@
  */
 
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
+import { gridBucket } from './weatherCacheKey';
 import { calculateDestination } from './weather';
 
 // ---------------------------------------------------------------------------
@@ -75,8 +76,10 @@ let lastFetchTimestamp = 0;
 const COOLDOWN_MS = 30_000; // 30-second cooldown between fetches
 const gridCache = new Map<string, CloudDensityGrid>();
 
+// ⚠ 자리는 **격자 버킷**으로 자릅니다(utils/weatherCacheKey.ts). 예전 toFixed(2)
+//   는 1.1km 라 격자(2.3~7.8km)보다 촘촘해 같은 칸을 거듭 받았습니다.
 const makeCacheKey = (lat: number, lon: number, az: number) =>
-  `${lat.toFixed(2)},${lon.toFixed(2)},${Math.round(az / 10) * 10}`;
+  `${gridBucket(lat, lon)},${Math.round(az / 10) * 10}`;
 
 // ---------------------------------------------------------------------------
 // Main fetch

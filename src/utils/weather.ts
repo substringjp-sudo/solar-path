@@ -8,6 +8,7 @@ import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes } from './cloudProfile';
+import { gridBucket } from './weatherCacheKey';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -249,7 +250,7 @@ export const fetchSunsetWeather = async (
   const dateKey = localDateString(targetDate);
   const targetDateStr = dateKey;
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
-  const sunsetCacheKey = `sunset_${lat.toFixed(3)}_${lon.toFixed(3)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
+  const sunsetCacheKey = `sunset_${gridBucket(lat, lon)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
 
   const cachedSunset = MEM_SUNSET_CACHE.get(sunsetCacheKey);
   if (cachedSunset && Date.now() - cachedSunset.time < CACHE_TTL_MS) {
@@ -619,7 +620,7 @@ export const fetchLayerWinds = async (
   targetDate: Date = new Date()
 ): Promise<LayerWindHourly | null> => {
   const dateStr = localDateString(targetDate);
-  const key = `wind_${lat.toFixed(3)},${lon.toFixed(3)}_${dateStr}`;
+  const key = `wind_${gridBucket(lat, lon)}_${dateStr}`;
   if (windCache.has(key)) return windCache.get(key) ?? null;
 
   // 바람 6 + 시정 1 + 기압면 단면 20 = 27개 → 가중치 2.7회. **관측점 1점**
