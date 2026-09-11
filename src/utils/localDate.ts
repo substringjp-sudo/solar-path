@@ -40,10 +40,3 @@ export const localDateString = (d: Date): string => {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 };
-
-/**
- * 겨냥한 시각이 그 날짜의 시간별 배열 안에 들어 있는지 봅니다.
- * 판정에서 "잘라 붙이게 되는가" 를 재는 데 씁니다.
- */
-export const localDateContains = (dateStr: string, target: Date): boolean =>
-  localDateString(target) === dateStr;

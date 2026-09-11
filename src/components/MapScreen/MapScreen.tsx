@@ -11,130 +11,62 @@
  * 등시선은 "빛이 언제 여기 도착하나"를, 구름 추적은 "그때까지 구름이 어떻게
  * 움직이나"를 답합니다. 두 정보가 다른 탭에 흩어져 있으면 사용자가 머릿속에서
  * 합쳐야 합니다. 같은 화면에 두면 "빛이 도착하기 전에 걷힐까"가 한눈에 보입니다.
+ *
+ * ## 레이더 탭도 없앴습니다 (§74)
+ *
+ * ⚠ 옛 `02 레이더` 는 **날씨 자료를 하나도 안 썼습니다.** 운량·구름종류·풍속·
+ * 풍향이 전부 `Math.sin(lat*12.9898 + lon*78.233 + …)` 해시에서 나왔고, 화면에는
+ * "웅장한 적란운"·"희귀 렌즈구름" 같은 이름이 떴습니다.
+ *
+ * 이제 지도가 **이미 받아 둔 구름 고리**(반경 380km·97점)를 그대로 그립니다.
+ * 차트가 나르던 것 중 지도가 못 그리는 둘 — 구름 종류와 바람 — 은 지도 위
+ * 읽기값과 화살표로 옮겼습니다.
+ *
+ * ## 태양 경로 탭을 없앴습니다 (§73)
+ *
+ * 등치선과 태양경로는 **같은 기하의 두 표현**입니다 — 등고도선은 직하점 중심의
+ * 원이고 태양 방위는 그 원의 법선입니다(잰 잔차 0.213°, `solarGeometry.ts`).
+ * 게다가 둘은 **사는 축척이 다릅니다**: 화면 폭 1° 아래로 내려가면 등치선은
+ * 화면 안에서 5분도 안 벌어져 뜻을 잃고, 바로 그 자리에서 "내 하늘 어디에 해가
+ * 있나"가 뜻을 얻습니다.
+ *
+ * 그래서 따로 둘 이유가 없어 **하나로 합쳤습니다.** 줌만 내리면 같은 화면에서
+ * 등치선이 한 줄로 수렴하며 그 법선으로 태양 방위가 뜹니다. 지도 평면이 못
+ * 그리는 **고도**는 극좌표 인셋이 모서리에서 지킵니다.
  */
-import React, { useState, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
-import { Globe2, CloudSun, Compass } from 'lucide-react-native';
-import SunCalc from 'suncalc';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import { IsolineMap } from '../IsolineMap/IsolineMap';
-import { CloudTrackerChart } from '../CloudTrackerChart';
-import { SunAzimuthView } from './SunAzimuthView';
-import { TimeSlider } from '../TimeSlider';
-import { useCelestialStore } from '../../store/useCelestialStore';
-
-type MapView = 'isoline' | 'clouds' | 'sunpath';
 
 interface MapScreenProps {
   theme: any;
   currentTime: Date;
   isActive: boolean;
-  setCurrentTime?: (time: Date) => void;
-  isTimeMachineEnabled?: boolean;
-  setTimeMachineEnabled?: (enabled: boolean) => void;
-  events?: any;
-  onCameraPress?: () => void;
+  /**
+   * 좌표를 손으로 넣고 싶을 때 **기존 위치 선택 모달**을 엽니다.
+   *
+   * ⚠ 폼을 새로 만들지 않습니다. 지도 안에서 옮기는 길이 생겼어도 좌표 입력·
+   * 검색은 그 모달이 이미 하고 있으므로, 같은 걸 두 벌 두면 갈라집니다.
+   */
+  onOpenPicker?: () => void;
 }
+// ⚠ 태양경로 탭이 없어지면서 이 화면의 하단 TimeSlider 도 사라졌습니다.
+//   시간·날짜 조작은 합쳐진 화면 안의 `IsolineControls` 가 그대로 맡습니다.
+//   그래서 setCurrentTime · isTimeMachineEnabled · setTimeMachineEnabled ·
+//   events · onCameraPress 를 더 안 받습니다 — 죽은 prop 을 남기지 않습니다.
 
 export const MapScreen: React.FC<MapScreenProps> = ({
   theme,
   currentTime,
   isActive,
-  setCurrentTime,
-  isTimeMachineEnabled = true,
-  setTimeMachineEnabled,
-  events,
-  onCameraPress,
+  onOpenPicker,
 }) => {
-  const { location } = useCelestialStore();
-  const [view, setView] = useState<MapView>('isoline');
-
-  const latitude = location?.coords.latitude ?? 37.5665;
-  const longitude = location?.coords.longitude ?? 126.978;
-
-  const isDay = useMemo(() => {
-    const sp = SunCalc.getPosition(currentTime, latitude, longitude);
-    return sp.altitude > 0;
-  }, [currentTime, latitude, longitude]);
-
-  const views: { id: MapView; label: string; icon: (active: boolean) => React.ReactNode }[] = [
-    {
-      id: 'isoline',
-      label: '01 등치선',
-      icon: (a) => <Globe2 size={12} color={a ? '#38BDF8' : '#64748B'} />,
-    },
-    {
-      id: 'clouds',
-      label: '02 레이더',
-      icon: (a) => <CloudSun size={12} color={a ? '#38BDF8' : '#64748B'} />,
-    },
-    {
-      id: 'sunpath',
-      label: '03 태양경로',
-      icon: (a) => <Compass size={12} color={a ? '#38BDF8' : '#64748B'} />,
-    },
-  ];
-
   return (
     <View style={styles.container}>
-      {/* ── 상단 3단 계측 세그먼트 (Astro-HUD 스타일) ────────────────────── */}
-      <View style={[styles.segment, { backgroundColor: 'rgba(9, 13, 24, 0.95)', borderColor: 'rgba(255, 255, 255, 0.14)' }]}>
-        {views.map(v => {
-          const isActiveView = view === v.id;
-          return (
-            <TouchableOpacity
-              key={v.id}
-              onPress={() => setView(v.id)}
-              style={[
-                styles.segmentBtn,
-                isActiveView && styles.segmentBtnActive,
-              ]}
-              activeOpacity={0.8}
-            >
-              {v.icon(isActiveView)}
-              <Text
-                style={[
-                  styles.segmentText,
-                  { color: isActiveView ? '#38BDF8' : '#64748B' },
-                  isActiveView && { fontWeight: '900' },
-                ]}
-              >
-                {v.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
       <View style={styles.body}>
-        {view === 'isoline' ? (
-          <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} />
-        ) : view === 'clouds' ? (
-          <CloudTrackerChart theme={theme} latitude={latitude} longitude={longitude} currentTime={currentTime} />
-        ) : (
-          <SunAzimuthView theme={theme} currentTime={currentTime} />
-        )}
+        <IsolineMap theme={theme} currentTime={currentTime} isActive={isActive} onOpenPicker={onOpenPicker} />
       </View>
 
-      {/* ── 태양 경로 뷰 최하단 상시 노출 타임 슬라이더 ─────────────────────── */}
-      {view === 'sunpath' && setCurrentTime && (
-        <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
-          <TimeSlider
-            value={currentTime}
-            onChange={setCurrentTime}
-            isTimeMachineEnabled={isTimeMachineEnabled}
-            onToggleTimeMachine={setTimeMachineEnabled}
-            theme={theme}
-            isDay={isDay}
-            onCameraPress={onCameraPress}
-            markers={events ? [
-              { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
-              { time: events.sunset || null, color: '#FF4500', type: 'set' },
-              { time: events.moonrise || null, color: '#888', type: 'rise' },
-              { time: events.moonset || null, color: '#888', type: 'set' },
-            ] : []}
-          />
-        </View>
-      )}
     </View>
   );
 };
@@ -143,40 +75,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  segment: {
-    flexDirection: 'row',
-    marginHorizontal: 14,
-    marginBottom: 6,
-    padding: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    gap: 2,
-  },
-  segmentBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 6,
-    borderRadius: 2,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  segmentBtnActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: 'rgba(56, 189, 248, 0.45)',
-  },
-  segmentText: {
-    fontSize: 10.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.4,
-  },
   body: {
     flex: 1,
-  },
-  bottomPanel: {
-    paddingVertical: 6,
-    borderTopWidth: 1,
   },
 });

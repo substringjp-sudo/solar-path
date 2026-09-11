@@ -327,6 +327,8 @@ export const translations = {
     solarAzimuth: '태양 방위각',
     dayLength: '낮의 길이',
     subsolarPoint: '태양 남중점',
+    isolineMoveHere: '현재 위치로',
+    isolineEnterCoords: '좌표 직접 입력',
     isolineSunriseLine: '일출선',
     isolineSunsetLine: '일몰선',
     isolineGuideTitle: '등시선(Isoline)이란?',
@@ -663,6 +665,8 @@ export const translations = {
     solarAzimuth: 'Solar Azimuth',
     dayLength: 'Day Length',
     subsolarPoint: 'Subsolar Point',
+    isolineMoveHere: 'Use my location',
+    isolineEnterCoords: 'Enter coordinates',
     isolineSunriseLine: 'Sunrise Line',
     isolineSunsetLine: 'Sunset Line',
     isolineGuideTitle: 'What is an Isoline?',
@@ -999,6 +1003,8 @@ export const translations = {
     solarAzimuth: '太陽方位角',
     dayLength: '昼の長さ',
     subsolarPoint: '太陽直下点',
+    isolineMoveHere: '現在地へ',
+    isolineEnterCoords: '座標を直接入力',
     isolineSunriseLine: '日の出線',
     isolineSunsetLine: '日の入り線',
     isolineGuideTitle: '等時線(Isoline)とは？',
@@ -1066,52 +1072,6 @@ export const translateSunsetDesc = (desc: string, lang: Language): string => {
     }
     if (desc.includes('Unable to predict due to invalid')) {
       return '無効なデータのため、予測を実行できません。';
-    }
-  }
-  return desc;
-};
-
-// 영어로 제공되는 scene.description 번역 매핑
-export const translateSceneDesc = (desc: string, lang: Language): string => {
-  if (lang === 'ko') {
-    if (desc.includes('흐린 하늘') || desc.toLowerCase().includes('overcast')) {
-      return '흐린 하늘 — 자연스러운 톤 유지';
-    }
-    if (desc.includes('드라마틱 구름') || desc.toLowerCase().includes('dramatic')) {
-      return '드라마틱 구름 — 대비 강화, 구름 부피감 극대화';
-    }
-    if (desc.includes('골든아워') || desc.toLowerCase().includes('golden')) {
-      return '골든아워 — 따뜻한 색감, 부드러운 채도 강화';
-    }
-    if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
-      return '맑은 하늘 — 밸런스 보정';
-    }
-  } else if (lang === 'ja') {
-    if (desc.includes('흐린 하늘') || desc.toLowerCase().includes('overcast')) {
-      return '曇り空 — 自然なトーンを維持';
-    }
-    if (desc.includes('드라마틱 구름') || desc.toLowerCase().includes('dramatic')) {
-      return 'ドラマチックな雲 — コントラストを強化し、雲の立体感を最大化';
-    }
-    if (desc.includes('골든아워') || desc.toLowerCase().includes('golden')) {
-      return 'ゴールデンアワー — 温かみのある色合い、柔らかな彩度の強化';
-    }
-    if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
-      return '澄んだ空 — バランス調整';
-    }
-  } else {
-    // en
-    if (desc.includes('흐린 하늘') || desc.toLowerCase().includes('overcast')) {
-      return 'Overcast — Maintaining natural tones';
-    }
-    if (desc.includes('드라마틱 구름') || desc.toLowerCase().includes('dramatic')) {
-      return 'Dramatic Clouds — Boosting contrast & volume';
-    }
-    if (desc.includes('골든아워') || desc.toLowerCase().includes('golden')) {
-      return 'Golden Hour — Enhancing warmth & soft saturation';
-    }
-    if (desc.includes('맑은 하늘') || desc.toLowerCase().includes('clear')) {
-      return 'Clear Sky — Balancing exposure';
     }
   }
   return desc;

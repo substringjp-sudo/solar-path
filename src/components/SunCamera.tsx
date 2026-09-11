@@ -7,6 +7,8 @@ import {
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
+import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
+import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
@@ -31,7 +33,6 @@ import { getSunPosition, getMoonPosition, getCelestialEvents } from '../utils/ce
 import { getCalculatedStars, CONSTELLATION_LINES_DATA } from '../utils/celestialStarsData';
 import { getCalculatedMilkyWay } from '../utils/celestialMilkyWayData';
 import { getCalculatedPlanets } from '../utils/celestialPlanets';
-import { generate29GridPoints, computeCloudCellData } from '../utils/cloudMatrix';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
@@ -180,7 +181,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const CAM_HEIGHT = BOX_HEIGHT;
   const CAM_WIDTH = BOX_WIDTH;
 
-  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, language } = useCelestialStore();
+  const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -298,6 +299,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const deviceAzimuthRef = useRef(0);
   const devicePitchRef = useRef(0);
   const deviceRotationRef = useRef({ alpha: 0, beta: 0, gamma: 0 });
+  /**
+   * 가장 최근 기기 자세. 나침반 값을 **카메라 기준**으로 옮기는 데 씁니다 —
+   * `watchHeadingAsync` 는 상단 모서리 방위를 주므로 그대로 쓰면 하늘을 겨눌 때
+   * 180° 뒤집힙니다(`utils/devicePose.ts`).
+   */
+  const posePoseRef = useRef<DevicePose | null>(null);
 
   // 자기계 raw Ref
   const magRef = useRef({ x: 0, y: 0, z: 0 });
@@ -379,12 +386,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return getCalculatedMilkyWay(latitude, longitude, currentTime);
   }, [latitude, longitude, currentTime]);
 
-  // 주변 200km 반경 29개 구름 셀 위치
-  const cloudCellsPos = useMemo(() => {
-    const grid = generate29GridPoints(latitude, longitude);
-    return grid.map(pt => computeCloudCellData(pt, 0));
-  }, [latitude, longitude]);
-
   // ── 동적 일몰/일출 방위각 계산 (현재 날짜 & 위도/경도 물리계산 기준) ──
   const dynamicEventAzimuths = useMemo(() => {
     const events = getCelestialEvents(currentTime, latitude, longitude);
@@ -399,13 +400,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 오프스크린 시뮬레이터용 29개 다지점 공간 샘플링 시뮬레이션 상태 ──
   const cameraSimState = useMemo(() => {
     const pathData = weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : undefined;
+    // ⚠ 예전에는 `terrain: { observerElevation: 50 }` 만 넘겼습니다. 그러면
+    //   `SkyScene3D` 가 `sim.terrain.bandAngles` 를 못 찾아 `createTerrainBands`
+    //   를 **아예 안 부릅니다** — AR 시뮬레이터와 촬영 썸네일에 산이 통째로
+    //   안 나오던 원인입니다(§62). SkyScreen 과 **같은 스토어 캐시**를 봅니다.
+    //   캐시가 없으면 예전처럼 빈 지형으로 물러납니다(산만 안 나올 뿐 나머지는 그립니다).
+    const cachedTerrain = pickTerrainForLocation(terrainCacheList as any, latitude, longitude);
     return {
       pathData,
       azimuth: dynamicEventAzimuths.sunset,
       eventTime: currentTime,
-      terrain: { observerElevation: 50 },
+      terrain: cachedTerrain ?? fallbackTerrain(),
     };
-  }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset]);
+  }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
 
   // 3D 시뮬레이터 전달용 노을 예측 결과
   const currentPrediction = useMemo(() => {
@@ -456,6 +463,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       const fwdX = -(ca * sg + sa * sb * cg);
       const fwdY = -(sa * sg - ca * sb * cg);
       const fwdZ = -(cb * cg);
+
+      // 나침반 값을 옮길 때 쓰도록 자세를 담아 둡니다.
+      posePoseRef.current = poseFromRotation(aRad, bRad, gRad);
 
       // Raw heading (자이로 기준, 0=북, 시계방향)
       const rawHeading = (Math.atan2(fwdX, fwdY) * 180 / Math.PI + 360) % 360;
@@ -584,9 +594,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           // ⚠ trueHeading 을 못 받으면 **자북**입니다 — 한국에서 약 8° 어긋
           //   납니다. 융합에 그 사실을 그대로 넘겨 화면이 알릴 수 있게 합니다.
           const isTrue = data.trueHeading !== -1;
-          const heading = isTrue ? data.trueHeading : data.magHeading;
-          fusionRef.current.pushMagnetic(heading, isTrue);
-          setHeadingStatus(fusionRef.current.status());
+          const rawCompass = isTrue ? data.trueHeading : data.magHeading;
+
+          // ⚠ 이 값은 **기기 상단 모서리**의 방위입니다(expo-location 이
+          //   getOrientation()[0] 을 그대로 넘깁니다). 카메라가 지평선 위를
+          //   보면 상단 모서리가 뒤로 넘어가 180° 뒤집히므로, 자세에서 두 방위의
+          //   차이를 꺼내 **카메라 기준으로 옮겨** 넣습니다. 폰을 정확히 세워
+          //   나침반이 0/0 이 되는 자세면 null 이고, 그때는 아예 안 씁니다.
+          const pose = posePoseRef.current;
+          const camHeading = pose ? compassToCameraHeading(rawCompass, pose) : null;
+          if (camHeading !== null) {
+            fusionRef.current.pushMagnetic(camHeading, isTrue);
+            setHeadingStatus(fusionRef.current.status());
+          }
         });
       } catch (err) {
         console.warn('[SunCamera] watchHeadingAsync error:', err);

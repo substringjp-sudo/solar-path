@@ -49,7 +49,6 @@ export const getCelestialEvents = (date: Date, lat: number, lng: number): Celest
   };
 };
 
-
 export const getSunPath = (date: Date, lat: number, lng: number): PathPoint[] => {
   const dayStart = startOfDay(date);
   const points: PathPoint[] = [];
@@ -87,13 +86,6 @@ export interface IsochroneLine {
   type: 'sunrise' | 'sunset';
 }
 
-export const getIsochroneInterval = (zoom: number): number => {
-  if (zoom >= 10) return 5;
-  if (zoom >= 8) return 10;
-  if (zoom >= 6) return 15;
-  return 30;
-};
-
 /**
  * 태양 적위(declination)와 균시차(equation of time)를 계산합니다.
  * NOAA 저정밀도 태양 위치 알고리즘(J2000 기준일) 기반.
@@ -108,7 +100,13 @@ export const getSunDeclinationAndEquationOfTime = (date: Date): { declination: n
   const meanAnomaly = (357.5291 + 0.98560028 * d) * (Math.PI / 180);
   const meanLongitude = (280.4665 + 0.98564736 * d) * (Math.PI / 180);
   const eclipticLongitude = meanLongitude + (1.9146 * Math.sin(meanAnomaly) + 0.01999 * Math.sin(2 * meanAnomaly)) * (Math.PI / 180);
-  const obliquity = (23.439291 - 0.000130043 * d) * (Math.PI / 180);
+  // ⚠ 감소율은 **율리우스 세기당** 0.0130042° 입니다. 하루당으로 쓰려면
+  //   36525 로 나눠야 합니다. 예전에는 0.000130043 을 **하루마다** 빼고 있어
+  //   365배 빠르게 줄었습니다 — 2026년(d≈9,750)이면 경사각이 23.44° 가 아니라
+  //   22.17° 로 나와, 하지 적위가 1.27° 어긋났습니다. 지도의 등치선이 위도로
+  //   약 140km 밀리고 해마다 0.13° 씩 더 밀리던 값입니다.
+  //   (`verify-solar-geometry.js` 가 SunCalc 과 견줘 잡았습니다.)
+  const obliquity = (23.439291 - 3.5604e-7 * d) * (Math.PI / 180);
   const declination = Math.asin(Math.sin(obliquity) * Math.sin(eclipticLongitude));
 
   const y = Math.sin(eclipticLongitude) * Math.cos(obliquity);
@@ -268,6 +266,4 @@ export const getSeasonMarkers = (year: number): SeasonMarkers => {
 
   return { springEquinox, summerSolstice, autumnEquinox, winterSolstice };
 };
-
-
 

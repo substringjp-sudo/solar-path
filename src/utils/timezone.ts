@@ -1,10 +1,4 @@
-/**
- * 계산된 오프셋을 기반으로 "GMT+9" 혹은 "GMT-8" 형식의 문자열을 반환합니다.
- */
-export const formatTimezoneOffsetLabel = (offsetHours: number): string => {
-  if (offsetHours === 0) return 'GMT';
-  return `GMT${offsetHours > 0 ? '+' : ''}${offsetHours}`;
-};
+
 
 /**
  * 주어진 기준 Date(기기 로컬 시간대)를 특정 법정 오프셋(시간) 기준으로 가상 변환합니다.
@@ -54,5 +48,4 @@ export const formatLocalTime = (date: Date, pattern: string): string => {
     .replace('ss', ss)
     .replace('d', d);
 };
-
 

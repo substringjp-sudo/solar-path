@@ -528,13 +528,3 @@ export function makeDemUniforms(
     [`u${U}Despike`]: { value: 0 },
   };
 }
-
-/**
- * CPU 쪽 디코드 — **검증과 도구 전용** 입니다.
- *
- * 앱은 셰이더에서 디코드하므로 이 함수를 쓰지 않습니다. 판정(`verify-dem.js`)
- * 이 읽어 온 화소를 고도로 바꿀 때만 씁니다.
- */
-export function decodeTerrarium(r: number, g: number, b: number): number {
-  return r * 256 + g + b / 256 - 32768;
-}

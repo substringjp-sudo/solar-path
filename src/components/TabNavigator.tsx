@@ -150,12 +150,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         <MapScreen
           theme={theme}
           currentTime={currentTime}
-          setCurrentTime={setCurrentTime}
-          isTimeMachineEnabled={isTimeMachineEnabled}
-          setTimeMachineEnabled={setTimeMachineEnabled}
-          events={events}
-          onCameraPress={onCameraPress}
           isActive={activeTab === 'map'}
+          onOpenPicker={() => setMapVisible(true)}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>

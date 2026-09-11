@@ -63,41 +63,24 @@ export const CLOUD_G = 0.85;
 /** 산란 이득 — 물리량을 화면 밝기로 옮기는 노출 상수 (아트 디렉션 지점) */
 export const RAYLEIGH_GAIN = 1.0;
 export const MIE_GAIN = 1.0;
-/** 다중산란(하늘 전체가 서로 빛을 주고받는 성분) 이득 */
-export const MULTI_SCATTER_GAIN = 0.42;
 /** 최종 노출 (물리 복사휘도 → 화면 밝기) */
 export const SKY_EXPOSURE = 22.0;
 
-/**
- * 디스플레이 변환 — "물리적으로 맞지만 안 예쁜" 문제를 푸는 부분입니다.
- *
- * 선형 복사휘도를 그냥 1-exp(-x)로 누르면 밝은 영역이 전부 흰색으로 뭉개져
- * 지평선이 날아가고 하늘 전체가 우윳빛이 됩니다. ACES 필름 커브는 하이라이트를
- * 훨씬 완만하게 굴려서 밝은 곳에도 색이 남습니다.
- *
- * 채도 보정은 톤매핑 **이후**에 겁니다. 톤 압축이 채도를 깎아내리므로
- * 그 뒤에 되살려야 합니다.
- */
-export const DISPLAY_EXPOSURE = 0.62;
-
-/**
- * 눈의 순응(adaptation).
- *
- * Why: 정오 하늘과 박명 하늘은 휘도가 200배 차이납니다. 절대 노출 하나로는
- * 정오를 맞추면 박명이 새까맣게 죽고, 박명을 맞추면 정오가 흰색으로 날아갑니다.
- * 실제로는 사람 눈이 어두워질수록 순응해 더 밝게 봅니다. 그래서 태양이 낮아질수록
- * 노출을 올립니다. 물리 복사휘도는 그대로 두고 표시 단계에서만 보정하므로
- * 상대적인 밝기 관계(지평선이 천정보다 밝다 등)는 유지됩니다.
- */
-export const ADAPT_MAX = 16.0;
-export const ADAPT_START_ALT = 6.0;
-export const ADAPT_END_ALT = -14.0;
-
-// 표시 채도·대비는 skyTuning.ts 가 유일한 출처입니다.
+// 표시 노출·채도·대비·눈 순응은 **skyTuning.ts 가 유일한 출처**입니다.
 //
-// 여기에도 `export const DISPLAY_SATURATION = 1.22` 가 있었는데, 아무도
-// import 하지 않는 죽은 상수였습니다. 실제로 화면에 나가는 값은
-// DEFAULT_TUNING 의 같은 이름 필드였고, 둘이 조용히 어긋날 수 있었습니다.
+// 여기에 `DISPLAY_SATURATION` 이 있었는데 아무도 import 하지 않는 죽은
+// 상수였습니다. 나중에 훑어 보니 **같은 부류가 넷 더** 있었습니다 —
+// `DISPLAY_EXPOSURE`(0.62) · `ADAPT_MAX`(16.0) · `ADAPT_START_ALT`(6.0) ·
+// `ADAPT_END_ALT`(-14.0). 값이 그때는 DEFAULT_TUNING 과 정확히 같았지만
+// **아무것도 둘을 묶어 두지 않았습니다.** 실제로 화면에 나가는 값은 GLSL
+// uniform(`DISP_EXPO`·`ADAPT_MAX`·`ADAPT_HI`·`ADAPT_LO`)이고 그 값은
+// `t.displayExposure` 등에서 옵니다.
+//
+// ⚠ `ADAPT_MAX` 는 **쓰이는 것처럼 보였습니다** — GLSL 원문에 같은 이름의
+//   uniform 이 있어 이름 검색에 걸렸기 때문입니다. 조율 화면에서 값을 바꿔도
+//   TS 상수는 그대로이니, 둘이 다르다는 것을 알아차릴 방법이 없었습니다.
+//   전부 지웠습니다.
+
 // 같은 값을 두 곳에 적어 두지 않습니다.
 
 /**
@@ -119,7 +102,6 @@ export const ADAPT_END_ALT = -14.0;
  * `skyRadiance`의 `twilightWarmMix` 주석 참고.
  */
 export const TWILIGHT_WARM_MIX = 1.0;
-export const OZONE_TWILIGHT_GAIN = 0.30;
 export const OZONE_TWILIGHT_MAX = 2.4;
 
 /**
@@ -154,16 +136,6 @@ export const TWILIGHT_END_DEG = -16.0;
 export const NIGHT_SKY: RGB = { r: 0.0008, g: 0.0011, b: 0.0026 };
 
 /**
- * 다중산란 항에 적용할 태양 대기질량 상한.
- *
- * Why: 단일산란은 태양광이 산란점까지 오는 실제 경로로 감쇠시켜야 하지만,
- * 다중산란으로 들어오는 빛은 하늘 전역에서 오므로 그렇게 감쇠하지 않습니다.
- * 이 상한이 없으면 일몰에 파랑이 완전히 죽어 하늘 전체가 단색 빨강이 됩니다.
- * (실제 노을 하늘은 지평선만 붉고 천정은 파랗게 남습니다.)
- */
-export const MS_AIRMASS_CAP = 4.0;
-
-/**
  * 다중산란 경로 길이를 직달 경로의 몇 배로 볼지.
  *
  * Why: 상한을 상수로만 두면 해가 지평선에 걸렸을 때 문제가 생깁니다. 그 순간에는
@@ -185,7 +157,6 @@ export const MS_AIRMASS_FRACTION = 0.35;
  * 이것이 일몰에 지평선만 붉고 천정은 푸르게 남는 이유(박명 아치)입니다.
  */
 export const SCATTER_HEIGHT_HORIZON = 0.15;
-export const SCATTER_HEIGHT_ZENITH = 1.6;
 
 /**
  * 투과율 계산에 쓸 태양 고도의 하한.
@@ -794,35 +765,6 @@ export const AERIAL_STRENGTH = 1.0;
 export const TWILIGHT_TINT_HORIZON = 0.22;
 export const TWILIGHT_TINT_ZENITH = 0.38;
 
-/** 구름 종류별 기하학적 두께 (km) → 광학두께 환산에 사용 */
-export const CLOUD_GEOMETRIC_THICKNESS_KM: Record<string, number> = {
-  Cirrus: 0.4,
-  Cirrocumulus: 0.4,
-  Cirrostratus: 0.6,
-  Altocumulus: 0.8,
-  Altostratus: 1.4,
-  Nimbostratus: 3.5,
-  Stratocumulus: 1.0,
-  Stratus: 0.6,
-  Cumulus: 1.6,
-  Cumulonimbus: 8.0,
-};
-
-/**
- * 구름 광학두께 τ.
- * 물방울 구름의 소산계수는 대략 20~60 km⁻¹ 범위이고, 얼음 결정(권운)은 훨씬 작습니다.
- */
-export function cloudOpticalDepth(
-  presetName: string,
-  density01: number,
-  isIce: boolean
-): number {
-  const thickness = CLOUD_GEOMETRIC_THICKNESS_KM[presetName] ?? 1.0;
-  // 얼음운은 입자 밀도가 낮아 광학두께가 한 자릿수에 머무릅니다.
-  const extinctionPerKm = isIce ? 1.6 : 26.0;
-  return Math.max(0.05, thickness * extinctionPerKm * clamp01(density01));
-}
-
 /**
  * 구름 도감(CloudPreset)의 scattering 값에서 광학두께를 역산합니다.
  *
@@ -1033,33 +975,6 @@ export function cloudTauFromDNI(
   return { tauVert: Math.max(0, tauVert), saturated };
 }
 
-/**
- * 관측자와 대상 사이 대기의 투과율 (원경 대기 투시).
- *
- * 수평 경로의 광학두께는 천정 광학두께를 척도고도로 나눈 지표 소산계수에
- * 경로 길이를 곱해 구합니다. 대상이 고고도면 경로 평균 밀도가 낮아지므로
- * 그만큼 보정합니다.
- */
-export function aerialTransmittance(
-  distanceKm: number,
-  targetAltKm: number,
-  p: AtmosphereParams
-): RGB {
-  const tR = tauRayleighRGB(p.elevScale);
-  const tM = tauMieRGB(p.betaMie, p.angstrom, p.elevScale);
-
-  // 경로가 상승하며 지나는 공기의 평균 밀도비
-  const h = Math.max(0.01, targetAltKm);
-  const avgDensity = (SCALE_HEIGHT_KM / h) * (1 - Math.exp(-h / SCALE_HEIGHT_KM));
-  const pathScale = (distanceKm / SCALE_HEIGHT_KM) * avgDensity * AERIAL_STRENGTH;
-
-  return {
-    r: Math.exp(-(tR[0] + tM[0]) * pathScale),
-    g: Math.exp(-(tR[1] + tM[1]) * pathScale),
-    b: Math.exp(-(tR[2] + tM[2]) * pathScale),
-  };
-}
-
 export interface CloudShadingResult {
   /** 태양을 향한 면 */
   lit: RGB;
@@ -1069,92 +984,6 @@ export interface CloudShadingResult {
   diffuseReflectance: number;
   /** 확산 투과율 (아래에서 볼 때 얼마나 빛이 새어나오는가) */
   diffuseTransmittance: number;
-}
-
-/**
- * 구름 색을 광학두께로부터 계산합니다.
- *
- * 물리 근거
- *  - 가시광에서 물방울은 거의 흡수하지 않습니다(단일산란 알베도 ≈ 0.9999).
- *    즉 구름이 회색으로 보이는 건 "빛을 먹어서"가 아니라 **빛이 그 지점까지
- *    도달하지 못해서**입니다. 그래서 얇은 구름은 희고, 두꺼운 구름은 윗면만
- *    희고 아랫면이 어두워집니다.
- *  - 2-stream 근사(보존 산란): 유효 광학두께 τ' = τ(1-g)에 대해
- *      반사율 R = τ' / (τ' + 2),  투과율 T = 2 / (τ' + 2)
- *    τ가 커질수록 R→1(흰 윗면), T→0(어두운 아랫면)로 자연히 갈라집니다.
- *  - 직달 투과 exp(-τ)는 얇은 구름이 역광에서 빛나는 실버라이닝을 만듭니다.
- *
- * @param tau       구름 광학두께
- * @param cosView   시선과 태양 방향의 코사인 (역광이면 +1에 가까움)
- * @param beam      구름 고도에서의 직달광 색
- * @param ambient   구름 주변 하늘색
- */
-export function cloudShading(
-  tau: number,
-  cosView: number,
-  beam: RGB,
-  ambient: RGB,
-  opts: {
-    /** 도감의 그림자 대비 (0~1) — 클수록 그늘면이 깊게 어두워짐 */
-    shadowContrast?: number;
-    /** 지평선 노을빛 — 황혼 환경광 합성용 */
-    horizonGlow?: RGB;
-    /** 천공 푸른빛 — 황혼 환경광 합성용 */
-    zenithSky?: RGB;
-    /** 태양 고도 — 황혼 게이트용. 생략하면 게이트 없이 항상 적용(예전 동작) */
-    sunAltDeg?: number;
-  } = {}
-): CloudShadingResult {
-  const { shadowContrast = 0.5, horizonGlow, zenithSky, sunAltDeg } = opts;
-
-  const tauEff = tau * (1 - CLOUD_G);
-  const R = tauEff / (tauEff + 2);
-  const T = 2 / (tauEff + 2);
-
-  // 직달 투과 — 얇을수록 강하게 남습니다.
-  const direct = Math.exp(-tau);
-  // 전방 산란 피크 (실버라이닝)
-  const forward = hgPhase(cosView, CLOUD_G) * 4 * Math.PI; // 정규화하여 1 부근이 등방
-  const silver = direct * clamp01(forward * 0.25);
-
-  const lit: RGB = {
-    r: beam.r * (R + silver) + ambient.r * (1 - R) * 0.55,
-    g: beam.g * (R + silver) + ambient.g * (1 - R) * 0.55,
-    b: beam.b * (R + silver) + ambient.b * (1 - R) * 0.55,
-  };
-
-  // 그늘면 기저: 구름 내부를 통과해 확산된 빛 + 주변 하늘의 재조명.
-  // 도감의 shadowContrast가 클수록 더 깊게 어두워집니다.
-  const ambientKeep = 0.30 + T * 0.45;
-  const depth = 1 - shadowContrast * 0.55;
-  let shadow: RGB = {
-    r: (beam.r * T * 0.35 + ambient.r * ambientKeep) * depth,
-    g: (beam.g * T * 0.35 + ambient.g * ambientKeep) * depth,
-    b: (beam.b * T * 0.35 + ambient.b * ambientKeep) * depth,
-  };
-
-  // ── 황혼 환경광 합성 (docs/CLOUD_PHYSICS.md §5) ──────────────────────────
-  // 그늘진 구름은 검게 죽지 않습니다. 빛이 통과하지 못할수록(=차폐도가 클수록)
-  // 대신 두 환경광을 받습니다: 지평선의 노을빛과 머리 위 천공의 푸른빛.
-  // 두 광원의 **RGB 전체**를 더합니다 — 채널을 골라 뽑으면 없는 색이 생깁니다.
-  if (horizonGlow && zenithSky) {
-    const gate = sunAltDeg === undefined ? 1 : 1 - smoothstep01(-2, 8, sunAltDeg);
-    const influence = clamp01(1 - T) * gate * getTuning().twilightTint;
-    if (influence > 0) {
-      const wH = TWILIGHT_TINT_HORIZON;
-      const wZ = TWILIGHT_TINT_ZENITH;
-      const tr = horizonGlow.r * wH + zenithSky.r * wZ;
-      const tg = horizonGlow.g * wH + zenithSky.g * wZ;
-      const tb = horizonGlow.b * wH + zenithSky.b * wZ;
-      shadow = {
-        r: shadow.r + (tr - shadow.r) * influence,
-        g: shadow.g + (tg - shadow.g) * influence,
-        b: shadow.b + (tb - shadow.b) * influence,
-      };
-    }
-  }
-
-  return { lit, shadow, diffuseReflectance: R, diffuseTransmittance: T };
 }
 
 // ── 5) GLSL — 위 TS 구현과 같은 상수를 주입해 생성 ─────────────────────────
@@ -1267,7 +1096,6 @@ vec2 atm_ozoneAirMass(float altDeg, float trueSunAlt) {
   float tw = trueSunAlt < 0.0 ? 1.0 + min(OZ_TW_MAX, -trueSunAlt * OZ_TW_GAIN) : 1.0;
   return vec2(base * tw, base * (1.0 + (tw - 1.0) * OZ_TW_MSFRAC));
 }
-
 
 /**
  * **두꺼운 시선 경로에서 색이 씻기는 것** — 단일산란 근사의 보정입니다.
@@ -1596,7 +1424,6 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   return atm_toSrgb(c);
 }
 `;
-
 
 // ── 개발자 튜닝 uniform ─────────────────────────────────────────────────────
 //

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { StyleSheet, View, Text, PanResponder, Dimensions, Platform, ActivityIndicator } from 'react-native';
 import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, LinearGradient, Text as SvgText, Rect } from 'react-native-svg';
 import * as d3 from 'd3-geo';
-import * as topojson from 'topojson-client';
+import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { IsochronePoint } from '../../utils/celestial';
 
@@ -54,21 +54,12 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   const rotateRef = useRef(rotate);
   rotateRef.current = rotate;
 
+  // ⚠ 예전에는 여기서 CDN 을 받았습니다. 실패하면 육지 없는 빈 구가 됐고,
+  //   줌으로 자동 전환하는 지금은 오프라인에서 화면이 비게 됩니다. 번들에
+  //   넣어 네트워크를 안 탑니다(`worldLand.ts`).
   useEffect(() => {
-    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load map data');
-        return res.json();
-      })
-      .then((data) => {
-        const land = topojson.feature(data, data.objects.land);
-        setMapData(land);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Error loading world map atlas:', err);
-        setLoading(false);
-      });
+    setMapData(WORLD_LAND);
+    setLoading(false);
   }, []);
 
   const startRotate = useRef<[number, number]>([0, 0]);
