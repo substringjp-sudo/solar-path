@@ -17,7 +17,20 @@
  *   (서반구 경도는 전부 latitude:nan 을 돌려준다). 원반 가장자리(경도 -60°
  *   부근 등)도 못 믿는다.
  */
-const MODELS = ['best_match','ecmwf_ifs025','icon_seamless','gfs_seamless'];
+/**
+ * 견줄 모델. 두 번째 인자로 쉼표 목록을 넘겨 바꿀 수 있습니다.
+ *   node verify-cloud-forecast.js 30 ecmwf_ifs025,jma_seamless,ukmo_seamless
+ *
+ * Open-Meteo 에서 **층별 운량을 실제로 주는** 모델만 넣으세요. 훑어 보니
+ * 전 세계에 주는 것은 13개입니다(best_match · ecmwf_ifs025 · icon_seamless ·
+ * icon_global · gfs_seamless · gfs_global · gem_seamless · gem_global ·
+ * jma_seamless · jma_gsm · meteofrance_seamless · meteofrance_arpege_world ·
+ * ukmo_seamless · ukmo_global_deterministic_10km · metno_seamless ·
+ * knmi_seamless · dmi_seamless · cma_grapes_global).
+ * ⚠ 안 되는 것: ecmwf_ifs04 · ecmwf_aifs025 · **kma_*(한국 기상청)** ·
+ *   bom_access_global — 층별이 전부 null 입니다.
+ */
+const MODELS = (process.argv[3] || 'best_match,ecmwf_ifs025,icon_seamless,gfs_seamless').split(',');
 /** 앱이 실제로 섞는 둘. 아래 '총운량을 내는 네 방식' 견주기에 씁니다. */
 const APP_MODELS = ['ecmwf_ifs025','icon_seamless'];
 const clamp01 = x => Math.min(1, Math.max(0, x));
@@ -125,17 +138,21 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
     await new Promise(r=>setTimeout(r,900));
   }
   const pad=(s,n)=>String(s).padStart(n);
-  console.log('  장소            시각수 맑음배율(출처) ' + MODELS.map(m=>pad(m.replace('_seamless','').replace('_ifs025',''),11)).join('') + pad('4모델평균',11));
+  console.log('  장소            시각수 맑음배율(출처) ' + MODELS.map(m=>pad(m.replace('_seamless','').replace('_ifs025',''),11)).join('') + pad(`${MODELS.length}모델평균`,11));
   for(const r of rows) console.log(`  ${r.name.padEnd(14)}${pad(r.n,5)}${pad(r.scale.toFixed(2),8)}(${r.scaleSrc.padEnd(5)})`
     + MODELS.map(m=>pad((r.m[m].ae/r.n*100).toFixed(0),11)).join('') + pad((r.cons.ae/r.n*100).toFixed(0),11));
   console.log('\n  전체 (τ 평균절대오차 ×100, 낮을수록 좋음)');
   for(const m of MODELS) if(tot[m].n) console.log(`   ${m.padEnd(15)} ${(tot[m].ae/tot[m].n*100).toFixed(1)}   편향 ${(tot[m].bias/tot[m].n>=0?'+':'')}${(tot[m].bias/tot[m].n*100).toFixed(1)}   (n=${tot[m].n})`);
-  console.log(`   ${'4모델 τ 평균'.padEnd(13)} ${(totCons.ae/totCons.n*100).toFixed(1)}   편향 ${(totCons.bias/totCons.n>=0?'+':'')}${(totCons.bias/totCons.n*100).toFixed(1)}   (n=${totCons.n})`);
+  console.log(`   ${`${MODELS.length}모델 τ 평균`.padEnd(13)} ${(totCons.ae/totCons.n*100).toFixed(1)}   편향 ${(totCons.bias/totCons.n>=0?'+':'')}${(totCons.bias/totCons.n*100).toFixed(1)}   (n=${totCons.n})`);
   // 조합별 비교: 요청 비용(모델 수)과 이득을 견준다
   console.log('\n  조합별 (τ 평균절대오차×100 / 짙은흐림 τ<.45 에서의 편향)');
+  // ⚠ 요청하지 않은 모델이 든 조합은 **건너뜁니다.** 예전에는 그대로 계산해
+  //   NaN 을 찍었습니다 — 없는 값을 없다고 말하지 않고 숫자처럼 보여 주는 것이
+  //   제일 나쁩니다.
   const COMBOS=[['best_match'],['ecmwf_ifs025'],['icon_seamless'],
                 ['ecmwf_ifs025','icon_seamless'],['ecmwf_ifs025','icon_seamless','gfs_seamless'],
-                ['best_match','ecmwf_ifs025','icon_seamless'],MODELS];
+                ['best_match','ecmwf_ifs025','icon_seamless'],MODELS]
+    .filter(C=>C.every(m=>MODELS.includes(m)));
   for(const C of COMBOS){
     let ae=0,n=0, dAe=0,dB=0,dn=0;
     for(const s2 of allSamples){
