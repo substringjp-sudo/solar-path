@@ -7,6 +7,8 @@ import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
 import { buildRadarFrame, isRadarScale } from '../../utils/cloudRadar';
 import { fetchDayWeatherRing, CloudPathData } from '../../utils/weather';
 import { localDateString } from '../../utils/localDate';
+import { mapModeFor, globeProgress, deltaForStretch, GLOBE_STRETCH } from '../../utils/mapProjection';
+import { LandSilhouette } from './LandSilhouette';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { t } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
@@ -34,6 +36,9 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const [isPlaying, setIsPlaying] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
   const [longitudeDelta, setLongitudeDelta] = useState(60);
+  /** 실루엣을 지도와 **같은 자리**에 그리려면 중심 좌표까지 있어야 합니다. */
+  const [region, setRegion] = useState({ latitude: 37.5665, longitude: 126.978, longitudeDelta: 60 });
+  const [bodySize, setBodySize] = useState({ width: 0, height: 0 });
   const [projectionType, setProjectionType] = useState<'2D' | '3D'>('2D');
   const [globeScale, setGlobeScale] = useState(150);
 
@@ -42,12 +47,13 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleRegionChangeComplete = useCallback((region: { longitudeDelta: number }) => {
+  const handleRegionChangeComplete = useCallback((r: { latitude: number; longitude: number; longitudeDelta: number }) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
-      setLongitudeDelta(region.longitudeDelta);
+      setLongitudeDelta(r.longitudeDelta);
+      setRegion({ latitude: r.latitude, longitude: r.longitude, longitudeDelta: r.longitudeDelta });
     }, 350); // 350ms 디바운스
   }, []);
 
@@ -134,6 +140,26 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     () => (wantRadar ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta) : null),
     [wantRadar, ring, lat, lon, selectedDate, longitudeDelta],
   );
+
+  /**
+   * 축척이 정하는 그리기 모드 — 타일 → 실루엣 → 구.
+   *
+   * 메르카토르는 넓힐수록 화면 위아래가 다른 배율이 됩니다. 늘어남이 2배를
+   * 넘으면 평면이 거짓말을 시작하므로 구로 갑니다. ⚠ 그 지점은 **위도 함수**
+   * 입니다 — 서울 33°, 적도 67°, 60°N 24°(`mapProjection.ts`).
+   */
+  const autoMode = useMemo(
+    () => mapModeFor(region.latitude, longitudeDelta),
+    [region.latitude, longitudeDelta],
+  );
+  /** 구가 부풀어 오르는 진행도 0~1. 모서리 반지름을 여기에 이어 둡니다. */
+  const morph = useMemo(
+    () => globeProgress(region.latitude, longitudeDelta),
+    [region.latitude, longitudeDelta],
+  );
+  // 사용자가 버튼으로 3D 를 고르면 그대로 둡니다. 2D 일 때만 축척이 정합니다.
+  const showGlobe = projectionType === '3D' || autoMode === 'globe';
+  const showSilhouette = !showGlobe && autoMode === 'silhouette';
 
   const dateKey = selectedDate.toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
@@ -240,12 +266,28 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
       {/* 가변 메인 프레임: 지도가 화면의 남은 높이를 꽉 채웁니다 */}
       <View 
-        style={[styles.mapCard, { borderColor: theme.border }]}
+        style={[
+          styles.mapCard,
+          {
+            borderColor: theme.border,
+            /**
+             * ⚠ **사각형에서 원으로 이어집니다.** 모서리 반지름을 전환 진행도에
+             * 묶어 두면, 구로 넘어갈 때 모양이 툭 바뀌지 않고 같은 원이 부풀어
+             * 오르는 것으로 읽힙니다. 동네 축척에서는 진행도가 0 이라 평소의
+             * 둥근 사각형 그대로입니다 — 화면을 낭비하지 않습니다.
+             */
+            borderRadius: 14 + morph * (Math.max(bodySize.width, bodySize.height) / 2 - 14),
+          },
+        ]}
+        onLayout={(e) => {
+          const { width: w, height: h } = e.nativeEvent.layout;
+          setBodySize(prev => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+        }}
         onTouchStart={() => useCelestialStore.getState().setGestureBlocked(true)}
         onTouchEnd={() => useCelestialStore.getState().setGestureBlocked(false)}
         onTouchCancel={() => useCelestialStore.getState().setGestureBlocked(false)}
       >
-        {projectionType === '2D' ? (
+        {!showGlobe ? (
           <MapCanvas
             lat={lat}
             lon={lon}
@@ -274,6 +316,12 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             selectedDate={selectedDate}
             onScaleChange={setGlobeScale}
           />
+        )}
+
+        {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 ────────────────────────────
+               구로 가기 전에 그림체를 먼저 맞춰 둡니다(`LandSilhouette`). */}
+        {showSilhouette && bodySize.width > 0 && (
+          <LandSilhouette region={region} width={bodySize.width} height={bodySize.height} theme={theme} />
         )}
 
         <TouchableOpacity
