@@ -6,6 +6,7 @@
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
+import { CANARY_VARIABLE } from './cachePolicy';
 import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
@@ -1352,5 +1353,41 @@ export const fetchTerrainProfile = async (
       elevations: [],
       isFallback: true,
     };
+  }
+};
+
+/**
+ * **카나리아 한 점.** 큰 요청을 건너뛰어도 되는지 묻는 데만 씁니다.
+ *
+ * 관측점 한 곳의 `temperature_2m` 하루치만 받습니다 — 35점 · 변수 8개 · 모델
+ * 둘짜리 본 요청의 **약 1/300** 입니다.
+ *
+ * 왜 기온이고 왜 운량이 아닌지, 왜 같은 모델을 물어야 하는지는
+ * `cachePolicy.ts` 의 카나리아 절에 있습니다. 요지만 옮기면 — `cloud_cover` 는
+ * 맑은 날 24시간이 통째로 0 이라 **런이 갈려도 "안 바뀜" 이라고 거짓말**합니다.
+ *
+ * ⚠ 본 요청과 **같은 모델**(`BLEND_MODELS_PARAM`)을 물어야 합니다. 갱신 주기가
+ * 다른 모델을 물으면 엉뚱한 답이 나옵니다.
+ *
+ * 실패하면 `null` — 호출부는 그때 **그냥 다 받습니다.**
+ */
+export const fetchWeatherCanary = async (
+  lat: number, lon: number, targetDate: Date = new Date(),
+): Promise<number[] | null> => {
+  const dateStr = localDateString(targetDate);
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}`
+    + `&hourly=${CANARY_VARIABLE}`
+    + `&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
+  try {
+    const res = await fetchWithTimeout(url, {}, 4000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.error) return null;
+    const h = blendHourly((Array.isArray(data) ? data[0] : data)?.hourly) as any;
+    const series = h?.[CANARY_VARIABLE];
+    return Array.isArray(series) ? series : null;
+  } catch {
+    // 카나리아가 실패하면 **아무 결론도 내리지 않습니다.** 그냥 다 받습니다.
+    return null;
   }
 };

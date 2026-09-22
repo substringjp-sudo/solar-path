@@ -29,6 +29,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     weatherCacheKey, terrainCacheKey, findEntry, upsertEntry, needTerrainFetch,
     refetchWindow, localHourIfToday, spliceHourly, fingerprint, unchanged,
     MAX_CACHE_ENTRIES, LOOKUP_TOLERANCE_DEG, GRID_BUCKET_DEG,
+    CANARY_VARIABLE, canaryPrint, canarySaysSkip, canaryDistinctValues,
+    canaryIsUsable, CANARY_MIN_DISTINCT,
   } = M;
 
   const LAT = 35.3606, LON = 136.1875;   // 사용자가 사진 찍은 곳 근처
@@ -224,6 +226,104 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     ok(list.length === before && list[0].timestamp === 999,
        `같은 키는 칸을 더 안 먹고 값만 갱신된다`);
     ok(list.filter(e => e.key === 'k14').length === 1, `중복이 안 남는다`);
+  }
+
+  // ── [8] ⚠ 카나리아 — 한 점만 보고 건너뛰어도 되는가 ───────────────
+  //
+  //    발상: 35점은 같은 모델 런에서 오므로, 한 점이 안 바뀌었으면 나머지도
+  //    안 바뀐 것. 원인(런)이 하나이기 때문입니다.
+  //
+  //    ⚠ 그런데 **변수를 잘못 고르면 조용히 틀립니다.** 여기가 그 판정입니다.
+  console.log('\n[8] 카나리아 — 변수 고르기가 판을 가른다');
+  {
+    // 두 모델 런. 런이 바뀌면 **구름은 먼 곳에서 크게** 달라집니다.
+    const runA = {
+      obsCloud:  Array(24).fill(0),                                  // 관측점: 맑음
+      farCloud:  Array.from({ length: 24 }, (_, h) => (h * 3) % 90),  // 380km 밖: 구름 있음
+      obsTemp:   Array.from({ length: 24 }, (_, h) => 18.3 + Math.sin(h / 3.8) * 6.1),
+    };
+    const runB = {
+      obsCloud:  Array(24).fill(0),                                  // ← 관측점은 **여전히 맑음**
+      farCloud:  Array.from({ length: 24 }, (_, h) => (h * 7 + 40) % 90), // ← 먼 곳은 **갈렸다**
+      obsTemp:   Array.from({ length: 24 }, (_, h) => 18.6 + Math.sin(h / 3.8) * 6.0),
+    };
+
+    const farChanged = !unchanged(runA.farCloud, runB.farCloud);
+    console.log(`      런 A→B: 관측점 운량 ${unchanged(runA.obsCloud, runB.obsCloud) ? '그대로' : '갈림'}`
+              + ` · 380km 밖 운량 ${farChanged ? '갈림' : '그대로'}`
+              + ` · 관측점 기온 ${unchanged(runA.obsTemp, runB.obsTemp) ? '그대로' : '갈림'}`);
+    ok(farChanged, `이 판에서 먼 곳 구름은 실제로 갈렸다 — 잡아내야 하는 상황이다`);
+
+    // ⚠ **음성 대조 — cloud_cover 를 카나리아로 쓰면 거짓말합니다.**
+    const cloudSaysSkip = canarySaysSkip(canaryPrint(runA.obsCloud), runB.obsCloud);
+    console.log(`      cloud_cover 를 카나리아로 쓰면 → "${cloudSaysSkip ? '건너뛰어도 됨' : '받아야 함'}"`
+              + `  ${cloudSaysSkip ? '← 거짓말! 먼 구름이 갈렸는데 옛 하늘을 그린다' : ''}`);
+    ok(cloudSaysSkip,
+       `cloud_cover 는 맑은 날 평평해서 **거짓 "안 바뀜"** 을 낸다 — 이래서 못 쓴다`);
+
+    // 연속값은 안 속습니다.
+    const tempSaysSkip = canarySaysSkip(canaryPrint(runA.obsTemp), runB.obsTemp);
+    console.log(`      ${CANARY_VARIABLE} 를 카나리아로 쓰면 → "${tempSaysSkip ? '건너뛰어도 됨' : '받아야 함'}"`);
+    ok(!tempSaysSkip, `연속값(${CANARY_VARIABLE})은 런이 갈리면 반드시 잡는다`);
+    ok(CANARY_VARIABLE !== 'cloud_cover', `고른 변수가 cloud_cover 가 아니다`);
+
+    // 런이 **안** 바뀌었으면 건너뛰어야 합니다 — 아니면 아무것도 안 아낍니다.
+    ok(canarySaysSkip(canaryPrint(runA.obsTemp), runA.obsTemp.slice()),
+       `런이 그대로면 건너뛴다 — 안 그러면 카나리아가 공허하다`);
+    // 0.1°C 한 칸만 달라도 잡아야 합니다.
+    const nudged = runA.obsTemp.slice(); nudged[13] += 0.1;
+    ok(!canarySaysSkip(canaryPrint(runA.obsTemp), nudged), `0.1°C 한 칸도 잡는다`);
+  }
+
+  // ── [9] ⚠ 모르면 건너뛰지 않는가 ─────────────────────────────────
+  //    여기서 true 로 기울면 첫 실행부터 빈 하늘을 그립니다.
+  console.log('\n[9] 카나리아 — 모를 때는 반드시 받는가');
+  {
+    const series = Array.from({ length: 24 }, (_, h) => 10 + h * 0.3);
+    ok(!canarySaysSkip(null, series), `저장된 지문이 없으면 받는다 (첫 실행)`);
+    ok(!canarySaysSkip(undefined, series), `undefined 여도 받는다`);
+    ok(!canarySaysSkip('', series), `빈 지문이면 받는다`);
+    ok(!canarySaysSkip('abc', null), `카나리아 응답이 없으면(네트워크 실패) 받는다`);
+    ok(!canarySaysSkip('abc', []), `빈 배열이면 받는다`);
+  }
+
+  // ── [10] ⚠ 평평한 카나리아는 스스로 물러나는가 ───────────────────
+  //     변수를 잘 골라도 그날 자료가 평평할 수 있습니다(극지방의 기온 등).
+  console.log('\n[10] 카나리아가 평평하면 스스로 물러나는가');
+  {
+    const flat = Array(24).fill(7.0);
+    const twoVal = [...Array(12).fill(7.0), ...Array(12).fill(7.1)];
+    const rich = Array.from({ length: 24 }, (_, h) => 7 + Math.sin(h / 3) * 4);
+    console.log(`      가짓수 — 평평 ${canaryDistinctValues(flat)}`
+              + ` · 두 값 ${canaryDistinctValues(twoVal)}`
+              + ` · 정상 ${canaryDistinctValues(rich)}  (최소 ${CANARY_MIN_DISTINCT})`);
+    ok(!canaryIsUsable(flat), `24시간이 한 값이면 카나리아로 안 쓴다`);
+    ok(!canaryIsUsable(twoVal), `두 값뿐이어도 안 쓴다`);
+    ok(canaryIsUsable(rich), `값이 고루 있으면 쓴다`);
+    ok(!canaryIsUsable(rich.slice(0, 6)), `시각이 너무 적으면 안 쓴다`);
+    ok(!canaryIsUsable(null), `응답이 없으면 안 쓴다`);
+    // null 이 섞여도 안 깨져야 합니다.
+    ok(canaryDistinctValues([1, null, 2, null, 3]) === 3, `null 은 가짓수에서 뺀다`);
+  }
+
+  // ── [11] ⚠ 보정된 값과 견주면 안 되는 이유 ───────────────────────
+  //     캐시에 든 것은 위성 보정이 발린 뒤입니다(applyBiasToPath 가 제자리에서
+  //     덮어씀). 보정 세기는 관측 시각을 따라 계속 변합니다.
+  console.log('\n[11] 보정된 값이 아니라 원본과 견주는가');
+  {
+    const raw = Array.from({ length: 24 }, (_, h) => (h * 4) % 80);
+    // 같은 예보에 서로 다른 세기의 보정이 발린 두 판.
+    const corrected = (bias) => raw.map(v => Math.max(0, Math.min(100, v * bias)));
+    const t1 = corrected(0.92), t2 = corrected(0.88);   // 시간이 지나 보정이 달라짐
+
+    console.log(`      예보 원본은 그대로인데, 보정본은 ${unchanged(t1, t2) ? '같음' : '달라짐'}`);
+    ok(!unchanged(t1, t2),
+       `보정본끼리는 예보가 그대로여도 달라진다 — 이걸로 견주면 늘 "바뀜"`);
+    ok(canarySaysSkip(canaryPrint(raw), raw.slice()),
+       `원본끼리 견주면 제대로 "안 바뀜" 이 나온다`);
+    // 곧, 보정본으로 견줬다면 카나리아가 **한 번도 건너뛰지 못합니다.**
+    ok(!canarySaysSkip(canaryPrint(t1), t2),
+       `보정본으로 견줬다면 카나리아가 영영 일을 못 한다 — 그래서 원본 지문을 따로 둔다`);
   }
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);

@@ -11,12 +11,13 @@ import {
 import {
   weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
   findEntry, fingerprint, MAX_CACHE_ENTRIES,
+  canaryPrint, canarySaysSkip, canaryIsUsable,
 } from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing } from '../utils/weather';
+import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary } from '../utils/weather';
 import SunCalc from 'suncalc';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -53,6 +54,14 @@ export interface WeatherCacheItem {
   timestamp: number;
   latitude: number;
   longitude: number;
+  /**
+   * 카나리아 한 점의 **보정 전 원본** 지문.
+   *
+   * ⚠ `data` 로 견주면 안 됩니다 — 거기엔 위성 보정이 발려 있고
+   * (`applyBiasToPath`), 보정 세기가 관측 시각을 따라 계속 변해서 예보가
+   * 그대로여도 늘 "바뀜" 이 나옵니다(`cachePolicy.ts` 카나리아 절).
+   */
+  canaryPrint?: string;
 }
 
 export interface TerrainCacheItem {
@@ -1005,12 +1014,50 @@ export const useCelestialStore = create<CelestialState>()(
           }
           set({ preloadStatus: 'analyzingData' });
 
-          /** 받아 온 날씨가 캐시와 같으면 상태를 안 건드립니다. */
+          /* ── 카나리아: 한 점만 보고 큰 요청을 건너뜁니다 ─────────────
+           *
+           * 35점은 같은 모델 런에서 옵니다. 런은 격자 전체가 한꺼번에
+           * 갈리므로, 관측점이 안 갈렸으면 나머지도 안 갈린 것입니다 —
+           * 점들이 닮아서가 아니라 **원인(런)을 공유**해서입니다.
+           * 실측 7/7 로 확인했습니다(`tools/weather-truth/measure-canary.js`).
+           *
+           * ⚠ 건너뛰기가 **의심스러운 갈래는 전부 "그냥 다 받음"** 으로
+           * 떨어집니다 — 저장된 지문이 없거나, 카나리아가 실패했거나,
+           * 그날 값이 평평해서 못 믿을 때. 여기서 건너뛰는 쪽으로 기울면
+           * 화면이 옛 하늘을 그립니다.
+           */
           const cachedWeather = findEntry(diskWeather as any, lat, lon, dateStr);
           const cachedPrint = cachedWeather ? fingerprint(cachedWeather.data) : null;
 
+          /* ⚠ 카나리아는 **늘** 받습니다. 저장된 지문이 있을 때만 받으면
+           *    지문이 영영 안 생겨 교착에 빠집니다 — 첫 실행에 지문이 없고,
+           *    지문이 없으니 카나리아를 안 받고, 그래서 지문이 또 안 생깁니다.
+           *    한 점·한 변수라 본 요청의 약 1/300 입니다.
+           */
+          const storedCanary = (cachedWeather as any)?.canaryPrint as string | undefined;
+
+          /* ⚠ 카나리아를 `await` 로 먼저 기다리면 **고리와 지형까지 붙잡습니다.**
+           *    §68 에서 왕복 한 번이 비싸다는 걸 쟀으므로, 카나리아에 매달리는
+           *    것은 큰 날씨 요청 하나뿐이고 나머지는 곧바로 나갑니다.
+           */
+          let canarySeries: number[] | null = null;
+          const weatherChain = fetchWeatherCanary(lat, lon, targetEvent)
+            .catch(() => null)
+            .then(series => {
+              canarySeries = series;
+              const skip = canaryIsUsable(series) && canarySaysSkip(storedCanary, series);
+              if (__DEV__) {
+                console.log(`[Preload] 카나리아 — ${
+                  series === null ? '실패 → 그냥 다 받음'
+                  : !canaryIsUsable(series) ? '평평해서 못 믿음 → 그냥 다 받음'
+                  : !storedCanary ? '저장된 지문 없음 → 다 받고 지문을 남김'
+                  : skip ? '그대로 → **큰 요청 건너뜀**' : '갈림 → 다 받음'}`);
+              }
+              return skip ? null : fetchSunsetWeather(lat, lon, az, false, targetEvent);
+            });
+
           await Promise.all([
-            fetchSunsetWeather(lat, lon, az, false, targetEvent).then(weatherData => {
+            weatherChain.then(weatherData => {
               if (!weatherData) return;
               // 값이 그대로면 다시 그릴 것도, 다시 쓸 것도 없습니다.
               if (cachedPrint && fingerprint(weatherData) === cachedPrint) {
@@ -1022,8 +1069,15 @@ export const useCelestialStore = create<CelestialState>()(
                 data: weatherData,
                 timestamp: Date.now(),
                 latitude: lat,
-                longitude: lon
-              });
+                longitude: lon,
+                /**
+                 * ⚠ **보정 전 원본**의 지문입니다. `data` 는 위성 보정이 발린
+                 * 뒤라(`applyBiasToPath` 가 제자리에서 덮어씀) 그걸로 견주면
+                 * 예보가 그대로여도 늘 "바뀜" 이 나와 카나리아가 영영 일을
+                 * 못 합니다.
+                 */
+                canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
+              } as any);
             }).catch((err: any) => console.warn('Preload Weather failed:', err)),
             fetchDayWeatherRing(lat, lon, targetEvent).catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
             mustFetchTerrain

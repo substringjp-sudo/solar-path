@@ -225,3 +225,85 @@ export const fingerprint = (value: unknown): string => {
 /** 받아 온 것이 캐시와 같은가 — 같으면 상태를 안 건드립니다. */
 export const unchanged = (a: unknown, b: unknown): boolean =>
   fingerprint(a) === fingerprint(b);
+
+/* ── 카나리아: 한 점만 보고 나머지를 건너뛰기 ─────────────────────────
+ *
+ * 35점을 다 받기 전에 **한 점만** 받아 캐시와 견주고, 같으면 큰 요청을
+ * 통째로 건너뜁니다.
+ *
+ * ## 왜 될 수 있나 — 원인이 하나이기 때문입니다
+ *
+ * 35점은 같은 요청에서 **같은 모델 런**으로 옵니다. 예보가 바뀌는 사건은
+ * "새 런이 나왔다" 하나뿐이고, 런은 격자 전체가 **한꺼번에** 갈립니다.
+ * 그래서 한 점이 안 바뀌었으면 나머지도 안 바뀐 것입니다 — 점들이 공간적으로
+ * 닮아서가 아니라 **원인을 공유**해서입니다.
+ *
+ * ## ⚠ 그런데 순진하게 만들면 **조용히 틀립니다**
+ *
+ * 카나리아가 "안 바뀜" 이라고 **거짓말**할 수 있습니다. 세 가지를 지켜야
+ * 합니다. 셋 다 안 지키면 먼 구름이 바뀌었는데 화면이 옛 하늘을 그립니다.
+ *
+ * **① 변수가 평평하면 안 됩니다.** `cloud_cover` 는 정수 %이고 맑은 날은
+ * 24시간이 통째로 0, 흐린 날은 통째로 100 입니다. 런이 바뀌어도 관측점의
+ * 0 은 그대로 0 이라 **"안 바뀜" 이 나옵니다** — 그 사이 380km 밖 구름은
+ * 갈렸는데도요. 연속값(`temperature_2m`, 0.1°C)을 써야 두 런이 사실상
+ * 절대 같지 않습니다.
+ *
+ * **② 같은 모델을 물어야 합니다.** 본 요청이 ecmwf+icon 을 섞는데 카나리아만
+ * 기본 모델을 물으면, 갱신 주기가 달라 엉뚱한 답이 나옵니다(ECMWF 6시간,
+ * ICON 3시간).
+ *
+ * **③ 캐시의 값이 아니라 `canaryPrint` 와 견주어야 합니다.** 캐시에 든 것은
+ * **위성 보정이 발린 뒤**의 값입니다(`applyBiasToPath` 가 low/mid/high/total 을
+ * 제자리에서 덮어씁니다). 보정 세기는 관측 시각을 따라 계속 변하므로, 캐시와
+ * 직접 견주면 예보가 그대로여도 **늘 "바뀜"** 이 나와 카나리아가 아무 일도
+ * 못 합니다. 그래서 **보정 전 원본**의 지문을 따로 저장해 둡니다.
+ *
+ * ## 남은 구멍 — 적어 둡니다
+ *
+ * `icon_seamless` 는 자기도 icon_d2/eu/global 을 앞선 시간과 지역으로 섞습니다.
+ * 관측점과 380km 밖 점이 **다른 하위 모델**에 걸치고 그중 하나만 갱신되면
+ * 카나리아가 놓칠 수 있습니다. icon_d2 권역(독일 근처)에서만 생기는 좁은
+ * 구멍이고, 실측으로 확인한 적은 **없습니다.**
+ */
+
+/**
+ * 카나리아로 쓸 변수.
+ *
+ * ⚠ **`cloud_cover` 를 쓰면 안 됩니다** — 맑거나 흐린 날 24시간이 한 값으로
+ * 평평해져 런이 바뀌어도 안 바뀐 것처럼 보입니다. 판정 [8]이 이걸 음성
+ * 대조로 잡고 있습니다.
+ */
+export const CANARY_VARIABLE = 'temperature_2m';
+
+/** 카나리아 한 점의 지문. 견줄 것은 **보정 전 원본**입니다. */
+export const canaryPrint = (series: ReadonlyArray<number | null>): string =>
+  fingerprint(series);
+
+/**
+ * 카나리아가 "큰 요청을 건너뛰어도 된다" 고 말하는가.
+ *
+ * ⚠ 저장된 지문이 없으면 **반드시 받아야 합니다.** 모르면 건너뛰지 않습니다 —
+ * 여기서 `true` 로 기울면 첫 실행부터 빈 하늘을 그립니다.
+ */
+export const canarySaysSkip = (
+  storedPrint: string | null | undefined, freshSeries: ReadonlyArray<number | null> | null,
+): boolean => {
+  if (!storedPrint || !freshSeries || freshSeries.length === 0) return false;
+  return canaryPrint(freshSeries) === storedPrint;
+};
+
+/**
+ * 이 배열이 카나리아로 쓸 만큼 **예민한가** — 서로 다른 값이 몇 가지인가.
+ *
+ * 24시간이 한 값으로 평평하면(가짓수 1) 카나리아 구실을 못 합니다. 앱이
+ * 실행 중에 이걸 보고, 평평하면 **건너뛰지 않습니다.**
+ */
+export const canaryDistinctValues = (series: ReadonlyArray<number | null>): number =>
+  new Set(series.filter(v => v !== null && v !== undefined)).size;
+
+/** 카나리아로 믿어도 되는 최소 가짓수. 1 이면 평평한 것입니다. */
+export const CANARY_MIN_DISTINCT = 3;
+
+export const canaryIsUsable = (series: ReadonlyArray<number | null> | null): boolean =>
+  !!series && series.length >= 12 && canaryDistinctValues(series) >= CANARY_MIN_DISTINCT;
