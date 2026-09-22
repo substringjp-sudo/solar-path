@@ -60,6 +60,7 @@ const ENTRIES = [
   'src/utils/cloudMatrix.ts',
   'src/utils/mapProjection.ts',
   'src/utils/locationPick.ts',
+  'src/utils/cachePolicy.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',

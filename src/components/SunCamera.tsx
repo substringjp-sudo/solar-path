@@ -7,6 +7,7 @@ import {
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
+import { weatherCacheKey } from '../utils/cachePolicy';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
@@ -745,7 +746,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             // 같은 키를 만드는 useCelestialStore 와도 어긋났습니다(§59).
             const dateStr = localDateString(captureTime);
             const newCacheItem = {
-              key: `w_${latitude.toFixed(4)}_${longitude.toFixed(4)}_${dateStr}`,
+              // ⚠ 스토어와 **같은 함수**로 만듭니다. 한쪽만 고치면 §59 의
+              //   "키가 어긋난다" 가 그대로 재발합니다.
+              key: weatherCacheKey(latitude, longitude, dateStr),
               data: weatherData,
               timestamp: Date.now(),
               latitude,

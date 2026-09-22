@@ -5,6 +5,13 @@ import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  loadWeatherCache, loadTerrainCache, saveWeatherCache, saveTerrainCache,
+} from '../utils/persistentCache';
+import {
+  weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
+  findEntry, fingerprint, MAX_CACHE_ENTRIES,
+} from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -256,12 +263,18 @@ export const useCelestialStore = create<CelestialState>()(
       setTeleportTarget: (target) => set({ teleportTarget: { ...target, nonce: Date.now() } }),
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
+      /**
+       * 날씨 캐시에 넣고 **저장장치에도 씁니다.**
+       *
+       * ⚠ 쓰기는 기다리지 않습니다(fire-and-forget). 캐시 쓰기가 늦어도 화면은
+       * 이미 값을 받았고, 실패해도 다음에 다시 받으면 되는 것이라 앱을
+       * 멈춰 세울 이유가 없습니다.
+       */
       addWeatherCache: (cache) => set((state) => {
-        // Filter out any existing item with the exact same key to prevent duplicates
-        const filtered = state.weatherCacheList.filter(item => item.key !== cache.key);
-        // Keep the last 10 items
+        const list = upsertEntry(state.weatherCacheList as any, cache as any, MAX_CACHE_ENTRIES);
+        void saveWeatherCache(list as any);
         return {
-          weatherCacheList: [cache, ...filtered].slice(0, 10),
+          weatherCacheList: list as any,
           weatherCache: cache // support legacy single cache
         };
       }),
@@ -275,9 +288,11 @@ export const useCelestialStore = create<CelestialState>()(
           if (Array.isArray(d.panoramicAngles) && d.panoramicAngles.every(a => a === 0)) return false; // 전부 0인 구형 무효 데이터 제거
           return true;
         });
-        // Keep the last 10 items
+        // Keep the last 10 items — 그리고 **저장장치에도 씁니다.**
+        const list = [cache, ...filtered].slice(0, MAX_CACHE_ENTRIES);
+        void saveTerrainCache(list as any);
         return {
-          terrainCacheList: [cache, ...filtered].slice(0, 10),
+          terrainCacheList: list,
           terrainCache: cache // support legacy single cache
         };
       }),
@@ -950,34 +965,80 @@ export const useCelestialStore = create<CelestialState>()(
           // SunCamera 와 **같은 키**를 만들어야 하므로 같은 함수를 씁니다(§59).
           const dateStr = localDateString(now);
  
+          /* ── 저장장치에 둔 캐시를 먼저 올립니다 ─────────────────────
+           *
+           * 이게 먼저여야 **화면이 네트워크를 안 기다립니다.** 예전에는
+           * 캐시가 메모리에만 있어서 껐다 켤 때마다 빈손으로 시작했고,
+           * 다섯 번을 다 받아 올 때까지 아무것도 못 그렸습니다.
+           */
+          let diskWeather: any[] = [];
+          let diskTerrain: any[] = [];
+          try {
+            [diskWeather, diskTerrain] = await Promise.all([
+              loadWeatherCache(), loadTerrainCache(),
+            ]);
+            if (diskWeather.length || diskTerrain.length) {
+              set({
+                weatherCacheList: diskWeather as any,
+                terrainCacheList: diskTerrain as any,
+                weatherCache: (diskWeather[0] as any) ?? null,
+                terrainCache: (diskTerrain[0] as any) ?? null,
+              });
+            }
+            if (__DEV__) {
+              console.log(`[Preload] 저장장치 캐시 — 날씨 ${diskWeather.length}칸 · 지형 ${diskTerrain.length}칸`);
+            }
+          } catch (e) {
+            console.warn('[Preload] 저장장치 캐시를 못 올렸습니다:', e);
+          }
+
+          /* ── 지형은 캐시가 있으면 **요청 자체를 건너뜁니다** ──────────
+           *
+           * ⚠ 나이를 안 봅니다. 산은 안 움직입니다. 여기에 만료를 넣으면
+           * 아무 근거 없이 요청만 늘어납니다(`cachePolicy.needTerrainFetch`).
+           */
+          const mustFetchTerrain = needTerrainFetch(diskTerrain as any, lat, lon);
+
           if (__DEV__) {
-            console.log(`[Preload] Fetching weather/terrain/ring for lat=${lat}, lon=${lon}`);
+            console.log(`[Preload] Fetching weather/ring for lat=${lat}, lon=${lon}`
+              + ` · 지형 ${mustFetchTerrain ? '받음' : '캐시로 건너뜀'}`);
           }
           set({ preloadStatus: 'analyzingData' });
+
+          /** 받아 온 날씨가 캐시와 같으면 상태를 안 건드립니다. */
+          const cachedWeather = findEntry(diskWeather as any, lat, lon, dateStr);
+          const cachedPrint = cachedWeather ? fingerprint(cachedWeather.data) : null;
+
           await Promise.all([
             fetchSunsetWeather(lat, lon, az, false, targetEvent).then(weatherData => {
-              if (weatherData) {
-                get().addWeatherCache({
-                  key: `w_${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`,
-                  data: weatherData,
-                  timestamp: Date.now(),
-                  latitude: lat,
-                  longitude: lon
-                });
+              if (!weatherData) return;
+              // 값이 그대로면 다시 그릴 것도, 다시 쓸 것도 없습니다.
+              if (cachedPrint && fingerprint(weatherData) === cachedPrint) {
+                if (__DEV__) console.log('[Preload] 날씨가 캐시와 같습니다 — 상태를 안 건드립니다');
+                return;
               }
+              get().addWeatherCache({
+                key: weatherCacheKey(lat, lon, dateStr),
+                data: weatherData,
+                timestamp: Date.now(),
+                latitude: lat,
+                longitude: lon
+              });
             }).catch((err: any) => console.warn('Preload Weather failed:', err)),
             fetchDayWeatherRing(lat, lon, targetEvent).catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
-            fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
-              if (terrainData && !terrainData.isFallback) {
-                get().addTerrainCache({
-                  key: `t_${lat.toFixed(4)}_${lon.toFixed(4)}`,
-                  data: terrainData,
-                  timestamp: Date.now(),
-                  latitude: lat,
-                  longitude: lon
-                });
-              }
-            }).catch((err: any) => console.warn('Preload Terrain failed:', err))
+            mustFetchTerrain
+              ? fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
+                  if (terrainData && !terrainData.isFallback) {
+                    get().addTerrainCache({
+                      key: terrainCacheKey(lat, lon),
+                      data: terrainData,
+                      timestamp: Date.now(),
+                      latitude: lat,
+                      longitude: lon
+                    });
+                  }
+                }).catch((err: any) => console.warn('Preload Terrain failed:', err))
+              : Promise.resolve()
           ]);
  
           let initialTab: 'sky' | 'map' | 'log' = 'sky';
