@@ -492,27 +492,14 @@ const VERT = `
 void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }
 `;
 
-const FRAG = `
-precision highp float;
-${ATMOSPHERE_GLSL}
-${CLOUD_SLAB_GLSL}
+/**
+ * 지형 높이 — 구름 셰이더와 **지평선 굽기**(§84)가 같이 씁니다. 둘이 다른
+ * 높이를 보면 굽힌 지평선이 구름 셰이더의 걸음질보다 낮게 나와, 건너뛰면 안
+ * 되는 화소를 건너뜁니다.
+ */
+const SLAB_TERRAIN_GLSL = `
 ${DEM_GLSL}
 ${demGlsl('demFar')}
-
-// ── 운해를 땅이 가리는가 (§83) ────────────────────────────────────────────
-//
-// 구름은 지형 **위에** 합성됩니다(깊이 없음, SceneComposer). 땅에서 올려다볼
-// 때는 구름이 지평선 위라 문제가 드러나지 않았지만, 산 위에서 운해를 내려다보면
-// 발밑 사면과 덱 위로 솟은 이웃 봉우리까지 **구름이 덮어 버립니다.**
-//
-// 그래서 운해 화소마다 시선을 덱에 닿을 때까지 따라가며 지형 높이장
-// (TerrainField 와 **같은 패치**)과 견줍니다. 도중에 땅이 시선보다 높으면
-// 그 화소는 땅이 앞에 있는 것이므로 운해를 그리지 않습니다.
-//
-// ⚠ 곡률: 직선 시선은 멀어질수록 지면에서 d²/2R 만큼 **떠오릅니다**
-//   (TerrainField 의 낙차와 같은 식, 부호만 시선 쪽에서 본 것).
-// ⚠ 패치 밖(약 60km 너머)은 모르는 곳 — 가리지 않습니다.
-uniform float uTerrainOcclude;   // 1 이면 켬 (패치가 있을 때만 의미)
 uniform float uEyeHeightM;       // 발밑에서 눈까지 (m) — TerrainField 와 같은 값
 
 /** (동, 남) m 지점의 지형 고도 (m). 모르면 -1e4. */
@@ -530,10 +517,76 @@ float slab_terrainM(vec2 g){
   return -1e4;
 }
 
-/** 시선이 슬랜트 tEndKm 에서 운해에 닿기 **전에** 땅에 부딪히는가. */
-bool slab_terrainBlocks(vec3 dir, float sinE, float cosE, float tEndKm){
-  if (uTerrainOcclude < 0.5) return false;
-  if (uDemValid < 0.5 && uDemFarValid < 0.5) return false;
+`;
+
+/**
+ * **지형 지평선 굽기** (§84) — 방위마다 땅이 올라오는 가장 높은 고도각.
+ *
+ * 올려다보는 하늘의 가림(tBlockSky)은 화소마다 DEM 을 80걸음 걷습니다. 하늘
+ * 전부를 걸으면 슬랩 한 장이 32% 무거워졌습니다(측정). 그런데 걸어서 막힐 수
+ * 있는 화소는 **땅의 지평선 아래**뿐입니다. 그래서 패치를 받을 때 한 번,
+ * 방위 512칸마다 지평선을 굽고, 그 위의 화소는 걷지 않습니다.
+ *
+ * 한 줄짜리 렌더 타깃에 굽습니다(RGBA8 — 모바일에 부동소수 타깃이 없을 수
+ * 있음). 고도각 −20°~70° 를 16비트로 R·G 에 싣습니다.
+ */
+export const HORIZON_BINS = 512;
+// ⚠ GLSL 에 **문자열로** 넣습니다. 숫자로 넣으면 JS 가 -20.0 을 "-20" 으로 찍어
+//   float − int 가 되고 셰이더가 통째로 컴파일되지 않습니다(한 번 그랬습니다).
+const HORIZON_LO_DEG = '-20.0', HORIZON_SPAN_DEG = '90.0';
+const HORIZON_BAKE_FRAG = `
+precision highp float;
+const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
+${SLAB_TERRAIN_GLSL}
+const float HB = ${HORIZON_BINS}.0;
+void main(){
+  float az = (floor(gl_FragCoord.x) + 0.5) / HB * 6.2831853;
+  vec2 hz = vec2(sin(az), -cos(az));          // (동, 남) — 북이 −z
+  float eyeM = slab_terrainM(vec2(0.0)) + uEyeHeightM;
+  float best = -1.5;                          // 라디안, 아주 낮게 시작
+  // 0.5m ~ 70km 로그 간격 512걸음 — 간격이 거리의 2.4% 라 줌 9 화소보다 촘촘합니다.
+  for (int i = 0; i < 512; i++){
+    float d = 0.5 * pow(140000.0, float(i) / 511.0);
+    float h = slab_terrainM(hz * d);
+    if (h < -1e3) continue;
+    float drop = d * d / (2.0 * SLAB_R_EARTH * 1000.0);
+    best = max(best, atan(h - eyeM - drop, d));
+  }
+  float v = clamp((degrees(best) - (${HORIZON_LO_DEG})) / ${HORIZON_SPAN_DEG}, 0.0, 1.0) * 65535.0;
+  float hi = floor(v / 256.0);
+  gl_FragColor = vec4(hi / 255.0, (v - hi * 256.0) / 255.0, 0.0, 1.0);
+}
+`;
+
+const FRAG = `
+precision highp float;
+${ATMOSPHERE_GLSL}
+${CLOUD_SLAB_GLSL}
+${SLAB_TERRAIN_GLSL}
+// ── 운해를 땅이 가리는가 (§83) ────────────────────────────────────────────
+//
+// 구름은 지형 **위에** 합성됩니다(깊이 없음, SceneComposer). 땅에서 올려다볼
+// 때는 구름이 지평선 위라 문제가 드러나지 않았지만, 산 위에서 운해를 내려다보면
+// 발밑 사면과 덱 위로 솟은 이웃 봉우리까지 **구름이 덮어 버립니다.**
+//
+// 그래서 운해 화소마다 시선을 덱에 닿을 때까지 따라가며 지형 높이장
+// (TerrainField 와 **같은 패치**)과 견줍니다. 도중에 땅이 시선보다 높으면
+// 그 화소는 땅이 앞에 있는 것이므로 운해를 그리지 않습니다.
+//
+// ⚠ 곡률: 직선 시선은 멀어질수록 지면에서 d²/2R 만큼 **떠오릅니다**
+//   (TerrainField 의 낙차와 같은 식, 부호만 시선 쪽에서 본 것).
+// ⚠ 패치 밖(약 60km 너머)은 모르는 곳 — 가리지 않습니다.
+uniform float uTerrainOcclude;   // 1 이면 켬 (패치가 있을 때만 의미)
+
+/**
+ * 시선이 슬랜트 tEndKm 안에서 **처음 땅에 막히는** 슬랜트 거리(km). 안 막히면 1e9.
+ *
+ * 걸음 사이에서 막혔으면 그 걸음의 거리를 돌려줍니다(실제 교차보다 조금 멂) —
+ * 그보다 먼 구름만 가리므로, 막힌 자리와 걸음 사이의 구름을 덜 가리는 쪽입니다.
+ */
+float slab_terrainHitSeg(vec3 dir, float sinE, float cosE, float t0Km, float tEndKm){
+  if (uDemValid < 0.5 && uDemFarValid < 0.5) return 1e9;
+  if (tEndKm <= t0Km) return 1e9;
   float eyeGround = slab_terrainM(vec2(0.0));
   float eyeKm = eyeGround > -1e3 ? (eyeGround + uEyeHeightM) / 1000.0 : uObserverAltKm;
   vec2 hz = cosE > 1e-4 ? dir.xz / cosE : vec2(0.0);
@@ -541,13 +594,13 @@ bool slab_terrainBlocks(vec3 dir, float sinE, float cosE, float tEndKm){
   for (int i = 1; i <= 32; i++){
     // 가까운 쪽에 몰아 뜹니다 — 발밑 사면은 수십 m 안에서 시선을 막습니다.
     float f = float(i) / 32.0;
-    float t = tEndKm * f * f;
+    float t = t0Km + (tEndKm - t0Km) * f * f;
     float dKm = t * cosE;
     float rayKm = eyeKm + t * sinE + dKm * dKm / (2.0 * SLAB_R_EARTH);
     float terr = slab_terrainM(hz * dKm * 1000.0);
     if (terr < -1e3) continue;
     float gap = rayKm - terr / 1000.0;
-    if (gap < 0.0) return true;
+    if (gap < 0.0) return t;
     // 여유는 **각도**로 견줍니다(여유 ÷ 거리). 미터로 견주면 발밑 몇 m 앞
     // 땅(여유 0.1m)이 늘 이겨, 먼 능선을 다시 볼 기회를 발밑에 써 버립니다.
     float gapAng = gap / max(dKm, 1e-4);
@@ -559,13 +612,50 @@ bool slab_terrainBlocks(vec3 dir, float sinE, float cosE, float tEndKm){
   float fLo = max(tMin - 1.0 / 32.0, 0.0), fHi = min(tMin + 1.0 / 32.0, 1.0);
   for (int j = 0; j < 8; j++){
     float f = mix(fLo, fHi, (float(j) + 0.5) / 8.0);
-    float t = tEndKm * f * f;
+    float t = t0Km + (tEndKm - t0Km) * f * f;
     float dKm = t * cosE;
     float rayKm = eyeKm + t * sinE + dKm * dKm / (2.0 * SLAB_R_EARTH);
     float terr = slab_terrainM(hz * dKm * 1000.0);
-    if (terr > -1e3 && terr / 1000.0 > rayKm) return true;
+    if (terr > -1e3 && terr / 1000.0 > rayKm) return t;
   }
-  return false;
+  return 1e9;
+}
+
+float slab_terrainHitKm(vec3 dir, float sinE, float cosE, float tEndKm){
+  return slab_terrainHitSeg(dir, sinE, cosE, 0.0, tEndKm);
+}
+
+/** 운해(§83): 시선이 tEndKm 에서 덱에 닿기 **전에** 땅에 부딪히는가. */
+bool slab_terrainBlocks(vec3 dir, float sinE, float cosE, float tEndKm){
+  if (uTerrainOcclude < 0.5) return false;
+  return slab_terrainHitKm(dir, sinE, cosE, tEndKm) < 1e8;
+}
+
+/**
+ * §84 — **올려다보는** 하늘도 땅이 가립니다. 능선 뒤의 저층운이 능선 앞에
+ * 그려지던 것(구름이 깊이 없이 지형 위에 얹힘)을 막습니다.
+ *
+ * 한 화소에 한 번만 걷고 세 층이 같이 씁니다. 70km 까지만 봅니다 — 성긴
+ * 패치가 60km 까지라 그 너머는 모르는 곳입니다.
+ */
+uniform float uTerrainOccludeSky;
+const float SLAB_SKY_OCCLUDE_KM = 70.0;
+
+/** 굽힌 지평선(없으면 uHorizonValid 0 — 그때는 다 걷습니다). */
+uniform sampler2D uHorizonTex;
+uniform float uHorizonValid;
+/** 이 방위에서 땅이 올라오는 가장 높은 고도각(도). 이웃 두 칸까지의 최댓값. */
+float slab_horizonDeg(vec3 dir){
+  float az = atan(dir.x, -dir.z);             // 북 0, 동 +
+  if (az < 0.0) az += 6.2831853;
+  float u = az / 6.2831853 * ${HORIZON_BINS}.0;
+  float m = 0.0;
+  for (int k = -1; k <= 1; k++){
+    float c = mod(floor(u) + float(k) + ${HORIZON_BINS}.0, ${HORIZON_BINS}.0);
+    vec4 t = texture2D(uHorizonTex, vec2((c + 0.5) / ${HORIZON_BINS}.0, 0.5));
+    m = max(m, (t.r * 255.0 * 256.0 + t.g * 255.0) / 65535.0);
+  }
+  return ${HORIZON_LO_DEG} + m * ${HORIZON_SPAN_DEG};
 }
 
 uniform vec2  uRes;
@@ -627,6 +717,23 @@ void main(){
   bool anyLayerBelow = uObserverAltKm > lowestLayerKm;
   if (sinE <= uHorizonSinE && !anyLayerBelow) discard;   // 그 아래는 지형과 지면이 담당
   float cosE = max(sqrt(max(0.0, 1.0 - sinE*sinE)), 1e-4);
+  // §84 — 이 시선이 땅에 막히는 거리. 그보다 먼 (관측자보다 위) 층은 안 그립니다.
+  //
+  // ⚠ 두 토막으로 걷습니다. 처음엔 70km 를 한 번에 걸었는데, 가까운 쪽 걸음이
+  //   0.07 → 0.27 → 0.62km 로 벌어져 **300~500m 앞 작은 언덕**을 건너뛰었습니다
+  //   (구례에서 능선 3,196화소 중 85개가 샘, 대부분 여기). 가장 가까운 층(저층)
+  //   까지를 먼저 촘촘히 걷고, 안 막혔을 때만 그 너머를 걷습니다.
+  float tBlockSky = 1e9;
+  // 굽힌 지평선보다 0.3° 넘게 위면 걸어 봐야 안 막힙니다 — 건너뜁니다.
+  bool belowRidge = uHorizonValid < 0.5
+    || sinE < sin(radians(slab_horizonDeg(dir) + 0.3));
+  if (uTerrainOccludeSky > 0.5 && sinE > uHorizonSinE && belowRidge) {
+    float tLow = min(slab_sphereIntersect(sinE, cosE,
+      max(uLayerAltKm.x, uObserverAltKm + 0.01)).sDistKm, SLAB_SKY_OCCLUDE_KM);
+    tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, 0.0, tLow);
+    if (tBlockSky > 1e8)
+      tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, tLow, SLAB_SKY_OCCLUDE_KM);
+  }
   float cosG = clamp(dot(dir, uSunDir), -1.0, 1.0);
   float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
 
@@ -806,6 +913,7 @@ void main(){
     if (!geom.hit) continue;
     // §83 — 운해(아래 층)만 땅과 견줍니다. 올려다보는 하늘은 예전 그대로.
     if (layerBelow && slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm)) continue;
+    if (!layerBelow && geom.sDistKm > tBlockSky) continue;
     vec2 km = dir.xz * geom.distRatio;
     vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
@@ -1410,10 +1518,11 @@ export interface CloudSlabHandle {
   /** 저층 덱 밑면·윗면(km, 해발, §82). 모르면 null — 위에서 볼 면이 hBase 로 돌아갑니다. */
   setLowDeckKm: (baseKm: number | null | undefined, topKm: number | null | undefined) => void;
   /**
-   * 지형 높이장(§83) — 운해를 땅이 가리게 합니다. TerrainField 와 **같은 패치**
-   * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다.
+   * 지형 높이장(§83·§84) — 구름을 땅이 가리게 합니다. TerrainField 와 **같은 패치**
+   * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다. 렌더러를 주면
+   * 지형 지평선을 한 번 구워 올려다보는 하늘의 걸음질을 줄입니다(없으면 다 걷습니다).
    */
-  setDemPatches: (patch: DemPatch | null, farPatch: DemPatch | null) => void;
+  setDemPatches: (patch: DemPatch | null, farPatch: DemPatch | null, renderer?: THREE.WebGLRenderer) => void;
   dispose: () => void;
 }
 
@@ -1470,6 +1579,8 @@ export function createCloudSlab(opts: {
     .replace(/SHAPE_SIGR_MID/g, shapeSigRatio.mid.toFixed(4))
     .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
 
+  let horizonTarget: THREE.WebGLRenderTarget | null = null;
+
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...makeTuningUniforms(),
@@ -1483,6 +1594,9 @@ export function createCloudSlab(opts: {
       ...makeDemUniforms(null),
       ...makeDemUniforms(null, 'demFar'),
       uTerrainOcclude: { value: 1 },
+      uTerrainOccludeSky: { value: 1 },
+      uHorizonTex: { value: null },
+      uHorizonValid: { value: 0 },
       uEyeHeightM: { value: 1.6 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
@@ -1619,7 +1733,7 @@ export function createCloudSlab(opts: {
       if (!okv(lowKm) || !okv(midKm) || !okv(highKm)) return;
       (material.uniforms.uLayerAltKm.value as THREE.Vector3).set(lowKm, midKm, highKm);
     },
-    setDemPatches: (patch, farPatch) => {
+    setDemPatches: (patch, farPatch, renderer) => {
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;
@@ -1629,6 +1743,16 @@ export function createCloudSlab(opts: {
       put(makeDemUniforms(farPatch, 'demFar'));
       // 성긴 패치만 첨탑을 걷어냅니다 — TerrainField.setPatch 와 같은 규약.
       material.uniforms.uDemFarDespike.value = farPatch ? 1 : 0;
+      // §84 지평선 굽기. 렌더러가 없거나 패치가 없으면 굽지 않고, 셰이더는 다 걷습니다.
+      horizonTarget?.dispose();
+      horizonTarget = null;
+      material.uniforms.uHorizonValid.value = 0;
+      material.uniforms.uHorizonTex.value = null;
+      if (renderer && (patch || farPatch)) {
+        horizonTarget = bakeHorizon(renderer, material.uniforms);
+        material.uniforms.uHorizonTex.value = horizonTarget.texture;
+        material.uniforms.uHorizonValid.value = 1;
+      }
     },
     setLowDeckKm: (baseKm, topKm) => {
       // 모르면(null·NaN·뒤집힘) (-1,-1) — 셰이더가 §81 그대로 갑니다.
@@ -1642,8 +1766,46 @@ export function createCloudSlab(opts: {
       material.dispose();
       coverTex.dispose();
       genusTex.dispose();
+      horizonTarget?.dispose();
     },
   };
+}
+
+/**
+ * 지형 지평선을 한 줄 렌더 타깃에 굽습니다(§84). 구름 재질의 DEM 유니폼을
+ * **그대로 공유**합니다 — 다른 높이를 보면 건너뛰면 안 되는 화소를 건너뜁니다.
+ */
+function bakeHorizon(
+  renderer: THREE.WebGLRenderer,
+  src: Record<string, THREE.IUniform>,
+): THREE.WebGLRenderTarget {
+  const target = new THREE.WebGLRenderTarget(HORIZON_BINS, 1, {
+    format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthBuffer: false, generateMipmaps: false,
+  });
+  target.texture.wrapS = THREE.RepeatWrapping;
+  const uniforms: Record<string, THREE.IUniform> = {};
+  for (const k of Object.keys(src)) {
+    if (k.startsWith('uDem') || k === 'uEyeHeightM') uniforms[k] = src[k];
+  }
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: HORIZON_BAKE_FRAG,
+    depthTest: false, depthWrite: false,
+  });
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+  const scene = new THREE.Scene();
+  scene.add(quad);
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const prev = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  renderer.render(scene, cam);
+  renderer.setRenderTarget(prev);
+  quad.geometry.dispose();
+  mat.dispose();
+  return target;
 }
 
 /** 운량장을 굽는 데 필요한 것 — 방위·거리로 층 운량과 확신도를 답하는 함수. */

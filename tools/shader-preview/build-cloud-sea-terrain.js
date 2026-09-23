@@ -106,6 +106,10 @@ import { makeAtmosphereParams, beamAtAltitude } from './app/utils/atmosphere.js'
 
 const errors = [];
 window.addEventListener('error', e => errors.push(String(e.message)));
+// ⚠ three.js 는 셰이더 컴파일 실패를 **console.error** 로만 알립니다. 이걸 안 잡으면
+//   구름이 통째로 안 그려져도 제목이 OK 가 되고, "굽은 판 = 안 굽은 판" 같은 대조가
+//   빈 화면끼리 같아서 통과합니다(한 번 그랬습니다).
+{ const oe = console.error; console.error = (...a) => { errors.push(a.map(String).join(' ').slice(0, 300)); oe(...a); }; }
 try {
 const LAT=${LAT}, LON=${LON}, DIR='${DIR}', BLOCK=${BLOCK};
 const EYE_M=${eyeM}, DECK=${JSON.stringify(DECK)};
