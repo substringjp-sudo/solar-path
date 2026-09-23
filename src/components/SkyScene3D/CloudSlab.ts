@@ -181,17 +181,43 @@ float slab_fbm(vec2 p, int oct){
 struct SlabGeom {
   float sDistKm;   // 3D 직선 교점 거리 (km)
   float distRatio; // 수평 정규화 거리 비율 (km / cosE)
+  bool  hit;       // 시선이 껍질에 닿는가 — 관측자가 층 위면 못 닿는 각이 있음
 };
 
+/**
+ * 관측자 해발 고도(km). ⚠ 예전 교차 식은 관측자를 **해발 0** 에 박아 두어
+ * (chord = 2Rh + h²), 1,600m 에 서서 1,200m 구름 위에 있어도 그 구름을 머리
+ * 위에 그렸습니다. src/utils/cloudDeck.ts 가 같은 식의 TS 판이고 판정이
+ * 붙어 있습니다(verify-cloud-deck.js).
+ */
+uniform float uObserverAltKm;
+
 SlabGeom slab_sphereIntersect(float sinE, float cosE, float h){
-  float chord = 2.0*SLAB_R_EARTH*h + h*h;
-  float s = chord / (SLAB_R_EARTH*sinE + sqrt(SLAB_R_EARTH*SLAB_R_EARTH*sinE*sinE + chord));
-  float angle = asin(clamp(s * cosE / (SLAB_R_EARTH + h), 0.0, 1.0));
-  float safeRatio = (cosE > 1e-4) ? (angle / cosE) : (s / (SLAB_R_EARTH + h));
-  
+  float A = SLAB_R_EARTH + h;
+  float B = SLAB_R_EARTH + uObserverAltKm;
+  // A² − B² 를 뺄셈 없이 — 관측자가 해발 0 이면 예전 2Rh + h² 와 **같은 값**
+  float chord = (h - uObserverAltKm) * (A + B);
+  float disc = B*B*sinE*sinE + chord;          // = A² − B²cos²E
+  float root = sqrt(max(disc, 0.0));
+
   SlabGeom res;
+  res.hit = true;
+  float s;
+  if (chord >= 0.0) {
+    // 관측자가 층 아래 — 예전 식 그대로(양근 하나). 관측자 0 이면 같은 결과.
+    s = chord / (B*sinE + root);
+  } else {
+    // 관측자가 층 위 — 두 근이 다 양수이고 **가까운 쪽**이 보이는 윗면.
+    // 먼 근을 먼저 구하고 근과 곱으로 냅니다(단정밀도에서 더 견고합니다).
+    float tFar = -B*sinE + root;
+    res.hit = disc >= 0.0 && tFar > 0.0;       // 먼 가장자리 위로는 안 닿음
+    s = -chord / max(tFar, 1e-6);
+  }
+  float angle = asin(clamp(s * cosE / A, 0.0, 1.0));
+  float safeRatio = (cosE > 1e-4) ? (angle / cosE) : (s / A);
+
   res.sDistKm = s;
-  res.distRatio = (SLAB_R_EARTH + h) * safeRatio;
+  res.distRatio = A * safeRatio;
   return res;
 }
 
@@ -508,7 +534,12 @@ void main(){
   // 껍질 교점은 sinE 가 음수여도 발산하지 않습니다 — 분모가
   // R·sinE + sqrt(R²sin²E + chord) 라 sinE<0 이면 커질 뿐입니다
   // (고도 -0.155° 에서 저층까지 152km, 0° 의 132km 보다 조금 멉니다).
-  if (sinE <= uHorizonSinE) discard;   // 그 아래는 지형과 지면이 담당
+  // ⚠ 관측자보다 **아래** 층이 하나라도 있으면 지평선 아래를 버리면 안 됩니다
+  //   — 그게 운해입니다(발밑 −90° 부터 구름 껍질의 가장자리까지). 층별
+  //   판정은 아래 반복문에서 합니다.
+  float lowestLayerKm = min(uLayerAltKm.x, min(uLayerAltKm.y, uLayerAltKm.z));
+  bool anyLayerBelow = uObserverAltKm > lowestLayerKm;
+  if (sinE <= uHorizonSinE && !anyLayerBelow) discard;   // 그 아래는 지형과 지면이 담당
   float cosE = max(sqrt(max(0.0, 1.0 - sinE*sinE)), 1e-4);
   float cosG = clamp(dot(dir, uSunDir), -1.0, 1.0);
   float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
@@ -672,6 +703,11 @@ void main(){
     // 측정(태양 0°, build-sunset-gap): 명암폭 28.1 → 65.2, 세로기울기
     // 0.954 → 0.857. 체적 스텝은 이제 **음영만** 나눕니다.
     SlabGeom geom = slab_sphereIntersect(sinE, cosE, hBase);
+    // 관측자보다 **위** 층은 예전처럼 지평선 위만. **아래** 층(운해)은
+    // 시선이 껍질에 닿는 동안 — 곧 먼 가장자리 아래 전부.
+    bool layerBelow = uObserverAltKm > hBase;
+    if (!layerBelow && sinE <= uHorizonSinE) continue;
+    if (!geom.hit) continue;
     vec2 km = dir.xz * geom.distRatio;
     vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
@@ -709,8 +745,10 @@ void main(){
     // 경계에서 밑면이 뚝 바뀝니다. 다음에 볼 자리로 33.6절에 적어 뒀습니다.
     float genus = (L == 2) ? texture2D(uGenusTex, slab_coverUv(km, uRangeKm)).r : 0.0;
     bool nfUsed = false;
-    if (L == 2 && uNfEnable > 0.5 && cover > 0.02) {
-      float nfB = nf_baseKm(genus), nfT = nf_thickKm(genus);
+    // ⚠ 근거리 볼륨은 **올려다보는** 모형입니다(밑면부터 적분). 관측자가
+    //   층 위에 있으면 쓰지 않고, 밑면 높이도 관측자 기준으로 잽니다.
+    if (L == 2 && uNfEnable > 0.5 && cover > 0.02 && !layerBelow) {
+      float nfB = nf_baseKm(genus) - uObserverAltKm, nfT = nf_thickKm(genus);
       float nfT0 = nfB / sinE;
       float nfT1 = min((nfB + nfT) / sinE, uNfCapKm / cosE);
       if (nfT1 > nfT0) {
@@ -820,13 +858,16 @@ void main(){
     // 곡률이 상한을 정합니다 — 저층 38배, 중층 25배, 상층 17배.
     float slant = 1.0;
     {
-      SlabGeom gTop = slab_sphereIntersect(sinE, cosE, hBase + hThick);
-      slant = clamp((gTop.sDistKm - geom.sDistKm) / hThick, 1.0, 40.0);
+      // 위에서 볼 때는 시선이 들어간 면(윗면)의 **반대편이 아래**입니다.
+      SlabGeom gTop = slab_sphereIntersect(sinE, cosE, layerBelow ? hBase - hThick : hBase + hThick);
+      slant = gTop.hit
+        ? clamp(abs(gTop.sDistKm - geom.sDistKm) / hThick, 1.0, 40.0)
+        : 40.0;   // 반대편 면을 못 만나면 층을 끝까지 스치는 것
     }
 
     // 이 화소가 담당하는 지상 거리(반경 방향). 지평선으로 갈수록 시선이
     // 층을 스치듯 지나 급격히 늘어납니다.
-    float footKm = uPixelAngleRad * geom.sDistKm / max(sinE, 0.02);
+    float footKm = uPixelAngleRad * geom.sDistKm / max(abs(sinE), 0.02);
     // 발자국이 셀 반쯤을 넘어서면 잔무늬를 믿을 수 없습니다.
     float det = 1.0 - smoothstep(0.45, 2.0, footKm / cellKm);
     // 잔 옥타브가 죽은 뒤에도 굵은 장은 한동안 더 해상됩니다. 셀의 3배에서
@@ -1052,7 +1093,13 @@ void main(){
         // 맨 아래 표본이 기둥의 **두 배** 깊이를 봅니다. 그러면 밑면이
         // 과하게 어두워져 3스텝이 대비를 부풀립니다 — verify-photo-match 가
         // 국소대비를 사진의 2.0~2.6배로 잡은 것이 그것이었습니다.
-        float xd = tp * mix(0.45, 1.0, sinE) * (nSteps > 1 ? (1.0 - sFrac) : 1.0);
+        // ⚠ 위에서 내려다볼 때(운해)는 반대입니다 — 보이는 것은 햇빛을 바로
+        //   받는 **윗면**이라 깊이 0 에 가깝고, 스치듯 볼수록 옆면이 섞여
+        //   0.45 로 갑니다. 예전 식에 sinE < 0 을 넣으면 깊이가 **음수**가
+        //   되어(−0.82 아래) 윗면이 물리적으로 불가능하게 밝아졌습니다.
+        float viewDepth = layerBelow ? mix(0.45, 0.0, clamp(-sinE, 0.0, 1.0))
+                                     : mix(0.45, 1.0, sinE);
+        float xd = tp * viewDepth * (nSteps > 1 ? (1.0 - sFrac) : 1.0);
         vec3 Jbar = Fdn * max(0.0, 1.0 - kk * (1.0 + xd));
         // 남은 것은 위상함수의 **등방 초과분**뿐입니다. 구면 평균이 1 인
         // HG 에서 1 을 빼므로 이 항은 평균 0 — 에너지를 더하지도 빼지도
@@ -1218,7 +1265,9 @@ void main(){
   // 지평선에서 위로 0.23° 만 남깁니다. 시작점을 지면과 같은 선(uHorizonSinE)에
   // 두는 것이 핵심입니다 — 예전에는 여기가 0.17° 로 지면보다 위에 있어
   // 둘 사이가 벌어졌습니다.
-  float horizonFade = smoothstep(uHorizonSinE, uHorizonSinE + 0.004, sinE);
+  // ⚠ 아래 층(운해)이 있으면 끕니다. 켜 두면 지평선 아래를 0 으로 만들어
+  //   운해를 통째로 지우고, 지평선 바로 위에는 구름바다에 검은 줄을 긋습니다.
+  float horizonFade = anyLayerBelow ? 1.0 : smoothstep(uHorizonSinE, uHorizonSinE + 0.004, sinE);
   acc *= horizonFade;
 
   if (acc <= 0.002) discard;
@@ -1321,6 +1370,7 @@ export function createCloudSlab(opts: {
       uInvViewProj: { value: new THREE.Matrix4() },
       uCamPos: { value: new THREE.Vector3() },
       uHorizonSinE: { value: 0 },
+      uObserverAltKm: { value: 0 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
       uSunAzDeg: { value: 0 },
@@ -1617,6 +1667,8 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   uni.uHorizonSinE.value = -Math.sin(
     (seaHorizonDipDeg(u.atmosphere.observerElevM ?? 0) * Math.PI) / 180,
   );
+  // 관측자 해발 고도 — 구름층 위에 서 있는지를 셰이더가 알아야 합니다(운해).
+  uni.uObserverAltKm.value = Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000;
 
   (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir).normalize();
   uni.uSunAltDeg.value = u.sunAltDeg;
