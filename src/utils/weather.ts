@@ -6,8 +6,7 @@
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
-import { CANARY_VARIABLE, ringCacheKey, upsertEntry, MAX_RING_ENTRIES } from './cachePolicy';
-import { saveRingCache } from './persistentCache';
+import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
@@ -513,19 +512,23 @@ export const primeRingCache = (
   }
 };
 
-/** 고리 디스크 캐시의 현재 목록. `fetchDayWeatherRing` 이 여기에 덧씁니다. */
-let ringDiskEntries: any[] = [];
-export const setRingDiskEntries = (entries: any[]): void => { ringDiskEntries = entries ?? []; };
+/**
+ * 성공한 고리를 어디에 남길지 — **호출부가 꽂아 줍니다.**
+ *
+ * ⚠ 여기서 `persistentCache` 를 직접 부르면 안 됩니다. 그쪽이 `security.ts` 를
+ * 타고 `expo-constants` → `expo-modules-core/src/index.ts` 를 끌어오는데, 그
+ * 파일은 Metro 전용 TypeScript 소스라 **Node 가 못 읽습니다.** 이 파일은
+ * 판정 하네스가 Node 로 컴파일해 쓰는 자리여서, 한 줄 import 로 하네스
+ * 아홉 개가 통째로 죽었습니다. 저장은 앱 쪽(`useCelestialStore`)이 꽂습니다.
+ */
+type RingPersister = (key: string, lat: number, lon: number, data: CloudPathData[]) => void;
+let ringPersister: RingPersister | null = null;
+export const setRingPersister = (fn: RingPersister | null): void => { ringPersister = fn; };
 
-/** 성공한 고리를 디스크에 남깁니다. 실패는 치명적이지 않으므로 기다리지 않습니다. */
+/** 성공한 고리를 남깁니다. 아무도 안 꽂았으면 조용히 넘어갑니다. */
 const persistRing = (key: string, lat: number, lon: number, data: CloudPathData[]): void => {
   try {
-    ringDiskEntries = upsertEntry(
-      ringDiskEntries,
-      { key, data, timestamp: Date.now(), latitude: lat, longitude: lon } as any,
-      MAX_RING_ENTRIES,
-    );
-    void saveRingCache(ringDiskEntries);
+    ringPersister?.(key, lat, lon, data);
   } catch (e) {
     console.warn('[WeatherAPI] 고리를 디스크에 못 남겼습니다:', e);
   }

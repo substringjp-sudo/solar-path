@@ -7,18 +7,18 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   loadWeatherCache, loadTerrainCache, loadRingCache,
-  saveWeatherCache, saveTerrainCache,
+  saveWeatherCache, saveTerrainCache, saveRingCache,
 } from '../utils/persistentCache';
 import {
   weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
   findEntry, fingerprint, MAX_CACHE_ENTRIES,
-  canaryPrint, canarySaysSkip, canaryIsUsable,
+  canaryPrint, canarySaysSkip, canaryIsUsable, MAX_RING_ENTRIES,
 } from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingDiskEntries } from '../utils/weather';
+import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingPersister } from '../utils/weather';
 import SunCalc from 'suncalc';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -991,7 +991,21 @@ export const useCelestialStore = create<CelestialState>()(
             // 고리는 상태가 아니라 **모듈 캐시**로 갑니다 — 부르는 쪽
             // (`IsolineMap`·`skyTimeline`)을 안 고치려고요. 다만 채우는 것은
             // 카나리아가 "그대로" 라고 한 뒤입니다(아래).
-            setRingDiskEntries(diskRing);
+            /* 고리를 남기는 길을 **여기서 꽂습니다.**
+             *
+             * ⚠ `weather.ts` 가 `persistentCache` 를 직접 부르면 `security.ts` →
+             * `expo-constants` 를 타고 들어가, Node 로 도는 판정 하네스가
+             * 통째로 죽습니다(실제로 아홉 개가 죽었습니다). 앱 쪽인 여기는
+             * expo 를 써도 됩니다.
+             */
+            setRingPersister((key, la, lo, data) => {
+              diskRing = upsertEntry(
+                diskRing as any,
+                { key, data, timestamp: Date.now(), latitude: la, longitude: lo } as any,
+                MAX_RING_ENTRIES,
+              ) as any;
+              void saveRingCache(diskRing as any);
+            });
             if (diskWeather.length || diskTerrain.length) {
               set({
                 weatherCacheList: diskWeather as any,
