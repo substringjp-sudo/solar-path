@@ -30,7 +30,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     refetchWindow, localHourIfToday, spliceHourly, fingerprint, unchanged,
     MAX_CACHE_ENTRIES, LOOKUP_TOLERANCE_DEG, GRID_BUCKET_DEG,
     CANARY_VARIABLE, canaryPrint, canarySaysSkip, canaryDistinctValues,
-    canaryIsUsable, CANARY_MIN_DISTINCT,
+    canaryIsUsable, CANARY_MIN_DISTINCT, ringCacheKey, MAX_RING_ENTRIES,
   } = M;
 
   const LAT = 35.3606, LON = 136.1875;   // 사용자가 사진 찍은 곳 근처
@@ -324,6 +324,45 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     // 곧, 보정본으로 견줬다면 카나리아가 **한 번도 건너뛰지 못합니다.**
     ok(!canarySaysSkip(canaryPrint(t1), t2),
        `보정본으로 견줬다면 카나리아가 영영 일을 못 한다 — 그래서 원본 지문을 따로 둔다`);
+  }
+
+  // ── [12] ⚠ 구름 고리 — 키와 칸 수 ────────────────────────────────
+  //
+  //    고리 키도 `toFixed(3)` = **111m** 였습니다. §68 이 일몰 날씨를,
+  //    §77 이 스토어를 고쳤는데 **고리만 남아 있었습니다** — 같은 부류의
+  //    세 번째 자리입니다. 한 칸이 139KB 라 헛되이 다시 받으면 비쌉니다.
+  console.log('\n[12] 구름 고리 — 키가 111m 가 아니라 격자 칸인가');
+  {
+    const D = '2026-09-23';
+    for (const m of [111, 500, 2000]) {
+      const lon2 = LON + kmToLon(m / 1000, LAT);
+      const oldDiffers = LON.toFixed(3) !== lon2.toFixed(3);
+      const newSame = ringCacheKey(LAT, LON, D) === ringCacheKey(LAT, lon2, D);
+      console.log(`        ${String(m).padStart(4)}m 이동 — 옛 키(111m): ${oldDiffers ? '갈림' : '같음'}`
+                + ` · 새 키: ${newSame ? '같음' : '갈림'}`);
+    }
+    const lon111 = LON + kmToLon(0.111, LAT);
+    ok(LON.toFixed(3) !== lon111.toFixed(3),
+       `옛 고리 키는 111m 에서 실제로 갈렸다 — 139KB 를 헛되이 다시 받았다`);
+    ok(ringCacheKey(LAT, LON, D) === ringCacheKey(LAT, lon111, D),
+       `새 고리 키는 111m 에서 같다`);
+    ok(ringCacheKey(LAT, LON, D) !== ringCacheKey(LAT, LON + kmToLon(20, LAT), D),
+       `20km 떨어지면 갈린다 — 아무거나 뭉치지 않는다`);
+    ok(ringCacheKey(LAT, LON, D) !== ringCacheKey(LAT, LON, '2026-09-24'),
+       `고리 키는 날짜를 탄다`);
+    // 일몰 날씨 키와 **섞이면 안 됩니다** — 자료 모양이 다릅니다.
+    ok(ringCacheKey(LAT, LON, D) !== weatherCacheKey(LAT, LON, D),
+       `고리 키와 일몰 날씨 키가 안 겹친다 — 섞이면 모양이 다른 자료를 먹인다`);
+
+    // 칸 수 — 실측 139KB 라 10칸이면 1.36MB 입니다.
+    const RING_KB = 139;
+    console.log(`      고리 한 칸 ${RING_KB}KB(실측) × ${MAX_RING_ENTRIES}칸`
+              + ` = ${(RING_KB * MAX_RING_ENTRIES / 1024).toFixed(2)} MB`);
+    ok(MAX_RING_ENTRIES < MAX_CACHE_ENTRIES,
+       `고리 칸(${MAX_RING_ENTRIES})이 날씨 칸(${MAX_CACHE_ENTRIES})보다 적다 — 2.2배 크다`);
+    ok(RING_KB * MAX_RING_ENTRIES / 1024 < 0.5,
+       `고리 캐시가 0.5MB 아래다 (${(RING_KB * MAX_RING_ENTRIES / 1024).toFixed(2)} MB)`);
+    ok(MAX_RING_ENTRIES >= 2, `그래도 두 자리 이상은 담는다 — 오가는 곳이 하나가 아니다`);
   }
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);

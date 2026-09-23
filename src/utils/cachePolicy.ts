@@ -51,6 +51,22 @@ export const CACHE_SCHEMA_VERSION = 1;
 /** 캐시 목록 한 종류가 가질 수 있는 최대 칸 수. */
 export const MAX_CACHE_ENTRIES = 10;
 
+/**
+ * 구름 고리는 칸을 **적게** 줍니다.
+ *
+ * 실측(2026-09-23, 가상점 91 · 24시간): 한 칸이 **139 KB** 입니다 — 일몰
+ * 날씨(64KB)의 2.2배. 10칸이면 1.36MB 라 너무 큽니다.
+ *
+ * ```
+ *    2칸  0.27 MB      5칸  0.68 MB
+ *    3칸  0.41 MB     10칸  1.36 MB
+ * ```
+ *
+ * 고리는 (자리, 날짜)당 하나이고 하루에 오가는 자리가 두세 곳이라 **3칸**이면
+ * 넉넉합니다.
+ */
+export const MAX_RING_ENTRIES = 3;
+
 export interface CacheEntry<T> {
   key: string;
   data: T;
@@ -71,6 +87,10 @@ export interface CacheEntry<T> {
 /** 날씨 캐시 키 — 자리는 격자 칸, 날짜는 현지 날짜. */
 export const weatherCacheKey = (lat: number, lon: number, dateStr: string): string =>
   `w_${gridBucket(lat, lon)}_${dateStr}`;
+
+/** 구름 고리 캐시 키 — 방위에 안 기대므로 (자리, 날짜)면 끝입니다. */
+export const ringCacheKey = (lat: number, lon: number, dateStr: string): string =>
+  `ring_${gridBucket(lat, lon)}_${dateStr}`;
 
 /** 지형 캐시 키 — 날짜가 없습니다. **지형은 날짜를 타지 않습니다.** */
 export const terrainCacheKey = (lat: number, lon: number): string =>

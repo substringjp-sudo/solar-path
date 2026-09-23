@@ -32,18 +32,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { encryptData, decryptData } from './security';
 import {
-  CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, CacheEntry,
+  CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, CacheEntry,
 } from './cachePolicy';
 
 const WEATHER_KEY = 'solar-path-cache-weather';
 const TERRAIN_KEY = 'solar-path-cache-terrain';
+const RING_KEY = 'solar-path-cache-ring';
 
 interface Envelope<T> {
   v: number;
   entries: CacheEntry<T>[];
 }
 
-const read = async <T>(key: string): Promise<CacheEntry<T>[]> => {
+const read = async <T>(key: string, max = MAX_CACHE_ENTRIES): Promise<CacheEntry<T>[]> => {
   try {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return [];
@@ -57,7 +58,7 @@ const read = async <T>(key: string): Promise<CacheEntry<T>[]> => {
     // ⚠ 형식이 다르면 **읽지 않고 버립니다.** 모양이 달라진 캐시를 화면에
     //   먹이면 조용히 망가지는데, 다시 받으면 되는 것이라 버리는 값이 0입니다.
     if (!env || env.v !== CACHE_SCHEMA_VERSION || !Array.isArray(env.entries)) return [];
-    return env.entries.slice(0, MAX_CACHE_ENTRIES);
+    return env.entries.slice(0, max);
   } catch (e) {
     console.warn(`[Cache] ${key} 를 못 읽었습니다:`, e);
     return [];
@@ -77,13 +78,16 @@ const write = async <T>(key: string, entries: CacheEntry<T>[]): Promise<void> =>
 
 export const loadWeatherCache = <T = any>() => read<T>(WEATHER_KEY);
 export const loadTerrainCache = <T = any>() => read<T>(TERRAIN_KEY);
+/** ⚠ 고리는 한 칸이 139KB 라 칸 수가 적습니다(`MAX_RING_ENTRIES`). */
+export const loadRingCache = <T = any>() => read<T>(RING_KEY, MAX_RING_ENTRIES);
 export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => write(WEATHER_KEY, e);
 export const saveTerrainCache = <T = any>(e: CacheEntry<T>[]) => write(TERRAIN_KEY, e);
+export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => write(RING_KEY, e);
 
 /** 캐시만 통째로 비웁니다. 사용자 자료(`solar-path-storage`)는 안 건드립니다. */
 export const clearCaches = async (): Promise<void> => {
   try {
-    await AsyncStorage.multiRemove([WEATHER_KEY, TERRAIN_KEY]);
+    await AsyncStorage.multiRemove([WEATHER_KEY, TERRAIN_KEY, RING_KEY]);
   } catch (e) {
     console.warn('[Cache] 비우기 실패:', e);
   }

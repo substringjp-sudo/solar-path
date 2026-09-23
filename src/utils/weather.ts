@@ -6,7 +6,8 @@
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
-import { CANARY_VARIABLE } from './cachePolicy';
+import { CANARY_VARIABLE, ringCacheKey, upsertEntry, MAX_RING_ENTRIES } from './cachePolicy';
+import { saveRingCache } from './persistentCache';
 import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
@@ -491,6 +492,45 @@ export const fetchSunsetWeather = async (
 // 360° 하루치 링 — 사전 계산(skyTimeline)용
 // ---------------------------------------------------------------------------
 
+/**
+ * **디스크에 둔 고리를 모듈 캐시에 채웁니다.**
+ *
+ * 이게 있으면 `fetchDayWeatherRing` 을 부르는 쪽(`IsolineMap`·`skyTimeline`)을
+ * 하나도 안 고쳐도 됩니다 — 평소처럼 부르면 **네트워크 없이** 돌아옵니다.
+ *
+ * ⚠ 호출부가 **카나리아가 "그대로" 라고 할 때만** 불러야 합니다. 모듈 고리
+ * 캐시에는 나이 검사가 없어서, 아무 때나 채우면 새 런이 나온 뒤에도 옛 고리를
+ * 계속 돌려줍니다.
+ */
+export const primeRingCache = (
+  entries: { key: string; data: CloudPathData[] }[],
+): void => {
+  const now = Date.now();
+  for (const e of entries) {
+    if (!e?.key || !Array.isArray(e.data) || e.data.length === 0) continue;
+    ringCache.set(e.key, e.data);
+    MEM_RING_CACHE.set(e.key, { data: e.data, time: now });
+  }
+};
+
+/** 고리 디스크 캐시의 현재 목록. `fetchDayWeatherRing` 이 여기에 덧씁니다. */
+let ringDiskEntries: any[] = [];
+export const setRingDiskEntries = (entries: any[]): void => { ringDiskEntries = entries ?? []; };
+
+/** 성공한 고리를 디스크에 남깁니다. 실패는 치명적이지 않으므로 기다리지 않습니다. */
+const persistRing = (key: string, lat: number, lon: number, data: CloudPathData[]): void => {
+  try {
+    ringDiskEntries = upsertEntry(
+      ringDiskEntries,
+      { key, data, timestamp: Date.now(), latitude: lat, longitude: lon } as any,
+      MAX_RING_ENTRIES,
+    );
+    void saveRingCache(ringDiskEntries);
+  } catch (e) {
+    console.warn('[WeatherAPI] 고리를 디스크에 못 남겼습니다:', e);
+  }
+};
+
 /** 링 방위 (12방위, 30° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
 const RING_AZIMUTHS = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30];
 /** 가까운 고리용 6방위 (60° 간격). 아래 `RING` 주석 참고. */
@@ -922,7 +962,10 @@ export const fetchDayWeatherRing = async (
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
   const targetDateStr = localDateString(targetDate);
-  const cacheKey = `ring_${lat.toFixed(3)},${lon.toFixed(3)}_${targetDateStr}`;
+  // ⚠ 예전에는 `lat.toFixed(3)` — **111m** 였습니다. §68 에서 일몰 날씨 키를,
+  //   §77 에서 스토어 키를 격자 크기로 고쳤는데 **고리만 남아 있었습니다.**
+  //   같은 부류의 세 번째 자리입니다. 111m 움직일 때마다 139KB 를 다시 받습니다.
+  const cacheKey = ringCacheKey(lat, lon, targetDateStr);
   const cached = MEM_RING_CACHE.get(cacheKey) || ringCache.get(cacheKey);
   if (cached) {
     const data = 'data' in cached ? (cached as any).data : cached;
@@ -1037,6 +1080,10 @@ export const fetchDayWeatherRing = async (
 
     ringCache.set(cacheKey, out);
     MEM_RING_CACHE.set(cacheKey, { data: out, time: Date.now() });
+    // ⚠ **진짜 자료일 때만** 디스크에 남깁니다. 위쪽 한도 초과 갈래의
+    //   맑은하늘 대용값은 지어낸 것이라 저장하면 안 됩니다 — 저장하면
+    //   다음 실행이 그걸 "받아 둔 고리" 로 믿습니다.
+    persistRing(cacheKey, lat, lon, out);
     INFLIGHT_REQUESTS.delete(cacheKey);
     return out;
   })();

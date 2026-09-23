@@ -6,7 +6,8 @@ import * as MediaLibrary from 'expo-media-library';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  loadWeatherCache, loadTerrainCache, saveWeatherCache, saveTerrainCache,
+  loadWeatherCache, loadTerrainCache, loadRingCache,
+  saveWeatherCache, saveTerrainCache,
 } from '../utils/persistentCache';
 import {
   weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
@@ -17,7 +18,7 @@ import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary } from '../utils/weather';
+import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingDiskEntries } from '../utils/weather';
 import SunCalc from 'suncalc';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -982,10 +983,15 @@ export const useCelestialStore = create<CelestialState>()(
            */
           let diskWeather: any[] = [];
           let diskTerrain: any[] = [];
+          let diskRing: any[] = [];
           try {
-            [diskWeather, diskTerrain] = await Promise.all([
-              loadWeatherCache(), loadTerrainCache(),
+            [diskWeather, diskTerrain, diskRing] = await Promise.all([
+              loadWeatherCache(), loadTerrainCache(), loadRingCache(),
             ]);
+            // 고리는 상태가 아니라 **모듈 캐시**로 갑니다 — 부르는 쪽
+            // (`IsolineMap`·`skyTimeline`)을 안 고치려고요. 다만 채우는 것은
+            // 카나리아가 "그대로" 라고 한 뒤입니다(아래).
+            setRingDiskEntries(diskRing);
             if (diskWeather.length || diskTerrain.length) {
               set({
                 weatherCacheList: diskWeather as any,
@@ -995,7 +1001,7 @@ export const useCelestialStore = create<CelestialState>()(
               });
             }
             if (__DEV__) {
-              console.log(`[Preload] 저장장치 캐시 — 날씨 ${diskWeather.length}칸 · 지형 ${diskTerrain.length}칸`);
+              console.log(`[Preload] 저장장치 캐시 — 날씨 ${diskWeather.length}칸 · 지형 ${diskTerrain.length}칸 · 고리 ${diskRing.length}칸`);
             }
           } catch (e) {
             console.warn('[Preload] 저장장치 캐시를 못 올렸습니다:', e);
@@ -1053,6 +1059,19 @@ export const useCelestialStore = create<CelestialState>()(
                   : !storedCanary ? '저장된 지문 없음 → 다 받고 지문을 남김'
                   : skip ? '그대로 → **큰 요청 건너뜀**' : '갈림 → 다 받음'}`);
               }
+              /* ⚠ **고리도 같은 카나리아에 물립니다.** 고리가 한 칸 139KB 로
+               *    가장 큰데, 예전에는 카나리아와 무관하게 **늘 다시 받았습니다**
+               *    — 10분 뒤에 열어도요. 런이 그대로면 디스크에 둔 고리를 모듈
+               *    캐시에 채워, 부르는 쪽이 평소처럼 불러도 네트워크가 안 나갑니다.
+               *
+               *    ⚠ 채우는 것은 **카나리아가 "그대로" 라고 할 때만**입니다.
+               *    모듈 고리 캐시에는 나이 검사가 없어서, 아무 때나 채우면 새
+               *    런이 나온 뒤에도 옛 고리를 계속 돌려줍니다.
+               */
+              if (skip) {
+                primeRingCache(diskRing as any);
+                if (__DEV__) console.log(`[Preload] 고리 ${diskRing.length}칸을 캐시에 채움 — 고리도 안 받습니다`);
+              }
               return skip ? null : fetchSunsetWeather(lat, lon, az, false, targetEvent);
             });
 
@@ -1079,7 +1098,17 @@ export const useCelestialStore = create<CelestialState>()(
                 canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
               } as any);
             }).catch((err: any) => console.warn('Preload Weather failed:', err)),
-            fetchDayWeatherRing(lat, lon, targetEvent).catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
+            // ⚠ 카나리아 뒤에 부릅니다. 채우기(`primeRingCache`)가 먼저 끝나야
+            //   이 호출이 모듈 캐시에 맞습니다 — 앞서 부르면 채우기와 경주가
+            //   되어 그대로인데도 받아 버립니다.
+            // ⚠ `catch` 를 **먼저** 답니다. 이걸 안 달면 일몰 날씨가 실패했을 때
+            //   사슬이 거부되어 **고리를 아예 안 받습니다** — 게다가 로그에는
+            //   "Ring Weather failed" 가 찍혀 받아 보고 실패한 것처럼 보입니다.
+            //   카나리아 판정만 기다리면 되고, 일몰 날씨의 성패는 상관없습니다.
+            weatherChain
+              .catch(() => null)
+              .then(() => fetchDayWeatherRing(lat, lon, targetEvent))
+              .catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
             mustFetchTerrain
               ? fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
                   if (terrainData && !terrainData.isFallback) {
