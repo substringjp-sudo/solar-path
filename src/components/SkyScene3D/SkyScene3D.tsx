@@ -1942,6 +1942,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
         terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
+        // 운해를 땅이 가리려면 구름도 같은 높이장을 봐야 합니다(§83).
+        cloudSlabRef.current?.setDemPatches(patch, maskPatch);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;

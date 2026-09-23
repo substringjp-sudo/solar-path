@@ -48,6 +48,7 @@ import { lowLayerGenus } from '../../utils/cloudPresets';
 // ⚠ 지평선은 **지면과 같은 함수**로 구합니다. 식을 복사해 두면 한쪽만
 // 바뀌었을 때 그 차이가 그대로 하늘이 비치는 띠가 됩니다.
 import { seaHorizonDipDeg } from './TerrainRing';
+import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
@@ -495,6 +496,77 @@ const FRAG = `
 precision highp float;
 ${ATMOSPHERE_GLSL}
 ${CLOUD_SLAB_GLSL}
+${DEM_GLSL}
+${demGlsl('demFar')}
+
+// ── 운해를 땅이 가리는가 (§83) ────────────────────────────────────────────
+//
+// 구름은 지형 **위에** 합성됩니다(깊이 없음, SceneComposer). 땅에서 올려다볼
+// 때는 구름이 지평선 위라 문제가 드러나지 않았지만, 산 위에서 운해를 내려다보면
+// 발밑 사면과 덱 위로 솟은 이웃 봉우리까지 **구름이 덮어 버립니다.**
+//
+// 그래서 운해 화소마다 시선을 덱에 닿을 때까지 따라가며 지형 높이장
+// (TerrainField 와 **같은 패치**)과 견줍니다. 도중에 땅이 시선보다 높으면
+// 그 화소는 땅이 앞에 있는 것이므로 운해를 그리지 않습니다.
+//
+// ⚠ 곡률: 직선 시선은 멀어질수록 지면에서 d²/2R 만큼 **떠오릅니다**
+//   (TerrainField 의 낙차와 같은 식, 부호만 시선 쪽에서 본 것).
+// ⚠ 패치 밖(약 60km 너머)은 모르는 곳 — 가리지 않습니다.
+uniform float uTerrainOcclude;   // 1 이면 켬 (패치가 있을 때만 의미)
+uniform float uEyeHeightM;       // 발밑에서 눈까지 (m) — TerrainField 와 같은 값
+
+/** (동, 남) m 지점의 지형 고도 (m). 모르면 -1e4. */
+float slab_terrainM(vec2 g){
+  bool fine = uDemValid > 0.5 && dem_inside(g) > 0.5;
+  bool far  = uDemFarValid > 0.5 && demFar_inside(g) > 0.5;
+  if (fine) {
+    // TerrainField.fieldElev 와 같은 넘기기(촘촘 → 성김). 반지름 비율 0.30 도 같습니다.
+    if (!far) return dem_elevationAt(g);
+    float rp = dem_probeRadiusM();
+    float w = 1.0 - smoothstep(rp * 0.30, rp * 0.98, length(g));
+    return mix(demFar_elevationDespiked(g), dem_elevationAt(g), w);
+  }
+  if (far) return demFar_elevationDespiked(g);
+  return -1e4;
+}
+
+/** 시선이 슬랜트 tEndKm 에서 운해에 닿기 **전에** 땅에 부딪히는가. */
+bool slab_terrainBlocks(vec3 dir, float sinE, float cosE, float tEndKm){
+  if (uTerrainOcclude < 0.5) return false;
+  if (uDemValid < 0.5 && uDemFarValid < 0.5) return false;
+  float eyeGround = slab_terrainM(vec2(0.0));
+  float eyeKm = eyeGround > -1e3 ? (eyeGround + uEyeHeightM) / 1000.0 : uObserverAltKm;
+  vec2 hz = cosE > 1e-4 ? dir.xz / cosE : vec2(0.0);
+  float minGap = 1e9, tMin = 0.0;
+  for (int i = 1; i <= 32; i++){
+    // 가까운 쪽에 몰아 뜹니다 — 발밑 사면은 수십 m 안에서 시선을 막습니다.
+    float f = float(i) / 32.0;
+    float t = tEndKm * f * f;
+    float dKm = t * cosE;
+    float rayKm = eyeKm + t * sinE + dKm * dKm / (2.0 * SLAB_R_EARTH);
+    float terr = slab_terrainM(hz * dKm * 1000.0);
+    if (terr < -1e3) continue;
+    float gap = rayKm - terr / 1000.0;
+    if (gap < 0.0) return true;
+    // 여유는 **각도**로 견줍니다(여유 ÷ 거리). 미터로 견주면 발밑 몇 m 앞
+    // 땅(여유 0.1m)이 늘 이겨, 먼 능선을 다시 볼 기회를 발밑에 써 버립니다.
+    float gapAng = gap / max(dKm, 1e-4);
+    if (gapAng < minGap) { minGap = gapAng; tMin = f; }
+  }
+  // ⚠ 먼 쪽은 걸음이 tEnd/16 까지 벌어져, 능선 **꼭대기를 스치는** 시선이
+  //   걸음 사이로 빠집니다(덕유산에서 3km 밖 능선 55화소 중 8개, 파고든 깊이
+  //   18~121m). 시선이 땅에 각도로 가장 가까웠던 걸음 **양옆**을 8번 더 봅니다.
+  float fLo = max(tMin - 1.0 / 32.0, 0.0), fHi = min(tMin + 1.0 / 32.0, 1.0);
+  for (int j = 0; j < 8; j++){
+    float f = mix(fLo, fHi, (float(j) + 0.5) / 8.0);
+    float t = tEndKm * f * f;
+    float dKm = t * cosE;
+    float rayKm = eyeKm + t * sinE + dKm * dKm / (2.0 * SLAB_R_EARTH);
+    float terr = slab_terrainM(hz * dKm * 1000.0);
+    if (terr > -1e3 && terr / 1000.0 > rayKm) return true;
+  }
+  return false;
+}
 
 uniform vec2  uRes;
 uniform mat4  uInvViewProj;
@@ -732,6 +804,8 @@ void main(){
     SlabGeom geom = slab_sphereIntersect(sinE, cosE, hSurf);
     if (!layerBelow && sinE <= uHorizonSinE) continue;
     if (!geom.hit) continue;
+    // §83 — 운해(아래 층)만 땅과 견줍니다. 올려다보는 하늘은 예전 그대로.
+    if (layerBelow && slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm)) continue;
     vec2 km = dir.xz * geom.distRatio;
     vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
@@ -1335,6 +1409,11 @@ export interface CloudSlabHandle {
   setLayerAltitudesKm: (lowKm: number, midKm: number, highKm: number) => void;
   /** 저층 덱 밑면·윗면(km, 해발, §82). 모르면 null — 위에서 볼 면이 hBase 로 돌아갑니다. */
   setLowDeckKm: (baseKm: number | null | undefined, topKm: number | null | undefined) => void;
+  /**
+   * 지형 높이장(§83) — 운해를 땅이 가리게 합니다. TerrainField 와 **같은 패치**
+   * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다.
+   */
+  setDemPatches: (patch: DemPatch | null, farPatch: DemPatch | null) => void;
   dispose: () => void;
 }
 
@@ -1400,6 +1479,11 @@ export function createCloudSlab(opts: {
       uHorizonSinE: { value: 0 },
       uObserverAltKm: { value: 0 },
       uLowDeckKm: { value: new THREE.Vector2(-1, -1) },
+      // §83 지형 가림 — 패치는 setDemPatches 로 받습니다. 없으면 꺼진 것과 같습니다.
+      ...makeDemUniforms(null),
+      ...makeDemUniforms(null, 'demFar'),
+      uTerrainOcclude: { value: 1 },
+      uEyeHeightM: { value: 1.6 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
       uSunAzDeg: { value: 0 },
@@ -1534,6 +1618,17 @@ export function createCloudSlab(opts: {
       const okv = (v: number) => Number.isFinite(v) && v > 0.05 && v < 25;
       if (!okv(lowKm) || !okv(midKm) || !okv(highKm)) return;
       (material.uniforms.uLayerAltKm.value as THREE.Vector3).set(lowKm, midKm, highKm);
+    },
+    setDemPatches: (patch, farPatch) => {
+      const put = (u: Record<string, { value: unknown }>) => {
+        Object.entries(u).forEach(([k, v]) => {
+          if (material.uniforms[k]) material.uniforms[k].value = v.value;
+        });
+      };
+      put(makeDemUniforms(patch));
+      put(makeDemUniforms(farPatch, 'demFar'));
+      // 성긴 패치만 첨탑을 걷어냅니다 — TerrainField.setPatch 와 같은 규약.
+      material.uniforms.uDemFarDespike.value = farPatch ? 1 : 0;
     },
     setLowDeckKm: (baseKm, topKm) => {
       // 모르면(null·NaN·뒤집힘) (-1,-1) — 셰이더가 §81 그대로 갑니다.
