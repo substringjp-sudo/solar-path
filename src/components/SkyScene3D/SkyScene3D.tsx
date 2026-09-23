@@ -1684,6 +1684,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       if (ow?.layerAltLowKm != null && ow.layerAltMidKm != null && ow.layerAltHighKm != null) {
         cloudSlabRef.current.setLayerAltitudesKm(ow.layerAltLowKm, ow.layerAltMidKm, ow.layerAltHighKm);
       }
+      // 운해의 윗면(§82). 저층이 빈 시각이면 undefined/NaN → 세터가 (-1,-1) 로 되돌립니다.
+      cloudSlabRef.current.setLowDeckKm(ow?.lowDeckBaseKm, ow?.lowDeckTopKm);
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────

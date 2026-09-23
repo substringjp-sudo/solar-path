@@ -192,6 +192,20 @@ struct SlabGeom {
  */
 uniform float uObserverAltKm;
 
+/**
+ * 저층 덱의 (밑면, 윗면) km, 해발 — 단면의 반값 폭(cloudProfile.lowDeck, §82).
+ * 모르면 (-1, -1) 이고 그때는 §81 그대로입니다(위에서 볼 면 = hBase).
+ *
+ * ⚠ **위에서 볼 때만** 씁니다. 아래에서 보는 하늘(두께 1.6km 판)은 이 값과
+ *   무관하게 예전 그대로입니다 — 온 하늘 대비 조정이 그 판에 맞춰져 있습니다.
+ */
+uniform vec2 uLowDeckKm;
+
+/** 저층이 **위에서 보이는 면**. 덱을 모르면 hBase. 윗면이 hBase 아래로 나오면 hBase. */
+float slab_lowSurfKm(){
+  return uLowDeckKm.y > 0.0 ? max(uLowDeckKm.y, uLayerAltKm.x) : uLayerAltKm.x;
+}
+
 SlabGeom slab_sphereIntersect(float sinE, float cosE, float h){
   float A = SLAB_R_EARTH + h;
   float B = SLAB_R_EARTH + uObserverAltKm;
@@ -537,7 +551,7 @@ void main(){
   // ⚠ 관측자보다 **아래** 층이 하나라도 있으면 지평선 아래를 버리면 안 됩니다
   //   — 그게 운해입니다(발밑 −90° 부터 구름 껍질의 가장자리까지). 층별
   //   판정은 아래 반복문에서 합니다.
-  float lowestLayerKm = min(uLayerAltKm.x, min(uLayerAltKm.y, uLayerAltKm.z));
+  float lowestLayerKm = min(slab_lowSurfKm(), min(uLayerAltKm.y, uLayerAltKm.z));
   bool anyLayerBelow = uObserverAltKm > lowestLayerKm;
   if (sinE <= uHorizonSinE && !anyLayerBelow) discard;   // 그 아래는 지형과 지면이 담당
   float cosE = max(sqrt(max(0.0, 1.0 - sinE*sinE)), 1e-4);
@@ -702,10 +716,20 @@ void main(){
     //
     // 측정(태양 0°, build-sunset-gap): 명암폭 28.1 → 65.2, 세로기울기
     // 0.954 → 0.857. 체적 스텝은 이제 **음영만** 나눕니다.
-    SlabGeom geom = slab_sphereIntersect(sinE, cosE, hBase);
     // 관측자보다 **위** 층은 예전처럼 지평선 위만. **아래** 층(운해)은
     // 시선이 껍질에 닿는 동안 — 곧 먼 가장자리 아래 전부.
-    bool layerBelow = uObserverAltKm > hBase;
+    //
+    // §82 — 저층은 **윗면**(단면의 반값 폭)을 넘어서야 "위" 입니다. 예전에는
+    // hBase(덱 한가운데)를 넘는 순간 판을 아래로 뒤집어, 관측자 바로 밑에
+    // 1.6km 짜리 판이 생겼습니다.
+    float deckTop = L == 2 ? slab_lowSurfKm() : hBase;
+    float thickBelow = (L == 2 && uLowDeckKm.y > 0.0)
+      ? max(uLowDeckKm.y - uLowDeckKm.x, 0.15) : hThick;
+    bool layerBelow = uObserverAltKm > deckTop;
+    // 덱 **속**(밑면 < 관측자 ≤ 윗면)이면 올려다본 구름이 관측자 바로 위에서
+    // 시작합니다. 아래를 보면 안 그립니다(안개 상태는 그리지 않음 — §82.5).
+    float hSurf = layerBelow ? deckTop : max(hBase, uObserverAltKm + 0.01);
+    SlabGeom geom = slab_sphereIntersect(sinE, cosE, hSurf);
     if (!layerBelow && sinE <= uHorizonSinE) continue;
     if (!geom.hit) continue;
     vec2 km = dir.xz * geom.distRatio;
@@ -859,9 +883,11 @@ void main(){
     float slant = 1.0;
     {
       // 위에서 볼 때는 시선이 들어간 면(윗면)의 **반대편이 아래**입니다.
-      SlabGeom gTop = slab_sphereIntersect(sinE, cosE, layerBelow ? hBase - hThick : hBase + hThick);
+      float hOpp = layerBelow ? hSurf - thickBelow : hSurf + hThick;
+      float tRef = layerBelow ? thickBelow : hThick;
+      SlabGeom gTop = slab_sphereIntersect(sinE, cosE, hOpp);
       slant = gTop.hit
-        ? clamp(abs(gTop.sDistKm - geom.sDistKm) / hThick, 1.0, 40.0)
+        ? clamp(abs(gTop.sDistKm - geom.sDistKm) / tRef, 1.0, 40.0)
         : 40.0;   // 반대편 면을 못 만나면 층을 끝까지 스치는 것
     }
 
@@ -1307,6 +1333,8 @@ export interface CloudSlabHandle {
    * 안 부르면 예전 상수 그대로입니다.
    */
   setLayerAltitudesKm: (lowKm: number, midKm: number, highKm: number) => void;
+  /** 저층 덱 밑면·윗면(km, 해발, §82). 모르면 null — 위에서 볼 면이 hBase 로 돌아갑니다. */
+  setLowDeckKm: (baseKm: number | null | undefined, topKm: number | null | undefined) => void;
   dispose: () => void;
 }
 
@@ -1371,6 +1399,7 @@ export function createCloudSlab(opts: {
       uCamPos: { value: new THREE.Vector3() },
       uHorizonSinE: { value: 0 },
       uObserverAltKm: { value: 0 },
+      uLowDeckKm: { value: new THREE.Vector2(-1, -1) },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
       uSunAzDeg: { value: 0 },
@@ -1505,6 +1534,13 @@ export function createCloudSlab(opts: {
       const okv = (v: number) => Number.isFinite(v) && v > 0.05 && v < 25;
       if (!okv(lowKm) || !okv(midKm) || !okv(highKm)) return;
       (material.uniforms.uLayerAltKm.value as THREE.Vector3).set(lowKm, midKm, highKm);
+    },
+    setLowDeckKm: (baseKm, topKm) => {
+      // 모르면(null·NaN·뒤집힘) (-1,-1) — 셰이더가 §81 그대로 갑니다.
+      const v = material.uniforms.uLowDeckKm.value as THREE.Vector2;
+      const ok = baseKm != null && topKm != null && Number.isFinite(baseKm)
+        && Number.isFinite(topKm) && topKm > baseKm && baseKm >= 0 && topKm < 6;
+      if (ok) v.set(baseKm as number, topKm as number); else v.set(-1, -1);
     },
     dispose: () => {
       geometry.dispose();

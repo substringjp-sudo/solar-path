@@ -8,7 +8,7 @@ import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
-import { extractProfile, layerAltitudes } from './cloudProfile';
+import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
 import { clearSkyGHIMean, estimateBias, applyBias, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
@@ -48,6 +48,9 @@ export interface CloudData {
   layerAltLowKm?: number;
   layerAltMidKm?: number;
   layerAltHighKm?: number;
+  /** 저층 덱 밑면·윗면(km, 해발, §82). 관측점에서만. 저층이 비면 없음. */
+  lowDeckBaseKm?: number;
+  lowDeckTopKm?: number;
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -147,6 +150,9 @@ export interface HourlyCloudData {
   layerAltLowKm?: number[];
   layerAltMidKm?: number[];
   layerAltHighKm?: number[];
+  /** 저층 덱 밑면·윗면(km). `cloudProfile.lowDeck`. 빈 시각은 NaN/null. */
+  lowDeckBaseKm?: number[];
+  lowDeckTopKm?: number[];
   visibility?: number[];
   humidity?: number[];
   directNormalIrradiance?: number[];
@@ -607,7 +613,10 @@ const WIND_LEVELS = { low: '850hPa', mid: '600hPa', high: '250hPa' } as const;
  * 단면을 받을 기압면. 16개 전부는 필요 없고 층마다 두세 면이면 무게중심이
  * 잡힙니다. 늘리면 그만큼 호출 가중치가 오릅니다.
  */
-export const PROFILE_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200] as const;
+// 975·950·900·800·750 은 저층 덱의 윗면을 250m 간격으로 잡으려고 넣었습니다
+// (§82). 없으면 850(1.45km)과 700(3.0km) 사이 1.5km 가 비어 운해의 윗면을
+// 못 냅니다. 관측점 1점 요청이라 변수 10개 = 가중치 1.0 이 늡니다.
+export const PROFILE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300, 250, 200] as const;
 
 /**
  * 위성 편향 캐시. 같은 격자칸·같은 날이면 다시 안 받습니다.
@@ -778,6 +787,9 @@ export interface LayerWindHourly {
   layerAltLowKm?: number[];
   layerAltMidKm?: number[];
   layerAltHighKm?: number[];
+  /** 저층 덱 밑면·윗면(km, 해발) — 운해의 윗면(§82). 빈 시각은 NaN. */
+  lowDeckBaseKm?: number[];
+  lowDeckTopKm?: number[];
   /**
    * 시정(m). 바람과 상관없지만 **여기 얹혀 옵니다.**
    *
@@ -876,11 +888,18 @@ export const fetchLayerWinds = async (
     // 그러면 소비자가 예전 상수를 그대로 씁니다.
     if (PROFILE_LEVELS.some(p => Array.isArray(h[`cloud_cover_${p}hPa`]))) {
       const lo: number[] = [], mi: number[] = [], hi: number[] = [];
+      // 덱 밑면·윗면. 저층이 빈 시각은 NaN — 보간이 NaN 을 퍼뜨리므로
+      // 소비자는 Number.isFinite 로 거릅니다(null 은 배열 보간이 못 받음).
+      const db: number[] = [], dt: number[] = [];
       for (let i = 0; i < time.length; i++) {
-        const a = layerAltitudes(extractProfile(h, i));
+        const prof = extractProfile(h, i);
+        const a = layerAltitudes(prof);
         lo.push(a.lowKm); mi.push(a.midKm); hi.push(a.highKm);
+        const d = lowDeck(prof);
+        db.push(d ? d.baseKm : NaN); dt.push(d ? d.topKm : NaN);
       }
       out.layerAltLowKm = lo; out.layerAltMidKm = mi; out.layerAltHighKm = hi;
+      out.lowDeckBaseKm = db; out.lowDeckTopKm = dt;
     }
     windCache.set(key, out);
     return out;
@@ -908,6 +927,8 @@ function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
     hourly.layerAltLowKm = w.layerAltLowKm;
     hourly.layerAltMidKm = w.layerAltMidKm;
     hourly.layerAltHighKm = w.layerAltHighKm;
+    hourly.lowDeckBaseKm = w.lowDeckBaseKm;
+    hourly.lowDeckTopKm = w.lowDeckTopKm;
   }
   // 시정은 이 요청에 얹혀 옵니다(LayerWindHourly.visibility 주석). 큰 요청이
   // 이미 시정을 받았으면 덮지 않습니다 — 아카이브 경로가 그렇습니다.
@@ -1146,6 +1167,8 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       layerAltLowKm: interpolateOpt(p.hourly.layerAltLowKm),
       layerAltMidKm: interpolateOpt(p.hourly.layerAltMidKm),
       layerAltHighKm: interpolateOpt(p.hourly.layerAltHighKm),
+      lowDeckBaseKm: interpolateOpt(p.hourly.lowDeckBaseKm),
+      lowDeckTopKm: interpolateOpt(p.hourly.lowDeckTopKm),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),

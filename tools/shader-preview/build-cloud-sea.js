@@ -82,7 +82,7 @@ function bake(slab, cover){
 }
 
 function shoot(o){
-  const { obsM, lowKm, cover, elev, w, h, fov, sunAlt = SUN_ALT, dataOut = 2 } = o;
+  const { obsM, lowKm, cover, elev, w, h, fov, sunAlt = SUN_ALT, dataOut = 2, deck = null } = o;
   glCanvas.width = w; glCanvas.height = h; renderer.setSize(w, h, false);
   const atmosphere = makeAtmosphereParams({
     latitude: 36.0, observerElevM: obsM, dayOfYear: 290,
@@ -90,6 +90,8 @@ function shoot(o){
   });
   const slab = createCloudSlab(); slab.mesh.renderOrder = 10; scene.add(slab.mesh);
   slab.setLayerAltitudesKm(lowKm, 4.5, 10.0);
+  // §82 덱 밑면·윗면. null 이면 모름 → §81 그대로.
+  slab.setLowDeckKm(deck ? deck[0] : null, deck ? deck[1] : null);
   bake(slab, cover);
   const cam = new THREE.PerspectiveCamera(fov, w/h, 0.1, 2000);
   cam.position.set(0,0,0); cam.up.set(0,1,0);
@@ -142,6 +144,10 @@ const CASES = {
   '산1600_층1.2': { obsM: 1600, lowKm: 1.2, cover: COVER },
   '산1600_층2.5': { obsM: 1600, lowKm: 2.5, cover: COVER },
   '산1600_운량0': { obsM: 1600, lowKm: 1.2, cover: 0 },
+  // §82 — 단면이 준 덱 밑면·윗면. 가중 평균(lowKm)은 그대로 1.2 입니다.
+  '산1600_덱1.0-1.4': { obsM: 1600, lowKm: 1.2, cover: COVER, deck: [1.0, 1.4] },
+  '산1600_덱0.8-1.8': { obsM: 1600, lowKm: 1.2, cover: COVER, deck: [0.8, 1.8] },  // 관측자가 덱 속
+  '지상_덱1.0-1.4':   { obsM: 0,    lowKm: 1.2, cover: COVER, deck: [1.0, 1.4] },  // 지상은 덱과 무관해야
 };
 const 결과 = {};
 for (const [name, c] of Object.entries(CASES)){
@@ -213,6 +219,7 @@ window.__stats={
   glError: gl.getError(), 결과, 단면, 조명,
   예측: {
     가장자리: -deckHorizonDipDeg(1.2, 1.6),
+    가장자리_덱14: -deckHorizonDipDeg(1.4, 1.6),
     바다수평선: -seaHorizonDipDeg(1600),
   },
 };

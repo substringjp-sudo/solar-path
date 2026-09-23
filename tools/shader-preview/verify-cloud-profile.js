@@ -25,7 +25,7 @@ const mkHourly = (levels) => {
 
 (async () => {
   const M = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'cloudProfile.js'));
-  const { extractProfile, layerAltitudes, lclKm, FALLBACK_ALT_KM } = M;
+  const { extractProfile, layerAltitudes, lowDeck, lclKm, FALLBACK_ALT_KM } = M;
 
   console.log('\n[1] 실기에서 본 그대로 — 상층운이 9,652m 인데 앱은 10,000m 에 그렸다');
   {
@@ -95,6 +95,52 @@ const mkHourly = (levels) => {
     ok(lclKm(35, 5) > 3.5, `건조하면 높다 (${lclKm(35,5).toFixed(3)}km)`);
     ok(lclKm(15, 16) === 0, '포화(이슬점이 기온보다 높음)면 0 — 안개');
     ok(lclKm(null, 12) === null && lclKm(20, undefined) === null, '값이 없으면 null');
+  }
+
+  console.log('\n[7] 저층 덱의 밑면·윗면 (§82 — 운해의 윗면)');
+  {
+    // 실측 단면(2026-09-23 09시, 36.0°N 127.8°E, best_match) — 얇은 층운.
+    const real = extractProfile(mkHourly([
+      [1000, 157, 0], [975, 373, 0], [950, 598, 27], [925, 834, 46], [900, 1059, 6],
+      [850, 1549, 0], [800, 2059, 0], [750, 2594, 0], [700, 3168, 0],
+    ]), 0);
+    const d = lowDeck(real);
+    const a = layerAltitudes(real);
+    ok(d && near(d.baseKm, (373 + 598) / 2000, 0.001) && near(d.topKm, (834 + 1059) / 2000, 0.001),
+       `실측: 밑면 ${d && d.baseKm.toFixed(3)} · 윗면 ${d && d.topKm.toFixed(3)}km (950·925hPa 가 반값 이상, 900hPa 6% 는 아님)`);
+    // ⚠ 예전 판(가중 평균 + 1.6km)이면 윗면이 얼마였나 — 이게 고친 이유입니다.
+    const legacyTop = a.lowKm + 1.6;
+    ok(legacyTop - d.topKm > 1.2,
+       `예전 판의 윗면 ${legacyTop.toFixed(2)}km 보다 ${(legacyTop - d.topKm).toFixed(2)}km 낮다 — 1,600m 산은 덱 **위**다`);
+    ok(d.topKm < 1.6 && legacyTop > 1.6, '1,600m 관측자: 새 윗면으로는 위, 예전 판으로는 속');
+
+    // 반값 경계 — 봉우리 60 이면 30 은 들고 29 는 뺀다
+    const mk = (c950, c925, c900) => lowDeck(extractProfile(mkHourly([
+      [975, 400, 0], [950, 600, c950], [925, 800, c925], [900, 1000, c900], [850, 1500, 0],
+    ]), 0));
+    ok(near(mk(0, 60, 30).topKm, 1.25, 1e-9), '봉우리의 절반(30/60)인 면은 덱에 든다');
+    ok(near(mk(0, 60, 29).topKm, 0.9, 1e-9), '절반 미만(29/60)인 면은 안 든다');
+
+    // 윗면이 저층 밴드(2km)를 넘어도 이어진다 — 층적운 윗면 2.2km
+    const sc = lowDeck(extractProfile(mkHourly([
+      [925, 800, 10], [850, 1500, 80], [800, 2050, 70], [750, 2600, 0],
+    ]), 0));
+    ok(near(sc.topKm, (2050 + 2600) / 2000, 1e-9), `윗면이 2km 밴드를 넘어 ${sc.topKm.toFixed(3)}km — 봉우리만 밴드 안`);
+
+    // 봉우리가 밴드 밖(중층)뿐이면 저층 덱은 없다
+    ok(lowDeck(extractProfile(mkHourly([[850, 1500, 0], [700, 3100, 90]]), 0)) === null,
+       '저층이 비고 중층만 있으면 null — 중층을 운해로 착각하지 않는다');
+    ok(lowDeck([]) === null, '빈 단면 → null');
+
+    // 가장자리 면 — 이웃이 없으면 반 간격(125m)으로
+    const edge = lowDeck(extractProfile(mkHourly([[1000, 150, 80], [975, 370, 0]]), 0));
+    ok(near(edge.baseKm, 0.025, 1e-9) && near(edge.topKm, 0.26, 1e-9),
+       `맨 아래 면이 흐리면 밑면 = 그 면 − 125m (${edge.baseKm.toFixed(3)}) — 안개에 가깝다`);
+
+    // 정렬이 뒤섞여 들어와도 같은 답
+    const shuffled = [...real].reverse();
+    const d2 = lowDeck(shuffled);
+    ok(near(d2.topKm, d.topKm, 1e-12) && near(d2.baseKm, d.baseKm, 1e-12), '면 순서가 뒤집혀 와도 같다');
   }
 
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
