@@ -194,13 +194,15 @@ for (const [name, c] of Object.entries(CASES)){
 function litMean(o){
   const tau = shoot({ ...o, dataOut: 2 });
   const lit = shoot({ ...o, dataOut: 0 });
-  let s=0, n=0, sat=0;
+  let s=0, n=0, sat=0, sun=0;
   for (let i=0;i<o.w*o.h;i++){
     if (tau[i*4]/255*40 < 1.0) continue;
+    sun += tau[i*4+2]/255;   // 자료 2 의 B = 이 화소 빛 중 직달의 몫
     const L = 0.2126*lit[i*4] + 0.7152*lit[i*4+1] + 0.0722*lit[i*4+2];
     s += L; n++; if (Math.max(lit[i*4],lit[i*4+1],lit[i*4+2]) >= 254) sat++;
   }
-  return { 휘도: n ? +(s/n).toFixed(2) : null, 화소: n, 포화: n ? +(sat/n).toFixed(4) : null };
+  return { 휘도: n ? +(s/n).toFixed(2) : null, 화소: n, 포화: n ? +(sat/n).toFixed(4) : null,
+           직달몫: n ? +(sun/n).toFixed(3) : null };
 }
 const 조명 = {};
 for (const sunAlt of [30, 10]){
