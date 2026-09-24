@@ -685,6 +685,15 @@ float slab_bandBlockKm(vec3 dir, float sinE, float cosE){
   return best;
 }
 
+// ── 층 사이의 빛 (§88) ────────────────────────────────────────────────────
+// 층 번호: 0 상층 · 1 중층 · 2 저층. 운량 채널: 상층 b · 중층 g · 저층 r.
+uniform float uInterLayer;   // 1 = 층 사이의 빛 켬(기본). 판정의 대조용 스위치.
+float slab_covOf(vec4 c, int K){ return K == 0 ? c.b : (K == 1 ? c.g : c.r); }
+/** 층의 명목 광학두께 — 두께(hThick) × tauK. 셰이더가 이미 쓰는 두 상수의 곱. */
+float slab_nomTau(int K){ return K == 0 ? TAUK_HIGH * 0.6 : (K == 1 ? TAUK_MID * 1.0 : TAUK_LOW * 1.6); }
+/** 2-stream 반사율 R = tp/(tp+2), tp = (1−g)τ. */
+float slab_nomR(int K, float g){ float tp = (1.0 - g) * slab_nomTau(K); return tp / (tp + 2.0); }
+
 uniform vec2  uRes;
 uniform mat4  uInvViewProj;
 uniform vec3  uCamPos;
@@ -950,6 +959,65 @@ void main(){
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
     float conf  = cv.a;
     vec2 kmN = km + wind * uDriftHours;
+
+    // ── 층 사이의 빛 (§88) ────────────────────────────────────────────────
+    //
+    // 예전에는 층마다 **위는 텅 빈 하늘, 아래는 맨땅(알베도 0.15)** 이었습니다.
+    // 중층이 100% 덮여 있어도 저층은 해와 열린 하늘을 온전히 받았고(중층 0%·100%
+    // 에서 저층 밝기가 소수점까지 같음), 운해 위의 구름 밑면은 발밑의 하얀 바다를
+    // 모른 채 땅빛만 받았습니다. 사진(두 층 사이, 해질녘)과 렌더의 비가 0.96 대
+    // 1.52 로 갈렸습니다(§86).
+    //
+    // 1) **아래**: 이 층 밑이 구름이면 그 반사율이 땅 대신 바닥이 됩니다.
+    //    ag = mix(땅, R아래, 아래층 운량) — 아래에서부터 쌓습니다.
+    // 2) **위**: 윗층마다 — 직달은 태양 쪽으로 그 높이까지 올라간 자리의 운량만큼
+    //    가려지고(투과 exp(−τ/sin h)), 하늘은 머리 위 운량만큼 **윗층을 투과한
+    //    확산광**으로 바뀝니다. 두 층 사이에서 빛이 오가므로 1/(1 − R위·ag) 를
+    //    곱합니다(되튐).
+    // R·τ 는 층의 명목값입니다(slab_nomTau). 새 조정 상수는 없습니다.
+    float agBelow = uCloudGroundAlb;
+    for (int K = 2; K >= 0; K--){
+      if (K <= L || uInterLayer < 0.5) break;
+      agBelow = mix(agBelow, slab_nomR(K, uCloudAsym), slab_covOf(cv, K));
+    }
+    float upDir = 1.0;
+    vec3 upHemi = ambHemi, upSide0 = ambVertAnti, upSide1 = ambVertSun;
+    for (int U = 0; U < 2; U++){
+      if (U >= L || uInterLayer < 0.5) break;
+      float hU = U == 0 ? uLayerAltKm.z : uLayerAltKm.y;
+      if (hU - hBase < 0.1) continue;
+      float tanS = max(tan(max(sunElevC, 0.0)), 0.02);
+      vec2 offKm = sunXZ * min((hU - hBase) / tanS, uRangeKm);
+      vec4 cvS = texture2D(uCoverTex, slab_coverUv(km + offKm, uRangeKm));
+      float covS = slab_covOf(cvS, U);
+      float covA = slab_covOf(cv, U);
+      float tauU = slab_nomTau(U);
+      // 직달은 **윗층의 실제 두께장**을 태양 쪽 교점에서 읽습니다. 운량(고른 값)으로
+      // 가리면 흐린 날 저층이 고르게 칠해져 무늬가 사라집니다 — 국소대비가 사진의
+      // 0.52배 → 0.06배로 떨어졌습니다. 윗층의 틈과 얇은 곳으로 햇빛이 새야 아래가
+      // 얼룩집니다. 잔무늬는 끕니다(det 0) — 굵은 모양만으로 충분하고 값이 쌉니다.
+      vec2 windU = U == 0 ? uWindHigh : uWindMid;
+      vec2 windNormU = length(windU) > 1e-3 ? normalize(windU) : vec2(1.0, 0.0);
+      float thU = slab_layer_thickness(U, km + offKm + windU * uDriftHours, covS,
+        U == 0 ? CELL_HIGH : CELL_MID, cvS.a, float(U) * 31.7, windNormU, 0.0, 1.0, 0.0, 1.0);
+      float tauK_U = U == 0 ? TAUK_HIGH : TAUK_MID;
+      float trDir = exp(-thU * tauK_U / max(sinSunC, 0.05));
+      float tpU = (1.0 - uCloudAsym) * tauU;
+      float trDif = 2.0 / (tpU + 2.0);
+      // 윗층 U 바로 밑의 바닥 — U 보다 아래 층들(이 층 포함)과 땅.
+      float agU = uCloudGroundAlb;
+      for (int K = 2; K >= 0; K--){
+        if (K <= U) break;
+        agU = mix(agU, slab_nomR(K, uCloudAsym), slab_covOf(cv, K));
+      }
+      float bounce = 1.0 / max(1.0 - slab_nomR(U, uCloudAsym) * agU, 0.2);
+      vec3 topLight = beam * upDir * max(sinSunC, 0.0) + upHemi;
+      vec3 under = trDif * topLight * bounce;
+      upHemi  = mix(upHemi,  under, covA);
+      upSide0 = mix(upSide0, under, covA);
+      upSide1 = mix(upSide1, under, covA);
+      upDir  *= trDir;   // 틈(두께 0)이면 1 — 운량을 따로 곱하지 않습니다
+    }
 
     // ── 구름 군집 — 셀보다 **큰** 규모 (계획 37절) ────────────────────
     //
@@ -1298,7 +1366,7 @@ void main(){
         float cosFace = max(0.0, dot(n, sunDirLocal));
         // uCloudSideLit 은 노멀이 못 담는 잔여(구름 덩어리 사이 반사 등)
         // 바닥입니다. 0 이면 노멀이 등지는 면은 직달광이 정확히 0.
-        vec3 Edir = beam * reach * (cosFace + uCloudSideLit * (1.0 - cosFace) * max(0.0, sinSunC));
+        vec3 Edir = beam * reach * upDir * (cosFace + uCloudSideLit * (1.0 - cosFace) * max(0.0, sinSunC));
         // 하늘빛은 reach 를 곱하지 **않습니다** — 자기그림자에 든 구름도
         // 하늘 전체에서 확산광을 받습니다. 대신 **어느 쪽을 보는 면인가**로
         // 세 적분을 잇습니다: 위를 보면 ambHemi, 옆을 보면 태양쪽/반대쪽
@@ -1310,12 +1378,12 @@ void main(){
         float faceUp = clamp(n.z * uCloudFaceUp, 0.0, 1.0);
         vec2 nh = n.xy;
         float faceSun = length(nh) > 1e-4 ? dot(normalize(nh), sunXZ) : 0.0;
-        vec3 ambSide = mix(ambVertAnti, ambVertSun, 0.5 + 0.5 * faceSun);
-        vec3 Fdn = Edir + mix(ambSide, ambHemi, faceUp);
+        vec3 ambSide = mix(upSide0, upSide1, 0.5 + 0.5 * faceSun);
+        vec3 Fdn = Edir + mix(ambSide, upHemi, faceUp);
         stepSunFrac = dot(Edir, vec3(0.2126, 0.7152, 0.0722))
                     / max(1e-6, dot(Fdn, vec3(0.2126, 0.7152, 0.0722)));
         float tp = thick * tauK * (1.0 - uCloudAsym);
-        float ag = uCloudGroundAlb;
+        float ag = agBelow;   // §88 — 밑이 구름이면 그 반사율
         float kk = (1.0 - ag) / (2.0 + tp * (1.0 - ag));
         // 깊이 xd: 윗면 0 → 밑면 tp.
         //
@@ -1512,6 +1580,13 @@ void main(){
   if (acc <= 0.002) discard;
 
   vec3 disp = atm_display(lin / max(acc, 1e-4), uSaturation, uSunAltDeg);
+  if (uDataOut > 2.5) {
+    // 자료 3: **톤 곡선 전** 선형 휘도 — log2 를 −12~+4 에 8비트로(한 칸 1/16 조리개).
+    // 사진과 견줄 때 톤 곡선이 어두운 쪽을 얼마나 벌리는지 가르려고 둡니다(§88).
+    float Y = dot(lin / max(acc, 1e-4), vec3(0.2126, 0.7152, 0.0722));
+    gl_FragColor = vec4(clamp((log2(max(Y, 1e-6)) + 12.0) / 16.0, 0.0, 1.0), 0.0, 0.0, acc);
+    return;
+  }
   if (uDataOut > 1.5) {
     // 자료 2: 두께(0~40 → 0~1) · 층(0 상 · 0.5 중 · 1 저) · 태양비 · 알파
     gl_FragColor = vec4(min(tauAcc, 40.0) / 40.0,
@@ -1637,6 +1712,10 @@ export function createCloudSlab(opts: {
       uTerrainOccludeSky: { value: 1 },
       uHorizonTex: { value: null },
       uHorizonValid: { value: 0 },
+      // §88 — 기본은 꺼 둡니다. 켜면 에너지 경계를 지키지만(verify-two-deck) 흐린 날
+      // 저층의 무늬가 사라져 사진 대조 2건이 깨집니다(국소대비 0.52배 → 0.06배).
+      // 밑면 투과 모형을 고친 뒤 켭니다(§88.4).
+      uInterLayer: { value: 0 },
       uBandTex: { value: null },
       uBandValid: { value: 0 },
       uEyeHeightM: { value: 1.6 },
