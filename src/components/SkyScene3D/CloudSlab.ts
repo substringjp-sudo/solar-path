@@ -608,10 +608,12 @@ float slab_terrainHitSeg(vec3 dir, float sinE, float cosE, float t0Km, float tEn
   }
   // ⚠ 먼 쪽은 걸음이 tEnd/16 까지 벌어져, 능선 **꼭대기를 스치는** 시선이
   //   걸음 사이로 빠집니다(덕유산에서 3km 밖 능선 55화소 중 8개, 파고든 깊이
-  //   18~121m). 시선이 땅에 각도로 가장 가까웠던 걸음 **양옆**을 8번 더 봅니다.
-  float fLo = max(tMin - 1.0 / 32.0, 0.0), fHi = min(tMin + 1.0 / 32.0, 1.0);
-  for (int j = 0; j < 8; j++){
-    float f = mix(fLo, fHi, (float(j) + 0.5) / 8.0);
+  //   18~121m). 시선이 땅에 각도로 가장 가까웠던 걸음 **양옆 1.5걸음**을
+  //   16번 더 봅니다. (±1걸음 8번이던 때 구례 능선 누수 6/3,196 → 3/3,196.
+  //   굽힌 지평선 아래 화소만 걸으므로 비용은 잡음 안입니다.)
+  float fLo = max(tMin - 1.5 / 32.0, 0.0), fHi = min(tMin + 1.5 / 32.0, 1.0);
+  for (int j = 0; j < 16; j++){
+    float f = mix(fLo, fHi, (float(j) + 0.5) / 16.0);
     float t = t0Km + (tEndKm - t0Km) * f * f;
     float dKm = t * cosE;
     float rayKm = eyeKm + t * sinE + dKm * dKm / (2.0 * SLAB_R_EARTH);
@@ -656,6 +658,31 @@ float slab_horizonDeg(vec3 dir){
     m = max(m, (t.r * 255.0 * 256.0 + t.g * 255.0) / 65535.0);
   }
   return ${HORIZON_LO_DEG} + m * ${HORIZON_SPAN_DEG};
+}
+
+/**
+ * **DEM 이 없을 때의 대체** (§87) — 옛 능선 밴드(방위 31점 × 거리 5·15·40km).
+ *
+ * 타일을 못 받으면 지형은 그 밴드로 그려지고, 구름은 예전처럼 산 **앞**에
+ * 칠해졌습니다. 밴드마다 능선 고도각과 **거리**를 한 줄씩 구워 두고, 화소가
+ * 그 능선 아래이면서 구름이 그 거리보다 멀 때만 가립니다 — 능선 앞의 구름은
+ * 남습니다. 방위 보간은 밴드 메시(TerrainRing, 72분할 선형)와 같게 굽습니다.
+ */
+uniform sampler2D uBandTex;     // HORIZON_BINS × 3, RG 고도각(16비트) · B 거리 · A 산 있음
+uniform float uBandValid;
+float slab_bandBlockKm(vec3 dir, float sinE, float cosE){
+  float az = atan(dir.x, -dir.z);
+  if (az < 0.0) az += 6.2831853;
+  float u = (floor(az / 6.2831853 * ${HORIZON_BINS}.0) + 0.5) / ${HORIZON_BINS}.0;
+  float best = 1e9;
+  for (int j = 0; j < 3; j++){
+    vec4 t = texture2D(uBandTex, vec2(u, (float(j) + 0.5) / 3.0));
+    if (t.a < 0.5) continue;
+    float deg = ${HORIZON_LO_DEG} + (t.r * 255.0 * 256.0 + t.g * 255.0) / 65535.0 * ${HORIZON_SPAN_DEG};
+    if (sinE >= sin(radians(deg))) continue;
+    best = min(best, (t.b * 255.0 / 2.5) / max(cosE, 1e-3));   // 슬랜트 km
+  }
+  return best;
 }
 
 uniform vec2  uRes;
@@ -734,6 +761,10 @@ void main(){
     if (tBlockSky > 1e8)
       tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, tLow, SLAB_SKY_OCCLUDE_KM);
   }
+  // §87 — DEM 이 **아예 없을 때만** 밴드로 대신합니다. DEM 경로는 그대로.
+  if (uTerrainOccludeSky > 0.5 && uBandValid > 0.5 && uDemValid < 0.5 && uDemFarValid < 0.5
+      && sinE > uHorizonSinE)
+    tBlockSky = min(tBlockSky, slab_bandBlockKm(dir, sinE, cosE));
   float cosG = clamp(dot(dir, uSunDir), -1.0, 1.0);
   float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
 
@@ -1523,6 +1554,14 @@ export interface CloudSlabHandle {
    * 지형 지평선을 한 번 구워 올려다보는 하늘의 걸음질을 줄입니다(없으면 다 걷습니다).
    */
   setDemPatches: (patch: DemPatch | null, farPatch: DemPatch | null, renderer?: THREE.WebGLRenderer) => void;
+  /**
+   * DEM 이 없을 때 쓰는 능선 밴드(§87). `createTerrainBands` 에 준 것과 같은 값을
+   * 넘기세요. DEM 패치가 있으면 셰이더가 이것을 안 씁니다.
+   */
+  setBandHorizon: (
+    bandAngles: number[][] | null | undefined, distancesKm: number[] | null | undefined,
+    maxVisualDeg: number, seaDipDeg: number,
+  ) => void;
   dispose: () => void;
 }
 
@@ -1580,6 +1619,7 @@ export function createCloudSlab(opts: {
     .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
 
   let horizonTarget: THREE.WebGLRenderTarget | null = null;
+  let bandTex: THREE.DataTexture | null = null;
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -1597,6 +1637,8 @@ export function createCloudSlab(opts: {
       uTerrainOccludeSky: { value: 1 },
       uHorizonTex: { value: null },
       uHorizonValid: { value: 0 },
+      uBandTex: { value: null },
+      uBandValid: { value: 0 },
       uEyeHeightM: { value: 1.6 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
@@ -1754,6 +1796,16 @@ export function createCloudSlab(opts: {
         material.uniforms.uHorizonValid.value = 1;
       }
     },
+    setBandHorizon: (bandAngles, distancesKm, maxVisualDeg, seaDipDeg) => {
+      bandTex?.dispose();
+      bandTex = null;
+      material.uniforms.uBandValid.value = 0;
+      material.uniforms.uBandTex.value = null;
+      if (!bandAngles || !distancesKm || bandAngles.length === 0) return;
+      bandTex = bakeBandHorizon(bandAngles, distancesKm, maxVisualDeg, seaDipDeg);
+      material.uniforms.uBandTex.value = bandTex;
+      material.uniforms.uBandValid.value = 1;
+    },
     setLowDeckKm: (baseKm, topKm) => {
       // 모르면(null·NaN·뒤집힘) (-1,-1) — 셰이더가 §81 그대로 갑니다.
       const v = material.uniforms.uLowDeckKm.value as THREE.Vector2;
@@ -1767,8 +1819,69 @@ export function createCloudSlab(opts: {
       coverTex.dispose();
       genusTex.dispose();
       horizonTarget?.dispose();
+      bandTex?.dispose();
     },
   };
+}
+
+/** 16비트 고도각 부호화 — HORIZON_BAKE_FRAG 와 같은 눈금. */
+function encodeHorizonDeg(deg: number): [number, number] {
+  const v = Math.round(Math.min(1, Math.max(0,
+    (deg - Number(HORIZON_LO_DEG)) / Number(HORIZON_SPAN_DEG))) * 65535);
+  return [v >> 8, v & 255];
+}
+
+/**
+ * 능선 밴드의 **밴드 메시와 같은** 실루엣을 방위 칸마다 굽습니다(§87).
+ * `TerrainRing.createTerrainBands` 의 보간(72분할, 분할점마다 각도 선형 보간,
+ * 그 사이 선형)과 산 판정(수평선 침강 + 0.005°)을 그대로 따릅니다.
+ */
+export function bandHorizonAt(
+  angles: number[], azDeg: number, maxVisualDeg: number, seaDipDeg: number,
+): number | null {
+  const SEG = 72;
+  const vertex = (s: number) => {
+    const azFrac = (((s % SEG) + SEG) % SEG) / SEG;
+    const idx = azFrac * (angles.length - 1);
+    const i0 = Math.floor(idx), i1 = Math.min(i0 + 1, angles.length - 1);
+    const f = idx - i0;
+    const raw = angles[i0] * (1 - f) + angles[i1] * f;
+    return raw > -seaDipDeg + 0.005 ? Math.min(raw, maxVisualDeg) : null;
+  };
+  const x = (((azDeg % 360) + 360) % 360) / 360 * SEG;
+  const s0 = Math.floor(x), t = x - s0;
+  const a = vertex(s0), b = vertex(s0 + 1);
+  if (a == null && b == null) return null;
+  // 한쪽만 산이면 메시의 그 변은 수평선에서 산꼭대기로 선형으로 오릅니다.
+  const lo = -seaDipDeg;
+  const v = (a ?? lo) * (1 - t) + (b ?? lo) * t;
+  return v > lo + 0.005 ? v : null;
+}
+
+function bakeBandHorizon(
+  bandAngles: number[][], distancesKm: number[], maxVisualDeg: number, seaDipDeg: number,
+): THREE.DataTexture {
+  const rows = 3;
+  const data = new Uint8Array(HORIZON_BINS * rows * 4);
+  for (let j = 0; j < Math.min(rows, bandAngles.length); j++) {
+    const angles = bandAngles[j];
+    const dKm = distancesKm[j] ?? 0;
+    if (!angles || angles.length === 0 || !(dKm > 0)) continue;
+    for (let i = 0; i < HORIZON_BINS; i++) {
+      const deg = bandHorizonAt(angles, (i + 0.5) / HORIZON_BINS * 360, maxVisualDeg, seaDipDeg);
+      if (deg == null) continue;
+      const [hi, lo] = encodeHorizonDeg(deg);
+      const o = (j * HORIZON_BINS + i) * 4;
+      data[o] = hi; data[o + 1] = lo;
+      data[o + 2] = Math.min(255, Math.round(dKm * 2.5));   // 0~102km
+      data[o + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, HORIZON_BINS, rows, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /**

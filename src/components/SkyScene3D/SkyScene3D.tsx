@@ -37,6 +37,8 @@ import {
   disposeTerrainRing,
   disposeGroundPlane,
   disposeCompassGroup,
+  seaHorizonDipDeg,
+  TERRAIN_MAX_ANGLE_DEG,
 } from './TerrainRing';
 import { createSun, updateSun, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
@@ -1859,6 +1861,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 지형은 다시 만들어질 수 있습니다 — 그때도 층 배정을 잊으면 안 됩니다.
     assignLayer(bands.group, LAYER_MID);
     terrainBandsRef.current = bands;
+    // DEM 을 못 받았을 때 구름이 이 밴드 능선 앞에 칠해지지 않게 합니다(§87).
+    cloudSlabRef.current?.setBandHorizon(
+      sim.terrain.bandAngles, sim.terrain.bandDistancesKm,
+      TERRAIN_MAX_ANGLE_DEG, seaHorizonDipDeg(sim.terrain.observerElevation ?? 50));
 
     // 2D 수역 마스크(해안선·만·반도 + 강·호수)와 바다 수평선 각도 갱신
     const lat = location?.coords?.latitude ?? 37.5;
