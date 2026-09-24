@@ -982,6 +982,8 @@ void main(){
     }
     float upDir = 1.0;
     vec3 upHemi = ambHemi, upSide0 = ambVertAnti, upSide1 = ambVertSun;
+    // 윗층이 앞으로 흩은 햇빛 — 방향을 대부분 간직합니다(아래 릴리프에서 씀).
+    vec3 upFwd = vec3(0.0);
     for (int U = 0; U < 2; U++){
       if (U >= L || uInterLayer < 0.5) break;
       float hU = U == 0 ? uLayerAltKm.z : uLayerAltKm.y;
@@ -1001,7 +1003,11 @@ void main(){
       float thU = slab_layer_thickness(U, km + offKm + windU * uDriftHours, covS,
         U == 0 ? CELL_HIGH : CELL_MID, cvS.a, float(U) * 31.7, windNormU, 0.0, 1.0, 0.0, 1.0);
       float tauK_U = U == 0 ? TAUK_HIGH : TAUK_MID;
-      float trDir = exp(-thU * tauK_U / max(sinSunC, 0.05));
+      // ⚠ **유사변환한 τ** 로 가립니다 — (1−g)τ. 물방울·얼음은 거의 앞으로만
+      //   흩어서(g 0.85), 몇 도 꺾인 빛은 여전히 해 쪽에서 오고 릴리프를 해처럼
+      //   비춥니다. 이 셰이더의 2-stream 이 이미 같은 변환을 씁니다. 처음에 맨 τ 를
+      //   썼더니 권운(τ 1.7) 밑이 직달의 7% 만 받아 온 하늘이 회색으로 가라앉았습니다.
+      float trDir = exp(-(1.0 - uCloudAsym) * thU * tauK_U / max(sinSunC, 0.05));
       float tpU = (1.0 - uCloudAsym) * tauU;
       float trDif = 2.0 / (tpU + 2.0);
       // 윗층 U 바로 밑의 바닥 — U 보다 아래 층들(이 층 포함)과 땅.
@@ -1011,11 +1017,20 @@ void main(){
         agU = mix(agU, slab_nomR(K, uCloudAsym), slab_covOf(cv, K));
       }
       float bounce = 1.0 / max(1.0 - slab_nomR(U, uCloudAsym) * agU, 0.2);
-      vec3 topLight = beam * upDir * max(sinSunC, 0.0) + upHemi;
-      vec3 under = trDif * topLight * bounce;
+      // 에너지를 나눕니다: 윗층을 지난 빛 중 **직달로 계속 가는 몫(trDir)** 은
+      // 아래에서 Edir 이 따로 세므로, 확산으로는 나머지만 보탭니다.
+      vec3 dirTop = beam * upDir * max(sinSunC, 0.0);
+      // ⚠ 윗층을 지나며 흩어진 햇빛(trDif − trDir)은 **등방이 아닙니다.** g 0.85 라
+      //   해 쪽이 훨씬 밝고(구름 너머 해가 있는 자리가 환한 것), 아래 구름의 릴리프를
+      //   여전히 해 쪽에서 비춥니다. 이걸 고르게 펴면 흐린 날 저층의 무늬가 통째로
+      //   사라졌습니다(국소대비 사진의 0.52배 → 0.06배). 따로 들고 가서 릴리프에만
+      //   방향을 씌웁니다 — 평평한 면에서는 고르게 편 것과 **같은 값**입니다.
+      vec3 fwd = max(trDif - trDir, 0.0) * dirTop * bounce;
+      vec3 under = trDif * upHemi * bounce;
       upHemi  = mix(upHemi,  under, covA);
       upSide0 = mix(upSide0, under, covA);
       upSide1 = mix(upSide1, under, covA);
+      upFwd   = mix(upFwd, fwd + upFwd * trDif * bounce, covA);
       upDir  *= trDir;   // 틈(두께 0)이면 1 — 운량을 따로 곱하지 않습니다
     }
 
@@ -1379,7 +1394,9 @@ void main(){
         vec2 nh = n.xy;
         float faceSun = length(nh) > 1e-4 ? dot(normalize(nh), sunXZ) : 0.0;
         vec3 ambSide = mix(upSide0, upSide1, 0.5 + 0.5 * faceSun);
-        vec3 Fdn = Edir + mix(ambSide, upHemi, faceUp);
+        // 앞으로 흩은 햇빛(§88): 평면(n 위)에서 1, 해를 향한 면은 더, 등진 면은 덜.
+        float fwdRelief = max(0.0, 1.0 + dot(n, sunDirLocal) - sunDirLocal.z);
+        vec3 Fdn = Edir + mix(ambSide, upHemi, faceUp) + upFwd * fwdRelief;
         stepSunFrac = dot(Edir, vec3(0.2126, 0.7152, 0.0722))
                     / max(1e-6, dot(Fdn, vec3(0.2126, 0.7152, 0.0722)));
         float tp = thick * tauK * (1.0 - uCloudAsym);
@@ -1712,10 +1729,9 @@ export function createCloudSlab(opts: {
       uTerrainOccludeSky: { value: 1 },
       uHorizonTex: { value: null },
       uHorizonValid: { value: 0 },
-      // §88 — 기본은 꺼 둡니다. 켜면 에너지 경계를 지키지만(verify-two-deck) 흐린 날
-      // 저층의 무늬가 사라져 사진 대조 2건이 깨집니다(국소대비 0.52배 → 0.06배).
-      // 밑면 투과 모형을 고친 뒤 켭니다(§88.4).
-      uInterLayer: { value: 0 },
+      // §88 — 층 사이의 빛. 켭니다: 에너지 경계를 지키고(verify-two-deck), 앞으로 흩은
+      // 햇빛을 릴리프에 방향째 씌운 뒤 사진 대조가 끈 것과 같은 34/37 입니다(§88.5).
+      uInterLayer: { value: 1 },
       uBandTex: { value: null },
       uBandValid: { value: 0 },
       uEyeHeightM: { value: 1.6 },
