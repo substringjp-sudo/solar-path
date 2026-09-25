@@ -994,6 +994,14 @@ const f = (n: number) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
  * 하늘/구름 셰이더가 공유하는 GLSL 함수 모음.
  * 상수는 위 TS 정의에서 주입되므로 두 구현이 갈라지지 않습니다.
  */
+export const WB_SUN_MIN_DEG = -12;
+export const WB_STEP_DEG = 3;
+/** §89 광원 이득표(r,g,b) — 태양 −12°~30°. `verify-white-balance.js` 가 다시 뽑아 견줍니다. */
+export const WB_GAINS: ReadonlyArray<readonly [number, number, number]> = [[1.2818, 0.9696, 0.4718], [1.575, 0.8872, 0.4238], [1.5626, 0.8899, 0.4336], [1.4682, 0.9026, 0.5858], [1.0897, 0.9627, 1.1052], [1.1221, 0.9647, 0.9902], [1.0895, 0.9772, 0.9622], [1.0631, 0.9852, 0.9611], [1.0456, 0.9899, 0.9658], [1.0332, 0.9929, 0.9721], [1.0236, 0.9951, 0.9787], [1.016, 0.9968, 0.9848], [1.0098, 0.9981, 0.9904], [1.0045, 0.9991, 0.9954], [1, 1, 1]] as const;
+const WB_LAST = WB_GAINS.length - 1;
+const WB_GLSL_ROWS = WB_GAINS.map((g, i) =>
+  `if (i == ${i}) return vec3(${g.map(v => v.toFixed(4)).join(', ')});`).join('\n  ') + '\n  return vec3(1.0);';
+
 export const ATMOSPHERE_GLSL = `
 const vec3  LAMBDA      = vec3(${f(LAMBDA_RGB[0])}, ${f(LAMBDA_RGB[1])}, ${f(LAMBDA_RGB[2])});
 const float TAU_R_550   = ${f(TAU_R_550)};
@@ -1034,6 +1042,7 @@ uniform float ADAPT_LO;
 uniform float DISP_SAT;
 uniform float DISP_CONTR;
 uniform float DISP_BLUE;
+uniform float DISP_WB;   // §89 카메라 화이트밸런스 정도
 uniform float DISP_BLUE_CAP;
 uniform float AIR_WASH;
 uniform float TONEMAP;
@@ -1351,6 +1360,29 @@ vec3 atm_tonemapAgX(vec3 x) {
   return clamp(pow(max(c, vec3(0.0)), vec3(2.2)), 0.0, 1.0);
 }
 
+/**
+ * **카메라 화이트밸런스** (§89) — 광원 색을 DISP_WB 만큼 지웁니다.
+ *
+ * 표는 태양 −12°~30°, 3° 간격. 광원 = 수평면에 내리는 직달 + 하늘 반구,
+ * 휘도 보존 이득, 태양 30° 기준(그 위는 1). 값은 WB_GAINS(아래 TS)와 같고
+ * verify-white-balance.js 가 대기 모형에서 다시 뽑아 어긋나면 깨집니다.
+ */
+vec3 atm_wbTable(int i) {
+  ${WB_GLSL_ROWS}
+}
+vec3 atm_whiteBalance(float sunAltDeg) {
+  if (DISP_WB <= 0.0) return vec3(1.0);
+  float x = clamp((sunAltDeg + 12.0) / 3.0, 0.0, ${WB_LAST}.0);
+  int i0 = int(floor(x));
+  int i1 = i0 + 1 > ${WB_LAST} ? ${WB_LAST} : i0 + 1;
+  vec3 g = mix(atm_wbTable(i0), atm_wbTable(i1), x - float(i0));
+  // ⚠ 표는 **박명까지**입니다. 밤의 광원은 달·도시광이지 하늘이 아니므로 −12° 에서
+  //   −18°(천문박명 끝)까지 보정을 걷습니다. 처음엔 −12° 값을 밤까지 끌고 가서
+  //   청정한 밤하늘의 파랑까지 걷었습니다(verify-device-repro R/B 0.83, 기준 < 0.55).
+  float k = DISP_WB * smoothstep(-18.0, -12.0, sunAltDeg);
+  return pow(g, vec3(k));
+}
+
 /** 태양이 낮아질수록 노출을 올립니다 (눈의 순응) */
 float atm_adaptation(float sunAltDeg) {
   return 1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg);
@@ -1362,7 +1394,7 @@ float atm_adaptation(float sunAltDeg) {
  */
 vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   vec3 LW = vec3(0.2126, 0.7152, 0.0722);
-  vec3 hdr = radiance * DISP_EXPO * atm_adaptation(sunAltDeg);
+  vec3 hdr = radiance * DISP_EXPO * atm_adaptation(sunAltDeg) * atm_whiteBalance(sunAltDeg);
   // TONEMAP 0 = ACES(예전) · 1 = AgX (계획 42절 0단계)
   vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
   float luma = dot(c, LW);
@@ -1471,7 +1503,7 @@ vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
   vec3 LW = vec3(0.2126, 0.7152, 0.0722);
   float adapt = atm_adaptation(sunAltDeg);
   float eyeAdapt = atm_groundEyeAdapt(sunAltDeg);
-  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt;
+  vec3 hdr = radiance * DISP_EXPO * adapt * eyeAdapt * atm_whiteBalance(sunAltDeg);
   vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
   float luma = dot(c, LW);
   c = mix(vec3(luma), c, DISP_SAT * saturation);
@@ -1523,6 +1555,7 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     OZ_TW_GAIN: { value: t.ozoneTwilightGain },
     DISP_BLUE: { value: t.skyBlueBoost },
     DISP_BLUE_CAP: { value: t.skyBlueCap },
+    DISP_WB: { value: t.whiteBalanceDegree },
     TONEMAP: { value: t.tonemap === 'agx' ? 1 : 0 },
     // 지면 표시의 최소 밝기 바닥 배율. 판정이 0 으로 껐다 켭니다.
     GROUND_MIN_GLOW: { value: 1 },
@@ -1545,6 +1578,7 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('DISP_CONTR', t.displayContrast);
   set('DISP_BLUE', t.skyBlueBoost);
   set('DISP_BLUE_CAP', t.skyBlueCap);
+  set('DISP_WB', t.whiteBalanceDegree);
   set('AIR_WASH', t.airWash);
   set('SLAB_FBM_GAIN', t.fbmGain);
   set('SLAB_RELIEF_EPS', t.reliefEps);

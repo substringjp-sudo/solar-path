@@ -101,6 +101,57 @@ export function layerAltitudes(levels: ProfileLevel[]): LayerAltitudes {
 }
 
 /**
+ * 저층 구름 **덱의 밑면과 윗면**(km, 해발) — 운해를 위에서 볼 때 보이는 면이
+ * 윗면입니다(§82).
+ *
+ * ## 왜 가중 평균(`layerAltitudes`)으로는 안 되나
+ *
+ * 가중 평균은 덱의 **한가운데**입니다. 셰이더는 그 높이에 1.6km 짜리 판을
+ * 올려 그리는데, 실측 단면(2026-09-23, 36.0°N 127.8°E 09시)은
+ *
+ * ```
+ *    950hPa   598m   27%
+ *    925hPa   834m   46%   ← 봉우리
+ *    900hPa  1059m    6%
+ * ```
+ *
+ * 곧 **0.6~1.0km 의 얇은 층운**입니다. 판으로 그리면 0.8~2.4km 가 되어
+ * 1,600m 산 위에 서 있으면 구름 **속**에 있는 셈이 됩니다.
+ *
+ * ## 정의 — 반값 폭
+ *
+ * 저층 밴드 안에서 운량이 가장 큰 면을 찾고, 그 면에서 위아래로 운량이
+ * **봉우리의 절반 이상**인 면을 이어 붙입니다. 경계는 마지막 흐린 면과 그
+ * 다음 맑은 면의 **가운데**입니다(면 사이 어디서 끝나는지 모르므로).
+ *
+ * ⚠ "절반" 은 재서 얻은 값이 아니라 **관례**(반치폭)입니다. 기압면 간격이
+ *   약 250m(975·950·925·900·850·800·750hPa)라 윗면은 ±125m 로만 압니다.
+ *
+ * 윗면은 저층 밴드(2km)를 넘어 이어질 수 있습니다 — 층적운 윗면이 2.2km 인
+ * 날이 있습니다. 봉우리만 밴드 안에서 찾습니다.
+ *
+ * @returns 저층에 구름이 없거나 단면이 없으면 `null`.
+ */
+export function lowDeck(levels: ProfileLevel[]): { baseKm: number; topKm: number } | null {
+  const ls = [...levels].sort((a, b) => a.heightM - b.heightM);
+  let peak = -1;
+  for (let i = 0; i < ls.length; i++) {
+    if (ls[i].heightM >= LAYER_BAND_KM.lowTop * 1000) break;
+    if (ls[i].coverPct > 0 && (peak < 0 || ls[i].coverPct > ls[peak].coverPct)) peak = i;
+  }
+  if (peak < 0) return null;
+  const half = ls[peak].coverPct / 2;
+  let lo = peak, hi = peak;
+  while (lo > 0 && ls[lo - 1].coverPct >= half) lo--;
+  while (hi < ls.length - 1 && ls[hi + 1].coverPct >= half) hi++;
+
+  const HALF_GAP_M = 125;   // 이웃 면이 없을 때 — 기압면 간격의 절반
+  const baseM = lo > 0 ? (ls[lo - 1].heightM + ls[lo].heightM) / 2 : Math.max(0, ls[lo].heightM - HALF_GAP_M);
+  const topM = hi < ls.length - 1 ? (ls[hi].heightM + ls[hi + 1].heightM) / 2 : ls[hi].heightM + HALF_GAP_M;
+  return { baseKm: baseM / 1000, topKm: topM / 1000 };
+}
+
+/**
  * 들어올림 응결 고도(LCL) — **적운의 밑면**입니다. 지상 기온과 이슬점만 있으면
  * 납니다: `LCL ≈ 125·(T − Td)` m (Espy 근사).
  *

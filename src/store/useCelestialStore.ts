@@ -5,11 +5,20 @@ import { Camera } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  loadWeatherCache, loadTerrainCache, loadRingCache,
+  saveWeatherCache, saveTerrainCache, saveRingCache,
+} from '../utils/persistentCache';
+import {
+  weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
+  findEntry, fingerprint, MAX_CACHE_ENTRIES,
+  canaryPrint, canarySaysSkip, canaryIsUsable, MAX_RING_ENTRIES,
+} from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing } from '../utils/weather';
+import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingPersister } from '../utils/weather';
 import SunCalc from 'suncalc';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -46,6 +55,14 @@ export interface WeatherCacheItem {
   timestamp: number;
   latitude: number;
   longitude: number;
+  /**
+   * 카나리아 한 점의 **보정 전 원본** 지문.
+   *
+   * ⚠ `data` 로 견주면 안 됩니다 — 거기엔 위성 보정이 발려 있고
+   * (`applyBiasToPath`), 보정 세기가 관측 시각을 따라 계속 변해서 예보가
+   * 그대로여도 늘 "바뀜" 이 나옵니다(`cachePolicy.ts` 카나리아 절).
+   */
+  canaryPrint?: string;
 }
 
 export interface TerrainCacheItem {
@@ -256,12 +273,18 @@ export const useCelestialStore = create<CelestialState>()(
       setTeleportTarget: (target) => set({ teleportTarget: { ...target, nonce: Date.now() } }),
       setWeatherCache: (cache) => set({ weatherCache: cache }),
       setTerrainCache: (cache) => set({ terrainCache: cache }),
+      /**
+       * 날씨 캐시에 넣고 **저장장치에도 씁니다.**
+       *
+       * ⚠ 쓰기는 기다리지 않습니다(fire-and-forget). 캐시 쓰기가 늦어도 화면은
+       * 이미 값을 받았고, 실패해도 다음에 다시 받으면 되는 것이라 앱을
+       * 멈춰 세울 이유가 없습니다.
+       */
       addWeatherCache: (cache) => set((state) => {
-        // Filter out any existing item with the exact same key to prevent duplicates
-        const filtered = state.weatherCacheList.filter(item => item.key !== cache.key);
-        // Keep the last 10 items
+        const list = upsertEntry(state.weatherCacheList as any, cache as any, MAX_CACHE_ENTRIES);
+        void saveWeatherCache(list as any);
         return {
-          weatherCacheList: [cache, ...filtered].slice(0, 10),
+          weatherCacheList: list as any,
           weatherCache: cache // support legacy single cache
         };
       }),
@@ -275,9 +298,11 @@ export const useCelestialStore = create<CelestialState>()(
           if (Array.isArray(d.panoramicAngles) && d.panoramicAngles.every(a => a === 0)) return false; // 전부 0인 구형 무효 데이터 제거
           return true;
         });
-        // Keep the last 10 items
+        // Keep the last 10 items — 그리고 **저장장치에도 씁니다.**
+        const list = [cache, ...filtered].slice(0, MAX_CACHE_ENTRIES);
+        void saveTerrainCache(list as any);
         return {
-          terrainCacheList: [cache, ...filtered].slice(0, 10),
+          terrainCacheList: list,
           terrainCache: cache // support legacy single cache
         };
       }),
@@ -950,34 +975,167 @@ export const useCelestialStore = create<CelestialState>()(
           // SunCamera 와 **같은 키**를 만들어야 하므로 같은 함수를 씁니다(§59).
           const dateStr = localDateString(now);
  
+          /* ── 저장장치에 둔 캐시를 먼저 올립니다 ─────────────────────
+           *
+           * 이게 먼저여야 **화면이 네트워크를 안 기다립니다.** 예전에는
+           * 캐시가 메모리에만 있어서 껐다 켤 때마다 빈손으로 시작했고,
+           * 다섯 번을 다 받아 올 때까지 아무것도 못 그렸습니다.
+           */
+          let diskWeather: any[] = [];
+          let diskTerrain: any[] = [];
+          let diskRing: any[] = [];
+          try {
+            [diskWeather, diskTerrain, diskRing] = await Promise.all([
+              loadWeatherCache(), loadTerrainCache(), loadRingCache(),
+            ]);
+            // 고리는 상태가 아니라 **모듈 캐시**로 갑니다 — 부르는 쪽
+            // (`IsolineMap`·`skyTimeline`)을 안 고치려고요. 다만 채우는 것은
+            // 카나리아가 "그대로" 라고 한 뒤입니다(아래).
+            /* 고리를 남기는 길을 **여기서 꽂습니다.**
+             *
+             * ⚠ `weather.ts` 가 `persistentCache` 를 직접 부르면 `security.ts` →
+             * `expo-constants` 를 타고 들어가, Node 로 도는 판정 하네스가
+             * 통째로 죽습니다(실제로 아홉 개가 죽었습니다). 앱 쪽인 여기는
+             * expo 를 써도 됩니다.
+             */
+            setRingPersister((key, la, lo, data) => {
+              diskRing = upsertEntry(
+                diskRing as any,
+                { key, data, timestamp: Date.now(), latitude: la, longitude: lo } as any,
+                MAX_RING_ENTRIES,
+              ) as any;
+              void saveRingCache(diskRing as any);
+            });
+            if (diskWeather.length || diskTerrain.length) {
+              set({
+                weatherCacheList: diskWeather as any,
+                terrainCacheList: diskTerrain as any,
+                weatherCache: (diskWeather[0] as any) ?? null,
+                terrainCache: (diskTerrain[0] as any) ?? null,
+              });
+            }
+            if (__DEV__) {
+              console.log(`[Preload] 저장장치 캐시 — 날씨 ${diskWeather.length}칸 · 지형 ${diskTerrain.length}칸 · 고리 ${diskRing.length}칸`);
+            }
+          } catch (e) {
+            console.warn('[Preload] 저장장치 캐시를 못 올렸습니다:', e);
+          }
+
+          /* ── 지형은 캐시가 있으면 **요청 자체를 건너뜁니다** ──────────
+           *
+           * ⚠ 나이를 안 봅니다. 산은 안 움직입니다. 여기에 만료를 넣으면
+           * 아무 근거 없이 요청만 늘어납니다(`cachePolicy.needTerrainFetch`).
+           */
+          const mustFetchTerrain = needTerrainFetch(diskTerrain as any, lat, lon);
+
           if (__DEV__) {
-            console.log(`[Preload] Fetching weather/terrain/ring for lat=${lat}, lon=${lon}`);
+            console.log(`[Preload] Fetching weather/ring for lat=${lat}, lon=${lon}`
+              + ` · 지형 ${mustFetchTerrain ? '받음' : '캐시로 건너뜀'}`);
           }
           set({ preloadStatus: 'analyzingData' });
+
+          /* ── 카나리아: 한 점만 보고 큰 요청을 건너뜁니다 ─────────────
+           *
+           * 35점은 같은 모델 런에서 옵니다. 런은 격자 전체가 한꺼번에
+           * 갈리므로, 관측점이 안 갈렸으면 나머지도 안 갈린 것입니다 —
+           * 점들이 닮아서가 아니라 **원인(런)을 공유**해서입니다.
+           * 실측 7/7 로 확인했습니다(`tools/weather-truth/measure-canary.js`).
+           *
+           * ⚠ 건너뛰기가 **의심스러운 갈래는 전부 "그냥 다 받음"** 으로
+           * 떨어집니다 — 저장된 지문이 없거나, 카나리아가 실패했거나,
+           * 그날 값이 평평해서 못 믿을 때. 여기서 건너뛰는 쪽으로 기울면
+           * 화면이 옛 하늘을 그립니다.
+           */
+          const cachedWeather = findEntry(diskWeather as any, lat, lon, dateStr);
+          const cachedPrint = cachedWeather ? fingerprint(cachedWeather.data) : null;
+
+          /* ⚠ 카나리아는 **늘** 받습니다. 저장된 지문이 있을 때만 받으면
+           *    지문이 영영 안 생겨 교착에 빠집니다 — 첫 실행에 지문이 없고,
+           *    지문이 없으니 카나리아를 안 받고, 그래서 지문이 또 안 생깁니다.
+           *    한 점·한 변수라 본 요청의 약 1/300 입니다.
+           */
+          const storedCanary = (cachedWeather as any)?.canaryPrint as string | undefined;
+
+          /* ⚠ 카나리아를 `await` 로 먼저 기다리면 **고리와 지형까지 붙잡습니다.**
+           *    §68 에서 왕복 한 번이 비싸다는 걸 쟀으므로, 카나리아에 매달리는
+           *    것은 큰 날씨 요청 하나뿐이고 나머지는 곧바로 나갑니다.
+           */
+          let canarySeries: number[] | null = null;
+          const weatherChain = fetchWeatherCanary(lat, lon, targetEvent)
+            .catch(() => null)
+            .then(series => {
+              canarySeries = series;
+              const skip = canaryIsUsable(series) && canarySaysSkip(storedCanary, series);
+              if (__DEV__) {
+                console.log(`[Preload] 카나리아 — ${
+                  series === null ? '실패 → 그냥 다 받음'
+                  : !canaryIsUsable(series) ? '평평해서 못 믿음 → 그냥 다 받음'
+                  : !storedCanary ? '저장된 지문 없음 → 다 받고 지문을 남김'
+                  : skip ? '그대로 → **큰 요청 건너뜀**' : '갈림 → 다 받음'}`);
+              }
+              /* ⚠ **고리도 같은 카나리아에 물립니다.** 고리가 한 칸 139KB 로
+               *    가장 큰데, 예전에는 카나리아와 무관하게 **늘 다시 받았습니다**
+               *    — 10분 뒤에 열어도요. 런이 그대로면 디스크에 둔 고리를 모듈
+               *    캐시에 채워, 부르는 쪽이 평소처럼 불러도 네트워크가 안 나갑니다.
+               *
+               *    ⚠ 채우는 것은 **카나리아가 "그대로" 라고 할 때만**입니다.
+               *    모듈 고리 캐시에는 나이 검사가 없어서, 아무 때나 채우면 새
+               *    런이 나온 뒤에도 옛 고리를 계속 돌려줍니다.
+               */
+              if (skip) {
+                primeRingCache(diskRing as any);
+                if (__DEV__) console.log(`[Preload] 고리 ${diskRing.length}칸을 캐시에 채움 — 고리도 안 받습니다`);
+              }
+              return skip ? null : fetchSunsetWeather(lat, lon, az, false, targetEvent);
+            });
+
           await Promise.all([
-            fetchSunsetWeather(lat, lon, az, false, targetEvent).then(weatherData => {
-              if (weatherData) {
-                get().addWeatherCache({
-                  key: `w_${lat.toFixed(4)}_${lon.toFixed(4)}_${dateStr}`,
-                  data: weatherData,
-                  timestamp: Date.now(),
-                  latitude: lat,
-                  longitude: lon
-                });
+            weatherChain.then(weatherData => {
+              if (!weatherData) return;
+              // 값이 그대로면 다시 그릴 것도, 다시 쓸 것도 없습니다.
+              if (cachedPrint && fingerprint(weatherData) === cachedPrint) {
+                if (__DEV__) console.log('[Preload] 날씨가 캐시와 같습니다 — 상태를 안 건드립니다');
+                return;
               }
+              get().addWeatherCache({
+                key: weatherCacheKey(lat, lon, dateStr),
+                data: weatherData,
+                timestamp: Date.now(),
+                latitude: lat,
+                longitude: lon,
+                /**
+                 * ⚠ **보정 전 원본**의 지문입니다. `data` 는 위성 보정이 발린
+                 * 뒤라(`applyBiasToPath` 가 제자리에서 덮어씀) 그걸로 견주면
+                 * 예보가 그대로여도 늘 "바뀜" 이 나와 카나리아가 영영 일을
+                 * 못 합니다.
+                 */
+                canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
+              } as any);
             }).catch((err: any) => console.warn('Preload Weather failed:', err)),
-            fetchDayWeatherRing(lat, lon, targetEvent).catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
-            fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
-              if (terrainData && !terrainData.isFallback) {
-                get().addTerrainCache({
-                  key: `t_${lat.toFixed(4)}_${lon.toFixed(4)}`,
-                  data: terrainData,
-                  timestamp: Date.now(),
-                  latitude: lat,
-                  longitude: lon
-                });
-              }
-            }).catch((err: any) => console.warn('Preload Terrain failed:', err))
+            // ⚠ 카나리아 뒤에 부릅니다. 채우기(`primeRingCache`)가 먼저 끝나야
+            //   이 호출이 모듈 캐시에 맞습니다 — 앞서 부르면 채우기와 경주가
+            //   되어 그대로인데도 받아 버립니다.
+            // ⚠ `catch` 를 **먼저** 답니다. 이걸 안 달면 일몰 날씨가 실패했을 때
+            //   사슬이 거부되어 **고리를 아예 안 받습니다** — 게다가 로그에는
+            //   "Ring Weather failed" 가 찍혀 받아 보고 실패한 것처럼 보입니다.
+            //   카나리아 판정만 기다리면 되고, 일몰 날씨의 성패는 상관없습니다.
+            weatherChain
+              .catch(() => null)
+              .then(() => fetchDayWeatherRing(lat, lon, targetEvent))
+              .catch((err: any) => console.warn('Preload Ring Weather failed:', err)),
+            mustFetchTerrain
+              ? fetchTerrainProfile(lat, lon, 0, 360).then(terrainData => {
+                  if (terrainData && !terrainData.isFallback) {
+                    get().addTerrainCache({
+                      key: terrainCacheKey(lat, lon),
+                      data: terrainData,
+                      timestamp: Date.now(),
+                      latitude: lat,
+                      longitude: lon
+                    });
+                  }
+                }).catch((err: any) => console.warn('Preload Terrain failed:', err))
+              : Promise.resolve()
           ]);
  
           let initialTab: 'sky' | 'map' | 'log' = 'sky';

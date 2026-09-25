@@ -6,8 +6,9 @@
 import { findPresetTerrain } from './presetTerrains';
 import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
+import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
-import { extractProfile, layerAltitudes } from './cloudProfile';
+import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
 import { clearSkyGHIMean, estimateBias, applyBias, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
@@ -47,6 +48,9 @@ export interface CloudData {
   layerAltLowKm?: number;
   layerAltMidKm?: number;
   layerAltHighKm?: number;
+  /** 저층 덱 밑면·윗면(km, 해발, §82). 관측점에서만. 저층이 비면 없음. */
+  lowDeckBaseKm?: number;
+  lowDeckTopKm?: number;
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -146,6 +150,9 @@ export interface HourlyCloudData {
   layerAltLowKm?: number[];
   layerAltMidKm?: number[];
   layerAltHighKm?: number[];
+  /** 저층 덱 밑면·윗면(km). `cloudProfile.lowDeck`. 빈 시각은 NaN/null. */
+  lowDeckBaseKm?: number[];
+  lowDeckTopKm?: number[];
   visibility?: number[];
   humidity?: number[];
   directNormalIrradiance?: number[];
@@ -490,6 +497,49 @@ export const fetchSunsetWeather = async (
 // 360° 하루치 링 — 사전 계산(skyTimeline)용
 // ---------------------------------------------------------------------------
 
+/**
+ * **디스크에 둔 고리를 모듈 캐시에 채웁니다.**
+ *
+ * 이게 있으면 `fetchDayWeatherRing` 을 부르는 쪽(`IsolineMap`·`skyTimeline`)을
+ * 하나도 안 고쳐도 됩니다 — 평소처럼 부르면 **네트워크 없이** 돌아옵니다.
+ *
+ * ⚠ 호출부가 **카나리아가 "그대로" 라고 할 때만** 불러야 합니다. 모듈 고리
+ * 캐시에는 나이 검사가 없어서, 아무 때나 채우면 새 런이 나온 뒤에도 옛 고리를
+ * 계속 돌려줍니다.
+ */
+export const primeRingCache = (
+  entries: { key: string; data: CloudPathData[] }[],
+): void => {
+  const now = Date.now();
+  for (const e of entries) {
+    if (!e?.key || !Array.isArray(e.data) || e.data.length === 0) continue;
+    ringCache.set(e.key, e.data);
+    MEM_RING_CACHE.set(e.key, { data: e.data, time: now });
+  }
+};
+
+/**
+ * 성공한 고리를 어디에 남길지 — **호출부가 꽂아 줍니다.**
+ *
+ * ⚠ 여기서 `persistentCache` 를 직접 부르면 안 됩니다. 그쪽이 `security.ts` 를
+ * 타고 `expo-constants` → `expo-modules-core/src/index.ts` 를 끌어오는데, 그
+ * 파일은 Metro 전용 TypeScript 소스라 **Node 가 못 읽습니다.** 이 파일은
+ * 판정 하네스가 Node 로 컴파일해 쓰는 자리여서, 한 줄 import 로 하네스
+ * 아홉 개가 통째로 죽었습니다. 저장은 앱 쪽(`useCelestialStore`)이 꽂습니다.
+ */
+type RingPersister = (key: string, lat: number, lon: number, data: CloudPathData[]) => void;
+let ringPersister: RingPersister | null = null;
+export const setRingPersister = (fn: RingPersister | null): void => { ringPersister = fn; };
+
+/** 성공한 고리를 남깁니다. 아무도 안 꽂았으면 조용히 넘어갑니다. */
+const persistRing = (key: string, lat: number, lon: number, data: CloudPathData[]): void => {
+  try {
+    ringPersister?.(key, lat, lon, data);
+  } catch (e) {
+    console.warn('[WeatherAPI] 고리를 디스크에 못 남겼습니다:', e);
+  }
+};
+
 /** 링 방위 (12방위, 30° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
 const RING_AZIMUTHS = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30];
 /** 가까운 고리용 6방위 (60° 간격). 아래 `RING` 주석 참고. */
@@ -563,7 +613,10 @@ const WIND_LEVELS = { low: '850hPa', mid: '600hPa', high: '250hPa' } as const;
  * 단면을 받을 기압면. 16개 전부는 필요 없고 층마다 두세 면이면 무게중심이
  * 잡힙니다. 늘리면 그만큼 호출 가중치가 오릅니다.
  */
-export const PROFILE_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200] as const;
+// 975·950·900·800·750 은 저층 덱의 윗면을 250m 간격으로 잡으려고 넣었습니다
+// (§82). 없으면 850(1.45km)과 700(3.0km) 사이 1.5km 가 비어 운해의 윗면을
+// 못 냅니다. 관측점 1점 요청이라 변수 10개 = 가중치 1.0 이 늡니다.
+export const PROFILE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300, 250, 200] as const;
 
 /**
  * 위성 편향 캐시. 같은 격자칸·같은 날이면 다시 안 받습니다.
@@ -734,6 +787,9 @@ export interface LayerWindHourly {
   layerAltLowKm?: number[];
   layerAltMidKm?: number[];
   layerAltHighKm?: number[];
+  /** 저층 덱 밑면·윗면(km, 해발) — 운해의 윗면(§82). 빈 시각은 NaN. */
+  lowDeckBaseKm?: number[];
+  lowDeckTopKm?: number[];
   /**
    * 시정(m). 바람과 상관없지만 **여기 얹혀 옵니다.**
    *
@@ -832,11 +888,18 @@ export const fetchLayerWinds = async (
     // 그러면 소비자가 예전 상수를 그대로 씁니다.
     if (PROFILE_LEVELS.some(p => Array.isArray(h[`cloud_cover_${p}hPa`]))) {
       const lo: number[] = [], mi: number[] = [], hi: number[] = [];
+      // 덱 밑면·윗면. 저층이 빈 시각은 NaN — 보간이 NaN 을 퍼뜨리므로
+      // 소비자는 Number.isFinite 로 거릅니다(null 은 배열 보간이 못 받음).
+      const db: number[] = [], dt: number[] = [];
       for (let i = 0; i < time.length; i++) {
-        const a = layerAltitudes(extractProfile(h, i));
+        const prof = extractProfile(h, i);
+        const a = layerAltitudes(prof);
         lo.push(a.lowKm); mi.push(a.midKm); hi.push(a.highKm);
+        const d = lowDeck(prof);
+        db.push(d ? d.baseKm : NaN); dt.push(d ? d.topKm : NaN);
       }
       out.layerAltLowKm = lo; out.layerAltMidKm = mi; out.layerAltHighKm = hi;
+      out.lowDeckBaseKm = db; out.lowDeckTopKm = dt;
     }
     windCache.set(key, out);
     return out;
@@ -864,6 +927,8 @@ function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
     hourly.layerAltLowKm = w.layerAltLowKm;
     hourly.layerAltMidKm = w.layerAltMidKm;
     hourly.layerAltHighKm = w.layerAltHighKm;
+    hourly.lowDeckBaseKm = w.lowDeckBaseKm;
+    hourly.lowDeckTopKm = w.lowDeckTopKm;
   }
   // 시정은 이 요청에 얹혀 옵니다(LayerWindHourly.visibility 주석). 큰 요청이
   // 이미 시정을 받았으면 덮지 않습니다 — 아카이브 경로가 그렇습니다.
@@ -921,7 +986,10 @@ export const fetchDayWeatherRing = async (
   targetDate: Date = new Date()
 ): Promise<CloudPathData[]> => {
   const targetDateStr = localDateString(targetDate);
-  const cacheKey = `ring_${lat.toFixed(3)},${lon.toFixed(3)}_${targetDateStr}`;
+  // ⚠ 예전에는 `lat.toFixed(3)` — **111m** 였습니다. §68 에서 일몰 날씨 키를,
+  //   §77 에서 스토어 키를 격자 크기로 고쳤는데 **고리만 남아 있었습니다.**
+  //   같은 부류의 세 번째 자리입니다. 111m 움직일 때마다 139KB 를 다시 받습니다.
+  const cacheKey = ringCacheKey(lat, lon, targetDateStr);
   const cached = MEM_RING_CACHE.get(cacheKey) || ringCache.get(cacheKey);
   if (cached) {
     const data = 'data' in cached ? (cached as any).data : cached;
@@ -1036,6 +1104,10 @@ export const fetchDayWeatherRing = async (
 
     ringCache.set(cacheKey, out);
     MEM_RING_CACHE.set(cacheKey, { data: out, time: Date.now() });
+    // ⚠ **진짜 자료일 때만** 디스크에 남깁니다. 위쪽 한도 초과 갈래의
+    //   맑은하늘 대용값은 지어낸 것이라 저장하면 안 됩니다 — 저장하면
+    //   다음 실행이 그걸 "받아 둔 고리" 로 믿습니다.
+    persistRing(cacheKey, lat, lon, out);
     INFLIGHT_REQUESTS.delete(cacheKey);
     return out;
   })();
@@ -1095,6 +1167,8 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       layerAltLowKm: interpolateOpt(p.hourly.layerAltLowKm),
       layerAltMidKm: interpolateOpt(p.hourly.layerAltMidKm),
       layerAltHighKm: interpolateOpt(p.hourly.layerAltHighKm),
+      lowDeckBaseKm: interpolateOpt(p.hourly.lowDeckBaseKm),
+      lowDeckTopKm: interpolateOpt(p.hourly.lowDeckTopKm),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
@@ -1352,5 +1426,41 @@ export const fetchTerrainProfile = async (
       elevations: [],
       isFallback: true,
     };
+  }
+};
+
+/**
+ * **카나리아 한 점.** 큰 요청을 건너뛰어도 되는지 묻는 데만 씁니다.
+ *
+ * 관측점 한 곳의 `temperature_2m` 하루치만 받습니다 — 35점 · 변수 8개 · 모델
+ * 둘짜리 본 요청의 **약 1/300** 입니다.
+ *
+ * 왜 기온이고 왜 운량이 아닌지, 왜 같은 모델을 물어야 하는지는
+ * `cachePolicy.ts` 의 카나리아 절에 있습니다. 요지만 옮기면 — `cloud_cover` 는
+ * 맑은 날 24시간이 통째로 0 이라 **런이 갈려도 "안 바뀜" 이라고 거짓말**합니다.
+ *
+ * ⚠ 본 요청과 **같은 모델**(`BLEND_MODELS_PARAM`)을 물어야 합니다. 갱신 주기가
+ * 다른 모델을 물으면 엉뚱한 답이 나옵니다.
+ *
+ * 실패하면 `null` — 호출부는 그때 **그냥 다 받습니다.**
+ */
+export const fetchWeatherCanary = async (
+  lat: number, lon: number, targetDate: Date = new Date(),
+): Promise<number[] | null> => {
+  const dateStr = localDateString(targetDate);
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}`
+    + `&hourly=${CANARY_VARIABLE}`
+    + `&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
+  try {
+    const res = await fetchWithTimeout(url, {}, 4000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.error) return null;
+    const h = blendHourly((Array.isArray(data) ? data[0] : data)?.hourly) as any;
+    const series = h?.[CANARY_VARIABLE];
+    return Array.isArray(series) ? series : null;
+  } catch {
+    // 카나리아가 실패하면 **아무 결론도 내리지 않습니다.** 그냥 다 받습니다.
+    return null;
   }
 };
