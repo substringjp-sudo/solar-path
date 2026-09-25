@@ -104,6 +104,7 @@ import {
   LAYER_MID,
   LAYER_SOFT_CLOUD,
   LAYER_FRONT,
+  LAYER_CELESTIAL,
   type SceneComposerHandle,
 } from './SceneComposer';
 import {
@@ -920,26 +921,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 3. Sun
     const sun = createSun();
     scene.add(sun.mesh);
-    assignLayer(sun.mesh, LAYER_MID);
+    assignLayer(sun.mesh, LAYER_CELESTIAL);   // 구름 아래 (§94)
     sunRef.current = sun;
 
     // 4. Moon
     const moon = createMoonGroup();
     scene.add(moon.group);
-    assignLayer(moon.group, LAYER_MID);
+    assignLayer(moon.group, LAYER_CELESTIAL);   // 구름 아래 (§94)
     moonRef.current = moon;
 
     // 5a. 은하수
     const milkyWay = createMilkyWayBand();
     scene.add(milkyWay.mesh);
-    assignLayer(milkyWay.mesh, LAYER_MID);
+    assignLayer(milkyWay.mesh, LAYER_CELESTIAL);   // 구름 아래 (§94)
     milkyWayRef.current = milkyWay;
 
     // 5b. 항성 + 행성
     const starField = createStarField(8);
     scene.add(starField.points);
     // 별은 점 광원이라 **반드시 원해상도**입니다 (SceneComposer 주석).
-    assignLayer(starField.points, LAYER_MID);
+    assignLayer(starField.points, LAYER_CELESTIAL);   // 구름 아래 (§94)
     starFieldRef.current = starField;
 
     pixelRatioRef.current = Math.max(

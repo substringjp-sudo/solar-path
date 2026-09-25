@@ -30,6 +30,13 @@
  *   3 SOFT_CLOUD  구름 덱                     저해상도 (투명)
  *   4 FRONT       빌보드·천체경로·달           원해상도
  *
+ * ⚠ **실제 합성 순서는 위 목록과 다릅니다**(§94). 산 능선이 구름 앞을 가리게
+ *   하려고 구름을 MID **앞에** 얹도록 바뀌었는데(하늘 → 구름 → MID → FRONT), 그러면서
+ *   MID 에 있던 해·달·별이 구름 위로 올라갔습니다. 그래서 천체만 따로
+ *   `LAYER_CELESTIAL`(5)로 떼어 하늘과 구름 사이에 그립니다:
+ *
+ *     하늘 → 천체(해·달·별·은하수) → 구름 → MID(지면·지형) → FRONT
+ *
  * **빌보드는 일부러 원해상도에 둡니다.** 잔 파편을 만드는 것은 덱의 문턱
  * 절단이지 빌보드가 아니고, 빌보드는 `depthTest: true`라 지형과 깊이
  * 비교를 합니다 — 별도 버퍼로 빼면 그 깊이 정보를 잃습니다. 덱과 스카이돔은
@@ -56,6 +63,15 @@ export const LAYER_MID = 2;
 export const LAYER_SOFT_CLOUD = 3;
 /** 원해상도 · 구름 위 (빌보드·경로·달) */
 export const LAYER_FRONT = 4;
+/**
+ * 원해상도 · **구름 아래** 천체 (해·달·별·은하수) — §94.
+ *
+ * 저해상도 경로는 하늘 → 구름 → MID 순서로 합성합니다(산이 구름 앞을 가리도록). 그런데
+ * 해·달·별도 MID 에 있어서 **구름 위에** 그려졌습니다 — 흐린 새벽 해가 불투명한 구름(τ > 40)
+ * 을 뚫고 보이고, 달이 구름 앞에 떴습니다. 천체는 하늘 바로 다음, 구름 전에 그립니다.
+ * 한 번에 그리는 경로(배율 1)는 renderOrder(해 −0.55 · 별 −0.5 < 구름 0)가 이미 그 순서입니다.
+ */
+export const LAYER_CELESTIAL = 5;
 
 /**
  * 저해상도 배율의 기본값.
@@ -864,6 +880,10 @@ export function createSceneComposer(
       blit(renderer, opaqueQuad, rtSky.texture);
 
       renderer.autoClear = false;
+
+      // 3-0) 해·달·별·은하수 — 구름 **아래**(§94). 원해상도.
+      camera.layers.set(LAYER_CELESTIAL);
+      renderer.render(scene, camera);
 
       // 3-1) 구름 덱을 하늘 위에 먼저 얹습니다.
       blit(renderer, overQuad, rtCloud.texture);

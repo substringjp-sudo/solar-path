@@ -137,6 +137,15 @@ function shoot(az, pitch, occludeSky, bake = true){
   return { buf, samples };
 }
 
+function cam0(az, pitch){
+  const cam = new THREE.PerspectiveCamera(FOV, W/H, 0.1, 2000);
+  cam.position.set(0,0,0); cam.up.set(0,1,0);
+  const ar=az*Math.PI/180, er=pitch*Math.PI/180;
+  cam.lookAt(100*Math.cos(er)*Math.sin(ar), 100*Math.sin(er), -100*Math.cos(er)*Math.cos(ar));
+  cam.updateMatrixWorld(true);
+  return cam;
+}
+
 function paint(buf, label){
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const cx=c.getContext('2d'); const img=cx.createImageData(W,H);
@@ -155,7 +164,18 @@ for (const [az, pitch] of VIEWS) {
   // 지평선 굽기는 **속도만** 바꿔야 합니다 — 굽지 않은 판과 화소가 하나라도 다르면 결함.
   let diff = 0;
   for (let i = 0; i < on.buf.length; i++) if (on.buf[i] !== noBake.buf[i]) diff++;
-  판.push({ az, pitch, on: on.samples, off: off.samples.map(s => s[3]), 굽기차이: diff });
+  // §94 — 굽기가 그려진 격자 능선을 실어 오면서 속도만의 일이 아니게 됐습니다. 다른 화소가
+  // **어디**인지 싣습니다(판정이 능선 근처인지 봅니다). 많으면 솎습니다.
+  const diffDirs = [];
+  for (let px = 0; px < W*H; px++) {
+    const i = px*4;
+    if (on.buf[i] === noBake.buf[i] && on.buf[i+1] === noBake.buf[i+1] && on.buf[i+2] === noBake.buf[i+2] && on.buf[i+3] === noBake.buf[i+3]) continue;
+    const x = px % W, y = Math.floor(px / W);
+    const ndc = new THREE.Vector3((x+0.5)/W*2-1, (y+0.5)/H*2-1, 0.5).unproject(cam0(az, pitch)).normalize();
+    diffDirs.push([+ndc.x.toFixed(6), +ndc.y.toFixed(6), +ndc.z.toFixed(6)]);
+  }
+  const keep = diffDirs.filter((_, k) => k % Math.max(1, Math.ceil(diffDirs.length / 600)) === 0);
+  판.push({ az, pitch, on: on.samples, off: off.samples.map(s => s[3]), 굽기차이: diff, 굽기차이방향: keep });
 }
 
 // ── 비용 — 하늘을 올려다본 판(피치 15°, 400×400)을 세 방식으로 ─────────

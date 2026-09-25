@@ -51,6 +51,8 @@ import { LAYER_BAND_KM } from '../../utils/cloudProfile';
 // ⚠ 지평선은 **지면과 같은 함수**로 구합니다. 식을 복사해 두면 한쪽만
 // 바뀌었을 때 그 차이가 그대로 하늘이 비치는 띠가 됩니다.
 import { seaHorizonDipDeg } from './TerrainRing';
+import { FIELD_RINGS, FIELD_SPOKES, FAR_FIELD_RINGS, FAR_FIELD_FAR_M } from './TerrainField';
+import { FIELD_FOOT_M, FIELD_HINGE_M, FIELD_INNER_RINGS } from './groundProjection';
 import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
@@ -542,6 +544,15 @@ precision highp float;
 const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
 ${SLAB_TERRAIN_GLSL}
 const float HB = ${HORIZON_BINS}.0;
+// 앱 TerrainField 격자(SkyScene3D: rings = FIELD_RINGS + FAR_FIELD_RINGS, farM = FAR_FIELD_FAR_M,
+// 살 FIELD_SPOKES)와 groundProjection.ringDistanceM 의 두 구간 로그 간격.
+const float MESH_SPOKES = ${FIELD_SPOKES}.0;
+const int   MESH_RINGS_I = ${FIELD_RINGS + FAR_FIELD_RINGS};
+const float MESH_RINGS = ${FIELD_RINGS + FAR_FIELD_RINGS}.0;
+const float MESH_INNER = ${FIELD_INNER_RINGS}.0;
+const float MESH_FOOT = ${FIELD_FOOT_M};
+const float MESH_HINGE = ${FIELD_HINGE_M}.0;
+const float MESH_FAR = ${FAR_FIELD_FAR_M}.0;
 void main(){
   float az = (floor(gl_FragCoord.x) + 0.5) / HB * 6.2831853;
   vec2 hz = vec2(sin(az), -cos(az));          // (동, 남) — 북이 −z
@@ -555,9 +566,31 @@ void main(){
     float drop = d * d / (2.0 * SLAB_R_EARTH * 1000.0);
     best = max(best, atan(h - eyeM - drop, d));
   }
+  // ── 그려진 지형 격자의 능선 (§94) ─────────────────────────────────────────
+  // 앱의 TerrainField 는 고리 × 살 **꼭짓점**에서만 높이를 읽고 그 사이를 곧게
+  // 잇습니다. 봉우리가 꼭짓점 사이에 걸리면 그려진 능선이 자료보다 낮습니다
+  // (요네자와 해 뜨는 쪽 최대 0.35°). 자료 능선으로 구름을 자르면 그 틈에서
+  // 구름도 산도 없는 하늘이 드러났습니다 — 그래서 같은 꼭짓점으로 한 번 더 굽습니다.
+  float jf = az / 6.2831853 * MESH_SPOKES;
+  float j0 = floor(jf), tj = jf - j0;
+  float a0 = j0 / MESH_SPOKES * 6.2831853, a1 = (j0 + 1.0) / MESH_SPOKES * 6.2831853;
+  vec2 hz0 = vec2(sin(a0), -cos(a0)), hz1 = vec2(sin(a1), -cos(a1));
+  float mesh = -1.5;
+  for (int k = 0; k < MESH_RINGS_I; k++){
+    float kf = float(k);
+    float d = kf < MESH_INNER
+      ? MESH_FOOT * pow(MESH_HINGE / MESH_FOOT, kf / MESH_INNER)
+      : MESH_HINGE * pow(MESH_FAR / MESH_HINGE, (kf - MESH_INNER) / (MESH_RINGS - MESH_INNER - 1.0));
+    float h0 = slab_terrainM(hz0 * d), h1 = slab_terrainM(hz1 * d);
+    if (h0 < -1e3 || h1 < -1e3) continue;
+    float drop = d * d / (2.0 * SLAB_R_EARTH * 1000.0);
+    mesh = max(mesh, mix(atan(h0 - eyeM - drop, d), atan(h1 - eyeM - drop, d), tj));
+  }
   float v = clamp((degrees(best) - (${HORIZON_LO_DEG})) / ${HORIZON_SPAN_DEG}, 0.0, 1.0) * 65535.0;
   float hi = floor(v / 256.0);
-  gl_FragColor = vec4(hi / 255.0, (v - hi * 256.0) / 255.0, 0.0, 1.0);
+  float vm = clamp((degrees(mesh) - (${HORIZON_LO_DEG})) / ${HORIZON_SPAN_DEG}, 0.0, 1.0) * 65535.0;
+  float him = floor(vm / 256.0);
+  gl_FragColor = vec4(hi / 255.0, (v - hi * 256.0) / 255.0, him / 255.0, (vm - him * 256.0) / 255.0);
 }
 `;
 
@@ -661,6 +694,20 @@ float slab_horizonDeg(vec3 dir){
     m = max(m, (t.r * 255.0 * 256.0 + t.g * 255.0) / 65535.0);
   }
   return ${HORIZON_LO_DEG} + m * ${HORIZON_SPAN_DEG};
+}
+
+/** 그려진 지형 격자의 능선(°) — 굽기의 B·A. 칸 사이는 곧게 잇습니다(격자처럼). */
+float slab_meshHorizonDeg(vec3 dir){
+  float az = atan(dir.x, -dir.z);
+  if (az < 0.0) az += 6.2831853;
+  float u = az / 6.2831853 * ${HORIZON_BINS}.0 - 0.5;
+  float c0 = mod(floor(u) + ${HORIZON_BINS}.0, ${HORIZON_BINS}.0);
+  float c1 = mod(c0 + 1.0, ${HORIZON_BINS}.0);
+  vec4 t0 = texture2D(uHorizonTex, vec2((c0 + 0.5) / ${HORIZON_BINS}.0, 0.5));
+  vec4 t1 = texture2D(uHorizonTex, vec2((c1 + 0.5) / ${HORIZON_BINS}.0, 0.5));
+  float m0 = (t0.b * 255.0 * 256.0 + t0.a * 255.0) / 65535.0;
+  float m1 = (t1.b * 255.0 * 256.0 + t1.a * 255.0) / 65535.0;
+  return ${HORIZON_LO_DEG} + mix(m0, m1, fract(u)) * ${HORIZON_SPAN_DEG};
 }
 
 /**
@@ -787,6 +834,14 @@ void main(){
     tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, 0.0, tLow);
     if (tBlockSky > 1e8)
       tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, tLow, SLAB_SKY_OCCLUDE_KM);
+    // §94 — 그려진 격자의 능선보다 위라면 자료가 막아도 자르지 않습니다. 거기엔
+    // 산이 **그려지지 않으므로** 자르면 구름도 산도 없는 하늘 띠가 생깁니다.
+    // 구름 버퍼는 절반 해상도로 그려 늘리므로 가장자리가 1~2 화소 흐립니다. 능선 **바로
+    // 위**에서 그 흐린 알파 틈으로 구름 아래의 해가 샜습니다(요네자와 재현 42화소).
+    // 그래서 구름을 그려진 능선보다 이 버퍼 1.5 화소 아래까지 그립니다 — 산이 구름 뒤에
+    // 그려지는 경로(배율 > 1)에서는 산이 그 몫을 덮습니다.
+    if (uHorizonValid > 0.5
+        && sinE > sin(radians(slab_meshHorizonDeg(dir)) - 1.5 * uPixelAngleRad)) tBlockSky = 1e9;
   }
   // §87 — DEM 이 **아예 없을 때만** 밴드로 대신합니다. DEM 경로는 그대로.
   if (uTerrainOccludeSky > 0.5 && uBandValid > 0.5 && uDemValid < 0.5 && uDemFarValid < 0.5
