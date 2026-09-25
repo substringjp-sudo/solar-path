@@ -45,6 +45,10 @@ export interface SkyTuning {
   adaptStartAlt: number;
   /** 순응이 최대가 되는 태양 고도 */
   adaptEndAlt: number;
+  /** §95 간상체 암순응 — 해 −12°→−18° 사이에 더 들어오는 밝기 배율(1 이면 끔). */
+  rodAdaptGain: number;
+  /** §95 밤의 색 빠짐(간상체는 색을 못 봄) — 해 −18° 에서의 몫(0 이면 끔). */
+  rodDesat: number;
   /** 톤매핑 후 채도 복원 */
   displaySaturation: number;
   /** 하단 대비 S커브 */
@@ -227,6 +231,12 @@ export const DEFAULT_TUNING: SkyTuning = {
   adaptMax: 16.0,
   adaptStartAlt: 6.0,
   adaptEndAlt: -14.0,
+  // §95 — 눈으로 보는 밤. 원추체 순응(위, ×16)은 해 −14° 에서 끝납니다. 간상체는 그 뒤
+  // 20~30분에 걸쳐 더 적응하므로(해가 −12° → −18° 로 가는 시간과 같은 크기) 밤에만 더 받습니다.
+  // 4 는 보름달·달 없는 밤을 ×1·4·16·64 로 찍어 사용자가 고른 값입니다 — 4 에서 보름달 밤은
+  // 구름·틈이 또렷하고 달 없는 밤은 짙은 남색, 16 이면 달 없는 밤이 박명처럼 파래집니다.
+  rodAdaptGain: 4.0,
+  rodDesat: 0.7,
   // ⚠ 이 둘을 **내리지 마세요.** 한 번 해 보고 되돌렸습니다.
   //
   // 실제 하늘 사진과 견주니 노을 채도가 5배였고(계획 20절), 둘을 1.00 으로
@@ -348,6 +358,8 @@ export const TUNING_GROUPS: TuningGroup[] = [
       { key: 'adaptMax', label: '눈 순응 최대', min: 1, max: 40, step: 0.5, hint: '밤이 얼마나 밝게 보이나', live: true },
       { key: 'adaptStartAlt', label: '순응 시작 고도', min: -10, max: 30, step: 0.5, hint: '이 태양고도 아래부터 순응 시작', live: true },
       { key: 'adaptEndAlt', label: '순응 완료 고도', min: -30, max: 0, step: 0.5, hint: '이 고도에서 순응 최대', live: true },
+      { key: 'rodAdaptGain', label: '밤 암순응', min: 1, max: 32, step: 0.5, hint: '해 −12°~−18° 에 더 들어오는 밝기', live: true },
+      { key: 'rodDesat', label: '밤 색 빠짐', min: 0, max: 1, step: 0.05, hint: '간상체 시야 — 밤에 색이 빠지는 몫', live: true },
     ],
   },
   {

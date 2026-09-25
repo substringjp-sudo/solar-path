@@ -64,7 +64,13 @@ const f3 = v => (v == null ? '—' : Number(v).toPrecision(3));
   console.log('\n== 밝기 ==');
   ok(R.nightGap.틈화소 > 2000, `잴 틈이 있다 (${R.nightGap.틈화소} 화소)`);
   ok(R.nightGap.표시_틈 > R.noMoonGap.표시_틈 * 1.2, `보름달 밤의 하늘 틈이 달 없는 밤보다 밝다 (${f3(R.noMoonGap.표시_틈)} → ${f3(R.nightGap.표시_틈)})`);
-  ok(R.night.표시_전체 < R.twi.표시_전체, `보름달 밤 전체가 해 −8° 박명보다 어둡다 (${f3(R.night.표시_전체)} < ${f3(R.twi.표시_전체)})`);
+  // ⚠ 여기 처음에는 "보름달 밤 전체가 해 −8° 박명보다 어둡다" 가 있었습니다. 밤 암순응(§95, 간상체 ×4 를
+  //   해 −12° → −18° 에)을 넣으면 설계상 깨집니다 — 이 렌더의 박명(해 반대쪽)이 원래 거의 검고, 간상체는
+  //   박명 뒤에 들어오기 때문입니다(남은 것으로 적어 둠). 대신 순응이 **어디서** 일하는지를 봅니다.
+  if (st.rodPair) {
+    ok(st.rodPair.twi === 0, `밤 암순응은 해 −8° 박명을 한 바이트도 안 바꾼다 (다른 바이트 ${st.rodPair.twi})`);
+    ok(st.rodPair.nightGap > 1000, `밤에는 실제로 바꾼다 (다른 바이트 ${st.rodPair.nightGap})`);
+  } else ok(false, '밤 암순응 짝이 없다');
   if (st.anchor) ok(Math.abs(st.anchor.달하늘 / st.anchor.목표 - 1) < 1e-6, `보름달 하늘이 닻(해 ${-10.5}° 하늘)과 같다`);
   else ok(false, '달빛 이득 함수가 없다 (moonLight)');
 

@@ -55,7 +55,7 @@ import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydom
 import { createCloudSlab, updateCloudSlab, bakeCloudSlabCoverage }
   from './app/components/SkyScene3D/CloudSlab.js';
 import { WeatherFan } from './app/utils/skyColumn.js';
-import { makeAtmosphereParams, beamAtAltitude, moonLight } from './app/utils/atmosphere.js';
+import { makeAtmosphereParams, beamAtAltitude, moonLight, setSceneCityLight, applyTuningUniforms } from './app/utils/atmosphere.js';
 
 const errors = [];
 const oe = console.error;
@@ -159,6 +159,8 @@ function shoot(shot, driftH, cityLight){
     driftHours: driftH,
     visible: true,
   });
+  // 앱처럼 광공해만큼 밤 암순응을 덜 받습니다(§95) — 매 장면 튜닝 값을 다시 넣습니다.
+  if (setSceneCityLight) { setSceneCityLight(cityLight); applyTuningUniforms(skydome.material.uniforms); applyTuningUniforms(slab.material.uniforms); }
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 1);
   renderer.render(scene, cam);

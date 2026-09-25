@@ -78,6 +78,7 @@ function shoot({ sunAlt, sunAz, moonAlt, moonAz, moonIllum, cover = [0.2, 0.3, 0
     cityLight: 0,
     beamFor:(k)=>A.beamAtAltitude(sunAlt, k, atmosphere), atmosphere,
     layerWinds:{ low:wd, mid:wd, high:wd }, driftHours:0, visible:true, dataOut });
+  if (ROD1) scene.traverse(o => { const u = o.material && o.material.uniforms; if (u && u.ADAPT_ROD) u.ADAPT_ROD.value = 1; });
   renderer.setClearColor(0x000000, withSky ? 1 : 0); renderer.render(scene, cam);
   const b=new Uint8Array(4*W*H); gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,b);
   return b;
@@ -119,6 +120,15 @@ const SC = {
   dayNo:   { sunAlt: 30, sunAz: 200, moonAlt: 40, moonAz: 120, moonIllum: 0 },
 };
 
+// §95 — 밤 암순응(ADAPT_ROD)을 1 로 눌러 찍은 짝. 해 −12° 위는 바이트가 같아야 하고 밤은 달라야 합니다.
+let ROD1 = false;
+const rodPair = {};
+for (const k of ['twi', 'nightGap']) {
+  ROD1 = true; const a = shoot(SC[k], 0, true); ROD1 = false; const b = shoot(SC[k], 0, true);
+  let d = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++;
+  rodPair[k] = d;
+}
+window.__rodPair = rodPair;
 const R = {};
 for (const [k, sc] of Object.entries(SC)) {
   const d0 = shoot(sc, 0, true);
@@ -150,7 +160,7 @@ const anchor = A.moonLight ? {
   달하늘: Y(A.NIGHT_SKY) + A.moonSkyGain(atmosphere) * A.hemiSkyLuminance(A.MOON_REF_ALT_DEG, atmosphere),
   K: A.moonSkyGain(atmosphere),
 } : null;
-window.__stats = { glError: gl.getError(), R, anchor };
+window.__stats = { glError: gl.getError(), R, anchor, rodPair };
 } catch (e) { errors.push('예외: ' + (e && e.stack || e)); }
 window.__errors = errors;
 document.title = 'DONE::' + (errors.length ? 'ERR' : 'OK');

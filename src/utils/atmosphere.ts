@@ -825,8 +825,11 @@ export function moonLight(
   if (nf <= 0 || ph <= 0) return { gain: 0, useMoon: false };
   const gain = moonSkyGain(p) * ph * nf;
   const moonPart = gain * hemiSkyLuminance(moonAltDeg, p);
+  // 밤하늘 바닥의 2% 도 못 밝히는 달(진 달·초승)은 하늘에도 더하지 않습니다 — 예전에는
+  // 하늘에만 더해 두었는데, 밤 암순응(§95)이 그 미세한 빛을 화면에 드러냈습니다.
+  if (moonPart <= 0.02 * lumOf(NIGHT_SKY)) return { gain: 0, useMoon: false };
   const twiPart = Math.max(0, hemiSkyLuminance(sunAltDeg, p) - lumOf(NIGHT_SKY));
-  return { gain, useMoon: moonPart > Math.max(twiPart, 0.02 * lumOf(NIGHT_SKY)) };
+  return { gain, useMoon: moonPart > twiPart };
 }
 
 // ── 4) 구름 ────────────────────────────────────────────────────────────────
@@ -1133,6 +1136,8 @@ uniform float DISP_EXPO;
 uniform float ADAPT_MAX;
 uniform float ADAPT_HI;
 uniform float ADAPT_LO;
+uniform float ADAPT_ROD;   // §95 간상체 암순응 배율
+uniform float ROD_DESAT;   // §95 밤의 색 빠짐
 uniform float DISP_SAT;
 uniform float DISP_CONTR;
 uniform float DISP_BLUE;
@@ -1479,7 +1484,24 @@ vec3 atm_whiteBalance(float sunAltDeg) {
 
 /** 태양이 낮아질수록 노출을 올립니다 (눈의 순응) */
 float atm_adaptation(float sunAltDeg) {
-  return 1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg);
+  // §95 — 원추체 순응(위) 다음 간상체 암순응이 해 −12° → −18° 에 들어옵니다.
+  float rod = 1.0 - smoothstep(-18.0, -12.0, sunAltDeg);
+  return (1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg))
+    * mix(1.0, ADAPT_ROD, rod);
+}
+
+/**
+ * **밤의 색 빠짐** (§95) — 간상체는 색을 못 보고 507nm 근처에 가장 예민합니다(푸르키녜).
+ * 달빛·도시광 밤에는 색이 흐려지고 약간 푸르스름해집니다. 휘도는 그대로 두고 색만
+ * 그쪽으로 옮깁니다. 간상체 암순응과 같은 구간(해 −12° → −18°)에서 들어옵니다.
+ */
+vec3 atm_rodVision(vec3 c, float sunAltDeg) {
+  float k = ROD_DESAT * (1.0 - smoothstep(-18.0, -12.0, sunAltDeg));
+  if (k <= 0.0) return c;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  // 휘도 1 로 맞춘 푸르스름한 회색 (0.88, 0.98, 1.20) / 0.9748
+  vec3 rodCol = l * vec3(0.9028, 1.0053, 1.2310);
+  return mix(c, rodCol, k);
 }
 
 /**
@@ -1547,7 +1569,7 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   float maxc = max(c.r, max(c.g, c.b));
   float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
   c = clamp(c * k, 0.0, 1.0);
-  return atm_toSrgb(c);
+  return atm_toSrgb(atm_rodVision(c, sunAltDeg));
 }
 `;
 
@@ -1618,9 +1640,21 @@ vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
   vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
   c = max(c, minGlow * GROUND_MIN_GLOW);
 
-  return atm_toSrgb(c);
+  return atm_toSrgb(atm_rodVision(c, sunAltDeg));
 }
 `;
+
+/**
+ * 그 자리의 광공해(0 청정 ~ 1 대도시) — §95. 도시 불빛이 밝은 곳에서는 눈이 간상체
+ * 순응까지 가지 못하므로, 밤 암순응 배율을 이만큼 1 쪽으로 되돌립니다. 앱은 구름 슬랩에
+ * 넘기는 `cityLight` 와 같은 값을 매 프레임 넣습니다.
+ */
+let sceneCityLight = 0;
+export function setSceneCityLight(v: number): void {
+  sceneCityLight = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
+}
+const rodGainOf = (t: { rodAdaptGain: number }) =>
+  t.rodAdaptGain + (1 - t.rodAdaptGain) * sceneCityLight;
 
 export function makeTuningUniforms(): Record<string, { value: number }> {
   const t = getTuning();
@@ -1632,6 +1666,8 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     ADAPT_MAX: { value: t.adaptMax },
     ADAPT_HI: { value: t.adaptStartAlt },
     ADAPT_LO: { value: t.adaptEndAlt },
+    ADAPT_ROD: { value: rodGainOf(t) },
+    ROD_DESAT: { value: t.rodDesat },
     DISP_SAT: { value: t.displaySaturation },
     DISP_CONTR: { value: t.displayContrast },
     AIR_WASH: { value: t.airWash },
@@ -1668,6 +1704,8 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('ADAPT_MAX', t.adaptMax);
   set('ADAPT_HI', t.adaptStartAlt);
   set('ADAPT_LO', t.adaptEndAlt);
+  set('ADAPT_ROD', rodGainOf(t));
+  set('ROD_DESAT', t.rodDesat);
   set('DISP_SAT', t.displaySaturation);
   set('DISP_CONTR', t.displayContrast);
   set('DISP_BLUE', t.skyBlueBoost);

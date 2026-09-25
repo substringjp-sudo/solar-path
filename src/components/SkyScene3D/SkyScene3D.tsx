@@ -121,7 +121,7 @@ const _genusOut: BlendedOptics = {
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import { cloudAround } from '../../utils/cloudProfile';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -1182,7 +1182,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
         // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
+        // §95 — 광공해만큼 밤 암순응을 덜 받습니다. 구름 슬랩에 넘기는 cityLight 와 같은 식.
+        setSceneCityLight(layersRef.current.cityLights === false
+          ? 0 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)));
         applyTuningUniforms(skydomeRef.current?.material.uniforms);
+        // ⚠ 구름 슬랩이 이 목록에서 빠져 있어 튜닝 값이 생성 때 한 번만 들어갔습니다.
+        applyTuningUniforms(cloudSlabRef.current?.material.uniforms);
         applyTuningUniforms(sunRef.current?.material.uniforms);
         applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
         const deckLayers = cloudDeckRef.current?.layers;
