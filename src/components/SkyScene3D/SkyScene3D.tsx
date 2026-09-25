@@ -105,6 +105,7 @@ import {
   LAYER_SOFT_CLOUD,
   LAYER_FRONT,
   LAYER_CELESTIAL,
+  LAYER_SOFT_CLOUD_BELOW,
   type SceneComposerHandle,
 } from './SceneComposer';
 import {
@@ -166,12 +167,27 @@ export interface SkySettings {
   starBrightness: number;
   /** 표시 한계 등급 (3 = 도심, 6.5 = 완전한 암천) */
   starMagLimit: number;
+  /** 도트 모드(§97) — 화면을 이 줄 수로 그려 네모 화소 그대로 늘립니다. 0 = 끔. */
+  pixelArtRows: number;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
   starBrightness: 1.0,
   starMagLimit: 6.5,
+  pixelArtRows: 0,
 };
+
+/**
+ * 도트 모드의 굵기 — 화면 세로를 몇 줄로 그리는가. 한 도트는 화면 **정수** 화소입니다
+ * (SceneComposer.setPixelArt). 폰 하늘 화면(세로 약 1,200~2,400 물리 화소)에서 256 줄이면
+ * 한 도트가 5~9화소로 잔잔하고, 96 줄이면 12~25화소로 또렷한 옛 게임 느낌입니다.
+ */
+export const PIXEL_ART_CHOICES: { rows: number; label: string }[] = [
+  { rows: 0, label: '끔' },
+  { rows: 256, label: '가늘게' },
+  { rows: 160, label: '보통' },
+  { rows: 96, label: '굵게' },
+];
 
 interface SkyScene3DProps {
   sim: any;
@@ -984,6 +1000,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const cloudSlab = createCloudSlab();
     scene.add(cloudSlab.mesh);
     assignLayer(cloudSlab.mesh, LAYER_SOFT_CLOUD);
+    // §96 — 구름을 두 번에 나눠 그립니다. 하늘 구름(mesh)은 산보다 먼저, 발밑 운해와 구름 속
+    // 안개(meshBelow)는 산보다 나중에. 한 번에 그리는 경로(배율 1)도 같은 순서가 되게
+    // renderOrder 를 둡니다 — 별 −0.5 < 하늘 구름 −0.49 < 지형 −0.48 … < 운해 0.5.
+    cloudSlab.setSplitPasses(true);
+    cloudSlab.mesh.renderOrder = -0.49;
+    cloudSlab.meshBelow.renderOrder = 0.5;
+    scene.add(cloudSlab.meshBelow);
+    assignLayer(cloudSlab.meshBelow, LAYER_SOFT_CLOUD_BELOW);
     cloudSlabRef.current = cloudSlab;
     cloudDeck.group.visible = false;
     cloudField.mesh.visible = false;
@@ -1215,10 +1239,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const slabFrame = cloudSlabRef.current;
           const atmos = cachedAtmosphereRef.current;
           if (slabFrame && atmos) {
-            const isSoft = composerNow.softScale > 1.0001;
+            // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
+            composerNow.setPixelArt(skySettingsRef.current.pixelArtRows ?? 0);
+            const isSoft = composerNow.softActive();
             const sSize = composerNow.softSize();
-            const slabW = isSoft ? sSize.width : gl.drawingBufferWidth;
-            const slabH = isSoft ? sSize.height : gl.drawingBufferHeight;
+            const rSize = composerNow.renderSize();
+            const slabW = isSoft ? sSize.width : rSize.width;
+            const slabH = isSoft ? sSize.height : rSize.height;
 
             // 달의 위치 및 조도 계산
             const lat = location?.coords?.latitude ?? 37.5;

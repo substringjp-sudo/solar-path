@@ -72,6 +72,14 @@ export const LAYER_FRONT = 4;
  * 한 번에 그리는 경로(배율 1)는 renderOrder(해 −0.55 · 별 −0.5 < 구름 0)가 이미 그 순서입니다.
  */
 export const LAYER_CELESTIAL = 5;
+/**
+ * 저해상도 · 투명 · **산 다음** — 발밑 운해와 구름 속 안개(§96, `CloudSlab.meshBelow`).
+ *
+ * 구름을 산 앞에 얹으면(하늘 → 구름 → 산) 하늘 구름은 산 뒤로 잘 가지만 발밑 운해를 지형
+ * 격자가 통째로 덮습니다. 산 뒤에 얹으면 반대입니다. 그래서 관측자 아래 층만 따로 떼어 산
+ * 다음에 얹습니다 — 먼 골짜기 앞의 운해는 보이고, 가까운 사면은 슬랩의 DEM 가림(§83)이 비웁니다.
+ */
+export const LAYER_SOFT_CLOUD_BELOW = 6;
 
 /**
  * 저해상도 배율의 기본값.
@@ -473,6 +481,14 @@ export interface SceneComposerHandle {
   setSoftScale: (s: number) => void;
   /** 화면 크기가 바뀌면 호출 — 렌더 타깃을 다시 만듭니다. */
   setSize: (width: number, height: number) => void;
+  /**
+   * 도트 모드(§97). `rows` 는 내부 세로 화소 수 — 0 이면 끕니다. 화면에는 최근접으로 늘립니다.
+   */
+  setPixelArt: (rows: number) => void;
+  /** 실제로 그리는 내부 크기 — 도트 모드면 화면보다 작습니다. 구름 슬랩 해상도가 이걸 씁니다. */
+  renderSize: () => { width: number; height: number };
+  /** 이번 설정에서 저해상도 층 경로를 쓰는가 — 구름 슬랩 해상도를 고를 때 씁니다. */
+  softActive: () => boolean;
   render: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
   dispose: () => void;
   /** 검증용 — 실제로 쓰인 저해상도 버퍼 크기 */
@@ -536,8 +552,25 @@ export function createSceneComposer(
   rayCfg: GodRayConfig = DEFAULT_GOD_RAYS,
   ditherAmount: number = DEFAULT_DITHER
 ): SceneComposerHandle {
-  let w = Math.max(1, Math.floor(width));
-  let h = Math.max(1, Math.floor(height));
+  // 화면(드로잉 버퍼) 크기와, 실제로 그리는 **내부** 크기. 도트 모드(§97)가 꺼져 있으면 같습니다.
+  let fullW = Math.max(1, Math.floor(width));
+  let fullH = Math.max(1, Math.floor(height));
+  let pixelRows = 0;
+  let pixelFactor = 1;
+  let w = fullW;
+  let h = fullH;
+  // 도트 한 칸 = 화면 **정수** 화소(pixelFactor). 화면 높이가 줄 수의 배수가 아니면 그냥 늘릴 때
+  // 도트가 4·5화소로 섞여 줄무늬가 생깁니다. 줄 수는 요청에 가장 가까운 정수 배율에서 나옵니다.
+  const fitInternal = () => {
+    if (pixelRows > 0 && pixelRows < fullH) {
+      pixelFactor = Math.max(2, Math.round(fullH / pixelRows));
+      h = Math.ceil(fullH / pixelFactor);
+      w = Math.ceil(fullW / pixelFactor);
+    } else {
+      pixelFactor = 1;
+      w = fullW; h = fullH;
+    }
+  };
   let scale = Math.max(1, softScale);
   const bloom: BloomConfig = { ...bloomCfg };
   const rays: GodRayConfig = { ...rayCfg };
@@ -566,6 +599,7 @@ export function createSceneComposer(
 
   const rtSky = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
   const rtCloud = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
+  const rtCloudBelow = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
   /**
    * 블룸을 켜면 씬을 화면이 아니라 여기에 그립니다 — 밝은 부분을 뽑으려면
    * 완성된 그림을 **다시 읽어야** 하는데, 기본 프레임버퍼는 그럴 수
@@ -688,6 +722,40 @@ export function createSceneComposer(
 
   const opaqueQuad = new THREE.Mesh(quad, opaqueMat);
   const overQuad = new THREE.Mesh(quad, overMat);
+
+  /**
+   * **도트 모드**(§97) — 장면 전체를 세로 `pixelRows` 화소로 그리고, 화면에는 **최근접**으로
+   * 늘려 네모 화소 그대로 올립니다. 분석용 판(320px)을 크게 볼 때의 그 느낌입니다.
+   * 합성 경로의 마지막 출력(원래 화면)을 이 버퍼로 돌리고, 끝에서 한 번 늘립니다.
+   * 지형·태양이 여기 직접 그려질 수 있으므로 깊이가 필요합니다.
+   */
+  const rtPixel = new THREE.WebGLRenderTarget(w, h, {
+    ...rtOptions, depthBuffer: true,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
+  const copyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uTexSize: { value: new THREE.Vector2(1, 1) },
+      uFactor: { value: 1 },
+    },
+    vertexShader: BLIT_VERT,
+    // 화면 화소를 배율로 나눈 칸의 **가운데**를 읽습니다 — 모든 도트가 정확히 배율 × 배율.
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D uTex;
+      uniform vec2 uTexSize;
+      uniform float uFactor;
+      void main() {
+        vec2 t = (floor(gl_FragCoord.xy / uFactor) + 0.5) / uTexSize;
+        gl_FragColor = texture2D(uTex, t);
+      }
+    `,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const copyQuad = new THREE.Mesh(quad, copyMat);
+  copyQuad.frustumCulled = false;
   const brightQuad = new THREE.Mesh(quad, brightMat);
   const blurQuad = new THREE.Mesh(quad, blurMat);
   const rayQuad = new THREE.Mesh(quad, rayMat);
@@ -721,8 +789,11 @@ export function createSceneComposer(
   };
 
   const resize = () => {
+    fitInternal();
+    rtPixel.setSize(w, h);
     rtSky.setSize(softW(), softH());
     rtCloud.setSize(softW(), softH());
+    rtCloudBelow.setSize(softW(), softH());
     rtScene.setSize(w, h);
     rtBloomA.setSize(bloomW(), bloomH());
     rtBloomB.setSize(bloomW(), bloomH());
@@ -820,7 +891,7 @@ export function createSceneComposer(
     }
 
     // 4) 화면에 원본 + 번짐 + 광선
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(pixelRows > 0 ? rtPixel : null);
     bloomMat.uniforms.uBloom.value = rtBloomA.texture;
     // 꺼져 있어도 샘플러는 묶어 둡니다 — 안 묶인 sampler2D 는 기기에 따라
     // 경고나 검정 이상의 것을 냅니다. 세기 0이라 결과에는 영향이 없습니다.
@@ -842,11 +913,15 @@ export function createSceneComposer(
     // 블룸이든 광선이든 **완성된 그림을 다시 읽어야** 합니다. 기본
     // 프레임버퍼는 읽을 수 없으므로 후처리가 하나라도 켜져 있으면 씬을
     // 버퍼에 그립니다. 둘 다 꺼져 있으면 예전처럼 곧장 화면에 그립니다.
-    const softPath = scale > 1.0001;
+    // 도트 모드는 내부 해상도가 이미 작으므로 저해상도 층을 또 줄이지 않습니다 — 구름을 절반으로
+    // 그려 늘리면 도트 안에서 번집니다(§97).
+    const softPath = scale > 1.0001 && pixelRows === 0;
     const postOn =
       bloom.strength > 0.001 ||
       (softPath && rays.strength > 0.001 && sunDirWorld !== null);
-    const sceneTarget = postOn ? rtScene : null;
+    // 도트 모드면 화면 대신 도트 버퍼가 마지막 출력입니다(끝에서 최근접으로 늘림).
+    const finalTarget = pixelRows > 0 ? rtPixel : null;
+    const sceneTarget = postOn ? rtScene : finalTarget;
 
     if (!softPath) {
       // 층을 나눌 이득이 없으면 한 번에 그립니다 (패스 비용만 늘어납니다).
@@ -893,6 +968,20 @@ export function createSceneComposer(
       camera.layers.set(LAYER_MID);
       renderer.render(scene, camera);
 
+      // 3-2b) 발밑 운해·구름 속 안개 — 산 **다음**(§96). 그릴 것이 없으면 판을 건너뜁니다.
+      let belowVisible = false;
+      scene.traverseVisible(o => { if (!belowVisible && o.layers.isEnabled(LAYER_SOFT_CLOUD_BELOW)) belowVisible = true; });
+      if (belowVisible) {
+        camera.layers.set(LAYER_SOFT_CLOUD_BELOW);
+        renderer.setRenderTarget(rtCloudBelow);
+        renderer.setClearAlpha(0);
+        renderer.clear(true, true, true);
+        renderer.render(scene, camera);
+        renderer.setClearAlpha(1);
+        renderer.setRenderTarget(sceneTarget);
+        blit(renderer, overQuad, rtCloudBelow.texture);
+      }
+
       // 3-3) 최상위 가이드/경로 — 원해상도.
       camera.layers.set(LAYER_FRONT);
       renderer.render(scene, camera);
@@ -903,6 +992,14 @@ export function createSceneComposer(
       runPost(renderer, camera, softPath);
     } else {
       rayGain = 0;
+    }
+
+    // 도트 모드 — 내부 해상도 그림을 최근접으로 화면에 늘립니다.
+    if (pixelRows > 0) {
+      renderer.setRenderTarget(null);
+      renderer.autoClear = true;
+      copyMat.uniforms.uFactor.value = pixelFactor;
+      blit(renderer, copyQuad, rtPixel.texture);
     }
 
     camera.layers.mask = prevMask;
@@ -923,10 +1020,18 @@ export function createSceneComposer(
       resize();
     },
     setSize: (width: number, height: number) => {
-      w = Math.max(1, Math.floor(width));
-      h = Math.max(1, Math.floor(height));
+      fullW = Math.max(1, Math.floor(width));
+      fullH = Math.max(1, Math.floor(height));
       resize();
     },
+    setPixelArt: (rows: number) => {
+      const next = Number.isFinite(rows) && rows > 0 ? Math.round(rows) : 0;
+      if (next === pixelRows) return;
+      pixelRows = next;
+      resize();
+    },
+    renderSize: () => ({ width: w, height: h }),
+    softActive: () => scale > 1.0001 && pixelRows === 0,
     render,
     softSize: () => ({ width: softW(), height: softH() }),
     setBloom: (cfg: Partial<BloomConfig>) => {
@@ -963,6 +1068,9 @@ export function createSceneComposer(
     dispose: () => {
       rtSky.dispose();
       rtCloud.dispose();
+      rtCloudBelow.dispose();
+      rtPixel.dispose();
+      copyMat.dispose();
       rtScene.dispose();
       rtBloomA.dispose();
       rtBloomB.dispose();

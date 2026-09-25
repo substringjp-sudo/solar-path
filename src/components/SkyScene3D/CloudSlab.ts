@@ -493,8 +493,12 @@ float nf_density(vec3 p, float genus, float cover){
 }
 `;
 
+// ⚠ 깊이는 **먼 쪽**(≈1)에 둡니다(§96). 한 번에 그리는 경로(배율 1)에서 지형은 불투명 큐라
+//   renderOrder 와 상관없이 구름보다 먼저 그려집니다. 하늘 구름 판이 깊이 검사를 켜고 가장
+//   먼 깊이에 서 있으면, 지형이 그려진 화소에서 저절로 빠집니다(산이 구름 앞). 운해 판
+//   (meshBelow)은 깊이 검사를 끄고 지형 위에 얹습니다.
 const VERT = `
-void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }
+void main(){ gl_Position = vec4(position.xy, 0.99999, 1.0); }
 `;
 
 /**
@@ -763,6 +767,9 @@ uniform vec3  uSkyAdd;
 // 구름 속(§93) — 관측자를 감싼 구름의 소광(1/km, 0 이면 끔)·밑면·윗면(km)과
 // 관측 고도의 직달광(광원이 달이면 이득까지 곱한 값).
 uniform float uFogBeta, uFogBaseKm, uFogTopKm;
+// 두 번에 나눠 그리기(§96): 0 = 한 번에 다, 1 = 관측자 **위** 층만(산보다 먼저),
+// 2 = 관측자 **아래** 층(운해)과 구름 속 안개만(산보다 나중에).
+uniform float uPassMode;
 uniform vec3  uFogBeam;
 uniform float uCityLight;
 uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
@@ -1020,6 +1027,8 @@ void main(){
     float thickBelow = (L == 2 && uLowDeckKm.y > 0.0)
       ? max(uLowDeckKm.y - uLowDeckKm.x, 0.15) : hThick;
     bool layerBelow = uObserverAltKm > deckTop;
+    if (uPassMode > 0.5 && uPassMode < 1.5 && layerBelow) continue;
+    if (uPassMode > 1.5 && !layerBelow) continue;
     // 덱 **속**(밑면 < 관측자 ≤ 윗면)이면 올려다본 구름이 관측자 바로 위에서
     // 시작합니다. 아래를 보면 안 그립니다(안개 상태는 그리지 않음 — §82.5).
     float hSurf = layerBelow ? deckTop : max(hBase, uObserverAltKm + 0.01);
@@ -1668,7 +1677,8 @@ void main(){
   // 1 − exp(−β·d). β 는 층의 소광(TAUK_*)에 관측 고도 운량을 곱한 것이라 새 상수가
   // 없습니다. 밝기는 위 2-stream 의 내부 평균복사와 **같은 식**을 관측자 깊이에서
   // 푼 것입니다 — 윗면에 가까울수록 밝고, 밑면에 가까울수록 어둡습니다.
-  if (uFogBeta > 0.0 && uObserverAltKm > uFogBaseKm && uObserverAltKm < uFogTopKm) {
+  if (uFogBeta > 0.0 && uObserverAltKm > uFogBaseKm && uObserverAltKm < uFogTopKm
+      && (uPassMode < 0.5 || uPassMode > 1.5)) {
     float hObs = uObserverAltKm;
     float dExit = sinE > 1e-4 ? (uFogTopKm - hObs) / sinE
                 : (sinE < -1e-4 ? (hObs - uFogBaseKm) / (-sinE) : 1e3);
@@ -1719,6 +1729,14 @@ void main(){
 
 export interface CloudSlabHandle {
   mesh: THREE.Mesh;
+  /**
+   * **발밑 운해·구름 속 안개 전용** 두 번째 판(§96). `setSplitPasses(true)` 를 부르면 `mesh` 는
+   * 관측자 위 층만, 이것은 아래 층과 안개만 그립니다. 앱은 `mesh` 를 산보다 먼저, 이것을 산보다
+   * 나중에 합성합니다 — 그래야 하늘 구름은 산 뒤로, 운해는 먼 골짜기 앞으로 갑니다. uniform 은
+   * `mesh` 와 **같은 객체**를 나눠 씁니다(uPassMode 만 따로).
+   */
+  meshBelow: THREE.Mesh;
+  setSplitPasses: (on: boolean) => void;
   material: THREE.ShaderMaterial;
   /** 운량장. 검증 하네스가 내용을 읽습니다. */
   coverTex: THREE.DataTexture;
@@ -1843,6 +1861,7 @@ export function createCloudSlab(opts: {
       uLightGain: { value: 1 },
       uSkyAdd: { value: new THREE.Vector3(0, 0, 0) },
       uFogBeta: { value: 0 },
+      uPassMode: { value: 0 },
       uFogBaseKm: { value: -1 },
       uFogTopKm: { value: -1 },
       uFogBeam: { value: new THREE.Vector3(0, 0, 0) },
@@ -1961,9 +1980,25 @@ export function createCloudSlab(opts: {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
   mesh.name = 'cloudSlab';
+  // 두 번째 판 — 재질을 복제하되 uniform 항목은 **같은 객체**를 가리킵니다(세터들이 .value 만
+  // 바꾸므로 한쪽을 고치면 양쪽에 들어갑니다). uPassMode 만 따로 둡니다.
+  const materialBelow = material.clone();
+  materialBelow.uniforms = { ...material.uniforms, uPassMode: { value: 2 } };
+  materialBelow.depthTest = false;
+  const meshBelow = new THREE.Mesh(geometry, materialBelow);
+  meshBelow.frustumCulled = false;
+  meshBelow.name = 'cloudSlabBelow';
+  meshBelow.visible = false;
 
   return {
     mesh,
+    meshBelow,
+    setSplitPasses: (on: boolean) => {
+      material.uniforms.uPassMode.value = on ? 1 : 0;
+      // 나눠 그릴 때만 하늘 구름 판이 지형 깊이에 가려집니다(위 VERT 주석). 기본은 예전 그대로.
+      material.depthTest = on;
+      material.needsUpdate = true;
+    },
     material,
     coverTex,
     genusTex,
@@ -2027,6 +2062,7 @@ export function createCloudSlab(opts: {
     dispose: () => {
       geometry.dispose();
       material.dispose();
+      materialBelow.dispose();
       coverTex.dispose();
       genusTex.dispose();
       horizonTarget?.dispose();
@@ -2269,6 +2305,7 @@ export interface CloudSlabUpdate {
 /** 매 프레임 부르는 쪽. 카메라와 태양만 갱신하므로 값쌉니다. */
 export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): void {
   handle.mesh.visible = u.visible;
+  handle.meshBelow.visible = false;
   if (!u.visible) return;
   const uni = handle.material.uniforms;
 
@@ -2320,6 +2357,16 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   (uni.uBeamLow.value as THREE.Vector3).set(bl.r, bl.g, bl.b);
   (uni.uBeamMid.value as THREE.Vector3).set(bm.r, bm.g, bm.b);
   (uni.uBeamHigh.value as THREE.Vector3).set(bh.r, bh.g, bh.b);
+  // 두 번째 판(§96)은 그릴 것이 있을 때만 켭니다 — 관측자 아래 층이 있거나 구름 속일 때.
+  // "아래" 는 셰이더와 같은 식: 저층은 덱 윗면(모르면 층 높이), 중·상층은 층 높이.
+  if (uni.uPassMode.value > 0.5) {
+    const obsKm = uni.uObserverAltKm.value as number;
+    const lowDeck = uni.uLowDeckKm.value as THREE.Vector2;
+    const lowSurf = lowDeck.y > 0 ? Math.max(lowDeck.y, alt.x) : alt.x;
+    const fogOn = (uni.uFogBeta.value as number) > 0
+      && obsKm > (uni.uFogBaseKm.value as number) && obsKm < (uni.uFogTopKm.value as number);
+    handle.meshBelow.visible = fogOn || obsKm > lowSurf || obsKm > alt.y || obsKm > alt.z;
+  }
   // 구름 속 안개가 받는 직달광 — 관측 고도에서(§93). 안개가 꺼져 있으면 안 구합니다.
   if ((uni.uFogBeta.value as number) > 0) {
     const bf = beamOf(Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000);

@@ -119,17 +119,26 @@ for (const o of [ground, field.mesh, bands.group]) assignLayer(o, LAYER_MID);
 // 앱과 같이 — 천체는 구름 아래 층(§94). 옛 코드에는 이 층이 없어 MID 로 갑니다(대조용).
 assignLayer(sun.mesh, LAYER_CELESTIAL ?? LAYER_MID);
 assignLayer(slab.mesh, LAYER_SOFT_CLOUD);
+// 앱(SkyScene3D)과 같이 — 새 코드면 구름을 두 번에 나눠 그립니다(§96).
+if (slab.setSplitPasses && SC.LAYER_SOFT_CLOUD_BELOW) {
+  slab.setSplitPasses(true);
+  slab.mesh.renderOrder = -0.49; slab.meshBelow.renderOrder = 0.5;
+  scene.add(slab.meshBelow); assignLayer(slab.meshBelow, SC.LAYER_SOFT_CLOUD_BELOW);
+}
 
 const cam = new THREE.PerspectiveCamera(FOVY, W/H, 0.1, 1000); cam.position.set(0,0,0);
 { const v = dirOf(CAM_PITCH, CAM_AZ); cam.lookAt(v.x, v.y, v.z); cam.updateMatrixWorld(true); }
 updateTerrainFieldEye(field, cam);
 const composer = createSceneComposer(W, H);
+// ?scale=1 이면 한 번에 그리는 경로(빠른 기기)로 — 판정이 두 경로를 다 봅니다.
+const SCALE = Number(new URLSearchParams(location.search).get('scale') || 2);
+composer.setSoftScale(SCALE);
 composer.setGodRays({ strength: 0 });
 composer.setSun(dirOf(SUN_ALT, SUN_AZ), SUN_ALT);
 
 function slabUpdate(dataOut, occludeSky){
   slab.material.uniforms.uTerrainOccludeSky.value = occludeSky ? 1 : 0;
-  const s = composer.softSize ? composer.softSize() : { width: W, height: H };
+  const s = composer.softScale > 1.0001 ? composer.softSize() : { width: W, height: H };
   const wd = { speedKmh: 0, bearingDeg: 0 };
   updateCloudSlab(slab, { camera: cam, widthPx: dataOut ? W : s.width, heightPx: dataOut ? H : s.height,
     sunDir: dirOf(SUN_ALT, SUN_AZ), sunAltDeg: SUN_ALT, sunAzDeg: SUN_AZ,
@@ -141,6 +150,8 @@ function shot(){ composer.render(r, scene, cam); gl.readPixels(0,0,W,H,gl.RGBA,g
 // 슬랩만, 알파 자료(자료 2)로 — 합성기 없이 원해상도.
 function slabAlpha(occludeSky){
   const only = new THREE.Scene(); only.add(slab.mesh);
+  const pm = slab.material.uniforms.uPassMode ? slab.material.uniforms.uPassMode.value : null;
+  if (pm !== null) slab.material.uniforms.uPassMode.value = 0;
   slabUpdate(2, occludeSky);
   const rt = new THREE.WebGLRenderTarget(W, H);
   // ⚠ 슬랩은 LAYER_SOFT_CLOUD 에 배정돼 있어 카메라 기본 레이어(0)로는 **안 그려집니다**.
@@ -150,6 +161,7 @@ function slabAlpha(occludeSky){
   cam.layers.mask = mask;
   const b = new Uint8Array(W*H*4); r.readRenderTargetPixels(rt, 0, 0, W, H, b);
   r.setRenderTarget(null); r.setClearColor(0x000000, 1); rt.dispose();
+  if (pm !== null) slab.material.uniforms.uPassMode.value = pm;
   scene.add(slab.mesh);
   return b;
 }

@@ -27,15 +27,12 @@ const { ORIGIN } = require('./paths');
 let pass = 0, fail = 0;
 const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fail++; console.log('  FAIL: ' + l); } };
 
-(async () => {
-  const b = await chromium.launch({
-    executablePath: '/opt/pw-browsers/chromium',
-    args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
-  });
+async function runOnce(b, SCALE) {
+  console.log(`\n######## 합성 배율 ${SCALE} ${SCALE === '1' ? '(한 번에 그리는 경로)' : '(저해상도 경로)'}`);
   const p = await b.newPage();
   const pageErrors = [];
   p.on('pageerror', e => pageErrors.push(e.message));
-  await p.goto(ORIGIN + '/sunrise-strip.html', { timeout: 600000 });
+  await p.goto(ORIGIN + '/sunrise-strip.html?scale=' + SCALE, { timeout: 600000 });
   await p.waitForFunction(() => /^DONE::/.test(document.title), null, { timeout: 600000, polling: 500 }).catch(() => {});
   const title = await p.title();
   const st = await p.evaluate(() => window.__stats || null);
@@ -50,11 +47,11 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
       if (Math.max(Math.abs(a[i] - n[i]), Math.abs(a[i + 1] - n[i + 1]), Math.abs(a[i + 2] - n[i + 2])) > 8) c++;
     return c;
   });
-  await b.close();
+  await p.close();
 
   console.log('== 셰이더 · GL ==');
   ok(pageErrors.length === 0 && !/ERR/.test(title), `컴파일·예외 없음 (${title}${errs.length ? ' — ' + errs[0] : ''})`);
-  if (!st) { console.log('FAILURES — __stats 없음'); process.exit(1); }
+  if (!st) { ok(false, '__stats 없음'); return; }
   ok(st.glError === 0, `glGetError == 0 (${st.glError})`);
 
   console.log('\n== 전제 ==');
@@ -64,7 +61,16 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   console.log('\n== 자 ==');
   ok(st.태양화소 === 0, `흐린 하늘에서 해가 안 보인다 (해가 밝힌 화소 ${st.태양화소})`);
   ok(st.띠화소 === 0, `그려진 능선 위에 구름이 잘린 트인 띠가 없다 (${st.띠화소} 화소 · ${st.띠열} 열 · 최대 ${st.띠높이_최대.toFixed(2)}°)`);
+}
 
+(async () => {
+  const b = await chromium.launch({
+    executablePath: '/opt/pw-browsers/chromium',
+    args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
+  });
+  // 두 경로 다 — 앱은 기기 속도에 따라 배율 1~2 사이를 오갑니다(§96).
+  for (const sc of ['2', '1']) await runOnce(b, sc);
+  await b.close();
   console.log(`\n${fail ? 'FAILURES' : 'ALL PASS'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();
