@@ -735,6 +735,100 @@ export function beamAtAltitude(
   );
 }
 
+// ── 3b) 달빛 (§92) ─────────────────────────────────────────────────────────
+//
+// 달빛은 햇빛을 되비춘 것이라 **색과 방향 분포가 햇빛과 같고 세기만 다릅니다.**
+// 그래서 하늘도 구름도 "해를 달 자리에 둔 낮" 을 그대로 계산해 이득만 곱합니다.
+//
+// 예전에는 구름에만 상수 달빛 `(0.045, 0.068, 0.098) × 조도 × 2.5` 를 더했습니다.
+// 보름에 대낮 하늘 복사휘도와 맞먹는 값이라, 밤 순응(16배)을 거치면 얇은 상층운이
+// 대낮 하늘처럼 하늘색으로 빛났습니다. 하늘에는 달빛이 아예 없어 틈은 새까맸습니다
+// (2026-09-25 21:37 요네자와, 달 98%). 달 아래 구름 ÷ 하늘 비가 낮의 28배였습니다.
+
+/**
+ * 이득의 닻 — **보름달 하늘은 해가 이만큼 내려간 박명 하늘과 밝기가 같습니다.**
+ *
+ * 보름달 밤 천정 하늘은 V 17.5~18 등급/초² 안팎이고, 박명 천정이 그 밝기가 되는 것은
+ * 해가 −10~−11° 일 때입니다(대략값). 이 렌더의 밝기 단위는 박명을 눈 순응 쪽으로
+ * 눌러 둔 것이라(낮 ÷ −10° 가 물리로는 수십만 배, 여기서는 160배) 물리 비
+ * (보름달 ÷ 해 ≈ 2.5×10⁻⁶)를 그대로 쓰면 안 보입니다. 대신 **같은 물리 밝기는 같은
+ * 화면 밝기**가 되도록 이 렌더의 박명 하늘에 붙입니다.
+ */
+export const MOON_SKY_ANCHOR_SUN_DEG = -10.5;
+/** 닻을 잰 달의 고도. 달 고도가 바뀌면 낮 하늘이 해 고도로 바뀌는 만큼 바뀝니다. */
+export const MOON_REF_ALT_DEG = 45;
+
+/** 하늘 반구 조도의 6점 구적 — CloudSlab 셰이더의 `ambHemi` 와 같은 마디입니다. */
+const HEMI_NODES: ReadonlyArray<readonly [number, number]> = [
+  [22, 28], [22, 70], [22, 145], [56, 28], [56, 70], [56, 145],
+];
+const lumOf = (c: RGB) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+/** 해가 `sunAltDeg` 에 있을 때 하늘 반구 조도(휘도, 6점 평균). */
+export function hemiSkyLuminance(sunAltDeg: number, p: AtmosphereParams): number {
+  const D = Math.PI / 180;
+  const sS = Math.sin(sunAltDeg * D), cS = Math.cos(sunAltDeg * D);
+  let s = 0;
+  for (const [e, az] of HEMI_NODES) {
+    const cg = Math.sin(e * D) * sS + Math.cos(e * D) * cS * Math.cos(az * D);
+    s += lumOf(skyRadiance(e, Math.acos(Math.max(-1, Math.min(1, cg))) / D, sunAltDeg, p, 0));
+  }
+  return s / HEMI_NODES.length;
+}
+
+const moonGainCache = new WeakMap<AtmosphereParams, number>();
+/** 보름달의 이득 K — 닻에서 한 번 구해 대기마다 기억합니다. */
+export function moonSkyGain(p: AtmosphereParams): number {
+  const hit = moonGainCache.get(p);
+  if (hit !== undefined) return hit;
+  const k = Math.max(0, hemiSkyLuminance(MOON_SKY_ANCHOR_SUN_DEG, p) - lumOf(NIGHT_SKY))
+    / Math.max(1e-9, hemiSkyLuminance(MOON_REF_ALT_DEG, p));
+  moonGainCache.set(p, k);
+  return k;
+}
+
+/**
+ * 위상에 따른 달 밝기(보름 = 1). Allen 의 등급식 Δm = 0.026|α| + 4×10⁻⁹α⁴,
+ * α 는 위상각(°) — 조명 비율 f 에서 α = acos(2f − 1).
+ */
+export function moonPhaseFactor(fraction: number): number {
+  const f = Math.max(0, Math.min(1, fraction));
+  if (f <= 0) return 0;
+  const a = (Math.acos(2 * f - 1) * 180) / Math.PI;
+  return Math.pow(10, -0.4 * (0.026 * a + 4e-9 * a ** 4));
+}
+
+/** 밤이 깊은 정도 — CloudSlab 셰이더의 `nightFactor` 와 같은 식(−2° 에서 0, −12° 에서 1). */
+export function nightFactorOf(sunAltDeg: number): number {
+  return Math.max(0, Math.min(1, (-sunAltDeg - 2) / 10));
+}
+
+export interface MoonLight {
+  /** 달 자리에 둔 해의 하늘·직달에 곱할 이득. 낮이면 0. */
+  gain: number;
+  /**
+   * 구름을 달로 비출지. 구름 셰이더는 광원을 하나만 계산하므로, 박명과 달빛 중
+   * 하늘을 더 밝히는 쪽을 고릅니다. 밤하늘 바닥의 2% 도 안 되는 달(초승·지고 난 뒤)은
+   * 고르지 않습니다 — 그 밤은 예전과 바이트 단위로 같습니다.
+   */
+  useMoon: boolean;
+}
+
+export function moonLight(
+  sunAltDeg: number,
+  moonAltDeg: number,
+  moonFraction: number,
+  p: AtmosphereParams,
+): MoonLight {
+  const nf = nightFactorOf(sunAltDeg);
+  const ph = moonPhaseFactor(moonFraction);
+  if (nf <= 0 || ph <= 0) return { gain: 0, useMoon: false };
+  const gain = moonSkyGain(p) * ph * nf;
+  const moonPart = gain * hemiSkyLuminance(moonAltDeg, p);
+  const twiPart = Math.max(0, hemiSkyLuminance(sunAltDeg, p) - lumOf(NIGHT_SKY));
+  return { gain, useMoon: moonPart > Math.max(twiPart, 0.02 * lumOf(NIGHT_SKY)) };
+}
+
 // ── 4) 구름 ────────────────────────────────────────────────────────────────
 
 /** 대기 척도고도 (km) — 수평 경로의 공기 밀도 감소에 사용 */

@@ -40,11 +40,14 @@
  */
 import * as THREE from 'three';
 import { EARTH_RADIUS_KM_GLSL } from '../../utils/earth';
-import { ATMOSPHERE_GLSL, makeTuningUniforms, type AtmosphereParams } from '../../utils/atmosphere';
+import {
+  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, NIGHT_SKY, type AtmosphereParams,
+} from '../../utils/atmosphere';
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import type { RGB } from '../../utils/sunsetPhysics';
 import { lowLayerGenus } from '../../utils/cloudPresets';
+import { LAYER_BAND_KM } from '../../utils/cloudProfile';
 // ⚠ 지평선은 **지면과 같은 함수**로 구합니다. 식을 복사해 두면 한쪽만
 // 바뀌었을 때 그 차이가 그대로 하늘이 비치는 띠가 됩니다.
 import { seaHorizonDipDeg } from './TerrainRing';
@@ -700,11 +703,20 @@ uniform vec3  uCamPos;
 // 관측 고도에서 지평선이 내려앉은 만큼의 sin (음수). 지면과 구름이
 // **정확히 같은 선에서** 만나게 하는 값입니다.
 uniform float uHorizonSinE;
+// ⚠ uSunDir·uSunAltDeg 는 **구름을 비추는 광원**입니다. 밤에 달이 박명보다 하늘을
+//   더 밝히면 여기에 달이 들어옵니다(§92). 화면 순응·밤 여부는 진짜 해 고도
+//   uDispSunAltDeg 로 봅니다.
 uniform vec3  uSunDir;
 uniform float uSunAltDeg, uSunAzDeg;
-uniform vec3  uMoonDir;
-uniform float uMoonAltDeg;
-uniform float uMoonIllum;
+uniform float uDispSunAltDeg;
+// 광원이 달이면 하늘빛에 곱하는 이득과 더하는 밤하늘 바닥. 해면 1 과 0 이라
+// 식이 그대로입니다(x·1 + 0 = x — 낮 화면은 한 바이트도 안 바뀝니다).
+uniform float uLightGain;
+uniform vec3  uSkyAdd;
+// 구름 속(§93) — 관측자를 감싼 구름의 소광(1/km, 0 이면 끔)·밑면·윗면(km)과
+// 관측 고도의 직달광(광원이 달이면 이득까지 곱한 값).
+uniform float uFogBeta, uFogBaseKm, uFogTopKm;
+uniform vec3  uFogBeam;
 uniform float uCityLight;
 uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
 uniform sampler2D uCoverTex;
@@ -729,6 +741,12 @@ uniform float uDataOut;
 uniform float uCloudModel, uCloudAsym, uCloudAniso, uCloudAnisoW,
               uCloudGroundAlb, uCloudSideLit, uCloudFaceUp;
 
+// 광원(해 또는 달)이 밝히는 하늘. 달이면 이득을 곱하고 밤하늘 바닥을 더합니다(§92).
+vec3 slab_sky(float elevDeg, float cosGamma){
+  return atm_skyRadiance(elevDeg, cosGamma, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU)
+    * uLightGain + uSkyAdd;
+}
+
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
   vec2 ndc = (gl_FragCoord.xy / uRes) * 2.0 - 1.0;
@@ -751,7 +769,7 @@ void main(){
   //   판정은 아래 반복문에서 합니다.
   float lowestLayerKm = min(slab_lowSurfKm(), min(uLayerAltKm.y, uLayerAltKm.z));
   bool anyLayerBelow = uObserverAltKm > lowestLayerKm;
-  if (sinE <= uHorizonSinE && !anyLayerBelow) discard;   // 그 아래는 지형과 지면이 담당
+  if (sinE <= uHorizonSinE && !anyLayerBelow && uFogBeta <= 0.0) discard;   // 그 아래는 지형과 지면이 담당
   float cosE = max(sqrt(max(0.0, 1.0 - sinE*sinE)), 1e-4);
   // §84 — 이 시선이 땅에 막히는 거리. 그보다 먼 (관측자보다 위) 층은 안 그립니다.
   //
@@ -775,7 +793,6 @@ void main(){
       && sinE > uHorizonSinE)
     tBlockSky = min(tBlockSky, slab_bandBlockKm(dir, sinE, cosE));
   float cosG = clamp(dot(dir, uSunDir), -1.0, 1.0);
-  float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
 
   vec2 sunXZ = length(uSunDir.xz) > 1e-4 ? normalize(uSunDir.xz) : vec2(0.0, 1.0);
 
@@ -791,7 +808,7 @@ void main(){
   //
   // 즉 이 시선 의존이 지금은 지평선 집중을 만드는 일을 겸하고 있습니다.
   // 걷어 내려면 그 집중을 다른 곳에서 만들어 줘야 합니다(계획 22절).
-  vec3 ambUp   = atm_skyRadiance(72.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+  vec3 ambUp   = slab_sky(72.0, cosG);
   // ⚠ 아래쪽 주변광을 **12°에서 뜨면 노을빛을 통째로 놓칩니다.**
   //
   // 해가 지평선 아래로 내려가면 따뜻한 띠가 고도 0~6°로 얇게 내려앉습니다.
@@ -803,7 +820,7 @@ void main(){
   // 태양 0°에서는 12°도 +0.756 이라 멀쩡합니다. 결함은 해가 진 뒤에만
   // 나타나고, 사용자가 준 19:01(따뜻) → 19:11·19:16(남색) 화면이 그 전이
   // 그대로입니다.
-  vec3 ambDown = atm_skyRadiance(uAmbDownDeg, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+  vec3 ambDown = slab_sky(uAmbDownDeg, cosG);
   vec3 ambBase = mix(ambDown, ambUp, 0.35);
 
   // ── 구름을 비추는 하늘: 시선과 무관한 **반구 조도** (계획 40절) ──────
@@ -833,7 +850,7 @@ void main(){
     for (int qa = 0; qa < 3; qa++){
       float qAz = qa == 0 ? 28.0 : (qa == 1 ? 70.0 : 145.0);
       float qCg = qSe * qSinS + qCe * qCosS * cos(qAz * 0.017453293);
-      ambHemi += atm_skyRadiance(qElev, qCg, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+      ambHemi += slab_sky(qElev, qCg);
     }
   }
   ambHemi *= (1.0 / 6.0);
@@ -862,8 +879,8 @@ void main(){
       float vAz = va == 0 ? -25.0 : (va == 1 ? 15.0 : 40.0);
       float cS0 = vSe * qSinS + vCe * qCosS * cos(vAz * 0.017453293);
       float cS1 = vSe * qSinS + vCe * qCosS * cos((180.0 + vAz) * 0.017453293);
-      ambVertSun  += atm_skyRadiance(vElev, cS0, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
-      ambVertAnti += atm_skyRadiance(vElev, cS1, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+      ambVertSun  += slab_sky(vElev, cS0);
+      ambVertAnti += slab_sky(vElev, cS1);
     }
   }
   ambVertSun *= (1.0 / 6.0);
@@ -871,12 +888,15 @@ void main(){
   }
 
   // 지평선 부근 대기 색상 (먼 구름이 지평선과 융합될 때 쓸 안개 빛)
-  vec3 horizonHaze = atm_skyRadiance(1.0, cosG, uSunAltDeg, uBeta, uAngstrom, uElevScale, uOzoneDU);
+  vec3 horizonHaze = slab_sky(1.0, cosG);
 
   // 밤 환경 계수 (달빛과 도시 불빛 반사율 상향)
-  float nightFactor = clamp((-uSunAltDeg - 2.0) / 10.0, 0.0, 1.0);
-  float moonAltFactor = clamp((uMoonAltDeg + 2.0) / 10.0, 0.0, 1.0);
-  vec3 moonColor = vec3(0.045, 0.068, 0.098) * uMoonIllum * moonAltFactor * 2.5;
+  // 진짜 해로 봅니다 — 광원이 달이어도 밤은 밤입니다.
+  float nightFactor = clamp((-uDispSunAltDeg - 2.0) / 10.0, 0.0, 1.0);
+  // 달빛은 따로 더하지 않습니다(§92). 예전의 상수 달빛
+  // vec3(0.045, 0.068, 0.098) × 조도 × 2.5 는 보름에 대낮 하늘과 맞먹어 밤 구름이
+  // 하늘색으로 빛났습니다. 이제 달이 광원 자리(uSunDir)에 들어와 햇빛과 같은
+  // 식으로 비춥니다.
   // 도시 스카이글로. 예전 값 vec3(0.14,0.082,0.032)*2.5 는 두 가지가
   // 틀렸습니다: (1) 세기가 커서 한밤중(태양 -42°) 화면 평균 휘도가 124로
   // 대낮(145)에 육박했고, (2) R:B 가 4.4:1 이라 순금색이었습니다.
@@ -1131,10 +1151,6 @@ void main(){
           vec3 cc = uBeamLow * nfSunT * nfPh * (0.20 + 1.15 * nfT_)
                   + ambBase * (0.26 + 0.30 * nfT_);
 
-          if (nightFactor > 0.01 && moonAltFactor > 0.01) {
-            float nfMoonPh = 0.40 + 0.60 * pow(max(cosMoon, 0.0), 4.0);
-            cc += moonColor * nfSunT * nfMoonPh * (0.25 + 0.60 * nfT_) * nightFactor;
-          }
           if (nightFactor > 0.01 && uCityLight > 0.01) {
             float nfHFrac = clamp((p.y - nfB) / nfT, 0.0, 1.0);
             float nfUpwell = (1.0 - exp(-nfTau * 0.80)) * (0.85 - 0.40 * nfHFrac);
@@ -1495,13 +1511,6 @@ void main(){
         cc = lit + amb;
       }
 
-      // 밤하늘 달빛 직달광 & 산란광
-      if (nightFactor > 0.01 && moonAltFactor > 0.01) {
-        float moonPh = 0.40 + 0.60 * pow(max(cosMoon, 0.0), 4.0);
-        vec3 moonLit = moonColor * reach * moonPh * (0.25 + 0.60 * T) * vertLit;
-        cc += moonLit * nightFactor;
-      }
-
       // 밤하늘 지상 도시 불빛 (구름 밑면 S=0에 가장 강하게 집중 투영)
       if (nightFactor > 0.01 && uCityLight > 0.01) {
         float layerHeightAtten = L == 2 ? 1.0 : (L == 1 ? 0.40 : 0.10);
@@ -1592,11 +1601,43 @@ void main(){
   // ⚠ 아래 층(운해)이 있으면 끕니다. 켜 두면 지평선 아래를 0 으로 만들어
   //   운해를 통째로 지우고, 지평선 바로 위에는 구름바다에 검은 줄을 긋습니다.
   float horizonFade = anyLayerBelow ? 1.0 : smoothstep(uHorizonSinE, uHorizonSinE + 0.004, sinE);
+  float accPre = acc;
   acc *= horizonFade;
+
+  // ── 구름 속 (§93) ──────────────────────────────────────────────────────
+  //
+  // 산 위가 구름 속이면 그 구름이 **눈앞에서부터** 시야를 덮습니다. 예전에는
+  // 덱 속에서도 머리 위 구름만 그리고 안개는 그리지 않았습니다(§82.3).
+  //
+  // 불투명도는 시선이 구름을 빠져나가거나(윗면·밑면) 땅에 닿을 때까지의 거리로
+  // 1 − exp(−β·d). β 는 층의 소광(TAUK_*)에 관측 고도 운량을 곱한 것이라 새 상수가
+  // 없습니다. 밝기는 위 2-stream 의 내부 평균복사와 **같은 식**을 관측자 깊이에서
+  // 푼 것입니다 — 윗면에 가까울수록 밝고, 밑면에 가까울수록 어둡습니다.
+  if (uFogBeta > 0.0 && uObserverAltKm > uFogBaseKm && uObserverAltKm < uFogTopKm) {
+    float hObs = uObserverAltKm;
+    float dExit = sinE > 1e-4 ? (uFogTopKm - hObs) / sinE
+                : (sinE < -1e-4 ? (hObs - uFogBaseKm) / (-sinE) : 1e3);
+    // 98% 를 넘는 거리 너머는 걷지 않습니다.
+    float dMax = min(dExit, 4.0 / uFogBeta);
+    float dHit = slab_terrainHitSeg(dir, sinE, cosE, 0.0, dMax);
+    // DEM 이 없으면 평평한 발밑(눈높이)만 압니다.
+    if (dHit > 1e8 && uDemValid < 0.5 && uDemFarValid < 0.5 && sinE < -1e-4)
+      dHit = (uEyeHeightM / 1000.0) / (-sinE);
+    float fogA = 1.0 - exp(-uFogBeta * min(dExit, dHit));
+    float tpF = (1.0 - uCloudAsym) * uFogBeta * (uFogTopKm - uFogBaseKm);
+    float xdF = (1.0 - uCloudAsym) * uFogBeta * (uFogTopKm - hObs);
+    float kkF = (1.0 - uCloudGroundAlb) / (2.0 + tpF * (1.0 - uCloudGroundAlb));
+    vec3 FdnF = uFogBeam * max(uSunDir.y, 0.0) + (uCloudModel > 0.5 ? ambHemi : ambBase);
+    vec3 Lfog = FdnF * max(0.0, 1.0 - kkF * (1.0 + xdF));
+    // 구름 쪽은 지평선 페이드를 먹인 알파로 다시 미리곱합니다.
+    vec3 linC = accPre > 1e-4 ? lin / accPre * acc : vec3(0.0);
+    lin = Lfog * fogA + linC * (1.0 - fogA);
+    acc = fogA + acc * (1.0 - fogA);
+  }
 
   if (acc <= 0.002) discard;
 
-  vec3 disp = atm_display(lin / max(acc, 1e-4), uSaturation, uSunAltDeg);
+  vec3 disp = atm_display(lin / max(acc, 1e-4), uSaturation, uDispSunAltDeg);
   if (uDataOut > 2.5) {
     // 자료 3: **톤 곡선 전** 선형 휘도 — log2 를 −12~+4 에 8비트로(한 칸 1/16 조리개).
     // 사진과 견줄 때 톤 곡선이 어두운 쪽을 얼마나 벌리는지 가르려고 둡니다(§88).
@@ -1640,6 +1681,11 @@ export interface CloudSlabHandle {
   setLayerAltitudesKm: (lowKm: number, midKm: number, highKm: number) => void;
   /** 저층 덱 밑면·윗면(km, 해발, §82). 모르면 null — 위에서 볼 면이 hBase 로 돌아갑니다. */
   setLowDeckKm: (baseKm: number | null | undefined, topKm: number | null | undefined) => void;
+  /**
+   * 관측자를 감싼 구름(§93, `cloudProfile.cloudAround`). null 이면 안개를 끕니다.
+   * 소광은 그 높이 층(저·중·상)의 TAUK 에 운량을 곱해 냅니다.
+   */
+  setInCloud: (c: { cover: number; baseKm: number; topKm: number } | null) => void;
   /**
    * 지형 높이장(§83·§84) — 구름을 땅이 가리게 합니다. TerrainField 와 **같은 패치**
    * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다. 렌더러를 주면
@@ -1738,9 +1784,13 @@ export function createCloudSlab(opts: {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSunAltDeg: { value: 0 },
       uSunAzDeg: { value: 0 },
-      uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
-      uMoonAltDeg: { value: -90 },
-      uMoonIllum: { value: 0 },
+      uDispSunAltDeg: { value: 0 },
+      uLightGain: { value: 1 },
+      uSkyAdd: { value: new THREE.Vector3(0, 0, 0) },
+      uFogBeta: { value: 0 },
+      uFogBaseKm: { value: -1 },
+      uFogTopKm: { value: -1 },
+      uFogBeam: { value: new THREE.Vector3(0, 0, 0) },
       uCityLight: { value: 1.0 },
       uBeamLow: { value: new THREE.Vector3(1, 1, 1) },
       uBeamMid: { value: new THREE.Vector3(1, 1, 1) },
@@ -1907,6 +1957,17 @@ export function createCloudSlab(opts: {
       const ok = baseKm != null && topKm != null && Number.isFinite(baseKm)
         && Number.isFinite(topKm) && topKm > baseKm && baseKm >= 0 && topKm < 6;
       if (ok) v.set(baseKm as number, topKm as number); else v.set(-1, -1);
+    },
+    setInCloud: (c) => {
+      const un = material.uniforms;
+      const ok = !!c && Number.isFinite(c.cover) && c.cover > 0 && Number.isFinite(c.baseKm)
+        && Number.isFinite(c.topKm) && c.topKm > c.baseKm;
+      if (!ok) { un.uFogBeta.value = 0; un.uFogBaseKm.value = -1; un.uFogTopKm.value = -1; return; }
+      const midKm = (c!.baseKm + c!.topKm) / 2;
+      const tauK = midKm < LAYER_BAND_KM.lowTop ? tau.low : (midKm < LAYER_BAND_KM.midTop ? tau.mid : tau.high);
+      un.uFogBeta.value = Math.min(1, c!.cover) * tauK;
+      un.uFogBaseKm.value = c!.baseKm;
+      un.uFogTopKm.value = c!.topKm;
     },
     dispose: () => {
       geometry.dispose();
@@ -2171,19 +2232,21 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   // 관측자 해발 고도 — 구름층 위에 서 있는지를 셰이더가 알아야 합니다(운해).
   uni.uObserverAltKm.value = Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000;
 
-  (uni.uSunDir.value as THREE.Vector3).copy(u.sunDir).normalize();
-  uni.uSunAltDeg.value = u.sunAltDeg;
+  // ── 광원 고르기 (§92) ────────────────────────────────────────────────
+  // 셰이더는 광원 하나만 계산합니다. 박명과 달빛 중 하늘을 더 밝히는 쪽을 넣고,
+  // 달이면 햇빛과 **같은 식**에 이득만 곱합니다(달빛은 햇빛을 되비춘 것).
+  const ml = u.moonDir && u.moonAltDeg !== undefined && u.moonIllum !== undefined
+    ? moonLight(u.sunAltDeg, u.moonAltDeg, u.moonIllum, u.atmosphere)
+    : { gain: 0, useMoon: false };
+  const lightByMoon = ml.useMoon && !!u.moonDir && u.moonAltDeg !== undefined;
+  const lightAlt = lightByMoon ? u.moonAltDeg! : u.sunAltDeg;
+  (uni.uSunDir.value as THREE.Vector3).copy(lightByMoon ? u.moonDir! : u.sunDir).normalize();
+  uni.uSunAltDeg.value = lightAlt;
   uni.uSunAzDeg.value = u.sunAzDeg;
-
-  if (u.moonDir) {
-    (uni.uMoonDir.value as THREE.Vector3).copy(u.moonDir).normalize();
-  }
-  if (u.moonAltDeg !== undefined) {
-    uni.uMoonAltDeg.value = u.moonAltDeg;
-  }
-  if (u.moonIllum !== undefined) {
-    uni.uMoonIllum.value = u.moonIllum;
-  }
+  uni.uDispSunAltDeg.value = u.sunAltDeg;
+  uni.uLightGain.value = lightByMoon ? ml.gain : 1;
+  (uni.uSkyAdd.value as THREE.Vector3).set(
+    lightByMoon ? NIGHT_SKY.r : 0, lightByMoon ? NIGHT_SKY.g : 0, lightByMoon ? NIGHT_SKY.b : 0);
   uni.uCityLight.value =
     typeof u.cityLight === 'number' ? Math.max(0, Math.min(1, u.cityLight))
       : u.cityLight === false ? 0.0 : 1.0;
@@ -2191,12 +2254,22 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   // ⚠ 셰이더가 쓰는 높이와 **같은 값**이어야 합니다. 예전에는 여기만 상수를
   //   보고 있어서, 높이를 바꾸면 빛줄기 색만 옛 높이로 남았을 것입니다.
   const alt = uni.uLayerAltKm.value as THREE.Vector3;
-  const bl = u.beamFor(alt.x);
-  const bm = u.beamFor(alt.y);
-  const bh = u.beamFor(alt.z);
+  const beamOf = (km: number): RGB => {
+    if (!lightByMoon) return u.beamFor(km);
+    const b = beamAtAltitude(lightAlt, km, u.atmosphere);
+    return { r: b.r * ml.gain, g: b.g * ml.gain, b: b.b * ml.gain };
+  };
+  const bl = beamOf(alt.x);
+  const bm = beamOf(alt.y);
+  const bh = beamOf(alt.z);
   (uni.uBeamLow.value as THREE.Vector3).set(bl.r, bl.g, bl.b);
   (uni.uBeamMid.value as THREE.Vector3).set(bm.r, bm.g, bm.b);
   (uni.uBeamHigh.value as THREE.Vector3).set(bh.r, bh.g, bh.b);
+  // 구름 속 안개가 받는 직달광 — 관측 고도에서(§93). 안개가 꺼져 있으면 안 구합니다.
+  if ((uni.uFogBeta.value as number) > 0) {
+    const bf = beamOf(Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000);
+    (uni.uFogBeam.value as THREE.Vector3).set(bf.r, bf.g, bf.b);
+  }
 
   uni.uBeta.value = u.atmosphere.betaMie;
   uni.uAngstrom.value = u.atmosphere.angstrom;

@@ -46,6 +46,9 @@ uniform float uSaturation;  // 아트 디렉션용 채도 보정
 uniform float uCloudDiffuse; // 구름 기둥 확산 투과율 (1 = 맑음)
 uniform float uHaloStrength; // 22° 무리 세기 — 상층 얼음 구름이 있을 때만
 uniform float uDither;       // 디더 세기 (1/255 단위). 0이면 끕니다
+uniform vec3  uMoonDir;     // 정규화된 달 방향 (월드)
+uniform float uMoonAltDeg;
+uniform float uMoonGain;     // 달빛 하늘 이득 (§92). 0 이면 달 항을 건너뜁니다
 
 varying vec3 vWorldDir;
 
@@ -66,6 +69,18 @@ void main() {
     viewElevDeg, cosGamma, uSunAltDeg,
     uBeta, uAngstrom, uElevScale, uOzoneDU
   );
+
+  // ── 달빛 하늘 (§92) ────────────────────────────────────────────────────
+  // 달빛은 햇빛을 되비춘 것이라 **해를 달 자리에 둔 하늘**에 이득만 곱해 더합니다.
+  // 예전에는 이 항이 없어 보름달 밤에도 구름 틈이 새까맸습니다. 이득은
+  // atmosphere.ts 의 moonLight 가 정합니다(낮에는 0 — 그러면 한 바이트도 안 바뀝니다).
+  if (uMoonGain > 0.0) {
+    float cosMoon = clamp(dot(dir, uMoonDir), -1.0, 1.0);
+    col += uMoonGain * atm_skyRadiance(
+      viewElevDeg, cosMoon, uMoonAltDeg,
+      uBeta, uAngstrom, uElevScale, uOzoneDU
+    );
+  }
 
   // ── 구름층에 의한 감광 ──────────────────────────────────────────────────
   // uCloudDiffuse = 구름 기둥을 통과해 내려오는 확산광 비율 (1 = 맑음).
@@ -151,6 +166,9 @@ export function createSkydome(): SkydomeHandle {
       uCloudDiffuse: { value: 1.0 },
       uHaloStrength: { value: 0.0 },
       uDither: { value: 2.0 },
+      uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+      uMoonAltDeg: { value: -90 },
+      uMoonGain: { value: 0.0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -188,7 +206,9 @@ export function updateSkydome(
   sunAltDeg: number,
   sunAzDeg: number,
   params: AtmosphereParams,
-  saturation: number = 1.0
+  saturation: number = 1.0,
+  /** 달빛 하늘 (§92). `gain` 은 `moonLight(...).gain` — 없으면 달 항을 끕니다. */
+  moon?: { altDeg: number; azDeg: number; gain: number }
 ): void {
   const u = handle.material.uniforms;
 
@@ -207,4 +227,16 @@ export function updateSkydome(
   u.uElevScale.value = params.elevScale;
   u.uOzoneDU.value = params.ozoneDU;
   u.uSaturation.value = saturation;
+
+  u.uMoonGain.value = moon && moon.gain > 0 ? moon.gain : 0;
+  if (moon) {
+    const mAlt = (moon.altDeg * Math.PI) / 180;
+    const mAz = (moon.azDeg * Math.PI) / 180;
+    (u.uMoonDir.value as THREE.Vector3).set(
+      Math.cos(mAlt) * Math.sin(mAz),
+      Math.sin(mAlt),
+      -Math.cos(mAlt) * Math.cos(mAz)
+    );
+    u.uMoonAltDeg.value = moon.altDeg;
+  }
 }

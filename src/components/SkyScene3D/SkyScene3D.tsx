@@ -119,7 +119,8 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting } from '../../utils/atmosphere';
+import { cloudAround } from '../../utils/cloudProfile';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -1398,7 +1399,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const atmosphere = cachedAtmosphereRef.current;
 
     if (skydomeRef.current) {
-      updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
+      // 달빛 하늘 (§92) — 구름 슬랩도 같은 moonLight 로 달을 광원으로 씁니다.
+      const skyMoonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+      const skyMoonAlt = (skyMoonPos.altitude * 180) / Math.PI;
+      const skyMoon = moonLight(
+        sunAltRef.current, skyMoonAlt, SunCalc.getMoonIllumination(targetDate).fraction, atmosphere);
+      updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1.0, {
+        altDeg: skyMoonAlt,
+        azDeg: (skyMoonPos.azimuth * 180) / Math.PI + 180,
+        gain: skyMoon.gain,
+      });
     }
 
     // 지면·능선이 **같이 쓰는** 하늘 조도. 몇 방향만 뽑아 평균해도 충분합니다
@@ -1688,6 +1698,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       // 운해의 윗면(§82). 저층이 빈 시각이면 undefined/NaN → 세터가 (-1,-1) 로 되돌립니다.
       cloudSlabRef.current.setLowDeckKm(ow?.lowDeckBaseKm, ow?.lowDeckTopKm);
+      // 산 위가 구름 속인가(§93) — 관측 고도에서 단면 운량을 읽습니다. 단면이
+      // 없거나 그 높이가 맑으면 null → 안개를 끕니다(예전과 바이트 단위로 같음).
+      const profH: number[] | undefined = ow?.profileHeightM;
+      const profC: number[] | undefined = ow?.profileCoverPct;
+      const levels = profH && profC
+        ? profH.map((heightM, i) => ({ pressureHPa: 0, heightM, coverPct: profC[i] }))
+          .filter(l => Number.isFinite(l.heightM) && Number.isFinite(l.coverPct))
+        : [];
+      const obsAltKm = (cachedAtmosphereRef.current?.observerElevM ?? 0) / 1000;
+      cloudSlabRef.current.setInCloud(levels.length >= 2 ? cloudAround(levels, obsAltKm) : null);
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────

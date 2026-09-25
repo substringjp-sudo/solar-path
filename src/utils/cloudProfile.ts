@@ -152,6 +152,60 @@ export function lowDeck(levels: ProfileLevel[]): { baseKm: number; topKm: number
 }
 
 /**
+ * 한 고도의 운량(0~1) — 기압면 사이는 높이로 선형 보간합니다. 단면 밖이면 0.
+ */
+export function coverAtAltitude(levels: ProfileLevel[], altKm: number): number {
+  const ls = [...levels].sort((a, b) => a.heightM - b.heightM);
+  const zM = altKm * 1000;
+  for (let i = 0; i + 1 < ls.length; i++) {
+    const a = ls[i], b = ls[i + 1];
+    if (zM < a.heightM || zM > b.heightM) continue;
+    const t = b.heightM > a.heightM ? (zM - a.heightM) / (b.heightM - a.heightM) : 0;
+    return Math.max(0, Math.min(1, (a.coverPct + (b.coverPct - a.coverPct) * t) / 100));
+  }
+  return 0;
+}
+
+/**
+ * **관측자를 감싼 구름**(§93) — 산 위가 구름 속이면 그 덩어리의 운량·밑면·윗면.
+ *
+ * 덩어리는 `lowDeck` 과 **같은 반값 규칙**으로 정합니다: 관측 고도를 사이에 둔 두
+ * 면 중 흐린 쪽을 봉우리로 잡고, 위아래로 봉우리의 절반 이상인 면을 잇고, 끝은
+ * 마지막 흐린 면과 다음 맑은 면의 가운데. 관측자가 그 [밑면, 윗면] 안일 때만
+ * 구름 속입니다. 운량은 두 면 사이를 높이로 보간한 값입니다.
+ *
+ * ⚠ 처음에는 "보간 운량이 5% 넘으면 속" 으로 했다가 판정이 잡았습니다 — 0%(1049m)와
+ *   100%(1530m) 사이 1.2km 가 31% 로 "속" 이 되는데, 같은 단면에서 반값 밑면은
+ *   1.29km 입니다. 운해 윗면(§82)과 안개가 서로 다른 경계를 쓰게 됩니다.
+ *
+ * ⚠ 예보 격자(11~25km)는 산봉우리에 걸린 삿갓구름을 모릅니다. 이 함수가 아는
+ *   것은 **그 높이를 지나는 층 구름**뿐입니다.
+ *
+ * @returns 구름 밖이거나 단면이 없으면 `null`.
+ */
+export function cloudAround(
+  levels: ProfileLevel[],
+  altKm: number,
+): { cover: number; baseKm: number; topKm: number } | null {
+  const ls = [...levels].sort((a, b) => a.heightM - b.heightM);
+  if (ls.length < 2) return null;
+  const zM = altKm * 1000;
+  const up = ls.findIndex(l => l.heightM >= zM);
+  if (up <= 0) return null;                       // 단면 밖(맨 아래 면보다 낮거나 맨 위보다 높음)
+  const peak = ls[up].coverPct >= ls[up - 1].coverPct ? up : up - 1;
+  if (ls[peak].coverPct < 5) return null;
+  const half = ls[peak].coverPct / 2;
+  let lo = peak, hi = peak;
+  while (lo > 0 && ls[lo - 1].coverPct >= half) lo--;
+  while (hi < ls.length - 1 && ls[hi + 1].coverPct >= half) hi++;
+  const HALF_GAP_M = 125;   // lowDeck 과 같은 값 — 기압면 간격의 절반
+  const baseM = lo > 0 ? (ls[lo - 1].heightM + ls[lo].heightM) / 2 : Math.max(0, ls[lo].heightM - HALF_GAP_M);
+  const topM = hi < ls.length - 1 ? (ls[hi].heightM + ls[hi + 1].heightM) / 2 : ls[hi].heightM + HALF_GAP_M;
+  if (zM <= baseM || zM >= topM) return null;
+  return { cover: coverAtAltitude(ls, altKm), baseKm: baseM / 1000, topKm: topM / 1000 };
+}
+
+/**
  * 들어올림 응결 고도(LCL) — **적운의 밑면**입니다. 지상 기온과 이슬점만 있으면
  * 납니다: `LCL ≈ 125·(T − Td)` m (Espy 근사).
  *
