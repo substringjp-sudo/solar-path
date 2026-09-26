@@ -735,6 +735,103 @@ export function beamAtAltitude(
   );
 }
 
+// ── 3b) 달빛 (§92) ─────────────────────────────────────────────────────────
+//
+// 달빛은 햇빛을 되비춘 것이라 **색과 방향 분포가 햇빛과 같고 세기만 다릅니다.**
+// 그래서 하늘도 구름도 "해를 달 자리에 둔 낮" 을 그대로 계산해 이득만 곱합니다.
+//
+// 예전에는 구름에만 상수 달빛 `(0.045, 0.068, 0.098) × 조도 × 2.5` 를 더했습니다.
+// 보름에 대낮 하늘 복사휘도와 맞먹는 값이라, 밤 순응(16배)을 거치면 얇은 상층운이
+// 대낮 하늘처럼 하늘색으로 빛났습니다. 하늘에는 달빛이 아예 없어 틈은 새까맸습니다
+// (2026-09-25 21:37 요네자와, 달 98%). 달 아래 구름 ÷ 하늘 비가 낮의 28배였습니다.
+
+/**
+ * 이득의 닻 — **보름달 하늘은 해가 이만큼 내려간 박명 하늘과 밝기가 같습니다.**
+ *
+ * 보름달 밤 천정 하늘은 V 17.5~18 등급/초² 안팎이고, 박명 천정이 그 밝기가 되는 것은
+ * 해가 −10~−11° 일 때입니다(대략값). 이 렌더의 밝기 단위는 박명을 눈 순응 쪽으로
+ * 눌러 둔 것이라(낮 ÷ −10° 가 물리로는 수십만 배, 여기서는 160배) 물리 비
+ * (보름달 ÷ 해 ≈ 2.5×10⁻⁶)를 그대로 쓰면 안 보입니다. 대신 **같은 물리 밝기는 같은
+ * 화면 밝기**가 되도록 이 렌더의 박명 하늘에 붙입니다.
+ */
+export const MOON_SKY_ANCHOR_SUN_DEG = -10.5;
+/** 닻을 잰 달의 고도. 달 고도가 바뀌면 낮 하늘이 해 고도로 바뀌는 만큼 바뀝니다. */
+export const MOON_REF_ALT_DEG = 45;
+
+/** 하늘 반구 조도의 6점 구적 — CloudSlab 셰이더의 `ambHemi` 와 같은 마디입니다. */
+const HEMI_NODES: ReadonlyArray<readonly [number, number]> = [
+  [22, 28], [22, 70], [22, 145], [56, 28], [56, 70], [56, 145],
+];
+const lumOf = (c: RGB) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+/** 해가 `sunAltDeg` 에 있을 때 하늘 반구 조도(휘도, 6점 평균). */
+export function hemiSkyLuminance(sunAltDeg: number, p: AtmosphereParams): number {
+  const D = Math.PI / 180;
+  const sS = Math.sin(sunAltDeg * D), cS = Math.cos(sunAltDeg * D);
+  let s = 0;
+  for (const [e, az] of HEMI_NODES) {
+    const cg = Math.sin(e * D) * sS + Math.cos(e * D) * cS * Math.cos(az * D);
+    s += lumOf(skyRadiance(e, Math.acos(Math.max(-1, Math.min(1, cg))) / D, sunAltDeg, p, 0));
+  }
+  return s / HEMI_NODES.length;
+}
+
+const moonGainCache = new WeakMap<AtmosphereParams, number>();
+/** 보름달의 이득 K — 닻에서 한 번 구해 대기마다 기억합니다. */
+export function moonSkyGain(p: AtmosphereParams): number {
+  const hit = moonGainCache.get(p);
+  if (hit !== undefined) return hit;
+  const k = Math.max(0, hemiSkyLuminance(MOON_SKY_ANCHOR_SUN_DEG, p) - lumOf(NIGHT_SKY))
+    / Math.max(1e-9, hemiSkyLuminance(MOON_REF_ALT_DEG, p));
+  moonGainCache.set(p, k);
+  return k;
+}
+
+/**
+ * 위상에 따른 달 밝기(보름 = 1). Allen 의 등급식 Δm = 0.026|α| + 4×10⁻⁹α⁴,
+ * α 는 위상각(°) — 조명 비율 f 에서 α = acos(2f − 1).
+ */
+export function moonPhaseFactor(fraction: number): number {
+  const f = Math.max(0, Math.min(1, fraction));
+  if (f <= 0) return 0;
+  const a = (Math.acos(2 * f - 1) * 180) / Math.PI;
+  return Math.pow(10, -0.4 * (0.026 * a + 4e-9 * a ** 4));
+}
+
+/** 밤이 깊은 정도 — CloudSlab 셰이더의 `nightFactor` 와 같은 식(−2° 에서 0, −12° 에서 1). */
+export function nightFactorOf(sunAltDeg: number): number {
+  return Math.max(0, Math.min(1, (-sunAltDeg - 2) / 10));
+}
+
+export interface MoonLight {
+  /** 달 자리에 둔 해의 하늘·직달에 곱할 이득. 낮이면 0. */
+  gain: number;
+  /**
+   * 구름을 달로 비출지. 구름 셰이더는 광원을 하나만 계산하므로, 박명과 달빛 중
+   * 하늘을 더 밝히는 쪽을 고릅니다. 밤하늘 바닥의 2% 도 안 되는 달(초승·지고 난 뒤)은
+   * 고르지 않습니다 — 그 밤은 예전과 바이트 단위로 같습니다.
+   */
+  useMoon: boolean;
+}
+
+export function moonLight(
+  sunAltDeg: number,
+  moonAltDeg: number,
+  moonFraction: number,
+  p: AtmosphereParams,
+): MoonLight {
+  const nf = nightFactorOf(sunAltDeg);
+  const ph = moonPhaseFactor(moonFraction);
+  if (nf <= 0 || ph <= 0) return { gain: 0, useMoon: false };
+  const gain = moonSkyGain(p) * ph * nf;
+  const moonPart = gain * hemiSkyLuminance(moonAltDeg, p);
+  // 밤하늘 바닥의 2% 도 못 밝히는 달(진 달·초승)은 하늘에도 더하지 않습니다 — 예전에는
+  // 하늘에만 더해 두었는데, 밤 암순응(§95)이 그 미세한 빛을 화면에 드러냈습니다.
+  if (moonPart <= 0.02 * lumOf(NIGHT_SKY)) return { gain: 0, useMoon: false };
+  const twiPart = Math.max(0, hemiSkyLuminance(sunAltDeg, p) - lumOf(NIGHT_SKY));
+  return { gain, useMoon: moonPart > twiPart };
+}
+
 // ── 4) 구름 ────────────────────────────────────────────────────────────────
 
 /** 대기 척도고도 (km) — 수평 경로의 공기 밀도 감소에 사용 */
@@ -1039,6 +1136,8 @@ uniform float DISP_EXPO;
 uniform float ADAPT_MAX;
 uniform float ADAPT_HI;
 uniform float ADAPT_LO;
+uniform float ADAPT_ROD;   // §95 간상체 암순응 배율
+uniform float ROD_DESAT;   // §95 밤의 색 빠짐
 uniform float DISP_SAT;
 uniform float DISP_CONTR;
 uniform float DISP_BLUE;
@@ -1385,7 +1484,24 @@ vec3 atm_whiteBalance(float sunAltDeg) {
 
 /** 태양이 낮아질수록 노출을 올립니다 (눈의 순응) */
 float atm_adaptation(float sunAltDeg) {
-  return 1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg);
+  // §95 — 원추체 순응(위) 다음 간상체 암순응이 해 −12° → −18° 에 들어옵니다.
+  float rod = 1.0 - smoothstep(-18.0, -12.0, sunAltDeg);
+  return (1.0 + (ADAPT_MAX - 1.0) * smoothstep(ADAPT_HI, ADAPT_LO, sunAltDeg))
+    * mix(1.0, ADAPT_ROD, rod);
+}
+
+/**
+ * **밤의 색 빠짐** (§95) — 간상체는 색을 못 보고 507nm 근처에 가장 예민합니다(푸르키녜).
+ * 달빛·도시광 밤에는 색이 흐려지고 약간 푸르스름해집니다. 휘도는 그대로 두고 색만
+ * 그쪽으로 옮깁니다. 간상체 암순응과 같은 구간(해 −12° → −18°)에서 들어옵니다.
+ */
+vec3 atm_rodVision(vec3 c, float sunAltDeg) {
+  float k = ROD_DESAT * (1.0 - smoothstep(-18.0, -12.0, sunAltDeg));
+  if (k <= 0.0) return c;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  // 휘도 1 로 맞춘 푸르스름한 회색 (0.88, 0.98, 1.20) / 0.9748
+  vec3 rodCol = l * vec3(0.9028, 1.0053, 1.2310);
+  return mix(c, rodCol, k);
 }
 
 /**
@@ -1453,7 +1569,7 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   float maxc = max(c.r, max(c.g, c.b));
   float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
   c = clamp(c * k, 0.0, 1.0);
-  return atm_toSrgb(c);
+  return atm_toSrgb(atm_rodVision(c, sunAltDeg));
 }
 `;
 
@@ -1524,9 +1640,21 @@ vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
   vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
   c = max(c, minGlow * GROUND_MIN_GLOW);
 
-  return atm_toSrgb(c);
+  return atm_toSrgb(atm_rodVision(c, sunAltDeg));
 }
 `;
+
+/**
+ * 그 자리의 광공해(0 청정 ~ 1 대도시) — §95. 도시 불빛이 밝은 곳에서는 눈이 간상체
+ * 순응까지 가지 못하므로, 밤 암순응 배율을 이만큼 1 쪽으로 되돌립니다. 앱은 구름 슬랩에
+ * 넘기는 `cityLight` 와 같은 값을 매 프레임 넣습니다.
+ */
+let sceneCityLight = 0;
+export function setSceneCityLight(v: number): void {
+  sceneCityLight = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
+}
+const rodGainOf = (t: { rodAdaptGain: number }) =>
+  t.rodAdaptGain + (1 - t.rodAdaptGain) * sceneCityLight;
 
 export function makeTuningUniforms(): Record<string, { value: number }> {
   const t = getTuning();
@@ -1538,6 +1666,8 @@ export function makeTuningUniforms(): Record<string, { value: number }> {
     ADAPT_MAX: { value: t.adaptMax },
     ADAPT_HI: { value: t.adaptStartAlt },
     ADAPT_LO: { value: t.adaptEndAlt },
+    ADAPT_ROD: { value: rodGainOf(t) },
+    ROD_DESAT: { value: t.rodDesat },
     DISP_SAT: { value: t.displaySaturation },
     DISP_CONTR: { value: t.displayContrast },
     AIR_WASH: { value: t.airWash },
@@ -1574,6 +1704,8 @@ export function applyTuningUniforms(uniforms: Record<string, any> | undefined | 
   set('ADAPT_MAX', t.adaptMax);
   set('ADAPT_HI', t.adaptStartAlt);
   set('ADAPT_LO', t.adaptEndAlt);
+  set('ADAPT_ROD', rodGainOf(t));
+  set('ROD_DESAT', t.rodDesat);
   set('DISP_SAT', t.displaySaturation);
   set('DISP_CONTR', t.displayContrast);
   set('DISP_BLUE', t.skyBlueBoost);

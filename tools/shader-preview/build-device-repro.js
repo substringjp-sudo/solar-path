@@ -55,7 +55,7 @@ import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydom
 import { createCloudSlab, updateCloudSlab, bakeCloudSlabCoverage }
   from './app/components/SkyScene3D/CloudSlab.js';
 import { WeatherFan } from './app/utils/skyColumn.js';
-import { makeAtmosphereParams, beamAtAltitude } from './app/utils/atmosphere.js';
+import { makeAtmosphereParams, beamAtAltitude, moonLight, setSceneCityLight, applyTuningUniforms } from './app/utils/atmosphere.js';
 
 const errors = [];
 const oe = console.error;
@@ -141,13 +141,17 @@ function shoot(shot, driftH, cityLight){
   const a=shot.sunAlt*Math.PI/180, z=shot.sunAz*Math.PI/180;
   const sunDir=new THREE.Vector3(Math.cos(a)*Math.sin(z), Math.sin(a), -Math.cos(a)*Math.cos(z)).normalize();
 
-  updateSkydome(skydome, shot.sunAlt, shot.sunAz, atmosphere);
+  // 앱과 같이 하늘에도 달빛을 줍니다(§92) — 구름만 달을 알면 틈이 새까맣습니다.
+  const MOON_DIR = new THREE.Vector3(0.3, 0.6, -0.7).normalize();
+  const moonAlt = Math.asin(MOON_DIR.y) * 180 / Math.PI;
+  const moonAz = (Math.atan2(MOON_DIR.x, -MOON_DIR.z) * 180 / Math.PI + 360) % 360;
+  updateSkydome(skydome, shot.sunAlt, shot.sunAz, atmosphere, 1.0,
+    { altDeg: moonAlt, azDeg: moonAz, gain: moonLight(shot.sunAlt, moonAlt, 0.9, atmosphere).gain });
   const W=(k)=>({ speedKmh: WIND[k], bearingDeg: WIND_DEG });
   updateCloudSlab(slab, {
     camera: cam, widthPx: TW, heightPx: TH,
     sunDir, sunAltDeg: shot.sunAlt, sunAzDeg: shot.sunAz,
-    moonDir: new THREE.Vector3(0.3, 0.6, -0.7).normalize(),
-    moonAltDeg: 37, moonIllum: 0.9,
+    moonDir: MOON_DIR, moonAltDeg: moonAlt, moonIllum: 0.9,
     cityLight,
     beamFor: (altKm) => beamAtAltitude(shot.sunAlt, altKm, atmosphere),
     atmosphere,
@@ -155,6 +159,8 @@ function shoot(shot, driftH, cityLight){
     driftHours: driftH,
     visible: true,
   });
+  // 앱처럼 광공해만큼 밤 암순응을 덜 받습니다(§95) — 매 장면 튜닝 값을 다시 넣습니다.
+  if (setSceneCityLight) { setSceneCityLight(cityLight); applyTuningUniforms(skydome.material.uniforms); applyTuningUniforms(slab.material.uniforms); }
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000, 1);
   renderer.render(scene, cam);

@@ -104,6 +104,8 @@ import {
   LAYER_MID,
   LAYER_SOFT_CLOUD,
   LAYER_FRONT,
+  LAYER_CELESTIAL,
+  LAYER_SOFT_CLOUD_BELOW,
   type SceneComposerHandle,
 } from './SceneComposer';
 import {
@@ -119,7 +121,8 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting } from '../../utils/atmosphere';
+import { cloudAround } from '../../utils/cloudProfile';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -164,12 +167,27 @@ export interface SkySettings {
   starBrightness: number;
   /** 표시 한계 등급 (3 = 도심, 6.5 = 완전한 암천) */
   starMagLimit: number;
+  /** 도트 모드(§97) — 화면을 이 줄 수로 그려 네모 화소 그대로 늘립니다. 0 = 끔. */
+  pixelArtRows: number;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
   starBrightness: 1.0,
   starMagLimit: 6.5,
+  pixelArtRows: 0,
 };
+
+/**
+ * 도트 모드의 굵기 — 화면 세로를 몇 줄로 그리는가. 한 도트는 화면 **정수** 화소입니다
+ * (SceneComposer.setPixelArt). 폰 하늘 화면(세로 약 1,200~2,400 물리 화소)에서 256 줄이면
+ * 한 도트가 5~9화소로 잔잔하고, 96 줄이면 12~25화소로 또렷한 옛 게임 느낌입니다.
+ */
+export const PIXEL_ART_CHOICES: { rows: number; label: string }[] = [
+  { rows: 0, label: '끔' },
+  { rows: 256, label: '가늘게' },
+  { rows: 160, label: '보통' },
+  { rows: 96, label: '굵게' },
+];
 
 interface SkyScene3DProps {
   sim: any;
@@ -919,26 +937,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 3. Sun
     const sun = createSun();
     scene.add(sun.mesh);
-    assignLayer(sun.mesh, LAYER_MID);
+    assignLayer(sun.mesh, LAYER_CELESTIAL);   // 구름 아래 (§94)
     sunRef.current = sun;
 
     // 4. Moon
     const moon = createMoonGroup();
     scene.add(moon.group);
-    assignLayer(moon.group, LAYER_MID);
+    assignLayer(moon.group, LAYER_CELESTIAL);   // 구름 아래 (§94)
     moonRef.current = moon;
 
     // 5a. 은하수
     const milkyWay = createMilkyWayBand();
     scene.add(milkyWay.mesh);
-    assignLayer(milkyWay.mesh, LAYER_MID);
+    assignLayer(milkyWay.mesh, LAYER_CELESTIAL);   // 구름 아래 (§94)
     milkyWayRef.current = milkyWay;
 
     // 5b. 항성 + 행성
     const starField = createStarField(8);
     scene.add(starField.points);
     // 별은 점 광원이라 **반드시 원해상도**입니다 (SceneComposer 주석).
-    assignLayer(starField.points, LAYER_MID);
+    assignLayer(starField.points, LAYER_CELESTIAL);   // 구름 아래 (§94)
     starFieldRef.current = starField;
 
     pixelRatioRef.current = Math.max(
@@ -982,6 +1000,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const cloudSlab = createCloudSlab();
     scene.add(cloudSlab.mesh);
     assignLayer(cloudSlab.mesh, LAYER_SOFT_CLOUD);
+    // §96 — 구름을 두 번에 나눠 그립니다. 하늘 구름(mesh)은 산보다 먼저, 발밑 운해와 구름 속
+    // 안개(meshBelow)는 산보다 나중에. 한 번에 그리는 경로(배율 1)도 같은 순서가 되게
+    // renderOrder 를 둡니다 — 별 −0.5 < 하늘 구름 −0.49 < 지형 −0.48 … < 운해 0.5.
+    cloudSlab.setSplitPasses(true);
+    cloudSlab.mesh.renderOrder = -0.49;
+    cloudSlab.meshBelow.renderOrder = 0.5;
+    scene.add(cloudSlab.meshBelow);
+    assignLayer(cloudSlab.meshBelow, LAYER_SOFT_CLOUD_BELOW);
     cloudSlabRef.current = cloudSlab;
     cloudDeck.group.visible = false;
     cloudField.mesh.visible = false;
@@ -1180,7 +1206,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
         // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
+        // §95 — 광공해만큼 밤 암순응을 덜 받습니다. 구름 슬랩에 넘기는 cityLight 와 같은 식.
+        setSceneCityLight(layersRef.current.cityLights === false
+          ? 0 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)));
         applyTuningUniforms(skydomeRef.current?.material.uniforms);
+        // ⚠ 구름 슬랩이 이 목록에서 빠져 있어 튜닝 값이 생성 때 한 번만 들어갔습니다.
+        applyTuningUniforms(cloudSlabRef.current?.material.uniforms);
         applyTuningUniforms(sunRef.current?.material.uniforms);
         applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
         const deckLayers = cloudDeckRef.current?.layers;
@@ -1208,10 +1239,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           const slabFrame = cloudSlabRef.current;
           const atmos = cachedAtmosphereRef.current;
           if (slabFrame && atmos) {
-            const isSoft = composerNow.softScale > 1.0001;
+            // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
+            composerNow.setPixelArt(skySettingsRef.current.pixelArtRows ?? 0);
+            const isSoft = composerNow.softActive();
             const sSize = composerNow.softSize();
-            const slabW = isSoft ? sSize.width : gl.drawingBufferWidth;
-            const slabH = isSoft ? sSize.height : gl.drawingBufferHeight;
+            const rSize = composerNow.renderSize();
+            const slabW = isSoft ? sSize.width : rSize.width;
+            const slabH = isSoft ? sSize.height : rSize.height;
 
             // 달의 위치 및 조도 계산
             const lat = location?.coords?.latitude ?? 37.5;
@@ -1398,7 +1432,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const atmosphere = cachedAtmosphereRef.current;
 
     if (skydomeRef.current) {
-      updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
+      // 달빛 하늘 (§92) — 구름 슬랩도 같은 moonLight 로 달을 광원으로 씁니다.
+      const skyMoonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+      const skyMoonAlt = (skyMoonPos.altitude * 180) / Math.PI;
+      const skyMoon = moonLight(
+        sunAltRef.current, skyMoonAlt, SunCalc.getMoonIllumination(targetDate).fraction, atmosphere);
+      updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1.0, {
+        altDeg: skyMoonAlt,
+        azDeg: (skyMoonPos.azimuth * 180) / Math.PI + 180,
+        gain: skyMoon.gain,
+      });
     }
 
     // 지면·능선이 **같이 쓰는** 하늘 조도. 몇 방향만 뽑아 평균해도 충분합니다
@@ -1688,6 +1731,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       // 운해의 윗면(§82). 저층이 빈 시각이면 undefined/NaN → 세터가 (-1,-1) 로 되돌립니다.
       cloudSlabRef.current.setLowDeckKm(ow?.lowDeckBaseKm, ow?.lowDeckTopKm);
+      // 산 위가 구름 속인가(§93) — 관측 고도에서 단면 운량을 읽습니다. 단면이
+      // 없거나 그 높이가 맑으면 null → 안개를 끕니다(예전과 바이트 단위로 같음).
+      const profH: number[] | undefined = ow?.profileHeightM;
+      const profC: number[] | undefined = ow?.profileCoverPct;
+      const levels = profH && profC
+        ? profH.map((heightM, i) => ({ pressureHPa: 0, heightM, coverPct: profC[i] }))
+          .filter(l => Number.isFinite(l.heightM) && Number.isFinite(l.coverPct))
+        : [];
+      const obsAltKm = (cachedAtmosphereRef.current?.observerElevM ?? 0) / 1000;
+      cloudSlabRef.current.setInCloud(levels.length >= 2 ? cloudAround(levels, obsAltKm) : null);
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────

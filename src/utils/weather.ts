@@ -51,6 +51,12 @@ export interface CloudData {
   /** 저층 덱 밑면·윗면(km, 해발, §82). 관측점에서만. 저층이 비면 없음. */
   lowDeckBaseKm?: number;
   lowDeckTopKm?: number;
+  /**
+   * 그 시각의 기압면 단면(§93) — `PROFILE_LEVELS` 순서의 높이(m)·운량(%).
+   * 관측점에서만. 산 위가 구름 속인지(`cloudProfile.cloudAround`)를 여기서 봅니다.
+   */
+  profileHeightM?: number[];
+  profileCoverPct?: number[];
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -153,6 +159,9 @@ export interface HourlyCloudData {
   /** 저층 덱 밑면·윗면(km). `cloudProfile.lowDeck`. 빈 시각은 NaN/null. */
   lowDeckBaseKm?: number[];
   lowDeckTopKm?: number[];
+  /** 기압면 단면 [면][시각] — `LayerWindHourly.profileHeightM` 주석 참고. */
+  profileHeightM?: number[][];
+  profileCoverPct?: number[][];
   visibility?: number[];
   humidity?: number[];
   directNormalIrradiance?: number[];
@@ -791,6 +800,13 @@ export interface LayerWindHourly {
   lowDeckBaseKm?: number[];
   lowDeckTopKm?: number[];
   /**
+   * 기압면 단면 그대로 — [면 (`PROFILE_LEVELS` 순서)][시각]. 높이(m)·운량(%).
+   * 빈 칸은 NaN. 산 위 관측자가 구름 속인지는 관측 고도를 알아야 풀 수 있어서
+   * (DEM 은 앱에서 옵니다) 요약하지 않고 통째로 싣습니다(§93).
+   */
+  profileHeightM?: number[][];
+  profileCoverPct?: number[][];
+  /**
    * 시정(m). 바람과 상관없지만 **여기 얹혀 옵니다.**
    *
    * 큰 팬 요청은 ecmwf+icon 을 쓰는데 둘 다 시정을 null 로 줍니다. 그것 하나
@@ -900,6 +916,12 @@ export const fetchLayerWinds = async (
       }
       out.layerAltLowKm = lo; out.layerAltMidKm = mi; out.layerAltHighKm = hi;
       out.lowDeckBaseKm = db; out.lowDeckTopKm = dt;
+      const col = (key: string) => time.map((_, i) => {
+        const v = (h[key] as (number | null)[] | undefined)?.[i];
+        return v == null || !Number.isFinite(v) ? NaN : v;
+      });
+      out.profileHeightM = PROFILE_LEVELS.map(p => col(`geopotential_height_${p}hPa`));
+      out.profileCoverPct = PROFILE_LEVELS.map(p => col(`cloud_cover_${p}hPa`));
     }
     windCache.set(key, out);
     return out;
@@ -929,6 +951,8 @@ function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
     hourly.layerAltHighKm = w.layerAltHighKm;
     hourly.lowDeckBaseKm = w.lowDeckBaseKm;
     hourly.lowDeckTopKm = w.lowDeckTopKm;
+    hourly.profileHeightM = w.profileHeightM;
+    hourly.profileCoverPct = w.profileCoverPct;
   }
   // 시정은 이 요청에 얹혀 옵니다(LayerWindHourly.visibility 주석). 큰 요청이
   // 이미 시정을 받았으면 덮지 않습니다 — 아카이브 경로가 그렇습니다.
@@ -1169,6 +1193,9 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       layerAltHighKm: interpolateOpt(p.hourly.layerAltHighKm),
       lowDeckBaseKm: interpolateOpt(p.hourly.lowDeckBaseKm),
       lowDeckTopKm: interpolateOpt(p.hourly.lowDeckTopKm),
+      // 면마다 따로 시각 보간합니다. 빈 칸(NaN)은 NaN 으로 남아 소비자가 거릅니다.
+      profileHeightM: p.hourly.profileHeightM?.map(a => interpolateOpt(a) ?? NaN),
+      profileCoverPct: p.hourly.profileCoverPct?.map(a => interpolateOpt(a) ?? NaN),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),

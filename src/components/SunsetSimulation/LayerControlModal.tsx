@@ -2,11 +2,11 @@
  * LayerControlModal.tsx
  *
  * 3D 시뮬레이션 뷰의 천체 및 환경 레이어(해, 달, 별, 은하수, 행성, 구름, 궤적/그림자)를
- * 각각 ON/OFF 선택하고, 별의 밝기·한계등급을 조절하는 팝업 컴포넌트.
+ * 각각 ON/OFF 선택하고, 도트 모드와 별의 밝기·한계등급을 조절하는 팝업 컴포넌트.
  */
 import React from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
+import { LayerState, SkySettings, PIXEL_ART_CHOICES } from '../SkyScene3D/SkyScene3D';
 import { GenericSlider } from '../GenericSlider';
 import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building2 } from 'lucide-react-native';
 
@@ -147,6 +147,33 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
           {/* 하단 고정 조절 슬라이더 영역 */}
           <View style={styles.sliderSection}>
+            {/* 도트 모드(§97) — 하늘을 낮은 해상도로 그려 네모 화소 그대로 보여 줍니다. */}
+            <View style={[styles.layerRow, { borderColor, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)' }]}>
+              <Text style={[styles.layerLabel, { color: textColor, fontWeight: skySettings.pixelArtRows > 0 ? '700' : '500' }]}>
+                도트 모드
+              </Text>
+              <View style={styles.segment}>
+                {PIXEL_ART_CHOICES.map((c) => {
+                  const on = skySettings.pixelArtRows === c.rows;
+                  return (
+                    <TouchableOpacity
+                      key={c.rows}
+                      style={[
+                        styles.togglePill,
+                        on ? styles.toggleOn : { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+                      ]}
+                      onPress={() => onChangeSkySettings({ pixelArtRows: c.rows })}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <Text style={[styles.toggleText, { color: on ? '#ffffff' : subTextColor }]}>{c.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
                 <Text style={[styles.sliderLabel, { color: textColor }]}>별 밝기</Text>
@@ -275,6 +302,10 @@ const styles = StyleSheet.create({
   },
   layerLabel: {
     fontSize: 13,
+  },
+  segment: {
+    flexDirection: 'row',
+    gap: 4,
   },
   togglePill: {
     paddingHorizontal: 12,
