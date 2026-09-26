@@ -121,7 +121,7 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { cloudAround } from '../../utils/cloudProfile';
+import { fogAtObserver } from '../../utils/cloudProfile';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -350,6 +350,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const [demRetryTick, setDemRetryTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
+  /** 달을 광원으로 둔 지면 조도(이득 곱하기 전) — 달이 움직였을 때만 다시 구합니다. */
+  const moonGroundCacheRef = useRef<{ alt: number; az: number; atmos: unknown; sky: { r: number; g: number; b: number }; beam: { r: number; g: number; b: number } } | null>(null);
   const starFieldRef = useRef<StarFieldHandle | null>(null);
   const milkyWayRef = useRef<MilkyWayHandle | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
@@ -1490,6 +1492,41 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (groundRef.current) {
       const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
       const moonIllum = SunCalc.getMoonIllumination(targetDate);
+      // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
+      // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
+      const mAltDegG = (moonPos.altitude * 180) / Math.PI;
+      const mAzDegG = (moonPos.azimuth * 180) / Math.PI + 180;
+      const mGain = moonLight(sunAltRef.current, mAltDegG, moonIllum.fraction, atmosphere).gain;
+      let moonIrr: { r: number; g: number; b: number } | null = null;
+      if (mGain > 0 && mAltDegG > 0) {
+        const c = moonGroundCacheRef.current;
+        if (!c || Math.abs(c.alt - mAltDegG) > 0.2 || Math.abs(c.az - mAzDegG) > 0.2 || c.atmos !== atmosphere) {
+          let sr = 0, sg = 0, sb = 0, sw = 0;
+          for (const elev of [10, 30, 50, 75]) {
+            const w = Math.sin((elev * Math.PI) / 180);
+            for (let a = 0; a < 6; a++) {
+              const az = (a * 360) / 6;
+              const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG, atmosphere);
+              sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
+            }
+          }
+          const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
+          const direct = Math.sin((mAltDegG * Math.PI) / 180) / Math.PI;
+          moonGroundCacheRef.current = {
+            alt: mAltDegG, az: mAzDegG, atmos: atmosphere,
+            sky: { r: sr / sw, g: sg / sw, b: sb / sw },
+            beam: { r: beamM.r * direct, g: beamM.g * direct, b: beamM.b * direct },
+          };
+        }
+        const c2 = moonGroundCacheRef.current!;
+        // 직사 몫은 해처럼 운량만큼 가립니다(하늘 몫은 구름 밑면이 대신 비추므로 그대로).
+        const t = 1 - overcast;
+        moonIrr = {
+          r: (c2.sky.r + c2.beam.r * t) * mGain,
+          g: (c2.sky.g + c2.beam.g * t) * mGain,
+          b: (c2.sky.b + c2.beam.b * t) * mGain,
+        };
+      }
       updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
         skyMean: cachedSkyMeanRGBRef.current,
         betaMie: atmosphere.betaMie,
@@ -1503,6 +1540,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         moonAltitudeDeg: (moonPos.altitude * 180) / Math.PI,
         moonAzimuthDeg: (moonPos.azimuth * 180) / Math.PI + 180,
         moonFraction: moonIllum.fraction,
+        moonIrradiance: moonIrr,
       });
     }
 
@@ -1740,7 +1778,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           .filter(l => Number.isFinite(l.heightM) && Number.isFinite(l.coverPct))
         : [];
       const obsAltKm = (cachedAtmosphereRef.current?.observerElevM ?? 0) / 1000;
-      cloudSlabRef.current.setInCloud(levels.length >= 2 ? cloudAround(levels, obsAltKm) : null);
+      cloudSlabRef.current.setInCloud(levels.length >= 2 ? fogAtObserver(levels, obsAltKm) : null);
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import {
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
-import { weatherCacheKey } from '../utils/cachePolicy';
+import { weatherCacheKey, findEntry } from '../utils/cachePolicy';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
@@ -409,9 +409,40 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [currentTime, latitude, longitude]);
 
+  // ── 이 자리·이 날짜의 날씨 ──
+  // ⚠ 예전에는 `weatherCacheList[0]` — **가장 최근에 저장된 항목** — 을 그대로 썼습니다.
+  //   캐시는 새 항목을 앞에 넣으므로, 다른 곳(예: 전날 본 여행지)을 마지막으로 봤으면
+  //   그곳 날씨로 카메라 하늘을 그렸고, 날짜가 어긋나면 보간이 비어 구름 0 인 맑은 밤이
+  //   됐습니다(마쓰모토 흐린 보름밤에 카메라만 별이 보이던 것, §99).
+  //   SkyScreen 과 같은 규칙(자리 0.05°, 같은 날짜)으로 고르고, 없으면 받아서 캐시에 넣습니다.
+  const camDateStr = localDateString(currentTime);
+  const camWeatherData = useMemo(() => {
+    const hit = findEntry(weatherCacheList as any, latitude, longitude, camDateStr) as any;
+    return hit && Array.isArray(hit.data) && hit.data.length > 0 ? hit.data : null;
+  }, [weatherCacheList, latitude, longitude, camDateStr]);
+  const camWeatherFetchKeyRef = useRef('');
+  useEffect(() => {
+    if (!visible || camWeatherData || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    if (latitude === 0 && longitude === 0) return;
+    const key = weatherCacheKey(latitude, longitude, camDateStr);
+    if (camWeatherFetchKeyRef.current === key) return;   // 같은 자리·날짜는 한 번만 (429 방지)
+    camWeatherFetchKeyRef.current = key;
+    let cancelled = false;
+    const at = new Date(currentTime.getTime());
+    const az = getSunPosition(at, latitude, longitude).azimuth;
+    fetchSunsetWeather(latitude, longitude, az, false, at)
+      .then(data => {
+        if (cancelled || !Array.isArray(data) || data.length === 0) return;
+        addWeatherCache({ key, data, timestamp: Date.now(), latitude, longitude } as any);
+      })
+      .catch(err => console.warn('[SunCamera] weather fetch failed:', err));
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, camWeatherData, latitude, longitude, camDateStr]);
+
   // ── 오프스크린 시뮬레이터용 29개 다지점 공간 샘플링 시뮬레이션 상태 ──
   const cameraSimState = useMemo(() => {
-    const pathData = weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : undefined;
+    const pathData = camWeatherData ?? undefined;
     // ⚠ 예전에는 `terrain: { observerElevation: 50 }` 만 넘겼습니다. 그러면
     //   `SkyScene3D` 가 `sim.terrain.bandAngles` 를 못 찾아 `createTerrainBands`
     //   를 **아예 안 부릅니다** — AR 시뮬레이터와 촬영 썸네일에 산이 통째로
@@ -424,12 +455,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       eventTime: currentTime,
       terrain: cachedTerrain ?? fallbackTerrain(),
     };
-  }, [weatherCacheList, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
+  }, [camWeatherData, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
 
   // 3D 시뮬레이터 전달용 노을 예측 결과
   const currentPrediction = useMemo(() => {
     return predictSunset(
-      weatherCacheList && weatherCacheList.length > 0 ? weatherCacheList[0].data : [],
+      camWeatherData ?? [],
       currentTime,
       sunPos.altitude,
       15000,
@@ -437,7 +468,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       latitude,
       0
     );
-  }, [weatherCacheList, currentTime, sunPos.altitude, latitude]);
+  }, [camWeatherData, currentTime, sunPos.altitude, latitude]);
 
   // 하루 태양 궤적
   const trajectory = useMemo(() => {
@@ -993,7 +1024,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             simTimeMs: captureTime.getTime(),
             latitude,
             longitude,
-            observerElevM: 0,
+            // 예전에는 0 을 박아 두어 보고서만 보고는 산 위 관측인지 알 수 없었습니다.
+            observerElevM: Number(cameraSimState.terrain?.observerElevation) || 0,
             sunAltDeg: currentSunPos.altitude,
             sunAzDeg: currentSunPos.azimuth,
             obs: obsData,
@@ -1026,7 +1058,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto, cameraSimState]);
 
   // 업로드 및 공유 처리
   const handleUpload = useCallback(async () => {
@@ -1664,7 +1696,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   sunAzimuth={sunPos.azimuth}
                   prediction={currentPrediction}
                   location={{ latitude, longitude }}
-                  interpolatedWeather={weatherCacheList && weatherCacheList.length > 0 ? getInterpolatedWeather(weatherCacheList[0].data, currentTime) : []}
+                  interpolatedWeather={camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []}
                   theme={{ accent: '#FF9800' }}
                   cameraAzimuthProp={effectiveAz}
                   cameraElevationProp={effectivePitch}

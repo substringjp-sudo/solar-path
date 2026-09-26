@@ -76,6 +76,25 @@ const f3 = v => (v == null ? '—' : Number(v).toPrecision(3));
   ok(same(R.outside.바이트, R.offNever.바이트) === 0, `관측자가 덩어리 밖이면 안개 없음 (다른 바이트 ${same(R.outside.바이트, R.offNever.바이트)})`);
   ok(same(R.fogH.바이트, R.offNever.바이트) > 1000, `켜면 실제로 바뀐다 (다른 바이트 ${same(R.fogH.바이트, R.offNever.바이트)})`);
 
+  // ── 앱의 판정(fogAtObserver) — 얇은 운량 가장자리를 구름 속으로 보지 않는가 ──
+  // 실제로 틀렸던 날: 마쓰모토(해발 545m) 2026-09-26. 관측 고도 단면 15~19%, 위로 1~3km 100%.
+  // cloudAround 는 426m~4km 를 한 덩어리로 묶어 관측자를 구름 속으로 봤고, 앱 전체에 안개가 씌워졌습니다
+  // (낮: 먼 능선이 흰 띠 · 밤: 하늘과 별이 새카맣게). 그 시각 모델 시정 3.6~6.7km — 안개가 아닙니다.
+  {
+    const P = await import('file://' + require('path').join(require('./paths').PREVIEW, 'app/utils/cloudProfile.js'));
+    const lv = (arr) => arr.map(([h, c]) => ({ pressureHPa: 0, heightM: h, coverPct: c }));
+    const MT16 = lv([[98, 0], [314, 0], [539, 15], [765, 27], [1000, 39], [1481, 58], [1991, 100], [2518, 100], [3089, 100], [4335, 42]]);
+    const MT23 = lv([[108, 0], [324, 0], [549, 19], [775, 32], [1000, 54], [1491, 49], [1991, 38], [2523, 15], [3099, 35]]);
+    const FOG = lv([[1049, 0], [1530, 100], [2030, 100], [2560, 30], [3138, 0]]);
+    console.log('\n== 앱의 구름 속 판정 (fogAtObserver) ==');
+    const a16 = P.cloudAround(MT16, 0.545), a23 = P.cloudAround(MT23, 0.545);
+    ok(a16 && a23, `대조: 옛 판정(cloudAround)은 마쓰모토 545m 를 구름 속으로 봤다 (16시 운량 ${a16 && (a16.cover * 100).toFixed(0)}% · 23시 ${a23 && (a23.cover * 100).toFixed(0)}%)`);
+    ok(P.fogAtObserver(MT16, 0.545) === null && P.fogAtObserver(MT23, 0.545) === null,
+      '마쓰모토 545m(관측 고도 운량 15~19%)는 안개가 아니다');
+    const f16 = P.fogAtObserver(FOG, 1.6), fTop = P.fogAtObserver(FOG, 2.25), fBot = P.fogAtObserver(FOG, 1.35);
+    ok(f16 && fTop && fBot, `짙은 구름 속(1.6km 100% · 2.25km ${fTop && (fTop.cover * 100).toFixed(0)}% · 1.35km ${fBot && (fBot.cover * 100).toFixed(0)}%)은 여전히 안개`);
+  }
+
   console.log(`\n${fail ? 'FAILURES' : 'ALL PASS'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();
