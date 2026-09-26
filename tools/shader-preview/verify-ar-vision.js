@@ -379,6 +379,68 @@ const IDENT_MIN = 0.25;
       `빨리 돌릴 땐 안 받고, 멈추면 잠긴다 (움직일 때 ${moving.dYaw.toFixed(2)}° → 멈춘 뒤 남은 오차 ${Math.abs(V.wrap180(still.dYaw + er[0])).toFixed(2)}°)`);
   }
 
+  console.log('\n== 앱 입구 (analyzeFrame · horizonProfileAsync) ==');
+  {
+    // 쉬어 가며 구한 지평선이 한 번에 구한 것과 같은가
+    const s0 = cfg.sites[0], dir = path.join(PREVIEW, s0.dir);
+    const fine = makeCpuDem({ demDir: dir, zoom: s0.zFine, lat: s0.lat, lon: s0.lon });
+    const far = makeCpuDem({ demDir: dir, zoom: s0.zFar, lat: s0.lat, lon: s0.lon });
+    const el = (e2, so) => fine.elevAtGround(e2, so) ?? far.elevAtGround(e2, so);
+    const a = await V.horizonProfileAsync(el, s0.eyeM);
+    let d = 0; for (let i = 0; i < a.elevDeg.length; i++) d = Math.max(d, Math.abs(a.elevDeg[i] - horizons[s0.key].elevDeg[i]));
+    ok(d === 0, `쉬어 가며 구한 지평선 = 한 번에 구한 것 (최대 차 ${d})`);
+    // 한 장 분석: 해가 든 화면은 해를 쓰고, 방위를 풀었다고 하면 0.5° 안
+    let n = 0, good = 0, usedBody = 0;
+    for (const e of E) for (const er of ERRORS) {
+      const r = V.analyzeFrame({ frame: e.ex, intrinsics: K, sensor: add(e.f.att, er), horizon: H_(e.f),
+        bodies: [{ kind: 'sun', azDeg: e.f.sun.az, altDeg: e.f.sun.alt }] });
+      if (r.body) usedBody++;
+      if (!r.result.yawObservable) continue;
+      n++; if (Math.abs(V.wrap180(r.result.dYaw + er[0])) <= 0.5) good++;
+    }
+    ok(n > 0 && good === n && usedBody > 0, `한 장 분석: 방위를 풀었다고 한 ${good}/${n} 이 0.5° 안 (해를 쓴 경우 ${usedBody})`);
+    // 가짜 해 — 해가 화면 밖인 장면의 하늘에 밝고 둥근 덩어리(흰 구름 조각)를 그리고, "해는 그 근처"
+    // 라고 틀린 천문값을 줍니다. 능선이 방위를 가려 주면 그 점을 버려야 합니다.
+    let fakeN = 0, fakeOK = 0;
+    for (const e of E.filter(x => x.f.site !== 'haeundae' && !x.dE.inFrame)) {
+      const fr = { ...e.ex, data: Uint8Array.from(e.ex.data) };
+      const cx = Math.round(W * 0.7), cy = Math.round(H * 0.2);
+      for (let y = cy - 5; y <= cy + 5; y++) for (let x = cx - 5; x <= cx + 5; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= 25) { const o = (y * W + x) * 3; fr.data[o] = 255; fr.data[o + 1] = 255; fr.data[o + 2] = 255; }
+      const er = ERRORS[0], sensor = add(e.f.att, er);
+      // 센서가 보기에 그 덩어리 방향에서 3° 옆을 "해" 라고 줍니다 — 가짜 해가 방위를 3° 끌려고 합니다.
+      const d0 = V.unproject(cx, cy, sensor, K);
+      const r = V.analyzeFrame({ frame: fr, intrinsics: K, sensor, horizon: H_(e.f), bodies: [{ kind: 'sun', azDeg: d0.az + 3 + er[0] * 0, altDeg: d0.el }] });
+      if (!r.result.yawObservable) continue;
+      fakeN++;
+      if (Math.abs(V.wrap180(r.result.dYaw + er[0])) <= 0.5) fakeOK++;
+    }
+    ok(fakeN > 0 && fakeOK === fakeN, `가짜 해(흰 구름 조각)에 끌려가지 않는다 — 방위를 푼 ${fakeOK}/${fakeN} 이 0.5° 안`);
+  }
+
+  console.log('\n== 기기 회전 → 카메라 자세 (attitudeFromEuler) ==');
+  {
+    // 앱은 DeviceMotion 의 (α, β, γ) 를 이 함수로 자세로 바꿉니다. 축이 틀리면 보정이 통째로 틀리므로
+    // 따로 잽니다: (1) 방위·앙각이 devicePose.ts 와 같고, (2) 자세로 다시 만든 카메라 축이
+    // 기기 +X(화면 오른쪽)·+Y(화면 위) 열과 같아야 합니다.
+    const DP = await import('file://' + path.join(PREVIEW, 'app/utils/devicePose.js'));
+    let worstAz = 0, worstEl = 0, worstAxis = 0, n = 0;
+    for (let i = 0; i < 500; i++) {
+      const a = (i * 2.399) % (2 * Math.PI), bb = ((i * 1.713) % 3.0) - 1.5, g = ((i * 0.917) % 2.2) - 1.1;
+      const pose = DP.poseFromRotation(a, bb, g);
+      if (pose.camHoriz < 0.2) continue;
+      const att = V.attitudeFromEuler(a, bb, g);
+      n++;
+      worstAz = Math.max(worstAz, Math.abs(V.wrap180(att.yawDeg - pose.camAzDeg)));
+      worstEl = Math.max(worstEl, Math.abs(att.pitchDeg - pose.camElevDeg));
+      const sa = Math.sin(a), ca = Math.cos(a), sb = Math.sin(bb), cb = Math.cos(bb), sg = Math.sin(g), cg = Math.cos(g);
+      const X = [ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, -cb * sg], Y = [-sa * cb, ca * cb, sb];
+      const B = V.cameraBasis(att);
+      for (let k = 0; k < 3; k++) worstAxis = Math.max(worstAxis, Math.abs(B.r[k] - X[k]), Math.abs(B.u[k] - Y[k]));
+    }
+    ok(n > 300 && worstAz < 1e-6 && worstEl < 1e-6 && worstAxis < 1e-9,
+      `방위·앙각이 devicePose 와 같고 카메라 축이 기기 축과 같다 (${n}개, 방위 ${worstAz.toExponential(1)}° 앙각 ${worstEl.toExponential(1)}° 축 ${worstAxis.toExponential(1)})`);
+  }
+
   console.log(`\n접촉 인화: .harness/ar-vision-sheet.png — 위 ${rowsPerSet}줄 정확 화면, 아래 ${rowsPerSet}줄 렌더 화면 (빨강 찾은 능선 · 초록 DEM 능선 · 자홍 찾은 해)`);
   console.log(`\n${fail ? 'FAILURES' : 'ALL PASS'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);

@@ -175,6 +175,9 @@ export interface HorizonOptions {
   farM?: number;
   /** 거리 간격을 늘리는 비. 기본 1.015. */
   growth?: number;
+  /** 이 칸부터 `binCount` 칸만 구합니다(나머지는 −90). `horizonProfileAsync` 가 나눠 부릅니다. */
+  startBin?: number;
+  binCount?: number;
 }
 
 /**
@@ -191,7 +194,9 @@ export function horizonProfile(elev: GroundElevation, eyeElevM: number, opts: Ho
   const dists: number[] = [];
   for (let d = nearM; d <= farM; d = Math.max(d * growth, d + 15)) dists.push(d);
   const drop = dists.map(d => (d * d * (1 - REFRACTION_K)) / (2 * EARTH_R_M));
-  for (let i = 0; i < n; i++) {
+  out.fill(-90);
+  const i0 = opts.startBin ?? 0, i1 = Math.min(n, i0 + (opts.binCount ?? n));
+  for (let i = i0; i < i1; i++) {
     const az = i * stepDeg * D2R;
     const se = Math.sin(az), ce = Math.cos(az);
     let best = -90;
@@ -875,4 +880,120 @@ export function createVisionCalibrator(opts: { window?: number; agreeDeg?: numbe
     status: () => ({ accepted, rejected, lastReason, locked }),
     reset() { yawHist = []; pitchHist = []; rollHist = []; corr = { dYaw: 0, dPitch: 0, dRoll: 0 }; accepted = 0; rejected = 0; lastReason = ''; locked = false; },
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. 한 장 분석 — 앱이 부르는 입구
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 해의 **겉보기** 고도(도). 천문 계산(SunCalc)은 기하 고도를 주는데, 카메라가 보는 것은 대기
+ * 굴절로 떠오른 해입니다 — 고도 5° 에서 0.16°, 1° 에서 0.4°. 보정 정밀도(0.15°)보다 커서 넣습니다.
+ * (Sæmundsson 식. 달은 SunCalc 가 이미 굴절을 더해 줍니다.)
+ */
+export function apparentAltitude(geometricAltDeg: number): number {
+  const h = geometricAltDeg;
+  if (h < -1.5) return h;
+  const R = 1.02 / Math.tan((h + 10.3 / (h + 5.11)) * D2R); // 각분
+  return h + R / 60;
+}
+
+/**
+ * 화면 밖 넓게 — 해·달을 찾아볼 범위. 센서 방위가 ±30° 틀릴 수 있으니 화면 가장자리 밖까지 봅니다.
+ */
+const BODY_SEARCH_DEG = 35;
+
+export interface CelestialBody {
+  /** 겉보기 방위·고도(도). */
+  azDeg: number;
+  altDeg: number;
+  kind: 'sun' | 'moon';
+}
+
+export interface FrameAnalysis {
+  result: SolveResult;
+  skyline: Skyline;
+  /** 찾아서 **쓴** 해·달(없으면 null). */
+  body: (BrightDisc & { kind: 'sun' | 'moon' }) | null;
+  /** 해·달을 찾았지만 능선 풀이와 1° 넘게 달라 버린 경우. */
+  bodyRejected: boolean;
+}
+
+/**
+ * 카메라 한 장으로 센서 자세 보정을 풉니다.
+ *
+ * 해·달은 **능선과 맞을 때만** 씁니다 — 밝은 구름 조각을 해로 읽으면 점 하나가 방위를 통째로
+ * 끌고 가기 때문입니다. 능선이 방위를 가려 주는 화면에서 해·달 없이 푼 방위와 1° 넘게 다르면
+ * 해·달을 버립니다. 능선이 없거나 밋밋하면(바다) 해·달이 유일한 근거라 그대로 씁니다.
+ */
+export function analyzeFrame(inp: {
+  frame: RgbFrame;
+  intrinsics: Intrinsics;
+  sensor: Attitude;
+  horizon: HorizonProfile | null;
+  bodies: CelestialBody[];
+}): FrameAnalysis {
+  const k = inp.intrinsics;
+  // 1. 해·달 — 센서 자세로 투영한 자리 둘레(방위 오차 여유만큼)에서
+  let body: FrameAnalysis['body'] = null;
+  for (const b of inp.bodies) {
+    if (b.altDeg < -1) continue;
+    const dir = dirFromAzEl(b.azDeg, b.altDeg);
+    const f = cameraBasis(inp.sensor).f;
+    const cosAng = dir[0] * f[0] + dir[1] * f[1] + dir[2] * f[2];
+    if (cosAng < Math.cos((HFOV_GUARD(k) / 2 + BODY_SEARCH_DEG) * D2R)) continue;
+    const p = project(dir, inp.sensor, k);
+    const center = p ?? { x: k.width / 2, y: k.height / 2 };
+    const radius = k.fx * Math.tan(BODY_SEARCH_DEG * D2R);
+    const d = detectBrightDisc(inp.frame, { near: { x: center.x, y: center.y, radius } });
+    if (!d || d.partial) continue;
+    // 해는 둘레 하늘까지 거의 포화된 **후광**을 두릅니다(카메라가 노출을 줄여도). 흰 구름 조각은
+    // 둘레가 푸른 하늘이라 어둡습니다 — 판정의 "가짜 해" 가 그것이었습니다(능선이 모호한 화면에서
+    // 방위를 3° 끌고 감). 달은 반대로 어두운 하늘 속 작은 원입니다.
+    const ringMed = Math.max(0, maxLum(inp.frame, d) - d.contrast);
+    if (b.kind === 'sun' && ringMed < 0.75) continue;
+    if (b.kind === 'moon' && ringMed > 0.5) continue;
+    body = { ...d, kind: b.kind };
+    break;
+  }
+  // 2. 능선
+  const mask: Array<[number, number]> = body ? [[body.x - Math.sqrt(body.area) * 2, body.x + Math.sqrt(body.area) * 2]] : [];
+  const skyline = detectSkyline(inp.frame, { maskColumns: mask });
+  const base = { intrinsics: k, sensor: inp.sensor, horizon: inp.horizon, skyline };
+  const skyOnly = solveAttitude(base);
+  if (!body) return { result: skyOnly, skyline, body: null, bodyRejected: false };
+  const bdef = inp.bodies.find(b => b.kind === body!.kind)!;
+  const withBody = solveAttitude({ ...base, points: [{ x: body.x, y: body.y, azDeg: bdef.azDeg, elDeg: bdef.altDeg }] });
+  if (skyOnly.yawObservable && Math.abs(wrap180(withBody.dYaw - skyOnly.dYaw)) > 1) {
+    return { result: skyOnly, skyline, body: null, bodyRejected: true };
+  }
+  return { result: withBody, skyline, body, bodyRejected: false };
+}
+
+const HFOV_GUARD = (k: Intrinsics) => 2 * Math.atan(k.width / 2 / k.fx) * R2D;
+
+/** 덩어리 가운데 화소의 밝기(0~1, RGB 최댓값). `contrast` 가 평균 − 둘레이므로 둘레 ≈ 이것 − contrast. */
+function maxLum(frame: RgbFrame, d: BrightDisc): number {
+  const x = Math.min(frame.width - 1, Math.max(0, Math.round(d.x - 0.5)));
+  const y = Math.min(frame.height - 1, Math.max(0, Math.round(d.y - 0.5)));
+  const p = (y * frame.width + x) * frame.channels;
+  return Math.max(frame.data[p], frame.data[p + 1], frame.data[p + 2]) / 255;
+}
+
+/**
+ * `horizonProfile` 과 같되 방위 몇 칸마다 **쉬어 가며**(앱의 JS 스레드를 막지 않게) 구합니다.
+ * 휴대폰에서는 1,440칸 × 거리 400개가 1~3초 걸려, 한 번에 돌리면 화면이 멈춥니다.
+ */
+export async function horizonProfileAsync(
+  elev: GroundElevation, eyeElevM: number, opts: HorizonOptions = {}, binsPerSlice = 48,
+): Promise<HorizonProfile> {
+  const stepDeg = opts.stepDeg ?? 0.25;
+  const n = Math.round(360 / stepDeg);
+  const out = new Float32Array(n);
+  for (let i0 = 0; i0 < n; i0 += binsPerSlice) {
+    const part = horizonProfile(elev, eyeElevM, { ...opts, stepDeg, startBin: i0, binCount: Math.min(binsPerSlice, n - i0) } as HorizonOptions);
+    out.set(part.elevDeg.subarray(i0, i0 + Math.min(binsPerSlice, n - i0)), i0);
+    await new Promise<void>(r => setTimeout(r, 0));
+  }
+  return { stepDeg, elevDeg: out };
 }

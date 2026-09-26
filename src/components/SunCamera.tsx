@@ -11,6 +11,8 @@ import { weatherCacheKey } from '../utils/cachePolicy';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
+import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
+import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNative';
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
@@ -323,6 +325,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 이제 utils/headingFusion 이 맡고, 가짜 센서 열로 판정합니다
   // (verify-heading-fusion.js).
   const fusionRef = useRef(createHeadingFusion());
+  // ── 화면 인식 보정 (docs/AR_VISION_PLAN.md) ──
+  // 원시 회전값(보정 전 α)과 자이로 속도 — 사진을 찍는 순간의 센서 자세를 기록하려고 둡니다.
+  const rawRotationRef = useRef<{ a: number; b: number; g: number } | null>(null);
+  const angularSpeedRef = useRef(0);
+  const horizonRef = useRef<HorizonProfile | null>(null);
+  const [visionStatus, setVisionStatus] = useState<string | null>(null);
+  const [isVisionRunning, setIsVisionRunning] = useState(false);
+  /** 사진 EXIF 로 잰 이 폰 카메라의 가로 화각(세로로 든 사진 기준). 표시만 합니다. */
+  const [measuredHfov, setMeasuredHfov] = useState<number | null>(null);
   const [headingStatus, setHeadingStatus] = useState<HeadingFusionStatus | null>(null);
 
   // One Euro Filter 상태 Ref
@@ -454,6 +465,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const sub = DeviceMotion.addListener((dm) => {
       if (!dm.rotation) return;
       const { alpha: aRad, beta: bRad, gamma: gRad } = dm.rotation;
+      rawRotationRef.current = { a: aRad, b: bRad, g: gRad };
+      const rr = dm.rotationRate;
+      if (rr) angularSpeedRef.current = Math.hypot(rr.alpha ?? 0, rr.beta ?? 0, rr.gamma ?? 0);
 
       // W3C Rotation Matrix: R = Rz(α) * Rx(β) * Ry(γ)
       const sa = Math.sin(aRad), ca = Math.cos(aRad);
@@ -631,6 +645,90 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     Alert.alert(t('calibratedTitle', language), t('calibratedMsg', language));
   }, [language]);
 
+  // ── 화면 인식 보정 — 산 능선·해·달로 방위를 맞춥니다 (docs/AR_VISION_PLAN.md) ─────────
+  // 화면이 열리면 이 자리의 DEM 지평선을 미리 구해 둡니다(몇 초, 쉬어 가며).
+  useEffect(() => {
+    if (!visible || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    let cancelled = false;
+    loadHorizon(latitude, longitude).then(h => { if (!cancelled) horizonRef.current = h; });
+    return () => { cancelled = true; };
+  }, [visible, latitude, longitude]);
+
+  /** 사진을 찍는 **순간**의 센서 자세 — 방위는 지금 화면이 쓰는 융합 방위, 앙각·기울기는 원시 회전. */
+  const sensorAttitudeNow = useCallback((): Attitude | null => {
+    const raw = rawRotationRef.current;
+    const heading = fusionRef.current.heading();
+    if (!raw || heading == null) return null;
+    const att = attitudeFromEuler(raw.a, raw.b, raw.g);
+    return { ...att, yawDeg: heading };
+  }, []);
+
+  /**
+   * 사진 한 장으로 보정을 풀고, 믿을 만하면 방위에 적용합니다. 반환: 사용자에게 보일 한 줄.
+   * ⚠ 사진은 폰을 **세로로** 든 것만 씁니다 — 가로로 들면 저장된 사진이 돌아가 있어 화면 축과
+   *   센서 축이 어긋납니다. 1배율만 씁니다(EXIF 초점거리가 디지털 줌을 반영하지 않을 수 있음).
+   */
+  const runVisionOnPhoto = useCallback(async (
+    uri: string, exif: Record<string, unknown> | undefined, sensor: Attitude, speedDegS: number, when: Date,
+  ): Promise<string> => {
+    if (cameraFacing !== 'back') return '뒤 카메라에서만 됩니다';
+    if (zoom > 0.001) return '1배율에서만 됩니다';
+    if (Math.abs(sensor.rollDeg) > 30) return '폰을 세로로 들어 주세요';
+    if (speedDegS > 15) return '폰을 멈춘 채 찍어 주세요';
+    const frame = await frameFromPhoto(uri);
+    if (!frame) return '사진을 읽지 못했습니다';
+    const hfov = hfovFromExif(exif, frame.width, frame.height);
+    if (hfov) setMeasuredHfov(hfov);
+    const k = intrinsicsFromHfov(frame.width, frame.height, hfov ?? 66);
+    const sun = getSunPosition(when, latitude, longitude);
+    const moon = getMoonPosition(when, latitude, longitude);
+    const a = analyzeFrame({
+      frame, intrinsics: k, sensor, horizon: horizonRef.current,
+      bodies: [
+        { kind: 'sun', azDeg: wrap360(sun.azimuth), altDeg: apparentAltitude(sun.altitude) },
+        { kind: 'moon', azDeg: wrap360(moon.azimuth), altDeg: moon.altitude },
+      ],
+    });
+    const r = a.result;
+    if (!r.yawObservable || r.confidence < 0.5) {
+      if (!horizonRef.current && !a.body) return '지형 자료를 아직 받는 중이거나, 해·달이 안 보입니다';
+      return r.reason ? `방위를 확정하지 못했습니다 — ${r.reason}` : '방위를 확정하지 못했습니다';
+    }
+    const now = fusionRef.current.heading();
+    if (now == null) return '방위 센서가 아직 준비되지 않았습니다';
+    // 찍은 뒤 폰이 돌아갔어도 됩니다 — 보정은 방위 **오프셋**에 대한 것이라 지금 방위에 더합니다.
+    fusionRef.current.snapTo(wrap360(now + r.dYaw));
+    setHeadingStatus(fusionRef.current.status());
+    const by = a.body ? (a.body.kind === 'sun' ? '해' : '달') + (r.samples ? ' + 능선' : '') : '능선';
+    return `${by}으로 방위를 ${r.dYaw >= 0 ? '+' : ''}${r.dYaw.toFixed(1)}° 맞췄습니다`;
+  }, [cameraFacing, zoom, latitude, longitude]);
+
+  useEffect(() => {
+    if (!visionStatus || isVisionRunning) return;
+    const t = setTimeout(() => setVisionStatus(null), 5000);
+    return () => clearTimeout(t);
+  }, [visionStatus, isVisionRunning]);
+
+  /** "화면 보정" 버튼 — 저화질로 한 장 찍어 바로 맞춥니다(셔터음 한 번). */
+  const handleVisionCalibrate = useCallback(async () => {
+    if (!cameraRef.current || isVisionRunning || isCapturing) return;
+    setIsVisionRunning(true);
+    setVisionStatus('화면을 읽는 중…');
+    try {
+      const sensor = sensorAttitudeNow();
+      const speed = angularSpeedRef.current;
+      const when = new Date();
+      if (!sensor) { setVisionStatus('방위 센서가 아직 준비되지 않았습니다'); return; }
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.3, exif: true, shutterSound: false });
+      if (!photo?.uri) { setVisionStatus('사진을 찍지 못했습니다'); return; }
+      setVisionStatus(await runVisionOnPhoto(photo.uri, photo.exif, sensor, speed, when));
+    } catch (e) {
+      setVisionStatus('화면 보정에 실패했습니다');
+    } finally {
+      setIsVisionRunning(false);
+    }
+  }, [isVisionRunning, isCapturing, sensorAttitudeNow, runVisionOnPhoto]);
+
   // ── Sun-Snap Calibration (태양 위치 기반 정밀 AR 보정) ──────────────────────────
   // 사용자가 화면 중앙에 태양(또는 일몰 방향)을 맞추고 탭하면
   // 실제 천문학적 태양 방위각(sunPos.azimuth)으로 AR 오버레이를 ±1° 이내로 정밀 맞춤.
@@ -687,6 +785,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         simFailReason = '3D 화면이 아직 준비되지 않음';
       }
 
+      // 화면 인식 보정용 — 셔터를 누른 순간의 센서 자세
+      const visionSensor = sensorAttitudeNow();
+      const visionSpeed = angularSpeedRef.current;
+      const visionWhen = new Date();
+
       // EXIF 활성화하여 촬영
       const photo = await cameraRef.current.takePictureAsync({
         quality: 1,
@@ -697,6 +800,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         Alert.alert('Error', 'Failed to take photo.');
         setIsCapturing(false);
         return;
+      }
+
+      // 찍은 사진으로도 방위를 맞춥니다 — 기다리지 않습니다(저장 흐름을 늦추지 않게).
+      if (visionSensor) {
+        runVisionOnPhoto(photo.uri, photo.exif, visionSensor, visionSpeed, visionWhen)
+          .then(msg => setVisionStatus(msg))
+          .catch(() => {});
       }
 
       // 촬영 시점의 실제 물리 시각 강제 (타임머신 시간으로 인해 더미 대낮이 그려지는 오류 수정)
@@ -916,7 +1026,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
-  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language]);
+  }, [isCapturing, currentEnhancement, latitude, longitude, sunPos, weatherCacheList, currentTime, language, sensorAttitudeNow, runVisionOnPhoto]);
 
   // 업로드 및 공유 처리
   const handleUpload = useCallback(async () => {
@@ -1306,6 +1416,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     폰이 누워 있음)를 그대로 적습니다.
                   · 자북만 받고 있으면 편각만큼 어긋난다고 알립니다.
                     이때는 Sun-Snap 이 확실한 길입니다. */}
+            {/* 화면 보정 결과 — 몇 초 보이고 사라집니다. */}
+            {visionStatus && (
+              <View style={styles.headingBanner}>
+                <Text style={styles.headingBannerText}>
+                  {`🏔 ${visionStatus}${measuredHfov ? ` · 카메라 화각 ${measuredHfov.toFixed(0)}°` : ''}`}
+                </Text>
+              </View>
+            )}
             {headingStatus && !headingStatus.seeded && (
               <View style={styles.headingBanner}>
                 <Text style={styles.headingBannerText}>
@@ -1572,9 +1690,16 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
             {/* 3. 하단 고정 컨트롤 바 */}
             <View style={styles.bottomControlsBar}>
-              <TouchableOpacity style={styles.sideBtn} onPress={handleSunSnap}>
-                <Sun size={22} color="#FFD700" />
-                <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>Sun-Snap</Text>
+              {/* 화면 보정 — 누르면 능선·해·달로 방위를 맞춥니다. 길게 누르면 예전 Sun-Snap
+                  (해를 화면 한가운데 두고 그 방위로 고정). */}
+              <TouchableOpacity
+                style={[styles.sideBtn, isVisionRunning && { opacity: 0.5 }]}
+                onPress={handleVisionCalibrate}
+                onLongPress={handleSunSnap}
+                disabled={isVisionRunning}
+              >
+                {isVisionRunning ? <ActivityIndicator size="small" color="#FFD700" /> : <Sun size={22} color="#FFD700" />}
+                <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>{language === 'ko' ? '화면 보정' : 'Auto-align'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
