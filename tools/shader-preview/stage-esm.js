@@ -68,6 +68,7 @@ const ENTRIES = [
   // 카메라 화면으로 AR 자세 보정(능선·해·달). 순수 논리라 합성 화면으로 판정합니다
   // (verify-ar-vision.js).
   'src/utils/arVision.ts',
+  'src/utils/demCpu.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });

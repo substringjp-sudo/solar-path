@@ -85,6 +85,37 @@ const IDENT_MIN = 0.25;
   const { W, H, HFOV } = st;
   const K = V.intrinsicsFromHfov(W, H, HFOV);
 
+  // 앱이 쓸 CPU DEM(`demCpu.ts`)이 판정의 참조 구현(`dem-cpu.js`)과 같은 값을 내는가.
+  // 디코드는 pngjs 로 대신합니다(앱은 Skia).
+  {
+    const D = await import('file://' + path.join(PREVIEW, 'app/utils/demCpu.js'));
+    let maxDiff = 0, nPts = 0, nullMismatch = 0, hMax = 0;
+    for (const s of cfg.sites) {
+      const dir = path.join(PREVIEW, s.dir);
+      const load = async (zoom) => D.loadCpuDemBlock(s.lat, s.lon, zoom === s.zFine ? cfg.FINE_M : cfg.FAR_M,
+        async (url) => { const f = path.join(dir, url.split('/').pop()); return fs.existsSync(f) ? Uint8Array.from(PNG.sync.read(fs.readFileSync(f)).data) : null; },
+        { tileUrl: (z, x, y) => `${z}_${x}_${y}.png` });
+      const fineApp = await load(s.zFine), farApp = await load(s.zFar);
+      const refF = makeCpuDem({ demDir: dir, zoom: s.zFine, lat: s.lat, lon: s.lon });
+      const refC = makeCpuDem({ demDir: dir, zoom: s.zFar, lat: s.lat, lon: s.lon });
+      for (let i = 0; i < 400; i++) {
+        const ang = i * 2.3999, rr = 50 + (i * 137.5) % 50000;
+        const e = rr * Math.cos(ang), so = rr * Math.sin(ang);
+        for (const [a, r] of [[fineApp.elevAtGround, refF.elevAtGround], [farApp.elevAtGround, refC.elevAtGround]]) {
+          const va = a(e, so), vr = r(e, so);
+          if ((va == null) !== (vr == null)) { nullMismatch++; continue; }
+          if (va == null) continue;
+          nPts++; maxDiff = Math.max(maxDiff, Math.abs(va - vr));
+        }
+      }
+      const appH = V.horizonProfile(D.combineSamplers(fineApp.elevAtGround, farApp.elevAtGround), s.eyeM);
+      const refH = V.horizonProfile((e, so) => refF.elevAtGround(e, so) ?? refC.elevAtGround(e, so), s.eyeM);
+      for (let i = 0; i < appH.elevDeg.length; i++) hMax = Math.max(hMax, Math.abs(appH.elevDeg[i] - refH.elevDeg[i]));
+    }
+    ok(nPts > 1000 && maxDiff < 1e-6 && nullMismatch === 0 && hMax < 1e-6,
+      `앱의 CPU DEM(demCpu.ts)이 참조와 같다 — ${nPts}점 최대 차 ${maxDiff.toExponential(1)}m, 블록 안팎 불일치 ${nullMismatch}, 지평선 최대 차 ${hMax.toExponential(1)}°`);
+  }
+
   const horizons = {};
   for (const s of cfg.sites) {
     const dir = path.join(PREVIEW, s.dir);
