@@ -423,8 +423,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 16,
     height: 24,
+    zIndex: 10,
   },
   titleRow: {
     flexDirection: 'row',
@@ -465,6 +466,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     alignItems: 'center',
+    zIndex: 10,
   },
   actionBtn: {
     flexDirection: 'row',
@@ -500,7 +502,7 @@ const styles = StyleSheet.create({
   },
   sliderWrapper: {
     position: 'relative',
-    height: 40,
+    height: 44,
     justifyContent: 'center',
   },
   markerOverlay: {

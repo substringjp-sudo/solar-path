@@ -191,7 +191,11 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 theme={theme}
                 fillColor="#a78bfa"
                 knobColor="#ede9fe"
-              />
+              >
+                <Text style={[styles.knobText, { color: '#1e1b4b' }]}>
+                  ×{skySettings.starBrightness.toFixed(2)}
+                </Text>
+              </GenericSlider>
             </View>
 
             <View style={styles.sliderBlock}>
@@ -211,7 +215,11 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 theme={theme}
                 fillColor="#38bdf8"
                 knobColor="#e0f2fe"
-              />
+              >
+                <Text style={[styles.knobText, { color: '#0c4a6e' }]}>
+                  {skySettings.starMagLimit.toFixed(1)}등급
+                </Text>
+              </GenericSlider>
               <Text style={[styles.sliderHint, { color: subTextColor }]}>
                 광공해 없는 밤 6.5등급 기준입니다. 여기에 그날 밤 달빛이 얼마나
                 밝은지가 실시간으로 더 깎입니다 — 달이 뜨고 차오르면 흐린 별부터
@@ -332,7 +340,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 16,
   },
   sliderLabel: {
     fontSize: 13,
@@ -346,5 +354,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 4,
     lineHeight: 15,
+  },
+  knobText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
 });
