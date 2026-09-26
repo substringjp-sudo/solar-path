@@ -2441,10 +2441,18 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
  * 앱의 타임라인은 팬을 들고 있지 않고 재구성된 기둥만 넘겨줍니다. 그래서
  * (방위, 거리)로 이중선형 조회하는 원천을 여기서 만듭니다.
  *
- * ⚠ 같은 표본을 쓰는데도 **천정 바람개비가 사라집니다.** 결과를 직교
- * 좌표 텍스처에 굽기 때문입니다 — 중심 텍셀이 하나뿐이라 모든 방위가
- * 자동으로 같은 값을 갖습니다. 극좌표 격자에서는 맨 윗 고리의 방위별
- * 값이 한 점으로 빨려들며 부챗살이 됐습니다 (PR #14의 진단).
+ * ⚠ **천정 부챗살의 정체가 여기 있었습니다(§101).** 예전 주석은 "직교 좌표
+ * 텍스처에 구우니 중심 텍셀이 하나라 바람개비가 사라진다" 고 적었지만 틀렸습니다.
+ * 텍셀마다 `src(방위, 거리)` 를 부르므로, 맨 안쪽 고리보다 가까운 텍셀은 거리
+ * 클램프로 **그 방위의** 고리 값을 받았습니다. 기둥의 맨 윗 고도는 69.6°(8단
+ * 등입체각)라 그 고리가 상층 4.1km·중층 1.7km 에 있고, 그 안쪽 — 고도 70° 위
+ * 하늘 전체 — 에서 24방위의 서로 다른 값이 천정 한 점으로 모였습니다.
+ *
+ * 이제 맨 안쪽 고리 안에서는 **공간 해상도를 그 고리의 것으로 고정**합니다:
+ * 거리 d 에서 방위 창을 (d0/d − 1) 표본 폭으로 넓혀 평균합니다(d0 = 고리 거리). 고리에서는
+ * 창 0(그 값 그대로, 이음매 없음), d0/25 안쪽에서는 한 바퀴 전체 평균 — 천정에서 한 값이 됩니다.
+ * 그 사이의 무늬 폭은 고리의 표본 간격(상층 약 1km)을 유지하고 중심으로 좁아지지
+ * 않습니다.
  */
 export function coverageFromSamples(
   samples: {
@@ -2503,6 +2511,33 @@ export function coverageFromSamples(
     const spanD = Math.max(1e-6, dist[d1] - dist[d0]);
     const tD = Math.max(0, Math.min(1, (distKm - dist[d0]) / spanD));
     const at = (arr: Float32Array, ia: number, id: number) => arr[id * nA + ia];
+    // 맨 안쪽 고리보다 가까우면 그 고리를 방위로 평균합니다(위 머리말, §101).
+    const dIn = dist[0];
+    if (distKm < dIn && nA > 1) {
+      // 창 폭(표본 수). 고리에서 0(그 값 그대로 — 이음매 없음), 안으로 갈수록 넓어집니다.
+      const width = distKm > 1e-9 ? dIn / distKm - 1 : Infinity;
+      const ring = (arr: Float32Array) => {
+        if (width >= nA) {
+          let acc = 0;
+          for (let i = 0; i < nA; i++) acc += arr[i];
+          return acc / nA;
+        }
+        // 고리 값을 방위로 선형 보간한 주기 함수를 [u - w/2, u + w/2] 에서 평균합니다.
+        const u = a0 + tA;
+        const steps = Math.max(2, Math.ceil(width * 4));
+        let acc = 0;
+        for (let k = 0; k <= steps; k++) {
+          const x = u - width / 2 + (width * k) / steps;
+          const f = Math.floor(x);
+          const i0 = ((f % nA) + nA) % nA, i1 = (i0 + 1) % nA;
+          const t = x - f;
+          const v = arr[i0] * (1 - t) + arr[i1] * t;
+          acc += (k === 0 || k === steps ? 0.5 : 1) * v;
+        }
+        return acc / steps;
+      };
+      return { c: ring(cover), f: ring(conf), g: genus ? ring(genus) : 0 };
+    }
     const mix = (arr: Float32Array) =>
       (at(arr, a0, d0) * (1 - tA) + at(arr, a1, d0) * tA) * (1 - tD) +
       (at(arr, a0, d1) * (1 - tA) + at(arr, a1, d1) * tA) * tD;
