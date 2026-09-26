@@ -41,7 +41,7 @@
 import * as THREE from 'three';
 import { EARTH_RADIUS_KM_GLSL } from '../../utils/earth';
 import {
-  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, NIGHT_SKY, type AtmosphereParams,
+  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, NIGHT_SKY, SOLAR_BEAM_SCALE, type AtmosphereParams,
 } from '../../utils/atmosphere';
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
@@ -57,6 +57,9 @@ import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/d
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
+/** §105 직달 표: 해 고도 ±BEAM_LUT_SPAN° 를 BEAM_LUT_N 칸에. 360km 끝에서 ±3.2° 이므로 넉넉히 4°. */
+const BEAM_LUT_N = 64;
+const BEAM_LUT_SPAN = 4;
 /** 운량장 텍스처 한 변. 제곱근 사상이라 중심 근처가 촘촘합니다. */
 export const SLAB_TEX = 128;
 
@@ -801,6 +804,41 @@ vec3 slab_sky(float elevDeg, float cosGamma){
     * uLightGain + uSkyAdd;
 }
 
+/**
+ * **노출 맞춤 (§104)** — 직달을 하늘빛과 같은 눈금(×SOLAR_BEAM_SCALE)으로 올린 뒤에도, 구름 전체
+ * 밝기는 예전 눈금에서 사진에 맞춰 둔 값을 지킵니다. 지형의 groundLighting 과 같은 방식입니다:
+ * 수평면이 받는 빛을 예전 눈금 ÷ 새 눈금으로 나눈 값을 곱합니다.
+ *
+ *   한낮: 직달이 스무 배가 되어 이 값이 0.14 안팎 → 평균 밝기는 그대로, 해를 등진 면(하늘빛만)은
+ *         어두워져 대비가 삽니다(사진 대비가 렌더의 1.6~2배였습니다).
+ *   노을: 수평면 직달이 거의 0(sin h)이라 이 값이 1 가까이 → 해를 향한 옆면(cos)의 붉은 직달이
+ *         그대로 살아 구름이 타오릅니다.
+ *
+ * beamS 는 이미 눈금을 곱한 직달, ambRef 는 수평면 하늘빛(복사휘도 평균 = 조도/π).
+ */
+float slab_expoNorm(vec3 beamS, float sinS, vec3 ambRef){
+  const vec3 LWn = vec3(0.2126, 0.7152, 0.0722);
+  float dirH = max(sinS, 0.0) / 3.14159265;
+  float amb = dot(ambRef, LWn);
+  float b = dot(beamS, LWn) * dirH;
+  return (amb + b / ${SOLAR_BEAM_SCALE.toFixed(1)}) / max(amb + b, 1e-6);
+}
+
+/**
+ * **자리마다 다른 직달 (§105)** — 해쪽으로 d km 떨어진 구름에게 해는 d/R 만큼(111km 에 1°) 높습니다.
+ * 해가 진 뒤 머리 위 구름은 이미 지구 그림자인데 서쪽 먼 구름은 아직 햇빛을 받는 까닭이고,
+ * "지평선 쪽만 타는" 노을의 물리입니다. 층마다 해 고도 −4~+4° 의 직달을 CPU(beamAtAltitude)
+ * 에서 구워 두고 여기서 읽습니다. 8비트 텍스처에 log2 로 담습니다(0~1 → 2^-16~1, 한 칸 1/16 조리개)
+ * — 노을 무렵의 어둡고 붉은 직달까지 담으려고. 0 은 "빛 없음".
+ */
+uniform sampler2D uBeamLUT;     // ${BEAM_LUT_N} × 3 (행 0 상층 · 1 중층 · 2 저층)
+uniform float uBeamLUTGain;     // 눈금(SOLAR_BEAM_SCALE) × 달빛 이득
+vec3 slab_beamAt(int L, float dDeg){
+  float u = (0.5 + clamp((dDeg + ${BEAM_LUT_SPAN.toFixed(1)}) / ${(2 * BEAM_LUT_SPAN).toFixed(1)}, 0.0, 1.0) * ${(BEAM_LUT_N - 1).toFixed(1)}) / ${BEAM_LUT_N.toFixed(1)};
+  vec3 e = texture2D(uBeamLUT, vec2(u, (float(L) + 0.5) / 3.0)).rgb;
+  return exp2(e * 16.0 - 16.0) * step(vec3(0.5 / 255.0), e) * uBeamLUTGain;
+}
+
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
   vec2 ndc = (gl_FragCoord.xy / uRes) * 2.0 - 1.0;
@@ -1001,6 +1039,7 @@ void main(){
     nSteps = int(min(float(nSteps), uVolSteps));
 
     vec3  beam   = L == 0 ? uBeamHigh : (L == 1 ? uBeamMid : uBeamLow);
+    float expoL  = 1.0;   // §104 — 아래에서 자리가 정해진 뒤 셉니다
     float cellKm = L == 0 ? CELL_HIGH : (L == 1 ? CELL_MID : CELL_LOW);
     float tauK   = L == 0 ? TAUK_HIGH : (L == 1 ? TAUK_MID : TAUK_LOW);
     float seed   = float(L) * 31.7;
@@ -1039,6 +1078,14 @@ void main(){
     if (layerBelow && slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm)) continue;
     if (!layerBelow && geom.sDistKm > tBlockSky) continue;
     vec2 km = dir.xz * geom.distRatio;
+    // §105 — 이 구름 자리에서 본 해: 해쪽으로 떨어진 만큼(d/R) 높습니다. 방향·직달·노출 맞춤이
+    // 모두 이 값을 씁니다. 관측자 둘레(d≈0)에서는 예전 층 값과 같습니다.
+    float dSunDeg = degrees(dot(km, sunXZ) / SLAB_R_EARTH);
+    sunElevC = radians(uSunAltDeg + dipDeg + dSunDeg);
+    sinSunC = sin(sunElevC); cosSunC = cos(sunElevC);
+    sunDirLocal = normalize(vec3(sunXZ * cosSunC, sinSunC));
+    if (uBeamLUTGain > 0.0) beam = slab_beamAt(L, dSunDeg);
+    expoL = slab_expoNorm(beam, sinSunC, uCloudModel > 0.5 ? ambHemi : ambBase);
     vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
     float conf  = cv.a;
@@ -1241,7 +1288,7 @@ void main(){
           // horizonHaze·채도부스트)를 씁니다 — 색이 갈라지면 22km 경계가
           // 눈에 띕니다. reach 자리에 nfSunT, thick 자리에 d 를 씁니다.
           float nfPh = 0.45 + 0.55 * pow(max(cosG, 0.0), 5.0);
-          vec3 cc = uBeamLow * nfSunT * nfPh * (0.20 + 1.15 * nfT_)
+          vec3 cc = beam * nfSunT * nfPh * (0.20 + 1.15 * nfT_)
                   + ambBase * (0.26 + 0.30 * nfT_);
 
           if (nightFactor > 0.01 && uCityLight > 0.01) {
@@ -1253,6 +1300,7 @@ void main(){
           cc = max(cc, ambBase * 0.18 * nfA);
           cc *= vec3(0.97, 0.99, 1.00);   // 저층 틴트 — 껍질 경로와 같은 값.
 
+          cc *= expoL;   // §104 — 껍질 경로와 같은 노출 맞춤(같은 저층)
           float nfHaze = 1.0 - exp(-nfS * 0.0030);
           cc = mix(cc, horizonHaze, clamp(nfHaze, 0.0, 0.85) * uAerialScale);
 
@@ -1690,6 +1738,7 @@ void main(){
       // 작용합니다. 세기를 uniform 으로 빼 얼마나 먹는지 잽니다.
       // 0.0055 는 100km 에서 벌써 42% 를 한 가지 안개색으로 덮어 노을의
       // 색 변화를 지웠습니다. 절반으로 낮추면 깊이감은 남고 대비는 돌아옵니다.
+      cc *= expoL;   // §104 — 하늘 연무를 섞기 전에(연무는 하늘빛이라 맞출 것이 없습니다)
       float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0030);
       cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85) * uAerialScale);
 
@@ -1752,6 +1801,7 @@ void main(){
     float kkF = (1.0 - uCloudGroundAlb) / (2.0 + tpF * (1.0 - uCloudGroundAlb));
     vec3 FdnF = uFogBeam * max(uSunDir.y, 0.0) + (uCloudModel > 0.5 ? ambHemi : ambBase);
     vec3 Lfog = FdnF * max(0.0, 1.0 - kkF * (1.0 + xdF));
+    Lfog *= slab_expoNorm(uFogBeam, uSunDir.y, uCloudModel > 0.5 ? ambHemi : ambBase);   // §104
     // 구름 쪽은 지평선 페이드를 먹인 알파로 다시 미리곱합니다.
     vec3 linC = accPre > 1e-4 ? lin / accPre * acc : vec3(0.0);
     lin = Lfog * fogA + linC * (1.0 - fogA);
@@ -1872,6 +1922,15 @@ export function createCloudSlab(opts: {
   genusTex.wrapT = THREE.ClampToEdgeWrapping;
   genusTex.needsUpdate = true;
 
+  // §105 직달 표 — updateCloudSlab 이 해가 움직일 때만 다시 굽습니다.
+  const beamLutData = new Uint8Array(BEAM_LUT_N * 3 * 4);
+  const beamLut = new THREE.DataTexture(beamLutData, BEAM_LUT_N, 3, THREE.RGBAFormat);
+  beamLut.minFilter = THREE.LinearFilter;
+  beamLut.magFilter = THREE.LinearFilter;
+  beamLut.wrapS = THREE.ClampToEdgeWrapping;
+  beamLut.wrapT = THREE.ClampToEdgeWrapping;
+  beamLut.needsUpdate = true;
+
   // ⚠ ALT_* 는 더 이상 치환하지 않습니다 — uLayerAltKm uniform 입니다.
   const frag = FRAG
     .replace(/CELL_LOW/g, cell.low.toFixed(2))
@@ -1928,6 +1987,8 @@ export function createCloudSlab(opts: {
       uBeamMid: { value: new THREE.Vector3(1, 1, 1) },
       uBeamHigh: { value: new THREE.Vector3(1, 1, 1) },
       uCoverTex: { value: coverTex },
+      uBeamLUT: { value: beamLut },
+      uBeamLUTGain: { value: 0 },
       uRangeKm: { value: rangeKm },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
@@ -2123,6 +2184,7 @@ export function createCloudSlab(opts: {
       materialBelow.dispose();
       coverTex.dispose();
       genusTex.dispose();
+      beamLut.dispose();
       horizonTarget?.dispose();
       bandTex?.dispose();
     },
@@ -2404,10 +2466,19 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   // ⚠ 셰이더가 쓰는 높이와 **같은 값**이어야 합니다. 예전에는 여기만 상수를
   //   보고 있어서, 높이를 바꾸면 빛줄기 색만 옛 높이로 남았을 것입니다.
   const alt = uni.uLayerAltKm.value as THREE.Vector3;
+  // ── 직달을 하늘빛과 같은 눈금으로 (§104) ──────────────────────────────
+  //
+  // `beamFor`(= beamAtAltitude)는 대기 밖 햇빛을 1 로 둔 **투과율**이고, 셰이더의 하늘빛
+  // (atm_skyRadiance)은 산란에 skyExposure(22)를 곱한 복사휘도입니다. 그대로 더하면 하늘빛이
+  // 스무 배 넘게 셉니다 — 맑은 날 수평면 확산 비율이 해 60° 에서 0.75(맑은 하늘 모형 약 0.11),
+  // 해쪽 구름 옆면의 직달 몫이 해 +5° 에도 2% 였습니다. 그래서 노을 구름이 붉은 직달이 아니라
+  // 하늘빛으로 칠해졌고, 해쪽 먼 구름이 직달을 막아도(§103) 화면이 거의 안 바뀌었습니다.
+  // 지형이 먼저 찾아 쓰던 같은 눈금(SOLAR_BEAM_SCALE, 맑은 하늘 직달/확산 비에서 역산)을
+  // 씁니다. 달빛도 같은 식이라 같이 곱합니다(하늘빛 쪽도 같은 skyExposure 를 탑니다).
   const beamOf = (km: number): RGB => {
-    if (!lightByMoon) return u.beamFor(km);
-    const b = beamAtAltitude(lightAlt, km, u.atmosphere);
-    return { r: b.r * ml.gain, g: b.g * ml.gain, b: b.b * ml.gain };
+    const b = lightByMoon ? beamAtAltitude(lightAlt, km, u.atmosphere) : u.beamFor(km);
+    const k = SOLAR_BEAM_SCALE * (lightByMoon ? ml.gain : 1);
+    return { r: b.r * k, g: b.g * k, b: b.b * k };
   };
   const bl = beamOf(alt.x);
   const bm = beamOf(alt.y);
@@ -2415,6 +2486,34 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   (uni.uBeamLow.value as THREE.Vector3).set(bl.r, bl.g, bl.b);
   (uni.uBeamMid.value as THREE.Vector3).set(bm.r, bm.g, bm.b);
   (uni.uBeamHigh.value as THREE.Vector3).set(bh.r, bh.g, bh.b);
+  // §105 — 자리마다 다른 해 고도의 직달 표. 해(또는 달)가 0.01° 넘게 움직였거나 층 높이·대기가
+  // 바뀌었을 때만 다시 굽습니다(층당 64번 beamAtAltitude). 호출부가 넘긴 beamFor 를 존중하려고
+  // d=0 에서 beamFor 와 같아지게 채널별 비를 곱합니다(보통은 1).
+  {
+    const lutTex = uni.uBeamLUT.value as THREE.DataTexture;
+    const key = [lightAlt.toFixed(2), alt.x.toFixed(3), alt.y.toFixed(3), alt.z.toFixed(3),
+      bl.r.toFixed(6), bm.r.toFixed(6), bh.r.toFixed(6), u.atmosphere.betaMie, u.atmosphere.elevScale].join('|');
+    if ((lutTex.userData as any).key !== key) {
+      (lutTex.userData as any).key = key;
+      const d = lutTex.image.data as Uint8Array;
+      const rows: [number, RGB][] = [[alt.z, bh], [alt.y, bm], [alt.x, bl]];   // 행 0 상층 · 1 중층 · 2 저층
+      const enc = (v: number) => (v < 2 ** -16 ? 0 : Math.max(1, Math.min(255, Math.round((Math.log2(v) + 16) / 16 * 255))));
+      rows.forEach(([km, b0], row) => {
+        const ref = beamAtAltitude(lightAlt, km, u.atmosphere);
+        const k = SOLAR_BEAM_SCALE * (lightByMoon ? ml.gain : 1);
+        const ratio = (c: 'r' | 'g' | 'b') => (ref[c] > 1e-9 ? b0[c] / (ref[c] * k) : 1);
+        const rr = ratio('r'), rg = ratio('g'), rb = ratio('b');
+        for (let i = 0; i < BEAM_LUT_N; i++) {
+          const dDeg = -BEAM_LUT_SPAN + (2 * BEAM_LUT_SPAN * i) / (BEAM_LUT_N - 1);
+          const b = beamAtAltitude(lightAlt + dDeg, km, u.atmosphere);
+          const o = (row * BEAM_LUT_N + i) * 4;
+          d[o] = enc(b.r * rr); d[o + 1] = enc(b.g * rg); d[o + 2] = enc(b.b * rb); d[o + 3] = 255;
+        }
+      });
+      lutTex.needsUpdate = true;
+    }
+    uni.uBeamLUTGain.value = SOLAR_BEAM_SCALE * (lightByMoon ? ml.gain : 1);
+  }
   // 두 번째 판(§96)은 그릴 것이 있을 때만 켭니다 — 관측자 아래 층이 있거나 구름 속일 때.
   // "아래" 는 셰이더와 같은 식: 저층은 덱 윗면(모르면 층 높이), 중·상층은 층 높이.
   if (uni.uPassMode.value > 0.5) {

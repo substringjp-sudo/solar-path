@@ -17,7 +17,7 @@
  * TS 구현과 GLSL 구현이 **같은 상수**를 공유하도록, 상수를 TS에서 정의하고
  * GLSL 문자열에 주입합니다. 두 구현이 갈라지는 것을 구조적으로 막습니다.
  */
-import { directBeamRGB, aerosolBeta, airMass, clamp01, type RGB } from './sunsetPhysics';
+import { directBeamRGB, aerosolBeta, airMass, clamp01, getApparentAltitude, type RGB } from './sunsetPhysics';
 import { EARTH_RADIUS_KM } from './earth';
 import { EARTH_RADIUS_KM_GLSL } from './earth';
 import { getTuning } from './skyTuning';
@@ -726,13 +726,29 @@ export function beamAtAltitude(
   const dip =
     (Math.acos(EARTH_RADIUS_KM / (EARTH_RADIUS_KM + Math.max(0, cloudAltKm))) * 180) /
     Math.PI;
-  return directBeamRGB(
-    sunAltDeg + dip,
+  const hAlt = sunAltDeg + dip;
+  const b = directBeamRGB(
+    hAlt,
     p.observerElevM + cloudAltKm * 1000,
     p.latitude,
     p.betaMie,
     p.dayOfYear
   );
+  // ── 해 원반이 이 높이의 지평선 위에 얼마나 남았나 (§104) ──────────────
+  //
+  // directBeamRGB 는 지평선 아래에서 직달을 exp(겉보기고도/2.5) 로 **천천히** 꺼 갑니다
+  // ("산란은 남는다" 는 주석과 함께). 그런데 산란(하늘빛)은 skyRadiance 가 따로 맡고, 직달은
+  // 원반이 지평선에 가리면 그걸로 끝입니다. 예전 눈금(직달이 26배 작음)에서는 그 꼬리가 안
+  // 보였지만, 눈금을 맞추자 해 −3° 에 이미 지구 그림자에 든 저층이 샛노랗게 탔습니다.
+  // 원반(반지름 0.267°) 중 겉보기 지평선 위에 남은 **넓이 비율**로 바꿉니다.
+  const app = getApparentAltitude(hAlt);
+  const R_SUN = 0.267;
+  if (app >= R_SUN) return b;
+  const x = Math.max(-1, Math.min(1, app / R_SUN));
+  const vis = (Math.PI - Math.acos(x) + x * Math.sqrt(1 - x * x)) / Math.PI;
+  const tail = app < 0 ? Math.exp(app / 2.5) : 1;   // directBeamRGB 가 곱한 꼬리를 되돌립니다
+  const k = vis / tail;
+  return { r: b.r * k, g: b.g * k, b: b.b * k };
 }
 
 // ── 3b) 달빛 (§92) ─────────────────────────────────────────────────────────
