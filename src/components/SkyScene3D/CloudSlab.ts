@@ -1066,6 +1066,35 @@ void main(){
     }
     float upDir = 1.0;
     vec3 upHemi = ambHemi, upSide0 = ambVertAnti, upSide1 = ambVertSun;
+    // ── 해가 낮을 때, 해쪽 먼 구름이 노을빛(해쪽 지평선 띠)을 가림 (§103) ──
+    //
+    // 이 셰이더에서 노을 구름을 분홍으로 칠하는 것은 직달이 아니라 **해쪽 수직면이
+    // 받는 하늘빛** — 해쪽 지평선 위의 밝은 띠입니다(위 수직면 적분 주석). 직달은
+    // 해쪽 저층에서 해 +5° 에도 밝기의 1~2% 뿐이었습니다(verify-twilight-glow 의 자료 2).
+    // 그 띠를 이 층 고도에서 보면 8~90km 앞의 같은 층·윗층을 지나므로, 그 자리
+    // 운량만큼 띠가 가려지고 옆면은 해 반대쪽 하늘만큼만 밝습니다. 가린 몫만큼
+    // 해쪽 수직면 빛을 반대쪽 수직면 빛으로 바꿉니다 — 둘 다 이미 있는 하늘
+    // 적분이라 새 밝기 상수는 없습니다. 해가 이 층에서 3° 넘게 떠 있으면 하늘빛이
+    // 해 둘레 광환이 지배해 지평선 띠 이야기가 아니므로 건드리지 않습니다.
+    // 사용자 제안: "태양이 있는 방향에서 낮은 구름에 해당하는 먼 거리에 구름이
+    // 있으면 어둡게, 없으면 밝게."
+    if (uCloudModel > 0.5) {
+      float glowW = smoothstep(3.0, 0.0, degrees(sunElevC));
+      if (glowW > 0.0) {
+        float blk = 0.0;
+        for (int s = 0; s < 4; s++){
+          float dK = s == 0 ? 8.0 : (s == 1 ? 20.0 : (s == 2 ? 45.0 : 90.0));
+          vec4 cvF = texture2D(uCoverTex, slab_coverUv(km + sunXZ * dK, uRangeKm));
+          float open = 1.0;
+          for (int K = 0; K < 3; K++){
+            if (K > L) break;          // 이 층과 윗층만 — 아래층은 시선 아래입니다
+            open *= 1.0 - slab_covOf(cvF, K);
+          }
+          blk += 1.0 - open;
+        }
+        upSide1 = mix(upSide1, upSide0, blk * 0.25 * glowW);
+      }
+    }
     // 윗층이 앞으로 흩은 햇빛 — 방향을 대부분 간직합니다(아래 릴리프에서 씀).
     vec3 upFwd = vec3(0.0);
     for (int U = 0; U < 2; U++){
@@ -1422,6 +1451,35 @@ void main(){
       } else {
         thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
         reach = exp(-thickSun * tauK * 0.55);
+      }
+
+      // ── 해쪽 먼 구름이 낮은 햇빛을 가림 (§103) ────────────────────────
+      //
+      // 노을 무렵 이 층에 닿는 햇빛은 **해쪽으로 수십~수백 km 를 거의 수평으로**
+      // 지나온 빛입니다. 그 길에 같은 층의 구름이 있으면 이 구름은 불이 안 붙고,
+      // 맑으면 타오릅니다 — "서쪽 하늘이 트여야 노을이 진다" 는 그 현상입니다.
+      // 위의 reach 는 가까운 이웃(저층 약 7km 안)만, upDir 은 **윗층**만 봅니다.
+      // 같은 층의 먼 구간은 아무도 안 봤습니다.
+      //
+      // 광선을 해쪽으로 되짚으며 높이를 셉니다: h(d) = d·tan(층에서 본 해 고도)
+      // + d²/2R(땅이 휘어 멀어지는 몫). 층 두께 안에 머무는 동안의 표본마다 그 자리
+      // 예보 운량만큼 막힙니다(운량 = 그 구간에서 구름을 만날 확률). 해가 조금만
+      // 높아도 광선이 몇 km 안에 층을 벗어나므로 낮에는 저절로 아무 일도 없습니다.
+      // 사용자 제안: "태양이 있는 방향에서 낮은 구름에 해당하는 먼 거리에 구름이
+      // 있으면 어둡게, 없으면 밝게."
+      if (uCloudModel > 0.5 && sinSunC > -0.02) {
+        float tanS = tan(max(sunElevC, 0.0));
+        float nearKm = cellKm * 6.0;   // 위 reach 가 이미 본 구간
+        float farT = 1.0;
+        for (int fs = 0; fs < 6; fs++){
+          float dK = fs == 0 ? 10.0 : (fs == 1 ? 20.0 : (fs == 2 ? 40.0 : (fs == 3 ? 80.0 : (fs == 4 ? 160.0 : 300.0))));
+          if (dK <= nearKm || dK > uRangeKm) continue;
+          float rise = dK * tanS + dK * dK / (2.0 * SLAB_R_EARTH);
+          if (rise > hThick) break;   // 광선이 이 층을 벗어났습니다
+          vec4 cvF = texture2D(uCoverTex, slab_coverUv(km + sunXZ * dK, uRangeKm));
+          farT *= 1.0 - slab_covOf(cvF, L);
+        }
+        reach *= farT;
       }
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
