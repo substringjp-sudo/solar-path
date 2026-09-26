@@ -802,6 +802,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   // GLView 컨텍스트 초기화
   const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
+    // GL 컨텍스트를 **다시** 받는 경우(앱을 내렸다 올렸을 때 등): 옛 렌더러의 DEM 패치는
+    // 죽은 컨텍스트의 렌더 타깃이라 새 씬에서는 빈 높이장입니다. 버리고 다시 받습니다.
+    // 예전에는 "이미 받은 자리" 로 기억돼 새 지형 메시가 끝내 숨은 채였습니다(§100).
+    if (rendererRef.current) clearDemCache(rendererRef.current);
+    demLoadedKeyRef.current = null;
+    demLoadingKeyRef.current = null;
     glRef.current = gl;
 
     const renderer = new Renderer({ gl });
@@ -1391,6 +1397,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     animateRef.current = animate;
     isLoopRunningRef.current = true;
     animate();
+    // 렌더러가 생긴 **뒤에** DEM 을 받게 합니다. 요청 이펙트는 location 에만 걸려 있어서,
+    // 마운트 때 렌더러가 아직 없으면 위치가 바뀔 때까지 지형을 안 받았습니다.
+    setDemRetryTick(t => t + 1);
   }, []);
 
   const updateScene = useCallback((evalDate?: Date) => {
@@ -2029,7 +2038,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // `demPatchRef.current`를 dispose 하면 방금 받은 새 패치를
         // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
-        if (cancelled) return;
+        // 받는 사이에 GL 컨텍스트가 바뀌었으면 이 패치는 옛 컨텍스트의 것입니다 — 버립니다.
+        // (onContextCreate 가 다시 요청합니다.)
+        if (cancelled || rendererRef.current !== renderer) return;
         // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
         // 구멍이 있는 채로 패치를 돌려줍니다.
         if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
@@ -2133,7 +2144,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       demLoadingKeyRef.current = null;
       demLoadedKeyRef.current = null;
-      clearDemCache();
+      // ⚠ **이 씬의 렌더러 몫만** 버립니다. 인자 없이 부르면 다른 씬(카메라를 닫을 때의
+      //   하늘 탭)이 쓰던 패치까지 지워 그쪽 지형이 사라집니다(§100).
+      if (rendererRef.current) clearDemCache(rendererRef.current);
 
       waterMaskHandleRef.current?.dispose();
       waterMaskHandleRef.current = null;
