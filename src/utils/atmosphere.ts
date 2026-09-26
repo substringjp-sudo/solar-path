@@ -1561,8 +1561,18 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   // 그대로고 밝기 관계만 바뀝니다. 사용자가 꼽은 "지평선쪽만 빛나면서"
   // (명암폭)와 깊은 황혼에 저층이 꺼지는 것은 둘 다 **휘도** 현상이라
   // 그대로 남습니다.
+  //
+  // ⚠ **대비 곡선은 0 과 1 을 지나는 S 자입니다.** 예전 직선 (l0 − 0.5)·C + 0.5 는 C = 1.06 에서
+  //   l0 < 0.028(sRGB 약 46/255)을 **전부 0 으로 잘랐습니다.** 해 −8° 박명(7.9)은 문턱 바로 위라
+  //   살고 −9° 는 0.4 로 새카맣게 떨어졌습니다 — 선형 밝기는 1.5배밖에 안 줄었는데(3.9e−3 → 2.6e−3).
+  //   흐린 보름밤·항해박명의 하늘과 별이 통째로 검던 것이 이것입니다(마쓰모토 2026-09-26,
+  //   verify-night-cloudy). 가운데(0.5) 기울기는 그대로 C 라 낮 화면은 거의 같고, 어두운 쪽만
+  //   잘리지 않고 0 으로 내려갑니다.
   float l0 = dot(c, LW);
-  float l1 = clamp((l0 - 0.5) * DISP_CONTR + 0.5, 0.0, 1.0);
+  float l1 = l0 < 0.5
+    ? 0.5 * pow(max(2.0 * l0, 0.0), DISP_CONTR)
+    : 1.0 - 0.5 * pow(max(2.0 * (1.0 - l0), 0.0), DISP_CONTR);
+  l1 = clamp(l1, 0.0, 1.0);
   // 배율이 채널을 천장 위로 밀면 그 채널만 잘려 색이 밀립니다 — 방금 없앤
   // 것과 같은 종류의 결함입니다. 밝은 화소에서는 배율을 천장에 맞춰 깎아
   // 잘림 자체를 만들지 않습니다(하이라이트 롤오프).
@@ -1638,7 +1648,11 @@ vec3 atm_display_ground(vec3 radiance, float saturation, float sunAltDeg) {
   // 근거 없이 튜닝된 상수를 건드리지 않으려고 원래대로 두고, 껐다 켜는
   // 유니폼만 남깁니다(판정이 씁니다).
   vec3 minGlow = mix(vec3(0.048, 0.035, 0.028), vec3(0.028, 0.038, 0.058), clamp((sunAltDeg + 6.0) / 16.0, 0.0, 1.0));
-  c = max(c, minGlow * GROUND_MIN_GLOW);
+  // ⚠ 밤에는 이 바닥을 걷습니다(해 −4° → −10°). 하늘이 대비 곡선에 잘려 새카맣던 동안에는 이 바닥
+  //   덕에 지형이 보였지만, 하늘이 제대로 나오자 반사율 0.2 인 땅이 박명·달빛 하늘보다 두 배 밝게
+  //   떴습니다(마쓰모토 18:11, verify-night-cloudy). 밤의 땅은 위의 물리값(대기광·달빛)이 맡습니다.
+  float glowFade = smoothstep(-10.0, -4.0, sunAltDeg);
+  c = max(c, minGlow * GROUND_MIN_GLOW * glowFade);
 
   return atm_toSrgb(atm_rodVision(c, sunAltDeg));
 }

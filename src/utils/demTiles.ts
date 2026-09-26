@@ -364,14 +364,37 @@ export const DEM_GLSL = demGlsl('dem');
  * 두 패치가 서로를 밀어내며 매 프레임 타일을 다시 받습니다. 그래서 작은
  * 키 맵으로 바꾸고 개수만 묶어 둡니다.
  */
-const cache = new Map<string, DemPatch>();
+/**
+ * ⚠ **렌더러(GL 컨텍스트)마다 따로** 둡니다. 패치는 렌더 타깃 — GPU 에만 있는 화소라
+ *   만든 컨텍스트 밖에서는 빈 텍스처입니다. 예전에는 모듈 하나에 공유해서
+ *   (1) 카메라 화면의 씬이 하늘 탭이 만든 패치를 그대로 받아 빈 높이장을 그렸고,
+ *   (2) 카메라를 닫을 때 `clearDemCache()` 가 하늘 탭이 쓰던 패치까지 지웠고,
+ *   (3) 앱을 내렸다 올려 GL 컨텍스트가 새로 생기면 죽은 컨텍스트의 패치를 돌려받았습니다.
+ *   셋 다 "지형이 사라진다" 로 보였습니다(§100).
+ */
+const caches = new Map<object, Map<string, DemPatch>>();
 const CACHE_MAX = 4;
 
-/** 캐시를 버립니다 (시험용, 그리고 관측지가 크게 바뀔 때). */
-export function clearDemCache(): void {
-  const all = [...cache.values()];
-  cache.clear();
-  all.forEach((p) => p.dispose());
+function cacheFor(renderer: object): Map<string, DemPatch> {
+  let c = caches.get(renderer);
+  if (!c) { c = new Map(); caches.set(renderer, c); }
+  return c;
+}
+
+/**
+ * 캐시를 버립니다. 렌더러를 주면 **그 렌더러의 것만**, 안 주면 전부(시험용).
+ * 씬이 내려가거나 GL 컨텍스트를 새로 받을 때 그 렌더러 몫만 버립니다.
+ */
+export function clearDemCache(renderer?: object): void {
+  const maps = renderer ? [caches.get(renderer)] : [...caches.values()];
+  if (renderer) caches.delete(renderer); else caches.clear();
+  for (const m of maps) {
+    if (!m) continue;
+    const all = [...m.values()];
+    m.clear();
+    // 죽은 컨텍스트에서는 지우기가 던질 수 있습니다 — 어차피 그 GL 자원은 사라졌습니다.
+    all.forEach((p) => { try { p.dispose(); } catch { /* 이미 사라진 컨텍스트 */ } });
+  }
 }
 
 export async function loadDemPatch(
@@ -400,6 +423,7 @@ export async function loadDemPatch(
   // 같은 블록이면 다시 받지 않습니다. 관측지가 한 타일 안에서 움직이는 동안
   // (걸어다니는 정도) 계속 재사용됩니다.
   const key = `${zoom}/${originX}/${originY}/${block}`;
+  const cache = cacheFor(deps.renderer);
   const hit = cache.get(key);
   if (hit) {
     // 같은 객체를 돌려줍니다 (복사본이 아니라). 텍스처가 그대로이므로 호출부가

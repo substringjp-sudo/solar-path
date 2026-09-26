@@ -121,7 +121,7 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { cloudAround } from '../../utils/cloudProfile';
+import { fogAtObserver } from '../../utils/cloudProfile';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -350,6 +350,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const [demRetryTick, setDemRetryTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
+  /** 달을 광원으로 둔 지면 조도(이득 곱하기 전) — 달이 움직였을 때만 다시 구합니다. */
+  const moonGroundCacheRef = useRef<{ alt: number; az: number; atmos: unknown; sky: { r: number; g: number; b: number }; beam: { r: number; g: number; b: number } } | null>(null);
   const starFieldRef = useRef<StarFieldHandle | null>(null);
   const milkyWayRef = useRef<MilkyWayHandle | null>(null);
   const celestialPathsRef = useRef<CelestialPathsGroup | null>(null);
@@ -800,6 +802,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   // GLView 컨텍스트 초기화
   const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
+    // GL 컨텍스트를 **다시** 받는 경우(앱을 내렸다 올렸을 때 등): 옛 렌더러의 DEM 패치는
+    // 죽은 컨텍스트의 렌더 타깃이라 새 씬에서는 빈 높이장입니다. 버리고 다시 받습니다.
+    // 예전에는 "이미 받은 자리" 로 기억돼 새 지형 메시가 끝내 숨은 채였습니다(§100).
+    if (rendererRef.current) clearDemCache(rendererRef.current);
+    demLoadedKeyRef.current = null;
+    demLoadingKeyRef.current = null;
     glRef.current = gl;
 
     const renderer = new Renderer({ gl });
@@ -1389,6 +1397,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     animateRef.current = animate;
     isLoopRunningRef.current = true;
     animate();
+    // 렌더러가 생긴 **뒤에** DEM 을 받게 합니다. 요청 이펙트는 location 에만 걸려 있어서,
+    // 마운트 때 렌더러가 아직 없으면 위치가 바뀔 때까지 지형을 안 받았습니다.
+    setDemRetryTick(t => t + 1);
   }, []);
 
   const updateScene = useCallback((evalDate?: Date) => {
@@ -1490,6 +1501,41 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (groundRef.current) {
       const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
       const moonIllum = SunCalc.getMoonIllumination(targetDate);
+      // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
+      // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
+      const mAltDegG = (moonPos.altitude * 180) / Math.PI;
+      const mAzDegG = (moonPos.azimuth * 180) / Math.PI + 180;
+      const mGain = moonLight(sunAltRef.current, mAltDegG, moonIllum.fraction, atmosphere).gain;
+      let moonIrr: { r: number; g: number; b: number } | null = null;
+      if (mGain > 0 && mAltDegG > 0) {
+        const c = moonGroundCacheRef.current;
+        if (!c || Math.abs(c.alt - mAltDegG) > 0.2 || Math.abs(c.az - mAzDegG) > 0.2 || c.atmos !== atmosphere) {
+          let sr = 0, sg = 0, sb = 0, sw = 0;
+          for (const elev of [10, 30, 50, 75]) {
+            const w = Math.sin((elev * Math.PI) / 180);
+            for (let a = 0; a < 6; a++) {
+              const az = (a * 360) / 6;
+              const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG, atmosphere);
+              sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
+            }
+          }
+          const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
+          const direct = Math.sin((mAltDegG * Math.PI) / 180) / Math.PI;
+          moonGroundCacheRef.current = {
+            alt: mAltDegG, az: mAzDegG, atmos: atmosphere,
+            sky: { r: sr / sw, g: sg / sw, b: sb / sw },
+            beam: { r: beamM.r * direct, g: beamM.g * direct, b: beamM.b * direct },
+          };
+        }
+        const c2 = moonGroundCacheRef.current!;
+        // 직사 몫은 해처럼 운량만큼 가립니다(하늘 몫은 구름 밑면이 대신 비추므로 그대로).
+        const t = 1 - overcast;
+        moonIrr = {
+          r: (c2.sky.r + c2.beam.r * t) * mGain,
+          g: (c2.sky.g + c2.beam.g * t) * mGain,
+          b: (c2.sky.b + c2.beam.b * t) * mGain,
+        };
+      }
       updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
         skyMean: cachedSkyMeanRGBRef.current,
         betaMie: atmosphere.betaMie,
@@ -1503,6 +1549,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         moonAltitudeDeg: (moonPos.altitude * 180) / Math.PI,
         moonAzimuthDeg: (moonPos.azimuth * 180) / Math.PI + 180,
         moonFraction: moonIllum.fraction,
+        moonIrradiance: moonIrr,
       });
     }
 
@@ -1740,7 +1787,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           .filter(l => Number.isFinite(l.heightM) && Number.isFinite(l.coverPct))
         : [];
       const obsAltKm = (cachedAtmosphereRef.current?.observerElevM ?? 0) / 1000;
-      cloudSlabRef.current.setInCloud(levels.length >= 2 ? cloudAround(levels, obsAltKm) : null);
+      cloudSlabRef.current.setInCloud(levels.length >= 2 ? fogAtObserver(levels, obsAltKm) : null);
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
@@ -1991,7 +2038,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // `demPatchRef.current`를 dispose 하면 방금 받은 새 패치를
         // 지우는 꼴이 됩니다. 컴포넌트가 통째로 내려갈 때만
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
-        if (cancelled) return;
+        // 받는 사이에 GL 컨텍스트가 바뀌었으면 이 패치는 옛 컨텍스트의 것입니다 — 버립니다.
+        // (onContextCreate 가 다시 요청합니다.)
+        if (cancelled || rendererRef.current !== renderer) return;
         // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
         // 구멍이 있는 채로 패치를 돌려줍니다.
         if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
@@ -2095,7 +2144,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       demLoadingKeyRef.current = null;
       demLoadedKeyRef.current = null;
-      clearDemCache();
+      // ⚠ **이 씬의 렌더러 몫만** 버립니다. 인자 없이 부르면 다른 씬(카메라를 닫을 때의
+      //   하늘 탭)이 쓰던 패치까지 지워 그쪽 지형이 사라집니다(§100).
+      if (rendererRef.current) clearDemCache(rendererRef.current);
 
       waterMaskHandleRef.current?.dispose();
       waterMaskHandleRef.current = null;

@@ -351,13 +351,17 @@ void main() {
   // 순응이 곱해질 몫만큼 미리 나눠 둡니다. 그러면 의도한 밝기는 그대로고
   // 날아가지만 않습니다. (달빛 uMoonRadiance 는 진짜 물리값이라 그대로
   // 두고 순응이 올리게 둡니다 — 그게 순응의 존재 이유입니다.)
-  float nightAdapt = max(1.0, atm_adaptation(uSunAltDeg)
-                              * (1.0 + 2.0 * smoothstep(18.0, -3.0, uSunAltDeg)));
-  vec3 nightAirglow = vec3(0.020, 0.025, 0.035) * uNightFactor / nightAdapt;
+  //
+  // ⚠ **그 표시 밝기 상수(대기광 0.020~0.035 ÷ 순응)는 뺐습니다.** 하늘이 대비 곡선에 잘려 새카맣던
+  //   동안에는 이것 덕에 밤 지면이 보였지만, 지면은 이미 uGroundRadiance(하늘 평균 × 반사율, 밤하늘
+  //   바닥 포함)로 물리 조도를 받습니다 — 이중으로 더해 반사율 0.2 인 땅이 박명·밤하늘보다 두 배
+  //   밝게 떴습니다(마쓰모토 2026-09-26, verify-night-cloudy). 산 격자(TerrainField)는 원래 이런
+  //   상수 없이 물리값만 씁니다. 달빛도 다른 빛과 같은 반사율을 받습니다 — 예전 (0.28,0.25,0.20)×2.8
+  //   은 반사율의 3.6배였습니다.
   float dMoonAz = cos(az - uMoonAzRad);
   float moonSheen = max(0.0, dMoonAz) * pow(grazing, 2.0) * 0.75;
   vec3 moonScatter = uMoonRadiance * (1.0 + moonSheen);
-  vec3 nightGround = (nightAirglow + moonScatter) * vec3(0.28, 0.25, 0.20) * 2.8;
+  vec3 nightGround = moonScatter * vec3(0.22, 0.17, 0.13);
 
   // ⚠ **절대 복사휘도 바닥을 깔면 안 됩니다.**
   //
@@ -1128,6 +1132,11 @@ export function updateGroundColors(
     moonAltitudeDeg?: number;
     moonAzimuthDeg?: number;
     moonFraction?: number;
+    /**
+     * 달빛이 지면에 주는 조도/π (선형 RGB) — 하늘·구름과 **같은 달빛**(§92, `moonLight` 이득 ×
+     * "해를 달 자리에 둔 낮" 의 지면 조도). 없으면 달빛을 안 씁니다.
+     */
+    moonIrradiance?: { r: number; g: number; b: number } | null;
   }
 ): void {
   const mat = mesh.material as THREE.ShaderMaterial;
@@ -1184,15 +1193,15 @@ export function updateGroundColors(
   const moonFrac = opts?.moonFraction ?? 0;
   const moonSinAlt = Math.max(0, Math.sin((moonAltDeg * Math.PI) / 180));
 
+  // ⚠ 예전에는 `고도 사인 × (0.038·위상 + 0.006)` 의 **가짜 상수**(보름 고도 54° 에서 0.036)였습니다.
+  //   §92 에서 하늘·구름의 달빛을 물리값(이득 약 0.002)으로 바꾸면서 여기만 남았고, 밤하늘보다 열 배
+  //   넘게 밝은 지면에 밤 순응(§95)이 곱해져 **땅이 하얗게** 탔습니다(마쓰모토, 2026-09-26 23:59).
+  //   이제 호출부가 하늘·구름과 같은 식으로 구한 값을 받습니다.
+  void moonFrac;
   if (u.uMoonRadiance) {
-    if (nightFactor > 0.01 && moonSinAlt > 0) {
-      // 보름달 기준 약 0.04 은빛 달빛 조도
-      const moonIntensity = moonSinAlt * (moonFrac * 0.038 + 0.006);
-      (u.uMoonRadiance.value as THREE.Vector3).set(
-        moonIntensity * 0.7,
-        moonIntensity * 0.85,
-        moonIntensity * 1.15
-      );
+    const m = opts?.moonIrradiance;
+    if (nightFactor > 0.01 && moonSinAlt > 0 && m) {
+      (u.uMoonRadiance.value as THREE.Vector3).set(m.r, m.g, m.b);
     } else {
       (u.uMoonRadiance.value as THREE.Vector3).set(0, 0, 0);
     }

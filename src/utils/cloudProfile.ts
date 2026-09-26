@@ -206,6 +206,31 @@ export function cloudAround(
 }
 
 /**
+ * 관측자가 **실제로 구름 속인가** — 안개로 그릴지 정하는 판정(§93 을 고침).
+ *
+ * `cloudAround` 는 관측 고도를 감싼 구름 덩어리를 반값 규칙으로 찾을 뿐이라, 관측 고도의 운량이
+ * 낮아도(덩어리의 가장자리) 덩어리 안이라고 답합니다. 기압면 운량은 그 높이에서 격자 칸이 구름에
+ * 덮인 **비율**이므로, 19% 면 관측자는 81% 확률로 맑은 공기 속입니다.
+ *
+ * ⚠ 실제로 틀렸던 날: 마쓰모토(해발 545m) 2026-09-26 저녁. 관측 고도 단면이 15~19%, 그 위로
+ *   1~3km 가 100% 였습니다. 반값 규칙이 426m~4km 를 한 덩어리로 묶어 관측자를 구름 속으로 봤고,
+ *   앱 전체에 안개가 씌워져 낮엔 먼 능선이 흰 띠로, 밤엔 하늘·별이 새카맣게 가려졌습니다.
+ *   그 시각 모델 시정은 3.6~6.7km 로 안개가 아니었습니다.
+ *
+ * 그래서 관측 고도의 운량이 **절반 이상**(구름 속일 가능성이 더 큼)일 때만 안개로 봅니다.
+ */
+export function fogAtObserver(
+  levels: ProfileLevel[],
+  altKm: number,
+): { cover: number; baseKm: number; topKm: number } | null {
+  const c = cloudAround(levels, altKm);
+  if (!c || !(c.cover >= FOG_MIN_COVER)) return null;
+  return c;
+}
+/** 안개로 그리는 관측 고도 운량의 하한(0~1). */
+export const FOG_MIN_COVER = 0.5;
+
+/**
  * 들어올림 응결 고도(LCL) — **적운의 밑면**입니다. 지상 기온과 이슬점만 있으면
  * 납니다: `LCL ≈ 125·(T − Td)` m (Espy 근사).
  *
