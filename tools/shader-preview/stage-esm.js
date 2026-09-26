@@ -65,6 +65,9 @@ const ENTRIES = [
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
   // 판정할 수 있습니다 (verify-heading-fusion.js).
   'src/utils/headingFusion.ts',
+  // 카메라 화면으로 AR 자세 보정(능선·해·달). 순수 논리라 합성 화면으로 판정합니다
+  // (verify-ar-vision.js).
+  'src/utils/arVision.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });
