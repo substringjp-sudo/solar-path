@@ -45,17 +45,21 @@ for (const off of OFFSETS) for (const d of DISTS) pts.push(pt(d,off));
 const fan=new WeatherFan(pts, SUN_AZ);
 const samples=buildSkyColumns({fan, driftMinutes:0, windSpeedKmh:20, windBearingDeg:250});
 const srcNew=coverageFromSamples(samples);
+// §113 전(§101 까지)의 조회 — 관측자 둘레 평면 평활을 끈 것. 옛 조회와 양성 대조가 이것을 씁니다.
+const srcPre=coverageFromSamples(samples,{nearKm:0});
 const innerKm={}; for (const L of ['low','mid','high']) innerKm[L]=Math.min(...samples.filter(s=>s.layer===L).map(s=>s.distanceKm));
-// 옛 조회: 맨 안쪽 고리보다 가까우면 그 방위의 고리 값(거리 클램프). 고리 밖은 새 조회와 같습니다.
-const srcOld=(az,d)=>{ const lo=srcNew(az,Math.max(d,innerKm.low)), mi=srcNew(az,Math.max(d,innerKm.mid)), hi=srcNew(az,Math.max(d,innerKm.high));
+// 옛 조회: 맨 안쪽 고리보다 가까우면 그 방위의 고리 값(거리 클램프). 고리 밖은 §101 조회와 같습니다.
+const srcOld=(az,d)=>{ const lo=srcPre(az,Math.max(d,innerKm.low)), mi=srcPre(az,Math.max(d,innerKm.mid)), hi=srcPre(az,Math.max(d,innerKm.high));
   return { low:lo.low, mid:mi.mid, high:hi.high, confidence:Math.max(lo.confidence,mi.confidence,hi.confidence), lowGenus:lo.lowGenus }; };
 // 운량장 자 — 천정 둘레 원을 따라
 const ringStd=(src,L,d)=>{ let a=0,b=0; const n=360; for(let k=0;k<n;k++){ const v=src(k,d)[L]; a+=v; b+=v*v; } a/=n; return Math.sqrt(Math.max(0,b/n-a*a)); };
 const field={innerKm, layers:{}};
 for (const L of ['low','mid','high']) { const rows=[];
-  for (const f of [1,0.5,0.25,0.125,1/32]) { const d=innerKm[L]*f; rows.push({f, d, old:ringStd(srcOld,L,d), neu:ringStd(srcNew,L,d)}); }
-  field.layers[L]=rows; }
-let outside=0; for (const d of [innerKm.high, innerKm.high*1.5, 20, 80]) for (let az=0;az<360;az+=7){ const a=srcOld(az,d), b=srcNew(az,d); outside=Math.max(outside,Math.abs(a.high-b.high),Math.abs(a.mid-b.mid),Math.abs(a.low-b.low)); }
+  for (const f of [1,0.5,0.25,0.125,1/32]) { const d=innerKm[L]*f; rows.push({f, d, old:ringStd(srcOld,L,d), pre:ringStd(srcPre,L,d), neu:ringStd(srcNew,L,d)}); }
+  field.layers[L]=rows;
+  // §113 — 관측자 둘레 2·5km 원(맨 안쪽 고리 **밖**)의 방위 편차: 평활 전·후.
+  field.layers[L+'Near']=[2,5].map(d=>({d, pre:ringStd(srcPre,L,d), neu:ringStd(srcNew,L,d)})); }
+let outside=0; for (const d of [innerKm.high, innerKm.high*1.5, 20, 80]) for (let az=0;az<360;az+=7){ const a=srcOld(az,d), b=srcPre(az,d); outside=Math.max(outside,Math.abs(a.high-b.high),Math.abs(a.mid-b.mid),Math.abs(a.low-b.low)); }
 field.outsideMaxDiff=outside;
 
 // 화면 자

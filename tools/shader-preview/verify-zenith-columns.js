@@ -10,6 +10,10 @@
  *  - 화면: 같은 비가 **균일한 운량장**(모양장의 결만 남음)의 1.5배 이하.
  *  - 화면 대조점(고도 55°)은 같은 비가 ≤ 0.4 (매끄러운 장에서 자가 작게 읽는다).
  * 대조(자가 증상을 보는가): 옛 조회는 운량장 비 ≥ 0.5, 화면 천정 비 ≥ 0.6.
+ *
+ * §113 — 새 조회가 관측자 둘레 8km 를 평면에서 평활하게 되어, 양성 대조·옛 조회는 평활을 끈
+ * `coverageFromSamples(samples, { nearKm: 0 })`(§101 까지의 조회)로 잽니다. 줄 하나를 더합니다:
+ *  - 운량장: 관측자 둘레 2·5km 원(맨 안쪽 고리 밖)의 방위 편차가 평활 전의 0.25배 이하.
  */
 const fs = require('fs');
 const path = require('path');
@@ -35,19 +39,26 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   if (!st) { console.log('FAILURES — __stats 없음'); process.exit(1); }
   const { field, screen, shots, W, H } = st;
   console.log(`\n맨 안쪽 고리(km): 저층 ${field.innerKm.low.toFixed(2)} · 중층 ${field.innerKm.mid.toFixed(2)} · 상층 ${field.innerKm.high.toFixed(2)}`);
-  const lays = ['low', 'mid', 'high'].filter(L => field.layers[L][0].old > 0 || field.layers[L][0].neu > 0);
+  // §113 부터 새 조회는 관측자 둘레를 평면에서 평활합니다. 고리의 방위 편차(양성 대조)는 평활 **전**
+  // (§101 까지, pre)에서 잽니다 — 평활 뒤에는 고리에서도 편차가 거의 없어 대조가 공허해집니다.
+  const lays = ['low', 'mid', 'high'].filter(L => field.layers[L][0].pre >= 0.02);
   for (const L of ['low', 'mid', 'high']) {
-    console.log(`  [${L}]  d/d0      d(km)   옛 표준편차  새 표준편차`);
-    for (const r of field.layers[L]) console.log(`         ${r.f.toFixed(3).padStart(6)}  ${r.d.toFixed(3).padStart(7)}   ${r.old.toFixed(4).padStart(9)}   ${r.neu.toFixed(4).padStart(9)}`);
+    console.log(`  [${L}]  d/d0      d(km)   옛 표준편차  §101      새(§113)`);
+    for (const r of field.layers[L]) console.log(`         ${r.f.toFixed(3).padStart(6)}  ${r.d.toFixed(3).padStart(7)}   ${r.old.toFixed(4).padStart(9)}   ${r.pre.toFixed(4).padStart(7)}   ${r.neu.toFixed(4).padStart(7)}`);
+    for (const r of field.layers[L + 'Near']) console.log(`         d = ${r.d} km 원: §101 ${r.pre.toFixed(4)} → §113 ${r.neu.toFixed(4)}`);
   }
   console.log('\n  화면 광학두께 원 표준편차   천정 1°/8° (비)            대조 55° 1°/8° (비)');
   for (const k of ['old', 'new', 'uniform']) { const s = screen[k]; console.log(`  ${k}   ${s.z1.toFixed(2)}/${s.z8.toFixed(2)} (${s.zRatio.toFixed(2)})      ${s.c1.toFixed(2)}/${s.c8.toFixed(2)} (${s.cRatio.toFixed(2)})`); }
 
   console.log('\n== 고친 동작 ==');
-  ok(lays.length > 0 && lays.every(L => field.layers[L][0].neu >= 0.02), `양성 대조: 고리에 방위 편차가 실제로 있다 (${['low','mid','high'].map(L => L + ' ' + field.layers[L][0].neu.toFixed(3)).join(' · ')} — ≥ 0.02 인 층만 잽니다: ${lays.join(',') || '없음'})`);
+  ok(lays.length > 0, `양성 대조: 고리에 방위 편차가 실제로 있다 (§101 조회 ${['low','mid','high'].map(L => L + ' ' + field.layers[L][0].pre.toFixed(3)).join(' · ')} — ≥ 0.02 인 층만 잽니다: ${lays.join(',') || '없음'})`);
   for (const L of lays) { const rs = field.layers[L], ring = rs[0], tip = rs[rs.length - 1];
-    ok(tip.neu <= 0.1 * ring.neu, `운량장 ${L}: 천정 가까이(d0/32) 방위 편차가 사라진다 (${tip.neu.toFixed(4)} ≤ 0.1 × ${ring.neu.toFixed(4)})`); }
-  ok(field.outsideMaxDiff < 1e-6, `운량장: 맨 안쪽 고리 밖은 옛 조회와 같다 (최대 차 ${field.outsideMaxDiff.toExponential(1)})`);
+    ok(tip.neu <= 0.1 * ring.pre, `운량장 ${L}: 천정 가까이(d0/32) 방위 편차가 사라진다 (${tip.neu.toFixed(4)} ≤ 0.1 × ${ring.pre.toFixed(4)})`); }
+  ok(field.outsideMaxDiff < 1e-6, `운량장: 맨 안쪽 고리 밖은 §101 조회가 옛 조회와 같다 (최대 차 ${field.outsideMaxDiff.toExponential(1)})`);
+  // §113 — 맨 안쪽 고리 **밖**에서도 관측자로 모이는 부채꼴(방위 칸 경계)이 남았습니다. 2·5km 원의
+  // 방위 편차가 평활 전의 0.25 배 이하여야 합니다(재기 전에 정함). 평활 전에 편차가 있는 층만.
+  for (const L of ['low', 'mid', 'high']) for (const r of field.layers[L + 'Near']) if (r.pre >= 0.02)
+    ok(r.neu <= 0.25 * r.pre, `§113 운량장 ${L}: ${r.d}km 원의 부채꼴이 사라진다 (${r.neu.toFixed(4)} ≤ 0.25 × ${r.pre.toFixed(4)})`);
   ok(screen.new.zRatio <= 0.4, `화면: 천정이 한 점으로 모이지 않는다 (1°/8° 비 ${screen.new.zRatio.toFixed(2)} ≤ 0.4)`);
   ok(screen.new.zRatio <= 1.5 * screen.uniform.zRatio, `화면: 천정 편차가 균일한 운량장의 결과 같은 수준 (${screen.new.zRatio.toFixed(2)} ≤ 1.5 × ${screen.uniform.zRatio.toFixed(2)})`);
   ok(screen.new.cRatio <= 0.4 && screen.old.cRatio <= 0.4, `화면 대조점(55°)은 둘 다 매끄럽게 읽힌다 (${screen.old.cRatio.toFixed(2)} · ${screen.new.cRatio.toFixed(2)} ≤ 0.4)`);

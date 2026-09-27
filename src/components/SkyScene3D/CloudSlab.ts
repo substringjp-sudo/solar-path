@@ -2730,7 +2730,9 @@ export function coverageFromSamples(
     layer: LayerKey; azimuthDeg: number; distanceKm: number; cover: number; confidence: number;
     /** 저층 운형 판정 입력 (계획 33절) — `LayerSample`이 이미 들고 있는 값입니다. */
     precipMmH?: number; humidityPct?: number; lowPct?: number; highPct?: number;
-  }[]
+  }[],
+  /** nearKm: 관측자 둘레 평면 평활의 반경(§113, 기본 12). 0 이면 끕니다 — 판정의 옛 조회 대조용. */
+  opts: { nearKm?: number } = {}
 ): CoverageSource {
   type Row = { az: number[]; dist: number[]; cover: Float32Array; conf: Float32Array; genus?: Float32Array };
   const byLayer: Record<string, Row> = {};
@@ -2815,10 +2817,66 @@ export function coverageFromSamples(
     return { c: mix(cover), f: mix(conf), g: genus ? mix(genus) : 0 };
   };
 
+  // ── 관측자 둘레는 평면에서 매끄럽게 (§113) ─────────────────────────────
+  //
+  // 기둥은 방위 24칸 × 고도 8단이라, 위 조회는 **부채꼴을 이어 붙인 장**입니다. 칸 사이의 방위
+  // 보간 경계가 관측자 한 점으로 모여, 운량장 자체가 관측자를 중심으로 한 부챗살입니다(맨 안쪽
+  // 고리 안만 평균하는 §101 로는 그 바깥 부채꼴이 그대로 남음). 층이 높으면 그 중심이 천정의
+  // 작은 점이라 희미했지만, 운해 속 산 위(마쓰모토 785m, 저층 밑면 1.06km — 눈 위 275m)에서는
+  // 올려다본 화면 전체가 반경 0.2km 안을 보게 되어 화면 가득 꽃잎이 됐습니다(2026-09-27 QR).
+  //
+  // 관측자 둘레 NEAR_KM 안에서는 **기둥 표본점들을 평면 가우스(σ = NEAR_SIGMA_KM)로 가중 평균**한
+  // 값을 씁니다(나다라야–왓슨: 가중치 합으로 나누므로 안쪽 고리의 표본이 촘촘해도 치우치지 않음).
+  // 예보 격자는 수 km 간격이라 그보다 잔 운량 무늬는 보간이 만든 것이지 예보가 아닙니다 — 잔
+  // 무늬는 셰이더의 노이즈가 맡습니다. 바깥으로 가면서 원래 값으로 이어 붙입니다(이음매 없음).
+  // ⚠ 처음엔 위 조회 결과(부채꼴 장)를 격자로 떠서 흐렸는데, 한가운데 뾰족점이 표본 간격마다
+  //   복제돼 격자 무늬가 남았습니다. 흐리는 대상은 장이 아니라 **표본점**이어야 합니다.
+  // 반경 12km(안쪽 6km 는 평활 그대로). 예보 부채꼴의 첫 고리가 10km 라 그 안쪽의 방위 차는 전부
+  // 보간입니다. 처음 8km 로 두었을 때 5km 원이 넘어가는 구간에 걸려 부채꼴이 0.26~0.29 배 남았습니다.
+  const NEAR_KM = opts.nearKm ?? 12, NEAR_SIGMA_KM = 2;
+  const REACH_KM = NEAR_KM + 3 * NEAR_SIGMA_KM;
+  type Pt = { x: number; y: number; c: number; f: number; g: number };
+  const nearPts: Record<string, Pt[]> = {};
+  for (const [key, row] of Object.entries(byLayer)) {
+    const list: Pt[] = [];
+    row.dist.forEach((d, j) => {
+      if (d > REACH_KM) return;
+      row.az.forEach((azDeg, i) => {
+        const a = (azDeg * Math.PI) / 180, idx = j * row.az.length + i;
+        list.push({ x: d * Math.sin(a), y: d * Math.cos(a), c: row.cover[idx], f: row.conf[idx], g: row.genus ? row.genus[idx] : 0 });
+      });
+    });
+    nearPts[key] = list;
+  }
+  const smooth = (key: string, x0: number, y0: number, fallback: { c: number; f: number; g: number }) => {
+    const pts = nearPts[key];
+    if (!pts || pts.length === 0) return fallback;
+    let w = 0, c = 0, f = 0, g = 0;
+    for (const p of pts) {
+      const dx = p.x - x0, dy = p.y - y0;
+      const k = Math.exp(-(dx * dx + dy * dy) / (2 * NEAR_SIGMA_KM * NEAR_SIGMA_KM));
+      w += k; c += k * p.c; f += k * p.f; g += k * p.g;
+    }
+    return w > 1e-9 ? { c: c / w, f: f / w, g: g / w } : fallback;
+  };
   return (azimuthDeg: number, distanceKm: number) => {
-    const lo = lookup(byLayer.low, azimuthDeg, distanceKm);
-    const mi = lookup(byLayer.mid, azimuthDeg, distanceKm);
-    const hi = lookup(byLayer.high, azimuthDeg, distanceKm);
+    const lo0 = lookup(byLayer.low, azimuthDeg, distanceKm);
+    const mi0 = lookup(byLayer.mid, azimuthDeg, distanceKm);
+    const hi0 = lookup(byLayer.high, azimuthDeg, distanceKm);
+    let lo = lo0, mi = mi0, hi = hi0;
+    if (distanceKm < NEAR_KM) {
+      const a = (azimuthDeg * Math.PI) / 180;
+      const x0 = distanceKm * Math.sin(a), y0 = distanceKm * Math.cos(a);   // 동, 북
+      // 안쪽 절반은 매끈한 값 그대로, 거기서 NEAR_KM 까지 원래 값으로 넘어갑니다.
+      const u = Math.min(1, Math.max(0, (distanceKm - NEAR_KM / 2) / (NEAR_KM / 2)));
+      const t = u * u * (3 - 2 * u);
+      const blend = (sm: { c: number; f: number; g: number }, o: { c: number; f: number; g: number }) => ({
+        c: sm.c * (1 - t) + o.c * t, f: sm.f * (1 - t) + o.f * t, g: sm.g * (1 - t) + o.g * t,
+      });
+      lo = blend(smooth('low', x0, y0, lo0), lo0);
+      mi = blend(smooth('mid', x0, y0, mi0), mi0);
+      hi = blend(smooth('high', x0, y0, hi0), hi0);
+    }
     return {
       low: lo.c, mid: mi.c, high: hi.c,
       confidence: Math.max(lo.f, mi.f, hi.f),
