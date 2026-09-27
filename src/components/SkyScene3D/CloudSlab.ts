@@ -73,6 +73,9 @@ export const SLAB_TEX = 128;
 
 /** 층별 노이즈 셀 크기 (km) — 저층 적운은 덩어리가 크고, 고층 권운은 섬세한 필라멘트. (층간 거리감 부각을 위해 격차를 늘림) */
 const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
+/** §109 권운 떨어지는 줄 — 떨어지는 깊이(km)와 얼음 결정 낙하 속도(m/s). 흔한 값 1~2km · 0.3~1m/s 의 가운데. */
+const CIRRUS_FALL_DEPTH_KM = 1.5;
+const CIRRUS_FALL_SPEED_MPS = 0.7;
 /** 층별 두께 → 광학두께 배율. 두꺼운 저층일수록 큽니다. */
 const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
 
@@ -159,6 +162,8 @@ uniform float uShapeMode, uShapeDepth, uShapeEdge, uShapeSigma;
  *   길 자체가 막혀 있었습니다. uniform 으로 빼 두면 매 갱신에 그냥 넣습니다.
  */
 uniform vec3 uLayerAltKm;
+/** 층별 바람(km/h, 동·남). §109 권운 줄무늬가 시어(윗바람 − 아랫바람)를 쓰므로 여기서 선언합니다. */
+uniform vec2  uWindLow, uWindMid, uWindHigh;
 uniform float uFbmRot;
 float slab_fbm(vec2 p, int oct){
   float s = 0.0, a = 0.5, n = 0.0;
@@ -315,7 +320,27 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
     //   무엇이 그림을 바꿨는지 못 가립니다. 기하평균 √(0.28·1.6) = 0.6693 을
     //   고정하고 비만 바꿨습니다 — 0.3347 · 1.3387 이 정확히 4:1 이고
     //   기하평균은 그대로입니다.
-    vec2 pWind = vec2(dot(p, windNorm) * 0.3347, dot(p, vec2(-windNorm.y, windNorm.x)) * 1.3387);
+    //
+    // ⚠ §109 — **늘어남은 바람이 아니라 바람 시어에서** 옵니다. 권운 줄무늬(떨어지는 줄, fall streak)는
+    //   머리 부분에서 떨어진 얼음 결정이 아래로 내려가며 **고도에 따라 달라지는 바람**에 끌려 생깁니다.
+    //   시어가 약하면 둥근 덩어리(권적운·송이), 세면 긴 줄입니다. 방향도 바람이 아니라 **시어 벡터**
+    //   (윗바람 − 아랫바람)를 따릅니다. 예전 4:1 은 바람이 없어도 늘 4배였고, 층마다 자기 바람 방향으로
+    //   누워 "층마다 다른 방향이 중구난방" 으로 보였습니다(사용자 보고).
+    //
+    //   줄의 길이: 떨어지는 깊이 z 에서 상대 바람이 s·z 이므로 L = ∫₀ᴰ s·z / v dz = s·D² / (2v).
+    //   D = 1.5km(권운 아래 떨어지는 줄의 흔한 깊이 1~2km), v = 0.7m/s(권운 얼음 결정 낙하 속도
+    //   0.3~1m/s 의 가운데). **폭**은 머리(결정이 생기는 덩어리)의 크기라 시어와 무관합니다 — 예전
+    //   가로 배율 1.3387 그대로(셀 9km → 6.7km). **길이**만 줄만큼 늘어 종횡비 = 1 + L / 폭.
+    //   대용 바람(시어 1.9m/s/km) 에서 1.45, 강한 제트(7m/s/km) 에서 2.7, 시어 0 이면 1(둥근 덩어리).
+    //   ⚠ 처음엔 기하평균(0.6693)을 지키며 비만 줄였는데, 그러면 시어 0 에서 덩어리가 13km 로 커져
+    //     천정(시야 11km)이 통째로 한 덩어리가 됐습니다(verify-shear-grain 에서 결집도 0).
+    vec2 shr = uWindHigh - uWindMid;                                   // km/h
+    float sMpsKm = length(shr) / 3.6 / max(uLayerAltKm.z - uLayerAltKm.y, 0.5);
+    float streakKm = sMpsKm * ${CIRRUS_FALL_DEPTH_KM.toFixed(2)} * ${CIRRUS_FALL_DEPTH_KM.toFixed(2)} / (2.0 * ${CIRRUS_FALL_SPEED_MPS.toFixed(2)});
+    float headKm = cellKm / 1.3387;
+    float aspect = 1.0 + streakKm / headKm;
+    vec2 ax = length(shr) > 0.5 ? normalize(shr) : windNorm;
+    vec2 pWind = vec2(dot(p, ax) * (1.3387 / aspect), dot(p, vec2(-ax.y, ax.x)) * 1.3387);
     // 굵은 폴백: 잔 옥타브가 죽어도 상층 흐름 규모의 띠는 남습니다.
     float fibCoarse = mix(0.5, slab_fbm(pWind * 0.16, 2), detCoarse);
     float fibrous = mix(fibCoarse, slab_fbm(pWind, 5), det);
@@ -787,7 +812,6 @@ uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
 uniform sampler2D uCoverTex;
 uniform float uRangeKm;
 uniform float uBeta, uAngstrom, uElevScale, uOzoneDU;
-uniform vec2  uWindLow, uWindMid, uWindHigh;
 uniform float uDriftHours;
 uniform float uPixelAngleRad;
 uniform float uAerialScale;
