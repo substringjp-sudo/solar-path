@@ -249,8 +249,16 @@ SlabGeom slab_sphereIntersect(float sinE, float cosE, float h){
     res.hit = disc >= 0.0 && tFar > 0.0;       // 먼 가장자리 위로는 안 닿음
     s = -chord / max(tFar, 1e-6);
   }
-  float angle = asin(clamp(s * cosE / A, 0.0, 1.0));
-  float safeRatio = (cosE > 1e-4) ? (angle / cosE) : (s / A);
+  // distRatio = A·asin(x)/cosE, x = s·cosE/A. ⚠ **천정 꽃잎의 정체(§114).** 천정 둘레에서 x 는
+  // 1e-5 안팎인데, 폰 GPU 의 asin 은 흔히 근사식(π/2 − √(1−x)·다항식, 절대 오차 ~5e-5)이라 이 크기
+  // 에서 오차가 값보다 큽니다. 그 오차를 cosE(천정에서 → 0)로 나누니 지상 위치가 수 km 씩 틀어져,
+  // 천정 둘레 화소가 모두 거의 같은 반지름의 원에서 무늬를 읽었습니다 — 무늬가 방위에만 따라 변하는
+  // 꽃잎입니다. 데스크톱(SwiftShader)의 asin 은 정확해서 하네스가 못 그렸습니다. 작은 x 는 급수
+  // asin(x)/x = 1 + x²/6 + 3x⁴/40 로 풉니다(x < 0.02 에서 오차 < 1e-11, 지상 127km 안 전부).
+  float x = clamp(s * cosE / A, 0.0, 1.0);
+  float safeRatio = x < 0.02
+    ? (s / A) * (1.0 + x * x * (1.0 / 6.0 + x * x * (3.0 / 40.0)))
+    : asin(x) / max(cosE, 1e-4);
 
   res.sDistKm = s;
   res.distRatio = A * safeRatio;
