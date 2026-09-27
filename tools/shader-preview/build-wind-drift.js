@@ -4,6 +4,9 @@
  * 무엇을 재는가:
  *  1. 무풍이면 시간이 흘러도 그림이 **한 픽셀도** 안 바뀌는가.
  *  2. `uWindLow/Mid/High` 가 정말 **그 층에만** 걸리는가 (교차 누출 0).
+ *     ⚠ §109 부터 상층 **모양**은 시어(상층풍 − 중층풍)를 따릅니다 — 중층풍이 상층 줄무늬 길이를
+ *     바꾸는 건 설계입니다. 그래서 "안 샌다" 는 **흐름**(같은 바람에서 시간만 흘렸을 때의 차)으로
+ *     재고, 모양 차(바람 없음 대비)는 따로 둡니다(§117.5).
  *  3. 이동량이 풍속에 **비례**하는가 (1 : 2 : 4).
  *  4. 이동 **방향**이 맞는가 — 서풍(방위 270°)이면 구름이 동쪽으로 흘러야
  *     하고, 북쪽을 볼 때 동쪽은 화면 오른쪽입니다.
@@ -129,8 +132,8 @@ function meanDiff(a,b){
  * 이동량이 달라지므로, 한 가지 이동량으로 설명되는 좁은 띠에서 잽니다.
  * 정수 최소점 주변 3점 포물선으로 소수점까지 좁힙니다.
  */
-function shiftX(base, moved, maxS){
-  const y0=Math.floor(TH/2)-40, y1=Math.floor(TH/2)+40;
+function shiftX(base, moved, maxS, Y0, Y1){
+  const y0=Y0 ?? Math.floor(TH/2)-40, y1=Y1 ?? Math.floor(TH/2)+40;
   const x0=maxS+6, x1=TW-maxS-6;
   const cost=[];
   for(let s=-maxS; s<=maxS; s++){
@@ -161,16 +164,19 @@ const base = shoot(NOWIND, 0);
 // ── 2. 층 분리 — 한 층에만 바람을 걸고, 층별로 구운 운량장에서 잽니다 ──
 // 대각선(같은 층)은 커야 하고, 대각선 밖(다른 층)은 0이어야 합니다.
 const LAYERS = ['low','mid','high'];
-const 교차 = {};
+const 교차 = {}, 흐름 = {};
 for (const 운량층 of LAYERS){
   bakeUniform(운량층);
   const b = shoot(NOWIND, 0);
   for (const 바람층 of LAYERS){
     const w = { ...NOWIND, [바람층]: W(40, 270) };
-    교차[운량층 + '운량_' + 바람층 + '풍'] = meanDiff(b, shoot(w, 0.05));
+    const k = 운량층 + '운량_' + 바람층 + '풍', moved = shoot(w, 0.05);
+    교차[k] = meanDiff(b, moved);                 // 바람 없음 대비 — 흐름 + 모양
+    흐름[k] = meanDiff(shoot(w, 0), moved);       // 같은 바람, 시간만 — 흐름만
   }
 }
 결과.층교차 = 교차;
+결과.층흐름 = 흐름;
 
 // ── 3·4. 속도 비례와 방향 부호 — 하층만 남기고 하층풍만 바꿉니다 ────────
 bakeUniform('low');
@@ -186,6 +192,20 @@ for (const kmh of [10, 20, 40]){
   '20대10': +(이동.서풍20 / (이동.서풍10 || 1e-9)).toFixed(3),
   '40대10': +(이동.서풍40 / (이동.서풍10 || 1e-9)).toFixed(3),
 };
+// §117.5 — 위 가로띠(80줄) 안에서도 이동량이 행마다 1.6배 달라(시선 고도 8°·세로 화각 30° 의 원근),
+// 한 값으로 뭉치면 대비가 센 행 쪽으로 끌립니다(§104 조명 뒤 40km/h 가 88 → 110px). 그 띠 안의
+// 좁은 두 띠(20줄)에서 따로 잽니다 — 띠 안 이동량 차가 몇 %라 거의 강체 평행이동입니다.
+{
+  const shots = { 10: null, 20: null, 40: null };
+  for (const kmh of [10, 20, 40]) shots[kmh] = shoot({ ...NOWIND, low: W(kmh, 270) }, DH);
+  const 띠 = {};
+  for (const [y0, y1] of [[Math.floor(TH/2)-30, Math.floor(TH/2)-10], [Math.floor(TH/2)+10, Math.floor(TH/2)+30]]) {
+    const m = {}; for (const kmh of [10, 20, 40]) m[kmh] = shiftX(lowBase, shots[kmh], 140, y0, y1);
+    띠['행' + y0 + '-' + y1] = { px: [m[10], m[20], m[40]],
+      '20대10': +(m[20] / (m[10] || 1e-9)).toFixed(3), '40대10': +(m[40] / (m[10] || 1e-9)).toFixed(3) };
+  }
+  결과.좁은띠속도비 = 띠;
+}
 
 // ── 눈으로 볼 네 칸 ─────────────────────────────────────────────────────
 // 실측다운 비율(1 : 1.7 : 3.4)로 세 층을 함께 흘려 봅니다.
