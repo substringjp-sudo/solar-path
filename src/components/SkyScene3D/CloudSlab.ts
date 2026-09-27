@@ -40,6 +40,7 @@
  */
 import * as THREE from 'three';
 import { EARTH_RADIUS_KM_GLSL } from '../../utils/earth';
+import { beamGrazing } from '../../utils/grazingRay';
 import {
   ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, NIGHT_SKY, SOLAR_BEAM_SCALE, type AtmosphereParams,
 } from '../../utils/atmosphere';
@@ -59,6 +60,13 @@ import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/d
 export const SLAB_RANGE_KM = 360;
 /** §105 직달 표: 해 고도 ±BEAM_LUT_SPAN° 를 BEAM_LUT_N 칸에. 360km 끝에서 ±3.2° 이므로 넉넉히 4°. */
 const BEAM_LUT_N = 64;
+/**
+ * 직달 투과율 → 이 셰이더의 직달 항(§104·§106). 하늘빛이 **복사휘도**(조도/π)로 들어오므로
+ * 직달도 조도/π 로 맞춥니다: SOLAR_BEAM_SCALE(투과율 → 하늘 눈금의 조도) ÷ π.
+ * ⚠ 처음(§104)엔 π 를 빠뜨려 직달이 π 배 셌습니다 — 노을에 해 받은 구름이 레몬색으로 포화했습니다
+ *   (사진 대조 원색 화소 13% 대 사진 0.9%). 지면(TerrainRing)은 처음부터 sin/π 로 맞춰 왔습니다.
+ */
+const BEAM_TO_SLAB = SOLAR_BEAM_SCALE / Math.PI;
 const BEAM_LUT_SPAN = 4;
 /** 운량장 텍스처 한 변. 제곱근 사상이라 중심 근처가 촘촘합니다. */
 export const SLAB_TEX = 128;
@@ -818,26 +826,32 @@ vec3 slab_sky(float elevDeg, float cosGamma){
  */
 float slab_expoNorm(vec3 beamS, float sinS, vec3 ambRef){
   const vec3 LWn = vec3(0.2126, 0.7152, 0.0722);
-  float dirH = max(sinS, 0.0) / 3.14159265;
+  // 이 셰이더의 약속: 하늘빛은 복사휘도(= 조도/π), 직달 항은 beam·cos. 그래서 수평면 직달은
+  // beam·sin 이고, 예전 눈금의 beam 은 지금 것 ÷ (SOLAR_BEAM_SCALE/π) 입니다.
   float amb = dot(ambRef, LWn);
-  float b = dot(beamS, LWn) * dirH;
-  return (amb + b / ${SOLAR_BEAM_SCALE.toFixed(1)}) / max(amb + b, 1e-6);
+  float b = dot(beamS, LWn) * max(sinS, 0.0);
+  return (amb + b / ${(SOLAR_BEAM_SCALE / Math.PI).toFixed(4)}) / max(amb + b, 1e-6);
 }
 
 /**
- * **자리마다 다른 직달 (§105)** — 해쪽으로 d km 떨어진 구름에게 해는 d/R 만큼(111km 에 1°) 높습니다.
+ * **자리마다 다른 직달 (§105·§106)** — 해쪽으로 d km 떨어진 구름에게 해는 d/R 만큼(111km 에 1°) 높습니다.
+ * 표는 CPU 의 광선 적분(grazingRay.ts — 둥근 대기·표준대기 밀도·에어로졸 1.2km·오존층·굴절)으로 굽습니다.
  * 해가 진 뒤 머리 위 구름은 이미 지구 그림자인데 서쪽 먼 구름은 아직 햇빛을 받는 까닭이고,
  * "지평선 쪽만 타는" 노을의 물리입니다. 층마다 해 고도 −4~+4° 의 직달을 CPU(beamAtAltitude)
  * 에서 구워 두고 여기서 읽습니다. 8비트 텍스처에 log2 로 담습니다(0~1 → 2^-16~1, 한 칸 1/16 조리개)
  * — 노을 무렵의 어둡고 붉은 직달까지 담으려고. 0 은 "빛 없음".
  */
 uniform sampler2D uBeamLUT;     // ${BEAM_LUT_N} × 3 (행 0 상층 · 1 중층 · 2 저층)
-uniform float uBeamLUTGain;     // 눈금(SOLAR_BEAM_SCALE) × 달빛 이득
-vec3 slab_beamAt(int L, float dDeg){
+uniform float uBeamLUTGain;     // 눈금(SOLAR_BEAM_SCALE/π) × 달빛 이득
+vec4 slab_beamLUT(int L, float dDeg){
   float u = (0.5 + clamp((dDeg + ${BEAM_LUT_SPAN.toFixed(1)}) / ${(2 * BEAM_LUT_SPAN).toFixed(1)}, 0.0, 1.0) * ${(BEAM_LUT_N - 1).toFixed(1)}) / ${BEAM_LUT_N.toFixed(1)};
-  vec3 e = texture2D(uBeamLUT, vec2(u, (float(L) + 0.5) / 3.0)).rgb;
-  return exp2(e * 16.0 - 16.0) * step(vec3(0.5 / 255.0), e) * uBeamLUTGain;
+  return texture2D(uBeamLUT, vec2(u, (float(L) + 0.5) / 3.0));
 }
+vec3 slab_beamDecode(vec4 t){
+  return exp2(t.rgb * 16.0 - 16.0) * step(vec3(0.5 / 255.0), t.rgb) * uBeamLUTGain;
+}
+/** A 채널: 굴절(겉보기 − 진짜, 0~2°) — 빛이 들어오는 방향(§106). */
+float slab_refrDecode(vec4 t){ return t.a * 2.0; }
 
 void main(){
   // 화면 → 광선. 카메라 기저를 역행렬로 복원합니다.
@@ -1081,10 +1095,19 @@ void main(){
     // §105 — 이 구름 자리에서 본 해: 해쪽으로 떨어진 만큼(d/R) 높습니다. 방향·직달·노출 맞춤이
     // 모두 이 값을 씁니다. 관측자 둘레(d≈0)에서는 예전 층 값과 같습니다.
     float dSunDeg = degrees(dot(km, sunXZ) / SLAB_R_EARTH);
-    sunElevC = radians(uSunAltDeg + dipDeg + dSunDeg);
+    // §106 — 빛이 **들어오는 방향**은 그 자리의 국소 수평 기준 겉보기 고도입니다: 진짜 해 고도
+    // (관측자 해 + d/R) + 굴절. dip 은 "해가 보이느냐"(직달 표가 셈)이지 방향이 아닙니다 — 예전에는
+    // dip 을 방향에도 더해, 해 0° 에 머리 위 1.5km 구름이 빛을 1.25° 위에서 받았습니다. 실제로는
+    // 거의 수평(굴절 0.43°)이고, 해가 지면 **아래에서** 올라옵니다(밑면이 붉게 타는 까닭).
+    if (uBeamLUTGain > 0.0) {
+      vec4 bt = slab_beamLUT(L, dSunDeg);
+      beam = slab_beamDecode(bt);
+      sunElevC = radians(uSunAltDeg + dSunDeg + slab_refrDecode(bt));
+    } else {
+      sunElevC = radians(uSunAltDeg + dipDeg + dSunDeg);
+    }
     sinSunC = sin(sunElevC); cosSunC = cos(sunElevC);
     sunDirLocal = normalize(vec3(sunXZ * cosSunC, sinSunC));
-    if (uBeamLUTGain > 0.0) beam = slab_beamAt(L, dSunDeg);
     expoL = slab_expoNorm(beam, sinSunC, uCloudModel > 0.5 ? ambHemi : ambBase);
     vec4 cv = texture2D(uCoverTex, slab_coverUv(km, uRangeKm));
     float cover = L == 0 ? cv.b : (L == 1 ? cv.g : cv.r);
@@ -1516,14 +1539,16 @@ void main(){
       // 사용자 제안: "태양이 있는 방향에서 낮은 구름에 해당하는 먼 거리에 구름이
       // 있으면 어둡게, 없으면 밝게."
       if (uCloudModel > 0.5 && sinSunC > -0.02) {
-        float tanS = tan(max(sunElevC, 0.0));
+        // §106 — 빛이 아래에서 오면(해가 진 뒤) 광선은 해쪽으로 되짚을 때 먼저 **내려갑니다**.
+        float tanS = tan(sunElevC);
         float nearKm = cellKm * 6.0;   // 위 reach 가 이미 본 구간
         float farT = 1.0;
         for (int fs = 0; fs < 6; fs++){
           float dK = fs == 0 ? 10.0 : (fs == 1 ? 20.0 : (fs == 2 ? 40.0 : (fs == 3 ? 80.0 : (fs == 4 ? 160.0 : 300.0))));
           if (dK <= nearKm || dK > uRangeKm) continue;
           float rise = dK * tanS + dK * dK / (2.0 * SLAB_R_EARTH);
-          if (rise > hThick) break;   // 광선이 이 층을 벗어났습니다
+          if (rise > hThick) break;   // 광선이 이 층을 위로 벗어났습니다(다시 안 들어옵니다)
+          if (rise < 0.0) continue;   // 층 밑을 지나는 구간 — 이 층은 안 가립니다
           vec4 cvF = texture2D(uCoverTex, slab_coverUv(km + sunXZ * dK, uRangeKm));
           farT *= 1.0 - slab_covOf(cvF, L);
         }
@@ -1611,6 +1636,18 @@ void main(){
                                      : mix(0.45, 1.0, sinE);
         float xd = tp * viewDepth * (nSteps > 1 ? (1.0 - sFrac) : 1.0);
         vec3 Jbar = Fdn * max(0.0, 1.0 - kk * (1.0 + xd));
+        // ── 아래에서 오는 햇빛 — 밑면 (§106) ─────────────────────────────
+        //
+        // 해가 진 뒤 이 층에서 해가 아직 보이면(직달 표 > 0) 빛은 국소 수평 **아래**에서 들어와
+        // 밑면을 비춥니다. 같은 2-흐름을 뒤집어 씁니다: 밑면 조도 F↑ = 직달 × sin(−고도), 비춰진
+        // 면에서 본 깊이는 위에서 볼 때의 반대(tp − xd). 노을 뒤 머리 위 구름 밑면이 붉게 타는
+        // 것이 이 항입니다. 해가 위에 있으면 0 입니다.
+        if (sinSunC < 0.0) {
+          // 윗층(upDir)은 아래에서 오는 빛을 안 가립니다 — 그래서 곱하지 않습니다.
+          vec3 Fup = beam * (-sinSunC);
+          float xdUp = max(0.0, tp - xd);
+          Jbar += Fup * max(0.0, 1.0 - kk * (1.0 + xdUp));
+        }
         // 남은 것은 위상함수의 **등방 초과분**뿐입니다. 구면 평균이 1 인
         // HG 에서 1 을 빼므로 이 항은 평균 0 — 에너지를 더하지도 빼지도
         // 않고 태양쪽 은테와 반대쪽 감광만 만듭니다. 전방 첨두는 유사변환
@@ -2477,7 +2514,7 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   // 씁니다. 달빛도 같은 식이라 같이 곱합니다(하늘빛 쪽도 같은 skyExposure 를 탑니다).
   const beamOf = (km: number): RGB => {
     const b = lightByMoon ? beamAtAltitude(lightAlt, km, u.atmosphere) : u.beamFor(km);
-    const k = SOLAR_BEAM_SCALE * (lightByMoon ? ml.gain : 1);
+    const k = BEAM_TO_SLAB * (lightByMoon ? ml.gain : 1);
     return { r: b.r * k, g: b.g * k, b: b.b * k };
   };
   const bl = beamOf(alt.x);
@@ -2492,27 +2529,32 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   {
     const lutTex = uni.uBeamLUT.value as THREE.DataTexture;
     const key = [lightAlt.toFixed(2), alt.x.toFixed(3), alt.y.toFixed(3), alt.z.toFixed(3),
-      bl.r.toFixed(6), bm.r.toFixed(6), bh.r.toFixed(6), u.atmosphere.betaMie, u.atmosphere.elevScale].join('|');
+      bl.r.toFixed(6), bm.r.toFixed(6), bh.r.toFixed(6), u.atmosphere.betaMie, u.atmosphere.elevScale,
+      u.atmosphere.observerElevM ?? 0].join('|');
     if ((lutTex.userData as any).key !== key) {
       (lutTex.userData as any).key = key;
       const d = lutTex.image.data as Uint8Array;
       const rows: [number, RGB][] = [[alt.z, bh], [alt.y, bm], [alt.x, bl]];   // 행 0 상층 · 1 중층 · 2 저층
       const enc = (v: number) => (v < 2 ** -16 ? 0 : Math.max(1, Math.min(255, Math.round((Math.log2(v) + 16) / 16 * 255))));
+      // §106 — 표는 광선 적분(grazingRay)으로. 높이는 해면 기준(관측 고도 + 층 높이).
+      // 호출부 beamFor 가 표준 식(beamAtAltitude)에서 벗어난 만큼(보통 1)은 채널별로 그대로 곱합니다.
+      const obsKmSea = Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000;
       rows.forEach(([km, b0], row) => {
         const ref = beamAtAltitude(lightAlt, km, u.atmosphere);
-        const k = SOLAR_BEAM_SCALE * (lightByMoon ? ml.gain : 1);
+        const k = BEAM_TO_SLAB * (lightByMoon ? ml.gain : 1);
         const ratio = (c: 'r' | 'g' | 'b') => (ref[c] > 1e-9 ? b0[c] / (ref[c] * k) : 1);
         const rr = ratio('r'), rg = ratio('g'), rb = ratio('b');
         for (let i = 0; i < BEAM_LUT_N; i++) {
           const dDeg = -BEAM_LUT_SPAN + (2 * BEAM_LUT_SPAN * i) / (BEAM_LUT_N - 1);
-          const b = beamAtAltitude(lightAlt + dDeg, km, u.atmosphere);
+          const b = beamGrazing(lightAlt + dDeg, obsKmSea + km, u.atmosphere);
           const o = (row * BEAM_LUT_N + i) * 4;
-          d[o] = enc(b.r * rr); d[o + 1] = enc(b.g * rg); d[o + 2] = enc(b.b * rb); d[o + 3] = 255;
+          d[o] = enc(b.r * rr); d[o + 1] = enc(b.g * rg); d[o + 2] = enc(b.b * rb);
+          d[o + 3] = Math.max(0, Math.min(255, Math.round(b.refrDeg / 2 * 255)));
         }
       });
       lutTex.needsUpdate = true;
     }
-    uni.uBeamLUTGain.value = SOLAR_BEAM_SCALE * (lightByMoon ? ml.gain : 1);
+    uni.uBeamLUTGain.value = BEAM_TO_SLAB * (lightByMoon ? ml.gain : 1);
   }
   // 두 번째 판(§96)은 그릴 것이 있을 때만 켭니다 — 관측자 아래 층이 있거나 구름 속일 때.
   // "아래" 는 셰이더와 같은 식: 저층은 덱 윗면(모르면 층 높이), 중·상층은 층 높이.
