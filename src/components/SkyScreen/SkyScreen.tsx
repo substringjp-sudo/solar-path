@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
 import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical } from 'lucide-react-native';
-import { SkyScene3D, DEFAULT_SKY_SETTINGS, LayerState, SkySettings } from '../SkyScene3D/SkyScene3D';
+import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { TimeSlider } from '../TimeSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -25,7 +25,7 @@ import {
   type TerrainData,
 } from '../../utils/weather';
 import { findPresetTerrain } from '../../utils/presetTerrains';
-import { predictSunset } from '../../utils/sunsetPhysics';
+import { scenePrediction } from '../../utils/scenePrediction';
 import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
 import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
 import {
@@ -81,18 +81,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
-  const [layers, setLayers] = useState<LayerState>({
-    labels: true,
-    sun: true,
-    moon: true,
-    stars: true,
-    milkyway: true,
-    planets: true,
-    clouds: true,
-    paths: true,
-    cityLights: true,
-  });
-  const [skySettings, setSkySettings] = useState<SkySettings>(DEFAULT_SKY_SETTINGS);
+  // 레이어·하늘 설정은 스토어에 둡니다 — 촬영하기(카메라)의 3D 가 같은 값으로 그리게.
+  const layers = useCelestialStore(s => s.skyLayers);
+  const setSkyLayers = useCelestialStore(s => s.setSkyLayers);
+  const skySettings = useCelestialStore(s => s.skySettings);
+  const setSkySettings = useCelestialStore(s => s.setSkySettings);
 
   const latitude = location?.coords.latitude ?? 37.5665;
   const longitude = location?.coords.longitude ?? 126.9780;
@@ -406,28 +399,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const isGridActive = useEnhancedGrid && isGridUsable(cloudGrid, sunAzimuth);
 
-  const prediction = useMemo(() => {
-    if (!pathData.length) return null;
-    const obs = interpolatedWeather[0];
-    const dayOfYear = Math.floor(
-      (currentTime.getTime() - Date.UTC(currentTime.getUTCFullYear(), 0, 0)) / 86400000
-    );
-    try {
-      return predictSunset(
-        pathData,
-        currentTime,
-        sunAltitude,
-        obs?.visibility,
-        obs?.humidity,
-        latitude,
-        terrainData.observerElevation,
-        dayOfYear
-      );
-    } catch (err) {
-      console.log('3D prediction error:', err);
-      return null;
-    }
-  }, [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
+  const prediction = useMemo(() => scenePrediction({
+    pathData,
+    time: currentTime,
+    sunAltDeg: sunAltitude,
+    obs: interpolatedWeather[0],
+    latitude,
+    observerElevM: terrainData.observerElevation,
+  }), [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
 
   // 오늘의 추천 및 일반 이벤트 목록 생성
   const eventItems = useMemo(() => {
@@ -771,7 +750,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         visible={isLayerModalVisible}
         onClose={() => setLayerModalVisible(false)}
         layers={layers}
-        onToggleLayer={(key) => setLayers(prev => {
+        onToggleLayer={(key) => setSkyLayers(prev => {
           // paths 토글 시 labels도 동기화
           if (key === 'paths') {
             return { ...prev, paths: !prev.paths, labels: !prev.paths };
@@ -779,7 +758,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           return { ...prev, [key]: !prev[key] };
         })}
         skySettings={skySettings}
-        onChangeSkySettings={(next) => setSkySettings(prev => ({ ...prev, ...next }))}
+        onChangeSkySettings={(next) => setSkySettings(next)}
         theme={theme}
       />
     </View>
