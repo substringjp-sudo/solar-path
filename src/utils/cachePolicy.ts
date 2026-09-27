@@ -112,6 +112,25 @@ export const findEntry = <T>(
     Math.abs(c.longitude - lon) < LOOKUP_TOLERANCE_DEG &&
     (keyPart === undefined || c.key.includes(keyPart)));
 
+/**
+ * `findEntry` 가 못 찾을 때의 대체 — 같은 날짜(keyPart) 가운데 **가장 가까운** 항목을 maxDeg 안에서.
+ *
+ * 5km 만 옮겨도(0.05° 격자 밖) 촬영하기가 날씨를 못 찾아 흐린 밤을 맑은 별하늘로 그렸습니다(§115,
+ * 스와 호숫가 2026-09-27). 수 km 옆 예보는 여기 예보와 거의 같으므로, 새로 받는 동안 그것을 씁니다.
+ */
+export const findNearestEntry = <T>(
+  list: CacheEntry<T>[], lat: number, lon: number, keyPart: string, maxDeg = 0.3,
+): CacheEntry<T> | undefined => {
+  let best: CacheEntry<T> | undefined, bestD = Infinity;
+  for (const c of list) {
+    if (!c.key.includes(keyPart)) continue;
+    const dLat = c.latitude - lat, dLon = (c.longitude - lon) * Math.cos((lat * Math.PI) / 180);
+    const d = Math.hypot(dLat, dLon);
+    if (d <= maxDeg && d < bestD) { best = c; bestD = d; }
+  }
+  return best;
+};
+
 /** 새 항목을 앞에 넣고, 같은 키를 밀어내고, 칸 수를 지킵니다. */
 export const upsertEntry = <T>(
   list: CacheEntry<T>[], entry: CacheEntry<T>, max = MAX_CACHE_ENTRIES,

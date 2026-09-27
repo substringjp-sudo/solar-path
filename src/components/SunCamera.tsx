@@ -7,7 +7,7 @@ import {
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
 import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
-import { weatherCacheKey, findEntry } from '../utils/cachePolicy';
+import { weatherCacheKey, findEntry, findNearestEntry } from '../utils/cachePolicy';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
 import { findPresetTerrain } from '../utils/presetTerrains';
@@ -426,31 +426,55 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   //   됐습니다(마쓰모토 흐린 보름밤에 카메라만 별이 보이던 것, §99).
   //   SkyScreen 과 같은 규칙(자리 0.05°, 같은 날짜)으로 고르고, 없으면 받아서 캐시에 넣습니다.
   const camDateStr = localDateString(currentTime);
-  const camWeatherData = useMemo(() => {
+  // 이 자리 것이 없으면 같은 날짜의 가장 가까운(30km 안) 예보로 그리고, 이 자리 것은 따로 받습니다
+  // (§115 — 5km 옮기자 날씨를 못 찾아 흐린 밤이 별하늘이 됐습니다).
+  const camExactWeather = useMemo(() => {
     const hit = findEntry(weatherCacheList as any, latitude, longitude, camDateStr) as any;
     return hit && Array.isArray(hit.data) && hit.data.length > 0 ? hit.data : null;
   }, [weatherCacheList, latitude, longitude, camDateStr]);
-  const camWeatherFetchKeyRef = useRef('');
+  const camWeatherData = useMemo(() => {
+    if (camExactWeather) return camExactWeather;
+    const near = findNearestEntry(weatherCacheList as any, latitude, longitude, camDateStr) as any;
+    return near && Array.isArray(near.data) && near.data.length > 0 ? near.data : null;
+  }, [camExactWeather, weatherCacheList, latitude, longitude, camDateStr]);
+  // 받기 상태는 ref 로 둡니다 — 효과가 다시 돌 때(GPS 흔들림 등) 진행 중인 요청을 버리거나 같은 요청을
+  // 거듭 보내지 않게. 실패하면 1분 뒤 다시 시도합니다. 예전에는 한 번 실패하면 그 자리·날짜로는 다시
+  // 안 받아, 호숫가에서 통신이 한 번 끊긴 뒤로 촬영하기 하늘이 계속 맑았습니다(§115).
+  const camWeatherInflightRef = useRef('');
+  const camWeatherFailedAtRef = useRef<Record<string, number>>({});
+  const camWeatherRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [camWeatherRetryTick, setCamWeatherRetryTick] = useState(0);
+  useEffect(() => () => { if (camWeatherRetryTimerRef.current) clearTimeout(camWeatherRetryTimerRef.current); }, []);
   useEffect(() => {
-    if (!visible || camWeatherData || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    if (!visible || camExactWeather || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
     if (latitude === 0 && longitude === 0) return;
     const key = weatherCacheKey(latitude, longitude, camDateStr);
-    if (camWeatherFetchKeyRef.current === key) return;   // 같은 자리·날짜는 한 번만 (429 방지)
-    camWeatherFetchKeyRef.current = key;
-    let cancelled = false;
+    if (camWeatherInflightRef.current === key) return;   // 이미 받는 중 (429 방지)
+    const RETRY_MS = 60_000;
+    const scheduleRetry = (ms: number) => {
+      if (camWeatherRetryTimerRef.current) clearTimeout(camWeatherRetryTimerRef.current);
+      camWeatherRetryTimerRef.current = setTimeout(() => setCamWeatherRetryTick(t => t + 1), ms);
+    };
+    const failedAt = camWeatherFailedAtRef.current[key];
+    if (failedAt && Date.now() - failedAt < RETRY_MS) { scheduleRetry(RETRY_MS - (Date.now() - failedAt)); return; }
+    camWeatherInflightRef.current = key;
     const at = new Date(currentTime.getTime());
+    const lat = latitude, lon = longitude;
     // 하늘 화면처럼 태양 방위를 30° 로 묶어 부채꼴을 받습니다 — 중심이 다르면 같은 날의 구름장이
     // 두 화면에서 달라집니다(SkyScreen 의 bucketedSunAz).
-    const az = Math.round(getSunPosition(at, latitude, longitude).azimuth / 30) * 30;
-    fetchSunsetWeather(latitude, longitude, az, false, at)
+    const az = Math.round(getSunPosition(at, lat, lon).azimuth / 30) * 30;
+    const fail = () => { camWeatherFailedAtRef.current[key] = Date.now(); scheduleRetry(RETRY_MS); };
+    fetchSunsetWeather(lat, lon, az, false, at)
       .then(data => {
-        if (cancelled || !Array.isArray(data) || data.length === 0) return;
-        addWeatherCache({ key, data, timestamp: Date.now(), latitude, longitude } as any);
+        if (!Array.isArray(data) || data.length === 0) { fail(); return; }
+        delete camWeatherFailedAtRef.current[key];
+        // 받은 자리 좌표로 넣습니다 — 그 사이 옮겼어도 틀린 자리에 붙지 않습니다.
+        addWeatherCache({ key, data, timestamp: Date.now(), latitude: lat, longitude: lon } as any);
       })
-      .catch(err => console.warn('[SunCamera] weather fetch failed:', err));
-    return () => { cancelled = true; };
+      .catch(err => { console.warn('[SunCamera] weather fetch failed:', err); fail(); })
+      .finally(() => { if (camWeatherInflightRef.current === key) camWeatherInflightRef.current = ''; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, camWeatherData, latitude, longitude, camDateStr]);
+  }, [visible, camExactWeather, latitude, longitude, camDateStr, camWeatherRetryTick]);
 
   // ── 오프스크린 시뮬레이터용 29개 다지점 공간 샘플링 시뮬레이션 상태 ──
   const cameraSimState = useMemo(() => {

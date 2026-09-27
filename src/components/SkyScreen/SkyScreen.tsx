@@ -26,6 +26,7 @@ import {
 } from '../../utils/weather';
 import { findPresetTerrain } from '../../utils/presetTerrains';
 import { scenePrediction } from '../../utils/scenePrediction';
+import { weatherCacheKey } from '../../utils/cachePolicy';
 import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
 import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
 import {
@@ -77,7 +78,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   isActive = true,
   onCameraPress,
 }) => {
-  const { location, weatherCacheList, terrainCacheList, addTerrainCache } = useCelestialStore();
+  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
@@ -231,9 +232,17 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     if (pathData.length > 0 && !useNowcast) return;
 
     setNowcastLoading(true);
+    const reqLat = latitude, reqLon = longitude, reqDate = currentDateStr;
     fetchSunsetWeather(latitude, longitude, bucketedSunAz, useNowcast, currentTime)
       .then(data => {
-        if (!cancelled && Array.isArray(data)) setPathData(data);
+        if (!Array.isArray(data)) return;
+        // 촬영하기가 같은 자료를 쓰게 공용 캐시에 넣습니다(§115). 예전에는 이 화면 안에만 두어,
+        // 촬영하기는 같은 자리·같은 날의 날씨를 따로 받다가 실패하면 맑은 하늘로 그렸습니다.
+        if (data.length > 0) {
+          addWeatherCache({ key: weatherCacheKey(reqLat, reqLon, reqDate), data, timestamp: Date.now(),
+            latitude: reqLat, longitude: reqLon } as any);
+        }
+        if (!cancelled) setPathData(data);
       })
       .catch(err => {
         console.log('3D weather fetch error:', err);

@@ -365,6 +365,20 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     ok(MAX_RING_ENTRIES >= 2, `그래도 두 자리 이상은 담는다 — 오가는 곳이 하나가 아니다`);
   }
 
+  // §115 — 5km 옮기면 findEntry 가 못 찾아 촬영하기가 맑은 하늘을 그렸습니다(스와 호숫가).
+  console.log('\n[§115] 가까운 같은 날 예보로 대신하기');
+  {
+    const { findNearestEntry } = M;
+    const D = '2026-09-27';
+    const A = entry(weatherCacheKey(36.0656, 138.0522, D), 36.0656, 138.0522, 0, 'A');       // 5.4km 떨어진 오늘
+    const Y = entry(weatherCacheKey(36.0464, 138.109, '2026-09-26'), 36.0464, 138.109, 0, 'Y'); // 바로 여기, 어제
+    const S = entry(weatherCacheKey(37.5, 127.0, D), 37.5, 127.0, 0, 'S');                    // 서울 오늘
+    const list = [Y, S, A];
+    ok(!findEntry(list, 36.0464, 138.109, D), `대조: 5km 옮기면 findEntry 는 오늘 것을 못 찾는다`);
+    ok(findNearestEntry(list, 36.0464, 138.109, D)?.data === 'A', `가장 가까운 같은 날 예보를 고른다 — 바로 여기 있는 어제 것이 아니라`);
+    ok(findNearestEntry(list, 35.1, 129.0, D) === undefined, `30km 밖(부산에서 서울)은 고르지 않는다`);
+  }
+
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();
