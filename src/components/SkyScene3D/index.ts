@@ -7,4 +7,5 @@ export {
   type LayerState,
   type SkySettings,
   type SkyScene3DHandle,
+  type SkyRenderState,
 } from './SkyScene3D';

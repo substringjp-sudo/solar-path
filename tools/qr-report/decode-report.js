@@ -12,6 +12,9 @@
  * 사용:
  *   node tools/qr-report/decode-report.js <이미지 경로>
  *   node tools/qr-report/decode-report.js <이미지 경로> --json   (원본 JSON만 출력)
+ *
+ * 2026-09-27 부터 `view`(3D 시선)·`slab`(구름판이 받은 값)·`gl`(썸네일 밝기)이 붙습니다 — 예보
+ * 입력만으로는 기기 화면을 되살리지 못했기 때문입니다. 없는 옛 QR 도 그대로 읽습니다.
  */
 const fs = require('fs');
 const path = require('path');
@@ -92,6 +95,26 @@ function main() {
       `  바람  ${payload.wind.kmh} km/h, ${payload.wind.deg}°` +
         (payload.wind.synthetic ? '  ⚠ 실측 아님 — 대용 상수' : '')
     );
+  }
+  if (payload.view) {
+    const v = payload.view;
+    console.log(`  시선  방위 ${v.az}°  고도 ${v.el}°  기울임 ${v.roll}°  세로 화각 ${v.fov}°  가로/세로 ${v.asp}`);
+  }
+  if (payload.gl != null) console.log(`  GL 버퍼 밝기 ${payload.gl}`);
+  if (payload.slab) {
+    const b = payload.slab;
+    console.log('  구름판 (셰이더가 받은 값):');
+    console.log(`    층 높이  저 ${b.alt[0]} · 중 ${b.alt[1]} · 상 ${b.alt[2]} km   눈높이 ${b.eyeM} m`);
+    console.log(`    운해     ${b.deck[1] > 0 ? `${b.deck[0]}~${b.deck[1]} km` : '없음'}`);
+    console.log(`    구름 속  ${b.fog[0] > 0 ? `소광 ${b.fog[0]} /km, ${b.fog[1]}~${b.fog[2]} km` : '아님'}`);
+    console.log(`    이류 ${b.drift} h · 도시광 ${b.city} · 근거리 볼륨 ${b.nf ? '켬' : '끔'}`);
+    console.log(`    바람(동·남 km/h)  저 ${b.wind.slice(0, 2).join(', ')} · 중 ${b.wind.slice(2, 4).join(', ')} · 상 ${b.wind.slice(4, 6).join(', ')}`);
+    console.log('    천정 둘레 운량 (북·북동·동·남동·남·남서·서·북서)');
+    for (const [k, n] of [['l', '저'], ['m', '중'], ['h', '상']]) {
+      // 두 자리씩 이은 문자열입니다(simReport.ts 의 packCover).
+      const c = String(b.cov[k] || '').match(/../g) || [];
+      console.log(`      ${n}  2km [${c.slice(0, 8).join(' ')}]  10km [${c.slice(8, 16).join(' ')}]`);
+    }
   }
   console.log('\n원본 JSON:');
   console.log(JSON.stringify(payload, null, 2));
