@@ -1327,8 +1327,7 @@ void main(){
           float nfHaze = 1.0 - exp(-nfS * 0.0030);
           cc = mix(cc, horizonHaze, clamp(nfHaze, 0.0, 0.85) * uAerialScale);
 
-          float nfL = dot(cc, vec3(0.2126, 0.7152, 0.0722));
-          cc = max(vec3(0.0), mix(vec3(nfL), cc, 1.0 + clamp(d * 0.5, 0.0, 0.7) * 0.35));
+          cc = max(cc, vec3(0.0));   // §108 — 껍질 경로와 같이 채도 외삽을 뺐습니다
 
           nfAcc += nfTrans * nfA * cc;
           nfTrans *= nfT_;
@@ -1779,13 +1778,12 @@ void main(){
       float aerialHaze = 1.0 - exp(-geom.sDistKm * 0.0030);
       cc = mix(cc, horizonHaze, clamp(aerialHaze, 0.0, 0.85) * uAerialScale);
 
-      // 채도 부스트. mix 의 계수가 1을 넘으므로 이건 보간이 아니라 **외삽**
-      // 입니다 — 휘도보다 낮은 채널이 음수로 밀리고, 출력에서 0 으로
-      // 잘립니다. 어두운 장면에서는 그게 곧 색이 통째로 빠지는 것입니다:
-      // 전천후 격자의 흐림·천정·노을에서 파랑이 전 화소 0 이 되어 R/B 가
-      // 98만까지 튀었습니다. 음수만 막으면 됩니다.
-      float l = dot(cc, vec3(0.2126, 0.7152, 0.0722));
-      cc = max(vec3(0.0), mix(vec3(l), cc, 1.0 + clamp(thick * 0.5, 0.0, 0.7) * 0.35));
+      // ⚠ 예전에는 여기서 두께에 비례해 채도를 최대 1.245배 **외삽**했습니다(물리 근거 없음).
+      //   두꺼운 구름일수록 색을 짙게 했는데, 직달이 제 눈금이 된 뒤(§104~§106) 노을에 해 받은
+      //   두꺼운 구름을 원색으로 밀었습니다(사진 대조 원색 7.4%, 사진 0.9%). 구름 색은 직달과
+      //   하늘빛이 2-흐름 안에서 섞인 그대로 둡니다. 모자라던 채도는 구름만의 것이 아니라 **휴대폰
+      //   JPEG 의 전역 채도**였으므로 표시 단계(displaySaturation)로 옮겼습니다(§108).
+      cc = max(cc, vec3(0.0));
 
       // 체적 누적 합성
       lin = cc * stepAlpha + lin * (1.0 - stepAlpha);
