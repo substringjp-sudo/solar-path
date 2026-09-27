@@ -73,6 +73,8 @@ export const SLAB_TEX = 128;
 
 /** 층별 노이즈 셀 크기 (km) — 저층 적운은 덩어리가 크고, 고층 권운은 섬세한 필라멘트. (층간 거리감 부각을 위해 격차를 늘림) */
 const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
+/** §116 — 관측자 위 층 밑면이 이만큼(km) 안에 있으면 산이 그 구름을 뚫을 수 있다고 봅니다(일본 알프스 3km급 제외). */
+const RIDGE_CLOUD_REACH_KM = 2.5;
 /** §109 권운 떨어지는 줄 — 떨어지는 깊이(km)와 얼음 결정 낙하 속도(m/s). 흔한 값 1~2km · 0.3~1m/s 의 가운데. */
 const CIRRUS_FALL_DEPTH_KM = 1.5;
 const CIRRUS_FALL_SPEED_MPS = 0.7;
@@ -814,6 +816,13 @@ uniform float uFogBeta, uFogBaseKm, uFogTopKm;
 // 두 번에 나눠 그리기(§96): 0 = 한 번에 다, 1 = 관측자 **위** 층만(산보다 먼저),
 // 2 = 관측자 **아래** 층(운해)과 구름 속 안개만(산보다 나중에).
 uniform float uPassMode;
+/**
+ * §116 — 산 앞의 구름을 산 **다음**(두 번째 판)에 그리는가. 1 이면 시선이 산에 막히고 구름이 그보다
+ * 가까운 화소를 첫 판에서 빼고 두 번째 판에서 그립니다. 그래야 구름 밑면보다 높은 산등성이가 구름에
+ * 덮입니다(스와 호숫가 2026-09-27: 산허리를 덮은 먹구름). CPU 가 지형이 있고 관측자 위 층의 밑면이
+ * 산 높이 안(2.5km 안)에 있을 때만 켭니다 — 두 번째 판이 화면 전체를 한 번 더 걷기 때문입니다.
+ */
+uniform float uRidgeClouds;
 uniform vec3  uFogBeam;
 uniform float uCityLight;
 uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
@@ -916,6 +925,10 @@ void main(){
   //   (구례에서 능선 3,196화소 중 85개가 샘, 대부분 여기). 가장 가까운 층(저층)
   //   까지를 먼저 촘촘히 걷고, 안 막혔을 때만 그 너머를 걷습니다.
   float tBlockSky = 1e9;
+  // §116 — 위 §94 보정(그려진 능선 1.5화소 아래까지 안 자름) **전**의 자료상 가림 거리. 산 앞 구름을
+  // 두 번째 판으로 넘길지는 이것으로 가릅니다 — 보정 후 값으로 가르면 능선 밑 1.5화소 띠의 산 앞 구름을
+  // 두 번째 판이 안 그려, 능선 윤곽이 구름 위로 드러났습니다(verify-ridge-clouds).
+  float tHitData = 1e9;
   // 굽힌 지평선보다 0.3° 넘게 위면 걸어 봐야 안 막힙니다 — 건너뜁니다.
   bool belowRidge = uHorizonValid < 0.5
     || sinE < sin(radians(slab_horizonDeg(dir) + 0.3));
@@ -931,6 +944,7 @@ void main(){
     // 위**에서 그 흐린 알파 틈으로 구름 아래의 해가 샜습니다(요네자와 재현 42화소).
     // 그래서 구름을 그려진 능선보다 이 버퍼 1.5 화소 아래까지 그립니다 — 산이 구름 뒤에
     // 그려지는 경로(배율 > 1)에서는 산이 그 몫을 덮습니다.
+    tHitData = tBlockSky;
     if (uHorizonValid > 0.5
         && sinE > sin(radians(slab_meshHorizonDeg(dir)) - 1.5 * uPixelAngleRad)) tBlockSky = 1e9;
   }
@@ -1113,7 +1127,9 @@ void main(){
       ? max(uLowDeckKm.y - uLowDeckKm.x, 0.15) : hThick;
     bool layerBelow = uObserverAltKm > deckTop;
     if (uPassMode > 0.5 && uPassMode < 1.5 && layerBelow) continue;
-    if (uPassMode > 1.5 && !layerBelow) continue;
+    // §116 — 두 번째 판은 아래 층에 더해, 산에 막힌 시선의 **산 앞 구름**도 그립니다(아래에서 거리로 가름).
+    bool ridgeRay = uRidgeClouds > 0.5 && tHitData < 1e8;
+    if (uPassMode > 1.5 && !layerBelow && !ridgeRay) continue;
     // 덱 **속**(밑면 < 관측자 ≤ 윗면)이면 올려다본 구름이 관측자 바로 위에서
     // 시작합니다. 아래를 보면 안 그립니다(안개 상태는 그리지 않음 — §82.5).
     float hSurf = layerBelow ? deckTop : max(hBase, uObserverAltKm + 0.01);
@@ -1123,6 +1139,11 @@ void main(){
     // §83 — 운해(아래 층)만 땅과 견줍니다. 올려다보는 하늘은 예전 그대로.
     if (layerBelow && slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm)) continue;
     if (!layerBelow && geom.sDistKm > tBlockSky) continue;
+    // 시선이 산에 막히고 이 층 구름이 산보다 **가까우면**, 나눠 그릴 때 그 구름은 첫 판(산 전)이 아니라
+    // 두 번째 판(산 다음)의 몫입니다 — 첫 판에 그리면 산이 그 위를 덮어 산이 구름 앞으로 나옵니다.
+    bool frontOfRidge = !layerBelow && ridgeRay && geom.sDistKm <= tHitData;
+    if (uPassMode > 0.5 && uPassMode < 1.5 && frontOfRidge) continue;
+    if (uPassMode > 1.5 && !layerBelow && !frontOfRidge) continue;
     vec2 km = dir.xz * geom.distRatio;
     // §105 — 이 구름 자리에서 본 해: 해쪽으로 떨어진 만큼(d/R) 높습니다. 방향·직달·노출 맞춤이
     // 모두 이 값을 씁니다. 관측자 둘레(d≈0)에서는 예전 층 값과 같습니다.
@@ -2046,6 +2067,7 @@ export function createCloudSlab(opts: {
       uSkyAdd: { value: new THREE.Vector3(0, 0, 0) },
       uFogBeta: { value: 0 },
       uPassMode: { value: 0 },
+      uRidgeClouds: { value: 0 },
       uFogBaseKm: { value: -1 },
       uFogTopKm: { value: -1 },
       uFogBeam: { value: new THREE.Vector3(0, 0, 0) },
@@ -2594,7 +2616,14 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
     const lowSurf = lowDeck.y > 0 ? Math.max(lowDeck.y, alt.x) : alt.x;
     const fogOn = (uni.uFogBeta.value as number) > 0
       && obsKm > (uni.uFogBaseKm.value as number) && obsKm < (uni.uFogTopKm.value as number);
-    handle.meshBelow.visible = fogOn || obsKm > lowSurf || obsKm > alt.y || obsKm > alt.z;
+    // §116 — 지형(DEM)이 있고, 관측자 위 층 가운데 밑면이 관측자보다 2.5km 안에 있는 층이 있으면 산이 그
+    // 구름을 뚫고 올라갈 수 있습니다. 그때만 산 앞 구름을 두 번째 판으로 넘깁니다.
+    const demOn = (uni.uDemValid.value as number) > 0.5 || (uni.uDemFarValid.value as number) > 0.5;
+    const basesAbove = [alt.x, alt.y, alt.z].filter(h => h > obsKm);
+    const ridgeClouds = demOn && (uni.uTerrainOccludeSky.value as number) > 0.5
+      && basesAbove.some(h => h - obsKm < RIDGE_CLOUD_REACH_KM);
+    uni.uRidgeClouds.value = ridgeClouds ? 1 : 0;
+    handle.meshBelow.visible = fogOn || ridgeClouds || obsKm > lowSurf || obsKm > alt.y || obsKm > alt.z;
   }
   // 구름 속 안개가 받는 직달광 — 관측 고도에서(§93). 안개가 꺼져 있으면 안 구합니다.
   if ((uni.uFogBeta.value as number) > 0) {
