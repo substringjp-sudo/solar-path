@@ -9,9 +9,12 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const SRC = '/home/user/solar-path';
-const OUT = '/tmp/esmbuild';
-const { PREVIEW } = require('./paths');
+// 이 파일이 든 저장소를 컴파일합니다. 예전엔 '/home/user/solar-path' 로 박혀 있어서, 다른 작업 트리
+// (예: main 을 따로 풀어 둔 곳)에서 돌려도 늘 이 경로의 코드를 올렸습니다 — 기준선 비교가 조용히
+// 같은 코드끼리의 비교가 됐습니다(§117.5). 중간 산출물도 트리마다 따로 둡니다.
+const { PREVIEW, REPO_ROOT, SCRATCH } = require('./paths');
+const SRC = REPO_ROOT;
+const OUT = path.join(SCRATCH, 'esmbuild');
 const APP = path.join(PREVIEW, 'app');
 
 const ENTRIES = [

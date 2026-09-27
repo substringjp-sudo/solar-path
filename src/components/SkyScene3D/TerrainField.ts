@@ -745,8 +745,11 @@ export function updateTerrainFieldEye(
   //   verify-eye-origin.js 가 일부러 높이를 바꿔 가며 봅니다.
   handle.mesh.position.copy(camera.position);
   // §117 쌍둥이도 같은 자리·같은 보임(DEM 이 오기 전엔 격자를 숨깁니다 — 거리 판에도 없어야 합니다).
-  handle.distMesh.position.copy(camera.position);
-  handle.distMesh.visible = handle.mesh.visible;
+  // 하네스 몇은 바다 판 손잡이도 이 함수로 옮기는데, 그쪽엔 쌍둥이가 없습니다.
+  if (handle.distMesh) {
+    handle.distMesh.position.copy(camera.position);
+    handle.distMesh.visible = handle.mesh.visible;
+  }
 }
 
 /**
