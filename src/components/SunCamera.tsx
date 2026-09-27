@@ -44,10 +44,15 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
 import { t, Language, translateSunsetDesc } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
-import { SkyScene3D, type SkyScene3DHandle } from './SkyScene3D';
+import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkyScene3D';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CAM_PREVIEW_HEIGHT = Math.round(SCREEN_WIDTH * (3 / 4));
+/**
+ * 촬영 결과 화면의 QR 한 변(pt). 시선·구름판 상태를 실어 모듈이 93칸 안팎입니다 — 캡처를 1080px
+ * 에서 절반쯤 줄여 보내도 모듈 하나가 3px 넘게 남도록 화면 폭의 60% 안에서 크게 잡습니다.
+ */
+const QR_RESULT_SIZE_PT = Math.min(220, Math.round(SCREEN_WIDTH * 0.6));
 
 interface SunCameraProps {
   visible: boolean;
@@ -808,7 +813,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       //   검을 때 "그린 것이 검다"와 "스냅샷 경로가 잃는다"를 가르는 유일한
       //   단서입니다 — 실기에서 썸네일이 검게 나온 뒤 넣었습니다.
       let simBufMean = -1;
+      // 스냅샷과 **같은 순간**의 시선·구름판 상태 — QR 에 실어 기기 화면을 그대로 되살립니다.
+      let simRenderState: SkyRenderState | null = null;
       if (sky3dRef.current) {
+        simRenderState = sky3dRef.current.getRenderState();
         simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
         simBufMean = sky3dRef.current.getLastBufferMean();
         if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
@@ -1032,6 +1040,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             windSpeedKmh: windsInfo.winds.low.speedKmh,
             windBearingDeg: windsInfo.winds.low.bearingDeg,
             windSynthetic: !windsInfo.measured,
+            view: simRenderState?.view,
+            slab: simRenderState?.slab,
+            glMean: simBufMean,
           })
         );
       } catch (qrErr) {
@@ -1295,7 +1306,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   </View>
                   <View style={styles.weatherQrBody}>
                     <View style={styles.qrPlateWrapper}>
-                      <SimReportQR data={capturedQrData} />
+                      <SimReportQR data={capturedQrData} size={QR_RESULT_SIZE_PT} />
                     </View>
                     <View style={styles.weatherQrMetaList}>
                       <View style={styles.metaRow}>
@@ -2113,8 +2124,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.3,
   },
+  // QR 을 위, 설명을 아래로 둡니다 — QR 에 시선·구름판 상태가 실려 촘촘해져서, 옆줄에 두던
+  // 128pt 로는 줄어든 캡처에서 못 읽었습니다(QR_RESULT_SIZE_PT).
   weatherQrBody: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     gap: 12,
   },
@@ -2129,7 +2142,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   weatherQrMetaList: {
-    flex: 1,
+    alignSelf: 'stretch',
     gap: 5,
   },
   metaRow: {

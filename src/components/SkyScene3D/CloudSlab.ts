@@ -2675,6 +2675,56 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
  * 그 사이의 무늬 폭은 고리의 표본 간격(상층 약 1km)을 유지하고 중심으로 좁아지지
  * 않습니다.
  */
+/**
+ * **이 프레임을 그린 슬랩 상태**를 QR 보고서용으로 읽습니다.
+ *
+ * QR 의 예보 입력만으로는 기기 화면을 되살리지 못했습니다(2026-09-27 마쓰모토 천정 꽃잎).
+ * 층 높이·운해·구름 속 안개는 예보 단면에서 따로 오고, 천정 둘레 운량장은 팬 → 기둥 →
+ * 운량장을 거친 결과라 입력에서 손으로 다시 만들면 달라집니다. 그래서 셰이더가 실제로 받은
+ * 값을 그대로 적습니다.
+ *
+ * 운량장은 천정 둘레 두 고리(2km · 10km)에서 8방위(북부터 45° 간격)를 0~99 로 뜹니다 — 천정에
+ * 모이는 무늬는 이 고리들이 방위마다 얼마나 다른가로 갈립니다(§101).
+ */
+export function readCloudSlabState(handle: CloudSlabHandle) {
+  const un = handle.material.uniforms;
+  const v3 = (k: string) => {
+    const v = un[k]?.value as THREE.Vector3 | undefined;
+    return v ? [v.x, v.y, v.z] : [];
+  };
+  const v2 = (k: string) => {
+    const v = un[k]?.value as THREE.Vector2 | undefined;
+    return v ? [v.x, v.y] : [];
+  };
+  const f = (k: string) => Number(un[k]?.value ?? NaN);
+  const size = handle.coverTex.image.width as number;
+  const data = handle.coverTex.image.data as Uint8Array;
+  const R = handle.rangeKm;
+  // bakeCloudSlabCoverage 의 사상(d = R·r², az = atan2(px, −py))을 거꾸로 — 최근접 텍셀.
+  const at = (azDeg: number, dKm: number, ch: number) => {
+    const r = Math.sqrt(Math.max(0, dKm) / R);
+    const a = (azDeg * Math.PI) / 180;
+    const px = r * Math.sin(a), py = -r * Math.cos(a);
+    const i = Math.min(size - 1, Math.max(0, Math.floor(((px + 1) / 2) * size)));
+    const j = Math.min(size - 1, Math.max(0, Math.floor(((py + 1) / 2) * size)));
+    return Math.round((data[(j * size + i) * 4 + ch] / 255) * 99);
+  };
+  const ring = (ch: number) => [2, 10].flatMap(d => [0, 45, 90, 135, 180, 225, 270, 315].map(az => at(az, d, ch)));
+  return {
+    layerAltKm: v3('uLayerAltKm'),
+    lowDeckKm: v2('uLowDeckKm'),
+    fog: [f('uFogBeta'), f('uFogBaseKm'), f('uFogTopKm')],
+    observerAltKm: f('uObserverAltKm'),
+    eyeHeightM: f('uEyeHeightM'),
+    driftHours: f('uDriftHours'),
+    cityLight: f('uCityLight'),
+    nearField: f('uNfEnable'),
+    winds: [...v2('uWindLow'), ...v2('uWindMid'), ...v2('uWindHigh')],
+    cover: { low: ring(0), mid: ring(1), high: ring(2) },
+  };
+}
+export type CloudSlabState = ReturnType<typeof readCloudSlabState>;
+
 export function coverageFromSamples(
   samples: {
     layer: LayerKey; azimuthDeg: number; distanceKm: number; cover: number; confidence: number;

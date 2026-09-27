@@ -78,6 +78,8 @@ import {
   createCloudSlab,
   updateCloudSlab,
   bakeCloudSlabCoverage,
+  readCloudSlabState,
+  type CloudSlabState,
   coverageFromSamples,
   type CloudSlabHandle,
 } from './CloudSlab';
@@ -235,6 +237,20 @@ export interface SkyScene3DHandle {
    * 뒤쪽입니다.
    */
   getLastBufferMean: () => number;
+  /**
+   * 이 프레임을 그린 **시선과 구름판 상태**(QR 보고서용). 장면이 아직 없으면 null.
+   *
+   * 예보 입력만으로는 기기 화면을 되살릴 수 없었습니다 — 시선은 센서값이라 QR 에 없고, 층
+   * 높이·운해·안개·운량장은 예보에서 여러 단계를 거쳐 나옵니다(`readCloudSlabState`).
+   */
+  getRenderState: () => SkyRenderState | null;
+}
+
+/** `SkyScene3DHandle.getRenderState` 의 값. */
+export interface SkyRenderState {
+  /** 시선: 방위(북 0°, 동 90°) · 고도 · 기울임(오른쪽으로 기울면 +) · 세로 화각 · 가로/세로 */
+  view: { az: number; el: number; roll: number; fov: number; aspect: number };
+  slab: CloudSlabState | null;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -444,6 +460,29 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useImperativeHandle(ref, () => ({
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
     getLastBufferMean: () => lastBufferMeanRef.current,
+    getRenderState: () => {
+      const cam = cameraRef.current;
+      if (!cam) return null;
+      cam.updateMatrixWorld(true);
+      const fwd = new THREE.Vector3();
+      cam.getWorldDirection(fwd);
+      const az = ((Math.atan2(fwd.x, -fwd.z) * 180) / Math.PI + 360) % 360;
+      const el = (Math.asin(Math.max(-1, Math.min(1, fwd.y))) * 180) / Math.PI;
+      // 기울임: 카메라의 위쪽이 "기울임 없는 위쪽"(세계 위를 시선에 수직으로 깎은 것)에서 돈 각.
+      // 천정을 똑바로 보면 그 기준이 없어 0 으로 둡니다.
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+      const ref = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, -fwd.y);
+      let roll = 0;
+      if (ref.lengthSq() > 1e-8) {
+        ref.normalize();
+        const right = new THREE.Vector3().crossVectors(fwd, ref);
+        roll = (Math.atan2(up.dot(right), up.dot(ref)) * 180) / Math.PI;
+      }
+      return {
+        view: { az, el, roll, fov: cam.fov, aspect: cam.aspect },
+        slab: cloudSlabRef.current ? readCloudSlabState(cloudSlabRef.current) : null,
+      };
+    },
     takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
       lastSnapshotErrorRef.current = null;
       // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수

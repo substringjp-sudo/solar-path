@@ -50,12 +50,16 @@ function buildQrPath(data: string): { size: number; moduleCount: number; d: stri
   return { size: n + QUIET_MODULES * 2, moduleCount: n, d };
 }
 
-export const SimReportQR: React.FC<{ data: string }> = React.memo(({ data }) => {
+/**
+ * `size` 는 한 변(pt). 기본 128. 시선·구름판 상태를 실은 뒤로 모듈이 93칸 안팎이라, 캡처가 줄어
+ * 들어도 읽히게 촬영 결과 화면은 더 크게 그립니다(모듈 하나가 3px 아래로 내려가면 못 읽었습니다).
+ */
+export const SimReportQR: React.FC<{ data: string; size?: number }> = React.memo(({ data, size: sizePt = TARGET_SIZE_PT }) => {
   const { size, d } = useMemo(() => buildQrPath(data), [data]);
 
   return (
     <View style={styles.plate} pointerEvents="none">
-      <Svg width={TARGET_SIZE_PT} height={TARGET_SIZE_PT} viewBox={`0 0 ${size} ${size}`}>
+      <Svg width={sizePt} height={sizePt} viewBox={`0 0 ${size} ${size}`}>
         <Rect x={0} y={0} width={size} height={size} fill="#ffffff" />
         <Path d={d} fill="#000000" />
       </Svg>
