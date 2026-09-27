@@ -24,6 +24,7 @@ import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
 import { localDateString } from '../utils/localDate';
+import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 
 const uploadTimers: { [photoId: string]: any } = {};
 
@@ -220,6 +221,15 @@ interface CelestialState {
   setGestureBlocked: (blocked: boolean) => void;
   teleportTarget: TeleportTarget | null;
   setTeleportTarget: (target: Omit<TeleportTarget, 'nonce'>) => void;
+  /**
+   * 하늘 화면의 레이어·하늘 설정. **하늘 화면과 촬영하기(카메라)가 같이 봅니다** — 예전에는
+   * 하늘 화면 안의 useState 라, 카메라의 3D 는 늘 기본값(도시광·한계등급·도트 모드)으로 그려
+   * 두 화면의 하늘색이 달랐습니다.
+   */
+  skyLayers: LayerState;
+  setSkyLayers: (update: (prev: LayerState) => LayerState) => void;
+  skySettings: SkySettings;
+  setSkySettings: (patch: Partial<SkySettings>) => void;
 }
 
 export interface TeleportTarget {
@@ -265,6 +275,14 @@ export const useCelestialStore = create<CelestialState>()(
       selectedCategory: 'sun',
       currentSimulationUri: null,
       isGestureBlocked: false,
+      skyLayers: {
+        labels: true, sun: true, moon: true, stars: true, milkyway: true,
+        planets: true, clouds: true, paths: true, cityLights: true,
+      },
+      setSkyLayers: (update) => set(state => ({ skyLayers: update(state.skyLayers) })),
+      // SkyScene3D 의 DEFAULT_SKY_SETTINGS 와 같은 값입니다(컴포넌트를 스토어로 끌어오지 않으려고 적어 둠).
+      skySettings: { starBrightness: 1.0, starMagLimit: 6.5, pixelArtRows: 0 },
+      setSkySettings: (patch) => set(state => ({ skySettings: { ...state.skySettings, ...patch } })),
       teleportTarget: null,
 
       setSelectedCategory: (category) => set({ selectedCategory: category }),

@@ -10,6 +10,8 @@ import { localDateString } from '../utils/localDate';
 import { weatherCacheKey, findEntry } from '../utils/cachePolicy';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
 import { pickTerrainForLocation, fallbackTerrain } from '../utils/terrainPick';
+import { findPresetTerrain } from '../utils/presetTerrains';
+import { scenePrediction } from '../utils/scenePrediction';
 import { createHeadingFusion, type HeadingFusionStatus } from '../utils/headingFusion';
 import { analyzeFrame, attitudeFromEuler, intrinsicsFromHfov, apparentAltitude, wrap360, type Attitude, type HorizonProfile } from '../utils/arVision';
 import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNative';
@@ -190,6 +192,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const CAM_WIDTH = BOX_WIDTH;
 
   const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
+  // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
+  const skyLayers = useCelestialStore(s => s.skyLayers);
+  const skySettings = useCelestialStore(s => s.skySettings);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -434,7 +439,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     camWeatherFetchKeyRef.current = key;
     let cancelled = false;
     const at = new Date(currentTime.getTime());
-    const az = getSunPosition(at, latitude, longitude).azimuth;
+    // 하늘 화면처럼 태양 방위를 30° 로 묶어 부채꼴을 받습니다 — 중심이 다르면 같은 날의 구름장이
+    // 두 화면에서 달라집니다(SkyScreen 의 bucketedSunAz).
+    const az = Math.round(getSunPosition(at, latitude, longitude).azimuth / 30) * 30;
     fetchSunsetWeather(latitude, longitude, az, false, at)
       .then(data => {
         if (cancelled || !Array.isArray(data) || data.length === 0) return;
@@ -453,7 +460,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     //   를 **아예 안 부릅니다** — AR 시뮬레이터와 촬영 썸네일에 산이 통째로
     //   안 나오던 원인입니다(§62). SkyScreen 과 **같은 스토어 캐시**를 봅니다.
     //   캐시가 없으면 예전처럼 빈 지형으로 물러납니다(산만 안 나올 뿐 나머지는 그립니다).
-    const cachedTerrain = pickTerrainForLocation(terrainCacheList as any, latitude, longitude);
+    // 하늘 화면과 같은 순서로 고릅니다: 내장 프리셋 → 캐시. (예전에는 프리셋을 건너뛰어, 프리셋이
+    // 있는 자리에서 두 화면의 산이 달랐습니다.)
+    const cachedTerrain = findPresetTerrain(latitude, longitude)
+      ?? pickTerrainForLocation(terrainCacheList as any, latitude, longitude);
     return {
       pathData,
       azimuth: dynamicEventAzimuths.sunset,
@@ -463,17 +473,25 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [camWeatherData, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
 
   // 3D 시뮬레이터 전달용 노을 예측 결과
-  const currentPrediction = useMemo(() => {
-    return predictSunset(
-      camWeatherData ?? [],
-      currentTime,
-      sunPos.altitude,
-      15000,
-      50,
-      latitude,
-      0
-    );
-  }, [camWeatherData, currentTime, sunPos.altitude, latitude]);
+  // SkyScene3D 가 읽는 모양(location.coords)으로 — 하늘 화면이 넘기는 expo-location 객체와 같은 꼴.
+  const camSceneLocation = useMemo(
+    () => ({ coords: { latitude, longitude } }),
+    [latitude, longitude]
+  );
+
+  // 하늘 화면과 **같은 식**(scenePrediction) — 예전에는 시정 15km·습도 50%·고도 0 을 박았습니다.
+  const camInterpolated = useMemo(
+    () => (camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []),
+    [camWeatherData, currentTime]
+  );
+  const currentPrediction = useMemo(() => scenePrediction({
+    pathData: camWeatherData ?? [],
+    time: currentTime,
+    sunAltDeg: sunPos.altitude,
+    obs: camInterpolated[0],
+    latitude,
+    observerElevM: Number(cameraSimState.terrain?.observerElevation) || undefined,
+  }), [camWeatherData, currentTime, sunPos.altitude, camInterpolated, latitude, cameraSimState.terrain?.observerElevation]);
 
   // 하루 태양 궤적
   const trajectory = useMemo(() => {
@@ -1706,8 +1724,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   sunAltitude={sunPos.altitude}
                   sunAzimuth={sunPos.azimuth}
                   prediction={currentPrediction}
-                  location={{ latitude, longitude }}
-                  interpolatedWeather={camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []}
+                  // ⚠ SkyScene3D 는 위치를 expo-location 모양(location.coords.latitude)으로 읽습니다.
+                  //   예전에는 { latitude, longitude } 를 넘겨 전부 undefined 가 됐고, 카메라 3D 는
+                  //   서울(37.5, 127) 기본값으로 달·별·대기·수역 마스크를 그리고 DEM 지형은 아예
+                  //   안 받았습니다 — 하늘 화면과 땅·하늘색이 다르던 원인 하나입니다(§112).
+                  location={camSceneLocation}
+                  interpolatedWeather={camInterpolated}
+                  layers={skyLayers}
+                  skySettings={skySettings}
                   theme={{ accent: '#FF9800' }}
                   cameraAzimuthProp={effectiveAz}
                   cameraElevationProp={effectivePitch}
