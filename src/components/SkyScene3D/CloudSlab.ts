@@ -55,6 +55,7 @@ import { seaHorizonDipDeg } from './TerrainRing';
 import { FIELD_RINGS, FIELD_SPOKES, FAR_FIELD_RINGS, FAR_FIELD_FAR_M } from './TerrainField';
 import { FIELD_FOOT_M, FIELD_HINGE_M, FIELD_INNER_RINGS } from './groundProjection';
 import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { TERRAIN_DIST_GLSL } from './SceneComposer';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
@@ -73,6 +74,12 @@ export const SLAB_TEX = 128;
 
 /** 층별 노이즈 셀 크기 (km) — 저층 적운은 덩어리가 크고, 고층 권운은 섬세한 필라멘트. (층간 거리감 부각을 위해 격차를 늘림) */
 const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
+/** §117 — 지형 거리 판이 없을 때 묶어 두는 흰 1×1(= 지형 없음). */
+const NO_TERRAIN_DIST_TEX = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  t.needsUpdate = true;
+  return t;
+})();
 /** §116 — 관측자 위 층 밑면이 이만큼(km) 안에 있으면 산이 그 구름을 뚫을 수 있다고 봅니다(일본 알프스 3km급 제외). */
 const RIDGE_CLOUD_REACH_KM = 2.5;
 /** §109 권운 떨어지는 줄 — 떨어지는 깊이(km)와 얼음 결정 낙하 속도(m/s). 흔한 값 1~2km · 0.3~1m/s 의 가운데. */
@@ -795,6 +802,13 @@ float slab_nomTau(int K){ return K == 0 ? TAUK_HIGH * 0.6 : (K == 1 ? TAUK_MID *
 float slab_nomR(int K, float g){ float tp = (1.0 - g) * slab_nomTau(K); return tp / (tp + 2.0); }
 
 uniform vec2  uRes;
+/**
+ * §117 지형 거리 판(합성기가 구름과 같은 해상도로 그린 것). 켜져 있으면 층마다 "구름까지 거리 > 지형까지
+ * 거리" 인 층을 건너뛰어 **스스로** 산 뒤로 숨습니다 — 그리는 순서(§94·§96·§116)도 DEM 행진도 필요 없습니다.
+ */
+uniform sampler2D uTerrainDist;
+uniform float uTerrainDistValid;
+${TERRAIN_DIST_GLSL}
 uniform mat4  uInvViewProj;
 uniform vec3  uCamPos;
 // 관측 고도에서 지평선이 내려앉은 만큼의 sin (음수). 지면과 구름이
@@ -929,10 +943,19 @@ void main(){
   // 두 번째 판으로 넘길지는 이것으로 가릅니다 — 보정 후 값으로 가르면 능선 밑 1.5화소 띠의 산 앞 구름을
   // 두 번째 판이 안 그려, 능선 윤곽이 구름 위로 드러났습니다(verify-ridge-clouds).
   float tHitData = 1e9;
+  // §117 — 지형 거리 판이 있으면 이 화소의 지형까지 거리를 그대로 읽습니다(그려진 지형 그 자체라 §94 의
+  // 능선 어긋남도 없음). 없으면(하네스·옛 경로) 아래의 DEM 행진이 대신합니다.
+  float tTerr = 1e9;
+  bool distOn = uTerrainDistValid > 0.5 && uTerrainOccludeSky > 0.5;
+  if (distOn) {
+    tTerr = terrainDistDecodeKm(texture2D(uTerrainDist, gl_FragCoord.xy / uRes));
+    tBlockSky = tTerr;
+    tHitData = tTerr;
+  }
   // 굽힌 지평선보다 0.3° 넘게 위면 걸어 봐야 안 막힙니다 — 건너뜁니다.
   bool belowRidge = uHorizonValid < 0.5
     || sinE < sin(radians(slab_horizonDeg(dir) + 0.3));
-  if (uTerrainOccludeSky > 0.5 && sinE > uHorizonSinE && belowRidge) {
+  if (!distOn && uTerrainOccludeSky > 0.5 && sinE > uHorizonSinE && belowRidge) {
     float tLow = min(slab_sphereIntersect(sinE, cosE,
       max(uLayerAltKm.x, uObserverAltKm + 0.01)).sDistKm, SLAB_SKY_OCCLUDE_KM);
     tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, 0.0, tLow);
@@ -1137,7 +1160,7 @@ void main(){
     if (!layerBelow && sinE <= uHorizonSinE) continue;
     if (!geom.hit) continue;
     // §83 — 운해(아래 층)만 땅과 견줍니다. 올려다보는 하늘은 예전 그대로.
-    if (layerBelow && slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm)) continue;
+    if (layerBelow && (distOn ? geom.sDistKm > tTerr : slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm))) continue;
     if (!layerBelow && geom.sDistKm > tBlockSky) continue;
     // 시선이 산에 막히고 이 층 구름이 산보다 **가까우면**, 나눠 그릴 때 그 구름은 첫 판(산 전)이 아니라
     // 두 번째 판(산 다음)의 몫입니다 — 첫 판에 그리면 산이 그 위를 덮어 산이 구름 앞으로 나옵니다.
@@ -1879,7 +1902,7 @@ void main(){
                 : (sinE < -1e-4 ? (hObs - uFogBaseKm) / (-sinE) : 1e3);
     // 98% 를 넘는 거리 너머는 걷지 않습니다.
     float dMax = min(dExit, 4.0 / uFogBeta);
-    float dHit = slab_terrainHitSeg(dir, sinE, cosE, 0.0, dMax);
+    float dHit = distOn ? tTerr : slab_terrainHitSeg(dir, sinE, cosE, 0.0, dMax);
     // DEM 이 없으면 평평한 발밑(눈높이)만 압니다.
     if (dHit > 1e8 && uDemValid < 0.5 && uDemFarValid < 0.5 && sinE < -1e-4)
       dHit = (uEyeHeightM / 1000.0) / (-sinE);
@@ -1955,6 +1978,12 @@ export interface CloudSlabHandle {
    * 소광은 그 높이 층(저·중·상)의 TAUK 에 운량을 곱해 냅니다.
    */
   setInCloud: (c: { cover: number; baseKm: number; topKm: number } | null) => void;
+  /**
+   * §117 지형 거리 판(`SceneComposer.terrainDistanceTexture()`). 주면 슬랩이 층마다 지형 거리와 견줘 스스로
+   * 가립니다 — 합성기의 `setTerrainDistance(true)`(구름을 지형 **다음에** 얹음)와 함께 쓰고, 나눠 그리기
+   * (`setSplitPasses`)는 끕니다. null 이면 예전(DEM 행진·그리는 순서)으로 돌아갑니다.
+   */
+  setTerrainDistance: (tex: THREE.Texture | null) => void;
   /**
    * 지형 높이장(§83·§84) — 구름을 땅이 가리게 합니다. TerrainField 와 **같은 패치**
    * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다. 렌더러를 주면
@@ -2041,6 +2070,9 @@ export function createCloudSlab(opts: {
     uniforms: {
       ...makeTuningUniforms(),
       uRes: { value: new THREE.Vector2(1, 1) },
+      // 샘플러는 늘 묶어 둡니다(안 묶인 sampler2D 는 기기에 따라 경고·검정). 흰 1×1 = "지형 없음".
+      uTerrainDist: { value: NO_TERRAIN_DIST_TEX },
+      uTerrainDistValid: { value: 0 },
       uInvViewProj: { value: new THREE.Matrix4() },
       uCamPos: { value: new THREE.Vector3() },
       uHorizonSinE: { value: 0 },
@@ -2255,6 +2287,10 @@ export function createCloudSlab(opts: {
       const ok = baseKm != null && topKm != null && Number.isFinite(baseKm)
         && Number.isFinite(topKm) && topKm > baseKm && baseKm >= 0 && topKm < 6;
       if (ok) v.set(baseKm as number, topKm as number); else v.set(-1, -1);
+    },
+    setTerrainDistance: (tex) => {
+      material.uniforms.uTerrainDist.value = tex ?? NO_TERRAIN_DIST_TEX;
+      material.uniforms.uTerrainDistValid.value = tex ? 1 : 0;
     },
     setInCloud: (c) => {
       const un = material.uniforms;

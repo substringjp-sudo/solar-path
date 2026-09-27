@@ -42,6 +42,7 @@ import {
 import {
   CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
 } from '../../utils/cloudShadowMap';
+import { LAYER_TERRAIN_DIST, TERRAIN_DIST_GLSL } from './SceneComposer';
 import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, TERRAIN_NOISE_GLSL,
@@ -110,6 +111,7 @@ varying float vElevM;
 varying vec3  vNormal;
 varying vec2  vGround;   // 지상 좌표 (동, 남) m — 그림자 레이마치가 씁니다
 varying vec3  vViewDir;  // 눈(메시 원점)에서 이 점으로 — 연무 색이 씁니다
+varying float vSlantM;   // §117 눈에서 이 점까지 직선 거리(m) — 지형 거리 판이 씁니다
 
 /**
  * 관측자 **발밑** 고도 — 반드시 DEM 자신이 정합니다.
@@ -189,7 +191,12 @@ void main() {
   // (동, 남) 평면에서의 기울기 → 씬 좌표 법선 (+x 동, +z 남, +y 위)
   vNormal = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
 
-  vec3 p = gp_project(g, h, groundAtEye() + uEyeHeightM, r);
+  float eyeElevM = groundAtEye() + uEyeHeightM;
+  vec3 p = gp_project(g, h, eyeElevM, r);
+  // §117 — 화면 자리는 각도로 놓지만(p 는 미터가 아님) 구름과 견줄 거리는 미터로 따로 냅니다.
+  // 곡률 강하를 빼 구름 슬랩의 구면 교차와 같은 기하로 둡니다.
+  float dzM = h - eyeElevM - d * d / (2.0 * 6371000.0);
+  vSlantM = sqrt(d * d + dzM * dzM);
   // ⚠ 눈은 메시 원점에 있으므로 p 자체가 "눈에서 이 점으로" 입니다
   //   (SeaPlane 과 같은 규약). 카메라의 world Y 를 여기서 읽으면 안 됩니다.
   vViewDir = normalize(p);
@@ -285,6 +292,8 @@ varying float vElevM;
 varying vec3  vNormal;
 varying vec2  vGround;
 varying vec3  vViewDir;
+varying float vSlantM;
+${TERRAIN_DIST_GLSL}
 
 /**
  * 이 점에서 **태양 쪽 지평선각** (rad).
@@ -360,6 +369,11 @@ void main() {
   //   −3m 로 해 봤다가 물 맨위가 −0.05° 에서 −0.48° 로 잘렸고
   //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
+#ifdef TERRAIN_DIST_OUT
+  // §117 지형 거리 판 — 색 대신 눈에서 이 점까지 거리(km)를 적습니다.
+  gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
+  return;
+#endif
 
   // ── 법선 ────────────────────────────────────────────────────────────────
   //
@@ -534,6 +548,8 @@ void main() {
 
 export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
+  /** §117 지형 거리 판의 쌍둥이 메시(`LAYER_TERRAIN_DIST`). 씬에 넣으면 합성기가 거리 판에 그립니다. */
+  distMesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
   /** DEM 패치를 갈아 끼웁니다. null 이면 평평하게 물러납니다. */
   /** 둘째는 **발밑 고도용**, 셋째는 **성긴(먼 거리)** 패치입니다. 안 주면 그대로 둡니다. */
@@ -650,8 +666,22 @@ export function createTerrainField(opts: {
   mesh.name = 'terrainField';
   mesh.frustumCulled = false;
 
+  // §117 — 지형 거리 판의 쌍둥이. 기하와 uniform(같은 객체)을 나눠 쓰고 조각 셰이더만 거리를 적습니다.
+  // 자식으로 달지 않습니다 — `assignLayer` 가 자손까지 한 층으로 덮어씁니다. 부르는 쪽이 씬에 넣고
+  // `LAYER_TERRAIN_DIST` 에 둡니다(여기서 이미 그 층으로 둡니다).
+  const distMaterial = material.clone();
+  distMaterial.uniforms = material.uniforms;
+  distMaterial.defines = { ...(material.defines ?? {}), TERRAIN_DIST_OUT: 1 };
+  distMaterial.transparent = false;
+  distMaterial.blending = THREE.NoBlending;
+  const distMesh = new THREE.Mesh(mesh.geometry, distMaterial);
+  distMesh.name = 'terrainFieldDist';
+  distMesh.frustumCulled = false;
+  distMesh.layers.set(LAYER_TERRAIN_DIST);
+
   return {
     mesh,
+    distMesh,
     material,
     setPatch: (patch, eyePatch, farPatch) => {
       const put = (u: Record<string, { value: unknown }>) => {
@@ -673,6 +703,7 @@ export function createTerrainField(opts: {
     dispose: () => {
       mesh.geometry.dispose();
       material.dispose();
+      distMaterial.dispose();
     },
   };
 }
@@ -713,6 +744,9 @@ export function updateTerrainFieldEye(
   // ⚠ 하네스가 이걸 못 잡은 이유: 거의 모두 카메라를 (0,0,0) 에 둡니다.
   //   verify-eye-origin.js 가 일부러 높이를 바꿔 가며 봅니다.
   handle.mesh.position.copy(camera.position);
+  // §117 쌍둥이도 같은 자리·같은 보임(DEM 이 오기 전엔 격자를 숨깁니다 — 거리 판에도 없어야 합니다).
+  handle.distMesh.position.copy(camera.position);
+  handle.distMesh.visible = handle.mesh.visible;
 }
 
 /**

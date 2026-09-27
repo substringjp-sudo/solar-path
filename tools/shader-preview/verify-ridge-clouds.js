@@ -27,7 +27,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
   const p = await b.newPage();
-  await p.goto(ORIGIN + '/ridge-clouds.html', { timeout: 600000 });
+  await p.goto(ORIGIN + '/ridge-clouds.html' + (process.env.RIDGE_SOFT ? '?soft=' + process.env.RIDGE_SOFT : ''), { timeout: 600000 });
   await p.waitForFunction(() => /^DONE::/.test(document.title), null, { timeout: 600000, polling: 500 }).catch(() => {});
   const title = await p.title();
   const st = await p.evaluate(() => window.__stats || null);
