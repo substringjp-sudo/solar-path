@@ -473,6 +473,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }, [camWeatherData, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
 
   // 3D 시뮬레이터 전달용 노을 예측 결과
+  // SkyScene3D 가 읽는 모양(location.coords)으로 — 하늘 화면이 넘기는 expo-location 객체와 같은 꼴.
+  const camSceneLocation = useMemo(
+    () => ({ coords: { latitude, longitude } }),
+    [latitude, longitude]
+  );
+
   // 하늘 화면과 **같은 식**(scenePrediction) — 예전에는 시정 15km·습도 50%·고도 0 을 박았습니다.
   const camInterpolated = useMemo(
     () => (camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []),
@@ -1718,7 +1724,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   sunAltitude={sunPos.altitude}
                   sunAzimuth={sunPos.azimuth}
                   prediction={currentPrediction}
-                  location={{ latitude, longitude }}
+                  // ⚠ SkyScene3D 는 위치를 expo-location 모양(location.coords.latitude)으로 읽습니다.
+                  //   예전에는 { latitude, longitude } 를 넘겨 전부 undefined 가 됐고, 카메라 3D 는
+                  //   서울(37.5, 127) 기본값으로 달·별·대기·수역 마스크를 그리고 DEM 지형은 아예
+                  //   안 받았습니다 — 하늘 화면과 땅·하늘색이 다르던 원인 하나입니다(§112).
+                  location={camSceneLocation}
                   interpolatedWeather={camInterpolated}
                   layers={skyLayers}
                   skySettings={skySettings}
