@@ -75,6 +75,12 @@ renderer.setPixelRatio(1); renderer.setSize(TW, TH, false);
 
 const scene = new THREE.Scene();
 const skydome = createSkydome();
+// ⚠ 디더를 끄고 잽니다(§102). 격자성은 축 방향 차 ÷ (대각 차/√2) 라 **화소마다 독립인 잡음은
+//   그 자체로 √2(1.41) 쪽으로 끌어올립니다** — 이 자가 잡으려는 앨리어싱 무늬가 아닌데도요.
+//   예전에는 표시 대비가 어두운 밤하늘을 검정으로 잘라 디더까지 지워서 드러나지 않았고, §99 의
+//   S 곡선이 어둠을 살리자 1.05 → 1.066 으로 올랐습니다. 디더를 끄면 새 곡선 1.012 · 옛 곡선
+//   1.009 로 같습니다. 디더 자체의 등방성은 verify-dither.js 가 따로 봅니다.
+skydome.material.uniforms.uDither.value = 0;
 scene.add(skydome.mesh);
 const slab = createCloudSlab();
 slab.mesh.renderOrder = 10;

@@ -53,6 +53,8 @@ const ENTRIES = [
   'src/utils/devicePose.ts',
   'src/utils/terrainPick.ts',
   'src/utils/cloudProfile.ts',
+  // 스치는 햇빛 광선 적분(§106). 구름 슬랩이 임포트하지만, 판정이 따로 부르므로 명시합니다.
+  'src/utils/grazingRay.ts',
   'src/utils/weatherCacheKey.ts',
   'src/utils/satelliteBias.ts',
   'src/utils/solarGeometry.ts',

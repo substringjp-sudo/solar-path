@@ -253,6 +253,25 @@ export const directBeamRGB = (
   };
 };
 
+/**
+ * 기둥 양(상대 대기질량)에서 직달 투과율 — `directBeamRGB` 와 **같은 상수**(Rayleigh τ, 에어로졸 β·
+ * Ångström, Chappuis 오존, 지구–태양 거리). 광선을 따라 적분한 기둥을 넣으면 됩니다(grazingRay.ts).
+ *
+ * @param mR   공기 기둥 ÷ 해면 수직 기둥
+ * @param mM   에어로졸 기둥 ÷ 해면 수직 기둥
+ * @param mO3  오존 기둥 ÷ 수직 기둥
+ */
+export const beamFromColumns = (
+  mR: number, mM: number, mO3: number,
+  aerosolBetaVal: number, ozoneDu: number, dayOfYear: number,
+): RGB => {
+  const distFactor = earthSunDistanceFactor(dayOfYear);
+  const oz = (ozoneDu / 300.0) * mO3;
+  const ch = (lambda: number, kO3: number) =>
+    clamp01(distFactor * Math.exp(-tauRayleigh(lambda) * mR - tauMie(lambda, aerosolBetaVal) * mM - kO3 * oz));
+  return { r: ch(LAMBDA_R, 0.015), g: ch(LAMBDA_G, 0.030), b: ch(LAMBDA_B, 0.002) };
+};
+
 /** Geometric horizon depression in degrees for an observer at altitude km. */
 export const horizonDepressionDeg = (altKm: number): number =>
   (Math.acos(EARTH_RADIUS_KM / (EARTH_RADIUS_KM + Math.max(0, altKm))) * 180) /
