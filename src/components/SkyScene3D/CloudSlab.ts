@@ -60,7 +60,7 @@ import { TERRAIN_DIST_GLSL } from './SceneComposer';
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
 /** §105 직달 표: 해 고도 ±BEAM_LUT_SPAN° 를 BEAM_LUT_N 칸에. 360km 끝에서 ±3.2° 이므로 넉넉히 4°. */
-const BEAM_LUT_N = 64;
+export const BEAM_LUT_N = 64;
 /**
  * 직달 투과율 → 이 셰이더의 직달 항(§104·§106). 하늘빛이 **복사휘도**(조도/π)로 들어오므로
  * 직달도 조도/π 로 맞춥니다: SOLAR_BEAM_SCALE(투과율 → 하늘 눈금의 조도) ÷ π.
@@ -68,7 +68,7 @@ const BEAM_LUT_N = 64;
  *   (사진 대조 원색 화소 13% 대 사진 0.9%). 지면(TerrainRing)은 처음부터 sin/π 로 맞춰 왔습니다.
  */
 const BEAM_TO_SLAB = SOLAR_BEAM_SCALE / Math.PI;
-const BEAM_LUT_SPAN = 4;
+export const BEAM_LUT_SPAN = 4;
 /** 운량장 텍스처 한 변. 제곱근 사상이라 중심 근처가 촘촘합니다. */
 export const SLAB_TEX = 128;
 
@@ -2624,9 +2624,13 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
       const d = lutTex.image.data as Uint8Array;
       const rows: [number, RGB][] = [[alt.z, bh], [alt.y, bm], [alt.x, bl]];   // 행 0 상층 · 1 중층 · 2 저층
       const enc = (v: number) => (v < 2 ** -16 ? 0 : Math.max(1, Math.min(255, Math.round((Math.log2(v) + 16) / 16 * 255))));
-      // §106 — 표는 광선 적분(grazingRay)으로. 높이는 해면 기준(관측 고도 + 층 높이).
+      // §106 — 표는 광선 적분(grazingRay)으로. 높이는 **층 높이 그대로**(해면 기준)입니다.
+      // ⚠ §118 — 예전에는 `관측 고도 + 층 높이` 에서 적분했습니다. 층 높이(uLayerAltKm)는 예보 기압면의
+      //   지오퍼텐셜 높이라 이미 해면 기준이고, 셰이더도 관측자 해발 고도와 같은 틀로 교점을 풉니다
+      //   (slab_sphereIntersect 의 A·B). 그래서 해발 760m(스와)의 1.2km 구름을 1.96km 에서 비췄습니다 —
+      //   해 0° 에 1.75배, 해 −1° 에 3.2배 밝고 덜 붉었습니다(해발 0 에서는 차이 없음).
       // 호출부 beamFor 가 표준 식(beamAtAltitude)에서 벗어난 만큼(보통 1)은 채널별로 그대로 곱합니다.
-      const obsKmSea = Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000;
+      // beamFor 와 beamAtAltitude 는 **같은 인자**로 부르므로 이 비는 높이 틀과 무관합니다.
       rows.forEach(([km, b0], row) => {
         const ref = beamAtAltitude(lightAlt, km, u.atmosphere);
         const k = BEAM_TO_SLAB * (lightByMoon ? ml.gain : 1);
@@ -2634,7 +2638,7 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
         const rr = ratio('r'), rg = ratio('g'), rb = ratio('b');
         for (let i = 0; i < BEAM_LUT_N; i++) {
           const dDeg = -BEAM_LUT_SPAN + (2 * BEAM_LUT_SPAN * i) / (BEAM_LUT_N - 1);
-          const b = beamGrazing(lightAlt + dDeg, obsKmSea + km, u.atmosphere);
+          const b = beamGrazing(lightAlt + dDeg, km, u.atmosphere);
           const o = (row * BEAM_LUT_N + i) * 4;
           d[o] = enc(b.r * rr); d[o + 1] = enc(b.g * rg); d[o + 2] = enc(b.b * rb);
           d[o + 3] = Math.max(0, Math.min(255, Math.round(b.refrDeg / 2 * 255)));
@@ -2661,9 +2665,12 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
     uni.uRidgeClouds.value = ridgeClouds ? 1 : 0;
     handle.meshBelow.visible = fogOn || ridgeClouds || obsKm > lowSurf || obsKm > alt.y || obsKm > alt.z;
   }
-  // 구름 속 안개가 받는 직달광 — 관측 고도에서(§93). 안개가 꺼져 있으면 안 구합니다.
+  // 구름 속 안개가 받는 직달광 — 관측자 자리에서(§93). 안개가 꺼져 있으면 안 구합니다.
+  // ⚠ §118 — beamFor(h) 의 h 는 **관측자 위 높이**입니다(지면 = 0, 곧 beamAtAltitude(해, 0) 이 관측자
+  //   자리). 예전에는 관측자 해발 고도를 넘겨 그 두 배 높이에서 비췄습니다(해발 1600m 산 위 안개를
+  //   3200m 에서 — 해 30° 에 43% 밝게).
   if ((uni.uFogBeta.value as number) > 0) {
-    const bf = beamOf(Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000);
+    const bf = beamOf(0);
     (uni.uFogBeam.value as THREE.Vector3).set(bf.r, bf.g, bf.b);
   }
 
