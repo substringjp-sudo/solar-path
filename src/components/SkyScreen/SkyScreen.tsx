@@ -39,6 +39,8 @@ import { InfoCard } from '../InfoCard';
 import { PeekSheet } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
+import { buildSkyEvents } from '../../utils/skyEvents';
+import { t } from '../../utils/i18n';
 
 interface SkyScreenProps {
   theme: any;
@@ -78,7 +80,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   isActive = true,
   onCameraPress,
 }) => {
-  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache } = useCelestialStore();
+  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
@@ -288,7 +290,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     setBuilding(true);
     setBuildError(null);
     setBuildProgress(0);
-    setBuildLabel('시작하는 중…');
+    setBuildLabel(t('buildStarting', language));
     try {
       const tl = await buildSkyTimeline({
         latitude,
@@ -302,15 +304,15 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         isCancelled: () => cancelBuildRef.current,
       });
       setTimeline(tl);
-      setBuildLabel('완료');
+      setBuildLabel(t('buildDone', language));
     } catch (err: any) {
       if (err?.message === 'CANCELLED') {
-        setBuildLabel('취소됨');
+        setBuildLabel(t('buildCancelled', language));
       } else {
         console.log('sky timeline build failed:', err);
         setBuildError(err?.message?.includes('RATE_LIMIT')
-          ? 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.'
-          : '날씨를 받지 못했습니다. 연결을 확인해 주세요.');
+          ? t('errRateLimit', language)
+          : t('errWeather', language));
       }
     } finally {
       setBuilding(false);
@@ -417,102 +419,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     observerElevM: terrainData.observerElevation,
   }), [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
 
-  // 오늘의 추천 및 일반 이벤트 목록 생성
-  const eventItems = useMemo(() => {
-    const list: EventItem[] = [];
-    const baseDate = new Date(currentTime);
-    
-    const sunrise = events?.sunrise ?? new Date(baseDate.setHours(6, 12, 0, 0));
-    const sunset = events?.sunset ?? new Date(baseDate.setHours(19, 35, 0, 0));
-    const moonrise = events?.moonrise ?? new Date(baseDate.setHours(20, 10, 0, 0));
-    const moonset = events?.moonset ?? new Date(baseDate.setHours(5, 40, 0, 0));
-
-    const moonIllum = SunCalc.getMoonIllumination(currentTime);
-    const isCrescent = moonIllum.phase < 0.25 || moonIllum.phase > 0.75;
-
-    // 1. 추천 이벤트 (Featured Events)
-    list.push({
-      id: 'f_sunset',
-      title: '훌륭한 일몰',
-      time: sunset,
-      category: 'featured',
-      badge: '추천 95점',
-      description: '황혼의 붉은 노을빛과 고층 구름의 빛 반사',
+  // 오늘의 추천 및 일반 이벤트 — 모두 계산에서 나옵니다(`skyEvents.ts` 머리말).
+  // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
+  const predictionAt = (tm?: Date | null) => {
+    if (!tm || !pathData.length) return null;
+    const sp = SunCalc.getPosition(tm, latitude, longitude);
+    const p = scenePrediction({
+      pathData,
+      time: tm,
+      sunAltDeg: sp.altitude * (180 / Math.PI),
+      obs: getInterpolatedWeather(pathData, tm)[0],
+      latitude,
+      observerElevM: terrainData.observerElevation,
     });
-
-    list.push({
-      id: 'f_sunrise',
-      title: '훌륭한 일출',
-      time: sunrise,
-      category: 'featured',
-      badge: '추천 90점',
-      description: '새벽녘 지평선 황금빛 직달광',
-    });
-
-    if (isCrescent) {
-      list.push({
-        id: 'f_crescent',
-        title: '눈썹달/초승달',
-        time: new Date(sunset.getTime() + 45 * 60000),
-        category: 'featured',
-        badge: '달 위상',
-        description: '일몰 직후 남서쪽 하늘에 선명한 초승달',
-      });
-    }
-
-    list.push({
-      id: 'f_milkyway',
-      title: '은하수 관측 적기',
-      time: new Date(sunset.getTime() + 150 * 60000),
-      category: 'featured',
-      badge: '별자리',
-      description: '광해와 달빛이 적어 은하 적도가 또렷한 밤',
-    });
-
-    list.push({
-      id: 'f_night',
-      title: '행성 & 야경 경치',
-      time: new Date(baseDate.setHours(22, 0, 0, 0)),
-      category: 'featured',
-      badge: '야경',
-      description: '목성/토성 및 6.5등급 8천여 항성 관측',
-    });
-
-    // 2. 일반 이벤트 (General Events)
-    list.push({
-      id: 'g_sunrise',
-      title: '일출',
-      time: sunrise,
-      category: 'general',
-      description: '오늘의 일출 시각',
-    });
-
-    list.push({
-      id: 'g_sunset',
-      title: '일몰',
-      time: sunset,
-      category: 'general',
-      description: '오늘의 일몰 시각',
-    });
-
-    list.push({
-      id: 'g_moonrise',
-      title: '월출',
-      time: moonrise,
-      category: 'general',
-      description: '오늘의 월출 시각',
-    });
-
-    list.push({
-      id: 'g_moonset',
-      title: '월몰',
-      time: moonset,
-      category: 'general',
-      description: '오늘의 월몰 시각',
-    });
-
-    return list;
-  }, [currentTime, events]);
+    return p ? { score: p.score, quality: p.quality } : null;
+  };
+  const eventItems = useMemo(() => buildSkyEvents({
+    date: currentTime,
+    latitude,
+    longitude,
+    events,
+    sunsetPrediction: predictionAt(events?.sunset),
+    sunrisePrediction: predictionAt(events?.sunrise),
+    language,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [currentTime.toDateString(), events, pathData, latitude, language, terrainData.observerElevation]);
 
   const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
   const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);
@@ -524,7 +455,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   };
 
   // 요약 한 줄에 쓸 값들
-  const scoreText = prediction?.score != null ? `${Math.round(prediction.score)}점` : '—';
+  const scoreText = prediction?.score != null ? t('evScore', language).replace('{n}', String(Math.round(prediction.score))) : '—';
   const sunsetText = events?.sunset
     ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
     : '--:--';
@@ -560,9 +491,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           >
             <Target size={11} color="#38BDF8" style={{ marginRight: 4 }} />
             <Text style={styles.trackingText}>
-              {trackingTarget === 'sun' ? '태양 추적 중' : trackingTarget === 'moon' ? '달 추적 중' : trackingTarget === 'milkyway' ? '은하수 추적 중' : '천체 추적 중'}
+              {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
             </Text>
-            <Text style={styles.trackingCancel}> [해제]</Text>
+            <Text style={styles.trackingCancel}> {t('trackRelease', language)}</Text>
           </TouchableOpacity>
         )}
 
@@ -572,7 +503,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           <TouchableOpacity
             style={[styles.overlayButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
             onPress={() => setLayerModalVisible(true)}
-            onLongPress={() => setDevPanelOpen(v => !v)}
+            // 개발자 튜닝은 개발 빌드에서만 — 출시판 사용자가 길게 눌러 여는 일이 없게(점검 2026-09-29).
+            onLongPress={__DEV__ ? () => setDevPanelOpen(v => !v) : undefined}
             delayLongPress={700}
             activeOpacity={0.7}
           >
@@ -612,7 +544,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     ]}
                   />
                 </View>
-                <Text style={styles.buildHint}>탭하면 취소</Text>
+                <Text style={styles.buildHint}>{t('tapToCancel', language)}</Text>
               </>
             )}
           </View>
@@ -633,7 +565,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               <>
                 <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
                 <Text style={[styles.summaryValue, { color: theme.subText }]}>
-                  상층운 {Math.round(highCloudPct)}%
+                  {t('highCloudPct', language).replace('{n}', String(Math.round(highCloudPct)))}
                 </Text>
               </>
             )}
@@ -653,26 +585,26 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           <View style={[styles.numberFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
             <View style={styles.frameHeader}>
               <Sun size={11} color="#FFD700" />
-              <Text style={[styles.frameLabel, { color: theme.subText }]}>태양 · 달</Text>
+              <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('sunMoon', language)}</Text>
             </View>
             <View style={styles.numberGrid}>
               <InfoCard
                 icon={<Sun size={14} color="#FFD700" />}
-                label="태양"
+                label={t('sunLabel', language)}
                 value={`${sunAltitude.toFixed(0)}°`}
                 subValue={`${sunAzimuth.toFixed(0)}°`}
                 theme={theme}
               />
               <InfoCard
                 icon={<Moon size={14} color="#94A3B8" />}
-                label="달"
+                label={t('moonLabel', language)}
                 value={`${moonAltitude.toFixed(0)}°`}
                 subValue={`${moonAzimuth.toFixed(0)}°`}
                 theme={theme}
               />
               <InfoCard
                 icon={<Sunset size={14} color="#FF4500" />}
-                label="일몰"
+                label={t('sunset', language)}
                 value={sunsetText}
                 theme={theme}
               />
@@ -688,7 +620,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 activeOpacity={0.8}
               >
                 <Sparkles size={12} color={activeTab === 'featured' ? '#F59E0B' : '#94A3B8'} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>추천 이벤트</Text>
+                <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>{t('evFeatured', language)}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -697,7 +629,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 activeOpacity={0.8}
               >
                 <Sun size={12} color={activeTab === 'general' ? '#38BDF8' : '#94A3B8'} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>일반 이벤트</Text>
+                <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>{t('evGeneral', language)}</Text>
               </TouchableOpacity>
             </View>
 
@@ -717,7 +649,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                   if (item.id.includes('sunrise')) return <Sun size={14} color="#FBBF24" />;
                   if (item.id.includes('crescent')) return <Moon size={14} color="#38BDF8" />;
                   if (item.id.includes('milkyway')) return <Sparkles size={14} color="#A78BFA" />;
-                  if (item.id.includes('night')) return <Star size={14} color="#F43F5E" />;
+                  if (item.id.includes('planets')) return <Star size={14} color="#F43F5E" />;
                   if (item.id.includes('moon')) return <Moon size={14} color="#38BDF8" />;
                   return <Sun size={14} color="#EAB308" />;
                 })()}
@@ -727,6 +659,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     {item.description}
                   </Text>
                 </View>
+                {item.badge && (
+                  <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
+                )}
                 <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
               </TouchableOpacity>
             ))}
@@ -978,6 +913,15 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     marginTop: 1,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  eventBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginRight: 8,
   },
   eventTime: {
     fontSize: 12,

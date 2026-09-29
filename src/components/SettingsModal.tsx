@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
-import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Mic, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -81,12 +81,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     locationPermission,
     cameraPermission,
     mediaPermission,
-    microphonePermission,
     checkPermissions,
     requestLocationPermission,
     requestCameraPermission,
     requestMediaPermission,
-    requestMicrophonePermission,
     isDebugMode,
     setDebugMode,
     language,
@@ -202,15 +200,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       Linking.openSettings();
     } else {
       requestMediaPermission();
-    }
-  };
-
-  const handleMicrophonePress = () => {
-    if (microphonePermission === 'granted') return;
-    if (microphonePermission === 'denied') {
-      Linking.openSettings();
-    } else {
-      requestMicrophonePermission();
     }
   };
 
@@ -605,33 +594,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </View>
                   </TouchableOpacity>
 
-                  {/* Microphone Permission */}
-                  <TouchableOpacity 
-                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
-                    onPress={handleMicrophonePress}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.permIconContainer}>
-                      <Mic size={16} color={theme.text} />
-                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('audioMic', language)}</Text>
-                    </View>
-                    <View style={styles.statusRow}>
-                      {microphonePermission === 'granted' ? (
-                        <View style={styles.badgeGranted}>
-                          <CheckCircle2 size={12} color="#4CAF50" />
-                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.badgeDenied}>
-                          <AlertCircle size={12} color="#FF5252" />
-                          <Text style={styles.badgeTextDenied}>
-                            {microphonePermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
+                  {/* 마이크 줄은 뺐습니다 — 앱은 소리를 녹음하지 않고, 매니페스트에서도 RECORD_AUDIO 를
+                      지웠습니다(app.config.js, 점검 2026-09-29). */}
                   {/* Location Permission */}
                   <TouchableOpacity 
                     style={styles.permissionRow}

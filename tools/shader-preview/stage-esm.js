@@ -65,6 +65,8 @@ const ENTRIES = [
   'src/utils/satelliteBias.ts',
   'src/utils/solarGeometry.ts',
   'src/utils/cloudRadar.ts',
+  // 하늘 시트의 추천·일반 이벤트(점검 2026-09-29) — 판정이 불러 씁니다.
+  'src/utils/skyEvents.ts',
   'src/utils/cloudMatrix.ts',
   'src/utils/mapProjection.ts',
   'src/utils/locationPick.ts',

@@ -45,6 +45,22 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date(currentTime));
   const [isPlaying, setIsPlaying] = useState(false);
+  /**
+   * ⚠ 헤더의 날짜(‹ › · 달력)를 바꿔도 지도는 **처음 연 날짜에 머물렀습니다**(점검 2026-09-29).
+   * `selectedDate` 를 처음 한 번만 `currentTime` 에서 받았기 때문입니다. 헤더가 시각을
+   * **건너뛰면**(30분 넘게) 지도도 따라갑니다. 실시간으로 흐르는 1분 단위 변화는 따라가지
+   * 않습니다 — 그러면 지도의 시각 슬라이더를 만지는 족족 되돌려집니다.
+   */
+  const lastHeaderTimeRef = useRef(currentTime.getTime());
+  useEffect(() => {
+    const t = currentTime.getTime();
+    const jumped = Math.abs(t - lastHeaderTimeRef.current) > 30 * 60 * 1000;
+    lastHeaderTimeRef.current = t;
+    if (jumped) {
+      setIsPlaying(false);
+      setSelectedDate(new Date(t));
+    }
+  }, [currentTime]);
   const [guideVisible, setGuideVisible] = useState(false);
   const [locMenuOpen, setLocMenuOpen] = useState(false);
   const [longitudeDelta, setLongitudeDelta] = useState(60);
@@ -294,7 +310,12 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
    */
   const pickable = !showGlobe && canPickLocation(longitudeDelta, region.latitude);
   /** 배지가 버튼 줄 밑으로 파고들지 않게 자릅니다(320px 기기에서 21px 겹칩니다). */
-  const badgeMaxWidth = useMemo(() => solarBadgeMaxWidth(width, 3), [width]);
+  // ⚠ 화면 폭이 아니라 **카드 폭**으로 잽니다. 카드는 좌우 여백(14px × 2)만큼 좁아, 화면 폭으로
+  //   재면 360px 기기에서 배지가 📍 버튼을 덮었습니다(점검 2026-09-29, 웹 실측).
+  const badgeMaxWidth = useMemo(
+    () => solarBadgeMaxWidth(bodySize.width || width - 28, 3),
+    [bodySize.width, width],
+  );
   /**
    * 왼쪽 아래 세로줄(구름 읽기값 · 범례)의 너비 상한.
    *
@@ -647,15 +668,15 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 {radar.observerClass.name}
               </Text>
               <Text style={[styles.cloudReadoutSub, { color: theme.subText }]} numberOfLines={1}>
-                저 {Math.round(radar.observerLayers.low)} · 중 {Math.round(radar.observerLayers.mid)} · 상 {Math.round(radar.observerLayers.high)}
+                {t('radarLayers', language).replace('{l}', String(Math.round(radar.observerLayers.low))).replace('{m}', String(Math.round(radar.observerLayers.mid))).replace('{h}', String(Math.round(radar.observerLayers.high)))}
                 {radar.observerLayers.precipitationMm > 0
-                  ? `  비 ${radar.observerLayers.precipitationMm.toFixed(1)}mm`
+                  ? '  ' + t('radarRain', language).replace('{x}', radar.observerLayers.precipitationMm.toFixed(1))
                   : ''}
               </Text>
               <Text style={[styles.cloudReadoutSub, { color: theme.subText }]} numberOfLines={1}>
                 {radar.wind
-                  ? `구름 ${Math.round(radar.wind.toBearingDeg)}° 쪽으로 ${Math.round(radar.wind.speedKmh)}km/h`
-                  : '바람 자료 없음'}
+                  ? t('radarWind', language).replace('{b}', String(Math.round(radar.wind.toBearingDeg))).replace('{s}', String(Math.round(radar.wind.speedKmh)))
+                  : t('radarNoWind', language)}
               </Text>
             </View>
           )}
@@ -665,8 +686,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 <View style={[styles.legendLine, { backgroundColor: 'rgba(226,232,240,0.75)' }]} />
                 <Text style={[styles.legendText, { color: theme.subText }]}>
                   {topView
-                    ? '구름 · 시뮬레이션 (잔 무늬는 지어낸 것)'
-                    : `구름 · 바깥 칸 ${Math.round(radar.outerSpacingKm)}km`}
+                    ? t('radarLegendSim', language)
+                    : t('radarLegendCells', language).replace('{k}', String(Math.round(radar.outerSpacingKm)))}
                 </Text>
               </View>
             )}
@@ -678,7 +699,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 activeOpacity={0.7}
               >
                 <Text style={[styles.legendText, { color: theme.text }]}>
-                  {cloudView === 'radar' ? '시뮬레이션으로 보기' : '자료 칸으로 보기'}
+                  {t(cloudView === 'radar' ? 'radarShowSim' : 'radarShowCells', language)}
                 </Text>
               </TouchableOpacity>
             )}
@@ -686,11 +707,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
               <>
                 <View style={styles.legendItem}>
                   <View style={[styles.legendLine, { backgroundColor: '#38BDF8' }]} />
-                  <Text style={[styles.legendText, { color: theme.subText }]}>등고도선</Text>
+                  <Text style={[styles.legendText, { color: theme.subText }]}>{t('legendAltLine', language)}</Text>
                 </View>
                 <View style={styles.legendItem}>
                   <View style={[styles.legendLine, { backgroundColor: '#FB923C' }]} />
-                  <Text style={[styles.legendText, { color: theme.subText }]}>태양 방위 (그 법선)</Text>
+                  <Text style={[styles.legendText, { color: theme.subText }]}>{t('legendAzimuth', language)}</Text>
                 </View>
               </>
             ) : (
@@ -887,6 +908,10 @@ const styles = StyleSheet.create({
     left: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    // ⚠ 줄바꿈을 허락해야 maxWidth 가 먹습니다. 안 그러면 항목들이 줄지 않고 상자 밖으로
+    //   넘쳐 360px 기기에서 📍 버튼을 덮었습니다(점검 2026-09-29, 웹 실측).
+    flexWrap: 'wrap',
+    rowGap: 3,
     paddingVertical: 5,
     paddingHorizontal: 8,
     borderRadius: 4,

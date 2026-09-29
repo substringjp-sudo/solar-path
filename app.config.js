@@ -45,6 +45,14 @@ const withRemoveUnusedPermissions = (config) => {
         'tools:node': 'remove'
       }
     });
+    // Remove RECORD_AUDIO — expo-camera 가 끼워 넣지만 앱은 동영상·소리를 녹음하지 않습니다.
+    //   남겨 두면 Play 콘솔이 마이크 권한의 쓰임을 묻습니다(점검 2026-09-29).
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.RECORD_AUDIO',
+        'tools:node': 'remove'
+      }
+    });
     // Remove READ_MEDIA_AUDIO
     androidManifest.manifest['uses-permission'].push({
       $: {
