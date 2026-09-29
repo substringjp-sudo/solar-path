@@ -7,6 +7,9 @@
  *     운량장이 0.95 를 넘는 칸(하늘 파이프라인이 흐림으로 올린 것)은 빼고, 면적은 단조로 는다.
  *  2. 방향: 동쪽 흐림 · 서쪽 맑음 예보에서 동쪽 불투명도 평균이 서쪽보다 0.1 넘게 크다.
  *  3. 이류: 서풍 60km/h 에서 한 시간 뒤 무늬가 동쪽으로 60km(= 기대 화소 ±2) 옮는다.
+ *  5. 입자 크기(§120.10): 고른 50% 에서 **15km 떨어진** 두 점의 불투명도 상관이 0.5 이상 —
+ *     레이더·위성 그림처럼 수십 km 덩어리로 뭉친다. 대조 — 하늘 셀 모양장 그대로면 0.5 밑.
+ *     (사용자 보고 "입자가 너무 잘고 구름 레이더와 비슷하지가 않아". 문턱은 재기 전에 정함.)
  *  (참고) 방사형 줄 — **합격 줄이 아닙니다.** 바깥 고리(200~340km)에서 30km 떨어진 두 점의
  *     상관을 반경·원주 방향으로 견줘 적기만 합니다.
  *     ⚠ 처음에는 줄로 세웠습니다: 이웃 한 화소 상관 비 ≤ 1.3 → 대조(하늘의 방향 잡음 운량장)가
@@ -55,7 +58,7 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
     ok(worst <= 0.10, `${NAME[L]} — 면적이 운량장을 따른다 (최대 어긋남 ${worst.toFixed(3)})`);
     ok(rows.every((r, i) => i === 0 || r.a >= rows[i - 1].a - 1e-9), `${NAME[L]} — 예보가 늘면 면적도 는다`);
   }
-  console.log('\n== 대조: 하늘(45°) 문턱을 그대로 쓰면 ==');
+  console.log('\n== 대조: 하늘 셀 모양장·하늘(45°) 문턱을 그대로 쓰면 ==');
   const skyErr = s.R.areaSky.map(r => {
     const c = s.R.area.find(x => x.layer === r.layer && x.c === 50).coverMean[LI[r.layer]];
     const e = area(r.alpha) - c;
@@ -86,6 +89,24 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
   console.log(`  바람 ${JSON.stringify(D.winds.mid)} · 기대 ${want.toFixed(1)}px(60km) · 찾은 ${wv.bs}px (상관 ${wv.bc.toFixed(2)}, 제자리 ${corr(D.w0, D.w1, 0).toFixed(2)})`);
   ok(Math.abs(wv.bs - want) <= 2, `무늬가 동쪽으로 바람만큼 옮는다 (${wv.bs}px ≈ ${want.toFixed(1)}px)`);
   ok(cv.bs === 0, `대조: 바람 0 이면 제자리 (${cv.bs}px, 상관 ${cv.bc.toFixed(2)})`);
+
+  console.log('\n== 5. 입자 크기 — 15km 떨어진 상관 ==');
+  const lagCorr = (A, lagPx) => {
+    let sa = 0, sb = 0, sab = 0, saa = 0, sbb = 0, n = 0;
+    for (let y = 30; y < N - 30; y++) for (let x = 30; x < N - 30 - lagPx; x++) {
+      if (dist(y * N + x) > Rk * 0.85) continue;
+      for (const [a, bb] of [[A[y * N + x], A[y * N + x + lagPx]], [A[y * N + x], A[(y + lagPx) * N + x]]]) {
+        sa += a; sb += bb; sab += a * bb; saa += a * a; sbb += bb * bb; n++;
+      }
+    }
+    const ca = saa / n - (sa / n) ** 2, cb = sbb / n - (sb / n) ** 2;
+    return (sab / n - (sa * sb) / n / n) / Math.sqrt(ca * cb + 1e-9);
+  };
+  const lag = Math.round(15 / kmpx);
+  const gm = lagCorr(s.R.grain.meso, lag), gs = lagCorr(s.R.grain.sky, lag);
+  console.log(`  ${lag}px(${(lag * kmpx).toFixed(1)}km) — 덩어리 모양장 ${gm.toFixed(3)} · 대조(하늘 셀 모양장) ${gs.toFixed(3)}`);
+  ok(gm >= 0.5, `덩어리로 뭉친다 (${gm.toFixed(3)} ≥ 0.5)`);
+  ok(gs < 0.5, `대조: 하늘 셀 모양장이면 잔 점이다 (${gs.toFixed(3)} < 0.5)`);
 
   console.log('\n== 참고: 방사형 줄 ==');
   const LAG = 30;   // km

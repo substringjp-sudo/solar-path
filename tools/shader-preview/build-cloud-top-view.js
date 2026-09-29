@@ -24,7 +24,9 @@ try {
   // 역산을 되풀이할 때 쓰는 덮어쓰기 — ?mean=0.6,0.4,0.5&sig=0.65,0.65,0.98
   const qs = new URLSearchParams(location.search);
   const trip = (k) => { const v = qs.get(k); if (!v) return undefined; const [l, m, h] = v.split(',').map(Number); return { low: l, mid: m, high: h }; };
-  const tv = TV.createCloudTopView(N, { shapeMean: trip('mean'), shapeSigRatio: trip('sig') });
+  // 덩어리 모양장(기본)의 문턱을 덮어씀. 대조(하늘 셀 모양장 그대로)는 따로 만듭니다.
+  const tv = TV.createCloudTopView(N, { mesoMean: trip('mean'), mesoSig: trip('sig') });
+  const tvSkyShape = TV.createCloudTopView(N, { mode: 'sky' });
   const T0 = Date.UTC(2026, 8, 29, 6, 0, 0);
   // 가짜 고리 — 앱이 받는 모양 그대로(cloudRadar 판정의 fakeRing 과 같은 틀). f(층, 거리, 방위) → %.
   function ring(f, wind) {
@@ -70,7 +72,7 @@ try {
     R.area.push({ layer, c, alpha: s.alpha, coverMean: s.coverMean });
   }
   // 대조 — 하늘(45°)의 문턱 그대로 위에서 보면 면적이 어긋나는가(자가 이것을 보는가).
-  const tvSky = TV.createCloudTopView(N, { shapeMean: TV.SKY_SHAPE_MEAN, shapeSigRatio: TV.SKY_SHAPE_SIG_RATIO });
+  const tvSky = TV.createCloudTopView(N, { mode: 'sky', shapeMean: TV.SKY_SHAPE_MEAN, shapeSigRatio: TV.SKY_SHAPE_SIG_RATIO });
   R.areaSky = [];
   for (const layer of ['low', 'mid', 'high']) {
     const inp = TV.buildTopViewInput(ring((L) => (L === layer ? 50 : 0)), T0);
@@ -94,10 +96,15 @@ try {
     const inp = TV.buildTopViewInput(even, T0, { coverage: mode });
     R.spokes[mode] = Array.from(tv.render(renderer, inp).filter((_, i) => i % 4 === 3));
   }
+  // [5] 입자 크기 — 고른 50%(세 층), 덩어리 모양장 대 하늘 셀 모양장(대조).
+  R.grain = {
+    meso: Array.from(tv.render(renderer, TV.buildTopViewInput(even, T0)).filter((_, i) => i % 4 === 3)),
+    sky: Array.from(tvSkyShape.render(renderer, TV.buildTopViewInput(even, T0)).filter((_, i) => i % 4 === 3)),
+  };
   // 보여 주기용 한 장 — 세 층, 동쪽 흐림
   const showRing = ring((L, d, az) => ({ low: 40, mid: 35, high: 30 }[L]) + 30 * Math.sin(az * Math.PI / 180) * Math.min(1, d / 200), { u: 30, v: 10 });
   R.sample = shot(showRing, T0).rgba;
-  R.sampleSky = Array.from(tv.render(renderer, TV.buildTopViewInput(showRing, T0, { coverage: 'skyColumns' })));
+  R.sampleSky = Array.from(tvSkyShape.render(renderer, TV.buildTopViewInput(showRing, T0)));
   window.__stats = { N, rangeKm: tv.rangeKm, R };
 } catch (e) { errors.push('예외: ' + (e && e.stack || e)); }
 window.__errors = errors;

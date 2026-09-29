@@ -107,7 +107,39 @@ uniform float uRangeKm;
 uniform float uDriftHours;
 uniform float uPixelKm;
 uniform float uClusterAmt, uClusterMul;
+uniform float uMesoMode;
+uniform vec3  uMesoMean, uMesoSig;   // x 저 · y 중 · z 상
 ${CLOUD_SLAB_GLSL}
+// ── 위에서 본 덩어리(§120.10) ────────────────────────────────────────────────
+// 하늘의 셀(저 2 · 중 4.2 · 상 9km)은 올려다볼 때 구름 한 송이 크기라, 720km 원반에서는 잔
+// 점이 됩니다(사용자: "입자가 너무 잘고 구름 레이더와 비슷하지가 않아"). 위성·레이더 그림의
+// 구름은 수십 km 덩어리로 뭉쳐 있으므로, 위에서 볼 때는 **덩어리 규모의 모양장**으로 면적을
+// 가르고 하늘 셀 크기의 잡음은 덩어리 안의 결로만 씁니다. 면적은 여전히 운량을 따릅니다(백분위
+// 문턱, 아래 uMesoMean/uMesoSig 를 판정이 역산).
+float top_meso(int L, vec2 kmN, float cover, vec2 windNorm, float cellKm, float seed, float det){
+  float cellM = L == 0 ? 55.0 : (L == 1 ? 40.0 : 30.0);
+  vec2 p = kmN / cellM;
+  // 상층은 바람 축으로 2:1 — 권운이 줄지어 늘어서는 결.
+  if (L == 0) p = vec2(dot(p, windNorm) * 0.5, dot(p, vec2(-windNorm.y, windNorm.x)));
+  // 좌표를 잡음으로 한 번 휩니다(domain warp). 값 잡음은 등고선이 마름모로 각지는데, 휘면
+  // 위성 사진의 구름처럼 굽고 말린 윤곽이 됩니다.
+  vec2 w = vec2(slab_fbm(p * 0.5 + 13.1, 2), slab_fbm(p * 0.5 + 47.7, 2)) - 0.5;
+  p += w * 1.6;
+  // 3옥타브 — 가장 잔 결이 셀의 1/4(저층 7.5km)이라 화소(3.75km)에서 부서지지 않습니다.
+  float f = slab_fbm(p + seed * 3.1, 3);
+  float mu = L == 0 ? uMesoMean.z : (L == 1 ? uMesoMean.y : uMesoMean.x);
+  float sg = L == 0 ? uMesoSig.z : (L == 1 ? uMesoSig.y : uMesoSig.x);
+  float q = 1.0 / (1.0 + exp(-1.702 * (f - mu) / max(0.02, sg)));
+  float t = clamp((q - (1.0 - cover)) / max(0.05, cover), 0.0, 1.0);
+  // 가장자리는 부드럽게, 속은 짙게 — 레이더 그림의 덩어리처럼.
+  float dens = smoothstep(0.0, 0.8, t);
+  dens = mix(dens, 1.0, smoothstep(0.90, 1.0, cover));
+  // 덩어리 안의 결 — 하늘과 같은 셀 크기의 잡음(평균 1 근처, 진폭 작게). 하늘과 같은 발자국
+  // 규칙(det)으로 화소보다 잔 결은 끕니다 — 저층(셀 2km)은 3.75km 화소에서 각진 얼룩이 됐습니다.
+  float fine = mix(0.5, slab_fbm(kmN / cellKm + seed + 5.1, 2), det);
+  float depth = L == 0 ? 1.4 : (L == 1 ? 3.5 : 5.0);
+  return dens * depth * (0.88 + 0.24 * fine);
+}
 void main(){
   // vUv.y = 0 이 **북**입니다 — readPixels 첫 줄이 그림의 맨 윗줄이 되게.
   vec2 q = vec2(vUv.x * 2.0 - 1.0, 1.0 - vUv.y * 2.0);
@@ -135,12 +167,20 @@ void main(){
     float cluster = mix(1.0,
       0.55 + 0.9 * slab_fbm(kmN / max(1e-3, cellKm * uClusterMul) + 71.3, 3),
       uClusterAmt);
-    float thick = slab_layer_thickness(L, kmN, cover, cellKm, conf, seed, windNorm, det, detCoarse, billowAmt, cluster);
-    if (thick <= 0.0) continue;
-    float a = 1.0 - exp(-thick * tauK);
-    vec3 c = L == 0 ? vec3(0.90, 0.94, 1.00) : (L == 1 ? vec3(0.95, 0.96, 0.98) : vec3(1.0));
-    // 두꺼운 곳이 조금 더 밝게 — 구름 윗면의 부피감만 옅게.
-    c *= 0.86 + 0.14 * smoothstep(0.0, 1.2, thick);
+    float thick, tau;
+    if (uMesoMode > 0.5) {
+      tau = top_meso(L, kmN, cover, windNorm, cellKm, seed, det);
+      thick = tau / tauK;
+    } else {
+      thick = slab_layer_thickness(L, kmN, cover, cellKm, conf, seed, windNorm, det, detCoarse, billowAmt, cluster);
+      tau = thick * tauK;
+    }
+    if (tau <= 0.0) continue;
+    float a = 1.0 - exp(-tau);
+    // 층마다 색을 달리했더니 조각보처럼 보였습니다. 흰 구름 하나로, 농담은 불투명도가 냅니다
+    // (상층만 아주 옅게 푸른 기 — 얇은 권운).
+    vec3 c = L == 0 ? vec3(0.93, 0.96, 1.00) : vec3(1.0);
+    c *= 0.90 + 0.10 * smoothstep(0.3, 3.0, tau);
     col += trans * a * c;
     trans *= 1.0 - a;
   }
@@ -181,6 +221,15 @@ export interface CloudTopViewHandle {
 //   그대로)에 묶입니다. 하나라도 바꾸면 build-cloud-top-view 로 다시 잽니다.
 export const TOP_VIEW_SHAPE_MEAN: Record<'low' | 'mid' | 'high', number> = { low: 0.5391, mid: 0.5443, high: 0.5274 };
 export const TOP_VIEW_SHAPE_SIG_RATIO: Record<'low' | 'mid' | 'high', number> = { low: 1.1032, mid: 0.7213, high: 0.9361 };
+/**
+ * 덩어리 모양장(§120.10)의 면적 문턱 — 중심·폭. 판정(build-cloud-top-view)이 역산합니다.
+ * fbm 명목값(0.5 · 0.1)에서 시작해 예보와 면적이 0.03 안으로 수렴했습니다(첫 판에서 상층
+ * −0.33 까지 어긋남). 덩어리 모양(셀·옥타브·가장자리)을 바꾸면 다시 잽니다 — 첫 덩어리 판은
+ * 15km 상관이 0.41 로 아직 잘아(판정 5) 셀을 키우고 옥타브를 줄였고, 윤곽이 마름모로 각져
+ * 좌표 휨을 넣은 뒤 다시 쟀습니다.
+ */
+export const TOP_VIEW_MESO_MEAN: Record<'low' | 'mid' | 'high', number> = { low: 0.4579, mid: 0.4289, high: 0.4037 };
+export const TOP_VIEW_MESO_SIG: Record<'low' | 'mid' | 'high', number> = { low: 0.1633, mid: 0.1647, high: 0.1877 };
 /** 하늘(슬랩)의 값 — 판정의 대조용. */
 export const SKY_SHAPE_MEAN = { low: 0.597, mid: 0.377, high: 0.515 };
 export const SKY_SHAPE_SIG_RATIO = { low: 0.654, mid: 0.652, high: 0.986 };
@@ -190,6 +239,10 @@ export function createCloudTopView(
   opts: {
     shapeMean?: Record<'low' | 'mid' | 'high', number>;
     shapeSigRatio?: Record<'low' | 'mid' | 'high', number>;
+    /** 'sky' 는 판정의 대조용 — 하늘 셀 모양장 그대로(잔 점이 나던 것). */
+    mode?: 'meso' | 'sky';
+    mesoMean?: Record<'low' | 'mid' | 'high', number>;
+    mesoSig?: Record<'low' | 'mid' | 'high', number>;
   } = {},
 ): CloudTopViewHandle {
   const coverTex = new THREE.DataTexture(new Uint8Array(SLAB_TEX * SLAB_TEX * 4), SLAB_TEX, SLAB_TEX, THREE.RGBAFormat);
@@ -204,6 +257,11 @@ export function createCloudTopView(
       uDriftHours: { value: 0 },
       uPixelKm: { value: (2 * SLAB_RANGE_KM) / size },
       // 슬랩 재질의 기본값과 같게(CloudSlab.createCloudSlab).
+      uMesoMode: { value: opts.mode === 'sky' ? 0 : 1 },
+      uMesoMean: { value: new THREE.Vector3(
+        (opts.mesoMean ?? TOP_VIEW_MESO_MEAN).low, (opts.mesoMean ?? TOP_VIEW_MESO_MEAN).mid, (opts.mesoMean ?? TOP_VIEW_MESO_MEAN).high) },
+      uMesoSig: { value: new THREE.Vector3(
+        (opts.mesoSig ?? TOP_VIEW_MESO_SIG).low, (opts.mesoSig ?? TOP_VIEW_MESO_SIG).mid, (opts.mesoSig ?? TOP_VIEW_MESO_SIG).high) },
       uClusterAmt: { value: 0.7 },
       uClusterMul: { value: 3.0 },
       uShapeMode: { value: 1 },
