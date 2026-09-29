@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { LucideIcon } from 'lucide-react-native';
+import { color, radius, mono } from '../theme/tokens';
 
 interface InfoCardProps {
   icon: React.ReactNode;
@@ -37,7 +38,7 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 28,
     height: 28,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -47,22 +48,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 1,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   value: {
     fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   subValue: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '700',
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
 });

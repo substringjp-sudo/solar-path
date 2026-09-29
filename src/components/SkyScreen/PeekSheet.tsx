@@ -21,6 +21,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { color, radius, mono } from '../../theme/tokens';
 
 /** 닫힌 상태에서 보이는 높이 (grabber + 요약 한 줄) */
 export const PEEK_HEIGHT = 52;

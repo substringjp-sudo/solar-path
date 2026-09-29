@@ -11,6 +11,7 @@ import { GenericSlider } from '../GenericSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t, type Language } from '../../utils/i18n';
 import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building2 } from 'lucide-react-native';
+import { color, radius, mono } from '../../theme/tokens';
 
 interface LayerControlModalProps {
   visible: boolean;
@@ -54,11 +55,11 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
   const layerItems: { key: keyof LayerState; label: string; icon: any; iconBg: string }[] = [
     { key: 'sun', label: t('sunLabel', language), icon: <Sun size={18} color="#eab308" />, iconBg: 'rgba(234, 179, 8, 0.15)' },
-    { key: 'moon', label: t('moonLabel', language), icon: <Moon size={18} color="#38bdf8" />, iconBg: 'rgba(56, 189, 248, 0.15)' },
+    { key: 'moon', label: t('moonLabel', language), icon: <Moon size={18} color={color.accent} />, iconBg: 'rgba(56, 189, 248, 0.15)' },
     { key: 'stars', label: t('layerStars', language), icon: <Sparkles size={18} color="#a78bfa" />, iconBg: 'rgba(167, 139, 250, 0.15)' },
     { key: 'milkyway', label: t('layerMilky', language), icon: <Milestone size={18} color="#c4b5fd" />, iconBg: 'rgba(196, 181, 253, 0.15)' },
     { key: 'planets', label: t('layerPlanets', language), icon: <Star size={18} color="#f43f5e" />, iconBg: 'rgba(244, 63, 94, 0.15)' },
-    { key: 'clouds', label: t('layerClouds', language), icon: <Cloud size={18} color="#94a3b8" />, iconBg: 'rgba(148, 163, 184, 0.15)' },
+    { key: 'clouds', label: t('layerClouds', language), icon: <Cloud size={18} color={color.textDim} />, iconBg: 'rgba(148, 163, 184, 0.15)' },
     { key: 'cityLights', label: t('layerCity', language), icon: <Building2 size={18} color="#f59e0b" />, iconBg: 'rgba(245, 158, 11, 0.15)' },
     { key: 'paths', label: t('layerPaths', language), icon: <Navigation size={18} color="#22c55e" />, iconBg: 'rgba(34, 197, 94, 0.15)' },
   ];
@@ -238,7 +239,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 18,
@@ -247,7 +248,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     maxHeight: '85%',
-    borderRadius: 24,
+    borderRadius: radius.lg,
     padding: 20,
     borderWidth: 1,
     shadowColor: '#000',
@@ -262,16 +263,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   closeBtn: {
     padding: 6,
-    borderRadius: 20,
+    borderRadius: radius.lg,
   },
   subTitle: {
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 4,
     marginBottom: 12,
     lineHeight: 16,
@@ -295,7 +296,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   rowLeft: {
@@ -306,7 +307,7 @@ const styles = StyleSheet.create({
   iconChip: {
     width: 32,
     height: 32,
-    borderRadius: 10,
+    borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -320,7 +321,7 @@ const styles = StyleSheet.create({
   togglePill: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   toggleOn: {
     backgroundColor: '#3b82f6',
@@ -349,7 +350,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sliderValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   sliderHint: {

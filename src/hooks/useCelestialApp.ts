@@ -1,3 +1,4 @@
+import { color as C } from '../theme/tokens';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
@@ -325,46 +326,29 @@ export function useCelestialApp() {
 
   const isAndroid = Platform.OS === 'android';
 
+  // ⚠ 테마는 `src/theme/tokens.ts` 에서 옵니다(2026-09-29 디자인 정리). 예전에는 강조색이 낮엔 주황,
+  //   밤엔 하늘색으로 바뀌어 "누를 수 있는 것" 의 색이 시간대마다 달랐습니다. 이제 조작은 늘 하늘색이고,
+  //   주황·호박은 해·노을 **데이터**의 색입니다. 낮/밤에는 바닥 밝기만 아주 조금 달라집니다.
   const dynamicTheme = {
-    bg: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#090D18', '#05070D'] // Astro-HUD deep graphite telemetry base
-    }),
-    card: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#0E1424', '#0B101D']
-    }),
-    glass: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: isAndroid
-        ? ['#0E1424', '#0B101D']
-        : ['rgba(14, 20, 36, 0.85)', 'rgba(11, 16, 29, 0.88)']
-    }),
-    text: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#F8FAFC', '#F8FAFC']
-    }),
-    subText: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#94A3B8', '#64748B']
-    }),
-    border: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['rgba(255,255,255,0.12)', 'rgba(255,255,255,0.08)']
-    }),
-    accent: isDay ? '#F59E0B' : '#38BDF8',
+    bg: themeAnim.interpolate({ inputRange: [0, 1], outputRange: ['#0A0E18', C.bg] }),
+    card: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.panel, C.panel] }),
+    glass: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.panel, C.panel] }),
+    text: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.text, C.text] }),
+    subText: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.textDim, C.textDim] }),
+    border: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.border, C.border] }),
+    accent: C.accent,
   };
 
   const theme = {
-    bg: isDay ? '#090D18' : '#05070D',
-    card: isDay ? '#0E1424' : '#0B101D',
-    glass: isAndroid
-      ? (isDay ? '#0E1424' : '#0B101D')
-      : (isDay ? 'rgba(14, 20, 36, 0.85)' : 'rgba(11, 16, 29, 0.88)'),
-    text: '#F8FAFC',
-    subText: isDay ? '#94A3B8' : '#64748B',
-    border: isDay ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)',
-    accent: isDay ? '#F59E0B' : '#38BDF8',
+    bg: isDay ? '#0A0E18' : C.bg,
+    card: C.panel,
+    glass: C.panel,
+    text: C.text,
+    subText: C.textDim,
+    mute: C.textMute,
+    border: C.border,
+    accent: C.accent,
+    overlay: C.overlay,
   };
 
   // Compass Sync Logic with OS-Compensated Heading

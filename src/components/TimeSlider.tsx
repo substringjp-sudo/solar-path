@@ -5,6 +5,7 @@ import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
 import { t, L3 } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
 
 interface TimeSliderProps {
   value: Date;
@@ -281,7 +282,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       <View style={styles.sliderSection}>
         <View style={styles.header}>
           <View style={styles.titleRow}>
-            <Clock size={12} color="#38BDF8" />
+            <Clock size={12} color={color.accent} />
             <Text style={[styles.title, { color: '#E2E8F0' }]}>
               {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
             </Text>
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   title: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -442,22 +443,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
     paddingHorizontal: 5,
     paddingVertical: 1.5,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
     marginLeft: 4,
   },
   telemetryDot: {
     width: 4.5,
     height: 4.5,
-    borderRadius: 2.25,
+    borderRadius: radius.xs,
   },
   telemetryTag: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '800',
     color: 'rgba(255, 255, 255, 0.75)',
     letterSpacing: 0.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   headerButtons: {
     flexDirection: 'row',
@@ -469,16 +470,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: color.accentSoft,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.35)',
+    borderColor: color.accentLine,
     paddingHorizontal: 6,
     paddingVertical: 2.5,
-    borderRadius: 3,
+    borderRadius: radius.xs,
   },
   actionBtnText: {
-    color: '#38BDF8',
-    fontSize: 9.5,
+    color: color.accent,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -486,14 +487,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#F59E0B',
+    backgroundColor: color.sun,
     paddingHorizontal: 7,
     paddingVertical: 2.5,
-    borderRadius: 3,
+    borderRadius: radius.xs,
   },
   nowBtnText: {
     color: '#000',
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.3,
   },
@@ -518,7 +519,7 @@ const styles = StyleSheet.create({
   auraRing: {
     width: 9,
     height: 9,
-    borderRadius: 4.5,
+    borderRadius: radius.sm,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -526,17 +527,17 @@ const styles = StyleSheet.create({
   coreDot: {
     width: 2.5,
     height: 2.5,
-    borderRadius: 1.25,
+    borderRadius: radius.xs,
   },
   directionIndicator: {
-    fontSize: 7,
+    fontSize: 9,
     fontWeight: '900',
     opacity: 0.85,
   },
   tooltipText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   timeLabels: {
@@ -547,10 +548,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   timeLabel: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '700',
     color: 'rgba(148, 163, 184, 0.75)',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   absoluteLabelOverlay: {
     position: 'absolute',
@@ -575,8 +576,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(11, 19, 43, 0.65)',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.35)',
-    borderRadius: 5,
+    borderColor: color.accentLine,
+    borderRadius: radius.sm,
     paddingVertical: 5,
     paddingHorizontal: 7,
     gap: 3,
@@ -590,22 +591,22 @@ const styles = StyleSheet.create({
   shutterLed: {
     width: 4,
     height: 4,
-    borderRadius: 2,
-    backgroundColor: '#34D399',
-    shadowColor: '#34D399',
+    borderRadius: radius.xs,
+    backgroundColor: color.success,
+    shadowColor: color.success,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.9,
     shadowRadius: 3,
   },
   shutterStatusText: {
-    color: '#34D399',
-    fontSize: 7.5,
+    color: color.success,
+    fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   shutterBtn: {
-    shadowColor: '#F59E0B',
+    shadowColor: color.sun,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -614,8 +615,8 @@ const styles = StyleSheet.create({
   shutterOuterRing: {
     width: 38,
     height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: radius.lg,
+    backgroundColor: color.border,
     borderWidth: 1.5,
     borderColor: 'rgba(245, 158, 11, 0.7)',
     justifyContent: 'center',
@@ -624,16 +625,16 @@ const styles = StyleSheet.create({
   shutterInnerCore: {
     width: 30,
     height: 30,
-    borderRadius: 15,
-    backgroundColor: '#F59E0B',
+    borderRadius: radius.lg,
+    backgroundColor: color.sun,
     justifyContent: 'center',
     alignItems: 'center',
   },
   shutterLabel: {
     color: 'rgba(255, 255, 255, 0.65)',
-    fontSize: 7.5,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
 });

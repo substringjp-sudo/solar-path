@@ -5,6 +5,7 @@ import { GenericSlider } from '../GenericSlider';
 import { getSeasonMarkers } from '../../utils/celestial';
 import { t } from '../../utils/i18n';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { color, radius, mono } from '../../theme/tokens';
 
 interface IsolineControlsProps {
   selectedDate: Date;
@@ -133,7 +134,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             theme={theme}
             trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'}
             fillColor={theme.accent}
-            knobColor="#FFFFFF"
+            knobColor={color.panelRaised}
             trackOverlay={
               <View style={styles.markerOverlay} pointerEvents="none">
                 {seasonMarkerPositions.map((s) => (
@@ -144,7 +145,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
               </View>
             }
           >
-            <Text style={[styles.tooltipText, { color: '#1A1A1A' }]}>{formatMonthDay(selectedDate, tz)}</Text>
+            <Text style={[styles.tooltipText, { color: color.accent }]}>{formatMonthDay(selectedDate, tz)}</Text>
           </GenericSlider>
         </View>
       </View>
@@ -170,10 +171,10 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             onRelease={onSlidingComplete}
             theme={theme}
             trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'}
-            fillColor="#38BDF8"
-            knobColor="#FFFFFF"
+            fillColor={color.accent}
+            knobColor={color.panelRaised}
           >
-            <Text style={[styles.tooltipText, { color: '#1A1A1A' }]}>{formatHourMinute(selectedDate, tz)}</Text>
+            <Text style={[styles.tooltipText, { color: color.accent }]}>{formatHourMinute(selectedDate, tz)}</Text>
           </GenericSlider>
         </View>
         <View style={styles.timeLabels}>
@@ -186,10 +187,10 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
       {/* 자동 재생 버튼 */}
       <TouchableOpacity
         onPress={onTogglePlay}
-        style={[styles.playBtn, { backgroundColor: isPlaying ? '#EF4444' : theme.accent }]}
+        style={[styles.playBtn, { backgroundColor: isPlaying ? color.danger : color.accent }]}
         activeOpacity={0.8}
       >
-        {isPlaying ? <Pause size={15} color="#000" fill="#000" /> : <Play size={15} color="#000" fill="#000" />}
+        {isPlaying ? <Pause size={15} color={color.onAccent} fill={color.onAccent} /> : <Play size={15} color={color.onAccent} fill={color.onAccent} />}
         <Text style={styles.playBtnText}>{isPlaying ? t('isolinePause', language) : t('isolinePlay', language)}</Text>
       </TouchableOpacity>
     </View>
@@ -198,7 +199,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     padding: 14,
     gap: 12,
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
     paddingVertical: 7,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
   },
   seasonDot: {
@@ -223,9 +224,9 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
   seasonBtnText: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   sliderBlock: {
@@ -244,20 +245,22 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   sliderLabel: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   sliderValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.4,
   },
   sliderWrapper: {
     position: 'relative',
+    // 손잡이(시각 말풍선)가 트랙 위로 14px 솟습니다 — 그만큼 비워 두어야 라벨 줄을 덮지 않습니다.
+    marginTop: 14,
   },
   markerOverlay: {
     width: '100%',
@@ -280,7 +283,7 @@ const styles = StyleSheet.create({
   tooltipText: {
     fontSize: 11,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   timeLabels: {
     flexDirection: 'row',
@@ -289,9 +292,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   timeLabel: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     opacity: 0.7,
   },
   playBtn: {
@@ -300,14 +303,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     height: 38,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
   },
   playBtnText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.8,
     color: '#000',
   },

@@ -6,6 +6,7 @@ import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-r
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t } from '../../utils/i18n';
+import { color, radius, mono } from '../../theme/tokens';
 
 const { width, height } = Dimensions.get('window');
 
@@ -406,7 +407,7 @@ export const MapPicker = ({
                         style={styles.deleteBtn}
                         onPress={() => removeSavedLocation(loc.id)}
                       >
-                        <Trash2 size={16} color="#FF4444" />
+                        <Trash2 size={16} color={color.danger} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -440,9 +441,9 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   modalContent: { height: height * 0.9, borderTopLeftRadius: 4, borderTopRightRadius: 4, paddingHorizontal: 20, paddingTop: 10 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 0.5 },
-  subtitle: { fontSize: 11.5, marginTop: 2, opacity: 0.8, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  closeBtn: { padding: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  title: { fontSize: 22, fontWeight: '900', fontFamily: mono, letterSpacing: 0.5 },
+  subtitle: { fontSize: 11, marginTop: 2, opacity: 0.8, fontFamily: mono },
+  closeBtn: { padding: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: radius.xs, borderWidth: 1, borderColor: color.border },
   
   mapWrapper: {
     position: 'relative',
@@ -450,10 +451,10 @@ const styles = StyleSheet.create({
     minHeight: 280,
     maxHeight: 340,
     marginBottom: 16,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     overflow: 'hidden',
   },
-  mapContainer: { flex: 1, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', overflow: 'hidden' },
+  mapContainer: { flex: 1, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, overflow: 'hidden' },
   crosshairContainer: {
     position: 'absolute',
     top: '50%',
@@ -472,7 +473,7 @@ const styles = StyleSheet.create({
     right: 12,
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.lg,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -483,13 +484,13 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   formScroll: { flex: 1 },
-  section: { padding: 16, borderRadius: 24, borderWidth: 1 },
+  section: { padding: 16, borderRadius: radius.lg, borderWidth: 1 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' },
   currentLocLink: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.05)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
   currentLocLinkText: { fontSize: 11, fontWeight: '700' },
-  input: { height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 14, backgroundColor: 'rgba(0,0,0,0.2)' },
-  nameInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 14, backgroundColor: 'rgba(0,0,0,0.2)' },
+  input: { height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 16, fontSize: 16, backgroundColor: 'rgba(0,0,0,0.2)' },
+  nameInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 16, fontSize: 16, backgroundColor: 'rgba(0,0,0,0.2)' },
   compactSaveForm: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -505,17 +506,17 @@ const styles = StyleSheet.create({
   saveBtnCompact: {
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   savedSection: { marginTop: 24 },
-  emptyState: { height: 100, borderRadius: 24, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  emptyState: { height: 100, borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
   savedList: { gap: 10 },
-  savedItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, borderWidth: 1 },
+  savedItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: radius.lg, borderWidth: 1 },
   savedItemContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  savedItemIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center' },
-  savedItemName: { fontSize: 15, fontWeight: '700' },
+  savedItemIcon: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center' },
+  savedItemName: { fontSize: 16, fontWeight: '700' },
   savedItemCoords: { fontSize: 11, opacity: 0.6, marginTop: 2 },
   deleteBtn: { padding: 10 },
-  confirmBtn: { flexDirection: 'row', height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center', gap: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
-  confirmBtnText: { fontSize: 17, fontWeight: '900', color: '#000' }
+  confirmBtn: { flexDirection: 'row', height: 56, borderRadius: radius.lg, justifyContent: 'center', alignItems: 'center', gap: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  confirmBtnText: { fontSize: 16, fontWeight: '900', color: '#000' }
 });

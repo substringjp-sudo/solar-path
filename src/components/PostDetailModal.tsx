@@ -27,6 +27,7 @@ import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { shareToSns, SnsPlatform } from '../utils/snsShare';
 import { L3 } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
 
 const { width: W } = Dimensions.get('window');
 
@@ -105,7 +106,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
             <View style={styles.headerLeft}>
               {isPublic ? (
                 <View style={styles.publicBadge}>
-                  <Globe size={12} color="#4CAF50" />
+                  <Globe size={12} color={color.success} />
                   <Text style={styles.publicBadgeText}>{L3(language, '전체 공개 게시물', 'Public post', '全体公開の投稿')}</Text>
                 </View>
               ) : (
@@ -279,7 +280,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     maxHeight: '90%',
     paddingBottom: Platform.OS === 'ios' ? 24 : 16,
   },
@@ -291,7 +292,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: color.border,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -304,15 +305,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(52, 211, 153, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.3)',
   },
   publicBadgeText: {
-    color: '#34D399',
-    fontSize: 10.5,
+    color: color.success,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   privateBadge: {
@@ -322,15 +323,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   privateBadgeText: {
-    color: '#F59E0B',
-    fontSize: 10.5,
+    color: color.sun,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   closeIconBtn: {
@@ -347,11 +348,11 @@ const styles = StyleSheet.create({
   photoFrame: {
     flex: 1,
     height: 180,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     overflow: 'hidden',
     backgroundColor: '#05070D',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
     position: 'relative',
   },
   mainPhoto: {
@@ -365,13 +366,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(8, 11, 17, 0.85)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 2,
+    borderRadius: radius.xs,
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: color.borderStrong,
     color: '#FFF',
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   metaSection: {
     gap: 10,
@@ -390,38 +391,38 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     fontSize: 11,
     marginLeft: 'auto',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   coordsBadge: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: color.border,
     alignSelf: 'flex-start',
   },
   coordsText: {
-    color: '#38BDF8',
-    fontSize: 10,
+    color: color.accent,
+    fontSize: 11,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   weatherCard: {
     backgroundColor: '#0E1424',
-    borderRadius: 4,
+    borderRadius: radius.xs,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: color.border,
   },
   weatherCardTitle: {
-    color: '#94A3B8',
-    fontSize: 10.5,
+    color: color.textDim,
+    fontSize: 11,
     fontWeight: '800',
     marginBottom: 8,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   weatherGrid: {
     flexDirection: 'row',
@@ -433,22 +434,22 @@ const styles = StyleSheet.create({
   },
   weatherItemLabel: {
     color: 'rgba(255,255,255,0.5)',
-    fontSize: 9.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 9,
+    fontFamily: mono,
   },
   weatherItemVal: {
     color: '#FFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   privateNotice: {
-    color: '#F59E0B',
-    fontSize: 10.5,
+    color: color.sun,
+    fontSize: 11,
     lineHeight: 15,
     backgroundColor: 'rgba(245, 158, 11, 0.08)',
     padding: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.25)',
   },
@@ -467,9 +468,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
   },
   likedBtn: {
     backgroundColor: 'rgba(255, 82, 82, 0.15)',
@@ -477,26 +478,26 @@ const styles = StyleSheet.create({
   },
   likeBtnText: {
     color: '#FFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   likedBtnText: {
-    color: '#FF5252',
+    color: color.danger,
   },
   closeFooterBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
   },
   closeFooterText: {
     color: 'rgba(255,255,255,0.8)',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   shareBtn: {
     flex: 1,
@@ -504,17 +505,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#38BDF8',
+    backgroundColor: color.accent,
     paddingVertical: 10,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.5)',
+    borderColor: color.accentLine,
   },
   shareBtnText: {
     color: '#000',
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   snsSheet: {
@@ -526,7 +527,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     padding: 18,
     zIndex: 100,
   },
@@ -538,7 +539,7 @@ const styles = StyleSheet.create({
   },
   snsSheetTitle: {
     color: '#FFF',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -551,11 +552,11 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   snsIcon: {
-    fontSize: 20,
+    fontSize: 22,
   },
   snsName: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '700',
   },
 });

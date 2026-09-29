@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t } from '../../utils/i18n';
+import { color, radius, mono } from '../../theme/tokens';
 
 export interface PredictionCardProps {
   prediction: SunsetPrediction;
@@ -96,9 +97,9 @@ const styles = StyleSheet.create({
   predictionCard: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
     flexShrink: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -121,28 +122,28 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   mainLabel: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   subLabel: {
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1.2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   sourceBadge: {
     paddingHorizontal: 5,
     paddingVertical: 2,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
   },
   sourceBadgeText: {
     color: '#4DA0B0',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   colorLabelWrap: {
     flexDirection: 'column',

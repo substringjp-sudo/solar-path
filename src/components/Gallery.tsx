@@ -6,6 +6,7 @@ import { auth } from '../config/firebase';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
+import { color, radius, mono } from '../theme/tokens';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
@@ -151,7 +152,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                         });
                       }}
                     >
-                      <Share2 size={12} color="#38BDF8" />
+                      <Share2 size={12} color={color.accent} />
                     </TouchableOpacity>
 
                     {(item.userId === auth.currentUser?.uid || item.isPending) && (
@@ -218,26 +219,26 @@ const styles = StyleSheet.create({
   filterChip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
   },
   activeFilterChip: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: 'rgba(56, 189, 248, 0.45)',
+    backgroundColor: color.accentSoft,
+    borderColor: color.accentLine,
   },
   filterChipText: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderStyle: 'dashed',
     marginVertical: 20,
@@ -248,7 +249,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   galleryItem: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     overflow: 'hidden',
     borderWidth: 1,
     position: 'relative',
@@ -263,37 +264,37 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   galleryTitle: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
   },
   galleryDate: {
-    fontSize: 8.5,
+    fontSize: 9,
     opacity: 0.65,
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   galleryGuide: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '800',
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   photoShareBtn: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: color.accentSoft,
     width: 26,
     height: 26,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderColor: color.accentLine,
   },
   photoDeleteBtn: {
     backgroundColor: 'rgba(255, 82, 82, 0.12)',
     width: 26,
     height: 26,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
@@ -306,15 +307,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.85)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(255,111,97,0.4)',
   },
   pendingText: {
     color: '#FF6F61',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.4,
   },
 });

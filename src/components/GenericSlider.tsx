@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, PanResponder, Animated } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
+import { color, radius, mono } from '../theme/tokens';
 
 interface GenericSliderProps {
   value: number; // 0 to 100
@@ -209,14 +210,14 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
 
 const styles = StyleSheet.create({
   container: { height: 44, justifyContent: 'center', width: '100%', paddingHorizontal: 27 },
-  track: { height: 4, borderRadius: 2, width: '100%', position: 'relative' },
-  fill: { height: '100%', borderRadius: 2, position: 'absolute', left: 0 },
+  track: { height: 4, borderRadius: radius.xs, width: '100%', position: 'relative' },
+  fill: { height: '100%', borderRadius: radius.xs, position: 'absolute', left: 0 },
   knob: { 
     position: 'absolute', 
     top: -14, 
     width: 56, 
     height: 32, 
-    borderRadius: 4, 
+    borderRadius: radius.xs, 
     marginLeft: -28, 
     justifyContent: 'center', 
     alignItems: 'center', 

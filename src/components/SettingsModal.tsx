@@ -7,6 +7,7 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { t } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -337,7 +338,144 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </ScrollView>
           ) : (
             <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollPadding}>
-              {/* 1. Account Section */}
+              {/* 1. 언어 — 가장 자주 바꾸는 것부터(디자인 정리 2026-09-29) */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('languageSetting', language)}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.langSelectorRow}>
+                    <TouchableOpacity 
+                      style={[
+                        styles.langOption, 
+                        language === 'ko' && { backgroundColor: theme.border }
+                      ]}
+                      onPress={() => setLanguage('ko')}
+                    >
+                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[
+                        styles.langOption, 
+                        language === 'en' && { backgroundColor: theme.border }
+                      ]}
+                      onPress={() => setLanguage('en')}
+                    >
+                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[
+                        styles.langOption, 
+                        language === 'ja' && { backgroundColor: theme.border }
+                      ]}
+                      onPress={() => setLanguage('ja')}
+                    >
+                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ja' ? '800' : '500' }]}>日本語</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* 2. 앱 권한 */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('appPermissions', language)}</Text>
+                </View>
+
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  {/* Camera Permission */}
+                  <TouchableOpacity 
+                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                    onPress={handleCameraPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <Camera size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('camera', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {cameraPermission === 'granted' ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color={color.success} />
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color={color.danger} />
+                          <Text style={styles.badgeTextDenied}>
+                            {cameraPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Storage & Media Permission */}
+                  <TouchableOpacity 
+                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
+                    onPress={handleMediaPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <Image size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('storageMedia', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {mediaPermission === 'granted' ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color={color.success} />
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color={color.danger} />
+                          <Text style={styles.badgeTextDenied}>
+                            {mediaPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* 마이크 줄은 뺐습니다 — 앱은 소리를 녹음하지 않고, 매니페스트에서도 RECORD_AUDIO 를
+                      지웠습니다(app.config.js, 점검 2026-09-29). */}
+                  {/* Location Permission */}
+                  <TouchableOpacity 
+                    style={styles.permissionRow}
+                    onPress={handleLocationPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.permIconContainer}>
+                      <MapPin size={16} color={theme.text} />
+                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('location', language)}</Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      {locationPermission === 'granted' ? (
+                        <View style={styles.badgeGranted}>
+                          <CheckCircle2 size={12} color={color.success} />
+                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgeDenied}>
+                          <AlertCircle size={12} color={color.danger} />
+                          <Text style={styles.badgeTextDenied}>
+                            {locationPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* System Settings Button */}
+                  <TouchableOpacity 
+                    onPress={openSystemSettings}
+                    style={[styles.settingsBtn, { backgroundColor: theme.border }]}
+                  >
+                    <Shield size={14} color={theme.text} />
+                    <Text style={[styles.settingsBtnText, { color: theme.text }]}>{t('manageSystemSettings', language)}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* 3. 계정 · 패밀리 서비스 */}
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('account', language)}</Text>
                 
@@ -362,9 +500,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         style={[styles.signOutBtn, { backgroundColor: 'rgba(255,82,82,0.1)' }]}
                       >
                         {isSubmitting ? (
-                          <ActivityIndicator size="small" color="#FF5252" />
+                          <ActivityIndicator size="small" color={color.danger} />
                         ) : (
-                          <LogOut size={16} color="#FF5252" />
+                          <LogOut size={16} color={color.danger} />
                         )}
                       </TouchableOpacity>
                     </View>
@@ -414,7 +552,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {authError && (
                       <View style={styles.errorContainer}>
-                        <AlertCircle size={14} color="#FF5252" />
+                        <AlertCircle size={14} color={color.danger} />
                         <Text style={styles.errorText}>{authError}</Text>
                       </View>
                     )}
@@ -422,12 +560,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <TouchableOpacity
                       onPress={isSignUpActive ? handleSignUp : handleSignIn}
                       disabled={isSubmitting}
-                      style={[styles.authButton, { backgroundColor: theme.text }]}
+                      style={[styles.authButton, { backgroundColor: color.accent }]}
                     >
                       {isSubmitting ? (
-                        <ActivityIndicator size="small" color={theme.bg} />
+                        <ActivityIndicator size="small" color={color.onAccent} />
                       ) : (
-                        <Text style={[styles.authButtonText, { color: theme.bg }]}>
+                        <Text style={[styles.authButtonText, { color: color.onAccent }]}>
                           {isSignUpActive ? t('signUp', language) : t('signIn', language)}
                         </Text>
                       )}
@@ -465,176 +603,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Language Setting Section */}
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('languageSetting', language)}</Text>
-                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  <View style={styles.langSelectorRow}>
-                    <TouchableOpacity 
-                      style={[
-                        styles.langOption, 
-                        language === 'ko' && { backgroundColor: theme.border }
-                      ]}
-                      onPress={() => setLanguage('ko')}
-                    >
-                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[
-                        styles.langOption, 
-                        language === 'en' && { backgroundColor: theme.border }
-                      ]}
-                      onPress={() => setLanguage('en')}
-                    >
-                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[
-                        styles.langOption, 
-                        language === 'ja' && { backgroundColor: theme.border }
-                      ]}
-                      onPress={() => setLanguage('ja')}
-                    >
-                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ja' ? '800' : '500' }]}>日本語</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {/* Developer Options Section */}
-              {__DEV__ && (
-                <View style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
-                  <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                    <TouchableOpacity 
-                      style={styles.permissionRow}
-                      onPress={() => setDebugMode(!isDebugMode)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.permIconContainer}>
-                        <Info size={16} color={theme.text} />
-                        <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
-                      </View>
-                      <View style={styles.statusRow}>
-                        {isDebugMode ? (
-                          <View style={styles.badgeGranted}>
-                            <CheckCircle2 size={12} color="#4CAF50" />
-                            <Text style={styles.badgeTextGranted}>ON</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.badgeDenied}>
-                            <AlertCircle size={12} color="#FF5252" />
-                            <Text style={styles.badgeTextDenied}>OFF</Text>
-                          </View>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {/* 2. System Permissions Section */}
-              <View style={styles.section}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('appPermissions', language)}</Text>
-                </View>
-
-                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                  {/* Camera Permission */}
-                  <TouchableOpacity 
-                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
-                    onPress={handleCameraPress}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.permIconContainer}>
-                      <Camera size={16} color={theme.text} />
-                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('camera', language)}</Text>
-                    </View>
-                    <View style={styles.statusRow}>
-                      {cameraPermission === 'granted' ? (
-                        <View style={styles.badgeGranted}>
-                          <CheckCircle2 size={12} color="#4CAF50" />
-                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.badgeDenied}>
-                          <AlertCircle size={12} color="#FF5252" />
-                          <Text style={styles.badgeTextDenied}>
-                            {cameraPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Storage & Media Permission */}
-                  <TouchableOpacity 
-                    style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
-                    onPress={handleMediaPress}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.permIconContainer}>
-                      <Image size={16} color={theme.text} />
-                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('storageMedia', language)}</Text>
-                    </View>
-                    <View style={styles.statusRow}>
-                      {mediaPermission === 'granted' ? (
-                        <View style={styles.badgeGranted}>
-                          <CheckCircle2 size={12} color="#4CAF50" />
-                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.badgeDenied}>
-                          <AlertCircle size={12} color="#FF5252" />
-                          <Text style={styles.badgeTextDenied}>
-                            {mediaPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* 마이크 줄은 뺐습니다 — 앱은 소리를 녹음하지 않고, 매니페스트에서도 RECORD_AUDIO 를
-                      지웠습니다(app.config.js, 점검 2026-09-29). */}
-                  {/* Location Permission */}
-                  <TouchableOpacity 
-                    style={styles.permissionRow}
-                    onPress={handleLocationPress}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.permIconContainer}>
-                      <MapPin size={16} color={theme.text} />
-                      <Text style={[styles.permLabel, { color: theme.text }]}>{t('location', language)}</Text>
-                    </View>
-                    <View style={styles.statusRow}>
-                      {locationPermission === 'granted' ? (
-                        <View style={styles.badgeGranted}>
-                          <CheckCircle2 size={12} color="#4CAF50" />
-                          <Text style={styles.badgeTextGranted}>{t('granted', language)}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.badgeDenied}>
-                          <AlertCircle size={12} color="#FF5252" />
-                          <Text style={styles.badgeTextDenied}>
-                            {locationPermission === 'denied' ? t('denied', language) : t('notGranted', language)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* System Settings Button */}
-                  <TouchableOpacity 
-                    onPress={openSystemSettings}
-                    style={[styles.settingsBtn, { backgroundColor: theme.border }]}
-                  >
-                    <Shield size={14} color={theme.text} />
-                    <Text style={[styles.settingsBtnText, { color: theme.text }]}>{t('manageSystemSettings', language)}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* 3. App Info & Version Section */}
+              {/* 4. 앱 정보 */}
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('aboutApp', language)}</Text>
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -684,6 +653,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </View>
               </View>
+
+              {/* 개발자 옵션 — 개발 빌드에서만, 맨 아래 */}
+              {__DEV__ && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
+                  <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                    <TouchableOpacity 
+                      style={styles.permissionRow}
+                      onPress={() => setDebugMode(!isDebugMode)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.permIconContainer}>
+                        <Info size={16} color={theme.text} />
+                        <Text style={[styles.permLabel, { color: theme.text }]}>{t('simulationDebugMode', language)}</Text>
+                      </View>
+                      <View style={styles.statusRow}>
+                        {isDebugMode ? (
+                          <View style={styles.badgeGranted}>
+                            <CheckCircle2 size={12} color={color.success} />
+                            <Text style={styles.badgeTextGranted}>ON</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.badgeDenied}>
+                            <AlertCircle size={12} color={color.danger} />
+                            <Text style={styles.badgeTextDenied}>OFF</Text>
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </ScrollView>
           )}
           </Animated.View>
@@ -696,7 +697,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: color.scrim,
     justifyContent: 'flex-end',
   },
   dragHandleWrapper: {
@@ -738,9 +739,9 @@ const styles = StyleSheet.create({
   closeBtn: {
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -766,10 +767,10 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     paddingLeft: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   card: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -781,9 +782,9 @@ const styles = StyleSheet.create({
   avatarCircle: {
     width: 40,
     height: 40,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: color.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -792,26 +793,26 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   profileName: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   profileDesc: {
     fontSize: 11,
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   signOutBtn: {
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
   authTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
     marginBottom: 4,
@@ -820,7 +821,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     paddingHorizontal: 12,
     height: 44,
     gap: 8,
@@ -837,19 +838,19 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: 'rgba(255,82,82,0.08)',
     padding: 8,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(255,82,82,0.2)',
   },
   errorText: {
-    color: '#FF5252',
+    color: color.danger,
     fontSize: 11,
     fontWeight: '700',
     flex: 1,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   authButton: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
@@ -859,14 +860,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 0.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   switchModeBtn: {
     alignItems: 'center',
     paddingVertical: 4,
   },
   switchModeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
@@ -876,7 +877,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   passwordHintText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   actionArrow: {
@@ -895,7 +896,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   permLabel: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
   },
   statusRow: {
@@ -908,16 +909,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(52,211,153,0.12)',
     paddingVertical: 3,
     paddingHorizontal: 7,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(52,211,153,0.3)',
     gap: 4,
   },
   badgeTextGranted: {
-    color: '#34D399',
-    fontSize: 10,
+    color: color.success,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   badgeDenied: {
@@ -926,16 +927,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,82,82,0.12)',
     paddingVertical: 3,
     paddingHorizontal: 7,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(255,82,82,0.3)',
     gap: 4,
   },
   badgeTextDenied: {
-    color: '#FF5252',
-    fontSize: 10,
+    color: color.danger,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   settingsBtn: {
@@ -946,9 +947,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   settingsBtnText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   portalLinkRow: {
     flexDirection: 'row',
@@ -956,7 +957,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     marginTop: 8,
   },
@@ -972,9 +973,9 @@ const styles = StyleSheet.create({
   backBtn: {
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -984,7 +985,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   portalMainCard: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     padding: 14,
     shadowColor: '#000',
@@ -994,7 +995,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   portalSubCard: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     padding: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.005)',
@@ -1005,16 +1006,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   portalCardTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '900',
     letterSpacing: 0.4,
   },
   portalSubCardTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
   },
   portalCardDesc: {
-    fontSize: 10.5,
+    fontSize: 11,
     lineHeight: 15,
     opacity: 0.8,
     marginBottom: 10,
@@ -1024,14 +1025,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 9,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     marginTop: 4,
   },
   portalLinkBtnText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '900',
     color: '#000',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   portalSubLinkBtn: {
@@ -1039,14 +1040,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 7,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
   },
   portalSubLinkBtnText: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   portalSectionHeader: {
     fontSize: 11,
@@ -1055,7 +1056,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   infoRow: {
     flexDirection: 'row',
@@ -1065,13 +1066,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   infoLabel: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '700',
   },
   infoValue: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   licensesToggle: {
     flexDirection: 'row',
@@ -1086,7 +1087,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   licensesToggleText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
   },
   licensesContainer: {
@@ -1102,18 +1103,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   libName: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
   },
   libVersion: {
-    fontSize: 10.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 11,
+    fontFamily: mono,
   },
   libLicense: {
-    fontSize: 9.5,
+    fontSize: 9,
     color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   langSelectorRow: {
     flexDirection: 'row',
@@ -1125,13 +1126,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   langText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
 });

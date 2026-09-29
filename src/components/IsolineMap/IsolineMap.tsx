@@ -23,6 +23,7 @@ import { MapGlobe } from './MapGlobe';
 import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
+import { color, radius, mono } from '../../theme/tokens';
 
 interface IsolineMapProps {
   theme: any;
@@ -514,7 +515,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
         <TouchableOpacity
           onPress={toggleGlobe}
-          style={[styles.projectionBtn, { top: 10 + inset, right: 48 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.projectionBtn, { top: 10 + inset, right: 48 + inset, backgroundColor: color.overlay, borderColor: color.border }]}
           activeOpacity={0.7}
         >
           {!showGlobe ? (
@@ -526,7 +527,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
         <TouchableOpacity
           onPress={() => setGuideVisible(true)}
-          style={[styles.guideBtn, { top: 10 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.guideBtn, { top: 10 + inset, right: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}
           activeOpacity={0.7}
         >
           <Info size={16} color={theme.text} />
@@ -539,7 +540,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           onPress={onLocationTap}
           onLongPress={() => setLocMenuOpen(true)}
           delayLongPress={350}
-          style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: color.overlay, borderColor: color.border }]}
           activeOpacity={0.7}
         >
           {/* 조준점 — 헤더의 📍(위치 변경 창)와 다른 일을 하므로 다른 모양으로(점검 2026-09-29). */}
@@ -556,7 +557,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {locMenuOpen && (
-          <View style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}>
             <TouchableOpacity style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
               <Crosshair size={13} color={theme.accent} />
               <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
@@ -606,9 +607,9 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {/* 지도 우측 상단 태양 정보 오버레이 배지 */}
-        <View style={[styles.solarOverlay, { top: 10 + inset, left: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border, maxWidth: badgeMaxWidth - 2 * inset }]}>
+        <View style={[styles.solarOverlay, { top: 10 + inset, left: 10 + inset, backgroundColor: color.overlay, borderColor: color.border, maxWidth: badgeMaxWidth - 2 * inset }]}>
           <View style={styles.solarOverlayItem}>
-            <Sun size={11} color="#FFD700" />
+            <Sun size={11} color={color.sun} />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
               {sunPosAtSelected.altitude.toFixed(0)}° / {sunPosAtSelected.azimuth.toFixed(0)}°
             </Text>
@@ -622,7 +623,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           </View>
           <View style={[styles.solarOverlayDivider, { backgroundColor: theme.border }]} />
           <View style={styles.solarOverlayItem}>
-            <Sunset size={11} color="#FF4500" />
+            <Sunset size={11} color={color.glow} />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
               {formatLocalTime(localSunset, 'HH:mm')}
             </Text>
@@ -638,7 +639,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                이제 한 세로줄이 쌓으므로 한쪽 높이가 바뀌어도 안 부딪힙니다. */}
         <View style={[styles.bottomLeft, { left: 10 + inset, bottom: 8 + inset, maxWidth: bottomLeftWidth - inset }]}>
           {radar && (
-            <View style={[styles.cloudReadout, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <View style={[styles.cloudReadout, { backgroundColor: color.overlay, borderColor: color.border }]}>
               <Text style={[styles.cloudReadoutTitle, { color: theme.text }]} numberOfLines={1}>
                 {radar.observerClass.name}
               </Text>
@@ -655,7 +656,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
               </Text>
             </View>
           )}
-          <View style={[styles.legend, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.legend, { backgroundColor: color.overlay, borderColor: color.border }]}>
             {radar && (
               <View style={styles.legendItem}>
                 <View style={[styles.legendLine, { backgroundColor: 'rgba(226,232,240,0.75)' }]} />
@@ -708,7 +709,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                좁은 축척에서만 뜹니다. 지도 평면은 방위는 그려도 **고도**를
                못 그립니다 — 그건 이 원만 가진 값입니다. */}
         {isLocalScale && (
-          <View style={[styles.polarInset, { right: 10 + inset, bottom: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.polarInset, { right: 10 + inset, bottom: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}>
             <SunAzimuthView theme={theme} currentTime={selectedDate} compact />
           </View>
         )}
@@ -750,31 +751,31 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
   },
   headerIconWrap: {
     width: 26,
     height: 26,
-    borderRadius: 8,
+    borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 1,
   },
   headerValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
   },
   mapCard: {
     flex: 1,
     width: '100%',
-    borderRadius: 20,
+    borderRadius: radius.lg,
     overflow: 'hidden',
     borderWidth: Platform.OS === 'android' ? 0 : 1,
     position: 'relative',
@@ -785,11 +786,11 @@ const styles = StyleSheet.create({
     right: 10,
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -809,11 +810,11 @@ const styles = StyleSheet.create({
     right: 86,
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -832,9 +833,9 @@ const styles = StyleSheet.create({
     minWidth: 150,
     maxWidth: 210,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -849,7 +850,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 11,
   },
-  locMenuText: { fontSize: 11.5, fontWeight: '600', flexShrink: 1 },
+  locMenuText: { fontSize: 11, fontWeight: '600', flexShrink: 1 },
   /** 한가운데 십자선 — 어디로 옮겨질지 보여 줍니다. */
   pickCross: {
     ...StyleSheet.absoluteFillObject,
@@ -865,11 +866,11 @@ const styles = StyleSheet.create({
     right: 48,
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -889,9 +890,9 @@ const styles = StyleSheet.create({
     rowGap: 3,
     paddingVertical: 5,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     gap: 8,
     zIndex: 10,
   },
@@ -901,9 +902,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   solarOverlayText: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   solarOverlayDivider: {
@@ -929,17 +930,17 @@ const styles = StyleSheet.create({
   cloudReadout: {
     paddingHorizontal: 9,
     paddingVertical: 7,
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: 1,
   },
   cloudReadoutTitle: { fontSize: 11, fontWeight: '800' },
-  cloudReadoutSub: { fontSize: 9.5, fontFamily: 'monospace' },
+  cloudReadoutSub: { fontSize: 9, fontFamily: mono },
   polarInset: {
     position: 'absolute',
     right: 10,
     bottom: 10,
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
     padding: 4,
     overflow: 'hidden',
@@ -951,13 +952,13 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
   },
   cloudViewToggle: {
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     paddingHorizontal: 6,
     paddingVertical: 2,
     alignSelf: 'flex-start',
@@ -973,9 +974,9 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
   legendText: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   bottomControls: {

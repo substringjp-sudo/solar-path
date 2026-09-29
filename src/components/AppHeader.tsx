@@ -27,6 +27,7 @@ import {
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { t, L3 } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'map' | 'log';
@@ -149,7 +150,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               accessibilityLabel={L3(language, '위치 변경', 'Change location', '位置を変更')}
               accessibilityRole="button"
             >
-              <MapPin size={14} color="#38BDF8" />
+              <MapPin size={14} color={color.accent} />
             </TouchableOpacity>
           )}
 
@@ -159,7 +160,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
-            <Settings size={14} color="#94A3B8" />
+            <Settings size={14} color={color.textDim} />
           </TouchableOpacity>
         </View>
       </View>
@@ -170,11 +171,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))}
             style={styles.dateControl}
           >
-            <ChevronLeft size={16} color="#94A3B8" />
+            <ChevronLeft size={16} color={color.textDim} />
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
-            <Calendar size={11} color="#38BDF8" style={{ marginRight: 6 }} />
+            <Calendar size={11} color={color.accent} style={{ marginRight: 6 }} />
             {/* 'DATE //' 접두어는 뺐습니다 — 달력 아이콘이 이미 말하고, 320px 기기에서 두 줄로 깨졌습니다. */}
             <Text style={styles.dateText}>
               {formatLocalTime(currentTimeLocal || currentTime, 'yyyy.MM.dd')}
@@ -192,7 +193,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 onPress={() => handleDateChange(new Date())}
                 style={styles.todayButton}
               >
-                <RotateCcw size={10} color="#38BDF8" />
+                <RotateCcw size={10} color={color.accent} />
                 <Text style={styles.todayText}>{t('today', language)}</Text>
               </TouchableOpacity>
             )}
@@ -200,7 +201,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))}
               style={styles.dateControl}
             >
-              <ChevronRight size={16} color="#94A3B8" />
+              <ChevronRight size={16} color={color.textDim} />
             </TouchableOpacity>
           </View>
         </View>
@@ -225,10 +226,10 @@ const styles = StyleSheet.create({
   navToggle: {
     flexDirection: 'row',
     padding: 2,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    borderColor: color.border,
+    backgroundColor: color.panel,
     flex: 1,
     position: 'relative',
   },
@@ -236,22 +237,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 2,
     bottom: 2,
-    borderRadius: 2,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderRadius: radius.xs,
+    backgroundColor: color.accentSoft,
     borderBottomWidth: 2,
-    borderBottomColor: '#38BDF8',
+    borderBottomColor: color.accent,
   },
   navButton: {
     flex: 1,
     paddingVertical: 5.5,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 2,
+    borderRadius: radius.xs,
     zIndex: 2,
   },
   navText: {
-    fontSize: 10.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 11,
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   rightButtons: {
@@ -262,10 +263,10 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    borderColor: color.border,
+    backgroundColor: color.panel,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -275,10 +276,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    borderColor: color.border,
+    backgroundColor: color.panel,
     height: 34,
   },
   dateControl: {
@@ -291,27 +292,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   datePrefix: {
-    fontSize: 9.5,
-    color: '#64748B',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 9,
+    color: color.textMute,
+    fontFamily: mono,
     fontWeight: '700',
   },
   dateText: {
-    fontSize: 11.5,
-    color: '#F8FAFC',
+    fontSize: 11,
+    color: color.text,
     fontWeight: '900',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   todayButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 2,
     paddingHorizontal: 6,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.4)',
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderColor: color.accentLine,
+    backgroundColor: color.accentSoft,
     gap: 4,
   },
   dateRightControls: {
@@ -322,23 +323,23 @@ const styles = StyleSheet.create({
   todayText: {
     fontSize: 9,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#38BDF8',
+    fontFamily: mono,
+    color: color.accent,
     letterSpacing: 0.3,
   },
   timezoneBadge: {
     marginLeft: 6,
     paddingHorizontal: 4,
     paddingVertical: 1,
-    borderRadius: 2,
+    borderRadius: radius.xs,
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   timezoneText: {
-    fontSize: 8,
-    color: '#94A3B8',
+    fontSize: 9,
+    color: color.textDim,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
 });
