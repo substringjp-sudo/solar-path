@@ -4,7 +4,7 @@ import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe, MapPin, Cr
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
-import { buildRadarFrame, isRadarScale } from '../../utils/cloudRadar';
+import { buildRadarFrame, isRadarScale, isGlobeRadarScale } from '../../utils/cloudRadar';
 import { fetchDayWeatherRing, CloudPathData } from '../../utils/weather';
 import { localDateString } from '../../utils/localDate';
 import {
@@ -146,7 +146,14 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     () => localDateString(selectedDate) === localDateString(new Date()),
     [selectedDate],
   );
-  const wantRadar = isToday && !globeOn && isRadarScale(longitudeDelta, lat);
+  /**
+   * 구에서는 원반이 몇 px 인가로 정합니다(§120). 구의 반지름은 구가 손을 뗄 때
+   * 알려 준 축척에서 되찾습니다 — 같은 식(`globeRadiusForDelta`)이라 어긋나지 않습니다.
+   */
+  const globeRadiusNow = globeOn
+    ? globeRadiusForDelta(region.latitude, longitudeDelta, bodySize.width || width)
+    : 0;
+  const wantRadar = isToday && (globeOn ? isGlobeRadarScale(globeRadiusNow) : isRadarScale(longitudeDelta, lat));
 
   useEffect(() => {
     if (!wantRadar) return;
@@ -158,8 +165,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   }, [wantRadar, lat, lon]);
 
   const radar = useMemo(
-    () => (wantRadar ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta) : null),
-    [wantRadar, ring, lat, lon, selectedDate, longitudeDelta],
+    () => (wantRadar
+      ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta,
+        globeOn ? { globeRadiusPx: globeRadiusNow } : undefined)
+      : null),
+    [wantRadar, ring, lat, lon, selectedDate, longitudeDelta, globeOn, globeRadiusNow],
   );
 
   /**
@@ -192,6 +202,28 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   );
   // ⚠ 구에서 줌을 당겨 돌아온 직후(늘어남 1.8~2.0)는 실루엣 띠입니다 — 같은 그림체로 내려옵니다.
   const showSilhouette = !showGlobe && autoMode !== 'tiles';
+
+  /**
+   * 카드 모서리 반지름과, 네 구석의 버튼·글씨가 물러설 거리.
+   *
+   * ⚠ 구로 갈수록 카드가 둥글어져(아래 `borderRadius`) 구석에 놓인 배지·범례·
+   *   버튼이 **깎여 나갔습니다**(§120 에서 구에 레이더 읽기값을 띄우며 드러남).
+   *   반지름 r 인 모서리에서 상자 귀퉁이가 호의 45° 점에 닿으려면 두 변에서
+   *   r·(1 − 1/√2) ≈ 0.293r 물러서면 됩니다 — 상자의 나머지는 호 안쪽입니다.
+   */
+  //
+  //   처음에는 물러서기만 했는데, 구에서 반지름이 짧은 변의 절반(181px)까지 커져
+  //   물러설 거리가 53px 이 되자 **위쪽 배지와 버튼이 서로 겹쳤습니다**(웹 실측).
+  //   그래서 반지름에 상한을 둡니다 — 구 자체가 둥글므로 카드까지 원이 될 까닭이
+  //   없습니다. §75.5 의 "원이 부풀어 오른다" 는 모서리가 14 → 44px 로 둥글어지는
+  //   것으로 줄었습니다.
+  const CARD_RADIUS_MAX = 44;
+  const cardRadius = Math.min(
+    14 + morph * (CARD_RADIUS_MAX - 14),
+    Math.min(bodySize.width, bodySize.height) / 2 || 14,
+  );
+  const cornerInset = Math.max(10, 0.293 * cardRadius);
+  const inset = cornerInset - 10;
 
   /**
    * 지도가 다시 뜰 때 볼 곳. ⚠ 지도는 `initialRegion` 을 **처음 뜰 때만** 읽으므로,
@@ -410,7 +442,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
              * 오르는 것으로 읽힙니다. 동네 축척에서는 진행도가 0 이라 평소의
              * 둥근 사각형 그대로입니다 — 화면을 낭비하지 않습니다.
              */
-            borderRadius: 14 + morph * (Math.max(bodySize.width, bodySize.height) / 2 - 14),
+            borderRadius: cardRadius,
           },
         ]}
         onLayout={(e) => {
@@ -462,6 +494,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             minRadius={globeRange.min}
             maxRadius={globeRange.max}
             onViewChange={onGlobeView}
+            radar={radar}
             selectedDate={selectedDate}
           />
         )}
@@ -474,7 +507,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
         <TouchableOpacity
           onPress={toggleGlobe}
-          style={[styles.projectionBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.projectionBtn, { top: 10 + inset, right: 48 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
           {!showGlobe ? (
@@ -486,7 +519,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
         <TouchableOpacity
           onPress={() => setGuideVisible(true)}
-          style={[styles.guideBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.guideBtn, { top: 10 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
           <Info size={16} color={theme.text} />
@@ -499,7 +532,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           onPress={onLocationTap}
           onLongPress={() => setLocMenuOpen(true)}
           delayLongPress={350}
-          style={[styles.locBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
           <MapPin size={16} color={pickable ? theme.accent : theme.text} />
@@ -515,7 +548,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {locMenuOpen && (
-          <View style={[styles.locMenu, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
             <TouchableOpacity style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
               <Crosshair size={13} color={theme.accent} />
               <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
@@ -565,7 +598,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {/* 지도 우측 상단 태양 정보 오버레이 배지 */}
-        <View style={[styles.solarOverlay, { backgroundColor: theme.glass, borderColor: theme.border, maxWidth: badgeMaxWidth }]}>
+        <View style={[styles.solarOverlay, { top: 10 + inset, left: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border, maxWidth: badgeMaxWidth - 2 * inset }]}>
           <View style={styles.solarOverlayItem}>
             <Sun size={11} color="#FFD700" />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
@@ -595,7 +628,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
                ⚠ 이 둘이 예전에 **같은 자리**에 절대 좌표로 놓여 겹쳤습니다.
                이제 한 세로줄이 쌓으므로 한쪽 높이가 바뀌어도 안 부딪힙니다. */}
-        <View style={[styles.bottomLeft, { maxWidth: bottomLeftWidth }]}>
+        <View style={[styles.bottomLeft, { left: 10 + inset, bottom: 8 + inset, maxWidth: bottomLeftWidth - inset }]}>
           {radar && (
             <View style={[styles.cloudReadout, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <Text style={[styles.cloudReadoutTitle, { color: theme.text }]} numberOfLines={1}>
@@ -653,7 +686,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                좁은 축척에서만 뜹니다. 지도 평면은 방위는 그려도 **고도**를
                못 그립니다 — 그건 이 원만 가진 값입니다. */}
         {isLocalScale && (
-          <View style={[styles.polarInset, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.polarInset, { right: 10 + inset, bottom: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
             <SunAzimuthView theme={theme} currentTime={selectedDate} compact />
           </View>
         )}

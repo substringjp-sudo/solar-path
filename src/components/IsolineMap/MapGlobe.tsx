@@ -5,6 +5,7 @@ import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { IsochronePoint } from '../../utils/celestial';
+import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -26,6 +27,8 @@ interface MapGlobeProps {
   maxRadius: number;
   /** 손을 뗄 때마다 지금 보는 한가운데와 반지름을 알립니다(지도로 돌아갈지 여기서 정합니다). */
   onViewChange?: (v: { latitude: number; longitude: number; radius: number; zoomedIn: boolean }) => void;
+  /** 구름 레이더 — 평면 지도와 **같은 칸**을 구 위에 씌웁니다(§120). */
+  radar?: RadarFrame | null;
   selectedDate?: Date;
 }
 
@@ -69,6 +72,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   minRadius,
   maxRadius,
   onViewChange,
+  radar = null,
   selectedDate,
 }) => {
   const W = Math.max(1, width);
@@ -254,6 +258,40 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
    * 재고 ±178.5° 를 빼서, 가장자리에서 선이 한 칸씩 모자랐고 날짜변경선에 틈이
    * 났습니다.
    */
+  /**
+   * 레이더 칸을 구 위 경로로. ⚠ d3 는 구면 다각형의 **감긴 방향**으로 안팎을
+   * 가립니다 — 반대로 감기면 칸이 아니라 **칸을 뺀 지구 전체**가 칠해집니다.
+   * 넓이가 반구(2π)를 넘으면 뒤집어 둡니다. 감긴 방향은 칸이 바뀔 때만 셉니다.
+   */
+  const radarRings = useMemo(() => {
+    if (!radar) return null;
+    const toRing = (pts: { latitude: number; longitude: number }[]) => {
+      const ring = pts.map(p => [p.longitude, p.latitude] as [number, number]);
+      const f = ring[0], l = ring[ring.length - 1];
+      if (f[0] !== l[0] || f[1] !== l[1]) ring.push([f[0], f[1]]);
+      const poly = { type: 'Polygon', coordinates: [ring] } as any;
+      if (d3.geoArea(poly) > 2 * Math.PI) ring.reverse();
+      return poly;
+    };
+    return {
+      cells: radar.cells.map(c => ({ geo: toRing(c.polygon), fill: radarColor(c.coverPct) })),
+      edge: { type: 'LineString', coordinates: radar.edge.map(p => [p.longitude, p.latitude]) } as any,
+      wind: radar.wind && lat !== undefined && lon !== undefined
+        ? { type: 'LineString', coordinates: windArrow(lat, lon, radar.wind.toBearingDeg, radar.wind.speedKmh)
+            .map(p => [p.longitude, p.latitude]) } as any
+        : null,
+    };
+  }, [radar, lat, lon]);
+
+  const radarPaths = useMemo(() => {
+    if (!radarRings) return null;
+    return {
+      cells: radarRings.cells.map(c => ({ d: geoPath(c.geo), fill: c.fill })),
+      edge: geoPath(radarRings.edge),
+      wind: radarRings.wind ? geoPath(radarRings.wind) : null,
+    };
+  }, [radarRings, geoPath]);
+
   const makeTerminatorPath = useCallback((segments: IsochronePoint[][]) => {
     const lines = joinOnSphere(segments);
     if (lines.length === 0) return null;
@@ -426,6 +464,18 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
               stroke={strokeColor}
               strokeWidth={0.5}
             />
+          )}
+
+          {/* ── 구름 레이더 — 평면 지도와 같은 칸, 같은 색(§120) ──────────
+                 자료가 가진 고리·방위 칸 그대로입니다. 매끈하게 칠하지 않습니다. */}
+          {radarPaths && radarPaths.cells.map((c, i) => c.d && (
+            <Path key={`radar-${i}`} d={c.d} fill={c.fill} stroke="rgba(148, 163, 184, 0.10)" strokeWidth={0.5} />
+          ))}
+          {radarPaths?.wind && (
+            <Path d={radarPaths.wind} fill="none" stroke="rgba(125, 211, 252, 0.9)" strokeWidth={2} />
+          )}
+          {radarPaths?.edge && (
+            <Path d={radarPaths.edge} fill="none" stroke="rgba(148, 163, 184, 0.45)" strokeWidth={1.2} strokeDasharray="5 6" />
           )}
 
           {nightCirclePath && (

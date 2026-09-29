@@ -4,7 +4,7 @@ import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon } from 'react-nativ
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 import { SunOverlay } from '../../utils/solarGeometry';
-import { RadarFrame, radarColor } from '../../utils/cloudRadar';
+import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 
 interface MapCanvasProps {
   lat: number;
@@ -25,33 +25,6 @@ interface MapCanvasProps {
   radar?: RadarFrame | null;
 }
 
-/**
- * 바람 화살표 — 관측점에서 `toBearingDeg` 쪽으로, 길이는 **한 시간 동안 갈
- * 거리**입니다. 임의의 길이를 쓰면 화살표가 뜻 없는 장식이 됩니다.
- */
-function windArrow(lat: number, lon: number, toBearingDeg: number, speedKmh: number) {
-  const R = 6371, RADD = Math.PI / 180, DEGG = 180 / Math.PI;
-  const go = (distKm: number, brg: number) => {
-    const d = distKm / R, b = brg * RADD, p1 = lat * RADD;
-    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
-    const l2 = lon * RADD + Math.atan2(
-      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
-  };
-  const len = Math.max(8, Math.min(380, speedKmh));      // 한 시간치
-  const tip = go(len, toBearingDeg);
-  // 화살촉: 끝점에서 뒤로 두 갈래.
-  const back = (off: number) => {
-    const p = go(len, toBearingDeg);
-    const R2 = 6371;
-    const d = (len * 0.16) / R2, b = (toBearingDeg + 180 + off) * RADD, p1 = p.latitude * RADD;
-    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
-    const l2 = p.longitude * RADD + Math.atan2(
-      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
-  };
-  return [{ latitude: lat, longitude: lon }, tip, back(28), tip, back(-28)];
-}
 
 export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   lat,
