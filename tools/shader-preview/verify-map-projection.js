@@ -136,6 +136,39 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     ok(DEFAULT_ASPECT > 1, `기본 종횡비가 세로로 길다`);
   }
 
+  // ── [7] 구에서 지도로 돌아오는 길 (§119) ────────────────────────────
+  //    예전에는 구로 넘어가면 돌아올 길이 없었습니다. 들어가는 문턱 2.0, 나오는
+  //    문턱 1.8, 그 사이는 직전 상태를 지킵니다. 구 반지름과 지도 폭을 같은
+  //    축척으로 바꿔야 넘어갈 때 땅 크기가 안 튑니다.
+  console.log('\n[7] 구 ↔ 지도 — 양방향, 히스테리시스, 같은 축척');
+  {
+    const { nextGlobeLatch, globeRadiusForDelta, deltaForGlobeRadius, globeFitRadius, GLOBE_EXIT_STRETCH } = M;
+    const W = 362, H = 514;
+    for (const lat of [0, 20, 37.5, 60, -35]) {
+      const dIn = deltaForStretch(lat, GLOBE_STRETCH), dOut = deltaForStretch(lat, GLOBE_EXIT_STRETCH);
+      const dMid = (dIn + dOut) / 2;
+      const rIn = globeRadiusForDelta(lat, dIn, W), rOut = globeRadiusForDelta(lat, dOut, W);
+      console.log(`      위도 ${String(lat).padStart(5)}°  들어감 ${dIn.toFixed(1)}° (R ${rIn.toFixed(0)}px) · 나옴 ${dOut.toFixed(1)}° (R ${rOut.toFixed(0)}px)`);
+      ok(nextGlobeLatch(false, lat, dIn * 1.01) && !nextGlobeLatch(false, lat, dMid),
+        `위도 ${lat}° — 지도에서는 2.0 을 넘어야 구로 간다`);
+      ok(nextGlobeLatch(true, lat, dMid) && !nextGlobeLatch(true, lat, dOut * 0.99),
+        `위도 ${lat}° — 구에서는 1.8 아래로 내려와야 지도로 온다 (사이에서는 그대로)`);
+      ok(rOut > rIn * 1.05, `위도 ${lat}° — 구에서 확대하면 나오는 문턱에 닿는다 (R ${rIn.toFixed(0)} → ${rOut.toFixed(0)})`);
+      const back = deltaForGlobeRadius(lat, globeRadiusForDelta(lat, 33, W), W);
+      ok(Math.abs(back - 33) < 1e-9, `위도 ${lat}° — 반지름 ↔ 지도 폭이 서로 역이다 (${back.toFixed(6)})`);
+      const dFit = deltaForGlobeRadius(lat, globeFitRadius(W, H), W);
+      ok(nextGlobeLatch(false, lat, dFit), `위도 ${lat}° — 구 버튼이 고르는 축척(구 둘레가 다 보임, ${dFit.toFixed(0)}°)은 구다`);
+      const dMap = deltaForStretch(lat, SILHOUETTE_STRETCH) * 0.9;
+      ok(!nextGlobeLatch(true, lat, dMap) && mapModeFor(lat, dMap) === 'tiles',
+        `위도 ${lat}° — 지도 버튼이 고르는 축척(${dMap.toFixed(1)}°)은 타일 지도다`);
+    }
+    // 대조 — 문턱을 하나로 두면(나옴 = 들어감) 사이 구간에서 상태가 입력만으로 정해져 떤다.
+    const lat = 37.5, dIn = deltaForStretch(lat, GLOBE_STRETCH), dOut = deltaForStretch(lat, GLOBE_EXIT_STRETCH);
+    const d = (dIn + dOut) / 2;
+    ok(nextGlobeLatch(true, lat, d) !== nextGlobeLatch(false, lat, d),
+      `대조: 사이 구간(${d.toFixed(1)}°)에서는 직전 상태가 답을 가른다 — 기억이 실제로 쓰인다`);
+  }
+
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();

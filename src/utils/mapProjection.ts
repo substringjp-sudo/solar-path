@@ -120,3 +120,50 @@ export const globeProgress = (
   if (s >= GLOBE_STRETCH) return 1;
   return (s - SILHOUETTE_STRETCH) / (GLOBE_STRETCH - SILHOUETTE_STRETCH);
 };
+
+/**
+ * 구에서 지도로 **돌아오는** 늘어남. 들어가는 문턱(2.0)보다 낮게 두어 경계에서
+ * 떨지 않게 합니다(히스테리시스, §119).
+ */
+export const GLOBE_EXIT_STRETCH = 1.8;
+
+/**
+ * 구 모드인가 — **직전 상태를 기억합니다.** 늘어남이 2.0 을 넘으면 들어가고
+ * 1.8 아래로 내려와야 나옵니다. 그 사이에서는 직전 상태 그대로입니다.
+ */
+export const nextGlobeLatch = (
+  wasGlobe: boolean, centerLat: number, longitudeDeltaDeg: number, aspect = DEFAULT_ASPECT,
+): boolean => {
+  const s = mercatorStretch(centerLat, longitudeDeltaDeg, aspect);
+  if (!wasGlobe) return s >= GLOBE_STRETCH;
+  return s >= GLOBE_EXIT_STRETCH;
+};
+
+/**
+ * 지도의 화면 폭(경도, 도)과 **같은 축척**의 정사영 구 반지름(px).
+ *
+ * 정사영은 구 한가운데에서 1 라디안 = R px 입니다. 지도 폭 `widthPx` 가 담는
+ * 땅의 호는 `경도 폭 · cos(위도)` 이므로 R = W / (Δλ·cosφ·π/180). 이 둘을
+ * 맞춰야 지도에서 구로(또는 거꾸로) 넘어갈 때 땅 크기가 안 튑니다.
+ */
+export const globeRadiusForDelta = (
+  centerLat: number, longitudeDeltaDeg: number, widthPx: number,
+): number => {
+  const c = Math.max(0.1, Math.cos(centerLat * RAD));
+  return widthPx / (Math.max(0.01, longitudeDeltaDeg) * c * RAD);
+};
+
+/** `globeRadiusForDelta` 의 역 — 구 반지름에 맞는 지도 화면 폭(경도, 도). */
+export const deltaForGlobeRadius = (
+  centerLat: number, radiusPx: number, widthPx: number,
+): number => {
+  const c = Math.max(0.1, Math.cos(centerLat * RAD));
+  return widthPx / (Math.max(1, radiusPx) * c * RAD);
+};
+
+/**
+ * 구 둘레가 화면 안에 다 들어오는 반지름 — 구로 가는 버튼이 여기서 시작합니다.
+ * 짧은 변의 42% 라 둘레에 여백이 조금 남습니다.
+ */
+export const globeFitRadius = (widthPx: number, heightPx: number): number =>
+  0.42 * Math.max(1, Math.min(widthPx, heightPx));

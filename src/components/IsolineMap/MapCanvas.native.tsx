@@ -15,6 +15,8 @@ interface MapCanvasProps {
   allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
   nightPolygonCoords?: Array<Array<{ latitude: number; longitude: number }>>;
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
+  /** 처음 뜰 때 볼 곳(`MapCanvas.tsx` 참고). */
+  startRegion?: { latitude: number; longitude: number; longitudeDelta: number };
   theme: any;
   selectedDate?: Date;
   /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
@@ -60,6 +62,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   allTerminators = [],
   nightPolygonCoords = [],
   onRegionChangeComplete,
+  startRegion,
   theme,
   selectedDate,
   sunOverlay = null,
@@ -83,7 +86,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     <MapView
       provider={PROVIDER_GOOGLE}
       style={StyleSheet.absoluteFillObject}
-      initialRegion={{
+      // ⚠ 세로 폭은 경도 폭·cos(위도) 로 줍니다 — 세로로 긴 화면에서는 이것이
+      //   가로보다 먼저 차지 않아 **경도 폭이 축척을 정합니다**. 구에서 돌아올 때
+      //   구와 같은 축척이어야 땅 크기가 안 튑니다.
+      initialRegion={startRegion ? {
+        latitude: startRegion.latitude,
+        longitude: startRegion.longitude,
+        latitudeDelta: Math.min(170, startRegion.longitudeDelta * Math.max(0.1, Math.cos(startRegion.latitude * Math.PI / 180))),
+        longitudeDelta: startRegion.longitudeDelta,
+      } : {
         latitude: lat,
         longitude: lon,
         latitudeDelta: 60,
