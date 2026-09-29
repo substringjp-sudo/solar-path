@@ -106,6 +106,7 @@ const field = createTerrainField({ eyeHeightM: EYE, farM: FAR_FIELD_FAR_M, rings
   patch, eyePatch: patch, farPatch: maskPatch });
 field.mesh.renderOrder = -0.48;
 scene.add(field.mesh);
+if (field.distMesh) scene.add(field.distMesh);   // §117 지형 거리 판의 쌍둥이
 const bands = createTerrainBands(BAND_ANGLES, BAND_DIST, undefined, null, OBS_M); scene.add(bands.group);
 const sun = createSun(); scene.add(sun.mesh); updateSun(sun, SUN_ALT, SUN_AZ, ATMOS, 1);
 const slab = createCloudSlab(); scene.add(slab.mesh);
@@ -119,8 +120,9 @@ for (const o of [ground, field.mesh, bands.group]) assignLayer(o, LAYER_MID);
 // 앱과 같이 — 천체는 구름 아래 층(§94). 옛 코드에는 이 층이 없어 MID 로 갑니다(대조용).
 assignLayer(sun.mesh, LAYER_CELESTIAL ?? LAYER_MID);
 assignLayer(slab.mesh, LAYER_SOFT_CLOUD);
-// 앱(SkyScene3D)과 같이 — 새 코드면 구름을 두 번에 나눠 그립니다(§96).
-if (slab.setSplitPasses && SC.LAYER_SOFT_CLOUD_BELOW) {
+// 앱(SkyScene3D)과 같이 — §117 코드면 구름을 한 번에 지형 다음에(지형 거리 판), §96 코드면 두 번에 나눠.
+const APP117 = !!slab.setTerrainDistance;
+if (!APP117 && slab.setSplitPasses && SC.LAYER_SOFT_CLOUD_BELOW) {
   slab.setSplitPasses(true);
   slab.mesh.renderOrder = -0.49; slab.meshBelow.renderOrder = 0.5;
   scene.add(slab.meshBelow); assignLayer(slab.meshBelow, SC.LAYER_SOFT_CLOUD_BELOW);
@@ -130,6 +132,7 @@ const cam = new THREE.PerspectiveCamera(FOVY, W/H, 0.1, 1000); cam.position.set(
 { const v = dirOf(CAM_PITCH, CAM_AZ); cam.lookAt(v.x, v.y, v.z); cam.updateMatrixWorld(true); }
 updateTerrainFieldEye(field, cam);
 const composer = createSceneComposer(W, H);
+if (APP117) { slab.mesh.renderOrder = -0.49; composer.setTerrainDistance(true); slab.setTerrainDistance(composer.terrainDistanceTexture()); }
 // ?scale=1 이면 한 번에 그리는 경로(빠른 기기)로 — 판정이 두 경로를 다 봅니다.
 const SCALE = Number(new URLSearchParams(location.search).get('scale') || 2);
 composer.setSoftScale(SCALE);
@@ -152,6 +155,8 @@ function slabAlpha(occludeSky){
   const only = new THREE.Scene(); only.add(slab.mesh);
   const pm = slab.material.uniforms.uPassMode ? slab.material.uniforms.uPassMode.value : null;
   if (pm !== null) slab.material.uniforms.uPassMode.value = 0;
+  // 기준은 합성기와 **독립**이어야 합니다 — 지형 거리 판(§117) 대신 슬랩 자신의 DEM 행진으로 잽니다.
+  if (APP117) slab.setTerrainDistance(null);
   slabUpdate(2, occludeSky);
   const rt = new THREE.WebGLRenderTarget(W, H);
   // ⚠ 슬랩은 LAYER_SOFT_CLOUD 에 배정돼 있어 카메라 기본 레이어(0)로는 **안 그려집니다**.
@@ -162,6 +167,7 @@ function slabAlpha(occludeSky){
   const b = new Uint8Array(W*H*4); r.readRenderTargetPixels(rt, 0, 0, W, H, b);
   r.setRenderTarget(null); r.setClearColor(0x000000, 1); rt.dispose();
   if (pm !== null) slab.material.uniforms.uPassMode.value = pm;
+  if (APP117) slab.setTerrainDistance(composer.terrainDistanceTexture());
   scene.add(slab.mesh);
   return b;
 }

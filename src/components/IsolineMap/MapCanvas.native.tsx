@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon } from 'react-native-maps';
+import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon, Overlay } from 'react-native-maps';
+import type { CloudTopViewImage } from './useCloudTopView';
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 import { SunOverlay } from '../../utils/solarGeometry';
-import { RadarFrame, radarColor } from '../../utils/cloudRadar';
+import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 
 interface MapCanvasProps {
   lat: number;
@@ -15,41 +16,17 @@ interface MapCanvasProps {
   allTerminators?: Array<{ time: Date; sunrise: IsochronePoint[][]; sunset: IsochronePoint[][] }>;
   nightPolygonCoords?: Array<Array<{ latitude: number; longitude: number }>>;
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
+  /** 처음 뜰 때 볼 곳(`MapCanvas.tsx` 참고). */
+  startRegion?: { latitude: number; longitude: number; longitudeDelta: number };
   theme: any;
   selectedDate?: Date;
   /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
   sunOverlay?: SunOverlay | null;
   /** 구름 레이더. 축척이 창 밖이거나 자료가 없으면 null 입니다. */
   radar?: RadarFrame | null;
+  topView?: CloudTopViewImage | null;
 }
 
-/**
- * 바람 화살표 — 관측점에서 `toBearingDeg` 쪽으로, 길이는 **한 시간 동안 갈
- * 거리**입니다. 임의의 길이를 쓰면 화살표가 뜻 없는 장식이 됩니다.
- */
-function windArrow(lat: number, lon: number, toBearingDeg: number, speedKmh: number) {
-  const R = 6371, RADD = Math.PI / 180, DEGG = 180 / Math.PI;
-  const go = (distKm: number, brg: number) => {
-    const d = distKm / R, b = brg * RADD, p1 = lat * RADD;
-    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
-    const l2 = lon * RADD + Math.atan2(
-      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
-  };
-  const len = Math.max(8, Math.min(380, speedKmh));      // 한 시간치
-  const tip = go(len, toBearingDeg);
-  // 화살촉: 끝점에서 뒤로 두 갈래.
-  const back = (off: number) => {
-    const p = go(len, toBearingDeg);
-    const R2 = 6371;
-    const d = (len * 0.16) / R2, b = (toBearingDeg + 180 + off) * RADD, p1 = p.latitude * RADD;
-    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
-    const l2 = p.longitude * RADD + Math.atan2(
-      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
-  };
-  return [{ latitude: lat, longitude: lon }, tip, back(28), tip, back(-28)];
-}
 
 export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   lat,
@@ -60,10 +37,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   allTerminators = [],
   nightPolygonCoords = [],
   onRegionChangeComplete,
+  startRegion,
   theme,
   selectedDate,
   sunOverlay = null,
   radar = null,
+  topView = null,
 }) => {
   const handleRegionChangeComplete = (newRegion: any) => {
     onRegionChangeComplete?.(newRegion);
@@ -83,7 +62,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     <MapView
       provider={PROVIDER_GOOGLE}
       style={StyleSheet.absoluteFillObject}
-      initialRegion={{
+      // ⚠ 세로 폭은 경도 폭·cos(위도) 로 줍니다 — 세로로 긴 화면에서는 이것이
+      //   가로보다 먼저 차지 않아 **경도 폭이 축척을 정합니다**. 구에서 돌아올 때
+      //   구와 같은 축척이어야 땅 크기가 안 튑니다.
+      initialRegion={startRegion ? {
+        latitude: startRegion.latitude,
+        longitude: startRegion.longitude,
+        latitudeDelta: Math.min(170, startRegion.longitudeDelta * Math.max(0.1, Math.cos(startRegion.latitude * Math.PI / 180))),
+        longitudeDelta: startRegion.longitudeDelta,
+      } : {
         latitude: lat,
         longitude: lon,
         latitudeDelta: 60,
@@ -97,7 +84,20 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
              ⚠ 매끈하게 칠하지 않고 **자료가 가진 고리·방위 칸 그대로** 그립니다.
              바깥 칸은 방위 폭이 199km 입니다 — 부드럽게 보간하면 실제보다 수십
              배 많이 아는 것처럼 보입니다(`cloudRadar.ts`). */}
-      {radar && radar.cells.map((c, i) => (
+      {/* ── 시뮬레이션 보기(§120 B) — 하늘 탭의 구름을 위에서 본 한 장 ─────────
+             그림은 관측점 중심 동·북 km 평면인데 겹은 위경도 사각형이라, 세로(위도 1° =
+             111.2km)는 맞고 가로는 원반 위·아래 끝에서 cos(위도) 차만큼(서울 ±3.2° 에서 약 4%)
+             어긋납니다. ⚠ 기기에서 아직 못 봤습니다(웹 미리보기 지도에는 겹이 없음). */}
+      {topView && (
+        <Overlay
+          image={{ uri: topView.uri }}
+          bounds={[
+            [lat + topView.rangeKm / 111.2, lon - topView.rangeKm / (111.32 * Math.cos(lat * Math.PI / 180))],
+            [lat - topView.rangeKm / 111.2, lon + topView.rangeKm / (111.32 * Math.cos(lat * Math.PI / 180))],
+          ]}
+        />
+      )}
+      {!topView && radar && radar.cells.map((c, i) => (
         <Polygon
           key={`radar-${i}`}
           coordinates={c.polygon}

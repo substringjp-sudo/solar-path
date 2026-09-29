@@ -49,11 +49,16 @@ bakeCloudSlabCoverage(slab,()=>({low:0.3,mid:0.4,high:0.3,confidence:1}));
 SC.assignLayer(sky.mesh,SC.LAYER_SOFT_SKY);
 SC.assignLayer(sun.mesh,SC.LAYER_CELESTIAL);
 SC.assignLayer(slab.mesh,SC.LAYER_SOFT_CLOUD);
-slab.setSplitPasses(true); slab.mesh.renderOrder=-0.49; slab.meshBelow.renderOrder=0.5;
-scene.add(slab.meshBelow); SC.assignLayer(slab.meshBelow,SC.LAYER_SOFT_CLOUD_BELOW);
+// 앱과 같이(§117) — 구름은 한 번에, 지형 다음에(지형 거리 판). 옛 코드면 §96 나눠 그리기.
+const APP117 = !!slab.setTerrainDistance;
+slab.mesh.renderOrder=-0.49;
+if (!APP117) { slab.setSplitPasses(true); slab.meshBelow.renderOrder=0.5;
+  scene.add(slab.meshBelow); SC.assignLayer(slab.meshBelow,SC.LAYER_SOFT_CLOUD_BELOW); }
+const useDist=(c)=>{ if (APP117) { c.setTerrainDistance(true); slab.setTerrainDistance(c.terrainDistanceTexture()); } };
 const cam=new THREE.PerspectiveCamera(50,W/H,0.1,1000); cam.position.set(0,0,0);
 { const v=dirOf(12,SUN_AZ); cam.lookAt(v.x,v.y,v.z); cam.updateMatrixWorld(true); }
 const composer=SC.createSceneComposer(W,H);
+useDist(composer);
 composer.setGodRays({strength:0});
 composer.setSun(dirOf(SUN_ALT,SUN_AZ),SUN_ALT);
 const buf=new Uint8Array(W*H*4);
@@ -82,6 +87,7 @@ R.sizeOff=composer.renderSize();
   const r64=new THREE.WebGLRenderer({canvas:c64,antialias:false,alpha:false});
   r64.setPixelRatio(1); r64.setSize(c64.width,c64.height,false);
   const comp64=SC.createSceneComposer(c64.width,c64.height,1);
+  useDist(comp64);
   comp64.setGodRays({strength:0}); comp64.setSun(dirOf(SUN_ALT,SUN_AZ),SUN_ALT);
   const wd={speedKmh:0,bearingDeg:0};
   updateCloudSlab(slab,{camera:cam,widthPx:c64.width,heightPx:c64.height,

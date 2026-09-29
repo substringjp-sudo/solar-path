@@ -55,11 +55,12 @@ import { seaHorizonDipDeg } from './TerrainRing';
 import { FIELD_RINGS, FIELD_SPOKES, FAR_FIELD_RINGS, FAR_FIELD_FAR_M } from './TerrainField';
 import { FIELD_FOOT_M, FIELD_HINGE_M, FIELD_INNER_RINGS } from './groundProjection';
 import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import { TERRAIN_DIST_GLSL } from './SceneComposer';
 
 /** 운량장이 덮는 반경 (km). 상층 지평선(357km)을 담습니다. */
 export const SLAB_RANGE_KM = 360;
 /** §105 직달 표: 해 고도 ±BEAM_LUT_SPAN° 를 BEAM_LUT_N 칸에. 360km 끝에서 ±3.2° 이므로 넉넉히 4°. */
-const BEAM_LUT_N = 64;
+export const BEAM_LUT_N = 64;
 /**
  * 직달 투과율 → 이 셰이더의 직달 항(§104·§106). 하늘빛이 **복사휘도**(조도/π)로 들어오므로
  * 직달도 조도/π 로 맞춥니다: SOLAR_BEAM_SCALE(투과율 → 하늘 눈금의 조도) ÷ π.
@@ -67,12 +68,20 @@ const BEAM_LUT_N = 64;
  *   (사진 대조 원색 화소 13% 대 사진 0.9%). 지면(TerrainRing)은 처음부터 sin/π 로 맞춰 왔습니다.
  */
 const BEAM_TO_SLAB = SOLAR_BEAM_SCALE / Math.PI;
-const BEAM_LUT_SPAN = 4;
+export const BEAM_LUT_SPAN = 4;
 /** 운량장 텍스처 한 변. 제곱근 사상이라 중심 근처가 촘촘합니다. */
 export const SLAB_TEX = 128;
 
 /** 층별 노이즈 셀 크기 (km) — 저층 적운은 덩어리가 크고, 고층 권운은 섬세한 필라멘트. (층간 거리감 부각을 위해 격차를 늘림) */
 const CELL_KM: Record<LayerKey, number> = { low: 2.0, mid: 4.2, high: 9.0 };
+/** §117 — 지형 거리 판이 없을 때 묶어 두는 흰 1×1(= 지형 없음). */
+const NO_TERRAIN_DIST_TEX = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  t.needsUpdate = true;
+  return t;
+})();
+/** §116 — 관측자 위 층 밑면이 이만큼(km) 안에 있으면 산이 그 구름을 뚫을 수 있다고 봅니다(일본 알프스 3km급 제외). */
+const RIDGE_CLOUD_REACH_KM = 2.5;
 /** §109 권운 떨어지는 줄 — 떨어지는 깊이(km)와 얼음 결정 낙하 속도(m/s). 흔한 값 1~2km · 0.3~1m/s 의 가운데. */
 const CIRRUS_FALL_DEPTH_KM = 1.5;
 const CIRRUS_FALL_SPEED_MPS = 0.7;
@@ -116,6 +125,35 @@ const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
 const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.597, mid: 0.377, high: 0.515 };
 /** 위 폭 ÷ uShapeSigma 기본값(0.16). uShapeSigma 를 바꿔도 비율은 유지됩니다. */
 const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 0.654, mid: 0.652, high: 0.986 };
+
+/**
+ * 셰이더 소스의 층별 상수 자리(CELL_* · TAUK_* · SHAPE_*)를 값으로 바꿉니다. 구름 슬랩과
+ * **위에서 본 구름**(§120 `CloudTopView`)이 같은 값을 쓰게 하려고 한 곳에 둡니다 — 둘이 다른
+ * 셀 크기를 쓰면 지도와 하늘이 다른 구름을 그립니다.
+ */
+export function substituteSlabConstants(
+  src: string,
+  v: {
+    cell?: Record<LayerKey, number>; tau?: Record<LayerKey, number>;
+    shapeMean?: Record<LayerKey, number>; shapeSigRatio?: Record<LayerKey, number>;
+  } = {},
+): string {
+  const cell = v.cell ?? CELL_KM, tau = v.tau ?? TAU_K;
+  const shapeMean = v.shapeMean ?? SHAPE_MEAN, shapeSigRatio = v.shapeSigRatio ?? SHAPE_SIG_RATIO;
+  return src
+    .replace(/CELL_LOW/g, cell.low.toFixed(2))
+    .replace(/CELL_MID/g, cell.mid.toFixed(2))
+    .replace(/CELL_HIGH/g, cell.high.toFixed(2))
+    .replace(/TAUK_LOW/g, tau.low.toFixed(2))
+    .replace(/TAUK_MID/g, tau.mid.toFixed(2))
+    .replace(/TAUK_HIGH/g, tau.high.toFixed(2))
+    .replace(/SHAPE_MEAN_LOW/g, shapeMean.low.toFixed(4))
+    .replace(/SHAPE_MEAN_MID/g, shapeMean.mid.toFixed(4))
+    .replace(/SHAPE_MEAN_HIGH/g, shapeMean.high.toFixed(4))
+    .replace(/SHAPE_SIGR_LOW/g, shapeSigRatio.low.toFixed(4))
+    .replace(/SHAPE_SIGR_MID/g, shapeSigRatio.mid.toFixed(4))
+    .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
+}
 
 export const CLOUD_SLAB_GLSL = `
 const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
@@ -249,8 +287,16 @@ SlabGeom slab_sphereIntersect(float sinE, float cosE, float h){
     res.hit = disc >= 0.0 && tFar > 0.0;       // 먼 가장자리 위로는 안 닿음
     s = -chord / max(tFar, 1e-6);
   }
-  float angle = asin(clamp(s * cosE / A, 0.0, 1.0));
-  float safeRatio = (cosE > 1e-4) ? (angle / cosE) : (s / A);
+  // distRatio = A·asin(x)/cosE, x = s·cosE/A. ⚠ **천정 꽃잎의 정체(§114).** 천정 둘레에서 x 는
+  // 1e-5 안팎인데, 폰 GPU 의 asin 은 흔히 근사식(π/2 − √(1−x)·다항식, 절대 오차 ~5e-5)이라 이 크기
+  // 에서 오차가 값보다 큽니다. 그 오차를 cosE(천정에서 → 0)로 나누니 지상 위치가 수 km 씩 틀어져,
+  // 천정 둘레 화소가 모두 거의 같은 반지름의 원에서 무늬를 읽었습니다 — 무늬가 방위에만 따라 변하는
+  // 꽃잎입니다. 데스크톱(SwiftShader)의 asin 은 정확해서 하네스가 못 그렸습니다. 작은 x 는 급수
+  // asin(x)/x = 1 + x²/6 + 3x⁴/40 로 풉니다(x < 0.02 에서 오차 < 1e-11, 지상 127km 안 전부).
+  float x = clamp(s * cosE / A, 0.0, 1.0);
+  float safeRatio = x < 0.02
+    ? (s / A) * (1.0 + x * x * (1.0 / 6.0 + x * x * (3.0 / 40.0)))
+    : asin(x) / max(cosE, 1e-4);
 
   res.sDistKm = s;
   res.distRatio = A * safeRatio;
@@ -785,6 +831,13 @@ float slab_nomTau(int K){ return K == 0 ? TAUK_HIGH * 0.6 : (K == 1 ? TAUK_MID *
 float slab_nomR(int K, float g){ float tp = (1.0 - g) * slab_nomTau(K); return tp / (tp + 2.0); }
 
 uniform vec2  uRes;
+/**
+ * §117 지형 거리 판(합성기가 구름과 같은 해상도로 그린 것). 켜져 있으면 층마다 "구름까지 거리 > 지형까지
+ * 거리" 인 층을 건너뛰어 **스스로** 산 뒤로 숨습니다 — 그리는 순서(§94·§96·§116)도 DEM 행진도 필요 없습니다.
+ */
+uniform sampler2D uTerrainDist;
+uniform float uTerrainDistValid;
+${TERRAIN_DIST_GLSL}
 uniform mat4  uInvViewProj;
 uniform vec3  uCamPos;
 // 관측 고도에서 지평선이 내려앉은 만큼의 sin (음수). 지면과 구름이
@@ -806,6 +859,13 @@ uniform float uFogBeta, uFogBaseKm, uFogTopKm;
 // 두 번에 나눠 그리기(§96): 0 = 한 번에 다, 1 = 관측자 **위** 층만(산보다 먼저),
 // 2 = 관측자 **아래** 층(운해)과 구름 속 안개만(산보다 나중에).
 uniform float uPassMode;
+/**
+ * §116 — 산 앞의 구름을 산 **다음**(두 번째 판)에 그리는가. 1 이면 시선이 산에 막히고 구름이 그보다
+ * 가까운 화소를 첫 판에서 빼고 두 번째 판에서 그립니다. 그래야 구름 밑면보다 높은 산등성이가 구름에
+ * 덮입니다(스와 호숫가 2026-09-27: 산허리를 덮은 먹구름). CPU 가 지형이 있고 관측자 위 층의 밑면이
+ * 산 높이 안(2.5km 안)에 있을 때만 켭니다 — 두 번째 판이 화면 전체를 한 번 더 걷기 때문입니다.
+ */
+uniform float uRidgeClouds;
 uniform vec3  uFogBeam;
 uniform float uCityLight;
 uniform vec3  uBeamLow, uBeamMid, uBeamHigh;
@@ -908,10 +968,23 @@ void main(){
   //   (구례에서 능선 3,196화소 중 85개가 샘, 대부분 여기). 가장 가까운 층(저층)
   //   까지를 먼저 촘촘히 걷고, 안 막혔을 때만 그 너머를 걷습니다.
   float tBlockSky = 1e9;
+  // §116 — 위 §94 보정(그려진 능선 1.5화소 아래까지 안 자름) **전**의 자료상 가림 거리. 산 앞 구름을
+  // 두 번째 판으로 넘길지는 이것으로 가릅니다 — 보정 후 값으로 가르면 능선 밑 1.5화소 띠의 산 앞 구름을
+  // 두 번째 판이 안 그려, 능선 윤곽이 구름 위로 드러났습니다(verify-ridge-clouds).
+  float tHitData = 1e9;
+  // §117 — 지형 거리 판이 있으면 이 화소의 지형까지 거리를 그대로 읽습니다(그려진 지형 그 자체라 §94 의
+  // 능선 어긋남도 없음). 없으면(하네스·옛 경로) 아래의 DEM 행진이 대신합니다.
+  float tTerr = 1e9;
+  bool distOn = uTerrainDistValid > 0.5 && uTerrainOccludeSky > 0.5;
+  if (distOn) {
+    tTerr = terrainDistDecodeKm(texture2D(uTerrainDist, gl_FragCoord.xy / uRes));
+    tBlockSky = tTerr;
+    tHitData = tTerr;
+  }
   // 굽힌 지평선보다 0.3° 넘게 위면 걸어 봐야 안 막힙니다 — 건너뜁니다.
   bool belowRidge = uHorizonValid < 0.5
     || sinE < sin(radians(slab_horizonDeg(dir) + 0.3));
-  if (uTerrainOccludeSky > 0.5 && sinE > uHorizonSinE && belowRidge) {
+  if (!distOn && uTerrainOccludeSky > 0.5 && sinE > uHorizonSinE && belowRidge) {
     float tLow = min(slab_sphereIntersect(sinE, cosE,
       max(uLayerAltKm.x, uObserverAltKm + 0.01)).sDistKm, SLAB_SKY_OCCLUDE_KM);
     tBlockSky = slab_terrainHitSeg(dir, sinE, cosE, 0.0, tLow);
@@ -923,6 +996,7 @@ void main(){
     // 위**에서 그 흐린 알파 틈으로 구름 아래의 해가 샜습니다(요네자와 재현 42화소).
     // 그래서 구름을 그려진 능선보다 이 버퍼 1.5 화소 아래까지 그립니다 — 산이 구름 뒤에
     // 그려지는 경로(배율 > 1)에서는 산이 그 몫을 덮습니다.
+    tHitData = tBlockSky;
     if (uHorizonValid > 0.5
         && sinE > sin(radians(slab_meshHorizonDeg(dir)) - 1.5 * uPixelAngleRad)) tBlockSky = 1e9;
   }
@@ -1105,7 +1179,9 @@ void main(){
       ? max(uLowDeckKm.y - uLowDeckKm.x, 0.15) : hThick;
     bool layerBelow = uObserverAltKm > deckTop;
     if (uPassMode > 0.5 && uPassMode < 1.5 && layerBelow) continue;
-    if (uPassMode > 1.5 && !layerBelow) continue;
+    // §116 — 두 번째 판은 아래 층에 더해, 산에 막힌 시선의 **산 앞 구름**도 그립니다(아래에서 거리로 가름).
+    bool ridgeRay = uRidgeClouds > 0.5 && tHitData < 1e8;
+    if (uPassMode > 1.5 && !layerBelow && !ridgeRay) continue;
     // 덱 **속**(밑면 < 관측자 ≤ 윗면)이면 올려다본 구름이 관측자 바로 위에서
     // 시작합니다. 아래를 보면 안 그립니다(안개 상태는 그리지 않음 — §82.5).
     float hSurf = layerBelow ? deckTop : max(hBase, uObserverAltKm + 0.01);
@@ -1113,8 +1189,13 @@ void main(){
     if (!layerBelow && sinE <= uHorizonSinE) continue;
     if (!geom.hit) continue;
     // §83 — 운해(아래 층)만 땅과 견줍니다. 올려다보는 하늘은 예전 그대로.
-    if (layerBelow && slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm)) continue;
+    if (layerBelow && (distOn ? geom.sDistKm > tTerr : slab_terrainBlocks(dir, sinE, cosE, geom.sDistKm))) continue;
     if (!layerBelow && geom.sDistKm > tBlockSky) continue;
+    // 시선이 산에 막히고 이 층 구름이 산보다 **가까우면**, 나눠 그릴 때 그 구름은 첫 판(산 전)이 아니라
+    // 두 번째 판(산 다음)의 몫입니다 — 첫 판에 그리면 산이 그 위를 덮어 산이 구름 앞으로 나옵니다.
+    bool frontOfRidge = !layerBelow && ridgeRay && geom.sDistKm <= tHitData;
+    if (uPassMode > 0.5 && uPassMode < 1.5 && frontOfRidge) continue;
+    if (uPassMode > 1.5 && !layerBelow && !frontOfRidge) continue;
     vec2 km = dir.xz * geom.distRatio;
     // §105 — 이 구름 자리에서 본 해: 해쪽으로 떨어진 만큼(d/R) 높습니다. 방향·직달·노출 맞춤이
     // 모두 이 값을 씁니다. 관측자 둘레(d≈0)에서는 예전 층 값과 같습니다.
@@ -1850,7 +1931,7 @@ void main(){
                 : (sinE < -1e-4 ? (hObs - uFogBaseKm) / (-sinE) : 1e3);
     // 98% 를 넘는 거리 너머는 걷지 않습니다.
     float dMax = min(dExit, 4.0 / uFogBeta);
-    float dHit = slab_terrainHitSeg(dir, sinE, cosE, 0.0, dMax);
+    float dHit = distOn ? tTerr : slab_terrainHitSeg(dir, sinE, cosE, 0.0, dMax);
     // DEM 이 없으면 평평한 발밑(눈높이)만 압니다.
     if (dHit > 1e8 && uDemValid < 0.5 && uDemFarValid < 0.5 && sinE < -1e-4)
       dHit = (uEyeHeightM / 1000.0) / (-sinE);
@@ -1927,6 +2008,12 @@ export interface CloudSlabHandle {
    */
   setInCloud: (c: { cover: number; baseKm: number; topKm: number } | null) => void;
   /**
+   * §117 지형 거리 판(`SceneComposer.terrainDistanceTexture()`). 주면 슬랩이 층마다 지형 거리와 견줘 스스로
+   * 가립니다 — 합성기의 `setTerrainDistance(true)`(구름을 지형 **다음에** 얹음)와 함께 쓰고, 나눠 그리기
+   * (`setSplitPasses`)는 끕니다. null 이면 예전(DEM 행진·그리는 순서)으로 돌아갑니다.
+   */
+  setTerrainDistance: (tex: THREE.Texture | null) => void;
+  /**
    * 지형 높이장(§83·§84) — 구름을 땅이 가리게 합니다. TerrainField 와 **같은 패치**
    * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다. 렌더러를 주면
    * 지형 지평선을 한 번 구워 올려다보는 하늘의 걸음질을 줄입니다(없으면 다 걷습니다).
@@ -1991,19 +2078,7 @@ export function createCloudSlab(opts: {
   beamLut.needsUpdate = true;
 
   // ⚠ ALT_* 는 더 이상 치환하지 않습니다 — uLayerAltKm uniform 입니다.
-  const frag = FRAG
-    .replace(/CELL_LOW/g, cell.low.toFixed(2))
-    .replace(/CELL_MID/g, cell.mid.toFixed(2))
-    .replace(/CELL_HIGH/g, cell.high.toFixed(2))
-    .replace(/TAUK_LOW/g, tau.low.toFixed(2))
-    .replace(/TAUK_MID/g, tau.mid.toFixed(2))
-    .replace(/TAUK_HIGH/g, tau.high.toFixed(2))
-    .replace(/SHAPE_MEAN_LOW/g, shapeMean.low.toFixed(4))
-    .replace(/SHAPE_MEAN_MID/g, shapeMean.mid.toFixed(4))
-    .replace(/SHAPE_MEAN_HIGH/g, shapeMean.high.toFixed(4))
-    .replace(/SHAPE_SIGR_LOW/g, shapeSigRatio.low.toFixed(4))
-    .replace(/SHAPE_SIGR_MID/g, shapeSigRatio.mid.toFixed(4))
-    .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
+  const frag = substituteSlabConstants(FRAG, { cell, tau, shapeMean, shapeSigRatio });
 
   let horizonTarget: THREE.WebGLRenderTarget | null = null;
   let bandTex: THREE.DataTexture | null = null;
@@ -2012,6 +2087,9 @@ export function createCloudSlab(opts: {
     uniforms: {
       ...makeTuningUniforms(),
       uRes: { value: new THREE.Vector2(1, 1) },
+      // 샘플러는 늘 묶어 둡니다(안 묶인 sampler2D 는 기기에 따라 경고·검정). 흰 1×1 = "지형 없음".
+      uTerrainDist: { value: NO_TERRAIN_DIST_TEX },
+      uTerrainDistValid: { value: 0 },
       uInvViewProj: { value: new THREE.Matrix4() },
       uCamPos: { value: new THREE.Vector3() },
       uHorizonSinE: { value: 0 },
@@ -2038,6 +2116,7 @@ export function createCloudSlab(opts: {
       uSkyAdd: { value: new THREE.Vector3(0, 0, 0) },
       uFogBeta: { value: 0 },
       uPassMode: { value: 0 },
+      uRidgeClouds: { value: 0 },
       uFogBaseKm: { value: -1 },
       uFogTopKm: { value: -1 },
       uFogBeam: { value: new THREE.Vector3(0, 0, 0) },
@@ -2226,6 +2305,10 @@ export function createCloudSlab(opts: {
         && Number.isFinite(topKm) && topKm > baseKm && baseKm >= 0 && topKm < 6;
       if (ok) v.set(baseKm as number, topKm as number); else v.set(-1, -1);
     },
+    setTerrainDistance: (tex) => {
+      material.uniforms.uTerrainDist.value = tex ?? NO_TERRAIN_DIST_TEX;
+      material.uniforms.uTerrainDistValid.value = tex ? 1 : 0;
+    },
     setInCloud: (c) => {
       const un = material.uniforms;
       const ok = !!c && Number.isFinite(c.cover) && c.cover > 0 && Number.isFinite(c.baseKm)
@@ -2369,10 +2452,21 @@ export interface CoverageSource {
  * 16,384 회가 배로 늡니다.
  */
 export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSource): void {
-  const size = handle.coverTex.image.width as number;
-  const data = handle.coverTex.image.data as Uint8Array;
-  const genusData = handle.genusTex.image.data as Uint8Array;
-  const R = handle.rangeKm;
+  bakeCoverageData(
+    handle.coverTex.image.data as Uint8Array, handle.genusTex.image.data as Uint8Array,
+    handle.coverTex.image.width as number, handle.rangeKm, src,
+  );
+  handle.coverTex.needsUpdate = true;
+  handle.genusTex.needsUpdate = true;
+}
+
+/**
+ * 운량장·운형장 자료를 굽습니다(제곱근 사상, `slab_coverUv` 의 역). 슬랩과 위에서 본
+ * 구름(§120)이 **같은 굽기**를 쓰게 따로 뺐습니다.
+ */
+export function bakeCoverageData(
+  data: Uint8Array, genusData: Uint8Array, size: number, R: number, src: CoverageSource,
+): void {
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
       // uv → 제곱근 사상의 역: r = |p|, d = R·r²
@@ -2396,8 +2490,6 @@ export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSour
       genusData[k] = g; genusData[k + 1] = g; genusData[k + 2] = g; genusData[k + 3] = 255;
     }
   }
-  handle.coverTex.needsUpdate = true;
-  handle.genusTex.needsUpdate = true;
 }
 
 export interface CloudSlabUpdate {
@@ -2558,9 +2650,13 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
       const d = lutTex.image.data as Uint8Array;
       const rows: [number, RGB][] = [[alt.z, bh], [alt.y, bm], [alt.x, bl]];   // 행 0 상층 · 1 중층 · 2 저층
       const enc = (v: number) => (v < 2 ** -16 ? 0 : Math.max(1, Math.min(255, Math.round((Math.log2(v) + 16) / 16 * 255))));
-      // §106 — 표는 광선 적분(grazingRay)으로. 높이는 해면 기준(관측 고도 + 층 높이).
+      // §106 — 표는 광선 적분(grazingRay)으로. 높이는 **층 높이 그대로**(해면 기준)입니다.
+      // ⚠ §118 — 예전에는 `관측 고도 + 층 높이` 에서 적분했습니다. 층 높이(uLayerAltKm)는 예보 기압면의
+      //   지오퍼텐셜 높이라 이미 해면 기준이고, 셰이더도 관측자 해발 고도와 같은 틀로 교점을 풉니다
+      //   (slab_sphereIntersect 의 A·B). 그래서 해발 760m(스와)의 1.2km 구름을 1.96km 에서 비췄습니다 —
+      //   해 0° 에 1.75배, 해 −1° 에 3.2배 밝고 덜 붉었습니다(해발 0 에서는 차이 없음).
       // 호출부 beamFor 가 표준 식(beamAtAltitude)에서 벗어난 만큼(보통 1)은 채널별로 그대로 곱합니다.
-      const obsKmSea = Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000;
+      // beamFor 와 beamAtAltitude 는 **같은 인자**로 부르므로 이 비는 높이 틀과 무관합니다.
       rows.forEach(([km, b0], row) => {
         const ref = beamAtAltitude(lightAlt, km, u.atmosphere);
         const k = BEAM_TO_SLAB * (lightByMoon ? ml.gain : 1);
@@ -2568,7 +2664,7 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
         const rr = ratio('r'), rg = ratio('g'), rb = ratio('b');
         for (let i = 0; i < BEAM_LUT_N; i++) {
           const dDeg = -BEAM_LUT_SPAN + (2 * BEAM_LUT_SPAN * i) / (BEAM_LUT_N - 1);
-          const b = beamGrazing(lightAlt + dDeg, obsKmSea + km, u.atmosphere);
+          const b = beamGrazing(lightAlt + dDeg, km, u.atmosphere);
           const o = (row * BEAM_LUT_N + i) * 4;
           d[o] = enc(b.r * rr); d[o + 1] = enc(b.g * rg); d[o + 2] = enc(b.b * rb);
           d[o + 3] = Math.max(0, Math.min(255, Math.round(b.refrDeg / 2 * 255)));
@@ -2586,11 +2682,21 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
     const lowSurf = lowDeck.y > 0 ? Math.max(lowDeck.y, alt.x) : alt.x;
     const fogOn = (uni.uFogBeta.value as number) > 0
       && obsKm > (uni.uFogBaseKm.value as number) && obsKm < (uni.uFogTopKm.value as number);
-    handle.meshBelow.visible = fogOn || obsKm > lowSurf || obsKm > alt.y || obsKm > alt.z;
+    // §116 — 지형(DEM)이 있고, 관측자 위 층 가운데 밑면이 관측자보다 2.5km 안에 있는 층이 있으면 산이 그
+    // 구름을 뚫고 올라갈 수 있습니다. 그때만 산 앞 구름을 두 번째 판으로 넘깁니다.
+    const demOn = (uni.uDemValid.value as number) > 0.5 || (uni.uDemFarValid.value as number) > 0.5;
+    const basesAbove = [alt.x, alt.y, alt.z].filter(h => h > obsKm);
+    const ridgeClouds = demOn && (uni.uTerrainOccludeSky.value as number) > 0.5
+      && basesAbove.some(h => h - obsKm < RIDGE_CLOUD_REACH_KM);
+    uni.uRidgeClouds.value = ridgeClouds ? 1 : 0;
+    handle.meshBelow.visible = fogOn || ridgeClouds || obsKm > lowSurf || obsKm > alt.y || obsKm > alt.z;
   }
-  // 구름 속 안개가 받는 직달광 — 관측 고도에서(§93). 안개가 꺼져 있으면 안 구합니다.
+  // 구름 속 안개가 받는 직달광 — 관측자 자리에서(§93). 안개가 꺼져 있으면 안 구합니다.
+  // ⚠ §118 — beamFor(h) 의 h 는 **관측자 위 높이**입니다(지면 = 0, 곧 beamAtAltitude(해, 0) 이 관측자
+  //   자리). 예전에는 관측자 해발 고도를 넘겨 그 두 배 높이에서 비췄습니다(해발 1600m 산 위 안개를
+  //   3200m 에서 — 해 30° 에 43% 밝게).
   if ((uni.uFogBeta.value as number) > 0) {
-    const bf = beamOf(Math.max(0, u.atmosphere.observerElevM ?? 0) / 1000);
+    const bf = beamOf(0);
     (uni.uFogBeam.value as THREE.Vector3).set(bf.r, bf.g, bf.b);
   }
 

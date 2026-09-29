@@ -107,7 +107,7 @@ import {
   LAYER_SOFT_CLOUD,
   LAYER_FRONT,
   LAYER_CELESTIAL,
-  LAYER_SOFT_CLOUD_BELOW,
+  LAYER_TERRAIN_DIST,
   type SceneComposerHandle,
 } from './SceneComposer';
 import {
@@ -932,6 +932,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainField.mesh.visible = false;
     scene.add(terrainField.mesh);
     assignLayer(terrainField.mesh, LAYER_MID);
+    // §117 — 지형 거리 판의 쌍둥이(합성기가 구름 해상도로 따로 그림). 보임은 격자를 따라갑니다.
+    terrainField.distMesh.visible = false;
+    scene.add(terrainField.distMesh);
+    assignLayer(terrainField.distMesh, LAYER_TERRAIN_DIST);
     terrainFieldRef.current = terrainField;
 
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
@@ -1047,14 +1051,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const cloudSlab = createCloudSlab();
     scene.add(cloudSlab.mesh);
     assignLayer(cloudSlab.mesh, LAYER_SOFT_CLOUD);
-    // §96 — 구름을 두 번에 나눠 그립니다. 하늘 구름(mesh)은 산보다 먼저, 발밑 운해와 구름 속
-    // 안개(meshBelow)는 산보다 나중에. 한 번에 그리는 경로(배율 1)도 같은 순서가 되게
-    // renderOrder 를 둡니다 — 별 −0.5 < 하늘 구름 −0.49 < 지형 −0.48 … < 운해 0.5.
-    cloudSlab.setSplitPasses(true);
+    // §117 — 구름은 **한 번에**, 지형 **다음에** 얹습니다. 겹침은 그리는 순서가 아니라 지형 거리 판으로
+    // 가립니다: 슬랩이 화소마다 층별 구름 거리와 지형 거리를 견줘, 산 앞 구름은 산 위에, 산 뒤 구름은 산
+    // 뒤에, 발밑 운해는 가까운 사면 뒤에 저절로 놓입니다. 예전의 두 번 나눠 그리기(§96)와 산 앞 구름만
+    // 뒤로 넘기기(§116), 능선 보정(§94)은 이 경로에서 쓰지 않습니다(슬랩의 meshBelow 는 숨긴 채).
+    // 한 번에 그리는 경로(배율 1)에서는 슬랩이 투명이라 불투명한 지형 뒤에 그려집니다 — 순서가 같습니다.
+    cloudSlab.setSplitPasses(false);
     cloudSlab.mesh.renderOrder = -0.49;
-    cloudSlab.meshBelow.renderOrder = 0.5;
-    scene.add(cloudSlab.meshBelow);
-    assignLayer(cloudSlab.meshBelow, LAYER_SOFT_CLOUD_BELOW);
     cloudSlabRef.current = cloudSlab;
     cloudDeck.group.visible = false;
     cloudField.mesh.visible = false;
@@ -1072,6 +1075,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       DEFAULT_SOFT_SCALE
     );
     composerRef.current = composer;
+    // §117 지형 거리 판 — 합성기가 그리고 구름 슬랩이 읽습니다.
+    composer.setTerrainDistance(true);
+    cloudSlab.setTerrainDistance(composer.terrainDistanceTexture());
 
     // 초기 업데이트
     updateScene();

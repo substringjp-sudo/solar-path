@@ -82,6 +82,24 @@ export const isRadarScale = (longitudeDeltaDeg: number, lat: number): boolean =>
   return km >= RADAR_MIN_VIEW_KM && km <= RADAR_MAX_VIEW_KM;
 };
 
+/**
+ * **구 위에서는 문턱이 다릅니다** (§120).
+ *
+ * 평면 지도의 위 문턱(화면 폭 760km)은 "원반이 화면을 못 덮으면 자료 없는
+ * 바다에 섬만 뜬다" 는 이유였습니다. 구에서는 그 섬이 **바로 보여야 할 것**입니다
+ * — 우주에서 내려다본 둘레 380km 입니다. 대신 너무 작으면 칸을 못 읽으므로,
+ * 원반 반지름이 이 px 아래면 안 그립니다. 가장 바깥 칸(방위 30°, 고리 280~380km)
+ * 이 이때 호 길이 약 7px · 두께 약 4px 입니다.
+ */
+export const GLOBE_RADAR_MIN_PX = 14;
+
+/** 정사영 구(반지름 R px) 위에서 원반(380km)의 반지름(px) — 한가운데에 있을 때. */
+export const radarDiskPx = (globeRadiusPx: number): number =>
+  globeRadiusPx * Math.sin(RADAR_RADIUS_KM / 6371);
+
+export const isGlobeRadarScale = (globeRadiusPx: number): boolean =>
+  radarDiskPx(globeRadiusPx) >= GLOBE_RADAR_MIN_PX;
+
 const RAD = Math.PI / 180;
 const DEG = 180 / Math.PI;
 const EARTH_KM = 6371;
@@ -95,6 +113,34 @@ const dest = (lat: number, lon: number, distKm: number, bearing: number) => {
   );
   return { latitude: p2 * DEG, longitude: ((l2 * DEG + 540) % 360) - 180 };
 };
+
+/**
+ * 바람 화살표 — 관측점에서 `toBearingDeg` 쪽으로, 길이는 **한 시간 동안 갈
+ * 거리**입니다. 임의의 길이를 쓰면 화살표가 뜻 없는 장식이 됩니다.
+ */
+export function windArrow(lat: number, lon: number, toBearingDeg: number, speedKmh: number) {
+  const R = 6371, RADD = Math.PI / 180, DEGG = 180 / Math.PI;
+  const go = (distKm: number, brg: number) => {
+    const d = distKm / R, b = brg * RADD, p1 = lat * RADD;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+    const l2 = lon * RADD + Math.atan2(
+      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
+  };
+  const len = Math.max(8, Math.min(380, speedKmh));      // 한 시간치
+  const tip = go(len, toBearingDeg);
+  // 화살촉: 끝점에서 뒤로 두 갈래.
+  const back = (off: number) => {
+    const p = go(len, toBearingDeg);
+    const R2 = 6371;
+    const d = (len * 0.16) / R2, b = (toBearingDeg + 180 + off) * RADD, p1 = p.latitude * RADD;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+    const l2 = p.longitude * RADD + Math.atan2(
+      Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    return { latitude: p2 * DEGG, longitude: ((l2 * DEGG + 540) % 360) - 180 };
+  };
+  return [{ latitude: lat, longitude: lon }, tip, back(28), tip, back(-28)];
+}
 
 export interface RadarCell {
   /** 섹터 테두리 (닫힌 다각형). */
@@ -156,8 +202,12 @@ export const buildRadarFrame = (
   lon: number,
   timeMs: number,
   longitudeDeltaDeg: number,
+  opts?: { globeRadiusPx?: number },
 ): RadarFrame | null => {
-  if (!isRadarScale(longitudeDeltaDeg, lat)) return null;
+  // 구에서는 화면 폭이 아니라 **원반이 몇 px 인가**로 정합니다(`isGlobeRadarScale`).
+  if (opts?.globeRadiusPx != null) {
+    if (!isGlobeRadarScale(opts.globeRadiusPx)) return null;
+  } else if (!isRadarScale(longitudeDeltaDeg, lat)) return null;
   if (!ring || ring.length < 2) return null;
 
   /** 그 시각의 인덱스. */

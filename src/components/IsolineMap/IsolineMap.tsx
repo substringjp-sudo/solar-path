@@ -4,10 +4,13 @@ import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe, MapPin, Cr
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
-import { buildRadarFrame, isRadarScale } from '../../utils/cloudRadar';
+import { buildRadarFrame, isRadarScale, isGlobeRadarScale } from '../../utils/cloudRadar';
 import { fetchDayWeatherRing, CloudPathData } from '../../utils/weather';
 import { localDateString } from '../../utils/localDate';
-import { mapModeFor, globeProgress, deltaForStretch, GLOBE_STRETCH } from '../../utils/mapProjection';
+import {
+  mapModeFor, globeProgress, deltaForStretch, nextGlobeLatch, globeRadiusForDelta, deltaForGlobeRadius,
+  globeFitRadius, GLOBE_EXIT_STRETCH, SILHOUETTE_STRETCH,
+} from '../../utils/mapProjection';
 import { canPickLocation, locationTapAction, solarBadgeMaxWidth, bottomLeftMaxWidth } from '../../utils/locationPick';
 import * as Location from 'expo-location';
 import { LandSilhouette } from './LandSilhouette';
@@ -17,6 +20,7 @@ import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
 import { MapGlobe } from './MapGlobe';
+import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
 
@@ -50,8 +54,16 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   //   가 전부 엉뚱한 곳을 가리킵니다. 같은 값에서 출발시킵니다.
   const [region, setRegion] = useState({ latitude: lat, longitude: lon, longitudeDelta: 60 });
   const [bodySize, setBodySize] = useState({ width: 0, height: 0 });
-  const [projectionType, setProjectionType] = useState<'2D' | '3D'>('2D');
-  const [globeScale, setGlobeScale] = useState(150);
+  /**
+   * 구로 그리는 중인가 — 축척이 정하되 **직전 상태를 기억합니다**(§119).
+   *
+   * ⚠ 예전에는 구로 넘어가면 지도가 내려가 `longitudeDelta` 를 더는 알려 주지
+   *   않아, 구에서 **다시 지도로 돌아올 길이 없었습니다.** 처음 여는 축척
+   *   (화면 폭 60°)이 서울에서 이미 구라서 탭을 열면 늘 구에 갇혔습니다. 이제
+   *   구도 손을 뗄 때 한가운데와 축척을 알려 주고(`onGlobeView`), 같은 문턱으로
+   *   돌아옵니다.
+   */
+  const [globeOn, setGlobeOn] = useState(() => nextGlobeLatch(false, lat, 60));
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
@@ -98,19 +110,13 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
 
   // 줌 레벨에 따라 제공될 등시선 시간 간격 (4시간, 2시간, 1시간, 30분) - 렉 방지용 하한선 30분 지정
+  // ⚠ 구도 손을 뗄 때 같은 축척(`longitudeDelta`)으로 알려 주므로 한 자로 셉니다.
   const step = useMemo(() => {
-    if (projectionType === '2D') {
-      if (longitudeDelta >= 180) return 240; // 4시간
-      if (longitudeDelta >= 90) return 120;  // 2시간
-      if (longitudeDelta >= 40) return 60;   // 1시간
-      return 30;                             // 30분
-    } else {
-      if (globeScale <= 120) return 240;     // 4시간
-      if (globeScale <= 250) return 120;     // 2시간
-      if (globeScale <= 500) return 60;      // 1시간
-      return 30;                             // 30분
-    }
-  }, [projectionType, longitudeDelta, globeScale]);
+    if (longitudeDelta >= 180) return 240; // 4시간
+    if (longitudeDelta >= 90) return 120;  // 2시간
+    if (longitudeDelta >= 40) return 60;   // 1시간
+    return 30;                             // 30분
+  }, [longitudeDelta]);
 
   /**
    * 좁은 축척에서 지도에 얹을 **태양 오버레이**. 넓으면 null 입니다.
@@ -123,8 +129,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
    * ⚠ 3D 지구본에는 안 붙입니다 — 거기서는 축척이 늘 넓습니다.
    */
   const sunOverlay = useMemo(
-    () => (projectionType === '2D' ? buildSunOverlay(selectedDate, lat, lon, longitudeDelta) : null),
-    [projectionType, selectedDate, lat, lon, longitudeDelta],
+    () => (!globeOn ? buildSunOverlay(selectedDate, lat, lon, longitudeDelta) : null),
+    [globeOn, selectedDate, lat, lon, longitudeDelta],
   );
   const isLocalScale = sunOverlay !== null;
 
@@ -141,7 +147,14 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     () => localDateString(selectedDate) === localDateString(new Date()),
     [selectedDate],
   );
-  const wantRadar = isToday && projectionType === '2D' && isRadarScale(longitudeDelta, lat);
+  /**
+   * 구에서는 원반이 몇 px 인가로 정합니다(§120). 구의 반지름은 구가 손을 뗄 때
+   * 알려 준 축척에서 되찾습니다 — 같은 식(`globeRadiusForDelta`)이라 어긋나지 않습니다.
+   */
+  const globeRadiusNow = globeOn
+    ? globeRadiusForDelta(region.latitude, longitudeDelta, bodySize.width || width)
+    : 0;
+  const wantRadar = isToday && (globeOn ? isGlobeRadarScale(globeRadiusNow) : isRadarScale(longitudeDelta, lat));
 
   useEffect(() => {
     if (!wantRadar) return;
@@ -152,10 +165,22 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     return () => { alive = false; };
   }, [wantRadar, lat, lon]);
 
+  /**
+   * 구름을 무엇으로 보나 — 자료 칸(레이더) · 하늘 탭의 구름을 위에서 본 것(시뮬레이션, §120 B).
+   * 구와 평면 지도(네이티브 지도 겹) 둘 다에 얹습니다. 웹 미리보기 지도는 겹이 없어 구에서만.
+   */
+  const [cloudView, setCloudView] = useState<'radar' | 'sim'>('radar');
+
   const radar = useMemo(
-    () => (wantRadar ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta) : null),
-    [wantRadar, ring, lat, lon, selectedDate, longitudeDelta],
+    () => (wantRadar
+      ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta,
+        globeOn ? { globeRadiusPx: globeRadiusNow } : undefined)
+      : null),
+    [wantRadar, ring, lat, lon, selectedDate, longitudeDelta, globeOn, globeRadiusNow],
   );
+  // ⚠ 구에서는 원반이 폭 100px 남짓에서 지도로 넘어가 무늬가 작게만 보입니다. 그래서 평면
+  //   지도의 레이더 축척에도 같은 그림을 얹습니다(네이티브 지도 겹).
+  const topView = useCloudTopView(ring, selectedDate.getTime(), cloudView === 'sim' && !!radar);
 
   /**
    * 축척이 정하는 그리기 모드 — 타일 → 실루엣 → 구.
@@ -168,14 +193,99 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     () => mapModeFor(region.latitude, longitudeDelta),
     [region.latitude, longitudeDelta],
   );
-  /** 구가 부풀어 오르는 진행도 0~1. 모서리 반지름을 여기에 이어 둡니다. */
+  /**
+   * ⚠ 구에서 **돌리기만 했을 때**는 지도로 나가지 않습니다. 같은 반지름이라도
+   *   한가운데가 적도로 오면 늘어남이 1.8 아래라, 이것이 없으면 적도로 끌어
+   *   놓는 순간 지도로 바뀌었습니다. 나가는 것은 확대로만 합니다.
+   */
+  const globeHoldRef = useRef(false);
+  useEffect(() => {
+    const hold = globeHoldRef.current;
+    globeHoldRef.current = false;
+    setGlobeOn(prev => (prev && hold ? true : nextGlobeLatch(prev, region.latitude, longitudeDelta)));
+  }, [region.latitude, longitudeDelta]);
+  const showGlobe = globeOn;
+  /** 구가 부풀어 오르는 진행도 0~1. 모서리 반지름을 여기에 이어 둡니다. 구에서는 늘 원입니다. */
   const morph = useMemo(
-    () => globeProgress(region.latitude, longitudeDelta),
-    [region.latitude, longitudeDelta],
+    () => (showGlobe ? 1 : globeProgress(region.latitude, longitudeDelta)),
+    [showGlobe, region.latitude, longitudeDelta],
   );
-  // 사용자가 버튼으로 3D 를 고르면 그대로 둡니다. 2D 일 때만 축척이 정합니다.
-  const showGlobe = projectionType === '3D' || autoMode === 'globe';
-  const showSilhouette = !showGlobe && autoMode === 'silhouette';
+  // ⚠ 구에서 줌을 당겨 돌아온 직후(늘어남 1.8~2.0)는 실루엣 띠입니다 — 같은 그림체로 내려옵니다.
+  const showSilhouette = !showGlobe && autoMode !== 'tiles';
+
+  /**
+   * 카드 모서리 반지름과, 네 구석의 버튼·글씨가 물러설 거리.
+   *
+   * ⚠ 구로 갈수록 카드가 둥글어져(아래 `borderRadius`) 구석에 놓인 배지·범례·
+   *   버튼이 **깎여 나갔습니다**(§120 에서 구에 레이더 읽기값을 띄우며 드러남).
+   *   반지름 r 인 모서리에서 상자 귀퉁이가 호의 45° 점에 닿으려면 두 변에서
+   *   r·(1 − 1/√2) ≈ 0.293r 물러서면 됩니다 — 상자의 나머지는 호 안쪽입니다.
+   */
+  //
+  //   처음에는 물러서기만 했는데, 구에서 반지름이 짧은 변의 절반(181px)까지 커져
+  //   물러설 거리가 53px 이 되자 **위쪽 배지와 버튼이 서로 겹쳤습니다**(웹 실측).
+  //   그래서 반지름에 상한을 둡니다 — 구 자체가 둥글므로 카드까지 원이 될 까닭이
+  //   없습니다. §75.5 의 "원이 부풀어 오른다" 는 모서리가 14 → 44px 로 둥글어지는
+  //   것으로 줄었습니다.
+  const CARD_RADIUS_MAX = 44;
+  const cardRadius = Math.min(
+    14 + morph * (CARD_RADIUS_MAX - 14),
+    Math.min(bodySize.width, bodySize.height) / 2 || 14,
+  );
+  const cornerInset = Math.max(10, 0.293 * cardRadius);
+  const inset = cornerInset - 10;
+
+  /**
+   * 지도가 다시 뜰 때 볼 곳. ⚠ 지도는 `initialRegion` 을 **처음 뜰 때만** 읽으므로,
+   * 구에서 돌아올 때 구가 보던 곳을 여기에 담아 둡니다(예전에는 늘 사용자 위치·
+   * 화면 폭 60° 로 떴습니다). 지도가 떠 있는 동안은 바꿀 까닭이 없어 모드가
+   * 바뀔 때만 새로 잡습니다.
+   */
+  const mapStart = useMemo(
+    () => ({ latitude: region.latitude, longitude: region.longitude, longitudeDelta }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showGlobe],
+  );
+
+  /** 구의 반지름 범위(px). 작게는 구 둘레가 화면에 다 들고, 크게는 지도로 돌아가는 문턱을 조금 넘습니다. */
+  const globeRange = useMemo(() => {
+    const W = bodySize.width || width;
+    const fit = globeFitRadius(W, bodySize.height || width);
+    const exitDelta = deltaForStretch(region.latitude, GLOBE_EXIT_STRETCH);
+    const exitR = exitDelta ? globeRadiusForDelta(region.latitude, exitDelta, W) : fit * 6;
+    return { min: fit * 0.6, max: Math.max(fit * 2, exitR * 1.6) };
+  }, [bodySize.width, bodySize.height, width, region.latitude]);
+
+  /** 구에서 손을 뗄 때 — 구가 보던 한가운데와 같은 축척의 지도 폭을 상태로 올립니다. */
+  const onGlobeView = useCallback((v: { latitude: number; longitude: number; radius: number; zoomedIn: boolean }) => {
+    const W = bodySize.width || width;
+    globeHoldRef.current = !v.zoomedIn;
+    const d = Math.min(360, deltaForGlobeRadius(v.latitude, v.radius, W));
+    liveRegionRef.current = { latitude: v.latitude, longitude: v.longitude };
+    setLongitudeDelta(d);
+    setRegion({ latitude: v.latitude, longitude: v.longitude, longitudeDelta: d });
+  }, [bodySize.width, width]);
+
+  /**
+   * 구 ↔ 지도 버튼. 지금 보이는 것의 반대로 갑니다 — 구로 갈 때는 구 둘레가
+   * 다 보이는 축척, 지도로 갈 때는 타일이 뜨는 축척입니다. 둘 다 **같은
+   * 한가운데**에서 넘어갑니다.
+   */
+  const toggleGlobe = useCallback(() => {
+    const W = bodySize.width || width;
+    const H = bodySize.height || width;
+    const { latitude, longitude } = liveRegionRef.current;
+    let d: number;
+    if (showGlobe) {
+      d = (deltaForStretch(latitude, SILHOUETTE_STRETCH) ?? 40) * 0.9;
+    } else {
+      d = Math.min(360, deltaForGlobeRadius(latitude, globeFitRadius(W, H), W));
+    }
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    setLongitudeDelta(d);
+    setRegion({ latitude, longitude, longitudeDelta: d });
+    setGlobeOn(!showGlobe);
+  }, [showGlobe, bodySize.width, bodySize.height, width]);
 
   /**
    * 한가운데를 집을 수 있는 축척인가. 문턱은 **지형 표본의 가장 바깥 고리
@@ -231,7 +341,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const allTerminators = useMemo(() => {
     // 좁은 축척에서는 안 그리므로 만들지도 않습니다 — 하루치 터미네이터를
     // 48번 계산하는 일이라 그냥 두면 값만 버립니다.
-    if (!isIsolineScale(longitudeDelta) && projectionType === '2D') return [];
+    if (!isIsolineScale(longitudeDelta) && !globeOn) return [];
     const list = [];
     const base = new Date(dateKey);
     base.setUTCHours(0, 0, 0, 0);
@@ -246,7 +356,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       });
     }
     return list;
-  }, [dateKey, step, longitudeDelta, projectionType]);
+  }, [dateKey, step, longitudeDelta, globeOn]);
 
   const nightPolygonCoords = useMemo(() => {
     try {
@@ -342,11 +452,19 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
              * 오르는 것으로 읽힙니다. 동네 축척에서는 진행도가 0 이라 평소의
              * 둥근 사각형 그대로입니다 — 화면을 낭비하지 않습니다.
              */
-            borderRadius: 14 + morph * (Math.max(bodySize.width, bodySize.height) / 2 - 14),
+            borderRadius: cardRadius,
           },
         ]}
         onLayout={(e) => {
           const { width: w, height: h } = e.nativeEvent.layout;
+          // 구로 여는 첫 화면은 구 둘레가 다 보이는 축척으로 — 화면 폭 60° 그대로면
+          // 서울에서 구가 카드보다 커서 잘린 채 시작합니다. 칸 크기를 알아야 셀 수 있어
+          // 첫 배치 때 한 번만 합니다.
+          if (bodySize.width === 0 && w > 0 && globeOn) {
+            const d = Math.min(360, deltaForGlobeRadius(region.latitude, globeFitRadius(w, h), w));
+            setLongitudeDelta(d);
+            setRegion(r => ({ ...r, longitudeDelta: d }));
+          }
           setBodySize(prev => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
         }}
         onTouchStart={() => useCelestialStore.getState().setGestureBlocked(true)}
@@ -363,12 +481,14 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             allTerminators={allTerminators}
             nightPolygonCoords={nightPolygonCoords}
             onRegionChangeComplete={handleRegionChangeComplete}
+            startRegion={mapStart}
             theme={theme}
             selectedDate={selectedDate}
             sunOverlay={sunOverlay}
             radar={radar}
+            topView={topView}
           />
-        ) : (
+        ) : bodySize.width > 0 && (
           <MapGlobe
             subsolar={subsolar}
             terminator={terminator}
@@ -378,9 +498,16 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             hasLocation={!!location}
             theme={theme}
             isActive={isActive}
-            initialScale={globeScale}
+            width={bodySize.width}
+            height={bodySize.height}
+            initialCenter={region}
+            initialRadius={globeRadiusForDelta(region.latitude, longitudeDelta, bodySize.width)}
+            minRadius={globeRange.min}
+            maxRadius={globeRange.max}
+            onViewChange={onGlobeView}
+            radar={radar}
+            topView={topView}
             selectedDate={selectedDate}
-            onScaleChange={setGlobeScale}
           />
         )}
 
@@ -391,11 +518,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         <TouchableOpacity
-          onPress={() => setProjectionType((p) => (p === '2D' ? '3D' : '2D'))}
-          style={[styles.projectionBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          onPress={toggleGlobe}
+          style={[styles.projectionBtn, { top: 10 + inset, right: 48 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
-          {projectionType === '2D' ? (
+          {!showGlobe ? (
             <Globe size={16} color={theme.text} />
           ) : (
             <Compass size={16} color={theme.accent} />
@@ -404,7 +531,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
         <TouchableOpacity
           onPress={() => setGuideVisible(true)}
-          style={[styles.guideBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.guideBtn, { top: 10 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
           <Info size={16} color={theme.text} />
@@ -417,7 +544,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           onPress={onLocationTap}
           onLongPress={() => setLocMenuOpen(true)}
           delayLongPress={350}
-          style={[styles.locBtn, { backgroundColor: theme.glass, borderColor: theme.border }]}
+          style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
           <MapPin size={16} color={pickable ? theme.accent : theme.text} />
@@ -433,7 +560,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {locMenuOpen && (
-          <View style={[styles.locMenu, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
             <TouchableOpacity style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
               <Crosshair size={13} color={theme.accent} />
               <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
@@ -483,7 +610,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {/* 지도 우측 상단 태양 정보 오버레이 배지 */}
-        <View style={[styles.solarOverlay, { backgroundColor: theme.glass, borderColor: theme.border, maxWidth: badgeMaxWidth }]}>
+        <View style={[styles.solarOverlay, { top: 10 + inset, left: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border, maxWidth: badgeMaxWidth - 2 * inset }]}>
           <View style={styles.solarOverlayItem}>
             <Sun size={11} color="#FFD700" />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
@@ -513,7 +640,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
                ⚠ 이 둘이 예전에 **같은 자리**에 절대 좌표로 놓여 겹쳤습니다.
                이제 한 세로줄이 쌓으므로 한쪽 높이가 바뀌어도 안 부딪힙니다. */}
-        <View style={[styles.bottomLeft, { maxWidth: bottomLeftWidth }]}>
+        <View style={[styles.bottomLeft, { left: 10 + inset, bottom: 8 + inset, maxWidth: bottomLeftWidth - inset }]}>
           {radar && (
             <View style={[styles.cloudReadout, { backgroundColor: theme.glass, borderColor: theme.border }]}>
               <Text style={[styles.cloudReadoutTitle, { color: theme.text }]} numberOfLines={1}>
@@ -537,9 +664,23 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
               <View style={styles.legendItem}>
                 <View style={[styles.legendLine, { backgroundColor: 'rgba(226,232,240,0.75)' }]} />
                 <Text style={[styles.legendText, { color: theme.subText }]}>
-                  구름 · 바깥 칸 {Math.round(radar.outerSpacingKm)}km
+                  {topView
+                    ? '구름 · 시뮬레이션 (잔 무늬는 지어낸 것)'
+                    : `구름 · 바깥 칸 ${Math.round(radar.outerSpacingKm)}km`}
                 </Text>
               </View>
+            )}
+            {/* 자료 칸 ↔ 하늘 탭의 구름을 위에서 본 것. 웹 미리보기 지도는 겹이 없어 구에서만. */}
+            {radar && (Platform.OS !== 'web' || showGlobe) && (
+              <TouchableOpacity
+                onPress={() => setCloudView(v => (v === 'radar' ? 'sim' : 'radar'))}
+                style={[styles.legendItem, styles.cloudViewToggle, { borderColor: theme.border }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.legendText, { color: theme.text }]}>
+                  {cloudView === 'radar' ? '시뮬레이션으로 보기' : '자료 칸으로 보기'}
+                </Text>
+              </TouchableOpacity>
             )}
             {isLocalScale ? (
               <>
@@ -571,7 +712,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                좁은 축척에서만 뜹니다. 지도 평면은 방위는 그려도 **고도**를
                못 그립니다 — 그건 이 원만 가진 값입니다. */}
         {isLocalScale && (
-          <View style={[styles.polarInset, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.polarInset, { right: 10 + inset, bottom: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
             <SunAzimuthView theme={theme} currentTime={selectedDate} compact />
           </View>
         )}
@@ -813,6 +954,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  cloudViewToggle: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
   },
   legendItem: {
     flexDirection: 'row',

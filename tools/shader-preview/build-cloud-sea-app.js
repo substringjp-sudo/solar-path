@@ -76,6 +76,7 @@ const ground=createGroundPlane(); setGroundHorizon(ground,OBS_M); scene.add(grou
 const field=createTerrainField({eyeHeightM:EYE,farM:FAR_FIELD_FAR_M,rings:FIELD_RINGS+FAR_FIELD_RINGS,
   patch,eyePatch:patch,farPatch:maskPatch});
 field.mesh.renderOrder=-0.48; scene.add(field.mesh);
+if (field.distMesh) scene.add(field.distMesh);   // §117 지형 거리 판의 쌍둥이
 const slab=createCloudSlab(); scene.add(slab.mesh);
 slab.setLayerAltitudesKm(1.0,4.5,10.0);
 slab.setLowDeckKm(CFG.DECK[0],CFG.DECK[1]);
@@ -84,8 +85,9 @@ bakeCloudSlabCoverage(slab,()=>({low:1,mid:0,high:0,confidence:1}));
 SC.assignLayer(sky.mesh,SC.LAYER_SOFT_SKY);
 for(const o of [ground,field.mesh]) SC.assignLayer(o,SC.LAYER_MID);
 SC.assignLayer(slab.mesh,SC.LAYER_SOFT_CLOUD);
-// 앱(SkyScene3D)과 같이 — 새 코드면 두 번에 나눠 그립니다.
-const split = !!(slab.setSplitPasses && SC.LAYER_SOFT_CLOUD_BELOW);
+// 앱(SkyScene3D)과 같이 — §117 코드면 한 번에 지형 다음에(지형 거리 판), §96 코드면 두 번에 나눠.
+const APP117 = !!slab.setTerrainDistance;
+const split = !APP117 && !!(slab.setSplitPasses && SC.LAYER_SOFT_CLOUD_BELOW);
 if (split) {
   slab.setSplitPasses(true);
   slab.mesh.renderOrder=-0.49; slab.meshBelow.renderOrder=0.5;
@@ -93,6 +95,7 @@ if (split) {
 }
 const composer=SC.createSceneComposer(W,H);
 composer.setGodRays({strength:0}); composer.setBloom({strength:0});
+if (APP117) { slab.mesh.renderOrder=-0.49; composer.setTerrainDistance(true); slab.setTerrainDistance(composer.terrainDistanceTexture()); }
 
 const buf=new Uint8Array(W*H*4);
 function camFor(az,pitch){
@@ -119,6 +122,8 @@ function expectMask(cam){
   const pm = slab.material.uniforms.uPassMode ? slab.material.uniforms.uPassMode.value : null;
   const dt = slab.material.depthTest;
   if (pm!==null) slab.material.uniforms.uPassMode.value=0;
+  // 기준은 합성기와 독립이어야 합니다 — 지형 거리 판(§117) 대신 슬랩 자신의 DEM 가림(§83)으로.
+  if (APP117) slab.setTerrainDistance(null);
   slab.material.depthTest=false; slab.material.needsUpdate=true;
   slabUpd(cam,W,H,2); slab.mesh.visible=true;
   const rt=new THREE.WebGLRenderTarget(W,H);
@@ -129,6 +134,7 @@ function expectMask(cam){
   r.setRenderTarget(null); r.setClearColor(0x000000,1); rt.dispose();
   if (pm!==null) slab.material.uniforms.uPassMode.value=pm;
   slab.material.depthTest=dt; slab.material.needsUpdate=true;
+  if (APP117) slab.setTerrainDistance(composer.terrainDistanceTexture());
   scene.add(slab.mesh);
   return b;
 }

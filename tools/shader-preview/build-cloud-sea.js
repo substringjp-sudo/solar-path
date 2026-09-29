@@ -82,7 +82,8 @@ function bake(slab, cover){
 }
 
 function shoot(o){
-  const { obsM, lowKm, cover, elev, w, h, fov, sunAlt = SUN_ALT, dataOut = 2, deck = null } = o;
+  const { obsM, lowKm, cover, elev, w, h, fov, sunAlt = SUN_ALT, dataOut = 2, deck = null,
+          wind = { speedKmh:30, bearingDeg:250 }, drift = 0 } = o;
   glCanvas.width = w; glCanvas.height = h; renderer.setSize(w, h, false);
   const atmosphere = makeAtmosphereParams({
     latitude: 36.0, observerElevM: obsM, dayOfYear: 290,
@@ -101,14 +102,14 @@ function shoot(o){
   cam.updateMatrixWorld(true);
   const a=sunAlt*Math.PI/180, z=SUN_AZ*Math.PI/180;
   const sunDir=new THREE.Vector3(Math.cos(a)*Math.sin(z), Math.sin(a), -Math.cos(a)*Math.cos(z)).normalize();
-  const wd={ speedKmh:30, bearingDeg:250 };
+  const wd=wind;
   updateCloudSlab(slab, {
     camera: cam, widthPx: w, heightPx: h,
     sunDir, sunAltDeg: sunAlt, sunAzDeg: SUN_AZ,
     beamFor:(altKm)=>beamAtAltitude(sunAlt, altKm, atmosphere),
     atmosphere,
     layerWinds:{ low:wd, mid:wd, high:wd },
-    driftHours:0, visible:true,
+    driftHours:drift, visible:true,
     dataOut,
   });
   renderer.setRenderTarget(null);
@@ -191,18 +192,32 @@ for (const [name, c] of Object.entries(CASES)){
 //
 // ⚠ 이 자는 **방향**만 봅니다. 몇 배여야 하는지는 사진과 대조한 적이
 //   없어 문턱을 두지 않습니다.
-function litMean(o){
+function litMean1(o){
   const tau = shoot({ ...o, dataOut: 2 });
   const lit = shoot({ ...o, dataOut: 0 });
-  let s=0, n=0, sat=0, sun=0;
+  let s=0, n=0, sat=0, sun=0, tv=0;
   for (let i=0;i<o.w*o.h;i++){
     if (tau[i*4]/255*40 < 1.0) continue;
     sun += tau[i*4+2]/255;   // 자료 2 의 B = 이 화소 빛 중 직달의 몫
+    tv += tau[i*4]/255*40;   // 자료 2 의 R = 시선 광학두께(40 에서 자름)
     const L = 0.2126*lit[i*4] + 0.7152*lit[i*4+1] + 0.0722*lit[i*4+2];
     s += L; n++; if (Math.max(lit[i*4],lit[i*4+1],lit[i*4+2]) >= 254) sat++;
   }
   return { 휘도: n ? +(s/n).toFixed(2) : null, 화소: n, 포화: n ? +(sat/n).toFixed(4) : null,
-           직달몫: n ? +(sun/n).toFixed(3) : null };
+           직달몫: n ? +(sun/n).toFixed(3) : null, 시선τ: n ? +(tv/n).toFixed(2) : null };
+}
+// §118 — **운해의 여덟 자리**를 평균합니다. 예전에는 한 자리(바람 30km/h·드리프트 0)만 쟀는데,
+// 산 위(1600m)에서 −60° 로 내려다본 화면은 발밑 0.7km 안의 한 조각뿐이라 두께장 한 곳의 우연이
+// 다 정했습니다 — 그 조각은 시선 광학두께 7.8 로 둘레(평균 14.2)의 절반이었고, 자리를 바꾸면 같은
+// 시선의 밝기가 74~181 로 갈렸습니다. 한 표본으로는 방향을 말할 수 없습니다.
+// 자리는 미리 정했습니다: 드리프트로 15km 씩, 방위 22.5° + 45°·i 의 여덟 곳. 세 시선이 같은 여덟 곳을
+// 씁니다. 예전 한 자리 값은 '한자리' 로 남깁니다(참고).
+const POS = Array.from({length:8}, (_, i) => ({ wind:{ speedKmh:60, bearingDeg:22.5 + 45*i }, drift:0.25 }));
+function litMean(o){
+  const per = POS.map(q => litMean1({ ...o, ...q }));
+  const avg = k => +(per.reduce((a, x) => a + (x[k] ?? 0), 0) / per.length).toFixed(3);
+  return { 휘도: avg('휘도'), 화소: Math.min(...per.map(x => x.화소)), 포화: avg('포화'), 직달몫: avg('직달몫'),
+           시선τ: avg('시선τ'), 자리별: per.map(x => x.휘도), 한자리: litMean1(o) };
 }
 const 조명 = {};
 for (const sunAlt of [30, 10]){

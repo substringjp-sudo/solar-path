@@ -80,6 +80,31 @@ export const LAYER_CELESTIAL = 5;
  * 다음에 얹습니다 — 먼 골짜기 앞의 운해는 보이고, 가까운 사면은 슬랩의 DEM 가림(§83)이 비웁니다.
  */
 export const LAYER_SOFT_CLOUD_BELOW = 6;
+/**
+ * **지형 거리 판** (§117) — 지형의 쌍둥이 메시(`TerrainField.distMesh`)만 여기 둡니다. 합성기가 구름 해상도로
+ * 따로 그려, 화소마다 "눈에서 지형까지 거리(km)" 를 `TERRAIN_DIST_GLSL` 로 적습니다. 구름 슬랩은 그 값과 층마다
+ * 구름까지 거리를 견줘 스스로 가립니다 — 그리는 순서로 겹침을 흉내 낼 필요가 없어집니다(§94·§96·§116 대체).
+ * 화면에 직접 그려지면 안 되므로 어떤 합성 패스에도 이 층은 켜지 않습니다.
+ */
+export const LAYER_TERRAIN_DIST = 7;
+
+/**
+ * 지형 거리의 부호화(§117). 8비트 RGBA 두 칸(R·G)에 16비트로 log2 거리를 담습니다 — 1m ~ 1048km 를
+ * 20옥타브로, 한 칸 0.02%. 부동소수 렌더 타깃은 GLES2 기기에서 갈리므로 쓰지 않습니다. 지운 값(1,1)은
+ * "지형 없음" 입니다(`terrainDistDecodeKm` 가 1e9 를 냄).
+ */
+export const TERRAIN_DIST_GLSL = `
+vec4 terrainDistEncode(float km){
+  float t = clamp(log2(max(km, 1e-3) / 1e-3) / 20.0, 0.0, 0.9999);
+  float v = floor(t * 65535.0 + 0.5);
+  float hi = floor(v / 256.0);
+  return vec4(hi / 255.0, (v - hi * 256.0) / 255.0, 0.0, 1.0);
+}
+float terrainDistDecodeKm(vec4 c){
+  float t = (floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5)) / 65535.0;
+  return t > 0.99995 ? 1e9 : 1e-3 * exp2(t * 20.0);
+}
+`;
 
 /**
  * 저해상도 배율의 기본값.
@@ -168,10 +193,41 @@ const BLIT_FRAG = `
 precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uTexSize;
+/**
+ * §117 깊이를 아는 확대. 구름은 절반 해상도로, 지형 거리 판은 원해상도로 그립니다. 그냥 늘리면 능선에서
+ * "산 뒤라 구름 없음" 표본이 하늘 쪽으로 번져 틈이 생기고(요네자와 해돋이: 능선 위로 해가 42화소 샘),
+ * 하늘 쪽 구름은 산 쪽으로 번집니다. 이 화소와 **같은 쪽**(지형 거리가 비슷한) 저해상도 표본만 섞습니다
+ * — 이웃 넷이 다 같은 쪽이면 예전 재구성 그대로입니다.
+ */
+uniform sampler2D uDist;
+uniform float uDistOn;
 varying vec2 vUv;
 ${CATMULL_GLSL}
+${TERRAIN_DIST_GLSL}
+float distClass(vec2 uv){
+  float km = terrainDistDecodeKm(texture2D(uDist, uv));
+  return km > 1e8 ? 40.0 : log2(km);          // 하늘(지형 없음)은 멀리 떨어진 한 값
+}
 void main() {
-  gl_FragColor = catmullRom(uTex, vUv, uTexSize);
+  vec4 base = catmullRom(uTex, vUv, uTexSize);
+  if (uDistOn < 0.5) { gl_FragColor = base; return; }
+  float here = distClass(vUv);
+  vec2 p = vUv * uTexSize - 0.5;
+  vec2 f = fract(p), i0 = floor(p);
+  vec4 acc = vec4(0.0);
+  float wsum = 0.0;
+  bool mismatch = false;
+  for (int k = 0; k < 4; k++) {
+    vec2 o = vec2(mod(float(k), 2.0), floor(float(k) / 2.0));
+    vec2 uvT = (i0 + o + 0.5) / uTexSize;
+    bool same = abs(distClass(uvT) - here) < 0.5;   // 거리 41% 안 — 같은 사면·같은 하늘
+    if (!same) mismatch = true;
+    float w = (o.x > 0.5 ? f.x : 1.0 - f.x) * (o.y > 0.5 ? f.y : 1.0 - f.y) * (same ? 1.0 : 0.0);
+    acc += w * texture2D(uTex, uvT);
+    wsum += w;
+  }
+  if (!mismatch) { gl_FragColor = base; return; }
+  gl_FragColor = wsum > 1e-4 ? acc / wsum : texture2D(uTex, (floor(vUv * uTexSize) + 0.5) / uTexSize);
 }
 `;
 
@@ -490,6 +546,14 @@ export interface SceneComposerHandle {
   /** 이번 설정에서 저해상도 층 경로를 쓰는가 — 구름 슬랩 해상도를 고를 때 씁니다. */
   softActive: () => boolean;
   render: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
+  /**
+   * §117 — 지형 거리 판을 켭니다. 켜면 매 프레임 `LAYER_TERRAIN_DIST` 를 원해상도로 그리고, 구름을
+   * 지형 **다음에** 한 번 얹습니다(하늘 → 천체 → 지형 → 구름 → 앞). 구름 슬랩에는
+   * `terrainDistanceTexture()` 를 넘겨 스스로 가리게 해야 합니다. 끄면 예전 순서(§94·§96) 그대로입니다.
+   */
+  setTerrainDistance: (on: boolean) => void;
+  /** 지형 거리 판의 텍스처(원해상도 — 구름 슬랩은 제 화소 가운데를 정규화 좌표로 읽습니다). */
+  terrainDistanceTexture: () => THREE.Texture;
   dispose: () => void;
   /** 검증용 — 실제로 쓰인 저해상도 버퍼 크기 */
   softSize: () => { width: number; height: number };
@@ -600,6 +664,13 @@ export function createSceneComposer(
   const rtSky = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
   const rtCloud = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
   const rtCloudBelow = new THREE.WebGLRenderTarget(softW(), softH(), rtOptions);
+  // §117 지형 거리 판 — 부호화한 거리를 담으므로 걸러 섞으면 안 됩니다(최근접). 지형 격자는 한 메시 안에서
+  // 앞뒤 능선이 겹치므로 깊이 버퍼로 가장 가까운 것을 남깁니다. **원해상도**입니다 — 구름(저해상도)은 제 화소
+  // 가운데에서 읽고, 구름을 늘리는 합성이 원해상도 화소마다 같은 쪽 표본을 고를 때도 씁니다.
+  const rtDist = new THREE.WebGLRenderTarget(w, h, {
+    ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
+  });
+  let terrainDistOn = false;
   /**
    * 블룸을 켜면 씬을 화면이 아니라 여기에 그립니다 — 밝은 부분을 뽑으려면
    * 완성된 그림을 **다시 읽어야** 하는데, 기본 프레임버퍼는 그럴 수
@@ -657,6 +728,8 @@ export function createSceneComposer(
       uTex: { value: null as THREE.Texture | null },
       uTexSize: { value: new THREE.Vector2(1, 1) },
       uCatmull: { value: 1 },
+      uDist: { value: null as THREE.Texture | null },
+      uDistOn: { value: 0 },
     },
     vertexShader: BLIT_VERT,
     fragmentShader: BLIT_FRAG,
@@ -794,6 +867,7 @@ export function createSceneComposer(
     rtSky.setSize(softW(), softH());
     rtCloud.setSize(softW(), softH());
     rtCloudBelow.setSize(softW(), softH());
+    rtDist.setSize(w, h);
     rtScene.setSize(w, h);
     rtBloomA.setSize(bloomW(), bloomH());
     rtBloomB.setSize(bloomW(), bloomH());
@@ -923,9 +997,25 @@ export function createSceneComposer(
     const finalTarget = pixelRows > 0 ? rtPixel : null;
     const sceneTarget = postOn ? rtScene : finalTarget;
 
+    // §117 — 지형 거리 판(원해상도).
+    if (terrainDistOn) {
+      if (rtDist.width !== w || rtDist.height !== h) rtDist.setSize(w, h);
+      camera.layers.set(LAYER_TERRAIN_DIST);
+      renderer.setRenderTarget(rtDist);
+      const prevClear = renderer.getClearColor(new THREE.Color());
+      const prevClearAlpha = renderer.getClearAlpha();
+      renderer.setClearColor(0xffffff, 1);
+      renderer.clear(true, true, true);
+      renderer.autoClear = false;
+      renderer.render(scene, camera);
+      renderer.setClearColor(prevClear, prevClearAlpha);
+    }
+
     if (!softPath) {
       // 층을 나눌 이득이 없으면 한 번에 그립니다 (패스 비용만 늘어납니다).
+      // 지형 거리 판의 쌍둥이 메시는 화면에 그리면 안 됩니다.
       camera.layers.enableAll();
+      camera.layers.disable(LAYER_TERRAIN_DIST);
       renderer.autoClear = true;
       renderer.setRenderTarget(sceneTarget);
       renderer.render(scene, camera);
@@ -960,13 +1050,24 @@ export function createSceneComposer(
       camera.layers.set(LAYER_CELESTIAL);
       renderer.render(scene, camera);
 
-      // 3-1) 구름 덱을 하늘 위에 먼저 얹습니다.
-      blit(renderer, overQuad, rtCloud.texture);
+      if (!terrainDistOn) {
+        // 3-1) 구름 덱을 하늘 위에 먼저 얹습니다.
+        blit(renderer, overQuad, rtCloud.texture);
 
-      // 3-2) 별·은하수·태양·달·지면·산 능선(지형) — 원해상도.
-      // ⚠ 산 능선이 불투명하게 구름 앞을 가려야 하므로 구름 위에 산을 그립니다.
-      camera.layers.set(LAYER_MID);
-      renderer.render(scene, camera);
+        // 3-2) 별·은하수·태양·달·지면·산 능선(지형) — 원해상도.
+        // ⚠ 산 능선이 불투명하게 구름 앞을 가려야 하므로 구름 위에 산을 그립니다.
+        camera.layers.set(LAYER_MID);
+        renderer.render(scene, camera);
+      } else {
+        // §117 — 지형을 먼저, 구름은 그 **다음에** 한 번. 구름 슬랩이 지형 거리 판으로 산 뒤 구름을
+        // 스스로 비우므로, 산 앞 구름은 산 위에, 산 뒤 구름은 산 뒤에 저절로 놓입니다.
+        camera.layers.set(LAYER_MID);
+        renderer.render(scene, camera);
+        overMat.uniforms.uDist.value = rtDist.texture;
+        overMat.uniforms.uDistOn.value = 1;
+        blit(renderer, overQuad, rtCloud.texture);
+        overMat.uniforms.uDistOn.value = 0;
+      }
 
       // 3-2b) 발밑 운해·구름 속 안개 — 산 **다음**(§96). 그릴 것이 없으면 판을 건너뜁니다.
       let belowVisible = false;
@@ -1065,7 +1166,10 @@ export function createSceneComposer(
       overMat.uniforms.uCatmull.value = v;
     },
     lastRayGain: () => rayGain,
+    setTerrainDistance: (on: boolean) => { terrainDistOn = !!on; },
+    terrainDistanceTexture: () => rtDist.texture,
     dispose: () => {
+      rtDist.dispose();
       rtSky.dispose();
       rtCloud.dispose();
       rtCloudBelow.dispose();

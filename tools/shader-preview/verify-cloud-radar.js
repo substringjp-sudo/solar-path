@@ -166,6 +166,42 @@ function fakeRing(coverAt) {
     ok(am.timeMs !== pm.timeMs, `프레임이 제 시각을 기억한다`);
   }
 
+  // ── [9] 구 위의 레이더 (§120) ─────────────────────────────────────
+  //    평면 지도의 위 문턱(화면 폭 760km)은 "원반이 화면을 못 덮으면 섬만 뜬다"
+  //    였습니다. 구에서는 그 섬이 보여야 할 것이라, 원반이 몇 px 인가로 정합니다.
+  console.log('\n[9] 구 위의 레이더 — 원반 크기로 켜고, 칸은 평면과 같고, 구면에서 안팎이 맞는가');
+  {
+    const { isGlobeRadarScale, radarDiskPx, GLOBE_RADAR_MIN_PX } = M;
+    const fitR = 0.42 * 362;                        // 구 둘레가 다 보이는 반지름(390px 폰)
+    console.log(`      원반 반지름: 구 전체(R ${fitR.toFixed(0)}) ${radarDiskPx(fitR).toFixed(1)}px · R 300 ${radarDiskPx(300).toFixed(1)}px · R 800 ${radarDiskPx(800).toFixed(1)}px`);
+    ok(!isGlobeRadarScale(fitR), `구 전체가 보일 때는 안 그린다 — 원반이 ${GLOBE_RADAR_MIN_PX}px 보다 작다`);
+    ok(isGlobeRadarScale(300) && isGlobeRadarScale(800), `확대한 구에서는 그린다`);
+    const bigDelta = 40;                            // 구 축척 — 평면 문턱(760km) 한참 밖
+    ok(buildRadarFrame(ring, LAT, LON, T, bigDelta) === null, `대조: 같은 축척을 평면 규칙으로 물으면 안 그린다`);
+    const g = buildRadarFrame(ring, LAT, LON, T, bigDelta, { globeRadiusPx: 400 });
+    const flat = buildRadarFrame(ring, LAT, LON, T, 3);
+    ok(g && flat && g.cells.length === flat.cells.length
+      && g.cells.every((c, i) => c.coverPct === flat.cells[i].coverPct),
+      `구에서도 평면과 같은 칸·같은 값이다 (${g ? g.cells.length : 0}칸)`);
+    ok(buildRadarFrame(ring, LAT, LON, T, bigDelta, { globeRadiusPx: fitR }) === null, `구 전체 축척이면 구 규칙으로도 null`);
+
+    // ⚠ d3 는 구면 다각형을 감긴 방향으로 안팎을 가립니다. 반대로 감기면 칸이
+    //   아니라 칸을 뺀 지구 전체가 칠해집니다 — 구 그리기(`MapGlobe`)가 넓이로
+    //   가려 뒤집는 까닭을 여기서 잽니다.
+    const d3 = await import('file://' + path.join(__dirname, '..', '..', 'node_modules', 'd3-geo', 'src', 'index.js'));
+    const diskSr = 2 * Math.PI * (1 - Math.cos(RADAR_RADIUS_KM / EARTH));
+    let inside = 0, flipped = 0, worst = 0;
+    for (const c of g.cells) {
+      const ring2 = c.polygon.map(q => [q.longitude, q.latitude]);
+      ring2.push(ring2[0].slice());
+      let a = d3.geoArea({ type: 'Polygon', coordinates: [ring2] });
+      if (a > 2 * Math.PI) { flipped++; ring2.reverse(); a = d3.geoArea({ type: 'Polygon', coordinates: [ring2] }); } else inside++;
+      worst = Math.max(worst, a / diskSr);
+    }
+    console.log(`      칸 감긴 방향: 그대로 ${inside} · 뒤집음 ${flipped} — 뒤집은 뒤 가장 큰 칸 = 원반의 ${(worst * 100).toFixed(1)}%`);
+    ok(worst < 0.1, `뒤집은 뒤 모든 칸이 원반의 10% 안이다 (지구 전체가 칠해지는 칸이 없다)`);
+  }
+
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();

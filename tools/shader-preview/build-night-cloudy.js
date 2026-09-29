@@ -76,11 +76,15 @@ for (const mode of ['old','new']) for (const C of CASES) {
   slab.setLayerAltitudesKm(1.2, 2.5, 7.5);
   const fog = mode==='old' ? cloudAround(PROF[C.hr], OBS/1000) : fogAtObserver(PROF[C.hr], OBS/1000);
   slab.setInCloud(fog);
-  slab.setSplitPasses(true); slab.mesh.renderOrder=-0.49; slab.meshBelow.renderOrder=0.5; scene.add(slab.meshBelow);
+  // 앱과 같이(§117) — 구름은 한 번에, 지형 다음에(지형 거리 판). 옛 코드면 §96 나눠 그리기.
+  const APP117 = !!slab.setTerrainDistance;
+  if (!APP117) { slab.setSplitPasses(true); slab.meshBelow.renderOrder=0.5; scene.add(slab.meshBelow); SC.assignLayer(slab.meshBelow,SC.LAYER_SOFT_CLOUD_BELOW); }
+  slab.mesh.renderOrder=-0.49;
   SC.assignLayer(sky.mesh,SC.LAYER_SOFT_SKY); SC.assignLayer(ground,SC.LAYER_MID);
-  SC.assignLayer(slab.mesh,SC.LAYER_SOFT_CLOUD); SC.assignLayer(slab.meshBelow,SC.LAYER_SOFT_CLOUD_BELOW);
+  SC.assignLayer(slab.mesh,SC.LAYER_SOFT_CLOUD);
   const cam=new THREE.PerspectiveCamera(60,W/H,0.1,1000); const v=dirOf(C.look[0],C.look[1]); cam.lookAt(v.x,v.y,v.z); cam.updateMatrixWorld(true);
   const comp=SC.createSceneComposer(W,H,2);
+  if (APP117) { comp.setTerrainDistance(true); slab.setTerrainDistance(comp.terrainDistanceTexture()); }
   setSceneCityLight(0.3);
   scene.traverse(o=>{ if(o.material&&o.material.uniforms) applyTuningUniforms(o.material.uniforms); });
   const s=comp.softSize(), wd={speedKmh:0,bearingDeg:0};
