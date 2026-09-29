@@ -44,7 +44,7 @@ import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
-import { t, Language, translateSunsetDesc } from '../utils/i18n';
+import { t, Language, translateSunsetDesc, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkyScene3D';
 
@@ -135,21 +135,21 @@ const stampPhoto = async (
 
       currY += stepY * 1.1;
       paintText.setColor(Skia.Color('#FFFFFF'));
-      const locLabel = lang === 'ko' ? '위치' : 'Location';
+      const locLabel = L3(lang, '위치', 'Location', '位置');
       canvas.drawText(`${locLabel}: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
-      const altLabel = lang === 'ko' ? '태양 고도' : 'Sun Alt';
+      const altLabel = L3(lang, '태양 고도', 'Sun Alt', '太陽高度');
       canvas.drawText(`${altLabel}: ${sunAlt.toFixed(1)}°`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
-      const humLabel = lang === 'ko' ? '습도' : 'Humidity';
-      const dustLabel = lang === 'ko' ? '미세먼지' : 'PM2.5';
+      const humLabel = L3(lang, '습도', 'Humidity', '湿度');
+      const dustLabel = L3(lang, '미세먼지', 'PM2.5', 'PM2.5');
       canvas.drawText(`${humLabel}: ${humidity}%  |  ${dustLabel}: ${pm25}㎍`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
       paintText.setColor(Skia.Color('#00FFCC'));
-      const condLabel = lang === 'ko' ? '하늘 상태' : 'Sky Condition';
+      const condLabel = L3(lang, '하늘 상태', 'Sky Condition', '空の状態');
       const translatedDesc = translateSunsetDesc(description, lang);
       canvas.drawText(`${condLabel}: ${translatedDesc}`, boxX + 16, currY, paintText, font);
     }
@@ -749,12 +749,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const runVisionOnPhoto = useCallback(async (
     uri: string, exif: Record<string, unknown> | undefined, sensor: Attitude, speedDegS: number, when: Date,
   ): Promise<string> => {
-    if (cameraFacing !== 'back') return '뒤 카메라에서만 됩니다';
-    if (zoom > 0.001) return '1배율에서만 됩니다';
-    if (Math.abs(sensor.rollDeg) > 30) return '폰을 세로로 들어 주세요';
-    if (speedDegS > 15) return '폰을 멈춘 채 찍어 주세요';
+    if (cameraFacing !== 'back') return L3(language, '뒤 카메라에서만 됩니다', 'Works with the back camera only', '背面カメラでのみ使えます');
+    if (zoom > 0.001) return L3(language, '1배율에서만 됩니다', 'Works at 1× zoom only', '1倍ズームでのみ使えます');
+    if (Math.abs(sensor.rollDeg) > 30) return L3(language, '폰을 세로로 들어 주세요', 'Hold the phone upright', 'スマホを縦に持ってください');
+    if (speedDegS > 15) return L3(language, '폰을 멈춘 채 찍어 주세요', 'Hold still while shooting', '静止して撮影してください');
     const frame = await frameFromPhoto(uri);
-    if (!frame) return '사진을 읽지 못했습니다';
+    if (!frame) return L3(language, '사진을 읽지 못했습니다', "Couldn't read the photo", '写真を読み取れませんでした');
     const hfov = hfovFromExif(exif, frame.width, frame.height);
     if (hfov) setMeasuredHfov(hfov);
     const k = intrinsicsFromHfov(frame.width, frame.height, hfov ?? 66);
@@ -769,17 +769,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     });
     const r = a.result;
     if (!r.yawObservable || r.confidence < 0.5) {
-      if (!horizonRef.current && !a.body) return '지형 자료를 아직 받는 중이거나, 해·달이 안 보입니다';
-      return r.reason ? `방위를 확정하지 못했습니다 — ${r.reason}` : '방위를 확정하지 못했습니다';
+      if (!horizonRef.current && !a.body) return L3(language, '지형 자료를 아직 받는 중이거나, 해·달이 안 보입니다', 'Terrain still loading, or no Sun/Moon in view', '地形データの取得中か、太陽・月が見えません');
+      return r.reason ? `${L3(language, '방위를 확정하지 못했습니다', 'Could not fix the heading', '方位を確定できませんでした')} — ${r.reason}` : L3(language, '방위를 확정하지 못했습니다', 'Could not fix the heading', '方位を確定できませんでした');
     }
     const now = fusionRef.current.heading();
-    if (now == null) return '방위 센서가 아직 준비되지 않았습니다';
+    if (now == null) return L3(language, '방위 센서가 아직 준비되지 않았습니다', 'Heading sensor not ready yet', '方位センサーの準備中です');
     // 찍은 뒤 폰이 돌아갔어도 됩니다 — 보정은 방위 **오프셋**에 대한 것이라 지금 방위에 더합니다.
     fusionRef.current.snapTo(wrap360(now + r.dYaw));
     setHeadingStatus(fusionRef.current.status());
-    const by = a.body ? (a.body.kind === 'sun' ? '해' : '달') + (r.samples ? ' + 능선' : '') : '능선';
-    return `${by}으로 방위를 ${r.dYaw >= 0 ? '+' : ''}${r.dYaw.toFixed(1)}° 맞췄습니다`;
-  }, [cameraFacing, zoom, latitude, longitude]);
+    const sunW = L3(language, '해', 'Sun', '太陽'), moonW = L3(language, '달', 'Moon', '月'), ridgeW = L3(language, '능선', 'ridgeline', '稜線');
+    const by = a.body ? (a.body.kind === 'sun' ? sunW : moonW) + (r.samples ? ` + ${ridgeW}` : '') : ridgeW;
+    const dy = `${r.dYaw >= 0 ? '+' : ''}${r.dYaw.toFixed(1)}°`;
+    return L3(language, `${by}으로 방위를 ${dy} 맞췄습니다`, `Heading corrected ${dy} using ${by}`, `${by}で方位を${dy}補正しました`);
+  }, [cameraFacing, zoom, latitude, longitude, language]);
 
   useEffect(() => {
     if (!visionStatus || isVisionRunning) return;
@@ -791,21 +793,21 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const handleVisionCalibrate = useCallback(async () => {
     if (!cameraRef.current || isVisionRunning || isCapturing) return;
     setIsVisionRunning(true);
-    setVisionStatus('화면을 읽는 중…');
+    setVisionStatus(L3(language, '화면을 읽는 중…', 'Reading the view…', '画面を解析中…'));
     try {
       const sensor = sensorAttitudeNow();
       const speed = angularSpeedRef.current;
       const when = new Date();
-      if (!sensor) { setVisionStatus('방위 센서가 아직 준비되지 않았습니다'); return; }
+      if (!sensor) { setVisionStatus(L3(language, '방위 센서가 아직 준비되지 않았습니다', 'Heading sensor not ready yet', '方位センサーの準備中です')); return; }
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.3, exif: true, shutterSound: false });
-      if (!photo?.uri) { setVisionStatus('사진을 찍지 못했습니다'); return; }
+      if (!photo?.uri) { setVisionStatus(L3(language, '사진을 찍지 못했습니다', "Couldn't take a photo", '写真を撮れませんでした')); return; }
       setVisionStatus(await runVisionOnPhoto(photo.uri, photo.exif, sensor, speed, when));
     } catch (e) {
-      setVisionStatus('화면 보정에 실패했습니다');
+      setVisionStatus(L3(language, '화면 보정에 실패했습니다', 'Auto-align failed', '画面補正に失敗しました'));
     } finally {
       setIsVisionRunning(false);
     }
-  }, [isVisionRunning, isCapturing, sensorAttitudeNow, runVisionOnPhoto]);
+  }, [isVisionRunning, isCapturing, sensorAttitudeNow, runVisionOnPhoto, language]);
 
   // ── Sun-Snap Calibration (태양 위치 기반 정밀 AR 보정) ──────────────────────────
   // 사용자가 화면 중앙에 태양(또는 일몰 방향)을 맞추고 탭하면
@@ -818,11 +820,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setHeadingStatus(fusionRef.current.status());
 
     Alert.alert(
-      '☀️ Sun-Snap 보정 완료',
-      `태양 실제 방위각(${Math.round(trueSunAz)}°)에 AR 시뮬레이션이 정밀 고정되었습니다.`,
-      [{ text: '확인' }]
+      L3(language, '☀️ Sun-Snap 보정 완료', '☀️ Sun-Snap calibrated', '☀️ Sun-Snap 補正完了'),
+      L3(language,
+        `태양 실제 방위각(${Math.round(trueSunAz)}°)에 AR 시뮬레이션을 맞췄습니다.`,
+        `AR overlay locked to the Sun's true azimuth (${Math.round(trueSunAz)}°).`,
+        `AR表示を太陽の実際の方位(${Math.round(trueSunAz)}°)に合わせました。`),
+      [{ text: L3(language, '확인', 'OK', 'OK') }]
     );
-  }, [sunPos.azimuth]);
+  }, [sunPos.azimuth, language]);
 
   // 오프셋 없이 물리 장치 방위각/고도각 사용 (전면 카메라 전환 시 전면 렌즈 시점에 맞춤)
   const effectiveAz = useMemo(() => {
@@ -863,7 +868,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         simBufMean = sky3dRef.current.getLastBufferMean();
         if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
       } else {
-        simFailReason = '3D 화면이 아직 준비되지 않음';
+        simFailReason = L3(language, '3D 화면이 아직 준비되지 않음', '3D view not ready yet', '3D画面の準備ができていません');
       }
 
       // 화면 인식 보정용 — 셔터를 누른 순간의 센서 자세
@@ -1041,7 +1046,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       //   1×1 화소 JPEG 한 장. 그걸 cover 로 늘려 "🔮 3D 시뮬레이션 예측"
       //   이라고 붙이면 단색 사각형을 예측 결과라고 내보이는 셈입니다.
       //   못 찍었으면 못 찍었다고 적는 편이 낫습니다.
-      if (!simUri && !simFailReason) simFailReason = '알 수 없는 이유로 스냅샷 실패';
+      if (!simUri && !simFailReason) simFailReason = L3(language, '알 수 없는 이유로 스냅샷 실패', 'Snapshot failed for an unknown reason', '不明な理由でスナップショットに失敗');
 
       // 2. 메타데이터 수집 (로우 기상데이터, 보간 구름데이터, 좌표, 시각 일괄 패키징)
       const weatherInfo = {
@@ -1121,10 +1126,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const user = auth.currentUser;
     if (!user) {
       Alert.alert(
-        language === 'ko' ? '로그인 필요' : 'Login Required',
-        language === 'ko'
-          ? '게시물을 등록하려면 정식 로그인이 필요합니다. 로그인 후 다시 시도해 주세요.'
-          : 'Please log in to upload and share posts.'
+        L3(language, '로그인 필요', 'Login required', 'ログインが必要です'),
+        L3(language,
+          '게시물을 등록하려면 로그인이 필요합니다. 로그인 후 다시 시도해 주세요.',
+          'Please log in to upload and share posts.',
+          '投稿するにはログインが必要です。ログイン後にもう一度お試しください。')
       );
       return;
     }
@@ -1224,7 +1230,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           longitude,
           imageUrl: manipulated.uri,
           timestamp: Date.now(),
-          locationName: uploadedLocationName || '서울특별시',
+          // ⚠ 예전에는 이름을 못 받으면 '서울특별시' 로 채웠습니다 — 어디서 찍었든. 좌표로 적습니다.
+          locationName: uploadedLocationName || locationName,
           weatherInfo: capturedWeatherInfo,
           simulationLocalUri: manipulatedSimUri,
           isPublic: false, // 초기 상태 비공개
@@ -1232,8 +1239,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       } catch (uploadErr: any) {
         console.error('[SunCamera] Server upload failed:', uploadErr);
         Alert.alert(
-          language === 'ko' ? '업로드 오류' : 'Upload Error',
-          `Failed to upload photo: ${uploadErr.message || uploadErr}`
+          L3(language, '업로드 오류', 'Upload error', 'アップロードエラー'),
+          `${L3(language, '사진을 올리지 못했습니다', 'Failed to upload photo', '写真をアップロードできませんでした')}: ${uploadErr.message || uploadErr}`
         );
       }
 
@@ -1315,7 +1322,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   ) : (
                     <View style={styles.compareImageMissing}>
                       <Text style={styles.compareImageMissingText}>
-                        {language === 'ko' ? '3D 스냅샷을 못 찍었습니다' : '3D snapshot unavailable'}
+                        {L3(language, '3D 스냅샷을 못 찍었습니다', '3D snapshot unavailable', '3Dスナップショットを取得できませんでした')}
                       </Text>
                       {simPreviewError ? (
                         <Text style={styles.compareImageMissingReason} numberOfLines={3}>
@@ -1324,7 +1331,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       ) : null}
                     </View>
                   )}
-                  <Text style={styles.compareImageLabel}>🔮 {language === 'ko' ? '3D 시뮬레이션 예측' : '3D Simulation'}</Text>
+                  <Text style={styles.compareImageLabel}>🔮 {L3(language, '3D 시뮬레이션 예측', '3D simulation', '3Dシミュレーション予測')}</Text>
                   {/* ⚠ 썸네일이 검게 나올 때를 가르는 단서. 스냅샷 직전 GL
                       버퍼의 가운데 밝기입니다 — 0 에 가까우면 그린 것 자체가
                       검은 것이고, 0 이 아닌데 그림이 검으면 스냅샷 경로가
@@ -1343,7 +1350,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <View style={styles.weatherQrHeader}>
                     <QrCode size={15} color="#00E5FF" />
                     <Text style={styles.weatherQrTitle}>
-                      {language === 'ko' ? '기상 분석 리포트 QR' : 'Weather Report QR'}
+                      {L3(language, '기상 분석 리포트 QR', 'Weather report QR', '気象レポートQR')}
                     </Text>
                   </View>
                   <View style={styles.weatherQrBody}>
@@ -1352,27 +1359,28 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                     </View>
                     <View style={styles.weatherQrMetaList}>
                       <View style={styles.metaRow}>
-                        <Text style={styles.metaLabel}>{language === 'ko' ? '기상 상태' : 'Sky'}</Text>
+                        <Text style={styles.metaLabel}>{L3(language, '기상 상태', 'Sky', '空の状態')}</Text>
                         <Text style={styles.metaValue}>
                           {capturedWeatherInfo ? translateSunsetDesc(capturedWeatherInfo.description, language) : 'Clear'}
                         </Text>
                       </View>
                       <View style={styles.metaRow}>
-                        <Text style={styles.metaLabel}>{language === 'ko' ? '습도 / 미세먼지' : 'Hum / PM2.5'}</Text>
+                        <Text style={styles.metaLabel}>{L3(language, '습도 / 미세먼지', 'Hum / PM2.5', '湿度 / PM2.5')}</Text>
                         <Text style={styles.metaValue}>
                           {capturedWeatherInfo?.humidity ?? 50}% · {capturedWeatherInfo?.pm25 ?? 20}㎍
                         </Text>
                       </View>
                       <View style={styles.metaRow}>
-                        <Text style={styles.metaLabel}>{language === 'ko' ? '태양 고도 / 방위' : 'Sun Alt / Az'}</Text>
+                        <Text style={styles.metaLabel}>{L3(language, '태양 고도 / 방위', 'Sun Alt / Az', '太陽高度 / 方位')}</Text>
                         <Text style={styles.metaValue}>
                           {capturedSimSample ? `${Math.round(capturedSimSample.sunAltitude)}° / ${Math.round(capturedSimSample.sunAzimuth)}°` : '-'}
                         </Text>
                       </View>
                       <Text style={styles.qrExplanationText}>
-                        {language === 'ko' 
-                          ? 'QR 코드로 촬영 당시의 관측 기상과 3D 물리 파라미터를 그대로 복원할 수 있습니다.' 
-                          : 'Scan QR to restore exact atmospheric input and solar angles.'}
+                        {L3(language,
+                          'QR 코드로 촬영 당시의 관측 기상과 3D 물리 파라미터를 그대로 복원할 수 있습니다.',
+                          'Scan the QR to restore the exact weather input and solar angles.',
+                          'QRコードで撮影時の気象と3Dの物理パラメータをそのまま復元できます。')}
                       </Text>
                     </View>
                   </View>
@@ -1489,7 +1497,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             {hasInterference && (
               <View style={styles.warningBannerFloating}>
                 <Text style={styles.warningText}>
-                  ⚠️ Magnetic Interference! Move phone in "8" shape
+                  {L3(language, '⚠️ 자기 간섭! 폰을 8자로 움직여 주세요', '⚠️ Magnetic interference! Move the phone in a figure 8', '⚠️ 磁気干渉!スマホを8の字に動かしてください')}
                 </Text>
               </View>
             )}
@@ -1505,7 +1513,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             {visionStatus && (
               <View style={styles.headingBanner}>
                 <Text style={styles.headingBannerText}>
-                  {`🏔 ${visionStatus}${measuredHfov ? ` · 카메라 화각 ${measuredHfov.toFixed(0)}°` : ''}`}
+                  {`🏔 ${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
                 </Text>
               </View>
             )}
@@ -1513,23 +1521,26 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               <View style={styles.headingBanner}>
                 <Text style={styles.headingBannerText}>
                   {headingStatus.lastReject === 'ill-pose'
-                    ? (language === 'ko'
-                        ? '🧭 방위 보정 중 — 폰을 세워 지평선을 향해 주세요'
-                        : '🧭 Calibrating — hold the phone upright toward the horizon')
+                    ? L3(language,
+                        '🧭 방위 보정 중 — 폰을 세워 지평선을 향해 주세요',
+                        '🧭 Calibrating — hold the phone upright toward the horizon',
+                        '🧭 方位補正中 — スマホを立てて地平線に向けてください')
                     : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
-                      ? (language === 'ko' ? '🧭 자이로 신호를 기다리는 중' : '🧭 Waiting for motion sensor')
-                      : (language === 'ko'
-                          ? `🧭 방위 보정 중 (${headingStatus.seedCount}/8)`
-                          : `🧭 Calibrating heading (${headingStatus.seedCount}/8)`)}
+                      ? L3(language, '🧭 자이로 신호를 기다리는 중', '🧭 Waiting for motion sensor', '🧭 ジャイロ信号を待っています')
+                      : L3(language,
+                          `🧭 방위 보정 중 (${headingStatus.seedCount}/8)`,
+                          `🧭 Calibrating heading (${headingStatus.seedCount}/8)`,
+                          `🧭 方位補正中 (${headingStatus.seedCount}/8)`)}
                 </Text>
               </View>
             )}
             {headingStatus && headingStatus.seeded && !headingStatus.trueNorth && (
               <View style={styles.headingBanner}>
                 <Text style={styles.headingBannerText}>
-                  {language === 'ko'
-                    ? '🧭 자북 기준입니다 — 약 8° 어긋납니다. Sun-Snap 으로 맞추세요'
-                    : '🧭 Magnetic north only (~8° off). Use Sun-Snap to correct'}
+                  {L3(language,
+                    '🧭 자북 기준입니다 — 약 8° 어긋납니다. Sun-Snap 으로 맞추세요',
+                    '🧭 Magnetic north only (~8° off). Use Sun-Snap to correct',
+                    '🧭 磁北基準です — 約8°ずれます。Sun-Snapで補正してください')}
                 </Text>
               </View>
             )}
@@ -1790,7 +1801,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 disabled={isVisionRunning}
               >
                 {isVisionRunning ? <ActivityIndicator size="small" color="#FFD700" /> : <Sun size={22} color="#FFD700" />}
-                <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>{language === 'ko' ? '화면 보정' : 'Auto-align'}</Text>
+                <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>{L3(language, '화면 보정', 'Auto-align', '画面補正')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
@@ -1826,7 +1837,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         {captureResult && (
           <View style={styles.captureOverlay}>
             <Check size={48} color="#4CAF50" />
-            <Text style={styles.captureSuccessText}>업로드 성공!</Text>
+            <Text style={styles.captureSuccessText}>{L3(language, '업로드 성공!', 'Uploaded!', 'アップロード完了!')}</Text>
           </View>
         )}
 

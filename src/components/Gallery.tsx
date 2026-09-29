@@ -4,7 +4,7 @@ import { Trash2, Image as ImageIcon, Share2 } from 'lucide-react-native';
 import { shareToTwitter } from '../utils/twitterShare';
 import { auth } from '../config/firebase';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
-import { t } from '../utils/i18n';
+import { t, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
@@ -138,7 +138,13 @@ export const Gallery: React.FC<GalleryProps> = ({
                     <TouchableOpacity
                       style={styles.photoShareBtn}
                       onPress={() => {
-                        const tweetText = `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${item.location || '하늘 포토'}\n#BeforeGlow #노을 #sunset`;
+                        // 언어별 공유 문구(점검 2026-09-29). ⚠ 예전에는 item.location 을 읽었는데 사진에는
+                        //   locationName 만 있어 늘 '하늘 포토' 가 붙었습니다.
+                        const place = item.locationName || item.location || L3(language, '하늘 사진', 'Sky photo', '空の写真');
+                        const tweetText = L3(language,
+                          `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${place}\n#BeforeGlow #노을 #sunset`,
+                          `🌇 A sky I caught with the BeforeGlow sunset forecast!\n📍 ${place}\n#BeforeGlow #sunset`,
+                          `🌇 BeforeGlowの夕焼け予報で捉えた空!\n📍 ${place}\n#BeforeGlow #夕焼け #sunset`);
                         shareToTwitter({
                           text: tweetText,
                           imageUris: photoUri ? [photoUri] : [],

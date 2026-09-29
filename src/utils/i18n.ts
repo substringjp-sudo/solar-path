@@ -313,7 +313,7 @@ export const translations = {
     isolineSelectedDate: '선택된 날짜',
     isolineSelectedTimeUtc: '선택된 시각 (UTC)',
     isolineDateLabel: '날짜',
-    isolineTimeLabel: '시각 (UTC)',
+    isolineTimeLabel: '시각',
     isolineSpring: '춘분',
     isolineSummer: '하지',
     isolineAutumn: '추분',
@@ -718,7 +718,7 @@ export const translations = {
     isolineSelectedDate: 'Selected Date',
     isolineSelectedTimeUtc: 'Selected Time (UTC)',
     isolineDateLabel: 'Date',
-    isolineTimeLabel: 'Time (UTC)',
+    isolineTimeLabel: 'Time',
     isolineSpring: 'Spring Eq.',
     isolineSummer: 'Summer Sol.',
     isolineAutumn: 'Autumn Eq.',
@@ -1123,7 +1123,7 @@ export const translations = {
     isolineSelectedDate: '選択された日付',
     isolineSelectedTimeUtc: '選択された時刻 (UTC)',
     isolineDateLabel: '日付',
-    isolineTimeLabel: '時刻 (UTC)',
+    isolineTimeLabel: '時刻',
     isolineSpring: '春分',
     isolineSummer: '夏至',
     isolineAutumn: '秋分',
@@ -1217,6 +1217,13 @@ export const translations = {
     legendAzimuth: '太陽方位(法線)',
   },
 };
+
+/**
+ * 세 언어 중 하나를 고릅니다 — 한 화면에서만 쓰는 문구를 그 자리에 두고 싶을 때(키를 늘리지 않고).
+ * 예전에는 `language === 'ko' ? 한 : 영` 이라 일본어 사용자가 영어를 봤습니다(점검 2026-09-29).
+ */
+export const L3 = (lang: Language, ko: string, en: string, ja: string): string =>
+  lang === 'ja' ? ja : lang === 'en' ? en : ko;
 
 export const t = (key: keyof typeof translations['ko'], lang: Language): string => {
   return translations[lang]?.[key] || translations['ko']?.[key] || (key as string);

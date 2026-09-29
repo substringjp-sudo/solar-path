@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
-import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe, MapPin, Crosshair, Star, Hash } from 'lucide-react-native';
+import { Info, Sun, Sunrise, Sunset, Compass, Globe, Crosshair, Star, Hash } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
@@ -358,15 +358,17 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     }
   }, [showGlobe, longitudeDelta, region.latitude, moveToCenter]);
 
-  const dateKey = selectedDate.toISOString().slice(0, 10);
+  // 등시선 하루치는 **관측지 현지 자정**부터 셉니다 — 라벨이 현지 시각(00:00, 04:00…)으로 읽힙니다.
+  const tzMs = (timezoneOffsetHours ?? 0) * 3600000;
+  const dateKey = new Date(selectedDate.getTime() + tzMs).toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
     // 좁은 축척에서는 안 그리므로 만들지도 않습니다 — 하루치 터미네이터를
     // 48번 계산하는 일이라 그냥 두면 값만 버립니다.
     if (!isIsolineScale(longitudeDelta) && !globeOn) return [];
     const list = [];
-    const base = new Date(dateKey);
-    base.setUTCHours(0, 0, 0, 0);
-    
+ 
+    const base = new Date(new Date(dateKey).getTime() - tzMs);
+
     for (let min = 0; min < 1440; min += step) {
       const time = new Date(base.getTime() + min * 60 * 1000);
       const segments = getTerminatorSegments(time);
@@ -377,7 +379,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       });
     }
     return list;
-  }, [dateKey, step, longitudeDelta, globeOn]);
+  }, [dateKey, step, longitudeDelta, globeOn, tzMs]);
 
   const nightPolygonCoords = useMemo(() => {
     try {
@@ -427,40 +429,12 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     return `${h}h ${m}m`;
   }, [eventsAtSelected]);
 
-  const dateLabel = useMemo(() => {
-    return `${selectedDate.getUTCFullYear()}.${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}.${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-  }, [selectedDate]);
-
-  const timeLabel = useMemo(() => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${pad(selectedDate.getUTCHours())}:${pad(selectedDate.getUTCMinutes())} UTC`;
-  }, [selectedDate]);
-
   const handleSlidingStart = () => setIsPlaying(false);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <View style={styles.headerRow}>
-        <View style={[styles.headerChip, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-          <View style={[styles.headerIconWrap, { backgroundColor: theme.bg }]}>
-            <Calendar size={14} color={theme.accent} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerLabel, { color: theme.subText }]} numberOfLines={1}>{t('isolineSelectedDate', language)}</Text>
-            <Text style={[styles.headerValue, { color: theme.text }]} numberOfLines={1}>{dateLabel}</Text>
-          </View>
-        </View>
-        <View style={[styles.headerChip, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-          <View style={[styles.headerIconWrap, { backgroundColor: theme.bg }]}>
-            <Clock size={14} color="#38BDF8" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerLabel, { color: theme.subText }]} numberOfLines={1}>{t('isolineSelectedTimeUtc', language)}</Text>
-            <Text style={[styles.headerValue, { color: theme.text }]} numberOfLines={1}>{timeLabel}</Text>
-          </View>
-        </View>
-      </View>
-
+      {/* ⚠ 예전의 "선택된 날짜 · 선택된 시각(UTC)" 줄은 뺐습니다 — 헤더 날짜·아래 슬라이더와 같은
+             값을 세 번째로 보여 주던 것이라, 그 자리를 지도에 돌려줍니다(점검 2026-09-29). */}
       {/* 가변 메인 프레임: 지도가 화면의 남은 높이를 꽉 채웁니다 */}
       <View 
         style={[
@@ -568,7 +542,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
           activeOpacity={0.7}
         >
-          <MapPin size={16} color={pickable ? theme.accent : theme.text} />
+          {/* 조준점 — 헤더의 📍(위치 변경 창)와 다른 일을 하므로 다른 모양으로(점검 2026-09-29). */}
+          <Crosshair size={16} color={pickable ? theme.accent : theme.text} />
         </TouchableOpacity>
 
         {/* 바깥을 누르면 닫힙니다 — 안 그러면 메뉴가 지도를 계속 가립니다. */}

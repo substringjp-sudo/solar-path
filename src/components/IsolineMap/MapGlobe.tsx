@@ -349,12 +349,14 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
     return best;
   }, []);
 
-  // 시간을 HH:MM 포맷으로 만드는 함수
+  // 시간을 HH:MM 으로 — **관측지 현지 시각**(지도 조작부와 같은 기준, 점검 2026-09-29).
+  const tzHours = useCelestialStore(st => st.timezoneOffsetHours) ?? 0;
   const formatTime = useCallback((date: Date) => {
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const l = new Date(date.getTime() + tzHours * 3600000);
+    const hours = String(l.getUTCHours()).padStart(2, '0');
+    const minutes = String(l.getUTCMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
-  }, []);
+  }, [tzHours]);
 
   const sunrisePath = useMemo(() => makeTerminatorPath(terminator.sunrise), [terminator.sunrise, makeTerminatorPath]);
   const sunsetPath = useMemo(() => makeTerminatorPath(terminator.sunset), [terminator.sunset, makeTerminatorPath]);

@@ -16,39 +16,49 @@ interface IsolineControlsProps {
   theme: any;
 }
 
+/**
+ * ⚠ 시각은 **관측지 현지 시각**으로 보이고 다룹니다(점검 2026-09-29). 예전에는 지도 탭만 UTC 라
+ *   하늘 탭이 22:07 일 때 지도는 13:07 UTC 였습니다. 기기 시간대가 아니라 관측지 시간대
+ *   (`timezoneOffsetHours`)로 옮긴 날짜를 getUTC* 로 읽어, 어느 나라 기기에서도 같게 셉니다.
+ */
+const shift = (d: Date, tz: number) => new Date(d.getTime() + tz * 3600000);
+const unshift = (ms: number, tz: number) => new Date(ms - tz * 3600000);
+
 const daysInYear = (year: number) => Math.round((Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86400000);
 
-const getDayOfYear = (date: Date) => {
-  const start = Date.UTC(date.getUTCFullYear(), 0, 1);
-  return Math.floor((date.getTime() - start) / 86400000) + 1;
+const getDayOfYear = (local: Date) => {
+  const start = Date.UTC(local.getUTCFullYear(), 0, 1);
+  return Math.floor((local.getTime() - start) / 86400000) + 1;
 };
 
-const dateToDatePercent = (date: Date) => {
-  const total = daysInYear(date.getUTCFullYear());
-  return ((getDayOfYear(date) - 1) / (total - 1)) * 100;
+const dateToDatePercent = (date: Date, tz: number) => {
+  const local = shift(date, tz);
+  const total = daysInYear(local.getUTCFullYear());
+  return ((getDayOfYear(local) - 1) / (total - 1)) * 100;
 };
 
-const datePercentToDate = (percent: number, year: number, hour: number, minute: number) => {
+const datePercentToDate = (percent: number, year: number, hour: number, minute: number, tz: number) => {
   const total = daysInYear(year);
   const dayIndex = Math.round((Math.max(0, Math.min(100, percent)) / 100) * (total - 1));
   const base = Date.UTC(year, 0, 1, hour, minute, 0, 0);
-  return new Date(base + dayIndex * 86400000);
+  return unshift(base + dayIndex * 86400000, tz);
 };
 
-const dateToTimePercent = (date: Date) => ((date.getUTCHours() * 60 + date.getUTCMinutes()) / 1440) * 100;
+const dateToTimePercent = (date: Date, tz: number) => {
+  const l = shift(date, tz);
+  return ((l.getUTCHours() * 60 + l.getUTCMinutes()) / 1440) * 100;
+};
 
-const timePercentToDate = (percent: number, baseDate: Date) => {
+const timePercentToDate = (percent: number, baseDate: Date, tz: number) => {
   const minutes = Math.min(1439, Math.max(0, Math.round((percent / 100) * 1440)));
-  const d = new Date(baseDate);
-  d.setUTCHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
-  return d;
+  const l = shift(baseDate, tz);
+  l.setUTCHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return unshift(l.getTime(), tz);
 };
 
-const formatMonthDay = (date: Date) => `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
-const formatHourMinute = (date: Date) => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
-};
+const pad = (n: number) => String(n).padStart(2, '0');
+const formatMonthDay = (date: Date, tz: number) => { const l = shift(date, tz); return `${l.getUTCMonth() + 1}/${l.getUTCDate()}`; };
+const formatHourMinute = (date: Date, tz: number) => { const l = shift(date, tz); return `${pad(l.getUTCHours())}:${pad(l.getUTCMinutes())}`; };
 
 export const IsolineControls: React.FC<IsolineControlsProps> = ({
   selectedDate,
@@ -59,13 +69,15 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
   onTogglePlay,
   theme,
 }) => {
-  const { language } = useCelestialStore();
-  const year = selectedDate.getUTCFullYear();
+  const { language, timezoneOffsetHours } = useCelestialStore();
+  const tz = timezoneOffsetHours ?? 0;
+  const localNow = shift(selectedDate, tz);
+  const year = localNow.getUTCFullYear();
 
   const seasonMarkers = useMemo(() => getSeasonMarkers(year), [year]);
 
-  const datePct = dateToDatePercent(selectedDate);
-  const timePct = dateToTimePercent(selectedDate);
+  const datePct = dateToDatePercent(selectedDate, tz);
+  const timePct = dateToTimePercent(selectedDate, tz);
 
   const seasonButtons = [
     { key: 'spring', label: t('isolineSpring', language), date: seasonMarkers.springEquinox, color: '#4ADE80' },
@@ -75,14 +87,15 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
   ];
 
   const jumpToSeason = (target: Date) => {
-    const next = new Date(target);
-    next.setUTCHours(selectedDate.getUTCHours(), selectedDate.getUTCMinutes(), 0, 0);
-    onChangeDate(next);
+    // 그 절기 **현지 날짜**에 지금의 현지 시각을 그대로.
+    const l = shift(target, tz);
+    l.setUTCHours(localNow.getUTCHours(), localNow.getUTCMinutes(), 0, 0);
+    onChangeDate(unshift(l.getTime(), tz));
   };
 
   const seasonMarkerPositions = seasonButtons.map((s) => ({
     ...s,
-    pct: dateToDatePercent(s.date),
+    pct: dateToDatePercent(s.date, tz),
   }));
 
   return (
@@ -109,12 +122,12 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             <Calendar size={12} color={theme.subText} />
             <Text style={[styles.sliderLabel, { color: theme.subText }]}>{t('isolineDateLabel', language)}</Text>
           </View>
-          <Text style={[styles.sliderValue, { color: theme.text }]}>{formatMonthDay(selectedDate)}</Text>
+          <Text style={[styles.sliderValue, { color: theme.text }]}>{formatMonthDay(selectedDate, tz)}</Text>
         </View>
         <View style={styles.sliderWrapper}>
           <GenericSlider
             value={datePct}
-            onChange={(p) => onChangeDate(datePercentToDate(p, year, selectedDate.getUTCHours(), selectedDate.getUTCMinutes()))}
+            onChange={(p) => onChangeDate(datePercentToDate(p, year, localNow.getUTCHours(), localNow.getUTCMinutes(), tz))}
             onGrant={onSlidingStart}
             onRelease={onSlidingComplete}
             theme={theme}
@@ -131,24 +144,28 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
               </View>
             }
           >
-            <Text style={[styles.tooltipText, { color: '#1A1A1A' }]}>{formatMonthDay(selectedDate)}</Text>
+            <Text style={[styles.tooltipText, { color: '#1A1A1A' }]}>{formatMonthDay(selectedDate, tz)}</Text>
           </GenericSlider>
         </View>
       </View>
 
-      {/* 시각 슬라이더 (UTC) */}
+      {/* 시각 슬라이더 — 현지 시각. UTC 는 곁에 작게(등시선이 세계 시각이므로). */}
       <View style={styles.sliderBlock}>
         <View style={styles.sliderHeader}>
           <View style={styles.sliderHeaderLeft}>
             <Clock size={12} color={theme.subText} />
-            <Text style={[styles.sliderLabel, { color: theme.subText }]}>{t('isolineTimeLabel', language)}</Text>
+            <Text style={[styles.sliderLabel, { color: theme.subText }]}>
+              {t('isolineTimeLabel', language)}
+              {/* UTC 는 왼쪽에 작게 — 오른쪽은 끝자락에서 슬라이더 말풍선이 덮습니다. */}
+              {`  · ${formatHourMinute(selectedDate, 0)} UTC`}
+            </Text>
           </View>
-          <Text style={[styles.sliderValue, { color: theme.text }]}>{formatHourMinute(selectedDate)} UTC</Text>
+          <Text style={[styles.sliderValue, { color: theme.text }]}>{formatHourMinute(selectedDate, tz)}</Text>
         </View>
         <View style={styles.sliderWrapper}>
           <GenericSlider
             value={timePct}
-            onChange={(p) => onChangeDate(timePercentToDate(p, selectedDate))}
+            onChange={(p) => onChangeDate(timePercentToDate(p, selectedDate, tz))}
             onGrant={onSlidingStart}
             onRelease={onSlidingComplete}
             theme={theme}
@@ -156,7 +173,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             fillColor="#38BDF8"
             knobColor="#FFFFFF"
           >
-            <Text style={[styles.tooltipText, { color: '#1A1A1A' }]}>{formatHourMinute(selectedDate)}</Text>
+            <Text style={[styles.tooltipText, { color: '#1A1A1A' }]}>{formatHourMinute(selectedDate, tz)}</Text>
           </GenericSlider>
         </View>
         <View style={styles.timeLabels}>

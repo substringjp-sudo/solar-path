@@ -129,6 +129,7 @@ import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { L3 } from '../../utils/i18n';
 
 // 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
 const tempPlanetVec = new THREE.Vector3();
@@ -1370,16 +1371,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           };
 
           const labs: Array<{ id: string; name: string; x: number; y: number; color: string }> = [];
+          // 라벨은 언어 설정을 따릅니다(예전엔 "태양 Sun" 처럼 두 언어 병기, 점검 2026-09-29).
+          const lang = useCelestialStore.getState().language;
 
           // 1. 태양 (Sun)
           if (sunRef.current?.mesh && layersRef.current.sun && sunAltRef.current > -0.9) {
             const p = proj(sunRef.current.mesh.position);
-            if (p.visible) labs.push({ id: 'sun', name: '태양 Sun', x: p.px, y: p.py, color: '#FBBF24' });
+            if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
           }
           // 2. 달 (Moon)
           if (moonRef.current?.group && layersRef.current.moon) {
             const p = proj(moonRef.current.group.position);
-            if (p.visible) labs.push({ id: 'moon', name: '달 Moon', x: p.px, y: p.py, color: '#38BDF8' });
+            if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
           }
           // 3. 은하수 중심부 (Milky Way Center)
           if (layersRef.current.milkyway) {
@@ -1387,15 +1390,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             mwPos.applyMatrix3(equToHorizonRef.current);
             if (mwPos.y > 0) {
               const p = proj(mwPos);
-              if (p.visible) labs.push({ id: 'milkyway', name: '은하수 중심 Milky Way', x: p.px, y: p.py, color: '#C4B5FD' });
+              if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
             }
           }
           // 4. 주요 행성 (Planets: 목성, 토성, 금성)
           if (layersRef.current.planets) {
             const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
-              { key: 'jupiter', name: '목성 Jupiter', color: '#F43F5E' },
-              { key: 'saturn', name: '토성 Saturn', color: '#F59E0B' },
-              { key: 'venus', name: '금성 Venus', color: '#38BDF8' },
+              { key: 'jupiter', name: L3(lang, '목성', 'Jupiter', '木星'), color: '#F43F5E' },
+              { key: 'saturn', name: L3(lang, '토성', 'Saturn', '土星'), color: '#F59E0B' },
+              { key: 'venus', name: L3(lang, '금성', 'Venus', '金星'), color: '#38BDF8' },
             ];
             planetList.forEach((pl, idx) => {
               const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);

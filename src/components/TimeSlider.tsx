@@ -4,7 +4,7 @@ import { Clock, Zap, Camera } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
-import { t } from '../utils/i18n';
+import { t, L3 } from '../utils/i18n';
 
 interface TimeSliderProps {
   value: Date;
@@ -384,15 +384,12 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       {/* ── 우측: Astro-HUD 카메라 셔터 모듈 ────────────────────────────── */}
       {onCameraPress && (
         <View style={styles.shutterModule}>
-          <View style={styles.shutterStatusRow}>
-            <View style={styles.shutterLed} />
-            <Text style={styles.shutterStatusText}>READY</Text>
-          </View>
+          {/* 'READY' 표시등은 뺐습니다 — 상태와 무관하게 늘 READY 라 뜻이 없었습니다(점검 2026-09-29). */}
           <TouchableOpacity
             style={styles.shutterBtn}
             onPress={onCameraPress}
             activeOpacity={0.78}
-            accessibilityLabel="AR 카메라 열기"
+            accessibilityLabel={L3(language, 'AR 카메라 열기', 'Open AR camera', 'ARカメラを開く')}
             accessibilityRole="button"
           >
             <View style={styles.shutterOuterRing}>

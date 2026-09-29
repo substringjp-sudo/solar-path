@@ -26,7 +26,7 @@ import {
 } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
-import { t } from '../utils/i18n';
+import { t, L3 } from '../utils/i18n';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'map' | 'log';
@@ -131,7 +131,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     isActive && { fontWeight: '900' }
                   ]}
                 >
-                  {tab.label}
+                  {/* 번호는 HUD 문체로 두고 이름은 언어를 따릅니다(점검 2026-09-29). */}
+                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
+                    : tab.id === 'map' ? L3(language, '지도', 'MAP', '地図')
+                    : L3(language, '기록', 'LOG', '記録')}`}
                 </Text>
               </TouchableOpacity>
             );
@@ -143,7 +146,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <TouchableOpacity
               onPress={() => setMapVisible(true)}
               style={styles.iconBtn}
-              accessibilityLabel="현재위치 변경"
+              accessibilityLabel={L3(language, '위치 변경', 'Change location', '位置を変更')}
               accessibilityRole="button"
             >
               <MapPin size={14} color="#38BDF8" />
@@ -153,7 +156,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <TouchableOpacity
             onPress={() => setSettingsVisible(true)}
             style={styles.iconBtn}
-            accessibilityLabel="설정"
+            accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
             <Settings size={14} color="#94A3B8" />
@@ -172,7 +175,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
           <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
             <Calendar size={11} color="#38BDF8" style={{ marginRight: 6 }} />
-            <Text style={styles.datePrefix}>DATE // </Text>
+            {/* 'DATE //' 접두어는 뺐습니다 — 달력 아이콘이 이미 말하고, 320px 기기에서 두 줄로 깨졌습니다. */}
             <Text style={styles.dateText}>
               {formatLocalTime(currentTimeLocal || currentTime, 'yyyy.MM.dd')}
             </Text>

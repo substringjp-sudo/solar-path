@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon, Overlay } from 'react-native-maps';
 import type { CloudTopViewImage } from './useCloudTopView';
+import { useCelestialStore } from '../../store/useCelestialStore';
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 import { SunOverlay } from '../../utils/solarGeometry';
@@ -48,11 +49,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onRegionChangeComplete?.(newRegion);
   };
 
-  // 시간을 HH:MM 포맷으로 만드는 함수
+  // 시간을 HH:MM 으로 — **관측지 현지 시각**(지도 조작부와 같은 기준, 점검 2026-09-29).
+  const tzHours = useCelestialStore(st => st.timezoneOffsetHours) ?? 0;
   const formatTime = (date?: Date) => {
     if (!date) return '';
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const l = new Date(date.getTime() + tzHours * 3600000);
+    const hours = String(l.getUTCHours()).padStart(2, '0');
+    const minutes = String(l.getUTCMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
   };
 
