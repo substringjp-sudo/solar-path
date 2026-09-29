@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon } from 'react-native-maps';
+import MapView, { Polyline, Marker, PROVIDER_GOOGLE, Polygon, Overlay } from 'react-native-maps';
+import type { CloudTopViewImage } from './useCloudTopView';
 import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 import { SunOverlay } from '../../utils/solarGeometry';
@@ -23,6 +24,7 @@ interface MapCanvasProps {
   sunOverlay?: SunOverlay | null;
   /** 구름 레이더. 축척이 창 밖이거나 자료가 없으면 null 입니다. */
   radar?: RadarFrame | null;
+  topView?: CloudTopViewImage | null;
 }
 
 
@@ -40,6 +42,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   selectedDate,
   sunOverlay = null,
   radar = null,
+  topView = null,
 }) => {
   const handleRegionChangeComplete = (newRegion: any) => {
     onRegionChangeComplete?.(newRegion);
@@ -81,7 +84,20 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
              ⚠ 매끈하게 칠하지 않고 **자료가 가진 고리·방위 칸 그대로** 그립니다.
              바깥 칸은 방위 폭이 199km 입니다 — 부드럽게 보간하면 실제보다 수십
              배 많이 아는 것처럼 보입니다(`cloudRadar.ts`). */}
-      {radar && radar.cells.map((c, i) => (
+      {/* ── 시뮬레이션 보기(§120 B) — 하늘 탭의 구름을 위에서 본 한 장 ─────────
+             그림은 관측점 중심 동·북 km 평면인데 겹은 위경도 사각형이라, 세로(위도 1° =
+             111.2km)는 맞고 가로는 원반 위·아래 끝에서 cos(위도) 차만큼(서울 ±3.2° 에서 약 4%)
+             어긋납니다. ⚠ 기기에서 아직 못 봤습니다(웹 미리보기 지도에는 겹이 없음). */}
+      {topView && (
+        <Overlay
+          image={{ uri: topView.uri }}
+          bounds={[
+            [lat + topView.rangeKm / 111.2, lon - topView.rangeKm / (111.32 * Math.cos(lat * Math.PI / 180))],
+            [lat - topView.rangeKm / 111.2, lon + topView.rangeKm / (111.32 * Math.cos(lat * Math.PI / 180))],
+          ]}
+        />
+      )}
+      {!topView && radar && radar.cells.map((c, i) => (
         <Polygon
           key={`radar-${i}`}
           coordinates={c.polygon}

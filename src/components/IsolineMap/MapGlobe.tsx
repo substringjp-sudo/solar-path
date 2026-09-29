@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { StyleSheet, View, PanResponder } from 'react-native';
-import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect } from 'react-native-svg';
+import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { IsochronePoint } from '../../utils/celestial';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
+import type { CloudTopViewImage } from './useCloudTopView';
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -29,6 +30,8 @@ interface MapGlobeProps {
   onViewChange?: (v: { latitude: number; longitude: number; radius: number; zoomedIn: boolean }) => void;
   /** 구름 레이더 — 평면 지도와 **같은 칸**을 구 위에 씌웁니다(§120). */
   radar?: RadarFrame | null;
+  /** 시뮬레이션 보기(§120 B) — 있으면 레이더 칸 대신 이 그림을 관측점 둘레에 얹습니다. */
+  topView?: CloudTopViewImage | null;
   selectedDate?: Date;
 }
 
@@ -73,6 +76,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   maxRadius,
   onViewChange,
   radar = null,
+  topView = null,
   selectedDate,
 }) => {
   const W = Math.max(1, width);
@@ -292,6 +296,38 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
     };
   }, [radarRings, geoPath]);
 
+  /**
+   * 위에서 본 그림을 구 위에 놓는 아핀 변환. 그림은 관측점 중심 **동·북 km 평면**
+   * (한 변 2·rangeKm)입니다. 관측점과 그 동·북으로 50km 떨어진 두 점을 투영해 그 자리의
+   * 야코비안을 얻고, 그림 전체를 거기에 겁니다.
+   *
+   * ⚠ 원반 반경 360km 는 지구 중심각 3.2° 라, 구 한가운데 가까이서는 이 근사가 화소 한 칸
+   *   안쪽입니다. 원반이 **가장자리(지평)** 로 갈수록 먼 쪽이 더 눌려야 하는데 아핀은 고르게
+   *   눌러, 먼 쪽이 조금 커 보입니다. 원반 중심이 지평 너머로 가면 안 그립니다.
+   */
+  const topViewXform = useMemo(() => {
+    if (!topView || lat === undefined || lon === undefined) return null;
+    const c0: [number, number] = [lon, lat];
+    if (d3.geoDistance(c0, [-rotate[0], -rotate[1]]) > Math.PI / 2 * 0.97) return null;
+    const step = (bearingDeg: number, km: number): [number, number] => {
+      const d = km / 6371, b = bearingDeg * Math.PI / 180, p1 = lat * Math.PI / 180;
+      const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+      const l2 = lon * Math.PI / 180 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+      return [l2 * 180 / Math.PI, p2 * 180 / Math.PI];
+    };
+    const C = projection(c0), E = projection(step(90, 50)), N = projection(step(0, 50));
+    if (!C || !E || !N) return null;
+    const je = [(E[0] - C[0]) / 50, (E[1] - C[1]) / 50];
+    const jn = [(N[0] - C[0]) / 50, (N[1] - C[1]) / 50];
+    const Rk = topView.rangeKm;
+    const S = 1;   // 그림을 1×1 로 놓고 변환에 크기를 싣습니다.
+    // 그림 (u, v) ∈ [0,1]² → 동 = (2u−1)R, 북 = (1−2v)R → 화면 = C + je·동 + jn·북
+    const a = je[0] * 2 * Rk / S, b = je[1] * 2 * Rk / S;
+    const cc = -jn[0] * 2 * Rk / S, d = -jn[1] * 2 * Rk / S;
+    const e = C[0] - je[0] * Rk + jn[0] * Rk, f = C[1] - je[1] * Rk + jn[1] * Rk;
+    return `matrix(${a} ${b} ${cc} ${d} ${e} ${f})`;
+  }, [topView, lat, lon, rotate, projection]);
+
   const makeTerminatorPath = useCallback((segments: IsochronePoint[][]) => {
     const lines = joinOnSphere(segments);
     if (lines.length === 0) return null;
@@ -468,7 +504,20 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
 
           {/* ── 구름 레이더 — 평면 지도와 같은 칸, 같은 색(§120) ──────────
                  자료가 가진 고리·방위 칸 그대로입니다. 매끈하게 칠하지 않습니다. */}
-          {radarPaths && radarPaths.cells.map((c, i) => c.d && (
+          {topView && topViewXform && (
+            <>
+              <Defs>
+                <ClipPath id="globeClip">
+                  <Circle cx={CX} cy={CY} r={RADIUS} />
+                </ClipPath>
+              </Defs>
+              <G clipPath="url(#globeClip)">
+                <SvgImage href={topView.uri} x={0} y={0} width={1} height={1}
+                  preserveAspectRatio="none" transform={topViewXform} />
+              </G>
+            </>
+          )}
+          {!topView && radarPaths && radarPaths.cells.map((c, i) => c.d && (
             <Path key={`radar-${i}`} d={c.d} fill={c.fill} stroke="rgba(148, 163, 184, 0.10)" strokeWidth={0.5} />
           ))}
           {radarPaths?.wind && (

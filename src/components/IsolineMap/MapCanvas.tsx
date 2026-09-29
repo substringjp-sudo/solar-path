@@ -23,6 +23,8 @@ export interface MapCanvasProps {
   sunOverlay?: SunOverlay | null;
   /** 구름 레이더. 축척이 창 밖이거나 자료가 없으면 null 입니다. */
   radar?: RadarFrame | null;
+  /** 시뮬레이션 보기(§120 B). 웹 미리보기는 안 그립니다. */
+  topView?: import('./useCloudTopView').CloudTopViewImage | null;
 }
 
 export declare const MapCanvas: React.FC<MapCanvasProps>;

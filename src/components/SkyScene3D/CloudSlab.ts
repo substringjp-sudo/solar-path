@@ -126,6 +126,35 @@ const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.597, mid: 0.377, high: 0.5
 /** 위 폭 ÷ uShapeSigma 기본값(0.16). uShapeSigma 를 바꿔도 비율은 유지됩니다. */
 const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 0.654, mid: 0.652, high: 0.986 };
 
+/**
+ * 셰이더 소스의 층별 상수 자리(CELL_* · TAUK_* · SHAPE_*)를 값으로 바꿉니다. 구름 슬랩과
+ * **위에서 본 구름**(§120 `CloudTopView`)이 같은 값을 쓰게 하려고 한 곳에 둡니다 — 둘이 다른
+ * 셀 크기를 쓰면 지도와 하늘이 다른 구름을 그립니다.
+ */
+export function substituteSlabConstants(
+  src: string,
+  v: {
+    cell?: Record<LayerKey, number>; tau?: Record<LayerKey, number>;
+    shapeMean?: Record<LayerKey, number>; shapeSigRatio?: Record<LayerKey, number>;
+  } = {},
+): string {
+  const cell = v.cell ?? CELL_KM, tau = v.tau ?? TAU_K;
+  const shapeMean = v.shapeMean ?? SHAPE_MEAN, shapeSigRatio = v.shapeSigRatio ?? SHAPE_SIG_RATIO;
+  return src
+    .replace(/CELL_LOW/g, cell.low.toFixed(2))
+    .replace(/CELL_MID/g, cell.mid.toFixed(2))
+    .replace(/CELL_HIGH/g, cell.high.toFixed(2))
+    .replace(/TAUK_LOW/g, tau.low.toFixed(2))
+    .replace(/TAUK_MID/g, tau.mid.toFixed(2))
+    .replace(/TAUK_HIGH/g, tau.high.toFixed(2))
+    .replace(/SHAPE_MEAN_LOW/g, shapeMean.low.toFixed(4))
+    .replace(/SHAPE_MEAN_MID/g, shapeMean.mid.toFixed(4))
+    .replace(/SHAPE_MEAN_HIGH/g, shapeMean.high.toFixed(4))
+    .replace(/SHAPE_SIGR_LOW/g, shapeSigRatio.low.toFixed(4))
+    .replace(/SHAPE_SIGR_MID/g, shapeSigRatio.mid.toFixed(4))
+    .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
+}
+
 export const CLOUD_SLAB_GLSL = `
 const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
 
@@ -2049,19 +2078,7 @@ export function createCloudSlab(opts: {
   beamLut.needsUpdate = true;
 
   // ⚠ ALT_* 는 더 이상 치환하지 않습니다 — uLayerAltKm uniform 입니다.
-  const frag = FRAG
-    .replace(/CELL_LOW/g, cell.low.toFixed(2))
-    .replace(/CELL_MID/g, cell.mid.toFixed(2))
-    .replace(/CELL_HIGH/g, cell.high.toFixed(2))
-    .replace(/TAUK_LOW/g, tau.low.toFixed(2))
-    .replace(/TAUK_MID/g, tau.mid.toFixed(2))
-    .replace(/TAUK_HIGH/g, tau.high.toFixed(2))
-    .replace(/SHAPE_MEAN_LOW/g, shapeMean.low.toFixed(4))
-    .replace(/SHAPE_MEAN_MID/g, shapeMean.mid.toFixed(4))
-    .replace(/SHAPE_MEAN_HIGH/g, shapeMean.high.toFixed(4))
-    .replace(/SHAPE_SIGR_LOW/g, shapeSigRatio.low.toFixed(4))
-    .replace(/SHAPE_SIGR_MID/g, shapeSigRatio.mid.toFixed(4))
-    .replace(/SHAPE_SIGR_HIGH/g, shapeSigRatio.high.toFixed(4));
+  const frag = substituteSlabConstants(FRAG, { cell, tau, shapeMean, shapeSigRatio });
 
   let horizonTarget: THREE.WebGLRenderTarget | null = null;
   let bandTex: THREE.DataTexture | null = null;
@@ -2435,10 +2452,21 @@ export interface CoverageSource {
  * 16,384 회가 배로 늡니다.
  */
 export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSource): void {
-  const size = handle.coverTex.image.width as number;
-  const data = handle.coverTex.image.data as Uint8Array;
-  const genusData = handle.genusTex.image.data as Uint8Array;
-  const R = handle.rangeKm;
+  bakeCoverageData(
+    handle.coverTex.image.data as Uint8Array, handle.genusTex.image.data as Uint8Array,
+    handle.coverTex.image.width as number, handle.rangeKm, src,
+  );
+  handle.coverTex.needsUpdate = true;
+  handle.genusTex.needsUpdate = true;
+}
+
+/**
+ * 운량장·운형장 자료를 굽습니다(제곱근 사상, `slab_coverUv` 의 역). 슬랩과 위에서 본
+ * 구름(§120)이 **같은 굽기**를 쓰게 따로 뺐습니다.
+ */
+export function bakeCoverageData(
+  data: Uint8Array, genusData: Uint8Array, size: number, R: number, src: CoverageSource,
+): void {
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
       // uv → 제곱근 사상의 역: r = |p|, d = R·r²
@@ -2462,8 +2490,6 @@ export function bakeCloudSlabCoverage(handle: CloudSlabHandle, src: CoverageSour
       genusData[k] = g; genusData[k + 1] = g; genusData[k + 2] = g; genusData[k + 3] = 255;
     }
   }
-  handle.coverTex.needsUpdate = true;
-  handle.genusTex.needsUpdate = true;
 }
 
 export interface CloudSlabUpdate {

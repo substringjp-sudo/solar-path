@@ -24,6 +24,7 @@ interface MapCanvasProps {
   sunOverlay?: unknown;
   /** ⚠ 위와 같은 이유로 웹에서는 늘 null 입니다. */
   radar?: unknown;
+  topView?: unknown;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,

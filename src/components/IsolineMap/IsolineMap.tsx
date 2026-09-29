@@ -20,6 +20,7 @@ import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
 import { MapGlobe } from './MapGlobe';
+import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
 
@@ -164,6 +165,12 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     return () => { alive = false; };
   }, [wantRadar, lat, lon]);
 
+  /**
+   * 구름을 무엇으로 보나 — 자료 칸(레이더) · 하늘 탭의 구름을 위에서 본 것(시뮬레이션, §120 B).
+   * 구와 평면 지도(네이티브 지도 겹) 둘 다에 얹습니다. 웹 미리보기 지도는 겹이 없어 구에서만.
+   */
+  const [cloudView, setCloudView] = useState<'radar' | 'sim'>('radar');
+
   const radar = useMemo(
     () => (wantRadar
       ? buildRadarFrame(ring, lat, lon, selectedDate.getTime(), longitudeDelta,
@@ -171,6 +178,9 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       : null),
     [wantRadar, ring, lat, lon, selectedDate, longitudeDelta, globeOn, globeRadiusNow],
   );
+  // ⚠ 구에서는 원반이 폭 100px 남짓에서 지도로 넘어가 무늬가 작게만 보입니다. 그래서 평면
+  //   지도의 레이더 축척에도 같은 그림을 얹습니다(네이티브 지도 겹).
+  const topView = useCloudTopView(ring, selectedDate.getTime(), cloudView === 'sim' && !!radar);
 
   /**
    * 축척이 정하는 그리기 모드 — 타일 → 실루엣 → 구.
@@ -476,6 +486,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             selectedDate={selectedDate}
             sunOverlay={sunOverlay}
             radar={radar}
+            topView={topView}
           />
         ) : bodySize.width > 0 && (
           <MapGlobe
@@ -495,6 +506,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             maxRadius={globeRange.max}
             onViewChange={onGlobeView}
             radar={radar}
+            topView={topView}
             selectedDate={selectedDate}
           />
         )}
@@ -652,9 +664,23 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
               <View style={styles.legendItem}>
                 <View style={[styles.legendLine, { backgroundColor: 'rgba(226,232,240,0.75)' }]} />
                 <Text style={[styles.legendText, { color: theme.subText }]}>
-                  구름 · 바깥 칸 {Math.round(radar.outerSpacingKm)}km
+                  {topView
+                    ? '구름 · 시뮬레이션 (잔 무늬는 지어낸 것)'
+                    : `구름 · 바깥 칸 ${Math.round(radar.outerSpacingKm)}km`}
                 </Text>
               </View>
+            )}
+            {/* 자료 칸 ↔ 하늘 탭의 구름을 위에서 본 것. 웹 미리보기 지도는 겹이 없어 구에서만. */}
+            {radar && (Platform.OS !== 'web' || showGlobe) && (
+              <TouchableOpacity
+                onPress={() => setCloudView(v => (v === 'radar' ? 'sim' : 'radar'))}
+                style={[styles.legendItem, styles.cloudViewToggle, { borderColor: theme.border }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.legendText, { color: theme.text }]}>
+                  {cloudView === 'radar' ? '시뮬레이션으로 보기' : '자료 칸으로 보기'}
+                </Text>
+              </TouchableOpacity>
             )}
             {isLocalScale ? (
               <>
@@ -928,6 +954,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  cloudViewToggle: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
   },
   legendItem: {
     flexDirection: 'row',

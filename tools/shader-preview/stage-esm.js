@@ -27,6 +27,8 @@ const ENTRIES = [
   'src/components/SkyScene3D/CloudDeck.ts',
   'src/components/SkyScene3D/SceneComposer.ts',
   'src/components/SkyScene3D/CloudSlab.ts',
+  // §120 B — 위에서 본 구름. 슬랩 셰이더를 그대로 불러 씁니다.
+  'src/components/SkyScene3D/CloudTopView.ts',
   // A/B 습작이 씁니다 — PR #14 시점 슬랩의 사본입니다. 앱은 임포트하지
   // 않습니다(번들에 안 들어갑니다). 지금 셰이더와 그때 셰이더를 **같은
   // 페이지에서 같은 입력**으로 나란히 그리려면 둘 다 있어야 합니다.
