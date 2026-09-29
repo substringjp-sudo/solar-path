@@ -92,8 +92,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         <Overlay
           image={{ uri: topView.uri }}
           bounds={[
-            [lat + topView.rangeKm / 111.2, lon - topView.rangeKm / (111.32 * Math.cos(lat * Math.PI / 180))],
-            [lat - topView.rangeKm / 111.2, lon + topView.rangeKm / (111.32 * Math.cos(lat * Math.PI / 180))],
+            [lat - topView.rangeKm / 111.2, lon - topView.rangeKm / (111.32 * Math.max(0.01, Math.cos(lat * Math.PI / 180)))],
+            [lat + topView.rangeKm / 111.2, lon + topView.rangeKm / (111.32 * Math.max(0.01, Math.cos(lat * Math.PI / 180)))],
           ]}
         />
       )}
