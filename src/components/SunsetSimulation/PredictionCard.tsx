@@ -3,8 +3,9 @@ import { StyleSheet, View, Text, Platform } from 'react-native';
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t } from '../../utils/i18n';
-import { color, radius, mono, dataColor, tint } from '../../theme/tokens';
+import { color, radius, mono, dataColor, tint, color as DARK, dataColor as DARK_DATA, type Palette, type DataPalette } from '../../theme/tokens';
 import { PressScale } from '../ui';
+import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
 export interface PredictionCardProps {
   prediction: SunsetPrediction;
@@ -15,7 +16,7 @@ export interface PredictionCardProps {
 }
 
 /** 구름 양 라벨 색상 */
-export const cloudLabelColor = (c: SunsetPrediction['cloudLabel']): string => {
+export const cloudLabelColor = (c: SunsetPrediction['cloudLabel'], dataColor: DataPalette = DARK_DATA, color: Palette = DARK): string => {
   switch (c) {
     case 'Overcast': return dataColor.qOvercast;
     case 'Complex':  return dataColor.qFair;
@@ -25,7 +26,7 @@ export const cloudLabelColor = (c: SunsetPrediction['cloudLabel']): string => {
 };
 
 /** 색상 라벨 색상 */
-export const colorLabelColor = (c: SunsetPrediction['colorLabel']): string => {
+export const colorLabelColor = (c: SunsetPrediction['colorLabel'], dataColor: DataPalette = DARK_DATA, color: Palette = DARK): string => {
   switch (c) {
     case 'Vivid': return dataColor.qEpic;
     case 'Muted': return color.textDim;
@@ -53,6 +54,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   isSunrise,
   onPressSource,
 }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const { language } = useCelestialStore();
   return (
     <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
@@ -60,7 +62,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
         {/* Anchor: 구름 양 */}
         <View style={styles.predictionLeftCol}>
           <View style={styles.labelRow}>
-            <Text style={[styles.mainLabel, { color: cloudLabelColor(prediction.cloudLabel) }]}>
+            <Text style={[styles.mainLabel, { color: cloudLabelColor(prediction.cloudLabel, dataColor, color) }]}>
               {t(('cloud' + prediction.cloudLabel) as any, language).toUpperCase()}
             </Text>
             {weatherSource === 'ultra-short' && (
@@ -82,7 +84,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
 
         {/* Anchor: 색상 평가 */}
         <View style={styles.colorLabelWrap}>
-          <Text style={[styles.mainLabel, { color: colorLabelColor(prediction.colorLabel) }]}>
+          <Text style={[styles.mainLabel, { color: colorLabelColor(prediction.colorLabel, dataColor, color) }]}>
             {t(('color' + prediction.colorLabel) as any, language).toUpperCase()}
           </Text>
           <Text style={[styles.subLabel, { color: theme.subText, textAlign: 'right' }]}>
@@ -94,7 +96,7 @@ export const PredictionCard: React.FC<PredictionCardProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   predictionCard: {
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -151,4 +153,4 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 3,
   },
-});
+}));

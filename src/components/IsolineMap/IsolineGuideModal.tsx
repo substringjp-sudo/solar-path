@@ -5,6 +5,7 @@ import { t } from '../../utils/i18n';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { color, radius, mono, dataColor } from '../../theme/tokens';
 import { PressScale } from '../ui';
+import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
 interface IsolineGuideModalProps {
   visible: boolean;
@@ -13,6 +14,7 @@ interface IsolineGuideModalProps {
 }
 
 export const IsolineGuideModal: React.FC<IsolineGuideModalProps> = ({ visible, onClose, theme }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const { language } = useCelestialStore();
 
   const items = [
@@ -53,7 +55,7 @@ export const IsolineGuideModal: React.FC<IsolineGuideModalProps> = ({ visible, o
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   overlay: {
     flex: 1,
     backgroundColor: color.scrim,
@@ -111,4 +113,4 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingTop: 4,
   },
-});
+}));

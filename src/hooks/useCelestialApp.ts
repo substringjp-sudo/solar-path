@@ -1,4 +1,4 @@
-import { color as C } from '../theme/tokens';
+import { useThemeColors, useScheme } from '../theme/useTheme';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
@@ -327,18 +327,23 @@ export function useCelestialApp() {
   // ⚠ 테마는 `src/theme/tokens.ts` 에서 옵니다(2026-09-29 디자인 정리). 예전에는 강조색이 낮엔 주황,
   //   밤엔 하늘색으로 바뀌어 "누를 수 있는 것" 의 색이 시간대마다 달랐습니다. 이제 조작은 늘 하늘색이고,
   //   주황·호박은 해·노을 **데이터**의 색입니다. 낮/밤에는 바닥 밝기만 아주 조금 달라집니다.
+  // 패널·창·헤더가 쓰는 테마 — 화면 모드(어둡게 · 밝게 · 시스템)를 따릅니다. 하늘·지도 위의 떠 있는 것은
+  // 이 `theme` 이 아니라 `OVERLAY_THEME`(늘 어두움, theme/useTheme.ts)을 씁니다(docs/DESIGN_SYSTEM.md §4.1).
+  const C = useThemeColors();
+  const scheme = useScheme();
+  const baseBg = scheme === 'light' ? C.bg : '#0A0E18';
   const dynamicTheme = {
-    bg: themeAnim.interpolate({ inputRange: [0, 1], outputRange: ['#0A0E18', C.bg] }),
-    card: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.panel, C.panel] }),
-    glass: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.panel, C.panel] }),
-    text: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.text, C.text] }),
-    subText: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.textDim, C.textDim] }),
-    border: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [C.border, C.border] }),
+    bg: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [baseBg, C.bg] }),
+    card: C.panel,
+    glass: C.panel,
+    text: C.text,
+    subText: C.textDim,
+    border: C.border,
     accent: C.accent,
   };
 
   const theme = {
-    bg: isDay ? '#0A0E18' : C.bg,
+    bg: isDay ? baseBg : C.bg,
     card: C.panel,
     glass: C.panel,
     text: C.text,
@@ -347,6 +352,7 @@ export function useCelestialApp() {
     border: C.border,
     accent: C.accent,
     overlay: C.overlay,
+    scheme,
   };
 
   // Compass Sync Logic with OS-Compensated Heading

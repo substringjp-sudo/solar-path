@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { LucideIcon } from 'lucide-react-native';
 import { color, radius, mono } from '../theme/tokens';
+import { makeStyles } from '../theme/useTheme';
 
 interface InfoCardProps {
   icon: React.ReactNode;
@@ -12,6 +13,7 @@ interface InfoCardProps {
 }
 
 export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue, theme }) => {
+  const styles = useStyles();
   const { width } = Dimensions.get('window');
   return (
     <View style={[styles.card, { width: width * 0.3 }]}>
@@ -27,7 +29,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   card: {
     paddingVertical: 6,
     paddingHorizontal: 4,
@@ -66,4 +68,4 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontFamily: mono,
   },
-});
+}));

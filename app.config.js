@@ -72,7 +72,9 @@ module.exports = {
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
-    userInterfaceStyle: "dark",
+    // 화면 모드 "시스템" 이 OS 설정을 읽도록 automatic(기본값은 앱 설정의 "어둡게"). 새 네이티브 빌드부터 적용됩니다 —
+    // 옛 빌드는 늘 dark 로 읽혀 "시스템" = 어둡게가 되므로 앱 안 업데이트로 받아도 안전합니다.
+    userInterfaceStyle: "automatic",
     newArchEnabled: true,
     splash: {
       image: "./assets/splash.png",

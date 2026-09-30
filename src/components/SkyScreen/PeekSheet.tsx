@@ -23,6 +23,7 @@ import { useCelestialStore } from '../../store/useCelestialStore';
 import { color, radius, mono } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { springTo } from '../../theme/motion';
+import { makeStyles, useThemeColors } from '../../theme/useTheme';
 
 /** 닫힌 상태에서 보이는 높이 (grabber + 요약 한 줄) */
 export const PEEK_HEIGHT = 52;
@@ -43,6 +44,7 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
   theme,
   expandedRatio = 0.62,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { height } = useWindowDimensions();
   const expandedHeight = Math.round(height * expandedRatio);
   /** 펼침 정도 0(닫힘) ~ 1(열림) */
@@ -148,7 +150,7 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   sheet: {
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
@@ -187,4 +189,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 2,
   },
-});
+}));

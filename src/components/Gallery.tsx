@@ -8,6 +8,7 @@ import { t, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
@@ -34,6 +35,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   myPhotos = [],
   removeGlobalPhoto
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { language, currentUser, removeMyPhoto } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
@@ -194,7 +196,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flex: 1,
     paddingHorizontal: 14,
@@ -319,4 +321,4 @@ const styles = StyleSheet.create({
     fontFamily: mono,
     letterSpacing: 0.4,
   },
-});
+}));

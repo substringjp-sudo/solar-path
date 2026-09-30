@@ -18,6 +18,7 @@ import { t } from './utils/i18n';
 import { PressScale } from './components/ui';
 import { springTo, timeTo } from './theme/motion';
 import { motion, color, dataColor } from './theme/tokens';
+import { makeStyles, useThemeColors, useDataColors, useScheme } from './theme/useTheme';
 
 /** 가운데 창은 94% 에서 스프링으로 커지며 나타납니다(docs/DESIGN_SYSTEM.md §7). */
 const POP_FROM = motion.popFrom;
@@ -72,6 +73,7 @@ const LOAD_IMAGES = [
 ];
 
 export default function App() {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles(); const scheme = useScheme();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const { language, isAppReady, preloadInitialData, preloadStatus, setCurrentTime, setTimeMachineEnabled, setTeleportTarget } = useCelestialStore();
   const {
@@ -266,7 +268,7 @@ export default function App() {
   return (
     <Animated.View style={{ flex: 1, backgroundColor: dynamicTheme.bg }}>
       <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
-        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <StatusBar barStyle={scheme === 'light' ? 'dark-content' : 'light-content'} translucent backgroundColor="transparent" />
         
         <View style={styles.mainContent}>
         <AppHeader
@@ -448,7 +450,7 @@ export default function App() {
                 style={[styles.warningConfirmBtn, { flex: 1, backgroundColor: theme.accent || color.sun }]}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.warningConfirmText, { color: '#000' }]}>{t('enterAnyway', language)}</Text>
+                <Text style={[styles.warningConfirmText, { color: color.onAccent }]}>{t('enterAnyway', language)}</Text>
               </PressScale>
             </View>
           </Animated.View>
@@ -527,7 +529,7 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flex: 1,
     paddingTop: Platform.OS === 'android' ? Constants.statusBarHeight : 0,
@@ -554,7 +556,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.82)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -767,4 +769,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
     letterSpacing: 0.5,
   },
-});
+}));

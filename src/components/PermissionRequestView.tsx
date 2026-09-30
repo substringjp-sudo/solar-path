@@ -5,12 +5,14 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { t } from '../utils/i18n';
 import { PressScale } from './ui';
 import { color } from '../theme/tokens';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface PermissionRequestViewProps {
   theme?: any;
 }
 
 export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () => {
+  const color = useThemeColors(); const styles = useStyles();
   const { 
     locationPermission, 
     cameraPermission, 
@@ -151,7 +153,7 @@ export const PermissionRequestView: React.FC<PermissionRequestViewProps> = () =>
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flex: 1,
     backgroundColor: color.bg,
@@ -376,4 +378,4 @@ const styles = StyleSheet.create({
     backgroundColor: color.danger,
     shadowColor: '#FF5252',
   },
-});
+}));

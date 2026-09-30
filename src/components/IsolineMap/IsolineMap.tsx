@@ -24,6 +24,7 @@ import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
 import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
 
 interface IsolineMapProps {
@@ -37,7 +38,10 @@ interface IsolineMapProps {
 const AUTOPLAY_TICK_MS = 150;
 const AUTOPLAY_STEP_MINUTES = 20;
 
-export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isActive, onOpenPicker }) => {
+export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, currentTime, isActive, onOpenPicker }) => {
+  // 지도 카드와 그 위의 떠 있는 것(배지·범례·메뉴)은 화면 모드와 상관없이 어둡습니다. 탭 바닥과 아래
+  // 조작부(IsolineControls)·도움말 창만 `panelTheme`(화면 모드)을 따릅니다(docs/DESIGN_SYSTEM.md §4.1).
+  const theme = OVERLAY_THEME;
   const { location, timezoneOffsetHours, language, savedLocations, setLocation } = useCelestialStore();
   const { width } = useWindowDimensions();
   const isTablet = width > 900;
@@ -434,7 +438,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
   const handleSlidingStart = () => setIsPlaying(false);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+    <View style={[styles.container, { backgroundColor: panelTheme.bg }]}>
       {/* ⚠ 예전의 "선택된 날짜 · 선택된 시각(UTC)" 줄은 뺐습니다 — 헤더 날짜·아래 슬라이더와 같은
              값을 세 번째로 보여 주던 것이라, 그 자리를 지도에 돌려줍니다(점검 2026-09-29). */}
       {/* 가변 메인 프레임: 지도가 화면의 남은 높이를 꽉 채웁니다 */}
@@ -443,6 +447,8 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           styles.mapCard,
           {
             borderColor: theme.border,
+            // 지도 카드는 어두운 창 — 밝은 모드에서도 지구본·배지가 어두운 바탕 위에 있습니다.
+            backgroundColor: theme.bg,
             /**
              * ⚠ **사각형에서 원으로 이어집니다.** 모서리 반지름을 전환 진행도에
              * 묶어 두면, 구로 넘어갈 때 모양이 툭 바뀌지 않고 같은 원이 부풀어
@@ -725,11 +731,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           onSlidingStart={handleSlidingStart}
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying((p) => !p)}
-          theme={theme}
+          theme={panelTheme}
         />
       </View>
 
-      <IsolineGuideModal visible={guideVisible} onClose={() => setGuideVisible(false)} theme={theme} />
+      <IsolineGuideModal visible={guideVisible} onClose={() => setGuideVisible(false)} theme={panelTheme} />
     </View>
   );
 };

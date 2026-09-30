@@ -7,6 +7,7 @@ import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime 
 import { t, L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface TimeSliderProps {
   value: Date;
@@ -39,6 +40,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   onSlidingStart,
   onSlidingComplete,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { location, timezoneOffsetHours, language } = useCelestialStore();
 
   const localValue = useMemo(() => getLocalTimeAtLocation(value, timezoneOffsetHours), [value, timezoneOffsetHours]);
@@ -94,7 +96,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   const getKnobColors = (p: number) => {
     // Astro-HUD: 흑연 옵시디언 다크 노브 + 일렉트릭 시안 발광 타임코드
-    return { color: '#0B132B', textColor: color.accent };
+    return { color: color.panelRaised, textColor: color.accent };
   };
 
   const sunriseTime = useMemo(() => {
@@ -342,7 +344,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
                       {marker.type === 'rise' && (
                         <Text style={[styles.directionIndicator, { color: markerColor, marginBottom: 2 }]}>▲</Text>
                       )}
-                      <View style={[styles.auraRing, { borderColor: markerColor, backgroundColor: '#0B132B' }]}>
+                      <View style={[styles.auraRing, { borderColor: markerColor, backgroundColor: color.panelRaised }]}>
                         <View style={[styles.coreDot, { backgroundColor: markerColor }]} />
                       </View>
                       {marker.type === 'set' && (
@@ -396,7 +398,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           >
             <View style={styles.shutterOuterRing}>
               <View style={styles.shutterInnerCore}>
-                <Camera size={19} color="#000000" strokeWidth={2.4} />
+                <Camera size={19} color={color.onAccent} strokeWidth={2.4} />
               </View>
             </View>
           </PressScale>
@@ -407,7 +409,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -457,7 +459,7 @@ const styles = StyleSheet.create({
   telemetryTag: {
     fontSize: 9,
     fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: color.textDim,
     letterSpacing: 0.5,
     fontFamily: mono,
   },
@@ -494,7 +496,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
   },
   nowBtnText: {
-    color: '#000',
+    color: color.onAccent,
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.3,
@@ -551,7 +553,7 @@ const styles = StyleSheet.create({
   timeLabel: {
     fontSize: 9,
     fontWeight: '700',
-    color: 'rgba(148, 163, 184, 0.75)',
+    color: color.textMute,
     fontFamily: mono,
   },
   absoluteLabelOverlay: {
@@ -575,7 +577,7 @@ const styles = StyleSheet.create({
   shutterModule: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(11, 19, 43, 0.65)',
+    backgroundColor: color.fill,
     borderWidth: 1,
     borderColor: color.accentLine,
     borderRadius: radius.sm,
@@ -632,10 +634,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   shutterLabel: {
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: color.textDim,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.8,
     fontFamily: mono,
   },
-});
+}));

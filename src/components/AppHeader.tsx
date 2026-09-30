@@ -30,6 +30,7 @@ import { t, L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'map' | 'log';
@@ -70,6 +71,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   timezoneLabel,
   isSimulationLoading = false,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { currentTime, timezoneOffsetHours, language } = useCelestialStore();
 
   const activeIndex = useMemo(() => {
@@ -208,7 +210,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   header: {
     paddingTop: 5,
     paddingHorizontal: 14,
@@ -340,4 +342,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontFamily: mono,
   },
-});
+}));

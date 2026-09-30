@@ -13,6 +13,7 @@ import { t, type Language } from '../../utils/i18n';
 import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building2 } from 'lucide-react-native';
 import { color, radius, mono, tint, dataColor } from '../../theme/tokens';
 import { PressScale } from '../ui';
+import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
 interface LayerControlModalProps {
   visible: boolean;
@@ -47,6 +48,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   onChangeSkySettings,
   theme,
 }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(st => st.language);
   const isDark = theme?.isDark ?? true;
   const bgColor = theme?.card || theme?.cardBackground || theme?.background || (isDark ? color.panel : color.text);
@@ -237,7 +239,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   backdrop: {
     flex: 1,
     backgroundColor: color.scrim,
@@ -364,4 +366,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.2,
   },
-});
+}));

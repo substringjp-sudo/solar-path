@@ -7,6 +7,7 @@ import { t } from '../../utils/i18n';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { color, radius, mono, dataColor } from '../../theme/tokens';
 import { PressScale, PrimaryButton } from '../ui';
+import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
 interface IsolineControlsProps {
   selectedDate: Date;
@@ -71,6 +72,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
   onTogglePlay,
   theme,
 }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const { language, timezoneOffsetHours } = useCelestialStore();
   const tz = timezoneOffsetHours ?? 0;
   const localNow = shift(selectedDate, tz);
@@ -133,7 +135,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             onGrant={onSlidingStart}
             onRelease={onSlidingComplete}
             theme={theme}
-            trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : color.border}
+            trackColor={color.border}
             fillColor={theme.accent}
             knobColor={color.panelRaised}
             trackOverlay={
@@ -171,7 +173,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             onGrant={onSlidingStart}
             onRelease={onSlidingComplete}
             theme={theme}
-            trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : color.border}
+            trackColor={color.border}
             fillColor={color.accent}
             knobColor={color.panelRaised}
           >
@@ -196,7 +198,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     borderRadius: radius.xs,
     borderWidth: 1,
@@ -313,4 +315,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     color: '#000',
   },
-});
+}));

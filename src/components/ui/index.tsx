@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { color, material, radius, space, type, motion, OVERLAY_BTN, TOUCH } from '../../theme/tokens';
 import { springTo, timeTo, pressScaleFor, isReducedMotion } from '../../theme/motion';
+import { makeStyles, useThemeColors } from '../../theme/useTheme';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -94,7 +95,7 @@ export const OverlayButton: React.FC<{
     accessibilityLabel={accessibilityLabel}
     accessibilityState={{ selected: !!active }}
     hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-    style={[styles.overlayBtn, active && styles.overlayBtnOn, style]}
+    style={[overlayStyles.overlayBtn, active && overlayStyles.overlayBtnOn, style]}
   >
     {children}
   </PressScale>
@@ -108,7 +109,9 @@ export const PrimaryButton: React.FC<{
   tone?: 'accent' | 'danger';
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
-}> = ({ label, onPress, icon, tone = 'accent', disabled, style }) => (
+}> = ({ label, onPress, icon, tone = 'accent', disabled, style }) => {
+  const color = useThemeColors(); const styles = useStyles();
+  return (
   <PressScale
     onPress={onPress}
     disabled={disabled}
@@ -118,7 +121,8 @@ export const PrimaryButton: React.FC<{
     {icon}
     <Text style={styles.primaryText}>{label}</Text>
   </PressScale>
-);
+  );
+};
 
 /** 켜짐·꺼짐이 `fast`(160ms) 에 걸쳐 스르르 바뀝니다 — 색 변화는 동작 줄이기에서도 남깁니다. */
 export const Chip: React.FC<{
@@ -128,12 +132,13 @@ export const Chip: React.FC<{
   leading?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }> = ({ label, on, onPress, leading, style }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const t = useRef(new Animated.Value(on ? 1 : 0)).current;
   useEffect(() => {
     timeTo(t, on ? 1 : 0, 'fast', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [on, t]);
-  const bg = t.interpolate({ inputRange: [0, 1], outputRange: [material.chip.backgroundColor, color.accentSoft] });
-  const bd = t.interpolate({ inputRange: [0, 1], outputRange: [material.chip.borderColor, color.accentLine] });
+  const bg = t.interpolate({ inputRange: [0, 1], outputRange: [color.fill, color.accentSoft] });
+  const bd = t.interpolate({ inputRange: [0, 1], outputRange: [color.border, color.accentLine] });
   return (
     <PressScale onPress={onPress} accessibilityState={{ selected: !!on }} style={style}>
       <Animated.View style={[styles.chip, { backgroundColor: bg, borderColor: bd }]}>
@@ -152,19 +157,24 @@ export const Reveal: React.FC<{ style?: StyleProp<ViewStyle>; children: React.Re
   return <Animated.View pointerEvents={pointerEvents} style={[style, { opacity: a, transform: [{ translateY }] }]}>{children}</Animated.View>;
 };
 
-export const SectionLabel: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; right?: React.ReactNode }> = ({ children, icon, right }) => (
+export const SectionLabel: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; right?: React.ReactNode }> = ({ children, icon, right }) => {
+  const styles = useStyles();
+  return (
   <View style={styles.sectionRow}>
     {icon}
     <Text style={styles.sectionLabel}>{children}</Text>
     {right ? <View style={{ marginLeft: 'auto' }}>{right}</View> : null}
   </View>
-);
+  );
+};
 
-export const Panel: React.FC<{ style?: StyleProp<ViewStyle>; children: React.ReactNode }> = ({ style, children }) => (
-  <View style={[styles.panel, style]}>{children}</View>
-);
+export const Panel: React.FC<{ style?: StyleProp<ViewStyle>; children: React.ReactNode }> = ({ style, children }) => {
+  const styles = useStyles();
+  return <View style={[styles.panel, style]}>{children}</View>;
+};
 
-const styles = StyleSheet.create({
+/** 떠 있는 버튼 — 하늘·지도 위라서 화면 모드와 상관없이 어둡습니다. */
+const overlayStyles = StyleSheet.create({
   overlayBtn: {
     ...material.overlay,
     width: OVERLAY_BTN,
@@ -174,6 +184,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   overlayBtnOn: { backgroundColor: color.accentSoft, borderColor: color.accentLine },
+});
+
+/** 패널·창 안의 부품 — 화면 모드를 따릅니다. */
+const useStyles = makeStyles((color) => ({
   primary: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -185,7 +199,8 @@ const styles = StyleSheet.create({
   },
   primaryText: { ...type.bodyStrong, color: color.onAccent },
   chip: {
-    ...material.chip,
+    borderWidth: 1,
+    borderRadius: radius.xs,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.xs,
@@ -196,5 +211,5 @@ const styles = StyleSheet.create({
   chipTextOn: { color: color.accent },
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space.sm },
   sectionLabel: { ...type.micro, color: color.textDim, textTransform: 'uppercase' },
-  panel: { ...material.panel, padding: space.md, borderRadius: radius.md },
-});
+  panel: { backgroundColor: color.panel, borderColor: color.border, borderWidth: 1, padding: space.md, borderRadius: radius.md },
+}));

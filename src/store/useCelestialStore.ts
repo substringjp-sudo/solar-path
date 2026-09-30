@@ -149,6 +149,8 @@ interface CelestialState {
   isSimulationLoading: boolean;
   isDebugMode: boolean;
   language: 'ko' | 'en' | 'ja';
+  /** 화면 모드 — 밝은 모드는 패널·창·기록 탭·헤더만 밝힙니다(docs/DESIGN_SYSTEM.md §4.1). 기본은 어둡게. */
+  themeMode: 'system' | 'light' | 'dark';
   isAppReady: boolean;
   preloadStatus: string;
   /** 프리로드 후 처음 열 탭. 새 IA 기준: 'sky' | 'map' | 'log' */
@@ -212,6 +214,7 @@ interface CelestialState {
   setSimulationLoading: (loading: boolean) => void;
   setDebugMode: (enabled: boolean) => void;
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
+  setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
   initializePendingUploads: () => void;
@@ -269,6 +272,7 @@ export const useCelestialStore = create<CelestialState>()(
       isSimulationLoading: false,
       isDebugMode: false,
       language: 'ko',
+      themeMode: 'dark',
       isAppReady: false,
       preloadStatus: 'initializingApp',
       initialTab: 'sky',
@@ -930,6 +934,7 @@ export const useCelestialStore = create<CelestialState>()(
       setSimulationLoading: (loading) => set({ isSimulationLoading: loading }),
       setDebugMode: (enabled) => set({ isDebugMode: enabled }),
       setLanguage: (lang) => set({ language: lang }),
+      setThemeMode: (mode) => set({ themeMode: mode }),
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
         try {
@@ -1216,6 +1221,7 @@ export const useCelestialStore = create<CelestialState>()(
         savedLocations: state.savedLocations,
         myPhotos: state.myPhotos,
         language: state.language,
+        themeMode: state.themeMode,
       }),
     }
   )

@@ -3,6 +3,7 @@ import { View, StyleSheet, PanResponder, Animated } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { color, radius, mono } from '../theme/tokens';
 import { timeTo } from '../theme/motion';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface GenericSliderProps {
   value: number; // 0 to 100
@@ -31,6 +32,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   knobColor,
   trackOverlay,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const animatedValue = useRef(new Animated.Value(value)).current;
   const [isDragging, setIsDragging] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -206,7 +208,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: { height: 44, justifyContent: 'center', width: '100%', paddingHorizontal: 27 },
   track: { height: 4, borderRadius: radius.xs, width: '100%', position: 'relative' },
   fill: { height: '100%', borderRadius: radius.xs, position: 'absolute', left: 0 },
@@ -226,4 +228,4 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(56, 189, 248, 0.65)',
   },
-});
+}));

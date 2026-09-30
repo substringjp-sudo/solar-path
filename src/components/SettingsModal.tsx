@@ -6,10 +6,11 @@ import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { t } from '../utils/i18n';
-import { color, radius, mono } from '../theme/tokens';
+import { t, L3 } from '../utils/i18n';
+import { color, radius, mono, tint } from '../theme/tokens';
 import { PressScale } from './ui';
 import { springTo, timeTo } from '../theme/motion';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -24,6 +25,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   theme,
   dynamicTheme,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const [windowHeight] = useState(Dimensions.get('window').height);
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
 
@@ -76,6 +78,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setDebugMode,
     language,
     setLanguage,
+    themeMode,
+    setThemeMode,
   } = useCelestialStore();
   const [showLicenses, setShowLicenses] = useState(false);
   const [showPortal, setShowPortal] = useState(false);
@@ -274,7 +278,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     activeOpacity={0.8}
                   >
                     <Text style={styles.portalLinkBtnText}>{t('visitSite', language)}</Text>
-                    <ExternalLink size={14} color="#000" style={{ marginLeft: 4 }} />
+                    <ExternalLink size={14} color={color.onAccent} style={{ marginLeft: 4 }} />
                   </PressScale>
                 </View>
 
@@ -332,32 +336,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <PressScale 
                       style={[
                         styles.langOption, 
-                        language === 'ko' && { backgroundColor: theme.border }
+                        language === 'ko' && { backgroundColor: color.accentSoft }
                       ]}
                       onPress={() => setLanguage('ko')}
                     >
-                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
+                      <Text style={[styles.langText, { color: language === 'ko' ? color.accent : theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
                     </PressScale>
                     <PressScale 
                       style={[
                         styles.langOption, 
-                        language === 'en' && { backgroundColor: theme.border }
+                        language === 'en' && { backgroundColor: color.accentSoft }
                       ]}
                       onPress={() => setLanguage('en')}
                     >
-                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
+                      <Text style={[styles.langText, { color: language === 'en' ? color.accent : theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
                     </PressScale>
                     <PressScale 
                       style={[
                         styles.langOption, 
-                        language === 'ja' && { backgroundColor: theme.border }
+                        language === 'ja' && { backgroundColor: color.accentSoft }
                       ]}
                       onPress={() => setLanguage('ja')}
                     >
-                      <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ja' ? '800' : '500' }]}>日本語</Text>
+                      <Text style={[styles.langText, { color: language === 'ja' ? color.accent : theme.text, fontWeight: language === 'ja' ? '800' : '500' }]}>日本語</Text>
                     </PressScale>
                   </View>
                 </View>
+              </View>
+
+              {/* 1-b. 화면 모드 — 밝게는 패널·창·기록 탭·헤더만 밝힙니다. 하늘·지도 위와 촬영 화면은 늘 어둡습니다. */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{L3(language, '화면 모드', 'Appearance', '表示モード')}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  <View style={styles.langSelectorRow}>
+                    {([
+                      ['dark', L3(language, '어둡게', 'Dark', 'ダーク')],
+                      ['light', L3(language, '밝게', 'Light', 'ライト')],
+                      ['system', L3(language, '시스템', 'System', 'システム')],
+                    ] as const).map(([mode, label]) => (
+                      <PressScale
+                        key={mode}
+                        style={[styles.langOption, themeMode === mode && { backgroundColor: color.accentSoft }]}
+                        onPress={() => setThemeMode(mode)}
+                        accessibilityState={{ selected: themeMode === mode }}
+                      >
+                        <Text style={[styles.langText, { color: themeMode === mode ? color.accent : theme.text, fontWeight: themeMode === mode ? '800' : '500' }]}>{label}</Text>
+                      </PressScale>
+                    ))}
+                  </View>
+                </View>
+                <Text style={[styles.modeHint, { color: theme.subText }]}>
+                  {L3(language,
+                    '하늘·지도 위와 촬영 화면은 그림 위에서 읽혀야 해서 늘 어둡습니다.',
+                    'The sky, the map and the camera stay dark so their labels stay readable over the picture.',
+                    '空・地図の上とカメラ画面は、絵の上で読めるよう常に暗いままです。')}
+                </Text>
               </View>
 
               {/* 2. 앱 권한 */}
@@ -483,7 +516,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <PressScale 
                         onPress={handleSignOut} 
                         disabled={isSubmitting}
-                        style={[styles.signOutBtn, { backgroundColor: 'rgba(255,82,82,0.1)' }]}
+                        style={[styles.signOutBtn, { backgroundColor: color.dangerSoft }]}
                       >
                         {isSubmitting ? (
                           <ActivityIndicator size="small" color={color.danger} />
@@ -619,7 +652,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* Licenses List Accordion */}
                   {showLicenses && (
-                    <View style={[styles.licensesContainer, { backgroundColor: 'rgba(0,0,0,0.15)' }]}>
+                    <View style={[styles.licensesContainer, { backgroundColor: color.fill }]}>
                       {licenses.map((lib, idx) => (
                         <View 
                           key={lib.name} 
@@ -680,7 +713,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
+  modeHint: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
   overlay: {
     flex: 1,
     backgroundColor: color.scrim,
@@ -822,11 +861,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255,82,82,0.08)',
+    backgroundColor: color.dangerSoft,
     padding: 8,
     borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,82,82,0.2)',
+    borderColor: tint(color.danger, 0.3),
   },
   errorText: {
     color: color.danger,
@@ -892,12 +931,12 @@ const styles = StyleSheet.create({
   badgeGranted: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(52,211,153,0.12)',
+    backgroundColor: tint(color.success, 0.12),
     paddingVertical: 3,
     paddingHorizontal: 7,
     borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(52,211,153,0.3)',
+    borderColor: tint(color.success, 0.3),
     gap: 4,
   },
   badgeTextGranted: {
@@ -1017,7 +1056,7 @@ const styles = StyleSheet.create({
   portalLinkBtnText: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#000',
+    color: color.onAccent,
     fontFamily: mono,
     letterSpacing: 0.5,
   },
@@ -1098,7 +1137,7 @@ const styles = StyleSheet.create({
   },
   libLicense: {
     fontSize: 9,
-    color: 'rgba(255,255,255,0.4)',
+    color: color.textMute,
     marginTop: 2,
     fontFamily: mono,
   },
@@ -1121,4 +1160,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontFamily: mono,
   },
-});
+}));

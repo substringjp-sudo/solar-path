@@ -25,7 +25,10 @@
  */
 import { Platform, Easing } from 'react-native';
 
-export const color = {
+export type Palette = { readonly [K in keyof typeof darkColorShape]: string };
+export type DataPalette = { readonly [K in keyof typeof darkDataShape]: string };
+
+const darkColorShape = {
   bg: '#070A12',
   panel: '#0D1320',
   panelRaised: '#131B2B',
@@ -59,12 +62,15 @@ export const color = {
   fill: 'rgba(255, 255, 255, 0.04)',
 } as const;
 
+/** 어두운 모드(기본) — 떠 있는 것과 촬영 화면은 모드와 상관없이 이 값을 씁니다. */
+export const color = darkColorShape;
+
 /**
  * 데이터 색 — **그림과 범례가 같은 값을 써야 하는 색**. UI 역할색(`color`)과 달리 값이 뜻을 가집니다:
  * 지도에 그린 일출선이 `sunrise` 면 범례·배지·절기 점·슬라이더 표시도 `sunrise` 입니다.
  * 값을 바꾸면 그림(MapGlobe · MapCanvas · Visualizer)과 범례가 함께 바뀝니다.
  */
-export const dataColor = {
+const darkDataShape = {
   sunrise: '#FFA500',
   sunset: '#FF4500',
   /** 지도 가까운 축척의 태양 고도선 · 방위선 */
@@ -88,6 +94,83 @@ export const dataColor = {
   qOvercast: '#6B7886',
   qClean: '#4DA0B0',
 } as const;
+export const dataColor = darkDataShape;
+
+/**
+ * 밝은 모드 — **패널 · 창 · 기록 탭 · 헤더만** 밝아집니다(2026-09-30, "좁은 범위").
+ *
+ * 하늘 · 지도 위의 떠 있는 것(`overlay`)과 촬영 화면은 그림 위에서 읽혀야 하므로 모드와 상관없이
+ * 어둡습니다. 그래서 `lightColor.overlay` 도 어두운 값 그대로입니다 — 떠 있는 것을 그리는 코드는
+ * 테마 훅이 아니라 모듈의 `color`(어두운 값)를 씁니다.
+ *
+ * 대비(흰 바탕 `panelRaised` / `panel`): text 17.9 · textDim 7.6 · textMute 4.8 · accent 5.9 · sun 5.0 ·
+ * glow 5.2 · moon 6.3 · success 5.0 · danger 4.8 : 1. 강조색 바탕 위 흰 글자(`onAccent`) 5.9 : 1.
+ */
+export const lightColor: Palette = {
+  bg: '#E9EEF4',
+  panel: '#F8FAFC',
+  panelRaised: '#FFFFFF',
+  overlay: color.overlay,
+  scrim: 'rgba(15, 23, 42, 0.40)',
+
+  border: 'rgba(15, 23, 42, 0.12)',
+  borderStrong: 'rgba(15, 23, 42, 0.20)',
+
+  text: '#0F172A',
+  textDim: '#475569',
+  textMute: '#64748B',
+
+  accent: '#0369A1',
+  accentSoft: 'rgba(2, 132, 199, 0.12)',
+  accentLine: 'rgba(2, 132, 199, 0.55)',
+  onAccent: '#FFFFFF',
+
+  sun: '#B45309',
+  glow: '#C2410C',
+  glowSoft: 'rgba(194, 65, 12, 0.10)',
+  moon: '#4F46E5',
+  cloud: '#475569',
+
+  success: '#15803D',
+  warning: '#B45309',
+  danger: '#DC2626',
+  dangerSoft: 'rgba(220, 38, 38, 0.10)',
+
+  fill: 'rgba(15, 23, 42, 0.04)',
+};
+
+/**
+ * 밝은 바탕용 데이터 색 — 같은 이름은 같은 뜻, **같은 색 계열의 진한 값**입니다.
+ * 밝은 패널 위의 절기 점 · 예보 라벨 · 레이어 아이콘에 씁니다. 지도에 그린 선과 그 범례는 지도(어두운
+ * 그림) 위에 있으므로 늘 `dataColor` 입니다.
+ */
+export const lightDataColor: DataPalette = {
+  sunrise: '#B45309',
+  sunset: '#C2410C',
+  altitude: '#0369A1',
+  azimuth: '#C2410C',
+  spring: '#15803D',
+  summer: '#B45309',
+  autumn: '#C2410C',
+  winter: '#0369A1',
+  stars: '#7C3AED',
+  milkyway: '#8B5CF6',
+  planets: '#E11D48',
+  cityLights: '#B45309',
+  paths: '#15803D',
+  qEpic: '#DC2626',
+  qGreat: '#C2410C',
+  qFair: '#A16207',
+  qOvercast: '#475569',
+  qClean: '#0E7490',
+};
+
+export type ThemeMode = 'system' | 'light' | 'dark';
+export type Scheme = 'light' | 'dark';
+export const palettes: Record<Scheme, { color: Palette; data: DataPalette }> = {
+  dark: { color, data: dataColor },
+  light: { color: lightColor, data: lightDataColor },
+};
 
 export const radius = { xs: 4, sm: 6, md: 10, lg: 16, pill: 999 } as const;
 export const space = { xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const;

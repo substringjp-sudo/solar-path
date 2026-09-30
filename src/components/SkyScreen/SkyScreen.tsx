@@ -41,7 +41,8 @@ import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t } from '../../utils/i18n';
-import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { color, color as DARK, radius, mono, dataColor } from '../../theme/tokens';
+import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
 import { timeTo } from '../../theme/motion';
 
@@ -83,6 +84,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   isActive = true,
   onCameraPress,
 }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
@@ -472,7 +474,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           prediction={prediction}
           location={location}
           interpolatedWeather={sceneWeather}
-          theme={theme}
+          theme={OVERLAY_THEME}
           layers={layers}
           skySettings={skySettings}
           trackingTarget={trackingTarget}
@@ -484,20 +486,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
         {trackingTarget && (
           <PressScale
-            style={styles.trackingBadge}
+            style={overlayStyles.trackingBadge}
             onPress={() => setTrackingTarget(null)}
             activeOpacity={0.8}
           >
-            <Target size={11} color={color.accent} style={{ marginRight: 4 }} />
-            <Text style={styles.trackingText}>
+            <Target size={11} color={DARK.accent} style={{ marginRight: 4 }} />
+            <Text style={overlayStyles.trackingText}>
               {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
             </Text>
-            <Text style={styles.trackingCancel}> {t('trackRelease', language)}</Text>
+            <Text style={overlayStyles.trackingCancel}> {t('trackRelease', language)}</Text>
           </PressScale>
         )}
 
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
-        <View style={styles.sceneOverlayButtons}>
+        <View style={overlayStyles.sceneOverlayButtons}>
           {/* 3D 요소 표시 설정 모달 */}
           <OverlayButton
             onPress={() => setLayerModalVisible(true)}
@@ -505,29 +507,29 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             onLongPress={__DEV__ ? () => setDevPanelOpen(v => !v) : undefined}
             accessibilityLabel={t('layerTitle', language)}
           >
-            <SlidersHorizontal size={16} color={color.text} />
+            <SlidersHorizontal size={16} color={DARK.text} />
           </OverlayButton>
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
           {isDevPanelOpen && (
             <OverlayButton active onPress={() => setDevPanelOpen(false)}>
-              <SlidersVertical size={14} color={color.accent} />
+              <SlidersVertical size={14} color={DARK.accent} />
             </OverlayButton>
           )}
         </View>
 
         {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
         {(isBuilding || buildError) && (
-          <Reveal style={styles.buildBanner}>
+          <Reveal style={overlayStyles.buildBanner}>
             {buildError ? (
-              <Text style={styles.buildError} numberOfLines={2}>{buildError}</Text>
+              <Text style={overlayStyles.buildError} numberOfLines={2}>{buildError}</Text>
             ) : (
               <>
-                <Text style={styles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
-                <View style={styles.progressTrack}>
+                <Text style={overlayStyles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
+                <View style={overlayStyles.progressTrack}>
                   <Animated.View
                     style={[
-                      styles.progressFill,
+                      overlayStyles.progressFill,
                       {
                         width: progressAnim.interpolate({
                           inputRange: [0, 1],
@@ -537,7 +539,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     ]}
                   />
                 </View>
-                <Text style={styles.buildHint}>{t('tapToCancel', language)}</Text>
+                <Text style={overlayStyles.buildHint}>{t('tapToCancel', language)}</Text>
               </>
             )}
           </Reveal>
@@ -663,7 +665,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </PeekSheet>
 
       {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
-      <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: color.border }]}>
+      <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
         <TimeSlider
           value={currentTime}
           onChange={setCurrentTime}
@@ -702,16 +704,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  sceneWrapper: {
-    flex: 1,
-    width: '100%',
-    position: 'relative',
-    overflow: 'hidden',
-  },
+/** 하늘 위의 떠 있는 것 — 화면 모드와 상관없이 어둡습니다(모듈의 어두운 `color`). */
+const overlayStyles = StyleSheet.create({
   sceneOverlayButtons: {
     position: 'absolute',
     top: 12,
@@ -792,6 +786,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: color.accent,
+  },
+});
+
+/** 시트·아래 패널 — 화면 모드를 따릅니다. */
+const useStyles = makeStyles((color) => ({
+  container: {
+    flex: 1,
+  },
+  sceneWrapper: {
+    flex: 1,
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
   },
 
   // ── peek 시트 요약 한 줄 ──────────────────────────────────────────────
@@ -928,4 +935,4 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: color.border,
   },
-});
+}));
