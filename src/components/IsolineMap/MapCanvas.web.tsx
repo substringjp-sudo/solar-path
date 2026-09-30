@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, LayoutChangeEvent } from 'react-native';
 import Svg, { Line, Polyline as SvgPolyline, Circle, Polygon as SvgPolygon } from 'react-native-svg';
 import { IsochronePoint } from '../../utils/celestial';
+import { dataColor } from '../../theme/tokens';
 
 interface MapCanvasProps {
   lat: number;
@@ -104,7 +105,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
                   key={`bg-sunrise-${idx}-${i}`}
                   points={toSvgPoints(segment)}
                   fill="none"
-                  stroke="#FFA500"
+                  stroke={dataColor.sunrise}
                   strokeWidth={0.8}
                   opacity={0.25}
                 />
@@ -114,7 +115,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
                   key={`bg-sunset-${idx}-${i}`}
                   points={toSvgPoints(segment)}
                   fill="none"
-                  stroke="#FF4500"
+                  stroke={dataColor.sunset}
                   strokeWidth={0.8}
                   opacity={0.25}
                 />

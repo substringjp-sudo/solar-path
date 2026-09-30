@@ -14,7 +14,7 @@
  *   기록: 시간축 — "뭘 봤나"
  */
 import React, { useMemo, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import { StyleSheet, View, Text, Animated, Platform } from 'react-native';
 import { addDays, subDays } from 'date-fns';
 import {
   ChevronLeft,
@@ -28,6 +28,8 @@ import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { t, L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
+import { timeTo } from '../theme/motion';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'map' | 'log';
@@ -77,11 +79,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   const indicatorAnim = useRef(new Animated.Value(activeIndex)).current;
   useEffect(() => {
-    Animated.timing(indicatorAnim, {
-      toValue: activeIndex,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
+    timeTo(indicatorAnim, activeIndex, 'base', 'enter', { useNativeDriver: false }).start();
   }, [activeIndex, indicatorAnim]);
 
   const indicatorLeft = indicatorAnim.interpolate({
@@ -118,7 +116,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {APP_TABS.map(tab => {
             const isActive = activeTab === tab.id;
             return (
-              <TouchableOpacity
+              <PressScale
                 key={tab.id}
                 onPress={() => setActiveTab(tab.id)}
                 style={styles.navButton}
@@ -128,7 +126,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   numberOfLines={1}
                   style={[
                     styles.navText,
-                    { color: isActive ? '#38BDF8' : '#64748B' },
+                    { color: isActive ? color.accent : color.textMute },
                     isActive && { fontWeight: '900' }
                   ]}
                 >
@@ -137,44 +135,44 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     : tab.id === 'map' ? L3(language, '지도', 'MAP', '地図')
                     : L3(language, '기록', 'LOG', '記録')}`}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             );
           })}
         </View>
 
         <View style={styles.rightButtons}>
           {setMapVisible && (
-            <TouchableOpacity
+            <PressScale
               onPress={() => setMapVisible(true)}
               style={styles.iconBtn}
               accessibilityLabel={L3(language, '위치 변경', 'Change location', '位置を変更')}
               accessibilityRole="button"
             >
               <MapPin size={14} color={color.accent} />
-            </TouchableOpacity>
+            </PressScale>
           )}
 
-          <TouchableOpacity
+          <PressScale
             onPress={() => setSettingsVisible(true)}
             style={styles.iconBtn}
             accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
             <Settings size={14} color={color.textDim} />
-          </TouchableOpacity>
+          </PressScale>
         </View>
       </View>
 
       {showDateBar && (
         <View style={styles.dateNavigator}>
-          <TouchableOpacity
+          <PressScale
             onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))}
             style={styles.dateControl}
           >
             <ChevronLeft size={16} color={color.textDim} />
-          </TouchableOpacity>
+          </PressScale>
 
-          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
+          <PressScale onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
             <Calendar size={11} color={color.accent} style={{ marginRight: 6 }} />
             {/* 'DATE //' 접두어는 뺐습니다 — 달력 아이콘이 이미 말하고, 320px 기기에서 두 줄로 깨졌습니다. */}
             <Text style={styles.dateText}>
@@ -185,24 +183,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <Text style={styles.timezoneText}>{timezoneLabel}</Text>
               </View>
             )}
-          </TouchableOpacity>
+          </PressScale>
 
           <View style={styles.dateRightControls}>
             {!isTodayLocal && (
-              <TouchableOpacity
+              <PressScale
                 onPress={() => handleDateChange(new Date())}
                 style={styles.todayButton}
               >
                 <RotateCcw size={10} color={color.accent} />
                 <Text style={styles.todayText}>{t('today', language)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
-            <TouchableOpacity
+            <PressScale
               onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))}
               style={styles.dateControl}
             >
               <ChevronRight size={16} color={color.textDim} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
         </View>
       )}
@@ -334,7 +332,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
     borderWidth: 0.5,
     borderColor: color.border,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: color.fill,
   },
   timezoneText: {
     fontSize: 9,

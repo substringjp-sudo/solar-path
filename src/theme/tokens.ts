@@ -23,7 +23,7 @@
  *  - 왼쪽 아래 = **범례·읽기값**  ·  화면 아래 도킹 패널 = **시간 조작**(슬라이더·재생) + 주 동작(촬영)
  *  - 헤더 = 탭 · 위치 · 설정 · 날짜 — 앱 전체에 걸리는 것만.
  */
-import { Platform } from 'react-native';
+import { Platform, Easing } from 'react-native';
 
 export const color = {
   bg: '#070A12',
@@ -54,6 +54,39 @@ export const color = {
   warning: '#FBBF24',
   danger: '#F87171',
   dangerSoft: 'rgba(248, 113, 113, 0.14)',
+
+  /** 패널 안 칸 바탕처럼 아주 옅은 채움 */
+  fill: 'rgba(255, 255, 255, 0.04)',
+} as const;
+
+/**
+ * 데이터 색 — **그림과 범례가 같은 값을 써야 하는 색**. UI 역할색(`color`)과 달리 값이 뜻을 가집니다:
+ * 지도에 그린 일출선이 `sunrise` 면 범례·배지·절기 점·슬라이더 표시도 `sunrise` 입니다.
+ * 값을 바꾸면 그림(MapGlobe · MapCanvas · Visualizer)과 범례가 함께 바뀝니다.
+ */
+export const dataColor = {
+  sunrise: '#FFA500',
+  sunset: '#FF4500',
+  /** 지도 가까운 축척의 태양 고도선 · 방위선 */
+  altitude: '#38BDF8',
+  azimuth: '#FB923C',
+  /** 절기 점(춘분 · 하지 · 추분 · 동지) */
+  spring: '#4ADE80',
+  summer: '#FFA500',
+  autumn: '#F97316',
+  winter: '#38BDF8',
+  /** 3D 레이어 아이콘 */
+  stars: '#A78BFA',
+  milkyway: '#C4B5FD',
+  planets: '#F43F5E',
+  cityLights: '#F59E0B',
+  paths: '#22C55E',
+  /** 노을 예보 품질 · 구름 · 색 라벨(PredictionCard · Visualizer · 이벤트 점수) */
+  qEpic: '#FF5C3F',
+  qGreat: '#FF8A3D',
+  qFair: '#E6C25A',
+  qOvercast: '#6B7886',
+  qClean: '#4DA0B0',
 } as const;
 
 export const radius = { xs: 4, sm: 6, md: 10, lg: 16, pill: 999 } as const;
@@ -61,6 +94,9 @@ export const space = { xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const;
 
 /** 엄지로 누르는 최소 크기(px). 이보다 작은 버튼은 hitSlop 으로 넓힙니다. */
 export const TOUCH = 40;
+/** 아이콘 크기(px) — 글자 옆 12 · 칩/머리 14 · 아이콘 버튼 16 · 목록 줄 18 · 촬영 화면 큰 버튼 22. */
+export const icon = { inline: 12, chip: 14, button: 16, row: 18, large: 22 } as const;
+
 /** 떠 있는 아이콘 버튼 한 변(px) — 하늘·지도 오버레이 공통. */
 export const OVERLAY_BTN = 32;
 
@@ -91,3 +127,51 @@ export const material = {
   chip: { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: color.border, borderWidth: 1, borderRadius: radius.xs },
   chipOn: { backgroundColor: color.accentSoft, borderColor: color.accentLine, borderWidth: 1, borderRadius: radius.xs },
 } as const;
+
+/**
+ * 움직임 — 반응은 "눌렀다 · 바뀌었다 · 나타났다" 를 알려 줄 만큼만(자세한 규칙은 docs/DESIGN_SYSTEM.md §7).
+ *
+ *  - `duration.tap` 90  : 누르는 순간(손가락이 닿자마자 줄어듦)
+ *  - `duration.fast` 160 : 켜고 끄기 · 색 바뀜 · 작은 것이 나타남
+ *  - `duration.base` 240 : 탭 표시 이동 · 창 닫힘 · 배너 나타남
+ *  - `duration.slow` 480 : 낮↔밤 배경처럼 분위기가 바뀌는 것
+ *  - 스프링은 세 가지: `press`(놓으면 제자리로), `sheet`(시트·창), `page`(탭 넘김).
+ *  - 몸짓 끝에서 제자리로 돌아가는 것은 스프링, 스스로 끝나는 것(닫힘·색)은 시간.
+ *  - "동작 줄이기" 가 켜져 있으면 크기·위치 움직임은 즉시 끝나고 흐림(dim)만 남습니다.
+ */
+export const motion = {
+  duration: { tap: 90, fast: 160, base: 240, slow: 480 },
+  easing: {
+    /** 들어올 때 — 빨리 시작해 부드럽게 멈춤 */
+    enter: Easing.out(Easing.cubic),
+    /** 나갈 때 — 천천히 시작해 빠르게 사라짐 */
+    exit: Easing.in(Easing.cubic),
+    /** 제자리에서 바뀔 때 */
+    standard: Easing.inOut(Easing.cubic),
+  },
+  spring: {
+    press: { damping: 14, stiffness: 420, mass: 0.6 },
+    sheet: { damping: 20, stiffness: 170, mass: 0.9 },
+    page: { damping: 20, stiffness: 130, mass: 0.9 },
+  },
+  press: {
+    /** 누르면 가장자리가 이만큼(px) 들어갑니다 — 큰 줄은 살짝, 작은 버튼은 또렷하게. */
+    insetPx: 3,
+    /** 줄어드는 비율의 범위(작은 버튼 5%, 긴 줄 1.2%). */
+    minScale: 0.95,
+    maxScale: 0.988,
+    /** 동작 줄이기일 때 대신 쓰는 흐림 */
+    dim: 0.72,
+  },
+  /** 나타날 때 아래에서 떠오르는 거리(px) */
+  rise: 8,
+  /** 가운데 뜨는 창(경고·목록)이 커지기 시작하는 배율 */
+  popFrom: 0.94,
+} as const;
+
+/** 색에 옅은 바탕을 만듭니다 — 아이콘 칸 · 켜진 줄 바탕(`#RRGGBB` → `rgba(…, a)`). */
+export const tint = (hex: string, a = 0.15): string => {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};

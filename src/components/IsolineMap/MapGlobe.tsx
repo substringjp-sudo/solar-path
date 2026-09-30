@@ -7,6 +7,7 @@ import { useCelestialStore } from '../../store/useCelestialStore';
 import { IsochronePoint } from '../../utils/celestial';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
+import { dataColor } from '../../theme/tokens';
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -479,8 +480,8 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
             </RadialGradient>
             <RadialGradient id="sunMarkerGlow" cx="50%" cy="50%" rx="50%" ry="50%">
               <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-              <Stop offset="30%" stopColor="#FFA500" stopOpacity="0.8" />
-              <Stop offset="100%" stopColor="#FFA500" stopOpacity="0" />
+              <Stop offset="30%" stopColor={dataColor.sunrise} stopOpacity="0.8" />
+              <Stop offset="100%" stopColor={dataColor.sunrise} stopOpacity="0" />
             </RadialGradient>
           </Defs>
 
@@ -591,7 +592,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
             <Path
               d={sunrisePath}
               fill="none"
-              stroke="#FFA500"
+              stroke={dataColor.sunrise}
               strokeWidth={1.8}
             />
           )}
@@ -656,7 +657,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
           {sunMarker.visible && (
             <G>
               <Circle cx={sunMarker.x} cy={sunMarker.y} r={16} fill="url(#sunMarkerGlow)" />
-              <Circle cx={sunMarker.x} cy={sunMarker.y} r={5} fill="#FFFFFF" stroke="#FFA500" strokeWidth={1} />
+              <Circle cx={sunMarker.x} cy={sunMarker.y} r={5} fill="#FFFFFF" stroke={dataColor.sunrise} strokeWidth={1} />
             </G>
           )}
 

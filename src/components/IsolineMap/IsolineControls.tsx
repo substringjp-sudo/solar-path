@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Calendar, Clock, Play, Pause } from 'lucide-react-native';
 import { GenericSlider } from '../GenericSlider';
 import { getSeasonMarkers } from '../../utils/celestial';
 import { t } from '../../utils/i18n';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { color, radius, mono } from '../../theme/tokens';
+import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { PressScale, PrimaryButton } from '../ui';
 
 interface IsolineControlsProps {
   selectedDate: Date;
@@ -81,10 +82,10 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
   const timePct = dateToTimePercent(selectedDate, tz);
 
   const seasonButtons = [
-    { key: 'spring', label: t('isolineSpring', language), date: seasonMarkers.springEquinox, color: '#4ADE80' },
-    { key: 'summer', label: t('isolineSummer', language), date: seasonMarkers.summerSolstice, color: '#FFA500' },
-    { key: 'autumn', label: t('isolineAutumn', language), date: seasonMarkers.autumnEquinox, color: '#F97316' },
-    { key: 'winter', label: t('isolineWinter', language), date: seasonMarkers.winterSolstice, color: '#38BDF8' },
+    { key: 'spring', label: t('isolineSpring', language), date: seasonMarkers.springEquinox, color: dataColor.spring },
+    { key: 'summer', label: t('isolineSummer', language), date: seasonMarkers.summerSolstice, color: dataColor.summer },
+    { key: 'autumn', label: t('isolineAutumn', language), date: seasonMarkers.autumnEquinox, color: dataColor.autumn },
+    { key: 'winter', label: t('isolineWinter', language), date: seasonMarkers.winterSolstice, color: dataColor.winter },
   ];
 
   const jumpToSeason = (target: Date) => {
@@ -104,7 +105,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
       {/* 계절 바로가기 버튼 */}
       <View style={styles.seasonRow}>
         {seasonButtons.map((s) => (
-          <TouchableOpacity
+          <PressScale
             key={s.key}
             onPress={() => jumpToSeason(s.date)}
             style={[styles.seasonBtn, { backgroundColor: theme.bg, borderColor: theme.border }]}
@@ -112,7 +113,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
           >
             <View style={[styles.seasonDot, { backgroundColor: s.color }]} />
             <Text style={[styles.seasonBtnText, { color: theme.text }]}>{s.label}</Text>
-          </TouchableOpacity>
+          </PressScale>
         ))}
       </View>
 
@@ -132,7 +133,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             onGrant={onSlidingStart}
             onRelease={onSlidingComplete}
             theme={theme}
-            trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'}
+            trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : color.border}
             fillColor={theme.accent}
             knobColor={color.panelRaised}
             trackOverlay={
@@ -170,7 +171,7 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
             onGrant={onSlidingStart}
             onRelease={onSlidingComplete}
             theme={theme}
-            trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)'}
+            trackColor={theme.bg === '#E8EDF2' ? 'rgba(0,0,0,0.06)' : color.border}
             fillColor={color.accent}
             knobColor={color.panelRaised}
           >
@@ -184,15 +185,13 @@ export const IsolineControls: React.FC<IsolineControlsProps> = ({
         </View>
       </View>
 
-      {/* 자동 재생 버튼 */}
-      <TouchableOpacity
+      {/* 자동 재생 — 이 패널의 주 동작. 재생 중엔 "멈춤" 이 되어 danger 색. */}
+      <PrimaryButton
         onPress={onTogglePlay}
-        style={[styles.playBtn, { backgroundColor: isPlaying ? color.danger : color.accent }]}
-        activeOpacity={0.8}
-      >
-        {isPlaying ? <Pause size={15} color={color.onAccent} fill={color.onAccent} /> : <Play size={15} color={color.onAccent} fill={color.onAccent} />}
-        <Text style={styles.playBtnText}>{isPlaying ? t('isolinePause', language) : t('isolinePlay', language)}</Text>
-      </TouchableOpacity>
+        tone={isPlaying ? 'danger' : 'accent'}
+        icon={isPlaying ? <Pause size={15} color={color.onAccent} fill={color.onAccent} /> : <Play size={15} color={color.onAccent} fill={color.onAccent} />}
+        label={isPlaying ? t('isolinePause', language) : t('isolinePlay', language)}
+      />
     </View>
   );
 };

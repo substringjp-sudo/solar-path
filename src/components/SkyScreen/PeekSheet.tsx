@@ -16,12 +16,13 @@ import {
   View,
   Animated,
   PanResponder,
-  TouchableOpacity,
   Platform,
   useWindowDimensions,
 } from 'react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { color, radius, mono } from '../../theme/tokens';
+import { PressScale } from '../ui';
+import { springTo } from '../../theme/motion';
 
 /** 닫힌 상태에서 보이는 높이 (grabber + 요약 한 줄) */
 export const PEEK_HEIGHT = 52;
@@ -59,12 +60,7 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
 
   const animateTo = useCallback(
     (to: number) => {
-      Animated.spring(progress, {
-        toValue: to,
-        useNativeDriver: false,
-        bounciness: 2,
-        speed: 14,
-      }).start();
+      springTo(progress, to, 'sheet', { useNativeDriver: false }).start();
     },
     [progress]
   );
@@ -127,14 +123,14 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
         {
           height: sheetHeight,
           backgroundColor: theme?.card || theme?.glass || 'rgba(15, 23, 42, 0.94)',
-          borderColor: theme?.border || 'rgba(255,255,255,0.12)',
+          borderColor: theme?.border || color.border,
         },
       ]}
       {...panResponder.panHandlers}
     >
-      <TouchableOpacity activeOpacity={0.9} onPress={toggle} style={styles.grabberArea}>
-        <View style={[styles.grabber, { backgroundColor: theme?.subText || '#94A3B8' }]} />
-      </TouchableOpacity>
+      <PressScale activeOpacity={0.9} onPress={toggle} style={styles.grabberArea}>
+        <View style={[styles.grabber, { backgroundColor: theme?.subText || color.textDim }]} />
+      </PressScale>
 
       {/* 요약 — 닫힌 상태의 유일한 콘텐츠 */}
       <Animated.View

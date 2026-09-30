@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { Info, Sun, Sunrise, Sunset, Compass, Globe, Crosshair, Star, Hash } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
@@ -15,7 +15,7 @@ import { canPickLocation, locationTapAction, solarBadgeMaxWidth, bottomLeftMaxWi
 import * as Location from 'expo-location';
 import { LandSilhouette } from './LandSilhouette';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
-import { t } from '../../utils/i18n';
+import { t, L3 } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
@@ -23,7 +23,8 @@ import { MapGlobe } from './MapGlobe';
 import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
-import { color, radius, mono } from '../../theme/tokens';
+import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { PressScale, OverlayButton, Reveal } from '../ui';
 
 interface IsolineMapProps {
   theme: any;
@@ -513,43 +514,43 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           <LandSilhouette region={region} width={bodySize.width} height={bodySize.height} theme={theme} />
         )}
 
-        <TouchableOpacity
+        {/* 오른쪽 위 보기 조작 — 하늘 탭 레이어 버튼과 같은 `OverlayButton`. 켜진 상태(구 보기 ·
+               위치 고르기 가능)는 강조 재질로 보입니다. 자리(10 · 48 · 86)는 `locationPick.topButtonsWidth(3)` 와 맞물립니다. */}
+        <OverlayButton
           onPress={toggleGlobe}
-          style={[styles.projectionBtn, { top: 10 + inset, right: 48 + inset, backgroundColor: color.overlay, borderColor: color.border }]}
-          activeOpacity={0.7}
+          active={showGlobe}
+          accessibilityLabel={showGlobe ? L3(language, '지도로 보기', 'Flat map', '地図で見る') : L3(language, '지구본으로 보기', 'Globe', '地球儀で見る')}
+          style={[styles.overlayPos, { top: 10 + inset, right: 48 + inset }]}
         >
-          {!showGlobe ? (
-            <Globe size={16} color={theme.text} />
-          ) : (
-            <Compass size={16} color={theme.accent} />
-          )}
-        </TouchableOpacity>
+          {!showGlobe ? <Globe size={16} color={color.text} /> : <Compass size={16} color={color.accent} />}
+        </OverlayButton>
 
-        <TouchableOpacity
+        <OverlayButton
           onPress={() => setGuideVisible(true)}
-          style={[styles.guideBtn, { top: 10 + inset, right: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}
-          activeOpacity={0.7}
+          accessibilityLabel={L3(language, '도움말', 'Help', 'ヘルプ')}
+          style={[styles.overlayPos, { top: 10 + inset, right: 10 + inset }]}
         >
-          <Info size={16} color={theme.text} />
-        </TouchableOpacity>
+          <Info size={16} color={color.text} />
+        </OverlayButton>
 
         {/* ── 위치 옮기기 ────────────────────────────────────────────────
                탭의 뜻이 축척을 따라 바뀝니다 — 좁으면 한가운데로, 넓으면
-               메뉴(`locationPick.ts`). 꾹 누르기는 어디서나 메뉴입니다. */}
-        <TouchableOpacity
+               메뉴(`locationPick.ts`). 꾹 누르기는 어디서나 메뉴입니다.
+               조준점 — 헤더의 📍(위치 변경 창)와 다른 일을 하므로 다른 모양으로(점검 2026-09-29). */}
+        <OverlayButton
           onPress={onLocationTap}
           onLongPress={() => setLocMenuOpen(true)}
           delayLongPress={350}
-          style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: color.overlay, borderColor: color.border }]}
-          activeOpacity={0.7}
+          active={pickable}
+          accessibilityLabel={L3(language, '위치 옮기기', 'Move location', '位置を移動')}
+          style={[styles.overlayPos, { top: 10 + inset, right: 86 + inset }]}
         >
-          {/* 조준점 — 헤더의 📍(위치 변경 창)와 다른 일을 하므로 다른 모양으로(점검 2026-09-29). */}
-          <Crosshair size={16} color={pickable ? theme.accent : theme.text} />
-        </TouchableOpacity>
+          <Crosshair size={16} color={pickable ? color.accent : color.text} />
+        </OverlayButton>
 
         {/* 바깥을 누르면 닫힙니다 — 안 그러면 메뉴가 지도를 계속 가립니다. */}
         {locMenuOpen && (
-          <TouchableOpacity
+          <PressScale
             style={styles.locBackdrop}
             activeOpacity={1}
             onPress={() => setLocMenuOpen(false)}
@@ -557,16 +558,16 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {locMenuOpen && (
-          <View style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}>
-            <TouchableOpacity style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
+          <Reveal style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}>
+            <PressScale style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
               <Crosshair size={13} color={theme.accent} />
               <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
                 {t('isolineMoveHere', language)}
               </Text>
-            </TouchableOpacity>
+            </PressScale>
 
             {savedLocations.slice(0, 5).map((loc) => (
-              <TouchableOpacity
+              <PressScale
                 key={loc.id}
                 style={styles.locMenuItem}
                 activeOpacity={0.7}
@@ -579,11 +580,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
                   {loc.name}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             ))}
 
             {onOpenPicker && (
-              <TouchableOpacity
+              <PressScale
                 style={styles.locMenuItem}
                 activeOpacity={0.7}
                 onPress={() => { setLocMenuOpen(false); onOpenPicker(); }}
@@ -592,9 +593,9 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 <Text style={[styles.locMenuText, { color: theme.subText }]} numberOfLines={1}>
                   {t('isolineEnterCoords', language)}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
-          </View>
+          </Reveal>
         )}
 
         {/* ⚠ 십자선이 없으면 "한가운데로" 는 장님 탭입니다 — 어디로 갈지
@@ -616,7 +617,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           </View>
           <View style={[styles.solarOverlayDivider, { backgroundColor: theme.border }]} />
           <View style={styles.solarOverlayItem}>
-            <Sunrise size={11} color="#FFA500" />
+            <Sunrise size={11} color={dataColor.sunrise} />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
               {formatLocalTime(localSunrise, 'HH:mm')}
             </Text>
@@ -669,7 +670,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
             )}
             {/* 자료 칸 ↔ 하늘 탭의 구름을 위에서 본 것. 웹 미리보기 지도는 겹이 없어 구에서만. */}
             {radar && (Platform.OS !== 'web' || showGlobe) && (
-              <TouchableOpacity
+              <PressScale
                 onPress={() => setCloudView(v => (v === 'radar' ? 'sim' : 'radar'))}
                 style={[styles.legendItem, styles.cloudViewToggle, { borderColor: theme.border }]}
                 activeOpacity={0.7}
@@ -677,27 +678,27 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 <Text style={[styles.legendText, { color: theme.text }]}>
                   {t(cloudView === 'radar' ? 'radarShowSim' : 'radarShowCells', language)}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
             {isLocalScale ? (
               <>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#38BDF8' }]} />
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.altitude }]} />
                   <Text style={[styles.legendText, { color: theme.subText }]}>{t('legendAltLine', language)}</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#FB923C' }]} />
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.azimuth }]} />
                   <Text style={[styles.legendText, { color: theme.subText }]}>{t('legendAzimuth', language)}</Text>
                 </View>
               </>
             ) : (
               <>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#FFA500' }]} />
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.sunrise }]} />
                   <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunriseLine', language)}</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#FF4500' }]} />
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.sunset }]} />
                   <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunsetLine', language)}</Text>
                 </View>
               </>
@@ -822,6 +823,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     zIndex: 10,
   },
+  overlayPos: { position: 'absolute', zIndex: 10 },
   locBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 19,

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { EARTH_RADIUS_M } from '../utils/earth';
 import {
-  StyleSheet, View, Text, TouchableOpacity, Modal,
+  StyleSheet, View, Text, Modal,
   Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
@@ -47,6 +47,8 @@ import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
 import { t, Language, translateSunsetDesc, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkyScene3D';
+import { PressScale } from './ui';
+import { color, dataColor } from '../theme/tokens';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CAM_PREVIEW_HEIGHT = Math.round(SCREEN_WIDTH * (3 / 4));
@@ -124,17 +126,17 @@ const stampPhoto = async (
       const paintBorder = Skia.Paint();
       paintBorder.setStyle(PaintStyle.Stroke);
       paintBorder.setStrokeWidth(2);
-      paintBorder.setColor(Skia.Color('#FFD700'));
+      paintBorder.setColor(Skia.Color(color.sun));
       canvas.drawRRect(Skia.RRectXY(rect(boxX, boxY, boxW, boxH), 16, 16), paintBorder);
 
       let currY = boxY + fontSize * 1.8;
       const stepY = fontSize * 1.35;
 
-      paintText.setColor(Skia.Color('#FFD700'));
+      paintText.setColor(Skia.Color(color.sun));
       canvas.drawText('SOLAR PATH HUD', boxX + 16, currY, paintText, fontHeader);
 
       currY += stepY * 1.1;
-      paintText.setColor(Skia.Color('#FFFFFF'));
+      paintText.setColor(Skia.Color(color.text));
       const locLabel = L3(lang, '위치', 'Location', '位置');
       canvas.drawText(`${locLabel}: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`, boxX + 16, currY, paintText, font);
 
@@ -1270,25 +1272,25 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return (
       <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
         <View style={styles.permissionContainer}>
-          <Camera size={64} color="#FFD700" />
+          <Camera size={64} color={color.sun} />
           <Text style={styles.permissionTitle}>Camera Permission Required</Text>
           <Text style={styles.permissionDesc}>
             Camera access is required for AR Sun tracking.
           </Text>
-          <TouchableOpacity style={styles.permissionBtn} onPress={requestCameraPermission}>
+          <PressScale style={styles.permissionBtn} onPress={requestCameraPermission}>
             <Text style={styles.permissionBtnText}>Allow Permission</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.closeTextBtn} onPress={onClose}>
+          </PressScale>
+          <PressScale style={styles.closeTextBtn} onPress={onClose}>
             <Text style={styles.closeTextBtnText}>{t('close', language)}</Text>
-          </TouchableOpacity>
+          </PressScale>
         </View>
       </Modal>
     );
   }
 
   // 골든타임 타입에 따른 색상
-  const eventColor = goldenTimeInfo.type === 'sunrise' ? '#FFA500' : '#FF4500';
-  const eventLabel = goldenTimeInfo.type === 'sunrise' ? 'Sunrise' : 'Sunset';
+  const eventColor = goldenTimeInfo.type === 'sunrise' ? dataColor.sunrise : dataColor.sunset;
+  const eventLabel = t(goldenTimeInfo.type === 'sunrise' ? 'sunrise' : 'sunset', language);
   const minutesBefore = Math.abs(Math.round(goldenTimeInfo.minutesToEvent));
   const isBeforeEvent = goldenTimeInfo.minutesToEvent < 0;
 
@@ -1299,7 +1301,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       <View style={styles.container}>
         {previewUri ? (
           // 촬영 후 미리보기 & 평가 입력 화면
-          <View style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+          <View style={{ flex: 1, backgroundColor: color.bg }}>
             <ScrollView 
               contentContainerStyle={styles.previewScrollContent} 
               showsVerticalScrollIndicator={false}
@@ -1348,7 +1350,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               {capturedQrData && (
                 <View style={styles.weatherQrCard}>
                   <View style={styles.weatherQrHeader}>
-                    <QrCode size={15} color="#00E5FF" />
+                    <QrCode size={15} color={color.accent} />
                     <Text style={styles.weatherQrTitle}>
                       {L3(language, '기상 분석 리포트 QR', 'Weather report QR', '気象レポートQR')}
                     </Text>
@@ -1393,13 +1395,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Text style={styles.scoreLabel}>{t('landscapeScoreLabel', language)}</Text>
                   <View style={styles.starsContainer}>
                     {[1, 2, 3, 4, 5].map((num) => (
-                      <TouchableOpacity key={num} onPress={() => setLandscapeScore(num)}>
+                      <PressScale key={num} onPress={() => setLandscapeScore(num)}>
                         <Star
                           size={28}
-                          color={num <= landscapeScore ? '#FFD700' : 'rgba(255,255,255,0.25)'}
-                          fill={num <= landscapeScore ? '#FFD700' : 'transparent'}
+                          color={num <= landscapeScore ? color.sun : color.borderStrong}
+                          fill={num <= landscapeScore ? color.sun : 'transparent'}
                         />
-                      </TouchableOpacity>
+                      </PressScale>
                     ))}
                   </View>
                   <Text style={styles.scoreNumberText}>{landscapeScore} / 5</Text>
@@ -1409,13 +1411,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   <Text style={styles.scoreLabel}>{t('weatherScoreLabel', language)}</Text>
                   <View style={styles.starsContainer}>
                     {[1, 2, 3, 4, 5].map((num) => (
-                      <TouchableOpacity key={num} onPress={() => setWeatherScore(num)}>
+                      <PressScale key={num} onPress={() => setWeatherScore(num)}>
                         <Sun
                           size={28}
-                          color={num <= weatherScore ? '#FF7043' : 'rgba(255,255,255,0.25)'}
+                          color={num <= weatherScore ? '#FF7043' : color.borderStrong}
                           fill={num <= weatherScore ? '#FF7043' : 'transparent'}
                         />
-                      </TouchableOpacity>
+                      </PressScale>
                     ))}
                   </View>
                   <Text style={styles.scoreNumberText}>{weatherScore} / 5</Text>
@@ -1439,7 +1441,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   
               {/* 제어 버튼 영역 */}
               <View style={styles.previewBtnRow}>
-                <TouchableOpacity 
+                <PressScale 
                   style={styles.previewRetakeBtn} 
                   onPress={() => {
                     setPreviewUri(null);
@@ -1448,11 +1450,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   }}
                   disabled={isUploading}
                 >
-                  <RefreshCw size={18} color="#FFF" style={{ marginRight: 8 }} />
+                  <RefreshCw size={18} color={color.text} style={{ marginRight: 8 }} />
                   <Text style={styles.previewRetakeText}>{t('retake', language)}</Text>
-                </TouchableOpacity>
+                </PressScale>
   
-                <TouchableOpacity 
+                <PressScale 
                   style={styles.previewUploadBtn} 
                   onPress={handleUpload}
                   disabled={isUploading}
@@ -1465,7 +1467,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       <Text style={styles.previewUploadText}>{t('saveAndUpload', language)}</Text>
                     </>
                   )}
-                </TouchableOpacity>
+                </PressScale>
               </View>
             </ScrollView>
           </View>
@@ -1474,16 +1476,18 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           <View style={styles.fullscreenContainer}>
             {/* 1. 상단 고정 통합 HUD 바 */}
             <View style={styles.topHudBar}>
-              <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <X size={22} color="#FFF" />
-              </TouchableOpacity>
+              <PressScale style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <X size={22} color={color.text} />
+              </PressScale>
 
               <View style={styles.eventBadge}>
                 <Sun size={13} color={eventColor} />
                 <Text style={[styles.eventText, { color: eventColor }]}>
                   {goldenTimeInfo.isActive
-                    ? `${eventLabel} ${isBeforeEvent ? `${minutesBefore}m before` : `${minutesBefore}m after`}`
-                    : `${eventLabel} Ready`}
+                    ? (isBeforeEvent
+                        ? L3(language, `${eventLabel} ${minutesBefore}분 전`, `${eventLabel} in ${minutesBefore}m`, `${eventLabel}まで${minutesBefore}分`)
+                        : L3(language, `${eventLabel} ${minutesBefore}분 후`, `${eventLabel} +${minutesBefore}m`, `${eventLabel}から${minutesBefore}分`))
+                    : L3(language, `${eventLabel} 대기`, `${eventLabel} ahead`, `${eventLabel} 待機`)}
                 </Text>
               </View>
 
@@ -1586,12 +1590,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 {/* 카메라 뷰 헤더 (좌: 뷰 이름, 우: 보정 프리셋 배지) */}
                 <View style={styles.cameraHeaderOverlay} pointerEvents="none">
                   <View style={styles.viewHeaderBadge}>
-                    <Camera size={11} color="#FFD700" />
-                    <Text style={styles.viewHeaderText}>REAL CAMERA (4:3)</Text>
+                    <Camera size={11} color={color.sun} />
+                    <Text style={styles.viewHeaderText}>{L3(language, '카메라', 'CAMERA', 'カメラ')}</Text>
                   </View>
-                  <View style={[styles.enhancementBadgeCompact, { borderColor: getSceneColor(currentEnhancement.sceneType) }]}>
+                  <View style={[styles.enhancementBadgeCompact, { borderColor: getSceneColor(currentEnhancement.sceneType), flexShrink: 1 }]}>
                     <Aperture size={10} color={getSceneColor(currentEnhancement.sceneType)} />
-                    <Text style={styles.enhancementTextCompact}>{currentEnhancement.description}</Text>
+                    <Text style={[styles.enhancementTextCompact, { flexShrink: 1 }]} numberOfLines={1}>{currentEnhancement.description}</Text>
                   </View>
                 </View>
 
@@ -1600,7 +1604,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   {[1, 2, 3, 5].map((mag) => {
                     const isSelected = Math.abs(currentMagnification - mag) < 0.25;
                     return (
-                      <TouchableOpacity
+                      <PressScale
                         key={mag}
                         style={[styles.zoomQuickBtn, isSelected && styles.zoomQuickBtnActive]}
                         onPress={() => setMagnification(mag)}
@@ -1609,7 +1613,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         <Text style={[styles.zoomQuickText, isSelected && styles.zoomQuickTextActive]}>
                           {mag}x
                         </Text>
-                      </TouchableOpacity>
+                      </PressScale>
                     );
                   })}
                   <View style={styles.zoomLiveBadge}>
@@ -1619,7 +1623,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
                 {/* 우측 슬림 노출 조절 슬라이더 */}
                 <View style={styles.exposureSliderWrapper}>
-                  <Sun size={10} color="#FFD700" style={styles.exposureIconTop} />
+                  <Sun size={10} color={color.sun} style={styles.exposureIconTop} />
                   <View 
                     style={styles.exposureSliderTrackContainer}
                     {...exposurePanResponder.panHandlers}
@@ -1685,8 +1689,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       else if (normDeg === 315) label = 'NW';
 
                       const strokeColor = isCardinal 
-                        ? (normDeg === 0 ? '#FF5252' : '#00E5FF') 
-                        : (isTen ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.25)');
+                        ? (normDeg === 0 ? color.danger : color.accent) 
+                        : (isTen ? 'rgba(255,255,255,0.6)' : color.borderStrong);
                       const tickH = isCardinal ? 8 : (isTen ? 5 : 3.5);
 
                       ticks.push(
@@ -1703,7 +1707,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                             <SvgText
                               x={x}
                               y={RULER_HEIGHT - tickH - 2}
-                              fill={normDeg === 0 ? '#FF5252' : '#00E5FF'}
+                              fill={normDeg === 0 ? color.danger : color.accent}
                               fontSize={8}
                               fontWeight="bold"
                               textAnchor="middle"
@@ -1730,14 +1734,14 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   {/* 중앙 포인터 인디케이터 */}
                   <Polygon
                     points={`${BOX_WIDTH / 2 - 4},0 ${BOX_WIDTH / 2 + 4},0 ${BOX_WIDTH / 2},5`}
-                    fill="#FFD700"
+                    fill={color.sun}
                   />
                   <Line
                     x1={BOX_WIDTH / 2}
                     y1={0}
                     x2={BOX_WIDTH / 2}
                     y2={RULER_HEIGHT}
-                    stroke="#FFD700"
+                    stroke={color.sun}
                     strokeWidth={1}
                     strokeDasharray="2,2"
                   />
@@ -1779,9 +1783,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
                 {/* 시뮬레이터 헤더 오버레이 배지 (가림/중복 없이 좌측 배지와 우측 단일 FOV 배지 분리) */}
                 <View style={styles.simHeaderOverlay} pointerEvents="none">
-                  <View style={[styles.viewHeaderBadge, { backgroundColor: 'rgba(0, 160, 255, 0.25)', borderColor: '#00E5FF' }]}>
-                    <Aperture size={10} color="#00E5FF" />
-                    <Text style={[styles.viewHeaderText, { color: '#00E5FF', fontSize: 9 }]}>3D SIM</Text>
+                  <View style={[styles.viewHeaderBadge, { backgroundColor: 'rgba(0, 160, 255, 0.25)', borderColor: color.accent }]}>
+                    <Aperture size={10} color={color.accent} />
+                    <Text style={[styles.viewHeaderText, { color: color.accent, fontSize: 9 }]}>{L3(language, '3D 시뮬', '3D SIM', '3Dシム')}</Text>
                   </View>
                   <View style={styles.fovBadge}>
                     <Text style={styles.fovBadgeText}>FOV {Math.round(currentFov)}°</Text>
@@ -1794,22 +1798,22 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             <View style={styles.bottomControlsBar}>
               {/* 화면 보정 — 누르면 능선·해·달로 방위를 맞춥니다. 길게 누르면 예전 Sun-Snap
                   (해를 화면 한가운데 두고 그 방위로 고정). */}
-              <TouchableOpacity
+              <PressScale
                 style={[styles.sideBtn, isVisionRunning && { opacity: 0.5 }]}
                 onPress={handleVisionCalibrate}
                 onLongPress={handleSunSnap}
                 disabled={isVisionRunning}
               >
-                {isVisionRunning ? <ActivityIndicator size="small" color="#FFD700" /> : <Sun size={22} color="#FFD700" />}
-                <Text style={[styles.sideBtnText, { color: '#FFD700', fontWeight: '800' }]}>{L3(language, '화면 보정', 'Auto-align', '画面補正')}</Text>
-              </TouchableOpacity>
+                {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={22} color={color.sun} />}
+                <Text style={styles.sideBtnText}>{L3(language, '화면 보정', 'Auto-align', '画面補正')}</Text>
+              </PressScale>
 
-              <TouchableOpacity style={styles.sideBtn} onPress={handleCalibrate}>
-                <RotateCcw size={18} color="#FFF" />
-                <Text style={styles.sideBtnText}>Calibrate</Text>
-              </TouchableOpacity>
+              <PressScale style={styles.sideBtn} onPress={handleCalibrate}>
+                <RotateCcw size={18} color={color.text} />
+                <Text style={styles.sideBtnText}>{L3(language, '방위 맞춤', 'Calibrate', '方位補正')}</Text>
+              </PressScale>
 
-              <TouchableOpacity
+              <PressScale
                 style={[styles.captureBtn, isCapturing && { opacity: 0.5 }]}
                 onPress={handleCapture}
                 disabled={isCapturing}
@@ -1820,15 +1824,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 ) : (
                   <View style={styles.captureBtnInner} />
                 )}
-              </TouchableOpacity>
+              </PressScale>
 
-              <TouchableOpacity 
+              <PressScale 
                 style={styles.sideBtn} 
                 onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
               >
-                <RefreshCw size={18} color="#FFF" />
-                <Text style={styles.sideBtnText}>Flip</Text>
-              </TouchableOpacity>
+                <RefreshCw size={18} color={color.text} />
+                <Text style={styles.sideBtnText}>{L3(language, '전환', 'Flip', '切替')}</Text>
+              </PressScale>
             </View>
           </View>
         )}
@@ -1836,7 +1840,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         {/* 촬영 성공 오버레이 */}
         {captureResult && (
           <View style={styles.captureOverlay}>
-            <Check size={48} color="#4CAF50" />
+            <Check size={48} color={color.success} />
             <Text style={styles.captureSuccessText}>{L3(language, '업로드 성공!', 'Uploaded!', 'アップロード完了!')}</Text>
           </View>
         )}
@@ -1859,10 +1863,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 // 장면 유형별 색상
 const getSceneColor = (sceneType: EnhancementParams['sceneType']): string => {
   switch (sceneType) {
-    case 'clear_golden': return '#FFD700';
+    case 'clear_golden': return color.sun;
     case 'dramatic': return '#FF6B3F';
     case 'partial_sun': return '#FFA64D';
-    case 'overcast': return '#9AA1AA';
+    case 'overcast': return color.textDim;
   }
 };
 
@@ -1874,7 +1878,7 @@ const styles = StyleSheet.create({
   },
   permissionContainer: {
     flex: 1,
-    backgroundColor: '#0A0A0F',
+    backgroundColor: color.bg,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
@@ -1883,17 +1887,17 @@ const styles = StyleSheet.create({
   permissionTitle: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#FFF',
+    color: color.text,
     marginTop: 16,
   },
   permissionDesc: {
     fontSize: 14,
-    color: '#AAA',
+    color: color.textDim,
     textAlign: 'center',
     lineHeight: 22,
   },
   permissionBtn: {
-    backgroundColor: '#FFD700',
+    backgroundColor: color.sun,
     paddingVertical: 14,
     paddingHorizontal: 40,
     borderRadius: 30,
@@ -1909,7 +1913,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   closeTextBtnText: {
-    color: '#888',
+    color: color.textDim,
     fontSize: 14,
   },
   topHud: {
@@ -1926,14 +1930,14 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
   },
   eventBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: color.scrim,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 20,
@@ -1944,13 +1948,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   compassBadge: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: color.scrim,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 20,
   },
   compassText: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -1960,7 +1964,7 @@ const styles = StyleSheet.create({
     minWidth: 56,
   },
   sideBtnText: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 10.5,
     fontWeight: '700',
   },
@@ -1969,31 +1973,31 @@ const styles = StyleSheet.create({
     height: 68,
     borderRadius: 34,
     borderWidth: 3.5,
-    borderColor: '#FFF',
+    borderColor: color.text,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: color.border,
   },
   captureBtnInner: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: '#FFF',
+    backgroundColor: color.text,
   },
   captureOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 12,
   },
   captureSuccessText: {
-    color: '#4CAF50',
+    color: color.success,
     fontSize: 24,
     fontWeight: '900',
   },
   captureSubText: {
-    color: '#AAA',
+    color: color.textDim,
     fontSize: 13,
   },
   warningBanner: {
@@ -2009,7 +2013,7 @@ const styles = StyleSheet.create({
     zIndex: 150,
   },
   warningText: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 11,
     fontWeight: '800',
     textAlign: 'center',
@@ -2020,12 +2024,12 @@ const styles = StyleSheet.create({
     left: 40,
     right: 40,
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: color.scrim,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 20,
     borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: color.borderStrong,
   },
   tuningTitle: {
     color: 'rgba(255,255,255,0.6)',
@@ -2044,12 +2048,12 @@ const styles = StyleSheet.create({
     width: 42,
     height: 32,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: color.borderStrong,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tuningBtnText: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -2058,13 +2062,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tuningValueText: {
-    color: '#FFD700',
+    color: color.sun,
     fontSize: 13,
     fontWeight: '800',
   },
   previewContainer: {
     flex: 1,
-    backgroundColor: '#0A0A0F',
+    backgroundColor: color.bg,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 20,
     justifyContent: 'space-between',
@@ -2076,7 +2080,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   previewTitle: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 20,
     fontWeight: '900',
     textAlign: 'center',
@@ -2097,7 +2101,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E1E2A',
     overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: color.border,
   },
   compareImage: {
     flex: 1,
@@ -2156,8 +2160,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    color: '#FFF',
+    backgroundColor: color.scrim,
+    color: color.text,
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
@@ -2178,7 +2182,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   weatherQrTitle: {
-    color: '#00E5FF',
+    color: color.accent,
     fontSize: 12.5,
     fontWeight: '800',
     letterSpacing: 0.3,
@@ -2191,7 +2195,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   qrPlateWrapper: {
-    backgroundColor: '#FFF',
+    backgroundColor: color.text,
     padding: 4,
     borderRadius: 8,
     shadowColor: '#00E5FF',
@@ -2208,7 +2212,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: color.fill,
     paddingHorizontal: 8,
     paddingVertical: 3.5,
     borderRadius: 6,
@@ -2219,7 +2223,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   metaValue: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 10.5,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -2231,11 +2235,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   scoreCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: color.fill,
     borderRadius: 24,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: color.border,
     gap: 18,
     marginVertical: 12,
   },
@@ -2245,7 +2249,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   scoreLabel: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 14,
     fontWeight: '800',
     minWidth: 70,
@@ -2255,7 +2259,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   scoreNumberText: {
-    color: '#FFD700',
+    color: color.sun,
     fontSize: 14,
     fontWeight: '900',
     minWidth: 40,
@@ -2265,11 +2269,11 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingTop: 12,
     borderTopWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: color.borderStrong,
     alignItems: 'center',
   },
   weatherSummaryText: {
-    color: '#AAA',
+    color: color.textDim,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -2283,13 +2287,13 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: color.borderStrong,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
   previewRetakeText: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 15,
     fontWeight: '800',
   },
@@ -2297,7 +2301,7 @@ const styles = StyleSheet.create({
     flex: 2,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#FFD700',
+    backgroundColor: color.sun,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2312,7 +2316,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 82, 82, 0.25)',
+    borderColor: color.dangerSoft,
     marginVertical: 10,
   },
   privacyNoticeText: {
@@ -2326,16 +2330,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '15%',
     alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: color.borderStrong,
     zIndex: 200,
   },
   zoomIndicatorText: {
-    color: '#FFD700',
+    color: color.sun,
     fontSize: 13,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -2347,9 +2351,9 @@ const styles = StyleSheet.create({
     height: 140,
     width: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: color.scrim,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: color.borderStrong,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 8,
@@ -2372,14 +2376,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 3,
     height: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: color.borderStrong,
     borderRadius: 1.5,
   },
   exposureActiveBar: {
     position: 'absolute',
     bottom: 0,
     width: 3,
-    backgroundColor: '#FFD700',
+    backgroundColor: color.sun,
     borderRadius: 1.5,
   },
   exposureKnob: {
@@ -2387,9 +2391,9 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: color.text,
     borderWidth: 1.5,
-    borderColor: '#FFD700',
+    borderColor: color.sun,
     shadowColor: '#000',
     shadowOpacity: 0.3,
     shadowRadius: 2,
@@ -2401,7 +2405,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: 'rgba(22, 19, 26, 0.75)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.borderStrong,
   },
   arLayerChipActive: {
     backgroundColor: 'rgba(255, 140, 0, 0.85)',
@@ -2413,7 +2417,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   arLayerChipTextActive: {
-    color: '#FFF',
+    color: color.text,
     fontWeight: '900',
   },
   fullscreenContainer: {
@@ -2455,7 +2459,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.borderStrong,
   },
   simBox: {
     backgroundColor: '#03050C',
@@ -2471,6 +2475,7 @@ const styles = StyleSheet.create({
     left: 8,
     right: 8,
     flexDirection: 'row',
+    gap: 6,
     justifyContent: 'space-between',
     alignItems: 'center',
     zIndex: 15,
@@ -2479,7 +2484,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 10,
@@ -2487,7 +2492,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 215, 0, 0.5)',
   },
   viewHeaderText: {
-    color: '#FFD700',
+    color: color.sun,
     fontSize: 9.5,
     fontWeight: '900',
     letterSpacing: 0.5,
@@ -2495,7 +2500,7 @@ const styles = StyleSheet.create({
   enhancementBadgeCompact: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 10,
@@ -2503,7 +2508,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   enhancementTextCompact: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 9.5,
     fontWeight: '700',
   },
@@ -2518,7 +2523,7 @@ const styles = StyleSheet.create({
     zIndex: 15,
   },
   fovBadge: {
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 10,
@@ -2526,7 +2531,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0, 229, 255, 0.5)',
   },
   fovBadgeText: {
-    color: '#00E5FF',
+    color: color.accent,
     fontSize: 9.5,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -2538,11 +2543,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     padding: 3,
     borderRadius: 14,
     borderWidth: 0.8,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: color.borderStrong,
     zIndex: 20,
   },
   zoomQuickBtn: {
@@ -2551,7 +2556,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   zoomQuickBtnActive: {
-    backgroundColor: '#FFD700',
+    backgroundColor: color.accent,
   },
   zoomQuickText: {
     color: 'rgba(255, 255, 255, 0.7)',
@@ -2559,17 +2564,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   zoomQuickTextActive: {
-    color: '#000',
+    color: color.onAccent,
     fontWeight: '900',
   },
   zoomLiveBadge: {
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderLeftWidth: 0.8,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: color.borderStrong,
   },
   zoomLiveText: {
-    color: '#FFD700',
+    color: color.textDim,
     fontSize: 10,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -2579,7 +2584,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderRadius: 6,
     borderWidth: 0.8,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.borderStrong,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#080C16',
@@ -2588,7 +2593,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 2,
     alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: color.scrim,
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
@@ -2596,7 +2601,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 215, 0, 0.4)',
   },
   compassCenterText: {
-    color: '#FFD700',
+    color: color.sun,
     fontSize: 8,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',

@@ -151,6 +151,7 @@ import {
   type CloudPresetName,
   type CloudPreset,
 } from '../../utils/cloudPresets';
+import { dataColor } from '../../theme/tokens';
 
 export {
   getCloudPreset,
@@ -2199,13 +2200,13 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         
         {sunriseX >= 0 && sunriseX <= VISUALIZER_WIDTH && (
           <View style={[styles.overlaySunMarker, { left: sunriseX }]}>
-            <Sun size={8} color="#FFA500" />
+            <Sun size={8} color={dataColor.sunrise} />
             <Text style={styles.overlaySunLabel}>RISE</Text>
           </View>
         )}
         {sunsetX >= 0 && sunsetX <= VISUALIZER_WIDTH && (
           <View style={[styles.overlaySunMarker, { left: sunsetX }]}>
-            <Sun size={8} color="#FF4500" />
+            <Sun size={8} color={dataColor.sunset} />
             <Text style={styles.overlaySunLabel}>SET</Text>
           </View>
         )}
@@ -2231,7 +2232,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     const formattedTime = formatLocalTime(localEvent, 'HH:mm');
 
     const isSunrise = type === 'Sunrise';
-    const badgeColor = isSunrise ? '#FFA500' : '#FF4500';
+    const badgeColor = isSunrise ? dataColor.sunrise : dataColor.sunset;
 
     return (
       <View style={[styles.nextEventBadge, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}>

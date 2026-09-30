@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Clock, Zap, Camera } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
 import { t, L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
 
 interface TimeSliderProps {
   value: Date;
@@ -93,7 +94,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   const getKnobColors = (p: number) => {
     // Astro-HUD: 흑연 옵시디언 다크 노브 + 일렉트릭 시안 발광 타임코드
-    return { color: '#0B132B', textColor: '#38BDF8' };
+    return { color: '#0B132B', textColor: color.accent };
   };
 
   const sunriseTime = useMemo(() => {
@@ -122,7 +123,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
       let isGolden = false;
       localMarkers.forEach(m => {
-        if (!m.time || m.color === '#888' || m.color === '#888888') return;
+        if (!m.time || m.color === color.textDim || m.color === color.textDim) return;
         const markerMinutes = m.time.getUTCHours() * 60 + m.time.getUTCMinutes();
         let diff = valueMinutes - markerMinutes;
         if (diff > 720) diff -= 1440;
@@ -135,9 +136,9 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         }
       });
 
-      if (isGolden) return '#FFD700';
+      if (isGolden) return color.sun;
       const isSliderDay = valueMinutes >= sunriseMinutes && valueMinutes < sunsetMinutes;
-      return isSliderDay ? '#38BDF8' : '#1A237E';
+      return isSliderDay ? color.accent : '#1A237E';
     };
 
     const transitionBufferMins = 15; // 15분 전이 그라데이션 구간
@@ -236,7 +237,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     localMarkers.forEach(m => {
       if (!m.time) return;
       // 달 마커(색상이 #888)는 골든타임 판정에서 제외하고 태양 마커만 판정
-      if (m.color === '#888' || m.color === '#888888') return;
+      if (m.color === color.textDim || m.color === color.textDim) return;
 
       const markerMinutes = m.time.getUTCHours() * 60 + m.time.getUTCMinutes();
       
@@ -266,14 +267,14 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     });
 
     if (isGolden) {
-      return '#FFD700'; // 일출 일몰 (노란색)
+      return color.sun; // 일출 일몰 (노란색)
     }
 
     // 2. 현재 선택된 시간(valueMinutes) 기준 낮/밤 판단
     const isSliderDay = valueMinutes >= sunriseMinutes && valueMinutes < sunsetMinutes;
 
     // 낮: 청량한 하늘색, 밤: 깊고 짙은 남색
-    return isSliderDay ? '#38BDF8' : '#1A237E';
+    return isSliderDay ? color.accent : '#1A237E';
   };
 
   return (
@@ -283,11 +284,11 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         <View style={styles.header}>
           <View style={styles.titleRow}>
             <Clock size={12} color={color.accent} />
-            <Text style={[styles.title, { color: '#E2E8F0' }]}>
+            <Text style={[styles.title, { color: color.text }]}>
               {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
             </Text>
             <View style={styles.telemetryTagWrap}>
-              <View style={[styles.telemetryDot, { backgroundColor: isTimeMachineEnabled ? '#F59E0B' : '#34D399' }]} />
+              <View style={[styles.telemetryDot, { backgroundColor: isTimeMachineEnabled ? color.warning : color.success }]} />
               <Text style={styles.telemetryTag}>
                 {isTimeMachineEnabled ? 'SIM' : 'LIVE'}
               </Text>
@@ -296,14 +297,14 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
           <View style={styles.headerButtons}>
             {isFullDay && isTimeMachineEnabled && (
-              <TouchableOpacity 
+              <PressScale 
                 style={styles.nowBtn} 
                 onPress={() => onToggleTimeMachine(false)}
                 activeOpacity={0.75}
               >
-                <Zap size={10} color="#000" fill="#000" />
+                <Zap size={10} color={color.onAccent} fill={color.onAccent} />
                 <Text style={styles.nowBtnText}>{t('now', language)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
           </View>
         </View>
@@ -322,7 +323,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
             }}
             onRelease={onSlidingComplete}
             theme={theme}
-            trackColor={isDay ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.08)'}
+            trackColor={isDay ? color.accentSoft : color.border}
             fillColor={getFillColor()}
             colorMap={colorMap}
             knobColor={getKnobColors(currentPct).color}
@@ -332,7 +333,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
                   if (!marker.time) return null;
                   const p = getPercentageFromTime(marker.time);
                   if (p < 0 || p > 100) return null;
-                  const markerColor = marker.color === '#888' ? '#888888' : marker.color;
+                  const markerColor = marker.color === color.textDim ? color.textDim : marker.color;
                   return (
                     <View 
                       key={i} 
@@ -386,7 +387,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       {onCameraPress && (
         <View style={styles.shutterModule}>
           {/* 'READY' 표시등은 뺐습니다 — 상태와 무관하게 늘 READY 라 뜻이 없었습니다(점검 2026-09-29). */}
-          <TouchableOpacity
+          <PressScale
             style={styles.shutterBtn}
             onPress={onCameraPress}
             activeOpacity={0.78}
@@ -398,7 +399,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
                 <Camera size={19} color="#000000" strokeWidth={2.4} />
               </View>
             </View>
-          </TouchableOpacity>
+          </PressScale>
           <Text style={styles.shutterLabel}>CAM / AR</Text>
         </View>
       )}
@@ -440,7 +441,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: color.fill,
     paddingHorizontal: 5,
     paddingVertical: 1.5,
     borderRadius: radius.xs,

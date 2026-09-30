@@ -5,7 +5,6 @@ import {
   Text,
   Modal,
   Image,
-  TouchableOpacity,
   ScrollView,
   Dimensions,
   Platform,
@@ -28,6 +27,7 @@ import { auth } from '../config/firebase';
 import { shareToSns, SnsPlatform } from '../utils/snsShare';
 import { L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
 
 const { width: W } = Dimensions.get('window');
 
@@ -116,9 +116,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 </View>
               )}
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeIconBtn}>
-              <X size={20} color="#FFF" />
-            </TouchableOpacity>
+            <PressScale onPress={onClose} style={styles.closeIconBtn}>
+              <X size={20} color={color.text} />
+            </PressScale>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -202,21 +202,21 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
 
           {/* Bottom Action Controls */}
           <View style={styles.actionFooter}>
-            <TouchableOpacity style={[styles.likeBtn, isLiked && styles.likedBtn]} onPress={handleLike}>
-              <Heart size={18} color={isLiked ? '#FF5252' : '#FFF'} fill={isLiked ? '#FF5252' : 'transparent'} />
+            <PressScale style={[styles.likeBtn, isLiked && styles.likedBtn]} onPress={handleLike}>
+              <Heart size={18} color={isLiked ? color.danger : color.text} fill={isLiked ? color.danger : 'transparent'} />
               <Text style={[styles.likeBtnText, isLiked && styles.likedBtnText]}>{likesCount}</Text>
-            </TouchableOpacity>
+            </PressScale>
 
-            <TouchableOpacity style={styles.closeFooterBtn} onPress={onClose}>
+            <PressScale style={styles.closeFooterBtn} onPress={onClose}>
               <Text style={styles.closeFooterText}>{L3(language, '닫기', 'Close', '閉じる')}</Text>
-            </TouchableOpacity>
+            </PressScale>
 
             {/* 내 게시물일 때만 공유하기 버튼 노출 */}
             {isMyPhoto && (
-              <TouchableOpacity style={styles.shareBtn} onPress={() => setShowSnsSelector(true)}>
+              <PressScale style={styles.shareBtn} onPress={() => setShowSnsSelector(true)}>
                 <Share2 size={16} color="#000" />
                 <Text style={styles.shareBtnText}>{L3(language, '공유하기', 'Share', '共有')}</Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
           </View>
 
@@ -225,41 +225,41 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
             <View style={styles.snsSheet}>
               <View style={styles.snsSheetHeader}>
                 <Text style={styles.snsSheetTitle}>{L3(language, '𝕏 · SNS로 공유하고 공개하기', 'Share to 𝕏 & social (makes it public)', '𝕏・SNSで共有して公開')}</Text>
-                <TouchableOpacity onPress={() => setShowSnsSelector(false)}>
-                  <X size={18} color="#FFF" />
-                </TouchableOpacity>
+                <PressScale onPress={() => setShowSnsSelector(false)}>
+                  <X size={18} color={color.text} />
+                </PressScale>
               </View>
 
               <View style={styles.snsGrid}>
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('twitter')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('twitter')}>
                   <Text style={styles.snsIcon}>𝕏</Text>
                   <Text style={styles.snsName}>X</Text>
-                </TouchableOpacity>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('instagram')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('instagram')}>
                   <Text style={styles.snsIcon}>📸</Text>
                   <Text style={styles.snsName}>Instagram</Text>
-                </TouchableOpacity>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('threads')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('threads')}>
                   <Text style={styles.snsIcon}>🧵</Text>
                   <Text style={styles.snsName}>Threads</Text>
-                </TouchableOpacity>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('kakao')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('kakao')}>
                   <Text style={styles.snsIcon}>🟡</Text>
                   <Text style={styles.snsName}>{L3(language, '카카오톡', 'KakaoTalk', 'カカオトーク')}</Text>
-                </TouchableOpacity>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('facebook')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('facebook')}>
                   <Text style={styles.snsIcon}>🔵</Text>
                   <Text style={styles.snsName}>Facebook</Text>
-                </TouchableOpacity>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('native')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('native')}>
                   <Text style={styles.snsIcon}>📱</Text>
                   <Text style={styles.snsName}>{L3(language, '더보기', 'More', 'その他')}</Text>
-                </TouchableOpacity>
+                </PressScale>
               </View>
             </View>
           )}
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: radius.xs,
     overflow: 'hidden',
-    backgroundColor: '#05070D',
+    backgroundColor: color.bg,
     borderWidth: 1,
     borderColor: color.border,
     position: 'relative',
@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
     borderWidth: 0.5,
     borderColor: color.borderStrong,
-    color: '#FFF',
+    color: color.text,
     fontSize: 9,
     fontWeight: '800',
     fontFamily: mono,
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   locationTitle: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 16,
     fontWeight: '800',
   },
@@ -394,7 +394,7 @@ const styles = StyleSheet.create({
     fontFamily: mono,
   },
   coordsBadge: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: color.fill,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.xs,
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     fontFamily: mono,
   },
   weatherCard: {
-    backgroundColor: '#0E1424',
+    backgroundColor: color.panel,
     borderRadius: radius.xs,
     padding: 12,
     borderWidth: 1,
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
     fontFamily: mono,
   },
   weatherItemVal: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 13,
     fontWeight: '900',
     fontFamily: mono,
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: color.fill,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: radius.xs,
@@ -473,11 +473,11 @@ const styles = StyleSheet.create({
     borderColor: color.border,
   },
   likedBtn: {
-    backgroundColor: 'rgba(255, 82, 82, 0.15)',
+    backgroundColor: color.dangerSoft,
     borderColor: 'rgba(255, 82, 82, 0.4)',
   },
   likeBtnText: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 13,
     fontWeight: '800',
     fontFamily: mono,
@@ -489,7 +489,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: radius.xs,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: color.fill,
     borderWidth: 1,
     borderColor: color.border,
   },
@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   snsSheetTitle: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.3,

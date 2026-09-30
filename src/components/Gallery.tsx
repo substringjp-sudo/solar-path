@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
+import { StyleSheet, View, Text, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
 import { Trash2, Image as ImageIcon, Share2 } from 'lucide-react-native';
 import { shareToTwitter } from '../utils/twitterShare';
 import { auth } from '../config/firebase';
@@ -7,6 +7,7 @@ import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
@@ -67,18 +68,18 @@ export const Gallery: React.FC<GalleryProps> = ({
         
         {/* Filter Container */}
         <View style={styles.filterContainer}>
-          <TouchableOpacity
+          <PressScale
             style={[styles.filterChip, galleryFilter === 'all' && styles.activeFilterChip]}
             onPress={() => setGalleryFilter('all')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? '#38BDF8' : theme.subText }]}>{t('all', language)}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? color.accent : theme.subText }]}>{t('all', language)}</Text>
+          </PressScale>
+          <PressScale
             style={[styles.filterChip, galleryFilter === 'mine' && styles.activeFilterChip]}
             onPress={() => setGalleryFilter('mine')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? '#38BDF8' : theme.subText }]}>{t('mine', language)}</Text>
-          </TouchableOpacity>
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? color.accent : theme.subText }]}>{t('mine', language)}</Text>
+          </PressScale>
         </View>
       </View>
 
@@ -98,7 +99,7 @@ export const Gallery: React.FC<GalleryProps> = ({
               const itemWidth = (width - 44) / 2;
               const photoUri = typeof item.imageUrl === 'string' ? item.imageUrl : typeof item.localUri === 'string' ? item.localUri : typeof item.uri === 'string' ? item.uri : '';
               return (
-                <TouchableOpacity
+                <PressScale
                   style={[
                     styles.galleryItem, 
                     { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
@@ -129,14 +130,14 @@ export const Gallery: React.FC<GalleryProps> = ({
                       {new Date(item.timestamp).toLocaleDateString()} • {item.userName || 'Me'}
                     </Text>
                     {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
-                      <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || '#FFD700' }]}>
+                      <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || color.sun }]}>
                         🧭 {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
                       </Text>
                     )}
                   </View>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
-                    <TouchableOpacity
+                    <PressScale
                       style={styles.photoShareBtn}
                       onPress={() => {
                         // 언어별 공유 문구(점검 2026-09-29). ⚠ 예전에는 item.location 을 읽었는데 사진에는
@@ -153,10 +154,10 @@ export const Gallery: React.FC<GalleryProps> = ({
                       }}
                     >
                       <Share2 size={12} color={color.accent} />
-                    </TouchableOpacity>
+                    </PressScale>
 
                     {(item.userId === auth.currentUser?.uid || item.isPending) && (
-                      <TouchableOpacity
+                      <PressScale
                         style={styles.photoDeleteBtn}
                         onPress={() => {
                           Alert.alert(
@@ -174,10 +175,10 @@ export const Gallery: React.FC<GalleryProps> = ({
                         }}
                       >
                         <Trash2 size={12} color="#FF6F61" />
-                      </TouchableOpacity>
+                      </PressScale>
                     )}
                   </View>
-                </TouchableOpacity>
+                </PressScale>
               );
           }}
         />
@@ -220,7 +221,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: radius.xs,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: color.fill,
     borderWidth: 1,
     borderColor: color.border,
   },
@@ -291,14 +292,14 @@ const styles = StyleSheet.create({
     borderColor: color.accentLine,
   },
   photoDeleteBtn: {
-    backgroundColor: 'rgba(255, 82, 82, 0.12)',
+    backgroundColor: color.dangerSoft,
     width: 26,
     height: 26,
     borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 82, 82, 0.3)',
+    borderColor: color.dangerSoft,
   },
   pendingBadge: {
     position: 'absolute',

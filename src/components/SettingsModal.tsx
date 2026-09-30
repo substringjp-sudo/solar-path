@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
+import { StyleSheet, View, Text, Modal, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
 import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
@@ -8,6 +8,8 @@ import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { t } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
+import { springTo, timeTo } from '../theme/motion';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -26,11 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
 
   const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: windowHeight,
-      duration: 220,
-      useNativeDriver: true,
-    }).start(onClose);
+    timeTo(slideAnim, windowHeight, 'base', 'exit').start(onClose);
   };
 
   // 드래그 제스처로 닫기 위한 PanResponder
@@ -52,13 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           handleClose();
         } else {
           // 덜 내렸으면 원래 위치로 통통 복귀
-          Animated.spring(slideAnim, {
-            toValue: 0,
-            damping: 18,
-            stiffness: 120,
-            mass: 0.9,
-            useNativeDriver: true,
-          }).start();
+          springTo(slideAnim, 0, 'sheet').start();
         }
       },
     })
@@ -67,13 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (visible) {
       slideAnim.setValue(windowHeight);
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        damping: 18,
-        stiffness: 120,
-        mass: 0.9,
-        useNativeDriver: true,
-      }).start();
+      springTo(slideAnim, 0, 'sheet').start();
     }
   }, [visible, windowHeight]);
 
@@ -234,7 +220,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       animationType="fade"
       onRequestClose={handleClose}
     >
-      <TouchableOpacity 
+      <PressScale 
         style={styles.overlay} 
         activeOpacity={1} 
         onPress={handleClose}
@@ -257,17 +243,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <View style={[styles.header, { borderBottomColor: theme.border, paddingTop: 4 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {showPortal && (
-                <TouchableOpacity onPress={() => setShowPortal(false)} style={styles.backBtn}>
+                <PressScale onPress={() => setShowPortal(false)} style={styles.backBtn}>
                   <ChevronLeft size={20} color={theme.text} />
-                </TouchableOpacity>
+                </PressScale>
               )}
               <Text style={[styles.headerTitle, { color: theme.text, marginLeft: showPortal ? 8 : 0 }]}>
                 {showPortal ? t('tabPortalLinks', language) : t('settings', language)}
               </Text>
             </View>
-            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+            <PressScale onPress={handleClose} style={styles.closeBtn}>
               <X size={20} color={theme.subText} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           {showPortal ? (
@@ -282,14 +268,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
                     {t('portalDesc', language)}
                   </Text>
-                  <TouchableOpacity 
+                  <PressScale 
                     style={[styles.portalLinkBtn, { backgroundColor: theme.accent }]}
                     onPress={() => Linking.openURL('https://pplaner.com')}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.portalLinkBtnText}>{t('visitSite', language)}</Text>
                     <ExternalLink size={14} color="#000" style={{ marginLeft: 4 }} />
-                  </TouchableOpacity>
+                  </PressScale>
                 </View>
 
                 {/* Sister Sites Header */}
@@ -306,14 +292,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
                     {t('sisterJpRailDesc', language)}
                   </Text>
-                  <TouchableOpacity 
+                  <PressScale 
                     style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
                     onPress={() => Linking.openURL('https://jprail.pplaner.com')}
                     activeOpacity={0.8}
                   >
                     <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
                     <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
-                  </TouchableOpacity>
+                  </PressScale>
                 </View>
 
                 {/* RG Nevel Planner */}
@@ -325,14 +311,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Text style={[styles.portalCardDesc, { color: theme.subText }]}>
                     {t('sisterRgNevelDesc', language)}
                   </Text>
-                  <TouchableOpacity 
+                  <PressScale 
                     style={[styles.portalSubLinkBtn, { backgroundColor: theme.border }]}
                     onPress={() => Linking.openURL('https://rgnevel.pplaner.com')}
                     activeOpacity={0.8}
                   >
                     <Text style={[styles.portalSubLinkBtnText, { color: theme.text }]}>{t('visitSite', language)}</Text>
                     <ExternalLink size={12} color={theme.text} style={{ marginLeft: 4 }} />
-                  </TouchableOpacity>
+                  </PressScale>
                 </View>
               </View>
             </ScrollView>
@@ -343,7 +329,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('languageSetting', language)}</Text>
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                   <View style={styles.langSelectorRow}>
-                    <TouchableOpacity 
+                    <PressScale 
                       style={[
                         styles.langOption, 
                         language === 'ko' && { backgroundColor: theme.border }
@@ -351,8 +337,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onPress={() => setLanguage('ko')}
                     >
                       <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ko' ? '800' : '500' }]}>한국어</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
+                    </PressScale>
+                    <PressScale 
                       style={[
                         styles.langOption, 
                         language === 'en' && { backgroundColor: theme.border }
@@ -360,8 +346,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onPress={() => setLanguage('en')}
                     >
                       <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'en' ? '800' : '500' }]}>English</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
+                    </PressScale>
+                    <PressScale 
                       style={[
                         styles.langOption, 
                         language === 'ja' && { backgroundColor: theme.border }
@@ -369,7 +355,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onPress={() => setLanguage('ja')}
                     >
                       <Text style={[styles.langText, { color: theme.text, fontWeight: language === 'ja' ? '800' : '500' }]}>日本語</Text>
-                    </TouchableOpacity>
+                    </PressScale>
                   </View>
                 </View>
               </View>
@@ -382,7 +368,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                   {/* Camera Permission */}
-                  <TouchableOpacity 
+                  <PressScale 
                     style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
                     onPress={handleCameraPress}
                     activeOpacity={0.7}
@@ -406,10 +392,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </View>
                       )}
                     </View>
-                  </TouchableOpacity>
+                  </PressScale>
 
                   {/* Storage & Media Permission */}
-                  <TouchableOpacity 
+                  <PressScale 
                     style={[styles.permissionRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}
                     onPress={handleMediaPress}
                     activeOpacity={0.7}
@@ -433,12 +419,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </View>
                       )}
                     </View>
-                  </TouchableOpacity>
+                  </PressScale>
 
                   {/* 마이크 줄은 뺐습니다 — 앱은 소리를 녹음하지 않고, 매니페스트에서도 RECORD_AUDIO 를
                       지웠습니다(app.config.js, 점검 2026-09-29). */}
                   {/* Location Permission */}
-                  <TouchableOpacity 
+                  <PressScale 
                     style={styles.permissionRow}
                     onPress={handleLocationPress}
                     activeOpacity={0.7}
@@ -462,16 +448,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </View>
                       )}
                     </View>
-                  </TouchableOpacity>
+                  </PressScale>
 
                   {/* System Settings Button */}
-                  <TouchableOpacity 
+                  <PressScale 
                     onPress={openSystemSettings}
                     style={[styles.settingsBtn, { backgroundColor: theme.border }]}
                   >
                     <Shield size={14} color={theme.text} />
                     <Text style={[styles.settingsBtnText, { color: theme.text }]}>{t('manageSystemSettings', language)}</Text>
-                  </TouchableOpacity>
+                  </PressScale>
                 </View>
               </View>
 
@@ -490,11 +476,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <Text style={[styles.profileName, { color: theme.text }]} numberOfLines={1}>
                           {currentUser.email || t('signedInUser', language)}
                         </Text>
-                        <Text style={[styles.profileDesc, { color: '#4CAF50', fontWeight: '700' }]}>
+                        <Text style={[styles.profileDesc, { color: color.success, fontWeight: '700' }]}>
                           {t('cloudSyncEnabled', language)}
                         </Text>
                       </View>
-                      <TouchableOpacity 
+                      <PressScale 
                         onPress={handleSignOut} 
                         disabled={isSubmitting}
                         style={[styles.signOutBtn, { backgroundColor: 'rgba(255,82,82,0.1)' }]}
@@ -504,7 +490,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ) : (
                           <LogOut size={16} color={color.danger} />
                         )}
-                      </TouchableOpacity>
+                      </PressScale>
                     </View>
                   </View>
                 ) : (
@@ -541,10 +527,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </View>
                     {isSignUpActive && password.length > 0 && (
                       <View style={styles.passwordHintContainer}>
-                        <Text style={[styles.passwordHintText, { color: password.length >= 8 ? '#4CAF50' : '#FF5252' }]}>
+                        <Text style={[styles.passwordHintText, { color: password.length >= 8 ? color.success : color.danger }]}>
                           {password.length >= 8 ? '✓' : '✗'} {t('passwordMinLengthHint', language)}
                         </Text>
-                        <Text style={[styles.passwordHintText, { color: (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '#4CAF50' : '#FF5252' }]}>
+                        <Text style={[styles.passwordHintText, { color: (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? color.success : color.danger }]}>
                           {(/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '✓' : '✗'} {t('passwordComplexityHint', language)}
                         </Text>
                       </View>
@@ -557,7 +543,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </View>
                     )}
 
-                    <TouchableOpacity
+                    <PressScale
                       onPress={isSignUpActive ? handleSignUp : handleSignIn}
                       disabled={isSubmitting}
                       style={[styles.authButton, { backgroundColor: color.accent }]}
@@ -569,9 +555,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {isSignUpActive ? t('signUp', language) : t('signIn', language)}
                         </Text>
                       )}
-                    </TouchableOpacity>
+                    </PressScale>
 
-                    <TouchableOpacity
+                    <PressScale
                       onPress={() => {
                         setIsSignUpActive(!isSignUpActive);
                         setAuthError(null);
@@ -583,12 +569,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           ? t('alreadyHaveAccount', language) 
                           : t('dontHaveAccount', language)}
                       </Text>
-                    </TouchableOpacity>
+                    </PressScale>
                   </View>
                 )}
 
                 {/* Family Services Link */}
-                <TouchableOpacity 
+                <PressScale 
                   style={[styles.portalLinkRow, { backgroundColor: theme.glass, borderColor: theme.border }]}
                   onPress={() => setShowPortal(true)}
                   activeOpacity={0.7}
@@ -600,7 +586,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </Text>
                   </View>
                   <ChevronRight size={16} color={theme.subText} />
-                </TouchableOpacity>
+                </PressScale>
               </View>
 
               {/* 4. 앱 정보 */}
@@ -618,7 +604,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </View>
 
                   {/* Open Source Licenses Trigger */}
-                  <TouchableOpacity 
+                  <PressScale 
                     onPress={() => setShowLicenses(prev => !prev)}
                     style={[styles.licensesToggle, { borderTopColor: theme.border, borderTopWidth: 0.5 }]}
                   >
@@ -629,7 +615,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Text style={{ color: theme.accent, fontSize: 11, fontWeight: 'bold' }}>
                       {showLicenses ? 'HIDE' : 'SHOW'}
                     </Text>
-                  </TouchableOpacity>
+                  </PressScale>
 
                   {/* Licenses List Accordion */}
                   {showLicenses && (
@@ -659,7 +645,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('developerOptions', language)}</Text>
                   <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-                    <TouchableOpacity 
+                    <PressScale 
                       style={styles.permissionRow}
                       onPress={() => setDebugMode(!isDebugMode)}
                       activeOpacity={0.7}
@@ -681,7 +667,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </View>
                         )}
                       </View>
-                    </TouchableOpacity>
+                    </PressScale>
                   </View>
                 </View>
               )}
@@ -689,7 +675,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
           </Animated.View>
         </TouchableWithoutFeedback>
-      </TouchableOpacity>
+      </PressScale>
     </Modal>
   );
 };
@@ -924,12 +910,12 @@ const styles = StyleSheet.create({
   badgeDenied: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,82,82,0.12)',
+    backgroundColor: color.dangerSoft,
     paddingVertical: 3,
     paddingHorizontal: 7,
     borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,82,82,0.3)',
+    borderColor: color.dangerSoft,
     gap: 4,
   },
   badgeTextDenied: {
@@ -998,7 +984,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
     borderWidth: 1,
     padding: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.005)',
+    backgroundColor: color.fill,
   },
   portalCardHeader: {
     flexDirection: 'row',

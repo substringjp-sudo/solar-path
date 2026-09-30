@@ -18,6 +18,7 @@ import { SkyScreen } from './SkyScreen/SkyScreen';
 import { MapScreen } from './MapScreen/MapScreen';
 import { Gallery } from './Gallery';
 import { TAB_ORDER, type AppTab } from './AppHeader';
+import { springTo } from '../theme/motion';
 
 interface TabNavigatorProps {
   activeTab: AppTab;
@@ -115,18 +116,11 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
         if (target && target !== activeTabRef.current) {
           setActiveTab(target);
         } else {
-          Animated.spring(contentTranslateX, {
-            toValue: startX.current,
-            bounciness: 4,
-            useNativeDriver: Platform.OS !== 'web',
-          }).start();
+          springTo(contentTranslateX, startX.current, 'page').start();
         }
       },
       onPanResponderTerminate: () => {
-        Animated.spring(contentTranslateX, {
-          toValue: startX.current,
-          useNativeDriver: Platform.OS !== 'web',
-        }).start();
+        springTo(contentTranslateX, startX.current, 'page').start();
       },
     })
   ).current;

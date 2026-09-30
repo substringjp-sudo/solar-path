@@ -11,7 +11,7 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Platform, Animated } from 'react-native';
 import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical } from 'lucide-react-native';
 import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
@@ -41,7 +41,9 @@ import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t } from '../../utils/i18n';
-import { color, radius, mono } from '../../theme/tokens';
+import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { PressScale, OverlayButton, Reveal } from '../ui';
+import { timeTo } from '../../theme/motion';
 
 interface SkyScreenProps {
   theme: any;
@@ -274,11 +276,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const progressAnim = React.useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: buildProgress,
-      duration: 180,
-      useNativeDriver: false,
-    }).start();
+    timeTo(progressAnim, buildProgress, 'fast', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [buildProgress, progressAnim]);
 
   const handleBuildTimeline = React.useCallback(async () => {
@@ -485,7 +483,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         />
 
         {trackingTarget && (
-          <TouchableOpacity
+          <PressScale
             style={styles.trackingBadge}
             onPress={() => setTrackingTarget(null)}
             activeOpacity={0.8}
@@ -495,38 +493,32 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
               {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
             </Text>
             <Text style={styles.trackingCancel}> {t('trackRelease', language)}</Text>
-          </TouchableOpacity>
+          </PressScale>
         )}
 
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
         <View style={styles.sceneOverlayButtons}>
           {/* 3D 요소 표시 설정 모달 */}
-          <TouchableOpacity
-            style={[styles.overlayButton, { backgroundColor: color.overlay, borderColor: color.border }]}
+          <OverlayButton
             onPress={() => setLayerModalVisible(true)}
             // 개발자 튜닝은 개발 빌드에서만 — 출시판 사용자가 길게 눌러 여는 일이 없게(점검 2026-09-29).
             onLongPress={__DEV__ ? () => setDevPanelOpen(v => !v) : undefined}
-            delayLongPress={700}
-            activeOpacity={0.7}
+            accessibilityLabel={t('layerTitle', language)}
           >
             <SlidersHorizontal size={16} color={color.text} />
-          </TouchableOpacity>
+          </OverlayButton>
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
           {isDevPanelOpen && (
-            <TouchableOpacity
-              style={[styles.overlayButton, { backgroundColor: color.accentSoft, borderColor: color.accentLine }]}
-              onPress={() => setDevPanelOpen(false)}
-              activeOpacity={0.7}
-            >
+            <OverlayButton active onPress={() => setDevPanelOpen(false)}>
               <SlidersVertical size={14} color={color.accent} />
-            </TouchableOpacity>
+            </OverlayButton>
           )}
         </View>
 
         {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
         {(isBuilding || buildError) && (
-          <View style={styles.buildBanner}>
+          <Reveal style={styles.buildBanner}>
             {buildError ? (
               <Text style={styles.buildError} numberOfLines={2}>{buildError}</Text>
             ) : (
@@ -548,7 +540,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 <Text style={styles.buildHint}>{t('tapToCancel', language)}</Text>
               </>
             )}
-          </View>
+          </Reveal>
         )}
       </View>
 
@@ -585,27 +577,27 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           {/* 이벤트 — 탭하면 그 시각으로 이동 */}
           <View style={styles.eventSection}>
             <View style={styles.tabToggleGroup}>
-              <TouchableOpacity
+              <PressScale
                 style={[styles.tabButton, activeTab === 'featured' && styles.tabButtonActive]}
                 onPress={() => setActiveTab('featured')}
                 activeOpacity={0.8}
               >
                 <Sparkles size={12} color={activeTab === 'featured' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
                 <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>{t('evFeatured', language)}</Text>
-              </TouchableOpacity>
+              </PressScale>
 
-              <TouchableOpacity
+              <PressScale
                 style={[styles.tabButton, activeTab === 'general' && styles.tabButtonActive]}
                 onPress={() => setActiveTab('general')}
                 activeOpacity={0.8}
               >
                 <Sun size={12} color={activeTab === 'general' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
                 <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>{t('evGeneral', language)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             </View>
 
             {(activeTab === 'featured' ? featuredList : generalList).map(item => (
-              <TouchableOpacity
+              <PressScale
                 key={item.id}
                 style={[
                   styles.eventRow,
@@ -634,7 +626,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                   <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
                 )}
                 <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             ))}
           </View>
 
@@ -671,7 +663,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </PeekSheet>
 
       {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
-      <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
+      <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: color.border }]}>
         <TimeSlider
           value={currentTime}
           onChange={setCurrentTime}
@@ -681,10 +673,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           isDay={sunAltitude > 0}
           onCameraPress={onCameraPress}
           markers={events ? [
-            { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
-            { time: events.sunset || null, color: '#FF4500', type: 'set' },
-            { time: events.moonrise || null, color: '#888', type: 'rise' },
-            { time: events.moonset || null, color: '#888', type: 'set' },
+            { time: events.sunrise || null, color: dataColor.sunrise, type: 'rise' },
+            { time: events.sunset || null, color: dataColor.sunset, type: 'set' },
+            { time: events.moonrise || null, color: color.textDim, type: 'rise' },
+            { time: events.moonset || null, color: color.textDim, type: 'set' },
           ] : []}
         />
       </View>
@@ -752,7 +744,7 @@ const styles = StyleSheet.create({
   buildLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#E2E8F0',
+    color: color.text,
   },
   buildHint: {
     fontSize: 9,

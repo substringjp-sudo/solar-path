@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, Animated, PanResponder } from 'react-native';
+import { StyleSheet, View, Text, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, Animated, PanResponder } from 'react-native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-react-native';
@@ -7,6 +7,8 @@ import * as Location from 'expo-location';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { t } from '../../utils/i18n';
 import { color, radius, mono } from '../../theme/tokens';
+import { PressScale } from '../ui';
+import { springTo, timeTo } from '../../theme/motion';
 
 const { width, height } = Dimensions.get('window');
 
@@ -34,11 +36,7 @@ export const MapPicker = ({
   const isAndroid = Platform.OS === 'android';
 
   const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: windowHeight,
-      duration: 250,
-      useNativeDriver: true,
-    }).start(onClose);
+    timeTo(slideAnim, windowHeight, 'base', 'exit').start(onClose);
   };
 
   const panResponder = useRef(
@@ -56,13 +54,7 @@ export const MapPicker = ({
         if (gestureState.dy > 120 || gestureState.vy > 0.5) {
           handleClose();
         } else {
-          Animated.spring(slideAnim, {
-            toValue: 0,
-            damping: 18,
-            stiffness: 120,
-            mass: 0.9,
-            useNativeDriver: true,
-          }).start();
+          springTo(slideAnim, 0, 'sheet').start();
         }
       },
     })
@@ -72,13 +64,7 @@ export const MapPicker = ({
   useEffect(() => {
     if (visible) {
       slideAnim.setValue(windowHeight);
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        damping: 18,
-        stiffness: 120,
-        mass: 0.9,
-        useNativeDriver: true,
-      }).start();
+      springTo(slideAnim, 0, 'sheet').start();
 
       // Initialize inputs based on location
       const lat = location?.coords?.latitude || 37.56;
@@ -170,20 +156,20 @@ export const MapPicker = ({
       borderTopLeftRadius: 4,
       borderTopRightRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
     },
     section: {
-      backgroundColor: '#0E1424',
+      backgroundColor: color.panel,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderColor: color.border,
       elevation: 2,
     },
     input: {
-      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      backgroundColor: color.fill,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
       height: 44,
     },
     button: {
@@ -192,33 +178,33 @@ export const MapPicker = ({
       elevation: 3,
     },
     savedItem: {
-      backgroundColor: '#0E1424',
+      backgroundColor: color.panel,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.08)',
+      borderColor: color.border,
       elevation: 1,
     }
   };
 
   const glassStyle = {
     modalContent: {
-      backgroundColor: 'rgba(9, 13, 24, 0.95)',
+      backgroundColor: color.overlay,
       borderTopLeftRadius: 4,
       borderTopRightRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
     },
     section: {
       backgroundColor: 'rgba(14, 20, 36, 0.75)',
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderColor: color.border,
     },
     input: {
-      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      backgroundColor: color.fill,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
       height: 44,
     },
     button: {
@@ -229,7 +215,7 @@ export const MapPicker = ({
       backgroundColor: 'rgba(14, 20, 36, 0.65)',
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.08)',
+      borderColor: color.border,
     }
   };
 
@@ -238,8 +224,8 @@ export const MapPicker = ({
   return (
     <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={handleClose}>
       <View style={styles.modalOverlay}>
-        <TouchableOpacity 
-          style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        <PressScale 
+          style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }]}
           activeOpacity={1}
           onPress={handleClose}
         />
@@ -258,9 +244,9 @@ export const MapPicker = ({
               <Text style={[styles.title, { color: theme.text }]}>{t('changeLocation', language)}</Text>
               <Text style={[styles.subtitle, { color: theme.subText }]}>{t('pickOnMap', language)}</Text>
             </View>
-            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+            <PressScale onPress={handleClose} style={styles.closeBtn}>
               <X size={24} color={theme.text} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           {/* Map Wrapper with Floating Overlay Controls */}
@@ -298,7 +284,7 @@ export const MapPicker = ({
             </View>
 
             {/* Locate Me Floating Button */}
-            <TouchableOpacity
+            <PressScale
               onPress={handleCurrentLocation}
               style={[
                 styles.locateMeBtn,
@@ -310,7 +296,7 @@ export const MapPicker = ({
               activeOpacity={0.7}
             >
               <LocateFixed size={20} color={theme.accent} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           {/* Form and List Scroll Area */}
@@ -318,10 +304,10 @@ export const MapPicker = ({
             <View style={[styles.section, dStyle.section]}>
               <View style={styles.sectionHeader}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('pickedCoords', language)}</Text>
-                <TouchableOpacity onPress={handleCurrentLocation} style={styles.currentLocLink}>
+                <PressScale onPress={handleCurrentLocation} style={styles.currentLocLink}>
                   <LocateFixed size={12} color={theme.accent} />
                   <Text style={[styles.currentLocLinkText, { color: theme.accent }]}>{t('myLocation', language)}</Text>
-                </TouchableOpacity>
+                </PressScale>
               </View>
               
               {/* 콤팩트 위치 입력 & 장소 저장 통합 폼 */}
@@ -355,7 +341,7 @@ export const MapPicker = ({
                   />
                 </View>
 
-                <TouchableOpacity
+                <PressScale
                   style={[
                     styles.saveBtnCompact, 
                     { backgroundColor: theme.accent }, 
@@ -365,17 +351,17 @@ export const MapPicker = ({
                   onPress={handleSaveLocation}
                 >
                   <Save size={16} color="#000" />
-                </TouchableOpacity>
+                </PressScale>
               </View>
             </View>
 
-            <TouchableOpacity 
+            <PressScale 
               onPress={handleManualSelect}
               style={[styles.confirmBtn, { backgroundColor: '#000000', marginTop: 24, marginBottom: 24, borderColor: theme.border, borderWidth: Platform.OS === 'ios' ? 1 : 0 }, dStyle.button]}
             >
-              <Navigation size={20} color="#FFFFFF" />
-              <Text style={[styles.confirmBtnText, { color: '#FFFFFF' }]}>{t('selectThisLocation', language)}</Text>
-            </TouchableOpacity>
+              <Navigation size={20} color={color.text} />
+              <Text style={[styles.confirmBtnText, { color: color.text }]}>{t('selectThisLocation', language)}</Text>
+            </PressScale>
 
             {/* 저장된 즐겨찾기 목록 */}
             <View style={styles.savedSection}>
@@ -389,7 +375,7 @@ export const MapPicker = ({
                 <View style={styles.savedList}>
                   {savedLocations.map((loc: any) => (
                     <View key={loc.id} style={[styles.savedItem, dStyle.savedItem]}>
-                      <TouchableOpacity
+                      <PressScale
                         style={styles.savedItemContent}
                         onPress={() => handleSelectSaved(loc)}
                       >
@@ -402,13 +388,13 @@ export const MapPicker = ({
                             {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
                           </Text>
                         </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
+                      </PressScale>
+                      <PressScale
                         style={styles.deleteBtn}
                         onPress={() => removeSavedLocation(loc.id)}
                       >
                         <Trash2 size={16} color={color.danger} />
-                      </TouchableOpacity>
+                      </PressScale>
                     </View>
                   ))}
                 </View>
@@ -443,7 +429,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   title: { fontSize: 22, fontWeight: '900', fontFamily: mono, letterSpacing: 0.5 },
   subtitle: { fontSize: 11, marginTop: 2, opacity: 0.8, fontFamily: mono },
-  closeBtn: { padding: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: radius.xs, borderWidth: 1, borderColor: color.border },
+  closeBtn: { padding: 6, backgroundColor: color.fill, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border },
   
   mapWrapper: {
     position: 'relative',
@@ -487,7 +473,7 @@ const styles = StyleSheet.create({
   section: { padding: 16, borderRadius: radius.lg, borderWidth: 1 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' },
-  currentLocLink: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.05)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
+  currentLocLink: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: color.fill, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
   currentLocLinkText: { fontSize: 11, fontWeight: '700' },
   input: { height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 16, fontSize: 16, backgroundColor: 'rgba(0,0,0,0.2)' },
   nameInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 16, fontSize: 16, backgroundColor: 'rgba(0,0,0,0.2)' },
@@ -513,7 +499,7 @@ const styles = StyleSheet.create({
   savedList: { gap: 10 },
   savedItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: radius.lg, borderWidth: 1 },
   savedItemContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  savedItemIcon: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center' },
+  savedItemIcon: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: color.fill, justifyContent: 'center', alignItems: 'center' },
   savedItemName: { fontSize: 16, fontWeight: '700' },
   savedItemCoords: { fontSize: 11, opacity: 0.6, marginTop: 2 },
   deleteBtn: { padding: 10 },

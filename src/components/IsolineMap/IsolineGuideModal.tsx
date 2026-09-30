@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Modal, ScrollView, Platform } from 'react-native';
 import { X, Sunrise, Sunset, Calendar, PlayCircle, Sun } from 'lucide-react-native';
 import { t } from '../../utils/i18n';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { color, radius, mono } from '../../theme/tokens';
+import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { PressScale } from '../ui';
 
 interface IsolineGuideModalProps {
   visible: boolean;
@@ -15,7 +16,7 @@ export const IsolineGuideModal: React.FC<IsolineGuideModalProps> = ({ visible, o
   const { language } = useCelestialStore();
 
   const items = [
-    { icon: <Sunrise size={16} color="#FFA500" />, text: t('isolineGuideSunrise', language) },
+    { icon: <Sunrise size={16} color={dataColor.sunrise} />, text: t('isolineGuideSunrise', language) },
     { icon: <Sunset size={16} color={color.glow} />, text: t('isolineGuideSunset', language) },
     { icon: <Calendar size={16} color={theme.accent} />, text: t('isolineGuideSeason', language) },
     { icon: <PlayCircle size={16} color={theme.accent} />, text: t('isolineGuideAutoplay', language) },
@@ -25,13 +26,13 @@ export const IsolineGuideModal: React.FC<IsolineGuideModalProps> = ({ visible, o
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+        <PressScale style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.header}>
             <Text style={[styles.title, { color: theme.text }]}>{t('isolineGuideTitle', language)}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <PressScale onPress={onClose} style={styles.closeBtn}>
               <X size={20} color={theme.subText} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>

@@ -7,6 +7,7 @@ import { Sun } from 'lucide-react-native';
 import { IsochronePoint } from '../../utils/celestial';
 import { SunOverlay } from '../../utils/solarGeometry';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
+import { dataColor } from '../../theme/tokens';
 
 interface MapCanvasProps {
   lat: number;
@@ -178,7 +179,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           <React.Fragment key={`sunrise-${i}`}>
             <Polyline
               coordinates={segment}
-              strokeColor="#FFA500"
+              strokeColor={dataColor.sunrise}
               strokeWidth={2.5}
               geodesic
             />
@@ -198,7 +199,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           <React.Fragment key={`sunset-${i}`}>
             <Polyline
               coordinates={segment}
-              strokeColor="#FF4500"
+              strokeColor={dataColor.sunset}
               strokeWidth={2.5}
               geodesic
             />

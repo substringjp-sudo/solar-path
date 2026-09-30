@@ -16,6 +16,7 @@ import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
 import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
 import { updateSunsetWidgetData } from '../utils/widgetStorage';
+import { springTo, timeTo } from '../theme/motion';
 
 
 
@@ -228,11 +229,8 @@ export function useCelestialApp() {
   );
 
   useEffect(() => {
-    Animated.timing(themeAnim, {
-      toValue: isDay ? 0 : 1,
-      duration: 800,
-      useNativeDriver: false,
-    }).start();
+    // 낮↔밤 배경색 — 색이라 동작 줄이기에서도 남깁니다.
+    timeTo(themeAnim, isDay ? 0 : 1, 'slow', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [isDay]);
 
   const moonPos = getMoonPosition(
@@ -403,13 +401,7 @@ export function useCelestialApp() {
     const toIdx = tabOrder.indexOf(toTab as any);
     const targetX = -(toIdx >= 0 ? toIdx : 0) * screenWidth;
 
-    Animated.spring(contentTranslateX, {
-      toValue: targetX,
-      damping: 20,
-      stiffness: 130,
-      mass: 0.9,
-      useNativeDriver: Platform.OS !== 'web',
-    }).start();
+    springTo(contentTranslateX, targetX, 'page').start();
   };
 
   const animateTimeTo = (targetDate: Date, duration: number = 600) => {
