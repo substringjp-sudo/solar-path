@@ -299,6 +299,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         longitude,
         date: currentTime,
         observerElevM: terrainData.observerElevation,
+        language,
         onProgress: (p, label) => {
           setBuildProgress(p);
           setBuildLabel(label);

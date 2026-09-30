@@ -12,7 +12,12 @@ service firebase.storage {
     // User-uploaded photos: read is public (for global gallery), write only by authenticated owner
     match /photos/{userId}/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      // 지우기는 주인만. 올리기는 주인만, 사진(JPEG·PNG)만, 15MB 미만만 — 익명 로그인으로 아무 파일이나
+      // 무한히 올리는 것을 막습니다(출시 점검 2026-09-30).
+      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png)');
     }
   }
 }

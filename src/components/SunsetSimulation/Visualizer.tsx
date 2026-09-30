@@ -2273,7 +2273,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         }
       }
 
-      const { status } = await MediaLibrary.requestPermissionsAsync();
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
       if (status === 'granted') {
         await MediaLibrary.saveToLibraryAsync(finalSaveUri);
         Alert.alert(t('success', language), t('saveJpgSuccess', language));
@@ -2369,7 +2369,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
         }
       }
 
-      const { status } = await MediaLibrary.requestPermissionsAsync();
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
       if (status === 'granted') {
         await MediaLibrary.saveToLibraryAsync(finalSaveUri);
         Alert.alert('Saved & Logged', '시뮬레이션 스냅샷 이미지가 갤러리에 저장되었으며, 기상 데이터가 콘솔(logcat)에 기록되었습니다.');

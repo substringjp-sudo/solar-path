@@ -52,6 +52,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
   // 시간을 HH:MM 으로 — **관측지 현지 시각**(지도 조작부와 같은 기준, 점검 2026-09-29).
   const tzHours = useCelestialStore(st => st.timezoneOffsetHours) ?? 0;
+  const language = useCelestialStore(st => st.language);
+  const L = (ko: string, en: string, ja: string) => (language === 'ko' ? ko : language === 'ja' ? ja : en);
   const formatTime = (date?: Date) => {
     if (!date) return '';
     const l = new Date(date.getTime() + tzHours * 3600000);
@@ -263,7 +265,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             <Marker coordinate={sunOverlay.riseRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelRise}>
                 <Text style={styles.fanLabelText}>
-                  일출 {Math.round(sunOverlay.fan.riseAz ?? 0)}°
+                  {L('일출', 'Sunrise', '日の出')} {Math.round(sunOverlay.fan.riseAz ?? 0)}°
                 </Text>
               </View>
             </Marker>
@@ -272,7 +274,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             <Marker coordinate={sunOverlay.setRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.fanLabelSet}>
                 <Text style={styles.fanLabelText}>
-                  일몰 {Math.round(sunOverlay.fan.setAz ?? 0)}°
+                  {L('일몰', 'Sunset', '日の入り')} {Math.round(sunOverlay.fan.setAz ?? 0)}°
                 </Text>
               </View>
             </Marker>
@@ -280,7 +282,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           <Marker coordinate={sunOverlay.nowRay[1]} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.fanLabelNow}>
               <Text style={styles.fanLabelText}>
-                {sunOverlay.fan.nowAlt > 0 ? '지금' : '지평선 아래'} {Math.round(sunOverlay.fan.nowAz)}°
+                {sunOverlay.fan.nowAlt > 0 ? L('지금', 'Now', '現在') : L('지평선 아래', 'Below horizon', '地平線の下')} {Math.round(sunOverlay.fan.nowAz)}°
               </Text>
             </View>
           </Marker>

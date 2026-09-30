@@ -1,4 +1,8 @@
 import { Linking, Alert, Share, Platform } from 'react-native';
+import { L3 } from './i18n';
+import { useCelestialStore } from '../store/useCelestialStore';
+
+const lang = () => useCelestialStore.getState().language;
 
 export type SnsPlatform = 'twitter' | 'instagram' | 'threads' | 'kakao' | 'facebook' | 'native';
 
@@ -40,7 +44,7 @@ export async function shareToSns(params: SnsShareParams): Promise<boolean> {
         if (canOpenInsta) {
           await Linking.openURL(instaUrl);
         } else {
-          Alert.alert('인스타그램 공유', '스마트폰에 인스타그램 앱이 설치되어 있어야 합니다.');
+          Alert.alert(L3(lang(), '인스타그램 공유', 'Share to Instagram', 'Instagramで共有'), L3(lang(), '스마트폰에 인스타그램 앱이 설치되어 있어야 합니다.', 'The Instagram app needs to be installed.', 'Instagramアプリがインストールされている必要があります。'));
         }
         return true;
       }
@@ -70,7 +74,7 @@ export async function shareToSns(params: SnsShareParams): Promise<boolean> {
     }
   } catch (err) {
     console.warn('[shareToSns] Share failed for platform:', platform, err);
-    Alert.alert('공유 실패', '선택한 SNS 앱을 호출할 수 없습니다.');
+    Alert.alert(L3(lang(), '공유 실패', 'Could not share', '共有できませんでした'), L3(lang(), '선택한 SNS 앱을 열 수 없습니다.', 'The selected app could not be opened.', '選んだアプリを開けませんでした。'));
     return false;
   }
 }

@@ -1,5 +1,9 @@
 import { Linking, Alert, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { L3 } from './i18n';
+import { useCelestialStore } from '../store/useCelestialStore';
+
+const lang = () => useCelestialStore.getState().language;
 
 export interface TwitterShareParams {
   text: string;
@@ -25,12 +29,15 @@ export async function shareToTwitter(params: TwitterShareParams): Promise<boolea
     if (imageUris.length > 0) {
       // 안내 팝업 및 원클릭 작성 연동
       Alert.alert(
-        '𝕏 (트위터) 예보 공유',
-        '노을 예보 텍스트가 트윗 작성 창에 준비되었습니다.\n이미지 2장은 작성 화면에서 [붙여넣기] 또는 갤러리 첨부를 해주세요.',
+        L3(lang(), '𝕏 (트위터) 예보 공유', 'Share forecast on 𝕏', '𝕏で予報を共有'),
+        L3(lang(),
+          '노을 예보 텍스트가 트윗 작성 창에 준비되었습니다.\n이미지 2장은 작성 화면에서 [붙여넣기] 또는 갤러리 첨부를 해주세요.',
+          'Your forecast text is ready in the post editor.\nAttach the two images from your gallery or paste them there.',
+          '予報テキストを投稿画面に用意しました。\n画像2枚は投稿画面で貼り付けるかギャラリーから添付してください。'),
         [
-          { text: '취소', style: 'cancel' },
+          { text: L3(lang(), '취소', 'Cancel', 'キャンセル'), style: 'cancel' },
           {
-            text: '𝕏 앱 열기',
+            text: L3(lang(), '𝕏 앱 열기', 'Open 𝕏', '𝕏を開く'),
             onPress: async () => {
               await Linking.openURL(twitterIntentUrl);
             },
@@ -44,7 +51,7 @@ export async function shareToTwitter(params: TwitterShareParams): Promise<boolea
     return true;
   } catch (err) {
     console.warn('[shareToTwitter] Failed to open X intent:', err);
-    Alert.alert('오류', '𝕏(트위터) 앱을 열 수 없습니다.');
+    Alert.alert(L3(lang(), '오류', 'Error', 'エラー'), L3(lang(), '𝕏(트위터) 앱을 열 수 없습니다.', 'Could not open 𝕏.', '𝕏を開けませんでした。'));
     return false;
   }
 }

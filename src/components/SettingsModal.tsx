@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Modal, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
+import { StyleSheet, View, Text, Modal, ScrollView, Platform, Linking, ActivityIndicator, Alert, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
 import { X, User, Shield, Info, Bell, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
@@ -11,6 +11,8 @@ import { color, radius, mono, tint } from '../theme/tokens';
 import { PressScale, Chip } from './ui';
 import { DEFAULT_NOTIF_PREFS, LEAD_OPTIONS, type NotifPrefs } from '../utils/notificationPlan';
 import { hasNotificationPermission } from '../utils/notificationScheduler';
+import { deleteAccountAndData, PRIVACY_URL, DELETE_ACCOUNT_URL } from '../utils/accountDeletion';
+import Constants from 'expo-constants';
 import { springTo, timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 
@@ -168,6 +170,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // 앱 안 계정 삭제(Play 정책) — 확인을 한 번 받고, 서버 데이터 → 계정 순으로 지웁니다(utils/accountDeletion.ts).
+  const runDeleteAccount = async () => {
+    setIsSubmitting(true);
+    setAuthError(null);
+    const res = await deleteAccountAndData();
+    setIsSubmitting(false);
+    if (res.ok) {
+      useCelestialStore.setState({ myPhotos: [], savedLocations: [] });
+      Alert.alert(
+        L3(language, '계정을 삭제했습니다', 'Account deleted', 'アカウントを削除しました'),
+        L3(language, `사진·장소 기록 ${res.docs}건과 파일 ${res.files}개를 지웠습니다.`, `Removed ${res.docs} records and ${res.files} files.`, `記録${res.docs}件とファイル${res.files}個を削除しました。`),
+      );
+    } else if (res.reason === 'requires-recent-login') {
+      setAuthError(L3(language,
+        '데이터는 지웠습니다. 보안을 위해 다시 로그인한 뒤 한 번 더 눌러 계정을 삭제해 주세요.',
+        'Your data is deleted. For security, sign in again and tap once more to delete the account.',
+        'データは削除しました。安全のため再ログイン後、もう一度押してアカウントを削除してください。'));
+    } else {
+      setAuthError(L3(language, '삭제하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.', 'Could not delete. Check your connection and try again.', '削除できませんでした。接続を確認して再度お試しください。') + (res.message ? ` (${res.message})` : ''));
+    }
+  };
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      L3(language, '계정을 삭제할까요?', 'Delete your account?', 'アカウントを削除しますか？'),
+      L3(language,
+        '올린 사진(전역 갤러리 포함), 저장한 장소, 로그인 정보가 서버에서 영구히 지워집니다. 되돌릴 수 없습니다.',
+        'Your uploaded photos (including the public gallery), saved places and sign-in are permanently removed from our servers. This cannot be undone.',
+        'アップロードした写真（公開ギャラリーを含む）、保存した場所、ログイン情報がサーバーから完全に削除されます。元に戻せません。'),
+      [
+        { text: L3(language, '취소', 'Cancel', 'キャンセル'), style: 'cancel' },
+        { text: L3(language, '삭제', 'Delete', '削除'), style: 'destructive', onPress: runDeleteAccount },
+      ],
+    );
   };
 
   const handleSignOut = async () => {
@@ -600,6 +637,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
                       </PressScale>
                     </View>
+                    {currentUser && !currentUser.isAnonymous && (
+                      <PressScale onPress={handleDeleteAccount} disabled={isSubmitting} style={[styles.deleteAccountRow, { borderTopColor: theme.border }]}>
+                        <Text style={[styles.deleteAccountText, { color: color.danger }]}>{L3(language, '계정 삭제', 'Delete account', 'アカウントを削除')}</Text>
+                        <Text style={[styles.notifDesc, { color: theme.subText }]}>{L3(language, '사진·장소·로그인 정보를 서버에서 지웁니다', 'Removes your photos, places and sign-in from our servers', '写真・場所・ログイン情報をサーバーから削除します')}</Text>
+                      </PressScale>
+                    )}
+                    {authError && currentUser && !currentUser.isAnonymous ? (
+                      <Text style={[styles.notifDesc, { color: color.danger, paddingHorizontal: 14, paddingBottom: 12 }]}>{authError}</Text>
+                    ) : null}
                   </View>
                 ) : (
                   /* Auth Form */
@@ -703,13 +749,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
                   <View style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]}>
                     <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('version', language)}</Text>
-                    <Text style={[styles.infoValue, { color: theme.text }]}>1.0.0 (Build 1)</Text>
+                    <Text style={[styles.infoValue, { color: theme.text }]}>{Constants.expoConfig?.version ?? '—'}</Text>
                   </View>
 
                   <View style={styles.infoRow}>
                     <Text style={[styles.infoLabel, { color: theme.subText }]}>{t('identifier', language)}</Text>
                     <Text style={[styles.infoValue, { color: theme.text }]}>com.pplaner.beforeglow</Text>
                   </View>
+
+                  {/* 개인정보처리방침 · 계정 삭제 안내(웹) — 스토어 등록 정보와 같은 주소 */}
+                  <PressScale style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]} onPress={() => Linking.openURL(PRIVACY_URL)}>
+                    <Text style={[styles.infoLabel, { color: theme.subText }]}>{L3(language, '개인정보처리방침', 'Privacy policy', 'プライバシーポリシー')}</Text>
+                    <ExternalLink size={14} color={theme.subText} />
+                  </PressScale>
+                  <PressScale style={[styles.infoRow, { borderBottomColor: theme.border, borderBottomWidth: 0.5 }]} onPress={() => Linking.openURL(DELETE_ACCOUNT_URL)}>
+                    <Text style={[styles.infoLabel, { color: theme.subText }]}>{L3(language, '계정·데이터 삭제 안내', 'Account & data deletion', 'アカウント・データ削除')}</Text>
+                    <ExternalLink size={14} color={theme.subText} />
+                  </PressScale>
 
                   {/* Open Source Licenses Trigger */}
                   <PressScale 
@@ -789,6 +845,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 };
 
 const useStyles = makeStyles((color) => ({
+  deleteAccountRow: { borderTopWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  deleteAccountText: { fontSize: 13, fontWeight: '700' },
   notifRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, gap: 12 },
   notifText: { flex: 1, minWidth: 0 },
   notifTitle: { fontSize: 13, fontWeight: '700' },

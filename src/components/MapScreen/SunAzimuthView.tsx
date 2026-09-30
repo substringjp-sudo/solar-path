@@ -49,7 +49,8 @@ function toPathD(points: { x: number; y: number }[]): string {
 }
 
 export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = false }) => {
-  const { location } = useCelestialStore();
+  const { location, language } = useCelestialStore();
+  const L = (ko: string, en: string, ja: string) => (language === 'ko' ? ko : language === 'ja' ? ja : en);
   const lat = location?.coords.latitude ?? 37.5665;
   const lng = location?.coords.longitude ?? 126.978;
 
@@ -90,9 +91,9 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = 
   const events = useMemo(() => {
     const times = SunCalc.getTimes(currentTime, lat, lng);
     const items: { label: string; time: Date; color: string }[] = [
-      { label: '일출', time: times.sunrise, color: '#FB923C' },
-      { label: '정오', time: times.solarNoon, color: '#38BDF8' },
-      { label: '일몰', time: times.sunset, color: '#F43F5E' },
+      { label: L('일출', 'Sunrise', '日の出'), time: times.sunrise, color: '#FB923C' },
+      { label: L('정오', 'Noon', '南中'), time: times.solarNoon, color: '#38BDF8' },
+      { label: L('일몰', 'Sunset', '日の入り'), time: times.sunset, color: '#F43F5E' },
     ];
     return items
       .filter(e => e.time && !isNaN(e.time.getTime()))
@@ -425,7 +426,7 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = 
             fill="#F59E0B"
             textAnchor="middle"
           >
-            160cm 기둥
+            {L('160cm 기둥', '160cm pole', '160cm の棒')}
           </SvgText>
         </G>
 
@@ -514,26 +515,26 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = 
              대신 고도 하나만 남깁니다. 그게 지도가 못 그리는 값입니다. */}
       {compact ? (
         <Text style={styles.compactAlt}>
-          고도 <Text style={{ color: isAbove ? '#FDE68A' : '#94A3B8', fontWeight: '900' }}>
+          {L('고도', 'Alt', '高度')} <Text style={{ color: isAbove ? '#FDE68A' : '#94A3B8', fontWeight: '900' }}>
             {sunPos.altitude.toFixed(0)}°
           </Text>
         </Text>
       ) : (
       <View style={styles.infoRow}>
-        <InfoChip label="방위각" value={`${sunPos.azimuth.toFixed(1)}°`} color="#FB923C" />
+        <InfoChip label={L('방위각', 'Azimuth', '方位角')} value={`${sunPos.azimuth.toFixed(1)}°`} color="#FB923C" />
         <InfoChip
-          label="고도"
+          label={L('고도', 'Altitude', '高度')}
           value={`${sunPos.altitude.toFixed(1)}°`}
           color={isAbove ? '#FDE68A' : '#94A3B8'}
         />
         <InfoChip
-          label="160cm 그림자"
-          value={isAbove ? `${shadowInfo.lengthM.toFixed(2)}m` : '밤 (없음)'}
+          label={L('160cm 그림자', '160cm shadow', '160cm の影')}
+          value={isAbove ? `${shadowInfo.lengthM.toFixed(2)}m` : L('밤 (없음)', 'Night (none)', '夜(なし)')}
           color={isAbove ? '#34D399' : '#64748B'}
         />
       </View>
       )}
-      {!compact && <Text style={styles.timeLabel}>{timeStr} 관측 기준</Text>}
+      {!compact && <Text style={styles.timeLabel}>{L(`${timeStr} 관측 기준`, `As of ${timeStr}`, `${timeStr} 時点`)}</Text>}
     </View>
   );
 };

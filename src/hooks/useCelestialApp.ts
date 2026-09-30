@@ -14,6 +14,8 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
+
+const L3 = (lang: Language, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
 import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
 import { updateSunsetWidgetData } from '../utils/widgetStorage';
 import { springTo, timeTo } from '../theme/motion';
@@ -650,9 +652,9 @@ export function useCelestialApp() {
         // 일몰 시간 우선 동기화
         updateSunsetWidgetData({
           timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-          eventLabel: '오늘의 일몰',
-          cloudLabel: '분석 중...',
-          colorLabel: '예측 정보 수신 중',
+          eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
+          cloudLabel: L3(language, '분석 중...', 'Analyzing...', '分析中...'),
+          colorLabel: L3(language, '예측 정보 수신 중', 'Fetching forecast', '予報を取得中'),
           updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
         const scheduleSunsetAlert = async () => {
@@ -663,8 +665,8 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string = '없음';
-            let colorLabel: string = '깨끗함';
+            let cloudLabel: string = t('cloudClear', language);
+            let colorLabel: string = t('colorClean', language);
             let sunsetNotifImageUri: string | null = null;
             try {
               const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
@@ -710,7 +712,7 @@ export function useCelestialApp() {
                       // 홈 화면 반응형 위젯 데이터 실시간 갱신 (Small/Medium/Large 3단계 해상도 지원)
                       updateSunsetWidgetData({
                         timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-                        eventLabel: '오늘의 일몰',
+                        eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
                         cloudLabel,
                         colorLabel,
                         simulationUri: sunsetNotifImageUri,
@@ -778,8 +780,8 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string = '없음';
-            let colorLabel: string = '깨끗함';
+            let cloudLabel: string = t('cloudClear', language);
+            let colorLabel: string = t('colorClean', language);
             let sunriseNotifImageUri: string | null = null;
             try {
               const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;

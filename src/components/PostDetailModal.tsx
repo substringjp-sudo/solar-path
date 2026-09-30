@@ -20,14 +20,14 @@ import {
   CloudSun,
   Eye,
   Droplets,
-  Sparkles,
-} from 'lucide-react-native';
+  Sparkles, Flag } from 'lucide-react-native';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { shareToSns, SnsPlatform } from '../utils/snsShare';
 import { L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
+import { reportPhoto, REPORT_REASONS, type ReportReason } from '../utils/reportContent';
 
 const { width: W } = Dimensions.get('window');
 
@@ -41,6 +41,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
   const [likesCount, setLikesCount] = useState(photo?.likesCount || 0);
   const [isLiked, setIsLiked] = useState(false);
   const [showSnsSelector, setShowSnsSelector] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportState, setReportState] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle');
+  const hidePhoto = useCelestialStore((s) => s.hidePhoto);
+  const blockUser = useCelestialStore((s) => s.blockUser);
 
   const togglePhotoVisibility = useCelestialStore((s) => s.togglePhotoVisibility);
   const language = useCelestialStore((s) => s.language);
@@ -211,6 +215,13 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
               <Text style={styles.closeFooterText}>{L3(language, '닫기', 'Close', '閉じる')}</Text>
             </PressScale>
 
+            {/* 남의 게시물 — 신고·차단(Play 사용자 제작 콘텐츠 정책, 출시 점검 2026-09-30) */}
+            {!isMyPhoto && ownerId && (
+              <PressScale style={styles.reportBtn} onPress={() => { setReportState('idle'); setShowReport(true); }} accessibilityLabel={L3(language, '신고', 'Report', '報告')}>
+                <Flag size={16} color={color.danger} />
+              </PressScale>
+            )}
+
             {/* 내 게시물일 때만 공유하기 버튼 노출 */}
             {isMyPhoto && (
               <PressScale style={styles.shareBtn} onPress={() => setShowSnsSelector(true)}>
@@ -219,6 +230,52 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
               </PressScale>
             )}
           </View>
+
+          {/* 신고 시트 — 이유를 고르면 신고가 남고 이 사진은 바로 가려집니다. 사용자 차단은 따로. */}
+          {showReport && ownerId && (
+            <View style={styles.snsSheet}>
+              <View style={styles.snsSheetHeader}>
+                <Text style={styles.snsSheetTitle}>{L3(language, '이 사진 신고하기', 'Report this photo', 'この写真を報告')}</Text>
+                <PressScale onPress={() => setShowReport(false)}>
+                  <X size={18} color={color.text} />
+                </PressScale>
+              </View>
+              {reportState === 'done' ? (
+                <Text style={styles.reportNote}>{L3(language, '신고를 받았습니다. 검토 후 조치합니다. 이 사진은 이제 보이지 않습니다.', 'Thanks — we will review it. This photo is now hidden for you.', '報告を受け付けました。確認して対応します。この写真は表示されなくなります。')}</Text>
+              ) : (
+                <>
+                  {REPORT_REASONS.map((r: ReportReason) => (
+                    <PressScale
+                      key={r}
+                      style={styles.reportOption}
+                      disabled={reportState === 'sending'}
+                      onPress={async () => {
+                        setReportState('sending');
+                        const ok = await reportPhoto(photo.id, ownerId, r);
+                        if (ok) { setReportState('done'); hidePhoto(photo.id); } else setReportState('failed');
+                      }}
+                    >
+                      <Text style={styles.reportOptionText}>{
+                        r === 'inappropriate' ? L3(language, '부적절하거나 불쾌한 사진', 'Inappropriate or offensive', '不適切・不快な写真')
+                        : r === 'spam' ? L3(language, '스팸·광고', 'Spam or advertising', 'スパム・広告')
+                        : r === 'privacy' ? L3(language, '개인정보·얼굴이 드러남', 'Shows personal info or faces', '個人情報・顔が写っている')
+                        : L3(language, '기타', 'Something else', 'その他')
+                      }</Text>
+                    </PressScale>
+                  ))}
+                  {reportState === 'failed' && (
+                    <Text style={[styles.reportNote, { color: color.danger }]}>{L3(language, '보내지 못했습니다. 연결을 확인하고 다시 시도해 주세요.', 'Could not send. Check your connection and try again.', '送信できませんでした。接続を確認して再度お試しください。')}</Text>
+                  )}
+                </>
+              )}
+              <PressScale
+                style={[styles.reportOption, { borderBottomWidth: 0 }]}
+                onPress={() => { blockUser(ownerId); setShowReport(false); onClose(); }}
+              >
+                <Text style={[styles.reportOptionText, { color: color.danger }]}>{L3(language, '이 사용자의 사진 모두 숨기기(차단)', 'Block this user (hide all their photos)', 'このユーザーをブロック（写真をすべて非表示）')}</Text>
+              </PressScale>
+            </View>
+          )}
 
           {/* SNS Platform Selector Sheet */}
           {showSnsSelector && (
@@ -546,6 +603,29 @@ const styles = StyleSheet.create({
   snsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  reportBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.dangerSoft,
+  },
+  reportOption: {
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: color.border,
+  },
+  reportOptionText: {
+    color: color.text,
+    fontSize: 14,
+  },
+  reportNote: {
+    color: color.textDim,
+    fontSize: 13,
+    lineHeight: 19,
+    paddingVertical: 10,
   },
   snsOption: {
     alignItems: 'center',

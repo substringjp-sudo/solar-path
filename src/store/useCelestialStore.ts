@@ -143,6 +143,11 @@ interface CelestialState {
   currentUser: User | null;
   myPhotos: MyPhoto[];
   globalPhotos: GlobalPhoto[];
+  /** 사용자 제작 콘텐츠 안전(Play 정책, 출시 점검 2026-09-30): 신고로 가린 사진 · 차단한 사용자 */
+  hiddenPhotoIds: string[];
+  blockedUserIds: string[];
+  hidePhoto: (photoId: string) => void;
+  blockUser: (userId: string) => void;
   locationPermission: string | null;
   cameraPermission: string | null;
   mediaPermission: string | null;
@@ -269,6 +274,16 @@ export const useCelestialStore = create<CelestialState>()(
       currentUser: null,
       myPhotos: [],
       globalPhotos: [],
+      hiddenPhotoIds: [],
+      blockedUserIds: [],
+      hidePhoto: (photoId) => set((st) => ({
+        hiddenPhotoIds: st.hiddenPhotoIds.includes(photoId) ? st.hiddenPhotoIds : [...st.hiddenPhotoIds, photoId],
+        globalPhotos: st.globalPhotos.filter((p) => p.id !== photoId),
+      })),
+      blockUser: (userId) => set((st) => ({
+        blockedUserIds: st.blockedUserIds.includes(userId) ? st.blockedUserIds : [...st.blockedUserIds, userId],
+        globalPhotos: st.globalPhotos.filter((p) => p.userId !== userId),
+      })),
       locationPermission: null,
       cameraPermission: 'undetermined',
       mediaPermission: 'undetermined',
@@ -672,7 +687,8 @@ export const useCelestialStore = create<CelestialState>()(
           }
         }
 
-        const userName = user.displayName || (user.email ? user.email.split('@')[0] : 'Anonymous');
+        // 이메일 앞부분을 공개 이름으로 쓰지 않습니다 — 전역 갤러리는 누구나 읽습니다(출시 점검 2026-09-30).
+        const userName = user.displayName || 'Anonymous';
 
         // 2. 개인 Firestore 문서 생성
         const myPhotoRecord: MyPhoto = {
@@ -767,7 +783,8 @@ export const useCelestialStore = create<CelestialState>()(
           }
 
           // A. global_photos 에 기재하여 전역 공개
-          const userName = user.displayName || (user.email ? user.email.split('@')[0] : 'Anonymous');
+          // 이메일 앞부분을 공개 이름으로 쓰지 않습니다 — 전역 갤러리는 누구나 읽습니다(출시 점검 2026-09-30).
+        const userName = user.displayName || 'Anonymous';
           const globalPhoto: GlobalPhoto = {
             id: photo.id,
             latitude: Number(photo.latitude.toFixed(2)),
@@ -830,6 +847,9 @@ export const useCelestialStore = create<CelestialState>()(
             snapshot.forEach((doc) => {
               const data = doc.data() as GlobalPhoto;
               // scheduledUploadTime이 없거나, 이미 서버 시각 기준 1시간이 경과한 것만 전역 사진으로 채택
+              // 신고로 가린 사진·차단한 사용자의 사진은 빼고(출시 점검 2026-09-30)
+              const { hiddenPhotoIds, blockedUserIds } = get();
+              if (hiddenPhotoIds.includes(data.id) || (data.userId && blockedUserIds.includes(data.userId))) return;
               if (!data.scheduledUploadTime || data.scheduledUploadTime <= now) {
                 photosList.push(data);
               }
@@ -884,7 +904,7 @@ export const useCelestialStore = create<CelestialState>()(
         try {
           const { status: locStatus } = await Location.getForegroundPermissionsAsync();
           const { status: camStatus } = await Camera.getCameraPermissionsAsync();
-          const { status: mediaStatus } = await MediaLibrary.getPermissionsAsync();
+          const { status: mediaStatus } = await MediaLibrary.getPermissionsAsync(true);
           const { status: micStatus } = await Camera.getMicrophonePermissionsAsync();
           set({ 
             locationPermission: locStatus, 
@@ -922,7 +942,7 @@ export const useCelestialStore = create<CelestialState>()(
       },
       requestMediaPermission: async () => {
         try {
-          const { status } = await MediaLibrary.requestPermissionsAsync();
+          const { status } = await MediaLibrary.requestPermissionsAsync(true);
           set({ mediaPermission: status });
         } catch (err) {
           console.warn('Failed to request media permission:', err);
@@ -1229,6 +1249,8 @@ export const useCelestialStore = create<CelestialState>()(
         language: state.language,
         themeMode: state.themeMode,
         notifPrefs: state.notifPrefs,
+        hiddenPhotoIds: state.hiddenPhotoIds,
+        blockedUserIds: state.blockedUserIds,
       }),
     }
   )

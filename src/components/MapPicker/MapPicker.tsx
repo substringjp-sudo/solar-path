@@ -5,7 +5,7 @@ import Svg, { Circle, Line } from 'react-native-svg';
 import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { t } from '../../utils/i18n';
+import { t, L3 } from '../../utils/i18n';
 import { color, radius, mono } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { springTo, timeTo } from '../../theme/motion';
@@ -141,9 +141,7 @@ export const MapPicker = ({
     setSaveName('');
     Alert.alert(
       t('success', language),
-      language === 'ko'
-        ? `'${savedNameText}' 장소가 성공적으로 저장되었습니다.`
-        : `'${savedNameText}' has been saved successfully.`
+      L3(language, `'${savedNameText}' 장소를 저장했습니다.`, `Saved '${savedNameText}'.`, `「${savedNameText}」を保存しました。`)
     );
   };
 

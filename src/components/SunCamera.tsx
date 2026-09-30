@@ -177,6 +177,13 @@ const getAzimuthCardinal = (az: number): string => {
   return 'NW';
 };
 
+/** 보정 배지 문구 — `sunCamera.ts` 의 설명은 한국어 한 벌이라 여기서 세 언어로(출시 점검 2026-09-30). */
+const sceneLabel = (t: 'overcast' | 'partial_sun' | 'clear_golden' | 'dramatic', lang: Language) =>
+  t === 'overcast' ? L3(lang, '흐린 하늘 — 자연스러운 톤 유지', 'Overcast — natural tones', '曇り空 — 自然なトーン')
+  : t === 'dramatic' ? L3(lang, '드라마틱 구름 — 대비 강화, 구름 부피감 극대화', 'Dramatic clouds — more contrast and depth', 'ドラマチックな雲 — コントラストと立体感を強調')
+  : t === 'clear_golden' ? L3(lang, '골든아워 — 따뜻한 색감, 부드러운 채도 강화', 'Golden hour — warm, gently saturated', 'ゴールデンアワー — 暖かく柔らかな彩度')
+  : L3(lang, '맑은 하늘 — 밸런스 보정', 'Clear sky — balanced', '晴れ — バランス補正');
+
 export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
@@ -198,7 +205,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const skyLayers = useCelestialStore(s => s.skyLayers);
   const skySettings = useCelestialStore(s => s.skySettings);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ writeOnly: true });
   const cameraRef = useRef<CameraView>(null);
 
   const [cameraFacing, setCameraFacing] = useState<CameraType>('back');
@@ -1595,7 +1602,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   </View>
                   <View style={[styles.enhancementBadgeCompact, { borderColor: getSceneColor(currentEnhancement.sceneType), flexShrink: 1 }]}>
                     <Aperture size={10} color={getSceneColor(currentEnhancement.sceneType)} />
-                    <Text style={[styles.enhancementTextCompact, { flexShrink: 1 }]} numberOfLines={1}>{currentEnhancement.description}</Text>
+                    <Text style={[styles.enhancementTextCompact, { flexShrink: 1 }]} numberOfLines={1}>{sceneLabel(currentEnhancement.sceneType, language)}</Text>
                   </View>
                 </View>
 

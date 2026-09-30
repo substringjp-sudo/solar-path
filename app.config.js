@@ -53,6 +53,15 @@ const withRemoveUnusedPermissions = (config) => {
         'tools:node': 'remove'
       }
     });
+    // Remove READ_MEDIA_IMAGES — 앱은 사진을 **저장만** 하고(MediaLibrary.saveToLibraryAsync, writeOnly 권한)
+    //   갤러리를 읽지 않습니다. 남겨 두면 Play 의 "사진 및 동영상 권한" 신고가 필요하고, 가끔 쓰는 앱은
+    //   거절될 수 있습니다(출시 점검 2026-09-30). ⚠ Android 13+ 실기기에서 사진 저장을 꼭 확인하세요.
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.READ_MEDIA_IMAGES',
+        'tools:node': 'remove'
+      }
+    });
     // Remove READ_MEDIA_AUDIO
     androidManifest.manifest['uses-permission'].push({
       $: {
