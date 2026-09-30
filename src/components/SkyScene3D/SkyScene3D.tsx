@@ -21,6 +21,7 @@ import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
+import { planetLabelVisible, moonLabelVisible, milkyWayLabelVisible } from '../../utils/labelVisibility';
 
 import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import {
@@ -1379,21 +1380,35 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const p = proj(sunRef.current.mesh.position);
             if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
           }
-          // 2. 달 (Moon)
+          // 2. 달 (Moon) — 지금 맨눈에 보일 때만(떠 있고, 낮이면 충분히 차고 해에서 떨어져 있을 때 · labelVisibility.ts)
           if (moonRef.current?.group && layersRef.current.moon) {
-            const p = proj(moonRef.current.group.position);
-            if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
+            const mp = moonRef.current.group.position;
+            const mLen = mp.length() || 1;
+            const moonAltDeg = (Math.asin(Math.max(-1, Math.min(1, mp.y / mLen))) * 180) / Math.PI;
+            let sepDeg = 180;
+            if (sunRef.current?.mesh) {
+              const sp = sunRef.current.mesh.position;
+              const sLen = sp.length() || 1;
+              const cos = (mp.x * sp.x + mp.y * sp.y + mp.z * sp.z) / (mLen * sLen);
+              sepDeg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+            }
+            const illum = SunCalc.getMoonIllumination(frameDate).fraction;
+            if (moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
+              const p = proj(mp);
+              if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
+            }
           }
           // 3. 은하수 중심부 (Milky Way Center)
           if (layersRef.current.milkyway) {
             const mwPos = trackingMwVec.set(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
             mwPos.applyMatrix3(equToHorizonRef.current);
-            if (mwPos.y > 0) {
+            const mwAltDeg = (Math.asin(Math.max(-1, Math.min(1, mwPos.y / (mwPos.length() || 1)))) * 180) / Math.PI;
+            if (milkyWayLabelVisible(mwAltDeg, sunAltRef.current)) {
               const p = proj(mwPos);
               if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
             }
           }
-          // 4. 주요 행성 (Planets: 목성, 토성, 금성)
+          // 4. 주요 행성 (Planets: 목성, 토성, 금성) — 하늘이 그 행성만큼 어두울 때만(낮에는 숨김)
           if (layersRef.current.planets) {
             const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
               { key: 'jupiter', name: L3(lang, '목성', 'Jupiter', '木星'), color: '#F43F5E' },
@@ -1404,7 +1419,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);
               const pWorld = pDir.multiplyScalar(380);
               pWorld.applyMatrix3(equToHorizonRef.current);
-              if (pWorld.y > 0) {
+              const pAltDeg = (Math.asin(Math.max(-1, Math.min(1, pWorld.y / (pWorld.length() || 1)))) * 180) / Math.PI;
+              if (planetLabelVisible(pl.key, pAltDeg, sunAltRef.current)) {
                 const p = proj(pWorld);
                 if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
               }

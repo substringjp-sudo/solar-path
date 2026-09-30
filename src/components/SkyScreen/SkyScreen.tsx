@@ -36,7 +36,7 @@ import {
 } from '../../utils/skyTimeline';
 import { PredictionCard } from '../SunsetSimulation/PredictionCard';
 import { InfoCard } from '../InfoCard';
-import { PeekSheet } from './PeekSheet';
+import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
 import { buildSkyEvents } from '../../utils/skyEvents';
@@ -85,6 +85,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   onCameraPress,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
+  const [stageH, setStageH] = useState(0);
   const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
@@ -465,6 +466,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   return (
     <View style={styles.container}>
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
+      {/* 무대 — 씬은 아래에서 PEEK_HEIGHT 만큼 비켜 고정, 시트는 그 위로 떠서 올라옵니다(찌그러짐 없음). */}
+      <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
       <View style={styles.sceneWrapper}>
         <SkyScene3D
           sim={simObj}
@@ -549,6 +552,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       {/* ── peek 시트: 닫히면 요약 한 줄, 끌어올리면 근거와 수치 ─────────── */}
       <PeekSheet
         theme={theme}
+        maxHeight={stageH || undefined}
         summary={
           <View style={styles.summaryRow}>
             <Flame size={13} color={color.glow} />
@@ -663,6 +667,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           </View>
         </ScrollView>
       </PeekSheet>
+      </View>
 
       {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
       <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
@@ -794,10 +799,16 @@ const useStyles = makeStyles((color) => ({
   container: {
     flex: 1,
   },
-  sceneWrapper: {
+  stage: {
     flex: 1,
-    width: '100%',
     position: 'relative',
+  },
+  sceneWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: PEEK_HEIGHT,
     overflow: 'hidden',
   },
 

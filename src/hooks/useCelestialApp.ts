@@ -17,6 +17,8 @@ import { t, Language } from '../utils/i18n';
 import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
 import { updateSunsetWidgetData } from '../utils/widgetStorage';
 import { springTo, timeTo } from '../theme/motion';
+import { DEFAULT_NOTIF_PREFS, SKY_NOTIF_KINDS, planSkyNotifications } from '../utils/notificationPlan';
+import { cancelScheduledByPrefix, hasNotificationPermission, scheduleSkyPlan } from '../utils/notificationScheduler';
 
 
 
@@ -177,8 +179,10 @@ export function useCelestialApp() {
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
     uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto, initializePendingUploads,
-    checkPermissions, requestLocationPermission, requestCameraPermission
+    checkPermissions, requestLocationPermission, requestCameraPermission, notifPrefs: storedNotifPrefs
   } = useCelestialStore();
+  // 저장된 설정에 새 항목이 없을 수 있어(앱 업데이트) 기본값 위에 얹습니다.
+  const notifPrefs = { ...DEFAULT_NOTIF_PREFS, ...storedNotifPrefs };
 
 
 
@@ -625,8 +629,12 @@ export function useCelestialApp() {
     const lat = location.coords.latitude;
     const lon = location.coords.longitude;
 
+    // 알림 설정에서 끈 예보는 예약을 지우고 다음에 켤 때 다시 예약되게 합니다.
+    if (!notifPrefs.sunsetForecast) { lastSunsetDateRef.current = null; cancelScheduledByPrefix('sunset-alert'); }
+    if (!notifPrefs.sunriseForecast) { lastSunriseDateRef.current = null; cancelScheduledByPrefix('sunrise-alert'); }
+
     // 1) 일몰(노을) 알림 스케줄링
-    if (events.sunset) {
+    if (events.sunset && notifPrefs.sunsetForecast) {
       const sunsetTime = events.sunset;
       const sunsetDateStr = sunsetTime.toDateString();
 
@@ -721,8 +729,8 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed, using default labels:', weatherErr);
             }
 
-            // 기존 중복/구형 예약 알림 전량 취소하여 동일 시각 중복 수신 완벽 방지
-            await Notifications.cancelAllScheduledNotificationsAsync();
+            // 예전 노을 예약만 지웁니다 — 전부 지우면(cancelAll) 일출·하늘 이벤트 알림까지 사라졌습니다.
+            await cancelScheduledByPrefix('sunset-alert-day-');
 
             // 향후 7일간 다일 사전 알림 스케줄링 (앱을 일주일 동안 켜지 않아도 OS 스케줄러가 매일 일몰 2시간 전에 3D 시뮬레이션 알림 발송)
             for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
@@ -748,7 +756,7 @@ export function useCelestialApp() {
     }
 
     // 2) 일출 알림 스케줄링 (전날 밤 10시 시점이 미래인 경우)
-    if (events.sunrise) {
+    if (events.sunrise && notifPrefs.sunriseForecast) {
       const sunriseTime = events.sunrise;
       const sunriseDateStr = sunriseTime.toDateString();
       const alertTime = new Date(sunriseTime.getTime());
@@ -896,7 +904,34 @@ export function useCelestialApp() {
         clearTimeout(timerId);
       }
     };
-  }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime()]);
+  }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast]);
+
+  // 하늘 이벤트 알림(골든아워·블루아워·월출·가는 달·은하수·행성) — 설정·위치·언어·날짜가 바뀌면 다시 계획합니다.
+  const skyPlanKey = JSON.stringify([
+    notifPrefs.golden, notifPrefs.blue, notifPrefs.moonrise, notifPrefs.crescent, notifPrefs.milkyway, notifPrefs.planets, notifPrefs.leadMin,
+    location ? Math.round(location.coords.latitude * 100) / 100 : null, location ? Math.round(location.coords.longitude * 100) / 100 : null,
+    language, timezoneOffsetHours, events?.sunrise?.toDateString() ?? null,
+  ]);
+  useEffect(() => {
+    if (!location) return;
+    const anyOn = SKY_NOTIF_KINDS.some((k) => notifPrefs[k]);
+    let cancelled = false;
+    (async () => {
+      if (!anyOn) { await cancelScheduledByPrefix('sky-'); return; }
+      if (!(await hasNotificationPermission(true)) || cancelled) return;
+      const plan = planSkyNotifications({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        now: new Date(),
+        prefs: notifPrefs,
+        language,
+        tzOffsetHours: timezoneOffsetHours,
+      });
+      if (!cancelled) await scheduleSkyPlan(plan);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skyPlanKey]);
 
   return {
     width,

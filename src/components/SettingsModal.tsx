@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Modal, ScrollView, Platform, Linking, ActivityIndicator, TextInput, Animated, Dimensions, PanResponder, TouchableWithoutFeedback } from 'react-native';
-import { X, User, Shield, Info, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { X, User, Shield, Info, Bell, ArrowRight, Camera, MapPin, CheckCircle2, AlertCircle, LogOut, KeyRound, Mail, Image, Globe, Compass, Cloud, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as CameraModule from 'expo-camera';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
@@ -8,7 +8,9 @@ import { auth } from '../config/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { t, L3 } from '../utils/i18n';
 import { color, radius, mono, tint } from '../theme/tokens';
-import { PressScale } from './ui';
+import { PressScale, Chip } from './ui';
+import { DEFAULT_NOTIF_PREFS, LEAD_OPTIONS, type NotifPrefs } from '../utils/notificationPlan';
+import { hasNotificationPermission } from '../utils/notificationScheduler';
 import { springTo, timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 
@@ -80,7 +82,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLanguage,
     themeMode,
     setThemeMode,
+    notifPrefs: storedNotifPrefs,
+    setNotifPref,
   } = useCelestialStore();
+  const notifPrefs: NotifPrefs = { ...DEFAULT_NOTIF_PREFS, ...storedNotifPrefs };
+  const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (visible) hasNotificationPermission(false).then(setNotifGranted);
+  }, [visible]);
+  const toggleNotif = async (key: keyof Omit<NotifPrefs, 'leadMin'>) => {
+    const next = !notifPrefs[key];
+    setNotifPref(key, next);
+    // 켤 때 권한을 묻습니다(이미 허용이면 조용히 지나감).
+    if (next) setNotifGranted(await hasNotificationPermission(true));
+  };
+
   const [showLicenses, setShowLicenses] = useState(false);
   const [showPortal, setShowPortal] = useState(false);
 
@@ -391,6 +407,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     'The sky, the map and the camera stay dark so their labels stay readable over the picture.',
                     '空・地図の上とカメラ画面は、絵の上で読めるよう常に暗いままです。')}
                 </Text>
+              </View>
+
+              {/* 1-c. 알림 — 노을·일출 예보 + 천체력으로 정해지는 하늘 이벤트(utils/notificationPlan.ts) */}
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.subText }]}>{L3(language, '알림', 'Notifications', '通知')}</Text>
+                <View style={[styles.card, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+                  {([
+                    ['sunsetForecast', L3(language, '노을 예보', 'Sunset forecast', '夕焼け予報'), L3(language, '일몰 2시간 전 · 구름·색 예측과 그림', '2 h before sunset · clouds, colour and a preview', '日没2時間前・雲と色の予測と画像')],
+                    ['sunriseForecast', L3(language, '일출 예보', 'Sunrise forecast', '日の出予報'), L3(language, '전날 밤 10시 · 구름·색 예측', '10 pm the night before · clouds and colour', '前夜22時・雲と色の予測')],
+                    ['golden', L3(language, '골든아워', 'Golden hour', 'ゴールデンアワー'), L3(language, '아침 일출 · 저녁 해 6°', 'Sunrise · evening sun at 6°', '朝の日の出・夕方の太陽6°')],
+                    ['blue', L3(language, '블루아워', 'Blue hour', 'ブルーアワー'), L3(language, '해뜨기 전 · 해진 뒤 푸른 하늘', 'Blue sky before sunrise and after sunset', '日の出前・日没後の青い空')],
+                    ['moonrise', L3(language, '월출', 'Moonrise', '月の出'), L3(language, '달이 뜰 때 · 밝기와 함께', 'When the Moon rises, with its phase', '月が昇るとき・輝面と一緒に')],
+                    ['crescent', L3(language, '가는 달', 'Thin crescent', '細い月'), L3(language, '저녁 초승달 · 새벽 그믐달', 'Evening crescent · morning crescent', '夕方の三日月・明け方の有明月')],
+                    ['milkyway', L3(language, '은하수', 'Milky Way', '天の川'), L3(language, '달빛 없는 어두운 밤', 'Dark, moonless nights', '月明かりのない暗い夜')],
+                    ['planets', L3(language, '보이는 행성', 'Planets up', '見える惑星'), L3(language, '박명 뒤 떠 있는 행성', 'Planets above the horizon after dusk', '薄明後に昇っている惑星')],
+                  ] as const).map(([key, title, desc], idx) => {
+                    const on = notifPrefs[key];
+                    return (
+                      <PressScale
+                        key={key}
+                        style={[styles.notifRow, idx > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}
+                        onPress={() => toggleNotif(key)}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: on }}
+                      >
+                        <View style={styles.notifText}>
+                          <Text style={[styles.notifTitle, { color: theme.text }]}>{title}</Text>
+                          <Text style={[styles.notifDesc, { color: theme.subText }]} numberOfLines={2}>{desc}</Text>
+                        </View>
+                        <View style={[styles.notifPill, on ? { backgroundColor: color.accent } : { backgroundColor: color.fill, borderColor: color.border, borderWidth: 1 }]}>
+                          <Text style={[styles.notifPillText, { color: on ? color.onAccent : theme.subText }]}>{on ? 'ON' : 'OFF'}</Text>
+                        </View>
+                      </PressScale>
+                    );
+                  })}
+                  <View style={[styles.notifLeadRow, { borderTopColor: theme.border }]}>
+                    <Text style={[styles.notifDesc, { color: theme.subText, marginBottom: 8 }]}>
+                      {L3(language, '하늘 이벤트 알림 시점', 'Sky event alerts', '空のイベント通知のタイミング')}
+                    </Text>
+                    <View style={styles.notifLeadChips}>
+                      {LEAD_OPTIONS.map((m) => (
+                        <Chip
+                          key={m}
+                          on={notifPrefs.leadMin === m}
+                          onPress={() => setNotifPref('leadMin', m)}
+                          label={m === 0 ? L3(language, '정각', 'On time', '時刻どおり') : m === 60 ? L3(language, '1시간 전', '1 h before', '1時間前') : L3(language, `${m}분 전`, `${m} min before`, `${m}分前`)}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                </View>
+                {notifGranted === false && (
+                  <PressScale onPress={() => Linking.openSettings()} style={[styles.notifWarn, { backgroundColor: color.dangerSoft }]}>
+                    <Bell size={13} color={color.danger} />
+                    <Text style={[styles.notifDesc, { color: color.danger, flex: 1 }]}>
+                      {L3(language, '알림 권한이 꺼져 있어 알림이 오지 않습니다. 눌러서 시스템 설정을 엽니다.', 'Notifications are off for this app. Tap to open system settings.', '通知が許可されていません。タップしてシステム設定を開きます。')}
+                    </Text>
+                  </PressScale>
+                )}
               </View>
 
               {/* 2. 앱 권한 */}
@@ -714,6 +789,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 };
 
 const useStyles = makeStyles((color) => ({
+  notifRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, gap: 12 },
+  notifText: { flex: 1, minWidth: 0 },
+  notifTitle: { fontSize: 13, fontWeight: '700' },
+  notifDesc: { fontSize: 11, lineHeight: 15, marginTop: 2 },
+  notifPill: { minWidth: 44, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, alignItems: 'center' },
+  notifPillText: { fontSize: 11, fontWeight: '800', fontFamily: mono },
+  notifLeadRow: { borderTopWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  notifLeadChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  notifWarn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, padding: 10, borderRadius: radius.sm },
   modeHint: {
     fontSize: 11,
     lineHeight: 16,

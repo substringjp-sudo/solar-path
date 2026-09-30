@@ -8,7 +8,13 @@
  * 좁아집니다. 나누는 대신 **순서를 만드는** 편이 낫습니다 — 씬은 화면을 꽉 채우고,
  * 정보는 필요할 때 위로 덮습니다.
  *
- * 상시 노출은 요약 한 줄뿐이라 씬이 잃는 높이가 44px입니다.
+ * 상시 노출은 요약 한 줄뿐이라 씬이 잃는 높이가 52px입니다.
+ *
+ * ⚠ 예전에는 시트가 씬과 같은 세로 줄에서 자라서, 펼치면 3D 하늘이 그만큼 **찌그러졌습니다**
+ *   (사용자 2026-09-30: "설정은 화면 위에 겹쳐지게 열리는데 추천이벤트는 열면 시뮬레이션이
+ *   찌그러지는데 그냥 같이 위에 겹쳤으면"). 이제 시트는 부모(무대)의 아래에 **떠서** 씬 위로
+ *   올라오고, 씬 크기는 그대로입니다. 펼친 동안은 씬에 옅은 막이 깔리고, 막을 누르면 닫힙니다.
+ *   부모는 `position: relative` 인 무대여야 하고, 씬은 아래에서 `PEEK_HEIGHT` 만큼 비켜 둡니다.
  */
 import React, { useRef, useCallback } from 'react';
 import {
@@ -36,6 +42,8 @@ interface PeekSheetProps {
   theme: any;
   /** 펼쳤을 때 화면 높이의 몇 %를 차지할지 */
   expandedRatio?: number;
+  /** 무대(부모) 높이 — 펼친 높이가 이보다 커지지 않게 */
+  maxHeight?: number;
 }
 
 export const PeekSheet: React.FC<PeekSheetProps> = ({
@@ -43,10 +51,11 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
   children,
   theme,
   expandedRatio = 0.62,
+  maxHeight,
 }) => {
   const color = useThemeColors(); const styles = useStyles();
   const { height } = useWindowDimensions();
-  const expandedHeight = Math.round(height * expandedRatio);
+  const expandedHeight = Math.round(Math.min(height * expandedRatio, maxHeight ? maxHeight - 12 : Infinity));
   /** 펼침 정도 0(닫힘) ~ 1(열림) */
   const progress = useRef(new Animated.Value(0)).current;
   const progressValue = useRef(0);
@@ -118,7 +127,22 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
     animateTo(progressValue.current > 0.4 ? 0 : 1);
   }, [animateTo]);
 
+  // 펼친 만큼 씬에 옅은 막 — 설정 창처럼 "위에 겹친" 층임을 알려 주고, 누르면 닫힙니다.
+  const scrimOpacity = progress.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' });
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    const id = progress.addListener(({ value }) => setOpen((o) => (value > 0.05) !== o ? value > 0.05 : o));
+    return () => progress.removeListener(id);
+  }, [progress]);
+
   return (
+    <>
+    <Animated.View
+      pointerEvents={open ? 'auto' : 'none'}
+      style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim, opacity: scrimOpacity }]}
+    >
+      <PressScale reaction="none" style={StyleSheet.absoluteFill} onPress={() => animateTo(0)} accessibilityLabel="close" />
+    </Animated.View>
     <Animated.View
       style={[
         styles.sheet,
@@ -147,11 +171,16 @@ export const PeekSheet: React.FC<PeekSheetProps> = ({
         {children}
       </Animated.View>
     </Animated.View>
+    </>
   );
 };
 
 const useStyles = makeStyles((color) => ({
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     borderTopWidth: 1,

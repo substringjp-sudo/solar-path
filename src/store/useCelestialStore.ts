@@ -25,6 +25,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
 import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
+import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
 
 const uploadTimers: { [photoId: string]: any } = {};
 
@@ -151,6 +152,8 @@ interface CelestialState {
   language: 'ko' | 'en' | 'ja';
   /** 화면 모드 — 밝은 모드는 패널·창·기록 탭·헤더만 밝힙니다(docs/DESIGN_SYSTEM.md §4.1). 기본은 어둡게. */
   themeMode: 'system' | 'light' | 'dark';
+  /** 알림 설정 — 노을·일출 예보 + 하늘 이벤트(골든아워·블루아워·월출·가는 달·은하수·행성). utils/notificationPlan.ts */
+  notifPrefs: NotifPrefs;
   isAppReady: boolean;
   preloadStatus: string;
   /** 프리로드 후 처음 열 탭. 새 IA 기준: 'sky' | 'map' | 'log' */
@@ -215,6 +218,7 @@ interface CelestialState {
   setDebugMode: (enabled: boolean) => void;
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
   setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
+  setNotifPref: <K extends keyof NotifPrefs>(key: K, value: NotifPrefs[K]) => void;
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
   initializePendingUploads: () => void;
@@ -273,6 +277,7 @@ export const useCelestialStore = create<CelestialState>()(
       isDebugMode: false,
       language: 'ko',
       themeMode: 'dark',
+      notifPrefs: DEFAULT_NOTIF_PREFS,
       isAppReady: false,
       preloadStatus: 'initializingApp',
       initialTab: 'sky',
@@ -935,6 +940,7 @@ export const useCelestialStore = create<CelestialState>()(
       setDebugMode: (enabled) => set({ isDebugMode: enabled }),
       setLanguage: (lang) => set({ language: lang }),
       setThemeMode: (mode) => set({ themeMode: mode }),
+      setNotifPref: (key, value) => set((st) => ({ notifPrefs: { ...DEFAULT_NOTIF_PREFS, ...st.notifPrefs, [key]: value } })),
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
         try {
@@ -1222,6 +1228,7 @@ export const useCelestialStore = create<CelestialState>()(
         myPhotos: state.myPhotos,
         language: state.language,
         themeMode: state.themeMode,
+        notifPrefs: state.notifPrefs,
       }),
     }
   )
