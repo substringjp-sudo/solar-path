@@ -6,7 +6,7 @@
  * 흐름 시각 여럿)로 평균하니 예보 25% 가 중층 0.61 · 저층 0.15 · 상층 0.15 였습니다 — `SHAPE_MEAN` 이 그 한
  * 자리에 맞춰져 있었습니다. 도코나메 밤(중층 20%)이 화면 50~90% 구름이 된 원인입니다.
  *
- * 쪽 주소 인자: ?drifts=0,12&covers=0.1,0.5&mean=low:0.6,mid:0.4,high:0.5&sig=low:0.65,mid:0.65,high:0.99
+ * 쪽 주소 인자: ?drifts=0,12&azs=0,90,180,270&covers=0.1,0.5&mean=low:0.6,mid:0.4,high:0.5&sig=low:0.65,mid:0.65,high:0.99
  * 결과: window.__out = [{layer, cover, area016, area1, n}] (방위·고도·흐름 평균).
  *
  * 준비: node tools/shader-preview/stage-esm.js && node tools/shader-preview/build-cover-area-avg.js
@@ -26,7 +26,7 @@ const list=(k,d)=>(Q.get(k)||d).split(',').map(Number);
 const kv=(k)=>{ const o={}; (Q.get(k)||'').split(',').filter(Boolean).forEach(s=>{ const [a,b]=s.split(':'); o[a]=Number(b); }); return o; };
 const DRIFTS=list('drifts','0,12'), COVERS=list('covers','0.1,0.25,0.5,0.75,0.9');
 const LAYERS=(Q.get('layers')||'low,mid,high').split(',');
-const AZS=[0,45,90,135,180,225,270,315], ELS=[20,45,70];
+const AZS=list('azs','0,45,90,135,180,225,270,315'), ELS=[20,45,70];
 const W=60,H=80,D2R=Math.PI/180;
 const dirOf=(alt,az)=>new THREE.Vector3(Math.cos(alt*D2R)*Math.sin(az*D2R),Math.sin(alt*D2R),-Math.cos(alt*D2R)*Math.cos(az*D2R)).normalize();
 const canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;

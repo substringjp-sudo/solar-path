@@ -8,7 +8,8 @@
  * 목표 운량들에서 F⁻¹(1 − c) 를 g(c) 에 직선으로 맞추면 기울기가 s, 절편이 μ 입니다.
  * 근사(층마다 운량을 흔드는 느린 항·군집, 두께 문턱)는 남으므로 한 번 더 재서 고칩니다.
  *
- * **맞추기는 흐름 0·12시로만** 합니다. 확인(verify-cover-area-avg.js)은 6·18시로 — 맞춘 자료로 채점하지 않습니다.
+ * **맞추기는 짝수 시각 · 방위 0/90/180/270 으로만** 합니다. 확인(verify-cover-area-avg.js)은 홀수 시각 · 방위
+ * 45/135/225/315 로 — 맞춘 자료로 채점하지 않습니다.
  *
  * 사용: node tools/shader-preview/fit-cover-area-avg.js   (미리보기 서버 8123, stage-esm·build 먼저)
  */
@@ -16,14 +17,20 @@ const { chromium } = require('/opt/node22/lib/node_modules/playwright');
 const { ORIGIN } = require('./paths');
 
 const S0 = 0.16;
-const CUR = { mean: { low: 0.597, mid: 0.377, high: 0.515 }, sig: { low: 0.654, mid: 0.652, high: 0.986 } };
-const PROBE = [0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97, 0.995];
+// 시작점: 지금 코드의 상수. CUR 환경변수(JSON)로 다른 데서 시작할 수 있습니다(한 번 더 고칠 때).
+const CUR = process.env.CUR ? JSON.parse(process.env.CUR) : { mean: { low: 0.597, mid: 0.377, high: 0.515 }, sig: { low: 0.654, mid: 0.652, high: 0.986 } };
+const ROUNDS = +(process.env.ROUNDS || 2);
+const PROBE = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97];
+// 맞추기: 짝수 시각 12개 × 방위 4. 확인(verify)은 홀수 시각 × 다른 방위 4 — 느린 항이 커서 두 시각으로는
+// 평균이 안 잡혔습니다(흐름 0·12시로 맞춘 값이 6·18시에서 저층 25% → 0.29 대 0.51).
+const FIT_DRIFTS = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
+const FIT_AZS = [0, 90, 180, 270];
 const TARGET = [0.1, 0.25, 0.5, 0.75, 0.9];
 const g = c => Math.log((1 - c) / c) / 1.702;
 
 async function measure(page, consts, covers, drifts) {
   const enc = o => Object.entries(o).map(([k, v]) => `${k}:${v}`).join(',');
-  const url = `${ORIGIN}/cover-area-avg.html?drifts=${drifts.join(',')}&covers=${covers.join(',')}&mean=${enc(consts.mean)}&sig=${enc(consts.sig)}`;
+  const url = `${ORIGIN}/cover-area-avg.html?drifts=${drifts.join(',')}&azs=${FIT_AZS.join(',')}&covers=${covers.join(',')}&mean=${enc(consts.mean)}&sig=${enc(consts.sig)}`;
   await page.goto(url, { timeout: 600000 });
   await page.waitForFunction(() => /^DONE::/.test(document.title), null, { timeout: 3600000, polling: 1000 });
   const errs = await page.evaluate(() => window.__errors);
@@ -54,8 +61,8 @@ function fitLayer(points, mu0, s0) {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await b.newPage();
   let consts = JSON.parse(JSON.stringify(CUR));
-  for (let round = 0; round < 2; round++) {
-    const out = await measure(page, consts, PROBE, [0, 12]);
+  for (let round = 0; round < ROUNDS; round++) {
+    const out = await measure(page, consts, PROBE, FIT_DRIFTS);
     const next = { mean: {}, sig: {} };
     for (const L of ['low', 'mid', 'high']) {
       const pts = out.filter(o => o.layer === L);
@@ -66,7 +73,7 @@ function fitLayer(points, mu0, s0) {
     }
     consts = next;
   }
-  const fin = await measure(page, consts, TARGET, [0, 12]);
+  const fin = await measure(page, consts, TARGET, FIT_DRIFTS);
   for (const L of ['low', 'mid', 'high']) console.error(`최종(맞춘 흐름) ${L}: ${TARGET.map(c => fin.find(p => p.layer === L && p.cover === c).area016.toFixed(3)).join(' ')}`);
   console.log(JSON.stringify(consts));
   await b.close();
