@@ -25,6 +25,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
 import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
+import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
 
 const uploadTimers: { [photoId: string]: any } = {};
 
@@ -142,6 +143,11 @@ interface CelestialState {
   currentUser: User | null;
   myPhotos: MyPhoto[];
   globalPhotos: GlobalPhoto[];
+  /** 사용자 제작 콘텐츠 안전(Play 정책, 출시 점검 2026-09-30): 신고로 가린 사진 · 차단한 사용자 */
+  hiddenPhotoIds: string[];
+  blockedUserIds: string[];
+  hidePhoto: (photoId: string) => void;
+  blockUser: (userId: string) => void;
   locationPermission: string | null;
   cameraPermission: string | null;
   mediaPermission: string | null;
@@ -149,6 +155,10 @@ interface CelestialState {
   isSimulationLoading: boolean;
   isDebugMode: boolean;
   language: 'ko' | 'en' | 'ja';
+  /** 화면 모드 — 밝은 모드는 패널·창·기록 탭·헤더만 밝힙니다(docs/DESIGN_SYSTEM.md §4.1). 기본은 어둡게. */
+  themeMode: 'system' | 'light' | 'dark';
+  /** 알림 설정 — 노을·일출 예보 + 하늘 이벤트(골든아워·블루아워·월출·가는 달·은하수·행성). utils/notificationPlan.ts */
+  notifPrefs: NotifPrefs;
   isAppReady: boolean;
   preloadStatus: string;
   /** 프리로드 후 처음 열 탭. 새 IA 기준: 'sky' | 'map' | 'log' */
@@ -212,6 +222,8 @@ interface CelestialState {
   setSimulationLoading: (loading: boolean) => void;
   setDebugMode: (enabled: boolean) => void;
   setLanguage: (lang: 'ko' | 'en' | 'ja') => void;
+  setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
+  setNotifPref: <K extends keyof NotifPrefs>(key: K, value: NotifPrefs[K]) => void;
   setAppReady: (ready: boolean) => void;
   preloadInitialData: () => Promise<void>;
   initializePendingUploads: () => void;
@@ -262,6 +274,16 @@ export const useCelestialStore = create<CelestialState>()(
       currentUser: null,
       myPhotos: [],
       globalPhotos: [],
+      hiddenPhotoIds: [],
+      blockedUserIds: [],
+      hidePhoto: (photoId) => set((st) => ({
+        hiddenPhotoIds: st.hiddenPhotoIds.includes(photoId) ? st.hiddenPhotoIds : [...st.hiddenPhotoIds, photoId],
+        globalPhotos: st.globalPhotos.filter((p) => p.id !== photoId),
+      })),
+      blockUser: (userId) => set((st) => ({
+        blockedUserIds: st.blockedUserIds.includes(userId) ? st.blockedUserIds : [...st.blockedUserIds, userId],
+        globalPhotos: st.globalPhotos.filter((p) => p.userId !== userId),
+      })),
       locationPermission: null,
       cameraPermission: 'undetermined',
       mediaPermission: 'undetermined',
@@ -269,6 +291,8 @@ export const useCelestialStore = create<CelestialState>()(
       isSimulationLoading: false,
       isDebugMode: false,
       language: 'ko',
+      themeMode: 'dark',
+      notifPrefs: DEFAULT_NOTIF_PREFS,
       isAppReady: false,
       preloadStatus: 'initializingApp',
       initialTab: 'sky',
@@ -663,7 +687,8 @@ export const useCelestialStore = create<CelestialState>()(
           }
         }
 
-        const userName = user.displayName || (user.email ? user.email.split('@')[0] : 'Anonymous');
+        // 이메일 앞부분을 공개 이름으로 쓰지 않습니다 — 전역 갤러리는 누구나 읽습니다(출시 점검 2026-09-30).
+        const userName = user.displayName || 'Anonymous';
 
         // 2. 개인 Firestore 문서 생성
         const myPhotoRecord: MyPhoto = {
@@ -758,7 +783,8 @@ export const useCelestialStore = create<CelestialState>()(
           }
 
           // A. global_photos 에 기재하여 전역 공개
-          const userName = user.displayName || (user.email ? user.email.split('@')[0] : 'Anonymous');
+          // 이메일 앞부분을 공개 이름으로 쓰지 않습니다 — 전역 갤러리는 누구나 읽습니다(출시 점검 2026-09-30).
+        const userName = user.displayName || 'Anonymous';
           const globalPhoto: GlobalPhoto = {
             id: photo.id,
             latitude: Number(photo.latitude.toFixed(2)),
@@ -821,6 +847,9 @@ export const useCelestialStore = create<CelestialState>()(
             snapshot.forEach((doc) => {
               const data = doc.data() as GlobalPhoto;
               // scheduledUploadTime이 없거나, 이미 서버 시각 기준 1시간이 경과한 것만 전역 사진으로 채택
+              // 신고로 가린 사진·차단한 사용자의 사진은 빼고(출시 점검 2026-09-30)
+              const { hiddenPhotoIds, blockedUserIds } = get();
+              if (hiddenPhotoIds.includes(data.id) || (data.userId && blockedUserIds.includes(data.userId))) return;
               if (!data.scheduledUploadTime || data.scheduledUploadTime <= now) {
                 photosList.push(data);
               }
@@ -875,7 +904,7 @@ export const useCelestialStore = create<CelestialState>()(
         try {
           const { status: locStatus } = await Location.getForegroundPermissionsAsync();
           const { status: camStatus } = await Camera.getCameraPermissionsAsync();
-          const { status: mediaStatus } = await MediaLibrary.getPermissionsAsync();
+          const { status: mediaStatus } = await MediaLibrary.getPermissionsAsync(true);
           const { status: micStatus } = await Camera.getMicrophonePermissionsAsync();
           set({ 
             locationPermission: locStatus, 
@@ -913,7 +942,7 @@ export const useCelestialStore = create<CelestialState>()(
       },
       requestMediaPermission: async () => {
         try {
-          const { status } = await MediaLibrary.requestPermissionsAsync();
+          const { status } = await MediaLibrary.requestPermissionsAsync(true);
           set({ mediaPermission: status });
         } catch (err) {
           console.warn('Failed to request media permission:', err);
@@ -930,6 +959,8 @@ export const useCelestialStore = create<CelestialState>()(
       setSimulationLoading: (loading) => set({ isSimulationLoading: loading }),
       setDebugMode: (enabled) => set({ isDebugMode: enabled }),
       setLanguage: (lang) => set({ language: lang }),
+      setThemeMode: (mode) => set({ themeMode: mode }),
+      setNotifPref: (key, value) => set((st) => ({ notifPrefs: { ...DEFAULT_NOTIF_PREFS, ...st.notifPrefs, [key]: value } })),
       setAppReady: (ready) => set({ isAppReady: ready }),
       preloadInitialData: async () => {
         try {
@@ -1216,6 +1247,10 @@ export const useCelestialStore = create<CelestialState>()(
         savedLocations: state.savedLocations,
         myPhotos: state.myPhotos,
         language: state.language,
+        themeMode: state.themeMode,
+        notifPrefs: state.notifPrefs,
+        hiddenPhotoIds: state.hiddenPhotoIds,
+        blockedUserIds: state.blockedUserIds,
       }),
     }
   )

@@ -7,6 +7,7 @@ import { useCelestialStore } from '../../store/useCelestialStore';
 import { IsochronePoint } from '../../utils/celestial';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
+import { dataColor } from '../../theme/tokens';
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -349,12 +350,14 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
     return best;
   }, []);
 
-  // 시간을 HH:MM 포맷으로 만드는 함수
+  // 시간을 HH:MM 으로 — **관측지 현지 시각**(지도 조작부와 같은 기준, 점검 2026-09-29).
+  const tzHours = useCelestialStore(st => st.timezoneOffsetHours) ?? 0;
   const formatTime = useCallback((date: Date) => {
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const l = new Date(date.getTime() + tzHours * 3600000);
+    const hours = String(l.getUTCHours()).padStart(2, '0');
+    const minutes = String(l.getUTCMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
-  }, []);
+  }, [tzHours]);
 
   const sunrisePath = useMemo(() => makeTerminatorPath(terminator.sunrise), [terminator.sunrise, makeTerminatorPath]);
   const sunsetPath = useMemo(() => makeTerminatorPath(terminator.sunset), [terminator.sunset, makeTerminatorPath]);
@@ -477,8 +480,8 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
             </RadialGradient>
             <RadialGradient id="sunMarkerGlow" cx="50%" cy="50%" rx="50%" ry="50%">
               <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-              <Stop offset="30%" stopColor="#FFA500" stopOpacity="0.8" />
-              <Stop offset="100%" stopColor="#FFA500" stopOpacity="0" />
+              <Stop offset="30%" stopColor={dataColor.sunrise} stopOpacity="0.8" />
+              <Stop offset="100%" stopColor={dataColor.sunrise} stopOpacity="0" />
             </RadialGradient>
           </Defs>
 
@@ -589,7 +592,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
             <Path
               d={sunrisePath}
               fill="none"
-              stroke="#FFA500"
+              stroke={dataColor.sunrise}
               strokeWidth={1.8}
             />
           )}
@@ -654,7 +657,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
           {sunMarker.visible && (
             <G>
               <Circle cx={sunMarker.x} cy={sunMarker.y} r={16} fill="url(#sunMarkerGlow)" />
-              <Circle cx={sunMarker.x} cy={sunMarker.y} r={5} fill="#FFFFFF" stroke="#FFA500" strokeWidth={1} />
+              <Circle cx={sunMarker.x} cy={sunMarker.y} r={5} fill="#FFFFFF" stroke={dataColor.sunrise} strokeWidth={1} />
             </G>
           )}
 

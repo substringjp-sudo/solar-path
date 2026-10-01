@@ -13,5 +13,15 @@ service cloud.firestore {
       allow update: if request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId;
       allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
+
+    // 3. 신고(출시 점검 2026-09-30 — Play 사용자 제작 콘텐츠 정책): 로그인한 사람은 누구나 한 건씩 남길 수
+    //    있고, 앱에서는 아무도 읽거나 고칠 수 없습니다(운영자가 콘솔·관리 도구로 확인).
+    match /reports/{reportId} {
+      allow create: if request.auth != null
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.keys().hasOnly(['photoId', 'ownerId', 'reporterId', 'reason', 'createdAt'])
+        && request.resource.data.reason is string && request.resource.data.reason.size() < 40;
+      allow read, update, delete: if false;
+    }
   }
 }

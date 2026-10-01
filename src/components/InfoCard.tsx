@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { LucideIcon } from 'lucide-react-native';
+import { color, radius, mono } from '../theme/tokens';
+import { makeStyles } from '../theme/useTheme';
 
 interface InfoCardProps {
   icon: React.ReactNode;
@@ -11,6 +13,7 @@ interface InfoCardProps {
 }
 
 export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue, theme }) => {
+  const styles = useStyles();
   const { width } = Dimensions.get('window');
   return (
     <View style={[styles.card, { width: width * 0.3 }]}>
@@ -26,7 +29,7 @@ export const InfoCard: React.FC<InfoCardProps> = ({ icon, label, value, subValue
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   card: {
     paddingVertical: 6,
     paddingHorizontal: 4,
@@ -37,7 +40,7 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 28,
     height: 28,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -47,22 +50,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 1,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   value: {
     fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   subValue: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '700',
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
-});
+}));

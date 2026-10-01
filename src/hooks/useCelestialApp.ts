@@ -1,3 +1,4 @@
+import { useThemeColors, useScheme } from '../theme/useTheme';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
@@ -13,8 +14,14 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
+import { airQualityNote } from '../utils/airQuality';
+
+const L3 = (lang: Language, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
 import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
 import { updateSunsetWidgetData } from '../utils/widgetStorage';
+import { springTo, timeTo } from '../theme/motion';
+import { DEFAULT_NOTIF_PREFS, SKY_NOTIF_KINDS, planSkyNotifications } from '../utils/notificationPlan';
+import { cancelScheduledByPrefix, hasNotificationPermission, scheduleSkyPlan } from '../utils/notificationScheduler';
 
 
 
@@ -58,7 +65,9 @@ const scheduleSunsetNotification = async (
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
-  customIdentifier: string = 'sunset-alert'
+  customIdentifier: string = 'sunset-alert',
+  /** 대기질 한 줄(`airQuality.airQualityNote`). 빈 문자열이면 붙이지 않습니다. */
+  airNote: string = ''
 ) => {
   try {
     const effectiveTrigger = triggerTime ?? new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
@@ -67,7 +76,7 @@ const scheduleSunsetNotification = async (
     const title = t('sunsetNotificationTitle', language);
     const body = t('sunsetNotificationBody', language)
       .replace('{cloud}', cloudLabel)
-      .replace('{color}', colorLabel);
+      .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -110,7 +119,8 @@ const scheduleSunriseNotification = async (
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
-  customIdentifier: string = 'sunrise-alert'
+  customIdentifier: string = 'sunrise-alert',
+  airNote: string = ''
 ) => {
   try {
     let effectiveTrigger = triggerTime;
@@ -124,7 +134,7 @@ const scheduleSunriseNotification = async (
     const title = t('sunriseNotificationTitle', language);
     const body = t('sunriseNotificationBody', language)
       .replace('{cloud}', cloudLabel)
-      .replace('{color}', colorLabel);
+      .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -175,8 +185,10 @@ export function useCelestialApp() {
     resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
     uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto, initializePendingUploads,
-    checkPermissions, requestLocationPermission, requestCameraPermission
+    checkPermissions, requestLocationPermission, requestCameraPermission, notifPrefs: storedNotifPrefs
   } = useCelestialStore();
+  // 저장된 설정에 새 항목이 없을 수 있어(앱 업데이트) 기본값 위에 얹습니다.
+  const notifPrefs = { ...DEFAULT_NOTIF_PREFS, ...storedNotifPrefs };
 
 
 
@@ -227,11 +239,8 @@ export function useCelestialApp() {
   );
 
   useEffect(() => {
-    Animated.timing(themeAnim, {
-      toValue: isDay ? 0 : 1,
-      duration: 800,
-      useNativeDriver: false,
-    }).start();
+    // 낮↔밤 배경색 — 색이라 동작 줄이기에서도 남깁니다.
+    timeTo(themeAnim, isDay ? 0 : 1, 'slow', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [isDay]);
 
   const moonPos = getMoonPosition(
@@ -325,46 +334,35 @@ export function useCelestialApp() {
 
   const isAndroid = Platform.OS === 'android';
 
+  // ⚠ 테마는 `src/theme/tokens.ts` 에서 옵니다(2026-09-29 디자인 정리). 예전에는 강조색이 낮엔 주황,
+  //   밤엔 하늘색으로 바뀌어 "누를 수 있는 것" 의 색이 시간대마다 달랐습니다. 이제 조작은 늘 하늘색이고,
+  //   주황·호박은 해·노을 **데이터**의 색입니다. 낮/밤에는 바닥 밝기만 아주 조금 달라집니다.
+  // 패널·창·헤더가 쓰는 테마 — 화면 모드(어둡게 · 밝게 · 시스템)를 따릅니다. 하늘·지도 위의 떠 있는 것은
+  // 이 `theme` 이 아니라 `OVERLAY_THEME`(늘 어두움, theme/useTheme.ts)을 씁니다(docs/DESIGN_SYSTEM.md §4.1).
+  const C = useThemeColors();
+  const scheme = useScheme();
+  const baseBg = scheme === 'light' ? C.bg : '#0A0E18';
   const dynamicTheme = {
-    bg: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#090D18', '#05070D'] // Astro-HUD deep graphite telemetry base
-    }),
-    card: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#0E1424', '#0B101D']
-    }),
-    glass: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: isAndroid
-        ? ['#0E1424', '#0B101D']
-        : ['rgba(14, 20, 36, 0.85)', 'rgba(11, 16, 29, 0.88)']
-    }),
-    text: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#F8FAFC', '#F8FAFC']
-    }),
-    subText: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#94A3B8', '#64748B']
-    }),
-    border: themeAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['rgba(255,255,255,0.12)', 'rgba(255,255,255,0.08)']
-    }),
-    accent: isDay ? '#F59E0B' : '#38BDF8',
+    bg: themeAnim.interpolate({ inputRange: [0, 1], outputRange: [baseBg, C.bg] }),
+    card: C.panel,
+    glass: C.panel,
+    text: C.text,
+    subText: C.textDim,
+    border: C.border,
+    accent: C.accent,
   };
 
   const theme = {
-    bg: isDay ? '#090D18' : '#05070D',
-    card: isDay ? '#0E1424' : '#0B101D',
-    glass: isAndroid
-      ? (isDay ? '#0E1424' : '#0B101D')
-      : (isDay ? 'rgba(14, 20, 36, 0.85)' : 'rgba(11, 16, 29, 0.88)'),
-    text: '#F8FAFC',
-    subText: isDay ? '#94A3B8' : '#64748B',
-    border: isDay ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)',
-    accent: isDay ? '#F59E0B' : '#38BDF8',
+    bg: isDay ? baseBg : C.bg,
+    card: C.panel,
+    glass: C.panel,
+    text: C.text,
+    subText: C.textDim,
+    mute: C.textMute,
+    border: C.border,
+    accent: C.accent,
+    overlay: C.overlay,
+    scheme,
   };
 
   // Compass Sync Logic with OS-Compensated Heading
@@ -419,13 +417,7 @@ export function useCelestialApp() {
     const toIdx = tabOrder.indexOf(toTab as any);
     const targetX = -(toIdx >= 0 ? toIdx : 0) * screenWidth;
 
-    Animated.spring(contentTranslateX, {
-      toValue: targetX,
-      damping: 20,
-      stiffness: 130,
-      mass: 0.9,
-      useNativeDriver: Platform.OS !== 'web',
-    }).start();
+    springTo(contentTranslateX, targetX, 'page').start();
   };
 
   const animateTimeTo = (targetDate: Date, duration: number = 600) => {
@@ -643,8 +635,12 @@ export function useCelestialApp() {
     const lat = location.coords.latitude;
     const lon = location.coords.longitude;
 
+    // 알림 설정에서 끈 예보는 예약을 지우고 다음에 켤 때 다시 예약되게 합니다.
+    if (!notifPrefs.sunsetForecast) { lastSunsetDateRef.current = null; cancelScheduledByPrefix('sunset-alert'); }
+    if (!notifPrefs.sunriseForecast) { lastSunriseDateRef.current = null; cancelScheduledByPrefix('sunrise-alert'); }
+
     // 1) 일몰(노을) 알림 스케줄링
-    if (events.sunset) {
+    if (events.sunset && notifPrefs.sunsetForecast) {
       const sunsetTime = events.sunset;
       const sunsetDateStr = sunsetTime.toDateString();
 
@@ -660,9 +656,9 @@ export function useCelestialApp() {
         // 일몰 시간 우선 동기화
         updateSunsetWidgetData({
           timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-          eventLabel: '오늘의 일몰',
-          cloudLabel: '분석 중...',
-          colorLabel: '예측 정보 수신 중',
+          eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
+          cloudLabel: L3(language, '분석 중...', 'Analyzing...', '分析中...'),
+          colorLabel: L3(language, '예측 정보 수신 중', 'Fetching forecast', '予報を取得中'),
           updatedAtStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
         const scheduleSunsetAlert = async () => {
@@ -673,15 +669,18 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string = '없음';
-            let colorLabel: string = '깨끗함';
+            let cloudLabel: string = t('cloudClear', language);
+            let colorLabel: string = t('colorClean', language);
             let sunsetNotifImageUri: string | null = null;
+            let airNote = '';
             try {
               const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
               const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
                 const obs = interpolated[0];
+                // 대기질은 오늘 일몰 시각의 값입니다 — 아래 7일 예약 중 **오늘 것에만** 붙입니다.
+                airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
                     weatherData, sunsetTime, 0, obs.visibility, obs.humidity, lat, 0
@@ -720,7 +719,7 @@ export function useCelestialApp() {
                       // 홈 화면 반응형 위젯 데이터 실시간 갱신 (Small/Medium/Large 3단계 해상도 지원)
                       updateSunsetWidgetData({
                         timeStr: sunsetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-                        eventLabel: '오늘의 일몰',
+                        eventLabel: L3(language, '오늘의 일몰', "Today's sunset", '今日の日の入り'),
                         cloudLabel,
                         colorLabel,
                         simulationUri: sunsetNotifImageUri,
@@ -739,8 +738,8 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed, using default labels:', weatherErr);
             }
 
-            // 기존 중복/구형 예약 알림 전량 취소하여 동일 시각 중복 수신 완벽 방지
-            await Notifications.cancelAllScheduledNotificationsAsync();
+            // 예전 노을 예약만 지웁니다 — 전부 지우면(cancelAll) 일출·하늘 이벤트 알림까지 사라졌습니다.
+            await cancelScheduledByPrefix('sunset-alert-day-');
 
             // 향후 7일간 다일 사전 알림 스케줄링 (앱을 일주일 동안 켜지 않아도 OS 스케줄러가 매일 일몰 2시간 전에 3D 시뮬레이션 알림 발송)
             for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
@@ -754,7 +753,7 @@ export function useCelestialApp() {
 
               const notifId = `sunset-alert-day-${dayOffset}`;
               const triggerTime = new Date(fIdealTrigger > Date.now() ? fIdealTrigger : Date.now() + (5 + dayOffset) * 60 * 1000);
-              await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId);
+              await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId, dayOffset === 0 ? airNote : '');
             }
           } catch (err) {
             console.error('Failed to schedule multi-day sunset notifications:', err);
@@ -766,7 +765,7 @@ export function useCelestialApp() {
     }
 
     // 2) 일출 알림 스케줄링 (전날 밤 10시 시점이 미래인 경우)
-    if (events.sunrise) {
+    if (events.sunrise && notifPrefs.sunriseForecast) {
       const sunriseTime = events.sunrise;
       const sunriseDateStr = sunriseTime.toDateString();
       const alertTime = new Date(sunriseTime.getTime());
@@ -788,15 +787,17 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string = '없음';
-            let colorLabel: string = '깨끗함';
+            let cloudLabel: string = t('cloudClear', language);
+            let colorLabel: string = t('colorClean', language);
             let sunriseNotifImageUri: string | null = null;
+            let airNote = '';
             try {
               const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;
               const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunriseTime);
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
                 const obs = interpolated[0];
+                airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
                     weatherData, sunriseTime, 0, obs.visibility, obs.humidity, lat, 0
@@ -837,7 +838,7 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed for sunrise, using default labels:', weatherErr);
             }
 
-            await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri);
+            await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri, undefined, airNote);
           } catch (err) {
             console.error('Failed to schedule sunrise notification:', err);
             lastSunriseDateRef.current = null;
@@ -914,7 +915,34 @@ export function useCelestialApp() {
         clearTimeout(timerId);
       }
     };
-  }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime()]);
+  }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast]);
+
+  // 하늘 이벤트 알림(골든아워·블루아워·월출·가는 달·은하수·행성) — 설정·위치·언어·날짜가 바뀌면 다시 계획합니다.
+  const skyPlanKey = JSON.stringify([
+    notifPrefs.golden, notifPrefs.blue, notifPrefs.moonrise, notifPrefs.crescent, notifPrefs.milkyway, notifPrefs.planets, notifPrefs.leadMin,
+    location ? Math.round(location.coords.latitude * 100) / 100 : null, location ? Math.round(location.coords.longitude * 100) / 100 : null,
+    language, timezoneOffsetHours, events?.sunrise?.toDateString() ?? null,
+  ]);
+  useEffect(() => {
+    if (!location) return;
+    const anyOn = SKY_NOTIF_KINDS.some((k) => notifPrefs[k]);
+    let cancelled = false;
+    (async () => {
+      if (!anyOn) { await cancelScheduledByPrefix('sky-'); return; }
+      if (!(await hasNotificationPermission(true)) || cancelled) return;
+      const plan = planSkyNotifications({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        now: new Date(),
+        prefs: notifPrefs,
+        language,
+        tzOffsetHours: timezoneOffsetHours,
+      });
+      if (!cancelled) await scheduleSkyPlan(plan);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skyPlanKey]);
 
   return {
     width,

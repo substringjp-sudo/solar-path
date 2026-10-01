@@ -11,7 +11,7 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Platform, Animated } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Platform, Animated } from 'react-native';
 import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical } from 'lucide-react-native';
 import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
@@ -36,9 +36,15 @@ import {
 } from '../../utils/skyTimeline';
 import { PredictionCard } from '../SunsetSimulation/PredictionCard';
 import { InfoCard } from '../InfoCard';
-import { PeekSheet } from './PeekSheet';
+import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
+import { buildSkyEvents } from '../../utils/skyEvents';
+import { t } from '../../utils/i18n';
+import { color, color as DARK, radius, mono, dataColor } from '../../theme/tokens';
+import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
+import { PressScale, OverlayButton, Reveal } from '../ui';
+import { timeTo } from '../../theme/motion';
 
 interface SkyScreenProps {
   theme: any;
@@ -78,7 +84,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   isActive = true,
   onCameraPress,
 }) => {
-  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache } = useCelestialStore();
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
+  const [stageH, setStageH] = useState(0);
+  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
@@ -271,11 +279,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const progressAnim = React.useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: buildProgress,
-      duration: 180,
-      useNativeDriver: false,
-    }).start();
+    timeTo(progressAnim, buildProgress, 'fast', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [buildProgress, progressAnim]);
 
   const handleBuildTimeline = React.useCallback(async () => {
@@ -288,13 +292,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     setBuilding(true);
     setBuildError(null);
     setBuildProgress(0);
-    setBuildLabel('시작하는 중…');
+    setBuildLabel(t('buildStarting', language));
     try {
       const tl = await buildSkyTimeline({
         latitude,
         longitude,
         date: currentTime,
         observerElevM: terrainData.observerElevation,
+        language,
         onProgress: (p, label) => {
           setBuildProgress(p);
           setBuildLabel(label);
@@ -302,15 +307,15 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         isCancelled: () => cancelBuildRef.current,
       });
       setTimeline(tl);
-      setBuildLabel('완료');
+      setBuildLabel(t('buildDone', language));
     } catch (err: any) {
       if (err?.message === 'CANCELLED') {
-        setBuildLabel('취소됨');
+        setBuildLabel(t('buildCancelled', language));
       } else {
         console.log('sky timeline build failed:', err);
         setBuildError(err?.message?.includes('RATE_LIMIT')
-          ? 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.'
-          : '날씨를 받지 못했습니다. 연결을 확인해 주세요.');
+          ? t('errRateLimit', language)
+          : t('errWeather', language));
       }
     } finally {
       setBuilding(false);
@@ -417,102 +422,31 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     observerElevM: terrainData.observerElevation,
   }), [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
 
-  // 오늘의 추천 및 일반 이벤트 목록 생성
-  const eventItems = useMemo(() => {
-    const list: EventItem[] = [];
-    const baseDate = new Date(currentTime);
-    
-    const sunrise = events?.sunrise ?? new Date(baseDate.setHours(6, 12, 0, 0));
-    const sunset = events?.sunset ?? new Date(baseDate.setHours(19, 35, 0, 0));
-    const moonrise = events?.moonrise ?? new Date(baseDate.setHours(20, 10, 0, 0));
-    const moonset = events?.moonset ?? new Date(baseDate.setHours(5, 40, 0, 0));
-
-    const moonIllum = SunCalc.getMoonIllumination(currentTime);
-    const isCrescent = moonIllum.phase < 0.25 || moonIllum.phase > 0.75;
-
-    // 1. 추천 이벤트 (Featured Events)
-    list.push({
-      id: 'f_sunset',
-      title: '훌륭한 일몰',
-      time: sunset,
-      category: 'featured',
-      badge: '추천 95점',
-      description: '황혼의 붉은 노을빛과 고층 구름의 빛 반사',
+  // 오늘의 추천 및 일반 이벤트 — 모두 계산에서 나옵니다(`skyEvents.ts` 머리말).
+  // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
+  const predictionAt = (tm?: Date | null) => {
+    if (!tm || !pathData.length) return null;
+    const sp = SunCalc.getPosition(tm, latitude, longitude);
+    const p = scenePrediction({
+      pathData,
+      time: tm,
+      sunAltDeg: sp.altitude * (180 / Math.PI),
+      obs: getInterpolatedWeather(pathData, tm)[0],
+      latitude,
+      observerElevM: terrainData.observerElevation,
     });
-
-    list.push({
-      id: 'f_sunrise',
-      title: '훌륭한 일출',
-      time: sunrise,
-      category: 'featured',
-      badge: '추천 90점',
-      description: '새벽녘 지평선 황금빛 직달광',
-    });
-
-    if (isCrescent) {
-      list.push({
-        id: 'f_crescent',
-        title: '눈썹달/초승달',
-        time: new Date(sunset.getTime() + 45 * 60000),
-        category: 'featured',
-        badge: '달 위상',
-        description: '일몰 직후 남서쪽 하늘에 선명한 초승달',
-      });
-    }
-
-    list.push({
-      id: 'f_milkyway',
-      title: '은하수 관측 적기',
-      time: new Date(sunset.getTime() + 150 * 60000),
-      category: 'featured',
-      badge: '별자리',
-      description: '광해와 달빛이 적어 은하 적도가 또렷한 밤',
-    });
-
-    list.push({
-      id: 'f_night',
-      title: '행성 & 야경 경치',
-      time: new Date(baseDate.setHours(22, 0, 0, 0)),
-      category: 'featured',
-      badge: '야경',
-      description: '목성/토성 및 6.5등급 8천여 항성 관측',
-    });
-
-    // 2. 일반 이벤트 (General Events)
-    list.push({
-      id: 'g_sunrise',
-      title: '일출',
-      time: sunrise,
-      category: 'general',
-      description: '오늘의 일출 시각',
-    });
-
-    list.push({
-      id: 'g_sunset',
-      title: '일몰',
-      time: sunset,
-      category: 'general',
-      description: '오늘의 일몰 시각',
-    });
-
-    list.push({
-      id: 'g_moonrise',
-      title: '월출',
-      time: moonrise,
-      category: 'general',
-      description: '오늘의 월출 시각',
-    });
-
-    list.push({
-      id: 'g_moonset',
-      title: '월몰',
-      time: moonset,
-      category: 'general',
-      description: '오늘의 월몰 시각',
-    });
-
-    return list;
-  }, [currentTime, events]);
+    return p ? { score: p.score, quality: p.quality } : null;
+  };
+  const eventItems = useMemo(() => buildSkyEvents({
+    date: currentTime,
+    latitude,
+    longitude,
+    events,
+    sunsetPrediction: predictionAt(events?.sunset),
+    sunrisePrediction: predictionAt(events?.sunrise),
+    language,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [currentTime.toDateString(), events, pathData, latitude, language, terrainData.observerElevation]);
 
   const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
   const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);
@@ -524,7 +458,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   };
 
   // 요약 한 줄에 쓸 값들
-  const scoreText = prediction?.score != null ? `${Math.round(prediction.score)}점` : '—';
+  const scoreText = prediction?.score != null ? t('evScore', language).replace('{n}', String(Math.round(prediction.score))) : '—';
   const sunsetText = events?.sunset
     ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
     : '--:--';
@@ -533,6 +467,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   return (
     <View style={styles.container}>
       {/* ── 3D 돔: 화면을 꽉 채웁니다 ───────────────────────────────────── */}
+      {/* 무대 — 씬은 아래에서 PEEK_HEIGHT 만큼 비켜 고정, 시트는 그 위로 떠서 올라옵니다(찌그러짐 없음). */}
+      <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
       <View style={styles.sceneWrapper}>
         <SkyScene3D
           sim={simObj}
@@ -542,7 +478,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           prediction={prediction}
           location={location}
           interpolatedWeather={sceneWeather}
-          theme={theme}
+          theme={OVERLAY_THEME}
           layers={layers}
           skySettings={skySettings}
           trackingTarget={trackingTarget}
@@ -553,56 +489,51 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         />
 
         {trackingTarget && (
-          <TouchableOpacity
-            style={styles.trackingBadge}
+          <PressScale
+            style={overlayStyles.trackingBadge}
             onPress={() => setTrackingTarget(null)}
             activeOpacity={0.8}
           >
-            <Target size={11} color="#38BDF8" style={{ marginRight: 4 }} />
-            <Text style={styles.trackingText}>
-              {trackingTarget === 'sun' ? '태양 추적 중' : trackingTarget === 'moon' ? '달 추적 중' : trackingTarget === 'milkyway' ? '은하수 추적 중' : '천체 추적 중'}
+            <Target size={11} color={DARK.accent} style={{ marginRight: 4 }} />
+            <Text style={overlayStyles.trackingText}>
+              {t(trackingTarget === 'sun' ? 'trackSun' : trackingTarget === 'moon' ? 'trackMoon' : trackingTarget === 'milkyway' ? 'trackMilky' : 'trackBody', language)}
             </Text>
-            <Text style={styles.trackingCancel}> [해제]</Text>
-          </TouchableOpacity>
+            <Text style={overlayStyles.trackingCancel}> {t('trackRelease', language)}</Text>
+          </PressScale>
         )}
 
         {/* 씬 위 오버레이 버튼: 3D 표시 설정 */}
-        <View style={styles.sceneOverlayButtons}>
+        <View style={overlayStyles.sceneOverlayButtons}>
           {/* 3D 요소 표시 설정 모달 */}
-          <TouchableOpacity
-            style={[styles.overlayButton, { backgroundColor: 'rgba(5, 5, 10, 0.65)', borderColor: theme.border }]}
+          <OverlayButton
             onPress={() => setLayerModalVisible(true)}
-            onLongPress={() => setDevPanelOpen(v => !v)}
-            delayLongPress={700}
-            activeOpacity={0.7}
+            // 개발자 튜닝은 개발 빌드에서만 — 출시판 사용자가 길게 눌러 여는 일이 없게(점검 2026-09-29).
+            onLongPress={__DEV__ ? () => setDevPanelOpen(v => !v) : undefined}
+            accessibilityLabel={t('layerTitle', language)}
           >
-            <SlidersHorizontal size={14} color="#FFFFFF" />
-          </TouchableOpacity>
+            <SlidersHorizontal size={16} color={DARK.text} />
+          </OverlayButton>
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
           {isDevPanelOpen && (
-            <TouchableOpacity
-              style={[styles.overlayButton, { backgroundColor: 'rgba(56, 189, 248, 0.32)', borderColor: '#38BDF8' }]}
-              onPress={() => setDevPanelOpen(false)}
-              activeOpacity={0.7}
-            >
-              <SlidersVertical size={14} color="#38BDF8" />
-            </TouchableOpacity>
+            <OverlayButton active onPress={() => setDevPanelOpen(false)}>
+              <SlidersVertical size={14} color={DARK.accent} />
+            </OverlayButton>
           )}
         </View>
 
         {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
         {(isBuilding || buildError) && (
-          <View style={styles.buildBanner}>
+          <Reveal style={overlayStyles.buildBanner}>
             {buildError ? (
-              <Text style={styles.buildError} numberOfLines={2}>{buildError}</Text>
+              <Text style={overlayStyles.buildError} numberOfLines={2}>{buildError}</Text>
             ) : (
               <>
-                <Text style={styles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
-                <View style={styles.progressTrack}>
+                <Text style={overlayStyles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
+                <View style={overlayStyles.progressTrack}>
                   <Animated.View
                     style={[
-                      styles.progressFill,
+                      overlayStyles.progressFill,
                       {
                         width: progressAnim.interpolate({
                           inputRange: [0, 1],
@@ -612,28 +543,29 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     ]}
                   />
                 </View>
-                <Text style={styles.buildHint}>탭하면 취소</Text>
+                <Text style={overlayStyles.buildHint}>{t('tapToCancel', language)}</Text>
               </>
             )}
-          </View>
+          </Reveal>
         )}
       </View>
 
       {/* ── peek 시트: 닫히면 요약 한 줄, 끌어올리면 근거와 수치 ─────────── */}
       <PeekSheet
         theme={theme}
+        maxHeight={stageH || undefined}
         summary={
           <View style={styles.summaryRow}>
-            <Flame size={13} color="#F97316" />
+            <Flame size={13} color={color.glow} />
             <Text style={[styles.summaryScore, { color: theme.text }]}>{scoreText}</Text>
             <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
-            <Sunset size={12} color="#FB923C" />
+            <Sunset size={12} color={color.glow} />
             <Text style={[styles.summaryValue, { color: theme.text }]}>{sunsetText}</Text>
             {highCloudPct != null && (
               <>
                 <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
                 <Text style={[styles.summaryValue, { color: theme.subText }]}>
-                  상층운 {Math.round(highCloudPct)}%
+                  {t('highCloudPct', language).replace('{n}', String(Math.round(highCloudPct)))}
                 </Text>
               </>
             )}
@@ -649,60 +581,30 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           )}
 
-          {/* 태양·달 수치 — 예전 tracker 탭의 InfoCard 그리드 */}
-          <View style={[styles.numberFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <View style={styles.frameHeader}>
-              <Sun size={11} color="#FFD700" />
-              <Text style={[styles.frameLabel, { color: theme.subText }]}>태양 · 달</Text>
-            </View>
-            <View style={styles.numberGrid}>
-              <InfoCard
-                icon={<Sun size={14} color="#FFD700" />}
-                label="태양"
-                value={`${sunAltitude.toFixed(0)}°`}
-                subValue={`${sunAzimuth.toFixed(0)}°`}
-                theme={theme}
-              />
-              <InfoCard
-                icon={<Moon size={14} color="#94A3B8" />}
-                label="달"
-                value={`${moonAltitude.toFixed(0)}°`}
-                subValue={`${moonAzimuth.toFixed(0)}°`}
-                theme={theme}
-              />
-              <InfoCard
-                icon={<Sunset size={14} color="#FF4500" />}
-                label="일몰"
-                value={sunsetText}
-                theme={theme}
-              />
-            </View>
-          </View>
-
           {/* 이벤트 — 탭하면 그 시각으로 이동 */}
           <View style={styles.eventSection}>
             <View style={styles.tabToggleGroup}>
-              <TouchableOpacity
+              <PressScale
                 style={[styles.tabButton, activeTab === 'featured' && styles.tabButtonActive]}
                 onPress={() => setActiveTab('featured')}
                 activeOpacity={0.8}
               >
-                <Sparkles size={12} color={activeTab === 'featured' ? '#F59E0B' : '#94A3B8'} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>추천 이벤트</Text>
-              </TouchableOpacity>
+                <Sparkles size={12} color={activeTab === 'featured' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
+                <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>{t('evFeatured', language)}</Text>
+              </PressScale>
 
-              <TouchableOpacity
+              <PressScale
                 style={[styles.tabButton, activeTab === 'general' && styles.tabButtonActive]}
                 onPress={() => setActiveTab('general')}
                 activeOpacity={0.8}
               >
-                <Sun size={12} color={activeTab === 'general' ? '#38BDF8' : '#94A3B8'} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>일반 이벤트</Text>
-              </TouchableOpacity>
+                <Sun size={12} color={activeTab === 'general' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
+                <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>{t('evGeneral', language)}</Text>
+              </PressScale>
             </View>
 
             {(activeTab === 'featured' ? featuredList : generalList).map(item => (
-              <TouchableOpacity
+              <PressScale
                 key={item.id}
                 style={[
                   styles.eventRow,
@@ -713,13 +615,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 activeOpacity={0.75}
               >
                 {(() => {
-                  if (item.id.includes('sunset')) return <Sunset size={14} color="#F97316" />;
-                  if (item.id.includes('sunrise')) return <Sun size={14} color="#FBBF24" />;
-                  if (item.id.includes('crescent')) return <Moon size={14} color="#38BDF8" />;
+                  if (item.id.includes('sunset')) return <Sunset size={14} color={color.glow} />;
+                  if (item.id.includes('sunrise')) return <Sun size={14} color={color.sun} />;
+                  if (item.id.includes('crescent')) return <Moon size={14} color={color.moon} />;
                   if (item.id.includes('milkyway')) return <Sparkles size={14} color="#A78BFA" />;
-                  if (item.id.includes('night')) return <Star size={14} color="#F43F5E" />;
-                  if (item.id.includes('moon')) return <Moon size={14} color="#38BDF8" />;
-                  return <Sun size={14} color="#EAB308" />;
+                  if (item.id.includes('planets')) return <Star size={14} color="#F43F5E" />;
+                  if (item.id.includes('moon')) return <Moon size={14} color={color.moon} />;
+                  return <Sun size={14} color={color.sun} />;
                 })()}
                 <View style={styles.eventRowText}>
                   <Text style={[styles.eventTitle, { color: theme.text }]}>{item.title}</Text>
@@ -727,15 +629,49 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                     {item.description}
                   </Text>
                 </View>
+                {item.badge && (
+                  <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
+                )}
                 <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             ))}
+          </View>
+
+          {/* 태양·달 수치 — 맨 아래: 예측(판단) → 이벤트(언제) → 수치(근거) 순으로 읽습니다. */}
+          <View style={[styles.numberFrame, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <View style={styles.frameHeader}>
+              <Sun size={11} color={color.sun} />
+              <Text style={[styles.frameLabel, { color: theme.subText }]}>{t('sunMoon', language)}</Text>
+            </View>
+            <View style={styles.numberGrid}>
+              <InfoCard
+                icon={<Sun size={14} color={color.sun} />}
+                label={t('sunLabel', language)}
+                value={`${sunAltitude.toFixed(0)}°`}
+                subValue={`${sunAzimuth.toFixed(0)}°`}
+                theme={theme}
+              />
+              <InfoCard
+                icon={<Moon size={14} color={color.moon} />}
+                label={t('moonLabel', language)}
+                value={`${moonAltitude.toFixed(0)}°`}
+                subValue={`${moonAzimuth.toFixed(0)}°`}
+                theme={theme}
+              />
+              <InfoCard
+                icon={<Sunset size={14} color={color.glow} />}
+                label={t('sunset', language)}
+                value={sunsetText}
+                theme={theme}
+              />
+            </View>
           </View>
         </ScrollView>
       </PeekSheet>
+      </View>
 
       {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
-      <View style={[styles.bottomPanel, { backgroundColor: 'rgba(8, 11, 17, 0.95)', borderColor: 'rgba(255, 255, 255, 0.12)' }]}>
+      <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
         <TimeSlider
           value={currentTime}
           onChange={setCurrentTime}
@@ -745,10 +681,10 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           isDay={sunAltitude > 0}
           onCameraPress={onCameraPress}
           markers={events ? [
-            { time: events.sunrise || null, color: '#FFA500', type: 'rise' },
-            { time: events.sunset || null, color: '#FF4500', type: 'set' },
-            { time: events.moonrise || null, color: '#888', type: 'rise' },
-            { time: events.moonset || null, color: '#888', type: 'set' },
+            { time: events.sunrise || null, color: dataColor.sunrise, type: 'rise' },
+            { time: events.sunset || null, color: dataColor.sunset, type: 'set' },
+            { time: events.moonrise || null, color: color.textDim, type: 'rise' },
+            { time: events.moonset || null, color: color.textDim, type: 'set' },
           ] : []}
         />
       </View>
@@ -774,16 +710,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  sceneWrapper: {
-    flex: 1,
-    width: '100%',
-    position: 'relative',
-    overflow: 'hidden',
-  },
+/** 하늘 위의 떠 있는 것 — 화면 모드와 상관없이 어둡습니다(모듈의 어두운 `color`). */
+const overlayStyles = StyleSheet.create({
   sceneOverlayButtons: {
     position: 'absolute',
     top: 12,
@@ -794,7 +722,7 @@ const styles = StyleSheet.create({
   overlayButton: {
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -804,10 +732,10 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     bottom: 14,
-    backgroundColor: 'rgba(8, 11, 17, 0.95)',
-    borderRadius: 4,
+    backgroundColor: color.panel,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     paddingHorizontal: 12,
     paddingVertical: 9,
     zIndex: 25,
@@ -816,12 +744,12 @@ const styles = StyleSheet.create({
   buildLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#E2E8F0',
+    color: color.text,
   },
   buildHint: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#64748B',
+    color: color.textMute,
   },
   buildError: {
     fontSize: 11,
@@ -830,14 +758,14 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     height: 4,
-    borderRadius: 2,
+    borderRadius: radius.xs,
     backgroundColor: 'rgba(148, 163, 184, 0.25)',
     overflow: 'hidden',
   },
   progressFill: {
     height: 4,
-    borderRadius: 2,
-    backgroundColor: '#34D399',
+    borderRadius: radius.xs,
+    backgroundColor: color.success,
   },
   trackingBadge: {
     position: 'absolute',
@@ -846,24 +774,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(11, 19, 43, 0.85)',
-    borderColor: '#38BDF8',
+    borderColor: color.accent,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     zIndex: 20,
     gap: 4,
   },
   trackingText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#F8FAFC',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: color.text,
+    fontFamily: mono,
   },
   trackingCancel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#38BDF8',
+    color: color.accent,
+  },
+});
+
+/** 시트·아래 패널 — 화면 모드를 따릅니다. */
+const useStyles = makeStyles((color) => ({
+  container: {
+    flex: 1,
+  },
+  stage: {
+    flex: 1,
+    position: 'relative',
+  },
+  sceneWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: PEEK_HEIGHT,
+    overflow: 'hidden',
   },
 
   // ── peek 시트 요약 한 줄 ──────────────────────────────────────────────
@@ -873,18 +820,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   summaryScore: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '900',
     letterSpacing: -0.3,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   summaryValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   summaryDot: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     opacity: 0.5,
   },
@@ -895,10 +842,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   numberFrame: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     padding: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
   },
   frameHeader: {
     flexDirection: 'row',
@@ -908,10 +855,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   frameLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   numberGrid: {
     flexDirection: 'row',
@@ -931,24 +878,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: color.border,
     backgroundColor: 'rgba(148, 163, 184, 0.1)',
   },
   tabButtonActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: 'rgba(56, 189, 248, 0.45)',
+    backgroundColor: color.accentSoft,
+    borderColor: color.accentLine,
   },
   tabText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#94A3B8',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: color.textDim,
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   tabTextActive: {
-    color: '#38BDF8',
+    color: color.accent,
     fontWeight: '900',
   },
   // 이벤트를 가로 스크롤 카드가 아니라 세로 목록으로 바꿨습니다.
@@ -959,9 +906,9 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 9,
     paddingHorizontal: 11,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: color.border,
   },
   eventRowFeatured: {
     borderColor: 'rgba(245, 158, 11, 0.45)',
@@ -971,24 +918,33 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   eventTitle: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
   },
   eventDesc: {
-    fontSize: 10.5,
+    fontSize: 11,
     marginTop: 1,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
+  },
+  eventBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginRight: 8,
   },
   eventTime: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.4,
   },
 
   bottomPanel: {
     paddingVertical: 6,
     borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
   },
-});
+}));

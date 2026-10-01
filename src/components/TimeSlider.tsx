@@ -1,10 +1,13 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Clock, Zap, Camera } from 'lucide-react-native';
 import { GenericSlider } from './GenericSlider';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime, formatLocalTime } from '../utils/timezone';
-import { t } from '../utils/i18n';
+import { t, L3 } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface TimeSliderProps {
   value: Date;
@@ -37,6 +40,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   onSlidingStart,
   onSlidingComplete,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { location, timezoneOffsetHours, language } = useCelestialStore();
 
   const localValue = useMemo(() => getLocalTimeAtLocation(value, timezoneOffsetHours), [value, timezoneOffsetHours]);
@@ -92,7 +96,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
   const getKnobColors = (p: number) => {
     // Astro-HUD: 흑연 옵시디언 다크 노브 + 일렉트릭 시안 발광 타임코드
-    return { color: '#0B132B', textColor: '#38BDF8' };
+    return { color: color.panelRaised, textColor: color.accent };
   };
 
   const sunriseTime = useMemo(() => {
@@ -121,7 +125,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
       let isGolden = false;
       localMarkers.forEach(m => {
-        if (!m.time || m.color === '#888' || m.color === '#888888') return;
+        if (!m.time || m.color === color.textDim || m.color === color.textDim) return;
         const markerMinutes = m.time.getUTCHours() * 60 + m.time.getUTCMinutes();
         let diff = valueMinutes - markerMinutes;
         if (diff > 720) diff -= 1440;
@@ -134,9 +138,9 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
         }
       });
 
-      if (isGolden) return '#FFD700';
+      if (isGolden) return color.sun;
       const isSliderDay = valueMinutes >= sunriseMinutes && valueMinutes < sunsetMinutes;
-      return isSliderDay ? '#38BDF8' : '#1A237E';
+      return isSliderDay ? color.accent : '#1A237E';
     };
 
     const transitionBufferMins = 15; // 15분 전이 그라데이션 구간
@@ -235,7 +239,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     localMarkers.forEach(m => {
       if (!m.time) return;
       // 달 마커(색상이 #888)는 골든타임 판정에서 제외하고 태양 마커만 판정
-      if (m.color === '#888' || m.color === '#888888') return;
+      if (m.color === color.textDim || m.color === color.textDim) return;
 
       const markerMinutes = m.time.getUTCHours() * 60 + m.time.getUTCMinutes();
       
@@ -265,14 +269,14 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
     });
 
     if (isGolden) {
-      return '#FFD700'; // 일출 일몰 (노란색)
+      return color.sun; // 일출 일몰 (노란색)
     }
 
     // 2. 현재 선택된 시간(valueMinutes) 기준 낮/밤 판단
     const isSliderDay = valueMinutes >= sunriseMinutes && valueMinutes < sunsetMinutes;
 
     // 낮: 청량한 하늘색, 밤: 깊고 짙은 남색
-    return isSliderDay ? '#38BDF8' : '#1A237E';
+    return isSliderDay ? color.accent : '#1A237E';
   };
 
   return (
@@ -281,12 +285,12 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       <View style={styles.sliderSection}>
         <View style={styles.header}>
           <View style={styles.titleRow}>
-            <Clock size={12} color="#38BDF8" />
-            <Text style={[styles.title, { color: '#E2E8F0' }]}>
+            <Clock size={12} color={color.accent} />
+            <Text style={[styles.title, { color: color.text }]}>
               {isFullDay ? (isTimeMachineEnabled ? t('timeMachine', language) : t('realtime', language)) : t('simulationTime', language)}
             </Text>
             <View style={styles.telemetryTagWrap}>
-              <View style={[styles.telemetryDot, { backgroundColor: isTimeMachineEnabled ? '#F59E0B' : '#34D399' }]} />
+              <View style={[styles.telemetryDot, { backgroundColor: isTimeMachineEnabled ? color.warning : color.success }]} />
               <Text style={styles.telemetryTag}>
                 {isTimeMachineEnabled ? 'SIM' : 'LIVE'}
               </Text>
@@ -295,14 +299,14 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
 
           <View style={styles.headerButtons}>
             {isFullDay && isTimeMachineEnabled && (
-              <TouchableOpacity 
+              <PressScale 
                 style={styles.nowBtn} 
                 onPress={() => onToggleTimeMachine(false)}
                 activeOpacity={0.75}
               >
-                <Zap size={10} color="#000" fill="#000" />
+                <Zap size={10} color={color.onAccent} fill={color.onAccent} />
                 <Text style={styles.nowBtnText}>{t('now', language)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
           </View>
         </View>
@@ -321,7 +325,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
             }}
             onRelease={onSlidingComplete}
             theme={theme}
-            trackColor={isDay ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.08)'}
+            trackColor={isDay ? color.accentSoft : color.border}
             fillColor={getFillColor()}
             colorMap={colorMap}
             knobColor={getKnobColors(currentPct).color}
@@ -331,7 +335,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
                   if (!marker.time) return null;
                   const p = getPercentageFromTime(marker.time);
                   if (p < 0 || p > 100) return null;
-                  const markerColor = marker.color === '#888' ? '#888888' : marker.color;
+                  const markerColor = marker.color === color.textDim ? color.textDim : marker.color;
                   return (
                     <View 
                       key={i} 
@@ -340,7 +344,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
                       {marker.type === 'rise' && (
                         <Text style={[styles.directionIndicator, { color: markerColor, marginBottom: 2 }]}>▲</Text>
                       )}
-                      <View style={[styles.auraRing, { borderColor: markerColor, backgroundColor: '#0B132B' }]}>
+                      <View style={[styles.auraRing, { borderColor: markerColor, backgroundColor: color.panelRaised }]}>
                         <View style={[styles.coreDot, { backgroundColor: markerColor }]} />
                       </View>
                       {marker.type === 'set' && (
@@ -384,23 +388,20 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
       {/* ── 우측: Astro-HUD 카메라 셔터 모듈 ────────────────────────────── */}
       {onCameraPress && (
         <View style={styles.shutterModule}>
-          <View style={styles.shutterStatusRow}>
-            <View style={styles.shutterLed} />
-            <Text style={styles.shutterStatusText}>READY</Text>
-          </View>
-          <TouchableOpacity
+          {/* 'READY' 표시등은 뺐습니다 — 상태와 무관하게 늘 READY 라 뜻이 없었습니다(점검 2026-09-29). */}
+          <PressScale
             style={styles.shutterBtn}
             onPress={onCameraPress}
             activeOpacity={0.78}
-            accessibilityLabel="AR 카메라 열기"
+            accessibilityLabel={L3(language, 'AR 카메라 열기', 'Open AR camera', 'ARカメラを開く')}
             accessibilityRole="button"
           >
             <View style={styles.shutterOuterRing}>
               <View style={styles.shutterInnerCore}>
-                <Camera size={19} color="#000000" strokeWidth={2.4} />
+                <Camera size={19} color={color.onAccent} strokeWidth={2.4} />
               </View>
             </View>
-          </TouchableOpacity>
+          </PressScale>
           <Text style={styles.shutterLabel}>CAM / AR</Text>
         </View>
       )}
@@ -408,7 +409,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -433,7 +434,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   title: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -442,25 +443,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: color.fill,
     paddingHorizontal: 5,
     paddingVertical: 1.5,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
     marginLeft: 4,
   },
   telemetryDot: {
     width: 4.5,
     height: 4.5,
-    borderRadius: 2.25,
+    borderRadius: radius.xs,
   },
   telemetryTag: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.75)',
+    color: color.textDim,
     letterSpacing: 0.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   headerButtons: {
     flexDirection: 'row',
@@ -472,16 +473,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: color.accentSoft,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.35)',
+    borderColor: color.accentLine,
     paddingHorizontal: 6,
     paddingVertical: 2.5,
-    borderRadius: 3,
+    borderRadius: radius.xs,
   },
   actionBtnText: {
-    color: '#38BDF8',
-    fontSize: 9.5,
+    color: color.accent,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -489,14 +490,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#F59E0B',
+    backgroundColor: color.sun,
     paddingHorizontal: 7,
     paddingVertical: 2.5,
-    borderRadius: 3,
+    borderRadius: radius.xs,
   },
   nowBtnText: {
-    color: '#000',
-    fontSize: 9.5,
+    color: color.onAccent,
+    fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.3,
   },
@@ -521,7 +522,7 @@ const styles = StyleSheet.create({
   auraRing: {
     width: 9,
     height: 9,
-    borderRadius: 4.5,
+    borderRadius: radius.sm,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -529,17 +530,17 @@ const styles = StyleSheet.create({
   coreDot: {
     width: 2.5,
     height: 2.5,
-    borderRadius: 1.25,
+    borderRadius: radius.xs,
   },
   directionIndicator: {
-    fontSize: 7,
+    fontSize: 9,
     fontWeight: '900',
     opacity: 0.85,
   },
   tooltipText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   timeLabels: {
@@ -550,10 +551,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   timeLabel: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '700',
-    color: 'rgba(148, 163, 184, 0.75)',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: color.textMute,
+    fontFamily: mono,
   },
   absoluteLabelOverlay: {
     position: 'absolute',
@@ -576,10 +577,10 @@ const styles = StyleSheet.create({
   shutterModule: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(11, 19, 43, 0.65)',
+    backgroundColor: color.fill,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.35)',
-    borderRadius: 5,
+    borderColor: color.accentLine,
+    borderRadius: radius.sm,
     paddingVertical: 5,
     paddingHorizontal: 7,
     gap: 3,
@@ -593,22 +594,22 @@ const styles = StyleSheet.create({
   shutterLed: {
     width: 4,
     height: 4,
-    borderRadius: 2,
-    backgroundColor: '#34D399',
-    shadowColor: '#34D399',
+    borderRadius: radius.xs,
+    backgroundColor: color.success,
+    shadowColor: color.success,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.9,
     shadowRadius: 3,
   },
   shutterStatusText: {
-    color: '#34D399',
-    fontSize: 7.5,
+    color: color.success,
+    fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   shutterBtn: {
-    shadowColor: '#F59E0B',
+    shadowColor: color.sun,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -617,8 +618,8 @@ const styles = StyleSheet.create({
   shutterOuterRing: {
     width: 38,
     height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: radius.lg,
+    backgroundColor: color.border,
     borderWidth: 1.5,
     borderColor: 'rgba(245, 158, 11, 0.7)',
     justifyContent: 'center',
@@ -627,16 +628,16 @@ const styles = StyleSheet.create({
   shutterInnerCore: {
     width: 30,
     height: 30,
-    borderRadius: 15,
-    backgroundColor: '#F59E0B',
+    borderRadius: radius.lg,
+    backgroundColor: color.sun,
     justifyContent: 'center',
     alignItems: 'center',
   },
   shutterLabel: {
-    color: 'rgba(255, 255, 255, 0.65)',
-    fontSize: 7.5,
+    color: color.textDim,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
-});
+}));

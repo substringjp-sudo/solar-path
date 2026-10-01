@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
-import { Calendar, Clock, Info, Sun, Sunrise, Sunset, Compass, Globe, MapPin, Crosshair, Star, Hash } from 'lucide-react-native';
+import { View, Text, StyleSheet, Platform, useWindowDimensions } from 'react-native';
+import { Info, Sun, Sunrise, Sunset, Compass, Globe, Crosshair, Star, Hash } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
 import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
@@ -15,7 +15,7 @@ import { canPickLocation, locationTapAction, solarBadgeMaxWidth, bottomLeftMaxWi
 import * as Location from 'expo-location';
 import { LandSilhouette } from './LandSilhouette';
 import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
-import { t } from '../../utils/i18n';
+import { t, L3 } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
 import { MapCanvas } from './MapCanvas';
@@ -23,6 +23,9 @@ import { MapGlobe } from './MapGlobe';
 import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
+import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { OVERLAY_THEME } from '../../theme/useTheme';
+import { PressScale, OverlayButton, Reveal } from '../ui';
 
 interface IsolineMapProps {
   theme: any;
@@ -35,7 +38,10 @@ interface IsolineMapProps {
 const AUTOPLAY_TICK_MS = 150;
 const AUTOPLAY_STEP_MINUTES = 20;
 
-export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isActive, onOpenPicker }) => {
+export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, currentTime, isActive, onOpenPicker }) => {
+  // 지도 카드와 그 위의 떠 있는 것(배지·범례·메뉴)은 화면 모드와 상관없이 어둡습니다. 탭 바닥과 아래
+  // 조작부(IsolineControls)·도움말 창만 `panelTheme`(화면 모드)을 따릅니다(docs/DESIGN_SYSTEM.md §4.1).
+  const theme = OVERLAY_THEME;
   const { location, timezoneOffsetHours, language, savedLocations, setLocation } = useCelestialStore();
   const { width } = useWindowDimensions();
   const isTablet = width > 900;
@@ -45,6 +51,22 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
 
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date(currentTime));
   const [isPlaying, setIsPlaying] = useState(false);
+  /**
+   * ⚠ 헤더의 날짜(‹ › · 달력)를 바꿔도 지도는 **처음 연 날짜에 머물렀습니다**(점검 2026-09-29).
+   * `selectedDate` 를 처음 한 번만 `currentTime` 에서 받았기 때문입니다. 헤더가 시각을
+   * **건너뛰면**(30분 넘게) 지도도 따라갑니다. 실시간으로 흐르는 1분 단위 변화는 따라가지
+   * 않습니다 — 그러면 지도의 시각 슬라이더를 만지는 족족 되돌려집니다.
+   */
+  const lastHeaderTimeRef = useRef(currentTime.getTime());
+  useEffect(() => {
+    const t = currentTime.getTime();
+    const jumped = Math.abs(t - lastHeaderTimeRef.current) > 30 * 60 * 1000;
+    lastHeaderTimeRef.current = t;
+    if (jumped) {
+      setIsPlaying(false);
+      setSelectedDate(new Date(t));
+    }
+  }, [currentTime]);
   const [guideVisible, setGuideVisible] = useState(false);
   const [locMenuOpen, setLocMenuOpen] = useState(false);
   const [longitudeDelta, setLongitudeDelta] = useState(60);
@@ -294,7 +316,12 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
    */
   const pickable = !showGlobe && canPickLocation(longitudeDelta, region.latitude);
   /** 배지가 버튼 줄 밑으로 파고들지 않게 자릅니다(320px 기기에서 21px 겹칩니다). */
-  const badgeMaxWidth = useMemo(() => solarBadgeMaxWidth(width, 3), [width]);
+  // ⚠ 화면 폭이 아니라 **카드 폭**으로 잽니다. 카드는 좌우 여백(14px × 2)만큼 좁아, 화면 폭으로
+  //   재면 360px 기기에서 배지가 📍 버튼을 덮었습니다(점검 2026-09-29, 웹 실측).
+  const badgeMaxWidth = useMemo(
+    () => solarBadgeMaxWidth(bodySize.width || width - 28, 3),
+    [bodySize.width, width],
+  );
   /**
    * 왼쪽 아래 세로줄(구름 읽기값 · 범례)의 너비 상한.
    *
@@ -337,15 +364,17 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     }
   }, [showGlobe, longitudeDelta, region.latitude, moveToCenter]);
 
-  const dateKey = selectedDate.toISOString().slice(0, 10);
+  // 등시선 하루치는 **관측지 현지 자정**부터 셉니다 — 라벨이 현지 시각(00:00, 04:00…)으로 읽힙니다.
+  const tzMs = (timezoneOffsetHours ?? 0) * 3600000;
+  const dateKey = new Date(selectedDate.getTime() + tzMs).toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
     // 좁은 축척에서는 안 그리므로 만들지도 않습니다 — 하루치 터미네이터를
     // 48번 계산하는 일이라 그냥 두면 값만 버립니다.
     if (!isIsolineScale(longitudeDelta) && !globeOn) return [];
     const list = [];
-    const base = new Date(dateKey);
-    base.setUTCHours(0, 0, 0, 0);
-    
+ 
+    const base = new Date(new Date(dateKey).getTime() - tzMs);
+
     for (let min = 0; min < 1440; min += step) {
       const time = new Date(base.getTime() + min * 60 * 1000);
       const segments = getTerminatorSegments(time);
@@ -356,7 +385,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
       });
     }
     return list;
-  }, [dateKey, step, longitudeDelta, globeOn]);
+  }, [dateKey, step, longitudeDelta, globeOn, tzMs]);
 
   const nightPolygonCoords = useMemo(() => {
     try {
@@ -406,46 +435,20 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
     return `${h}h ${m}m`;
   }, [eventsAtSelected]);
 
-  const dateLabel = useMemo(() => {
-    return `${selectedDate.getUTCFullYear()}.${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}.${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-  }, [selectedDate]);
-
-  const timeLabel = useMemo(() => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${pad(selectedDate.getUTCHours())}:${pad(selectedDate.getUTCMinutes())} UTC`;
-  }, [selectedDate]);
-
   const handleSlidingStart = () => setIsPlaying(false);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      <View style={styles.headerRow}>
-        <View style={[styles.headerChip, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-          <View style={[styles.headerIconWrap, { backgroundColor: theme.bg }]}>
-            <Calendar size={14} color={theme.accent} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerLabel, { color: theme.subText }]} numberOfLines={1}>{t('isolineSelectedDate', language)}</Text>
-            <Text style={[styles.headerValue, { color: theme.text }]} numberOfLines={1}>{dateLabel}</Text>
-          </View>
-        </View>
-        <View style={[styles.headerChip, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-          <View style={[styles.headerIconWrap, { backgroundColor: theme.bg }]}>
-            <Clock size={14} color="#38BDF8" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerLabel, { color: theme.subText }]} numberOfLines={1}>{t('isolineSelectedTimeUtc', language)}</Text>
-            <Text style={[styles.headerValue, { color: theme.text }]} numberOfLines={1}>{timeLabel}</Text>
-          </View>
-        </View>
-      </View>
-
+    <View style={[styles.container, { backgroundColor: panelTheme.bg }]}>
+      {/* ⚠ 예전의 "선택된 날짜 · 선택된 시각(UTC)" 줄은 뺐습니다 — 헤더 날짜·아래 슬라이더와 같은
+             값을 세 번째로 보여 주던 것이라, 그 자리를 지도에 돌려줍니다(점검 2026-09-29). */}
       {/* 가변 메인 프레임: 지도가 화면의 남은 높이를 꽉 채웁니다 */}
       <View 
         style={[
           styles.mapCard,
           {
             borderColor: theme.border,
+            // 지도 카드는 어두운 창 — 밝은 모드에서도 지구본·배지가 어두운 바탕 위에 있습니다.
+            backgroundColor: theme.bg,
             /**
              * ⚠ **사각형에서 원으로 이어집니다.** 모서리 반지름을 전환 진행도에
              * 묶어 두면, 구로 넘어갈 때 모양이 툭 바뀌지 않고 같은 원이 부풀어
@@ -517,42 +520,43 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           <LandSilhouette region={region} width={bodySize.width} height={bodySize.height} theme={theme} />
         )}
 
-        <TouchableOpacity
+        {/* 오른쪽 위 보기 조작 — 하늘 탭 레이어 버튼과 같은 `OverlayButton`. 켜진 상태(구 보기 ·
+               위치 고르기 가능)는 강조 재질로 보입니다. 자리(10 · 48 · 86)는 `locationPick.topButtonsWidth(3)` 와 맞물립니다. */}
+        <OverlayButton
           onPress={toggleGlobe}
-          style={[styles.projectionBtn, { top: 10 + inset, right: 48 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
-          activeOpacity={0.7}
+          active={showGlobe}
+          accessibilityLabel={showGlobe ? L3(language, '지도로 보기', 'Flat map', '地図で見る') : L3(language, '지구본으로 보기', 'Globe', '地球儀で見る')}
+          style={[styles.overlayPos, { top: 10 + inset, right: 48 + inset }]}
         >
-          {!showGlobe ? (
-            <Globe size={16} color={theme.text} />
-          ) : (
-            <Compass size={16} color={theme.accent} />
-          )}
-        </TouchableOpacity>
+          {!showGlobe ? <Globe size={16} color={color.text} /> : <Compass size={16} color={color.accent} />}
+        </OverlayButton>
 
-        <TouchableOpacity
+        <OverlayButton
           onPress={() => setGuideVisible(true)}
-          style={[styles.guideBtn, { top: 10 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
-          activeOpacity={0.7}
+          accessibilityLabel={L3(language, '도움말', 'Help', 'ヘルプ')}
+          style={[styles.overlayPos, { top: 10 + inset, right: 10 + inset }]}
         >
-          <Info size={16} color={theme.text} />
-        </TouchableOpacity>
+          <Info size={16} color={color.text} />
+        </OverlayButton>
 
         {/* ── 위치 옮기기 ────────────────────────────────────────────────
                탭의 뜻이 축척을 따라 바뀝니다 — 좁으면 한가운데로, 넓으면
-               메뉴(`locationPick.ts`). 꾹 누르기는 어디서나 메뉴입니다. */}
-        <TouchableOpacity
+               메뉴(`locationPick.ts`). 꾹 누르기는 어디서나 메뉴입니다.
+               조준점 — 헤더의 📍(위치 변경 창)와 다른 일을 하므로 다른 모양으로(점검 2026-09-29). */}
+        <OverlayButton
           onPress={onLocationTap}
           onLongPress={() => setLocMenuOpen(true)}
           delayLongPress={350}
-          style={[styles.locBtn, { top: 10 + inset, right: 86 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}
-          activeOpacity={0.7}
+          active={pickable}
+          accessibilityLabel={L3(language, '위치 옮기기', 'Move location', '位置を移動')}
+          style={[styles.overlayPos, { top: 10 + inset, right: 86 + inset }]}
         >
-          <MapPin size={16} color={pickable ? theme.accent : theme.text} />
-        </TouchableOpacity>
+          <Crosshair size={16} color={pickable ? color.accent : color.text} />
+        </OverlayButton>
 
         {/* 바깥을 누르면 닫힙니다 — 안 그러면 메뉴가 지도를 계속 가립니다. */}
         {locMenuOpen && (
-          <TouchableOpacity
+          <PressScale
             style={styles.locBackdrop}
             activeOpacity={1}
             onPress={() => setLocMenuOpen(false)}
@@ -560,16 +564,16 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {locMenuOpen && (
-          <View style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
-            <TouchableOpacity style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
+          <Reveal style={[styles.locMenu, { top: 48 + inset, right: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}>
+            <PressScale style={styles.locMenuItem} onPress={moveToGps} activeOpacity={0.7}>
               <Crosshair size={13} color={theme.accent} />
               <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
                 {t('isolineMoveHere', language)}
               </Text>
-            </TouchableOpacity>
+            </PressScale>
 
             {savedLocations.slice(0, 5).map((loc) => (
-              <TouchableOpacity
+              <PressScale
                 key={loc.id}
                 style={styles.locMenuItem}
                 activeOpacity={0.7}
@@ -582,11 +586,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 <Text style={[styles.locMenuText, { color: theme.text }]} numberOfLines={1}>
                   {loc.name}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             ))}
 
             {onOpenPicker && (
-              <TouchableOpacity
+              <PressScale
                 style={styles.locMenuItem}
                 activeOpacity={0.7}
                 onPress={() => { setLocMenuOpen(false); onOpenPicker(); }}
@@ -595,9 +599,9 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                 <Text style={[styles.locMenuText, { color: theme.subText }]} numberOfLines={1}>
                   {t('isolineEnterCoords', language)}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
-          </View>
+          </Reveal>
         )}
 
         {/* ⚠ 십자선이 없으면 "한가운데로" 는 장님 탭입니다 — 어디로 갈지
@@ -610,23 +614,23 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
         )}
 
         {/* 지도 우측 상단 태양 정보 오버레이 배지 */}
-        <View style={[styles.solarOverlay, { top: 10 + inset, left: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border, maxWidth: badgeMaxWidth - 2 * inset }]}>
+        <View style={[styles.solarOverlay, { top: 10 + inset, left: 10 + inset, backgroundColor: color.overlay, borderColor: color.border, maxWidth: badgeMaxWidth - 2 * inset }]}>
           <View style={styles.solarOverlayItem}>
-            <Sun size={11} color="#FFD700" />
+            <Sun size={11} color={color.sun} />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
               {sunPosAtSelected.altitude.toFixed(0)}° / {sunPosAtSelected.azimuth.toFixed(0)}°
             </Text>
           </View>
           <View style={[styles.solarOverlayDivider, { backgroundColor: theme.border }]} />
           <View style={styles.solarOverlayItem}>
-            <Sunrise size={11} color="#FFA500" />
+            <Sunrise size={11} color={dataColor.sunrise} />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
               {formatLocalTime(localSunrise, 'HH:mm')}
             </Text>
           </View>
           <View style={[styles.solarOverlayDivider, { backgroundColor: theme.border }]} />
           <View style={styles.solarOverlayItem}>
-            <Sunset size={11} color="#FF4500" />
+            <Sunset size={11} color={color.glow} />
             <Text style={[styles.solarOverlayText, { color: theme.text }]}>
               {formatLocalTime(localSunset, 'HH:mm')}
             </Text>
@@ -642,65 +646,65 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                이제 한 세로줄이 쌓으므로 한쪽 높이가 바뀌어도 안 부딪힙니다. */}
         <View style={[styles.bottomLeft, { left: 10 + inset, bottom: 8 + inset, maxWidth: bottomLeftWidth - inset }]}>
           {radar && (
-            <View style={[styles.cloudReadout, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+            <View style={[styles.cloudReadout, { backgroundColor: color.overlay, borderColor: color.border }]}>
               <Text style={[styles.cloudReadoutTitle, { color: theme.text }]} numberOfLines={1}>
                 {radar.observerClass.name}
               </Text>
               <Text style={[styles.cloudReadoutSub, { color: theme.subText }]} numberOfLines={1}>
-                저 {Math.round(radar.observerLayers.low)} · 중 {Math.round(radar.observerLayers.mid)} · 상 {Math.round(radar.observerLayers.high)}
+                {t('radarLayers', language).replace('{l}', String(Math.round(radar.observerLayers.low))).replace('{m}', String(Math.round(radar.observerLayers.mid))).replace('{h}', String(Math.round(radar.observerLayers.high)))}
                 {radar.observerLayers.precipitationMm > 0
-                  ? `  비 ${radar.observerLayers.precipitationMm.toFixed(1)}mm`
+                  ? '  ' + t('radarRain', language).replace('{x}', radar.observerLayers.precipitationMm.toFixed(1))
                   : ''}
               </Text>
               <Text style={[styles.cloudReadoutSub, { color: theme.subText }]} numberOfLines={1}>
                 {radar.wind
-                  ? `구름 ${Math.round(radar.wind.toBearingDeg)}° 쪽으로 ${Math.round(radar.wind.speedKmh)}km/h`
-                  : '바람 자료 없음'}
+                  ? t('radarWind', language).replace('{b}', String(Math.round(radar.wind.toBearingDeg))).replace('{s}', String(Math.round(radar.wind.speedKmh)))
+                  : t('radarNoWind', language)}
               </Text>
             </View>
           )}
-          <View style={[styles.legend, { backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.legend, { backgroundColor: color.overlay, borderColor: color.border }]}>
             {radar && (
               <View style={styles.legendItem}>
                 <View style={[styles.legendLine, { backgroundColor: 'rgba(226,232,240,0.75)' }]} />
                 <Text style={[styles.legendText, { color: theme.subText }]}>
                   {topView
-                    ? '구름 · 시뮬레이션 (잔 무늬는 지어낸 것)'
-                    : `구름 · 바깥 칸 ${Math.round(radar.outerSpacingKm)}km`}
+                    ? t('radarLegendSim', language)
+                    : t('radarLegendCells', language).replace('{k}', String(Math.round(radar.outerSpacingKm)))}
                 </Text>
               </View>
             )}
             {/* 자료 칸 ↔ 하늘 탭의 구름을 위에서 본 것. 웹 미리보기 지도는 겹이 없어 구에서만. */}
             {radar && (Platform.OS !== 'web' || showGlobe) && (
-              <TouchableOpacity
+              <PressScale
                 onPress={() => setCloudView(v => (v === 'radar' ? 'sim' : 'radar'))}
                 style={[styles.legendItem, styles.cloudViewToggle, { borderColor: theme.border }]}
                 activeOpacity={0.7}
               >
                 <Text style={[styles.legendText, { color: theme.text }]}>
-                  {cloudView === 'radar' ? '시뮬레이션으로 보기' : '자료 칸으로 보기'}
+                  {t(cloudView === 'radar' ? 'radarShowSim' : 'radarShowCells', language)}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
             {isLocalScale ? (
               <>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#38BDF8' }]} />
-                  <Text style={[styles.legendText, { color: theme.subText }]}>등고도선</Text>
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.altitude }]} />
+                  <Text style={[styles.legendText, { color: theme.subText }]}>{t('legendAltLine', language)}</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#FB923C' }]} />
-                  <Text style={[styles.legendText, { color: theme.subText }]}>태양 방위 (그 법선)</Text>
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.azimuth }]} />
+                  <Text style={[styles.legendText, { color: theme.subText }]}>{t('legendAzimuth', language)}</Text>
                 </View>
               </>
             ) : (
               <>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#FFA500' }]} />
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.sunrise }]} />
                   <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunriseLine', language)}</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, { backgroundColor: '#FF4500' }]} />
+                  <View style={[styles.legendLine, { backgroundColor: dataColor.sunset }]} />
                   <Text style={[styles.legendText, { color: theme.subText }]}>{t('isolineSunsetLine', language)}</Text>
                 </View>
               </>
@@ -712,7 +716,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
                좁은 축척에서만 뜹니다. 지도 평면은 방위는 그려도 **고도**를
                못 그립니다 — 그건 이 원만 가진 값입니다. */}
         {isLocalScale && (
-          <View style={[styles.polarInset, { right: 10 + inset, bottom: 10 + inset, backgroundColor: theme.glass, borderColor: theme.border }]}>
+          <View style={[styles.polarInset, { right: 10 + inset, bottom: 10 + inset, backgroundColor: color.overlay, borderColor: color.border }]}>
             <SunAzimuthView theme={theme} currentTime={selectedDate} compact />
           </View>
         )}
@@ -727,11 +731,11 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme, currentTime, isAc
           onSlidingStart={handleSlidingStart}
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying((p) => !p)}
-          theme={theme}
+          theme={panelTheme}
         />
       </View>
 
-      <IsolineGuideModal visible={guideVisible} onClose={() => setGuideVisible(false)} theme={theme} />
+      <IsolineGuideModal visible={guideVisible} onClose={() => setGuideVisible(false)} theme={panelTheme} />
     </View>
   );
 };
@@ -754,31 +758,31 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     borderWidth: Platform.OS === 'android' ? 0 : 1,
   },
   headerIconWrap: {
     width: 26,
     height: 26,
-    borderRadius: 8,
+    borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 1,
   },
   headerValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
   },
   mapCard: {
     flex: 1,
     width: '100%',
-    borderRadius: 20,
+    borderRadius: radius.lg,
     overflow: 'hidden',
     borderWidth: Platform.OS === 'android' ? 0 : 1,
     position: 'relative',
@@ -789,11 +793,11 @@ const styles = StyleSheet.create({
     right: 10,
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -813,11 +817,11 @@ const styles = StyleSheet.create({
     right: 86,
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -825,6 +829,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     zIndex: 10,
   },
+  overlayPos: { position: 'absolute', zIndex: 10 },
   locBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 19,
@@ -836,9 +841,9 @@ const styles = StyleSheet.create({
     minWidth: 150,
     maxWidth: 210,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -853,7 +858,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 11,
   },
-  locMenuText: { fontSize: 11.5, fontWeight: '600', flexShrink: 1 },
+  locMenuText: { fontSize: 11, fontWeight: '600', flexShrink: 1 },
   /** 한가운데 십자선 — 어디로 옮겨질지 보여 줍니다. */
   pickCross: {
     ...StyleSheet.absoluteFillObject,
@@ -869,11 +874,11 @@ const styles = StyleSheet.create({
     right: 48,
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -887,11 +892,15 @@ const styles = StyleSheet.create({
     left: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    // ⚠ 줄바꿈을 허락해야 maxWidth 가 먹습니다. 안 그러면 항목들이 줄지 않고 상자 밖으로
+    //   넘쳐 360px 기기에서 📍 버튼을 덮었습니다(점검 2026-09-29, 웹 실측).
+    flexWrap: 'wrap',
+    rowGap: 3,
     paddingVertical: 5,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     gap: 8,
     zIndex: 10,
   },
@@ -901,9 +910,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   solarOverlayText: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   solarOverlayDivider: {
@@ -929,17 +938,17 @@ const styles = StyleSheet.create({
   cloudReadout: {
     paddingHorizontal: 9,
     paddingVertical: 7,
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: 1,
   },
   cloudReadoutTitle: { fontSize: 11, fontWeight: '800' },
-  cloudReadoutSub: { fontSize: 9.5, fontFamily: 'monospace' },
+  cloudReadoutSub: { fontSize: 9, fontFamily: mono },
   polarInset: {
     position: 'absolute',
     right: 10,
     bottom: 10,
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
     padding: 4,
     overflow: 'hidden',
@@ -951,13 +960,13 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
   },
   cloudViewToggle: {
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     paddingHorizontal: 6,
     paddingVertical: 2,
     alignSelf: 'flex-start',
@@ -973,9 +982,9 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
   legendText: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   bottomControls: {

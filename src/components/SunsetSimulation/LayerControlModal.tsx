@@ -5,10 +5,15 @@
  * 각각 ON/OFF 선택하고, 도트 모드와 별의 밝기·한계등급을 조절하는 팝업 컴포넌트.
  */
 import React from 'react';
-import { StyleSheet, View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Modal, ScrollView } from 'react-native';
 import { LayerState, SkySettings, PIXEL_ART_CHOICES } from '../SkyScene3D/SkyScene3D';
 import { GenericSlider } from '../GenericSlider';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import { t, type Language } from '../../utils/i18n';
 import { Sun, Moon, Sparkles, Star, Cloud, Navigation, X, Milestone, Tag, Building2 } from 'lucide-react-native';
+import { color, radius, mono, tint, dataColor } from '../../theme/tokens';
+import { PressScale } from '../ui';
+import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
 interface LayerControlModalProps {
   visible: boolean;
@@ -25,13 +30,14 @@ const MAG_MAX = 6.5;
 const BRIGHT_MIN = 0.2;
 const BRIGHT_MAX = 2.0;
 
-function skyQualityLabel(mag: number): string {
-  if (mag < 3.6) return '도심 한복판';
-  if (mag < 4.4) return '도시 외곽';
-  if (mag < 5.2) return '교외';
-  if (mag < 6.0) return '시골';
-  return '완전한 암천';
+function skyQualityLabel(mag: number, L: Language): string {
+  if (mag < 3.6) return t('skyQ_city', L);
+  if (mag < 4.4) return t('skyQ_urban', L);
+  if (mag < 5.2) return t('skyQ_suburb', L);
+  if (mag < 6.0) return t('skyQ_rural', L);
+  return t('skyQ_dark', L);
 }
+const PIX_KEY: Record<number, 'pixOff' | 'pixFine' | 'pixMid' | 'pixBold'> = { 0: 'pixOff', 256: 'pixFine', 160: 'pixMid', 96: 'pixBold' };
 
 export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   visible,
@@ -42,21 +48,23 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
   onChangeSkySettings,
   theme,
 }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
+  const language = useCelestialStore(st => st.language);
   const isDark = theme?.isDark ?? true;
-  const bgColor = theme?.card || theme?.cardBackground || theme?.background || (isDark ? '#0f172a' : '#ffffff');
-  const textColor = theme?.text ?? (isDark ? '#f8fafc' : '#0f172a');
-  const subTextColor = theme?.subText ?? (isDark ? '#94a3b8' : '#64748b');
-  const borderColor = theme?.border ?? (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(203, 213, 225, 0.8)');
+  const bgColor = theme?.card || theme?.cardBackground || theme?.background || (isDark ? color.panel : color.text);
+  const textColor = theme?.text ?? (isDark ? color.text : color.panel);
+  const subTextColor = theme?.subText ?? (isDark ? color.textDim : color.textMute);
+  const borderColor = theme?.border ?? (isDark ? color.border : 'rgba(203, 213, 225, 0.8)');
 
   const layerItems: { key: keyof LayerState; label: string; icon: any; iconBg: string }[] = [
-    { key: 'sun', label: '태양 (Sun)', icon: <Sun size={18} color="#eab308" />, iconBg: 'rgba(234, 179, 8, 0.15)' },
-    { key: 'moon', label: '달 (Moon)', icon: <Moon size={18} color="#38bdf8" />, iconBg: 'rgba(56, 189, 248, 0.15)' },
-    { key: 'stars', label: '별 (Stars)', icon: <Sparkles size={18} color="#a78bfa" />, iconBg: 'rgba(167, 139, 250, 0.15)' },
-    { key: 'milkyway', label: '은하수 (Milky Way)', icon: <Milestone size={18} color="#c4b5fd" />, iconBg: 'rgba(196, 181, 253, 0.15)' },
-    { key: 'planets', label: '행성 (Planets)', icon: <Star size={18} color="#f43f5e" />, iconBg: 'rgba(244, 63, 94, 0.15)' },
-    { key: 'clouds', label: '구름 (Clouds)', icon: <Cloud size={18} color="#94a3b8" />, iconBg: 'rgba(148, 163, 184, 0.15)' },
-    { key: 'cityLights', label: '도시 불빛 (City Lights)', icon: <Building2 size={18} color="#f59e0b" />, iconBg: 'rgba(245, 158, 11, 0.15)' },
-    { key: 'paths', label: '궤적 & 라벨 (Paths & Labels)', icon: <Navigation size={18} color="#22c55e" />, iconBg: 'rgba(34, 197, 94, 0.15)' },
+    { key: 'sun', label: t('sunLabel', language), icon: <Sun size={18} color={color.sun} />, iconBg: tint(color.sun) },
+    { key: 'moon', label: t('moonLabel', language), icon: <Moon size={18} color={color.moon} />, iconBg: tint(color.moon) },
+    { key: 'stars', label: t('layerStars', language), icon: <Sparkles size={18} color={dataColor.stars} />, iconBg: tint(dataColor.stars) },
+    { key: 'milkyway', label: t('layerMilky', language), icon: <Milestone size={18} color={dataColor.milkyway} />, iconBg: tint(dataColor.milkyway) },
+    { key: 'planets', label: t('layerPlanets', language), icon: <Star size={18} color={dataColor.planets} />, iconBg: tint(dataColor.planets) },
+    { key: 'clouds', label: t('layerClouds', language), icon: <Cloud size={18} color={color.cloud} />, iconBg: tint(color.cloud) },
+    { key: 'cityLights', label: t('layerCity', language), icon: <Building2 size={18} color={dataColor.cityLights} />, iconBg: tint(dataColor.cityLights) },
+    { key: 'paths', label: t('layerPaths', language), icon: <Navigation size={18} color={dataColor.paths} />, iconBg: tint(dataColor.paths) },
   ];
 
   const brightnessPct = ((skySettings.starBrightness - BRIGHT_MIN) / (BRIGHT_MAX - BRIGHT_MIN)) * 100;
@@ -69,12 +77,12 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <TouchableOpacity
+      <PressScale
         style={styles.backdrop}
         activeOpacity={1}
         onPress={onClose}
       >
-        <TouchableOpacity
+        <PressScale
           activeOpacity={1}
           style={[
             styles.modalContainer,
@@ -86,13 +94,13 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
         >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={[styles.title, { color: textColor }]}>3D 레이어 제어</Text>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' }]}>
+            <Text style={[styles.title, { color: textColor }]}>{t('layerTitle', language)}</Text>
+            <PressScale onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.05)' }]}>
               <X size={16} color={subTextColor} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
           <Text style={[styles.subTitle, { color: subTextColor }]}>
-            화면에 표시할 요소 레이어를 자유롭게 선택하세요.
+            {t('layerSubtitle', language)}
           </Text>
 
           {/* ON/OFF 레이어 항목 리스트 (고정 높이 내 스크롤) */}
@@ -102,15 +110,15 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                 {layerItems.map((item) => {
                   const isOn = layers[item.key];
                   return (
-                    <TouchableOpacity
+                    <PressScale
                       key={item.key}
                       style={[
                         styles.layerRow,
                         {
-                          borderColor: isOn ? '#3b82f6' : borderColor,
+                          borderColor: isOn ? color.accentLine : borderColor,
                           backgroundColor: isOn
-                            ? (isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.08)')
-                            : (isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
+                            ? color.accentSoft
+                            : (isDark ? color.fill : 'rgba(0, 0, 0, 0.02)'),
                         },
                       ]}
                       onPress={() => onToggleLayer(item.key)}
@@ -129,14 +137,14 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                           styles.togglePill,
                           isOn
                             ? styles.toggleOn
-                            : { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+                            : { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.08)' },
                         ]}
                       >
-                        <Text style={[styles.toggleText, { color: isOn ? '#ffffff' : subTextColor }]}>
+                        <Text style={[styles.toggleText, { color: isOn ? color.onAccent : subTextColor }]}>
                           {isOn ? 'ON' : 'OFF'}
                         </Text>
                       </View>
-                    </TouchableOpacity>
+                    </PressScale>
                   );
                 })}
               </View>
@@ -148,27 +156,27 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
           {/* 하단 고정 조절 슬라이더 영역 */}
           <View style={styles.sliderSection}>
             {/* 도트 모드(§97) — 하늘을 낮은 해상도로 그려 네모 화소 그대로 보여 줍니다. */}
-            <View style={[styles.layerRow, { borderColor, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)' }]}>
+            <View style={[styles.layerRow, { borderColor, backgroundColor: isDark ? color.fill : 'rgba(0, 0, 0, 0.02)' }]}>
               <Text style={[styles.layerLabel, { color: textColor, fontWeight: skySettings.pixelArtRows > 0 ? '700' : '500' }]}>
-                도트 모드
+                {t('dotMode', language)}
               </Text>
               <View style={styles.segment}>
                 {PIXEL_ART_CHOICES.map((c) => {
                   const on = skySettings.pixelArtRows === c.rows;
                   return (
-                    <TouchableOpacity
+                    <PressScale
                       key={c.rows}
                       style={[
                         styles.togglePill,
-                        on ? styles.toggleOn : { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+                        on ? styles.toggleOn : { backgroundColor: isDark ? color.border : 'rgba(0, 0, 0, 0.08)' },
                       ]}
                       onPress={() => onChangeSkySettings({ pixelArtRows: c.rows })}
                       activeOpacity={0.7}
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
                     >
-                      <Text style={[styles.toggleText, { color: on ? '#ffffff' : subTextColor }]}>{c.label}</Text>
-                    </TouchableOpacity>
+                      <Text style={[styles.toggleText, { color: on ? color.text : subTextColor }]}>{PIX_KEY[c.rows] ? t(PIX_KEY[c.rows], language) : c.label}</Text>
+                    </PressScale>
                   );
                 })}
               </View>
@@ -176,7 +184,7 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
-                <Text style={[styles.sliderLabel, { color: textColor }]}>별 밝기</Text>
+                <Text style={[styles.sliderLabel, { color: textColor }]}>{t('starBrightness', language)}</Text>
                 <Text style={[styles.sliderValue, { color: subTextColor }]}>
                   ×{skySettings.starBrightness.toFixed(2)}
                 </Text>
@@ -189,10 +197,10 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                   })
                 }
                 theme={theme}
-                fillColor="#a78bfa"
-                knobColor="#ede9fe"
+                fillColor={dataColor.stars}
+                knobColor={color.panelRaised}
               >
-                <Text style={[styles.knobText, { color: '#1e1b4b' }]}>
+                <Text style={[styles.knobText, { color: dataColor.stars }]}>
                   ×{skySettings.starBrightness.toFixed(2)}
                 </Text>
               </GenericSlider>
@@ -200,9 +208,9 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
 
             <View style={styles.sliderBlock}>
               <View style={styles.sliderHeader}>
-                <Text style={[styles.sliderLabel, { color: textColor }]}>이 장소의 하늘</Text>
+                <Text style={[styles.sliderLabel, { color: textColor }]}>{t('skyHere', language)}</Text>
                 <Text style={[styles.sliderValue, { color: subTextColor }]}>
-                  {skySettings.starMagLimit.toFixed(1)}등급 · {skyQualityLabel(skySettings.starMagLimit)}
+                  {t('magUnit', language).replace('{m}', skySettings.starMagLimit.toFixed(1))} · {skyQualityLabel(skySettings.starMagLimit, language)}
                 </Text>
               </View>
               <GenericSlider
@@ -213,30 +221,28 @@ export const LayerControlModal: React.FC<LayerControlModalProps> = ({
                   })
                 }
                 theme={theme}
-                fillColor="#38bdf8"
-                knobColor="#e0f2fe"
+                fillColor={color.accent}
+                knobColor={color.panelRaised}
               >
-                <Text style={[styles.knobText, { color: '#0c4a6e' }]}>
-                  {skySettings.starMagLimit.toFixed(1)}등급
+                <Text style={[styles.knobText, { color: color.accent }]}>
+                  {t('magUnit', language).replace('{m}', skySettings.starMagLimit.toFixed(1))}
                 </Text>
               </GenericSlider>
               <Text style={[styles.sliderHint, { color: subTextColor }]}>
-                광공해 없는 밤 6.5등급 기준입니다. 여기에 그날 밤 달빛이 얼마나
-                밝은지가 실시간으로 더 깎입니다 — 달이 뜨고 차오르면 흐린 별부터
-                사라집니다.
+                {t('skyNote', language)}
               </Text>
             </View>
           </View>
-        </TouchableOpacity>
-      </TouchableOpacity>
+        </PressScale>
+      </PressScale>
     </Modal>
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 18,
@@ -245,7 +251,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     maxHeight: '85%',
-    borderRadius: 24,
+    borderRadius: radius.lg,
     padding: 20,
     borderWidth: 1,
     shadowColor: '#000',
@@ -260,16 +266,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   closeBtn: {
     padding: 6,
-    borderRadius: 20,
+    borderRadius: radius.lg,
   },
   subTitle: {
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 4,
     marginBottom: 12,
     lineHeight: 16,
@@ -293,7 +299,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
   rowLeft: {
@@ -304,7 +310,7 @@ const styles = StyleSheet.create({
   iconChip: {
     width: 32,
     height: 32,
-    borderRadius: 10,
+    borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -318,10 +324,10 @@ const styles = StyleSheet.create({
   togglePill: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   toggleOn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: color.accent,
   },
   toggleText: {
     fontSize: 11,
@@ -347,7 +353,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sliderValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   sliderHint: {
@@ -360,4 +366,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.2,
   },
-});
+}));

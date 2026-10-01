@@ -45,6 +45,23 @@ const withRemoveUnusedPermissions = (config) => {
         'tools:node': 'remove'
       }
     });
+    // Remove RECORD_AUDIO — expo-camera 가 끼워 넣지만 앱은 동영상·소리를 녹음하지 않습니다.
+    //   남겨 두면 Play 콘솔이 마이크 권한의 쓰임을 묻습니다(점검 2026-09-29).
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.RECORD_AUDIO',
+        'tools:node': 'remove'
+      }
+    });
+    // Remove READ_MEDIA_IMAGES — 앱은 사진을 **저장만** 하고(MediaLibrary.saveToLibraryAsync, writeOnly 권한)
+    //   갤러리를 읽지 않습니다. 남겨 두면 Play 의 "사진 및 동영상 권한" 신고가 필요하고, 가끔 쓰는 앱은
+    //   거절될 수 있습니다(출시 점검 2026-09-30). ⚠ Android 13+ 실기기에서 사진 저장을 꼭 확인하세요.
+    androidManifest.manifest['uses-permission'].push({
+      $: {
+        'android:name': 'android.permission.READ_MEDIA_IMAGES',
+        'tools:node': 'remove'
+      }
+    });
     // Remove READ_MEDIA_AUDIO
     androidManifest.manifest['uses-permission'].push({
       $: {
@@ -64,7 +81,9 @@ module.exports = {
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
-    userInterfaceStyle: "dark",
+    // 화면 모드 "시스템" 이 OS 설정을 읽도록 automatic(기본값은 앱 설정의 "어둡게"). 새 네이티브 빌드부터 적용됩니다 —
+    // 옛 빌드는 늘 dark 로 읽혀 "시스템" = 어둡게가 되므로 앱 안 업데이트로 받아도 안전합니다.
+    userInterfaceStyle: "automatic",
     newArchEnabled: true,
     splash: {
       image: "./assets/splash.png",

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, TouchableOpacity, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X, Camera } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
@@ -15,6 +15,13 @@ import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
 import { parseTeleportUrl } from './utils/teleport';
 import { t } from './utils/i18n';
+import { PressScale } from './components/ui';
+import { springTo, timeTo } from './theme/motion';
+import { motion, color, dataColor } from './theme/tokens';
+import { makeStyles, useThemeColors, useDataColors, useScheme } from './theme/useTheme';
+
+/** 가운데 창은 94% 에서 스프링으로 커지며 나타납니다(docs/DESIGN_SYSTEM.md §7). */
+const POP_FROM = motion.popFrom;
 
 // 앱 초기 기동 시 Native Splash Screen을 유지하도록 고정합니다.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -66,6 +73,7 @@ const LOAD_IMAGES = [
 ];
 
 export default function App() {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles(); const scheme = useScheme();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const { language, isAppReady, preloadInitialData, preloadStatus, setCurrentTime, setTimeMachineEnabled, setTeleportTarget } = useCelestialStore();
   const {
@@ -141,21 +149,13 @@ export default function App() {
 
   React.useEffect(() => {
     if (isAppReady) {
-      Animated.timing(splashFadeAnim, {
-        toValue: 0,
-        duration: 450,
-        useNativeDriver: true,
-      }).start(() => setIsSplashDismissed(true));
+      timeTo(splashFadeAnim, 0, 'slow', 'exit', { keepWhenReduced: true }).start(() => setIsSplashDismissed(true));
     }
   }, [isAppReady]);
 
   React.useEffect(() => {
     if (!isAppReady) {
-      Animated.timing(contentFade, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }).start();
+      timeTo(contentFade, 1, 'slow', 'enter', { keepWhenReduced: true }).start();
     }
   }, [isAppReady]);
 
@@ -166,55 +166,33 @@ export default function App() {
     else if (preloadStatus === 'analyzingData') target = 0.85;
     else if (preloadStatus === 'simulationReady') target = 1.0;
 
-    Animated.timing(progressVal, {
-      toValue: target,
-      duration: 500,
-      useNativeDriver: false,
-    }).start();
+    timeTo(progressVal, target, 'slow', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [preloadStatus]);
 
   // 커스텀 고급 팝업 애니메이션 효과용 상태
-  const warningScale = React.useRef(new Animated.Value(0.85)).current;
+  const warningScale = React.useRef(new Animated.Value(POP_FROM)).current;
   const warningOpacity = React.useRef(new Animated.Value(0)).current;
-  const savedListScale = React.useRef(new Animated.Value(0.85)).current;
+  const savedListScale = React.useRef(new Animated.Value(POP_FROM)).current;
   const savedListOpacity = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
     if (isCameraWarningVisible) {
-      warningScale.setValue(0.85);
+      warningScale.setValue(POP_FROM);
       warningOpacity.setValue(0);
       Animated.parallel([
-        Animated.spring(warningScale, {
-          toValue: 1,
-          friction: 6,
-          tension: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(warningOpacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        })
+        springTo(warningScale, 1, 'sheet'),
+        timeTo(warningOpacity, 1, 'fast', 'enter', { keepWhenReduced: true }),
       ]).start();
     }
   }, [isCameraWarningVisible]);
 
   React.useEffect(() => {
     if (isSavedListVisible) {
-      savedListScale.setValue(0.85);
+      savedListScale.setValue(POP_FROM);
       savedListOpacity.setValue(0);
       Animated.parallel([
-        Animated.spring(savedListScale, {
-          toValue: 1,
-          friction: 7,
-          tension: 90,
-          useNativeDriver: true,
-        }),
-        Animated.timing(savedListOpacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        })
+        springTo(savedListScale, 1, 'sheet'),
+        timeTo(savedListOpacity, 1, 'fast', 'enter', { keepWhenReduced: true }),
       ]).start();
     }
   }, [isSavedListVisible]);
@@ -290,7 +268,7 @@ export default function App() {
   return (
     <Animated.View style={{ flex: 1, backgroundColor: dynamicTheme.bg }}>
       <AnimatedSafeAreaView style={[styles.container, { backgroundColor: dynamicTheme.bg }]}>
-        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <StatusBar barStyle={scheme === 'light' ? 'dark-content' : 'light-content'} translucent backgroundColor="transparent" />
         
         <View style={styles.mainContent}>
         <AppHeader
@@ -367,9 +345,9 @@ export default function App() {
           ]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{t('savedPlaces', language)}</Text>
-              <TouchableOpacity onPress={() => setSavedListVisible(false)} style={styles.closeBtn}>
+              <PressScale onPress={() => setSavedListVisible(false)} style={styles.closeBtn}>
                 <X size={20} color={theme.subText} />
-              </TouchableOpacity>
+              </PressScale>
             </View>
             
             <ScrollView style={styles.savedScroll}>
@@ -381,7 +359,7 @@ export default function App() {
               ) : (
                 savedLocations.map((loc) => (
                   <View key={loc.id} style={[styles.savedItem, { borderBottomColor: theme.border }]}>
-                    <TouchableOpacity 
+                    <PressScale 
                       style={styles.savedItemLeft} 
                       onPress={() => handleSelectSavedLocation(loc)}
                     >
@@ -392,13 +370,13 @@ export default function App() {
                           {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
                         </Text>
                       </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
+                    </PressScale>
+                    <PressScale 
                       onPress={() => removeSavedLocation(loc.id)}
                       style={styles.deleteBtn}
                     >
-                      <Trash2 size={16} color="#FF4444" />
-                    </TouchableOpacity>
+                      <Trash2 size={16} color={color.danger} />
+                    </PressScale>
                   </View>
                 ))
               )}
@@ -446,7 +424,7 @@ export default function App() {
           ]}>
             <View style={styles.warningIconContainer}>
               <View style={[styles.warningIconBg, { backgroundColor: 'rgba(255, 165, 0, 0.15)' }]}>
-                <Camera size={28} color="#FFA500" />
+                <Camera size={28} color={dataColor.sunrise} />
               </View>
             </View>
             
@@ -457,23 +435,23 @@ export default function App() {
             </Text>
 
             <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
-              <TouchableOpacity 
+              <PressScale 
                 onPress={() => setCameraWarningVisible(false)} 
                 style={[styles.warningCancelBtn, { flex: 1, borderColor: theme.border }]}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.warningConfirmText, { color: theme.text }]}>{t('cancel', language)}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
+              </PressScale>
+              <PressScale 
                 onPress={() => {
                   setCameraWarningVisible(false);
                   setSunCameraVisible(true);
                 }} 
-                style={[styles.warningConfirmBtn, { flex: 1, backgroundColor: theme.accent || '#FFD700' }]}
+                style={[styles.warningConfirmBtn, { flex: 1, backgroundColor: theme.accent || color.sun }]}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.warningConfirmText, { color: '#000' }]}>{t('enterAnyway', language)}</Text>
-              </TouchableOpacity>
+                <Text style={[styles.warningConfirmText, { color: color.onAccent }]}>{t('enterAnyway', language)}</Text>
+              </PressScale>
             </View>
           </Animated.View>
         </View>
@@ -551,7 +529,7 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flex: 1,
     paddingTop: Platform.OS === 'android' ? Constants.statusBarHeight : 0,
@@ -566,19 +544,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    color: '#888',
+    color: color.textDim,
     marginTop: 15,
     fontSize: 14,
   },
   errorText: {
-    color: '#ff4444',
+    color: color.danger,
     textAlign: 'center',
     padding: 20,
     fontSize: 16,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.82)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -602,7 +580,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: color.border,
     paddingBottom: 10,
   },
   modalTitle: {
@@ -702,7 +680,7 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#05070D',
+    backgroundColor: color.bg,
   },
   loadingOverlay: {
     flex: 1,
@@ -715,17 +693,17 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   appNameText: {
-    color: '#F8FAFC',
+    color: color.text,
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    textShadowColor: 'rgba(56, 189, 248, 0.4)',
+    textShadowColor: color.accentLine,
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 12,
   },
   appSubtitleText: {
-    color: '#38BDF8',
+    color: color.accent,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 2.5,
@@ -745,7 +723,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(9, 13, 24, 0.88)',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.borderStrong,
     paddingVertical: 16,
     paddingHorizontal: 18,
     alignItems: 'center',
@@ -758,13 +736,13 @@ const styles = StyleSheet.create({
   progressBarBg: {
     width: '100%',
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: color.border,
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#38BDF8',
+    backgroundColor: color.accent,
     borderRadius: 2,
     shadowColor: '#38BDF8',
     shadowOffset: { width: 0, height: 0 },
@@ -773,7 +751,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   preloadStatusText: {
-    color: '#94A3B8',
+    color: color.textDim,
     fontSize: 11,
     fontWeight: '700',
     marginTop: 14,
@@ -791,4 +769,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
     letterSpacing: 0.5,
   },
-});
+}));

@@ -21,6 +21,7 @@ import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
+import { planetLabelVisible, moonLabelVisible, milkyWayLabelVisible } from '../../utils/labelVisibility';
 
 import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import {
@@ -123,12 +124,13 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { fogAtObserver } from '../../utils/cloudProfile';
+import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { L3 } from '../../utils/i18n';
 
 // 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
 const tempPlanetVec = new THREE.Vector3();
@@ -711,7 +713,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const opticsForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
     const name = representativePresetForObserver(layer, obs);
-    return PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    // 얇은 중층은 얇게(`cloudProfile.layerTauScale`) — 그림자도 화면의 구름과 같은 두께로.
+    const k = layerTauScale(layer, obs);
+    return k === 1 ? o : { ...o, tau: o.tau * k };
   }, []);
 
   /**
@@ -1370,38 +1375,55 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           };
 
           const labs: Array<{ id: string; name: string; x: number; y: number; color: string }> = [];
+          // 라벨은 언어 설정을 따릅니다(예전엔 "태양 Sun" 처럼 두 언어 병기, 점검 2026-09-29).
+          const lang = useCelestialStore.getState().language;
 
           // 1. 태양 (Sun)
           if (sunRef.current?.mesh && layersRef.current.sun && sunAltRef.current > -0.9) {
             const p = proj(sunRef.current.mesh.position);
-            if (p.visible) labs.push({ id: 'sun', name: '태양 Sun', x: p.px, y: p.py, color: '#FBBF24' });
+            if (p.visible) labs.push({ id: 'sun', name: L3(lang, '태양', 'Sun', '太陽'), x: p.px, y: p.py, color: '#FBBF24' });
           }
-          // 2. 달 (Moon)
+          // 2. 달 (Moon) — 지금 맨눈에 보일 때만(떠 있고, 낮이면 충분히 차고 해에서 떨어져 있을 때 · labelVisibility.ts)
           if (moonRef.current?.group && layersRef.current.moon) {
-            const p = proj(moonRef.current.group.position);
-            if (p.visible) labs.push({ id: 'moon', name: '달 Moon', x: p.px, y: p.py, color: '#38BDF8' });
+            const mp = moonRef.current.group.position;
+            const mLen = mp.length() || 1;
+            const moonAltDeg = (Math.asin(Math.max(-1, Math.min(1, mp.y / mLen))) * 180) / Math.PI;
+            let sepDeg = 180;
+            if (sunRef.current?.mesh) {
+              const sp = sunRef.current.mesh.position;
+              const sLen = sp.length() || 1;
+              const cos = (mp.x * sp.x + mp.y * sp.y + mp.z * sp.z) / (mLen * sLen);
+              sepDeg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+            }
+            const illum = SunCalc.getMoonIllumination(frameDate).fraction;
+            if (moonLabelVisible({ moonAltDeg, sunAltDeg: sunAltRef.current, illum, sepDeg })) {
+              const p = proj(mp);
+              if (p.visible) labs.push({ id: 'moon', name: L3(lang, '달', 'Moon', '月'), x: p.px, y: p.py, color: '#38BDF8' });
+            }
           }
           // 3. 은하수 중심부 (Milky Way Center)
           if (layersRef.current.milkyway) {
             const mwPos = trackingMwVec.set(0.5, -0.4, -0.7).normalize().multiplyScalar(400);
             mwPos.applyMatrix3(equToHorizonRef.current);
-            if (mwPos.y > 0) {
+            const mwAltDeg = (Math.asin(Math.max(-1, Math.min(1, mwPos.y / (mwPos.length() || 1)))) * 180) / Math.PI;
+            if (milkyWayLabelVisible(mwAltDeg, sunAltRef.current)) {
               const p = proj(mwPos);
-              if (p.visible) labs.push({ id: 'milkyway', name: '은하수 중심 Milky Way', x: p.px, y: p.py, color: '#C4B5FD' });
+              if (p.visible) labs.push({ id: 'milkyway', name: L3(lang, '은하수 중심', 'Milky Way center', '天の川中心'), x: p.px, y: p.py, color: '#C4B5FD' });
             }
           }
-          // 4. 주요 행성 (Planets: 목성, 토성, 금성)
+          // 4. 주요 행성 (Planets: 목성, 토성, 금성) — 하늘이 그 행성만큼 어두울 때만(낮에는 숨김)
           if (layersRef.current.planets) {
             const planetList: Array<{ key: PlanetKey; name: string; color: string }> = [
-              { key: 'jupiter', name: '목성 Jupiter', color: '#F43F5E' },
-              { key: 'saturn', name: '토성 Saturn', color: '#F59E0B' },
-              { key: 'venus', name: '금성 Venus', color: '#38BDF8' },
+              { key: 'jupiter', name: L3(lang, '목성', 'Jupiter', '木星'), color: '#F43F5E' },
+              { key: 'saturn', name: L3(lang, '토성', 'Saturn', '土星'), color: '#F59E0B' },
+              { key: 'venus', name: L3(lang, '금성', 'Venus', '金星'), color: '#38BDF8' },
             ];
             planetList.forEach((pl, idx) => {
               const pDir = getPlanetDirectionVector(pl.key, frameDate, tempPlanetVec);
               const pWorld = pDir.multiplyScalar(380);
               pWorld.applyMatrix3(equToHorizonRef.current);
-              if (pWorld.y > 0) {
+              const pAltDeg = (Math.asin(Math.max(-1, Math.min(1, pWorld.y / (pWorld.length() || 1)))) * 180) / Math.PI;
+              if (planetLabelVisible(pl.key, pAltDeg, sunAltRef.current)) {
                 const p = proj(pWorld);
                 if (p.visible) labs.push({ id: `planet_${idx}`, name: pl.name, x: p.px, y: p.py, color: pl.color });
               }
@@ -1479,6 +1501,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedAtmosphereRef.current = makeAtmosphereParams({
         visibilityM: observerWeather()?.visibility,
         humidityPct: observerWeather()?.humidity,
+        aod550: observerWeather()?.aod550,
+        dustUgM3: observerWeather()?.dust,
+        pm10: observerWeather()?.pm10,
         observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
         latitude: lat,
         dayOfYear: dayOfYearOf(targetDate),
@@ -1823,6 +1848,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       // 운해의 윗면(§82). 저층이 빈 시각이면 undefined/NaN → 세터가 (-1,-1) 로 되돌립니다.
       cloudSlabRef.current.setLowDeckKm(ow?.lowDeckBaseKm, ow?.lowDeckTopKm);
+      // 얇은 중층은 얇게 — 단면 두께로 잰 광학두께 배율(`cloudProfile.layerTauScale`).
+      cloudSlabRef.current.setLayerTauScale(layerTauScale('low', ow), layerTauScale('mid', ow), layerTauScale('high', ow));
       // 산 위가 구름 속인가(§93) — 관측 고도에서 단면 운량을 읽습니다. 단면이
       // 없거나 그 높이가 맑으면 null → 안개를 끕니다(예전과 바이트 단위로 같음).
       const profH: number[] | undefined = ow?.profileHeightM;
@@ -1890,6 +1917,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       makeAtmosphereParams({
         visibilityM: observerWeather()?.visibility,
         humidityPct: observerWeather()?.humidity,
+        aod550: observerWeather()?.aod550,
+        dustUgM3: observerWeather()?.dust,
+        pm10: observerWeather()?.pm10,
         observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
         latitude: lat,
         dayOfYear: dayOfYearOf(targetDate),

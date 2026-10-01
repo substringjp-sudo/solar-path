@@ -1,11 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, Animated, PanResponder } from 'react-native';
+import { StyleSheet, View, Text, Modal, TextInput, ScrollView, Dimensions, Alert, Platform, Animated, PanResponder } from 'react-native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { MapPin, X, Navigation, LocateFixed, Save, Trash2, Star } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { t } from '../../utils/i18n';
+import { t, L3 } from '../../utils/i18n';
+import { color, radius, mono } from '../../theme/tokens';
+import { PressScale } from '../ui';
+import { springTo, timeTo } from '../../theme/motion';
+import { makeStyles, useThemeColors } from '../../theme/useTheme';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,6 +25,7 @@ export const MapPicker = ({
   addSavedLocation,
   removeSavedLocation
 }: any) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { language } = useCelestialStore();
   const [windowHeight] = useState(Dimensions.get('window').height);
   const slideAnim = useRef(new Animated.Value(windowHeight)).current;
@@ -33,11 +38,7 @@ export const MapPicker = ({
   const isAndroid = Platform.OS === 'android';
 
   const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: windowHeight,
-      duration: 250,
-      useNativeDriver: true,
-    }).start(onClose);
+    timeTo(slideAnim, windowHeight, 'base', 'exit').start(onClose);
   };
 
   const panResponder = useRef(
@@ -55,13 +56,7 @@ export const MapPicker = ({
         if (gestureState.dy > 120 || gestureState.vy > 0.5) {
           handleClose();
         } else {
-          Animated.spring(slideAnim, {
-            toValue: 0,
-            damping: 18,
-            stiffness: 120,
-            mass: 0.9,
-            useNativeDriver: true,
-          }).start();
+          springTo(slideAnim, 0, 'sheet').start();
         }
       },
     })
@@ -71,13 +66,7 @@ export const MapPicker = ({
   useEffect(() => {
     if (visible) {
       slideAnim.setValue(windowHeight);
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        damping: 18,
-        stiffness: 120,
-        mass: 0.9,
-        useNativeDriver: true,
-      }).start();
+      springTo(slideAnim, 0, 'sheet').start();
 
       // Initialize inputs based on location
       const lat = location?.coords?.latitude || 37.56;
@@ -152,9 +141,7 @@ export const MapPicker = ({
     setSaveName('');
     Alert.alert(
       t('success', language),
-      language === 'ko'
-        ? `'${savedNameText}' 장소가 성공적으로 저장되었습니다.`
-        : `'${savedNameText}' has been saved successfully.`
+      L3(language, `'${savedNameText}' 장소를 저장했습니다.`, `Saved '${savedNameText}'.`, `「${savedNameText}」を保存しました。`)
     );
   };
 
@@ -165,24 +152,24 @@ export const MapPicker = ({
   // UI 테마 토큰 설정 (Astro-HUD 규격: 4px 샤프 엣지 & 딥 흑연 계측기)
   const m3Style = {
     modalContent: {
-      backgroundColor: '#090D18',
+      backgroundColor: color.panelRaised,
       borderTopLeftRadius: 4,
       borderTopRightRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
     },
     section: {
-      backgroundColor: '#0E1424',
+      backgroundColor: color.panel,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderColor: color.border,
       elevation: 2,
     },
     input: {
-      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      backgroundColor: color.fill,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
       height: 44,
     },
     button: {
@@ -191,33 +178,33 @@ export const MapPicker = ({
       elevation: 3,
     },
     savedItem: {
-      backgroundColor: '#0E1424',
+      backgroundColor: color.panel,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.08)',
+      borderColor: color.border,
       elevation: 1,
     }
   };
 
   const glassStyle = {
     modalContent: {
-      backgroundColor: 'rgba(9, 13, 24, 0.95)',
+      backgroundColor: color.panelRaised,
       borderTopLeftRadius: 4,
       borderTopRightRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
     },
     section: {
-      backgroundColor: 'rgba(14, 20, 36, 0.75)',
+      backgroundColor: color.panel,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderColor: color.border,
     },
     input: {
-      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      backgroundColor: color.fill,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.15)',
+      borderColor: color.borderStrong,
       height: 44,
     },
     button: {
@@ -225,10 +212,10 @@ export const MapPicker = ({
       height: 46,
     },
     savedItem: {
-      backgroundColor: 'rgba(14, 20, 36, 0.65)',
+      backgroundColor: color.panel,
       borderRadius: 4,
       borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, 0.08)',
+      borderColor: color.border,
     }
   };
 
@@ -237,8 +224,8 @@ export const MapPicker = ({
   return (
     <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={handleClose}>
       <View style={styles.modalOverlay}>
-        <TouchableOpacity 
-          style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        <PressScale 
+          style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }]}
           activeOpacity={1}
           onPress={handleClose}
         />
@@ -257,9 +244,9 @@ export const MapPicker = ({
               <Text style={[styles.title, { color: theme.text }]}>{t('changeLocation', language)}</Text>
               <Text style={[styles.subtitle, { color: theme.subText }]}>{t('pickOnMap', language)}</Text>
             </View>
-            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+            <PressScale onPress={handleClose} style={styles.closeBtn}>
               <X size={24} color={theme.text} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           {/* Map Wrapper with Floating Overlay Controls */}
@@ -297,7 +284,7 @@ export const MapPicker = ({
             </View>
 
             {/* Locate Me Floating Button */}
-            <TouchableOpacity
+            <PressScale
               onPress={handleCurrentLocation}
               style={[
                 styles.locateMeBtn,
@@ -309,7 +296,7 @@ export const MapPicker = ({
               activeOpacity={0.7}
             >
               <LocateFixed size={20} color={theme.accent} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           {/* Form and List Scroll Area */}
@@ -317,10 +304,10 @@ export const MapPicker = ({
             <View style={[styles.section, dStyle.section]}>
               <View style={styles.sectionHeader}>
                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>{t('pickedCoords', language)}</Text>
-                <TouchableOpacity onPress={handleCurrentLocation} style={styles.currentLocLink}>
+                <PressScale onPress={handleCurrentLocation} style={styles.currentLocLink}>
                   <LocateFixed size={12} color={theme.accent} />
                   <Text style={[styles.currentLocLinkText, { color: theme.accent }]}>{t('myLocation', language)}</Text>
-                </TouchableOpacity>
+                </PressScale>
               </View>
               
               {/* 콤팩트 위치 입력 & 장소 저장 통합 폼 */}
@@ -354,7 +341,7 @@ export const MapPicker = ({
                   />
                 </View>
 
-                <TouchableOpacity
+                <PressScale
                   style={[
                     styles.saveBtnCompact, 
                     { backgroundColor: theme.accent }, 
@@ -363,18 +350,18 @@ export const MapPicker = ({
                   ]}
                   onPress={handleSaveLocation}
                 >
-                  <Save size={16} color="#000" />
-                </TouchableOpacity>
+                  <Save size={16} color={color.onAccent} />
+                </PressScale>
               </View>
             </View>
 
-            <TouchableOpacity 
+            <PressScale 
               onPress={handleManualSelect}
-              style={[styles.confirmBtn, { backgroundColor: '#000000', marginTop: 24, marginBottom: 24, borderColor: theme.border, borderWidth: Platform.OS === 'ios' ? 1 : 0 }, dStyle.button]}
+              style={[styles.confirmBtn, { backgroundColor: color.accent, marginTop: 24, marginBottom: 24 }, dStyle.button]}
             >
-              <Navigation size={20} color="#FFFFFF" />
-              <Text style={[styles.confirmBtnText, { color: '#FFFFFF' }]}>{t('selectThisLocation', language)}</Text>
-            </TouchableOpacity>
+              <Navigation size={20} color={color.onAccent} />
+              <Text style={[styles.confirmBtnText, { color: color.onAccent }]}>{t('selectThisLocation', language)}</Text>
+            </PressScale>
 
             {/* 저장된 즐겨찾기 목록 */}
             <View style={styles.savedSection}>
@@ -388,7 +375,7 @@ export const MapPicker = ({
                 <View style={styles.savedList}>
                   {savedLocations.map((loc: any) => (
                     <View key={loc.id} style={[styles.savedItem, dStyle.savedItem]}>
-                      <TouchableOpacity
+                      <PressScale
                         style={styles.savedItemContent}
                         onPress={() => handleSelectSaved(loc)}
                       >
@@ -401,13 +388,13 @@ export const MapPicker = ({
                             {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
                           </Text>
                         </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
+                      </PressScale>
+                      <PressScale
                         style={styles.deleteBtn}
                         onPress={() => removeSavedLocation(loc.id)}
                       >
-                        <Trash2 size={16} color="#FF4444" />
-                      </TouchableOpacity>
+                        <Trash2 size={16} color={color.danger} />
+                      </PressScale>
                     </View>
                   ))}
                 </View>
@@ -421,7 +408,7 @@ export const MapPicker = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   dragHandleWrapper: {
     width: '100%',
     height: 24,
@@ -435,14 +422,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 2,
     borderRadius: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: color.borderStrong,
   },
   modalOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   modalContent: { height: height * 0.9, borderTopLeftRadius: 4, borderTopRightRadius: 4, paddingHorizontal: 20, paddingTop: 10 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '900', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', letterSpacing: 0.5 },
-  subtitle: { fontSize: 11.5, marginTop: 2, opacity: 0.8, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  closeBtn: { padding: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  title: { fontSize: 22, fontWeight: '900', fontFamily: mono, letterSpacing: 0.5 },
+  subtitle: { fontSize: 11, marginTop: 2, opacity: 0.8, fontFamily: mono },
+  closeBtn: { padding: 6, backgroundColor: color.fill, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border },
   
   mapWrapper: {
     position: 'relative',
@@ -450,10 +437,10 @@ const styles = StyleSheet.create({
     minHeight: 280,
     maxHeight: 340,
     marginBottom: 16,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     overflow: 'hidden',
   },
-  mapContainer: { flex: 1, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', overflow: 'hidden' },
+  mapContainer: { flex: 1, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, overflow: 'hidden' },
   crosshairContainer: {
     position: 'absolute',
     top: '50%',
@@ -472,7 +459,7 @@ const styles = StyleSheet.create({
     right: 12,
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.lg,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -483,13 +470,13 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   formScroll: { flex: 1 },
-  section: { padding: 16, borderRadius: 24, borderWidth: 1 },
+  section: { padding: 16, borderRadius: radius.lg, borderWidth: 1 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' },
-  currentLocLink: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.05)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
+  currentLocLink: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: color.fill, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
   currentLocLinkText: { fontSize: 11, fontWeight: '700' },
-  input: { height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 14, backgroundColor: 'rgba(0,0,0,0.2)' },
-  nameInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 14, backgroundColor: 'rgba(0,0,0,0.2)' },
+  input: { height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 16, fontSize: 16, backgroundColor: color.fill },
+  nameInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 16, fontSize: 16, backgroundColor: color.fill },
   compactSaveForm: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -505,17 +492,17 @@ const styles = StyleSheet.create({
   saveBtnCompact: {
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   savedSection: { marginTop: 24 },
-  emptyState: { height: 100, borderRadius: 24, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  emptyState: { height: 100, borderRadius: radius.lg, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
   savedList: { gap: 10 },
-  savedItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, borderWidth: 1 },
+  savedItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: radius.lg, borderWidth: 1 },
   savedItemContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  savedItemIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', justifyContent: 'center', alignItems: 'center' },
-  savedItemName: { fontSize: 15, fontWeight: '700' },
+  savedItemIcon: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: color.fill, justifyContent: 'center', alignItems: 'center' },
+  savedItemName: { fontSize: 16, fontWeight: '700' },
   savedItemCoords: { fontSize: 11, opacity: 0.6, marginTop: 2 },
   deleteBtn: { padding: 10 },
-  confirmBtn: { flexDirection: 'row', height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center', gap: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
-  confirmBtnText: { fontSize: 17, fontWeight: '900', color: '#000' }
-});
+  confirmBtn: { flexDirection: 'row', height: 56, borderRadius: radius.lg, justifyContent: 'center', alignItems: 'center', gap: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  confirmBtnText: { fontSize: 16, fontWeight: '900', color: '#000' }
+}));

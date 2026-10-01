@@ -153,7 +153,31 @@ const AER_COLUMN_KM = 0.30;
  */
 const AER_BETA_FLOOR = 0.012;
 
-export const aerosolBeta = (visibilityM?: number, rhPct?: number): number => {
+/**
+ * CAMS 에어로졸 광학두께(AOD 550nm, Open-Meteo 대기질 API)를 앱의 β 척도로 옮기는 비율(2026-10-01).
+ *
+ * 앱의 β 는 물리 AOD 가 아니라 **사진에 맞춘 척도**입니다(`AER_COLUMN_KM` 주석: 진짜 에어로졸 규모고도
+ * 1~1.5km 대신 0.30km). 그래서 AOD 를 그대로 넣으면 평균적인 날이 지금보다 서너 배 뿌옇게 그려집니다.
+ *
+ * 비율은 자료로 정했습니다: 24개 도시 · 지난 7일 · 3,787시각에서 시정 식 β 와 CAMS AOD 를 견주니
+ * 비 중앙값 0.239(사분위 0.147~0.402). 물리적으로 기대하는 값 0.30km / 1.2km ≈ 0.25 와도 맞습니다.
+ * 표본은 `tools/shader-preview/fixtures/aerosol-calibration.json`, 판정은 `verify-aerosol.js` [2].
+ *
+ * 둘의 순위 상관은 0.44 에 그칩니다 — AOD 가 시정과 **다른 것**을 알려 준다는 뜻입니다. 시정은 지표
+ * 근처만 보는 모델 값이라 상공의 황사·연기 층을 모르고, CAMS 는 위성 AOD 를 동화한 기둥 전체 값입니다.
+ */
+export const AOD_TO_APP_BETA = 0.24;
+
+/** CAMS AOD(550nm) → 앱 β. 하한·상한은 시정 식과 같습니다. */
+export const aerosolBetaFromAod = (aod550: number): number =>
+  Math.max(AER_BETA_FLOOR, Math.min(0.6, aod550 * AOD_TO_APP_BETA));
+
+/**
+ * @param aod550 CAMS 에어로졸 광학두께. 있으면 시정 대신 이것을 씁니다. CAMS AOD 는 그 시각 습도에서의
+ *   값이라(흡습 성장 포함) 습도 보정을 다시 곱하지 않습니다 — 시정과 같은 이유입니다.
+ */
+export const aerosolBeta = (visibilityM?: number, rhPct?: number, aod550?: number | null): number => {
+  if (aod550 != null && Number.isFinite(aod550) && aod550 >= 0) return aerosolBetaFromAod(aod550);
   const hasVis = visibilityM != null && visibilityM > 0;
   // ⚠ 시정을 모를 때의 대체값입니다. 예전에는 45km 였는데, 그건 하한 0.04 가
   // 늘 걸려 가려져 있었습니다. 하한을 내리자 45km 가 β 0.023 — **청정 대기**로
@@ -737,8 +761,10 @@ export const predictSunset = (
   const apparentAlt = getApparentAltitude(sunAltDeg);
   const effectiveSunAlt = apparentAlt + dip;
 
-  const beta = aerosolBeta(visibilityM, rhPct);
   const localPath = getInterpolatedWeather(pathData, targetTime);
+  // 관측점에 대기질 AOD 가 붙어 있으면 그것으로, 없으면 예전처럼 시정으로(`aerosolBeta` 주석).
+  const obsAod = (localPath.find(p => p.distance === 0) ?? localPath[0])?.aod550;
+  const beta = aerosolBeta(visibilityM, rhPct, obsAod);
   const pathClarity = Math.max(0.15, beamPathTransmittance(localPath, sunAltDeg));
 
   const currentBeam = directBeamRGB(sunAltDeg, elevVal, latVal, beta, doy);

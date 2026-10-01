@@ -296,8 +296,13 @@ export interface AtmosphereParams {
 export interface AtmosphereInput {
   visibilityM?: number;
   humidityPct?: number;
-  /** 미세먼지 PM2.5 (µg/m³). 있으면 혼탁도에 가산 */
+  /** 미세먼지 PM2.5 (µg/m³). AOD 가 없을 때만 혼탁도에 가산 */
   pm25?: number;
+  /** CAMS 에어로졸 광학두께(550nm). 있으면 β 를 이것으로 잡습니다(`sunsetPhysics.aerosolBeta`). */
+  aod550?: number;
+  /** CAMS 지표 먼지·PM10 (µg/m³). 둘 다 있으면 먼지 비중으로 Ångström 지수를 정합니다. */
+  dustUgM3?: number;
+  pm10?: number;
   observerElevM?: number;
   latitude?: number;
   dayOfYear?: number;
@@ -316,17 +321,27 @@ export function makeAtmosphereParams(input: AtmosphereInput = {}): AtmospherePar
     visibilityM,
     humidityPct,
     pm25,
+    aod550,
+    dustUgM3,
+    pm10,
     observerElevM = 0,
     latitude = 37.5665,
     dayOfYear = 172,
   } = input;
 
-  // 가시거리 + 습도 기반 기본 혼탁도 (기존 엔진 재사용)
-  let beta = aerosolBeta(visibilityM, humidityPct);
+  // 혼탁도: CAMS AOD 가 있으면 그것, 없으면 가시거리 + 습도 (예측과 같은 함수)
+  const hasAod = aod550 != null && Number.isFinite(aod550) && aod550 >= 0;
+  let beta = aerosolBeta(visibilityM, humidityPct, hasAod ? aod550 : undefined);
 
-  // 미세먼지 가산: PM2.5 25µg/m³당 약 β +0.05 (경험적 스케일)
   let angstrom = 1.3;
-  if (pm25 != null && pm25 > 0) {
+  if (hasAod && dustUgM3 != null && pm10 != null && pm10 > 0) {
+    // 먼지(조대 입자) 비중만큼 파장 의존성이 약해집니다. 사막 먼지의 Ångström 지수는 0.2~0.5,
+    // 도시·연기의 미세 입자는 1.3 안팎이라(AERONET 기후값) 먼지뿐이면 0.4 까지 내립니다.
+    const dustShare = Math.max(0, Math.min(1, dustUgM3 / pm10));
+    angstrom = 1.3 - 0.9 * dustShare;
+  } else if (!hasAod && pm25 != null && pm25 > 0) {
+    // 미세먼지 가산: PM2.5 25µg/m³당 약 β +0.05 (경험적 스케일). AOD 가 있으면 이미 그 안에 들어 있어
+    // 다시 더하지 않습니다.
     beta += Math.min(0.35, (pm25 / 25) * 0.05);
     // 고농도일수록 조대입자 비중이 커져 파장 의존성이 약해짐
     angstrom = 1.3 - Math.min(0.85, (pm25 / 80) * 0.85);
@@ -1564,7 +1579,12 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   float chroma = (mxg - min(g.r, min(g.g, g.b))) / max(1e-4, mxg);
   float want = 1.0 + blueness * (DISP_BLUE - 1.0);
   float cap = chroma > 1e-4 ? DISP_BLUE_CAP / chroma : want;
-  c = mix(vec3(luma), c, min(want, max(1.0, cap)));
+  // ⚠ (2026-10-01) 천장은 **줄이기도** 합니다 — 파란 만큼만. 예전 max(1, cap) 은 밀기만 막고, 위
+  //   DISP_SAT 단계에서 이미 천장을 넘은 천정 하늘은 그대로 두었습니다. 구름 없는 낮 천정(해 30°, 고도 72°)
+  //   의 맑은 하늘 채도가 중앙값 0.57 · 0.6 초과 39% 로, 사진(0.31 · 9%)에 없는 형광 파랑이었습니다 —
+  //   예전에는 한 자리에 맞춘 운량 사상이 천정을 중층운으로 덮어 가려져 있었습니다(CloudSlab SHAPE_MEAN).
+  //   파랗지 않은 화소(노을·구름·태양, blueness 0)는 예전과 같습니다.
+  c = mix(vec3(luma), c, min(want, mix(max(1.0, cap), cap, blueness)));
 
   // 대비는 **휘도에만** 겁니다.
   //

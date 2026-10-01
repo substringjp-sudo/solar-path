@@ -1,8 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Modal, ScrollView, Platform } from 'react-native';
 import { X, Sunrise, Sunset, Calendar, PlayCircle, Sun } from 'lucide-react-native';
 import { t } from '../../utils/i18n';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { color, radius, mono, dataColor } from '../../theme/tokens';
+import { PressScale } from '../ui';
+import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
 interface IsolineGuideModalProps {
   visible: boolean;
@@ -11,26 +14,27 @@ interface IsolineGuideModalProps {
 }
 
 export const IsolineGuideModal: React.FC<IsolineGuideModalProps> = ({ visible, onClose, theme }) => {
+  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const { language } = useCelestialStore();
 
   const items = [
-    { icon: <Sunrise size={16} color="#FFA500" />, text: t('isolineGuideSunrise', language) },
-    { icon: <Sunset size={16} color="#FF4500" />, text: t('isolineGuideSunset', language) },
+    { icon: <Sunrise size={16} color={dataColor.sunrise} />, text: t('isolineGuideSunrise', language) },
+    { icon: <Sunset size={16} color={color.glow} />, text: t('isolineGuideSunset', language) },
     { icon: <Calendar size={16} color={theme.accent} />, text: t('isolineGuideSeason', language) },
     { icon: <PlayCircle size={16} color={theme.accent} />, text: t('isolineGuideAutoplay', language) },
-    { icon: <Sun size={16} color="#FFD700" />, text: t('isolineGuideSun', language) },
+    { icon: <Sun size={16} color={color.sun} />, text: t('isolineGuideSun', language) },
   ];
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+        <PressScale style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.header}>
             <Text style={[styles.title, { color: theme.text }]}>{t('isolineGuideTitle', language)}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <PressScale onPress={onClose} style={styles.closeBtn}>
               <X size={20} color={theme.subText} />
-            </TouchableOpacity>
+            </PressScale>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
@@ -51,10 +55,10 @@ export const IsolineGuideModal: React.FC<IsolineGuideModalProps> = ({ visible, o
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: color.scrim,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -78,7 +82,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   title: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '900',
     flex: 1,
     paddingRight: 12,
@@ -99,14 +103,14 @@ const styles = StyleSheet.create({
   itemIcon: {
     width: 28,
     height: 28,
-    borderRadius: 10,
+    borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
   itemText: {
     flex: 1,
-    fontSize: 12.5,
+    fontSize: 13,
     lineHeight: 18,
     paddingTop: 4,
   },
-});
+}));

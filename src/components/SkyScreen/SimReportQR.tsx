@@ -19,6 +19,7 @@ import { View, StyleSheet, Text } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import qrcode from 'qrcode-generator';
 import { SIM_REPORT_VERSION } from '../../utils/simReport';
+import { color } from '../../theme/tokens';
 
 /** QR 모듈 사이 여백 (모듈 단위). QR 표준 권장값은 4입니다. */
 const QUIET_MODULES = 4;
@@ -60,7 +61,7 @@ export const SimReportQR: React.FC<{ data: string; size?: number }> = React.memo
   return (
     <View style={styles.plate} pointerEvents="none">
       <Svg width={sizePt} height={sizePt} viewBox={`0 0 ${size} ${size}`}>
-        <Rect x={0} y={0} width={size} height={size} fill="#ffffff" />
+        <Rect x={0} y={0} width={size} height={size} fill={color.text} />
         <Path d={d} fill="#000000" />
       </Svg>
       <Text style={styles.caption}>SIM v{SIM_REPORT_VERSION}</Text>
@@ -71,7 +72,7 @@ SimReportQR.displayName = 'SimReportQR';
 
 const styles = StyleSheet.create({
   plate: {
-    backgroundColor: '#ffffff',
+    backgroundColor: color.text,
     borderRadius: 6,
     padding: 4,
     alignItems: 'center',

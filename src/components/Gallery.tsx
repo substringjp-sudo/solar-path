@@ -1,11 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
+import { StyleSheet, View, Text, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
 import { Trash2, Image as ImageIcon, Share2 } from 'lucide-react-native';
 import { shareToTwitter } from '../utils/twitterShare';
 import { auth } from '../config/firebase';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
-import { t } from '../utils/i18n';
+import { t, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
+import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 const getDirectionLabel = (azimuth: number, lang: 'ko' | 'en' | 'ja'): string => {
   const koDirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
@@ -32,6 +35,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   myPhotos = [],
   removeGlobalPhoto
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { language, currentUser, removeMyPhoto } = useCelestialStore();
   const { width } = Dimensions.get('window');
   const [galleryFilter, setGalleryFilter] = useState<'all' | 'mine'>('all');
@@ -66,18 +70,18 @@ export const Gallery: React.FC<GalleryProps> = ({
         
         {/* Filter Container */}
         <View style={styles.filterContainer}>
-          <TouchableOpacity
+          <PressScale
             style={[styles.filterChip, galleryFilter === 'all' && styles.activeFilterChip]}
             onPress={() => setGalleryFilter('all')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? '#38BDF8' : theme.subText }]}>{t('all', language)}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'all' ? color.accent : theme.subText }]}>{t('all', language)}</Text>
+          </PressScale>
+          <PressScale
             style={[styles.filterChip, galleryFilter === 'mine' && styles.activeFilterChip]}
             onPress={() => setGalleryFilter('mine')}
           >
-            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? '#38BDF8' : theme.subText }]}>{t('mine', language)}</Text>
-          </TouchableOpacity>
+            <Text style={[styles.filterChipText, { color: galleryFilter === 'mine' ? color.accent : theme.subText }]}>{t('mine', language)}</Text>
+          </PressScale>
         </View>
       </View>
 
@@ -97,7 +101,7 @@ export const Gallery: React.FC<GalleryProps> = ({
               const itemWidth = (width - 44) / 2;
               const photoUri = typeof item.imageUrl === 'string' ? item.imageUrl : typeof item.localUri === 'string' ? item.localUri : typeof item.uri === 'string' ? item.uri : '';
               return (
-                <TouchableOpacity
+                <PressScale
                   style={[
                     styles.galleryItem, 
                     { width: itemWidth, backgroundColor: theme.card, borderColor: theme.border },
@@ -128,28 +132,34 @@ export const Gallery: React.FC<GalleryProps> = ({
                       {new Date(item.timestamp).toLocaleDateString()} • {item.userName || 'Me'}
                     </Text>
                     {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
-                      <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || '#FFD700' }]}>
+                      <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || color.sun }]}>
                         🧭 {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
                       </Text>
                     )}
                   </View>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingBottom: 10 }}>
-                    <TouchableOpacity
+                    <PressScale
                       style={styles.photoShareBtn}
                       onPress={() => {
-                        const tweetText = `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${item.location || '하늘 포토'}\n#BeforeGlow #노을 #sunset`;
+                        // 언어별 공유 문구(점검 2026-09-29). ⚠ 예전에는 item.location 을 읽었는데 사진에는
+                        //   locationName 만 있어 늘 '하늘 포토' 가 붙었습니다.
+                        const place = item.locationName || item.location || L3(language, '하늘 사진', 'Sky photo', '空の写真');
+                        const tweetText = L3(language,
+                          `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${place}\n#BeforeGlow #노을 #sunset`,
+                          `🌇 A sky I caught with the BeforeGlow sunset forecast!\n📍 ${place}\n#BeforeGlow #sunset`,
+                          `🌇 BeforeGlowの夕焼け予報で捉えた空!\n📍 ${place}\n#BeforeGlow #夕焼け #sunset`);
                         shareToTwitter({
                           text: tweetText,
                           imageUris: photoUri ? [photoUri] : [],
                         });
                       }}
                     >
-                      <Share2 size={12} color="#38BDF8" />
-                    </TouchableOpacity>
+                      <Share2 size={12} color={color.accent} />
+                    </PressScale>
 
                     {(item.userId === auth.currentUser?.uid || item.isPending) && (
-                      <TouchableOpacity
+                      <PressScale
                         style={styles.photoDeleteBtn}
                         onPress={() => {
                           Alert.alert(
@@ -167,10 +177,10 @@ export const Gallery: React.FC<GalleryProps> = ({
                         }}
                       >
                         <Trash2 size={12} color="#FF6F61" />
-                      </TouchableOpacity>
+                      </PressScale>
                     )}
                   </View>
-                </TouchableOpacity>
+                </PressScale>
               );
           }}
         />
@@ -186,7 +196,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: {
     flex: 1,
     paddingHorizontal: 14,
@@ -212,26 +222,26 @@ const styles = StyleSheet.create({
   filterChip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: radius.xs,
+    backgroundColor: color.fill,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
   },
   activeFilterChip: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: 'rgba(56, 189, 248, 0.45)',
+    backgroundColor: color.accentSoft,
+    borderColor: color.accentLine,
   },
   filterChipText: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.3,
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderStyle: 'dashed',
     marginVertical: 20,
@@ -242,7 +252,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   galleryItem: {
-    borderRadius: 4,
+    borderRadius: radius.xs,
     overflow: 'hidden',
     borderWidth: 1,
     position: 'relative',
@@ -257,41 +267,41 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   galleryTitle: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
   },
   galleryDate: {
-    fontSize: 8.5,
+    fontSize: 9,
     opacity: 0.65,
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   galleryGuide: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '800',
     marginTop: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   photoShareBtn: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: color.accentSoft,
     width: 26,
     height: 26,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderColor: color.accentLine,
   },
   photoDeleteBtn: {
-    backgroundColor: 'rgba(255, 82, 82, 0.12)',
+    backgroundColor: color.dangerSoft,
     width: 26,
     height: 26,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 82, 82, 0.3)',
+    borderColor: color.dangerSoft,
   },
   pendingBadge: {
     position: 'absolute',
@@ -300,15 +310,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.85)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(255,111,97,0.4)',
   },
   pendingText: {
     color: '#FF6F61',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.4,
   },
-});
+}));

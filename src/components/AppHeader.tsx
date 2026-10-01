@@ -14,7 +14,7 @@
  *   기록: 시간축 — "뭘 봤나"
  */
 import React, { useMemo, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated, Platform } from 'react-native';
+import { StyleSheet, View, Text, Animated, Platform } from 'react-native';
 import { addDays, subDays } from 'date-fns';
 import {
   ChevronLeft,
@@ -26,7 +26,11 @@ import {
 } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
-import { t } from '../utils/i18n';
+import { t, L3 } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
+import { timeTo } from '../theme/motion';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'map' | 'log';
@@ -67,6 +71,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   timezoneLabel,
   isSimulationLoading = false,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const { currentTime, timezoneOffsetHours, language } = useCelestialStore();
 
   const activeIndex = useMemo(() => {
@@ -76,11 +81,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   const indicatorAnim = useRef(new Animated.Value(activeIndex)).current;
   useEffect(() => {
-    Animated.timing(indicatorAnim, {
-      toValue: activeIndex,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
+    timeTo(indicatorAnim, activeIndex, 'base', 'enter', { useNativeDriver: false }).start();
   }, [activeIndex, indicatorAnim]);
 
   const indicatorLeft = indicatorAnim.interpolate({
@@ -117,7 +118,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {APP_TABS.map(tab => {
             const isActive = activeTab === tab.id;
             return (
-              <TouchableOpacity
+              <PressScale
                 key={tab.id}
                 onPress={() => setActiveTab(tab.id)}
                 style={styles.navButton}
@@ -127,52 +128,55 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   numberOfLines={1}
                   style={[
                     styles.navText,
-                    { color: isActive ? '#38BDF8' : '#64748B' },
+                    { color: isActive ? color.accent : color.textMute },
                     isActive && { fontWeight: '900' }
                   ]}
                 >
-                  {tab.label}
+                  {/* 번호는 HUD 문체로 두고 이름은 언어를 따릅니다(점검 2026-09-29). */}
+                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
+                    : tab.id === 'map' ? L3(language, '지도', 'MAP', '地図')
+                    : L3(language, '기록', 'LOG', '記録')}`}
                 </Text>
-              </TouchableOpacity>
+              </PressScale>
             );
           })}
         </View>
 
         <View style={styles.rightButtons}>
           {setMapVisible && (
-            <TouchableOpacity
+            <PressScale
               onPress={() => setMapVisible(true)}
               style={styles.iconBtn}
-              accessibilityLabel="현재위치 변경"
+              accessibilityLabel={L3(language, '위치 변경', 'Change location', '位置を変更')}
               accessibilityRole="button"
             >
-              <MapPin size={14} color="#38BDF8" />
-            </TouchableOpacity>
+              <MapPin size={14} color={color.accent} />
+            </PressScale>
           )}
 
-          <TouchableOpacity
+          <PressScale
             onPress={() => setSettingsVisible(true)}
             style={styles.iconBtn}
-            accessibilityLabel="설정"
+            accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
-            <Settings size={14} color="#94A3B8" />
-          </TouchableOpacity>
+            <Settings size={14} color={color.textDim} />
+          </PressScale>
         </View>
       </View>
 
       {showDateBar && (
         <View style={styles.dateNavigator}>
-          <TouchableOpacity
+          <PressScale
             onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))}
             style={styles.dateControl}
           >
-            <ChevronLeft size={16} color="#94A3B8" />
-          </TouchableOpacity>
+            <ChevronLeft size={16} color={color.textDim} />
+          </PressScale>
 
-          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
-            <Calendar size={11} color="#38BDF8" style={{ marginRight: 6 }} />
-            <Text style={styles.datePrefix}>DATE // </Text>
+          <PressScale onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
+            <Calendar size={11} color={color.accent} style={{ marginRight: 6 }} />
+            {/* 'DATE //' 접두어는 뺐습니다 — 달력 아이콘이 이미 말하고, 320px 기기에서 두 줄로 깨졌습니다. */}
             <Text style={styles.dateText}>
               {formatLocalTime(currentTimeLocal || currentTime, 'yyyy.MM.dd')}
             </Text>
@@ -181,24 +185,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <Text style={styles.timezoneText}>{timezoneLabel}</Text>
               </View>
             )}
-          </TouchableOpacity>
+          </PressScale>
 
           <View style={styles.dateRightControls}>
             {!isTodayLocal && (
-              <TouchableOpacity
+              <PressScale
                 onPress={() => handleDateChange(new Date())}
                 style={styles.todayButton}
               >
-                <RotateCcw size={10} color="#38BDF8" />
+                <RotateCcw size={10} color={color.accent} />
                 <Text style={styles.todayText}>{t('today', language)}</Text>
-              </TouchableOpacity>
+              </PressScale>
             )}
-            <TouchableOpacity
+            <PressScale
               onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))}
               style={styles.dateControl}
             >
-              <ChevronRight size={16} color="#94A3B8" />
-            </TouchableOpacity>
+              <ChevronRight size={16} color={color.textDim} />
+            </PressScale>
           </View>
         </View>
       )}
@@ -206,7 +210,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   header: {
     paddingTop: 5,
     paddingHorizontal: 14,
@@ -222,10 +226,10 @@ const styles = StyleSheet.create({
   navToggle: {
     flexDirection: 'row',
     padding: 2,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    borderColor: color.border,
+    backgroundColor: color.panel,
     flex: 1,
     position: 'relative',
   },
@@ -233,22 +237,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 2,
     bottom: 2,
-    borderRadius: 2,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderRadius: radius.xs,
+    backgroundColor: color.accentSoft,
     borderBottomWidth: 2,
-    borderBottomColor: '#38BDF8',
+    borderBottomColor: color.accent,
   },
   navButton: {
     flex: 1,
     paddingVertical: 5.5,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 2,
+    borderRadius: radius.xs,
     zIndex: 2,
   },
   navText: {
-    fontSize: 10.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 11,
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   rightButtons: {
@@ -259,10 +263,10 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 32,
     height: 32,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    borderColor: color.border,
+    backgroundColor: color.panel,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -272,10 +276,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(9, 13, 24, 0.95)',
+    borderColor: color.border,
+    backgroundColor: color.panel,
     height: 34,
   },
   dateControl: {
@@ -288,27 +292,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   datePrefix: {
-    fontSize: 9.5,
-    color: '#64748B',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 9,
+    color: color.textMute,
+    fontFamily: mono,
     fontWeight: '700',
   },
   dateText: {
-    fontSize: 11.5,
-    color: '#F8FAFC',
+    fontSize: 11,
+    color: color.text,
     fontWeight: '900',
     letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   todayButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 2,
     paddingHorizontal: 6,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.4)',
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderColor: color.accentLine,
+    backgroundColor: color.accentSoft,
     gap: 4,
   },
   dateRightControls: {
@@ -319,23 +323,23 @@ const styles = StyleSheet.create({
   todayText: {
     fontSize: 9,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#38BDF8',
+    fontFamily: mono,
+    color: color.accent,
     letterSpacing: 0.3,
   },
   timezoneBadge: {
     marginLeft: 6,
     paddingHorizontal: 4,
     paddingVertical: 1,
-    borderRadius: 2,
+    borderRadius: radius.xs,
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: color.border,
+    backgroundColor: color.fill,
   },
   timezoneText: {
-    fontSize: 8,
-    color: '#94A3B8',
+    fontSize: 9,
+    color: color.textDim,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
-});
+}));

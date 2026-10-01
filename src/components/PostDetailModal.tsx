@@ -5,7 +5,6 @@ import {
   Text,
   Modal,
   Image,
-  TouchableOpacity,
   ScrollView,
   Dimensions,
   Platform,
@@ -21,11 +20,14 @@ import {
   CloudSun,
   Eye,
   Droplets,
-  Sparkles,
-} from 'lucide-react-native';
+  Sparkles, Flag } from 'lucide-react-native';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { shareToSns, SnsPlatform } from '../utils/snsShare';
+import { L3 } from '../utils/i18n';
+import { color, radius, mono } from '../theme/tokens';
+import { PressScale } from './ui';
+import { reportPhoto, REPORT_REASONS, type ReportReason } from '../utils/reportContent';
 
 const { width: W } = Dimensions.get('window');
 
@@ -39,16 +41,35 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
   const [likesCount, setLikesCount] = useState(photo?.likesCount || 0);
   const [isLiked, setIsLiked] = useState(false);
   const [showSnsSelector, setShowSnsSelector] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportState, setReportState] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle');
+  const hidePhoto = useCelestialStore((s) => s.hidePhoto);
+  const blockUser = useCelestialStore((s) => s.blockUser);
 
   const togglePhotoVisibility = useCelestialStore((s) => s.togglePhotoVisibility);
-  const isMyPhoto = photo && (auth.currentUser?.uid ? photo.id.includes(auth.currentUser.uid) || true : true);
+  const language = useCelestialStore((s) => s.language);
+  // ⚠ 예전 식은 끝에 `|| true` 가 붙어 **늘 참**이었습니다 — 남의 게시물에도 "공유하기"(누르면 전체
+  //   공개로 바뀜)가 떴습니다(점검 2026-09-29). 서버 게시물은 userId 로 가리고, userId 가 없는
+  //   것(이 기기의 내 사진)만 내 것으로 봅니다.
+  const ownerId: string | undefined = (photo as any)?.userId;
+  const isMyPhoto = !!photo && (ownerId ? ownerId === auth.currentUser?.uid : true);
 
   if (!photo) return null;
 
   const isPublic = !!photo.isPublic;
   const weather = photo.weatherInfo || {};
-  const latStr = photo.latitude ? `${photo.latitude.toFixed(3)}°N` : '37.566°N';
-  const lonStr = photo.longitude ? `${photo.longitude.toFixed(3)}°E` : '126.978°E';
+  // ⚠ 예전에는 값이 없으면 서울 좌표·운량 35%·시정 15km·습도 55%·'Vivid 붉은 노을' 을 채웠습니다.
+  //   저장되는 기상 정보에는 운량·시정·품질 필드가 **아예 없어서** 늘 그 가짜 값이 나왔고, 습도는
+  //   이미 % 인 값에 100 을 곱해 5000% 처럼 나왔습니다. 이제 실제로 저장된 값만 적고, 없으면 '—'.
+  const obs = Array.isArray(weather.interpolatedWeatherData) ? weather.interpolatedWeatherData[0] : undefined;
+  const fmtLat = (v?: number) => (typeof v === 'number' ? `${Math.abs(v).toFixed(3)}°${v >= 0 ? 'N' : 'S'}` : '—');
+  const fmtLon = (v?: number) => (typeof v === 'number' ? `${Math.abs(v).toFixed(3)}°${v >= 0 ? 'E' : 'W'}` : '—');
+  const latStr = fmtLat(photo.latitude);
+  const lonStr = fmtLon(photo.longitude);
+  const cloudPct = obs ? (obs.total ?? Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0)) : undefined;
+  const visKm = typeof obs?.visibility === 'number' ? obs.visibility / 1000 : undefined;
+  const humPct = typeof weather.humidity === 'number' ? weather.humidity : obs?.humidity;
+  const locationLabel = photo.locationName || (typeof photo.latitude === 'number' ? `${latStr}, ${lonStr}` : L3(language, '위치 없음', 'No location', '位置なし'));
   const dateStr = photo.timestamp ? new Date(photo.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }) : '';
 
   const handleLike = () => {
@@ -58,7 +79,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
 
   const handleSnsSelect = async (platform: SnsPlatform) => {
     setShowSnsSelector(false);
-    const tweetText = `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${photo.locationName || '하늘 포토'}\n#BeforeGlow #노을예보 #sunset`;
+    const tweetText = L3(language,
+      `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${locationLabel}\n#BeforeGlow #노을예보 #sunset`,
+      `🌇 A sky I caught with the BeforeGlow sunset forecast!\n📍 ${locationLabel}\n#BeforeGlow #sunset`,
+      `🌇 BeforeGlowの夕焼け予報で捉えた空!\n📍 ${locationLabel}\n#BeforeGlow #夕焼け #sunset`);
 
     // 1. 선택한 SNS로 공유 딥링크 호출
     await shareToSns({
@@ -70,7 +94,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
     // 2. 공유 완료 시 즉시 전체 공개(isPublic: true) 상태로 변경!
     if (!isPublic) {
       await togglePhotoVisibility(photo.id, true);
-      Alert.alert('🌐 전체 공개 전환', '게시물이 SNS 공유와 함께 [전체 공개]로 설정되었습니다!');
+      Alert.alert(
+        L3(language, '🌐 전체 공개로 바뀜', '🌐 Now public', '🌐 全体公開になりました'),
+        L3(language, '공유하면서 게시물을 [전체 공개]로 바꿨습니다.', 'Sharing made this post public.', '共有に合わせて投稿を[全体公開]にしました。'),
+      );
     }
   };
 
@@ -83,19 +110,19 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
             <View style={styles.headerLeft}>
               {isPublic ? (
                 <View style={styles.publicBadge}>
-                  <Globe size={12} color="#4CAF50" />
-                  <Text style={styles.publicBadgeText}>전체 공개 게시물</Text>
+                  <Globe size={12} color={color.success} />
+                  <Text style={styles.publicBadgeText}>{L3(language, '전체 공개 게시물', 'Public post', '全体公開の投稿')}</Text>
                 </View>
               ) : (
                 <View style={styles.privateBadge}>
                   <Lock size={12} color="#FF9800" />
-                  <Text style={styles.privateBadgeText}>🔒 비공개 상태 (나만 봄)</Text>
+                  <Text style={styles.privateBadgeText}>{L3(language, '🔒 비공개 (나만 봄)', '🔒 Private (only you)', '🔒 非公開(自分のみ)')}</Text>
                 </View>
               )}
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeIconBtn}>
-              <X size={20} color="#FFF" />
-            </TouchableOpacity>
+            <PressScale onPress={onClose} style={styles.closeIconBtn}>
+              <X size={20} color={color.text} />
+            </PressScale>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -106,7 +133,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 return photoUri ? (
                   <View style={styles.photoFrame}>
                     <Image source={{ uri: photoUri }} style={styles.mainPhoto} resizeMode="cover" />
-                    <Text style={styles.photoLabel}>📷 촬영 사진</Text>
+                    <Text style={styles.photoLabel}>📷 {L3(language, '촬영 사진', 'Photo', '撮影写真')}</Text>
                   </View>
                 ) : null;
               })()}
@@ -116,7 +143,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 return simUri ? (
                   <View style={styles.photoFrame}>
                     <Image source={{ uri: simUri }} style={styles.mainPhoto} resizeMode="cover" />
-                    <Text style={styles.photoLabel}>🌅 3D 노을 시뮬레이션</Text>
+                    <Text style={styles.photoLabel}>🌅 {L3(language, '3D 노을 시뮬레이션', '3D glow simulation', '3D夕焼けシミュレーション')}</Text>
                   </View>
                 ) : null;
               })()}
@@ -127,48 +154,51 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
               {/* Location & Time */}
               <View style={styles.metaRow}>
                 <MapPin size={16} color="#FFB380" />
-                <Text style={styles.locationTitle}>{photo.locationName || '서울특별시'}</Text>
+                <Text style={styles.locationTitle}>{locationLabel}</Text>
                 <Text style={styles.timeSub}>{dateStr}</Text>
               </View>
 
               {/* Coords */}
               <View style={styles.coordsBadge}>
-                <Text style={styles.coordsText}>📍 촬영 좌표: {latStr}, {lonStr}</Text>
+                <Text style={styles.coordsText}>📍 {L3(language, '촬영 좌표', 'Taken at', '撮影座標')}: {latStr}, {lonStr}</Text>
               </View>
 
               {/* Weather Info */}
               <View style={styles.weatherCard}>
-                <Text style={styles.weatherCardTitle}>🌤️ 촬영 당시 기상 메타데이터</Text>
+                <Text style={styles.weatherCardTitle}>🌤️ {L3(language, '촬영 당시 날씨', 'Weather at capture', '撮影時の天気')}</Text>
                 <View style={styles.weatherGrid}>
                   <View style={styles.weatherItem}>
                     <CloudSun size={14} color="#88C0D0" />
-                    <Text style={styles.weatherItemLabel}>운량</Text>
-                    <Text style={styles.weatherItemVal}>{weather.overcast ? `${Math.round(weather.overcast * 100)}%` : '35%'}</Text>
+                    <Text style={styles.weatherItemLabel}>{L3(language, '운량', 'Cloud', '雲量')}</Text>
+                    <Text style={styles.weatherItemVal}>{cloudPct != null ? `${Math.round(cloudPct)}%` : '—'}</Text>
                   </View>
 
                   <View style={styles.weatherItem}>
                     <Eye size={14} color="#A3BE8C" />
-                    <Text style={styles.weatherItemLabel}>시정</Text>
-                    <Text style={styles.weatherItemVal}>{weather.visibility ? `${weather.visibility}km` : '15km'}</Text>
+                    <Text style={styles.weatherItemLabel}>{L3(language, '시정', 'Visibility', '視程')}</Text>
+                    <Text style={styles.weatherItemVal}>{visKm != null ? `${visKm >= 10 ? Math.round(visKm) : visKm.toFixed(1)}km` : '—'}</Text>
                   </View>
 
                   <View style={styles.weatherItem}>
                     <Droplets size={14} color="#5E81AC" />
-                    <Text style={styles.weatherItemLabel}>습도</Text>
-                    <Text style={styles.weatherItemVal}>{weather.humidity ? `${Math.round(weather.humidity * 100)}%` : '55%'}</Text>
+                    <Text style={styles.weatherItemLabel}>{L3(language, '습도', 'Humidity', '湿度')}</Text>
+                    <Text style={styles.weatherItemVal}>{humPct != null ? `${Math.round(humPct)}%` : '—'}</Text>
                   </View>
 
                   <View style={styles.weatherItem}>
                     <Sparkles size={14} color="#EBCB8B" />
-                    <Text style={styles.weatherItemLabel}>품질</Text>
-                    <Text style={styles.weatherItemVal}>{weather.colorLabel || 'Vivid 붉은 노을'}</Text>
+                    <Text style={styles.weatherItemLabel}>{L3(language, '노을 점수', 'Glow score', '夕焼けスコア')}</Text>
+                    <Text style={styles.weatherItemVal}>{typeof photo.weatherScore === 'number' ? String(Math.round(photo.weatherScore)) : '—'}</Text>
                   </View>
                 </View>
               </View>
 
               {!isPublic && (
                 <Text style={styles.privateNotice}>
-                  💡 [공유하기]를 누르고 SNS로 전달하면 게시물이 자동으로 [전체 공개]로 전환됩니다.
+                  {L3(language,
+                    '💡 [공유하기]로 SNS에 보내면 게시물이 [전체 공개]로 바뀝니다.',
+                    '💡 Sharing to social media makes this post public.',
+                    '💡 [共有]でSNSに送ると投稿が[全体公開]になります。')}
                 </Text>
               )}
             </View>
@@ -176,64 +206,117 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
 
           {/* Bottom Action Controls */}
           <View style={styles.actionFooter}>
-            <TouchableOpacity style={[styles.likeBtn, isLiked && styles.likedBtn]} onPress={handleLike}>
-              <Heart size={18} color={isLiked ? '#FF5252' : '#FFF'} fill={isLiked ? '#FF5252' : 'transparent'} />
+            <PressScale style={[styles.likeBtn, isLiked && styles.likedBtn]} onPress={handleLike}>
+              <Heart size={18} color={isLiked ? color.danger : color.text} fill={isLiked ? color.danger : 'transparent'} />
               <Text style={[styles.likeBtnText, isLiked && styles.likedBtnText]}>{likesCount}</Text>
-            </TouchableOpacity>
+            </PressScale>
 
-            <TouchableOpacity style={styles.closeFooterBtn} onPress={onClose}>
-              <Text style={styles.closeFooterText}>닫기</Text>
-            </TouchableOpacity>
+            <PressScale style={styles.closeFooterBtn} onPress={onClose}>
+              <Text style={styles.closeFooterText}>{L3(language, '닫기', 'Close', '閉じる')}</Text>
+            </PressScale>
+
+            {/* 남의 게시물 — 신고·차단(Play 사용자 제작 콘텐츠 정책, 출시 점검 2026-09-30) */}
+            {!isMyPhoto && ownerId && (
+              <PressScale style={styles.reportBtn} onPress={() => { setReportState('idle'); setShowReport(true); }} accessibilityLabel={L3(language, '신고', 'Report', '報告')}>
+                <Flag size={16} color={color.danger} />
+              </PressScale>
+            )}
 
             {/* 내 게시물일 때만 공유하기 버튼 노출 */}
             {isMyPhoto && (
-              <TouchableOpacity style={styles.shareBtn} onPress={() => setShowSnsSelector(true)}>
+              <PressScale style={styles.shareBtn} onPress={() => setShowSnsSelector(true)}>
                 <Share2 size={16} color="#000" />
-                <Text style={styles.shareBtnText}>공유하기</Text>
-              </TouchableOpacity>
+                <Text style={styles.shareBtnText}>{L3(language, '공유하기', 'Share', '共有')}</Text>
+              </PressScale>
             )}
           </View>
+
+          {/* 신고 시트 — 이유를 고르면 신고가 남고 이 사진은 바로 가려집니다. 사용자 차단은 따로. */}
+          {showReport && ownerId && (
+            <View style={styles.snsSheet}>
+              <View style={styles.snsSheetHeader}>
+                <Text style={styles.snsSheetTitle}>{L3(language, '이 사진 신고하기', 'Report this photo', 'この写真を報告')}</Text>
+                <PressScale onPress={() => setShowReport(false)}>
+                  <X size={18} color={color.text} />
+                </PressScale>
+              </View>
+              {reportState === 'done' ? (
+                <Text style={styles.reportNote}>{L3(language, '신고를 받았습니다. 검토 후 조치합니다. 이 사진은 이제 보이지 않습니다.', 'Thanks — we will review it. This photo is now hidden for you.', '報告を受け付けました。確認して対応します。この写真は表示されなくなります。')}</Text>
+              ) : (
+                <>
+                  {REPORT_REASONS.map((r: ReportReason) => (
+                    <PressScale
+                      key={r}
+                      style={styles.reportOption}
+                      disabled={reportState === 'sending'}
+                      onPress={async () => {
+                        setReportState('sending');
+                        const ok = await reportPhoto(photo.id, ownerId, r);
+                        if (ok) { setReportState('done'); hidePhoto(photo.id); } else setReportState('failed');
+                      }}
+                    >
+                      <Text style={styles.reportOptionText}>{
+                        r === 'inappropriate' ? L3(language, '부적절하거나 불쾌한 사진', 'Inappropriate or offensive', '不適切・不快な写真')
+                        : r === 'spam' ? L3(language, '스팸·광고', 'Spam or advertising', 'スパム・広告')
+                        : r === 'privacy' ? L3(language, '개인정보·얼굴이 드러남', 'Shows personal info or faces', '個人情報・顔が写っている')
+                        : L3(language, '기타', 'Something else', 'その他')
+                      }</Text>
+                    </PressScale>
+                  ))}
+                  {reportState === 'failed' && (
+                    <Text style={[styles.reportNote, { color: color.danger }]}>{L3(language, '보내지 못했습니다. 연결을 확인하고 다시 시도해 주세요.', 'Could not send. Check your connection and try again.', '送信できませんでした。接続を確認して再度お試しください。')}</Text>
+                  )}
+                </>
+              )}
+              <PressScale
+                style={[styles.reportOption, { borderBottomWidth: 0 }]}
+                onPress={() => { blockUser(ownerId); setShowReport(false); onClose(); }}
+              >
+                <Text style={[styles.reportOptionText, { color: color.danger }]}>{L3(language, '이 사용자의 사진 모두 숨기기(차단)', 'Block this user (hide all their photos)', 'このユーザーをブロック（写真をすべて非表示）')}</Text>
+              </PressScale>
+            </View>
+          )}
 
           {/* SNS Platform Selector Sheet */}
           {showSnsSelector && (
             <View style={styles.snsSheet}>
               <View style={styles.snsSheetHeader}>
-                <Text style={styles.snsSheetTitle}>𝕏 & SNS로 공유하고 공개하기</Text>
-                <TouchableOpacity onPress={() => setShowSnsSelector(false)}>
-                  <X size={18} color="#FFF" />
-                </TouchableOpacity>
+                <Text style={styles.snsSheetTitle}>{L3(language, '𝕏 · SNS로 공유하고 공개하기', 'Share to 𝕏 & social (makes it public)', '𝕏・SNSで共有して公開')}</Text>
+                <PressScale onPress={() => setShowSnsSelector(false)}>
+                  <X size={18} color={color.text} />
+                </PressScale>
               </View>
 
               <View style={styles.snsGrid}>
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('twitter')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('twitter')}>
                   <Text style={styles.snsIcon}>𝕏</Text>
-                  <Text style={styles.snsName}>트위터</Text>
-                </TouchableOpacity>
+                  <Text style={styles.snsName}>X</Text>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('instagram')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('instagram')}>
                   <Text style={styles.snsIcon}>📸</Text>
-                  <Text style={styles.snsName}>인스타</Text>
-                </TouchableOpacity>
+                  <Text style={styles.snsName}>Instagram</Text>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('threads')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('threads')}>
                   <Text style={styles.snsIcon}>🧵</Text>
                   <Text style={styles.snsName}>Threads</Text>
-                </TouchableOpacity>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('kakao')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('kakao')}>
                   <Text style={styles.snsIcon}>🟡</Text>
-                  <Text style={styles.snsName}>카카오톡</Text>
-                </TouchableOpacity>
+                  <Text style={styles.snsName}>{L3(language, '카카오톡', 'KakaoTalk', 'カカオトーク')}</Text>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('facebook')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('facebook')}>
                   <Text style={styles.snsIcon}>🔵</Text>
-                  <Text style={styles.snsName}>페이스북</Text>
-                </TouchableOpacity>
+                  <Text style={styles.snsName}>Facebook</Text>
+                </PressScale>
 
-                <TouchableOpacity style={styles.snsOption} onPress={() => handleSnsSelect('native')}>
+                <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('native')}>
                   <Text style={styles.snsIcon}>📱</Text>
-                  <Text style={styles.snsName}>더보기</Text>
-                </TouchableOpacity>
+                  <Text style={styles.snsName}>{L3(language, '더보기', 'More', 'その他')}</Text>
+                </PressScale>
               </View>
             </View>
           )}
@@ -254,7 +337,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     maxHeight: '90%',
     paddingBottom: Platform.OS === 'ios' ? 24 : 16,
   },
@@ -266,7 +349,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: color.border,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -279,15 +362,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(52, 211, 153, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.3)',
   },
   publicBadgeText: {
-    color: '#34D399',
-    fontSize: 10.5,
+    color: color.success,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   privateBadge: {
@@ -297,15 +380,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   privateBadgeText: {
-    color: '#F59E0B',
-    fontSize: 10.5,
+    color: color.sun,
+    fontSize: 11,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.2,
   },
   closeIconBtn: {
@@ -322,11 +405,11 @@ const styles = StyleSheet.create({
   photoFrame: {
     flex: 1,
     height: 180,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     overflow: 'hidden',
-    backgroundColor: '#05070D',
+    backgroundColor: color.bg,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: color.border,
     position: 'relative',
   },
   mainPhoto: {
@@ -340,13 +423,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(8, 11, 17, 0.85)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 2,
+    borderRadius: radius.xs,
     borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    color: '#FFF',
-    fontSize: 9.5,
+    borderColor: color.borderStrong,
+    color: color.text,
+    fontSize: 9,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   metaSection: {
     gap: 10,
@@ -357,7 +440,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   locationTitle: {
-    color: '#FFF',
+    color: color.text,
     fontSize: 16,
     fontWeight: '800',
   },
@@ -365,38 +448,38 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     fontSize: 11,
     marginLeft: 'auto',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   coordsBadge: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: color.fill,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 3,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: color.border,
     alignSelf: 'flex-start',
   },
   coordsText: {
-    color: '#38BDF8',
-    fontSize: 10,
+    color: color.accent,
+    fontSize: 11,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   weatherCard: {
-    backgroundColor: '#0E1424',
-    borderRadius: 4,
+    backgroundColor: color.panel,
+    borderRadius: radius.xs,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: color.border,
   },
   weatherCardTitle: {
-    color: '#94A3B8',
-    fontSize: 10.5,
+    color: color.textDim,
+    fontSize: 11,
     fontWeight: '800',
     marginBottom: 8,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   weatherGrid: {
     flexDirection: 'row',
@@ -408,22 +491,22 @@ const styles = StyleSheet.create({
   },
   weatherItemLabel: {
     color: 'rgba(255,255,255,0.5)',
-    fontSize: 9.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 9,
+    fontFamily: mono,
   },
   weatherItemVal: {
-    color: '#FFF',
-    fontSize: 12,
+    color: color.text,
+    fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   privateNotice: {
-    color: '#F59E0B',
-    fontSize: 10.5,
+    color: color.sun,
+    fontSize: 11,
     lineHeight: 15,
     backgroundColor: 'rgba(245, 158, 11, 0.08)',
     padding: 8,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.25)',
   },
@@ -439,39 +522,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: color.fill,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
   },
   likedBtn: {
-    backgroundColor: 'rgba(255, 82, 82, 0.15)',
+    backgroundColor: color.dangerSoft,
     borderColor: 'rgba(255, 82, 82, 0.4)',
   },
   likeBtnText: {
-    color: '#FFF',
-    fontSize: 12,
+    color: color.text,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   likedBtnText: {
-    color: '#FF5252',
+    color: color.danger,
   },
   closeFooterBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: radius.xs,
+    backgroundColor: color.fill,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: color.border,
   },
   closeFooterText: {
     color: 'rgba(255,255,255,0.8)',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
   },
   shareBtn: {
     flex: 1,
@@ -479,17 +562,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#38BDF8',
+    backgroundColor: color.accent,
     paddingVertical: 10,
-    borderRadius: 4,
+    borderRadius: radius.xs,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.5)',
+    borderColor: color.accentLine,
   },
   shareBtnText: {
     color: '#000',
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: mono,
     letterSpacing: 0.5,
   },
   snsSheet: {
@@ -501,7 +584,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: color.border,
     padding: 18,
     zIndex: 100,
   },
@@ -512,8 +595,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   snsSheetTitle: {
-    color: '#FFF',
-    fontSize: 14,
+    color: color.text,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -521,16 +604,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  reportBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.dangerSoft,
+  },
+  reportOption: {
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: color.border,
+  },
+  reportOptionText: {
+    color: color.text,
+    fontSize: 14,
+  },
+  reportNote: {
+    color: color.textDim,
+    fontSize: 13,
+    lineHeight: 19,
+    paddingVertical: 10,
+  },
   snsOption: {
     alignItems: 'center',
     gap: 5,
   },
   snsIcon: {
-    fontSize: 20,
+    fontSize: 22,
   },
   snsName: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '700',
   },
 });

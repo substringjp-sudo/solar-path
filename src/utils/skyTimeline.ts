@@ -143,6 +143,8 @@ export interface BuildTimelineParams {
   stepMinutes?: number;
   /** 진행률 0~1 과 단계 설명 */
   onProgress?: (progress: number, label: string) => void;
+  /** 진행 문구 언어(기본 ko) — 영·일 화면에 한국어가 뜨던 것(출시 점검 2026-09-30) */
+  language?: 'ko' | 'en' | 'ja';
   /** 취소 신호 — true를 반환하면 중단합니다. */
   isCancelled?: () => boolean;
 }
@@ -169,14 +171,16 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
     stepMinutes = DEFAULT_STEP_MINUTES,
     onProgress,
     isCancelled,
+    language = 'ko',
   } = params;
+  const L3 = (ko: string, en: string, ja: string) => (language === 'ko' ? ko : language === 'ja' ? ja : en);
 
   const report = (p: number, label: string) => onProgress?.(Math.max(0, Math.min(1, p)), label);
 
-  report(0.02, '하루치 날씨를 받는 중…');
+  report(0.02, L3('하루치 날씨를 받는 중…', 'Fetching the day\'s weather…', '1日分の天気を取得中…'));
   const ring: CloudPathData[] = await fetchDayWeatherRing(latitude, longitude, date);
   if (isCancelled?.()) throw new Error('CANCELLED');
-  report(0.18, '하늘 격자를 세우는 중…');
+  report(0.18, L3('하늘 격자를 세우는 중…', 'Building the sky grid…', '空のグリッドを作成中…'));
 
   // 그 날 00:00 로컬부터 24시간
   const start = new Date(date);
@@ -211,6 +215,9 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
     const atmosphere = makeAtmosphereParams({
       visibilityM: obs?.visibility,
       humidityPct: obs?.humidity,
+      aod550: obs?.aod550,
+      dustUgM3: obs?.dust,
+      pm10: obs?.pm10,
       observerElevM,
       latitude,
       dayOfYear,
@@ -290,14 +297,14 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
     });
 
     if (i % CHUNK === CHUNK - 1 || Date.now() - lastYield > 60) {
-      report(0.18 + 0.8 * ((i + 1) / frameCount), `하늘을 계산하는 중… ${i + 1}/${frameCount}`);
+      report(0.18 + 0.8 * ((i + 1) / frameCount), L3(`하늘을 계산하는 중… ${i + 1}/${frameCount}`, `Computing the sky… ${i + 1}/${frameCount}`, `空を計算中… ${i + 1}/${frameCount}`));
       // setTimeout(0)로 이벤트 루프에 양보 — 진행률 바가 실제로 움직입니다.
       await new Promise(r => setTimeout(r, 0));
       lastYield = Date.now();
     }
   }
 
-  report(1, '완료');
+  report(1, L3('완료', 'Done', '完了'));
 
   const meanOf = (layer: LayerKey) => {
     if (!layout) return 0;

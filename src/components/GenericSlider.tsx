@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, PanResponder, Animated } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
+import { color, radius, mono } from '../theme/tokens';
+import { timeTo } from '../theme/motion';
+import { makeStyles, useThemeColors } from '../theme/useTheme';
 
 interface GenericSliderProps {
   value: number; // 0 to 100
@@ -29,6 +32,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   knobColor,
   trackOverlay,
 }) => {
+  const color = useThemeColors(); const styles = useStyles();
   const animatedValue = useRef(new Animated.Value(value)).current;
   const [isDragging, setIsDragging] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -65,11 +69,8 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       setPrevColor(nextColor);
       setNextColor(targetColor);
       colorAnim.setValue(0);
-      Animated.timing(colorAnim, {
-        toValue: 1,
-        duration: 300, // 300ms 동안 자연스럽게 변화
-        useNativeDriver: false,
-      }).start();
+      // 색 바뀜은 움직임이 아니라서 동작 줄이기에서도 남깁니다.
+      timeTo(colorAnim, 1, 'base', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
     }
   }, [fillColor, theme.accent]);
 
@@ -168,7 +169,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       {...panResponder.panHandlers}
     >
       {/* 1. Track (Bottom) */}
-      <View style={[styles.track, { backgroundColor: trackColor || 'rgba(255,255,255,0.1)', zIndex: 1 }]}>
+      <View style={[styles.track, { backgroundColor: trackColor || color.border, zIndex: 1 }]}>
         <Animated.View 
           style={[
             styles.fill, 
@@ -195,7 +196,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
           { 
             left: knobPosition,
             borderColor: theme.bg,
-            backgroundColor: knobColor || '#FFF',
+            backgroundColor: knobColor || color.text,
             zIndex: 100,
             elevation: 100,
           }
@@ -207,16 +208,16 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((color) => ({
   container: { height: 44, justifyContent: 'center', width: '100%', paddingHorizontal: 27 },
-  track: { height: 4, borderRadius: 2, width: '100%', position: 'relative' },
-  fill: { height: '100%', borderRadius: 2, position: 'absolute', left: 0 },
+  track: { height: 4, borderRadius: radius.xs, width: '100%', position: 'relative' },
+  fill: { height: '100%', borderRadius: radius.xs, position: 'absolute', left: 0 },
   knob: { 
     position: 'absolute', 
     top: -14, 
     width: 56, 
     height: 32, 
-    borderRadius: 4, 
+    borderRadius: radius.xs, 
     marginLeft: -28, 
     justifyContent: 'center', 
     alignItems: 'center', 
@@ -227,4 +228,4 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(56, 189, 248, 0.65)',
   },
-});
+}));
