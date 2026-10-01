@@ -135,13 +135,13 @@ const TAU_K: Record<LayerKey, number> = { low: 15.0, mid: 8.0, high: 2.8 };
  *   50~90% 구름이 된 것이 이 줄입니다. 예전 보고("양떼구름 33% 인데 텅 빈 하늘")를 그 한 자리에서
  *   고치면서 하늘 평균으로는 반대쪽으로 넘어간 것입니다.
  *
- *   `fit-cover-area-avg.js` 로 흐름 0·12시 평균에 맞췄고(두 번 고침), 확인은 맞추기에 안 쓴 6·18시로
- *   `verify-cover-area-avg.js` 가 합니다. 저층은 운량이 높을 때 면적이 덜 오릅니다(90% → 0.82) —
- *   직선 사상으로는 안 펴지는 모양이라 남겨 둡니다.
+ *   `fit-cover-area-avg.js` 로 짝수 흐름 시각 12 × 방위 0/90/180/270 평균에 맞췄고(두 번 고침), 확인은
+ *   맞추기에 안 쓴 홀수 시각 × 방위 45/135/225/315 로 `verify-cover-area-avg.js` 가 합니다.
+ *   (처음 두 시각만으로 맞춘 값은 확인에서 저층 25% → 0.51 로 무너졌습니다 — 느린 항의 평균이 안 잡혔습니다.)
  */
-const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.4263, mid: 0.4854, high: 0.4722 };
+const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.5012, mid: 0.4742, high: 0.4181 };
 /** 위 폭 ÷ uShapeSigma 기본값(0.16). uShapeSigma 를 바꿔도 비율은 유지됩니다. */
-const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 1.2408, mid: 0.9109, high: 1.0705 };
+const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 0.9446, mid: 1.0569, high: 1.0893 };
 
 /**
  * 셰이더 소스의 층별 상수 자리(CELL_* · TAUK_* · SHAPE_*)를 값으로 바꿉니다. 구름 슬랩과
