@@ -1579,7 +1579,12 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   float chroma = (mxg - min(g.r, min(g.g, g.b))) / max(1e-4, mxg);
   float want = 1.0 + blueness * (DISP_BLUE - 1.0);
   float cap = chroma > 1e-4 ? DISP_BLUE_CAP / chroma : want;
-  c = mix(vec3(luma), c, min(want, max(1.0, cap)));
+  // ⚠ (2026-10-01) 천장은 **줄이기도** 합니다 — 파란 만큼만. 예전 max(1, cap) 은 밀기만 막고, 위
+  //   DISP_SAT 단계에서 이미 천장을 넘은 천정 하늘은 그대로 두었습니다. 구름 없는 낮 천정(해 30°, 고도 72°)
+  //   의 맑은 하늘 채도가 중앙값 0.57 · 0.6 초과 39% 로, 사진(0.31 · 9%)에 없는 형광 파랑이었습니다 —
+  //   예전에는 한 자리에 맞춘 운량 사상이 천정을 중층운으로 덮어 가려져 있었습니다(CloudSlab SHAPE_MEAN).
+  //   파랗지 않은 화소(노을·구름·태양, blueness 0)는 예전과 같습니다.
+  c = mix(vec3(luma), c, min(want, mix(max(1.0, cap), cap, blueness)));
 
   // 대비는 **휘도에만** 겁니다.
   //
