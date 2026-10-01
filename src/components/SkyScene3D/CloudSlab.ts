@@ -824,9 +824,11 @@ float slab_bandBlockKm(vec3 dir, float sinE, float cosE){
 // ── 층 사이의 빛 (§88) ────────────────────────────────────────────────────
 // 층 번호: 0 상층 · 1 중층 · 2 저층. 운량 채널: 상층 b · 중층 g · 저층 r.
 uniform float uInterLayer;   // 1 = 층 사이의 빛 켬(기본). 판정의 대조용 스위치.
+// 층별 광학두께 배율 (상 x · 중 y · 저 z). 얇은 중층을 얇게 — cloudProfile.layerTauScale. 기본 1.
+uniform vec3 uTauScale;
 float slab_covOf(vec4 c, int K){ return K == 0 ? c.b : (K == 1 ? c.g : c.r); }
 /** 층의 명목 광학두께 — 두께(hThick) × tauK. 셰이더가 이미 쓰는 두 상수의 곱. */
-float slab_nomTau(int K){ return K == 0 ? TAUK_HIGH * 0.6 : (K == 1 ? TAUK_MID * 1.0 : TAUK_LOW * 1.6); }
+float slab_nomTau(int K){ return K == 0 ? TAUK_HIGH * 0.6 * uTauScale.x : (K == 1 ? TAUK_MID * 1.0 * uTauScale.y : TAUK_LOW * 1.6 * uTauScale.z); }
 /** 2-stream 반사율 R = tp/(tp+2), tp = (1−g)τ. */
 float slab_nomR(int K, float g){ float tp = (1.0 - g) * slab_nomTau(K); return tp / (tp + 2.0); }
 
@@ -1153,7 +1155,7 @@ void main(){
     vec3  beam   = L == 0 ? uBeamHigh : (L == 1 ? uBeamMid : uBeamLow);
     float expoL  = 1.0;   // §104 — 아래에서 자리가 정해진 뒤 셉니다
     float cellKm = L == 0 ? CELL_HIGH : (L == 1 ? CELL_MID : CELL_LOW);
-    float tauK   = L == 0 ? TAUK_HIGH : (L == 1 ? TAUK_MID : TAUK_LOW);
+    float tauK   = L == 0 ? TAUK_HIGH * uTauScale.x : (L == 1 ? TAUK_MID * uTauScale.y : TAUK_LOW * uTauScale.z);
     float seed   = float(L) * 31.7;
     vec2  wind   = L == 0 ? uWindHigh : (L == 1 ? uWindMid : uWindLow);
     vec2  windNorm = length(wind) > 1e-3 ? normalize(wind) : vec2(1.0, 0.0);
@@ -1290,7 +1292,7 @@ void main(){
       vec2 windNormU = length(windU) > 1e-3 ? normalize(windU) : vec2(1.0, 0.0);
       float thU = slab_layer_thickness(U, km + offKm + windU * uDriftHours, covS,
         U == 0 ? CELL_HIGH : CELL_MID, cvS.a, float(U) * 31.7, windNormU, 0.0, 1.0, 0.0, 1.0);
-      float tauK_U = U == 0 ? TAUK_HIGH : TAUK_MID;
+      float tauK_U = U == 0 ? TAUK_HIGH * uTauScale.x : TAUK_MID * uTauScale.y;
       // ⚠ **유사변환한 τ** 로 가립니다 — (1−g)τ. 물방울·얼음은 거의 앞으로만
       //   흩어서(g 0.85), 몇 도 꺾인 빛은 여전히 해 쪽에서 오고 릴리프를 해처럼
       //   비춥니다. 이 셰이더의 2-stream 이 이미 같은 변환을 씁니다. 처음에 맨 τ 를
@@ -2002,6 +2004,8 @@ export interface CloudSlabHandle {
   setLayerAltitudesKm: (lowKm: number, midKm: number, highKm: number) => void;
   /** 저층 덱 밑면·윗면(km, 해발, §82). 모르면 null — 위에서 볼 면이 hBase 로 돌아갑니다. */
   setLowDeckKm: (baseKm: number | null | undefined, topKm: number | null | undefined) => void;
+  /** 층별 광학두께 배율(`cloudProfile.layerTauScale`). 유한한 양수가 아니면 1. */
+  setLayerTauScale: (low: number, mid: number, high: number) => void;
   /**
    * 관측자를 감싼 구름(§93, `cloudProfile.cloudAround`). null 이면 안개를 끕니다.
    * 소광은 그 높이 층(저·중·상)의 TAUK 에 운량을 곱해 냅니다.
@@ -2095,6 +2099,7 @@ export function createCloudSlab(opts: {
       uHorizonSinE: { value: 0 },
       uObserverAltKm: { value: 0 },
       uLowDeckKm: { value: new THREE.Vector2(-1, -1) },
+      uTauScale: { value: new THREE.Vector3(1, 1, 1) },
       // §83 지형 가림 — 패치는 setDemPatches 로 받습니다. 없으면 꺼진 것과 같습니다.
       ...makeDemUniforms(null),
       ...makeDemUniforms(null, 'demFar'),
@@ -2304,6 +2309,10 @@ export function createCloudSlab(opts: {
       const ok = baseKm != null && topKm != null && Number.isFinite(baseKm)
         && Number.isFinite(topKm) && topKm > baseKm && baseKm >= 0 && topKm < 6;
       if (ok) v.set(baseKm as number, topKm as number); else v.set(-1, -1);
+    },
+    setLayerTauScale: (low, mid, high) => {
+      const ok = (x: number) => (Number.isFinite(x) && x > 0 ? x : 1);
+      (material.uniforms.uTauScale.value as THREE.Vector3).set(ok(high), ok(mid), ok(low));
     },
     setTerrainDistance: (tex) => {
       material.uniforms.uTerrainDist.value = tex ?? NO_TERRAIN_DIST_TEX;

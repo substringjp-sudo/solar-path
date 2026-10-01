@@ -246,3 +246,56 @@ export function lclKm(tempC: number | null | undefined, dewC: number | null | un
   if (spread < 0) return 0;              // 포화 — 안개
   return (125 * spread) / 1000;
 }
+
+/**
+ * **얇은 중층운은 얇게** — 단면으로 본 중층의 두께가 광학두께를 몇 배로 줄이는가(2026-10-01).
+ *
+ * 사용자(도코나메 밤하늘, 해 −54°·달 23°): "구름이 꽤 보이게 그렸는데 뿌옇게 보이는걸 빼면 구름이 눈에는
+ * 거의 안보여." 예보는 중층 20% 였지만 단면으로는 600hPa 한 면(13%, 습도 78%, 위아래 건조)뿐이었고,
+ * 앱은 그것을 고적운 τ 16(`cloudPresets.PRESET_OPTICS`)으로 — 또렷한 덩어리로 — 그렸습니다.
+ *
+ * 위성 일사로 쟀습니다(`tools/weather-truth/measure-thin-layer.js`, 32곳 · 90일 · 태양고도 25° 이상 ·
+ * 중층만 있는 시각). 단면(best_match)에서 높이 2~7km 기압면 중 운량 ≥ 10% 인 면의 수 n 으로 묶어,
+ * T = (1−f) + f/(1 + 0.75·(1−g)·τ) 를 **홀수 날로 맞추고 짝수 날로 확인**했습니다:
+ *
+ *   n      표본(홀/짝)   맞춘 τ   짝수 날 T 오차 (맞춘 τ / 지금 τ 16)
+ *   0       257 / 252    0.75    0.069 / 0.143
+ *   1        12 /  26    3.75    0.094 / 0.178
+ *   ≥ 2       1 /   8    —       표본 부족 → 바꾸지 않음
+ *
+ * 그래서 비율 = 맞춘 τ ÷ 16 을 중층 광학두께에 곱합니다. 단면이 없으면(바람 요청 실패 등) 1 — 예전 그대로.
+ * 저층·상층은 재지 않았으므로 건드리지 않습니다.
+ */
+export const THIN_MID_TAU = { n0: 0.75, n1: 3.75, preset: 16 } as const;
+/** 두께를 세는 높이 띠(km)와 "구름 있는 면" 문턱(%) — 위 자와 같은 정의입니다. */
+export const THIN_MID_BAND_KM = { lo: 2, hi: 7 } as const;
+export const THIN_MID_LEVEL_MIN_PCT = 10;
+
+/** 중층 띠 안에서 운량 ≥ 10% 인 기압면 수. 단면이 없으면 null. */
+export function midCloudyLevels(
+  profileHeightM: readonly number[] | undefined,
+  profileCoverPct: readonly number[] | undefined,
+): number | null {
+  if (!profileHeightM || !profileCoverPct || profileHeightM.length === 0) return null;
+  let n = 0, seen = 0;
+  for (let i = 0; i < profileHeightM.length; i++) {
+    const h = profileHeightM[i], c = profileCoverPct[i];
+    if (!Number.isFinite(h) || !Number.isFinite(c)) continue;
+    if (h < THIN_MID_BAND_KM.lo * 1000 || h > THIN_MID_BAND_KM.hi * 1000) continue;
+    seen++;
+    if (c >= THIN_MID_LEVEL_MIN_PCT) n++;
+  }
+  return seen > 0 ? n : null;
+}
+
+/** 층 광학두께 배율. 중층만, 단면이 얇을 때만 1 보다 작습니다. */
+export function layerTauScale(
+  layer: 'low' | 'mid' | 'high',
+  obs: { profileHeightM?: readonly number[]; profileCoverPct?: readonly number[] } | null | undefined,
+): number {
+  if (layer !== 'mid' || !obs) return 1;
+  const n = midCloudyLevels(obs.profileHeightM, obs.profileCoverPct);
+  if (n === 0) return THIN_MID_TAU.n0 / THIN_MID_TAU.preset;
+  if (n === 1) return THIN_MID_TAU.n1 / THIN_MID_TAU.preset;
+  return 1;
+}

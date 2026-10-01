@@ -15,6 +15,7 @@
 import type { CloudData } from './weather';
 import { getTuning } from './skyTuning';
 import type { LayerKey } from './skyColumn';
+import { layerTauScale } from './cloudProfile';
 
 export type CloudPresetName =
   | 'Cirrus'          // 권운 (새털구름)
@@ -711,7 +712,8 @@ export function representativeTauForObserver(
     },
     0.5
   );
-  return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau;
+  // 얇은 중층은 얇게 — 단면으로 잰 배율(`cloudProfile.layerTauScale`, 위성으로 잼).
+  return (PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus).tau * layerTauScale(layer, obs);
 }
 
 /**

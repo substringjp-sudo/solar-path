@@ -124,7 +124,7 @@ const _genusOut: BlendedOptics = {
 };
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
-import { fogAtObserver } from '../../utils/cloudProfile';
+import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -713,7 +713,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const opticsForLayer = useCallback((layer: 'low' | 'mid' | 'high', obs: any) => {
     const name = representativePresetForObserver(layer, obs);
-    return PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    const o = PRESET_OPTICS[name] ?? PRESET_OPTICS.Cumulus;
+    // 얇은 중층은 얇게(`cloudProfile.layerTauScale`) — 그림자도 화면의 구름과 같은 두께로.
+    const k = layerTauScale(layer, obs);
+    return k === 1 ? o : { ...o, tau: o.tau * k };
   }, []);
 
   /**
@@ -1845,6 +1848,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       // 운해의 윗면(§82). 저층이 빈 시각이면 undefined/NaN → 세터가 (-1,-1) 로 되돌립니다.
       cloudSlabRef.current.setLowDeckKm(ow?.lowDeckBaseKm, ow?.lowDeckTopKm);
+      // 얇은 중층은 얇게 — 단면 두께로 잰 광학두께 배율(`cloudProfile.layerTauScale`).
+      cloudSlabRef.current.setLayerTauScale(layerTauScale('low', ow), layerTauScale('mid', ow), layerTauScale('high', ow));
       // 산 위가 구름 속인가(§93) — 관측 고도에서 단면 운량을 읽습니다. 단면이
       // 없거나 그 높이가 맑으면 null → 안개를 끕니다(예전과 바이트 단위로 같음).
       const profH: number[] | undefined = ow?.profileHeightM;
