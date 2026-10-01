@@ -215,6 +215,9 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
     const atmosphere = makeAtmosphereParams({
       visibilityM: obs?.visibility,
       humidityPct: obs?.humidity,
+      aod550: obs?.aod550,
+      dustUgM3: obs?.dust,
+      pm10: obs?.pm10,
       observerElevM,
       latitude,
       dayOfYear,

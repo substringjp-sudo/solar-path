@@ -267,6 +267,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { name: 'SunCalc', version: '1.9.0', license: 'BSD-2-Clause', url: 'https://github.com/mourner/suncalc' },
     { name: 'Date-fns', version: '4.1.0', license: 'MIT', url: 'https://date-fns.org' },
     { name: 'Open-Meteo API', version: 'Weather & Terrain Data', license: 'CC BY-NC 4.0 (Attribution Required)', url: 'https://open-meteo.com' },
+    { name: 'Copernicus Atmosphere Monitoring Service (CAMS)', version: 'Air quality via Open-Meteo', license: 'Contains modified Copernicus Atmosphere Monitoring Service information', url: 'https://atmosphere.copernicus.eu' },
     { name: 'Google Maps API', version: 'Map SDK', license: 'Google Maps Terms of Service', url: 'https://developers.google.com/maps' },
   ];
 

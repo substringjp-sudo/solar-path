@@ -63,6 +63,14 @@ export interface CloudData {
   visibility?: number;
   /** 2 m relative humidity in percent. Only populated for the observer point. */
   humidity?: number;
+  /**
+   * 대기질(CAMS, Open-Meteo 대기질 API). 관측점에서만. 받지 못한 시각은 undefined — 지어내지 않습니다.
+   * aod550: 에어로졸 광학두께(550nm, 무차원) · dust·pm25·pm10: 지표 농도(µg/m³).
+   */
+  aod550?: number;
+  dust?: number;
+  pm25?: number;
+  pm10?: number;
   directNormalIrradiance?: number;
   totalColumnWaterVapour?: number;
   precipitation?: number;
@@ -164,6 +172,11 @@ export interface HourlyCloudData {
   profileCoverPct?: number[][];
   visibility?: number[];
   humidity?: number[];
+  /** 대기질(CAMS). 관측점에서만. 받지 못한 시각은 null. `CloudData.aod550` 주석 참고. */
+  aod550?: (number | null)[];
+  dust?: (number | null)[];
+  pm25?: (number | null)[];
+  pm10?: (number | null)[];
   directNormalIrradiance?: number[];
   totalColumnWaterVapour?: number[];
   precipitation?: number[];
@@ -363,6 +376,8 @@ export const fetchSunsetWeather = async (
   // 없다고 운량까지 통째로 실패하면 안 됩니다). 여기서 미리 던져 두고
   // 아래에서 거둡니다 — 왕복 한 번 값이 겹칩니다.
   const windsPromise = fetchLayerWinds(lat, lon, targetDate);
+  // 대기질도 따로, 동시에 던집니다 — 실패해도 운량에는 영향이 없습니다(`fetchAirQuality`).
+  const airPromise = fetchAirQuality(lat, lon, targetDate);
 
   try {
     let response;
@@ -416,6 +431,7 @@ export const fetchSunsetWeather = async (
     // 위에서 미리 던져 둔 바람. 실패했으면 null 이고, 그때는 호출부가
     // 대용값으로 내려앉습니다 (`skyColumn.ts: resolveLayerWinds`).
     const winds = await windsPromise;
+    const air = await airPromise;
 
     // Reconstruct the 36 CloudPathData items from deduplicated results
     const fetched: CloudPathData[] = virtualPoints.map((vp, i) => {
@@ -472,6 +488,7 @@ export const fetchSunsetWeather = async (
         if (Array.isArray(resHourly.visibility)) hourly.visibility = resHourly.visibility;
         if (Array.isArray(resHourly.relative_humidity_2m)) hourly.humidity = resHourly.relative_humidity_2m;
         if (winds) attachLayerWinds(hourly, winds);
+        if (air) attachAirQuality(hourly, air);
       }
 
       return {
@@ -818,6 +835,78 @@ export interface LayerWindHourly {
   visibility?: number[];
 }
 
+export interface AirQualityHourly {
+  time: string[];
+  aod550: (number | null)[];
+  dust: (number | null)[];
+  pm25: (number | null)[];
+  pm10: (number | null)[];
+}
+
+const airCache = new Map<string, AirQualityHourly | null>();
+
+/**
+ * 관측점 한 곳의 하루치 대기질(2026-10-01) — CAMS 에어로졸 광학두께·먼지·PM.
+ *
+ * 노을 색은 구름만큼 공기 속 입자에 달려 있는데, 예전에는 그것을 **시정**으로만 짐작했습니다. 시정은
+ * 지표 근처 모델 값이라 상공의 황사·연기 층을 모릅니다. CAMS 는 위성 AOD 를 동화한 기둥 전체 값입니다
+ * (`sunsetPhysics.AOD_TO_APP_BETA` 주석).
+ *
+ * 바람과 같은 원칙입니다: 따로 요청하고, 실패하면 null — 그때 예측은 예전 시정 식으로 내려앉습니다.
+ * CAMS 전 지구 예보는 약 5일까지라, 그보다 먼 날은 자료가 없고 그것이 정상입니다.
+ */
+export const fetchAirQuality = async (
+  lat: number,
+  lon: number,
+  targetDate: Date = new Date()
+): Promise<AirQualityHourly | null> => {
+  const dateStr = localDateString(targetDate);
+  const key = `aq_${gridBucket(lat, lon)}_${dateStr}`;
+  if (airCache.has(key)) return airCache.get(key) ?? null;
+
+  const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
+    `&hourly=aerosol_optical_depth,dust,pm2_5,pm10&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
+  try {
+    const response = await fetchWithTimeout(url, {}, 8000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data?.error) throw new Error(data.reason || 'unknown');
+    const h = data?.hourly;
+    const time: string[] = Array.isArray(h?.time) ? h.time : [];
+    const aod: (number | null)[] | undefined = h?.aerosol_optical_depth;
+    if (time.length === 0 || !Array.isArray(aod) || !aod.some(v => v != null)) throw new Error('empty');
+    const col = (a: unknown): (number | null)[] =>
+      time.map((_, i) => {
+        const v = Array.isArray(a) ? a[i] : null;
+        return typeof v === 'number' && Number.isFinite(v) ? v : null;
+      });
+    const out: AirQualityHourly = { time, aod550: col(aod), dust: col(h.dust), pm25: col(h.pm2_5), pm10: col(h.pm10) };
+    airCache.set(key, out);
+    return out;
+  } catch (error) {
+    if (__DEV__) console.warn('대기질을 받지 못했습니다. 시정으로 진행합니다:', error);
+    airCache.set(key, null);
+    return null;
+  }
+};
+
+/**
+ * 대기질을 관측점 시각 축에 붙입니다. 시각 **문자열**로 맞추고, 짝이 없는 시각은 null 로 둡니다 —
+ * 바람처럼 앞 시각을 물려받지 않습니다. 에어로졸은 없는 값을 지어내면 그 날의 색이 통째로 바뀝니다.
+ */
+export function attachAirQuality(hourly: HourlyCloudData, aq: AirQualityHourly): void {
+  const pos = new Map<string, number>();
+  aq.time.forEach((t, i) => pos.set(t, i));
+  const pick = (src: (number | null)[]) => hourly.time.map(t => {
+    const j = pos.get(t);
+    return j === undefined ? null : src[j] ?? null;
+  });
+  hourly.aod550 = pick(aq.aod550);
+  hourly.dust = pick(aq.dust);
+  hourly.pm25 = pick(aq.pm25);
+  hourly.pm10 = pick(aq.pm10);
+}
+
 const windCache = new Map<string, LayerWindHourly | null>();
 
 /**
@@ -1069,9 +1158,10 @@ export const fetchDayWeatherRing = async (
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
 
     // 바람은 별도 요청이지만 **동시에** 던집니다
-    const [response, winds] = await Promise.all([
+    const [response, winds, air] = await Promise.all([
       fetchWithTimeout(url, {}, 15000),
       fetchLayerWinds(lat, lon, targetDate),
+      fetchAirQuality(lat, lon, targetDate),
     ]);
     if (!response.ok) {
       if (response.status === 429) {
@@ -1118,6 +1208,7 @@ export const fetchDayWeatherRing = async (
         if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
         if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
         if (winds) attachLayerWinds(hourly, winds);
+        if (air) attachAirQuality(hourly, air);
       }
       return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
     });
@@ -1198,6 +1289,10 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       profileCoverPct: p.hourly.profileCoverPct?.map(a => interpolateOpt(a) ?? NaN),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
+      aod550: interpolateOpt(p.hourly.aod550 as number[] | undefined),
+      dust: interpolateOpt(p.hourly.dust as number[] | undefined),
+      pm25: interpolateOpt(p.hourly.pm25 as number[] | undefined),
+      pm10: interpolateOpt(p.hourly.pm10 as number[] | undefined),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
       totalColumnWaterVapour: interpolateOpt(p.hourly.totalColumnWaterVapour),
       precipitation: interpolateOpt(p.hourly.precipitation),

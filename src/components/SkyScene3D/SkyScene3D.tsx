@@ -1498,6 +1498,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedAtmosphereRef.current = makeAtmosphereParams({
         visibilityM: observerWeather()?.visibility,
         humidityPct: observerWeather()?.humidity,
+        aod550: observerWeather()?.aod550,
+        dustUgM3: observerWeather()?.dust,
+        pm10: observerWeather()?.pm10,
         observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
         latitude: lat,
         dayOfYear: dayOfYearOf(targetDate),
@@ -1909,6 +1912,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       makeAtmosphereParams({
         visibilityM: observerWeather()?.visibility,
         humidityPct: observerWeather()?.humidity,
+        aod550: observerWeather()?.aod550,
+        dustUgM3: observerWeather()?.dust,
+        pm10: observerWeather()?.pm10,
         observerElevM: simRef.current?.terrain?.observerElevation ?? 0,
         latitude: lat,
         dayOfYear: dayOfYearOf(targetDate),

@@ -73,7 +73,7 @@ const stampPhoto = async (
   lon: number,
   sunAlt: number,
   humidity: number,
-  pm25: number,
+  pm25: number | null,
   description: string,
   lang: Language,
   exposure: number = 0
@@ -146,8 +146,8 @@ const stampPhoto = async (
 
       currY += stepY;
       const humLabel = L3(lang, '습도', 'Humidity', '湿度');
-      const dustLabel = L3(lang, '미세먼지', 'PM2.5', 'PM2.5');
-      canvas.drawText(`${humLabel}: ${humidity}%  |  ${dustLabel}: ${pm25}㎍`, boxX + 16, currY, paintText, font);
+      const dustLabel = L3(lang, '초미세먼지', 'PM2.5', 'PM2.5');
+      canvas.drawText(`${humLabel}: ${humidity}%  |  ${dustLabel}: ${pm25 != null ? `${pm25}㎍` : '—'}`, boxX + 16, currY, paintText, font);
 
       currY += stepY;
       paintText.setColor(Skia.Color('#00FFCC'));
@@ -910,7 +910,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
       // 날씨 데이터 추출 로직
       let humidity = 50;
-      let pm25 = 22;
+      // 대기질 API 의 실제 PM2.5(µg/m³). 받지 못하면 null — 예전처럼 β 에서 지어내지 않습니다
+      // (예전 식 `β × 280` 은 측정값이 아니었는데 사진 도장에 µg 단위로 찍혔습니다).
+      let pm25: number | null = null;
       let description = currentEnhancement.description || 'Clear';
 
       const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -985,8 +987,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             0
           );
           if (prediction) {
-            const beta = prediction.factors?.aerosolBeta ?? 0.08;
-            pm25 = Math.round(beta * 280);
+            pm25 = obs.pm25 != null && Number.isFinite(obs.pm25) ? Math.round(obs.pm25) : null;
             description = prediction.description || 'Clear';
           }
         }
@@ -1374,9 +1375,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                         </Text>
                       </View>
                       <View style={styles.metaRow}>
-                        <Text style={styles.metaLabel}>{L3(language, '습도 / 미세먼지', 'Hum / PM2.5', '湿度 / PM2.5')}</Text>
+                        <Text style={styles.metaLabel}>{L3(language, '습도 / 초미세먼지', 'Hum / PM2.5', '湿度 / PM2.5')}</Text>
                         <Text style={styles.metaValue}>
-                          {capturedWeatherInfo?.humidity ?? 50}% · {capturedWeatherInfo?.pm25 ?? 20}㎍
+                          {capturedWeatherInfo?.humidity ?? 50}% · {capturedWeatherInfo?.pm25 != null ? `${capturedWeatherInfo.pm25}㎍` : '—'}
                         </Text>
                       </View>
                       <View style={styles.metaRow}>
@@ -1433,7 +1434,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 {capturedWeatherInfo && (
                   <View style={styles.weatherSummary}>
                     <Text style={styles.weatherSummaryText}>
-                      {t('humidityLabel', language)} {capturedWeatherInfo.humidity}%  |  {t('dustLabel', language)} {capturedWeatherInfo.pm25}㎍  |  {t('weatherLabel', language)} {translateSunsetDesc(capturedWeatherInfo.description, language)}
+                      {t('humidityLabel', language)} {capturedWeatherInfo.humidity}%  |  {t('dustLabel', language)} {capturedWeatherInfo.pm25 != null ? `${capturedWeatherInfo.pm25}㎍` : '—'}  |  {t('weatherLabel', language)} {translateSunsetDesc(capturedWeatherInfo.description, language)}
                     </Text>
                   </View>
                 )}

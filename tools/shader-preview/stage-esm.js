@@ -70,6 +70,7 @@ const ENTRIES = [
   // 3D 라벨의 맨눈 가시성(2026-09-30) · 알림 계획 — 판정이 불러 씁니다.
   'src/utils/labelVisibility.ts',
   'src/utils/notificationPlan.ts',
+  'src/utils/airQuality.ts',
   'src/utils/cloudMatrix.ts',
   'src/utils/mapProjection.ts',
   'src/utils/locationPick.ts',

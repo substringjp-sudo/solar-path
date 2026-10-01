@@ -14,6 +14,7 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
+import { airQualityNote } from '../utils/airQuality';
 
 const L3 = (lang: Language, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
 import { generateSimulationImage, saveSimulationImageToCache, compressToWidgetSizes } from '../utils/simulationImage';
@@ -64,7 +65,9 @@ const scheduleSunsetNotification = async (
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
-  customIdentifier: string = 'sunset-alert'
+  customIdentifier: string = 'sunset-alert',
+  /** 대기질 한 줄(`airQuality.airQualityNote`). 빈 문자열이면 붙이지 않습니다. */
+  airNote: string = ''
 ) => {
   try {
     const effectiveTrigger = triggerTime ?? new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
@@ -73,7 +76,7 @@ const scheduleSunsetNotification = async (
     const title = t('sunsetNotificationTitle', language);
     const body = t('sunsetNotificationBody', language)
       .replace('{cloud}', cloudLabel)
-      .replace('{color}', colorLabel);
+      .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -116,7 +119,8 @@ const scheduleSunriseNotification = async (
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
-  customIdentifier: string = 'sunrise-alert'
+  customIdentifier: string = 'sunrise-alert',
+  airNote: string = ''
 ) => {
   try {
     let effectiveTrigger = triggerTime;
@@ -130,7 +134,7 @@ const scheduleSunriseNotification = async (
     const title = t('sunriseNotificationTitle', language);
     const body = t('sunriseNotificationBody', language)
       .replace('{cloud}', cloudLabel)
-      .replace('{color}', colorLabel);
+      .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -668,12 +672,15 @@ export function useCelestialApp() {
             let cloudLabel: string = t('cloudClear', language);
             let colorLabel: string = t('colorClean', language);
             let sunsetNotifImageUri: string | null = null;
+            let airNote = '';
             try {
               const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
               const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
                 const obs = interpolated[0];
+                // 대기질은 오늘 일몰 시각의 값입니다 — 아래 7일 예약 중 **오늘 것에만** 붙입니다.
+                airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
                     weatherData, sunsetTime, 0, obs.visibility, obs.humidity, lat, 0
@@ -746,7 +753,7 @@ export function useCelestialApp() {
 
               const notifId = `sunset-alert-day-${dayOffset}`;
               const triggerTime = new Date(fIdealTrigger > Date.now() ? fIdealTrigger : Date.now() + (5 + dayOffset) * 60 * 1000);
-              await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId);
+              await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId, dayOffset === 0 ? airNote : '');
             }
           } catch (err) {
             console.error('Failed to schedule multi-day sunset notifications:', err);
@@ -783,12 +790,14 @@ export function useCelestialApp() {
             let cloudLabel: string = t('cloudClear', language);
             let colorLabel: string = t('colorClean', language);
             let sunriseNotifImageUri: string | null = null;
+            let airNote = '';
             try {
               const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;
               const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunriseTime);
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
                 const obs = interpolated[0];
+                airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
                     weatherData, sunriseTime, 0, obs.visibility, obs.humidity, lat, 0
@@ -829,7 +838,7 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed for sunrise, using default labels:', weatherErr);
             }
 
-            await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri);
+            await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri, undefined, airNote);
           } catch (err) {
             console.error('Failed to schedule sunrise notification:', err);
             lastSunriseDateRef.current = null;

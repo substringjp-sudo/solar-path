@@ -296,8 +296,13 @@ export interface AtmosphereParams {
 export interface AtmosphereInput {
   visibilityM?: number;
   humidityPct?: number;
-  /** 미세먼지 PM2.5 (µg/m³). 있으면 혼탁도에 가산 */
+  /** 미세먼지 PM2.5 (µg/m³). AOD 가 없을 때만 혼탁도에 가산 */
   pm25?: number;
+  /** CAMS 에어로졸 광학두께(550nm). 있으면 β 를 이것으로 잡습니다(`sunsetPhysics.aerosolBeta`). */
+  aod550?: number;
+  /** CAMS 지표 먼지·PM10 (µg/m³). 둘 다 있으면 먼지 비중으로 Ångström 지수를 정합니다. */
+  dustUgM3?: number;
+  pm10?: number;
   observerElevM?: number;
   latitude?: number;
   dayOfYear?: number;
@@ -316,17 +321,27 @@ export function makeAtmosphereParams(input: AtmosphereInput = {}): AtmospherePar
     visibilityM,
     humidityPct,
     pm25,
+    aod550,
+    dustUgM3,
+    pm10,
     observerElevM = 0,
     latitude = 37.5665,
     dayOfYear = 172,
   } = input;
 
-  // 가시거리 + 습도 기반 기본 혼탁도 (기존 엔진 재사용)
-  let beta = aerosolBeta(visibilityM, humidityPct);
+  // 혼탁도: CAMS AOD 가 있으면 그것, 없으면 가시거리 + 습도 (예측과 같은 함수)
+  const hasAod = aod550 != null && Number.isFinite(aod550) && aod550 >= 0;
+  let beta = aerosolBeta(visibilityM, humidityPct, hasAod ? aod550 : undefined);
 
-  // 미세먼지 가산: PM2.5 25µg/m³당 약 β +0.05 (경험적 스케일)
   let angstrom = 1.3;
-  if (pm25 != null && pm25 > 0) {
+  if (hasAod && dustUgM3 != null && pm10 != null && pm10 > 0) {
+    // 먼지(조대 입자) 비중만큼 파장 의존성이 약해집니다. 사막 먼지의 Ångström 지수는 0.2~0.5,
+    // 도시·연기의 미세 입자는 1.3 안팎이라(AERONET 기후값) 먼지뿐이면 0.4 까지 내립니다.
+    const dustShare = Math.max(0, Math.min(1, dustUgM3 / pm10));
+    angstrom = 1.3 - 0.9 * dustShare;
+  } else if (!hasAod && pm25 != null && pm25 > 0) {
+    // 미세먼지 가산: PM2.5 25µg/m³당 약 β +0.05 (경험적 스케일). AOD 가 있으면 이미 그 안에 들어 있어
+    // 다시 더하지 않습니다.
     beta += Math.min(0.35, (pm25 / 25) * 0.05);
     // 고농도일수록 조대입자 비중이 커져 파장 의존성이 약해짐
     angstrom = 1.3 - Math.min(0.85, (pm25 / 80) * 0.85);
