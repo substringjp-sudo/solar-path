@@ -69,7 +69,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   if (!st) { console.log('FAILURES — __stats 없음'); process.exit(1); }
   ok(st.glError === 0, `glGetError == 0 (${st.glError})`);
   const get = (n, m) => st.out.find(o => o.name === n && o.mode === m);
-  for (const n of ['night-thin', 'night-thick', 'day-thin', 'night-midonly', 'night-clear']) {
+  for (const n of ['night-thin', 'night-thick', 'day-thin', 'night-midonly', 'night-clear', 'night-orig']) {
     const o = get(n, 'old'), q = get(n, 'new');
     console.log(`      ${n.padEnd(11)} 중층 배율 ${q.scale.mid.toFixed(3)} · 대비 ${o.cv.toFixed(3)} → ${q.cv.toFixed(3)} · 평균 밝기 ${o.mean.toFixed(1)} → ${q.mean.toFixed(1)}`);
   }
@@ -79,7 +79,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   ok(get('day-thin', 'new').cv < get('day-thin', 'old').cv, '낮에도 얇은 단면이면 대비가 준다');
 
   // 접촉 인화: 위 old, 아래 new
-  const { W, H } = st; const names = ['night-thin', 'night-thick', 'day-thin', 'night-midonly', 'night-clear'];
+  const { W, H } = st; const names = ['night-orig', 'night-thin', 'night-thick', 'day-thin', 'night-midonly', 'night-clear'];
   const sheet = new PNG({ width: W * names.length, height: H * 2 });
   names.forEach((n, k) => ['old', 'new'].forEach((m, j) => {
     const o = get(n, m);

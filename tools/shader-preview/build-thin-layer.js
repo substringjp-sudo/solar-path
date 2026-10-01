@@ -40,6 +40,8 @@ const CASES=[
  // 진단: 중층만(상층 0) · 구름 없음
  {name:'night-midonly', sun:[-53.5,326], moon:[22.6,72], illum:0.73, prof:THIN, cover:[0,0.20,0]},
  {name:'night-clear',   sun:[-53.5,326], moon:[22.6,72], illum:0.73, prof:THIN, cover:[0,0,0]},
+ // 비교: 2026-10-01 이전 모양장 상수(한 자리에 맞춘 값)
+ {name:'night-orig',    sun:[-53.5,326], moon:[22.6,72], illum:0.73, prof:THIN, orig:true},
 ];
 const COVER=[0.0,0.20,0.17], LOOK=[35,65];
 const out=[];
@@ -53,7 +55,7 @@ for (const C of CASES) for (const mode of ['old','new']) {
   const ground=createGroundPlane(); setGroundHorizon(ground, OBS); scene.add(ground);
   updateGroundColors(ground, C.sun[0], 0, { skyMean:skyRadiance(45,90,C.sun[0],atmosphere), beam: beamAtAltitude(C.sun[0],0,atmosphere), sunAzimuthDeg:C.sun[1],
     moonAltitudeDeg:C.moon[0], moonAzimuthDeg:C.moon[1], moonFraction:C.illum, moonIrradiance:null });
-  const slab=createCloudSlab(); scene.add(slab.mesh);
+  const slab=C.orig ? createCloudSlab({shapeMean:{low:0.597,mid:0.377,high:0.515}, shapeSigRatio:{low:0.654,mid:0.652,high:0.986}}) : createCloudSlab(); scene.add(slab.mesh);
   const CV=C.cover||COVER; bakeCloudSlabCoverage(slab,()=>({low:CV[0],mid:CV[1],high:CV[2],confidence:1}));
   slab.setLayerAltitudesKm(1.5, 4.39, 10.0);
   if (slab.setLayerTauScale) slab.setLayerTauScale(scale.low, scale.mid, scale.high);
