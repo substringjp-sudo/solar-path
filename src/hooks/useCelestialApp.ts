@@ -22,6 +22,7 @@ import { updateSunsetWidgetData } from '../utils/widgetStorage';
 import { springTo, timeTo } from '../theme/motion';
 import { DEFAULT_NOTIF_PREFS, SKY_NOTIF_KINDS, planSkyNotifications } from '../utils/notificationPlan';
 import { cancelScheduledByPrefix, hasNotificationPermission, scheduleSkyPlan } from '../utils/notificationScheduler';
+import { followClock } from '../utils/liveClock';
 
 
 
@@ -217,7 +218,7 @@ export function useCelestialApp() {
     locationPermission, cameraPermission, isSimulationLoading, language,
     isAppReady, initialTab,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
-    resetRotation, setErrorMsg, updateTime, addSavedLocation, removeSavedLocation,
+    resetRotation, setErrorMsg, updateTime, pinTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
     uploadAndPostPhoto, syncGlobalPhotos, removeGlobalPhoto, initializePendingUploads,
     checkPermissions, requestLocationPermission, requestCameraPermission, notifPrefs: storedNotifPrefs
@@ -233,6 +234,13 @@ export function useCelestialApp() {
   }, [currentTime, timezoneOffsetHours]);
 
   const [animating, setAnimating] = useState(false);
+  const animatingRef = useRef(animating);
+  animatingRef.current = animating;
+  // 시계를 따라가는 중이면 지금으로 맞춥니다 — 사용자가 고른(붙든) 시각은 `updateTime` 이 그대로 둡니다
+  // (utils/liveClock.ts). "지금" 애니메이션 중에는 그것이 시각을 옮기고 있으니 건드리지 않습니다.
+  const syncClock = () => {
+    if (!animatingRef.current) updateTime();
+  };
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isMapVisible, setMapVisible] = useState(false);
   const [isSavedListVisible, setSavedListVisible] = useState(false);
@@ -256,7 +264,16 @@ export function useCelestialApp() {
     setActiveTabState(tab as any);
     animateContent(tab);
   };
-  const [isSunCameraVisible, setSunCameraVisible] = useState(false);
+  const [isSunCameraVisible, setSunCameraVisibleState] = useState(false);
+  /**
+   * 카메라는 **지금** 하늘에 3D 를 겹쳐 찍고, 그 3D 는 스토어의 `currentTime` 으로 그립니다. 시계를 따라가는
+   * 중이면 여는 순간 지금으로 맞춥니다 — 멈춘 시각으로 그려, 후쿠이 21:02 기록에 17시대 노을이 담겼습니다.
+   * 사용자가 고른(붙든) 시각은 그대로 둡니다.
+   */
+  const setSunCameraVisible = (visible: boolean) => {
+    if (visible) syncClock();
+    setSunCameraVisibleState(visible);
+  };
   const [isCameraWarningVisible, setCameraWarningVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const prevTabRef = useRef(activeTab);
@@ -320,31 +337,19 @@ export function useCelestialApp() {
     );
   }, [location, currentTime]);
 
-  // 탭 전환 시 시간 슬라이더 초기값 리셋 (무한 루프 방지를 위해 플래그 기법 적용)
+  // 탭 전환 시 시각 처리 (탭이 실제로 바뀔 때만 — 이전 탭을 기억합니다)
+  //
+  // ⚠ 하늘 탭에 들어올 때 그날 일출·일몰로 옮기던 것(예전 sim 탭의 동작)은 뺐습니다. 하늘 탭은 이제 기본
+  //   탭이라 지도·기록에 다녀오면 메인 화면이 노을 시각으로 바뀌었고, 그 시각이 머문 것도 1분 타이머가
+  //   하늘 탭에서 꺼져 있었기 때문입니다. 타이머가 돌면 1분 안에 튕겨 돌아가고, 붙들면 다녀올 때마다 메인
+  //   화면이 멈춥니다(utils/liveClock.ts). 그날 일출·일몰은 하늘 시트의 이벤트 칩이 한 번에 옮깁니다.
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
       const targetTab = activeTab;
       prevTabRef.current = targetTab;
       
       const task = InteractionManager.runAfterInteractions(() => {
-        if (targetTab === 'sky') {
-          // 하늘 탭으로 들어오면 그날의 주요 이벤트 시각으로 맞춰줍니다.
-          // (예전 sim 탭의 동작 — 하늘 탭이 그 역할을 흡수했습니다)
-          const localHour = currentTimeLocal.getUTCHours();
-          if (localHour < 12) {
-            if (events && events.sunrise) {
-              setCurrentTime(events.sunrise);
-            } else if (events && events.sunset) {
-              setCurrentTime(events.sunset);
-            }
-          } else {
-            if (events && events.sunset) {
-              setCurrentTime(events.sunset);
-            } else if (events && events.sunrise) {
-              setCurrentTime(events.sunrise);
-            }
-          }
-        } else if (targetTab === 'log') {
+        if (targetTab === 'log') {
           // 기록 탭은 시간과 무관하므로 타임머신을 꺼 현재 시각으로 돌립니다.
           setTimeMachineEnabled(false);
         }
@@ -352,7 +357,7 @@ export function useCelestialApp() {
 
       return () => task.cancel();
     }
-  }, [activeTab, currentTimeLocal, events]);
+  }, [activeTab]);
 
   // AppState 리스너: 포그라운드 복귀 시 권한 실시간 동기화
   useEffect(() => {
@@ -455,13 +460,19 @@ export function useCelestialApp() {
     springTo(contentTranslateX, targetX, 'page').start();
   };
 
+  // "지금" 되돌림(애니메이션 + 850ms 뒤 시계 잡기)을 끊을 수 있게 — 애니메이션 차례 번호와 그 타이머.
+  const animTokenRef = useRef(0);
+  const nowReturnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const animateTimeTo = (targetDate: Date, duration: number = 600) => {
+    const token = ++animTokenRef.current;
     setAnimating(true);
     const startTime = Date.now();
     const startVal = currentTime.getTime();
     const endVal = targetDate.getTime();
 
     const step = () => {
+      if (token !== animTokenRef.current) return; // 끊겼습니다 — 사용자가 시각을 골랐거나 새 애니메이션
       const now = Date.now();
       const progress = Math.min(1, (now - startTime) / duration);
       const ease = 1 - Math.pow(1 - progress, 3);
@@ -479,14 +490,34 @@ export function useCelestialApp() {
   const handleToggleTimeMachine = (enabled: boolean) => {
     if (!enabled) {
       animateTimeTo(new Date(), 800);
-      setTimeout(() => setTimeMachineEnabled(false), 850);
+      if (nowReturnTimerRef.current) clearTimeout(nowReturnTimerRef.current);
+      nowReturnTimerRef.current = setTimeout(() => {
+        nowReturnTimerRef.current = null;
+        setTimeMachineEnabled(false);
+      }, 850);
     } else {
       setTimeMachineEnabled(true);
     }
   };
 
+  /**
+   * 사용자가 직접 고른 시각 — 붙들어서 시계가 덮지 않게 합니다(utils/liveClock.ts).
+   * ⚠ "지금" 되돌림이 아직 진행 중이면 끊습니다. 안 끊으면 "지금" 을 누르고 1초 안에 고른 시각을 애니메이션이
+   *   프레임마다 덮고, 850ms 타이머가 다시 지금으로 돌려놓습니다.
+   */
+  const pickTime = (time: Date) => {
+    animTokenRef.current++;
+    if (nowReturnTimerRef.current) {
+      clearTimeout(nowReturnTimerRef.current);
+      nowReturnTimerRef.current = null;
+    }
+    if (animatingRef.current) setAnimating(false);
+    pinTime(time);
+  };
+
+  // 슬라이더·이벤트 칩(SkyScreen) — 예전에는 시각만 바꿔, 칩으로 옮긴 시각은 LIVE 로 남았습니다.
   const handleTimeChange = (newTime: Date) => {
-    setCurrentTime(newTime);
+    pickTime(newTime);
   };
 
   const handleDateChange = (newDate: Date) => {
@@ -498,8 +529,7 @@ export function useCelestialApp() {
     
     const systemTime = getSystemTimeFromLocationTime(newTime, timezoneOffsetHours);
     animateContent();
-    setCurrentTime(systemTime);
-    if (!isTimeMachineEnabled) setTimeMachineEnabled(true);
+    pickTime(systemTime);
   };
   
   const handleCameraPress = () => {
@@ -606,14 +636,19 @@ export function useCelestialApp() {
     }
   }, [locationPermission, setLocation]);
 
+  // 시계를 따라가는 중이면 1분마다, 그리고 앱이 다시 활성화될 때 지금으로 맞춥니다(utils/liveClock.ts).
+  // ⚠ 탭을 묻지 않습니다 — 예전 `activeTab !== 'sky'` 조건 때문에 기본 탭에서 시계가 멈췄습니다.
+  //   사용자가 고른 시각은 `isTimeMachineEnabled` 가 지킵니다.
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (!isTimeMachineEnabled && !animating && activeTab !== 'sky') {
-        updateTime();
-      }
-    }, 60000);
-    return () => clearInterval(timer);
-  }, [isTimeMachineEnabled, animating, updateTime, activeTab]);
+    const onActive = (fn: () => void) => {
+      const subscription = AppState.addEventListener('change', (nextAppState) => {
+        if (nextAppState === 'active') fn();
+      });
+      return () => subscription.remove();
+    };
+    return followClock(syncClock, onActive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncClock 은 ref 와 고정된 updateTime 만 읽습니다
+  }, []);
 
   // Firebase Auth & Firestore 실시간 동기화 라이프사이클
   useEffect(() => {

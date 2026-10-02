@@ -75,7 +75,7 @@ const LOAD_IMAGES = [
 export default function App() {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles(); const scheme = useScheme();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const { language, isAppReady, preloadInitialData, preloadStatus, setCurrentTime, setTimeMachineEnabled, setTeleportTarget } = useCelestialStore();
+  const { language, isAppReady, preloadInitialData, preloadStatus, setTeleportTarget } = useCelestialStore();
   const {
     showDatePicker,
     setShowDatePicker,
@@ -237,8 +237,8 @@ export default function App() {
           setLocation(teleportData.location);
         }
         if (teleportData.time) {
-          setTimeMachineEnabled(true);
-          setCurrentTime(teleportData.time);
+          // 링크에 담긴 시각도 사용자가 고른 시각입니다 — 붙들어서 시계가 덮지 않게(utils/liveClock.ts).
+          handleTimeChange(teleportData.time);
         }
         if (teleportData.camera) {
           setTeleportTarget(teleportData.camera);
@@ -252,7 +252,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [setLocation, setCurrentTime, setTimeMachineEnabled, setTeleportTarget, setActiveTab, setSunCameraVisible, setMapVisible, setSavedListVisible, setShowDatePicker, setSettingsVisible]);
+  }, [setLocation, handleTimeChange, setTeleportTarget, setActiveTab, setSunCameraVisible, setMapVisible, setSavedListVisible, setShowDatePicker, setSettingsVisible]);
 
   React.useEffect(() => {
     if (!startupLocationSettled || initialUrlHandledRef.current) return;

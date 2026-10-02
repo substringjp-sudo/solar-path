@@ -85,6 +85,9 @@ const ENTRIES = [
   // (verify-ar-vision.js).
   'src/utils/arVision.ts',
   'src/utils/demCpu.ts',
+  // 화면의 시각이 시계를 따라가는가(스토어의 시각 조각 + 1분 타이머·앱 복귀). 가짜 타이머로
+  // 판정합니다(verify-live-clock.js).
+  'src/utils/liveClock.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });
