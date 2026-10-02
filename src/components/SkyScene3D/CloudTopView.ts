@@ -228,8 +228,10 @@ export const TOP_VIEW_SHAPE_SIG_RATIO: Record<'low' | 'mid' | 'high', number> = 
  * 15km 상관이 0.41 로 아직 잘아(판정 5) 셀을 키우고 옥타브를 줄였고, 윤곽이 마름모로 각져
  * 좌표 휨을 넣은 뒤 다시 쟀습니다.
  */
-export const TOP_VIEW_MESO_MEAN: Record<'low' | 'mid' | 'high', number> = { low: 0.4579, mid: 0.4289, high: 0.4037 };
-export const TOP_VIEW_MESO_SIG: Record<'low' | 'mid' | 'high', number> = { low: 0.1633, mid: 0.1647, high: 0.1877 };
+// 2026-10-02 다시 잼: 잡음 해시를 바꿔(CloudSlab slab_hash21 — 예전 해시는 x 50칸 주기) 모양장 통계가 달라져
+// 상층 면적이 0.28 까지 어긋났습니다. 같은 역산을 세 번 되풀이해 예보 20~75% 에서 모두 ±0.04 안입니다.
+export const TOP_VIEW_MESO_MEAN: Record<'low' | 'mid' | 'high', number> = { low: 0.4708, mid: 0.4776, high: 0.3433 };
+export const TOP_VIEW_MESO_SIG: Record<'low' | 'mid' | 'high', number> = { low: 0.1848, mid: 0.1809, high: 0.1127 };
 /** 하늘(슬랩)의 값 — 판정의 대조용. */
 export const SKY_SHAPE_MEAN = { low: 0.597, mid: 0.377, high: 0.515 };
 export const SKY_SHAPE_SIG_RATIO = { low: 0.654, mid: 0.652, high: 0.986 };
