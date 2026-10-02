@@ -127,6 +127,81 @@ const near = (a, b, t) => Math.abs(a - b) <= t;
     ok(morning.mean >= lo && morning.mean <= hi, `창평균이 창 안 값 사이에 든다 (${lo.toFixed(0)} ≤ ${morning.mean.toFixed(0)} ≤ ${hi.toFixed(0)})`);
   }
 
+  // ── 거리와 층 (2026-10-02 후쿠이) ─────────────────────────────────────
+  // 무엇을 왜 재었는지는 satelliteBias.ts 머리말 "거리와 층" 과 tools/weather-truth/measure-bias-distance.js.
+  const { weightForDistance, columnCover, allocateColumnBias, coverResolution, correctCloudAt,
+          BIAS_DECAY_KM, SAT_TAU_NOISE, MODEL_COVER_SIGMA } = M;
+  const colTau = c => tauFromCover(columnCover(c.low, c.mid, c.high));
+
+  console.log('\n[8] 거리 감쇠 — 관측점은 그대로, 멀수록 덜');
+  {
+    ok(weightForDistance(0) === 1, '관측점(0km)은 1 — 관측점 이득은 그대로');
+    ok(near(weightForDistance(BIAS_DECAY_KM), Math.exp(-1), 1e-12), `${BIAS_DECAY_KM}km 에서 e⁻¹`);
+    ok(weightForDistance(380) < weightForDistance(130) && weightForDistance(130) < weightForDistance(10),
+       `멀수록 작다 (10km ${weightForDistance(10).toFixed(2)} · 130km ${weightForDistance(130).toFixed(2)} · 380km ${weightForDistance(380).toFixed(2)})`);
+    ok(weightForDistance(NaN) === 1 && weightForDistance(-5) === 1, '거리를 모르면(NaN·음수) 관측점처럼 1');
+  }
+
+  console.log('\n[9] 층 배분 — 기둥 τ 가 정확히 Δτ 만큼, 모델이 둔 구름에 비례해');
+  {
+    const base = { low: 20, mid: 10, high: 40 };
+    for (const d of [0.05, -0.05, 0.2]) {
+      const out = allocateColumnBias(base, d);
+      ok(near(colTau(base) - colTau(out), d, 1e-9),
+         `Δτ ${d >= 0 ? '+' : ''}${d}: 그리는 기둥 τ 가 정확히 그만큼 옮는다 (${colTau(base).toFixed(4)} → ${colTau(out).toFixed(4)})`);
+    }
+    const up = allocateColumnBias(base, 0.1);
+    ok(near(up.low / base.low, up.high / base.high, 1e-9) && near(up.mid / base.mid, up.high / base.high, 1e-9),
+       `세 층에 같은 배수 (×${(up.low / base.low).toFixed(3)})`);
+    const zero = allocateColumnBias({ low: 0, mid: 0, high: 45 }, 0.2);
+    ok(zero.low === 0 && zero.mid === 0 && zero.high > 45, `0% 층은 0% 그대로 — 저층 0 · 중층 0 · 상층 45 → ${zero.high.toFixed(1)}`);
+    const empty = allocateColumnBias({ low: 0, mid: 0, high: 0 }, 0.3);
+    ok(empty.low === 0 && empty.mid === 0 && empty.high === 0, '맑은 기둥(전부 0)에는 아무것도 안 만든다');
+    // 목표가 완전 흐림(τ 0.25)이면 가장 큰 층이 100% 가 되는 데서 멈춥니다 — 작은 층은 비례만큼만.
+    const sat = allocateColumnBias({ low: 2, mid: 0, high: 60 }, 0.75);
+    ok(near(sat.high, 100, 1e-6) && sat.low < 4, `완전 흐림 목표: 상층 60 → 100, 저층 2 → ${sat.low.toFixed(2)} (100 으로 부풀지 않음)`);
+    ok(allocateColumnBias(base, 0).low === 20 && allocateColumnBias(base, NaN).high === 40, 'Δτ 0·NaN 이면 그대로');
+    // 음성 대조: 예전처럼 층마다 같은 Δτ 를 주면 기둥은 그 몇 배를 옮깁니다.
+    const per = { low: applyBias(20, 0.05, 0), mid: applyBias(10, 0.05, 0), high: applyBias(40, 0.05, 0) };
+    const shift = colTau(base) - colTau(per);
+    ok(shift > 2 * 0.05, `대조 — 층마다 Δτ 0.05 를 따로 주면 기둥은 ${shift.toFixed(3)} 옮는다(${(shift / 0.05).toFixed(1)}배)`);
+  }
+
+  console.log('\n[10] 위성이 가려낼 수 있는 몫 — 맑은 쪽은 0, 흐린 쪽은 1');
+  {
+    const r = SAT_TAU_NOISE / MODEL_COVER_SIGMA;
+    const g = [0, 10, 20, 30, 40, 60, 100].map(coverResolution);
+    console.log(`      g(0/10/20/30/40/60/100%) = ${g.map(x => x.toFixed(2)).join(' / ')}  (r = ${r.toFixed(4)})`);
+    ok(g[0] === 0 && g[1] < 0.05 && g[6] > 0.99, '맑은 기둥 0 · 10% 는 거의 0 · 완전 흐림은 거의 1');
+    ok(g.every((x, i) => i === 0 || x >= g[i - 1]), '기둥이 짙을수록 몫이 커진다(단조)');
+    // 걸리는 양의 상한: Δτ 를 몫만큼 걸면 기둥 운량이 움직이는 양은 어디서나 Δτ/(2r) 를 넘지 않습니다.
+    // (선형 근사의 성질이라 작은 Δτ 로 봅니다.)
+    let worst = 0;
+    for (let T = 1; T <= 99; T += 1) {
+      const dT = 0.002, c = { low: T, mid: 0, high: 0 };
+      const out = allocateColumnBias(c, dT * coverResolution(T));
+      worst = Math.max(worst, (columnCover(out.low, out.mid, out.high) - T) / 100 / dT);
+    }
+    ok(worst <= (1 / (2 * r)) * 1.02, `기둥이 움직이는 양 ≤ Δτ/(2r) — 최대 ${worst.toFixed(2)} 배 (한계 ${(1 / (2 * r)).toFixed(2)})`);
+  }
+
+  console.log('\n[11] 한 점·한 시각 — 관측점 총운량은 예전 식 그대로, 멀리·맑은 쪽은 덜');
+  {
+    const c = { low: 1, mid: 0, high: 29, total: 32.5 };
+    const at0 = correctCloudAt(c, 0.0179, 1, 0);
+    ok(near(at0.total, applyBias(32.5, 0.0179, 1), 1e-12), `관측점 총운량 = applyBias 그대로 (${at0.total.toFixed(2)}%)`);
+    ok(at0.high > 29 && at0.low < 1.3 && at0.mid === 0, `후쿠이 관측점: 상층 29 → ${at0.high.toFixed(1)} · 저층 1 → ${at0.low.toFixed(2)} · 중층 0 그대로`);
+    const far = correctCloudAt(c, 0.0179, 1, 380);
+    ok(far.high < at0.high && far.high > 29, `380km 에서는 덜 (상층 ${far.high.toFixed(2)} < ${at0.high.toFixed(2)})`);
+    const clear = correctCloudAt({ low: 1, mid: 0, high: 1, total: 4 }, 0.0179, 1, 10);
+    ok(clear.low - 1 < 0.1 && clear.high - 1 < 0.1,
+       `맑은 기둥(저 1 · 상 1)은 +0.1%p 안 (저층 ${clear.low.toFixed(3)}) — 예전 방식이면 ${applyBias(1, 0.0179, 1).toFixed(0)}%`);
+    const none = correctCloudAt(c, null, 1, 0);
+    ok(none.low === 1 && none.high === 29 && none.total === 32.5, '편향이 없으면 그대로');
+    const late = correctCloudAt(c, 0.2, 8, 0);
+    ok(late.high === 29 && late.total === 32.5, '앞선 시간이 한계(6h)를 넘으면 그대로');
+  }
+
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();

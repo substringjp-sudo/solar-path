@@ -11,7 +11,7 @@ import { localDateString } from './localDate';
 import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
-import { clearSkyGHIMean, estimateBias, applyBias, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
+import { clearSkyGHIMean, estimateBias, correctCloudAt, LOOKBACK_HOURS, MIN_CLEAR_GHI } from './satelliteBias';
 
 // 지구는 utils/earth.ts 한 곳에서만 정의합니다.
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -660,7 +660,8 @@ const MIN_CLEAR_SCALE = 0.6;
  * **위성이 방금 본 하늘과 견줘 예보의 치우침을 잽니다.**
  *
  * 왜 이것이 필요한지, 얼마나 듣는지는 `utils/satelliteBias.ts` 머리말에
- * 있습니다(30일·10지역에서 τ오차 −45%).
+ * 있습니다(관측점 총운량 τ오차 −32% — 처음 적은 −45% 는 자의 잡음이 섞인 값이었습니다).
+ * 그 편향 하나를 경로 점과 층에 어떻게 나누는지는 같은 머리말의 "거리와 층" 입니다.
  *
  * 요청은 **관측점 1점 · 변수 하나 · 8일**입니다 — 가중치 1회입니다.
  * 과거 예보는 이미 받은 자료 안에 있으므로 따로 안 받습니다.
@@ -781,6 +782,10 @@ export const fetchSatelliteBias = async (
 /**
  * 예보 배열에 편향을 **시각마다** 적용합니다. 앞선 시간이 길수록 덜 적용하고,
  * 6시간을 넘으면 아예 안 합니다(`satelliteBias.ts` 의 감쇠 곡선).
+ *
+ * ⚠ 편향은 **관측점 1점**에서 낸 것입니다. 점마다 거리로 줄이고, 층에는 모델이 둔 구름에
+ * 비례해 나눕니다(`correctCloudAt`). 예전에는 380km 밖 저·중·상층에 똑같이 더해 후쿠이
+ * 2026-10-02 의 서쪽 바다 위에 없던 저층 28~51% 를 만들었습니다(`satelliteBias.ts` 머리말).
  */
 function applyBiasToPath(path: CloudPathData[], bias: number | null, observedUntilMs: number): void {
   if (bias == null || !Number.isFinite(observedUntilMs) || observedUntilMs <= 0) return;
@@ -789,10 +794,14 @@ function applyBiasToPath(path: CloudPathData[], bias: number | null, observedUnt
     if (!h?.timeMs) continue;
     for (let i = 0; i < h.timeMs.length; i++) {
       const lead = (h.timeMs[i] - observedUntilMs) / 3600_000;
-      h.low[i] = applyBias(h.low[i] ?? 0, bias, lead);
-      h.mid[i] = applyBias(h.mid[i] ?? 0, bias, lead);
-      h.high[i] = applyBias(h.high[i] ?? 0, bias, lead);
-      if (h.total && h.total[i] != null) h.total[i] = applyBias(h.total[i], bias, lead);
+      const c = correctCloudAt(
+        { low: h.low[i] ?? 0, mid: h.mid[i] ?? 0, high: h.high[i] ?? 0, total: h.total?.[i] },
+        bias, lead, p.distance,
+      );
+      h.low[i] = c.low;
+      h.mid[i] = c.mid;
+      h.high[i] = c.high;
+      if (h.total && h.total[i] != null && c.total != null) h.total[i] = c.total;
     }
   }
 }
