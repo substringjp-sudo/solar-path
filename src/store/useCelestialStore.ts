@@ -27,6 +27,7 @@ import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
 import type { SkyTimeline } from '../utils/skyTimeline';
+import { createClockSlice, type ClockState } from '../utils/liveClock';
 
 const uploadTimers: { [photoId: string]: any } = {};
 
@@ -127,12 +128,11 @@ export interface SavedLocation {
   terrainData?: TerrainData;
 }
 
-interface CelestialState {
-  currentTime: Date;
+/** 시각(`currentTime`·`isTimeMachineEnabled`)과 그 동작은 `ClockState`(utils/liveClock.ts)에 있습니다. */
+interface CelestialState extends ClockState {
   location: Location.LocationObject | null;
   timezoneOffsetHours: number;
   timezoneLabel: string;
-  isTimeMachineEnabled: boolean;
   errorMsg: string | null;
   weatherCache: WeatherCacheItem | null;
   terrainCache: TerrainCacheItem | null;
@@ -173,11 +173,8 @@ interface CelestialState {
   
   // Actions
   setSelectedCategory: (category: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery') => void;
-  setCurrentTime: (time: Date) => void;
   setLocation: (loc: Location.LocationObject | null) => void;
-  setTimeMachineEnabled: (enabled: boolean) => void;
   setErrorMsg: (msg: string | null) => void;
-  updateTime: () => void;
   setWeatherCache: (cache: WeatherCacheItem | null) => void;
   setTerrainCache: (cache: TerrainCacheItem | null) => void;
   addWeatherCache: (cache: WeatherCacheItem) => void;
@@ -267,7 +264,7 @@ export interface TeleportTarget {
 export const useCelestialStore = create<CelestialState>()(
   persist(
     (set, get) => ({
-      currentTime: new Date(),
+      ...createClockSlice(set),
       location: null,
       timezoneOffsetHours: -new Date().getTimezoneOffset() / 60,
       timezoneLabel: (() => {
@@ -275,7 +272,6 @@ export const useCelestialStore = create<CelestialState>()(
         if (offset === 0) return 'GMT';
         return `GMT${offset > 0 ? '+' : ''}${offset}`;
       })(),
-      isTimeMachineEnabled: false,
       errorMsg: null,
       weatherCache: null,
       terrainCache: null,
@@ -364,7 +360,6 @@ export const useCelestialStore = create<CelestialState>()(
           terrainCache: cache // support legacy single cache
         };
       }),
-      setCurrentTime: (time) => set({ currentTime: time }),
       setLocation: async (loc) => {
         set({ location: loc });
         if (loc) {
@@ -387,15 +382,7 @@ export const useCelestialStore = create<CelestialState>()(
       setUserRotation: (rot) => set({ userRotation: (rot + 360) % 360 }),
       setGyroEnabled: (enabled) => set({ isGyroEnabled: enabled }),
       resetRotation: () => set({ userRotation: 0, isGyroEnabled: false }),
-      setTimeMachineEnabled: (enabled) => set((state) => ({ 
-        isTimeMachineEnabled: enabled,
-        currentTime: enabled ? state.currentTime : new Date() 
-      })),
       setErrorMsg: (msg) => set({ errorMsg: msg }),
-      updateTime: () => set((state) => {
-        if (state.isTimeMachineEnabled) return state;
-        return { currentTime: new Date() };
-      }),
       addSavedLocation: async (name, latitude, longitude, terrainData) => {
         const isDuplicate = get().savedLocations.some(
           (loc) => Math.abs(loc.latitude - latitude) < 1e-6 && Math.abs(loc.longitude - longitude) < 1e-6

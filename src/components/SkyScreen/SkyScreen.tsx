@@ -49,6 +49,7 @@ import { timeTo } from '../../theme/motion';
 interface SkyScreenProps {
   theme: any;
   currentTime: Date;
+  /** 사용자가 고른 시각(슬라이더·이벤트 칩) — 시계에서 떼어 붙듭니다(`handleTimeChange` → `pinTime`, utils/liveClock.ts). */
   setCurrentTime: (time: Date) => void;
   isTimeMachineEnabled?: boolean;
   setTimeMachineEnabled?: (enabled: boolean) => void;
