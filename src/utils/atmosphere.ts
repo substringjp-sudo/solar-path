@@ -1277,10 +1277,15 @@ vec3 atm_pathWash(vec3 col, vec3 tauView) {
 /**
  * 시선 방향의 하늘 복사휘도.
  * viewElevDeg: 시선 고도, cosGamma: 시선·태양 코사인, sunAltDeg: 태양 고도
+ *
+ * singleLit: **해에서 곧장 와 한 번 산란된 몫**(단일산란) 가운데 햇빛을 받는 공기의 몫(채널별 0~1).
+ * 하늘은 늘 1 입니다(아래 atm_skyRadiance). 지형 공기원근만 1 보다 작게 넣습니다 — 해가 능선 뒤로
+ * 넘어가면 눈과 그 능선 사이의 공기가 통째로 **산 그림자** 안에 들어, 해 둘레를 밝히는 앞방향 산란을
+ * 못 받습니다(TerrainField 의 hazeLitWeight). 여러 번 산란된 몫(multi)은 하늘 전체에서 오므로 그대로 둡니다.
  */
-vec3 atm_skyRadiance(
+vec3 atm_skyRadianceLit(
   float viewElevDeg, float cosGamma, float sunAltDeg,
-  float beta, float angstrom, float elevScale, float ozoneDU
+  float beta, float angstrom, float elevScale, float ozoneDU, vec3 singleLit
 ) {
   float mView = atm_airMass(max(viewElevDeg, -0.8));
   // 지평선 아래에서는 상층 대기가 조명되므로 색은 하한에서 고정
@@ -1355,7 +1360,7 @@ vec3 atm_skyRadiance(
   vec3 multi  = tSunMS * w0 * scatterFrac * MS_GAIN * (1.0 / (4.0 * PI_));
 
   // 지구 그림자를 두 성분에 다르게 적용 — TS skyRadiance와 같아야 합니다.
-  vec3 col = (single * sunLit + multi * sunLitMS) * SKY_EXPOSURE;
+  vec3 col = (single * singleLit * sunLit + multi * sunLitMS) * SKY_EXPOSURE;
 
   // 두꺼운 시선 경로에서 색이 씻깁니다 — TS skyRadiance 와 같은 식이어야 합니다.
   col = atm_pathWash(col, tauViewScat + tauViewAbs);
@@ -1365,6 +1370,15 @@ vec3 atm_skyRadiance(
   col *= mix(vec3(1.0), GROUND_DARK, below);
 
   return max(NIGHT_SKY, col);
+}
+
+/** 하늘 — 단일산란을 다 받습니다. TS skyRadiance 와 같은 식입니다. */
+vec3 atm_skyRadiance(
+  float viewElevDeg, float cosGamma, float sunAltDeg,
+  float beta, float angstrom, float elevScale, float ozoneDU
+) {
+  return atm_skyRadianceLit(viewElevDeg, cosGamma, sunAltDeg,
+    beta, angstrom, elevScale, ozoneDU, vec3(1.0));
 }
 
 /**

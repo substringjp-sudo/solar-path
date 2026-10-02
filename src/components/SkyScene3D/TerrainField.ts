@@ -253,8 +253,12 @@ void main() {
  * 예전 능선 띠는 거리대 **세 개**에만 이걸 걸었습니다. 높이장은 화소마다
  * 진짜 거리가 있으므로 **연속으로** 겁니다.
  */
+/** 구운 능선 꼭대기 높이(눈 위 m)의 범위 ±. 16비트(R·G)에 담아 0.125m 간격입니다. */
+const SUN_SHADOW_RANGE_M = 4096;
+
 export const FIELD_FRAG = /* glsl */ `
 precision highp float;
+const float SUN_RADIUS_RAD = 0.00463;   // 해 원반 각반경 0.265° — 아래 산 그림자의 반그림자와 같은 값
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
 ${DEM_GLSL}
@@ -281,6 +285,10 @@ uniform float uSaturation;
 uniform vec3  uHazeRadiance;  // 방위 평균 지평선 하늘빛 — 대비책일 뿐입니다
 uniform float uOzoneDU;
 uniform float uHazeDirectional;  // 0 이면 옛 평균 한 값 (A/B 판정용)
+uniform float uHazeSkyScale;     // 1 = 연무를 하늘과 같은 노출로(아래 공기원근 주석) · 0 = 예전 (A/B 판정용)
+uniform sampler2D uSunShadowTex; // 해 방위의 지평선 능선(꼭대기 높이·거리) — bakeSunShadow 가 굽습니다
+uniform float uSunShadowValid;   // 1 = 위 텍스처를 지금 해·지형으로 구웠음
+uniform float uHazeShadow;       // 1 = 연무 단일산란에 산 그림자 · 0 = 예전 (A/B 판정용)
 uniform float uAerial;        // 0 이면 공기원근 끔 (기하 판정용)
 uniform float uWetBandM;      // 조간대 폭 (m 단위 **고도**)
 uniform float uBeta;
@@ -328,6 +336,60 @@ float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
     t *= 1.2;
   }
   return best;
+}
+
+/** 구운 해 쪽 능선 — x = 꼭대기의 눈 위 높이(m), y = 수평 거리(m). 인코딩은 SUN_SHADOW_BAKE_FRAG. */
+vec2 sunRidgeZD() {
+  vec4 t = texture2D(uSunShadowTex, vec2(0.5, 0.5));
+  float v = (floor(t.r * 255.0 + 0.5) * 256.0 + floor(t.g * 255.0 + 0.5)) / 65535.0;
+  float d = floor(t.b * 255.0 + 0.5) * 256.0 + floor(t.a * 255.0 + 0.5);
+  return vec2(v * ${SUN_SHADOW_RANGE_M.toFixed(1)} * 2.0 - ${SUN_SHADOW_RANGE_M.toFixed(1)}, d);
+}
+
+/** 해 원반 가운데보다 m(rad) 높은 수평선 위로 보이는 원반의 몫 — 원의 활꼴 넓이. */
+float sunDiscAbove(float m) {
+  float x = clamp(m / SUN_RADIUS_RAD, -1.0, 1.0);
+  return (acos(x) - x * sqrt(1.0 - x * x)) / 3.14159265;
+}
+
+/**
+ * **눈에서 이 점까지의 공기 가운데 햇빛을 받는 몫** — 연무의 단일산란에 곱합니다.
+ *
+ * 해가 능선 뒤로 넘어가면 눈과 그 능선 사이의 공기가 통째로 산 그림자에 듭니다. 그러면 해 쪽 하늘을
+ * 밝히는 앞방향 산란(해 둘레의 밝은 무리)을 그 공기는 못 받고, 능선은 제 뒤 하늘보다 확실히 어둡게
+ * 섭니다 — 후쿠이 2026-10-02 17:31 사진에서 능선 아래/위 밝기 비 0.52~0.56, 능선 색조(파랑/빨강)
+ * 1.06 대 하늘 0.58 (그늘 속 공기는 파란 하늘빛만 받습니다).
+ *
+ * 모형: 해 방위의 지평선을 만드는 능선(sunRidgeZD — 높이 z, 거리 D) 하나가 해 방향과 직각으로 길게
+ * 놓여 있다고 봅니다. 시선 위의 점(수평 거리 s, 높이 s·tan(시선 고도), 해 쪽 성분 u = s·cos(방위차))에서
+ * 그 꼭대기를 올려다본 각과 해 원반을 견줘 보이는 원반의 몫을 냅니다(u ≥ D 면 능선 너머라 1).
+ * 시선을 **연무에 같은 몫씩 보태는** 여덟 토막으로 나눠 그 가운데서 잰 몫을 평균합니다.
+ */
+vec3 hazeLitWeight(vec3 dir, float distM) {
+  if (uHazeShadow < 0.5 || uSunShadowValid < 0.5) return vec3(1.0);
+  float hl = length(dir.xz);
+  if (hl < 1e-4) return vec3(1.0);
+  vec2 sunH = vec2(sin(uSunAzRad), -cos(uSunAzRad));
+  float cosDphi = dot(dir.xz / hl, sunH);
+  float te = dir.y / hl;
+  vec2 zd = sunRidgeZD();
+  // 투과율은 거리에 지수로 줄므로 T(s) = T(d)^(s/d) — 같은 몫 토막의 경계를 바로 풉니다.
+  float Td = dot(vec3(0.2126, 0.7152, 0.0722),
+    atm_aerialTransmittance(distM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale));
+  float lnTd = log(clamp(Td, 1e-4, 0.9999));
+  float w = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float q = (float(i) + 0.5) / 8.0;
+    float sM = distM * log(1.0 - q * (1.0 - exp(lnTd))) / lnTd;
+    float u = sM * cosDphi;
+    float f = 1.0;
+    if (u < zd.y) {
+      float crest = atan(zd.x - sM * te, max(1.0, zd.y - u));
+      f = sunDiscAbove(crest - uSunAltRad);
+    }
+    w += f;
+  }
+  return vec3(w / 8.0);
 }
 
 void main() {
@@ -535,14 +597,82 @@ void main() {
       float cosG = clamp(dot(dir, L), -1.0, 1.0);
       // 지평선 아래를 보는 화소도 있으므로 하늘 모형에는 0.5° 를 하한으로
       // 넣습니다 — 그 아래로는 하늘이 정의되지 않습니다.
-      haze = atm_skyRadiance(max(0.5, elevDeg), cosG, uSunAltDeg,
-        max(0.001, uBeta), max(0.1, uAngstrom), max(0.1, uElevScale), max(50.0, uOzoneDU));
+      // 산 그림자 속 공기는 해에서 곧장 오는 단일산란을 못 받습니다(hazeLitWeight).
+      haze = atm_skyRadianceLit(max(0.5, elevDeg), cosG, uSunAltDeg,
+        max(0.001, uBeta), max(0.1, uAngstrom), max(0.1, uElevScale), max(50.0, uOzoneDU),
+        hazeLitWeight(dir, vDistM));
       haze = max(haze, vec3(0.0));
     }
-    col = col * T + haze * (1.0 - T);
+    // ⚠ (2026-10-02) 연무는 **하늘빛**이라 하늘과 같은 노출로 보여야 합니다. 예전에는 섞은 뒤 통째로
+    //   지면 노출(uExposure)과 땅용 눈 순응(atm_groundEyeAdapt, 해 1° 에서 ×2.8)을 먹어, 해 쪽 먼 산이
+    //   **제 뒤 하늘보다 밝게** 빛났습니다 — 후쿠이 2026-10-02 17:31, 능선 아래/위 밝기 비 1.0 대 사진 0.52~0.56.
+    //   멀리 있는 산은 하늘에 잦아들 뿐 하늘보다 밝아질 수 없습니다. 물의 되비침(SeaPlane)이 같은 까닭으로
+    //   이 배수를 미리 나누고 있습니다. 표면 몫(조도 × 알베도)은 예전 그대로 노출·순응을 받습니다.
+    float hazeScale = uHazeSkyScale > 0.5 ? 1.0 / max(1e-4, uExposure * atm_groundEyeAdapt(uSunAltDeg)) : 1.0;
+    col = col * T + haze * (1.0 - T) * hazeScale;
   }
 
   gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
+}
+`;
+
+/**
+ * **해 쪽 지평선을 만드는 능선** — 한 화소짜리 굽기 (2026-10-02).
+ *
+ * 눈에서 해 방위로 지형을 훑어 고도각이 가장 큰 점(곡률 낙차 포함)을 찾고, 그 꼭대기의 **눈 위 높이
+ * z** 와 **수평 거리 D** 를 굽습니다. 지형 셰이더의 hazeLitWeight 가 시선 위의 점마다 이 꼭대기를
+ * 올려다본 각과 해 원반을 견줘, 그 점의 공기가 햇빛을 얼마나 받는지 냅니다.
+ *
+ * ⚠ 가림물은 **각도**로 고릅니다. 처음엔 "능선 꼭대기에서 해 고도각으로 내려온 그림자 경계가 눈 자리에서
+ *   지나는 높이(z − D·tan(해 고도))"가 가장 큰 점을 골랐는데, 해가 능선들보다 넉넉히 높으면 그 값을
+ *   **눈 바로 옆 땅**(눈높이만큼 아래, 수십 m)이 차지해 시선이 그 너머 전부 그늘로 계산됐습니다(도곡동 해 3°).
+ *   반대로 먼 능선이 해를 반쯤 가려도 옆 땅이 이겨 그 능선을 놓칩니다. 해가 보이느냐는 각의 문제입니다.
+ *
+ * 눈 하나에 값 하나라 화소마다 훑으면 낭비입니다(휴대폰에서 화소당 수십 번 더 DEM 을 읽게 됩니다).
+ * 그래서 해 방위·지형·눈높이가 바뀔 때만 이 패스를 한 번 그립니다 — 해 고도와는 무관합니다.
+ * 걸음은 가까이 20m 에서 멀리 150m(성긴 패치 화소의 절반쯤)까지 — 24km 능선 꼭대기를 놓치지 않을 만큼.
+ *
+ * 인코딩: (z + 범위) / (2·범위) 를 16비트로 R(윗바이트)·G(아랫바이트), D(m)를 16비트로 B·A.
+ */
+const SUN_SHADOW_BAKE_VERT = /* glsl */ `
+void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
+const SUN_SHADOW_BAKE_FRAG = /* glsl */ `
+precision highp float;
+${DEM_GLSL}
+${demGlsl('demEye')}
+${demGlsl('demFar')}
+uniform float uObsElevM;
+uniform float uEyeHeightM;
+uniform float uSunAzRad;
+
+float bakeGroundAtEye() {
+  if (uDemEyeValid > 0.5) return demEye_elevationAt(vec2(0.0));
+  return uDemValid > 0.5 ? dem_elevationAt(vec2(0.0)) : uObsElevM;
+}
+
+void main() {
+  float eye = bakeGroundAtEye() + uEyeHeightM;
+  vec2 sunH = vec2(sin(uSunAzRad), -cos(uSunAzRad));
+  float bestTan = -1.0e9;
+  float zc = -${SUN_SHADOW_RANGE_M.toFixed(1)};
+  float dOcc = 0.0;
+  float t = 20.0;
+  for (int i = 0; i < 800; i++) {
+    vec2 g = sunH * t;
+    float inFine = uDemValid > 0.5 ? dem_inside(g) : 0.0;
+    float inFar = uDemFarValid > 0.5 ? demFar_inside(g) : 0.0;
+    if (inFine < 0.5 && inFar < 0.5) break;
+    float h = inFine > 0.5 ? dem_elevationAt(g) : demFar_elevationDespiked(g);
+    float z = h - eye - t * t / (2.0 * 6371000.0);
+    if (z / t > bestTan) { bestTan = z / t; zc = z; dOcc = t; }
+    t += clamp(t * 0.006, 20.0, 150.0);
+  }
+  float v = floor(clamp((zc + ${SUN_SHADOW_RANGE_M.toFixed(1)}) / ${(2 * SUN_SHADOW_RANGE_M).toFixed(1)}, 0.0, 1.0) * 65535.0 + 0.5);
+  float hi = floor(v / 256.0);
+  float w = floor(clamp(dOcc, 0.0, 65535.0) + 0.5);    // 능선까지 m (1m 간격)
+  float whi = floor(w / 256.0);
+  gl_FragColor = vec4(hi / 255.0, (v - hi * 256.0) / 255.0, whi / 255.0, (w - whi * 256.0) / 255.0);
 }
 `;
 
@@ -558,6 +688,11 @@ export interface TerrainFieldHandle {
     eyePatch?: DemPatch | null,
     farPatch?: DemPatch | null,
   ) => void;
+  /**
+   * 해 방위의 지평선 능선을 굽습니다(SUN_SHADOW_BAKE_FRAG). 해 방위(uSunAzRad)·지형·눈높이가
+   * 그대로면 아무것도 안 합니다 — 매 프레임 불러도 됩니다. 그리기 전에 부릅니다.
+   */
+  bakeSunShadow: (renderer: THREE.WebGLRenderer) => void;
   dispose: () => void;
 }
 
@@ -638,6 +773,10 @@ export function createTerrainField(opts: {
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
       uOzoneDU: { value: 330 },
       uHazeDirectional: { value: 1.0 },
+      uHazeSkyScale: { value: 1.0 },
+      uSunShadowTex: { value: null as THREE.Texture | null },
+      uSunShadowValid: { value: 0.0 },
+      uHazeShadow: { value: 1.0 },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
       uDemDespike: { value: opts.despike ? 1 : 0 },
@@ -679,11 +818,55 @@ export function createTerrainField(opts: {
   distMesh.frustumCulled = false;
   distMesh.layers.set(LAYER_TERRAIN_DIST);
 
+  // 해 방위의 지평선 능선 — 한 화소짜리 굽기(SUN_SHADOW_BAKE_FRAG). uniform 은 격자와 **같은 객체**를
+  // 나눠 써서 setPatch·해 갱신이 그대로 따라옵니다(굽기 셰이더는 uSunShadowTex 를 선언하지 않으므로
+  // 제 출력을 읽는 되먹임이 없습니다).
+  const shadowRT = new THREE.WebGLRenderTarget(1, 1, {
+    format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
+  });
+  material.uniforms.uSunShadowTex.value = shadowRT.texture;
+  const bakeMaterial = new THREE.ShaderMaterial({
+    uniforms: material.uniforms,
+    vertexShader: SUN_SHADOW_BAKE_VERT,
+    fragmentShader: SUN_SHADOW_BAKE_FRAG,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.NoBlending,
+  });
+  const bakeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bakeMaterial);
+  bakeQuad.frustumCulled = false;
+  const bakeScene = new THREE.Scene();
+  bakeScene.add(bakeQuad);
+  const bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  let bakedKey = '';
+  let patchSerial = 0;
+
   return {
     mesh,
     distMesh,
     material,
+    bakeSunShadow: (renderer) => {
+      const u = material.uniforms;
+      const hasDem = u.uDemValid?.value > 0.5 || u.uDemFarValid?.value > 0.5;
+      if (!hasDem) { u.uSunShadowValid.value = 0; bakedKey = ''; return; }
+      // 해 **방위**가 0.0017° 움직이면 다시 굽습니다 — 한 화소라 값이 거의 들지 않습니다. 해 고도와는 무관합니다.
+      const q = (x: number) => Math.round(x / 3e-5);
+      const key = `${patchSerial}|${q(u.uSunAzRad.value)}|${u.uEyeHeightM.value}`;
+      if (key === bakedKey) return;
+      const prev = renderer.getRenderTarget();
+      const prevAuto = renderer.autoClear;
+      renderer.autoClear = false;
+      renderer.setRenderTarget(shadowRT);
+      renderer.render(bakeScene, bakeCam);
+      renderer.setRenderTarget(prev);
+      renderer.autoClear = prevAuto;
+      u.uSunShadowValid.value = 1;
+      bakedKey = key;
+    },
     setPatch: (patch, eyePatch, farPatch) => {
+      patchSerial++;
       const put = (u: Record<string, { value: unknown }>) => {
         Object.entries(u).forEach(([k, v]) => {
           if (material.uniforms[k]) material.uniforms[k].value = v.value;
@@ -704,6 +887,9 @@ export function createTerrainField(opts: {
       mesh.geometry.dispose();
       material.dispose();
       distMaterial.dispose();
+      bakeQuad.geometry.dispose();
+      bakeMaterial.dispose();
+      shadowRT.dispose();
     },
   };
 }

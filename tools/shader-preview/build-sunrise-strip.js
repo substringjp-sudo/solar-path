@@ -15,6 +15,9 @@
  *     비는(알파 < 0.1) 화소. 구름이 땅에 잘렸는데 그 땅이 화면에 없는 자리입니다.
  *   - **태양** — 태양을 껐다 켜서 그 자리 밝기가 바뀌면 보이는 것.
  *
+ * 해를 능선 위 0.6° 로 올린 변형도 찍습니다(4) — 해 원반이 실제 크기가 된 뒤 원 장면의 해는 능선에
+ * 통째로 숨으므로, "흐린 하늘이 해를 가린다"는 지킴을 거기서 잽니다(2026-10-02).
+ *
  * 경우: 해 2.85°/92.9°(그 시각), 운량 저 20 · 중 90 · 상 95%(그 시각 예보), 카메라 방위 93°·
  * 피치 2°·세로 16°. 밴드는 앱처럼 31방위 × 5·15·40km 점 표본을 CPU DEM 으로 냅니다.
  *
@@ -79,7 +82,8 @@ window.addEventListener('unhandledrejection', e => die(e.reason && e.reason.mess
 
 const CFG=${JSON.stringify(CFG)}, OBS_M=${OBS_M};
 const BAND_ANGLES=${JSON.stringify(bandAngles)}, BAND_DIST=${JSON.stringify(DIST_KM)};
-const SUN_ALT=${SUN_ALT}, SUN_AZ=${SUN_AZ}, CAM_AZ=${CAM_AZ}, CAM_PITCH=${CAM_PITCH};
+let SUN_ALT=${SUN_ALT};   // 아래 '해를 능선 위로' 변형에서 잠깐 바꿉니다
+const SUN_AZ=${SUN_AZ}, CAM_AZ=${CAM_AZ}, CAM_PITCH=${CAM_PITCH};
 const COVER=${JSON.stringify(COVER)}, ATMOS=${JSON.stringify(DEFAULT_ATMOS)};
 const W=320, H=320, FOVY=16, EYE=1.6;
 const D2R = Math.PI/180;
@@ -237,6 +241,28 @@ window.__imageNoCloud = Array.from(shot());
 sun.mesh.visible = false;
 window.__imageNoCloudNoSun = Array.from(shot());
 slab.mesh.visible = true; sun.mesh.visible = true;
+
+// 4) **해를 능선 위로** 올린 변형 (2026-10-02). 해 원반이 실제 크기(반지름 0.267°)가 되자 원 장면의 해
+//    (2.85°, 위 끝 3.12°)는 그려진 능선(3.28°) 아래로 통째로 숨어, "구름을 끄면 해가 보인다"는 전제가
+//    성립하지 않습니다 — 그 전제는 4배 원반(1.08°)이 능선 위로 나오는 데 기대고 있었습니다. 그러면
+//    "흐린 하늘이 해를 가린다(§94 — 천체는 구름 아래)"를 이 장면이 더는 못 지킵니다. 같은 구름·지형에서
+//    해만 능선 위 0.6° 로 올려 그 지킴을 이어 갑니다. 문턱(0 화소 · 50 화소)은 원 판정 그대로입니다.
+function sunLitCount(){ sun.mesh.visible = false; const a = shot(); sun.mesh.visible = true; const b2 = shot();
+  let c = 0; for (let i = 0; i < a.length; i += 4)
+    if (Math.max(Math.abs(b2[i]-a[i]), Math.abs(b2[i+1]-a[i+1]), Math.abs(b2[i+2]-a[i+2])) > 8) c++;
+  return c; }
+const SUN_ALT0 = SUN_ALT;
+function setSunAlt(a){ SUN_ALT = a; updateSkydome(sky, SUN_ALT, SUN_AZ, atmosphere); updateSun(sun, SUN_ALT, SUN_AZ, ATMOS, 1);
+  composer.setSun(dirOf(SUN_ALT, SUN_AZ), SUN_ALT); slabUpdate(0, true); }
+const raised = ridgeAtSun !== null ? +(ridgeAtSun + 0.6).toFixed(2) : null;
+if (raised !== null) {
+  setSunAlt(raised);
+  slab.mesh.visible = true;  const litCloud = sunLitCount();
+  slab.mesh.visible = false; const litClear = sunLitCount();
+  slab.mesh.visible = true;
+  window.__stats.해올림 = { 해고도: raised, 그려진능선: ridgeAtSun, 흐림해화소: litCloud, 맑음해화소: litClear };
+  setSunAlt(SUN_ALT0);
+}
 window.__errors = errors;
 document.title = 'DONE::' + (errors.length ? 'ERR' : 'OK');
 </script></body></html>`;
