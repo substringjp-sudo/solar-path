@@ -807,6 +807,20 @@ export function hemiSkyLuminance(sunAltDeg: number, p: AtmosphereParams): number
   return s / HEMI_NODES.length;
 }
 
+/** `hemiSkyLuminance` 의 색 판 — 같은 6점 평균의 RGB(밤하늘 바닥 포함). 구름의 박명 환경광에 씁니다. */
+export function hemiSkyRadiance(sunAltDeg: number, p: AtmosphereParams): RGB {
+  const D = Math.PI / 180;
+  const sS = Math.sin(sunAltDeg * D), cS = Math.cos(sunAltDeg * D);
+  const o = { r: 0, g: 0, b: 0 };
+  for (const [e, az] of HEMI_NODES) {
+    const cg = Math.sin(e * D) * sS + Math.cos(e * D) * cS * Math.cos(az * D);
+    const c = skyRadiance(e, Math.acos(Math.max(-1, Math.min(1, cg))) / D, sunAltDeg, p, 0);
+    o.r += c.r; o.g += c.g; o.b += c.b;
+  }
+  const n = HEMI_NODES.length;
+  return { r: o.r / n, g: o.g / n, b: o.b / n };
+}
+
 const moonGainCache = new WeakMap<AtmosphereParams, number>();
 /** 보름달의 이득 K — 닻에서 한 번 구해 대기마다 기억합니다. */
 export function moonSkyGain(p: AtmosphereParams): number {

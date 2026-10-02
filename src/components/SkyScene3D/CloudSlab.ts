@@ -42,7 +42,7 @@ import * as THREE from 'three';
 import { EARTH_RADIUS_KM_GLSL } from '../../utils/earth';
 import { beamGrazing } from '../../utils/grazingRay';
 import {
-  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, NIGHT_SKY, SOLAR_BEAM_SCALE, type AtmosphereParams,
+  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, hemiSkyRadiance, NIGHT_SKY, SOLAR_BEAM_SCALE, type AtmosphereParams,
 } from '../../utils/atmosphere';
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
@@ -2680,15 +2680,44 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   const ml = u.moonDir && u.moonAltDeg !== undefined && u.moonIllum !== undefined
     ? moonLight(u.sunAltDeg, u.moonAltDeg, u.moonIllum, u.atmosphere)
     : { gain: 0, useMoon: false };
-  const lightByMoon = ml.useMoon && !!u.moonDir && u.moonAltDeg !== undefined;
+  // ⚠ (2026-10-02) 위 기준(하늘을 더 밝히는 쪽)만으로는 항해박명에 뜬 보름달이 버려졌습니다. 해 −8.5° 면 구름
+  //   높이(≤ 7.5km)는 지구 그림자 안이라(그림자 높이 ≈ 70km) 해의 **직달은 구름에 0** 인데, 박명 하늘이 달빛
+  //   하늘보다 밝다는 이유로 해를 골라 고도 13.5° 보름달의 직달까지 버렸습니다. 하늘돔은 둘 다 그리므로
+  //   달빛 받은 구름이 맑은 하늘보다 어두웠습니다(마쓰모토 18:11 — 맑음 28.2 · 중층 61% 만 20.2,
+  //   verify-night-cloudy). 그래서 **맨 위 층에 닿는 직달**을 견줘 달이 더 크면 달을 광원으로 씁니다.
+  const moonUp = ml.gain > 0 && !!u.moonDir && u.moonAltDeg !== undefined;
+  let lightByMoon = ml.useMoon && moonUp;
+  const topKm = (uni.uLayerAltKm.value as THREE.Vector3).z;
+  if (!lightByMoon && moonUp && u.sunAltDeg < 0) {
+    const key = [u.sunAltDeg.toFixed(2), u.moonAltDeg!.toFixed(2), topKm.toFixed(3), ml.gain.toFixed(6),
+      u.atmosphere.betaMie, u.atmosphere.ozoneDU, u.atmosphere.dayOfYear].join('|');
+    const memo = handle as unknown as { _moonPick?: { key: string; moon: boolean } };
+    if (!memo._moonPick || memo._moonPick.key !== key) {
+      const lw = (c: RGB) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const sunTop = lw(beamGrazing(u.sunAltDeg, topKm, u.atmosphere));
+      const moonTop = lw(beamGrazing(u.moonAltDeg!, topKm, u.atmosphere)) * ml.gain;
+      memo._moonPick = { key, moon: moonTop > sunTop };
+    }
+    lightByMoon = memo._moonPick.moon;
+  }
   const lightAlt = lightByMoon ? u.moonAltDeg! : u.sunAltDeg;
   (uni.uSunDir.value as THREE.Vector3).copy(lightByMoon ? u.moonDir! : u.sunDir).normalize();
   uni.uSunAltDeg.value = lightAlt;
   uni.uSunAzDeg.value = u.sunAzDeg;
   uni.uDispSunAltDeg.value = u.sunAltDeg;
   uni.uLightGain.value = lightByMoon ? ml.gain : 1;
-  (uni.uSkyAdd.value as THREE.Vector3).set(
-    lightByMoon ? NIGHT_SKY.r : 0, lightByMoon ? NIGHT_SKY.g : 0, lightByMoon ? NIGHT_SKY.b : 0);
+  // 달이 광원이면 하늘빛 = 달빛 하늘 × 이득 + 바닥. 그 바닥을 **박명 하늘(반구 평균)** 로 올립니다 — 해가 진
+  // 직후에는 박명 하늘이 밤하늘 바닥보다 훨씬 밝고, 직달 대신 달을 골랐다고 그 환경광까지 버리면 안 됩니다.
+  // 깊은 밤에는 박명 하늘 = 바닥이라 예전과 같습니다(방향은 잃습니다 — 반구 평균).
+  let add = { r: 0, g: 0, b: 0 };
+  if (lightByMoon) {
+    const memo = handle as unknown as { _twiAmb?: { key: string; c: RGB } };
+    const key = [u.sunAltDeg.toFixed(2), u.atmosphere.betaMie, u.atmosphere.ozoneDU, u.atmosphere.elevScale].join('|');
+    if (!memo._twiAmb || memo._twiAmb.key !== key) memo._twiAmb = { key, c: hemiSkyRadiance(u.sunAltDeg, u.atmosphere) };
+    const tw = memo._twiAmb.c;
+    add = { r: Math.max(NIGHT_SKY.r, tw.r), g: Math.max(NIGHT_SKY.g, tw.g), b: Math.max(NIGHT_SKY.b, tw.b) };
+  }
+  (uni.uSkyAdd.value as THREE.Vector3).set(add.r, add.g, add.b);
   uni.uCityLight.value =
     typeof u.cityLight === 'number' ? Math.max(0, Math.min(1, u.cityLight))
       : u.cityLight === false ? 0.0 : 1.0;
