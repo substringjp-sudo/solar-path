@@ -200,10 +200,12 @@ ${GROUND_DISPLAY_GLSL}
 void main() {
   // ── 거리별 대기 투시 ────────────────────────────────────────────────────
   vec3 T = atm_aerialTransmittance(uDistanceKm, 0.0, uBeta, uAngstrom, uElevScale);
-  vec3 col = uTerrainRadiance * uExposure * T + vHaze * (1.0 - T);
-
-  // 능선 위쪽(하늘에 가까운 쪽)이 조금 밝습니다 — 사면이 하늘을 더 봅니다.
-  col *= 0.82 + 0.30 * smoothstep(-2.0, 6.0, vElevDeg);
+  // 능선 위쪽(하늘에 가까운 쪽)이 조금 밝습니다 — 사면이 하늘을 더 봅니다. 이 기울기는 **사면 몫**에만 겁니다.
+  // ⚠ (2026-10-02) 연무(vHaze, 그 방향 하늘빛)는 땅용 눈 순응을 미리 나눠 하늘과 같은 노출로 둡니다 — 예전에는
+  //   섞은 뒤 통째로 순응(해 1° 에서 ×2.8)과 위 기울기(최대 ×1.12)를 먹어, 해 쪽 먼 능선이 제 뒤 하늘보다
+  //   밝았습니다(TerrainField 공기원근 주석).
+  vec3 surf = uTerrainRadiance * uExposure * (0.82 + 0.30 * smoothstep(-2.0, 6.0, vElevDeg));
+  vec3 col = surf * T + vHaze * (1.0 - T) / max(1e-4, atm_groundEyeAdapt(uSunAltDeg));
 
   gl_FragColor = vec4(atm_display_ground(col, uSaturation, uSunAltDeg), 1.0);
 }

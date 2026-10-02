@@ -25,6 +25,10 @@
  * 방식에서 어긋남이 크고 새 방식에서 작아야 합니다 — 안 그러면 이 자가
  * 무엇을 재는지 모르는 것입니다.
  *
+ * (2026-10-02) 연무의 노출(`uHazeSkyScale`)과 산 그림자(`uHazeShadow`)가 생긴 뒤로 "옛"은 그때 코드
+ * 경로 그대로(셋 다 0), "새"는 지금 앱(셋 다 1)입니다. 노출 고침만 새로 켜 둔 채 방향만 끄면 옛 증상이
+ * 재현되지 않습니다 — 파랗게 뜨던 앞산의 상당 몫이 지면 노출·순응(해 3° 에서 ×2.6)을 먹은 연무였습니다.
+ *
  * 사용: node tools/shader-preview/build-haze.js
  *       node tools/shader-preview/verify-haze.js
  */
@@ -50,7 +54,7 @@ const html = `<!doctype html>
 import * as THREE from './app/vendor/three.module.js';
 import { loadDemPatch, clearDemCache } from './app/utils/demTiles.js';
 import { createTerrainField, updateTerrainFieldEye,
-         FAR_FIELD_NEAR_M, FAR_FIELD_FAR_M, FAR_FIELD_RINGS }
+         FAR_FIELD_FAR_M, FAR_FIELD_RINGS, FIELD_RINGS, FIELD_SPOKES }
   from './app/components/SkyScene3D/TerrainField.js';
 import { createSkydome, updateSkydome } from './app/components/SkyScene3D/Skydome.js';
 
@@ -82,13 +86,13 @@ const scene=new THREE.Scene();
 const skydome=createSkydome(); scene.add(skydome.mesh);
 updateSkydome(skydome, SUN_ALT, SUN_AZ, atmosphere);
 const cam=new THREE.PerspectiveCamera(FOV, 1, 0.1, 2000); cam.position.set(0,0,0);
-const far=createTerrainField({patch:maskPatch, eyePatch:patch, eyeHeightM:EYE,
-  nearM:FAR_FIELD_NEAR_M, farM:FAR_FIELD_FAR_M, rings:FAR_FIELD_RINGS, despike:true});
-far.mesh.renderOrder=-0.49; scene.add(far.mesh); updateTerrainFieldEye(far, cam);
-const near=createTerrainField({patch, eyePatch:patch, eyeHeightM:EYE});
-near.mesh.renderOrder=-0.48; scene.add(near.mesh); updateTerrainFieldEye(near, cam);
+// 앱(SkyScene3D)과 같은 **격자 하나** — 발밑부터 55km, 촘촘한 패치에서 성긴 패치로 섞어 읽습니다.
+// (예전 판정은 근거리·먼 지형 두 격자였습니다. 앱이 하나로 합친 뒤에도 그대로였던 것을 맞춥니다, 2026-10-02.)
+const field=createTerrainField({patch, eyePatch:patch, farPatch:maskPatch, eyeHeightM:EYE,
+  farM:FAR_FIELD_FAR_M, rings:FIELD_RINGS+FAR_FIELD_RINGS, spokes:FIELD_SPOKES});
+field.mesh.renderOrder=-0.48; scene.add(field.mesh); updateTerrainFieldEye(field, cam);
 
-for (const h of [far, near]) {
+for (const h of [field]) {
   const u=h.material.uniforms;
   u.uSurfaceIrr.value.set(0.169, 0.180, 0.154);
   u.uSunRadiance.value.set(0.12, 0.03, 0.00);
@@ -107,6 +111,7 @@ function shoot(azDeg, label){
   cam.up.set(0,1,0);
   cam.lookAt(Math.sin(ar)*Math.cos(pr), Math.sin(pr), -Math.cos(ar)*Math.cos(pr));
   cam.updateMatrixWorld(true);
+  field.bakeSunShadow(renderer);   // 앱처럼 해 쪽 산 그림자 경계를 굽습니다(해·지형이 그대로면 건너뜀)
   renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene,cam);
   renderer.readRenderTargetPixels(rt,0,0,W,H,buf); renderer.setRenderTarget(null);
   if(label){ renderer.render(scene,cam);
@@ -146,15 +151,18 @@ function shoot(azDeg, label){
 const AZ=[SUN_AZ, (SUN_AZ+90)%360, (SUN_AZ+180)%360, (SUN_AZ+270)%360];
 const 이름=['해 쪽', '해 옆', '해 반대', '해 옆2'];
 const 결과={};
+// 옛 = 그때 코드 경로 그대로: 평균 한 값 · 연무가 지면 노출·순응을 먹음 · 산 그림자 없음.
+// 새 = 지금 앱: 방향별 하늘색 · 연무는 하늘 노출(uHazeSkyScale) · 산 그림자(uHazeShadow).
 for (const [mode, key] of [[0,'옛 평균 한 값'], [1,'방향별 하늘색']]) {
-  for (const h of [far, near]) h.material.uniforms.uHazeDirectional.value = mode;
+  for (const h of [field]) { const u=h.material.uniforms;
+    u.uHazeDirectional.value = mode; u.uHazeSkyScale.value = mode; u.uHazeShadow.value = mode; }
   const rows={};
   AZ.forEach((az,i)=>{ const r=shoot(az, key+' · '+이름[i]+' ('+az+'°)'); if(r) rows[이름[i]]=r; });
   const ds=Object.values(rows).map(r=>r.색조어긋남);
   결과[key]={ 방위:rows, 평균어긋남:+(ds.reduce((a,b)=>a+b,0)/Math.max(1,ds.length)).toFixed(3),
               최대어긋남:+Math.max(...ds, 0).toFixed(3) };
 }
-for (const h of [far, near]) h.material.uniforms.uHazeDirectional.value = 1;
+for (const h of [field]) { const u=h.material.uniforms; u.uHazeDirectional.value = 1; u.uHazeSkyScale.value = 1; u.uHazeShadow.value = 1; }
 
 document.getElementById('out').innerHTML='<p>'+JSON.stringify(결과)+'</p>';
 window.__stats={ glError: renderer.getContext().getError(), 결과 };

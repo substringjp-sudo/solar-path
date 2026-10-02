@@ -7,8 +7,16 @@
 import * as THREE from 'three';
 import { sunDiskColor, ATMOSPHERE_GLSL, type AtmosphereParams, makeTuningUniforms } from '../../utils/atmosphere';
 
-/** 실제 시직경 0.533° 기반 사람 눈 체감 착시 스케일 반영 (반지름 약 8.5 유닛) */
-const SUN_ANGULAR_RADIUS_DEG = 1.08;
+/**
+ * 실제 각반지름 0.267°(시직경 0.533°).
+ *
+ * ⚠ (2026-10-02) 한동안 "사람 눈 체감 착시"라며 1.08°(실제의 4배)였습니다. 그러면 해가 능선 뒤로
+ *   넘어간 뒤에도 원반 윗부분이 0.8° 넘게 능선 위로 남습니다 — 후쿠이 2026-10-02 17:31 사진에서는
+ *   해가 능선 뒤로 숨었는데(실제 위 끝 1.39° 대 능선 1.25°) 앱에는 커다란 노란 반원이 능선 위에
+ *   앉아 있었습니다("해를 제대로 가리지 못해"). 판정 sunrise-strip 도 같은 까닭을 적어 두었습니다.
+ *   해 둘레의 번짐은 원반을 키워서가 아니라 하늘의 Mie 전방산란과 블룸이 냅니다.
+ */
+const SUN_ANGULAR_RADIUS_DEG = 0.267;
 const SUN_DISTANCE = 490;
 
 const VERT = `

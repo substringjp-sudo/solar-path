@@ -1261,6 +1261,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
         if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
         if (seaPlaneRef.current) updateSeaPlaneEye(seaPlaneRef.current, camera);
+        // 해 쪽 산 그림자 경계 — 해·지형이 그대로면 아무것도 안 합니다(TerrainField.bakeSunShadow).
+        if (terrainFieldRef.current?.mesh.visible && rendererRef.current) {
+          terrainFieldRef.current.bakeSunShadow(rendererRef.current);
+        }
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
         // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.

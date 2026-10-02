@@ -414,7 +414,8 @@ void main() {
   if (uAerial > 0.5) {
     vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0,
                                      uBeta, uAngstrom, uElevScale);
-    col = col * T + uHazeRadiance * (1.0 - T);
+    // 연무는 하늘빛 — 되비침과 같이 지면 노출·순응을 미리 나눕니다(TerrainField 공기원근 주석, 2026-10-02).
+    col = col * T + uHazeRadiance * (1.0 - T) / max(1e-4, uExposure * eyeAdapt);
   }
 
   gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
