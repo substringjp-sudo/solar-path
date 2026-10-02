@@ -26,6 +26,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { localDateString } from '../utils/localDate';
 import type { LayerState, SkySettings } from '../components/SkyScene3D/SkyScene3D';
 import { DEFAULT_NOTIF_PREFS, type NotifPrefs } from '../utils/notificationPlan';
+import type { SkyTimeline } from '../utils/skyTimeline';
 
 const uploadTimers: { [photoId: string]: any } = {};
 
@@ -242,6 +243,13 @@ interface CelestialState {
   setSkyLayers: (update: (prev: LayerState) => LayerState) => void;
   skySettings: SkySettings;
   setSkySettings: (patch: Partial<SkySettings>) => void;
+  /**
+   * 하늘 화면이 만든 **하루치 하늘(360° 고리 기상)**. 촬영하기(카메라)도 같은 장소·날짜면 이걸 씁니다 —
+   * 예전에는 하늘 화면 안의 상태라 카메라는 해 방향 부채꼴 기상만으로 그려, 두 화면의 구름이 달랐습니다.
+   * 크고 날마다 새로 만드므로 **저장하지 않습니다**(partialize 에 없음).
+   */
+  skyTimeline: SkyTimeline | null;
+  setSkyTimeline: (tl: SkyTimeline | null) => void;
 }
 
 export interface TeleportTarget {
@@ -307,6 +315,8 @@ export const useCelestialStore = create<CelestialState>()(
       // SkyScene3D 의 DEFAULT_SKY_SETTINGS 와 같은 값입니다(컴포넌트를 스토어로 끌어오지 않으려고 적어 둠).
       skySettings: { starBrightness: 1.0, starMagLimit: 6.5, pixelArtRows: 0 },
       setSkySettings: (patch) => set(state => ({ skySettings: { ...state.skySettings, ...patch } })),
+      skyTimeline: null,
+      setSkyTimeline: (tl) => set({ skyTimeline: tl }),
       teleportTarget: null,
 
       setSelectedCategory: (category) => set({ selectedCategory: category }),
