@@ -35,6 +35,13 @@
  * 점수·Complex·pathClarity 는 참고로만 찍습니다 — 그 층을 낸 모델이 없었으므로 보정이 맞힐 수 있는
  * 것이 아닙니다. 이 판정이 묻는 것은 **만들어 낸 저층이 사라지는가** 입니다.
  *
+ * ## 지나온 것 (`docs/SKY_REBUILD_PLAN.md` §121)
+ *
+ * - 고치기 전: F0·F1·F3 통과, **F2a·F2b 실패** — 서쪽 저층 28~51%, 점수 27 Muted · Complex.
+ * - 1판(거리 감쇠 + 비례 배분 + 그리는 기둥 20% 줄): **F2b 실패** — 70km 정중앙(저층 16 · 상층 5,
+ *   기둥 20.2%)이 줄 바로 위라 16 → 24%(+7.7). 문턱은 그대로 두고 배분을 바꿨습니다.
+ * - 2판(줄 대신 위성이 가려낼 수 있는 몫 `coverResolution`): 5/5 — 최대 +2.6%p.
+ *
  *   node tools/shader-preview/stage-esm.js && node tools/shader-preview/verify-fukui-afterglow.js
  *   node tools/shader-preview/verify-fukui-afterglow.js --capture   # 자료를 다시 받습니다(네트워크)
  */

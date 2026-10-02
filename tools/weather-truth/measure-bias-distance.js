@@ -323,7 +323,7 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
     }
 
     const placeRow = { name: P.name, n: 0, biasN: biasAt.size, scales: pts.filter(p => !p.bad).map(p => `${p.dir}${p.d}:${p.scale.toFixed(2)}${p.scaleSrc === '합의' ? '' : '*'}`),
-      cells: Object.fromEntries([100, 400].map(d => [d, { n: 0, before: 0, cur: 0 }])) };
+      cells: Object.fromEntries([100, 400].map(d => [d, { n: 0, before: 0, cur: 0, ld: LD_GRID.map(() => 0) }])) };
     for (const p of pts) {
       if (p.bad) continue;
       for (const [ms, o] of p.obs) {
@@ -345,6 +345,7 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
             const w = Number.isFinite(Ld) ? Math.exp(-p.d / Ld) : 1;
             const v = applyBias(f.total, b * w, L);
             c.ld[j] += Math.abs(tauFromCover(v) - tSat);
+            if (L === 1 && placeRow.cells[p.d]) placeRow.cells[p.d].ld[j] += Math.abs(tauFromCover(v) - tSat);
             if (p.d === 0) {                                // D4: 관측점은 지금 코드와 같아야 합니다
               obsIdentityMaxDiff = Math.max(obsIdentityMaxDiff, Math.abs(v - cur));
               obsIdentityN++;
@@ -368,15 +369,15 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
   // ── D1 ─────────────────────────────────────────────────────────────
   const m = (c, x) => (c.n ? (x / c.n) * 100 : NaN);
   console.log('\n[D1] 지금 방식(감쇠 없음): 보정 전 → 후 (변화%)  — + 면 해롭습니다');
-  console.log('   거리      ' + LEADS.map(L => pad(`+${L}h`, 26)).join(''));
+  console.log('   거리    ' + LEADS.map(L => pad(`+${L}h`, 29)).join(''));
   const harm = [];
   for (const d of dKeys) {
     const row = LEADS.map(L => {
       const c = T[d][L];
-      if (!c.n) return pad('-', 26);
+      if (!c.n) return pad('-', 29);
       const b = m(c, c.before), a = m(c, c.cur), ch = ((a - b) / b) * 100;
       if (d > 0 && a > b) harm.push(`${d}km+${L}h`);
-      return pad(`${f1(b)} → ${f1(a)} (${ch >= 0 ? '+' : ''}${ch.toFixed(0)}%) n${c.n}`, 26);
+      return pad(`${f1(b)} → ${f1(a)} (${ch >= 0 ? '+' : ''}${ch.toFixed(0)}%) n${c.n}`, 29);
     }).join('');
     console.log(`   ${pad(d === 0 ? '관측점' : d + 'km', 6)}  ${row}`);
   }
@@ -470,6 +471,21 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
     const I = inv[k];
     console.log(`   ${k.padEnd(5)} ${pad(I.zeroMade, 6)} / ${I.zeroN} (${((I.zeroMade / Math.max(1, I.zeroN)) * 100).toFixed(1)}%)   ${pad(I.thinMade, 6)} / ${I.thinN} (${((I.thinMade / Math.max(1, I.thinN)) * 100).toFixed(1)}%)   +${I.maxUp.toFixed(1)}%p`);
   }
+  // 앱이 정말 이것을 돌리는가 — 앱의 `correctCloudAt` 을 같은 표본에 걸어 이 자의 PG 식(앱 상수로)과 견줍니다.
+  // 자는 τ 로, 앱은 운량으로 이분 탐색합니다 — 차이는 부동소수 수준이어야 합니다.
+  if (typeof S.correctCloudAt === 'function') {
+    const Rapp = S.SAT_TAU_NOISE / S.MODEL_COVER_SIGMA;
+    const gApp = T => { const s = 0.75 * 3.4 * Math.pow(Math.max(0, T) / 100, 2.4); return (s * s) / (s * s + Rapp * Rapp); };
+    let maxDiff = 0;
+    for (const s of layerSamples) {
+      const w = Math.exp(-s.d / S.BIAS_DECAY_KM);
+      const want = allocate(s.low, s.mid, s.high, s.b * w * dampingForLead(s.L) * gApp(ro(s.low, s.mid, s.high)), false);
+      const got = S.correctCloudAt({ low: s.low, mid: s.mid, high: s.high, total: null }, s.b, s.L, s.d);
+      maxDiff = Math.max(maxDiff, Math.abs(got.low - want[0]), Math.abs(got.mid - want[1]), Math.abs(got.high - want[2]));
+    }
+    console.log(`   [앱] correctCloudAt 대 이 자의 PG(앱 상수) — 층 최대 차이 ${maxDiff.toExponential(1)}%p (표본 ${layerSamples.length})` +
+      ` · 앱 상수 Ld ${S.BIAS_DECAY_KM}km(이번 ${Number.isFinite(LdStar) ? LdStar : '∞'}) · σ_τ ${S.SAT_TAU_NOISE}(이번 ${sigmaTau.toFixed(4)})`);
+  }
   const keep = (obsM('N') - obsM('P')) / (obsM('N') - obsM('Pall'));
   console.log(`   맑은 기둥 규칙이 남긴 관측점 이득: ${(keep * 100).toFixed(0)}% (Pall 대비, 참고)`);
 
@@ -515,9 +531,15 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
     });
   }
 
-  console.log('\n[장소별] 앞선 1시간 · 총운량 τ 오차 — 보정 전 → 지금 방식');
+  console.log(`\n[장소별] 앞선 1시간 · 총운량 τ 오차 — 보정 전 → 감쇠 없이 / 고른 감쇠(Ld ${Number.isFinite(LdStar) ? LdStar + 'km' : '∞'})`);
   for (const r of perPlace) {
-    const s = d => { const c = r.cells[d]; return c.n ? `${f1((c.before / c.n) * 100)} → ${f1((c.cur / c.n) * 100)}` : '-'; };
-    console.log(`   ${r.name.padEnd(10)} 100km ${s(100).padEnd(15)} 400km ${s(400)}`);
+    const s = d => {
+      const c = r.cells[d];
+      if (!c.n) return '-';
+      const b = (c.before / c.n) * 100, a = (c.cur / c.n) * 100, k = (c.ld[pick] / c.n) * 100;
+      return `${f1(b)} → ${f1(a)}${a > b ? '✗' : ' '} / ${f1(k)}${k > b ? '✗' : ' '}`;
+    };
+    console.log(`   ${r.name.padEnd(10)} 100km ${s(100).padEnd(24)} 400km ${s(400)}`);
   }
+  console.log('   (✗ = 보정 전보다 나쁨)');
 })().catch(e => { console.error('ERR', e); process.exit(1); });

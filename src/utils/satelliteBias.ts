@@ -63,16 +63,21 @@
  * 500km 입니다(`BIAS_DECAY_KM`). 후쿠이의 진짜 원인은 거리가 아니라 **층**이었습니다 —
  * 앱이 그리는 세 층을 겹친 기둥(무작위 겹침)의 τ 오차:
  *
- * | | 보정 없음 | 예전(층마다 같은 Δτ) | 비례 배분(`allocateColumnBias`) |
+ * | | 보정 없음 | 예전(층마다 같은 Δτ) | 지금(`correctCloudAt`) |
  * |---|---|---|---|
- * | 관측점 +1~3h | 15.33 | **16.70** | 13.50 |
- * | 25km | 15.01 | 17.69 | 12.95 |
- * | 100km | 14.47 | 18.54 | 13.27 |
- * | 400km | 15.80 | 20.75 | 15.42 |
+ * | 관측점 +1~3h | 15.33 | **16.70** | 13.53 |
+ * | 25km | 15.01 | 17.69 | 12.94 |
+ * | 100km | 14.47 | 18.54 | 13.22 |
+ * | 400km | 15.80 | 20.75 | 15.40 |
  *
  * 예전 방식은 그리는 하늘을 **관측점에서조차 보정 안 함보다 나쁘게** 만들고 있었습니다.
  * 위 −32% 는 총운량(`total`)의 이득이고, 앱이 그리는 것은 층입니다. 모델 저층이 0% 인
- * 표본의 **48.7%** 에 저층을 만들어 냈습니다(비례 배분은 0건).
+ * 표본의 **48.7%** 에 저층을 만들어 냈습니다(지금 0건).
+ *
+ * 지금은 층에 **위성이 그 운량을 가려낼 수 있는 몫**(`coverResolution`)만, 모델이 구름을 둔
+ * 층에 **비례해**(`allocateColumnBias`) 겁니다. 처음 판은 몫 대신 "그리는 기둥 20% 이하는
+ * 손대지 않음" 이라는 단단한 줄이었고, 후쿠이 판정에서 그 줄 바로 위 점이 걸렸습니다
+ * (`coverResolution` 주석). 총운량은 예전 식 그대로라 **관측점에서는 예전과 같은 값**입니다.
  */
 
 /** 되돌아볼 시간(시간). 1시간이 가장 좋았습니다 — 길수록 나빠집니다. */
@@ -206,17 +211,17 @@ export function applyBias(coverPct: number, bias: number | null, leadHours: numb
 export const BIAS_DECAY_KM = 500;
 
 /**
- * 그리는 기둥이 이 값(%) 이하면 층을 손대지 않습니다 — README 의 "맑음" 줄(총운량 ≤ 20%).
- *
- * 맑은 기둥에는 다시 키울 구름 구조가 없고, 위성 τ 는 빠진 구름이 **어느 층**인지 말하지 못합니다.
- * 비례만으로는 후쿠이 10~30km 점(저층 1% · 상층 1%)이 배수 12 를 받아 1% → 12% 가 됩니다 —
- * 0 을 만드는 것은 막아도 흔적을 부풀립니다. 잰 비용은 관측점 이득의 2% 입니다(비례 13.46 → 13.50).
- *
- * "기압면 습도가 가장 높은 층에 넣기" 는 하지 않았습니다. 후쿠이 10-02 16시 단면(best_match)에서
- * 상대습도가 가장 높은 면은 **850hPa 73%(경계층)** 였고, 실제 구름이 있던 400hPa 는 35% 였습니다 —
- * 그 규칙은 이 사례에서 구름을 다시 저층에 넣습니다.
+ * 위성 τ 잡음(1σ) — 네 모델이 모두 맑다(≤ 20%)고 한 시각의 위성 τ 흩어짐(중앙값 절대편차 × 1.4826).
+ * `measure-bias-distance.js` 2판에서 **잰** 값입니다(30일 · 12곳 · 4,158시각).
  */
-export const CLEAR_COLUMN_PCT = 20;
+export const SAT_TAU_NOISE = 0.0238;
+
+/**
+ * 모델 운량의 불확실성(1σ, 운량 비율 0~1). 위성으로는 맑은 쪽 운량 오차를 잴 수 없어 **정한**
+ * 값입니다 — 보정 전 τ 오차(약 0.14)를 운량 50~60% 의 K-C 기울기(0.48~0.75)로 나눈 크기
+ * (0.19~0.29)의 가운데. 재기 전에 정했습니다(같은 자 머리말 "2판").
+ */
+export const MODEL_COVER_SIGMA = 0.25;
 
 /** 관측점에서 `distanceKm` 떨어진 점에 편향을 얼마나 걸지(0~1). 관측점(0km)은 1 — 거기 이득은 그대로입니다. */
 export function weightForDistance(distanceKm: number): number {
@@ -225,6 +230,38 @@ export function weightForDistance(distanceKm: number): number {
 }
 
 const pct = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0);
+
+/**
+ * 그리는 기둥이 `columnPct` 일 때 위성 τ 가 그 운량을 **가려낼 수 있는 몫**(0~1).
+ *
+ *     g = s² / (s² + r²),   s = dτ/dT = 0.75 · 3.4 · T^2.4 (K-C 기울기),   r = SAT_TAU_NOISE / MODEL_COVER_SIGMA
+ *
+ * 모델 운량이 σ_c 만큼, 위성 τ 가 σ_τ 만큼 불확실할 때 선형 가우스 추정에서 **관측이 차지하는 몫**
+ * 입니다. 맑은 쪽은 K-C 가 평평해(s → 0) 위성 잡음만 한 τ 가 운량 수십 %p 라 g → 0, 흐린 쪽은
+ * g → 1. 이 몫만큼만 층에 걸면 τ 를 Δτ 옮길 때 그리는 기둥이 움직이는 양이 **어디서나 Δτ/(2r)**
+ * — 지금 Δτ 0.01 당 5.3%p — 를 넘지 않습니다(s = r 에서 최대).
+ *
+ * 잰 값: g(10/20/30/40/60%) = 0.01 / 0.24 / 0.69 / 0.90 / 0.98.
+ *
+ * ## 왜 — 1판의 20% 줄이 실패한 자리
+ *
+ * 맑은 기둥에는 다시 키울 구름 구조가 없고, 위성 τ 는 빠진 구름이 어느 층인지도 말하지 못합니다.
+ * 비례 배분만으로는 후쿠이 10~30km 점(저층 1% · 상층 1%)이 배수 12 를 받아 1% → 12% 가 됩니다.
+ * 1판은 README 의 "맑음" 줄(그리는 기둥 ≤ 20%)에서 손을 뗐는데, 후쿠이 70km 정중앙(저층 16 · 상층
+ * 5, 기둥 20.2%)이 줄 **바로 위**라 저층 16 → 24% 가 됐습니다(판정 F2b, 문턱 +5). 줄 바로 위도
+ * 기울기가 얕기는 마찬가지라 단단한 줄은 그 띠를 옮길 뿐이었습니다. 이 몫으로는 16 → 19% 입니다.
+ * 잰 비용: 관측점 그림 13.50 → 13.53(1판 이득의 98%), 25~400km 는 1판과 같거나 조금 낫습니다.
+ *
+ * "기압면 습도가 가장 높은 층에 넣기" 는 하지 않았습니다. 후쿠이 10-02 16시 단면(best_match)에서
+ * 상대습도가 가장 높은 면은 **850hPa 73%(경계층)** 였고, 실제 구름이 있던 400hPa 는 35% 였습니다 —
+ * 그 규칙은 이 사례에서 구름을 다시 저층에 넣습니다.
+ */
+export function coverResolution(columnPct: number): number {
+  const t = pct(columnPct) / 100;
+  const s = 0.75 * 3.4 * Math.pow(t, 2.4);
+  const r = SAT_TAU_NOISE / MODEL_COVER_SIGMA;
+  return (s * s) / (s * s + r * r);
+}
 
 /**
  * 세 층을 한 기둥으로(%) — **무작위 겹침** 1 − Π(1 − cᵢ).
@@ -245,9 +282,11 @@ export interface LayerCover {
  * - 모델이 구름을 둔 층에 **그 양에 비례해** 나눕니다. 0% 층은 몇 배를 해도 0% 입니다.
  * - 그리는 기둥(`columnCover`)의 τ 가 **정확히** `dTau` 만큼 옮습니다 — 편향을 잰 단위(기둥 τ)
  *   그대로입니다. 예전처럼 층마다 `dTau` 를 따로 주면 기둥으로는 그 몇 배가 됩니다.
- * - 기둥이 `CLEAR_COLUMN_PCT` 이하면 손대지 않습니다(위 상수 주석).
  * - 층은 100% 에서 멈춥니다. 가장 큰 층이 100% 면 기둥도 100% 라 거기서 멈춥니다 — 그 너머로 k 를
  *   키우면 작은 층만 부풀립니다.
+ *
+ * 맑은 쪽에서 얼마를 넘길지는 여기서 정하지 않습니다 — 부르는 쪽이 `coverResolution` 만큼 줄여
+ * 넘깁니다(`correctCloudAt`). 이 함수는 받은 `dTau` 를 그대로 나누기만 합니다.
  *
  * 순수 함수입니다. 새 값을 돌려줍니다.
  */
@@ -256,7 +295,7 @@ export function allocateColumnBias(layers: LayerCover, dTau: number): LayerCover
   const same = { low: l, mid: m, high: h };
   if (!Number.isFinite(dTau) || dTau === 0) return same;
   const c0 = columnCover(l, m, h);
-  if (c0 <= CLEAR_COLUMN_PCT) return same;
+  if (c0 <= 0) return same;                          // 키울 구름이 없습니다
   const target = coverFromTau(Math.max(0.25, Math.min(1, tauFromCover(c0) - dTau)));
   if (target === c0) return same;
   const at = (k: number): LayerCover => ({ low: Math.min(100, k * l), mid: Math.min(100, k * m), high: Math.min(100, k * h) });
@@ -280,14 +319,16 @@ export interface CloudAt extends LayerCover {
  * 경로 한 점 · 한 시각의 보정 — `weather.ts` 의 `applyBiasToPath` 가 시각마다 부릅니다.
  *
  * - 편향은 거리로 줄이고(`weightForDistance`), 앞선 시간으로 줄입니다(`dampingForLead`).
- * - 층은 `allocateColumnBias`.
+ * - 층에는 그중 위성이 그 운량을 가려낼 수 있는 몫(`coverResolution`)만 모델 층에 비례해 겁니다
+ *   (`allocateColumnBias`).
  * - 총운량은 예전 식(`applyBias`) 그대로 거리만 줄입니다 — **관측점(0km)에서는 예전과 같은 값**이고,
  *   머리말 첫 표(−32%)가 잰 것이 이 값입니다.
  */
 export function correctCloudAt(cloud: CloudAt, bias: number | null, leadHours: number, distanceKm: number): CloudAt {
   if (bias == null || !Number.isFinite(bias)) return { ...cloud };
   const b = bias * weightForDistance(distanceKm);
-  const layers = allocateColumnBias(cloud, b * dampingForLead(leadHours));
+  const share = coverResolution(columnCover(cloud.low, cloud.mid, cloud.high));
+  const layers = allocateColumnBias(cloud, b * dampingForLead(leadHours) * share);
   return {
     ...layers,
     total: cloud.total == null ? cloud.total : applyBias(cloud.total, b, leadHours),

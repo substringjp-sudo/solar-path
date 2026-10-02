@@ -33,6 +33,23 @@ API 의 `cloud_cover_previous_dayN`(N일 전 실행이 그 시각에 내놓았�
 갈리는 폭과 오차의 관계를 찍습니다. 판정이 아니라 재는 자라, 종료 코드는 자료를 못 받았을 때만
 1 입니다. 못 재는 것은 아래 `verify-cloud-forecast.js` 와 같습니다(낮만, 미 대륙 없음).
 
+## measure-bias-distance.js
+
+위성 보정(`satelliteBias.ts`)은 **관측점 1점**에서 편향을 냅니다. 그 편향을 해 경로의 먼 점과
+**층**에 어떻게 나눌지를 잽니다(2026-10-02 후쿠이 사례, `docs/SKY_REBUILD_PLAN.md` §121).
+
+```
+node tools/shader-preview/stage-esm.js
+node tools/weather-truth/measure-bias-distance.js [일수, 기본 30] [끝날짜, 기본 어제]
+WEATHER_TRUTH_CACHE=<디렉터리> node …   # 응답을 디스크에 둡니다
+```
+
+12곳 × 30일. 관측점의 편향을 **앱의 `estimateBias` 그대로** 내고, 서·동 25/50/100/200/400km 점에
+앞선 0~3시간으로 걸어 **그 점의 위성 τ** 로 채점합니다(위 자와 같은 규약, 배율은 점마다). 층은
+위성이 못 가리므로 앱이 **그리는 세 층을 겹친 기둥**(무작위 겹침)의 τ 로 봅니다. 판정과 측정
+문턱은 머리말에 재기 전에 박아 두었고(D1~D4, A1~A4), 끝에 앱의 `correctCloudAt` 이 자가 잰 식과
+같은지도 견줍니다. 판정이 아니라 재는 자라, 종료 코드는 자료를 못 받았을 때만 1 입니다.
+
 ## verify-cloud-forecast.js
 
 예보 운량을 **위성이 실제로 본 하늘**과 견줍니다.
