@@ -144,6 +144,43 @@ const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.5012, mid: 0.4742, high: 0
 const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 0.9446, mid: 1.0569, high: 1.0893 };
 
 /**
+ * **예보 운량 → 문턱에 넣는 운량** 역표 (2026-10-02). 마디 `COVER_KNOTS`(예보) 마다 넣을 값, 사이는 직선.
+ *
+ * 위 두 수(중심·폭)는 곡선 모양을 못 바꿉니다 — 맞춘 뒤에도 하늘 평균 면적이 가운데서 불룩했습니다
+ * (중층 예보 50% → 0.615, 70% → 0.814; 저층 90% → 0.908 뒤 95% 에서 밀폐로 1.0 으로 뜀). 그래서 그
+ * 곡선 A(c) 를 짝수 흐름 시각 × 방위 8 × 고도 3 의 **하늘 화소**로 재고(`fit-cover-remap.js`) 거꾸로
+ * 뒤집어 넣습니다: 넣는 값 R(예보) = A⁻¹(예보). 이 값이 문턱(cvEff)과 흐린 날 밀폐 둘 다에 들어갑니다 —
+ * 잰 A 가 그 둘을 다 거친 값이므로.
+ *
+ * 위에서 본 구름(`CloudTopView`)은 자기 눈금(TOP_VIEW_SHAPE_*)으로 따로 맞췄으므로 항등 표를 씁니다.
+ */
+export const COVER_KNOTS = [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1];
+export const IDENTITY_COVER_REMAP: Record<LayerKey, number[]> = { low: COVER_KNOTS, mid: COVER_KNOTS, high: COVER_KNOTS };
+// fit-cover-remap.js (짝수 흐름 시각 12 × 방위 8 × 고도 3, 하늘 화소, 한 번 고침) — 맞춘 시각에서 마디 0.05~0.9 가
+// 소수 셋째 자리까지 예보와 같습니다(0.95 는 밀폐 바로 아래라 0.93~0.95). 확인은 verify-cover-area-avg(홀수 시각).
+const COVER_REMAP: Record<LayerKey, number[]> = {
+  low:  [0, 0.0736, 0.1065, 0.1774, 0.2593, 0.3447, 0.443, 0.5346, 0.6439, 0.7603, 0.889, 0.9042, 1],
+  mid:  [0, 0.0938, 0.1287, 0.1945, 0.2677, 0.3403, 0.4151, 0.4865, 0.5743, 0.6807, 0.8379, 0.9071, 1],
+  high: [0, 0.0757, 0.1148, 0.1943, 0.2768, 0.3488, 0.432, 0.5176, 0.6046, 0.6957, 0.8197, 0.901, 1],
+};
+
+/** 조각 선형 역표를 GLSL 함수로 펼칩니다(배열 색인 없이 — GLSL ES 1.0 에서도 돕니다). */
+function coverRemapGlsl(remap: Record<LayerKey, number[]>): string {
+  const K = COVER_KNOTS;
+  const fn = (name: string, v: number[]) => {
+    if (v.length !== K.length) throw new Error(`cover remap ${name}: ${v.length} values for ${K.length} knots`);
+    let s = `float ${name}(float c){\n  c = clamp(c, 0.0, 1.0);\n`;
+    for (let i = 1; i < K.length; i++) {
+      const seg = `mix(${v[i - 1].toFixed(4)}, ${v[i].toFixed(4)}, (c - ${K[i - 1].toFixed(4)}) / ${(K[i] - K[i - 1]).toFixed(4)})`;
+      s += i < K.length - 1 ? `  if (c < ${K[i].toFixed(4)}) return ${seg};\n` : `  return ${seg};\n`;
+    }
+    return s + '}\n';
+  };
+  return fn('slab_remapLow', remap.low) + fn('slab_remapMid', remap.mid) + fn('slab_remapHigh', remap.high)
+    + 'float slab_coverRemap(int layer, float c){ return layer == 0 ? slab_remapHigh(c) : (layer == 1 ? slab_remapMid(c) : slab_remapLow(c)); }\n';
+}
+
+/**
  * 셰이더 소스의 층별 상수 자리(CELL_* · TAUK_* · SHAPE_*)를 값으로 바꿉니다. 구름 슬랩과
  * **위에서 본 구름**(§120 `CloudTopView`)이 같은 값을 쓰게 하려고 한 곳에 둡니다 — 둘이 다른
  * 셀 크기를 쓰면 지도와 하늘이 다른 구름을 그립니다.
@@ -153,11 +190,13 @@ export function substituteSlabConstants(
   v: {
     cell?: Record<LayerKey, number>; tau?: Record<LayerKey, number>;
     shapeMean?: Record<LayerKey, number>; shapeSigRatio?: Record<LayerKey, number>;
+    coverRemap?: Record<LayerKey, number[]>;
   } = {},
 ): string {
   const cell = v.cell ?? CELL_KM, tau = v.tau ?? TAU_K;
   const shapeMean = v.shapeMean ?? SHAPE_MEAN, shapeSigRatio = v.shapeSigRatio ?? SHAPE_SIG_RATIO;
   return src
+    .replace(/SLAB_COVER_REMAP_FNS/g, coverRemapGlsl(v.coverRemap ?? COVER_REMAP))
     .replace(/CELL_LOW/g, cell.low.toFixed(2))
     .replace(/CELL_MID/g, cell.mid.toFixed(2))
     .replace(/CELL_HIGH/g, cell.high.toFixed(2))
@@ -358,6 +397,8 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
  * 물러납니다. detCoarse 가 그 두 번째 단계입니다 — 발자국이 셀의 3배를 넘으면
  * 굵은 장도 놓기 시작해 9배에서 비로소 상수가 됩니다(고도 0.4° 아래).
  */
+// 예보 운량 → 문턱에 넣는 운량 (위 COVER_REMAP 주석). 자리는 substituteSlabConstants 가 채웁니다.
+SLAB_COVER_REMAP_FNS
 float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float detCoarse, float billowAmt, float cluster){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
@@ -507,7 +548,9 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   float fm = f + (billowFine - 0.5) * 0.22 * billowAmt;
   float q = 1.0 / (1.0 + exp(-1.702 * (fm - fMid) / max(0.02, fSig)));
   // 군집은 **면적**을 흔듭니다 — 여기 더 많고 저기 덜 많다는 이야기이므로.
-  float cvEff = clamp(cover * cvSlow * cluster, 0.0, 1.0);
+  // 예보를 그대로 넣지 않고 역표로 고친 값을 넣습니다(하늘 평균 면적 = 예보).
+  float coverA = slab_coverRemap(layer, cover);
+  float cvEff = clamp(coverA * cvSlow * cluster, 0.0, 1.0);
   float t = clamp((q - (1.0 - cvEff)) / max(0.05, cvEff), 0.0, 1.0);
   // 가장자리 단면.
   //
@@ -518,7 +561,7 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   float prof = smoothstep(0.0, 1.0, t);
   float d = uShapeDepth * depthMul * pow(prof, uShapeEdge);
   // 흐린 날은 한 장의 판입니다 — 빈틈이 남지 않게 밀폐합니다.
-  d = mix(d, uShapeDepth * depthMul, smoothstep(0.90, 1.0, cover));
+  d = mix(d, uShapeDepth * depthMul, smoothstep(0.90, 1.0, coverA));
   return clamp(d, 0.0, 1.8);
 }
 
@@ -2068,6 +2111,8 @@ export function createCloudSlab(opts: {
   shapeMean?: Partial<Record<LayerKey, number>>;
   /** 모양장의 층별 유효 폭 ÷ uShapeSigma (기본 SHAPE_SIG_RATIO). */
   shapeSigRatio?: Partial<Record<LayerKey, number>>;
+  /** 예보 운량 역표(마디 COVER_KNOTS 마다 값). 하네스가 맞출 때 씁니다(기본 COVER_REMAP). */
+  coverRemap?: Partial<Record<LayerKey, number[]>>;
 } = {}): CloudSlabHandle {
   const rangeKm = opts.rangeKm ?? SLAB_RANGE_KM;
   const size = opts.texSize ?? SLAB_TEX;
@@ -2105,7 +2150,8 @@ export function createCloudSlab(opts: {
   beamLut.needsUpdate = true;
 
   // ⚠ ALT_* 는 더 이상 치환하지 않습니다 — uLayerAltKm uniform 입니다.
-  const frag = substituteSlabConstants(FRAG, { cell, tau, shapeMean, shapeSigRatio });
+  const coverRemap = { ...COVER_REMAP, ...(opts.coverRemap ?? {}) };
+  const frag = substituteSlabConstants(FRAG, { cell, tau, shapeMean, shapeSigRatio, coverRemap });
 
   let horizonTarget: THREE.WebGLRenderTarget | null = null;
   let bandTex: THREE.DataTexture | null = null;

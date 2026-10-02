@@ -17,6 +17,10 @@
  *
  * 1. **운량 → 화면 면적.** 층 하나씩 따로 그려 τ≥0.16 면적을 냅니다.
  *    층을 겹쳐 그리면 어느 층이 화면을 채웠는지 못 가립니다.
+ *    ⚠ 2026-10-02: 면적은 **하늘 평균**(방위 4 × 흐름 시각 4, 고도 40° 그대로)으로도 냅니다(`면적평균`).
+ *    시야 하나(방위 200° · 흐름 0시)는 모양장의 느린 항(군집·굵은 폴백, 수십 km)이 한두 칸만 보여
+ *    그 자리 운을 탑니다 — `verify-layer-elev` 를 하늘 평균으로 옮긴 것과 같은 이유입니다. 무늬 크기(2)는
+ *    시야 하나 그대로 잽니다.
  * 2. **예보 고도 → 화면 무늬 크기.** 같은 운량이라도 층이 높으면 같은
  *    km 크기의 셀이 **더 큰 각**을 차지합니다. 가로 자기상관이 0.5 로
  *    떨어지는 지연(화소)을 무늬 크기로 씁니다.
@@ -89,10 +93,10 @@ function bake(slab, v){
   });
 }
 
-function shoot(slab, atm){
+function shoot(slab, atm, viewAz=SUN_AZ, driftH=0){
   const cam = new THREE.PerspectiveCamera(FOV_DEG, TW/TH, 0.1, 2000);
   cam.position.set(0,0,0); cam.up.set(0,1,0);
-  const ar=SUN_AZ*Math.PI/180, er=ELEV*Math.PI/180;
+  const ar=viewAz*Math.PI/180, er=ELEV*Math.PI/180;
   cam.lookAt(100*Math.cos(er)*Math.sin(ar), 100*Math.sin(er), -100*Math.cos(er)*Math.cos(ar));
   cam.updateMatrixWorld(true);
   const a=SUN_ALT*Math.PI/180, z=SUN_AZ*Math.PI/180;
@@ -105,7 +109,7 @@ function shoot(slab, atm){
     atmosphere: atm,
     layerWinds:{ low:{speedKmh:30,bearingDeg:250}, mid:{speedKmh:51,bearingDeg:250},
                  high:{speedKmh:102,bearingDeg:250} },
-    driftHours:0, visible:true, dataOut:2,
+    driftHours:driftH, visible:true, dataOut:2,
   });
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000,1);
@@ -191,7 +195,10 @@ try {
       const v={low:0,mid:0,high:0}; v[L]=S[L];
       bake(slab, v);
       const buf=shoot(slab, atm);
-      rec.층[L]={ 운량:S[L], ...tauStat(buf), 무늬:corrLen(buf) };
+      // 하늘 평균 면적(위 머리말 1): 방위 4 × 흐름 시각 4. 고도 40° 시야는 땅이 안 들어옵니다.
+      let avg=0, nv=0;
+      for (const az of [20,110,200,290]) for (const dh of [0,6,12,18]) { avg+=tauStat(shoot(slab, atm, az, dh)).면적; nv++; }
+      rec.층[L]={ 운량:S[L], ...tauStat(buf), 면적평균:+(avg/nv).toFixed(4), 무늬:corrLen(buf) };
     }
 
     // 운량 0 대조 — 전부 0 이어야 합니다(자가 검증).

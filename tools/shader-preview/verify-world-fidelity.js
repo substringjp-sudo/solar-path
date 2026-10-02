@@ -71,11 +71,16 @@ function spearman(xs, ys) {
   }
 
   // ── [2] 운량 → 면적: **크기**도 맞는가. 1:1 이어야 합니다.
-  console.log('\n[2] 면적이 운량과 같은 크기인가 (1:1 이어야 함)');
+  //    ⚠ 2026-10-02: **하늘 평균 면적**(면적평균 — 방위 4 × 흐름 시각 4)으로 잽니다. 문턱 20%p 는 그대로입니다.
+  //    시야 하나는 모양장의 느린 항이 한두 칸만 보여 그 자리 운을 탔습니다(저층 중앙오차 26.7%p).
+  //    `verify-layer-elev` 를 하늘 평균으로 옮긴 것과 같은 이유이고, 시야 하나 값은 참고로 같이 찍습니다.
+  console.log('\n[2] 면적이 운량과 같은 크기인가 (1:1 이어야 함) — 하늘 평균');
   for (const L of ['low', 'mid', 'high']) {
     const use = rows.filter(r => r.층[L].운량 >= 10);
     if (use.length < 5) { console.log(`  ${NAME[L]}  표본 부족 (${use.length})`); continue; }
-    const errs = use.map(r => Math.abs(r.층[L].면적 * 100 - r.층[L].운량));
+    const one = use.map(r => Math.abs(r.층[L].면적 * 100 - r.층[L].운량)).sort((a, b) => a - b)[Math.floor(use.length / 2)];
+    console.log(`  ${NAME[L]}  (참고: 시야 하나 중앙오차 ${one.toFixed(1)}%p)`);
+    const errs = use.map(r => Math.abs(r.층[L].면적평균 * 100 - r.층[L].운량));
     const med = [...errs].sort((a, b) => a - b)[Math.floor(errs.length / 2)];
     const worst = Math.max(...errs);
     console.log(`  ${NAME[L]}  n=${use.length}  중앙오차 ${med.toFixed(1)}%p · 최악 ${worst.toFixed(1)}%p`);
