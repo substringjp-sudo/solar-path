@@ -76,6 +76,34 @@
  * 그리고 후쿠이 판정(`tools/shader-preview/verify-fukui-afterglow.js`)의 문턱도 이때 정했습니다 —
  * 그쪽 머리말에 있습니다.
  *
+ * ## ⚠ 2판 — 후쿠이 F2b 가 실패해서 바꾼 것 (이것도 재기 전에 정함, 2026-10-02)
+ *
+ * 1판 결과(D4·A1~A3 통과, Ld = 500km)로 앱을 고쳤더니 후쿠이 F2b 가 실패했습니다: 70km 정중앙 점
+ * (저층 16 · 상층 5, 그리는 기둥 20.2%)이 20% 줄 **바로 위**라 배수 1.5 를 받아 저층 16 → 24%
+ * (+7.7, 문턱 +5). 줄 아래는 지켰지만 줄 바로 위에서도 K-C 기울기가 얕아 같은 부풀림이 납니다 —
+ * 단단한 줄은 그 띠를 옮길 뿐입니다. 판정 문턱은 **그대로 두고** 배분을 바꿉니다.
+ *
+ * `PG`: 줄 대신 **위성이 그 운량을 가려낼 수 있는 만큼만** 층에 겁니다.
+ *
+ *     g(T) = s² / (s² + r²),   s = dτ/dT = 0.75 · 3.4 · T^2.4  (T = 그리는 기둥, 0~1),   r = σ_τ / σ_c
+ *
+ * 모델 운량의 불확실성이 σ_c, 위성 τ 의 잡음이 σ_τ 일 때 선형 가우스 추정에서 **관측이 차지하는 몫**
+ * 입니다. 맑은 쪽은 s → 0 이라 g → 0, 흐린 쪽은 g → 1. 층에 거는 τ 는 g · Δτ 이고 나머지는 `Pall`
+ * 과 같습니다(20% 줄 없음). 이러면 τ 를 Δτ 옮길 때 그리는 기둥이 움직이는 양이 **어디서나 Δτ/(2r)
+ * 을 넘지 않습니다**(s = r 에서 최대).
+ *
+ * - **σ_τ 는 잽니다**: 네 모델이 모두 맑다(총운량 ≤ 20%)고 한 시각의 위성 τ(배율로 나눈 날값, 1 로
+ *   자르지 않음)의 흩어짐 — 중앙값 절대편차 × 1.4826. 배율 출처가 "합의" 인 점만, 모든 점을 묶어서.
+ * - **σ_c = 0.25 는 정합니다**: 위성으로는 맑은 쪽 운량 오차를 잴 수 없습니다. 이 자의 보정 전 τ
+ *   오차(약 0.14)를 운량 50~60% 의 K-C 기울기(0.48~0.75)로 나눈 크기(0.19~0.29)의 가운데입니다.
+ *
+ * 규칙(1판 것과 같은 문턱):
+ *
+ * - **A1~A3** 을 `PG` 에도 그대로 겁니다.
+ * - **A4**: 관측점(+1~3h)에서 `PG` 가 `P` 의 이득(N − P)을 **80% 이상** 지킨다 — 줄을 매끄럽게
+ *   바꾼 값이 관측점 그림의 이득을 크게 깎으면 안 됩니다.
+ * - 후쿠이 판정 F0~F3 의 문턱은 바꾸지 않습니다.
+ *
  * ## 사용
  *
  *   node tools/shader-preview/stage-esm.js
@@ -115,6 +143,8 @@ const LEADS = [0, 1, 2, 3];
 const LD_GRID = [25, 50, 75, 100, 150, 200, 300, 500, 1000, Infinity];
 /** README 의 "맑음" 줄 — 총운량 ≤ 20%. `P` 의 맑은 기둥 규칙도 이 줄을 씁니다. */
 const CLEAR_PCT = 20;
+/** 2판 `PG` — 모델 운량의 불확실성(운량 비율). 머리말 "2판" 에서 정했습니다. */
+const SIGMA_C = 0.25;
 const BLEND = ['ecmwf_ifs025', 'icon_seamless'];
 const CONSENSUS = ['ecmwf_ifs025', 'icon_seamless', 'jma_seamless', 'gfs_seamless'];
 /** 앱의 위성 요청 창 — 직전 7일 + 그날 (`weather.ts` SCALE_DAYS). */
@@ -206,6 +236,8 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
   let obsIdentityMaxDiff = 0, obsIdentityN = 0;
   /** 층 배분 평가에 다시 쓸 표본 — 감쇠 길이를 고른 뒤에 돌립니다. */
   const layerSamples = [];
+  /** 2판 σ_τ — 네 모델이 모두 맑다고 한 시각의 τ 날값 − 1 (배율 출처가 "합의" 인 점만). */
+  const clearResid = [];
 
   for (const P of PLACES) {
     const pts = [{ d: 0, dir: 'O', lat: P.lat, lon: P.lon }];
@@ -263,7 +295,10 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
         if (f.allTot.every(v => v != null) && Math.max(...f.allTot) <= 20) clearRaw.push(o.raw);
       }
       if (allRaw.length < 50) { p.bad = true; continue; }
-      if (clearRaw.length >= 8) { p.scale = mean(clearRaw); p.scaleSrc = '합의'; }
+      if (clearRaw.length >= 8) {
+        p.scale = mean(clearRaw); p.scaleSrc = '합의';
+        for (const x of clearRaw) clearResid.push(x / p.scale - 1);
+      }
       else { const s2 = allRaw.slice().sort((a, b) => a - b); p.scale = s2[Math.floor(0.95 * (s2.length - 1))]; p.scaleSrc = '상위5%'; }
     }
     const O = pts[0];
@@ -388,7 +423,16 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
 
   // ── A: 층 배분 ─────────────────────────────────────────────────────
   console.log(`\n[A] 층 배분 — 그리는 세 층을 겹친 기둥(무작위 겹침)의 τ 오차, 감쇠는 위에서 고른 것`);
-  const meth = ['N', 'A0', 'Ad', 'Pall', 'P'];
+  // 2판: 위성 τ 잡음을 재고, 그것으로 "가려낼 수 있는 몫" g 를 정합니다(머리말 "2판").
+  const med = a => { const b = a.slice().sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+  const m0 = med(clearResid);
+  const sigmaTau = 1.4826 * med(clearResid.map(x => Math.abs(x - m0)));
+  const R = sigmaTau / SIGMA_C;
+  const gain = T => { const s = 0.75 * 3.4 * Math.pow(Math.max(0, T) / 100, 2.4); return (s * s) / (s * s + R * R); };
+  console.log(`   [2판] 위성 τ 잡음 σ_τ = ${sigmaTau.toFixed(4)} (맑은 시각 ${clearResid.length}개, 중앙 ${m0.toFixed(4)}) · σ_c = ${SIGMA_C}` +
+    ` → r = ${R.toFixed(4)} · g(10/20/30/40/60%) = ${[10, 20, 30, 40, 60].map(T => gain(T).toFixed(2)).join('/')}` +
+    ` · Δτ 0.01 이 기둥을 움직이는 최대 ${(0.01 / (2 * R) * 100).toFixed(1)}%p`);
+  const meth = ['N', 'A0', 'Ad', 'Pall', 'P', 'PG'];
   const acc = Object.fromEntries(dKeys.map(d => [d, Object.fromEntries(meth.map(k => [k, { n: 0, e: 0, eObsLead: 0, nObsLead: 0 }]))]));
   const inv = Object.fromEntries(meth.map(k => [k, { zeroN: 0, zeroMade: 0, thinN: 0, thinMade: 0, maxUp: 0 }]));
   for (const s of layerSamples) {
@@ -400,6 +444,7 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
       Ad: per(s.b * w),
       Pall: allocate(s.low, s.mid, s.high, s.b * w * damp, false),
       P: allocate(s.low, s.mid, s.high, s.b * w * damp, true),
+      PG: allocate(s.low, s.mid, s.high, s.b * w * damp * gain(ro(s.low, s.mid, s.high)), false),
     };
     for (const k of meth) {
       const [l, mm, h] = out[k];
@@ -439,9 +484,19 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
     const p = (acc[d].P.e / acc[d].P.n) * 100, n0 = (acc[d].N.e / acc[d].N.n) * 100;
     verdict(p <= n0 + 0.05, `A3 ${d}km 에서 P(${f1(p)}) ≤ N(${f1(n0)}) + 0.05`);
   }
+  console.log('   ── 2판 PG');
+  verdict(inv.PG.zeroMade === 0, `A1 PG 는 모델 저층 0 인 곳에 저층을 안 만든다 (${inv.PG.zeroMade}건)`);
+  verdict(obsM('PG') < obsM('N'), `A2 관측점에서 PG(${f1(obsM('PG'))}) < N(${f1(obsM('N'))})`);
+  verdict(obsM('PG') <= obsM('A0'), `A2 관측점에서 PG(${f1(obsM('PG'))}) ≤ A0(${f1(obsM('A0'))})`);
+  for (const d of DISTS) {
+    const p = (acc[d].PG.e / acc[d].PG.n) * 100, n0 = (acc[d].N.e / acc[d].N.n) * 100;
+    verdict(p <= n0 + 0.05, `A3 ${d}km 에서 PG(${f1(p)}) ≤ N(${f1(n0)}) + 0.05`);
+  }
+  const kept = (obsM('N') - obsM('PG')) / (obsM('N') - obsM('P'));
+  verdict(kept >= 0.8, `A4 관측점에서 PG 가 P 의 이득을 ${(kept * 100).toFixed(0)}% 지킨다 (≥ 80%)`);
 
   // (참고) 감쇠 길이는 총운량으로 골랐습니다. 그리는 기둥(P)으로 골랐다면 어디였을지 — 판단에는 안 씁니다.
-  console.log('\n[참고] P 를 감쇠 길이별로 — 그리는 기둥 τ 오차, 거리 25~400km × 앞선 0~3h 칸 평균');
+  console.log('\n[참고] PG 를 감쇠 길이별로 — 그리는 기둥 τ 오차, 거리 25~400km × 앞선 0~3h 칸 평균');
   {
     const sum = LD_GRID.map(() => ({})), cnt = LD_GRID.map(() => ({}));
     for (const s of layerSamples) {
@@ -449,7 +504,7 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
       const key = `${s.d}|${s.L}`;
       LD_GRID.forEach((Ld, j) => {
         const w = Number.isFinite(Ld) ? Math.exp(-s.d / Ld) : 1;
-        const [l, mm, h] = allocate(s.low, s.mid, s.high, s.b * w * dampingForLead(s.L), true);
+        const [l, mm, h] = allocate(s.low, s.mid, s.high, s.b * w * dampingForLead(s.L) * gain(ro(s.low, s.mid, s.high)), false);
         sum[j][key] = (sum[j][key] ?? 0) + Math.abs(tauFromCover(ro(l, mm, h)) - s.tSat);
         cnt[j][key] = (cnt[j][key] ?? 0) + 1;
       });
