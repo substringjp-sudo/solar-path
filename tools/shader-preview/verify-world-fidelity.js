@@ -43,7 +43,8 @@ function spearman(xs, ys) {
   // ⚠ `load` 를 기다리면 안 됩니다 — 모듈 스크립트가 48표본을 동기로 돌려
   //   그 이벤트가 30초 안에 안 옵니다. 문서만 받고 제목을 기다립니다.
   await p.goto(ORIGIN + '/world-fidelity.html', { waitUntil: 'commit' });
-  await p.waitForFunction(() => document.title === 'done', null, { timeout: 300000 });
+  // 하늘 평균(층마다 시야 16장 더)으로 페이지 일이 늘어 5분을 넘깁니다 — 30분까지 기다립니다.
+  await p.waitForFunction(() => document.title === 'done', null, { timeout: 1800000, polling: 2000 });
   const data = JSON.parse(await p.$eval('#out', e => e.textContent));
   await b.close();
 

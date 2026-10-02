@@ -93,8 +93,8 @@ function bake(slab, v){
   });
 }
 
-function shoot(slab, atm, viewAz=SUN_AZ, driftH=0){
-  const cam = new THREE.PerspectiveCamera(FOV_DEG, TW/TH, 0.1, 2000);
+function shoot(slab, atm, viewAz=SUN_AZ, driftH=0, W=TW, H=TH){
+  const cam = new THREE.PerspectiveCamera(FOV_DEG, W/H, 0.1, 2000);
   cam.position.set(0,0,0); cam.up.set(0,1,0);
   const ar=viewAz*Math.PI/180, er=ELEV*Math.PI/180;
   cam.lookAt(100*Math.cos(er)*Math.sin(ar), 100*Math.sin(er), -100*Math.cos(er)*Math.cos(ar));
@@ -103,7 +103,7 @@ function shoot(slab, atm, viewAz=SUN_AZ, driftH=0){
   const sunDir=new THREE.Vector3(Math.cos(a)*Math.sin(z), Math.sin(a), -Math.cos(a)*Math.cos(z)).normalize();
   updateSkydome(skydome, SUN_ALT, SUN_AZ, atm);
   updateCloudSlab(slab, {
-    camera: cam, widthPx: TW, heightPx: TH,
+    camera: cam, widthPx: W, heightPx: H,
     sunDir, sunAltDeg: SUN_ALT, sunAzDeg: SUN_AZ,
     beamFor:(altKm)=>beamAtAltitude(SUN_ALT, altKm, atm),
     atmosphere: atm,
@@ -111,17 +111,19 @@ function shoot(slab, atm, viewAz=SUN_AZ, driftH=0){
                  high:{speedKmh:102,bearingDeg:250} },
     driftHours:driftH, visible:true, dataOut:2,
   });
+  if (W!==TW || H!==TH) renderer.setSize(W, H, false);
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000,1);
   renderer.render(scene, cam);
-  const buf=new Uint8Array(4*TW*TH);
-  gl.readPixels(0,0,TW,TH,gl.RGBA,gl.UNSIGNED_BYTE,buf);
+  const buf=new Uint8Array(4*W*H);
+  gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,buf);
+  if (W!==TW || H!==TH) renderer.setSize(TW, TH, false);
   return buf;
 }
 
 /** τ = R/255×40. 면적과 평균. */
 function tauStat(buf){
-  const n=TW*TH; let s=0,a016=0,a1=0,mx=0;
+  const n=buf.length/4; let s=0,a016=0,a1=0,mx=0;
   for(let i=0;i<n;i++){ const t=(buf[i*4]/255)*40; s+=t; if(t>mx)mx=t;
     if(t>=0.16)a016++; if(t>=1)a1++; }
   return { 면적:+(a016/n).toFixed(4), 면적τ1:+(a1/n).toFixed(4),
@@ -196,8 +198,9 @@ try {
       bake(slab, v);
       const buf=shoot(slab, atm);
       // 하늘 평균 면적(위 머리말 1): 방위 4 × 흐름 시각 4. 고도 40° 시야는 땅이 안 들어옵니다.
+      // 면적만 보므로 작게(96×96) 그립니다 — 220×220 으로는 판정 하나가 17분 걸렸습니다.
       let avg=0, nv=0;
-      for (const az of [20,110,200,290]) for (const dh of [0,6,12,18]) { avg+=tauStat(shoot(slab, atm, az, dh)).면적; nv++; }
+      for (const az of [20,110,200,290]) for (const dh of [0,6,12,18]) { avg+=tauStat(shoot(slab, atm, az, dh, 96, 96)).면적; nv++; }
       rec.층[L]={ 운량:S[L], ...tauStat(buf), 면적평균:+(avg/nv).toFixed(4), 무늬:corrLen(buf) };
     }
 
