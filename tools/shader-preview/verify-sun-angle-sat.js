@@ -11,6 +11,12 @@
  *  2. 낮: 구간마다 앞 구간보다 0.02 넘게 떨어지지 않는다(사진 4장 모두 단조).
  *  3. 노을(해 1°): 28–36° 채도 ≤ 0.5 × 3–8° 채도.
  *
+ * 현재(2026-10-02): **3 이 실패합니다(0.58배)** — 알려진 차이입니다. 물리 하늘빛은 사진 모양 그대로인데(노을 해 곁
+ * 0.55 → 28–36° 0.09), 표시 단계의 톤 곡선이 해 곁을 하얗게 바랩니다. 표시에 채도 바닥(atmosphere
+ * atm_chromaFloor)을 넣으면 이 판정은 4/4 가 되지만, 하늘만 바뀌고 같은 빛을 다른 길로 그리는 지형·물·해 원반과
+ * 어긋나 verify-haze · verify-glitter · verify-bloom 이 걸려 꺼 두었습니다(DISP_CHROMA_FLOOR). 표시 경로를 하나로
+ * 묶은 뒤에 다시 켭니다.
+ *
  * 사용: node tools/shader-preview/stage-esm.js && node tools/shader-preview/build-sun-angle-sat.js
  *       node tools/shader-preview/verify-sun-angle-sat.js
  */
