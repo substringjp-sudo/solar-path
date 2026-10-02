@@ -509,14 +509,18 @@ export const skyColorAtDirection = (
   }
 
   // ── Aerosol desaturation (fine dust/haze whitens sky uniformly) ──────────
-  const dustLevel = clamp01((beta - 0.05) / 0.45);
-  if (dustLevel > 0) {
+  // ⚠ β 0.05 는 위 LUT 의 기준(탁도 T≈2, Preetham β ≈ 0.046 — 맑은 공기)입니다. 예전에는 그 아래를 잘라
+  //   (clamp01) β 0~0.05 에서 하늘색이 β 와 무관하게 평평했습니다 — CAMS AOD 를 붙이니 아주 맑은 날
+  //   (AOD 0.03 → β 0.007, 0.1 → 0.024)의 천정이 똑같이 나와 verify-aerosol [3] 이 걸렸습니다. 같은 직선을
+  //   기준 아래로 이어, 더 맑으면 조금 더 짙은 파랑으로 갑니다(β 0 에서 탁해짐 −0.022 — 작습니다).
+  const dustLevel = Math.max(-0.12, Math.min(1, (beta - 0.05) / 0.45));
+  if (dustLevel !== 0) {
     // 태양 주변부(gammaDeg가 작을수록)에서는 미세먼지에 의한 백색 탈색 효과를 억제하여 붉은색 채도를 보존합니다.
     const proximityFactor = clamp01(gammaDeg / 35.0);
     const haze = dustLevel * 0.20 * lerp(0.15, 1.0, proximityFactor);
-    finalR = lerp(finalR, 0.62, haze);
-    finalG = lerp(finalG, 0.60, haze);
-    finalB = lerp(finalB, 0.58, haze);
+    finalR = clamp01(lerp(finalR, 0.62, haze));
+    finalG = clamp01(lerp(finalG, 0.60, haze));
+    finalB = clamp01(lerp(finalB, 0.58, haze));
   }
 
   // ── Cloud/overcast: shift to grey as clarity drops ───────────────────────

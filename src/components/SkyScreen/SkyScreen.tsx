@@ -331,6 +331,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.
   const timelineValid = isTimelineUsable(timeline, latitude, longitude, currentTime);
+  // 촬영하기(카메라)도 같은 하루치 하늘을 쓰도록 스토어에 내놓습니다(저장하지 않는 칸).
+  const setSkyTimeline = useCelestialStore(s => s.setSkyTimeline);
+  useEffect(() => { setSkyTimeline(timelineValid ? timeline : null); }, [timelineValid, timeline, setSkyTimeline]);
   useEffect(() => {
     if (timeline && !isTimelineUsable(timeline, latitude, longitude, currentTime)) {
       setTimeline(null);

@@ -17,6 +17,10 @@
  *
  * 1. **운량 → 화면 면적.** 층 하나씩 따로 그려 τ≥0.16 면적을 냅니다.
  *    층을 겹쳐 그리면 어느 층이 화면을 채웠는지 못 가립니다.
+ *    ⚠ 2026-10-02: 면적은 **하늘 평균**(방위 4 × 흐름 시각 4, 고도 40° 그대로)으로도 냅니다(`면적평균`).
+ *    시야 하나(방위 200° · 흐름 0시)는 모양장의 느린 항(군집·굵은 폴백, 수십 km)이 한두 칸만 보여
+ *    그 자리 운을 탑니다 — `verify-layer-elev` 를 하늘 평균으로 옮긴 것과 같은 이유입니다. 무늬 크기(2)는
+ *    시야 하나 그대로 잽니다.
  * 2. **예보 고도 → 화면 무늬 크기.** 같은 운량이라도 층이 높으면 같은
  *    km 크기의 셀이 **더 큰 각**을 차지합니다. 가로 자기상관이 0.5 로
  *    떨어지는 지연(화소)을 무늬 크기로 씁니다.
@@ -89,35 +93,37 @@ function bake(slab, v){
   });
 }
 
-function shoot(slab, atm){
-  const cam = new THREE.PerspectiveCamera(FOV_DEG, TW/TH, 0.1, 2000);
+function shoot(slab, atm, viewAz=SUN_AZ, driftH=0, W=TW, H=TH){
+  const cam = new THREE.PerspectiveCamera(FOV_DEG, W/H, 0.1, 2000);
   cam.position.set(0,0,0); cam.up.set(0,1,0);
-  const ar=SUN_AZ*Math.PI/180, er=ELEV*Math.PI/180;
+  const ar=viewAz*Math.PI/180, er=ELEV*Math.PI/180;
   cam.lookAt(100*Math.cos(er)*Math.sin(ar), 100*Math.sin(er), -100*Math.cos(er)*Math.cos(ar));
   cam.updateMatrixWorld(true);
   const a=SUN_ALT*Math.PI/180, z=SUN_AZ*Math.PI/180;
   const sunDir=new THREE.Vector3(Math.cos(a)*Math.sin(z), Math.sin(a), -Math.cos(a)*Math.cos(z)).normalize();
   updateSkydome(skydome, SUN_ALT, SUN_AZ, atm);
   updateCloudSlab(slab, {
-    camera: cam, widthPx: TW, heightPx: TH,
+    camera: cam, widthPx: W, heightPx: H,
     sunDir, sunAltDeg: SUN_ALT, sunAzDeg: SUN_AZ,
     beamFor:(altKm)=>beamAtAltitude(SUN_ALT, altKm, atm),
     atmosphere: atm,
     layerWinds:{ low:{speedKmh:30,bearingDeg:250}, mid:{speedKmh:51,bearingDeg:250},
                  high:{speedKmh:102,bearingDeg:250} },
-    driftHours:0, visible:true, dataOut:2,
+    driftHours:driftH, visible:true, dataOut:2,
   });
+  if (W!==TW || H!==TH) renderer.setSize(W, H, false);
   renderer.setRenderTarget(null);
   renderer.setClearColor(0x000000,1);
   renderer.render(scene, cam);
-  const buf=new Uint8Array(4*TW*TH);
-  gl.readPixels(0,0,TW,TH,gl.RGBA,gl.UNSIGNED_BYTE,buf);
+  const buf=new Uint8Array(4*W*H);
+  gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,buf);
+  if (W!==TW || H!==TH) renderer.setSize(TW, TH, false);
   return buf;
 }
 
 /** τ = R/255×40. 면적과 평균. */
 function tauStat(buf){
-  const n=TW*TH; let s=0,a016=0,a1=0,mx=0;
+  const n=buf.length/4; let s=0,a016=0,a1=0,mx=0;
   for(let i=0;i<n;i++){ const t=(buf[i*4]/255)*40; s+=t; if(t>mx)mx=t;
     if(t>=0.16)a016++; if(t>=1)a1++; }
   return { 면적:+(a016/n).toFixed(4), 면적τ1:+(a1/n).toFixed(4),
@@ -191,7 +197,11 @@ try {
       const v={low:0,mid:0,high:0}; v[L]=S[L];
       bake(slab, v);
       const buf=shoot(slab, atm);
-      rec.층[L]={ 운량:S[L], ...tauStat(buf), 무늬:corrLen(buf) };
+      // 하늘 평균 면적(위 머리말 1): 방위 4 × 흐름 시각 4. 고도 40° 시야는 땅이 안 들어옵니다.
+      // 면적만 보므로 작게(96×96) 그립니다 — 220×220 으로는 판정 하나가 17분 걸렸습니다.
+      let avg=0, nv=0;
+      for (const az of [20,110,200,290]) for (const dh of [0,6,12,18]) { avg+=tauStat(shoot(slab, atm, az, dh, 96, 96)).면적; nv++; }
+      rec.층[L]={ 운량:S[L], ...tauStat(buf), 면적평균:+(avg/nv).toFixed(4), 무늬:corrLen(buf) };
     }
 
     // 운량 0 대조 — 전부 0 이어야 합니다(자가 검증).

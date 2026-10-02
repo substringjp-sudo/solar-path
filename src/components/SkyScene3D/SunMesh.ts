@@ -61,7 +61,8 @@ void main() {
 
   // 하늘·구름과 같은 톤매핑. 태양만 다른 곡선을 쓰면 박명에 노출이 어긋나
   // 하늘은 밝은데 원반은 회색으로 죽는 식이 됩니다.
-  gl_FragColor = vec4(atm_display(radiance, uSaturation, uSunAltDeg), alpha);
+  // 태양 원반은 채도 바닥을 끕니다 — 사진에서도 원반은 하얗게 날아갑니다(atmosphere atm_chromaFloor).
+  gl_FragColor = vec4(atm_displayCore(radiance, uSaturation, uSunAltDeg, false), alpha);
 }
 `;
 

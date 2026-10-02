@@ -23,6 +23,7 @@ import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star, QrCode } f
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
+import { isTimelineUsable, dateKeyOf } from '../utils/skyTimeline';
 import { SimReportQR } from './SkyScreen/SimReportQR';
 
 
@@ -204,6 +205,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
   const skyLayers = useCelestialStore(s => s.skyLayers);
   const skySettings = useCelestialStore(s => s.skySettings);
+  // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 예전처럼
+  // 해 방향 부채꼴 기상(camInterpolated)으로 그립니다.
+  const sharedTimeline = useCelestialStore(s => s.skyTimeline);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ writeOnly: true });
   const cameraRef = useRef<CameraView>(null);
@@ -516,6 +520,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const camInterpolated = useMemo(
     () => (camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []),
     [camWeatherData, currentTime]
+  );
+  const camDateKey = dateKeyOf(currentTime);
+  const camTimeline = useMemo(
+    () => (isTimelineUsable(sharedTimeline, latitude, longitude, currentTime) ? sharedTimeline : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 날짜가 바뀔 때만 다시 봅니다
+    [sharedTimeline, latitude, longitude, camDateKey]
   );
   const currentPrediction = useMemo(() => scenePrediction({
     pathData: camWeatherData ?? [],
@@ -1777,6 +1787,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   //   안 받았습니다 — 하늘 화면과 땅·하늘색이 다르던 원인 하나입니다(§112).
                   location={camSceneLocation}
                   interpolatedWeather={camInterpolated}
+                  timeline={camTimeline}
                   layers={skyLayers}
                   skySettings={skySettings}
                   theme={{ accent: '#FF9800' }}

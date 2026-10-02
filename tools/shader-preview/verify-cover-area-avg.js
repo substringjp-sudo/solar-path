@@ -11,6 +11,16 @@
  *    0.29 대 0.51) 표본을 넓혔습니다 — 문턱 ±0.06 은 그대로입니다.
  *  - 예보가 늘면 면적도 는다(단조).
  *  - 코드에 든 상수 그대로(덮어쓰기 없음)를 잽니다.
+ *  ⚠ 2026-10-02 자 고침(문턱은 그대로): 면적의 분모를 **하늘 화소**(지평선 위)로 바꿨습니다. 전에는 화면 전체로
+ *    나눠, 고도 20° 시야 아래쪽(땅)까지 분모에 들어가 운량 0.95·0.99 가 세 층 모두 0.938 에서 멈췄습니다.
+ *    예보 운량은 하늘의 몇 할입니다. 이 고침 뒤 CloudSlab `COVER_REMAP`(역표)을 짝수 시각으로 맞췄습니다.
+ *  ⚠ 2026-10-02 표본 고침(문턱은 그대로): 흐름 시각 12 개로는 평균이 안 잡혔습니다 — 짝수 시각으로 맞춘 역표가
+ *    맞춘 시각에서는 소수 셋째 자리까지 맞고 홀수 시각에서 상층 0.14 넘쳤습니다. 천정 쪽 시야는 구름 칸 몇 개만 보여
+ *    시각마다 0.06~0.95 로 흔들리고, 바람 한 줄 위의 자리들은 잡음 격자 주기(해시가 x 50칸)와 겹쳐 독립이
+ *    아니었습니다. 이제 자리 96 개(흐름 k 시간 · 바람 방위 250°+k·137.5°) 중 **홀수 48 개**로 확인합니다
+ *    (맞추기는 짝수 48 개, 방위 4 · 고도 3).
+ *  - 자리마다의 면적(자리별 하늘 평균)은 **참고로 찍기만** 합니다 — 실제 하늘도 예보 칸 안에서 시각마다
+ *    달라 문턱을 둘 근거가 아직 없습니다.
  *
  * 사용: node tools/shader-preview/stage-esm.js && node tools/shader-preview/build-cover-area-avg.js
  *       node tools/shader-preview/verify-cover-area-avg.js
@@ -26,7 +36,7 @@ const TOL = 0.06;
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
   const p = await b.newPage();
-  await p.goto(`${ORIGIN}/cover-area-avg.html?drifts=1,3,5,7,9,11,13,15,17,19,21,23&azs=0,45,90,135,180,225,270,315&covers=${COVERS.join(',')}`, { timeout: 600000 });
+  await p.goto(`${ORIGIN}/cover-area-avg.html?pos=96&set=odd&azs=0,90,180,270&covers=${COVERS.join(',')}`, { waitUntil: 'commit', timeout: 600000 });
   await p.waitForFunction(() => /^DONE::/.test(document.title), null, { timeout: 3600000, polling: 1000 });
   const errs = await p.evaluate(() => window.__errors);
   const out = await p.evaluate(() => window.__out);
@@ -38,6 +48,8 @@ const TOL = 0.06;
   for (const L of ['low', 'mid', 'high']) {
     const a = COVERS.map(c => out.find(o => o.layer === L && o.cover === c).area016);
     console.log(`  ${L.padEnd(5)} ` + a.map(x => x.toFixed(3).padStart(9)).join(''));
+    const sp = COVERS.map(c => out.find(o => o.layer === L && o.cover === c).drift || []);
+    console.log(`        자리별 범위 ` + sp.map(d => d.length ? `${Math.min(...d).toFixed(2)}~${Math.max(...d).toFixed(2)}` : '—').map(x => x.padStart(9)).join(''));
     const worst = Math.max(...a.map((x, i) => Math.abs(x - COVERS[i])));
     ok(worst <= TOL, `${L}: 하늘 평균 면적이 예보 ±${TOL} 안 (최대 어긋남 ${worst.toFixed(3)})`);
     ok(a.every((x, i) => i === 0 || x > a[i - 1]), `${L}: 단조 증가`);

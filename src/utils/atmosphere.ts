@@ -807,6 +807,20 @@ export function hemiSkyLuminance(sunAltDeg: number, p: AtmosphereParams): number
   return s / HEMI_NODES.length;
 }
 
+/** `hemiSkyLuminance` 의 색 판 — 같은 6점 평균의 RGB(밤하늘 바닥 포함). 구름의 박명 환경광에 씁니다. */
+export function hemiSkyRadiance(sunAltDeg: number, p: AtmosphereParams): RGB {
+  const D = Math.PI / 180;
+  const sS = Math.sin(sunAltDeg * D), cS = Math.cos(sunAltDeg * D);
+  const o = { r: 0, g: 0, b: 0 };
+  for (const [e, az] of HEMI_NODES) {
+    const cg = Math.sin(e * D) * sS + Math.cos(e * D) * cS * Math.cos(az * D);
+    const c = skyRadiance(e, Math.acos(Math.max(-1, Math.min(1, cg))) / D, sunAltDeg, p, 0);
+    o.r += c.r; o.g += c.g; o.b += c.b;
+  }
+  const n = HEMI_NODES.length;
+  return { r: o.r / n, g: o.g / n, b: o.b / n };
+}
+
 const moonGainCache = new WeakMap<AtmosphereParams, number>();
 /** 보름달의 이득 K — 닻에서 한 번 구해 대기마다 기억합니다. */
 export function moonSkyGain(p: AtmosphereParams): number {
@@ -1535,17 +1549,66 @@ vec3 atm_rodVision(vec3 c, float sunAltDeg) {
   return mix(c, rodCol, k);
 }
 
+// ── 화면 채도는 물리 색의 채도 아래로 내려가지 않습니다 (2026-10-02) ───────────────
+//
+// 톤매핑은 밝을수록 색을 흰색으로 데려갑니다(AgX 의 하이라이트 탈색). 그 결과 해 둘레가 넓고 하얀
+// 덩어리가 됐습니다. 해가 화면에 찍힌 사진 6장(EXIF 화각으로 화소마다 해와의 각을 냄,
+// tools/photo-ref/measure-sun-angle.js)과 견주면 — 노을 해 곁(3–8°) 채도: 물리(감마) 0.55 · 사진 0.43·0.34
+// · 화면 0.26, 맑은 낮 해 곁: 물리 0.18 · 사진 0.29 · 화면 0.03. 물리값의 각도 모양은 사진과 같았고
+// (verify-sun-angle-sat), 탈색은 표시 단계에서 생겼습니다.
+//
+// 그래서 **바닥**을 둡니다: 표시 채도가 그 화소 물리 색(밝기를 뺀 색도, 감마 2.2)의 채도보다 낮으면, 가장 밝은
+// 채널은 그대로 두고 물리 색도 쪽으로 섞습니다 — 옅어진 만큼(1 − 표시/물리) 섞습니다. 새 조정 상수는 없고,
+// 더 진한 쪽(AgX·DISP_SAT 이 이미 올린 중간 밝기)은 그대로입니다.
+// ⚠ 처음 두 판:
+//   1. "같은 색을 중간 밝기(0.18)로 톤매핑했을 때의 채도" 까지 — AgX 가 중간 밝기의 주황을 물리값(0.35)보다
+//      훨씬 진하게(0.9) 만들어 해에서 14–20° 에 형광 주황 고리가 생겼습니다.
+//   2. 휘도를 지키며 채도만 — 해 곁은 톤매핑 뒤 휘도가 거의 1 이라 더할 자리가 없어(화면 범위) 노을 해 곁이
+//      0.30 그대로였습니다. 사진의 해 곁 노을은 밝은 **주황**입니다 — 가장 밝은 채널을 지키면 휘도가 조금
+//      내려가며 색이 섭니다.
+// ⚠ **꺼 두었습니다(2026-10-02).** 하늘·구름에만 걸면 해 근처에서 같은 빛을 다른 길로 그리는 것들과 어긋납니다
+//   — 지형·물은 atm_display_ground(눈 순응 배수·다른 곡선), 해 원반은 따로. 전체 판정에서 셋이 새로 걸렸습니다:
+//   verify-haze(해 쪽 먼 산이 뒤 하늘색과 어긋남 0.27 > 0.05), verify-glitter(해 곁 물이 제가 비추는 하늘보다
+//   1.12배 밝음), verify-bloom(센 블룸에서도 하얗게 안 탐). 지면 경로에도 걸어 보니 산 어긋남 0.198 · 윤슬 띠
+//   폭 측정이 무너졌습니다. 하늘·지면·물의 표시 경로를 하나로 묶은 뒤에 켜야 합니다. 그때까지 해 각도별
+//   채도는 verify-sun-angle-sat 의 노을 항목(0.58배 > 0.5)이 알려진 차이로 남깁니다.
+const float DISP_CHROMA_FLOOR = 0.0;
+vec3 atm_chromaFloor(vec3 hdr, vec3 c) {
+  vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  vec3 nS = max(hdr, vec3(0.0)) / max(1e-6, max(hdr.r, max(hdr.g, hdr.b)));
+  vec3 gS = pow(nS, vec3(1.0 / 2.2));
+  float sScene = 1.0 - min(gS.r, min(gS.g, gS.b));
+  vec3 gN = pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
+  float mxN = max(gN.r, max(gN.g, gN.b));
+  float sNow = (mxN - min(gN.r, min(gN.g, gN.b))) / max(1e-4, mxN);
+  // 밝은 곳에서만 — 하이라이트 탈색이 문제였습니다. 물리 휘도가 중간 회색(0.18)부터 한 단(0.36)에 걸쳐
+  // 켜집니다. 어두운 박명·밤은 손대지 않습니다(처음에 전 구간에 걸었더니 박명 지평선의 어두운 주황까지 진해져
+  // verify-photo-match 의 박명 세로 채도비가 1.007 → 1.068 로 나빠졌습니다).
+  float wHi = clamp((dot(hdr, LW) - 0.18) / 0.18, 0.0, 1.0);
+  if (sScene > sNow && wHi > 0.0) {
+    float M = max(c.r, max(c.g, c.b));
+    c = mix(c, nS * M, wHi * (1.0 - sNow / max(1e-4, sScene)));
+  }
+  return c;
+}
+
 /**
  * 물리 복사휘도 → 화면 색. 순응 노출 → ACES → 채도 복원 → 대비 순서입니다.
  * 채도를 톤매핑 뒤에 거는 것이 핵심입니다(압축으로 깎인 색을 되살림).
+ *
+ * chromaFloor: 밝은 곳의 채도 바닥(atm_chromaFloor). 하늘·구름은 켜고(atm_display), 태양 원반은 끕니다.
  */
-vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
+vec3 atm_displayCore(vec3 radiance, float saturation, float sunAltDeg, bool chromaFloor) {
   vec3 LW = vec3(0.2126, 0.7152, 0.0722);
   vec3 hdr = radiance * DISP_EXPO * atm_adaptation(sunAltDeg) * atm_whiteBalance(sunAltDeg);
   // TONEMAP 0 = ACES(예전) · 1 = AgX (계획 42절 0단계)
   vec3 c = TONEMAP > 0.5 ? atm_tonemapAgX(hdr) : atm_tonemapACES(hdr);
   float luma = dot(c, LW);
   c = mix(vec3(luma), c, DISP_SAT * saturation);
+
+  // 밝은 곳의 채도 바닥(위 atm_chromaFloor) — **꺼 둡니다(DISP_CHROMA_FLOOR 0).** 아래 머리말 참고.
+  if (chromaFloor && DISP_CHROMA_FLOOR > 0.5) c = atm_chromaFloor(hdr, c);
+  luma = dot(c, LW);
 
   // **푸른 하늘에만** 채도를 더 밉니다.
   //
@@ -1616,6 +1679,9 @@ vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
   float k = min(l1 / max(1e-4, l0), 1.0 / max(1e-4, maxc));
   c = clamp(c * k, 0.0, 1.0);
   return atm_toSrgb(atm_rodVision(c, sunAltDeg));
+}
+vec3 atm_display(vec3 radiance, float saturation, float sunAltDeg) {
+  return atm_displayCore(radiance, saturation, sunAltDeg, true);
 }
 `;
 

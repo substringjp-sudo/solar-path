@@ -42,7 +42,7 @@ import * as THREE from 'three';
 import { EARTH_RADIUS_KM_GLSL } from '../../utils/earth';
 import { beamGrazing } from '../../utils/grazingRay';
 import {
-  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, NIGHT_SKY, SOLAR_BEAM_SCALE, type AtmosphereParams,
+  ATMOSPHERE_GLSL, makeTuningUniforms, moonLight, beamAtAltitude, hemiSkyRadiance, NIGHT_SKY, SOLAR_BEAM_SCALE, type AtmosphereParams,
 } from '../../utils/atmosphere';
 import { LAYER_ALTITUDE_KM, type LayerKey } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
@@ -144,6 +144,44 @@ const SHAPE_MEAN: Record<LayerKey, number> = { low: 0.5012, mid: 0.4742, high: 0
 const SHAPE_SIG_RATIO: Record<LayerKey, number> = { low: 0.9446, mid: 1.0569, high: 1.0893 };
 
 /**
+ * **예보 운량 → 문턱에 넣는 운량** 역표 (2026-10-02). 마디 `COVER_KNOTS`(예보) 마다 넣을 값, 사이는 직선.
+ *
+ * 위 두 수(중심·폭)는 곡선 모양을 못 바꿉니다 — 맞춘 뒤에도 하늘 평균 면적이 가운데서 불룩했습니다
+ * (중층 예보 50% → 0.615, 70% → 0.814; 저층 90% → 0.908 뒤 95% 에서 밀폐로 1.0 으로 뜀). 그래서 그
+ * 곡선 A(c) 를 짝수 흐름 시각 × 방위 8 × 고도 3 의 **하늘 화소**로 재고(`fit-cover-remap.js`) 거꾸로
+ * 뒤집어 넣습니다: 넣는 값 R(예보) = A⁻¹(예보). 이 값이 문턱(cvEff)과 흐린 날 밀폐 둘 다에 들어갑니다 —
+ * 잰 A 가 그 둘을 다 거친 값이므로.
+ *
+ * 위에서 본 구름(`CloudTopView`)은 자기 눈금(TOP_VIEW_SHAPE_*)으로 따로 맞췄으므로 항등 표를 씁니다.
+ */
+export const COVER_KNOTS = [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1];
+export const IDENTITY_COVER_REMAP: Record<LayerKey, number[]> = { low: COVER_KNOTS, mid: COVER_KNOTS, high: COVER_KNOTS };
+// fit-cover-remap.js (자리 96 개 중 짝수 48 — 자리마다 흐름 k 시간 · 바람 방위 250°+k·137.5° — × 방위 4 × 고도 3,
+// 하늘 화소) — 맞춘 자리에서 마디 0.1~0.8 이 ±0.005 안, 0.9 는 0.88~0.91. 확인은 verify-cover-area-avg(홀수 48 자리).
+// 상층이 가장 많이 깎입니다(예보 50% → 0.38): 고도 20° 쪽 먼 하늘에서 권운이 비스듬히 겹쳐 보여 면적이 늘어납니다.
+const COVER_REMAP: Record<LayerKey, number[]> = {
+  low:  [0, 0.0839, 0.1317, 0.2291, 0.3358, 0.4424, 0.5443, 0.6414, 0.7344, 0.8231, 0.9055, 0.9077, 1],
+  mid:  [0, 0.0896, 0.1335, 0.2185, 0.3088, 0.3985, 0.4868, 0.5782, 0.6782, 0.796, 0.9062, 0.9081, 1],
+  high: [0, 0.0638, 0.0977, 0.1651, 0.2351, 0.3082, 0.3817, 0.4689, 0.564, 0.6703, 0.7952, 0.8876, 1],
+};
+
+/** 조각 선형 역표를 GLSL 함수로 펼칩니다(배열 색인 없이 — GLSL ES 1.0 에서도 돕니다). */
+function coverRemapGlsl(remap: Record<LayerKey, number[]>): string {
+  const K = COVER_KNOTS;
+  const fn = (name: string, v: number[]) => {
+    if (v.length !== K.length) throw new Error(`cover remap ${name}: ${v.length} values for ${K.length} knots`);
+    let s = `float ${name}(float c){\n  c = clamp(c, 0.0, 1.0);\n`;
+    for (let i = 1; i < K.length; i++) {
+      const seg = `mix(${v[i - 1].toFixed(4)}, ${v[i].toFixed(4)}, (c - ${K[i - 1].toFixed(4)}) / ${(K[i] - K[i - 1]).toFixed(4)})`;
+      s += i < K.length - 1 ? `  if (c < ${K[i].toFixed(4)}) return ${seg};\n` : `  return ${seg};\n`;
+    }
+    return s + '}\n';
+  };
+  return fn('slab_remapLow', remap.low) + fn('slab_remapMid', remap.mid) + fn('slab_remapHigh', remap.high)
+    + 'float slab_coverRemap(int layer, float c){ return layer == 0 ? slab_remapHigh(c) : (layer == 1 ? slab_remapMid(c) : slab_remapLow(c)); }\n';
+}
+
+/**
  * 셰이더 소스의 층별 상수 자리(CELL_* · TAUK_* · SHAPE_*)를 값으로 바꿉니다. 구름 슬랩과
  * **위에서 본 구름**(§120 `CloudTopView`)이 같은 값을 쓰게 하려고 한 곳에 둡니다 — 둘이 다른
  * 셀 크기를 쓰면 지도와 하늘이 다른 구름을 그립니다.
@@ -153,11 +191,13 @@ export function substituteSlabConstants(
   v: {
     cell?: Record<LayerKey, number>; tau?: Record<LayerKey, number>;
     shapeMean?: Record<LayerKey, number>; shapeSigRatio?: Record<LayerKey, number>;
+    coverRemap?: Record<LayerKey, number[]>;
   } = {},
 ): string {
   const cell = v.cell ?? CELL_KM, tau = v.tau ?? TAU_K;
   const shapeMean = v.shapeMean ?? SHAPE_MEAN, shapeSigRatio = v.shapeSigRatio ?? SHAPE_SIG_RATIO;
   return src
+    .replace(/SLAB_COVER_REMAP_FNS/g, coverRemapGlsl(v.coverRemap ?? COVER_REMAP))
     .replace(/CELL_LOW/g, cell.low.toFixed(2))
     .replace(/CELL_MID/g, cell.mid.toFixed(2))
     .replace(/CELL_HIGH/g, cell.high.toFixed(2))
@@ -185,9 +225,14 @@ const float SLAB_R_EARTH = ${EARTH_RADIUS_KM_GLSL};
  * 유지합니다 (좌표 1에서의 건강한 기준이 3,150).
  *
  * 289는 webgl-noise의 mod289 관례를 따릅니다. 네 모서리가 같은 규칙으로
- * 접히므로 보간은 이음매 없이 이어지고, 노이즈가 289셀 주기가 될 뿐입니다.
- * 저층은 1.2km × 289 = 347km 로 지평선 한계(138km)보다 크고, 상층도
- * 12km × 289 = 3,468km 로 357km보다 훨씬 커서 **반복은 보이지 않습니다.**
+ * 접히므로 보간은 이음매 없이 이어집니다.
+ *
+ * ⚠ **실제 주기는 289 가 아닙니다(2026-10-02 확인).** 아래 해시는 정수 격자에서 fract(0.34·x)·fract(0.21·y)
+ *   라 x 50칸 · y 100칸마다 같은 값을 냅니다(0.34 × 50 = 17). 저층(셀 2km)은 100km 마다 같은 무늬입니다.
+ *   해시를 바꿔 봤지만(mod289 순열 → 줄무늬 결, Hoskins hash12 → 결은 없음) 무늬 하나하나가 통째로 바뀌어
+ *   그 무늬에서 잰 판정 여럿(shear-grain · two-deck "예전 재현" · cloud-top-view 문턱 · zenith-columns 대조 ·
+ *   layer-elev)이 한꺼번에 움직였습니다. 자를 한꺼번에 다시 새기면 진짜 퇴행을 가릴 수 있어 되돌렸습니다.
+ *   하늘 평균 표본은 바람 한 줄이 아니라 서로 다른 자리에서 뜹니다(fit-cover-remap.js).
  */
 const float SLAB_LATTICE = 289.0;
 
@@ -358,6 +403,8 @@ vec2 slab_coverUv(vec2 km, float rangeKm){
  * 물러납니다. detCoarse 가 그 두 번째 단계입니다 — 발자국이 셀의 3배를 넘으면
  * 굵은 장도 놓기 시작해 9배에서 비로소 상수가 됩니다(고도 0.4° 아래).
  */
+// 예보 운량 → 문턱에 넣는 운량 (위 COVER_REMAP 주석). 자리는 substituteSlabConstants 가 채웁니다.
+SLAB_COVER_REMAP_FNS
 float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float conf, float seed, vec2 windNorm, float det, float detCoarse, float billowAmt, float cluster){
   vec2 p = km / cellKm + seed;
   float m = 0.0;
@@ -507,7 +554,9 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   float fm = f + (billowFine - 0.5) * 0.22 * billowAmt;
   float q = 1.0 / (1.0 + exp(-1.702 * (fm - fMid) / max(0.02, fSig)));
   // 군집은 **면적**을 흔듭니다 — 여기 더 많고 저기 덜 많다는 이야기이므로.
-  float cvEff = clamp(cover * cvSlow * cluster, 0.0, 1.0);
+  // 예보를 그대로 넣지 않고 역표로 고친 값을 넣습니다(하늘 평균 면적 = 예보).
+  float coverA = slab_coverRemap(layer, cover);
+  float cvEff = clamp(coverA * cvSlow * cluster, 0.0, 1.0);
   float t = clamp((q - (1.0 - cvEff)) / max(0.05, cvEff), 0.0, 1.0);
   // 가장자리 단면.
   //
@@ -518,7 +567,7 @@ float slab_layer_thickness(int layer, vec2 km, float cover, float cellKm, float 
   float prof = smoothstep(0.0, 1.0, t);
   float d = uShapeDepth * depthMul * pow(prof, uShapeEdge);
   // 흐린 날은 한 장의 판입니다 — 빈틈이 남지 않게 밀폐합니다.
-  d = mix(d, uShapeDepth * depthMul, smoothstep(0.90, 1.0, cover));
+  d = mix(d, uShapeDepth * depthMul, smoothstep(0.90, 1.0, coverA));
   return clamp(d, 0.0, 1.8);
 }
 
@@ -1120,6 +1169,8 @@ void main(){
 
   // 지평선 부근 대기 색상 (먼 구름이 지평선과 융합될 때 쓸 안개 빛)
   vec3 horizonHaze = slab_sky(1.0, cosG);
+  // 시선 방향 뒤의 하늘빛 — 얇은 구름 뒤로 비쳐 오는 몫(아래 합성 직전)에 씁니다.
+  vec3 skyBehind = slab_sky(degrees(asin(clamp(sinE, 0.0, 1.0))), cosG);
 
   // 밤 환경 계수 (달빛과 도시 불빛 반사율 상향)
   // 진짜 해로 봅니다 — 광원이 달이어도 밤은 밤입니다.
@@ -1566,6 +1617,10 @@ void main(){
       // 스텝별 분할 광학 두께
       float stepTau = (thick * tauK * slant) / float(nSteps);
       float T = exp(-stepTau);
+      // 합성 알파는 **맨 τ** 입니다 — 뒤의 해 원반·별 같은 점광원은 앞으로 흩은 빛이 상을 못 지키므로
+      // exp(−τ) 만 지나옵니다. 넓게 퍼진 뒤 하늘빛만 유사변환한 τ 로 비쳐 오는데, 그 몫은 아래 합성 직전에
+      // 구름 자신의 빛에 더합니다(skyBehind). 2026-10-02 에 알파 자체를 exp(−(1−g)τ) 로 바꿨다가 흐린 하늘 뒤
+      // 해 원반이 1% 새어 보였습니다(verify-sunrise-strip, 해가 밝힌 화소 27 — 해는 하늘의 수십만 배).
       float stepAlpha = 1.0 - T;
 
       // 자기그림자 (Self-shadow)
@@ -1910,6 +1965,17 @@ void main(){
       cc = max(cc, vec3(0.0));
 
       // 체적 누적 합성
+      // ── 얇은 구름 뒤로 비쳐 오는 하늘빛 (2-흐름, 2026-10-02) ─────────────────────────────
+      // 구름 알갱이는 빛을 거의 앞으로만 흩어(g 0.85), 넓게 퍼진 뒤 하늘빛은 exp(−(1−g)τ) 만큼 그대로 비쳐 옵니다
+      // — 원천 함수(Jbar)가 이미 tp = (1−g)τ 로 셈하고, 윗층 그림자(trDir)도 같은 까닭으로 바꿨습니다. 합성 알파는
+      // 맨 τ(위)라 그 사이 몫 exp(−(1−g)τ) − exp(−τ) 를 여기서 하늘빛으로 더하고, 구름 자신의 빛은 (1 − exp(−(1−g)τ))
+      // 만큼만 냅니다. 맨 τ 로만 가리면 τ 3.75 인 얇은 중층(도코나메 밤, cloudProfile.THIN_MID_TAU)이 뒤 하늘을 2% 만
+      // 비쳐 통째로 불투명한 덩어리가 됐습니다(57% 여야 함) — "뿌옇게 보이는 걸 빼면 구름이 눈에는 거의 안 보여".
+      // 내려다볼 때(뒤가 땅·물)는 하지 않습니다.
+      if (uCloudModel > 0.5 && sinE > 0.0 && stepAlpha > 1e-4) {
+        float Tp = exp(-(1.0 - uCloudAsym) * stepTau);
+        cc = (cc * (1.0 - Tp) + skyBehind * max(0.0, Tp - T)) / stepAlpha;
+      }
       lin = cc * stepAlpha + lin * (1.0 - stepAlpha);
       tauAcc += stepTau;
       layerAcc = float(L) * stepAlpha + layerAcc * (1.0 - stepAlpha);
@@ -2062,6 +2128,8 @@ export function createCloudSlab(opts: {
   shapeMean?: Partial<Record<LayerKey, number>>;
   /** 모양장의 층별 유효 폭 ÷ uShapeSigma (기본 SHAPE_SIG_RATIO). */
   shapeSigRatio?: Partial<Record<LayerKey, number>>;
+  /** 예보 운량 역표(마디 COVER_KNOTS 마다 값). 하네스가 맞출 때 씁니다(기본 COVER_REMAP). */
+  coverRemap?: Partial<Record<LayerKey, number[]>>;
 } = {}): CloudSlabHandle {
   const rangeKm = opts.rangeKm ?? SLAB_RANGE_KM;
   const size = opts.texSize ?? SLAB_TEX;
@@ -2099,7 +2167,8 @@ export function createCloudSlab(opts: {
   beamLut.needsUpdate = true;
 
   // ⚠ ALT_* 는 더 이상 치환하지 않습니다 — uLayerAltKm uniform 입니다.
-  const frag = substituteSlabConstants(FRAG, { cell, tau, shapeMean, shapeSigRatio });
+  const coverRemap = { ...COVER_REMAP, ...(opts.coverRemap ?? {}) };
+  const frag = substituteSlabConstants(FRAG, { cell, tau, shapeMean, shapeSigRatio, coverRemap });
 
   let horizonTarget: THREE.WebGLRenderTarget | null = null;
   let bandTex: THREE.DataTexture | null = null;
@@ -2627,15 +2696,44 @@ export function updateCloudSlab(handle: CloudSlabHandle, u: CloudSlabUpdate): vo
   const ml = u.moonDir && u.moonAltDeg !== undefined && u.moonIllum !== undefined
     ? moonLight(u.sunAltDeg, u.moonAltDeg, u.moonIllum, u.atmosphere)
     : { gain: 0, useMoon: false };
-  const lightByMoon = ml.useMoon && !!u.moonDir && u.moonAltDeg !== undefined;
+  // ⚠ (2026-10-02) 위 기준(하늘을 더 밝히는 쪽)만으로는 항해박명에 뜬 보름달이 버려졌습니다. 해 −8.5° 면 구름
+  //   높이(≤ 7.5km)는 지구 그림자 안이라(그림자 높이 ≈ 70km) 해의 **직달은 구름에 0** 인데, 박명 하늘이 달빛
+  //   하늘보다 밝다는 이유로 해를 골라 고도 13.5° 보름달의 직달까지 버렸습니다. 하늘돔은 둘 다 그리므로
+  //   달빛 받은 구름이 맑은 하늘보다 어두웠습니다(마쓰모토 18:11 — 맑음 28.2 · 중층 61% 만 20.2,
+  //   verify-night-cloudy). 그래서 **맨 위 층에 닿는 직달**을 견줘 달이 더 크면 달을 광원으로 씁니다.
+  const moonUp = ml.gain > 0 && !!u.moonDir && u.moonAltDeg !== undefined;
+  let lightByMoon = ml.useMoon && moonUp;
+  const topKm = (uni.uLayerAltKm.value as THREE.Vector3).z;
+  if (!lightByMoon && moonUp && u.sunAltDeg < 0) {
+    const key = [u.sunAltDeg.toFixed(2), u.moonAltDeg!.toFixed(2), topKm.toFixed(3), ml.gain.toFixed(6),
+      u.atmosphere.betaMie, u.atmosphere.ozoneDU, u.atmosphere.dayOfYear].join('|');
+    const memo = handle as unknown as { _moonPick?: { key: string; moon: boolean } };
+    if (!memo._moonPick || memo._moonPick.key !== key) {
+      const lw = (c: RGB) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const sunTop = lw(beamGrazing(u.sunAltDeg, topKm, u.atmosphere));
+      const moonTop = lw(beamGrazing(u.moonAltDeg!, topKm, u.atmosphere)) * ml.gain;
+      memo._moonPick = { key, moon: moonTop > sunTop };
+    }
+    lightByMoon = memo._moonPick.moon;
+  }
   const lightAlt = lightByMoon ? u.moonAltDeg! : u.sunAltDeg;
   (uni.uSunDir.value as THREE.Vector3).copy(lightByMoon ? u.moonDir! : u.sunDir).normalize();
   uni.uSunAltDeg.value = lightAlt;
   uni.uSunAzDeg.value = u.sunAzDeg;
   uni.uDispSunAltDeg.value = u.sunAltDeg;
   uni.uLightGain.value = lightByMoon ? ml.gain : 1;
-  (uni.uSkyAdd.value as THREE.Vector3).set(
-    lightByMoon ? NIGHT_SKY.r : 0, lightByMoon ? NIGHT_SKY.g : 0, lightByMoon ? NIGHT_SKY.b : 0);
+  // 달이 광원이면 하늘빛 = 달빛 하늘 × 이득 + 바닥. 그 바닥을 **박명 하늘(반구 평균)** 로 올립니다 — 해가 진
+  // 직후에는 박명 하늘이 밤하늘 바닥보다 훨씬 밝고, 직달 대신 달을 골랐다고 그 환경광까지 버리면 안 됩니다.
+  // 깊은 밤에는 박명 하늘 = 바닥이라 예전과 같습니다(방향은 잃습니다 — 반구 평균).
+  let add = { r: 0, g: 0, b: 0 };
+  if (lightByMoon) {
+    const memo = handle as unknown as { _twiAmb?: { key: string; c: RGB } };
+    const key = [u.sunAltDeg.toFixed(2), u.atmosphere.betaMie, u.atmosphere.ozoneDU, u.atmosphere.elevScale].join('|');
+    if (!memo._twiAmb || memo._twiAmb.key !== key) memo._twiAmb = { key, c: hemiSkyRadiance(u.sunAltDeg, u.atmosphere) };
+    const tw = memo._twiAmb.c;
+    add = { r: Math.max(NIGHT_SKY.r, tw.r), g: Math.max(NIGHT_SKY.g, tw.g), b: Math.max(NIGHT_SKY.b, tw.b) };
+  }
+  (uni.uSkyAdd.value as THREE.Vector3).set(add.r, add.g, add.b);
   uni.uCityLight.value =
     typeof u.cityLight === 'number' ? Math.max(0, Math.min(1, u.cityLight))
       : u.cityLight === false ? 0.0 : 1.0;

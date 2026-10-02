@@ -58,25 +58,58 @@ const requestNotificationPermission = async () => {
   return finalStatus === 'granted';
 };
 
+/**
+ * 그날 일몰의 구름·하늘 표지와 대기질 한 줄(**그날 예보**). 받지 못하면 null — 다른 날 표지를 빌려 쓰지
+ * 않습니다(예전에는 7일 예약이 전부 오늘 표지·오늘 그림이었습니다).
+ */
+const sunsetLabelsFor = async (
+  lat: number, lon: number, sunset: Date, language: Language,
+): Promise<{ cloudLabel: string; colorLabel: string; airNote: string } | null> => {
+  try {
+    const azimuth = getSunPosition(sunset, lat, lon).azimuth;
+    const wx = await fetchSunsetWeather(lat, lon, azimuth, false, sunset);
+    if (!wx || wx.length === 0) return null;
+    const obs = getInterpolatedWeather(wx, sunset)[0];
+    if (!obs) return null;
+    const pred = predictSunset(wx, sunset, 0, obs.visibility, obs.humidity, lat, 0);
+    if (!pred) return null;
+    return {
+      cloudLabel: t(('cloud' + pred.cloudLabel) as any, language),
+      colorLabel: t(('color' + pred.colorLabel) as any, language),
+      airNote: airQualityNote(obs, language),
+    };
+  } catch (e) {
+    if (__DEV__) console.warn('[Notification] Day forecast failed:', sunset.toISOString(), e);
+    return null;
+  }
+};
+
 const scheduleSunsetNotification = async (
   sunsetTime: Date,
-  cloudLabel: string,
-  colorLabel: string,
+  /** null 이면 예보 없이 "일몰 2시간 전" 만 알립니다(예보를 못 받았을 때 맑음이라고 지어내지 않습니다). */
+  cloudLabel: string | null,
+  colorLabel: string | null,
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
   customIdentifier: string = 'sunset-alert',
   /** 대기질 한 줄(`airQuality.airQualityNote`). 빈 문자열이면 붙이지 않습니다. */
-  airNote: string = ''
+  airNote: string = '',
+  /** 예보를 받은 날로부터 알림이 울리는 날까지 며칠인지. 1 이상이면 본문에 밝힙니다. */
+  staleDays: number = 0
 ) => {
   try {
     const effectiveTrigger = triggerTime ?? new Date(sunsetTime.getTime() - 2 * 60 * 60 * 1000);
     if (effectiveTrigger.getTime() <= Date.now()) return;
 
     const title = t('sunsetNotificationTitle', language);
-    const body = t('sunsetNotificationBody', language)
-      .replace('{cloud}', cloudLabel)
-      .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
+    const body = cloudLabel == null || colorLabel == null
+      ? t('sunsetNotificationBodyNoForecast', language)
+      : t('sunsetNotificationBody', language)
+          .replace('{cloud}', cloudLabel)
+          .replace('{color}', colorLabel)
+        + (staleDays > 0 ? ' ' + t('sunsetNotificationStale', language).replace('{n}', String(staleDays)) : '')
+        + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -114,8 +147,8 @@ const scheduleSunsetNotification = async (
 
 const scheduleSunriseNotification = async (
   sunriseTime: Date,
-  cloudLabel: string,
-  colorLabel: string,
+  cloudLabel: string | null,
+  colorLabel: string | null,
   language: Language,
   triggerTime?: Date,
   imageUri?: string | null,
@@ -132,9 +165,11 @@ const scheduleSunriseNotification = async (
     if (effectiveTrigger.getTime() <= Date.now()) return;
 
     const title = t('sunriseNotificationTitle', language);
-    const body = t('sunriseNotificationBody', language)
-      .replace('{cloud}', cloudLabel)
-      .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
+    const body = cloudLabel == null || colorLabel == null
+      ? t('sunriseNotificationBodyNoForecast', language)
+      : t('sunriseNotificationBody', language)
+          .replace('{cloud}', cloudLabel)
+          .replace('{color}', colorLabel) + (airNote ? ' ' + airNote : '');
 
     await Notifications.cancelScheduledNotificationAsync(customIdentifier);
     await Notifications.scheduleNotificationAsync({
@@ -669,8 +704,9 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string = t('cloudClear', language);
-            let colorLabel: string = t('colorClean', language);
+            // 예보를 못 받으면 null — 예전에는 '맑음 / 깨끗' 을 기본으로 박아 받지도 않은 예보를 알렸습니다.
+            let cloudLabel: string | null = null;
+            let colorLabel: string | null = null;
             let sunsetNotifImageUri: string | null = null;
             let airNote = '';
             try {
@@ -679,7 +715,7 @@ export function useCelestialApp() {
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
                 const obs = interpolated[0];
-                // 대기질은 오늘 일몰 시각의 값입니다 — 아래 7일 예약 중 **오늘 것에만** 붙입니다.
+                // 대기질은 오늘 일몰 시각의 값입니다 — 다른 날은 그날 예보에서 따로 받습니다.
                 airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
@@ -741,7 +777,10 @@ export function useCelestialApp() {
             // 예전 노을 예약만 지웁니다 — 전부 지우면(cancelAll) 일출·하늘 이벤트 알림까지 사라졌습니다.
             await cancelScheduledByPrefix('sunset-alert-day-');
 
-            // 향후 7일간 다일 사전 알림 스케줄링 (앱을 일주일 동안 켜지 않아도 OS 스케줄러가 매일 일몰 2시간 전에 3D 시뮬레이션 알림 발송)
+            // 향후 7일간 다일 사전 알림 스케줄링 (앱을 일주일 동안 켜지 않아도 OS 스케줄러가 매일 일몰 2시간 전에 알림 발송).
+            // ⚠ 날마다 **그날 예보**를 받습니다. 예전에는 7일 모두 오늘 표지·오늘 그림을 붙여, 맑은 오늘 뒤 비 오는
+            //   내일도 "맑음" 으로 울렸습니다. 그림(3D 시뮬)은 오늘 것만 만들고 다른 날은 붙이지 않습니다.
+            //   앱을 열면(날짜가 바뀌면) 다시 예약하므로, 며칠 전 예보로 울리는 건 앱을 열지 않은 날뿐이고 본문에 밝힙니다.
             for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
               const futureDate = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000);
               const dayEvents = getCelestialEvents(futureDate, lat, lon);
@@ -753,7 +792,12 @@ export function useCelestialApp() {
 
               const notifId = `sunset-alert-day-${dayOffset}`;
               const triggerTime = new Date(fIdealTrigger > Date.now() ? fIdealTrigger : Date.now() + (5 + dayOffset) * 60 * 1000);
-              await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId, dayOffset === 0 ? airNote : '');
+              if (dayOffset === 0) {
+                await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId, airNote);
+              } else {
+                const day = await sunsetLabelsFor(lat, lon, fSunset, language);
+                await scheduleSunsetNotification(fSunset, day?.cloudLabel ?? null, day?.colorLabel ?? null, language, triggerTime, null, notifId, day?.airNote ?? '', dayOffset);
+              }
             }
           } catch (err) {
             console.error('Failed to schedule multi-day sunset notifications:', err);
@@ -787,8 +831,8 @@ export function useCelestialApp() {
               return;
             }
 
-            let cloudLabel: string = t('cloudClear', language);
-            let colorLabel: string = t('colorClean', language);
+            let cloudLabel: string | null = null;
+            let colorLabel: string | null = null;
             let sunriseNotifImageUri: string | null = null;
             let airNote = '';
             try {

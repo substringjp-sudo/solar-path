@@ -34,7 +34,7 @@
  */
 import * as THREE from 'three';
 import {
-  CLOUD_SLAB_GLSL, substituteSlabConstants, bakeCoverageData, coverageFromSamples, SLAB_TEX, SLAB_RANGE_KM,
+  CLOUD_SLAB_GLSL, substituteSlabConstants, IDENTITY_COVER_REMAP, bakeCoverageData, coverageFromSamples, SLAB_TEX, SLAB_RANGE_KM,
 } from './CloudSlab';
 import { makeTuningUniforms } from '../../utils/atmosphere';
 import {
@@ -280,6 +280,8 @@ export function createCloudTopView(
     fragmentShader: substituteSlabConstants(FRAG, {
       shapeMean: opts.shapeMean ?? TOP_VIEW_SHAPE_MEAN,
       shapeSigRatio: opts.shapeSigRatio ?? TOP_VIEW_SHAPE_SIG_RATIO,
+      // 위에서 본 면적은 자기 눈금(TOP_VIEW_SHAPE_*)으로 맞췄습니다 — 하늘 시야용 역표는 쓰지 않습니다.
+      coverRemap: IDENTITY_COVER_REMAP,
     }),
     depthTest: false, depthWrite: false, transparent: false,
   });

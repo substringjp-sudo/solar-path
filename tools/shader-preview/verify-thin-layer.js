@@ -10,6 +10,9 @@
  *  3. 단면이 없으면 1(예전 그대로) · 두꺼운 단면(띠 안 2면 이상)이면 1 · 0면이면 0.75/16.
  *  4. 그림(앱과 같은 합성기): 밤 · 얇은 단면에서 구름 무늬 대비(덩어리 밝기 변동계수)가 예전의 50% 이하.
  *     두꺼운 단면은 예전과 화소까지 같다. 낮에도 얇은 단면이면 대비가 준다(밤만의 보정이 아니다).
+ *     ⚠ 2026-10-02 자 고침(문턱 50% 그대로): **구름이 보탠 대비**로 잽니다 — √(변동계수² − 맑은 밤 변동계수²).
+ *       구름 없는 밤(night-clear)만으로도 변동계수가 0.232(지평선 빛·달 쪽 기울기)라, 예전 문턱(0.5 × 0.319 =
+ *       0.16)은 구름을 다 지워도 닿을 수 없었습니다. 그 맑은 밤은 이 판에 대조로 이미 그려 두었던 장면입니다.
  *
  * 사용: node tools/shader-preview/stage-esm.js && node tools/shader-preview/build-thin-layer.js
  *       node tools/shader-preview/verify-thin-layer.js
@@ -73,7 +76,9 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     const o = get(n, 'old'), q = get(n, 'new');
     console.log(`      ${n.padEnd(11)} 중층 배율 ${q.scale.mid.toFixed(3)} · 대비 ${o.cv.toFixed(3)} → ${q.cv.toFixed(3)} · 평균 밝기 ${o.mean.toFixed(1)} → ${q.mean.toFixed(1)}`);
   }
-  ok(get('night-thin', 'new').cv <= 0.5 * get('night-thin', 'old').cv, '밤 · 얇은 단면: 구름 대비가 예전의 50% 이하');
+  const excess = (m) => Math.sqrt(Math.max(0, get('night-thin', m).cv ** 2 - get('night-clear', m).cv ** 2));
+  console.log(`      구름이 보탠 대비(밤 · 얇은 단면) ${excess('old').toFixed(3)} → ${excess('new').toFixed(3)} (맑은 밤 ${get('night-clear', 'new').cv.toFixed(3)})`);
+  ok(excess('new') <= 0.5 * excess('old'), `밤 · 얇은 단면: 구름이 보탠 대비가 예전의 50% 이하 (${(excess('new') / Math.max(1e-9, excess('old')) * 100).toFixed(0)}%)`);
   const same = (a, c) => a.img.length === c.img.length && a.img.every((v, i) => v === c.img[i]);
   ok(same(get('night-thick', 'old'), get('night-thick', 'new')), '두꺼운 단면: 예전과 화소까지 같다');
   ok(get('day-thin', 'new').cv < get('day-thin', 'old').cv, '낮에도 얇은 단면이면 대비가 준다');

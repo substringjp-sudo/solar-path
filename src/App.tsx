@@ -135,6 +135,7 @@ export default function App() {
   React.useEffect(() => {
     preloadInitialData();
   }, [preloadInitialData]);
+  const startupLocationSettled = useCelestialStore(s => s.startupLocationSettled);
 
   // 앱 마운트 시 즉시 네이티브 스플래시 화면을 숨기고 하이브리드 로딩 화면을 노출합니다.
   React.useEffect(() => {
@@ -198,6 +199,19 @@ export default function App() {
   }, [isSavedListVisible]);
 
   // 앱 숏컷 및 외부 딥링크 처리 (beforeglow://camera, beforeglow://teleport 등)
+  //
+  // ⚠ 현재 시각은 ref 로 읽습니다. 예전에는 effect 의존성에 currentTime 이 있어, 텔레포트가 시각을 바꾸면
+  //   effect 가 다시 돌고 → getInitialURL 이 **같은 주소**를 또 돌려주고 → 다시 시각을 바꾸는 고리가 돌아
+  //   "Maximum update depth exceeded" 로 멈췄습니다(웹에서 ?teleport 주소로 열 때). 처음 주소는 한 번만 처리합니다.
+  // ⚠ 처음 주소는 **프리로드가 시작 위치를 정한 뒤에**(startupLocationSettled) 처리합니다. 시작할 때 위치를
+  //   정하는 길(프리로드의 GPS, 권한이 생기면 넣는 기본 위치)이 텔레포트보다 늦게 끝나 텔레포트 위치를
+  //   덮어썼습니다 — 위의 고리가 그걸 계속 다시 덮어써서 가려져 있었습니다. isAppReady 로는 모자랍니다:
+  //   3D 가 첫 장을 그리면 켜져서, 웹에서 재 보니 준비 3.5초 · 프리로드의 GPS 6.6초였습니다. 프리로드가 다
+  //   끝나기까지(날씨·지형, 웹 13초) 기다릴 까닭은 없습니다.
+  const currentTimeRef = React.useRef(currentTime);
+  currentTimeRef.current = currentTime;
+  const initialUrlHandledRef = React.useRef(false);
+  const handleUrlRef = React.useRef<((event: { url: string }) => void) | null>(null);
   React.useEffect(() => {
     const handleUrl = (event: { url: string }) => {
       const url = event.url;
@@ -208,7 +222,7 @@ export default function App() {
         return;
       }
 
-      const teleportData = parseTeleportUrl(url, currentTime);
+      const teleportData = parseTeleportUrl(url, currentTimeRef.current);
       if (teleportData) {
         if (__DEV__) console.log('[DeepLink] Teleport received:', teleportData);
         // 열려있는 모달들을 모두 닫고 3D 씬 탭으로 즉시 워프
@@ -233,17 +247,22 @@ export default function App() {
     };
 
     const subscription = Linking.addEventListener('url', handleUrl);
-
-    Linking.getInitialURL().then((url) => {
-      if (url) {
-        handleUrl({ url });
-      }
-    });
+    handleUrlRef.current = handleUrl;
 
     return () => {
       subscription.remove();
     };
-  }, [currentTime, setLocation, setCurrentTime, setTimeMachineEnabled, setTeleportTarget, setActiveTab, setSunCameraVisible, setMapVisible, setSavedListVisible, setShowDatePicker, setSettingsVisible]);
+  }, [setLocation, setCurrentTime, setTimeMachineEnabled, setTeleportTarget, setActiveTab, setSunCameraVisible, setMapVisible, setSavedListVisible, setShowDatePicker, setSettingsVisible]);
+
+  React.useEffect(() => {
+    if (!startupLocationSettled || initialUrlHandledRef.current) return;
+    initialUrlHandledRef.current = true;
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleUrlRef.current?.({ url });
+      }
+    });
+  }, [startupLocationSettled]);
 
   // 앱 세션별 랜덤 로딩 이미지 지정
   const randomImageRef = React.useRef(LOAD_IMAGES[Math.floor(Math.random() * LOAD_IMAGES.length)]);
