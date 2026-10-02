@@ -11,7 +11,7 @@ import { GridCloudShape } from '../../utils/cloudGridRenderer';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import { generateSimulationImage, captureVisualizerSnapshot } from '../../utils/simulationImage';
-import SunCalc from 'suncalc';
+import { sunPosition } from '../../utils/solarPosition';
 import { getInterpolatedWeather } from '../../utils/weather';
 
 // 하늘 격자 계산용 전역 캐시 맵
@@ -412,7 +412,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({
     if (prediction) return prediction;
     if (!sim?.pathData || sim.pathData.length < 4 || !eventWeather || eventWeather.length === 0) return null;
     const targetTime = sim?.eventTime || currentTime;
-    const baseSunPos = SunCalc.getPosition(targetTime, location?.coords?.latitude || 0, location?.coords?.longitude || 0);
+    const baseSunPos = sunPosition(targetTime, location?.coords?.latitude || 0, location?.coords?.longitude || 0);
     const baseSunAlt = baseSunPos.altitude * (180 / Math.PI);
     return predictSunset(
       sim.pathData,

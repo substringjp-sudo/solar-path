@@ -9,8 +9,14 @@
  * 항등식을 주장만 하고 재지는 않습니다. 그래서 여기서는 **고도장의 수치
  * 기울기**로 등고도선 방위를 따로 구해 견줍니다 — 모듈이 틀리면 걸립니다.
  *
- * 태양 방위도 마찬가지입니다. 앱의 `getSunPosition` 은 **SunCalc**(별도 구현)
- * 이고, 직하점은 NOAA 저정밀도 식입니다. 둘은 독립이므로 견주는 뜻이 있습니다.
+ * 태양 방위도 마찬가지입니다. 예전엔 앱의 `getSunPosition` 이 **SunCalc**,
+ * 직하점이 NOAA 저정밀도 식이라 둘을 "독립된 두 구현" 으로 견줬습니다.
+ *
+ * ⚠ 이제 둘 다 `solarPosition.ts` **한 태양력**에서 나옵니다(지도의 일몰선과 하늘의
+ *   일몰이 갈라지지 않게). 그래서 [1]·[2] 는 독립 대조가 아니라 **두 식이 같은 기하를
+ *   푸는가**(직하점 경도·위도 식 ↔ 지평 좌표의 시간각 식)를 봅니다. 문턱도 그만큼
+ *   조였습니다. 태양력 자체가 맞는지는 `verify-solar-position.js` 가 PyEphem 표에 대고
+ *   봅니다 — 아래 "첫 판에 잡은 것" 같은 결함은 이제 거기서 걸립니다.
  *
  * ## ⚠ 방위 잔차는 **조건수를 되돌리고** 봅니다
  *
@@ -22,6 +28,9 @@
  *
  * 그래서 문턱을 푸는 대신 **증폭을 되돌려** 봅니다. 이렇게 해도 실제 결함은
  * 잡힙니다 — 아래 경사각 결함은 위치 오차 자체가 1.27° 였습니다.
+ *
+ * (그 0.175~0.213° 는 저정밀 식 탓이 아니라 **SunCalc 의 해가 0.2° 어긋나 있던 것**
+ * 이었습니다 — 근일점 세차가 빠져 2026년 황경이 0.46° 밀립니다. `solarPosition.ts` 머리말.)
  *
  * ## ⚠ 이 자가 첫 판에 잡은 것
  *
@@ -64,8 +73,8 @@ const TIMES = [
   const { getSubsolarPoint, getSunPosition } = C;
 
   // ── [1] 태양 방위 == 직하점으로의 방위 ───────────────────────────────
-  //    왼쪽은 SunCalc, 오른쪽은 NOAA 직하점. **독립된 두 구현**입니다.
-  console.log('\n[1] 태양 방위 = 직하점으로의 대권 방위 (SunCalc vs NOAA)');
+  //    왼쪽은 지평 좌표(시간각 식), 오른쪽은 직하점(경도·위도 식). 같은 태양력의 두 표현입니다.
+  console.log('\n[1] 태양 방위 = 직하점으로의 대권 방위 (지평 좌표 vs 직하점)');
   {
     let raw = 0, rawAt = '', corr = 0, corrAt = '', maxAmp = 0;
     for (const iso of TIMES) {
@@ -86,7 +95,7 @@ const TIMES = [
     }
     console.log(`      표본 ${TIMES.length * PLACES.length}개 · 원시 잔차 최대 ${raw.toFixed(3)}° (${rawAt})`);
     console.log(`      증폭 되돌린 잔차 최대 ${corr.toFixed(3)}° · 최대 증폭 ${maxAmp.toFixed(1)}배`);
-    ok(corr < 0.25, `두 독립 구현의 위치가 맞는다 — 증폭 되돌린 잔차 ${corr.toFixed(3)}° < 0.25° (${corrAt})`);
+    ok(corr < 0.001, `직하점 식과 지평 좌표 식이 같은 해를 가리킨다 — 증폭 되돌린 잔차 ${corr.toFixed(4)}° < 0.001° (${corrAt})`);
     ok(maxAmp > 3, `표본에 조건이 나쁜 자리가 들어 있다 (최대 ${maxAmp.toFixed(1)}배) — 되돌림이 공허하지 않다`);
   }
 
@@ -97,13 +106,13 @@ const TIMES = [
     for (const iso of TIMES) {
       const d = new Date(iso);
       for (const [, la, lo] of PLACES) {
-        // SunCalc 은 대기굴절을 안 넣은 기하 고도를 줍니다 — 바로 견줄 수 있습니다.
+        // 앱의 해는 대기굴절을 안 넣은 기하 고도입니다 — 바로 견줄 수 있습니다.
         const diff = Math.abs(getSunPosition(d, la, lo).altitude - sunAltitudeFromSubsolar(d, la, lo));
         if (diff > worst) worst = diff;
       }
     }
     console.log(`      최대 잔차 ${worst.toFixed(4)}°`);
-    ok(worst < 0.25, `각거리로 낸 고도가 SunCalc 과 맞는다 (${worst.toFixed(4)}° < 0.25°)`);
+    ok(worst < 0.001, `각거리로 낸 고도가 앱의 해 고도와 맞는다 (${worst.toFixed(4)}° < 0.001°)`);
   }
 
   // ── [3] ⚠ 직교를 **재서** 확인합니다 (수치 기울기) ────────────────────
@@ -154,7 +163,7 @@ const TIMES = [
       }
     }
     console.log(`      잰 등고도선과 태양 방위: 90° 에서 원시 최대 ${worstPerp.toFixed(3)}° · 되돌려 ${worstPerpCorr.toFixed(3)}°`);
-    ok(worstPerpCorr < 0.25, `잰 등고도선이 태양 방위와 직교한다 (되돌린 ${worstPerpCorr.toFixed(3)}° < 0.25°)`);
+    ok(worstPerpCorr < 0.001, `잰 등고도선이 태양 방위와 직교한다 (되돌린 ${worstPerpCorr.toFixed(4)}° < 0.001°)`);
   }
 
   // ── [4] ⚠ 음성 대조 — 틀린 구현이면 걸리는가 ─────────────────────────

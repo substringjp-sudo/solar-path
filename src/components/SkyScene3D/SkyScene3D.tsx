@@ -21,6 +21,7 @@ import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
 import { Target } from 'lucide-react-native';
 import SunCalc from 'suncalc';
+import { sunPosition } from '../../utils/solarPosition';
 import { planetLabelVisible, moonLabelVisible, milkyWayLabelVisible } from '../../utils/labelVisibility';
 
 import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
@@ -1485,8 +1486,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       sunAltRef.current = sampled.sunAltDeg;
       sunAzRef.current = sampled.sunAzDeg;
     } else {
-      // SunCalc는 가볍고 태양 위치는 매 프레임 필요 → 항상 계산
-      const sunPos = SunCalc.getPosition(targetDate, lat, lng);
+      // 태양 위치는 가볍고 매 프레임 필요 → 항상 계산
+      const sunPos = sunPosition(targetDate, lat, lng);
       sunAltRef.current = (sunPos.altitude * 180) / Math.PI;
       sunAzRef.current = (sunPos.azimuth * 180) / Math.PI + 180;
     }

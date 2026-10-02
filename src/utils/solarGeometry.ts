@@ -41,7 +41,7 @@
  * 그 자리에서 뜻이 생기는 질문은 "지구 어디가 지금 일출인가" 가 아니라
  * **"내 하늘 어디에 해가 있나"** 입니다. 같은 기하의 다른 표현으로 넘어갑니다.
  */
-import SunCalc from 'suncalc';
+import { sunTimes } from './solarPosition';
 import { getSubsolarPoint, getSunPosition } from './celestial';
 
 const RAD = Math.PI / 180;
@@ -118,7 +118,7 @@ export interface SunFan {
  */
 export const getSunFan = (date: Date, lat: number, lon: number): SunFan => {
   const now = getSunPosition(date, lat, lon);
-  const times = SunCalc.getTimes(date, lat, lon);
+  const times = sunTimes(date, lat, lon);
   const azAt = (t: Date | undefined): number | null =>
     t && !Number.isNaN(t.getTime()) ? getSunPosition(t, lat, lon).azimuth : null;
   return {
@@ -152,7 +152,7 @@ export const sunriseSpreadMinutes = (
   for (const dLat of [-latDelta, 0, latDelta]) {
     for (const dLon of [-lonDelta, 0, lonDelta]) {
       const la = Math.max(-89, Math.min(89, lat + dLat));
-      const t = SunCalc.getTimes(date, la, lon + dLon).sunrise;
+      const t = sunTimes(date, la, lon + dLon).sunrise;
       if (t && !Number.isNaN(t.getTime())) times.push(t.getTime());
     }
   }

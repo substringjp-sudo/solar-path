@@ -13,7 +13,7 @@ import Svg, {
   Circle, Path, Line, G, Text as SvgText, Defs,
   LinearGradient, Stop, RadialGradient,
 } from 'react-native-svg';
-import SunCalc from 'suncalc';
+import { sunPosition, sunTimes } from '../../utils/solarPosition';
 import { getSunPath } from '../../utils/celestial';
 import { useCelestialStore } from '../../store/useCelestialStore';
 
@@ -77,7 +77,7 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = 
 
   // ── 현재 태양 위치 ─────────────────────────────────────────────────────────
   const sunPos = useMemo(() => {
-    const s = SunCalc.getPosition(currentTime, lat, lng);
+    const s = sunPosition(currentTime, lat, lng);
     return {
       azimuth: (s.azimuth * 180) / Math.PI + 180,
       altitude: (s.altitude * 180) / Math.PI,
@@ -89,7 +89,7 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = 
 
   // ── 주요 이벤트 (일출·정오·일몰) ─────────────────────────────────────────
   const events = useMemo(() => {
-    const times = SunCalc.getTimes(currentTime, lat, lng);
+    const times = sunTimes(currentTime, lat, lng);
     const items: { label: string; time: Date; color: string }[] = [
       { label: L('일출', 'Sunrise', '日の出'), time: times.sunrise, color: '#FB923C' },
       { label: L('정오', 'Noon', '南中'), time: times.solarNoon, color: '#38BDF8' },
@@ -98,7 +98,7 @@ export const SunAzimuthView: React.FC<Props> = ({ theme, currentTime, compact = 
     return items
       .filter(e => e.time && !isNaN(e.time.getTime()))
       .map(e => {
-        const sp = SunCalc.getPosition(e.time, lat, lng);
+        const sp = sunPosition(e.time, lat, lng);
         const az = (sp.azimuth * 180) / Math.PI + 180;
         const alt = (sp.altitude * 180) / Math.PI;
         const timeStr = e.time.toLocaleTimeString('ko-KR', {

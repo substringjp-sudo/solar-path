@@ -11,7 +11,8 @@ const W = require(TLB + '/weather.js');
 const A = require(TLB + '/atmosphere.js');
 const P = require(TLB + '/cloudPresets.js');
 const T = require(TLB + '/skyTimeline.js');
-const SunCalc = require('suncalc');
+// 그 자리에서 푸는 경로도 앱과 같은 태양력을 씁니다(SkyScene3D 의 타임라인 없는 갈래).
+const { sunPosition } = require(TLB + '/solarPosition.js');
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  FAIL:', m); } };
@@ -53,7 +54,7 @@ function solveDirect(tMs, driftMinutes) {
   const t = new Date(tMs);
   const w = W.getInterpolatedWeather(ring, t);
   const obs = w.find(x => (x.distance ?? 0) === 0) ?? w[0];
-  const sp = SunCalc.getPosition(t, LAT, LON);
+  const sp = sunPosition(t, LAT, LON);
   const sunAlt = (sp.altitude * 180) / Math.PI;
   const sunAz = (sp.azimuth * 180) / Math.PI + 180;
   const samples = S.buildSkyColumns({

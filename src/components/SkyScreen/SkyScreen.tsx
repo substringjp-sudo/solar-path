@@ -39,6 +39,7 @@ import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
+import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
 import { t } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, dataColor } from '../../theme/tokens';
@@ -206,7 +207,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     terrain: terrainData,
   }), [terrainData]);
 
-  const sunPos = SunCalc.getPosition(currentTime, latitude, longitude);
+  const sunPos = sunPosition(currentTime, latitude, longitude);
   const sunAltitude = (sunPos.altitude * 180) / Math.PI;
   const sunAzimuth = (sunPos.azimuth * 180) / Math.PI + 180;
 
@@ -429,7 +430,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
   const predictionAt = (tm?: Date | null) => {
     if (!tm || !pathData.length) return null;
-    const sp = SunCalc.getPosition(tm, latitude, longitude);
+    const sp = sunPosition(tm, latitude, longitude);
     const p = scenePrediction({
       pathData,
       time: tm,

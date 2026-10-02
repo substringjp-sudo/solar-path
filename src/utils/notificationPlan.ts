@@ -19,6 +19,7 @@
  * `budget` 40개까지, 가까운 것부터 남깁니다.
  */
 import SunCalc from 'suncalc';
+import { sunCrossings, sunTimes } from './solarPosition';
 import { buildSkyEvents } from './skyEvents';
 import type { Language } from './i18n';
 
@@ -65,16 +66,8 @@ export interface PlannedNotification {
 
 const L3 = (lang: Language, ko: string, en: string, ja: string) => (lang === 'ko' ? ko : lang === 'ja' ? ja : en);
 
-// 블루아워 저녁 시작(해 −4°) — SunCalc 에 한 번만 더합니다.
-const BLUE_EVE = 'blueHourEveStart';
-const BLUE_MORN_END = 'blueHourMornEnd';
-let blueAdded = false;
-function ensureBlueTimes() {
-  if (blueAdded) return;
-  blueAdded = true;
-  const already = (SunCalc as any).times?.some?.((t: any[]) => t[2] === BLUE_EVE);
-  if (!already) SunCalc.addTime(-4, BLUE_MORN_END, BLUE_EVE);
-}
+// 블루아워 저녁 시작은 해 −4° 입니다 — 출몰 표에 없는 고도라 따로 풉니다.
+const BLUE_EVE_ALT_DEG = -4;
 
 const valid = (d?: Date | null): d is Date => !!d && !isNaN(d.getTime());
 
@@ -109,7 +102,6 @@ export function planSkyNotifications(p: {
   const lead = Math.max(0, prefs.leadMin) * 60e3;
   const anyOn = SKY_NOTIF_KINDS.some((k) => prefs[k]);
   if (!anyOn) return [];
-  ensureBlueTimes();
 
   const hhmm = (d: Date) => {
     const x = new Date(d.getTime() + tz * 3600e3);
@@ -131,13 +123,14 @@ export function planSkyNotifications(p: {
     out.push({ id: `sky-${kind}-${dayKey(eventAt)}-${half}`, kind, eventAt, fireAt, title, body });
   };
 
-  // 관측지 현지 날짜의 정오에서 하루씩 — SunCalc 는 넘긴 시각이 속한 날의 출몰을 줍니다.
+  // 관측지 현지 날짜의 정오에서 하루씩 — `sunTimes` 는 넘긴 시각에서 가장 가까운 정오의 출몰을 줍니다.
   const localNow = new Date(now.getTime() + tz * 3600e3);
   const noon0 = Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 12) - tz * 3600e3;
 
   for (let i = 0; i < days; i++) {
     const date = new Date(noon0 + i * 864e5);
-    const times: any = SunCalc.getTimes(date, lat, lon);
+    const times = sunTimes(date, lat, lon);
+    const blueEve = sunCrossings(date, lat, lon, BLUE_EVE_ALT_DEG).set;
 
     if (prefs.golden) {
       push('golden', times.sunrise, 'am',
@@ -151,9 +144,9 @@ export function planSkyNotifications(p: {
       push('blue', times.dawn, 'am',
         L3(L, '아침 블루아워', 'Morning blue hour', '朝のブルーアワー'),
         L3(L, `${leadText} ${hhmm(times.dawn)}부터 하늘이 푸르게 밝아옵니다.`, `The sky turns blue from ${hhmm(times.dawn)} (${leadText}).`, `${leadText}、${hhmm(times.dawn)}から空が青く明るみます。`));
-      push('blue', times[BLUE_EVE], 'pm',
+      push('blue', blueEve, 'pm',
         L3(L, '저녁 블루아워', 'Evening blue hour', '夕方のブルーアワー'),
-        L3(L, `${leadText} ${hhmm(times[BLUE_EVE])}부터 해진 뒤 푸른 하늘이 됩니다.`, `Blue sky after sunset from ${hhmm(times[BLUE_EVE])} (${leadText}).`, `${leadText}、${hhmm(times[BLUE_EVE])}から日没後の青い空です。`));
+        L3(L, `${leadText} ${hhmm(blueEve)}부터 해진 뒤 푸른 하늘이 됩니다.`, `Blue sky after sunset from ${hhmm(blueEve)} (${leadText}).`, `${leadText}、${hhmm(blueEve)}から日没後の青い空です。`));
     }
     if (prefs.moonrise) {
       // 관측지 현지 0~24시의 월출. SunCalc.getMoonTimes 는 기기 시간대로 하루를 자르므로 직접 찾습니다.
