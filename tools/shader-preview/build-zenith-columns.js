@@ -35,12 +35,13 @@ const D2R=Math.PI/180;
 const SUN_ALT=47.5, SUN_AZ=205;           // 마쓰모토 2026-09-25 13:08 (SunCalc)
 const atmosphere=makeAtmosphereParams({latitude:36.3,observerElevM:545,dayOfYear:268,humidityPct:70,visibilityM:20000});
 // 팬: 앱의 API 팬 모양(태양 방위 ±20°, 거리 10~380km) — 레이마다 조금씩 다른 예보.
+const HIGH=84;
 const OFFSETS=[-20,-10,0,10,20], DISTS=[10,30,70,130,200,280,380];
 const pts=[];
 const pt=(d,off)=>{ const w=Math.sin(d/60+off*0.11), v=Math.cos(d/45-off*0.07);
   return { distance:d, azimuthOffset:off, low:Math.max(0,Math.min(100,25+15*w)), mid:Math.max(0,Math.min(100,35+20*v)),
-    high:Math.max(0,Math.min(100,84+12*w*v)), humidity:70, precipitation:0, visibility:20000 }; };
-pts.push({...pt(0,0), low:20, mid:30, high:84});
+    high:Math.max(0,Math.min(100,HIGH+12*w*v)), humidity:70, precipitation:0, visibility:20000 }; };
+pts.push({...pt(0,0), low:20, mid:30, high:HIGH});
 for (const off of OFFSETS) for (const d of DISTS) pts.push(pt(d,off));
 const fan=new WeatherFan(pts, SUN_AZ);
 const samples=buildSkyColumns({fan, driftMinutes:0, windSpeedKmh:20, windBearingDeg:250});
@@ -68,7 +69,7 @@ const canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;
 const r=new THREE.WebGLRenderer({canvas,antialias:false,alpha:false}); r.setPixelRatio(1); r.setSize(W,H,false);
 const gl=r.getContext();
 const dirOf=(alt,az)=>new THREE.Vector3(Math.cos(alt*D2R)*Math.sin(az*D2R),Math.sin(alt*D2R),-Math.cos(alt*D2R)*Math.cos(az*D2R)).normalize();
-const render=(src, view, dataOut, withSky)=>{
+const render=(src, view, dataOut, withSky, driftHours=0)=>{
   const scene=new THREE.Scene();
   if (withSky){ const sky=createSkydome(); updateSkydome(sky,SUN_ALT,SUN_AZ,atmosphere); scene.add(sky.mesh); }
   const slab=createCloudSlab(); scene.add(slab.mesh); bakeCloudSlabCoverage(slab, src);
@@ -76,7 +77,7 @@ const render=(src, view, dataOut, withSky)=>{
   const v=dirOf(view.elev,view.az); cam.lookAt(v.x,v.y,v.z); cam.updateMatrixWorld(true);
   const w={speedKmh:0,bearingDeg:250};
   updateCloudSlab(slab,{camera:cam,widthPx:W,heightPx:H,sunDir:dirOf(SUN_ALT,SUN_AZ),sunAltDeg:SUN_ALT,sunAzDeg:SUN_AZ,
-    beamFor:k=>beamAtAltitude(SUN_ALT,k,atmosphere),atmosphere,layerWinds:{low:w,mid:w,high:w},driftHours:0,visible:true,dataOut});
+    beamFor:k=>beamAtAltitude(SUN_ALT,k,atmosphere),atmosphere,layerWinds:{low:w,mid:w,high:w},driftHours,visible:true,dataOut});
   r.setClearColor(0x000000,1); r.render(scene,cam);
   const b=new Uint8Array(W*H*4); gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,b);
   slab.dispose && slab.dispose();
@@ -93,14 +94,30 @@ const circleStd=(img,cam,alt,az,radDeg)=>{
     const [x,y]=toPx(cam,d); const xi=Math.round(x), yi=Math.round(y); if(xi<0||yi<0||xi>=W||yi>=H) continue;
     const v=img[(yi*W+xi)*4]; a+=v; b2+=v*v; m++; }
   a/=m; return Math.sqrt(Math.max(0,b2/m-a*a)); };
+// 원을 따라 R 채널 평균 — 자가 공허한지(전부 0 이거나 천장 255 에 붙었는지) 봅니다.
+const circleMean=(img,cam,alt,az,radDeg)=>{
+  const c=dirOf(alt,az), e=new THREE.Vector3(0,1,0).cross(c); if (e.lengthSq()<1e-9) e.set(1,0,0); e.normalize();
+  const n=c.clone().cross(e).normalize(); let a=0,m=0;
+  for(let k=0;k<180;k++){ const t=k*2*D2R, s=Math.sin(radDeg*D2R), co=Math.cos(radDeg*D2R);
+    const d=c.clone().multiplyScalar(co).add(e.clone().multiplyScalar(s*Math.cos(t))).add(n.clone().multiplyScalar(s*Math.sin(t)));
+    const [x,y]=toPx(cam,d); const xi=Math.round(x), yi=Math.round(y); if(xi<0||yi<0||xi>=W||yi>=H) continue;
+    a+=img[(yi*W+xi)*4]; m++; }
+  return a/Math.max(1,m); };
 const screen={};
 // 기준: 운량이 어디서나 같은 장(사용자 화면의 층 운량). 남는 편차는 모양장 자체의 결입니다.
-const uniform=()=>({low:0.3,mid:0.35,high:0.84,confidence:1,lowGenus:0});
+const uniform=()=>({low:0.3,mid:0.35,high:HIGH/100,confidence:1,lowGenus:0});
+// ⚠ (2026-10-02) 화면 자를 재는 흐름 시각을 **대조(균일 운량장)** 로 고릅니다. 운량 사상을 하늘 평균으로 다시
+//   맞춘 뒤(CloudSlab SHAPE_MEAN) 흐름 0시의 천정은 빈틈없는 한 장(원 표준편차 0)이라, 옛 조회의 결함도 새
+//   조회의 고침도 화면에서 안 보였습니다 — 자가 공허. 천정 시야(지상 지름 몇 km)는 그 자리 느린 무늬에 따라
+//   꽉 차거나 비기 쉬우므로, 균일 운량장의 천정 8° 원에 구조(표준편차 ≥ 2)가 있는 첫 시각을 씁니다. 판정
+//   대상(옛·새)이 아니라 대조로 고르므로 결과를 보고 고른 것이 아닙니다.
+let screenDrift=-1;
+for (let h=0; h<24; h++){ const {b,cam}=render(uniform,{az:0,elev:90,fov:90},2,false,h); if (circleStd(b,cam,90,0,8)>=2){ screenDrift=h; break; } }
 for (const [key,src] of [['old',srcOld],['new',srcNew],['uniform',uniform]]) {
-  const {b,cam}=render(src,{az:0,elev:90,fov:90},2,false);
+  const {b,cam}=render(src,{az:0,elev:90,fov:90},2,false,Math.max(0,screenDrift));
   const z1=circleStd(b,cam,90,0,1), z8=circleStd(b,cam,90,0,8);
   const c1=circleStd(b,cam,55,200,1), c8=circleStd(b,cam,55,200,8);
-  screen[key]={z1,z8,zRatio:z1/Math.max(1e-6,z8),c1,c8,cRatio:c1/Math.max(1e-6,c8)};
+  screen[key]={z1,z8,zRatio:z1/Math.max(1e-6,z8),c1,c8,cRatio:c1/Math.max(1e-6,c8),z8mean:circleMean(b,cam,90,0,8)};
 }
 // 사용자 화면과 같은 시선(276° · +82°, 세로 화각 약 70°)의 그림
 const shots=[];
@@ -109,7 +126,7 @@ for (const [key,src] of [['old',srcOld],['new',srcNew]]) {
   const img=[]; for(let y=H-1;y>=0;y--) for(let x=0;x<W;x++){ const i=(y*W+x)*4; img.push(b[i],b[i+1],b[i+2]); }
   shots.push({key,img});
 }
-window.__stats={field,screen,shots,W,H,glError:gl.getError()};
+window.__stats={field,screen,screenDrift,shots,W,H,glError:gl.getError()};
 } catch(e){ errors.push('예외: '+(e&&e.stack||e)); }
 window.__errors=errors; document.title='DONE::'+(errors.length?'ERR':'OK');
 </script></body></html>`;
