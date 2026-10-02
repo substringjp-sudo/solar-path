@@ -175,9 +175,10 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
     const tauAt = k => { const [a, b, c] = at(k); return tauFromCover(ro(a, b, c)); };
     let lo, hi;
     if (dTau > 0) {
-      const minNz = Math.min(...[l, m, h].filter(x => x > 0));
-      lo = 1; hi = 100 / minNz;
-      if (tauAt(hi) >= target) return at(hi);          // 모두 100% 여도 못 미침 — 거기서 멈춤
+      // 가장 큰 층이 100% 가 되면 기둥도 100%(τ 0.25)라 어떤 목표에도 닿습니다. 그 너머로 k 를 키우면
+      // 작은 층만 부풀립니다 — 처음 판은 여기서 가장 **작은** 층 기준(100/min)으로 멈춰, 목표가 τ 0.25
+      // 일 때 흔적뿐인 저층까지 100% 로 올렸습니다(τ 는 같아 오차 표는 그대로, 부풀림 집계만 틀림).
+      lo = 1; hi = 100 / Math.max(l, m, h);
     } else {
       lo = 0; hi = 1;
       if (tauAt(0) <= target) return at(0);
@@ -437,6 +438,26 @@ const ro = (l, m, h) => 100 * (1 - (1 - l / 100) * (1 - m / 100) * (1 - h / 100)
   for (const d of DISTS) {
     const p = (acc[d].P.e / acc[d].P.n) * 100, n0 = (acc[d].N.e / acc[d].N.n) * 100;
     verdict(p <= n0 + 0.05, `A3 ${d}km 에서 P(${f1(p)}) ≤ N(${f1(n0)}) + 0.05`);
+  }
+
+  // (참고) 감쇠 길이는 총운량으로 골랐습니다. 그리는 기둥(P)으로 골랐다면 어디였을지 — 판단에는 안 씁니다.
+  console.log('\n[참고] P 를 감쇠 길이별로 — 그리는 기둥 τ 오차, 거리 25~400km × 앞선 0~3h 칸 평균');
+  {
+    const sum = LD_GRID.map(() => ({})), cnt = LD_GRID.map(() => ({}));
+    for (const s of layerSamples) {
+      if (s.d === 0) continue;
+      const key = `${s.d}|${s.L}`;
+      LD_GRID.forEach((Ld, j) => {
+        const w = Number.isFinite(Ld) ? Math.exp(-s.d / Ld) : 1;
+        const [l, mm, h] = allocate(s.low, s.mid, s.high, s.b * w * dampingForLead(s.L), true);
+        sum[j][key] = (sum[j][key] ?? 0) + Math.abs(tauFromCover(ro(l, mm, h)) - s.tSat);
+        cnt[j][key] = (cnt[j][key] ?? 0) + 1;
+      });
+    }
+    LD_GRID.forEach((Ld, j) => {
+      const cells = Object.keys(sum[j]).map(k => (sum[j][k] / cnt[j][k]) * 100);
+      console.log(`   Ld ${pad(Number.isFinite(Ld) ? Ld + 'km' : '∞', 7)}   ${f1(mean(cells))}`);
+    });
   }
 
   console.log('\n[장소별] 앞선 1시간 · 총운량 τ 오차 — 보정 전 → 지금 방식');
