@@ -162,6 +162,11 @@ interface CelestialState {
   notifPrefs: NotifPrefs;
   isAppReady: boolean;
   preloadStatus: string;
+  /**
+   * 시작할 때 위치를 정하는 일(권한 확인 → GPS/기본 위치)이 끝났는지. 처음 딥링크(텔레포트)가 이걸 기다립니다 —
+   * 먼저 텔레포트하면 프리로드의 GPS 가 그 위치를 덮어씁니다. 저장하지 않습니다.
+   */
+  startupLocationSettled: boolean;
   /** 프리로드 후 처음 열 탭. 새 IA 기준: 'sky' | 'map' | 'log' */
   initialTab: 'sky' | 'map' | 'log';
   selectedCategory: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery';
@@ -302,6 +307,7 @@ export const useCelestialStore = create<CelestialState>()(
       themeMode: 'dark',
       notifPrefs: DEFAULT_NOTIF_PREFS,
       isAppReady: false,
+      startupLocationSettled: false,
       preloadStatus: 'initializingApp',
       initialTab: 'sky',
       selectedCategory: 'sun',
@@ -979,7 +985,7 @@ export const useCelestialStore = create<CelestialState>()(
           const locPerm = get().locationPermission;
  
           if (locPerm !== 'granted') {
-            set({ isAppReady: true });
+            set({ isAppReady: true, startupLocationSettled: true });
             return;
           }
  
@@ -1013,6 +1019,7 @@ export const useCelestialStore = create<CelestialState>()(
               timestamp: Date.now()
             });
           }
+          set({ startupLocationSettled: true });
  
           const now = new Date();
           const times = SunCalc.getTimes(now, lat, lon);
@@ -1215,6 +1222,7 @@ export const useCelestialStore = create<CelestialState>()(
         } catch (err) {
           console.warn('[Preload] Error during initialization preloading:', err);
         } finally {
+          if (!get().startupLocationSettled) set({ startupLocationSettled: true });
           // 3D 씬 렌더 완료 트리거의 안전망 (2초 후 강제 완료)
           setTimeout(() => {
             if (!get().isAppReady) {
