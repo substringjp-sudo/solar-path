@@ -22,9 +22,11 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   const { buildSkyEvents } = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'skyEvents.js'));
   const SunCalc = (await import('file://' + path.join(PREVIEW, 'app', 'vendor', 'suncalc.js')).catch(() => null))?.default
     ?? require(path.join(__dirname, '..', '..', 'node_modules', 'suncalc'));
+  // 해 출몰은 앱이 넘기는 것과 같은 태양력에서 (celestial.getCelestialEvents → solarPosition.sunTimes).
+  const { sunTimes } = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'solarPosition.js'));
   const LAT = 37.4863, LON = 127.0443;
   const at = (iso) => new Date(iso);
-  const evOf = (d) => { const t = SunCalc.getTimes(d, LAT, LON), m = SunCalc.getMoonTimes(d, LAT, LON); return { sunrise: t.sunrise, sunset: t.sunset, moonrise: m.rise, moonset: m.set }; };
+  const evOf = (d) => { const t = sunTimes(d, LAT, LON), m = SunCalc.getMoonTimes(d, LAT, LON); return { sunrise: t.sunrise, sunset: t.sunset, moonrise: m.rise, moonset: m.set }; };
   const run = (iso, extra = {}) => { const d = at(iso); return buildSkyEvents({ date: d, latitude: LAT, longitude: LON, events: evOf(d), language: 'ko', ...extra }); };
   const show = (L) => L.map(e => `${e.id}@${e.time.toISOString().slice(11, 16)}`).join(' ');
 

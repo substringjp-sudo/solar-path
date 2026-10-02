@@ -1,4 +1,4 @@
-import SunCalc from 'suncalc';
+import { sunPosition, sunTimes } from './solarPosition';
 import { startOfDay, addMinutes } from 'date-fns';
 
 // ──────────────────────────────────────────
@@ -23,7 +23,7 @@ export const getGoldenTimeInfo = (currentTime: Date, lat: number, lng: number): 
   const days = [-1, 0, 1].map(offset => {
     const d = new Date(currentTime);
     d.setDate(d.getDate() + offset);
-    return SunCalc.getTimes(d, lat, lng);
+    return sunTimes(d, lat, lng);
   });
 
   const nowMs = currentTime.getTime();
@@ -227,7 +227,7 @@ export const getDaySunTrajectory = (date: Date, lat: number, lng: number): Traje
   // 10분 간격으로 하루 태양 위치 계산 (24시간 연속 데이터 확보)
   for (let m = 0; m <= 1440; m += 10) {
     const t = addMinutes(dayStart, m);
-    const pos = SunCalc.getPosition(t, lat, lng);
+    const pos = sunPosition(t, lat, lng);
     const azimuth = (pos.azimuth * 180 / Math.PI) + 180;
     const altitude = pos.altitude * 180 / Math.PI;
 

@@ -25,11 +25,15 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
 (async () => {
   const P = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'notificationPlan.js'));
   const SunCalc = require(path.join(__dirname, '..', '..', 'node_modules', 'suncalc'));
+  // 해는 앱의 태양력으로 잽니다 — 알림이 쓰는 그 해입니다. 출몰이 그 위치 함수의 근이라
+  // 문턱을 0.01° 로 조였습니다. SunCalc 시절엔 getTimes 와 getPosition 이 서로 0.2° 어긋나
+  // 0.3° 를 둬야 했습니다(solarPosition.ts 머리말).
+  const { sunPosition } = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'solarPosition.js'));
   const LAT = 37.4863, LON = 127.0443, TZ = 9, D = 180 / Math.PI;
   const base = { ...P.DEFAULT_NOTIF_PREFS };
   const off = Object.fromEntries(P.SKY_NOTIF_KINDS.map(k => [k, false]));
   const plan = (now, prefs, extra = {}) => P.planSkyNotifications({ latitude: LAT, longitude: LON, now: new Date(now), prefs: { ...base, ...off, ...prefs }, language: 'ko', tzOffsetHours: TZ, ...extra });
-  const sunAlt = (d) => SunCalc.getPosition(d, LAT, LON).altitude * D;
+  const sunAlt = (d) => sunPosition(d, LAT, LON).altitude * D;
   const moonAlt = (d) => SunCalc.getMoonPosition(d, LAT, LON).altitude * D;
   const NOW = '2026-09-30T03:00:00Z'; // 서울 정오
   const hasHangul = (s) => /[가-힣]/.test(s);
@@ -43,8 +47,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     const pm = L.filter(n => n.id.endsWith('-pm')), am = L.filter(n => n.id.endsWith('-am'));
     console.log(`      저녁 ${pm.length}개 해 고도 ${pm.map(n => sunAlt(n.eventAt).toFixed(2)).join(' ')}`);
     console.log(`      아침 ${am.length}개 해 고도 ${am.map(n => sunAlt(n.eventAt).toFixed(2)).join(' ')}`);
-    ok(pm.length >= 6 && pm.every(n => Math.abs(sunAlt(n.eventAt) - 6) < 0.3), '저녁 골든아워 시작은 해 6°');
-    ok(am.length >= 6 && am.every(n => Math.abs(sunAlt(n.eventAt) + 0.83) < 0.3), '아침 골든아워 시작은 일출');
+    ok(pm.length >= 6 && pm.every(n => Math.abs(sunAlt(n.eventAt) - 6) < 0.01), '저녁 골든아워 시작은 해 6°');
+    ok(am.length >= 6 && am.every(n => Math.abs(sunAlt(n.eventAt) + 0.833) < 0.01), '아침 골든아워 시작은 일출');
   }
 
   console.log('\n[3] 블루아워 — 저녁 −4°, 아침 −6°');
@@ -52,8 +56,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
     const L = plan(NOW, { blue: true });
     const pm = L.filter(n => n.id.endsWith('-pm')), am = L.filter(n => n.id.endsWith('-am'));
     console.log(`      저녁 ${pm.map(n => sunAlt(n.eventAt).toFixed(2)).join(' ')} · 아침 ${am.map(n => sunAlt(n.eventAt).toFixed(2)).join(' ')}`);
-    ok(pm.length >= 6 && pm.every(n => Math.abs(sunAlt(n.eventAt) + 4) < 0.3), '저녁 블루아워는 해 −4°');
-    ok(am.length >= 6 && am.every(n => Math.abs(sunAlt(n.eventAt) + 6) < 0.3), '아침 블루아워는 해 −6°');
+    ok(pm.length >= 6 && pm.every(n => Math.abs(sunAlt(n.eventAt) + 4) < 0.01), '저녁 블루아워는 해 −4°');
+    ok(am.length >= 6 && am.every(n => Math.abs(sunAlt(n.eventAt) + 6) < 0.01), '아침 블루아워는 해 −6°');
   }
 
   console.log('\n[4] 월출 — 달이 막 떠오르는 시각');

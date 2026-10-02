@@ -19,7 +19,7 @@ import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, 
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
 import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingPersister } from '../utils/weather';
-import SunCalc from 'suncalc';
+import { sunPosition, sunTimes } from '../utils/solarPosition';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
@@ -1022,20 +1022,20 @@ export const useCelestialStore = create<CelestialState>()(
           set({ startupLocationSettled: true });
  
           const now = new Date();
-          const times = SunCalc.getTimes(now, lat, lon);
+          const times = sunTimes(now, lat, lon);
           let targetEvent = times.sunset;
           let eventType = 'Sunset';
           if (now.getTime() > times.sunset.getTime()) {
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
-            targetEvent = SunCalc.getTimes(tomorrow, lat, lon).sunrise;
+            targetEvent = sunTimes(tomorrow, lat, lon).sunrise;
             eventType = 'Sunrise';
           } else if (now.getTime() < times.sunrise.getTime()) {
             targetEvent = times.sunrise;
             eventType = 'Sunrise';
           }
  
-          const pos = SunCalc.getPosition(targetEvent, lat, lon);
+          const pos = sunPosition(targetEvent, lat, lon);
           const az = (pos.azimuth * 180 / Math.PI) + 180;
  
           // SunCamera 와 **같은 키**를 만들어야 하므로 같은 함수를 씁니다(§59).

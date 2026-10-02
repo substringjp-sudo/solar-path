@@ -26,6 +26,8 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   const V = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'labelVisibility.js'));
   const { getCalculatedPlanets } = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'celestialPlanets.js'));
   const SunCalc = require(path.join(__dirname, '..', '..', 'node_modules', 'suncalc'));
+  // 해는 앱의 태양력(달은 SunCalc 그대로).
+  const { sunPosition } = await import('file://' + path.join(PREVIEW, 'app', 'utils', 'solarPosition.js'));
   const LAT = 37.4863, LON = 127.0443, D = 180 / Math.PI;
   const start = Date.UTC(2026, 8, 1), end = Date.UTC(2026, 9, 31);
 
@@ -38,7 +40,7 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   let moonBelowShown = 0, moonDayShownQuarter = 0, quarterAfternoons = 0, newMoonDayShown = 0, mwBright = 0;
   for (let t = start; t < end; t += 3600e3) {
     const d = new Date(t);
-    const sun = SunCalc.getPosition(d, LAT, LON), moon = SunCalc.getMoonPosition(d, LAT, LON);
+    const sun = sunPosition(d, LAT, LON), moon = SunCalc.getMoonPosition(d, LAT, LON);
     const sunAlt = sun.altitude * D, moonAlt = moon.altitude * D;
     const ill = SunCalc.getMoonIllumination(d);
     const sep = sepDeg(sun.azimuth, sun.altitude, moon.azimuth, moon.altitude);

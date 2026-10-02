@@ -1,5 +1,6 @@
 import SunCalc from 'suncalc';
 import { addHours, startOfDay, addDays } from 'date-fns';
+import { sunEquatorial, sunPosition, sunTimes } from './solarPosition';
 
 export interface CelestialPosition {
   azimuth: number;
@@ -19,7 +20,7 @@ export interface CelestialEvents {
 }
 
 export const getSunPosition = (date: Date, lat: number, lng: number): CelestialPosition => {
-  const pos = SunCalc.getPosition(date, lat, lng);
+  const pos = sunPosition(date, lat, lng);
   return {
     azimuth: (pos.azimuth * 180) / Math.PI + 180, // Convert to 0-360 starting from North
     altitude: (pos.altitude * 180) / Math.PI,
@@ -37,13 +38,13 @@ export const getMoonPosition = (date: Date, lat: number, lng: number): Celestial
 export const getCelestialEvents = (date: Date, lat: number, lng: number): CelestialEvents => {
   // 기준 날짜(date) 당일의 일출, 일몰, 월출, 월몰 물리 시각을 기기 시스템 시간대로 구합니다.
   // (이후 사용부에서 현지 법정 오프셋을 적용해 포맷팅합니다.)
-  const sunTimes = SunCalc.getTimes(date, lat, lng);
+  const times = sunTimes(date, lat, lng);
   const moonTimes = SunCalc.getMoonTimes(date, lat, lng);
   
   return {
-    sunrise: sunTimes.sunrise,
-    sunset: sunTimes.sunset,
-    goldenHour: sunTimes.goldenHour,
+    sunrise: times.sunrise,
+    sunset: times.sunset,
+    goldenHour: times.goldenHour,
     moonrise: moonTimes.rise || null,
     moonset: moonTimes.set || null,
   };
@@ -87,39 +88,17 @@ export interface IsochroneLine {
 }
 
 /**
- * 태양 적위(declination)와 균시차(equation of time)를 계산합니다.
- * NOAA 저정밀도 태양 위치 알고리즘(J2000 기준일) 기반.
+ * 태양 적위(declination)와 균시차(equation of time) — `solarPosition.ts` 가 냅니다.
+ *
+ * 직하점·명암 경계(지도)와 3D 하늘이 **같은 태양력**을 써야 지도의 일몰선과 하늘의
+ * 일몰이 갈라지지 않습니다. 예전에는 여기 NOAA 저정밀 식이 따로 있었고(적위 0.003°,
+ * 균시차 3초 차), 하늘은 SunCalc(0.2° 차)이었습니다.
+ *
+ * (그 식의 황도경사각이 하루마다 줄던 결함 — 2026년이면 22.17° — 은
+ * `verify-solar-geometry.js` 가 잡았고, 지금 식은 세기당 감소율을 씁니다.)
  */
-const daysSinceJ2000 = (date: Date): number => {
-  const j2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
-  return (date.getTime() - j2000) / 86400000;
-};
-
-export const getSunDeclinationAndEquationOfTime = (date: Date): { declination: number; equationOfTimeMinutes: number } => {
-  const d = daysSinceJ2000(date);
-  const meanAnomaly = (357.5291 + 0.98560028 * d) * (Math.PI / 180);
-  const meanLongitude = (280.4665 + 0.98564736 * d) * (Math.PI / 180);
-  const eclipticLongitude = meanLongitude + (1.9146 * Math.sin(meanAnomaly) + 0.01999 * Math.sin(2 * meanAnomaly)) * (Math.PI / 180);
-  // ⚠ 감소율은 **율리우스 세기당** 0.0130042° 입니다. 하루당으로 쓰려면
-  //   36525 로 나눠야 합니다. 예전에는 0.000130043 을 **하루마다** 빼고 있어
-  //   365배 빠르게 줄었습니다 — 2026년(d≈9,750)이면 경사각이 23.44° 가 아니라
-  //   22.17° 로 나와, 하지 적위가 1.27° 어긋났습니다. 지도의 등치선이 위도로
-  //   약 140km 밀리고 해마다 0.13° 씩 더 밀리던 값입니다.
-  //   (`verify-solar-geometry.js` 가 SunCalc 과 견줘 잡았습니다.)
-  const obliquity = (23.439291 - 3.5604e-7 * d) * (Math.PI / 180);
-  const declination = Math.asin(Math.sin(obliquity) * Math.sin(eclipticLongitude));
-
-  const y = Math.sin(eclipticLongitude) * Math.cos(obliquity);
-  const x = Math.cos(eclipticLongitude);
-  let rightAscension = Math.atan2(y, x);
-  if (rightAscension < 0) rightAscension += 2 * Math.PI;
-
-  let equationOfTimeMinutes = (meanLongitude - rightAscension) * (180 / Math.PI) * 4;
-  while (equationOfTimeMinutes < -20) equationOfTimeMinutes += 1440;
-  while (equationOfTimeMinutes > 20) equationOfTimeMinutes -= 1440;
-
-  return { declination, equationOfTimeMinutes };
-};
+export const getSunDeclinationAndEquationOfTime = (date: Date): { declination: number; equationOfTimeMinutes: number } =>
+  sunEquatorial(date);
 
 /**
  * 태양의 남중점(subsolar point, 태양이 정확히 머리 위에 있는 지표 좌표)을 계산합니다.

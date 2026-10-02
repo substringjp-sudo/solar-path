@@ -16,6 +16,7 @@
  *  - 일반: 그날 실제로 있는 출몰만(극지·달 없는 날엔 빠짐).
  */
 import SunCalc from 'suncalc';
+import { sunTimes } from './solarPosition';
 import { getCalculatedPlanets, type PlanetKey } from './celestialPlanets';
 import { t, type Language } from './i18n';
 
@@ -85,7 +86,7 @@ export function buildSkyEvents(inp: SkyEventsInput): SkyEventItem[] {
   }
 
   // ── 은하수 — 천문 박명 뒤, 달이 없거나 아주 가늘 때 ────────────────────────
-  const times = SunCalc.getTimes(date, lat, lon);
+  const times = sunTimes(date, lat, lon);
   if (valid(times.night)) {
     const tm = new Date(times.night.getTime() + 30 * 60000);
     const mIll = SunCalc.getMoonIllumination(tm).fraction;

@@ -64,6 +64,8 @@ const ENTRIES = [
   'src/utils/weatherCacheKey.ts',
   'src/utils/satelliteBias.ts',
   'src/utils/solarGeometry.ts',
+  // 앱의 태양력 — 판정(verify-solar-position)이 PyEphem 표에 대어 봅니다.
+  'src/utils/solarPosition.ts',
   'src/utils/cloudRadar.ts',
   // 하늘 시트의 추천·일반 이벤트(점검 2026-09-29) — 판정이 불러 씁니다.
   'src/utils/skyEvents.ts',
