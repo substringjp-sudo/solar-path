@@ -127,6 +127,7 @@ import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/sk
 import type { LayerWinds } from '../../utils/weather';
 import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
+import { getApparentAltitude } from '../../utils/sunsetPhysics';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
@@ -1289,7 +1290,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (composerNow) {
           // 광선의 기준점은 **매 프레임** 넣습니다. `updateScene`에서 한 번만
           // 넣으면 카메라를 돌리는 프레임에 광선이 한 박자 늦게 따라옵니다.
-          const rayAlt = (sunAltRef.current * Math.PI) / 180;
+          // 광선은 **보이는** 해에서 뻗습니다 — 겉보기 고도(대기 굴절).
+          const rayAlt = (getApparentAltitude(sunAltRef.current) * Math.PI) / 180;
           const rayAz = (sunAzRef.current * Math.PI) / 180;
           composerNow.setSun(
             sunDirRayVec.set(
@@ -1647,7 +1649,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         b: sky.b + beam.b * direct,
       };
       const sunAzRad = (sunAzRef.current * Math.PI) / 180;
-      const sunAltRad = (sunAltRef.current * Math.PI) / 180;
+      // ⚠ 지형·물에 넣는 **방향**은 겉보기 고도입니다(대기 굴절, 수평선에서 약 0.5°). 땅에 닿는 빛은 굴절된
+      //   광선이라, 산이 해를 가리는 순간(산 그림자 · 산 앞 공기의 그늘)과 윤슬의 자리가 보이는 해와 맞아야
+      //   합니다. 밝기 모형에 들어가는 uSunAltDeg 는 기하 고도 그대로 둡니다(사진 판정으로 맞춘 값).
+      const sunAltRad = (getApparentAltitude(sunAltRef.current) * Math.PI) / 180;
       const horizon = cachedHorizonRGBRef.current;
 
       // ── 지형만은 **물리 직달/확산 비**로 갑니다 ─────────────────────────
@@ -1770,7 +1775,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
 
     if (sunRef.current) {
-      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere);
+      // 원반은 **보이는 자리**(겉보기 고도)에 놓습니다. 앱이 알리는 일몰(기하 −0.833°)은 굴절 34′ 를 담은
+      // 관례라, 기하 고도에 그리면 원반이 그보다 2~3분 먼저 수평선 아래로 숨었습니다.
+      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1,
+        getApparentAltitude(sunAltRef.current));
       if (!currentLayers.sun) sunRef.current.mesh.visible = false;
     }
 

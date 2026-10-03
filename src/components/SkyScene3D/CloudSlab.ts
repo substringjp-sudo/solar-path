@@ -945,6 +945,8 @@ uniform float uPixelAngleRad;
 uniform float uAerialScale;
 uniform float uMultiScatter;
 uniform float uVolSteps;
+/** 가린 덩이를 흩어져 지나온 햇빛 배율 (1 = 켬, 2026-10-03). 판정의 대조용 스위치. */
+uniform float uCloudDiffThru;
 uniform float uSaturation;
 uniform sampler2D uGenusTex;
 uniform float uNfEnable, uNfCapKm, uNfViewSteps, uNfShadowSteps;
@@ -1634,6 +1636,7 @@ void main(){
       // 광학두께도 수직이 아니라 **빗변** 길이로 셉니다.
       float thickSun;
       float reach;
+      float reachDiff = 0.0;   // 해쪽 덩이를 **흩어져** 지나온 몫(직진 몫 reach 를 뺀 것) — 아래 2026-10-03 주석
       if (uCloudModel > 0.5) {
         float runKm = min(hThick / max(0.02, tan(max(sunElevC, 0.007))), cellKm * 6.0);
         float acc = 0.0, wsum = 0.0;
@@ -1695,8 +1698,16 @@ void main(){
         // 통째로 사라졌습니다 — 반쪽 타협이 성립하지 않습니다. 세로 구조를
         // 실제로 넣기 전까지는 초과분만 씁니다.
         float sunExcess = max(0.0, thickSun - thick);
-        reach = exp(-sunExcess * tauK
-                    * min(1.0 / max(0.10, sinSunC), 8.0) * 0.55);
+        float tauSunPath = sunExcess * tauK * min(1.0 / max(0.10, sinSunC), 8.0) * 0.55;
+        reach = exp(-tauSunPath);
+        // ── 가린 덩이를 흩어져 지나온 햇빛 (2026-10-03) ─────────────────────────────
+        // reach 는 해쪽 이웃을 **곧장** 뚫는 몫 exp(−τ) 입니다. 그런데 구름은 빛을 거의 흡수하지 않고
+        // 앞으로만 흩으므로(g 0.85), 그 덩이를 지나는 햇빛의 대부분은 사라지는 게 아니라 **흩어진 채**
+        // 반대편으로 나옵니다 — 2-흐름 투과 2/(2 + (1−g)τ). 이 몫을 통째로 버리면 해를 바라볼 때 그늘진
+        // 가장자리가 하늘빛만 받아, 해 쪽의 밝은 하늘보다 어두운 테가 됩니다(가나자와 10/03 10:29, 해 46°:
+        // 사진은 구름 윗가장자리가 하늘보다 밝은데 앱은 60% 가 어두웠음). 흩어진 빛이라 면의 방향(cosFace)을
+        // 따르지 않고 고르게 받습니다. 유사변환은 이 자리에서만 씁니다 — 직진 몫은 그대로 맨 τ 입니다.
+        reachDiff = max(0.0, 2.0 / (2.0 + (1.0 - uCloudAsym) * tauSunPath) - reach);
       } else {
         thickSun = slab_layer_thickness(L, kmN + sunXZ * (cellKm * 0.55), cover * shape, cellKm, conf, sSeed, windNorm, det, detCoarse, billowAmt, cluster);
         reach = exp(-thickSun * tauK * 0.55);
@@ -1731,6 +1742,7 @@ void main(){
           farT *= 1.0 - slab_covOf(cvF, L);
         }
         reach *= farT;
+        reachDiff *= farT;
       }
 
       // 체적 수직 조명: 윗면(S->2)은 직달광과 림라이트가 강하고, 밑면(S->0)은 깊은 체적 음영
@@ -1771,6 +1783,8 @@ void main(){
         // uCloudSideLit 은 노멀이 못 담는 잔여(구름 덩어리 사이 반사 등)
         // 바닥입니다. 0 이면 노멀이 등지는 면은 직달광이 정확히 0.
         vec3 Edir = beam * reach * upDir * (cosFace + uCloudSideLit * (1.0 - cosFace) * max(0.0, sinSunC));
+        // 가린 덩이를 흩어져 지나온 햇빛 — 수평면 조도(beam·sin) 그대로, 방향 없이(위 reachDiff 주석).
+        vec3 EdirDiff = beam * reachDiff * upDir * max(0.0, sinSunC) * uCloudDiffThru;
         // 하늘빛은 reach 를 곱하지 **않습니다** — 자기그림자에 든 구름도
         // 하늘 전체에서 확산광을 받습니다. 대신 **어느 쪽을 보는 면인가**로
         // 세 적분을 잇습니다: 위를 보면 ambHemi, 옆을 보면 태양쪽/반대쪽
@@ -1785,7 +1799,7 @@ void main(){
         vec3 ambSide = mix(upSide0, upSide1, 0.5 + 0.5 * faceSun);
         // 앞으로 흩은 햇빛(§88): 평면(n 위)에서 1, 해를 향한 면은 더, 등진 면은 덜.
         float fwdRelief = max(0.0, 1.0 + dot(n, sunDirLocal) - sunDirLocal.z);
-        vec3 Fdn = Edir + mix(ambSide, upHemi, faceUp) + upFwd * fwdRelief;
+        vec3 Fdn = Edir + EdirDiff + mix(ambSide, upHemi, faceUp) + upFwd * fwdRelief;
         stepSunFrac = dot(Edir, vec3(0.2126, 0.7152, 0.0722))
                     / max(1e-6, dot(Fdn, vec3(0.2126, 0.7152, 0.0722)));
         float tp = thick * tauK * (1.0 - uCloudAsym);
@@ -2244,6 +2258,7 @@ export function createCloudSlab(opts: {
       // 12% 를 얻자고 하늘이 다시 고르게 밝아지는 것은 남는 장사가
       // 아닙니다. 구조는 남겨 뒀으니 되살리려면 이 값만 올리면 됩니다.
       uVolSteps: { value: 1 },
+      uCloudDiffThru: { value: 1 },
       uSaturation: { value: 1 },
       uGenusTex: { value: genusTex },
       // 근거리 볼륨 (계획 27·33·35절). **기본은 끔입니다.**

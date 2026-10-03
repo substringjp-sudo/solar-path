@@ -122,6 +122,10 @@ export function createSun(): SunHandle {
 
 /**
  * 태양 위치와 색을 갱신합니다.
+ *
+ * `sunAltDeg` 는 **기하 고도**입니다(색·표시 노출이 씁니다 — `directBeamRGB` 가 굴절을 안에서 셉니다).
+ * 원반을 놓는 자리는 `placeAltDeg`(보통 겉보기 고도, `getApparentAltitude`)입니다. 안 주면 기하 고도에
+ * 놓습니다(하네스들의 예전 동작).
  */
 export function updateSun(
   handle: SunHandle,
@@ -129,9 +133,10 @@ export function updateSun(
   sunAzDeg: number,
   params: AtmosphereParams,
   /** 태양 방향 구름 기둥의 투과율 (1 = 구름 없음) */
-  occlusion: number = 1
+  occlusion: number = 1,
+  placeAltDeg: number = sunAltDeg
 ): void {
-  const altRad = (sunAltDeg * Math.PI) / 180;
+  const altRad = (placeAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
 
   handle.mesh.position.set(
@@ -147,6 +152,6 @@ export function updateSun(
   u.uSunAltDeg.value = sunAltDeg;
   u.uOcclusion.value = Math.max(0, Math.min(1, occlusion));
 
-  // 대기 굴절로 지평선 아래 약 -0.9°까지 보입니다.
-  handle.mesh.visible = sunAltDeg > -0.9;
+  // 겉보기 위 끝이 해수면 수평선(높은 산 위에서도 약 −1°)보다 한참 아래면 끕니다. 그 사이는 땅·바다가 가립니다.
+  handle.mesh.visible = placeAltDeg > -1.5;
 }
