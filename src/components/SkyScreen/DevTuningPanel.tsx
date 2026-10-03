@@ -26,7 +26,7 @@ import {
   PanResponder,
   Platform,
 } from 'react-native';
-import { RotateCcw, Code2, X } from 'lucide-react-native';
+import { RotateCcw, Code2, X, CloudSun } from 'lucide-react-native';
 import {
   getTuning,
   setTuning,
@@ -40,6 +40,12 @@ import {
   type TuningField,
 } from '../../utils/skyTuning';
 import { useCelestialStore } from '../../store/useCelestialStore';
+// 볼륨 구름 시험 화면(§123)은 개발용 빌드에서만 — 출시 번들에 takram·postprocessing 을 싣지 않으려고
+// __DEV__ 안에서만 불러옵니다(Metro 가 __DEV__ 를 상수로 접어 출시 빌드에서는 이 require 를 지웁니다).
+const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }> | null = __DEV__
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('../VolumetricProbe/VolumetricProbe').VolumetricProbe
+  : null;
 
 const TRACK_W = 148;
 
@@ -121,6 +127,8 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 }) => {
   const [tuning, setLocal] = useState<SkyTuning>(getTuning());
   const [showCode, setShowCode] = useState(false);
+  // 볼륨 구름 시험 화면(§123) — 이 기기에서 takram 대기·구름이 도는지 잽니다.
+  const [showProbe, setShowProbe] = useState(false);
 
   useEffect(() => subscribeTuning(setLocal), []);
 
@@ -130,11 +138,17 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 
   return (
     <View style={styles.panel} pointerEvents="box-none">
+      {showProbe && VolumetricProbe && <VolumetricProbe visible onClose={() => setShowProbe(false)} />}
       <View style={styles.card}>
         <View style={styles.header}>
           <Text style={styles.title}>개발자 튜닝</Text>
           <Text style={styles.badge}>{changedCount > 0 ? `${changedCount}개 변경` : '기본값'}</Text>
           <View style={{ flex: 1 }} />
+          {VolumetricProbe && (
+            <TouchableOpacity onPress={() => setShowProbe(true)} style={styles.iconBtn} accessibilityLabel="볼륨 구름 시험">
+              <CloudSun size={13} color="#94A3B8" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => setShowCode(v => !v)} style={styles.iconBtn}>
             <Code2 size={13} color={showCode ? '#34D399' : '#94A3B8'} />
           </TouchableOpacity>
