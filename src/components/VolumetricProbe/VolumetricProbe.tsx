@@ -31,6 +31,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   const [presetIdx, setPresetIdx] = useState(0);
   const [quality, setQuality] = useState<VolumetricQuality>('low');
   const [scale, setScale] = useState(1);
+  // 그림자 지도: 자동(해 12° 위만) · 켜기(해 고도 무관) / 해 쪽 2차 행진: 확장(≈7km) · 기본(300m)
+  const [shadowOn, setShadowOn] = useState(false);
+  const [longMarch, setLongMarch] = useState(true);
 
   const sceneRef = useRef<VolumetricScene | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -49,6 +52,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   useEffect(() => { sceneRef.current?.setPreset(VOLUMETRIC_PRESETS[presetIdx]); }, [presetIdx]);
   useEffect(() => { sceneRef.current?.setQuality(quality); }, [quality]);
   useEffect(() => { sceneRef.current?.setResolutionScale(scale); }, [scale]);
+  useEffect(() => {
+    sceneRef.current?.setOptions({ shadowMinSunDeg: shadowOn ? -90 : 12, sunMarch: longMarch ? [6, 250, 1.6] : null });
+  }, [shadowOn, longMarch]);
 
   const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
     try {
@@ -126,6 +132,12 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
                 <Text style={styles.chipText}>{q}</Text>
               </TouchableOpacity>
             ))}
+            <TouchableOpacity onPress={() => setShadowOn(v => !v)} style={[styles.chip, shadowOn && styles.chipOn]}>
+              <Text style={styles.chipText}>그림자 지도 {shadowOn ? '켜기' : '자동'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setLongMarch(v => !v)} style={[styles.chip, longMarch && styles.chipOn]}>
+              <Text style={styles.chipText}>해 쪽 행진 {longMarch ? '확장' : '기본'}</Text>
+            </TouchableOpacity>
             {SCALES.map(s => (
               <TouchableOpacity key={s} onPress={() => setScale(s)} style={[styles.chip, s === scale && styles.chipOn]}>
                 <Text style={styles.chipText}>해상도 ×{s}</Text>
