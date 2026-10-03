@@ -34,6 +34,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   // 그림자 지도: 자동(해 12° 위만) · 켜기(해 고도 무관) / 해 쪽 2차 행진: 확장(≈7km) · 기본(300m)
   const [shadowOn, setShadowOn] = useState(false);
   const [longMarch, setLongMarch] = useState(true);
+  // 구름 종류별 모형(§124) — 켜면 적운·고적운 등 종류마다 다른 무늬·단면, 끄면 takram 기본(같은 잡음 덩어리).
+  const [genusOn, setGenusOn] = useState(true);
+  const [weatherMs, setWeatherMs] = useState<number | null>(null);
 
   const sceneRef = useRef<VolumetricScene | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -53,8 +56,12 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   useEffect(() => { sceneRef.current?.setQuality(quality); }, [quality]);
   useEffect(() => { sceneRef.current?.setResolutionScale(scale); }, [scale]);
   useEffect(() => {
-    sceneRef.current?.setOptions({ shadowMinSunDeg: shadowOn ? -90 : 12, sunMarch: longMarch ? [6, 250, 1.6] : null });
-  }, [shadowOn, longMarch]);
+    const sc = sceneRef.current;
+    if (!sc) return;
+    sc.setOptions({ shadowMinSunDeg: shadowOn ? -90 : 12, sunMarch: longMarch ? [6, 250, 1.6] : null, genus: genusOn });
+    setWeatherMs(sc.weatherMs());
+  }, [shadowOn, longMarch, genusOn]);
+  useEffect(() => { if (sceneRef.current) setWeatherMs(sceneRef.current.weatherMs()); }, [presetIdx]);
 
   const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
     try {
@@ -64,13 +71,14 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
       renderer.setSize(w, h);
       setStatus('대기 표 생성 중 (기기 GPU)');
       const t0 = Date.now();
-      const scene = await createVolumetricScene(renderer, w, h);
+      const scene = await createVolumetricScene(renderer, w, h, { genus: genusOn });
       if (!aliveRef.current) { scene.dispose(); return; }
       setGenMs(Date.now() - t0);
       scene.setPreset(VOLUMETRIC_PRESETS[presetIdx]);
       scene.setQuality(quality);
       scene.setResolutionScale(scale);
       sceneRef.current = scene;
+      setWeatherMs(scene.weatherMs());
       setStatus('실행 중');
 
       let last = Date.now(), acc = 0, n = 0, lastReport = last;
@@ -116,6 +124,7 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
             </>
           )}
           {genMs != null && <Text style={styles.line}>대기 표 생성: {(genMs / 1000).toFixed(1)}초</Text>}
+          {weatherMs != null && <Text style={styles.line}>날씨 무늬 생성: {weatherMs} ms ({genusOn ? '종류별' : '기본'})</Text>}
           {frame && (
             <Text style={styles.big}>{frame.ms.toFixed(1)} ms · {frame.fps.toFixed(0)} fps</Text>
           )}
@@ -134,6 +143,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
             ))}
             <TouchableOpacity onPress={() => setShadowOn(v => !v)} style={[styles.chip, shadowOn && styles.chipOn]}>
               <Text style={styles.chipText}>그림자 지도 {shadowOn ? '켜기' : '자동'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setGenusOn(v => !v)} style={[styles.chip, genusOn && styles.chipOn]}>
+              <Text style={styles.chipText}>구름 종류 모형 {genusOn ? '켜기' : '끄기'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setLongMarch(v => !v)} style={[styles.chip, longMarch && styles.chipOn]}>
               <Text style={styles.chipText}>해 쪽 행진 {longMarch ? '확장' : '기본'}</Text>
