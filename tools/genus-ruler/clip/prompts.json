@@ -1,0 +1,16 @@
+{
+ "genus": {
+  "Cu": ["a photo of cumulus clouds", "a photo of puffy white cumulus clouds with flat bases", "a photo of fair weather cumulus clouds"],
+  "AcCc": ["a photo of altocumulus clouds", "a photo of cirrocumulus clouds", "a photo of a mackerel sky with many small cloudlets"],
+  "Ci": ["a photo of cirrus clouds", "a photo of thin wispy cirrus clouds high in the sky", "a photo of fibrous mare's tails cirrus clouds"],
+  "StSc": ["a photo of stratocumulus clouds", "a photo of an overcast sky covered by a grey stratus layer", "a photo of a layer of lumpy grey stratocumulus clouds"]
+ },
+ "real": {
+  "photo": ["a photograph of clouds in the sky", "a real photo of the sky with clouds"],
+  "render": ["a 3D computer rendering of clouds", "CGI clouds in a video game sky"]
+ },
+ "volume": {
+  "big": ["a photo of large towering voluminous clouds", "a photo of big billowing clouds with strong light and shadow"],
+  "fluff": ["a photo of small soft blurry cotton-like clouds", "a photo of faint fuzzy clouds without shading"]
+ }
+}

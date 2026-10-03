@@ -1,0 +1,20 @@
+{
+  "name": "proto",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@takram/three-atmosphere": "^0.19.1",
+    "@takram/three-clouds": "^0.7.6",
+    "@takram/three-geospatial": "^0.9.1",
+    "esbuild": "^0.28.2",
+    "postprocessing": "^6.39.5",
+    "three": "^0.185.1"
+  }
+}

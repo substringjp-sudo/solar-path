@@ -43,6 +43,7 @@ import {
   STBN_TEXTURE_HEIGHT,
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
+import { genusLayerShape, makeGenusWeather, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer } from './cloudGenus';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
 
@@ -63,16 +64,22 @@ export interface VolumetricPreset {
   altKm: [number, number, number];
   /** 노출(손으로 정함 — 자동 노출은 다음 단계) */
   exposure: number;
+  /**
+   * 층별 구름 종류(§124) — 종류별 모형을 켰을 때만 씁니다. 하나도 없으면 takram 기본으로 그립니다.
+   * 후쿠이 두 장면(고적운, 7km·노을)은 비워 둡니다: 잔 조각(간격 350m)이 먼 거리에서 화소보다 작아져
+   * 밉맵 평균이 문턱 아래로 떨어지고 반짝이만 남았습니다(§124.4) — 고칠 때까지 기본.
+   */
+  genus: [GenusKey | null, GenusKey | null, GenusKey | null];
 }
 
 /** 사용자 QR 기록에서 가져온 세 장면. */
 export const VOLUMETRIC_PRESETS: VolumetricPreset[] = [
   { key: 'kz1029', label: '가나자와 10:29', lat: 36.5679, lon: 136.6774, heightM: 103, iso: '2026-10-03T01:29:00Z',
-    az: 161.6, el: 13.9, fov: 60, cover: [0.3, 0, 0], altKm: [1.5, 4.5, 10], exposure: 10 },
+    az: 161.6, el: 13.9, fov: 60, cover: [0.3, 0, 0], altKm: [1.5, 4.5, 10], exposure: 10, genus: ['cu', null, null] },
   { key: 'fk1728', label: '후쿠이 17:28', lat: 36.0209, lon: 136.2894, heightM: 23, iso: '2026-10-02T08:28:00Z',
-    az: 265, el: 12, fov: 60, cover: [0, 0.6, 0], altKm: [1.5, 7.0, 10], exposure: 30 },
+    az: 265, el: 12, fov: 60, cover: [0, 0.6, 0], altKm: [1.5, 7.0, 10], exposure: 30, genus: [null, null, null] },
   { key: 'fk1747', label: '후쿠이 17:47 잔광', lat: 36.0209, lon: 136.2894, heightM: 23, iso: '2026-10-02T08:47:00Z',
-    az: 255, el: 20, fov: 60, cover: [0, 0.6, 0], altKm: [1.5, 7.0, 10], exposure: 100 },
+    az: 255, el: 20, fov: 60, cover: [0, 0.6, 0], altKm: [1.5, 7.0, 10], exposure: 100, genus: [null, null, null] },
 ];
 
 export interface GLCapabilities {
@@ -165,6 +172,9 @@ function makeWhiteNoise3D(): Data3DTexture {
   return t;
 }
 
+/** 종류별 모형의 날씨 텍스처 한 장이 덮는 길이(km). 512 칸이면 47m/칸. */
+const GENUS_TILE_KM = 24;
+
 /** 시험용 손잡이 — 기본값은 기기 시험판 그대로. */
 export interface VolumetricOptions {
   /** 날씨 잡음의 가장 굵은 주기(256 칸 타일 한 장에 몇 번). 클수록 구름 덩어리가 잘다. */
@@ -194,8 +204,13 @@ export interface VolumetricOptions {
    * 그림자 지도 없이도 덩어리 그늘이 나도록 수 km 를 걷게 합니다(걸음 수 · 첫 걸음 m · 걸음 배율).
    */
   sunMarch: [number, number, number] | null;
+  /**
+   * 구름 종류별 형태 모형(§124, cloudGenus.ts). 끄면 takram 기본(같은 잡음을 운량 문턱으로 자름) — 시험 화면에서
+   * 둘을 번갈아 봅니다.
+   */
+  genus: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6] };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -207,6 +222,8 @@ export interface VolumetricScene {
   render(deltaSec: number): void;
   setSize(width: number, height: number): void;
   dispose(): void;
+  /** 마지막 날씨 텍스처 생성 시간(ms). */
+  weatherMs(): number;
   /** 진단용 — 하네스에서만 씁니다. */
   debug: { clouds: CloudsEffect };
 }
@@ -286,6 +303,11 @@ export async function createVolumetricScene(
         'outputShadowLength = (isnan(shadowLength) || isinf(shadowLength)) ? 0.0 : shadowLength * METER_TO_LENGTH_UNIT;'],
     ]);
   }
+  // §124 종류별 모형 패치 — 늘 걸어 두고 층별 genusOn 으로 켭니다(끄면 takram 그대로).
+  patchGenusShader(clouds.cloudsPass.currentMaterial as never);
+  patchGenusShader(clouds.shadowPass.currentMaterial as never);
+  const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
+  const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
   clouds.shapeDetailTexture = new CloudShapeDetail();
   clouds.turbulenceTexture = new Turbulence();
@@ -304,6 +326,8 @@ export async function createVolumetricScene(
   composer.setSize(width, height);
 
   let weather: DataTexture | null = null;
+  /** 마지막 날씨 생성 시간(ms) — 시험 화면 표시용. */
+  let weatherMs = 0;
   const sun = new Vector3();
 
   let lastPreset: VolumetricPreset | null = null;
@@ -346,22 +370,49 @@ export async function createVolumetricScene(
     const shadow = sunAltDeg > opt.shadowMinSunDeg;
 
     clouds.cloudLayers.length = 0;
-    clouds.cloudLayers.push(
-      new CloudLayer({ channel: 'r', altitude: p.altKm[0] * 1000, height: 1200, coverageFilterWidth: CFW, shadow }),
-      new CloudLayer({ channel: 'g', altitude: p.altKm[1] * 1000, height: 900, coverageFilterWidth: CFW, shadow }),
-      new CloudLayer({ channel: 'b', altitude: p.altKm[2] * 1000, height: 400, densityScale: 0.003, shapeAmount: 0.4,
-        shapeDetailAmount: 0, coverageFilterWidth: CFW }),
-      // 셰이더가 늘 4층을 받습니다 — 빈 층.
-      new CloudLayer({ channel: 'a', altitude: 0, height: 0, densityScale: 0 }),
-    );
     weather?.dispose();
-    weather = makeWeather(p.cover, opt);
+    const t0 = Date.now();
+    const gl: (GenusLayer | null)[] = p.genus.map((g, i) => (g && p.cover[i] > 0 ? { genus: g, cover: p.cover[i] } : null));
+    if (opt.genus && gl.some(Boolean)) {
+      // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 비웁니다.
+      const shape = (i: number, d: { height: number; densityScale?: number; shapeAmount?: number; shapeDetailAmount?: number }) =>
+        (gl[i] ? genusLayerShape(gl[i] as GenusLayer) : d);
+      clouds.cloudLayers.push(
+        new CloudLayer({ channel: 'r', altitude: p.altKm[0] * 1000, ...shape(0, { height: 1200 }), coverageFilterWidth: CFW, shadow }),
+        new CloudLayer({ channel: 'g', altitude: p.altKm[1] * 1000, ...shape(1, { height: 900 }), coverageFilterWidth: CFW, shadow }),
+        new CloudLayer({ channel: 'b', altitude: p.altKm[2] * 1000, ...shape(2, { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }),
+          coverageFilterWidth: CFW, shadow: gl[2] ? shadow : undefined }),
+        new CloudLayer({ channel: 'a', altitude: 0, height: 0, densityScale: 0 }),
+      );
+      weather = makeGenusWeather(gl, 512, GENUS_TILE_KM);
+      const north = new Vector3(), up = new Vector3(), east = new Vector3();
+      nue.extractBasis(north, up, east);
+      clouds.localWeatherRepeat.setScalar(1);
+      for (const m of genusMats) {
+        setGenusUniforms(m, gl);
+        setGenusFrame(m, { origin: position, east, north, tileM: GENUS_TILE_KM * 1000 });
+      }
+    } else {
+      clouds.cloudLayers.push(
+        new CloudLayer({ channel: 'r', altitude: p.altKm[0] * 1000, height: 1200, coverageFilterWidth: CFW, shadow }),
+        new CloudLayer({ channel: 'g', altitude: p.altKm[1] * 1000, height: 900, coverageFilterWidth: CFW, shadow }),
+        new CloudLayer({ channel: 'b', altitude: p.altKm[2] * 1000, height: 400, densityScale: 0.003, shapeAmount: 0.4,
+          shapeDetailAmount: 0, coverageFilterWidth: CFW }),
+        // 셰이더가 늘 4층을 받습니다 — 빈 층.
+        new CloudLayer({ channel: 'a', altitude: 0, height: 0, densityScale: 0 }),
+      );
+      weather = makeWeather(p.cover, opt);
+      clouds.localWeatherRepeat.copy(baseWeatherRepeat);
+      for (const m of genusMats) { setGenusUniforms(m, []); setGenusFrame(m, null); }
+    }
+    weatherMs = Date.now() - t0;
     clouds.localWeatherTexture = weather;
     renderer.toneMappingExposure = p.exposure;
   };
 
   return {
     debug: { clouds },
+    weatherMs: () => weatherMs,
     camera,
     setPreset,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
