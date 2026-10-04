@@ -64,7 +64,7 @@ export interface GenusParams {
  * 종류별 값 — 웹 하네스에서 판정기(§124.1)로 고른 후보(§124.3). st 는 아직 재지 않았습니다.
  */
 export const GENUS: Record<GenusKey, GenusParams> = {
-  cu: { mode: 0, height: 1500, base: 0.03, top: 1.0, edge: 1, ao: 3, domePow: 1, densityScale: 0.2, shapeAmount: 1, shapeDetailAmount: 0.3, radius: 0.55, turrets: 5 },
+  cu: { mode: 0, height: 1500, base: 0.03, top: 1.0, edge: 1, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 1, shapeDetailAmount: 0.3, radius: 0.55, turrets: 5 },
   ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 5, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.5, shapeDetailAmount: 0.7 },
   ci: { mode: 0, height: 800, base: 0.4, top: 0.5, edge: 1.5, ao: 0, domePow: 1.5, densityScale: 0.003, shapeAmount: 0.15, shapeDetailAmount: 0 },
   sc: { mode: 0, height: 600, base: 0.06, top: 0.35, edge: 2, ao: 5, domePow: 1, densityScale: 0.2, shapeAmount: 1, shapeDetailAmount: 0.6, warp: 0.8, lumps: 0.6, gap: 0.35 },
