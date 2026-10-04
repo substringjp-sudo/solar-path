@@ -318,7 +318,9 @@ export async function createVolumetricScene(
   Object.assign(aerial, generator.textures);
   Object.assign(clouds, generator.textures);
 
-  const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+  // 표시 곡선(§125): 사진 밝기비 자에서 AgX 1/4 · ACES 2/4 · Neutral 2/4, 노을 '가장 붉은 곳의 색'에서
+  // AgX 3/4 · ACES 3/4 · Neutral 1/4 → ACES. AgX 는 햇빛 받은 구름을 하늘의 4.2배 → 2.4배로 눌렀습니다.
+  const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
   const composer = new EffectComposer(renderer, { frameBufferType: opt.bufferType === 'float' ? FloatType : HalfFloatType, multisampling: 0 });
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new EffectPass(camera, clouds, aerial));
