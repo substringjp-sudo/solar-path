@@ -39,6 +39,11 @@ export interface GenusParams {
   edge: number;
   /** 하늘빛 가림 세기(깊이 1 에서 exp(−ao)) */
   ao: number;
+  /**
+   * 햇빛 확산 투과(§126.6). takram 은 구름 속 빛이 '해 쪽 행진 + 하늘빛'뿐이라 두꺼운 층 밑면이 하늘빛 색(푸른 회색)이
+   * 됩니다. 위쪽 광학두께 τ 로 확산 투과한 햇빛 sun·(1−e^(−0.1τ))·2/(2+0.15τ)·thru 를 더합니다. 0 이면 끔.
+   */
+  thru?: number;
   /** 날씨 값 d 의 감마(d^domePow) */
   domePow: number;
   densityScale: number;
@@ -82,20 +87,22 @@ export const GENUS: Record<GenusKey, GenusParams> = {
   ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 5, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.5, shapeDetailAmount: 0.7 },
   ci: { mode: 0, height: 800, base: 0.4, top: 0.5, edge: 1.5, ao: 0, domePow: 1.5, densityScale: 0.003, shapeAmount: 0.15, shapeDetailAmount: 0 },
   sc: { mode: 0, height: 600, base: 0.06, top: 0.35, edge: 2, ao: 5, domePow: 1, densityScale: 0.2, shapeAmount: 1, shapeDetailAmount: 0.6, warp: 0.8, lumps: 0.6, gap: 0.35 },
-  st: { mode: 0, height: 400, base: 0.05, top: 0.15, edge: 6, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.3, shapeDetailAmount: 0.5 },
+  // 층운: 판 종류는 렌즈 단면(top 4 → 층 대부분에서 hs≈1)이라 d>0 인 곳이 전부 구름이고 d 는 두께만 바꿉니다.
+  // (첫 판은 돔 단면 top 0.15 라 d<0.16 인 곳이 비어 판이 덩어리로 깨졌습니다.)
+  st: { mode: 1, height: 400, base: 0, top: 4, edge: 2, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.1, shapeDetailAmount: 0, topQuantile: 0.5 },
   // ── §126 D3: 아래는 아직 사진 자로 재지 않은 값입니다(물리 선험). ──
   // 웅대적운: 적운보다 큰 세포(4km)·봉우리 많음·덜 둥근 꼭대기·두꺼움.
-  cg: { mode: 0, height: 3000, base: 0.03, top: 0.7, edge: 1, ao: 2, domePow: 1, densityScale: 0.22, shapeAmount: 1, shapeDetailAmount: 0.3, spacingKm: 4, radius: 0.6, turrets: 7, sizeSkew: 1.0, topQuantile: 1 },
+  cg: { mode: 0, height: 4000, base: 0.03, top: 1.3, edge: 1, ao: 2, domePow: 1, densityScale: 0.22, shapeAmount: 1, shapeDetailAmount: 0.3, spacingKm: 4, radius: 0.6, turrets: 7, sizeSkew: 1.0, topQuantile: 1 },
   // 적란운 탑: 드문 큰 세포(15km 간격, 반지름 ≈ 5km), 층 두께는 입력(밑면~권계면)으로 줍니다.
-  cb: { mode: 0, height: 8000, base: 0.02, top: 0.6, edge: 1.5, ao: 3, domePow: 1, densityScale: 0.25, shapeAmount: 1, shapeDetailAmount: 0.3, spacingKm: 15, radius: 0.35, turrets: 4, sizeSkew: 0.7, warp: 0.2, topQuantile: 1 },
+  cb: { mode: 0, height: 8000, base: 0.02, top: 1.6, edge: 1.5, ao: 3, domePow: 1, densityScale: 0.25, shapeAmount: 1, shapeDetailAmount: 0.3, spacingKm: 15, radius: 0.35, turrets: 4, sizeSkew: 0.7, warp: 0.2, topQuantile: 1 },
   // 적란운 모루: 탑과 같은 세포 위에 3배 반지름의 렌즈, 바람 방향으로 늘임. 운량 문턱 없이 장 값 그대로.
   cbanvil: { mode: 1, height: 1500, base: 0, top: 1.0, edge: 3, ao: 0, domePow: 1, densityScale: 0.06, shapeAmount: 0.3, shapeDetailAmount: 0, spacingKm: 15, radius: 0.35, sizeSkew: 0.7, warp: 0.2, absolute: true, anvilScale: 3, stretch: 1.2 },
   // 난층운: 두꺼운(3km) 균일 층, 밑이 어둡고(ao) 아래쪽이 너덜함.
-  ns: { mode: 0, height: 3000, base: 0.04, top: 0.15, edge: 4, ao: 2.5, domePow: 1, densityScale: 0.3, shapeAmount: 0.4, shapeDetailAmount: 0.15 },
+  ns: { mode: 1, height: 3000, base: 0, top: 4, edge: 3, ao: 2.5, domePow: 1, densityScale: 0.3, shapeAmount: 0.4, shapeDetailAmount: 0.15, topQuantile: 0.7 },
   // 고층운: 중층의 흐릿한 판. 밝기 변화만 있고 윤곽이 없음.
-  as: { mode: 0, height: 1500, base: 0.08, top: 0.25, edge: 4, ao: 2, domePow: 1, densityScale: 0.15, shapeAmount: 0.3, shapeDetailAmount: 0.2 },
+  as: { mode: 1, height: 1500, base: 0, top: 4, edge: 3, ao: 2, domePow: 1, densityScale: 0.15, shapeAmount: 0.3, shapeDetailAmount: 0.2, topQuantile: 0.8 },
   // 권층운: 상층의 얇은 베일(햇무리). 아주 옅고 결이 희미함.
-  cs: { mode: 0, height: 1000, base: 0.1, top: 0.2, edge: 3, ao: 0, domePow: 1, densityScale: 0.0015, shapeAmount: 0.15, shapeDetailAmount: 0, rows: 0.08 },
+  cs: { mode: 1, height: 1000, base: 0, top: 4, edge: 3, ao: 0, domePow: 1, densityScale: 0.0015, shapeAmount: 0.15, shapeDetailAmount: 0, rows: 0.08, topQuantile: 0.8 },
 };
 
 export interface GenusLayer { genus: GenusKey; cover: number; opts?: Partial<GenusParams> }
@@ -338,7 +345,7 @@ export function makeGenusWeather(
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
-const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO'] as const;
+const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO', 'genusThru'] as const;
 
 /**
  * 셰이더 패치 — 구름 패스와 그림자 패스 둘 다(같은 clouds.glsl). genusOn = 0 인 층은 takram 그대로입니다.
@@ -371,6 +378,19 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   const sg = 'float skyGradient = dot(weather.heightFraction * 0.5 + 0.5, media.weight);';
   if (src.includes(sg)) {
     src = src.replace(sg, sg + '\n      skyGradient *= dot(mix(vec4(1.0), exp(-genusAO * weather.depth), genusOn), media.weight);');
+  }
+  // 햇빛 확산 투과(GenusParams.thru): 위쪽 광학두께 ≈ 이 표본의 소광 × 꼭대기까지 거리.
+  const amb = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
+  if (src.includes(amb)) {
+    src = src.replace(amb, amb + [
+      '',
+      '      {',
+      '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
+      '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
+      '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.1 * gTau)) * 2.0 / (2.0 + 0.15 * gTau);',
+      '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);',
+      '      }',
+    ].join('\n'));
   }
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',
@@ -410,6 +430,7 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
   set('genusTop', lane(L => param(L, 'top')));
   set('genusEdge', lane(L => param(L, 'edge')));
   set('genusAO', lane(L => param(L, 'ao')));
+  set('genusThru', lane(L => param(L, 'thru') ?? 1));
 }
 
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */

@@ -97,6 +97,8 @@ export interface VolumetricSceneInput {
   layers: VolumetricLayerInput[];
   /** 노출. 없으면 해 고도로 정합니다(autoExposure). */
   exposure?: number;
+  /** 종류 무늬의 원점을 관측점에서 동·북으로 옮김(km) — 큰 세포(적란운) 안에 서 있지 않게 장면을 고를 때 */
+  weatherOffsetKm?: [number, number];
 }
 
 /**
@@ -455,7 +457,9 @@ export async function createVolumetricScene(
       clouds.localWeatherRepeat.setScalar(1);
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
-        setGenusFrame(m, { origin: position, east, north, tileM: GENUS_TILE_KM * 1000 });
+        const [ox, oy] = p.weatherOffsetKm ?? [0, 0];
+        const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
+        setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
     } else {
       weather = makeWeather([0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0), opt);
