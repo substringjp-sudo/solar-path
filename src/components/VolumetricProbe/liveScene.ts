@@ -38,6 +38,8 @@ export interface LiveSceneArgs {
   lat: number; lon: number; heightM: number;
   date: Date;
   pathData: CloudPathData[];
+  /** 이미 보간된 관측점 구름(하늘 화면은 이것을 넘김). 있으면 pathData 는 쓰지 않습니다. */
+  obs?: CloudData | null;
   /** 시선 방위(°). 없으면 해 쪽. */
   az?: number;
   el?: number;
@@ -58,7 +60,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const sun = SunCalc.getPosition(a.date, a.lat, a.lon);
   const sunAz = ((sun.azimuth * 180) / Math.PI + 180 + 360) % 360;
   const sunAltDeg = (sun.altitude * 180) / Math.PI;
-  const obs = a.pathData.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null;
+  const obs = a.obs ?? (a.pathData.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null);
   const base: VolumetricSceneInput = {
     lat: a.lat, lon: a.lon, heightM: a.heightM, date: a.date,
     az: a.az ?? sunAz, el: a.el ?? 15, fov: a.fov ?? 60, layers: [],

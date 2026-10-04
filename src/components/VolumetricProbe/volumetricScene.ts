@@ -15,6 +15,7 @@
  */
 import {
   Camera,
+  Texture,
   Data3DTexture,
   DataTexture,
   FloatType,
@@ -259,14 +260,24 @@ export interface VolumetricOptions {
    * 둘을 번갈아 봅니다.
    */
   genus: boolean;
+  /** takram 이 해·달 원반을 그릴지. 하늘 화면(§126.7)은 앱의 해·달 메시를 쓰므로 끕니다. */
+  celestial: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true };
 
 export interface VolumetricScene {
   camera: Camera;
   setPreset(p: VolumetricPreset): void;
-  /** 일반 장면 입력(§126). setPreset 은 이것의 얇은 포장입니다. */
+  /** 일반 장면 입력(§126). setPreset 은 이것의 얇은 포장입니다. 날씨 텍스처를 다시 만들므로 층이 바뀔 때만 부릅니다. */
   setScene(input: VolumetricSceneInput): void;
+  /** 시선만 바꿉니다(매 프레임 싸게). */
+  setView(az: number, el: number, fov: number): void;
+  /** 시각만 바꿉니다(해 방향·노출). 해가 그림자 지도 문턱을 넘나들면 층을 다시 만듭니다. */
+  setDate(date: Date): void;
+  /**
+   * 화면 대신 텍스처로 그립니다(§126.7 — 하늘 화면 합성기가 하늘 층으로 씁니다). 반환 텍스처는 다음 호출까지 유효.
+   */
+  renderToTexture(deltaSec: number): Texture;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
   setQuality(q: VolumetricQuality): void;
@@ -296,6 +307,8 @@ export async function createVolumetricScene(
 
   const aerial = new AerialPerspectiveEffect(camera);
   aerial.sky = true;
+  aerial.sun = opt.celestial;
+  aerial.moon = opt.celestial;
   aerial.sunLight = false;
   aerial.skyLight = false;
 
@@ -378,7 +391,8 @@ export async function createVolumetricScene(
   const composer = new EffectComposer(renderer, { frameBufferType: opt.bufferType === 'float' ? FloatType : HalfFloatType, multisampling: 0 });
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new EffectPass(camera, clouds, aerial));
-  composer.addPass(new EffectPass(camera, toneMapping));
+  const tonePass = new EffectPass(camera, toneMapping);
+  composer.addPass(tonePass);
   composer.setSize(width, height);
 
   let weather: DataTexture | null = null;
@@ -388,11 +402,11 @@ export async function createVolumetricScene(
 
   let lastInput: VolumetricSceneInput | null = null;
   let last: { sunAltDeg: number; exposure: number } | null = null;
-  const setScene = (p: VolumetricSceneInput) => {
-    lastInput = p;
-    const position = new Geodetic(radians(p.lon), radians(p.lat), p.heightM).toECEF();
-    const nue = Ellipsoid.WGS84.getNorthUpEastFrame(position, new Matrix4());
+  let curPos = new Vector3(), curNue = new Matrix4();
+  let lastShadow: boolean | null = null;
+  const placeCamera = (p: VolumetricSceneInput) => {
     const az = radians(p.az), el = radians(p.el);
+    const position = curPos, nue = curNue;
     camera.fov = p.fov;
     let worldToECEF: Matrix4;
     if (opt.frame === 'ecef') {
@@ -417,14 +431,26 @@ export async function createVolumetricScene(
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
 
-    getSunDirectionECEF(p.date, sun);
-    aerial.sunDirection.copy(sun);
-    clouds.sunDirection.copy(sun);
+  };
+  const sunAltAt = (date: Date) => {
+    getSunDirectionECEF(date, sun);
+    const local = sun.clone().transformDirection(curNue.clone().invert());
+    return (Math.asin(Math.max(-1, Math.min(1, local.y))) * 180) / Math.PI;
+  };
+  const setScene = (p: VolumetricSceneInput) => {
+    lastInput = p;
+    const position = new Geodetic(radians(p.lon), radians(p.lat), p.heightM).toECEF();
+    const nue = Ellipsoid.WGS84.getNorthUpEastFrame(position, new Matrix4());
+    curPos = position; curNue = nue;
+    placeCamera(p);
+
     // 해가 지평선 근처면 층 그림자 지도(BSM)가 NaN 을 내 화면이 통째로 검어집니다(웹 시제품에서 해 1.1° 에서 확인).
     // 구름 자신의 그늘은 해 쪽 2차 행진이 따로 셉니다.
-    const local = sun.clone().transformDirection(nue.clone().invert());
-    const sunAltDeg = (Math.asin(Math.max(-1, Math.min(1, local.y))) * 180) / Math.PI;
+    const sunAltDeg = sunAltAt(p.date);
+    aerial.sunDirection.copy(sun);
+    clouds.sunDirection.copy(sun);
     const shadow = sunAltDeg > opt.shadowMinSunDeg;
+    lastShadow = shadow;
 
     clouds.cloudLayers.length = 0;
     weather?.dispose();
@@ -473,6 +499,22 @@ export async function createVolumetricScene(
     last = { sunAltDeg, exposure };
   };
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
+  const setView = (az: number, el: number, fov: number) => {
+    if (!lastInput) return;
+    lastInput = { ...lastInput, az, el, fov };
+    placeCamera(lastInput);
+  };
+  const setDate = (date: Date) => {
+    if (!lastInput) return;
+    lastInput = { ...lastInput, date };
+    const sunAltDeg = sunAltAt(date);
+    if ((sunAltDeg > opt.shadowMinSunDeg) !== lastShadow) { setScene(lastInput); return; }
+    aerial.sunDirection.copy(sun);
+    clouds.sunDirection.copy(sun);
+    const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
+    renderer.toneMappingExposure = exposure;
+    last = { sunAltDeg, exposure };
+  };
 
   return {
     debug: { clouds },
@@ -480,6 +522,8 @@ export async function createVolumetricScene(
     camera,
     setPreset,
     setScene,
+    setView,
+    setDate,
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
@@ -495,7 +539,16 @@ export async function createVolumetricScene(
       if (lastInput) setScene(lastInput);
     },
     setResolutionScale: s => { clouds.resolutionScale = s; },
-    render: dt => composer.render(dt),
+    render: dt => { tonePass.renderToScreen = true; composer.render(dt); },
+    // 마지막 패스를 화면 대신 출력 버퍼로 — 패스가 끝나면 버퍼가 바뀌어 결과는 inputBuffer 에 있습니다(postprocessing 6).
+    // postprocessing 은 렌더러의 autoClear 를 끕니다 — 하늘 화면 합성기는 제 몫을 스스로 정하지만, 다른 직접 그리기
+    // 경로(스냅샷 등)가 놀라지 않게 되돌립니다.
+    renderToTexture: dt => {
+      const prevAutoClear = renderer.autoClear;
+      tonePass.renderToScreen = false; composer.render(dt);
+      renderer.autoClear = prevAutoClear;
+      return (composer.inputBuffer as unknown as { texture: Texture }).texture;
+    },
     setSize: (w, h) => {
       camera.aspect = w / h; camera.updateProjectionMatrix();
       composer.setSize(w, h);

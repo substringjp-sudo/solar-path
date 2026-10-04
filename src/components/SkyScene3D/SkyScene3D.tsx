@@ -73,6 +73,14 @@ import {
   type StarFieldHandle,
 } from './StarField';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
+import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
+// §126.7 볼륨 하늘 — 개발 빌드, 또는 EXPO_PUBLIC_VOLUMETRIC_SKY=1 로 내보낸 번들(웹 하네스)에서만 불러옵니다.
+// Metro 가 두 상수를 접어 출시 번들에서는 이 require 가 사라집니다.
+const VOLUMETRIC_SKY_ENABLED = __DEV__ || process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
+const loadVolumetric = (): typeof import('../VolumetricProbe/volumetricScene') | null =>
+  (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/volumetricScene') : null);
+const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =>
+  (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/liveScene') : null);
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
@@ -175,6 +183,11 @@ export interface SkySettings {
   starMagLimit: number;
   /** 도트 모드(§97) — 화면을 이 줄 수로 그려 네모 화소 그대로 늘립니다. 0 = 끔. */
   pixelArtRows: number;
+  /**
+   * §126.7 볼륨 하늘 — 하늘돔·구름 슬랩 대신 takram 대기+볼륨 구름(종류별 모형, 지금 예보)을 하늘 층으로 씁니다.
+   * 개발 빌드에서만 동작(출시 번들에는 takram 경로가 들어가지 않음). 지형·바다·해·달·별은 그대로입니다.
+   */
+  volumetricSky?: boolean;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
@@ -405,6 +418,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const weatherRef = useRef(interpolatedWeather);
   const layersRef = useRef(layers);
   const skySettingsRef = useRef(skySettings);
+  // §126.7 볼륨 하늘 — 장면·생성 중 표시·마지막 층 키(층은 바뀔 때만 다시 만듦)·실패 표시
+  const volRef = useRef<VolumetricScene | null>(null);
+  const volBusyRef = useRef(false);
+  const volFailedRef = useRef<string | null>(null);
+  const volKeyRef = useRef('');
+  const volSizeRef = useRef('');
+  /** 장면·시선이 바뀐 뒤 시간 누적(1/16 화소씩)이 차도록 더 그릴 프레임 수 */
+  const volSettleRef = useRef(0);
+  const volViewRef = useRef('');
   const pixelRatioRef = useRef(1);
   const sceneWidthRef = useRef(SCENE_WIDTH);
 
@@ -1301,6 +1323,53 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             ),
             sunAltRef.current
           );
+          // ── §126.7 볼륨 하늘(개발 빌드 설정) — takram 대기+구름을 텍스처로 그려 하늘 층으로 넘깁니다 ──
+          let volTex: THREE.Texture | null = null;
+          const volWant = !!skySettingsRef.current.volumetricSky && VOLUMETRIC_SKY_ENABLED && !volFailedRef.current;
+          if (volWant && !volRef.current && !volBusyRef.current) {
+            const mod = loadVolumetric();
+            if (mod) {
+              volBusyRef.current = true;
+              // ⚠ postprocessing 의 composer.setSize 는 렌더러(드로잉 버퍼) 크기까지 바꿉니다 — 저해상도 버퍼 크기로 만들면
+              //   앱 화면이 그 크기로 줄어듭니다(웹 하네스에서 1/4 화면). 그래서 **전체 크기**로 만들고 구름만 해상도 배율로 낮춥니다.
+              mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false })
+                .then(v => { v.setResolutionScale(0.5); volRef.current = v; volBusyRef.current = false; volKeyRef.current = ''; volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 24; requestRender(3); })
+                .catch(e => { volFailedRef.current = String((e as Error)?.message ?? e); volBusyRef.current = false; console.warn('[SkyScene] 볼륨 하늘 생성 실패:', e); });
+            }
+          }
+          if (volWant && volRef.current) {
+            const vol = volRef.current;
+            const live = loadLiveScene();
+            const szKey = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`;
+            if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
+            const vLat = location?.coords?.latitude ?? 37.5, vLon = location?.coords?.longitude ?? 127.0;
+            const vElev = simRef.current?.terrain?.observerElevation ?? location?.coords?.altitude ?? 50;
+            const vObs = weatherRef.current?.[0] ?? null;
+            const vDate = new Date(targetTimeMsRef.current);
+            // 층은 10분 눈금·관측점·예보 값이 바뀔 때만 다시 만듭니다(날씨 텍스처 CPU 0.15~1.6초).
+            const key = [Math.floor(targetTimeMsRef.current / 600000), vLat.toFixed(3), vLon.toFixed(3), Math.round(vElev),
+              vObs?.low, vObs?.mid, vObs?.high, vObs?.lowDeckBaseKm?.toFixed(1), vObs?.lowDeckTopKm?.toFixed(1),
+              vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation].join('|');
+            const viewKey = `${cameraAzRef.current.toFixed(2)}|${cameraElevRef.current.toFixed(2)}|${camera.fov.toFixed(2)}`;
+            if (live && key !== volKeyRef.current) {
+              const built = live.buildLiveScene({ lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: [], obs: vObs,
+                az: cameraAzRef.current, el: cameraElevRef.current, fov: camera.fov });
+              vol.setScene(built.input);
+              volKeyRef.current = key; volViewRef.current = viewKey;
+              volSettleRef.current = 24;
+            } else {
+              vol.setDate(vDate);
+              if (viewKey !== volViewRef.current) { vol.setView(cameraAzRef.current, cameraElevRef.current, camera.fov); volViewRef.current = viewKey; volSettleRef.current = Math.max(volSettleRef.current, 16); }
+            }
+            const dtSec = lastRenderTsRef.current > 0 ? Math.min(0.1, Math.max(0.001, (now - lastRenderTsRef.current) / 1000)) : 1 / 60;
+            volTex = vol.renderToTexture(dtSec);
+            // 시간 업스케일이 차도록 몇 프레임 더 — 정적 화면에서 루프가 잠들면 입자가 남습니다.
+            // (프레임 끝에서 1 을 빼고 0 이면 루프가 잠드므로 2 로 둡니다.)
+            if (volSettleRef.current > 0) { volSettleRef.current--; if (framesToRenderRef.current < 2) framesToRenderRef.current = 2; }
+          }
+          composerNow.setExternalSky(volTex);
+          if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
+
           const slabFrame = cloudSlabRef.current;
           const atmos = cachedAtmosphereRef.current;
           if (slabFrame && atmos) {
@@ -1346,7 +1415,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               atmosphere: atmos,
               layerWinds: layerWindsNow(),
               driftHours: ((targetTimeMsRef.current / 60000) % 1440) / 60,
-              visible: layersRef.current.clouds !== false,
+              visible: layersRef.current.clouds !== false && !volTex,
             });
           }
           composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
@@ -2198,6 +2267,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
 
       skydomeRef.current?.dispose();
+      volRef.current?.dispose();
+      volRef.current = null;
       skydomeRef.current = null;
 
       if (terrainBandsRef.current) {
