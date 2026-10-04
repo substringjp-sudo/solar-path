@@ -43,7 +43,7 @@ import {
   STBN_TEXTURE_HEIGHT,
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
-import { genusLayerShape, makeGenusWeather, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer } from './cloudGenus';
+import { genusLayerShape, makeGenusWeather, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
 
@@ -70,6 +70,55 @@ export interface VolumetricPreset {
    * 밉맵 평균이 문턱 아래로 떨어지고 반짝이만 남았습니다(§124.4) — 고칠 때까지 기본.
    */
   genus: [GenusKey | null, GenusKey | null, GenusKey | null];
+}
+
+/**
+ * §126 일반 장면 입력 — 프리셋 대신 관측점·시각·예보 층으로 그립니다. 앱 하늘 화면이 넘길 형식입니다.
+ * 층은 최대 4개(셰이더 채널 r·g·b·a). genus 가 null 인 층은 takram 기본 잡음으로 그립니다.
+ */
+export interface VolumetricLayerInput {
+  genus: GenusKey | null;
+  /** 아래에서 본 덮인 면적 비율 0~1 */
+  cover: number;
+  /** 밑면 높이(km, 해발) */
+  baseKm: number;
+  /** 두께(m). 없으면 종류 기본값(§124 GENUS.height), 종류가 없으면 층 띠 기본값 */
+  thicknessM?: number;
+  /** 층 띠(저·중·상) — 종류 없는 층의 두께·밀도와 그림자 지도 사용 여부를 정합니다. 없으면 밑면 높이로 가릅니다. */
+  band?: 'low' | 'mid' | 'high';
+  /** 종류 손잡이 덮어쓰기(씨앗·바람 방향 등) */
+  opts?: Partial<GenusParams>;
+}
+export interface VolumetricSceneInput {
+  lat: number; lon: number; heightM: number;
+  date: Date;
+  /** 시선 방위·고도·세로 시야(도) */
+  az: number; el: number; fov: number;
+  layers: VolumetricLayerInput[];
+  /** 노출. 없으면 해 고도로 정합니다(autoExposure). */
+  exposure?: number;
+}
+
+/**
+ * 해 고도 → 노출(잠정). 사용자 장면의 손 노출(해 46° → 10, 1.1° → 30, −2.7° → 100)을 log 선형으로 이은 것으로,
+ * 아직 자로 재지 않았습니다(§126). 밤은 1000 에서 멈춥니다.
+ */
+export function autoExposure(sunAltDeg: number): number {
+  const pts: [number, number][] = [[20, 1.0], [1.1, 1.477], [-2.7, 2.0], [-8, 3.0]];
+  if (sunAltDeg >= pts[0][0]) return 10 ** pts[0][1];
+  if (sunAltDeg <= pts[pts.length - 1][0]) return 10 ** pts[pts.length - 1][1];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [a0, e0] = pts[i], [a1, e1] = pts[i + 1];
+    if (sunAltDeg <= a0 && sunAltDeg >= a1) return 10 ** (e0 + ((e1 - e0) * (a0 - sunAltDeg)) / (a0 - a1));
+  }
+  return 10;
+}
+
+export function presetToInput(p: VolumetricPreset): VolumetricSceneInput {
+  return {
+    lat: p.lat, lon: p.lon, heightM: p.heightM, date: new Date(p.iso), az: p.az, el: p.el, fov: p.fov, exposure: p.exposure,
+    layers: ([0, 1, 2] as const).map(i => ({ genus: p.genus[i], cover: p.cover[i], baseKm: p.altKm[i], band: (['low', 'mid', 'high'] as const)[i] })),
+  };
 }
 
 /** 사용자 QR 기록에서 가져온 세 장면. */
@@ -134,7 +183,7 @@ function tileableFbm(size: number, seed: number, basePeriod: number): Float32Arr
  * 셰이더 문턱(층 가운데 0.5)을 순위 1 − 운량 에 맞추고 그 위를 가파르게(×2) 올려 덩어리 속이 차게 합니다.
  * (fbm 값 그대로 쓰면 값이 가운데에 몰려 문턱 위가 옅은 막이 됩니다 — 웹 하네스에서 구름이 거의 안 보였음.)
  */
-function makeWeather(cover: [number, number, number], o: VolumetricOptions): DataTexture {
+function makeWeather(cover: number[], o: VolumetricOptions): DataTexture {
   const N = 256;
   const noise = tileableFbm(N, 1.7, o.weatherPeriod);
   const order = Array.from(noise.keys()).sort((a, b) => noise[a] - noise[b]);
@@ -142,12 +191,11 @@ function makeWeather(cover: [number, number, number], o: VolumetricOptions): Dat
   order.forEach((idx, r) => { rank[idx] = r / (order.length - 1); });
   const data = new Uint8Array(N * N * 4);
   for (let i = 0; i < N * N; i++) {
-    for (let k = 0; k < 3; k++) {
-      const c = cover[k];
+    for (let k = 0; k < 4; k++) {
+      const c = cover[k] ?? 0;
       const v = c <= 0 ? 0 : 0.5 + (rank[i] - (1 - c)) * o.weatherRamp;
       data[i * 4 + k] = Math.round(Math.min(1, Math.max(0, v)) * 255);
     }
-    data[i * 4 + 3] = 0;
   }
   const t = new DataTexture(data, N, N, RGBAFormat, UnsignedByteType);
   t.wrapS = t.wrapT = RepeatWrapping;
@@ -215,6 +263,10 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16
 export interface VolumetricScene {
   camera: Camera;
   setPreset(p: VolumetricPreset): void;
+  /** 일반 장면 입력(§126). setPreset 은 이것의 얇은 포장입니다. */
+  setScene(input: VolumetricSceneInput): void;
+  /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
+  lastScene(): { sunAltDeg: number; exposure: number } | null;
   setQuality(q: VolumetricQuality): void;
   setResolutionScale(s: number): void;
   /** 손잡이를 바꾸고 지금 장면에 다시 겁니다. */
@@ -332,9 +384,10 @@ export async function createVolumetricScene(
   let weatherMs = 0;
   const sun = new Vector3();
 
-  let lastPreset: VolumetricPreset | null = null;
-  const setPreset = (p: VolumetricPreset) => {
-    lastPreset = p;
+  let lastInput: VolumetricSceneInput | null = null;
+  let last: { sunAltDeg: number; exposure: number } | null = null;
+  const setScene = (p: VolumetricSceneInput) => {
+    lastInput = p;
     const position = new Geodetic(radians(p.lon), radians(p.lat), p.heightM).toECEF();
     const nue = Ellipsoid.WGS84.getNorthUpEastFrame(position, new Matrix4());
     const az = radians(p.az), el = radians(p.el);
@@ -362,7 +415,7 @@ export async function createVolumetricScene(
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
 
-    getSunDirectionECEF(new Date(p.iso), sun);
+    getSunDirectionECEF(p.date, sun);
     aerial.sunDirection.copy(sun);
     clouds.sunDirection.copy(sun);
     // 해가 지평선 근처면 층 그림자 지도(BSM)가 NaN 을 내 화면이 통째로 검어집니다(웹 시제품에서 해 1.1° 에서 확인).
@@ -374,19 +427,29 @@ export async function createVolumetricScene(
     clouds.cloudLayers.length = 0;
     weather?.dispose();
     const t0 = Date.now();
-    const gl: (GenusLayer | null)[] = p.genus.map((g, i) => (g && p.cover[i] > 0 ? { genus: g, cover: p.cover[i] } : null));
-    if (opt.genus && gl.some(Boolean)) {
-      // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 비웁니다.
-      const shape = (i: number, d: { height: number; densityScale?: number; shapeAmount?: number; shapeDetailAmount?: number }) =>
-        (gl[i] ? genusLayerShape(gl[i] as GenusLayer) : d);
-      clouds.cloudLayers.push(
-        new CloudLayer({ channel: 'r', altitude: p.altKm[0] * 1000, ...shape(0, { height: 1200 }), coverageFilterWidth: CFW, shadow }),
-        new CloudLayer({ channel: 'g', altitude: p.altKm[1] * 1000, ...shape(1, { height: 900 }), coverageFilterWidth: CFW, shadow }),
-        new CloudLayer({ channel: 'b', altitude: p.altKm[2] * 1000, ...shape(2, { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }),
-          coverageFilterWidth: CFW, shadow: gl[2] ? shadow : undefined }),
-        new CloudLayer({ channel: 'a', altitude: 0, height: 0, densityScale: 0 }),
-      );
-      weather = makeGenusWeather(gl, 512, GENUS_TILE_KM);
+    // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
+    const CH = ['r', 'g', 'b', 'a'] as const;
+    const inputs = p.layers.slice(0, 4);
+    const gl: (GenusLayer | null)[] = inputs.map(L => (L.genus && L.cover > 0 ? { genus: L.genus, cover: L.cover, opts: L.opts } : null));
+    const useGenus = opt.genus && gl.some(Boolean);
+    // 종류 없는 층의 두께·밀도: 층 띠(없으면 밑면 높이)로 저·중·상을 가릅니다(이전 프리셋 값과 같음).
+    const bandOf = (L: VolumetricLayerInput) => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
+    const bandShape = (b: 'low' | 'mid' | 'high') => (b === 'high' ? { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }
+      : b === 'mid' ? { height: 900 } : { height: 1200 });
+    for (let i = 0; i < 4; i++) {
+      const L = inputs[i];
+      // 입력이 없는 채널만 빈 층. 운량 0 인 층도 층 높이는 그대로 둡니다 — 층 높이 범위가 하늘빛 보간·행진 구간에 들어갑니다.
+      if (!L) { clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: 0, height: 0, densityScale: 0 })); continue; }
+      const g = useGenus ? gl[i] : null;
+      const shape = g ? genusLayerShape(g) : bandShape(bandOf(L));
+      if (L.thicknessM) shape.height = L.thicknessM;
+      // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
+      const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
+      clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: L.baseKm * 1000, ...shape, coverageFilterWidth: CFW, shadow: layerShadow }));
+    }
+    if (useGenus) {
+      // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
+      weather = makeGenusWeather(gl, 512, GENUS_TILE_KM, 7, inputs.map((L, i) => (gl[i] ? 0 : L.cover)));
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
       nue.extractBasis(north, up, east);
       clouds.localWeatherRepeat.setScalar(1);
@@ -395,28 +458,25 @@ export async function createVolumetricScene(
         setGenusFrame(m, { origin: position, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
     } else {
-      clouds.cloudLayers.push(
-        new CloudLayer({ channel: 'r', altitude: p.altKm[0] * 1000, height: 1200, coverageFilterWidth: CFW, shadow }),
-        new CloudLayer({ channel: 'g', altitude: p.altKm[1] * 1000, height: 900, coverageFilterWidth: CFW, shadow }),
-        new CloudLayer({ channel: 'b', altitude: p.altKm[2] * 1000, height: 400, densityScale: 0.003, shapeAmount: 0.4,
-          shapeDetailAmount: 0, coverageFilterWidth: CFW }),
-        // 셰이더가 늘 4층을 받습니다 — 빈 층.
-        new CloudLayer({ channel: 'a', altitude: 0, height: 0, densityScale: 0 }),
-      );
-      weather = makeWeather(p.cover, opt);
+      weather = makeWeather([0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0), opt);
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
       for (const m of genusMats) { setGenusUniforms(m, []); setGenusFrame(m, null); }
     }
     weatherMs = Date.now() - t0;
     clouds.localWeatherTexture = weather;
-    renderer.toneMappingExposure = p.exposure;
+    const exposure = p.exposure ?? autoExposure(sunAltDeg);
+    renderer.toneMappingExposure = exposure;
+    last = { sunAltDeg, exposure };
   };
+  const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
 
   return {
     debug: { clouds },
     weatherMs: () => weatherMs,
     camera,
     setPreset,
+    setScene,
+    lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
       clouds.qualityPreset = q;
@@ -428,7 +488,7 @@ export async function createVolumetricScene(
     setOptions: o => {
       Object.assign(opt, o);
       applySunMarch();
-      if (lastPreset) setPreset(lastPreset);
+      if (lastInput) setScene(lastInput);
     },
     setResolutionScale: s => { clouds.resolutionScale = s; },
     render: dt => composer.render(dt),
