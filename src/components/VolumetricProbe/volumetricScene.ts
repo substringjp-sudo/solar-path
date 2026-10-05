@@ -290,8 +290,10 @@ export interface VolumetricOptions {
    * 근처 100~300km 에 있습니다(권운 9km 는 150km 에서 고도 약 2.8°). null 이면 품질 단계 그대로.
    */
   maxRayKm: number | null;
+  /** §127 종류별 운량 → 화면 면적 역표(`GENUS_COVER_REMAP`)를 쓸지 — 하네스가 고치기 전과 견줄 때만 끕니다. */
+  coverRemap: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -613,7 +615,7 @@ export async function createVolumetricScene(
   const weatherPlan = (p: VolumetricSceneInput) => {
     const inputs = p.layers.slice(0, 4);
     const gl: (GenusLayer | null)[] = inputs.map(L => (L.genus && L.cover > 0
-      ? { genus: L.genus, cover: genusCoverIn(L.genus, quantCover(L.cover)), opts: L.opts } : null));
+      ? { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, quantCover(L.cover)) : quantCover(L.cover), opts: L.opts } : null));
     const useGenus = opt.genus && gl.some(Boolean);
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     const key = JSON.stringify([useGenus, gl, plain, useGenus ? 0 : [opt.weatherPeriod, opt.weatherRamp]]);

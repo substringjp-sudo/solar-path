@@ -112,7 +112,19 @@ export interface GenusLayer { genus: GenusKey; cover: number; opts?: Partial<Gen
  * ≥ 0.16)은 종류마다 다릅니다(얇은 가장자리·모양 잡음의 깎임·적운 옆면). 예보 운량 → 무늬에 넣을 운량을 종류별로
  * 선형 보간합니다(CloudSlab COVER_REMAP 과 같은 방식). 자: tools/genus-ruler/genus/RULER-cover.md. 표가 없는 종류는 그대로.
  */
-export const GENUS_COVER_REMAP: Partial<Record<GenusKey, [number, number][]>> = {};
+export const GENUS_COVER_REMAP: Partial<Record<GenusKey, [number, number][]>> = {
+  // [예보 운량, 무늬에 넣을 운량] — 짝수 자리 4곳 × 방위 4 × 시선 고도 20·45·70° 하늘 평균 면적(광학두께 ≥ 0.16)을 뒤집음(§127.6).
+  // 측정한 최대 면적보다 큰 예보는 (1, 1) 로 이어 붙입니다(넣을 운량 1 = 판 전체).
+  // 홀수 자리(맞추기에 안 쓴 자리)에서 최대 어긋남이 줄어든 종류만 넣었습니다 — 층운(0.153 → 0.293)·고층운(0.062 → 0.264)은
+  // 표를 넣으면 더 어긋나 뺐습니다(자리 4곳 평균이 자리마다 크게 흔들림, RULER-cover.md 추가).
+  cu: [[0.1, 0.093], [0.25, 0.444], [0.5, 0.927], [0.75, 0.963], [0.9, 0.985]],
+  cg: [[0.1, 0.064], [0.25, 0.189], [0.5, 0.565], [0.75, 0.941], [0.9, 0.976]],
+  sc: [[0.1, 0.079], [0.25, 0.209], [0.5, 0.469], [0.75, 0.77], [0.9, 0.942]],
+  ns: [[0.1, 0.03], [0.25, 0.075], [0.5, 0.281], [0.75, 0.706], [0.9, 0.922]],
+  ac: [[0.1, 0.168], [0.25, 0.402], [0.5, 0.662], [0.75, 0.934], [0.9, 0.974]],
+  ci: [[0.1, 0.476], [0.25, 0.907], [0.5, 0.938], [0.75, 0.969], [0.9, 0.988]],
+  cs: [[0.1, 0.06], [0.25, 0.183], [0.5, 0.493], [0.75, 0.86], [0.9, 0.955]],
+};
 
 export function genusCoverIn(genus: GenusKey, cover: number): number {
   const t = GENUS_COVER_REMAP[genus];
@@ -354,6 +366,7 @@ function* genusWeatherSteps(
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = Math.round(Math.pow(Math.min(1, Math.max(0, f[i])), pw) * 255);
       continue;
     }
+    if (L.cover < 0.999) { growBeyondCapacity(f, S, L.cover); yield; }
     const th = L.cover >= 0.999 ? -1 : quantile(f, 1 - L.cover);
     yield;
     const top = quantile(f, param(L, 'topQuantile') ?? 0.997);
@@ -362,6 +375,42 @@ function* genusWeatherSteps(
       const d = f[i] > th ? Math.min(1, Math.max(1 / 255, (f[i] - th) / Math.max(1e-6, top - th))) : 0;
       data[i * 4 + k] = Math.round(Math.pow(d, pw) * 255);
     }
+  }
+}
+
+/**
+ * §127 운량이 무늬의 최대 덮임을 넘을 때. 세포·띠 무늬(적운 0.305 · 웅대적운 0.428 · 고적운 0.667 · 권운 0.610 — 위에서 본 장 > 0 의
+ * 넓이)는 그 밖이 모두 0 이라, 분위수 문턱이 0 에 걸려 운량 50·75·90% 가 같은 그림이었습니다(아래에서 본 적운 면적 0.237 에서 멈춤).
+ * 운량이 그 넓이를 넘으면 0 인 곳을 **가장 가까운 구름까지 거리**의 음수로 줄 세워(주기 경계 체임퍼 거리), 문턱이 0 아래로 내려가
+ * 세포 둘레부터 얇게 번지게 합니다. 넓이 안의 운량은 장을 바꾸지 않아 이전과 같은 바이트입니다.
+ */
+function growBeyondCapacity(f: Float32Array, S: number, cover: number): void {
+  let nz = 0;
+  for (let i = 0; i < f.length; i++) if (f[i] > 0) nz++;
+  if (nz === 0 || cover <= (nz / f.length) * 0.98) return;
+  const INF = 1e9, d = new Float32Array(f.length);
+  for (let i = 0; i < f.length; i++) d[i] = f[i] > 0 ? 0 : INF;
+  const at = (x: number, y: number) => ((y + S) % S) * S + ((x + S) % S);
+  // 체임퍼(3·4) 앞뒤 두 번씩 — 주기 경계를 넘는 거리도 잡히게 두 바퀴.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const i = y * S + x; let v = d[i];
+      v = Math.min(v, d[at(x - 1, y)] + 3, d[at(x, y - 1)] + 3, d[at(x - 1, y - 1)] + 4, d[at(x + 1, y - 1)] + 4);
+      d[i] = v;
+    }
+    for (let y = S - 1; y >= 0; y--) for (let x = S - 1; x >= 0; x--) {
+      const i = y * S + x; let v = d[i];
+      v = Math.min(v, d[at(x + 1, y)] + 3, d[at(x, y + 1)] + 3, d[at(x + 1, y + 1)] + 4, d[at(x - 1, y + 1)] + 4);
+      d[i] = v;
+    }
+  }
+  // 거리 단위: 타일의 1/5(24km 타일이면 4.8km)를 1 로 — 번진 테두리의 기둥 높이 d 가 0.1~0.3 쯤이 되게(장의 최댓값 ≈ 1).
+  // 체임퍼 거리는 정수 계단이라 같은 값이 많아(고적운은 0 인 곳 대부분이 구름 바로 옆) 분위수 문턱이 그 값에 걸리면 한 칸도
+  // 안 늘었습니다 — 부드러운 잡음(한 칸 미만)을 더해 줄을 풀고 테두리를 고르지 않게 합니다.
+  const unit = 3 * S * 0.2, jit = fbm(16, 2, 911);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = y * S + x;
+    if (!(f[i] > 0)) f[i] = -(d[i] + 2.9 * jit((x + 0.5) / S, (y + 0.5) / S)) / unit;
   }
 }
 
