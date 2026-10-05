@@ -64,7 +64,7 @@ export function createResolutionGovernor(cfg: Partial<GovernorConfig> = {}): Res
   };
 }
 
-/** 개발자 패널이 읽는 볼륨 하늘 수치(하늘 화면이 매 프레임 씁니다). */
+/** 개발자 패널이 읽는 볼륨 하늘 수치(하늘 화면이 매 프레임 씁니다). 상태(준비 중·실패)는 `volumetricStatus.ts`. */
 export const volumetricStats = {
   /** 이어서 그린 프레임 간격의 지수 평균(ms) */
   frameMs: 0,
@@ -75,6 +75,4 @@ export const volumetricStats = {
   weatherMs: 0,
   /** 대기 표 생성 시간(ms) */
   atmosMs: 0,
-  /** 'off' | 'creating' | 'on' | 'failed: …' */
-  state: 'off' as string,
 };

@@ -11,6 +11,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { SkyScene3D } from '../../src/components/SkyScene3D/SkyScene3D';
+import { DevTuningPanel } from '../../src/components/SkyScreen/DevTuningPanel';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -39,6 +40,8 @@ export default function App() {
         hideCompassBar
         isActive
       />
+      {/* panel:1 — 개발자 튜닝 패널을 함께 띄웁니다(폰 폭에서 헤더·볼륨 상태 확인용). */}
+      {Q.panel ? <DevTuningPanel visible onClose={() => { (globalThis as any).__panelClosed = true; }} /> : null}
     </View>
   );
 }
