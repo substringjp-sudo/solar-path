@@ -512,8 +512,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           {/* 3D 요소 표시 설정 모달 */}
           <OverlayButton
             onPress={() => setLayerModalVisible(true)}
-            // 개발자 튜닝은 개발 빌드에서만 — 출시판 사용자가 길게 눌러 여는 일이 없게(점검 2026-09-29).
-            onLongPress={__DEV__ ? () => setDevPanelOpen(v => !v) : undefined}
+            // 개발자 튜닝은 개발 빌드와 볼륨 미리보기 빌드에서만 — 출시판 사용자가 길게 눌러 여는 일이 없게(점검 2026-09-29).
+            onLongPress={__DEV__ || process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1' ? () => setDevPanelOpen(v => !v) : undefined}
             accessibilityLabel={t('layerTitle', language)}
           >
             <SlidersHorizontal size={16} color={DARK.text} />

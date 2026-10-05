@@ -40,9 +40,12 @@ import {
   type TuningField,
 } from '../../utils/skyTuning';
 import { useCelestialStore } from '../../store/useCelestialStore';
-// 볼륨 구름 시험 화면(§123)은 개발용 빌드에서만 — 출시 번들에 takram·postprocessing 을 싣지 않으려고
-// __DEV__ 안에서만 불러옵니다(Metro 가 __DEV__ 를 상수로 접어 출시 빌드에서는 이 require 를 지웁니다).
-const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }> | null = __DEV__
+import { getVolumetricStatus, subscribeVolumetricStatus, type VolumetricStatus } from '../VolumetricProbe/volumetricStatus';
+// 볼륨 구름 시험 화면(§123)은 개발용 빌드와 볼륨 미리보기 빌드(EXPO_PUBLIC_VOLUMETRIC_SKY=1)에서만 —
+// 출시 번들에 takram·postprocessing 을 싣지 않으려고 이 조건 안에서만 불러옵니다(Metro 가 __DEV__ 와
+// EXPO_PUBLIC_* 를 상수로 접어 출시 빌드에서는 이 require 를 지웁니다).
+const VOLUMETRIC_BUILD = process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
+const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }> | null = __DEV__ || VOLUMETRIC_BUILD
   ? // eslint-disable-next-line @typescript-eslint/no-require-imports
     require('../VolumetricProbe/VolumetricProbe').VolumetricProbe
   : null;
@@ -129,12 +132,30 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
   const [showCode, setShowCode] = useState(false);
   // 볼륨 구름 시험 화면(§123) — 이 기기에서 takram 대기·구름이 도는지 잽니다.
   const [showProbe, setShowProbe] = useState(false);
-  // §126.7 볼륨 하늘 — 하늘 화면의 하늘돔·구름 슬랩을 takram 대기+볼륨 구름으로 바꿉니다(개발 빌드 전용).
-  const volumetricSky = useCelestialStore(s => !!s.skySettings.volumetricSky);
+  // §126.7 볼륨 하늘 — 하늘 화면의 하늘돔·구름 슬랩을 takram 대기+볼륨 구름으로 바꿉니다
+  // (개발 빌드·볼륨 미리보기 빌드 전용, 미리보기 빌드는 기본 켜짐 — SkyScene3D 와 같은 규칙).
+  const volumetricSky = useCelestialStore(s => s.skySettings.volumetricSky ?? VOLUMETRIC_BUILD);
+
+  // 볼륨 하늘 상태(준비 중·동작·실패 이유) — 폰에서는 콘솔을 못 보니 여기 보여 줍니다.
+  const [volStatus, setVolStatus] = useState<VolumetricStatus>(getVolumetricStatus());
+  const [, setTick] = useState(0);
 
   useEffect(() => subscribeTuning(setLocal), []);
+  useEffect(() => subscribeVolumetricStatus(setVolStatus), []);
+  // 준비 중에는 경과 초를 1초마다 갱신합니다.
+  useEffect(() => {
+    if (!visible || volStatus.phase !== 'creating') return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [visible, volStatus.phase]);
 
   if (!visible) return null;
+
+  const volLine = !VolumetricProbe ? null
+    : volStatus.phase === 'creating' ? `볼륨: 준비 중 ${Math.round((Date.now() - volStatus.sinceMs) / 1000)}초`
+    : volStatus.phase === 'running' ? `볼륨: 동작 중${volStatus.summary ? ' · ' + volStatus.summary : ''}`
+    : volStatus.phase === 'failed' ? `볼륨 실패 — ${volStatus.error ?? '이유 모름'} (VOL 을 껐다 켜면 다시 시도)`
+    : volumetricSky ? '볼륨: 대기 중' : '볼륨: 꺼짐';
 
   const changedCount = Object.keys(tuningDiff()).length;
 
@@ -142,10 +163,17 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
     <View style={styles.panel} pointerEvents="box-none">
       {showProbe && VolumetricProbe && <VolumetricProbe visible onClose={() => setShowProbe(false)} />}
       <View style={styles.card}>
+        {/* 1줄: 제목과 닫기 — 패널 폭(208)에 아이콘이 다 들어가지 않아 닫기 버튼이 화면 밖으로 밀렸습니다(폰 2026-10-05). */}
         <View style={styles.header}>
           <Text style={styles.title}>개발자 튜닝</Text>
           <Text style={styles.badge}>{changedCount > 0 ? `${changedCount}개 변경` : '기본값'}</Text>
           <View style={{ flex: 1 }} />
+          <TouchableOpacity onPress={onClose} style={styles.iconBtn} accessibilityLabel="개발자 튜닝 닫기" hitSlop={8}>
+            <X size={16} color="#E2E8F0" />
+          </TouchableOpacity>
+        </View>
+        {/* 2줄: 도구 */}
+        <View style={styles.header}>
           {VolumetricProbe && (
             <>
               <TouchableOpacity
@@ -166,10 +194,12 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
           <TouchableOpacity onPress={resetTuning} style={styles.iconBtn}>
             <RotateCcw size={13} color="#94A3B8" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
-            <X size={14} color="#E2E8F0" />
-          </TouchableOpacity>
         </View>
+        {volLine && (
+          <Text style={[styles.volLine, volStatus.phase === 'failed' && { color: '#FCA5A5' }]} selectable>
+            {volLine}
+          </Text>
+        )}
 
         {/* 맞춘 값을 소스에 되돌리기 위한 출력.
             클립보드 의존성을 넣지 않고, 길게 눌러 선택 복사할 수 있게 둡니다. */}
@@ -234,6 +264,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 12, fontWeight: '900', color: '#F1F5F9' },
   badge: { fontSize: 9, fontWeight: '700', color: '#64748B' },
   iconBtn: { padding: 4 },
+  volLine: { fontSize: 9, color: '#94A3B8', marginBottom: 6 },
   codeBox: {
     maxHeight: 130,
     backgroundColor: 'rgba(0,0,0,0.45)',
