@@ -129,6 +129,8 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
   const [showCode, setShowCode] = useState(false);
   // 볼륨 구름 시험 화면(§123) — 이 기기에서 takram 대기·구름이 도는지 잽니다.
   const [showProbe, setShowProbe] = useState(false);
+  // §126.7 볼륨 하늘 — 하늘 화면의 하늘돔·구름 슬랩을 takram 대기+볼륨 구름으로 바꿉니다(개발 빌드 전용).
+  const volumetricSky = useCelestialStore(s => !!s.skySettings.volumetricSky);
 
   useEffect(() => subscribeTuning(setLocal), []);
 
@@ -145,9 +147,18 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
           <Text style={styles.badge}>{changedCount > 0 ? `${changedCount}개 변경` : '기본값'}</Text>
           <View style={{ flex: 1 }} />
           {VolumetricProbe && (
-            <TouchableOpacity onPress={() => setShowProbe(true)} style={styles.iconBtn} accessibilityLabel="볼륨 구름 시험">
-              <CloudSun size={13} color="#94A3B8" />
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                onPress={() => useCelestialStore.getState().setSkySettings({ volumetricSky: !volumetricSky })}
+                style={[styles.iconBtn, volumetricSky && { backgroundColor: 'rgba(52,211,153,0.35)', borderRadius: 4 }]}
+                accessibilityLabel="볼륨 하늘 켜기/끄기"
+              >
+                <Text style={{ fontSize: 10, fontWeight: '800', color: volumetricSky ? '#34D399' : '#94A3B8' }}>VOL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowProbe(true)} style={styles.iconBtn} accessibilityLabel="볼륨 구름 시험">
+                <CloudSun size={13} color="#94A3B8" />
+              </TouchableOpacity>
+            </>
           )}
           <TouchableOpacity onPress={() => setShowCode(v => !v)} style={styles.iconBtn}>
             <Code2 size={13} color={showCode ? '#34D399' : '#94A3B8'} />

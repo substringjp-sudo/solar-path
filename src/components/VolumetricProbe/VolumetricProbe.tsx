@@ -19,6 +19,9 @@ import {
   type VolumetricQuality,
   type VolumetricScene,
 } from './volumetricScene';
+import { buildLiveScene } from './liveScene';
+import { useCelestialStore } from '../../store/useCelestialStore';
+import type { CloudPathData } from '../../utils/weather';
 
 const QUALITIES: VolumetricQuality[] = ['low', 'medium', 'high'];
 const SCALES = [1, 0.5];
@@ -28,7 +31,25 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   const [caps, setCaps] = useState<GLCapabilities | null>(null);
   const [genMs, setGenMs] = useState<number | null>(null);
   const [frame, setFrame] = useState<{ ms: number; fps: number } | null>(null);
+  // -1 = "지금 예보"(§126 D2): 스토어의 관측점·시각·캐시된 예보로 장면을 만듭니다.
   const [presetIdx, setPresetIdx] = useState(0);
+  const [liveSummary, setLiveSummary] = useState<string | null>(null);
+  const location = useCelestialStore(st => st.location);
+  const currentTime = useCelestialStore(st => st.currentTime);
+  const weatherCacheList = useCelestialStore(st => st.weatherCacheList);
+  const applyScene = useCallback((sc: VolumetricScene, idx: number) => {
+    if (idx >= 0) { sc.setPreset(VOLUMETRIC_PRESETS[idx]); setLiveSummary(null); return; }
+    const lat = location?.coords.latitude ?? 37.5665, lon = location?.coords.longitude ?? 126.978;
+    const heightM = location?.coords.altitude ?? 50;
+    const d = currentTime;
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const cached = weatherCacheList.find(c => c.key.includes(dateStr) && Math.abs(c.latitude - lat) < 0.05 && Math.abs(c.longitude - lon) < 0.05);
+    const pathData = (cached?.data as CloudPathData[] | undefined) ?? [];
+    const live = buildLiveScene({ lat, lon, heightM, date: d, pathData });
+    sc.setScene(live.input);
+    const ls = sc.lastScene();
+    setLiveSummary(`${live.summary}${ls ? ` · 노출 ${ls.exposure.toFixed(0)}` : ''}${live.forecast ? `\n${live.forecast.why}` : ''}`);
+  }, [location, currentTime, weatherCacheList]);
   const [quality, setQuality] = useState<VolumetricQuality>('low');
   const [scale, setScale] = useState(1);
   // 그림자 지도: 자동(해 12° 위만) · 켜기(해 고도 무관) / 해 쪽 2차 행진: 확장(≈7km) · 기본(300m)
@@ -52,7 +73,7 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
     };
   }, []);
 
-  useEffect(() => { sceneRef.current?.setPreset(VOLUMETRIC_PRESETS[presetIdx]); }, [presetIdx]);
+  useEffect(() => { if (sceneRef.current) applyScene(sceneRef.current, presetIdx); }, [presetIdx, applyScene]);
   useEffect(() => { sceneRef.current?.setQuality(quality); }, [quality]);
   useEffect(() => { sceneRef.current?.setResolutionScale(scale); }, [scale]);
   useEffect(() => {
@@ -74,7 +95,7 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
       const scene = await createVolumetricScene(renderer, w, h, { genus: genusOn });
       if (!aliveRef.current) { scene.dispose(); return; }
       setGenMs(Date.now() - t0);
-      scene.setPreset(VOLUMETRIC_PRESETS[presetIdx]);
+      applyScene(scene, presetIdx);
       scene.setQuality(quality);
       scene.setResolutionScale(scale);
       sceneRef.current = scene;
@@ -105,14 +126,15 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   }, []);
 
   if (!visible) return null;
-  const preset = VOLUMETRIC_PRESETS[presetIdx];
+  const preset = presetIdx >= 0 ? VOLUMETRIC_PRESETS[presetIdx] : null;
 
   return (
     <Modal visible animationType="none" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={styles.root}>
         <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
         <View style={styles.hud} pointerEvents="box-none">
-          <Text style={styles.title}>볼륨 구름 시험 · {preset.label}</Text>
+          <Text style={styles.title}>볼륨 구름 시험 · {preset ? preset.label : '지금 예보'}</Text>
+          {liveSummary && <Text style={styles.line}>{liveSummary}</Text>}
           <Text style={styles.line}>상태: {status}</Text>
           {caps && (
             <>
@@ -129,6 +151,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
             <Text style={styles.big}>{frame.ms.toFixed(1)} ms · {frame.fps.toFixed(0)} fps</Text>
           )}
           <View style={styles.row}>
+            <TouchableOpacity onPress={() => setPresetIdx(-1)} style={[styles.chip, presetIdx === -1 && styles.chipOn]}>
+              <Text style={styles.chipText}>지금 예보</Text>
+            </TouchableOpacity>
             {VOLUMETRIC_PRESETS.map((p, i) => (
               <TouchableOpacity key={p.key} onPress={() => setPresetIdx(i)} style={[styles.chip, i === presetIdx && styles.chipOn]}>
                 <Text style={styles.chipText}>{p.label}</Text>

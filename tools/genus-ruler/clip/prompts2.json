@@ -1,0 +1,74 @@
+{
+ "genus": {
+  "Cu": [
+   "a photo of cumulus clouds",
+   "a photo of puffy white cumulus clouds with flat bases",
+   "a photo of fair weather cumulus clouds"
+  ],
+  "AcCc": [
+   "a photo of altocumulus clouds",
+   "a photo of cirrocumulus clouds",
+   "a photo of a mackerel sky with many small cloudlets"
+  ],
+  "Ci": [
+   "a photo of cirrus clouds",
+   "a photo of thin wispy cirrus clouds high in the sky",
+   "a photo of fibrous mare's tails cirrus clouds"
+  ],
+  "Cg": [
+   "a photo of towering cumulus congestus clouds",
+   "a photo of a tall cauliflower-shaped cumulus cloud",
+   "a photo of large building cumulus clouds with great vertical growth"
+  ],
+  "Cb": [
+   "a photo of a cumulonimbus cloud",
+   "a photo of a thunderstorm cloud with an anvil top",
+   "a photo of a huge cumulonimbus tower"
+  ],
+  "Ns": [
+   "a photo of nimbostratus clouds",
+   "a photo of a dark grey rain cloud layer covering the whole sky",
+   "a photo of a dark featureless overcast sky with rain"
+  ],
+  "St": [
+   "a photo of stratus clouds",
+   "a photo of a low uniform grey cloud layer",
+   "a photo of low featureless grey cloud like high fog"
+  ],
+  "As": [
+   "a photo of altostratus clouds",
+   "a photo of a grey veil of cloud with the sun showing dimly through",
+   "a photo of a uniform grey-blue sheet of mid-level cloud"
+  ],
+  "Cs": [
+   "a photo of cirrostratus clouds",
+   "a photo of a thin whitish veil of high cloud with a halo around the sun",
+   "a photo of a milky thin high cloud sheet"
+  ],
+  "Sc": [
+   "a photo of stratocumulus clouds",
+   "a photo of a layer of lumpy grey stratocumulus clouds",
+   "a photo of rolls of low grey-white clouds covering much of the sky"
+  ]
+ },
+ "real": {
+  "photo": [
+   "a photograph of clouds in the sky",
+   "a real photo of the sky with clouds"
+  ],
+  "render": [
+   "a 3D computer rendering of clouds",
+   "CGI clouds in a video game sky"
+  ]
+ },
+ "volume": {
+  "big": [
+   "a photo of large towering voluminous clouds",
+   "a photo of big billowing clouds with strong light and shadow"
+  ],
+  "fluff": [
+   "a photo of small soft blurry cotton-like clouds",
+   "a photo of faint fuzzy clouds without shading"
+  ]
+ }
+}

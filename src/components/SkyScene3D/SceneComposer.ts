@@ -552,6 +552,11 @@ export interface SceneComposerHandle {
    * `terrainDistanceTexture()` 를 넘겨 스스로 가리게 해야 합니다. 끄면 예전 순서(§94·§96) 그대로입니다.
    */
   setTerrainDistance: (on: boolean) => void;
+  /**
+   * §126.7 — 하늘 층을 밖에서 그린 텍스처(takram 볼륨 하늘+구름, 표시 색)로 바꿉니다. null 이면 하늘돔.
+   * 켜져 있으면 LAYER_SOFT_SKY 를 그리지 않고 이 텍스처를 배경으로 깝니다(구름 슬랩 층은 호출자가 숨깁니다).
+   */
+  setExternalSky: (tex: THREE.Texture | null) => void;
   /** 지형 거리 판의 텍스처(원해상도 — 구름 슬랩은 제 화소 가운데를 정규화 좌표로 읽습니다). */
   terrainDistanceTexture: () => THREE.Texture;
   dispose: () => void;
@@ -671,6 +676,8 @@ export function createSceneComposer(
     ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
   });
   let terrainDistOn = false;
+  /** §126.7 밖에서 그린 하늘(표시 색). null 이면 하늘돔 층을 그립니다. */
+  let externalSky: THREE.Texture | null = null;
   /**
    * 블룸을 켜면 씬을 화면이 아니라 여기에 그립니다 — 밝은 부분을 뽑으려면
    * 완성된 그림을 **다시 읽어야** 하는데, 기본 프레임버퍼는 그럴 수
@@ -1016,15 +1023,29 @@ export function createSceneComposer(
       // 지형 거리 판의 쌍둥이 메시는 화면에 그리면 안 됩니다.
       camera.layers.enableAll();
       camera.layers.disable(LAYER_TERRAIN_DIST);
-      renderer.autoClear = true;
       renderer.setRenderTarget(sceneTarget);
-      renderer.render(scene, camera);
+      if (externalSky) {
+        // 밖에서 그린 하늘을 먼저 깔고, 하늘돔 층을 뺀 나머지를 그 위에 그립니다.
+        camera.layers.disable(LAYER_SOFT_SKY);
+        renderer.autoClear = true;
+        renderer.clear(true, true, true);
+        renderer.autoClear = false;
+        opaqueMat.uniforms.uDither.value = dither;
+        blit(renderer, opaqueQuad, externalSky);
+        renderer.render(scene, camera);
+        renderer.autoClear = true;
+      } else {
+        renderer.autoClear = true;
+        renderer.render(scene, camera);
+      }
     } else {
       // ── 1) 배경 (저해상도, 불투명) ───────────────────────────────────
-      camera.layers.set(LAYER_SOFT_SKY);
-      renderer.autoClear = true;
-      renderer.setRenderTarget(rtSky);
-      renderer.render(scene, camera);
+      if (!externalSky) {
+        camera.layers.set(LAYER_SOFT_SKY);
+        renderer.autoClear = true;
+        renderer.setRenderTarget(rtSky);
+        renderer.render(scene, camera);
+      }
 
       // ── 2) 구름 덱 (저해상도, 투명) ──────────────────────────────────
       //
@@ -1042,7 +1063,7 @@ export function createSceneComposer(
       renderer.setRenderTarget(sceneTarget);
       renderer.autoClear = true;
       opaqueMat.uniforms.uDither.value = dither;
-      blit(renderer, opaqueQuad, rtSky.texture);
+      blit(renderer, opaqueQuad, externalSky ?? rtSky.texture);
 
       renderer.autoClear = false;
 
@@ -1167,6 +1188,7 @@ export function createSceneComposer(
     },
     lastRayGain: () => rayGain,
     setTerrainDistance: (on: boolean) => { terrainDistOn = !!on; },
+    setExternalSky: (tex: THREE.Texture | null) => { externalSky = tex; },
     terrainDistanceTexture: () => rtDist.texture,
     dispose: () => {
       rtDist.dispose();
