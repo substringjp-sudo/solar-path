@@ -42,7 +42,7 @@ import {
 import {
   CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
 } from '../../utils/cloudShadowMap';
-import { LAYER_TERRAIN_DIST, TERRAIN_DIST_GLSL } from './SceneComposer';
+import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './SceneComposer';
 import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, TERRAIN_NOISE_GLSL,
@@ -255,6 +255,18 @@ void main() {
  */
 /** 구운 능선 꼭대기 높이(눈 위 m)의 범위 ±. 16비트(R·G)에 담아 0.125m 간격입니다. */
 const SUN_SHADOW_RANGE_M = 4096;
+/**
+ * §129 해 쪽 능선 굽기(SUN_SHADOW_BAKE_FRAG 한 화소)를 다른 셰이더가 읽는 함수 — 지형 셰이더의 sunRidgeZD 와 같은 부호화.
+ * 볼륨 하늘(takram 대기 원근)이 지형 그림자 속 공기의 길이를 구하는 데 씁니다. 반환: (눈 위 꼭대기 높이 m, 수평 거리 m).
+ */
+export const SUN_RIDGE_DECODE_GLSL = /* glsl */ `
+vec2 sunRidgeZDFrom(sampler2D t0) {
+  vec4 t = texture(t0, vec2(0.5, 0.5));
+  float v = (floor(t.r * 255.0 + 0.5) * 256.0 + floor(t.g * 255.0 + 0.5)) / 65535.0;
+  float d = floor(t.b * 255.0 + 0.5) * 256.0 + floor(t.a * 255.0 + 0.5);
+  return vec2(v * ${SUN_SHADOW_RANGE_M.toFixed(1)} * 2.0 - ${SUN_SHADOW_RANGE_M.toFixed(1)}, d);
+}
+`;
 
 export const FIELD_FRAG = /* glsl */ `
 precision highp float;
@@ -280,6 +292,7 @@ uniform float uSunAzRad;
 uniform float uSunAltRad;
 uniform float uSunAltDeg;
 uniform vec3  uAlbedo;
+uniform vec3  uLitAlbedo;     // §129 볼륨 하늘(지형 빛 판)에서 쓰는 알베도 — 흙·암반·물가 비율은 uAlbedo 대비로 그대로
 uniform float uExposure;
 uniform float uSaturation;
 uniform vec3  uHazeRadiance;  // 방위 평균 지평선 하늘빛 — 대비책일 뿐입니다
@@ -557,6 +570,14 @@ void main() {
     ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), vElevM) : 0.0;
   alb = mix(alb, alb * 0.52, wet);
 
+#ifdef TERRAIN_LIT_OUT
+  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**(ndl × 산 그림자 × 구름 그림자)을 적습니다. 빛(해·하늘 조도)·
+  // 대기 원근·노출·표시 곡선은 볼륨 하늘(takram)이 하늘·구름과 같은 값으로 입힙니다 — 이 셰이더의 대기 모형과 땅용 눈
+  // 순응을 그대로 쓰면 박명에 산이 하늘보다 밝은 회청색이 됐습니다(기기 10/05 17:46).
+  gl_FragColor = vec4(clamp(alb * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0), clamp(ndl, 0.0, 1.0));
+  return;
+#endif
+
   // ── 조도 × 알베도 ────────────────────────────────────────────────────────
   //
   // ⚠ 여기에 천공률(그 점이 보는 하늘의 몫)을 넣어 봤습니다. 물리로는 맞지만
@@ -676,10 +697,22 @@ void main() {
 }
 `;
 
+/**
+ * §129 볼륨 하늘에서 지형 빛 판이 쓰는 알베도(선형). takram 의 물리 조명(해·하늘 조도 × 같은 노출 · ACES)을 받으므로
+ * 이전 대기 모형의 표시 곡선에 맞춘 값(흙 0.22, 0.17, 0.13)이 아니라 실제 땅의 가시광 알베도여야 합니다 —
+ * tools/genus-ruler/genus/RULER-terrain-lit.md(Commons 사진 260장의 땅/하늘 밝기·색) 2회차 A4 — 두 낮 장면 땅/하늘 0.52·0.32
+ * (사진 사분위 0.10~0.53), G/R 1.06, B/R 0.74. 이전 값은 낮 땅이 하늘의 1.8배로 마른 흙처럼 빛났습니다. 하네스가 고르려고 바꿀 수 있게 객체로 둡니다.
+ */
+export const VOLUMETRIC_TERRAIN_ALBEDO = { r: 0.048, g: 0.065, b: 0.048 };
+
 export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
   /** §117 지형 거리 판의 쌍둥이 메시(`LAYER_TERRAIN_DIST`). 씬에 넣으면 합성기가 거리 판에 그립니다. */
   distMesh: THREE.Mesh;
+  /** §129 볼륨 하늘용 쌍둥이(`LAYER_TERRAIN_LIT`) — 알베도·햇빛 몫. 합성기가 지형 빛 판에 그립니다. */
+  litMesh: THREE.Mesh;
+  /** §129 해 쪽 능선 굽기(한 화소, `SUN_RIDGE_DECODE_GLSL` 로 읽음)와 그것이 지금 해·지형으로 구운 값인지. */
+  sunRidge: () => { texture: THREE.Texture; valid: boolean };
   material: THREE.ShaderMaterial;
   /** DEM 패치를 갈아 끼웁니다. null 이면 평평하게 물러납니다. */
   /** 둘째는 **발밑 고도용**, 셋째는 **성긴(먼 거리)** 패치입니다. 안 주면 그대로 둡니다. */
@@ -767,6 +800,7 @@ export function createTerrainField(opts: {
       uSunAltRad: { value: 0.5 },
       uSunAltDeg: { value: 30 },
       uAlbedo: { value: new THREE.Vector3(alb.r, alb.g, alb.b) },
+      uLitAlbedo: { value: new THREE.Vector3(VOLUMETRIC_TERRAIN_ALBEDO.r, VOLUMETRIC_TERRAIN_ALBEDO.g, VOLUMETRIC_TERRAIN_ALBEDO.b) },
       uExposure: { value: 1.0 },
       uSaturation: { value: 1.0 },
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
@@ -817,6 +851,16 @@ export function createTerrainField(opts: {
   distMesh.name = 'terrainFieldDist';
   distMesh.frustumCulled = false;
   distMesh.layers.set(LAYER_TERRAIN_DIST);
+  // §129 볼륨 하늘용 쌍둥이 — 알베도·햇빛 몫(TERRAIN_LIT_OUT). 균일변수는 격자와 같은 객체입니다.
+  const litMaterial = material.clone();
+  litMaterial.uniforms = material.uniforms;
+  litMaterial.defines = { ...(material.defines ?? {}), TERRAIN_LIT_OUT: 1 };
+  litMaterial.transparent = false;
+  litMaterial.blending = THREE.NoBlending;
+  const litMesh = new THREE.Mesh(mesh.geometry, litMaterial);
+  litMesh.name = 'terrainFieldLit';
+  litMesh.frustumCulled = false;
+  litMesh.layers.set(LAYER_TERRAIN_LIT);
 
   // 해 방위의 지평선 능선 — 한 화소짜리 굽기(SUN_SHADOW_BAKE_FRAG). uniform 은 격자와 **같은 객체**를
   // 나눠 써서 setPatch·해 갱신이 그대로 따라옵니다(굽기 셰이더는 uSunShadowTex 를 선언하지 않으므로
@@ -846,7 +890,9 @@ export function createTerrainField(opts: {
   return {
     mesh,
     distMesh,
+    litMesh,
     material,
+    sunRidge: () => ({ texture: shadowRT.texture, valid: material.uniforms.uSunShadowValid.value > 0.5 }),
     bakeSunShadow: (renderer) => {
       const u = material.uniforms;
       const hasDem = u.uDemValid?.value > 0.5 || u.uDemFarValid?.value > 0.5;
@@ -887,6 +933,7 @@ export function createTerrainField(opts: {
       mesh.geometry.dispose();
       material.dispose();
       distMaterial.dispose();
+      litMaterial.dispose();
       bakeQuad.geometry.dispose();
       bakeMaterial.dispose();
       shadowRT.dispose();
@@ -935,6 +982,10 @@ export function updateTerrainFieldEye(
   if (handle.distMesh) {
     handle.distMesh.position.copy(camera.position);
     handle.distMesh.visible = handle.mesh.visible;
+  }
+  if (handle.litMesh) {
+    handle.litMesh.position.copy(camera.position);
+    handle.litMesh.visible = handle.mesh.visible;
   }
 }
 

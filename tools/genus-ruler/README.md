@@ -34,5 +34,7 @@
 - `composer-check.ts` — 합성기의 천체 가리기·지형 앞 구름 판정(손으로 만든 장면). `governor-check.js` — 해상도 자동 조절 판정.
 - `repro-shot.js` — 앱 하늘 화면(web-repro)을 장면 하나씩 찍기.
 - `genus/exposure-ruler.js`(노출 자) · `genus/sunset-peak.js`('가장 붉은 곳의 색', §122.2 다시 씀) · `genus/twilight-hue.py`(박명 자주·푸른
-  비율, §128) · 자: `genus/RULER-exposure.md`, `RULER-cover.md`, `RULER-sunset-genus.md`, `RULER-twilight-hue.md`, `RULER-sc-low.md`.
+  비율, §128) · `genus/terrain-lit.py`(땅/하늘 밝기·땅 색, §129) · `genus/ridge-ratio-geo.js`(해 쪽 능선 비, DEM 참 능선) · 자:
+  `genus/RULER-exposure.md`, `RULER-cover.md`, `RULER-sunset-genus.md`, `RULER-twilight-hue.md`, `RULER-sc-low.md`, `RULER-terrain-lit.md`.
+- 웹 앱 하네스(`tools/web-repro`)는 §129 부터 DEM 지형을 그립니다. `#{"talb":[r,g,b]}` 로 볼륨 경로의 지형 알베도를 바꿔 볼 수 있습니다.
 - CLIP 가중치는 `clip/` 에 받아 쓰고 넣지 않습니다(.gitignore).

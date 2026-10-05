@@ -48,6 +48,7 @@ import {
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
+import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
 
@@ -321,8 +322,10 @@ export interface VolumetricScene {
    * §127 지형 거리 판(SceneComposer.terrainDistanceTexture, 원해상도·log2 거리 부호화). 주면 구름 행진이 지형에서
    * 멈춰 산 뒤 구름이 사라지고, 지형 화소의 하늘을 검게 남깁니다. **같은 프레임**의 판이어야 시선을 돌릴 때 능선이
    * 밀리지 않습니다(SceneComposer.prepareTerrainDistance 를 먼저 부름). null 이면 지형을 모름(예전처럼 구름은 늘 지형 뒤).
+   * lit(§129, SceneComposer.terrainLitTexture — 알베도·햇빛 몫)을 주면 지형 화소를 검게 비우는 대신 takram 의 해·하늘 조도와
+   * 대기 원근으로 칠하고 알파 1 로 냅니다(합성기의 지형 앞 덮기가 지형을 통째로 바꿈).
    */
-  setTerrainDistance(tex: Texture | null): void;
+  setTerrainDistance(tex: Texture | null, lit?: Texture | null, sunRidge?: Texture | null, seaSlopeVar?: number): void;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
   setQuality(q: VolumetricQuality): void;
@@ -536,33 +539,116 @@ export async function createVolumetricScene(
     const skyA = 'outputColor.a = 1.0;\n    #else // SKY';
     const ovl = '    #ifdef HAS_OVERLAY\n    outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;\n    #endif // HAS_OVERLAY\n    return;';
     const head = 'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {';
-    for (const a of [skyA, ovl, head]) if (!src.includes(a)) throw new Error('volumetricScene: aerial anchor missing — ' + a.slice(0, 30));
-    src = src.replace(head, ['uniform sampler2D terrainDist;', 'uniform float terrainDistOn;', 'uniform float cloudAlphaOut;', TERRAIN_DIST_GLSL, head].join('\n'));
+    const shLen = '  #ifdef HAS_SHADOW_LENGTH\n  shadowLength = texture(shadowLengthBuffer, uv).r;\n  #endif // HAS_SHADOW_LENGTH';
+    for (const a of [skyA, ovl, head, shLen]) if (!src.includes(a)) throw new Error('volumetricScene: aerial anchor missing — ' + a.slice(0, 30));
+    // §129 해가 능선 뒤로 넘어가면 눈 쪽 공기는 산 그림자 속 — 하늘·지형 화소 모두 그 구간의 산란을 뺍니다(능선 위 하늘도 같은 그늘을 지남).
+    src = src.replace(shLen, shLen + '\n  shadowLength = max(shadowLength, volTerrainShadowKm(normalize(vRayDirection), 1e9));');
+    src = src.replace(head, [
+      'uniform sampler2D terrainDist;', 'uniform float terrainDistOn;', 'uniform float cloudAlphaOut;',
+      'uniform sampler2D terrainLit;', 'uniform float terrainLitOn;',
+      'uniform sampler2D sunRidgeTex;', 'uniform float sunRidgeOn;', 'uniform float seaSlopeVar;',
+      'float volTerrainLitHit = 0.0;',
+      TERRAIN_DIST_GLSL, SUN_RIDGE_DECODE_GLSL,
+      // §129 해 쪽 능선 그림자 속 공기의 길이(km) — 눈에서 시작하는 그늘 구간(Bruneton shadow_length 의 뜻과 같음).
+      // 능선 하나(눈 위 높이 z, 해 방위로 거리 D)가 해 방향과 직각으로 길게 놓였다고 보고(지형 셰이더 hazeLitWeight 와 같은 모형),
+      // 시선 위 점(거리 s)이 능선 꼭대기 너머로 해를 보는 조건 tanα·(D − u) > z − h 를 s 에 대해 풉니다(u = s·cosθ·cosΔφ, h = s·sinθ).
+      'float volTerrainShadowKm(vec3 rayDir, float maxKm) {',
+      '  if (sunRidgeOn < 0.5) return 0.0;',
+      '  vec2 zd = sunRidgeZDFrom(sunRidgeTex) * 1e-3;',
+      // 능선이 눈보다 낮으면(바다 지평선 — 곡률 낙차뿐) 지형 그림자는 없습니다. 지구 그림자는 takram 이 이미 셉니다.
+      '  if (zd.x <= 0.0 || zd.y <= 0.0) return 0.0;',
+      '  vec3 up = normalize(vCameraPosition);',
+      '  float sinT = dot(rayDir, up), cosT = sqrt(max(0.0, 1.0 - sinT * sinT));',
+      '  float sinA = dot(sunDirection, up), tanA = sinA / sqrt(max(1e-6, 1.0 - sinA * sinA));',
+      '  vec3 hr = rayDir - up * sinT, hs = sunDirection - up * sinA;',
+      '  float cosP = (length(hr) > 1e-5 && length(hs) > 1e-5) ? dot(normalize(hr), normalize(hs)) : 0.0;',
+      '  float K = tanA * zd.y - zd.x;',
+      '  if (K > 0.0) return 0.0;',
+      '  float c = tanA * cosT * cosP - sinT;',
+      '  float sLit = c < -1e-6 ? K / c : 1e9;',
+      '  float sBeyond = cosP * cosT > 1e-4 ? zd.y / (cosT * cosP) : 1e9;',
+      // 해가 지평선 아래 2° 로 내려가면 지구 그림자에 맡깁니다(그 아래는 능선 너머 공기도 이미 그늘 — 두 번 빼지 않게).
+      '  return clamp(min(sLit, sBeyond), 0.0, maxKm) * smoothstep(-0.035, 0.0, sinA);',
+      '}',
+      head,
+    ].join('\n'));
     src = src.replace(skyA, [
       // 구름이 없으면(겹칠 층이 아직 없음) 불투명도 0 — 아래 HAS_OVERLAY 가 있으면 그 알파로 바뀝니다.
       'outputColor.a = cloudAlphaOut > 0.5 ? 0.0 : 1.0;',
-      '    if (terrainDistOn > 0.5 && terrainDistDecodeKm(texture(terrainDist, uv)) < 1e8) outputColor.rgb = vec3(0.0);',
+      '    if (terrainDistOn > 0.5) {',
+      '      float vtKm = terrainDistDecodeKm(texture(terrainDist, uv));',
+      '      if (vtKm < 1e8) {',
+      '        outputColor.rgb = vec3(0.0);',
+      // §129 지형 빛 판: 알베도(rgb)·햇빛 몫(a) 위에 takram 의 해·하늘 조도와 대기 원근을 하늘과 같은 값으로 입힙니다.
+      // 하늘 조도는 수평면(위를 봄) 몫, 해는 원반을 마주한 조도 × 지형 셰이더의 ndl·그림자. 지형은 불투명(알파 1).
+      '        if (terrainLitOn > 0.5) {',
+      '          vec4 vtLit = texture(terrainLit, uv);',
+      '          vec3 vtP = vCameraPosition + rayDirection * vtKm;',
+      '          vec3 vtUp = normalize(vtP);',
+      '          vec3 vtSky, vtSkyUnused;',
+      '          GetSunAndSkyIrradiance(vtP, vtUp, sunDirection, vtSky);',
+      '          vec3 vtSun = GetSunAndSkyIrradiance(vtP, sunDirection, sunDirection, vtSkyUnused);',
+      '          vec3 vtRad;',
+      '          if (texture(terrainDist, uv).b > 0.5) {',
+      // 바다(SeaPlane 쌍둥이, B=1): 수체·바닥·포말 = 알베도 × 수평면 조도(직달 × 구름 그림자), 하늘 되비침 = 거울 방향의
+      // takram 하늘(물 n=1.33 Schlick 프레넬), 윤슬 = Cox-Munk(파면 경사 분산 seaSlopeVar) × 해 조도 × 구름 그림자.
+      '            float cosV = max(0.02, -dot(rayDirection, vtUp));',
+      '            float F = 0.02 + 0.98 * pow(1.0 - cosV, 5.0);',
+      '            vec3 tRefl;',
+      '            vec3 refl = GetSkyRadiance(vtP, reflect(rayDirection, vtUp), 0.0, sunDirection, tRefl);',
+      '            vec3 body = vtLit.rgb * (1.0 / 3.14159265) * (vtSun * max(0.0, dot(vtUp, sunDirection)) * vtLit.a + vtSky);',
+      '            vec3 V = -rayDirection;',
+      '            vec3 Hh = normalize(V + sunDirection);',
+      '            float cosN = max(dot(Hh, vtUp), 1e-3);',
+      '            float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);',
+      '            float sv = max(1e-3, seaSlopeVar);',
+      '            float pg = min(exp(-min(tan2 / sv, 50.0)) / (3.14159265 * sv * pow(cosN, 4.0)), 220.0);',
+      '            float Fg = 0.02 + 0.98 * pow(1.0 - clamp(dot(V, Hh), 0.0, 1.0), 5.0);',
+      '            vec3 glint = vtSun * vtLit.a * Fg * pg / (4.0 * cosV);',
+      '            vtRad = mix(body, refl, F) + glint;',
+      '          } else {',
+      '            vtRad = vtLit.rgb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + vtSky);',
+      '          }',
+      '          #if defined(TRANSMITTANCE) || defined(INSCATTER)',
+      '          applyTransmittanceInscatter(vtP, min(shadowLength, vtKm), vtRad);',
+      '          #endif',
+      '          outputColor.rgb = vtRad;',
+      '          outputColor.a = 1.0;',
+      '          volTerrainLitHit = 1.0;',
+      '        }',
+      '      }',
+      '    }',
       '    #else // SKY',
     ].join('\n'));
     src = src.replace(ovl, [
       '    #ifdef HAS_OVERLAY',
       '    outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;',
-      '    if (cloudAlphaOut > 0.5) outputColor.a = overlay.a;',
+      '    if (cloudAlphaOut > 0.5) outputColor.a = max(overlay.a, volTerrainLitHit);',
       '    #endif // HAS_OVERLAY',
       '    return;',
     ].join('\n'));
     fx.uniforms.set('terrainDist', new Uniform(null));
     fx.uniforms.set('terrainDistOn', new Uniform(0));
     fx.uniforms.set('cloudAlphaOut', new Uniform(0));
+    fx.uniforms.set('terrainLit', new Uniform(null));
+    fx.uniforms.set('terrainLitOn', new Uniform(0));
+    fx.uniforms.set('sunRidgeTex', new Uniform(null));
+    fx.uniforms.set('sunRidgeOn', new Uniform(0));
+    fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     fx.setFragmentShader(src);
   }
-  const setTerrainDistance = (tex: Texture | null) => {
+  const setTerrainDistance = (tex: Texture | null, lit: Texture | null = null, ridge: Texture | null = null, seaSlope = 0.03) => {
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     cu.terrainDistBuffer.value = tex;
     cu.terrainDistOn.value = tex ? 1 : 0;
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     au.get('terrainDist')!.value = tex;
     au.get('terrainDistOn')!.value = tex ? 1 : 0;
+    au.get('terrainLit')!.value = tex ? lit : null;
+    au.get('terrainLitOn')!.value = tex && lit ? 1 : 0;
+    au.get('sunRidgeTex')!.value = ridge;
+    au.get('sunRidgeOn')!.value = tex && lit && ridge ? 1 : 0;
+    au.get('seaSlopeVar')!.value = seaSlope;
   };
   const setCloudAlphaOut = (on: boolean) => {
     (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudAlphaOut')!.value = on ? 1 : 0;
