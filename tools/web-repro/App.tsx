@@ -33,7 +33,7 @@ export default function App() {
         cameraAzimuthProp={Q.view?.az}
         cameraElevationProp={Q.view?.el}
         fovProp={Q.view?.fov}
-        skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, volumetricSky: !!Q.vol }}
+        skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, volumetricSky: Q.vol === undefined ? undefined : !!Q.vol }}
         fullScreen
         hideHudOverlay
         hideCompassBar

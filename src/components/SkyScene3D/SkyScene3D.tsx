@@ -77,6 +77,8 @@ import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 // §126.7 볼륨 하늘 — 개발 빌드, 또는 EXPO_PUBLIC_VOLUMETRIC_SKY=1 로 내보낸 번들(웹 하네스)에서만 불러옵니다.
 // Metro 가 두 상수를 접어 출시 번들에서는 이 require 가 사라집니다.
 const VOLUMETRIC_SKY_ENABLED = __DEV__ || process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
+/** 볼륨 미리보기 빌드(eas.json preview-volumetric)는 설정을 건드린 적이 없으면 볼륨 하늘을 켠 채로 시작합니다. */
+const VOLUMETRIC_SKY_DEFAULT_ON = process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
 const loadVolumetric = (): typeof import('../VolumetricProbe/volumetricScene') | null =>
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/volumetricScene') : null);
 const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =>
@@ -1325,7 +1327,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           );
           // ── §126.7 볼륨 하늘(개발 빌드 설정) — takram 대기+구름을 텍스처로 그려 하늘 층으로 넘깁니다 ──
           let volTex: THREE.Texture | null = null;
-          const volWant = !!skySettingsRef.current.volumetricSky && VOLUMETRIC_SKY_ENABLED && !volFailedRef.current;
+          const volWant = (skySettingsRef.current.volumetricSky ?? VOLUMETRIC_SKY_DEFAULT_ON) && VOLUMETRIC_SKY_ENABLED && !volFailedRef.current;
           if (volWant && !volRef.current && !volBusyRef.current) {
             const mod = loadVolumetric();
             if (mod) {

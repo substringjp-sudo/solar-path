@@ -25,6 +25,12 @@
         "EXPO_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID": "beforeglow"
       }
     },
+    "preview-volumetric": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_VOLUMETRIC_SKY": "1"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "android": {

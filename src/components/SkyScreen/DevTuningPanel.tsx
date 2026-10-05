@@ -40,9 +40,11 @@ import {
   type TuningField,
 } from '../../utils/skyTuning';
 import { useCelestialStore } from '../../store/useCelestialStore';
-// 볼륨 구름 시험 화면(§123)은 개발용 빌드에서만 — 출시 번들에 takram·postprocessing 을 싣지 않으려고
-// __DEV__ 안에서만 불러옵니다(Metro 가 __DEV__ 를 상수로 접어 출시 빌드에서는 이 require 를 지웁니다).
-const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }> | null = __DEV__
+// 볼륨 구름 시험 화면(§123)은 개발용 빌드와 볼륨 미리보기 빌드(EXPO_PUBLIC_VOLUMETRIC_SKY=1)에서만 —
+// 출시 번들에 takram·postprocessing 을 싣지 않으려고 이 조건 안에서만 불러옵니다(Metro 가 __DEV__ 와
+// EXPO_PUBLIC_* 를 상수로 접어 출시 빌드에서는 이 require 를 지웁니다).
+const VOLUMETRIC_BUILD = process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
+const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }> | null = __DEV__ || VOLUMETRIC_BUILD
   ? // eslint-disable-next-line @typescript-eslint/no-require-imports
     require('../VolumetricProbe/VolumetricProbe').VolumetricProbe
   : null;
@@ -129,8 +131,9 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
   const [showCode, setShowCode] = useState(false);
   // 볼륨 구름 시험 화면(§123) — 이 기기에서 takram 대기·구름이 도는지 잽니다.
   const [showProbe, setShowProbe] = useState(false);
-  // §126.7 볼륨 하늘 — 하늘 화면의 하늘돔·구름 슬랩을 takram 대기+볼륨 구름으로 바꿉니다(개발 빌드 전용).
-  const volumetricSky = useCelestialStore(s => !!s.skySettings.volumetricSky);
+  // §126.7 볼륨 하늘 — 하늘 화면의 하늘돔·구름 슬랩을 takram 대기+볼륨 구름으로 바꿉니다
+  // (개발 빌드·볼륨 미리보기 빌드 전용, 미리보기 빌드는 기본 켜짐 — SkyScene3D 와 같은 규칙).
+  const volumetricSky = useCelestialStore(s => s.skySettings.volumetricSky ?? VOLUMETRIC_BUILD);
 
   useEffect(() => subscribeTuning(setLocal), []);
 
