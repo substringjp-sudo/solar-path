@@ -36,3 +36,8 @@ functions/.env
 
 # 셰이더 하네스 산출물 (tools/shader-preview/paths.js)
 .harness/
+
+# CLIP 판정기 가중치(tools/genus-ruler/README.md) — 받아 쓰고 저장소에는 넣지 않습니다
+tools/genus-ruler/clip/*.onnx
+tools/genus-ruler/clip/tokenizer.json
+__pycache__/

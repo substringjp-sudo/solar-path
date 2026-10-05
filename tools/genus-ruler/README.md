@@ -23,3 +23,15 @@
 - `main2.js` 를 esbuild 로 `www/app2.js` 로 묶고, takram 자산(`assets/`)과 함께 `www/` 를 띄웁니다.
 - `PAGE=index2.html node shoot.js "<쿼리>" out.png` — 쿼리 `gL/gM/gH`(층별 종류), `go`(손잡이 JSON), `tm`, `ev`, `w/hpx`.
 - `gbatch.sh`(정식 390×584) · `xbatch.sh`(탐색 195×292) — 방향 3개(200°·110°·20°)를 한 번에.
+
+## volsky/ — 볼륨 하늘 측정 하네스(§127)
+- `entry.ts` 가 **앱의** `src/components/VolumetricProbe/volumetricScene.ts` 를 그대로 묶습니다(시제품 `proto/` 와 달리 따로 베낀 계산이 없음).
+  출력은 하늘 화면과 같은 길(`renderToTexture` → sRGB 부호화 복사, 알파 = 구름 불투명도).
+- 묶기: `npx esbuild tools/genus-ruler/volsky/entry.ts --bundle --format=esm --outfile=.harness/volsky/app.js --define:__DEV__=false --define:process.env.EXPO_PUBLIC_VOLUMETRIC_SKY='"1"'`
+- `run.js jobs.json outDir [w h] [load]` — 한 페이지에서 장면을 이어 그립니다. `load` 는 takram 의 미리 만든 대기 표를 읽습니다(빠름).
+  잡은 `{ name, input, frames, quality, res, options, out: rgb|alpha|both|direct, terrain?, views? }`(`entry.ts` 머리말).
+- `composer-check.ts` — 합성기의 천체 가리기·지형 앞 구름 판정(손으로 만든 장면). `governor-check.js` — 해상도 자동 조절 판정.
+- `repro-shot.js` — 앱 하늘 화면(web-repro)을 장면 하나씩 찍기.
+- `genus/exposure-ruler.js`(노출 자) · `genus/sunset-peak.js`('가장 붉은 곳의 색', §122.2 다시 씀) · 자: `genus/RULER-exposure.md`,
+  `RULER-cover.md`, `RULER-sunset-genus.md`.
+- CLIP 가중치는 `clip/` 에 받아 쓰고 넣지 않습니다(.gitignore).

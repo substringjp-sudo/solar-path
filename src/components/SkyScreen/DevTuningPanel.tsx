@@ -40,6 +40,7 @@ import {
   type TuningField,
 } from '../../utils/skyTuning';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import { volumetricStats } from '../../utils/volumetricGovernor';
 import { getVolumetricStatus, subscribeVolumetricStatus, type VolumetricStatus } from '../VolumetricProbe/volumetricStatus';
 // 볼륨 구름 시험 화면(§123)은 개발용 빌드와 볼륨 미리보기 빌드(EXPO_PUBLIC_VOLUMETRIC_SKY=1)에서만 —
 // 출시 번들에 takram·postprocessing 을 싣지 않으려고 이 조건 안에서만 불러옵니다(Metro 가 __DEV__ 와
@@ -124,6 +125,49 @@ const TuneSlider: React.FC<{
   );
 };
 
+/**
+ * §127 볼륨 하늘 기기 성능 줄 — 프레임 간격·구름 해상도·날씨 생성 시간을 띄우고, 품질 단계·최대 해상도·자동 조절을 고릅니다.
+ * 기기에서 이 줄의 수치를 받아 기본값(low · ×0.5 · 자동)을 다시 정합니다.
+ */
+const VolumetricPerfRow: React.FC = () => {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick(n => n + 1), 500); return () => clearInterval(t); }, []);
+  const q = useCelestialStore(s => s.skySettings.volumetricQuality ?? 'low');
+  const res = useCelestialStore(s => s.skySettings.volumetricRes ?? 0.5);
+  const auto = useCelestialStore(s => s.skySettings.volumetricAutoRes ?? true);
+  const set = useCelestialStore.getState().setSkySettings;
+  const st = volumetricStats;
+  const fps = st.frameMs > 0 ? Math.round(1000 / st.frameMs) : 0;
+  const chip = (on: boolean) => [styles.volChip, on && styles.volChipOn];
+  return (
+    <View style={styles.volBox}>
+      {/* 상태(준비 중·실패)는 위 볼륨 상태 줄이 띄웁니다 — 여기는 동작 중 수치만. */}
+      {getVolumetricStatus().phase === 'running' && (
+        <Text style={styles.volText} numberOfLines={2}>
+          {`${fps}fps(${st.frameMs.toFixed(0)}ms) · 구름 ×${st.resScale.toFixed(2)} · 날씨 ${(st.weatherMs / 1000).toFixed(1)}s · 대기 ${(st.atmosMs / 1000).toFixed(0)}s`}
+        </Text>
+      )}
+      <View style={styles.volRow}>
+        {(['low', 'medium', 'high'] as const).map(k => (
+          <TouchableOpacity key={k} onPress={() => set({ volumetricQuality: k })} style={chip(q === k)}>
+            <Text style={styles.volChipText}>{k[0].toUpperCase()}</Text>
+          </TouchableOpacity>
+        ))}
+        <View style={{ width: 6 }} />
+        {[0.25, 0.5, 0.75, 1].map(r => (
+          <TouchableOpacity key={r} onPress={() => set({ volumetricRes: r })} style={chip(Math.abs(res - r) < 1e-3)}>
+            <Text style={styles.volChipText}>{r === 1 ? '1' : r.toString().slice(1)}</Text>
+          </TouchableOpacity>
+        ))}
+        <View style={{ width: 6 }} />
+        <TouchableOpacity onPress={() => set({ volumetricAutoRes: !auto })} style={chip(auto)}>
+          <Text style={styles.volChipText}>AUTO</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
 export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }> = ({
   visible,
   onClose,
@@ -201,6 +245,8 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
           </Text>
         )}
 
+        {VolumetricProbe && volumetricSky && <VolumetricPerfRow />}
+
         {/* 맞춘 값을 소스에 되돌리기 위한 출력.
             클립보드 의존성을 넣지 않고, 길게 눌러 선택 복사할 수 있게 둡니다. */}
         {showCode && (
@@ -262,6 +308,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: { fontSize: 12, fontWeight: '900', color: '#F1F5F9' },
+  volBox: { marginBottom: 6, padding: 5, borderRadius: 6, backgroundColor: 'rgba(52,211,153,0.10)' },
+  volText: { fontSize: 9, fontWeight: '700', color: '#A7F3D0', fontVariant: ['tabular-nums'] },
+  volRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 3 },
+  volChip: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(148,163,184,0.18)' },
+  volChipOn: { backgroundColor: 'rgba(52,211,153,0.45)' },
+  volChipText: { fontSize: 9, fontWeight: '800', color: '#E2E8F0' },
   badge: { fontSize: 9, fontWeight: '700', color: '#64748B' },
   iconBtn: { padding: 4 },
   volLine: { fontSize: 9, color: '#94A3B8', marginBottom: 6 },

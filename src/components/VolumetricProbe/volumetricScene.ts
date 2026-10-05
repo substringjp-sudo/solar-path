@@ -29,6 +29,7 @@ import {
   RepeatWrapping,
   RGBAFormat,
   Scene,
+  Uniform,
   UnsignedByteType,
   Vector3,
   WebGLRenderer,
@@ -44,7 +45,8 @@ import {
   STBN_TEXTURE_HEIGHT,
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
-import { genusLayerShape, makeGenusWeather, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
 
@@ -103,18 +105,27 @@ export interface VolumetricSceneInput {
 }
 
 /**
- * 해 고도 → 노출(잠정). 사용자 장면의 손 노출(해 46° → 10, 1.1° → 30, −2.7° → 100)을 log 선형으로 이은 것으로,
- * 아직 자로 재지 않았습니다(§126). 밤은 1000 에서 멈춥니다.
+ * 해 고도 → 노출(§127 E2-3, 자 `tools/genus-ruler/genus/RULER-exposure.md`).
+ *
+ * 해 3° 위: 사진 312장의 맑은 하늘 휘도 중앙값(L 0.187, 사분위 0.112~0.280 — 카메라가 하늘을 약 18% 회색에 놓음)이
+ * 되는 노출을 해 고도마다 잰 값(가나자와, 적운 30%, 시선 20°, 해 방위 +10·−80·−170° 의 중앙값, 하늘 화면과 같은
+ * 텍스처 → sRGB 부호화 길). 이전 잠정값(해 20° 위 모두 10, 3° 약 27)은 해 50° 에서 L 0.349, 15° 0.326, 8° 0.403,
+ * 3° 0.336 으로 사분위 위(너무 밝음)였습니다.
+ * 해 3° 아래: 사진 자가 없어 사용자 사진 세 장면의 손 노출(1.1° → 30, −2.7° → 100)을 그대로 둡니다.
+ * 밤은 1000 에서 멈춥니다.
  */
+export const AUTO_EXPOSURE_POINTS: [number, number][] = [
+  [50, 5.8], [30, 7.2], [15, 8.0], [8, 9.4], [3, 16.1], [1.1, 30], [-2.7, 100], [-8, 1000],
+];
 export function autoExposure(sunAltDeg: number): number {
-  const pts: [number, number][] = [[20, 1.0], [1.1, 1.477], [-2.7, 2.0], [-8, 3.0]];
-  if (sunAltDeg >= pts[0][0]) return 10 ** pts[0][1];
-  if (sunAltDeg <= pts[pts.length - 1][0]) return 10 ** pts[pts.length - 1][1];
+  const pts = AUTO_EXPOSURE_POINTS;
+  if (sunAltDeg >= pts[0][0]) return pts[0][1];
+  if (sunAltDeg <= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
   for (let i = 0; i + 1 < pts.length; i++) {
     const [a0, e0] = pts[i], [a1, e1] = pts[i + 1];
-    if (sunAltDeg <= a0 && sunAltDeg >= a1) return 10 ** (e0 + ((e1 - e0) * (a0 - sunAltDeg)) / (a0 - a1));
+    if (sunAltDeg <= a0 && sunAltDeg >= a1) return Math.exp(Math.log(e0) + ((Math.log(e1) - Math.log(e0)) * (a0 - sunAltDeg)) / (a0 - a1));
   }
-  return 10;
+  return pts[0][1];
 }
 
 export function presetToInput(p: VolumetricPreset): VolumetricSceneInput {
@@ -262,22 +273,55 @@ export interface VolumetricOptions {
   genus: boolean;
   /** takram 이 해·달 원반을 그릴지. 하늘 화면(§126.7)은 앱의 해·달 메시를 쓰므로 끕니다. */
   celestial: boolean;
+  /**
+   * §127 C5 종류 날씨의 거리 밉 단계. takram 은 지상 카메라에서 날씨 텍스처를 사실상 밉 0 으로 읽어(높이 비례로 끔)
+   * 먼 고적운(간격 350m)이 화소보다 작아지면 반짝이만 남았습니다(§124.5). 켜면 표본까지 거리 × 화소 각 ÷ 시선의 층 기울기로
+   * 밉 단계를 정해 먼 곳은 평균 덮임이 됩니다. 값은 밉 치우침(log2) — null 이면 끔.
+   */
+  weatherLod: number | null;
+  /**
+   * §127 G4c — 해가 이 고도(°)보다 낮으면 품질 단계와 무관하게 구름 표본마다 해·하늘빛을 셉니다(takram
+   * accurateSunSkyLight). low·medium 은 이것을 끄고 **관측점 바로 위** 층 높이의 빛을 모든 구름에 씁니다 — 해가 관측점
+   * 지평선 아래로 가면 해 쪽 먼 구름(아직 햇빛을 받음)까지 어두운 적갈색이 됐습니다. null 이면 품질 단계 그대로.
+   */
+  accurateSunBelowDeg: number | null;
+  /**
+   * §127 G4c — 구름 행진 최대 거리(km). 품질 low 는 100km 에서 끊습니다. 해 진 뒤 빛을 받는 구름은 대개 서쪽 지평선
+   * 근처 100~300km 에 있습니다(권운 9km 는 150km 에서 고도 약 2.8°). null 이면 품질 단계 그대로.
+   */
+  maxRayKm: number | null;
+  /** §127 종류별 운량 → 화면 면적 역표(`GENUS_COVER_REMAP`)를 쓸지 — 하네스가 고치기 전과 견줄 때만 끕니다. */
+  coverRemap: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true };
 
 export interface VolumetricScene {
   camera: Camera;
   setPreset(p: VolumetricPreset): void;
-  /** 일반 장면 입력(§126). setPreset 은 이것의 얇은 포장입니다. 날씨 텍스처를 다시 만들므로 층이 바뀔 때만 부릅니다. */
+  /** 일반 장면 입력(§126). setPreset 은 이것의 얇은 포장입니다. 날씨 텍스처를 만들므로(캐시에 없으면) 층이 바뀔 때만 부릅니다. */
   setScene(input: VolumetricSceneInput): void;
+  /**
+   * §127 setScene 의 비동기판 — 날씨를 잘라 만드는 동안 이전 장면을 계속 그립니다(폰에서 JS 를 1초 넘게 막지 않게).
+   * 더 새 setScene/setSceneAsync 가 오면 버려지고 false.
+   */
+  setSceneAsync(input: VolumetricSceneInput): Promise<boolean>;
   /** 시선만 바꿉니다(매 프레임 싸게). */
   setView(az: number, el: number, fov: number): void;
   /** 시각만 바꿉니다(해 방향·노출). 해가 그림자 지도 문턱을 넘나들면 층을 다시 만듭니다. */
   setDate(date: Date): void;
   /**
    * 화면 대신 텍스처로 그립니다(§126.7 — 하늘 화면 합성기가 하늘 층으로 씁니다). 반환 텍스처는 다음 호출까지 유효.
+   * rgb 는 톤매핑 뒤 **선형** 색(하늘 + 구름 — 화면에 낼 때 sRGB 로 부호화해야 함, §127: §126.8 은 이것을 빠뜨려
+   * 하늘 화면이 어둡고 채도가 높았음), **알파는 구름 불투명도**(1 − 투과율) — 합성기가 천체를 구름 뒤로 보내고
+   * 지형 앞 구름을 다시 얹는 데 씁니다. 지형 거리 판을 넘겼으면 지형 화소의 하늘은 검게(지형 앞 구름만) 그립니다.
    */
   renderToTexture(deltaSec: number): Texture;
+  /**
+   * §127 지형 거리 판(SceneComposer.terrainDistanceTexture, 원해상도·log2 거리 부호화). 주면 구름 행진이 지형에서
+   * 멈춰 산 뒤 구름이 사라지고, 지형 화소의 하늘을 검게 남깁니다. **같은 프레임**의 판이어야 시선을 돌릴 때 능선이
+   * 밀리지 않습니다(SceneComposer.prepareTerrainDistance 를 먼저 부름). null 이면 지형을 모름(예전처럼 구름은 늘 지형 뒤).
+   */
+  setTerrainDistance(tex: Texture | null): void;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
   setQuality(q: VolumetricQuality): void;
@@ -298,7 +342,10 @@ export interface VolumetricScene {
  */
 export async function createVolumetricScene(
   renderer: WebGLRenderer, width: number, height: number,
-  options: Partial<VolumetricOptions> = {},
+  options: Partial<VolumetricOptions> & {
+    /** 하네스 전용 — 미리 만든 대기 표(takram PrecomputedTexturesLoader). 없으면 기기에서 만듭니다. */
+    precomputed?: Record<string, unknown>;
+  } = {},
 ): Promise<VolumetricScene> {
   // ⚠ expo-gl(React Native) 대응:
   // three.js의 readRenderTargetPixelsAsync는 WebGL2 PBO를 사용해 gl.readPixels(..., 0) 및 fenceSync를 호출합니다.
@@ -327,6 +374,13 @@ export async function createVolumetricScene(
 
   const clouds = new CloudsEffect(camera);
   clouds.qualityPreset = 'low';
+  /** 품질 단계가 정한 accurateSunSkyLight — 해가 낮을 때 켰다가 되돌릴 값. */
+  let baseAccurate = clouds.clouds.accurateSunSkyLight;
+  let lastSunAltForLight = 90;
+  const applySunLight = () => {
+    const want = baseAccurate || (opt.accurateSunBelowDeg != null && lastSunAltForLight < opt.accurateSunBelowDeg);
+    if (clouds.clouds.accurateSunSkyLight !== want) clouds.clouds.accurateSunSkyLight = want;   // 셰이더 정의가 바뀌어 한 번 다시 컴파일
+  };
   baseMarch.n = clouds.clouds.maxIterationCountToSun;
   baseMarch.step = clouds.clouds.minSecondaryStepSize;
   baseMarch.scale = clouds.clouds.secondaryStepScale;
@@ -334,6 +388,8 @@ export async function createVolumetricScene(
   if (opt.shadowMaxFar != null) clouds.shadow.maxFar = opt.shadowMaxFar;
   clouds.temporalUpscale = opt.temporalUpscale;
   clouds.shadow.temporalPass = opt.shadowTemporal;
+  let baseMaxRay = clouds.clouds.maxRayDistance;
+  const applyMaxRay = () => { clouds.clouds.maxRayDistance = opt.maxRayKm != null ? opt.maxRayKm * 1000 : baseMaxRay; };
   const applySunMarch = () => {
     if (!opt.sunMarch) {
       if (baseMarch.n > 0) {   // 품질 단계 기본값으로 되돌림
@@ -348,6 +404,7 @@ export async function createVolumetricScene(
     clouds.clouds.secondaryStepScale = opt.sunMarch[2];
   };
   applySunMarch();
+  applyMaxRay();
   // 셰이더: 밀도 = remap(mix(날씨, 1, w), 1 − coverage·h, … + w). 층 가운데에서 날씨 0.5 가 문턱 →
   // coverage = 0.5·(1 − w).
   const CFW = 0.6;
@@ -382,7 +439,117 @@ export async function createVolumetricScene(
       ['outputShadowLength = shadowLength * METER_TO_LENGTH_UNIT;',
         'outputShadowLength = (isnan(shadowLength) || isinf(shadowLength)) ? 0.0 : shadowLength * METER_TO_LENGTH_UNIT;'],
     ]);
+    // §127 시간 필터의 이력도 막습니다. 그림자 지도의 시간 필터(TAA)가 해 방향이 크게 바뀐 뒤(장면 전환·시간 막대를
+    // 빠르게 넘김) 이력과 섞으며 NaN 을 냈고, 그것이 이력에 남아 **구름이 영구히 사라졌습니다**(웹 하네스: 해 30° → 50°
+    // 장면 전환 두 번째 뒤 알파 0, 그림자 지도나 그 시간 필터 하나만 꺼도 사라지지 않음). 섞은 값이 유한하지 않으면 이번
+    // 표본(이미 막은 값)으로 물러납니다 — 이력이 한 프레임에 깨끗해집니다.
+    const finite4 = (v: string, fallback: string) => `((any(isnan(${v})) || any(isinf(${v}))) ? ${fallback} : ${v})`;
+    patch(clouds.shadowPass.resolveMaterial as unknown as { fragmentShader: string; needsUpdate: boolean }, [
+      ['  outputColor = mix(clippedHistory, current, temporalAlpha);',
+        `  outputColor = mix(clippedHistory, current, temporalAlpha);\n  outputColor = ${finite4('outputColor', clean4('current'))};`],
+    ]);
+    patch(clouds.cloudsPass.resolveMaterial as unknown as { fragmentShader: string; needsUpdate: boolean }, [
+      ['  outputColor = mix(clippedColor, currentColor, temporalAlpha);',
+        `  outputColor = mix(clippedColor, currentColor, temporalAlpha);\n  outputColor = ${finite4('outputColor', clean4('currentColor'))};`],
+    ]);
   }
+  // §127 지형 거리 — 구름 패스가 장면 깊이 대신 하늘 화면의 지형 거리 판을 읽습니다. takram 의 RenderPass 장면은
+  // 비어 있어 원래 깊이는 늘 "없음"이었으므로 바꿔도 지형이 없을 때는 같습니다.
+  {
+    const mat = clouds.cloudsPass.currentMaterial as unknown as { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
+    const from = [
+      'float getRayDistanceToScene(const vec3 rayDirection, out float viewZ) {',
+      '  float depth = readDepthValue(depthBuffer, vUv * targetUvScale + temporalJitter);',
+    ].join('\n');
+    if (!mat.fragmentShader.includes(from)) throw new Error('volumetricScene: clouds depth anchor missing');
+    mat.fragmentShader = mat.fragmentShader.replace(from, [
+      'uniform sampler2D terrainDistBuffer;',
+      'uniform float terrainDistOn;',
+      TERRAIN_DIST_GLSL,
+      'float getRayDistanceToScene(const vec3 rayDirection, out float viewZ) {',
+      '  if (terrainDistOn > 0.5) {',
+      '    float tkm = terrainDistDecodeKm(texture(terrainDistBuffer, vUv * targetUvScale + temporalJitter));',
+      '    viewZ = 0.0;',
+      '    if (tkm > 1e8) return 0.0;',
+      '    viewZ = -tkm * 1000.0 * dot(rayDirection, vCameraDirection);',
+      '    return tkm * 1000.0;',
+      '  }',
+      '  float depth = readDepthValue(depthBuffer, vUv * targetUvScale + temporalJitter);',
+    ].join('\n'));
+    mat.uniforms.terrainDistBuffer = { value: null };
+    mat.uniforms.terrainDistOn = { value: 0 };
+    mat.needsUpdate = true;
+  }
+  // §127 C5 종류 날씨의 거리 밉(weatherLod). 구름 패스만 — 그림자 패스는 해 쪽에서 내려다보므로 takram 그대로.
+  {
+    const mat = clouds.cloudsPass.currentMaterial as unknown as { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
+    const from = '    float mipLevel = log2(max(1.0, rayStartTexelsPerPixel + rayDistance * 1e-5));';
+    if (!mat.fragmentShader.includes(from)) throw new Error('volumetricScene: clouds mip anchor missing');
+    mat.fragmentShader = mat.fragmentShader.replace(from, [
+      from,
+      '    if (weatherLodOn > 0.5) {',
+      '      // 화소 발자국(m) = 카메라에서 거리 × 화소 각 ÷ 층에 대한 시선 기울기(스치듯 볼수록 길어짐), 날씨 한 칸(m)으로 나눔.',
+      '      float sinEl = max(abs(dot(rayDirection, normalize(position))), 0.05);',
+      '      float footM = (rayNearFar.x + rayDistance) * weatherPixelAngle / sinEl;',
+      '      mipLevel = max(0.0, log2(max(1e-3, footM / weatherTexelM)) + weatherLodBias);',
+      '    }',
+    ].join('\n'));
+    const decl = 'uniform float mipLevelScale;';
+    if (!mat.fragmentShader.includes(decl)) throw new Error('volumetricScene: clouds mipLevelScale anchor missing');
+    mat.fragmentShader = mat.fragmentShader.replace(decl, decl + '\nuniform float weatherLodOn;\nuniform float weatherPixelAngle;\nuniform float weatherTexelM;\nuniform float weatherLodBias;');
+    mat.uniforms.weatherLodOn = { value: 0 };
+    mat.uniforms.weatherPixelAngle = { value: 0.003 };
+    mat.uniforms.weatherTexelM = { value: (GENUS_TILE_KM * 1000) / 512 };
+    mat.uniforms.weatherLodBias = { value: 0 };
+    mat.needsUpdate = true;
+  }
+  const lodUniforms = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+  let viewH = height;
+  /** 화소 각(라디안) = 세로 시야 ÷ 구름 버퍼 높이(화면 × 구름 해상도 배율). 시간 업스케일은 여러 프레임에 걸쳐 이 격자를 채웁니다. */
+  const updateLod = () => {
+    lodUniforms.weatherLodOn.value = opt.weatherLod != null && opt.genus ? 1 : 0;
+    lodUniforms.weatherLodBias.value = opt.weatherLod ?? 0;
+    lodUniforms.weatherPixelAngle.value = radians(camera.fov) / Math.max(1, viewH * clouds.resolutionScale);
+  };
+  // §127 하늘 텍스처의 알파 = 구름 불투명도, 지형 화소의 하늘은 검게. (aerial 은 아래 EffectPass 를 만들기 전에 고쳐야
+  // 합니다 — EffectPass 가 효과 셰이더를 합쳐 컴파일합니다. 균일변수 이름은 EffectPass 가 접두어를 붙여 맞춥니다.)
+  {
+    const fx = aerial as unknown as { getFragmentShader(): string; setFragmentShader(s: string): void; uniforms: Map<string, Uniform> };
+    let src = fx.getFragmentShader();
+    const skyA = 'outputColor.a = 1.0;\n    #else // SKY';
+    const ovl = '    #ifdef HAS_OVERLAY\n    outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;\n    #endif // HAS_OVERLAY\n    return;';
+    const head = 'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {';
+    for (const a of [skyA, ovl, head]) if (!src.includes(a)) throw new Error('volumetricScene: aerial anchor missing — ' + a.slice(0, 30));
+    src = src.replace(head, ['uniform sampler2D terrainDist;', 'uniform float terrainDistOn;', 'uniform float cloudAlphaOut;', TERRAIN_DIST_GLSL, head].join('\n'));
+    src = src.replace(skyA, [
+      // 구름이 없으면(겹칠 층이 아직 없음) 불투명도 0 — 아래 HAS_OVERLAY 가 있으면 그 알파로 바뀝니다.
+      'outputColor.a = cloudAlphaOut > 0.5 ? 0.0 : 1.0;',
+      '    if (terrainDistOn > 0.5 && terrainDistDecodeKm(texture(terrainDist, uv)) < 1e8) outputColor.rgb = vec3(0.0);',
+      '    #else // SKY',
+    ].join('\n'));
+    src = src.replace(ovl, [
+      '    #ifdef HAS_OVERLAY',
+      '    outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;',
+      '    if (cloudAlphaOut > 0.5) outputColor.a = overlay.a;',
+      '    #endif // HAS_OVERLAY',
+      '    return;',
+    ].join('\n'));
+    fx.uniforms.set('terrainDist', new Uniform(null));
+    fx.uniforms.set('terrainDistOn', new Uniform(0));
+    fx.uniforms.set('cloudAlphaOut', new Uniform(0));
+    fx.setFragmentShader(src);
+  }
+  const setTerrainDistance = (tex: Texture | null) => {
+    const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+    cu.terrainDistBuffer.value = tex;
+    cu.terrainDistOn.value = tex ? 1 : 0;
+    const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
+    au.get('terrainDist')!.value = tex;
+    au.get('terrainDistOn')!.value = tex ? 1 : 0;
+  };
+  const setCloudAlphaOut = (on: boolean) => {
+    (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudAlphaOut')!.value = on ? 1 : 0;
+  };
   // §124 종류별 모형 패치 — 늘 걸어 두고 층별 genusOn 으로 켭니다(끄면 takram 그대로).
   patchGenusShader(clouds.cloudsPass.currentMaterial as never);
   patchGenusShader(clouds.shadowPass.currentMaterial as never);
@@ -393,10 +560,12 @@ export async function createVolumetricScene(
   clouds.turbulenceTexture = new Turbulence();
   clouds.stbnTexture = makeWhiteNoise3D();
 
-  const generator = new PrecomputedTexturesGenerator(renderer);
-  await generator.update();
-  Object.assign(aerial, generator.textures);
-  Object.assign(clouds, generator.textures);
+  // 대기 표: 기기 GPU 에서 만듭니다(자산 25MB 를 싣지 않으려고). 하네스는 takram 의 미리 만든 표를 넘겨 비교할 수 있습니다.
+  const generator = options.precomputed ? null : new PrecomputedTexturesGenerator(renderer);
+  if (generator) await generator.update();
+  const atmosTextures = options.precomputed ?? generator!.textures;
+  Object.assign(aerial, atmosTextures);
+  Object.assign(clouds, atmosTextures);
 
   // 표시 곡선(§125): 사진 밝기비 자에서 AgX 1/4 · ACES 2/4 · Neutral 2/4, 노을 '가장 붉은 곳의 색'에서
   // AgX 3/4 · ACES 3/4 · Neutral 1/4 → ACES. AgX 는 햇빛 받은 구름을 하늘의 4.2배 → 2.4배로 눌렀습니다.
@@ -443,14 +612,45 @@ export async function createVolumetricScene(
     clouds.worldToECEFMatrix.copy(worldToECEF);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
-
+    updateLod();
   };
   const sunAltAt = (date: Date) => {
     getSunDirectionECEF(date, sun);
     const local = sun.clone().transformDirection(curNue.clone().invert());
     return (Math.asin(Math.max(-1, Math.min(1, local.y))) * 180) / Math.PI;
   };
-  const setScene = (p: VolumetricSceneInput) => {
+  // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
+  // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
+  // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
+  const weatherCache = new Map<string, DataTexture>();
+  const WEATHER_CACHE_SIZE = 4;
+  const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) * 100) / 100;
+  const weatherPlan = (p: VolumetricSceneInput) => {
+    const inputs = p.layers.slice(0, 4);
+    const gl: (GenusLayer | null)[] = inputs.map(L => (L.genus && L.cover > 0
+      ? { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, quantCover(L.cover)) : quantCover(L.cover), opts: L.opts } : null));
+    const useGenus = opt.genus && gl.some(Boolean);
+    const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
+    const key = JSON.stringify([useGenus, gl, plain, useGenus ? 0 : [opt.weatherPeriod, opt.weatherRamp]]);
+    return { inputs, gl, useGenus, plain, key };
+  };
+  type WeatherPlan = ReturnType<typeof weatherPlan>;
+  const cacheGet = (key: string) => {
+    const t = weatherCache.get(key);
+    if (t) { weatherCache.delete(key); weatherCache.set(key, t); }   // 최근 사용을 뒤로
+    return t ?? null;
+  };
+  const cachePut = (key: string, t: DataTexture) => {
+    weatherCache.set(key, t);
+    for (const [k, old] of weatherCache) {
+      if (weatherCache.size <= WEATHER_CACHE_SIZE) break;
+      if (old === weather) continue;   // 지금 쓰는 것은 버리지 않음
+      weatherCache.delete(k); old.dispose();
+    }
+  };
+  let sceneToken = 0;
+  /** 날씨가 준비된 뒤 장면을 한 번에 겁니다(층·종류 균일변수·날씨·노출). */
+  const applyScene = (p: VolumetricSceneInput, plan: WeatherPlan, tex: DataTexture) => {
     lastInput = p;
     const position = new Geodetic(radians(p.lon), radians(p.lat), p.heightM).toECEF();
     const nue = Ellipsoid.WGS84.getNorthUpEastFrame(position, new Matrix4());
@@ -464,15 +664,13 @@ export async function createVolumetricScene(
     clouds.sunDirection.copy(sun);
     const shadow = sunAltDeg > opt.shadowMinSunDeg;
     lastShadow = shadow;
+    lastSunAltForLight = sunAltDeg;
+    applySunLight();
 
     clouds.cloudLayers.length = 0;
-    weather?.dispose();
-    const t0 = Date.now();
     // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
     const CH = ['r', 'g', 'b', 'a'] as const;
-    const inputs = p.layers.slice(0, 4);
-    const gl: (GenusLayer | null)[] = inputs.map(L => (L.genus && L.cover > 0 ? { genus: L.genus, cover: L.cover, opts: L.opts } : null));
-    const useGenus = opt.genus && gl.some(Boolean);
+    const { inputs, gl, useGenus } = plan;
     // 종류 없는 층의 두께·밀도: 층 띠(없으면 밑면 높이)로 저·중·상을 가릅니다(이전 프리셋 값과 같음).
     const bandOf = (L: VolumetricLayerInput) => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
     const bandShape = (b: 'low' | 'mid' | 'high') => (b === 'high' ? { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }
@@ -490,7 +688,6 @@ export async function createVolumetricScene(
     }
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
-      weather = makeGenusWeather(gl, 512, GENUS_TILE_KM, 7, inputs.map((L, i) => (gl[i] ? 0 : L.cover)));
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
       nue.extractBasis(north, up, east);
       clouds.localWeatherRepeat.setScalar(1);
@@ -501,16 +698,50 @@ export async function createVolumetricScene(
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
     } else {
-      weather = makeWeather([0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0), opt);
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
       for (const m of genusMats) { setGenusUniforms(m, []); setGenusFrame(m, null); }
     }
-    weatherMs = Date.now() - t0;
-    clouds.localWeatherTexture = weather;
+    weather = tex;
+    clouds.localWeatherTexture = tex;
     const exposure = p.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
   };
+  const setScene = (p: VolumetricSceneInput) => {
+    sceneToken++;   // 진행 중인 비동기 생성은 버립니다
+    const plan = weatherPlan(p);
+    let tex = cacheGet(plan.key);
+    if (!tex) {
+      const t0 = Date.now();
+      tex = plan.useGenus ? makeGenusWeather(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain) : makeWeather(plan.plain, opt);
+      weatherMs = Date.now() - t0;
+      cachePut(plan.key, tex);
+    }
+    applyScene(p, plan, tex);
+  };
+  /**
+   * §127 하늘 화면용 — 날씨를 잘라 만들고(그동안 이전 장면을 계속 그림) 다 되면 장면을 바꿉니다. 더 새 호출이 오면
+   * 이전 것은 버려지고 false 를 돌려줍니다. 날씨가 캐시에 있으면 곧바로 바꿉니다.
+   */
+  const setSceneAsync = async (p: VolumetricSceneInput): Promise<boolean> => {
+    const my = ++sceneToken;
+    const plan = weatherPlan(p);
+    let tex = cacheGet(plan.key);
+    if (!tex) {
+      const t0 = Date.now();
+      tex = plan.useGenus
+        ? await makeGenusWeatherAsync(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, 6, () => my !== sceneToken || disposed)
+        : makeWeather(plan.plain, opt);
+      if (!tex) return false;
+      if (my !== sceneToken || disposed) { tex.dispose(); return false; }
+      weatherMs = Date.now() - t0;
+      cachePut(plan.key, tex);
+    }
+    if (my !== sceneToken || disposed) return false;
+    applyScene(p, plan, tex);
+    return true;
+  };
+  let disposed = false;
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
   const setView = (az: number, el: number, fov: number) => {
     if (!lastInput) return;
@@ -524,6 +755,8 @@ export async function createVolumetricScene(
     if ((sunAltDeg > opt.shadowMinSunDeg) !== lastShadow) { setScene(lastInput); return; }
     aerial.sunDirection.copy(sun);
     clouds.sunDirection.copy(sun);
+    lastSunAltForLight = sunAltDeg;
+    applySunLight();
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
@@ -535,12 +768,17 @@ export async function createVolumetricScene(
     camera,
     setPreset,
     setScene,
+    setSceneAsync,
     setView,
     setDate,
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
       clouds.qualityPreset = q;
+      baseMaxRay = clouds.clouds.maxRayDistance;
+      applyMaxRay();
+      baseAccurate = clouds.clouds.accurateSunSkyLight;
+      applySunLight();
       baseMarch.n = clouds.clouds.maxIterationCountToSun;
       baseMarch.step = clouds.clouds.minSecondaryStepSize;
       baseMarch.scale = clouds.clouds.secondaryStepScale;
@@ -549,29 +787,38 @@ export async function createVolumetricScene(
     setOptions: o => {
       Object.assign(opt, o);
       applySunMarch();
+      updateLod();
+      clouds.temporalUpscale = opt.temporalUpscale;
+      clouds.shadow.temporalPass = opt.shadowTemporal;
+      applySunLight();
+      applyMaxRay();
       if (lastInput) setScene(lastInput);
     },
-    setResolutionScale: s => { clouds.resolutionScale = s; },
-    render: dt => { tonePass.renderToScreen = true; composer.render(dt); },
+    setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
+    render: dt => { tonePass.renderToScreen = true; setCloudAlphaOut(false); composer.render(dt); },
     // 마지막 패스를 화면 대신 출력 버퍼로 — 패스가 끝나면 버퍼가 바뀌어 결과는 inputBuffer 에 있습니다(postprocessing 6).
     // postprocessing 은 렌더러의 autoClear 를 끕니다 — 하늘 화면 합성기는 제 몫을 스스로 정하지만, 다른 직접 그리기
     // 경로(스냅샷 등)가 놀라지 않게 되돌립니다.
     renderToTexture: dt => {
       const prevAutoClear = renderer.autoClear;
-      tonePass.renderToScreen = false; composer.render(dt);
+      tonePass.renderToScreen = false; setCloudAlphaOut(true); composer.render(dt);
       renderer.autoClear = prevAutoClear;
       return (composer.inputBuffer as unknown as { texture: Texture }).texture;
     },
+    setTerrainDistance,
     setSize: (w, h) => {
       camera.aspect = w / h; camera.updateProjectionMatrix();
       composer.setSize(w, h);
+      viewH = h; updateLod();
     },
     dispose: () => {
+      disposed = true;
       composer.dispose();
       clouds.dispose();
       aerial.dispose();
-      generator.dispose();
-      weather?.dispose();
+      generator?.dispose();
+      for (const t of weatherCache.values()) t.dispose();
+      weatherCache.clear();
     },
   };
 }
