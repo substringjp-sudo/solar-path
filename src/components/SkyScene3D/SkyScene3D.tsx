@@ -1345,7 +1345,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               //   앱 화면이 그 크기로 줄어듭니다(웹 하네스에서 1/4 화면). 그래서 **전체 크기**로 만들고 구름만 해상도 배율로 낮춥니다.
               mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false })
                 .then(v => { v.setResolutionScale(0.5); volRef.current = v; volBusyRef.current = false; volKeyRef.current = ''; volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 24; setVolumetricStatus({ phase: 'running' }); requestRender(3); })
-                .catch(e => { volFailedRef.current = '생성: ' + String((e as Error)?.message ?? e); volBusyRef.current = false; setVolumetricStatus({ phase: 'failed', error: volFailedRef.current }); console.warn('[SkyScene] 볼륨 하늘 생성 실패:', e); requestRender(2); });
+                .catch(e => { volFailedRef.current = '생성: ' + String((e as Error)?.message ?? e); volBusyRef.current = false; setVolumetricStatus({ phase: 'failed', error: volFailedRef.current }); console.warn('[SkyScene] 볼륨 하늘 생성 실패:', (e as Error)?.stack ?? e); requestRender(2); });
             }
           }
           if (volWant && volRef.current) {

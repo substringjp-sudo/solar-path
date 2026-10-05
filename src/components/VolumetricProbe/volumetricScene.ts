@@ -300,6 +300,19 @@ export async function createVolumetricScene(
   renderer: WebGLRenderer, width: number, height: number,
   options: Partial<VolumetricOptions> = {},
 ): Promise<VolumetricScene> {
+  // ⚠ expo-gl(React Native) 대응:
+  // three.js의 readRenderTargetPixelsAsync는 WebGL2 PBO를 사용해 gl.readPixels(..., 0) 및 fenceSync를 호출합니다.
+  // expo-gl은 PBO offset 인자(ARG(6) Object 기대)와 fenceSync를 지원하지 않아 JSI에서
+  // "Value is a number, expected an object" 예외가 발생합니다.
+  // takram 대기 생성기의 CPU 픽셀 데이터(userData.imageData)는 GPU 셰이더 샘플러를 쓰는
+  // CloudsEffect/AerialPerspectiveEffect에서 전혀 쓰이지 않으므로, 버퍼를 즉시 반환하여 통과시킵니다.
+  if (renderer.readRenderTargetPixelsAsync) {
+    renderer.readRenderTargetPixelsAsync = async function (
+      _rt: unknown, _x: number, _y: number, _w: number, _h: number, buffer: any,
+    ) {
+      return buffer;
+    };
+  }
   const opt: VolumetricOptions = { ...DEFAULT_VOLUMETRIC_OPTIONS, ...options };
   const baseMarch = { n: 0, step: 0, scale: 0 };
   const camera = new PerspectiveCamera(60, width / height, 1, 1e7);
