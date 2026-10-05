@@ -74,6 +74,7 @@ import {
 } from './StarField';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
+import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
 // §126.7 볼륨 하늘 — 개발 빌드, 또는 EXPO_PUBLIC_VOLUMETRIC_SKY=1 로 내보낸 번들(웹 하네스)에서만 불러옵니다.
 // Metro 가 두 상수를 접어 출시 번들에서는 이 require 가 사라집니다.
 const VOLUMETRIC_SKY_ENABLED = __DEV__ || process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
@@ -1327,19 +1328,28 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           );
           // ── §126.7 볼륨 하늘(개발 빌드 설정) — takram 대기+구름을 텍스처로 그려 하늘 층으로 넘깁니다 ──
           let volTex: THREE.Texture | null = null;
-          const volWant = (skySettingsRef.current.volumetricSky ?? VOLUMETRIC_SKY_DEFAULT_ON) && VOLUMETRIC_SKY_ENABLED && !volFailedRef.current;
+          const volSetting = (skySettingsRef.current.volumetricSky ?? VOLUMETRIC_SKY_DEFAULT_ON) && VOLUMETRIC_SKY_ENABLED;
+          // 끄면 실패 기록을 지웁니다 — VOL 을 껐다 켜면 다시 시도합니다.
+          if (!volSetting && volFailedRef.current) { volFailedRef.current = null; }
+          if (VOLUMETRIC_SKY_ENABLED && !volSetting && !volBusyRef.current) setVolumetricStatus({ phase: 'off', error: null });
+          const volWant = volSetting && !volFailedRef.current;
           if (volWant && !volRef.current && !volBusyRef.current) {
             const mod = loadVolumetric();
-            if (mod) {
+            if (!mod) {
+              volFailedRef.current = '볼륨 모듈을 불러오지 못했습니다';
+              setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
+            } else {
               volBusyRef.current = true;
+              setVolumetricStatus({ phase: 'creating', sinceMs: Date.now(), error: null });
               // ⚠ postprocessing 의 composer.setSize 는 렌더러(드로잉 버퍼) 크기까지 바꿉니다 — 저해상도 버퍼 크기로 만들면
               //   앱 화면이 그 크기로 줄어듭니다(웹 하네스에서 1/4 화면). 그래서 **전체 크기**로 만들고 구름만 해상도 배율로 낮춥니다.
               mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false })
-                .then(v => { v.setResolutionScale(0.5); volRef.current = v; volBusyRef.current = false; volKeyRef.current = ''; volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 24; requestRender(3); })
-                .catch(e => { volFailedRef.current = String((e as Error)?.message ?? e); volBusyRef.current = false; console.warn('[SkyScene] 볼륨 하늘 생성 실패:', e); });
+                .then(v => { v.setResolutionScale(0.5); volRef.current = v; volBusyRef.current = false; volKeyRef.current = ''; volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 24; setVolumetricStatus({ phase: 'running' }); requestRender(3); })
+                .catch(e => { volFailedRef.current = '생성: ' + String((e as Error)?.message ?? e); volBusyRef.current = false; setVolumetricStatus({ phase: 'failed', error: volFailedRef.current }); console.warn('[SkyScene] 볼륨 하늘 생성 실패:', e); requestRender(2); });
             }
           }
           if (volWant && volRef.current) {
+           try {
             const vol = volRef.current;
             const live = loadLiveScene();
             const szKey = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`;
@@ -1357,6 +1367,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const built = live.buildLiveScene({ lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: [], obs: vObs,
                 az: cameraAzRef.current, el: cameraElevRef.current, fov: camera.fov });
               vol.setScene(built.input);
+              setVolumetricStatus({ summary: built.summary });
               volKeyRef.current = key; volViewRef.current = viewKey;
               volSettleRef.current = 24;
             } else {
@@ -1368,6 +1379,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 시간 업스케일이 차도록 몇 프레임 더 — 정적 화면에서 루프가 잠들면 입자가 남습니다.
             // (프레임 끝에서 1 을 빼고 0 이면 루프가 잠드므로 2 로 둡니다.)
             if (volSettleRef.current > 0) { volSettleRef.current--; if (framesToRenderRef.current < 2) framesToRenderRef.current = 2; }
+           } catch (e) {
+            // 프레임 중 실패 — 기존 하늘로 돌아가고 이유를 패널에 남깁니다(장면은 버림, VOL 을 껐다 켜면 다시 만듦).
+            volTex = null;
+            volFailedRef.current = '프레임: ' + String((e as Error)?.message ?? e);
+            setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
+            try { volRef.current?.dispose(); } catch { /* 이미 망가진 장면 */ }
+            volRef.current = null;
+            console.warn('[SkyScene] 볼륨 하늘 프레임 실패:', e);
+           }
           }
           composerNow.setExternalSky(volTex);
           if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
