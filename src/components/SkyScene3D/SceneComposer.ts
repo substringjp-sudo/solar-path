@@ -232,6 +232,53 @@ void main() {
 `;
 
 /**
+ * §127 선형 → sRGB 부호화. 볼륨 하늘 텍스처(postprocessing 의 반정밀도 버퍼)는 톤매핑 뒤 **선형** 값입니다 — 화면에 바로
+ * 그릴 때만 postprocessing 이 sRGB 로 바꿉니다. §126.8 은 그것을 표시 값으로 그대로 깔아 하늘 화면의 볼륨 하늘이 어둡고
+ * 채도가 높았습니다(같은 장면 바로 그리기와 최대 135 단계 차, 노을 '가장 붉은 곳' G/R 0.43 대 0.72).
+ */
+const SRGB_ENCODE_GLSL = `
+vec3 linearToSrgb(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+`;
+
+/**
+ * §127 볼륨 하늘(밖에서 그린 하늘 텍스처) 전용 두 패스. 그 텍스처는 rgb = 선형 색(하늘 + 구름, 톤매핑 뒤),
+ * **알파 = 구름 불투명도**(`volumetricScene.renderToTexture`)이고, 지형 화소에서는 하늘을 검게 비우고 지형 앞 구름만 담습니다.
+ * 두 패스 모두 sRGB 로 부호화해 얹습니다.
+ *
+ * - 천체 가리기(EXT_MASK): 천체(해·달·별·은하수)를 하늘 위에 그린 뒤, 같은 하늘 텍스처를 알파(불투명도)만큼 다시
+ *   덮습니다 — 결과 = 천체가 얹힌 하늘 × 투과율 + 하늘 × 불투명도. 천체가 더하기로 그려졌든 덮어 그려졌든
+ *   "천체가 보탠 몫 × 투과율" 이 됩니다(해 원반이 두꺼운 구름을 뚫던 것, 별이 구름 위에 뜨던 것).
+ * - 지형 앞 구름(EXT_FRONT): 지형을 그린 뒤 지형 화소에만 그 텍스처를 미리곱 over 로 다시 얹습니다.
+ *   구름 행진은 지형 거리에서 멈췄으므로 여기 담긴 것은 지형 **앞** 구름뿐입니다.
+ */
+const EXT_MASK_FRAG = `
+precision highp float;
+uniform sampler2D uTex;
+varying vec2 vUv;
+${SRGB_ENCODE_GLSL}
+void main() {
+  vec4 t = texture2D(uTex, vUv);
+  gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
+}
+`;
+const EXT_FRONT_FRAG = `
+precision highp float;
+uniform sampler2D uTex;
+uniform sampler2D uDist;
+varying vec2 vUv;
+${TERRAIN_DIST_GLSL}
+${SRGB_ENCODE_GLSL}
+void main() {
+  if (terrainDistDecodeKm(texture2D(uDist, vUv)) > 1e8) discard;
+  vec4 t = texture2D(uTex, vUv);
+  gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
+}
+`;
+
+/**
  * 디더 — 8비트로 내려앉을 때 생기는 **밴딩**을 흩습니다.
  *
  * 넓고 완만한 그라데이션(노을 하늘이 정확히 그것입니다)에서는 인접한
@@ -277,11 +324,15 @@ precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uTexSize;
 uniform float uDither;
+/** 1 이면 선형 값을 sRGB 로 부호화(§127 볼륨 하늘 텍스처). 하늘돔 버퍼는 이미 표시 값이라 0. */
+uniform float uEncodeSrgb;
 varying vec2 vUv;
 ${DITHER_GLSL}
 ${CATMULL_GLSL}
+${SRGB_ENCODE_GLSL}
 void main() {
   vec3 c = catmullRom(uTex, vUv, uTexSize).rgb;
+  if (uEncodeSrgb > 0.5) c = linearToSrgb(c);
   c += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
   gl_FragColor = vec4(c, 1.0);
 }
@@ -553,10 +604,15 @@ export interface SceneComposerHandle {
    */
   setTerrainDistance: (on: boolean) => void;
   /**
-   * §126.7 — 하늘 층을 밖에서 그린 텍스처(takram 볼륨 하늘+구름, 표시 색)로 바꿉니다. null 이면 하늘돔.
+   * §126.7 — 하늘 층을 밖에서 그린 텍스처(takram 볼륨 하늘+구름, **선형** 색 — 합성기가 sRGB 로 부호화, §127)로 바꿉니다. null 이면 하늘돔.
    * 켜져 있으면 LAYER_SOFT_SKY 를 그리지 않고 이 텍스처를 배경으로 깝니다(구름 슬랩 층은 호출자가 숨깁니다).
    */
   setExternalSky: (tex: THREE.Texture | null) => void;
+  /**
+   * §127 지형 거리 판을 **지금** 그립니다(합성 전에 다른 패스가 같은 프레임의 판을 읽어야 할 때 — 볼륨 하늘의 구름
+   * 행진). 그린 프레임에는 `render` 가 다시 그리지 않습니다. 지형 거리 판이 꺼져 있으면 아무것도 안 합니다.
+   */
+  prepareTerrainDistance: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
   /** 지형 거리 판의 텍스처(원해상도 — 구름 슬랩은 제 화소 가운데를 정규화 좌표로 읽습니다). */
   terrainDistanceTexture: () => THREE.Texture;
   dispose: () => void;
@@ -676,7 +732,7 @@ export function createSceneComposer(
     ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
   });
   let terrainDistOn = false;
-  /** §126.7 밖에서 그린 하늘(표시 색). null 이면 하늘돔 층을 그립니다. */
+  /** §126.7 밖에서 그린 하늘(선형 색 + 알파 = 구름 불투명도, §127). null 이면 하늘돔 층을 그립니다. */
   let externalSky: THREE.Texture | null = null;
   /**
    * 블룸을 켜면 씬을 화면이 아니라 여기에 그립니다 — 밝은 부분을 뽑으려면
@@ -723,6 +779,7 @@ export function createSceneComposer(
       uTexSize: { value: new THREE.Vector2(1, 1) },
       uCatmull: { value: 1 },
       uDither: { value: dither },
+      uEncodeSrgb: { value: 0 },
     },
     vertexShader: BLIT_VERT,
     fragmentShader: UPSCALE_FRAG,
@@ -748,6 +805,34 @@ export function createSceneComposer(
     blendDst: THREE.OneMinusSrcAlphaFactor,
     blendSrcAlpha: THREE.OneFactor,
     blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
+
+  // §127 볼륨 하늘 — 천체 가리기(보통 알파 합성, 목적지 알파는 그대로)와 지형 앞 구름(미리곱 over).
+  const extMaskMat = new THREE.ShaderMaterial({
+    uniforms: { uTex: { value: null as THREE.Texture | null } },
+    vertexShader: BLIT_VERT,
+    fragmentShader: EXT_MASK_FRAG,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.ZeroFactor,
+    blendDstAlpha: THREE.OneFactor,
+  });
+  const extFrontMat = new THREE.ShaderMaterial({
+    uniforms: { uTex: { value: null as THREE.Texture | null }, uDist: { value: null as THREE.Texture | null } },
+    vertexShader: BLIT_VERT,
+    fragmentShader: EXT_FRONT_FRAG,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.ZeroFactor,
+    blendDstAlpha: THREE.OneFactor,
   });
 
   const brightMat = new THREE.ShaderMaterial({
@@ -802,6 +887,10 @@ export function createSceneComposer(
 
   const opaqueQuad = new THREE.Mesh(quad, opaqueMat);
   const overQuad = new THREE.Mesh(quad, overMat);
+  const extMaskQuad = new THREE.Mesh(quad, extMaskMat);
+  const extFrontQuad = new THREE.Mesh(quad, extFrontMat);
+  extMaskQuad.frustumCulled = false;
+  extFrontQuad.frustumCulled = false;
 
   /**
    * **도트 모드**(§97) — 장면 전체를 세로 `pixelRows` 화소로 그리고, 화면에는 **최근접**으로
@@ -982,6 +1071,34 @@ export function createSceneComposer(
     blit(renderer, bloomQuad, rtScene.texture);
   };
 
+  /** §117 지형 거리 판을 그립니다(원해상도). 렌더 타깃·카메라 층·지움 색은 호출자가 되돌립니다(render·prepare). */
+  let distPrepared = false;
+  const distClear = new THREE.Color();
+  const drawTerrainDistance = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => {
+    if (rtDist.width !== w || rtDist.height !== h) rtDist.setSize(w, h);
+    camera.layers.set(LAYER_TERRAIN_DIST);
+    renderer.setRenderTarget(rtDist);
+    renderer.getClearColor(distClear);
+    const prevClearAlpha = renderer.getClearAlpha();
+    renderer.setClearColor(0xffffff, 1);
+    renderer.clear(true, true, true);
+    renderer.autoClear = false;
+    renderer.render(scene, camera);
+    renderer.setClearColor(distClear, prevClearAlpha);
+  };
+
+  const prepareTerrainDistance = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => {
+    if (!terrainDistOn) return;
+    const prevTarget = renderer.getRenderTarget();
+    const prevAutoClear = renderer.autoClear;
+    const prevMask = camera.layers.mask;
+    drawTerrainDistance(renderer, scene, camera);
+    distPrepared = true;
+    camera.layers.mask = prevMask;
+    renderer.autoClear = prevAutoClear;
+    renderer.setRenderTarget(prevTarget);
+  };
+
   const render = (
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -1004,19 +1121,9 @@ export function createSceneComposer(
     const finalTarget = pixelRows > 0 ? rtPixel : null;
     const sceneTarget = postOn ? rtScene : finalTarget;
 
-    // §117 — 지형 거리 판(원해상도).
-    if (terrainDistOn) {
-      if (rtDist.width !== w || rtDist.height !== h) rtDist.setSize(w, h);
-      camera.layers.set(LAYER_TERRAIN_DIST);
-      renderer.setRenderTarget(rtDist);
-      const prevClear = renderer.getClearColor(new THREE.Color());
-      const prevClearAlpha = renderer.getClearAlpha();
-      renderer.setClearColor(0xffffff, 1);
-      renderer.clear(true, true, true);
-      renderer.autoClear = false;
-      renderer.render(scene, camera);
-      renderer.setClearColor(prevClear, prevClearAlpha);
-    }
+    // §117 — 지형 거리 판(원해상도). 이번 프레임에 이미 그렸으면(prepareTerrainDistance) 건너뜁니다.
+    if (terrainDistOn && !distPrepared) drawTerrainDistance(renderer, scene, camera);
+    distPrepared = false;
 
     if (!softPath) {
       // 층을 나눌 이득이 없으면 한 번에 그립니다 (패스 비용만 늘어납니다).
@@ -1025,13 +1132,30 @@ export function createSceneComposer(
       camera.layers.disable(LAYER_TERRAIN_DIST);
       renderer.setRenderTarget(sceneTarget);
       if (externalSky) {
-        // 밖에서 그린 하늘을 먼저 깔고, 하늘돔 층을 뺀 나머지를 그 위에 그립니다.
-        camera.layers.disable(LAYER_SOFT_SKY);
+        // 밖에서 그린 하늘을 먼저 깔고 → 천체 → 구름 불투명도로 천체 가리기(§127) → 하늘돔·천체·앞 층을 뺀 나머지
+        // → 지형 앞 구름 → 앞 층(빌보드·경로).
         renderer.autoClear = true;
         renderer.clear(true, true, true);
         renderer.autoClear = false;
         opaqueMat.uniforms.uDither.value = dither;
+        opaqueMat.uniforms.uEncodeSrgb.value = 1;
         blit(renderer, opaqueQuad, externalSky);
+        opaqueMat.uniforms.uEncodeSrgb.value = 0;
+        camera.layers.set(LAYER_CELESTIAL);
+        renderer.render(scene, camera);
+        extMaskMat.uniforms.uTex.value = externalSky;
+        blit(renderer, extMaskQuad, externalSky);
+        camera.layers.enableAll();
+        camera.layers.disable(LAYER_TERRAIN_DIST);
+        camera.layers.disable(LAYER_SOFT_SKY);
+        camera.layers.disable(LAYER_CELESTIAL);
+        camera.layers.disable(LAYER_FRONT);
+        renderer.render(scene, camera);
+        if (terrainDistOn) {
+          extFrontMat.uniforms.uDist.value = rtDist.texture;
+          blit(renderer, extFrontQuad, externalSky);
+        }
+        camera.layers.set(LAYER_FRONT);
         renderer.render(scene, camera);
         renderer.autoClear = true;
       } else {
@@ -1051,27 +1175,46 @@ export function createSceneComposer(
       //
       // 투명 검정으로 지웁니다. 덱 재질의 알파 블렌딩이 (One, 1−SrcAlpha)라
       // 여기 쌓인 결과가 미리곱해진 형태가 됩니다.
-      camera.layers.set(LAYER_SOFT_CLOUD);
+      // 볼륨 하늘(§126.7)이면 구름은 밖의 하늘 텍스처에 있고 슬랩은 숨겨져 있습니다 — 빈 판을 지우고 얹는 일을 건너뜁니다.
+      // (광선 그늘은 이 판의 알파에서 나오므로 볼륨 하늘에서는 예전처럼 비어 있게 지워 둡니다.)
       renderer.setRenderTarget(rtCloud);
       renderer.setClearAlpha(0);
       renderer.clear(true, true, true);
       renderer.autoClear = false;
-      renderer.render(scene, camera);
+      if (!externalSky) {
+        camera.layers.set(LAYER_SOFT_CLOUD);
+        renderer.render(scene, camera);
+      }
       renderer.setClearAlpha(1);
 
       // ── 3) 합성 ──────────────────────────────────────────────────────
       renderer.setRenderTarget(sceneTarget);
       renderer.autoClear = true;
       opaqueMat.uniforms.uDither.value = dither;
+      opaqueMat.uniforms.uEncodeSrgb.value = externalSky ? 1 : 0;
       blit(renderer, opaqueQuad, externalSky ?? rtSky.texture);
+      opaqueMat.uniforms.uEncodeSrgb.value = 0;
 
       renderer.autoClear = false;
 
       // 3-0) 해·달·별·은하수 — 구름 **아래**(§94). 원해상도.
       camera.layers.set(LAYER_CELESTIAL);
       renderer.render(scene, camera);
+      // §127 볼륨 하늘: 하늘 텍스처에 구름이 이미 있으므로, 천체가 보탠 몫을 구름 투과율만큼만 남깁니다.
+      if (externalSky) {
+        extMaskMat.uniforms.uTex.value = externalSky;
+        blit(renderer, extMaskQuad, externalSky);
+      }
 
-      if (!terrainDistOn) {
+      if (externalSky) {
+        // §127 — 지형을 그린 뒤 지형 화소에만 지형 앞 구름을 다시 얹습니다(구름 행진이 지형 거리에서 멈춤).
+        camera.layers.set(LAYER_MID);
+        renderer.render(scene, camera);
+        if (terrainDistOn) {
+          extFrontMat.uniforms.uDist.value = rtDist.texture;
+          blit(renderer, extFrontQuad, externalSky);
+        }
+      } else if (!terrainDistOn) {
         // 3-1) 구름 덱을 하늘 위에 먼저 얹습니다.
         blit(renderer, overQuad, rtCloud.texture);
 
@@ -1189,6 +1332,7 @@ export function createSceneComposer(
     lastRayGain: () => rayGain,
     setTerrainDistance: (on: boolean) => { terrainDistOn = !!on; },
     setExternalSky: (tex: THREE.Texture | null) => { externalSky = tex; },
+    prepareTerrainDistance,
     terrainDistanceTexture: () => rtDist.texture,
     dispose: () => {
       rtDist.dispose();
@@ -1204,6 +1348,8 @@ export function createSceneComposer(
       quad.dispose();
       opaqueMat.dispose();
       overMat.dispose();
+      extMaskMat.dispose();
+      extFrontMat.dispose();
       brightMat.dispose();
       blurMat.dispose();
       rayMat.dispose();

@@ -107,6 +107,27 @@ export const GENUS: Record<GenusKey, GenusParams> = {
 
 export interface GenusLayer { genus: GenusKey; cover: number; opts?: Partial<GenusParams> }
 
+/**
+ * §127 운량 → 화면 면적 역표. 날씨 무늬는 "위에서 본 d > 0 면적 = 운량" 이지만 아래에서 본 하늘 평균 면적(광학두께
+ * ≥ 0.16)은 종류마다 다릅니다(얇은 가장자리·모양 잡음의 깎임·적운 옆면). 예보 운량 → 무늬에 넣을 운량을 종류별로
+ * 선형 보간합니다(CloudSlab COVER_REMAP 과 같은 방식). 자: tools/genus-ruler/genus/RULER-cover.md. 표가 없는 종류는 그대로.
+ */
+export const GENUS_COVER_REMAP: Partial<Record<GenusKey, [number, number][]>> = {};
+
+export function genusCoverIn(genus: GenusKey, cover: number): number {
+  const t = GENUS_COVER_REMAP[genus];
+  if (!t || cover <= 0) return cover;
+  if (cover <= t[0][0]) return Math.min(1, (t[0][1] * cover) / Math.max(1e-6, t[0][0]));
+  for (let i = 1; i < t.length; i++) {
+    if (cover <= t[i][0]) {
+      const [x0, y0] = t[i - 1], [x1, y1] = t[i];
+      return Math.min(1, y0 + ((y1 - y0) * (cover - x0)) / Math.max(1e-6, x1 - x0));
+    }
+  }
+  const [xl, yl] = t[t.length - 1];
+  return Math.min(1, yl + ((1 - yl) * (cover - xl)) / Math.max(1e-6, 1 - xl));
+}
+
 const param = <K extends keyof GenusParams>(L: GenusLayer, k: K): GenusParams[K] => (L.opts?.[k] ?? GENUS[L.genus][k]) as GenusParams[K];
 
 // ───── 주기 경계 잡음 ─────
@@ -161,14 +182,15 @@ function quantile(arr: Float32Array, q: number): number {
 }
 
 // ───── 종류별 수평 무늬(원시 장 f: 클수록 기둥이 높음) ─────
-type Field = (S: number, tileKm: number, seed: number, L: GenusLayer) => Float32Array;
+/** 화소 함수 — 준비(세포·잡음)를 한 번 하고 (x, y) → 장 값. 날씨를 잘라 만들 수 있게(§127, 폰에서 JS 를 오래 막지 않게) 화소 단위로 둡니다. */
+type FieldPx = (x: number, y: number) => number;
+type Field = (S: number, tileKm: number, seed: number, L: GenusLayer) => FieldPx;
 const FIELDS: Record<GenusKey, Field> = {
   cu(S, tileKm, seed, L) {
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 2.4)));
     const C = cells(n, seed), env = fbm(2, 3, seed + 7), warp = fbm(Math.max(4, n), 3, seed + 13), warp2 = fbm(Math.max(4, n), 3, seed + 17);
     const wa = (param(L, 'warp') ?? 0.35) / n, rmax = (param(L, 'radius') ?? 0.55) / n, T = param(L, 'turrets') ?? 0, skew = param(L, 'sizeSkew') ?? 1.5;
-    const f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
       u += (warp(u, v) - 0.5) * wa; v += (warp2(u, v) - 0.5) * wa;
       const ci = Math.floor(u * n), cj = Math.floor(v * n);
@@ -187,16 +209,15 @@ const FIELDS: Record<GenusKey, Field> = {
           if (q > 0) best = Math.max(best, hb * Math.sqrt(q));
         }
       }
-      f[y * S + x] = best;
-    }
-    return f;
+      return best;
+    };
   },
   ac(S, tileKm, seed, L) {
     const n = Math.max(4, Math.round(tileKm / (param(L, 'spacingKm') ?? 0.35)));
     const C = cells(n, seed, 0.7), env = fbm(3, 4, seed + 5), rows = param(L, 'rows') ?? 0.35;
     const ang = ((param(L, 'windDeg') ?? 30) * Math.PI) / 180, ca = Math.cos(ang), sa = Math.sin(ang);
-    const R = (param(L, 'radius') ?? 0.62) / n, k = Math.round(n / 3), f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const R = (param(L, 'radius') ?? 0.62) / n, k = Math.round(n / 3);
+    return (x, y) => {
       const u = (x + 0.5) / S, v = (y + 0.5) / S, ci = Math.floor(u * n), cj = Math.floor(v * n);
       let best = 0;
       for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
@@ -205,9 +226,8 @@ const FIELDS: Record<GenusKey, Field> = {
         if (q > 0) best = Math.max(best, (0.6 + 0.4 * p.t) * Math.sqrt(q));
       }
       const wave = 1 - rows + rows * (0.5 + 0.5 * Math.cos(2 * Math.PI * k * (u * ca + v * sa)));
-      f[y * S + x] = best * wave * Math.min(1, Math.max(0, (env(u, v) - 0.35) * 4));
-    }
-    return f;
+      return best * wave * Math.min(1, Math.max(0, (env(u, v) - 0.35) * 4));
+    };
   },
   // 권운: 바람(텍스처 x = 동쪽) 방향으로 긴 띠 + 띠 속 가늘고 긴 평행 결 + 결을 휘는 저주파 휨.
   // (첫 판 — 덩어리 패치 속 짧은 결 — 은 판정기가 적운으로 봤습니다.)
@@ -215,20 +235,19 @@ const FIELDS: Record<GenusKey, Field> = {
     const bandL = Math.max(1, Math.round(tileKm / (param(L, 'bandLenKm') ?? 12))), bandW = Math.max(2, Math.round(tileKm / (param(L, 'bandWidKm') ?? 2.5)));
     const fibL = Math.max(2, Math.round(tileKm / (param(L, 'fibLenKm') ?? 4))), fibW = Math.max(8, Math.round(tileKm / (param(L, 'fibWidKm') ?? 0.15)));
     const band = fbm2(bandL, bandW, 3, seed), fib = fbm2(fibL, fibW, 2, seed + 7), bend = fbm(3, 3, seed + 11);
-    const bendA = (param(L, 'bendKm') ?? 1.5) / tileKm, fp = param(L, 'fibPow') ?? 4, f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const bendA = (param(L, 'bendKm') ?? 1.5) / tileKm, fp = param(L, 'fibPow') ?? 4;
+    return (x, y) => {
       const u = (x + 0.5) / S, v = (y + 0.5) / S, vb = v + (bend(u, v) - 0.5) * 2 * bendA;
       const r = 1 - Math.abs(2 * fib(u, vb) - 1), bandMask = Math.min(1, Math.max(0, (band(u, vb) - 0.42) / 0.25));
-      f[y * S + x] = bandMask * (0.25 + 0.75 * Math.pow(r, fp));
-    }
-    return f;
+      return bandMask * (0.25 + 0.75 * Math.pow(r, fp));
+    };
   },
   sc(S, tileKm, seed, L) {
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 1.8)));
     const C = cells(n, seed, 0.8), warp = fbm(Math.max(4, n * 2), 3, seed + 21), warp2 = fbm(Math.max(4, n * 2), 3, seed + 23);
     const wa = (param(L, 'warp') ?? 0.3) / n, lumps = param(L, 'lumps') ?? 0, gap = param(L, 'gap') ?? 0.5;
-    const lumpN = fbm(Math.max(8, n * 4), 3, seed + 29), f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const lumpN = fbm(Math.max(8, n * 4), 3, seed + 29);
+    return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
       // 칸 안 잔 덩어리(칸 지름의 1/4 쯤) — 없으면 매끈한 다각형 타일이 됩니다(첫 판).
       const lump = lumps ? 1 - lumps + lumps * Math.min(1, Math.max(0, (lumpN(u, v) - 0.25) * 2)) : 1;
@@ -239,14 +258,12 @@ const FIELDS: Record<GenusKey, Field> = {
         const p = C.at(ci + di, cj + dj), dx = wrapD(u, p.x), dy = wrapD(v, p.y), d = Math.sqrt(dx * dx + dy * dy) * n;
         if (d < d1) { d2 = d1; d1 = d; s1 = p.s; } else if (d < d2) d2 = d;
       }
-      f[y * S + x] = (0.55 + 0.45 * s1) * Math.min(1, (d2 - d1) / gap) * (1 - 0.35 * Math.min(1, d1)) * lump;
-    }
-    return f;
+      return (0.55 + 0.45 * s1) * Math.min(1, (d2 - d1) / gap) * (1 - 0.35 * Math.min(1, d1)) * lump;
+    };
   },
   st(S, tileKm, seed) {
-    const g = fbm(Math.max(4, Math.round(tileKm / 3)), 4, seed), f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) f[y * S + x] = 0.7 + 0.3 * g((x + 0.5) / S, (y + 0.5) / S);
-    return f;
+    const g = fbm(Math.max(4, Math.round(tileKm / 3)), 4, seed);
+    return (x, y) => 0.7 + 0.3 * g((x + 0.5) / S, (y + 0.5) / S);
   },
   // 웅대적운·적란운 탑: 적운 세포 무늬를 종류별 기본값(간격·반지름·봉우리 수)으로 다시 씁니다.
   cg(S, tileKm, seed, L) { return FIELDS.cu(S, tileKm, seed, L); },
@@ -258,8 +275,7 @@ const FIELDS: Record<GenusKey, Field> = {
     const wa = (param(L, 'warp') ?? 0.35) / n, rmax = (param(L, 'radius') ?? 0.35) / n, skew = param(L, 'sizeSkew') ?? 1.5;
     const scale = param(L, 'anvilScale') ?? 3, stretch = param(L, 'stretch') ?? 1.2;
     const ang = ((param(L, 'windDeg') ?? 30) * Math.PI) / 180, ca = Math.cos(ang), sa = Math.sin(ang);
-    const f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
       u += (warp(u, v) - 0.5) * wa; v += (warp2(u, v) - 0.5) * wa;
       const ci = Math.floor(u * n), cj = Math.floor(v * n);
@@ -273,75 +289,123 @@ const FIELDS: Record<GenusKey, Field> = {
         const q = 1 - Math.sqrt(along * along + across * across) / R;
         if (q > 0) best = Math.max(best, Math.min(1, s) * Math.pow(q, 0.5));
       }
-      f[y * S + x] = best;
-    }
-    return f;
+      return best;
+    };
   },
   // 난층운: 두꺼운 판 + 아래쪽 너덜함(작은 규모 잡음) — 값이 높게 몰려 운량이 커도 빈 데가 조금 남습니다.
   ns(S, tileKm, seed) {
-    const g = fbm(Math.max(3, Math.round(tileKm / 4)), 5, seed), f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) f[y * S + x] = 0.55 + 0.45 * g((x + 0.5) / S, (y + 0.5) / S);
-    return f;
+    const g = fbm(Math.max(3, Math.round(tileKm / 4)), 5, seed);
+    return (x, y) => 0.55 + 0.45 * g((x + 0.5) / S, (y + 0.5) / S);
   },
   // 고층운·권층운: 큰 규모의 부드러운 판. 권층운은 약한 결(바람 방향)이 조금 섞입니다.
   as(S, tileKm, seed) {
-    const g = fbm(Math.max(2, Math.round(tileKm / 6)), 4, seed), f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) f[y * S + x] = 0.6 + 0.4 * g((x + 0.5) / S, (y + 0.5) / S);
-    return f;
+    const g = fbm(Math.max(2, Math.round(tileKm / 6)), 4, seed);
+    return (x, y) => 0.6 + 0.4 * g((x + 0.5) / S, (y + 0.5) / S);
   },
   cs(S, tileKm, seed, L) {
     const g = fbm(Math.max(2, Math.round(tileKm / 8)), 3, seed);
     const fibL = Math.max(2, Math.round(tileKm / 6)), fibW = Math.max(8, Math.round(tileKm / 0.4));
-    const fib = fbm2(fibL, fibW, 2, seed + 7), f = new Float32Array(S * S);
+    const fib = fbm2(fibL, fibW, 2, seed + 7);
     const amt = param(L, 'rows') ?? 0.25;
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    return (x, y) => {
       const u = (x + 0.5) / S, v = (y + 0.5) / S;
-      f[y * S + x] = (0.65 + 0.35 * g(u, v)) * (1 - amt + amt * fib(u, v));
-    }
-    return f;
+      return (0.65 + 0.35 * g(u, v)) * (1 - amt + amt * fib(u, v));
+    };
   },
 };
 
 /**
- * 층별 종류·운량 → 날씨 텍스처(RGBA8, S×S, 채널 r,g,b,a = 층 0..3). 운량 = 아래에서 본 덮인 면적 비율 —
- * d > 0 인 면적이 운량이 되게 문턱을 잡습니다.
+ * 층별 종류·운량 → 날씨 바이트(RGBA8, S×S, 채널 r,g,b,a = 층 0..3). 운량 = 위에서 본 d > 0 면적 비율 —
+ * d > 0 인 면적이 운량이 되게 문턱을 잡습니다(아래에서 본 화면 면적과의 차이는 `coverRemap`, §127).
+ *
+ * 생성기입니다 — 몇 줄마다 yield 해서 `makeGenusWeatherAsync` 가 JS 스레드를 오래 막지 않게 잘라 돕니다(§127:
+ * 적운 512² 은 크롬에서 1.3초, 폰 JS 는 그 몇 배 — 그동안 화면이 멈췄습니다). 동기판은 끝까지 한 번에 돕니다.
+ * 두 판의 바이트는 같습니다(계산 순서가 같음).
  */
-export function makeGenusWeather(
-  layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7,
-  /** 종류 없는 채널에 넣을 기본 잡음 운량(0~1) — takram 기본 모양(순위 문턱 fbm)으로 채웁니다. */
-  plainCover: number[] = [],
-): DataTexture {
-  const data = new Uint8Array(S * S * 4);
-  plainCover.forEach((c, k) => {
-    if (!(c > 0) || k > 3 || layers[k]) return;
+function* genusWeatherSteps(
+  data: Uint8Array, layers: (GenusLayer | null)[], S: number, tileKm: number, seed: number, plainCover: number[],
+): Generator<void, void, void> {
+  const ROWS = 8;
+  for (let k = 0; k < plainCover.length; k++) {
+    const c = plainCover[k];
+    if (!(c > 0) || k > 3 || layers[k]) continue;
     const f = fbm(Math.max(2, Math.round(tileKm / 1.5)), 4, seed + 77 + k);
     const v = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) v[y * S + x] = f((x + 0.5) / S, (y + 0.5) / S);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) v[y * S + x] = f((x + 0.5) / S, (y + 0.5) / S);
+      if (y % ROWS === ROWS - 1) yield;
+    }
     const th = quantile(v, 1 - c);
+    yield;
     for (let i = 0; i < S * S; i++) data[i * 4 + k] = Math.round(Math.min(1, Math.max(0, 0.5 + (v[i] - th) * 2)) * 255);
-  });
-  layers.forEach((L, k) => {
-    if (!L || !(L.cover > 0) || k > 3) return;
-    const f = FIELDS[L.genus](S, tileKm, L.opts?.seed ?? seed + k * 1000, L);
+  }
+  for (let k = 0; k < layers.length; k++) {
+    const L = layers[k];
+    if (!L || !(L.cover > 0) || k > 3) continue;
+    const px = FIELDS[L.genus](S, tileKm, L.opts?.seed ?? seed + k * 1000, L);
+    const f = new Float32Array(S * S);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
+      if (y % ROWS === ROWS - 1) yield;
+    }
     const pw = param(L, 'domePow');
     if (param(L, 'absolute')) {
       // 문턱 없이 장 값 그대로 — 모루처럼 "탑 둘레에만" 있어야 하는 층. cover 는 쓰지 않습니다.
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = Math.round(Math.pow(Math.min(1, Math.max(0, f[i])), pw) * 255);
-      return;
+      continue;
     }
     const th = L.cover >= 0.999 ? -1 : quantile(f, 1 - L.cover);
+    yield;
     const top = quantile(f, param(L, 'topQuantile') ?? 0.997);
+    yield;
     for (let i = 0; i < S * S; i++) {
       const d = f[i] > th ? Math.min(1, Math.max(1 / 255, (f[i] - th) / Math.max(1e-6, top - th))) : 0;
       data[i * 4 + k] = Math.round(Math.pow(d, pw) * 255);
     }
-  });
+  }
+}
+
+function weatherTexture(data: Uint8Array, S: number): DataTexture {
   const t = new DataTexture(data, S, S, RGBAFormat, UnsignedByteType);
   t.wrapS = t.wrapT = RepeatWrapping;
   t.minFilter = LinearMipMapLinearFilter; t.magFilter = LinearFilter; t.generateMipmaps = true;
   t.colorSpace = NoColorSpace; t.flipY = false;
   t.needsUpdate = true;
   return t;
+}
+
+/** 날씨 텍스처를 한 번에 만듭니다(시험 화면·하네스). */
+export function makeGenusWeather(
+  layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7,
+  /** 종류 없는 채널에 넣을 기본 잡음 운량(0~1) — takram 기본 모양(순위 문턱 fbm)으로 채웁니다. */
+  plainCover: number[] = [],
+): DataTexture {
+  const data = new Uint8Array(S * S * 4);
+  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover);
+  while (!it.next().done) { /* 끝까지 */ }
+  return weatherTexture(data, S);
+}
+
+/**
+ * 날씨 텍스처를 잘라 만듭니다(§127, 하늘 화면). sliceMs 마다 다음 틱으로 넘겨 그 사이 그리기·손가락 입력이 돕니다.
+ * `cancelled()` 가 참이 되면 중간에 멈추고 null 을 돌려줍니다(더 새 장면이 들어옴).
+ */
+export async function makeGenusWeatherAsync(
+  layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7, plainCover: number[] = [],
+  sliceMs = 6, cancelled: () => boolean = () => false,
+): Promise<DataTexture | null> {
+  const data = new Uint8Array(S * S * 4);
+  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover);
+  let t0 = Date.now();
+  for (;;) {
+    if (it.next().done) break;
+    if (Date.now() - t0 >= sliceMs) {
+      await new Promise<void>(r => setTimeout(r, 0));
+      if (cancelled()) return null;
+      t0 = Date.now();
+    }
+  }
+  return weatherTexture(data, S);
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
