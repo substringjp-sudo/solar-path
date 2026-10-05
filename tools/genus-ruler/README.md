@@ -28,10 +28,11 @@
 - `entry.ts` 가 **앱의** `src/components/VolumetricProbe/volumetricScene.ts` 를 그대로 묶습니다(시제품 `proto/` 와 달리 따로 베낀 계산이 없음).
   출력은 하늘 화면과 같은 길(`renderToTexture` → sRGB 부호화 복사, 알파 = 구름 불투명도).
 - 묶기: `npx esbuild tools/genus-ruler/volsky/entry.ts --bundle --format=esm --outfile=.harness/volsky/app.js --define:__DEV__=false --define:process.env.EXPO_PUBLIC_VOLUMETRIC_SKY='"1"'`
-- `run.js jobs.json outDir [w h] [load]` — 한 페이지에서 장면을 이어 그립니다. `load` 는 takram 의 미리 만든 대기 표를 읽습니다(빠름).
+- `run.js jobs.json outDir [w h] [load|gen] [spectral=0] [efft=0]` — 한 페이지에서 장면을 이어 그립니다. `load` 는 takram 의 미리 만든 대기 표
+  (3파장)를 읽어 빠르지만 앱(§128 15파장 분광 표 + 유효 투과율)과 다릅니다 — 앱과 같은 색은 `gen`. `spectral=0`·`efft=0` 은 견주기용.
   잡은 `{ name, input, frames, quality, res, options, out: rgb|alpha|both|direct, terrain?, views? }`(`entry.ts` 머리말).
 - `composer-check.ts` — 합성기의 천체 가리기·지형 앞 구름 판정(손으로 만든 장면). `governor-check.js` — 해상도 자동 조절 판정.
 - `repro-shot.js` — 앱 하늘 화면(web-repro)을 장면 하나씩 찍기.
-- `genus/exposure-ruler.js`(노출 자) · `genus/sunset-peak.js`('가장 붉은 곳의 색', §122.2 다시 씀) · 자: `genus/RULER-exposure.md`,
-  `RULER-cover.md`, `RULER-sunset-genus.md`.
+- `genus/exposure-ruler.js`(노출 자) · `genus/sunset-peak.js`('가장 붉은 곳의 색', §122.2 다시 씀) · `genus/twilight-hue.py`(박명 자주·푸른
+  비율, §128) · 자: `genus/RULER-exposure.md`, `RULER-cover.md`, `RULER-sunset-genus.md`, `RULER-twilight-hue.md`, `RULER-sc-low.md`.
 - CLIP 가중치는 `clip/` 에 받아 쓰고 넣지 않습니다(.gitignore).

@@ -62,6 +62,13 @@ export interface GenusParams {
   /** 층적운: 칸 경계 휨(칸 지름 대비) · 칸 안 덩어리 세기 · 틈 폭 */
   lumps?: number;
   gap?: number;
+  /**
+   * 층적운: 큰 규모 덮개 섞기(0~1)·크기(km) — 장을 "칸 틈 × 저주파 덮개" 쪽으로 섞어 낮은 운량에서 세포를 **무리째** 남깁니다(§128).
+   * 없으면 문턱이 모든 세포를 가운데만 남겨 따로 떨어진 탑이 됩니다. ⚠ 판정기(RULER-sc-low.md)를 넘지 못해 **기본 끔** —
+   * 적운 확률은 0.80 → 0.49 로 줄었지만 여전히 적운 판정이었습니다(볼록함은 모양 잡음 쪽 몫).
+   */
+  cluster?: number;
+  clusterKm?: number;
   /** 권운: 띠 길이·폭, 결 길이·폭(km), 결 날카로움, 휨(km) */
   bandLenKm?: number;
   bandWidKm?: number;
@@ -259,8 +266,11 @@ const FIELDS: Record<GenusKey, Field> = {
     const C = cells(n, seed, 0.8), warp = fbm(Math.max(4, n * 2), 3, seed + 21), warp2 = fbm(Math.max(4, n * 2), 3, seed + 23);
     const wa = (param(L, 'warp') ?? 0.3) / n, lumps = param(L, 'lumps') ?? 0, gap = param(L, 'gap') ?? 0.5;
     const lumpN = fbm(Math.max(8, n * 4), 3, seed + 29);
+    const cl = param(L, 'cluster') ?? 0;
+    const clN = cl > 0 ? fbm(Math.max(2, Math.round(tileKm / (param(L, 'clusterKm') ?? 8))), 3, seed + 31) : null;
     return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
+      const env = clN ? Math.min(1, Math.max(0, (clN(u, v) - 0.3) / 0.4)) : 1;
       // 칸 안 잔 덩어리(칸 지름의 1/4 쯤) — 없으면 매끈한 다각형 타일이 됩니다(첫 판).
       const lump = lumps ? 1 - lumps + lumps * Math.min(1, Math.max(0, (lumpN(u, v) - 0.25) * 2)) : 1;
       u += (warp(u, v) - 0.5) * wa; v += (warp2(u, v) - 0.5) * wa;
@@ -270,7 +280,11 @@ const FIELDS: Record<GenusKey, Field> = {
         const p = C.at(ci + di, cj + dj), dx = wrapD(u, p.x), dy = wrapD(v, p.y), d = Math.sqrt(dx * dx + dy * dy) * n;
         if (d < d1) { d2 = d1; d1 = d; s1 = p.s; } else if (d < d2) d2 = d;
       }
-      return (0.55 + 0.45 * s1) * Math.min(1, (d2 - d1) / gap) * (1 - 0.35 * Math.min(1, d1)) * lump;
+      const gapM = Math.min(1, (d2 - d1) / gap);
+      const cellF = (0.55 + 0.45 * s1) * gapM * (1 - 0.35 * Math.min(1, d1)) * lump;
+      if (!clN) return cellF;
+      // 덮개가 주도: 무리 안은 칸 경계의 얇은 틈만 남기고 칸을 채웁니다(세포별 크기·가운데 강조를 빼야 칸이 가운데만 남지 않음).
+      return (1 - cl) * cellF + cl * gapM * (0.85 + 0.15 * lump) * env;
     };
   },
   st(S, tileKm, seed) {
