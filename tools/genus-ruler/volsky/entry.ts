@@ -25,6 +25,8 @@ type Job = {
    */
   views?: { az: number; el: number }[];
   alphaMin?: number;
+  /** 표시 곡선 바꾸기(postprocessing ToneMappingMode 번호) — 진단용 */
+  tone?: number;
 };
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
@@ -80,7 +82,12 @@ const show = (tex: Texture, mode: number) => {
     const precomputed = Q.get('atmos') === 'load'
       ? await new Promise<Record<string, unknown>>((res, rej) => new PrecomputedTexturesLoader({ format: 'binary' }).setType(renderer).load('assets', t => res(t as unknown as Record<string, unknown>), undefined, rej))
       : undefined;
-    const vol = await createVolumetricScene(renderer, W, H, { genus: true, celestial: Q.get('celestial') === '1', precomputed });
+    // §128 분광 대기 표·유효 투과율(앱과 같이 기본 켬 — 미리 만든 표를 읽으면 꺼짐). ?spectral=0 으로 3파장, ?efft=0 으로 680·550·440nm 투과율.
+    const vol = await createVolumetricScene(renderer, W, H, {
+      genus: true, celestial: Q.get('celestial') === '1', precomputed,
+      spectral: Q.get('spectral') !== '0', effectiveTransmittance: Q.get('efft') !== '0',
+    });
+    (window as unknown as Record<string, unknown>).__spectral = vol.spectral;
     (window as unknown as Record<string, unknown>).__atmosMs = performance.now() - t0;
     (window as unknown as Record<string, unknown>).__vol = vol;
     // 진단: 구름·그림자 패스 균일변수 중 NaN·무한대가 든 것의 이름.
@@ -103,6 +110,7 @@ const show = (tex: Texture, mode: number) => {
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
       if (job.options) vol.setOptions(job.options);
+      if (job.tone != null) vol.debug.toneMapping.mode = job.tone;
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setScene(input);

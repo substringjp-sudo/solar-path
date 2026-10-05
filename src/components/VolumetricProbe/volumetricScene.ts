@@ -45,6 +45,7 @@ import {
   STBN_TEXTURE_HEIGHT,
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
+import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 
@@ -334,7 +335,9 @@ export interface VolumetricScene {
   /** 마지막 날씨 텍스처 생성 시간(ms). */
   weatherMs(): number;
   /** 진단용 — 하네스에서만 씁니다. */
-  debug: { clouds: CloudsEffect };
+  debug: { clouds: CloudsEffect; toneMapping: ToneMappingEffect };
+  /** §128 대기 표가 파장 15개(분광 휘도)인지 — false 면 takram 3파장. */
+  readonly spectral: boolean;
 }
 
 /**
@@ -345,6 +348,16 @@ export async function createVolumetricScene(
   options: Partial<VolumetricOptions> & {
     /** 하네스 전용 — 미리 만든 대기 표(takram PrecomputedTexturesLoader). 없으면 기기에서 만듭니다. */
     precomputed?: Record<string, unknown>;
+    /**
+     * §128 대기 표를 파장 15개로(Bruneton 의 휘도 미리 계산). 3파장 표는 박명 하늘이 자주색이 됩니다(spectralAtmosphere.ts).
+     * 기본 켬. 미리 만든 표(`precomputed`, takram 자산 = 3파장)를 넘기면 끕니다.
+     */
+    spectral?: boolean;
+    /**
+     * §128 해 직달빛·대기 원근 투과율을 태양 분광 × 등색 함수 가중 평균으로(기본 켬). 끄면 원 모형처럼 680·550·440nm 인데,
+     * 휘도 표에서 그 투과율을 빼는 대기 원근이 먼 구름 아래 지평선을 청록색으로 남깁니다.
+     */
+    effectiveTransmittance?: boolean;
   } = {},
 ): Promise<VolumetricScene> {
   // ⚠ expo-gl(React Native) 대응:
@@ -365,14 +378,18 @@ export async function createVolumetricScene(
   const camera = new PerspectiveCamera(60, width / height, 1, 1e7);
   const scene = new Scene();
 
-  const aerial = new AerialPerspectiveEffect(camera);
+  // §128 분광 표면 하늘 환산 상수가 683(상대)입니다 — 표를 만들기 전에 효과를 만들므로 여기서 정하고, 생성기 패치가
+  // 실패하면 아래에서 3파장 값으로 되돌립니다(균일변수가 이 Vector3 를 그대로 가리킴).
+  let spectral = !options.precomputed && (options.spectral ?? true);
+  const atmosphereParams = renderAtmosphere(spectral);
+  const aerial = new AerialPerspectiveEffect(camera, undefined, atmosphereParams);
   aerial.sky = true;
   aerial.sun = opt.celestial;
   aerial.moon = opt.celestial;
   aerial.sunLight = false;
   aerial.skyLight = false;
 
-  const clouds = new CloudsEffect(camera);
+  const clouds = new CloudsEffect(camera, undefined, atmosphereParams);
   clouds.qualityPreset = 'low';
   /** 품질 단계가 정한 accurateSunSkyLight — 해가 낮을 때 켰다가 되돌릴 값. */
   let baseAccurate = clouds.clouds.accurateSunSkyLight;
@@ -562,6 +579,11 @@ export async function createVolumetricScene(
 
   // 대기 표: 기기 GPU 에서 만듭니다(자산 25MB 를 싣지 않으려고). 하네스는 takram 의 미리 만든 표를 넘겨 비교할 수 있습니다.
   const generator = options.precomputed ? null : new PrecomputedTexturesGenerator(renderer);
+  if (generator && spectral && !patchSpectralGenerator(generator, { effectiveTransmittance: options.effectiveTransmittance ?? true })) {
+    spectral = false;
+    atmosphereParams.skyRadianceToRelativeLuminance.copy(renderAtmosphere(false).skyRadianceToRelativeLuminance);
+    console.warn('[volumetric] takram 표 생성기 내부가 달라 3파장 표로 만듭니다');
+  }
   if (generator) await generator.update();
   const atmosTextures = options.precomputed ?? generator!.textures;
   Object.assign(aerial, atmosTextures);
@@ -763,7 +785,8 @@ export async function createVolumetricScene(
   };
 
   return {
-    debug: { clouds },
+    debug: { clouds, toneMapping },
+    spectral,
     weatherMs: () => weatherMs,
     camera,
     setPreset,

@@ -1360,6 +1360,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false })
                 .then(v => {
                   volumetricStats.atmosMs = Date.now() - tAtmos;
+                  volumetricStats.spectral = v.spectral;
                   // §127 기기 성능: 품질 단계와 구름 해상도(최대 배율 아래에서 프레임 간격으로 자동 조절).
                   volGovRef.current = createResolutionGovernor({ maxScale: skySettingsRef.current.volumetricRes ?? 0.5 });
                   v.setResolutionScale(volGovRef.current.scale);

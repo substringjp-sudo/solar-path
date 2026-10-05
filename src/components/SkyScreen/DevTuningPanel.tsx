@@ -144,7 +144,7 @@ const VolumetricPerfRow: React.FC = () => {
       {/* 상태(준비 중·실패)는 위 볼륨 상태 줄이 띄웁니다 — 여기는 동작 중 수치만. */}
       {getVolumetricStatus().phase === 'running' && (
         <Text style={styles.volText} numberOfLines={2}>
-          {`${fps}fps(${st.frameMs.toFixed(0)}ms) · 구름 ×${st.resScale.toFixed(2)} · 날씨 ${(st.weatherMs / 1000).toFixed(1)}s · 대기 ${(st.atmosMs / 1000).toFixed(0)}s`}
+          {`${fps}fps(${st.frameMs.toFixed(0)}ms) · 구름 ×${st.resScale.toFixed(2)} · 날씨 ${(st.weatherMs / 1000).toFixed(1)}s · 대기 ${(st.atmosMs / 1000).toFixed(0)}s${st.spectral ? '(15파장)' : '(3파장)'}`}
         </Text>
       )}
       <View style={styles.volRow}>
