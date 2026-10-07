@@ -19,6 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
+import { FLOW_DEFAULTS, GENUS_FLOW, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -26,7 +27,13 @@ import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, Repe
  */
 export type GenusKey = 'cu' | 'cg' | 'cb' | 'cbanvil' | 'sc' | 'st' | 'ns' | 'ac' | 'as' | 'ci' | 'cs';
 
-export interface GenusParams {
+/**
+ * §130 흐름 모형 손잡이(FlowLayerParams)도 같은 opts 로 다닙니다 — 전부 숫자라 `VolumetricLayerInput.opts` 를 거쳐 날씨 캐시 키에
+ * 자동으로 들어갑니다. 종류별 기본값은 cloudFlow.ts 의 GENUS_FLOW(측정한 GENUS 표는 손대지 않음).
+ */
+export interface GenusParams extends Partial<FlowLayerParams> {
+  /** §130 전단을 재는 바로 위 층까지의 고도 차(km) — volumetricScene.weatherPlan 이 채움 */
+  shearDzKm?: number;
   /** 0 = dome(밑면 평평), 1 = lens */
   mode: number;
   /** 층 두께(m) */
@@ -134,7 +141,42 @@ export const GENUS_COVER_REMAP: Partial<Record<GenusKey, [number, number][]>> = 
 };
 
 export function genusCoverIn(genus: GenusKey, cover: number): number {
-  const t = GENUS_COVER_REMAP[genus];
+  return remapCover(GENUS_COVER_REMAP[genus], cover);
+}
+/**
+ * §130 흐름 층의 운량 역표 — 가산 원시장은 0 인 곳이 없어(용량 1) §127 의 chamfer 스커트 전제가 깨지므로 따로 둡니다.
+ * 항등으로 시작하고 RULER-cover 절차(짝수 자리 적합·홀수 검증)로 채운 뒤에야 기본 on 으로 갑니다.
+ */
+export const FLOW_COVER_REMAP: Partial<Record<GenusKey, [number, number][]>> = {};
+export function flowCoverIn(genus: GenusKey, cover: number): number {
+  return remapCover(FLOW_COVER_REMAP[genus], cover);
+}
+/** 흐름 층의 opts = 종류별 흐름 기본값(GENUS_FLOW) 아래에 층 opts 를 덮음. flow 가 0 인 종류(모루)는 그대로 흐름 없음. */
+export function mergeFlowOpts(L: GenusLayer): GenusLayer {
+  const base = GENUS_FLOW[L.genus] ?? {};
+  return { ...L, opts: { ...base, ...L.opts, flow: L.opts?.flow ?? base.flow ?? 1 } };
+}
+/**
+ * §130 장면당 하나인 흐름 핵 매개변수 — 모든 층이 같은 변위 지도를 공유(같은 골에 sc·ac 가 정렬). 바람 방향·비등방·시드는
+ * 첫 흐름 층의 것. 비등방 = 종류 바닥값 + 바람 가중(6 m/s 위에서 켜짐, 최대 3) — 바닥값이 있어 자리표시 바람(6.1 m/s)에서도
+ * 등방이 되지 않습니다. volumetricScene.weatherPlan 과 자 도구(tile-gen)가 같은 함수를 씁니다.
+ */
+export function planFlowScene(gl: (GenusLayer | null)[], o: { n: 64 | 128; steps: number; hours: number; vrms: number; psiEvery: number }): FlowSceneParams | null {
+  const first = gl.find(L => L && (fp(L, 'flow') ?? 0) > 0);
+  if (!first) return null;
+  const op = first.opts ?? {};
+  const hasWind = op.windU != null && op.windV != null;
+  const speedMps = hasWind ? Math.hypot(op.windU!, op.windV!) / 3.6 : 0;
+  return {
+    ...FLOW_DEFAULTS, seed: op.flowSeed ?? FLOW_DEFAULTS.seed, n: o.n, steps: o.steps, hours: o.hours, vrms: o.vrms, psiEvery: o.psiEvery,
+    windDeg: hasWind ? ((Math.atan2(op.windU!, op.windV!) * 180) / Math.PI + 360) % 360 : FLOW_DEFAULTS.windDeg,
+    aniso: (fp(first, 'flowAniso') ?? 0) + Math.max(0, Math.min(3, (speedMps - 6) / 6)),
+    rollDeg: op.rollDeg ?? FLOW_DEFAULTS.rollDeg,
+  };
+}
+/** 흐름 손잡이 — 층 opts 가 우선, 없으면 종류별 GENUS_FLOW. */
+const fp = <K extends keyof FlowLayerParams>(L: GenusLayer, k: K): number | undefined => (L.opts?.[k] ?? GENUS_FLOW[L.genus]?.[k]) as number | undefined;
+function remapCover(t: [number, number][] | undefined, cover: number): number {
   if (!t || cover <= 0) return cover;
   if (cover <= t[0][0]) return Math.min(1, (t[0][1] * cover) / Math.max(1e-6, t[0][0]));
   for (let i = 1; i < t.length; i++) {
@@ -203,7 +245,7 @@ function quantile(arr: Float32Array, q: number): number {
 // ───── 종류별 수평 무늬(원시 장 f: 클수록 기둥이 높음) ─────
 /** 화소 함수 — 준비(세포·잡음)를 한 번 하고 (x, y) → 장 값. 날씨를 잘라 만들 수 있게(§127, 폰에서 JS 를 오래 막지 않게) 화소 단위로 둡니다. */
 type FieldPx = (x: number, y: number) => number;
-type Field = (S: number, tileKm: number, seed: number, L: GenusLayer) => FieldPx;
+type Field = (S: number, tileKm: number, seed: number, L: GenusLayer, flow?: boolean) => FieldPx;
 const FIELDS: Record<GenusKey, Field> = {
   cu(S, tileKm, seed, L) {
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 2.4)));
@@ -235,7 +277,7 @@ const FIELDS: Record<GenusKey, Field> = {
       return best;
     };
   },
-  ac(S, tileKm, seed, L) {
+  ac(S, tileKm, seed, L, flow) {
     const n = Math.max(4, Math.round(tileKm / (param(L, 'spacingKm') ?? 0.35)));
     const C = cells(n, seed, 0.7), env = fbm(3, 4, seed + 5), rows = param(L, 'rows') ?? 0.35;
     const ang = ((param(L, 'windDeg') ?? 30) * Math.PI) / 180, ca = Math.cos(ang), sa = Math.sin(ang);
@@ -249,7 +291,8 @@ const FIELDS: Record<GenusKey, Field> = {
         if (q > 0) best = Math.max(best, (0.6 + 0.4 * p.t) * Math.sqrt(q));
       }
       const wave = 1 - rows + rows * (0.5 + 0.5 * Math.cos(2 * Math.PI * k * (u * ca + v * sa)));
-      return best * wave * Math.min(1, Math.max(0, (env(u, v) - 0.35) * 4));
+      // §130 흐름 층은 패치 마스크를 수분장(q₀)이 맡으므로 fbm 마스크를 뺍니다(끄면 이전과 같음).
+      return best * wave * (flow ? 1 : Math.min(1, Math.max(0, (env(u, v) - 0.35) * 4)));
     };
   },
   // 권운: 바람(텍스처 x = 동쪽) 방향으로 긴 띠 + 띠 속 가늘고 긴 평행 결 + 결을 휘는 저주파 휨.
@@ -265,12 +308,14 @@ const FIELDS: Record<GenusKey, Field> = {
       return bandMask * (0.25 + 0.75 * Math.pow(r, fp));
     };
   },
-  sc(S, tileKm, seed, L) {
+  sc(S, tileKm, seed, L, flow) {
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 1.8)));
     const C = cells(n, seed, 0.8), warp = fbm(Math.max(4, n * 2), 3, seed + 21), warp2 = fbm(Math.max(4, n * 2), 3, seed + 23);
     const wa = (param(L, 'warp') ?? 0.3) / n, lumps = param(L, 'lumps') ?? 0, gap = param(L, 'gap') ?? 0.5;
     const lumpN = fbm(Math.max(8, n * 4), 3, seed + 29);
     const cl = param(L, 'cluster') ?? 0;
+    // §130 흐름 층: 칸 경계 틈에 바닥값(sheet)을 둬 습한 골 안의 칸들이 얇은 틈 구름으로 이어집니다(0 이면 칸마다 따로 떨어짐).
+    const sheet = flow ? (param(L, 'sheet') ?? 0.3) : 0;
     const clN = cl > 0 ? fbm(Math.max(2, Math.round(tileKm / (param(L, 'clusterKm') ?? 8))), 3, seed + 31) : null;
     return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
@@ -284,7 +329,7 @@ const FIELDS: Record<GenusKey, Field> = {
         const p = C.at(ci + di, cj + dj), dx = wrapD(u, p.x), dy = wrapD(v, p.y), d = Math.sqrt(dx * dx + dy * dy) * n;
         if (d < d1) { d2 = d1; d1 = d; s1 = p.s; } else if (d < d2) d2 = d;
       }
-      const gapM = Math.min(1, (d2 - d1) / gap);
+      const gapM0 = Math.min(1, (d2 - d1) / gap), gapM = sheet + (1 - sheet) * gapM0;
       const cellF = (0.55 + 0.45 * s1) * gapM * (1 - 0.35 * Math.min(1, d1)) * lump;
       if (!clN) return cellF;
       // 덮개가 주도: 무리 안은 칸 경계의 얇은 틈만 남기고 칸을 채웁니다(세포별 크기·가운데 강조를 빼야 칸이 가운데만 남지 않음).
@@ -354,8 +399,11 @@ const FIELDS: Record<GenusKey, Field> = {
  */
 function* genusWeatherSteps(
   data: Uint8Array, layers: (GenusLayer | null)[], S: number, tileKm: number, seed: number, plainCover: number[],
+  flow: FlowSceneParams | null = null,
 ): Generator<void, void, void> {
   const ROWS = 8;
+  // §130 흐름 핵은 장면당 하나 — 첫 흐름 층에서 늦게 만들어 모든 층이 같은 변위 지도를 씁니다.
+  let core: FlowCore | null = null;
   for (let k = 0; k < plainCover.length; k++) {
     const c = plainCover[k];
     if (!(c > 0) || k > 3 || layers[k]) continue;
@@ -372,12 +420,35 @@ function* genusWeatherSteps(
   for (let k = 0; k < layers.length; k++) {
     const L = layers[k];
     if (!L || !(L.cover > 0) || k > 3) continue;
-    const px = FIELDS[L.genus](S, tileKm, L.opts?.seed ?? seed + k * 1000, L);
+    const useFlow = !!flow && (fp(L, 'flow') ?? 0) > 0;
     const f = new Float32Array(S * S);
-    for (let y = 0; y < S; y++) {
-      for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
-      if (y % ROWS === ROWS - 1) yield;
+    if (useFlow && flow) {
+      // §130 흐름 층: 원시장 f = wQ·q₀(X) + wZ·ζ̂₀(X) + wT·T(x − lag·D) + wW·cos(k_w·X) — 템플릿 T 는 기존 종류 무늬를 작은
+      // 격자(TS²)에서 한 번 평가한 것, X = x − D(x) 는 흐름이 밀어낸 자리(라벨). 그 뒤 문턱·바이트는 아래 그대로(면적 = 운량).
+      if (!core) {
+        core = newFlowCore(flow.n);
+        yield* flowCoreSteps(flow, tileKm, core);
+      }
+      const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 256));
+      const px = FIELDS[L.genus](TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, true);
+      const T = new Float32Array(TS * TS);
+      for (let y = 0; y < TS; y++) {
+        for (let x = 0; x < TS; x++) T[y * TS + x] = px(x, y);
+        if (y % ROWS === ROWS - 1) yield;
+      }
+      normalizeTemplate(T);
+      yield;
+      const w = flowLayerWeightsOf(L.opts ?? {}, L.genus, tileKm, 0, L.opts?.shearDzKm ?? 2);
+      yield* flowComposeSteps(core, T, TS, S, w, f);
+    } else {
+      const px = FIELDS[L.genus](S, tileKm, L.opts?.seed ?? seed + k * 1000, L);
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
+        if (y % ROWS === ROWS - 1) yield;
+      }
     }
+    // 흐름 층은 히스토그램 분위수(정렬과 같은 값, 3배 빠름 — cloudFlow 테스트가 같음을 확인).
+    const qf = useFlow ? quantileHist : quantile;
     const pw = param(L, 'domePow');
     if (param(L, 'absolute')) {
       // 문턱 없이 장 값 그대로 — 모루처럼 "탑 둘레에만" 있어야 하는 층. cover 는 쓰지 않습니다.
@@ -385,13 +456,15 @@ function* genusWeatherSteps(
       continue;
     }
     if (L.cover < 0.999) { growBeyondCapacity(f, S, L.cover); yield; }
-    const th = L.cover >= 0.999 ? -1 : quantile(f, 1 - L.cover);
+    const th = L.cover >= 0.999 ? -1 : qf(f, 1 - L.cover);
     yield;
-    const top = quantile(f, param(L, 'topQuantile') ?? 0.997);
+    const top = qf(f, param(L, 'topQuantile') ?? 0.997);
     yield;
     for (let i = 0; i < S * S; i++) {
       const d = f[i] > th ? Math.min(1, Math.max(1 / 255, (f[i] - th) / Math.max(1e-6, top - th))) : 0;
-      data[i * 4 + k] = Math.round(Math.pow(d, pw) * 255);
+      const b = Math.round(Math.pow(d, pw) * 255);
+      // §130 흐름 층만: d^pw 가 1/255 아래로 떨어져 바이트 0(구름 없음)이 되던 권운 바닥(domePow 1.5)을 1 로 올립니다.
+      data[i * 4 + k] = useFlow && d > 0 ? Math.max(1, b) : b;
     }
   }
 }
@@ -446,9 +519,11 @@ export function makeGenusWeather(
   layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7,
   /** 종류 없는 채널에 넣을 기본 잡음 운량(0~1) — takram 기본 모양(순위 문턱 fbm)으로 채웁니다. */
   plainCover: number[] = [],
+  /** §130 흐름 핵 매개변수 — null 이면 흐름 없이(이전과 바이트 동일). */
+  flow: FlowSceneParams | null = null,
 ): DataTexture {
   const data = new Uint8Array(S * S * 4);
-  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover);
+  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow);
   while (!it.next().done) { /* 끝까지 */ }
   return weatherTexture(data, S);
 }
@@ -459,10 +534,10 @@ export function makeGenusWeather(
  */
 export async function makeGenusWeatherAsync(
   layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7, plainCover: number[] = [],
-  sliceMs = 6, cancelled: () => boolean = () => false,
+  sliceMs = 6, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
 ): Promise<DataTexture | null> {
   const data = new Uint8Array(S * S * 4);
-  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover);
+  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow);
   let t0 = Date.now();
   for (;;) {
     if (it.next().done) break;
@@ -565,11 +640,13 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
 }
 
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */
-export function genusLayerShape(L: GenusLayer) {
+export function genusLayerShape(L: GenusLayer, flowDensity = false) {
+  // §130 C2 흐름 밀도가 켜진 층은 소광·모양 잡음 양을 흐름값(GENUS_FLOW 의 flowDensityScale 등)으로 — 꺼진 층은 GENUS 그대로.
+  const fd = flowDensity && (fp(L, 'flow') ?? 0) > 0;
   return {
     height: param(L, 'height'),
-    densityScale: param(L, 'densityScale'),
-    shapeAmount: param(L, 'shapeAmount'),
-    shapeDetailAmount: param(L, 'shapeDetailAmount'),
+    densityScale: (fd ? fp(L, 'flowDensityScale') : undefined) ?? param(L, 'densityScale'),
+    shapeAmount: (fd ? fp(L, 'flowShapeAmount') : undefined) ?? param(L, 'shapeAmount'),
+    shapeDetailAmount: (fd ? fp(L, 'flowShapeDetailAmount') : undefined) ?? param(L, 'shapeDetailAmount'),
   };
 }

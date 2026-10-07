@@ -135,6 +135,8 @@ const VolumetricPerfRow: React.FC = () => {
   const q = useCelestialStore(s => s.skySettings.volumetricQuality ?? 'low');
   const res = useCelestialStore(s => s.skySettings.volumetricRes ?? 0.5);
   const auto = useCelestialStore(s => s.skySettings.volumetricAutoRes ?? true);
+  const flow = useCelestialStore(s => !!s.skySettings.volumetricFlow);
+  const flowUv = useCelestialStore(s => !!s.skySettings.volumetricFlowUv);
   const set = useCelestialStore.getState().setSkySettings;
   const st = volumetricStats;
   const fps = st.frameMs > 0 ? Math.round(1000 / st.frameMs) : 0;
@@ -162,6 +164,14 @@ const VolumetricPerfRow: React.FC = () => {
         <View style={{ width: 6 }} />
         <TouchableOpacity onPress={() => set({ volumetricAutoRes: !auto })} style={chip(auto)}>
           <Text style={styles.volChipText}>AUTO</Text>
+        </TouchableOpacity>
+        <View style={{ width: 6 }} />
+        {/* §130 대기 흐름 구름 모형(FLOW) · 층별 드리프트/기울임(UV) — 자 통과 전 기기 확인용 */}
+        <TouchableOpacity onPress={() => set({ volumetricFlow: !flow })} style={chip(flow)}>
+          <Text style={styles.volChipText}>FLOW</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => set({ volumetricFlowUv: !flowUv })} style={chip(flowUv)}>
+          <Text style={styles.volChipText}>UV</Text>
         </TouchableOpacity>
       </View>
     </View>

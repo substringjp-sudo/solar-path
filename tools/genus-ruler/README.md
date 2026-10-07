@@ -38,3 +38,7 @@
   `genus/RULER-exposure.md`, `RULER-cover.md`, `RULER-sunset-genus.md`, `RULER-twilight-hue.md`, `RULER-sc-low.md`, `RULER-terrain-lit.md`.
 - 웹 앱 하네스(`tools/web-repro`)는 §129 부터 DEM 지형을 그립니다. `#{"talb":[r,g,b]}` 로 볼륨 경로의 지형 알베도를 바꿔 볼 수 있습니다.
 - CLIP 가중치는 `clip/` 에 받아 쓰고 넣지 않습니다(.gitignore).
+
+## flow/ — 대기 흐름 구름 모형 자(§130)
+- `RULER-flow.md`(렌더 전에 고정) · `fm.py`(측면 지표, 사진 사분위 `photo-flow-quartiles.json`) · `tile-gen.mjs` + `tile.py`(위에서 본 타일 자, GPU 없음)
+  · `flow-core-test.mjs`(cloudFlow.ts 단위 테스트) · `make-jobs.mjs`(volsky 잡). 자세한 것은 `flow/README.md`.

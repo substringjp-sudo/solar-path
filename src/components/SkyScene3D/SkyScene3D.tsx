@@ -199,6 +199,9 @@ export interface SkySettings {
   volumetricRes?: number;
   /** §127 프레임 간격을 보고 구름 해상도를 자동으로 내리고 올림 — 기본 켬. */
   volumetricAutoRes?: boolean;
+  /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 자(RULER-flow)·운량 역표 재맞춤 전까지 기본 끔. */
+  volumetricFlow?: boolean;
+  volumetricFlowUv?: boolean;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
@@ -1401,9 +1404,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
+              // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
+              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv }, false);
+              volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
               volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 16);
@@ -1416,7 +1422,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 같은 층이면 캐시에서 꺼냅니다(§127).
             const key = [Math.floor(targetTimeMsRef.current / 600000), vLat.toFixed(3), vLon.toFixed(3), Math.round(vElev),
               vObs?.low, vObs?.mid, vObs?.high, vObs?.lowDeckBaseKm?.toFixed(1), vObs?.lowDeckTopKm?.toFixed(1),
-              vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation].join('|');
+              vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation,
+              // §130 층별 바람(5 km/h 눈금)·날짜 — 흐름 모형의 비등방·전단파·시드 입력(liveScene 이 같은 눈금으로 묶음).
+              ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 5) : '')),
+              Math.floor(targetTimeMsRef.current / 86400000)].join('|');
             const viewKey = `${cameraAzRef.current.toFixed(2)}|${cameraElevRef.current.toFixed(2)}|${camera.fov.toFixed(2)}`;
             if (live && key !== volKeyRef.current && !volPendingRef.current) {
               const built = live.buildLiveScene({ lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: [], obs: vObs,

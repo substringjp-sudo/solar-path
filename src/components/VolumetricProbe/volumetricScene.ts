@@ -46,7 +46,9 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCoverIn, genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import type { FlowSceneParams } from './cloudFlow';
+import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
@@ -294,8 +296,24 @@ export interface VolumetricOptions {
   maxRayKm: number | null;
   /** §127 종류별 운량 → 화면 면적 역표(`GENUS_COVER_REMAP`)를 쓸지 — 하네스가 고치기 전과 견줄 때만 끕니다. */
   coverRemap: boolean;
+  /**
+   * §130 대기 흐름 구름 모형(cloudFlow.ts) — 날씨 원시장을 "정적 도형의 합집합" 대신 **한 2-D 순압 와도 흐름이 변형한
+   * 종류별 템플릿 + 대규모 수분장 + 전단파**로 만듭니다. 운량 분위수 문턱은 그대로(위에서 본 면적 = 운량). 기본 끔 —
+   * 자(RULER-flow)와 운량 역표 재맞춤을 통과하면 켭니다. 비교 플래그이며 날씨 캐시 키에 들어갑니다.
+   */
+  flow: boolean;
+  /** §130 C2 — 흐름 층의 연속 밀도(LWP 돔·d^0.5·낮춘 소광·부드러운 침식·광학두께 AO 대리값). flow 가 켜졌을 때만. */
+  flowDensity: boolean;
+  /** §130 C3 — 층별 바람 드리프트·전단 기울임 fetch(날씨 표본마다 fetch 4번). 기기 frameMs(+15 % 이하)를 잰 뒤 정합니다. */
+  flowUv: boolean;
+  /** §130 흐름 핵: 격자(64 | 128) · 반라그랑주 걸음 수 · 의사시간(h, 0.7 넘으면 대리석 무늬) · 에디 rms 속도(m/s) · Poisson 갱신 간격. */
+  flowN: 64 | 128;
+  flowSteps: number;
+  flowHours: number;
+  flowVrms: number;
+  flowPsiEvery: number;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -331,7 +349,8 @@ export interface VolumetricScene {
   setQuality(q: VolumetricQuality): void;
   setResolutionScale(s: number): void;
   /** 손잡이를 바꾸고 지금 장면에 다시 겁니다. */
-  setOptions(o: Partial<VolumetricOptions>): void;
+  /** 옵션을 바꿉니다. reapply=false 면 장면을 다시 걸지 않습니다(호출자가 setSceneAsync 로 다시 만듦 — §130 흐름 날씨는 동기로 만들면 수 초 멈춤). */
+  setOptions(o: Partial<VolumetricOptions>, reapply?: boolean): void;
   render(deltaSec: number): void;
   setSize(width: number, height: number): void;
   dispose(): void;
@@ -656,6 +675,9 @@ export async function createVolumetricScene(
   // §124 종류별 모형 패치 — 늘 걸어 두고 층별 genusOn 으로 켭니다(끄면 takram 그대로).
   patchGenusShader(clouds.cloudsPass.currentMaterial as never);
   patchGenusShader(clouds.shadowPass.currentMaterial as never);
+  // §130 흐름 모형 셰이더(연속 밀도·층별 fetch) — 종류 패치 직후, 두 패스 모두. 레인이 0 이면 화소 단위로 이전과 같습니다.
+  patchFlowShader(clouds.cloudsPass.currentMaterial as never);
+  patchFlowShader(clouds.shadowPass.currentMaterial as never);
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
@@ -688,6 +710,8 @@ export async function createVolumetricScene(
   let weather: DataTexture | null = null;
   /** 마지막 날씨 생성 시간(ms) — 시험 화면 표시용. */
   let weatherMs = 0;
+  // §130 C3 층별 드리프트 — 장면을 건 층·시각(setDate 가 경과 시간만큼 uv 를 밈).
+  let genLayers: (GenusLayer | null)[] = [], genDate: Date | null = null, genUv = false;
   const sun = new Vector3();
 
   let lastInput: VolumetricSceneInput | null = null;
@@ -735,12 +759,23 @@ export async function createVolumetricScene(
   const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) * 100) / 100;
   const weatherPlan = (p: VolumetricSceneInput) => {
     const inputs = p.layers.slice(0, 4);
-    const gl: (GenusLayer | null)[] = inputs.map(L => (L.genus && L.cover > 0
-      ? { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, quantCover(L.cover)) : quantCover(L.cover), opts: L.opts } : null));
+    const useFlow = opt.flow && opt.genus;
+    const gl: (GenusLayer | null)[] = inputs.map((L, i) => {
+      if (!L.genus || !(L.cover > 0)) return null;
+      const qc = quantCover(L.cover);
+      if (!useFlow) return { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, qc) : qc, opts: L.opts };
+      // §130 흐름 층: 종류별 흐름 기본값(GENUS_FLOW)을 opts 에 합치고(캐시 키에 자동 포함) 운량 역표는 흐름용(항등으로 시작 —
+      // 가산 장은 0 인 곳이 없어 chamfer 스커트가 안 생기므로 §127 표가 맞지 않음). 전단은 바로 위 층까지의 고도 차로 잽니다.
+      const above = inputs.slice(i + 1).find(o => o.baseKm > L.baseKm);
+      const shearDzKm = Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
+      return mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
+    });
     const useGenus = opt.genus && gl.some(Boolean);
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
-    const key = JSON.stringify([useGenus, gl, plain, useGenus ? 0 : [opt.weatherPeriod, opt.weatherRamp]]);
-    return { inputs, gl, useGenus, plain, key };
+    // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
+    const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery }) : null;
+    const key = JSON.stringify([useGenus, gl, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp]]);
+    return { inputs, gl, useGenus, plain, key, flow };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
   const cacheGet = (key: string) => {
@@ -779,6 +814,7 @@ export async function createVolumetricScene(
     // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
     const CH = ['r', 'g', 'b', 'a'] as const;
     const { inputs, gl, useGenus } = plan;
+    const flowDens = !!plan.flow && opt.flowDensity, flowUv = !!plan.flow && opt.flowUv;
     // 종류 없는 층의 두께·밀도: 층 띠(없으면 밑면 높이)로 저·중·상을 가릅니다(이전 프리셋 값과 같음).
     const bandOf = (L: VolumetricLayerInput) => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
     const bandShape = (b: 'low' | 'mid' | 'high') => (b === 'high' ? { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }
@@ -788,7 +824,7 @@ export async function createVolumetricScene(
       // 입력이 없는 채널만 빈 층. 운량 0 인 층도 층 높이는 그대로 둡니다 — 층 높이 범위가 하늘빛 보간·행진 구간에 들어갑니다.
       if (!L) { clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: 0, height: 0, densityScale: 0 })); continue; }
       const g = useGenus ? gl[i] : null;
-      const shape = g ? genusLayerShape(g) : bandShape(bandOf(L));
+      const shape = g ? genusLayerShape(g, flowDens) : bandShape(bandOf(L));
       if (L.thicknessM) shape.height = L.thicknessM;
       // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
       const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
@@ -801,16 +837,19 @@ export async function createVolumetricScene(
       clouds.localWeatherRepeat.setScalar(1);
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
+        setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
+        setGenusDrift(m, gl, 0, GENUS_TILE_KM);
         const [ox, oy] = p.weatherOffsetKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
     } else {
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
-      for (const m of genusMats) { setGenusUniforms(m, []); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;
+    genLayers = gl; genDate = p.date; genUv = flowUv;
     const exposure = p.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
@@ -821,7 +860,7 @@ export async function createVolumetricScene(
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
-      tex = plan.useGenus ? makeGenusWeather(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain) : makeWeather(plan.plain, opt);
+      tex = plan.useGenus ? makeGenusWeather(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, plan.flow) : makeWeather(plan.plain, opt);
       weatherMs = Date.now() - t0;
       cachePut(plan.key, tex);
     }
@@ -838,7 +877,7 @@ export async function createVolumetricScene(
     if (!tex) {
       const t0 = Date.now();
       tex = plan.useGenus
-        ? await makeGenusWeatherAsync(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, 6, () => my !== sceneToken || disposed)
+        ? await makeGenusWeatherAsync(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, 6, () => my !== sceneToken || disposed, plan.flow)
         : makeWeather(plan.plain, opt);
       if (!tex) return false;
       if (my !== sceneToken || disposed) { tex.dispose(); return false; }
@@ -865,6 +904,8 @@ export async function createVolumetricScene(
     clouds.sunDirection.copy(sun);
     lastSunAltForLight = sunAltDeg;
     applySunLight();
+    // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
+    if (genUv && genDate) for (const m of genusMats) setGenusDrift(m, genLayers, (date.getTime() - genDate.getTime()) / 1000, GENUS_TILE_KM);
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
@@ -893,7 +934,7 @@ export async function createVolumetricScene(
       baseMarch.scale = clouds.clouds.secondaryStepScale;
       applySunMarch();
     },
-    setOptions: o => {
+    setOptions: (o, reapply = true) => {
       Object.assign(opt, o);
       applySunMarch();
       updateLod();
@@ -901,7 +942,8 @@ export async function createVolumetricScene(
       clouds.shadow.temporalPass = opt.shadowTemporal;
       applySunLight();
       applyMaxRay();
-      if (lastInput) setScene(lastInput);
+      // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
+      if (lastInput && reapply) setScene(lastInput);
     },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
     render: dt => { tonePass.renderToScreen = true; setCloudAlphaOut(false); composer.render(dt); },

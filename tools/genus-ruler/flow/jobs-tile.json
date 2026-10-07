@@ -1,0 +1,17 @@
+[
+ {"name":"C0_devsc23","layers":[{"genus":"sc","cover":0.23,"baseKm":1.0}]},
+ {"name":"C0_devac43","layers":[{"genus":"ac","cover":0.43,"baseKm":3.5}]},
+ {"name":"C0_sc25","layers":[{"genus":"sc","cover":0.25,"baseKm":1.5}]},
+ {"name":"C0_sc85","layers":[{"genus":"sc","cover":0.85,"baseKm":1.5}]},
+ {"name":"C0_ac60","layers":[{"genus":"ac","cover":0.6,"baseKm":4.5}]},
+ {"name":"C0_cu35","layers":[{"genus":"cu","cover":0.35,"baseKm":1.5}]},
+ {"name":"C0_ci60","layers":[{"genus":"ci","cover":0.6,"baseKm":9}]},
+ {"name":"C0_st50","layers":[{"genus":"st","cover":0.5,"baseKm":0.5}]},
+ {"name":"C1_dev","layers":[{"genus":"sc","cover":0.23,"baseKm":1.0},{"genus":"ac","cover":0.43,"baseKm":3.5}],"options":{"flow":true}},
+ {"name":"C1_sc25","layers":[{"genus":"sc","cover":0.25,"baseKm":1.5}],"options":{"flow":true}},
+ {"name":"C1_sc85","layers":[{"genus":"sc","cover":0.85,"baseKm":1.5}],"options":{"flow":true}},
+ {"name":"C1_ac60","layers":[{"genus":"ac","cover":0.6,"baseKm":4.5}],"options":{"flow":true}},
+ {"name":"C1_cu35","layers":[{"genus":"cu","cover":0.35,"baseKm":1.5}],"options":{"flow":true}},
+ {"name":"C1_ci60","layers":[{"genus":"ci","cover":0.6,"baseKm":9}],"options":{"flow":true}},
+ {"name":"C1_st50","layers":[{"genus":"st","cover":0.5,"baseKm":0.5}],"options":{"flow":true}}
+]

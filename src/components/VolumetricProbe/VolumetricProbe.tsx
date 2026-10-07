@@ -57,6 +57,8 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   const [longMarch, setLongMarch] = useState(true);
   // 구름 종류별 모형(§124) — 켜면 적운·고적운 등 종류마다 다른 무늬·단면, 끄면 takram 기본(같은 잡음 덩어리).
   const [genusOn, setGenusOn] = useState(true);
+  // §130 대기 흐름 구름 모형 — 켜면 흐름이 변형한 종류별 템플릿 + 수분장(연속 밀도 포함), 끄면 §124 정적 무늬.
+  const [flowOn, setFlowOn] = useState(false);
   const [weatherMs, setWeatherMs] = useState<number | null>(null);
 
   const sceneRef = useRef<VolumetricScene | null>(null);
@@ -79,9 +81,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   useEffect(() => {
     const sc = sceneRef.current;
     if (!sc) return;
-    sc.setOptions({ shadowMinSunDeg: shadowOn ? -90 : 12, sunMarch: longMarch ? [6, 250, 1.6] : null, genus: genusOn });
+    sc.setOptions({ shadowMinSunDeg: shadowOn ? -90 : 12, sunMarch: longMarch ? [6, 250, 1.6] : null, genus: genusOn, flow: flowOn });
     setWeatherMs(sc.weatherMs());
-  }, [shadowOn, longMarch, genusOn]);
+  }, [shadowOn, longMarch, genusOn, flowOn]);
   useEffect(() => { if (sceneRef.current) setWeatherMs(sceneRef.current.weatherMs()); }, [presetIdx]);
 
   const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
@@ -171,6 +173,9 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setGenusOn(v => !v)} style={[styles.chip, genusOn && styles.chipOn]}>
               <Text style={styles.chipText}>구름 종류 모형 {genusOn ? '켜기' : '끄기'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setFlowOn(v => !v)} style={[styles.chip, flowOn && styles.chipOn]}>
+              <Text style={styles.chipText}>대기 흐름 모형 {flowOn ? '켜기' : '끄기'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setLongMarch(v => !v)} style={[styles.chip, longMarch && styles.chipOn]}>
               <Text style={styles.chipText}>해 쪽 행진 {longMarch ? '확장' : '기본'}</Text>
