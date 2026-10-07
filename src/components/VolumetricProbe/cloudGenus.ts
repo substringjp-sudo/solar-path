@@ -209,13 +209,17 @@ const FIELDS: Record<GenusKey, Field> = {
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 2.4)));
     const C = cells(n, seed), env = fbm(2, 3, seed + 7), warp = fbm(Math.max(4, n), 3, seed + 13), warp2 = fbm(Math.max(4, n), 3, seed + 17);
     const wa = (param(L, 'warp') ?? 0.35) / n, rmax = (param(L, 'radius') ?? 0.55) / n, T = param(L, 'turrets') ?? 0, skew = param(L, 'sizeSkew') ?? 1.5;
+    // §130.0 세포 크기 s = p.s^skew·(0.4 + 1.2·env(p)) 는 세포마다 상수 — 화소마다 이웃 25개의 env 를 다시 부르던 것을 세포당 한 번으로.
+    // 같은 수(바이트 동일, 9 운량 × 2 씨앗 diff 0), 적운 512² 1.4 s → 0.4 s(node).
+    const sCache = new Float64Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const p = C.at(i, j); sCache[j * n + i] = Math.pow(p.s, skew) * (0.4 + 1.2 * env(p.x, p.y)); }
     return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
       u += (warp(u, v) - 0.5) * wa; v += (warp2(u, v) - 0.5) * wa;
       const ci = Math.floor(u * n), cj = Math.floor(v * n);
       let best = 0;
       for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
-        const p = C.at(ci + di, cj + dj), s = Math.pow(p.s, skew) * (0.4 + 1.2 * env(p.x, p.y));
+        const p = C.at(ci + di, cj + dj), s = sCache[((((cj + dj) % n) + n) % n) * n + ((((ci + di) % n) + n) % n)];
         const R = rmax * (0.45 + 0.55 * Math.min(1, s)), dx = wrapD(u, p.x), dy = wrapD(v, p.y);
         if (!T) { const q = 1 - (dx * dx + dy * dy) / (R * R); if (q > 0) best = Math.max(best, s * q); continue; }
         // 봉우리 여럿: 한 구름 = 높이가 다른 반구 몇 개의 합집합(꽃양배추 꼭대기).
