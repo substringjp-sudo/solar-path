@@ -19,7 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
-import { FLOW_DEFAULTS, GENUS_FLOW, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
+import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -458,13 +458,20 @@ function* genusWeatherSteps(
     if (L.cover < 0.999) { growBeyondCapacity(f, S, L.cover); yield; }
     const th = L.cover >= 0.999 ? -1 : qf(f, 1 - L.cover);
     yield;
+    if (useFlow) {
+      // §130 흐름 층: d = 구름 화소 순위^flowDPow(cloudFlow.rankNormalize) — 운량·속과 무관하게 같은 히스토그램. 면적 = 운량 그대로.
+      const dd = new Float32Array(S * S);
+      rankNormalize(f, th, fp(L, 'flowDPow') ?? FLOW_D_POW, dd);
+      yield;
+      // domePow(권운 1.5)는 선형 d 의 히스토그램 손질이었으므로 순위 d 에는 겹쳐 쓰지 않습니다(겹치면 권운 엔트로피 2.6 bit).
+      for (let i = 0; i < S * S; i++) data[i * 4 + k] = dd[i] > 0 ? Math.max(1, Math.round(dd[i] * 255)) : 0;
+      continue;
+    }
     const top = qf(f, param(L, 'topQuantile') ?? 0.997);
     yield;
     for (let i = 0; i < S * S; i++) {
       const d = f[i] > th ? Math.min(1, Math.max(1 / 255, (f[i] - th) / Math.max(1e-6, top - th))) : 0;
-      const b = Math.round(Math.pow(d, pw) * 255);
-      // §130 흐름 층만: d^pw 가 1/255 아래로 떨어져 바이트 0(구름 없음)이 되던 권운 바닥(domePow 1.5)을 1 로 올립니다.
-      data[i * 4 + k] = useFlow && d > 0 ? Math.max(1, b) : b;
+      data[i * 4 + k] = Math.round(Math.pow(d, pw) * 255);
     }
   }
 }

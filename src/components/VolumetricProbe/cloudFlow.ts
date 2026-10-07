@@ -134,7 +134,15 @@ export interface FlowLayerParams {
   flowShapeAmount?: number;
   flowShapeDetailAmount?: number;
   topQuantile?: number;
+  /** d = 구름 화소 순위^flowDPow (rankNormalize). 기본 FLOW_D_POW. */
+  flowDPow?: number;
 }
+
+/**
+ * d = 순위^FLOW_D_POW 의 지수. 렌더 전 타일 자(RULER-flow T3·T4, 4 씨앗)에서 1.5/1.75/2.0/2.5 를 재어 T3(엔트로피 ≥ 2.8, d<0.2 비율 0.25~0.5)와
+ * T4(가장자리 상승길이 ≥ 1.5 × 층 두께: sc ≥ 0.9 km)를 모두 넘는 가장 작은 값 — 1.5·1.75 는 sc 상승길이 0.64~0.87 km 로 모자랐고 2.5 는 d<0.2 가 52 %.
+ */
+export const FLOW_D_POW = 2.0;
 
 /** 전단파 발단(식 6): A_w = wW·clamp((|S| − S0)/S1, 0, 1), S 단위 m/s per km (Richardson 식 발단) */
 export const FLOW_WAVE_S0 = 2;
@@ -498,6 +506,30 @@ function selectRank(f: Float32Array, rank: number, bins: number): number {
  * 전단파 파수(식 6): 전단 방향 ŝ 에 가장 가까운 정수 파수, |k| ≈ tileKm/lambdaKm — 마루가 전단에 수직.
  * 성분별 반올림이라 k=8 에서 ~7°, k=3 에서 ~15° 양자화(자에 "실현 방향 vs 예보 전단" 행으로 보고). 전단 0 이면 [0, 1].
  */
+/**
+ * §130 흐름 층의 d = **구름 화소 안 순위**^gamma (f > th 인 화소를 f 로 줄 세워 (순위+1)/n, 그 뒤 ^gamma). 가산 원시장은 진폭 분포가
+ * 운량·속마다 달라(사례: sc 85 % 에서 d 가 0.09 중앙으로 몰려 엔트로피 2.3 bit, topQuantile 0.9~0.997 어느 값도 못 고침) d 가 '어디가 두껍고
+ * 어디가 얇은가'의 **순서**만 뜻하게 둡니다 — 운량과 무관하게 같은 히스토그램(gamma 2.0: 중앙 0.25, d<0.2 44 %, 엔트로피 ≈ 3.0 bit — §124 sc 장의
+ * 통계(중앙 0.25~0.34)와 같음). 4096 칸 누적 히스토그램 + 칸 안 선형 보간(정렬 없이 O(N), Hermes 에서도 수십 ms). 면적(d>0) = 운량은 그대로.
+ * out[i] = d(0..1), f ≤ th 인 곳은 0.
+ */
+export function rankNormalize(f: Float32Array, th: number, gamma: number, out: Float32Array, bins = 4096): void {
+  let lo = Infinity, hi = -Infinity, n = 0;
+  for (let i = 0; i < f.length; i++) { const v = f[i]; if (v > th) { n++; if (v < lo) lo = v; if (v > hi) hi = v; } }
+  if (n === 0) { out.fill(0); return; }
+  const span = Math.max(hi - lo, 1e-12), cnt = new Int32Array(bins);
+  for (let i = 0; i < f.length; i++) { const v = f[i]; if (v > th) cnt[Math.min(bins - 1, Math.floor(((v - lo) / span) * bins))]++; }
+  const cum = new Float64Array(bins + 1);
+  for (let b = 0; b < bins; b++) cum[b + 1] = cum[b] + cnt[b];
+  for (let i = 0; i < f.length; i++) {
+    const v = f[i];
+    if (!(v > th)) { out[i] = 0; continue; }
+    const x = ((v - lo) / span) * bins, b = Math.min(bins - 1, Math.floor(x)), fr = x - b;
+    const u = (cum[b] + fr * cnt[b] + 0.5) / n;   // 0..1 순위(칸 안 선형)
+    out[i] = Math.pow(Math.min(1, Math.max(1e-6, u)), gamma);
+  }
+}
+
 export function waveVectorFor(shearU: number, shearV: number, lambdaKm: number, tileKm: number): [number, number] {
   const s = Math.sqrt(shearU * shearU + shearV * shearV);
   if (!(s > 0) || !(lambdaKm > 0) || !(tileKm > 0)) return [0, 1];

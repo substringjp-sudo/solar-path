@@ -107,9 +107,16 @@ const show = (tex: Texture, mode: number) => {
       scan('shadow', c.shadowPass.currentMaterial.uniforms);
       return bad;
     };
+    /** 잡이 안 준 옵션의 기본값(장면 생성 시와 같음). 새 옵션을 추가하면 여기에도 적습니다. */
+    const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
+      genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
+      flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
+    };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
-      if (job.options) vol.setOptions(job.options);
+      // §130 잡마다 옵션을 기본값으로 되돌린 뒤 덮어씁니다 — 예전에는 options 없는 잡이 앞 잡의 옵션(flow 등)을 물려받았습니다.
+      // reapply=false: 아래 setScene 이 장면을 걸므로 두 번 만들지 않습니다.
+      vol.setOptions({ ...JOB_BASE_OPTIONS, ...(job.options ?? {}) }, false);
       if (job.tone != null) vol.debug.toneMapping.mode = job.tone;
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);

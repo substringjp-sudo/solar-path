@@ -272,6 +272,24 @@ function writePng(name, S, gray) {
   for (let i = 0; i < S * S; i++) { const g = Math.max(0, Math.min(255, Math.round(gray[i]))); png.data[i * 4] = png.data[i * 4 + 1] = png.data[i * 4 + 2] = g; png.data[i * 4 + 3] = 255; }
   fs.writeFileSync(path.join(OUT, name), PNG.sync.write(png));
 }
+// ───── T4b rankNormalize: 면적 = 운량, f 순서 보존, 순위 히스토그램 균일(gamma 1), gamma 2 의 중앙 0.25
+{
+  const n = 512 * 512, f = new Float32Array(n);
+  let s = 5; const r = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  for (let i = 0; i < n; i++) { const u = r(); f[i] = Math.pow(u, 3) * (1 + 0.1 * r()); }
+  const th = F.quantileHist(f, 0.7), d1 = new Float32Array(n), d2 = new Float32Array(n);
+  F.rankNormalize(f, th, 1.0, d1); F.rankNormalize(f, th, 2.0, d2);
+  let nz = 0, viol = 0; const hist = new Array(10).fill(0); const vals = [];
+  for (let i = 0; i < n; i++) if (d1[i] > 0) { nz++; hist[Math.min(9, Math.floor(d1[i] * 10))]++; vals.push(d2[i]); }
+  for (let k = 0; k < 20000; k++) { const a = (k * 7919) % n, b = (k * 104729 + 13) % n; if (d1[a] > 0 && d1[b] > 0 && f[a] !== f[b] && ((f[a] < f[b]) !== (d1[a] < d1[b]))) viol++; }
+  const hmax = Math.max(...hist.map(h => Math.abs(h / nz * 10 - 1)));
+  vals.sort((a, b) => a - b); const p50 = vals[Math.floor(vals.length / 2)];
+  check('T4b rankNormalize area == cover', Math.abs(nz / n - 0.3) < 1e-3, `area ${(nz / n).toFixed(4)}`);
+  check('T4b rankNormalize monotone in f', viol === 0, `violations ${viol}`);
+  check('T4b rankNormalize uniform rank (gamma 1)', hmax < 0.03, `max |bin/expected − 1| = ${hmax.toFixed(4)}`);
+  check('T4b rankNormalize gamma 2 median ≈ 0.25', Math.abs(p50 - 0.25) < 0.01, `p50 ${p50.toFixed(3)}`);
+}
+
 {
   const { f } = compose(core64, wSc);
   const lo = F.quantileHist(f, 0.001), hi = F.quantileHist(f, 0.999);
