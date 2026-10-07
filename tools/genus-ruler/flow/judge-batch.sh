@@ -12,7 +12,9 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd); F=$ROOT/tools/genus-ruler/flow; OU
   if [ -n "$REF" ]; then python3 $F/fm.py --gate $F/photo-flow-quartiles.json "$DIR/renders-$C.json" --ref "$REF" --out "$DIR/gate-$C.json";
   else python3 $F/fm.py --gate $F/photo-flow-quartiles.json "$DIR/renders-$C.json" --out "$DIR/gate-$C.json"; fi
   echo; echo "== CLIP J1 (ruler2.py)"
-  ( cd $ROOT/tools/genus-ruler/clip && python3 ruler2.py "Cu=$DIR/${C}_cu_{az}.png" "Ac=$DIR/${C}_ac_{az}.png" "Ci=$DIR/${C}_ci_{az}.png" "Sc=$DIR/${C}_sc85_{az}.png" "Sc=$DIR/${C}_sc25_{az}.png" 2>/dev/null )
+  ( cd $ROOT/tools/genus-ruler/clip && python3 ruler2.py "Cu=$DIR/${C}_cu_{az}.png" "AcCc=$DIR/${C}_ac_{az}.png" "Ci=$DIR/${C}_ci_{az}.png" "Sc=$DIR/${C}_sc85_{az}.png" "Sc=$DIR/${C}_sc25_{az}.png" 2>/dev/null )
+  echo; echo "== cu P(Cu) 4종 판정기(가드 ≥ 0.83, RULER-cu-ao)"
+  ( cd $ROOT/tools/genus-ruler/clip && python3 ruler.py "Cu=$DIR/${C}_cu_{az}.png" 2>/dev/null | tail -1 )
   echo; echo "== cu 밝은 쪽/하늘 · 어두운 쪽/하늘 · 포화(위 78 %)  [가드 2.47~6.70 · 1.02~2.61]"
   node $ROOT/tools/genus-ruler/genus/skyratio.js "$DIR/${C}_cu_200.png" "$DIR/${C}_cu_110.png" "$DIR/${C}_cu_20.png" 2>/dev/null
   if ls "$DIR"/${C}_tw*.png >/dev/null 2>&1; then
