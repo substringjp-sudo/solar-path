@@ -37,7 +37,10 @@ export default function App() {
         cameraAzimuthProp={Q.view?.az}
         cameraElevationProp={Q.view?.el}
         fovProp={Q.view?.fov}
-        skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, volumetricSky: Q.vol === undefined ? undefined : !!Q.vol }}
+        skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, volumetricSky: Q.vol === undefined ? undefined : !!Q.vol,
+          // §130 흐름 모형 — volFlow:1 · volFlowUv:1 · volq:'low'|'medium'|'high' · volres:0.25~1 (장치 크기 알갱이 자)
+          volumetricFlow: !!Q.volFlow, volumetricFlowUv: !!Q.volFlowUv,
+          ...(Q.volq ? { volumetricQuality: Q.volq } : {}), ...(Q.volres != null ? { volumetricRes: Q.volres, volumetricAutoRes: false } : {}) }}
         fullScreen
         hideHudOverlay
         hideCompassBar
