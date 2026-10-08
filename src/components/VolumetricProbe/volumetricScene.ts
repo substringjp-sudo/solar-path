@@ -46,7 +46,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCoverIn, genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
 import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
@@ -312,8 +312,19 @@ export interface VolumetricOptions {
   flowHours: number;
   flowVrms: number;
   flowPsiEvery: number;
+  /**
+   * §131 수분장 q₀: 0 = 1회차 가우스(64², H 1), 1 = 가우스 분수 적분(flowQN², H = flowQH), 2 = 로그정규 캐스케이드 + 분수 적분
+   * (RULER-flow2 Q1·Q2). 날씨 캐시 키에 들어갑니다.
+   */
+  flowQMode: 0 | 1 | 2;
+  flowQN: 64 | 128;
+  flowQH: number;
+  /** §131 변형 게이트: > 0 이면 라벨맵 왜곡 s90 이 이 값에 닿을 때까지(0.25~1.2 h) 굴림(RULER-flow2 R2). 0 = 끔 */
+  flowS90: number;
+  /** §131 카메라 칸 조건화: 관측점을 국소 운량 ≈ 전역 운량인 칸 아래로(weatherOffsetKm 이 없을 때만, 타일 바이트 불변 — RULER-flow2 K) */
+  flowCamCell: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -356,6 +367,8 @@ export interface VolumetricScene {
   dispose(): void;
   /** 마지막 날씨 텍스처 생성 시간(ms). */
   weatherMs(): number;
+  /** §131 진단: 흐름 핵의 왜곡 s90·실제 의사시간(h), 카메라 칸 오프셋(km) — 흐름이 꺼졌으면 null 들 */
+  flowInfo(): { s90: number | null; hoursUsed: number | null; camKm: [number, number] | null };
   /** 진단용 — 하네스에서만 씁니다. */
   debug: { clouds: CloudsEffect; toneMapping: ToneMappingEffect };
   /** §128 대기 표가 파장 15개(분광 휘도)인지 — false 면 takram 3파장. */
@@ -712,6 +725,8 @@ export async function createVolumetricScene(
   let weatherMs = 0;
   // §130 C3 층별 드리프트 — 장면을 건 층·시각(setDate 가 경과 시간만큼 uv 를 밈).
   let genLayers: (GenusLayer | null)[] = [], genDate: Date | null = null, genUv = false;
+  /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
+  let lastCamKm: [number, number] | null = null;
   const sun = new Vector3();
 
   let lastInput: VolumetricSceneInput | null = null;
@@ -773,7 +788,7 @@ export async function createVolumetricScene(
     const useGenus = opt.genus && gl.some(Boolean);
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
-    const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery }) : null;
+    const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery, qMode: opt.flowQMode, qN: opt.flowQN, qH: opt.flowQH, s90: opt.flowS90 }) : null;
     const key = JSON.stringify([useGenus, gl, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp]]);
     return { inputs, gl, useGenus, plain, key, flow };
   };
@@ -835,11 +850,14 @@ export async function createVolumetricScene(
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
       nue.extractBasis(north, up, east);
       clouds.localWeatherRepeat.setScalar(1);
+      // §131 K: 관측점을 국소 운량 ≈ 전역 운량인 칸으로(타일 바이트는 그대로). 장면 입력이 오프셋을 주면 그것이 우선.
+      const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
+      lastCamKm = camKm;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
         setGenusDrift(m, gl, 0, GENUS_TILE_KM);
-        const [ox, oy] = p.weatherOffsetKm ?? [0, 0];
+        const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
@@ -915,6 +933,10 @@ export async function createVolumetricScene(
     debug: { clouds, toneMapping },
     spectral,
     weatherMs: () => weatherMs,
+    flowInfo: () => {
+      const st = (weather?.userData as { flow?: { s90?: number; hoursUsed?: number } } | undefined)?.flow;
+      return { s90: st?.s90 ?? null, hoursUsed: st?.hoursUsed ?? null, camKm: lastCamKm };
+    },
     camera,
     setPreset,
     setScene,

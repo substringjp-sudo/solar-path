@@ -19,7 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
-import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
+import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -161,7 +161,14 @@ export function mergeFlowOpts(L: GenusLayer): GenusLayer {
  * 첫 흐름 층의 것. 비등방 = 종류 바닥값 + 바람 가중(6 m/s 위에서 켜짐, 최대 3) — 바닥값이 있어 자리표시 바람(6.1 m/s)에서도
  * 등방이 되지 않습니다. volumetricScene.weatherPlan 과 자 도구(tile-gen)가 같은 함수를 씁니다.
  */
-export function planFlowScene(gl: (GenusLayer | null)[], o: { n: 64 | 128; steps: number; hours: number; vrms: number; psiEvery: number }): FlowSceneParams | null {
+export interface FlowPlanOptions {
+  n: 64 | 128; steps: number; hours: number; vrms: number; psiEvery: number;
+  /** §131 수분장 모드·격자·H(RULER-flow2 Q1/Q2). 없으면 1회차 */
+  qMode?: 0 | 1 | 2; qN?: 64 | 128; qH?: number;
+  /** §131 변형 게이트 목표 s90(0 = 끔, RULER-flow2 R2) */
+  s90?: number;
+}
+export function planFlowScene(gl: (GenusLayer | null)[], o: FlowPlanOptions): FlowSceneParams | null {
   const first = gl.find(L => L && (fp(L, 'flow') ?? 0) > 0);
   if (!first) return null;
   const op = first.opts ?? {};
@@ -172,7 +179,30 @@ export function planFlowScene(gl: (GenusLayer | null)[], o: { n: 64 | 128; steps
     windDeg: hasWind ? ((Math.atan2(op.windU!, op.windV!) * 180) / Math.PI + 360) % 360 : FLOW_DEFAULTS.windDeg,
     aniso: (fp(first, 'flowAniso') ?? 0) + Math.max(0, Math.min(3, (speedMps - 6) / 6)),
     rollDeg: op.rollDeg ?? FLOW_DEFAULTS.rollDeg,
+    // §131: 기본값(qMode 0·s90 0)이면 1회차와 같은 바이트.
+    ...(o.qMode ? { qMode: o.qMode, qN: o.qN ?? 128, qH: o.qH ?? FLOW_DEFAULTS.qH } : {}),
+    ...(o.s90 && o.s90 > 0 ? { s90: o.s90 } : {}),
   };
+}
+
+/**
+ * §131 카메라 칸 조건화(RULER-flow2 K): 흐름 층 합 마스크를 64² 운량으로 줄여 cloudFlow.camCellOffset 이 고른 칸으로 관측점을 옮길
+ * weatherOffsetKm 을 돌려줍니다(타일 바이트·캐시 불변). 흐름 층이 없거나 운량 > 0.6 이면 null.
+ */
+export function flowCamCellOffsetKm(data: Uint8Array, S: number, layers: (GenusLayer | null)[], tileKm: number): [number, number] | null {
+  const ch = layers.map((L, k) => (L && k < 4 && (fp(L, 'flow') ?? 0) > 0 ? k : -1)).filter(k => k >= 0);
+  if (!ch.length) return null;
+  const g = 64, b = S / g;
+  if (b !== Math.floor(b)) return null;
+  const m = new Float32Array(g * g);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const o = (y * S + x) * 4;
+    let any = false;
+    for (const k of ch) if (data[o + k] > 0) { any = true; break; }
+    if (any) m[Math.floor(y / b) * g + Math.floor(x / b)] += 1 / (b * b);
+  }
+  const uv = camCellOffset(m, g);
+  return uv ? [uv[0] * tileKm, uv[1] * tileKm] : null;
 }
 /** 흐름 손잡이 — 층 opts 가 우선, 없으면 종류별 GENUS_FLOW. */
 const fp = <K extends keyof FlowLayerParams>(L: GenusLayer, k: K): number | undefined => (L.opts?.[k] ?? GENUS_FLOW[L.genus]?.[k]) as number | undefined;
@@ -400,6 +430,7 @@ const FIELDS: Record<GenusKey, Field> = {
 function* genusWeatherSteps(
   data: Uint8Array, layers: (GenusLayer | null)[], S: number, tileKm: number, seed: number, plainCover: number[],
   flow: FlowSceneParams | null = null,
+  stats: { s90?: number; hoursUsed?: number; umax?: number } = {},
 ): Generator<void, void, void> {
   const ROWS = 8;
   // §130 흐름 핵은 장면당 하나 — 첫 흐름 층에서 늦게 만들어 모든 층이 같은 변위 지도를 씁니다.
@@ -428,6 +459,7 @@ function* genusWeatherSteps(
       if (!core) {
         core = newFlowCore(flow.n);
         yield* flowCoreSteps(flow, tileKm, core);
+        stats.s90 = core.s90; stats.hoursUsed = core.hoursUsed; stats.umax = core.umax;
       }
       const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 256));
       const px = FIELDS[L.genus](TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, true);
@@ -530,9 +562,12 @@ export function makeGenusWeather(
   flow: FlowSceneParams | null = null,
 ): DataTexture {
   const data = new Uint8Array(S * S * 4);
-  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow);
+  const stats = {};
+  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow, stats);
   while (!it.next().done) { /* 끝까지 */ }
-  return weatherTexture(data, S);
+  const tex = weatherTexture(data, S);
+  tex.userData = { ...(tex.userData ?? {}), flow: stats };
+  return tex;
 }
 
 /**
@@ -544,7 +579,8 @@ export async function makeGenusWeatherAsync(
   sliceMs = 6, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
 ): Promise<DataTexture | null> {
   const data = new Uint8Array(S * S * 4);
-  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow);
+  const stats = {};
+  const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow, stats);
   let t0 = Date.now();
   for (;;) {
     if (it.next().done) break;
@@ -554,7 +590,9 @@ export async function makeGenusWeatherAsync(
       t0 = Date.now();
     }
   }
-  return weatherTexture(data, S);
+  const tex = weatherTexture(data, S);
+  tex.userData = { ...(tex.userData ?? {}), flow: stats };
+  return tex;
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };

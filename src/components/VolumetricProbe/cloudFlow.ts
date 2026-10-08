@@ -59,6 +59,25 @@ export interface FlowSceneParams {
   qPow: number;
   kq: number;
   qCorr: number;
+  /**
+   * §131 수분장 모드: 0 = 1회차(동역학 격자 n² 가우스, |q̂| ∝ |k|^−qPow, |k| ≤ kq), 1 = 가우스 분수 적분(qN², |q̂| ∝ |k|^−(1+qH)),
+   * 2 = 로그정규 곱셈 캐스케이드 ε 에 분수 적분(qN², F⁻¹[|k|^−qH·F(ε^qA)]). 없으면 0.
+   */
+  qMode?: 0 | 1 | 2;
+  /** 모드 1·2 의 q₀ 격자(128: 188 m). 모드 0 은 n. */
+  qN?: 64 | 128;
+  /** 분수 적분 지수 H(윤곽 D ≈ (3 − H)/2) */
+  qH?: number;
+  /** 캐스케이드 간헐성 C1(옥타브마다 ln ε 분산 2 ln2·C1) */
+  qC1?: number;
+  /** 분수 적분에 넣는 ε 의 지수 a(ln ε 에 걸면 가우스로 무너짐 — 조사서 A6) */
+  qA?: number;
+  /** 로그 장에 더하는 ζ̂₀ 가중(저기압 = 습함) */
+  qLog?: number;
+  /** §131 변형 게이트: > 0 이면 J = I − ∇D 의 특이값비 90 분위가 이 값에 닿을 때 적분을 멈춤(의사시간 [hoursMin, hoursMax]) */
+  s90?: number;
+  hoursMin?: number;
+  hoursMax?: number;
 }
 
 /** 흐름 핵 결과 — 모든 층이 공유. 배열은 n² (행 j = 북쪽 v, 열 i = 동쪽 u, 셀 중심 (i+0.5)/n). */
@@ -69,8 +88,14 @@ export interface FlowCore {
   dy: Float32Array;
   /** ζ̂₀ — 평균 0·분산 1 로 표준화한 초기 소용돌이도 */
   z0n: Float32Array;
-  /** 대규모 수분(평균 0·분산 1) */
+  /** 대규모 수분(평균 0·분산 1) — qn² 격자(모드 0 은 n) */
   q0: Float32Array;
+  /** q0 격자 한 변 */
+  qn: number;
+  /** 끝난 라벨맵의 왜곡 J = I − ∇D 특이값비 90 분위(진단·게이트) */
+  s90: number;
+  /** 실제로 적분한 의사시간(h) — 변형 게이트가 켜지면 장면마다 다름 */
+  hoursUsed: number;
   /** 적분 중 쓰인 속도장들의 최대 |u| (m/s) — 변위 상한 steps·umax·dt 가 정확히 성립 */
   umax: number;
   /** umax·dt/dx */
@@ -152,6 +177,7 @@ export const FLOW_WAVE_S1 = 4;
 export const FLOW_DEFAULTS: FlowSceneParams = {
   seed: 7, n: 64, steps: 20, hours: 0.5, vrms: 2, specPow: 2.5, kmax: 8, psiEvery: 2,
   windDeg: 260, aniso: 1.0, rollDeg: 0, qPow: 2.0, kq: 12, qCorr: 0.5,
+  qMode: 0, qH: 0.5, qC1: 0.1, qA: 0.6, qLog: 0.5, s90: 0, hoursMin: 0.25, hoursMax: 1.2,
 };
 
 /**
@@ -312,16 +338,108 @@ export function velocityFromPsi(psi: Float32Array, n: number, tileKm: number, U:
 }
 
 /** FlowCore 버퍼를 n 에 맞게 마련(없거나 크기가 다르면 새로 만듭니다) */
-export function newFlowCore(n: number, into?: Partial<FlowCore>): FlowCore {
+export function newFlowCore(n: number, into?: Partial<FlowCore>, qn = n): FlowCore {
   const n2 = n * n;
   const out = (into ?? {}) as FlowCore;
-  out.n = n;
+  out.n = n; out.qn = qn;
   if (!out.dx || out.dx.length !== n2) out.dx = new Float32Array(n2);
   if (!out.dy || out.dy.length !== n2) out.dy = new Float32Array(n2);
   if (!out.z0n || out.z0n.length !== n2) out.z0n = new Float32Array(n2);
-  if (!out.q0 || out.q0.length !== n2) out.q0 = new Float32Array(n2);
-  out.umax = 0; out.cfl = 0;
+  if (!out.q0 || out.q0.length !== qn * qn) out.q0 = new Float32Array(qn * qn);
+  out.umax = 0; out.cfl = 0; out.s90 = 1; out.hoursUsed = 0;
   return out;
+}
+
+/**
+ * §131 라벨맵 왜곡: X = x − D 이므로 J = ∇X = I − ∇D(주기 중앙차분, 타일 단위). 칸마다 특이값비 s = σ₁/σ₂ 를 out 에 —
+ * 2×2 닫힌 꼴 σ = |Q ± R|(Q = ½√((a+d)² + (c−b)²), R = ½√((a−d)² + (c+b)²)). 접힌 칸(det < 0)도 σ₂ > 0 이면 유한.
+ */
+export function distortionRatios(DX: ArrayLike<number>, DY: ArrayLike<number>, n: number, out: Float32Array): void {
+  const h = n / 2;
+  for (let j = 0; j < n; j++) {
+    const jp = ((j + 1) % n) * n, jm = ((j + n - 1) % n) * n, jr = j * n;
+    for (let i = 0; i < n; i++) {
+      const ip = (i + 1) % n, im = (i + n - 1) % n;
+      const a = 1 - (DX[jr + ip] - DX[jr + im]) * h, b = -(DX[jp + i] - DX[jm + i]) * h;
+      const c = -(DY[jr + ip] - DY[jr + im]) * h, d = 1 - (DY[jp + i] - DY[jm + i]) * h;
+      const Q = 0.5 * Math.sqrt((a + d) * (a + d) + (c - b) * (c - b)), R = 0.5 * Math.sqrt((a - d) * (a - d) + (c + b) * (c + b));
+      out[jr + i] = (Q + R) / Math.max(1e-6, Math.abs(Q - R));
+    }
+  }
+}
+
+/**
+ * §131 수분장 q₀(모드 1·2, qn² 격자). 결과는 평균 0·분산 1.
+ *  모드 1(가우스 분수 적분): |q̂| ∝ |k|^−(1+H)·g, 1 ≤ |k| < qn/2, 난수 위상 → ζ̂₀(qn 으로 쌍선형) 와 상관 qCorr 로 섞음.
+ *  모드 2(로그정규 캐스케이드 + 분수 적분): G = Σ 옥타브 가우스(|k| ∈ [2^l, 2^(l+1)) 마다 분산 2 ln2·C1, |k| < 2 는 σ 반감) + qLog·ζ̂₀,
+ *    ε = e^G / ⟨e^G⟩, q₀ = 표준화(F⁻¹[|k|^−H·F(ε^a)]). 분수 적분을 ln ε 가 아니라 ε^a 에 걸어야 간헐성(첨도)이 남습니다(조사서 A6).
+ *  모드 2 의 옥타브 분산은 실현값으로 맞춥니다(정수 격자 껍질의 모드 수 편차를 지움). 모든 FFT 는 fft2(radix-2, 결정론).
+ */
+function* qFieldSteps(p: FlowSceneParams, mode: 1 | 2, qn: number, Z0n: Float32Array, n: number, Q0: Float32Array): Generator<void> {
+  const q2 = qn * qn, H = p.qH ?? 0.5, kTop = qn / 2;
+  const re = new Float64Array(q2), im = new Float64Array(q2);
+  const Zq = new Float32Array(q2);
+  for (let j = 0; j < qn; j++) for (let i = 0; i < qn; i++) Zq[j * qn + i] = bilinearPeriodic(Z0n, n, (i + 0.5) / qn, (j + 0.5) / qn);
+  const kOf = (i: number, j: number) => { const kx = i <= qn / 2 ? i : i - qn, ky = j <= qn / 2 ? j : j - qn; return [kx, ky, Math.sqrt(kx * kx + ky * ky)]; };
+  const r2 = rng(p.seed * 104729 + 29 + mode * 7);
+  if (mode === 1) {
+    for (let j = 0; j < qn; j++) for (let i = 0; i < qn; i++) {
+      const [kx, ky, k] = kOf(i, j);
+      if (k < 1 || k >= kTop) continue;
+      if (ky < 0 || (ky === 0 && kx < 0)) continue;
+      const amp = Math.pow(k, -(1 + H)) * gauss(r2), ph = r2() * TWO_PI;
+      const i2 = ((-kx % qn) + qn) % qn, j2 = ((-ky % qn) + qn) % qn;
+      re[j * qn + i] = amp * Math.cos(ph); im[j * qn + i] = amp * Math.sin(ph); re[j2 * qn + i2] = amp * Math.cos(ph); im[j2 * qn + i2] = -amp * Math.sin(ph);
+    }
+    fft2(re, im, qn, true);
+    for (let i = 0; i < q2; i++) Q0[i] = re[i];
+    standardize(Q0);
+    const c = Math.max(-1, Math.min(1, p.qCorr || 0)), cq = Math.sqrt(1 - c * c);
+    for (let i = 0; i < q2; i++) Q0[i] = c * Zq[i] + cq * Q0[i];
+    standardize(Q0);
+    yield;
+    return;
+  }
+  // 모드 2: 옥타브별 가우스(같은 스펙트럼 모양 k^−1 진폭 = 옥타브당 같은 분산)를 따로 만들어 실현 분산을 맞춘 뒤 더합니다.
+  const C1 = Math.max(0, p.qC1 ?? 0.1), a = p.qA ?? 0.6, cLog = p.qLog ?? 0.5;
+  const sig2 = 2 * Math.LN2 * C1;
+  const G = new Float64Array(q2);
+  const nOct = Math.max(1, Math.floor(Math.log2(kTop - 1e-9)) + 1);
+  for (let l = 0; l < nOct; l++) {
+    re.fill(0); im.fill(0);
+    const lo = Math.pow(2, l), hi = Math.min(kTop, Math.pow(2, l + 1));
+    for (let j = 0; j < qn; j++) for (let i = 0; i < qn; i++) {
+      const [kx, ky, k] = kOf(i, j);
+      if (k < lo || k >= hi) continue;
+      if (ky < 0 || (ky === 0 && kx < 0)) continue;
+      const amp = gauss(r2) / k, ph = r2() * TWO_PI;
+      const i2 = ((-kx % qn) + qn) % qn, j2 = ((-ky % qn) + qn) % qn;
+      re[j * qn + i] = amp * Math.cos(ph); im[j * qn + i] = amp * Math.sin(ph); re[j2 * qn + i2] = amp * Math.cos(ph); im[j2 * qn + i2] = -amp * Math.sin(ph);
+    }
+    fft2(re, im, qn, true);
+    let m = 0, v = 0;
+    for (let i = 0; i < q2; i++) m += re[i];
+    m /= q2;
+    for (let i = 0; i < q2; i++) { const d = re[i] - m; v += d * d; }
+    const target = sig2 * (l === 0 ? 0.25 : 1), sc = v > 0 ? Math.sqrt(target / (v / q2)) : 0;
+    for (let i = 0; i < q2; i++) G[i] += (re[i] - m) * sc;
+    yield;
+  }
+  // ε = e^(G + c·ζ̂₀) / 평균, 그 뒤 ε^a 에 |k|^−H 분수 적분.
+  let mE = 0;
+  for (let i = 0; i < q2; i++) { G[i] = Math.exp(G[i] + cLog * Zq[i]); mE += G[i]; }
+  mE /= q2;
+  for (let i = 0; i < q2; i++) { re[i] = Math.pow(G[i] / mE, a); im[i] = 0; }
+  fft2(re, im, qn, false);
+  for (let j = 0; j < qn; j++) for (let i = 0; i < qn; i++) {
+    const k = kOf(i, j)[2], idx = j * qn + i;
+    if (k < 1) { re[idx] = 0; im[idx] = 0; continue; }
+    const w = Math.pow(k, -H); re[idx] *= w; im[idx] *= w;
+  }
+  fft2(re, im, qn, true);
+  for (let i = 0; i < q2; i++) Q0[i] = re[i];
+  standardize(Q0);
+  yield;
 }
 
 /**
@@ -332,7 +450,10 @@ export function newFlowCore(n: number, into?: Partial<FlowCore>): FlowCore {
 export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore): Generator<void> {
   const n = p.n | 0;
   if (n < 8 || (n & (n - 1)) !== 0) throw new Error(`cloudFlow: n must be a power of two >= 8 (got ${n})`);
-  newFlowCore(n, out);
+  const qMode = p.qMode ?? 0;
+  const qn = qMode === 0 ? n : (p.qN ?? 128) | 0;
+  if (qn < 8 || (qn & (qn - 1)) !== 0) throw new Error(`cloudFlow: qN must be a power of two >= 8 (got ${qn})`);
+  newFlowCore(n, out, qn);
   const n2 = n * n, L = tileKm * 1000, dx = L / n;
   const steps = Math.max(1, p.steps | 0), dt = (p.hours * 3600) / steps, dtu = dt / L;
   const psiEvery = Math.max(1, p.psiEvery | 0);
@@ -374,8 +495,11 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
   for (let i = 0; i < n2; i++) { const m = Math.sqrt(U[i] * U[i] + V[i] * V[i]); if (m > umax) umax = m; }
   yield;
 
-  // 3) q₀: |k| ≤ kq 의 k^−qPow GRF 를 ζ̂₀ 와 상관 qCorr 로 섞음(저기압 = 습함). ζ̂₀ 는 표준화해 둡니다.
-  {
+  // 3) q₀. ζ̂₀ 는 먼저 표준화해 둡니다(합성 항이자 수분 상관의 기준).
+  for (let i = 0; i < n2; i++) Z0n[i] = Z0[i];
+  standardize(Z0n);
+  if (qMode === 0) {
+    // 1회차: |k| ≤ kq 의 k^−qPow GRF 를 ζ̂₀ 와 상관 qCorr 로 섞음(저기압 = 습함).
     const r2 = rng(p.seed * 104729 + 29);
     re.fill(0); im.fill(0);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
@@ -390,19 +514,27 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
     fft2(re, im, n, true);
     for (let i = 0; i < n2; i++) Q0[i] = re[i];
     standardize(Q0);
-    for (let i = 0; i < n2; i++) Z0n[i] = Z0[i];
-    standardize(Z0n);
     const c = Math.max(-1, Math.min(1, p.qCorr || 0)), cq = Math.sqrt(1 - c * c);
     for (let i = 0; i < n2; i++) Q0[i] = c * Z0n[i] + cq * Q0[i];
     standardize(Q0);   // 섞은 뒤 다시 평균 0·분산 1(wQ 가 '단위 분산 수분' 가중이 되게)
+  } else {
+    yield* qFieldSteps(p, qMode, qn, Z0n, n, Q0);
   }
   yield;
 
   // 4) 시간 루프: ζ = ζ₀(X) 로 ψ 갱신(psiEvery), 중점 역궤적으로 D 이류. 블록으로 나눠도 읽기(DX/DY)·쓰기(DX2/DY2)가 갈려 결과 동일.
+  //    §131 변형 게이트(s90 > 0): 걸음마다 J = I − ∇D 의 특이값비 90 분위 s 를 세고, hoursMin 뒤 s 가 목표에 닿으면 직전 걸음과 선형 보간해 멈춤.
+  //    dt 는 그대로라 hoursMax 까지 걸음을 늘립니다. 게이트가 꺼지면 걸음 수·바이트는 1회차와 같습니다.
   let dxA: Float32Array = DX, dyA: Float32Array = DY, dxB: Float32Array = new Float32Array(n2), dyB: Float32Array = new Float32Array(n2);
   const zeta = new Float32Array(n2);
   const blocks = n >= 128 ? 4 : 1, rowsPerBlock = n / blocks;
-  for (let st = 0; st < steps; st++) {
+  const gate = (p.s90 ?? 0) > 0;
+  const hoursMax = gate ? Math.max(p.hours, p.hoursMax ?? 1.2) : p.hours;
+  const maxSteps = gate ? Math.max(1, Math.ceil((hoursMax * 3600) / dt - 1e-9)) : steps;
+  const minSteps = gate ? Math.max(1, Math.ceil(((p.hoursMin ?? 0.25) * 3600) / dt - 1e-9)) : steps;
+  const sBuf = new Float32Array(n2);
+  let sPrev = 1, hoursUsed = (steps * dt) / 3600;
+  for (let st = 0; st < maxSteps; st++) {
     if (st > 0 && st % psiEvery === 0) {
       for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
         const idx = j * n + i;
@@ -427,10 +559,27 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
       if (b < blocks - 1) yield;
     }
     let t: Float32Array = dxA; dxA = dxB; dxB = t; t = dyA; dyA = dyB; dyB = t;
+    if (gate) {
+      // dxA/dyA = 이번 걸음, dxB/dyB = 직전 걸음.
+      distortionRatios(dxA, dyA, n, sBuf);
+      const sCur = quantileHist(sBuf, 0.9);
+      if (st + 1 >= minSteps && sCur >= p.s90!) {
+        const w = sCur > sPrev ? Math.max(0, Math.min(1, (p.s90! - sPrev) / (sCur - sPrev))) : 1;
+        for (let i = 0; i < n2; i++) { dxA[i] = dxB[i] + w * (dxA[i] - dxB[i]); dyA[i] = dyB[i] + w * (dyA[i] - dyB[i]); }
+        hoursUsed = ((st + w) * dt) / 3600;
+        yield;
+        break;
+      }
+      sPrev = sCur;
+      hoursUsed = ((st + 1) * dt) / 3600;
+    }
     yield;
   }
   // 걸음 수가 홀수면 최신 D 가 임시 버퍼에 있으므로 out 으로 복사합니다.
   if (dxA !== DX) { DX.set(dxA); DY.set(dyA); }
+  distortionRatios(DX, DY, n, sBuf);
+  out.s90 = quantileHist(sBuf, 0.9);
+  out.hoursUsed = hoursUsed;
   out.umax = umax;
   out.cfl = (umax * dt) / dx;
 }
@@ -442,7 +591,7 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
 export function* flowComposeSteps(core: FlowCore, T: Float32Array, TS: number, S: number, w: FlowLayerWeights, f: Float32Array): Generator<void> {
   if (f.length < S * S) throw new Error('cloudFlow.flowComposeSteps: f shorter than S*S');
   if (w.wT !== 0 && T.length < TS * TS) throw new Error('cloudFlow.flowComposeSteps: T shorter than TS*TS');
-  const n = core.n, DX = core.dx, DY = core.dy, Q0 = core.q0, Z0n = core.z0n;
+  const n = core.n, DX = core.dx, DY = core.dy, Q0 = core.q0, Z0n = core.z0n, qn = core.qn ?? n;
   const wQ = w.wQ, wZ = w.wZ, wT = w.wT, wW = w.wW, lag = w.lag;
   const kwx = w.waveK[0], kwy = w.waveK[1], ph = w.wavePhase;
   for (let y = 0; y < S; y++) {
@@ -452,7 +601,7 @@ export function* flowComposeSteps(core: FlowCore, T: Float32Array, TS: number, S
       const dX = bilinearPeriodic(DX, n, u, v), dY = bilinearPeriodic(DY, n, u, v);
       const X = u - dX, Y = v - dY;
       let val = 0;
-      if (wQ !== 0) val += wQ * bilinearPeriodic(Q0, n, X, Y);
+      if (wQ !== 0) val += wQ * bilinearPeriodic(Q0, qn, X, Y);
       if (wZ !== 0) val += wZ * bilinearPeriodic(Z0n, n, X, Y);
       if (wT !== 0) val += wT * bilinearPeriodic(T, TS, u - lag * dX, v - lag * dY);
       if (wW !== 0) val += wW * Math.cos(TWO_PI * (kwx * X + kwy * Y) + ph);
@@ -558,3 +707,28 @@ export function flowLayerWeightsOf(opts: Partial<FlowLayerParams>, genus: GenusK
     wavePhase: rng(seed * 31 + 5)() * TWO_PI,
   };
 }
+
+/**
+ * §131 카메라 칸 조건화(조사서 A2): g×g 운량 격자 m(0..1, 주기)에서 반지름 r 칸 원판의 국소 운량이 전역 운량에 가장 가까운 칸을 고릅니다.
+ * 동률은 원점(타일 uv (0,0) = 관측점의 원래 자리)에 가까운 칸, 그다음 색인 순 — 결정론. 전역 운량이 (0, maxCover] 밖이면 null.
+ * 반환: 그 칸 중심의 타일 uv. 타일 바이트는 바꾸지 않고 관측점만 옮깁니다(호출자가 weatherOffsetKm = uv·tileKm 로).
+ */
+export function camCellOffset(m: Float32Array, g: number, r = 8, maxCover = 0.6): [number, number] | null {
+  let tot = 0;
+  for (let i = 0; i < g * g; i++) tot += m[i];
+  const glob = tot / (g * g);
+  if (!(glob > 0) || glob > maxCover) return null;
+  const disc: number[] = [];
+  for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) if (di * di + dj * dj <= r * r) disc.push(di, dj);
+  const nd = disc.length / 2;
+  let best = -1, bestErr = Infinity, bestDist = Infinity;
+  for (let J = 0; J < g; J++) for (let I = 0; I < g; I++) {
+    let s = 0;
+    for (let q = 0; q < disc.length; q += 2) s += m[((J + disc[q + 1] + g) % g) * g + ((I + disc[q] + g) % g)];
+    const err = Math.abs(s / nd - glob);
+    const u = (I + 0.5) / g, v = (J + 0.5) / g, du = Math.min(u, 1 - u), dv = Math.min(v, 1 - v), dist = du * du + dv * dv;
+    if (err < bestErr - 1e-9 || (Math.abs(err - bestErr) <= 1e-9 && dist < bestDist - 1e-12)) { best = J * g + I; bestErr = err; bestDist = dist; }
+  }
+  return best < 0 ? null : [((best % g) + 0.5) / g, (Math.floor(best / g) + 0.5) / g];
+}
+

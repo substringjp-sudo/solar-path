@@ -6,7 +6,7 @@
  *   node tools/genus-ruler/flow/tile-gen.mjs jobs.json outDir [--seeds 7,1007,2007,3007]
  *
  * jobs.json = [{ name, layers: [{ genus, cover(예보 운량 0~1), opts? } | null …], seed?, options?: { flow, flowDensity, flowN, flowSteps,
- *   flowHours, flowVrms, flowPsiEvery, coverRemap } }]. 운량은 volumetricScene.weatherPlan 과 같은 길(1 % 눈금 → 종류 역표 또는 흐름 역표)을
+ *   flowHours, flowVrms, flowPsiEvery, coverRemap, flowQMode, flowQN, flowQH, flowS90 } }] (§131 손잡이 포함). 운량은 volumetricScene.weatherPlan 과 같은 길(1 % 눈금 → 종류 역표 또는 흐름 역표)을
  *   밟고, 흐름이면 planFlowScene 이 핵 매개변수를 정합니다(같은 함수). --seeds 가 있으면 잡마다 씨앗을 바꿔 여러 장 냅니다.
  * 출력: outDir/<name>[.s<seed>].L<k>.png, outDir/gen.json(areaTop·coverIn·ms).
  */
@@ -43,7 +43,8 @@ const G = require(BUNDLE);
 const { PNG } = require(path.join(ROOT, 'node_modules/pngjs'));
 const S = 512, TILE = 24;
 const quantCover = c => Math.round(Math.max(0, Math.min(1, c)) * 100) / 100;
-const DEF = { flow: false, flowDensity: true, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, coverRemap: true };
+const DEF = { flow: false, flowDensity: true, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, coverRemap: true,
+  flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0 };
 
 function dump(file, bytes, k) {
   const png = new PNG({ width: S, height: S, colorType: 0 });
@@ -66,13 +67,15 @@ for (const job of jobs) {
       const shearDzKm = Math.max(0.5, (above?.baseKm ?? (L.baseKm ?? 0) + 3) - (L.baseKm ?? 0));
       return G.mergeFlowOpts({ genus: L.genus, cover: G.flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm, flowSeed: L.opts?.flowSeed ?? seed } });
     });
-    const flow = opt.flow ? G.planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery }) : null;
+    const flow = opt.flow ? G.planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery,
+      qMode: opt.flowQMode, qN: opt.flowQN, qH: opt.flowQH, s90: opt.flowS90 }) : null;
     const t0 = Date.now();
     const tex = G.makeGenusWeather(gl, S, TILE, seed, [], flow);
     const ms = Date.now() - t0;
     const d = tex.image.data;
     const name = seeds ? `${job.name}.s${seed}` : job.name;
-    const row = { ms, flow: !!flow, layers: [] };
+    const fs_ = tex.userData?.flow ?? {};
+    const row = { ms, flow: !!flow, s90: fs_.s90 != null ? +fs_.s90.toFixed(3) : null, hoursUsed: fs_.hoursUsed != null ? +fs_.hoursUsed.toFixed(4) : null, layers: [] };
     gl.forEach((L, k) => {
       if (!L) return;
       let nz = 0; for (let i = 0; i < S * S; i++) if (d[i * 4 + k] > 0) nz++;

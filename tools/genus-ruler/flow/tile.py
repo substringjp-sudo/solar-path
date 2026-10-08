@@ -9,12 +9,41 @@ tile.py — 위에서 본 날씨 타일 자(§130 RULER-flow T0~T5·T8). GPU 없
 · T2 조각(≥4 px): /100 km², areaCV, largestFrac, 중앙 면적, elongMed/IQR, 둘레/면적, 면적 멱지수 · T4 riseLenKm_edge(경계 1/|∇d|)
 · T3 d 히스토그램(p10/50/90, thinFrac, satFrac, 엔트로피 bit) · T5 coh1km(∇d 방향 일관성, 1 km 창) · T8 quad12km(12×12 km 창의 최대 구름 면적
 비율, 주기) — 24 km 반복이 보이는지. numpy·PIL 만 씁니다.
+§131(RULER-flow2 §3): D_pa — 주기(토러스) 4-연결 조각의 둘레–면적 차원. 면적 ≥ 16 px·둘레 ≥ 20 px(둘레 = 비구름 4-이웃과 맞닿은 변 수),
+D = 2 × 기울기(log P ~ log A). 파일 이름의 .s<씨앗> 를 떼어 같은 장면의 씨앗들 조각을 모아 한 번 더 맞춤(조각 ≥ 20 일 때) → `pooled` 행.
 """
 import sys, os, json, math
 import numpy as np
 from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fm import label, box_blur
+
+
+def periodic_pieces(m):
+    """토러스 4-연결 조각마다 (면적 px, 둘레 변 수). 둘레 = 조각 화소의 4-이웃 중 비구름(주기)인 것의 수."""
+    H, W = m.shape
+    nb_out = np.zeros(m.shape, np.int32)
+    for sh, ax in ((1, 0), (-1, 0), (1, 1), (-1, 1)):
+        nb_out += (~np.roll(m, sh, axis=ax)).astype(np.int32)
+    lab = -np.ones(m.shape, np.int32); out = []
+    ys, xs = np.nonzero(m)
+    for y0, x0 in zip(ys, xs):
+        if lab[y0, x0] >= 0: continue
+        cid = len(out); lab[y0, x0] = cid; st = [(y0, x0)]; a = 0; per = 0
+        while st:
+            y, x = st.pop(); a += 1; per += int(nb_out[y, x])
+            for ny, nx in (((y + 1) % H, x), ((y - 1) % H, x), (y, (x + 1) % W), (y, (x - 1) % W)):
+                if m[ny, nx] and lab[ny, nx] < 0:
+                    lab[ny, nx] = cid; st.append((ny, nx))
+        out.append((a, per))
+    return out
+
+
+def d_pa(pieces, min_a=16, min_p=20, min_n=20):
+    ok = [(a, p) for a, p in pieces if a >= min_a and p >= min_p]
+    if len(ok) < min_n: return float('nan'), len(ok)
+    A = np.log10([a for a, _ in ok]); P = np.log10([p for _, p in ok])
+    return float(2 * np.polyfit(A, P, 1)[0]), len(ok)
 
 
 def tile_metrics(d, tile_km):
@@ -92,6 +121,13 @@ def tile_metrics(d, tile_km):
     cs = np.cumsum(np.cumsum(np.pad(np.tile(mf, (2, 2)), ((1, 0), (1, 0))), axis=0), axis=1)
     tot = cs[w:w + S, w:w + S] - cs[:S, w:w + S] - cs[w:w + S, :S] + cs[:S, :S]
     out['quad12km'] = float(tot.max() / max(mf.sum(), 1.0)) if mf.sum() > 0 else float('nan')
+    # §131 D_pa(이 타일만; 장면 풀링은 main)
+    if 0.01 < m.mean() < 0.99:
+        pcs = periodic_pieces(m)
+        out['_pieces'] = pcs
+        out['D_pa'], out['D_pa_n'] = d_pa(pcs)
+    else:
+        out['_pieces'] = []; out['D_pa'], out['D_pa_n'] = float('nan'), 0
     return out
 
 
@@ -112,12 +148,26 @@ def main(argv):
         if a.shape[1] != a.shape[0]:
             N = a.shape[0]; a = a[:, 2 * (N + 4):2 * (N + 4) + N]; name += '(d)'
         rows[name] = tile_metrics(a, tile_km)
+    # §131 장면 풀링: 이름의 '.s<씨앗>' 을 떼고 같은 장면·같은 층(.L<k>)끼리 조각을 모아 D_pa 를 다시 맞춥니다.
+    import re
+    pools = {}
+    for name, r in rows.items():
+        key = re.sub(r'\.s\d+(?=\.|$)', '', name)
+        pools.setdefault(key, []).extend(r.get('_pieces', []))
+    pooled = {}
+    for key, pcs in pools.items():
+        D, nOk = d_pa(pcs)
+        pooled[key] = {'D_pa': D, 'n': nOk}
+    for r in rows.values(): r.pop('_pieces', None)
     keys = list(next(iter(rows.values())).keys())
     print('%-18s' % 'metric', ' '.join('%-13s' % n[:13] for n in rows))
     for k in keys:
         print('%-18s' % k, ' '.join('%-13s' % ('%.3f' % r[k] if isinstance(r.get(k), float) and r[k] == r[k] else str(r.get(k))) for r in rows.values()))
+    print('\npooled D_pa (scene × layer, seeds pooled; A ≥ 16 px, P ≥ 20 px, n ≥ 20)')
+    for key, v in sorted(pooled.items()):
+        print('  %-28s D_pa %s  (n %d)' % (key, '%.3f' % v['D_pa'] if v['D_pa'] == v['D_pa'] else 'nan', v['n']))
     if out_path:
-        json.dump(rows, open(out_path, 'w'), indent=1)
+        json.dump({'rows': rows, 'pooled': pooled}, open(out_path, 'w'), indent=1)
     return 0
 
 

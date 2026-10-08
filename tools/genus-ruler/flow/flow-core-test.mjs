@@ -313,6 +313,65 @@ function writePng(name, S, gray) {
   console.log(`      PNGs + smoke-stats.json → ${OUT}  (max|D| ${(dmax * TILE_KM).toFixed(2)} km)`);
 }
 
+// ───── (9) §131 2회차: q₀ 모드 1·2(qN 128), 변형 게이트, 카메라 칸 ─────
+{
+  const moments = (A) => { let m = 0; for (const v of A) m += v; m /= A.length; let v2 = 0, v3 = 0, v4 = 0; for (const x of A) { const d = x - m; v2 += d * d; v3 += d * d * d; v4 += d * d * d * d; } v2 /= A.length; return { m, sd: Math.sqrt(v2), skew: v3 / A.length / v2 ** 1.5, kurt: v4 / A.length / v2 ** 2 }; };
+  const base = { ...F.FLOW_DEFAULTS, n: 64, seed: 7 };
+  // 다른 소비 방식: 두 걸음씩 next() 하되 사이에 다른 핵을 하나 끼워 돌림(상태가 공유되면 바이트가 달라짐).
+  const ODD = (g) => { let r = g.next(); while (!r.done) { runCore({ ...base, seed: 99 }); r = g.next(); if (!r.done) r = g.next(); } };
+  // 모드 0 기본값 = 1회차(명시 qMode 0 과 생략이 같은 바이트)
+  { const a = runCore(base), b = runCore({ ...base, qMode: 0, qN: 128, s90: 0 }); check('T9 qMode 0 explicit == default bytes', bytesOf(a.q0).equals(bytesOf(b.q0)) && bytesOf(a.dx).equals(bytesOf(b.dx)) && a.qn === 64, `qn ${a.qn}`); }
+  const sk = { 1: [], 2: [] }, ku = { 1: [], 2: [] };
+  for (const mode of [1, 2]) for (const seed of [7, 1007, 2007, 3007]) {
+    const p = { ...base, seed, qMode: mode, qN: 128, qH: 0.5 };
+    const a = runCore(p);
+    const b = runCore(p, ODD);
+    const mo = moments(a.q0); sk[mode].push(mo.skew); ku[mode].push(mo.kurt);
+    if (seed === 7) {
+      check(`T9 qMode ${mode} q0 is 128² standardized`, a.qn === 128 && a.q0.length === 128 * 128 && Math.abs(mo.m) < 1e-4 && Math.abs(mo.sd - 1) < 1e-3, `mean ${mo.m.toExponential(1)} sd ${mo.sd.toFixed(4)}`);
+      check(`T9 qMode ${mode} deterministic under different yield slicing`, bytesOf(a.q0).equals(bytesOf(b.q0)) && bytesOf(a.dx).equals(bytesOf(b.dx)), '');
+      check(`T9 qMode ${mode} leaves the label map untouched (D == mode 0 D)`, bytesOf(a.dx).equals(bytesOf(runCore({ ...base, seed }).dx)), '');
+    }
+    if (mode === 1 && seed === 7) {
+      // 방사 파워 기울기(2-D 밀도) ≈ −2(1+H) = −3 (|k| 2..40)
+      const n = 128, re = new Float64Array(n * n), im = new Float64Array(n * n); for (let i = 0; i < n * n; i++) re[i] = a.q0[i];
+      F.fft2(re, im, n, false);
+      const xs = [], ys = [];
+      for (let k0 = 2; k0 < 40; k0 *= 1.25) { let s = 0, c = 0; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const kx = i <= n / 2 ? i : i - n, ky = j <= n / 2 ? j : j - n, k = Math.hypot(kx, ky); if (k >= k0 && k < k0 * 1.25) { s += re[j * n + i] ** 2 + im[j * n + i] ** 2; c++; } } if (c) { xs.push(Math.log(k0 * 1.118)); ys.push(Math.log(s / c)); } }
+      const mx = xs.reduce((a, b) => a + b) / xs.length, my = ys.reduce((a, b) => a + b) / ys.length; let sxy = 0, sxx = 0; xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; });
+      const slope = sxy / sxx;
+      check('T9 qMode 1 spectrum slope ≈ −2(1+H) = −3', Math.abs(slope + 3) < 0.35, `slope ${slope.toFixed(2)}`);
+    }
+  }
+  const mean = (A) => A.reduce((a, b) => a + b, 0) / A.length;
+  check('T9 cascade (mode 2) more intermittent than Gaussian FIF (mode 1): mean skew & kurtosis over 4 seeds', mean(sk[2]) > mean(sk[1]) && mean(ku[2]) > mean(ku[1]),
+    `skew ${mean(sk[1]).toFixed(2)} → ${mean(sk[2]).toFixed(2)}, kurt ${mean(ku[1]).toFixed(2)} → ${mean(ku[2]).toFixed(2)}`);
+  // 변형 게이트
+  for (const vrms of [1, 2, 3]) {
+    const p = { ...base, steps: 10, psiEvery: 1, vrms, s90: 10 };
+    const a = runCore(p), b = runCore(p, ODD);
+    const ok = a.hoursUsed >= 0.25 - 1e-9 && a.hoursUsed <= 1.2 + 1e-9 && (a.hoursUsed >= 1.2 - 1e-9 || Math.abs(a.s90 - 10) < 1.5);
+    check(`T9 s90 gate vrms ${vrms}: hours in [0.25,1.2], s90 ≈ 10 unless capped, deterministic`, ok && bytesOf(a.dx).equals(bytesOf(b.dx)), `hoursUsed ${a.hoursUsed.toFixed(3)} s90 ${a.s90.toFixed(2)}`);
+  }
+  { const a = runCore({ ...base }); check('T9 gate off: hoursUsed == hours, s90 reported', Math.abs(a.hoursUsed - 0.5) < 1e-9 && a.s90 >= 1, `s90 ${a.s90.toFixed(2)}`); }
+  // 카메라 칸
+  {
+    const g = 64, m = new Float32Array(g * g);
+    for (let J = 0; J < g; J++) for (let I = 0; I < g; I++) m[J * g + I] = I < 16 ? 1 : 0;   // 운량 0.25, 세로 띠
+    const uv = F.camCellOffset(m, g);
+    let s = 0, nd = 0; const I0 = Math.floor(uv[0] * g), J0 = Math.floor(uv[1] * g);
+    for (let dj = -8; dj <= 8; dj++) for (let di = -8; di <= 8; di++) if (di * di + dj * dj <= 64) { s += m[((J0 + dj + g) % g) * g + ((I0 + di + g) % g)]; nd++; }
+    check('T9 camCellOffset picks a cell whose local cover ≈ global', Math.abs(s / nd - 0.25) < 0.05 && F.camCellOffset(m, g)[0] === uv[0], `uv ${uv.map(x => x.toFixed(3))} local ${(s / nd).toFixed(3)}`);
+    const full = new Float32Array(g * g).fill(0.7);
+    check('T9 camCellOffset skips cover > 0.6 and empty', F.camCellOffset(full, g) === null && F.camCellOffset(new Float32Array(g * g), g) === null, '');
+  }
+  // 시간(node)
+  { const t1 = [], t2 = [], tg = []; for (let k = 0; k < 5; k++) { t1.push(runCore({ ...base, qMode: 1, qN: 128 }).ms); t2.push(runCore({ ...base, qMode: 2, qN: 128 }).ms); tg.push(runCore({ ...base, steps: 10, psiEvery: 1, s90: 10 }).ms); }
+    const med = (A) => A.slice().sort((a, b) => a - b)[2], t0 = [1, 2, 3, 4, 5].map(() => runCore(base).ms);
+    console.log(`      core ms (median of 5): mode0 ${med(t0).toFixed(1)}, mode1 ${med(t1).toFixed(1)}, mode2 ${med(t2).toFixed(1)}, gate(10×180) ${med(tg).toFixed(1)}`);
+    check('T9 q0 mode 2 adds ≤ 15 ms over mode 0 (node)', med(t2) - med(t0) <= 15, `+${(med(t2) - med(t0)).toFixed(1)} ms`); }
+}
+
 const nFail = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - nFail}/${results.length} passed${nFail ? ` — ${nFail} FAILED` : ''}`);
 process.exit(nFail ? 1 : 0);
