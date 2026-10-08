@@ -12,3 +12,5 @@
 - `make-jobs.mjs` → `jobs-flow.json`(C0–C3 × 5 장면 × 3 방위)·`jobs-flow-guards.json`(박명 가드). 돌리기:
   `node tools/genus-ruler/volsky/run.js tools/genus-ruler/flow/jobs-flow.json out/ 390 584 gen` (번들은 먼저 다시 묶을 것 — volsky/run.js 머리말).
 - 가드: CLIP `clip/ruler2.py`, cu 밝기비 `genus/skyratio.js`, 박명 색 `genus/twilight-hue.py`.
+
+- `survey/` — 조사서 `docs/FLOW_CHEAP_MATH_SURVEY.md` 의 후보 검증 스크립트(README 참고).
