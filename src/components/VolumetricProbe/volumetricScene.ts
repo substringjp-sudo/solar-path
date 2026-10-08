@@ -321,10 +321,11 @@ export interface VolumetricOptions {
   flowQH: number;
   /** §131 변형 게이트: > 0 이면 라벨맵 왜곡 s90 이 이 값에 닿을 때까지(0.25~1.2 h) 굴림(RULER-flow2 R2). 0 = 끔 */
   flowS90: number;
-  /** §131 카메라 칸 조건화: 관측점을 국소 운량 ≈ 전역 운량인 칸 아래로(weatherOffsetKm 이 없을 때만, 타일 바이트 불변 — RULER-flow2 K) */
+  /** §131 카메라 칸 조건화: 관측점을 국소 운량 ≈ 전역 운량인 칸 아래로(weatherOffsetKm 이 없을 때만, 타일 바이트 불변). RULER-flow2 K 통과로
+   *  흐름 경로의 기본(flow 가 꺼져 있으면 아무 일도 하지 않음). */
   flowCamCell: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true };
 
 export interface VolumetricScene {
   camera: Camera;

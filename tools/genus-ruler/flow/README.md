@@ -14,3 +14,6 @@
 - 가드: CLIP `clip/ruler2.py`, cu 밝기비 `genus/skyratio.js`, 박명 색 `genus/twilight-hue.py`.
 
 - `survey/` — 조사서 `docs/FLOW_CHEAP_MATH_SURVEY.md` 의 후보 검증 스크립트(README 참고).
+- 2회차(§131, `RULER-flow2.md`): `make-jobs-r2.mjs`(후보 → 타일 잡: R0·R1·R2·Q1_H*·Q2_H*, `--base`), `tile-gates.py`(1회차 타일 게이트·2회차 규칙 R·D̂ 보정을
+  기계 적용, `--ref R0 --gen gen.json`), `skyl.py`(박명 하늘 밝기). 판정기 타당성은 `../clip/judge-validity.py`(사진만).
+  `node make-jobs-r2.mjs Q2_H0.5 --base R0 > j.json && node tile-gen.mjs j.json out --seeds 7,1007,2007,3007 && python3 tile.py --out out/tile.json out/*.png && python3 tile-gates.py out/tile.json --ref R0`
