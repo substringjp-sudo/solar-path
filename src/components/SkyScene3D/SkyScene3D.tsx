@@ -1448,7 +1448,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volPendingRef.current = false; volKeyRef.current = '';
                 volFailedRef.current = '층: ' + String((e as Error)?.message ?? e);
                 setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
-                console.warn('[SkyScene] 볼륨 층 생성 실패:', e); requestRender(2);
+                console.warn('[SkyScene] 볼륨 층 생성 실패:', (e as Error)?.stack ?? e); requestRender(2);
               });
             }
             if (volHasSceneRef.current) {
@@ -1487,7 +1487,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volRef.current = null;
             volHasSceneRef.current = false;
             volPendingRef.current = false;
-            console.warn('[SkyScene] 볼륨 하늘 프레임 실패:', e);
+            console.warn('[SkyScene] 볼륨 하늘 프레임 실패:', (e as Error)?.stack ?? e);
            }
           }
           composerNow.setExternalSky(volTex);
