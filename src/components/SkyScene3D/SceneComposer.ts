@@ -87,6 +87,12 @@ export const LAYER_SOFT_CLOUD_BELOW = 6;
  * 화면에 직접 그려지면 안 되므로 어떤 합성 패스에도 이 층은 켜지 않습니다.
  */
 export const LAYER_TERRAIN_DIST = 7;
+/**
+ * **지형 빛 판** (§129) — 볼륨 하늘이 켜졌을 때만 씁니다. 지형의 쌍둥이 메시(`TerrainField.litMesh`)가 화소마다
+ * 알베도(선형 rgb)와 햇빛 몫(a = ndl × 산·구름 그림자)을 적고, 볼륨 하늘(takram)이 그 위에 해·하늘 조도와 대기 원근,
+ * 하늘과 같은 노출·표시 곡선을 입혀 지형 화소를 통째로 칠합니다. 거리 판처럼 화면에 직접 그리지 않습니다.
+ */
+export const LAYER_TERRAIN_LIT = 8;
 
 /**
  * 지형 거리의 부호화(§117). 8비트 RGBA 두 칸(R·G)에 16비트로 log2 거리를 담습니다 — 1m ~ 1048km 를
@@ -615,6 +621,13 @@ export interface SceneComposerHandle {
   prepareTerrainDistance: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
   /** 지형 거리 판의 텍스처(원해상도 — 구름 슬랩은 제 화소 가운데를 정규화 좌표로 읽습니다). */
   terrainDistanceTexture: () => THREE.Texture;
+  /**
+   * §129 지형 빛 판(`LAYER_TERRAIN_LIT`)을 거리 판과 함께 그립니다 — 볼륨 하늘이 지형 화소를 칠할 때만 켭니다.
+   * 거리 판이 켜져 있어야 그려집니다.
+   */
+  setTerrainLit: (on: boolean) => void;
+  /** 지형 빛 판의 텍스처(켜져 있을 때만, 아니면 null). */
+  terrainLitTexture: () => THREE.Texture | null;
   dispose: () => void;
   /** 검증용 — 실제로 쓰인 저해상도 버퍼 크기 */
   softSize: () => { width: number; height: number };
@@ -732,6 +745,11 @@ export function createSceneComposer(
     ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
   });
   let terrainDistOn = false;
+  // §129 지형 빛 판(알베도·햇빛 몫, 8비트 — 값이 0~1). 거리 판과 같은 원해상도·최근접·깊이 버퍼(앞 능선이 이김).
+  const rtLit = new THREE.WebGLRenderTarget(w, h, {
+    ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
+  });
+  let terrainLitOn = false;
   /** §126.7 밖에서 그린 하늘(선형 색 + 알파 = 구름 불투명도, §127). null 이면 하늘돔 층을 그립니다. */
   let externalSky: THREE.Texture | null = null;
   /**
@@ -964,6 +982,7 @@ export function createSceneComposer(
     rtCloud.setSize(softW(), softH());
     rtCloudBelow.setSize(softW(), softH());
     rtDist.setSize(w, h);
+    rtLit.setSize(w, h);
     rtScene.setSize(w, h);
     rtBloomA.setSize(bloomW(), bloomH());
     rtBloomB.setSize(bloomW(), bloomH());
@@ -1084,6 +1103,14 @@ export function createSceneComposer(
     renderer.clear(true, true, true);
     renderer.autoClear = false;
     renderer.render(scene, camera);
+    if (terrainLitOn) {
+      if (rtLit.width !== w || rtLit.height !== h) rtLit.setSize(w, h);
+      camera.layers.set(LAYER_TERRAIN_LIT);
+      renderer.setRenderTarget(rtLit);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear(true, true, true);
+      renderer.render(scene, camera);
+    }
     renderer.setClearColor(distClear, prevClearAlpha);
   };
 
@@ -1130,6 +1157,7 @@ export function createSceneComposer(
       // 지형 거리 판의 쌍둥이 메시는 화면에 그리면 안 됩니다.
       camera.layers.enableAll();
       camera.layers.disable(LAYER_TERRAIN_DIST);
+      camera.layers.disable(LAYER_TERRAIN_LIT);
       renderer.setRenderTarget(sceneTarget);
       if (externalSky) {
         // 밖에서 그린 하늘을 먼저 깔고 → 천체 → 구름 불투명도로 천체 가리기(§127) → 하늘돔·천체·앞 층을 뺀 나머지
@@ -1147,6 +1175,7 @@ export function createSceneComposer(
         blit(renderer, extMaskQuad, externalSky);
         camera.layers.enableAll();
         camera.layers.disable(LAYER_TERRAIN_DIST);
+        camera.layers.disable(LAYER_TERRAIN_LIT);
         camera.layers.disable(LAYER_SOFT_SKY);
         camera.layers.disable(LAYER_CELESTIAL);
         camera.layers.disable(LAYER_FRONT);
@@ -1331,11 +1360,14 @@ export function createSceneComposer(
     },
     lastRayGain: () => rayGain,
     setTerrainDistance: (on: boolean) => { terrainDistOn = !!on; },
+    setTerrainLit: (on: boolean) => { terrainLitOn = !!on; },
+    terrainLitTexture: () => (terrainLitOn ? rtLit.texture : null),
     setExternalSky: (tex: THREE.Texture | null) => { externalSky = tex; },
     prepareTerrainDistance,
     terrainDistanceTexture: () => rtDist.texture,
     dispose: () => {
       rtDist.dispose();
+      rtLit.dispose();
       rtSky.dispose();
       rtCloud.dispose();
       rtCloudBelow.dispose();

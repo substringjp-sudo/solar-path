@@ -4,7 +4,7 @@
  *   묶기:  npx esbuild tools/genus-ruler/volsky/entry.ts --bundle --format=esm --outfile=.harness/volsky/app.js \
  *            --define:__DEV__=false --define:process.env.EXPO_PUBLIC_VOLUMETRIC_SKY='"1"'
  *          (index.html 은 run.js 가 씁니다)
- *   돌리기: node tools/genus-ruler/volsky/run.js jobs.json outDir [w h] [load]
+ *   돌리기: node tools/genus-ruler/volsky/run.js jobs.json outDir [w h] [load|gen] [spectral=0] [efft=0]
  *          (load: takram 의 미리 만든 대기 표를 읽음 — 앱처럼 만들지 않아 빠르지만 앱과 같은 길은 아님)
  *
  * jobs.json = [{ name, input:{lat,lon,heightM,date(ISO),az,el,fov,layers:[…],exposure?}, frames?, quality?, res?, options?, out? }, …]
@@ -14,7 +14,8 @@
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '../../../.harness/volsky');
-const [jobsFile, outDir, W = '390', H = '584', ATMOS = ''] = process.argv.slice(2);
+const [jobsFile, outDir, W = '390', H = '584', ATMOS = '', ...EXTRA] = process.argv.slice(2);
+// 6번째 인자부터는 페이지 쿼리에 그대로 붙입니다 — spectral=0(3파장 표) · efft=0(680·550·440nm 투과율), §128.
 // 5번째 인자 'load' 면 takram 의 미리 만든 대기 표를 읽습니다(.harness/volsky/assets 에 three-atmosphere/assets/*.bin 복사).
 if (ATMOS === 'load') {
   fs.mkdirSync(path.join(ROOT, 'assets'), { recursive: true });
@@ -34,11 +35,11 @@ const server = http.createServer((req, res) => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const p = await b.newPage({ viewport: { width: +W, height: +H } });
   p.on('console', m => { if (m.type() === 'error') console.log('console:', m.text().slice(0, 300)); });
-  await p.goto(`http://localhost:${port}/index.html?w=${W}&h=${H}${ATMOS === 'load' ? '&atmos=load' : ''}`, { waitUntil: 'commit', timeout: 120000 });
+  await p.goto(`http://localhost:${port}/index.html?w=${W}&h=${H}${ATMOS === 'load' ? '&atmos=load' : ''}${EXTRA.map(e => '&' + e).join('')}`, { waitUntil: 'commit', timeout: 120000 });
   await p.waitForFunction(() => /^READY::/.test(document.title), null, { timeout: 900000, polling: 1000 });
   const errs = await p.evaluate(() => window.__errors);
   if (errs.length) { console.log('errors', errs); process.exit(1); }
-  console.log('atmosphere ms', Math.round(await p.evaluate(() => window.__atmosMs)));
+  console.log('atmosphere ms', Math.round(await p.evaluate(() => window.__atmosMs)), 'spectral', await p.evaluate(() => window.__spectral));
   const jobs = JSON.parse(fs.readFileSync(jobsFile, 'utf8'));
   const results = {};
   for (const job of jobs) {

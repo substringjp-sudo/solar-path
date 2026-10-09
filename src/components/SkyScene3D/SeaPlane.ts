@@ -36,6 +36,7 @@ import {
 import {
   CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
 } from '../../utils/cloudShadowMap';
+import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './SceneComposer';
 
 /**
  * 바다 격자가 뻗는 거리 (m).
@@ -271,6 +272,7 @@ void main() {
  */
 export const SEA_FRAG = /* glsl */ `
 precision highp float;
+${TERRAIN_DIST_GLSL}
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
 ${CLOUD_SHADOW_GLSL}
@@ -329,6 +331,26 @@ void main() {
 
   // 왕복 경로라 수심의 두 배를 지납니다.
   vec3 thru = exp(-SEA_ABSORB * 2.0 * clamp(vDepthM, 0.0, 40.0));
+
+#ifdef SEA_DIST_OUT
+  // §129 지형 거리 판에 바다도 적습니다 — B = 1 이 "바다" 표시(볼륨 하늘이 이 화소에 하늘 되비침을 칠함).
+  vec4 seaDist = terrainDistEncode(vDistM / 1000.0);
+  seaDist.b = 1.0;
+  gl_FragColor = seaDist;
+  return;
+#endif
+#ifdef SEA_LIT_OUT
+  // §129 볼륨 하늘 — 색 대신 수체·바닥·포말의 알베도(rgb)와 구름 그림자(a, 직달 몫). 하늘 되비침(프레넬)·윤슬·
+  // 대기 원근·노출은 takram 이 하늘과 같은 값으로 계산합니다(이전 대기 모형의 되비침은 박명에 하늘과 다른 색이었음).
+  {
+    float fd = max(0.02, uFoamDepthM);
+    float fg = clamp(40.0 / (fd / max(vBedSlope, 1e-5)), 0.0, 1.0);
+    float fm = (1.0 - smoothstep(0.0, fd, vDepthM)) * fg;
+    gl_FragColor = vec4(clamp(mix(uWaterAlbedo + uBedAlbedo * thru, vec3(0.70, 0.71, 0.72), fm), 0.0, 1.0),
+                        cloudShadowAt(vGround.xz));
+    return;
+  }
+#endif
 
   // 수체가 되돌리는 몫 + 바닥이 비치는 몫. 둘 다 조도 × 알베도입니다.
   vec3 body = uSurfaceIrr * (uWaterAlbedo + uBedAlbedo * thru);
@@ -424,6 +446,9 @@ void main() {
 
 export interface SeaPlaneHandle {
   mesh: THREE.Mesh;
+  /** §129 볼륨 하늘용 쌍둥이 — 거리 판(바다 표시 B=1)·빛 판(알베도·구름 그림자). 보임은 격자를 따라갑니다. */
+  distMesh: THREE.Mesh;
+  litMesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
   /**
    * 높이장을 갈아 끼웁니다. 둘째 인자는 **물 마스크**(성긴 60km 패치)이고,
@@ -500,9 +525,24 @@ export function createSeaPlane(opts: {
   );
   mesh.name = 'seaPlane';
   mesh.frustumCulled = false;
+  // §129 쌍둥이 — 균일변수는 격자와 같은 객체(지형 TerrainField 와 같은 방식).
+  const twin = (define: string, layer: number, name: string) => {
+    const m = material.clone();
+    m.uniforms = material.uniforms;
+    m.defines = { ...(material.defines ?? {}), [define]: 1 };
+    m.transparent = false;
+    m.blending = THREE.NoBlending;
+    const t = new THREE.Mesh(mesh.geometry, m);
+    t.name = name; t.frustumCulled = false; t.layers.set(layer); t.visible = false;
+    return t;
+  };
+  const distMesh = twin('SEA_DIST_OUT', LAYER_TERRAIN_DIST, 'seaPlaneDist');
+  const litMesh = twin('SEA_LIT_OUT', LAYER_TERRAIN_LIT, 'seaPlaneLit');
 
   return {
     mesh,
+    distMesh,
+    litMesh,
     material,
     setPatch: (patch, maskPatch) => {
       const put = (u: Record<string, { value: unknown }>) => {
@@ -516,6 +556,8 @@ export function createSeaPlane(opts: {
     dispose: () => {
       mesh.geometry.dispose();
       material.dispose();
+      (distMesh.material as THREE.Material).dispose();
+      (litMesh.material as THREE.Material).dispose();
     },
   };
 }
@@ -533,6 +575,11 @@ export function updateSeaPlaneEye(handle: SeaPlaneHandle, camera: THREE.Camera):
   // 계산한 고도각이 화면에 그대로 나옵니다. 어긋나면 물가가 두 면의
   // 교선이 아니게 됩니다. 자세한 것은 updateTerrainFieldEye 주석.
   handle.mesh.position.copy(camera.position);
+  for (const t of [handle.distMesh, handle.litMesh]) {
+    if (!t) continue;   // 하네스 몇은 쌍둥이 없는 손잡이를 넘김
+    t.position.copy(camera.position);
+    t.visible = handle.mesh.visible;
+  }
 }
 
 /** 눈높이에서 수평선까지의 지상 거리 (m) — 판정이 같이 씁니다. */

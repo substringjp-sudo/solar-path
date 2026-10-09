@@ -75,4 +75,6 @@ export const volumetricStats = {
   weatherMs: 0,
   /** 대기 표 생성 시간(ms) */
   atmosMs: 0,
+  /** §128 대기 표가 파장 15개(분광)인지 — false 면 takram 3파장(생성기 내부가 달라 되돌린 경우). */
+  spectral: false,
 };

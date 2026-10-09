@@ -122,6 +122,7 @@ import {
   LAYER_FRONT,
   LAYER_CELESTIAL,
   LAYER_TERRAIN_DIST,
+  LAYER_TERRAIN_LIT,
   type SceneComposerHandle,
 } from './SceneComposer';
 import {
@@ -198,6 +199,9 @@ export interface SkySettings {
   volumetricRes?: number;
   /** §127 프레임 간격을 보고 구름 해상도를 자동으로 내리고 올림 — 기본 켬. */
   volumetricAutoRes?: boolean;
+  /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 자(RULER-flow)·운량 역표 재맞춤 전까지 기본 끔. */
+  volumetricFlow?: boolean;
+  volumetricFlowUv?: boolean;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
@@ -379,6 +383,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const demPatchRef = useRef<DemPatch | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
   const demLoadingKeyRef = useRef<string | null>(null);
+  /**
+   * 지금 원하는 좌표 키. 받던 결과를 쓸지는 이것으로 가립니다 — `location` 객체가 같은 좌표로 새로 오면
+   * (위치 갱신, 웹 하네스의 매 렌더 새 객체) 이펙트가 다시 돌아 예전 실행이 취소되는데, 키가 같으면
+   * 받던 결과가 그대로 맞습니다. 예전에는 그 결과를 버리고 '받는 중' 표시만 남아 다시 요청하지 않았습니다(§129).
+   */
+  const demWantKeyRef = useRef<string | null>(null);
   /** DEM 요청 재시도 타이머와 실패 횟수 — 아래 요청 이펙트가 씁니다. */
   const demRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const demRetryCountRef = useRef(0);
@@ -439,6 +449,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const volViewRef = useRef('');
   /** §127 첫 장면이 걸리기 전에는 볼륨 하늘을 쓰지 않습니다(날씨를 잘라 만드는 동안 예전 하늘). */
   const volHasSceneRef = useRef(false);
+  /** §129 지난 프레임에 볼륨 하늘을 깔았는가 — 바다 쌍둥이(거리·빛 판)는 그때만 그립니다(평소 구름 슬랩의 가림을 바꾸지 않게). */
+  const volDrewRef = useRef(false);
   const volPendingRef = useRef(false);
   const volGovRef = useRef<ResolutionGovernor | null>(null);
   const volQualityRef = useRef('');
@@ -980,6 +992,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     terrainField.distMesh.visible = false;
     scene.add(terrainField.distMesh);
     assignLayer(terrainField.distMesh, LAYER_TERRAIN_DIST);
+    // §129 — 지형 빛 판의 쌍둥이(볼륨 하늘일 때만 합성기가 그림).
+    terrainField.litMesh.visible = false;
+    scene.add(terrainField.litMesh);
+    assignLayer(terrainField.litMesh, LAYER_TERRAIN_LIT);
     terrainFieldRef.current = terrainField;
 
     const seaPlane = createSeaPlane({ eyeHeightM: 1.6 });
@@ -987,6 +1003,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     seaPlane.mesh.visible = false;
     scene.add(seaPlane.mesh);
     assignLayer(seaPlane.mesh, LAYER_MID);
+    // §129 — 바다도 거리 판(바다 표시)·빛 판에 쌍둥이를 둡니다(볼륨 하늘이 되비침을 칠함).
+    scene.add(seaPlane.distMesh);
+    assignLayer(seaPlane.distMesh, LAYER_TERRAIN_DIST);
+    scene.add(seaPlane.litMesh);
+    assignLayer(seaPlane.litMesh, LAYER_TERRAIN_LIT);
     seaPlaneRef.current = seaPlane;
 
     // 2b. Compass Ring & Direction Markers (3D 지평선 방위 마커)
@@ -1299,7 +1320,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 계산하므로, X/Z(둘 다 항상 0)만 따라가고 Y 는 안 따라갑니다 —
         // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
         if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
-        if (seaPlaneRef.current) updateSeaPlaneEye(seaPlaneRef.current, camera);
+        if (seaPlaneRef.current) {
+          updateSeaPlaneEye(seaPlaneRef.current, camera);
+          if (!volDrewRef.current) { seaPlaneRef.current.distMesh.visible = false; seaPlaneRef.current.litMesh.visible = false; }
+        }
         // 해 쪽 산 그림자 경계 — 해·지형이 그대로면 아무것도 안 합니다(TerrainField.bakeSunShadow).
         if (terrainFieldRef.current?.mesh.visible && rendererRef.current) {
           terrainFieldRef.current.bakeSunShadow(rendererRef.current);
@@ -1360,6 +1384,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false })
                 .then(v => {
                   volumetricStats.atmosMs = Date.now() - tAtmos;
+                  volumetricStats.spectral = v.spectral;
                   // §127 기기 성능: 품질 단계와 구름 해상도(최대 배율 아래에서 프레임 간격으로 자동 조절).
                   volGovRef.current = createResolutionGovernor({ maxScale: skySettingsRef.current.volumetricRes ?? 0.5 });
                   v.setResolutionScale(volGovRef.current.scale);
@@ -1379,9 +1404,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
+              // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
+              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv }, false);
+              volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
               volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 16);
@@ -1394,7 +1422,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 같은 층이면 캐시에서 꺼냅니다(§127).
             const key = [Math.floor(targetTimeMsRef.current / 600000), vLat.toFixed(3), vLon.toFixed(3), Math.round(vElev),
               vObs?.low, vObs?.mid, vObs?.high, vObs?.lowDeckBaseKm?.toFixed(1), vObs?.lowDeckTopKm?.toFixed(1),
-              vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation].join('|');
+              vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation,
+              // §130 층별 바람(5 km/h 눈금)·날짜 — 흐름 모형의 비등방·전단파·시드 입력(liveScene 이 같은 눈금으로 묶음).
+              ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 5) : '')),
+              Math.floor(targetTimeMsRef.current / 86400000)].join('|');
             const viewKey = `${cameraAzRef.current.toFixed(2)}|${cameraElevRef.current.toFixed(2)}|${camera.fov.toFixed(2)}`;
             if (live && key !== volKeyRef.current && !volPendingRef.current) {
               const built = live.buildLiveScene({ lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: [], obs: vObs,
@@ -1435,8 +1466,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volumetricStats.resScale = gov?.scale ?? 0;
               volumetricStats.quality = q;
               // §127 지형 거리 — 이번 프레임의 판을 먼저 그려 구름 행진이 지형에서 멈추게 합니다(산 앞 구름은 산 위, 산 뒤 구름은 가림).
+              // §129 지형 빛 판도 같이 — 지형을 takram 이 하늘·구름과 같은 빛·노출로 칠합니다.
+              composerNow.setTerrainLit(true);
               composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera);
-              vol.setTerrainDistance(terrainFieldRef.current?.mesh.visible ? composerNow.terrainDistanceTexture() : null);
+              const terrainOn = !!terrainFieldRef.current?.mesh.visible;
+              const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
+              vol.setTerrainDistance(terrainOn ? composerNow.terrainDistanceTexture() : null, terrainOn ? composerNow.terrainLitTexture() : null,
+                ridge?.valid ? ridge.texture : null, (seaPlaneRef.current?.material.uniforms.uSlopeVar?.value as number | undefined) ?? 0.03);
               volTex = vol.renderToTexture(dtSec);
               // 시간 업스케일이 차도록 몇 프레임 더 — 정적 화면에서 루프가 잠들면 입자가 남습니다.
               // (프레임 끝에서 1 을 빼고 0 이면 루프가 잠드므로 2 로 둡니다.)
@@ -1455,6 +1491,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
            }
           }
           composerNow.setExternalSky(volTex);
+          if (!volTex) composerNow.setTerrainLit(false);   // §129 볼륨 하늘이 아니면 지형 빛 판을 그리지 않음
+          volDrewRef.current = !!volTex;
           if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
 
           const slabFrame = cloudSlabRef.current;
@@ -2256,6 +2294,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (typeof lat !== 'number' || typeof lng !== 'number') return;
 
     const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+    demWantKeyRef.current = key;
     if (demLoadedKeyRef.current === key || demLoadingKeyRef.current === key) return;
     demLoadingKeyRef.current = key;
 
@@ -2284,7 +2323,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // `clearDemCache()` 로 정리합니다 (아래 정리 이펙트).
         // 받는 사이에 GL 컨텍스트가 바뀌었으면 이 패치는 옛 컨텍스트의 것입니다 — 버립니다.
         // (onContextCreate 가 다시 요청합니다.)
-        if (cancelled || rendererRef.current !== renderer) return;
+        // 같은 좌표로 이펙트만 다시 돈 것(취소)이면 이 결과를 그대로 씁니다 — 버리면 다시 요청할 실행이 없습니다.
+        if (demWantKeyRef.current !== key || rendererRef.current !== renderer) return;
         // 아홉 장이 **전부** 실패했을 때만 null 입니다 — 한 장이라도 오면
         // 구멍이 있는 채로 패치를 돌려줍니다.
         if (!patch) throw new Error('DEM 타일을 한 장도 못 받았습니다');
@@ -2321,7 +2361,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 2·4·8·16·32초, 그다음은 60초로 묶습니다. 그래도 안 되면 네트워크나
         // 서버 쪽 문제이므로 계속 두드리지 않고 60초 간격으로만 지켜봅니다 —
         // 앱이 할 수 있는 일은 여기까지입니다.
-        if (!cancelled) {
+        if (!cancelled || demWantKeyRef.current === key) {
           const n = demRetryCountRef.current + 1;
           demRetryCountRef.current = n;
           const waitMs = Math.min(60000, 1000 * 2 ** n);
@@ -2334,7 +2374,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }, waitMs);
         }
       } finally {
-        if (!cancelled) demLoadingKeyRef.current = null;
+        if (demLoadingKeyRef.current === key) demLoadingKeyRef.current = null;
       }
     })();
 
@@ -2392,6 +2432,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       demLoadingKeyRef.current = null;
       demLoadedKeyRef.current = null;
+      demWantKeyRef.current = null;   // 내려간 뒤 끝난 요청이 결과를 꽂지 않게
       // ⚠ **이 씬의 렌더러 몫만** 버립니다. 인자 없이 부르면 다른 씬(카메라를 닫을 때의
       //   하늘 탭)이 쓰던 패치까지 지워 그쪽 지형이 사라집니다(§100).
       if (rendererRef.current) clearDemCache(rendererRef.current);

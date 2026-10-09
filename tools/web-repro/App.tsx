@@ -12,11 +12,14 @@ import React from 'react';
 import { View } from 'react-native';
 import { SkyScene3D } from '../../src/components/SkyScene3D/SkyScene3D';
 import { DevTuningPanel } from '../../src/components/SkyScreen/DevTuningPanel';
+import { VOLUMETRIC_TERRAIN_ALBEDO } from '../../src/components/SkyScene3D/TerrainField';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
   catch { return {}; }
 })();
+// §129 볼륨 하늘 지형 알베도 후보(RULER-terrain-lit.md) — "talb":[r,g,b]
+if (Array.isArray(Q.talb)) Object.assign(VOLUMETRIC_TERRAIN_ALBEDO, { r: Q.talb[0], g: Q.talb[1], b: Q.talb[2] });
 
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
@@ -34,7 +37,10 @@ export default function App() {
         cameraAzimuthProp={Q.view?.az}
         cameraElevationProp={Q.view?.el}
         fovProp={Q.view?.fov}
-        skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, volumetricSky: Q.vol === undefined ? undefined : !!Q.vol }}
+        skySettings={{ starBrightness: 1, starMagLimit: 6.5, pixelArtRows: 0, volumetricSky: Q.vol === undefined ? undefined : !!Q.vol,
+          // §130 흐름 모형 — volFlow:1 · volFlowUv:1 · volq:'low'|'medium'|'high' · volres:0.25~1 (장치 크기 알갱이 자)
+          volumetricFlow: !!Q.volFlow, volumetricFlowUv: !!Q.volFlowUv,
+          ...(Q.volq ? { volumetricQuality: Q.volq } : {}), ...(Q.volres != null ? { volumetricRes: Q.volres, volumetricAutoRes: false } : {}) }}
         fullScreen
         hideHudOverlay
         hideCompassBar

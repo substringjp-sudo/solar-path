@@ -135,6 +135,8 @@ const VolumetricPerfRow: React.FC = () => {
   const q = useCelestialStore(s => s.skySettings.volumetricQuality ?? 'low');
   const res = useCelestialStore(s => s.skySettings.volumetricRes ?? 0.5);
   const auto = useCelestialStore(s => s.skySettings.volumetricAutoRes ?? true);
+  const flow = useCelestialStore(s => !!s.skySettings.volumetricFlow);
+  const flowUv = useCelestialStore(s => !!s.skySettings.volumetricFlowUv);
   const set = useCelestialStore.getState().setSkySettings;
   const st = volumetricStats;
   const fps = st.frameMs > 0 ? Math.round(1000 / st.frameMs) : 0;
@@ -144,7 +146,7 @@ const VolumetricPerfRow: React.FC = () => {
       {/* 상태(준비 중·실패)는 위 볼륨 상태 줄이 띄웁니다 — 여기는 동작 중 수치만. */}
       {getVolumetricStatus().phase === 'running' && (
         <Text style={styles.volText} numberOfLines={2}>
-          {`${fps}fps(${st.frameMs.toFixed(0)}ms) · 구름 ×${st.resScale.toFixed(2)} · 날씨 ${(st.weatherMs / 1000).toFixed(1)}s · 대기 ${(st.atmosMs / 1000).toFixed(0)}s`}
+          {`${fps}fps(${st.frameMs.toFixed(0)}ms) · 구름 ×${st.resScale.toFixed(2)} · 날씨 ${(st.weatherMs / 1000).toFixed(1)}s · 대기 ${(st.atmosMs / 1000).toFixed(0)}s${st.spectral ? '(15파장)' : '(3파장)'}`}
         </Text>
       )}
       <View style={styles.volRow}>
@@ -162,6 +164,14 @@ const VolumetricPerfRow: React.FC = () => {
         <View style={{ width: 6 }} />
         <TouchableOpacity onPress={() => set({ volumetricAutoRes: !auto })} style={chip(auto)}>
           <Text style={styles.volChipText}>AUTO</Text>
+        </TouchableOpacity>
+        <View style={{ width: 6 }} />
+        {/* §130 대기 흐름 구름 모형(FLOW) · 층별 드리프트/기울임(UV) — 자 통과 전 기기 확인용 */}
+        <TouchableOpacity onPress={() => set({ volumetricFlow: !flow })} style={chip(flow)}>
+          <Text style={styles.volChipText}>FLOW</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => set({ volumetricFlowUv: !flowUv })} style={chip(flowUv)}>
+          <Text style={styles.volChipText}>UV</Text>
         </TouchableOpacity>
       </View>
     </View>

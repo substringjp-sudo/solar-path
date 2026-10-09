@@ -1,0 +1,264 @@
+{
+ "n": {
+  "Cu": 51,
+  "AcCc": 59,
+  "Ci": 29,
+  "Cg": 21,
+  "Cb": 63,
+  "Ns": 32,
+  "St": 42,
+  "As": 23,
+  "Cs": 34,
+  "Sc": 31
+ },
+ "n_diff_vs_ruler2": {},
+ "zeroshot_acc": 0.5012987012987012,
+ "k": 5,
+ "margin": 2,
+ "classes": {
+  "Cu": {
+   "n": 51,
+   "j1_single_pass": 0.5294117647058824,
+   "j1_relax_group": [
+    "Cu"
+   ],
+   "q25": 0.173,
+   "zeroshot_acc_photo": 0.5294117647058824,
+   "knn_loo_acc": 0.39215686274509803,
+   "knn_no_decision": 0.5294117647058824,
+   "knn_acc_when_decided": 0.8333333333333334,
+   "j1_single_pass_strict": 0.5294117647058824,
+   "knn_confusion": {
+    "Cu": 20,
+    "Cg": 2,
+    "Cb": 2,
+    "-": 27
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": null,
+   "cu_to_g_j1": null,
+   "verdict": "판정기 없음"
+  },
+  "AcCc": {
+   "n": 59,
+   "j1_single_pass": 0.6610169491525424,
+   "j1_relax_group": [
+    "AcCc"
+   ],
+   "q25": 0.209,
+   "zeroshot_acc_photo": 0.6610169491525424,
+   "knn_loo_acc": 0.7288135593220338,
+   "knn_no_decision": 0.22033898305084745,
+   "knn_acc_when_decided": 0.9347826086956522,
+   "j1_single_pass_strict": 0.6610169491525424,
+   "knn_confusion": {
+    "Cu": 2,
+    "AcCc": 43,
+    "Ci": 1,
+    "-": 13
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.0196078431372549,
+   "verdict": "J1 유효"
+  },
+  "Ci": {
+   "n": 29,
+   "j1_single_pass": 0.7586206896551724,
+   "j1_relax_group": [
+    "Ci"
+   ],
+   "q25": 0.378,
+   "zeroshot_acc_photo": 0.8620689655172413,
+   "knn_loo_acc": 0.4482758620689655,
+   "knn_no_decision": 0.4827586206896552,
+   "knn_acc_when_decided": 0.8666666666666667,
+   "j1_single_pass_strict": 0.7586206896551724,
+   "knn_confusion": {
+    "Cu": 2,
+    "Ci": 13,
+    "-": 14
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.0,
+   "verdict": "J1 유효"
+  },
+  "Cg": {
+   "n": 21,
+   "j1_single_pass": 0.6666666666666666,
+   "j1_relax_group": [
+    "Cg"
+   ],
+   "q25": 0.232,
+   "zeroshot_acc_photo": 0.6666666666666666,
+   "knn_loo_acc": 0.14285714285714285,
+   "knn_no_decision": 0.5714285714285714,
+   "knn_acc_when_decided": 0.3333333333333333,
+   "j1_single_pass_strict": 0.6666666666666666,
+   "knn_confusion": {
+    "Cu": 5,
+    "Cg": 3,
+    "Cb": 1,
+    "-": 12
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0392156862745098,
+   "cu_to_g_j1": 0.2549019607843137
+  },
+  "Cb": {
+   "n": 63,
+   "j1_single_pass": 0.6190476190476191,
+   "j1_relax_group": [
+    "Cb",
+    "Cg"
+   ],
+   "q25": 0.043,
+   "zeroshot_acc_photo": 0.031746031746031744,
+   "knn_loo_acc": 0.49206349206349204,
+   "knn_no_decision": 0.38095238095238093,
+   "knn_acc_when_decided": 0.7948717948717948,
+   "j1_single_pass_strict": 0.047619047619047616,
+   "knn_confusion": {
+    "Cu": 3,
+    "Cg": 3,
+    "Cb": 31,
+    "Ns": 1,
+    "St": 1,
+    "-": 24
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0392156862745098,
+   "cu_to_g_j1": 0.0
+  },
+  "Ns": {
+   "n": 32,
+   "j1_single_pass": 0.46875,
+   "j1_relax_group": [
+    "Ns"
+   ],
+   "q25": 0.148,
+   "zeroshot_acc_photo": 0.46875,
+   "knn_loo_acc": 0.1875,
+   "knn_no_decision": 0.5625,
+   "knn_acc_when_decided": 0.42857142857142855,
+   "j1_single_pass_strict": 0.46875,
+   "knn_confusion": {
+    "Cu": 1,
+    "AcCc": 1,
+    "Ns": 6,
+    "St": 3,
+    "As": 2,
+    "Sc": 1,
+    "-": 18
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.0
+  },
+  "St": {
+   "n": 42,
+   "j1_single_pass": 0.5476190476190477,
+   "j1_relax_group": [
+    "St"
+   ],
+   "q25": 0.155,
+   "zeroshot_acc_photo": 0.5476190476190477,
+   "knn_loo_acc": 0.5238095238095238,
+   "knn_no_decision": 0.4523809523809524,
+   "knn_acc_when_decided": 0.9565217391304348,
+   "j1_single_pass_strict": 0.5476190476190477,
+   "knn_confusion": {
+    "St": 22,
+    "As": 1,
+    "-": 19
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.0
+  },
+  "As": {
+   "n": 23,
+   "j1_single_pass": 0.7391304347826086,
+   "j1_relax_group": [
+    "As"
+   ],
+   "q25": 0.36,
+   "zeroshot_acc_photo": 0.782608695652174,
+   "knn_loo_acc": 0.4782608695652174,
+   "knn_no_decision": 0.4782608695652174,
+   "knn_acc_when_decided": 0.9166666666666666,
+   "j1_single_pass_strict": 0.7391304347826086,
+   "knn_confusion": {
+    "As": 11,
+    "Cs": 1,
+    "-": 11
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.0392156862745098
+  },
+  "Cs": {
+   "n": 34,
+   "j1_single_pass": 0.5588235294117647,
+   "j1_relax_group": [
+    "Cs"
+   ],
+   "q25": 0.189,
+   "zeroshot_acc_photo": 0.5588235294117647,
+   "knn_loo_acc": 0.3235294117647059,
+   "knn_no_decision": 0.5294117647058824,
+   "knn_acc_when_decided": 0.6875,
+   "j1_single_pass_strict": 0.5588235294117647,
+   "knn_confusion": {
+    "Cu": 1,
+    "Ci": 1,
+    "As": 3,
+    "Cs": 11,
+    "-": 18
+   },
+   "knn_loo_acc_group": null,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.0196078431372549
+  },
+  "Sc": {
+   "n": 31,
+   "j1_single_pass": 0.5806451612903226,
+   "j1_relax_group": [
+    "As",
+    "Ns",
+    "Sc",
+    "St"
+   ],
+   "q25": 0.08,
+   "zeroshot_acc_photo": 0.3225806451612903,
+   "knn_loo_acc": 0.03225806451612903,
+   "knn_no_decision": 0.7096774193548387,
+   "knn_acc_when_decided": 0.1111111111111111,
+   "j1_single_pass_strict": 0.3225806451612903,
+   "knn_confusion": {
+    "Cu": 1,
+    "AcCc": 2,
+    "Cg": 1,
+    "Cb": 1,
+    "Ns": 2,
+    "As": 1,
+    "Sc": 1,
+    "-": 22
+   },
+   "knn_loo_acc_group": 0.3870967741935484,
+   "cu_to_g_knn": 0.0,
+   "cu_to_g_j1": 0.058823529411764705,
+   "cu_to_group_knn": 0.0196078431372549,
+   "knn_confusion_group": {
+    "AcCc": 2,
+    "Cg": 1,
+    "Cb": 1,
+    "Cu": 1,
+    "-": 14,
+    "G": 12
+   },
+   "verdict": "판정기 없음"
+  }
+ }
+}

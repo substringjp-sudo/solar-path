@@ -45,8 +45,12 @@ import {
   STBN_TEXTURE_HEIGHT,
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
-import { genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, patchGenusShader, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import type { FlowSceneParams } from './cloudFlow';
+import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
+import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
 
@@ -292,8 +296,36 @@ export interface VolumetricOptions {
   maxRayKm: number | null;
   /** §127 종류별 운량 → 화면 면적 역표(`GENUS_COVER_REMAP`)를 쓸지 — 하네스가 고치기 전과 견줄 때만 끕니다. */
   coverRemap: boolean;
+  /**
+   * §130 대기 흐름 구름 모형(cloudFlow.ts) — 날씨 원시장을 "정적 도형의 합집합" 대신 **한 2-D 순압 와도 흐름이 변형한
+   * 종류별 템플릿 + 대규모 수분장 + 전단파**로 만듭니다. 운량 분위수 문턱은 그대로(위에서 본 면적 = 운량). 기본 끔 —
+   * 자(RULER-flow)와 운량 역표 재맞춤을 통과하면 켭니다. 비교 플래그이며 날씨 캐시 키에 들어갑니다.
+   */
+  flow: boolean;
+  /** §130 C2 — 흐름 층의 연속 밀도(LWP 돔·d^0.5·낮춘 소광·부드러운 침식·광학두께 AO 대리값). flow 가 켜졌을 때만. */
+  flowDensity: boolean;
+  /** §130 C3 — 층별 바람 드리프트·전단 기울임 fetch(날씨 표본마다 fetch 4번). 기기 frameMs(+15 % 이하)를 잰 뒤 정합니다. */
+  flowUv: boolean;
+  /** §130 흐름 핵: 격자(64 | 128) · 반라그랑주 걸음 수 · 의사시간(h, 0.7 넘으면 대리석 무늬) · 에디 rms 속도(m/s) · Poisson 갱신 간격. */
+  flowN: 64 | 128;
+  flowSteps: number;
+  flowHours: number;
+  flowVrms: number;
+  flowPsiEvery: number;
+  /**
+   * §131 수분장 q₀: 0 = 1회차 가우스(64², H 1), 1 = 가우스 분수 적분(flowQN², H = flowQH), 2 = 로그정규 캐스케이드 + 분수 적분
+   * (RULER-flow2 Q1·Q2). 날씨 캐시 키에 들어갑니다.
+   */
+  flowQMode: 0 | 1 | 2;
+  flowQN: 64 | 128;
+  flowQH: number;
+  /** §131 변형 게이트: > 0 이면 라벨맵 왜곡 s90 이 이 값에 닿을 때까지(0.25~1.2 h) 굴림(RULER-flow2 R2). 0 = 끔 */
+  flowS90: number;
+  /** §131 카메라 칸 조건화: 관측점을 국소 운량 ≈ 전역 운량인 칸 아래로(weatherOffsetKm 이 없을 때만, 타일 바이트 불변). RULER-flow2 K 통과로
+   *  흐름 경로의 기본(flow 가 꺼져 있으면 아무 일도 하지 않음). */
+  flowCamCell: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -320,21 +352,28 @@ export interface VolumetricScene {
    * §127 지형 거리 판(SceneComposer.terrainDistanceTexture, 원해상도·log2 거리 부호화). 주면 구름 행진이 지형에서
    * 멈춰 산 뒤 구름이 사라지고, 지형 화소의 하늘을 검게 남깁니다. **같은 프레임**의 판이어야 시선을 돌릴 때 능선이
    * 밀리지 않습니다(SceneComposer.prepareTerrainDistance 를 먼저 부름). null 이면 지형을 모름(예전처럼 구름은 늘 지형 뒤).
+   * lit(§129, SceneComposer.terrainLitTexture — 알베도·햇빛 몫)을 주면 지형 화소를 검게 비우는 대신 takram 의 해·하늘 조도와
+   * 대기 원근으로 칠하고 알파 1 로 냅니다(합성기의 지형 앞 덮기가 지형을 통째로 바꿈).
    */
-  setTerrainDistance(tex: Texture | null): void;
+  setTerrainDistance(tex: Texture | null, lit?: Texture | null, sunRidge?: Texture | null, seaSlopeVar?: number): void;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
   setQuality(q: VolumetricQuality): void;
   setResolutionScale(s: number): void;
   /** 손잡이를 바꾸고 지금 장면에 다시 겁니다. */
-  setOptions(o: Partial<VolumetricOptions>): void;
+  /** 옵션을 바꿉니다. reapply=false 면 장면을 다시 걸지 않습니다(호출자가 setSceneAsync 로 다시 만듦 — §130 흐름 날씨는 동기로 만들면 수 초 멈춤). */
+  setOptions(o: Partial<VolumetricOptions>, reapply?: boolean): void;
   render(deltaSec: number): void;
   setSize(width: number, height: number): void;
   dispose(): void;
   /** 마지막 날씨 텍스처 생성 시간(ms). */
   weatherMs(): number;
+  /** §131 진단: 흐름 핵의 왜곡 s90·실제 의사시간(h), 카메라 칸 오프셋(km) — 흐름이 꺼졌으면 null 들 */
+  flowInfo(): { s90: number | null; hoursUsed: number | null; camKm: [number, number] | null };
   /** 진단용 — 하네스에서만 씁니다. */
-  debug: { clouds: CloudsEffect };
+  debug: { clouds: CloudsEffect; toneMapping: ToneMappingEffect };
+  /** §128 대기 표가 파장 15개(분광 휘도)인지 — false 면 takram 3파장. */
+  readonly spectral: boolean;
 }
 
 /**
@@ -345,6 +384,16 @@ export async function createVolumetricScene(
   options: Partial<VolumetricOptions> & {
     /** 하네스 전용 — 미리 만든 대기 표(takram PrecomputedTexturesLoader). 없으면 기기에서 만듭니다. */
     precomputed?: Record<string, unknown>;
+    /**
+     * §128 대기 표를 파장 15개로(Bruneton 의 휘도 미리 계산). 3파장 표는 박명 하늘이 자주색이 됩니다(spectralAtmosphere.ts).
+     * 기본 켬. 미리 만든 표(`precomputed`, takram 자산 = 3파장)를 넘기면 끕니다.
+     */
+    spectral?: boolean;
+    /**
+     * §128 해 직달빛·대기 원근 투과율을 태양 분광 × 등색 함수 가중 평균으로(기본 켬). 끄면 원 모형처럼 680·550·440nm 인데,
+     * 휘도 표에서 그 투과율을 빼는 대기 원근이 먼 구름 아래 지평선을 청록색으로 남깁니다.
+     */
+    effectiveTransmittance?: boolean;
   } = {},
 ): Promise<VolumetricScene> {
   // ⚠ expo-gl(React Native) 대응:
@@ -365,14 +414,18 @@ export async function createVolumetricScene(
   const camera = new PerspectiveCamera(60, width / height, 1, 1e7);
   const scene = new Scene();
 
-  const aerial = new AerialPerspectiveEffect(camera);
+  // §128 분광 표면 하늘 환산 상수가 683(상대)입니다 — 표를 만들기 전에 효과를 만들므로 여기서 정하고, 생성기 패치가
+  // 실패하면 아래에서 3파장 값으로 되돌립니다(균일변수가 이 Vector3 를 그대로 가리킴).
+  let spectral = !options.precomputed && (options.spectral ?? true);
+  const atmosphereParams = renderAtmosphere(spectral);
+  const aerial = new AerialPerspectiveEffect(camera, undefined, atmosphereParams);
   aerial.sky = true;
   aerial.sun = opt.celestial;
   aerial.moon = opt.celestial;
   aerial.sunLight = false;
   aerial.skyLight = false;
 
-  const clouds = new CloudsEffect(camera);
+  const clouds = new CloudsEffect(camera, undefined, atmosphereParams);
   clouds.qualityPreset = 'low';
   /** 품질 단계가 정한 accurateSunSkyLight — 해가 낮을 때 켰다가 되돌릴 값. */
   let baseAccurate = clouds.clouds.accurateSunSkyLight;
@@ -519,33 +572,116 @@ export async function createVolumetricScene(
     const skyA = 'outputColor.a = 1.0;\n    #else // SKY';
     const ovl = '    #ifdef HAS_OVERLAY\n    outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;\n    #endif // HAS_OVERLAY\n    return;';
     const head = 'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {';
-    for (const a of [skyA, ovl, head]) if (!src.includes(a)) throw new Error('volumetricScene: aerial anchor missing — ' + a.slice(0, 30));
-    src = src.replace(head, ['uniform sampler2D terrainDist;', 'uniform float terrainDistOn;', 'uniform float cloudAlphaOut;', TERRAIN_DIST_GLSL, head].join('\n'));
+    const shLen = '  #ifdef HAS_SHADOW_LENGTH\n  shadowLength = texture(shadowLengthBuffer, uv).r;\n  #endif // HAS_SHADOW_LENGTH';
+    for (const a of [skyA, ovl, head, shLen]) if (!src.includes(a)) throw new Error('volumetricScene: aerial anchor missing — ' + a.slice(0, 30));
+    // §129 해가 능선 뒤로 넘어가면 눈 쪽 공기는 산 그림자 속 — 하늘·지형 화소 모두 그 구간의 산란을 뺍니다(능선 위 하늘도 같은 그늘을 지남).
+    src = src.replace(shLen, shLen + '\n  shadowLength = max(shadowLength, volTerrainShadowKm(normalize(vRayDirection), 1e9));');
+    src = src.replace(head, [
+      'uniform sampler2D terrainDist;', 'uniform float terrainDistOn;', 'uniform float cloudAlphaOut;',
+      'uniform sampler2D terrainLit;', 'uniform float terrainLitOn;',
+      'uniform sampler2D sunRidgeTex;', 'uniform float sunRidgeOn;', 'uniform float seaSlopeVar;',
+      'float volTerrainLitHit = 0.0;',
+      TERRAIN_DIST_GLSL, SUN_RIDGE_DECODE_GLSL,
+      // §129 해 쪽 능선 그림자 속 공기의 길이(km) — 눈에서 시작하는 그늘 구간(Bruneton shadow_length 의 뜻과 같음).
+      // 능선 하나(눈 위 높이 z, 해 방위로 거리 D)가 해 방향과 직각으로 길게 놓였다고 보고(지형 셰이더 hazeLitWeight 와 같은 모형),
+      // 시선 위 점(거리 s)이 능선 꼭대기 너머로 해를 보는 조건 tanα·(D − u) > z − h 를 s 에 대해 풉니다(u = s·cosθ·cosΔφ, h = s·sinθ).
+      'float volTerrainShadowKm(vec3 rayDir, float maxKm) {',
+      '  if (sunRidgeOn < 0.5) return 0.0;',
+      '  vec2 zd = sunRidgeZDFrom(sunRidgeTex) * 1e-3;',
+      // 능선이 눈보다 낮으면(바다 지평선 — 곡률 낙차뿐) 지형 그림자는 없습니다. 지구 그림자는 takram 이 이미 셉니다.
+      '  if (zd.x <= 0.0 || zd.y <= 0.0) return 0.0;',
+      '  vec3 up = normalize(vCameraPosition);',
+      '  float sinT = dot(rayDir, up), cosT = sqrt(max(0.0, 1.0 - sinT * sinT));',
+      '  float sinA = dot(sunDirection, up), tanA = sinA / sqrt(max(1e-6, 1.0 - sinA * sinA));',
+      '  vec3 hr = rayDir - up * sinT, hs = sunDirection - up * sinA;',
+      '  float cosP = (length(hr) > 1e-5 && length(hs) > 1e-5) ? dot(normalize(hr), normalize(hs)) : 0.0;',
+      '  float K = tanA * zd.y - zd.x;',
+      '  if (K > 0.0) return 0.0;',
+      '  float c = tanA * cosT * cosP - sinT;',
+      '  float sLit = c < -1e-6 ? K / c : 1e9;',
+      '  float sBeyond = cosP * cosT > 1e-4 ? zd.y / (cosT * cosP) : 1e9;',
+      // 해가 지평선 아래 2° 로 내려가면 지구 그림자에 맡깁니다(그 아래는 능선 너머 공기도 이미 그늘 — 두 번 빼지 않게).
+      '  return clamp(min(sLit, sBeyond), 0.0, maxKm) * smoothstep(-0.035, 0.0, sinA);',
+      '}',
+      head,
+    ].join('\n'));
     src = src.replace(skyA, [
       // 구름이 없으면(겹칠 층이 아직 없음) 불투명도 0 — 아래 HAS_OVERLAY 가 있으면 그 알파로 바뀝니다.
       'outputColor.a = cloudAlphaOut > 0.5 ? 0.0 : 1.0;',
-      '    if (terrainDistOn > 0.5 && terrainDistDecodeKm(texture(terrainDist, uv)) < 1e8) outputColor.rgb = vec3(0.0);',
+      '    if (terrainDistOn > 0.5) {',
+      '      float vtKm = terrainDistDecodeKm(texture(terrainDist, uv));',
+      '      if (vtKm < 1e8) {',
+      '        outputColor.rgb = vec3(0.0);',
+      // §129 지형 빛 판: 알베도(rgb)·햇빛 몫(a) 위에 takram 의 해·하늘 조도와 대기 원근을 하늘과 같은 값으로 입힙니다.
+      // 하늘 조도는 수평면(위를 봄) 몫, 해는 원반을 마주한 조도 × 지형 셰이더의 ndl·그림자. 지형은 불투명(알파 1).
+      '        if (terrainLitOn > 0.5) {',
+      '          vec4 vtLit = texture(terrainLit, uv);',
+      '          vec3 vtP = vCameraPosition + rayDirection * vtKm;',
+      '          vec3 vtUp = normalize(vtP);',
+      '          vec3 vtSky, vtSkyUnused;',
+      '          GetSunAndSkyIrradiance(vtP, vtUp, sunDirection, vtSky);',
+      '          vec3 vtSun = GetSunAndSkyIrradiance(vtP, sunDirection, sunDirection, vtSkyUnused);',
+      '          vec3 vtRad;',
+      '          if (texture(terrainDist, uv).b > 0.5) {',
+      // 바다(SeaPlane 쌍둥이, B=1): 수체·바닥·포말 = 알베도 × 수평면 조도(직달 × 구름 그림자), 하늘 되비침 = 거울 방향의
+      // takram 하늘(물 n=1.33 Schlick 프레넬), 윤슬 = Cox-Munk(파면 경사 분산 seaSlopeVar) × 해 조도 × 구름 그림자.
+      '            float cosV = max(0.02, -dot(rayDirection, vtUp));',
+      '            float F = 0.02 + 0.98 * pow(1.0 - cosV, 5.0);',
+      '            vec3 tRefl;',
+      '            vec3 refl = GetSkyRadiance(vtP, reflect(rayDirection, vtUp), 0.0, sunDirection, tRefl);',
+      '            vec3 body = vtLit.rgb * (1.0 / 3.14159265) * (vtSun * max(0.0, dot(vtUp, sunDirection)) * vtLit.a + vtSky);',
+      '            vec3 V = -rayDirection;',
+      '            vec3 Hh = normalize(V + sunDirection);',
+      '            float cosN = max(dot(Hh, vtUp), 1e-3);',
+      '            float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);',
+      '            float sv = max(1e-3, seaSlopeVar);',
+      '            float pg = min(exp(-min(tan2 / sv, 50.0)) / (3.14159265 * sv * pow(cosN, 4.0)), 220.0);',
+      '            float Fg = 0.02 + 0.98 * pow(1.0 - clamp(dot(V, Hh), 0.0, 1.0), 5.0);',
+      '            vec3 glint = vtSun * vtLit.a * Fg * pg / (4.0 * cosV);',
+      '            vtRad = mix(body, refl, F) + glint;',
+      '          } else {',
+      '            vtRad = vtLit.rgb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + vtSky);',
+      '          }',
+      '          #if defined(TRANSMITTANCE) || defined(INSCATTER)',
+      '          applyTransmittanceInscatter(vtP, min(shadowLength, vtKm), vtRad);',
+      '          #endif',
+      '          outputColor.rgb = vtRad;',
+      '          outputColor.a = 1.0;',
+      '          volTerrainLitHit = 1.0;',
+      '        }',
+      '      }',
+      '    }',
       '    #else // SKY',
     ].join('\n'));
     src = src.replace(ovl, [
       '    #ifdef HAS_OVERLAY',
       '    outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;',
-      '    if (cloudAlphaOut > 0.5) outputColor.a = overlay.a;',
+      '    if (cloudAlphaOut > 0.5) outputColor.a = max(overlay.a, volTerrainLitHit);',
       '    #endif // HAS_OVERLAY',
       '    return;',
     ].join('\n'));
     fx.uniforms.set('terrainDist', new Uniform(null));
     fx.uniforms.set('terrainDistOn', new Uniform(0));
     fx.uniforms.set('cloudAlphaOut', new Uniform(0));
+    fx.uniforms.set('terrainLit', new Uniform(null));
+    fx.uniforms.set('terrainLitOn', new Uniform(0));
+    fx.uniforms.set('sunRidgeTex', new Uniform(null));
+    fx.uniforms.set('sunRidgeOn', new Uniform(0));
+    fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     fx.setFragmentShader(src);
   }
-  const setTerrainDistance = (tex: Texture | null) => {
+  const setTerrainDistance = (tex: Texture | null, lit: Texture | null = null, ridge: Texture | null = null, seaSlope = 0.03) => {
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     cu.terrainDistBuffer.value = tex;
     cu.terrainDistOn.value = tex ? 1 : 0;
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
     au.get('terrainDist')!.value = tex;
     au.get('terrainDistOn')!.value = tex ? 1 : 0;
+    au.get('terrainLit')!.value = tex ? lit : null;
+    au.get('terrainLitOn')!.value = tex && lit ? 1 : 0;
+    au.get('sunRidgeTex')!.value = ridge;
+    au.get('sunRidgeOn')!.value = tex && lit && ridge ? 1 : 0;
+    au.get('seaSlopeVar')!.value = seaSlope;
   };
   const setCloudAlphaOut = (on: boolean) => {
     (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudAlphaOut')!.value = on ? 1 : 0;
@@ -553,6 +689,9 @@ export async function createVolumetricScene(
   // §124 종류별 모형 패치 — 늘 걸어 두고 층별 genusOn 으로 켭니다(끄면 takram 그대로).
   patchGenusShader(clouds.cloudsPass.currentMaterial as never);
   patchGenusShader(clouds.shadowPass.currentMaterial as never);
+  // §130 흐름 모형 셰이더(연속 밀도·층별 fetch) — 종류 패치 직후, 두 패스 모두. 레인이 0 이면 화소 단위로 이전과 같습니다.
+  patchFlowShader(clouds.cloudsPass.currentMaterial as never);
+  patchFlowShader(clouds.shadowPass.currentMaterial as never);
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
@@ -562,6 +701,11 @@ export async function createVolumetricScene(
 
   // 대기 표: 기기 GPU 에서 만듭니다(자산 25MB 를 싣지 않으려고). 하네스는 takram 의 미리 만든 표를 넘겨 비교할 수 있습니다.
   const generator = options.precomputed ? null : new PrecomputedTexturesGenerator(renderer);
+  if (generator && spectral && !patchSpectralGenerator(generator, { effectiveTransmittance: options.effectiveTransmittance ?? true })) {
+    spectral = false;
+    atmosphereParams.skyRadianceToRelativeLuminance.copy(renderAtmosphere(false).skyRadianceToRelativeLuminance);
+    console.warn('[volumetric] takram 표 생성기 내부가 달라 3파장 표로 만듭니다');
+  }
   if (generator) await generator.update();
   const atmosTextures = options.precomputed ?? generator!.textures;
   Object.assign(aerial, atmosTextures);
@@ -580,6 +724,10 @@ export async function createVolumetricScene(
   let weather: DataTexture | null = null;
   /** 마지막 날씨 생성 시간(ms) — 시험 화면 표시용. */
   let weatherMs = 0;
+  // §130 C3 층별 드리프트 — 장면을 건 층·시각(setDate 가 경과 시간만큼 uv 를 밈).
+  let genLayers: (GenusLayer | null)[] = [], genDate: Date | null = null, genUv = false;
+  /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
+  let lastCamKm: [number, number] | null = null;
   const sun = new Vector3();
 
   let lastInput: VolumetricSceneInput | null = null;
@@ -627,12 +775,23 @@ export async function createVolumetricScene(
   const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) * 100) / 100;
   const weatherPlan = (p: VolumetricSceneInput) => {
     const inputs = p.layers.slice(0, 4);
-    const gl: (GenusLayer | null)[] = inputs.map(L => (L.genus && L.cover > 0
-      ? { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, quantCover(L.cover)) : quantCover(L.cover), opts: L.opts } : null));
+    const useFlow = opt.flow && opt.genus;
+    const gl: (GenusLayer | null)[] = inputs.map((L, i) => {
+      if (!L.genus || !(L.cover > 0)) return null;
+      const qc = quantCover(L.cover);
+      if (!useFlow) return { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, qc) : qc, opts: L.opts };
+      // §130 흐름 층: 종류별 흐름 기본값(GENUS_FLOW)을 opts 에 합치고(캐시 키에 자동 포함) 운량 역표는 흐름용(항등으로 시작 —
+      // 가산 장은 0 인 곳이 없어 chamfer 스커트가 안 생기므로 §127 표가 맞지 않음). 전단은 바로 위 층까지의 고도 차로 잽니다.
+      const above = inputs.slice(i + 1).find(o => o.baseKm > L.baseKm);
+      const shearDzKm = Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
+      return mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
+    });
     const useGenus = opt.genus && gl.some(Boolean);
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
-    const key = JSON.stringify([useGenus, gl, plain, useGenus ? 0 : [opt.weatherPeriod, opt.weatherRamp]]);
-    return { inputs, gl, useGenus, plain, key };
+    // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
+    const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery, qMode: opt.flowQMode, qN: opt.flowQN, qH: opt.flowQH, s90: opt.flowS90 }) : null;
+    const key = JSON.stringify([useGenus, gl, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp]]);
+    return { inputs, gl, useGenus, plain, key, flow };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
   const cacheGet = (key: string) => {
@@ -671,6 +830,7 @@ export async function createVolumetricScene(
     // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
     const CH = ['r', 'g', 'b', 'a'] as const;
     const { inputs, gl, useGenus } = plan;
+    const flowDens = !!plan.flow && opt.flowDensity, flowUv = !!plan.flow && opt.flowUv;
     // 종류 없는 층의 두께·밀도: 층 띠(없으면 밑면 높이)로 저·중·상을 가릅니다(이전 프리셋 값과 같음).
     const bandOf = (L: VolumetricLayerInput) => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
     const bandShape = (b: 'low' | 'mid' | 'high') => (b === 'high' ? { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }
@@ -680,7 +840,7 @@ export async function createVolumetricScene(
       // 입력이 없는 채널만 빈 층. 운량 0 인 층도 층 높이는 그대로 둡니다 — 층 높이 범위가 하늘빛 보간·행진 구간에 들어갑니다.
       if (!L) { clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: 0, height: 0, densityScale: 0 })); continue; }
       const g = useGenus ? gl[i] : null;
-      const shape = g ? genusLayerShape(g) : bandShape(bandOf(L));
+      const shape = g ? genusLayerShape(g, flowDens) : bandShape(bandOf(L));
       if (L.thicknessM) shape.height = L.thicknessM;
       // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
       const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
@@ -691,18 +851,24 @@ export async function createVolumetricScene(
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
       nue.extractBasis(north, up, east);
       clouds.localWeatherRepeat.setScalar(1);
+      // §131 K: 관측점을 국소 운량 ≈ 전역 운량인 칸으로(타일 바이트는 그대로). 장면 입력이 오프셋을 주면 그것이 우선.
+      const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
+      lastCamKm = camKm;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
-        const [ox, oy] = p.weatherOffsetKm ?? [0, 0];
+        setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
+        setGenusDrift(m, gl, 0, GENUS_TILE_KM);
+        const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
     } else {
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
-      for (const m of genusMats) { setGenusUniforms(m, []); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;
+    genLayers = gl; genDate = p.date; genUv = flowUv;
     const exposure = p.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
@@ -713,7 +879,7 @@ export async function createVolumetricScene(
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
-      tex = plan.useGenus ? makeGenusWeather(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain) : makeWeather(plan.plain, opt);
+      tex = plan.useGenus ? makeGenusWeather(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, plan.flow) : makeWeather(plan.plain, opt);
       weatherMs = Date.now() - t0;
       cachePut(plan.key, tex);
     }
@@ -730,7 +896,7 @@ export async function createVolumetricScene(
     if (!tex) {
       const t0 = Date.now();
       tex = plan.useGenus
-        ? await makeGenusWeatherAsync(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, 6, () => my !== sceneToken || disposed)
+        ? await makeGenusWeatherAsync(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, 6, () => my !== sceneToken || disposed, plan.flow)
         : makeWeather(plan.plain, opt);
       if (!tex) return false;
       if (my !== sceneToken || disposed) { tex.dispose(); return false; }
@@ -757,14 +923,21 @@ export async function createVolumetricScene(
     clouds.sunDirection.copy(sun);
     lastSunAltForLight = sunAltDeg;
     applySunLight();
+    // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
+    if (genUv && genDate) for (const m of genusMats) setGenusDrift(m, genLayers, (date.getTime() - genDate.getTime()) / 1000, GENUS_TILE_KM);
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
   };
 
   return {
-    debug: { clouds },
+    debug: { clouds, toneMapping },
+    spectral,
     weatherMs: () => weatherMs,
+    flowInfo: () => {
+      const st = (weather?.userData as { flow?: { s90?: number; hoursUsed?: number } } | undefined)?.flow;
+      return { s90: st?.s90 ?? null, hoursUsed: st?.hoursUsed ?? null, camKm: lastCamKm };
+    },
     camera,
     setPreset,
     setScene,
@@ -784,7 +957,7 @@ export async function createVolumetricScene(
       baseMarch.scale = clouds.clouds.secondaryStepScale;
       applySunMarch();
     },
-    setOptions: o => {
+    setOptions: (o, reapply = true) => {
       Object.assign(opt, o);
       applySunMarch();
       updateLod();
@@ -792,7 +965,8 @@ export async function createVolumetricScene(
       clouds.shadow.temporalPass = opt.shadowTemporal;
       applySunLight();
       applyMaxRay();
-      if (lastInput) setScene(lastInput);
+      // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
+      if (lastInput && reapply) setScene(lastInput);
     },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
     render: dt => { tonePass.renderToScreen = true; setCloudAlphaOut(false); composer.render(dt); },

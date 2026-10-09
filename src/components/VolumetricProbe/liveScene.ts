@@ -10,6 +10,8 @@ import { getInterpolatedWeather, PROFILE_LEVELS, type CloudData, type CloudPathD
 import { classifyGenus, type ForecastGenus, type GenusForecast } from '../../utils/cloudGenusForecast';
 import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import type { GenusKey } from './cloudGenus';
+import { flowSeedOf } from './cloudFlow';
+import { resolveLayerWinds } from '../../utils/skyColumn';
 import type { VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 
 /**
@@ -74,6 +76,31 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     isDay: sunAltDeg > 0,
   });
 
+  // §130 층별 바람(부는 방향 성분, km/h, 동·북) — 예보 기압면 바람(850/600/250 hPa)이 있으면 그것, 없으면 대용값(skyColumn).
+  // 5 km/h 눈금, 전단 방향 10° 눈금으로 묶습니다 — 10분 예보 보간마다 날씨 타일(수 초)을 다시 만들지 않게. 흐름 시드는 자리·날짜 해시.
+  const { winds } = resolveLayerWinds(obs);
+  const q5 = (v: number) => Math.round(v / 5) * 5;
+  const windOf = (band: 'low' | 'mid' | 'high'): [number, number] => {
+    const u = band === 'low' ? obs.windULow : band === 'mid' ? obs.windUMid : obs.windUHigh;
+    const v = band === 'low' ? obs.windVLow : band === 'mid' ? obs.windVMid : obs.windVHigh;
+    if (u != null && v != null && Number.isFinite(u) && Number.isFinite(v)) return [u, v];
+    const w = winds[band], to = ((w.bearingDeg + 180) * Math.PI) / 180;   // bearing 은 불어오는 쪽
+    return [w.speedKmh * Math.sin(to), w.speedKmh * Math.cos(to)];
+  };
+  const W = { low: windOf('low'), mid: windOf('mid'), high: windOf('high') };
+  const shearOf = (band: 'low' | 'mid' | 'high'): [number, number] => {
+    const [au, av] = band === 'low' ? W.mid : W.high, [bu, bv] = band === 'low' ? W.low : W.mid;
+    const su = au - bu, sv = av - bv, m = Math.hypot(su, sv);
+    if (m < 1e-6) return [0, 0];
+    const ang = ((Math.round((Math.atan2(su, sv) * 180) / Math.PI / 10) * 10) * Math.PI) / 180, mq = q5(m);
+    return [mq * Math.sin(ang), mq * Math.cos(ang)];
+  };
+  const flowSeed = flowSeedOf(a.lat, a.lon, a.date);
+  const flowOpts = (band: 'low' | 'mid' | 'high') => {
+    const [u, v] = W[band], [su, sv] = shearOf(band);
+    return { windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed };
+  };
+
   const layers: VolumetricLayerInput[] = [];
   let anvil: VolumetricLayerInput | null = null;
   // 저층: 단면 덱이 있으면 밑면·두께를 그대로, 없으면 층 높이(가운데)에서 두께의 반을 뺀 밑면.
@@ -86,20 +113,20 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       // 적란운: 탑은 밑면~권계면 한 층, 모루는 4번째 채널에 같은 씨앗으로 — 바람 방향은 중층 바람.
       const topKm = Math.max(baseKm + 4, CB_TOP_KM);
       const windDeg = obs.windUMid != null && obs.windVMid != null ? ((Math.atan2(obs.windUMid, obs.windVMid) * 180) / Math.PI + 360) % 360 : 30;
-      const opts = { seed: 7, windDeg };
+      const opts = { seed: 7, windDeg, ...flowOpts('low') };
       layers.push({ genus: 'cb', cover: obs.low / 100, baseKm, thicknessM: (topKm - baseKm) * 1000, band: 'low', opts });
       anvil = { genus: 'cbanvil', cover: 1, baseKm: topKm - CB_ANVIL_THICK_M / 1000 * 0.8, thicknessM: CB_ANVIL_THICK_M, band: 'high', opts };
     } else if (forecast.low === 'cg') {
-      layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low' });
-    } else layers.push({ genus: renderGenusFor(forecast.low), cover: obs.low / 100, baseKm, thicknessM, band: 'low' });
+      layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low') });
+    } else layers.push({ genus: renderGenusFor(forecast.low), cover: obs.low / 100, baseKm, thicknessM, band: 'low', opts: flowOpts('low') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
-    layers.push({ genus: renderGenusFor(forecast.mid), cover: obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid' });
+    layers.push({ genus: renderGenusFor(forecast.mid), cover: obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
     const centerKm = obs.layerAltHighKm ?? FALLBACK_ALT_KM.high;
-    layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm: Math.max(7.2, centerKm - 0.2), band: 'high' });
+    layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: flowOpts('high') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
   if (anvil) layers.push(anvil);
