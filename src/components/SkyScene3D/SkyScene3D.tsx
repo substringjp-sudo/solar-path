@@ -76,11 +76,10 @@ import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './Milky
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
-// §126.7 볼륨 하늘 — 개발 빌드, 또는 EXPO_PUBLIC_VOLUMETRIC_SKY=1 로 내보낸 번들(웹 하네스)에서만 불러옵니다.
-// Metro 가 두 상수를 접어 출시 번들에서는 이 require 가 사라집니다.
-const VOLUMETRIC_SKY_ENABLED = __DEV__ || process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
-/** 볼륨 미리보기 빌드(eas.json preview-volumetric)는 설정을 건드린 적이 없으면 볼륨 하늘을 켠 채로 시작합니다. */
-const VOLUMETRIC_SKY_DEFAULT_ON = process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1';
+// §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 경로로 활성화
+const VOLUMETRIC_SKY_ENABLED = true;
+/** 볼륨 하늘 기본 활성화 */
+const VOLUMETRIC_SKY_DEFAULT_ON = true;
 const loadVolumetric = (): typeof import('../VolumetricProbe/volumetricScene') | null =>
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/volumetricScene') : null);
 const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =>
@@ -208,6 +207,12 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   starBrightness: 1.0,
   starMagLimit: 6.5,
   pixelArtRows: 0,
+  volumetricSky: true,
+  volumetricQuality: 'low',
+  volumetricRes: 0.5,
+  volumetricAutoRes: true,
+  volumetricFlow: true,
+  volumetricFlowUv: true,
 };
 
 /**
@@ -242,6 +247,8 @@ interface SkyScene3DProps {
    */
   timeline?: SkyTimeline | null;
   isActive?: boolean;
+  /** 사용자가 날짜/시간 슬라이더를 드래그 중인지 여부 (드래그 중에는 무거운 볼륨 씬 재생성을 보류) */
+  isSliding?: boolean;
   /** 외부에서 강제 주입하는 카메라 방위각 (AR 카메라 실시간 연동 시 사용) */
   cameraAzimuthProp?: number;
   /** 외부에서 강제 주입하는 카메라 고도각 (AR 카메라 실시간 연동 시 사용) */
@@ -338,6 +345,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     onSelectTrackingTarget,
     timeline = null,
     isActive = true,
+    isSliding = false,
     cameraAzimuthProp,
     cameraElevationProp,
     fovProp,
@@ -459,9 +467,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const timelineRef = useRef<SkyTimeline | null>(timeline);
   const isActiveRef = useRef(isActive);
+  const isSlidingRef = useRef(isSliding);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
   const targetTimeMsRef = useRef(currentTime.getTime());
+  const lastTargetSyncPerfRef = useRef(performance.now());
   const lastCloudRebuildMsRef = useRef(0);   // 구름 마지막 재빌드 시각 (벽시계)
   const lastCloudSunAltRef   = useRef(-999); // 구름 재빌드 당시 태양 고도
   const lastCloudSceneMsRef  = useRef(-1e15); // 구름 재빌드 당시 **씬** 시각
@@ -470,6 +480,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const renderedTimeMsRef = useRef(currentTime.getTime());
   /** 슬라이더 패스트 스크럽 시 구름 재빌드 디바운스/취소용 타이머 ref */
   const cloudRebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 슬라이더 조작 중 3D 볼륨 구름 실시간 갱신 쓰로틀링 (150ms) */
+  const lastSlidingVolBuildTimeRef = useRef<number>(0);
 
   // ── 스마트 온디맨드 렌더링 & GPU/CPU 유휴 절전 컨트롤러 ──────────────────
   const animateRef = useRef<() => void>(() => {});
@@ -498,6 +510,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         animFrameRef.current = 0;
       }
     }
+  }, [isActive, requestRender]);
+
+  useEffect(() => {
+    isSlidingRef.current = isSliding;
+    if (!isSliding) {
+      lastTargetSyncPerfRef.current = performance.now();
+      // 슬라이더 조작 완료 시 보류되었던 볼륨 씬 갱신(setSceneAsync)을 진행하도록 렌더링 요청
+      requestRender(5);
+    }
+  }, [isSliding, requestRender]);
+
+  // 볼륨 하늘 실시간 구름 유영: 1초마다 2프레임씩 부드럽게 렌더를 깨워 배터리 소모 없이 실시간 바람 드리프트 반영
+  useEffect(() => {
+    if (!isActive) return;
+    const timer = setInterval(() => {
+      if (volRef.current && !isSlidingRef.current) {
+        requestRender(2);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
   }, [isActive, requestRender]);
 
   // 외부(SunCamera 등)에서 3D 씬 고화질 스냅샷을 캡처할 수 있도록 핸들 노출
@@ -680,6 +712,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => { onSelectTrackingTargetRef.current = onSelectTrackingTarget; }, [onSelectTrackingTarget]);
   useEffect(() => {
     targetTimeMsRef.current = currentTime.getTime();
+    lastTargetSyncPerfRef.current = performance.now();
     requestRender(4);
   }, [currentTime, requestRender]);
 
@@ -1235,8 +1268,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       let isTrackingMoving = false;
 
       try {
-        // 즉시(0ms) 시간 이동 (타임 슬라이더 변경 시 부드러운 보간 없이 즉각 적용)
-        renderedTimeMsRef.current = targetTimeMsRef.current;
+        // 즉시(0ms) 시간 이동 + 실시간 경과 시간 연속 반영 (바람 드리프트 및 천체 연속 유영)
+        const wallElapsedMs = isSlidingRef.current ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
+        const effectiveTimeMs = targetTimeMsRef.current + wallElapsedMs;
+        renderedTimeMsRef.current = effectiveTimeMs;
         const frameDate = new Date(renderedTimeMsRef.current);
         updateScene(frameDate);
 
@@ -1417,17 +1452,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const vLat = location?.coords?.latitude ?? 37.5, vLon = location?.coords?.longitude ?? 127.0;
             const vElev = simRef.current?.terrain?.observerElevation ?? location?.coords?.altitude ?? 50;
             const vObs = weatherRef.current?.[0] ?? null;
-            const vDate = new Date(targetTimeMsRef.current);
+            const vDate = new Date(renderedTimeMsRef.current);
             // 층은 10분 눈금·관측점·예보 값이 바뀔 때만 다시 만듭니다. 날씨 무늬는 잘라 만들고(그동안 이전 장면),
             // 같은 층이면 캐시에서 꺼냅니다(§127).
-            const key = [Math.floor(targetTimeMsRef.current / 600000), vLat.toFixed(3), vLon.toFixed(3), Math.round(vElev),
+            const key = [Math.floor(renderedTimeMsRef.current / 600000), vLat.toFixed(3), vLon.toFixed(3), Math.round(vElev),
               vObs?.low, vObs?.mid, vObs?.high, vObs?.lowDeckBaseKm?.toFixed(1), vObs?.lowDeckTopKm?.toFixed(1),
               vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation,
               // §130 층별 바람(5 km/h 눈금)·날짜 — 흐름 모형의 비등방·전단파·시드 입력(liveScene 이 같은 눈금으로 묶음).
               ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 5) : '')),
-              Math.floor(targetTimeMsRef.current / 86400000)].join('|');
+              Math.floor(renderedTimeMsRef.current / 86400000)].join('|');
             const viewKey = `${cameraAzRef.current.toFixed(2)}|${cameraElevRef.current.toFixed(2)}|${camera.fov.toFixed(2)}`;
-            if (live && key !== volKeyRef.current && !volPendingRef.current) {
+            const nowPerf = performance.now();
+            const allowSlidingBuild = !isSlidingRef.current || (nowPerf - lastSlidingVolBuildTimeRef.current > 150);
+            if (live && key !== volKeyRef.current && !volPendingRef.current && allowSlidingBuild) {
+              lastSlidingVolBuildTimeRef.current = nowPerf;
               const built = live.buildLiveScene({ lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: [], obs: vObs,
                 az: cameraAzRef.current, el: cameraElevRef.current, fov: camera.fov });
               volKeyRef.current = key;
@@ -1509,7 +1547,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 달의 위치 및 조도 계산
             const lat = location?.coords?.latitude ?? 37.5;
             const lng = location?.coords?.longitude ?? 127.0;
-            const targetDate = new Date(targetTimeMsRef.current);
+            const targetDate = new Date(renderedTimeMsRef.current);
             const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
             const moonIllum = SunCalc.getMoonIllumination(targetDate);
             const mAlt = moonPos.altitude;
@@ -1539,7 +1577,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
               atmosphere: atmos,
               layerWinds: layerWindsNow(),
-              driftHours: ((targetTimeMsRef.current / 60000) % 1440) / 60,
+              driftHours: ((renderedTimeMsRef.current / 60000) % 1440) / 60,
               visible: layersRef.current.clouds !== false && !volTex,
             });
           }

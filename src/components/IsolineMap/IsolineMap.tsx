@@ -42,7 +42,7 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, curre
   // 지도 카드와 그 위의 떠 있는 것(배지·범례·메뉴)은 화면 모드와 상관없이 어둡습니다. 탭 바닥과 아래
   // 조작부(IsolineControls)·도움말 창만 `panelTheme`(화면 모드)을 따릅니다(docs/DESIGN_SYSTEM.md §4.1).
   const theme = OVERLAY_THEME;
-  const { location, timezoneOffsetHours, language, savedLocations, setLocation } = useCelestialStore();
+  const { location, timezoneOffsetHours, language, savedLocations, setLocation, isCacheHydrated } = useCelestialStore();
   const { width } = useWindowDimensions();
   const isTablet = width > 900;
 
@@ -179,13 +179,13 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, curre
   const wantRadar = isToday && (globeOn ? isGlobeRadarScale(globeRadiusNow) : isRadarScale(longitudeDelta, lat));
 
   useEffect(() => {
-    if (!wantRadar) return;
+    if (!isActive || !isCacheHydrated || !wantRadar) return;
     let alive = true;
     fetchDayWeatherRing(lat, lon, new Date())
       .then(r => { if (alive) setRing(r); })
       .catch(err => console.warn('레이더용 구름 고리를 못 받았습니다:', err));
     return () => { alive = false; };
-  }, [wantRadar, lat, lon]);
+  }, [isActive, isCacheHydrated, wantRadar, lat, lon]);
 
   /**
    * 구름을 무엇으로 보나 — 자료 칸(레이더) · 하늘 탭의 구름을 위에서 본 것(시뮬레이션, §120 B).

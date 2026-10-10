@@ -10,23 +10,39 @@
  *
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View, Text, ScrollView, Platform, Animated } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical } from 'lucide-react-native';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { StyleSheet, View, Text, ScrollView, Platform, Animated, ActivityIndicator } from 'react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical, CloudOff, RefreshCw, Calendar } from 'lucide-react-native';
 import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { TimeSlider } from '../TimeSlider';
+import { GenericSlider } from '../GenericSlider';
 import { useCelestialStore } from '../../store/useCelestialStore';
+import {
+  shiftTz,
+  getSeasonMarkers,
+  dateToDatePercent,
+  datePercentToDate,
+  formatMonthDay,
+} from '../../utils/dateSlider';
 import {
   fetchTerrainProfile,
   fetchSunsetWeather,
+  fetchDayWeatherRing,
+  fetchWeatherCanary,
   getInterpolatedWeather,
   type CloudPathData,
   type TerrainData,
 } from '../../utils/weather';
 import { findPresetTerrain } from '../../utils/presetTerrains';
 import { scenePrediction } from '../../utils/scenePrediction';
-import { weatherCacheKey } from '../../utils/cachePolicy';
+import {
+  weatherCacheKey,
+  sameBucket,
+  canarySaysSkip,
+  canaryIsUsable,
+  canaryPrint,
+} from '../../utils/cachePolicy';
 import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
 import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
 import {
@@ -88,7 +104,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const [stageH, setStageH] = useState(0);
-  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language } = useCelestialStore();
+  const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language, timezoneOffsetHours, isCacheHydrated } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
@@ -143,12 +159,12 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const lastFetchedCoordRef = useRef<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
-    if (!latitude || !longitude) return;
+    if (!isCacheHydrated || !latitude || !longitude) return;
 
     const isDifferentLocation =
       !lastFetchedCoordRef.current ||
-      Math.abs(lastFetchedCoordRef.current.lat - latitude) > 0.005 ||
-      Math.abs(lastFetchedCoordRef.current.lon - longitude) > 0.005;
+      Math.abs(lastFetchedCoordRef.current.lat - latitude) > 0.05 ||
+      Math.abs(lastFetchedCoordRef.current.lon - longitude) > 0.05;
 
     if (isDifferentLocation) {
       lastFetchedCoordRef.current = { lat: latitude, lon: longitude };
@@ -160,9 +176,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         return;
       }
 
-      // 2. 캐시 목록에서 탐색
+      // 2. 캐시 목록에서 탐색 (0.05° 허용치 적용)
       const cached = terrainCacheList.find(
-        (item) => Math.abs(item.latitude - latitude) < 0.005 && Math.abs(item.longitude - longitude) < 0.005
+        (item) => Math.abs(item.latitude - latitude) < 0.05 && Math.abs(item.longitude - longitude) < 0.05
       );
 
       if (cached && cached.data?.bandAngles?.length > 0) {
@@ -175,18 +191,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       const reqLon = longitude;
       fetchTerrainProfile(reqLat, reqLon, 0, 360)
         .then((tData) => {
-          // 요청 당시 위치와 현재 위치가 다르면 무시 (Stale Request 차단)
           if (
             !lastFetchedCoordRef.current ||
-            Math.abs(lastFetchedCoordRef.current.lat - reqLat) > 0.005 ||
-            Math.abs(lastFetchedCoordRef.current.lon - reqLon) > 0.005
+            Math.abs(lastFetchedCoordRef.current.lat - reqLat) > 0.05 ||
+            Math.abs(lastFetchedCoordRef.current.lon - reqLon) > 0.05
           ) {
             return;
           }
-          // API 실패로 인한 fallback 데이터인 경우 이미 유효한 데이터가 있으면 덮어쓰지 않음
-          if (tData.isFallback) {
-            return;
-          }
+          if (tData.isFallback) return;
           if (tData && Array.isArray(tData.panoramicAngles) && tData.panoramicAngles.length > 0) {
             setTerrainData(tData);
             addTerrainCache({
@@ -202,7 +214,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           console.log('3D terrain profile fetch error:', err);
         });
     }
-  }, [latitude, longitude, terrainCacheList, addTerrainCache]);
+  }, [isCacheHydrated, latitude, longitude, terrainCacheList, addTerrainCache]);
 
   const simObj = useMemo(() => ({
     terrain: terrainData,
@@ -216,12 +228,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const moonAltitude = (moonPos.altitude * 180) / Math.PI;
   const moonAzimuth = (moonPos.azimuth * 180) / Math.PI + 180;
 
-  // ── 실제 기상 데이터 (스플래시 캐시 우선 초기화) ──────────────────────────
+  // ── 실제 기상 데이터 (스플래시 캐시 및 저장된 캐시 우선 초기화) ──────────────────────────
   const initialWeather = useMemo(() => {
     const cached = weatherCacheList.find(c => 
       c.key.includes(currentDateStr) && 
-      Math.abs(c.latitude - latitude) < 0.05 && 
-      Math.abs(c.longitude - longitude) < 0.05
+      sameBucket(c.latitude, c.longitude, latitude, longitude)
     );
     if (cached?.data && Array.isArray(cached.data)) {
       return cached.data as CloudPathData[];
@@ -231,40 +242,288 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
   const [useNowcast, setUseNowcast] = useState(false);
-  const [isNowcastLoading, setNowcastLoading] = useState(false);
+  const [isWeatherLoading, setIsWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
   const bucketedSunAz = useMemo(() => Math.round(sunAzimuth / 30) * 30, [sunAzimuth]);
 
+  // 비동기 스토어 캐시 로드 후 initialWeather가 생기면 즉시 화면 상태 동기화
   useEffect(() => {
-    let cancelled = false;
+    if (initialWeather.length > 0 && pathData.length === 0) {
+      setPathData(initialWeather);
+    }
+  }, [initialWeather, pathData.length]);
+
+  // ── 날짜 슬라이더 및 계절 마커 (맵뷰와 동일한 1년 슬라이더) ─────────────
+  const tz = timezoneOffsetHours ?? 0;
+  const localNow = useMemo(() => shiftTz(currentTime, tz), [currentTime, tz]);
+  const currentYear = localNow.getUTCFullYear();
+  const seasonMarkers = useMemo(() => getSeasonMarkers(currentYear), [currentYear]);
+  const datePct = useMemo(() => dateToDatePercent(currentTime, tz), [currentTime, tz]);
+  const seasonMarkerPositions = useMemo(() => [
+    { key: 'spring', pct: dateToDatePercent(seasonMarkers.springEquinox, tz), color: dataColor.spring },
+    { key: 'summer', pct: dateToDatePercent(seasonMarkers.summerSolstice, tz), color: dataColor.summer },
+    { key: 'autumn', pct: dateToDatePercent(seasonMarkers.autumnEquinox, tz), color: dataColor.autumn },
+    { key: 'winter', pct: dateToDatePercent(seasonMarkers.winterSolstice, tz), color: dataColor.winter },
+  ], [seasonMarkers, tz, dataColor]);
+
+  // 날짜/시간 스크롤 상태 — 스크롤 중에는 날씨 호출 차단 및 3D 볼륨 씬 재생성 보류
+  const [isSliding, setIsSliding] = useState(false);
+  const isDateSlidingRef = useRef(false);
+  const isTimeSlidingRef = useRef(false);
+  const updateSlidingState = useCallback(() => {
+    setIsSliding(isDateSlidingRef.current || isTimeSlidingRef.current);
+  }, []);
+  const weatherDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const weatherAbortControllerRef = useRef<AbortController | null>(null);
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+
+  /**
+   * 360° 전방위 날씨 로드 함수 (태양 방위와 무관)
+   * 1개 지점의 초경량 카나리아 지문을 먼저 조회하여 기상청 모델 갱신 여부를 확인하고,
+   * 모델 런이 같으면 대용량 요청을 100% 스킵하고 저장된 캐시를 그대로 사용합니다.
+   */
+  const loadWeather = useCallback(async (forceRefresh: boolean = false) => {
     if (!latitude || !longitude) return;
 
-    // 이미 유효한 캐시 데이터가 있고 nowcast 갱신 요청이 아니라면 네트워크 스킵
-    if (pathData.length > 0 && !useNowcast) return;
+    // 이전 진행 중이던 요청이 있으면 즉시 중단(Abort)
+    if (weatherAbortControllerRef.current) {
+      weatherAbortControllerRef.current.abort();
+      weatherAbortControllerRef.current = null;
+    }
 
-    setNowcastLoading(true);
-    const reqLat = latitude, reqLon = longitude, reqDate = currentDateStr;
-    fetchSunsetWeather(latitude, longitude, bucketedSunAz, useNowcast, currentTime)
-      .then(data => {
-        if (!Array.isArray(data)) return;
-        // 촬영하기가 같은 자료를 쓰게 공용 캐시에 넣습니다(§115). 예전에는 이 화면 안에만 두어,
-        // 촬영하기는 같은 자리·같은 날의 날씨를 따로 받다가 실패하면 맑은 하늘로 그렸습니다.
-        if (data.length > 0) {
-          addWeatherCache({ key: weatherCacheKey(reqLat, reqLon, reqDate), data, timestamp: Date.now(),
-            latitude: reqLat, longitude: reqLon } as any);
+    const controller = new AbortController();
+    weatherAbortControllerRef.current = controller;
+
+    const reqLat = latitude, reqLon = longitude;
+    const reqTime = currentTimeRef.current;
+    const reqDate = currentDateStr;
+
+    // 1) 캐시 조회 (동일 격자, 동일 날짜)
+    const existingCache = weatherCacheList.find(c => 
+      c.key.includes(reqDate) && 
+      sameBucket(c.latitude, c.longitude, reqLat, reqLon)
+    );
+
+    // 2) 이미 유효한 캐시 데이터가 있고 강제 새로고침이 아닌 경우 -> 1개 점 카나리아 지문 검사
+    if (existingCache?.data && Array.isArray(existingCache.data) && existingCache.data.length > 0 && !(existingCache.data as any)[0]?.isFallback && !forceRefresh) {
+      const storedCanary = (existingCache as any).canaryPrint as string | undefined;
+
+      if (storedCanary) {
+        try {
+          if (__DEV__) {
+            console.log(`[Weather] 1개 점 카나리아 지문 검사 중... (${reqLat.toFixed(4)}, ${reqLon.toFixed(4)}, ${reqDate})`);
+          }
+          const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal);
+          
+          if (controller.signal.aborted) return;
+
+          // 카나리아 지문이 일치하거나, 카나리아 조회가 실패(429/네트워크 오류)한 경우에도
+          // 기존 캐시가 유효하므로 대용량 요청을 생략하고 기존 캐시를 유지합니다!
+          if (!canarySeries || (canaryIsUsable(canarySeries) && canarySaysSkip(storedCanary, canarySeries))) {
+            if (__DEV__) {
+              console.log('[Weather] 카나리아 지문 일치 또는 캐시 유지 — 대용량 요청 생략!');
+            }
+            setPathData(existingCache.data as CloudPathData[]);
+            setIsWeatherLoading(false);
+            setWeatherError(null);
+            return;
+          }
+          if (__DEV__) {
+            console.log('[Weather] 카나리아 지문 불일치 또는 새 모델 런 감지 — 360° 전체 날씨 갱신 진행');
+          }
+        } catch (err: any) {
+          if (controller.signal.aborted || err?.name === 'AbortError') return;
+          // 에러 시에도 기존 캐시 안전하게 유지
+          setPathData(existingCache.data as CloudPathData[]);
+          setIsWeatherLoading(false);
+          setWeatherError(null);
+          return;
         }
-        if (!cancelled) setPathData(data);
-      })
-      .catch(err => {
-        console.log('3D weather fetch error:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setNowcastLoading(false);
-      });
+      } else {
+        // 저장된 지문이 없더라도 캐시 데이터가 있으므로 화면에 즉시 띄우고 불필요한 재요청 생략
+        setPathData(existingCache.data as CloudPathData[]);
+        setIsWeatherLoading(false);
+        setWeatherError(null);
+        return;
+      }
+    }
 
+    // 3) 캐시가 없거나, 강제 새로고침이거나, 카나리아 지문이 갈린 경우:
+    //    360° 전방위 고리 날씨를 1회 수신
+    setIsWeatherLoading(true);
+    setWeatherError(null);
+
+    try {
+      const [canarySeries, ringData] = await Promise.all([
+        fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal).catch(() => null),
+        fetchDayWeatherRing(reqLat, reqLon, reqTime, forceRefresh, controller.signal),
+      ]);
+
+      if (controller.signal.aborted) return;
+
+      if (!Array.isArray(ringData) || ringData.length === 0) {
+        throw new Error(t('weatherLoadFailed', language));
+      }
+
+      if (!(ringData as any)[0]?.isFallback) {
+        addWeatherCache({
+          key: weatherCacheKey(reqLat, reqLon, reqDate),
+          data: ringData,
+          timestamp: Date.now(),
+          latitude: reqLat,
+          longitude: reqLon,
+          canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
+        } as any);
+      }
+
+      setPathData(ringData);
+      setWeatherError(null);
+    } catch (err: any) {
+      if (controller.signal.aborted || err?.name === 'AbortError') return;
+      const msg = err?.message || t('weatherLoadFailed', language);
+      console.warn('3D weather fetch error:', msg);
+      if (pathData.length === 0) {
+        setWeatherError(msg);
+      }
+    } finally {
+      if (weatherAbortControllerRef.current === controller) {
+        weatherAbortControllerRef.current = null;
+        setIsWeatherLoading(false);
+      }
+    }
+  }, [latitude, longitude, currentDateStr, weatherCacheList, addWeatherCache, language, pathData.length]);
+
+  const handleDateSlidingStart = useCallback(() => {
+    isDateSlidingRef.current = true;
+    updateSlidingState();
+    // 1) 2초 타이머 즉시 취소
+    if (weatherDebounceTimerRef.current) {
+      clearTimeout(weatherDebounceTimerRef.current);
+      weatherDebounceTimerRef.current = null;
+    }
+    // 2) 진행 중이던 기존 날씨 요청 즉시 중단
+    if (weatherAbortControllerRef.current) {
+      weatherAbortControllerRef.current.abort();
+      weatherAbortControllerRef.current = null;
+      setIsWeatherLoading(false);
+    }
+  }, [updateSlidingState]);
+
+  const handleDateSliderChange = useCallback((pct: number) => {
+    // 스크롤 중에도 혹시 남아있는 타이머나 요청이 있다면 즉시 취소
+    if (weatherDebounceTimerRef.current) {
+      clearTimeout(weatherDebounceTimerRef.current);
+      weatherDebounceTimerRef.current = null;
+    }
+    if (weatherAbortControllerRef.current) {
+      weatherAbortControllerRef.current.abort();
+      weatherAbortControllerRef.current = null;
+      setIsWeatherLoading(false);
+    }
+    // 날짜를 스크롤하면 해당 시간의 태양, 달, 별자리 위치가 즉시 갱신되도록 currentTime 즉각 반영
+    const newDate = datePercentToDate(pct, currentYear, localNow.getUTCHours(), localNow.getUTCMinutes(), tz);
+    setCurrentTime(newDate);
+
+    // 캐시가 이미 존재하면 스크롤 중에도 즉시 pathData 교체하여 실시간으로 하늘/구름 렌더링
+    const newDateStr = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}-${String(newDate.getDate()).padStart(2, '0')}`;
+    const cached = weatherCacheList.find(c => 
+      c.key.includes(newDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
+    );
+    if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
+      setPathData(cached.data as CloudPathData[]);
+    }
+  }, [currentYear, localNow, tz, setCurrentTime, weatherCacheList, latitude, longitude]);
+
+  const handleDateSlidingComplete = useCallback(() => {
+    isDateSlidingRef.current = false;
+    updateSlidingState();
+    if (weatherDebounceTimerRef.current) {
+      clearTimeout(weatherDebounceTimerRef.current);
+      weatherDebounceTimerRef.current = null;
+    }
+    // 스크롤을 떼고 250ms 뒤에 검증 및 로드 (기존 2초에서 대폭 단축하여 즉각 반응)
+    weatherDebounceTimerRef.current = setTimeout(() => {
+      weatherDebounceTimerRef.current = null;
+      loadWeather(false);
+    }, 250);
+  }, [updateSlidingState, loadWeather]);
+
+  const prevDateStrRef = useRef(currentDateStr);
+  const prevLatLonRef = useRef(`${latitude?.toFixed(4)},${longitude?.toFixed(4)}`);
+  const isMountedRef = useRef(false);
+
+  useEffect(() => {
+    // 디스크 캐시 로딩이 끝나지 않았으면 대기
+    if (!isCacheHydrated) return;
+
+    const latLonStr = `${latitude?.toFixed(4)},${longitude?.toFixed(4)}`;
+    const isDateChanged = prevDateStrRef.current !== currentDateStr;
+    const isLocChanged = prevLatLonRef.current !== latLonStr;
+
+    prevDateStrRef.current = currentDateStr;
+    prevLatLonRef.current = latLonStr;
+
+    // 슬라이더 스크롤 중일 때는 즉시 로드하지 않고 타이머에 위임
+    if (isDateSlidingRef.current || isTimeSlidingRef.current) {
+      if (weatherDebounceTimerRef.current) {
+        clearTimeout(weatherDebounceTimerRef.current);
+        weatherDebounceTimerRef.current = null;
+      }
+      if (weatherAbortControllerRef.current) {
+        weatherAbortControllerRef.current.abort();
+        weatherAbortControllerRef.current = null;
+        setIsWeatherLoading(false);
+      }
+      return;
+    }
+
+    // 마운트 시 (또는 isCacheHydrated 완료 직후): 캐시 먼저 확인
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      const cached = weatherCacheList.find(c => 
+        c.key.includes(currentDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
+      );
+      if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
+        setPathData(cached.data as CloudPathData[]);
+        return;
+      }
+      if (pathData.length === 0) {
+        loadWeather(false);
+      }
+      return;
+    }
+
+    if (isDateChanged || isLocChanged) {
+      // 캐시에 데이터가 있으면 즉시 교체
+      const cached = weatherCacheList.find(c => 
+        c.key.includes(currentDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
+      );
+      if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
+        setPathData(cached.data as CloudPathData[]);
+      }
+
+      // 날짜나 위치가 변경된 경우: 기존 요청 중단 + 250ms 디바운스
+      if (weatherAbortControllerRef.current) {
+        weatherAbortControllerRef.current.abort();
+        weatherAbortControllerRef.current = null;
+        setIsWeatherLoading(false);
+      }
+      if (weatherDebounceTimerRef.current) clearTimeout(weatherDebounceTimerRef.current);
+      weatherDebounceTimerRef.current = setTimeout(() => {
+        weatherDebounceTimerRef.current = null;
+        loadWeather(false);
+      }, 250);
+      return;
+    }
+  }, [isCacheHydrated, latitude, longitude, currentDateStr, loadWeather, pathData.length, weatherCacheList]);
+
+  useEffect(() => {
     return () => {
-      cancelled = true;
+      if (weatherDebounceTimerRef.current) clearTimeout(weatherDebounceTimerRef.current);
+      if (weatherAbortControllerRef.current) weatherAbortControllerRef.current.abort();
     };
-  }, [latitude, longitude, currentDateStr, bucketedSunAz, useNowcast]);
+  }, []);
 
   // ── 하루치 사전 계산 ─────────────────────────────────────────────────────
   //
@@ -347,7 +606,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 날짜/위치 준비 완료 시 백그라운드 자동 타임라인 사전 계산 (동일 위치/날짜당 1회만 시도하여 API 429 폭주 방지)
   const lastAutoBuildKeyRef = useRef<string>('');
   useEffect(() => {
-    if (!latitude || !longitude || isBuilding || timelineValid) return;
+    if (!isCacheHydrated || !latitude || !longitude || isBuilding || timelineValid) return;
 
     const buildKey = `${latitude.toFixed(3)}_${longitude.toFixed(3)}_${currentDateStr}`;
     if (lastAutoBuildKeyRef.current === buildKey) return;
@@ -491,6 +750,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           fullScreen={true}
           timeline={timelineValid ? timeline : null}
           isActive={isActive}
+          isSliding={isSliding}
         />
 
         {trackingTarget && (
@@ -512,8 +772,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           {/* 3D 요소 표시 설정 모달 */}
           <OverlayButton
             onPress={() => setLayerModalVisible(true)}
-            // 개발자 튜닝은 개발 빌드와 볼륨 미리보기 빌드에서만 — 출시판 사용자가 길게 눌러 여는 일이 없게(점검 2026-09-29).
-            onLongPress={__DEV__ || process.env.EXPO_PUBLIC_VOLUMETRIC_SKY === '1' ? () => setDevPanelOpen(v => !v) : undefined}
+            // 개발자/튜닝 패널 — 레이어 버튼 길게 누르기로 열고 닫습니다.
+            onLongPress={() => setDevPanelOpen(v => !v)}
             accessibilityLabel={t('layerTitle', language)}
           >
             <SlidersHorizontal size={16} color={DARK.text} />
@@ -551,6 +811,40 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
                 <Text style={overlayStyles.buildHint}>{t('tapToCancel', language)}</Text>
               </>
             )}
+          </Reveal>
+        )}
+
+        {/* 날씨 수신 실패 배너 및 재시도 버튼 */}
+        {weatherError && !isBuilding && (
+          <Reveal style={overlayStyles.weatherErrorBanner}>
+            <View style={overlayStyles.weatherErrorHeader}>
+              <CloudOff size={15} color="#F87171" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={overlayStyles.weatherErrorTitle}>
+                  {t('weatherLoadFailed', language)}
+                </Text>
+                <Text style={overlayStyles.weatherErrorDesc} numberOfLines={1}>
+                  {weatherError}
+                </Text>
+              </View>
+              <PressScale
+                style={overlayStyles.weatherRetryButton}
+                onPress={() => loadWeather(true)}
+                disabled={isWeatherLoading}
+                activeOpacity={0.7}
+              >
+                {isWeatherLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <View style={overlayStyles.weatherRetryContent}>
+                    <RefreshCw size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
+                    <Text style={overlayStyles.weatherRetryText}>
+                      {t('retry', language)}
+                    </Text>
+                  </View>
+                )}
+              </PressScale>
+            </View>
           </Reveal>
         )}
       </View>
@@ -675,8 +969,44 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </PeekSheet>
       </View>
 
-      {/* ── 상시 노출은 타임 슬라이더 하나뿐 ────────────────────────────── */}
+      {/* ── 상시 노출: 날짜 슬라이더 + 타임 슬라이더 ────────────────────── */}
       <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
+        {/* 맵뷰와 동일한 날짜 슬라이더 (위가 아니라 화면 아래에 표시) */}
+        <View style={styles.dateSliderBlock}>
+          <View style={styles.dateSliderHeader}>
+            <View style={styles.dateSliderHeaderLeft}>
+              <Calendar size={12} color={theme.subText} />
+              <Text style={[styles.dateSliderLabel, { color: theme.subText }]}>{t('isolineDateLabel', language)}</Text>
+            </View>
+            <Text style={[styles.dateSliderValue, { color: theme.text }]}>
+              {formatMonthDay(currentTime, tz)}
+            </Text>
+          </View>
+          <View style={styles.dateSliderWrapper}>
+            <GenericSlider
+              value={datePct}
+              onChange={handleDateSliderChange}
+              onGrant={handleDateSlidingStart}
+              onRelease={handleDateSlidingComplete}
+              theme={theme}
+              trackColor={color.border}
+              fillColor={theme.accent}
+              knobColor={color.panelRaised}
+              trackOverlay={
+                <View style={styles.markerOverlay} pointerEvents="none">
+                  {seasonMarkerPositions.map((s) => (
+                    <View key={s.key} style={[styles.tickMarker, { left: `${s.pct}%` }]}>
+                      <View style={[styles.tickDot, { backgroundColor: s.color }]} />
+                    </View>
+                  ))}
+                </View>
+              }
+            >
+              <Text style={[styles.tooltipText, { color: color.accent }]}>{formatMonthDay(currentTime, tz)}</Text>
+            </GenericSlider>
+          </View>
+        </View>
+
         <TimeSlider
           value={currentTime}
           onChange={setCurrentTime}
@@ -685,6 +1015,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           theme={theme}
           isDay={sunAltitude > 0}
           onCameraPress={onCameraPress}
+          onSlidingStart={() => {
+            isTimeSlidingRef.current = true;
+            updateSlidingState();
+          }}
+          onSlidingComplete={() => {
+            isTimeSlidingRef.current = false;
+            updateSlidingState();
+          }}
           markers={events ? [
             { time: events.sunrise || null, color: dataColor.sunrise, type: 'rise' },
             { time: events.sunset || null, color: dataColor.sunset, type: 'set' },
@@ -772,6 +1110,52 @@ const overlayStyles = StyleSheet.create({
     borderRadius: radius.xs,
     backgroundColor: color.success,
   },
+  weatherErrorBanner: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+    backgroundColor: 'rgba(23, 23, 23, 0.92)',
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    zIndex: 25,
+  },
+  weatherErrorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  weatherErrorTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#F87171',
+  },
+  weatherErrorDesc: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: color.textMute,
+    marginTop: 2,
+  },
+  weatherRetryButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.85)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.xs,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  weatherRetryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  weatherRetryText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
   trackingBadge: {
     position: 'absolute',
     top: 12,
@@ -825,18 +1209,18 @@ const useStyles = makeStyles((color) => ({
     gap: 6,
   },
   summaryScore: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
     letterSpacing: -0.3,
     fontFamily: mono,
   },
   summaryValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     fontFamily: mono,
   },
   summaryDot: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     opacity: 0.5,
   },
@@ -948,8 +1332,66 @@ const useStyles = makeStyles((color) => ({
   },
 
   bottomPanel: {
-    paddingVertical: 6,
+    paddingVertical: 2,
     borderTopWidth: 1,
     borderColor: color.border,
+  },
+  dateSliderBlock: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 0,
+    gap: 1,
+  },
+  dateSliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 0,
+    paddingHorizontal: 2,
+  },
+  dateSliderHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  dateSliderLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    fontFamily: mono,
+  },
+  dateSliderValue: {
+    fontSize: 12,
+    fontWeight: '900',
+    fontFamily: mono,
+    letterSpacing: 0.4,
+  },
+  dateSliderWrapper: {
+    position: 'relative',
+    marginTop: 2,
+  },
+  markerOverlay: {
+    width: '100%',
+    height: '100%',
+  },
+  tickMarker: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 12,
+    marginLeft: -6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tickDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 1,
+  },
+  tooltipText: {
+    fontSize: 11,
+    fontWeight: '900',
+    fontFamily: mono,
   },
 }));

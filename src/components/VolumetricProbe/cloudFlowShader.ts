@@ -162,7 +162,7 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
  * 두 재질(구름·그림자 패스) 모두에 매 프레임 부르세요 — 빠뜨리면 해 > 12° 의 층 그림자가 구름에서 떨어집니다.
  */
 export function setGenusDrift(mat: PatchableMaterial, layers: (GenusLayer | null)[], seconds: number, tileKm: number): void {
-  const s = Math.max(0, seconds) / 3600 / tileKm;
+  const s = seconds / 3600 / tileKm;
   const lane = (k: 'windU' | 'windV') => [0, 1, 2, 3].map(i => (layers[i] && layerHasFlow(layers[i]) ? -flowParam(layers[i] as GenusLayer, k, 0) * s : 0));
   const set = (u: string, v: number[]) => (mat.uniforms[u].value as Vector4).set(v[0], v[1], v[2], v[3]);
   // fp32 위상 보호: 타일 단위로 소수부만(정수 타일 이동은 주기 텍스처라 같음).

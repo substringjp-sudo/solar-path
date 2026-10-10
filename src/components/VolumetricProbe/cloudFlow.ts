@@ -222,16 +222,17 @@ const rng = (seed: number) => () => {
 const gauss = (r: () => number) => { const u = Math.max(1e-12, r()), v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TWO_PI * v); };
 
 /**
- * 장소·날짜 시드(설계 §2.6): hash(round(lat·4), round(lon·4), dayOfYear). 하루는 경도 기준 평균 태양일(UTC + lon/15 h)로
- * 끊어 기기 시간대와 무관하게 결정적이면서 그 장소의 자정 즈음에 바뀝니다.
+ * 장소·날짜 시드(설계 §2.6): hash(round(lat·4), round(lon·4), dayOfYear, hourBucket). 하루는 경도 기준 평균 태양일(UTC + lon/15 h)로
+ * 끊되, 시간대 진행(hourBucketHours 단위, 기본 1시간)을 반영하여 하루 동안 구름 형태가 자연스럽게 발생·변형(morphing)합니다.
  */
-export function flowSeedOf(lat: number, lon: number, date: Date): number {
+export function flowSeedOf(lat: number, lon: number, date: Date, hourBucketHours = 1): number {
   const DAY = 86400000;
   const t = date.getTime() + (lon / 360) * DAY;
   const d = new Date(t);
   const doy = Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY) + 1;
+  const hourBucket = Math.floor(d.getUTCHours() / Math.max(1, hourBucketHours));
   const la = Math.round(lat * 4) | 0, lo = Math.round(lon * 4) | 0;
-  let h = Math.imul(la + 0x3779, 0x9E3779B1) ^ Math.imul(lo + 0x7F4A, 0x85EBCA77) ^ Math.imul(doy + 0x1B3, 0xC2B2AE3D);
+  let h = Math.imul(la + 0x3779, 0x9E3779B1) ^ Math.imul(lo + 0x7F4A, 0x85EBCA77) ^ Math.imul(doy + 0x1B3, 0xC2B2AE3D) ^ Math.imul(hourBucket + 0x4F, 0x51487A7B);
   h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D); h ^= h >>> 12; h = Math.imul(h, 0x297A2D39); h ^= h >>> 15;
   // 24 비트로 줄여 seed·104729 등 부시드 곱이 2^53 안에 머물게 합니다.
   return ((h >>> 8) & 0xFFFFFF) + 1;

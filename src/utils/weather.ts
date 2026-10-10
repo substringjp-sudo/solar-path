@@ -21,10 +21,19 @@ const MEM_SUNSET_CACHE = new Map<string, { data: CloudPathData[]; time: number }
 const MEM_RING_CACHE = new Map<string, { data: CloudPathData[]; time: number }>();
 const INFLIGHT_REQUESTS = new Map<string, Promise<any>>();
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const FALLBACK_CACHE_TTL_MS = 30 * 1000; // API 한도 초과 등 Fallback 대체 데이터는 30초 단기 쿨다운만 적용
 
 const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
+  if (options.signal) {
+    if (options.signal.aborted) {
+      clearTimeout(id);
+      controller.abort();
+    } else {
+      options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
   try {
     const response = await fetch(url, {
       ...options,
@@ -194,6 +203,7 @@ export interface CloudPathData {
   azimuthOffset: number;
   hourly: HourlyCloudData;
   source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
+  isFallback?: boolean;
 }
 
 export const getLocalHighResModel = (lat: number, lon: number): string => {
@@ -249,6 +259,7 @@ function createClearSkyFallback(
       humidity: Array(24).fill(45),
     },
     source,
+    isFallback: true,
   }));
 }
 
@@ -257,7 +268,9 @@ export const fetchSunsetWeather = async (
   lon: number,
   azimuth: number,
   useNowcast: boolean = false,
-  targetDate: Date = new Date()
+  targetDate: Date = new Date(),
+  forceRefresh: boolean = false,
+  signal?: AbortSignal
 ): Promise<CloudPathData[]> => {
   // 캐시 키와 요청 날짜는 **같은 날짜**여야 합니다. 예전에는 키만 현지 날짜,
   // 요청은 UTC 날짜여서 한국 현지 00~08시에 서로 어긋났습니다(§59).
@@ -266,15 +279,24 @@ export const fetchSunsetWeather = async (
   const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
   const sunsetCacheKey = `sunset_${gridBucket(lat, lon)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
 
-  const cachedSunset = MEM_SUNSET_CACHE.get(sunsetCacheKey);
-  if (cachedSunset && Date.now() - cachedSunset.time < CACHE_TTL_MS) {
-    if (__DEV__) console.log(`[WeatherAPI] Cache hit for ${sunsetCacheKey}`);
-    return cachedSunset.data;
-  }
+  if (forceRefresh) {
+    MEM_SUNSET_CACHE.delete(sunsetCacheKey);
+    INFLIGHT_REQUESTS.delete(sunsetCacheKey);
+  } else {
+    const cachedSunset = MEM_SUNSET_CACHE.get(sunsetCacheKey);
+    if (cachedSunset) {
+      const isFallback = cachedSunset.data?.[0]?.isFallback;
+      const ttl = isFallback ? FALLBACK_CACHE_TTL_MS : CACHE_TTL_MS;
+      if (Date.now() - cachedSunset.time < ttl) {
+        if (__DEV__) console.log(`[WeatherAPI] Cache hit for ${sunsetCacheKey}${isFallback ? ' (temporary fallback)' : ''}`);
+        return cachedSunset.data;
+      }
+    }
 
-  if (INFLIGHT_REQUESTS.has(sunsetCacheKey)) {
-    if (__DEV__) console.log(`[WeatherAPI] Joining inflight request for ${sunsetCacheKey}`);
-    return INFLIGHT_REQUESTS.get(sunsetCacheKey)!;
+    if (INFLIGHT_REQUESTS.has(sunsetCacheKey)) {
+      if (__DEV__) console.log(`[WeatherAPI] Joining inflight request for ${sunsetCacheKey}`);
+      return INFLIGHT_REQUESTS.get(sunsetCacheKey)!;
+    }
   }
 
   const startTime = Date.now();
@@ -375,15 +397,21 @@ export const fetchSunsetWeather = async (
   // 층별 바람은 별도 요청입니다 (`fetchLayerWinds` 주석: 기압면 변수 하나가
   // 없다고 운량까지 통째로 실패하면 안 됩니다). 여기서 미리 던져 두고
   // 아래에서 거둡니다 — 왕복 한 번 값이 겹칩니다.
-  const windsPromise = fetchLayerWinds(lat, lon, targetDate);
+  const windsPromise = fetchLayerWinds(lat, lon, targetDate, signal);
   // 대기질도 따로, 동시에 던집니다 — 실패해도 운량에는 영향이 없습니다(`fetchAirQuality`).
-  const airPromise = fetchAirQuality(lat, lon, targetDate);
+  const airPromise = fetchAirQuality(lat, lon, targetDate, signal);
 
   try {
     let response;
     try {
-      response = await fetchWithTimeout(url, {}, 5000);
+      response = await fetchWithTimeout(url, { signal }, 5000);
     } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError') {
+        INFLIGHT_REQUESTS.delete(sunsetCacheKey);
+        const abortErr = new Error('Aborted');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
       const duration = Date.now() - startTime;
       console.error(`[WeatherAPI] Network failure or Timeout after ${duration}ms. Error: ${err?.message}`);
       throw new Error(`NETWORK_ERROR: 인터넷 연결이 불안정하거나 타임아웃이 발생했습니다.`);
@@ -534,15 +562,37 @@ export const fetchSunsetWeather = async (
  * 계속 돌려줍니다.
  */
 export const primeRingCache = (
-  entries: { key: string; data: CloudPathData[] }[],
+  entries: { key: string; data: CloudPathData[]; latitude?: number; longitude?: number }[],
 ): void => {
   const now = Date.now();
   for (const e of entries) {
-    if (!e?.key || !Array.isArray(e.data) || e.data.length === 0) continue;
+    if (!e?.key || !Array.isArray(e.data) || e.data.length === 0 || e.data[0]?.isFallback) continue;
     ringCache.set(e.key, e.data);
     MEM_RING_CACHE.set(e.key, { data: e.data, time: now });
+    // w_ 와 ring_ 접두어를 상호 등록하여 캐시 누락 방지
+    if (e.key.startsWith('w_')) {
+      const rKey = e.key.replace(/^w_/, 'ring_');
+      ringCache.set(rKey, e.data);
+      MEM_RING_CACHE.set(rKey, { data: e.data, time: now });
+    } else if (e.key.startsWith('ring_')) {
+      const wKey = e.key.replace(/^ring_/, 'w_');
+      ringCache.set(wKey, e.data);
+      MEM_RING_CACHE.set(wKey, { data: e.data, time: now });
+    }
+    if (e.latitude != null && e.longitude != null) {
+      const datePart = e.key.split('_')[2];
+      if (datePart) {
+        const k = ringCacheKey(e.latitude, e.longitude, datePart);
+        ringCache.set(k, e.data);
+        MEM_RING_CACHE.set(k, { data: e.data, time: now });
+      }
+    }
   }
 };
+
+type RingFallbackFinder = (lat: number, lon: number, dateStr: string) => CloudPathData[] | null;
+let ringFallbackFinder: RingFallbackFinder | null = null;
+export const setRingFallbackFinder = (fn: RingFallbackFinder | null): void => { ringFallbackFinder = fn; };
 
 /**
  * 성공한 고리를 어디에 남길지 — **호출부가 꽂아 줍니다.**
@@ -867,7 +917,8 @@ const airCache = new Map<string, AirQualityHourly | null>();
 export const fetchAirQuality = async (
   lat: number,
   lon: number,
-  targetDate: Date = new Date()
+  targetDate: Date = new Date(),
+  signal?: AbortSignal
 ): Promise<AirQualityHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `aq_${gridBucket(lat, lon)}_${dateStr}`;
@@ -876,7 +927,7 @@ export const fetchAirQuality = async (
   const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
     `&hourly=aerosol_optical_depth,dust,pm2_5,pm10&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
   try {
-    const response = await fetchWithTimeout(url, {}, 8000);
+    const response = await fetchWithTimeout(url, { signal }, 8000);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (data?.error) throw new Error(data.reason || 'unknown');
@@ -934,7 +985,8 @@ const windCache = new Map<string, LayerWindHourly | null>();
 export const fetchLayerWinds = async (
   lat: number,
   lon: number,
-  targetDate: Date = new Date()
+  targetDate: Date = new Date(),
+  signal?: AbortSignal
 ): Promise<LayerWindHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `wind_${gridBucket(lat, lon)}_${dateStr}`;
@@ -957,7 +1009,7 @@ export const fetchLayerWinds = async (
     `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
 
   try {
-    const response = await fetchWithTimeout(url, {}, 12000);
+    const response = await fetchWithTimeout(url, { signal }, 12000);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (data?.error) throw new Error(data.reason || 'unknown');
@@ -1105,23 +1157,42 @@ function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
 export const fetchDayWeatherRing = async (
   lat: number,
   lon: number,
-  targetDate: Date = new Date()
+  targetDate: Date = new Date(),
+  forceRefresh: boolean = false,
+  signal?: AbortSignal
 ): Promise<CloudPathData[]> => {
   const targetDateStr = localDateString(targetDate);
   // ⚠ 예전에는 `lat.toFixed(3)` — **111m** 였습니다. §68 에서 일몰 날씨 키를,
   //   §77 에서 스토어 키를 격자 크기로 고쳤는데 **고리만 남아 있었습니다.**
   //   같은 부류의 세 번째 자리입니다. 111m 움직일 때마다 139KB 를 다시 받습니다.
   const cacheKey = ringCacheKey(lat, lon, targetDateStr);
-  const cached = MEM_RING_CACHE.get(cacheKey) || ringCache.get(cacheKey);
-  if (cached) {
-    const data = 'data' in cached ? (cached as any).data : cached;
-    if (__DEV__) console.log(`[WeatherAPI] Ring cache hit for ${cacheKey}`);
-    return data;
-  }
+  if (forceRefresh) {
+    MEM_RING_CACHE.delete(cacheKey);
+    ringCache.delete(cacheKey);
+    INFLIGHT_REQUESTS.delete(cacheKey);
+  } else {
+    const cachedEntry = MEM_RING_CACHE.get(cacheKey) || MEM_RING_CACHE.get(cacheKey.replace(/^ring_/, 'w_'));
+    if (cachedEntry) {
+      const isFallback = Boolean(cachedEntry.data?.[0]?.isFallback);
+      const ttl = isFallback ? FALLBACK_CACHE_TTL_MS : CACHE_TTL_MS;
+      if (Date.now() - cachedEntry.time < ttl) {
+        if (__DEV__) console.log(`[WeatherAPI] Ring cache hit for ${cacheKey} (fallback: ${isFallback})`);
+        return cachedEntry.data;
+      }
+    }
 
-  if (INFLIGHT_REQUESTS.has(cacheKey)) {
-    if (__DEV__) console.log(`[WeatherAPI] Joining inflight ring request for ${cacheKey}`);
-    return INFLIGHT_REQUESTS.get(cacheKey)!;
+    const fallbackData = ringFallbackFinder?.(lat, lon, targetDateStr);
+    if (fallbackData && fallbackData.length > 0 && !fallbackData[0]?.isFallback) {
+      if (__DEV__) console.log(`[WeatherAPI] Fallback store cache hit for ${cacheKey}`);
+      ringCache.set(cacheKey, fallbackData);
+      MEM_RING_CACHE.set(cacheKey, { data: fallbackData, time: Date.now() });
+      return fallbackData;
+    }
+
+    if (INFLIGHT_REQUESTS.has(cacheKey)) {
+      if (__DEV__) console.log(`[WeatherAPI] Joining inflight ring request for ${cacheKey}`);
+      return INFLIGHT_REQUESTS.get(cacheKey)!;
+    }
   }
 
   const ringPromise = (async () => {
@@ -1166,17 +1237,12 @@ export const fetchDayWeatherRing = async (
         `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
 
-    // 바람은 별도 요청이지만 **동시에** 던집니다
-    const [response, winds, air] = await Promise.all([
-      fetchWithTimeout(url, {}, 15000),
-      fetchLayerWinds(lat, lon, targetDate),
-      fetchAirQuality(lat, lon, targetDate),
-    ]);
+    // 1) 360° 메인 구름 링 먼저 수신
+    const response = await fetchWithTimeout(url, { signal }, 15000);
     if (!response.ok) {
       if (response.status === 429) {
         console.warn(`[WeatherAPI] fetchCloudRing 429 rate limit. Using synthetic clear sky fallback.`);
         const ringFallback = createClearSkyFallback(virtualPoints.map(vp => ({ dist: vp.dist, azimuthOffset: vp.az })), targetDate, 'standard');
-        ringCache.set(cacheKey, ringFallback);
         MEM_RING_CACHE.set(cacheKey, { data: ringFallback, time: Date.now() });
         INFLIGHT_REQUESTS.delete(cacheKey);
         return ringFallback;
@@ -1188,13 +1254,18 @@ export const fetchDayWeatherRing = async (
       if (data?.reason && (data.reason.includes('limit reached') || data.reason.includes('Hourly limit') || data.reason.includes('Minutely usage'))) {
         console.warn(`[WeatherAPI] fetchCloudRing rate limit error. Using synthetic clear sky fallback.`);
         const ringFallback = createClearSkyFallback(virtualPoints.map(vp => ({ dist: vp.dist, azimuthOffset: vp.az })), targetDate, 'standard');
-        ringCache.set(cacheKey, ringFallback);
         MEM_RING_CACHE.set(cacheKey, { data: ringFallback, time: Date.now() });
         INFLIGHT_REQUESTS.delete(cacheKey);
         return ringFallback;
       }
       throw new Error(`HTTP_ERROR: ${data.reason || 'Unknown'}`);
     }
+
+    // 2) 메인 링이 성공했을 때만 바람 및 대기질을 이어서 요청 (429일 때 불필요한 추가 요청 폭주 방지)
+    const [winds, air] = await Promise.all([
+      fetchLayerWinds(lat, lon, targetDate, signal),
+      fetchAirQuality(lat, lon, targetDate, signal),
+    ]);
     const results = Array.isArray(data) ? data : [data];
 
     const out: CloudPathData[] = virtualPoints.map((vp, i) => {
@@ -1422,7 +1493,7 @@ export const fetchTerrainProfile = async (
     // 1차 시도: Open-Meteo Elevation API (단일 요청 배치)
     while (retries < 2) {
       try {
-        const response = await fetchWithTimeout(url, {}, 4000);
+        const response = await fetchWithTimeout(url, {}, 8000);
         if (response.status === 429) {
           await sleep(1000);
           retries++;
@@ -1442,7 +1513,7 @@ export const fetchTerrainProfile = async (
       }
     }
 
-    // 2차 시도: Open-Meteo 일일 한도 초과(Daily Limit Exceeded) 시 고신뢰 Open-Elevation API 자동 폴백
+    // 2차 시도: Open-Meteo 일일 한도 초과 시 Open-Elevation API 자동 폴백 (최대 3초 대기)
     if (results.length !== points.length) {
       if (__DEV__) {
         console.warn(`[TerrainAPI] Open-Meteo unavailable. Engaging Open-Elevation fallback for ${points.length} coordinates...`);
@@ -1456,7 +1527,7 @@ export const fetchTerrainProfile = async (
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ locations: oePoints }),
           },
-          6000
+          3000
         );
         if (oeRes.ok) {
           const oeData = await oeRes.json();
@@ -1546,7 +1617,9 @@ export const fetchTerrainProfile = async (
     return terrainData;
   } catch (error: any) {
     const duration = Date.now() - startTime;
-    console.error(`[TerrainAPI] Failed to fetch panoramic terrain in ${duration}ms. Error: ${error?.message}`);
+    if (__DEV__) {
+      console.warn(`[TerrainAPI] Panoramic terrain unavailable (${duration}ms). Using flat horizon fallback: ${error?.message}`);
+    }
     // isFallback: true 로 마킹하여 호출부에서 캐싱하지 않도록 방지
     return {
       panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0),
@@ -1576,14 +1649,14 @@ export const fetchTerrainProfile = async (
  * 실패하면 `null` — 호출부는 그때 **그냥 다 받습니다.**
  */
 export const fetchWeatherCanary = async (
-  lat: number, lon: number, targetDate: Date = new Date(),
+  lat: number, lon: number, targetDate: Date = new Date(), signal?: AbortSignal,
 ): Promise<number[] | null> => {
   const dateStr = localDateString(targetDate);
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}`
     + `&hourly=${CANARY_VARIABLE}`
     + `&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
   try {
-    const res = await fetchWithTimeout(url, {}, 4000);
+    const res = await fetchWithTimeout(url, { signal }, 4000);
     if (!res.ok) return null;
     const data = await res.json();
     if (data?.error) return null;

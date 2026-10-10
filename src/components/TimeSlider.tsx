@@ -398,7 +398,7 @@ export const TimeSlider: React.FC<TimeSliderProps> = ({
           >
             <View style={styles.shutterOuterRing}>
               <View style={styles.shutterInnerCore}>
-                <Camera size={19} color={color.onAccent} strokeWidth={2.4} />
+                <Camera size={16} color={color.onAccent} strokeWidth={2.4} />
               </View>
             </View>
           </PressScale>
@@ -414,7 +414,7 @@ const useStyles = makeStyles((color) => ({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 2,
     gap: 8,
   },
   sliderSection: {
@@ -424,8 +424,8 @@ const useStyles = makeStyles((color) => ({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    height: 24,
+    marginBottom: 4,
+    height: 20,
     zIndex: 10,
   },
   titleRow: {
@@ -503,7 +503,7 @@ const useStyles = makeStyles((color) => ({
   },
   sliderWrapper: {
     position: 'relative',
-    height: 44,
+    height: 36,
     justifyContent: 'center',
   },
   markerOverlay: {
@@ -546,7 +546,7 @@ const useStyles = makeStyles((color) => ({
   timeLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 3,
+    marginTop: 1,
     paddingHorizontal: 27,
     position: 'relative',
   },
@@ -581,10 +581,10 @@ const useStyles = makeStyles((color) => ({
     borderWidth: 1,
     borderColor: color.accentLine,
     borderRadius: radius.sm,
-    paddingVertical: 5,
-    paddingHorizontal: 7,
-    gap: 3,
-    height: 74,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    gap: 2,
+    height: 62,
   },
   shutterStatusRow: {
     flexDirection: 'row',
@@ -616,8 +616,8 @@ const useStyles = makeStyles((color) => ({
     elevation: 5,
   },
   shutterOuterRing: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     borderRadius: radius.lg,
     backgroundColor: color.border,
     borderWidth: 1.5,
@@ -626,8 +626,8 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
   },
   shutterInnerCore: {
-    width: 30,
-    height: 30,
+    width: 26,
+    height: 26,
     borderRadius: radius.lg,
     backgroundColor: color.sun,
     justifyContent: 'center',
@@ -635,7 +635,7 @@ const useStyles = makeStyles((color) => ({
   },
   shutterLabel: {
     color: color.textDim,
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '800',
     letterSpacing: 0.8,
     fontFamily: mono,

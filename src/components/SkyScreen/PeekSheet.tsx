@@ -32,7 +32,7 @@ import { springTo } from '../../theme/motion';
 import { makeStyles, useThemeColors } from '../../theme/useTheme';
 
 /** 닫힌 상태에서 보이는 높이 (grabber + 요약 한 줄) */
-export const PEEK_HEIGHT = 52;
+export const PEEK_HEIGHT = 40;
 
 interface PeekSheetProps {
   /** 닫힌 상태에 보이는 요약 (한 줄) */
@@ -194,22 +194,22 @@ const useStyles = makeStyles((color) => ({
     elevation: 16,
   },
   grabberArea: {
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 5,
+    paddingBottom: 2,
     alignItems: 'center',
   },
   grabber: {
-    width: 32,
+    width: 28,
     height: 2,
     borderRadius: 1,
-    opacity: 0.6,
+    opacity: 0.5,
   },
   summaryRow: {
     position: 'absolute',
-    top: 18,
+    top: 13,
     left: 0,
     right: 0,
-    height: PEEK_HEIGHT - 18,
+    height: PEEK_HEIGHT - 13,
     paddingHorizontal: 16,
     justifyContent: 'center',
   },

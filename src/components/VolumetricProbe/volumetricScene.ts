@@ -771,7 +771,7 @@ export async function createVolumetricScene(
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
   // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
   const weatherCache = new Map<string, DataTexture>();
-  const WEATHER_CACHE_SIZE = 4;
+  const WEATHER_CACHE_SIZE = 8;
   const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) * 100) / 100;
   const weatherPlan = (p: VolumetricSceneInput) => {
     const inputs = p.layers.slice(0, 4);
@@ -854,10 +854,11 @@ export async function createVolumetricScene(
       // §131 K: 관측점을 국소 운량 ≈ 전역 운량인 칸으로(타일 바이트는 그대로). 장면 입력이 오프셋을 주면 그것이 우선.
       const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
       lastCamKm = camKm;
+      const driftSec = p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
-        setGenusDrift(m, gl, 0, GENUS_TILE_KM);
+        setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
@@ -918,13 +919,25 @@ export async function createVolumetricScene(
     if (!lastInput) return;
     lastInput = { ...lastInput, date };
     const sunAltDeg = sunAltAt(date);
-    if ((sunAltDeg > opt.shadowMinSunDeg) !== lastShadow) { setScene(lastInput); return; }
+    if ((sunAltDeg > opt.shadowMinSunDeg) !== lastShadow) {
+      lastShadow = sunAltDeg > opt.shadowMinSunDeg;
+      // 씬 전체를 동기 재생성(makeGenusWeather)하면 슬라이더 드래그 중 ANR이 발생하므로
+      // 구름 레이어의 그림자 플래그만 안전하게 갱신합니다.
+      for (const layer of clouds.cloudLayers) {
+        if (layer && (layer as any).shadow !== undefined) {
+          (layer as any).shadow = lastShadow;
+        }
+      }
+    }
     aerial.sunDirection.copy(sun);
     clouds.sunDirection.copy(sun);
     lastSunAltForLight = sunAltDeg;
     applySunLight();
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
-    if (genUv && genDate) for (const m of genusMats) setGenusDrift(m, genLayers, (date.getTime() - genDate.getTime()) / 1000, GENUS_TILE_KM);
+    if (genUv && genLayers) {
+      const driftSec = date.getTime() / 1000;
+      for (const m of genusMats) setGenusDrift(m, genLayers, driftSec, GENUS_TILE_KM);
+    }
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };

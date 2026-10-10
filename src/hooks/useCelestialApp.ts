@@ -11,7 +11,9 @@ import { auth } from '../config/firebase';
 import { signInAnonymously } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
-import { fetchSunsetWeather, getInterpolatedWeather, fetchTerrainProfile } from '../utils/weather';
+import { fetchDayWeatherRing, getInterpolatedWeather, fetchTerrainProfile, type CloudPathData } from '../utils/weather';
+import { localDateString } from '../utils/localDate';
+import { sameBucket } from '../utils/cachePolicy';
 import { setAppIcon, getAppIcon } from 'expo-dynamic-app-icon';
 import { t, Language } from '../utils/i18n';
 import { airQualityNote } from '../utils/airQuality';
@@ -60,15 +62,42 @@ const requestNotificationPermission = async () => {
 };
 
 /**
+ * 저장된 캐시가 있으면 네트워크를 아예 타지 않고 캐시를 돌려줍니다.
+ * 없을 때만 단 1회 네트워크로 날씨를 요청합니다.
+ */
+const getOrFetchWeatherData = async (
+  lat: number,
+  lon: number,
+  targetTime: Date,
+  azimuth?: number,
+  cacheOnly: boolean = false
+): Promise<CloudPathData[] | null> => {
+  try {
+    const dateStr = localDateString(targetTime);
+    const cached = useCelestialStore.getState().weatherCacheList.find(c =>
+      c.key.includes(dateStr) && sameBucket(c.latitude, c.longitude, lat, lon)
+    );
+    if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
+      if (__DEV__) console.log(`[useCelestialApp] Weather cache hit for ${dateStr} — network skipped`);
+      return cached.data as CloudPathData[];
+    }
+    if (cacheOnly || !useCelestialStore.getState().isCacheHydrated) return null;
+    return await fetchDayWeatherRing(lat, lon, targetTime);
+  } catch (err) {
+    if (__DEV__) console.warn('[useCelestialApp] getOrFetchWeatherData failed:', err);
+    return null;
+  }
+};
+
+/**
  * 그날 일몰의 구름·하늘 표지와 대기질 한 줄(**그날 예보**). 받지 못하면 null — 다른 날 표지를 빌려 쓰지
- * 않습니다(예전에는 7일 예약이 전부 오늘 표지·오늘 그림이었습니다).
+ * 않습니다. 캐시가 없으면 429 한도 초과 방지를 위해 네트워크를 무리하게 태우지 않고 null을 반환합니다.
  */
 const sunsetLabelsFor = async (
-  lat: number, lon: number, sunset: Date, language: Language,
+  lat: number, lon: number, sunset: Date, language: Language, cacheOnly: boolean = true
 ): Promise<{ cloudLabel: string; colorLabel: string; airNote: string } | null> => {
   try {
-    const azimuth = getSunPosition(sunset, lat, lon).azimuth;
-    const wx = await fetchSunsetWeather(lat, lon, azimuth, false, sunset);
+    const wx = await getOrFetchWeatherData(lat, lon, sunset, undefined, cacheOnly);
     if (!wx || wx.length === 0) return null;
     const obs = getInterpolatedWeather(wx, sunset)[0];
     if (!obs) return null;
@@ -216,7 +245,7 @@ export function useCelestialApp() {
     currentTime, location, timezoneOffsetHours, timezoneLabel, isTimeMachineEnabled, userRotation, isGyroEnabled, errorMsg, 
     savedLocations, currentUser, myPhotos, globalPhotos,
     locationPermission, cameraPermission, isSimulationLoading, language,
-    isAppReady, initialTab,
+    isAppReady, initialTab, isCacheHydrated,
     setCurrentTime, setLocation, setTimeMachineEnabled, setUserRotation, setGyroEnabled, 
     resetRotation, setErrorMsg, updateTime, pinTime, addSavedLocation, removeSavedLocation,
     setCurrentUser, syncSavedLocations, addMyPhoto, removeMyPhoto, syncMyPhotos,
@@ -700,7 +729,7 @@ export function useCelestialApp() {
 
   // 오늘의 스마트 노을 및 내일의 일출 알림 스케줄링 (+ 동적 앱아이콘 업데이트 연동)
   useEffect(() => {
-    if (!location || !events) return;
+    if (!isCacheHydrated || !location || !events) return;
 
     const lat = location.coords.latitude;
     const lon = location.coords.longitude;
@@ -745,8 +774,7 @@ export function useCelestialApp() {
             let sunsetNotifImageUri: string | null = null;
             let airNote = '';
             try {
-              const azimuth = getSunPosition(sunsetTime, lat, lon).azimuth;
-              const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunsetTime);
+              const weatherData = await getOrFetchWeatherData(lat, lon, sunsetTime);
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
                 const obs = interpolated[0];
@@ -871,8 +899,7 @@ export function useCelestialApp() {
             let sunriseNotifImageUri: string | null = null;
             let airNote = '';
             try {
-              const azimuth = getSunPosition(sunriseTime, lat, lon).azimuth;
-              const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, sunriseTime);
+              const weatherData = await getOrFetchWeatherData(lat, lon, sunriseTime);
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
                 const obs = interpolated[0];
@@ -944,7 +971,7 @@ export function useCelestialApp() {
         const azimuth = currentSunPos.azimuth;
 
         if (isCancelled) return;
-        const weatherData = await fetchSunsetWeather(lat, lon, azimuth, false, now);
+        const weatherData = await getOrFetchWeatherData(lat, lon, now);
         
         if (isCancelled) return;
         if (weatherData && weatherData.length > 0) {
@@ -994,7 +1021,7 @@ export function useCelestialApp() {
         clearTimeout(timerId);
       }
     };
-  }, [location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast]);
+  }, [isCacheHydrated, location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast]);
 
   // 하늘 이벤트 알림(골든아워·블루아워·월출·가는 달·은하수·행성) — 설정·위치·언어·날짜가 바뀌면 다시 계획합니다.
   const skyPlanKey = JSON.stringify([

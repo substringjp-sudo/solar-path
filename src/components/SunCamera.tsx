@@ -205,6 +205,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
   const skyLayers = useCelestialStore(s => s.skyLayers);
   const skySettings = useCelestialStore(s => s.skySettings);
+  // 카메라 화면 내 미니 3D 시뮬레이터는 카메라 스트림과의 GPU 리소스 경합 및 버퍼 오류(ANR) 방지를 위해 볼륨 하늘을 비활성화합니다.
+  const camSkySettings = useMemo(() => ({
+    ...skySettings,
+    volumetricSky: false,
+  }), [skySettings]);
   // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 예전처럼
   // 해 방향 부채꼴 기상(camInterpolated)으로 그립니다.
   const sharedTimeline = useCelestialStore(s => s.skyTimeline);
@@ -479,7 +484,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     const fail = () => { camWeatherFailedAtRef.current[key] = Date.now(); scheduleRetry(RETRY_MS); };
     fetchSunsetWeather(lat, lon, az, false, at)
       .then(data => {
-        if (!Array.isArray(data) || data.length === 0) { fail(); return; }
+        if (!Array.isArray(data) || data.length === 0 || (data as any)[0]?.isFallback) { fail(); return; }
         delete camWeatherFailedAtRef.current[key];
         // 받은 자리 좌표로 넣습니다 — 그 사이 옮겼어도 틀린 자리에 붙지 않습니다.
         addWeatherCache({ key, data, timestamp: Date.now(), latitude: lat, longitude: lon } as any);
@@ -958,7 +963,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             console.log('[SunCamera] No valid weather cache. Fetching weather on the fly...');
           }
           const weatherData = await fetchSunsetWeather(latitude, longitude, currentSunPos.azimuth, false, captureTime);
-          if (weatherData && weatherData.length > 0) {
+          if (weatherData && weatherData.length > 0 && !(weatherData as any)[0]?.isFallback) {
             // 예전에는 +9시간을 박아 넣어 한국 밖에서는 엉뚱한 날짜가 나왔고,
             // 같은 키를 만드는 useCelestialStore 와도 어긋났습니다(§59).
             const dateStr = localDateString(captureTime);
@@ -1789,7 +1794,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   interpolatedWeather={camInterpolated}
                   timeline={camTimeline}
                   layers={skyLayers}
-                  skySettings={skySettings}
+                  skySettings={camSkySettings}
                   theme={{ accent: '#FF9800' }}
                   cameraAzimuthProp={effectiveAz}
                   cameraElevationProp={effectivePitch}
