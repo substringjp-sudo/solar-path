@@ -39,9 +39,11 @@ export function profileOf(obs: CloudData): ProfileLevel[] {
 export interface LiveSceneArgs {
   lat: number; lon: number; heightM: number;
   date: Date;
-  pathData: CloudPathData[];
-  /** 이미 보간된 관측점 구름(하늘 화면은 이것을 넘김). 있으면 pathData 는 쓰지 않습니다. */
+  pathData?: CloudPathData[];
+  /** 이미 보간된 관측점 구름(하늘 화면은 이것을 넘김). */
   obs?: CloudData | null;
+  /** 이미 보간된 주변 좌표 구름 목록(SkyScene3D의 weatherRef.current). */
+  interpolatedWeather?: CloudData[] | null;
   /** 시선 방위(°). 없으면 해 쪽. */
   az?: number;
   el?: number;
@@ -58,16 +60,24 @@ export interface LiveScene {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+import { buildMacroWeatherField } from '../../utils/macroWeatherField';
+
 export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const sun = SunCalc.getPosition(a.date, a.lat, a.lon);
   const sunAz = ((sun.azimuth * 180) / Math.PI + 180 + 360) % 360;
   const sunAltDeg = (sun.altitude * 180) / Math.PI;
-  const obs = a.obs ?? (a.pathData.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null);
+  const obs = a.obs ?? (a.interpolatedWeather?.[0] ?? (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null));
   const base: VolumetricSceneInput = {
     lat: a.lat, lon: a.lon, heightM: a.heightM, date: a.date,
     az: a.az ?? sunAz, el: a.el ?? 15, fov: a.fov ?? 60, layers: [],
   };
   if (!obs) return { input: base, forecast: null, obs: null, summary: '예보 없음' };
+
+  // §132 거시 상태장: 주변 10여개 좌표로부터 동서/남북 1차 운량 기울기와 해 방향 직달광 차폐율 계산
+  const interpolatedList = (a.interpolatedWeather && a.interpolatedWeather.length > 1)
+    ? a.interpolatedWeather
+    : (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date) : [obs]);
+  const macro = buildMacroWeatherField(interpolatedList, sunAz, sunAltDeg);
 
   const forecast = classifyGenus({
     low: obs.low, mid: obs.mid, high: obs.high,
@@ -98,7 +108,14 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const flowSeed = flowSeedOf(a.lat, a.lon, a.date);
   const flowOpts = (band: 'low' | 'mid' | 'high') => {
     const [u, v] = W[band], [su, sv] = shearOf(band);
-    return { windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed };
+    const mGrad = macro[band];
+    return {
+      windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed,
+      macroGradX: mGrad?.gradXPer100Km ?? 0,
+      macroGradY: mGrad?.gradYPer100Km ?? 0,
+      beamTransmittance: macro.beamTransmittance[band] ?? 1,
+      sunGap: macro.sunGap,
+    };
   };
 
   const layers: VolumetricLayerInput[] = [];
@@ -131,6 +148,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
 
   if (anvil) layers.push(anvil);
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
-  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(forecast.mid, obs.mid)} · 상 ${name(forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}°`;
+  const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
+  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(forecast.mid, obs.mid)} · 상 ${name(forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%`;
   return { input: { ...base, layers }, forecast, obs, summary };
 }

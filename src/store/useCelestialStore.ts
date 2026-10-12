@@ -97,6 +97,7 @@ export interface MyPhoto {
   devicePitch?: number;
   isPublic?: boolean;
   likesCount?: number;
+  userFeedback?: 'good' | 'bad' | null;
 }
 
 export interface GlobalPhoto {
@@ -201,6 +202,7 @@ interface CelestialState extends ClockState {
   ) => Promise<void>;
   removeMyPhoto: (id: string) => Promise<void>;
   togglePhotoVisibility: (id: string, isPublic: boolean) => Promise<void>;
+  setPhotoFeedback: (photoId: string, feedback: 'good' | 'bad' | null) => Promise<void>;
   syncMyPhotos: () => () => void;
   
   uploadAndPostPhoto: (
@@ -786,6 +788,21 @@ export const useCelestialStore = create<CelestialState>()(
             await updateDoc(userPhotoRef, { isPublic });
           } catch (err) {
             console.warn('[togglePhotoVisibility] Firestore update failed:', err);
+          }
+        }
+      },
+      setPhotoFeedback: async (photoId: string, feedback: 'good' | 'bad' | null) => {
+        const user = get().currentUser || auth.currentUser;
+        set((state) => ({
+          myPhotos: state.myPhotos.map(p => p.id === photoId ? { ...p, userFeedback: feedback } : p),
+        }));
+
+        if (user) {
+          try {
+            const userPhotoRef = doc(db, `users/${user.uid}/photos`, photoId);
+            await updateDoc(userPhotoRef, { userFeedback: feedback });
+          } catch (err) {
+            console.warn('[setPhotoFeedback] Firestore update failed:', err);
           }
         }
       },

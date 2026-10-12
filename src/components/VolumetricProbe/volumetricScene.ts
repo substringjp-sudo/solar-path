@@ -325,7 +325,7 @@ export interface VolumetricOptions {
    *  흐름 경로의 기본(flow 가 꺼져 있으면 아무 일도 하지 않음). */
   flowCamCell: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: null, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -334,9 +334,11 @@ export interface VolumetricScene {
   setScene(input: VolumetricSceneInput): void;
   /**
    * §127 setScene 의 비동기판 — 날씨를 잘라 만드는 동안 이전 장면을 계속 그립니다(폰에서 JS 를 1초 넘게 막지 않게).
-   * 더 새 setScene/setSceneAsync 가 오면 버려지고 false.
+   * 더 새 setScene/setSceneAsync 가 오면 버려지고 false. isFast 가 참이면 드래그 중 S=128 초고속 모드로 생성합니다.
    */
-  setSceneAsync(input: VolumetricSceneInput): Promise<boolean>;
+  setSceneAsync(input: VolumetricSceneInput, isFast?: boolean): Promise<boolean>;
+  /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
+  cancelAsync?(): void;
   /** 시선만 바꿉니다(매 프레임 싸게). */
   setView(az: number, el: number, fov: number): void;
   /** 시각만 바꿉니다(해 방향·노출). 해가 그림자 지도 문턱을 넘나들면 층을 다시 만듭니다. */
@@ -772,8 +774,10 @@ export async function createVolumetricScene(
   // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
   const weatherCache = new Map<string, DataTexture>();
   const WEATHER_CACHE_SIZE = 8;
-  const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) * 100) / 100;
-  const weatherPlan = (p: VolumetricSceneInput) => {
+  const weatherPlan = (p: VolumetricSceneInput, isFast = false) => {
+    const S = isFast ? 128 : 256;
+    const quantStep = isFast ? 0.05 : 0.01;
+    const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) / quantStep) * quantStep;
     const inputs = p.layers.slice(0, 4);
     const useFlow = opt.flow && opt.genus;
     const gl: (GenusLayer | null)[] = inputs.map((L, i) => {
@@ -790,8 +794,8 @@ export async function createVolumetricScene(
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
     const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery, qMode: opt.flowQMode, qN: opt.flowQN, qH: opt.flowQH, s90: opt.flowS90 }) : null;
-    const key = JSON.stringify([useGenus, gl, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp]]);
-    return { inputs, gl, useGenus, plain, key, flow };
+    const key = JSON.stringify([useGenus, gl, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
+    return { inputs, gl, useGenus, plain, key, flow, S };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
   const cacheGet = (key: string) => {
@@ -876,11 +880,11 @@ export async function createVolumetricScene(
   };
   const setScene = (p: VolumetricSceneInput) => {
     sceneToken++;   // 진행 중인 비동기 생성은 버립니다
-    const plan = weatherPlan(p);
+    const plan = weatherPlan(p, false);
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
-      tex = plan.useGenus ? makeGenusWeather(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, plan.flow) : makeWeather(plan.plain, opt);
+      tex = plan.useGenus ? makeGenusWeather(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, plan.flow) : makeWeather(plan.plain, opt);
       weatherMs = Date.now() - t0;
       cachePut(plan.key, tex);
     }
@@ -889,15 +893,16 @@ export async function createVolumetricScene(
   /**
    * §127 하늘 화면용 — 날씨를 잘라 만들고(그동안 이전 장면을 계속 그림) 다 되면 장면을 바꿉니다. 더 새 호출이 오면
    * 이전 것은 버려지고 false 를 돌려줍니다. 날씨가 캐시에 있으면 곧바로 바꿉니다.
+   * isFast 가 참이면 드래그 중 S=128 초고속 모드(30~50ms)로 생성합니다.
    */
-  const setSceneAsync = async (p: VolumetricSceneInput): Promise<boolean> => {
+  const setSceneAsync = async (p: VolumetricSceneInput, isFast = false): Promise<boolean> => {
     const my = ++sceneToken;
-    const plan = weatherPlan(p);
+    const plan = weatherPlan(p, isFast);
     let tex = cacheGet(plan.key);
     if (!tex) {
       const t0 = Date.now();
       tex = plan.useGenus
-        ? await makeGenusWeatherAsync(plan.gl, 512, GENUS_TILE_KM, 7, plan.plain, 6, () => my !== sceneToken || disposed, plan.flow)
+        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 16, () => my !== sceneToken || disposed, plan.flow)
         : makeWeather(plan.plain, opt);
       if (!tex) return false;
       if (my !== sceneToken || disposed) { tex.dispose(); return false; }
@@ -955,6 +960,9 @@ export async function createVolumetricScene(
     setPreset,
     setScene,
     setSceneAsync,
+    cancelAsync: () => {
+      sceneToken++;
+    },
     setView,
     setDate,
     lastScene: () => last,

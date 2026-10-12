@@ -20,7 +20,7 @@ import {
   CloudSun,
   Eye,
   Droplets,
-  Sparkles, Flag } from 'lucide-react-native';
+  Sparkles, Flag, ThumbsUp, ThumbsDown } from 'lucide-react-native';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { shareToSns, SnsPlatform } from '../utils/snsShare';
@@ -43,8 +43,10 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
   const [showSnsSelector, setShowSnsSelector] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [reportState, setReportState] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle');
+  const [currentFeedback, setCurrentFeedback] = useState<'good' | 'bad' | null>(photo?.userFeedback || null);
   const hidePhoto = useCelestialStore((s) => s.hidePhoto);
   const blockUser = useCelestialStore((s) => s.blockUser);
+  const setPhotoFeedback = useCelestialStore((s) => s.setPhotoFeedback);
 
   const togglePhotoVisibility = useCelestialStore((s) => s.togglePhotoVisibility);
   const language = useCelestialStore((s) => s.language);
@@ -98,6 +100,14 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
         L3(language, '🌐 전체 공개로 바뀜', '🌐 Now public', '🌐 全体公開になりました'),
         L3(language, '공유하면서 게시물을 [전체 공개]로 바꿨습니다.', 'Sharing made this post public.', '共有に合わせて投稿を[全体公開]にしました。'),
       );
+    }
+  };
+
+  const handleFeedback = async (feedback: 'good' | 'bad') => {
+    const next = currentFeedback === feedback ? null : feedback;
+    setCurrentFeedback(next);
+    if (photo?.id) {
+      await setPhotoFeedback(photo.id, next);
     }
   };
 
@@ -192,6 +202,63 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                   </View>
                 </View>
               </View>
+
+              {/* Sky Forecast & Simulation Evaluation */}
+              {isMyPhoto && (
+                <View style={styles.feedbackCard}>
+                  <View style={styles.feedbackCardHeader}>
+                    <Sparkles size={14} color="#FFB380" />
+                    <Text style={styles.feedbackCardTitle}>
+                      {L3(language, '하늘 예측 정확도 평가', 'Sky Forecast Accuracy', '空の予測評価')}
+                    </Text>
+                  </View>
+                  <Text style={styles.feedbackCardDesc}>
+                    {L3(
+                      language,
+                      '실제 하늘과 시뮬레이션이 잘 맞았나요? 평가 데이터는 예측 적중률 보정에 활용됩니다.',
+                      'Did the simulation match the real sky? Your feedback helps calibrate accuracy.',
+                      'シミュレーションと実際の空は一致しましたか？'
+                    )}
+                  </Text>
+                  <View style={styles.feedbackBtnRow}>
+                    <PressScale
+                      style={[
+                        styles.feedbackBtn,
+                        currentFeedback === 'good' && styles.feedbackBtnGoodActive,
+                      ]}
+                      onPress={() => handleFeedback('good')}
+                    >
+                      <ThumbsUp size={14} color={currentFeedback === 'good' ? '#fff' : color.textMute} />
+                      <Text
+                        style={[
+                          styles.feedbackBtnText,
+                          currentFeedback === 'good' && styles.feedbackBtnTextActive,
+                        ]}
+                      >
+                        {L3(language, '잘 맞았어요 ☀️', 'Accurate ☀️', '合っていた ☀️')}
+                      </Text>
+                    </PressScale>
+
+                    <PressScale
+                      style={[
+                        styles.feedbackBtn,
+                        currentFeedback === 'bad' && styles.feedbackBtnBadActive,
+                      ]}
+                      onPress={() => handleFeedback('bad')}
+                    >
+                      <ThumbsDown size={14} color={currentFeedback === 'bad' ? '#fff' : color.textMute} />
+                      <Text
+                        style={[
+                          styles.feedbackBtnText,
+                          currentFeedback === 'bad' && styles.feedbackBtnTextActive,
+                        ]}
+                      >
+                        {L3(language, '아쉬웠어요 ⛅', 'Inaccurate ⛅', '少し違った ⛅')}
+                      </Text>
+                    </PressScale>
+                  </View>
+                </View>
+              )}
 
               {!isPublic && (
                 <Text style={styles.privateNotice}>
@@ -638,5 +705,65 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
     fontSize: 11,
     fontWeight: '700',
+  },
+  feedbackCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 179, 128, 0.25)',
+    padding: 12,
+    gap: 8,
+  },
+  feedbackCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feedbackCardTitle: {
+    color: '#FFB380',
+    fontSize: 12,
+    fontWeight: '800',
+    fontFamily: mono,
+    letterSpacing: 0.3,
+  },
+  feedbackCardDesc: {
+    color: color.textDim,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  feedbackBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  feedbackBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: radius.xs,
+    backgroundColor: color.fill,
+    borderWidth: 1,
+    borderColor: color.border,
+  },
+  feedbackBtnGoodActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.25)',
+    borderColor: '#10B981',
+  },
+  feedbackBtnBadActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+    borderColor: '#EF4444',
+  },
+  feedbackBtnText: {
+    color: color.textDim,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  feedbackBtnTextActive: {
+    color: color.text,
+    fontWeight: '800',
   },
 });

@@ -776,18 +776,20 @@ export function updateTerrainBands(
     angstrom: number;
     elevScale: number;
     saturation?: number;
+    moonIrradiance?: { r: number; g: number; b: number } | null;
   }
 ): void {
   const sunT = clamp01(opts.sunTransmittance ?? 1);
   const sinAlt = Math.max(0, Math.sin((sunAltitude * Math.PI) / 180));
   const beam = opts.beam ?? { r: 0, g: 0, b: 0 };
   const direct = (sinAlt * sunT) / Math.PI;
+  const mIrr = opts.moonIrradiance ?? { r: 0, g: 0, b: 0 };
 
   // 능선은 수평면이 아니라 사면이라 하늘을 덜 봅니다 (하늘 가림 ≈ 0.72).
   const SKY_VIEW = 0.72;
-  const r = (opts.skyMean.r * SKY_VIEW + beam.r * direct) * GROUND_ALBEDO.r;
-  const g = (opts.skyMean.g * SKY_VIEW + beam.g * direct) * GROUND_ALBEDO.g;
-  const b = (opts.skyMean.b * SKY_VIEW + beam.b * direct) * GROUND_ALBEDO.b;
+  const r = (opts.skyMean.r * SKY_VIEW + beam.r * direct + mIrr.r * SKY_VIEW) * GROUND_ALBEDO.r;
+  const g = (opts.skyMean.g * SKY_VIEW + beam.g * direct + mIrr.g * SKY_VIEW) * GROUND_ALBEDO.g;
+  const b = (opts.skyMean.b * SKY_VIEW + beam.b * direct + mIrr.b * SKY_VIEW) * GROUND_ALBEDO.b;
 
   for (const band of handle.bands) {
     const u = band.material.uniforms;

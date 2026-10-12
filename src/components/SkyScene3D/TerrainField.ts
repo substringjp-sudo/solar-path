@@ -291,6 +291,9 @@ uniform vec3  uSunRadiance;
 uniform float uSunAzRad;
 uniform float uSunAltRad;
 uniform float uSunAltDeg;
+uniform vec3  uMoonRadiance;
+uniform float uMoonAzRad;
+uniform float uMoonAltRad;
 uniform vec3  uAlbedo;
 uniform vec3  uLitAlbedo;     // §129 볼륨 하늘(지형 빛 판)에서 쓰는 알베도 — 흙·암반·물가 비율은 uAlbedo 대비로 그대로
 uniform float uExposure;
@@ -550,6 +553,24 @@ void main() {
   // 여기서도 깎는 것은 직달뿐입니다 — 구름 그늘도 하늘은 봅니다.
   ndl *= cloudShadowAt(vGround);
 
+  // ── 달빛 입체 음영 및 산 그림자 ──────────────────────────────────────────
+  vec3 moon = vec3(cos(uMoonAltRad) * sin(uMoonAzRad),
+                   sin(uMoonAltRad),
+                  -cos(uMoonAltRad) * cos(uMoonAzRad));
+  float moonUp = max(0.0, sin(uMoonAltRad));
+  float ndlMoon = max(0.0, dot(n, moon));
+  float moonShade = 0.0;
+  if (uShadow > 0.5 && uDemValid > 0.5 && moonUp > 0.0 && length(uMoonRadiance) > 1e-4) {
+    vec2 moonHoriz = vec2(moon.x, moon.z);
+    float ml = length(moonHoriz);
+    if (ml > 1e-4) {
+      float hzMoon = terrainHorizonAngle(vGround, vElevM, moonHoriz / ml);
+      moonShade = smoothstep(uMoonAltRad - 0.00463, uMoonAltRad + 0.00463, hzMoon);
+    }
+  }
+  ndlMoon *= 1.0 - moonShade;
+  ndlMoon *= cloudShadowAt(vGround);
+
   // ── 경사: 급하면 암반(밝고 회색), 완만하면 흙·수풀(어둡고 따뜻) ──────────
   //
   // ⚠ 경사는 **기울기(rise/run = tanθ)** 로 재야 합니다. 흔히 쓰는
@@ -571,10 +592,9 @@ void main() {
   alb = mix(alb, alb * 0.52, wet);
 
 #ifdef TERRAIN_LIT_OUT
-  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**(ndl × 산 그림자 × 구름 그림자)을 적습니다. 빛(해·하늘 조도)·
-  // 대기 원근·노출·표시 곡선은 볼륨 하늘(takram)이 하늘·구름과 같은 값으로 입힙니다 — 이 셰이더의 대기 모형과 땅용 눈
-  // 순응을 그대로 쓰면 박명에 산이 하늘보다 밝은 회청색이 됐습니다(기기 10/05 17:46).
-  gl_FragColor = vec4(clamp(alb * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0), clamp(ndl, 0.0, 1.0));
+  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛/달빛 몫**을 적습니다.
+  float litFactor = clamp(max(ndl, ndlMoon), 0.0, 1.0);
+  gl_FragColor = vec4(clamp(alb * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0), litFactor);
   return;
 #endif
 
@@ -595,8 +615,22 @@ void main() {
   // 받침을 빼고 그 자리에 **제 각도의 몫**을 넣습니다. 평평하고 위를 보는
   // 면은 ndl = sin(고도) 라 값이 정확히 같고, 기울어진 곳만 달라집니다.
   float sunUp = max(0.0, sin(uSunAltRad));
-  vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - uSunRadiance * sunUp / 3.14159265);
-  vec3 col = alb * (skyIrr + uSunRadiance * ndl / 3.14159265);
+  vec3 directFlat = (uSunRadiance * sunUp + uMoonRadiance * moonUp) / 3.14159265;
+  vec3 skyIrr = max(vec3(0.0), uSurfaceIrr - directFlat);
+  vec3 directLit = (uSunRadiance * ndl + uMoonRadiance * ndlMoon) / 3.14159265;
+  vec3 col = alb * (skyIrr + directLit);
+
+  // ── 달빛 반사광 (Moon Specular Sheen) ──────────────────────────────────
+  // 달을 향한 사면 및 젖은 모래/암반의 스펙큘러 하이라이트
+  if (moonUp > 0.0 && length(uMoonRadiance) > 1e-4) {
+    vec3 V = -normalize(vViewDir);
+    vec3 H = normalize(V + moon);
+    float ndh = max(0.0, dot(n, H));
+    float specPower = mix(16.0, 48.0, wet + 0.5 * smoothstep(0.15, 0.5, slope));
+    float spec = pow(ndh, specPower) * (1.0 - moonShade) * cloudShadowAt(vGround);
+    float f0 = mix(0.04, 0.15, wet);
+    col += uMoonRadiance * spec * f0 * 1.5;
+  }
 
   // ── 공기원근 ─────────────────────────────────────────────────────────────
   //
@@ -799,6 +833,9 @@ export function createTerrainField(opts: {
       uSunAzRad: { value: 0 },
       uSunAltRad: { value: 0.5 },
       uSunAltDeg: { value: 30 },
+      uMoonRadiance: { value: new THREE.Vector3(0, 0, 0) },
+      uMoonAzRad: { value: 0 },
+      uMoonAltRad: { value: 0 },
       uAlbedo: { value: new THREE.Vector3(alb.r, alb.g, alb.b) },
       uLitAlbedo: { value: new THREE.Vector3(VOLUMETRIC_TERRAIN_ALBEDO.r, VOLUMETRIC_TERRAIN_ALBEDO.g, VOLUMETRIC_TERRAIN_ALBEDO.b) },
       uExposure: { value: 1.0 },

@@ -97,22 +97,22 @@ export interface GenusParams extends Partial<FlowLayerParams> {
  * 종류별 값 — 웹 하네스에서 판정기(§124.1)로 고른 후보(§124.3). st 는 아직 재지 않았습니다.
  */
 export const GENUS: Record<GenusKey, GenusParams> = {
-  cu: { mode: 0, height: 1500, base: 0.03, top: 1.0, edge: 1, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 1, shapeDetailAmount: 0.3, radius: 0.55, turrets: 5 },
-  ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 5, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.5, shapeDetailAmount: 0.7 },
+  cu: { mode: 0, height: 1600, base: 0.1, top: 1.1, edge: 1.4, ao: 1.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.55, radius: 0.6, turrets: 8 },
+  ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 4, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.6, shapeDetailAmount: 0.7 },
   ci: { mode: 0, height: 800, base: 0.4, top: 0.5, edge: 1.5, ao: 0, domePow: 1.5, densityScale: 0.003, shapeAmount: 0.15, shapeDetailAmount: 0 },
-  sc: { mode: 0, height: 600, base: 0.06, top: 0.35, edge: 2, ao: 5, domePow: 1, densityScale: 0.2, shapeAmount: 1, shapeDetailAmount: 0.6, warp: 0.8, lumps: 0.6, gap: 0.35 },
+  sc: { mode: 0, height: 750, base: 0.08, top: 0.45, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.65, warp: 0.8, lumps: 0.75, gap: 0.3 },
   // 층운: 판 종류는 렌즈 단면(top 4 → 층 대부분에서 hs≈1)이라 d>0 인 곳이 전부 구름이고 d 는 두께만 바꿉니다.
   // (첫 판은 돔 단면 top 0.15 라 d<0.16 인 곳이 비어 판이 덩어리로 깨졌습니다.)
   st: { mode: 1, height: 400, base: 0, top: 4, edge: 2, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.1, shapeDetailAmount: 0, topQuantile: 0.5 },
   // ── §126 D3: 아래는 아직 사진 자로 재지 않은 값입니다(물리 선험). ──
-  // 웅대적운: 적운보다 큰 세포(4km)·봉우리 많음·덜 둥근 꼭대기·두꺼움.
-  cg: { mode: 0, height: 4000, base: 0.03, top: 1.3, edge: 1, ao: 2, domePow: 1, densityScale: 0.22, shapeAmount: 1, shapeDetailAmount: 0.3, spacingKm: 4, radius: 0.6, turrets: 7, sizeSkew: 1.0, topQuantile: 1 },
-  // 적란운 탑: 드문 큰 세포(15km 간격, 반지름 ≈ 5km), 층 두께는 입력(밑면~권계면)으로 줍니다.
-  cb: { mode: 0, height: 8000, base: 0.02, top: 1.6, edge: 1.5, ao: 3, domePow: 1, densityScale: 0.25, shapeAmount: 1, shapeDetailAmount: 0.3, spacingKm: 15, radius: 0.35, turrets: 4, sizeSkew: 0.7, warp: 0.2, topQuantile: 1 },
+  // 웅대적운: 거대한 수직 대류 탑 복합체 (congestus stack).
+  cg: { mode: 0, height: 4000, base: 0.08, top: 1.2, edge: 1.3, ao: 2.5, domePow: 1, densityScale: 0.22, shapeAmount: 1, shapeDetailAmount: 0.4, spacingKm: 4, radius: 0.6, turrets: 8, sizeSkew: 1.0, topQuantile: 1 },
+  // 적란운 탑: 10km 이상 솟구치는 거대한 대류 기둥.
+  cb: { mode: 0, height: 8000, base: 0.07, top: 1.35, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.25, shapeAmount: 1, shapeDetailAmount: 0.4, spacingKm: 15, radius: 0.4, turrets: 6, sizeSkew: 0.7, warp: 0.2, topQuantile: 1 },
   // 적란운 모루: 탑과 같은 세포 위에 3배 반지름의 렌즈, 바람 방향으로 늘임. 운량 문턱 없이 장 값 그대로.
   cbanvil: { mode: 1, height: 1500, base: 0, top: 1.0, edge: 3, ao: 0, domePow: 1, densityScale: 0.06, shapeAmount: 0.3, shapeDetailAmount: 0, spacingKm: 15, radius: 0.35, sizeSkew: 0.7, warp: 0.2, absolute: true, anvilScale: 3, stretch: 1.2 },
-  // 난층운: 두꺼운(3km) 균일 층, 밑이 어둡고(ao) 아래쪽이 너덜함.
-  ns: { mode: 1, height: 3000, base: 0, top: 4, edge: 3, ao: 2.5, domePow: 1, densityScale: 0.3, shapeAmount: 0.4, shapeDetailAmount: 0.15, topQuantile: 0.7 },
+  // 난층운: 두꺼운(3.2km) 비구름 층. 묵직하고 어두운 밑면(ao 4.5)과 하강 기류로 아래가 굽이치며 처져 내림.
+  ns: { mode: 0, height: 3200, base: 0.12, top: 0.85, edge: 1.8, ao: 4.5, domePow: 1, densityScale: 0.28, shapeAmount: 0.8, shapeDetailAmount: 0.5, topQuantile: 0.85 },
   // 고층운: 중층의 흐릿한 판. 밝기 변화만 있고 윤곽이 없음.
   as: { mode: 1, height: 1500, base: 0, top: 4, edge: 3, ao: 2, domePow: 1, densityScale: 0.15, shapeAmount: 0.3, shapeDetailAmount: 0.2, topQuantile: 0.8 },
   // 권층운: 상층의 얇은 베일(햇무리). 아주 옅고 결이 희미함.
@@ -277,12 +277,11 @@ function quantile(arr: Float32Array, q: number): number {
 type FieldPx = (x: number, y: number) => number;
 type Field = (S: number, tileKm: number, seed: number, L: GenusLayer, flow?: boolean) => FieldPx;
 const FIELDS: Record<GenusKey, Field> = {
+  // 적운: 솜사탕처럼 복합적인 거품 덩어리들이 뭉쳐진 꽃양배추형 대류 뭉게구름 (Multi-scale Cauliflower Billows)
   cu(S, tileKm, seed, L) {
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 2.4)));
     const C = cells(n, seed), env = fbm(2, 3, seed + 7), warp = fbm(Math.max(4, n), 3, seed + 13), warp2 = fbm(Math.max(4, n), 3, seed + 17);
-    const wa = (param(L, 'warp') ?? 0.35) / n, rmax = (param(L, 'radius') ?? 0.55) / n, T = param(L, 'turrets') ?? 0, skew = param(L, 'sizeSkew') ?? 1.5;
-    // §130.0 세포 크기 s = p.s^skew·(0.4 + 1.2·env(p)) 는 세포마다 상수 — 화소마다 이웃 25개의 env 를 다시 부르던 것을 세포당 한 번으로.
-    // 같은 수(바이트 동일, 9 운량 × 2 씨앗 diff 0), 적운 512² 1.4 s → 0.4 s(node).
+    const wa = (param(L, 'warp') ?? 0.35) / n, rmax = (param(L, 'radius') ?? 0.6) / n, T = param(L, 'turrets') ?? 8, skew = param(L, 'sizeSkew') ?? 1.5;
     const sCache = new Float64Array(n * n);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const p = C.at(i, j); sCache[j * n + i] = Math.pow(p.s, skew) * (0.4 + 1.2 * env(p.x, p.y)); }
     return (x, y) => {
@@ -293,15 +292,39 @@ const FIELDS: Record<GenusKey, Field> = {
       for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
         const p = C.at(ci + di, cj + dj), s = sCache[((((cj + dj) % n) + n) % n) * n + ((((ci + di) % n) + n) % n)];
         const R = rmax * (0.45 + 0.55 * Math.min(1, s)), dx = wrapD(u, p.x), dy = wrapD(v, p.y);
-        if (!T) { const q = 1 - (dx * dx + dy * dy) / (R * R); if (q > 0) best = Math.max(best, s * q); continue; }
-        // 봉우리 여럿: 한 구름 = 높이가 다른 반구 몇 개의 합집합(꽃양배추 꼭대기).
-        if (dx * dx + dy * dy > R * R * 1.6) continue;
+        if (dx * dx + dy * dy > R * R * 2.2) continue;
         const r2 = rng(Math.floor(p.s * 1e9) ^ seed);
-        for (let t = 0; t < T; t++) {
-          const a = r2() * 6.2832, off = (t === 0 ? 0 : 0.25 + 0.3 * r2()) * R, Rb = R * (t === 0 ? 0.75 : 0.35 + 0.3 * r2());
-          const hb = s * (t === 0 ? 0.75 : 0.55 + 0.45 * r2());
-          const ex = dx - Math.cos(a) * off, ey = dy - Math.sin(a) * off, q = 1 - (ex * ex + ey * ey) / (Rb * Rb);
-          if (q > 0) best = Math.max(best, hb * Math.sqrt(q));
+
+        // 1. 중심 코어 돔 (Core updraft dome: 크기를 0.55R로 알맞게 줄여 주변 터렛이 묻히지 않게 함)
+        const ang0 = Math.atan2(dy, dx);
+        const rH0 = 1 + 0.22 * Math.cos(3 * ang0 + seed) + 0.12 * Math.sin(5 * ang0);
+        const q0 = 1 - (dx * dx + dy * dy) * (rH0 * rH0) / (R * R * 0.45);
+        if (q0 > 0) best = Math.max(best, s * 0.9 * Math.sqrt(q0) * (1.2 - 0.2 * q0));
+
+        // 2. 1차 주 터렛 (꽃양배추형 중형 돔들: 사방으로 뻗어 꽃봉오리 형성)
+        for (let t = 1; t <= T; t++) {
+          const a = r2() * 6.2832, off = (0.28 + 0.38 * r2()) * R, Rb = R * (0.35 + 0.28 * r2());
+          const hb = s * (0.6 + 0.4 * r2());
+          const ex = dx - Math.cos(a) * off, ey = dy - Math.sin(a) * off;
+          const ang = Math.atan2(ey, ex);
+          const rH = 1 + 0.3 * Math.cos(3 * ang + t * 2.1 + seed) + 0.18 * Math.sin(5 * ang + t * 1.7);
+          const dSq = (ex * ex + ey * ey) * (rH * rH);
+          const q = 1 - dSq / (Rb * Rb);
+          if (q > 0) {
+            const hProfile = Math.sqrt(q) * (1.25 - 0.25 * q);
+            best = Math.max(best, hb * hProfile);
+          }
+        }
+
+        // 3. 2차 미세 솜사탕 거품 퍼프 (Surface micro-billows: 몽실몽실한 표면 버블)
+        for (let m = 0; m < 5; m++) {
+          const aM = r2() * 6.2832, offM = (0.4 + 0.45 * r2()) * R, Rm = R * (0.18 + 0.15 * r2());
+          const exM = dx - Math.cos(aM) * offM, eyM = dy - Math.sin(aM) * offM;
+          const dSqM = exM * exM + eyM * eyM;
+          const qM = 1 - dSqM / (Rm * Rm);
+          if (qM > 0) {
+            best = Math.max(best, s * (0.45 + 0.35 * r2()) * Math.pow(qM, 0.7));
+          }
         }
       }
       return best;
@@ -317,8 +340,11 @@ const FIELDS: Record<GenusKey, Field> = {
       let best = 0;
       for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
         const p = C.at(ci + di, cj + dj), dx = wrapD(u, p.x), dy = wrapD(v, p.y);
-        const q = 1 - (dx * dx + dy * dy) / (R * R * (0.6 + 0.4 * p.s));
-        if (q > 0) best = Math.max(best, (0.6 + 0.4 * p.t) * Math.sqrt(q));
+        const ang = Math.atan2(dy, dx);
+        const rH = 1 + 0.2 * Math.cos(4 * ang + seed);
+        const dSq = (dx * dx + dy * dy) * (rH * rH);
+        const q = 1 - dSq / (R * R * (0.6 + 0.4 * p.s));
+        if (q > 0) best = Math.max(best, (0.6 + 0.4 * p.t) * q * (1.3 - 0.3 * q));
       }
       const wave = 1 - rows + rows * (0.5 + 0.5 * Math.cos(2 * Math.PI * k * (u * ca + v * sa)));
       // §130 흐름 층은 패치 마스크를 수분장(q₀)이 맡으므로 fbm 마스크를 뺍니다(끄면 이전과 같음).
@@ -360,19 +386,94 @@ const FIELDS: Record<GenusKey, Field> = {
         if (d < d1) { d2 = d1; d1 = d; s1 = p.s; } else if (d < d2) d2 = d;
       }
       const gapM0 = Math.min(1, (d2 - d1) / gap), gapM = sheet + (1 - sheet) * gapM0;
-      const cellF = (0.55 + 0.45 * s1) * gapM * (1 - 0.35 * Math.min(1, d1)) * lump;
+      // 부드러운 코사인 롤 곡선으로 다각형 타일감 제거하고 몽실몽실한 3D 롤/웨이브 형성
+      const roll = Math.cos(Math.min(1, d1) * 3.141592 * 0.5);
+      // 세포 내부 복합 거품 요철 (Sub-billows within cell: 밋밋한 빵 느낌 파괴)
+      const subBillow = 0.8 + 0.2 * Math.cos(d1 * 6.283184);
+      const cellF = (0.55 + 0.45 * s1) * gapM * roll * lump * subBillow;
       if (!clN) return cellF;
       // 덮개가 주도: 무리 안은 칸 경계의 얇은 틈만 남기고 칸을 채웁니다(세포별 크기·가운데 강조를 빼야 칸이 가운데만 남지 않음).
-      return (1 - cl) * cellF + cl * gapM * (0.85 + 0.15 * lump) * env;
+      return (1 - cl) * cellF + cl * gapM * (0.85 + 0.15 * lump * subBillow) * env;
     };
   },
   st(S, tileKm, seed) {
     const g = fbm(Math.max(4, Math.round(tileKm / 3)), 4, seed);
     return (x, y) => 0.7 + 0.3 * g((x + 0.5) / S, (y + 0.5) / S);
   },
-  // 웅대적운·적란운 탑: 적운 세포 무늬를 종류별 기본값(간격·반지름·봉우리 수)으로 다시 씁니다.
-  cg(S, tileKm, seed, L) { return FIELDS.cu(S, tileKm, seed, L); },
-  cb(S, tileKm, seed, L) { return FIELDS.cu(S, tileKm, seed, L); },
+  // 웅대적운: 수직으로 솟구치는 거대한 대류 탑 복합체 (Cumulus congestus stack)
+  cg(S, tileKm, seed, L) {
+    const n = Math.max(1, Math.round(tileKm / (param(L, 'spacingKm') ?? 4)));
+    const C = cells(n, seed), env = fbm(2, 3, seed + 11), warp = fbm(Math.max(4, n * 2), 3, seed + 17);
+    const wa = (param(L, 'warp') ?? 0.4) / n, rmax = (param(L, 'radius') ?? 0.6) / n, T = param(L, 'turrets') ?? 8;
+    return (x, y) => {
+      let u = (x + 0.5) / S, v = (y + 0.5) / S;
+      const wVal = (warp(u, v) - 0.5) * wa;
+      u += wVal; v += (warp(v, u) - 0.5) * wa;
+      const ci = Math.floor(u * n), cj = Math.floor(v * n);
+      let best = 0;
+      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+        const p = C.at(ci + di, cj + dj), s = (0.5 + 1.2 * env(p.x, p.y)) * Math.pow(p.s, 0.9);
+        const R = rmax * (0.6 + 0.4 * Math.min(1, s)), dx = wrapD(u, p.x), dy = wrapD(v, p.y);
+        if (dx * dx + dy * dy > R * R * 2.0) continue;
+        const r2 = rng(Math.floor(p.s * 1e9) ^ (seed + 99));
+        // 중심 기둥 (Central core updraft)
+        const ang0 = Math.atan2(dy, dx);
+        const rH0 = 1 + 0.25 * Math.cos(4 * ang0 + seed);
+        const q0 = 1 - (dx * dx + dy * dy) * (rH0 * rH0) / (R * R * 0.7);
+        if (q0 > 0) best = Math.max(best, s * Math.pow(q0, 0.75));
+        // 둘레의 수직 분출 탑들 (Surrounding convective towers)
+        for (let t = 1; t <= T; t++) {
+          const a = r2() * 6.2832, dist = (0.2 + 0.4 * r2()) * R, Rb = R * (0.3 + 0.3 * r2());
+          const ex = dx - Math.cos(a) * dist, ey = dy - Math.sin(a) * dist;
+          const ang = Math.atan2(ey, ex);
+          const rH = 1 + 0.3 * Math.cos(3 * ang + t * 2.1) + 0.15 * Math.sin(5 * ang);
+          const q = 1 - (ex * ex + ey * ey) * (rH * rH) / (Rb * Rb);
+          if (q > 0) {
+            const h = s * (0.4 + 0.6 * r2()) * Math.pow(q, 0.8);
+            best = Math.max(best, h);
+          }
+        }
+      }
+      return best;
+    };
+  },
+  // 적란운 탑: 10km 이상 솟구치는 거대한 단열 대류 핵 (Thunderstorm convective chimney)
+  cb(S, tileKm, seed, L) {
+    const n = Math.max(1, Math.round(tileKm / (param(L, 'spacingKm') ?? 15)));
+    const C = cells(n, seed), env = fbm(2, 3, seed + 19), warp = fbm(Math.max(4, n * 2), 4, seed + 29), warp2 = fbm(Math.max(4, n * 2), 4, seed + 33);
+    const wa = (param(L, 'warp') ?? 0.3) / n, rmax = (param(L, 'radius') ?? 0.4) / n, T = param(L, 'turrets') ?? 6;
+    return (x, y) => {
+      let u = (x + 0.5) / S, v = (y + 0.5) / S;
+      u += (warp(u, v) - 0.5) * wa; v += (warp2(u, v) - 0.5) * wa;
+      const ci = Math.floor(u * n), cj = Math.floor(v * n);
+      let best = 0;
+      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+        const p = C.at(ci + di, cj + dj), s = (0.7 + 0.8 * env(p.x, p.y)) * Math.pow(p.s, 0.7);
+        const R = rmax * (0.8 + 0.4 * Math.min(1, s)), dx = wrapD(u, p.x), dy = wrapD(v, p.y);
+        const distSq = dx * dx + dy * dy;
+        if (distSq > R * R * 2.5) continue;
+        // 1. 넓은 빗구름 받침 (Convective shelf base)
+        const qBase = 1 - distSq / (R * R * 2.2);
+        if (qBase > 0) best = Math.max(best, s * 0.35 * Math.pow(qBase, 0.5));
+        // 2. 중심 초거대 대류 기둥 (Central chimney updraft)
+        const ang = Math.atan2(dy, dx);
+        const rH = 1 + 0.2 * Math.cos(3 * ang + seed) + 0.15 * Math.sin(6 * ang);
+        const qCore = 1 - distSq * (rH * rH) / (R * R);
+        if (qCore > 0) best = Math.max(best, s * Math.pow(qCore, 0.85));
+        // 3. 외곽 격렬한 난류 돔들
+        const r2 = rng(Math.floor(p.s * 1e9) ^ (seed + 177));
+        for (let t = 0; t < T; t++) {
+          const a = r2() * 6.2832, off = (0.3 + 0.4 * r2()) * R, Rb = R * (0.35 + 0.3 * r2());
+          const ex = dx - Math.cos(a) * off, ey = dy - Math.sin(a) * off;
+          const aT = Math.atan2(ey, ex);
+          const rHT = 1 + 0.25 * Math.cos(3 * aT + t * 1.8);
+          const qT = 1 - (ex * ex + ey * ey) * (rHT * rHT) / (Rb * Rb);
+          if (qT > 0) best = Math.max(best, s * (0.5 + 0.5 * r2()) * Math.pow(qT, 0.9));
+        }
+      }
+      return best;
+    };
+  },
   // 적란운 모루: 탑과 같은 세포·휨 위에 큰 반지름의 둥근 판 — 바람 방향으로 늘이고 조금 밀어 둡니다.
   cbanvil(S, tileKm, seed, L) {
     const n = Math.max(1, Math.round(tileKm / (param(L, 'spacingKm') ?? 15)));
@@ -397,10 +498,35 @@ const FIELDS: Record<GenusKey, Field> = {
       return best;
     };
   },
-  // 난층운: 두꺼운 판 + 아래쪽 너덜함(작은 규모 잡음) — 값이 높게 몰려 운량이 커도 빈 데가 조금 남습니다.
-  ns(S, tileKm, seed) {
-    const g = fbm(Math.max(3, Math.round(tileKm / 4)), 5, seed);
-    return (x, y) => 0.55 + 0.45 * g((x + 0.5) / S, (y + 0.5) / S);
+  // 난층운(비구름): 3중 복합 구조 (거시 먹구름 층 + 빗줄기 버가 샤프트 + 밑면에 찢겨 나부끼는 조각구름 Pannus)
+  ns(S, tileKm, seed, L) {
+    const baseScale = Math.max(2, Math.round(tileKm / 8));
+    const baseOvercast = fbm(baseScale, 4, seed);
+    const rainShaftL = Math.max(3, Math.round(tileKm / 3));
+    const rainShaftW = Math.max(8, Math.round(tileKm / 0.8));
+    const rainShafts = fbm2(rainShaftL, rainShaftW, 3, seed + 13);
+    const scudScale = Math.max(6, Math.round(tileKm / 1.5));
+    const scudClouds = fbm(scudScale, 4, seed + 37);
+    const warp = fbm(Math.max(4, baseScale * 2), 3, seed + 19);
+    const windDeg = param(L, 'windDeg') ?? 45;
+    const ang = (windDeg * Math.PI) / 180;
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+
+    return (x, y) => {
+      let u = (x + 0.5) / S, v = (y + 0.5) / S;
+      const wVal = (warp(u, v) - 0.5) * 0.08;
+      u += wVal; v += wVal;
+      const uRot = u * ca + v * sa, vRot = -u * sa + v * ca;
+
+      // 1. 주 먹구름 기반 (0.6 ~ 1.0)
+      const baseD = 0.65 + 0.35 * baseOvercast(u, v);
+      // 2. 빗줄기 기둥/버가 샤프트 (강수 밴드)
+      const shaft = Math.pow(Math.max(0, rainShafts(uRot, vRot) - 0.25) / 0.75, 1.2);
+      // 3. 밑면 아래로 찢겨 나부끼는 하층 조각구름 (Pannus / Fractostratus)
+      const scud = Math.pow(Math.max(0, scudClouds(u * 1.5, v * 1.5) - 0.35) / 0.65, 1.4);
+
+      return Math.min(1.0, baseD * (0.8 + 0.35 * shaft) + 0.25 * scud);
+    };
   },
   // 고층운·권층운: 큰 규모의 부드러운 판. 권층운은 약한 결(바람 방향)이 조금 섞입니다.
   as(S, tileKm, seed) {
@@ -487,7 +613,8 @@ function* genusWeatherSteps(
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = Math.round(Math.pow(Math.min(1, Math.max(0, f[i])), pw) * 255);
       continue;
     }
-    if (L.cover < 0.999) { growBeyondCapacity(f, S, L.cover); yield; }
+    const isHighCloud = L.genus === 'ci' || L.genus === 'cs';
+    if (!isHighCloud && L.cover < 0.999) { growBeyondCapacity(f, S, L.cover); yield; }
     const th = L.cover >= 0.999 ? -1 : qf(f, 1 - L.cover);
     yield;
     if (useFlow) {
@@ -555,7 +682,7 @@ function weatherTexture(data: Uint8Array, S: number): DataTexture {
 
 /** 날씨 텍스처를 한 번에 만듭니다(시험 화면·하네스). */
 export function makeGenusWeather(
-  layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7,
+  layers: (GenusLayer | null)[], S = 256, tileKm = 24, seed = 7,
   /** 종류 없는 채널에 넣을 기본 잡음 운량(0~1) — takram 기본 모양(순위 문턱 fbm)으로 채웁니다. */
   plainCover: number[] = [],
   /** §130 흐름 핵 매개변수 — null 이면 흐름 없이(이전과 바이트 동일). */
@@ -575,8 +702,8 @@ export function makeGenusWeather(
  * `cancelled()` 가 참이 되면 중간에 멈추고 null 을 돌려줍니다(더 새 장면이 들어옴).
  */
 export async function makeGenusWeatherAsync(
-  layers: (GenusLayer | null)[], S = 512, tileKm = 24, seed = 7, plainCover: number[] = [],
-  sliceMs = 6, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
+  layers: (GenusLayer | null)[], S = 256, tileKm = 24, seed = 7, plainCover: number[] = [],
+  sliceMs = 16, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
 ): Promise<DataTexture | null> {
   const data = new Uint8Array(S * S * 4);
   const stats = {};
@@ -596,7 +723,7 @@ export async function makeGenusWeatherAsync(
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
-const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO', 'genusThru'] as const;
+const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO', 'genusThru', 'genusBeamTransmittance'] as const;
 
 /**
  * 셰이더 패치 — 구름 패스와 그림자 패스 둘 다(같은 clouds.glsl). genusOn = 0 인 층은 takram 그대로입니다.
@@ -617,8 +744,18 @@ export function patchGenusShader(mat: PatchableMaterial): void {
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
     '  vec4 gHf = weather.heightFraction;',
-    '  vec4 gRamp = smoothstep(vec4(0.0), max(genusBase, vec4(1e-4)), gHf);',
-    '  vec4 gDome = gRamp * pow(max(vec4(1.0) - gHf, vec4(1e-6)), genusTop);',
+    '  // §134 유기적 밑면 굴곡(LCL Base Perturbation): 칼로 자른 듯한 완전 수평 평면 파괴',
+    '  // 구름 중심(localWeather가 큰 곳)은 수분 응결로 약간 처져 내려오고, 외곽은 위로 자연스럽게 둥글게 말림.',
+    '  vec4 gBasePerturb = (localWeather - vec4(0.45)) * vec4(0.09) * clamp(genusEdge, vec4(0.5), vec4(2.0));',
+    '  vec4 gBaseRampMin = -max(gBasePerturb, vec4(-0.04));',
+    '  vec4 gBaseRampMax = max(genusBase + gBasePerturb, vec4(0.06));',
+    '  vec4 gRamp = smoothstep(gBaseRampMin, gBaseRampMax, gHf);',
+    '  // §134 다중 스케일 솜사탕/꽃양배추 볼륨 팽창 (Fractal Cauliflower Bulge)',
+    '  vec4 gClamp = clamp(gHf, vec4(0.0), vec4(1.0));',
+    '  vec4 gSine1 = sin(gClamp * 3.141592);',
+    '  vec4 gSine2 = sin(gClamp * 6.283184) * vec4(0.18);',
+    '  vec4 gBulge = clamp(gSine1 + gSine2, vec4(0.0), vec4(1.15));',
+    '  vec4 gDome = gRamp * (pow(max(vec4(1.0) - gHf, vec4(1e-6)), genusTop) * 0.35 + pow(max(gBulge, vec4(1e-6)), genusTop * 0.65) * 0.65);',
     '  vec4 gLens = vec4(1.0) - pow(max(abs(gHf * 2.0 - 1.0), vec4(1e-6)), max(genusTop, vec4(1e-3)));',
     '  vec4 gHs = mix(gDome, gLens, step(vec4(0.5), genusMode));',
     '  vec4 gDensity = clamp((localWeather - (vec4(1.0) - gHs)) * genusEdge, 0.0, 1.0);',
@@ -628,7 +765,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   src = src.replace(st, 'struct WeatherSample {\n  vec4 heightFraction;\n  vec4 density;\n  vec4 depth;\n};');
   const sg = 'float skyGradient = dot(weather.heightFraction * 0.5 + 0.5, media.weight);';
   if (src.includes(sg)) {
-    src = src.replace(sg, sg + '\n      skyGradient *= dot(mix(vec4(1.0), exp(-genusAO * weather.depth), genusOn), media.weight);');
+    src = src.replace(sg, sg + '\n      skyGradient *= dot(mix(vec4(1.0), max(vec4(0.35), exp(-genusAO * weather.depth)), genusOn), media.weight);');
   }
   // 햇빛 확산 투과(GenusParams.thru): 위쪽 광학두께 ≈ 이 표본의 소광 × 꼭대기까지 거리.
   const amb = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
@@ -638,7 +775,9 @@ export function patchGenusShader(mat: PatchableMaterial): void {
       '      {',
       '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
       '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
-      '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.1 * gTau)) * 2.0 / (2.0 + 0.15 * gTau);',
+      '        // 다중 산란 최저광: 두꺼운 구름도 햇빛을 등질 때 웅장한 은빛/금빛 확산광 보장',
+      '        vec4 gMultiScat = max(vec4(0.28), exp(-0.035 * gTau)) * max(genusBeamTransmittance, vec4(0.25));',
+      '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.15 * gTau)) * (2.0 / (2.0 + 0.1 * gTau)) * gMultiScat;',
       '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);',
       '      }',
     ].join('\n'));
@@ -682,6 +821,7 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
   set('genusEdge', lane(L => param(L, 'edge')));
   set('genusAO', lane(L => param(L, 'ao')));
   set('genusThru', lane(L => param(L, 'thru') ?? 1));
+  set('genusBeamTransmittance', lane(L => (L?.opts as any)?.beamTransmittance ?? 1));
 }
 
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */

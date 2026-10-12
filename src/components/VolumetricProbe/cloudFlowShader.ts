@@ -23,7 +23,11 @@ import { GENUS_FLOW, type FlowLayerParams } from './cloudFlow';
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
 
-const FLOW_VEC_UNIFORMS = ['genusFlow', 'genusDensPow', 'genusDriftU', 'genusDriftV', 'genusTiltU', 'genusTiltV', 'genusErode', 'genusTauRef'] as const;
+const FLOW_VEC_UNIFORMS = [
+  'genusFlow', 'genusDensPow', 'genusDriftU', 'genusDriftV',
+  'genusTiltU', 'genusTiltV', 'genusErode', 'genusTauRef',
+  'genusMacroGradX', 'genusMacroGradY',
+] as const;
 
 /** 흐름 손잡이 — 층 opts 가 우선, 없으면 종류별 GENUS_FLOW, 그것도 없으면 기본값. */
 export function flowParam<K extends keyof FlowLayerParams>(L: GenusLayer, k: K, fallback: number): number {
@@ -62,10 +66,11 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   }
   // S1 균일변수
   src = src.replace(decl, decl + '\n' + FLOW_VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n')
-    + '\nuniform float genusUvOn;\nuniform float genusTexelM;');
+    + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;');
   // S2 mode 2 — LWP 돔(꼭대기 = d^(1/top)). genusMode 0/1 은 이전과 같음.
   src = src.replace(oHs, [
-    '  vec4 gDomeL = gRamp * (vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop));',
+    '  vec4 gBulgeL = sin(clamp(gHf, vec4(0.0), vec4(1.0)) * 3.141592);',
+    '  vec4 gDomeL = gRamp * ((vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop)) * 0.45 + pow(max(gBulgeL, vec4(1e-6)), genusTop * 0.7) * 0.55);',
     '  vec4 gHs = mix(mix(gDome, gLens, step(vec4(0.5), genusMode)), gDomeL, step(vec4(1.5), genusMode));',
   ].join('\n'));
   // S3 연속 밀도
@@ -92,6 +97,12 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '  } else {',
     '    localWeather = pow(textureLod(localWeatherTexture, gUv0, mipLevel).LOCAL_WEATHER_CHANNELS, weatherExponents);',
     '  }',
+    '  // §132 거시 상태장: 주변 10여개 좌표의 2D 공간 기울기에 따라 운량을 점진적으로 변조',
+    '  if (genusMacroOn > 0.5) {',
+    '    vec2 gPosKm = uv * (genusTileM * 0.001);',
+    '    vec4 gMacroDelta = (gPosKm.x * genusMacroGradX + gPosKm.y * genusMacroGradY) * 0.01;',
+    '    localWeather = clamp(localWeather + gMacroDelta, vec4(0.0), vec4(1.0));',
+    '  }',
   ].join('\n'));
   // S7 평균 보존 침식 + 발자국 페이드(mipLevel 은 sampleMedia 의 매개변수).
   src = src.replace(gShape, [
@@ -111,6 +122,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   mat.uniforms.genusTauRef = { value: new Vector4(4, 4, 4, 4) };
   mat.uniforms.genusUvOn = { value: 0 };
   mat.uniforms.genusTexelM = { value: 24000 / 512 };
+  mat.uniforms.genusMacroOn = { value: 0 };
   mat.needsUpdate = true;
 }
 
@@ -134,6 +146,11 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
   set('genusDensPow', lane(L => flowParam(L, 'densPow', 0.5)));
   set('genusErode', lane(L => flowParam(L, 'flowErode', 0.5)));
   set('genusTauRef', [4, 4, 4, 4]);
+  // 거시 상태장 기울기
+  const macroLane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (layers[i] ? fn(layers[i] as GenusLayer) : 0));
+  set('genusMacroGradX', macroLane(L => flowParam(L, 'macroGradX', 0)));
+  set('genusMacroGradY', macroLane(L => flowParam(L, 'macroGradY', 0)));
+  mat.uniforms.genusMacroOn.value = layers.some(L => !!L && (flowParam(L, 'macroGradX', 0) !== 0 || flowParam(L, 'macroGradY', 0) !== 0)) ? 1 : 0;
   // 기울임: 높이 1 타일당 uv 이동(타일 단위). 꼭대기가 전단 쪽(+ŝ)으로 기울게 읽는 자리는 −ŝ 쪽.
   const tilt = (L: GenusLayer, c: 0 | 1) => (on.uv ? -flowParam(L, 'flowTilt', 0) * shearUnit(L)[c] : 0);
   set('genusTiltU', lane(L => tilt(L, 0)));

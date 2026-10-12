@@ -161,6 +161,13 @@ export interface FlowLayerParams {
   topQuantile?: number;
   /** d = 구름 화소 순위^flowDPow (rankNormalize). 기본 FLOW_D_POW. */
   flowDPow?: number;
+  /** 주변 10여개 좌표 기반 2D 거시 공간 기울기 (100km당 운량 변화율, -1 ~ +1) */
+  macroGradX?: number;
+  macroGradY?: number;
+  /** 태양 방향 직달광 유효 투과율 (0 ~ 1) */
+  beamTransmittance?: number;
+  /** 태양 쪽 하늘 빛 틈 비율 (0 ~ 1) */
+  sunGap?: number;
 }
 
 /**

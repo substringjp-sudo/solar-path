@@ -102,13 +102,20 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
     const shower = code != null && (T.showerCodes as readonly number[]).includes(code);
     const weakConv = (cape != null ? cape >= T.cuCape : false) || (li != null ? li <= T.cuLi : false)
       || (cape == null && li == null && thickKm != null && thickKm >= T.cuThickKm);
-    if ((convective && (precip > 0 || shower)) || (shower && cape != null && cape >= T.cuCape)) { low = 'cb'; why.push('cb: 대류+강수'); }
-    else if (precip >= T.nsPrecip && x.low >= T.nsCover && x.mid >= T.minCover) { low = 'ns'; why.push('ns: 강수+저·중층 덮임'); }
-    else if (baseAglKm != null && baseAglKm <= T.stBaseKm && x.low >= T.stCover && !weakConv) { low = 'st'; why.push(`st: 밑면 ${baseAglKm.toFixed(2)}km`); }
-    else if (weakConv && x.isDay !== false && x.low < T.cuCover) {
+    const isRaining = precip >= 0.1 || (code != null && ((code >= 51 && code <= 67) || (code >= 71 && code <= 77) || (code >= 80 && code <= 99)));
+    if ((convective && (precip > 0 || shower)) || (shower && cape != null && cape >= T.cuCape)) {
+      low = 'cb'; why.push('cb: 대류+강수');
+    } else if (isRaining) {
+      // 강수 발생 시 층적운 대신 실감나는 난층운(비구름)으로 정확히 분류
+      low = 'ns'; why.push(`ns: 강수(${precip.toFixed(1)}mm)`);
+    } else if (baseAglKm != null && baseAglKm <= T.stBaseKm && x.low >= T.stCover && !weakConv) {
+      low = 'st'; why.push(`st: 밑면 ${baseAglKm.toFixed(2)}km`);
+    } else if (weakConv && x.isDay !== false && x.low < T.cuCover) {
       low = thickKm != null && thickKm >= T.cgThickKm ? 'cg' : 'cu';
       why.push(`${low}: 대류 두께 ${thickKm?.toFixed(1) ?? '?'}km`);
-    } else { low = 'sc'; why.push('sc: 나머지'); }
+    } else {
+      low = 'sc'; why.push('sc: 나머지');
+    }
   }
 
   let mid: MidGenus | null = null;

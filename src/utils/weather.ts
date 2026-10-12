@@ -1488,63 +1488,33 @@ export const fetchTerrainProfile = async (
     }
     
     let results: number[] = [];
-    let retries = 0;
 
-    // 1차 시도: Open-Meteo Elevation API (단일 요청 배치)
-    while (retries < 2) {
-      try {
-        const response = await fetchWithTimeout(url, {}, 8000);
-        if (response.status === 429) {
-          await sleep(1000);
-          retries++;
-          continue;
+    // Open-Meteo Elevation API (단일 요청 배치)
+    try {
+      const response = await fetchWithTimeout(url, {}, 6000);
+      if (response.status === 429) {
+        if (__DEV__) console.warn('[TerrainAPI] Open-Meteo elevation rate limited (429). Using flat horizon fallback immediately.');
+      } else if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.elevation) && data.elevation.length === points.length) {
+          results = data.elevation;
         }
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Array.isArray(data.elevation) && data.elevation.length === points.length) {
-            results = data.elevation;
-            break;
-          }
-        }
-        retries++;
-      } catch (e) {
-        retries++;
-        await sleep(500);
       }
-    }
-
-    // 2차 시도: Open-Meteo 일일 한도 초과 시 Open-Elevation API 자동 폴백 (최대 3초 대기)
-    if (results.length !== points.length) {
-      if (__DEV__) {
-        console.warn(`[TerrainAPI] Open-Meteo unavailable. Engaging Open-Elevation fallback for ${points.length} coordinates...`);
-      }
-      try {
-        const oePoints = points.map(p => ({ latitude: p.lat, longitude: p.lon }));
-        const oeRes = await fetchWithTimeout(
-          'https://api.open-elevation.com/api/v1/lookup',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ locations: oePoints }),
-          },
-          3000
-        );
-        if (oeRes.ok) {
-          const oeData = await oeRes.json();
-          if (oeData && Array.isArray(oeData.results) && oeData.results.length === points.length) {
-            results = oeData.results.map((r: any) => r.elevation ?? 0);
-            if (__DEV__) {
-              console.log(`[TerrainAPI] Open-Elevation fallback successfully returned ${results.length} points!`);
-            }
-          }
-        }
-      } catch (oeErr: any) {
-        if (__DEV__) console.warn('[TerrainAPI] Open-Elevation fallback failed:', oeErr?.message);
-      }
+    } catch (e: any) {
+      if (__DEV__) console.warn('[TerrainAPI] Open-Meteo elevation fetch failed:', e?.message);
     }
 
     if (results.length !== points.length) {
-      throw new Error(`Data size mismatch: expected ${points.length}, got ${results.length}`);
+      if (__DEV__) console.log('[TerrainAPI] Using immediate flat horizon fallback.');
+      return {
+        panoramicAngles: Array(SAMPLES).fill(0), farAngles: Array(SAMPLES).fill(0),
+        bandAngles: DISTANCES.map(() => Array(SAMPLES).fill(0)),
+        waterFrac: Array(SAMPLES).fill(0),
+        bandDistancesKm: DISTANCES.slice(),
+        minAz, maxAz, observerElevation: 0,
+        elevations: [],
+        isFallback: true,
+      };
     }
 
     const duration = Date.now() - startTime;

@@ -138,7 +138,7 @@ const _genusOut: BlendedOptics = {
 import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
-import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight } from '../../utils/atmosphere';
+import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight, SOLAR_BEAM_SCALE } from '../../utils/atmosphere';
 import { getApparentAltitude } from '../../utils/sunsetPhysics';
 import { getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
@@ -482,6 +482,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cloudRebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 슬라이더 조작 중 3D 볼륨 구름 실시간 갱신 쓰로틀링 (150ms) */
   const lastSlidingVolBuildTimeRef = useRef<number>(0);
+  /** 현재 걸린 볼륨 씬이 슬라이딩용 고속(S=128) 프리뷰였는지 여부 */
+  const lastVolIsFastRef = useRef<boolean>(false);
 
   // ── 스마트 온디맨드 렌더링 & GPU/CPU 유휴 절전 컨트롤러 ──────────────────
   const animateRef = useRef<() => void>(() => {});
@@ -513,10 +515,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [isActive, requestRender]);
 
   useEffect(() => {
+    const wasSliding = isSlidingRef.current;
     isSlidingRef.current = isSliding;
-    if (!isSliding) {
+    if (!isSliding && wasSliding) {
+      // 슬라이더에서 손을 떼는 순간: 슬라이딩 중 돌던 미완료 비동기 작업만 취소하고
+      // 대기 플래그를 정상화 (이미 같은 시간대 키가 있으면 텍스처를 불필요하게 다시 굽지 않음)
+      if (volRef.current?.cancelAsync) {
+        volRef.current.cancelAsync();
+      }
+      volPendingRef.current = false;
       lastTargetSyncPerfRef.current = performance.now();
-      // 슬라이더 조작 완료 시 보류되었던 볼륨 씬 갱신(setSceneAsync)을 진행하도록 렌더링 요청
       requestRender(5);
     }
   }, [isSliding, requestRender]);
@@ -1453,25 +1461,47 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const vElev = simRef.current?.terrain?.observerElevation ?? location?.coords?.altitude ?? 50;
             const vObs = weatherRef.current?.[0] ?? null;
             const vDate = new Date(renderedTimeMsRef.current);
-            // 층은 10분 눈금·관측점·예보 값이 바뀔 때만 다시 만듭니다. 날씨 무늬는 잘라 만들고(그동안 이전 장면),
-            // 같은 층이면 캐시에서 꺼냅니다(§127).
-            const key = [Math.floor(renderedTimeMsRef.current / 600000), vLat.toFixed(3), vLon.toFixed(3), Math.round(vElev),
-              vObs?.low, vObs?.mid, vObs?.high, vObs?.lowDeckBaseKm?.toFixed(1), vObs?.lowDeckTopKm?.toFixed(1),
-              vObs?.layerAltMidKm?.toFixed(1), vObs?.layerAltHighKm?.toFixed(1), vObs?.precipitation,
-              // §130 층별 바람(5 km/h 눈금)·날짜 — 흐름 모형의 비등방·전단파·시드 입력(liveScene 이 같은 눈금으로 묶음).
-              ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 5) : '')),
-              Math.floor(renderedTimeMsRef.current / 86400000)].join('|');
+            // §135 안정적 기상 블록 버킷팅:
+            // 분 단위 미세 소수점 차이로 텍스처가 매번 다시 구워지는 것을 방지하기 위해 1시간/5% 단위로 양자화합니다.
+            // 같은 시간대 내에서는 구름 형태가 유지되며 vol.setDate(바람 드리프트·태양 조명)만 60fps로 매끄럽게 돌아갑니다.
+            const bHour = Math.floor(renderedTimeMsRef.current / 3600000);
+            const qCover = (v?: number) => (v != null ? Math.round(v / 5) * 5 : '');
+            const qAlt = (v?: number) => (v != null ? (Math.round(v * 2) / 2).toFixed(1) : '');
+            const hasPrecip = (vObs?.precipitation ?? 0) >= 0.1 ? 1 : 0;
+            const wLen = weatherRef.current?.length ?? 0;
+            const wSample = weatherRef.current?.[Math.min(4, Math.max(0, wLen - 1))];
+            const key = [
+              bHour,
+              vLat.toFixed(2), vLon.toFixed(2), Math.round(vElev / 100) * 100,
+              qCover(vObs?.low), qCover(vObs?.mid), qCover(vObs?.high),
+              qAlt(vObs?.lowDeckBaseKm), qAlt(vObs?.lowDeckTopKm),
+              qAlt(vObs?.layerAltMidKm), qAlt(vObs?.layerAltHighKm),
+              hasPrecip,
+              qCover(wSample?.low), qCover(wSample?.mid), qCover(wSample?.high),
+              ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 10) * 10 : '')),
+            ].join('|');
             const viewKey = `${cameraAzRef.current.toFixed(2)}|${cameraElevRef.current.toFixed(2)}|${camera.fov.toFixed(2)}`;
             const nowPerf = performance.now();
-            const allowSlidingBuild = !isSlidingRef.current || (nowPerf - lastSlidingVolBuildTimeRef.current > 150);
-            if (live && key !== volKeyRef.current && !volPendingRef.current && allowSlidingBuild) {
+            const isSlidingNow = !!isSlidingRef.current;
+            // 슬라이딩 중에는 180ms 쓰로틀로 S=128 초고속 프리뷰를 돌리고,
+            // 손을 뗐을 때는 동일한 구름 위치 그대로 S=256 고화질 디테일 업을 1회 진행합니다.
+            const allowSlidingBuild = !isSlidingNow || (nowPerf - lastSlidingVolBuildTimeRef.current > 180);
+            const isFast = isSlidingNow;
+            const needUpgrade = !isSlidingNow && lastVolIsFastRef.current;
+            if (live && (key !== volKeyRef.current || needUpgrade) && !volPendingRef.current && allowSlidingBuild) {
               lastSlidingVolBuildTimeRef.current = nowPerf;
-              const built = live.buildLiveScene({ lat: vLat, lon: vLon, heightM: vElev, date: vDate, pathData: [], obs: vObs,
-                az: cameraAzRef.current, el: cameraElevRef.current, fov: camera.fov });
+              lastVolIsFastRef.current = isFast;
+              const built = live.buildLiveScene({
+                lat: vLat, lon: vLon, heightM: vElev, date: vDate,
+                pathData: simRef.current?.pathData ?? [],
+                obs: vObs,
+                interpolatedWeather: weatherRef.current,
+                az: cameraAzRef.current, el: cameraElevRef.current, fov: camera.fov,
+              });
               volKeyRef.current = key;
               volPendingRef.current = true;
               const tW = Date.now();
-              vol.setSceneAsync(built.input).then(applied => {
+              vol.setSceneAsync(built.input, isFast).then(applied => {
                 volPendingRef.current = false;
                 volumetricStats.weatherMs = vol.weatherMs();
                 if (applied) {
@@ -1491,7 +1521,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             }
             if (volHasSceneRef.current) {
               vol.setDate(vDate);
-              if (viewKey !== volViewRef.current) { vol.setView(cameraAzRef.current, cameraElevRef.current, camera.fov); volViewRef.current = viewKey; volSettleRef.current = Math.max(volSettleRef.current, 16); }
               const intervalMs = lastRenderTsRef.current > 0 ? now - lastRenderTsRef.current : 0;
               const dtSec = intervalMs > 0 ? Math.min(0.1, Math.max(0.001, intervalMs / 1000)) : 1 / 60;
               // §127 해상도 자동 조절 — 이어서 그린 프레임 간격으로 구름 해상도 배율을 계단으로 내리고 올립니다.
@@ -1511,9 +1540,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
               vol.setTerrainDistance(terrainOn ? composerNow.terrainDistanceTexture() : null, terrainOn ? composerNow.terrainLitTexture() : null,
                 ridge?.valid ? ridge.texture : null, (seaPlaneRef.current?.material.uniforms.uSlopeVar?.value as number | undefined) ?? 0.03);
+
+              // ── 볼륨 뷰포트 렌더링 ──
+              if (viewKey !== volViewRef.current) {
+                vol.setView(cameraAzRef.current, cameraElevRef.current, camera.fov);
+                volViewRef.current = viewKey;
+                volSettleRef.current = Math.max(volSettleRef.current, 16);
+              }
               volTex = vol.renderToTexture(dtSec);
+
               // 시간 업스케일이 차도록 몇 프레임 더 — 정적 화면에서 루프가 잠들면 입자가 남습니다.
-              // (프레임 끝에서 1 을 빼고 0 이면 루프가 잠드므로 2 로 둡니다.)
               if (volSettleRef.current > 0) { volSettleRef.current--; if (framesToRenderRef.current < 2) framesToRenderRef.current = 2; }
             }
            } catch (e) {
@@ -1521,7 +1557,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             volTex = null;
             volFailedRef.current = '프레임: ' + String((e as Error)?.message ?? e);
             setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
-            try { volRef.current?.dispose(); } catch { /* 이미 망가진 장면 */ }
+            try {
+              volRef.current?.dispose();
+            } catch { /* 이미 망가진 장면 */ }
             volRef.current = null;
             volHasSceneRef.current = false;
             volPendingRef.current = false;
@@ -1807,44 +1845,56 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedHorizonRGBRef.current = { r: hr / 6, g: hg / 6, b: hb / 6 };
     }
 
-    if (groundRef.current) {
-      const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
-      const moonIllum = SunCalc.getMoonIllumination(targetDate);
-      // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
-      // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
-      const mAltDegG = (moonPos.altitude * 180) / Math.PI;
-      const mAzDegG = (moonPos.azimuth * 180) / Math.PI + 180;
-      const mGain = moonLight(sunAltRef.current, mAltDegG, moonIllum.fraction, atmosphere).gain;
-      let moonIrr: { r: number; g: number; b: number } | null = null;
-      if (mGain > 0 && mAltDegG > 0) {
-        const c = moonGroundCacheRef.current;
-        if (!c || Math.abs(c.alt - mAltDegG) > 0.2 || Math.abs(c.az - mAzDegG) > 0.2 || c.atmos !== atmosphere) {
-          let sr = 0, sg = 0, sb = 0, sw = 0;
-          for (const elev of [10, 30, 50, 75]) {
-            const w = Math.sin((elev * Math.PI) / 180);
-            for (let a = 0; a < 6; a++) {
-              const az = (a * 360) / 6;
-              const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG, atmosphere);
-              sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
-            }
+    // ── 달빛 조명 연산 (공통) ────────────────────────────────────────────────
+    const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
+    const moonIllum = SunCalc.getMoonIllumination(targetDate);
+    // 지면의 달빛 — 하늘·구름과 같은 달빛(§92): "해를 달 자리에 둔 낮" 의 지면 조도 × 이득.
+    // 하늘 평균(24방향)은 달이 0.2° 넘게 움직였을 때만 다시 구합니다.
+    const mAltDegG = (moonPos.altitude * 180) / Math.PI;
+    const mAzDegG = (moonPos.azimuth * 180) / Math.PI + 180;
+    const mGain = moonLight(sunAltRef.current, mAltDegG, moonIllum.fraction, atmosphere).gain;
+    let moonIrr: { r: number; g: number; b: number } | null = null;
+    let moonBeamRadiance: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 };
+    const moonApparentAltRad = (getApparentAltitude(mAltDegG) * Math.PI) / 180;
+    const moonAzRad = (mAzDegG * Math.PI) / 180;
+
+    if (mGain > 0 && mAltDegG > 0) {
+      const c = moonGroundCacheRef.current;
+      if (!c || Math.abs(c.alt - mAltDegG) > 0.2 || Math.abs(c.az - mAzDegG) > 0.2 || c.atmos !== atmosphere) {
+        let sr = 0, sg = 0, sb = 0, sw = 0;
+        for (const elev of [10, 30, 50, 75]) {
+          const w = Math.sin((elev * Math.PI) / 180);
+          for (let a = 0; a < 6; a++) {
+            const az = (a * 360) / 6;
+            const L = skyRadiance(elev, angularSeparationDeg(az, elev, mAzDegG, mAltDegG), mAltDegG, atmosphere);
+            sr += L.r * w; sg += L.g * w; sb += L.b * w; sw += w;
           }
-          const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
-          const direct = Math.sin((mAltDegG * Math.PI) / 180) / Math.PI;
-          moonGroundCacheRef.current = {
-            alt: mAltDegG, az: mAzDegG, atmos: atmosphere,
-            sky: { r: sr / sw, g: sg / sw, b: sb / sw },
-            beam: { r: beamM.r * direct, g: beamM.g * direct, b: beamM.b * direct },
-          };
         }
-        const c2 = moonGroundCacheRef.current!;
-        // 직사 몫은 해처럼 운량만큼 가립니다(하늘 몫은 구름 밑면이 대신 비추므로 그대로).
-        const t = 1 - overcast;
-        moonIrr = {
-          r: (c2.sky.r + c2.beam.r * t) * mGain,
-          g: (c2.sky.g + c2.beam.g * t) * mGain,
-          b: (c2.sky.b + c2.beam.b * t) * mGain,
+        const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
+        const direct = Math.sin((mAltDegG * Math.PI) / 180) / Math.PI;
+        moonGroundCacheRef.current = {
+          alt: mAltDegG, az: mAzDegG, atmos: atmosphere,
+          sky: { r: sr / sw, g: sg / sw, b: sb / sw },
+          beam: { r: beamM.r * direct, g: beamM.g * direct, b: beamM.b * direct },
         };
       }
+      const c2 = moonGroundCacheRef.current!;
+      // 직사 몫은 해처럼 운량만큼 가립니다(하늘 몫은 구름 밑면이 대신 비추므로 그대로).
+      const t = 1 - overcast;
+      moonIrr = {
+        r: (c2.sky.r + c2.beam.r * t) * mGain,
+        g: (c2.sky.g + c2.beam.g * t) * mGain,
+        b: (c2.sky.b + c2.beam.b * t) * mGain,
+      };
+      const beamM = beamAtAltitude(mAltDegG, 0, atmosphere);
+      moonBeamRadiance = {
+        r: beamM.r * mGain * t,
+        g: beamM.g * mGain * t,
+        b: beamM.b * mGain * t,
+      };
+    }
+
+    if (groundRef.current) {
       updateGroundColors(groundRef.current, sunAltRef.current, overcast, {
         skyMean: cachedSkyMeanRGBRef.current,
         betaMie: atmosphere.betaMie,
@@ -1855,8 +1905,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         beam: beamAtAltitude(sunAltRef.current, 0, atmosphere),
         sunTransmittance: 1 - overcast,
         sunAzimuthDeg: sunAzRef.current,
-        moonAltitudeDeg: (moonPos.altitude * 180) / Math.PI,
-        moonAzimuthDeg: (moonPos.azimuth * 180) / Math.PI + 180,
+        moonAltitudeDeg: mAltDegG,
+        moonAzimuthDeg: mAzDegG,
         moonFraction: moonIllum.fraction,
         moonIrradiance: moonIrr,
       });
@@ -1876,9 +1926,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const sinAlt = Math.max(0, Math.sin((sunAltRef.current * Math.PI) / 180));
       const direct = (sinAlt * sunT) / Math.PI;
       const surfaceIrr = {
-        r: sky.r + beam.r * direct,
-        g: sky.g + beam.g * direct,
-        b: sky.b + beam.b * direct,
+        r: sky.r + beam.r * direct + (moonIrr?.r ?? 0),
+        g: sky.g + beam.g * direct + (moonIrr?.g ?? 0),
+        b: sky.b + beam.b * direct + (moonIrr?.b ?? 0),
       };
       const sunAzRad = (sunAzRef.current * Math.PI) / 180;
       // ⚠ 지형·물에 넣는 **방향**은 겉보기 고도입니다(대기 굴절, 수평선에서 약 0.5°). 땅에 닿는 빛은 굴절된
@@ -1892,20 +1942,27 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 직달에 빠져 있던 눈금(SOLAR_BEAM_SCALE)을 채우고, 같은 자리에서
       // 노출을 나눠 평평한 지면의 밝기를 그대로 지킵니다. 사면만 밝고
       // 어두워지므로 물·옛 원반과의 밝기 견줌도 그대로 성립합니다.
-      //
-      // ⚠ 물(SeaPlane)과 옛 원반에는 걸지 않습니다. 수면은 평평해서 ndl 로
-      // 얻을 입체감이 없고, 윤슬은 이미 클램프가 봉우리를 자르고 있어
-      // 스물여섯 배를 그대로 넣으면 **잘리는 자리가 넓어져 윤슬이 다시
-      // 두꺼워집니다** — 실기에서 한 번 고친 결함입니다.
       const lit = groundLighting(sunAltRef.current, sky, beam, sunT);
+      const terrainMoonRadiance = {
+        r: SOLAR_BEAM_SCALE * moonBeamRadiance.r,
+        g: SOLAR_BEAM_SCALE * moonBeamRadiance.g,
+        b: SOLAR_BEAM_SCALE * moonBeamRadiance.b,
+      };
 
       for (const h of [terrainFieldRef.current]) {
         if (!h) continue;
         const u = h.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(
-          lit.surfaceIrr.r, lit.surfaceIrr.g, lit.surfaceIrr.b);
+          lit.surfaceIrr.r + (moonIrr?.r ?? 0),
+          lit.surfaceIrr.g + (moonIrr?.g ?? 0),
+          lit.surfaceIrr.b + (moonIrr?.b ?? 0)
+        );
         (u.uSunRadiance.value as THREE.Vector3).set(
           lit.sunRadiance.r, lit.sunRadiance.g, lit.sunRadiance.b);
+        (u.uMoonRadiance.value as THREE.Vector3).set(
+          terrainMoonRadiance.r, terrainMoonRadiance.g, terrainMoonRadiance.b);
+        u.uMoonAzRad.value = moonAzRad;
+        u.uMoonAltRad.value = moonApparentAltRad;
         u.uExposure.value = lit.exposure;
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
@@ -1920,6 +1977,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const u = seaPlaneRef.current.material.uniforms;
         (u.uSurfaceIrr.value as THREE.Vector3).set(surfaceIrr.r, surfaceIrr.g, surfaceIrr.b);
         (u.uSunRadiance.value as THREE.Vector3).set(beam.r * sunT, beam.g * sunT, beam.b * sunT);
+        (u.uMoonRadiance.value as THREE.Vector3).set(
+          moonBeamRadiance.r, moonBeamRadiance.g, moonBeamRadiance.b);
+        u.uMoonAzRad.value = moonAzRad;
+        u.uMoonAltRad.value = moonApparentAltRad;
         // Cox & Munk (1954) — **윤슬 폭을 정하는 것은 이 값 하나**입니다.
         // 옛 원반 물(updateGroundColors)과 같은 바람을 씁니다.
         u.uSlopeVar.value = 0.003 + 0.00512 * Math.max(0, layerWindsNow().low.speedKmh / 3.6);
@@ -2003,6 +2064,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         betaMie: atmosphere.betaMie,
         angstrom: atmosphere.angstrom,
         elevScale: atmosphere.elevScale,
+        moonIrradiance: moonIrr,
       });
     }
 
