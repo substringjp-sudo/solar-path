@@ -20,6 +20,8 @@ interface MapCanvasProps {
   onRegionChangeComplete?: (region: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number }) => void;
   /** 처음 뜰 때 볼 곳(`MapCanvas.tsx` 참고). */
   startRegion?: { latitude: number; longitude: number; longitudeDelta: number };
+  /** 실시간 줌/위치 제어 영역 */
+  region?: { latitude: number; longitude: number; longitudeDelta: number };
   theme: any;
   selectedDate?: Date;
   /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
@@ -27,6 +29,7 @@ interface MapCanvasProps {
   /** 구름 레이더. 축척이 창 밖이거나 자료가 없으면 null 입니다. */
   radar?: RadarFrame | null;
   topView?: CloudTopViewImage | null;
+  onLongPress?: (coord: { latitude: number; longitude: number }) => void;
 }
 
 
@@ -40,12 +43,26 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   nightPolygonCoords = [],
   onRegionChangeComplete,
   startRegion,
+  region,
   theme,
   selectedDate,
   sunOverlay = null,
   radar = null,
   topView = null,
+  onLongPress,
 }) => {
+  const mapRef = React.useRef<MapView>(null);
+
+  React.useEffect(() => {
+    if (region && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: region.latitude,
+        longitude: region.longitude,
+        latitudeDelta: Math.min(170, region.longitudeDelta * Math.max(0.1, Math.cos(region.latitude * Math.PI / 180))),
+        longitudeDelta: region.longitudeDelta,
+      }, 60);
+    }
+  }, [region?.latitude, region?.longitude, region?.longitudeDelta]);
   const handleRegionChangeComplete = (newRegion: any) => {
     onRegionChangeComplete?.(newRegion);
   };
@@ -66,6 +83,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
   return (
     <MapView
+      ref={mapRef}
       provider={PROVIDER_GOOGLE}
       style={StyleSheet.absoluteFillObject}
       // ⚠ 세로 폭은 경도 폭·cos(위도) 로 줍니다 — 세로로 긴 화면에서는 이것이
@@ -85,6 +103,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       rotateEnabled={false}
       pitchEnabled={false}
       onRegionChangeComplete={handleRegionChangeComplete}
+      onLongPress={(e) => {
+        if (e.nativeEvent?.coordinate && onLongPress) {
+          onLongPress(e.nativeEvent.coordinate);
+        }
+      }}
     >
       {/* ── 구름 레이더 (맨 아래) ────────────────────────────────────────
              ⚠ 매끈하게 칠하지 않고 **자료가 가진 고리·방위 칸 그대로** 그립니다.

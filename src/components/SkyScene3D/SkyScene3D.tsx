@@ -14,7 +14,7 @@
  * - CelestialPathMesh: 태양/달 24h 이동 궤적 리본 & 관측자 그림자
  * - CloudField: 10종 SVG 템플릿 아틀라스 기반 InstancedMesh 구름 (draw call 1개)
  */
-import React, { useRef, useCallback, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useCallback, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
@@ -124,6 +124,11 @@ import {
   LAYER_TERRAIN_LIT,
   type SceneComposerHandle,
 } from './SceneComposer';
+import { MapCanvas } from '../IsolineMap/MapCanvas';
+import { MapGlobe } from '../IsolineMap/MapGlobe';
+import { LandSilhouette } from '../IsolineMap/LandSilhouette';
+import { mapModeFor, globeProgress, globeRadiusForDelta } from '../../utils/mapProjection';
+import { getTerminatorSegments, getSubsolarPoint } from '../../utils/celestial';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
@@ -434,6 +439,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cameraAzRef = useRef(sunAzimuth);
   const cameraElevRef = useRef(13); // 기본 FOV 60° 기준 땅이 30%를 넘지 않도록 13°로 초기화
   const fovRef = useRef(60);
+  // 무한 줌 스펙트럼 (0~1: 지상 FOV 30°~120°, 1~2: 상공 고도 상승 1.6m~20km 구름 레이더, 2~3: 우주 궤도 3차원 지구본 및 노을 등시선)
+  const zoomProgressRef = useRef((60 - 30) / 90);
+  const pinchZoomProgressRef = useRef((60 - 30) / 90);
+  const savedGroundElevRef = useRef(13);
+  const [altitudeMState, setAltitudeMState] = useState(1.6);
+  const [zoomProgressState, setZoomProgressState] = useState((60 - 30) / 90);
+  const [zoomStageState, setZoomStageState] = useState<'ground' | 'radar' | 'globe'>('ground');
+  const [divingLocation, setDivingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const divingAnimFrameRef = useRef<number | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartLocRef = useRef<{ x: number; y: number } | null>(null);
   const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
   const pinchDistRef = useRef<number | null>(null);
   const pinchFovRef = useRef(60);
@@ -776,6 +792,79 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     requestRender(10);
   }, [teleportTarget?.nonce, requestRender]);
 
+  /** 롱프레스 위치 이동 & 다이빙 착륙 애니메이션 (우주/상공 -> 지상 1.6m 하늘) */
+  const startDivingLanding = useCallback((targetLat: number, targetLon: number) => {
+    // 1. 전역 위치 갱신 (일출·일몰 시간, 날씨, 지형 자동 재계산)
+    setDivingLocation({ latitude: targetLat, longitude: targetLon });
+    useCelestialStore.getState().setLocation({
+      coords: {
+        latitude: targetLat,
+        longitude: targetLon,
+        altitude: 0,
+        accuracy: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        speed: 0,
+      },
+      timestamp: Date.now(),
+    });
+
+    // 2. 부드러운 다이빙 착륙 애니메이션
+    if (divingAnimFrameRef.current) cancelAnimationFrame(divingAnimFrameRef.current);
+    const startProgress = zoomProgressRef.current;
+    const targetProgress = (60 - 30) / 90; // 지상 1인칭 관측 FOV 60° (0.333)
+    const startTime = performance.now();
+    const duration = 1200; // 1.2초
+
+    const animateDive = (nowTime: number) => {
+      const elapsed = nowTime - startTime;
+      const t = Math.min(1.0, elapsed / duration);
+      // 부드러운 Ease-Out 3차 곡선
+      const ease = 1 - Math.pow(1 - t, 3);
+      const currentProgress = startProgress + (targetProgress - startProgress) * ease;
+      zoomProgressRef.current = currentProgress;
+
+      if (currentProgress <= 1.0) {
+        fovRef.current = 30 + currentProgress * 90;
+      } else {
+        const altT = currentProgress - 1.0;
+        fovRef.current = 120 - Math.min(1.0, altT) * 30;
+      }
+
+      const diveT = Math.max(0, Math.min(1.0, (currentProgress - 1.0) / 0.4));
+      const altM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
+      setAltitudeMState(altM);
+      setZoomProgressState(currentProgress);
+      setZoomStageState(currentProgress > 2.05 ? 'globe' : currentProgress > 1.35 ? 'radar' : 'ground');
+
+      requestRender(2);
+
+      if (t < 1.0) {
+        divingAnimFrameRef.current = requestAnimationFrame(animateDive);
+      } else {
+        divingAnimFrameRef.current = null;
+        setDivingLocation(null);
+        setCameraFov(60);
+        setZoomProgressState((60 - 30) / 90);
+        cameraElevRef.current = savedGroundElevRef.current;
+        setCameraElevation(savedGroundElevRef.current);
+        requestRender(5);
+      }
+    };
+
+    divingAnimFrameRef.current = requestAnimationFrame(animateDive);
+  }, [requestRender]);
+
+  /** 평면 지도 및 3차원 지구본용 천체 터미네이터 (일출/일몰선 & 태양 직하점) */
+  const globeCelestialData = useMemo(() => {
+    if (zoomProgressState <= 1.3) return null;
+    const date = new Date(renderedTimeMsRef.current || Date.now());
+    return {
+      subsolar: getSubsolarPoint(date),
+      terminator: getTerminatorSegments(date),
+    };
+  }, [zoomProgressState > 1.3]);
+
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
     return w && w.length > 0 ? w[0] : undefined;
@@ -834,6 +923,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     PanResponder.create({
       onStartShouldSetPanResponder: () => cameraAzimuthPropRef.current === undefined,
       onMoveShouldSetPanResponder: () => cameraAzimuthPropRef.current === undefined,
+      onStartShouldSetPanResponderCapture: (evt) => evt.nativeEvent.touches.length >= 2,
+      onMoveShouldSetPanResponderCapture: (evt) => evt.nativeEvent.touches.length >= 2,
       /**
        * 씬을 잡은 동안에는 아무에게도 responder를 넘기지 않습니다.
        *
@@ -858,50 +949,92 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
         const touches = evt.nativeEvent.touches;
         if (touches.length >= 2) {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+          touchStartLocRef.current = null;
           pinchDistRef.current = getTouchDist(touches);
           pinchFovRef.current = fovRef.current;
+          pinchZoomProgressRef.current = zoomProgressRef.current;
         } else {
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
+          touchStartLocRef.current = { x: touches[0].pageX, y: touches[0].pageY };
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
         }
       },
       onPanResponderMove: (evt) => {
         requestRender(2);
         const touches = evt.nativeEvent.touches;
         if (touches.length >= 2) {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+          touchStartLocRef.current = null;
           if (pinchDistRef.current === null) {
             pinchDistRef.current = getTouchDist(touches);
             pinchFovRef.current = fovRef.current;
+            pinchZoomProgressRef.current = zoomProgressRef.current;
             return;
           }
           const dist = getTouchDist(touches);
           if (dist > 0) {
             const ratio = pinchDistRef.current / dist;
-            fovRef.current = Math.max(30, Math.min(120, pinchFovRef.current * ratio));
-            if (cameraRef.current) {
-              cameraRef.current.fov = fovRef.current;
-              cameraRef.current.updateProjectionMatrix();
+            // ratio > 1: 두 손가락 모으기 (줌아웃 / 광각 -> 상공 상승 -> 우주 궤도 지구본)
+            // ratio < 1: 두 손가락 벌리기 (줌인 / 지구본 -> 상공 -> 지상 착륙)
+            const delta = Math.log(ratio) * 1.35;
+            const newProgress = Math.max(0, Math.min(3.0, pinchZoomProgressRef.current + delta));
+            zoomProgressRef.current = newProgress;
+
+            if (newProgress <= 1.0) {
+              fovRef.current = 30 + newProgress * 90;
+            } else if (newProgress <= 2.0) {
+              const t = newProgress - 1.0;
+              fovRef.current = 120 - t * 30; // 상공 탑다운 안정 뷰 120° -> 90°
+            } else {
+              fovRef.current = 90;
             }
-            // 사용자가 발밑 지면과 바다 수면을 자연스럽게 조망할 수 있도록 -45°까지 내려다보기 허용
-            const minElev = -45;
-            if (cameraElevRef.current < minElev) {
-              cameraElevRef.current = minElev;
-            }
+
             const nowZoom = Date.now();
-            if (nowZoom - lastAzUpdateMsRef.current > 80) {
+            if (nowZoom - lastAzUpdateMsRef.current > 50) {
               lastAzUpdateMsRef.current = nowZoom;
               setCameraFov(fovRef.current);
               setCameraElevation(cameraElevRef.current);
+              const diveT = Math.max(0, Math.min(1.0, (newProgress - 1.0) / 0.4));
+              const altM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
+              setAltitudeMState(altM);
+              setZoomProgressState(newProgress);
+              const stage = newProgress > 2.05 ? 'globe' : newProgress > 1.35 ? 'radar' : 'ground';
+              setZoomStageState(stage);
             }
           }
         } else {
+          if (touchStartLocRef.current) {
+            const dx = touches[0].pageX - (lastTouchRef.current?.x ?? touches[0].pageX);
+            const dy = touches[0].pageY - (lastTouchRef.current?.y ?? touches[0].pageY);
+            if (Math.hypot(dx, dy) > 10) {
+              if (longPressTimerRef.current) {
+                clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+              touchStartLocRef.current = null;
+            }
+          }
           if (lastTouchRef.current) {
             const dx = touches[0].pageX - lastTouchRef.current.x;
             const dy = touches[0].pageY - lastTouchRef.current.y;
             const nextAz = (cameraAzRef.current - dx * DRAG_SENSITIVITY + 360) % 360;
             cameraAzRef.current = nextAz;
-            // 발밑 수면 및 지면까지 자유롭게 내려다볼 수 있도록 최소 고도 -45° 허용
-            const minElev = -45;
-            cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
+            // 지상 모드에서만 상하 시선 조작 허용 (상공 레이더 모드에서는 직하향 탑다운 안정 유지)
+            if (zoomProgressRef.current <= 1.05) {
+              const minElev = -45;
+              cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
+              savedGroundElevRef.current = cameraElevRef.current;
+            }
           }
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
           pinchDistRef.current = null;
@@ -915,21 +1048,42 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
       },
       onPanResponderRelease: () => {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        touchStartLocRef.current = null;
         lastTouchRef.current = null;
         pinchDistRef.current = null;
         setCameraAzimuth(cameraAzRef.current);
         setCameraElevation(cameraElevRef.current);
         setCameraFov(fovRef.current);
+        const diveT = Math.max(0, Math.min(1.0, (zoomProgressRef.current - 1.0) / 0.4));
+        const altM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
+        setAltitudeMState(altM);
+        setZoomProgressState(zoomProgressRef.current);
+        const stage = zoomProgressRef.current > 2.05 ? 'globe' : zoomProgressRef.current > 1.35 ? 'radar' : 'ground';
+        setZoomStageState(stage);
         requestRender(5);
         // 드래그 종료: TabNavigator 스와이프 다시 허용
         useCelestialStore.getState().setGestureBlocked(false);
       },
       onPanResponderTerminate: () => {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        touchStartLocRef.current = null;
         lastTouchRef.current = null;
         pinchDistRef.current = null;
         setCameraAzimuth(cameraAzRef.current);
         setCameraElevation(cameraElevRef.current);
         setCameraFov(fovRef.current);
+        const t = Math.max(0, Math.min(1.0, zoomProgressRef.current - 1.0));
+        const altM = t <= 0 ? 1.6 : 1.6 * Math.exp(t * Math.log(20000 / 1.6));
+        setAltitudeMState(altM);
+        const stage = zoomProgressRef.current > 2.05 ? 'globe' : zoomProgressRef.current > 1.05 ? 'radar' : 'ground';
+        setZoomStageState(stage);
         requestRender(3);
         useCelestialStore.getState().setGestureBlocked(false);
       },
@@ -1343,28 +1497,59 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           camera.updateProjectionMatrix();
         }
 
-        // 카메라 높이: 해당 지점의 지면 위 160cm (1.6 유닛) 사람 눈높이
+        // 카메라 높이 및 무한 줌 스펙트럼 (지상 1.6m ~ 상공 20km 조감도 수직 다이빙 착륙/상승)
         const groundY = groundRef.current ? groundRef.current.position.y : 0;
-        const EYE_HEIGHT = 1.6; // 160cm
-        const cameraY = groundY + EYE_HEIGHT;
+        const progress = zoomProgressRef.current;
+        // 1.0 ~ 1.4 구간이 1.6m -> 20,000m 상승 및 지상 시선 -> 직하향(-90°) 조감도 전환
+        const diveT = Math.max(0, Math.min(1.0, (progress - 1.0) / 0.4));
+        const altitudeM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
+        const cameraY = groundY + altitudeM;
         camera.position.set(0, cameraY, 0);
 
+        // 시선 고도각: diveT 0(지상 시선) -> diveT 1(직하향 -90° 조감도)
+        const smoothDiveT = diveT * diveT * (3 - 2 * diveT);
+        const effectiveElev = (1 - smoothDiveT) * cameraElevRef.current + smoothDiveT * (-90);
+        const effectiveFov = diveT <= 0 ? fovRef.current : (1 - smoothDiveT) * 120 + smoothDiveT * 90;
+        if (Math.abs(camera.fov - effectiveFov) > 0.05) {
+          camera.fov = effectiveFov;
+          camera.updateProjectionMatrix();
+        }
+
+        // 상공에서 지형/구름이 잘리지 않도록 카메라 Far 클립 확장 (기본 1000m -> 상공 시 최대 160km)
+        const targetFar = Math.max(1000, altitudeM * 8);
+        if (Math.abs(camera.far - targetFar) > 50) {
+          camera.far = targetFar;
+          camera.updateProjectionMatrix();
+        }
+
         const azRad = (cameraAzRef.current * Math.PI) / 180;
-        const elevRad = (cameraElevRef.current * Math.PI) / 180;
-        const lookDist = 100;
+        const elevRad = (effectiveElev * Math.PI) / 180;
+        const lookDist = Math.max(100, altitudeM);
+
+        // 직하향 틸트 시 Three.js 짐벌 락 방지 (시선과 camera.up이 평행해짐 방지)
+        // 수직 아래로 내려다볼 때는 북쪽(Z-)을 화면 상단으로 설정
+        if (effectiveElev < -85) {
+          camera.up.set(0, 0, -1);
+        } else {
+          camera.up.set(0, 1, 0);
+        }
+
         camera.lookAt(
           lookDist * Math.cos(elevRad) * Math.sin(azRad),
           cameraY + lookDist * Math.sin(elevRad),
           -lookDist * Math.cos(elevRad) * Math.cos(azRad)
         );
 
-        // ⚠ 이 카메라의 Y(`cameraY`)는 실제 미터가 아니라 화면단위 dip
-        // 트릭 값입니다. DEM 지형·해수면은 눈높이를 자체적으로 미터로
-        // 계산하므로, X/Z(둘 다 항상 0)만 따라가고 Y 는 안 따라갑니다 —
-        // `updateTerrainFieldEye`/`updateSeaPlaneEye` 의 주석 참고.
-        if (terrainFieldRef.current) updateTerrainFieldEye(terrainFieldRef.current, camera);
+        // 지형 및 해수면에 상공 관측 고도 전달
+        if (terrainFieldRef.current) {
+          updateTerrainFieldEye(terrainFieldRef.current, camera);
+          terrainFieldRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
+        }
         if (seaPlaneRef.current) {
           updateSeaPlaneEye(seaPlaneRef.current, camera);
+          if (seaPlaneRef.current.material.uniforms.uEyeHeightM) {
+            seaPlaneRef.current.material.uniforms.uEyeHeightM.value = altitudeM;
+          }
           if (!volDrewRef.current) { seaPlaneRef.current.distMesh.visible = false; seaPlaneRef.current.litMesh.visible = false; }
         }
         // 해 쪽 산 그림자 경계 — 해·지형이 그대로면 아무것도 안 합니다(TerrainField.bakeSunShadow).
@@ -1480,7 +1665,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               qCover(wSample?.low), qCover(wSample?.mid), qCover(wSample?.high),
               ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 10) * 10 : '')),
             ].join('|');
-            const viewKey = `${cameraAzRef.current.toFixed(2)}|${cameraElevRef.current.toFixed(2)}|${camera.fov.toFixed(2)}`;
+            const viewKey = `${cameraAzRef.current.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
             // 슬라이딩 중에는 180ms 쓰로틀로 S=128 초고속 프리뷰를 돌리고,
@@ -1496,7 +1681,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 pathData: simRef.current?.pathData ?? [],
                 obs: vObs,
                 interpolatedWeather: weatherRef.current,
-                az: cameraAzRef.current, el: cameraElevRef.current, fov: camera.fov,
+                az: cameraAzRef.current, el: effectiveElev, fov: camera.fov,
+                altitudeM,
               });
               volKeyRef.current = key;
               volPendingRef.current = true;
@@ -1543,7 +1729,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
-                vol.setView(cameraAzRef.current, cameraElevRef.current, camera.fov);
+                vol.setView(cameraAzRef.current, effectiveElev, camera.fov, altitudeM);
                 volViewRef.current = viewKey;
                 volSettleRef.current = Math.max(volSettleRef.current, 16);
               }
@@ -2610,16 +2796,53 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     };
   }, []);
 
+  const sceneW = fullScreen ? width : SCENE_WIDTH;
+  const sceneH = fullScreen ? height : SCENE_HEIGHT;
+  const minDim = Math.min(sceneW, sceneH);
+
+  const curLat = location?.coords?.latitude ?? 37.5;
+  const curLon = location?.coords?.longitude ?? 127.0;
+
+  // 1. 3D GLView 투명도 (1.0~1.35: 지상~20km 조감도 100%, 1.35~1.45: 조감도와 평면 지도 크로스페이드)
+  const glOpacity = zoomProgressState <= 1.35 ? 1.0 : Math.max(0, (1.45 - zoomProgressState) / 0.1);
+  const mapLayerOpacity = Math.min(1.0, Math.max(0, (zoomProgressState - 1.35) / 0.1));
+
+  // 2. 상공 지도 축척 (longitudeDelta): zoomProgress 1.4 -> 3.0 범위를 0.08° -> 180°로 지수 연동
+  const mapProgressRatio = Math.max(0, Math.min(1.0, (zoomProgressState - 1.4) / 1.6));
+  const currentLonDelta = Math.exp(
+    Math.log(0.08) + mapProgressRatio * Math.log(180 / 0.08)
+  );
+
+  // 3. 기존 지도 뷰(IsolineMap)의 도법 기반 연속체 모드 전환
+  // tiles (타일) -> silhouette (LandSilhouette 육지 윤곽) -> globe (3D 정사영 구)
+  const autoMapMode = mapModeFor(curLat, currentLonDelta);
+  const isGlobeMode = autoMapMode === 'globe';
+  const showSilhouette = !isGlobeMode && autoMapMode !== 'tiles';
+  const globeMorphProgress = isGlobeMode ? 1.0 : globeProgress(curLat, currentLonDelta);
+
+  // 4. 모서리 반지름 모핑: 화면 전체 구멍 대신 IsolineMap 표준(14px -> 44px) 둥근 카드 모핑
+  const CARD_RADIUS_MAX = 44;
+  const cardRadius = Math.min(
+    14 + globeMorphProgress * (CARD_RADIUS_MAX - 14),
+    CARD_RADIUS_MAX
+  );
+
   return (
-    <View style={[styles.container, fullScreen ? { flex: 1, width: '100%', height: '100%' } : { width: SCENE_WIDTH, height: SCENE_HEIGHT }]}>
+    <View
+      style={[
+        styles.container,
+        fullScreen ? { flex: 1, width: '100%', height: '100%' } : { width: SCENE_WIDTH, height: SCENE_HEIGHT },
+      ]}
+      {...panResponder.panHandlers}
+    >
       <GLView
-        style={styles.glView}
+        style={[styles.glView, { opacity: glOpacity }]}
+        pointerEvents={glOpacity > 0.05 ? 'auto' : 'none'}
         onContextCreate={onContextCreate}
-        {...panResponder.panHandlers}
       />
 
       {/* ── 전문가용 카메라 뷰파인더 오버레이 (3등분선, 위아래 방위 눈금자, 우측 고도각 눈금자, 좌측 시야각 눈금자) ── */}
-      {!hideHudOverlay && !hideCompassBar && (
+      {!hideHudOverlay && !hideCompassBar && zoomProgressState <= 1.25 && (
         <ViewfinderOverlay
           cameraAzimuth={cameraAzimuth}
           cameraElevation={cameraElevation}
@@ -2628,8 +2851,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         />
       )}
 
-      {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (충돌 방지 적용) */}
-      {layers?.labels !== false && (() => {
+      {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (지상 관측 뷰에서만 표시) */}
+      {layers?.labels !== false && zoomProgressState <= 1.35 && (() => {
         // 라벨 크기 추정 (px): 가로 90, 세로 24
         const LBL_W = 90;
         const LBL_H = 24;
@@ -2690,6 +2913,128 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           );
         });
       })()}
+
+      {/* ── 2~3단계: 기존 지도 뷰(IsolineMap) 파이프라인 (평면 구글 지도 -> 육지 실루엣 -> 구형 지구본 유기적 모핑) ── */}
+      {zoomProgressState > 1.35 && globeCelestialData && (
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              opacity: mapLayerOpacity,
+              borderRadius: cardRadius,
+              overflow: 'hidden',
+              backgroundColor: '#0B1220',
+            },
+          ]}
+          pointerEvents={zoomProgressState >= 1.5 ? 'auto' : 'none'}
+        >
+          {!isGlobeMode ? (
+            <MapCanvas
+              lat={curLat}
+              lon={curLon}
+              hasLocation={!!location}
+              subsolar={globeCelestialData.subsolar}
+              terminator={globeCelestialData.terminator}
+              theme={theme}
+              selectedDate={new Date(renderedTimeMsRef.current || Date.now())}
+              startRegion={{
+                latitude: curLat,
+                longitude: curLon,
+                longitudeDelta: currentLonDelta,
+              }}
+              region={{
+                latitude: curLat,
+                longitude: curLon,
+                longitudeDelta: currentLonDelta,
+              }}
+              onLongPress={(coord) => {
+                // 구름 레이더/지도 단계에서 롱클릭 시에만 선택 좌표 변경 및 다이빙 착륙
+                if (zoomProgressRef.current >= 1.4) {
+                  startDivingLanding(coord.latitude, coord.longitude);
+                }
+              }}
+            />
+          ) : (
+            <MapGlobe
+              subsolar={globeCelestialData.subsolar}
+              terminator={globeCelestialData.terminator}
+              lat={curLat}
+              lon={curLon}
+              hasLocation={!!location}
+              theme={theme}
+              isActive={isActive}
+              width={sceneW}
+              height={sceneH}
+              initialCenter={{
+                latitude: curLat,
+                longitude: curLon,
+              }}
+              initialRadius={globeRadiusForDelta(curLat, currentLonDelta, sceneW)}
+              minRadius={100}
+              maxRadius={800}
+              onSelectLocation={(coord) => {
+                // 지구본 단계에서 롱클릭 시에만 선택 좌표 변경 및 다이빙 착륙
+                if (zoomProgressRef.current >= 1.4) {
+                  startDivingLanding(coord.latitude, coord.longitude);
+                }
+              }}
+              onViewChange={(v) => {
+                if (v.zoomedIn) {
+                  // 지구본에서 손가락을 벌려 줌인하면 평면 지도로 복귀
+                  zoomProgressRef.current = 2.2;
+                  setZoomProgressState(2.2);
+                  setZoomStageState('radar');
+                  requestRender(5);
+                }
+              }}
+              selectedDate={new Date(renderedTimeMsRef.current || Date.now())}
+            />
+          )}
+
+          {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 그리는 LandSilhouette (도법 및 그림체 연속성 유지) ── */}
+          {showSilhouette && (
+            <LandSilhouette
+              region={{ latitude: curLat, longitude: curLon, longitudeDelta: currentLonDelta }}
+              width={sceneW}
+              height={sceneH}
+              theme={theme}
+            />
+          )}
+        </View>
+      )}
+
+      {/* ── 무한 줌 상공 모드 및 우주 궤도 지구본 모드 HUD 뱃지 ── */}
+      {(zoomProgressState > 1.25 || divingLocation) && (
+        <View style={styles.radarHudPill}>
+          <View style={[styles.radarHudDot, isGlobeMode && { backgroundColor: '#F59E0B' }]} />
+          <Text style={styles.radarHudTitle}>
+            {divingLocation
+              ? `📍 (${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) 다이빙 착륙 중...`
+              : isGlobeMode
+              ? '🌍 우주 궤도 · 지구본 (노을 등시선)'
+              : `상공 ${altitudeMState >= 1000 ? `${(altitudeMState / 1000).toFixed(1)}km` : `${Math.round(altitudeMState)}m`} · 구름 레이더`}
+          </Text>
+          <TouchableOpacity
+            style={styles.radarHudResetBtn}
+            onPress={() => {
+              const cLat = location?.coords?.latitude ?? 37.5;
+              const cLon = location?.coords?.longitude ?? 127.0;
+              startDivingLanding(cLat, cLon);
+            }}
+          >
+            <Text style={styles.radarHudResetText}>착륙 ⤓</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* 롱프레스 위치 이동 안내 힌트 토스트 */}
+      {zoomProgressState > 1.35 && !divingLocation && (
+        <View style={styles.radarHintToast}>
+          <Text style={styles.radarHintText}>
+            💡 화면의 특정 위치를 길게 누르면 해당 장소로 즉시 이동 및 착륙합니다
+          </Text>
+        </View>
+      )}
     </View>
   );
 });
@@ -2744,5 +3089,69 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 10,
     fontWeight: '800',
+  },
+  radarHudPill: {
+    position: 'absolute',
+    top: 50,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.6)',
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 50,
+  },
+  radarHudDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#38BDF8',
+    marginRight: 6,
+  },
+  radarHudTitle: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  radarHudResetBtn: {
+    marginLeft: 10,
+    backgroundColor: 'rgba(56, 189, 248, 0.25)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: '#38BDF8',
+  },
+  radarHudResetText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  radarHintToast: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    zIndex: 40,
+  },
+  radarHintText: {
+    color: '#E2E8F0',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });

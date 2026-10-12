@@ -17,6 +17,7 @@ export interface MapCanvasProps {
    * 곳을 이어받습니다. 없으면 사용자 위치·화면 폭 60° 입니다.
    */
   startRegion?: { latitude: number; longitude: number; longitudeDelta: number };
+  region?: { latitude: number; longitude: number; longitudeDelta: number };
   theme: any;
   selectedDate?: Date;
   /** 좁은 축척에서만 들어옵니다. null 이면 등치선이 제 일을 하는 구간입니다. */
@@ -25,6 +26,8 @@ export interface MapCanvasProps {
   radar?: RadarFrame | null;
   /** 시뮬레이션 보기(§120 B). 웹 미리보기는 안 그립니다. */
   topView?: import('./useCloudTopView').CloudTopViewImage | null;
+  /** 롱프레스 시 해당 위경도 전달 */
+  onLongPress?: (coord: { latitude: number; longitude: number }) => void;
 }
 
 export declare const MapCanvas: React.FC<MapCanvasProps>;

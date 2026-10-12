@@ -48,6 +48,7 @@ export interface LiveSceneArgs {
   az?: number;
   el?: number;
   fov?: number;
+  altitudeM?: number;
 }
 
 export interface LiveScene {
@@ -69,7 +70,9 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const obs = a.obs ?? (a.interpolatedWeather?.[0] ?? (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null));
   const base: VolumetricSceneInput = {
     lat: a.lat, lon: a.lon, heightM: a.heightM, date: a.date,
-    az: a.az ?? sunAz, el: a.el ?? 15, fov: a.fov ?? 60, layers: [],
+    az: a.az ?? sunAz, el: a.el ?? 15, fov: a.fov ?? 60,
+    altitudeM: a.altitudeM,
+    layers: [],
   };
   if (!obs) return { input: base, forecast: null, obs: null, summary: '예보 없음' };
 

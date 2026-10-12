@@ -101,6 +101,8 @@ export interface VolumetricSceneInput {
   date: Date;
   /** 시선 방위·고도·세로 시야(도) */
   az: number; el: number; fov: number;
+  /** 카메라 고도(m). 기본값은 지상 눈높이 2m */
+  altitudeM?: number;
   layers: VolumetricLayerInput[];
   /** 노출. 없으면 해 고도로 정합니다(autoExposure). */
   exposure?: number;
@@ -339,8 +341,8 @@ export interface VolumetricScene {
   setSceneAsync(input: VolumetricSceneInput, isFast?: boolean): Promise<boolean>;
   /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
   cancelAsync?(): void;
-  /** 시선만 바꿉니다(매 프레임 싸게). */
-  setView(az: number, el: number, fov: number): void;
+  /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
+  setView(az: number, el: number, fov: number, altitudeM?: number): void;
   /** 시각만 바꿉니다(해 방향·노출). 해가 그림자 지도 문턱을 넘나들면 층을 다시 만듭니다. */
   setDate(date: Date): void;
   /**
@@ -740,6 +742,7 @@ export async function createVolumetricScene(
     const az = radians(p.az), el = radians(p.el);
     const position = curPos, nue = curNue;
     camera.fov = p.fov;
+    const alt = p.altitudeM ?? 2;
     let worldToECEF: Matrix4;
     if (opt.frame === 'ecef') {
       // takram 기본: 장면 좌표 = ECEF. 카메라를 관측점에 두고, 위쪽을 그 자리의 연직으로.
@@ -748,15 +751,24 @@ export async function createVolumetricScene(
       nue.extractBasis(north, up, east);
       const dir = north.clone().multiplyScalar(Math.cos(el) * Math.cos(az))
         .addScaledVector(up, Math.sin(el)).addScaledVector(east, Math.cos(el) * Math.sin(az));
-      camera.position.copy(position).addScaledVector(up, 2);
-      camera.up.copy(up);
+      camera.position.copy(position).addScaledVector(up, alt);
+      // 직하향 탑다운(레이더 뷰)일 때 up 벡터가 dir과 평행해지는 짐벌락 방지 -> 지도 북쪽을 화면 위로 정렬
+      if (Math.sin(el) < -0.98) {
+        camera.up.copy(north);
+      } else {
+        camera.up.copy(up);
+      }
       camera.lookAt(camera.position.clone().add(dir));
     } else {
       // 장면 좌표는 북·위·동(NUE).
       worldToECEF = nue;
-      camera.position.set(0, 2, 0);
-      camera.up.set(0, 1, 0);
-      camera.lookAt(Math.cos(el) * Math.cos(az), 2 + Math.sin(el), Math.cos(el) * Math.sin(az));
+      camera.position.set(0, alt, 0);
+      if (Math.sin(el) < -0.98) {
+        camera.up.set(1, 0, 0); // 북쪽(X축)
+      } else {
+        camera.up.set(0, 1, 0);
+      }
+      camera.lookAt(Math.cos(el) * Math.cos(az), alt + Math.sin(el), Math.cos(el) * Math.sin(az));
     }
     aerial.worldToECEFMatrix.copy(worldToECEF);
     clouds.worldToECEFMatrix.copy(worldToECEF);
@@ -915,9 +927,9 @@ export async function createVolumetricScene(
   };
   let disposed = false;
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
-  const setView = (az: number, el: number, fov: number) => {
+  const setView = (az: number, el: number, fov: number, altitudeM?: number) => {
     if (!lastInput) return;
-    lastInput = { ...lastInput, az, el, fov };
+    lastInput = { ...lastInput, az, el, fov, altitudeM: altitudeM !== undefined ? altitudeM : lastInput.altitudeM };
     placeCamera(lastInput);
   };
   const setDate = (date: Date) => {

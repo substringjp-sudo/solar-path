@@ -34,6 +34,8 @@ interface MapGlobeProps {
   /** 시뮬레이션 보기(§120 B) — 있으면 레이더 칸 대신 이 그림을 관측점 둘레에 얹습니다. */
   topView?: CloudTopViewImage | null;
   selectedDate?: Date;
+  /** 특정 위치 롱프레스 시 해당 위경도 전달 */
+  onSelectLocation?: (coord: { latitude: number; longitude: number }) => void;
 }
 
 /**
@@ -79,6 +81,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   radar = null,
   topView = null,
   selectedDate,
+  onSelectLocation,
 }) => {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
@@ -100,11 +103,23 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   // ⚠ PanResponder 는 한 번만 만듭니다. 그 안에서 props·상태를 직접 읽으면
   //   **처음 그린 때의 값**에 묶입니다(탭이 비활성일 때 떠 있던 구는 영영
   //   손을 안 받았습니다). 모두 ref 로 읽습니다.
-  const live = useRef({ rotate, scale, isActive, onViewChange, minRadius, maxRadius });
+  const live = useRef({ rotate, scale, isActive, onViewChange, minRadius, maxRadius, onSelectLocation });
   live.current.isActive = isActive;
   live.current.onViewChange = onViewChange;
   live.current.minRadius = minRadius;
   live.current.maxRadius = maxRadius;
+  live.current.onSelectLocation = onSelectLocation;
+
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartLocRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartLocRef.current = null;
+  };
 
   // 손가락 움직임마다 상태를 바꾸면 한 프레임에 여러 번 육지 경로를 다시
   // 풉니다. 한 프레임에 한 번으로 모읍니다.
@@ -141,7 +156,21 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
     return Math.sqrt(dx * dx + dy * dy);
   };
 
+  const invertScreenCoord = (px: number, py: number): [number, number] | null => {
+    const proj = d3.geoOrthographic()
+      .scale(live.current.scale)
+      .translate([CX, CY])
+      .rotate(live.current.rotate)
+      .clipAngle(90);
+    const inv = proj.invert ? proj.invert([px, py]) : null;
+    if (!inv || isNaN(inv[0]) || isNaN(inv[1])) return null;
+    const dist = d3.geoDistance(inv, [-live.current.rotate[0], -live.current.rotate[1]]);
+    if (dist > Math.PI / 2) return null;
+    return inv;
+  };
+
   const endGesture = () => {
+    clearLongPress();
     useCelestialStore.getState().setGestureBlocked(false);
     setIsInteracting(false);
     initialPinchDist.current = null;
@@ -168,6 +197,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
         gestureStartScale.current = live.current.scale;
         const touches = evt.nativeEvent.touches;
         if (touches && touches.length >= 2) {
+          clearLongPress();
           initialPinchDist.current = getTouchDistance(touches);
           initialScaleRef.current = live.current.scale;
         } else {
@@ -175,11 +205,25 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
           startY.current = evt.nativeEvent.pageY;
           startRotate.current = [...live.current.rotate];
           initialPinchDist.current = null;
+
+          const locX = evt.nativeEvent.locationX;
+          const locY = evt.nativeEvent.locationY;
+          touchStartLocRef.current = { x: locX, y: locY };
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = setTimeout(() => {
+            if (touchStartLocRef.current && live.current.onSelectLocation) {
+              const inverted = invertScreenCoord(locX, locY);
+              if (inverted) {
+                live.current.onSelectLocation({ longitude: inverted[0], latitude: inverted[1] });
+              }
+            }
+          }, 600);
         }
       },
       onPanResponderMove: (evt, gestureState) => {
         const touches = evt.nativeEvent.touches;
         if (touches && touches.length >= 2) {
+          clearLongPress();
           if (initialPinchDist.current === null) {
             initialPinchDist.current = getTouchDistance(touches);
             initialScaleRef.current = live.current.scale;
@@ -199,10 +243,14 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
             startY.current = evt.nativeEvent.pageY;
             startRotate.current = [...live.current.rotate];
             initialPinchDist.current = null;
+            clearLongPress();
             return;
           }
           const dx = evt.nativeEvent.pageX - startX.current;
           const dy = evt.nativeEvent.pageY - startY.current;
+          if (Math.hypot(dx, dy) > 7) {
+            clearLongPress();
+          }
           // ⚠ 예전에는 0.28°/px 로 고정이라, 확대하면 땅이 손가락보다 몇 배
           //   빨리 달아났습니다. 한가운데에서 1px = 1/R 라디안이므로 이렇게
           //   두면 손가락 밑의 땅이 손가락을 따라옵니다.
