@@ -129,6 +129,10 @@ import { MapGlobe } from '../IsolineMap/MapGlobe';
 import { LandSilhouette } from '../IsolineMap/LandSilhouette';
 import { mapModeFor, globeProgress, globeRadiusForDelta } from '../../utils/mapProjection';
 import { getTerminatorSegments, getSubsolarPoint } from '../../utils/celestial';
+import { buildSunOverlay } from '../../utils/solarGeometry';
+import * as d3 from 'd3-geo';
+import { useCloudTopView } from '../IsolineMap/useCloudTopView';
+import { fetchDayWeatherRing, type CloudPathData } from '../../utils/weather';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
@@ -447,6 +451,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const [zoomProgressState, setZoomProgressState] = useState((60 - 30) / 90);
   const [zoomStageState, setZoomStageState] = useState<'ground' | 'radar' | 'globe'>('ground');
   const [divingLocation, setDivingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number }>(() => ({
+    latitude: location?.coords?.latitude ?? 37.5,
+    longitude: location?.coords?.longitude ?? 127.0,
+  }));
   const divingAnimFrameRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartLocRef = useRef<{ x: number; y: number } | null>(null);
@@ -795,6 +803,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** 롱프레스 위치 이동 & 다이빙 착륙 애니메이션 (우주/상공 -> 지상 1.6m 하늘) */
   const startDivingLanding = useCallback((targetLat: number, targetLon: number) => {
     // 1. 전역 위치 갱신 (일출·일몰 시간, 날씨, 지형 자동 재계산)
+    setMapCenter({ latitude: targetLat, longitude: targetLon });
     setDivingLocation({ latitude: targetLat, longitude: targetLon });
     useCelestialStore.getState().setLocation({
       coords: {
@@ -864,6 +873,69 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       terminator: getTerminatorSegments(date),
     };
   }, [zoomProgressState > 1.3]);
+
+  // ── 지도 및 지구본용 등시선(Isochrone) 24시간 일출·일몰 격자선 ───────────────────
+  const allTerminators = useMemo(() => {
+    if (zoomProgressState <= 1.35) return [];
+    const list = [];
+    const baseDate = new Date(renderedTimeMsRef.current || Date.now());
+    const tzMs = (useCelestialStore.getState().timezoneOffsetHours ?? 0) * 3600000;
+    const dateKey = new Date(baseDate.getTime() + tzMs).toISOString().slice(0, 10);
+    const base = new Date(new Date(dateKey).getTime() - tzMs);
+    const step = 60; // 1시간 간격 등시선
+
+    for (let min = 0; min < 1440; min += step) {
+      const time = new Date(base.getTime() + min * 60 * 1000);
+      const segments = getTerminatorSegments(time);
+      list.push({
+        time,
+        sunrise: segments.sunrise,
+        sunset: segments.sunset,
+      });
+    }
+    return list;
+  }, [zoomProgressState > 1.35]);
+
+  // ── 지구 밤 영역(Night shadow) 2D/3D 폴리곤 ─────────────────────────────────
+  const nightPolygonCoords = useMemo(() => {
+    if (zoomProgressState <= 1.35 || !globeCelestialData) return [];
+    try {
+      const circleGeoJSON = d3.geoCircle().center([globeCelestialData.subsolar.longitude, globeCelestialData.subsolar.latitude]).radius(90)();
+      if (!circleGeoJSON || !circleGeoJSON.coordinates) return [];
+      const segments: Array<Array<{ latitude: number; longitude: number }>> = [];
+      if (circleGeoJSON.type === 'Polygon') {
+        circleGeoJSON.coordinates.forEach((ring: any) => {
+          const seg = ring.map((pt: [number, number]) => ({ longitude: pt[0], latitude: pt[1] }));
+          if (seg.length > 0) segments.push(seg);
+        });
+      } else if (circleGeoJSON.type === 'MultiPolygon') {
+        circleGeoJSON.coordinates.forEach((polygon: any) => {
+          polygon.forEach((ring: any) => {
+            const seg = ring.map((pt: [number, number]) => ({ longitude: pt[0], latitude: pt[1] }));
+            if (seg.length > 0) segments.push(seg);
+          });
+        });
+      }
+      return segments;
+    } catch (e) {
+      return [];
+    }
+  }, [zoomProgressState > 1.35, globeCelestialData?.subsolar]);
+
+  // ── 시뮬레이션 구름 탑다운 뷰 (하늘 시뮬레이션의 구름을 지도와 지구본 위에 투영) ───
+  const [cloudRing, setCloudRing] = useState<CloudPathData[] | null>(null);
+  useEffect(() => {
+    if (!isActive || zoomProgressState <= 1.35) return;
+    let alive = true;
+    const cLat = location?.coords?.latitude ?? 37.5;
+    const cLon = location?.coords?.longitude ?? 127.0;
+    fetchDayWeatherRing(cLat, cLon, new Date())
+      .then((r) => { if (alive) setCloudRing(r); })
+      .catch((err) => console.warn('지도 구름 탑다운 링 수신 실패:', err));
+    return () => { alive = false; };
+  }, [isActive, zoomProgressState > 1.35]);
+
+  const topView = useCloudTopView(cloudRing, renderedTimeMsRef.current || Date.now(), zoomProgressState > 1.35);
 
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
@@ -2827,6 +2899,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     CARD_RADIUS_MAX
   );
 
+  // 5. 좁은 축척에서의 태양 수직면 & 방위각 부채꼴 오버레이
+  const sunOverlay = useMemo(() => {
+    if (zoomProgressState <= 1.35 || isGlobeMode) return null;
+    const date = new Date(renderedTimeMsRef.current || Date.now());
+    return buildSunOverlay(date, mapCenter.latitude, mapCenter.longitude, currentLonDelta);
+  }, [zoomProgressState > 1.35, isGlobeMode, mapCenter.latitude, mapCenter.longitude, currentLonDelta]);
+
   return (
     <View
       style={[
@@ -2930,21 +3009,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         >
           {!isGlobeMode ? (
             <MapCanvas
-              lat={curLat}
-              lon={curLon}
+              lat={mapCenter.latitude}
+              lon={mapCenter.longitude}
               hasLocation={!!location}
               subsolar={globeCelestialData.subsolar}
               terminator={globeCelestialData.terminator}
+              allTerminators={allTerminators}
+              nightPolygonCoords={nightPolygonCoords}
+              sunOverlay={sunOverlay}
+              topView={topView}
               theme={theme}
               selectedDate={new Date(renderedTimeMsRef.current || Date.now())}
               startRegion={{
-                latitude: curLat,
-                longitude: curLon,
+                latitude: mapCenter.latitude,
+                longitude: mapCenter.longitude,
                 longitudeDelta: currentLonDelta,
               }}
               region={{
-                latitude: curLat,
-                longitude: curLon,
+                latitude: mapCenter.latitude,
+                longitude: mapCenter.longitude,
                 longitudeDelta: currentLonDelta,
               }}
               onLongPress={(coord) => {
@@ -2958,18 +3041,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             <MapGlobe
               subsolar={globeCelestialData.subsolar}
               terminator={globeCelestialData.terminator}
-              lat={curLat}
-              lon={curLon}
+              allTerminators={allTerminators}
+              lat={mapCenter.latitude}
+              lon={mapCenter.longitude}
               hasLocation={!!location}
               theme={theme}
               isActive={isActive}
               width={sceneW}
               height={sceneH}
+              topView={topView}
               initialCenter={{
-                latitude: curLat,
-                longitude: curLon,
+                latitude: mapCenter.latitude,
+                longitude: mapCenter.longitude,
               }}
-              initialRadius={globeRadiusForDelta(curLat, currentLonDelta, sceneW)}
+              initialRadius={globeRadiusForDelta(mapCenter.latitude, currentLonDelta, sceneW)}
               minRadius={100}
               maxRadius={800}
               onSelectLocation={(coord) => {
@@ -2979,6 +3064,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 }
               }}
               onViewChange={(v) => {
+                // 지구본 회전/줌 조작 시 중심 위치를 실시간으로 지도와 동기화!
+                setMapCenter({ latitude: v.latitude, longitude: v.longitude });
                 if (v.zoomedIn) {
                   // 지구본에서 손가락을 벌려 줌인하면 평면 지도로 복귀
                   zoomProgressRef.current = 2.2;
@@ -2994,7 +3081,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 그리는 LandSilhouette (도법 및 그림체 연속성 유지) ── */}
           {showSilhouette && (
             <LandSilhouette
-              region={{ latitude: curLat, longitude: curLon, longitudeDelta: currentLonDelta }}
+              region={{ latitude: mapCenter.latitude, longitude: mapCenter.longitude, longitudeDelta: currentLonDelta }}
               width={sceneW}
               height={sceneH}
               theme={theme}
