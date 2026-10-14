@@ -30,10 +30,23 @@ interface MapCanvasProps {
   radar?: RadarFrame | null;
   topView?: CloudTopViewImage | null;
   onLongPress?: (coord: { latitude: number; longitude: number }) => void;
+  /** 손가락 두 개 줌을 지도가 직접 받을지(기본 켬). 하늘 탭은 줌을 진행도로 몰아 쓰므로 끕니다. */
+  zoomEnabled?: boolean;
 }
 
+/** 리렌더 없이 지도를 옮깁니다 — 하늘 탭의 줌이 손가락 이벤트마다 부릅니다. */
+export interface MapCanvasHandle {
+  moveTo: (region: { latitude: number; longitude: number; longitudeDelta: number }, durationMs?: number) => void;
+}
 
-export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
+const toNativeRegion = (r: { latitude: number; longitude: number; longitudeDelta: number }) => ({
+  latitude: r.latitude,
+  longitude: r.longitude,
+  latitudeDelta: Math.min(170, r.longitudeDelta * Math.max(0.1, Math.cos(r.latitude * Math.PI / 180))),
+  longitudeDelta: r.longitudeDelta,
+});
+
+export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasProps>(({
   lat,
   lon,
   hasLocation,
@@ -50,17 +63,19 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   radar = null,
   topView = null,
   onLongPress,
-}) => {
+  zoomEnabled = true,
+}, ref) => {
   const mapRef = React.useRef<MapView>(null);
+
+  React.useImperativeHandle(ref, () => ({
+    // ⚠ 0 ms 면 네이티브가 바로 옮깁니다(moveCamera). 짧은 애니메이션을 겹쳐 부르면
+    //   앞 애니메이션이 끊기며 덜컹거립니다 — 부르는 쪽이 프레임마다 한 번만 부릅니다.
+    moveTo: (r, durationMs = 0) => mapRef.current?.animateToRegion(toNativeRegion(r), durationMs),
+  }), []);
 
   React.useEffect(() => {
     if (region && mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: region.latitude,
-        longitude: region.longitude,
-        latitudeDelta: Math.min(170, region.longitudeDelta * Math.max(0.1, Math.cos(region.latitude * Math.PI / 180))),
-        longitudeDelta: region.longitudeDelta,
-      }, 60);
+      mapRef.current.animateToRegion(toNativeRegion(region), 60);
     }
   }, [region?.latitude, region?.longitude, region?.longitudeDelta]);
   const handleRegionChangeComplete = (newRegion: any) => {
@@ -89,12 +104,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       // ⚠ 세로 폭은 경도 폭·cos(위도) 로 줍니다 — 세로로 긴 화면에서는 이것이
       //   가로보다 먼저 차지 않아 **경도 폭이 축척을 정합니다**. 구에서 돌아올 때
       //   구와 같은 축척이어야 땅 크기가 안 튑니다.
-      initialRegion={startRegion ? {
-        latitude: startRegion.latitude,
-        longitude: startRegion.longitude,
-        latitudeDelta: Math.min(170, startRegion.longitudeDelta * Math.max(0.1, Math.cos(startRegion.latitude * Math.PI / 180))),
-        longitudeDelta: startRegion.longitudeDelta,
-      } : {
+      initialRegion={startRegion ? toNativeRegion(startRegion) : {
         latitude: lat,
         longitude: lon,
         latitudeDelta: 60,
@@ -102,6 +112,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }}
       rotateEnabled={false}
       pitchEnabled={false}
+      zoomEnabled={zoomEnabled}
       onRegionChangeComplete={handleRegionChangeComplete}
       onLongPress={(e) => {
         if (e.nativeEvent?.coordinate && onLongPress) {
@@ -322,7 +333,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       )}
     </MapView>
   );
-});
+}));
 
 const styles = StyleSheet.create({
   sunMarker: {

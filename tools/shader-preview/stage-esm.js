@@ -75,6 +75,8 @@ const ENTRIES = [
   'src/utils/airQuality.ts',
   'src/utils/cloudMatrix.ts',
   'src/utils/mapProjection.ts',
+  // 하늘 → 지도 → 구 줌의 한 줄 축척(verify-zoom-continuum.js).
+  'src/utils/zoomContinuum.ts',
   'src/utils/locationPick.ts',
   'src/utils/cachePolicy.ts',
   'src/utils/cloudDeck.ts',

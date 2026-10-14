@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback, useImperativeHandle } from 'react';
 import { StyleSheet, View, PanResponder } from 'react-native';
 import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import * as d3 from 'd3-geo';
@@ -62,7 +62,15 @@ const joinOnSphere = (segments: IsochronePoint[][]): [number, number][][] => {
   return lines;
 };
 
-export const MapGlobe: React.FC<MapGlobeProps> = ({
+/**
+ * 부모가 리렌더 없이 구를 움직입니다 — 하늘 탭의 줌이 손가락 이벤트마다 반지름(지도와 같은
+ * 축척)과 한가운데를 넘깁니다. 구 안의 손짓처럼 한 프레임에 한 번으로 모아 그립니다.
+ */
+export interface MapGlobeHandle {
+  setView: (v: { radius?: number; center?: { latitude: number; longitude: number } }) => void;
+}
+
+export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProps>(({
   subsolar,
   terminator,
   allTerminators = [],
@@ -82,7 +90,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   topView = null,
   selectedDate,
   onSelectLocation,
-}) => {
+}, ref) => {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
   const CX = W / 2;
@@ -138,6 +146,18 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   useEffect(() => () => {
     if (frame.current !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame.current);
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    setView: ({ radius, center }) => {
+      if (radius !== undefined && Number.isFinite(radius)) {
+        live.current.scale = Math.max(live.current.minRadius, Math.min(live.current.maxRadius, radius));
+      }
+      if (center) {
+        live.current.rotate = [-center.longitude, -Math.max(-89, Math.min(89, center.latitude))];
+      }
+      schedule();
+    },
+  }), []);
 
   const startRotate = useRef<[number, number]>([0, 0]);
   const startX = useRef(0);
@@ -721,7 +741,7 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
       </View>
     </View>
   );
-};
+}));
 
 const styles = StyleSheet.create({
   container: {
