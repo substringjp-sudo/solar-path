@@ -46,7 +46,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
 import { layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
@@ -879,7 +879,9 @@ export async function createVolumetricScene(
       // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
       const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
       // §136 물리: 종류 층의 소광·세로 단면을 기온·기압에서(cloudPhysics). 꺼져 있으면 CloudLayer 에 아무것도 더하지 않습니다(이전과 같은 바이트).
-      const phys = g && opt.physics ? layerPhysics(g.genus, (L.physBaseKm ?? L.baseKm) * 1000, shape.height ?? 0, p.thermo) : null;
+      const physRaw = g && opt.physics ? layerPhysics(g.genus, (L.physBaseKm ?? L.baseKm) * 1000, shape.height ?? 0, p.thermo, genusEnvelope(g)) : null;
+      // 입력이 깨져(NaN) 값이 유한하지 않으면 그 층은 손값 그대로 — 구름이 조용히 사라지지 않게.
+      const phys = physRaw && Number.isFinite(physRaw.betaTop) && physRaw.betaTop >= 0 && physRaw.profile.every(Number.isFinite) ? physRaw : null;
       physLanes[i] = phys;
       const altitude = (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
       const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } } : {};

@@ -860,6 +860,11 @@ export function setGenusPhysics(mat: PatchableMaterial, lanes: ({ halo: number; 
   mat.uniforms.genusPhysOn.value = on ? 1 : 0;
 }
 
+/** §136 층의 렌더 봉투 손잡이(patchGenusShader 단면) — cloudPhysics.layerPhysics 가 렌더 기둥 광학두께(tauRendered)를 셀 때 씁니다. */
+export function genusEnvelope(L: GenusLayer): { mode: number; base: number; top: number; edge: number } {
+  return { mode: param(L, 'mode'), base: param(L, 'base'), top: param(L, 'top'), edge: param(L, 'edge') };
+}
+
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */
 export function genusLayerShape(L: GenusLayer, flowDensity = false) {
   // §130 C2 흐름 밀도가 켜진 층은 소광·모양 잡음 양을 흐름값(GENUS_FLOW 의 flowDensityScale 등)으로 — 꺼진 층은 GENUS 그대로.
