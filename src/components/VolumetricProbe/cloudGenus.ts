@@ -19,7 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
-import { DIFFUSE_GLSL, MU0_MIN } from './cloudDiffuse';
+import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 
 /**
@@ -724,6 +724,18 @@ export async function makeGenusWeatherAsync(
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
+/** §126.6 햇빛 확산 투과(thru) 블록 — patchGenusShader 가 넣고 §138 injectGenusDiffuse 가 같은 글자를 찾아 바꿉니다(한 상수). */
+const THRU_BLOCK = [
+  '',
+  '      {',
+  '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
+  '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
+  '        // 다중 산란 최저광: 두꺼운 구름도 햇빛을 등질 때 웅장한 은빛/금빛 확산광 보장',
+  '        vec4 gMultiScat = max(vec4(0.28), exp(-0.035 * gTau)) * max(genusBeamTransmittance, vec4(0.25));',
+  '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.15 * gTau)) * (2.0 / (2.0 + 0.1 * gTau)) * gMultiScat;',
+  '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);',
+  '      }',
+].join('\n');
 const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO', 'genusThru', 'genusBeamTransmittance'] as const;
 
 /**
@@ -763,17 +775,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   // 햇빛 확산 투과(GenusParams.thru): 위쪽 광학두께 ≈ 이 표본의 소광 × 꼭대기까지 거리.
   const amb = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
   if (src.includes(amb)) {
-    src = src.replace(amb, amb + [
-      '',
-      '      {',
-      '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
-      '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
-      '        // 다중 산란 최저광: 두꺼운 구름도 햇빛을 등질 때 웅장한 은빛/금빛 확산광 보장',
-      '        vec4 gMultiScat = max(vec4(0.28), exp(-0.035 * gTau)) * max(genusBeamTransmittance, vec4(0.25));',
-      '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.15 * gTau)) * (2.0 / (2.0 + 0.1 * gTau)) * gMultiScat;',
-      '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);',
-      '      }',
-    ].join('\n'));
+    src = src.replace(amb, amb + THRU_BLOCK);
   }
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',
@@ -880,6 +882,7 @@ function variantOf(mat: PatchableMaterial): ShaderVariant {
 function refreshVariant(mat: PatchableMaterial): void {
   const v = variantOf(mat);
   // §138 확산광은 thru 블록·하늘빛 줄을 통째로 바꾸므로 **먼저** 넣고, 바닥값 치환은 그 뒤(L2·L3 에서는 앵커가 사라져 바닥값 치환이 조용히 비활성 — 둘은 함께 쓰지 않음).
+  if (v.diffuse >= 2 && v.floors && v.base.includes(IS_CLOUDS)) throw new Error('cloudGenus: debugLightFloors 는 diffuse 2·3 과 함께 쓸 수 없습니다(바닥값 앵커가 교체됨)');
   let want = injectGenusDiffuse(v.base, v.diffuse);
   want = applyGenusFloors(want, v.floors);
   if (v.ice) want = injectGenusIce(want);
@@ -920,42 +923,83 @@ export function setGenusLightFloors(mat: PatchableMaterial, floors: [number, num
 }
 
 /**
- * §138 구름 속 확산광(RULER-physics3). 구름 패스의 thru 블록(patchGenusShader 가 넣은 글자)을 후보별로 바꿉니다 — **켤 때만**, 끄면 원문.
- *   1 (L1): thru 의 τ_up 을 표본 국소 소광 × 거리 대신 **기둥**(해 쪽 행진 + 그림자 지도 = opticalDepth, 수직으로 세움 × μ0)으로.
- *   2 (L2): thru 블록을 두-흐름 확산장 E_top·D/4π 로 교체(0.28·0.25 바닥값 없음). τ_total 은 층 밑면 점에서 그림자 지도를 한 번 더 읽어 셈.
- *   3 (L3): L2 + 하늘빛 항의 max(0.35, e^(−ao·depth)) 를 e^(−(1−g)τ_above) 로(ao·바닥값 은퇴).
- * 앵커가 없는 재질(그림자 패스)은 그대로. 균일변수는 새로 두지 않습니다(genusThru 가 층별 켬/끔).
+ * §138 구름 속 확산광(RULER-physics3). 구름 패스의 하늘빛 줄 + thru 블록(patchGenusShader 가 넣은 글자)을 후보별로 바꿉니다 — **켤 때만**, 끄면 원문.
+ * 기둥 광학두께는 그림자 지도가 아니라(행진 minTransmittance 에서 τ ≈ 72 로 포화) 층 단면의 **해석적 적분**: τ(hf 구간) = (표본 소광 / 표본 날씨 밀도 합) × H × ∫ gDensity(hf) dhf
+ * — gDensity 는 patchGenusShader 와 같은 식(날씨 d 는 weather.depth 에서 되찾음: d = depth + 1 − hs(hf_표본)), 중점 8 개. 표본의 모양 잡음 배율이 기둥 전체에 걸리는 것은 한계(§8).
+ *   1 (L1): thru 식·바닥값은 그대로, τ_up 만 해석적 기둥(표본 위)으로.
+ *   2 (L2): 하늘빛 항 = 충돌 전 하늘빛만(E_h = skyIrradiance/2π, 반구 평균 ½, e^(−2τ'_above); ao·0.35 바닥값 은퇴), thru 블록 = 두-흐름 확산장
+ *           J = [E_sun·μ0·K(μ0)·D_sun + E_h·D_sky] / 2π (0.28·0.25 바닥값·genusThru 없음).
+ *   3 (L3): L2 의 확산장만 넣고 takram 하늘빛 항·ao 바닥값은 **그대로**(하늘빛 이중 계산 대조 — 검토 4 의 예측 "RC 통과 불가" 를 재는 후보).
+ * 그림자 패스(구름 패스 판별 줄 없음)는 그대로; 구름 패스인데 앵커가 없으면 throw(조용히 L0 이 되지 않게). debugLightFloors 는 L2·L3 와 함께 못 씀(throw).
+ * 균일변수는 새로 두지 않습니다(상수를 글자로).
  */
 const DIFF_TAU_LINE = '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;';
-const DIFF_BLOCK_START = '      {\n        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));';
-const DIFF_BLOCK_END = '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);\n      }';
-const DIFF_SKY_LINE = '      skyGradient *= dot(mix(vec4(1.0), max(vec4(0.35), exp(-genusAO * weather.depth)), genusOn), media.weight);';
+const DIFF_SKY_FLOOR = '      skyGradient *= dot(mix(vec4(1.0), max(vec4(0.35), exp(-genusAO * weather.depth)), genusOn), media.weight);';
+/** 구름 패스 판별자(= takram 하늘빛 항) — 이 줄이 있으면 구름 패스. */
+const IS_CLOUDS = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
 const DIFF_MU0 = `max(${MU0_MIN.toFixed(4)}, dot(surfaceNormal, sunDirection))`;
+/** 해석적 기둥 τ(표본 위·전체, vec4 층별) — L1·L2·L3 공통. gTauA(위), gTauT(전체) 를 둡니다. */
+const COLUMN_GLSL = [
+  '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
+  '        vec4 gHf0 = weather.heightFraction;',
+  '        vec4 gLW = weather.depth + vec4(1.0) - genusHsD(gHf0);   // 날씨 d 되찾기(구름 안 표본: depth > 0)',
+  '        vec4 gIntA = vec4(0.0), gIntT = vec4(0.0);',
+  `        for (int gi = 0; gi < ${COLUMN_N}; ++gi) {`,
+  `          float gHfi = (float(gi) + 0.5) / ${COLUMN_N}.0;`,
+  '          vec4 gDi = clamp((gLW - (vec4(1.0) - genusHsD(vec4(gHfi)))) * genusEdge, 0.0, 1.0);',
+  '          gIntT += gDi;',
+  '          gIntA += gDi * step(gHf0, vec4(gHfi));',
+  '        }',
+  `        float gBeta = media.extinction / max(dot(weather.density, vec4(1.0)), 1e-5);   // 표본의 (소광 / 날씨 밀도) = 층 densityScale × 모양 잡음`,
+  `        vec4 gTauA = gBeta * gLayerH * gIntA / ${COLUMN_N}.0;`,
+  `        vec4 gTauT = max(gTauA, gBeta * gLayerH * gIntT / ${COLUMN_N}.0);`,
+].join('\n');
+const HS_GLSL = [
+  '// §138 종류 단면 hs(hf) — patchGenusShader 의 식과 같음(기둥 적분용).',
+  'vec4 genusHsD(const vec4 hf) {',
+  '  vec4 ramp = smoothstep(vec4(0.0), max(genusBase, vec4(1e-4)), hf);',
+  '  vec4 dome = ramp * pow(max(vec4(1.0) - hf, vec4(1e-6)), genusTop);',
+  '  vec4 lens = vec4(1.0) - pow(max(abs(hf * 2.0 - 1.0), vec4(1e-6)), max(genusTop, vec4(1e-3)));',
+  '  return mix(dome, lens, step(vec4(0.5), genusMode));',
+  '}',
+].join('\n');
+const DIFFUSE_FIELD_GLSL = [
+  '      {',
+  '        // §138 두-흐름 확산장(해석적 기둥 τ, 수직). J = [E_sun·μ0·K(μ0)·D_sun + E_h·D_sky] / 2π.',
+  COLUMN_GLSL,
+  `        float gMu0 = ${DIFF_MU0};`,
+  '        float gTa = dot(gTauA, media.weight), gTt = dot(gTauT, media.weight);',
+  '        float gDsun = genusDiffuseField(gTa, gTt, 1.0 / gMu0);',
+  `        float gDsky = genusDiffuseField(gTa, gTt, ${SKY_SECANT.toFixed(1)});`,
+  `        vec3 gJ = (sunIrradiance * gMu0 * genusSunWeight(gMu0) * gDsun + skyIrradiance * ${INV_2PI.toFixed(6)} * gDsky) * ${INV_2PI.toFixed(6)};`,
+  '        radiance += gJ * dot(genusOn, media.weight);',
+  '      }',
+].join('\n');
 export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3): string {
   if (!mode) return base;
-  const a = base.indexOf(DIFF_BLOCK_START), b = base.indexOf(DIFF_BLOCK_END);
-  if (a < 0 || b < a || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH)) return base;
+  if (!base.includes(IS_CLOUDS)) return base;   // 그림자 패스
+  if (!base.includes(THRU_BLOCK) || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH) || !base.includes(DIFF_SKY_FLOOR)) throw new Error('cloudGenus: diffuse anchor missing');
+  let src = base.replace(ICE_MARCH, HS_GLSL + '\n' + DIFFUSE_GLSL + '\n' + ICE_MARCH);
   if (mode === 1) {
-    return base.replace(DIFF_TAU_LINE, `        vec4 gTau = vec4(opticalDepth * ${DIFF_MU0});   // §138 L1: 기둥 광학두께(수직)`);
+    // L1: 기둥 τ(표본 위)만 바꿈 — thru 식·바닥값 그대로.
+    return src.replace(DIFF_TAU_LINE, [
+      '        // §138 L1: 위쪽 광학두께를 표본 국소 소광 × 거리 대신 해석적 기둥(표본 위)으로.',
+      COLUMN_GLSL.split('\n').slice(1).join('\n'),   // gLayerH 는 이미 위 줄에 있음
+      '        vec4 gTau = gTauA;',
+    ].join('\n'));
   }
-  const L2 = [
-    '      {',
-    '        // §138 L2: 두-흐름 확산장 — 표본 위(해 쪽 행진 + 그림자 지도)와 기둥 전체(층 밑면 점의 그림자 지도)의 수직 광학두께.',
-    `        float gMu0 = ${DIFF_MU0};`,
-    '        float gTauAbove = opticalDepth * gMu0;',
-    '        float gTauTotal = gTauAbove;',
-    '        if (height < shadowTopHeight) {',
-    '          float gBottomH = max(0.0, height - dot(minLayerHeights, media.weight));',
-    '          gTauTotal = max(gTauAbove, sampleShadowOpticalDepth(position - surfaceNormal * gBottomH, 0.0, 0.0, jitter) * gMu0);',
-    '        }',
-    '        float gD = genusDiffuseField(gTauAbove, gTauTotal, gMu0) * dot(genusThru * genusOn, media.weight);',
-    '        radiance += (sunIrradiance * gMu0 + 0.5 * skyIrradiance) * RECIPROCAL_PI4 * gD;',
-    '      }',
-  ].join('\n');
-  let src = base.slice(0, a) + L2 + base.slice(b + DIFF_BLOCK_END.length);
-  src = src.replace(ICE_MARCH, DIFFUSE_GLSL + '\n' + ICE_MARCH);
-  if (mode === 3 && src.includes(DIFF_SKY_LINE)) {
-    src = src.replace(DIFF_SKY_LINE, `      skyGradient *= mix(1.0, exp(-${(1 - 0.85).toFixed(4)} * opticalDepth * ${DIFF_MU0}), dot(genusOn, media.weight));   // §138 L3: 하늘빛을 기둥 τ 로 감쇠`);
+  src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
+  if (mode === 2) {
+    // L2: 하늘빛 항 = 충돌 전 하늘빛만(E_h·½·e^(−2τ'_above)·skyGradient), ao·0.35 바닥값 은퇴.
+    src = src.replace(DIFF_SKY_FLOOR, [
+      '      // §138 L2: ao·0.35 바닥값 은퇴 — 산란된 하늘빛은 아래 확산장(D_sky)이, 여기는 충돌 전 하늘빛만.',
+      '      float gSkyUncol = 1.0;',
+      '      {',
+      COLUMN_GLSL,
+      `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
+      '      }',
+    ].join('\n'));
+    src = src.replace(IS_CLOUDS, `radiance += skyIrradiance * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn, media.weight)) * skyGradient * skyLightScale;   // §138 L2`);
   }
   return src;
 }
