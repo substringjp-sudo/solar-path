@@ -29,7 +29,7 @@ import { PerspectiveCamera } from 'three';
 import { CloudsEffect } from '@takram/three-clouds';
 import { patchGenusShader as patchOld } from './old/cloudGenus';
 import { patchFlowShader as patchFlowOld } from './old/cloudFlowShader';
-import { patchGenusShader as patchNew, setGenusPhysics, setGenusLightFloors, applyGenusFloors } from '${SRC}/cloudGenus';
+import { patchGenusShader as patchNew, setGenusPhysics, setGenusLightFloors, applyGenusFloors, setGenusDiffuse } from '${SRC}/cloudGenus';
 import { patchFlowShader as patchFlowNew } from '${SRC}/cloudFlowShader';
 type M = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
 const mk = () => { const c = new CloudsEffect(new PerspectiveCamera()); return [c.cloudsPass.currentMaterial, c.shadowPass.currentMaterial] as unknown as M[]; };
@@ -83,6 +83,27 @@ r.cloudsReOn = nc.fragmentShader.includes('genusHaloPhase') && (nc.uniforms.genu
   r.floorsOffIceStays = mc.fragmentShader === haloText;
   setGenusPhysics(mc as never, [], false);
   r.allOffRestored = mc.fragmentShader === base && unameCount() === u0;
+  // §138 확산광 후보 — 켤 때만 삽입, 끄면 원문, 그림자 패스 불변, 균일변수 수 불변
+  setGenusDiffuse(mc as never, 0); setGenusDiffuse(ms as never, 0);
+  r.diffOffIdentical = mc.fragmentShader === base && ms.fragmentShader === baseShadow;
+  setGenusDiffuse(mc as never, 1); setGenusDiffuse(ms as never, 1);
+  r.diff1 = mc.fragmentShader.includes('§138 L1') && mc.fragmentShader.includes('vec4 gTau = vec4(opticalDepth *') && !mc.fragmentShader.includes('weather.heightFraction, vec4(0.0)) * gLayerH') && ms.fragmentShader === baseShadow && unameCount() === u0;
+  setGenusDiffuse(mc as never, 2); setGenusDiffuse(ms as never, 2);
+  const t2 = mc.fragmentShader;
+  r.diff2 = t2.includes('genusDiffuseField(') && t2.includes('§138 L2') && !t2.includes('gMultiScat') && !t2.includes('max(vec4(0.28)') && t2.includes('max(vec4(0.35), exp(-genusAO') && t2.split('float genusDiffuseField(').length === 2 && ms.fragmentShader === baseShadow && unameCount() === u0;
+  setGenusDiffuse(mc as never, 3);
+  const t3 = mc.fragmentShader;
+  r.diff3 = t3.includes('§138 L3') && !t3.includes('max(vec4(0.35), exp(-genusAO') && t3.includes('genusDiffuseField(');
+  setGenusLightFloors(mc as never, [0, 0]);                                                      // L3 + 바닥값: 앵커가 없어 바닥값은 조용히 무시
+  r.diff3FloorsIgnored = mc.fragmentShader === t3;
+  setGenusLightFloors(mc as never, null);
+  setGenusPhysics(mc as never, [{ halo: 0.5, powder: 1 }], true);                                // L3 + 얼음 동시
+  r.diff3Ice = mc.fragmentShader.includes('genusHaloPhase') && mc.fragmentShader.includes('§138 L3');
+  setGenusPhysics(mc as never, [], false); setGenusDiffuse(mc as never, 0);
+  r.diffAllOffRestored = mc.fragmentShader === base && unameCount() === u0;
+  // GLSL 괄호 균형(컴파일 전 1차 검사)
+  const bal = (t) => { let d = 0; for (const c of t) { if (c === '{') d++; else if (c === '}') d--; if (d < 0) return false; } return d === 0; };
+  r.diffBraces = bal(t2) && bal(t3);
 }
 console.log(JSON.stringify(r));
 `);
@@ -104,6 +125,12 @@ check('레인이 사라지면 원문 복귀 + 균일변수 제거(상태 해시�
 check('바닥값 치환: 두 literal 만 바뀜(글자 수 −2), 기본 null 은 그대로, 반값도 됨', r.floorsReplaced && r.floorsDefaultIdentical && r.floorsHalf);
 check('바닥값: 구름 패스에만 적용, 그림자 패스는 그대로', r.floorsCloudsApplied && r.floorsShadowUntouched);
 check('얼음 + 바닥값 동시 · 바닥값만 끄면 얼음 유지 · 전부 끄면 원문', r.iceAndFloors && r.floorsOffIceStays && r.allOffRestored);
+check('§138 확산광 0: 원문', r.diffOffIdentical);
+check('§138 L1: τ_up 줄만 기둥 τ 로 바뀜, 그림자 패스·균일변수 수 불변', r.diff1);
+check('§138 L2: thru 블록이 두-흐름으로 교체(바닥값 0.28 없음, 하늘빛 줄 그대로), 함수 한 번만 삽입', r.diff2);
+check('§138 L3: 하늘빛 줄이 기둥 τ 감쇠로', r.diff3);
+check('§138 L3 + 바닥값 치환은 무시 · L3 + 얼음 동시 · 전부 끄면 원문·균일변수 수', r.diff3FloorsIgnored && r.diff3Ice && r.diffAllOffRestored);
+check('§138 L2·L3 중괄호 균형', r.diffBraces);
 const pass = results.filter(Boolean).length;
 console.log(`\n${pass}/${results.length} 통과`);
 process.exit(pass === results.length ? 0 : 1);

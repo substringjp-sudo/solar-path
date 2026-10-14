@@ -19,6 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
+import { DIFFUSE_GLSL, MU0_MIN } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 
 /**
@@ -869,16 +870,18 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
-interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null }
+interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 }
 const VARIANT = new WeakMap<object, ShaderVariant>();
 function variantOf(mat: PatchableMaterial): ShaderVariant {
   let v = VARIANT.get(mat);
-  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null }; VARIANT.set(mat, v); }
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0 }; VARIANT.set(mat, v); }
   return v;
 }
 function refreshVariant(mat: PatchableMaterial): void {
   const v = variantOf(mat);
-  let want = applyGenusFloors(v.base, v.floors);
+  // §138 확산광은 thru 블록·하늘빛 줄을 통째로 바꾸므로 **먼저** 넣고, 바닥값 치환은 그 뒤(L2·L3 에서는 앵커가 사라져 바닥값 치환이 조용히 비활성 — 둘은 함께 쓰지 않음).
+  let want = injectGenusDiffuse(v.base, v.diffuse);
+  want = applyGenusFloors(want, v.floors);
   if (v.ice) want = injectGenusIce(want);
   if (mat.fragmentShader !== want) { mat.fragmentShader = want; mat.needsUpdate = true; }
   const injected = v.ice && want.includes('genusPhysOn');
@@ -913,6 +916,51 @@ export function setGenusPhysics(mat: PatchableMaterial, lanes: ({ halo: number; 
 /** §137 D1 진단 — 조명 바닥값 치환(null 이면 끔 = 원문). 기본값을 바꾸는 것이 아니라 켜 보기만 합니다. */
 export function setGenusLightFloors(mat: PatchableMaterial, floors: [number, number] | null): void {
   variantOf(mat).floors = floors;
+  refreshVariant(mat);
+}
+
+/**
+ * §138 구름 속 확산광(RULER-physics3). 구름 패스의 thru 블록(patchGenusShader 가 넣은 글자)을 후보별로 바꿉니다 — **켤 때만**, 끄면 원문.
+ *   1 (L1): thru 의 τ_up 을 표본 국소 소광 × 거리 대신 **기둥**(해 쪽 행진 + 그림자 지도 = opticalDepth, 수직으로 세움 × μ0)으로.
+ *   2 (L2): thru 블록을 두-흐름 확산장 E_top·D/4π 로 교체(0.28·0.25 바닥값 없음). τ_total 은 층 밑면 점에서 그림자 지도를 한 번 더 읽어 셈.
+ *   3 (L3): L2 + 하늘빛 항의 max(0.35, e^(−ao·depth)) 를 e^(−(1−g)τ_above) 로(ao·바닥값 은퇴).
+ * 앵커가 없는 재질(그림자 패스)은 그대로. 균일변수는 새로 두지 않습니다(genusThru 가 층별 켬/끔).
+ */
+const DIFF_TAU_LINE = '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;';
+const DIFF_BLOCK_START = '      {\n        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));';
+const DIFF_BLOCK_END = '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);\n      }';
+const DIFF_SKY_LINE = '      skyGradient *= dot(mix(vec4(1.0), max(vec4(0.35), exp(-genusAO * weather.depth)), genusOn), media.weight);';
+const DIFF_MU0 = `max(${MU0_MIN.toFixed(4)}, dot(surfaceNormal, sunDirection))`;
+export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3): string {
+  if (!mode) return base;
+  const a = base.indexOf(DIFF_BLOCK_START), b = base.indexOf(DIFF_BLOCK_END);
+  if (a < 0 || b < a || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH)) return base;
+  if (mode === 1) {
+    return base.replace(DIFF_TAU_LINE, `        vec4 gTau = vec4(opticalDepth * ${DIFF_MU0});   // §138 L1: 기둥 광학두께(수직)`);
+  }
+  const L2 = [
+    '      {',
+    '        // §138 L2: 두-흐름 확산장 — 표본 위(해 쪽 행진 + 그림자 지도)와 기둥 전체(층 밑면 점의 그림자 지도)의 수직 광학두께.',
+    `        float gMu0 = ${DIFF_MU0};`,
+    '        float gTauAbove = opticalDepth * gMu0;',
+    '        float gTauTotal = gTauAbove;',
+    '        if (height < shadowTopHeight) {',
+    '          float gBottomH = max(0.0, height - dot(minLayerHeights, media.weight));',
+    '          gTauTotal = max(gTauAbove, sampleShadowOpticalDepth(position - surfaceNormal * gBottomH, 0.0, 0.0, jitter) * gMu0);',
+    '        }',
+    '        float gD = genusDiffuseField(gTauAbove, gTauTotal, gMu0) * dot(genusThru * genusOn, media.weight);',
+    '        radiance += (sunIrradiance * gMu0 + 0.5 * skyIrradiance) * RECIPROCAL_PI4 * gD;',
+    '      }',
+  ].join('\n');
+  let src = base.slice(0, a) + L2 + base.slice(b + DIFF_BLOCK_END.length);
+  src = src.replace(ICE_MARCH, DIFFUSE_GLSL + '\n' + ICE_MARCH);
+  if (mode === 3 && src.includes(DIFF_SKY_LINE)) {
+    src = src.replace(DIFF_SKY_LINE, `      skyGradient *= mix(1.0, exp(-${(1 - 0.85).toFixed(4)} * opticalDepth * ${DIFF_MU0}), dot(genusOn, media.weight));   // §138 L3: 하늘빛을 기둥 τ 로 감쇠`);
+  }
+  return src;
+}
+export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3): void {
+  variantOf(mat).diffuse = mode;
   refreshVariant(mat);
 }
 

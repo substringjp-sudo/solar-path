@@ -46,7 +46,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusLightFloors, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
@@ -348,8 +348,13 @@ export interface VolumetricOptions {
   icePowderOff: boolean;
   /** §137 D1 진단 전용 — 조명 바닥값 [하늘빛 가림 0.35, 다중 산란 0.28] 치환. null = 끔(기본, 셰이더 글자 그대로). 기본값을 바꾸는 용도가 아님. */
   debugLightFloors: [number, number] | null;
+  /**
+   * §138 구름 속 확산광(RULER-physics3). 0 = 끔(기본, 셰이더 글자 그대로) · 1 = L1 thru 의 τ_up 을 기둥 광학두께로 · 2 = L2 두-흐름 확산장이 thru 를 대체 ·
+   * 3 = L3 L2 + 하늘빛 항을 기둥 τ 로 감쇠(ao·바닥값 은퇴). 구름 패스에만 삽입하고, 0 이면 삽입 전 원문으로 되돌립니다.
+   */
+  diffuse: 0 | 1 | 2 | 3;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -917,6 +922,7 @@ export async function createVolumetricScene(
         setGenusUniforms(m, gl);
         setGenusPhysics(m, iceLanes, iceOn);
         setGenusLightFloors(m, opt.debugLightFloors);
+        setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
@@ -925,7 +931,7 @@ export async function createVolumetricScene(
       }
     } else {
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
-      for (const m of genusMats) { setGenusUniforms(m, []); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;
