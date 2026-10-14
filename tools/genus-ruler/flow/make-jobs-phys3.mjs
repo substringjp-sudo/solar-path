@@ -22,7 +22,9 @@ const scenes = {
   sc25: [L('sc', 0.25, 1.5, 'low')], sc85: [L('sc', 0.85, 1.5, 'low')], st: [L('st', 0.9, 0.5, 'low')],
   as: [L('as', 0.9, 4.0, 'mid')], ns: [L('ns', 1.0, 1.0, 'low')],
 };
-const common = { frames: 32, quality: 'high', res: 0.5, out: 'both' };
+// §138 노출: 장면 자동 노출 × 0.5 — 후보 모두 같음. L2·L3 의 밝은 쪽이 P0 에 맞춰진 자동 노출에서 15~30 % 포화해(컴파일 점검 렌더) 비율 지표가 깨지므로,
+// 톤맵 어깨 아래에서 비율이 노출에 무관하다는 전제로 모두 한 단계 낮춥니다(RULER-physics3 §3, 렌더 전 결정).
+const common = { frames: 32, quality: 'high', res: 0.5, out: 'both', exposureScale: 0.5 };
 const OPT = { L0: { diffuse: 0 }, L1: { diffuse: 1 }, L2: { diffuse: 2 }, L3: { diffuse: 3 } };
 const CANDS = Object.keys(OPT);
 const job = (cand, scene, az, layers, options, extra = {}) => ({ name: `${cand}_${scene}_${az}`, input: { ...base, az, layers }, ...common, options, ...extra });

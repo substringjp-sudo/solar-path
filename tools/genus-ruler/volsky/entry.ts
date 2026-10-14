@@ -7,7 +7,8 @@
  */
 import { DataTexture, Mesh, NearestFilter, OrthographicCamera, PerspectiveCamera, PlaneGeometry, RGBAFormat, Scene, ShaderMaterial, UnsignedByteType, Vector3, WebGLRenderer, type Texture } from 'three';
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
-import { createVolumetricScene, type VolumetricOptions, type VolumetricQuality, type VolumetricSceneInput } from '../../../src/components/VolumetricProbe/volumetricScene';
+import { autoExposure, createVolumetricScene, type VolumetricOptions, type VolumetricQuality, type VolumetricSceneInput } from '../../../src/components/VolumetricProbe/volumetricScene';
+import { sunPosition } from '../../../src/utils/solarPosition';
 
 type Job = {
   input: Omit<VolumetricSceneInput, 'date'> & { date: string };
@@ -29,6 +30,8 @@ type Job = {
   tone?: number;
   /** §137 D1 진단: takram 하늘빛·지면 반사 몫 배율(기본 1 = 손대지 않음). 잡마다 기본값으로 되돌립니다. */
   fill?: { skyLightScale?: number; groundBounceScale?: number };
+  /** §138 노출 배율 — 장면 노출(input.exposure 또는 해 고도의 autoExposure)에 곱합니다. 후보 모두에 같은 값(RULER-physics3 §3). 기본 1. */
+  exposureScale?: number;
 };
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
@@ -117,6 +120,10 @@ const show = (tex: Texture, mode: number) => {
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
+      if (job.exposureScale != null && job.exposureScale !== 1) {
+        const sunAltDeg = (sunPosition(input.date, input.lat, input.lon).altitude * 180) / Math.PI;
+        input.exposure = (input.exposure ?? autoExposure(sunAltDeg)) * job.exposureScale;
+      }
       // §130 잡마다 옵션을 기본값으로 되돌린 뒤 덮어씁니다 — 예전에는 options 없는 잡이 앞 잡의 옵션(flow 등)을 물려받았습니다.
       // reapply=false: 아래 setScene 이 장면을 걸므로 두 번 만들지 않습니다.
       vol.setOptions({ ...JOB_BASE_OPTIONS, ...(job.options ?? {}) }, false);
