@@ -739,8 +739,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   for (const anchor of [decl, a, b, st, g]) {
     if (!src.includes(anchor)) throw new Error('cloudGenus: shader anchor missing — ' + anchor.slice(0, 40));
   }
-  src = src.replace(decl, decl + '\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n')
-    + '\nuniform vec4 genusHalo;\nuniform vec4 genusPowderW;\nuniform float genusPhysOn;');
+  src = src.replace(decl, decl + '\n' + VEC_UNIFORMS.map(u => 'uniform vec4 ' + u + ';').join('\n'));
   src = src.replace(a, a + [
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
@@ -775,34 +774,6 @@ export function patchGenusShader(mat: PatchableMaterial): void {
       '      }',
     ].join('\n'));
   }
-  // §136 P2 얼음 무리 + 얇은 층 가루 끔 — 구름 패스에만 있는 줄(해 쪽 행진 뒤 복사휘도·powder). genusPhysOn = 0 이면 이전과 같은 식.
-  const rad = 'vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
-  const pow = 'radiance *= 1.0 - powderScale * exp(-media.extinction * powderExponent);';
-  const march = 'vec4 marchClouds(';
-  if (src.includes(rad) && src.includes(march)) {
-    src = src.replace(march, [
-      '// §136 22°·46° 무리(무작위 방향 육각 기둥): 최소 편향각에서 날카롭게 오르고 바깥으로 지수 감쇠. 파장마다 중심이 달라 안쪽이 붉음.',
-      'vec3 genusHaloRing(const float th, const vec3 c, const float rise, const float w) {',
-      '  return smoothstep(c - rise, c, vec3(th)) * exp(-max(vec3(th) - c, vec3(0.0)) / w);',
-      '}',
-      'vec3 genusHaloPhase(const float cosTheta) {',
-      '  float th = degrees(acos(clamp(cosTheta, -1.0, 1.0)));',
-      '  return 0.25 * (genusHaloRing(th, vec3(21.6, 21.9, 22.3), 0.4, 1.2) + 0.15 * genusHaloRing(th, vec3(45.6, 46.0, 46.6), 0.6, 2.0));',
-      '}',
-      march,
-    ].join('\n'));
-    src = src.replace(rad, [
-      rad,
-      '      if (genusPhysOn > 0.5) {',
-      '        // 첫 산란 차수(해에서 곧장 온 빛, e^(−τ))에만 얼음 무리 위상을 더합니다 — 여러 번 산란한 빛은 무리를 지웁니다.',
-      '        float gHaloW = dot(genusHalo, media.weight);',
-      '        if (gHaloW > 0.0) radiance += sunIrradiance * (gHaloW * exp(-opticalDepth)) * genusHaloPhase(cosTheta);',
-      '      }',
-    ].join('\n'));
-    if (src.includes(pow)) {
-      src = src.replace(pow, 'radiance *= 1.0 - powderScale * (genusPhysOn > 0.5 ? dot(genusPowderW, media.weight) : 1.0) * exp(-media.extinction * powderExponent);');
-    }
-  }
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',
     'uniform float genusPlanar;',
@@ -813,9 +784,6 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   ].join('\n'));
   mat.fragmentShader = src;
   for (const u of VEC_UNIFORMS) mat.uniforms[u] = { value: new Vector4() };
-  mat.uniforms.genusHalo = { value: new Vector4() };
-  mat.uniforms.genusPowderW = { value: new Vector4(1, 1, 1, 1) };
-  mat.uniforms.genusPhysOn = { value: 0 };
   mat.uniforms.genusOrigin = { value: new Vector3() };
   mat.uniforms.genusEast = { value: new Vector3(1, 0, 0) };
   mat.uniforms.genusNorth = { value: new Vector3(0, 1, 0) };
@@ -849,15 +817,67 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
 }
 
 /**
- * §136 P2 층별 얼음 무리 세기·가루 효과 무게(cloudPhysics.layerPhysics 의 halo·powder). on = false 면 셰이더가 이전 식 그대로.
- * 물리 값이 없는 층은 무리 0 · 가루 1.
+ * §136 P2 셰이더 — 22°·46° 무리(구름 패스 첫 산란 차수)와 얇은 층 가루 효과 끔. **켤 때만** 구름 패스 셰이더에 삽입하고, 끄면 삽입 전 원문으로
+ * 되돌립니다 — 끈 상태의 셰이더 글자가 §136 이전과 같아야 "끄면 그대로"가 컴파일 결과의 부동소수점 반올림까지 지켜집니다
+ * (삽입 코드가 죽은 가지로 남아 있어도 cu_200·tw1734 의 화소가 몇백 개 달라졌음 — RULER-physics G3). 삽입 전 원문은 재질별로 처음 부를 때 기억합니다.
+ */
+const ICE_BASE = new WeakMap<object, string>();
+const ICE_RAD = 'vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
+const ICE_POW = 'radiance *= 1.0 - powderScale * exp(-media.extinction * powderExponent);';
+const ICE_MARCH = 'vec4 marchClouds(';
+const ICE_DECL = 'uniform vec4 coverageFilterWidths;';
+/** 삽입 전 원문 → 무리·가루 코드를 넣은 원문. 구름 패스가 아니면(앵커 없음) 그대로. */
+export function injectGenusIce(base: string): string {
+  if (!base.includes(ICE_RAD) || !base.includes(ICE_MARCH) || !base.includes(ICE_DECL)) return base;
+  let src = base.replace(ICE_DECL, ICE_DECL + '\nuniform vec4 genusHalo;\nuniform vec4 genusPowderW;\nuniform float genusPhysOn;');
+  src = src.replace(ICE_MARCH, [
+    '// §136 22°·46° 무리(무작위 방향 육각 기둥): 최소 편향각에서 날카롭게 오르고 바깥으로 지수 감쇠. 파장마다 중심이 달라 안쪽이 붉음.',
+    'vec3 genusHaloRing(const float th, const vec3 c, const float rise, const float w) {',
+    '  return smoothstep(c - rise, c, vec3(th)) * exp(-max(vec3(th) - c, vec3(0.0)) / w);',
+    '}',
+    'vec3 genusHaloPhase(const float cosTheta) {',
+    '  float th = degrees(acos(clamp(cosTheta, -1.0, 1.0)));',
+    '  return 0.25 * (genusHaloRing(th, vec3(21.6, 21.9, 22.3), 0.4, 1.2) + 0.15 * genusHaloRing(th, vec3(45.6, 46.0, 46.6), 0.6, 2.0));',
+    '}',
+    ICE_MARCH,
+  ].join('\n'));
+  src = src.replace(ICE_RAD, [
+    ICE_RAD,
+    '      if (genusPhysOn > 0.5) {',
+    '        // 첫 산란 차수(해에서 곧장 온 빛, e^(−τ))에만 얼음 무리 위상을 더합니다 — 여러 번 산란한 빛은 무리를 지웁니다.',
+    '        float gHaloW = dot(genusHalo, media.weight);',
+    '        if (gHaloW > 0.0) radiance += sunIrradiance * (gHaloW * exp(-opticalDepth)) * genusHaloPhase(cosTheta);',
+    '      }',
+  ].join('\n'));
+  if (src.includes(ICE_POW)) {
+    src = src.replace(ICE_POW, 'radiance *= 1.0 - powderScale * (genusPhysOn > 0.5 ? dot(genusPowderW, media.weight) : 1.0) * exp(-media.extinction * powderExponent);');
+  }
+  return src;
+}
+function setIceShader(mat: PatchableMaterial, on: boolean): void {
+  let base = ICE_BASE.get(mat);
+  if (base === undefined) { base = mat.fragmentShader; ICE_BASE.set(mat, base); }
+  const want = on ? injectGenusIce(base) : base;
+  if (mat.fragmentShader !== want) { mat.fragmentShader = want; mat.needsUpdate = true; }
+  if (on && want !== base && !mat.uniforms.genusPhysOn) {
+    mat.uniforms.genusHalo = { value: new Vector4() };
+    mat.uniforms.genusPowderW = { value: new Vector4(1, 1, 1, 1) };
+    mat.uniforms.genusPhysOn = { value: 0 };
+  }
+}
+
+/**
+ * §136 P2 층별 얼음 무리 세기·가루 효과 무게(cloudPhysics.layerPhysics 의 halo·powder). on = false 면 셰이더를 삽입 전 원문으로 되돌립니다.
+ * 물리 값이 없는 층은 무리 0 · 가루 1. 그림자 패스처럼 앵커가 없는 재질은 아무것도 하지 않습니다.
  */
 export function setGenusPhysics(mat: PatchableMaterial, lanes: ({ halo: number; powder: number } | null)[], on: boolean): void {
+  setIceShader(mat, on);
+  if (!on || !mat.uniforms.genusPhysOn) return;
   const v = (fn: (l: { halo: number; powder: number }) => number, dflt: number) => [0, 1, 2, 3].map(i => (lanes[i] ? fn(lanes[i] as { halo: number; powder: number }) : dflt));
   const h = v(l => l.halo, 0), w = v(l => l.powder, 1);
   (mat.uniforms.genusHalo.value as Vector4).set(h[0], h[1], h[2], h[3]);
   (mat.uniforms.genusPowderW.value as Vector4).set(w[0], w[1], w[2], w[3]);
-  mat.uniforms.genusPhysOn.value = on ? 1 : 0;
+  mat.uniforms.genusPhysOn.value = 1;
 }
 
 /** §136 층의 렌더 봉투 손잡이(patchGenusShader 단면) — cloudPhysics.layerPhysics 가 렌더 기둥 광학두께(tauRendered)를 셀 때 씁니다. */
