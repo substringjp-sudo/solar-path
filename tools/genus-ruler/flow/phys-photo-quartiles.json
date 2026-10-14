@@ -1,0 +1,2919 @@
+{
+ "physSha256": "b0dcaba5b09162dbe52cd84f766816893ffb1cf90acb98efe963c40a058baa16",
+ "fmSha256": "021b23130b8f4234ee781f9509c512ace4e4a4b9cef937d57dd15d4ff1b9be6a",
+ "date": "2026-10-14",
+ "crop": {
+  "width": 320,
+  "photoTop": "selection sky fraction x 0.97",
+  "mask": "nrbr",
+  "minPiece": 30,
+  "minPieces": 4
+ },
+ "counts": {
+  "Cu": 51,
+  "AcCc": 59,
+  "Ci": 29,
+  "StSc": 31,
+  "As": 23,
+  "St": 42,
+  "Ns": 32
+ },
+ "quartiles": {
+  "Cu": {
+   "cloudFrac": {
+    "q25": 0.3621748490767045,
+    "q50": 0.539978448275862,
+    "q75": 0.6820518487260361,
+    "n": 51
+   },
+   "brightRatio": {
+    "q25": 2.469804636419061,
+    "q50": 3.863705018593709,
+    "q75": 6.722035582907148,
+    "n": 51
+   },
+   "darkRatio": {
+    "q25": 1.0383954157701645,
+    "q50": 1.5733367507915568,
+    "q75": 2.660277124692666,
+    "n": 51
+   },
+   "pieceLogSD": {
+    "q25": 0.16305842249242525,
+    "q50": 0.27943447626798695,
+    "q75": 0.42601253248672327,
+    "n": 33
+   },
+   "pieceN": {
+    "q25": 3.0,
+    "q50": 5.0,
+    "q75": 7.5,
+    "n": 51
+   }
+  },
+  "AcCc": {
+   "cloudFrac": {
+    "q25": 0.2987228591720779,
+    "q50": 0.47220262096774196,
+    "q75": 0.7631782175009427,
+    "n": 59
+   },
+   "brightRatio": {
+    "q25": 2.356203264717763,
+    "q50": 4.039638804396412,
+    "q75": 6.017160660855354,
+    "n": 55
+   },
+   "darkRatio": {
+    "q25": 1.2133553635058756,
+    "q50": 1.4471392452455971,
+    "q75": 2.0323084390322803,
+    "n": 55
+   },
+   "pieceLogSD": {
+    "q25": 0.12536510792325012,
+    "q50": 0.2137411145002482,
+    "q75": 0.2959425627485095,
+    "n": 46
+   },
+   "pieceN": {
+    "q25": 5.5,
+    "q50": 13.0,
+    "q75": 23.0,
+    "n": 59
+   }
+  },
+  "Ci": {
+   "cloudFrac": {
+    "q25": 0.12415123456790124,
+    "q50": 0.22986425339366515,
+    "q75": 0.32642045454545454,
+    "n": 29
+   },
+   "brightRatio": {
+    "q25": 1.977808504087109,
+    "q50": 2.8064362469495228,
+    "q75": 4.592502671336295,
+    "n": 27
+   },
+   "darkRatio": {
+    "q25": 1.0092700531742662,
+    "q50": 1.3625974494101705,
+    "q75": 1.9818494657726708,
+    "n": 27
+   },
+   "pieceLogSD": {
+    "q25": 0.11302196940738574,
+    "q50": 0.18546947521776147,
+    "q75": 0.3111318152309304,
+    "n": 22
+   },
+   "pieceN": {
+    "q25": 4.0,
+    "q50": 5.0,
+    "q75": 8.0,
+    "n": 29
+   }
+  },
+  "StSc": {
+   "cloudFrac": {
+    "q25": 0.5588028495357498,
+    "q50": 0.6860119047619048,
+    "q75": 0.8198152698231762,
+    "n": 31
+   },
+   "brightRatio": {
+    "q25": 2.082966223914414,
+    "q50": 3.288975898312957,
+    "q75": 6.001446644427983,
+    "n": 26
+   },
+   "darkRatio": {
+    "q25": 0.5814746815207286,
+    "q50": 0.9499320196223988,
+    "q75": 1.4146241830255462,
+    "n": 26
+   },
+   "pieceLogSD": {
+    "q25": 0.14676825710346833,
+    "q50": 0.2622827800760227,
+    "q75": 0.5887480137647245,
+    "n": 18
+   },
+   "pieceN": {
+    "q25": 1.5,
+    "q50": 4.0,
+    "q75": 5.0,
+    "n": 31
+   }
+  },
+  "As": {
+   "cloudFrac": {
+    "q25": 1.0,
+    "q50": 1.0,
+    "q75": 1.0,
+    "n": 23
+   },
+   "brightRatio": {
+    "q25": 3.9214714129388337,
+    "q50": 5.09971845057225,
+    "q75": 6.319796874907344,
+    "n": 4
+   },
+   "darkRatio": {
+    "q25": 1.494808678126828,
+    "q50": 1.592101698873437,
+    "q75": 1.7696501169118817,
+    "n": 4
+   },
+   "pieceLogSD": {
+    "q25": 0.253149499886462,
+    "q50": 0.3339986069686468,
+    "q75": 0.33911870567518254,
+    "n": 3
+   },
+   "pieceN": {
+    "q25": 0.0,
+    "q50": 0.0,
+    "q75": 0.0,
+    "n": 23
+   }
+  },
+  "St": {
+   "cloudFrac": {
+    "q25": 0.8984375,
+    "q50": 1.0,
+    "q75": 1.0,
+    "n": 42
+   },
+   "brightRatio": {
+    "q25": 1.4743230640511733,
+    "q50": 2.3872429363806194,
+    "q75": 3.0556865174235073,
+    "n": 10
+   },
+   "darkRatio": {
+    "q25": 0.16289302634984287,
+    "q50": 1.0506409589303223,
+    "q75": 1.4051437932968742,
+    "n": 10
+   },
+   "pieceLogSD": {
+    "q25": 0.3775808996140381,
+    "q50": 0.43138140815390746,
+    "q75": 0.5866482969340672,
+    "n": 3
+   },
+   "pieceN": {
+    "q25": 0.0,
+    "q50": 0.0,
+    "q75": 0.0,
+    "n": 42
+   }
+  },
+  "Ns": {
+   "cloudFrac": {
+    "q25": 0.3429255081574867,
+    "q50": 0.6453568315500905,
+    "q75": 1.0,
+    "n": 32
+   },
+   "brightRatio": {
+    "q25": 2.113860113481098,
+    "q50": 3.0463712342731277,
+    "q75": 5.478774890020519,
+    "n": 21
+   },
+   "darkRatio": {
+    "q25": 0.6494752555063269,
+    "q50": 1.2834815973053226,
+    "q75": 2.0754562815509634,
+    "n": 21
+   },
+   "pieceLogSD": {
+    "q25": 0.12134957981138413,
+    "q50": 0.2981295676909844,
+    "q75": 0.7269259716909074,
+    "n": 14
+   },
+   "pieceN": {
+    "q25": 0.0,
+    "q50": 3.0,
+    "q75": 5.0,
+    "n": 32
+   }
+  }
+ },
+ "rows": [
+  {
+   "genus": "Cu",
+   "name": "Cu/0",
+   "cloudFrac": 0.46391,
+   "allCloud": false,
+   "brightRatio": 2.11085,
+   "darkRatio": 1.01833,
+   "pieceN": 8,
+   "pieceLogSD": 0.24078
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/1",
+   "cloudFrac": 0.24134,
+   "allCloud": false,
+   "brightRatio": 3.16118,
+   "darkRatio": 1.79372,
+   "pieceN": 8,
+   "pieceLogSD": 0.16134
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/3",
+   "cloudFrac": 0.3962,
+   "allCloud": false,
+   "brightRatio": 2.20462,
+   "darkRatio": 0.35363,
+   "pieceN": 9,
+   "pieceLogSD": 0.42601
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/4",
+   "cloudFrac": 0.58158,
+   "allCloud": false,
+   "brightRatio": 7.55042,
+   "darkRatio": 3.03357,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/6",
+   "cloudFrac": 0.78899,
+   "allCloud": false,
+   "brightRatio": 5.14609,
+   "darkRatio": 1.57334,
+   "pieceN": 4,
+   "pieceLogSD": 0.24468
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/9",
+   "cloudFrac": 0.54732,
+   "allCloud": false,
+   "brightRatio": 6.76232,
+   "darkRatio": 2.92358,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/11",
+   "cloudFrac": 0.20404,
+   "allCloud": false,
+   "brightRatio": 2.46351,
+   "darkRatio": 1.55808,
+   "pieceN": 8,
+   "pieceLogSD": 0.45412
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/12",
+   "cloudFrac": 0.69961,
+   "allCloud": false,
+   "brightRatio": 4.39725,
+   "darkRatio": 1.66528,
+   "pieceN": 6,
+   "pieceLogSD": 0.16651
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/13",
+   "cloudFrac": 0.59982,
+   "allCloud": false,
+   "brightRatio": 2.04947,
+   "darkRatio": 0.41847,
+   "pieceN": 4,
+   "pieceLogSD": 0.37
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/15",
+   "cloudFrac": 0.51798,
+   "allCloud": false,
+   "brightRatio": 1.61466,
+   "darkRatio": 1.13126,
+   "pieceN": 6,
+   "pieceLogSD": 0.29868
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/16",
+   "cloudFrac": 0.20722,
+   "allCloud": false,
+   "brightRatio": 2.93005,
+   "darkRatio": 0.29669,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/18",
+   "cloudFrac": 0.81935,
+   "allCloud": false,
+   "brightRatio": 11.09077,
+   "darkRatio": 2.29471,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/19",
+   "cloudFrac": 0.43004,
+   "allCloud": false,
+   "brightRatio": 2.1857,
+   "darkRatio": 1.30433,
+   "pieceN": 8,
+   "pieceLogSD": 0.13486
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/20",
+   "cloudFrac": 0.43932,
+   "allCloud": false,
+   "brightRatio": 5.14723,
+   "darkRatio": 2.77436,
+   "pieceN": 4,
+   "pieceLogSD": 0.27943
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/21",
+   "cloudFrac": 0.61065,
+   "allCloud": false,
+   "brightRatio": 1.58384,
+   "darkRatio": 1.00499,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/22",
+   "cloudFrac": 0.25787,
+   "allCloud": false,
+   "brightRatio": 16.23864,
+   "darkRatio": 6.26312,
+   "pieceN": 5,
+   "pieceLogSD": 0.22154
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/23",
+   "cloudFrac": 0.26346,
+   "allCloud": false,
+   "brightRatio": 14.50422,
+   "darkRatio": 5.09366,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/25",
+   "cloudFrac": 0.40866,
+   "allCloud": false,
+   "brightRatio": 8.65263,
+   "darkRatio": 2.71599,
+   "pieceN": 12,
+   "pieceLogSD": 0.3853
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/27",
+   "cloudFrac": 0.71325,
+   "allCloud": false,
+   "brightRatio": 6.08925,
+   "darkRatio": 2.60456,
+   "pieceN": 4,
+   "pieceLogSD": 0.32752
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/28",
+   "cloudFrac": 0.52186,
+   "allCloud": false,
+   "brightRatio": 11.84207,
+   "darkRatio": 2.77658,
+   "pieceN": 9,
+   "pieceLogSD": 0.88787
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/29",
+   "cloudFrac": 0.64645,
+   "allCloud": false,
+   "brightRatio": 3.33463,
+   "darkRatio": 1.68169,
+   "pieceN": 5,
+   "pieceLogSD": 0.15532
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/31",
+   "cloudFrac": 0.44095,
+   "allCloud": false,
+   "brightRatio": 2.74961,
+   "darkRatio": 0.80516,
+   "pieceN": 6,
+   "pieceLogSD": 0.46229
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/32",
+   "cloudFrac": 0.67062,
+   "allCloud": false,
+   "brightRatio": 2.4761,
+   "darkRatio": 0.95446,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/34",
+   "cloudFrac": 0.26865,
+   "allCloud": false,
+   "brightRatio": 5.93256,
+   "darkRatio": 2.32053,
+   "pieceN": 9,
+   "pieceLogSD": 0.14815
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/36",
+   "cloudFrac": 0.32815,
+   "allCloud": false,
+   "brightRatio": 4.4236,
+   "darkRatio": 1.7053,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/38",
+   "cloudFrac": 0.55365,
+   "allCloud": false,
+   "brightRatio": 1.97362,
+   "darkRatio": 1.05846,
+   "pieceN": 19,
+   "pieceLogSD": 0.95238
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/39",
+   "cloudFrac": 0.44704,
+   "allCloud": false,
+   "brightRatio": 9.44966,
+   "darkRatio": 3.5961,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/40",
+   "cloudFrac": 0.24019,
+   "allCloud": false,
+   "brightRatio": 8.00453,
+   "darkRatio": 3.43851,
+   "pieceN": 11,
+   "pieceLogSD": 0.44974
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/41",
+   "cloudFrac": 0.73129,
+   "allCloud": false,
+   "brightRatio": 3.93711,
+   "darkRatio": 1.4753,
+   "pieceN": 5,
+   "pieceLogSD": 0.16306
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/42",
+   "cloudFrac": 0.5441,
+   "allCloud": false,
+   "brightRatio": 3.32214,
+   "darkRatio": 1.37598,
+   "pieceN": 6,
+   "pieceLogSD": 0.1191
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/44",
+   "cloudFrac": 0.53998,
+   "allCloud": false,
+   "brightRatio": 2.72202,
+   "darkRatio": 1.11685,
+   "pieceN": 6,
+   "pieceLogSD": 0.07822
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/45",
+   "cloudFrac": 0.69881,
+   "allCloud": false,
+   "brightRatio": 7.29793,
+   "darkRatio": 1.88133,
+   "pieceN": 4,
+   "pieceLogSD": 0.10147
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/47",
+   "cloudFrac": 0.55097,
+   "allCloud": false,
+   "brightRatio": 2.29508,
+   "darkRatio": 0.71082,
+   "pieceN": 11,
+   "pieceLogSD": 0.63557
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/51",
+   "cloudFrac": 0.76427,
+   "allCloud": false,
+   "brightRatio": 3.86371,
+   "darkRatio": 1.29581,
+   "pieceN": 6,
+   "pieceLogSD": 0.45193
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/53",
+   "cloudFrac": 0.45574,
+   "allCloud": false,
+   "brightRatio": 5.83604,
+   "darkRatio": 1.28999,
+   "pieceN": 8,
+   "pieceLogSD": 0.25561
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/54",
+   "cloudFrac": 0.42986,
+   "allCloud": false,
+   "brightRatio": 3.34789,
+   "darkRatio": 1.66067,
+   "pieceN": 6,
+   "pieceLogSD": 0.19256
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/55",
+   "cloudFrac": 0.70164,
+   "allCloud": false,
+   "brightRatio": 6.68175,
+   "darkRatio": 0.42281,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/57",
+   "cloudFrac": 0.53704,
+   "allCloud": false,
+   "brightRatio": 1.69059,
+   "darkRatio": 1.20532,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/59",
+   "cloudFrac": 0.16197,
+   "allCloud": false,
+   "brightRatio": 7.69343,
+   "darkRatio": 3.35381,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/62",
+   "cloudFrac": 0.78627,
+   "allCloud": false,
+   "brightRatio": 5.07758,
+   "darkRatio": 2.23184,
+   "pieceN": 4,
+   "pieceLogSD": 0.25382
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/65",
+   "cloudFrac": 0.70758,
+   "allCloud": false,
+   "brightRatio": 2.76996,
+   "darkRatio": 1.14363,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/66",
+   "cloudFrac": 0.6161,
+   "allCloud": false,
+   "brightRatio": 3.34679,
+   "darkRatio": 1.18038,
+   "pieceN": 5,
+   "pieceLogSD": 0.31588
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/67",
+   "cloudFrac": 0.74471,
+   "allCloud": false,
+   "brightRatio": 1.67577,
+   "darkRatio": 0.87229,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/68",
+   "cloudFrac": 0.59916,
+   "allCloud": false,
+   "brightRatio": 3.46799,
+   "darkRatio": 0.70537,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/69",
+   "cloudFrac": 0.19765,
+   "allCloud": false,
+   "brightRatio": 1.76906,
+   "darkRatio": 0.4988,
+   "pieceN": 7,
+   "pieceLogSD": 0.28993
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/70",
+   "cloudFrac": 0.22252,
+   "allCloud": false,
+   "brightRatio": 3.63652,
+   "darkRatio": 2.31862,
+   "pieceN": 9,
+   "pieceLogSD": 0.08231
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/73",
+   "cloudFrac": 0.69296,
+   "allCloud": false,
+   "brightRatio": 5.93548,
+   "darkRatio": 2.81796,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/74",
+   "cloudFrac": 0.7323,
+   "allCloud": false,
+   "brightRatio": 7.2847,
+   "darkRatio": 1.86116,
+   "pieceN": 4,
+   "pieceLogSD": 0.53594
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/75",
+   "cloudFrac": 0.20737,
+   "allCloud": false,
+   "brightRatio": 25.3466,
+   "darkRatio": 6.16771,
+   "pieceN": 6,
+   "pieceLogSD": 0.36988
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/76",
+   "cloudFrac": 0.14089,
+   "allCloud": false,
+   "brightRatio": 1.73621,
+   "darkRatio": 0.13486,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/77",
+   "cloudFrac": 0.67115,
+   "allCloud": false,
+   "brightRatio": 6.10408,
+   "darkRatio": 3.05809,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/1",
+   "cloudFrac": 0.05768,
+   "allCloud": false,
+   "brightRatio": 3.05736,
+   "darkRatio": 2.29677,
+   "pieceN": 13,
+   "pieceLogSD": 0.06174
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/2",
+   "cloudFrac": 0.78951,
+   "allCloud": false,
+   "brightRatio": 7.86405,
+   "darkRatio": 1.78108,
+   "pieceN": 17,
+   "pieceLogSD": 0.20526
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/3",
+   "cloudFrac": 0.30403,
+   "allCloud": false,
+   "brightRatio": 4.99129,
+   "darkRatio": 1.82876,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/5",
+   "cloudFrac": 0.8135,
+   "allCloud": false,
+   "brightRatio": 5.57554,
+   "darkRatio": 2.18895,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/9",
+   "cloudFrac": 0.3945,
+   "allCloud": false,
+   "brightRatio": 4.50251,
+   "darkRatio": 1.70347,
+   "pieceN": 40,
+   "pieceLogSD": 0.23515
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/12",
+   "cloudFrac": 0.53411,
+   "allCloud": false,
+   "brightRatio": 15.78372,
+   "darkRatio": 3.04559,
+   "pieceN": 37,
+   "pieceLogSD": 0.29317
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/15",
+   "cloudFrac": 0.81521,
+   "allCloud": false,
+   "brightRatio": 13.12724,
+   "darkRatio": 3.10473,
+   "pieceN": 6,
+   "pieceLogSD": 0.33058
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/16",
+   "cloudFrac": 0.04053,
+   "allCloud": false,
+   "brightRatio": 3.13433,
+   "darkRatio": 2.27624,
+   "pieceN": 7,
+   "pieceLogSD": 0.05436
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/17",
+   "cloudFrac": 0.29342,
+   "allCloud": false,
+   "brightRatio": 1.68958,
+   "darkRatio": 1.23161,
+   "pieceN": 20,
+   "pieceLogSD": 0.06816
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/18",
+   "cloudFrac": 0.71845,
+   "allCloud": false,
+   "brightRatio": 3.80223,
+   "darkRatio": 0.99847,
+   "pieceN": 4,
+   "pieceLogSD": 0.53744
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/19",
+   "cloudFrac": 0.07204,
+   "allCloud": false,
+   "brightRatio": 4.03964,
+   "darkRatio": 1.88825,
+   "pieceN": 20,
+   "pieceLogSD": 0.1862
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/21",
+   "cloudFrac": 0.46623,
+   "allCloud": false,
+   "brightRatio": 2.13795,
+   "darkRatio": 1.4287,
+   "pieceN": 15,
+   "pieceLogSD": 0.06464
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/22",
+   "cloudFrac": 0.02368,
+   "allCloud": false,
+   "brightRatio": 2.71211,
+   "darkRatio": 2.09181,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/23",
+   "cloudFrac": 0.4722,
+   "allCloud": false,
+   "brightRatio": 4.10203,
+   "darkRatio": 1.68969,
+   "pieceN": 6,
+   "pieceLogSD": 0.19778
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/24",
+   "cloudFrac": 0.83876,
+   "allCloud": false,
+   "brightRatio": 3.36898,
+   "darkRatio": 0.87306,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/25",
+   "cloudFrac": 0.29308,
+   "allCloud": false,
+   "brightRatio": 1.60299,
+   "darkRatio": 1.09525,
+   "pieceN": 29,
+   "pieceLogSD": 0.10332
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/27",
+   "cloudFrac": 0.59266,
+   "allCloud": false,
+   "brightRatio": 2.38949,
+   "darkRatio": 1.27669,
+   "pieceN": 17,
+   "pieceLogSD": 0.12431
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/28",
+   "cloudFrac": 0.59583,
+   "allCloud": false,
+   "brightRatio": 3.06416,
+   "darkRatio": 1.49295,
+   "pieceN": 14,
+   "pieceLogSD": 0.27656
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/30",
+   "cloudFrac": 0.76605,
+   "allCloud": false,
+   "brightRatio": 14.86068,
+   "darkRatio": 2.48806,
+   "pieceN": 6,
+   "pieceLogSD": 0.481
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/32",
+   "cloudFrac": 0.8282,
+   "allCloud": false,
+   "brightRatio": 6.45878,
+   "darkRatio": 2.09518,
+   "pieceN": 7,
+   "pieceLogSD": 0.27737
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/34",
+   "cloudFrac": 0.77781,
+   "allCloud": false,
+   "brightRatio": 8.14699,
+   "darkRatio": 1.66145,
+   "pieceN": 13,
+   "pieceLogSD": 0.32991
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/36",
+   "cloudFrac": 0.61126,
+   "allCloud": false,
+   "brightRatio": 2.1018,
+   "darkRatio": 1.0178,
+   "pieceN": 24,
+   "pieceLogSD": 0.3038
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/38",
+   "cloudFrac": 0.49362,
+   "allCloud": false,
+   "brightRatio": 1.70181,
+   "darkRatio": 1.21183,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/39",
+   "cloudFrac": 0.17396,
+   "allCloud": false,
+   "brightRatio": 1.44973,
+   "darkRatio": 1.17212,
+   "pieceN": 8,
+   "pieceLogSD": 0.02764
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/41",
+   "cloudFrac": 0.7947,
+   "allCloud": false,
+   "brightRatio": 14.42029,
+   "darkRatio": 3.06584,
+   "pieceN": 6,
+   "pieceLogSD": 0.44117
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/45",
+   "cloudFrac": 0.30433,
+   "allCloud": false,
+   "brightRatio": 3.37096,
+   "darkRatio": 1.27652,
+   "pieceN": 55,
+   "pieceLogSD": 0.21251
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/46",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/47",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/49",
+   "cloudFrac": 0.60169,
+   "allCloud": false,
+   "brightRatio": 2.70914,
+   "darkRatio": 1.27635,
+   "pieceN": 24,
+   "pieceLogSD": 0.29086
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/50",
+   "cloudFrac": 0.53891,
+   "allCloud": false,
+   "brightRatio": 2.12339,
+   "darkRatio": 1.15709,
+   "pieceN": 15,
+   "pieceLogSD": 0.07945
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/52",
+   "cloudFrac": 0.27128,
+   "allCloud": false,
+   "brightRatio": 3.40407,
+   "darkRatio": 1.44714,
+   "pieceN": 61,
+   "pieceLogSD": 0.19848
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/53",
+   "cloudFrac": 0.64997,
+   "allCloud": false,
+   "brightRatio": 12.71647,
+   "darkRatio": 2.64318,
+   "pieceN": 18,
+   "pieceLogSD": 0.2573
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/54",
+   "cloudFrac": 0.78531,
+   "allCloud": false,
+   "brightRatio": 7.88141,
+   "darkRatio": 1.9728,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/57",
+   "cloudFrac": 0.44943,
+   "allCloud": false,
+   "brightRatio": 4.39472,
+   "darkRatio": 1.21488,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/58",
+   "cloudFrac": 0.68818,
+   "allCloud": false,
+   "brightRatio": 15.50968,
+   "darkRatio": 2.88736,
+   "pieceN": 7,
+   "pieceLogSD": 0.25674
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/59",
+   "cloudFrac": 0.76031,
+   "allCloud": false,
+   "brightRatio": 12.1101,
+   "darkRatio": 2.25412,
+   "pieceN": 13,
+   "pieceLogSD": 0.28016
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/61",
+   "cloudFrac": 0.41101,
+   "allCloud": false,
+   "brightRatio": 4.07416,
+   "darkRatio": 2.32364,
+   "pieceN": 6,
+   "pieceLogSD": 1.26603
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/65",
+   "cloudFrac": 0.73153,
+   "allCloud": false,
+   "brightRatio": 1.88063,
+   "darkRatio": 1.05931,
+   "pieceN": 8,
+   "pieceLogSD": 0.12402
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/67",
+   "cloudFrac": 0.20073,
+   "allCloud": false,
+   "brightRatio": 12.88151,
+   "darkRatio": 5.04747,
+   "pieceN": 16,
+   "pieceLogSD": 3.85959
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/75",
+   "cloudFrac": 0.02267,
+   "allCloud": false,
+   "brightRatio": 0.06141,
+   "darkRatio": 0.0,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/77",
+   "cloudFrac": 0.35359,
+   "allCloud": false,
+   "brightRatio": 4.53372,
+   "darkRatio": 1.90175,
+   "pieceN": 14,
+   "pieceLogSD": 0.19737
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/78",
+   "cloudFrac": 0.39692,
+   "allCloud": false,
+   "brightRatio": 4.14008,
+   "darkRatio": 1.30197,
+   "pieceN": 50,
+   "pieceLogSD": 0.21834
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/79",
+   "cloudFrac": 0.70983,
+   "allCloud": false,
+   "brightRatio": 8.00853,
+   "darkRatio": 1.94072,
+   "pieceN": 18,
+   "pieceLogSD": 0.19916
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/83",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/84",
+   "cloudFrac": 0.42916,
+   "allCloud": false,
+   "brightRatio": 1.96746,
+   "darkRatio": 0.78194,
+   "pieceN": 22,
+   "pieceLogSD": 0.41145
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/87",
+   "cloudFrac": 0.81544,
+   "allCloud": false,
+   "brightRatio": 1.91601,
+   "darkRatio": 1.20526,
+   "pieceN": 7,
+   "pieceLogSD": 0.06706
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/89",
+   "cloudFrac": 0.44414,
+   "allCloud": false,
+   "brightRatio": 4.17067,
+   "darkRatio": 1.72928,
+   "pieceN": 35,
+   "pieceLogSD": 0.26861
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/90",
+   "cloudFrac": 0.00231,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/91",
+   "cloudFrac": 0.35641,
+   "allCloud": false,
+   "brightRatio": 4.66902,
+   "darkRatio": 0.0,
+   "pieceN": 5,
+   "pieceLogSD": 4.26274
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/93",
+   "cloudFrac": 0.23217,
+   "allCloud": false,
+   "brightRatio": 1.78899,
+   "darkRatio": 1.16135,
+   "pieceN": 64,
+   "pieceLogSD": 0.12852
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/95",
+   "cloudFrac": 0.14166,
+   "allCloud": false,
+   "brightRatio": 2.21948,
+   "darkRatio": 1.29981,
+   "pieceN": 53,
+   "pieceLogSD": 0.17294
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/99",
+   "cloudFrac": 0.32038,
+   "allCloud": false,
+   "brightRatio": 4.37654,
+   "darkRatio": 1.87558,
+   "pieceN": 34,
+   "pieceLogSD": 0.29687
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/100",
+   "cloudFrac": 0.31455,
+   "allCloud": false,
+   "brightRatio": 4.12076,
+   "darkRatio": 1.39093,
+   "pieceN": 76,
+   "pieceLogSD": 0.19031
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/101",
+   "cloudFrac": 0.80004,
+   "allCloud": false,
+   "brightRatio": 3.16893,
+   "darkRatio": 1.40715,
+   "pieceN": 7,
+   "pieceLogSD": 0.14486
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/103",
+   "cloudFrac": 0.80503,
+   "allCloud": false,
+   "brightRatio": 4.17251,
+   "darkRatio": 1.38054,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/105",
+   "cloudFrac": 0.40307,
+   "allCloud": false,
+   "brightRatio": 2.42803,
+   "darkRatio": 1.42774,
+   "pieceN": 26,
+   "pieceLogSD": 0.92846
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/107",
+   "cloudFrac": 0.21254,
+   "allCloud": false,
+   "brightRatio": 3.88208,
+   "darkRatio": 1.70415,
+   "pieceN": 20,
+   "pieceLogSD": 0.09746
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/108",
+   "cloudFrac": 0.26997,
+   "allCloud": false,
+   "brightRatio": 8.73158,
+   "darkRatio": 0.17561,
+   "pieceN": 47,
+   "pieceLogSD": 0.21497
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/109",
+   "cloudFrac": 0.51149,
+   "allCloud": false,
+   "brightRatio": 2.32292,
+   "darkRatio": 1.32793,
+   "pieceN": 12,
+   "pieceLogSD": 0.0854
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/4",
+   "cloudFrac": 0.57637,
+   "allCloud": false,
+   "brightRatio": 27.45096,
+   "darkRatio": 4.01113,
+   "pieceN": 4,
+   "pieceLogSD": 0.49021
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/5",
+   "cloudFrac": 0.17704,
+   "allCloud": false,
+   "brightRatio": 4.8805,
+   "darkRatio": 1.6614,
+   "pieceN": 5,
+   "pieceLogSD": 0.31253
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/6",
+   "cloudFrac": 0.41673,
+   "allCloud": false,
+   "brightRatio": 2.02105,
+   "darkRatio": 0.98485,
+   "pieceN": 8,
+   "pieceLogSD": 0.15997
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/7",
+   "cloudFrac": 0.1377,
+   "allCloud": false,
+   "brightRatio": 1.94521,
+   "darkRatio": 1.33703,
+   "pieceN": 7,
+   "pieceLogSD": 0.12207
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/8",
+   "cloudFrac": 0.22986,
+   "allCloud": false,
+   "brightRatio": 3.84785,
+   "darkRatio": 0.16949,
+   "pieceN": 7,
+   "pieceLogSD": 0.11
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/12",
+   "cloudFrac": 0.08938,
+   "allCloud": false,
+   "brightRatio": 4.3045,
+   "darkRatio": 2.40551,
+   "pieceN": 8,
+   "pieceLogSD": 0.30693
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/13",
+   "cloudFrac": 0.24851,
+   "allCloud": false,
+   "brightRatio": 1.64428,
+   "darkRatio": 1.17107,
+   "pieceN": 17,
+   "pieceLogSD": 0.10028
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/16",
+   "cloudFrac": 0.05937,
+   "allCloud": false,
+   "brightRatio": 1.75077,
+   "darkRatio": 0.10997,
+   "pieceN": 4,
+   "pieceLogSD": 0.37264
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/18",
+   "cloudFrac": 0.25317,
+   "allCloud": false,
+   "brightRatio": 8.10451,
+   "darkRatio": 3.27489,
+   "pieceN": 12,
+   "pieceLogSD": 0.21355
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/21",
+   "cloudFrac": 0.46663,
+   "allCloud": false,
+   "brightRatio": 5.04078,
+   "darkRatio": 2.47779,
+   "pieceN": 4,
+   "pieceLogSD": 0.17066
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/24",
+   "cloudFrac": 0.12415,
+   "allCloud": false,
+   "brightRatio": 1.97259,
+   "darkRatio": 1.18042,
+   "pieceN": 10,
+   "pieceLogSD": 0.1073
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/26",
+   "cloudFrac": 0.38295,
+   "allCloud": false,
+   "brightRatio": 2.49269,
+   "darkRatio": 0.29409,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/27",
+   "cloudFrac": 0.32642,
+   "allCloud": false,
+   "brightRatio": 3.22264,
+   "darkRatio": 1.66105,
+   "pieceN": 7,
+   "pieceLogSD": 0.79653
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/28",
+   "cloudFrac": 0.53531,
+   "allCloud": false,
+   "brightRatio": 6.34624,
+   "darkRatio": 1.84303,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/29",
+   "cloudFrac": 0.22048,
+   "allCloud": false,
+   "brightRatio": 6.53439,
+   "darkRatio": 2.44035,
+   "pieceN": 17,
+   "pieceLogSD": 1.25283
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/36",
+   "cloudFrac": 0.00092,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/45",
+   "cloudFrac": 0.01195,
+   "allCloud": false,
+   "brightRatio": 2.01524,
+   "darkRatio": 1.39022,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/54",
+   "cloudFrac": 0.1744,
+   "allCloud": false,
+   "brightRatio": 3.10316,
+   "darkRatio": 0.78191,
+   "pieceN": 4,
+   "pieceLogSD": 0.1302
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/55",
+   "cloudFrac": 0.34583,
+   "allCloud": false,
+   "brightRatio": 1.98303,
+   "darkRatio": 1.30472,
+   "pieceN": 5,
+   "pieceLogSD": 0.10716
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/56",
+   "cloudFrac": 0.0,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/59",
+   "cloudFrac": 0.3047,
+   "allCloud": false,
+   "brightRatio": 5.41107,
+   "darkRatio": 2.12067,
+   "pieceN": 6,
+   "pieceLogSD": 0.19347
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/60",
+   "cloudFrac": 0.20689,
+   "allCloud": false,
+   "brightRatio": 1.95003,
+   "darkRatio": 0.57468,
+   "pieceN": 11,
+   "pieceLogSD": 0.24446
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/61",
+   "cloudFrac": 0.70369,
+   "allCloud": false,
+   "brightRatio": 3.53564,
+   "darkRatio": 1.40617,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/62",
+   "cloudFrac": 0.0243,
+   "allCloud": false,
+   "brightRatio": 3.05503,
+   "darkRatio": 2.14681,
+   "pieceN": 5,
+   "pieceLogSD": 0.04188
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/63",
+   "cloudFrac": 0.20343,
+   "allCloud": false,
+   "brightRatio": 2.39477,
+   "darkRatio": 1.22853,
+   "pieceN": 8,
+   "pieceLogSD": 0.17747
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/64",
+   "cloudFrac": 0.25614,
+   "allCloud": false,
+   "brightRatio": 1.49798,
+   "darkRatio": 1.03369,
+   "pieceN": 10,
+   "pieceLogSD": 1.26523
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/67",
+   "cloudFrac": 0.00939,
+   "allCloud": false,
+   "brightRatio": 1.82491,
+   "darkRatio": 1.3626,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/69",
+   "cloudFrac": 0.2419,
+   "allCloud": false,
+   "brightRatio": 2.7,
+   "darkRatio": 1.77194,
+   "pieceN": 6,
+   "pieceLogSD": 0.09433
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/70",
+   "cloudFrac": 0.23521,
+   "allCloud": false,
+   "brightRatio": 2.80644,
+   "darkRatio": 0.26602,
+   "pieceN": 5,
+   "pieceLogSD": 0.26057
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/2",
+   "cloudFrac": 0.82181,
+   "allCloud": false,
+   "brightRatio": 4.0579,
+   "darkRatio": 0.55042,
+   "pieceN": 5,
+   "pieceLogSD": 1.28111
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/3",
+   "cloudFrac": 0.47565,
+   "allCloud": false,
+   "brightRatio": 2.3625,
+   "darkRatio": 1.26295,
+   "pieceN": 8,
+   "pieceLogSD": 0.1224
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/5",
+   "cloudFrac": 0.6893,
+   "allCloud": false,
+   "brightRatio": 2.78024,
+   "darkRatio": 0.45305,
+   "pieceN": 5,
+   "pieceLogSD": 0.59302
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/6",
+   "cloudFrac": 0.8917,
+   "allCloud": false,
+   "brightRatio": 1.85829,
+   "darkRatio": 0.36892,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/8",
+   "cloudFrac": 0.5976,
+   "allCloud": false,
+   "brightRatio": 8.61988,
+   "darkRatio": 1.48631,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/11",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/12",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/13",
+   "cloudFrac": 0.04926,
+   "allCloud": false,
+   "brightRatio": 0.25398,
+   "darkRatio": 0.04959,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/14",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/16",
+   "cloudFrac": 0.83534,
+   "allCloud": false,
+   "brightRatio": 4.51598,
+   "darkRatio": 1.64756,
+   "pieceN": 4,
+   "pieceLogSD": 0.37644
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/17",
+   "cloudFrac": 0.31933,
+   "allCloud": false,
+   "brightRatio": 3.23302,
+   "darkRatio": 0.07638,
+   "pieceN": 4,
+   "pieceLogSD": 0.6405
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/19",
+   "cloudFrac": 0.74605,
+   "allCloud": false,
+   "brightRatio": 2.81097,
+   "darkRatio": 0.98375,
+   "pieceN": 6,
+   "pieceLogSD": 0.14156
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/21",
+   "cloudFrac": 0.14483,
+   "allCloud": false,
+   "brightRatio": 3.34494,
+   "darkRatio": 0.27488,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/22",
+   "cloudFrac": 0.52001,
+   "allCloud": false,
+   "brightRatio": 6.249,
+   "darkRatio": 1.71452,
+   "pieceN": 11,
+   "pieceLogSD": 0.25811
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/23",
+   "cloudFrac": 0.79926,
+   "allCloud": false,
+   "brightRatio": 1.8156,
+   "darkRatio": 0.94562,
+   "pieceN": 5,
+   "pieceLogSD": 0.12912
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/26",
+   "cloudFrac": 0.63559,
+   "allCloud": false,
+   "brightRatio": 2.19536,
+   "darkRatio": 0.67463,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/28",
+   "cloudFrac": 0.81582,
+   "allCloud": false,
+   "brightRatio": 63.56453,
+   "darkRatio": 1.05635,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/29",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/33",
+   "cloudFrac": 0.15824,
+   "allCloud": false,
+   "brightRatio": 1.16643,
+   "darkRatio": 0.89497,
+   "pieceN": 8,
+   "pieceLogSD": 0.06923
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/34",
+   "cloudFrac": 0.81782,
+   "allCloud": false,
+   "brightRatio": 9.92753,
+   "darkRatio": 0.68327,
+   "pieceN": 4,
+   "pieceLogSD": 0.16238
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/35",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/37",
+   "cloudFrac": 0.27909,
+   "allCloud": false,
+   "brightRatio": 5.25877,
+   "darkRatio": 0.899,
+   "pieceN": 4,
+   "pieceLogSD": 0.57594
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/39",
+   "cloudFrac": 0.76933,
+   "allCloud": false,
+   "brightRatio": 3.56941,
+   "darkRatio": 1.46518,
+   "pieceN": 8,
+   "pieceLogSD": 0.19517
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/43",
+   "cloudFrac": 0.64072,
+   "allCloud": false,
+   "brightRatio": 2.05992,
+   "darkRatio": 0.43975,
+   "pieceN": 5,
+   "pieceLogSD": 0.23126
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/44",
+   "cloudFrac": 0.63413,
+   "allCloud": false,
+   "brightRatio": 1.59176,
+   "darkRatio": 0.95424,
+   "pieceN": 11,
+   "pieceLogSD": 0.26646
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/45",
+   "cloudFrac": 0.6715,
+   "allCloud": false,
+   "brightRatio": 10.93141,
+   "darkRatio": 2.44495,
+   "pieceN": 12,
+   "pieceLogSD": 1.00889
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/48",
+   "cloudFrac": 0.59956,
+   "allCloud": false,
+   "brightRatio": 4.07356,
+   "darkRatio": 1.81663,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/49",
+   "cloudFrac": 0.68601,
+   "allCloud": false,
+   "brightRatio": 18.96816,
+   "darkRatio": 3.14617,
+   "pieceN": 4,
+   "pieceLogSD": 0.63949
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/50",
+   "cloudFrac": 0.7638,
+   "allCloud": false,
+   "brightRatio": 9.16385,
+   "darkRatio": 1.18702,
+   "pieceN": 4,
+   "pieceLogSD": 0.34206
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/51",
+   "cloudFrac": 0.41144,
+   "allCloud": false,
+   "brightRatio": 1.50191,
+   "darkRatio": 1.21536,
+   "pieceN": 4,
+   "pieceLogSD": 0.11722
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/53",
+   "cloudFrac": 0.61176,
+   "allCloud": false,
+   "brightRatio": 2.15209,
+   "darkRatio": 0.91478,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "As",
+   "name": "As/0",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/2",
+   "cloudFrac": 0.69595,
+   "allCloud": false,
+   "brightRatio": 5.8243,
+   "darkRatio": 2.13844,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "As",
+   "name": "As/3",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/4",
+   "cloudFrac": 0.00015,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/5",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/6",
+   "cloudFrac": 0.65522,
+   "allCloud": false,
+   "brightRatio": 4.37514,
+   "darkRatio": 1.64672,
+   "pieceN": 7,
+   "pieceLogSD": 0.34424
+  },
+  {
+   "genus": "As",
+   "name": "As/7",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/8",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/9",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/10",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/11",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/12",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/13",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/14",
+   "cloudFrac": 0.69504,
+   "allCloud": false,
+   "brightRatio": 2.56048,
+   "darkRatio": 1.36678,
+   "pieceN": 8,
+   "pieceLogSD": 0.1723
+  },
+  {
+   "genus": "As",
+   "name": "As/16",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/18",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/19",
+   "cloudFrac": 0.25381,
+   "allCloud": false,
+   "brightRatio": 7.80628,
+   "darkRatio": 1.53748,
+   "pieceN": 4,
+   "pieceLogSD": 0.334
+  },
+  {
+   "genus": "As",
+   "name": "As/20",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/21",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/23",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/25",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/26",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "As",
+   "name": "As/27",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/1",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/3",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/4",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/5",
+   "cloudFrac": 0.04926,
+   "allCloud": false,
+   "brightRatio": 0.25398,
+   "darkRatio": 0.04959,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "St",
+   "name": "St/6",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/8",
+   "cloudFrac": 0.47009,
+   "allCloud": false,
+   "brightRatio": 2.23546,
+   "darkRatio": 1.04837,
+   "pieceN": 14,
+   "pieceLogSD": 0.43138
+  },
+  {
+   "genus": "St",
+   "name": "St/9",
+   "cloudFrac": 0.29326,
+   "allCloud": false,
+   "brightRatio": 1.66739,
+   "darkRatio": 1.47026,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "St",
+   "name": "St/10",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/12",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/13",
+   "cloudFrac": 0.25821,
+   "allCloud": false,
+   "brightRatio": 2.84906,
+   "darkRatio": 0.09571,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "St",
+   "name": "St/14",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/15",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/16",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/18",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/19",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/20",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/22",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/23",
+   "cloudFrac": 0.86458,
+   "allCloud": false,
+   "brightRatio": 3.46029,
+   "darkRatio": 1.87479,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "St",
+   "name": "St/24",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/25",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/27",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/28",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/29",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/30",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/31",
+   "cloudFrac": 0.74049,
+   "allCloud": false,
+   "brightRatio": 5.57597,
+   "darkRatio": 1.2098,
+   "pieceN": 5,
+   "pieceLogSD": 0.32378
+  },
+  {
+   "genus": "St",
+   "name": "St/32",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/33",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/34",
+   "cloudFrac": 0.74279,
+   "allCloud": false,
+   "brightRatio": 3.12456,
+   "darkRatio": 1.05291,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "St",
+   "name": "St/35",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/36",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/38",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/39",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/41",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/42",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/43",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/44",
+   "cloudFrac": 0.01039,
+   "allCloud": false,
+   "brightRatio": 0.11126,
+   "darkRatio": 0.00911,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/45",
+   "cloudFrac": 0.71128,
+   "allCloud": false,
+   "brightRatio": 2.53903,
+   "darkRatio": 2.15473,
+   "pieceN": 1,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "St",
+   "name": "St/46",
+   "cloudFrac": 0.00106,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/49",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/50",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/51",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "St",
+   "name": "St/52",
+   "cloudFrac": 0.29567,
+   "allCloud": false,
+   "brightRatio": 1.40997,
+   "darkRatio": 0.36445,
+   "pieceN": 8,
+   "pieceLogSD": 0.74192
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/3",
+   "cloudFrac": 0.47088,
+   "allCloud": false,
+   "brightRatio": 2.4954,
+   "darkRatio": 1.55046,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/4",
+   "cloudFrac": 0.15385,
+   "allCloud": false,
+   "brightRatio": 1.91224,
+   "darkRatio": 0.47067,
+   "pieceN": 6,
+   "pieceLogSD": 0.68261
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/5",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/6",
+   "cloudFrac": 0.05927,
+   "allCloud": false,
+   "brightRatio": 2.11386,
+   "darkRatio": 0.40834,
+   "pieceN": 6,
+   "pieceLogSD": 0.70129
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/9",
+   "cloudFrac": 0.37324,
+   "allCloud": false,
+   "brightRatio": 4.44538,
+   "darkRatio": 2.46165,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/10",
+   "cloudFrac": 0.13399,
+   "allCloud": false,
+   "brightRatio": 1.34815,
+   "darkRatio": 1.07883,
+   "pieceN": 5,
+   "pieceLogSD": 0.05248
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/11",
+   "cloudFrac": 0.7618,
+   "allCloud": false,
+   "brightRatio": 15.31592,
+   "darkRatio": 2.93023,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/12",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/13",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/14",
+   "cloudFrac": 0.0,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/16",
+   "cloudFrac": 0.65561,
+   "allCloud": false,
+   "brightRatio": 7.03012,
+   "darkRatio": 1.73034,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/17",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/18",
+   "cloudFrac": 0.9076,
+   "allCloud": false,
+   "brightRatio": 9.88378,
+   "darkRatio": 2.07546,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/20",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/21",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/23",
+   "cloudFrac": 0.4375,
+   "allCloud": false,
+   "brightRatio": 2.78889,
+   "darkRatio": 1.28348,
+   "pieceN": 6,
+   "pieceLogSD": 0.12108
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/24",
+   "cloudFrac": 0.06584,
+   "allCloud": false,
+   "brightRatio": 3.04637,
+   "darkRatio": 2.08683,
+   "pieceN": 3,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/26",
+   "cloudFrac": 0.50891,
+   "allCloud": false,
+   "brightRatio": 2.17987,
+   "darkRatio": 0.64948,
+   "pieceN": 8,
+   "pieceLogSD": 0.82272
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/28",
+   "cloudFrac": 0.19501,
+   "allCloud": false,
+   "brightRatio": 1.46158,
+   "darkRatio": 1.1174,
+   "pieceN": 9,
+   "pieceLogSD": 0.12216
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/29",
+   "cloudFrac": 0.35773,
+   "allCloud": false,
+   "brightRatio": 5.47877,
+   "darkRatio": 0.48147,
+   "pieceN": 5,
+   "pieceLogSD": 0.20357
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/30",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/32",
+   "cloudFrac": 0.7759,
+   "allCloud": false,
+   "brightRatio": 1.4177,
+   "darkRatio": 0.11208,
+   "pieceN": 5,
+   "pieceLogSD": 0.98938
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/34",
+   "cloudFrac": 0.70035,
+   "allCloud": false,
+   "brightRatio": 3.13167,
+   "darkRatio": 1.55484,
+   "pieceN": 4,
+   "pieceLogSD": 0.39269
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/35",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/36",
+   "cloudFrac": 0.83846,
+   "allCloud": false,
+   "brightRatio": 1.53102,
+   "darkRatio": 0.92575,
+   "pieceN": 5,
+   "pieceLogSD": 0.09942
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/37",
+   "cloudFrac": 0.59451,
+   "allCloud": false,
+   "brightRatio": 6.96395,
+   "darkRatio": 2.27616,
+   "pieceN": 4,
+   "pieceLogSD": 1.88861
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/38",
+   "cloudFrac": 0.5911,
+   "allCloud": false,
+   "brightRatio": 4.00891,
+   "darkRatio": 0.15786,
+   "pieceN": 8,
+   "pieceLogSD": 0.09645
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/39",
+   "cloudFrac": 0.7139,
+   "allCloud": false,
+   "brightRatio": 2.45776,
+   "darkRatio": 1.43995,
+   "pieceN": 8,
+   "pieceLogSD": 0.73547
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/40",
+   "cloudFrac": 0.29852,
+   "allCloud": false,
+   "brightRatio": 3.58493,
+   "darkRatio": 2.1766,
+   "pieceN": 2,
+   "pieceLogSD": NaN
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/41",
+   "cloudFrac": 0.0,
+   "allCloud": false,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/44",
+   "cloudFrac": 0.6351,
+   "allCloud": false,
+   "brightRatio": 5.68663,
+   "darkRatio": 1.23219,
+   "pieceN": 5,
+   "pieceLogSD": 0.17977
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/45",
+   "cloudFrac": 1.0,
+   "allCloud": true,
+   "brightRatio": NaN,
+   "darkRatio": NaN,
+   "pieceLogSD": NaN,
+   "pieceN": 0
+  }
+ ]
+}
