@@ -210,6 +210,9 @@ export interface SkySettings {
   /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 자(RULER-flow)·운량 역표 재맞춤 전까지 기본 끔. */
   volumetricFlow?: boolean;
   volumetricFlowUv?: boolean;
+  /** §136 구름 미세물리(physics: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(physicsIce) — 자(RULER-physics)를 넘기지 못해 기본 끔, 개발 패널 PHYS/ICE 칩으로 켬. */
+  volumetricPhysics?: boolean;
+  volumetricPhysicsIce?: boolean;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
@@ -223,6 +226,8 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   // §135 0단계: 흐름 모형은 자(RULER-flow)를 다 넘기지 못해 기본 끔으로 되돌립니다(커밋 1918960 이 켜 둔 것). 개발 패널 FLOW/UV 칩으로 켤 수 있습니다.
   volumetricFlow: false,
   volumetricFlowUv: false,
+  volumetricPhysics: false,
+  volumetricPhysicsIce: false,
 };
 
 /**
@@ -1705,11 +1710,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
               // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
-              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv }, false);
+              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce }, false);
               volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);

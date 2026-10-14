@@ -17,3 +17,6 @@
 - 2회차(§131, `RULER-flow2.md`): `make-jobs-r2.mjs`(후보 → 타일 잡: R0·R1·R2·Q1_H*·Q2_H*, `--base`), `tile-gates.py`(1회차 타일 게이트·2회차 규칙 R·D̂ 보정을
   기계 적용, `--ref R0 --gen gen.json`), `skyl.py`(박명 하늘 밝기). 판정기 타당성은 `../clip/judge-validity.py`(사진만).
   `node make-jobs-r2.mjs Q2_H0.5 --base R0 > j.json && node tile-gen.mjs j.json out --seeds 7,1007,2007,3007 && python3 tile.py --out out/tile.json out/*.png && python3 tile-gates.py out/tile.json --ref R0`
+- 구름 미세물리 1단계(§136, `RULER-physics.md`): `phys.py`(밝기비·조각 간 밝기 차·무리 E22 지표, 사진 사분위 `phys-photo-quartiles.json` 은 phys.py 해시에 묶임, fm.py 는 그대로 가져다 씀),
+  `phys-test.mjs`(`cloudPhysics.ts` 단위 테스트 74 개 + liveScene 배선), `phys-shader-test.mjs`(끈 셰이더 글자가 기준 커밋과 같은지·켜고 끄기), `make-jobs-phys.mjs`(P0·P1·P2 잡),
+  `eval-phys.sh <렌더 폴더>`(R1·R2·R3·H·G1·G2·G4 한 번에; 결과 전문 `phys-results.md`), `../volsky/state-hash.js`(그리지 않고 GPU 입력 해시 — 두 번들 비교).
