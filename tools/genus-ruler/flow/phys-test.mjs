@@ -102,6 +102,37 @@ for (const [g, [, H]] of Object.entries(SCENES)) {
   const L = rows[`표준:${g}`];
   console.log(`${g.padEnd(8)} ${String(HAND[g]).padEnd(7)} → ${f3(L.betaTop).padEnd(9)} (×${f3(L.betaTop / HAND[g])})   ${f3(0.625 * HAND[g] * H).padEnd(6)} → ${f3(L.tauCore)}`);
 }
+
+// 7 liveScene 배선 — 예보 단면 → 열역학 입력, 적운류만 응결고도 밑면(physBaseKm)
+{
+  const LB = path.join(OUT, 'liveScene.cjs');
+  execFileSync('npx', ['esbuild', path.join(ROOT, 'src/components/VolumetricProbe/liveScene.ts'), '--bundle', '--format=cjs', '--platform=node', '--define:__DEV__=false', `--outfile=${LB}`, '--log-level=error'], { cwd: ROOT, stdio: 'inherit' });
+  const LS = require(LB);
+  const PL = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300, 250, 200];
+  const zs = [110, 330, 540, 760, 990, 1460, 1950, 2470, 3010, 4200, 5600, 7200, 9200, 10400, 11800];
+  const obs = (cover, tdC) => ({
+    low: cover, mid: 0, high: 0, precipitation: 0, humidity: 60, t2mC: 24, td2mC: tdC,
+    profileHeightM: zs, profileCoverPct: zs.map(z => (z >= 900 && z <= 2000 ? 70 : 0)),
+    profileTempC: zs.map((z, i) => (i === 3 ? NaN : 24 - 6.5e-3 * z)),
+    windULow: 10, windVLow: 0, windUMid: 20, windVMid: 0, windUHigh: 40, windVHigh: 0,
+  });
+  const th = LS.thermoOf(obs(40, 16), 40);
+  check('thermoOf: 기온이 있는 면만(14/15)·지상 기온·이슬점', th.levels.length === 14 && th.t2mC === 24 && th.td2mC === 16 && th.levels[0].pHPa === 1000, `면 ${th.levels.length}`);
+  const seen = new Set();
+  let okAll = true, okThermo = true;
+  for (const [cover, td] of [[40, 16], [30, 20], [60, 16], [90, 23]]) {
+    const r = LS.buildLiveScene({ lat: 37.57, lon: 126.98, heightM: 40, date: new Date('2026-10-12T03:00:00Z'), obs: obs(cover, td) });
+    okThermo = okThermo && !!r.input.thermo && r.input.thermo.t2mC === 24;
+    for (const L of r.input.layers) {
+      if (!L.genus) continue;
+      seen.add(L.genus);
+      const want = ['cu', 'cg', 'cb'].includes(L.genus) ? P.lclBaseKm({ groundM: 40, t2mC: 24, td2mC: td }) : undefined;
+      if (L.physBaseKm !== want) okAll = false;
+    }
+  }
+  check('buildLiveScene: 입력에 thermo', okThermo);
+  check('buildLiveScene: physBaseKm 는 적운류만 = 지면 + 응결고도', okAll && [...seen].some(g => ['cu', 'cg', 'cb'].includes(g)), `본 종류 ${[...seen].join(',')}`);
+}
 const pass = results.filter(Boolean).length;
 console.log(`\n${pass}/${results.length} 통과`);
 process.exit(pass === results.length ? 0 : 1);
