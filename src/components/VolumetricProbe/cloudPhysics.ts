@@ -269,6 +269,18 @@ export function layerPhysics(genus: GenusKey, baseM: number, heightM: number, th
 }
 
 /**
+ * §137 물리 없이 쓰는 손값 얼음 레인 — 소광·단면은 손값 그대로 두고 얼음 종류(ci·cs·모루) 층에만 무리 가중(halo)을 주거나(H1),
+ * 얼음 층의 가루 효과를 끕니다(H2, ci·cs 만 — 모루는 두꺼워 그대로). 얼음 종류가 아니거나 둘 다 꺼져 있으면 null(= 무리 0 · 가루 1, 셰이더 변화 없음).
+ */
+export function iceLaneHand(genus: GenusKey, o: { halo: boolean; powderOff: boolean }): { halo: number; powder: number } | null {
+  const m = GENUS_MICRO[genus];
+  if (m.phase !== 'ice') return null;
+  const halo = o.halo ? m.halo : 0;
+  const powder = o.powderOff && genus !== 'cbanvil' ? 0 : 1;
+  return halo > 0 || powder < 1 ? { halo, powder } : null;
+}
+
+/**
  * 적운류 밑면 = 지면 + 응결고도(§136). 지상 기온·이슬점이 없으면 null(예보 단면의 밑면을 그대로 씀). 지면 위 0.3 ~ 3.5 km 로 자릅니다.
  */
 export function lclBaseKm(th?: ThermoInput | null): number | null {

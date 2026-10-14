@@ -27,6 +27,8 @@ type Job = {
   alphaMin?: number;
   /** 표시 곡선 바꾸기(postprocessing ToneMappingMode 번호) — 진단용 */
   tone?: number;
+  /** §137 D1 진단: takram 하늘빛·지면 반사 몫 배율(기본 1 = 손대지 않음). 잡마다 기본값으로 되돌립니다. */
+  fill?: { skyLightScale?: number; groundBounceScale?: number };
 };
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
@@ -111,7 +113,7 @@ const show = (tex: Texture, mode: number) => {
     const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
-      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false,
+      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
@@ -119,6 +121,9 @@ const show = (tex: Texture, mode: number) => {
       // reapply=false: 아래 setScene 이 장면을 걸므로 두 번 만들지 않습니다.
       vol.setOptions({ ...JOB_BASE_OPTIONS, ...(job.options ?? {}) }, false);
       if (job.tone != null) vol.debug.toneMapping.mode = job.tone;
+      // §137 잡마다 하늘빛·지면 반사 배율을 기본값 1 로 되돌린 뒤 덮어씁니다(앞 잡의 진단 값을 물려받지 않게).
+      vol.debug.clouds.skyLightScale = job.fill?.skyLightScale ?? 1;
+      vol.debug.clouds.groundBounceScale = job.fill?.groundBounceScale ?? 1;
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setScene(input);

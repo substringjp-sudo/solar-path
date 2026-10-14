@@ -46,9 +46,9 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusLightFloors, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
-import { layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
+import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
@@ -339,8 +339,17 @@ export interface VolumetricOptions {
   physics: boolean;
   /** §136 P2 — physics 위에 얼음 층 22°·46° 무리(구름 패스 첫 산란 차수)와 얇은 층 가루 효과 끔. physics 가 켜졌을 때만. */
   physicsIce: boolean;
+  /**
+   * §137 H1 — **물리 없이**(소광·단면은 손값) 얼음 종류(ci·cs·모루) 층에만 22°·46° 무리. 무리 상수는 physicsIce 와 같음. physics+physicsIce 가 켜져 있으면 그쪽이 우선.
+   * 얼음 층이 없는 장면은 켜 두어도 셰이더·균일변수가 끈 것과 같음.
+   */
+  iceHalo: boolean;
+  /** §137 H2 — 얼음 층(ci·cs)의 가루 효과 끔만(무리 없음). 가루 끔과 무리를 따로 재려고 나눔. */
+  icePowderOff: boolean;
+  /** §137 D1 진단 전용 — 조명 바닥값 [하늘빛 가림 0.35, 다중 산란 0.28] 치환. null = 끔(기본, 셰이더 글자 그대로). 기본값을 바꾸는 용도가 아님. */
+  debugLightFloors: [number, number] | null;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -888,6 +897,13 @@ export async function createVolumetricScene(
       clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
+    // §136·§137 얼음 레인: physics+physicsIce 면 물리 값, 아니면 iceHalo·icePowderOff 의 손값 레인(얼음 종류 층만), 둘 다 아니면 없음.
+    const physIce = opt.physics && opt.physicsIce;
+    const handIce = !physIce && (opt.iceHalo || opt.icePowderOff);
+    const iceLanes = physIce ? physLanes
+      : handIce ? [0, 1, 2, 3].map(i => (useGenus && gl[i] ? iceLaneHand(gl[i]!.genus, { halo: opt.iceHalo, powderOff: opt.icePowderOff }) : null))
+      : [];
+    const iceOn = physIce || handIce;
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
@@ -899,7 +915,8 @@ export async function createVolumetricScene(
       const driftSec = p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
-        setGenusPhysics(m, physLanes, opt.physics && opt.physicsIce);
+        setGenusPhysics(m, iceLanes, iceOn);
+        setGenusLightFloors(m, opt.debugLightFloors);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
@@ -908,7 +925,7 @@ export async function createVolumetricScene(
       }
     } else {
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
-      for (const m of genusMats) { setGenusUniforms(m, []); setGenusPhysics(m, [], false); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;

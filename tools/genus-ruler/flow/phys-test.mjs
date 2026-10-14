@@ -135,6 +135,15 @@ for (const [g, [, H]] of Object.entries(SCENES)) {
   console.log(`${g.padEnd(8)} ${String(HAND[g]).padEnd(7)} → ${f3(L.betaTop).padEnd(9)} (×${f3(L.betaTop / HAND[g])})   ${f3(0.625 * HAND[g] * H).padEnd(6)} → ${f3(L.tauCore).padEnd(6)}   렌더 ${f3(handR).padEnd(6)} → ${f3(L.tauRendered)}`);
 }
 
+// 6b 손값 얼음 레인(iceHalo·icePowderOff, 물리 없음)
+{
+  const a = P.iceLaneHand('ci', { halo: true, powderOff: false }), b = P.iceLaneHand('cs', { halo: true, powderOff: true }), c = P.iceLaneHand('cbanvil', { halo: true, powderOff: true });
+  check('손값 레인: 무리만 → ci 무리 0.5·가루 1', a && a.halo === 0.5 && a.powder === 1);
+  check('손값 레인: 무리 + 가루 끔 → cs 무리 1·가루 0, 모루는 가루 1', b && b.halo === 1 && b.powder === 0 && c && c.halo === 0.3 && c.powder === 1);
+  check('손값 레인: 가루 끔만 → ci 무리 0·가루 0, 모루는 null(변화 없음)', (() => { const x = P.iceLaneHand('ci', { halo: false, powderOff: true }), y = P.iceLaneHand('cbanvil', { halo: false, powderOff: true }); return x && x.halo === 0 && x.powder === 0 && y === null; })());
+  check('손값 레인: 물 구름·둘 다 끔 → null', ['cu', 'sc', 'st', 'ac', 'as', 'ns', 'cg', 'cb'].every(g => P.iceLaneHand(g, { halo: true, powderOff: true }) === null) && P.iceLaneHand('ci', { halo: false, powderOff: false }) === null);
+}
+
 // 7 liveScene 배선 — 예보 단면 → 열역학 입력, 적운류만 응결고도 밑면(physBaseKm)
 {
   const LB = path.join(OUT, 'liveScene.cjs');

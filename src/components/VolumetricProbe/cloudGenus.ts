@@ -821,7 +821,6 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
  * 되돌립니다 — 끈 상태의 셰이더 글자가 §136 이전과 같아야 "끄면 그대로"가 컴파일 결과의 부동소수점 반올림까지 지켜집니다
  * (삽입 코드가 죽은 가지로 남아 있어도 cu_200·tw1734 의 화소가 몇백 개 달라졌음 — RULER-physics G3). 삽입 전 원문은 재질별로 처음 부를 때 기억합니다.
  */
-const ICE_BASE = new WeakMap<object, string>();
 const ICE_RAD = 'vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
 const ICE_POW = 'radiance *= 1.0 - powderScale * exp(-media.extinction * powderExponent);';
 const ICE_MARCH = 'vec4 marchClouds(';
@@ -854,30 +853,67 @@ export function injectGenusIce(base: string): string {
   }
   return src;
 }
-function setIceShader(mat: PatchableMaterial, on: boolean): void {
-  let base = ICE_BASE.get(mat);
-  if (base === undefined) { base = mat.fragmentShader; ICE_BASE.set(mat, base); }
-  const want = on ? injectGenusIce(base) : base;
+/** 조명 바닥값(§134 의 다중 산란 최저광) 두 곳의 글자 — 구름 패스에만 있음(그림자 패스엔 skyGradient 줄이 없음). 진단(§137 D1)에서만 치환합니다. */
+const FLOOR_SKY = 'max(vec4(0.35), exp(-genusAO * weather.depth))';
+const FLOOR_MS = 'max(vec4(0.28), exp(-0.035 * gTau))';
+/** 바닥값 [하늘빛 가림, 다중 산란]을 치환한 원문. floors 가 null 이거나 앵커가 없으면(그림자 패스) 그대로. */
+export function applyGenusFloors(base: string, floors: [number, number] | null): string {
+  if (!floors || !base.includes(FLOOR_SKY) || !base.includes(FLOOR_MS)) return base;
+  const lit = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+  return base
+    .replace(FLOOR_SKY, `max(vec4(${lit(floors[0])}), exp(-genusAO * weather.depth))`)
+    .replace(FLOOR_MS, `max(vec4(${lit(floors[1])}), exp(-0.035 * gTau))`);
+}
+
+/**
+ * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
+ * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
+ */
+interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null }
+const VARIANT = new WeakMap<object, ShaderVariant>();
+function variantOf(mat: PatchableMaterial): ShaderVariant {
+  let v = VARIANT.get(mat);
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null }; VARIANT.set(mat, v); }
+  return v;
+}
+function refreshVariant(mat: PatchableMaterial): void {
+  const v = variantOf(mat);
+  let want = applyGenusFloors(v.base, v.floors);
+  if (v.ice) want = injectGenusIce(want);
   if (mat.fragmentShader !== want) { mat.fragmentShader = want; mat.needsUpdate = true; }
-  if (on && want !== base && !mat.uniforms.genusPhysOn) {
+  const injected = v.ice && want.includes('genusPhysOn');
+  if (injected && !mat.uniforms.genusPhysOn) {
     mat.uniforms.genusHalo = { value: new Vector4() };
     mat.uniforms.genusPowderW = { value: new Vector4(1, 1, 1, 1) };
     mat.uniforms.genusPhysOn = { value: 0 };
   }
+  if (!injected && mat.uniforms.genusPhysOn) {
+    delete mat.uniforms.genusHalo; delete mat.uniforms.genusPowderW; delete mat.uniforms.genusPhysOn;
+    mat.needsUpdate = true;
+  }
 }
 
 /**
- * §136 P2 층별 얼음 무리 세기·가루 효과 무게(cloudPhysics.layerPhysics 의 halo·powder). on = false 면 셰이더를 삽입 전 원문으로 되돌립니다.
- * 물리 값이 없는 층은 무리 0 · 가루 1. 그림자 패스처럼 앵커가 없는 재질은 아무것도 하지 않습니다.
+ * §136·§137 얼음 레인(층별 무리 세기·가루 효과 무게). 얼음 코드는 **레인이 실제로 쓰일 때만**(어느 층이든 halo > 0 또는 powder < 1) 구름 패스 셰이더에 삽입하고,
+ * 아니면 삽입 전 원문으로 되돌립니다. 물 구름만 있는 장면은 켜 두어도 셰이더·균일변수가 끈 장면과 같습니다. 그림자 패스처럼 앵커가 없는 재질은 아무것도 하지 않습니다.
+ * 물리 값이 없는 층은 무리 0 · 가루 1.
  */
 export function setGenusPhysics(mat: PatchableMaterial, lanes: ({ halo: number; powder: number } | null)[], on: boolean): void {
-  setIceShader(mat, on);
-  if (!on || !mat.uniforms.genusPhysOn) return;
+  const active = on && lanes.some(l => !!l && (l.halo > 0 || l.powder < 1));
+  variantOf(mat).ice = active;
+  refreshVariant(mat);
+  if (!active || !mat.uniforms.genusPhysOn) return;
   const v = (fn: (l: { halo: number; powder: number }) => number, dflt: number) => [0, 1, 2, 3].map(i => (lanes[i] ? fn(lanes[i] as { halo: number; powder: number }) : dflt));
   const h = v(l => l.halo, 0), w = v(l => l.powder, 1);
   (mat.uniforms.genusHalo.value as Vector4).set(h[0], h[1], h[2], h[3]);
   (mat.uniforms.genusPowderW.value as Vector4).set(w[0], w[1], w[2], w[3]);
   mat.uniforms.genusPhysOn.value = 1;
+}
+
+/** §137 D1 진단 — 조명 바닥값 치환(null 이면 끔 = 원문). 기본값을 바꾸는 것이 아니라 켜 보기만 합니다. */
+export function setGenusLightFloors(mat: PatchableMaterial, floors: [number, number] | null): void {
+  variantOf(mat).floors = floors;
+  refreshVariant(mat);
 }
 
 /** §136 층의 렌더 봉투 손잡이(patchGenusShader 단면) — cloudPhysics.layerPhysics 가 렌더 기둥 광학두께(tauRendered)를 셀 때 씁니다. */
