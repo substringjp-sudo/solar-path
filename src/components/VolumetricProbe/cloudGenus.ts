@@ -924,7 +924,7 @@ export function setGenusLightFloors(mat: PatchableMaterial, floors: [number, num
 
 /**
  * §138 구름 속 확산광(RULER-physics3). 구름 패스의 하늘빛 줄 + thru 블록(patchGenusShader 가 넣은 글자)을 후보별로 바꿉니다 — **켤 때만**, 끄면 원문.
- * 기둥 광학두께는 그림자 지도가 아니라(행진 minTransmittance 에서 τ ≈ 72 로 포화) 층 단면의 **해석적 적분**: τ(hf 구간) = (표본 소광 / 표본 날씨 밀도 합) × H × ∫ gDensity(hf) dhf
+ * 기둥 광학두께는 그림자 지도가 아니라(행진 minTransmittance 에서 τ ≈ 72 로 포화) 층 단면의 **해석적 적분**: τ(hf 구간) = densityScale(층 공칭) × H × ∫ gDensity(hf)·profile(hf) dhf — 모양 잡음은 넣지 않음(상한, §8)
  * — gDensity 는 patchGenusShader 와 같은 식(날씨 d 는 weather.depth 에서 되찾음: d = depth + 1 − hs(hf_표본)), 중점 8 개. 표본의 모양 잡음 배율이 기둥 전체에 걸리는 것은 한계(§8).
  *   1 (L1): thru 식·바닥값은 그대로, τ_up 만 해석적 기둥(표본 위)으로.
  *   2 (L2): 하늘빛 항 = 충돌 전 하늘빛만(E_h = skyIrradiance/2π, 반구 평균 ½, e^(−2τ'_above); ao·0.35 바닥값 은퇴), thru 블록 = 두-흐름 확산장
@@ -946,13 +946,13 @@ const COLUMN_GLSL = [
   '        vec4 gIntA = vec4(0.0), gIntT = vec4(0.0);',
   `        for (int gi = 0; gi < ${COLUMN_N}; ++gi) {`,
   `          float gHfi = (float(gi) + 0.5) / ${COLUMN_N}.0;`,
-  '          vec4 gDi = clamp((gLW - (vec4(1.0) - genusHsD(vec4(gHfi)))) * genusEdge, 0.0, 1.0);',
+  '          // 층 공칭 밀도(모양 잡음 없음) × takram 층 단면 — 표본의 소광/밀도 비를 쓰면 모양 잡음에 깎인 표면 표본이 기둥 전체를 과소평가함(진단 렌더: sc τ 19).',
+  '          vec4 gDi = clamp((gLW - (vec4(1.0) - genusHsD(vec4(gHfi)))) * genusEdge, 0.0, 1.0) * getLayerDensity(vec4(gHfi));',
   '          gIntT += gDi;',
   '          gIntA += gDi * step(gHf0, vec4(gHfi));',
   '        }',
-  `        float gBeta = media.extinction / max(dot(weather.density, vec4(1.0)), 1e-5);   // 표본의 (소광 / 날씨 밀도) = 층 densityScale × 모양 잡음`,
-  `        vec4 gTauA = gBeta * gLayerH * gIntA / ${COLUMN_N}.0;`,
-  `        vec4 gTauT = max(gTauA, gBeta * gLayerH * gIntT / ${COLUMN_N}.0);`,
+  `        vec4 gTauA = densityScales * gLayerH * gIntA / ${COLUMN_N}.0;`,
+  `        vec4 gTauT = max(gTauA, densityScales * gLayerH * gIntT / ${COLUMN_N}.0);`,
 ].join('\n');
 const HS_GLSL = [
   '// §138 종류 단면 hs(hf) — patchGenusShader 의 식과 같음(기둥 적분용).',
