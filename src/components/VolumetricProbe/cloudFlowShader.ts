@@ -69,8 +69,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;');
   // S2 mode 2 — LWP 돔(꼭대기 = d^(1/top)). genusMode 0/1 은 이전과 같음.
   src = src.replace(oHs, [
-    '  vec4 gBulgeL = sin(clamp(gHf, vec4(0.0), vec4(1.0)) * 3.141592);',
-    '  vec4 gDomeL = gRamp * ((vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop)) * 0.45 + pow(max(gBulgeL, vec4(1e-6)), genusTop * 0.7) * 0.55);',
+    '  vec4 gDomeL = gRamp * (vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop));',
     '  vec4 gHs = mix(mix(gDome, gLens, step(vec4(0.5), genusMode)), gDomeL, step(vec4(1.5), genusMode));',
   ].join('\n'));
   // S3 연속 밀도
@@ -97,11 +96,12 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '  } else {',
     '    localWeather = pow(textureLod(localWeatherTexture, gUv0, mipLevel).LOCAL_WEATHER_CHANNELS, weatherExponents);',
     '  }',
-    '  // §132 거시 상태장: 주변 10여개 좌표의 2D 공간 기울기에 따라 운량을 점진적으로 변조',
+    '  // §132 거시 상태장: 주변 좌표의 2D 운량 기울기로 구름을 변조. §135: 더하지 않고 **곱합니다** — 더하면 빈 하늘(0)에',
+    '  // 구름이 생겨 하늘 위쪽을 얇은 막이 덮었습니다. 곱하면 이미 있는 구름만 옅어지거나(기울기 음의 쪽) 조금 짙어집니다(양의 쪽).',
     '  if (genusMacroOn > 0.5) {',
     '    vec2 gPosKm = uv * (genusTileM * 0.001);',
     '    vec4 gMacroDelta = (gPosKm.x * genusMacroGradX + gPosKm.y * genusMacroGradY) * 0.01;',
-    '    localWeather = clamp(localWeather + gMacroDelta, vec4(0.0), vec4(1.0));',
+    '    localWeather = min(localWeather * clamp(vec4(1.0) + gMacroDelta, vec4(0.0), vec4(1.35)), vec4(1.0));',
     '  }',
   ].join('\n'));
   // S7 평균 보존 침식 + 발자국 페이드(mipLevel 은 sampleMedia 의 매개변수).

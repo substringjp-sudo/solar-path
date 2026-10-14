@@ -220,8 +220,9 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   volumetricQuality: 'low',
   volumetricRes: 0.5,
   volumetricAutoRes: true,
-  volumetricFlow: true,
-  volumetricFlowUv: true,
+  // §135 0단계: 흐름 모형은 자(RULER-flow)를 다 넘기지 못해 기본 끔으로 되돌립니다(커밋 1918960 이 켜 둔 것). 개발 패널 FLOW/UV 칩으로 켤 수 있습니다.
+  volumetricFlow: false,
+  volumetricFlowUv: false,
 };
 
 /**
