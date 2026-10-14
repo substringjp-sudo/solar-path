@@ -872,7 +872,7 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
-interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 }
+interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9 }
 const VARIANT = new WeakMap<object, ShaderVariant>();
 function variantOf(mat: PatchableMaterial): ShaderVariant {
   let v = VARIANT.get(mat);
@@ -975,7 +975,7 @@ const DIFFUSE_FIELD_GLSL = [
   '        radiance += gJ * dot(genusOn, media.weight);',
   '      }',
 ].join('\n');
-export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3): string {
+export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): string {
   if (!mode) return base;
   if (!base.includes(IS_CLOUDS)) return base;   // 그림자 패스
   if (!base.includes(THRU_BLOCK) || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH) || !base.includes(DIFF_SKY_FLOOR)) throw new Error('cloudGenus: diffuse anchor missing');
@@ -987,6 +987,10 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3): string {
       COLUMN_GLSL.split('\n').slice(1).join('\n'),   // gLayerH 는 이미 위 줄에 있음
       '        vec4 gTau = gTauA;',
     ].join('\n'));
+  }
+  if ((mode as number) === 9) {
+    // 진단 전용(후보 아님): 표본의 해석적 기둥 τ 를 색으로 — R = τ_total/200, G = τ_above/200, B = D_sun. 산란 광원 대신 그대로 씁니다.
+    return src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL.replace('        radiance += gJ * dot(genusOn, media.weight);', '        radiance = vec3(gTt / 200.0, gTa / 200.0, gDsun);'));
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
@@ -1003,7 +1007,7 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3): string {
   }
   return src;
 }
-export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3): void {
+export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3 | 9): void {
   variantOf(mat).diffuse = mode;
   refreshVariant(mat);
 }
