@@ -32,6 +32,8 @@ interface MapCanvasProps {
   onLongPress?: (coord: { latitude: number; longitude: number }) => void;
   /** 손가락 두 개 줌을 지도가 직접 받을지(기본 켬). 하늘 탭은 줌을 진행도로 몰아 쓰므로 끕니다. */
   zoomEnabled?: boolean;
+  /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
+  pickPin?: { latitude: number; longitude: number } | null;
 }
 
 /** 리렌더 없이 지도를 옮깁니다 — 하늘 탭의 줌이 손가락 이벤트마다 부릅니다. */
@@ -64,6 +66,7 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
   topView = null,
   onLongPress,
   zoomEnabled = true,
+  pickPin = null,
 }, ref) => {
   const mapRef = React.useRef<MapView>(null);
 
@@ -321,6 +324,10 @@ export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasP
             </View>
           </Marker>
         </>
+      )}
+
+      {pickPin && (
+        <Marker coordinate={pickPin} pinColor="#0EA5E9" tracksViewChanges={false} />
       )}
 
       {/* ⚠ 직하점은 좁은 축척에서 늘 화면 밖입니다 — 안 그립니다. */}

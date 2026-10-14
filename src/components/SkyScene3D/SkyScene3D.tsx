@@ -137,6 +137,7 @@ import {
 } from '../../utils/zoomContinuum';
 import { getTerminatorSegments, getSubsolarPoint } from '../../utils/celestial';
 import { buildSunOverlay } from '../../utils/solarGeometry';
+import { sameBucket } from '../../utils/weatherCacheKey';
 import * as d3 from 'd3-geo';
 import { useCloudTopView } from '../IsolineMap/useCloudTopView';
 import { fetchDayWeatherRing, type CloudPathData } from '../../utils/weather';
@@ -470,6 +471,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const [zoomProgressState, setZoomProgressState] = useState((60 - 30) / 90);
   const [overlayMode, setOverlayMode] = useState<MapMode>('tiles');
   const [divingLocation, setDivingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  /**
+   * 지도·구에서 길게 눌러 고른 자리 — **확인을 받기 전에는 옮기지 않습니다.** 예전에는 길게
+   * 누르는 즉시 관측점이 바뀌어 날씨·지형을 새로 받고 착륙했는데, 지구본을 돌리려고 손가락을
+   * 잠깐 얹기만 해도 걸려 방해가 됐습니다.
+   */
+  const [pendingPick, setPendingPick] = useState<{ latitude: number; longitude: number; sameCell: boolean } | null>(null);
+  /** 마지막으로 줌·이동이 있었던 때 — 그 직후의 길게 누르기는 손짓의 끝자락이라 무시합니다. */
+  const lastViewMoveMsRef = useRef(0);
   // 지도·구의 한가운데. 관측점(home)과 다를 수 있습니다(지도·구를 끌었을 때).
   const homeRef = useRef({
     latitude: location?.coords?.latitude ?? 37.5,
@@ -570,6 +579,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const applyZoomProgress = useCallback((p: number, opts: { force?: boolean; keepCenter?: boolean } = {}) => {
     const prev = zoomProgressRef.current;
     zoomProgressRef.current = p;
+    if (Math.abs(p - prev) > 1e-6) lastViewMoveMsRef.current = Date.now();
     if (p <= P_FOV_END) fovRef.current = 30 + p * 90;
     const { w, h } = viewSizeRef.current;
     const aspect = w / h;
@@ -1026,13 +1036,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   // ── 시뮬레이션 구름 탑다운 뷰 (하늘 시뮬레이션의 구름을 지도와 지구본 위에 투영) ───
   const [cloudRing, setCloudRing] = useState<CloudPathData[] | null>(null);
+  const cloudRingFetchRef = useRef<{ lat: number; lon: number; ms: number } | null>(null);
   useEffect(() => {
     if (!isActive || zoomProgressState <= P_FOV_END) return;
-    let alive = true;
     const cLat = location?.coords?.latitude ?? 37.5;
     const cLon = location?.coords?.longitude ?? 127.0;
+    // 줌을 오르내릴 때마다 다시 받지 않습니다 — 같은 날씨 칸(0.02°)에서 10 분 안이면 그대로.
+    const last = cloudRingFetchRef.current;
+    if (last && sameBucket(last.lat, last.lon, cLat, cLon) && Date.now() - last.ms < 10 * 60 * 1000) return;
+    let alive = true;
     fetchDayWeatherRing(cLat, cLon, new Date())
-      .then((r) => { if (alive) setCloudRing(r); })
+      .then((r) => {
+        if (!alive) return;
+        cloudRingFetchRef.current = { lat: cLat, lon: cLon, ms: Date.now() };
+        setCloudRing(r);
+      })
       .catch((err) => console.warn('지도 구름 탑다운 링 수신 실패:', err));
     return () => { alive = false; };
   }, [isActive, zoomProgressState > P_FOV_END]);
@@ -1131,6 +1149,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           pinchDistRef.current = getTouchDist(touches);
           pinchFovRef.current = fovRef.current;
           pinchZoomProgressRef.current = zoomProgressRef.current;
+          setPendingPick(null);
         } else {
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
           touchStartLocRef.current = { x: touches[0].pageX, y: touches[0].pageY };
@@ -3000,15 +3019,64 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 사용자가 지도를 끌었을 때만 받습니다. 줌 중(손짓·착륙)의 콜백은 늦게 온 옛 위치일 수 있어 버립니다.
     if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
     if (zoomProgressRef.current < P_HANDOFF) return;
+    const c = mapCenterRef.current;
+    if (Math.abs(c.latitude - r.latitude) > 1e-6 || Math.abs(c.longitude - r.longitude) > 1e-6) {
+      lastViewMoveMsRef.current = Date.now();
+    }
     mapCenterRef.current = { latitude: r.latitude, longitude: r.longitude };
   }, []);
+  /**
+   * 길게 누르기 → **자리만 고릅니다**(핀 + 확인 카드). 옮기기(관측점·날씨·지형 새로 받기·착륙)는
+   * 카드의 "여기로 이동" 을 눌러야 합니다. 줌·착륙 중이거나 줌·이동 직후 0.6 초 안의 길게
+   * 누르기는 손짓의 끝자락이라 버립니다.
+   */
   const onMapLongPress = useCallback((coord: { latitude: number; longitude: number }) => {
-    // 구름 레이더/지도 단계에서 롱클릭 시에만 선택 좌표 변경 및 다이빙 착륙
-    if (zoomProgressRef.current >= P_HANDOFF) startDivingLanding(coord.latitude, coord.longitude);
-  }, [startDivingLanding]);
+    if (zoomProgressRef.current < P_HANDOFF) return;
+    if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
+    if (Date.now() - lastViewMoveMsRef.current < 600) return;
+    if (!Number.isFinite(coord.latitude) || !Number.isFinite(coord.longitude)) return;
+    const h = homeRef.current;
+    setPendingPick({
+      latitude: coord.latitude,
+      longitude: coord.longitude,
+      // 같은 날씨 칸(0.02°)이면 새로 받을 날씨가 없습니다 — 카드에 그렇게 적습니다.
+      sameCell: sameBucket(h.latitude, h.longitude, coord.latitude, coord.longitude),
+    });
+  }, []);
+  const confirmPick = useCallback(() => {
+    if (!pendingPick) return;
+    setPendingPick(null);
+    startDivingLanding(pendingPick.latitude, pendingPick.longitude);
+  }, [pendingPick, startDivingLanding]);
+  // 고른 채 두면 8 초 뒤 저절로 닫습니다. 지도 단계를 벗어나도 닫습니다.
+  const atMapStage = zoomProgressState >= P_HANDOFF;
+  useEffect(() => {
+    if (!pendingPick) return;
+    if (!atMapStage) { setPendingPick(null); return; }
+    const t = setTimeout(() => setPendingPick(null), 8000);
+    return () => clearTimeout(t);
+  }, [pendingPick, atMapStage]);
+  // 안내 문구는 지도 단계에 들어올 때 4 초만, 그것도 처음 두 번만 보입니다(늘 떠 있으면 가립니다).
+  const [hintOn, setHintOn] = useState(false);
+  const hintShownRef = useRef(0);
+  useEffect(() => {
+    if (!atMapStage || hintShownRef.current >= 2) { setHintOn(false); return; }
+    hintShownRef.current += 1;
+    setHintOn(true);
+    const t = setTimeout(() => setHintOn(false), 4000);
+    return () => clearTimeout(t);
+  }, [atMapStage]);
+  const pickPin = useMemo(
+    () => (pendingPick ? { latitude: pendingPick.latitude, longitude: pendingPick.longitude } : null),
+    [pendingPick],
+  );
   const onGlobeViewChange = useCallback((v: { latitude: number; longitude: number; radius: number }) => {
     // 구를 돌리거나(한가운데) 구 안에서 확대·축소했을 때(반지름) — 진행도를 **같은 축척**으로
     // 되돌려 씁니다. 예전에는 확대하면 진행도를 2.2 로 툭 옮겨 지도가 엉뚱한 축척으로 떴습니다.
+    const c0 = mapCenterRef.current;
+    if (Math.abs(c0.latitude - v.latitude) > 1e-6 || Math.abs(c0.longitude - v.longitude) > 1e-6) {
+      lastViewMoveMsRef.current = Date.now();
+    }
     mapCenterRef.current = { latitude: v.latitude, longitude: v.longitude };
     const vs = viewSizeRef.current;
     const p = progressForLonDelta(deltaForGlobeRadius(v.latitude, v.radius, vs.w), homeRef.current.latitude, vs.w / vs.h);
@@ -3138,6 +3206,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               zoomEnabled={false}
               onRegionChangeComplete={onMapRegionChangeComplete}
               onLongPress={onMapLongPress}
+              pickPin={pickPin}
             />
           ) : (
             <MapGlobe
@@ -3161,6 +3230,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               maxRadius={20000}
               onSelectLocation={onMapLongPress}
               onViewChange={onGlobeViewChange}
+              pickPin={pickPin}
               selectedDate={globeCelestialData.date}
             />
           )}
@@ -3202,11 +3272,31 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         </View>
       )}
 
-      {/* 롱프레스 위치 이동 안내 힌트 토스트 */}
-      {zoomProgressState >= P_HANDOFF && !divingLocation && (
-        <View style={styles.radarHintToast}>
+      {/* 길게 눌러 고른 자리 — 확인해야 옮깁니다 */}
+      {pendingPick && atMapStage && !divingLocation && (
+        <View style={styles.pickCard}>
+          <Text style={styles.pickTitle}>
+            📍 {pendingPick.latitude.toFixed(2)}°, {pendingPick.longitude.toFixed(2)}°
+          </Text>
+          <Text style={styles.pickSub}>
+            {pendingPick.sameCell ? '지금 위치와 같은 날씨 칸입니다' : '이 위치의 날씨를 새로 받아 착륙합니다'}
+          </Text>
+          <View style={styles.pickRow}>
+            <TouchableOpacity style={styles.pickCancel} onPress={() => setPendingPick(null)}>
+              <Text style={styles.pickCancelText}>취소</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.pickGo} onPress={confirmPick}>
+              <Text style={styles.pickGoText}>여기로 이동 ⤓</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* 안내 — 지도 단계에 들어올 때 잠깐만 */}
+      {hintOn && !pendingPick && !divingLocation && (
+        <View style={styles.radarHintToast} pointerEvents="none">
           <Text style={styles.radarHintText}>
-            💡 화면의 특정 위치를 길게 누르면 해당 장소로 즉시 이동 및 착륙합니다
+            💡 길게 눌러 위치를 고르면, 확인 후 그곳으로 이동합니다
           </Text>
         </View>
       )}
@@ -3329,4 +3419,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
+  pickCard: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    minWidth: 230,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.45)',
+    zIndex: 45,
+  },
+  pickTitle: { color: '#F1F5F9', fontSize: 13, fontWeight: '700' },
+  pickSub: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
+  pickRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 8 },
+  pickCancel: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(148, 163, 184, 0.18)' },
+  pickCancelText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  pickGo: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#0EA5E9' },
+  pickGoText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
 });

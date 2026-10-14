@@ -28,6 +28,7 @@ interface MapCanvasProps {
   topView?: unknown;
   onLongPress?: unknown;
   zoomEnabled?: boolean;
+  pickPin?: unknown;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,

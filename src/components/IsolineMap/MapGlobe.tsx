@@ -36,6 +36,8 @@ interface MapGlobeProps {
   selectedDate?: Date;
   /** 특정 위치 롱프레스 시 해당 위경도 전달 */
   onSelectLocation?: (coord: { latitude: number; longitude: number }) => void;
+  /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
+  pickPin?: { latitude: number; longitude: number } | null;
 }
 
 /**
@@ -90,6 +92,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   topView = null,
   selectedDate,
   onSelectLocation,
+  pickPin = null,
 }, ref) => {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
@@ -534,6 +537,14 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return { x: 0, y: 0, visible: false };
   }, [lat, lon, hasLocation, rotate, projection]);
 
+  const pickMarker = useMemo(() => {
+    if (!pickPin) return null;
+    const pt: [number, number] = [pickPin.longitude, pickPin.latitude];
+    if (d3.geoDistance(pt, [-rotate[0], -rotate[1]]) >= Math.PI / 2) return null;
+    const pos = projection(pt);
+    return pos ? { x: pos[0], y: pos[1] } : null;
+  }, [pickPin, rotate, projection]);
+
   const strokeColor = theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
 
   return (
@@ -733,6 +744,13 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             <G>
               <Circle cx={myLocationMarker.x} cy={myLocationMarker.y} r={9} fill="rgba(56, 189, 248, 0.25)" />
               <Circle cx={myLocationMarker.x} cy={myLocationMarker.y} r={4.5} fill="#38BDF8" stroke="#FFFFFF" strokeWidth={1} />
+            </G>
+          )}
+
+          {pickMarker && (
+            <G>
+              <Circle cx={pickMarker.x} cy={pickMarker.y} r={11} fill="rgba(14, 165, 233, 0.25)" />
+              <Circle cx={pickMarker.x} cy={pickMarker.y} r={5} fill="#0EA5E9" stroke="#FFFFFF" strokeWidth={1.5} />
             </G>
           )}
 
