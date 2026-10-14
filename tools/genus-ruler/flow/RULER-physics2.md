@@ -106,3 +106,12 @@ H1: P2 와 같은 상수라 cs 에서 haloGain 이 +0.04~0.06 근처, ci 는 가
 
 ## 10. 동결 목록(해시는 커밋 시점에 아래에 기록)
 phys2.py · phys2-photo-quartiles.json · jobs-phys2.json · eval-phys2.sh · clip-labels.py · state-compare.py · 하네스 번들 `.harness/volsky/app.js` · 커밋(구현: iceHalo·icePowderOff·debugLightFloors·fill) — 값은 아래 §11.
+
+## 11. 동결 해시 (렌더 전, 2026-10-14)
+- phys2.py sha256 5a54cc13c1ea75a93e84ef72804abd312dc2879f3a268bbc363f71cfb0e7d8e7
+- phys2-photo-quartiles.json sha256 f6a2d3832b79bc48f40baf274146117710f337dd3023df24a757fc3da23bb0ca
+- jobs-phys2.json sha256 24ee7281aede7ea81392764b50133546fc414f3d0dafa69fb18e0d9f6caaf8fd (109 장)
+- eval-phys2.sh sha256 42b9fbd742d590ec182edbe5bfccfc04e424dac9e1d19a66b7c41a4f5330e54e
+- 하네스 번들 app.js sha256 829afacb8dd488f8c7095148b4fa7650f475db98bf3330cb54348b4dee058bed
+- 구현 커밋 86827e4 (이 문서 커밋 직전)
+- 사전 시험: G3 옛↔새 번들 28 장면 해시 동일, HB 23 동일 + 얼음 5 장면만 기대 필드 다름, phys-test 78/78, phys-shader-test 14/14, phys2-test 9/9.

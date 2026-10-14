@@ -1,0 +1,3377 @@
+{
+ "phys2Sha256": "5a54cc13c1ea75a93e84ef72804abd312dc2879f3a268bbc363f71cfb0e7d8e7",
+ "fmSha256": "021b23130b8f4234ee781f9509c512ace4e4a4b9cef937d57dd15d4ff1b9be6a",
+ "physSha256": "b0dcaba5b09162dbe52cd84f766816893ffb1cf90acb98efe963c40a058baa16",
+ "date": "2026-10-14",
+ "params": {
+  "width": 320,
+  "rSmall": 2,
+  "rLarge": 16,
+  "photoErodeExtra": 3,
+  "minInterior": 400,
+  "bootN": 4000,
+  "bootSeed": 20261014,
+  "photoTop": "selection sky fraction x 0.97",
+  "photoMask": "nrbr",
+  "renderInterior": "alpha>=0.9",
+  "exclude": "darkObj>0.02 or satFrac>0.01"
+ },
+ "counts": {
+  "Cu": 51,
+  "AcCc": 59,
+  "Ci": 29,
+  "StSc": 31,
+  "As": 23,
+  "St": 42,
+  "Ns": 32
+ },
+ "countsUsed": {
+  "Cu": 39,
+  "AcCc": 46,
+  "Ci": 20,
+  "StSc": 19,
+  "As": 18,
+  "St": 28,
+  "Ns": 22
+ },
+ "excluded": {
+  "Cu": [
+   "Cu/3: sat 0.024",
+   "Cu/15: sat 0.063",
+   "Cu/16: darkObj 0.057",
+   "Cu/44: sat 0.019",
+   "Cu/51: sat 0.027",
+   "Cu/54: sat 0.024",
+   "Cu/55: darkObj 0.138; sat 0.018",
+   "Cu/59: sat 0.092",
+   "Cu/65: sat 0.042",
+   "Cu/68: sat 0.026",
+   "Cu/73: darkObj 0.038",
+   "Cu/75: sat 0.015"
+  ],
+  "AcCc": [
+   "AcCc/12: sat 0.043",
+   "AcCc/24: darkObj 0.103",
+   "AcCc/38: sat 0.025",
+   "AcCc/46: sat 0.020",
+   "AcCc/52: darkObj 0.081",
+   "AcCc/54: sat 0.033",
+   "AcCc/57: darkObj 0.055",
+   "AcCc/61: darkObj 0.055",
+   "AcCc/77: darkObj 0.024",
+   "AcCc/103: sat 0.012",
+   "AcCc/107: sat 0.046",
+   "AcCc/108: darkObj 0.291",
+   "AcCc/109: sat 0.063"
+  ],
+  "Ci": [
+   "Ci/5: sat 0.012",
+   "Ci/6: darkObj 0.078",
+   "Ci/8: darkObj 0.060",
+   "Ci/26: darkObj 0.113",
+   "Ci/27: darkObj 0.032",
+   "Ci/54: darkObj 0.082",
+   "Ci/60: darkObj 0.036",
+   "Ci/64: sat 0.011",
+   "Ci/70: darkObj 0.105"
+  ],
+  "StSc": [
+   "StSc/2: darkObj 0.025",
+   "StSc/5: sat 0.010",
+   "StSc/11: darkObj 0.035",
+   "StSc/14: sat 0.065",
+   "StSc/17: darkObj 0.087",
+   "StSc/21: darkObj 0.099",
+   "StSc/28: darkObj 0.066",
+   "StSc/29: sat 0.037",
+   "StSc/35: sat 0.018",
+   "StSc/39: sat 0.036",
+   "StSc/49: sat 0.027",
+   "StSc/50: sat 0.033"
+  ],
+  "As": [
+   "As/0: darkObj 0.022",
+   "As/8: darkObj 0.035",
+   "As/19: sat 0.110",
+   "As/25: darkObj 0.040",
+   "As/27: darkObj 0.071"
+  ],
+  "St": [
+   "St/3: darkObj 0.035",
+   "St/6: darkObj 0.024",
+   "St/8: sat 0.054",
+   "St/13: darkObj 0.113",
+   "St/15: darkObj 0.107; sat 0.026",
+   "St/19: sat 0.205",
+   "St/28: sat 0.097",
+   "St/29: darkObj 0.032; sat 0.027",
+   "St/32: darkObj 0.048; sat 0.101",
+   "St/33: darkObj 0.055; sat 0.012",
+   "St/35: darkObj 0.044",
+   "St/36: sat 0.228",
+   "St/38: sat 0.439",
+   "St/46: sat 0.030"
+  ],
+  "Ns": [
+   "Ns/4: darkObj 0.025",
+   "Ns/5: darkObj 0.054",
+   "Ns/11: sat 0.030",
+   "Ns/12: darkObj 0.026",
+   "Ns/20: darkObj 0.048",
+   "Ns/29: darkObj 0.094; sat 0.028",
+   "Ns/32: darkObj 0.040",
+   "Ns/37: darkObj 0.038",
+   "Ns/38: darkObj 0.064",
+   "Ns/45: darkObj 0.073"
+  ]
+ },
+ "quartiles": {
+  "Cu": {
+   "structMid": {
+    "q25": 0.12100946401355037,
+    "q50": 0.14338654968703907,
+    "q75": 0.20295595456761523,
+    "n": 39,
+    "ci25": [
+     0.09313980915439432,
+     0.1322292373743183
+    ],
+    "ci75": [
+     0.1773876750898349,
+     0.2205505238274444
+    ]
+   },
+   "grainSD": {
+    "q25": 0.033096859835361495,
+    "q50": 0.05790220462015762,
+    "q75": 0.08155019848368267,
+    "n": 39,
+    "ci25": [
+     0.029373825857724897,
+     0.0420566432894665
+    ],
+    "ci75": [
+     0.0694135793638647,
+     0.11580541991496211
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.08343961632315627,
+    "q50": 0.10391125667974999,
+    "q75": 0.1623949691668441,
+    "n": 39,
+    "ci25": [
+     0.05992959445880488,
+     0.08978802784674028
+    ],
+    "ci75": [
+     0.12418758428806911,
+     0.27081566983943794
+    ]
+   }
+  },
+  "AcCc": {
+   "structMid": {
+    "q25": 0.0890494273629832,
+    "q50": 0.13284641096571023,
+    "q75": 0.19676458133255698,
+    "n": 39,
+    "ci25": [
+     0.07315250596553988,
+     0.1191582482397797
+    ],
+    "ci75": [
+     0.17402265402188674,
+     0.24787587506037054
+    ]
+   },
+   "grainSD": {
+    "q25": 0.05583446383008104,
+    "q50": 0.0774407945462918,
+    "q75": 0.1456035469586442,
+    "n": 39,
+    "ci25": [
+     0.03884499569474554,
+     0.06927168795286447
+    ],
+    "ci75": [
+     0.11563793918859167,
+     0.17144873355916945
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.17087676020360557,
+    "q50": 0.27287931265287213,
+    "q75": 0.4526615236896351,
+    "n": 39,
+    "ci25": [
+     0.10905832959096104,
+     0.20646426594909292
+    ],
+    "ci75": [
+     0.35053392879084794,
+     0.5078921739708521
+    ]
+   }
+  },
+  "Ci": {
+   "structMid": {
+    "q25": 0.11291395607728637,
+    "q50": 0.16330369764989605,
+    "q75": 0.1727948933053659,
+    "n": 13,
+    "ci25": [
+     0.06681759246940747,
+     0.16330369764989605
+    ],
+    "ci75": [
+     0.16330369764989605,
+     0.2476768306307499
+    ]
+   },
+   "grainSD": {
+    "q25": 0.05291878252326181,
+    "q50": 0.059640178318152694,
+    "q75": 0.07440937111367195,
+    "n": 13,
+    "ci25": [
+     0.01601807037924102,
+     0.059640178318152694
+    ],
+    "ci75": [
+     0.059640178318152694,
+     0.13582569294115315
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.081798837860229,
+    "q50": 0.13962617229714783,
+    "q75": 0.17602383743243272,
+    "n": 13,
+    "ci25": [
+     0.06478848016840258,
+     0.13962617229714783
+    ],
+    "ci75": [
+     0.13962617229714783,
+     0.3595972084885622
+    ]
+   }
+  },
+  "StSc": {
+   "structMid": {
+    "q25": 0.10889782496575888,
+    "q50": 0.13600304029620838,
+    "q75": 0.2082136283463789,
+    "n": 19,
+    "ci25": [
+     0.07903999603024202,
+     0.130763204282353
+    ],
+    "ci75": [
+     0.14905605341735073,
+     0.2577267433216599
+    ]
+   },
+   "grainSD": {
+    "q25": 0.029747013866520698,
+    "q50": 0.04264305744017274,
+    "q75": 0.1008277177981931,
+    "n": 19,
+    "ci25": [
+     0.025172137369119857,
+     0.041429190608776194
+    ],
+    "ci75": [
+     0.048900154795627246,
+     0.15216766149223415
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.08517486853046785,
+    "q50": 0.13135312495628643,
+    "q75": 0.28828803894829913,
+    "n": 19,
+    "ci25": [
+     0.047856269277467584,
+     0.11222108918285031
+    ],
+    "ci75": [
+     0.13612773526608282,
+     0.3083383695611783
+    ]
+   }
+  },
+  "As": {
+   "structMid": {
+    "q25": 0.03859993452064045,
+    "q50": 0.06677521544762371,
+    "q75": 0.1081011196587508,
+    "n": 17,
+    "ci25": [
+     0.02093911226066016,
+     0.06501707886325614
+    ],
+    "ci75": [
+     0.07540457049579209,
+     0.14472716663563687
+    ]
+   },
+   "grainSD": {
+    "q25": 0.01128722608073829,
+    "q50": 0.017313716420260347,
+    "q75": 0.0357372243348973,
+    "n": 17,
+    "ci25": [
+     0.010394831881757645,
+     0.017274777777392482
+    ],
+    "ci75": [
+     0.019125002781049567,
+     0.06953599950115744
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.06621730690049488,
+    "q50": 0.08822038888350511,
+    "q75": 0.19136564482337362,
+    "n": 17,
+    "ci25": [
+     0.05980618806020421,
+     0.08466414544652891
+    ],
+    "ci75": [
+     0.09852264734876438,
+     0.2011580362989517
+    ]
+   }
+  },
+  "St": {
+   "structMid": {
+    "q25": 0.025216826874643487,
+    "q50": 0.08329760767520311,
+    "q75": 0.13405538956520907,
+    "n": 27,
+    "ci25": [
+     0.017427543550240433,
+     0.051173066161982556
+    ],
+    "ci75": [
+     0.10519035584461128,
+     0.22552077735219683
+    ]
+   },
+   "grainSD": {
+    "q25": 0.009804109080931567,
+    "q50": 0.024140856088834088,
+    "q75": 0.06332430930749247,
+    "n": 27,
+    "ci25": [
+     0.005756142929703185,
+     0.01670188182795647
+    ],
+    "ci75": [
+     0.030187505221876146,
+     0.09022635575266184
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.07359454256210088,
+    "q50": 0.1137350954163577,
+    "q75": 0.2931129346195337,
+    "n": 27,
+    "ci25": [
+     0.04402030990361196,
+     0.08993623715868296
+    ],
+    "ci75": [
+     0.16858447517259925,
+     0.3363220474621288
+    ]
+   }
+  },
+  "Ns": {
+   "structMid": {
+    "q25": 0.05849451184802952,
+    "q50": 0.07923501513379794,
+    "q75": 0.10972022480644895,
+    "n": 20,
+    "ci25": [
+     0.05175035460647497,
+     0.0738859598094014
+    ],
+    "ci75": [
+     0.08736995309696466,
+     0.14330728778748872
+    ]
+   },
+   "grainSD": {
+    "q25": 0.021156701274210446,
+    "q50": 0.027535734486044593,
+    "q75": 0.0613667351097831,
+    "n": 20,
+    "ci25": [
+     0.01807411868001403,
+     0.02569797728603295
+    ],
+    "ci75": [
+     0.031938646221683915,
+     0.10037164329227648
+    ]
+   },
+   "grainShareMid": {
+    "q25": 0.06311977372445789,
+    "q50": 0.13125239368371314,
+    "q75": 0.3223270889676555,
+    "n": 20,
+    "ci25": [
+     0.026306755776458066,
+     0.11044632737760805
+    ],
+    "ci75": [
+     0.1430327491492323,
+     0.46392676920209114
+    ]
+   }
+  }
+ },
+ "rows": [
+  {
+   "genus": "Cu",
+   "name": "Cu/0",
+   "structMid": 0.08566,
+   "grainSD": 0.02105,
+   "grainShareMid": 0.05697,
+   "nInt": 6051,
+   "darkObj": 0.0,
+   "satFrac": 0.00048,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/1",
+   "structMid": 0.11865,
+   "grainSD": 0.03646,
+   "grainShareMid": 0.08627,
+   "nInt": 3062,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/3",
+   "structMid": 0.23139,
+   "grainSD": 0.26285,
+   "grainShareMid": 0.56341,
+   "nInt": 3698,
+   "darkObj": 0.00324,
+   "satFrac": 0.02384,
+   "excluded": "sat 0.024"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/4",
+   "structMid": 0.17033,
+   "grainSD": 0.06414,
+   "grainShareMid": 0.12419,
+   "nInt": 16881,
+   "darkObj": 0.00018,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/6",
+   "structMid": 0.07489,
+   "grainSD": 0.02353,
+   "grainShareMid": 0.08987,
+   "nInt": 100617,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/9",
+   "structMid": 0.16542,
+   "grainSD": 0.08086,
+   "grainShareMid": 0.19285,
+   "nInt": 20389,
+   "darkObj": 0.00059,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/11",
+   "structMid": 0.06555,
+   "grainSD": 0.04184,
+   "grainShareMid": 0.28947,
+   "nInt": 3818,
+   "darkObj": 0.00026,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/12",
+   "structMid": 0.14339,
+   "grainSD": 0.04227,
+   "grainShareMid": 0.07997,
+   "nInt": 37102,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/13",
+   "structMid": 0.1884,
+   "grainSD": 0.30112,
+   "grainShareMid": 0.71868,
+   "nInt": 8550,
+   "darkObj": 0.01988,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/15",
+   "structMid": 0.0561,
+   "grainSD": 0.02979,
+   "grainShareMid": 0.21988,
+   "nInt": 2613,
+   "darkObj": 0.0,
+   "satFrac": 0.06309,
+   "excluded": "sat 0.063"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/16",
+   "structMid": 0.25408,
+   "grainSD": 0.24065,
+   "grainShareMid": 0.47287,
+   "nInt": 3112,
+   "darkObj": 0.05688,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.057"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/18",
+   "structMid": 0.29853,
+   "grainSD": 0.17335,
+   "grainShareMid": 0.25216,
+   "nInt": 21920,
+   "darkObj": 0.00246,
+   "satFrac": 0.00271,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/19",
+   "structMid": 0.08985,
+   "grainSD": 0.02962,
+   "grainShareMid": 0.09804,
+   "nInt": 3169,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/20",
+   "structMid": 0.13227,
+   "grainSD": 0.04018,
+   "grainShareMid": 0.08447,
+   "nInt": 25487,
+   "darkObj": 0.0,
+   "satFrac": 6e-05,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/21",
+   "structMid": 0.13219,
+   "grainSD": 0.05336,
+   "grainShareMid": 0.14009,
+   "nInt": 15617,
+   "darkObj": 0.00602,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/22",
+   "structMid": 0.20206,
+   "grainSD": 0.05648,
+   "grainShareMid": 0.07247,
+   "nInt": 5540,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/23",
+   "structMid": 0.18444,
+   "grainSD": 0.0579,
+   "grainShareMid": 0.08971,
+   "nInt": 2712,
+   "darkObj": 0.0,
+   "satFrac": 0.00274,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/25",
+   "structMid": 0.10613,
+   "grainSD": 0.03236,
+   "grainShareMid": 0.08507,
+   "nInt": 18430,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/27",
+   "structMid": 0.10222,
+   "grainSD": 0.02648,
+   "grainShareMid": 0.06288,
+   "nInt": 40593,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/28",
+   "structMid": 0.24172,
+   "grainSD": 0.07293,
+   "grainShareMid": 0.08343,
+   "nInt": 44773,
+   "darkObj": 0.00025,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/29",
+   "structMid": 0.13095,
+   "grainSD": 0.02652,
+   "grainShareMid": 0.0394,
+   "nInt": 13175,
+   "darkObj": 0.0,
+   "satFrac": 0.00293,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/31",
+   "structMid": 0.13951,
+   "grainSD": 0.04751,
+   "grainShareMid": 0.10391,
+   "nInt": 8784,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/32",
+   "structMid": 0.14272,
+   "grainSD": 0.18403,
+   "grainShareMid": 0.62442,
+   "nInt": 19694,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/34",
+   "structMid": 0.20697,
+   "grainSD": 0.06878,
+   "grainShareMid": 0.09945,
+   "nInt": 3974,
+   "darkObj": 0.0,
+   "satFrac": 0.00013,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/36",
+   "structMid": 0.22094,
+   "grainSD": 0.08609,
+   "grainShareMid": 0.13182,
+   "nInt": 8453,
+   "darkObj": 0.00875,
+   "satFrac": 0.00022,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/38",
+   "structMid": 0.12502,
+   "grainSD": 0.02912,
+   "grainShareMid": 0.05147,
+   "nInt": 12390,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/39",
+   "structMid": 0.13916,
+   "grainSD": 0.03383,
+   "grainShareMid": 0.05581,
+   "nInt": 22238,
+   "darkObj": 0.0,
+   "satFrac": 0.00061,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/40",
+   "structMid": 0.16891,
+   "grainSD": 0.04125,
+   "grainShareMid": 0.05629,
+   "nInt": 4873,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/41",
+   "structMid": 0.1848,
+   "grainSD": 0.06912,
+   "grainShareMid": 0.12275,
+   "nInt": 36738,
+   "darkObj": 0.00054,
+   "satFrac": 8e-05,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/42",
+   "structMid": 0.20754,
+   "grainSD": 0.06262,
+   "grainShareMid": 0.08345,
+   "nInt": 7931,
+   "darkObj": 0.00227,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/44",
+   "structMid": 0.22169,
+   "grainSD": 0.07969,
+   "grainShareMid": 0.11443,
+   "nInt": 8596,
+   "darkObj": 0.00128,
+   "satFrac": 0.01876,
+   "excluded": "sat 0.019"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/45",
+   "structMid": 0.31111,
+   "grainSD": 0.13009,
+   "grainShareMid": 0.14881,
+   "nInt": 29328,
+   "darkObj": 0.00239,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/47",
+   "structMid": 0.1894,
+   "grainSD": 0.24176,
+   "grainShareMid": 0.61967,
+   "nInt": 8841,
+   "darkObj": 0.00475,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/51",
+   "structMid": 0.16394,
+   "grainSD": 0.07575,
+   "grainShareMid": 0.17595,
+   "nInt": 17028,
+   "darkObj": 0.0,
+   "satFrac": 0.0274,
+   "excluded": "sat 0.027"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/53",
+   "structMid": 0.28307,
+   "grainSD": 0.10153,
+   "grainShareMid": 0.11398,
+   "nInt": 11821,
+   "darkObj": 0.0,
+   "satFrac": 0.00373,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/54",
+   "structMid": 0.10059,
+   "grainSD": 0.04703,
+   "grainShareMid": 0.17939,
+   "nInt": 8285,
+   "darkObj": 0.0,
+   "satFrac": 0.02419,
+   "excluded": "sat 0.024"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/55",
+   "structMid": 0.31219,
+   "grainSD": 0.3128,
+   "grainShareMid": 0.50096,
+   "nInt": 10643,
+   "darkObj": 0.13784,
+   "satFrac": 0.01782,
+   "excluded": "darkObj 0.138; sat 0.018"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/57",
+   "structMid": 0.12337,
+   "grainSD": 0.06942,
+   "grainShareMid": 0.24047,
+   "nInt": 28728,
+   "darkObj": 0.00195,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/59",
+   "structMid": 0.19896,
+   "grainSD": 0.04871,
+   "grainShareMid": 0.05656,
+   "nInt": 1537,
+   "darkObj": 0.0,
+   "satFrac": 0.09185,
+   "excluded": "sat 0.092"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/62",
+   "structMid": 0.12986,
+   "grainSD": 0.0856,
+   "grainShareMid": 0.30292,
+   "nInt": 43503,
+   "darkObj": 0.00041,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/65",
+   "structMid": 0.17722,
+   "grainSD": 0.069,
+   "grainShareMid": 0.13166,
+   "nInt": 13129,
+   "darkObj": 0.0,
+   "satFrac": 0.04219,
+   "excluded": "sat 0.042"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/66",
+   "structMid": 0.22016,
+   "grainSD": 0.07822,
+   "grainShareMid": 0.11207,
+   "nInt": 26028,
+   "darkObj": 0.0,
+   "satFrac": 0.0006,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/67",
+   "structMid": 0.07745,
+   "grainSD": 0.01314,
+   "grainShareMid": 0.02798,
+   "nInt": 15371,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/68",
+   "structMid": 0.14805,
+   "grainSD": 0.08814,
+   "grainShareMid": 0.26168,
+   "nInt": 14257,
+   "darkObj": 7e-05,
+   "satFrac": 0.02644,
+   "excluded": "sat 0.026"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/69",
+   "structMid": 0.20385,
+   "grainSD": 0.08224,
+   "grainShareMid": 0.13997,
+   "nInt": 4673,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/70",
+   "structMid": 0.09643,
+   "grainSD": 0.0323,
+   "grainShareMid": 0.1009,
+   "nInt": 1576,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/73",
+   "structMid": 0.08193,
+   "grainSD": 0.04439,
+   "grainShareMid": 0.22696,
+   "nInt": 36294,
+   "darkObj": 0.0383,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.038"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/74",
+   "structMid": 0.16141,
+   "grainSD": 0.07459,
+   "grainShareMid": 0.17598,
+   "nInt": 19558,
+   "darkObj": 0.0,
+   "satFrac": 0.00155,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/75",
+   "structMid": 0.38969,
+   "grainSD": 0.14558,
+   "grainShareMid": 0.12247,
+   "nInt": 6288,
+   "darkObj": 0.01097,
+   "satFrac": 0.01492,
+   "excluded": "sat 0.015"
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/76",
+   "structMid": 0.40236,
+   "grainSD": 0.35794,
+   "grainShareMid": 0.44177,
+   "nInt": 1628,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Cu",
+   "name": "Cu/77",
+   "structMid": 0.08468,
+   "grainSD": 0.03157,
+   "grainShareMid": 0.12204,
+   "nInt": 17938,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/1",
+   "structMid": 0.05963,
+   "grainSD": 0.04483,
+   "grainShareMid": 0.36115,
+   "nInt": 665,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/2",
+   "structMid": 0.18948,
+   "grainSD": 0.1734,
+   "grainShareMid": 0.45579,
+   "nInt": 28869,
+   "darkObj": 0.0,
+   "satFrac": 0.00082,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/3",
+   "structMid": 0.12148,
+   "grainSD": 0.03142,
+   "grainShareMid": 0.06271,
+   "nInt": 11819,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/5",
+   "structMid": 0.13285,
+   "grainSD": 0.06975,
+   "grainShareMid": 0.2161,
+   "nInt": 25542,
+   "darkObj": 0.00012,
+   "satFrac": 0.00864,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/9",
+   "structMid": 0.18984,
+   "grainSD": 0.07744,
+   "grainShareMid": 0.14266,
+   "nInt": 5494,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/12",
+   "structMid": 0.25571,
+   "grainSD": 0.13373,
+   "grainShareMid": 0.21476,
+   "nInt": 3092,
+   "darkObj": 0.0,
+   "satFrac": 0.04288,
+   "excluded": "sat 0.043"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/15",
+   "structMid": 0.24282,
+   "grainSD": 0.15404,
+   "grainShareMid": 0.28697,
+   "nInt": 40546,
+   "darkObj": 0.0,
+   "satFrac": 0.00062,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/16",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 67,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/17",
+   "structMid": 0.06892,
+   "grainSD": 0.02403,
+   "grainShareMid": 0.10836,
+   "nInt": 471,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/18",
+   "structMid": 0.18197,
+   "grainSD": 0.13803,
+   "grainShareMid": 0.36522,
+   "nInt": 6243,
+   "darkObj": 0.0032,
+   "satFrac": 0.00343,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/19",
+   "structMid": 0.0619,
+   "grainSD": 0.06033,
+   "grainShareMid": 0.48714,
+   "nInt": 707,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/21",
+   "structMid": 0.07441,
+   "grainSD": 0.0533,
+   "grainShareMid": 0.33911,
+   "nInt": 11403,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/22",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 67,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/23",
+   "structMid": 0.32103,
+   "grainSD": 0.11217,
+   "grainShareMid": 0.1088,
+   "nInt": 5915,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/24",
+   "structMid": 0.38702,
+   "grainSD": 0.18783,
+   "grainShareMid": 0.19063,
+   "nInt": 6340,
+   "darkObj": 0.10284,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.103"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/25",
+   "structMid": 0.05954,
+   "grainSD": 0.06302,
+   "grainShareMid": 0.52835,
+   "nInt": 513,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/27",
+   "structMid": 0.10764,
+   "grainSD": 0.07044,
+   "grainShareMid": 0.29983,
+   "nInt": 25957,
+   "darkObj": 0.00035,
+   "satFrac": 0.00301,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/28",
+   "structMid": 0.11194,
+   "grainSD": 0.04659,
+   "grainShareMid": 0.14764,
+   "nInt": 7675,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/30",
+   "structMid": 0.24835,
+   "grainSD": 0.37052,
+   "grainShareMid": 0.69001,
+   "nInt": 5509,
+   "darkObj": 0.002,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/32",
+   "structMid": 0.13257,
+   "grainSD": 0.11982,
+   "grainShareMid": 0.44963,
+   "nInt": 34146,
+   "darkObj": 9e-05,
+   "satFrac": 0.0001,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/34",
+   "structMid": 0.12515,
+   "grainSD": 0.10291,
+   "grainShareMid": 0.40341,
+   "nInt": 28632,
+   "darkObj": 0.0,
+   "satFrac": 0.00278,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/36",
+   "structMid": 0.05156,
+   "grainSD": 0.03247,
+   "grainShareMid": 0.28389,
+   "nInt": 18176,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/38",
+   "structMid": 0.04888,
+   "grainSD": 0.05156,
+   "grainShareMid": 0.52669,
+   "nInt": 4110,
+   "darkObj": 0.0,
+   "satFrac": 0.0248,
+   "excluded": "sat 0.025"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/39",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 217,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/41",
+   "structMid": 0.18524,
+   "grainSD": 0.16949,
+   "grainShareMid": 0.45569,
+   "nInt": 41475,
+   "darkObj": 0.0,
+   "satFrac": 2e-05,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/45",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 38,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/46",
+   "structMid": 0.36874,
+   "grainSD": 0.32401,
+   "grainShareMid": 0.43569,
+   "nInt": 37244,
+   "darkObj": 0.01023,
+   "satFrac": 0.01982,
+   "excluded": "sat 0.020"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/47",
+   "structMid": 0.09192,
+   "grainSD": 0.03216,
+   "grainShareMid": 0.10906,
+   "nInt": 63360,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/49",
+   "structMid": 0.15711,
+   "grainSD": 0.04522,
+   "grainShareMid": 0.07651,
+   "nInt": 25414,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/50",
+   "structMid": 0.11684,
+   "grainSD": 0.11911,
+   "grainShareMid": 0.50963,
+   "nInt": 11006,
+   "darkObj": 0.0,
+   "satFrac": 0.0058,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/52",
+   "structMid": 0.48196,
+   "grainSD": 0.44794,
+   "grainShareMid": 0.46346,
+   "nInt": 641,
+   "darkObj": 0.08112,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.081"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/53",
+   "structMid": 0.24788,
+   "grainSD": 0.12119,
+   "grainShareMid": 0.19291,
+   "nInt": 22652,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/54",
+   "structMid": 0.14802,
+   "grainSD": 0.05168,
+   "grainShareMid": 0.10866,
+   "nInt": 23273,
+   "darkObj": 0.0,
+   "satFrac": 0.03288,
+   "excluded": "sat 0.033"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/57",
+   "structMid": 0.43751,
+   "grainSD": 0.21862,
+   "grainShareMid": 0.19979,
+   "nInt": 19256,
+   "darkObj": 0.05453,
+   "satFrac": 0.00599,
+   "excluded": "darkObj 0.055"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/58",
+   "structMid": 0.29065,
+   "grainSD": 0.13176,
+   "grainShareMid": 0.17047,
+   "nInt": 24617,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/59",
+   "structMid": 0.16608,
+   "grainSD": 0.16813,
+   "grainShareMid": 0.50615,
+   "nInt": 29488,
+   "darkObj": 0.0,
+   "satFrac": 0.00056,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/61",
+   "structMid": 0.36337,
+   "grainSD": 0.12998,
+   "grainShareMid": 0.11344,
+   "nInt": 4038,
+   "darkObj": 0.05547,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.055"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/65",
+   "structMid": 0.09817,
+   "grainSD": 0.07394,
+   "grainShareMid": 0.36195,
+   "nInt": 36084,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/67",
+   "structMid": 0.08618,
+   "grainSD": 0.19441,
+   "grainShareMid": 0.83577,
+   "nInt": 923,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/75",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 263,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/77",
+   "structMid": 0.34616,
+   "grainSD": 0.1506,
+   "grainShareMid": 0.15915,
+   "nInt": 4550,
+   "darkObj": 0.02374,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.024"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/78",
+   "structMid": 0.20369,
+   "grainSD": 0.24785,
+   "grainShareMid": 0.59688,
+   "nInt": 1555,
+   "darkObj": 0.0,
+   "satFrac": 0.00165,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/79",
+   "structMid": 0.25176,
+   "grainSD": 0.15318,
+   "grainShareMid": 0.27018,
+   "nInt": 23564,
+   "darkObj": 0.0,
+   "satFrac": 0.0009,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/83",
+   "structMid": 0.20599,
+   "grainSD": 0.0673,
+   "grainShareMid": 0.09646,
+   "nInt": 52160,
+   "darkObj": 0.01212,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/84",
+   "structMid": 0.12734,
+   "grainSD": 0.05836,
+   "grainShareMid": 0.17361,
+   "nInt": 5292,
+   "darkObj": 0.00227,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/87",
+   "structMid": 0.08173,
+   "grainSD": 0.01643,
+   "grainShareMid": 0.03885,
+   "nInt": 89427,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/89",
+   "structMid": 0.18033,
+   "grainSD": 0.09919,
+   "grainShareMid": 0.23226,
+   "nInt": 7545,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/90",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/91",
+   "structMid": 0.71092,
+   "grainSD": 0.34584,
+   "grainShareMid": 0.19137,
+   "nInt": 6370,
+   "darkObj": 0.0,
+   "satFrac": 0.00481,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/93",
+   "structMid": 0.05691,
+   "grainSD": 0.03149,
+   "grainShareMid": 0.23444,
+   "nInt": 1004,
+   "darkObj": 0.0,
+   "satFrac": 0.00024,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/95",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 247,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/99",
+   "structMid": 0.15132,
+   "grainSD": 0.06879,
+   "grainShareMid": 0.17128,
+   "nInt": 7644,
+   "darkObj": 0.00013,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/100",
+   "structMid": 0.2836,
+   "grainSD": 0.17373,
+   "grainShareMid": 0.27288,
+   "nInt": 2911,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/101",
+   "structMid": 0.15313,
+   "grainSD": 0.07581,
+   "grainShareMid": 0.19683,
+   "nInt": 65362,
+   "darkObj": 0.00386,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/103",
+   "structMid": 0.13919,
+   "grainSD": 0.102,
+   "grainShareMid": 0.34939,
+   "nInt": 22256,
+   "darkObj": 0.00027,
+   "satFrac": 0.01165,
+   "excluded": "sat 0.012"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/105",
+   "structMid": 0.07738,
+   "grainSD": 0.09239,
+   "grainShareMid": 0.5877,
+   "nInt": 5577,
+   "darkObj": 0.00377,
+   "satFrac": 0.00407,
+   "excluded": null
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/107",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 385,
+   "darkObj": NaN,
+   "satFrac": 0.04561,
+   "excluded": "sat 0.046"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/108",
+   "structMid": 0.58422,
+   "grainSD": 0.44043,
+   "grainShareMid": 0.36238,
+   "nInt": 4740,
+   "darkObj": 0.29093,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.291"
+  },
+  {
+   "genus": "AcCc",
+   "name": "AcCc/109",
+   "structMid": 0.08384,
+   "grainSD": 0.03439,
+   "grainShareMid": 0.144,
+   "nInt": 7840,
+   "darkObj": 0.0,
+   "satFrac": 0.06257,
+   "excluded": "sat 0.063"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/4",
+   "structMid": 0.19024,
+   "grainSD": 0.05528,
+   "grainShareMid": 0.07787,
+   "nInt": 52478,
+   "darkObj": 8e-05,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/5",
+   "structMid": 0.22331,
+   "grainSD": 0.0899,
+   "grainShareMid": 0.13947,
+   "nInt": 4154,
+   "darkObj": 0.0,
+   "satFrac": 0.0115,
+   "excluded": "sat 0.012"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/6",
+   "structMid": 0.18593,
+   "grainSD": 0.15795,
+   "grainShareMid": 0.41917,
+   "nInt": 8915,
+   "darkObj": 0.07773,
+   "satFrac": 0.00178,
+   "excluded": "darkObj 0.078"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/7",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 239,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/8",
+   "structMid": 0.26185,
+   "grainSD": 0.344,
+   "grainShareMid": 0.63315,
+   "nInt": 6198,
+   "darkObj": 0.06002,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.060"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/12",
+   "structMid": 0.11921,
+   "grainSD": 0.07028,
+   "grainShareMid": 0.2579,
+   "nInt": 735,
+   "darkObj": 0.0,
+   "satFrac": 0.00038,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/13",
+   "structMid": 0.06682,
+   "grainSD": 0.01571,
+   "grainShareMid": 0.05241,
+   "nInt": 2336,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/16",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 193,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/18",
+   "structMid": 0.1633,
+   "grainSD": 0.05964,
+   "grainShareMid": 0.11768,
+   "nInt": 6790,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/21",
+   "structMid": 0.17019,
+   "grainSD": 0.07866,
+   "grainShareMid": 0.17602,
+   "nInt": 21556,
+   "darkObj": 0.00144,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/24",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 364,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/26",
+   "structMid": 0.47711,
+   "grainSD": 0.23103,
+   "grainShareMid": 0.18994,
+   "nInt": 8076,
+   "darkObj": 0.11342,
+   "satFrac": 0.00622,
+   "excluded": "darkObj 0.113"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/27",
+   "structMid": 0.12825,
+   "grainSD": 0.10343,
+   "grainShareMid": 0.39409,
+   "nInt": 11193,
+   "darkObj": 0.03181,
+   "satFrac": 0.00389,
+   "excluded": "darkObj 0.032"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/28",
+   "structMid": 0.24768,
+   "grainSD": 0.07392,
+   "grainShareMid": 0.0818,
+   "nInt": 10469,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/29",
+   "structMid": 0.17279,
+   "grainSD": 0.07441,
+   "grainShareMid": 0.15643,
+   "nInt": 6551,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/36",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/45",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/54",
+   "structMid": 0.69963,
+   "grainSD": 0.4452,
+   "grainShareMid": 0.28822,
+   "nInt": 1800,
+   "darkObj": 0.08167,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.082"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/55",
+   "structMid": 0.29706,
+   "grainSD": 0.13583,
+   "grainShareMid": 0.17291,
+   "nInt": 4776,
+   "darkObj": 0.01277,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/56",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/59",
+   "structMid": 0.16916,
+   "grainSD": 0.05292,
+   "grainShareMid": 0.08914,
+   "nInt": 9759,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/60",
+   "structMid": 0.43494,
+   "grainSD": 0.44858,
+   "grainShareMid": 0.51543,
+   "nInt": 1407,
+   "darkObj": 0.03554,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.036"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/61",
+   "structMid": 0.1201,
+   "grainSD": 0.04838,
+   "grainShareMid": 0.13963,
+   "nInt": 15733,
+   "darkObj": 0.00032,
+   "satFrac": 0.00072,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/62",
+   "structMid": 0.06086,
+   "grainSD": 0.01602,
+   "grainShareMid": 0.06479,
+   "nInt": 532,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/63",
+   "structMid": 0.07329,
+   "grainSD": 0.05492,
+   "grainShareMid": 0.3596,
+   "nInt": 1003,
+   "darkObj": 0.0,
+   "satFrac": 0.00881,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/64",
+   "structMid": 0.16783,
+   "grainSD": 0.09934,
+   "grainShareMid": 0.25945,
+   "nInt": 2854,
+   "darkObj": 0.0007,
+   "satFrac": 0.01094,
+   "excluded": "sat 0.011"
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/67",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/69",
+   "structMid": 0.11291,
+   "grainSD": 0.15382,
+   "grainShareMid": 0.64982,
+   "nInt": 6093,
+   "darkObj": 0.00164,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ci",
+   "name": "Ci/70",
+   "structMid": 0.52814,
+   "grainSD": 0.52149,
+   "grainShareMid": 0.49367,
+   "nInt": 806,
+   "darkObj": 0.10546,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.105"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/2",
+   "structMid": 0.41258,
+   "grainSD": 0.15359,
+   "grainShareMid": 0.12172,
+   "nInt": 33584,
+   "darkObj": 0.02457,
+   "satFrac": 0.00618,
+   "excluded": "darkObj 0.025"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/3",
+   "structMid": 0.09226,
+   "grainSD": 0.02654,
+   "grainShareMid": 0.07641,
+   "nInt": 8513,
+   "darkObj": 0.0,
+   "satFrac": 0.00665,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/5",
+   "structMid": 0.17296,
+   "grainSD": 0.07016,
+   "grainShareMid": 0.14129,
+   "nInt": 26403,
+   "darkObj": 0.0,
+   "satFrac": 0.0104,
+   "excluded": "sat 0.010"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/6",
+   "structMid": 0.11455,
+   "grainSD": 0.02005,
+   "grainShareMid": 0.02974,
+   "nInt": 14930,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/8",
+   "structMid": 0.20071,
+   "grainSD": 0.04214,
+   "grainShareMid": 0.04222,
+   "nInt": 22630,
+   "darkObj": 0.0,
+   "satFrac": 0.00395,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/11",
+   "structMid": 0.1881,
+   "grainSD": 0.13925,
+   "grainShareMid": 0.35403,
+   "nInt": 52160,
+   "darkObj": 0.03524,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.035"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/12",
+   "structMid": 0.13964,
+   "grainSD": 0.03131,
+   "grainShareMid": 0.04786,
+   "nInt": 46801,
+   "darkObj": 0.0,
+   "satFrac": 0.00714,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/13",
+   "structMid": 0.21352,
+   "grainSD": 0.15217,
+   "grainShareMid": 0.33682,
+   "nInt": 577,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/14",
+   "structMid": 0.13993,
+   "grainSD": 0.04362,
+   "grainShareMid": 0.08856,
+   "nInt": 37357,
+   "darkObj": 0.0,
+   "satFrac": 0.06469,
+   "excluded": "sat 0.065"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/16",
+   "structMid": 0.12552,
+   "grainSD": 0.04022,
+   "grainShareMid": 0.09309,
+   "nInt": 27250,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/17",
+   "structMid": 0.39117,
+   "grainSD": 0.41914,
+   "grainShareMid": 0.53448,
+   "nInt": 5885,
+   "darkObj": 0.08666,
+   "satFrac": 0.00258,
+   "excluded": "darkObj 0.087"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/19",
+   "structMid": 0.13524,
+   "grainSD": 0.05294,
+   "grainShareMid": 0.13286,
+   "nInt": 35821,
+   "darkObj": 0.00017,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/21",
+   "structMid": 0.50094,
+   "grainSD": 0.32641,
+   "grainShareMid": 0.29803,
+   "nInt": 3270,
+   "darkObj": 0.09908,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.099"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/22",
+   "structMid": 0.23731,
+   "grainSD": 0.23477,
+   "grainShareMid": 0.49462,
+   "nInt": 36551,
+   "darkObj": 0.00815,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/23",
+   "structMid": 0.10966,
+   "grainSD": 0.04264,
+   "grainShareMid": 0.13135,
+   "nInt": 20409,
+   "darkObj": 0.0,
+   "satFrac": 0.00121,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/26",
+   "structMid": 0.2029,
+   "grainSD": 0.13472,
+   "grainShareMid": 0.30595,
+   "nInt": 17725,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/28",
+   "structMid": 0.61202,
+   "grainSD": 0.21142,
+   "grainShareMid": 0.10661,
+   "nInt": 38046,
+   "darkObj": 0.06616,
+   "satFrac": 0.00667,
+   "excluded": "darkObj 0.066"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/29",
+   "structMid": 0.33143,
+   "grainSD": 0.27224,
+   "grainShareMid": 0.40288,
+   "nInt": 27855,
+   "darkObj": 0.00786,
+   "satFrac": 0.0366,
+   "excluded": "sat 0.037"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/33",
+   "structMid": 0.04419,
+   "grainSD": 0.02819,
+   "grainShareMid": 0.28922,
+   "nInt": 568,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/34",
+   "structMid": 0.28244,
+   "grainSD": 0.09144,
+   "grainShareMid": 0.09487,
+   "nInt": 41902,
+   "darkObj": 0.0,
+   "satFrac": 0.00199,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/35",
+   "structMid": 0.37855,
+   "grainSD": 0.32638,
+   "grainShareMid": 0.4264,
+   "nInt": 40753,
+   "darkObj": 0.01028,
+   "satFrac": 0.01833,
+   "excluded": "sat 0.018"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/37",
+   "structMid": 0.32332,
+   "grainSD": 0.21587,
+   "grainShareMid": 0.30834,
+   "nInt": 7087,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/39",
+   "structMid": 0.19465,
+   "grainSD": 0.07339,
+   "grainShareMid": 0.12448,
+   "nInt": 9858,
+   "darkObj": 0.0,
+   "satFrac": 0.03643,
+   "excluded": "sat 0.036"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/43",
+   "structMid": 0.16211,
+   "grainSD": 0.04958,
+   "grainShareMid": 0.08555,
+   "nInt": 15256,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/44",
+   "structMid": 0.07904,
+   "grainSD": 0.02406,
+   "grainShareMid": 0.0848,
+   "nInt": 29536,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/45",
+   "structMid": 0.25773,
+   "grainSD": 0.11022,
+   "grainShareMid": 0.15461,
+   "nInt": 36545,
+   "darkObj": 0.0,
+   "satFrac": 0.00835,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/48",
+   "structMid": 0.136,
+   "grainSD": 0.05516,
+   "grainShareMid": 0.14125,
+   "nInt": 12597,
+   "darkObj": 0.0,
+   "satFrac": 0.00039,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/49",
+   "structMid": 0.26156,
+   "grainSD": 0.16358,
+   "grainShareMid": 0.28117,
+   "nInt": 14613,
+   "darkObj": 0.0,
+   "satFrac": 0.02663,
+   "excluded": "sat 0.027"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/50",
+   "structMid": 0.34433,
+   "grainSD": 0.16686,
+   "grainShareMid": 0.19017,
+   "nInt": 12165,
+   "darkObj": 0.0,
+   "satFrac": 0.03276,
+   "excluded": "sat 0.033"
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/51",
+   "structMid": 0.03964,
+   "grainSD": 0.02517,
+   "grainShareMid": 0.28736,
+   "nInt": 5523,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "StSc",
+   "name": "StSc/53",
+   "structMid": 0.10814,
+   "grainSD": 0.03656,
+   "grainShareMid": 0.10259,
+   "nInt": 19286,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/0",
+   "structMid": 0.22665,
+   "grainSD": 0.13635,
+   "grainShareMid": 0.26573,
+   "nInt": 51954,
+   "darkObj": 0.02181,
+   "satFrac": 0.00031,
+   "excluded": "darkObj 0.022"
+  },
+  {
+   "genus": "As",
+   "name": "As/2",
+   "structMid": 0.0754,
+   "grainSD": 0.01913,
+   "grainShareMid": 0.06044,
+   "nInt": 38084,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/3",
+   "structMid": 0.02762,
+   "grainSD": 0.01136,
+   "grainShareMid": 0.14463,
+   "nInt": 12160,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/4",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/5",
+   "structMid": 0.19924,
+   "grainSD": 0.07007,
+   "grainShareMid": 0.11008,
+   "nInt": 66460,
+   "darkObj": 0.00012,
+   "satFrac": 0.00135,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/6",
+   "structMid": 0.04475,
+   "grainSD": 0.01129,
+   "grainShareMid": 0.05981,
+   "nInt": 31981,
+   "darkObj": 0.0,
+   "satFrac": 0.00043,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/7",
+   "structMid": 0.07788,
+   "grainSD": 0.01727,
+   "grainShareMid": 0.0469,
+   "nInt": 63047,
+   "darkObj": 0.0,
+   "satFrac": 0.00084,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/8",
+   "structMid": 0.19984,
+   "grainSD": 0.06941,
+   "grainShareMid": 0.10765,
+   "nInt": 65896,
+   "darkObj": 0.03539,
+   "satFrac": 0.00604,
+   "excluded": "darkObj 0.035"
+  },
+  {
+   "genus": "As",
+   "name": "As/9",
+   "structMid": 0.03973,
+   "grainSD": 0.01134,
+   "grainShareMid": 0.07529,
+   "nInt": 59300,
+   "darkObj": 0.0,
+   "satFrac": 0.00034,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/10",
+   "structMid": 0.02094,
+   "grainSD": 0.01039,
+   "grainShareMid": 0.19772,
+   "nInt": 62736,
+   "darkObj": 0.0,
+   "satFrac": 0.00322,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/11",
+   "structMid": 0.06678,
+   "grainSD": 0.02077,
+   "grainShareMid": 0.08822,
+   "nInt": 55680,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/12",
+   "structMid": 0.14473,
+   "grainSD": 0.07041,
+   "grainShareMid": 0.19137,
+   "nInt": 52160,
+   "darkObj": 0.00625,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/13",
+   "structMid": 0.10682,
+   "grainSD": 0.06954,
+   "grainShareMid": 0.29764,
+   "nInt": 59520,
+   "darkObj": 0.00215,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/14",
+   "structMid": 0.22937,
+   "grainSD": 0.05415,
+   "grainShareMid": 0.05278,
+   "nInt": 31193,
+   "darkObj": 0.01568,
+   "satFrac": 0.00107,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/16",
+   "structMid": 0.1081,
+   "grainSD": 0.03574,
+   "grainShareMid": 0.09852,
+   "nInt": 66880,
+   "darkObj": 0.00018,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/18",
+   "structMid": 0.06502,
+   "grainSD": 0.01731,
+   "grainShareMid": 0.06622,
+   "nInt": 66880,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/19",
+   "structMid": 0.10544,
+   "grainSD": 0.0263,
+   "grainShareMid": 0.05857,
+   "nInt": 8095,
+   "darkObj": 0.0,
+   "satFrac": 0.11028,
+   "excluded": "sat 0.110"
+  },
+  {
+   "genus": "As",
+   "name": "As/20",
+   "structMid": 0.11077,
+   "grainSD": 0.03369,
+   "grainShareMid": 0.08466,
+   "nInt": 52160,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/21",
+   "structMid": 0.01231,
+   "grainSD": 0.0094,
+   "grainShareMid": 0.3685,
+   "nInt": 70577,
+   "darkObj": 0.0,
+   "satFrac": 4e-05,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/23",
+   "structMid": 0.0386,
+   "grainSD": 0.01077,
+   "grainShareMid": 0.07222,
+   "nInt": 66880,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/25",
+   "structMid": 0.18131,
+   "grainSD": 0.1133,
+   "grainShareMid": 0.28082,
+   "nInt": 66551,
+   "darkObj": 0.03992,
+   "satFrac": 0.00087,
+   "excluded": "darkObj 0.040"
+  },
+  {
+   "genus": "As",
+   "name": "As/26",
+   "structMid": 0.01923,
+   "grainSD": 0.00965,
+   "grainShareMid": 0.20116,
+   "nInt": 65818,
+   "darkObj": 0.0,
+   "satFrac": 0.00706,
+   "excluded": null
+  },
+  {
+   "genus": "As",
+   "name": "As/27",
+   "structMid": 0.31616,
+   "grainSD": 0.52075,
+   "grainShareMid": 0.73067,
+   "nInt": 44145,
+   "darkObj": 0.0712,
+   "satFrac": 0.00326,
+   "excluded": "darkObj 0.071"
+  },
+  {
+   "genus": "St",
+   "name": "St/1",
+   "structMid": 0.02795,
+   "grainSD": 0.01425,
+   "grainShareMid": 0.20636,
+   "nInt": 52160,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/3",
+   "structMid": 0.1881,
+   "grainSD": 0.13925,
+   "grainShareMid": 0.35403,
+   "nInt": 52160,
+   "darkObj": 0.03524,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.035"
+  },
+  {
+   "genus": "St",
+   "name": "St/4",
+   "structMid": 0.13827,
+   "grainSD": 0.02414,
+   "grainShareMid": 0.02958,
+   "nInt": 43255,
+   "darkObj": 0.0,
+   "satFrac": 0.0079,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/5",
+   "structMid": 0.21352,
+   "grainSD": 0.15217,
+   "grainShareMid": 0.33682,
+   "nInt": 577,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/6",
+   "structMid": 0.24319,
+   "grainSD": 0.17325,
+   "grainShareMid": 0.33665,
+   "nInt": 59520,
+   "darkObj": 0.02404,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.024"
+  },
+  {
+   "genus": "St",
+   "name": "St/8",
+   "structMid": 0.02278,
+   "grainSD": 0.00822,
+   "grainShareMid": 0.11524,
+   "nInt": 11648,
+   "darkObj": 0.0,
+   "satFrac": 0.05366,
+   "excluded": "sat 0.054"
+  },
+  {
+   "genus": "St",
+   "name": "St/9",
+   "structMid": 0.01065,
+   "grainSD": 0.00512,
+   "grainShareMid": 0.18768,
+   "nInt": 11213,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/10",
+   "structMid": 0.31502,
+   "grainSD": 0.09342,
+   "grainShareMid": 0.08084,
+   "nInt": 44480,
+   "darkObj": 0.01192,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/12",
+   "structMid": 0.25693,
+   "grainSD": 0.21153,
+   "grainShareMid": 0.40399,
+   "nInt": 52160,
+   "darkObj": 0.01352,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/13",
+   "structMid": 0.76498,
+   "grainSD": 0.47165,
+   "grainShareMid": 0.27543,
+   "nInt": 9081,
+   "darkObj": 0.11287,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.113"
+  },
+  {
+   "genus": "St",
+   "name": "St/14",
+   "structMid": 0.0113,
+   "grainSD": 0.00552,
+   "grainShareMid": 0.19263,
+   "nInt": 37120,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/15",
+   "structMid": 0.29279,
+   "grainSD": 0.25509,
+   "grainShareMid": 0.43151,
+   "nInt": 26523,
+   "darkObj": 0.10704,
+   "satFrac": 0.02626,
+   "excluded": "darkObj 0.107; sat 0.026"
+  },
+  {
+   "genus": "St",
+   "name": "St/16",
+   "structMid": 0.01934,
+   "grainSD": 0.00604,
+   "grainShareMid": 0.08873,
+   "nInt": 37120,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/18",
+   "structMid": 0.09394,
+   "grainSD": 0.02473,
+   "grainShareMid": 0.06482,
+   "nInt": 44800,
+   "darkObj": 0.00527,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/19",
+   "structMid": 0.06655,
+   "grainSD": 0.0374,
+   "grainShareMid": 0.24004,
+   "nInt": 21375,
+   "darkObj": 0.0,
+   "satFrac": 0.20521,
+   "excluded": "sat 0.205"
+  },
+  {
+   "genus": "St",
+   "name": "St/20",
+   "structMid": 0.03984,
+   "grainSD": 0.01273,
+   "grainShareMid": 0.09261,
+   "nInt": 44800,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/22",
+   "structMid": 0.23752,
+   "grainSD": 0.08703,
+   "grainShareMid": 0.11836,
+   "nInt": 41280,
+   "darkObj": 0.0165,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/23",
+   "structMid": 0.06175,
+   "grainSD": 0.00858,
+   "grainShareMid": 0.01893,
+   "nInt": 22661,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/24",
+   "structMid": 0.01551,
+   "grainSD": 0.01103,
+   "grainShareMid": 0.33583,
+   "nInt": 22400,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/25",
+   "structMid": 0.09426,
+   "grainSD": 0.07221,
+   "grainShareMid": 0.36984,
+   "nInt": 52160,
+   "darkObj": 0.01081,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/27",
+   "structMid": 0.11612,
+   "grainSD": 0.03474,
+   "grainShareMid": 0.08216,
+   "nInt": 31680,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/28",
+   "structMid": 0.08471,
+   "grainSD": 0.06818,
+   "grainShareMid": 0.39314,
+   "nInt": 30616,
+   "darkObj": 0.00078,
+   "satFrac": 0.09749,
+   "excluded": "sat 0.097"
+  },
+  {
+   "genus": "St",
+   "name": "St/29",
+   "structMid": 0.37511,
+   "grainSD": 0.41971,
+   "grainShareMid": 0.55594,
+   "nInt": 73010,
+   "darkObj": 0.03158,
+   "satFrac": 0.02702,
+   "excluded": "darkObj 0.032; sat 0.027"
+  },
+  {
+   "genus": "St",
+   "name": "St/30",
+   "structMid": 0.02249,
+   "grainSD": 0.00599,
+   "grainShareMid": 0.06635,
+   "nInt": 29760,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/31",
+   "structMid": 0.1617,
+   "grainSD": 0.02383,
+   "grainShareMid": 0.02126,
+   "nInt": 33872,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/32",
+   "structMid": 0.1181,
+   "grainSD": 0.05669,
+   "grainShareMid": 0.18725,
+   "nInt": 25306,
+   "darkObj": 0.04789,
+   "satFrac": 0.10108,
+   "excluded": "darkObj 0.048; sat 0.101"
+  },
+  {
+   "genus": "St",
+   "name": "St/33",
+   "structMid": 0.29994,
+   "grainSD": 0.17753,
+   "grainShareMid": 0.25944,
+   "nInt": 26903,
+   "darkObj": 0.05472,
+   "satFrac": 0.01246,
+   "excluded": "darkObj 0.055; sat 0.012"
+  },
+  {
+   "genus": "St",
+   "name": "St/34",
+   "structMid": 0.0833,
+   "grainSD": 0.01458,
+   "grainShareMid": 0.02975,
+   "nInt": 25906,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/35",
+   "structMid": 0.38736,
+   "grainSD": 0.21584,
+   "grainShareMid": 0.23693,
+   "nInt": 62080,
+   "darkObj": 0.04352,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.044"
+  },
+  {
+   "genus": "St",
+   "name": "St/36",
+   "structMid": 0.11126,
+   "grainSD": 0.03735,
+   "grainShareMid": 0.10129,
+   "nInt": 26163,
+   "darkObj": 0.0,
+   "satFrac": 0.22751,
+   "excluded": "sat 0.228"
+  },
+  {
+   "genus": "St",
+   "name": "St/38",
+   "structMid": 0.22174,
+   "grainSD": 0.11092,
+   "grainShareMid": 0.20015,
+   "nInt": 18213,
+   "darkObj": 0.00609,
+   "satFrac": 0.43912,
+   "excluded": "sat 0.439"
+  },
+  {
+   "genus": "St",
+   "name": "St/39",
+   "structMid": 0.04981,
+   "grainSD": 0.04172,
+   "grainShareMid": 0.41228,
+   "nInt": 22400,
+   "darkObj": 0.00031,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/41",
+   "structMid": 0.11995,
+   "grainSD": 0.0378,
+   "grainShareMid": 0.09033,
+   "nInt": 37120,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/42",
+   "structMid": 0.0145,
+   "grainSD": 0.00455,
+   "grainShareMid": 0.08954,
+   "nInt": 39360,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/43",
+   "structMid": 0.12984,
+   "grainSD": 0.05443,
+   "grainShareMid": 0.14949,
+   "nInt": 26240,
+   "darkObj": 0.00396,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/44",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 37,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/45",
+   "structMid": 0.02056,
+   "grainSD": 0.00512,
+   "grainShareMid": 0.05829,
+   "nInt": 50411,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/46",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.02985,
+   "excluded": "sat 0.030"
+  },
+  {
+   "genus": "St",
+   "name": "St/49",
+   "structMid": 0.05253,
+   "grainSD": 0.01882,
+   "grainShareMid": 0.11374,
+   "nInt": 32960,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/50",
+   "structMid": 0.04024,
+   "grainSD": 0.02563,
+   "grainShareMid": 0.28868,
+   "nInt": 44800,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/51",
+   "structMid": 0.12443,
+   "grainSD": 0.08098,
+   "grainShareMid": 0.29755,
+   "nInt": 41920,
+   "darkObj": 0.00346,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "St",
+   "name": "St/52",
+   "structMid": 0.40819,
+   "grainSD": 0.27708,
+   "grainShareMid": 0.31543,
+   "nInt": 5067,
+   "darkObj": 0.0073,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/3",
+   "structMid": 0.05437,
+   "grainSD": 0.03558,
+   "grainShareMid": 0.29991,
+   "nInt": 13952,
+   "darkObj": 0.00115,
+   "satFrac": 6e-05,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/4",
+   "structMid": 0.0817,
+   "grainSD": 0.05939,
+   "grainShareMid": 0.34576,
+   "nInt": 2094,
+   "darkObj": 0.02531,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.025"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/5",
+   "structMid": 0.36563,
+   "grainSD": 0.10546,
+   "grainShareMid": 0.07681,
+   "nInt": 36697,
+   "darkObj": 0.05357,
+   "satFrac": 0.00286,
+   "excluded": "darkObj 0.054"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/6",
+   "structMid": 0.07207,
+   "grainSD": 0.0636,
+   "grainShareMid": 0.43783,
+   "nInt": 739,
+   "darkObj": 0.00271,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/9",
+   "structMid": 0.05635,
+   "grainSD": 0.0214,
+   "grainShareMid": 0.12603,
+   "nInt": 9716,
+   "darkObj": 0.0,
+   "satFrac": 0.0008,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/10",
+   "structMid": 0.04889,
+   "grainSD": 0.01944,
+   "grainShareMid": 0.13648,
+   "nInt": 1123,
+   "darkObj": 0.0,
+   "satFrac": 0.00111,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/11",
+   "structMid": 0.08165,
+   "grainSD": 0.06441,
+   "grainShareMid": 0.38362,
+   "nInt": 32352,
+   "darkObj": 0.00034,
+   "satFrac": 0.02979,
+   "excluded": "sat 0.030"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/12",
+   "structMid": 0.19541,
+   "grainSD": 0.13369,
+   "grainShareMid": 0.31882,
+   "nInt": 33600,
+   "darkObj": 0.02577,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.026"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/13",
+   "structMid": 0.14331,
+   "grainSD": 0.11003,
+   "grainShareMid": 0.37087,
+   "nInt": 44480,
+   "darkObj": 0.00074,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/14",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/16",
+   "structMid": 0.14231,
+   "grainSD": 0.02339,
+   "grainShareMid": 0.02631,
+   "nInt": 29639,
+   "darkObj": 0.0,
+   "satFrac": 0.00054,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/17",
+   "structMid": 0.02243,
+   "grainSD": 0.06062,
+   "grainShareMid": 0.87959,
+   "nInt": 132480,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/18",
+   "structMid": 0.20047,
+   "grainSD": 0.07064,
+   "grainShareMid": 0.11045,
+   "nInt": 30230,
+   "darkObj": 0.0042,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/20",
+   "structMid": 0.47518,
+   "grainSD": 0.18065,
+   "grainShareMid": 0.12628,
+   "nInt": 43747,
+   "darkObj": 0.0475,
+   "satFrac": 0.0029,
+   "excluded": "darkObj 0.048"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/21",
+   "structMid": 0.09915,
+   "grainSD": 0.18507,
+   "grainShareMid": 0.77699,
+   "nInt": 52999,
+   "darkObj": 0.00313,
+   "satFrac": 2e-05,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/23",
+   "structMid": 0.1152,
+   "grainSD": 0.01714,
+   "grainShareMid": 0.02167,
+   "nInt": 15468,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/24",
+   "structMid": 0.07878,
+   "grainSD": 0.02043,
+   "grainShareMid": 0.06302,
+   "nInt": 957,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/26",
+   "structMid": 0.10789,
+   "grainSD": 0.10037,
+   "grainShareMid": 0.46393,
+   "nInt": 16763,
+   "darkObj": 0.01611,
+   "satFrac": 0.00654,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/28",
+   "structMid": 0.05175,
+   "grainSD": 0.02605,
+   "grainShareMid": 0.20212,
+   "nInt": 2644,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/29",
+   "structMid": 0.56645,
+   "grainSD": 0.28812,
+   "grainShareMid": 0.20554,
+   "nInt": 12659,
+   "darkObj": 0.094,
+   "satFrac": 0.02771,
+   "excluded": "darkObj 0.094; sat 0.028"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/30",
+   "structMid": 0.09037,
+   "grainSD": 0.0257,
+   "grainShareMid": 0.07481,
+   "nInt": 29760,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/32",
+   "structMid": 0.2687,
+   "grainSD": 0.17372,
+   "grainShareMid": 0.29477,
+   "nInt": 30166,
+   "darkObj": 0.03961,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.040"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/34",
+   "structMid": 0.08737,
+   "grainSD": 0.01807,
+   "grainShareMid": 0.04104,
+   "nInt": 32608,
+   "darkObj": 0.0,
+   "satFrac": 0.00034,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/35",
+   "structMid": 0.05921,
+   "grainSD": 0.03933,
+   "grainShareMid": 0.30615,
+   "nInt": 63360,
+   "darkObj": 0.00014,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/36",
+   "structMid": 0.07969,
+   "grainSD": 0.02488,
+   "grainShareMid": 0.08884,
+   "nInt": 37530,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/37",
+   "structMid": 0.11142,
+   "grainSD": 0.03157,
+   "grainShareMid": 0.07433,
+   "nInt": 30971,
+   "darkObj": 0.03774,
+   "satFrac": 0.00395,
+   "excluded": "darkObj 0.038"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/38",
+   "structMid": 0.43137,
+   "grainSD": 0.42217,
+   "grainShareMid": 0.48922,
+   "nInt": 18699,
+   "darkObj": 0.0645,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.064"
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/39",
+   "structMid": 0.07104,
+   "grainSD": 0.02902,
+   "grainShareMid": 0.14303,
+   "nInt": 21387,
+   "darkObj": 0.00094,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/40",
+   "structMid": 0.06865,
+   "grainSD": 0.01031,
+   "grainShareMid": 0.02204,
+   "nInt": 3859,
+   "darkObj": 0.0,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/41",
+   "structMid": NaN,
+   "grainSD": NaN,
+   "grainShareMid": NaN,
+   "nInt": 0,
+   "darkObj": NaN,
+   "satFrac": 0.0,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/44",
+   "structMid": 0.15668,
+   "grainSD": 0.04068,
+   "grainShareMid": 0.06315,
+   "nInt": 34756,
+   "darkObj": 0.0,
+   "satFrac": 0.00748,
+   "excluded": null
+  },
+  {
+   "genus": "Ns",
+   "name": "Ns/45",
+   "structMid": 0.31661,
+   "grainSD": 0.10417,
+   "grainShareMid": 0.09767,
+   "nInt": 64640,
+   "darkObj": 0.0726,
+   "satFrac": 0.0,
+   "excluded": "darkObj 0.073"
+  }
+ ]
+}
