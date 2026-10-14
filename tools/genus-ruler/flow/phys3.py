@@ -19,7 +19,7 @@ fm.py(그림 읽기·마스크)·phys.py(밝기비·어두움비)·phys2.py(inte
   phys3.py --photos [--root REPO] [--out phys3-photo-quartiles.json]
   phys3.py --renders DIR [--out phys3-renders.json] [--glob '*.png']
   phys3.py --gate phys3-photo-quartiles.json phys3-renders.json [--ref L0] [--cands L1,L2,L3] [--out phys3-gate.json]
-    RC(그늘 색): 칸 = (장면 7(ci 제외), 방위), ○ = shadeBlue ∈ [q25, q75]; 톤 배율로 뒤집히는 칸은 무효. 세 문턱 벌 모두에서 점수 ≥ 기준 ∧ 기본에서 점수 ≥ 0.5|V|
+    RC(그늘 색): 칸 = (장면 7(ci 제외), 방위), ○ = shadeBlue ∈ [q25, q75]; 톤 배율로 뒤집히는 칸은 무효; 렌더 포화 > 1 % 인 칸은 측정 불가(V 에서 뺌). 세 문턱 벌 모두에서 점수 ≥ 기준 ∧ 기본에서 점수 ≥ 0.5|V|
        → '통과'; 기본에서만 → '불확정(문턱 CI)'; |V| < 11 → '평가 불가'. 짝 비교(같은 칸의 D 차 ±0.1 로 개선/악화/동률)는 보고.
     G4(면적): 장면별(같은 방위끼리) cloudFrac 상대 변화 |Δ| ≤ 25 %(기준 면적 ≥ 0.02 인 장면만).
 """
@@ -157,7 +157,9 @@ def rc_cells(Q, R, cand, tset):
             continue
         for az, m in R.get(cand, {}).get(sc, {}).items():
             v = m.get('shadeBlue')
-            if not fm.isnum(v) or v <= 0:
+            # 렌더 포화(≥ 250 인 구름 화소 > 1 %, 사진 제외 규칙과 같은 문턱)는 측정 불가 — 하네스 노출은 해 고도로 정해져 후보와 무관하고,
+            # 포화된 밝은 쪽은 B/R → 1 이라 shadeBlue 를 부풀립니다(검토 뒤 컴파일 점검 렌더에서 본 것, 렌더 전 결정).
+            if not fm.isnum(v) or v <= 0 or (fm.isnum(m.get('satFrac')) and m['satFrac'] > 0.01):
                 cells[(sc, az)] = None; continue
             lo, hi = phys2.thresholds(q, tset)
             outs = set(bool(lo <= v ** f <= hi) for f in phys2.FACTORS)   # 로그 척도 지표: ln v 에 배율 = v^f
