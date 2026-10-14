@@ -1,0 +1,107 @@
+#!/usr/bin/env node
+/**
+ * phys-test.mjs — §136 구름 미세물리(`src/components/VolumetricProbe/cloudPhysics.ts`) 단위 테스트. three.js 없이 묶어 돌립니다.
+ *   node tools/genus-ruler/flow/phys-test.mjs
+ * 검사: 포화수증기압·습윤단열 감률·응결률·응결고도·단열 LWC·유효 반지름·소광의 교과서 값, h^(2/3) 단면 맞춤, 얼음 비율,
+ * 열역학 보간·물러남, 종류별 광학두께가 문헌 범위(TAU_RANGE) 안(표준대기 + 서울 10월 단면), 종류 순서(권운 < 고적운 < 층적운 < 적운).
+ */
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '../../..');
+const OUT = process.argv.find(a => a.startsWith('--out='))?.slice(6) ?? path.join(ROOT, '.harness/phys-test');
+fs.mkdirSync(OUT, { recursive: true });
+const BUNDLE = path.join(OUT, 'cloudPhysics.cjs');
+execFileSync('npx', ['esbuild', path.join(ROOT, 'src/components/VolumetricProbe/cloudPhysics.ts'), '--bundle', '--format=cjs', '--platform=node', `--outfile=${BUNDLE}`, '--log-level=error'], { cwd: ROOT, stdio: 'inherit' });
+if (/require\(["']three["']\)/.test(fs.readFileSync(BUNDLE, 'utf8'))) throw new Error('cloudPhysics.ts must stay pure (no three.js)');
+const require = createRequire(import.meta.url);
+const P = require(BUNDLE);
+
+const results = [];
+const check = (name, ok, detail) => { results.push(!!ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  ${detail ?? ''}`); };
+const within = (v, lo, hi) => v >= lo && v <= hi;
+const f3 = v => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(3));
+
+// 1 교과서 값
+check('esat(0 °C) = 6.112 hPa', Math.abs(P.esatWater(0) - 6.112) < 1e-3, f3(P.esatWater(0)));
+check('esat(20 °C) ≈ 23.4 hPa', within(P.esatWater(20), 23.2, 23.6), f3(P.esatWater(20)));
+const gm = (t, p) => P.moistLapse(t, p) * 1000;
+check('Γm(10 °C, 1000 hPa) 5.0–5.6 K/km', within(gm(10, 1000), 5.0, 5.6), f3(gm(10, 1000)));
+check('Γm(20 °C, 1000 hPa) 4.0–4.6 K/km', within(gm(20, 1000), 4.0, 4.6), f3(gm(20, 1000)));
+check('Γm(−20 °C, 500 hPa) 7.2–8.4 K/km', within(gm(-20, 500), 7.2, 8.4), f3(gm(-20, 500)));
+const gl = (t, p) => P.condensationRate(t, p) * 1e6;   // g/m³/km
+check('Γl(10 °C, 900 hPa) 1.7–2.3 g/m³/km', within(gl(10, 900), 1.7, 2.3), f3(gl(10, 900)));
+check('Γl 는 추울수록 작다(−10 °C 600 hPa < 10 °C 900 hPa)', gl(-10, 600) < gl(10, 900), `${f3(gl(-10, 600))} < ${f3(gl(10, 900))}`);
+check('LCL(20, 15) = 625 m', Math.abs(P.lclHeightM(20, 15) - 625) < 1e-9);
+const ad = P.adiabaticLWC(10, 900, 1000);
+check('단열 LWC(10 °C, 900 hPa, 1 km) 1.6–2.2 g/m³', within(ad.lwc * 1e3, 1.6, 2.2), `${f3(ad.lwc * 1e3)} g/m³, 꼭대기 ${f3(ad.tC)} °C`);
+const re = P.effRadiusLiquid(0.5e-3, 100e6) * 1e6;
+check('r_eff(0.5 g/m³, 100 /cm³) 10–13 μm', within(re, 10, 13), f3(re));
+check('β(0.3 g/m³, 10 μm) = 0.045 /m', Math.abs(P.betaLiquid(0.3e-3, 10e-6) - 0.045) < 1e-9);
+check('IWC(−40 °C) = 0.01 g/m³', Math.abs(P.iceWaterContent(-40) * 1e3 - 0.01) < 1e-9);
+check('r_ice(−40 °C) = 40 μm', Math.abs(P.effRadiusIce(-40) * 1e6 - 40) < 1e-9);
+
+// 2 단면 맞춤
+{
+  const { A, k, b } = P.ADIABATIC_PROFILE;
+  let mx = 0, s = 0; const n = 1000;
+  for (let i = 0; i <= n; i++) { const x = i / n, y = A * (1 - Math.exp(-k * x)) + b * x; if (x >= 0.1) mx = Math.max(mx, Math.abs(y - Math.pow(x, 2 / 3))); s += y / (n + 1); }
+  check('h^(2/3) 맞춤 최대 어긋남(hf ≥ 0.1) < 0.03', mx < 0.03, f3(mx));
+  check('단면 평균 ≈ 3/5', within(s, 0.58, 0.62), f3(s));
+  check('단면 hf = 1 에서 1', Math.abs(A * (1 - Math.exp(-k)) + b - 1) < 2e-3);
+}
+
+// 3 얼음 비율·β ∝ h^(2/3)
+check('얼음 비율 0 °C → 0, −23 °C → 1, −10 °C 사이', P.iceFraction(0) === 0 && P.iceFraction(-23) === 1 && within(P.iceFraction(-10), 0.5, 0.8), f3(P.iceFraction(-10)));
+{
+  const a = P.layerPhysics('sc', 1500, 400), c = P.layerPhysics('sc', 1500, 800);
+  const r = c.betaTop / a.betaTop;
+  check('β_top(2H)/β_top(H) ≈ 2^(2/3) (±10 %)', within(r, 1.587 * 0.9, 1.587 * 1.1), f3(r));
+}
+
+// 4 열역학 보간·물러남
+{
+  const levels = [{ zM: 100, tC: 20, pHPa: 1000 }, { zM: 1500, tC: 12, pHPa: 850 }, { zM: 3000, tC: 2, pHPa: 700 }];
+  const t = P.thermoAt(750, { levels });
+  check('단면 보간(750 m → 16.29 °C, 기압 로그 보간 927 hPa)', t.source === 'profile' && Math.abs(t.tC - (20 - 8 * 650 / 1400)) < 1e-9 && Math.abs(t.pHPa - 1000 * Math.pow(0.85, 650 / 1400)) < 1e-6, `${f3(t.tC)} °C ${f3(t.pHPa)} hPa`);
+  const s = P.thermoAt(1000, { t2mC: 25, groundM: 0 });
+  check('지상 기온 물러남(1 km → 18.5 °C)', s.source === 'surface' && Math.abs(s.tC - 18.5) < 1e-9, f3(s.tC));
+  const z = P.thermoAt(1000, null);
+  check('표준대기 물러남(1 km → 8.5 °C, 899 hPa)', z.source === 'standard' && Math.abs(z.tC - 8.5) < 1e-9 && within(z.pHPa, 898, 900), `${f3(z.tC)} °C ${f3(z.pHPa)} hPa`);
+  check('LCL 밑면(지면 40 m, 24/16 °C → 1.04 km)', Math.abs(P.lclBaseKm({ groundM: 40, t2mC: 24, td2mC: 16 }) - 1.04) < 1e-9);
+  check('LCL 밑면 — 이슬점 없으면 null', P.lclBaseKm({ t2mC: 24 }) === null);
+}
+
+// 5 종류별 광학두께(문헌 범위)
+const SCENES = { cu: [1500, 1600], sc: [1500, 750], st: [500, 400], ac: [4500, 400], as: [4000, 1500], ns: [1000, 3200], ci: [9000, 800], cs: [8500, 1000], cbanvil: [9000, 1500] };
+// 서울 10/12 12시 근처 단면(Open-Meteo 형식: 높이·기온·기압) — 지상 20 °C, 850 hPa 9 °C, 700 hPa 0 °C, 500 hPa −14 °C, 300 hPa −40 °C, 250 hPa −50 °C.
+const SEOUL = { groundM: 40, t2mC: 20, td2mC: 11, levels: [[110, 19, 1000], [1500, 9, 850], [3100, 0, 700], [5800, -14, 500], [9500, -40, 300], [10800, -50, 250]].map(([zM, tC, pHPa]) => ({ zM, tC, pHPa })) };
+const rows = {};
+for (const [name, th] of [['표준', null], ['서울10월', SEOUL]]) {
+  for (const [g, [baseM, H]] of Object.entries(SCENES)) {
+    const L = P.layerPhysics(g, baseM, H, th), r = P.TAU_RANGE[g];
+    rows[`${name}:${g}`] = L;
+    check(`τ ${g} (${name}) ∈ [${r[0]}, ${r[1]}]`, within(L.tauCore, r[0], r[1]),
+      `τ ${f3(L.tauCore)}  β_top ${f3(L.betaTop)} /m  밑 ${f3(L.tBaseC)} °C 꼭대기 ${f3(L.tTopC)} °C  LWC ${f3(L.lwcTop * 1e3)} IWC ${f3(L.iwcTop * 1e3)} g/m³  r ${f3(L.reffLiqUm)}/${f3(L.reffIceUm)} μm  얼음 ${f3(L.iceOptical)}  무리 ${f3(L.halo)}  가루 ${f3(L.powder)}`);
+  }
+}
+for (const name of ['표준', '서울10월']) {
+  const t = g => rows[`${name}:${g}`].tauCore;
+  check(`종류 순서 τ ci < ac < sc < cu (${name})`, t('ci') < t('ac') && t('ac') < t('sc') && t('sc') < t('cu'), ['ci', 'ac', 'sc', 'cu'].map(g => f3(t(g))).join(' < '));
+  check(`무리: cs > ci > 0, 물 구름 0 (${name})`, rows[`${name}:cs`].halo > rows[`${name}:ci`].halo && rows[`${name}:ci`].halo > 0 && ['cu', 'sc', 'st', 'ac'].every(g => rows[`${name}:${g}`].halo === 0));
+  check(`가루 효과: 권운 0, 적운 1 (${name})`, rows[`${name}:ci`].powder === 0 && rows[`${name}:cu`].powder === 1);
+}
+// 6 지금(손값) 대비 — 기록만
+const HAND = { cu: 0.22, sc: 0.22, st: 0.2, ac: 0.2, as: 0.15, ns: 0.28, ci: 0.003, cs: 0.0015, cbanvil: 0.06 };
+console.log('\n종류  손값 densityScale → 물리 β_top(표준)  (배율)   손값 τ(0.625·ds·H) → 물리 τ');
+for (const [g, [, H]] of Object.entries(SCENES)) {
+  const L = rows[`표준:${g}`];
+  console.log(`${g.padEnd(8)} ${String(HAND[g]).padEnd(7)} → ${f3(L.betaTop).padEnd(9)} (×${f3(L.betaTop / HAND[g])})   ${f3(0.625 * HAND[g] * H).padEnd(6)} → ${f3(L.tauCore)}`);
+}
+const pass = results.filter(Boolean).length;
+console.log(`\n${pass}/${results.length} 통과`);
+process.exit(pass === results.length ? 0 : 1);
