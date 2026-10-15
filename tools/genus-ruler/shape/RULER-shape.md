@@ -60,6 +60,10 @@
 | LCL: 지상 (T−T_d) 만이 아니라 **혼합층 LCL**(지면 위 600 m 안 기압면의 (T−T_d) 평균, Magnus 역산 이슬점) | 개발 장면 S2(08:09)의 지상 LCL 350 m vs 예보 덱 밑면 1.28 km — 아침 지상 이슬점은 혼합층을 대표하지 않음(ML-LCL 756 m) |
 | pblM 이 LCL 의 ½ 아래면 λ 척도·활성에 쓰지 않음 | 개발 장면 pblM 45~128 m(안정 시각의 모델값) → λ 가 하한 0.5 km 에 붙음 |
 | held-out 열역학: 아카이브 대신 **개발 날과 다른 날의 예보**(10/17 B 건조 · 10/19 A 습함, `thermo-heldout.json`) | 아카이브는 기압면 기온·RH 를 주지 않아 ML-LCL·역전 탐색이 모두 대용값으로 떨어짐; pblM 은 둘 다 안 믿을 값(50·235 m)이라 역전은 RH/θ 에서 |
+| K2 fetch 레인: 뼈대 층의 흐름 **드리프트 lane 을 0 으로**(setSkeletonTilt 를 setGenusDrift 뒤에) | 개발 K2 에서 머리 위 구름이 사라짐(위 56 % 운량 0.000) → 기울기 0 으로도 같음 → 균일변수 덤프: genusDriftU.x = 0.0625(GENUS_FLOW 의 cu flow 1 기본값으로 흐름 옵션이 꺼져도 lane 이 채워짐; genusUvOn 이 0 일 때는 안 읽혀 무해했음). 고친 뒤 K2(기울기 0) = K1 화소 동일(운량 0.326 = 0.326) |
+| 사진 cloudFrac 층(3 분위)은 **그 렌더 자신의** 운량으로 고름 | 기준 운량으로 고르면 K0h 0.12 vs K1 0.45 가 같은 층과 비교됨 — 사진 통계는 운량 조건부 |
+| G4: |Δ cloudFrac| > **15 %p** 에서만 칸 무효, 5 %p 는 보고(역표 재측정 필요) | 개발 장면 K1 vs K0h Δ 가 cu 7.7 %p · sc 12~33 %p — 5 %p 무효 규칙은 뼈대 설계(원 운량·역표 없음) 자체를 판정 불가로 만듦; 운량 의존은 층화 사분위가 흡수. 15 %p 를 넘는 sc(S1 33 %p)는 그대로 무효 |
+| 종류 판정에 **V ≥ 6** 요구(아니면 '판정 불가', notWorse 공허 참 금지) | V 가 비면 0 ≥ 0 으로 sc 가 자동 통과 |
 받아들이지 않은 것: 렌더 배율 1(비용 4 배 — §8 에 한계로), 10 m 바람(CloudData 에 층 바람만 — §8), cg 를 CAPE/LFC 로 다시 판정(종류는 예보 규칙 §126 의 몫 — 뼈대는 받은 종류의 기하만).
 
 ## 0. 무엇을 왜
@@ -141,7 +145,7 @@ pblM 없음 → λ 척도 z_b, z_i 는 (2)~(4) · 기압면 없음 → z_i 밑�
 - **S(종류별)**: 세 벌 모두에서 inside(후보) ≥ inside(K0h) + m **그리고** wide(후보) ≥ wide(K0h) **그리고** 연속 점수 z = |v − q50|/(q75 − q25) 의 중앙값 차(K0h − 후보)의 뷰 클러스터 부트스트랩 90 % CI 하한 > 0. 기본 벌만 성립 = 불확정.
 - **1 차 가설**: cu 에서 K1 S 통과. **채택** = cu S 통과 ∧ sc 에서 K1 의 inside ≥ K0h 의 inside(기본 벌) ∧ 눈 체크리스트 ≥ K0h. sc S·cg·K2 는 2 차(보고). K2 는 K1 이 채택될 때만 "K1 대비" 로 읽음.
 - **P(보고)**: 칸별 |후보 − q50| vs |K0h − q50| 개선/악화/동률(|Δ| < 0.1 IQR), 군별 1 표, baseTopRough·nnReg 따로. K0 대비도 보고.
-- 가드: **G1** CLIP(`clip-labels.py`): cu 장면 Cu 라벨 수, sc85 층 묶음 라벨 수가 K0h 보다 적지 않음. **G3** 끄면 그대로: 날씨 타일 md5(개발 3 + 합성 9)·셰이더 글자·상태 해시 K0 동일. **G4** 장면 |Δ cloudFrac(알파)| > 5 %p → 그 장면 조각 칸 양쪽 무효(V 에서 뺌) + "역표 재측정 필요" 기록. **G5** K2 프레임 시간(N ≥ 5 중앙값, 같은 장면) ≤ 1.3 × K1.
+- 가드: **G1** CLIP(`clip-labels.py`): cu 장면 Cu 라벨 수, sc85 층 묶음 라벨 수가 K0h 보다 적지 않음. **G3** 끄면 그대로: 날씨 타일 md5(개발 3 + 합성 9)·셰이더 글자·상태 해시 K0 동일. **G4** 장면(방위 평균) Δ cloudFrac(알파, 후보 − K0h): |Δ| > 5 %p 보고("역표 재측정 필요"), |Δ| > 15 %p 면 그 장면 조각 칸 양쪽 무효(V 에서 뺌). 종류 판정은 V ≥ 6 일 때만(아니면 판정 불가 → 채택 안 됨). **G5** K2 프레임 시간(N ≥ 5 중앙값, 같은 장면) ≤ 1.3 × K1.
 - 눈 체크리스트(방위별 ○/×, 렌더 전 고정): ① 뾰족한 원뿔 없음 ② 알갱이 점 없음 ③ 밑면이 평평(cu)/꼭대기 평평·밑면 변동(sc) ④ 크기가 섞여 있음(한 크기 반복 아님).
 
 ## 5. 조건부 읽기(미리)
@@ -151,8 +155,17 @@ pblM 없음 → λ 척도 z_b, z_i 는 (2)~(4) · 기압면 없음 → z_i 밑�
 - G4 넘김 → 운량 역표 재측정이 채택의 선행 조건.
 - K0h 가 K0 보다 inside 가 많으면 "층 고도만으로도 개선" 을 따로 적음(뼈대 몫과 분리).
 
-## 6. 예측(개발 K0h·K1 측정 뒤 측정 단위로 고쳐 적음)
-(초안: 방향만) K1 cu: flatMed ↑ 사진 띠 쪽, baseTopRough ↓, nnReg ↑(> 1, 격자), largestFrac ↓(합쳐짐 줄어듦; cu50 은 덜), 보이는 면적이 운량에 가까워 G4 변화 ≤ 5 %p. K1 sc40: 열린 세포로 largestFrac ↓·perimPerArea ↑; sc85: 구멍 지표가 사진 쪽. K2: cu 지표 변화 ±0.1 IQR 안(작음). 밉 끈 렌더: 원뿔 몫은 K0 에서 flatMed 의 10~20 %.
+## 6. 예측(렌더 전 고정 — 개발 장면 측정(위 56 % 자르기, 알파 마스크) 뒤 측정 단위로 고쳐 적음)
+개발 측정(S2 cu 32 %, 시선 고도 49°): K0 flatMed 1.88 · largestFrac 0.84 · perimPerArea 0.027 · areaCV 1.37 · elongIQR 1.02 → **K0h**(층 밑면 0.80 km·두께 1.52 km) 3.20 · 0.995 · 0.015 · 1.72 · 2.49 → **K1** 0.67 · 0.59 · 0.075 · 1.38 · 0.87, baseTopRough 1.09(밉 끔 0.94), cloudFrac 0.44 → 0.51.
+사진 Cu(층 전체): flatMed 1.41/1.97/2.38 · largestFrac 0.68/0.90/0.99 · perimPerArea 0.048/0.071/0.100 · areaCV 1.19/1.44/1.97 · elongIQR 0.90/1.49/2.03 · nnReg 1.07/1.16/1.42 · baseTopRough 0.53/0.70/1.15.
+개발 S1 sc 33 %: K0h cloudFrac 0.12 → K1 0.45(Δ 33 %p — G4 무효), S3 sc 25 %: 0.017 → 0.14(Δ 12 %p 보고).
+- **K1 cu(1 차 가설)**: 크기·합쳐짐 군(largestFrac·perimPerArea·areaCV)은 K0h 의 "한 판"(0.995·0.015)에서 사진 띠 안으로 들어옴(개선 3 칸). **flatMed 는 사진 q10 아래로 떨어짐**(열기둥이 폭보다 높음: B 단면 덱 두께 → r_50 1.2 = 상한; 스커트 접시 + 좁은 돔 = 버섯 꼴 — §8). elongIQR 은 띠 근처. nnReg 는 조각 ≥ 8 일 때만 유효(개발 장면은 NaN) — cu25 에서 격자 배치로 > 1, 띠 안 예상. baseTopRough 는 1 근처(밑면 램프 0.03 이 평평해도 스커트 접시 테두리가 아래 경계 MAD 를 키움) — 서명 "< 1" 은 **안 나올 것**으로 예측. cloudFrac 은 K0h 보다 5~10 %p 큼(스커트) → G4 보고, 15 %p 이하라 유효.
+  → inside 는 K0h 보다 많아지지만(2~4 칸/뷰) flatMed 가 매 뷰 빠지고 V 가 작아(뷰당 5~6 칸, 유효 24~36) 여유 m(≥ 3) 과 세 벌·CI 조건까지 모두 넘기는 **S 통과 확률은 낮음(예측: 불확정 또는 불합격)**. P 는 개선 > 악화.
+- **K1 sc**: sc40 은 Δ cloudFrac 10~35 %p — 15 %p 를 넘는 뷰가 생겨 일부 무효; 남는 칸에서 largestFrac ↓·perimPerArea ↑(열린 세포). sc85 는 덮개 군(구멍 지표)으로 비교 — 롤(3:1) 때문에 hBand 가 사진 q75 밖(위)로 갈 가능성 큼. **sc notWorse 는 V ≥ 6 을 못 채워 판정 불가**가 될 수 있음(그러면 채택 없음).
+- **K2**: cu 에서 기울기 1.46(상한) → 실루엣이 옆으로 늘어 flatMed ↑(1.0 근처), largestFrac ↑(겹침), 변화는 ±0.5 IQR 안팎(작지 않음). sc 는 전단 0 이라 K1 과 동일(화소 동일).
+- **밉 몫**(개발): K1 vs K1m flatMed 0.67 → 0.79, areaCV 1.38 → 0.97 — 밉 평균이 꼭대기를 깎아 조각이 더 높고 크기가 더 고르게 보임(K0 는 1.88 → 1.88 변화 없음).
+- **G5**: K2 fetch 4 회 — 프레임 시간 K1 의 1.05~1.2 배 예상(통과).
+- **눈 체크리스트 예측**: K1 ① 원뿔 없음 ○ ② 알갱이 × (조명 몫, 뼈대와 무관) ③ cu 밑면 평평 ○·sc 꼭대기 평평 ○ ④ 크기 섞임 △(폭 배율 체제라 큰 열기둥이 상한에 몰림).
 
 ## 7. 구현(렌더 전 고정)
 - `cloudSkeleton.ts`(순수): `skeletonOf(genus, thermo, layer{coverRaw, baseKm?, thicknessM?, precipMm?}, tileKm, seed) → Skeleton{ baseM, heightM, zLclM, zInvM, zInvSource, lambdaKm, w50Km, aMinKm2, r50, dMaxM, cells[]{x,y,wKm,dM,on}, mode(0 돔|3 뚜껑), rollDeg|null, elKm, mesoKm, open, tilt:[u,v], hash }`. 단위 테스트 `shape-test.mjs`: LCL 125 m/K, λ = 2.83 z, w_50 중앙값, Σ면적 = cover ± 3 %, 절단 파레토 b 복원(MLE), z_i 우선순위 4 단계, 롤/구름 거리 축(동풍 → x), 전단 식·상한, 대용값, 결정적 시드, hash 안정.
@@ -167,5 +180,17 @@ pblM 없음 → λ 척도 z_b, z_i 는 (2)~(4) · 기압면 없음 → z_i 밑�
 ## 9. 절차
 1. 이 판 커밋 → 2. `cloudSkeleton.ts` + 단위 테스트 + 상수 **커밋** → 3. 생성기·셰이더·배선 → 개발 장면 렌더(컴파일·누출·밉 몫·G3·K2 비용) → 4. §6 을 측정 단위로 고쳐 적음(상수 변경은 §1.5 끝 diff) → 5. 아카이브 열역학 A·B 받기, 사진 사분위·잡·eval·해시 동결 커밋 → 6. held-out 104 장 → 7. `eval-shape.sh` → 8. §139·PR.
 
-## 10. 동결 해시
-(동결 때: shape.py · fm.py · cloudSkeleton.ts · cloudGenus.ts · volumetricScene.ts · 하네스 번들 · jobs-shape.json · 열역학 A·B json)
+## 10. 동결 해시(sha256 앞 16 자, 2026-10-15 — held-out 렌더 전)
+| 파일 | 해시 |
+|---|---|
+| tools/genus-ruler/shape/shape.py | c62baa59d60e6621 |
+| tools/genus-ruler/shape/shape-photo-quartiles.json | dd7e4e45325749b5 |
+| tools/genus-ruler/flow/fm.py | 021b23130b8f4234 |
+| src/components/VolumetricProbe/cloudSkeleton.ts | f05ab512d4a34192 |
+| src/components/VolumetricProbe/cloudGenus.ts | 78f473d9356f1821 |
+| src/components/VolumetricProbe/volumetricScene.ts | b8693e4d175d418b |
+| src/components/VolumetricProbe/cloudFlowShader.ts | d57b74a28576b8bc |
+| .harness/volsky/app.js(하네스 번들) | 210757a4c7947b59 |
+| tools/genus-ruler/shape/jobs-shape.json | cc74ac22abcf9e80 |
+| tools/genus-ruler/shape/thermo-heldout.json | 42468ce69eae1841 |
+G3(렌더 전): `phys-shader-test.mjs` 28/28(뼈대 켬/끔 글자·균일변수), 날씨 바이트는 FIELDS 가 opts.skeleton 으로만 분기; K0 개발 장면 3 을 새 번들로 다시 그려 옛 번들 화소와 비교(.harness/shape/g3, 결과는 §139 에).

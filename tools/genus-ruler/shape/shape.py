@@ -34,6 +34,9 @@ CF_GAP = (0.6, 0.98)       # 덮개 군(sc) 유효 운량
 SC_SPLIT = 0.6
 TIE_IQR = 0.1
 MARGIN_MIN = 3
+MIN_V = 6                  # 종류 판정에 필요한 최소 유효 칸 수(아니면 판정 불가)
+G4_REPORT = 0.05           # 장면 |Δ cloudFrac| 보고 문턱(역표 재측정 필요)
+G4_INVALID = 0.15          # 이 위면 운량 약속이 깨진 것 — 그 장면의 조각 칸 무효(사진 층화가 5 %p 수준의 운량 차는 흡수)
 BOOT_N, BOOT_SEED = 2000, 20261015
 
 COMP_KEYS = ['areaCV', 'largestFrac', 'perimPerArea', 'flatMed', 'elongIQR', 'nnReg']
@@ -313,7 +316,7 @@ def pick_q(Q, g, k, cf, strata):
     return qb if (qb and qb.get('n', 0) >= 10 and 'q25' in qb) else q
 
 
-def cells_of(R, cand, Q, strata, ref_cf):
+def cells_of(R, cand, Q, strata):
     """후보의 칸 = 지표 × 장면 × 방위. 값·유효·z(IQR 단위 편차)·세 벌 inside/wide·마스크 뒤집힘."""
     cells = {}
     for scene, s in R.get(cand, {}).items():
@@ -322,9 +325,9 @@ def cells_of(R, cand, Q, strata, ref_cf):
         if not keys:
             continue
         for az, m in s['az'].items():
-            cf_ref = ref_cf.get((scene, az), m['cloudFrac'])
+            # 사진 층(cloudFrac 3 분위)은 **그 렌더 자신의** 운량으로 고릅니다 — 사진 통계는 운량 조건부(개발 렌더: K0h 0.12 vs K1 0.45 가 같은 층을 쓰면 틀림).
             for k in keys:
-                q = pick_q(Q, g, k, cf_ref, strata)
+                q = pick_q(Q, g, k, m['cloudFrac'], strata)
                 v = m.get(k)
                 ok = q is not None and valid_for(m, k)
                 cell = {'v': v, 'valid': bool(ok), 'genus': g, 'scene': scene, 'az': az, 'k': k}
@@ -354,15 +357,22 @@ def scene_cf(R, cand):
     return out
 
 
-def g4_invalid(R, ref, cand):
-    """장면(방위 평균) |Δ cloudFrac| > 5 %p → 그 장면의 조각 칸 무효(양쪽)."""
-    bad = set()
+def g4_scenes(R, ref, cand, genus):
+    """장면(방위 평균) Δ cloudFrac(후보 − 기준). > G4_REPORT 보고, > G4_INVALID 면 그 장면의 조각 칸 무효(양쪽)."""
+    rep, bad = {}, set()
     for scene in R.get(cand, {}):
+        if R[cand][scene]['genus'] != genus:
+            continue
         a = [m['cloudFrac'] for m in R[cand][scene]['az'].values()]
         b = [m['cloudFrac'] for m in R.get(ref, {}).get(scene, {}).get('az', {}).values()]
-        if a and b and abs(np.mean(a) - np.mean(b)) > 0.05:
+        if not (a and b):
+            continue
+        d = float(np.mean(a) - np.mean(b))
+        if abs(d) > G4_REPORT:
+            rep[scene] = round(d, 3)
+        if abs(d) > G4_INVALID:
             bad.add(scene)
-    return bad
+    return rep, bad
 
 
 def compare(cr, cc, V):
@@ -403,8 +413,7 @@ def compare(cr, cc, V):
 def run_gate(qfile, rfile, ref, cands, nulls, also, out):
     P = json.load(open(qfile)); Q = P['quartiles']; strata = P['crop']['cfStrata']
     R = json.load(open(rfile))['renders']
-    ref_cf = scene_cf(R, ref)
-    cells = {c: cells_of(R, c, Q, strata, ref_cf) for c in [ref] + cands + nulls + also if c in R}
+    cells = {c: cells_of(R, c, Q, strata) for c in [ref] + cands + nulls + also if c in R}
     doc = {'ref': ref, 'cands': cands, 'nulls': nulls, 'marginMin': MARGIN_MIN, 'perGenus': {}}
     genera = sorted(set(c['genus'] for cc in cells.values() for c in cc.values()))
     for g in genera:
@@ -425,7 +434,7 @@ def run_gate(qfile, rfile, ref, cands, nulls, also, out):
             if c not in cells:
                 continue
             cc = {k: v for k, v in cells[c].items() if v['genus'] == g}
-            bad = g4_invalid(R, ref, c)
+            g4rep, bad = g4_scenes(R, ref, c, g)
             V = [k for k in cr if k in cc and cr[k]['valid'] and cc[k]['valid'] and not cc[k].get('maskFlip') and not cr[k].get('maskFlip')
                  and not (k[1] in bad and k[0] not in GAP_KEYS)]
             # 보고 전용 지표(baseTopRough 등)는 V 와 별도로 짝 비교만
@@ -444,19 +453,20 @@ def run_gate(qfile, rfile, ref, cands, nulls, also, out):
             cmp_['report'] = rep
             invalid = {'refOnly': sum(1 for k in cr if cr[k]['valid'] and not (k in cc and cc[k]['valid'])),
                        'candOnly': sum(1 for k in cc if cc[k]['valid'] and not (k in cr and cr[k]['valid'])),
-                       'maskFlip': sum(1 for k in cr if k in cc and (cc[k].get('maskFlip') or cr[k].get('maskFlip'))), 'g4Scenes': sorted(bad)}
+                       'maskFlip': sum(1 for k in cr if k in cc and (cc[k].get('maskFlip') or cr[k].get('maskFlip'))), 'g4Invalid': sorted(bad), 'g4Report': g4rep}
             S_sets = {w: bool(cmp_[w]['candIn'] >= cmp_[w]['refIn'] + margin and cmp_[w]['candWide'] >= cmp_[w]['refWide']) for w in ('base', 'wide', 'narrow')}
             ci_ok = bool(cmp_['dzCI90'][0] > 0) if np.isfinite(cmp_['dzCI90'][0]) else False
             S = bool(all(S_sets.values()) and ci_ok)
             inconclusive = bool(S_sets['base'] and not S)
+            # notWorse 는 V ≥ MIN_V 일 때만 뜻이 있음(V 가 비면 0 ≥ 0 으로 공허하게 참 — G4 가 sc 칸을 다 지우는 경우). 그 아래면 '판정 불가'.
             row[c] = {'V': len(V), 'sets': cmp_, 'invalid': invalid, 'S_sets': S_sets, 'ciOk': ci_ok, 'S': S, 'inconclusive': inconclusive,
-                      'notWorse': bool(cmp_['base']['candIn'] >= cmp_['base']['refIn'])}
+                      'notWorse': bool(len(V) >= MIN_V and cmp_['base']['candIn'] >= cmp_['base']['refIn']), 'judgeable': bool(len(V) >= MIN_V)}
         doc['perGenus'][g] = row
     verdict = {}
     for c in cands:
         cu = doc['perGenus'].get('Cu', {}).get(c); sc = doc['perGenus'].get('StSc', {}).get(c)
-        verdict[c] = {'primary_cu_S': bool(cu and cu['S']), 'cu_inconclusive': bool(cu and cu['inconclusive']),
-                      'sc_notWorse': bool(sc and sc['notWorse']), 'sc_S': bool(sc and sc['S']),
+        verdict[c] = {'primary_cu_S': bool(cu and cu['S']), 'cu_inconclusive': bool(cu and cu['inconclusive']), 'cu_judgeable': bool(cu and cu['judgeable']),
+                      'sc_notWorse': bool(sc and sc['notWorse']), 'sc_S': bool(sc and sc['S']), 'sc_judgeable': bool(sc and sc['judgeable']),
                       'adoptCandidate': bool(cu and cu['S'] and sc and sc['notWorse']), 'eyeChecklist': 'pending (RULER-shape §4)'}
     doc['verdict'] = verdict
     json.dump(doc, open(out, 'w'), indent=1)
