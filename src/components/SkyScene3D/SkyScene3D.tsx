@@ -131,9 +131,9 @@ import {
   mapModeFor, globeProgress, globeRadiusForDelta, deltaForGlobeRadius, nextGlobeLatch, type MapMode,
 } from '../../utils/mapProjection';
 import {
-  P_FOV_END, P_MAP_MOUNT, P_FADE_START, P_HANDOFF, P_MAX,
+  P_FOV_END, P_MAP_MOUNT, P_FADE_START, P_HANDOFF, P_GLOBE_FADE_START, P_GLOBE_FADE_END, P_MAX,
   altitudeForProgress, cameraPoseForProgress, lonDeltaForProgress, progressForLonDelta,
-  mapOpacityForProgress, glVisibleForProgress, homeCenterStep, progressFromPinch,
+  mapOpacityForProgress, glVisibleForProgress, globeOpacityForProgress, homeCenterStep, progressFromPinch,
 } from '../../utils/zoomContinuum';
 import { getTerminatorSegments, getSubsolarPoint, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
 import { buildSunOverlay } from '../../utils/solarGeometry';
@@ -510,6 +510,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const zoomStateKeyRef = useRef('');
   const glOpacityAnim = useRef(new Animated.Value(1)).current;
   const mapOpacityAnim = useRef(new Animated.Value(0)).current;
+  const globeOpacityAnim = useRef(new Animated.Value(0)).current;
   const cardRadiusAnim = useRef(new Animated.Value(14)).current;
   const divingAnimFrameRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -607,13 +608,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     //   위도로 풀면 지도를 위아래로 끈 뒤 다음 손짓에서 축척이 수십 % 튑니다.
     const lonDelta = lonDeltaForProgress(p, homeRef.current.latitude, aspect);
     // 구 ↔ 평면 문턱에 히스테리시스(들어갈 때 늘어남 2.0, 나올 때 1.8) — 경계에서 떨지 않게.
-    globeLatchRef.current = p > P_FADE_START && nextGlobeLatch(globeLatchRef.current, c.latitude, lonDelta, h / w);
-    const mode: MapMode = globeLatchRef.current ? 'globe'
+    // 구 모드 진입 판정: 진행도 p 기반 또는 메르카토르 늘어남 기반
+    const globeFade = globeOpacityForProgress(p);
+    globeLatchRef.current = globeFade >= 0.99 || (p > P_FADE_START && nextGlobeLatch(globeLatchRef.current, c.latitude, lonDelta, h / w));
+    const mode: MapMode = globeFade > 0.05 ? 'globe'
       : mapModeFor(c.latitude, lonDelta, h / w) === 'tiles' ? 'tiles' : 'silhouette';
 
+    // 3D 뷰는 지도가 완전히 덮이기 전까지는 100% 불투명하게 선명히 유지!
     glOpacityAnim.setValue(glVisibleForProgress(p) ? 1 : 0);
+    // 지도는 3D 위에 0 -> 1로 반투명하게 부드럽게 겹쳐 올라옴
     mapOpacityAnim.setValue(mapOpacityForProgress(p));
-    cardRadiusAnim.setValue(14 + (globeLatchRef.current ? 1 : globeProgress(c.latitude, lonDelta, h / w)) * 30);
+    // 지구본 구는 구글 지도 위에 1.6 -> 2.1 구간 동안 부드럽게 반투명 교차 페이드
+    globeOpacityAnim.setValue(globeFade);
+    cardRadiusAnim.setValue(14 + globeFade * 30);
 
     if (overlayFrameRef.current === null) {
       overlayFrameRef.current = requestAnimationFrame(() => {
@@ -3098,17 +3105,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     () => (pendingPick ? { latitude: pendingPick.latitude, longitude: pendingPick.longitude } : null),
     [pendingPick],
   );
-  const onGlobeViewChange = useCallback((v: { latitude: number; longitude: number; radius: number }) => {
-    // 구를 돌리거나(한가운데) 구 안에서 확대·축소했을 때(반지름) — 진행도를 **같은 축척**으로
-    // 되돌려 씁니다. 예전에는 확대하면 진행도를 2.2 로 툭 옮겨 지도가 엉뚱한 축척으로 떴습니다.
+  const onGlobeViewChange = useCallback((v: { latitude: number; longitude: number; radius: number; zoomedIn?: boolean }) => {
+    // 구를 돌리거나(한가운데) 구 안에서 확대·축소했을 때(반지름)
     const c0 = mapCenterRef.current;
     if (Math.abs(c0.latitude - v.latitude) > 1e-6 || Math.abs(c0.longitude - v.longitude) > 1e-6) {
       lastViewMoveMsRef.current = Date.now();
     }
     mapCenterRef.current = { latitude: v.latitude, longitude: v.longitude };
+
+    // ⚠ 회전(패닝)만 했을 때는 줌 진행도를 건드리지 않습니다!
+    // 위도가 바뀌었다고 deltaForGlobeRadius(v.latitude)를 풀면 축척이 마구 튑니다.
+    // 축척(radius)이 실질적으로 변했거나 확대하여 지도로 복귀해야 할 때만 줌 진행도 갱신
     const vs = viewSizeRef.current;
-    const p = progressForLonDelta(deltaForGlobeRadius(v.latitude, v.radius, vs.w), homeRef.current.latitude, vs.w / vs.h);
-    applyZoomProgress(Math.min(P_MAX, p), { force: true, keepCenter: true });
+    const currentExpectedRadius = globeRadiusForDelta(homeRef.current.latitude, lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, vs.w / vs.h), vs.w);
+    const radiusRatio = v.radius / (currentExpectedRadius || 1);
+
+    if (Math.abs(radiusRatio - 1.0) > 0.05 || v.zoomedIn) {
+      const p = progressForLonDelta(deltaForGlobeRadius(homeRef.current.latitude, v.radius, vs.w), homeRef.current.latitude, vs.w / vs.h);
+      applyZoomProgress(Math.min(P_MAX, Math.max(0, p)), { force: true, keepCenter: true });
+    }
   }, [applyZoomProgress]);
 
   return (
@@ -3210,7 +3225,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               opacity: mapOpacityAnim,
               borderRadius: cardRadiusAnim,
               overflow: 'hidden',
-              backgroundColor: '#0B1220',
+              backgroundColor: zoomProgressState >= P_GLOBE_FADE_END ? '#0B1220' : 'transparent',
             },
           ]}
           pointerEvents={zoomProgressState >= P_HANDOFF ? 'auto' : 'none'}
