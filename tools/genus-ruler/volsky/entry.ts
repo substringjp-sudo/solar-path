@@ -34,7 +34,10 @@ type Job = {
   exposureScale?: number;
   /** §140 조명 진단: takram CloudsEffect 속성 덮어쓰기(powderScale 등). 잡마다 이전 잡의 덮어쓰기를 원래 값으로 되돌린 뒤 적용. */
   clouds?: Record<string, number>;
+  /** §140 조명 진단: 시간 해상 셰이더 균일변수(varianceGamma·temporalAlpha 등) 덮어쓰기 — 잡마다 원래 값으로 되돌린 뒤 적용. */
+  resolve?: Record<string, number>;
 };
+const resolveDefaults: Record<string, number> = {};
 const cloudsDefaults: Record<string, unknown> = {};
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
@@ -138,6 +141,9 @@ const show = (tex: Texture, mode: number) => {
         const ce = vol.debug.clouds as unknown as Record<string, unknown>;
         for (const [k, v] of Object.entries(cloudsDefaults)) ce[k] = v;
         for (const [k, v] of Object.entries(job.clouds ?? {})) { if (!(k in cloudsDefaults)) cloudsDefaults[k] = ce[k]; ce[k] = v; }
+        const ru = (vol.debug.clouds as unknown as { cloudsPass: { resolveMaterial: { uniforms: Record<string, { value: number }> } } }).cloudsPass.resolveMaterial.uniforms;
+        for (const [k, v] of Object.entries(resolveDefaults)) if (ru[k]) ru[k].value = v;
+        for (const [k, v] of Object.entries(job.resolve ?? {})) { if (!ru[k]) throw new Error('resolve uniform missing: ' + k); if (!(k in resolveDefaults)) resolveDefaults[k] = ru[k].value; ru[k].value = v; }
       }
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
