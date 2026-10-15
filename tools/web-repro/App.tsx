@@ -14,6 +14,8 @@ import { SkyScene3D } from '../../src/components/SkyScene3D/SkyScene3D';
 import { DevTuningPanel } from '../../src/components/SkyScreen/DevTuningPanel';
 import { VOLUMETRIC_TERRAIN_ALBEDO } from '../../src/components/SkyScene3D/TerrainField';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
+import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
+import { useCelestialStore } from '../../src/store/useCelestialStore';
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments } from '../../src/utils/celestial';
 
 const Q = (() => {
@@ -49,8 +51,36 @@ function GlobeRepro({ W, H }: { W: number; H: number }) {
   );
 }
 
+/** bar:1 — 하단 날짜·시간 막대만(§143). t·now·tz 로 시각·지금·시간대. 커밋 횟수·시각을 window.__bar 에 남깁니다. */
+function BarRepro({ W }: { W: number }) {
+  const [t, setT] = React.useState(new Date(Q.t ?? Date.now()));
+  const [sim, setSim] = React.useState(true);
+  React.useEffect(() => { useCelestialStore.setState({ timezoneOffsetHours: Q.tz ?? 9, timezoneLabel: 'GMT+9', language: Q.lang ?? 'ko' } as any); }, []);
+  (globalThis as any).__bar = (globalThis as any).__bar ?? { commits: 0, last: 0, events: [] as string[] };
+  const origNow = React.useRef(false);
+  if (!origNow.current && Q.now) { origNow.current = true; const real = Date.now; const off = new Date(Q.now).getTime() - real(); Date.now = () => real() + off; }
+  const day = (h: number, m: number) => new Date(Date.UTC(2026, 9, 16, h - 9, m));
+  return (
+    <View style={{ width: W, backgroundColor: '#0D1320', paddingVertical: 6 }}>
+      <DateTimeBar
+        currentTime={t}
+        onPick={(d, meta) => { const b = (globalThis as any).__bar; b.commits++; b.last = d.getTime(); b.events.push(`${meta?.scrub ?? 'step'}:${d.toISOString()}`); setT(d); setSim(true); }}
+        onSlidingStart={(k) => (globalThis as any).__bar.events.push('start:' + k)}
+        onSlidingComplete={(k) => (globalThis as any).__bar.events.push('end:' + k)}
+        isTimeMachineEnabled={sim}
+        onNow={() => setSim(false)}
+        onOpenDatePicker={() => (globalThis as any).__bar.events.push('picker')}
+        onCameraPress={() => {}}
+        events={{ sunrise: day(6, 41), sunset: day(17, 53), moonrise: day(13, 20), moonset: day(23, 40) }}
+        seasonPcts={[{ key: 'a', pct: 22, color: '#4ADE80' }, { key: 'b', pct: 47, color: '#FFA500' }, { key: 'c', pct: 72, color: '#F97316' }, { key: 'd', pct: 98, color: '#38BDF8' }]}
+      />
+    </View>
+  );
+}
+
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
+  if (Q.bar) return <BarRepro W={W} />;
   if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
     <View style={{ width: W, height: H }}>

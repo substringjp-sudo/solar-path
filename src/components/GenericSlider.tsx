@@ -40,6 +40,12 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   const [layoutWidth, setLayoutWidth] = useState(0);
   const trackRef = useRef<View>(null);
   const dragStartValue = useRef(0);
+  const dragStartPageX = useRef(0);
+  /** 슬라이더의 화면 왼쪽(px) — 손가락의 화면 좌표(`pageX`)와 같은 좌표계로 맞추려고 잽니다. */
+  const leftRef = useRef(0);
+  const measureLeft = () => {
+    trackRef.current?.measureInWindow?.((x: number) => { if (Number.isFinite(x)) leftRef.current = x; });
+  };
 
   // Callback refs to prevent PanResponder recreation on parent re-renders
   const onChangeRef = useRef(onChange);
@@ -113,12 +119,15 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
       onGrantRef.current?.();
       if (layoutWidth === 0) return;
       
-      const { locationX } = evt.nativeEvent;
+      // ⚠ `locationX` 는 손가락이 닿은 **가장 안쪽 자식** 기준이라(4px 트랙이면 트랙 시작점 기준) 닿은 자리에 따라
+      //   최대 27px 어긋났습니다. 화면 좌표(`pageX`)에서 슬라이더의 화면 왼쪽을 빼면 어디를 눌러도 같습니다.
+      measureLeft();
       const usableWidth = layoutWidth - 54; // Total width minus both paddings
-      const relativeX = locationX - 27; // Subtract padding
+      const relativeX = evt.nativeEvent.pageX - leftRef.current - 27; // Subtract padding
       const p = Math.max(0, Math.min(100, (relativeX / usableWidth) * 100));
       
       dragStartValue.current = p;
+      dragStartPageX.current = evt.nativeEvent.pageX;
       setLocalValue(p);
       animatedValue.setValue(p);
       onChangeRef.current(p);
@@ -126,7 +135,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
     onPanResponderMove: (evt, gestureState) => {
       if (layoutWidth === 0) return;
       const usableWidth = layoutWidth - 54;
-      const dp = (gestureState.dx / usableWidth) * 100;
+      const dp = ((gestureState.moveX - dragStartPageX.current) / usableWidth) * 100;
       const p = Math.max(0, Math.min(100, dragStartValue.current + dp));
       setLocalValue(p);
       animatedValue.setValue(p);
@@ -149,6 +158,7 @@ export const GenericSlider: React.FC<GenericSliderProps> = ({
   const onLayout = (event: any) => {
     const { width } = event.nativeEvent.layout;
     setLayoutWidth(width);
+    measureLeft();
   };
 
   const fillWidth = animatedValue.interpolate({

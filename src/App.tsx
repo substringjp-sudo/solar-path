@@ -112,11 +112,7 @@ export default function App() {
     globalPhotos,
     removeGlobalPhoto,
     
-    sunPos,
     isDay,
-    moonPos,
-    sunPath,
-    moonPath,
     events,
     dynamicTheme,
     theme,
@@ -125,6 +121,7 @@ export default function App() {
     handleToggleTimeMachine,
     handleTimeChange,
     handleDateChange,
+    datePickerValue,
     handleSaveLocation,
     handleSelectSavedLocation,
     defaultCoords,
@@ -295,13 +292,6 @@ export default function App() {
           setActiveTab={setActiveTab}
           setSettingsVisible={setSettingsVisible}
           setMapVisible={setMapVisible}
-          setShowDatePicker={setShowDatePicker}
-          handleDateChange={handleDateChange}
-          theme={theme}
-          dynamicTheme={dynamicTheme}
-          currentTimeLocal={currentTimeLocal}
-          timezoneLabel={timezoneLabel}
-          isSimulationLoading={isSimulationLoading}
         />
 
         <TabNavigator
@@ -321,13 +311,14 @@ export default function App() {
           removeGlobalPhoto={removeGlobalPhoto}
           setMapVisible={setMapVisible}
           onCameraPress={() => setSunCameraVisible(true)}
+          onOpenDatePicker={() => setShowDatePicker(true)}
           isSuspended={isSunCameraVisible || isMapVisible || isSettingsVisible || isSavedListVisible}
         />
       </View>
 
       {showDatePicker && (
         <AdaptiveDatePicker
-          value={currentTime}
+          value={datePickerValue}
           onChange={handleDateChange}
           onClose={() => setShowDatePicker(false)}
         />
@@ -412,7 +403,7 @@ export default function App() {
           latitude={location?.coords.latitude || defaultCoords.latitude}
           longitude={location?.coords.longitude || defaultCoords.longitude}
           currentTime={currentTime}
-          goldenTimeInfo={goldenTimeInfo}
+          goldenTimeInfo={goldenTimeInfo!}
         />
       )}
 
