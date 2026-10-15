@@ -46,7 +46,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
@@ -364,8 +364,10 @@ export interface VolumetricOptions {
   skeleton: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
   skeletonTiltScale: number;
+  /** §141 진단: 모든 종류 층의 밀도 단면 밑면 값을 이 값으로(null 이면 종류별 GENUS.profileBase 또는 takram 0.25). */
+  profileBase: number | null;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -927,7 +929,10 @@ export async function createVolumetricScene(
       physLanes[i] = phys;
       const altitude = skg ? skg.baseM : (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
       const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
-        : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } } : {};
+        : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } }
+        : g && (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase) != null
+          ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 1 - (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)!, constantTerm: (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)! } }
+        : {};
       clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
