@@ -225,9 +225,14 @@ function compose(core, w, consume) {
   check('T5 compose determinism (sync twice, async chunked)', Buffer.compare(bytesOf(fa), bytesOf(fb)) === 0 && Buffer.compare(bytesOf(fa), bytesOf(fc)) === 0);
   const c128a = runCore(P128), c128b = runCore(P128);
   check('T5 core determinism n=128', Buffer.compare(bytesOf(c128a.dx), bytesOf(c128b.dx)) === 0 && Buffer.compare(bytesOf(c128a.dy), bytesOf(c128b.dy)) === 0, `yields ${c128a.yields}`);
-  const sA = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T03:00:00Z')), sB = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T09:00:00Z')),
+  // 1918960 이후 flowSeedOf 는 (위경도 칸, 날, **시간 버킷**)입니다(기본 1 시간, 하루 동안 구름이 서서히 바뀜). 같은 버킷은 같은 시드,
+  // 다른 버킷·날·장소는 다른 시드. 버킷 폭을 넓히면(hourBucketHours 24) 예전처럼 하루 한 시드.
+  const sA = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T03:00:00Z')), sA2 = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T03:40:00Z')),
+    sB = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T09:00:00Z')),
     sC = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-04T03:00:00Z')), sD = F.flowSeedOf(35.0, 136.6774, new Date('2026-10-03T03:00:00Z'));
-  check('T5 flowSeedOf: same place+day equal, next day / other place differ', sA === sB && sA !== sC && sA !== sD && sA > 0, `${sA} ${sB} ${sC} ${sD}`);
+  check('T5 flowSeedOf: same place+hour equal; other hour / day / place differ', sA === sA2 && sA !== sB && sA !== sC && sA !== sD && sA > 0, `${sA} ${sA2} ${sB} ${sC} ${sD}`);
+  const dA = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T03:00:00Z'), 24), dB = F.flowSeedOf(36.5679, 136.6774, new Date('2026-10-03T09:00:00Z'), 24);
+  check('T5 flowSeedOf with a 24 h bucket: one seed per day again', dA === dB, `${dA} ${dB}`);
 }
 
 // ───── (7) 시간 ─────

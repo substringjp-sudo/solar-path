@@ -28,6 +28,15 @@ export interface MapCanvasProps {
   topView?: import('./useCloudTopView').CloudTopViewImage | null;
   /** 롱프레스 시 해당 위경도 전달 */
   onLongPress?: (coord: { latitude: number; longitude: number }) => void;
+  /** 손가락 두 개 줌을 지도가 직접 받을지(기본 켬). 하늘 탭은 줌을 진행도로 몰아 쓰므로 끕니다. */
+  zoomEnabled?: boolean;
+  /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
+  pickPin?: { latitude: number; longitude: number } | null;
 }
 
-export declare const MapCanvas: React.FC<MapCanvasProps>;
+/** 리렌더 없이 지도를 옮깁니다(웹 미리보기는 고정 도법이라 아무 일도 안 함). */
+export interface MapCanvasHandle {
+  moveTo: (region: { latitude: number; longitude: number; longitudeDelta: number }, durationMs?: number) => void;
+}
+
+export declare const MapCanvas: React.ForwardRefExoticComponent<MapCanvasProps & React.RefAttributes<MapCanvasHandle>>;

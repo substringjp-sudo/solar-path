@@ -46,9 +46,11 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
-import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
+import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
+import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
+import { patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
@@ -95,6 +97,8 @@ export interface VolumetricLayerInput {
   band?: 'low' | 'mid' | 'high';
   /** 종류 손잡이 덮어쓰기(씨앗·바람 방향 등) */
   opts?: Partial<GenusParams>;
+  /** §136 물리(physics 켬)일 때의 밑면(km, 해발) — 적운류 = 지면 + 응결고도. 물리가 꺼져 있으면 쓰지 않습니다. */
+  physBaseKm?: number;
 }
 export interface VolumetricSceneInput {
   lat: number; lon: number; heightM: number;
@@ -108,6 +112,8 @@ export interface VolumetricSceneInput {
   exposure?: number;
   /** 종류 무늬의 원점을 관측점에서 동·북으로 옮김(km) — 큰 세포(적란운) 안에 서 있지 않게 장면을 고를 때 */
   weatherOffsetKm?: [number, number];
+  /** §136 열역학 입력(지상 기온·이슬점·기압면 단면). 없으면 물리는 표준대기로 물러납니다. */
+  thermo?: ThermoInput;
 }
 
 /**
@@ -326,8 +332,38 @@ export interface VolumetricOptions {
   /** §131 카메라 칸 조건화: 관측점을 국소 운량 ≈ 전역 운량인 칸 아래로(weatherOffsetKm 이 없을 때만, 타일 바이트 불변). RULER-flow2 K 통과로
    *  흐름 경로의 기본(flow 가 꺼져 있으면 아무 일도 하지 않음). */
   flowCamCell: boolean;
+  /**
+   * §136 구름 미세물리 1단계(cloudPhysics.ts) — 종류 층의 소광을 기온·기압에서 센 β(층 꼭대기)로, 세로 단면을 단열 h^(2/3)(얼음 층은
+   * 평평)으로 바꾸고, 장면 입력의 physBaseKm(적운류 응결고도 밑면)을 씁니다. 날씨 텍스처는 그대로(층 값·균일변수만 바뀜).
+   * 자: tools/genus-ruler/flow/RULER-physics.md(P1).
+   */
+  physics: boolean;
+  /** §136 P2 — physics 위에 얼음 층 22°·46° 무리(구름 패스 첫 산란 차수)와 얇은 층 가루 효과 끔. physics 가 켜졌을 때만. */
+  physicsIce: boolean;
+  /**
+   * §137 H1 — **물리 없이**(소광·단면은 손값) 얼음 종류(ci·cs·모루) 층에만 22°·46° 무리. 무리 상수는 physicsIce 와 같음. physics+physicsIce 가 켜져 있으면 그쪽이 우선.
+   * 얼음 층이 없는 장면은 켜 두어도 셰이더·균일변수가 끈 것과 같음.
+   */
+  iceHalo: boolean;
+  /** §137 H2 — 얼음 층(ci·cs)의 가루 효과 끔만(무리 없음). 가루 끔과 무리를 따로 재려고 나눔. */
+  icePowderOff: boolean;
+  /** §137 D1 진단 전용 — 조명 바닥값 [하늘빛 가림 0.35, 다중 산란 0.28] 치환. null = 끔(기본, 셰이더 글자 그대로). 기본값을 바꾸는 용도가 아님. */
+  debugLightFloors: [number, number] | null;
+  /**
+   * §138 구름 속 확산광(RULER-physics3). 0 = 끔(기본, 셰이더 글자 그대로) · 1 = L1 thru 의 τ_up 을 기둥 광학두께로 · 2 = L2 두-흐름 확산장이 thru 를 대체 ·
+   * 3 = L3 L2 + 하늘빛 항을 기둥 τ 로 감쇠(ao·바닥값 은퇴). 구름 패스에만 삽입하고, 0 이면 삽입 전 원문으로 되돌립니다.
+   */
+  diffuse: 0 | 1 | 2 | 3 | 9;
+  /**
+   * §139 구름 뼈대(cloudSkeleton.ts, RULER-shape). 0 = 끔(기본 — 날씨 바이트·셰이더 글자 그대로) · 1 = K0h 대조군(옛 무늬, 층 밑면·두께만 뼈대) ·
+   * 2 = K1 뼈대(열기둥 자리·폭·깊이·뚜껑 단면·봉투 거리 밀도) · 3 = K2 = K1 + 전단 기울기(흐름 S4 fetch 레인) · 4 = K3 = K1 + 열기둥별 변이(세기·종·생애 단계·비대칭,
+   * 스커트 없음 — cloudSkeleton.VARY). cu·cg·sc 층만, flow 와 함께 쓰면 throw.
+   */
+  skeleton: 0 | 1 | 2 | 3 | 4;
+  /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
+  skeletonTiltScale: number;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -374,6 +410,8 @@ export interface VolumetricScene {
   weatherMs(): number;
   /** §131 진단: 흐름 핵의 왜곡 s90·실제 의사시간(h), 카메라 칸 오프셋(km) — 흐름이 꺼졌으면 null 들 */
   flowInfo(): { s90: number | null; hoursUsed: number | null; camKm: [number, number] | null };
+  /** §136 진단: 마지막 장면의 층별 물리 값(β·τ·얼음·무리·가루) — 물리가 꺼져 있으면 null */
+  physicsInfo(): (LayerPhysics | null)[] | null;
   /** 진단용 — 하네스에서만 씁니다. */
   debug: { clouds: CloudsEffect; toneMapping: ToneMappingEffect };
   /** §128 대기 표가 파장 15개(분광 휘도)인지 — false 면 takram 3파장. */
@@ -732,6 +770,8 @@ export async function createVolumetricScene(
   let genLayers: (GenusLayer | null)[] = [], genDate: Date | null = null, genUv = false;
   /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
   let lastCamKm: [number, number] | null = null;
+  /** §136 마지막 장면의 층별 물리 값(진단·하네스 출력용) — 물리가 꺼져 있으면 null */
+  let lastPhysics: (LayerPhysics | null)[] | null = null;
   const sun = new Vector3();
 
   let lastInput: VolumetricSceneInput | null = null;
@@ -802,6 +842,20 @@ export async function createVolumetricScene(
       const shearDzKm = Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
       return mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
     });
+    // §139 뼈대: cu·cg·sc 층의 자리·폭·깊이·층 높이를 열역학에서(cloudSkeleton). 1 = 층 높이만(K0h), 2·3 = 뼈대(원 운량, 역표 건너뜀). opts 에 넣어 캐시 키에 포함.
+    const skel = opt.genus ? opt.skeleton : 0;
+    if (skel && useFlow) throw new Error('volumetricScene: skeleton 과 flow 는 함께 쓸 수 없습니다');
+    if (skel) {
+      for (let i = 0; i < gl.length; i++) {
+        const G = gl[i], L = inputs[i];
+        if (!G || !(G.genus === 'cu' || G.genus === 'cg' || G.genus === 'sc')) continue;
+        const genus = G.genus as SkeletonGenus;
+        const sk = skeletonOf({ genus, cover: quantCover(L.cover), baseKm: L.baseKm, thicknessM: L.thicknessM }, p.thermo ?? null, GENUS_TILE_KM, G.opts?.seed ?? 7 + i * 1000, { vary: skel === 4 });
+        gl[i] = skel === 1
+          ? { ...G, opts: { ...G.opts, skelGeom: { baseM: sk.baseM, heightM: sk.heightM } } }
+          : { genus, cover: quantCover(L.cover), opts: { ...G.opts, skeleton: sk, ...(genus === 'sc' ? { mode: 3, domePow: 0.5 } : {}) } };
+      }
+    }
     const useGenus = opt.genus && gl.some(Boolean);
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
@@ -847,6 +901,7 @@ export async function createVolumetricScene(
     const CH = ['r', 'g', 'b', 'a'] as const;
     const { inputs, gl, useGenus } = plan;
     const flowDens = !!plan.flow && opt.flowDensity, flowUv = !!plan.flow && opt.flowUv;
+    const physLanes: (LayerPhysics | null)[] = [null, null, null, null];
     // 종류 없는 층의 두께·밀도: 층 띠(없으면 밑면 높이)로 저·중·상을 가릅니다(이전 프리셋 값과 같음).
     const bandOf = (L: VolumetricLayerInput) => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
     const bandShape = (b: 'low' | 'mid' | 'high') => (b === 'high' ? { height: 400, densityScale: 0.003, shapeAmount: 0.4, shapeDetailAmount: 0 }
@@ -858,10 +913,29 @@ export async function createVolumetricScene(
       const g = useGenus ? gl[i] : null;
       const shape = g ? genusLayerShape(g, flowDens) : bandShape(bandOf(L));
       if (L.thicknessM) shape.height = L.thicknessM;
+      // §139 뼈대(K0h·K1·K2): 층 밑면·두께는 뼈대 값이 최종(예보 덱 두께·physBaseKm 보다 우선). 뚜껑 층은 밀도 단면 평평(밑면이 가장 옅지 않게).
+      const skg = g?.opts?.skeleton ?? g?.opts?.skelGeom;
+      if (skg) shape.height = skg.heightM;
       // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
       const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
-      clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: L.baseKm * 1000, ...shape, coverageFilterWidth: CFW, shadow: layerShadow }));
+      // §136 물리: 종류 층의 소광·세로 단면을 기온·기압에서(cloudPhysics). 꺼져 있으면 CloudLayer 에 아무것도 더하지 않습니다(이전과 같은 바이트).
+      const physRaw = g && opt.physics ? layerPhysics(g.genus, (L.physBaseKm ?? L.baseKm) * 1000, shape.height ?? 0, p.thermo, genusEnvelope(g)) : null;
+      // 입력이 깨져(NaN) 값이 유한하지 않으면 그 층은 손값 그대로 — 구름이 조용히 사라지지 않게.
+      const phys = physRaw && Number.isFinite(physRaw.betaTop) && physRaw.betaTop >= 0 && physRaw.profile.every(Number.isFinite) ? physRaw : null;
+      physLanes[i] = phys;
+      const altitude = skg ? skg.baseM : (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
+      const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
+        : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } } : {};
+      clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
     }
+    lastPhysics = physLanes.some(Boolean) ? physLanes : null;
+    // §136·§137 얼음 레인: physics+physicsIce 면 물리 값, 아니면 iceHalo·icePowderOff 의 손값 레인(얼음 종류 층만), 둘 다 아니면 없음.
+    const physIce = opt.physics && opt.physicsIce;
+    const handIce = !physIce && (opt.iceHalo || opt.icePowderOff);
+    const iceLanes = physIce ? physLanes
+      : handIce ? [0, 1, 2, 3].map(i => (useGenus && gl[i] ? iceLaneHand(gl[i]!.genus, { halo: opt.iceHalo, powderOff: opt.icePowderOff }) : null))
+      : [];
+    const iceOn = physIce || handIce;
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
@@ -873,15 +947,20 @@ export async function createVolumetricScene(
       const driftSec = p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
+        setGenusSkeleton(m, gl, opt.skeleton >= 2);
+        setGenusPhysics(m, iceLanes, iceOn);
+        setGenusLightFloors(m, opt.debugLightFloors);
+        setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
+        if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
     } else {
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
-      for (const m of genusMats) { setGenusUniforms(m, []); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;
@@ -968,6 +1047,7 @@ export async function createVolumetricScene(
       const st = (weather?.userData as { flow?: { s90?: number; hoursUsed?: number } } | undefined)?.flow;
       return { s90: st?.s90 ?? null, hoursUsed: st?.hoursUsed ?? null, camKm: lastCamKm };
     },
+    physicsInfo: () => lastPhysics,
     camera,
     setPreset,
     setScene,

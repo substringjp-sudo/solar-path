@@ -26,11 +26,14 @@ interface MapCanvasProps {
   /** ⚠ 위와 같은 이유로 웹에서는 늘 null 입니다. */
   radar?: unknown;
   topView?: unknown;
+  onLongPress?: unknown;
+  zoomEnabled?: boolean;
+  pickPin?: unknown;
 }
 
 // react-native-maps는 네이티브 전용 모듈이라 웹 번들링이 불가능하므로,
 // 웹 미리보기에서는 react-native-svg 기반의 단순 등장방형(equirectangular) 도법으로 대체합니다.
-export const MapCanvas: React.FC<MapCanvasProps> = ({
+export const MapCanvas = React.forwardRef<{ moveTo: (...a: unknown[]) => void }, MapCanvasProps>(({
   lat,
   lon,
   hasLocation,
@@ -40,7 +43,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   nightPolygonCoords = [],
   theme,
   selectedDate,
-}) => {
+}, ref) => {
+  // 고정 도법이라 옮길 것이 없습니다 — 하늘 탭이 부르므로 빈 손잡이만 둡니다.
+  React.useImperativeHandle(ref, () => ({ moveTo: () => {} }), []);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -139,7 +144,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       )}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

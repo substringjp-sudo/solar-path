@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback, useImperativeHandle } from 'react';
 import { StyleSheet, View, PanResponder } from 'react-native';
 import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect, Image as SvgImage, ClipPath } from 'react-native-svg';
 import * as d3 from 'd3-geo';
@@ -36,6 +36,8 @@ interface MapGlobeProps {
   selectedDate?: Date;
   /** 특정 위치 롱프레스 시 해당 위경도 전달 */
   onSelectLocation?: (coord: { latitude: number; longitude: number }) => void;
+  /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
+  pickPin?: { latitude: number; longitude: number } | null;
 }
 
 /**
@@ -62,7 +64,15 @@ const joinOnSphere = (segments: IsochronePoint[][]): [number, number][][] => {
   return lines;
 };
 
-export const MapGlobe: React.FC<MapGlobeProps> = ({
+/**
+ * 부모가 리렌더 없이 구를 움직입니다 — 하늘 탭의 줌이 손가락 이벤트마다 반지름(지도와 같은
+ * 축척)과 한가운데를 넘깁니다. 구 안의 손짓처럼 한 프레임에 한 번으로 모아 그립니다.
+ */
+export interface MapGlobeHandle {
+  setView: (v: { radius?: number; center?: { latitude: number; longitude: number } }) => void;
+}
+
+export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProps>(({
   subsolar,
   terminator,
   allTerminators = [],
@@ -82,7 +92,8 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   topView = null,
   selectedDate,
   onSelectLocation,
-}) => {
+  pickPin = null,
+}, ref) => {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
   const CX = W / 2;
@@ -138,6 +149,18 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
   useEffect(() => () => {
     if (frame.current !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame.current);
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    setView: ({ radius, center }) => {
+      if (radius !== undefined && Number.isFinite(radius)) {
+        live.current.scale = Math.max(live.current.minRadius, Math.min(live.current.maxRadius, radius));
+      }
+      if (center) {
+        live.current.rotate = [-center.longitude, -Math.max(-89, Math.min(89, center.latitude))];
+      }
+      schedule();
+    },
+  }), []);
 
   const startRotate = useRef<[number, number]>([0, 0]);
   const startX = useRef(0);
@@ -514,6 +537,14 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
     return { x: 0, y: 0, visible: false };
   }, [lat, lon, hasLocation, rotate, projection]);
 
+  const pickMarker = useMemo(() => {
+    if (!pickPin) return null;
+    const pt: [number, number] = [pickPin.longitude, pickPin.latitude];
+    if (d3.geoDistance(pt, [-rotate[0], -rotate[1]]) >= Math.PI / 2) return null;
+    const pos = projection(pt);
+    return pos ? { x: pos[0], y: pos[1] } : null;
+  }, [pickPin, rotate, projection]);
+
   const strokeColor = theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
 
   return (
@@ -716,12 +747,19 @@ export const MapGlobe: React.FC<MapGlobeProps> = ({
             </G>
           )}
 
+          {pickMarker && (
+            <G>
+              <Circle cx={pickMarker.x} cy={pickMarker.y} r={11} fill="rgba(14, 165, 233, 0.25)" />
+              <Circle cx={pickMarker.x} cy={pickMarker.y} r={5} fill="#0EA5E9" stroke="#FFFFFF" strokeWidth={1.5} />
+            </G>
+          )}
+
           <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
         </Svg>
       </View>
     </View>
   );
-};
+}));
 
 const styles = StyleSheet.create({
   container: {

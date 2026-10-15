@@ -66,6 +66,18 @@ export interface CloudData {
    */
   profileHeightM?: number[];
   profileCoverPct?: number[];
+  /**
+   * §135 열역학 입력 — 관측점에서만(`fetchThermoProfile`). 빈 칸·받지 못한 값은 NaN/undefined 이고
+   * 아카이브(5일 넘은 과거)는 CAPE·결빙고도·기압면 기온·습도를 주지 않습니다. 소비자는 Number.isFinite 로 거릅니다.
+   */
+  t2mC?: number;
+  td2mC?: number;
+  capeJkg?: number;
+  freezingLevelM?: number;
+  pblM?: number;
+  /** `THERMO_TEMP_LEVELS` / `THERMO_RH_LEVELS` 순서의 기온(°C)·상대습도(%) */
+  profileTempC?: number[];
+  profileRhPct?: number[];
   distance: number;
   azimuthOffset: number;
   /** Surface visibility in meters. Only populated for the observer point. */
@@ -179,6 +191,14 @@ export interface HourlyCloudData {
   /** 기압면 단면 [면][시각] — `LayerWindHourly.profileHeightM` 주석 참고. */
   profileHeightM?: number[][];
   profileCoverPct?: number[][];
+  /** §135 열역학 입력 [시각] / [면][시각] — `ThermoHourly` 주석 참고. */
+  t2mC?: number[];
+  td2mC?: number[];
+  capeJkg?: number[];
+  freezingLevelM?: number[];
+  pblM?: number[];
+  profileTempC?: number[][];
+  profileRhPct?: number[][];
   visibility?: number[];
   humidity?: number[];
   /** 대기질(CAMS). 관측점에서만. 받지 못한 시각은 null. `CloudData.aod550` 주석 참고. */
@@ -398,6 +418,8 @@ export const fetchSunsetWeather = async (
   // 없다고 운량까지 통째로 실패하면 안 됩니다). 여기서 미리 던져 두고
   // 아래에서 거둡니다 — 왕복 한 번 값이 겹칩니다.
   const windsPromise = fetchLayerWinds(lat, lon, targetDate, signal);
+  // §135 열역학 입력도 따로(실패해도 운량·바람에 영향 없음 — `fetchThermoProfile`).
+  const thermoPromise = fetchThermoProfile(lat, lon, targetDate, signal);
   // 대기질도 따로, 동시에 던집니다 — 실패해도 운량에는 영향이 없습니다(`fetchAirQuality`).
   const airPromise = fetchAirQuality(lat, lon, targetDate, signal);
 
@@ -459,6 +481,7 @@ export const fetchSunsetWeather = async (
     // 위에서 미리 던져 둔 바람. 실패했으면 null 이고, 그때는 호출부가
     // 대용값으로 내려앉습니다 (`skyColumn.ts: resolveLayerWinds`).
     const winds = await windsPromise;
+    const thermo = await thermoPromise;
     const air = await airPromise;
 
     // Reconstruct the 36 CloudPathData items from deduplicated results
@@ -516,6 +539,7 @@ export const fetchSunsetWeather = async (
         if (Array.isArray(resHourly.visibility)) hourly.visibility = resHourly.visibility;
         if (Array.isArray(resHourly.relative_humidity_2m)) hourly.humidity = resHourly.relative_humidity_2m;
         if (winds) attachLayerWinds(hourly, winds);
+        if (thermo) attachThermo(hourly, thermo);
         if (air) attachAirQuality(hourly, air);
       }
 
@@ -967,6 +991,104 @@ export function attachAirQuality(hourly: HourlyCloudData, aq: AirQualityHourly):
   hourly.pm10 = pick(aq.pm10);
 }
 
+/**
+ * §135 열역학 입력 하루치 — 응결고도(지상 기온·이슬점)·안정도/역전(기압면 기온)·상대습도·CAPE·결빙고도·경계층 높이.
+ * 구름 종류별 물리(밑면 높이, 물/얼음, 단열 물 함량)를 예보에서 정하는 재료입니다.
+ *
+ * Why 바람 요청에 **얹지 않고 따로** 받는가: 변수 하나가 모델·기간에 없어서 400 이 나면 요청이 통째로 실패합니다. 바람 요청에
+ * 얹으면 바람·기압면 단면까지 같이 잃습니다. 따로 두면 열역학만 포기합니다(소비자는 없는 값을 NaN 으로 보고 예전 상수로 갑니다).
+ * 변수 수는 5 + 15 + 13 = 33 → 호출 가중치 3.3. 관측점 1점·(위경도 칸, 날짜)당 한 번 받고 캐시합니다.
+ *
+ * 아카이브(5일 넘은 과거)는 CAPE·결빙고도·기압면 기온·습도를 주지 않습니다(단위가 `undefined` 로 와서 값이 전부 null,
+ * 2026-10 확인). 그때는 NaN 으로 채워 돌려줍니다 — 지상 기온·이슬점·경계층 높이만 값이 있습니다.
+ */
+export const THERMO_TEMP_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300, 250, 200] as const;
+/** 상대습도는 300 hPa 위(권운 높이)는 모델이 믿을 만하지 않아 받지 않습니다. */
+export const THERMO_RH_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 750, 700, 600, 500, 400, 300] as const;
+
+export interface ThermoHourly {
+  time: string[];
+  /** 지상 2 m 기온·이슬점(°C) */
+  t2mC: number[]; td2mC: number[];
+  /** CAPE(J/kg) · 결빙고도(m, 해발) · 경계층 높이(m). 없으면 NaN. */
+  capeJkg: number[]; freezingLevelM: number[]; pblM: number[];
+  /** [면 (`THERMO_TEMP_LEVELS` 순서)][시각] 기온(°C) / [면 (`THERMO_RH_LEVELS` 순서)][시각] 상대습도(%). 빈 칸 NaN. */
+  profileTempC: number[][];
+  profileRhPct: number[][];
+}
+
+const thermoCache = new Map<string, ThermoHourly | null>();
+
+export const fetchThermoProfile = async (
+  lat: number,
+  lon: number,
+  targetDate: Date = new Date(),
+  signal?: AbortSignal
+): Promise<ThermoHourly | null> => {
+  const dateStr = localDateString(targetDate);
+  const key = `thermo_${gridBucket(lat, lon)}_${dateStr}`;
+  if (thermoCache.has(key)) return thermoCache.get(key) ?? null;
+
+  const vars = ['temperature_2m', 'dew_point_2m', 'cape', 'freezing_level_height', 'boundary_layer_height']
+    .concat(THERMO_TEMP_LEVELS.map(p => `temperature_${p}hPa`))
+    .concat(THERMO_RH_LEVELS.map(p => `relative_humidity_${p}hPa`))
+    .join(',');
+  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+  const base = diffDays > 5
+    ? 'https://archive-api.open-meteo.com/v1/archive'
+    : 'https://api.open-meteo.com/v1/forecast';
+  const url = `${base}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
+    `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
+
+  try {
+    const response = await fetchWithTimeout(url, { signal }, 12000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (data?.error) throw new Error(data.reason || 'unknown');
+    const h = data?.hourly;
+    const time: string[] = Array.isArray(h?.time) ? h.time : [];
+    if (time.length === 0) throw new Error('empty');
+    const col = (k: string): number[] => time.map((_, i) => {
+      const v = (h[k] as (number | null)[] | undefined)?.[i];
+      return typeof v === 'number' && Number.isFinite(v) ? v : NaN;
+    });
+    const out: ThermoHourly = {
+      time,
+      t2mC: col('temperature_2m'), td2mC: col('dew_point_2m'),
+      capeJkg: col('cape'), freezingLevelM: col('freezing_level_height'), pblM: col('boundary_layer_height'),
+      profileTempC: THERMO_TEMP_LEVELS.map(p => col(`temperature_${p}hPa`)),
+      profileRhPct: THERMO_RH_LEVELS.map(p => col(`relative_humidity_${p}hPa`)),
+    };
+    // 값이 하나도 없으면(지원하지 않는 모델·기간) 없는 것으로 캐시합니다.
+    if (!out.t2mC.some(Number.isFinite) && !out.profileTempC.some(a => a.some(Number.isFinite))) throw new Error('no values');
+    thermoCache.set(key, out);
+    return out;
+  } catch (error) {
+    // 열역학은 있으면 좋은 재료입니다 — 없다고 하늘을 못 그리지 않습니다(소비자는 예전 상수로 진행).
+    if (__DEV__) console.warn('열역학 입력을 받지 못했습니다. 예전 상수로 진행합니다:', error);
+    thermoCache.set(key, null);
+    return null;
+  }
+};
+
+/**
+ * 열역학 시계열을 관측점 시각 **문자열**에 맞춰 붙입니다. 짝이 없는 시각은 NaN — 바람처럼 앞 시각을 물려받지 않습니다
+ * (CAPE·결빙고도를 지어내면 종류 판정이 통째로 바뀝니다).
+ */
+export function attachThermo(hourly: HourlyCloudData, t: ThermoHourly): void {
+  const same = t.time.length === hourly.time.length && t.time.every((x, i) => x === hourly.time[i]);
+  const pos = new Map<string, number>();
+  if (!same) t.time.forEach((x, i) => pos.set(x, i));
+  const pick = (src: number[]): number[] => same ? src : hourly.time.map(x => { const j = pos.get(x); return j === undefined ? NaN : src[j]; });
+  hourly.t2mC = pick(t.t2mC);
+  hourly.td2mC = pick(t.td2mC);
+  hourly.capeJkg = pick(t.capeJkg);
+  hourly.freezingLevelM = pick(t.freezingLevelM);
+  hourly.pblM = pick(t.pblM);
+  hourly.profileTempC = t.profileTempC.map(pick);
+  hourly.profileRhPct = t.profileRhPct.map(pick);
+}
+
 const windCache = new Map<string, LayerWindHourly | null>();
 
 /**
@@ -1262,9 +1384,10 @@ export const fetchDayWeatherRing = async (
     }
 
     // 2) 메인 링이 성공했을 때만 바람 및 대기질을 이어서 요청 (429일 때 불필요한 추가 요청 폭주 방지)
-    const [winds, air] = await Promise.all([
+    const [winds, air, thermo] = await Promise.all([
       fetchLayerWinds(lat, lon, targetDate, signal),
       fetchAirQuality(lat, lon, targetDate, signal),
+      fetchThermoProfile(lat, lon, targetDate, signal),
     ]);
     const results = Array.isArray(data) ? data : [data];
 
@@ -1288,6 +1411,7 @@ export const fetchDayWeatherRing = async (
         if (Array.isArray(rh?.visibility)) hourly.visibility = rh.visibility;
         if (Array.isArray(rh?.relative_humidity_2m)) hourly.humidity = rh.relative_humidity_2m;
         if (winds) attachLayerWinds(hourly, winds);
+        if (thermo) attachThermo(hourly, thermo);
         if (air) attachAirQuality(hourly, air);
       }
       return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
@@ -1367,6 +1491,14 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       // 면마다 따로 시각 보간합니다. 빈 칸(NaN)은 NaN 으로 남아 소비자가 거릅니다.
       profileHeightM: p.hourly.profileHeightM?.map(a => interpolateOpt(a) ?? NaN),
       profileCoverPct: p.hourly.profileCoverPct?.map(a => interpolateOpt(a) ?? NaN),
+      // §135 열역학: NaN 은 NaN 으로 보간됩니다(받지 못한 시각을 값으로 지어내지 않음). 소비자는 Number.isFinite 로 거릅니다.
+      t2mC: interpolateOpt(p.hourly.t2mC),
+      td2mC: interpolateOpt(p.hourly.td2mC),
+      capeJkg: interpolateOpt(p.hourly.capeJkg),
+      freezingLevelM: interpolateOpt(p.hourly.freezingLevelM),
+      pblM: interpolateOpt(p.hourly.pblM),
+      profileTempC: p.hourly.profileTempC?.map(a => interpolateOpt(a) ?? NaN),
+      profileRhPct: p.hourly.profileRhPct?.map(a => interpolateOpt(a) ?? NaN),
       visibility: interpolateOpt(p.hourly.visibility),
       humidity: interpolateOpt(p.hourly.humidity),
       aod550: interpolateOpt(p.hourly.aod550 as number[] | undefined),

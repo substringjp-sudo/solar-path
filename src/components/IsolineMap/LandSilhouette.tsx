@@ -16,7 +16,7 @@
  * ⚠ 지도와 **같은 도법**(메르카토르)으로 그립니다. 다른 도법을 쓰면 타일이
  * 꺼지는 순간 육지가 미끄러집니다.
  */
-import React, { useMemo } from 'react';
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import * as d3 from 'd3-geo';
@@ -30,7 +30,35 @@ interface Props {
   theme: any;
 }
 
-export const LandSilhouette: React.FC<Props> = ({ region, width, height, theme }) => {
+type Region = Props['region'];
+
+/** 리렌더를 부모에게 번지지 않고 영역만 바꿉니다 — 하늘 탭의 줌이 프레임마다 부릅니다. */
+export interface LandSilhouetteHandle {
+  setRegion: (r: Region) => void;
+}
+
+export const LandSilhouette = React.forwardRef<LandSilhouetteHandle, Props>(({ region: regionProp, width, height, theme }, ref) => {
+  // 손잡이로 받은 영역은 **그때의 prop 이 그대로인 동안만** 씁니다 — prop 이 바뀌면(지도 탭이
+  // 새 영역을 넘기면) prop 이 이깁니다. 효과(useEffect)로 맞추면 한 프레임 늦습니다.
+  const regionPropRef = useRef(regionProp);
+  regionPropRef.current = regionProp;
+  const [imperative, setImperative] = useState<{ r: Region; base: Region } | null>(null);
+  const region = imperative && imperative.base === regionProp ? imperative.r : regionProp;
+  // 손가락 이벤트가 한 프레임에 여러 번 와도 경로는 한 번만 다시 풉니다.
+  const pending = useRef<Region | null>(null);
+  const frame = useRef<number | null>(null);
+  useImperativeHandle(ref, () => ({
+    setRegion: (r: Region) => {
+      pending.current = r;
+      if (frame.current !== null) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        if (pending.current) setImperative({ r: pending.current, base: regionPropRef.current });
+      });
+    },
+  }), []);
+  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
+
   const { landPath, graticulePath } = useMemo(() => {
     if (width <= 0 || height <= 0) return { landPath: '', graticulePath: '' };
     // 메르카토르 배율: 화면 폭 W 픽셀이 경도 `longitudeDelta` 도를 담습니다.
@@ -58,4 +86,4 @@ export const LandSilhouette: React.FC<Props> = ({ region, width, height, theme }
       </Svg>
     </View>
   );
-};
+});

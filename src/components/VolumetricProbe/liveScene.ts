@@ -6,13 +6,14 @@
  * 하늘 화면이 같은 함수를 씁니다.
  */
 import SunCalc from 'suncalc';
-import { getInterpolatedWeather, PROFILE_LEVELS, type CloudData, type CloudPathData } from '../../utils/weather';
+import { getInterpolatedWeather, PROFILE_LEVELS, THERMO_RH_LEVELS, type CloudData, type CloudPathData } from '../../utils/weather';
 import { classifyGenus, type ForecastGenus, type GenusForecast } from '../../utils/cloudGenusForecast';
 import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import type { GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
 import type { VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
+import { lclBaseKm, type ThermoInput } from './cloudPhysics';
 
 /**
  * 예보 종류 → 렌더 종류. 아직 렌더에 없는 종류는 가장 가까운 것으로 물러나고(§126 D3 에서 채움),
@@ -60,6 +61,31 @@ export interface LiveScene {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** §136 관측점 예보의 열역학 입력 → cloudPhysics 형식(기압면 높이·기온이 둘 다 있는 면만). */
+export function thermoOf(obs: CloudData, groundM: number): ThermoInput {
+  const hs = obs.profileHeightM, ts = obs.profileTempC;
+  const levels: ThermoInput['levels'] = [];
+  if (hs && ts) {
+    for (let i = 0; i < Math.min(hs.length, ts.length, PROFILE_LEVELS.length); i++) {
+      if (Number.isFinite(hs[i]) && Number.isFinite(ts[i])) levels.push({ zM: hs[i], tC: ts[i], pHPa: PROFILE_LEVELS[i] });
+    }
+  }
+  // §139 뼈대 입력 — 경계층 높이·CAPE·영하고도·상대습도 단면(기압면 높이는 운량 단면의 같은 기압면에서)·850/600 바람(km/h → m/s)·강수.
+  const rhLevels: NonNullable<ThermoInput['rhLevels']> = [];
+  if (hs && obs.profileRhPct) {
+    THERMO_RH_LEVELS.forEach((p, j) => {
+      const i = (PROFILE_LEVELS as readonly number[]).indexOf(p), rh = obs.profileRhPct![j];
+      if (i >= 0 && Number.isFinite(hs[i]) && Number.isFinite(rh)) rhLevels.push({ zM: hs[i], rhPct: rh });
+    });
+  }
+  const mps = (u?: number, v?: number): [number, number] | undefined => (u != null && v != null && Number.isFinite(u) && Number.isFinite(v) ? [u / 3.6, v / 3.6] : undefined);
+  return {
+    groundM, t2mC: obs.t2mC, td2mC: obs.td2mC, levels,
+    pblM: obs.pblM, capeJkg: obs.capeJkg, freezingLevelM: obs.freezingLevelM, rhLevels: rhLevels.length ? rhLevels : undefined,
+    windLowMps: mps(obs.windULow, obs.windVLow), windMidMps: mps(obs.windUMid, obs.windVMid), precipMm: obs.precipitation,
+  };
+}
 
 import { buildMacroWeatherField } from '../../utils/macroWeatherField';
 
@@ -123,6 +149,9 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
 
   const layers: VolumetricLayerInput[] = [];
   let anvil: VolumetricLayerInput | null = null;
+  // §136 적운류 밑면 = 지면 + 응결고도(물리를 켰을 때만 volumetricScene 이 씀). 지상 이슬점이 없으면 없음.
+  const thermo = thermoOf(obs, a.heightM);
+  const lclKm = lclBaseKm(thermo);
   // 저층: 단면 덱이 있으면 밑면·두께를 그대로, 없으면 층 높이(가운데)에서 두께의 반을 뺀 밑면.
   if (obs.low > 0) {
     const thick = forecast.lowBaseKm != null && forecast.lowTopKm != null ? (forecast.lowTopKm - forecast.lowBaseKm) * 1000 : NaN;
@@ -134,11 +163,14 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const topKm = Math.max(baseKm + 4, CB_TOP_KM);
       const windDeg = obs.windUMid != null && obs.windVMid != null ? ((Math.atan2(obs.windUMid, obs.windVMid) * 180) / Math.PI + 360) % 360 : 30;
       const opts = { seed: 7, windDeg, ...flowOpts('low') };
-      layers.push({ genus: 'cb', cover: obs.low / 100, baseKm, thicknessM: (topKm - baseKm) * 1000, band: 'low', opts });
+      layers.push({ genus: 'cb', cover: obs.low / 100, baseKm, thicknessM: (topKm - baseKm) * 1000, band: 'low', opts, physBaseKm: lclKm ?? undefined });
       anvil = { genus: 'cbanvil', cover: 1, baseKm: topKm - CB_ANVIL_THICK_M / 1000 * 0.8, thicknessM: CB_ANVIL_THICK_M, band: 'high', opts };
     } else if (forecast.low === 'cg') {
-      layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low') });
-    } else layers.push({ genus: renderGenusFor(forecast.low), cover: obs.low / 100, baseKm, thicknessM, band: 'low', opts: flowOpts('low') });
+      layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low'), physBaseKm: lclKm ?? undefined });
+    } else {
+      const g = renderGenusFor(forecast.low);
+      layers.push({ genus: g, cover: obs.low / 100, baseKm, thicknessM, band: 'low', opts: flowOpts('low'), physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
+    }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
@@ -153,5 +185,5 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
   const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(forecast.mid, obs.mid)} · 상 ${name(forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%`;
-  return { input: { ...base, layers }, forecast, obs, summary };
+  return { input: { ...base, layers, thermo }, forecast, obs, summary };
 }

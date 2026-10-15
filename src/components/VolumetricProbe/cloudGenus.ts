@@ -19,7 +19,9 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
+import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
+import type { Skeleton } from './cloudSkeleton';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -34,6 +36,13 @@ export type GenusKey = 'cu' | 'cg' | 'cb' | 'cbanvil' | 'sc' | 'st' | 'ns' | 'ac
 export interface GenusParams extends Partial<FlowLayerParams> {
   /** §130 전단을 재는 바로 위 층까지의 고도 차(km) — volumetricScene.weatherPlan 이 채움 */
   shearDzKm?: number;
+  /**
+   * §139 뼈대(cloudSkeleton.skeletonOf) — 있으면 FIELDS cu/cg/sc 가 발생 원리 생성기로 바뀌고(cu·cg 는 절대 d, sc 는 분위수), 셰이더는 뼈대 레인
+   * (봉투 거리 밀도, sc 는 뚜껑 mode 3). volumetricScene.weatherPlan 이 채우며 캐시 키에 자동 포함. 없으면 이전과 같은 바이트.
+   */
+  skeleton?: Skeleton;
+  /** §139 K0h 대조군 — 옛 무늬 그대로, 층 밑면·두께만 뼈대 값(applyScene 이 씀). */
+  skelGeom?: { baseM: number; heightM: number };
   /** 0 = dome(밑면 평평), 1 = lens */
   mode: number;
   /** 층 두께(m) */
@@ -276,9 +285,105 @@ function quantile(arr: Float32Array, q: number): number {
 /** 화소 함수 — 준비(세포·잡음)를 한 번 하고 (x, y) → 장 값. 날씨를 잘라 만들 수 있게(§127, 폰에서 JS 를 오래 막지 않게) 화소 단위로 둡니다. */
 type FieldPx = (x: number, y: number) => number;
 type Field = (S: number, tileKm: number, seed: number, L: GenusLayer, flow?: boolean) => FieldPx;
+// ───── §139 뼈대 생성기(RULER-shape §1) ─────
+/**
+ * 적운·웅대적운: 켜진 열기둥마다 캡 (D_i/H)·(1 − ρ²/R²)^p (p = 0.5/r_i — 깊은 탑도 꼭대기가 둥글게) + 터렛 6(반지름 0.2~0.35 R, 캡 둘레 — 맥동 열기둥의 잔재,
+ * 자유 매개변수 §1.4). 문턱 없는 절대 d. 열기둥이 전부 켜져도 운량이 모자라면(sk.skirt) 열기둥 둘레 0.3 λ 안에 얇은 스커트 d = 0.08·(1 − dist/0.3λ).
+ */
+function skeletonThermalField(S: number, tileKm: number, seed: number, sk: Skeleton): FieldPx {
+  const H = Math.max(1, sk.heightM);
+  const on = sk.cells.filter(c => c.on);
+  const G = 16, bins: number[][] = Array.from({ length: G * G }, () => []);
+  on.forEach((c, i) => bins[(((Math.floor(c.y * G) % G) + G) % G) * G + (((Math.floor(c.x * G) % G) + G) % G)].push(i));
+  const skirtR = (0.3 * sk.lambdaKm) / tileKm;
+  const maxR = on.reduce((m, c) => Math.max(m, c.wKm / 2 / tileKm), 0) + (sk.skirt ? skirtR : 0);
+  const reach = Math.min(G >> 1, Math.ceil(maxR * G) + 1);
+  const tur = on.map((c, i) => {
+    const r = rng(seed ^ (i * 7919 + 13)), out: { a: number; off: number; rb: number; hb: number }[] = [];
+    for (let t = 0; t < 6; t++) out.push({ a: r() * 6.2832, off: 0.3 + 0.3 * r(), rb: 0.2 + 0.15 * r(), hb: 0.75 + 0.25 * r() });
+    return out;
+  });
+  return (x, y) => {
+    const u = (x + 0.5) / S, v = (y + 0.5) / S;
+    const bi = Math.floor(u * G), bj = Math.floor(v * G);
+    let best = 0, dmin = 9;
+    for (let dj = -reach; dj <= reach; dj++) for (let di = -reach; di <= reach; di++) {
+      for (const i of bins[(((bj + dj) % G) + G) % G * G + (((bi + di) % G) + G) % G]) {
+        const c = on[i], R = c.wKm / 2 / tileKm, dx = wrapD(u, c.x), dy = wrapD(v, c.y), rho2 = dx * dx + dy * dy;
+        const top = c.dM / H;
+        // 캡(K3 면 비대칭: 중심을 바람 쪽으로 off·R 밀고 가로축 ax 로 눌린 타원; 지수 p·높이 몫 capW 는 생애 단계)
+        let cx = dx, cy = dy;
+        if (c.dir && (c.off || (c.ax && c.ax !== 1))) {
+          const ex = c.dir[0], ey = c.dir[1], ox = (c.off ?? 0) * R;
+          const along = (dx - ex * ox) * ex + (dy - ey * ox) * ey, across = -(dx - ex * ox) * ey + (dy - ey * ox) * ex;
+          cx = along; cy = across / (c.ax ?? 1);
+        }
+        const capRho2 = cx * cx + cy * cy;
+        if (capRho2 < R * R) {
+          const ri = c.dM / Math.max(1, c.wKm * 1000);
+          const p = c.p ?? 0.5 / Math.max(0.2, ri);
+          best = Math.max(best, top * (c.capW ?? 1) * Math.pow(1 - capRho2 / (R * R), Math.max(0.1, p)));
+        }
+        if (rho2 < R * R * 2.0) {
+          for (const t of tur[i]) {
+            const ex = dx - Math.cos(t.a) * t.off * R, ey = dy - Math.sin(t.a) * t.off * R, rb = t.rb * R;
+            const q = 1 - (ex * ex + ey * ey) / (rb * rb);
+            if (q > 0) best = Math.max(best, top * t.hb * Math.sqrt(q));
+          }
+        }
+        dmin = Math.min(dmin, Math.sqrt(rho2) - R);
+      }
+    }
+    if (best <= 0 && sk.skirt && dmin < skirtR) best = 0.08 * (1 - Math.max(0, dmin) / skirtR);
+    return best;
+  };
+}
+/**
+ * 타일 주기 **스펙트럼 잡음** — 정수 파수 (kx, ky) 의 코사인 합(주기가 타일과 같아 어느 각도의 비등방도 경계가 맞음). 봉우리 |k| = kPeak(타일당 파수),
+ * 비등방: dir(°, 북 0 동 90) 방향의 파수를 aniso 배 줄임(그 방향으로 길게 늘어선 무늬 = 롤). 값은 [0, 1] 로 정규화(평균 0.5, ±2σ).
+ */
+function spectralNoise(kPeak: number, aniso: number, dirDeg: number | null, seed: number): F2 {
+  const r = rng(seed), kmax = Math.max(2, Math.ceil(kPeak * 3));
+  const ang = dirDeg == null ? 0 : (dirDeg * Math.PI) / 180, ex = Math.sin(ang), ey = Math.cos(ang);   // 늘어선 방향 (x 동, y 북)
+  const modes: { kx: number; ky: number; a: number; ph: number }[] = [];
+  let s2 = 0;
+  for (let ky = -kmax; ky <= kmax; ky++) for (let kx = 0; kx <= kmax; kx++) {
+    if (kx === 0 && ky <= 0) continue;
+    let px = kx, py = ky;
+    if (dirDeg != null) { const along = px * ex + py * ey; px -= along * ex * (1 - 1 / aniso); py -= along * ey * (1 - 1 / aniso); }
+    const k = Math.hypot(px, py);
+    const a = Math.exp(-0.5 * Math.pow(Math.log(Math.max(1e-6, k) / kPeak) / 0.5, 2));   // 로그 가우스 봉우리(폭 0.5 옥타브)
+    if (a < 0.02) continue;
+    modes.push({ kx, ky, a, ph: r() * 6.2832 }); s2 += 0.5 * a * a;
+  }
+  const norm = 0.25 / Math.sqrt(Math.max(1e-9, s2));
+  return (u, v) => {
+    let s = 0;
+    for (const m of modes) s += m.a * Math.cos(6.2831853 * (m.kx * u + m.ky * v) + m.ph);
+    return Math.min(1, Math.max(0, 0.5 + s * norm));
+  };
+}
+/**
+ * 층적운: 중규모 세포 덮개(봉우리 35 h — 열린 세포는 가운데 맑고 고리에 구름, 닫힌 세포는 가운데 두꺼움) × 혼합층 요소(간격 2.5 h, 롤이면 바람 −15° 방향 3:1)
+ * × 작은 잡음. 그 뒤는 운량 분위수 문턱(기존 경로, domePow 0.5).
+ */
+function skeletonScField(S: number, tileKm: number, seed: number, sk: Skeleton): FieldPx {
+  const meso = spectralNoise(Math.max(1, tileKm / Math.max(1e-3, sk.mesoKm)), 1, null, seed + 41);
+  const el = spectralNoise(Math.max(1, tileKm / Math.max(1e-3, sk.elKm)), sk.rollDeg == null ? 1 : 3, sk.rollDeg, seed + 43);
+  const fine = fbm(Math.max(8, Math.round(tileKm / 0.5)), 2, seed + 47);
+  return (x, y) => {
+    const u = (x + 0.5) / S, v = (y + 0.5) / S;
+    const m = meso(u, v);
+    // 열린 세포: 가운데(m 높음)가 맑고 고리(m ≈ 0.5)에 구름 — 1 − |2m − 1| 꼴의 고리에 가장자리 쪽(m 낮음)을 더함. 닫힌: m 그대로.
+    const cover = sk.open ? Math.max(1 - m, 1 - Math.abs(2 * m - 1)) * 0.5 + 0.5 * (1 - m) : m;
+    return cover * (0.6 + 0.4 * el(u, v)) * (1 + 0.15 * (fine(u, v) - 0.5));
+  };
+}
+
 const FIELDS: Record<GenusKey, Field> = {
   // 적운: 솜사탕처럼 복합적인 거품 덩어리들이 뭉쳐진 꽃양배추형 대류 뭉게구름 (Multi-scale Cauliflower Billows)
   cu(S, tileKm, seed, L) {
+    if (L.opts?.skeleton) return skeletonThermalField(S, tileKm, seed, L.opts.skeleton);
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 2.4)));
     const C = cells(n, seed), env = fbm(2, 3, seed + 7), warp = fbm(Math.max(4, n), 3, seed + 13), warp2 = fbm(Math.max(4, n), 3, seed + 17);
     const wa = (param(L, 'warp') ?? 0.35) / n, rmax = (param(L, 'radius') ?? 0.6) / n, T = param(L, 'turrets') ?? 8, skew = param(L, 'sizeSkew') ?? 1.5;
@@ -365,6 +470,7 @@ const FIELDS: Record<GenusKey, Field> = {
     };
   },
   sc(S, tileKm, seed, L, flow) {
+    if (L.opts?.skeleton) return skeletonScField(S, tileKm, seed, L.opts.skeleton);
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 1.8)));
     const C = cells(n, seed, 0.8), warp = fbm(Math.max(4, n * 2), 3, seed + 21), warp2 = fbm(Math.max(4, n * 2), 3, seed + 23);
     const wa = (param(L, 'warp') ?? 0.3) / n, lumps = param(L, 'lumps') ?? 0, gap = param(L, 'gap') ?? 0.5;
@@ -402,6 +508,7 @@ const FIELDS: Record<GenusKey, Field> = {
   },
   // 웅대적운: 수직으로 솟구치는 거대한 대류 탑 복합체 (Cumulus congestus stack)
   cg(S, tileKm, seed, L) {
+    if (L.opts?.skeleton) return skeletonThermalField(S, tileKm, seed, L.opts.skeleton);
     const n = Math.max(1, Math.round(tileKm / (param(L, 'spacingKm') ?? 4)));
     const C = cells(n, seed), env = fbm(2, 3, seed + 11), warp = fbm(Math.max(4, n * 2), 3, seed + 17);
     const wa = (param(L, 'warp') ?? 0.4) / n, rmax = (param(L, 'radius') ?? 0.6) / n, T = param(L, 'turrets') ?? 8;
@@ -608,6 +715,11 @@ function* genusWeatherSteps(
     // 흐름 층은 히스토그램 분위수(정렬과 같은 값, 3배 빠름 — cloudFlow 테스트가 같음을 확인).
     const qf = useFlow ? quantileHist : quantile;
     const pw = param(L, 'domePow');
+    if (L.opts?.skeleton && (L.genus === 'cu' || L.genus === 'cg')) {
+      // §139 뼈대 열기둥: 운량은 생성기(켠 열기둥 Σ면적 + 스커트)가 맞췄으므로 문턱·감마 없이 절대 d. 0 < f < 1/510 도 1 로(스커트 끝).
+      for (let i = 0; i < S * S; i++) data[i * 4 + k] = f[i] > 0 ? Math.max(1, Math.round(Math.min(1, f[i]) * 255)) : 0;
+      continue;
+    }
     if (param(L, 'absolute')) {
       // 문턱 없이 장 값 그대로 — 모루처럼 "탑 둘레에만" 있어야 하는 층. cover 는 쓰지 않습니다.
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = Math.round(Math.pow(Math.min(1, Math.max(0, f[i])), pw) * 255);
@@ -723,6 +835,18 @@ export async function makeGenusWeatherAsync(
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
+/** §126.6 햇빛 확산 투과(thru) 블록 — patchGenusShader 가 넣고 §138 injectGenusDiffuse 가 같은 글자를 찾아 바꿉니다(한 상수). */
+const THRU_BLOCK = [
+  '',
+  '      {',
+  '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
+  '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
+  '        // 다중 산란 최저광: 두꺼운 구름도 햇빛을 등질 때 웅장한 은빛/금빛 확산광 보장',
+  '        vec4 gMultiScat = max(vec4(0.28), exp(-0.035 * gTau)) * max(genusBeamTransmittance, vec4(0.25));',
+  '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.15 * gTau)) * (2.0 / (2.0 + 0.1 * gTau)) * gMultiScat;',
+  '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);',
+  '      }',
+].join('\n');
 const VEC_UNIFORMS = ['genusOn', 'genusMode', 'genusBase', 'genusTop', 'genusEdge', 'genusAO', 'genusThru', 'genusBeamTransmittance'] as const;
 
 /**
@@ -744,18 +868,10 @@ export function patchGenusShader(mat: PatchableMaterial): void {
     '',
     '  // 종류별 단면: d(날씨) 가 문턱 1 - hs 를 넘는 곳이 구름.',
     '  vec4 gHf = weather.heightFraction;',
-    '  // §134 유기적 밑면 굴곡(LCL Base Perturbation): 칼로 자른 듯한 완전 수평 평면 파괴',
-    '  // 구름 중심(localWeather가 큰 곳)은 수분 응결로 약간 처져 내려오고, 외곽은 위로 자연스럽게 둥글게 말림.',
-    '  vec4 gBasePerturb = (localWeather - vec4(0.45)) * vec4(0.09) * clamp(genusEdge, vec4(0.5), vec4(2.0));',
-    '  vec4 gBaseRampMin = -max(gBasePerturb, vec4(-0.04));',
-    '  vec4 gBaseRampMax = max(genusBase + gBasePerturb, vec4(0.06));',
-    '  vec4 gRamp = smoothstep(gBaseRampMin, gBaseRampMax, gHf);',
-    '  // §134 다중 스케일 솜사탕/꽃양배추 볼륨 팽창 (Fractal Cauliflower Bulge)',
-    '  vec4 gClamp = clamp(gHf, vec4(0.0), vec4(1.0));',
-    '  vec4 gSine1 = sin(gClamp * 3.141592);',
-    '  vec4 gSine2 = sin(gClamp * 6.283184) * vec4(0.18);',
-    '  vec4 gBulge = clamp(gSine1 + gSine2, vec4(0.0), vec4(1.15));',
-    '  vec4 gDome = gRamp * (pow(max(vec4(1.0) - gHf, vec4(1e-6)), genusTop) * 0.35 + pow(max(gBulge, vec4(1e-6)), genusTop * 0.65) * 0.65);',
+    '  // §135 0단계: 세로 단면을 병합 전(§130) 것으로 되돌림 — 밑면은 평평하게(smoothstep 한 번) 시작해 위로 갈수록 좁아집니다.',
+    '  // §134 의 가운데 팽창(sin)·밑면 굴곡은 마디마다 둥근 알을 만들어 소시지 모양을 낳았습니다.',
+    '  vec4 gRamp = smoothstep(vec4(0.0), max(genusBase, vec4(1e-4)), gHf);',
+    '  vec4 gDome = gRamp * pow(max(vec4(1.0) - gHf, vec4(1e-6)), genusTop);',
     '  vec4 gLens = vec4(1.0) - pow(max(abs(gHf * 2.0 - 1.0), vec4(1e-6)), max(genusTop, vec4(1e-3)));',
     '  vec4 gHs = mix(gDome, gLens, step(vec4(0.5), genusMode));',
     '  vec4 gDensity = clamp((localWeather - (vec4(1.0) - gHs)) * genusEdge, 0.0, 1.0);',
@@ -770,17 +886,7 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   // 햇빛 확산 투과(GenusParams.thru): 위쪽 광학두께 ≈ 이 표본의 소광 × 꼭대기까지 거리.
   const amb = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
   if (src.includes(amb)) {
-    src = src.replace(amb, amb + [
-      '',
-      '      {',
-      '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
-      '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
-      '        // 다중 산란 최저광: 두꺼운 구름도 햇빛을 등질 때 웅장한 은빛/금빛 확산광 보장',
-      '        vec4 gMultiScat = max(vec4(0.28), exp(-0.035 * gTau)) * max(genusBeamTransmittance, vec4(0.25));',
-      '        vec4 gThru = genusThru * genusOn * (vec4(1.0) - exp(-0.15 * gTau)) * (2.0 / (2.0 + 0.1 * gTau)) * gMultiScat;',
-      '        radiance += sunIrradiance * RECIPROCAL_PI4 * dot(gThru, media.weight);',
-      '      }',
-    ].join('\n'));
+    src = src.replace(amb, amb + THRU_BLOCK);
   }
   src = src.replace(g, [
     'uniform vec3 genusOrigin;', 'uniform vec3 genusEast;', 'uniform vec3 genusNorth;', 'uniform float genusTileM;',
@@ -822,6 +928,255 @@ export function setGenusUniforms(mat: PatchableMaterial, layers: (GenusLayer | n
   set('genusAO', lane(L => param(L, 'ao')));
   set('genusThru', lane(L => param(L, 'thru') ?? 1));
   set('genusBeamTransmittance', lane(L => (L?.opts as any)?.beamTransmittance ?? 1));
+}
+
+/**
+ * §136 P2 셰이더 — 22°·46° 무리(구름 패스 첫 산란 차수)와 얇은 층 가루 효과 끔. **켤 때만** 구름 패스 셰이더에 삽입하고, 끄면 삽입 전 원문으로
+ * 되돌립니다 — 끈 상태의 셰이더 글자가 §136 이전과 같아야 "끄면 그대로"가 컴파일 결과의 부동소수점 반올림까지 지켜집니다
+ * (삽입 코드가 죽은 가지로 남아 있어도 cu_200·tw1734 의 화소가 몇백 개 달라졌음 — RULER-physics G3). 삽입 전 원문은 재질별로 처음 부를 때 기억합니다.
+ */
+const ICE_RAD = 'vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
+const ICE_POW = 'radiance *= 1.0 - powderScale * exp(-media.extinction * powderExponent);';
+const ICE_MARCH = 'vec4 marchClouds(';
+const ICE_DECL = 'uniform vec4 coverageFilterWidths;';
+/** 삽입 전 원문 → 무리·가루 코드를 넣은 원문. 구름 패스가 아니면(앵커 없음) 그대로. */
+export function injectGenusIce(base: string): string {
+  if (!base.includes(ICE_RAD) || !base.includes(ICE_MARCH) || !base.includes(ICE_DECL)) return base;
+  let src = base.replace(ICE_DECL, ICE_DECL + '\nuniform vec4 genusHalo;\nuniform vec4 genusPowderW;\nuniform float genusPhysOn;');
+  src = src.replace(ICE_MARCH, [
+    '// §136 22°·46° 무리(무작위 방향 육각 기둥): 최소 편향각에서 날카롭게 오르고 바깥으로 지수 감쇠. 파장마다 중심이 달라 안쪽이 붉음.',
+    'vec3 genusHaloRing(const float th, const vec3 c, const float rise, const float w) {',
+    '  return smoothstep(c - rise, c, vec3(th)) * exp(-max(vec3(th) - c, vec3(0.0)) / w);',
+    '}',
+    'vec3 genusHaloPhase(const float cosTheta) {',
+    '  float th = degrees(acos(clamp(cosTheta, -1.0, 1.0)));',
+    '  return 0.25 * (genusHaloRing(th, vec3(21.6, 21.9, 22.3), 0.4, 1.2) + 0.15 * genusHaloRing(th, vec3(45.6, 46.0, 46.6), 0.6, 2.0));',
+    '}',
+    ICE_MARCH,
+  ].join('\n'));
+  src = src.replace(ICE_RAD, [
+    ICE_RAD,
+    '      if (genusPhysOn > 0.5) {',
+    '        // 첫 산란 차수(해에서 곧장 온 빛, e^(−τ))에만 얼음 무리 위상을 더합니다 — 여러 번 산란한 빛은 무리를 지웁니다.',
+    '        float gHaloW = dot(genusHalo, media.weight);',
+    '        if (gHaloW > 0.0) radiance += sunIrradiance * (gHaloW * exp(-opticalDepth)) * genusHaloPhase(cosTheta);',
+    '      }',
+  ].join('\n'));
+  if (src.includes(ICE_POW)) {
+    src = src.replace(ICE_POW, 'radiance *= 1.0 - powderScale * (genusPhysOn > 0.5 ? dot(genusPowderW, media.weight) : 1.0) * exp(-media.extinction * powderExponent);');
+  }
+  return src;
+}
+/** 조명 바닥값(§134 의 다중 산란 최저광) 두 곳의 글자 — 구름 패스에만 있음(그림자 패스엔 skyGradient 줄이 없음). 진단(§137 D1)에서만 치환합니다. */
+const FLOOR_SKY = 'max(vec4(0.35), exp(-genusAO * weather.depth))';
+const FLOOR_MS = 'max(vec4(0.28), exp(-0.035 * gTau))';
+/** 바닥값 [하늘빛 가림, 다중 산란]을 치환한 원문. floors 가 null 이거나 앵커가 없으면(그림자 패스) 그대로. */
+export function applyGenusFloors(base: string, floors: [number, number] | null): string {
+  if (!floors || !base.includes(FLOOR_SKY) || !base.includes(FLOOR_MS)) return base;
+  const lit = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+  return base
+    .replace(FLOOR_SKY, `max(vec4(${lit(floors[0])}), exp(-genusAO * weather.depth))`)
+    .replace(FLOOR_MS, `max(vec4(${lit(floors[1])}), exp(-0.035 * gTau))`);
+}
+
+/**
+ * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
+ * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
+ */
+interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean }
+const VARIANT = new WeakMap<object, ShaderVariant>();
+function variantOf(mat: PatchableMaterial): ShaderVariant {
+  let v = VARIANT.get(mat);
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false }; VARIANT.set(mat, v); }
+  return v;
+}
+function refreshVariant(mat: PatchableMaterial): void {
+  const v = variantOf(mat);
+  // §138 확산광은 thru 블록·하늘빛 줄을 통째로 바꾸므로 **먼저** 넣고, 바닥값 치환은 그 뒤(L2·L3 에서는 앵커가 사라져 바닥값 치환이 조용히 비활성 — 둘은 함께 쓰지 않음).
+  if (v.diffuse >= 2 && v.floors && v.base.includes(IS_CLOUDS)) throw new Error('cloudGenus: debugLightFloors 는 diffuse 2·3 과 함께 쓸 수 없습니다(바닥값 앵커가 교체됨)');
+  // §139 뼈대 레인은 날씨 단계(sampleWeather)만 바꾸므로 확산·바닥값·얼음 앵커와 겹치지 않음 — 가장 먼저.
+  let want = v.skeleton ? injectGenusSkeleton(v.base) : v.base;
+  want = injectGenusDiffuse(want, v.diffuse);
+  want = applyGenusFloors(want, v.floors);
+  if (v.ice) want = injectGenusIce(want);
+  if (mat.fragmentShader !== want) { mat.fragmentShader = want; mat.needsUpdate = true; }
+  const injected = v.ice && want.includes('genusPhysOn');
+  if (injected && !mat.uniforms.genusPhysOn) {
+    mat.uniforms.genusHalo = { value: new Vector4() };
+    mat.uniforms.genusPowderW = { value: new Vector4(1, 1, 1, 1) };
+    mat.uniforms.genusPhysOn = { value: 0 };
+  }
+  if (!injected && mat.uniforms.genusPhysOn) {
+    delete mat.uniforms.genusHalo; delete mat.uniforms.genusPowderW; delete mat.uniforms.genusPhysOn;
+    mat.needsUpdate = true;
+  }
+  const skOn = v.skeleton && want.includes('uniform vec4 genusSkel;');
+  if (skOn && !mat.uniforms.genusSkel) mat.uniforms.genusSkel = { value: new Vector4() };
+  if (!skOn && mat.uniforms.genusSkel) { delete mat.uniforms.genusSkel; mat.needsUpdate = true; }
+}
+
+/**
+ * §139 뼈대 레인 셰이더(RULER-shape 검토 구현 1·2·3·6) — 구름·그림자 패스 모두(sampleWeather 안). genusSkel = 1 인 층만:
+ *  - 뚜껑 단면 genusMode 3: hs = hf (꼭대기 평평·밑면 = 1 − d), hf = 1(층 위 표본) 에서 0 가드 — 위층 띠로 새지 않게.
+ *  - 밀도 = **봉투까지의 hf 거리**(d·edge 가 아님): 돔 (d − hf)·8, 뚜껑 (hf − (1 − d))·8, 밑면 램프 0.03 — d 가 작은 기둥도 속이 꽉 참.
+ *  - weather.depth(하늘빛 가림·thru 의 깊이) = 꼭대기에서 내려온 거리: 돔 d − hf, 뚜껑 1 − hf.
+ * 앵커는 patchFlowShader 가 만든 문장(흐름 패치 직후의 글자). 끄면(refreshVariant) 삽입 전 원문이라 글자·균일변수가 K0 과 같음(G3).
+ */
+const SK_DECL = 'uniform vec4 coverageFilterWidths;';
+const SK_HS = '  vec4 gHs = mix(mix(gDome, gLens, step(vec4(0.5), genusMode)), gDomeL, step(vec4(1.5), genusMode));';
+const SK_STEP = '  gDensity *= mix(step(vec4(1.0 / 512.0), localWeather), smoothstep(vec4(0.0), vec4(2.0 / 255.0), localWeather), genusFlow);';
+const SK_DEPTH = '  weather.depth = mix(max(localWeather - (vec4(1.0) - gHs), vec4(0.0)), gDepthTau, genusFlow);';
+export function injectGenusSkeleton(base: string): string {
+  for (const a of [SK_DECL, SK_HS, SK_STEP, SK_DEPTH]) if (!base.includes(a)) throw new Error('cloudGenus: skeleton anchor missing — ' + a.trim().slice(0, 40));
+  let src = base.replace(SK_DECL, SK_DECL + '\nuniform vec4 genusSkel;');
+  src = src.replace(SK_HS, [
+    SK_HS,
+    '  // §139 뚜껑 단면(mode 3): 꼭대기 평평, 밑면 = 1 − d. 층 위(hf = 1) 에서 0.',
+    '  vec4 gCapGuard = step(gHf, vec4(1.0 - 1e-4));',
+    '  vec4 gIsCap = step(vec4(2.5), genusMode);',
+    '  gHs = mix(gHs, gHf * gCapGuard, gIsCap);',
+  ].join('\n'));
+  src = src.replace(SK_STEP, [
+    SK_STEP,
+    '  // §139 뼈대 레인: 밀도 = 봉투까지의 높이 거리(돔 d − hf, 뚜껑 hf − (1 − d)) × 밑면 램프 0.03.',
+    '  vec4 gSkDome = clamp((localWeather - gHf) * 8.0, 0.0, 1.0);',
+    '  vec4 gSkCap = clamp((gHf - (vec4(1.0) - localWeather)) * 8.0, 0.0, 1.0) * gCapGuard;',
+    '  vec4 gSkDens = mix(gSkDome, gSkCap, gIsCap) * smoothstep(vec4(0.0), vec4(0.03), gHf) * step(vec4(1.0 / 512.0), localWeather);',
+    '  gDensity = mix(gDensity, gSkDens, genusSkel);',
+  ].join('\n'));
+  src = src.replace(SK_DEPTH, [
+    SK_DEPTH,
+    '  weather.depth = mix(weather.depth, mix(max(localWeather - gHf, vec4(0.0)), (vec4(1.0) - gHf) * gCapGuard, gIsCap), genusSkel);',
+  ].join('\n'));
+  return src;
+}
+/** 뼈대 레인 켜기 — on 이면 삽입하고 층별 genusSkel(opts.skeleton 이 있는 층 1). 꺼지면 원문·균일변수 복귀. */
+export function setGenusSkeleton(mat: PatchableMaterial, layers: (GenusLayer | null)[], on: boolean): void {
+  const v = variantOf(mat);
+  v.skeleton = on && layers.some(L => !!L?.opts?.skeleton);
+  refreshVariant(mat);
+  if (mat.uniforms.genusSkel) {
+    const lane = [0, 1, 2, 3].map(i => (layers[i]?.opts?.skeleton ? 1 : 0));
+    (mat.uniforms.genusSkel.value as Vector4).set(lane[0], lane[1], lane[2], lane[3]);
+  }
+}
+
+/**
+ * §136·§137 얼음 레인(층별 무리 세기·가루 효과 무게). 얼음 코드는 **레인이 실제로 쓰일 때만**(어느 층이든 halo > 0 또는 powder < 1) 구름 패스 셰이더에 삽입하고,
+ * 아니면 삽입 전 원문으로 되돌립니다. 물 구름만 있는 장면은 켜 두어도 셰이더·균일변수가 끈 장면과 같습니다. 그림자 패스처럼 앵커가 없는 재질은 아무것도 하지 않습니다.
+ * 물리 값이 없는 층은 무리 0 · 가루 1.
+ */
+export function setGenusPhysics(mat: PatchableMaterial, lanes: ({ halo: number; powder: number } | null)[], on: boolean): void {
+  const active = on && lanes.some(l => !!l && (l.halo > 0 || l.powder < 1));
+  variantOf(mat).ice = active;
+  refreshVariant(mat);
+  if (!active || !mat.uniforms.genusPhysOn) return;
+  const v = (fn: (l: { halo: number; powder: number }) => number, dflt: number) => [0, 1, 2, 3].map(i => (lanes[i] ? fn(lanes[i] as { halo: number; powder: number }) : dflt));
+  const h = v(l => l.halo, 0), w = v(l => l.powder, 1);
+  (mat.uniforms.genusHalo.value as Vector4).set(h[0], h[1], h[2], h[3]);
+  (mat.uniforms.genusPowderW.value as Vector4).set(w[0], w[1], w[2], w[3]);
+  mat.uniforms.genusPhysOn.value = 1;
+}
+
+/** §137 D1 진단 — 조명 바닥값 치환(null 이면 끔 = 원문). 기본값을 바꾸는 것이 아니라 켜 보기만 합니다. */
+export function setGenusLightFloors(mat: PatchableMaterial, floors: [number, number] | null): void {
+  variantOf(mat).floors = floors;
+  refreshVariant(mat);
+}
+
+/**
+ * §138 구름 속 확산광(RULER-physics3). 구름 패스의 하늘빛 줄 + thru 블록(patchGenusShader 가 넣은 글자)을 후보별로 바꿉니다 — **켤 때만**, 끄면 원문.
+ * 기둥 광학두께는 그림자 지도가 아니라(행진 minTransmittance 에서 τ ≈ 72 로 포화) 층 단면의 **해석적 적분**: τ(hf 구간) = densityScale(층 공칭) × H × ∫ gDensity(hf)·profile(hf) dhf — 모양 잡음은 넣지 않음(상한, §8)
+ * — gDensity 는 patchGenusShader 와 같은 식(날씨 d 는 weather.depth 에서 되찾음: d = depth + 1 − hs(hf_표본)), 중점 8 개. 표본의 모양 잡음 배율이 기둥 전체에 걸리는 것은 한계(§8).
+ *   1 (L1): thru 식·바닥값은 그대로, τ_up 만 해석적 기둥(표본 위)으로.
+ *   2 (L2): 하늘빛 항 = 충돌 전 하늘빛만(E_h = skyIrradiance/2π, 반구 평균 ½, e^(−2τ'_above); ao·0.35 바닥값 은퇴), thru 블록 = 두-흐름 확산장
+ *           J = [E_sun·μ0·K(μ0)·D_sun + E_h·D_sky] / 2π (0.28·0.25 바닥값·genusThru 없음).
+ *   3 (L3): L2 의 확산장만 넣고 takram 하늘빛 항·ao 바닥값은 **그대로**(하늘빛 이중 계산 대조 — 검토 4 의 예측 "RC 통과 불가" 를 재는 후보).
+ * 그림자 패스(구름 패스 판별 줄 없음)는 그대로; 구름 패스인데 앵커가 없으면 throw(조용히 L0 이 되지 않게). debugLightFloors 는 L2·L3 와 함께 못 씀(throw).
+ * 균일변수는 새로 두지 않습니다(상수를 글자로).
+ */
+const DIFF_TAU_LINE = '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;';
+const DIFF_SKY_FLOOR = '      skyGradient *= dot(mix(vec4(1.0), max(vec4(0.35), exp(-genusAO * weather.depth)), genusOn), media.weight);';
+/** 구름 패스 판별자(= takram 하늘빛 항) — 이 줄이 있으면 구름 패스. */
+const IS_CLOUDS = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
+const DIFF_MU0 = `max(${MU0_MIN.toFixed(4)}, dot(surfaceNormal, sunDirection))`;
+/** 해석적 기둥 τ(표본 위·전체, vec4 층별) — L1·L2·L3 공통. gTauA(위), gTauT(전체) 를 둡니다. */
+const COLUMN_GLSL = [
+  '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
+  '        vec4 gHf0 = weather.heightFraction;',
+  '        vec4 gLW = weather.depth + vec4(1.0) - genusHsD(gHf0);   // 날씨 d 되찾기(구름 안 표본: depth > 0)',
+  '        vec4 gIntA = vec4(0.0), gIntT = vec4(0.0);',
+  `        for (int gi = 0; gi < ${COLUMN_N}; ++gi) {`,
+  `          float gHfi = (float(gi) + 0.5) / ${COLUMN_N}.0;`,
+  '          // 층 공칭 밀도(모양 잡음 없음) × takram 층 단면 — 표본의 소광/밀도 비를 쓰면 모양 잡음에 깎인 표면 표본이 기둥 전체를 과소평가함(진단 렌더: sc τ 19).',
+  '          vec4 gDi = clamp((gLW - (vec4(1.0) - genusHsD(vec4(gHfi)))) * genusEdge, 0.0, 1.0) * getLayerDensity(vec4(gHfi));',
+  '          gIntT += gDi;',
+  '          gIntA += gDi * step(gHf0, vec4(gHfi));',
+  '        }',
+  `        vec4 gTauA = densityScales * gLayerH * gIntA / ${COLUMN_N}.0;`,
+  `        vec4 gTauT = max(gTauA, densityScales * gLayerH * gIntT / ${COLUMN_N}.0);`,
+].join('\n');
+const HS_GLSL = [
+  '// §138 종류 단면 hs(hf) — patchGenusShader 의 식과 같음(기둥 적분용).',
+  'vec4 genusHsD(const vec4 hf) {',
+  '  vec4 ramp = smoothstep(vec4(0.0), max(genusBase, vec4(1e-4)), hf);',
+  '  vec4 dome = ramp * pow(max(vec4(1.0) - hf, vec4(1e-6)), genusTop);',
+  '  vec4 lens = vec4(1.0) - pow(max(abs(hf * 2.0 - 1.0), vec4(1e-6)), max(genusTop, vec4(1e-3)));',
+  '  return mix(dome, lens, step(vec4(0.5), genusMode));',
+  '}',
+].join('\n');
+const DIFFUSE_FIELD_GLSL = [
+  '      {',
+  '        // §138 두-흐름 확산장(해석적 기둥 τ, 수직). J = [E_sun·μ0·K(μ0)·D_sun + E_h·D_sky] / 2π.',
+  COLUMN_GLSL,
+  `        float gMu0 = ${DIFF_MU0};`,
+  '        float gTa = dot(gTauA, media.weight), gTt = dot(gTauT, media.weight);',
+  '        float gDsun = genusDiffuseField(gTa, gTt, 1.0 / gMu0);',
+  `        float gDsky = genusDiffuseField(gTa, gTt, ${SKY_SECANT.toFixed(1)});`,
+  `        vec3 gJ = (sunIrradiance * gMu0 * genusSunWeight(gMu0) * gDsun + skyIrradiance * ${INV_2PI.toFixed(6)} * gDsky) * ${INV_2PI.toFixed(6)};`,
+  '        radiance += gJ * dot(genusOn, media.weight);',
+  '      }',
+].join('\n');
+export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): string {
+  if (!mode) return base;
+  if (!base.includes(IS_CLOUDS)) return base;   // 그림자 패스
+  if (!base.includes(THRU_BLOCK) || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH) || !base.includes(DIFF_SKY_FLOOR)) throw new Error('cloudGenus: diffuse anchor missing');
+  let src = base.replace(ICE_MARCH, HS_GLSL + '\n' + DIFFUSE_GLSL + '\n' + ICE_MARCH);
+  if (mode === 1) {
+    // L1: 기둥 τ(표본 위)만 바꿈 — thru 식·바닥값 그대로.
+    return src.replace(DIFF_TAU_LINE, [
+      '        // §138 L1: 위쪽 광학두께를 표본 국소 소광 × 거리 대신 해석적 기둥(표본 위)으로.',
+      COLUMN_GLSL.split('\n').slice(1).join('\n'),   // gLayerH 는 이미 위 줄에 있음
+      '        vec4 gTau = gTauA;',
+    ].join('\n'));
+  }
+  if ((mode as number) === 9) {
+    // 진단 전용(후보 아님): 표본의 해석적 기둥 τ 를 색으로 — R = τ_total/200, G = τ_above/200, B = D_sun. 산란 광원 대신 그대로 씁니다.
+    return src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL.replace('        radiance += gJ * dot(genusOn, media.weight);', '        radiance = vec3(gTt / 200.0, gTa / 200.0, gDsun);'));
+  }
+  src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
+  if (mode === 2) {
+    // L2: 하늘빛 항 = 충돌 전 하늘빛만(E_h·½·e^(−2τ'_above)·skyGradient), ao·0.35 바닥값 은퇴.
+    src = src.replace(DIFF_SKY_FLOOR, [
+      '      // §138 L2: ao·0.35 바닥값 은퇴 — 산란된 하늘빛은 아래 확산장(D_sky)이, 여기는 충돌 전 하늘빛만.',
+      '      float gSkyUncol = 1.0;',
+      '      {',
+      COLUMN_GLSL,
+      `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
+      '      }',
+    ].join('\n'));
+    src = src.replace(IS_CLOUDS, `radiance += skyIrradiance * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn, media.weight)) * skyGradient * skyLightScale;   // §138 L2`);
+  }
+  return src;
+}
+export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3 | 9): void {
+  variantOf(mat).diffuse = mode;
+  refreshVariant(mat);
+}
+
+/** §136 층의 렌더 봉투 손잡이(patchGenusShader 단면) — cloudPhysics.layerPhysics 가 렌더 기둥 광학두께(tauRendered)를 셀 때 씁니다. */
+export function genusEnvelope(L: GenusLayer): { mode: number; base: number; top: number; edge: number } {
+  return { mode: param(L, 'mode'), base: param(L, 'base'), top: param(L, 'top'), edge: param(L, 'edge') };
 }
 
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */

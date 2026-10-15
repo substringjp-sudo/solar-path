@@ -124,12 +124,20 @@ import {
   LAYER_TERRAIN_LIT,
   type SceneComposerHandle,
 } from './SceneComposer';
-import { MapCanvas } from '../IsolineMap/MapCanvas';
-import { MapGlobe } from '../IsolineMap/MapGlobe';
-import { LandSilhouette } from '../IsolineMap/LandSilhouette';
-import { mapModeFor, globeProgress, globeRadiusForDelta } from '../../utils/mapProjection';
+import { MapCanvas, type MapCanvasHandle } from '../IsolineMap/MapCanvas';
+import { MapGlobe, type MapGlobeHandle } from '../IsolineMap/MapGlobe';
+import { LandSilhouette, type LandSilhouetteHandle } from '../IsolineMap/LandSilhouette';
+import {
+  mapModeFor, globeProgress, globeRadiusForDelta, deltaForGlobeRadius, nextGlobeLatch, type MapMode,
+} from '../../utils/mapProjection';
+import {
+  P_FOV_END, P_MAP_MOUNT, P_FADE_START, P_HANDOFF, P_MAX,
+  altitudeForProgress, cameraPoseForProgress, lonDeltaForProgress, progressForLonDelta,
+  mapOpacityForProgress, glVisibleForProgress, homeCenterStep, progressFromPinch,
+} from '../../utils/zoomContinuum';
 import { getTerminatorSegments, getSubsolarPoint } from '../../utils/celestial';
 import { buildSunOverlay } from '../../utils/solarGeometry';
+import { sameBucket } from '../../utils/weatherCacheKey';
 import * as d3 from 'd3-geo';
 import { useCloudTopView } from '../IsolineMap/useCloudTopView';
 import { fetchDayWeatherRing, type CloudPathData } from '../../utils/weather';
@@ -210,6 +218,9 @@ export interface SkySettings {
   /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 자(RULER-flow)·운량 역표 재맞춤 전까지 기본 끔. */
   volumetricFlow?: boolean;
   volumetricFlowUv?: boolean;
+  /** §136 구름 미세물리(physics: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(physicsIce) — 자(RULER-physics)를 넘기지 못해 기본 끔, 개발 패널 PHYS/ICE 칩으로 켬. */
+  volumetricPhysics?: boolean;
+  volumetricPhysicsIce?: boolean;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
@@ -220,8 +231,11 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   volumetricQuality: 'low',
   volumetricRes: 0.5,
   volumetricAutoRes: true,
-  volumetricFlow: true,
-  volumetricFlowUv: true,
+  // §135 0단계: 흐름 모형은 자(RULER-flow)를 다 넘기지 못해 기본 끔으로 되돌립니다(커밋 1918960 이 켜 둔 것). 개발 패널 FLOW/UV 칩으로 켤 수 있습니다.
+  volumetricFlow: false,
+  volumetricFlowUv: false,
+  volumetricPhysics: false,
+  volumetricPhysicsIce: false,
 };
 
 /**
@@ -448,13 +462,40 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const pinchZoomProgressRef = useRef((60 - 30) / 90);
   const savedGroundElevRef = useRef(13);
   const [altitudeMState, setAltitudeMState] = useState(1.6);
+  /**
+   * ⚠ 손짓 중에는 **120 ms 에 한 번**(그리고 단계가 바뀔 때 바로)만 따라옵니다. 매 프레임
+   * 따라가야 하는 것(3D 카메라·지도 위치·구 반지름·겹침 불투명도)은 ref·Animated·손잡이로
+   * 리렌더 없이 갑니다(`applyZoomProgress`). 예전에는 50 ms 마다(착륙 때는 매 프레임) 이
+   * 큰 컴포넌트 전체와 지도 위 선 수백 개가 다시 그려졌습니다.
+   */
   const [zoomProgressState, setZoomProgressState] = useState((60 - 30) / 90);
-  const [zoomStageState, setZoomStageState] = useState<'ground' | 'radar' | 'globe'>('ground');
+  const [overlayMode, setOverlayMode] = useState<MapMode>('tiles');
   const [divingLocation, setDivingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number }>(() => ({
+  /**
+   * 지도·구에서 길게 눌러 고른 자리 — **확인을 받기 전에는 옮기지 않습니다.** 예전에는 길게
+   * 누르는 즉시 관측점이 바뀌어 날씨·지형을 새로 받고 착륙했는데, 지구본을 돌리려고 손가락을
+   * 잠깐 얹기만 해도 걸려 방해가 됐습니다.
+   */
+  const [pendingPick, setPendingPick] = useState<{ latitude: number; longitude: number; sameCell: boolean } | null>(null);
+  /** 마지막으로 줌·이동이 있었던 때 — 그 직후의 길게 누르기는 손짓의 끝자락이라 무시합니다. */
+  const lastViewMoveMsRef = useRef(0);
+  // 지도·구의 한가운데. 관측점(home)과 다를 수 있습니다(지도·구를 끌었을 때).
+  const homeRef = useRef({
     latitude: location?.coords?.latitude ?? 37.5,
     longitude: location?.coords?.longitude ?? 127.0,
-  }));
+  });
+  const mapCenterRef = useRef({ ...homeRef.current });
+  const viewSizeRef = useRef({ w: 390, h: 844 });
+  const mapCanvasRef = useRef<MapCanvasHandle>(null);
+  const mapGlobeRef = useRef<MapGlobeHandle>(null);
+  const silhouetteRef = useRef<LandSilhouetteHandle>(null);
+  const globeLatchRef = useRef(false);
+  const overlayFrameRef = useRef<number | null>(null);
+  const lastZoomStateMsRef = useRef(0);
+  const zoomStateKeyRef = useRef('');
+  const glOpacityAnim = useRef(new Animated.Value(1)).current;
+  const mapOpacityAnim = useRef(new Animated.Value(0)).current;
+  const cardRadiusAnim = useRef(new Animated.Value(14)).current;
   const divingAnimFrameRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartLocRef = useRef<{ x: number; y: number } | null>(null);
@@ -523,6 +564,76 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       isLoopRunningRef.current = true;
       animFrameRef.current = requestAnimationFrame(animateRef.current);
     }
+  }, []);
+
+  /**
+   * **줌 진행도를 바꾸는 유일한 길.** 손짓 이동·놓기·끊김·착륙 애니메이션·구 손짓이 모두
+   * 여기로 옵니다(예전에는 네 군데에 식이 복사돼 서로 달랐습니다). 축척·고도는
+   * `zoomContinuum.ts` 가 한 줄로 풉니다 — 3D 내려다본 땅 폭 = 지도 폭 = 구 반지름.
+   *
+   * - 3D 카메라: 렌더 루프가 `zoomProgressRef` 를 읽습니다.
+   * - 지도·실루엣·구: 프레임마다 한 번 손잡이로 옮깁니다(리렌더 없음).
+   * - 겹침 불투명도·카드 모서리: Animated 값(리렌더 없음).
+   * - React 상태: 단계(지도 띄움·타일/실루엣/구·넘김)가 바뀔 때 바로, 그 밖에는 120 ms 에 한 번.
+   */
+  const applyZoomProgress = useCallback((p: number, opts: { force?: boolean; keepCenter?: boolean } = {}) => {
+    const prev = zoomProgressRef.current;
+    zoomProgressRef.current = p;
+    if (Math.abs(p - prev) > 1e-6) lastViewMoveMsRef.current = Date.now();
+    if (p <= P_FOV_END) fovRef.current = 30 + p * 90;
+    const { w, h } = viewSizeRef.current;
+    const aspect = w / h;
+    // 3D 가 보이는 동안 지도 한가운데는 관측점(카메라 바로 아래). 지도에서 줌인하면
+    // 넘기는 점에 닿을 때 관측점으로 돌아오게 조금씩 데려옵니다.
+    if (p <= P_FADE_START) mapCenterRef.current = { ...homeRef.current };
+    else if (!opts.keepCenter) mapCenterRef.current = homeCenterStep(mapCenterRef.current, homeRef.current, prev, p);
+    const c = mapCenterRef.current;
+    // ⚠ 진행도 ↔ 축척은 **관측점 위도**로 풉니다(3D 땅 폭이 거기서 정해짐). 지도 한가운데
+    //   위도로 풀면 지도를 위아래로 끈 뒤 다음 손짓에서 축척이 수십 % 튑니다.
+    const lonDelta = lonDeltaForProgress(p, homeRef.current.latitude, aspect);
+    // 구 ↔ 평면 문턱에 히스테리시스(들어갈 때 늘어남 2.0, 나올 때 1.8) — 경계에서 떨지 않게.
+    globeLatchRef.current = p > P_FADE_START && nextGlobeLatch(globeLatchRef.current, c.latitude, lonDelta, h / w);
+    const mode: MapMode = globeLatchRef.current ? 'globe'
+      : mapModeFor(c.latitude, lonDelta, h / w) === 'tiles' ? 'tiles' : 'silhouette';
+
+    glOpacityAnim.setValue(glVisibleForProgress(p) ? 1 : 0);
+    mapOpacityAnim.setValue(mapOpacityForProgress(p));
+    cardRadiusAnim.setValue(14 + (globeLatchRef.current ? 1 : globeProgress(c.latitude, lonDelta, h / w)) * 30);
+
+    if (overlayFrameRef.current === null) {
+      overlayFrameRef.current = requestAnimationFrame(() => {
+        overlayFrameRef.current = null;
+        const pp = zoomProgressRef.current;
+        if (pp <= P_MAP_MOUNT) return;
+        const cc = mapCenterRef.current;
+        const vs = viewSizeRef.current;
+        const d = lonDeltaForProgress(pp, homeRef.current.latitude, vs.w / vs.h);
+        const region = { latitude: cc.latitude, longitude: cc.longitude, longitudeDelta: d };
+        mapCanvasRef.current?.moveTo(region, 0);
+        silhouetteRef.current?.setRegion(region);
+        mapGlobeRef.current?.setView({ radius: globeRadiusForDelta(cc.latitude, d, vs.w), center: cc });
+      });
+    }
+
+    const key = `${p > P_FOV_END}|${p > P_MAP_MOUNT}|${p > P_FADE_START}|${p >= P_HANDOFF}|${mode}`;
+    const now = Date.now();
+    if (opts.force || key !== zoomStateKeyRef.current || now - lastZoomStateMsRef.current > 120) {
+      zoomStateKeyRef.current = key;
+      lastZoomStateMsRef.current = now;
+      setZoomProgressState(p);
+      setOverlayMode(mode);
+      setAltitudeMState(altitudeForProgress(p, homeRef.current.latitude, aspect));
+    }
+    requestRender(2);
+  }, [requestRender]);
+
+  // PanResponder 는 처음 한 번만 만들어지므로 ref 로 부릅니다.
+  const applyZoomProgressRef = useRef(applyZoomProgress);
+  applyZoomProgressRef.current = applyZoomProgress;
+
+  useEffect(() => () => {
+    if (overlayFrameRef.current !== null) cancelAnimationFrame(overlayFrameRef.current);
+    if (divingAnimFrameRef.current !== null) cancelAnimationFrame(divingAnimFrameRef.current);
   }, []);
 
   useEffect(() => {
@@ -800,10 +911,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     requestRender(10);
   }, [teleportTarget?.nonce, requestRender]);
 
-  /** 롱프레스 위치 이동 & 다이빙 착륙 애니메이션 (우주/상공 -> 지상 1.6m 하늘) */
+  /**
+   * 롱프레스 위치 이동 & 다이빙 착륙 애니메이션 (우주/상공 -> 지상 1.6m 하늘).
+   *
+   * 관측점(home)을 먼저 목표로 바꿔 두면, 진행도가 줄어드는 동안 `applyZoomProgress` 가
+   * 지도·구 한가운데를 목표로 데려와 **넘기는 점에서 정확히 목표 바로 위**가 됩니다.
+   * 매 프레임 React 상태를 바꾸지 않습니다(예전 끊김의 큰 몫).
+   */
   const startDivingLanding = useCallback((targetLat: number, targetLon: number) => {
+    // 진행도 ↔ 축척이 관측점 위도에 묶여 있으므로, 관측점을 바꾸기 전에 지금 축척을
+    // 새 위도의 진행도로 옮겨 둡니다(안 하면 서울 → 오슬로 착륙 첫 프레임에 지도가 튐).
+    const aspect0 = viewSizeRef.current.w / viewSizeRef.current.h;
+    const p0 = zoomProgressRef.current;
+    if (p0 > P_HANDOFF) {
+      const d0 = lonDeltaForProgress(p0, homeRef.current.latitude, aspect0);
+      zoomProgressRef.current = progressForLonDelta(d0, targetLat, aspect0);
+    }
     // 1. 전역 위치 갱신 (일출·일몰 시간, 날씨, 지형 자동 재계산)
-    setMapCenter({ latitude: targetLat, longitude: targetLon });
+    homeRef.current = { latitude: targetLat, longitude: targetLon };
     setDivingLocation({ latitude: targetLat, longitude: targetLon });
     useCelestialStore.getState().setLocation({
       coords: {
@@ -818,65 +943,52 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       timestamp: Date.now(),
     });
 
-    // 2. 부드러운 다이빙 착륙 애니메이션
+    // 2. 부드러운 다이빙 착륙 애니메이션 — 지상 시선은 처음부터 저장해 둔 값으로
+    //    (내려오며 서서히 들림. 예전에는 끝 프레임에 한 번에 튀었습니다).
     if (divingAnimFrameRef.current) cancelAnimationFrame(divingAnimFrameRef.current);
+    cameraElevRef.current = savedGroundElevRef.current;
     const startProgress = zoomProgressRef.current;
     const targetProgress = (60 - 30) / 90; // 지상 1인칭 관측 FOV 60° (0.333)
     const startTime = performance.now();
-    const duration = 1200; // 1.2초
+    // 멀리서 내려올수록 조금 더 길게(지구본 3.0 → 1.5 s, 상공 1.3 → 0.8 s).
+    const duration = 600 + 340 * Math.max(0, startProgress - targetProgress);
 
     const animateDive = (nowTime: number) => {
-      const elapsed = nowTime - startTime;
-      const t = Math.min(1.0, elapsed / duration);
-      // 부드러운 Ease-Out 3차 곡선
-      const ease = 1 - Math.pow(1 - t, 3);
-      const currentProgress = startProgress + (targetProgress - startProgress) * ease;
-      zoomProgressRef.current = currentProgress;
-
-      if (currentProgress <= 1.0) {
-        fovRef.current = 30 + currentProgress * 90;
-      } else {
-        const altT = currentProgress - 1.0;
-        fovRef.current = 120 - Math.min(1.0, altT) * 30;
-      }
-
-      const diveT = Math.max(0, Math.min(1.0, (currentProgress - 1.0) / 0.4));
-      const altM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
-      setAltitudeMState(altM);
-      setZoomProgressState(currentProgress);
-      setZoomStageState(currentProgress > 2.05 ? 'globe' : currentProgress > 1.35 ? 'radar' : 'ground');
-
-      requestRender(2);
-
+      const t = Math.min(1.0, (nowTime - startTime) / duration);
+      // 부드러운 Ease-In-Out 3차 곡선 — 출발·착륙 모두 덜컹이지 않게
+      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      applyZoomProgress(startProgress + (targetProgress - startProgress) * ease);
       if (t < 1.0) {
         divingAnimFrameRef.current = requestAnimationFrame(animateDive);
       } else {
         divingAnimFrameRef.current = null;
+        applyZoomProgress(targetProgress, { force: true });
         setDivingLocation(null);
         setCameraFov(60);
-        setZoomProgressState((60 - 30) / 90);
-        cameraElevRef.current = savedGroundElevRef.current;
-        setCameraElevation(savedGroundElevRef.current);
+        setCameraElevation(cameraElevRef.current);
         requestRender(5);
       }
     };
 
     divingAnimFrameRef.current = requestAnimationFrame(animateDive);
-  }, [requestRender]);
+  }, [requestRender, applyZoomProgress]);
 
   /** 평면 지도 및 3차원 지구본용 천체 터미네이터 (일출/일몰선 & 태양 직하점) */
   const globeCelestialData = useMemo(() => {
-    if (zoomProgressState <= 1.3) return null;
+    // ⚠ 지도를 띄우는 순간이 아니라 **상승을 시작할 때** 미리 셉니다 — 24 시간 등시선을
+    //   넘기는 점에서 세면 그 프레임이 끊깁니다.
+    if (zoomProgressState <= P_FOV_END) return null;
     const date = new Date(renderedTimeMsRef.current || Date.now());
     return {
+      date,
       subsolar: getSubsolarPoint(date),
       terminator: getTerminatorSegments(date),
     };
-  }, [zoomProgressState > 1.3]);
+  }, [zoomProgressState > P_FOV_END]);
 
   // ── 지도 및 지구본용 등시선(Isochrone) 24시간 일출·일몰 격자선 ───────────────────
   const allTerminators = useMemo(() => {
-    if (zoomProgressState <= 1.35) return [];
+    if (zoomProgressState <= P_FOV_END) return [];
     const list = [];
     const baseDate = new Date(renderedTimeMsRef.current || Date.now());
     const tzMs = (useCelestialStore.getState().timezoneOffsetHours ?? 0) * 3600000;
@@ -894,11 +1006,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       });
     }
     return list;
-  }, [zoomProgressState > 1.35]);
+  }, [zoomProgressState > P_FOV_END]);
 
   // ── 지구 밤 영역(Night shadow) 2D/3D 폴리곤 ─────────────────────────────────
   const nightPolygonCoords = useMemo(() => {
-    if (zoomProgressState <= 1.35 || !globeCelestialData) return [];
+    if (zoomProgressState <= P_FOV_END || !globeCelestialData) return [];
     try {
       const circleGeoJSON = d3.geoCircle().center([globeCelestialData.subsolar.longitude, globeCelestialData.subsolar.latitude]).radius(90)();
       if (!circleGeoJSON || !circleGeoJSON.coordinates) return [];
@@ -920,22 +1032,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     } catch (e) {
       return [];
     }
-  }, [zoomProgressState > 1.35, globeCelestialData?.subsolar]);
+  }, [zoomProgressState > P_FOV_END, globeCelestialData?.subsolar]);
 
   // ── 시뮬레이션 구름 탑다운 뷰 (하늘 시뮬레이션의 구름을 지도와 지구본 위에 투영) ───
   const [cloudRing, setCloudRing] = useState<CloudPathData[] | null>(null);
+  const cloudRingFetchRef = useRef<{ lat: number; lon: number; ms: number } | null>(null);
   useEffect(() => {
-    if (!isActive || zoomProgressState <= 1.35) return;
-    let alive = true;
+    if (!isActive || zoomProgressState <= P_FOV_END) return;
     const cLat = location?.coords?.latitude ?? 37.5;
     const cLon = location?.coords?.longitude ?? 127.0;
+    // 줌을 오르내릴 때마다 다시 받지 않습니다 — 같은 날씨 칸(0.02°)에서 10 분 안이면 그대로.
+    const last = cloudRingFetchRef.current;
+    if (last && sameBucket(last.lat, last.lon, cLat, cLon) && Date.now() - last.ms < 10 * 60 * 1000) return;
+    let alive = true;
     fetchDayWeatherRing(cLat, cLon, new Date())
-      .then((r) => { if (alive) setCloudRing(r); })
+      .then((r) => {
+        if (!alive) return;
+        cloudRingFetchRef.current = { lat: cLat, lon: cLon, ms: Date.now() };
+        setCloudRing(r);
+      })
       .catch((err) => console.warn('지도 구름 탑다운 링 수신 실패:', err));
     return () => { alive = false; };
-  }, [isActive, zoomProgressState > 1.35]);
+  }, [isActive, zoomProgressState > P_FOV_END]);
 
-  const topView = useCloudTopView(cloudRing, renderedTimeMsRef.current || Date.now(), zoomProgressState > 1.35);
+  const topView = useCloudTopView(cloudRing, renderedTimeMsRef.current || Date.now(), zoomProgressState > P_FOV_END);
 
   const observerWeather = useCallback(() => {
     const w = weatherRef.current;
@@ -1029,6 +1149,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           pinchDistRef.current = getTouchDist(touches);
           pinchFovRef.current = fovRef.current;
           pinchZoomProgressRef.current = zoomProgressRef.current;
+          setPendingPick(null);
         } else {
           lastTouchRef.current = { x: touches[0].pageX, y: touches[0].pageY };
           touchStartLocRef.current = { x: touches[0].pageX, y: touches[0].pageY };
@@ -1055,33 +1176,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }
           const dist = getTouchDist(touches);
           if (dist > 0) {
-            const ratio = pinchDistRef.current / dist;
             // ratio > 1: 두 손가락 모으기 (줌아웃 / 광각 -> 상공 상승 -> 우주 궤도 지구본)
             // ratio < 1: 두 손가락 벌리기 (줌인 / 지구본 -> 상공 -> 지상 착륙)
-            const delta = Math.log(ratio) * 1.35;
-            const newProgress = Math.max(0, Math.min(3.0, pinchZoomProgressRef.current + delta));
-            zoomProgressRef.current = newProgress;
-
-            if (newProgress <= 1.0) {
-              fovRef.current = 30 + newProgress * 90;
-            } else if (newProgress <= 2.0) {
-              const t = newProgress - 1.0;
-              fovRef.current = 120 - t * 30; // 상공 탑다운 안정 뷰 120° -> 90°
-            } else {
-              fovRef.current = 90;
+            if (divingAnimFrameRef.current) {
+              // 착륙 중에 손을 대면 애니메이션을 멈추고 지금 자리에서 이어 받습니다.
+              cancelAnimationFrame(divingAnimFrameRef.current);
+              divingAnimFrameRef.current = null;
+              setDivingLocation(null);
+              pinchDistRef.current = dist;
+              pinchZoomProgressRef.current = zoomProgressRef.current;
             }
-
+            applyZoomProgressRef.current(progressFromPinch(pinchZoomProgressRef.current, pinchDistRef.current / dist));
             const nowZoom = Date.now();
-            if (nowZoom - lastAzUpdateMsRef.current > 50) {
+            if (nowZoom - lastAzUpdateMsRef.current > 120 && zoomProgressRef.current <= P_FOV_END) {
               lastAzUpdateMsRef.current = nowZoom;
               setCameraFov(fovRef.current);
-              setCameraElevation(cameraElevRef.current);
-              const diveT = Math.max(0, Math.min(1.0, (newProgress - 1.0) / 0.4));
-              const altM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
-              setAltitudeMState(altM);
-              setZoomProgressState(newProgress);
-              const stage = newProgress > 2.05 ? 'globe' : newProgress > 1.35 ? 'radar' : 'ground';
-              setZoomStageState(stage);
             }
           }
         } else {
@@ -1096,13 +1205,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               touchStartLocRef.current = null;
             }
           }
-          if (lastTouchRef.current) {
+          if (lastTouchRef.current && zoomProgressRef.current < P_FADE_START) {
             const dx = touches[0].pageX - lastTouchRef.current.x;
             const dy = touches[0].pageY - lastTouchRef.current.y;
             const nextAz = (cameraAzRef.current - dx * DRAG_SENSITIVITY + 360) % 360;
             cameraAzRef.current = nextAz;
             // 지상 모드에서만 상하 시선 조작 허용 (상공 레이더 모드에서는 직하향 탑다운 안정 유지)
-            if (zoomProgressRef.current <= 1.05) {
+            if (zoomProgressRef.current <= P_FOV_END) {
               const minElev = -45;
               cameraElevRef.current = Math.max(minElev, Math.min(85, cameraElevRef.current + dy * DRAG_SENSITIVITY));
               savedGroundElevRef.current = cameraElevRef.current;
@@ -1130,12 +1239,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         setCameraAzimuth(cameraAzRef.current);
         setCameraElevation(cameraElevRef.current);
         setCameraFov(fovRef.current);
-        const diveT = Math.max(0, Math.min(1.0, (zoomProgressRef.current - 1.0) / 0.4));
-        const altM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
-        setAltitudeMState(altM);
-        setZoomProgressState(zoomProgressRef.current);
-        const stage = zoomProgressRef.current > 2.05 ? 'globe' : zoomProgressRef.current > 1.35 ? 'radar' : 'ground';
-        setZoomStageState(stage);
+        // 놓기·끊김 모두 같은 식(예전 끊김 처리는 고도 식과 단계 문턱이 달랐습니다).
+        applyZoomProgressRef.current(zoomProgressRef.current, { force: true, keepCenter: true });
         requestRender(5);
         // 드래그 종료: TabNavigator 스와이프 다시 허용
         useCelestialStore.getState().setGestureBlocked(false);
@@ -1151,11 +1256,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         setCameraAzimuth(cameraAzRef.current);
         setCameraElevation(cameraElevRef.current);
         setCameraFov(fovRef.current);
-        const t = Math.max(0, Math.min(1.0, zoomProgressRef.current - 1.0));
-        const altM = t <= 0 ? 1.6 : 1.6 * Math.exp(t * Math.log(20000 / 1.6));
-        setAltitudeMState(altM);
-        const stage = zoomProgressRef.current > 2.05 ? 'globe' : zoomProgressRef.current > 1.05 ? 'radar' : 'ground';
-        setZoomStageState(stage);
+        applyZoomProgressRef.current(zoomProgressRef.current, { force: true, keepCenter: true });
         requestRender(3);
         useCelestialStore.getState().setGestureBlocked(false);
       },
@@ -1465,6 +1566,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         return;
       }
 
+      // 지도가 3D 를 다 덮었으면 그리지 않습니다 — GPU 를 지도·구에 양보(줌아웃 끊김 줄이기).
+      // 줌인으로 넘기는 점 아래로 오면 `applyZoomProgress` 의 requestRender 가 다시 깨웁니다.
+      if (!glVisibleForProgress(zoomProgressRef.current)) {
+        isLoopRunningRef.current = false;
+        return;
+      }
+
       const now = performance.now();
 
       // ── 60fps 캡 (120Hz ProMotion 과열 방지: 최소 15.5ms 간격 보장) ───────────
@@ -1570,20 +1678,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
 
         // 카메라 높이 및 무한 줌 스펙트럼 (지상 1.6m ~ 상공 20km 조감도 수직 다이빙 착륙/상승)
+        // 진행도 → 자세는 `zoomContinuum.ts` 한 곳에서 풉니다. 넘기는 점(P_HANDOFF)에서
+        // 내려다본 땅 폭이 지도 폭과 같고, 내려다보는 동안 방위가 북쪽 위로 돌아갑니다.
         const groundY = groundRef.current ? groundRef.current.position.y : 0;
-        const progress = zoomProgressRef.current;
-        // 1.0 ~ 1.4 구간이 1.6m -> 20,000m 상승 및 지상 시선 -> 직하향(-90°) 조감도 전환
-        const diveT = Math.max(0, Math.min(1.0, (progress - 1.0) / 0.4));
-        const altitudeM = diveT <= 0 ? 1.6 : 1.6 * Math.exp(diveT * Math.log(20000 / 1.6));
+        const pose = cameraPoseForProgress(
+          zoomProgressRef.current, cameraElevRef.current, cameraAzRef.current,
+          homeRef.current.latitude, camera.aspect, fovRef.current,
+        );
+        const altitudeM = pose.altitudeM;
         const cameraY = groundY + altitudeM;
         camera.position.set(0, cameraY, 0);
-
-        // 시선 고도각: diveT 0(지상 시선) -> diveT 1(직하향 -90° 조감도)
-        const smoothDiveT = diveT * diveT * (3 - 2 * diveT);
-        const effectiveElev = (1 - smoothDiveT) * cameraElevRef.current + smoothDiveT * (-90);
-        const effectiveFov = diveT <= 0 ? fovRef.current : (1 - smoothDiveT) * 120 + smoothDiveT * 90;
-        if (Math.abs(camera.fov - effectiveFov) > 0.05) {
-          camera.fov = effectiveFov;
+        const effectiveElev = pose.elevDeg;
+        const effectiveAz = pose.azDeg;
+        if (Math.abs(camera.fov - pose.fovDeg) > 0.05) {
+          camera.fov = pose.fovDeg;
           camera.updateProjectionMatrix();
         }
 
@@ -1594,17 +1702,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           camera.updateProjectionMatrix();
         }
 
-        const azRad = (cameraAzRef.current * Math.PI) / 180;
+        const azRad = (effectiveAz * Math.PI) / 180;
         const elevRad = (effectiveElev * Math.PI) / 180;
         const lookDist = Math.max(100, altitudeM);
 
-        // 직하향 틸트 시 Three.js 짐벌 락 방지 (시선과 camera.up이 평행해짐 방지)
-        // 수직 아래로 내려다볼 때는 북쪽(Z-)을 화면 상단으로 설정
-        if (effectiveElev < -85) {
-          camera.up.set(0, 0, -1);
-        } else {
-          camera.up.set(0, 1, 0);
-        }
+        // 화면 위쪽은 시선에 수직인 연속 벡터 — 내려다볼 때 북쪽(−Z)이 위.
+        // ⚠ 예전에는 −85° 에서 (0,1,0) → (0,0,−1) 로 바꿔, 그 한 프레임에 화면이 방위각만큼 돌았습니다.
+        camera.up.set(pose.up[0], pose.up[1], pose.up[2]);
 
         camera.lookAt(
           lookDist * Math.cos(elevRad) * Math.sin(azRad),
@@ -1704,11 +1808,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
               // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
-              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv }, false);
+              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce }, false);
               volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
@@ -1737,7 +1841,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               qCover(wSample?.low), qCover(wSample?.mid), qCover(wSample?.high),
               ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 10) * 10 : '')),
             ].join('|');
-            const viewKey = `${cameraAzRef.current.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}`;
+            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
             // 슬라이딩 중에는 180ms 쓰로틀로 S=128 초고속 프리뷰를 돌리고,
@@ -1753,7 +1857,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 pathData: simRef.current?.pathData ?? [],
                 obs: vObs,
                 interpolatedWeather: weatherRef.current,
-                az: cameraAzRef.current, el: effectiveElev, fov: camera.fov,
+                az: effectiveAz, el: effectiveElev, fov: camera.fov,
                 altitudeM,
               });
               volKeyRef.current = key;
@@ -1801,7 +1905,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
-                vol.setView(cameraAzRef.current, effectiveElev, camera.fov, altitudeM);
+                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM);
                 volViewRef.current = viewKey;
                 volSettleRef.current = Math.max(volSettleRef.current, 16);
               }
@@ -2875,36 +2979,109 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const curLat = location?.coords?.latitude ?? 37.5;
   const curLon = location?.coords?.longitude ?? 127.0;
 
-  // 1. 3D GLView 투명도 (1.0~1.35: 지상~20km 조감도 100%, 1.35~1.45: 조감도와 평면 지도 크로스페이드)
-  const glOpacity = zoomProgressState <= 1.35 ? 1.0 : Math.max(0, (1.45 - zoomProgressState) / 0.1);
-  const mapLayerOpacity = Math.min(1.0, Math.max(0, (zoomProgressState - 1.35) / 0.1));
+  // 진행도 → 축척은 `applyZoomProgress` 가 프레임마다 손잡이로 넘깁니다. 여기 값들은
+  // 지도·구가 **처음 뜰 때**와 단계 판단(120 ms 상태)에만 씁니다.
+  viewSizeRef.current = { w: sceneW, h: sceneH };
+  // 관측점(3D 카메라 바로 아래). 착륙 애니메이션 중에는 목표가 먼저 들어가 있습니다.
+  if (!divingLocation) homeRef.current = { latitude: curLat, longitude: curLon };
+  const currentLonDelta = lonDeltaForProgress(zoomProgressState, homeRef.current.latitude, sceneW / sceneH);
+  const mapMounted = zoomProgressState > P_MAP_MOUNT;
+  const isGlobeMode = overlayMode === 'globe';
+  const showSilhouette = overlayMode === 'silhouette';
 
-  // 2. 상공 지도 축척 (longitudeDelta): zoomProgress 1.4 -> 3.0 범위를 0.08° -> 180°로 지수 연동
-  const mapProgressRatio = Math.max(0, Math.min(1.0, (zoomProgressState - 1.4) / 1.6));
-  const currentLonDelta = Math.exp(
-    Math.log(0.08) + mapProgressRatio * Math.log(180 / 0.08)
-  );
-
-  // 3. 기존 지도 뷰(IsolineMap)의 도법 기반 연속체 모드 전환
-  // tiles (타일) -> silhouette (LandSilhouette 육지 윤곽) -> globe (3D 정사영 구)
-  const autoMapMode = mapModeFor(curLat, currentLonDelta);
-  const isGlobeMode = autoMapMode === 'globe';
-  const showSilhouette = !isGlobeMode && autoMapMode !== 'tiles';
-  const globeMorphProgress = isGlobeMode ? 1.0 : globeProgress(curLat, currentLonDelta);
-
-  // 4. 모서리 반지름 모핑: 화면 전체 구멍 대신 IsolineMap 표준(14px -> 44px) 둥근 카드 모핑
-  const CARD_RADIUS_MAX = 44;
-  const cardRadius = Math.min(
-    14 + globeMorphProgress * (CARD_RADIUS_MAX - 14),
-    CARD_RADIUS_MAX
-  );
-
-  // 5. 좁은 축척에서의 태양 수직면 & 방위각 부채꼴 오버레이
+  // 좁은 축척에서의 태양 수직면 & 방위각 부채꼴 오버레이 — **관측점** 기준.
+  // 축척은 2^(1/2) 단위로 끊어, 줌 중 매 상태 갱신마다 지도 위 선을 다시 만들지 않습니다.
+  const sunOverlayDelta = Math.pow(2, Math.round(Math.log2(currentLonDelta) * 2) / 2);
   const sunOverlay = useMemo(() => {
-    if (zoomProgressState <= 1.35 || isGlobeMode) return null;
+    if (!mapMounted || isGlobeMode) return null;
     const date = new Date(renderedTimeMsRef.current || Date.now());
-    return buildSunOverlay(date, mapCenter.latitude, mapCenter.longitude, currentLonDelta);
-  }, [zoomProgressState > 1.35, isGlobeMode, mapCenter.latitude, mapCenter.longitude, currentLonDelta]);
+    return buildSunOverlay(date, curLat, curLon, sunOverlayDelta);
+  }, [mapMounted, isGlobeMode, curLat, curLon, sunOverlayDelta]);
+
+  // 지도·구에 넘기는 값은 모두 고정 — 바뀌지 않으면 memo 된 지도가 다시 그려지지 않습니다.
+  // (예전에는 렌더마다 새 객체·새 함수라 줌 50 ms 마다 등시선 수백 줄이 다시 그려졌습니다.)
+  const mapStartRegion = useMemo(() => ({
+    latitude: mapCenterRef.current.latitude,
+    longitude: mapCenterRef.current.longitude,
+    longitudeDelta: lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH),
+  }), [mapMounted, isGlobeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const silhouetteStart = useMemo(() => ({
+    latitude: mapCenterRef.current.latitude,
+    longitude: mapCenterRef.current.longitude,
+    longitudeDelta: lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH),
+  }), [showSilhouette]); // eslint-disable-line react-hooks/exhaustive-deps
+  const globeStart = useMemo(() => {
+    const c = mapCenterRef.current;
+    const d = lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH);
+    return { center: { latitude: c.latitude, longitude: c.longitude }, radius: globeRadiusForDelta(c.latitude, d, sceneW) };
+  }, [isGlobeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onMapRegionChangeComplete = useCallback((r: { latitude: number; longitude: number }) => {
+    // 사용자가 지도를 끌었을 때만 받습니다. 줌 중(손짓·착륙)의 콜백은 늦게 온 옛 위치일 수 있어 버립니다.
+    if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
+    if (zoomProgressRef.current < P_HANDOFF) return;
+    const c = mapCenterRef.current;
+    if (Math.abs(c.latitude - r.latitude) > 1e-6 || Math.abs(c.longitude - r.longitude) > 1e-6) {
+      lastViewMoveMsRef.current = Date.now();
+    }
+    mapCenterRef.current = { latitude: r.latitude, longitude: r.longitude };
+  }, []);
+  /**
+   * 길게 누르기 → **자리만 고릅니다**(핀 + 확인 카드). 옮기기(관측점·날씨·지형 새로 받기·착륙)는
+   * 카드의 "여기로 이동" 을 눌러야 합니다. 줌·착륙 중이거나 줌·이동 직후 0.6 초 안의 길게
+   * 누르기는 손짓의 끝자락이라 버립니다.
+   */
+  const onMapLongPress = useCallback((coord: { latitude: number; longitude: number }) => {
+    if (zoomProgressRef.current < P_HANDOFF) return;
+    if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
+    if (Date.now() - lastViewMoveMsRef.current < 600) return;
+    if (!Number.isFinite(coord.latitude) || !Number.isFinite(coord.longitude)) return;
+    const h = homeRef.current;
+    setPendingPick({
+      latitude: coord.latitude,
+      longitude: coord.longitude,
+      // 같은 날씨 칸(0.02°)이면 새로 받을 날씨가 없습니다 — 카드에 그렇게 적습니다.
+      sameCell: sameBucket(h.latitude, h.longitude, coord.latitude, coord.longitude),
+    });
+  }, []);
+  const confirmPick = useCallback(() => {
+    if (!pendingPick) return;
+    setPendingPick(null);
+    startDivingLanding(pendingPick.latitude, pendingPick.longitude);
+  }, [pendingPick, startDivingLanding]);
+  // 고른 채 두면 8 초 뒤 저절로 닫습니다. 지도 단계를 벗어나도 닫습니다.
+  const atMapStage = zoomProgressState >= P_HANDOFF;
+  useEffect(() => {
+    if (!pendingPick) return;
+    if (!atMapStage) { setPendingPick(null); return; }
+    const t = setTimeout(() => setPendingPick(null), 8000);
+    return () => clearTimeout(t);
+  }, [pendingPick, atMapStage]);
+  // 안내 문구는 지도 단계에 들어올 때 4 초만, 그것도 처음 두 번만 보입니다(늘 떠 있으면 가립니다).
+  const [hintOn, setHintOn] = useState(false);
+  const hintShownRef = useRef(0);
+  useEffect(() => {
+    if (!atMapStage || hintShownRef.current >= 2) { setHintOn(false); return; }
+    hintShownRef.current += 1;
+    setHintOn(true);
+    const t = setTimeout(() => setHintOn(false), 4000);
+    return () => clearTimeout(t);
+  }, [atMapStage]);
+  const pickPin = useMemo(
+    () => (pendingPick ? { latitude: pendingPick.latitude, longitude: pendingPick.longitude } : null),
+    [pendingPick],
+  );
+  const onGlobeViewChange = useCallback((v: { latitude: number; longitude: number; radius: number }) => {
+    // 구를 돌리거나(한가운데) 구 안에서 확대·축소했을 때(반지름) — 진행도를 **같은 축척**으로
+    // 되돌려 씁니다. 예전에는 확대하면 진행도를 2.2 로 툭 옮겨 지도가 엉뚱한 축척으로 떴습니다.
+    const c0 = mapCenterRef.current;
+    if (Math.abs(c0.latitude - v.latitude) > 1e-6 || Math.abs(c0.longitude - v.longitude) > 1e-6) {
+      lastViewMoveMsRef.current = Date.now();
+    }
+    mapCenterRef.current = { latitude: v.latitude, longitude: v.longitude };
+    const vs = viewSizeRef.current;
+    const p = progressForLonDelta(deltaForGlobeRadius(v.latitude, v.radius, vs.w), homeRef.current.latitude, vs.w / vs.h);
+    applyZoomProgress(Math.min(P_MAX, p), { force: true, keepCenter: true });
+  }, [applyZoomProgress]);
 
   return (
     <View
@@ -2914,14 +3091,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       ]}
       {...panResponder.panHandlers}
     >
-      <GLView
-        style={[styles.glView, { opacity: glOpacity }]}
-        pointerEvents={glOpacity > 0.05 ? 'auto' : 'none'}
-        onContextCreate={onContextCreate}
-      />
+      {/* 지도가 3D 위로 겹쳐 오르는 동안 3D 는 불투명 그대로(둘 다 반투명이면 가운데가 어두워짐).
+             지도가 다 덮으면(넘기는 점) 숨기고 렌더 루프도 쉽니다. */}
+      <Animated.View style={[styles.glView, { opacity: glOpacityAnim }]} pointerEvents={zoomProgressState < P_HANDOFF ? 'auto' : 'none'}>
+        <GLView
+          style={styles.glView}
+          onContextCreate={onContextCreate}
+        />
+      </Animated.View>
 
       {/* ── 전문가용 카메라 뷰파인더 오버레이 (3등분선, 위아래 방위 눈금자, 우측 고도각 눈금자, 좌측 시야각 눈금자) ── */}
-      {!hideHudOverlay && !hideCompassBar && zoomProgressState <= 1.25 && (
+      {!hideHudOverlay && !hideCompassBar && zoomProgressState <= P_FOV_END + 0.1 && (
         <ViewfinderOverlay
           cameraAzimuth={cameraAzimuth}
           cameraElevation={cameraElevation}
@@ -2931,7 +3111,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       )}
 
       {/* 3D 천체 위치 2D 스크린 오버레이 라벨 핀 (지상 관측 뷰에서만 표시) */}
-      {layers?.labels !== false && zoomProgressState <= 1.35 && (() => {
+      {layers?.labels !== false && zoomProgressState <= P_FADE_START && (() => {
         // 라벨 크기 추정 (px): 가로 90, 세로 24
         const LBL_W = 90;
         const LBL_H = 24;
@@ -2994,23 +3174,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       })()}
 
       {/* ── 2~3단계: 기존 지도 뷰(IsolineMap) 파이프라인 (평면 구글 지도 -> 육지 실루엣 -> 구형 지구본 유기적 모핑) ── */}
-      {zoomProgressState > 1.35 && globeCelestialData && (
-        <View
+      {mapMounted && globeCelestialData && (
+        <Animated.View
           style={[
             StyleSheet.absoluteFillObject,
             {
-              opacity: mapLayerOpacity,
-              borderRadius: cardRadius,
+              opacity: mapOpacityAnim,
+              borderRadius: cardRadiusAnim,
               overflow: 'hidden',
               backgroundColor: '#0B1220',
             },
           ]}
-          pointerEvents={zoomProgressState >= 1.5 ? 'auto' : 'none'}
+          pointerEvents={zoomProgressState >= P_HANDOFF ? 'auto' : 'none'}
         >
           {!isGlobeMode ? (
             <MapCanvas
-              lat={mapCenter.latitude}
-              lon={mapCenter.longitude}
+              ref={mapCanvasRef}
+              lat={curLat}
+              lon={curLon}
               hasLocation={!!location}
               subsolar={globeCelestialData.subsolar}
               terminator={globeCelestialData.terminator}
@@ -3019,79 +3200,56 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               sunOverlay={sunOverlay}
               topView={topView}
               theme={theme}
-              selectedDate={new Date(renderedTimeMsRef.current || Date.now())}
-              startRegion={{
-                latitude: mapCenter.latitude,
-                longitude: mapCenter.longitude,
-                longitudeDelta: currentLonDelta,
-              }}
-              region={{
-                latitude: mapCenter.latitude,
-                longitude: mapCenter.longitude,
-                longitudeDelta: currentLonDelta,
-              }}
-              onLongPress={(coord) => {
-                // 구름 레이더/지도 단계에서 롱클릭 시에만 선택 좌표 변경 및 다이빙 착륙
-                if (zoomProgressRef.current >= 1.4) {
-                  startDivingLanding(coord.latitude, coord.longitude);
-                }
-              }}
+              selectedDate={globeCelestialData.date}
+              startRegion={mapStartRegion}
+              // 두 손가락 줌은 하늘 탭의 진행도가 받습니다(지도가 같이 확대하면 둘이 싸워 덜컹임).
+              zoomEnabled={false}
+              onRegionChangeComplete={onMapRegionChangeComplete}
+              onLongPress={onMapLongPress}
+              pickPin={pickPin}
             />
           ) : (
             <MapGlobe
+              ref={mapGlobeRef}
               subsolar={globeCelestialData.subsolar}
               terminator={globeCelestialData.terminator}
               allTerminators={allTerminators}
-              lat={mapCenter.latitude}
-              lon={mapCenter.longitude}
+              lat={curLat}
+              lon={curLon}
               hasLocation={!!location}
               theme={theme}
               isActive={isActive}
               width={sceneW}
               height={sceneH}
               topView={topView}
-              initialCenter={{
-                latitude: mapCenter.latitude,
-                longitude: mapCenter.longitude,
-              }}
-              initialRadius={globeRadiusForDelta(mapCenter.latitude, currentLonDelta, sceneW)}
+              initialCenter={globeStart.center}
+              initialRadius={globeStart.radius}
+              // ⚠ 위 끝은 넉넉히 — 구로 넘어가는 축척의 반지름이 화면 폭의 2~3 배(서울 세로 폰 ≈ 1000 px)
+              //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
               minRadius={100}
-              maxRadius={800}
-              onSelectLocation={(coord) => {
-                // 지구본 단계에서 롱클릭 시에만 선택 좌표 변경 및 다이빙 착륙
-                if (zoomProgressRef.current >= 1.4) {
-                  startDivingLanding(coord.latitude, coord.longitude);
-                }
-              }}
-              onViewChange={(v) => {
-                // 지구본 회전/줌 조작 시 중심 위치를 실시간으로 지도와 동기화!
-                setMapCenter({ latitude: v.latitude, longitude: v.longitude });
-                if (v.zoomedIn) {
-                  // 지구본에서 손가락을 벌려 줌인하면 평면 지도로 복귀
-                  zoomProgressRef.current = 2.2;
-                  setZoomProgressState(2.2);
-                  setZoomStageState('radar');
-                  requestRender(5);
-                }
-              }}
-              selectedDate={new Date(renderedTimeMsRef.current || Date.now())}
+              maxRadius={20000}
+              onSelectLocation={onMapLongPress}
+              onViewChange={onGlobeViewChange}
+              pickPin={pickPin}
+              selectedDate={globeCelestialData.date}
             />
           )}
 
           {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 그리는 LandSilhouette (도법 및 그림체 연속성 유지) ── */}
           {showSilhouette && (
             <LandSilhouette
-              region={{ latitude: mapCenter.latitude, longitude: mapCenter.longitude, longitudeDelta: currentLonDelta }}
+              ref={silhouetteRef}
+              region={silhouetteStart}
               width={sceneW}
               height={sceneH}
               theme={theme}
             />
           )}
-        </View>
+        </Animated.View>
       )}
 
       {/* ── 무한 줌 상공 모드 및 우주 궤도 지구본 모드 HUD 뱃지 ── */}
-      {(zoomProgressState > 1.25 || divingLocation) && (
+      {(zoomProgressState > P_FOV_END + 0.1 || divingLocation) && (
         <View style={styles.radarHudPill}>
           <View style={[styles.radarHudDot, isGlobeMode && { backgroundColor: '#F59E0B' }]} />
           <Text style={styles.radarHudTitle}>
@@ -3114,11 +3272,31 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         </View>
       )}
 
-      {/* 롱프레스 위치 이동 안내 힌트 토스트 */}
-      {zoomProgressState > 1.35 && !divingLocation && (
-        <View style={styles.radarHintToast}>
+      {/* 길게 눌러 고른 자리 — 확인해야 옮깁니다 */}
+      {pendingPick && atMapStage && !divingLocation && (
+        <View style={styles.pickCard}>
+          <Text style={styles.pickTitle}>
+            📍 {pendingPick.latitude.toFixed(2)}°, {pendingPick.longitude.toFixed(2)}°
+          </Text>
+          <Text style={styles.pickSub}>
+            {pendingPick.sameCell ? '지금 위치와 같은 날씨 칸입니다' : '이 위치의 날씨를 새로 받아 착륙합니다'}
+          </Text>
+          <View style={styles.pickRow}>
+            <TouchableOpacity style={styles.pickCancel} onPress={() => setPendingPick(null)}>
+              <Text style={styles.pickCancelText}>취소</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.pickGo} onPress={confirmPick}>
+              <Text style={styles.pickGoText}>여기로 이동 ⤓</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* 안내 — 지도 단계에 들어올 때 잠깐만 */}
+      {hintOn && !pendingPick && !divingLocation && (
+        <View style={styles.radarHintToast} pointerEvents="none">
           <Text style={styles.radarHintText}>
-            💡 화면의 특정 위치를 길게 누르면 해당 장소로 즉시 이동 및 착륙합니다
+            💡 길게 눌러 위치를 고르면, 확인 후 그곳으로 이동합니다
           </Text>
         </View>
       )}
@@ -3241,4 +3419,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
+  pickCard: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    minWidth: 230,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.45)',
+    zIndex: 45,
+  },
+  pickTitle: { color: '#F1F5F9', fontSize: 13, fontWeight: '700' },
+  pickSub: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
+  pickRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 8 },
+  pickCancel: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(148, 163, 184, 0.18)' },
+  pickCancelText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  pickGo: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#0EA5E9' },
+  pickGoText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
 });

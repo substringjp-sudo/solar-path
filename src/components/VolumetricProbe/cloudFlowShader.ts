@@ -69,8 +69,7 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     + '\nuniform float genusUvOn;\nuniform float genusTexelM;\nuniform float genusMacroOn;');
   // S2 mode 2 — LWP 돔(꼭대기 = d^(1/top)). genusMode 0/1 은 이전과 같음.
   src = src.replace(oHs, [
-    '  vec4 gBulgeL = sin(clamp(gHf, vec4(0.0), vec4(1.0)) * 3.141592);',
-    '  vec4 gDomeL = gRamp * ((vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop)) * 0.45 + pow(max(gBulgeL, vec4(1e-6)), genusTop * 0.7) * 0.55);',
+    '  vec4 gDomeL = gRamp * (vec4(1.0) - pow(max(gHf, vec4(1e-6)), genusTop));',
     '  vec4 gHs = mix(mix(gDome, gLens, step(vec4(0.5), genusMode)), gDomeL, step(vec4(1.5), genusMode));',
   ].join('\n'));
   // S3 연속 밀도
@@ -97,11 +96,12 @@ export function patchFlowShader(mat: PatchableMaterial): void {
     '  } else {',
     '    localWeather = pow(textureLod(localWeatherTexture, gUv0, mipLevel).LOCAL_WEATHER_CHANNELS, weatherExponents);',
     '  }',
-    '  // §132 거시 상태장: 주변 10여개 좌표의 2D 공간 기울기에 따라 운량을 점진적으로 변조',
+    '  // §132 거시 상태장: 주변 좌표의 2D 운량 기울기로 구름을 변조. §135: 더하지 않고 **곱합니다** — 더하면 빈 하늘(0)에',
+    '  // 구름이 생겨 하늘 위쪽을 얇은 막이 덮었습니다. 곱하면 이미 있는 구름만 옅어지거나(기울기 음의 쪽) 조금 짙어집니다(양의 쪽).',
     '  if (genusMacroOn > 0.5) {',
     '    vec2 gPosKm = uv * (genusTileM * 0.001);',
     '    vec4 gMacroDelta = (gPosKm.x * genusMacroGradX + gPosKm.y * genusMacroGradY) * 0.01;',
-    '    localWeather = clamp(localWeather + gMacroDelta, vec4(0.0), vec4(1.0));',
+    '    localWeather = min(localWeather * clamp(vec4(1.0) + gMacroDelta, vec4(0.0), vec4(1.35)), vec4(1.0));',
     '  }',
   ].join('\n'));
   // S7 평균 보존 침식 + 발자국 페이드(mipLevel 은 sampleMedia 의 매개변수).
@@ -138,6 +138,27 @@ function shearUnit(L: GenusLayer): [number, number] {
  * density 가 켜진 층은 genusMode/genusTop/genusEdge 레인도 흐름값(flowMode/flowTop/flowEdge)으로 덮어씁니다 —
  * setGenusUniforms **다음**에 부르세요.
  */
+/**
+ * §139 K2 전단 기울기 — 흐름 S4 fetch 레인 재사용(새 셰이더 코드 없음). setFlowUniforms **다음**에: 뼈대(opts.skeleton.tilt = 꼭대기 밀림/두께, 동·북)가 있는
+ * 층의 genusTiltU/V 를 채우고 genusUvOn 을 켭니다. uv 이동 = tilt × (높이/타일) 이므로 무차원 tilt 가 그대로 들어가고, 꼭대기가 전단 쪽(+ŝ)으로 기울게
+ * 읽는 자리는 −ŝ 쪽(setFlowUniforms 와 같은 부호).
+ */
+export function setSkeletonTilt(mat: PatchableMaterial, layers: (GenusLayer | null)[], scale = 1): void {
+  const tu = [0, 0, 0, 0], tv = [0, 0, 0, 0];
+  let any = false;
+  layers.forEach((L, i) => {
+    const t = (L?.opts as { skeleton?: { tilt?: [number, number] } } | undefined)?.skeleton?.tilt;
+    if (t && (t[0] !== 0 || t[1] !== 0)) { tu[i] = -t[0] * scale; tv[i] = -t[1] * scale; any = true; }
+  });
+  (mat.uniforms.genusTiltU.value as Vector4).set(tu[0], tu[1], tu[2], tu[3]);
+  (mat.uniforms.genusTiltV.value as Vector4).set(tv[0], tv[1], tv[2], tv[3]);
+  // 뼈대는 흐름과 함께 쓰지 않으므로 드리프트 0 — setGenusDrift 는 GENUS_FLOW 기본값(cu·sc flow 1)으로 흐름 옵션이 꺼져 있어도 lane 을 채웁니다
+  // (genusUvOn 이 0 일 때는 읽히지 않아 무해했음). 이 함수는 setGenusDrift **뒤**에 부릅니다.
+  (mat.uniforms.genusDriftU.value as Vector4).set(0, 0, 0, 0);
+  (mat.uniforms.genusDriftV.value as Vector4).set(0, 0, 0, 0);
+  if (any) mat.uniforms.genusUvOn.value = 1;
+}
+
 export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | null)[], on: { density: boolean; uv: boolean }, tileKm: number): void {
   const lane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (layers[i] && layerHasFlow(layers[i]) ? fn(layers[i] as GenusLayer) : 0));
   const set = (u: string, v: number[]) => (mat.uniforms[u].value as Vector4).set(v[0], v[1], v[2], v[3]);

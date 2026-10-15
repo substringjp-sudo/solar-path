@@ -135,6 +135,8 @@ const VolumetricPerfRow: React.FC = () => {
   const auto = useCelestialStore(s => s.skySettings.volumetricAutoRes ?? true);
   const flow = useCelestialStore(s => !!s.skySettings.volumetricFlow);
   const flowUv = useCelestialStore(s => !!s.skySettings.volumetricFlowUv);
+  const phys = useCelestialStore(s => !!s.skySettings.volumetricPhysics);
+  const physIce = useCelestialStore(s => !!s.skySettings.volumetricPhysicsIce);
   const set = useCelestialStore.getState().setSkySettings;
   const st = volumetricStats;
   const fps = st.frameMs > 0 ? Math.round(1000 / st.frameMs) : 0;
@@ -170,6 +172,14 @@ const VolumetricPerfRow: React.FC = () => {
         </TouchableOpacity>
         <TouchableOpacity onPress={() => set({ volumetricFlowUv: !flowUv })} style={chip(flowUv)}>
           <Text style={styles.volChipText}>UV</Text>
+        </TouchableOpacity>
+        <View style={{ width: 6 }} />
+        {/* §136 구름 미세물리(PHYS: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(ICE, PHYS 위에서만) — 자 통과 전 기기 확인용 */}
+        <TouchableOpacity onPress={() => set({ volumetricPhysics: !phys })} style={chip(phys)}>
+          <Text style={styles.volChipText}>PHYS</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => set({ volumetricPhysicsIce: !physIce })} style={chip(phys && physIce)}>
+          <Text style={styles.volChipText}>ICE</Text>
         </TouchableOpacity>
       </View>
     </View>
