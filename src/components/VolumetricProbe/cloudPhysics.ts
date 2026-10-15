@@ -142,6 +142,18 @@ export interface ThermoInput {
   td2mC?: number;
   /** 기압면 단면(높이 m 해발 · 기온 °C · 기압 hPa) — 높이 순서 무관 */
   levels?: { zM: number; tC: number; pHPa: number }[];
+  // ── §139 뼈대(cloudSkeleton) 입력 — 없으면 대용값(RULER-shape §1.3). ──
+  /** 경계층 높이(m, 지면 위) · CAPE(J/kg) · 영하고도(m, 해발) */
+  pblM?: number;
+  capeJkg?: number;
+  freezingLevelM?: number;
+  /** 기압면 상대습도(높이 m 해발 · %) */
+  rhLevels?: { zM: number; rhPct: number }[];
+  /** 850 / 600 hPa 바람(동·북, **m/s** — 앱의 km/h 를 liveScene 이 나눔) */
+  windLowMps?: [number, number];
+  windMidMps?: [number, number];
+  /** 시간 강수(mm) */
+  precipMm?: number;
 }
 const fin = (v: number | undefined | null): v is number => typeof v === 'number' && Number.isFinite(v);
 
