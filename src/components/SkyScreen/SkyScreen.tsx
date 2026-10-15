@@ -11,8 +11,8 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Platform, Animated, ActivityIndicator } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical, CloudOff, RefreshCw } from 'lucide-react-native';
+import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator } from 'react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw } from 'lucide-react-native';
 import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { DateTimeBar, type ScrubKind } from '../TimeBar/DateTimeBar';
@@ -24,7 +24,6 @@ import {
 } from '../../utils/dateSlider';
 import {
   fetchTerrainProfile,
-  fetchSunsetWeather,
   fetchDayWeatherRing,
   fetchWeatherCanary,
   getInterpolatedWeather,
@@ -40,8 +39,6 @@ import {
   canaryIsUsable,
   canaryPrint,
 } from '../../utils/cachePolicy';
-import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
-import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
 import {
   buildSkyTimeline,
   isTimelineUsable,
@@ -241,10 +238,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   }, [weatherCacheList, currentDateStr, latitude, longitude]);
 
   const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
-  const [useNowcast, setUseNowcast] = useState(false);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
-  const bucketedSunAz = useMemo(() => Math.round(sunAzimuth / 30) * 30, [sunAzimuth]);
 
   // 비동기 스토어 캐시 로드 후 initialWeather가 생기면 즉시 화면 상태 동기화
   useEffect(() => {
@@ -637,59 +632,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     [pathData, currentTime]
   );
 
-  // ── 강화 구름 격자 ───────────────────────────────────────────────────────
-  // 기본 팬(5레이 × 7고리, ±20°)보다 넓고 촘촘한 관측(7레이 × 10고리, ±30°)을
-  // 받아 같은 자리에 끼워 넣습니다. 예전 2D 시뮬 탭의 레이어 버튼이 하던 일인데,
-  // 거기서는 결과가 SVG 폴리곤이라 3D가 쓸 수 없었습니다 (utils/cloudGridAdapter.ts).
-  const [useEnhancedGrid, setUseEnhancedGrid] = useState(false);
-  const [cloudGrid, setCloudGrid] = useState<CloudDensityGrid | null>(null);
-  const [isGridLoading, setGridLoading] = useState(false);
-
-  useEffect(() => {
-    if (!useEnhancedGrid || !latitude || !longitude) return;
-    // 이미 지금 방위에 맞는 격자가 있으면 다시 부르지 않습니다.
-    if (isGridUsable(cloudGrid, sunAzimuth)) return;
-
-    let cancelled = false;
-    setGridLoading(true);
-    fetchCloudGrid(latitude, longitude, sunAzimuth, currentTime)
-      .then(grid => {
-        if (!cancelled && grid) setCloudGrid(grid);
-      })
-      .catch(err => {
-        console.log('cloud grid fetch error:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setGridLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // 시각 전체가 아니라 날짜·방위 버킷에만 반응합니다 — 격자는 시간축을
-    // 그대로 들고 있어서 슬라이더를 움직여도 다시 받을 필요가 없습니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useEnhancedGrid, latitude, longitude, currentDateStr, bucketedSunAz]);
-
-  /**
-   * 씬에 실제로 넘기는 관측 팬.
-   *
-   * 격자가 없거나 태양 방위가 격자 중심에서 너무 벌어졌으면 기본 팬으로
-   * 되돌아갑니다. 격자는 ±30° 부채꼴이라, 방위가 어긋난 채로 쓰면 실측 영역이
-   * 하늘의 엉뚱한 쪽에 얹혀 기본 팬보다 나빠집니다.
-   */
-  const sceneWeather = useMemo(() => {
-    if (!useEnhancedGrid || !isGridUsable(cloudGrid, sunAzimuth)) return interpolatedWeather;
-    return cloudGridToFan({
-      grid: cloudGrid,
-      time: currentTime,
-      sunAzimuthDeg: sunAzimuth,
-      baseline: interpolatedWeather,
-    });
-  }, [useEnhancedGrid, cloudGrid, sunAzimuth, currentTime, interpolatedWeather]);
-
-  const isGridActive = useEnhancedGrid && isGridUsable(cloudGrid, sunAzimuth);
-
   const prediction = useMemo(() => scenePrediction({
     pathData,
     time: currentTime,
@@ -754,7 +696,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           sunAzimuth={sunAzimuth}
           prediction={prediction}
           location={location}
-          interpolatedWeather={sceneWeather}
+          interpolatedWeather={interpolatedWeather}
           theme={OVERLAY_THEME}
           layers={layers}
           skySettings={skySettings}

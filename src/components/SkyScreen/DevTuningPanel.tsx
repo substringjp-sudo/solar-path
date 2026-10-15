@@ -137,6 +137,7 @@ const VolumetricPerfRow: React.FC = () => {
   const flowUv = useCelestialStore(s => !!s.skySettings.volumetricFlowUv);
   const phys = useCelestialStore(s => !!s.skySettings.volumetricPhysics);
   const physIce = useCelestialStore(s => !!s.skySettings.volumetricPhysicsIce);
+  const camVol = useCelestialStore(s => !!s.skySettings.cameraVolumetric);
   const set = useCelestialStore.getState().setSkySettings;
   const st = volumetricStats;
   const fps = st.frameMs > 0 ? Math.round(1000 / st.frameMs) : 0;
@@ -180,6 +181,11 @@ const VolumetricPerfRow: React.FC = () => {
         </TouchableOpacity>
         <TouchableOpacity onPress={() => set({ volumetricPhysicsIce: !physIce })} style={chip(phys && physIce)}>
           <Text style={styles.volChipText}>ICE</Text>
+        </TouchableOpacity>
+        <View style={{ width: 6 }} />
+        {/* §143 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘 — 메인 시뮬레이션과 같은 구름. 카메라 스트림과 GPU 를 나눠 쓰므로 기기 확인용 */}
+        <TouchableOpacity onPress={() => set({ cameraVolumetric: !camVol })} style={chip(camVol)}>
+          <Text style={styles.volChipText}>CAM-VOL</Text>
         </TouchableOpacity>
       </View>
     </View>

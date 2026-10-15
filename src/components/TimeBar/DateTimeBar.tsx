@@ -17,7 +17,7 @@
  *   (`createCommitThrottle`). 손을 떼면 마지막 값이 바로 나갑니다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Calendar, Camera, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info, Zap } from 'lucide-react-native';
 import { PressScale } from '../ui';
 import { ScrubTrack } from './ScrubTrack';
@@ -30,7 +30,7 @@ import {
   type AccuracyTier, type TierSegment,
   tierAt, dataWindow, yearTierSegments, dayTierSegments, nowPctInYear, nowPctInDay,
   dayIndexPct, daysInYear, shiftDays, shiftHours, shiftYears, withLocalDayOfYear, withLocalMinutes, localDayStartMs,
-  dayPhaseSegments, minuteInDay, createCommitThrottle, localDayKey,
+  dayPhaseSegments, minuteInDay, createCommitThrottle,
 } from '../../utils/timeBar';
 
 export type ScrubKind = 'date' | 'time';
@@ -140,7 +140,6 @@ export const DateTimeBar: React.FC<Props> = ({
   const tMs = currentTime.getTime();
   const year = new Date(tMs + tz * MS_HOUR).getUTCFullYear();
   const dayStart = localDayStartMs(tMs, tz);
-  const dayKey = localDayKey(tMs, tz);
   const minutes = Math.floor((tMs - dayStart) / MS_MIN);
 
   const tierColors: Record<AccuracyTier, string> = useMemo(() => ({
