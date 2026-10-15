@@ -195,6 +195,32 @@ vec4 catmullRom(sampler2D tex, vec2 uv, vec2 texSize){
 }
 `;
 
+/**
+ * §140 볼륨 하늘 **알갱이 지우기** — 알파(구름 불투명도)·색 경계를 지키는 3×3 양방향 필터(저해상도 텍셀 격자에서, 표본 위치까지의 거리로 가중).
+ * 알갱이(§135 ②)는 행진 잡음이 아니라 모양 잡음의 고주파 구조가 화소 하나 간격으로 찍힌 것이라, 프레임 누적·시간 해상·행진 간격·가루·투과항
+ * 어느 것으로도 안 사라지고(하네스 ablation, §140), 이웃 평균으로만 가라앉습니다. 구름 가장자리(알파 차 큼)와 밝기 경계(색 차 큼)는 섞지 않습니다.
+ * uDenoise 0 이면 캣멀롬 그대로(하늘돔 버퍼·하네스 기준선).
+ */
+const DENOISE_GLSL = `
+uniform float uDenoise;
+vec4 skyDenoise(sampler2D tex, vec2 uv, vec2 texSize){
+  if (uDenoise < 0.5) return catmullRom(tex, uv, texSize);
+  vec2 p = uv * texSize - 0.5;
+  vec2 i0 = floor(p + 0.5);                 // 가장 가까운 텍셀
+  vec4 c0 = texture2D(tex, (i0 + 0.5) / texSize);
+  vec4 acc = vec4(0.0); float wsum = 0.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 ij = i0 + vec2(float(i), float(j));
+    vec4 s = texture2D(tex, (ij + 0.5) / texSize);
+    vec2 d = ij - p;                           // 표본 위치까지의 거리(텍셀)
+    float da = s.a - c0.a, dc = length(s.rgb - c0.rgb);
+    float w = exp(-dot(d, d) * 0.7) * exp(-da * da * 22.0) * exp(-dc * dc * 35.0);
+    acc += s * w; wsum += w;
+  }
+  return max(vec4(0.0), acc / max(1e-4, wsum));
+}
+`;
+
 const BLIT_FRAG = `
 precision highp float;
 uniform sampler2D uTex;
@@ -263,23 +289,29 @@ vec3 linearToSrgb(vec3 c) {
 const EXT_MASK_FRAG = `
 precision highp float;
 uniform sampler2D uTex;
+uniform vec2 uTexSize;
 varying vec2 vUv;
+${CATMULL_GLSL}
+${DENOISE_GLSL}
 ${SRGB_ENCODE_GLSL}
 void main() {
-  vec4 t = texture2D(uTex, vUv);
+  vec4 t = skyDenoise(uTex, vUv, uTexSize);   // §140 첫 blit 과 같은 표본이어야 구름 화소에 알갱이가 되살아나지 않음
   gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
 }
 `;
 const EXT_FRONT_FRAG = `
 precision highp float;
 uniform sampler2D uTex;
+uniform vec2 uTexSize;
 uniform sampler2D uDist;
 varying vec2 vUv;
 ${TERRAIN_DIST_GLSL}
+${CATMULL_GLSL}
+${DENOISE_GLSL}
 ${SRGB_ENCODE_GLSL}
 void main() {
   if (terrainDistDecodeKm(texture2D(uDist, vUv)) > 1e8) discard;
-  vec4 t = texture2D(uTex, vUv);
+  vec4 t = skyDenoise(uTex, vUv, uTexSize);
   gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
 }
 `;
@@ -335,9 +367,10 @@ uniform float uEncodeSrgb;
 varying vec2 vUv;
 ${DITHER_GLSL}
 ${CATMULL_GLSL}
+${DENOISE_GLSL}
 ${SRGB_ENCODE_GLSL}
 void main() {
-  vec3 c = catmullRom(uTex, vUv, uTexSize).rgb;
+  vec3 c = skyDenoise(uTex, vUv, uTexSize).rgb;
   if (uEncodeSrgb > 0.5) c = linearToSrgb(c);
   c += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
   gl_FragColor = vec4(c, 1.0);
@@ -626,6 +659,8 @@ export interface SceneComposerHandle {
    * 거리 판이 켜져 있어야 그려집니다.
    */
   setTerrainLit: (on: boolean) => void;
+  /** §140 볼륨 하늘 알갱이 지우기(3×3 양방향) 켜고 끄기 — 기본 켬. 끄면 캣멀롬 재구성 그대로(하네스 기준선·비교용). */
+  setVolumetricDenoise: (on: boolean) => void;
   /** 지형 빛 판의 텍스처(켜져 있을 때만, 아니면 null). */
   terrainLitTexture: () => THREE.Texture | null;
   dispose: () => void;
@@ -750,6 +785,8 @@ export function createSceneComposer(
     ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
   });
   let terrainLitOn = false;
+  // §140 볼륨 하늘 알갱이 지우기 — 기본 켬(하네스 ablation: 프레임 누적·시간 해상·행진 간격·가루·투과항으로는 안 사라짐).
+  let volumetricDenoise = true;
   /** §126.7 밖에서 그린 하늘(선형 색 + 알파 = 구름 불투명도, §127). null 이면 하늘돔 층을 그립니다. */
   let externalSky: THREE.Texture | null = null;
   /**
@@ -796,6 +833,7 @@ export function createSceneComposer(
       uTex: { value: null as THREE.Texture | null },
       uTexSize: { value: new THREE.Vector2(1, 1) },
       uCatmull: { value: 1 },
+      uDenoise: { value: 0 },
       uDither: { value: dither },
       uEncodeSrgb: { value: 0 },
     },
@@ -827,7 +865,7 @@ export function createSceneComposer(
 
   // §127 볼륨 하늘 — 천체 가리기(보통 알파 합성, 목적지 알파는 그대로)와 지형 앞 구름(미리곱 over).
   const extMaskMat = new THREE.ShaderMaterial({
-    uniforms: { uTex: { value: null as THREE.Texture | null } },
+    uniforms: { uTex: { value: null as THREE.Texture | null }, uTexSize: { value: new THREE.Vector2(1, 1) }, uCatmull: { value: 1 }, uDenoise: { value: 1 } },
     vertexShader: BLIT_VERT,
     fragmentShader: EXT_MASK_FRAG,
     transparent: true,
@@ -840,7 +878,7 @@ export function createSceneComposer(
     blendDstAlpha: THREE.OneFactor,
   });
   const extFrontMat = new THREE.ShaderMaterial({
-    uniforms: { uTex: { value: null as THREE.Texture | null }, uDist: { value: null as THREE.Texture | null } },
+    uniforms: { uTex: { value: null as THREE.Texture | null }, uTexSize: { value: new THREE.Vector2(1, 1) }, uCatmull: { value: 1 }, uDenoise: { value: 1 }, uDist: { value: null as THREE.Texture | null } },
     vertexShader: BLIT_VERT,
     fragmentShader: EXT_FRONT_FRAG,
     transparent: true,
@@ -1167,8 +1205,10 @@ export function createSceneComposer(
         renderer.autoClear = false;
         opaqueMat.uniforms.uDither.value = dither;
         opaqueMat.uniforms.uEncodeSrgb.value = 1;
+        opaqueMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
         blit(renderer, opaqueQuad, externalSky);
         opaqueMat.uniforms.uEncodeSrgb.value = 0;
+        opaqueMat.uniforms.uDenoise.value = 0;
         camera.layers.set(LAYER_CELESTIAL);
         renderer.render(scene, camera);
         extMaskMat.uniforms.uTex.value = externalSky;
@@ -1221,8 +1261,10 @@ export function createSceneComposer(
       renderer.autoClear = true;
       opaqueMat.uniforms.uDither.value = dither;
       opaqueMat.uniforms.uEncodeSrgb.value = externalSky ? 1 : 0;
+      opaqueMat.uniforms.uDenoise.value = externalSky && volumetricDenoise ? 1 : 0;
       blit(renderer, opaqueQuad, externalSky ?? rtSky.texture);
       opaqueMat.uniforms.uEncodeSrgb.value = 0;
+      opaqueMat.uniforms.uDenoise.value = 0;
 
       renderer.autoClear = false;
 
@@ -1361,6 +1403,11 @@ export function createSceneComposer(
     lastRayGain: () => rayGain,
     setTerrainDistance: (on: boolean) => { terrainDistOn = !!on; },
     setTerrainLit: (on: boolean) => { terrainLitOn = !!on; },
+    setVolumetricDenoise: (on: boolean) => {
+      volumetricDenoise = !!on;
+      extMaskMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
+      extFrontMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
+    },
     terrainLitTexture: () => (terrainLitOn ? rtLit.texture : null),
     setExternalSky: (tex: THREE.Texture | null) => { externalSky = tex; },
     prepareTerrainDistance,
