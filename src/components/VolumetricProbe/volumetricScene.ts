@@ -359,8 +359,10 @@ export interface VolumetricOptions {
    * 2 = K1 뼈대(열기둥 자리·폭·깊이·뚜껑 단면·봉투 거리 밀도) · 3 = K2 = K1 + 전단 기울기(흐름 S4 fetch 레인). cu·cg·sc 층만, flow 와 함께 쓰면 throw.
    */
   skeleton: 0 | 1 | 2 | 3;
+  /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
+  skeletonTiltScale: number;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -949,8 +951,8 @@ export async function createVolumetricScene(
         setGenusLightFloors(m, opt.debugLightFloors);
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
-        if (opt.skeleton === 3) setSkeletonTilt(m, gl);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
+        if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });

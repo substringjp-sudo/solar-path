@@ -143,15 +143,19 @@ function shearUnit(L: GenusLayer): [number, number] {
  * 층의 genusTiltU/V 를 채우고 genusUvOn 을 켭니다. uv 이동 = tilt × (높이/타일) 이므로 무차원 tilt 가 그대로 들어가고, 꼭대기가 전단 쪽(+ŝ)으로 기울게
  * 읽는 자리는 −ŝ 쪽(setFlowUniforms 와 같은 부호).
  */
-export function setSkeletonTilt(mat: PatchableMaterial, layers: (GenusLayer | null)[]): void {
+export function setSkeletonTilt(mat: PatchableMaterial, layers: (GenusLayer | null)[], scale = 1): void {
   const tu = [0, 0, 0, 0], tv = [0, 0, 0, 0];
   let any = false;
   layers.forEach((L, i) => {
     const t = (L?.opts as { skeleton?: { tilt?: [number, number] } } | undefined)?.skeleton?.tilt;
-    if (t && (t[0] !== 0 || t[1] !== 0)) { tu[i] = -t[0]; tv[i] = -t[1]; any = true; }
+    if (t && (t[0] !== 0 || t[1] !== 0)) { tu[i] = -t[0] * scale; tv[i] = -t[1] * scale; any = true; }
   });
   (mat.uniforms.genusTiltU.value as Vector4).set(tu[0], tu[1], tu[2], tu[3]);
   (mat.uniforms.genusTiltV.value as Vector4).set(tv[0], tv[1], tv[2], tv[3]);
+  // 뼈대는 흐름과 함께 쓰지 않으므로 드리프트 0 — setGenusDrift 는 GENUS_FLOW 기본값(cu·sc flow 1)으로 흐름 옵션이 꺼져 있어도 lane 을 채웁니다
+  // (genusUvOn 이 0 일 때는 읽히지 않아 무해했음). 이 함수는 setGenusDrift **뒤**에 부릅니다.
+  (mat.uniforms.genusDriftU.value as Vector4).set(0, 0, 0, 0);
+  (mat.uniforms.genusDriftV.value as Vector4).set(0, 0, 0, 0);
   if (any) mat.uniforms.genusUvOn.value = 1;
 }
 

@@ -116,7 +116,7 @@ const show = (tex: Texture, mode: number) => {
     const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
-      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0,
+      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
@@ -167,6 +167,15 @@ const show = (tex: Texture, mode: number) => {
       const ms = (performance.now() - ts) / frames;
       const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
         bad: ((window as unknown as Record<string, unknown>).__badUniforms as () => string[])() };
+      // §139 진단: fetch 레인 균일변수(구름·그림자 패스)
+      {
+        const c = vol.debug.clouds as unknown as { cloudsPass: { currentMaterial: { uniforms: Record<string, { value: unknown }> } }; shadowPass: { currentMaterial: { uniforms: Record<string, { value: unknown }> } } };
+        const dump = (u: Record<string, { value: unknown }>) => Object.fromEntries(['genusUvOn', 'genusTileM', 'genusTiltU', 'genusTiltV', 'genusDriftU', 'genusDriftV', 'genusSkel', 'genusMode'].map(k => {
+          const v = u[k]?.value as { toArray?: () => number[] } | number | undefined;
+          return [k, v == null ? null : typeof v === 'number' ? v : (v.toArray ? v.toArray() : v)];
+        }));
+        out.uvLane = { clouds: dump(c.cloudsPass.currentMaterial.uniforms), shadow: dump(c.shadowPass.currentMaterial.uniforms) };
+      }
       const o = job.out ?? 'rgb';
       if (o === 'rgb' || o === 'both') out.rgb = show(tex as Texture, 0);
       if (o === 'alpha' || o === 'both') out.alpha = show(tex as Texture, 1);
