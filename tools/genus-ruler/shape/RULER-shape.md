@@ -193,4 +193,4 @@ pblM 없음 → λ 척도 z_b, z_i 는 (2)~(4) · 기압면 없음 → z_i 밑�
 | .harness/volsky/app.js(하네스 번들) | 210757a4c7947b59 |
 | tools/genus-ruler/shape/jobs-shape.json | cc74ac22abcf9e80 |
 | tools/genus-ruler/shape/thermo-heldout.json | 42468ce69eae1841 |
-G3(렌더 전): `phys-shader-test.mjs` 28/28(뼈대 켬/끔 글자·균일변수), 날씨 바이트는 FIELDS 가 opts.skeleton 으로만 분기; K0 개발 장면 3 을 새 번들로 다시 그려 옛 번들 화소와 비교(.harness/shape/g3, 결과는 §139 에).
+G3(렌더 전): `phys-shader-test.mjs` 28/28(뼈대 켬/끔 글자·균일변수), 날씨 바이트는 FIELDS 가 opts.skeleton 으로만 분기; K0 개발 장면 3 을 새 번들로 다시 그려 옛 번들(뼈대 코드 전, 10/14 번들) 화소와 비교 → 227,760 화소 중 36 · 3 · 75 개가 ±1~2 LSB(0.03 % 이하, 시간 지터 수준) — **끄면 그대로 통과**(held-out 렌더 전 확인).
