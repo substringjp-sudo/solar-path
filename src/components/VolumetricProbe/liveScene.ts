@@ -9,7 +9,7 @@ import SunCalc from 'suncalc';
 import { getInterpolatedWeather, PROFILE_LEVELS, THERMO_RH_LEVELS, type CloudData, type CloudPathData } from '../../utils/weather';
 import { classifyGenus, type ForecastGenus, type GenusForecast } from '../../utils/cloudGenusForecast';
 import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
-import type { GenusKey } from './cloudGenus';
+import { GENUS, type GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
 import type { VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
@@ -26,9 +26,18 @@ export function renderGenusFor(g: ForecastGenus | null): GenusKey | null {
 export const CB_TOP_KM = 10;
 export const CB_ANVIL_THICK_M = 1500;
 /** §139.4 적운(cu) 층 두께 상한(m) — 세포 폭(≈ 1.4 km) 수준. 사용자 눈 판정: 뼈대 후보보다 K0 이 자연스럽고, 남은 결함은 세로로 늘어난 기둥. */
-export const CU_MAX_THICK_M = 1000;
-/** §141 층적운 두께 상한(m): 예보 덱 두께(10/16 13시 1.07 km)를 그대로 쓰면 1~2 km 폭의 덩어리가 폭만큼 높아져 비스듬히 올려다볼 때 '기둥 숲'(기기 캡처 13:33·15:07). 하네스 비교 1069→600→400 m 에서 400 이 평평한 덱으로 읽힘. 손값 750(GENUS.sc.height)도 같은 상한. */
-export const SC_MAX_THICK_M = 500;
+/**
+ * §141 덩어리 가로 크기를 층 두께에 맞춤. 종류별 손값(GENUS.spacingKm 또는 생성기 기본값)은 기준 두께(GENUS.height)에서 사진으로 고른
+ * 것이라, 예보 덱이 더 두꺼우면 같은 폭의 덩어리를 위로 늘린 꼴이 되어 비스듬히 올려다볼 때 '기둥·버섯'으로 읽힙니다(기기 캡처 10/16
+ * 13:33: sc 1.07 km). 두께는 예보값 그대로 두고 칸 간격을 두께 비례로 키웁니다(폭:높이 비 유지). §139.4 의 cu 두께 상한은 이것으로 대체.
+ */
+const DEFAULT_SPACING_KM: Partial<Record<GenusKey, number>> = { cu: 2.4, sc: 1.8 };
+export const aspectSpacingKm = (g: GenusKey, thicknessM: number): number | undefined => {
+  const base = GENUS[g].spacingKm ?? DEFAULT_SPACING_KM[g];
+  const ref = GENUS[g].height;
+  if (base == null || !ref || !(thicknessM > 0)) return undefined;
+  return base * clamp(thicknessM / ref, 0.5, 4);
+};
 
 /** CloudData 의 기압면 단면 → ProfileLevel[] (PROFILE_LEVELS 순서) */
 export function profileOf(obs: CloudData): ProfileLevel[] {
@@ -173,10 +182,9 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low'), physBaseKm: lclKm ?? undefined });
     } else {
       const g = renderGenusFor(forecast.low);
-      // §139.4 적운(cu)은 두께를 폭 수준으로 묶음 — 예보 덱 두께(최대 3 km)를 그대로 쓰면 폭 1.4 km 세포가 2~3 km 기둥이 됨(기기 캡처 10/15: 머리 위 구름이 세로로 늘어남).
-      // 깊은 대류는 예보 규칙(§126)이 cg/cb 로 보냄. 덱 두께가 없을 때의 손값 1600 m(GENUS.cu.height)도 같은 상한.
-      const cuThick = g === 'cu' ? Math.min(thicknessM ?? 1600, CU_MAX_THICK_M) : g === 'sc' ? Math.min(thicknessM ?? 750, SC_MAX_THICK_M) : thicknessM;
-      layers.push({ genus: g, cover: obs.low / 100, baseKm, thicknessM: cuThick, band: 'low', opts: flowOpts('low'), physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
+      // §141 적운·층적운은 두께를 예보 덱 그대로 쓰고 덩어리 가로 크기를 두께에 비례시킴(§139.4 의 cu 두께 상한 1000 m 를 대체).
+      const spacingKm = g === 'cu' || g === 'sc' ? aspectSpacingKm(g, thicknessM ?? GENUS[g].height) : undefined;
+      layers.push({ genus: g, cover: obs.low / 100, baseKm, thicknessM: thicknessM, band: 'low', opts: { ...flowOpts('low'), ...(spacingKm != null ? { spacingKm } : {}) }, physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   if (obs.mid > 0) {
