@@ -1,6 +1,7 @@
 import SunCalc from 'suncalc';
 import { addHours, startOfDay, addDays } from 'date-fns';
 import { sunEquatorial, sunPosition, sunTimes } from './solarPosition';
+import { getGMSTDeg } from './celestialCoords';
 
 export interface CelestialPosition {
   azimuth: number;
@@ -113,24 +114,34 @@ export const getSubsolarPoint = (date: Date): IsochronePoint => {
 };
 
 /**
- * 달의 직하점(sublunar point, 달이 정확히 머리 위에 있는 지표 좌표)을 계산합니다.
+ * 달의 직하점(sublunar point) — 달이 바로 머리 위에 있는 지표 좌표.
+ *
+ * 3D 하늘의 달(`SunCalc.getMoonPosition`)과 **같은 저정밀 월령식**(SunCalc moonCoords: 평균 황경·근점이각·
+ * 승교점 이각)으로 적경·적위를 내고, 그리니치 항성시를 빼서 경도로 바꿉니다. 지구본의 달 위치가 하늘의
+ * 달과 갈라지지 않게 같은 식을 씁니다(차이 ≲ 0.5°, 지구본에서는 화소 한두 칸).
  */
 export const getSublunarPoint = (date: Date): IsochronePoint => {
-  const rad = Math.PI / 180;
-  const d = date.getTime() / 86400000 - 10957.5;
-  const L = rad * (218.316 + 13.176396 * d);
-  const M = rad * (134.963 + 13.064993 * d);
-  const F = rad * (93.272 + 13.229350 * d);
-  const l = L + rad * 6.289 * Math.sin(M);
-  const b = rad * 5.128 * Math.sin(F);
-  const e = rad * 23.4397;
+  const RAD = Math.PI / 180;
+  const d = date.getTime() / 86400000 + 2440587.5 - 2451545;   // J2000 기준 일수
+  const L = RAD * (218.316 + 13.176396 * d);
+  const M = RAD * (134.963 + 13.064993 * d);
+  const F = RAD * (93.272 + 13.229350 * d);
+  const l = L + RAD * 6.289 * Math.sin(M);   // 황경
+  const b = RAD * 5.128 * Math.sin(F);       // 황위
+  const e = RAD * 23.4397;                   // 황도경사
   const ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
   const dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
-  const gmst = rad * (280.16 + 360.9856235 * d);
-  let longitude = ((ra - gmst) * (180 / Math.PI)) % 360;
+  let longitude = ra / RAD - getGMSTDeg(date);
   longitude = ((longitude + 180) % 360 + 360) % 360 - 180;
-  const latitude = dec * (180 / Math.PI);
-  return { latitude, longitude };
+  return { latitude: dec / RAD, longitude };
+};
+
+/**
+ * 달 위상 — 밝은 부분 비율(0 삭 ~ 1 망)과 차오르는지(상현 쪽). 3D 하늘의 달과 같은 SunCalc 값.
+ */
+export const getMoonPhase = (date: Date): { fraction: number; waxing: boolean } => {
+  const m = SunCalc.getMoonIllumination(date);
+  return { fraction: m.fraction, waxing: m.phase < 0.5 };
 };
 
 /**

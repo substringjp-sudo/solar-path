@@ -46,7 +46,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
@@ -55,6 +55,8 @@ import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
+/** §140 low 프리셋 1차 행진 최소 보폭(m) — takram 기본 100 은 알갱이가 생김. */
+export const LOW_MIN_STEP_M = 50;
 
 export interface VolumetricPreset {
   key: string;
@@ -362,8 +364,10 @@ export interface VolumetricOptions {
   skeleton: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
   skeletonTiltScale: number;
+  /** §141 진단: 모든 종류 층의 밀도 단면 밑면 값을 이 값으로(null 이면 종류별 GENUS.profileBase 또는 takram 0.25). */
+  profileBase: number | null;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -925,7 +929,10 @@ export async function createVolumetricScene(
       physLanes[i] = phys;
       const altitude = skg ? skg.baseM : (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
       const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
-        : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } } : {};
+        : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } }
+        : g && (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase) != null
+          ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 1 - (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)!, constantTerm: (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)! } }
+        : {};
       clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
@@ -1061,6 +1068,9 @@ export async function createVolumetricScene(
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
       clouds.qualityPreset = q;
+      // §140 low 프리셋의 1차 행진 최소 보폭 100 m 는 모양 잡음(수백 m 주기)을 성기게 떠서 텍셀마다 투과율이 3~4 텍셀 덩어리로 흔들립니다
+      // (기기 캡처의 흰 점·알갱이; 하네스 low 렌더 알파 편차 0.0070 → 0.0044, medium 0.0045). 보폭만 medium 과 같은 50 m 로 — 반복 수 200·종료 투과율 0.1 은 그대로.
+      if (q === 'low') clouds.clouds.minStepSize = LOW_MIN_STEP_M;
       baseMaxRay = clouds.clouds.maxRayDistance;
       applyMaxRay();
       baseAccurate = clouds.clouds.accurateSunSkyLight;

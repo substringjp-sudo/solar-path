@@ -125,7 +125,7 @@ const show = (tex: Texture, mode: number) => {
     const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
-      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1,
+      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
@@ -140,6 +140,8 @@ const show = (tex: Texture, mode: number) => {
       // §137 잡마다 하늘빛·지면 반사 배율을 기본값 1 로 되돌린 뒤 덮어씁니다(앞 잡의 진단 값을 물려받지 않게).
       vol.debug.clouds.skyLightScale = job.fill?.skyLightScale ?? 1;
       vol.debug.clouds.groundBounceScale = job.fill?.groundBounceScale ?? 1;
+      vol.setQuality(job.quality ?? 'low');
+      // §140 품질 단계가 재질 균일변수(minStepSize·maxIterationCount…)를 덮어쓰므로 잡별 덮어쓰기는 setQuality **뒤**에 겁니다.
       {
         const ce = vol.debug.clouds as unknown as Record<string, unknown>;
         for (const [k, v] of Object.entries(cloudsDefaults)) ce[k] = v;
@@ -160,7 +162,6 @@ const show = (tex: Texture, mode: number) => {
           else throw new Error('material uniform not scalable: ' + k);
         }
       }
-      vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setScene(input);
       vol.setTerrainDistance(job.terrain ? terrainTex(job.terrain.km, job.terrain.frac) : null);

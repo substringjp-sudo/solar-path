@@ -100,6 +100,8 @@ export interface GenusParams extends Partial<FlowLayerParams> {
   anvilScale?: number;
   /** d 를 1 로 맞추는 장 분위수(기본 0.997). 큰 세포가 드문 종류(적란운)는 1.0 — 아니면 꼭대기가 평평하게 잘려 상자가 됩니다. */
   topQuantile?: number;
+  /** §141 takram 세로 밀도 단면의 밑면 값(constantTerm; 선형항 = 1 − 이 값). 기본 0.25(takram) — 밑면 밀도가 꼭대기의 ¼ 이라 모양 잡음에 깎여 '버섯 줄기'가 됨. */
+  profileBase?: number;
 }
 
 /**
