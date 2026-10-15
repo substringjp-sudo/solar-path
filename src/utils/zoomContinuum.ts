@@ -35,11 +35,15 @@ export const P_FOV_END = 1.0;
 /** 이 진행도에서 내려다보기(시선 −90°·시야각 90°·북쪽 위)가 끝납니다. */
 export const P_TILT_END = 1.28;
 /** 지도를 미리 띄우는 진행도(타일이 넘기기 전에 받아지도록). 아직 투명합니다. */
-export const P_MAP_MOUNT = 1.26;
+export const P_MAP_MOUNT = 1.05;
 /** 지도가 3D 위로 겹쳐 오르기 시작. */
 export const P_FADE_START = 1.3;
 /** 넘기는 점 — 지도가 다 덮고 3D 는 멈춥니다. 고도 = `HANDOFF_ALT_M`. */
 export const P_HANDOFF = 1.38;
+/** 구글 지도에서 지구본 구로 페이드 전환이 시작되는 진행도 */
+export const P_GLOBE_FADE_START = 1.6;
+/** 지구본 구로 완전 전환되는 진행도 */
+export const P_GLOBE_FADE_END = 2.1;
 export const P_MAX = 3.0;
 
 export const EYE_ALT_M = 1.6;
@@ -150,10 +154,13 @@ export const progressForLonDelta = (lonDelta: number, latDeg: number, aspect: nu
   return Math.min(P_MAX, p);
 };
 
-/** 지도 층 불투명도 — 3D 위로 겹쳐 오릅니다(3D 는 그 밑에서 불투명 그대로). */
+/** 지도 층 불투명도 — 3D 위로 겹쳐 오릅니다. */
 export const mapOpacityForProgress = (p: number) => smoothstep((p - P_FADE_START) / (P_HANDOFF - P_FADE_START));
-/** 3D 를 그릴 필요가 있는가 — 지도가 다 덮으면 멈춥니다. */
+/** 3D 를 그릴 필요가 있는가 — 지도가 완전히 덮으면 멈춥니다. */
 export const glVisibleForProgress = (p: number) => p < P_HANDOFF;
+/** 지구본 구 불투명도 — 구글 지도 위로 1.6 → 2.1 구간 동안 부드럽게 페이드인합니다. */
+export const globeOpacityForProgress = (p: number) =>
+  smoothstep((p - P_GLOBE_FADE_START) / (P_GLOBE_FADE_END - P_GLOBE_FADE_START));
 
 /**
  * 줌인으로 넘기는 점에 다가갈 때 지도 한가운데를 관측점으로 데려옵니다. 진행도가
@@ -175,6 +182,6 @@ export const homeCenterStep = (
 };
 
 /** 손짓 배율 → 진행도 변화. 오므리기(ratio > 1)가 줌아웃입니다. */
-export const PINCH_GAIN = 1.35;
+export const PINCH_GAIN = 0.28;
 export const progressFromPinch = (startProgress: number, distRatio: number) =>
   Math.max(0, Math.min(P_MAX, startProgress + Math.log(distRatio) * PINCH_GAIN));

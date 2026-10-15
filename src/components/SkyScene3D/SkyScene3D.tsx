@@ -131,9 +131,9 @@ import {
   mapModeFor, globeProgress, globeRadiusForDelta, deltaForGlobeRadius, nextGlobeLatch, type MapMode,
 } from '../../utils/mapProjection';
 import {
-  P_FOV_END, P_MAP_MOUNT, P_FADE_START, P_HANDOFF, P_MAX,
+  P_FOV_END, P_MAP_MOUNT, P_FADE_START, P_HANDOFF, P_GLOBE_FADE_START, P_GLOBE_FADE_END, P_MAX,
   altitudeForProgress, cameraPoseForProgress, lonDeltaForProgress, progressForLonDelta,
-  mapOpacityForProgress, glVisibleForProgress, homeCenterStep, progressFromPinch,
+  mapOpacityForProgress, glVisibleForProgress, globeOpacityForProgress, homeCenterStep, progressFromPinch,
 } from '../../utils/zoomContinuum';
 import { getTerminatorSegments, getSubsolarPoint } from '../../utils/celestial';
 import { buildSunOverlay } from '../../utils/solarGeometry';
@@ -495,6 +495,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const zoomStateKeyRef = useRef('');
   const glOpacityAnim = useRef(new Animated.Value(1)).current;
   const mapOpacityAnim = useRef(new Animated.Value(0)).current;
+  const globeOpacityAnim = useRef(new Animated.Value(0)).current;
   const cardRadiusAnim = useRef(new Animated.Value(14)).current;
   const divingAnimFrameRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -592,13 +593,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     //   위도로 풀면 지도를 위아래로 끈 뒤 다음 손짓에서 축척이 수십 % 튑니다.
     const lonDelta = lonDeltaForProgress(p, homeRef.current.latitude, aspect);
     // 구 ↔ 평면 문턱에 히스테리시스(들어갈 때 늘어남 2.0, 나올 때 1.8) — 경계에서 떨지 않게.
-    globeLatchRef.current = p > P_FADE_START && nextGlobeLatch(globeLatchRef.current, c.latitude, lonDelta, h / w);
-    const mode: MapMode = globeLatchRef.current ? 'globe'
+    // 구 모드 진입 판정: 진행도 p 기반 또는 메르카토르 늘어남 기반
+    const globeFade = globeOpacityForProgress(p);
+    globeLatchRef.current = globeFade >= 0.99 || (p > P_FADE_START && nextGlobeLatch(globeLatchRef.current, c.latitude, lonDelta, h / w));
+    const mode: MapMode = globeFade > 0.05 ? 'globe'
       : mapModeFor(c.latitude, lonDelta, h / w) === 'tiles' ? 'tiles' : 'silhouette';
 
+    // 3D 뷰는 지도가 완전히 덮이기 전까지는 100% 불투명하게 선명히 유지!
     glOpacityAnim.setValue(glVisibleForProgress(p) ? 1 : 0);
+    // 지도는 3D 위에 0 -> 1로 반투명하게 부드럽게 겹쳐 올라옴
     mapOpacityAnim.setValue(mapOpacityForProgress(p));
-    cardRadiusAnim.setValue(14 + (globeLatchRef.current ? 1 : globeProgress(c.latitude, lonDelta, h / w)) * 30);
+    // 지구본 구는 구글 지도 위에 1.6 -> 2.1 구간 동안 부드럽게 반투명 교차 페이드
+    globeOpacityAnim.setValue(globeFade);
+    cardRadiusAnim.setValue(14 + globeFade * 30);
 
     if (overlayFrameRef.current === null) {
       overlayFrameRef.current = requestAnimationFrame(() => {
@@ -3014,7 +3021,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const c = mapCenterRef.current;
     const d = lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH);
     return { center: { latitude: c.latitude, longitude: c.longitude }, radius: globeRadiusForDelta(c.latitude, d, sceneW) };
-  }, [isGlobeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapMounted, isGlobeMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const onMapRegionChangeComplete = useCallback((r: { latitude: number; longitude: number }) => {
     // 사용자가 지도를 끌었을 때만 받습니다. 줌 중(손짓·착륙)의 콜백은 늦게 온 옛 위치일 수 있어 버립니다.
     if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
@@ -3182,12 +3189,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               opacity: mapOpacityAnim,
               borderRadius: cardRadiusAnim,
               overflow: 'hidden',
-              backgroundColor: '#0B1220',
+              backgroundColor: zoomProgressState >= P_GLOBE_FADE_END ? '#0B1220' : 'transparent',
             },
           ]}
           pointerEvents={zoomProgressState >= P_HANDOFF ? 'auto' : 'none'}
         >
-          {!isGlobeMode ? (
+          {/* 평면 구글 지도 (구로 모핑될 때 부드럽게 페이드아웃) */}
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                opacity: globeOpacityAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 0],
+                }),
+              },
+            ]}
+            pointerEvents={!isGlobeMode ? 'auto' : 'none'}
+          >
             <MapCanvas
               ref={mapCanvasRef}
               lat={curLat}
@@ -3208,7 +3227,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               onLongPress={onMapLongPress}
               pickPin={pickPin}
             />
-          ) : (
+          </Animated.View>
+
+          {/* 3차원 지구본 구 (구로 모핑될 때 부드럽게 페이드인 및 구글 지도와 지형 1:1 동기화) */}
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                opacity: globeOpacityAnim,
+              },
+            ]}
+            pointerEvents={isGlobeMode ? 'auto' : 'none'}
+          >
             <MapGlobe
               ref={mapGlobeRef}
               subsolar={globeCelestialData.subsolar}
@@ -3224,6 +3254,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               topView={topView}
               initialCenter={globeStart.center}
               initialRadius={globeStart.radius}
+              currentCenter={mapCenterRef.current}
+              currentRadius={globeRadiusForDelta(mapCenterRef.current.latitude, lonDeltaForProgress(zoomProgressState, homeRef.current.latitude, sceneW / sceneH), sceneW)}
               // ⚠ 위 끝은 넉넉히 — 구로 넘어가는 축척의 반지름이 화면 폭의 2~3 배(서울 세로 폰 ≈ 1000 px)
               //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
               minRadius={100}
@@ -3233,7 +3265,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               pickPin={pickPin}
               selectedDate={globeCelestialData.date}
             />
-          )}
+          </Animated.View>
 
           {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 그리는 LandSilhouette (도법 및 그림체 연속성 유지) ── */}
           {showSilhouette && (

@@ -113,6 +113,27 @@ export const getSubsolarPoint = (date: Date): IsochronePoint => {
 };
 
 /**
+ * 달의 직하점(sublunar point, 달이 정확히 머리 위에 있는 지표 좌표)을 계산합니다.
+ */
+export const getSublunarPoint = (date: Date): IsochronePoint => {
+  const rad = Math.PI / 180;
+  const d = date.getTime() / 86400000 - 10957.5;
+  const L = rad * (218.316 + 13.176396 * d);
+  const M = rad * (134.963 + 13.064993 * d);
+  const F = rad * (93.272 + 13.229350 * d);
+  const l = L + rad * 6.289 * Math.sin(M);
+  const b = rad * 5.128 * Math.sin(F);
+  const e = rad * 23.4397;
+  const ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
+  const dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
+  const gmst = rad * (280.16 + 360.9856235 * d);
+  let longitude = ((ra - gmst) * (180 / Math.PI)) % 360;
+  longitude = ((longitude + 180) % 360 + 360) % 360 - 180;
+  const latitude = dec * (180 / Math.PI);
+  return { latitude, longitude };
+};
+
+/**
  * 연속된 [경도, 위도] 좌표열을 날짜변경선(경도 ±180°) 교차 지점에서 여러 구간으로 분리합니다.
  * react-native-maps의 Polyline은 좌표 사이를 직선으로 잇기 때문에, 분리하지 않으면
  * 지도 반대편까지 선이 가로질러 그려지는 문제가 발생합니다.

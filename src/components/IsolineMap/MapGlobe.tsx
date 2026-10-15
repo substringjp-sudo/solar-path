@@ -4,7 +4,7 @@ import Svg, { Circle, Path, G, Defs, RadialGradient, Stop, Text as SvgText, Rect
 import * as d3 from 'd3-geo';
 import { WORLD_LAND } from '../../utils/worldLand';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { IsochronePoint } from '../../utils/celestial';
+import { IsochronePoint, getSublunarPoint } from '../../utils/celestial';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
 import { dataColor } from '../../theme/tokens';
@@ -34,6 +34,10 @@ interface MapGlobeProps {
   /** 시뮬레이션 보기(§120 B) — 있으면 레이더 칸 대신 이 그림을 관측점 둘레에 얹습니다. */
   topView?: CloudTopViewImage | null;
   selectedDate?: Date;
+  /** 실시간 동기화 중심 (부모가 실시간으로 넘길 때) */
+  currentCenter?: { latitude: number; longitude: number };
+  /** 실시간 동기화 반지름 (부모가 실시간으로 넘길 때) */
+  currentRadius?: number;
   /** 특정 위치 롱프레스 시 해당 위경도 전달 */
   onSelectLocation?: (coord: { latitude: number; longitude: number }) => void;
   /** 길게 눌러 고른(아직 확인 전) 자리 — 핀으로 보입니다. */
@@ -91,6 +95,8 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   radar = null,
   topView = null,
   selectedDate,
+  currentCenter,
+  currentRadius,
   onSelectLocation,
   pickPin = null,
 }, ref) => {
@@ -101,7 +107,6 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
 
   const clampR = (r: number) => Math.max(minRadius, Math.min(maxRadius, r));
   const [scale, setScale] = useState(() => clampR(initialRadius));
-  const RADIUS = scale;
 
   const [isInteracting, setIsInteracting] = useState(false);
 
@@ -291,16 +296,22 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       onPanResponderTerminate: endGesture,
     })
   ).current;
-  live.current.rotate = frame.current === null ? rotate : live.current.rotate;
-  live.current.scale = frame.current === null ? scale : live.current.scale;
+  const effectiveRadius = currentRadius !== undefined && Number.isFinite(currentRadius)
+    ? clampR(currentRadius)
+    : (frame.current === null ? scale : live.current.scale);
+  const RADIUS = effectiveRadius;
+
+  const effectiveRotate: [number, number] = currentCenter
+    ? [-currentCenter.longitude, -Math.max(-89, Math.min(89, currentCenter.latitude))]
+    : (frame.current === null ? rotate : live.current.rotate);
 
   const projection = useMemo(() => {
     return d3.geoOrthographic()
       .scale(RADIUS)
       .translate([CX, CY])
-      .rotate(rotate)
+      .rotate(effectiveRotate)
       .clipAngle(90);
-  }, [rotate, RADIUS, CX, CY]);
+  }, [effectiveRotate, RADIUS, CX, CY]);
 
   const geoPath = useMemo(() => {
     return d3.geoPath().projection(projection);
@@ -545,6 +556,112 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return pos ? { x: pos[0], y: pos[1] } : null;
   }, [pickPin, rotate, projection]);
 
+  // ── 3D 우주 공간 상의 태양과 달 계산 (지구본 회전 및 실제 크기 비율 동기화) ──
+  const celestialBodies = useMemo(() => {
+    const curDate = selectedDate ?? new Date();
+    const sublunar = getSublunarPoint(curDate);
+    const rad = Math.PI / 180;
+    const r = d3.geoRotation(effectiveRotate);
+
+    // 1. 태양 3D 뷰 좌표 (subsolar 방향)
+    const [sLon, sLat] = r([subsolar.longitude, subsolar.latitude]);
+    const sPhi = sLat * rad;
+    const sLam = sLon * rad;
+    const sunUnitX = Math.cos(sPhi) * Math.sin(sLam);
+    const sunUnitY = Math.sin(sPhi);
+    const sunUnitZ = Math.cos(sPhi) * Math.cos(sLam);
+
+    // 2. 달 3D 뷰 좌표 (sublunar 방향)
+    const [mLon, mLat] = r([sublunar.longitude, sublunar.latitude]);
+    const mPhi = mLat * rad;
+    const mLam = mLon * rad;
+    const moonUnitX = Math.cos(mPhi) * Math.sin(mLam);
+    const moonUnitY = Math.sin(mPhi);
+    const moonUnitZ = Math.cos(mPhi) * Math.cos(mLam);
+
+    // 거리: 달의 실제 거리는 지구 반지름 R의 약 60배!
+    // 지구본에서 실제 웅장한 우주 거리감을 체감할 수 있도록 거리를 대폭 확장합니다.
+    const moonDist = RADIUS * 16.0;
+    const sunDist = RADIUS * 65.0;
+
+    const sunX = CX + sunUnitX * sunDist;
+    const sunY = CY - sunUnitY * sunDist;
+    const sunZ = sunUnitZ * sunDist;
+
+    const moonX = CX + moonUnitX * moonDist;
+    const moonY = CY - moonUnitY * moonDist;
+    const moonZ = moonUnitZ * moonDist;
+
+    // 크기: 달은 지구 반지름의 실제 비율 (1,737km / 6,371km = 0.2727)
+    const moonRadius = Math.max(12, RADIUS * 0.273);
+    const sunRadius = Math.max(22, RADIUS * 0.52);
+
+    // 달의 위상 그림자: 달 위치에서 태양을 바라보는 3D 광원 벡터
+    const lightDx = sunX - moonX;
+    const lightDy = -(sunY - moonY);
+    const lightDz = sunZ - moonZ;
+    const lightLen = Math.hypot(lightDx, lightDy, lightDz) || 1;
+    const lz = lightDz / lightLen;
+
+    // 화면 2D 상에서 빛이 비쳐오는 각도 (deg)
+    const sunAngleDeg = (Math.atan2(sunY - moonY, sunX - moonX) * 180) / Math.PI;
+
+    // 위상 조명률 k (0=그믐/신월, 0.5=반달, 1=보름)
+    const k = Math.max(0, Math.min(1, (1 + lz) / 2));
+
+    // 달의 밝은 면 패스
+    const rx = Math.abs(2 * k - 1) * moonRadius;
+    const sweep = k >= 0.5 ? 1 : 0;
+    const mr = moonRadius;
+    const litPath = `M 0 ${-mr} A ${mr} ${mr} 0 0 1 0 ${mr} A ${rx.toFixed(2)} ${mr} 0 0 ${sweep} 0 ${-mr} Z`;
+
+    const isSunBehind = sunZ < 0;
+    const isMoonBehind = moonZ < 0;
+    const isSunOccluded = isSunBehind && Math.hypot(sunX - CX, sunY - CY) <= RADIUS;
+    const isMoonOccluded = isMoonBehind && Math.hypot(moonX - CX, moonY - CY) <= RADIUS;
+
+    return {
+      sun: { x: sunX, y: sunY, z: sunZ, r: sunRadius, isBehind: isSunBehind, isOccluded: isSunOccluded },
+      moon: {
+        x: moonX,
+        y: moonY,
+        z: moonZ,
+        r: moonRadius,
+        isBehind: isMoonBehind,
+        isOccluded: isMoonOccluded,
+        angleDeg: sunAngleDeg,
+        litPath,
+        k,
+      },
+    };
+  }, [subsolar, effectiveRotate, RADIUS, CX, CY, selectedDate]);
+
+  const renderSun = (sun: typeof celestialBodies.sun) => (
+    <G key="celestial-sun">
+      <Circle cx={sun.x} cy={sun.y} r={sun.r * 2.8} fill="url(#sunAtmosphereGlow)" />
+      <Circle cx={sun.x} cy={sun.y} r={sun.r} fill="#FFFBEB" stroke="#FDE047" strokeWidth={2} />
+    </G>
+  );
+
+  const renderMoon = (moon: typeof celestialBodies.moon) => (
+    <G key="celestial-moon" transform={`translate(${moon.x}, ${moon.y})`}>
+      {/* 1. 달의 그림자 면 (전체 구형 본체) */}
+      <Circle cx={0} cy={0} r={moon.r} fill="url(#moonShadowGlow)" stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />
+      {/* 2. 달의 바다/크레이터 미세 음영 디테일 */}
+      <Circle cx={-moon.r * 0.25} cy={-moon.r * 0.2} r={moon.r * 0.26} fill="rgba(0,0,0,0.22)" />
+      <Circle cx={moon.r * 0.22} cy={moon.r * 0.3} r={moon.r * 0.22} fill="rgba(0,0,0,0.18)" />
+      <Circle cx={moon.r * 0.15} cy={-moon.r * 0.35} r={moon.r * 0.18} fill="rgba(0,0,0,0.15)" />
+      {/* 3. 태양 위치에 맞춰 정렬된 밝은 면 (위상 패스) */}
+      {moon.k > 0.01 && (
+        <G transform={`rotate(${moon.angleDeg})`}>
+          <Path d={moon.litPath} fill="url(#moonLitGlow)" />
+        </G>
+      )}
+      {/* 은은한 달빛 외곽선 글로우 */}
+      <Circle cx={0} cy={0} r={moon.r + 0.5} fill="none" stroke="rgba(241, 245, 249, 0.2)" strokeWidth={0.8} />
+    </G>
+  );
+
   const strokeColor = theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
 
   return (
@@ -562,7 +679,27 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
               <Stop offset="30%" stopColor={dataColor.sunrise} stopOpacity="0.8" />
               <Stop offset="100%" stopColor={dataColor.sunrise} stopOpacity="0" />
             </RadialGradient>
+            <RadialGradient id="sunAtmosphereGlow" cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0%" stopColor="#FFF7ED" stopOpacity="1" />
+              <Stop offset="30%" stopColor="#FDE047" stopOpacity="0.8" />
+              <Stop offset="60%" stopColor="#F97316" stopOpacity="0.35" />
+              <Stop offset="100%" stopColor="#EA580C" stopOpacity="0" />
+            </RadialGradient>
+            <RadialGradient id="moonShadowGlow" cx="40%" cy="40%" rx="60%" ry="60%">
+              <Stop offset="0%" stopColor="#1E293B" stopOpacity="1" />
+              <Stop offset="70%" stopColor="#0F172A" stopOpacity="1" />
+              <Stop offset="100%" stopColor="#020617" stopOpacity="1" />
+            </RadialGradient>
+            <RadialGradient id="moonLitGlow" cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="80%" stopColor="#F1F5F9" stopOpacity="0.95" />
+              <Stop offset="100%" stopColor="#E2E8F0" stopOpacity="0.9" />
+            </RadialGradient>
           </Defs>
+
+          {/* ── 지구 뒤쪽에 위치한 천체 (지구 원반 밖으로 나왔을 때 렌더링) ── */}
+          {celestialBodies.sun.isBehind && !celestialBodies.sun.isOccluded && renderSun(celestialBodies.sun)}
+          {celestialBodies.moon.isBehind && !celestialBodies.moon.isOccluded && renderMoon(celestialBodies.moon)}
 
           <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
 
@@ -755,6 +892,10 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           )}
 
           <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
+
+          {/* ── 지구 앞쪽에 위치한 천체 (태양 -> 달 순서로 렌더링하여 일식 등 깊이 표현) ── */}
+          {!celestialBodies.sun.isBehind && renderSun(celestialBodies.sun)}
+          {!celestialBodies.moon.isBehind && renderMoon(celestialBodies.moon)}
         </Svg>
       </View>
     </View>
