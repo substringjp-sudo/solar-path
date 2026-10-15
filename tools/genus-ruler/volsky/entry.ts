@@ -32,7 +32,10 @@ type Job = {
   fill?: { skyLightScale?: number; groundBounceScale?: number };
   /** §138 노출 배율 — 장면 노출(input.exposure 또는 해 고도의 autoExposure)에 곱합니다. 후보 모두에 같은 값(RULER-physics3 §3). 기본 1. */
   exposureScale?: number;
+  /** §140 조명 진단: takram CloudsEffect 속성 덮어쓰기(powderScale 등). 잡마다 이전 잡의 덮어쓰기를 원래 값으로 되돌린 뒤 적용. */
+  clouds?: Record<string, number>;
 };
+const cloudsDefaults: Record<string, unknown> = {};
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
   const t = Math.min(0.9999, Math.max(0, Math.log2(Math.max(km, 1e-3) / 1e-3) / 20));
@@ -131,6 +134,11 @@ const show = (tex: Texture, mode: number) => {
       // §137 잡마다 하늘빛·지면 반사 배율을 기본값 1 로 되돌린 뒤 덮어씁니다(앞 잡의 진단 값을 물려받지 않게).
       vol.debug.clouds.skyLightScale = job.fill?.skyLightScale ?? 1;
       vol.debug.clouds.groundBounceScale = job.fill?.groundBounceScale ?? 1;
+      {
+        const ce = vol.debug.clouds as unknown as Record<string, unknown>;
+        for (const [k, v] of Object.entries(cloudsDefaults)) ce[k] = v;
+        for (const [k, v] of Object.entries(job.clouds ?? {})) { if (!(k in cloudsDefaults)) cloudsDefaults[k] = ce[k]; ce[k] = v; }
+      }
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setScene(input);
