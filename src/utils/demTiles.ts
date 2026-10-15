@@ -17,9 +17,27 @@
  *
  *     고도(m) = R·256 + G + B/256 − 32768
  *
- * ⚠ **선형보간을 켜도 됩니다.** "세 채널에 쪼개 담았으니 보간하면 깨진다"고
- * 짐작했다가 실측했더니 최대 오차가 **0.0m** 였습니다. 위 식이 채널에 대해
- * **선형**이라 채널별 보간과 디코드가 교환됩니다.
+ * ⚠ **하드웨어 선형보간에 맡기면 안 됩니다** (2026-10-15 실기 — 바닷가 가시 울타리).
+ * 위 식이 채널에 대해 선형이라 **수학으로는** 채널별 보간과 디코드가 교환되고,
+ * 하네스(SwiftShader — 32비트로 거릅니다)에서 잰 오차도 0.0m 였습니다. 그래서
+ * 예전에는 텍스처에 선형보간을 켜고 한 번 읽어 풀었습니다.
+ *
+ * 휴대폰 GPU 는 다릅니다. 8비트 텍스처를 거른 값을 **fp16**(유효숫자 11비트)으로
+ * 돌려줍니다. R 은 한 단계가 256m 인 자리라, 이웃 화소의 R 이 다르면 섞인 R 의
+ * 반올림 오차가 256배로 불어 **최대 ±16m** 가 됩니다. 그리고 **0m 가 바로 R 이
+ * 127 → 128 로 넘어가는 자리**입니다. 오차가 물가에만 몰리고, 발밑 수십 m 앞에서
+ * 16m 는 고도각 수십 도라 해안선을 따라 가는 가시가 줄지어 섭니다. 지형이
+ * 복잡할수록(물가 화소가 많을수록) 가시도 많습니다.
+ *
+ * 원자료 탓이 아닙니다. 대부도·가로림만·통영·성산 줌 13 블록에서 0m 근처에 이웃보다
+ * 20m 넘게 홀로 솟은 화소는 **0개**였고, 같은 블록을 fp16 거름으로 흉내 내면 근거리
+ * 격자 정점이 1° 넘게 솟는 것이 곳마다 175~737개(최대 22.7°) 나왔습니다.
+ *
+ * 그래서 Mapbox·MapLibre 의 DEM 처럼 **화소 넷을 따로 읽어 각각 정확히 푼 뒤
+ * 셰이더에서 섞습니다**(`dem_elevation`). 화소 하나를 읽을 때 채널을 정수로
+ * 반올림하므로(Terrarium 채널은 원래 0~255 정수) 표본이 fp16 이든 무엇이든 정확히
+ * 되살아납니다. 텍스처는 NearestFilter 입니다 — 섞는 일은 셰이더가 합니다.
+ * `tools/shader-preview/verify-dem-precision.js` 가 휴대폰 표본을 흉내 내 잽니다.
  *
  * ⚠ **sRGB 로 읽으면 안 됩니다.** 감마가 걸리면 고도가 통째로 어긋납니다.
  * 이쪽이 진짜 함정이라 `NoColorSpace` 를 못박아 둡니다.
@@ -193,27 +211,55 @@ float ${p}_probeRadiusM() {
 }
 
 /**
- * 높이장 표본 (m, 해수면 기준).
+ * **화소 하나**의 고도 (m) — 정수 텍셀 좌표, 블록 밖은 가장자리 화소로 붙입니다.
  *
  * Terrarium: 고도 = R·256 + G + B/256 − 32768.
- * 이 식은 채널에 대해 **선형**이라 텍스처 선형보간과 교환됩니다 —
- * 그래서 보간을 켜 둬도 안전합니다(실측 오차 0.0m).
+ *
+ * ⚠ 채널을 **정수로 반올림**합니다. 휴대폰은 표본을 fp16 으로 돌려주므로
+ *   127/255 같은 값도 조금 어긋나 오고, R 이 256배라 그 작은 어긋남이 그대로
+ *   디코드되면 0.5m 쯤 됩니다. Terrarium 채널은 원래 0~255 정수이니 반올림하면
+ *   정확히 되살아납니다(fp16 의 어긋남은 0.07 단계 안쪽).
+ * ⚠ 텍스처는 NearestFilter 라 화소 중심을 찍으면 그 화소만 옵니다. 하드웨어
+ *   거름에 기대지 않습니다 — 이 파일 머리 주석 참고.
+ */
+float ${p}_elevTexel(vec2 t) {
+  float n = u${U}Block * 256.0;
+  vec2 tc = clamp(t, vec2(0.0), vec2(n - 1.0));
+  vec3 c = floor(texture2D(u${U}Tex, (tc + 0.5) / n).rgb * 255.0 + 0.5);
+  return c.r * 256.0 + c.g + c.b / 256.0 - 32768.0;
+}
+
+/**
+ * 블록 UV(0~1) → 쌍선형이 쓸 **왼쪽 위 화소**(xy)와 그 안의 위치(zw, 0~1).
+ * 블록 밖은 가장자리로 붙입니다 — 예전 하드웨어 거름의 clamp-to-edge 와 같은 값입니다.
+ */
+vec4 ${p}_cell(vec2 uv) {
+  vec2 t = clamp(uv, 0.0, 1.0) * (u${U}Block * 256.0) - 0.5;
+  vec2 i = floor(t);
+  return vec4(i, t - i);
+}
+
+float ${p}_bilerp(float h00, float h10, float h01, float h11, vec2 f) {
+  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
+/**
+ * 높이장 표본 (m, 해수면 기준) — 화소 넷을 **각각 풀어서** 섞습니다.
+ *
+ * ⚠ 텍스처 거름(한 번 읽기)으로 되돌리지 마세요. 채널을 섞은 뒤 푸는 것은 수학으로는
+ *   같지만, 휴대폰의 fp16 표본에서는 0m·256m·512m… 에서 최대 ±16m 가 튀어 바닷가에
+ *   가시가 섭니다(파일 머리 주석 · verify-dem-precision.js).
  */
 float ${p}_elevation(vec2 uv) {
-  vec3 t = texture2D(u${U}Tex, clamp(uv, 0.0, 1.0)).rgb * 255.0;
-  return t.r * 256.0 + t.g + t.b / 256.0 - 32768.0;
+  vec4 k = ${p}_cell(uv);
+  return ${p}_bilerp(${p}_elevTexel(k.xy),
+                     ${p}_elevTexel(k.xy + vec2(1.0, 0.0)),
+                     ${p}_elevTexel(k.xy + vec2(0.0, 1.0)),
+                     ${p}_elevTexel(k.xy + vec2(1.0, 1.0)), k.zw);
 }
 
 float ${p}_elevationAt(vec2 groundM) {
   return ${p}_elevation(${p}_uv(groundM));
-}
-
-/**
- * 텍셀 격자에 직접 찍어 읽습니다 (정수 텍셀 좌표, 중심 보정 포함).
- * 재구성 필터가 쓰는 저수준 접근이라 보간에 기대지 않습니다.
- */
-float ${p}_elevTexel(vec2 t) {
-  return ${p}_elevation((t + 0.5) / (u${U}Block * 256.0));
 }
 
 /** 3차 B-스플라인 기저 (t ∈ [0,1), 제어점 i−1·i·i+1·i+2) */
@@ -294,22 +340,6 @@ vec2 ${p}_gradientBicubic(vec2 groundM) {
 }
 
 /**
- * 대각선 이웃 **넷의 중앙값**.
- *
- * ⚠ 대각선만 씁니다. 저줌 Terrarium 타일의 결함은 **한 화소 폭의 줄**로
- * 나타나는데(아래 참고), 상하좌우 이웃은 그 줄 위에 같이 얹힐 수 있어도
- * 대각선은 행도 열도 다르므로 성합니다.
- */
-float ${p}_diagMedian(vec2 groundM, float t) {
-  float a = ${p}_elevationAt(groundM + vec2( t,  t));
-  float b = ${p}_elevationAt(groundM + vec2( t, -t));
-  float c = ${p}_elevationAt(groundM + vec2(-t,  t));
-  float d = ${p}_elevationAt(groundM + vec2(-t, -t));
-  // 넷을 정렬했을 때 가운데 둘의 평균 = max(작은것들) 과 min(큰것들) 의 평균.
-  return 0.5 * (max(min(a, b), min(c, d)) + min(max(a, b), max(c, d)));
-}
-
-/**
  * **튀는 화소를 걷어낸** 높이장 표본.
  *
  * 저줌 Terrarium 타일에는 R 채널이 한두 단계 어긋난 화소 줄이 있습니다.
@@ -322,11 +352,34 @@ float ${p}_diagMedian(vec2 groundM, float t) {
  * 이어야 하고, 그런 것은 이 해상도로 평균 내고 나면 남지 않습니다. 그래서
  * 이웃 중앙값에서 200m 넘게 벗어나면 결함으로 보고 갈아 끼웁니다 —
  * **중앙값으로 늘 뭉개지 않습니다.** 그러면 진짜 능선까지 깎입니다.
+ *
+ * 이웃은 **대각선 넷**(한 화소씩 비낀 자리의 쌍선형 표본)입니다. 결함이 한 화소
+ * 폭의 줄이라 상하좌우는 그 줄에 같이 얹힐 수 있어도 대각선은 행도 열도 다릅니다.
+ *
+ * 다섯 표본(가운데 + 대각선 넷)이 모두 같은 소수 위치를 쓰므로 **4×4 화소 열여섯
+ * 개**에서 한꺼번에 냅니다. 따로 부르면 쌍선형마다 넷씩 스무 번 읽습니다.
  */
 float ${p}_elevationDespiked(vec2 groundM) {
-  float h = ${p}_elevationAt(groundM);
-  if (u${U}Despike < 0.5) return h;
-  float m = ${p}_diagMedian(groundM, u${U}SpanM / 256.0);
+  if (u${U}Despike < 0.5) return ${p}_elevationAt(groundM);
+  vec4 k = ${p}_cell(${p}_uv(groundM));
+  vec2 i = k.xy;
+  // 행 a·b·c·d = 화소 y −1·0·+1·+2, 열 0·1·2·3 = 화소 x −1·0·+1·+2.
+  // ⚠ GLSL ES 1.00 은 배열 변수 첨자가 불편해 펼쳐 씁니다.
+  float a0 = ${p}_elevTexel(i + vec2(-1.0, -1.0)), a1 = ${p}_elevTexel(i + vec2(0.0, -1.0));
+  float a2 = ${p}_elevTexel(i + vec2( 1.0, -1.0)), a3 = ${p}_elevTexel(i + vec2(2.0, -1.0));
+  float b0 = ${p}_elevTexel(i + vec2(-1.0,  0.0)), b1 = ${p}_elevTexel(i + vec2(0.0,  0.0));
+  float b2 = ${p}_elevTexel(i + vec2( 1.0,  0.0)), b3 = ${p}_elevTexel(i + vec2(2.0,  0.0));
+  float c0 = ${p}_elevTexel(i + vec2(-1.0,  1.0)), c1 = ${p}_elevTexel(i + vec2(0.0,  1.0));
+  float c2 = ${p}_elevTexel(i + vec2( 1.0,  1.0)), c3 = ${p}_elevTexel(i + vec2(2.0,  1.0));
+  float d0 = ${p}_elevTexel(i + vec2(-1.0,  2.0)), d1 = ${p}_elevTexel(i + vec2(0.0,  2.0));
+  float d2 = ${p}_elevTexel(i + vec2( 1.0,  2.0)), d3 = ${p}_elevTexel(i + vec2(2.0,  2.0));
+  float h  = ${p}_bilerp(b1, b2, c1, c2, k.zw);   // 가운데
+  float pp = ${p}_bilerp(c2, c3, d2, d3, k.zw);   // (+동, +남)
+  float pm = ${p}_bilerp(a2, a3, b2, b3, k.zw);   // (+동, −남)
+  float mp = ${p}_bilerp(c0, c1, d0, d1, k.zw);   // (−동, +남)
+  float mm = ${p}_bilerp(a0, a1, b0, b1, k.zw);   // (−동, −남)
+  // 넷을 정렬했을 때 가운데 둘의 평균 = max(작은것들) 과 min(큰것들) 의 평균.
+  float m = 0.5 * (max(min(pp, pm), min(mp, mm)) + min(max(pp, pm), max(mp, mm)));
   return abs(h - m) > 200.0 ? m : h;
 }
 
@@ -353,8 +406,8 @@ export const DEM_GLSL = demGlsl('dem');
  * 붙입니다 — 화소 대 화소 1:1 이라 값이 하나도 안 변합니다.
  *
  * ⚠ 붙일 때는 **반드시 NearestFilter** 입니다. 여기서 한 번이라도 리샘플되면
- * 고도가 흐려지고, 그건 해안선이 흐려진다는 뜻입니다. (완성된 텍스처를
- * 나중에 읽을 때는 선형보간이 안전합니다 — 위 주석 참고.)
+ * 고도가 흐려지고, 그건 해안선이 흐려진다는 뜻입니다. 완성된 텍스처도
+ * NearestFilter 입니다 — 셰이더가 화소 넷을 각각 풀어 섞습니다(위 주석 참고).
  */
 /**
  * 받아 둔 패치들.
@@ -461,9 +514,12 @@ export async function loadDemPatch(
   if (got === 0) return null;
 
   const size = DEM_TILE_SIZE_PX * block;
+  // ⚠ NearestFilter — 화소 중심을 찍으면 그 화소만 오게 합니다. 쌍선형은 셰이더가
+  //   **푼 뒤에** 합니다(dem_elevation). 하드웨어가 채널을 섞으면 휴대폰의 fp16
+  //   표본에서 바닷가에 ±16m 가시가 섭니다.
   const target = new THREE.WebGLRenderTarget(size, size, {
-    minFilter: THREE.LinearFilter,
-    magFilter: THREE.LinearFilter,
+    minFilter: THREE.NearestFilter,
+    magFilter: THREE.NearestFilter,
     format: THREE.RGBAFormat,
     type: THREE.UnsignedByteType,
     depthBuffer: false,

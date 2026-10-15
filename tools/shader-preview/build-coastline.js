@@ -116,7 +116,12 @@ const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1
       const aS = seaAngle(d);
       const aT = h === null ? -Infinity
         : (Math.atan2(h - eye - (d * d) / (2 * EARTH_R), d) * 180) / Math.PI;
-      if (aT >= aS) push(d, aT, 'land'); else push(d, aS, 'sea');
+      // ⚠ **정확히 0m 는 물**입니다 — 지형 셰이더가 `vElevM <= 0` 을 버리고 해수면이 그 자리를
+      //   그립니다(TerrainField 의 discard 주석). 예전엔 `>=` 라 0m 고원(근거리 화소의 41%)을
+      //   뭍으로 셌고, 대부도 324° 쪽 3km 언저리 갯벌이 참조에만 "땅 맨위" 로 남았습니다.
+      //   그래도 통과했던 것은 하드웨어 거름이 928m 의 −0.0001m 갯벌을 +0.11m 로 띄워 비슷한
+      //   자리에 가짜 뭍을 그렸기 때문입니다 — 화소를 각각 푸는 지금은 안 뜹니다(COASTLINE_PLAN 12.4).
+      if (aT > aS) push(d, aT, 'land'); else push(d, aS, 'sea');
     }
     // 격자 밖: 바다뿐. 수평선까지 로그 간격으로.
     const outerN = 256;
@@ -150,6 +155,24 @@ const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1
       for (let i = 1; i < segs.length; i++) if (segs[i].type !== segs[i - 1].type) 전환++;
       const seaSegs = segs.filter(s => s.type === 'sea');
       const landSegs = segs.filter(s => s.type === 'land');
+      // "땅 맨위" 의 **하한** — 화소 반 칸 넘게 보이는 뭍 구간 가운데 가장 위. 보이는 높이 = 그 구간
+      // 맨위 − 바로 아래 구간 맨위. 그보다 얇은 뭍은 그려지느냐가 래스터화 운입니다 — 대부도 324° 의
+      // 527m 갯벌은 +3~6mm 라 0.013°(화소 0.22칸)만 보이고, 격자 정점 고도가 참조와 mm 까지 같은데도
+      // 열마다 그려지기도 안 그려지기도 했습니다. 그래서 측정이 [하한, 맨위] 안이면 맞은 것으로 봅니다.
+      // 가시(솟은 뭍)는 맨위보다 **높게**, 빠진 뭍은 하한보다 **낮게** 나오므로 둘 다 그대로 잡힙니다.
+      const landTopSegs = [];
+      {
+        let prevTop = -Infinity, runType = null, runTop = -Infinity;
+        const close = () => {
+          if (runType === 'land' && runTop - prevTop >= 0.5 * (FOV_DEG / H)) landTopSegs.push({ a: runTop });
+          if (runType !== null) prevTop = runTop;
+        };
+        for (const s2 of segs) {
+          if (s2.type !== runType) { close(); runType = s2.type; }
+          runTop = s2.a;
+        }
+        close();
+      }
       // 화소 단위로 견주려고 **경계만** 넘깁니다 (고리 전체는 3MB 가 됩니다).
       // 첫 항목이 가장 낮은 보이는 표본이고, 이후는 종류가 바뀌는 자리입니다.
       const 경계 = [];
@@ -171,6 +194,7 @@ const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1
         창: [+bot.el.toFixed(3), +top.el.toFixed(3)],
         바다맨위: seaSegs.length ? +seaSegs[seaSegs.length - 1].a.toFixed(4) : null,
         땅맨위: landSegs.length ? +landSegs[landSegs.length - 1].a.toFixed(4) : null,
+        땅맨위하한: landTopSegs.length ? +landTopSegs[landTopSegs.length - 1].a.toFixed(4) : null,
         전환,
         // ⚠ "땅이 보이는가"는 쓸모가 없습니다 — 발밑이 늘 땅이라 항상 참입니다.
         //   쓸 만한 신호는 **그 방위에서 맨 위에 있는 것이 물인가** 입니다.
@@ -324,7 +348,7 @@ if (patch) {
       const col=COLS[v*W+x];
       rows.push({ v, x, az:col.az,
         바다맨위참조:col.바다맨위, 바다맨위:바다맨위===null?null:+바다맨위.toFixed(4),
-        땅맨위참조:col.땅맨위, 땅맨위:땅맨위===null?null:+땅맨위.toFixed(4),
+        땅맨위참조:col.땅맨위, 땅맨위하한:col.땅맨위하한, 땅맨위:땅맨위===null?null:+땅맨위.toFixed(4),
         전환참조:col.전환, 전환:Math.max(0,runs.length-1), 바다최상단:col.바다최상단,
         맞음, 틀림, 하늘맞음, 하늘틀림,
         dbg: dbg||undefined, dbg참조: col.dbg });
@@ -334,7 +358,12 @@ if (patch) {
   const num=a=>a.filter(x=>x!==null&&Number.isFinite(x));
   const med=a=>{const s=[...a].sort((x,y)=>x-y);return s.length?s[s.length>>1]:null;};
   const 바다차=num(rows.map(r=>(r.바다맨위!==null&&r.바다맨위참조!==null)?Math.abs(r.바다맨위-r.바다맨위참조):null));
-  const 땅차=num(rows.map(r=>(r.땅맨위!==null&&r.땅맨위참조!==null)?Math.abs(r.땅맨위-r.땅맨위참조):null));
+  // 측정이 [하한, 맨위] 밖으로 벗어난 만큼 — 화소보다 얇은 뭍은 그려져도 안 그려져도 맞습니다(빌드 쪽 주석).
+  const 땅차=num(rows.map(r=>{
+    if (r.땅맨위===null||r.땅맨위참조===null) return null;
+    const lo=r.땅맨위하한===null?r.땅맨위참조:Math.min(r.땅맨위하한,r.땅맨위참조), hi=r.땅맨위참조;
+    return r.땅맨위<lo ? lo-r.땅맨위 : r.땅맨위>hi ? r.땅맨위-hi : 0;
+  }));
   const 전환일치=rows.filter(r=>r.전환===r.전환참조).length;
   // 대조 ①: 땅이 안 걸리는 방위의 맨 위 물 = −dip
   const 열린=rows.filter(r=>r.바다최상단 && r.바다맨위!==null).map(r=>r.바다맨위);
