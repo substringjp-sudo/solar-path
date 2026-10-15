@@ -29,7 +29,7 @@ import { PerspectiveCamera } from 'three';
 import { CloudsEffect } from '@takram/three-clouds';
 import { patchGenusShader as patchOld } from './old/cloudGenus';
 import { patchFlowShader as patchFlowOld } from './old/cloudFlowShader';
-import { patchGenusShader as patchNew, setGenusPhysics, setGenusLightFloors, applyGenusFloors, setGenusDiffuse, injectGenusDiffuse } from '${SRC}/cloudGenus';
+import { patchGenusShader as patchNew, setGenusPhysics, setGenusLightFloors, applyGenusFloors, setGenusDiffuse, injectGenusDiffuse, setGenusSkeleton, injectGenusSkeleton } from '${SRC}/cloudGenus';
 import { patchFlowShader as patchFlowNew } from '${SRC}/cloudFlowShader';
 type M = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
 const mk = () => { const c = new CloudsEffect(new PerspectiveCamera()); return [c.cloudsPass.currentMaterial, c.shadowPass.currentMaterial] as unknown as M[]; };
@@ -106,6 +106,24 @@ r.cloudsReOn = nc.fragmentShader.includes('genusHaloPhase') && (nc.uniforms.genu
   // GLSL 괄호 균형(컴파일 전 1차 검사)
   const bal = (t) => { let d = 0; for (const c of t) { if (c === '{') d++; else if (c === '}') d--; if (d < 0) return false; } return d === 0; };
   r.diffBraces = bal(t2) && bal(t3);
+  // §139 뼈대 레인 — 켜도 뼈대 층이 없으면 원문, 뼈대 층이 있으면 두 패스 모두 삽입(+genusSkel), 끄면 원문·균일변수 수, 확산과 조합, 앵커 훼손 throw
+  const skL = [{ genus: 'cu', cover: 0.3, opts: { skeleton: { mode: 0, tilt: [0, 0] } } }, null, { genus: 'sc', cover: 0.5, opts: { skeleton: { mode: 3, tilt: [0, 0] }, mode: 3 } }];
+  setGenusSkeleton(mc as never, [{ genus: 'cu', cover: 0.3 }] as never, true); setGenusSkeleton(ms as never, [] as never, true);
+  r.skNoLaneIdentical = mc.fragmentShader === base && ms.fragmentShader === baseShadow && unameCount() === u0;
+  setGenusSkeleton(mc as never, skL as never, true); setGenusSkeleton(ms as never, skL as never, true);
+  const sk1 = mc.fragmentShader;
+  r.skOn = sk1.includes('uniform vec4 genusSkel;') && sk1.includes('gSkDens') && sk1.includes('gCapGuard') && sk1.includes('step(vec4(2.5), genusMode)') && ms.fragmentShader.includes('gSkDens')
+    && 'genusSkel' in mc.uniforms && (mc.uniforms.genusSkel.value as { x: number; y: number; z: number }).x === 1 && (mc.uniforms.genusSkel.value as { y: number }).y === 0 && (mc.uniforms.genusSkel.value as { z: number }).z === 1
+    && unameCount() === u0 + 1 && bal(sk1);
+  setGenusDiffuse(mc as never, 2);                                                               // 뼈대 + 확산 L2 동시(앵커가 겹치지 않음)
+  r.skWithDiffuse = mc.fragmentShader.includes('gSkDens') && mc.fragmentShader.includes('§138 두-흐름') && bal(mc.fragmentShader);
+  setGenusDiffuse(mc as never, 0);
+  r.skDiffOffStays = mc.fragmentShader === sk1;
+  setGenusSkeleton(mc as never, skL as never, false); setGenusSkeleton(ms as never, skL as never, false);
+  r.skOffRestored = mc.fragmentShader === base && ms.fragmentShader === baseShadow && unameCount() === u0 && !('genusSkel' in mc.uniforms);
+  let threw3 = false;
+  try { injectGenusSkeleton(base.replace('vec4 gHs = mix(mix(', 'vec4 gHs = mixX(mix(')); } catch { threw3 = true; }
+  r.skAnchorThrows = threw3;
   // 구름 패스인데 앵커가 훼손되면 throw(조용히 L0 이 되지 않게)
   let threw2 = false;
   try { injectGenusDiffuse(base.replace('vec4 gMultiScat', 'vec4 gMultiScatX'), 2); } catch { threw2 = true; }
@@ -138,6 +156,12 @@ check('§138 L3: 두-흐름만 넣고 takram 하늘빛 항·ao 바닥값은 그�
 check('§138 L3 + 바닥값 치환은 throw · L3 + 얼음 동시 · 전부 끄면 원문·균일변수 수', r.diff3FloorsIgnored && r.diff3Ice && r.diffAllOffRestored);
 check('§138 L2 하늘빛 충돌 전 감쇠의 g·시컨트가 cloudDiffuse 상수와 같음', r.diff3G);
 check('§138 L2·L3 중괄호 균형', r.diffBraces);
+check('§139 뼈대: 켜도 뼈대 층이 없으면 원문·균일변수 수 그대로', r.skNoLaneIdentical);
+check('§139 뼈대: 층이 있으면 두 패스 삽입(뚜껑 가드·봉투 거리 밀도·genusSkel 레인 1,0,1), 균일변수 +1, 괄호 균형', r.skOn);
+check('§139 뼈대 + 확산 L2 동시(앵커 안 겹침)', r.skWithDiffuse);
+check('§139 확산 끄면 뼈대 유지', r.skDiffOffStays);
+check('§139 뼈대 끄면 원문·균일변수 제거', r.skOffRestored);
+check('§139 뼈대 앵커 훼손 → throw', r.skAnchorThrows);
 check('§138 구름 패스 앵커 훼손 → throw, 그림자 패스 → 그대로', r.diffAnchorThrows);
 const pass = results.filter(Boolean).length;
 console.log(`\n${pass}/${results.length} 통과`);
