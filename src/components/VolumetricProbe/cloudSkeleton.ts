@@ -213,9 +213,16 @@ export interface SkeletonOpts {
    * 깊이 ≤ 1.3 w(cu)·2 w(cg) 로 세로 늘어남 억제, 층적운 롤 2:1·요소 간격 1.5 h. 눈으로 고르는 후보(RULER-shape §11.5).
    */
   k4?: boolean;
+  /** K5 — K4 + 적운 비례(K5 상수). k4 를 함께 켠 것으로 취급. */
+  k5?: boolean;
 }
 export const VARY = { S_SIGMA: 0.5, R_SIGMA: 0.35, R_MIN: 0.3, R_MAX: 2.5, D_MIN_FRAC: 0.25, STAGE_GROW: 0.4, STAGE_MATURE: 0.75, P_GROW: 0.5, P_MATURE: 0.3, DECAY_DEPTH: 0.5, DECAY_CAPW: 0.4, OFF_R: 0.15, AX: 0.8 } as const;
 export const K4 = { A_MAX_OVER_W50: 2, LAMBDA_MIN_OVER_W50: 1.1, R_MAX_CU: 1.3, R_MAX_CG: 2.0, RIM_GROW: 0.4, RIM_MATURE: 0.25, SC_EL_OVER_H: 1.5, SC_ROLL_ANISO: 2 } as const;
+/**
+ * K5(k5: K4 위에 적운 비례만 바꿈 — K4 렌더에서 폭 0.45 km·높이 ≥ 폭의 좁고 높은 기둥이 빽빽한 '비석 밭'이 됨): 폭 중앙값 = z_LCL(Öktem & Romps),
+ * 깊이/폭 r ∈ [0.3, 0.8](humilis~mediocris 가 대부분), 테를 더 둥글게(0.55/0.4), 폭 상한 2.5 w_50(큰 것이 섞이게).
+ */
+export const K5 = { W50_OVER_LCL: 1.0, R_MIN: 0.3, R_MAX_CU: 0.8, R_MAX_CG: 1.6, RIM_GROW: 0.55, RIM_MATURE: 0.4, A_MAX_OVER_W50: 2.5 } as const;
 
 /** 절단 파레토의 평균 면적(수치, U 격자 200) */
 function paretoMeanArea(aMin: number, aMax: number): number {
@@ -225,6 +232,7 @@ function paretoMeanArea(aMin: number, aMax: number): number {
 }
 
 export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undefined, tileKm: number, seed: number, o: SkeletonOpts = {}): Skeleton {
+  if (o.k5) o = { ...o, k4: true };
   const g = fin(th?.groundM) ? (th!.groundM as number) : 0;
   const lcl = lclAglM(th);
   const deckBaseAgl = fin(L.baseKm) ? Math.max(50, L.baseKm * 1000 - g) : null;
@@ -265,13 +273,13 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
   }
   dMax = clamp(dMax, 150, 12000);
   const rr = L.genus === 'cg' ? SK.R50_CG : SK.R50_CU;
-  const r50 = clamp(dMax / zb, rr[0], rr[1]);
-  const w50 = (SK.W50_OVER_LCL * zb) / 1000;
+  const r50 = o.k5 ? clamp(dMax / zb, K5.R_MIN, L.genus === 'cg' ? K5.R_MAX_CG : K5.R_MAX_CU) : clamp(dMax / zb, rr[0], rr[1]);
+  const w50 = ((o.k5 ? K5.W50_OVER_LCL : SK.W50_OVER_LCL) * zb) / 1000;
   let aMax = Math.pow(SK.A_MAX_OVER_LAMBDA * lambda, 2);
   let aMin = aMinForMedian((Math.PI / 4) * w50 * w50, aMax);
   if (o.k4) {
     // K4: 폭 분포는 λ 와 무관, 간격은 운량에서 — n = cover / E[a], λ = 1/√n (상한 물리 간격, 하한 1.1 w_50)
-    aMax = Math.pow(K4.A_MAX_OVER_W50 * w50, 2);
+    aMax = Math.pow((o.k5 ? K5.A_MAX_OVER_W50 : K4.A_MAX_OVER_W50) * w50, 2);
     aMin = aMinForMedian((Math.PI / 4) * w50 * w50, aMax);
     const meanA = paretoMeanArea(aMin, aMax);
     const lamCover = Math.sqrt(meanA / Math.max(0.02, L.cover));
@@ -300,7 +308,7 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
     if (o.vary || o.k4) {
       // K3: 종·세기·생애 단계·비대칭 — 셀마다 따로 시드한 rng(자리·크기의 rng 열을 건드리지 않아 K1 과 자리가 같음)
       const vr = skRng(((seed ^ 0x9e3779b9) + (j * n + i) * 7919) | 0);
-      r = clamp(r * Math.exp(VARY.R_SIGMA * gauss(vr)), VARY.R_MIN, o.k4 ? (L.genus === 'cg' ? K4.R_MAX_CG : K4.R_MAX_CU) : VARY.R_MAX);
+      r = clamp(r * Math.exp(VARY.R_SIGMA * gauss(vr)), VARY.R_MIN, o.k5 ? (L.genus === 'cg' ? K5.R_MAX_CG : K5.R_MAX_CU) : o.k4 ? (L.genus === 'cg' ? K4.R_MAX_CG : K4.R_MAX_CU) : VARY.R_MAX);
       const s = Math.exp(VARY.S_SIGMA * gauss(vr)), ph = vr();
       const stage: 0 | 1 | 2 = ph < VARY.STAGE_GROW ? 0 : ph < VARY.STAGE_MATURE ? 1 : 2;
       const wMax = 2 * Math.sqrt(aMax / Math.PI);
@@ -309,7 +317,7 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
       cell.dM = d; cell.s = s; cell.stage = stage;
       cell.p = (stage === 1 ? VARY.P_MATURE : VARY.P_GROW) / r;
       // K4 원통 캡: rim = 둥근 테 폭(R 대비) — 성장 0.4, 성숙 0.25(더 평평) — 생성기가 p 대신 씀
-      if (o.k4) cell.rim = stage === 1 ? K4.RIM_MATURE : K4.RIM_GROW;
+      if (o.k4) cell.rim = o.k5 ? (stage === 1 ? K5.RIM_MATURE : K5.RIM_GROW) : (stage === 1 ? K4.RIM_MATURE : K4.RIM_GROW);
       cell.capW = stage === 2 ? VARY.DECAY_CAPW : 1;
       cell.ax = VARY.AX; cell.off = VARY.OFF_R;
       cell.dir = windDir;
@@ -349,6 +357,6 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
   const core = { genus: L.genus, baseM: g + zb, heightM, zLclM: lcl, zInvM: inv.source === 'fallback' ? null : inv.zM, zInvSource: inv.source,
     lambdaKm: lambda, w50Km: w50, aMinKm2: aMin, r50, dMaxM: dMax, cells, areaOn: area, widthScale, skirt,
     mode: 0 as const, rollDeg: roll, elKm: 0, mesoKm: 0, open: false, tilt: shearTilt(th, heightM, wUp), wUpMps: wUp };
-  const key = { ...core, cells: cells.map(c => [+c.x.toFixed(5), +c.y.toFixed(5), +c.wKm.toFixed(4), Math.round(c.dM), c.on ? 1 : 0, c.p ?? 0, c.capW ?? 1, c.stage ?? -1, c.rim ?? 0]), seed, tileKm, vary: !!o.vary, k4: !!o.k4 };
+  const key = { ...core, cells: cells.map(c => [+c.x.toFixed(5), +c.y.toFixed(5), +c.wKm.toFixed(4), Math.round(c.dM), c.on ? 1 : 0, c.p ?? 0, c.capW ?? 1, c.stage ?? -1, c.rim ?? 0]), seed, tileKm, vary: !!o.vary, k4: !!o.k4, k5: !!o.k5 };
   return { ...core, hash: fnv(JSON.stringify(key)) };
 }
