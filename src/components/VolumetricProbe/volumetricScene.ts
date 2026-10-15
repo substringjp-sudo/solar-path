@@ -356,9 +356,10 @@ export interface VolumetricOptions {
   diffuse: 0 | 1 | 2 | 3 | 9;
   /**
    * §139 구름 뼈대(cloudSkeleton.ts, RULER-shape). 0 = 끔(기본 — 날씨 바이트·셰이더 글자 그대로) · 1 = K0h 대조군(옛 무늬, 층 밑면·두께만 뼈대) ·
-   * 2 = K1 뼈대(열기둥 자리·폭·깊이·뚜껑 단면·봉투 거리 밀도) · 3 = K2 = K1 + 전단 기울기(흐름 S4 fetch 레인). cu·cg·sc 층만, flow 와 함께 쓰면 throw.
+   * 2 = K1 뼈대(열기둥 자리·폭·깊이·뚜껑 단면·봉투 거리 밀도) · 3 = K2 = K1 + 전단 기울기(흐름 S4 fetch 레인) · 4 = K3 = K1 + 열기둥별 변이(세기·종·생애 단계·비대칭,
+   * 스커트 없음 — cloudSkeleton.VARY). cu·cg·sc 층만, flow 와 함께 쓰면 throw.
    */
-  skeleton: 0 | 1 | 2 | 3;
+  skeleton: 0 | 1 | 2 | 3 | 4;
   /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
   skeletonTiltScale: number;
 }
@@ -849,7 +850,7 @@ export async function createVolumetricScene(
         const G = gl[i], L = inputs[i];
         if (!G || !(G.genus === 'cu' || G.genus === 'cg' || G.genus === 'sc')) continue;
         const genus = G.genus as SkeletonGenus;
-        const sk = skeletonOf({ genus, cover: quantCover(L.cover), baseKm: L.baseKm, thicknessM: L.thicknessM }, p.thermo ?? null, GENUS_TILE_KM, G.opts?.seed ?? 7 + i * 1000);
+        const sk = skeletonOf({ genus, cover: quantCover(L.cover), baseKm: L.baseKm, thicknessM: L.thicknessM }, p.thermo ?? null, GENUS_TILE_KM, G.opts?.seed ?? 7 + i * 1000, { vary: skel === 4 });
         gl[i] = skel === 1
           ? { ...G, opts: { ...G.opts, skelGeom: { baseM: sk.baseM, heightM: sk.heightM } } }
           : { genus, cover: quantCover(L.cover), opts: { ...G.opts, skeleton: sk, ...(genus === 'sc' ? { mode: 3, domePow: 0.5 } : {}) } };

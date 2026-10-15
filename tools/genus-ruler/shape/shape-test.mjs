@@ -193,5 +193,26 @@ for (const cover of [0.1, 0.25, 0.5]) {
   t('자리는 [0,1) 안', cu.cells.every(cc => cc.x >= 0 && cc.x < 1 && cc.y >= 0 && cc.y < 1));
 }
 
+// 11. K3 열기둥별 변이(vary)
+{
+  const th3 = { ...TH, pblM: 1900 };
+  const k1 = S.skeletonOf({ genus: 'cu', cover: 0.3 }, th3, TILE, 21), k3 = S.skeletonOf({ genus: 'cu', cover: 0.3 }, th3, TILE, 21, { vary: true });
+  const d1 = k1.cells.map(c => c.dM), d3 = k3.cells.map(c => c.dM);
+  const cv = a => { const m = a.reduce((s, v) => s + v, 0) / a.length; return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / a.length) / m; };
+  t('K3: 깊이 변동계수가 K1 보다 큼', cv(d3) > cv(d1) + 0.1, `K1 ${cv(d1).toFixed(2)} K3 ${cv(d3).toFixed(2)}`);
+  const top3 = d3.filter(d => d >= 0.999 * k3.dMaxM).length / d3.length;
+  t('K3: D_max 에 닿는 열기둥은 소수(≤ 40 %)', top3 <= 0.4, top3.toFixed(2));
+  t('K3: 깊이 하한 0.25·min(r w, D_max)·(소멸 ½)', d3.every(d => d >= 0.25 * 0.5 * 150 - 1e-9));
+  const stages = [0, 1, 2].map(s => k3.cells.filter(c => c.stage === s).length / k3.cells.length);
+  t('K3: 생애 단계 비율 ≈ 0.4/0.35/0.25 (±0.15)', Math.abs(stages[0] - 0.4) < 0.15 && Math.abs(stages[1] - 0.35) < 0.15 && Math.abs(stages[2] - 0.25) < 0.15, stages.map(v => v.toFixed(2)).join('/'));
+  t('K3: 성숙 단계 캡 지수 < 성장 단계(평평한 꼭대기)', k3.cells.filter(c => c.stage === 1).every(c => c.p < 0.5 / S.VARY.R_MIN) && k3.cells.some(c => c.stage === 1 && c.p < k3.cells.find(x => x.stage === 0).p + 1));
+  t('K3: 소멸 단계 capW 0.4', k3.cells.filter(c => c.stage === 2).every(c => c.capW === 0.4));
+  t('K3: 비대칭 방향 = 바람 단위벡터(동풍 → [1,0])', k3.cells.every(c => Math.abs(c.dir[0] - 1) < 1e-9 && Math.abs(c.dir[1]) < 1e-9) && k3.cells.every(c => c.off === 0.15 && c.ax === 0.8));
+  t('K3: 스커트 없음', k3.skirt === false);
+  t('K3: K1 과 해시 다름 · 자리는 같음', k1.hash !== k3.hash && k1.cells.every((c, i) => c.x === k3.cells[i].x && c.y === k3.cells[i].y));
+  t('K3: 결정적', S.skeletonOf({ genus: 'cu', cover: 0.3 }, th3, TILE, 21, { vary: true }).hash === k3.hash);
+  t('K1(vary 없음) 셀에 변이 필드 없음', k1.cells.every(c => c.p === undefined && c.stage === undefined));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -26,6 +26,12 @@ export interface SkeletonCell {
   x: number; y: number;
   /** 폭(km) · 깊이(m) · 켜짐 */
   wKm: number; dM: number; on: boolean;
+  /**
+   * §139 K3 열기둥별 변이(vary) — 없으면 K1 과 같음(p = 0.5/r, capW 1, ax 1, off 0).
+   * p: 캡 지수(성장 0.5/r · 성숙 0.3/r — 평평한 꼭대기) · capW: 캡 높이 몫(소멸 단계 0.4 — 터렛만 남은 누더기) · ax: 바람 가로 방향 축 비(타원) ·
+   * off: 캡 중심 밀림(R 대비, 바람 방향) · dir: 바람 방향 단위벡터(x 동, y 북) · stage: 0 성장 1 성숙 2 소멸 · s: 세기(로그정규)
+   */
+  p?: number; capW?: number; ax?: number; off?: number; dir?: [number, number]; stage?: 0 | 1 | 2; s?: number;
 }
 
 export interface Skeleton {
@@ -189,7 +195,20 @@ function fnv(s: string): string {
 /**
  * 층 하나의 뼈대. thermo 가 없거나 모자라면 §1.3 대용값. tileKm = 날씨 타일 한 변, seed = 열기둥 자리·크기 시드(층 시드).
  */
-export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undefined, tileKm: number, seed: number): Skeleton {
+/** 표준정규(Box–Muller) — 결정적 rng 둘 */
+const gauss = (r: () => number) => Math.sqrt(-2 * Math.log(Math.max(1e-12, r()))) * Math.cos(6.2831853 * r());
+
+export interface SkeletonOpts {
+  /**
+   * §139 K3 — 열기둥별 변이: 세기 s ~ 로그정규(σ VARY_S_SIGMA)로 깊이 D_i = min(r_i w_i, D_max)·clamp(s·√(w_i/w_max), 0.25, 1)(좁고 약한 열기둥은 혼입으로 얕게,
+   * D_max 에 닿는 건 소수), 종 r_i ~ 로그정규(r_50, σ VARY_R_SIGMA), 생애 단계(성장 40 % · 성숙 35 % · 소멸 25 %: 돔 지수·평평한 꼭대기·깊이 ½ 누더기),
+   * 캡 비대칭(바람 방향 0.15 R 밀림, 가로 축 0.8). 스커트 없음(퍼진 층은 밑면이 아니라 꼭대기에 생김 — 이번 구조로 표현 불가, §8).
+   */
+  vary?: boolean;
+}
+export const VARY = { S_SIGMA: 0.5, R_SIGMA: 0.35, R_MIN: 0.3, R_MAX: 2.5, D_MIN_FRAC: 0.25, STAGE_GROW: 0.4, STAGE_MATURE: 0.75, P_GROW: 0.5, P_MATURE: 0.3, DECAY_DEPTH: 0.5, DECAY_CAPW: 0.4, OFF_R: 0.15, AX: 0.8 } as const;
+
+export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undefined, tileKm: number, seed: number, o: SkeletonOpts = {}): Skeleton {
   const g = fin(th?.groundM) ? (th!.groundM as number) : 0;
   const lcl = lclAglM(th);
   const deckBaseAgl = fin(L.baseKm) ? Math.max(50, L.baseKm * 1000 - g) : null;
@@ -235,6 +254,10 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
   const aMin = aMinForMedian((Math.PI / 4) * w50 * w50, aMax);
   const roll = rollDirectionDeg(th);
 
+  // 바람 방향 단위벡터(850 hPa; 없으면 동) — K3 캡 비대칭용
+  const wl = th?.windLowMps;
+  const wm = wl && wl.every(fin) ? Math.hypot(wl[0], wl[1]) : 0;
+  const windDir: [number, number] = wm > 1e-6 ? [wl![0] / wm, wl![1] / wm] : [1, 0];
   // 자리: λ 격자 + 지터(롤이면 바람 방향 줄 — 가로 지터 작게), 주기 타일 [0,1)
   const n = Math.max(1, Math.round(tileKm / lambda));
   const cells: SkeletonCell[] = [];
@@ -245,11 +268,28 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
     const u = rng();
     const a = paretoArea(u, aMin, aMax);
     const w = 2 * Math.sqrt(a / Math.PI);
-    const r = r50 * Math.pow(w / w50, SK.R_WIDTH_EXP);
-    const d = Math.min(r * w * 1000, dMax);
+    let r = r50 * Math.pow(w / w50, SK.R_WIDTH_EXP);
     let x = (i + 0.5) / n, y = (j + 0.5) / n;
     if (roll == null) { x += ja / n; y += jc / n; } else { x += (ja * ca + jc * -sa) / n; y += (ja * sa + jc * ca) / n; }
-    cells.push({ x: ((x % 1) + 1) % 1, y: ((y % 1) + 1) % 1, wKm: w, dM: d, on: false });
+    const cell: SkeletonCell = { x: ((x % 1) + 1) % 1, y: ((y % 1) + 1) % 1, wKm: w, dM: 0, on: false };
+    if (o.vary) {
+      // K3: 종·세기·생애 단계·비대칭 — 셀마다 따로 시드한 rng(자리·크기의 rng 열을 건드리지 않아 K1 과 자리가 같음)
+      const vr = skRng(((seed ^ 0x9e3779b9) + (j * n + i) * 7919) | 0);
+      r = clamp(r * Math.exp(VARY.R_SIGMA * gauss(vr)), VARY.R_MIN, VARY.R_MAX);
+      const s = Math.exp(VARY.S_SIGMA * gauss(vr)), ph = vr();
+      const stage: 0 | 1 | 2 = ph < VARY.STAGE_GROW ? 0 : ph < VARY.STAGE_MATURE ? 1 : 2;
+      const wMax = 2 * Math.sqrt(aMax / Math.PI);
+      let d = Math.min(r * w * 1000, dMax) * clamp(s * Math.sqrt(w / wMax), VARY.D_MIN_FRAC, 1);
+      if (stage === 2) d *= VARY.DECAY_DEPTH;
+      cell.dM = d; cell.s = s; cell.stage = stage;
+      cell.p = (stage === 1 ? VARY.P_MATURE : VARY.P_GROW) / r;
+      cell.capW = stage === 2 ? VARY.DECAY_CAPW : 1;
+      cell.ax = VARY.AX; cell.off = VARY.OFF_R;
+      cell.dir = windDir;
+    } else {
+      cell.dM = Math.min(r * w * 1000, dMax);
+    }
+    cells.push(cell);
   }
   // 활성: 켤 확률 ∝ a^0.5 (Efraimidis–Spirakis 키) 로 Σ면적 ≈ cover
   const tile2 = tileKm * tileKm;
@@ -271,13 +311,13 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
     const cap = SK.A_MAX_OVER_LAMBDA * lambda;
     area = 0;
     for (const c of cells) { c.wKm = Math.min(cap, c.wKm * widthScale); area += ((Math.PI / 4) * c.wKm * c.wKm) / tile2; }
-    skirt = area < L.cover - SK.COVER_TOL;
+    skirt = !o.vary && area < L.cover - SK.COVER_TOL;   // K3 는 스커트 없음(모자란 운량은 G4 로 보고)
   }
   const heightM = cells.reduce((m, c) => (c.on ? Math.max(m, c.dM) : m), 0) || dMax;
   const wUp = updraftMps(L.genus, th?.capeJkg);
   const core = { genus: L.genus, baseM: g + zb, heightM, zLclM: lcl, zInvM: inv.source === 'fallback' ? null : inv.zM, zInvSource: inv.source,
     lambdaKm: lambda, w50Km: w50, aMinKm2: aMin, r50, dMaxM: dMax, cells, areaOn: area, widthScale, skirt,
     mode: 0 as const, rollDeg: roll, elKm: 0, mesoKm: 0, open: false, tilt: shearTilt(th, heightM, wUp), wUpMps: wUp };
-  const key = { ...core, cells: cells.map(c => [+c.x.toFixed(5), +c.y.toFixed(5), +c.wKm.toFixed(4), Math.round(c.dM), c.on ? 1 : 0]), seed, tileKm };
+  const key = { ...core, cells: cells.map(c => [+c.x.toFixed(5), +c.y.toFixed(5), +c.wKm.toFixed(4), Math.round(c.dM), c.on ? 1 : 0, c.p ?? 0, c.capW ?? 1, c.stage ?? -1]), seed, tileKm, vary: !!o.vary };
   return { ...core, hash: fnv(JSON.stringify(key)) };
 }

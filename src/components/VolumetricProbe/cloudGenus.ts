@@ -311,9 +311,18 @@ function skeletonThermalField(S: number, tileKm: number, seed: number, sk: Skele
       for (const i of bins[(((bj + dj) % G) + G) % G * G + (((bi + di) % G) + G) % G]) {
         const c = on[i], R = c.wKm / 2 / tileKm, dx = wrapD(u, c.x), dy = wrapD(v, c.y), rho2 = dx * dx + dy * dy;
         const top = c.dM / H;
-        if (rho2 < R * R) {
+        // 캡(K3 면 비대칭: 중심을 바람 쪽으로 off·R 밀고 가로축 ax 로 눌린 타원; 지수 p·높이 몫 capW 는 생애 단계)
+        let cx = dx, cy = dy;
+        if (c.dir && (c.off || (c.ax && c.ax !== 1))) {
+          const ex = c.dir[0], ey = c.dir[1], ox = (c.off ?? 0) * R;
+          const along = (dx - ex * ox) * ex + (dy - ey * ox) * ey, across = -(dx - ex * ox) * ey + (dy - ey * ox) * ex;
+          cx = along; cy = across / (c.ax ?? 1);
+        }
+        const capRho2 = cx * cx + cy * cy;
+        if (capRho2 < R * R) {
           const ri = c.dM / Math.max(1, c.wKm * 1000);
-          best = Math.max(best, top * Math.pow(1 - rho2 / (R * R), 0.5 / Math.max(0.2, ri)));
+          const p = c.p ?? 0.5 / Math.max(0.2, ri);
+          best = Math.max(best, top * (c.capW ?? 1) * Math.pow(1 - capRho2 / (R * R), Math.max(0.1, p)));
         }
         if (rho2 < R * R * 2.0) {
           for (const t of tur[i]) {

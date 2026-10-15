@@ -16,9 +16,9 @@ PY
 echo; echo "=== 렌더 지표 ==="
 python3 -I shape.py --renders "$D" --out "$D/shape-renders.json" --glob '*_*_[0-9]*.png' | tail -1
 echo; echo "=== S(K1·K2 vs K0h, 영가설 여유·세 벌·뷰 부트스트랩) · P · G4 — K0 는 보고 ==="
-python3 -I shape.py --gate shape-photo-quartiles.json "$D/shape-renders.json" --ref K0h --cands K1,K2 --null K0hn7171,K0hn8181 --also K0 --out "$D/shape-gate.json" | grep -v '^wrote'
+python3 -I shape.py --gate shape-photo-quartiles.json "$D/shape-renders.json" --ref K0h --cands K1,K2,K3 --null K0hn7171,K0hn8181 --also K0 --out "$D/shape-gate.json" | grep -v '^wrote'
 echo; echo "=== G1 CLIP 라벨: cu25·cu50(Cu 수) · sc85(층 묶음 수), 방위 35,300 ==="
-for c in K0 K0h K1 K2; do
+for c in K0 K0h K1 K2 K3; do
   for sc in cu25s5151 cu50s5151 sc85s5151; do
     echo -n "$c $sc: "; python3 ../flow/clip-labels.py "$D" "${c}_${sc}_" 35,300 2>/dev/null | tail -1 || echo '(clip 없음)'
   done
@@ -29,7 +29,7 @@ import json, sys, os, statistics
 p = os.path.join(sys.argv[1], 'results.json')
 if os.path.exists(p):
     R = json.load(open(p))
-    for c in ['K0', 'K0h', 'K1', 'K2']:
+    for c in ["K0", "K0h", "K1", "K2", "K3"]:
         ms = [v['ms'] for k, v in R.items() if k.startswith(c + '_') and isinstance(v, dict) and isinstance(v.get('ms'), (int, float)) and v['ms'] > 1]
         print(c, 'n', len(ms), 'median ms', round(statistics.median(ms), 1) if ms else 'nan')
 else:
