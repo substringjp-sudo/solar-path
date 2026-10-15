@@ -13,6 +13,8 @@ import { View } from 'react-native';
 import { SkyScene3D } from '../../src/components/SkyScene3D/SkyScene3D';
 import { DevTuningPanel } from '../../src/components/SkyScreen/DevTuningPanel';
 import { VOLUMETRIC_TERRAIN_ALBEDO } from '../../src/components/SkyScene3D/TerrainField';
+import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
+import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments } from '../../src/utils/celestial';
 
 const Q = (() => {
   try { return JSON.parse(decodeURIComponent((globalThis as any).location?.hash?.slice(1) || '{}')); }
@@ -21,8 +23,35 @@ const Q = (() => {
 // §129 볼륨 하늘 지형 알베도 후보(RULER-terrain-lit.md) — "talb":[r,g,b]
 if (Array.isArray(Q.talb)) Object.assign(VOLUMETRIC_TERRAIN_ALBEDO, { r: Q.talb[0], g: Q.talb[1], b: Q.talb[2] });
 
+/** globe:1 — 지구본(MapGlobe)만 그립니다(해·달 직하점·위상 확인, §142). cLat·cLon·r 로 한가운데·반지름. */
+function GlobeRepro({ W, H }: { W: number; H: number }) {
+  const date = new Date(Q.t ?? Date.now());
+  return (
+    <View style={{ width: W, height: H, backgroundColor: '#0B1220' }}>
+      <MapGlobe
+        subsolar={getSubsolarPoint(date)}
+        terminator={getTerminatorSegments(date)}
+        sublunar={getSublunarPoint(date)}
+        moonFraction={getMoonPhase(date).fraction}
+        lat={Q.lat ?? 37.5}
+        lon={Q.lon ?? 127}
+        hasLocation
+        theme={{ dark: true }}
+        width={W}
+        height={H}
+        initialCenter={{ latitude: Q.cLat ?? 0, longitude: Q.cLon ?? 140 }}
+        initialRadius={Q.r ?? Math.min(W, H) * 0.42}
+        minRadius={50}
+        maxRadius={20000}
+        selectedDate={date}
+      />
+    </View>
+  );
+}
+
 export default function App() {
   const W = Q.w ?? 400, H = Q.h ?? 300;
+  if (Q.globe) return <GlobeRepro W={W} H={H} />;
   return (
     <View style={{ width: W, height: H }}>
       <SkyScene3D

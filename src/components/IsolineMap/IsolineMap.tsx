@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Platform, useWindowDimensions, Animated } from 'react-native';
 import { Info, Sun, Sunrise, Sunset, Compass, Globe, Crosshair, Star, Hash } from 'lucide-react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments } from '../../utils/celestial';
+import { getSunPosition, getCelestialEvents, getSubsolarPoint, getTerminatorSegments, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
 import { buildSunOverlay, isIsolineScale } from '../../utils/solarGeometry';
 import { buildRadarFrame, isRadarScale, isGlobeRadarScale } from '../../utils/cloudRadar';
 import { fetchDayWeatherRing, CloudPathData } from '../../utils/weather';
@@ -18,8 +18,8 @@ import { formatLocalTime, getLocalTimeAtLocation } from '../../utils/timezone';
 import { t, L3 } from '../../utils/i18n';
 import { IsolineControls } from './IsolineControls';
 import { IsolineGuideModal } from './IsolineGuideModal';
-import { MapCanvas } from './MapCanvas';
-import { MapGlobe } from './MapGlobe';
+import { MapCanvas, type MapCanvasHandle } from './MapCanvas';
+import { MapGlobe, type MapGlobeHandle } from './MapGlobe';
 import { useCloudTopView } from './useCloudTopView';
 import { SunAzimuthView } from '../MapScreen/SunAzimuthView';
 import * as d3 from 'd3-geo';
@@ -130,6 +130,9 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, curre
 
   const terminator = useMemo(() => getTerminatorSegments(selectedDate), [selectedDate]);
   const subsolar = useMemo(() => getSubsolarPoint(selectedDate), [selectedDate]);
+  // 지구본의 달 — 직하점과 위상(하늘 탭 3D 달과 같은 식).
+  const sublunar = useMemo(() => getSublunarPoint(selectedDate), [selectedDate]);
+  const moonFraction = useMemo(() => getMoonPhase(selectedDate).fraction, [selectedDate]);
 
   // 줌 레벨에 따라 제공될 등시선 시간 간격 (4시간, 2시간, 1시간, 30분) - 렉 방지용 하한선 30분 지정
   // ⚠ 구도 손을 뗄 때 같은 축척(`longitudeDelta`)으로 알려 주므로 한 자로 셉니다.
@@ -234,6 +237,31 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, curre
   );
   // ⚠ 구에서 줌을 당겨 돌아온 직후(늘어남 1.8~2.0)는 실루엣 띠입니다 — 같은 그림체로 내려옵니다.
   const showSilhouette = !showGlobe && autoMode !== 'tiles';
+  /**
+   * 지도와 구를 **겹쳐 둡니다**(예전에는 삼항으로 갈아 끼워, 구로 갔다 오면 네이티브 지도를 새로 만들고
+   * 타일을 다시 받았습니다). 구는 실루엣 띠에서 미리 띄워(숨김) 두고, 넘어갈 때 0.18 초 겹쳐 바꿉니다.
+   */
+  const mapCanvasRef = useRef<MapCanvasHandle>(null);
+  const mapGlobeRef = useRef<MapGlobeHandle>(null);
+  const globeMounted = showGlobe || showSilhouette;
+  const globeFade = useRef(new Animated.Value(showGlobe ? 1 : 0)).current;
+  const prevGlobeRef = useRef(showGlobe);
+  useEffect(() => {
+    Animated.timing(globeFade, { toValue: showGlobe ? 1 : 0, duration: 180, useNativeDriver: true }).start();
+    const was = prevGlobeRef.current;
+    prevGlobeRef.current = showGlobe;
+    if (was === showGlobe || !bodySize.width) return;
+    if (showGlobe) {
+      // 숨어 있던 구는 띄운 때의 자리·축척을 들고 있습니다 — 지금 자리로 옮겨 보입니다.
+      mapGlobeRef.current?.setView({
+        center: { latitude: region.latitude, longitude: region.longitude },
+        radius: globeRadiusForDelta(region.latitude, longitudeDelta, bodySize.width),
+      });
+    } else {
+      // 구 밑에 그대로 있던 지도를 구가 보던 자리·축척으로(구와 같은 축척이라 땅 크기가 안 튐).
+      mapCanvasRef.current?.moveTo({ latitude: region.latitude, longitude: region.longitude, longitudeDelta }, 0);
+    }
+  }, [showGlobe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * 카드 모서리 반지름과, 네 구석의 버튼·글씨가 물러설 거리.
@@ -474,50 +502,60 @@ export const IsolineMap: React.FC<IsolineMapProps> = ({ theme: panelTheme, curre
         onTouchEnd={() => useCelestialStore.getState().setGestureBlocked(false)}
         onTouchCancel={() => useCelestialStore.getState().setGestureBlocked(false)}
       >
-        {!showGlobe ? (
-          <MapCanvas
-            lat={lat}
-            lon={lon}
-            hasLocation={!!location}
-            subsolar={subsolar}
-            terminator={terminator}
-            allTerminators={allTerminators}
-            nightPolygonCoords={nightPolygonCoords}
-            onRegionChangeComplete={handleRegionChangeComplete}
-            startRegion={mapStart}
-            theme={theme}
-            selectedDate={selectedDate}
-            sunOverlay={sunOverlay}
-            radar={radar}
-            topView={topView}
-          />
-        ) : bodySize.width > 0 && (
-          <MapGlobe
-            subsolar={subsolar}
-            terminator={terminator}
-            allTerminators={allTerminators}
-            lat={lat}
-            lon={lon}
-            hasLocation={!!location}
-            theme={theme}
-            isActive={isActive}
-            width={bodySize.width}
-            height={bodySize.height}
-            initialCenter={region}
-            initialRadius={globeRadiusForDelta(region.latitude, longitudeDelta, bodySize.width)}
-            minRadius={globeRange.min}
-            maxRadius={globeRange.max}
-            onViewChange={onGlobeView}
-            radar={radar}
-            topView={topView}
-            selectedDate={selectedDate}
-          />
-        )}
+        <MapCanvas
+          ref={mapCanvasRef}
+          lat={lat}
+          lon={lon}
+          hasLocation={!!location}
+          subsolar={subsolar}
+          terminator={terminator}
+          allTerminators={allTerminators}
+          nightPolygonCoords={nightPolygonCoords}
+          onRegionChangeComplete={handleRegionChangeComplete}
+          startRegion={mapStart}
+          theme={theme}
+          selectedDate={selectedDate}
+          sunOverlay={sunOverlay}
+          radar={radar}
+          topView={topView}
+        />
 
         {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 ────────────────────────────
                구로 가기 전에 그림체를 먼저 맞춰 둡니다(`LandSilhouette`). */}
         {showSilhouette && bodySize.width > 0 && (
           <LandSilhouette region={region} width={bodySize.width} height={bodySize.height} theme={theme} />
+        )}
+
+        {globeMounted && bodySize.width > 0 && (
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, { opacity: globeFade, backgroundColor: theme.bg }]}
+            pointerEvents={showGlobe ? 'auto' : 'none'}
+          >
+            <MapGlobe
+              ref={mapGlobeRef}
+              subsolar={subsolar}
+              terminator={terminator}
+              allTerminators={allTerminators}
+              sublunar={sublunar}
+              moonFraction={moonFraction}
+              visible={showGlobe}
+              lat={lat}
+              lon={lon}
+              hasLocation={!!location}
+              theme={theme}
+              isActive={isActive && showGlobe}
+              width={bodySize.width}
+              height={bodySize.height}
+              initialCenter={region}
+              initialRadius={globeRadiusForDelta(region.latitude, longitudeDelta, bodySize.width)}
+              minRadius={globeRange.min}
+              maxRadius={globeRange.max}
+              onViewChange={onGlobeView}
+              radar={radar}
+              topView={topView}
+              selectedDate={selectedDate}
+            />
+          </Animated.View>
         )}
 
         {/* 오른쪽 위 보기 조작 — 하늘 탭 레이어 버튼과 같은 `OverlayButton`. 켜진 상태(구 보기 ·

@@ -135,7 +135,7 @@ import {
   altitudeForProgress, cameraPoseForProgress, lonDeltaForProgress, progressForLonDelta,
   mapOpacityForProgress, glVisibleForProgress, homeCenterStep, progressFromPinch,
 } from '../../utils/zoomContinuum';
-import { getTerminatorSegments, getSubsolarPoint } from '../../utils/celestial';
+import { getTerminatorSegments, getSubsolarPoint, getSublunarPoint, getMoonPhase } from '../../utils/celestial';
 import { buildSunOverlay } from '../../utils/solarGeometry';
 import { sameBucket } from '../../utils/weatherCacheKey';
 import * as d3 from 'd3-geo';
@@ -470,6 +470,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const [zoomProgressState, setZoomProgressState] = useState((60 - 30) / 90);
   const [overlayMode, setOverlayMode] = useState<MapMode>('tiles');
+  /**
+   * 지도·구 겹을 **상승을 시작할 때** 띄우고, 지상으로 돌아온 뒤 4 초 동안 그대로 둡니다.
+   * 예전에는 진행도 1.26 에서야 네이티브 지도를 띄워 그 프레임이 손짓 한가운데에서 끊겼고,
+   * 지상↔상공을 오갈 때마다 지도를 새로 만들었습니다(타일도 새로 받음).
+   */
+  const ascended = zoomProgressState > P_FOV_END;
+  const [overlayWarm, setOverlayWarm] = useState(false);
+  useEffect(() => {
+    if (ascended) { setOverlayWarm(true); return; }
+    const t = setTimeout(() => setOverlayWarm(false), 4000);
+    return () => clearTimeout(t);
+  }, [ascended]);
+  const overlayLive = ascended || overlayWarm;
+  /** 구 겹의 불투명도 — 실루엣 ↔ 구를 툭 바꾸지 않고 0.18 초 겹쳐 넘깁니다. */
+  const globeFadeAnim = useRef(new Animated.Value(0)).current;
   const [divingLocation, setDivingLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   /**
    * 지도·구에서 길게 눌러 고른 자리 — **확인을 받기 전에는 옮기지 않습니다.** 예전에는 길게
@@ -609,8 +624,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const vs = viewSizeRef.current;
         const d = lonDeltaForProgress(pp, homeRef.current.latitude, vs.w / vs.h);
         const region = { latitude: cc.latitude, longitude: cc.longitude, longitudeDelta: d };
-        mapCanvasRef.current?.moveTo(region, 0);
-        silhouetteRef.current?.setRegion(region);
+        // 구가 덮고 있는 동안은 그 밑의 지도·실루엣을 옮기지 않습니다(안 보이는 겹을 프레임마다 그리던 몫).
+        // 구에서 나오는 첫 프레임에 다시 옮깁니다. 구는 숨어 있어도 축척·한가운데를 기억만 합니다(`visible`).
+        if (!globeLatchRef.current) {
+          mapCanvasRef.current?.moveTo(region, 0);
+          silhouetteRef.current?.setRegion(region);
+        }
         mapGlobeRef.current?.setView({ radius: globeRadiusForDelta(cc.latitude, d, vs.w), center: cc });
       });
     }
@@ -973,27 +992,33 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     divingAnimFrameRef.current = requestAnimationFrame(animateDive);
   }, [requestRender, applyZoomProgress]);
 
-  /** 평면 지도 및 3차원 지구본용 천체 터미네이터 (일출/일몰선 & 태양 직하점) */
+  /**
+   * 평면 지도·지구본용 해·달 — 직하점, 일출·일몰선, 달 위상.
+   *
+   * ⚠ 예전에는 상승을 시작한 순간의 시각으로 한 번만 세어, 지도·구에 있는 동안 시간 슬라이더를 밀어도
+   *   해 자리·밤 그늘이 그대로였고(달은 아예 없었습니다) 다음 상승 때야 바뀌었습니다. 지금은 **고른 시각**
+   *   (`currentTime`)을 분 단위로 따라갑니다 — 슬라이더를 미는 동안 1 분보다 잘게 다시 세지 않습니다.
+   */
+  const overlayMinute = Math.floor(currentTime.getTime() / 60000);
   const globeCelestialData = useMemo(() => {
-    // ⚠ 지도를 띄우는 순간이 아니라 **상승을 시작할 때** 미리 셉니다 — 24 시간 등시선을
-    //   넘기는 점에서 세면 그 프레임이 끊깁니다.
-    if (zoomProgressState <= P_FOV_END) return null;
-    const date = new Date(renderedTimeMsRef.current || Date.now());
+    if (!overlayLive) return null;
+    const date = new Date(overlayMinute * 60000);
     return {
       date,
       subsolar: getSubsolarPoint(date),
       terminator: getTerminatorSegments(date),
+      sublunar: getSublunarPoint(date),
+      moonFraction: getMoonPhase(date).fraction,
     };
-  }, [zoomProgressState > P_FOV_END]);
+  }, [overlayLive, overlayMinute]);
 
-  // ── 지도 및 지구본용 등시선(Isochrone) 24시간 일출·일몰 격자선 ───────────────────
+  // ── 지도 및 지구본용 등시선(Isochrone) 24시간 일출·일몰 격자선 — 고른 날짜(관측지 현지)가 바뀔 때만 ──
+  const overlayTzMs = (useCelestialStore.getState().timezoneOffsetHours ?? 0) * 3600000;
+  const overlayDayKey = new Date(overlayMinute * 60000 + overlayTzMs).toISOString().slice(0, 10);
   const allTerminators = useMemo(() => {
-    if (zoomProgressState <= P_FOV_END) return [];
+    if (!overlayLive) return [];
     const list = [];
-    const baseDate = new Date(renderedTimeMsRef.current || Date.now());
-    const tzMs = (useCelestialStore.getState().timezoneOffsetHours ?? 0) * 3600000;
-    const dateKey = new Date(baseDate.getTime() + tzMs).toISOString().slice(0, 10);
-    const base = new Date(new Date(dateKey).getTime() - tzMs);
+    const base = new Date(new Date(overlayDayKey).getTime() - overlayTzMs);
     const step = 60; // 1시간 간격 등시선
 
     for (let min = 0; min < 1440; min += step) {
@@ -1006,11 +1031,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       });
     }
     return list;
-  }, [zoomProgressState > P_FOV_END]);
+  }, [overlayLive, overlayDayKey, overlayTzMs]);
 
   // ── 지구 밤 영역(Night shadow) 2D/3D 폴리곤 ─────────────────────────────────
   const nightPolygonCoords = useMemo(() => {
-    if (zoomProgressState <= P_FOV_END || !globeCelestialData) return [];
+    if (!globeCelestialData) return [];
     try {
       const circleGeoJSON = d3.geoCircle().center([globeCelestialData.subsolar.longitude, globeCelestialData.subsolar.latitude]).radius(90)();
       if (!circleGeoJSON || !circleGeoJSON.coordinates) return [];
@@ -1032,7 +1057,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     } catch (e) {
       return [];
     }
-  }, [zoomProgressState > P_FOV_END, globeCelestialData?.subsolar]);
+  }, [globeCelestialData?.subsolar]);
 
   // ── 시뮬레이션 구름 탑다운 뷰 (하늘 시뮬레이션의 구름을 지도와 지구본 위에 투영) ───
   const [cloudRing, setCloudRing] = useState<CloudPathData[] | null>(null);
@@ -2985,18 +3010,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   // 관측점(3D 카메라 바로 아래). 착륙 애니메이션 중에는 목표가 먼저 들어가 있습니다.
   if (!divingLocation) homeRef.current = { latitude: curLat, longitude: curLon };
   const currentLonDelta = lonDeltaForProgress(zoomProgressState, homeRef.current.latitude, sceneW / sceneH);
-  const mapMounted = zoomProgressState > P_MAP_MOUNT;
+  const mapMounted = overlayLive || zoomProgressState > P_MAP_MOUNT;
   const isGlobeMode = overlayMode === 'globe';
-  const showSilhouette = overlayMode === 'silhouette';
+  /** 실루엣 띠에 들어서면 구를 미리 띄워(숨김) 둡니다 — 구로 넘어가는 순간 새로 만들지 않게. */
+  const globeMounted = mapMounted && overlayMode !== 'tiles';
+  useEffect(() => {
+    Animated.timing(globeFadeAnim, { toValue: isGlobeMode ? 1 : 0, duration: 180, useNativeDriver: true }).start();
+  }, [isGlobeMode, globeFadeAnim]);
 
   // 좁은 축척에서의 태양 수직면 & 방위각 부채꼴 오버레이 — **관측점** 기준.
   // 축척은 2^(1/2) 단위로 끊어, 줌 중 매 상태 갱신마다 지도 위 선을 다시 만들지 않습니다.
   const sunOverlayDelta = Math.pow(2, Math.round(Math.log2(currentLonDelta) * 2) / 2);
   const sunOverlay = useMemo(() => {
     if (!mapMounted || isGlobeMode) return null;
-    const date = new Date(renderedTimeMsRef.current || Date.now());
-    return buildSunOverlay(date, curLat, curLon, sunOverlayDelta);
-  }, [mapMounted, isGlobeMode, curLat, curLon, sunOverlayDelta]);
+    return buildSunOverlay(new Date(overlayMinute * 60000), curLat, curLon, sunOverlayDelta);
+  }, [mapMounted, isGlobeMode, curLat, curLon, sunOverlayDelta, overlayMinute]);
 
   // 지도·구에 넘기는 값은 모두 고정 — 바뀌지 않으면 memo 된 지도가 다시 그려지지 않습니다.
   // (예전에는 렌더마다 새 객체·새 함수라 줌 50 ms 마다 등시선 수백 줄이 다시 그려졌습니다.)
@@ -3004,17 +3032,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     latitude: mapCenterRef.current.latitude,
     longitude: mapCenterRef.current.longitude,
     longitudeDelta: lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH),
-  }), [mapMounted, isGlobeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [mapMounted]); // eslint-disable-line react-hooks/exhaustive-deps
   const silhouetteStart = useMemo(() => ({
     latitude: mapCenterRef.current.latitude,
     longitude: mapCenterRef.current.longitude,
     longitudeDelta: lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH),
-  }), [showSilhouette]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [globeMounted]); // eslint-disable-line react-hooks/exhaustive-deps
   const globeStart = useMemo(() => {
     const c = mapCenterRef.current;
     const d = lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, sceneW / sceneH);
     return { center: { latitude: c.latitude, longitude: c.longitude }, radius: globeRadiusForDelta(c.latitude, d, sceneW) };
-  }, [isGlobeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [globeMounted]); // eslint-disable-line react-hooks/exhaustive-deps
   const onMapRegionChangeComplete = useCallback((r: { latitude: number; longitude: number }) => {
     // 사용자가 지도를 끌었을 때만 받습니다. 줌 중(손짓·착륙)의 콜백은 늦게 온 옛 위치일 수 있어 버립니다.
     if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
@@ -3187,56 +3215,32 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           ]}
           pointerEvents={zoomProgressState >= P_HANDOFF ? 'auto' : 'none'}
         >
-          {!isGlobeMode ? (
-            <MapCanvas
-              ref={mapCanvasRef}
-              lat={curLat}
-              lon={curLon}
-              hasLocation={!!location}
-              subsolar={globeCelestialData.subsolar}
-              terminator={globeCelestialData.terminator}
-              allTerminators={allTerminators}
-              nightPolygonCoords={nightPolygonCoords}
-              sunOverlay={sunOverlay}
-              topView={topView}
-              theme={theme}
-              selectedDate={globeCelestialData.date}
-              startRegion={mapStartRegion}
-              // 두 손가락 줌은 하늘 탭의 진행도가 받습니다(지도가 같이 확대하면 둘이 싸워 덜컹임).
-              zoomEnabled={false}
-              onRegionChangeComplete={onMapRegionChangeComplete}
-              onLongPress={onMapLongPress}
-              pickPin={pickPin}
-            />
-          ) : (
-            <MapGlobe
-              ref={mapGlobeRef}
-              subsolar={globeCelestialData.subsolar}
-              terminator={globeCelestialData.terminator}
-              allTerminators={allTerminators}
-              lat={curLat}
-              lon={curLon}
-              hasLocation={!!location}
-              theme={theme}
-              isActive={isActive}
-              width={sceneW}
-              height={sceneH}
-              topView={topView}
-              initialCenter={globeStart.center}
-              initialRadius={globeStart.radius}
-              // ⚠ 위 끝은 넉넉히 — 구로 넘어가는 축척의 반지름이 화면 폭의 2~3 배(서울 세로 폰 ≈ 1000 px)
-              //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
-              minRadius={100}
-              maxRadius={20000}
-              onSelectLocation={onMapLongPress}
-              onViewChange={onGlobeViewChange}
-              pickPin={pickPin}
-              selectedDate={globeCelestialData.date}
-            />
-          )}
+          {/* 지도·실루엣·구를 **겹쳐 둡니다**. 예전에는 지도 ↔ 구를 삼항으로 갈아 끼워, 문턱을 넘을 때마다
+                 네이티브 지도를 지우고 새로 만들었습니다(타일 재요청 · 그 프레임 끊김). */}
+          <MapCanvas
+            ref={mapCanvasRef}
+            lat={curLat}
+            lon={curLon}
+            hasLocation={!!location}
+            subsolar={globeCelestialData.subsolar}
+            terminator={globeCelestialData.terminator}
+            allTerminators={allTerminators}
+            nightPolygonCoords={nightPolygonCoords}
+            sunOverlay={sunOverlay}
+            topView={topView}
+            theme={theme}
+            selectedDate={globeCelestialData.date}
+            startRegion={mapStartRegion}
+            // 두 손가락 줌은 하늘 탭의 진행도가 받습니다(지도가 같이 확대하면 둘이 싸워 덜컹임).
+            zoomEnabled={false}
+            onRegionChangeComplete={onMapRegionChangeComplete}
+            onLongPress={onMapLongPress}
+            pickPin={pickPin}
+          />
 
-          {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 그리는 LandSilhouette (도법 및 그림체 연속성 유지) ── */}
-          {showSilhouette && (
+          {/* ── 중간 띠: 타일을 덮고 육지 윤곽만 그리는 LandSilhouette (도법 및 그림체 연속성 유지) ──
+                 구 아래에도 깔아 둡니다 — 구가 사라지는 0.18 초 동안 같은 그림체가 비칩니다. */}
+          {globeMounted && (
             <LandSilhouette
               ref={silhouetteRef}
               region={silhouetteStart}
@@ -3244,6 +3248,41 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               height={sceneH}
               theme={theme}
             />
+          )}
+
+          {globeMounted && (
+            <Animated.View
+              style={[StyleSheet.absoluteFillObject, { opacity: globeFadeAnim, backgroundColor: '#0B1220' }]}
+              pointerEvents={isGlobeMode ? 'auto' : 'none'}
+            >
+              <MapGlobe
+                ref={mapGlobeRef}
+                subsolar={globeCelestialData.subsolar}
+                terminator={globeCelestialData.terminator}
+                allTerminators={allTerminators}
+                sublunar={globeCelestialData.sublunar}
+                moonFraction={globeCelestialData.moonFraction}
+                visible={isGlobeMode}
+                lat={curLat}
+                lon={curLon}
+                hasLocation={!!location}
+                theme={theme}
+                isActive={isActive && isGlobeMode}
+                width={sceneW}
+                height={sceneH}
+                topView={topView}
+                initialCenter={globeStart.center}
+                initialRadius={globeStart.radius}
+                // ⚠ 위 끝은 넉넉히 — 구로 넘어가는 축척의 반지름이 화면 폭의 2~3 배(서울 세로 폰 ≈ 1000 px)
+                //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
+                minRadius={100}
+                maxRadius={20000}
+                onSelectLocation={onMapLongPress}
+                onViewChange={onGlobeViewChange}
+                pickPin={pickPin}
+                selectedDate={globeCelestialData.date}
+              />
+            </Animated.View>
           )}
         </Animated.View>
       )}
