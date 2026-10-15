@@ -6,7 +6,7 @@
  * 하늘 화면이 같은 함수를 씁니다.
  */
 import SunCalc from 'suncalc';
-import { getInterpolatedWeather, PROFILE_LEVELS, type CloudData, type CloudPathData } from '../../utils/weather';
+import { getInterpolatedWeather, PROFILE_LEVELS, THERMO_RH_LEVELS, type CloudData, type CloudPathData } from '../../utils/weather';
 import { classifyGenus, type ForecastGenus, type GenusForecast } from '../../utils/cloudGenusForecast';
 import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import type { GenusKey } from './cloudGenus';
@@ -71,7 +71,20 @@ export function thermoOf(obs: CloudData, groundM: number): ThermoInput {
       if (Number.isFinite(hs[i]) && Number.isFinite(ts[i])) levels.push({ zM: hs[i], tC: ts[i], pHPa: PROFILE_LEVELS[i] });
     }
   }
-  return { groundM, t2mC: obs.t2mC, td2mC: obs.td2mC, levels };
+  // §139 뼈대 입력 — 경계층 높이·CAPE·영하고도·상대습도 단면(기압면 높이는 운량 단면의 같은 기압면에서)·850/600 바람(km/h → m/s)·강수.
+  const rhLevels: NonNullable<ThermoInput['rhLevels']> = [];
+  if (hs && obs.profileRhPct) {
+    THERMO_RH_LEVELS.forEach((p, j) => {
+      const i = (PROFILE_LEVELS as readonly number[]).indexOf(p), rh = obs.profileRhPct![j];
+      if (i >= 0 && Number.isFinite(hs[i]) && Number.isFinite(rh)) rhLevels.push({ zM: hs[i], rhPct: rh });
+    });
+  }
+  const mps = (u?: number, v?: number): [number, number] | undefined => (u != null && v != null && Number.isFinite(u) && Number.isFinite(v) ? [u / 3.6, v / 3.6] : undefined);
+  return {
+    groundM, t2mC: obs.t2mC, td2mC: obs.td2mC, levels,
+    pblM: obs.pblM, capeJkg: obs.capeJkg, freezingLevelM: obs.freezingLevelM, rhLevels: rhLevels.length ? rhLevels : undefined,
+    windLowMps: mps(obs.windULow, obs.windVLow), windMidMps: mps(obs.windUMid, obs.windVMid), precipMm: obs.precipitation,
+  };
 }
 
 import { buildMacroWeatherField } from '../../utils/macroWeatherField';

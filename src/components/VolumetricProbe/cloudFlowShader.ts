@@ -138,6 +138,23 @@ function shearUnit(L: GenusLayer): [number, number] {
  * density 가 켜진 층은 genusMode/genusTop/genusEdge 레인도 흐름값(flowMode/flowTop/flowEdge)으로 덮어씁니다 —
  * setGenusUniforms **다음**에 부르세요.
  */
+/**
+ * §139 K2 전단 기울기 — 흐름 S4 fetch 레인 재사용(새 셰이더 코드 없음). setFlowUniforms **다음**에: 뼈대(opts.skeleton.tilt = 꼭대기 밀림/두께, 동·북)가 있는
+ * 층의 genusTiltU/V 를 채우고 genusUvOn 을 켭니다. uv 이동 = tilt × (높이/타일) 이므로 무차원 tilt 가 그대로 들어가고, 꼭대기가 전단 쪽(+ŝ)으로 기울게
+ * 읽는 자리는 −ŝ 쪽(setFlowUniforms 와 같은 부호).
+ */
+export function setSkeletonTilt(mat: PatchableMaterial, layers: (GenusLayer | null)[]): void {
+  const tu = [0, 0, 0, 0], tv = [0, 0, 0, 0];
+  let any = false;
+  layers.forEach((L, i) => {
+    const t = (L?.opts as { skeleton?: { tilt?: [number, number] } } | undefined)?.skeleton?.tilt;
+    if (t && (t[0] !== 0 || t[1] !== 0)) { tu[i] = -t[0]; tv[i] = -t[1]; any = true; }
+  });
+  (mat.uniforms.genusTiltU.value as Vector4).set(tu[0], tu[1], tu[2], tu[3]);
+  (mat.uniforms.genusTiltV.value as Vector4).set(tv[0], tv[1], tv[2], tv[3]);
+  if (any) mat.uniforms.genusUvOn.value = 1;
+}
+
 export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | null)[], on: { density: boolean; uv: boolean }, tileKm: number): void {
   const lane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (layers[i] && layerHasFlow(layers[i]) ? fn(layers[i] as GenusLayer) : 0));
   const set = (u: string, v: number[]) => (mat.uniforms[u].value as Vector4).set(v[0], v[1], v[2], v[3]);

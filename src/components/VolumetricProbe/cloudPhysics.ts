@@ -187,7 +187,8 @@ export function thermoAt(zM: number, th?: ThermoInput | null): { tC: number; pHP
 export interface GenusEnvelope { mode: number; base: number; top: number; edge: number }
 export function envelopeAt(e: GenusEnvelope, hf: number): number {
   let hs: number;
-  if (e.mode >= 0.5) hs = 1 - Math.pow(Math.max(Math.abs(hf * 2 - 1), 1e-6), Math.max(e.top, 1e-3));
+  if (e.mode >= 2.5) hs = hf < 1 - 1e-4 ? hf : 0;   // §139 뚜껑(층적운 뼈대): 꼭대기 평평, 밑면 = 1 − d
+  else if (e.mode >= 0.5) hs = 1 - Math.pow(Math.max(Math.abs(hf * 2 - 1), 1e-6), Math.max(e.top, 1e-3));
   else {
     const x = clamp(hf / Math.max(e.base, 1e-4), 0, 1), ramp = x * x * (3 - 2 * x);
     hs = ramp * Math.pow(Math.max(1 - hf, 1e-6), e.top);

@@ -46,10 +46,11 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams } from './cloudGenus';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
-import { patchFlowShader, setFlowUniforms, setGenusDrift } from './cloudFlowShader';
+import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
+import { patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
@@ -353,8 +354,13 @@ export interface VolumetricOptions {
    * 3 = L3 L2 + 하늘빛 항을 기둥 τ 로 감쇠(ao·바닥값 은퇴). 구름 패스에만 삽입하고, 0 이면 삽입 전 원문으로 되돌립니다.
    */
   diffuse: 0 | 1 | 2 | 3 | 9;
+  /**
+   * §139 구름 뼈대(cloudSkeleton.ts, RULER-shape). 0 = 끔(기본 — 날씨 바이트·셰이더 글자 그대로) · 1 = K0h 대조군(옛 무늬, 층 밑면·두께만 뼈대) ·
+   * 2 = K1 뼈대(열기둥 자리·폭·깊이·뚜껑 단면·봉투 거리 밀도) · 3 = K2 = K1 + 전단 기울기(흐름 S4 fetch 레인). cu·cg·sc 층만, flow 와 함께 쓰면 throw.
+   */
+  skeleton: 0 | 1 | 2 | 3;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 35, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -833,6 +839,20 @@ export async function createVolumetricScene(
       const shearDzKm = Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
       return mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
     });
+    // §139 뼈대: cu·cg·sc 층의 자리·폭·깊이·층 높이를 열역학에서(cloudSkeleton). 1 = 층 높이만(K0h), 2·3 = 뼈대(원 운량, 역표 건너뜀). opts 에 넣어 캐시 키에 포함.
+    const skel = opt.genus ? opt.skeleton : 0;
+    if (skel && useFlow) throw new Error('volumetricScene: skeleton 과 flow 는 함께 쓸 수 없습니다');
+    if (skel) {
+      for (let i = 0; i < gl.length; i++) {
+        const G = gl[i], L = inputs[i];
+        if (!G || !(G.genus === 'cu' || G.genus === 'cg' || G.genus === 'sc')) continue;
+        const genus = G.genus as SkeletonGenus;
+        const sk = skeletonOf({ genus, cover: quantCover(L.cover), baseKm: L.baseKm, thicknessM: L.thicknessM }, p.thermo ?? null, GENUS_TILE_KM, G.opts?.seed ?? 7 + i * 1000);
+        gl[i] = skel === 1
+          ? { ...G, opts: { ...G.opts, skelGeom: { baseM: sk.baseM, heightM: sk.heightM } } }
+          : { genus, cover: quantCover(L.cover), opts: { ...G.opts, skeleton: sk, ...(genus === 'sc' ? { mode: 3, domePow: 0.5 } : {}) } };
+      }
+    }
     const useGenus = opt.genus && gl.some(Boolean);
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
@@ -890,6 +910,9 @@ export async function createVolumetricScene(
       const g = useGenus ? gl[i] : null;
       const shape = g ? genusLayerShape(g, flowDens) : bandShape(bandOf(L));
       if (L.thicknessM) shape.height = L.thicknessM;
+      // §139 뼈대(K0h·K1·K2): 층 밑면·두께는 뼈대 값이 최종(예보 덱 두께·physBaseKm 보다 우선). 뚜껑 층은 밀도 단면 평평(밑면이 가장 옅지 않게).
+      const skg = g?.opts?.skeleton ?? g?.opts?.skelGeom;
+      if (skg) shape.height = skg.heightM;
       // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
       const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
       // §136 물리: 종류 층의 소광·세로 단면을 기온·기압에서(cloudPhysics). 꺼져 있으면 CloudLayer 에 아무것도 더하지 않습니다(이전과 같은 바이트).
@@ -897,8 +920,9 @@ export async function createVolumetricScene(
       // 입력이 깨져(NaN) 값이 유한하지 않으면 그 층은 손값 그대로 — 구름이 조용히 사라지지 않게.
       const phys = physRaw && Number.isFinite(physRaw.betaTop) && physRaw.betaTop >= 0 && physRaw.profile.every(Number.isFinite) ? physRaw : null;
       physLanes[i] = phys;
-      const altitude = (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
-      const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } } : {};
+      const altitude = skg ? skg.baseM : (phys && L.physBaseKm != null ? L.physBaseKm : L.baseKm) * 1000;
+      const physShape = phys ? { densityScale: phys.betaTop, densityProfile: { expTerm: phys.profile[0], exponent: phys.profile[1], linearTerm: phys.profile[2], constantTerm: phys.profile[3] } }
+        : g?.opts?.skeleton?.mode === 3 ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 0, constantTerm: 1 } } : {};
       clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
@@ -920,10 +944,12 @@ export async function createVolumetricScene(
       const driftSec = p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
+        setGenusSkeleton(m, gl, opt.skeleton >= 2);
         setGenusPhysics(m, iceLanes, iceOn);
         setGenusLightFloors(m, opt.debugLightFloors);
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
+        if (opt.skeleton === 3) setSkeletonTilt(m, gl);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
@@ -931,7 +957,7 @@ export async function createVolumetricScene(
       }
     } else {
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
-      for (const m of genusMats) { setGenusUniforms(m, []); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
+      for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
     clouds.localWeatherTexture = tex;

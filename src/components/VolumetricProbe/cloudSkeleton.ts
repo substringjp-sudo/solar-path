@@ -53,7 +53,9 @@ export interface Skeleton {
 }
 
 export const SK = {
-  LCL_M_PER_K: 125, LCL_MIN_M: 150, LCL_MAX_M: 3500,
+  LCL_M_PER_K: 125, LCL_MIN_M: 150, LCL_MAX_M: 3500, ML_DEPTH_M: 600,
+  /** pblM 이 LCL 의 이 비율보다 낮으면(안정 시각의 모델 경계층 — 개발 장면 45~128 m) λ 척도에 쓰지 않음 */
+  PBL_TRUST_OVER_LCL: 0.5,
   SPACING_FACTOR: 2 * Math.SQRT2, SPACING_MIN_KM: 0.5, SPACING_MAX_KM: 10,
   W50_OVER_LCL: 0.6, SIZE_EXP_B: 1.7, A_MAX_OVER_LAMBDA: 0.6,
   R50_CU: [0.4, 1.2] as [number, number], R50_CG: [1.2, 2] as [number, number], R_WIDTH_EXP: 0.3,
@@ -74,10 +76,30 @@ export const skRng = (seed: number) => () => {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
-/** 응결고도(m, 지면 위) — Espy 125 m/K, 150~3500 m. 기온·이슬점이 없으면 null. */
+/** 이슬점(°C) — Magnus 역산(RH %). */
+export function dewPointC(tC: number, rhPct: number): number {
+  const a = 17.625, b = 243.04, g = Math.log(Math.max(1, Math.min(100, rhPct)) / 100) + (a * tC) / (b + tC);
+  return (b * g) / (a - g);
+}
+
+/**
+ * 응결고도(m, 지면 위) — Espy 125 m/K, 150~3500 m. 기압면 기온·상대습도가 있으면 **혼합층 LCL**(지상 + 지면 위 600 m 안 면들의 (T − T_d) 평균, 각 면의 높이에서
+ * 올림 — 아침 지상 이슬점만으로는 적운 밑면이 수백 m 낮게 나옴: 개발 장면 S2 지상 350 m vs 예보 덱 1.28 km), 없으면 지상값. 기온·이슬점이 없으면 null.
+ */
 export function lclAglM(th?: ThermoInput | null): number | null {
   if (!th || !fin(th.t2mC) || !fin(th.td2mC)) return null;
-  return clamp(SK.LCL_M_PER_K * Math.max(0, th.t2mC - th.td2mC), SK.LCL_MIN_M, SK.LCL_MAX_M);
+  const g = fin(th.groundM) ? th.groundM : 0;
+  const pts: { z: number; dep: number }[] = [{ z: 0, dep: Math.max(0, th.t2mC - th.td2mC) }];
+  const rh = th.rhLevels ?? [];
+  for (const l of th.levels ?? []) {
+    const z = l.zM - g;
+    if (!fin(z) || z <= 10 || z > SK.ML_DEPTH_M) continue;
+    const r = rh.find(x => Math.abs(x.zM - l.zM) < 1 && fin(x.rhPct));
+    if (!r) continue;
+    pts.push({ z, dep: Math.max(0, l.tC - dewPointC(l.tC, r.rhPct)) });
+  }
+  const z0 = pts.reduce((s, p) => s + p.z, 0) / pts.length, dep = pts.reduce((s, p) => s + p.dep, 0) / pts.length;
+  return clamp(z0 + SK.LCL_M_PER_K * dep, SK.LCL_MIN_M, SK.LCL_MAX_M);
 }
 
 /** 온위(K) — θ = T (1000/p)^0.286 */
@@ -194,7 +216,8 @@ export function skeletonOf(L: SkeletonLayerInput, th: ThermoInput | null | undef
 
   // ── 적운 · 웅대적운 ──
   const zb = lcl ?? deckBaseAgl ?? 1000;
-  const mix = fin(th?.pblM) ? Math.min(th!.pblM as number, zb) : zb;
+  const pbl = fin(th?.pblM) ? (th!.pblM as number) : NaN;
+  const mix = fin(pbl) && pbl >= SK.PBL_TRUST_OVER_LCL * zb ? Math.min(pbl, zb) : zb;
   const lambda = clamp((SK.SPACING_FACTOR * mix) / 1000, SK.SPACING_MIN_KM, SK.SPACING_MAX_KM);
   const inv = inversionAglM(th, zb);
   let dMax: number;

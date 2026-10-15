@@ -36,6 +36,19 @@ t('LCL 125 m/K', near(S.lclAglM({ t2mC: 20, td2mC: 12 }), 1000, 1e-9));
 t('LCL 하한 150', S.lclAglM({ t2mC: 10, td2mC: 9.5 }) === 150);
 t('LCL 상한 3500', S.lclAglM({ t2mC: 40, td2mC: 0 }) === 3500);
 t('LCL 없음 → null', S.lclAglM({ t2mC: 20 }) === null);
+t('이슬점 Magnus 역산: RH 100 → T, RH 50 @20°C ≈ 9.3', near(S.dewPointC(20, 100), 20, 1e-6) && near(S.dewPointC(20, 50), 9.3, 0.3), S.dewPointC(20, 50).toFixed(2));
+{
+  // 혼합층 LCL: 지상 (T−Td) 2 K · 면 200 m (T−Td) 6 K · 면 500 m (T−Td) 6 K → z0 = 233, dep = 4.67 → 816 m (지상만이면 250)
+  const th = { groundM: 100, t2mC: 15, td2mC: 13, levels: [{ zM: 300, tC: 14, pHPa: 990 }, { zM: 600, tC: 12, pHPa: 960 }, { zM: 1200, tC: 8, pHPa: 900 }],
+    rhLevels: [{ zM: 300, rhPct: 100 * 6.112 * Math.exp((17.62 * 8) / (243.12 + 8)) / (6.112 * Math.exp((17.62 * 14) / (243.12 + 14))) }, { zM: 600, rhPct: 67 }, { zM: 1200, rhPct: 95 }] };
+  const ml = S.lclAglM(th);
+  t('혼합층 LCL: 지면 위 600 m 안 면들의 평균 (T−Td) 로', ml > 600 && ml < 1000, ml.toFixed(0));
+  t('지상만(면 없음)이면 Espy 그대로', S.lclAglM({ groundM: 100, t2mC: 15, td2mC: 13 }) === 250);
+}
+{
+  const k = S.skeletonOf({ genus: 'cu', cover: 0.2 }, { groundM: 0, t2mC: 20, td2mC: 12, pblM: 60 }, 24, 1);
+  t('pblM 이 LCL 의 절반 아래(안정 시각 값)면 λ 척도는 LCL', near(k.lambdaKm, 2.828, 0.01), k.lambdaKm.toFixed(3));
+}
 
 // 2. 간격·폭
 const cu = S.skeletonOf({ genus: 'cu', cover: 0.25 }, TH, TILE, 11);
