@@ -25,6 +25,8 @@ export function renderGenusFor(g: ForecastGenus | null): GenusKey | null {
 /** 적란운 꼭대기 높이(km, 해발) — 중위도 가을 권계면 근처. 아직 예보에서 받지 않아 상수입니다. */
 export const CB_TOP_KM = 10;
 export const CB_ANVIL_THICK_M = 1500;
+/** §139.4 적운(cu) 층 두께 상한(m) — 세포 폭(≈ 1.4 km) 수준. 사용자 눈 판정: 뼈대 후보보다 K0 이 자연스럽고, 남은 결함은 세로로 늘어난 기둥. */
+export const CU_MAX_THICK_M = 1000;
 
 /** CloudData 의 기압면 단면 → ProfileLevel[] (PROFILE_LEVELS 순서) */
 export function profileOf(obs: CloudData): ProfileLevel[] {
@@ -169,7 +171,10 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers.push({ genus: 'cg', cover: obs.low / 100, baseKm, thicknessM: Math.max(thicknessM ?? 0, 2500), band: 'low', opts: flowOpts('low'), physBaseKm: lclKm ?? undefined });
     } else {
       const g = renderGenusFor(forecast.low);
-      layers.push({ genus: g, cover: obs.low / 100, baseKm, thicknessM, band: 'low', opts: flowOpts('low'), physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
+      // §139.4 적운(cu)은 두께를 폭 수준으로 묶음 — 예보 덱 두께(최대 3 km)를 그대로 쓰면 폭 1.4 km 세포가 2~3 km 기둥이 됨(기기 캡처 10/15: 머리 위 구름이 세로로 늘어남).
+      // 깊은 대류는 예보 규칙(§126)이 cg/cb 로 보냄. 덱 두께가 없을 때의 손값 1600 m(GENUS.cu.height)도 같은 상한.
+      const cuThick = g === 'cu' ? Math.min(thicknessM ?? 1600, CU_MAX_THICK_M) : thicknessM;
+      layers.push({ genus: g, cover: obs.low / 100, baseKm, thicknessM: cuThick, band: 'low', opts: flowOpts('low'), physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   if (obs.mid > 0) {
