@@ -36,8 +36,11 @@ type Job = {
   clouds?: Record<string, number>;
   /** §140 조명 진단: 시간 해상 셰이더 균일변수(varianceGamma·temporalAlpha 등) 덮어쓰기 — 잡마다 원래 값으로 되돌린 뒤 적용. */
   resolve?: Record<string, number>;
+  /** §140 조명 진단: 구름 패스 재질 균일변수(minStepSize·maxIterationCount·shapeRepeat 배율 등) 덮어쓰기 — 숫자는 그대로, {scale} 는 벡터/숫자에 배율. 잡마다 되돌림. */
+  material?: Record<string, number | { scale: number }>;
 };
 const resolveDefaults: Record<string, number> = {};
+const materialDefaults: Record<string, unknown> = {};
 const cloudsDefaults: Record<string, unknown> = {};
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
@@ -144,6 +147,18 @@ const show = (tex: Texture, mode: number) => {
         const ru = (vol.debug.clouds as unknown as { cloudsPass: { resolveMaterial: { uniforms: Record<string, { value: number }> } } }).cloudsPass.resolveMaterial.uniforms;
         for (const [k, v] of Object.entries(resolveDefaults)) if (ru[k]) ru[k].value = v;
         for (const [k, v] of Object.entries(job.resolve ?? {})) { if (!ru[k]) throw new Error('resolve uniform missing: ' + k); if (!(k in resolveDefaults)) resolveDefaults[k] = ru[k].value; ru[k].value = v; }
+        const mu = (vol.debug.clouds as unknown as { cloudsPass: { currentMaterial: { uniforms: Record<string, { value: unknown }>; needsUpdate: boolean } } }).cloudsPass.currentMaterial;
+        const clone = (x: unknown) => (x && typeof x === 'object' && 'clone' in (x as object) ? (x as { clone(): unknown }).clone() : x);
+        for (const [k, v] of Object.entries(materialDefaults)) if (mu.uniforms[k]) mu.uniforms[k].value = clone(v);
+        for (const [k, v] of Object.entries(job.material ?? {})) {
+          if (!mu.uniforms[k]) throw new Error('material uniform missing: ' + k);
+          if (!(k in materialDefaults)) materialDefaults[k] = clone(mu.uniforms[k].value);
+          const cur = mu.uniforms[k].value as { multiplyScalar?: (s: number) => unknown } | number;
+          if (typeof v === 'number') mu.uniforms[k].value = v;
+          else if (typeof cur === 'number') mu.uniforms[k].value = cur * v.scale;
+          else if (cur && typeof cur.multiplyScalar === 'function') cur.multiplyScalar(v.scale);
+          else throw new Error('material uniform not scalable: ' + k);
+        }
       }
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
