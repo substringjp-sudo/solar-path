@@ -20,7 +20,8 @@ python3 -I shape.py --gate shape-photo-quartiles.json "$D/shape-renders.json" --
 echo; echo "=== G1 CLIP 라벨: cu25·cu50(Cu 수) · sc85(층 묶음 수), 방위 35,300 ==="
 for c in K0 K0h K1 K2 K3; do
   for sc in cu25s5151 cu50s5151 sc85s5151; do
-    echo -n "$c $sc: "; python3 ../flow/clip-labels.py "$D" "${c}_${sc}_" 35,300 2>/dev/null | tail -1 || echo '(clip 없음)'
+    g=Cu; [ "${sc#sc}" != "$sc" ] && g=Sc   # StSc 사진 묶음 ↔ 10 종 라벨의 Sc(층 묶음 St·Sc·Ns·As 는 clip-labels.py 가 셈)
+    [ -f "$D/${c}_${sc}_35.png" ] && (cd ../flow && python3 clip-labels.py $g "$D/${c}_${sc}_{az}.png" 35,300 2>/dev/null | sed "s/^/$c $sc /") || echo "$c $sc (없음)"
   done
 done
 echo; echo "=== G5 프레임 시간(K2 ≤ 1.3 × K1): results.json 의 ms 중앙값 ==="
