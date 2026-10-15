@@ -32,7 +32,16 @@ type Job = {
   fill?: { skyLightScale?: number; groundBounceScale?: number };
   /** §138 노출 배율 — 장면 노출(input.exposure 또는 해 고도의 autoExposure)에 곱합니다. 후보 모두에 같은 값(RULER-physics3 §3). 기본 1. */
   exposureScale?: number;
+  /** §140 조명 진단: takram CloudsEffect 속성 덮어쓰기(powderScale 등). 잡마다 이전 잡의 덮어쓰기를 원래 값으로 되돌린 뒤 적용. */
+  clouds?: Record<string, number>;
+  /** §140 조명 진단: 시간 해상 셰이더 균일변수(varianceGamma·temporalAlpha 등) 덮어쓰기 — 잡마다 원래 값으로 되돌린 뒤 적용. */
+  resolve?: Record<string, number>;
+  /** §140 조명 진단: 구름 패스 재질 균일변수(minStepSize·maxIterationCount·shapeRepeat 배율 등) 덮어쓰기 — 숫자는 그대로, {scale} 는 벡터/숫자에 배율. 잡마다 되돌림. */
+  material?: Record<string, number | { scale: number }>;
 };
+const resolveDefaults: Record<string, number> = {};
+const materialDefaults: Record<string, unknown> = {};
+const cloudsDefaults: Record<string, unknown> = {};
 const terrainTex = (km: number, frac: number) => {
   // SceneComposer TERRAIN_DIST_GLSL 의 부호화와 같음: t = log2(km/1e-3)/20 → 16비트(R 위·G 아래).
   const t = Math.min(0.9999, Math.max(0, Math.log2(Math.max(km, 1e-3) / 1e-3) / 20));
@@ -131,6 +140,26 @@ const show = (tex: Texture, mode: number) => {
       // §137 잡마다 하늘빛·지면 반사 배율을 기본값 1 로 되돌린 뒤 덮어씁니다(앞 잡의 진단 값을 물려받지 않게).
       vol.debug.clouds.skyLightScale = job.fill?.skyLightScale ?? 1;
       vol.debug.clouds.groundBounceScale = job.fill?.groundBounceScale ?? 1;
+      {
+        const ce = vol.debug.clouds as unknown as Record<string, unknown>;
+        for (const [k, v] of Object.entries(cloudsDefaults)) ce[k] = v;
+        for (const [k, v] of Object.entries(job.clouds ?? {})) { if (!(k in cloudsDefaults)) cloudsDefaults[k] = ce[k]; ce[k] = v; }
+        const ru = (vol.debug.clouds as unknown as { cloudsPass: { resolveMaterial: { uniforms: Record<string, { value: number }> } } }).cloudsPass.resolveMaterial.uniforms;
+        for (const [k, v] of Object.entries(resolveDefaults)) if (ru[k]) ru[k].value = v;
+        for (const [k, v] of Object.entries(job.resolve ?? {})) { if (!ru[k]) throw new Error('resolve uniform missing: ' + k); if (!(k in resolveDefaults)) resolveDefaults[k] = ru[k].value; ru[k].value = v; }
+        const mu = (vol.debug.clouds as unknown as { cloudsPass: { currentMaterial: { uniforms: Record<string, { value: unknown }>; needsUpdate: boolean } } }).cloudsPass.currentMaterial;
+        const clone = (x: unknown) => (x && typeof x === 'object' && 'clone' in (x as object) ? (x as { clone(): unknown }).clone() : x);
+        for (const [k, v] of Object.entries(materialDefaults)) if (mu.uniforms[k]) mu.uniforms[k].value = clone(v);
+        for (const [k, v] of Object.entries(job.material ?? {})) {
+          if (!mu.uniforms[k]) throw new Error('material uniform missing: ' + k);
+          if (!(k in materialDefaults)) materialDefaults[k] = clone(mu.uniforms[k].value);
+          const cur = mu.uniforms[k].value as { multiplyScalar?: (s: number) => unknown } | number;
+          if (typeof v === 'number') mu.uniforms[k].value = v;
+          else if (typeof cur === 'number') mu.uniforms[k].value = cur * v.scale;
+          else if (cur && typeof cur.multiplyScalar === 'function') cur.multiplyScalar(v.scale);
+          else throw new Error('material uniform not scalable: ' + k);
+        }
+      }
       vol.setQuality(job.quality ?? 'low');
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setScene(input);

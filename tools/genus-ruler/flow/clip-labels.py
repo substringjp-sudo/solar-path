@@ -18,6 +18,6 @@ names, C = class_embeds('genus')
 E = embed_images([Image.open(pat.format(az=a)) for a in azs], [0.78] * len(azs))
 P = probs(E, C)
 pred = [names[k] for k in P.argmax(1)]
-ok = {'AcCc': {'AcCc'}, 'Ci': {'Ci', 'Cs'}}[g]
+ok = {'AcCc': {'AcCc'}, 'Ci': {'Ci', 'Cs'}, 'Sc': {'St', 'Sc', 'Ns', 'As'}}.get(g, {g})   # §139: Cu 는 자기 라벨, Sc 는 층 묶음
 j = names.index(g)
 print(json.dumps({'genus': g, 'az': azs, 'pred': pred, 'hits': int(sum(p in ok for p in pred)), 'own': [round(float(x), 3) for x in P[:, j]]}))

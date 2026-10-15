@@ -322,7 +322,13 @@ function skeletonThermalField(S: number, tileKm: number, seed: number, sk: Skele
         if (capRho2 < R * R) {
           const ri = c.dM / Math.max(1, c.wKm * 1000);
           const p = c.p ?? 0.5 / Math.max(0.2, ri);
-          best = Math.max(best, top * (c.capW ?? 1) * Math.pow(1 - capRho2 / (R * R), Math.max(0.1, p)));
+          if (c.rim) {
+            // K4 원통 캡: 옆면 수직(테 폭 rim·R 안에서만 둥글게 떨어짐), 가운데 평평 — f = (1 − ρ/R)/rim 의 2 차 이즈
+            const f = Math.min(1, (1 - Math.sqrt(capRho2) / R) / c.rim);
+            best = Math.max(best, top * (c.capW ?? 1) * f * (2 - f));
+          } else {
+            best = Math.max(best, top * (c.capW ?? 1) * Math.pow(1 - capRho2 / (R * R), Math.max(0.1, p)));
+          }
         }
         if (rho2 < R * R * 2.0) {
           for (const t of tur[i]) {
@@ -369,7 +375,7 @@ function spectralNoise(kPeak: number, aniso: number, dirDeg: number | null, seed
  */
 function skeletonScField(S: number, tileKm: number, seed: number, sk: Skeleton): FieldPx {
   const meso = spectralNoise(Math.max(1, tileKm / Math.max(1e-3, sk.mesoKm)), 1, null, seed + 41);
-  const el = spectralNoise(Math.max(1, tileKm / Math.max(1e-3, sk.elKm)), sk.rollDeg == null ? 1 : 3, sk.rollDeg, seed + 43);
+  const el = spectralNoise(Math.max(1, tileKm / Math.max(1e-3, sk.elKm)), sk.rollDeg == null ? 1 : (sk.rollAniso ?? 3), sk.rollDeg, seed + 43);
   const fine = fbm(Math.max(8, Math.round(tileKm / 0.5)), 2, seed + 47);
   return (x, y) => {
     const u = (x + 0.5) / S, v = (y + 0.5) / S;
