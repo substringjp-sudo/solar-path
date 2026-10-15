@@ -35,6 +35,7 @@ SC_SPLIT = 0.6
 TIE_IQR = 0.1
 MARGIN_MIN = 3
 MIN_V = 6                  # 종류 판정에 필요한 최소 유효 칸 수(아니면 판정 불가)
+REF_SEED, NULL_SEEDS = 5151, (7171, 8181)   # 영가설 시드 짝짓기(jobs-shape.json)
 G4_REPORT = 0.05           # 장면 |Δ cloudFrac| 보고 문턱(역표 재측정 필요)
 G4_INVALID = 0.15          # 이 위면 운량 약속이 깨진 것 — 그 장면의 조각 칸 무효(사진 층화가 5 %p 수준의 운량 차는 흡수)
 BOOT_N, BOOT_SEED = 2000, 20261015
@@ -424,7 +425,16 @@ def run_gate(qfile, rfile, ref, cands, nulls, also, out):
         for n in nulls:
             if n not in cells:
                 continue
-            cn = {k: v for k, v in cells[n].items() if v['genus'] == g}
+            # 영가설 시드의 장면 이름(cu25s7171)을 기준의 첫 실현(cu25s5151)에 짝지음 — 렌더 뒤 발견한 판정 코드 결함(짝이 안 맞아 V 0 → 여유가 바닥값 3 에 머묾).
+            # 고치면 여유는 커질 수만 있음(더 엄격).
+            cn = {}
+            for k, v in cells[n].items():
+                if v['genus'] != g:
+                    continue
+                scene = k[1]
+                for s in NULL_SEEDS:
+                    scene = scene.replace('s%d' % s, 's%d' % REF_SEED)
+                cn[(k[0], scene, k[2])] = v
             V = [k for k in cr if k in cn and cr[k]['valid'] and cn[k]['valid']]
             d = abs(sum(1 for k in V if cn[k]['in_base']) - sum(1 for k in V if cr[k]['in_base']))
             nullinfo[n] = {'V': len(V), 'dInside': d}
