@@ -214,5 +214,25 @@ for (const cover of [0.1, 0.25, 0.5]) {
   t('K1(vary 없음) 셀에 변이 필드 없음', k1.cells.every(c => c.p === undefined && c.stage === undefined));
 }
 
+// 12. K4 — 운량에서 간격 · 원통 캡 · 두께 상한 · 층적운 롤
+{
+  const th4 = { ...TH, pblM: 1900 };
+  for (const cover of [0.1, 0.3, 0.5]) {
+    const k = S.skeletonOf({ genus: 'cu', cover }, th4, TILE, 31, { k4: true });
+    const area = k.cells.reduce((s, c) => s + (Math.PI / 4) * c.wKm * c.wKm, 0) / (TILE * TILE);
+    t(`K4 운량 ${cover}: 모든 자리 켬·Σ면적 ≈ cover (±35 %, 격자 반올림)`, k.cells.every(c => c.on) && Math.abs(area - cover) / cover < 0.35, `area ${area.toFixed(3)} λ ${k.lambdaKm.toFixed(2)} n ${k.cells.length}`);
+    t(`K4 운량 ${cover}: 폭 배율 1·스커트 없음`, k.widthScale === 1 && !k.skirt);
+  }
+  const lo = S.skeletonOf({ genus: 'cu', cover: 0.05 }, th4, TILE, 31, { k4: true });
+  t('K4 운량 0.05: 간격이 물리 상한(2√2·z) 에 걸림', near(lo.lambdaKm, 2.828, 0.01), lo.lambdaKm.toFixed(2));
+  const k = S.skeletonOf({ genus: 'cu', cover: 0.3 }, th4, TILE, 31, { k4: true });
+  t('K4: 깊이 ≤ 1.3 w (cu)', k.cells.every(c => c.dM <= 1.3 * c.wKm * 1000 + 1e-6));
+  t('K4: 원통 캡 rim 0.4(성장)/0.25(성숙)', k.cells.every(c => (c.stage === 1 ? c.rim === 0.25 : c.rim === 0.4)));
+  t('K4: 폭 상한 2 w50 (지름 = 2√(a_max/π) = 2.26 w50)', k.cells.every(c => c.wKm <= 2.26 * k.w50Km + 1e-6));
+  const sc = S.skeletonOf({ genus: 'sc', cover: 0.4, baseKm: 1.2 }, th4, TILE, 9, { k4: true });
+  t('K4 sc: 요소 간격 1.5 h · 롤 2:1', near(sc.elKm, 1.5 * 1.9, 1e-6) && sc.rollAniso === 2);
+  t('K4: K3 와 해시 다름', k.hash !== S.skeletonOf({ genus: 'cu', cover: 0.3 }, th4, TILE, 31, { vary: true }).hash);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
