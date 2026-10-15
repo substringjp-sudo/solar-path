@@ -35,9 +35,11 @@ const ok = (c, l) => { if (c) { pass++; console.log('  PASS: ' + l); } else { fa
   const p = await b.newPage({ viewport: { width: 1100, height: 900 } });
   const pageErrors = [];
   p.on('pageerror', e => pageErrors.push(e.message));
-  await p.goto(ORIGIN + '/dem-precision.html', { timeout: 600000 });
+  // ⚠ 'load' 를 기다리지 않습니다 — 페이지가 모듈 최상위 await 에서 다 그리므로 load 가 그만큼
+  //   늦고, 하네스를 여럿 겹쳐 돌리면 goto 가 먼저 시간을 넘깁니다. 끝은 제목으로 압니다.
+  await p.goto(ORIGIN + '/dem-precision.html', { timeout: 120000, waitUntil: 'commit' });
   await p.waitForFunction(() => /^DONE::/.test(document.title), null,
-    { timeout: 600000, polling: 500 }).catch(() => {});
+    { timeout: 1200000, polling: 500 }).catch(() => {});
   const title = await p.title();
   const stats = await p.evaluate(() => window.__stats || null);
   const errs = await p.evaluate(() => window.__errors || []);

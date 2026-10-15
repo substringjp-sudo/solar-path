@@ -189,7 +189,7 @@ function elevStats(got, ref) {
 }
 
 // ── ② 화면 ────────────────────────────────────────────────────────────────────
-const W=360, H=300, FOV=40, SHOTS=12;   // 세로 화각 40°, 가로 약 47° × 12장 = 한 바퀴(겹침)
+const W=320, H=240, FOV=44, SHOTS=8;   // 세로 화각 44°, 가로 약 57° × 8장 = 한 바퀴(겹침)
 renderer.setSize(W,H,false);
 const rt=new THREE.WebGLRenderTarget(W,H,{format:THREE.RGBAFormat,type:THREE.UnsignedByteType,
   minFilter:THREE.NearestFilter, magFilter:THREE.NearestFilter, depthBuffer:true});
@@ -207,6 +207,8 @@ function makeField(nearPatch, widePatch, mode) {
   const u=f.material.uniforms;
   u.uSurfaceIrr.value.set(0.30,0.34,0.44); u.uSunAltDeg.value=20; u.uSunAltRad.value=20*Math.PI/180;
   u.uSunRadiance.value.set(1.2,1.1,0.9); u.uAerial.value=0; u.uShadow.value=0;
+  // 덮임(알파)만 재므로 무거운 칠은 끕니다 — SwiftShader 에서 한 장이 몇 배 빨라집니다.
+  u.uBicubicNormal.value=0; u.uDetail.value=0;
   return { f, n };
 }
 
