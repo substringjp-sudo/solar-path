@@ -41,12 +41,19 @@ export interface MapCanvasHandle {
   moveTo: (region: { latitude: number; longitude: number; longitudeDelta: number }, durationMs?: number) => void;
 }
 
-const toNativeRegion = (r: { latitude: number; longitude: number; longitudeDelta: number }) => ({
-  latitude: r.latitude,
-  longitude: r.longitude,
-  latitudeDelta: Math.min(170, r.longitudeDelta * Math.max(0.1, Math.cos(r.latitude * Math.PI / 180))),
-  longitudeDelta: r.longitudeDelta,
-});
+const toNativeRegion = (r: { latitude: number; longitude: number; longitudeDelta: number }) => {
+  const safeLat = Math.max(-85, Math.min(85, Number.isFinite(r.latitude) ? r.latitude : 37.5));
+  let safeLon = Number.isFinite(r.longitude) ? r.longitude : 127.0;
+  safeLon = ((safeLon + 180) % 360 + 360) % 360 - 180;
+  const safeLonDelta = Math.max(0.001, Math.min(145, Number.isFinite(r.longitudeDelta) ? r.longitudeDelta : 10));
+  const safeLatDelta = Math.max(0.001, Math.min(140, safeLonDelta * Math.max(0.1, Math.cos(safeLat * Math.PI / 180))));
+  return {
+    latitude: safeLat,
+    longitude: safeLon,
+    latitudeDelta: safeLatDelta,
+    longitudeDelta: safeLonDelta,
+  };
+};
 
 export const MapCanvas = React.memo(React.forwardRef<MapCanvasHandle, MapCanvasProps>(({
   lat,

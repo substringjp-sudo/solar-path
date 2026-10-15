@@ -616,8 +616,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const vs = viewSizeRef.current;
         const d = lonDeltaForProgress(pp, homeRef.current.latitude, vs.w / vs.h);
         const region = { latitude: cc.latitude, longitude: cc.longitude, longitudeDelta: d };
-        mapCanvasRef.current?.moveTo(region, 0);
-        silhouetteRef.current?.setRegion(region);
+        if (pp < P_GLOBE_FADE_END) {
+          mapCanvasRef.current?.moveTo(region, 0);
+          silhouetteRef.current?.setRegion(region);
+        }
         mapGlobeRef.current?.setView({ radius: globeRadiusForDelta(cc.latitude, d, vs.w), center: cc });
       });
     }
@@ -3077,17 +3079,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     () => (pendingPick ? { latitude: pendingPick.latitude, longitude: pendingPick.longitude } : null),
     [pendingPick],
   );
-  const onGlobeViewChange = useCallback((v: { latitude: number; longitude: number; radius: number }) => {
-    // 구를 돌리거나(한가운데) 구 안에서 확대·축소했을 때(반지름) — 진행도를 **같은 축척**으로
-    // 되돌려 씁니다. 예전에는 확대하면 진행도를 2.2 로 툭 옮겨 지도가 엉뚱한 축척으로 떴습니다.
+  const onGlobeViewChange = useCallback((v: { latitude: number; longitude: number; radius: number; zoomedIn?: boolean }) => {
+    // 구를 돌리거나(한가운데) 구 안에서 확대·축소했을 때(반지름)
     const c0 = mapCenterRef.current;
     if (Math.abs(c0.latitude - v.latitude) > 1e-6 || Math.abs(c0.longitude - v.longitude) > 1e-6) {
       lastViewMoveMsRef.current = Date.now();
     }
     mapCenterRef.current = { latitude: v.latitude, longitude: v.longitude };
+
+    // ⚠ 회전(패닝)만 했을 때는 줌 진행도를 건드리지 않습니다!
+    // 위도가 바뀌었다고 deltaForGlobeRadius(v.latitude)를 풀면 축척이 마구 튑니다.
+    // 축척(radius)이 실질적으로 변했거나 확대하여 지도로 복귀해야 할 때만 줌 진행도 갱신
     const vs = viewSizeRef.current;
-    const p = progressForLonDelta(deltaForGlobeRadius(v.latitude, v.radius, vs.w), homeRef.current.latitude, vs.w / vs.h);
-    applyZoomProgress(Math.min(P_MAX, p), { force: true, keepCenter: true });
+    const currentExpectedRadius = globeRadiusForDelta(homeRef.current.latitude, lonDeltaForProgress(zoomProgressRef.current, homeRef.current.latitude, vs.w / vs.h), vs.w);
+    const radiusRatio = v.radius / (currentExpectedRadius || 1);
+
+    if (Math.abs(radiusRatio - 1.0) > 0.05 || v.zoomedIn) {
+      const p = progressForLonDelta(deltaForGlobeRadius(homeRef.current.latitude, v.radius, vs.w), homeRef.current.latitude, vs.w / vs.h);
+      applyZoomProgress(Math.min(P_MAX, Math.max(0, p)), { force: true, keepCenter: true });
+    }
   }, [applyZoomProgress]);
 
   return (
@@ -3195,6 +3205,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           pointerEvents={zoomProgressState >= P_HANDOFF ? 'auto' : 'none'}
         >
           {/* 평면 구글 지도 (구로 모핑될 때 부드럽게 페이드아웃) */}
+          {/* 평면 지도 (구글 지도): 마운트 유지하되 지구본 모드일 때는 오파시티 0 및 터치 차단으로 렉 제거 */}
           <Animated.View
             style={[
               StyleSheet.absoluteFillObject,
@@ -3229,7 +3240,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             />
           </Animated.View>
 
-          {/* 3차원 지구본 구 (구로 모핑될 때 부드럽게 페이드인 및 구글 지도와 지형 1:1 동기화) */}
+          {/* 3차원 지구본 구 (전환 중에는 지도와 1:1 동기화, 지구본 모드 진입 시 60fps 자유 회전) */}
           <Animated.View
             style={[
               StyleSheet.absoluteFillObject,
@@ -3254,8 +3265,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               topView={topView}
               initialCenter={globeStart.center}
               initialRadius={globeStart.radius}
-              currentCenter={mapCenterRef.current}
-              currentRadius={globeRadiusForDelta(mapCenterRef.current.latitude, lonDeltaForProgress(zoomProgressState, homeRef.current.latitude, sceneW / sceneH), sceneW)}
+              currentCenter={!isGlobeMode ? mapCenterRef.current : undefined}
+              currentRadius={!isGlobeMode ? globeRadiusForDelta(mapCenterRef.current.latitude, lonDeltaForProgress(zoomProgressState, homeRef.current.latitude, sceneW / sceneH), sceneW) : undefined}
               // ⚠ 위 끝은 넉넉히 — 구로 넘어가는 축척의 반지름이 화면 폭의 2~3 배(서울 세로 폰 ≈ 1000 px)
               //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
               minRadius={100}
