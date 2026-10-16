@@ -16,13 +16,16 @@ export const AdaptiveDatePicker = ({ value, onChange, onClose }: AdaptiveDatePic
     // Create a temporary hidden input
     const input = document.createElement('input');
     input.type = 'date';
-    input.value = value.toISOString().split('T')[0];
+    // 기기 지역 날짜로 적습니다(toISOString 은 UTC 날짜라 서쪽 기기에서는 하루 어긋납니다).
+    input.value = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
     input.style.position = 'fixed';
     input.style.top = '-100px';
     document.body.appendChild(input);
     
     input.addEventListener('change', (e: any) => {
-      const newDate = new Date(e.target.value);
+      // 'yyyy-mm-dd' 를 `new Date(문자열)` 로 읽으면 UTC 자정이라 서쪽 기기에서 전날이 됩니다 — 기기 지역 정오로 만듭니다.
+      const [yy, mm, dd] = String(e.target.value).split('-').map(Number);
+      const newDate = new Date(yy, (mm || 1) - 1, dd || 1, 12);
       if (!isNaN(newDate.getTime())) {
         onChange(newDate);
       }

@@ -18,7 +18,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import Svg, { Circle, Path, Line, Text as SvgText, Defs, LinearGradient, Stop, Rect, Polygon } from 'react-native-svg';
+import Svg, { Line, Text as SvgText, Rect, Polygon } from 'react-native-svg';
 import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star, QrCode } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
@@ -28,31 +28,24 @@ import { SimReportQR } from './SkyScreen/SimReportQR';
 
 
 import {
-  getSunScreenPosition,
-  getDaySunTrajectory,
   analyzeScene,
   EnhancementParams,
   GoldenTimeInfo,
-  ScreenPoint,
 } from '../utils/sunCamera';
 import { getSunPosition, getMoonPosition, getCelestialEvents } from '../utils/celestial';
-import { getCalculatedStars, CONSTELLATION_LINES_DATA } from '../utils/celestialStarsData';
-import { getCalculatedMilkyWay } from '../utils/celestialMilkyWayData';
-import { getCalculatedPlanets } from '../utils/celestialPlanets';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useCelestialStore, MyPhoto } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { predictSunset } from '../utils/sunsetPhysics';
-import { getInterpolatedWeather, fetchSunsetWeather } from '../utils/weather';
+import { getInterpolatedWeather, fetchDayWeatherRing } from '../utils/weather';
 import { t, Language, translateSunsetDesc, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkyScene3D';
 import { PressScale } from './ui';
 import { color, dataColor } from '../theme/tokens';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CAM_PREVIEW_HEIGHT = Math.round(SCREEN_WIDTH * (3 / 4));
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
  * 촬영 결과 화면의 QR 한 변(pt). 시선·구름판 상태를 실어 모듈이 93칸 안팎입니다 — 캡처를 1080px
  * 에서 절반쯤 줄여 보내도 모듈 하나가 3px 넘게 남도록 화면 폭의 60% 안에서 크게 잡습니다.
@@ -198,17 +191,17 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const maxBoxH = Math.floor(availH / 2);
   const BOX_HEIGHT = Math.min(Math.round(W * (3 / 4)), maxBoxH);
   const BOX_WIDTH = Math.round(BOX_HEIGHT * (4 / 3));
-  const CAM_HEIGHT = BOX_HEIGHT;
-  const CAM_WIDTH = BOX_WIDTH;
 
   const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
   // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
   const skyLayers = useCelestialStore(s => s.skyLayers);
   const skySettings = useCelestialStore(s => s.skySettings);
-  // 카메라 화면 내 미니 3D 시뮬레이터는 카메라 스트림과의 GPU 리소스 경합 및 버퍼 오류(ANR) 방지를 위해 볼륨 하늘을 비활성화합니다.
+  // 카메라 화면 내 미니 3D 시뮬레이터는 카메라 스트림과의 GPU 리소스 경합 및 버퍼 오류(ANR) 방지를 위해 기본으로 볼륨 하늘을
+  // 비활성화합니다 — 그래서 메인 시뮬레이션과 구름 모양이 다릅니다(옛 슬랩 구름). 개발자 패널의 CAM-VOL 을 켜면 메인과 같은
+  // 볼륨 하늘로 그립니다(기기에서 ANR 이 나는지 확인하는 실험 손잡이, `skySettings.cameraVolumetric`).
   const camSkySettings = useMemo(() => ({
     ...skySettings,
-    volumetricSky: false,
+    volumetricSky: !!skySettings.cameraVolumetric && (skySettings.volumetricSky ?? true),
   }), [skySettings]);
   // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 예전처럼
   // 해 방향 부채꼴 기상(camInterpolated)으로 그립니다.
@@ -323,7 +316,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   //      카메라 전방 벡터를 직접 추출 → 동일 샘플에서 heading + pitch 동시 계산.
   const [deviceAzimuth, setDeviceAzimuth] = useState(0);
   const [devicePitch, setDevicePitch] = useState(0);
-  const [deviceRotation, setDeviceRotation] = useState({ alpha: 0, beta: 0, gamma: 0 });
   const [hasInterference, setHasInterference] = useState(false);
 
   // 센서 실시간 Ref (리렌더 없이 최신값 유지)
@@ -376,7 +368,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 촬영 상태
   const sky3dRef = useRef<SkyScene3DHandle>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [captureResult, setCaptureResult] = useState<string | null>(null);
 
   // 촬영 후 미리보기 상태
   const [previewUri, setPreviewUri] = useState<string | null>(null);
@@ -405,26 +396,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const sunPos = useMemo(() => {
     return getSunPosition(currentTime, latitude, longitude);
   }, [currentTime, latitude, longitude]);
-
-  // 현재 달 위치
-  const moonPos = useMemo(() => {
-    return getMoonPosition(currentTime, latitude, longitude);
-  }, [currentTime, latitude, longitude]);
-
-  // 현재 5대 행성 위치
-  const planetsPos = useMemo(() => {
-    return getCalculatedPlanets(latitude, longitude, currentTime);
-  }, [latitude, longitude, currentTime]);
-
-  // 현재 오프라인 주요 별 위치
-  const starsPos = useMemo(() => {
-    return getCalculatedStars(latitude, longitude, currentTime);
-  }, [latitude, longitude, currentTime]);
-
-  // 현재 은하수 궤적 위치
-  const milkyWayPos = useMemo(() => {
-    return getCalculatedMilkyWay(latitude, longitude, currentTime);
-  }, [latitude, longitude, currentTime]);
 
   // ── 동적 일몰/일출 방위각 계산 (현재 날짜 & 위도/경도 물리계산 기준) ──
   const dynamicEventAzimuths = useMemo(() => {
@@ -478,11 +449,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     camWeatherInflightRef.current = key;
     const at = new Date(currentTime.getTime());
     const lat = latitude, lon = longitude;
-    // 하늘 화면처럼 태양 방위를 30° 로 묶어 부채꼴을 받습니다 — 중심이 다르면 같은 날의 구름장이
-    // 두 화면에서 달라집니다(SkyScreen 의 bucketedSunAz).
-    const az = Math.round(getSunPosition(at, lat, lon).azimuth / 30) * 30;
+    // ⚠ 하늘 화면과 **같은 함수**(360° 고리, `fetchDayWeatherRing`)로 받습니다. 예전에는 해 방향 ±20° 부채꼴
+    //   (`fetchSunsetWeather`)이라, 해에서 먼 쪽을 보면 구름이 비었고(카메라는 어느 쪽이나 봅니다) 같은 칸 키에 하늘
+    //   화면의 고리와 서로 다른 모양의 자료가 먼저 들어가 두 화면의 구름이 갈라질 수 있었습니다.
     const fail = () => { camWeatherFailedAtRef.current[key] = Date.now(); scheduleRetry(RETRY_MS); };
-    fetchSunsetWeather(lat, lon, az, false, at)
+    fetchDayWeatherRing(lat, lon, at)
       .then(data => {
         if (!Array.isArray(data) || data.length === 0 || (data as any)[0]?.isFallback) { fail(); return; }
         delete camWeatherFailedAtRef.current[key];
@@ -540,11 +511,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     latitude,
     observerElevM: Number(cameraSimState.terrain?.observerElevation) || undefined,
   }), [camWeatherData, currentTime, sunPos.altitude, camInterpolated, latitude, cameraSimState.terrain?.observerElevation]);
-
-  // 하루 태양 궤적
-  const trajectory = useMemo(() => {
-    return getDaySunTrajectory(currentTime, latitude, longitude);
-  }, [currentTime, latitude, longitude]);
 
   // 적응형 보정 파라미터 계산 (실시간 업데이트)
   const currentEnhancement = useMemo(() => {
@@ -676,7 +642,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         gamma: gRad,
       };
       deviceRotationRef.current = currentRotation;
-      setDeviceRotation(currentRotation);
     });
     return () => sub.remove();
   }, [visible]);
@@ -962,7 +927,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           if (__DEV__) {
             console.log('[SunCamera] No valid weather cache. Fetching weather on the fly...');
           }
-          const weatherData = await fetchSunsetWeather(latitude, longitude, currentSunPos.azimuth, false, captureTime);
+          const weatherData = await fetchDayWeatherRing(latitude, longitude, captureTime);
           if (weatherData && weatherData.length > 0 && !(weatherData as any)[0]?.isFallback) {
             // 예전에는 +9시간을 박아 넣어 한국 밖에서는 엉뚱한 날짜가 나왔고,
             // 같은 키를 만드는 useCelestialStore 와도 어긋났습니다(§59).
@@ -1861,15 +1826,6 @@ export const SunCamera: React.FC<SunCameraProps> = ({
           </View>
         )}
 
-        {/* 촬영 성공 오버레이 */}
-        {captureResult && (
-          <View style={styles.captureOverlay}>
-            <Check size={48} color={color.success} />
-            <Text style={styles.captureSuccessText}>{L3(language, '업로드 성공!', 'Uploaded!', 'アップロード完了!')}</Text>
-          </View>
-        )}
-
-
         {/* 게시물 미리보기 & 자동 공개 SNS 공유 모달 */}
         <PostDetailModal
           visible={!!uploadedPhotoForModal}
@@ -2007,18 +1963,6 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 27,
     backgroundColor: color.text,
-  },
-  captureOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: color.scrim,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  captureSuccessText: {
-    color: color.success,
-    fontSize: 24,
-    fontWeight: '900',
   },
   captureSubText: {
     color: color.textDim,

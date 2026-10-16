@@ -18,7 +18,7 @@ import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { User } from 'firebase/auth';
-import { TerrainData, fetchSunsetWeather, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingPersister, setRingFallbackFinder } from '../utils/weather';
+import { TerrainData, fetchTerrainProfile, fetchDayWeatherRing, fetchWeatherCanary, primeRingCache, setRingPersister, setRingFallbackFinder } from '../utils/weather';
 import { sunPosition, sunTimes } from '../utils/solarPosition';
 import { encryptData, decryptData } from '../utils/security';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -169,7 +169,7 @@ interface CelestialState extends ClockState {
    * 먼저 텔레포트하면 프리로드의 GPS 가 그 위치를 덮어씁니다. 저장하지 않습니다.
    */
   startupLocationSettled: boolean;
-  /** 프리로드 후 처음 열 탭. 새 IA 기준: 'sky' | 'map' | 'log' */
+  /** 프리로드 후 처음 열 탭: 'sky'(시뮬레이션) | 'log'(갤러리). 옛 'map' 은 앱이 'sky' 로 읽습니다. */
   initialTab: 'sky' | 'map' | 'log';
   selectedCategory: 'sun' | 'cloud' | 'star' | 'sim3d' | 'gallery';
   

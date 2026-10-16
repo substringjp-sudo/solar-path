@@ -32,6 +32,7 @@ import {
   Uniform,
   UnsignedByteType,
   Vector3,
+  Vector4,
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
@@ -116,7 +117,17 @@ export interface VolumetricSceneInput {
   weatherOffsetKm?: [number, number];
   /** §136 열역학 입력(지상 기온·이슬점·기압면 단면). 없으면 물리는 표준대기로 물러납니다. */
   thermo?: ThermoInput;
+  /** §146 에어로졸(미세먼지·연무) 추가 흐림 — 대기 표에 없는 만큼(배경 AOD 초과분)만. 없으면 끔. */
+  haze?: HazeInput;
 }
+
+/**
+ * §146 연무. 높이 H=1.5 km 로 지수 감쇠하는 에어로졸 층의 시선 광학두께로 하늘·구름·지형을 뿌옇게 합니다.
+ * aod: 550nm 광학두께(배경 초과분) · alpha: Ångström 지수(클수록 푸른빛을 더 산란 — 초미세먼지) ·
+ * g: 비대칭도(클수록 해 쪽으로 앞산란 — 조대 먼지) · omega: 단일 산란 반사율.
+ */
+export interface HazeInput { aod: number; alpha: number; g: number; omega: number }
+export const HAZE_SCALE_HEIGHT_KM = 1.5;
 
 /**
  * 해 고도 → 노출(§127 E2-3, 자 `tools/genus-ruler/genus/RULER-exposure.md`).
@@ -649,7 +660,7 @@ export async function createVolumetricScene(
       // 해가 지평선 아래 2° 로 내려가면 지구 그림자에 맡깁니다(그 아래는 능선 너머 공기도 이미 그늘 — 두 번 빼지 않게).
       '  return clamp(min(sLit, sBeyond), 0.0, maxKm) * smoothstep(-0.035, 0.0, sinA);',
       '}',
-      head,
+      head.replace('void mainImage(', 'void volBaseImage('),
     ].join('\n'));
     src = src.replace(skyA, [
       // 구름이 없으면(겹칠 층이 아직 없음) 불투명도 0 — 아래 HAS_OVERLAY 가 있으면 그 알파로 바뀝니다.
@@ -706,6 +717,36 @@ export async function createVolumetricScene(
       '    #endif // HAS_OVERLAY',
       '    return;',
     ].join('\n'));
+    // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
+    if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
+    src += [
+      '', 'uniform float hazeOn;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
+      'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
+      '  volBaseImage(inputColor, uv, outputColor);',
+      '  if (hazeOn < 0.5) return;',
+      '  vec3 hRd = normalize(vRayDirection);',
+      '  vec3 hUp = normalize(vCameraPosition);',
+      '  float hSin = max(abs(dot(hRd, hUp)), 0.03);',
+      '  float hKm = 1e9;',
+      '  if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) hKm = k; }',
+      `  float hH = ${HAZE_SCALE_HEIGHT_KM.toFixed(2)};`,
+      // 시선을 따라 쌓인 광학두께 = AOD ∫exp(-h/H)ds/H ≈ AOD/sinθ · (1 − exp(−d·sinθ/H))
+      '  float hTau = hazeP.x / hSin * (1.0 - exp(-min(hKm, 1e4) * hSin / hH));',
+      '  vec3 hTv = hTau * pow(vec3(640.0, 550.0, 460.0) / 550.0, vec3(-hazeP.y));',
+      '  vec3 hT = exp(-hTv);',
+      '  vec3 hSkyE;',
+      '  vec3 hSunE = GetSunAndSkyIrradiance(vCameraPosition, sunDirection, sunDirection, hSkyE);',
+      '  float hCos = dot(hRd, normalize(sunDirection));',
+      '  float hG = hazeP.z;',
+      '  float hPh = (1.0 - hG * hG) / (12.5663706 * pow(max(1.0 + hG * hG - 2.0 * hG * hCos, 1e-3), 1.5));',
+      // 실제 에어로졸은 옆·뒤 산란이 HG 한 덩어리보다 큽니다 → 등방 35% 섞음. 하늘 조도 항은 두꺼울수록 다중산란으로 채워 /π 에 가깝게.
+      '  hPh = mix(hPh, 0.0795775, 0.35);',
+      '  vec3 hL = hazeP.w * (hSunE * hPh + hSkyE * mix(0.1591549, 0.3183099, 1.0 - exp(-hazeP.x * 2.0)));',
+      '  outputColor.rgb = outputColor.rgb * hT + hL * (vec3(1.0) - hT);',
+      '}',
+    ].join('\n');
+    fx.uniforms.set('hazeOn', new Uniform(0));
+    fx.uniforms.set('hazeP', new Uniform(new Vector4(0, 1, 0.7, 0.95)));
     fx.uniforms.set('terrainDist', new Uniform(null));
     fx.uniforms.set('terrainDistOn', new Uniform(0));
     fx.uniforms.set('cloudAlphaOut', new Uniform(0));
@@ -728,6 +769,12 @@ export async function createVolumetricScene(
     au.get('sunRidgeTex')!.value = ridge;
     au.get('sunRidgeOn')!.value = tex && lit && ridge ? 1 : 0;
     au.get('seaSlopeVar')!.value = seaSlope;
+  };
+  const applyHaze = (h: HazeInput | undefined) => {
+    const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
+    const on = !!h && h.aod > 0.005;
+    au.get('hazeOn')!.value = on ? 1 : 0;
+    if (on && h) (au.get('hazeP')!.value as Vector4).set(h.aod, h.alpha, h.g, h.omega);
   };
   const setCloudAlphaOut = (on: boolean) => {
     (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudAlphaOut')!.value = on ? 1 : 0;
@@ -973,6 +1020,7 @@ export async function createVolumetricScene(
     clouds.localWeatherTexture = tex;
     genLayers = gl; genDate = p.date; genUv = flowUv;
     const exposure = p.exposure ?? autoExposure(sunAltDeg);
+    applyHaze(p.haze);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
   };
@@ -1042,6 +1090,7 @@ export async function createVolumetricScene(
       for (const m of genusMats) setGenusDrift(m, genLayers, driftSec, GENUS_TILE_KM);
     }
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
+    applyHaze(lastInput.haze);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
   };
