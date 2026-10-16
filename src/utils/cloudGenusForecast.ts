@@ -68,8 +68,10 @@ export const GENUS_THRESHOLDS = {
   showerCodes: [80, 81, 82, 85, 86, 95, 96, 99],
   /** 난층운: 강수(mm/h) 이상 + 저층 덮임 이상 + 중층도 덮임 */
   nsPrecip: 0.3, nsCover: 80,
-  /** 층운: 밑면(지면 위 km) 이하 + 운량 이상 */
-  stBaseKm: 0.25, stCover: 70,
+  /** 층운: 밑면(지면 위 km) 이하 + 운량 이상 (§144: 0.25 → 0.4 km, 기기 캡처 10/16 08:01 밑면 0.264 km) */
+  stBaseKm: 0.4, stCover: 70,
+  /** 저층 운량이 이 이상(%)이면 두께 대용 대류 판정(weakConv)이 층운을 막지 못함 — 덮개 구름은 적운 판정 대상이 아님(§144) */
+  stOvercast: 80,
   /** 적운: 대류(CAPE 이상 또는 LI 이하) 또는 (대류 자료 없을 때) 덱 두께 이상 + 낮 + 운량 미만 */
   cuCape: 9999, cuLi: 2, cuThickKm: 0.6, cuCover: 55,
   /** 웅대적운: 덱 두께 이상 */
@@ -108,7 +110,7 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
     } else if (isRaining) {
       // 강수 발생 시 층적운 대신 실감나는 난층운(비구름)으로 정확히 분류
       low = 'ns'; why.push(`ns: 강수(${precip.toFixed(1)}mm)`);
-    } else if (baseAglKm != null && baseAglKm <= T.stBaseKm && x.low >= T.stCover && !weakConv) {
+    } else if (baseAglKm != null && baseAglKm <= T.stBaseKm && x.low >= T.stCover && (!weakConv || x.low >= T.stOvercast)) {
       low = 'st'; why.push(`st: 밑면 ${baseAglKm.toFixed(2)}km`);
     } else if (weakConv && x.isDay !== false && x.low < T.cuCover) {
       low = thickKm != null && thickKm >= T.cgThickKm ? 'cg' : 'cu';
