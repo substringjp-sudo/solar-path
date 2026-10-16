@@ -12,7 +12,7 @@ import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import { GENUS, type GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
-import type { VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
+import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { lclBaseKm, type ThermoInput } from './cloudPhysics';
 
 /**
@@ -101,6 +101,28 @@ export function thermoOf(obs: CloudData, groundM: number): ThermoInput {
 }
 
 import { buildMacroWeatherField } from '../../utils/macroWeatherField';
+
+/**
+ * §146 예보의 에어로졸 → 연무 입력. 대기 표(takram)에는 에어로졸이 거의 없으므로 모형의 기준(HAZE_BACKGROUND_AOD, 사진으로 맞춘 노출·색이
+ * 이미 전제한 깨끗한 날 값)을 넘는 만큼만 더합니다. AOD(CAMS)가 없으면 PM, 그것도 없으면 시정으로 환산합니다.
+ * 초미세먼지 비중(PM2.5/PM10)이 클수록 Ångström 지수가 크고(푸른빛 산란 → 해가 붉고 하늘이 누런 회색) 앞산란이 약하며,
+ * 먼지·조대 입자가 많으면 지수가 작고(하얗게 흐림) 해 둘레가 넓게 번집니다.
+ */
+export const HAZE_BACKGROUND_AOD = 0.12;
+export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number }): HazeInput | undefined {
+  const ok = (v: number | undefined): v is number => v != null && Number.isFinite(v) && v >= 0;
+  let aod: number | null = null;
+  if (ok(o.aod550)) aod = o.aod550;
+  else if (ok(o.pm25) || ok(o.pm10)) aod = (o.pm25 ?? 0) * 0.012 + Math.max(0, (o.pm10 ?? 0) - (o.pm25 ?? 0)) * 0.004;
+  else if (ok(o.visibility) && o.visibility > 0 && o.visibility < 30000) aod = (3.912 / (o.visibility / 1000)) * 1.5;
+  if (aod == null) return undefined;
+  const extra = aod - HAZE_BACKGROUND_AOD;
+  if (extra < 0.02) return undefined;
+  const fine = ok(o.pm25) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.pm25 / o.pm10) : 0.6;
+  const dustShare = ok(o.dust) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.dust / o.pm10) : 0;
+  const f = fine * (1 - dustShare);
+  return { aod: Math.min(3, extra), alpha: clamp(0.3 + 1.1 * f, 0.3, 1.6), g: 0.62 + 0.18 * (1 - f), omega: 0.93 + 0.05 * (1 - f) };
+}
 
 export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const sun = SunCalc.getPosition(a.date, a.lat, a.lon);
@@ -202,5 +224,6 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
   const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(forecast.mid, obs.mid)} · 상 ${name(forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%`;
-  return { input: { ...base, layers, thermo }, forecast, obs, summary };
+  const haze = hazeFromObs(obs);
+  return { input: { ...base, layers, thermo, ...(haze ? { haze } : {}) }, forecast, obs, summary };
 }
