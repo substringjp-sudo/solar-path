@@ -78,6 +78,8 @@ export const GENUS_THRESHOLDS = {
   cgThickKm: 2.0,
   /** 고층운: 중층 운량 이상 이고(강수 있음 또는 습윤 면 수 이상) */
   asCover: 101, asLevels: 2,
+  /** 비가 올 때(nsPrecip 이상) 중층이 이 이상(%)이면 고층운(as) — 비구름 위의 중층은 흩어진 고적운이 아니라 덮개(§147) */
+  asRainCover: 80,
   /** 권층운: 상층 운량 이상 */
   csCover: 101,
 } as const;
@@ -123,7 +125,7 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
   let mid: MidGenus | null = null;
   if (x.mid >= T.minCover) {
     const wet = midLevels(x.profile).filter(l => l.coverPct >= 10).length;
-    mid = x.mid >= T.asCover && (precip > 0 || wet >= T.asLevels) ? 'as' : 'ac';
+    mid = (x.mid >= T.asCover && (precip > 0 || wet >= T.asLevels)) || (x.mid >= T.asRainCover && precip >= T.nsPrecip) ? 'as' : 'ac';
     why.push(`${mid}: 중층 ${x.mid}% 습윤면 ${wet}`);
   }
 

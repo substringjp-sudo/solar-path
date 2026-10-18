@@ -206,14 +206,14 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const g = renderGenusFor(forecast.low);
       // §141 적운·층적운은 두께를 예보 덱 그대로 쓰고 덩어리 가로 크기를 두께에 비례시킴(§139.4 의 cu 두께 상한 1000 m 를 대체).
       const spacingKm = g === 'cu' || g === 'sc' ? aspectSpacingKm(g, thicknessM ?? GENUS[g].height) : undefined;
-      // §144 층운(st)은 운량 보정표가 없어 예보 84% 가 화면 21~30%(머리 위)로 그려졌음 — 덮임 80% 이상이면 구름 한 장(관측 용어 '흐림')으로 그림.
-      const lowCover = g === 'st' && obs.low >= 80 ? Math.max(obs.low / 100, 0.99) : obs.low / 100;
+      // §144·§147 층운(st)·난층운(ns)은 운량 보정표가 없어 예보 84% 가 화면 21~30%(머리 위)로 그려졌음 — 덮임 80% 이상이면 구름 한 장(관측 용어 '흐림')으로 그림.
+      const lowCover = (g === 'st' || g === 'ns') && obs.low >= 80 ? Math.max(obs.low / 100, 0.99) : obs.low / 100;
       layers.push({ genus: g, cover: lowCover, baseKm, thicknessM: thicknessM, band: 'low', opts: { ...flowOpts('low'), ...(spacingKm != null ? { spacingKm } : {}) }, physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
-    layers.push({ genus: renderGenusFor(forecast.mid), cover: obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
+    layers.push({ genus: renderGenusFor(forecast.mid), cover: forecast.mid === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
     const centerKm = obs.layerAltHighKm ?? FALLBACK_ALT_KM.high;
