@@ -2076,54 +2076,18 @@ void main(){
 
 export interface CloudSlabHandle {
   mesh: THREE.Mesh;
-  /**
-   * **발밑 운해·구름 속 안개 전용** 두 번째 판(§96). `setSplitPasses(true)` 를 부르면 `mesh` 는
-   * 관측자 위 층만, 이것은 아래 층과 안개만 그립니다. 앱은 `mesh` 를 산보다 먼저, 이것을 산보다
-   * 나중에 합성합니다 — 그래야 하늘 구름은 산 뒤로, 운해는 먼 골짜기 앞으로 갑니다. uniform 은
-   * `mesh` 와 **같은 객체**를 나눠 씁니다(uPassMode 만 따로).
-   */
   meshBelow: THREE.Mesh;
   setSplitPasses: (on: boolean) => void;
   material: THREE.ShaderMaterial;
-  /** 운량장. 검증 하네스가 내용을 읽습니다. */
   coverTex: THREE.DataTexture;
-  /**
-   * 저층 운형장 — R 채널에 0(적운형)~1(층운형)을 담습니다. `coverTex`와
-   * 같은 크기·매핑을 씁니다(계획 33절 근거리 볼륨).
-   */
   genusTex: THREE.DataTexture;
-  /** 운량장이 덮는 반경 (km) */
   rangeKm: number;
-  /**
-   * 층 높이(km)를 예보 단면에 맞춰 덮습니다(`utils/cloudProfile.ts`).
-   * 안 부르면 예전 상수 그대로입니다.
-   */
   setLayerAltitudesKm: (lowKm: number, midKm: number, highKm: number) => void;
-  /** 저층 덱 밑면·윗면(km, 해발, §82). 모르면 null — 위에서 볼 면이 hBase 로 돌아갑니다. */
   setLowDeckKm: (baseKm: number | null | undefined, topKm: number | null | undefined) => void;
-  /** 층별 광학두께 배율(`cloudProfile.layerTauScale`). 유한한 양수가 아니면 1. */
   setLayerTauScale: (low: number, mid: number, high: number) => void;
-  /**
-   * 관측자를 감싼 구름(§93, `cloudProfile.cloudAround`). null 이면 안개를 끕니다.
-   * 소광은 그 높이 층(저·중·상)의 TAUK 에 운량을 곱해 냅니다.
-   */
   setInCloud: (c: { cover: number; baseKm: number; topKm: number } | null) => void;
-  /**
-   * §117 지형 거리 판(`SceneComposer.terrainDistanceTexture()`). 주면 슬랩이 층마다 지형 거리와 견줘 스스로
-   * 가립니다 — 합성기의 `setTerrainDistance(true)`(구름을 지형 **다음에** 얹음)와 함께 쓰고, 나눠 그리기
-   * (`setSplitPasses`)는 끕니다. null 이면 예전(DEM 행진·그리는 순서)으로 돌아갑니다.
-   */
   setTerrainDistance: (tex: THREE.Texture | null) => void;
-  /**
-   * 지형 높이장(§83·§84) — 구름을 땅이 가리게 합니다. TerrainField 와 **같은 패치**
-   * (촘촘한 것, 성긴 것)를 넘기세요. null 이면 가림이 꺼집니다. 렌더러를 주면
-   * 지형 지평선을 한 번 구워 올려다보는 하늘의 걸음질을 줄입니다(없으면 다 걷습니다).
-   */
   setDemPatches: (patch: DemPatch | null, farPatch: DemPatch | null, renderer?: THREE.WebGLRenderer) => void;
-  /**
-   * DEM 이 없을 때 쓰는 능선 밴드(§87). `createTerrainBands` 에 준 것과 같은 값을
-   * 넘기세요. DEM 패치가 있으면 셰이더가 이것을 안 씁니다.
-   */
   setBandHorizon: (
     bandAngles: number[][] | null | undefined, distancesKm: number[] | null | undefined,
     maxVisualDeg: number, seaDipDeg: number,
@@ -2134,15 +2098,10 @@ export interface CloudSlabHandle {
 export function createCloudSlab(opts: {
   rangeKm?: number;
   texSize?: number;
-  /** 층별 노이즈 셀 크기(km) 덮어쓰기. 하네스가 값을 훑을 때 씁니다. */
   cellKm?: Partial<Record<LayerKey, number>>;
-  /** 층별 두께→광학두께 배율 덮어쓰기. */
   tauK?: Partial<Record<LayerKey, number>>;
-  /** 모양장의 층별 유효 중심. 훑어보려고 열어 둡니다 (기본 SHAPE_MEAN). */
   shapeMean?: Partial<Record<LayerKey, number>>;
-  /** 모양장의 층별 유효 폭 ÷ uShapeSigma (기본 SHAPE_SIG_RATIO). */
   shapeSigRatio?: Partial<Record<LayerKey, number>>;
-  /** 예보 운량 역표(마디 COVER_KNOTS 마다 값). 하네스가 맞출 때 씁니다(기본 COVER_REMAP). */
   coverRemap?: Partial<Record<LayerKey, number[]>>;
 } = {}): CloudSlabHandle {
   const rangeKm = opts.rangeKm ?? SLAB_RANGE_KM;

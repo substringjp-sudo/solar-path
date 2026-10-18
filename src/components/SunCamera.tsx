@@ -196,12 +196,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
   const skyLayers = useCelestialStore(s => s.skyLayers);
   const skySettings = useCelestialStore(s => s.skySettings);
-  // 카메라 화면 내 미니 3D 시뮬레이터는 카메라 스트림과의 GPU 리소스 경합 및 버퍼 오류(ANR) 방지를 위해 기본으로 볼륨 하늘을
-  // 비활성화합니다 — 그래서 메인 시뮬레이션과 구름 모양이 다릅니다(옛 슬랩 구름). 개발자 패널의 CAM-VOL 을 켜면 메인과 같은
-  // 볼륨 하늘로 그립니다(기기에서 ANR 이 나는지 확인하는 실험 손잡이, `skySettings.cameraVolumetric`).
+  // 카메라 화면 내 3D 시뮬레이터도 메인과 동일한 볼륨 하늘로 통일합니다.
   const camSkySettings = useMemo(() => ({
     ...skySettings,
-    volumetricSky: !!skySettings.cameraVolumetric && (skySettings.volumetricSky ?? true),
+    volumetricSky: true,
   }), [skySettings]);
   // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 예전처럼
   // 해 방향 부채꼴 기상(camInterpolated)으로 그립니다.

@@ -11,7 +11,7 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform } from 'react-native';
 import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw } from 'lucide-react-native';
 import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
@@ -1241,7 +1241,8 @@ const useStyles = makeStyles((color) => ({
   },
 
   bottomPanel: {
-    paddingVertical: 2,
+    paddingTop: 3,
+    paddingBottom: Platform.OS === 'android' ? 20 : 6,
     borderTopWidth: 1,
     borderColor: color.border,
   },

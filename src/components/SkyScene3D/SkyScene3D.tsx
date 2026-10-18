@@ -87,15 +87,6 @@ const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =
 import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
-import {
-  createCloudSlab,
-  updateCloudSlab,
-  bakeCloudSlabCoverage,
-  readCloudSlabState,
-  type CloudSlabState,
-  coverageFromSamples,
-  type CloudSlabHandle,
-} from './CloudSlab';
 import { ViewfinderOverlay } from './ViewfinderOverlay';
 import {
   buildCloudInstances,
@@ -313,7 +304,7 @@ export interface SkyScene3DHandle {
 export interface SkyRenderState {
   /** 시선: 방위(북 0°, 동 90°) · 고도 · 기울임(오른쪽으로 기울면 +) · 세로 화각 · 가로/세로 */
   view: { az: number; el: number; roll: number; fov: number; aspect: number };
-  slab: CloudSlabState | null;
+  slab: null;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -450,7 +441,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cloudFieldRef = useRef<CloudField | null>(null);
   const cloudDeckRef = useRef<CloudDeckHandle | null>(null);
   const composerRef = useRef<SceneComposerHandle | null>(null);
-  const cloudSlabRef = useRef<CloudSlabHandle | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
   const isSceneReadyRef = useRef<boolean>(false);
@@ -736,7 +726,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       return {
         view: { az, el, roll, fov: cam.fov, aspect: cam.aspect },
-        slab: cloudSlabRef.current ? readCloudSlabState(cloudSlabRef.current) : null,
+        slab: null,
       };
     },
     takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
@@ -1512,20 +1502,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 천정 특이점도 지평선 타일 격자도 생기지 않고, 알파가 두께에서 나오므로
     // 가장자리가 저절로 얇아 노을빛이 투과합니다.
     //
-    // 덱과 빌보드는 아직 지우지 않았습니다 — 씬에는 남되 숨깁니다. 판정
-    // 하네스가 그 모듈을 직접 세워 쓰고 있고, 실기기에서 슬랩을 확인하기
-    // 전까지는 되돌릴 길을 열어 둡니다.
-    const cloudSlab = createCloudSlab();
-    scene.add(cloudSlab.mesh);
-    assignLayer(cloudSlab.mesh, LAYER_SOFT_CLOUD);
-    // §117 — 구름은 **한 번에**, 지형 **다음에** 얹습니다. 겹침은 그리는 순서가 아니라 지형 거리 판으로
-    // 가립니다: 슬랩이 화소마다 층별 구름 거리와 지형 거리를 견줘, 산 앞 구름은 산 위에, 산 뒤 구름은 산
-    // 뒤에, 발밑 운해는 가까운 사면 뒤에 저절로 놓입니다. 예전의 두 번 나눠 그리기(§96)와 산 앞 구름만
-    // 뒤로 넘기기(§116), 능선 보정(§94)은 이 경로에서 쓰지 않습니다(슬랩의 meshBelow 는 숨긴 채).
-    // 한 번에 그리는 경로(배율 1)에서는 슬랩이 투명이라 불투명한 지형 뒤에 그려집니다 — 순서가 같습니다.
-    cloudSlab.setSplitPasses(false);
-    cloudSlab.mesh.renderOrder = -0.49;
-    cloudSlabRef.current = cloudSlab;
     cloudDeck.group.visible = false;
     cloudField.mesh.visible = false;
 
@@ -1542,9 +1518,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       DEFAULT_SOFT_SCALE
     );
     composerRef.current = composer;
-    // §117 지형 거리 판 — 합성기가 그리고 구름 슬랩이 읽습니다.
-    composer.setTerrainDistance(true);
-    cloudSlab.setTerrainDistance(composer.terrainDistanceTexture());
 
     // 초기 업데이트
     updateScene();
@@ -1773,8 +1746,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         setSceneCityLight(layersRef.current.cityLights === false
           ? 0 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)));
         applyTuningUniforms(skydomeRef.current?.material.uniforms);
-        // ⚠ 구름 슬랩이 이 목록에서 빠져 있어 튜닝 값이 생성 때 한 번만 들어갔습니다.
-        applyTuningUniforms(cloudSlabRef.current?.material.uniforms);
         applyTuningUniforms(sunRef.current?.material.uniforms);
         applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
         const deckLayers = cloudDeckRef.current?.layers;
@@ -1967,63 +1938,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           volDrewRef.current = !!volTex;
           if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
 
-          const slabFrame = cloudSlabRef.current;
-          const atmos = cachedAtmosphereRef.current;
-          if (slabFrame && atmos) {
-            // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
-            composerNow.setPixelArt(skySettingsRef.current.pixelArtRows ?? 0);
-            const isSoft = composerNow.softActive();
-            const sSize = composerNow.softSize();
-            const rSize = composerNow.renderSize();
-            const slabW = isSoft ? sSize.width : rSize.width;
-            const slabH = isSoft ? sSize.height : rSize.height;
-
-            // 달의 위치 및 조도 계산
-            const lat = location?.coords?.latitude ?? 37.5;
-            const lng = location?.coords?.longitude ?? 127.0;
-            const targetDate = new Date(renderedTimeMsRef.current);
-            const moonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
-            const moonIllum = SunCalc.getMoonIllumination(targetDate);
-            const mAlt = moonPos.altitude;
-            const mAz = moonPos.azimuth + Math.PI; // SunCalc South=0 -> Three.js North=0
-            const mAltDeg = (mAlt * 180) / Math.PI;
-            const mAzDeg = (mAz * 180) / Math.PI;
-
-            tempMoonDirVec.set(
-              Math.cos(mAlt) * Math.sin(mAz),
-              Math.sin(mAlt),
-              -Math.cos(mAlt) * Math.cos(mAz)
-            );
-
-            updateCloudSlab(slabFrame, {
-              camera,
-              widthPx: slabW,
-              heightPx: slabH,
-              sunDir: sunDirRayVec,
-              sunAltDeg: sunAltRef.current,
-              sunAzDeg: sunAzRef.current,
-              moonDir: tempMoonDirVec,
-              moonAltDeg: mAltDeg,
-              moonIllum: moonIllum.fraction,
-              cityLight: layersRef.current.cityLights === false
-                ? 0
-                : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)),
-              beamFor: altKm => beamAtAltitude(sunAltRef.current, altKm, atmos),
-              atmosphere: atmos,
-              layerWinds: layerWindsNow(),
-              driftHours: ((renderedTimeMsRef.current / 60000) % 1440) / 60,
-              visible: layersRef.current.clouds !== false && !volTex,
-            });
-          }
+          // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
+          composerNow.setPixelArt(skySettingsRef.current.pixelArtRows ?? 0);
           composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
-        } else renderer.render(scene, camera);
-        consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
 
-        // 첫 프레임 렌더 완료 시 앱 스플래시 완료 트리거
-        if (!isSceneReadyRef.current) {
-          isSceneReadyRef.current = true;
-          useCelestialStore.getState().setAppReady(true);
+          // 볼륨 하늘이 켜져 있을 때는 볼륨 텍스처(volTex)가 첫 렌더링된 후 앱 스플래시 완료 트리거
+          if (!isSceneReadyRef.current) {
+            const isVolReady = !volSetting || !!volTex;
+            if (isVolReady) {
+              isSceneReadyRef.current = true;
+              useCelestialStore.getState().setAppReady(true);
+            }
+          }
+        } else {
+          renderer.render(scene, camera);
+          if (!isSceneReadyRef.current) {
+            isSceneReadyRef.current = true;
+            useCelestialStore.getState().setAppReady(true);
+          }
         }
+        consecutiveErrors = 0; // 성공적 렌더링 시 연속 오류 카운터 초기화
 
         // 3D 천체 위치 2D 스크린 좌표 투영 라벨 계산
         // ── 250ms(4fps) 스로틀: React setState가 렌더루프보다 훨씬 무거움 ──────
@@ -2541,29 +2475,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (cloudDeckRef.current) {
       cloudDeckRef.current.group.visible = false;
     }
-    if (cloudSlabRef.current) {
-      cloudSlabRef.current.mesh.visible = currentLayers.clouds;
-      // 층 높이를 예보 단면에 맞춥니다(§66.1). 단면이 안 왔으면 값이
-      // undefined 라 세터를 안 부르고, 그러면 예전 상수 그대로입니다.
-      const ow = observerWeather();
-      if (ow?.layerAltLowKm != null && ow.layerAltMidKm != null && ow.layerAltHighKm != null) {
-        cloudSlabRef.current.setLayerAltitudesKm(ow.layerAltLowKm, ow.layerAltMidKm, ow.layerAltHighKm);
-      }
-      // 운해의 윗면(§82). 저층이 빈 시각이면 undefined/NaN → 세터가 (-1,-1) 로 되돌립니다.
-      cloudSlabRef.current.setLowDeckKm(ow?.lowDeckBaseKm, ow?.lowDeckTopKm);
-      // 얇은 중층은 얇게 — 단면 두께로 잰 광학두께 배율(`cloudProfile.layerTauScale`).
-      cloudSlabRef.current.setLayerTauScale(layerTauScale('low', ow), layerTauScale('mid', ow), layerTauScale('high', ow));
-      // 산 위가 구름 속인가(§93) — 관측 고도에서 단면 운량을 읽습니다. 단면이
-      // 없거나 그 높이가 맑으면 null → 안개를 끕니다(예전과 바이트 단위로 같음).
-      const profH: number[] | undefined = ow?.profileHeightM;
-      const profC: number[] | undefined = ow?.profileCoverPct;
-      const levels = profH && profC
-        ? profH.map((heightM, i) => ({ pressureHPa: 0, heightM, coverPct: profC[i] }))
-          .filter(l => Number.isFinite(l.heightM) && Number.isFinite(l.coverPct))
-        : [];
-      const obsAltKm = (cachedAtmosphereRef.current?.observerElevM ?? 0) / 1000;
-      cloudSlabRef.current.setInCloud(levels.length >= 2 ? fogAtObserver(levels, obsAltKm) : null);
-    }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
     //
@@ -2704,12 +2615,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         ? built.optics.sunTransmittance
         : 1;
     }
-
-    // 슬랩의 운량장 베이킹
-    const slabNow = cloudSlabRef.current;
-    if (slabNow) {
-      bakeCloudSlabCoverage(slabNow, coverageFromSamples(built.samples));
-    }
   }, [location]);
 
   useEffect(() => {
@@ -2739,10 +2644,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 지형은 다시 만들어질 수 있습니다 — 그때도 층 배정을 잊으면 안 됩니다.
     assignLayer(bands.group, LAYER_MID);
     terrainBandsRef.current = bands;
-    // DEM 을 못 받았을 때 구름이 이 밴드 능선 앞에 칠해지지 않게 합니다(§87).
-    cloudSlabRef.current?.setBandHorizon(
-      sim.terrain.bandAngles, sim.terrain.bandDistancesKm,
-      TERRAIN_MAX_ANGLE_DEG, seaHorizonDipDeg(sim.terrain.observerElevation ?? 50));
 
     // 2D 수역 마스크(해안선·만·반도 + 강·호수)와 바다 수평선 각도 갱신
     const lat = location?.coords?.latitude ?? 37.5;
@@ -2830,9 +2731,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         //   자리가 10.9m 낮아 이음매에 층계가 생깁니다.
         terrainFieldRef.current?.setPatch(patch, patch, maskPatch);
         seaPlaneRef.current?.setPatch(patch, maskPatch);
-        // 운해를 땅이 가리려면 구름도 같은 높이장을 봐야 합니다(§83).
-        // 렌더러를 넘겨 지형 지평선을 한 번 굽습니다(§84) — 하늘 걸음질을 줄입니다.
-        cloudSlabRef.current?.setDemPatches(patch, maskPatch, renderer);
         // 이제 진짜 자료가 있으니 켭니다 (마운트 직후의 발밑고도-0m
         // 근사가 화면에 비칠 일이 없습니다 — 위 mesh.visible = false 참고).
         if (patch && terrainFieldRef.current) terrainFieldRef.current.mesh.visible = true;
@@ -2963,8 +2861,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 합성기가 잡고 있는 렌더 타깃 두 장 — 화면 크기라 놓치면 큽니다.
       composerRef.current?.dispose();
       composerRef.current = null;
-      cloudSlabRef.current?.dispose();
-      cloudSlabRef.current = null;
 
       cloudAtlasRef.current?.dispose();
       cloudAtlasRef.current = null;

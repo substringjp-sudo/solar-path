@@ -19,7 +19,7 @@
  * 앱 전체 상태(시각)를 얼마나 자주 바꿀지는 부모가 정합니다(`createCommitThrottle`).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { mono, radius } from '../../theme/tokens';
 import { useThemeColors } from '../../theme/useTheme';
@@ -61,86 +61,83 @@ export const ScrubTrack: React.FC<Props> = ({
   const color = useThemeColors();
   const [width, setWidth] = useState(0);
   const usable = Math.max(1, width - 2 * PAD);
-  const pctAnim = useRef(new Animated.Value(value)).current;
-  const [label, setLabel] = useState(() => formatLabel(value));
-  const draggingRef = useRef(false);
-  const rootRef = useRef<View>(null);
-  const leftRef = useRef(0);           // 트랙 컨테이너의 화면 왼쪽(px)
-  const grabOffsetRef = useRef(0);     // 손잡이를 쥔 자리 − 손잡이 중심(px)
-  const lastPctRef = useRef(value);
   const usableRef = useRef(usable);
   usableRef.current = usable;
 
-  // 콜백은 ref 로 — 손잡이 응답기는 한 번만 만들고 부모가 다시 그려도 새로 만들지 않습니다.
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const draggingRef = useRef(false);
+  const startPctRef = useRef(value);
+
+  // 콜백은 ref 로 — 제스처 핸들러에서 항상 최신 콜백을 참조합니다.
   const cb = useRef({ onScrub, onScrubStart, onScrubEnd, formatLabel });
   cb.current = { onScrub, onScrubStart, onScrubEnd, formatLabel };
 
-  // 바깥 값 → 손잡이(손가락이 쥐고 있지 않을 때만)
-  useEffect(() => {
-    if (draggingRef.current) return;
-    lastPctRef.current = value;
-    pctAnim.setValue(value);
-    setLabel(cb.current.formatLabel(value));
-  }, [value, pctAnim]);
-
-  const measure = useCallback(() => {
-    rootRef.current?.measureInWindow?.((x: number) => { if (Number.isFinite(x)) leftRef.current = x; });
-  }, []);
+  const currentPct = dragPct !== null ? dragPct : Math.max(0, Math.min(100, value));
 
   const onLayout = (e: LayoutChangeEvent) => {
     setWidth(e.nativeEvent.layout.width);
-    measure();
   };
 
-  const move = useCallback((pageX: number) => {
-    const raw = (pageX - grabOffsetRef.current - leftRef.current - PAD) / usableRef.current;
-    const pct = Math.max(0, Math.min(100, raw * 100));
-    lastPctRef.current = pct;
-    pctAnim.setValue(pct);
-    const text = cb.current.formatLabel(pct);
-    setLabel(prev => (prev === text ? prev : text));
-    cb.current.onScrub(pct);
-  }, [pctAnim]);
+  const end = useCallback(() => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragPct(null);
+    useCelestialStore.getState().setGestureBlocked(false);
+    cb.current.onScrubEnd?.();
+  }, []);
 
   const responder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
-    // 탭 스와이프·시트가 손을 빼앗지 못하게 합니다.
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: (evt) => {
       draggingRef.current = true;
       useCelestialStore.getState().setGestureBlocked(true);
       cb.current.onScrubStart?.();
-      measure();   // 비동기 — 첫 이동 몇 개는 레이아웃 때 잰 값을 씁니다(스와이프 중 옮겨졌을 수 있어 다시 잼).
-      const pageX = evt.nativeEvent.pageX;
-      const knobCenter = leftRef.current + PAD + (lastPctRef.current / 100) * usableRef.current;
-      const off = pageX - knobCenter;
-      // 손잡이 위를 쥐었으면 쥔 자리를 지키고, 트랙을 쥐었으면 손잡이가 손가락 밑으로 옵니다.
-      grabOffsetRef.current = Math.abs(off) <= KNOB_W / 2 ? off : 0;
-      move(pageX);
+
+      const touchX = evt.nativeEvent.locationX;
+      const u = usableRef.current;
+      // 현재 마커 중심의 X 위치 (rootView 기준)
+      const currentMarkerX = PAD + (startPctRef.current / 100) * u;
+      const dist = Math.abs(touchX - currentMarkerX);
+
+      if (dist <= KNOB_W / 2 + 8) {
+        // 손잡이 근처를 잡은 경우: 현재 위치 유지한 채 dx 이동 준비
+        setDragPct(startPctRef.current);
+      } else {
+        // 트랙의 다른 부분을 탭한 경우: 탭한 위치로 즉시 점프
+        const tapPct = Math.max(0, Math.min(100, ((touchX - PAD) / u) * 100));
+        startPctRef.current = tapPct;
+        setDragPct(tapPct);
+        cb.current.onScrub(tapPct);
+      }
     },
-    onPanResponderMove: (_evt, g) => move(g.moveX),
+    onPanResponderMove: (_evt, g) => {
+      if (!draggingRef.current) return;
+      const u = usableRef.current;
+      const deltaPct = (g.dx / u) * 100;
+      const nextPct = Math.max(0, Math.min(100, startPctRef.current + deltaPct));
+      setDragPct(nextPct);
+      cb.current.onScrub(nextPct);
+    },
     onPanResponderRelease: () => end(),
     onPanResponderTerminate: () => end(),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), []);
+  }), [end]);
 
-  function end() {
-    draggingRef.current = false;
-    useCelestialStore.getState().setGestureBlocked(false);
-    cb.current.onScrubEnd?.();
-  }
-  useEffect(() => () => { if (draggingRef.current) end(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // 외부 value 동기화 (드래그 중이 아닐 때 startPctRef 갱신)
+  useEffect(() => {
+    if (!draggingRef.current) {
+      startPctRef.current = Math.max(0, Math.min(100, value));
+    }
+  }, [value]);
 
-  const knobX = useMemo(() => pctAnim.interpolate({
-    inputRange: [0, 100], outputRange: [PAD - KNOB_W / 2, PAD + usable - KNOB_W / 2], extrapolate: 'clamp',
-  }), [pctAnim, usable]);
+  useEffect(() => () => { if (draggingRef.current) end(); }, [end]);
 
   const top = trackTop ?? (height - trackHeight) / 2;
+  const label = formatLabel(currentPct);
 
   return (
     <View
-      ref={rootRef}
       style={[{ height, justifyContent: 'center', width: '100%' }, style]}
       onLayout={onLayout}
       accessible
@@ -154,25 +151,27 @@ export const ScrubTrack: React.FC<Props> = ({
       }}
       {...responder.panHandlers}
     >
-      {/* 트랙 바탕 — 손가락을 받지 않습니다(그래야 어디를 눌러도 같은 좌표계) */}
+      {/* 트랙 바탕 — 좌우 PAD 내에서 0~100% 범위 */}
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { left: PAD, right: PAD, top: 0, bottom: 0 }]}>
         <View style={{ position: 'absolute', left: 0, right: 0, top, height: trackHeight }}>{children}</View>
       </View>
 
-      <Animated.View
+      {/* 손잡이 (knob): 루트 View의 직접 자식으로 배치, transform translateX 로 이동 */}
+      <View
         pointerEvents="none"
         style={[
           styles.knob,
           {
             top: (height - KNOB_H) / 2,
+            left: 0,
+            transform: [{ translateX: (currentPct / 100) * usable }],
             backgroundColor: color.panelRaised,
             borderColor: knobTone ?? color.accentLine,
-            transform: [{ translateX: knobX }],
           },
         ]}
       >
         <Text style={[styles.knobText, { color: color.accent }]} numberOfLines={1}>{label}</Text>
-      </Animated.View>
+      </View>
     </View>
   );
 };
