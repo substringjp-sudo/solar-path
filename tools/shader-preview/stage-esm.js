@@ -77,7 +77,6 @@ const ENTRIES = [
   'src/utils/mapProjection.ts',
   // 하늘 → 지도 → 구 줌의 한 줄 축척(verify-zoom-continuum.js).
   'src/utils/zoomContinuum.ts',
-  'src/utils/locationPick.ts',
   'src/utils/cachePolicy.ts',
   'src/utils/cloudDeck.ts',
   // 자이로·자기 방위 융합. 화면·센서에서 떼어낸 순수 논리라 가짜 센서 열로
@@ -90,6 +89,9 @@ const ENTRIES = [
   // 화면의 시각이 시계를 따라가는가(스토어의 시각 조각 + 1분 타이머·앱 복귀). 가짜 타이머로
   // 판정합니다(verify-live-clock.js).
   'src/utils/liveClock.ts',
+  // 하단 날짜·시간 막대 — 정확도 구간·데이터 기간·날짜 산술(verify-time-bar.js).
+  'src/utils/timeBar.ts',
+  'src/utils/dateSlider.ts',
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 /**
  * TabNavigator.tsx
  *
- * 평면 3탭 컨텐츠 스위처. 스와이프 순서는 `TAB_ORDER` 하나에서 나오므로
+ * 평면 2탭(시뮬레이션 · 갤러리) 컨텐츠 스위처. 스와이프 순서는 `TAB_ORDER` 하나에서 나오므로
  * 헤더 탭 순서와 어긋날 수 없습니다.
  *
  * Why (docs/IA_REDESIGN.md §1-B): 이전 구현은
@@ -15,7 +15,6 @@ import React, { useRef } from 'react';
 import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from 'react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
-import { MapScreen } from './MapScreen/MapScreen';
 import { Gallery } from './Gallery';
 import { TAB_ORDER, type AppTab } from './AppHeader';
 import { springTo } from '../theme/motion';
@@ -37,6 +36,8 @@ interface TabNavigatorProps {
   removeGlobalPhoto: (id: string) => Promise<void>;
   setMapVisible: (visible: boolean) => void;
   onCameraPress?: () => void;
+  /** 하단 막대의 날짜 글자를 누르면 여는 달력 창 */
+  onOpenDatePicker?: () => void;
   isSuspended?: boolean;
 }
 
@@ -56,6 +57,7 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
   removeGlobalPhoto,
   setMapVisible,
   onCameraPress,
+  onOpenDatePicker,
   isSuspended = false,
 }) => {
   const { width } = Dimensions.get('window');
@@ -137,15 +139,8 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           events={events}
           setMapVisible={setMapVisible}
           onCameraPress={onCameraPress}
+          onOpenDatePicker={onOpenDatePicker}
           isActive={activeTab === 'sky' && !isSuspended}
-        />
-      </View>
-      <View style={[styles.page, { width }, activeTab !== 'map' && styles.hiddenPage]}>
-        <MapScreen
-          theme={theme}
-          currentTime={currentTime}
-          isActive={activeTab === 'map'}
-          onOpenPicker={() => setMapVisible(true)}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>

@@ -1,44 +1,33 @@
 /**
  * AppHeader.tsx
  *
- * 평면 3탭 헤더. `HudHeader`의 카테고리 드롭다운(모달) × 서브탭 2단 구조를 대체합니다.
+ * 앱 맨 위 한 줄 — **탭 둘(시뮬레이션 · 갤러리)** + 위치 · 설정.
  *
- * Why (docs/IA_REDESIGN.md §1): 이전 구조는 2D 시뮬 → 3D 시뮬 이동에
- * "카테고리 버튼 → 모달 열림 → 항목 선택 → 모달 닫힘"이 필요했습니다.
- * 둘 다 "하늘을 본다"는 같은 일인데 3탭 + 모달이 걸렸습니다.
+ * ## 달라진 것 (§143)
  *
- * 탭은 **공간 프레임**으로 나눕니다 — 시뮬레이터 개수가 아니라
- * "어떤 시점에서 묻는 질문인가"입니다. 이 축은 서로 겹치지 않습니다.
- *   하늘: 자기중심(돔 안) — "뭐가 보일까"
- *   지도: 타자중심(위에서) — "뭐가 오고 있나"
- *   기록: 시간축 — "뭘 봤나"
+ * - **날짜 바를 뺐습니다.** 날짜 표시·앞뒤 하루·"오늘"·달력은 하단의 날짜·시간 막대(`TimeBar/DateTimeBar`)가
+ *   전부 합니다. 같은 값을 위아래에서 두 번 보여 주고 있었습니다.
+ * - **지도 탭을 뺐습니다.** 지도·구는 하늘 탭을 핀치로 줌아웃하면 같은 화면에서 이어집니다(`zoomContinuum.ts`).
+ *   지도 탭의 등시선·구름 레이더는 그 줌 화면이 이미 그립니다.
+ *
+ * (옛 구조의 이력: docs/IA_REDESIGN.md — 카테고리 드롭다운 × 서브탭 → 평면 3탭 → 지금의 2탭.)
  */
 import React, { useMemo, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, Animated, Platform } from 'react-native';
-import { addDays, subDays } from 'date-fns';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Calendar,
-  RotateCcw,
-  MapPin,
-  Settings,
-} from 'lucide-react-native';
+import { StyleSheet, View, Text, Animated } from 'react-native';
+import { MapPin, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { getLocalTimeAtLocation, formatLocalTime } from '../utils/timezone';
 import { t, L3 } from '../utils/i18n';
 import { color, radius, mono } from '../theme/tokens';
 import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 
-/** 앱의 최상위 화면. 이 셋이 전부입니다. */
-export type AppTab = 'sky' | 'map' | 'log';
+/** 앱의 최상위 화면. 이 둘이 전부입니다. */
+export type AppTab = 'sky' | 'log';
 
 export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
-  { id: 'sky', code: '01', label: '01 SKY' },
-  { id: 'map', code: '02', label: '02 MAP' },
-  { id: 'log', code: '03', label: '03 LOG' },
+  { id: 'sky', code: '01', label: '01 SIM' },
+  { id: 'log', code: '02', label: '02 LOG' },
 ];
 
 /** 스와이프 순서 = 탭 순서. 둘이 어긋날 수 없도록 같은 배열에서 유도합니다. */
@@ -49,13 +38,6 @@ interface AppHeaderProps {
   setActiveTab: (tab: AppTab) => void;
   setSettingsVisible: (visible: boolean) => void;
   setMapVisible?: (visible: boolean) => void;
-  setShowDatePicker: (visible: boolean) => void;
-  handleDateChange: (date: Date) => void;
-  theme: any;
-  dynamicTheme: any;
-  currentTimeLocal?: Date;
-  timezoneLabel?: string;
-  isSimulationLoading?: boolean;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -63,16 +45,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   setActiveTab,
   setSettingsVisible,
   setMapVisible,
-  setShowDatePicker,
-  handleDateChange,
-  theme,
-  dynamicTheme,
-  currentTimeLocal,
-  timezoneLabel,
-  isSimulationLoading = false,
 }) => {
   const color = useThemeColors(); const styles = useStyles();
-  const { currentTime, timezoneOffsetHours, language } = useCelestialStore();
+  const language = useCelestialStore(s => s.language);
 
   const activeIndex = useMemo(() => {
     const i = TAB_ORDER.indexOf(activeTab);
@@ -88,19 +63,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     inputRange: APP_TABS.map((_, i) => i),
     outputRange: APP_TABS.map((_, i) => `${(i * 100) / APP_TABS.length}%`),
   });
-
-  // 기록 탭은 날짜와 무관하므로 날짜 바를 숨깁니다.
-  const showDateBar = activeTab !== 'log';
-
-  const isTodayLocal = useMemo(() => {
-    const todayLocal = getLocalTimeAtLocation(new Date(), timezoneOffsetHours);
-    const currentLocal = currentTimeLocal || getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
-    return (
-      todayLocal.getUTCFullYear() === currentLocal.getUTCFullYear() &&
-      todayLocal.getUTCMonth() === currentLocal.getUTCMonth() &&
-      todayLocal.getUTCDate() === currentLocal.getUTCDate()
-    );
-  }, [currentTime, currentTimeLocal, timezoneOffsetHours]);
 
   return (
     <View style={styles.header}>
@@ -133,9 +95,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ]}
                 >
                   {/* 번호는 HUD 문체로 두고 이름은 언어를 따릅니다(점검 2026-09-29). */}
-                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
-                    : tab.id === 'map' ? L3(language, '지도', 'MAP', '地図')
-                    : L3(language, '기록', 'LOG', '記録')}`}
+                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '시뮬레이션', 'SIM', 'シミュ')
+                    : L3(language, '갤러리', 'GALLERY', 'ギャラリー')}`}
                 </Text>
               </PressScale>
             );
@@ -165,47 +126,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </View>
       </View>
 
-      {showDateBar && (
-        <View style={styles.dateNavigator}>
-          <PressScale
-            onPress={() => handleDateChange(subDays(currentTimeLocal || currentTime, 1))}
-            style={styles.dateControl}
-          >
-            <ChevronLeft size={16} color={color.textDim} />
-          </PressScale>
-
-          <PressScale onPress={() => setShowDatePicker(true)} style={styles.dateCenter}>
-            <Calendar size={11} color={color.accent} style={{ marginRight: 6 }} />
-            {/* 'DATE //' 접두어는 뺐습니다 — 달력 아이콘이 이미 말하고, 320px 기기에서 두 줄로 깨졌습니다. */}
-            <Text style={styles.dateText}>
-              {formatLocalTime(currentTimeLocal || currentTime, 'yyyy.MM.dd')}
-            </Text>
-            {timezoneLabel && (
-              <View style={styles.timezoneBadge}>
-                <Text style={styles.timezoneText}>{timezoneLabel}</Text>
-              </View>
-            )}
-          </PressScale>
-
-          <View style={styles.dateRightControls}>
-            {!isTodayLocal && (
-              <PressScale
-                onPress={() => handleDateChange(new Date())}
-                style={styles.todayButton}
-              >
-                <RotateCcw size={10} color={color.accent} />
-                <Text style={styles.todayText}>{t('today', language)}</Text>
-              </PressScale>
-            )}
-            <PressScale
-              onPress={() => handleDateChange(addDays(currentTimeLocal || currentTime, 1))}
-              style={styles.dateControl}
-            >
-              <ChevronRight size={16} color={color.textDim} />
-            </PressScale>
-          </View>
-        </View>
-      )}
     </View>
   );
 };
@@ -215,12 +135,10 @@ const useStyles = makeStyles((color) => ({
     paddingTop: 5,
     paddingHorizontal: 14,
     marginBottom: 5,
-    gap: 4,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
     gap: 8,
   },
   navToggle: {
@@ -269,77 +187,5 @@ const useStyles = makeStyles((color) => ({
     backgroundColor: color.panel,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  dateNavigator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.panel,
-    height: 34,
-  },
-  dateControl: {
-    padding: 3,
-  },
-  dateCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-  },
-  datePrefix: {
-    fontSize: 9,
-    color: color.textMute,
-    fontFamily: mono,
-    fontWeight: '700',
-  },
-  dateText: {
-    fontSize: 11,
-    color: color.text,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    fontFamily: mono,
-  },
-  todayButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: radius.xs,
-    borderWidth: 1,
-    borderColor: color.accentLine,
-    backgroundColor: color.accentSoft,
-    gap: 4,
-  },
-  dateRightControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  todayText: {
-    fontSize: 9,
-    fontWeight: '900',
-    fontFamily: mono,
-    color: color.accent,
-    letterSpacing: 0.3,
-  },
-  timezoneBadge: {
-    marginLeft: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
-    borderWidth: 0.5,
-    borderColor: color.border,
-    backgroundColor: color.fill,
-  },
-  timezoneText: {
-    fontSize: 9,
-    color: color.textDim,
-    fontWeight: '800',
-    fontFamily: mono,
   },
 }));

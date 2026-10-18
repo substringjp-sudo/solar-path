@@ -11,23 +11,19 @@
  * 이전에는 씬(고정 380px) + 이벤트 박스 + 슬라이더가 세로로 쌓여 셋 다 좁았습니다.
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Platform, Animated, ActivityIndicator } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, Zap, Layers, SlidersVertical, CloudOff, RefreshCw, Calendar } from 'lucide-react-native';
+import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator } from 'react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw } from 'lucide-react-native';
 import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
-import { TimeSlider } from '../TimeSlider';
-import { GenericSlider } from '../GenericSlider';
+import { DateTimeBar, type ScrubKind } from '../TimeBar/DateTimeBar';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import {
   shiftTz,
   getSeasonMarkers,
   dateToDatePercent,
-  datePercentToDate,
-  formatMonthDay,
 } from '../../utils/dateSlider';
 import {
   fetchTerrainProfile,
-  fetchSunsetWeather,
   fetchDayWeatherRing,
   fetchWeatherCanary,
   getInterpolatedWeather,
@@ -43,8 +39,6 @@ import {
   canaryIsUsable,
   canaryPrint,
 } from '../../utils/cachePolicy';
-import { fetchCloudGrid, type CloudDensityGrid } from '../../utils/cloudGrid';
-import { cloudGridToFan, isGridUsable } from '../../utils/cloudGridAdapter';
 import {
   buildSkyTimeline,
   isTimelineUsable,
@@ -79,6 +73,8 @@ interface SkyScreenProps {
   setMapVisible?: (visible: boolean) => void;
   isActive?: boolean;
   onCameraPress?: () => void;
+  /** 하단 막대의 날짜 글자를 누르면 — 달력 창(App 이 엽니다). */
+  onOpenDatePicker?: () => void;
 }
 
 export interface EventItem {
@@ -101,6 +97,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   setMapVisible,
   isActive = true,
   onCameraPress,
+  onOpenDatePicker,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const [stageH, setStageH] = useState(0);
@@ -241,10 +238,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   }, [weatherCacheList, currentDateStr, latitude, longitude]);
 
   const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
-  const [useNowcast, setUseNowcast] = useState(false);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
-  const bucketedSunAz = useMemo(() => Math.round(sunAzimuth / 30) * 30, [sunAzimuth]);
 
   // 비동기 스토어 캐시 로드 후 initialWeather가 생기면 즉시 화면 상태 동기화
   useEffect(() => {
@@ -258,7 +253,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const localNow = useMemo(() => shiftTz(currentTime, tz), [currentTime, tz]);
   const currentYear = localNow.getUTCFullYear();
   const seasonMarkers = useMemo(() => getSeasonMarkers(currentYear), [currentYear]);
-  const datePct = useMemo(() => dateToDatePercent(currentTime, tz), [currentTime, tz]);
   const seasonMarkerPositions = useMemo(() => [
     { key: 'spring', pct: dateToDatePercent(seasonMarkers.springEquinox, tz), color: dataColor.spring },
     { key: 'summer', pct: dateToDatePercent(seasonMarkers.summerSolstice, tz), color: dataColor.summer },
@@ -410,8 +404,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
   }, [updateSlidingState]);
 
-  const handleDateSliderChange = useCallback((pct: number) => {
-    // 스크롤 중에도 혹시 남아있는 타이머나 요청이 있다면 즉시 취소
+  /**
+   * 날짜 손잡이를 끄는 동안 — 남아 있는 날씨 요청·타이머를 끊고, 받아 둔 날씨가 있으면 그 날의 하늘로 바로 바꿉니다.
+   * (시각은 하단 막대가 이미 정해 `newDate` 로 넘깁니다.)
+   */
+  const handleDateScrubPreview = useCallback((newDate: Date) => {
     if (weatherDebounceTimerRef.current) {
       clearTimeout(weatherDebounceTimerRef.current);
       weatherDebounceTimerRef.current = null;
@@ -421,19 +418,25 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       weatherAbortControllerRef.current = null;
       setIsWeatherLoading(false);
     }
-    // 날짜를 스크롤하면 해당 시간의 태양, 달, 별자리 위치가 즉시 갱신되도록 currentTime 즉각 반영
-    const newDate = datePercentToDate(pct, currentYear, localNow.getUTCHours(), localNow.getUTCMinutes(), tz);
-    setCurrentTime(newDate);
-
-    // 캐시가 이미 존재하면 스크롤 중에도 즉시 pathData 교체하여 실시간으로 하늘/구름 렌더링
     const newDateStr = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}-${String(newDate.getDate()).padStart(2, '0')}`;
-    const cached = weatherCacheList.find(c => 
+    const cached = weatherCacheList.find(c =>
       c.key.includes(newDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
     );
     if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
       setPathData(cached.data as CloudPathData[]);
     }
-  }, [currentYear, localNow, tz, setCurrentTime, weatherCacheList, latitude, longitude]);
+  }, [weatherCacheList, latitude, longitude]);
+
+  /** 하단 막대가 고른 시각. 날짜 손잡이를 끄는 중이면 위 정리를 먼저 하고 시각을 반영합니다. */
+  const handleBarPick = useCallback((time: Date, meta?: { scrub?: ScrubKind }) => {
+    if (meta?.scrub === 'date') handleDateScrubPreview(time);
+    setCurrentTime(time);
+  }, [handleDateScrubPreview, setCurrentTime]);
+
+  const handleBarSlidingStart = useCallback((kind: ScrubKind) => {
+    if (kind === 'date') handleDateSlidingStart();
+    else { isTimeSlidingRef.current = true; updateSlidingState(); }
+  }, [handleDateSlidingStart, updateSlidingState]);
 
   const handleDateSlidingComplete = useCallback(() => {
     isDateSlidingRef.current = false;
@@ -448,6 +451,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       loadWeather(false);
     }, 250);
   }, [updateSlidingState, loadWeather]);
+
+  const handleBarSlidingComplete = useCallback((kind: ScrubKind) => {
+    if (kind === 'date') handleDateSlidingComplete();
+    else { isTimeSlidingRef.current = false; updateSlidingState(); }
+  }, [handleDateSlidingComplete, updateSlidingState]);
 
   const prevDateStrRef = useRef(currentDateStr);
   const prevLatLonRef = useRef(`${latitude?.toFixed(4)},${longitude?.toFixed(4)}`);
@@ -624,59 +632,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     [pathData, currentTime]
   );
 
-  // ── 강화 구름 격자 ───────────────────────────────────────────────────────
-  // 기본 팬(5레이 × 7고리, ±20°)보다 넓고 촘촘한 관측(7레이 × 10고리, ±30°)을
-  // 받아 같은 자리에 끼워 넣습니다. 예전 2D 시뮬 탭의 레이어 버튼이 하던 일인데,
-  // 거기서는 결과가 SVG 폴리곤이라 3D가 쓸 수 없었습니다 (utils/cloudGridAdapter.ts).
-  const [useEnhancedGrid, setUseEnhancedGrid] = useState(false);
-  const [cloudGrid, setCloudGrid] = useState<CloudDensityGrid | null>(null);
-  const [isGridLoading, setGridLoading] = useState(false);
-
-  useEffect(() => {
-    if (!useEnhancedGrid || !latitude || !longitude) return;
-    // 이미 지금 방위에 맞는 격자가 있으면 다시 부르지 않습니다.
-    if (isGridUsable(cloudGrid, sunAzimuth)) return;
-
-    let cancelled = false;
-    setGridLoading(true);
-    fetchCloudGrid(latitude, longitude, sunAzimuth, currentTime)
-      .then(grid => {
-        if (!cancelled && grid) setCloudGrid(grid);
-      })
-      .catch(err => {
-        console.log('cloud grid fetch error:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setGridLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // 시각 전체가 아니라 날짜·방위 버킷에만 반응합니다 — 격자는 시간축을
-    // 그대로 들고 있어서 슬라이더를 움직여도 다시 받을 필요가 없습니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useEnhancedGrid, latitude, longitude, currentDateStr, bucketedSunAz]);
-
-  /**
-   * 씬에 실제로 넘기는 관측 팬.
-   *
-   * 격자가 없거나 태양 방위가 격자 중심에서 너무 벌어졌으면 기본 팬으로
-   * 되돌아갑니다. 격자는 ±30° 부채꼴이라, 방위가 어긋난 채로 쓰면 실측 영역이
-   * 하늘의 엉뚱한 쪽에 얹혀 기본 팬보다 나빠집니다.
-   */
-  const sceneWeather = useMemo(() => {
-    if (!useEnhancedGrid || !isGridUsable(cloudGrid, sunAzimuth)) return interpolatedWeather;
-    return cloudGridToFan({
-      grid: cloudGrid,
-      time: currentTime,
-      sunAzimuthDeg: sunAzimuth,
-      baseline: interpolatedWeather,
-    });
-  }, [useEnhancedGrid, cloudGrid, sunAzimuth, currentTime, interpolatedWeather]);
-
-  const isGridActive = useEnhancedGrid && isGridUsable(cloudGrid, sunAzimuth);
-
   const prediction = useMemo(() => scenePrediction({
     pathData,
     time: currentTime,
@@ -741,7 +696,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           sunAzimuth={sunAzimuth}
           prediction={prediction}
           location={location}
-          interpolatedWeather={sceneWeather}
+          interpolatedWeather={interpolatedWeather}
           theme={OVERLAY_THEME}
           layers={layers}
           skySettings={skySettings}
@@ -969,66 +924,20 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       </PeekSheet>
       </View>
 
-      {/* ── 상시 노출: 날짜 슬라이더 + 타임 슬라이더 ────────────────────── */}
+      {/* ── 상시 노출: 날짜 + 시간 막대 한 벌(§143) ─────────────────────────
+             ±1일 · ±1시간 · ±1년, 리드타임 정확도 띠, 데이터 기간 — `TimeBar/DateTimeBar.tsx`. */}
       <View style={[styles.bottomPanel, { backgroundColor: color.panel, borderColor: color.border }]}>
-        {/* 맵뷰와 동일한 날짜 슬라이더 (위가 아니라 화면 아래에 표시) */}
-        <View style={styles.dateSliderBlock}>
-          <View style={styles.dateSliderHeader}>
-            <View style={styles.dateSliderHeaderLeft}>
-              <Calendar size={12} color={theme.subText} />
-              <Text style={[styles.dateSliderLabel, { color: theme.subText }]}>{t('isolineDateLabel', language)}</Text>
-            </View>
-            <Text style={[styles.dateSliderValue, { color: theme.text }]}>
-              {formatMonthDay(currentTime, tz)}
-            </Text>
-          </View>
-          <View style={styles.dateSliderWrapper}>
-            <GenericSlider
-              value={datePct}
-              onChange={handleDateSliderChange}
-              onGrant={handleDateSlidingStart}
-              onRelease={handleDateSlidingComplete}
-              theme={theme}
-              trackColor={color.border}
-              fillColor={theme.accent}
-              knobColor={color.panelRaised}
-              trackOverlay={
-                <View style={styles.markerOverlay} pointerEvents="none">
-                  {seasonMarkerPositions.map((s) => (
-                    <View key={s.key} style={[styles.tickMarker, { left: `${s.pct}%` }]}>
-                      <View style={[styles.tickDot, { backgroundColor: s.color }]} />
-                    </View>
-                  ))}
-                </View>
-              }
-            >
-              <Text style={[styles.tooltipText, { color: color.accent }]}>{formatMonthDay(currentTime, tz)}</Text>
-            </GenericSlider>
-          </View>
-        </View>
-
-        <TimeSlider
-          value={currentTime}
-          onChange={setCurrentTime}
+        <DateTimeBar
+          currentTime={currentTime}
+          onPick={handleBarPick}
+          onSlidingStart={handleBarSlidingStart}
+          onSlidingComplete={handleBarSlidingComplete}
           isTimeMachineEnabled={isTimeMachineEnabled}
-          onToggleTimeMachine={setTimeMachineEnabled}
-          theme={theme}
-          isDay={sunAltitude > 0}
+          onNow={() => setTimeMachineEnabled?.(false)}
+          onOpenDatePicker={onOpenDatePicker}
           onCameraPress={onCameraPress}
-          onSlidingStart={() => {
-            isTimeSlidingRef.current = true;
-            updateSlidingState();
-          }}
-          onSlidingComplete={() => {
-            isTimeSlidingRef.current = false;
-            updateSlidingState();
-          }}
-          markers={events ? [
-            { time: events.sunrise || null, color: dataColor.sunrise, type: 'rise' },
-            { time: events.sunset || null, color: dataColor.sunset, type: 'set' },
-            { time: events.moonrise || null, color: color.textDim, type: 'rise' },
-            { time: events.moonset || null, color: color.textDim, type: 'set' },
-          ] : []}
+          events={events}
+          seasonPcts={seasonMarkerPositions}
         />
       </View>
 
@@ -1335,63 +1244,5 @@ const useStyles = makeStyles((color) => ({
     paddingVertical: 2,
     borderTopWidth: 1,
     borderColor: color.border,
-  },
-  dateSliderBlock: {
-    paddingHorizontal: 16,
-    paddingTop: 2,
-    paddingBottom: 0,
-    gap: 1,
-  },
-  dateSliderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 0,
-    paddingHorizontal: 2,
-  },
-  dateSliderHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  dateSliderLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    fontFamily: mono,
-  },
-  dateSliderValue: {
-    fontSize: 12,
-    fontWeight: '900',
-    fontFamily: mono,
-    letterSpacing: 0.4,
-  },
-  dateSliderWrapper: {
-    position: 'relative',
-    marginTop: 2,
-  },
-  markerOverlay: {
-    width: '100%',
-    height: '100%',
-  },
-  tickMarker: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 12,
-    marginLeft: -6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tickDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 1,
-  },
-  tooltipText: {
-    fontSize: 11,
-    fontWeight: '900',
-    fontFamily: mono,
   },
 }));

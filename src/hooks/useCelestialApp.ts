@@ -3,7 +3,8 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { Dimensions, Animated, Platform, Alert, AppState, InteractionManager } from 'react-native';
 import * as Location from 'expo-location';
 import { useCelestialStore } from '../store/useCelestialStore';
-import { getSunPosition, getMoonPosition, getSunPath, getMoonPath, getCelestialEvents } from '../utils/celestial';
+import { getSunPosition, getCelestialEvents } from '../utils/celestial';
+import { localDayKey, clampMs } from '../utils/timeBar';
 import { getGoldenTimeInfo } from '../utils/sunCamera';
 import { TAB_ORDER, type AppTab } from '../components/AppHeader';
 import { getLocalTimeAtLocation, getSystemTimeFromLocationTime } from '../utils/timezone';
@@ -280,8 +281,10 @@ export function useCelestialApp() {
   useEffect(() => {
     if (isAppReady && !hasInitializedTab.current) {
       hasInitializedTab.current = true;
-      setActiveTabState(initialTab);
-      const toIdx = tabOrder.indexOf(initialTab);
+      // 저장·전달된 값이 옛 'map' 이면(지도 탭은 없어졌습니다) 하늘로.
+      const startTab: AppTab = (TAB_ORDER as string[]).includes(initialTab) ? (initialTab as AppTab) : 'sky';
+      setActiveTabState(startTab);
+      const toIdx = tabOrder.indexOf(startTab);
       contentTranslateX.setValue(-toIdx * width);
       // 지연 업로드 대기 큐 복구 및 스케줄링 실행
       initializePendingUploads();
@@ -313,32 +316,17 @@ export function useCelestialApp() {
   const isDay = true;
   const themeAnim = useRef(new Animated.Value(0)).current;
 
-  const sunPos = getSunPosition(
-    currentTime, 
-    location?.coords.latitude || defaultCoords.latitude, 
-    location?.coords.longitude || defaultCoords.longitude
-  );
+  // ⚠ 해·달 위치(`sunPos`·`moonPos`)와 하루 경로(`sunPath`·`moonPath`)는 여기서 세지 않습니다. 하늘 화면이 필요한 값을
+  //   스스로 세고, 이 훅의 반환값을 받는 App 은 쓰지 않았습니다 — 그런데 시간 슬라이더를 움직일 때마다(루트라서 앱
+  //   전체가 다시 그려지며) 해 경로 49점 + 달 경로 25점을 매번 다시 세고 있었습니다.
+  const lat0 = location?.coords.latitude || defaultCoords.latitude;
+  const lon0 = location?.coords.longitude || defaultCoords.longitude;
 
   useEffect(() => {
     // 낮↔밤 배경색 — 색이라 동작 줄이기에서도 남깁니다.
     timeTo(themeAnim, isDay ? 0 : 1, 'slow', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
   }, [isDay]);
 
-  const moonPos = getMoonPosition(
-    currentTime, 
-    location?.coords.latitude || defaultCoords.latitude, 
-    location?.coords.longitude || defaultCoords.longitude
-  );
-  const sunPath = getSunPath(
-    currentTime, 
-    location?.coords.latitude || defaultCoords.latitude, 
-    location?.coords.longitude || defaultCoords.longitude
-  );
-  const moonPath = getMoonPath(
-    currentTime, 
-    location?.coords.latitude || defaultCoords.latitude, 
-    location?.coords.longitude || defaultCoords.longitude
-  );
   // 현지 타임존 기준의 당일 정오(12:00) 시스템 시각 계산
   const targetSystemNoon = useMemo(() => {
     const localTime = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
@@ -351,20 +339,23 @@ export function useCelestialApp() {
     return getSystemTimeFromLocationTime(localNoon, timezoneOffsetHours);
   }, [currentTime, timezoneOffsetHours]);
 
-  const events = getCelestialEvents(
-    targetSystemNoon, 
-    location?.coords.latitude || defaultCoords.latitude, 
-    location?.coords.longitude || defaultCoords.longitude
+  // 일출·일몰·월출·월몰은 **하루 단위**입니다 — 시각이 아니라 그 지역 날짜가 바뀔 때만 다시 셉니다.
+  // (예전에는 렌더마다 셌고, `getMoonTimes` 는 48시간을 훑어 가장 무거운 호출입니다.)
+  const eventsDayKey = localDayKey(currentTime.getTime(), timezoneOffsetHours);
+  const events = useMemo(
+    () => getCelestialEvents(targetSystemNoon, lat0, lon0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [eventsDayKey, lat0, lon0],
   );
 
   // 골든타임 활성 여부 (일출/일몰 전후 2.5시간) - 시간 흐름 및 타임머신 조작에 연동
+  // 카메라(SunCamera)만 씁니다 — 열려 있을 때만 셉니다(슬라이더를 움직일 때마다 사흘치 일출·일몰을 세지 않게).
+  const minuteKey = Math.floor(currentTime.getTime() / 60000);
   const goldenTimeInfo = useMemo(() => {
-    return getGoldenTimeInfo(
-      currentTime,
-      location?.coords.latitude || defaultCoords.latitude,
-      location?.coords.longitude || defaultCoords.longitude
-    );
-  }, [location, currentTime]);
+    if (!isSunCameraVisible) return null;
+    return getGoldenTimeInfo(currentTime, lat0, lon0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSunCameraVisible, lat0, lon0, minuteKey]);
 
   // 탭 전환 시 시각 처리 (탭이 실제로 바뀔 때만 — 이전 탭을 기억합니다)
   //
@@ -549,18 +540,25 @@ export function useCelestialApp() {
     pickTime(newTime);
   };
 
-  const handleDateChange = (newDate: Date) => {
-    const newTime = new Date(newDate);
-    newTime.setHours(currentTimeLocal.getHours());
-    newTime.setMinutes(currentTimeLocal.getMinutes());
-    newTime.setSeconds(0);
-    newTime.setMilliseconds(0);
-    
-    const systemTime = getSystemTimeFromLocationTime(newTime, timezoneOffsetHours);
+  /**
+   * 달력에서 고른 날 — `picked` 는 **기기 지역 기준** 년·월·일이 고른 날입니다(`datePickerValue` 가 지역 날짜를 그렇게 실어
+   * 보냅니다). 시각은 지금 보던 **관측지 시각**을 그대로 두고 날짜만 바꿉니다.
+   * ⚠ 예전에는 `setHours(currentTimeLocal.getHours())` 로 기기 지역 getter 에 관측지 시각을 섞어, 기기와 관측지 시간대가
+   *   다르면 시각이 어긋났습니다.
+   */
+  const handleDateChange = (picked: Date) => {
+    const l = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+    const ms = Date.UTC(picked.getFullYear(), picked.getMonth(), picked.getDate(), l.getUTCHours(), l.getUTCMinutes(), 0, 0)
+      - timezoneOffsetHours * 3600000;
     animateContent();
-    pickTime(systemTime);
+    pickTime(new Date(clampMs(ms)));
   };
-  
+  /** 달력에 처음 보일 날 — 관측지 지역 날짜를 기기 지역 정오로 옮겨 실은 값. */
+  const datePickerValue = (() => {
+    const l = getLocalTimeAtLocation(currentTime, timezoneOffsetHours);
+    return new Date(l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate(), 12);
+  })();
+
   const handleCameraPress = () => {
     if (isSimulationLoading) return;
     setSunCameraVisible(true);
@@ -1103,12 +1101,8 @@ export function useCelestialApp() {
     requestLocationPermission,
     requestCameraPermission,
     
-    sunPos,
     isDay,
     themeAnim,
-    moonPos,
-    sunPath,
-    moonPath,
     events,
     goldenTimeInfo,
     isAndroid,
@@ -1120,6 +1114,7 @@ export function useCelestialApp() {
     handleToggleTimeMachine,
     handleTimeChange,
     handleDateChange,
+    datePickerValue,
     handleCameraPress,
     handleCameraLongPress,
     handleSaveLocation,

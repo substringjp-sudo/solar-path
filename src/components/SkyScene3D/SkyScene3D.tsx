@@ -221,6 +221,8 @@ export interface SkySettings {
   /** §136 구름 미세물리(physics: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(physicsIce) — 자(RULER-physics)를 넘기지 못해 기본 끔, 개발 패널 PHYS/ICE 칩으로 켬. */
   volumetricPhysics?: boolean;
   volumetricPhysicsIce?: boolean;
+  /** 실험 — 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘을 켭니다(기본 꺼짐: 카메라 스트림과 GPU 를 나눠 써 기기에서 ANR 이 났던 적이 있어 기기 확인 후 켭니다). 메인 시뮬레이션과 같은 구름이 됩니다. */
+  cameraVolumetric?: boolean;
 }
 
 export const DEFAULT_SKY_SETTINGS: SkySettings = {
