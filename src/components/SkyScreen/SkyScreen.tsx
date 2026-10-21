@@ -40,7 +40,6 @@ import {
   canaryPrint,
 } from '../../utils/cachePolicy';
 import {
-  buildSkyTimeline,
   isTimelineUsable,
   type SkyTimeline,
 } from '../../utils/skyTimeline';
@@ -540,63 +539,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 키프레임 사이 보간만 합니다 (utils/skyTimeline.ts).
   const [isDevPanelOpen, setDevPanelOpen] = useState(false);
   const [timeline, setTimeline] = useState<SkyTimeline | null>(null);
-  const [buildProgress, setBuildProgress] = useState<number>(0);
-  const [buildLabel, setBuildLabel] = useState<string>('');
-  const [isBuilding, setBuilding] = useState(false);
-  const [buildError, setBuildError] = useState<string | null>(null);
-  const cancelBuildRef = React.useRef(false);
-
-  const progressAnim = React.useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    timeTo(progressAnim, buildProgress, 'fast', 'standard', { useNativeDriver: false, keepWhenReduced: true }).start();
-  }, [buildProgress, progressAnim]);
-
-  const handleBuildTimeline = React.useCallback(async () => {
-    if (isBuilding) {
-      // 진행 중이면 취소
-      cancelBuildRef.current = true;
-      return;
-    }
-    cancelBuildRef.current = false;
-    setBuilding(true);
-    setBuildError(null);
-    setBuildProgress(0);
-    setBuildLabel(t('buildStarting', language));
-    try {
-      const tl = await buildSkyTimeline({
-        latitude,
-        longitude,
-        date: currentTime,
-        observerElevM: terrainData.observerElevation,
-        language,
-        onProgress: (p, label) => {
-          setBuildProgress(p);
-          setBuildLabel(label);
-        },
-        isCancelled: () => cancelBuildRef.current,
-      });
-      setTimeline(tl);
-      setBuildLabel(t('buildDone', language));
-    } catch (err: any) {
-      if (err?.message === 'CANCELLED') {
-        setBuildLabel(t('buildCancelled', language));
-      } else {
-        console.log('sky timeline build failed:', err);
-        setBuildError(err?.message?.includes('RATE_LIMIT')
-          ? t('errRateLimit', language)
-          : t('errWeather', language));
-      }
-    } finally {
-      setBuilding(false);
-    }
-  }, [isBuilding, latitude, longitude, currentTime, terrainData.observerElevation]);
-
-  useEffect(() => {
-    if (buildError) {
-      const t = setTimeout(() => setBuildError(null), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [buildError]);
 
   // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.
   const timelineValid = isTimelineUsable(timeline, latitude, longitude, currentTime);
@@ -606,26 +548,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   useEffect(() => {
     if (timeline && !isTimelineUsable(timeline, latitude, longitude, currentTime)) {
       setTimeline(null);
-      setBuildLabel('');
-      setBuildProgress(0);
     }
   }, [timeline, latitude, longitude, currentDateStr]);
-
-  // 날짜/위치 준비 완료 시 백그라운드 자동 타임라인 사전 계산 (동일 위치/날짜당 1회만 시도하여 API 429 폭주 방지)
-  const lastAutoBuildKeyRef = useRef<string>('');
-  useEffect(() => {
-    if (!isCacheHydrated || !latitude || !longitude || isBuilding || timelineValid) return;
-
-    const buildKey = `${latitude.toFixed(3)}_${longitude.toFixed(3)}_${currentDateStr}`;
-    if (lastAutoBuildKeyRef.current === buildKey) return;
-
-    const timer = setTimeout(() => {
-      lastAutoBuildKeyRef.current = buildKey;
-      handleBuildTimeline();
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [latitude, longitude, currentDateStr, timelineValid, isBuilding, handleBuildTimeline]);
 
   const interpolatedWeather = useMemo(
     () => (pathData.length ? getInterpolatedWeather(pathData, currentTime) : []),
@@ -742,35 +666,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           )}
         </View>
 
-        {/* 진행률 — 계산 중에만 씬 하단에 뜹니다 */}
-        {(isBuilding || buildError) && (
-          <Reveal style={overlayStyles.buildBanner}>
-            {buildError ? (
-              <Text style={overlayStyles.buildError} numberOfLines={2}>{buildError}</Text>
-            ) : (
-              <>
-                <Text style={overlayStyles.buildLabel} numberOfLines={1}>{buildLabel}</Text>
-                <View style={overlayStyles.progressTrack}>
-                  <Animated.View
-                    style={[
-                      overlayStyles.progressFill,
-                      {
-                        width: progressAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0%', '100%'],
-                        }),
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={overlayStyles.buildHint}>{t('tapToCancel', language)}</Text>
-              </>
-            )}
-          </Reveal>
-        )}
-
         {/* 날씨 수신 실패 배너 및 재시도 버튼 */}
-        {weatherError && !isBuilding && (
+        {weatherError && (
           <Reveal style={overlayStyles.weatherErrorBanner}>
             <View style={overlayStyles.weatherErrorHeader}>
               <CloudOff size={15} color="#F87171" />

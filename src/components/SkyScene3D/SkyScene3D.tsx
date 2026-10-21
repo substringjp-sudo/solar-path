@@ -1518,6 +1518,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       DEFAULT_SOFT_SCALE
     );
     composerRef.current = composer;
+    // §117·§127 지형 거리 판 — 볼륨 하늘이 이 판으로 구름 행진을 지형에서 멈춥니다(vol.setTerrainDistance).
+    // ⚠ 슬랩 전용이 아닙니다. 꺼지면 빈 판(0km)이 넘어가 하늘 전체가 "지형"으로 칠해져 검어집니다.
+    composer.setTerrainDistance(true);
 
     // 초기 업데이트
     updateScene();

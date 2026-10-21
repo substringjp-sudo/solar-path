@@ -548,14 +548,6 @@ export async function createVolumetricScene(
       ['outputDepthVelocity = depthVelocity;', `outputDepthVelocity = ${clean3('depthVelocity')};`],
       ['outputShadowLength = shadowLength * METER_TO_LENGTH_UNIT;',
         'outputShadowLength = (isnan(shadowLength) || isinf(shadowLength)) ? 0.0 : shadowLength * METER_TO_LENGTH_UNIT;'],
-      ['vec2 rayNearFar = getRayNearFar(intersections);',
-        `vec2 rayNearFar = getRayNearFar(intersections);
-  if (cameraHeight < minHeight && intersections.ground && intersections.second.y > 0.0) {
-    rayNearFar = vec2(intersections.second.y, min(intersections.second.z, maxRayDistance));
-  }
-  if (rayNearFar.x > 0.0 && rayNearFar.y <= rayNearFar.x) {
-    rayNearFar.y = rayNearFar.x + minPrimaryStepSize * 4.0;
-  }`],
     ]);
     // §127 시간 필터의 이력도 막습니다. 그림자 지도의 시간 필터(TAA)가 해 방향이 크게 바뀐 뒤(장면 전환·시간 막대를
     // 빠르게 넘김) 이력과 섞으며 NaN 을 냈고, 그것이 이력에 남아 **구름이 영구히 사라졌습니다**(웹 하네스: 해 30° → 50°
