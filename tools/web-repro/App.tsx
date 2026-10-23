@@ -25,7 +25,7 @@ const Q = (() => {
 // §129 볼륨 하늘 지형 알베도 후보(RULER-terrain-lit.md) — "talb":[r,g,b]
 if (Array.isArray(Q.talb)) Object.assign(VOLUMETRIC_TERRAIN_ALBEDO, { r: Q.talb[0], g: Q.talb[1], b: Q.talb[2] });
 
-/** globe:1 — 지구본(MapGlobe)만 그립니다(해·달 직하점·위상 확인, §142). cLat·cLon·r 로 한가운데·반지름. */
+/** globe:1 — 지구본(MapGlobe)만 그립니다(해·달 직하점·위상 확인, §142). cLat·cLon·r 로 한가운데·반지름, morph 로 형태(§153). */
 function GlobeRepro({ W, H }: { W: number; H: number }) {
   const date = new Date(Q.t ?? Date.now());
   return (
@@ -43,6 +43,7 @@ function GlobeRepro({ W, H }: { W: number; H: number }) {
         height={H}
         initialCenter={{ latitude: Q.cLat ?? 0, longitude: Q.cLon ?? 140 }}
         initialRadius={Q.r ?? Math.min(W, H) * 0.42}
+        initialMorph={Q.morph ?? 1}
         minRadius={50}
         maxRadius={20000}
         selectedDate={date}

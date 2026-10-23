@@ -8,6 +8,7 @@ import { IsochronePoint } from '../../utils/celestial';
 import { RadarFrame, radarColor, windArrow } from '../../utils/cloudRadar';
 import type { CloudTopViewImage } from './useCloudTopView';
 import { dataColor } from '../../theme/tokens';
+import { morphRaw, morphClipAngle } from '../../utils/globeMorph';
 
 interface MapGlobeProps {
   subsolar: IsochronePoint;
@@ -47,6 +48,10 @@ interface MapGlobeProps {
    * 지도 단계에서 미리 띄워 둔 구가 프레임마다 육지 경로를 풀지 않게. true 가 되는 순간 기억한 값으로 한 번 그립니다.
    */
   visible?: boolean;
+  /** 처음 형태 — 0 = 타일과 같은 메르카토르, 1 = 정사영 구(§153). */
+  initialMorph?: number;
+  /** 구 안의 손짓(끌기·벌리기·관성) 동안 프레임마다 지금 한가운데·반지름을 알립니다 — 부모가 형태·겹·밑의 지도를 같이 옮깁니다. */
+  onViewChanging?: (v: { latitude: number; longitude: number; radius: number }) => void;
 }
 
 /**
@@ -78,7 +83,7 @@ const joinOnSphere = (segments: IsochronePoint[][]): [number, number][][] => {
  * 축척)과 한가운데를 넘깁니다. 구 안의 손짓처럼 한 프레임에 한 번으로 모아 그립니다.
  */
 export interface MapGlobeHandle {
-  setView: (v: { radius?: number; center?: { latitude: number; longitude: number } }) => void;
+  setView: (v: { radius?: number; center?: { latitude: number; longitude: number }; morph?: number }) => void;
 }
 
 export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProps>(({
@@ -105,6 +110,8 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   sublunar = null,
   moonFraction = 0.5,
   visible = true,
+  initialMorph = 1,
+  onViewChanging,
 }, ref) => {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
@@ -114,6 +121,8 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   const clampR = (r: number) => Math.max(minRadius, Math.min(maxRadius, r));
   const [scale, setScale] = useState(() => clampR(initialRadius));
   const RADIUS = scale;
+  const clampMorph = (m: number) => (m <= 0.001 ? 0 : m >= 0.999 ? 1 : m);
+  const [morph, setMorph] = useState(() => clampMorph(initialMorph));
 
   const [isInteracting, setIsInteracting] = useState(false);
 
@@ -126,12 +135,15 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   // ⚠ PanResponder 는 한 번만 만듭니다. 그 안에서 props·상태를 직접 읽으면
   //   **처음 그린 때의 값**에 묶입니다(탭이 비활성일 때 떠 있던 구는 영영
   //   손을 안 받았습니다). 모두 ref 로 읽습니다.
-  const live = useRef({ rotate, scale, isActive, onViewChange, minRadius, maxRadius, onSelectLocation, visible });
+  const live = useRef({ rotate, scale, morph, isActive, onViewChange, onViewChanging, minRadius, maxRadius, onSelectLocation, visible,
+    /** 구 자신의 손짓·관성이 움직이는 중 — 그동안 부모의 `setView` 는 형태만 받습니다(한 프레임 늦은 자리로 되돌려 떨지 않게). */
+    selfDriving: false });
   live.current.isActive = isActive && visible;
   live.current.visible = visible;
   /** 숨은 동안 손잡이로 받은 값이 아직 그려지지 않았는가 — 그동안은 상태로 live 를 덮어쓰지 않습니다. */
   const hiddenDirty = useRef(false);
   live.current.onViewChange = onViewChange;
+  live.current.onViewChanging = onViewChanging;
   live.current.minRadius = minRadius;
   live.current.maxRadius = maxRadius;
   live.current.onSelectLocation = onSelectLocation;
@@ -164,6 +176,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     if (movingRef.current) setSettled(false);
     setRotate(live.current.rotate);
     setScale(live.current.scale);
+    setMorph(live.current.morph);
   };
   const schedule = () => {
     if (!live.current.visible) { hiddenDirty.current = true; return; }
@@ -175,6 +188,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   useEffect(() => () => {
     if (frame.current !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame.current);
     if (settleTimer.current) clearTimeout(settleTimer.current);
+    if (inertiaFrame.current !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(inertiaFrame.current);
   }, []);
   // 숨었다가 보이는 순간, 숨은 동안 받은 축척·한가운데로 곧바로 그립니다(한 프레임 늦으면 옛 자리가 번쩍임).
   useEffect(() => {
@@ -182,12 +196,15 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
-    setView: ({ radius, center }) => {
-      if (radius !== undefined && Number.isFinite(radius)) {
-        live.current.scale = Math.max(live.current.minRadius, Math.min(live.current.maxRadius, radius));
-      }
-      if (center) {
-        live.current.rotate = [-center.longitude, -Math.max(-89, Math.min(89, center.latitude))];
+    setView: ({ radius, center, morph: m }) => {
+      if (m !== undefined && Number.isFinite(m)) live.current.morph = clampMorph(m);
+      if (!live.current.selfDriving) {
+        if (radius !== undefined && Number.isFinite(radius)) {
+          live.current.scale = Math.max(live.current.minRadius, Math.min(live.current.maxRadius, radius));
+        }
+        if (center) {
+          live.current.rotate = [-center.longitude, -Math.max(-89, Math.min(89, center.latitude))];
+        }
       }
       if (live.current.visible) {
         movingRef.current = true;
@@ -220,11 +237,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   };
 
   const invertScreenCoord = (px: number, py: number): [number, number] | null => {
-    const proj = d3.geoOrthographic()
-      .scale(live.current.scale)
-      .translate([CX, CY])
-      .rotate(live.current.rotate)
-      .clipAngle(90);
+    const proj = makeProjection(live.current.morph, live.current.rotate, live.current.scale, CX, CY);
     const inv = proj.invert ? proj.invert([px, py]) : null;
     if (!inv || isNaN(inv[0]) || isNaN(inv[1])) return null;
     const dist = d3.geoDistance(inv, [-live.current.rotate[0], -live.current.rotate[1]]);
@@ -232,20 +245,87 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     return inv;
   };
 
-  const endGesture = () => {
-    clearLongPress();
-    useCelestialStore.getState().setGestureBlocked(false);
-    setIsInteracting(false);
-    initialPinchDist.current = null;
+  const centerOf = () => {
+    const [l, p] = live.current.rotate;
+    return { latitude: -p, longitude: ((-l + 180) % 360 + 360) % 360 - 180 };
+  };
+  /** 손짓·관성이 한 걸음 움직일 때마다 부모에게 알립니다. */
+  const notifyChanging = () => {
+    live.current.onViewChanging?.({ ...centerOf(), radius: live.current.scale });
+  };
+  const finishView = () => {
+    live.current.selfDriving = false;
     if (frame.current !== null) {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame.current);
       flush();
     }
-    const [l, p] = live.current.rotate;
-    let lonC = -l;
-    lonC = ((lonC + 180) % 360 + 360) % 360 - 180;
-    live.current.onViewChange?.({ latitude: -p, longitude: lonC, radius: live.current.scale,
+    live.current.onViewChange?.({ ...centerOf(), radius: live.current.scale,
       zoomedIn: live.current.scale > gestureStartScale.current * 1.001 });
+  };
+
+  /**
+   * 끌기 관성(§153) — 손을 떼도 손가락 속도로 구가 조금 더 돌다가 멎습니다. 예전에는 손을 떼는 자리에서
+   * 툭 멈췄습니다. 속도는 마지막 0.1 초의 끌기 표본에서, 감속은 지수(τ).
+   */
+  const INERTIA_TAU_S = 0.35;
+  const dragSamples = useRef<Array<{ t: number; l: number; p: number }>>([]);
+  const inertiaFrame = useRef<number | null>(null);
+  const stopInertia = () => {
+    if (inertiaFrame.current !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(inertiaFrame.current);
+    inertiaFrame.current = null;
+  };
+  const pushSample = () => {
+    const now = Date.now();
+    const arr = dragSamples.current;
+    arr.push({ t: now, l: live.current.rotate[0], p: live.current.rotate[1] });
+    while (arr.length > 2 && now - arr[0].t > 100) arr.shift();
+  };
+  const startInertia = (): boolean => {
+    const arr = dragSamples.current;
+    dragSamples.current = [];
+    if (arr.length < 2 || typeof requestAnimationFrame !== 'function') return false;
+    const a = arr[0], b = arr[arr.length - 1];
+    const dt = (b.t - a.t) / 1000;
+    if (dt < 0.016 || Date.now() - b.t > 80) return false;
+    let vl = (b.l - a.l) / dt, vp = (b.p - a.p) / dt;   // °/s
+    // 화면에서 초당 몇 px 인가 — 느리면 관성 없이 멈춥니다.
+    const pxPerDeg = live.current.scale * Math.PI / 180;
+    const cosPhi = Math.max(0.2, Math.cos(b.p * Math.PI / 180));
+    const speedPx = Math.hypot(vl * cosPhi, vp) * pxPerDeg;
+    if (speedPx < 120) return false;
+    const maxPx = 4000;
+    if (speedPx > maxPx) { vl *= maxPx / speedPx; vp *= maxPx / speedPx; }
+    let last = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const step = (now: number) => {
+      const h = Math.min(0.05, Math.max(0, (now - last) / 1000));
+      last = now;
+      const decay = Math.exp(-h / INERTIA_TAU_S);
+      // 이 구간의 이동 = v·τ·(1 − e^(−h/τ)) — 프레임 길이가 들쭉날쭉해도 같은 궤적.
+      const [l0, p0] = live.current.rotate;
+      live.current.rotate = [l0 + vl * INERTIA_TAU_S * (1 - decay), Math.max(-89, Math.min(89, p0 + vp * INERTIA_TAU_S * (1 - decay)))];
+      vl *= decay; vp *= decay;
+      schedule();
+      notifyChanging();
+      if (Math.hypot(vl * cosPhi, vp) * pxPerDeg < 12) {
+        inertiaFrame.current = null;
+        finishView();
+        return;
+      }
+      inertiaFrame.current = requestAnimationFrame(step);
+    };
+    inertiaFrame.current = requestAnimationFrame(step);
+    return true;
+  };
+
+  const endGesture = () => {
+    clearLongPress();
+    useCelestialStore.getState().setGestureBlocked(false);
+    setIsInteracting(false);
+    const wasPinch = initialPinchDist.current !== null;
+    initialPinchDist.current = null;
+    if (!wasPinch && startInertia()) return;
+    dragSamples.current = [];
+    finishView();
   };
 
   const panResponder = useRef(
@@ -257,6 +337,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
       onPanResponderGrant: (evt) => {
         useCelestialStore.getState().setGestureBlocked(true);
         setIsInteracting(true);
+        stopInertia();
+        dragSamples.current = [];
+        live.current.selfDriving = true;
         gestureStartScale.current = live.current.scale;
         const touches = evt.nativeEvent.touches;
         if (touches && touches.length >= 2) {
@@ -298,6 +381,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             live.current.scale = Math.max(live.current.minRadius,
               Math.min(live.current.maxRadius, initialScaleRef.current * ratio));
             schedule();
+            notifyChanging();
           }
         } else {
           if (initialPinchDist.current !== null) {
@@ -306,6 +390,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             startY.current = evt.nativeEvent.pageY;
             startRotate.current = [...live.current.rotate];
             initialPinchDist.current = null;
+            dragSamples.current = [];
             clearLongPress();
             return;
           }
@@ -324,29 +409,26 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
           const nextLambda = startRotate.current[0] + dx * k / cosPhi;
           const nextPhi = Math.max(-89, Math.min(89, startRotate.current[1] - dy * k));
           live.current.rotate = [nextLambda, nextPhi];
+          pushSample();
           schedule();
+          notifyChanging();
         }
       },
       onPanResponderRelease: endGesture,
       onPanResponderTerminate: endGesture,
     })
   ).current;
-  if (frame.current === null && !hiddenDirty.current) {
+  if (frame.current === null && !hiddenDirty.current && inertiaFrame.current === null) {
     live.current.rotate = rotate;
     live.current.scale = scale;
+    live.current.morph = morph;
   }
 
-  const projection = useMemo(() => {
-    return d3.geoOrthographic()
-      .scale(RADIUS)
-      .translate([CX, CY])
-      .rotate(rotate)
-      .clipAngle(90);
-  }, [rotate, RADIUS, CX, CY]);
+  const projection = useMemo(() => makeProjection(morph, rotate, RADIUS, CX, CY), [morph, rotate, RADIUS, CX, CY]);
+  /** 구의 둘레(보이는 반구의 테두리) — 형태가 메르카토르 쪽이면 원이 아니라 넓게 펴진 모양입니다. */
+  const spherePath = useMemo(() => geoPathFor(projection)({ type: 'Sphere' } as any) || '', [projection]);
 
-  const geoPath = useMemo(() => {
-    return d3.geoPath().projection(projection);
-  }, [projection]);
+  const geoPath = useMemo(() => geoPathFor(projection), [projection]);
 
   const graticulePath = useMemo(() => {
     return geoPath(d3.geoGraticule()());
@@ -638,7 +720,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </RadialGradient>
           </Defs>
 
-          <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
+          {morph >= 1
+            ? <Circle cx={CX} cy={CY} r={RADIUS} fill="url(#globeShadow)" />
+            : <Path d={spherePath} fill="url(#globeShadow)" />}
 
           {landPath && (
             <Path
@@ -664,7 +748,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             <>
               <Defs>
                 <ClipPath id="globeClip">
-                  <Circle cx={CX} cy={CY} r={RADIUS} />
+                  {morph >= 1 ? <Circle cx={CX} cy={CY} r={RADIUS} /> : <Path d={spherePath} />}
                 </ClipPath>
               </Defs>
               <G clipPath="url(#globeClip)">
@@ -838,12 +922,28 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
             </G>
           )}
 
-          <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
+          {morph > 0.05 && (
+            morph >= 1
+              ? <Circle cx={CX} cy={CY} r={RADIUS} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} />
+              : <Path d={spherePath} fill="none" stroke={theme.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)'} strokeWidth={1} strokeOpacity={morph} />
+          )}
         </Svg>
       </View>
     </View>
   );
 }));
+
+/**
+ * 형태 `morph` 의 투영. 1 이면 d3 정사영 그대로, 그 밖이면 메르카토르와 섞은 raw(§153, `globeMorph.ts`).
+ * 구는 보이는 반구로, 섞인 형태는 극 바로 앞에서 자릅니다(`morphClipAngle`).
+ */
+function makeProjection(morph: number, rotate: [number, number], radius: number, cx: number, cy: number) {
+  const base = morph >= 1 ? d3.geoOrthographic() : d3.geoProjection(morphRaw(morph, -rotate[1]) as any);
+  return base.scale(radius).translate([cx, cy]).rotate(rotate).clipAngle(morphClipAngle(morph, -rotate[1]));
+}
+function geoPathFor(projection: d3.GeoProjection) {
+  return d3.geoPath().projection(projection);
+}
 
 const styles = StyleSheet.create({
   container: {

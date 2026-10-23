@@ -40,10 +40,6 @@ export const P_MAP_MOUNT = 1.05;
 export const P_FADE_START = 1.3;
 /** 넘기는 점 — 지도가 다 덮고 3D 는 멈춥니다. 고도 = `HANDOFF_ALT_M`. */
 export const P_HANDOFF = 1.38;
-/** 구글 지도에서 지구본 구로 페이드 전환이 시작되는 진행도 */
-export const P_GLOBE_FADE_START = 1.6;
-/** 지구본 구로 완전 전환되는 진행도 */
-export const P_GLOBE_FADE_END = 2.1;
 export const P_MAX = 3.0;
 
 export const EYE_ALT_M = 1.6;
@@ -158,9 +154,87 @@ export const progressForLonDelta = (lonDelta: number, latDeg: number, aspect: nu
 export const mapOpacityForProgress = (p: number) => smoothstep((p - P_FADE_START) / (P_HANDOFF - P_FADE_START));
 /** 3D 를 그릴 필요가 있는가 — 지도가 완전히 덮으면 멈춥니다. */
 export const glVisibleForProgress = (p: number) => p < P_HANDOFF;
-/** 지구본 구 불투명도 — 구글 지도 위로 1.6 → 2.1 구간 동안 부드럽게 페이드인합니다. */
-export const globeOpacityForProgress = (p: number) =>
-  smoothstep((p - P_GLOBE_FADE_START) / (P_GLOBE_FADE_END - P_GLOBE_FADE_START));
+/**
+ * ## 평면 지도 → 구 (§153)
+ *
+ * 지도 폭(경도°)으로 두 구간을 둡니다. 둘 다 진행도가 아니라 **지도 폭**으로 정해 위도·화면비와 상관없이
+ * 같은 축척에서 일어납니다.
+ *
+ * 1. **겹 바꾸기** `VEC_FADE_LO_DEG → VEC_FADE_HI_DEG`: 구 겹(벡터 그림)이 구글 타일 위로 오릅니다. 이 구간의 구 겹은
+ *    형태 0, 곧 **타일과 똑같은 메르카토르**라(같은 한가운데·같은 축척) 겹쳐도 땅이 두 겹으로 번지지 않습니다.
+ *    예전에는 정사영 구를 메르카토르 타일 위에 바로 겹쳐, 넓은 축척일수록 해안선이 두 벌로 보였습니다.
+ * 2. **형태 바꾸기** `MORPH_LO_DEG → MORPH_HI_DEG`: 메르카토르 → 정사영 구로 투영 자체를 섞습니다(점마다 두 투영의 화면
+ *    자리를 섞음). 한가운데의 축척은 두 투영이 같아서(메르카토르를 cos φ₀ 로 줄여 맞춤) 가운데 땅은 제자리에 있고
+ *    가장자리만 구의 둘레로 휘어 들어갑니다.
+ */
+export const VEC_FADE_LO_DEG = 10;
+export const VEC_FADE_HI_DEG = 18;
+export const MORPH_LO_DEG = 20;
+/**
+ * 형태 바꾸기의 끝. ⚠ 형태 < 1 인 동안 극이 화면 밖이어야 합니다(`morphClipAngle`). 정사영에서 극은 한가운데
+ * 위로 R·cos φ₀ = W / Δλ(라디안) 에 있어, Δλ < 2·(W/H) 라디안이면 화면 밖입니다 — 가장 길쭉한 폰(W/H ≈ 0.43)에서 49°. 모서리와 한가운데 위도 75° 까지 여유를 두어 42°.
+ */
+export const MORPH_HI_DEG = 42;
+const logBand = (d: number, lo: number, hi: number) =>
+  d <= lo ? 0 : d >= hi ? 1 : smoothstep(Math.log(d / lo) / Math.log(hi / lo));
+/** 구 겹(벡터) 불투명도 0~1 — 지도 폭(경도°)으로. */
+export const globeLayerOpacityForLonDelta = (lonDelta: number) => logBand(lonDelta, VEC_FADE_LO_DEG, VEC_FADE_HI_DEG);
+/** 메르카토르(0) → 정사영 구(1) 섞임 — 지도 폭(경도°)으로. */
+export const globeMorphForLonDelta = (lonDelta: number) => logBand(lonDelta, MORPH_LO_DEG, MORPH_HI_DEG);
+
+/**
+ * ## 손을 뗀 뒤 (§153)
+ *
+ * 두 겹이 반쯤 겹친 상태(3D ↔ 지도, 타일 ↔ 구 겹)에서 손을 떼면 그대로 멈춰 두 그림이 반투명하게 겹친 채 남았습니다.
+ * 손을 떼면 ① 손가락의 속도로 조금 더 미끄러지고(관성) ② 겹치는 구간 안이면 가까운 쪽 끝으로 마저 갑니다.
+ * 형태 바꾸기 구간(메르카토르 ↔ 구)은 어디서 멈춰도 한 장의 지도라 그대로 둡니다.
+ */
+export const FLING_TAU_S = 0.26;
+export const FLING_MAX_RATE = 3;
+/** 겹치는 구간들(진행도) — 이 안에서 멈추지 않습니다. */
+export const crossfadeBands = (latDeg: number, aspect: number): Array<[number, number]> => [
+  [P_FADE_START, P_HANDOFF],
+  [progressForLonDelta(VEC_FADE_LO_DEG, latDeg, aspect), progressForLonDelta(VEC_FADE_HI_DEG, latDeg, aspect)],
+];
+/** 관성으로 미끄러진 끝 — 속도(진행도/초)를 상한으로 자르고 τ 만큼 더 갑니다. */
+export const flingProgress = (p: number, rate: number) => {
+  const v = Math.max(-FLING_MAX_RATE, Math.min(FLING_MAX_RATE, rate));
+  return Math.max(0, Math.min(P_MAX, p + v * FLING_TAU_S));
+};
+/** 멈출 자리 — 겹치는 구간 안이면 가까운 끝(같은 거리면 움직이던 쪽), 아니면 그대로. */
+export const settleProgress = (p: number, latDeg: number, aspect: number, rate = 0): number => {
+  for (const [lo, hi] of crossfadeBands(latDeg, aspect)) {
+    if (p > lo && p < hi) {
+      const mid = (lo + hi) / 2 + (rate > 0 ? -1e-6 : rate < 0 ? 1e-6 : 0);
+      return p < mid ? lo : hi;
+    }
+  }
+  return p;
+};
+/**
+ * 미끄러지기 + 마저 가기를 한 번의 감속 곡선으로 — easeOutCubic 의 첫 기울기(3Δ/D)가 손가락 속도와 같도록 길이 D 를 고릅니다.
+ * 속도가 없거나 반대쪽이면 기본 길이. 결과 ms.
+ */
+export const settleDurationMs = (from: number, to: number, rate: number) => {
+  const d = to - from;
+  if (Math.abs(d) < 1e-6) return 0;
+  const base = 240 + 260 * Math.min(1, Math.abs(d) / 0.3);
+  if (rate === 0 || Math.sign(rate) !== Math.sign(d)) return base;
+  return Math.max(160, Math.min(650, (3 * Math.abs(d)) / Math.abs(rate) * 1000));
+};
+export const easeOutCubic = (t: number) => 1 - Math.pow(1 - clamp01(t), 3);
+/**
+ * 두 손가락 줌의 최근 표본(ms, 진행도)에서 손을 뗀 순간의 속도(진행도/초). 표본이 0.1 초 안에 없거나
+ * 마지막 표본이 오래됐으면(손가락을 멈춘 뒤 뗌) 0.
+ */
+export const pinchRateFromSamples = (samples: Array<{ t: number; p: number }>, nowMs = Date.now()): number => {
+  if (samples.length < 2) return 0;
+  const a = samples[0], b = samples[samples.length - 1];
+  const dt = (b.t - a.t) / 1000;
+  if (dt < 0.016 || nowMs - b.t > 80) return 0;
+  const r = (b.p - a.p) / dt;
+  return Math.abs(r) < 0.15 ? 0 : r;
+};
 
 /**
  * 줌인으로 넘기는 점에 다가갈 때 지도 한가운데를 관측점으로 데려옵니다. 진행도가
