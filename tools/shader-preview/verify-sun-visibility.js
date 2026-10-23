@@ -63,7 +63,7 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
   ok(cHigh.g > 0.9 && cHigh.b > 0.7, `높은 맑은 해는 거의 흰색 (g/r ${cHigh.g.toFixed(2)}, b/r ${cHigh.b.toFixed(2)})`);
   ok(V.sunVisibility(4, 40, dust).rgb.g > V.sunVisibility(4, 40, hazy).rgb.g, '조대 입자(작은 Ångström α)는 같은 고도에서 덜 붉음');
   const pk = (h, a) => V.sunVisibility(h, 40, a).displayPeak;
-  ok(pk(60, clean) > 10 && pk(1, clean) < 4, '눈부신 높은 해는 크게, 낮은 해는 낮은 배율(붉은 채널만 밝고 초록은 어둡게)');
+  ok(pk(60, clean) > 5 && pk(1, clean) < 2 && pk(60, clean) > 4 * pk(1, clean), '눈부신 높은 해는 크게, 낮은 해는 낮은 배율(붉은 채널만 밝고 초록은 어둡게)');
   console.log(`\n${pass} 통과, ${fail} 실패`);
   process.exit(fail ? 1 : 0);
 })();
