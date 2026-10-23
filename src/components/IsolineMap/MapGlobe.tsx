@@ -48,6 +48,12 @@ interface MapGlobeProps {
    * 지도 단계에서 미리 띄워 둔 구가 프레임마다 육지 경로를 풀지 않게. true 가 되는 순간 기억한 값으로 한 번 그립니다.
    */
   visible?: boolean;
+  /**
+   * 손을 받는가 — 기본은 `visible`. 지도 단계에서는 구가 안 보여도(타일만 보일 때) 손을 받아, 끌기·길게 누르기를
+   * 형태 0(타일과 같은 메르카토르)로 풀고 부모가 밑의 지도를 옮깁니다. 네이티브 지도가 손가락을 가져가면 두 손가락
+   * 줌이 하늘 탭에 닿지 않는 기기가 있었습니다(§154).
+   */
+  interactive?: boolean;
   /** 처음 형태 — 0 = 타일과 같은 메르카토르, 1 = 정사영 구(§153). */
   initialMorph?: number;
   /** 구 안의 손짓(끌기·벌리기·관성) 동안 프레임마다 지금 한가운데·반지름을 알립니다 — 부모가 형태·겹·밑의 지도를 같이 옮깁니다. */
@@ -110,6 +116,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   sublunar = null,
   moonFraction = 0.5,
   visible = true,
+  interactive,
   initialMorph = 1,
   onViewChanging,
 }, ref) => {
@@ -138,7 +145,7 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
   const live = useRef({ rotate, scale, morph, isActive, onViewChange, onViewChanging, minRadius, maxRadius, onSelectLocation, visible,
     /** 구 자신의 손짓·관성이 움직이는 중 — 그동안 부모의 `setView` 는 형태만 받습니다(한 프레임 늦은 자리로 되돌려 떨지 않게). */
     selfDriving: false });
-  live.current.isActive = isActive && visible;
+  live.current.isActive = isActive && (interactive ?? visible);
   live.current.visible = visible;
   /** 숨은 동안 손잡이로 받은 값이 아직 그려지지 않았는가 — 그동안은 상태로 live 를 덮어쓰지 않습니다. */
   const hiddenDirty = useRef(false);
@@ -332,8 +339,9 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
     PanResponder.create({
       onStartShouldSetPanResponder: () => !!live.current.isActive,
       onMoveShouldSetPanResponder: () => !!live.current.isActive,
-      // 바깥(탭 넘기기 등)이 손을 빼앗지 못하게 합니다.
-      onPanResponderTerminationRequest: () => false,
+      // 바깥(탭 넘기기 등)이 손을 빼앗지 못하게 합니다. 단 두 번째 손가락이 닿으면 하늘 탭의 줌에 넘깁니다(§154) —
+      // 구가 두 손가락을 쥐고 있으면 구 반지름으로만 줌해 지도·지상까지 내려가지 못했습니다.
+      onPanResponderTerminationRequest: (evt) => (evt.nativeEvent.touches?.length ?? 0) >= 2,
       onPanResponderGrant: (evt) => {
         useCelestialStore.getState().setGestureBlocked(true);
         setIsInteracting(true);
@@ -415,7 +423,8 @@ export const MapGlobe = React.memo(React.forwardRef<MapGlobeHandle, MapGlobeProp
         }
       },
       onPanResponderRelease: endGesture,
-      onPanResponderTerminate: endGesture,
+      // 빼앗겼을 때는 관성 없이 멈춥니다(두 손가락 줌으로 넘어가는 중).
+      onPanResponderTerminate: () => { dragSamples.current = []; endGesture(); },
     })
   ).current;
   if (frame.current === null && !hiddenDirty.current && inertiaFrame.current === null) {

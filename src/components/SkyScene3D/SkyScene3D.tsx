@@ -3018,16 +3018,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     return { center: { latitude: c.latitude, longitude: c.longitude }, radius: globeRadiusForDelta(c.latitude, d, sceneW),
       morph: globeMorphRef.current };
   }, [globeMounted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const onMapRegionChangeComplete = useCallback((r: { latitude: number; longitude: number }) => {
-    // 사용자가 지도를 끌었을 때만 받습니다. 줌 중(손짓·착륙)의 콜백은 늦게 온 옛 위치일 수 있어 버립니다.
-    if (pinchDistRef.current !== null || divingAnimFrameRef.current !== null) return;
-    if (zoomProgressRef.current < P_HANDOFF) return;
-    const c = mapCenterRef.current;
-    if (Math.abs(c.latitude - r.latitude) > 1e-6 || Math.abs(c.longitude - r.longitude) > 1e-6) {
-      lastViewMoveMsRef.current = Date.now();
-    }
-    mapCenterRef.current = { latitude: r.latitude, longitude: r.longitude };
-  }, []);
   /**
    * 길게 누르기 → **자리만 고릅니다**(핀 + 확인 카드). 옮기기(관측점·날씨·지형 새로 받기·착륙)는
    * 카드의 "여기로 이동" 을 눌러야 합니다. 줌·착륙 중이거나 줌·이동 직후 0.6 초 안의 길게
@@ -3222,7 +3212,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             startRegion={mapStartRegion}
             // 두 손가락 줌은 하늘 탭의 진행도가 받습니다(지도가 같이 확대하면 둘이 싸워 덜컹임).
             zoomEnabled={false}
-            onRegionChangeComplete={onMapRegionChangeComplete}
+            // 지도 단계의 손짓은 모두 구 겹이 받고 지도는 `moveTo` 로만 움직입니다(§154). 네이티브 지도의
+            // 영역 변경 알림은 우리가 옮긴 것의 늦은 메아리라 받지 않습니다(받으면 손을 뗀 뒤 옛 자리로 되돌아감).
             onLongPress={onMapLongPress}
             pickPin={pickPin}
           />
@@ -3230,7 +3221,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           {globeMounted && (
             <Animated.View
               style={[StyleSheet.absoluteFillObject, { opacity: globeOpacityAnim, backgroundColor: '#0B1220' }]}
-              pointerEvents={isGlobeMode ? 'auto' : 'none'}
+              // 지도 단계 내내 구 겹이 손을 받습니다(타일만 보일 때도) — 끌기는 형태 0 의 메르카토르라 밑의 지도와
+              // 같이 움직이고, 두 손가락은 하늘 탭 줌으로 넘어가 지구본 ↔ 지도 ↔ 지상을 한 손짓으로 오갑니다(§154).
+              pointerEvents={atMapStage ? 'auto' : 'none'}
             >
               <MapGlobe
                 ref={mapGlobeRef}
@@ -3244,7 +3237,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lon={curLon}
                 hasLocation={!!location}
                 theme={theme}
-                isActive={isActive && isGlobeMode}
+                isActive={isActive && atMapStage}
+                interactive={atMapStage}
                 width={sceneW}
                 height={sceneH}
                 topView={topView}
@@ -3253,8 +3247,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 initialMorph={globeStart.morph}
                 // ⚠ 위 끝은 넉넉히 — 구로 넘어가는 축척의 반지름이 화면 폭의 2~3 배(서울 세로 폰 ≈ 1000 px)
                 //   입니다. 예전 800 에 잘려 넘어가는 순간 땅이 줄었습니다.
+                // ⚠ 위 끝은 지도 단계의 가장 좁은 폭(넘기는 점 ≈ 0.45°)까지 — 서울 세로 폰 ≈ 63000 px. 예전 20000 에
+                //   잘리면 손잡이 반지름이 실제 축척과 달라 끌기가 3 배 빨랐고 줌이 거기서 멈췄습니다.
                 minRadius={100}
-                maxRadius={20000}
+                maxRadius={1e7}
                 onSelectLocation={onMapLongPress}
                 onViewChange={onGlobeViewChange}
                 onViewChanging={onGlobeViewChanging}

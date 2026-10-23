@@ -150,6 +150,17 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
     ok(!worst, `화면비 ${aspect}: 테두리가 화면 안에 든 경우 ${worst ?? '없음'}`);
   }
 
+  console.log('[4c] 지도 단계 내내 구 손잡이 반지름이 실제 축척(구 maxRadius 1e7 안) — 끌기 속도·줌 범위가 안 잘림(§154)');
+  {
+    let worst = 0;
+    for (const aspect of [0.43, 0.75, 1.43]) for (let lat = -75; lat <= 75; lat += 5) {
+      const R = M.globeRadiusForDelta(lat, Z.lonDeltaForProgress(Z.P_HANDOFF, lat, aspect), 430);
+      worst = Math.max(worst, R);
+    }
+    ok(worst < 1e7, `넘기는 점의 최대 반지름 ${Math.round(worst)} px < 1e7 (예전 상한 20000)`);
+  }
+  ok(Z.progressFromPinch(Z.P_MAX, 1e-6) === 0, '두 손가락 한 번으로 지구본 끝에서 지상(0)까지 갈 수 있음');
+
   console.log('[5] 손을 뗀 뒤');
   for (const [lat0] of [[37.5], [0], [59.9]]) {
     const aspect = W / H;
