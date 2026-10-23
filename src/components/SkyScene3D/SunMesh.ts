@@ -44,6 +44,8 @@ uniform float uAureole;
 uniform float uGlare;
 uniform float uBlur;
 uniform float uHalo;
+// §152 분광 모형: 최댓값 1 정규화 색(uColor)에 곱할 표시 단계 목표 밝기. 0 이면 옛 경로(uColor·uIntensity).
+uniform float uPeak;
 varying vec2 vUv;
 
 void main() {
@@ -76,6 +78,14 @@ void main() {
   float core = smoothstep(0.85, 0.0, r);
   float total = disc * (1.0 + core * 0.7) + (1.0 - disc) * halo;
   vec3 radiance = uColor * uIntensity * total * T;
+  if (uPeak > 0.0) {
+    // §152 표시 단계(노출·순응·카메라 화이트밸런스)가 곱해져도 원반이 제 색을 지키도록 그 곱을 미리 나눕니다.
+    // (화이트밸런스는 광원 색을 지우는데, 원반은 광원 그 자체라 지우면 낮은 해가 하얗게 떠 버립니다.)
+    // 중심 가중은 분광 경로에서 작게(주연감광 약 1.1~1.2배) — 크게 두면 낮은 해의 초록 채널이 중심에서 먼저 밝아져 노래집니다.
+    float totalP = disc * (1.0 + core * 0.15) + (1.0 - disc) * halo;
+    vec3 hdrTarget = uColor * uPeak * totalP * T;
+    radiance = hdrTarget / (DISP_EXPO * atm_adaptation(uSunAltDeg) * atm_whiteBalance(uSunAltDeg));
+  }
 
   // 완전히 가려지면 아무것도 그리지 않습니다. 둘레 번짐은 원반이 보이는 만큼만(T 가 아주 작으면 사라짐).
   float vis = smoothstep(0.015, 0.12, T);
@@ -125,6 +135,7 @@ export function createSun(): SunHandle {
       uGlare: { value: 0 },
       uBlur: { value: 0 },
       uHalo: { value: SUN_HALO_RADII },
+      uPeak: { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -169,7 +180,7 @@ export function updateSun(
   /** 보이는 크기 배율(1 = 실제 0.267°). 화면이 눈에 주는 시야각보다 훨씬 넓게 그려질 때 키움. */
   displayScale: number = 1,
   /** §151 가시성(둘레빛·눈부심·경계 흐림). 없으면 예전처럼 깨끗한 원반. */
-  vis?: { aureoleRel: number; glareGain: number; edgeBlur: number }
+  vis?: { aureoleRel: number; glareGain: number; edgeBlur: number; rgb?: { r: number; g: number; b: number }; displayPeak?: number }
 ): void {
   const altRad = (placeAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
@@ -185,6 +196,11 @@ export function updateSun(
   const c = sunDiskColor(sunAltDeg, params);
   const u = handle.material.uniforms;
   (u.uColor.value as THREE.Color).setRGB(c.r, c.g, c.b);
+  // §152 분광 색(있으면 옛 β 모형 색 대신) — 최댓값 1 정규화 + 표시 목표 밝기
+  if (vis?.rgb && vis.displayPeak) {
+    (u.uColor.value as THREE.Color).setRGB(vis.rgb.r, vis.rgb.g, vis.rgb.b);
+    u.uPeak.value = vis.displayPeak;
+  } else u.uPeak.value = 0;
   u.uSunAltDeg.value = sunAltDeg;
   u.uOcclusion.value = Math.max(0, Math.min(1, occlusion));
   u.uAureole.value = vis ? vis.aureoleRel : 0;

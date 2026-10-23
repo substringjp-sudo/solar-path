@@ -69,6 +69,40 @@ export interface AerosolOptics {
   omega: number;
 }
 
+
+// ── 분광 투과율 → 원반 색 ────────────────────────────────────────────────────────
+// 원반 스펙트럼 = 태양(5772 K 흑체) × T(λ), T(λ) = exp(−[(τ_R(λ)+τ_oz(λ))·m_R + τ_a(λ)·m_a]).
+//   τ_R(λ) = 0.0973·(λ/550)^−4.05 (레일리), τ_a(λ) = AOD·(λ/550)^−α (Ångström), 오존 샤퓌 흡수대(600 nm 중심, 300 DU 에서 최대 0.045).
+// CIE 등색 함수(Wyman 외 2013 다중 가우스 근사)로 XYZ → 선형 sRGB, 대기가 없을 때(T=1)의 색을 흰색으로 맞춘 뒤(폰 크리스 식 순응) 최댓값 1 로 정규화.
+// 해가 낮아질수록 파장이 짧은 쪽부터 사라져 흰 → 노랑 → 주황 → 붉은색으로 가고, 연무(Ångström α 가 작은 조대 입자는 덜 붉게)와 해 고도에 따라 달라짐.
+const WL = Array.from({ length: 17 }, (_, i) => 380 + i * 20);
+const planck = (nm: number) => { const l = nm * 1e-9; return Math.pow(l, -5) / (Math.exp(1.4388e-2 / (l * 5772)) - 1); };
+const lobe = (l: number, mu: number, s1: number, s2: number) => { const t = (l - mu) / (l < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+const cieX = (l: number) => 1.056 * lobe(l, 599.8, 37.9, 31.0) + 0.362 * lobe(l, 442.0, 16.0, 26.7) - 0.065 * lobe(l, 501.1, 20.4, 26.2);
+const cieY = (l: number) => 0.821 * lobe(l, 568.8, 46.9, 40.5) + 0.286 * lobe(l, 530.9, 16.3, 31.1);
+const cieZ = (l: number) => 1.217 * lobe(l, 437.0, 11.8, 36.0) + 0.681 * lobe(l, 459.0, 26.0, 13.8);
+const SUN_SPEC = WL.map(planck);
+function spectrumToLinearRgb(trans: (nm: number) => number): { r: number; g: number; b: number; Y: number } {
+  let X = 0, Y = 0, Z = 0;
+  WL.forEach((l, i) => { const w = SUN_SPEC[i] * trans(l); X += w * cieX(l); Y += w * cieY(l); Z += w * cieZ(l); });
+  return { r: 3.2406 * X - 1.5372 * Y - 0.4986 * Z, g: -0.9689 * X + 1.8758 * Y + 0.0415 * Z, b: 0.0557 * X - 0.2040 * Y + 1.0570 * Z, Y };
+}
+const WHITE = spectrumToLinearRgb(() => 1);
+const ozoneTau = (nm: number) => 0.045 * Math.exp(-0.5 * Math.pow((nm - 600) / 55, 2));
+
+export interface SunDiscSpectrum {
+  /** 최댓값 1 로 정규화한 선형 sRGB 색(대기 밖 태양 = 흰색 기준) */
+  rgb: { r: number; g: number; b: number };
+  /** 휘도 투과율 T_Y = Y(T)/Y(1) */
+  transmittanceY: number;
+}
+export function sunDiscSpectrum(mR: number, mA: number, tauRayV: number, tauAerV: number, alpha: number): SunDiscSpectrum {
+  const c = spectrumToLinearRgb(nm => Math.exp(-((tauRayV * Math.pow(nm / 550, -4.05) + ozoneTau(nm)) * mR + tauAerV * Math.pow(nm / 550, -alpha) * mA)));
+  const rel = [Math.max(0, c.r / WHITE.r), Math.max(0, c.g / WHITE.g), Math.max(0, c.b / WHITE.b)];
+  const mx = Math.max(rel[0], rel[1], rel[2], 1e-30);
+  return { rgb: { r: rel[0] / mx, g: rel[1] / mx, b: rel[2] / mx }, transmittanceY: c.Y / WHITE.Y };
+}
+
 export interface SunVisibility {
   tauRay: number; tauAer: number; tauTotal: number;
   /** 550nm 직달 투과율 */
@@ -89,9 +123,27 @@ export interface SunVisibility {
   aureoleRel: number;
   /** 셰이더용: 눈부심 계수(원반 대비, r⁻² 꼬리 앞 계수) */
   glareGain: number;
+  /** 원반 색(최댓값 1 선형 sRGB, 분광 모형) */
+  rgb: { r: number; g: number; b: number };
+  /** 표시 단계 색(최댓값 1)에 곱할 배율(노출 적용 후, ACES 입력) — 목표 휘도 ÷ 색의 휘도. 눈부신 흰색 ↔ 어두운 주황·붉은색 */
+  displayPeak: number;
 }
 
 const sstep = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/**
+ * 표시 단계(노출 적용 후) 목표 밝기: 원반 **휘도**(색 채널 최댓값이 아니라)를 L_d 의 0.2 제곱으로 압축해 맞춥니다 —
+ * 최댓값 기준이면 낮은 해의 초록 채널까지 밝아져 톤매핑에서 노랗게 떠 버립니다(붉은 원반 → 노란 원반). 휘도 기준이면 붉은 색은
+ * 붉은 채널만 밝게, 초록·파랑은 물리 비율대로 어둡게 남습니다. 계수 0.22 는 ACES 톤매핑(밝은 붉은색이 주황·노랑으로 밀림)과 sRGB 인코딩을
+ * 거친 뒤에도 지평선 원반이 붉은 주황으로 남도록 렌더로 고른 값(0.5 에서는 노란색). 눈부신 영역(L_d ≳ 5×10⁷)은 별도로 올려 흰색으로 날립니다.
+ *   Y_t = 0.22·(L_d/10⁶)^0.2 · (1 + 8·sstep(log₁₀L_d; 7.7, 9.0)),  peak = Y_t / Y(rgb)
+ */
+function displayPeakFor(discLum: number, rgb: { r: number; g: number; b: number }): number {
+  const logL = Math.log10(Math.max(discLum, 1));
+  const yt = Math.max(0.03, 0.22 * Math.pow(discLum / 1e6, 0.2)) * (1 + 8 * sstep(7.7, 9.0, logL));
+  const yRgb = Math.max(0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b, 1e-3);
+  return Math.min(80, yt / yRgb);
+}
 
 const cache = new Map<string, SunVisibility>();
 
@@ -105,8 +157,9 @@ export function sunVisibility(apparentAltDeg: number, observerElevM: number, a: 
   const tauAerV = a.aod * Math.exp(-zKm / H_AER_KM);
   const tauRay = (tauRayV + TAU_OZONE_550) * mR;
   const tauAer = tauAerV * mA;
-  const tauTotal = tauRay + tauAer;
-  const T = Math.exp(-tauTotal);
+  const tauTotal = tauRay + tauAer;   // 550 nm 소광 광학두께(참고·진단용)
+  const spec = sunDiscSpectrum(mR, mA, tauRayV, tauAerV, a.alpha);
+  const T = spec.transmittanceY;   // 휘도 투과율(분광 적분). 550 nm 값 exp(−τ_ext) 와 가깝지만 붉은 쪽이 더 살아 있어 약간 큼
   const discLum = SUN_L0_CDM2 * T;
 
   // 단일산란 둘레빛 (시선이 해 쪽): L = E0·e^(−τ)·(ω·τ_a·m_a·P_a + τ_r·m_r·P_r)
@@ -130,6 +183,8 @@ export function sunVisibility(apparentAltDeg: number, observerElevM: number, a: 
     edgeBlur: Math.min(1, fwd * 1.5),
     aureoleRel: Math.min(1, 1 / Math.max(contrast, 1)),
     glareGain: 5 * dazzle,
+    rgb: spec.rgb,
+    displayPeak: displayPeakFor(discLum, spec.rgb),
   };
   if (cache.size > 64) cache.clear();
   cache.set(key, out);
