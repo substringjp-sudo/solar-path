@@ -237,6 +237,8 @@ function toVec(altDeg: number, azDeg: number, out: THREE.Vector3): THREE.Vector3
   );
 }
 
+const RIBBON_T0 = new WeakMap<object, number>();
+
 function fillRibbon(
   ribbon: PathRibbon,
   pts: { altitude: number; azimuth: number; time: Date }[],
@@ -255,6 +257,7 @@ function fillRibbon(
     return;
   }
   const t0 = pts[0].time.getTime();
+  RIBBON_T0.set(ribbon, t0);
 
   for (let i = 0; i < n; i++) {
     const p = pts[i];
@@ -317,12 +320,32 @@ export function updateCelestialPaths(
 ): void {
   // getSunPath/getMoonPath는 그 지역 자정부터 24시간을 훑으므로,
   // "지금"도 같은 기준(자정 이후 경과 시간)으로 맞춰야 합니다.
-  const nowHours =
-    date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-  fillRibbon(paths.sun, getSunPath(date, lat, lng), nowHours);
-  fillRibbon(paths.moon, getMoonPath(date, lat, lng), nowHours);
+  fillRibbon(paths.sun, getSunPath(date, lat, lng), 0);
+  fillRibbon(paths.moon, getMoonPath(date, lat, lng), 0);
+  setCelestialPathsNow(paths, date);
 
   // 바닥 그림자 비활성화
   const shadow = paths.groundShadowMesh;
   shadow.visible = false;
+}
+
+/**
+ * 리본의 "지금" 시각(태양·달 원반 둘레를 비우는 기준)을 갱신합니다. 매 프레임 불러도 됩니다(균일변수 두 개).
+ * ⚠ 예전에는 궤적을 다시 채울 때(1시간 넘게 바뀔 때)만 갱신해, 시간 슬라이더를 움직이면 비움 자리가
+ * 실제 태양에서 최대 1시간(≈15°) 떨어져 있었습니다. 기준도 기기 시계(getHours)가 아니라 궤적이 시작한
+ * 그 지역 자정(리본 정점의 시간과 같은 기준)에서 잰 시간으로 맞춥니다.
+ */
+export function setCelestialPathsNow(paths: CelestialPathsGroup, date: Date): void {
+  for (const ribbon of [paths.sun, paths.moon]) {
+    const t0 = RIBBON_T0.get(ribbon);
+    if (t0 == null) continue;
+    ribbon.material.uniforms.uNowHours.value = (date.getTime() - t0) / 3600000;
+  }
+}
+
+/** 태양 둘레 비움 반지름(시간 단위: 15°/h 로 환산한 각)을 바꿉니다 — 보이는 태양 원반이 커졌을 때 함께 키움. */
+export function setCelestialPathsNearFade(paths: CelestialPathsGroup, innerHours: number): void {
+  const u = paths.sun.material.uniforms;   // 달 원반은 키우지 않으므로 태양 리본만
+  u.uNearFadeInner.value = innerHours;
+  u.uNearFadeOuter.value = innerHours + (NEAR_FADE_OUTER_HOURS - NEAR_FADE_INNER_HOURS);
 }

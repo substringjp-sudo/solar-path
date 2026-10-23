@@ -80,6 +80,21 @@ export interface SunHandle {
   dispose: () => void;
 }
 
+/**
+ * 화면에 보이는 태양 반지름(화면 세로의 몇 분의 몇)을 정하면 그에 맞는 시야각 반지름과 배율을 돌려줍니다.
+ * 앱 하늘은 세로 시야 60~130° 로 그려 실제 눈이 받는 각보다 훨씬 넓습니다 — 실제 크기(0.267°)로 그리면 폰 화면에서 지름 3~6px 점이라
+ * 눈으로 보는 태양보다 훨씬 작습니다. 실제 크기에 머무는 건 시야가 좁을 때(≈ 30° 이하)뿐입니다.
+ * 지평선 가까이(고도 < 6°)는 능선·바다에 가려지는 정확도가 중요해 실제 크기로 돌아옵니다(§141 이전 1.08° 시절 문제).
+ */
+export const SUN_SCREEN_RADIUS_FRAC = 0.009;
+export function sunDisplayScale(fovDeg: number, placeAltDeg: number): { scale: number; radiusDeg: number } {
+  const half = Math.tan((fovDeg * Math.PI) / 360);
+  const wantDeg = (Math.atan(SUN_SCREEN_RADIUS_FRAC * 2 * half) * 180) / Math.PI;
+  const k = Math.min(1, Math.max(0, (placeAltDeg - 1) / 5));
+  const scale = 1 + (Math.max(1, wantDeg / SUN_ANGULAR_RADIUS_DEG) - 1) * k;
+  return { scale, radiusDeg: SUN_ANGULAR_RADIUS_DEG * scale };
+}
+
 export function createSun(): SunHandle {
   // 실제 물리 시직경(0.533°) 기반 원반 반지름 계산
   const radius = SUN_DISTANCE * Math.tan((SUN_ANGULAR_RADIUS_DEG * Math.PI) / 180);
@@ -134,7 +149,9 @@ export function updateSun(
   params: AtmosphereParams,
   /** 태양 방향 구름 기둥의 투과율 (1 = 구름 없음) */
   occlusion: number = 1,
-  placeAltDeg: number = sunAltDeg
+  placeAltDeg: number = sunAltDeg,
+  /** 보이는 크기 배율(1 = 실제 0.267°). 화면이 눈에 주는 시야각보다 훨씬 넓게 그려질 때 키움. */
+  displayScale: number = 1
 ): void {
   const altRad = (placeAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
@@ -145,6 +162,7 @@ export function updateSun(
     -SUN_DISTANCE * Math.cos(altRad) * Math.cos(azRad)
   );
   handle.mesh.lookAt(0, 0, 0);
+  handle.mesh.scale.setScalar(Math.max(1, displayScale));
 
   const c = sunDiskColor(sunAltDeg, params);
   const u = handle.material.uniforms;

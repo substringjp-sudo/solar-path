@@ -42,7 +42,7 @@ import {
   seaHorizonDipDeg,
   TERRAIN_MAX_ANGLE_DEG,
 } from './TerrainRing';
-import { createSun, updateSun, type SunHandle } from './SunMesh';
+import { createSun, updateSun, sunDisplayScale, type SunHandle } from './SunMesh';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
 import { loadDemPatch, clearDemCache, type DemPatch } from '../../utils/demTiles';
@@ -84,7 +84,7 @@ const loadVolumetric = (): typeof import('../VolumetricProbe/volumetricScene') |
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/volumetricScene') : null);
 const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =>
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/liveScene') : null);
-import { createCelestialPathsGroup, updateCelestialPaths, CelestialPathsGroup } from './CelestialPathMesh';
+import { createCelestialPathsGroup, updateCelestialPaths, setCelestialPathsNow, setCelestialPathsNearFade, NEAR_FADE_INNER_HOURS, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { ViewfinderOverlay } from './ViewfinderOverlay';
@@ -834,6 +834,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cachedMoonMagLimitRef = useRef(6.5);
   const cachedMoonMagMsRef = useRef(0);
   /** updateCelestialPaths 마지막 갱신 시각 (30초 간격) */
+  const sunDiscRadiusDegRef = useRef(0.267);
   const lastCelestialPathsMsRef = useRef(0);
   /** getSunPath/getMoonPath 날짜 키 캐시 (같은 날이면 재계산 생략) */
   const cachedSunPathDateRef = useRef('');
@@ -2404,8 +2405,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (sunRef.current) {
       // 원반은 **보이는 자리**(겉보기 고도)에 놓습니다. 앱이 알리는 일몰(기하 −0.833°)은 굴절 34′ 를 담은
       // 관례라, 기하 고도에 그리면 원반이 그보다 2~3분 먼저 수평선 아래로 숨었습니다.
-      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1,
-        getApparentAltitude(sunAltRef.current));
+      const sunPlaceAlt = getApparentAltitude(sunAltRef.current);
+      const sunScale = sunDisplayScale(fovRef.current, sunPlaceAlt);
+      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1, sunPlaceAlt, sunScale.scale);
+      sunDiscRadiusDegRef.current = sunScale.radiusDeg;
       if (!currentLayers.sun) sunRef.current.mesh.visible = false;
     }
 
@@ -2469,6 +2472,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         updateCelestialPaths(celestialPathsRef.current, targetDate, lat, lng, sunAltRef.current, sunAzRef.current);
         lastCelestialPathsMsRef.current = targetTimeMs;
       }
+      // 지금 시각·원반 크기는 궤적을 다시 채우지 않아도 매 프레임 맞춥니다(시간 슬라이더를 움직일 때 비움 자리가 태양을 따라가게).
+      setCelestialPathsNow(celestialPathsRef.current, targetDate);
+      setCelestialPathsNearFade(celestialPathsRef.current, Math.max(NEAR_FADE_INNER_HOURS, (sunDiscRadiusDegRef.current * 2.2) / 15));
       celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
     }
 
