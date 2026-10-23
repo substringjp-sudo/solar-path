@@ -502,6 +502,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const settleFrameRef = useRef<number | null>(null);
   /** 두 손가락 줌의 최근 진행도 표본 — 손을 뗄 때 속도를 셉니다. */
   const pinchSamplesRef = useRef<Array<{ t: number; p: number }>>([]);
+  /** §155 바람 드리프트 시계의 기준 — 고른 시각(ms)과 그 시각이 정해진 실제 시각(ms). */
+  const driftAnchorRef = useRef<{ sceneMs: number; wallMs: number } | null>(null);
   const overlayFrameRef = useRef<number | null>(null);
   const lastZoomStateMsRef = useRef(0);
   const zoomStateKeyRef = useRef('');
@@ -726,14 +728,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
   }, [isSliding, requestRender]);
 
-  // 볼륨 하늘 실시간 구름 유영: 1초마다 2프레임씩 부드럽게 렌더를 깨워 배터리 소모 없이 실시간 바람 드리프트 반영
+  // 볼륨 하늘 실시간 구름 유영: 0.4 초마다 렌더를 깨워 바람 드리프트(§155)를 반영 — 1 초 간격은 한 번에 몇 px 씩 툭툭 넘어갔습니다.
   useEffect(() => {
     if (!isActive) return;
     const timer = setInterval(() => {
       if (volRef.current && !isSlidingRef.current) {
         requestRender(2);
       }
-    }, 1000);
+    }, 400);
     return () => clearInterval(timer);
   }, [isActive, requestRender]);
 
@@ -1948,7 +1950,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               });
             }
             if (volHasSceneRef.current) {
-              vol.setDate(vDate);
+              // §155 드리프트 시계 = 고른 시각 + 그 시각이 정해진 뒤 흐른 실제 시간. 시각을 고정해 둔 동안에도 구름이 바람 따라
+              // 흐르고, '지금' 모드에서 시각이 1 분씩 넘어가도 시계가 이어져 튀지 않습니다(넘어간 만큼 이미 흘렀음).
+              const nowWall = Date.now();
+              const anc = driftAnchorRef.current;
+              if (!anc || anc.sceneMs !== vDate.getTime()) driftAnchorRef.current = { sceneMs: vDate.getTime(), wallMs: nowWall };
+              const a2 = driftAnchorRef.current!;
+              vol.setDate(vDate, (a2.sceneMs + (nowWall - a2.wallMs)) / 1000);
               const intervalMs = lastRenderTsRef.current > 0 ? now - lastRenderTsRef.current : 0;
               const dtSec = intervalMs > 0 ? Math.min(0.1, Math.max(0.001, intervalMs / 1000)) : 1 / 60;
               // §127 해상도 자동 조절 — 이어서 그린 프레임 간격으로 구름 해상도 배율을 계단으로 내리고 올립니다.

@@ -394,8 +394,8 @@ export interface VolumetricScene {
   cancelAsync?(): void;
   /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
   setView(az: number, el: number, fov: number, altitudeM?: number): void;
-  /** 시각만 바꿉니다(해 방향·노출). 해가 그림자 지도 문턱을 넘나들면 층을 다시 만듭니다. */
-  setDate(date: Date): void;
+  /** 시각만 바꿉니다(해 방향·노출·바람 드리프트). driftSec 는 §155 바람 드리프트 시각(초), 없으면 date. */
+  setDate(date: Date, driftSec?: number): void;
   /**
    * 화면 대신 텍스처로 그립니다(§126.7 — 하늘 화면 합성기가 하늘 층으로 씁니다). 반환 텍스처는 다음 호출까지 유효.
    * rgb 는 톤매핑 뒤 **선형** 색(하늘 + 구름 — 화면에 낼 때 sRGB 로 부호화해야 함, §127: §126.8 은 이것을 빠뜨려
@@ -819,6 +819,8 @@ export async function createVolumetricScene(
   let weatherMs = 0;
   // §130 C3 층별 드리프트 — 장면을 건 층·시각(setDate 가 경과 시간만큼 uv 를 밈).
   let genLayers: (GenusLayer | null)[] = [], genDate: Date | null = null, genUv = false;
+  /** §155 하늘 화면이 준 드리프트 시각(초) — `setDate` 의 두 번째 인자. 없으면 씬 시각. */
+  let driftSecOverride: number | null = null;
   /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
   let lastCamKm: [number, number] | null = null;
   /** §136 마지막 장면의 층별 물리 값(진단·하네스 출력용) — 물리가 꺼져 있으면 null */
@@ -998,7 +1000,7 @@ export async function createVolumetricScene(
       // §131 K: 관측점을 국소 운량 ≈ 전역 운량인 칸으로(타일 바이트는 그대로). 장면 입력이 오프셋을 주면 그것이 우선.
       const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
       lastCamKm = camKm;
-      const driftSec = p.date.getTime() / 1000;
+      const driftSec = driftSecOverride ?? p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
         setGenusSkeleton(m, gl, opt.skeleton >= 2);
@@ -1066,7 +1068,12 @@ export async function createVolumetricScene(
     lastInput = { ...lastInput, az, el, fov, altitudeM: altitudeM !== undefined ? altitudeM : lastInput.altitudeM };
     placeCamera(lastInput);
   };
-  const setDate = (date: Date) => {
+  /**
+   * §155 드리프트 시계 — 하늘 화면이 씬 시각과 따로 주는 바람 드리프트 시각(초). 시각을 고정해 둔(SIM) 동안에도 구름이 실제 시간으로
+   * 흘러가게, 부르는 쪽이 "씬 시각 + 그 시각을 고른 뒤 흐른 실제 시간" 을 넘깁니다. 없으면 씬 시각(하네스 렌더는 그대로 결정적).
+   */
+  const setDate = (date: Date, driftSec?: number) => {
+    driftSecOverride = driftSec ?? null;
     if (!lastInput) return;
     lastInput = { ...lastInput, date };
     const sunAltDeg = sunAltAt(date);
@@ -1085,8 +1092,8 @@ export async function createVolumetricScene(
     lastSunAltForLight = sunAltDeg;
     applySunLight();
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
-    if (genUv && genLayers) {
-      const driftSec = date.getTime() / 1000;
+    if (genLayers) {
+      const driftSec = driftSecOverride ?? date.getTime() / 1000;
       for (const m of genusMats) setGenusDrift(m, genLayers, driftSec, GENUS_TILE_KM);
     }
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
