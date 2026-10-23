@@ -18,6 +18,8 @@ import { sunDiskColor, ATMOSPHERE_GLSL, type AtmosphereParams, makeTuningUniform
  */
 const SUN_ANGULAR_RADIUS_DEG = 0.267;
 const SUN_DISTANCE = 490;
+/** §151 판 반지름 = 원반 반지름의 이 배수(둘레빛·눈부심 막이 들어갈 자리) */
+const SUN_HALO_RADII = 10;
 
 const VERT = `
 varying vec2 vUv;
@@ -37,39 +39,49 @@ uniform float uIntensity;  // 원반 밝기 배율
 uniform float uSunAltDeg;  // 눈 순응 노출 — 하늘·구름과 공유
 uniform float uSaturation;
 uniform float uOcclusion; // 태양 방향 구름 기둥 투과율 (1 = 맑음)
+// §151 가시성(sunVisibility.ts): 둘레빛/원반 · 눈부심 계수(r⁻² 꼬리) · 경계 흐림 · 판 반지름(원반 반지름 배)
+uniform float uAureole;
+uniform float uGlare;
+uniform float uBlur;
+uniform float uHalo;
 varying vec2 vUv;
 
 void main() {
-  // 중심으로부터의 2D 반경 거리
+  // 판 가운데로부터 반경(0~1)과, 원반 반지름을 1 로 한 반경 r
   vec2 st = (vUv - 0.5) * 2.0;
   float d = length(st);
   if (d > 1.0) discard;
+  float r = d * uHalo;
 
   // ── 구름에 의한 차폐 ────────────────────────────────────────────────────
   // uOcclusion = 태양 방향 구름 기둥의 투과율 T.
   //   T > 0.7  : 원반 그대로
   //   0.1~0.7  : 다중산란이 각을 퍼뜨려 흐리고 넓어짐 ("물먹은 해")
   //   T < 0.1  : 원반 소멸
-  // 이전에는 SunMesh가 구름의 존재를 전혀 몰라서 8/8 난층운 뒤에서도
-  // 태양이 그대로 타올랐습니다.
   float T = clamp(uOcclusion, 0.0, 1.0);
-
-  // 퍼짐: 투과율이 낮을수록 원반 경계가 뭉개집니다.
   float spread = 1.0 - smoothstep(0.08, 0.75, T);
-  float rimEdge = mix(0.88, 0.05, spread);
-  float rim = smoothstep(1.0, rimEdge, d);
-  float core = smoothstep(rimEdge, 0.0, d);
+  // 경계 흐림: 구름 번짐 + 연무 앞산란(§151 uBlur)
+  float soft = max(spread, uBlur);
+  float edgeW = mix(0.04, 0.7, soft);
+  float disc = 1.0 - smoothstep(1.0 - edgeW, 1.0 + edgeW * 0.6, r);
+
+  // 둘레빛(앞산란 L ∝ P(θ) ≈ θ^-1.3)과 눈 안 산란 눈부심 막(Stiles–Holladay ∝ θ^-2) — 판 가장자리에서 0 으로.
+  float fade = 1.0 - smoothstep(0.55, 1.0, d);
+  float rr = max(r, 1.0);
+  float aur = uAureole * pow(1.0 / rr, 1.3) * fade;
+  float glare = uGlare / (rr * rr) * fade;
+  float halo = aur + glare;
 
   // 중심부를 더 밝게 (주연감광의 반대 — 원반 중심이 가장 밝습니다)
-  vec3 radiance = uColor * uIntensity * (1.0 + core * 0.7) * T;
+  float core = smoothstep(0.85, 0.0, r);
+  float total = disc * (1.0 + core * 0.7) + (1.0 - disc) * halo;
+  vec3 radiance = uColor * uIntensity * total * T;
 
-  // 완전히 가려지면 아무것도 그리지 않습니다.
-  float alpha = rim * smoothstep(0.015, 0.12, T);
+  // 완전히 가려지면 아무것도 그리지 않습니다. 둘레 번짐은 원반이 보이는 만큼만(T 가 아주 작으면 사라짐).
+  float vis = smoothstep(0.015, 0.12, T);
+  float alpha = clamp(max(disc, min(halo * 3.0, 0.85)), 0.0, 1.0) * vis;
   if (alpha <= 0.002) discard;
 
-  // 하늘·구름과 같은 톤매핑. 태양만 다른 곡선을 쓰면 박명에 노출이 어긋나
-  // 하늘은 밝은데 원반은 회색으로 죽는 식이 됩니다.
-  // 태양 원반은 채도 바닥을 끕니다 — 사진에서도 원반은 하얗게 날아갑니다(atmosphere atm_chromaFloor).
   gl_FragColor = vec4(atm_displayCore(radiance, uSaturation, uSunAltDeg, false), alpha);
 }
 `;
@@ -99,7 +111,7 @@ export function createSun(): SunHandle {
   // 실제 물리 시직경(0.533°) 기반 원반 반지름 계산
   const radius = SUN_DISTANCE * Math.tan((SUN_ANGULAR_RADIUS_DEG * Math.PI) / 180);
 
-  const geometry = new THREE.PlaneGeometry(radius * 2, radius * 2);
+  const geometry = new THREE.PlaneGeometry(radius * 2 * SUN_HALO_RADII, radius * 2 * SUN_HALO_RADII);
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -109,6 +121,10 @@ export function createSun(): SunHandle {
       uSunAltDeg: { value: 30.0 },
       uSaturation: { value: 1.0 },
       uOcclusion: { value: 1.0 },
+      uAureole: { value: 0 },
+      uGlare: { value: 0 },
+      uBlur: { value: 0 },
+      uHalo: { value: SUN_HALO_RADII },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -151,7 +167,9 @@ export function updateSun(
   occlusion: number = 1,
   placeAltDeg: number = sunAltDeg,
   /** 보이는 크기 배율(1 = 실제 0.267°). 화면이 눈에 주는 시야각보다 훨씬 넓게 그려질 때 키움. */
-  displayScale: number = 1
+  displayScale: number = 1,
+  /** §151 가시성(둘레빛·눈부심·경계 흐림). 없으면 예전처럼 깨끗한 원반. */
+  vis?: { aureoleRel: number; glareGain: number; edgeBlur: number }
 ): void {
   const altRad = (placeAltDeg * Math.PI) / 180;
   const azRad = (sunAzDeg * Math.PI) / 180;
@@ -169,6 +187,9 @@ export function updateSun(
   (u.uColor.value as THREE.Color).setRGB(c.r, c.g, c.b);
   u.uSunAltDeg.value = sunAltDeg;
   u.uOcclusion.value = Math.max(0, Math.min(1, occlusion));
+  u.uAureole.value = vis ? vis.aureoleRel : 0;
+  u.uGlare.value = vis ? vis.glareGain : 0;
+  u.uBlur.value = vis ? vis.edgeBlur : 0;
 
   // 겉보기 위 끝이 해수면 수평선(높은 산 위에서도 약 −1°)보다 한참 아래면 끕니다. 그 사이는 땅·바다가 가립니다.
   handle.mesh.visible = placeAltDeg > -1.5;

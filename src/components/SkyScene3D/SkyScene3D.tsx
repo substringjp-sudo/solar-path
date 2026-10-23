@@ -43,6 +43,7 @@ import {
   TERRAIN_MAX_ANGLE_DEG,
 } from './TerrainRing';
 import { createSun, updateSun, sunDisplayScale, type SunHandle } from './SunMesh';
+import { sunVisibility, aerosolOpticsFromObs } from '../../utils/sunVisibility';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
 import { loadDemPatch, clearDemCache, type DemPatch } from '../../utils/demTiles';
@@ -2407,7 +2408,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       // 관례라, 기하 고도에 그리면 원반이 그보다 2~3분 먼저 수평선 아래로 숨었습니다.
       const sunPlaceAlt = getApparentAltitude(sunAltRef.current);
       const sunScale = sunDisplayScale(fovRef.current, sunPlaceAlt);
-      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1, sunPlaceAlt, sunScale.scale);
+      const ow = observerWeather();
+      const sunOptics = (ow && aerosolOpticsFromObs(ow)) ?? { aod: 0.12, alpha: 1.3, g: 0.64, omega: 0.95 };
+      const sunVis = sunVisibility(sunPlaceAlt, simRef.current?.terrain?.observerElevation ?? 0, sunOptics);
+      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1, sunPlaceAlt, sunScale.scale, sunVis);
       sunDiscRadiusDegRef.current = sunScale.radiusDeg;
       if (!currentLayers.sun) sunRef.current.mesh.visible = false;
     }
