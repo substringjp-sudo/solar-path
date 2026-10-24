@@ -93,6 +93,13 @@ const ENTRIES = [
   'src/utils/timeBar.ts',
   'src/utils/dateSlider.ts',
 ];
+// 지워진 파일(예: de80a00 이 CloudSlabPrev.ts 를 없앴습니다)이 목록에 남아 있으면 tsc 가 그 항목만 못 만들고 스테이징 전체가
+// 죽습니다 — 그 파일을 쓰는 낡은 습작(build-slab-ab 등)만 실패하게 하고 나머지 하네스는 돌게 합니다.
+const MISSING = ENTRIES.filter(e => !fs.existsSync(path.join(SRC, e)));
+if (MISSING.length) {
+  console.warn('⚠ 없는 항목을 건너뜁니다: ' + MISSING.join(', '));
+  for (const m of MISSING) ENTRIES.splice(ENTRIES.indexOf(m), 1);
+}
 
 fs.rmSync(OUT, { recursive: true, force: true });
 // tsc는 타입 오류가 있어도 emit합니다. 리포에는 이 작업과 무관한 기존 오류

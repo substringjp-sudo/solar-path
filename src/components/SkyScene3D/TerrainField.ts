@@ -43,6 +43,8 @@ import {
   CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
 } from '../../utils/cloudShadowMap';
 import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './SceneComposer';
+import { LIT2_ENCODE_GLSL, bindTerrainLook, makeTerrainLookUniforms } from './terrainLook';
+import { createTerrainAmbientBake } from './terrainAmbient';
 import {
   EARTH_RADIUS_M, FIELD_NEAR_M, FIELD_FAR_M,
   GROUND_PROJECT_GLSL, TERRAIN_NOISE_GLSL,
@@ -279,6 +281,7 @@ ${CLOUD_SHADOW_GLSL}
 ${TERRAIN_NOISE_GLSL}
 uniform float uBlendInner;    // 촘촘→성김 넘기기를 시작하는 반지름 비율
 uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m). 0 이면 예전처럼 딱 맞닿음
+uniform float uShoreMode;     // §156 물가 근처 칠 — 0 정점 보간(예전) · 1 화소마다 자료에서 (SeaPlane 과 같은 값)
 uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
 uniform float uDetail;        // 자료 아래 규모 결의 세기, 0 이면 끔 (②)
                               // 기본 0.10 — 세기를 훑어 **평균 밝기가 5% 넘게
@@ -311,6 +314,16 @@ uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uShadow;        // 0 이면 드리운 그림자를 끕니다 (대조 판정용)
+// §156 볼륨 하늘 경로의 땅 보임새(terrainLook.ts) — 지형 빛 판의 둘째 출력에만 쓰입니다.
+uniform sampler2D uAmbTex;    // terrainAmbient.ts 가 DEM 에서 구운 하늘 보임(R)·볼록도(G) — dem_uv 좌표
+uniform float uAmbValid;
+uniform float uLookAo;
+uniform float uLookHemi;
+uniform float uLookAmbGain;
+uniform float uLookFill;
+uniform float uLookSheen;
+uniform float uLookMottle;
+uniform float uLookMicro;
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
@@ -318,6 +331,11 @@ varying vec2  vGround;
 varying vec3  vViewDir;
 varying float vSlantM;
 ${TERRAIN_DIST_GLSL}
+#ifdef TERRAIN_LIT_OUT
+// 지형 빛 판은 출력이 둘입니다 — 0: sqrt(알베도) · 해 몫, 1: 하늘빛 몫 · 젖음 · 구름 투과 (LIT2_ENCODE_GLSL).
+layout(location = 1) out highp vec4 pc_fragColor1;
+${LIT2_ENCODE_GLSL}
+#endif
 
 /**
  * 이 점에서 **태양 쪽 지평선각** (rad).
@@ -435,8 +453,8 @@ void main() {
   //   섞어도 등고선이 다른 화소 모서리로 옮겨갈 뿐이었습니다. 그래서 뺐습니다.
   // ⚠ 물가의 겹침은 **해수면 쪽에만** 줍니다. 여기는 0 그대로입니다.
   //
-  //   지형은 정점에서 보간한 vElevM 로, 해수면은 프래그먼트마다 DEM 에서
-  //   직접 읽은 값으로 같은 0 등고선을 각자 계산합니다. 표본이 다르니
+  //   지형은 정점에서 보간한 vElevM 로, 해수면은 **자기 격자의** 정점에서 읽은 고도(vWater)로
+  //   같은 0 등고선을 각자 계산합니다. 두 격자의 정점이 다르니
   //   어긋나고, 어긋난 화소는 양쪽 다 버려 **구멍**이 됩니다(바닷가에서
   //   4,821화소 — 지금은 옛 원반이 메우고 있었습니다).
   //
@@ -446,7 +464,22 @@ void main() {
   //   그 고원(근거리 패치의 38~41%)이 통째로 뭍으로 그려집니다. 실제로
   //   −3m 로 해 봤다가 물 맨위가 −0.05° 에서 −0.48° 로 잘렸고
   //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
+  //
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
+  //
+  // §156 **물가 근처의 고도는 화소마다 자료에서 다시 읽습니다 — 어디를 버릴지(위)는 그대로 두고, 칠하는 값만.**
+  //   젖은 띠·마른 띠·물가의 하늘 되비침·산 그림자의 출발 높이가 정점 고도(격자 살 간격 25~74m)를 삼각형 안에서 보간한
+  //   값이라 경계가 삼각형 모양 얼룩이 됐습니다. dem_shoreField 의 B-스플라인으로 흐린 고도(C2)를 쓰면 15m 자료 그대로,
+  //   화소 계단 없이 이어집니다. 버리는 자리를 화소마다 가르는 것은 **해 봤다가 접었습니다** — 정점 고도(지오메트리)와
+  //   버리는 규칙이 어긋나, 낮은 눈높이의 스치는 시선에서 지형이 버린 자리를 해수면이 못 덮는 가는 구멍이 납니다
+  //   (disc-horizon 바닷가 0 → 134~184화소, 방위 225° 한 줄. COASTLINE_PLAN 13절).
+  //   정점 고도가 높은 곳(12m 넘게 올라간 삼각형)은 읽지 않습니다 — 젖은·마른 띠는 해발 5m 아래에만 있으므로 읽기를 아낍니다.
+  //   despike 를 켠 패치는 성긴 자료(243m)라 흐리지 않습니다.
+  float elevF = vElevM;   // 물가 근처의 칠에 쓰는 고도
+  if (uShoreMode > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5 && vElevM < 12.0 && dem_inside(vGround) > 0.5) {
+    float hbS; vec2 grS;
+    elevF = dem_shoreField(vGround, hbS, grS);
+  }
 #ifdef TERRAIN_DIST_OUT
   // §117 지형 거리 판 — 색 대신 눈에서 이 점까지 거리(km)를 적습니다.
   gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
@@ -523,6 +556,36 @@ void main() {
     vec2 gd = texGrad + add * uDetail;
     n = normalize(vec3(-gd.x, 1.0, -gd.y));
   }
+  // 알베도·젖음을 가르는 경사는 **자료의 기울기**여야 합니다 — 아래 미세 기복이 섞인 법선으로 재면 평평한 벌판에
+  // 암반 색이 얼룩지고 젖은 갯벌의 되비침이 꺼집니다. (미세 기복을 안 쓰는 경로에서는 n 과 같은 값입니다.)
+  vec3 nMacro = n;
+#ifdef TERRAIN_LIT_OUT
+  // §156 **미세 기복** — 자료(15m)가 모르는 0.5~4m 규모의 요철(갯벌 물결무늬·풀덤불·밭고랑).
+  //
+  // 위의 자료 아래 결은 진폭이 "그 자리의 기울기"에 비례합니다(허스트 법칙) — 그래서 평평한 벌판·갯벌은 기울기가 0 이라
+  // **결도 0** 이고, 낮은 해가 스쳐도 음영이 없어 땅이 한 색 판이 됩니다. 실제 벌판에도 요철은 있습니다. 여기서는 높이가
+  // 아니라 **법선만** 흔드는데(실루엣·물가는 그대로), 진폭은 절대값입니다: 파장 L 에서 높이 진폭 ≈ 0.12·L 이면 기울기
+  // 4·0.12·Δn. 화소보다 잔 옥타브는 거리에 따라 꺼서 일렁이지 않게 하고(위와 같은 이치), 젖은 갯벌은 매끈하게 줄입니다.
+  {
+    float pmm = max(0.05, vDistM * 0.0015);
+    float wetM = uDemValid > 0.5 ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
+    vec2 gm = vec2(0.0);
+    float Lm = 4.0;
+    for (int o = 0; o < 4; o++) {
+      float vis = smoothstep(1.0, 3.0, Lm / pmm);
+      if (vis > 0.001) {
+        float A = uLookMicro * 0.12 * (1.0 - 0.7 * wetM) * vis;
+        float e = Lm * 0.25;
+        float c = tn_noise(vGround / Lm + 3.7);
+        gm += A * 4.0 * vec2(tn_noise((vGround + vec2(e, 0.0)) / Lm + 3.7) - c,
+                             tn_noise((vGround + vec2(0.0, e)) / Lm + 3.7) - c);
+      }
+      Lm *= 0.5;
+    }
+    vec2 g0 = vec2(-n.x, -n.z) / max(n.y, 1e-3) + gm;
+    n = normalize(vec3(-g0.x, 1.0, -g0.y));
+  }
+#endif
 
   vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad),
                   sin(uSunAltRad),
@@ -542,7 +605,7 @@ void main() {
     vec2 sunHoriz = vec2(sun.x, sun.z);
     float sl = length(sunHoriz);
     if (sl > 1e-4) {
-      float hz = terrainHorizonAngle(vGround, vElevM, sunHoriz / sl);
+      float hz = terrainHorizonAngle(vGround, elevF, sunHoriz / sl);
       shade = smoothstep(uSunAltRad - 0.00463, uSunAltRad + 0.00463, hz);
     }
   }
@@ -551,7 +614,8 @@ void main() {
   // ── 구름이 드리우는 그림자 ──────────────────────────────────────────────
   // 지상 좌표별 직달 투과율을 구운 지도에서 읽습니다 (utils/cloudShadowMap).
   // 여기서도 깎는 것은 직달뿐입니다 — 구름 그늘도 하늘은 봅니다.
-  ndl *= cloudShadowAt(vGround);
+  float cloudT = cloudShadowAt(vGround);   // 직달 투과율 — 구름 그늘이면 0 쪽
+  ndl *= cloudT;
 
   // ── 달빛 입체 음영 및 산 그림자 ──────────────────────────────────────────
   vec3 moon = vec3(cos(uMoonAltRad) * sin(uMoonAzRad),
@@ -564,12 +628,12 @@ void main() {
     vec2 moonHoriz = vec2(moon.x, moon.z);
     float ml = length(moonHoriz);
     if (ml > 1e-4) {
-      float hzMoon = terrainHorizonAngle(vGround, vElevM, moonHoriz / ml);
+      float hzMoon = terrainHorizonAngle(vGround, elevF, moonHoriz / ml);
       moonShade = smoothstep(uMoonAltRad - 0.00463, uMoonAltRad + 0.00463, hzMoon);
     }
   }
   ndlMoon *= 1.0 - moonShade;
-  ndlMoon *= cloudShadowAt(vGround);
+  ndlMoon *= cloudT;
 
   // ── 경사: 급하면 암반(밝고 회색), 완만하면 흙·수풀(어둡고 따뜻) ──────────
   //
@@ -579,7 +643,7 @@ void main() {
   //   (0.10~0.50) 에 넣으면 **이 항이 통째로 죽습니다.** 실제로 그렇게 짰다가
   //   화소 11,366 개의 색조가 0.5918 **하나로 고정**돼 나왔습니다.
   //   땅이 판지처럼 보이던 원인이 이것입니다.
-  float ny = max(n.y, 1e-3);
+  float ny = max(nMacro.y, 1e-3);
   float slope = sqrt(max(0.0, 1.0 - ny * ny)) / ny;   // = tanθ
   vec3 albRock = uAlbedo * vec3(1.10, 1.18, 1.32);
   vec3 albSoil = uAlbedo * vec3(1.00, 0.90, 0.76);
@@ -588,13 +652,73 @@ void main() {
   // ── 조간대: 젖은 모래는 마른 것의 절반쯤 밝기 ────────────────────────────
   // 폭을 **고도**로 재므로 완만한 모래밭은 넓고 절벽은 좁습니다.
   float wet = uDemValid > 0.5
-    ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), vElevM) : 0.0;
+    ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
   alb = mix(alb, alb * 0.52, wet);
 
 #ifdef TERRAIN_LIT_OUT
-  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛/달빛 몫**을 적습니다.
+  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §156 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
+  //
+  // ⚠ 알베도는 **sqrt 로 적습니다.** 땅 알베도가 0.05 안팎이라 8비트에 선형으로 담으면 단계가 값의 8% 입니다 —
+  //   어두운 땅이 층지고 흙·암반·젖은 물가의 비율 차이(×0.52~×1.3)가 정수 몇 칸으로 뭉개졌습니다. 볼륨 하늘의 대기 효과가
+  //   제곱해서 읽습니다(volumetricScene.ts 의 vtAlb).
   float litFactor = clamp(max(ndl, ndlMoon), 0.0, 1.0);
-  gl_FragColor = vec4(clamp(alb * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0), litFactor);
+
+  // ── 알베도 얼룩 ──────────────────────────────────────────────────────────
+  // 땅이 한 색이면 판지로 보입니다. 자료에 없는 것(풀·숲·마른 흙)을 지어내는 것이 아니라, **평균은 그대로** 두고
+  // 규모가 다른 세 겹의 얼룩만 겹칩니다(평균 0 의 잡음) — 화면 한 화소보다 잔 겹은 거리에 따라 꺼서 일렁이지 않게.
+  // 얼룩은 6겹(파장 120m → 0.4m, 겹마다 ×0.32)의 프랙탈 — 지평선 눈높이에서는 앞 몇 m~수십 m 가 화면 대부분이라 잔 겹이
+  // 없으면 초점 나간 덩어리로 보입니다. 겹마다 **화소 발자국**(화면 한 화소가 덮는 지상 길이, 미분으로 잼 — 해상도·화각을
+  // 따라감)보다 3배 이상 클 때만 켜서 일렁임(에일리어싱) 없이 거리에 따라 잔 겹이 평균으로 녹아듭니다.
+  float pixG = max(0.02, 0.5 * length(fwidth(vGround)));
+  float mot = 0.0;
+  {
+    // 에너지를 2~30m 규모에 둡니다(스펙트럼이 평평) — 300m 앞 사면에서 화소 하나가 1m 안팎이라, 1m 아래 잔무늬는 안 보이고
+    // 덤불·풀 무더기가 질감을 만듭니다. 큰 규모에 몰면 초점 나간 얼룩, 작은 규모에 몰면 멀리서 평균으로 녹아 매끈해 집니다.
+    float Lc = 120.0, ampC = 0.35;
+    for (int o = 0; o < 6; o++) {
+      float vis = smoothstep(1.0, 3.0, Lc / pixG);
+      mot += (tn_noise(vGround / Lc + 17.3 * float(o)) - 0.5) * ampC * vis;
+      Lc *= 0.32; ampC = min(0.5, ampC * 1.16);
+    }
+  }
+  float slopeFlat = 1.0 - smoothstep(0.03, 0.18, slope);
+  float slopeFlat0 = 1.0 - smoothstep(0.35, 0.8, slope);   // 군락은 급사면(암반)만 아니면 어디서나
+  float convex = 0.5, aoV = 1.0;
+  if (uAmbValid > 0.5) {
+    vec4 am = texture2D(uAmbTex, dem_uv(vGround));
+    float rp = dem_probeRadiusM();
+    float fadeAmb = 1.0 - smoothstep(rp * 0.6, rp * 0.97, length(vGround));   // 촘촘한 패치 밖은 평균값으로
+    aoV = mix(0.93, am.r, fadeAmb);
+    convex = mix(0.5, am.g, fadeAmb);
+  }
+  vec3 albL = alb;
+  albL *= 1.0 + uLookMottle * vec3(0.50, 0.34, -0.12) * mot;   // 밝고 노란 풀 ↔ 어둡고 짙은 풀 (파랑으로는 안 기웁니다)
+  // 군락: 경계가 **또렷한** 패치(덤불·짙은 풀 / 맨땅·마른 풀) — 부드러운 얼룩만으로는 초점 나간 판처럼 보입니다. 문턱을 좁게 두어
+  // 면적은 한 줌(대략 1/4)이고, 두 색은 서로 밝기를 상쇄해 땅의 평균 밝기를 거의 안 건드립니다.
+  float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(vGround / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
+                    + smoothstep(0.62, 0.68, tn_noise(vGround / 9.5 + 23.7)) * smoothstep(1.0, 3.0, 9.5 / pixG) * 0.7, 0.0, 1.0);
+  float bare = smoothstep(0.62, 0.68, tn_noise(vGround / 23.0 + 51.3)) * smoothstep(1.0, 3.0, 23.0 / pixG);
+  albL = mix(albL, albL * vec3(0.70, 0.80, 0.62), shrub * 0.8 * uLookMottle * slopeFlat0);
+  albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * slopeFlat0);
+  albL *= 1.0 + uLookMottle * 0.25 * (convex - 0.5);          // 둔덕은 조금 밝게(마르고 트임), 움푹은 어둡게
+  // 갯벌 윗자락·방조제 밑은 마르고 밝습니다 — 젖은 아랫자락(×0.52, 위)과 이어져 물가에서 땅으로 가는 **그라데이션**이 생깁니다.
+  float dryBand = smoothstep(0.9, 1.8, elevF) * (1.0 - smoothstep(2.5, 5.0, elevF)) * slopeFlat;
+  albL = mix(albL, albL * vec3(1.45, 1.38, 1.22), dryBand * 0.55 * uLookMottle);
+
+  // ── 하늘빛 몫: 지평선 가림(AO) × 사면 방향(반구) ───────────────────────────
+  // 수평면이 받는 하늘 조도(takram) 에 곱합니다. 직달이 구름에 가려진 날 땅의 형태를 보여 주는 것은 이것뿐입니다.
+  float amb = mix(1.0, aoV, uLookAo) * mix(1.0, 0.5 + 0.5 * n.y, uLookHemi) * uLookAmbGain;
+  // 구름 그늘의 땅에 닿는 **구름을 뚫은 햇빛**(확산) — 직달 투과가 막힌 만큼.
+  // 구름을 뚫은 햇빛은 **해 쪽이 밝은 넓은 빛**입니다(해 둘레가 가장 밝은 구름 밑면) — 랩 램버트로 사면의 향을 보여 줍니다.
+  // 평지의 값으로 나눠 평평한 벌판의 밝기는 그대로 둡니다.
+  float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
+  float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
+  float fill = (1.0 - cloudT) * uLookFill * clamp(fillGeo / fillFlat, 0.0, 2.0);
+  // 젖은 면의 하늘 되비침: 갯벌(wet) 중 평평한 곳, 덩어리로 얼룩(고인 물 자리).
+  float sheen = wet * slopeFlat * mix(0.5, 1.0, tn_noise(vGround / 23.0 + 7.1)) * uLookSheen;
+
+  gl_FragColor = vec4(sqrt(clamp(albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0)), litFactor);
+  pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
   return;
 #endif
 
@@ -760,6 +884,11 @@ export interface TerrainFieldHandle {
    * 그대로면 아무것도 안 합니다 — 매 프레임 불러도 됩니다. 그리기 전에 부릅니다.
    */
   bakeSunShadow: (renderer: THREE.WebGLRenderer) => void;
+  /**
+   * §156 DEM 에서 하늘 보임(AO)을 한 번 굽습니다. 패치가 바뀔 때만 다시 굽고 아니면 아무것도 안 합니다 —
+   * 매 프레임 불러도 됩니다. 그리기 전에 부릅니다(지형 빛 판이 읽음).
+   */
+  bakeAmbient: (renderer: THREE.WebGLRenderer) => void;
   dispose: () => void;
 }
 
@@ -823,6 +952,7 @@ export function createTerrainField(opts: {
       // 입니다. 재 보니 1m 로 이미 구멍이 다 닫히므로(4,821 → 0) 여유를
       // 두어 3m 로 잡습니다. 10m 를 줘도 내륙에 물이 안 번집니다(물화소 불변).
       uShoreOverlapM: { value: 3 },
+      uShoreMode: { value: 1 },
       uObsElevM: { value: opts.observerElevM ?? 0 },
       uEyeHeightM: { value: opts.eyeHeightM ?? 1.6 },
       uBicubicNormal: { value: 1 },
@@ -856,6 +986,10 @@ export function createTerrainField(opts: {
       uCloudShadow: { value: 1.0 },
       // 조간대 폭 — **고도** 기준. 조수간만 1~2m 인 서해안 기준.
       uWetBandM: { value: 1.2 },
+      // §156 볼륨 하늘 경로의 땅 보임새 — 값은 terrainLook.ts 한 곳에서(손잡이), 맵은 bakeAmbient 가 채웁니다.
+      uAmbTex: { value: null as THREE.Texture | null },
+      uAmbValid: { value: 0 },
+      ...makeTerrainLookUniforms(),
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
@@ -923,6 +1057,8 @@ export function createTerrainField(opts: {
   const bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   let bakedKey = '';
   let patchSerial = 0;
+  const ambientBake = createTerrainAmbientBake();
+  const unbindLook = bindTerrainLook(material.uniforms);
 
   return {
     mesh,
@@ -947,6 +1083,12 @@ export function createTerrainField(opts: {
       renderer.autoClear = prevAuto;
       u.uSunShadowValid.value = 1;
       bakedKey = key;
+    },
+    bakeAmbient: (renderer) => {
+      const u = material.uniforms;
+      const ok = ambientBake.bake(renderer, u);
+      u.uAmbTex.value = ok ? ambientBake.texture() : null;
+      u.uAmbValid.value = ok ? 1 : 0;
     },
     setPatch: (patch, eyePatch, farPatch) => {
       patchSerial++;
@@ -974,6 +1116,8 @@ export function createTerrainField(opts: {
       bakeQuad.geometry.dispose();
       bakeMaterial.dispose();
       shadowRT.dispose();
+      unbindLook();
+      ambientBake.dispose();
     },
   };
 }

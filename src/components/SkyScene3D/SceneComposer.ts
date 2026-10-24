@@ -663,6 +663,8 @@ export interface SceneComposerHandle {
   setVolumetricDenoise: (on: boolean) => void;
   /** 지형 빛 판의 텍스처(켜져 있을 때만, 아니면 null). */
   terrainLitTexture: () => THREE.Texture | null;
+  /** §156 지형 빛 판의 둘째 출력(하늘빛 몫·젖음·구름 투과). 켜져 있을 때만, 아니면 null. */
+  terrainLit2Texture: () => THREE.Texture | null;
   dispose: () => void;
   /** 검증용 — 실제로 쓰인 저해상도 버퍼 크기 */
   softSize: () => { width: number; height: number };
@@ -781,8 +783,10 @@ export function createSceneComposer(
   });
   let terrainDistOn = false;
   // §129 지형 빛 판(알베도·햇빛 몫, 8비트 — 값이 0~1). 거리 판과 같은 원해상도·최근접·깊이 버퍼(앞 능선이 이김).
+  // §156 출력이 **둘**입니다(count: 2) — 0: sqrt(알베도)·해 몫, 1: 하늘빛 몫·젖음·구름 투과(terrainLook.ts LIT2_ENCODE_GLSL).
+  //   앱의 구름(takram)이 이미 같은 방식의 다중 출력으로 기기에서 돕니다.
   const rtLit = new THREE.WebGLRenderTarget(w, h, {
-    ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
+    ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, count: 2,
   });
   let terrainLitOn = false;
   // §140 볼륨 하늘 알갱이 지우기 — 기본 켬(하네스 ablation: 프레임 누적·시간 해상·행진 간격·가루·투과항으로는 안 사라짐).
@@ -1409,6 +1413,7 @@ export function createSceneComposer(
       extFrontMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
     },
     terrainLitTexture: () => (terrainLitOn ? rtLit.texture : null),
+    terrainLit2Texture: () => (terrainLitOn ? rtLit.textures[1] : null),
     setExternalSky: (tex: THREE.Texture | null) => { externalSky = tex; },
     prepareTerrainDistance,
     terrainDistanceTexture: () => rtDist.texture,

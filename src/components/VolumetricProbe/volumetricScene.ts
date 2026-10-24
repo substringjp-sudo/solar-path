@@ -54,6 +54,7 @@ import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
 import { patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
+import { LIT2_AMB_RANGE } from '../SkyScene3D/terrainLook';
 
 export type VolumetricQuality = 'low' | 'medium' | 'high';
 /** §140 low 프리셋 1차 행진 최소 보폭(m) — takram 기본 100 은 알갱이가 생김. */
@@ -410,7 +411,7 @@ export interface VolumetricScene {
    * lit(§129, SceneComposer.terrainLitTexture — 알베도·햇빛 몫)을 주면 지형 화소를 검게 비우는 대신 takram 의 해·하늘 조도와
    * 대기 원근으로 칠하고 알파 1 로 냅니다(합성기의 지형 앞 덮기가 지형을 통째로 바꿈).
    */
-  setTerrainDistance(tex: Texture | null, lit?: Texture | null, sunRidge?: Texture | null, seaSlopeVar?: number): void;
+  setTerrainDistance(tex: Texture | null, lit?: Texture | null, sunRidge?: Texture | null, seaSlopeVar?: number, lit2?: Texture | null): void;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
   setQuality(q: VolumetricQuality): void;
@@ -635,7 +636,7 @@ export async function createVolumetricScene(
     src = src.replace(shLen, shLen + '\n  shadowLength = max(shadowLength, volTerrainShadowKm(normalize(vRayDirection), 1e9));');
     src = src.replace(head, [
       'uniform sampler2D terrainDist;', 'uniform float terrainDistOn;', 'uniform float cloudAlphaOut;',
-      'uniform sampler2D terrainLit;', 'uniform float terrainLitOn;',
+      'uniform sampler2D terrainLit;', 'uniform sampler2D terrainLit2;', 'uniform float terrainLitOn;',
       'uniform sampler2D sunRidgeTex;', 'uniform float sunRidgeOn;', 'uniform float seaSlopeVar;',
       'float volTerrainLitHit = 0.0;',
       TERRAIN_DIST_GLSL, SUN_RIDGE_DECODE_GLSL,
@@ -673,11 +674,18 @@ export async function createVolumetricScene(
       // 하늘 조도는 수평면(위를 봄) 몫, 해는 원반을 마주한 조도 × 지형 셰이더의 ndl·그림자. 지형은 불투명(알파 1).
       '        if (terrainLitOn > 0.5) {',
       '          vec4 vtLit = texture(terrainLit, uv);',
+      // §156 지형 빛 판은 출력이 둘: 0 = sqrt(알베도)·해 몫, 1 = 하늘빛 몫(AO·반구)·젖음·구름을 뚫은 햇빛(terrainLook.ts).
+      '          vec3 vtAlb = vtLit.rgb * vtLit.rgb;',
+      '          vec4 vtL2 = texture(terrainLit2, uv);',
+      `          float vtAmb = vtL2.r * ${LIT2_AMB_RANGE.toFixed(2)}, vtWet = vtL2.g, vtFill = vtL2.b;`,
       '          vec3 vtP = vCameraPosition + rayDirection * vtKm;',
       '          vec3 vtUp = normalize(vtP);',
       '          vec3 vtSky, vtSkyUnused;',
       '          GetSunAndSkyIrradiance(vtP, vtUp, sunDirection, vtSky);',
       '          vec3 vtSun = GetSunAndSkyIrradiance(vtP, sunDirection, sunDirection, vtSkyUnused);',
+      // 구름 그늘 아래의 하늘빛은 파랗지 않습니다 — takram 은 맑은 하늘의 파란 조도만 알아서, 두꺼운 구름 밑 땅이 청록으로 기울었습니다.
+      // 구름낌(vtL2.a)만큼 하늘빛을 같은 휘도의 중성으로 섞습니다.
+      '          vtSky = mix(vtSky, vec3(dot(vtSky, vec3(0.2126, 0.7152, 0.0722))), 0.75 * vtL2.a);',
       '          vec3 vtRad;',
       '          if (texture(terrainDist, uv).b > 0.5) {',
       // 바다(SeaPlane 쌍둥이, B=1): 수체·바닥·포말 = 알베도 × 수평면 조도(직달 × 구름 그림자), 하늘 되비침 = 거울 방향의
@@ -686,7 +694,8 @@ export async function createVolumetricScene(
       '            float F = 0.02 + 0.98 * pow(1.0 - cosV, 5.0);',
       '            vec3 tRefl;',
       '            vec3 refl = GetSkyRadiance(vtP, reflect(rayDirection, vtUp), 0.0, sunDirection, tRefl);',
-      '            vec3 body = vtLit.rgb * (1.0 / 3.14159265) * (vtSun * max(0.0, dot(vtUp, sunDirection)) * vtLit.a + vtSky);',
+      '            float vtSunH = max(0.0, dot(vtUp, sunDirection));',
+      '            vec3 body = vtAlb * (1.0 / 3.14159265) * (vtSun * vtSunH * (vtLit.a + vtFill) + vtSky);',
       '            vec3 V = -rayDirection;',
       '            vec3 Hh = normalize(V + sunDirection);',
       '            float cosN = max(dot(Hh, vtUp), 1e-3);',
@@ -697,7 +706,26 @@ export async function createVolumetricScene(
       '            vec3 glint = vtSun * vtLit.a * Fg * pg / (4.0 * cosV);',
       '            vtRad = mix(body, refl, F) + glint;',
       '          } else {',
-      '            vtRad = vtLit.rgb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + vtSky);',
+      '            // 해 직달(Lambert × 산·구름 그림자) + 하늘빛과 구름을 뚫은 확산 햇빛(수평면 몫) × 하늘 보임·사면 방향.',
+      '            float vtSunH = max(0.0, dot(vtUp, sunDirection));',
+      '            vtRad = vtAlb * albedoScale * (1.0 / 3.14159265) * (vtSun * vtLit.a + (vtSky + vtSun * vtSunH * vtFill) * vtAmb);',
+      // 젖은 갯벌·모래: 스치는 각일수록 하늘을 비춥니다(물 n=1.33 Schlick — 바다와 같은 식). 물 쪽 되비침과 한 줄로 이어집니다.
+      '            if (vtWet > 0.004) {',
+      '              float wCosV = max(0.02, -dot(rayDirection, vtUp));',
+      '              float wF = 0.02 + 0.98 * pow(1.0 - wCosV, 5.0);',
+      '              vec3 wT;',
+      '              vec3 wRefl = GetSkyRadiance(vtP, reflect(rayDirection, vtUp), 0.0, sunDirection, wT);',
+      '              vtRad = mix(vtRad, wRefl, clamp(wF * vtWet, 0.0, 1.0));',
+      // 해의 되비침(윤슬): 젖은 갯벌은 바다보다 거칠어(경사 분산 0.035) 해 둘레로 넓게 번집니다. 직달 몫에서 Lambert 를 뺀
+      // 산·구름 그림자 몫만 씁니다(평지 가정 — a = ndl·그림자, ndl = sin(해 고도)).
+      '              vec3 wV = -rayDirection;',
+      '              vec3 wH = normalize(wV + sunDirection);',
+      '              float wCosN = max(dot(wH, vtUp), 1e-3);',
+      '              float wTan2 = max(0.0, 1.0 - wCosN * wCosN) / (wCosN * wCosN);',
+      '              float wPg = min(exp(-min(wTan2 / 0.035, 50.0)) / (3.14159265 * 0.035 * pow(wCosN, 4.0)), 220.0);',
+      '              float wFg = 0.02 + 0.98 * pow(1.0 - clamp(dot(wV, wH), 0.0, 1.0), 5.0);',
+      '              vtRad += vtSun * min(vtLit.a / max(vtSunH, 0.05), 1.0) * wFg * wPg / (4.0 * wCosV) * vtWet * 0.5;',
+      '            }',
       '          }',
       '          #if defined(TRANSMITTANCE) || defined(INSCATTER)',
       '          applyTransmittanceInscatter(vtP, min(shadowLength, vtKm), vtRad);',
@@ -751,13 +779,14 @@ export async function createVolumetricScene(
     fx.uniforms.set('terrainDistOn', new Uniform(0));
     fx.uniforms.set('cloudAlphaOut', new Uniform(0));
     fx.uniforms.set('terrainLit', new Uniform(null));
+    fx.uniforms.set('terrainLit2', new Uniform(null));
     fx.uniforms.set('terrainLitOn', new Uniform(0));
     fx.uniforms.set('sunRidgeTex', new Uniform(null));
     fx.uniforms.set('sunRidgeOn', new Uniform(0));
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     fx.setFragmentShader(src);
   }
-  const setTerrainDistance = (tex: Texture | null, lit: Texture | null = null, ridge: Texture | null = null, seaSlope = 0.03) => {
+  const setTerrainDistance = (tex: Texture | null, lit: Texture | null = null, ridge: Texture | null = null, seaSlope = 0.03, lit2: Texture | null = null) => {
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     cu.terrainDistBuffer.value = tex;
     cu.terrainDistOn.value = tex ? 1 : 0;
@@ -765,7 +794,9 @@ export async function createVolumetricScene(
     au.get('terrainDist')!.value = tex;
     au.get('terrainDistOn')!.value = tex ? 1 : 0;
     au.get('terrainLit')!.value = tex ? lit : null;
-    au.get('terrainLitOn')!.value = tex && lit ? 1 : 0;
+    au.get('terrainLit2')!.value = tex ? lit2 : null;
+    // 둘째 출력이 없으면(옛 호출) 지형 빛 판을 끕니다 — 하늘빛 몫을 모르면 알베도를 제대로 못 칠합니다.
+    au.get('terrainLitOn')!.value = tex && lit && lit2 ? 1 : 0;
     au.get('sunRidgeTex')!.value = ridge;
     au.get('sunRidgeOn')!.value = tex && lit && ridge ? 1 : 0;
     au.get('seaSlopeVar')!.value = seaSlope;
