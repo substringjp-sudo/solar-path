@@ -55,6 +55,13 @@ export interface MacroFieldOptions {
   filter?: MacroGenusFilter;
   /** 2차 Barnes 잔차 가중 */
   barnesGamma?: number;
+  /** Barnes 커널 폭 σ_i = max(sigmaMinKm, sigmaFactor × 이웃 간격) */
+  sigmaMinKm?: number;
+  sigmaFactor?: number;
+  /** 띠 넣기 경사: 띠 중심 파장이 λ_res 보다 짧을 때 (λ_res − λ_c)/(fusionRamp·λ_c) 로 0→1 */
+  fusionRamp?: number;
+  /** false 면 잡음 없이 Barnes 장을 그대로 운량으로(RULER-macro 후보 B). 기본 true(V). */
+  noise?: boolean;
 }
 export interface MacroState {
   n: number; cellKm: number; beta: number;
@@ -83,7 +90,8 @@ export interface MacroField {
  * β 사전값·잠금 범위는 **위성 참값**(tools/genus-ruler/macro/sat-quartiles.json, MODIS 진색 3 km 구름 마스크 121 장면, λ 24~96 km)의
  * 사분위 0.86 / 1.25 / 1.50 에서: 문헌의 5/3 은 수분량(연속 장)의 값이고, 0/1 **운량 마스크**는 그보다 완만합니다. 잠금 [0.8, 2.0].
  */
-export const MACRO_DEFAULTS = { n: 256, cellKm: 3, seed: 7, betaPrior: 1.25, edgeWidth: 1.0, barnesGamma: 0.35 };
+/** σ_min 6 km·0.6 배: dev 24 장면에서 4 km·0.45 배는 5·10 km 고리의 표본마다 점 무늬(bullseye)를 남겼고 corr50 0.774 → 0.785(RULER-macro §7). */
+export const MACRO_DEFAULTS = { n: 256, cellKm: 3, seed: 7, betaPrior: 1.25, edgeWidth: 1.0, barnesGamma: 0.35, sigmaMinKm: 6, sigmaFactor: 0.6, fusionRamp: 0.5 };
 export const BETA_MIN = 0.8, BETA_MAX = 2.0;
 /** 콜모고로프 수명: τ(λ) = TAU_REF_MIN · (λ / LAMBDA_REF_KM)^(2/3) */
 export const TAU_REF_MIN = 30, LAMBDA_REF_KM = 10;
@@ -161,10 +169,10 @@ function sampleGrid(F: Float32Array, n: number, cellKm: number, xKm: number, yKm
  * 두 번 지나는 가변 반경 Barnes. 2차는 1차 잔차를 γ 배 좁은 커널로 더합니다(Barnes 1973). 결과는 [0, 1].
  * 표본이 미치지 않는 칸(가중합 0)은 가장 가까운 표본 값 대신 전체 가중 평균으로 채웁니다.
  */
-export function barnesGrid(samples: MacroSample[], n: number, cellKm: number, gamma = MACRO_DEFAULTS.barnesGamma): { grid: Float32Array; lambdaRes: Float32Array; sigma: Float64Array } {
+export function barnesGrid(samples: MacroSample[], n: number, cellKm: number, gamma = MACRO_DEFAULTS.barnesGamma, sigmaMinKm = MACRO_DEFAULTS.sigmaMinKm, sigmaFactor = MACRO_DEFAULTS.sigmaFactor): { grid: Float32Array; lambdaRes: Float32Array; sigma: Float64Array } {
   const spacing = sampleSpacingKm(samples);
   const sigma = new Float64Array(samples.length);
-  for (let i = 0; i < samples.length; i++) sigma[i] = Math.max(4, 0.45 * spacing[i]);
+  for (let i = 0; i < samples.length; i++) sigma[i] = Math.max(sigmaMinKm, sigmaFactor * spacing[i]);
   const vals = new Float64Array(samples.length);
   let mean = 0;
   for (let i = 0; i < samples.length; i++) { vals[i] = Math.min(1, Math.max(0, samples[i].cover)); mean += vals[i]; }
@@ -352,7 +360,7 @@ function genusFilter(f: MacroGenusFilter | undefined, kCyclesPerKm: number, thet
  * 잡음 계수에 진폭 필터를 곱해 띠별 공간 장 Z_j 를 만들고, 자리마다 λ_res 보다 짧은 띠만 더한 뒤 분산 1 로 정규화.
  * 반환 Z(n²), 단위 분산(국소 가중 기준).
  */
-function synthesizeLatent(st: MacroState, lambdaRes: Float32Array, filter: MacroGenusFilter | undefined, out: Float32Array): void {
+function synthesizeLatent(st: MacroState, lambdaRes: Float32Array, filter: MacroGenusFilter | undefined, out: Float32Array, ramp = MACRO_DEFAULTS.fusionRamp): void {
   const n = st.n, L = n * st.cellKm, expo = -(st.beta + 1) / 2;
   const bands = BANDS_KM.length;
   const bandField = new Float32Array(n * n * bands);
@@ -386,7 +394,7 @@ function synthesizeLatent(st: MacroState, lambdaRes: Float32Array, filter: Macro
     let z = 0, v = 0;
     for (let b = 0; b < bands; b++) {
       // 띠 중심 파장이 분해능보다 짧으면 넣음(경계 반 옥타브 완만)
-      const w = Math.min(1, Math.max(0, (lr - centers[b]) / (0.5 * centers[b])));
+      const w = Math.min(1, Math.max(0, (lr - centers[b]) / (ramp * centers[b])));
       if (w <= 0) continue;
       z += w * bandField[b * n * n + i]; v += w * w * bandVar[b];
     }
@@ -401,7 +409,7 @@ export function buildMacroField(samples: MacroSample[], opts: MacroFieldOptions 
   const t0 = Date.now();
   const n = opts.n ?? MACRO_DEFAULTS.n, cellKm = opts.cellKm ?? MACRO_DEFAULTS.cellKm;
   const w = opts.edgeWidth ?? MACRO_DEFAULTS.edgeWidth;
-  const { grid: base, lambdaRes } = barnesGrid(samples, n, cellKm, opts.barnesGamma ?? MACRO_DEFAULTS.barnesGamma);
+  const { grid: base, lambdaRes } = barnesGrid(samples, n, cellKm, opts.barnesGamma ?? MACRO_DEFAULTS.barnesGamma, opts.sigmaMinKm, opts.sigmaFactor);
   const t1 = Date.now();
   const prior = opts.betaPrior ?? MACRO_DEFAULTS.betaPrior;
   const fit = opts.betaFromPriorOnly ? null : fitBeta(base, n, cellKm);
@@ -410,14 +418,15 @@ export function buildMacroField(samples: MacroSample[], opts: MacroFieldOptions 
   if (!st) st = newState(n, cellKm, opts.seed ?? MACRO_DEFAULTS.seed, beta);
   st.beta = beta;
   const Z = new Float32Array(n * n);
-  synthesizeLatent(st, lambdaRes, opts.filter, Z);
+  synthesizeLatent(st, lambdaRes, opts.filter, Z, opts.fusionRamp);
   const lut = muForCover(w);
   const muOf = (c: number) => {
     const fi = Math.min(1, Math.max(0, c)) * (MU_LUT_N - 1), i0 = Math.min(MU_LUT_N - 2, Math.floor(fi)), t = fi - i0;
     return lut[i0] + (lut[i0 + 1] - lut[i0]) * t;
   };
   const cover = new Float32Array(n * n);
-  for (let i = 0; i < n * n; i++) {
+  if (opts.noise === false) cover.set(base);
+  else for (let i = 0; i < n * n; i++) {
     const c = base[i];
     cover[i] = c <= 0.002 ? 0 : c >= 0.998 ? 1 : Math.min(1, Math.max(0, 0.5 + (muOf(c) + Z[i]) / w));
   }

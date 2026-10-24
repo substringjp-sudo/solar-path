@@ -200,7 +200,7 @@ const show = (tex: Texture, mode: number) => {
       // §139 진단: fetch 레인 균일변수(구름·그림자 패스)
       {
         const c = vol.debug.clouds as unknown as { cloudsPass: { currentMaterial: { uniforms: Record<string, { value: unknown }> } }; shadowPass: { currentMaterial: { uniforms: Record<string, { value: unknown }> } } };
-        const dump = (u: Record<string, { value: unknown }>) => Object.fromEntries(['genusUvOn', 'genusTileM', 'genusTiltU', 'genusTiltV', 'genusDriftU', 'genusDriftV', 'genusSkel', 'genusMode'].map(k => {
+        const dump = (u: Record<string, { value: unknown }>) => Object.fromEntries(['genusUvOn', 'genusTileM', 'genusTiltU', 'genusTiltV', 'genusDriftU', 'genusDriftV', 'genusSkel', 'genusMode', 'genusMacroTexOn', 'genusMacroMix', 'genusMacroExtentKm', 'genusMacroDriftU'].map(k => {
           const v = u[k]?.value as { toArray?: () => number[] } | number | undefined;
           return [k, v == null ? null : typeof v === 'number' ? v : (v.toArray ? v.toArray() : v)];
         }));

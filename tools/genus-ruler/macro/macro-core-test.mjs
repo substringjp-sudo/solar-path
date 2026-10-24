@@ -113,6 +113,33 @@ console.log('[6] 잠재 잡음 분산 · [7] 평균 보존');
   ok(rmse <= rmseB + 0.06, `잡음 더한 뒤: RMSE ${rmse.toFixed(3)} ≤ Barnes + 0.06 (잡음은 창 안에서 다 평균되지 않음)`);
   ok(g.ms.total < 400, `시간 ${g.ms.total} ms (barnes ${g.ms.barnes}, synth ${g.ms.synth})`);
 }
+console.log('[8] 문턱 표(macroShader.macroThresholdTable): 목표 운량마다 d > s 면적 = 목표');
+{
+  const B2 = path.join(OUT, 'macroShader.cjs');
+  execFileSync('npx', ['esbuild', path.join(ROOT, 'src/components/VolumetricProbe/macroShader.ts'), '--bundle', '--format=cjs', '--platform=node', '--external:three', `--outfile=${B2}`, '--log-level=warning'], { cwd: ROOT, stdio: 'inherit' });
+  const Module = createRequire(import.meta.url)('node:module');
+  const origLoad = Module._load;
+  Module._load = function (req, ...a) { if (req === 'three') return { DataTexture: class {}, LinearFilter: 0, NoColorSpace: '', ClampToEdgeWrapping: 0, RGBAFormat: 0, UnsignedByteType: 0, Matrix4: class { constructor() { this.elements = new Array(16).fill(0); } }, Vector4: class { set() { return this; } } }; return origLoad.call(this, req, ...a); };
+  const MS = createRequire(import.meta.url)(B2);
+  const S = 64, tile = new Uint8Array(S * S * 4);
+  // 채널 0: 운량 0.6 의 타일(값 1..255 고르게), 채널 1: 운량 0.2
+  const r = (() => { let a = 99; return () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; }; })();
+  for (let i = 0; i < S * S; i++) { tile[i * 4] = r() < 0.6 ? 1 + Math.floor(r() * 255) : 0; tile[i * 4 + 1] = r() < 0.2 ? 1 + Math.floor(r() * 255) : 0; }
+  const area = (ch, sByte) => { let c = 0; for (let i = 0; i < S * S; i++) if (tile[i * 4 + ch] > sByte) c++; return c / (S * S); };
+  let worst = 0;
+  for (const ch of [0, 1]) {
+    const T = MS.macroThresholdTable(tile, S, ch);
+    const cover = area(ch, 0);
+    for (let c = 0; c < MS.MACRO_LUT_N; c++) {
+      const target = c / (MS.MACRO_LUT_N - 1);
+      const got = area(ch, Math.round(T[c] * 255));
+      const want = target >= cover ? cover : target;
+      worst = Math.max(worst, Math.abs(got - want));
+    }
+    ok(T[MS.MACRO_LUT_N - 1] === 0 && T[0] === 1, `채널 ${ch}(운량 ${cover.toFixed(2)}): 표 끝 s(1)=0, s(0)=1`);
+  }
+  ok(worst <= 1 / 255 + 1 / (S * S) * 20, `면적 오차 최대 ${worst.toFixed(4)} (바이트 한 칸 안)`);
+}
 console.log(`\n${pass}/${pass + fail} 통과`);
 fs.rmSync(OUT, { recursive: true, force: true });
 process.exit(fail ? 1 : 0);

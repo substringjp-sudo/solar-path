@@ -16,10 +16,12 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../../..');
-const [sceneDir, outDir, ...rest] = process.argv.slice(2);
+const [sceneDirArg, outDirArg, ...rest] = process.argv.slice(2);
+const sceneDir = sceneDirArg && path.resolve(sceneDirArg), outDir = outDirArg && path.resolve(outDirArg);
 if (!sceneDir || !outDir) { console.error('usage: downscale-run.mjs sceneDir outDir'); process.exit(2); }
 const opt = (k, d) => { const i = rest.indexOf(k); return i >= 0 ? rest[i + 1] : d; };
-const variant = opt('--variant', 'fit'), seed = +opt('--seed', '7'), steps = +opt('--steps', '0');
+const variant = opt('--variant', 'fit'), seed = +opt('--seed', '7'), steps = +opt('--steps', '0'), betaPrior = opt('--beta', null);
+const mopts = { ...(betaPrior != null ? { betaPrior: +betaPrior } : {}), ...JSON.parse(opt('--opts', '{}')) };
 fs.mkdirSync(outDir, { recursive: true });
 const entry = path.join(outDir, 'entry.ts');
 fs.writeFileSync(entry, `export * as M from '${path.join(ROOT, 'src/utils/macroField.ts')}';\nexport * as W from '${path.join(ROOT, 'src/utils/macroWeatherField.ts')}';\n`);
@@ -37,7 +39,7 @@ for (const f of files) {
   const samples = M.samplesFromRing(sc.ring.map(r => ({ distance: r.dist, azimuthOffset: r.az, cover: r.cover * 100 })));
   const n = sc.grid, cellKm = sc.cellKm;
   const t0 = Date.now();
-  const fld = M.buildMacroField(samples, { n, cellKm, seed, betaFromPriorOnly: variant === 'prior' });
+  const fld = M.buildMacroField(samples, { n, cellKm, seed, betaFromPriorOnly: variant === 'prior', ...mopts });
   const ms = Date.now() - t0;
   // C0: 지금 앱 — 관측점 운량 + 기울기(100 km 당) 두 수, [0,1] 로 자름
   const pts = sc.ring.map(r => ({ distance: r.dist, azimuthOffset: r.az, low: r.cover * 100, mid: 0, high: 0 }));
@@ -54,7 +56,7 @@ for (const f of files) {
     out.syn15 = [];
     for (let s = 0; s < steps; s++) {
       M.stepMacroState(fld.state, 15 * 60);
-      const f2 = M.buildMacroField(samples, { n, cellKm, seed, betaFromPriorOnly: variant === 'prior' }, fld.state);
+      const f2 = M.buildMacroField(samples, { n, cellKm, seed, betaFromPriorOnly: variant === 'prior', ...mopts }, fld.state);
       out.syn15.push(u8(f2.cover));
     }
   }
@@ -62,4 +64,4 @@ for (const f of files) {
   summary.push({ name: out.name, beta: out.beta, betaFit: out.betaFit, ms });
   console.log(out.name, 'beta', fld.beta.toFixed(2), 'fit', fld.betaFit == null ? 'null' : fld.betaFit.toFixed(2), 'ms', ms, JSON.stringify(fld.ms));
 }
-fs.writeFileSync(path.join(outDir, 'run.json'), JSON.stringify({ variant, seed, steps, scenes: summary }, null, 1));
+fs.writeFileSync(path.join(outDir, 'run.json'), JSON.stringify({ variant, seed, steps, betaPrior, mopts, scenes: summary }, null, 1));

@@ -147,12 +147,18 @@ def run_gate(sceneDir, synDir, out, group):
         T = truth_grid(sc); S = load_u8(sy['syn'], n); B = load_u8(sy['base'], n); C0 = load_u8(sy['c0'], n)
         ring_fc = np.array([r['cover'] for r in sc['ring']])
         rv = ring_values(S, sc['ring'], n, cell)
+        rvB = ring_values(B, sc['ring'], n, cell); rvT = ring_values(T, sc['ring'], n, cell)
+        # 고리가 닿는 원반(r ≤ 380 km) 안의 평균 — 네 모서리는 고리 밖(예보가 없는 곳)
+        yy, xx = np.mgrid[0:n, 0:n]
+        disc = ((xx + 0.5) * cell - n * cell / 2) ** 2 + ((yy + 0.5) * cell - n * cell / 2) ** 2 <= 380 ** 2
         k50 = int(round(50 / cell)); k12 = int(round(12 / cell))
         c = n // 2; h = int(90 / cell)
         sl = (slice(c - h, c + h), slice(c - h, c + h))
         row = {'name': name, 'group': g, 'cover': float(T.mean()), 'betaTrue': beta_of(T, cell), 'betaSyn': beta_of(S, cell), 'betaFit': sy.get('betaFit'), 'betaUsed': sy['beta'],
                'betaC0': beta_of(C0, cell),
-               'ringRmse': float(np.sqrt(((rv - ring_fc) ** 2).mean())), 'meanErr': float(S.mean() - T.mean()),
+               'ringRmse': float(np.sqrt(((rv - ring_fc) ** 2).mean())), 'ringRmseBase': float(np.sqrt(((rvB - ring_fc) ** 2).mean())),
+               'ringRmseTrue': float(np.sqrt(((rvT - ring_fc) ** 2).mean())),
+               'meanErr': float(S.mean() - T.mean()), 'meanErrDisc': float(S[disc].mean() - T[disc].mean()), 'meanErrBaseDisc': float(B[disc].mean() - T[disc].mean()),
                'corr50Syn': corr(box_mean(S, k50), box_mean(T, k50)), 'corr50Base': corr(box_mean(B, k50), box_mean(T, k50)), 'corr50C0': corr(box_mean(C0, k50), box_mean(T, k50)),
                'corr12Syn': corr(box_mean(S, k12)[sl], box_mean(T, k12)[sl]), 'corr12C0': corr(box_mean(C0, k12)[sl], box_mean(T, k12)[sl]),
                'partialSyn': float(((S > 0.1) & (S < 0.9)).mean()), 'partialTrue': float(((T > 0.1) & (T < 0.9)).mean()),
@@ -192,10 +198,14 @@ def gates(rows):
         g[name] = {'pass': sum(1 for v in vals if v), 'n': len(vals)}
     frac('G1 betaSyn in [betaTrue-0.35, betaTrue+0.35]', lambda r: None if r['betaTrue'] is None or r['betaSyn'] is None else abs(r['betaSyn'] - r['betaTrue']) <= 0.35)
     frac('G2 ringRmse <= 0.08', lambda r: r['ringRmse'] <= 0.08)
+    frac("G2' ringRmse <= ringRmseBase + 0.04 (dev 뒤 수정: 참값 자체의 창 평균도 표본과 다름 — ringRmseTrue 가 바닥)", lambda r: r['ringRmse'] <= r['ringRmseBase'] + 0.04)
     frac('G3 |meanErr| <= 0.03', lambda r: abs(r['meanErr']) <= 0.03)
+    frac("G3' |meanErrDisc| <= 0.03 (dev 뒤 수정: 고리 밖 모서리 제외)", lambda r: abs(r['meanErrDisc']) <= 0.03)
+    frac("G3'' |meanErrDisc - meanErrBaseDisc| <= 0.015 (dev 뒤 수정: 잡음이 Barnes 가 뜻하는 평균을 안 바꿈 — 참값과의 차는 90 점 표본의 몫)", lambda r: abs(r['meanErrDisc'] - r['meanErrBaseDisc']) <= 0.015)
     frac('G4 corr50Syn >= corr50C0 + 0.10', lambda r: r['corr50Syn'] >= r['corr50C0'] + 0.10)
     frac('G5 corr50Syn >= 0.60', lambda r: r['corr50Syn'] >= 0.60)
     frac('G6 band ratios 6/12/24 in [0.5, 2.0]', lambda r: all(r[f'band{b}'] is not None and 0.5 <= r[f'band{b}'] <= 2.0 for b in (6, 12, 24)))
+    frac("G6' band ratios 12/24 in [0.5, 2.0] (dev 뒤 수정: 6–12 km 는 참값의 3 km 칸 평균(sinc² 0.4~0.8)이 깎음)", lambda r: all(r[f'band{b}'] is not None and 0.5 <= r[f'band{b}'] <= 2.0 for b in (12, 24)))
     frac('G7 partialSyn <= partialTrue + 0.15', lambda r: r['partialSyn'] <= r['partialTrue'] + 0.15)
     frac('G8 rangeBad == 0', lambda r: r['rangeBad'] == 0)
     frac('G9 ms <= 400', lambda r: r['ms'] <= 400)
