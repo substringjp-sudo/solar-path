@@ -12,6 +12,7 @@ import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import { GENUS, type GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
+import { aerosolOpticsFromObs } from '../../utils/sunVisibility';
 import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { lclBaseKm, type ThermoInput } from './cloudPhysics';
 
@@ -110,18 +111,11 @@ import { buildMacroWeatherField } from '../../utils/macroWeatherField';
  */
 export const HAZE_BACKGROUND_AOD = 0.12;
 export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number }): HazeInput | undefined {
-  const ok = (v: number | undefined): v is number => v != null && Number.isFinite(v) && v >= 0;
-  let aod: number | null = null;
-  if (ok(o.aod550)) aod = o.aod550;
-  else if (ok(o.pm25) || ok(o.pm10)) aod = (o.pm25 ?? 0) * 0.012 + Math.max(0, (o.pm10 ?? 0) - (o.pm25 ?? 0)) * 0.004;
-  else if (ok(o.visibility) && o.visibility > 0 && o.visibility < 30000) aod = (3.912 / (o.visibility / 1000)) * 1.5;
-  if (aod == null) return undefined;
-  const extra = aod - HAZE_BACKGROUND_AOD;
+  const op = aerosolOpticsFromObs(o);
+  if (!op) return undefined;
+  const extra = op.aod - HAZE_BACKGROUND_AOD;
   if (extra < 0.02) return undefined;
-  const fine = ok(o.pm25) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.pm25 / o.pm10) : 0.6;
-  const dustShare = ok(o.dust) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.dust / o.pm10) : 0;
-  const f = fine * (1 - dustShare);
-  return { aod: Math.min(3, extra), alpha: clamp(0.3 + 1.1 * f, 0.3, 1.6), g: 0.62 + 0.18 * (1 - f), omega: 0.93 + 0.05 * (1 - f) };
+  return { aod: Math.min(3, extra), alpha: op.alpha, g: op.g, omega: op.omega };
 }
 
 export function buildLiveScene(a: LiveSceneArgs): LiveScene {
