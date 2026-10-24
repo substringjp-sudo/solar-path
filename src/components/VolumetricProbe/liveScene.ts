@@ -13,6 +13,7 @@ import { GENUS, type GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
 import { aerosolOpticsFromObs } from '../../utils/sunVisibility';
+import { cloudOpticalDepthFromDni } from '../../utils/dniOpticalDepth';
 import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { lclBaseKm, type ThermoInput } from './cloudPhysics';
 
@@ -110,6 +111,10 @@ import { buildMacroWeatherField } from '../../utils/macroWeatherField';
  * 먼지·조대 입자가 많으면 지수가 작고(하얗게 흐림) 해 둘레가 넓게 번집니다.
  */
 export const HAZE_BACKGROUND_AOD = 0.12;
+/** §158 DNI 광학두께 문턱: 이 위면 상층 100 % 를 권운이 아닌 시트(cs)로, 더 두꺼우면 중층도 고층운(as)으로. */
+export const DNI_VEIL_TAU = 1.5;
+export const DNI_SHEET_TAU = 3;
+export const DNI_VEIL_MAX_DENSITY = 0.07;
 export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
@@ -178,6 +183,16 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
 
   const layers: VolumetricLayerInput[] = [];
   let anvil: VolumetricLayerInput | null = null;
+  /**
+   * §158 직달일사(DNI)가 말하는 구름 두께. 운량 규칙은 상층 100 % 를 얇은 권운으로, 중층을 고적운으로 그리는데 DNI 가 맑은 날의 5 % 아래면
+   * (해가 가려짐) 그 층은 두꺼운 **시트**입니다 — 상층 ci → cs(소광을 τ 에 맞춤), 중층 ac → as. 10/24 서울 "상층 100 %·DNI 29 W/m²"
+   * 가 맑게 그려진 일에서. 하네스로 잰 cs 소광 ↔ 아래에서 본 불투명도: τ_render ≈ 57 × densityScale(1000 m 층) → densityScale = τ/57.
+   */
+  const tauDni = cloudOpticalDepthFromDni(obs.directNormalIrradiance, sunAltDeg, obs.aod550);
+  const thickVeil = tauDni != null && tauDni >= DNI_VEIL_TAU;
+  const promoteHigh = thickVeil && forecast.high === 'ci' && obs.high >= 80;
+  // 상층이 두꺼운 시트를 다 맡으면 중층은 그대로; 상층이 모자라면(80 % 미만) 중층 50 % 이상을 고층운으로.
+  const promoteMid = thickVeil && tauDni! >= DNI_SHEET_TAU && forecast.mid === 'ac' && obs.mid >= 50 && !(promoteHigh && obs.high >= 95);
   // §136 적운류 밑면 = 지면 + 응결고도(물리를 켰을 때만 volumetricScene 이 씀). 지상 이슬점이 없으면 없음.
   const thermo = thermoOf(obs, a.heightM);
   const lclKm = lclBaseKm(thermo);
@@ -207,17 +222,23 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
-    layers.push({ genus: renderGenusFor(forecast.mid), cover: forecast.mid === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
+    const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid);
+    layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
     const centerKm = obs.layerAltHighKm ?? FALLBACK_ALT_KM.high;
-    layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: flowOpts('high') });
+    if (promoteHigh) {
+      const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, tauDni! / 57));
+      layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
+    } else {
+      layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: flowOpts('high') });
+    }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
   if (anvil) layers.push(anvil);
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(forecast.mid, obs.mid)} · 상 ${name(forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%`;
+  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}` : ''}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
   const ringPts = interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset));
