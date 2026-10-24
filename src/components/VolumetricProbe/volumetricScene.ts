@@ -52,6 +52,8 @@ import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
 import { patchFlowShader, setFlowUniforms, setGenusDrift, setSkeletonTilt } from './cloudFlowShader';
+import { makeMacroLutTexture, makeMacroTexture, macroThresholdTable, patchMacroShader, setMacroDrift, setMacroMix, setMacroUniforms } from './macroShader';
+import { buildMacroField, samplesFromRing, stepMacroState, type MacroField, type MacroSample, type MacroState } from '../../utils/macroField';
 import { TERRAIN_DIST_GLSL } from '../SkyScene3D/SceneComposer';
 import { SUN_RIDGE_DECODE_GLSL } from '../SkyScene3D/TerrainField';
 
@@ -119,7 +121,13 @@ export interface VolumetricSceneInput {
   thermo?: ThermoInput;
   /** §146 에어로졸(미세먼지·연무) 추가 흐림 — 대기 표에 없는 만큼(배경 AOD 초과분)만. 없으면 끔. */
   haze?: HazeInput;
+  /**
+   * §156 거시 운량 격자 입력 — 관측점 둘레 고리 예보(거리 km·방위 북 0° 시계방향·운량 0~1)를 층 띠마다. 옵션 `macro` 가 0 이면 무시.
+   * 타일 운량은 그 띠 표본의 상위 분위수(150 km 안)로 올려 잡고, 셰이더가 자리마다 문턱으로 깎습니다(macroShader).
+   */
+  macro?: Partial<Record<'low' | 'mid' | 'high', MacroRingPoint[]>>;
 }
+export interface MacroRingPoint { distance: number; azimuthOffset: number; cover: number }
 
 /**
  * §146 연무. 높이 H=1.5 km 로 지수 감쇠하는 에어로졸 층의 시선 광학두께로 하늘·구름·지형을 뿌옇게 합니다.
@@ -373,12 +381,16 @@ export interface VolumetricOptions {
    * 스커트 없음 — cloudSkeleton.VARY). cu·cg·sc 층만, flow 와 함께 쓰면 throw.
    */
   skeleton: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /** §156 거시 운량 격자: 0 끔 · 1 Barnes 만(RULER-macro 후보 B) · 2 스펙트럼 잡음까지(V). 입력 `macro` 가 있어야 켜집니다. */
+  macro: 0 | 1 | 2;
+  /** 거시 격자 변(2 의 거듭제곱). 768 km 를 덮으므로 128 = 6 km 칸. */
+  macroN: number;
   /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
   skeletonTiltScale: number;
   /** §141 진단: 모든 종류 층의 밀도 단면 밑면 값을 이 값으로(null 이면 종류별 GENUS.profileBase 또는 takram 0.25). */
   profileBase: number | null;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -785,6 +797,8 @@ export async function createVolumetricScene(
   // §130 흐름 모형 셰이더(연속 밀도·층별 fetch) — 종류 패치 직후, 두 패스 모두. 레인이 0 이면 화소 단위로 이전과 같습니다.
   patchFlowShader(clouds.cloudsPass.currentMaterial as never);
   patchFlowShader(clouds.shadowPass.currentMaterial as never);
+  patchMacroShader(clouds.cloudsPass.currentMaterial as never);
+  patchMacroShader(clouds.shadowPass.currentMaterial as never);
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
@@ -819,6 +833,36 @@ export async function createVolumetricScene(
   let weatherMs = 0;
   // §130 C3 층별 드리프트 — 장면을 건 층·시각(setDate 가 경과 시간만큼 uv 를 밈).
   let genLayers: (GenusLayer | null)[] = [], genDate: Date | null = null, genUv = false;
+  /**
+   * §156 거시 격자 상태 — 띠마다 표본·잡음 상태·장, 텍스처 두 장(A 이전 → B 지금, 1 분에 한 번 갈아 끼우며 mix 로 섞음), 문턱 표.
+   */
+  type MacroBand = 'low' | 'mid' | 'high';
+  let macro: {
+    samples: Partial<Record<MacroBand, MacroSample[]>>; states: Partial<Record<MacroBand, MacroState>>; fields: Partial<Record<MacroBand, MacroField>>;
+    texA: DataTexture; texB: DataTexture; lut: DataTexture; laneBand: Array<MacroBand | null>; n: number; extentKm: number;
+    lastSec: number | null;
+  } | null = null;
+  const MACRO_STEP_SEC = 60;
+  const disposeMacro = () => {
+    if (!macro) return;
+    macro.texA.dispose(); if (macro.texB !== macro.texA) macro.texB.dispose(); macro.lut.dispose();
+    macro = null;
+  };
+  const macroBuildFields = (m: NonNullable<typeof macro>, noise: boolean) => {
+    for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
+      const sm = m.samples[b]; if (!sm) continue;
+      const fld = buildMacroField(sm, { n: m.n, cellKm: m.extentKm / m.n, noise }, m.states[b] ?? null);
+      m.fields[b] = fld; m.states[b] = fld.state;
+    }
+    return makeMacroTexture(m.n, { low: m.fields.low?.cover, mid: m.fields.mid?.cover, high: m.fields.high?.cover });
+  };
+  /** 띠 표본의 150 km 안 상위 분위수(p75) — 타일 운량을 이만큼 올려 잡아 셰이더 문턱이 깎을 여지를 둡니다. */
+  const macroTileCover = (pts: MacroRingPoint[] | undefined, cover: number) => {
+    if (!pts || pts.length < 12) return cover;
+    const near = pts.filter(q => q.distance <= 150).map(q => Math.min(1, Math.max(0, q.cover))).sort((a, b) => a - b);
+    if (near.length < 6) return cover;
+    return Math.max(cover, near[Math.min(near.length - 1, Math.floor(near.length * 0.75))]);
+  };
   /** §155 하늘 화면이 준 드리프트 시각(초) — `setDate` 의 두 번째 인자. 없으면 씬 시각. */
   let driftSecOverride: number | null = null;
   /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
@@ -879,11 +923,12 @@ export async function createVolumetricScene(
   // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
   const weatherCache = new Map<string, DataTexture>();
   const WEATHER_CACHE_SIZE = 8;
+  const bandOfInput = (L: VolumetricLayerInput): MacroBand => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
   const weatherPlan = (p: VolumetricSceneInput, isFast = false) => {
     const S = isFast ? 128 : 256;
     const quantStep = isFast ? 0.05 : 0.01;
     const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) / quantStep) * quantStep;
-    const inputs = p.layers.slice(0, 4);
+    const inputs = p.layers.slice(0, 4).map(L => (opt.macro > 0 && p.macro ? { ...L, cover: macroTileCover(p.macro[bandOfInput(L)], L.cover) } : L));
     const useFlow = opt.flow && opt.genus;
     const gl: (GenusLayer | null)[] = inputs.map((L, i) => {
       if (!L.genus || !(L.cover > 0)) return null;
@@ -1009,12 +1054,37 @@ export async function createVolumetricScene(
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
+        // 거시 격자는 표본 시각(장면 시각)에 자리가 맞으므로 그때부터 흐른 시간만큼만(km, 감싸지 않음)
+        setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
         if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
         const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
+      // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
+      disposeMacro();
+      if (opt.macro > 0 && p.macro) {
+        const samples: Partial<Record<MacroBand, MacroSample[]>> = {};
+        for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
+          const pts = p.macro[b];
+          if (pts && pts.length >= 12) samples[b] = samplesFromRing(pts.map(q => ({ distance: q.distance, azimuthOffset: q.azimuthOffset, cover: q.cover * 100 })));
+        }
+        if (Object.keys(samples).length) {
+          const n = opt.macroN, extentKm = 768;
+          const laneBand = [0, 1, 2, 3].map(i => (inputs[i] ? bandOfInput(inputs[i]) : null));
+          const m: NonNullable<typeof macro> = { samples, states: {}, fields: {}, texA: null as unknown as DataTexture, texB: null as unknown as DataTexture, lut: null as unknown as DataTexture, laneBand, n, extentKm, lastSec: driftSecOverride };
+          const tex0 = macroBuildFields(m, opt.macro === 2);
+          m.texA = tex0; m.texB = tex0;
+          const S = tex.image.width;
+          m.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && samples[laneBand[i]!] ? macroThresholdTable(tex.image.data as Uint8Array, S, i) : null)));
+          macro = m;
+          for (const mm of genusMats) setMacroUniforms(mm, { texA: m.texA, texB: m.texB, mix: 0, extentKm, laneBand, lut: m.lut });
+        }
+      }
+      if (!macro) for (const mm of genusMats) setMacroUniforms(mm, null);
     } else {
+      disposeMacro();
+      for (const mm of genusMats) setMacroUniforms(mm, null);
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
       for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
@@ -1094,7 +1164,23 @@ export async function createVolumetricScene(
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
     if (genLayers) {
       const driftSec = driftSecOverride ?? date.getTime() / 1000;
-      for (const m of genusMats) setGenusDrift(m, genLayers, driftSec, GENUS_TILE_KM);
+      const macroSec = driftSec - (genDate ?? date).getTime() / 1000;
+      for (const m of genusMats) { setGenusDrift(m, genLayers, driftSec, GENUS_TILE_KM); setMacroDrift(m, genLayers, macroSec); }
+      // §156 거시 격자 시간 걸음(AR(1)) — 1 분마다 새 장을 B 에, 이전 B 를 A 로; 그 사이는 mix 로 섞습니다. 잡음 없는 모드(1)는 걸음이 없습니다.
+      if (macro && opt.macro === 2) {
+        if (macro.lastSec == null) macro.lastSec = driftSec;
+        const elapsed = driftSec - macro.lastSec;
+        if (elapsed >= MACRO_STEP_SEC || elapsed < 0) {
+          const dt = Math.min(3600, Math.max(0, elapsed));
+          for (const b of ['low', 'mid', 'high'] as MacroBand[]) { const st = macro.states[b]; if (st) stepMacroState(st, dt); }
+          const next = macroBuildFields(macro, true);
+          if (macro.texA !== macro.texB) macro.texA.dispose();
+          macro.texA = macro.texB; macro.texB = next; macro.lastSec = driftSec;
+          for (const m of genusMats) setMacroUniforms(m, { texA: macro.texA, texB: macro.texB, mix: 0, extentKm: macro.extentKm, laneBand: macro.laneBand, lut: macro.lut });
+        } else {
+          for (const m of genusMats) setMacroMix(m, elapsed / MACRO_STEP_SEC);
+        }
+      }
     }
     const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
     applyHaze(lastInput.haze);
@@ -1165,6 +1251,7 @@ export async function createVolumetricScene(
       viewH = h; updateLod();
     },
     dispose: () => {
+      disposeMacro();
       disposed = true;
       composer.dispose();
       clouds.dispose();
