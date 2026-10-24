@@ -37,6 +37,7 @@ import {
   CLOUD_SHADOW_GLSL, CLOUD_SHADOW_HALF_M, createOpenSkyShadowTexture,
 } from '../../utils/cloudShadowMap';
 import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './SceneComposer';
+import { LIT2_ENCODE_GLSL, bindTerrainLook, makeTerrainLookUniforms } from './terrainLook';
 
 /**
  * 바다 격자가 뻗는 거리 (m).
@@ -272,6 +273,7 @@ void main() {
  */
 export const SEA_FRAG = /* glsl */ `
 precision highp float;
+${DEM_GLSL}
 ${TERRAIN_DIST_GLSL}
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
@@ -293,12 +295,19 @@ uniform vec3  uHazeRadiance;
 uniform float uAerial;
 uniform float uFresnel;       // 0 이면 하늘 되비침을 끕니다 (기하 판정용)
 uniform float uShoreOverlapM;  // 물가에서 겹쳐 그릴 폭 (m)
+uniform float uShoreLegacy;    // 1 이면 옛 물가 규칙 (정점 셰이더와 같은 값)
+uniform float uShoreMode;      // §157 수심·포말 — 0 정점 보간(예전) · 1 화소마다 자료에서 (TerrainField 와 같은 값)
 uniform float uSlopeVar;      // Cox-Munk 파면 경사 분산 σ² = 0.003 + 0.00512·U
 uniform float uGlitter;       // 0 이면 윤슬을 끕니다 (대조 판정용)
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uOzoneDU;
+uniform float uLookFill;      // §157 구름을 뚫은 햇빛 몫(terrainLook.ts) — 지형과 같은 값
+#ifdef SEA_LIT_OUT
+layout(location = 1) out highp vec4 pc_fragColor1;
+${LIT2_ENCODE_GLSL}
+#endif
 varying float vDistM;
 varying float vDepthM;
 varying float vWater;
@@ -331,10 +340,6 @@ void main() {
   // 그 자리를 그대로 이어받습니다. 삼각형이 물가를 걸치면 0.5 등고선이
   // 경계가 되고, 그건 땅 격자가 vElevM <= 0 에서 버리는 자리와 같습니다.
   if (vWater < 0.5) discard;
-
-  // 왕복 경로라 수심의 두 배를 지납니다.
-  vec3 thru = exp(-SEA_ABSORB * 2.0 * clamp(vDepthM, 0.0, 40.0));
-
 #ifdef SEA_DIST_OUT
   // §129 지형 거리 판에 바다도 적습니다 — B = 1 이 "바다" 표시(볼륨 하늘이 이 화소에 하늘 되비침을 칠함).
   vec4 seaDist = terrainDistEncode(vDistM / 1000.0);
@@ -342,15 +347,37 @@ void main() {
   gl_FragColor = seaDist;
   return;
 #endif
+  // §157 **수심·바닥 기울기(포말)는 화소마다 자료에서 읽습니다** — 어디를 그릴지(위)는 그대로 두고 칠하는 값만.
+  //   정점(격자 살 간격 25~74m)에서 읽은 값을 보간하면 포말·바닥 비침이 **삼각형 모양 그대로의 얼룩**이 됩니다(못 안의 흰 판·
+  //   파란 상자). dem_shoreField 의 B-스플라인 흐린 고도(수심)·기울기(포말 폭)는 15m 자료 그대로 C2 로 이어집니다.
+  //   물가에서 어디를 그릴지까지 화소마다 가르는 것은 해 봤다가 접었습니다 — 지형 지오메트리와 어긋나 구멍이 납니다
+  //   (TerrainField 의 같은 주석 · COASTLINE_PLAN 13절).
+  float depthM = vDepthM;
+  float bedSlope = vBedSlope;
+  if (uShoreMode > 0.5 && uDemValid > 0.5 && dem_inside(vGround.xz) > 0.5) {
+    float hbS; vec2 grS;
+    float hsS = dem_shoreField(vGround.xz, hbS, grS);
+    // 정점 셰이더의 식(위 main 의 수심 주석)과 같은 뜻입니다.
+    bedSlope = length(grS);
+    float trust = smoothstep(0.0, 0.002, bedSlope);
+    if (uShoreLegacy > 0.5) { depthM = hsS < 0.0 ? -hsS : 999.0; bedSlope = 1.0; }
+    else depthM = mix(30.0, max(0.0, -hsS), trust);
+  }
+
+  // 왕복 경로라 수심의 두 배를 지납니다.
+  vec3 thru = exp(-SEA_ABSORB * 2.0 * clamp(depthM, 0.0, 40.0));
+
 #ifdef SEA_LIT_OUT
   // §129 볼륨 하늘 — 색 대신 수체·바닥·포말의 알베도(rgb)와 구름 그림자(a, 직달 몫). 하늘 되비침(프레넬)·윤슬·
   // 대기 원근·노출은 takram 이 하늘과 같은 값으로 계산합니다(이전 대기 모형의 되비침은 박명에 하늘과 다른 색이었음).
   {
     float fd = max(0.02, uFoamDepthM);
-    float fg = clamp(40.0 / (fd / max(vBedSlope, 1e-5)), 0.0, 1.0);
-    float fm = (1.0 - smoothstep(0.0, fd, vDepthM)) * fg;
-    gl_FragColor = vec4(clamp(mix(uWaterAlbedo + uBedAlbedo * thru, vec3(0.70, 0.71, 0.72), fm), 0.0, 1.0),
-                        cloudShadowAt(vGround.xz));
+    float fg = clamp(40.0 / (fd / max(bedSlope, 1e-5)), 0.0, 1.0);
+    float fm = (1.0 - smoothstep(0.0, fd, depthM)) * fg;
+    float seaCloudT = cloudShadowAt(vGround.xz);
+    // §157 알베도는 sqrt 로 적습니다(지형과 같은 규약 — TerrainField 주석). 하늘빛 몫 1(열린 바다) · 젖음 0(바다는 자기 되비침이 있음).
+    gl_FragColor = vec4(sqrt(clamp(mix(uWaterAlbedo + uBedAlbedo * thru, vec3(0.70, 0.71, 0.72), fm), 0.0, 1.0)), seaCloudT);
+    pc_fragColor1 = lit2Encode(1.0, 0.0, (1.0 - seaCloudT) * uLookFill, 1.0 - seaCloudT);
     return;
   }
 #endif
@@ -447,9 +474,9 @@ void main() {
   // 기준 폭 40m 는 잔파도의 쇄파대 폭입니다. 가파른 해변(기울기 0.05)이면
   // 띠가 10m 라 그대로 1, 갯벌(0.0005)이면 1000m 라 0.04 로 잦아듭니다.
   float foamDepth = max(0.02, uFoamDepthM);
-  float surfWidthM = foamDepth / max(vBedSlope, 1e-5);
+  float surfWidthM = foamDepth / max(bedSlope, 1e-5);
   float foamGain = clamp(40.0 / surfWidthM, 0.0, 1.0);
-  float foam = (1.0 - smoothstep(0.0, foamDepth, vDepthM)) * foamGain;
+  float foam = (1.0 - smoothstep(0.0, foamDepth, depthM)) * foamGain;
   col = mix(col, uSurfaceIrr * vec3(0.70, 0.71, 0.72), foam);
 
   if (uAerial > 0.5) {
@@ -520,11 +547,13 @@ export function createSeaPlane(opts: {
       uSlopeVar: { value: 0.003 + 0.00512 * 5.5 },
       // TerrainField 의 같은 이름 유니폼과 **같은 값**이어야 합니다.
       uShoreOverlapM: { value: 3 },
+      uShoreMode: { value: 1 },
       uGlitter: { value: 1.0 },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
       uElevScale: { value: 1.0 },
       uOzoneDU: { value: 330 },
+      ...makeTerrainLookUniforms(),
       ...makeTuningUniforms(),
     },
     vertexShader: SEA_VERT,
@@ -538,6 +567,8 @@ export function createSeaPlane(opts: {
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
+
+  const unbindLook = bindTerrainLook(material.uniforms);
 
   const mesh = new THREE.Mesh(
     createConcentricGeometry(
@@ -580,6 +611,7 @@ export function createSeaPlane(opts: {
       material.dispose();
       (distMesh.material as THREE.Material).dispose();
       (litMesh.material as THREE.Material).dispose();
+      unbindLook();
     },
   };
 }

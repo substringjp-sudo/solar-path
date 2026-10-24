@@ -384,6 +384,52 @@ float ${p}_elevationDespiked(vec2 groundM) {
 }
 
 /**
+ * **물가 근처를 칠하는 값** (§157) — 열여섯 화소(4×4)를 한 번 읽어 세 가지를 냅니다.
+ *
+ *   반환  hs   3차 B-스플라인으로 **흐린 고도** (m) — C2 라 화소 계단이 없습니다.
+ *   out   hb   같은 화소 넷의 쌍선형 고도 (m) — 흐리지 않은 값.
+ *   out   grad 흐린 고도의 기울기 (m/m, x = 동 · y = 남) — 바닥 기울기(포말 폭)가 씁니다.
+ *
+ * ## 왜 필요한가
+ *
+ * 지형·해수면 격자는 정점에서만 고도를 읽고, 젖은 띠·수심·바닥 기울기(포말)는 그 값을 삼각형 안에서 **보간**했습니다.
+ * 격자 살 간격이 25~74m 라 경계와 포말·바닥 비침이 **삼각형 모양 그대로의 얼룩**(못 안의 흰 판·파란 상자 — 실기에서
+ * "면으로 모델링한 것 같다·뒤틀렸다" 로 본 것)이 됩니다. 자료는 15m 입니다 — 그래서 **칠하는 값**을 화소마다 읽습니다.
+ *
+ * ## 하지 않는 것 — 어디를 그릴지(물가선)를 화소마다 가르는 것
+ *
+ * 해 봤고 접었습니다. 정점 고도(지오메트리)와 화소마다 읽은 고도가 어긋나는 곳에서, 낮은 눈높이의 스치는 시선(눈 2.8m 에
+ * 1km 앞이면 각 0.16°)이 지형이 버린 자리를 해수면이 못 덮는 **가는 구멍**을 냅니다 — 높이 1m 어긋남이 시선을 따라
+ * 360m 어긋나기 때문입니다(disc-horizon 바닷가: 정점 규칙 0화소 → 화소마다 가르면 134~184화소, 방위 225° 한 줄).
+ * 물가선은 지오메트리와 같은 규칙(정점 고도 ≤ 0)이어야 구멍이 안 납니다.
+ *
+ * ## 왜 쌍선형이 아니라 흐린 고도인가
+ *
+ * 쌍선형 고도는 자료의 **화소 단위 요철을 그대로** 따라갑니다(1m 계단 자료에서 상자·톱니 모양, COASTLINE_PLAN 10.5 ·
+ * verify-shore-sdf). 3차 B-스플라인은 C2 라 경계가 꺾이지 않고 화소 하나짜리 톱니·섬을 평균으로 녹입니다.
+ */
+float ${p}_shoreField(vec2 groundM, out float hb, out vec2 grad) {
+  vec4 k = ${p}_cell(${p}_uv(groundM));
+  vec2 i = k.xy;
+  vec4 wx = ${p}_bs(k.z), dwx = ${p}_bsD(k.z);
+  vec4 wy = ${p}_bs(k.w), dwy = ${p}_bsD(k.w);
+  // 열여섯 화소의 고도 — 행 a·b·c·d = 화소 y −1·0·+1·+2, 열 0·1·2·3 = 화소 x −1·0·+1·+2.
+  vec4 ha = vec4(${p}_elevTexel(i + vec2(-1.0, -1.0)), ${p}_elevTexel(i + vec2(0.0, -1.0)),
+                 ${p}_elevTexel(i + vec2( 1.0, -1.0)), ${p}_elevTexel(i + vec2(2.0, -1.0)));
+  vec4 hr = vec4(${p}_elevTexel(i + vec2(-1.0,  0.0)), ${p}_elevTexel(i + vec2(0.0,  0.0)),
+                 ${p}_elevTexel(i + vec2( 1.0,  0.0)), ${p}_elevTexel(i + vec2(2.0,  0.0)));
+  vec4 hc = vec4(${p}_elevTexel(i + vec2(-1.0,  1.0)), ${p}_elevTexel(i + vec2(0.0,  1.0)),
+                 ${p}_elevTexel(i + vec2( 1.0,  1.0)), ${p}_elevTexel(i + vec2(2.0,  1.0)));
+  vec4 hd = vec4(${p}_elevTexel(i + vec2(-1.0,  2.0)), ${p}_elevTexel(i + vec2(0.0,  2.0)),
+                 ${p}_elevTexel(i + vec2( 1.0,  2.0)), ${p}_elevTexel(i + vec2(2.0,  2.0)));
+  hb = ${p}_bilerp(hr.y, hr.z, hc.y, hc.z, k.zw);
+  vec4 rowV = vec4(dot(ha, wx),  dot(hr, wx),  dot(hc, wx),  dot(hd, wx));
+  vec4 rowD = vec4(dot(ha, dwx), dot(hr, dwx), dot(hc, dwx), dot(hd, dwx));
+  grad = vec2(dot(rowD, wy), dot(rowV, dwy)) / (u${U}SpanM / 256.0);
+  return dot(rowV, wy);
+}
+
+/**
  * 블록 **밖**은 같은 방위의 가장자리 값으로 잇습니다 — "마지막으로 본 것이
  * 계속된다". 모르는 곳을 0m(=물)로 두는 것보다 훨씬 덜 틀립니다.
  */

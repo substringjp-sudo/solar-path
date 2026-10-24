@@ -111,7 +111,7 @@ import { buildMacroWeatherField } from '../../utils/macroWeatherField';
  * 먼지·조대 입자가 많으면 지수가 작고(하얗게 흐림) 해 둘레가 넓게 번집니다.
  */
 export const HAZE_BACKGROUND_AOD = 0.12;
-/** §157 DNI 광학두께 문턱: 이 위면 상층 100 % 를 권운이 아닌 시트(cs)로, 더 두꺼우면 중층도 고층운(as)으로. */
+/** §158 DNI 광학두께 문턱: 이 위면 상층 100 % 를 권운이 아닌 시트(cs)로, 더 두꺼우면 중층도 고층운(as)으로. */
 export const DNI_VEIL_TAU = 1.5;
 export const DNI_SHEET_TAU = 3;
 export const DNI_VEIL_MAX_DENSITY = 0.07;
@@ -184,7 +184,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const layers: VolumetricLayerInput[] = [];
   let anvil: VolumetricLayerInput | null = null;
   /**
-   * §157 직달일사(DNI)가 말하는 구름 두께. 운량 규칙은 상층 100 % 를 얇은 권운으로, 중층을 고적운으로 그리는데 DNI 가 맑은 날의 5 % 아래면
+   * §158 직달일사(DNI)가 말하는 구름 두께. 운량 규칙은 상층 100 % 를 얇은 권운으로, 중층을 고적운으로 그리는데 DNI 가 맑은 날의 5 % 아래면
    * (해가 가려짐) 그 층은 두꺼운 **시트**입니다 — 상층 ci → cs(소광을 τ 에 맞춤), 중층 ac → as. 10/24 서울 "상층 100 %·DNI 29 W/m²"
    * 가 맑게 그려진 일에서. 하네스로 잰 cs 소광 ↔ 아래에서 본 불투명도: τ_render ≈ 57 × densityScale(1000 m 층) → densityScale = τ/57.
    */

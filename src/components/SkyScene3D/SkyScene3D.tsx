@@ -1464,6 +1464,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     scene.add(seaPlane.litMesh);
     assignLayer(seaPlane.litMesh, LAYER_TERRAIN_LIT);
     seaPlaneRef.current = seaPlane;
+    // 하네스 전용(tools/web-repro) — 지형·해수면 손잡이를 열어 한쪽만 끄거나 균일변수를 바꿔 원인을 가릅니다. 기기에서는 정의되지 않습니다.
+    if ((globalThis as unknown as { __volCreateOpts?: unknown }).__volCreateOpts) (globalThis as unknown as Record<string, unknown>).__skyDebug = { terrainField: terrainFieldRef.current, seaPlane };
 
     // 2b. Compass Ring & Direction Markers (3D 지평선 방위 마커)
     const compassGroup = createCompassGroup();
@@ -1804,6 +1806,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 해 쪽 산 그림자 경계 — 해·지형이 그대로면 아무것도 안 합니다(TerrainField.bakeSunShadow).
         if (terrainFieldRef.current?.mesh.visible && rendererRef.current) {
           terrainFieldRef.current.bakeSunShadow(rendererRef.current);
+          // §157 하늘 보임(AO) — DEM 패치가 바뀔 때만 굽습니다(같은 패치면 아무것도 안 함).
+          terrainFieldRef.current.bakeAmbient(rendererRef.current);
         }
 
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
@@ -1856,7 +1860,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const tAtmos = Date.now();
               // ⚠ postprocessing 의 composer.setSize 는 렌더러(드로잉 버퍼) 크기까지 바꿉니다 — 저해상도 버퍼 크기로 만들면
               //   앱 화면이 그 크기로 줄어듭니다(웹 하네스에서 1/4 화면). 그래서 **전체 크기**로 만들고 구름만 해상도 배율로 낮춥니다.
-              mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false })
+              // 하네스 전용(tools/web-repro) — 미리 만든 대기 표 등 만들기 옵션을 덮습니다. 기기에서는 정의되지 않습니다.
+              const harnessVolOpts = (globalThis as unknown as { __volCreateOpts?: (r: THREE.WebGLRenderer) => Promise<Record<string, unknown>> }).__volCreateOpts;
+              (harnessVolOpts ? harnessVolOpts(renderer as unknown as THREE.WebGLRenderer) : Promise.resolve({}))
+                .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, ...extra }))
                 .then(v => {
                   volumetricStats.atmosMs = Date.now() - tAtmos;
                   volumetricStats.spectral = v.spectral;
@@ -1978,7 +1985,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const terrainOn = !!terrainFieldRef.current?.mesh.visible;
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
               vol.setTerrainDistance(terrainOn ? composerNow.terrainDistanceTexture() : null, terrainOn ? composerNow.terrainLitTexture() : null,
-                ridge?.valid ? ridge.texture : null, (seaPlaneRef.current?.material.uniforms.uSlopeVar?.value as number | undefined) ?? 0.03);
+                ridge?.valid ? ridge.texture : null, (seaPlaneRef.current?.material.uniforms.uSlopeVar?.value as number | undefined) ?? 0.03,
+                terrainOn ? composerNow.terrainLit2Texture() : null);
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {

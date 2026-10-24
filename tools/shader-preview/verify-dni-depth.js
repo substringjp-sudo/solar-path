@@ -1,5 +1,5 @@
 /**
- * §157 직달일사 → 구름 광학두께(`src/utils/dniOpticalDepth.ts`) 합격 판정. esbuild 로 순수 모듈만 묶음.
+ * §158 직달일사 → 구름 광학두께(`src/utils/dniOpticalDepth.ts`) 합격 판정. esbuild 로 순수 모듈만 묶음.
  *   node tools/shader-preview/verify-dni-depth.js
  *  [1] 맑은 하늘 DNI: 해 38° 에서 500~700 W/m², 10° 에서 250~400, 해 아래 0; AOD 가 크면 작아짐.
  *  [2] τ: DNI = 맑음 → 0; 10/24 서울(29 W/m², 해 38°, AOD 0.11) → 2.5~3.5; 300 W/m² → 0.5~1; 바닥 아래(5 W/m²) → 포화값; 해 5° 아래·DNI 없음 → null.

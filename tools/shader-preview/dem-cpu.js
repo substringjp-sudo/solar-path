@@ -96,6 +96,15 @@ function makeCpuDem({ demDir, zoom, lat, lon }) {
   return {
     tileSpanM: span,
     observerTile: t,
+    /** 전역 타일 화소 한 칸의 고도 (정수 좌표). 블록 밖이면 null. 셰이더의 dem_elevTexel 과 같은 뜻 — 물가 판정(dem_shore) 참조가 씁니다. */
+    texel: pixel,
+    /** 지상 m (동, 남) → 쌍선형이 쓸 왼쪽 위 화소(전역 화소 좌표)와 그 안의 위치(0~1). 셰이더의 dem_cell 과 같은 식. */
+    cell: (east, south) => {
+      const gx = (t.x + east / span) * TILE_PX - 0.5;
+      const gy = (t.y + south / span) * TILE_PX - 0.5;
+      const x0 = Math.floor(gx), y0 = Math.floor(gy);
+      return { x0, y0, ax: gx - x0, ay: gy - y0 };
+    },
     /** 지상 m (동, 남) → 고도 m. 블록 밖이면 null. */
     elevAtGround: (east, south) =>
       elevAtTileFloat(t.x + east / span, t.y + south / span),
