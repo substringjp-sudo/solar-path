@@ -296,14 +296,14 @@ uniform float uAerial;
 uniform float uFresnel;       // 0 이면 하늘 되비침을 끕니다 (기하 판정용)
 uniform float uShoreOverlapM;  // 물가에서 겹쳐 그릴 폭 (m)
 uniform float uShoreLegacy;    // 1 이면 옛 물가 규칙 (정점 셰이더와 같은 값)
-uniform float uShoreMode;      // §156 수심·포말 — 0 정점 보간(예전) · 1 화소마다 자료에서 (TerrainField 와 같은 값)
+uniform float uShoreMode;      // §157 수심·포말 — 0 정점 보간(예전) · 1 화소마다 자료에서 (TerrainField 와 같은 값)
 uniform float uSlopeVar;      // Cox-Munk 파면 경사 분산 σ² = 0.003 + 0.00512·U
 uniform float uGlitter;       // 0 이면 윤슬을 끕니다 (대조 판정용)
 uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uOzoneDU;
-uniform float uLookFill;      // §156 구름을 뚫은 햇빛 몫(terrainLook.ts) — 지형과 같은 값
+uniform float uLookFill;      // §157 구름을 뚫은 햇빛 몫(terrainLook.ts) — 지형과 같은 값
 #ifdef SEA_LIT_OUT
 layout(location = 1) out highp vec4 pc_fragColor1;
 ${LIT2_ENCODE_GLSL}
@@ -347,7 +347,7 @@ void main() {
   gl_FragColor = seaDist;
   return;
 #endif
-  // §156 **수심·바닥 기울기(포말)는 화소마다 자료에서 읽습니다** — 어디를 그릴지(위)는 그대로 두고 칠하는 값만.
+  // §157 **수심·바닥 기울기(포말)는 화소마다 자료에서 읽습니다** — 어디를 그릴지(위)는 그대로 두고 칠하는 값만.
   //   정점(격자 살 간격 25~74m)에서 읽은 값을 보간하면 포말·바닥 비침이 **삼각형 모양 그대로의 얼룩**이 됩니다(못 안의 흰 판·
   //   파란 상자). dem_shoreField 의 B-스플라인 흐린 고도(수심)·기울기(포말 폭)는 15m 자료 그대로 C2 로 이어집니다.
   //   물가에서 어디를 그릴지까지 화소마다 가르는 것은 해 봤다가 접었습니다 — 지형 지오메트리와 어긋나 구멍이 납니다
@@ -375,7 +375,7 @@ void main() {
     float fg = clamp(40.0 / (fd / max(bedSlope, 1e-5)), 0.0, 1.0);
     float fm = (1.0 - smoothstep(0.0, fd, depthM)) * fg;
     float seaCloudT = cloudShadowAt(vGround.xz);
-    // §156 알베도는 sqrt 로 적습니다(지형과 같은 규약 — TerrainField 주석). 하늘빛 몫 1(열린 바다) · 젖음 0(바다는 자기 되비침이 있음).
+    // §157 알베도는 sqrt 로 적습니다(지형과 같은 규약 — TerrainField 주석). 하늘빛 몫 1(열린 바다) · 젖음 0(바다는 자기 되비침이 있음).
     gl_FragColor = vec4(sqrt(clamp(mix(uWaterAlbedo + uBedAlbedo * thru, vec3(0.70, 0.71, 0.72), fm), 0.0, 1.0)), seaCloudT);
     pc_fragColor1 = lit2Encode(1.0, 0.0, (1.0 - seaCloudT) * uLookFill, 1.0 - seaCloudT);
     return;

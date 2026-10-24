@@ -281,7 +281,7 @@ ${CLOUD_SHADOW_GLSL}
 ${TERRAIN_NOISE_GLSL}
 uniform float uBlendInner;    // 촘촘→성김 넘기기를 시작하는 반지름 비율
 uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m). 0 이면 예전처럼 딱 맞닿음
-uniform float uShoreMode;     // §156 물가 근처 칠 — 0 정점 보간(예전) · 1 화소마다 자료에서 (SeaPlane 과 같은 값)
+uniform float uShoreMode;     // §157 물가 근처 칠 — 0 정점 보간(예전) · 1 화소마다 자료에서 (SeaPlane 과 같은 값)
 uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
 uniform float uDetail;        // 자료 아래 규모 결의 세기, 0 이면 끔 (②)
                               // 기본 0.10 — 세기를 훑어 **평균 밝기가 5% 넘게
@@ -314,7 +314,7 @@ uniform float uBeta;
 uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uShadow;        // 0 이면 드리운 그림자를 끕니다 (대조 판정용)
-// §156 볼륨 하늘 경로의 땅 보임새(terrainLook.ts) — 지형 빛 판의 둘째 출력에만 쓰입니다.
+// §157 볼륨 하늘 경로의 땅 보임새(terrainLook.ts) — 지형 빛 판의 둘째 출력에만 쓰입니다.
 uniform sampler2D uAmbTex;    // terrainAmbient.ts 가 DEM 에서 구운 하늘 보임(R)·볼록도(G) — dem_uv 좌표
 uniform float uAmbValid;
 uniform float uLookAo;
@@ -467,7 +467,7 @@ void main() {
   //
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
   //
-  // §156 **물가 근처의 고도는 화소마다 자료에서 다시 읽습니다 — 어디를 버릴지(위)는 그대로 두고, 칠하는 값만.**
+  // §157 **물가 근처의 고도는 화소마다 자료에서 다시 읽습니다 — 어디를 버릴지(위)는 그대로 두고, 칠하는 값만.**
   //   젖은 띠·마른 띠·물가의 하늘 되비침·산 그림자의 출발 높이가 정점 고도(격자 살 간격 25~74m)를 삼각형 안에서 보간한
   //   값이라 경계가 삼각형 모양 얼룩이 됐습니다. dem_shoreField 의 B-스플라인으로 흐린 고도(C2)를 쓰면 15m 자료 그대로,
   //   화소 계단 없이 이어집니다. 버리는 자리를 화소마다 가르는 것은 **해 봤다가 접었습니다** — 정점 고도(지오메트리)와
@@ -560,7 +560,7 @@ void main() {
   // 암반 색이 얼룩지고 젖은 갯벌의 되비침이 꺼집니다. (미세 기복을 안 쓰는 경로에서는 n 과 같은 값입니다.)
   vec3 nMacro = n;
 #ifdef TERRAIN_LIT_OUT
-  // §156 **미세 기복** — 자료(15m)가 모르는 0.5~4m 규모의 요철(갯벌 물결무늬·풀덤불·밭고랑).
+  // §157 **미세 기복** — 자료(15m)가 모르는 0.5~4m 규모의 요철(갯벌 물결무늬·풀덤불·밭고랑).
   //
   // 위의 자료 아래 결은 진폭이 "그 자리의 기울기"에 비례합니다(허스트 법칙) — 그래서 평평한 벌판·갯벌은 기울기가 0 이라
   // **결도 0** 이고, 낮은 해가 스쳐도 음영이 없어 땅이 한 색 판이 됩니다. 실제 벌판에도 요철은 있습니다. 여기서는 높이가
@@ -656,7 +656,7 @@ void main() {
   alb = mix(alb, alb * 0.52, wet);
 
 #ifdef TERRAIN_LIT_OUT
-  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §156 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
+  // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §157 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
   //
   // ⚠ 알베도는 **sqrt 로 적습니다.** 땅 알베도가 0.05 안팎이라 8비트에 선형으로 담으면 단계가 값의 8% 입니다 —
   //   어두운 땅이 층지고 흙·암반·젖은 물가의 비율 차이(×0.52~×1.3)가 정수 몇 칸으로 뭉개졌습니다. 볼륨 하늘의 대기 효과가
@@ -885,7 +885,7 @@ export interface TerrainFieldHandle {
    */
   bakeSunShadow: (renderer: THREE.WebGLRenderer) => void;
   /**
-   * §156 DEM 에서 하늘 보임(AO)을 한 번 굽습니다. 패치가 바뀔 때만 다시 굽고 아니면 아무것도 안 합니다 —
+   * §157 DEM 에서 하늘 보임(AO)을 한 번 굽습니다. 패치가 바뀔 때만 다시 굽고 아니면 아무것도 안 합니다 —
    * 매 프레임 불러도 됩니다. 그리기 전에 부릅니다(지형 빛 판이 읽음).
    */
   bakeAmbient: (renderer: THREE.WebGLRenderer) => void;
@@ -986,7 +986,7 @@ export function createTerrainField(opts: {
       uCloudShadow: { value: 1.0 },
       // 조간대 폭 — **고도** 기준. 조수간만 1~2m 인 서해안 기준.
       uWetBandM: { value: 1.2 },
-      // §156 볼륨 하늘 경로의 땅 보임새 — 값은 terrainLook.ts 한 곳에서(손잡이), 맵은 bakeAmbient 가 채웁니다.
+      // §157 볼륨 하늘 경로의 땅 보임새 — 값은 terrainLook.ts 한 곳에서(손잡이), 맵은 bakeAmbient 가 채웁니다.
       uAmbTex: { value: null as THREE.Texture | null },
       uAmbValid: { value: 0 },
       ...makeTerrainLookUniforms(),

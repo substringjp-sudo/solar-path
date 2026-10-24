@@ -213,6 +213,8 @@ export interface SkySettings {
   /** §136 구름 미세물리(physics: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(physicsIce) — 자(RULER-physics)를 넘기지 못해 기본 끔, 개발 패널 PHYS/ICE 칩으로 켬. */
   volumetricPhysics?: boolean;
   volumetricPhysicsIce?: boolean;
+  /** §156 거시 운량 격자 — 0 끔(기울기 두 수) · 1 Barnes 격자(RULER-macro 판정으로 기본) · 2 스펙트럼 잡음까지(개발 패널 MAC 칩). */
+  volumetricMacro?: 0 | 1 | 2;
   /** 실험 — 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘을 켭니다(기본 꺼짐: 카메라 스트림과 GPU 를 나눠 써 기기에서 ANR 이 났던 적이 있어 기기 확인 후 켭니다). 메인 시뮬레이션과 같은 구름이 됩니다. */
   cameraVolumetric?: boolean;
 }
@@ -230,6 +232,7 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   volumetricFlowUv: false,
   volumetricPhysics: false,
   volumetricPhysicsIce: false,
+  volumetricMacro: 1,
 };
 
 /**
@@ -1803,7 +1806,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 해 쪽 산 그림자 경계 — 해·지형이 그대로면 아무것도 안 합니다(TerrainField.bakeSunShadow).
         if (terrainFieldRef.current?.mesh.visible && rendererRef.current) {
           terrainFieldRef.current.bakeSunShadow(rendererRef.current);
-          // §156 하늘 보임(AO) — DEM 패치가 바뀔 때만 굽습니다(같은 패치면 아무것도 안 함).
+          // §157 하늘 보임(AO) — DEM 패치가 바뀔 때만 굽습니다(같은 패치면 아무것도 안 함).
           terrainFieldRef.current.bakeAmbient(rendererRef.current);
         }
 
@@ -1883,11 +1886,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
               // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
-              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce }, false);
+              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1 }, false);
               volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
