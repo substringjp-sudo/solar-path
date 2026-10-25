@@ -505,10 +505,11 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     pathData: camWeatherData ?? [],
     time: currentTime,
     sunAltDeg: sunPos.altitude,
+    sunAzDeg: sunPos.azimuth,
     obs: camInterpolated[0],
     latitude,
     observerElevM: Number(cameraSimState.terrain?.observerElevation) || undefined,
-  }), [camWeatherData, currentTime, sunPos.altitude, camInterpolated, latitude, cameraSimState.terrain?.observerElevation]);
+  }), [camWeatherData, currentTime, sunPos.altitude, sunPos.azimuth, camInterpolated, latitude, cameraSimState.terrain?.observerElevation]);
 
   // 적응형 보정 파라미터 계산 (실시간 업데이트)
   const currentEnhancement = useMemo(() => {
@@ -962,7 +963,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             obs.visibility,
             obs.humidity,
             latitude,
-            0
+            0,
+            undefined,
+            currentSunPos.azimuth
           );
           if (prediction) {
             pm25 = obs.pm25 != null && Number.isFinite(obs.pm25) ? Math.round(obs.pm25) : null;

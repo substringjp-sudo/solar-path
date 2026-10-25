@@ -314,6 +314,59 @@ export const cloudIllumination = (sunAltDeg: number, cloudAltKm: number): number
 };
 
 /**
+ * 링 날씨(`fetchDayWeatherRing` — `azimuthOffset` 이 **절대 방위**, 0 = 북)를 **해 기준**으로 돌립니다.
+ *
+ * 이 파일의 예측(`beamPathTransmittance` · `predictSunset`)은 `azimuthOffset === 0` 을 "해 쪽 줄"로
+ * 읽습니다. 해 방위 중심 부채꼴(`fetchSunsetWeather`) 시절의 약속입니다. 앱이 링으로 바뀐 뒤에도
+ * 이 약속을 맞추지 않아, 예측은 해가 어디 있든 **북쪽 줄**의 구름을 읽었습니다(2026-10-25 발견).
+ *
+ *  - 거리 고리마다 해 방위 양옆 두 방위를 각도 비율로 선형 보간해 `azimuthOffset: 0` 점을 하나 만듭니다.
+ *    고리 방위는 30°(가까운 고리 60°) 간격이라, 가장 가까운 방위를 고르면 해가 움직일 때 점수가 계단으로 뜁니다.
+ *  - 나머지 점은 해 기준 상대 방위(-180~180)로 바꿉니다. 링 끝 이음매용 ±180 복사본은 하나만 남깁니다.
+ *  - 관측점(거리 0)은 그대로 0 입니다 — 예전 부채꼴에서도 관측점은 중심선의 첫 점이었습니다.
+ */
+export const alignRingToSun = (path: CloudData[], sunAzimuthDeg: number): CloudData[] => {
+  if (!path?.length || !Number.isFinite(sunAzimuthDeg)) return path;
+  const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
+  const mod360 = (d: number) => ((d % 360) + 360) % 360;
+  const out: CloudData[] = [];
+  const rings = new Map<number, CloudData[]>();
+  for (const p of path) {
+    if (p.distance === 0) { out.push({ ...p, azimuthOffset: 0 }); continue; }
+    let rel = wrap(p.azimuthOffset - sunAzimuthDeg);
+    if (Math.abs(rel) < 1e-9) rel = 0;
+    const ring = rings.get(p.distance) ?? [];
+    if (!ring.some(q => Math.abs(wrap(q.azimuthOffset - rel)) < 1e-6)) ring.push({ ...p, azimuthOffset: rel });
+    rings.set(p.distance, ring);
+  }
+  for (const [distance, ring] of rings) {
+    ring.sort((a, b) => a.azimuthOffset - b.azimuthOffset);
+    out.push(...ring);
+    if (ring.some(q => q.azimuthOffset === 0)) continue;
+    // 해 바로 앞(음)·뒤(양) 방위. 한쪽이 없으면 반대 끝으로 돌아 감깁니다.
+    const a = [...ring].reverse().find(q => q.azimuthOffset < 0) ?? ring[ring.length - 1];
+    const b = ring.find(q => q.azimuthOffset > 0) ?? ring[0];
+    const da = mod360(-a.azimuthOffset);
+    const db = mod360(b.azimuthOffset);
+    const t = da + db > 0 ? da / (da + db) : 0;
+    out.push({ ...lerpCloud(a, b, t), distance, azimuthOffset: 0 });
+  }
+  return out;
+};
+
+/** 두 점의 숫자 칸을 선형 보간합니다. 숫자가 아닌 칸(단면 배열 등)은 가까운 쪽 것을 씁니다. */
+const lerpCloud = (a: CloudData, b: CloudData, t: number): CloudData => {
+  const o: any = { ...(t < 0.5 ? a : b) };
+  for (const k of Object.keys(o)) {
+    const va = (a as any)[k], vb = (b as any)[k];
+    if (typeof va === 'number' && typeof vb === 'number' && Number.isFinite(va) && Number.isFinite(vb)) {
+      o[k] = va + (vb - va) * t;
+    }
+  }
+  return o as CloudData;
+};
+
+/**
  * Beam path transmittance through cloud layers along the solar path.
  */
 export const beamPathTransmittance = (path: CloudData[], sunAltDeg: number = 0.5): number => {
@@ -732,6 +785,12 @@ export const predictSunset = (
   latitude?: number,
   observerElevationM?: number,
   dayOfYear?: number,
+  /**
+   * 해 방위(도, 북 0 · 동 90). 주면 `pathData` 를 링(절대 방위)으로 보고 해 쪽으로 돌립니다(`alignRingToSun`).
+   * 앱의 날씨는 모두 링이라 앱에서는 늘 줍니다. 빼면 `pathData` 가 이미 해 기준(`azimuthOffset` 0 = 해 쪽)이라고
+   * 봅니다 — 도구(`tools/shader-preview/verify-*`)의 부채꼴·합성 자료입니다.
+   */
+  sunAzimuthDeg?: number,
 ): SunsetPrediction => {
   if (isNaN(sunAltDeg)) {
     const defaultRGB = { r: 0.22, g: 0.24, b: 0.3 };
@@ -765,7 +824,8 @@ export const predictSunset = (
   const apparentAlt = getApparentAltitude(sunAltDeg);
   const effectiveSunAlt = apparentAlt + dip;
 
-  const localPath = getInterpolatedWeather(pathData, targetTime);
+  const interpolated = getInterpolatedWeather(pathData, targetTime);
+  const localPath = sunAzimuthDeg == null ? interpolated : alignRingToSun(interpolated, sunAzimuthDeg);
   // 관측점에 대기질 AOD 가 붙어 있으면 그것으로, 없으면 예전처럼 시정으로(`aerosolBeta` 주석).
   const obsAod = (localPath.find(p => p.distance === 0) ?? localPath[0])?.aod550;
   const beta = aerosolBeta(visibilityM, rhPct, obsAod);

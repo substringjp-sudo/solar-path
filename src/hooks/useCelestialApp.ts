@@ -102,7 +102,7 @@ const sunsetLabelsFor = async (
     if (!wx || wx.length === 0) return null;
     const obs = getInterpolatedWeather(wx, sunset)[0];
     if (!obs) return null;
-    const pred = predictSunset(wx, sunset, 0, obs.visibility, obs.humidity, lat, 0);
+    const pred = predictSunset(wx, sunset, 0, obs.visibility, obs.humidity, lat, 0, undefined, getSunPosition(sunset, lat, lon).azimuth);
     if (!pred) return null;
     return {
       cloudLabel: t(('cloud' + pred.cloudLabel) as any, language),
@@ -779,7 +779,8 @@ export function useCelestialApp() {
                 airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
-                    weatherData, sunsetTime, 0, obs.visibility, obs.humidity, lat, 0
+                    weatherData, sunsetTime, 0, obs.visibility, obs.humidity, lat, 0,
+                    undefined, getSunPosition(sunsetTime, lat, lon).azimuth
                   );
                   if (prediction) {
                     cloudLabel = t(('cloud' + prediction.cloudLabel) as any, language);
@@ -903,7 +904,8 @@ export function useCelestialApp() {
                 airNote = airQualityNote(obs, language);
                 if (obs) {
                   const prediction = predictSunset(
-                    weatherData, sunriseTime, 0, obs.visibility, obs.humidity, lat, 0
+                    weatherData, sunriseTime, 0, obs.visibility, obs.humidity, lat, 0,
+                    undefined, getSunPosition(sunriseTime, lat, lon).azimuth
                   );
                   if (prediction) {
                     cloudLabel = t(('cloud' + prediction.cloudLabel) as any, language);
@@ -976,7 +978,7 @@ export function useCelestialApp() {
           const obs = interpolated[0];
           if (obs) {
             prediction = predictSunset(
-              weatherData, now, currentSunPos.altitude, obs.visibility, obs.humidity, lat, 0
+              weatherData, now, currentSunPos.altitude, obs.visibility, obs.humidity, lat, 0, undefined, azimuth
             );
             const maxCloud = Math.max(obs.low ?? 0, obs.mid ?? 0, obs.high ?? 0);
             cloudRatio = maxCloud / 100;

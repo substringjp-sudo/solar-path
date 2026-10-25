@@ -564,10 +564,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     pathData,
     time: currentTime,
     sunAltDeg: sunAltitude,
+    sunAzDeg: sunAzimuth,
     obs: interpolatedWeather[0],
     latitude,
     observerElevM: terrainData.observerElevation,
-  }), [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
+  }), [pathData, interpolatedWeather, currentTime, sunAltitude, sunAzimuth, latitude, terrainData.observerElevation]);
 
   // 오늘의 추천 및 일반 이벤트 — 모두 계산에서 나옵니다(`skyEvents.ts` 머리말).
   // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
@@ -578,6 +579,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       pathData,
       time: tm,
       sunAltDeg: sp.altitude * (180 / Math.PI),
+      sunAzDeg: sp.azimuth * (180 / Math.PI) + 180,
       obs: getInterpolatedWeather(pathData, tm)[0],
       latitude,
       observerElevM: terrainData.observerElevation,
@@ -593,7 +595,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     sunrisePrediction: predictionAt(events?.sunrise),
     language,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [currentTime.toDateString(), events, pathData, latitude, language, terrainData.observerElevation]);
+  }), [currentTime.toDateString(), events, pathData, latitude, longitude, language, terrainData.observerElevation]);
 
   // 판정 한 줄(디자인 개정 A2): 다가오는 출몰(밤이고 일출 전이면 일출, 아니면 일몰)의 노을 판정과
   // "가장 붉을 때". 지금 시각의 점수가 아니라 그 출몰 앞뒤에서 점수가 가장 높은 순간입니다(`utils/glowPeak.ts`).
@@ -608,6 +610,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         pathData,
         time: tm,
         sunAltDeg: sp.altitude * (180 / Math.PI),
+        sunAzDeg: sp.azimuth * (180 / Math.PI) + 180,
         obs: getInterpolatedWeather(pathData, tm)[0],
         latitude,
         observerElevM: terrainData.observerElevation,
