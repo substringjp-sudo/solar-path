@@ -1,156 +1,158 @@
+/**
+ * PredictionCard.tsx — 노을 예측 카드와 **판정 한 축**(2026-10-25, 디자인 개정 A2).
+ *
+ * 예전 카드는 구름 단어(많음 · 복합적 · 없음)와 색 단어(화려함 · 칙칙함 · 깨끗함) 두 축을 따로 보여 주고,
+ * 점수와 이유는 없었습니다. 이제 판정 단어 하나 + 점수 + 다섯 칸 + 이유 한 문장입니다.
+ *
+ *  - 판정은 `sunsetPhysics` 의 `quality` 를 그대로 옮긴 다섯 단계입니다(가려짐 · 옅음 · 보통 · 좋음 · 붉게 탐).
+ *  - 칸 수가 단계입니다. 색을 가려 보기 어려워도 칸 수로 읽힙니다(docs/DESIGN_SYSTEM.md §10).
+ *  - 색은 시스템의 `q-*` 데이터 색입니다. 옅음(Muted)은 `textDim`.
+ *  - 이유는 이미 계산되던 `description` 을 세 언어로 옮겨(`translateSunsetDesc`) 적습니다.
+ */
 import React from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
+import { View, Text } from 'react-native';
 import { SunsetPrediction } from '../../utils/sunsetPhysics';
 import { useCelestialStore } from '../../store/useCelestialStore';
-import { t } from '../../utils/i18n';
-import { color, radius, mono, dataColor, tint, color as DARK, dataColor as DARK_DATA, type Palette, type DataPalette } from '../../theme/tokens';
+import { t, translateSunsetDesc, type Language } from '../../utils/i18n';
+import { radius, space, type, tint, color as DARK, dataColor as DARK_DATA, type Palette, type DataPalette } from '../../theme/tokens';
 import { PressScale } from '../ui';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 
+export type Quality = SunsetPrediction['quality'];
+
+/** 낮은 단계부터. 칸 수 = 위치 + 1. */
+export const VERDICT_ORDER: Quality[] = ['Overcast', 'Muted', 'Fair', 'Great', 'Epic'];
+export const verdictLevel = (q: Quality): number => VERDICT_ORDER.indexOf(q) + 1;
+
+export const verdictColor = (q: Quality, data: DataPalette = DARK_DATA, c: Palette = DARK): string => {
+  switch (q) {
+    case 'Epic': return data.qEpic;
+    case 'Great': return data.qGreat;
+    case 'Fair': return data.qFair;
+    case 'Overcast': return data.qOvercast;
+    default: return c.textDim;
+  }
+};
+
+export const verdictWord = (q: Quality, language: Language): string => t(`verdict${q}` as any, language);
+
+/** 관측지 현지 시각 HH:MM(기기 시간대가 아니라 `timezoneOffsetHours`). */
+export const localHHMM = (d: Date, tzHours: number): string => {
+  const l = new Date(d.getTime() + tzHours * 3_600_000);
+  return `${String(l.getUTCHours()).padStart(2, '0')}:${String(l.getUTCMinutes()).padStart(2, '0')}`;
+};
+
+/** 다섯 칸 — 채운 칸 수가 판정 단계입니다. */
+export const VerdictMeter: React.FC<{ quality: Quality; cellWidth?: number; cellHeight?: number }> = ({
+  quality, cellWidth = 6, cellHeight = 10,
+}) => {
+  const color = useThemeColors(); const dataColor = useDataColors();
+  const n = verdictLevel(quality);
+  const on = verdictColor(quality, dataColor, color);
+  return (
+    <View style={{ flexDirection: 'row', gap: 2 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {VERDICT_ORDER.map((_, i) => (
+        <View key={i} style={{ width: cellWidth, height: cellHeight, borderRadius: 2, backgroundColor: i < n ? on : color.border }} />
+      ))}
+    </View>
+  );
+};
+
 export interface PredictionCardProps {
   prediction: SunsetPrediction;
-  theme: any;
+  /** 옛 호출과 맞추려고 받기만 합니다 — 색은 토큰에서 옵니다. */
+  theme?: any;
   weatherSource?: 'ultra-short' | 'open-meteo' | string;
   isSunrise: boolean;
   onPressSource?: () => void;
+  /** 가장 붉을 때(`utils/glowPeak.ts`). 모르면 적지 않습니다. */
+  peakTime?: Date | null;
 }
-
-/** 구름 양 라벨 색상 */
-export const cloudLabelColor = (c: SunsetPrediction['cloudLabel'], dataColor: DataPalette = DARK_DATA, color: Palette = DARK): string => {
-  switch (c) {
-    case 'Overcast': return dataColor.qOvercast;
-    case 'Complex':  return dataColor.qFair;
-    case 'Clear':    return color.textDim;
-    default:         return color.textDim;
-  }
-};
-
-/** 색상 라벨 색상 */
-export const colorLabelColor = (c: SunsetPrediction['colorLabel'], dataColor: DataPalette = DARK_DATA, color: Palette = DARK): string => {
-  switch (c) {
-    case 'Vivid': return dataColor.qEpic;
-    case 'Muted': return color.textDim;
-    case 'Clean': return dataColor.qClean;
-    default:      return color.textDim;
-  }
-};
-
-/** 하위 호환: quality 기반 색상 (Visualizer 등에서 계속 사용) */
-export const qualityColor = (q: SunsetPrediction['quality']): string => {
-  switch (q) {
-    case 'Epic':    return dataColor.qEpic;
-    case 'Great':   return dataColor.qGreat;
-    case 'Fair':    return dataColor.qFair;
-    case 'Muted':   return color.textDim;
-    case 'Overcast': return dataColor.qOvercast;
-    default:        return color.textDim;
-  }
-};
 
 export const PredictionCard: React.FC<PredictionCardProps> = ({
   prediction,
-  theme,
   weatherSource,
   isSunrise,
   onPressSource,
+  peakTime,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
-  const { language } = useCelestialStore();
-  return (
-    <View style={[styles.predictionCard, { backgroundColor: theme.glass, borderColor: theme.border }]}>
-      <View style={styles.predictionHeader}>
-        {/* Anchor: 구름 양 */}
-        <View style={styles.predictionLeftCol}>
-          <View style={styles.labelRow}>
-            <Text style={[styles.mainLabel, { color: cloudLabelColor(prediction.cloudLabel, dataColor, color) }]}>
-              {t(('cloud' + prediction.cloudLabel) as any, language).toUpperCase()}
-            </Text>
-            {weatherSource === 'ultra-short' && (
-              <PressScale
-                style={[
-                  styles.sourceBadge,
-                  { backgroundColor: tint(dataColor.qClean, 0.2), borderColor: tint(dataColor.qClean, 0.3) }
-                ]}
-                onPress={onPressSource}
-              >
-                <Text style={styles.sourceBadgeText}>{t('kmaForecast', language)}</Text>
-              </PressScale>
-            )}
-          </View>
-          <Text style={[styles.subLabel, { color: theme.subText }]}>
-            {isSunrise ? t('dawnForecast', language) : t('sunsetForecast', language)}
-          </Text>
-        </View>
+  const language = useCelestialStore(s => s.language);
+  const tz = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
+  const q = prediction.quality;
+  const level = verdictLevel(q);
+  const reason = translateSunsetDesc(prediction.description, language);
 
-        {/* Anchor: 색상 평가 */}
-        <View style={styles.colorLabelWrap}>
-          <Text style={[styles.mainLabel, { color: colorLabelColor(prediction.colorLabel, dataColor, color) }]}>
-            {t(('color' + prediction.colorLabel) as any, language).toUpperCase()}
-          </Text>
-          <Text style={[styles.subLabel, { color: theme.subText, textAlign: 'right' }]}>
-            {t('colorEvalLabel', language)}
-          </Text>
-        </View>
+  return (
+    <View style={styles.card}>
+      <View style={styles.headRow}>
+        <Text style={styles.sectionLabel}>{isSunrise ? t('dawnForecast', language) : t('sunsetForecast', language)}</Text>
+        {weatherSource === 'ultra-short' && (
+          <PressScale
+            style={[styles.sourceBadge, { backgroundColor: tint(dataColor.qClean, 0.14), borderColor: tint(dataColor.qClean, 0.4) }]}
+            onPress={onPressSource}
+          >
+            <Text style={[styles.sourceBadgeText, { color: dataColor.qClean }]}>{t('kmaForecast', language)}</Text>
+          </PressScale>
+        )}
       </View>
+
+      <View style={styles.verdictRow}>
+        <Text style={[styles.verdictWord, { color: verdictColor(q, dataColor, color) }]}>{verdictWord(q, language)}</Text>
+        <Text style={styles.score}>{Math.round(prediction.score)}</Text>
+        <Text style={styles.unit}>/ 100</Text>
+        {peakTime && (
+          <View style={styles.peak}>
+            <Text style={styles.peakLabel}>{t('peakGlow', language)}</Text>
+            <Text style={styles.peakTime}>{localHHMM(peakTime, tz)}</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.scale}>
+        {VERDICT_ORDER.map((v, i) => {
+          const here = i + 1 === level;
+          return (
+            <View key={v} style={styles.scaleCell}>
+              <View style={[
+                styles.scaleBar,
+                { backgroundColor: verdictColor(v, dataColor, color) },
+                here && { borderWidth: 2, borderColor: color.text },
+              ]} />
+              <Text style={[styles.scaleLabel, here && { color: color.text }]} numberOfLines={1}>{verdictWord(v, language)}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {!!reason && <Text style={styles.reason}>{reason}</Text>}
     </View>
   );
 };
 
 const useStyles = makeStyles((color) => ({
-  predictionCard: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: radius.xs,
-    borderWidth: 1,
+  card: {
+    backgroundColor: color.fill,
     borderColor: color.border,
-    flexShrink: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  predictionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  predictionLeftCol: {
-    flexDirection: 'column',
-    gap: 3,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  mainLabel: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    fontFamily: mono,
-  },
-  subLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    fontFamily: mono,
-  },
-  sourceBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
     borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    gap: space.md,
   },
-  sourceBadgeText: {
-    color: dataColor.qClean,
-    fontSize: 9,
-    fontWeight: '800',
-    fontFamily: mono,
-  },
-  colorLabelWrap: {
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: 3,
-  },
+  headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  sectionLabel: { ...type.micro, color: color.textDim, textTransform: 'uppercase' },
+  sourceBadge: { paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.xs, borderWidth: 1 },
+  sourceBadgeText: { ...type.micro },
+  verdictRow: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm },
+  verdictWord: { ...type.title },
+  score: { ...type.display, color: color.text },
+  unit: { ...type.micro, color: color.textMute },
+  peak: { marginLeft: 'auto', alignItems: 'flex-end' },
+  peakLabel: { ...type.micro, color: color.textDim },
+  peakTime: { ...type.label, color: color.text },
+  scale: { flexDirection: 'row', gap: space.xs },
+  scaleCell: { flex: 1, alignItems: 'center', gap: space.xs },
+  scaleBar: { alignSelf: 'stretch', height: 8, borderRadius: 2 },
+  scaleLabel: { ...type.micro, color: color.textDim },
+  reason: { ...type.body, color: color.textDim, lineHeight: 20 },
 }));

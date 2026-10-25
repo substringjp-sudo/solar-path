@@ -10,8 +10,11 @@
  * - **누르는 것은 모두 40(touch).** 예전 한 줄 배치(22~28px 버튼 7개)는 시스템 최소 크기에 못 미쳐 세 줄로 나눴습니다.
  *   "지금"·"촬영"은 해 색(sun) 채움이었는데, sun 은 데이터 색이라 "지금"은 보조 버튼, "촬영"은 주 버튼(accent)입니다.
  *
- * - **정확도 띠.** 두 트랙 모두 위에 "지금으로부터 얼마나 떨어졌나"(리드타임)로 칠한 띠가 있습니다. 색은
- *   과거(재분석) · 3일 안 · 7일 안 · 16일 안 · 자료 없음(천문 계산만). 칸 사이는 정확한 시각에서 끊습니다.
+ * - **정확도 띠.** 두 트랙 모두 위에 "지금으로부터 얼마나 떨어졌나"(리드타임) 띠가 있습니다. 색이 아니라 **무늬**로
+ *   가릅니다(디자인 개정 A3): 과거(재분석) · 3일 안 = 꽉 찬 선, 7일 안 = 긴 점선, 16일 안 = 짧은 점선, 자료 없음 = 옅은 선.
+ *   칸 사이는 정확한 시각에서 끊습니다.
+ * - **일몰 앞뒤 확대.** 시간 줄 끝의 해 단추를 누르면 막대가 일몰(밤이고 일출 전이면 일출) 앞뒤 3시간으로 좁아집니다.
+ *   노을이 몰리는 몇십 분이 하루 막대에서는 몇 px 뿐이었습니다. 단추로 범위를 벗어나면 하루로 돌아갑니다.
  *   범례는 칩(ⓘ)을 누르면 펼쳐집니다. 등급의 근거와 한계는 `utils/timeBar.ts` 머리말에 적었습니다.
  * - **데이터 기간.** 날씨를 받을 수 있는 끝(지금 + 16일)이 날짜 트랙에서 색이 끊기는 자리이고, 칩이 그 날짜를 적습니다.
  * - **한 칸씩.** ±1일 · ±1시간 · ±1년. 누르고 있으면 반복합니다(시간·날짜는 빠르게, 연도는 천천히).
@@ -21,17 +24,18 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
-import { Calendar, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, Info, Zap } from 'lucide-react-native';
+import Svg, { Line } from 'react-native-svg';
+import { Calendar, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, Info, Sunrise, Sunset, Zap } from 'lucide-react-native';
 import { PressScale, PrimaryButton } from '../ui';
 import { ScrubTrack } from './ScrubTrack';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
-import { radius, space, type, TOUCH } from '../../theme/tokens';
+import { radius, space, type, tint, TOUCH } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 import {
   MS_HOUR, MS_MIN, TIER_LEAD_HOURS, FORECAST_DAYS, DATA_START_MS,
   type AccuracyTier, type TierSegment,
-  tierAt, dataWindow, yearTierSegments, dayTierSegments, nowPctInYear, nowPctInDay,
+  tierAt, dataWindow, yearTierSegments, tierSegmentsBetween, nowPctInYear,
   dayIndexPct, daysInYear, shiftDays, shiftHours, shiftYears, withLocalDayOfYear, withLocalMinutes, localDayStartMs,
   dayPhaseSegments, minuteInDay, createCommitThrottle,
 } from '../../utils/timeBar';
@@ -111,20 +115,50 @@ const StepButton: React.FC<{
   );
 };
 
-/** 0~100 위의 색 띠들. */
-const Segments: React.FC<{ segs: TierSegment[]; colors: Record<AccuracyTier, string>; height: number; top?: number }> = ({ segs, colors, height, top = 0 }) => (
-  <>
-    {segs.map((s, i) => (
-      <View
-        key={`${s.tier}-${i}`}
-        style={{
-          position: 'absolute', left: `${s.from}%`, width: `${Math.max(0, s.to - s.from)}%`, top, height,
-          backgroundColor: colors[s.tier], opacity: s.tier === 'none' ? 0.35 : 1,
-        }}
-      />
-    ))}
-  </>
+/**
+ * 정확도(리드타임) 등급은 **색이 아니라 무늬**입니다(디자인 개정 A3). 예전에는 달 · 성공 · 경고 · 노을 색을
+ * 빌려 칠해, 노을색이 "정확도 낮음"을 뜻하는 자리가 생겼습니다.
+ *   지난 날 · 3일 안 = 꽉 찬 선 · 7일 안 = 긴 점선 · 16일 안 = 짧은 점선 · 자료 없음 = 옅은 선
+ */
+const TIER_DASH: Record<AccuracyTier, string | undefined> = { past: undefined, high: undefined, medium: '6 3', low: '2 3', none: undefined };
+const TIER_OPACITY: Record<AccuracyTier, number> = { past: 1, high: 1, medium: 1, low: 1, none: 0.3 };
+
+/** 0~100 위의 등급 띠(무늬). 폭을 재서 점선 길이가 화면 폭과 상관없이 같게 그립니다. */
+const TierBand: React.FC<{ segs: TierSegment[]; color: string; height: number }> = ({ segs, color, height }) => {
+  const [w, setW] = useState(0);
+  return (
+    <View style={{ position: 'absolute', left: 0, right: 0, top: 0, height }} onLayout={e => setW(e.nativeEvent.layout.width)}>
+      {w > 0 && (
+        <Svg width={w} height={height}>
+          {segs.map((s, i) => (
+            <Line
+              key={`${s.tier}-${i}`}
+              x1={(s.from / 100) * w} x2={(s.to / 100) * w} y1={height / 2} y2={height / 2}
+              stroke={color} strokeWidth={height} strokeDasharray={TIER_DASH[s.tier]} strokeOpacity={TIER_OPACITY[s.tier]}
+            />
+          ))}
+        </Svg>
+      )}
+    </View>
+  );
+};
+
+/** 칩·범례의 작은 견본 — 띠와 같은 무늬. */
+const TierSwatch: React.FC<{ tier: AccuracyTier; color: string; width?: number; height?: number }> = ({ tier, color, width = 16, height = 4 }) => (
+  <Svg width={width} height={height}>
+    <Line x1={0} x2={width} y1={height / 2} y2={height / 2} stroke={color} strokeWidth={height} strokeDasharray={TIER_DASH[tier]} strokeOpacity={TIER_OPACITY[tier]} />
+  </Svg>
 );
+
+/** 일몰(일출) 앞뒤 3시간 — 노을이 몰리는 몇십 분이 막대의 넓은 몫을 차지하게 확대합니다. */
+const ZOOM_SPAN_MIN = 180;
+function eventWindow(minutes: number, sunriseMin: number | null, sunsetMin: number | null) {
+  const side: 'sunrise' | 'sunset' = sunriseMin != null && minutes < sunriseMin ? 'sunrise' : 'sunset';
+  const at = side === 'sunrise' ? sunriseMin : sunsetMin;
+  if (at == null) return null;
+  const start = Math.max(0, Math.min(1440 - ZOOM_SPAN_MIN, side === 'sunset' ? at - 120 : at - 60));
+  return { side, at, from: start, to: start + ZOOM_SPAN_MIN };
+}
 
 export const DateTimeBar: React.FC<Props> = ({
   currentTime, onPick, onSlidingStart, onSlidingComplete, isTimeMachineEnabled, onNow, onOpenDatePicker,
@@ -145,9 +179,18 @@ export const DateTimeBar: React.FC<Props> = ({
   const dayStart = localDayStartMs(tMs, tz);
   const minutes = Math.floor((tMs - dayStart) / MS_MIN);
 
-  const tierColors: Record<AccuracyTier, string> = useMemo(() => ({
-    past: color.moon, high: color.success, medium: color.warning, low: color.glow, none: color.textMute,
-  }), [color]);
+  const bandColor = color.textDim;
+
+  // ── 시간 막대 범위: 하루(기본) 또는 일몰·일출 앞뒤 3시간 ───────────────────
+  const evMin = (d?: Date | null) => minuteInDay(d ? d.getTime() : null, dayStart);
+  const sunriseMin = evMin(events?.sunrise), sunsetMin = evMin(events?.sunset);
+  const [zoom, setZoom] = useState(false);
+  const zoomWin = eventWindow(minutes, sunriseMin, sunsetMin);
+  const range = zoom && zoomWin ? { from: zoomWin.from, to: zoomWin.to } : { from: 0, to: 1440 };
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const pctOfMin = (m: number) => ((m - range.from) / (range.to - range.from)) * 100;
+  const zoomArmedAt = useRef(0);
 
   // ── 최신 값은 ref 로(손잡이·반복 버튼의 콜백이 낡은 값을 보지 않게) ──────────────
   const tRef = useRef(tMs);
@@ -179,14 +222,18 @@ export const DateTimeBar: React.FC<Props> = ({
 
   // ── 트랙 값·글자 ─────────────────────────────────────────────────────────
   const datePct = dayIndexPct(tMs, tz);
-  const timePct = (minutes / 1439) * 100;
+  const timePct = Math.max(0, Math.min(100, ((minutes - range.from) / (range.to - range.from - 1)) * 100));
   const dayLabel = useCallback((pct: number) => {
     const idx = Math.round((pct / 100) * (daysInYear(yearRef.current) - 1));
     const d = new Date(Date.UTC(yearRef.current, 0, 1 + idx));
     return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
   }, []);
+  const minuteAtPct = (pct: number) => {
+    const r = rangeRef.current;
+    return Math.max(r.from, Math.min(r.to - 1, r.from + Math.floor((pct / 100) * (r.to - r.from))));
+  };
   const timeLabel = useCallback((pct: number) => {
-    const m = Math.max(0, Math.min(1439, Math.floor((pct / 100) * 1440)));
+    const m = minuteAtPct(pct);
     return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
   }, []);
 
@@ -197,7 +244,7 @@ export const DateTimeBar: React.FC<Props> = ({
     dateThrottle.push(ms);
   }, [dateThrottle]);
   const onTimeScrub = useCallback((pct: number) => {
-    const m = Math.max(0, Math.min(1439, Math.floor((pct / 100) * 1440)));
+    const m = minuteAtPct(pct);
     const ms = withLocalMinutes(tRef.current, tzRef.current, m);
     tRef.current = ms;
     timeThrottle.push(ms);
@@ -205,14 +252,32 @@ export const DateTimeBar: React.FC<Props> = ({
 
   // ── 띠 ──────────────────────────────────────────────────────────────────
   const yearSegs = useMemo(() => yearTierSegments(year, tz, nowBucket), [year, tz, nowBucket]);
-  const daySegs = useMemo(() => dayTierSegments(dayStart, nowBucket), [dayStart, nowBucket]);
+  const daySegs = useMemo(() => {
+    const a = dayStart + range.from * MS_MIN, b = dayStart + range.to * MS_MIN;
+    return tierSegmentsBetween(a, b, nowBucket, t => ((t - a) / (b - a)) * 100);
+  }, [dayStart, nowBucket, range.from, range.to]);
   const nowYearPct = nowPctInYear(nowMs, year, tz);
-  const nowDayPct = nowPctInDay(nowMs, dayStart);
+  const nowMin = (nowMs - dayStart) / MS_MIN;
+  const nowDayPct = nowMin >= range.from && nowMin <= range.to ? pctOfMin(nowMin) : null;
 
-  const evMin = (d?: Date | null) => minuteInDay(d ? d.getTime() : null, dayStart);
-  const sunriseMin = evMin(events?.sunrise), sunsetMin = evMin(events?.sunset);
-  const phaseSegs = useMemo(() => dayPhaseSegments(sunriseMin, sunsetMin), [sunriseMin, sunsetMin]);
-  const phaseColor = { night: '#1A237E', golden: color.sun, day: color.accent } as const;
+  // 낮·노을·밤 — 노을 무렵만 해 색(데이터), 낮·밤은 중립(예전 낮 = accent, 밤 = 리터럴 #1A237E).
+  const phaseSegs = useMemo(() => dayPhaseSegments(sunriseMin, sunsetMin)
+    .map(sg => ({ ...sg, from: Math.max(sg.from, range.from), to: Math.min(sg.to, range.to) }))
+    .filter(sg => sg.to > sg.from), [sunriseMin, sunsetMin, range.from, range.to]);
+  const phaseColor = { night: color.border, golden: color.sun, day: tint(color.textDim, 0.45) } as const;
+  const hourTicks = range.to - range.from >= 1440
+    ? [360, 720, 1080]
+    : Array.from({ length: 4 }, (_, i) => (Math.ceil(range.from / 60) + i) * 60).filter(m => m > range.from && m < range.to);
+  // 확대 중에 단추로 범위를 벗어나면 하루로 돌아갑니다(켠 직후의 한 박자는 건너뜀).
+  useEffect(() => {
+    if (zoom && zoomWin && Date.now() - zoomArmedAt.current > 600 && (minutes < zoomWin.from || minutes >= zoomWin.to)) setZoom(false);
+  }, [zoom, minutes, zoomWin?.from, zoomWin?.to]);
+  const toggleZoom = () => {
+    if (zoom || !zoomWin) { setZoom(false); return; }
+    zoomArmedAt.current = Date.now();
+    setZoom(true);
+    if (minutes < zoomWin.from || minutes >= zoomWin.to) step(() => dayStart + zoomWin.at * MS_MIN);
+  };
   const markers = [
     { key: 'sr', m: sunriseMin, c: dataColor.sunrise, up: true },
     { key: 'ss', m: sunsetMin, c: dataColor.sunset, up: false },
@@ -326,7 +391,7 @@ export const DateTimeBar: React.FC<Props> = ({
                 trackHeight={5}
               >
                 <View style={styles.trackClip}>
-                  <Segments segs={yearSegs} colors={tierColors} height={5} />
+                  <TierBand segs={yearSegs} color={bandColor} height={5} />
                 </View>
                 {seasonPcts.map(s => (
                   <View key={s.key} style={[styles.season, { left: `${s.pct}%`, backgroundColor: s.color }]} />
@@ -367,16 +432,16 @@ export const DateTimeBar: React.FC<Props> = ({
               {/* 낮·노을·밤 */}
               <View style={styles.trackClip}>
                 {phaseSegs.map((s, i) => (
-                  <View key={i} style={{ position: 'absolute', left: `${(s.from / 1440) * 100}%`, width: `${((s.to - s.from) / 1440) * 100}%`, top: 0, height: 5, backgroundColor: phaseColor[s.phase] }} />
+                  <View key={i} style={{ position: 'absolute', left: `${pctOfMin(s.from)}%`, width: `${pctOfMin(s.to) - pctOfMin(s.from)}%`, top: 0, height: 5, backgroundColor: phaseColor[s.phase] }} />
                 ))}
               </View>
               {/* 정확도 띠 — 낮·노을·밤 줄 위 */}
               <View style={[styles.trackClip, { top: -7, height: 3 }]}>
-                <Segments segs={daySegs} colors={tierColors} height={3} />
+                <TierBand segs={daySegs} color={bandColor} height={3} />
               </View>
-              {[25, 50, 75].map(p => <View key={p} style={[styles.hourTick, { left: `${p}%` }]} />)}
-              {markers.map(m => (
-                <View key={m.key} style={[styles.eventMark, { left: `${(m.m / 1440) * 100}%`, backgroundColor: m.c }, m.up ? { top: -10 } : { top: 7 }]} />
+              {hourTicks.map(m => <View key={m} style={[styles.hourTick, { left: `${pctOfMin(m)}%` }]} />)}
+              {markers.filter(m => m.m >= range.from && m.m <= range.to).map(m => (
+                <View key={m.key} style={[styles.eventMark, { left: `${pctOfMin(m.m)}%`, backgroundColor: m.c }, m.up ? { top: -10 } : { top: 7 }]} />
               ))}
               {nowDayPct != null && <View style={[styles.nowTick, { left: `${nowDayPct}%`, top: -9, height: 17 }]} />}
             </ScrubTrack>
@@ -386,6 +451,20 @@ export const DateTimeBar: React.FC<Props> = ({
             onStep={() => adjustTime(1)}
             icon={<ChevronRight size={16} color={color.textDim} />}
           />
+          {zoomWin && (
+            <PressScale
+              onPress={toggleZoom}
+              style={[styles.stepBtn, zoom && styles.stepBtnOn]}
+              accessibilityLabel={zoomWin.side === 'sunset'
+                ? L3(language, '일몰 앞뒤 3시간 확대', 'Zoom to 3 h around sunset', '日の入り前後3時間を拡大')
+                : L3(language, '일출 앞뒤 3시간 확대', 'Zoom to 3 h around sunrise', '日の出前後3時間を拡大')}
+              accessibilityState={{ selected: zoom }}
+            >
+              {zoomWin.side === 'sunset'
+                ? <Sunset size={16} color={zoom ? color.accent : color.textDim} />
+                : <Sunrise size={16} color={zoom ? color.accent : color.textDim} />}
+            </PressScale>
+          )}
         </View>
 
         {/* ── 정확도 상세 범례 (열렸을 때) — 아래 칩을 누르면 펼쳐집니다 ───── */}
@@ -393,7 +472,7 @@ export const DateTimeBar: React.FC<Props> = ({
           <View style={styles.legend}>
             {legend.map(x => (
               <View key={x.tier} style={styles.legendItem}>
-                <View style={[styles.legendSwatch, { backgroundColor: tierColors[x.tier], opacity: x.tier === 'none' ? 0.45 : 1 }]} />
+                <TierSwatch tier={x.tier} color={bandColor} width={14} height={4} />
                 <Text style={styles.legendText}>{x.text}</Text>
               </View>
             ))}
@@ -413,7 +492,7 @@ export const DateTimeBar: React.FC<Props> = ({
             accessibilityLabel={L3(language, '정확도 범례', 'Accuracy legend', '精度の凡例')}
             accessibilityState={{ expanded: legendOpen }}
           >
-            <View style={[styles.chipDot, { backgroundColor: tierColors[tier] }]} />
+            <TierSwatch tier={tier} color={bandColor} width={14} height={4} />
             <Text style={styles.chipText} numberOfLines={1}>{leadText}</Text>
             <Info size={12} color={color.textDim} />
           </PressScale>
@@ -478,7 +557,6 @@ const useStyles = makeStyles((color) => ({
     borderColor: color.border,
     backgroundColor: color.fill,
   },
-  chipDot: { width: 6, height: 6, borderRadius: 3 },
   chipText: { ...type.label, color: color.textDim },
 
   /** 보조 동작 — 해 색(sun)은 데이터 색이라 버튼 바탕에 쓰지 않습니다. 주 버튼은 아래 촬영 하나. */
@@ -518,7 +596,6 @@ const useStyles = makeStyles((color) => ({
 
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 4, paddingBottom: 3 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  legendSwatch: { width: 12, height: 5, borderRadius: 2 },
   legendText: { ...type.micro, color: color.textDim },
 
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },

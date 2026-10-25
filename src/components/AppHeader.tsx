@@ -1,7 +1,12 @@
 /**
  * AppHeader.tsx
  *
- * 앱 맨 위 한 줄 — **탭 둘(시뮬레이션 · 갤러리)** + 위치 · 설정.
+ * 앱 맨 위 한 줄 — **탭 둘(01 하늘 · 02 기록)** + 위치(장소 이름) · 설정.
+ *
+ * ## 달라진 것 (2026-10-25, 디자인 2단)
+ *
+ * - 탭 이름을 디자인 시스템 이름으로 바꿨습니다("시뮬레이션 · 갤러리" → "하늘 · 기록").
+ * - 위치 버튼이 지금 장소를 이름으로 보여 줍니다(`placeLabel`). 예전에는 핀 아이콘만 있어 어느 하늘인지 알 수 없었습니다.
  *
  * ## 달라진 것 (§143)
  *
@@ -17,7 +22,8 @@ import { StyleSheet, View, Text, Animated } from 'react-native';
 import { MapPin, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
-import { color, radius, mono, space, TOUCH } from '../theme/tokens';
+import { color, radius, mono, space, type, TOUCH } from '../theme/tokens';
+import type { SavedLocation } from '../store/useCelestialStore';
 import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
@@ -26,9 +32,26 @@ import { makeStyles, useThemeColors } from '../theme/useTheme';
 export type AppTab = 'sky' | 'log';
 
 export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
-  { id: 'sky', code: '01', label: '01 SIM' },
+  { id: 'sky', code: '01', label: '01 SKY' },
   { id: 'log', code: '02', label: '02 LOG' },
 ];
+
+/**
+ * 헤더 위치 버튼에 적을 이름. 저장한 장소와 1km 안이면 그 이름, 아니면 짧은 좌표입니다.
+ * 역지오코딩(네트워크)은 부르지 않습니다 — 사진 올리기에서만 씁니다.
+ */
+export function placeLabel(lat: number | undefined, lon: number | undefined, saved: SavedLocation[]): string | null {
+  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const kmPerDegLat = 111.32;
+  const kmPerDegLon = 111.32 * Math.cos((lat * Math.PI) / 180);
+  let best: { name: string; d: number } | null = null;
+  for (const s of saved) {
+    const d = Math.hypot((s.latitude - lat) * kmPerDegLat, (s.longitude - lon) * kmPerDegLon);
+    if (d <= 1 && (!best || d < best.d)) best = { name: s.name, d };
+  }
+  if (best) return best.name;
+  return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+}
 
 /** 스와이프 순서 = 탭 순서. 둘이 어긋날 수 없도록 같은 배열에서 유도합니다. */
 export const TAB_ORDER: AppTab[] = APP_TABS.map(t2 => t2.id);
@@ -48,6 +71,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const color = useThemeColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
+  const location = useCelestialStore(s => s.location);
+  const savedLocations = useCelestialStore(s => s.savedLocations);
+  const place = useMemo(
+    () => placeLabel(location?.coords?.latitude, location?.coords?.longitude, savedLocations),
+    [location?.coords?.latitude, location?.coords?.longitude, savedLocations],
+  );
 
   const activeIndex = useMemo(() => {
     const i = TAB_ORDER.indexOf(activeTab);
@@ -94,9 +123,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     isActive && { fontWeight: '800' }
                   ]}
                 >
-                  {/* 번호는 HUD 문체로 두고 이름은 언어를 따릅니다(점검 2026-09-29). */}
-                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '시뮬레이션', 'SIM', 'シミュ')
-                    : L3(language, '갤러리', 'GALLERY', 'ギャラリー')}`}
+                  {/* 번호는 실제 순서라 붙이고 이름은 언어를 따릅니다(디자인 시스템 · 말투). */}
+                  {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
+                    : L3(language, '기록', 'LOG', '記録')}`}
                 </Text>
               </PressScale>
             );
@@ -107,11 +136,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {setMapVisible && (
             <PressScale
               onPress={() => setMapVisible(true)}
-              style={styles.iconBtn}
-              accessibilityLabel={L3(language, '위치 변경', 'Change location', '位置を変更')}
+              style={styles.placeBtn}
+              accessibilityLabel={`${L3(language, '위치 변경', 'Change location', '位置を変更')}${place ? ` — ${place}` : ''}`}
               accessibilityRole="button"
             >
               <MapPin size={16} color={color.accent} />
+              {!!place && <Text style={styles.placeText} numberOfLines={1}>{place}</Text>}
             </PressScale>
           )}
 
@@ -178,6 +208,22 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     gap: space.sm,
   },
+  /** 위치 버튼 — 지금 어느 하늘인지 이름으로 보여 줍니다(예전에는 핀 아이콘만). */
+  placeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    height: TOUCH,
+    minWidth: TOUCH,
+    maxWidth: 136,
+    paddingHorizontal: space.md,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.panel,
+    justifyContent: 'center',
+  },
+  placeText: { ...type.bodyStrong, color: color.text, flexShrink: 1 },
   iconBtn: {
     width: TOUCH,
     height: TOUCH,

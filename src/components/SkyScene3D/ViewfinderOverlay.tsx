@@ -1,11 +1,11 @@
 /**
  * ViewfinderOverlay.tsx
  *
- * 전문가용 시네마틱 카메라 뷰파인더 오버레이
- * - 3등분선 (Rule of Thirds) 연한 가이드라인 & 교차점 마커 & 4코너 브라켓
- * - 상단/하단 수평 방위각 눈금자 테이프 (Heading / Azimuth Ruler)
- * - 우측 수직 고도각 눈금자 (Pitch / Elevation Ruler)
- * - 좌측 수직 시야각 눈금자 (FOV / Zoom Ruler)
+ * 하늘 위 눈금 — **방위 한 줄**만 늘 보입니다(디자인 2단, 2026-10-25).
+ * - 상단 방위 눈금자 (Heading / Azimuth Ruler) — 읽기, 늘 보임
+ * - 우측 고도각 · 좌측 시야각 눈금자 — 손으로 시선·줌을 바꾸는 동안만(`adjusting`)
+ *
+ * 예전의 3등분선 · 교차점 십자 · 모서리 괄호 · 하단 방위 눈금은 뺐습니다. 다섯 겹 장식이 하늘(주인공)을 가렸습니다.
  *
  * 모든 요소는 pointerEvents="none"으로 3D 씬의 터치 인터랙션을 완벽하게 통과시킵니다.
  */
@@ -17,6 +17,8 @@ interface ViewfinderOverlayProps {
   cameraElevation: number;  // -85 ~ +85°
   cameraFov: number;        // 20 ~ 90°
   theme?: any;
+  /** 손으로 시선·줌을 바꾸는 중(놓고 잠시 뒤 false). 이때만 고도·시야각 눈금을 보입니다. */
+  adjusting?: boolean;
 }
 
 export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
@@ -24,6 +26,7 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
   cameraElevation,
   cameraFov,
   theme,
+  adjusting = false,
 }) => {
   const normAz = ((cameraAzimuth % 360) + 360) % 360;
   const roundedAz = Math.round(normAz);
@@ -97,39 +100,6 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
     return ticks;
   }, [normAz]);
 
-  // 하단 수평 방위 눈금자 틱 생성 (-60° ~ +60° 범위, 아래에서 위로 뻗는 틱)
-  const bottomHeadingTicks = useMemo(() => {
-    const ticks = [];
-    const pxPerDeg = 2.4;
-    for (let offset = -60; offset <= 60; offset += 5) {
-      const deg = (normAz + offset + 360) % 360;
-      const rDeg = Math.round(deg / 5) * 5 % 360;
-      const isMajor = rDeg % 45 === 0;
-      const isMedium = rDeg % 15 === 0;
-
-      ticks.push(
-        <View
-          key={offset}
-          style={[
-            styles.bottomHeadingTick,
-            { transform: [{ translateX: offset * pxPerDeg }] }
-          ]}
-        >
-          <View
-            style={[
-              styles.bottomTickBar,
-              {
-                height: isMajor ? 9 : isMedium ? 6 : 3.5,
-                backgroundColor: isMajor ? '#38BDF8' : isMedium ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.25)',
-                width: isMajor ? 2 : 1,
-              }
-            ]}
-          />
-        </View>
-      );
-    }
-    return ticks;
-  }, [normAz]);
 
   // 우측 수직 고도각(Pitch) 눈금자 틱 생성 (-25° ~ +25° 범위)
   const pitchTicks = useMemo(() => {
@@ -232,42 +202,7 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
 
   return (
     <View style={styles.container} pointerEvents="none">
-      {/* ── 1. 3등분선 (Rule of Thirds Grid) ─────────────────────────────── */}
-      <View style={styles.gridLayer}>
-        {/* 가로 2줄 */}
-        <View style={[styles.gridHLine, { top: '33.33%' }]} />
-        <View style={[styles.gridHLine, { top: '66.66%' }]} />
-
-        {/* 세로 2줄 */}
-        <View style={[styles.gridVLine, { left: '33.33%' }]} />
-        <View style={[styles.gridVLine, { left: '66.66%' }]} />
-
-        {/* 4개 교차점 골든 포인트 십자선 */}
-        <View style={[styles.crosshair, { top: '33.33%', left: '33.33%' }]}>
-          <View style={styles.crossH} />
-          <View style={styles.crossV} />
-        </View>
-        <View style={[styles.crosshair, { top: '33.33%', left: '66.66%' }]}>
-          <View style={styles.crossH} />
-          <View style={styles.crossV} />
-        </View>
-        <View style={[styles.crosshair, { top: '66.66%', left: '33.33%' }]}>
-          <View style={styles.crossH} />
-          <View style={styles.crossV} />
-        </View>
-        <View style={[styles.crosshair, { top: '66.66%', left: '66.66%' }]}>
-          <View style={styles.crossH} />
-          <View style={styles.crossV} />
-        </View>
-
-        {/* 4개 코너 시네마틱 브라켓 */}
-        <View style={[styles.cornerBracket, styles.bracketTL]} />
-        <View style={[styles.cornerBracket, styles.bracketTR]} />
-        <View style={[styles.cornerBracket, styles.bracketBL]} />
-        <View style={[styles.cornerBracket, styles.bracketBR]} />
-      </View>
-
-      {/* ── 2. 상단 방위 눈금자 (Top Azimuth Ruler) ───────────────────────── */}
+      {/* ── 방위 눈금 한 줄 (읽기 — 늘 보임) ─────────────────────────────── */}
       <View style={styles.topRulerContainer}>
         <View style={styles.topCenterIndicator}>
           <Text style={styles.topHeaderText}>{roundedAz}° {dirLabel}</Text>
@@ -278,29 +213,23 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
         </View>
       </View>
 
-      {/* ── 3. 하단 방위 눈금자 (Bottom Azimuth Ruler) ─────────────────────── */}
-      <View style={styles.bottomRulerContainer}>
-        <View style={styles.bottomRulerTrack}>
-          {bottomHeadingTicks}
+      {/* ── 고도·시야각 눈금 — 손으로 하늘을 돌리거나 당기는 동안만(디자인 2단: 하늘을 가리지 않음) ── */}
+      {adjusting && (
+        <View style={styles.rightRulerContainer}>
+          <View style={styles.rightRulerTrack}>
+            {pitchTicks}
+          </View>
+          <View style={styles.rightPointer} />
         </View>
-        <View style={styles.bottomCenterPointer} />
-      </View>
-
-      {/* ── 4. 우측 위아래 각도(Pitch / Elevation) 눈금자 ────────────────── */}
-      <View style={styles.rightRulerContainer}>
-        <View style={styles.rightRulerTrack}>
-          {pitchTicks}
+      )}
+      {adjusting && (
+        <View style={styles.leftRulerContainer}>
+          <View style={styles.leftPointer} />
+          <View style={styles.leftRulerTrack}>
+            {fovTicks}
+          </View>
         </View>
-        <View style={styles.rightPointer} />
-      </View>
-
-      {/* ── 5. 좌측 시야각(FOV / Zoom) 눈금자 ────────────────────────────── */}
-      <View style={styles.leftRulerContainer}>
-        <View style={styles.leftPointer} />
-        <View style={styles.leftRulerTrack}>
-          {fovTicks}
-        </View>
-      </View>
+      )}
     </View>
   );
 };
@@ -309,78 +238,6 @@ const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
-  },
-
-  // ── 3등분선 그리드 ──
-  gridLayer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  gridHLine: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.11)',
-  },
-  gridVLine: {
-    position: 'absolute',
-    top: 36,
-    bottom: 36,
-    width: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.11)',
-  },
-  crosshair: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    marginLeft: -7,
-    marginTop: -7,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  crossH: {
-    position: 'absolute',
-    width: 10,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.35)',
-  },
-  crossV: {
-    position: 'absolute',
-    height: 10,
-    width: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.35)',
-  },
-
-  // 코너 브라켓
-  cornerBracket: {
-    position: 'absolute',
-    width: 16,
-    height: 16,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-  },
-  bracketTL: {
-    top: 14,
-    left: 14,
-    borderTopWidth: 1.5,
-    borderLeftWidth: 1.5,
-  },
-  bracketTR: {
-    top: 14,
-    right: 14,
-    borderTopWidth: 1.5,
-    borderRightWidth: 1.5,
-  },
-  bracketBL: {
-    bottom: 14,
-    left: 14,
-    borderBottomWidth: 1.5,
-    borderLeftWidth: 1.5,
-  },
-  bracketBR: {
-    bottom: 14,
-    right: 14,
-    borderBottomWidth: 1.5,
-    borderRightWidth: 1.5,
   },
 
   // ── 상단 방위 눈금자 ──
@@ -527,42 +384,5 @@ const styles = StyleSheet.create({
   fovTickText: {
     fontSize: 9,
     fontWeight: '700',
-  },
-
-  // ── 하단 방위 눈금자 (Bottom Azimuth Ruler) ──
-  bottomRulerContainer: {
-    position: 'absolute',
-    bottom: 10,
-    left: '12%',
-    right: '12%',
-    alignItems: 'center',
-  },
-  bottomRulerTrack: {
-    width: '100%',
-    height: 14,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  bottomHeadingTick: {
-    position: 'absolute',
-    bottom: 0,
-    alignItems: 'center',
-    width: 24,
-    marginLeft: -12,
-  },
-  bottomTickBar: {
-    borderRadius: 0.5,
-  },
-  bottomCenterPointer: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 3,
-    borderRightWidth: 3,
-    borderBottomWidth: 4.5,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: '#38BDF8',
-    marginTop: 2,
   },
 });
