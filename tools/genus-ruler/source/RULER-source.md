@@ -31,7 +31,7 @@
 - **S2 현실성(판정 항목)**: 9 곳 × 2026-09-01 ~ 09-30, 창 가운데(끝 −30 분) 태양고도 ≥ 15°, 맑은 GHI 창 평균 ≥ 226 W/m². 측정 전용 요청으로 `shortwave_radiation` 을 historical(두 모델 평균)·archive B0(모델 미지정 = 앱 경로)·archive B1(`models=era5`, 보고만) 에서 받고, 위성 GHI(satellite-api archive)와 같은 분모(Haurwitz 창 평균 `clearSkyGHIMean`)로 τ 화. 곳마다 **맑음 배율 = 위성 τ 상위 5 %** 하나를 세 자료원에 같이 쓴다. 주 지표 **τ MAE × 100**(§56 눈금), 보조 짙은 흐림(τ_sat < 0.45) 편향·상관 r. Δ = MAE(historical) − MAE(B0) 를 **날 블록 부트스트랩**(블록 = 달력 날짜, 그날의 모든 곳 포함, 1,000 회) 95 % 구간으로. 보조 보고: 5~15° 구간 MAE(Haurwitz 한계 주석). 검정력: ≈ 30 날 블록, Δ MAE 1.0 의 SE ≈ 0.4~0.5.
 - **S3 완전성**: 같은 곳·같은 날(S1 겹침 날)에서 forecast 와 historical 의 변수군별 유한 비율을 쌍으로: (a) CAPE·결빙고도 (b) 기압면 기온 15 면·RH 13 면 (c) 기압면 운량 단면·지오포텐셜 15 면 (d) 층별 바람 3 층 (e) 경계층·지상 기온·이슬점 (f) 시정. 군마다 historical ≥ forecast − 2 %p. archive 도 군별로 같은 표에(예상 (a)~(d) 0 %, (e) 100 %).
 - **S4 이음새**: 날 경계(23:00 → 00:00) 3 층 운량 |Δ| 를 센다. 같은 자료원 연속 이틀 쌍(historical/historical, archive/archive 각 9 곳 × 10 쌍) 대 자료원이 바뀌는 쌍(forecast/historical: 오늘 −5/−6; historical/archive: 2024-02-03/02; historical-icon/archive: 2022-11-24/23, 9 곳). 중앙값 비(교차/동일) 와 부트스트랩 구간; 서머타임 전환일(유럽 10-25, 미국 11-01) 경계는 뺀다. 비 > 1.5 인 경계에만 ±6 h 혼합을 후속 등록. 해안 지점 비율을 함께 적는다(격자 차 → 셀 선택 차).
-- **S5 재현성·테스트**: `tools/shader-preview/verify-weather-source.js`(esbuild 로 weatherSource.ts 만 묶음): 날짜 경계(−5/−6)·같은 날짜의 00:30·12:00·23:30 → 같은 origin·단조성(forecast → historical 로만)·모델 시작일 표·kind 별 modelParam·403/429 사상·한국 현지 00~09 시 날짜 표. `tools/genus-ruler/flow/thermo-test.mjs` 2) 를 historical 로 고쳐 포함. `scene-from-forecast.ts` 의 기기 캡처 재현이 historical 로 바뀜을 §161 에 적는다.
+- **S5 재현성·테스트**: `tools/shader-preview/verify-weather-source.js`(esbuild 로 weatherSource.ts 만 묶음): 날짜 경계(−5/−6)·같은 날짜의 00:30·12:00·23:30 → 같은 origin·단조성(forecast → historical 로만)·모델 시작일 표·kind 별 modelParam·403/429 사상·한국 현지 00~09 시 날짜 표. `tools/genus-ruler/flow/thermo-test.mjs` 2) 를 historical 로 고쳐 포함. `scene-from-forecast.ts` 의 기기 캡처 재현이 historical 로 바뀜을 §163 에 적는다.
 - 비용 기록: S0 ≈ 91 + 3, S1 9 곳 × 3 일 × 2 끝점 × 3 종류 ≈ 160, S2 위성 9 × 30/14 ≈ 20 + forecast·archive 각 ≈ 20, S3 는 S1 응답 재사용, S4 9 곳 × 6 경계 × 2 ≈ 110. 합 ≈ 450. 측정은 앱을 쓰지 않는 시간(UTC 자정 뒤)에, resume 가능하게.
 
 ## 4. 합격·행동
@@ -47,7 +47,7 @@
 - 함정: 요금 FAQ(403 → 즉시 archive 후퇴·보고). 모델 버전 변화 계단(측정 불가, 위험으로 선언). 2024-02 이전 icon 단독 → origin 태그로 보임. timezone=auto 다지점 시간대 경계(덴버 동쪽 고리)는 기존 결함·범위 밖.
 
 ## 6. 바뀔 파일
-`src/utils/weatherSource.ts`(새), `src/utils/weather.ts`(세 함수 + 죽은 팬 경로에 해석기, `nowMs`, origin, 음성 캐시·403 플래그), `src/components/VolumetricProbe/liveScene.ts`(요약에 origin), `tools/shader-preview/verify-weather-source.js`(새), `tools/genus-ruler/flow/thermo-test.mjs`, `tools/genus-ruler/source/measure-source.py`(S1~S4), docs §161.
+`src/utils/weatherSource.ts`(새), `src/utils/weather.ts`(세 함수 + 죽은 팬 경로에 해석기, `nowMs`, origin, 음성 캐시·403 플래그), `src/components/VolumetricProbe/liveScene.ts`(요약에 origin), `tools/shader-preview/verify-weather-source.js`(새), `tools/genus-ruler/flow/thermo-test.mjs`, `tools/genus-ruler/source/measure-source.py`(S1~S4), docs §163.
 
 ## 7. 초안 → 동결에서 바뀐 것(3 관점 비판, 2026-10-25)
 era5 → archive(best_match 이어붙임) 이름·기준선 B0/B1; ms 차 → 달력 날짜 차·단조성; 캐시 키 접두 → 키 불변 + origin 필드; thermo/winds 모델 미지정 유지; DNI·강수 상대 오차 → 절대 문턱·분모 규칙; S2 상관 → τ MAE 주 지표·배율 하나·날 블록 구간·9 곳; S3 군별 쌍 비교; S4 날 경계·동일/교차 쌍·영구 경계 포함; 403 만 후퇴·429 비기억·음성 캐시 제한; 400 재시도 삭제; 보관 최신일 탐침; icon 단독 설명 수정; 죽은 팬 경로 표기; 한도 풀 공유 관측 추가.

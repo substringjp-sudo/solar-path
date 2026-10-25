@@ -39,7 +39,7 @@ globalThis.fetch = async (url) => {
   return { ok: true, status: 200, json: async () => ({ hourly: h }) };
 };
 const D = new Date('2026-10-12T03:00:00Z');
-// §161: 자료원은 '오늘' 과의 달력 날짜 차로 정해지므로 테스트는 '지금' 을 주입합니다(D 당일 = forecast).
+// §163: 자료원은 '오늘' 과의 달력 날짜 차로 정해지므로 테스트는 '지금' 을 주입합니다(D 당일 = forecast).
 const NOW = Date.parse('2026-10-12T12:00:00Z');
 
 // 1) 예보 경로
@@ -55,7 +55,7 @@ const NOW = Date.parse('2026-10-12T12:00:00Z');
   const n = urls.length; await W.fetchThermoProfile(37.57, 126.98, D, undefined, NOW);
   check('same cell and day is served from the cache (no second request)', urls.length === n, `${urls.length - n} extra requests`);
 }
-// 2) §161 과거 경로(6 일 넘은 과거, 2024-02-03 이후): 과거 예보 보관 API, 모델 미지정. 가짜 응답은 archive 꼴(상층 null)로 두어 NaN 채움도 함께 검사.
+// 2) §163 과거 경로(6 일 넘은 과거, 2024-02-03 이후): 과거 예보 보관 API, 모델 미지정. 가짜 응답은 archive 꼴(상층 null)로 두어 NaN 채움도 함께 검사.
 {
   mode = 'archive';
   const old = new Date(NOW - 20 * 86400000);
@@ -64,7 +64,7 @@ const NOW = Date.parse('2026-10-12T12:00:00Z');
   check('thermo uses the historical-forecast API for dates older than 5 days (no models=)', u.includes('historical-forecast-api.open-meteo.com') && !u.includes('models='), '');
   check('null upper-air fields → NaN, surface values kept', t && t.t2mC.every(Number.isFinite) && t.capeJkg.every(Number.isNaN) && t.profileTempC.every(a => a.every(Number.isNaN)), '');
 }
-// 2b) §161 보관 API 가 403 이면 archive 로 후퇴하고 세션 동안 기억한다
+// 2b) §163 보관 API 가 403 이면 archive 로 후퇴하고 세션 동안 기억한다
 {
   mode = 'full';
   const base = globalThis.fetch;

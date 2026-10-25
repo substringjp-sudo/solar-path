@@ -36,7 +36,7 @@
 - 함정: MODIS 마스크 눈·해빙 오탐·얇은 권운 맹점(보조 입력으로 몫만 잼); Terra 아침 한 시각(Aqua 13:30 은 비용으로 범위 밖); 바다 위 고리 점의 `cell_selection=land` 기본(앱과 같음, 한계로 적음); 모델 버전 계단(8/1~10/23); 한도 공유 IP — 앱 미사용 시간·사이트 단위 resume; 밤 없음(밤 리드 기술은 METAR 자).
 
 ## 6. 산출물·파일
-`tools/genus-ruler/ring/fetch-modis-time.py`(CMR → `ring/modis-times.json`), `fetch-nwp-ring.py`(historical, 사이트별 resume → `sceneDir-nwp`·`sceneDir-nwp-lm`(저+중)·`sceneDir-jma`), `lead-curve.py`(previous-runs × satellite → `lead-curve.json`), `macro.py --gate` 결과 `gate-nwp-held.json`, 결과 절 §8 과 docs §162.
+`tools/genus-ruler/ring/fetch-modis-time.py`(CMR → `ring/modis-times.json`), `fetch-nwp-ring.py`(historical, 사이트별 resume → `sceneDir-nwp`·`sceneDir-nwp-lm`(저+중)·`sceneDir-jma`), `lead-curve.py`(previous-runs × satellite → `lead-curve.json`), `macro.py --gate` 결과 `gate-nwp-held.json`, 결과 절 §8 과 docs §164.
 
 ## 7. 초안 → 동결에서 바뀐 것(3 관점 비판, 2026-10-25)
 시각: 법정 10:30 → CMR granule 시각(대안 평균 태양시), ±1 h 민감도·행동 게이트; 장면 121·날짜 13; 요청: 날짜별 91 → 사이트별 1 요청(가중 11,800 → 3,200); 사본 단위(0~1)·결측 규칙; 판정 지표 base(corr12Base 추가해 기준선 0.649 재측정); Q2 모델 best_match → 블렌드, 9 곳, start_date, 같은 표본 규칙, 기후값 = 보고 기간 평균 + 지속성 기준, 역함수 금지 → 정방향 τ, 리드 뜻(24N~24N+6), 단조 맞춤·구간이 지금 값을 배제할 때만 변경, none 불변; Q1 행동에 민감도 게이트·중복률 조건; ringRmseTrue 바닥 0.181 분리; 날짜/날 블록 부트스트랩; Q3 사이트 정정; Q1-b archive 고리 추가; 403 규칙.

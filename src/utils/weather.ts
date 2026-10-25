@@ -257,7 +257,7 @@ export interface CloudPathData {
   hourly: HourlyCloudData;
   source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
   isFallback?: boolean;
-  /** §161 자료원(RULER-source): forecast(past_days 포함)·historical·historical-icon·archive·archive-fallback·synthetic. 없으면 옛 캐시(legacy). */
+  /** §163 자료원(RULER-source): forecast(past_days 포함)·historical·historical-icon·archive·archive-fallback·synthetic. 없으면 옛 캐시(legacy). */
   origin?: WeatherOrigin;
 }
 
@@ -425,7 +425,7 @@ export const fetchSunsetWeather = async (
   const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
   const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
 
-  // §161 자료원 해석기 — 죽은 팬 경로에도 같은 규칙(측정은 고리에서만, RULER-source §0)
+  // §163 자료원 해석기 — 죽은 팬 경로에도 같은 규칙(측정은 고리에서만, RULER-source §0)
   const fanSrc = weatherSourceFor(targetDateStr, localDateString(new Date()), 'fan', { historicalForbidden: isHistoricalForbidden(), modelParam });
   const isHistorical = isArchiveOrigin(fanSrc.origin);
 
@@ -1081,7 +1081,7 @@ export const fetchThermoProfile = async (
     .concat(THERMO_TEMP_LEVELS.map(p => `temperature_${p}hPa`))
     .concat(THERMO_RH_LEVELS.map(p => `relative_humidity_${p}hPa`))
     .join(',');
-  // §161 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
+  // §163 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
   let src = weatherSourceFor(dateStr, localDateString(new Date(nowMs ?? Date.now())), 'point', { historicalForbidden: isHistoricalForbidden() });
   const urlFor = (sr: WeatherSource) => `${sr.baseUrl}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
     `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${sr.modelParam}`;
@@ -1179,7 +1179,7 @@ export const fetchLayerWinds = async (
     .concat(PROFILE_LEVELS.flatMap(p => [`cloud_cover_${p}hPa`, `geopotential_height_${p}hPa`]))
     .join(',');
 
-  // §161 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
+  // §163 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
   let src = weatherSourceFor(dateStr, localDateString(new Date(nowMs ?? Date.now())), 'point', { historicalForbidden: isHistoricalForbidden() });
   const urlFor = (sr: WeatherSource) => `${sr.baseUrl}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
     `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${sr.modelParam}`;
@@ -1342,7 +1342,7 @@ export const fetchDayWeatherRing = async (
   targetDate: Date = new Date(),
   forceRefresh: boolean = false,
   signal?: AbortSignal,
-  /** 테스트 주입용 '지금'(ms). 자료원 해석(§161)에만 쓰입니다. */
+  /** 테스트 주입용 '지금'(ms). 자료원 해석(§163)에만 쓰입니다. */
   nowMs?: number
 ): Promise<CloudPathData[]> => {
   const targetDateStr = localDateString(targetDate);
@@ -1410,7 +1410,7 @@ export const fetchDayWeatherRing = async (
     const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
     const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
 
-    // §161 자료원 해석기(RULER-source §2): 달력 날짜 차로 forecast / historical / archive 를 가르고(하루는 한 자료원),
+    // §163 자료원 해석기(RULER-source §2): 달력 날짜 차로 forecast / historical / archive 를 가르고(하루는 한 자료원),
     // 보관 API 가 403 이면 세션 동안 기억하고 archive 로 후퇴합니다. 429 는 기억하지 않고 아래 기존 갈래로 갑니다.
     const todayStr = localDateString(new Date(nowMs ?? Date.now()));
     let src = weatherSourceFor(targetDateStr, todayStr, 'ring', { historicalForbidden: isHistoricalForbidden() });
@@ -1465,7 +1465,7 @@ export const fetchDayWeatherRing = async (
       latitude: lat,
       longitude: lon,
       targetDate: targetDateStr,
-      sourceUrl: url,
+      sourceUrl: ringUrlFor(src),
       mainForecast: observerRaw,
       winds,
       airQuality: air,

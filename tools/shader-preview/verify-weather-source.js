@@ -1,5 +1,5 @@
 /**
- * §161 자료원 해석기(`src/utils/weatherSource.ts`) 합격 판정 — RULER-source §3 S5. esbuild 로 순수 모듈만 묶음.
+ * §163 자료원 해석기(`src/utils/weatherSource.ts`) 합격 판정 — RULER-source §3 S5. esbuild 로 순수 모듈만 묶음.
  *   node tools/shader-preview/verify-weather-source.js
  *  [1] 날짜 경계: 오늘 −5 → forecast, −6 → historical, 미래·오늘 → forecast.
  *  [2] 같은 날짜의 00:30·12:00·23:30(기기 현지 날짜 문자열이 같음) → 같은 origin; 한국 현지 00~09 시 날짜 표(UTC 전날)는 호출부 localDateString 몫 — 여기서는 문자열만 본다.
