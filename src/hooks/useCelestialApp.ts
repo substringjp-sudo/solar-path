@@ -306,7 +306,6 @@ export function useCelestialApp() {
     if (visible) syncClock();
     setSunCameraVisibleState(visible);
   };
-  const [isCameraWarningVisible, setCameraWarningVisible] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const prevTabRef = useRef(activeTab);
   const lastSunsetDateRef = useRef<string | null>(null);
@@ -1064,8 +1063,6 @@ export function useCelestialApp() {
     setActiveTab,
     isSunCameraVisible,
     setSunCameraVisible,
-    isCameraWarningVisible,
-    setCameraWarningVisible,
     contentOpacity,
     contentTranslateX,
     currentTime,

@@ -244,7 +244,6 @@ export const translations = {
     locationDeniedAlert: '위치 권한이 거부되어 태양 궤적 분석 기능을 시작할 수 없습니다. 시스템 설정 앱에서 위치 권한을 반드시 허용해 주세요.',
     startApp: '시작하기',
     goToSettings: '시스템 설정 바로가기',
-    enterAnyway: '미리보기 진입',
 
     // MapPicker
     changeLocation: '위치 변경',
@@ -266,8 +265,6 @@ export const translations = {
     // App Loading / Modal
     checkingPermissions: '권한을 확인하는 중...',
     locatingPosition: '위치 정보를 파악하는 중...',
-    waitingGoldenHour: '골든 아워 대기 중',
-    cameraWarningMessage: 'AR 카메라 기능은 일출/일몰 전후 2.5시간(골든 아워) 동안에만 활성화됩니다.\n\n개발자 테스트를 위해 우회 진입을 하시려면 카메라 버튼을 2초간 꾹 눌러주세요.',
     simulationLimitNote: '※ 시뮬레이션은 수치 기상 예보 모델 데이터를 기반으로 렌더링되므로, 실제 지상의 지형지물, 가시거리 및 구름의 모양 등 국지적 기상 실황과 완전히 일치하지 않을 수 있습니다.',
     recordSunset: '노을 기록하기',
     actualLandscape: '실제 풍경 사진',
@@ -654,7 +651,6 @@ export const translations = {
     locationDeniedAlert: 'Location permission is denied. Cannot start solar trajectory tracking. Please enable location permission in system settings.',
     startApp: 'Start',
     goToSettings: 'Go to System Settings',
-    enterAnyway: 'Enter Preview',
 
     // MapPicker
     changeLocation: 'Change Location',
@@ -676,8 +672,6 @@ export const translations = {
     // App Loading / Modal
     checkingPermissions: 'Checking permissions...',
     locatingPosition: 'Locating your position...',
-    waitingGoldenHour: 'Waiting for Golden Hour',
-    cameraWarningMessage: 'The AR camera feature is only active during the Golden Hour (2.5 hours before and after sunrise/sunset).\n\nTo bypass this for developer testing, press and hold the camera button for 2 seconds.',
     simulationLimitNote: '※ Note: Since the simulation is rendered based on numerical weather prediction models, it may not perfectly match local weather conditions, physical land features, or exact cloud shapes in reality.',
     recordSunset: 'Record Sunset',
     actualLandscape: 'Actual Photo',
@@ -1064,7 +1058,6 @@ export const translations = {
     locationDeniedAlert: '位置情報の利用が拒否されました。太陽軌道の追跡を開始できません。システム設定で位置情報の使用を有効にしてください。',
     startApp: '開始する',
     goToSettings: 'システム設定へ移動',
-    enterAnyway: 'プレビューで入る',
 
     // MapPicker
     changeLocation: '位置変更',
@@ -1086,8 +1079,6 @@ export const translations = {
     // App Loading / Modal
     checkingPermissions: '権限を確認中...',
     locatingPosition: '現在地を取得中...',
-    waitingGoldenHour: 'ゴールデンアワーを待機中',
-    cameraWarningMessage: 'ARカメラ機能はゴールデンアワー（日の出・日の入りの前後2.5時間）の間のみ有効です。\n\n開発者テストのためにこの制限をバイパスするには、カメラボタンを2秒間長押ししてください。',
     simulationLimitNote: '※ 注意：シミュレーションは数値天気予報モデルに基づいてレンダリングされるため、現実の現地の天気、地形の特徴、または正確な雲の形状とは完全に一致しない場合があります。',
     recordSunset: '夕焼けを記録',
     actualLandscape: '実際の写真',
