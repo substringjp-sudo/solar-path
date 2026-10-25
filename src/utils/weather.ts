@@ -9,6 +9,7 @@ import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
 import { fetchSatelliteIrradiance, attachSatelliteIrradiance } from './satelliteIrradiance';
+import { weatherSourceFor, archiveFallbackOf, isArchiveOrigin, isHistoricalForbidden, setHistoricalForbidden, type WeatherSource, type WeatherOrigin } from './weatherSource';
 import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
@@ -256,6 +257,8 @@ export interface CloudPathData {
   hourly: HourlyCloudData;
   source: 'standard' | 'ultra-short'; // 'standard' (Global/Open-Meteo), 'ultra-short' (Regional High-res/Nowcast)
   isFallback?: boolean;
+  /** §163 자료원(RULER-source): forecast(past_days 포함)·historical·historical-icon·archive·archive-fallback·synthetic. 없으면 옛 캐시(legacy). */
+  origin?: WeatherOrigin;
 }
 
 export const getLocalHighResModel = (lat: number, lon: number): string => {
@@ -312,6 +315,7 @@ function createClearSkyFallback(
     },
     source,
     isFallback: true,
+    origin: 'synthetic' as const,
   }));
 }
 
@@ -421,9 +425,9 @@ export const fetchSunsetWeather = async (
   const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
   const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
 
-  // Check if targetDate is older than 5 days to determine forecast vs archive endpoint
-  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-  const isHistorical = diffDays > 5;
+  // §163 자료원 해석기 — 죽은 팬 경로에도 같은 규칙(측정은 고리에서만, RULER-source §0)
+  const fanSrc = weatherSourceFor(targetDateStr, localDateString(new Date()), 'fan', { historicalForbidden: isHistoricalForbidden(), modelParam });
+  const isHistorical = isArchiveOrigin(fanSrc.origin);
 
   let url = '';
   if (isHistorical) {
@@ -436,10 +440,10 @@ export const fetchSunsetWeather = async (
       `&timezone=auto`;
   } else {
     // Open-Meteo Forecast API (limit data payload to targetDateStr to drastically reduce download and parsing latency)
-    url = `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
+    url = `${fanSrc.baseUrl}?latitude=${cLats}&longitude=${cLons}` +
       `&hourly=${hourlyVariables}` +
       `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
-      `&timezone=auto${modelParam}`;
+      `&timezone=auto${fanSrc.modelParam}`;
   }
 
   if (__DEV__) {
@@ -1057,30 +1061,38 @@ export interface ThermoHourly {
 }
 
 const thermoCache = new Map<string, ThermoHourly | null>();
+const thermoMiss = new Map<string, number>();
 
 export const fetchThermoProfile = async (
   lat: number,
   lon: number,
   targetDate: Date = new Date(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  nowMs?: number
 ): Promise<ThermoHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `thermo_${gridBucket(lat, lon)}_${dateStr}`;
   if (thermoCache.has(key)) return thermoCache.get(key) ?? null;
+  // 403·429·네트워크 오류는 날짜 단위로 기억하지 않고 30 초만 쉽니다(RULER-source §2) — 음성 캐시는 '값이 전부 없음' 에만.
+  const missAt = thermoMiss.get(key);
+  if (missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
   const vars = ['temperature_2m', 'dew_point_2m', 'cape', 'freezing_level_height', 'boundary_layer_height']
     .concat(THERMO_TEMP_LEVELS.map(p => `temperature_${p}hPa`))
     .concat(THERMO_RH_LEVELS.map(p => `relative_humidity_${p}hPa`))
     .join(',');
-  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-  const base = diffDays > 5
-    ? 'https://archive-api.open-meteo.com/v1/archive'
-    : 'https://api.open-meteo.com/v1/forecast';
-  const url = `${base}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
-    `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
+  // §163 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
+  let src = weatherSourceFor(dateStr, localDateString(new Date(nowMs ?? Date.now())), 'point', { historicalForbidden: isHistoricalForbidden() });
+  const urlFor = (sr: WeatherSource) => `${sr.baseUrl}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
+    `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${sr.modelParam}`;
 
   try {
-    const response = await fetchWithTimeout(url, { signal }, 12000);
+    let response = await fetchWithTimeout(urlFor(src), { signal }, 12000);
+    if (response.status === 403 && src.origin.startsWith('historical')) {
+      setHistoricalForbidden(true);
+      src = archiveFallbackOf(src);
+      response = await fetchWithTimeout(urlFor(src), { signal }, 12000);
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (data?.error) throw new Error(data.reason || 'unknown');
@@ -1105,7 +1117,8 @@ export const fetchThermoProfile = async (
   } catch (error) {
     // 열역학은 있으면 좋은 재료입니다 — 없다고 하늘을 못 그리지 않습니다(소비자는 예전 상수로 진행).
     if (__DEV__) console.warn('열역학 입력을 받지 못했습니다. 예전 상수로 진행합니다:', error);
-    thermoCache.set(key, null);
+    if (/no values|empty/.test(String((error as Error)?.message ?? ''))) thermoCache.set(key, null);
+    else thermoMiss.set(key, Date.now());
     return null;
   }
 };
@@ -1129,6 +1142,7 @@ export function attachThermo(hourly: HourlyCloudData, t: ThermoHourly): void {
 }
 
 const windCache = new Map<string, LayerWindHourly | null>();
+const windMiss = new Map<string, number>();
 
 /**
  * 관측점의 층별 바람을 하루치 받아옵니다.
@@ -1147,11 +1161,14 @@ export const fetchLayerWinds = async (
   lat: number,
   lon: number,
   targetDate: Date = new Date(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  nowMs?: number
 ): Promise<LayerWindHourly | null> => {
   const dateStr = localDateString(targetDate);
   const key = `wind_${gridBucket(lat, lon)}_${dateStr}`;
   if (windCache.has(key)) return windCache.get(key) ?? null;
+  const missAt = windMiss.get(key);
+  if (missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
   // 바람 6 + 시정 1 + 기압면 단면 20 = 27개 → 가중치 2.7회. **관측점 1점**
   // 요청이라 절대량은 미미합니다(§58 의 합계 186 에 2.7). 팬에는 안 붙입니다 —
@@ -1162,15 +1179,18 @@ export const fetchLayerWinds = async (
     .concat(PROFILE_LEVELS.flatMap(p => [`cloud_cover_${p}hPa`, `geopotential_height_${p}hPa`]))
     .join(',');
 
-  const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-  const base = diffDays > 5
-    ? 'https://archive-api.open-meteo.com/v1/archive'
-    : 'https://api.open-meteo.com/v1/forecast';
-  const url = `${base}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
-    `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`;
+  // §163 자료원 해석기 — 관측점 요청은 모델 미지정(best_match) 그대로, base URL 만 forecast / historical / archive.
+  let src = weatherSourceFor(dateStr, localDateString(new Date(nowMs ?? Date.now())), 'point', { historicalForbidden: isHistoricalForbidden() });
+  const urlFor = (sr: WeatherSource) => `${sr.baseUrl}?latitude=${lat.toFixed(5)}&longitude=${lon.toFixed(5)}` +
+    `&hourly=${vars}&start_date=${dateStr}&end_date=${dateStr}&timezone=auto${sr.modelParam}`;
 
   try {
-    const response = await fetchWithTimeout(url, { signal }, 12000);
+    let response = await fetchWithTimeout(urlFor(src), { signal }, 12000);
+    if (response.status === 403 && src.origin.startsWith('historical')) {
+      setHistoricalForbidden(true);
+      src = archiveFallbackOf(src);
+      response = await fetchWithTimeout(urlFor(src), { signal }, 12000);
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (data?.error) throw new Error(data.reason || 'unknown');
@@ -1239,7 +1259,8 @@ export const fetchLayerWinds = async (
   } catch (error) {
     // 바람은 있으면 좋은 재료입니다 — 없다고 하늘을 못 그리지 않습니다.
     console.warn('층별 바람을 받지 못했습니다. 대용 상수로 진행합니다:', error);
-    windCache.set(key, null);
+    if (/missing level|empty/.test(String((error as Error)?.message ?? ''))) windCache.set(key, null);
+    else windMiss.set(key, Date.now());
     return null;
   }
 };
@@ -1320,7 +1341,9 @@ export const fetchDayWeatherRing = async (
   lon: number,
   targetDate: Date = new Date(),
   forceRefresh: boolean = false,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** 테스트 주입용 '지금'(ms). 자료원 해석(§163)에만 쓰입니다. */
+  nowMs?: number
 ): Promise<CloudPathData[]> => {
   const targetDateStr = localDateString(targetDate);
   // ⚠ 예전에는 `lat.toFixed(3)` — **111m** 였습니다. §68 에서 일몰 날씨 키를,
@@ -1387,19 +1410,25 @@ export const fetchDayWeatherRing = async (
     const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
     const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
 
-    const diffDays = Math.ceil((Date.now() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-    const isHistorical = diffDays > 5;
-
-    const url = isHistorical
-      ? `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
+    // §163 자료원 해석기(RULER-source §2): 달력 날짜 차로 forecast / historical / archive 를 가르고(하루는 한 자료원),
+    // 보관 API 가 403 이면 세션 동안 기억하고 archive 로 후퇴합니다. 429 는 기억하지 않고 아래 기존 갈래로 갑니다.
+    const todayStr = localDateString(new Date(nowMs ?? Date.now()));
+    let src = weatherSourceFor(targetDateStr, todayStr, 'ring', { historicalForbidden: isHistoricalForbidden() });
+    const ringUrlFor = (sr: WeatherSource) => isArchiveOrigin(sr.origin)
+      ? `${sr.baseUrl}?latitude=${cLats}&longitude=${cLons}` +
         `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto`
-      : `https://api.open-meteo.com/v1/forecast?latitude=${cLats}&longitude=${cLons}` +
+      : `${sr.baseUrl}?latitude=${cLats}&longitude=${cLons}` +
         `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
-        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${BLEND_MODELS_PARAM}`;
+        `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${sr.modelParam}`;
 
     // 1) 360° 메인 구름 링 먼저 수신
-    const response = await fetchWithTimeout(url, { signal }, 15000);
+    let response = await fetchWithTimeout(ringUrlFor(src), { signal }, 15000);
+    if (response.status === 403 && src.origin.startsWith('historical')) {
+      setHistoricalForbidden(true);
+      src = archiveFallbackOf(src);
+      response = await fetchWithTimeout(ringUrlFor(src), { signal }, 15000);
+    }
     if (!response.ok) {
       if (response.status === 429) {
         console.warn(`[WeatherAPI] fetchCloudRing 429 rate limit. Using synthetic clear sky fallback.`);
@@ -1436,7 +1465,7 @@ export const fetchDayWeatherRing = async (
       latitude: lat,
       longitude: lon,
       targetDate: targetDateStr,
-      sourceUrl: url,
+      sourceUrl: ringUrlFor(src),
       mainForecast: observerRaw,
       winds,
       airQuality: air,
@@ -1467,7 +1496,7 @@ export const fetchDayWeatherRing = async (
         if (air) attachAirQuality(hourly, air);
         if (satIrr) attachSatelliteIrradiance(hourly, satIrr);
       }
-      return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
+      return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const, origin: src.origin };
     });
 
     for (const p of out.filter(p => p.azimuthOffset === 180)) {
