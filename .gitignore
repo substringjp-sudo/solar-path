@@ -47,3 +47,5 @@ tools/genus-ruler/synop/raw2/
 tools/genus-ruler/synop/pairs2.jsonl
 tools/genus-ruler/synop/pairs3.jsonl
 tools/genus-ruler/synop/pairs_sat.jsonl
+tools/genus-ruler/metar/raw/
+tools/genus-ruler/metar/pairs_metar.jsonl
