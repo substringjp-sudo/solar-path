@@ -247,7 +247,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   if (anvil) layers.push(anvil);
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}`;
+  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
   const ringPts = interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset));
