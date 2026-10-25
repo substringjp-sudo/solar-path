@@ -133,6 +133,7 @@ import { sameBucket } from '../../utils/weatherCacheKey';
 import * as d3 from 'd3-geo';
 import { useCloudTopView } from '../IsolineMap/useCloudTopView';
 import { fetchDayWeatherRing, type CloudPathData } from '../../utils/weather';
+import { fetchNearestMetar, type MetarObs } from '../../utils/metar';
 import {
   PRESET_OPTICS,
   representativePresetForObserver,
@@ -535,6 +536,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const volFailedRef = useRef<string | null>(null);
   const volKeyRef = useRef('');
   const volSizeRef = useRef('');
+  /** §160 가장 가까운 공항 METAR(10 분마다). 오면 볼륨 장면 키를 비워 다시 만들게 합니다. */
+  const metarRef = useRef<MetarObs | null>(null);
   /** 장면·시선이 바뀐 뒤 시간 누적(1/16 화소씩)이 차도록 더 그릴 프레임 수 */
   const volSettleRef = useRef(0);
   const volViewRef = useRef('');
@@ -909,6 +912,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => { predictionRef.current = prediction; requestRender(3); }, [prediction, requestRender]);
   useEffect(() => { simRef.current = sim; requestRender(3); }, [sim, requestRender]);
   useEffect(() => { weatherRef.current = interpolatedWeather; requestRender(3); }, [interpolatedWeather, requestRender]);
+  // §160 METAR — 자리가 바뀌면 바로, 그 뒤 10 분마다. 실패하면 null(예보 그대로). 볼륨 하늘이 꺼져 있으면 받지 않습니다.
+  const metarLat = location?.coords?.latitude, metarLon = location?.coords?.longitude;
+  useEffect(() => {
+    if (!VOLUMETRIC_SKY_ENABLED || metarLat == null || metarLon == null) return;
+    const ctl = new AbortController();
+    let alive = true;
+    const pull = () => fetchNearestMetar(metarLat, metarLon, ctl.signal).then(m => {
+      if (!alive) return;
+      const before = metarRef.current;
+      metarRef.current = m;
+      if ((before?.icao ?? '') !== (m?.icao ?? '') || (before?.timeMs ?? 0) !== (m?.timeMs ?? 0)) { volKeyRef.current = ''; requestRender(3); }
+    }).catch(() => {});
+    pull();
+    const id = setInterval(pull, 10 * 60_000);
+    return () => { alive = false; ctl.abort(); clearInterval(id); };
+  }, [metarLat, metarLon, requestRender]);
   useEffect(() => { layersRef.current = layers; requestRender(3); }, [layers, requestRender]);
   useEffect(() => { timelineRef.current = timeline; requestRender(3); }, [timeline, requestRender]);
 
@@ -1912,6 +1931,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const key = [
               bHour,
               vLat.toFixed(2), vLon.toFixed(2), Math.round(vElev / 100) * 100,
+              metarRef.current ? `${metarRef.current.icao}@${metarRef.current.timeMs}` : '',
               qCover(vObs?.low), qCover(vObs?.mid), qCover(vObs?.high),
               qAlt(vObs?.lowDeckBaseKm), qAlt(vObs?.lowDeckTopKm),
               qAlt(vObs?.layerAltMidKm), qAlt(vObs?.layerAltHighKm),
@@ -1937,6 +1957,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 interpolatedWeather: weatherRef.current,
                 az: effectiveAz, el: effectiveElev, fov: camera.fov,
                 altitudeM,
+                metar: metarRef.current,
               });
               volKeyRef.current = key;
               volPendingRef.current = true;

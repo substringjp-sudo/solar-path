@@ -14,6 +14,8 @@ import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
 import { aerosolOpticsFromObs } from '../../utils/sunVisibility';
 import { cloudOpticalDepthFromDni } from '../../utils/dniOpticalDepth';
+import { pickDni } from '../../utils/satelliteIrradiance';
+import { applyMetarToObs, type MetarObs } from '../../utils/metar';
 import type { HazeInput, VolumetricLayerInput, VolumetricSceneInput } from './volumetricScene';
 import { lclBaseKm, type ThermoInput } from './cloudPhysics';
 
@@ -65,6 +67,8 @@ export interface LiveSceneArgs {
   el?: number;
   fov?: number;
   altitudeM?: number;
+  /** §160 가장 가까운 공항 METAR — 장면 시각이 보고 ±90 분·60 km 안이면 저층 운량·밑면·강수를 관측으로 바꿉니다. */
+  metar?: MetarObs | null;
 }
 
 export interface LiveScene {
@@ -127,7 +131,10 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const sun = SunCalc.getPosition(a.date, a.lat, a.lon);
   const sunAz = ((sun.azimuth * 180) / Math.PI + 180 + 360) % 360;
   const sunAltDeg = (sun.altitude * 180) / Math.PI;
-  const obs = a.obs ?? (a.interpolatedWeather?.[0] ?? (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null));
+  const obsRaw = a.obs ?? (a.interpolatedWeather?.[0] ?? (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null));
+  // §160 관측 덮어쓰기 1 — METAR(실링미터). 창 밖이면 null → 예보 그대로.
+  const metarOv = obsRaw ? applyMetarToObs(obsRaw, a.metar, a.date.getTime(), a.heightM) : null;
+  const obs = metarOv?.obs ?? obsRaw;
   const base: VolumetricSceneInput = {
     lat: a.lat, lon: a.lon, heightM: a.heightM, date: a.date,
     az: a.az ?? sunAz, el: a.el ?? 15, fov: a.fov ?? 60,
@@ -188,7 +195,9 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
    * (해가 가려짐) 그 층은 두꺼운 **시트**입니다 — 상층 ci → cs(소광을 τ 에 맞춤), 중층 ac → as. 10/24 서울 "상층 100 %·DNI 29 W/m²"
    * 가 맑게 그려진 일에서. 하네스로 잰 cs 소광 ↔ 아래에서 본 불투명도: τ_render ≈ 57 × densityScale(1000 m 층) → densityScale = τ/57.
    */
-  const tauDni = cloudOpticalDepthFromDni(obs.directNormalIrradiance, sunAltDeg, obs.aod550);
+  // §160 관측 덮어쓰기 2 — 위성 관측 DNI 가 그 시각에 있으면 예보 DNI 대신(관측 없는 시각·밤·미래는 예보).
+  const dniPick = pickDni(obs);
+  const tauDni = cloudOpticalDepthFromDni(dniPick.dni, sunAltDeg, obs.aod550);
   const thickVeil = tauDni != null && tauDni >= DNI_VEIL_TAU;
   const promoteHigh = thickVeil && forecast.high === 'ci' && obs.high >= 80;
   // 상층이 두꺼운 시트를 다 맡으면 중층은 그대로; 상층이 모자라면(80 % 미만) 중층 50 % 이상을 고층운으로.
@@ -238,7 +247,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   if (anvil) layers.push(anvil);
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}` : ''}`;
+  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
   const ringPts = interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset));
