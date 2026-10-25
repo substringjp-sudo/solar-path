@@ -7,6 +7,8 @@ fetch-nwp-ring.py — RULER-ringtruth §2 Q1/Q3/Q1-b 입력: 사이트별 1 요�
   python3 tools/genus-ruler/ring/fetch-nwp-ring.py --tag archive --endpoint archive  # Q1-b B0 (모델 미지정)
   python3 tools/genus-ruler/ring/fetch-nwp-ring.py --tag era5 --endpoint archive --models era5
 옵션: --scenes <dir>(기본 .harness/macro/sat) --sites a,b,c --start 2026-09-01 --end 2026-10-19 --sleep 60
+      --times <json>(기본 modis-times.json; --rule latest 로 만든 modis-times-latest.json 을 주면 latest 사본) --shift-hours ±1(민감도 사본)
+      --raw-tag <tag>(원자료 폴더를 다른 tag 와 공유 — 같은 모델이면 다시 받지 않음)
 출력: ring/nwp/<tag>/<site>.json(원자료, gitignore), <scenes>-nwp-<tag>/<site>_<date>.json(총운량 사본), <scenes>-nwp-<tag>-lm/(저+중 무작위 겹침 사본)
 429 Daily 면 멈추고 다음 실행에 이어서(사이트 단위 resume). 손잡이(시각·σ·β)는 바꾸지 않는다.
 """
@@ -67,8 +69,9 @@ def main(argv):
     models = [m for m in models_s.split(',') if m]
     start, end = opt('--start', '2026-09-01'), opt('--end', '2026-10-19'); sleep_s = float(opt('--sleep', '60'))
     sites_filter = opt('--sites', '').split(',') if '--sites' in argv else None
-    mt = json.load(open(os.path.join(here, 'modis-times.json')))
-    raw_dir = os.path.join(here, 'nwp', tag); os.makedirs(raw_dir, exist_ok=True)
+    mt = json.load(open(opt('--times', os.path.join(here, 'modis-times.json'))))
+    shift_h = float(opt('--shift-hours', '0'))
+    raw_dir = os.path.join(here, 'nwp', opt('--raw-tag', tag)); os.makedirs(raw_dir, exist_ok=True)
     out_dir = f'{scenes}-nwp-{tag}'; out_lm = f'{scenes}-nwp-{tag}-lm'; os.makedirs(out_dir, exist_ok=True); os.makedirs(out_lm, exist_ok=True)
     files = sorted(f for f in glob.glob(os.path.join(scenes, '*.json')) if not f.endswith('index.json'))
     by_site = {}
@@ -101,7 +104,12 @@ def main(argv):
             time.sleep(sleep_s)
         raw = json.load(open(raw_path))
         for sc in scs:
-            name = f"{sc['site']}_{sc['date']}"; t_iso = mt[name]['modisTimeUtc']
+            name = f"{sc['site']}_{sc['date']}"
+            if name not in mt: print(name, 'no time', file=sys.stderr); continue
+            t_iso = mt[name]['modisTimeUtc']
+            if shift_h:
+                from datetime import timedelta as _td
+                t_iso = (datetime.strptime(t_iso[:19], '%Y-%m-%dT%H:%M:%S') + _td(hours=shift_h)).strftime('%Y-%m-%dT%H:%M:%SZ')
             covers = []; covers_lm = []; missing = 0
             for j, d in enumerate(raw['data']):
                 h = d.get('hourly') or {}; times = h.get('time') or []
@@ -120,7 +128,7 @@ def main(argv):
                 # 결측 지점은 **빼고**(위성 대용값으로 채우지 않음 — 참값이 입력에 섞이면 안 됨). 관측점(dist 0)이 결측이면 장면 제외.
                 if cv[0] is None: print(name, 'excluded: observer point missing', file=sys.stderr); break
                 cp['ring'] = [dict(r, cover=c) for r, c in zip(sc['ring'], cv) if c is not None]
-                cp['nwp'] = {'tag': tag, 'endpoint': endpoint, 'models': models, 'modisTimeUtc': t_iso, 'seam': mt[name]['seam'], 'timeSource': mt[name]['source'], 'missing': missing}
+                cp['nwp'] = {'tag': tag, 'endpoint': endpoint, 'models': models, 'modisTimeUtc': t_iso, 'shiftHours': shift_h, 'seam': mt[name].get('seam'), 'multiPass': mt[name].get('multiPass'), 'rule': mt[name].get('rule'), 'timeSource': mt[name]['source'], 'missing': missing}
                 json.dump(cp, open(out_path, 'w'))
         print(site, 'scenes written', len(scs), file=sys.stderr)
     print('done', file=sys.stderr); return 0
