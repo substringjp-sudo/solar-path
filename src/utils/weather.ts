@@ -23,7 +23,7 @@ const INFLIGHT_REQUESTS = new Map<string, Promise<any>>();
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const FALLBACK_CACHE_TTL_MS = 30 * 1000; // API 한도 초과 등 Fallback 대체 데이터는 30초 단기 쿨다운만 적용
 
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> => {
+export const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   if (options.signal) {
@@ -691,6 +691,9 @@ const RING: { dist: number; azimuths: number[] }[] = [
   { dist: 280, azimuths: RING_AZIMUTHS },
   { dist: 380, azimuths: RING_AZIMUTHS },
 ];
+
+/** 고리 거리(km). 16일 예보(`sunForecast.ts`)가 같은 거리로 해 쪽 줄을 받아 오늘 판정과 맞춥니다. */
+export const RING_DISTANCES_KM: number[] = RING.map(r => r.dist);
 
 const ringCache = new Map<string, CloudPathData[]>();
 

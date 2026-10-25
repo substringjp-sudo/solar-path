@@ -1,11 +1,12 @@
 /**
  * AppHeader.tsx
  *
- * 앱 맨 위 한 줄 — **탭 둘(01 하늘 · 02 기록)** + 위치(장소 이름) · 설정.
+ * 앱 맨 위 한 줄 — **탭 셋(01 하늘 · 02 예보 · 03 기록)** + 위치(장소 이름) · 설정.
  *
  * ## 달라진 것 (2026-10-25, 디자인 2단)
  *
  * - 탭 이름을 디자인 시스템 이름으로 바꿨습니다("시뮬레이션 · 갤러리" → "하늘 · 기록").
+ * - 그 사이에 **02 예보**(16일 × 일출 · 일몰 판정, `ForecastScreen`)를 끼웠습니다. 기록은 03 입니다.
  * - 위치 버튼이 지금 장소를 이름으로 보여 줍니다(`placeLabel`). 예전에는 핀 아이콘만 있어 어느 하늘인지 알 수 없었습니다.
  *
  * ## 달라진 것 (§143)
@@ -15,10 +16,10 @@
  * - **지도 탭을 뺐습니다.** 지도·구는 하늘 탭을 핀치로 줌아웃하면 같은 화면에서 이어집니다(`zoomContinuum.ts`).
  *   지도 탭의 등시선·구름 레이더는 그 줌 화면이 이미 그립니다.
  *
- * (옛 구조의 이력: docs/IA_REDESIGN.md — 카테고리 드롭다운 × 서브탭 → 평면 3탭 → 지금의 2탭.)
+ * (옛 구조의 이력: docs/IA_REDESIGN.md — 카테고리 드롭다운 × 서브탭 → 평면 3탭 → 2탭 → 지금의 3탭.)
  */
 import React, { useMemo, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, Animated } from 'react-native';
+import { StyleSheet, View, Text, Animated, useWindowDimensions } from 'react-native';
 import { MapPin, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
@@ -28,12 +29,13 @@ import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
 
-/** 앱의 최상위 화면. 이 둘이 전부입니다. */
-export type AppTab = 'sky' | 'log';
+/** 앱의 최상위 화면. 이 셋이 전부입니다. */
+export type AppTab = 'sky' | 'forecast' | 'log';
 
 export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
   { id: 'sky', code: '01', label: '01 SKY' },
-  { id: 'log', code: '02', label: '02 LOG' },
+  { id: 'forecast', code: '02', label: '02 AHEAD' },
+  { id: 'log', code: '03', label: '03 LOG' },
 ];
 
 /**
@@ -77,6 +79,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     () => placeLabel(location?.coords?.latitude, location?.coords?.longitude, savedLocations),
     [location?.coords?.latitude, location?.coords?.longitude, savedLocations],
   );
+
+  // 탭이 셋이 되어 좁은 폭(360 미만)에서는 장소 이름을 접고 핀만 둡니다 — 이름은 읽기 라벨에 그대로 남습니다.
+  const showPlaceName = useWindowDimensions().width >= 360;
 
   const activeIndex = useMemo(() => {
     const i = TAB_ORDER.indexOf(activeTab);
@@ -125,6 +130,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 >
                   {/* 번호는 실제 순서라 붙이고 이름은 언어를 따릅니다(디자인 시스템 · 말투). */}
                   {`${tab.code} ${tab.id === 'sky' ? L3(language, '하늘', 'SKY', '空')
+                    : tab.id === 'forecast' ? L3(language, '예보', 'AHEAD', '予報')
                     : L3(language, '기록', 'LOG', '記録')}`}
                 </Text>
               </PressScale>
@@ -141,7 +147,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               accessibilityRole="button"
             >
               <MapPin size={16} color={color.accent} />
-              {!!place && <Text style={styles.placeText} numberOfLines={1}>{place}</Text>}
+              {!!place && showPlaceName && <Text style={styles.placeText} numberOfLines={1}>{place}</Text>}
             </PressScale>
           )}
 
@@ -215,7 +221,7 @@ const useStyles = makeStyles((color) => ({
     gap: space.xs,
     height: TOUCH,
     minWidth: TOUCH,
-    maxWidth: 136,
+    maxWidth: 112,
     paddingHorizontal: space.md,
     borderRadius: radius.xs,
     borderWidth: 1,

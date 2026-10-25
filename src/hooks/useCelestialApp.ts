@@ -12,6 +12,7 @@ import { auth } from '../config/firebase';
 import { signInAnonymously } from 'firebase/auth';
 import * as Notifications from 'expo-notifications';
 import { predictSunset } from '../utils/sunsetPhysics';
+import { cachedSunForecast, eventVerdict, hasDataAt, isGoodOrBetter, observerElevationFrom } from '../utils/sunForecast';
 import { fetchDayWeatherRing, getInterpolatedWeather, fetchTerrainProfile, type CloudPathData } from '../utils/weather';
 import { localDateString } from '../utils/localDate';
 import { sameBucket } from '../utils/cachePolicy';
@@ -94,12 +95,20 @@ const getOrFetchWeatherData = async (
  * 그날 일몰의 구름·하늘 표지와 대기질 한 줄(**그날 예보**). 받지 못하면 null — 다른 날 표지를 빌려 쓰지
  * 않습니다. 캐시가 없으면 429 한도 초과 방지를 위해 네트워크를 무리하게 태우지 않고 null을 반환합니다.
  */
+/** 판정에 쓸 관측 높이 — 01 하늘 · 02 예보와 같은 규칙(`observerElevationFrom`). */
+const elevFor = (lat: number, lon: number) => {
+  const st = useCelestialStore.getState();
+  return observerElevationFrom(st.terrainCacheList, lat, lon, st.location?.coords?.altitude);
+};
+
 const sunsetLabelsFor = async (
   lat: number, lon: number, sunset: Date, language: Language, cacheOnly: boolean = true
-): Promise<{ cloudLabel: string; colorLabel: string; airNote: string } | null> => {
+): Promise<{ cloudLabel: string; colorLabel: string; airNote: string; good: boolean } | null> => {
   try {
-    const wx = await getOrFetchWeatherData(lat, lon, sunset, undefined, cacheOnly);
-    if (!wx || wx.length === 0) return null;
+    const ring = await getOrFetchWeatherData(lat, lon, sunset, undefined, cacheOnly);
+    // 그날 링이 없으면 02 예보가 받아 둔 16일 자료(관측점 + 해 쪽 줄)로 — 네트워크는 쓰지 않습니다.
+    const wx = ring && ring.length > 0 ? ring : (cachedSunForecast(lat, lon)?.path ?? null);
+    if (!wx || wx.length === 0 || !hasDataAt(wx, sunset)) return null;
     const obs = getInterpolatedWeather(wx, sunset)[0];
     if (!obs) return null;
     const pred = predictSunset(wx, sunset, 0, obs.visibility, obs.humidity, lat, 0, undefined, getSunPosition(sunset, lat, lon).azimuth);
@@ -108,6 +117,8 @@ const sunsetLabelsFor = async (
       cloudLabel: t(('cloud' + pred.cloudLabel) as any, language),
       colorLabel: t(('color' + pred.colorLabel) as any, language),
       airNote: airQualityNote(obs, language),
+      // "좋음 이상만"(notifPrefs.goodOnly)은 02 예보와 같은 판정(가장 붉을 때)으로 거릅니다.
+      good: isGoodOrBetter(eventVerdict(wx, sunset, 'sunset', lat, lon, elevFor(lat, lon))?.prediction.quality),
     };
   } catch (e) {
     if (__DEV__) console.warn('[Notification] Day forecast failed:', sunset.toISOString(), e);
@@ -310,6 +321,7 @@ export function useCelestialApp() {
   const prevTabRef = useRef(activeTab);
   const lastSunsetDateRef = useRef<string | null>(null);
   const lastSunriseDateRef = useRef<string | null>(null);
+  const goodOnlyRef = useRef<boolean | null>(null);
 
   // Theme Logic (Forced to true to default to Light Theme as requested)
   const isDay = true;
@@ -731,6 +743,12 @@ export function useCelestialApp() {
     const lat = location.coords.latitude;
     const lon = location.coords.longitude;
 
+    // "좋음 이상만" 을 바꾸면 오늘 이미 예약한 것도 다시 걸러야 합니다.
+    if (goodOnlyRef.current !== notifPrefs.goodOnly) {
+      goodOnlyRef.current = notifPrefs.goodOnly;
+      lastSunsetDateRef.current = null;
+      lastSunriseDateRef.current = null;
+    }
     // 알림 설정에서 끈 예보는 예약을 지우고 다음에 켤 때 다시 예약되게 합니다.
     if (!notifPrefs.sunsetForecast) { lastSunsetDateRef.current = null; cancelScheduledByPrefix('sunset-alert'); }
     if (!notifPrefs.sunriseForecast) { lastSunriseDateRef.current = null; cancelScheduledByPrefix('sunrise-alert'); }
@@ -769,9 +787,11 @@ export function useCelestialApp() {
             let cloudLabel: string | null = null;
             let colorLabel: string | null = null;
             let sunsetNotifImageUri: string | null = null;
+            let sunsetWeather: CloudPathData[] | null = null;
             let airNote = '';
             try {
               const weatherData = await getOrFetchWeatherData(lat, lon, sunsetTime);
+              sunsetWeather = weatherData;
               if (weatherData && weatherData.length > 0) {
                 const interpolated = getInterpolatedWeather(weatherData, sunsetTime);
                 const obs = interpolated[0];
@@ -854,9 +874,18 @@ export function useCelestialApp() {
               const notifId = `sunset-alert-day-${dayOffset}`;
               const triggerTime = new Date(fIdealTrigger > Date.now() ? fIdealTrigger : Date.now() + (5 + dayOffset) * 60 * 1000);
               if (dayOffset === 0) {
+                if (notifPrefs.goodOnly) {
+                  // 위에서 받은 날씨가 오늘 일몰을 덮지 않으면(다른 날을 보고 있을 때) 그날 것으로 다시 봅니다.
+                  const good = sunsetWeather?.length && hasDataAt(sunsetWeather, fSunset)
+                    ? isGoodOrBetter(eventVerdict(sunsetWeather, fSunset, 'sunset', lat, lon, elevFor(lat, lon))?.prediction.quality)
+                    : !!(await sunsetLabelsFor(lat, lon, fSunset, language))?.good;
+                  if (!good) continue;
+                }
                 await scheduleSunsetNotification(fSunset, cloudLabel, colorLabel, language, triggerTime, sunsetNotifImageUri, notifId, airNote);
               } else {
                 const day = await sunsetLabelsFor(lat, lon, fSunset, language);
+                // 예보가 없는 날(day === null)도 "좋음" 이라고 할 수 없으니 보내지 않습니다.
+                if (notifPrefs.goodOnly && !day?.good) continue;
                 await scheduleSunsetNotification(fSunset, day?.cloudLabel ?? null, day?.colorLabel ?? null, language, triggerTime, null, notifId, day?.airNote ?? '', dayOffset);
               }
             }
@@ -895,10 +924,12 @@ export function useCelestialApp() {
             let cloudLabel: string | null = null;
             let colorLabel: string | null = null;
             let sunriseNotifImageUri: string | null = null;
+            let sunriseGood = false;
             let airNote = '';
             try {
               const weatherData = await getOrFetchWeatherData(lat, lon, sunriseTime);
               if (weatherData && weatherData.length > 0) {
+                sunriseGood = isGoodOrBetter(eventVerdict(weatherData, sunriseTime, 'sunrise', lat, lon, elevFor(lat, lon))?.prediction.quality);
                 const interpolated = getInterpolatedWeather(weatherData, sunriseTime);
                 const obs = interpolated[0];
                 airNote = airQualityNote(obs, language);
@@ -943,6 +974,10 @@ export function useCelestialApp() {
               console.warn('[Notification] Weather fetch failed for sunrise, using default labels:', weatherErr);
             }
 
+            if (notifPrefs.goodOnly && !sunriseGood) {
+              await Notifications.cancelScheduledNotificationAsync('sunrise-alert');
+              return;
+            }
             await scheduleSunriseNotification(sunriseTime, cloudLabel, colorLabel, language, effectiveSunriseTrigger, sunriseNotifImageUri, undefined, airNote);
           } catch (err) {
             console.error('Failed to schedule sunrise notification:', err);
@@ -1020,7 +1055,7 @@ export function useCelestialApp() {
         clearTimeout(timerId);
       }
     };
-  }, [isCacheHydrated, location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast]);
+  }, [isCacheHydrated, location?.coords.latitude, location?.coords.longitude, events?.sunset?.getTime(), events?.sunrise?.getTime(), notifPrefs.sunsetForecast, notifPrefs.sunriseForecast, notifPrefs.goodOnly]);
 
   // 하늘 이벤트 알림(골든아워·블루아워·월출·가는 달·은하수·행성) — 설정·위치·언어·날짜가 바뀌면 다시 계획합니다.
   const skyPlanKey = JSON.stringify([

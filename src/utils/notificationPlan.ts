@@ -32,6 +32,11 @@ export interface NotifPrefs {
   sunsetForecast: boolean;
   /** 일출 예보 — 전날 밤 22시 */
   sunriseForecast: boolean;
+  /**
+   * 노을 · 일출 예보를 **좋음 이상으로 판정된 날만** 보냅니다(02 예보의 "좋음 이상 알림"). 판정은 02 예보와 같은
+   * 식(`sunForecast.eventVerdict`)이고, 예보가 없는 날은 보내지 않습니다.
+   */
+  goodOnly: boolean;
   golden: boolean;
   blue: boolean;
   moonrise: boolean;
@@ -45,6 +50,7 @@ export interface NotifPrefs {
 export const DEFAULT_NOTIF_PREFS: NotifPrefs = {
   sunsetForecast: true,
   sunriseForecast: true,
+  goodOnly: false,
   golden: false,
   blue: false,
   moonrise: false,
