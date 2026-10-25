@@ -8,6 +8,7 @@ import { EARTH_RADIUS_KM, EARTH_RADIUS_M } from './earth';
 import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
+import { fetchSatelliteIrradiance, attachSatelliteIrradiance } from './satelliteIrradiance';
 import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
@@ -93,6 +94,9 @@ export interface CloudData {
   pm25?: number;
   pm10?: number;
   directNormalIrradiance?: number;
+  /** §160 위성 관측 일사(W/m²). 관측점에서만, 관측이 있는 시각만. τ 는 이것이 있으면 이것으로(`pickDni`). */
+  satDirectNormalIrradiance?: number;
+  satShortwaveRadiation?: number;
   totalColumnWaterVapour?: number;
   precipitation?: number;
   /**
@@ -207,6 +211,9 @@ export interface HourlyCloudData {
   pm25?: (number | null)[];
   pm10?: (number | null)[];
   directNormalIrradiance?: number[];
+  /** §160 위성 **관측** 일사(W/m², 직전 한 시간 평균). 관측점에서만, 관측 없는 시각은 null. `satelliteIrradiance.ts`. */
+  satDirectNormalIrradiance?: (number | null)[];
+  satShortwaveRadiation?: (number | null)[];
   totalColumnWaterVapour?: number[];
   precipitation?: number[];
   /** 층별 바람의 동/북 성분 (km/h). 관측점에서만 채워집니다. */
@@ -422,6 +429,8 @@ export const fetchSunsetWeather = async (
   const thermoPromise = fetchThermoProfile(lat, lon, targetDate, signal);
   // 대기질도 따로, 동시에 던집니다 — 실패해도 운량에는 영향이 없습니다(`fetchAirQuality`).
   const airPromise = fetchAirQuality(lat, lon, targetDate, signal);
+  // §160 위성 관측 일사도 따로 — 지난 시각의 실제 DNI 로 구름 두께(τ)를 되짚습니다. 실패해도 예보 DNI 로 갑니다.
+  const satIrrPromise = fetchSatelliteIrradiance(lat, lon, targetDate, signal);
 
   try {
     let response;
@@ -483,6 +492,7 @@ export const fetchSunsetWeather = async (
     const winds = await windsPromise;
     const thermo = await thermoPromise;
     const air = await airPromise;
+    const satIrr = await satIrrPromise;
 
     // Reconstruct the 36 CloudPathData items from deduplicated results
     const fetched: CloudPathData[] = virtualPoints.map((vp, i) => {
@@ -541,6 +551,7 @@ export const fetchSunsetWeather = async (
         if (winds) attachLayerWinds(hourly, winds);
         if (thermo) attachThermo(hourly, thermo);
         if (air) attachAirQuality(hourly, air);
+        if (satIrr) attachSatelliteIrradiance(hourly, satIrr);
       }
 
       return {
@@ -1384,10 +1395,11 @@ export const fetchDayWeatherRing = async (
     }
 
     // 2) 메인 링이 성공했을 때만 바람 및 대기질을 이어서 요청 (429일 때 불필요한 추가 요청 폭주 방지)
-    const [winds, air, thermo] = await Promise.all([
+    const [winds, air, thermo, satIrr] = await Promise.all([
       fetchLayerWinds(lat, lon, targetDate, signal),
       fetchAirQuality(lat, lon, targetDate, signal),
       fetchThermoProfile(lat, lon, targetDate, signal),
+      fetchSatelliteIrradiance(lat, lon, targetDate, signal),
     ]);
     const results = Array.isArray(data) ? data : [data];
 
@@ -1413,6 +1425,7 @@ export const fetchDayWeatherRing = async (
         if (winds) attachLayerWinds(hourly, winds);
         if (thermo) attachThermo(hourly, thermo);
         if (air) attachAirQuality(hourly, air);
+        if (satIrr) attachSatelliteIrradiance(hourly, satIrr);
       }
       return { distance: vp.dist, azimuthOffset: vp.az, hourly, source: 'standard' as const };
     });
@@ -1506,6 +1519,9 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       pm25: interpolateOpt(p.hourly.pm25 as number[] | undefined),
       pm10: interpolateOpt(p.hourly.pm10 as number[] | undefined),
       directNormalIrradiance: interpolateOpt(p.hourly.directNormalIrradiance),
+      // §160 위성 관측: 두 시각 중 하나가 없으면 보간하지 않고 없음(관측 없는 시각을 지어내지 않음)
+      satDirectNormalIrradiance: interpolateOpt(p.hourly.satDirectNormalIrradiance as number[] | undefined),
+      satShortwaveRadiation: interpolateOpt(p.hourly.satShortwaveRadiation as number[] | undefined),
       totalColumnWaterVapour: interpolateOpt(p.hourly.totalColumnWaterVapour),
       precipitation: interpolateOpt(p.hourly.precipitation),
       // 성분이라 선형 보간이 그대로 맞습니다 (CloudData 주석 참고).

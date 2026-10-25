@@ -54,6 +54,10 @@ export interface GenusForecast {
 /**
  * 문턱 — 홀수 날 SYNOP(유럽 유인 관측소 7,302 보고)로 격자 탐색한 값(§126.4). 이름을 바꾸지 말 것: 자 스크립트가 같은 이름을 씁니다.
  *
+ * ⚠ 2차 자(RULER-genus2, 2026-10-10~23, 28,925 보고, §159): 운량 외 물리량(DNI 두께 τ·경계층 높이·CAPE·습도 단면)을 더한 후보 R1·R2 와
+ * 깊이 3 결정나무(R3)까지 **모두 자를 못 넘었습니다**(저층 최고 +3.0 %p, 중·상층은 as/cs 재현율을 올리면 정확도가 다수 찍기 아래로).
+ * 이 규칙은 여전히 "그럴듯한 기본값" 입니다. 2차 자가 고친 것은 ns 조건 하나(아래 nsPrecip·nsCover 를 **둘 다** 요구).
+ *
  * ⚠ 짝수 날 보고: 저층 4분류 0.518 대 다수 찍기 0.515(+0.3%p), 중·상층은 다수 찍기와 같음 — **자(+10%p)를 못 넘었습니다.**
  * 그래서 이 규칙은 "예보로 종류를 맞힌다"가 아니라 "그럴듯한 기본값을 고른다"로 읽어야 합니다. 조정이 고른 값의 뜻:
  *  - cuCape 9999: CAPE 는 적운 판정에 도움이 안 됐고 LI ≤ 2 와 덱 두께가 남았습니다.
@@ -106,12 +110,12 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
     const shower = code != null && (T.showerCodes as readonly number[]).includes(code);
     const weakConv = (cape != null ? cape >= T.cuCape : false) || (li != null ? li <= T.cuLi : false)
       || (cape == null && li == null && thickKm != null && thickKm >= T.cuThickKm);
-    const isRaining = precip >= 0.1 || (code != null && ((code >= 51 && code <= 67) || (code >= 71 && code <= 77) || (code >= 80 && code <= 99)));
     if ((convective && (precip > 0 || shower)) || (shower && cape != null && cape >= T.cuCape)) {
       low = 'cb'; why.push('cb: 대류+강수');
-    } else if (isRaining) {
-      // 강수 발생 시 층적운 대신 실감나는 난층운(비구름)으로 정확히 분류
-      low = 'ns'; why.push(`ns: 강수(${precip.toFixed(1)}mm)`);
+    } else if (precip >= T.nsPrecip && x.low >= T.nsCover) {
+      // 난층운은 "비 오는 덮개" — 강수 nsPrecip 이상 **이고** 저층 운량 nsCover 이상(2차 자 RULER-genus2 §6). §147 때 "비만 오면 ns" 로 바뀌어
+      // 가랑비 0.1 mm·저층 24 % 에도 하늘 전체가 비구름이 됐고, 짝수 날 저층 정확도 0.475 → 0.531 로 그 조건이 가장 큰 손실이었습니다.
+      low = 'ns'; why.push(`ns: 강수 ${precip.toFixed(1)}mm·저층 ${x.low}%`);
     } else if (baseAglKm != null && baseAglKm <= T.stBaseKm && x.low >= T.stCover && (!weakConv || x.low >= T.stOvercast)) {
       low = 'st'; why.push(`st: 밑면 ${baseAglKm.toFixed(2)}km`);
     } else if (weakConv && x.isDay !== false && x.low < T.cuCover) {
