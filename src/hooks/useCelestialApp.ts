@@ -46,7 +46,8 @@ if (Platform.OS === 'android') {
     name: 'Sunset & Sunrise Alerts',
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#FF4500',
+    // 시스템 `glow`(디자인 3단). ⚠ 안드로이드 채널 설정은 처음 만든 뒤 바뀌지 않으므로 새로 설치한 기기부터입니다.
+    lightColor: '#F97316',
     sound: 'default',
     enableVibrate: true,
     enableLights: true,

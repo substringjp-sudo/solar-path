@@ -28,6 +28,7 @@ import Svg, { Line } from 'react-native-svg';
 import { Calendar, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, Info, Sunrise, Sunset, Zap } from 'lucide-react-native';
 import { PressScale, PrimaryButton } from '../ui';
 import { ScrubTrack } from './ScrubTrack';
+import { crossesMarker, hapticTick } from '../../utils/haptics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
 import { radius, space, type, tint, TOUCH } from '../../theme/tokens';
@@ -243,8 +244,15 @@ export const DateTimeBar: React.FC<Props> = ({
     tRef.current = ms;
     dateThrottle.push(ms);
   }, [dateThrottle]);
+  // 끄는 동안 일출 · 일몰 표시를 지나면 가볍게 한 번 떱니다(§8.4). 첫 칸은 기준만 잡습니다.
+  const markerMinsRef = useRef<(number | null)[]>([]);
+  markerMinsRef.current = [sunriseMin, sunsetMin];
+  const lastScrubMinRef = useRef<number | null>(null);
   const onTimeScrub = useCallback((pct: number) => {
     const m = minuteAtPct(pct);
+    const prev = lastScrubMinRef.current;
+    if (prev != null && crossesMarker(prev, m, markerMinsRef.current)) hapticTick();
+    lastScrubMinRef.current = m;
     const ms = withLocalMinutes(tRef.current, tzRef.current, m);
     tRef.current = ms;
     timeThrottle.push(ms);
@@ -420,7 +428,7 @@ export const DateTimeBar: React.FC<Props> = ({
               value={timePct}
               formatLabel={timeLabel}
               onScrub={onTimeScrub}
-              onScrubStart={() => { busyRef.current++; onSlidingStart?.('time'); }}
+              onScrubStart={() => { lastScrubMinRef.current = null; busyRef.current++; onSlidingStart?.('time'); }}
               onScrubEnd={() => { timeThrottle.flush(); busyRef.current = Math.max(0, busyRef.current - 1); onSlidingComplete?.('time'); }}
               onAdjust={adjustTime}
               accessibilityLabel={L3(language, '시각', 'Time', '時刻')}

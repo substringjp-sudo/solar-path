@@ -42,6 +42,7 @@ import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkySce
 import { PressScale } from './ui';
 import { color, radius, space, type, TOUCH } from '../theme/tokens';
 import { SunPathOverlay } from './SunPathOverlay';
+import { hapticShutter, hapticError } from '../utils/haptics';
 import { previewOptics, sunDayPath, nextSunEvent, DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -832,6 +833,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || isCapturing) return;
 
+    hapticShutter();
     setIsCapturing(true);
 
     try {
@@ -872,7 +874,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       });
 
       if (!photo?.uri) {
-        Alert.alert('Error', 'Failed to take photo.');
+        hapticError();
+        Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
         setIsCapturing(false);
         return;
       }
@@ -1105,6 +1108,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     } catch (error) {
       console.warn('[SunCamera] Capture error:', error);
+      hapticError();
       Alert.alert(t('takePhotoError', language), t('takePhotoErrorMsg', language));
       setIsCapturing(false);
     }
@@ -1230,6 +1234,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
         });
       } catch (uploadErr: any) {
         console.error('[SunCamera] Server upload failed:', uploadErr);
+        hapticError();
         Alert.alert(
           L3(language, '업로드 오류', 'Upload error', 'アップロードエラー'),
           `${L3(language, '사진을 올리지 못했습니다', 'Failed to upload photo', '写真をアップロードできませんでした')}: ${uploadErr.message || uploadErr}`
@@ -1244,6 +1249,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
 
     } catch (uploadError: any) {
       console.error('[SunCamera] Upload failed:', uploadError);
+      hapticError();
       Alert.alert(t('uploadFailed', language), t('uploadFailedMsg', language) + (uploadError.message || 'Unknown error'));
       setIsUploading(false);
     }

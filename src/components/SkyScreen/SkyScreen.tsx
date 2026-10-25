@@ -45,6 +45,7 @@ import {
 } from '../../utils/skyTimeline';
 import { PredictionCard, VerdictMeter, verdictColor, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
 import { findGlowPeak } from '../../utils/glowPeak';
+import { hapticError } from '../../utils/haptics';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
@@ -379,6 +380,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       console.warn('3D weather fetch error:', msg);
       if (pathData.length === 0) {
         setWeatherError(msg);
+        hapticError();
       }
     } finally {
       if (weatherAbortControllerRef.current === controller) {

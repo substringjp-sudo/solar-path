@@ -32,6 +32,7 @@ import {
   type ForecastEvent,
 } from '../../utils/sunForecast';
 import { localDateString } from '../../utils/localDate';
+import { hapticError } from '../../utils/haptics';
 import { sameBucket } from '../../utils/weatherCacheKey';
 import type { AccuracyTier } from '../../utils/timeBar';
 import type { CloudPathData } from '../../utils/weather';
@@ -120,6 +121,7 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
       .then(d => { setForecast(d.path); setLoad({ kind: 'ready' }); })
       .catch(err => {
         if (ctrl.signal.aborted || err?.name === 'AbortError') return;
+        hapticError();
         setLoad({ kind: 'error', rateLimited: String(err?.message) === 'RATE_LIMIT' });
       });
     return () => ctrl.abort();

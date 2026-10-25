@@ -85,14 +85,17 @@ module.exports = {
     // 옛 빌드는 늘 dark 로 읽혀 "시스템" = 어둡게가 되므로 앱 안 업데이트로 받아도 안전합니다.
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    // 디자인 3단(2026-10-25): 스플래시 바탕을 앱 바탕(tokens `bg`)과 같게 — 예전 #F4EBE6(밝은 베이지)는 켤 때
+    // 밝게 번쩍인 뒤 어두운 앱으로 바뀌었습니다. 그림(splash.png)은 1×1 이라 바탕색이 곧 스플래시입니다.
+    // 알림 색은 시스템의 `glow`(예전 #ff7b54 는 시스템 밖 색). 둘 다 새 네이티브 빌드부터 적용됩니다.
     splash: {
       image: "./assets/splash.png",
       resizeMode: "cover",
-      backgroundColor: "#F4EBE6"
+      backgroundColor: "#070A12"
     },
     notification: {
       icon: "./assets/notification_icon.png",
-      color: "#ff7b54"
+      color: "#F97316"
     },
     ios: {
       supportsTablet: true,
