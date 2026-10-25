@@ -14,7 +14,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
 import { parseTeleportUrl } from './utils/teleport';
-import { t } from './utils/i18n';
+import { t, L3 } from './utils/i18n';
 import { PressScale } from './components/ui';
 import { springTo, timeTo } from './theme/motion';
 import { motion, color } from './theme/tokens';
@@ -460,9 +460,10 @@ export default function App() {
                 </Text>
 
                 <Text style={styles.capturedText}>
-                  {language === 'ko'
-                    ? `📸 ${randomImageRef.current.location.ko}에서 촬영된 노을`
-                    : `📸 Sunset captured in ${randomImageRef.current.location.en}`}
+                  {L3(language,
+                    `${randomImageRef.current.location.ko}에서 촬영된 노을`,
+                    `Sunset captured in ${randomImageRef.current.location.en}`,
+                    `${randomImageRef.current.location.en}で撮影された夕焼け`)}
                 </Text>
               </View>
             </Animated.View>
@@ -490,7 +491,7 @@ const useStyles = makeStyles((color) => ({
   loadingText: {
     color: color.textDim,
     marginTop: 15,
-    fontSize: 14,
+    fontSize: 13,
   },
   errorText: {
     color: color.danger,
@@ -528,8 +529,8 @@ const useStyles = makeStyles((color) => ({
     paddingBottom: 10,
   },
   modalTitle: {
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
@@ -548,7 +549,7 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
   },
   savedName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     marginBottom: 2,
   },
@@ -583,7 +584,7 @@ const useStyles = makeStyles((color) => ({
   appNameText: {
     color: color.text,
     fontSize: 32,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     textShadowColor: color.accentLine,

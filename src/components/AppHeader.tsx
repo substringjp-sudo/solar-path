@@ -17,7 +17,7 @@ import { StyleSheet, View, Text, Animated } from 'react-native';
 import { MapPin, Settings } from 'lucide-react-native';
 import { useCelestialStore } from '../store/useCelestialStore';
 import { t, L3 } from '../utils/i18n';
-import { color, radius, mono } from '../theme/tokens';
+import { color, radius, mono, space, TOUCH } from '../theme/tokens';
 import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
@@ -91,7 +91,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   style={[
                     styles.navText,
                     { color: isActive ? color.accent : color.textMute },
-                    isActive && { fontWeight: '900' }
+                    isActive && { fontWeight: '800' }
                   ]}
                 >
                   {/* 번호는 HUD 문체로 두고 이름은 언어를 따릅니다(점검 2026-09-29). */}
@@ -111,7 +111,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               accessibilityLabel={L3(language, '위치 변경', 'Change location', '位置を変更')}
               accessibilityRole="button"
             >
-              <MapPin size={14} color={color.accent} />
+              <MapPin size={16} color={color.accent} />
             </PressScale>
           )}
 
@@ -121,7 +121,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             accessibilityLabel={t('settings', language)}
             accessibilityRole="button"
           >
-            <Settings size={14} color={color.textDim} />
+            <Settings size={16} color={color.textDim} />
           </PressScale>
         </View>
       </View>
@@ -132,18 +132,19 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
 const useStyles = makeStyles((color) => ({
   header: {
-    paddingTop: 5,
-    paddingHorizontal: 14,
-    marginBottom: 5,
+    paddingTop: space.xs,
+    paddingHorizontal: space.lg,
+    marginBottom: space.xs,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: space.sm,
   },
+  /** 탭 · 아이콘 버튼 모두 높이 40(touch). 예전에는 탭 약 26 · 아이콘 32 였습니다. */
   navToggle: {
     flexDirection: 'row',
-    padding: 2,
+    height: TOUCH,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,
@@ -153,8 +154,8 @@ const useStyles = makeStyles((color) => ({
   },
   navIndicator: {
     position: 'absolute',
-    top: 2,
-    bottom: 2,
+    top: 0,
+    bottom: 0,
     borderRadius: radius.xs,
     backgroundColor: color.accentSoft,
     borderBottomWidth: 2,
@@ -162,7 +163,6 @@ const useStyles = makeStyles((color) => ({
   },
   navButton: {
     flex: 1,
-    paddingVertical: 5.5,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.xs,
@@ -176,11 +176,11 @@ const useStyles = makeStyles((color) => ({
   rightButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: space.sm,
   },
   iconBtn: {
-    width: 32,
-    height: 32,
+    width: TOUCH,
+    height: TOUCH,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,

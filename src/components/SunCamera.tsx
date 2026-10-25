@@ -807,7 +807,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     setHeadingStatus(fusionRef.current.status());
 
     Alert.alert(
-      L3(language, '☀️ Sun-Snap 보정 완료', '☀️ Sun-Snap calibrated', '☀️ Sun-Snap 補正完了'),
+      L3(language, 'Sun-Snap 보정 완료', 'Sun-Snap calibrated', 'Sun-Snap 補正完了'),
       L3(language,
         `태양 실제 방위각(${Math.round(trueSunAz)}°)에 AR 시뮬레이션을 맞췄습니다.`,
         `AR overlay locked to the Sun's true azimuth (${Math.round(trueSunAz)}°).`,
@@ -1031,7 +1031,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // ⚠ **스토어의 currentSimulationUri 를 대체품으로 쓰지 않습니다.**
       //   그 값은 `generateSimulationImage` 가 만드는데, 지금 그 함수는
       //   `getSafeBase64JpegPixel()` 을 그대로 돌려주는 **더미**입니다 —
-      //   1×1 화소 JPEG 한 장. 그걸 cover 로 늘려 "🔮 3D 시뮬레이션 예측"
+      //   1×1 화소 JPEG 한 장. 그걸 cover 로 늘려 "3D 시뮬레이션 예측"
       //   이라고 붙이면 단색 사각형을 예측 결과라고 내보이는 셈입니다.
       //   못 찍었으면 못 찍었다고 적는 편이 낫습니다.
       if (!simUri && !simFailReason) simFailReason = L3(language, '알 수 없는 이유로 스냅샷 실패', 'Snapshot failed for an unknown reason', '不明な理由でスナップショットに失敗');
@@ -1298,7 +1298,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               <View style={styles.compareImagesRow}>
                 <View style={styles.compareImageWrapper}>
                   <Image source={{ uri: previewUri }} style={styles.compareImage} />
-                  <Text style={styles.compareImageLabel}>📷 {t('actualLandscape', language)}</Text>
+                  <Text style={styles.compareImageLabel}>{t('actualLandscape', language)}</Text>
                 </View>
                 {/* ⚠ 칸을 **조용히 지우지 않습니다.** 예전에는 simPreviewUri 가
                     없으면 이 칸을 통째로 안 그려서, 화면에서는 아무 설명 없이
@@ -1319,7 +1319,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                       ) : null}
                     </View>
                   )}
-                  <Text style={styles.compareImageLabel}>🔮 {L3(language, '3D 시뮬레이션 예측', '3D simulation', '3Dシミュレーション予測')}</Text>
+                  <Text style={styles.compareImageLabel}>{L3(language, '3D 시뮬레이션 예측', '3D simulation', '3Dシミュレーション予測')}</Text>
                   {/* ⚠ 썸네일이 검게 나올 때를 가르는 단서. 스냅샷 직전 GL
                       버퍼의 가운데 밝기입니다 — 0 에 가까우면 그린 것 자체가
                       검은 것이고, 0 이 아닌데 그림이 검으면 스냅샷 경로가
@@ -1487,7 +1487,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             {hasInterference && (
               <View style={styles.warningBannerFloating}>
                 <Text style={styles.warningText}>
-                  {L3(language, '⚠️ 자기 간섭! 폰을 8자로 움직여 주세요', '⚠️ Magnetic interference! Move the phone in a figure 8', '⚠️ 磁気干渉!スマホを8の字に動かしてください')}
+                  {L3(language, '자기 간섭! 폰을 8자로 움직여 주세요', 'Magnetic interference! Move the phone in a figure 8', '磁気干渉!スマホを8の字に動かしてください')}
                 </Text>
               </View>
             )}
@@ -1503,7 +1503,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             {visionStatus && (
               <View style={styles.headingBanner}>
                 <Text style={styles.headingBannerText}>
-                  {`🏔 ${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
+                  {`${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
                 </Text>
               </View>
             )}
@@ -1512,15 +1512,15 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                 <Text style={styles.headingBannerText}>
                   {headingStatus.lastReject === 'ill-pose'
                     ? L3(language,
-                        '🧭 방위 보정 중 — 폰을 세워 지평선을 향해 주세요',
-                        '🧭 Calibrating — hold the phone upright toward the horizon',
-                        '🧭 方位補正中 — スマホを立てて地平線に向けてください')
+                        '방위 보정 중 — 폰을 세워 지평선을 향해 주세요',
+                        'Calibrating — hold the phone upright toward the horizon',
+                        '方位補正中 — スマホを立てて地平線に向けてください')
                     : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
-                      ? L3(language, '🧭 자이로 신호를 기다리는 중', '🧭 Waiting for motion sensor', '🧭 ジャイロ信号を待っています')
+                      ? L3(language, '자이로 신호를 기다리는 중', 'Waiting for motion sensor', 'ジャイロ信号を待っています')
                       : L3(language,
-                          `🧭 방위 보정 중 (${headingStatus.seedCount}/8)`,
-                          `🧭 Calibrating heading (${headingStatus.seedCount}/8)`,
-                          `🧭 方位補正中 (${headingStatus.seedCount}/8)`)}
+                          `방위 보정 중 (${headingStatus.seedCount}/8)`,
+                          `Calibrating heading (${headingStatus.seedCount}/8)`,
+                          `方位補正中 (${headingStatus.seedCount}/8)`)}
                 </Text>
               </View>
             )}
@@ -1528,9 +1528,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               <View style={styles.headingBanner}>
                 <Text style={styles.headingBannerText}>
                   {L3(language,
-                    '🧭 자북 기준입니다 — 약 8° 어긋납니다. Sun-Snap 으로 맞추세요',
-                    '🧭 Magnetic north only (~8° off). Use Sun-Snap to correct',
-                    '🧭 磁北基準です — 約8°ずれます。Sun-Snapで補正してください')}
+                    '자북 기준입니다 — 약 8° 어긋납니다. Sun-Snap 으로 맞추세요',
+                    'Magnetic north only (~8° off). Use Sun-Snap to correct',
+                    '磁北基準です — 約8°ずれます。Sun-Snapで補正してください')}
                 </Text>
               </View>
             )}
@@ -1864,12 +1864,12 @@ const styles = StyleSheet.create({
   },
   permissionTitle: {
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '800',
     color: color.text,
     marginTop: 16,
   },
   permissionDesc: {
-    fontSize: 14,
+    fontSize: 13,
     color: color.textDim,
     textAlign: 'center',
     lineHeight: 22,
@@ -1892,7 +1892,7 @@ const styles = StyleSheet.create({
   },
   closeTextBtnText: {
     color: color.textDim,
-    fontSize: 14,
+    fontSize: 13,
   },
   topHud: {
     position: 'absolute',
@@ -1943,7 +1943,7 @@ const styles = StyleSheet.create({
   },
   sideBtnText: {
     color: color.text,
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '700',
   },
   captureBtn: {
@@ -1999,7 +1999,7 @@ const styles = StyleSheet.create({
   },
   tuningTitle: {
     color: 'rgba(255,255,255,0.6)',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     marginBottom: 6,
     textTransform: 'uppercase',
@@ -2020,7 +2020,7 @@ const styles = StyleSheet.create({
   },
   tuningBtnText: {
     color: color.text,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
   },
   tuningValueContainer: {
@@ -2047,8 +2047,8 @@ const styles = StyleSheet.create({
   },
   previewTitle: {
     color: color.text,
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     textAlign: 'center',
     marginBottom: 16,
     letterSpacing: 0.5,
@@ -2086,7 +2086,7 @@ const styles = StyleSheet.create({
   headingBannerText: {
     color: '#9FE8FF',
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     textAlign: 'center',
   },
   simBufBadge: {
@@ -2149,7 +2149,7 @@ const styles = StyleSheet.create({
   },
   weatherQrTitle: {
     color: color.accent,
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -2185,12 +2185,12 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
   },
   metaValue: {
     color: color.text,
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
@@ -2216,7 +2216,7 @@ const styles = StyleSheet.create({
   },
   scoreLabel: {
     color: color.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     minWidth: 70,
   },
@@ -2226,8 +2226,8 @@ const styles = StyleSheet.create({
   },
   scoreNumberText: {
     color: color.sun,
-    fontSize: 14,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '800',
     minWidth: 40,
     textAlign: 'right',
   },
@@ -2241,7 +2241,7 @@ const styles = StyleSheet.create({
   weatherSummaryText: {
     color: color.textDim,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   previewBtnRow: {
     flexDirection: 'row',
@@ -2260,7 +2260,7 @@ const styles = StyleSheet.create({
   },
   previewRetakeText: {
     color: color.text,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
   },
   previewUploadBtn: {
@@ -2274,8 +2274,8 @@ const styles = StyleSheet.create({
   },
   previewUploadText: {
     color: '#000',
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
   },
   privacyNoticeContainer: {
     backgroundColor: 'rgba(255, 82, 82, 0.1)',
@@ -2287,7 +2287,7 @@ const styles = StyleSheet.create({
   },
   privacyNoticeText: {
     color: '#FF8A80',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     lineHeight: 18,
     textAlign: 'center',
@@ -2307,7 +2307,7 @@ const styles = StyleSheet.create({
   zoomIndicatorText: {
     color: color.sun,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   exposureSliderWrapper: {
@@ -2379,12 +2379,12 @@ const styles = StyleSheet.create({
   },
   arLayerChipText: {
     color: 'rgba(255, 255, 255, 0.65)',
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 13,
+    fontWeight: '700',
   },
   arLayerChipTextActive: {
     color: color.text,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   fullscreenContainer: {
     flex: 1,
@@ -2459,8 +2459,8 @@ const styles = StyleSheet.create({
   },
   viewHeaderText: {
     color: color.sun,
-    fontSize: 9.5,
-    fontWeight: '900',
+    fontSize: 9,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
   enhancementBadgeCompact: {
@@ -2475,7 +2475,7 @@ const styles = StyleSheet.create({
   },
   enhancementTextCompact: {
     color: color.text,
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '700',
   },
   simHeaderOverlay: {
@@ -2498,7 +2498,7 @@ const styles = StyleSheet.create({
   },
   fovBadgeText: {
     color: color.accent,
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
@@ -2526,12 +2526,12 @@ const styles = StyleSheet.create({
   },
   zoomQuickText: {
     color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
   zoomQuickTextActive: {
     color: color.onAccent,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   zoomLiveBadge: {
     paddingHorizontal: 5,
@@ -2541,8 +2541,8 @@ const styles = StyleSheet.create({
   },
   zoomLiveText: {
     color: color.textDim,
-    fontSize: 10,
-    fontWeight: '900',
+    fontSize: 11,
+    fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   compassRulerBar: {
@@ -2568,7 +2568,7 @@ const styles = StyleSheet.create({
   },
   compassCenterText: {
     color: color.sun,
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },

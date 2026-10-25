@@ -191,5 +191,5 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 6,
   },
-  knobText: { fontSize: 12, fontWeight: '900', fontFamily: mono, letterSpacing: 0.4 },
+  knobText: { fontSize: 11, fontWeight: '800', fontFamily: mono, letterSpacing: 0.4 },
 });

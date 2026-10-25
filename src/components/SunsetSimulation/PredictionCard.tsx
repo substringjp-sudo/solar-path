@@ -126,7 +126,7 @@ const useStyles = makeStyles((color) => ({
   },
   mainLabel: {
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.8,
     fontFamily: mono,
   },

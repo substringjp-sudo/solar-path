@@ -954,6 +954,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [fovProp, requestRender]);
 
   const teleportTarget = useCelestialStore((s) => s.teleportTarget);
+  const language = useCelestialStore((s) => s.language);
   useEffect(() => {
     if (!teleportTarget) return;
     if (teleportTarget.cameraAz !== undefined) {
@@ -3287,10 +3288,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           <View style={[styles.radarHudDot, isGlobeMode && { backgroundColor: '#F59E0B' }]} />
           <Text style={styles.radarHudTitle}>
             {divingLocation
-              ? `📍 (${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) 다이빙 착륙 중...`
+              ? L3(language,
+                  `(${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) 착륙 중`,
+                  `Landing at (${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°)`,
+                  `(${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) に着陸中`)
               : isGlobeMode
-              ? '🌍 우주 궤도 · 지구본 (노을 등시선)'
-              : `상공 ${altitudeMState >= 1000 ? `${(altitudeMState / 1000).toFixed(1)}km` : `${Math.round(altitudeMState)}m`} · 구름 레이더`}
+              ? L3(language, '지구본 · 노을 등시선', 'Globe · sunset isolines', '地球儀 · 夕焼け等時線')
+              : (() => {
+                  const alt = altitudeMState >= 1000 ? `${(altitudeMState / 1000).toFixed(1)}km` : `${Math.round(altitudeMState)}m`;
+                  return L3(language, `상공 ${alt} · 구름 레이더`, `${alt} up · cloud radar`, `上空 ${alt} · 雲レーダー`);
+                })()}
           </Text>
           <TouchableOpacity
             style={styles.radarHudResetBtn}
@@ -3300,7 +3307,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               startDivingLanding(cLat, cLon);
             }}
           >
-            <Text style={styles.radarHudResetText}>착륙 ⤓</Text>
+            <Text style={styles.radarHudResetText}>{L3(language, '착륙', 'Land', '着陸')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -3309,17 +3316,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       {pendingPick && atMapStage && !divingLocation && (
         <View style={styles.pickCard}>
           <Text style={styles.pickTitle}>
-            📍 {pendingPick.latitude.toFixed(2)}°, {pendingPick.longitude.toFixed(2)}°
+            {pendingPick.latitude.toFixed(2)}°, {pendingPick.longitude.toFixed(2)}°
           </Text>
           <Text style={styles.pickSub}>
-            {pendingPick.sameCell ? '지금 위치와 같은 날씨 칸입니다' : '이 위치의 날씨를 새로 받아 착륙합니다'}
+            {pendingPick.sameCell
+              ? L3(language, '지금 위치와 같은 날씨 칸입니다', 'Same weather cell as your location', '現在地と同じ天気のマスです')
+              : L3(language, '이 위치의 날씨를 새로 받아 착륙합니다', 'Fetches weather here, then lands', 'ここの天気を取得して着陸します')}
           </Text>
           <View style={styles.pickRow}>
             <TouchableOpacity style={styles.pickCancel} onPress={() => setPendingPick(null)}>
-              <Text style={styles.pickCancelText}>취소</Text>
+              <Text style={styles.pickCancelText}>{L3(language, '취소', 'Cancel', 'キャンセル')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.pickGo} onPress={confirmPick}>
-              <Text style={styles.pickGoText}>여기로 이동 ⤓</Text>
+              <Text style={styles.pickGoText}>{L3(language, '여기로 이동', 'Go here', 'ここへ移動')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3329,7 +3338,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       {hintOn && !pendingPick && !divingLocation && (
         <View style={styles.radarHintToast} pointerEvents="none">
           <Text style={styles.radarHintText}>
-            💡 길게 눌러 위치를 고르면, 확인 후 그곳으로 이동합니다
+            {L3(language, '길게 눌러 위치를 고르면, 확인 후 그곳으로 이동합니다', 'Long-press to pick a place, then confirm to go there', '長押しで場所を選び、確認するとそこへ移動します')}
           </Text>
         </View>
       )}
@@ -3357,7 +3366,7 @@ const styles = StyleSheet.create({
   },
   modeText: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
   },
@@ -3385,7 +3394,7 @@ const styles = StyleSheet.create({
   },
   labelText: {
     color: '#F8FAFC',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
   radarHudPill: {
@@ -3416,7 +3425,7 @@ const styles = StyleSheet.create({
   },
   radarHudTitle: {
     color: '#F8FAFC',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
@@ -3449,7 +3458,7 @@ const styles = StyleSheet.create({
   radarHintText: {
     color: '#E2E8F0',
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
   pickCard: {
@@ -3469,7 +3478,7 @@ const styles = StyleSheet.create({
   pickSub: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
   pickRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 8 },
   pickCancel: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(148, 163, 184, 0.18)' },
-  pickCancelText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  pickCancelText: { color: '#CBD5E1', fontSize: 13, fontWeight: '700' },
   pickGo: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#0EA5E9' },
-  pickGoText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  pickGoText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 });

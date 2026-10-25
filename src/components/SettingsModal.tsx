@@ -338,7 +338,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 {/* Sister Sites Header */}
                 <Text style={[styles.portalSectionHeader, { color: theme.text }]}>
-                  🔗 {t('sisterSitesTitle', language)}
+                  {t('sisterSitesTitle', language)}
                 </Text>
 
                 {/* JP Rail Planner */}
@@ -682,12 +682,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </View>
                     {isSignUpActive && password.length > 0 && (
                       <View style={styles.passwordHintContainer}>
-                        <Text style={[styles.passwordHintText, { color: password.length >= 8 ? color.success : color.danger }]}>
-                          {password.length >= 8 ? '✓' : '✗'} {t('passwordMinLengthHint', language)}
-                        </Text>
-                        <Text style={[styles.passwordHintText, { color: (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? color.success : color.danger }]}>
-                          {(/[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password)) ? '✓' : '✗'} {t('passwordComplexityHint', language)}
-                        </Text>
+                        {[
+                          { ok: password.length >= 8, text: t('passwordMinLengthHint', language) },
+                          { ok: /[A-Z]/.test(password) && /[0-9]/.test(password) && /[!@#$%^&*(),.?":{}|<>]/.test(password), text: t('passwordComplexityHint', language) },
+                        ].map(h => (
+                          <View key={h.text} style={styles.passwordHintRow}>
+                            {h.ok ? <CheckCircle2 size={12} color={color.success} /> : <AlertCircle size={12} color={color.danger} />}
+                            <Text style={[styles.passwordHintText, { color: h.ok ? color.success : color.danger }]}>{h.text}</Text>
+                          </View>
+                        ))}
                       </View>
                     )}
 
@@ -777,7 +780,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <Info size={14} color={theme.text} />
                       <Text style={[styles.licensesToggleText, { color: theme.text }]}>{t('openSourceLicenses', language)}</Text>
                     </View>
-                    <Text style={{ color: theme.accent, fontSize: 11, fontWeight: 'bold' }}>
+                    <Text style={{ color: theme.accent, fontSize: 11, fontWeight: '700' }}>
                       {showLicenses ? 'HIDE' : 'SHOW'}
                     </Text>
                   </PressScale>
@@ -901,7 +904,7 @@ const useStyles = makeStyles((color) => ({
   },
   headerTitle: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.3,
   },
   closeBtn: {
@@ -931,7 +934,7 @@ const useStyles = makeStyles((color) => ({
   },
   sectionTitle: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     paddingLeft: 2,
@@ -997,7 +1000,7 @@ const useStyles = makeStyles((color) => ({
   input: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     height: '100%',
   },
   errorContainer: {
@@ -1026,7 +1029,7 @@ const useStyles = makeStyles((color) => ({
   },
   authButtonText: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.5,
     fontFamily: mono,
   },
@@ -1044,9 +1047,10 @@ const useStyles = makeStyles((color) => ({
     paddingVertical: 2,
     gap: 4,
   },
+  passwordHintRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   passwordHintText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   actionArrow: {
     padding: 4,
@@ -1175,7 +1179,7 @@ const useStyles = makeStyles((color) => ({
   },
   portalCardTitle: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.4,
   },
   portalSubCardTitle: {
@@ -1198,7 +1202,7 @@ const useStyles = makeStyles((color) => ({
   },
   portalLinkBtnText: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
     color: color.onAccent,
     fontFamily: mono,
     letterSpacing: 0.5,
@@ -1219,7 +1223,7 @@ const useStyles = makeStyles((color) => ({
   },
   portalSectionHeader: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
     marginTop: 6,
     marginBottom: 2,
     letterSpacing: 0.8,

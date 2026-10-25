@@ -427,7 +427,7 @@ const useStyles = makeStyles((color) => ({
   modalOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   modalContent: { height: height * 0.9, borderTopLeftRadius: 4, borderTopRightRadius: 4, paddingHorizontal: 20, paddingTop: 10 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  title: { fontSize: 22, fontWeight: '900', fontFamily: mono, letterSpacing: 0.5 },
+  title: { fontSize: 22, fontWeight: '800', fontFamily: mono, letterSpacing: 0.5 },
   subtitle: { fontSize: 11, marginTop: 2, opacity: 0.8, fontFamily: mono },
   closeBtn: { padding: 6, backgroundColor: color.fill, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border },
   
@@ -504,5 +504,5 @@ const useStyles = makeStyles((color) => ({
   savedItemCoords: { fontSize: 11, opacity: 0.6, marginTop: 2 },
   deleteBtn: { padding: 10 },
   confirmBtn: { flexDirection: 'row', height: 56, borderRadius: radius.lg, justifyContent: 'center', alignItems: 'center', gap: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
-  confirmBtnText: { fontSize: 16, fontWeight: '900', color: '#000' }
+  confirmBtnText: { fontSize: 16, fontWeight: '800', color: '#000' }
 }));

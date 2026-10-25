@@ -83,8 +83,8 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
                 styles.tickText,
                 {
                   color: isCurrent ? '#38BDF8' : isMajor ? '#38BDF8' : 'rgba(255,255,255,0.6)',
-                  fontWeight: isCurrent ? '900' : isMajor ? '900' : '600',
-                  fontSize: isCurrent ? 10 : isMajor ? 9 : 7.5,
+                  fontWeight: isCurrent || isMajor ? '800' : '700',
+                  fontSize: isCurrent ? 11 : 9,
                 }
               ]}
             >
@@ -157,8 +157,8 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
                 styles.pitchText,
                 {
                   color: isCurrent ? '#F59E0B' : isZero ? '#F59E0B' : 'rgba(255,255,255,0.65)',
-                  fontSize: isCurrent ? 10 : 7.5,
-                  fontWeight: isCurrent ? '900' : '700',
+                  fontSize: isCurrent ? 11 : 9,
+                  fontWeight: isCurrent ? '800' : '700',
                 }
               ]}
             >
@@ -216,8 +216,8 @@ export const ViewfinderOverlay: React.FC<ViewfinderOverlayProps> = ({
                 styles.fovTickText,
                 {
                   color: isCurrent ? '#38BDF8' : 'rgba(255,255,255,0.6)',
-                  fontSize: isCurrent ? 10 : 7.5,
-                  fontWeight: isCurrent ? '900' : '700',
+                  fontSize: isCurrent ? 11 : 9,
+                  fontWeight: isCurrent ? '800' : '700',
                 }
               ]}
             >
@@ -397,8 +397,8 @@ const styles = StyleSheet.create({
   },
   topHeaderText: {
     color: '#38BDF8',
-    fontSize: 10.5,
-    fontWeight: '900',
+    fontSize: 11,
+    fontWeight: '800',
     letterSpacing: 0.6,
     textShadowColor: 'rgba(0, 0, 0, 0.9)',
     textShadowOffset: { width: 0, height: 1 },
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     borderRadius: 0.5,
   },
   tickText: {
-    fontSize: 8,
+    fontSize: 9,
     marginTop: 2,
     letterSpacing: 0.2,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
@@ -479,7 +479,7 @@ const styles = StyleSheet.create({
     borderRadius: 0.5,
   },
   pitchText: {
-    fontSize: 7.5,
+    fontSize: 9,
     fontWeight: '700',
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
     borderRadius: 0.5,
   },
   fovTickText: {
-    fontSize: 7.5,
+    fontSize: 9,
     fontWeight: '700',
   },
 

@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   },
   caption: {
     marginTop: 2,
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '700',
     color: '#111111',
     letterSpacing: 0.4,

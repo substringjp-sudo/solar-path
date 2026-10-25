@@ -934,13 +934,13 @@ const overlayStyles = StyleSheet.create({
     alignItems: 'center',
   },
   weatherErrorTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     color: '#F87171',
   },
   weatherErrorDesc: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: color.textMute,
     marginTop: 2,
   },
@@ -1015,18 +1015,18 @@ const useStyles = makeStyles((color) => ({
     gap: 6,
   },
   summaryScore: {
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     letterSpacing: -0.3,
     fontFamily: mono,
   },
   summaryValue: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     fontFamily: mono,
   },
   summaryDot: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     opacity: 0.5,
   },
@@ -1091,7 +1091,7 @@ const useStyles = makeStyles((color) => ({
   },
   tabTextActive: {
     color: color.accent,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   // 이벤트를 가로 스크롤 카드가 아니라 세로 목록으로 바꿨습니다.
   // 시트 안에서는 세로 스크롤이 이미 있어서 가로 스크롤과 충돌합니다.
@@ -1132,7 +1132,7 @@ const useStyles = makeStyles((color) => ({
   },
   eventTime: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     fontFamily: mono,
     letterSpacing: 0.4,
   },

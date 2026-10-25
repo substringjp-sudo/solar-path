@@ -185,14 +185,14 @@ const useStyles = makeStyles((color) => ({
   },
   title: {
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '800',
     color: color.text,
     letterSpacing: 0.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 12.5,
+    fontSize: 13,
     color: color.textDim,
     textAlign: 'center',
     lineHeight: 19,
@@ -237,7 +237,7 @@ const useStyles = makeStyles((color) => ({
     gap: 8,
   },
   cardTitle: {
-    fontSize: 14.5,
+    fontSize: 13,
     fontWeight: '800',
     color: color.text,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -252,8 +252,8 @@ const useStyles = makeStyles((color) => ({
   },
   requiredBadgeText: {
     color: '#F59E0B',
-    fontSize: 9.5,
-    fontWeight: '900',
+    fontSize: 9,
+    fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   optionalBadge: {
@@ -266,12 +266,12 @@ const useStyles = makeStyles((color) => ({
   },
   optionalBadgeText: {
     color: color.textDim,
-    fontSize: 9.5,
-    fontWeight: '900',
+    fontSize: 9,
+    fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   cardDesc: {
-    fontSize: 12,
+    fontSize: 13,
     color: color.textDim,
     lineHeight: 18,
     marginTop: 2,
@@ -293,8 +293,8 @@ const useStyles = makeStyles((color) => ({
     borderRadius: 4,
   },
   actionBtnText: {
-    fontSize: 11.5,
-    fontWeight: '900',
+    fontSize: 11,
+    fontWeight: '800',
     color: color.bg,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
@@ -305,7 +305,7 @@ const useStyles = makeStyles((color) => ({
   },
   actionBtnTextSecondary: {
     color: color.text,
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
@@ -321,7 +321,7 @@ const useStyles = makeStyles((color) => ({
     borderRadius: 4,
   },
   actionBtnSettingsText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
     color: color.danger,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -334,7 +334,7 @@ const useStyles = makeStyles((color) => ({
   },
   statusTextGranted: {
     color: '#34D399',
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
@@ -350,7 +350,7 @@ const useStyles = makeStyles((color) => ({
   },
   warningText: {
     flex: 1,
-    fontSize: 11.5,
+    fontSize: 11,
     color: color.danger,
     lineHeight: 17,
     fontWeight: '700',
@@ -368,8 +368,8 @@ const useStyles = makeStyles((color) => ({
     elevation: 4,
   },
   primaryLaunchBtnText: {
-    fontSize: 13.5,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '800',
     color: color.bg,
     letterSpacing: 0.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',

@@ -1,11 +1,14 @@
 /**
  * DateTimeBar.tsx — 화면 아래의 **날짜 + 시간 막대 한 벌**(옛 날짜 슬라이더 + `TimeSlider` 를 합침, §143).
  *
- *   ┌ [−1년][−1일]   📅 2026.10.16 (금) ●SIM   [+1일][+1년] ┐
- *   │ ━━━━━━ 날짜(1년) 트랙: 과거 | 3일 | 7일 | 16일 | 자료 없음 ━━━━━━ │
- *   │ ⓘ 예보 +2일 · 정확도 높음                       ⚡지금 │
- *   │ [−1시간] ━━━ 시간(하루) 트랙: 낮·노을·밤 + 정확도 띠 ━━━ [+1시간] │ [촬영]
- *   └────────────────────────────────────────────────────┘
+ *   ┌ [‹] [달력 2026.10.16 (금)      ● SIM] [›] [⌄] ┐   ← 1행: 날짜. ⌄ 는 1년 막대를 펼칩니다
+ *   │ [‹‹] ━━━ 날짜(1년) 트랙 — 펼쳤을 때만 ━━━ [››] │
+ *   │ [‹] ━━━ 시간(하루) 트랙: 낮·노을·밤 + 정확도 띠 ━━━ [›] │   ← 2행: 시각
+ *   │ [● +2일 ⓘ] [⚡ 지금] [━━━━━━ 촬영 ━━━━━━] │   ← 3행: 정확도 칩 · 지금(SIM 일 때) · 주 버튼
+ *   └────────────────────────────────────────────┘
+ *
+ * - **누르는 것은 모두 40(touch).** 예전 한 줄 배치(22~28px 버튼 7개)는 시스템 최소 크기에 못 미쳐 세 줄로 나눴습니다.
+ *   "지금"·"촬영"은 해 색(sun) 채움이었는데, sun 은 데이터 색이라 "지금"은 보조 버튼, "촬영"은 주 버튼(accent)입니다.
  *
  * - **정확도 띠.** 두 트랙 모두 위에 "지금으로부터 얼마나 떨어졌나"(리드타임)로 칠한 띠가 있습니다. 색은
  *   과거(재분석) · 3일 안 · 7일 안 · 16일 안 · 자료 없음(천문 계산만). 칸 사이는 정확한 시각에서 끊습니다.
@@ -17,13 +20,13 @@
  *   (`createCommitThrottle`). 손을 떼면 마지막 값이 바로 나갑니다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View, useWindowDimensions } from 'react-native';
 import { Calendar, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, Info, Zap } from 'lucide-react-native';
-import { PressScale } from '../ui';
+import { PressScale, PrimaryButton } from '../ui';
 import { ScrubTrack } from './ScrubTrack';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
-import { mono, radius } from '../../theme/tokens';
+import { radius, space, type, TOUCH } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 import {
   MS_HOUR, MS_MIN, TIER_LEAD_HOURS, FORECAST_DAYS, DATA_START_MS,
@@ -73,8 +76,8 @@ function useNowMs(intervalMs = 60_000) {
 
 /** 누르면 한 칸, 누르고 있으면 반복하는 작은 버튼. */
 const StepButton: React.FC<{
-  onStep: () => void; icon: React.ReactNode; label: string; slow?: boolean; wide?: boolean; compact?: boolean;
-}> = ({ onStep, icon, label, slow, wide, compact }) => {
+  onStep: () => void; icon: React.ReactNode; label: string; slow?: boolean;
+}> = ({ onStep, icon, label, slow }) => {
   const styles = useStyles();
   const stepRef = useRef(onStep);
   stepRef.current = onStep;
@@ -101,8 +104,7 @@ const StepButton: React.FC<{
       // 스크린리더의 "활성화" 는 pressIn 없이 onPress 만 부릅니다.
       onPress={() => { if (!handledByPressIn.current) stepRef.current(); handledByPressIn.current = false; }}
       accessibilityLabel={label}
-      hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-      style={[styles.stepBtn, wide && styles.stepBtnWide, compact && styles.stepBtnCompact]}
+      style={styles.stepBtn}
     >
       {icon}
     </PressScale>
@@ -221,7 +223,10 @@ export const DateTimeBar: React.FC<Props> = ({
   // ── 글자 ────────────────────────────────────────────────────────────────
   const l = new Date(tMs + tz * MS_HOUR);
   const weekday = WEEKDAYS[language === 'ko' ? 'ko' : language === 'ja' ? 'ja' : 'en'][l.getUTCDay()];
-  const dateText = `${l.getUTCFullYear()}.${pad2(l.getUTCMonth() + 1)}.${pad2(l.getUTCDate())} (${weekday})`;
+  const dateTextShort = `${l.getUTCFullYear()}.${pad2(l.getUTCMonth() + 1)}.${pad2(l.getUTCDate())}`;
+  const dateText = `${dateTextShort} (${weekday})`;
+  // 320px 폭에서는 40 버튼 셋 사이에 날짜가 다 들어가지 않아 요일을 뺍니다(스크린리더 값에는 그대로).
+  const narrow = useWindowDimensions().width < 360;
 
   const tier = tierAt(tMs, nowMs);
   const leadH = (tMs - nowMs) / MS_HOUR;
@@ -260,99 +265,43 @@ export const DateTimeBar: React.FC<Props> = ({
   return (
     <View style={styles.wrap}>
       <View style={styles.main}>
-        {/* ── 1행: 메타 & 컨트롤 헤더 ──────────────────────────────────── */}
+        {/* ── 1행: 날짜 — 하루 앞뒤 · 날짜(달력) · 1년 막대 펼침. 누르는 것은 모두 40(touch) ── */}
         <View style={styles.headerRow}>
-          {/* 좌측: 날짜 피커 캡슐 + 하루 스텝 + 1년 트랙 펼침 버튼 */}
-          <View style={styles.dateGroup}>
-            <StepButton
-              label={L3(language, '하루 전', '1 day back', '1日前')}
-              onStep={() => adjustDate(-1)}
-              icon={<ChevronLeft size={13} color={color.textDim} />}
-              compact
-            />
-            <PressScale
-              onPress={onOpenDatePicker}
-              style={styles.dateBadge}
-              accessibilityLabel={L3(language, '날짜 고르기', 'Pick a date', '日付を選ぶ')}
-            >
-              <Calendar size={11} color={color.accent} style={{ marginRight: 5 }} />
-              <Text style={styles.dateText} numberOfLines={1}>{dateText}</Text>
-              <View style={styles.liveTag}>
-                <View style={[styles.liveDot, { backgroundColor: isTimeMachineEnabled ? color.warning : color.success }]} />
-                <Text style={styles.liveText}>{isTimeMachineEnabled ? 'SIM' : 'LIVE'}</Text>
-              </View>
-            </PressScale>
-            <StepButton
-              label={L3(language, '하루 뒤', '1 day forward', '1日後')}
-              onStep={() => adjustDate(1)}
-              icon={<ChevronRight size={13} color={color.textDim} />}
-              compact
-            />
-            <PressScale
-              onPress={() => setShowYearTrack(v => !v)}
-              style={[styles.yearToggleBtn, showYearTrack && styles.yearToggleBtnActive]}
-              accessibilityLabel={L3(language, '1년 슬라이더 토글', 'Toggle year slider', '1年スライダ切替')}
-            >
-              {showYearTrack ? (
-                <ChevronUp size={13} color={color.accent} />
-              ) : (
-                <ChevronDown size={13} color={color.textMute} />
-              )}
-            </PressScale>
-          </View>
-
-          {/* 우측 유틸리티 그룹: 정확도 칩 / 지금 / CAM */}
-          <View style={styles.rightGroup}>
-            <Pressable
-              onPress={() => setLegendOpen(v => !v)}
-              style={styles.chip}
-              accessibilityLabel={L3(language, '정확도 범례', 'Accuracy legend', '精도의凡例')}
-            >
-              <View style={[styles.chipDot, { backgroundColor: tierColors[tier] }]} />
-              <Text style={styles.chipText} numberOfLines={1}>{leadText}</Text>
-              <Info size={9} color={color.textMute} />
-            </Pressable>
-
-            {isTimeMachineEnabled && (
-              <PressScale
-                style={styles.nowBtn}
-                onPress={onNow}
-                accessibilityLabel={L3(language, '지금으로', 'Back to now', '今に戻る')}
-              >
-                <Zap size={9} color={color.onAccent} fill={color.onAccent} />
-                <Text style={styles.nowBtnText}>{L3(language, '지금', 'NOW', '今')}</Text>
-              </PressScale>
+          <StepButton
+            label={L3(language, '하루 전', '1 day back', '1日前')}
+            onStep={() => adjustDate(-1)}
+            icon={<ChevronLeft size={16} color={color.textDim} />}
+          />
+          <PressScale
+            onPress={onOpenDatePicker}
+            style={styles.dateBadge}
+            accessibilityLabel={L3(language, '날짜 고르기', 'Pick a date', '日付を選ぶ')}
+          >
+            <Calendar size={14} color={color.accent} />
+            <Text style={styles.dateText} numberOfLines={1}>{narrow ? dateTextShort : dateText}</Text>
+            <View style={styles.liveTag}>
+              <View style={[styles.liveDot, { backgroundColor: isTimeMachineEnabled ? color.warning : color.success }]} />
+              <Text style={styles.liveText}>{isTimeMachineEnabled ? 'SIM' : 'LIVE'}</Text>
+            </View>
+          </PressScale>
+          <StepButton
+            label={L3(language, '하루 뒤', '1 day forward', '1日後')}
+            onStep={() => adjustDate(1)}
+            icon={<ChevronRight size={16} color={color.textDim} />}
+          />
+          <PressScale
+            onPress={() => setShowYearTrack(v => !v)}
+            style={[styles.stepBtn, showYearTrack && styles.stepBtnOn]}
+            accessibilityLabel={L3(language, '1년 막대 펼치기', 'Toggle year slider', '1年スライダ切替')}
+            accessibilityState={{ selected: showYearTrack }}
+          >
+            {showYearTrack ? (
+              <ChevronUp size={16} color={color.accent} />
+            ) : (
+              <ChevronDown size={16} color={color.textDim} />
             )}
-
-            {onCameraPress && (
-              <PressScale
-                style={styles.camBtn}
-                onPress={onCameraPress}
-                activeOpacity={0.78}
-                accessibilityLabel={L3(language, 'AR 카메라 열기', 'Open AR camera', 'ARカメラを開く')}
-              >
-                <Camera size={13} color={color.onAccent} strokeWidth={2.3} />
-              </PressScale>
-            )}
-          </View>
+          </PressScale>
         </View>
-
-        {/* ── 정확도 상세 범례 (열렸을 때) ─────────────────────────── */}
-        {legendOpen && (
-          <View style={styles.legend}>
-            {legend.map(x => (
-              <View key={x.tier} style={styles.legendItem}>
-                <View style={[styles.legendSwatch, { backgroundColor: tierColors[x.tier], opacity: x.tier === 'none' ? 0.45 : 1 }]} />
-                <Text style={styles.legendText}>{x.text}</Text>
-              </View>
-            ))}
-            <Text style={[styles.legendText, { width: '100%' }]}>
-              {L3(language, `날씨 자료: 1940년 ~ ${winEndText}(+${FORECAST_DAYS}일). 등급은 지금과의 거리 기준(실측 정확도 아님)`,
-                `Weather data: 1940 – ${winEndText} (+${FORECAST_DAYS}d). Tiers are by distance from now, not measured accuracy`,
-                `天気データ: 1940年 ~ ${winEndText}(+${FORECAST_DAYS}日)。等級は今からの距離(実測精度ではない)`)}
-            </Text>
-          </View>
-        )}
 
         {/* ── 펼침 1년 날짜 트랙 (토글 시 노출) ─────────────────────── */}
         {showYearTrack && (
@@ -361,10 +310,9 @@ export const DateTimeBar: React.FC<Props> = ({
               slow
               label={L3(language, '1년 전', '1 year back', '1年前')}
               onStep={() => step(t => shiftYears(t, tzRef.current, -1))}
-              icon={<ChevronsLeft size={13} color={color.textDim} />}
-              compact
+              icon={<ChevronsLeft size={16} color={color.textDim} />}
             />
-            <View style={{ flex: 1, marginHorizontal: 4 }}>
+            <View style={{ flex: 1 }}>
               <ScrubTrack
                 value={datePct}
                 formatLabel={dayLabel}
@@ -374,7 +322,7 @@ export const DateTimeBar: React.FC<Props> = ({
                 onAdjust={adjustDate}
                 accessibilityLabel={L3(language, '날짜', 'Date', '日付')}
                 accessibilityValue={dateText}
-                height={28}
+                height={40}
                 trackHeight={5}
               >
                 <View style={styles.trackClip}>
@@ -390,8 +338,7 @@ export const DateTimeBar: React.FC<Props> = ({
               slow
               label={L3(language, '1년 뒤', '1 year forward', '1年後')}
               onStep={() => step(t => shiftYears(t, tzRef.current, 1))}
-              icon={<ChevronsRight size={13} color={color.textDim} />}
-              compact
+              icon={<ChevronsRight size={16} color={color.textDim} />}
             />
           </View>
         )}
@@ -440,123 +387,120 @@ export const DateTimeBar: React.FC<Props> = ({
             icon={<ChevronRight size={16} color={color.textDim} />}
           />
         </View>
+
+        {/* ── 정확도 상세 범례 (열렸을 때) — 아래 칩을 누르면 펼쳐집니다 ───── */}
+        {legendOpen && (
+          <View style={styles.legend}>
+            {legend.map(x => (
+              <View key={x.tier} style={styles.legendItem}>
+                <View style={[styles.legendSwatch, { backgroundColor: tierColors[x.tier], opacity: x.tier === 'none' ? 0.45 : 1 }]} />
+                <Text style={styles.legendText}>{x.text}</Text>
+              </View>
+            ))}
+            <Text style={[styles.legendText, { width: '100%' }]}>
+              {L3(language, `날씨 자료: 1940년 ~ ${winEndText}(+${FORECAST_DAYS}일). 등급은 지금과의 거리 기준(실측 정확도 아님)`,
+                `Weather data: 1940 – ${winEndText} (+${FORECAST_DAYS}d). Tiers are by distance from now, not measured accuracy`,
+                `天気データ: 1940年 ~ ${winEndText}(+${FORECAST_DAYS}日)。等級は今からの距離(実測精度ではない)`)}
+            </Text>
+          </View>
+        )}
+
+        {/* ── 3행: 상태와 주 동작 — 정확도 칩 · 지금으로(SIM 일 때만) · 촬영(이 화면의 주 버튼) ── */}
+        <View style={styles.actionRow}>
+          <PressScale
+            onPress={() => setLegendOpen(v => !v)}
+            style={styles.chip}
+            accessibilityLabel={L3(language, '정확도 범례', 'Accuracy legend', '精度の凡例')}
+            accessibilityState={{ expanded: legendOpen }}
+          >
+            <View style={[styles.chipDot, { backgroundColor: tierColors[tier] }]} />
+            <Text style={styles.chipText} numberOfLines={1}>{leadText}</Text>
+            <Info size={12} color={color.textDim} />
+          </PressScale>
+
+          {isTimeMachineEnabled && (
+            <PressScale
+              style={styles.nowBtn}
+              onPress={onNow}
+              accessibilityLabel={L3(language, '지금으로', 'Back to now', '今に戻る')}
+            >
+              <Zap size={12} color={color.accent} />
+              <Text style={styles.nowBtnText}>{L3(language, '지금', 'NOW', '今')}</Text>
+            </PressScale>
+          )}
+
+          {onCameraPress && (
+            <PrimaryButton
+              label={L3(language, '촬영', 'Capture', '撮影')}
+              onPress={onCameraPress}
+              icon={<Camera size={16} color={color.onAccent} />}
+              style={styles.captureBtn}
+            />
+          )}
+        </View>
       </View>
     </View>
   );
 };
 
 const useStyles = makeStyles((color) => ({
-  wrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4 },
-  main: { flex: 1, gap: 4 },
+  wrap: { paddingHorizontal: space.lg, paddingVertical: space.sm },
+  main: { gap: space.sm },
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 28,
-    gap: 6,
-  },
-  dateGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    flexShrink: 1,
-  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   dateBadge: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    height: 26,
-    paddingHorizontal: 7,
+    gap: space.xs,
+    height: TOUCH,
+    paddingHorizontal: space.sm,
     borderRadius: radius.xs,
     borderWidth: 1,
     borderColor: color.border,
     backgroundColor: color.fill,
-    flexShrink: 1,
   },
-  dateText: { fontSize: 11.5, color: color.text, fontWeight: '900', letterSpacing: 0.4, fontFamily: mono },
-  liveTag: {
-    flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 5, paddingHorizontal: 3.5, paddingVertical: 1,
-    borderRadius: radius.xs, borderWidth: 0.5, borderColor: color.border, backgroundColor: color.fill,
-  },
-  liveDot: { width: 4.5, height: 4.5, borderRadius: radius.xs },
-  liveText: { fontSize: 8, fontWeight: '800', color: color.textDim, letterSpacing: 0.4, fontFamily: mono },
+  dateText: { ...type.label, color: color.text, flexShrink: 1 },
+  liveTag: { flexDirection: 'row', alignItems: 'center', gap: space.xs, marginLeft: 'auto' },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveText: { ...type.micro, color: color.textDim },
 
-  yearToggleBtn: {
-    width: 22,
-    height: 26,
-    borderRadius: radius.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.fill,
-  },
-  yearToggleBtnActive: {
-    borderColor: color.accent,
-    backgroundColor: color.accentSoft,
-  },
-
-  rightGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    flexShrink: 0,
-  },
-
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 6,
+    gap: space.xs,
+    height: TOUCH,
+    paddingHorizontal: space.sm,
     borderRadius: radius.xs,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: color.border,
     backgroundColor: color.fill,
   },
   chipDot: { width: 6, height: 6, borderRadius: 3 },
-  chipText: { fontSize: 9.5, fontWeight: '800', color: color.textDim, fontFamily: mono },
+  chipText: { ...type.label, color: color.textDim },
 
+  /** 보조 동작 — 해 색(sun)은 데이터 색이라 버튼 바탕에 쓰지 않습니다. 주 버튼은 아래 촬영 하나. */
   nowBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2.5,
-    backgroundColor: color.sun,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+    gap: space.xs,
+    height: TOUCH,
+    paddingHorizontal: space.md,
     borderRadius: radius.xs,
-  },
-  nowBtnText: { color: color.onAccent, fontSize: 8.5, fontWeight: '900', letterSpacing: 0.3 },
-
-  camBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: color.sun,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: color.sun,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.35,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-
-  yearTrackContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-    borderRadius: radius.xs,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: color.border,
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    backgroundColor: color.fill,
   },
+  nowBtnText: { ...type.label, color: color.text },
+  captureBtn: { flex: 1 },
+
+  yearTrackContainer: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
 
   stepBtn: {
-    width: 28,
-    height: 28,
+    width: TOUCH,
+    height: TOUCH,
     borderRadius: radius.xs,
     alignItems: 'center',
     justifyContent: 'center',
@@ -564,8 +508,7 @@ const useStyles = makeStyles((color) => ({
     borderColor: color.border,
     backgroundColor: color.fill,
   },
-  stepBtnWide: { width: 28 },
-  stepBtnCompact: { width: 22, height: 26 },
+  stepBtnOn: { borderColor: color.accentLine, backgroundColor: color.accentSoft },
 
   trackClip: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: 2, overflow: 'hidden', backgroundColor: color.border },
   season: { position: 'absolute', width: 4, height: 4, top: 0.5, marginLeft: -2, borderRadius: 1 },
@@ -576,7 +519,7 @@ const useStyles = makeStyles((color) => ({
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 4, paddingBottom: 3 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   legendSwatch: { width: 12, height: 5, borderRadius: 2 },
-  legendText: { fontSize: 9, color: color.textMute, fontFamily: mono },
+  legendText: { ...type.micro, color: color.textDim },
 
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 }));

@@ -442,12 +442,12 @@ const styles = StyleSheet.create({
   },
   fanLabelText: {
     color: '#FFFFFF',
-    fontSize: 8.5,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '700',
   },
   isolineLabelText: {
     color: '#FFFFFF',
-    fontSize: 7.5,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '700',
   },
 });
