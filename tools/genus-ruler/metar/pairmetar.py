@@ -12,7 +12,7 @@ CLEAR = ('CAVOK', 'NCD', 'NSC', 'SKC', 'CLR')
 LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700]
 HOURLY = ['cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'cloud_cover', 'precipitation', 'temperature_2m', 'dew_point_2m',
           'boundary_layer_height', 'weather_code', 'relative_humidity_2m'] + \
-         [f'cloud_cover_{p}hPa' for p in LEVELS] + [f'geopotential_height_{p}hPa' for p in LEVELS]
+         [f'cloud_cover_{p}hPa' for p in LEVELS] + [f'geopotential_height_{p}hPa' for p in LEVELS] + [f'relative_humidity_{p}hPa' for p in LEVELS]
 FT = 0.3048
 
 def truth_rows(here):

@@ -27,6 +27,23 @@ def lcl_m(t, td):
     if t is None or td is None: return None
     return max(0.0, 125 * (t - td))
 
+def rh_cross_base(r, ground, thr=90.0):
+    """B5: 2 km 아래에서 RH 가 처음 thr 를 넘는 높이(이웃 면 사이 선형 보간), AGL m. 없으면 None."""
+    pts = sorted((r[f'geopotential_height_{p}hPa'], r[f'relative_humidity_{p}hPa']) for p in LEVELS
+                 if r.get(f'geopotential_height_{p}hPa') is not None and r.get(f'relative_humidity_{p}hPa') is not None)
+    prev = None
+    for h, rh in pts:
+        if h - ground >= LOW_TOP_M: break
+        if rh >= thr:
+            if prev is None or prev[1] >= thr: return max(0.0, h - ground - 125)
+            h0, rh0 = prev; t = (thr - rh0) / (rh - rh0) if rh != rh0 else 1.0
+            return max(0.0, h0 + (h - h0) * t - ground)
+        prev = (h, rh)
+    return None
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'synop'))
+from evalgenus2 import sun_alt   # 낮/밤 층화(해 ≥ 0°)
+
 def features(r):
     lv = sorted((r[f'geopotential_height_{p}hPa'], r[f'cloud_cover_{p}hPa']) for p in LEVELS
                 if r.get(f'geopotential_height_{p}hPa') is not None and r.get(f'cloud_cover_{p}hPa') is not None)
@@ -42,6 +59,7 @@ def features(r):
         deck_base_agl=(deck[0] - ground) if deck else None, lcl_agl=lcl,
         # 앱 B0: 덱 있으면 덱 밑면, 없으면 LCL(둘 다 AGL m)
         b0=(deck[0] - ground) if deck else lcl,
+        b5=rh_cross_base(r, ground), isday=(sun_alt(r['t'], r['lat'], r['lon']) >= 0),
         obs_low=r['low_pct'], obs_base=r['base_m_agl'], obs_precip=bool(r['precip']),
     )
 
@@ -55,7 +73,17 @@ def binary_score(items, y, p):
     y = np.array(y, bool); p = np.array(p, bool); n = len(y)
     maj = max(y.mean(), 1 - y.mean())
     acc = (p == y).mean(); rec = p[y].mean() if y.any() else 0.0; prec = y[p].mean() if p.any() else 0.0
-    return dict(n=int(n), acc=float(acc), majority=float(maj), recall=float(rec), precision=float(prec), pos_rate=float(y.mean()))
+    # ETS(Gilbert skill score): 불균형 라벨에서 정확도 대신 쓰는 1차 지표(2026-10-25 자 수정, RULER-metar §4)
+    a = float((p & y).sum()); b = float((p & ~y).sum()); c = float((~p & y).sum())
+    ar = (a + b) * (a + c) / n if n else 0.0
+    ets = (a - ar) / (a + b + c - ar) if (a + b + c - ar) > 0 else 0.0
+    return dict(n=int(n), acc=float(acc), majority=float(maj), recall=float(rec), precision=float(prec), pos_rate=float(y.mean()), ets=float(ets))
+
+def brier_skill(y, prob):
+    """확률 예보(prob 0~1)의 Brier 기술 점수 — 기준은 표본 기후 빈도."""
+    y = np.array(y, float); prob = np.clip(np.array(prob, float), 0, 1)
+    bs = np.mean((prob - y) ** 2); ref = np.mean((y.mean() - y) ** 2)
+    return float(1 - bs / ref) if ref > 0 else 0.0
 
 def logistic(X, y, iters=500, lr=0.1):
     mu = X.mean(0); sd = X.std(0) + 1e-9; Z = (X - mu) / sd
@@ -76,6 +104,7 @@ def base_pred(f, cand, clim, bias):
         if b is None: return a
         return min(a, b)
     if cand == 'B4': return None if f['b0'] is None else f['b0'] - bias
+    if cand == 'B5': return f['b5'] if f['b5'] is not None else f['b0']
     raise ValueError
 
 def base_score(items, cand, clim, bias):
@@ -108,8 +137,15 @@ def main(argv):
     for cand in ('C0', 'C1'):
         best = max(((obj(binary_score(odd, [f['obs_low'] >= 75 for f in odd], [cover_pred(f, cand, T) for f in odd])), T) for T in (40, 50, 60, 70, 80)))
         T = best[1]; s = binary_score(even, [f['obs_low'] >= 75 for f in even], [cover_pred(f, cand, T) for f in even])
-        print(f"{cand} T={T}: n={s['n']} 정확도 {s['acc']:.3f} 다수 {s['majority']:.3f} ({(s['acc']-s['majority'])*100:+.1f}p) 재현 {s['recall']:.2f} 정밀 {s['precision']:.2f} 덮개 비율 {s['pos_rate']:.2f}")
+        print(f"{cand} T={T}: n={s['n']} 정확도 {s['acc']:.3f} 다수 {s['majority']:.3f} ({(s['acc']-s['majority'])*100:+.1f}p) ETS {s['ets']:.3f} 재현 {s['recall']:.2f} 정밀 {s['precision']:.2f} 덮개 비율 {s['pos_rate']:.2f}")
         R[cand] = dict(T=T, even=s)
+        for tag, sub in (('낮', [f for f in even if f['isday']]), ('밤', [f for f in even if not f['isday']])):
+            ss = binary_score(sub, [f['obs_low'] >= 75 for f in sub], [cover_pred(f, cand, T) for f in sub])
+            print(f"   {tag}: n={ss['n']} 정확도 {ss['acc']:.3f} 다수 {ss['majority']:.3f} ETS {ss['ets']:.3f} 재현 {ss['recall']:.2f} 정밀 {ss['precision']:.2f}")
+            R[cand][tag] = ss
+    bss = brier_skill([f['obs_low'] >= 75 for f in even], [f['cl'] / 100 for f in even])
+    print(f"예보 저층 운량을 덮개 확률로 본 Brier 기술 점수(기후 기준): {bss:+.3f}")
+    R['brier_skill_cover'] = bss
     X = lambda fs: np.array([[f['cl'], f['cm'], f['ct'], f['pbl'], f['precip'], f['rh2'] or 0] for f in fs], float)
     model = logistic(X(odd), np.array([f['obs_low'] >= 75 for f in odd], float))
     s = binary_score(even, [f['obs_low'] >= 75 for f in even], list(model(X(even)) >= 0.5))
@@ -125,17 +161,24 @@ def main(argv):
     bias = float(np.median([f['b0'] - f['obs_base'] for f in bo if f['b0'] is not None]))
     print(f'홀수 날 기후 운저 중앙값 {clim:.0f} m, B0 중앙 편향 {bias:+.0f} m')
     R['base'] = dict(clim=clim, bias=bias)
-    for cand in ('B0', 'B1', 'B2', 'B3', 'B4'):
+    for cand in ('B0', 'B1', 'B2', 'B3', 'B4', 'B5'):
         s = base_score(be, cand, clim, bias)
-        if s: print(f"{cand}: n={s['n']} MAE {s['mae']:.0f} m 중앙오차 {s['median_err']:+.0f} m ±300 m {s['within300']:.2f} 적용률 {s['coverage']:.2f}"); R['base'][cand] = s
+        if s:
+            sn = base_score([f for f in be if not f['isday']], cand, clim, bias)
+            print(f"{cand}: n={s['n']} MAE {s['mae']:.0f} m 중앙오차 {s['median_err']:+.0f} m ±300 m {s['within300']:.2f} 적용률 {s['coverage']:.2f}" + (f" | 밤 MAE {sn['mae']:.0f} m" if sn else ''))
+            R['base'][cand] = s; R['base'][cand + '_night'] = sn
     # 강수
     print('── 강수(METAR 비·눈)')
     for cand in ('P0', 'P1', 'P2'):
         Ts = [0.3] if cand == 'P0' else [0.05, 0.1, 0.2, 0.3, 0.5]
         best = max(((obj(binary_score(odd, [f['obs_precip'] for f in odd], [precip_pred(f, cand, T) for f in odd])), T) for T in Ts))
         T = best[1]; s = binary_score(even, [f['obs_precip'] for f in even], [precip_pred(f, cand, T) for f in even])
-        print(f"{cand} T={T}: 정확도 {s['acc']:.3f} 다수 {s['majority']:.3f} ({(s['acc']-s['majority'])*100:+.1f}p) 재현 {s['recall']:.2f} 정밀 {s['precision']:.2f} 비 비율 {s['pos_rate']:.2f}")
+        print(f"{cand} T={T}: 정확도 {s['acc']:.3f} 다수 {s['majority']:.3f} ({(s['acc']-s['majority'])*100:+.1f}p) ETS {s['ets']:.3f} 재현 {s['recall']:.2f} 정밀 {s['precision']:.2f} 비 비율 {s['pos_rate']:.2f}")
         R[cand] = dict(T=T, even=s)
+        for tag, sub in (('낮', [f for f in even if f['isday']]), ('밤', [f for f in even if not f['isday']])):
+            ss = binary_score(sub, [f['obs_precip'] for f in sub], [precip_pred(f, cand, T) for f in sub])
+            print(f"   {tag}: n={ss['n']} ETS {ss['ets']:.3f} 재현 {ss['recall']:.2f} 정밀 {ss['precision']:.2f}")
+            R[cand][tag] = ss
     # METAR 가 그림을 바꾸는 비율
     chg = 0
     for f in even:
