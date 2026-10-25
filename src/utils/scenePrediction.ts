@@ -11,12 +11,17 @@ export function scenePrediction(params: {
   pathData: readonly any[];
   time: Date;
   sunAltDeg: number;
+  /**
+   * 해 방위(도, 북 0 · 동 90). 날씨가 링(절대 방위)이라 이것으로 해 쪽 줄을 골라 읽습니다(`alignRingToSun`).
+   * 2026-10-25 전에는 넘기지 않아 예측이 늘 북쪽 줄을 읽었습니다.
+   */
+  sunAzDeg: number;
   /** 관측점 보간 예보(`getInterpolatedWeather(...)[0]`) */
   obs: { visibility?: number; humidity?: number } | undefined;
   latitude: number;
   observerElevM: number | undefined;
 }) {
-  const { pathData, time, sunAltDeg, obs, latitude, observerElevM } = params;
+  const { pathData, time, sunAltDeg, sunAzDeg, obs, latitude, observerElevM } = params;
   if (!pathData.length) return null;
   const dayOfYear = Math.floor((time.getTime() - Date.UTC(time.getUTCFullYear(), 0, 0)) / 86400000);
   try {
@@ -28,7 +33,8 @@ export function scenePrediction(params: {
       obs?.humidity,
       latitude,
       observerElevM,
-      dayOfYear
+      dayOfYear,
+      sunAzDeg
     );
   } catch (err) {
     console.log('3D prediction error:', err);

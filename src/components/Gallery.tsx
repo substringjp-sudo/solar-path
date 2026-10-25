@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { StyleSheet, View, Text, FlatList, Image, Dimensions, Platform, Alert } from 'react-native';
-import { Trash2, Image as ImageIcon, Share2 } from 'lucide-react-native';
+import { Trash2, Image as ImageIcon, Share2, Compass } from 'lucide-react-native';
 import { shareToTwitter } from '../utils/twitterShare';
 import { auth } from '../config/firebase';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
@@ -132,9 +132,12 @@ export const Gallery: React.FC<GalleryProps> = ({
                       {new Date(item.timestamp).toLocaleDateString()} • {item.userName || 'Me'}
                     </Text>
                     {item.deviceAzimuth !== undefined && item.devicePitch !== undefined && (
-                      <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || color.sun }]}>
-                        🧭 {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Compass size={12} color={theme.accent || color.accent} />
+                        <Text numberOfLines={1} style={[styles.galleryGuide, { color: theme.accent || color.accent }]}>
+                          {getDirectionLabel(item.deviceAzimuth, language)} • {Math.round(item.devicePitch)}°
+                        </Text>
+                      </View>
                     )}
                   </View>
 
@@ -146,9 +149,9 @@ export const Gallery: React.FC<GalleryProps> = ({
                         //   locationName 만 있어 늘 '하늘 포토' 가 붙었습니다.
                         const place = item.locationName || item.location || L3(language, '하늘 사진', 'Sky photo', '空の写真');
                         const tweetText = L3(language,
-                          `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${place}\n#BeforeGlow #노을 #sunset`,
-                          `🌇 A sky I caught with the BeforeGlow sunset forecast!\n📍 ${place}\n#BeforeGlow #sunset`,
-                          `🌇 BeforeGlowの夕焼け予報で捉えた空!\n📍 ${place}\n#BeforeGlow #夕焼け #sunset`);
+                          `BeforeGlow 노을 예보로 포착한 하늘 사진\n${place}\n#BeforeGlow #노을 #sunset`,
+                          `A sky I caught with the BeforeGlow sunset forecast\n${place}\n#BeforeGlow #sunset`,
+                          `BeforeGlowの夕焼け予報で捉えた空\n${place}\n#BeforeGlow #夕焼け #sunset`);
                         shareToTwitter({
                           text: tweetText,
                           imageUris: photoUri ? [photoUri] : [],
@@ -210,7 +213,7 @@ const useStyles = makeStyles((color) => ({
   },
   title: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },

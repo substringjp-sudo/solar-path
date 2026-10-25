@@ -205,7 +205,7 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     gap: space.xs,
     paddingHorizontal: space.sm,
-    paddingVertical: 5,
+    minHeight: TOUCH,
   },
   chipText: { ...type.label, color: color.textDim },
   chipTextOn: { color: color.accent },

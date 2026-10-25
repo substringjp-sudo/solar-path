@@ -68,10 +68,6 @@ export function SunsetWidget({ data, widgetWidth = 280, widgetHeight = 160 }: Su
       >
         <FlexWidget style={{ flexDirection: 'row', alignItems: 'center' }}>
           <TextWidget
-            text="🌅"
-            style={{ fontSize: 13, marginRight: 4 }}
-          />
-          <TextWidget
             text={eventLabel}
             style={{
               fontSize: 12,

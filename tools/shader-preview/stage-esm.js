@@ -92,6 +92,10 @@ const ENTRIES = [
   // 하단 날짜·시간 막대 — 정확도 구간·데이터 기간·날짜 산술(verify-time-bar.js).
   'src/utils/timeBar.ts',
   'src/utils/dateSlider.ts',
+  // 02 예보 — 16일 해 쪽 줄 자료로 날마다 일출 · 일몰 판정(verify-sun-forecast.js).
+  'src/utils/sunForecast.ts',
+  // 촬영 화면 전체 화면 — 미리보기 화각 · 해 경로 투영(verify-camera-overlay.js).
+  'src/utils/cameraOverlay.ts',
 ];
 // 지워진 파일(예: de80a00 이 CloudSlabPrev.ts 를 없앴습니다)이 목록에 남아 있으면 tsc 가 그 항목만 못 만들고 스테이징 전체가
 // 죽습니다 — 그 파일을 쓰는 낡은 습작(build-slab-ab 등)만 실패하게 하고 나머지 하네스는 돌게 합니다.

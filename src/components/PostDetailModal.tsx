@@ -20,7 +20,8 @@ import {
   CloudSun,
   Eye,
   Droplets,
-  Sparkles, Flag, ThumbsUp, ThumbsDown } from 'lucide-react-native';
+  Sparkles, Flag, ThumbsUp, ThumbsDown,
+  Instagram, AtSign, MessageCircle, Facebook, Ellipsis } from 'lucide-react-native';
 import { MyPhoto, useCelestialStore } from '../store/useCelestialStore';
 import { auth } from '../config/firebase';
 import { shareToSns, SnsPlatform } from '../utils/snsShare';
@@ -82,9 +83,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
   const handleSnsSelect = async (platform: SnsPlatform) => {
     setShowSnsSelector(false);
     const tweetText = L3(language,
-      `🌇 BeforeGlow 노을 예보로 포착한 하늘 사진!\n📍 ${locationLabel}\n#BeforeGlow #노을예보 #sunset`,
-      `🌇 A sky I caught with the BeforeGlow sunset forecast!\n📍 ${locationLabel}\n#BeforeGlow #sunset`,
-      `🌇 BeforeGlowの夕焼け予報で捉えた空!\n📍 ${locationLabel}\n#BeforeGlow #夕焼け #sunset`);
+      `BeforeGlow 노을 예보로 포착한 하늘 사진\n${locationLabel}\n#BeforeGlow #노을예보 #sunset`,
+      `A sky I caught with the BeforeGlow sunset forecast\n${locationLabel}\n#BeforeGlow #sunset`,
+      `BeforeGlowの夕焼け予報で捉えた空\n${locationLabel}\n#BeforeGlow #夕焼け #sunset`);
 
     // 1. 선택한 SNS로 공유 딥링크 호출
     await shareToSns({
@@ -97,7 +98,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
     if (!isPublic) {
       await togglePhotoVisibility(photo.id, true);
       Alert.alert(
-        L3(language, '🌐 전체 공개로 바뀜', '🌐 Now public', '🌐 全体公開になりました'),
+        L3(language, '전체 공개로 바뀜', 'Now public', '全体公開になりました'),
         L3(language, '공유하면서 게시물을 [전체 공개]로 바꿨습니다.', 'Sharing made this post public.', '共有に合わせて投稿を[全体公開]にしました。'),
       );
     }
@@ -126,7 +127,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
               ) : (
                 <View style={styles.privateBadge}>
                   <Lock size={12} color="#FF9800" />
-                  <Text style={styles.privateBadgeText}>{L3(language, '🔒 비공개 (나만 봄)', '🔒 Private (only you)', '🔒 非公開(自分のみ)')}</Text>
+                  <Text style={styles.privateBadgeText}>{L3(language, '비공개 (나만 봄)', 'Private (only you)', '非公開(自分のみ)')}</Text>
                 </View>
               )}
             </View>
@@ -143,7 +144,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 return photoUri ? (
                   <View style={styles.photoFrame}>
                     <Image source={{ uri: photoUri }} style={styles.mainPhoto} resizeMode="cover" />
-                    <Text style={styles.photoLabel}>📷 {L3(language, '촬영 사진', 'Photo', '撮影写真')}</Text>
+                    <Text style={styles.photoLabel}>{L3(language, '촬영 사진', 'Photo', '撮影写真')}</Text>
                   </View>
                 ) : null;
               })()}
@@ -153,7 +154,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 return simUri ? (
                   <View style={styles.photoFrame}>
                     <Image source={{ uri: simUri }} style={styles.mainPhoto} resizeMode="cover" />
-                    <Text style={styles.photoLabel}>🌅 {L3(language, '3D 노을 시뮬레이션', '3D glow simulation', '3D夕焼けシミュレーション')}</Text>
+                    <Text style={styles.photoLabel}>{L3(language, '3D 노을 시뮬레이션', '3D glow simulation', '3D夕焼けシミュレーション')}</Text>
                   </View>
                 ) : null;
               })()}
@@ -170,12 +171,12 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
 
               {/* Coords */}
               <View style={styles.coordsBadge}>
-                <Text style={styles.coordsText}>📍 {L3(language, '촬영 좌표', 'Taken at', '撮影座標')}: {latStr}, {lonStr}</Text>
+                <Text style={styles.coordsText}>{L3(language, '촬영 좌표', 'Taken at', '撮影座標')}: {latStr}, {lonStr}</Text>
               </View>
 
               {/* Weather Info */}
               <View style={styles.weatherCard}>
-                <Text style={styles.weatherCardTitle}>🌤️ {L3(language, '촬영 당시 날씨', 'Weather at capture', '撮影時の天気')}</Text>
+                <Text style={styles.weatherCardTitle}>{L3(language, '촬영 당시 날씨', 'Weather at capture', '撮影時の天気')}</Text>
                 <View style={styles.weatherGrid}>
                   <View style={styles.weatherItem}>
                     <CloudSun size={14} color="#88C0D0" />
@@ -235,7 +236,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                           currentFeedback === 'good' && styles.feedbackBtnTextActive,
                         ]}
                       >
-                        {L3(language, '잘 맞았어요 ☀️', 'Accurate ☀️', '合っていた ☀️')}
+                        {L3(language, '잘 맞았어요', 'Accurate', '合っていた')}
                       </Text>
                     </PressScale>
 
@@ -253,7 +254,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                           currentFeedback === 'bad' && styles.feedbackBtnTextActive,
                         ]}
                       >
-                        {L3(language, '아쉬웠어요 ⛅', 'Inaccurate ⛅', '少し違った ⛅')}
+                        {L3(language, '아쉬웠어요', 'Inaccurate', '少し違った')}
                       </Text>
                     </PressScale>
                   </View>
@@ -263,9 +264,9 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
               {!isPublic && (
                 <Text style={styles.privateNotice}>
                   {L3(language,
-                    '💡 [공유하기]로 SNS에 보내면 게시물이 [전체 공개]로 바뀝니다.',
-                    '💡 Sharing to social media makes this post public.',
-                    '💡 [共有]でSNSに送ると投稿が[全体公開]になります。')}
+                    '[공유하기]로 SNS에 보내면 게시물이 [전체 공개]로 바뀝니다.',
+                    'Sharing to social media makes this post public.',
+                    '[共有]でSNSに送ると投稿が[全体公開]になります。')}
                 </Text>
               )}
             </View>
@@ -361,27 +362,27 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ visible, photo
                 </PressScale>
 
                 <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('instagram')}>
-                  <Text style={styles.snsIcon}>📸</Text>
+                  <Instagram size={22} color={color.text} />
                   <Text style={styles.snsName}>Instagram</Text>
                 </PressScale>
 
                 <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('threads')}>
-                  <Text style={styles.snsIcon}>🧵</Text>
+                  <AtSign size={22} color={color.text} />
                   <Text style={styles.snsName}>Threads</Text>
                 </PressScale>
 
                 <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('kakao')}>
-                  <Text style={styles.snsIcon}>🟡</Text>
+                  <MessageCircle size={22} color={color.text} />
                   <Text style={styles.snsName}>{L3(language, '카카오톡', 'KakaoTalk', 'カカオトーク')}</Text>
                 </PressScale>
 
                 <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('facebook')}>
-                  <Text style={styles.snsIcon}>🔵</Text>
+                  <Facebook size={22} color={color.text} />
                   <Text style={styles.snsName}>Facebook</Text>
                 </PressScale>
 
                 <PressScale style={styles.snsOption} onPress={() => handleSnsSelect('native')}>
-                  <Text style={styles.snsIcon}>📱</Text>
+                  <Ellipsis size={22} color={color.text} />
                   <Text style={styles.snsName}>{L3(language, '더보기', 'More', 'その他')}</Text>
                 </PressScale>
               </View>
@@ -564,7 +565,7 @@ const styles = StyleSheet.create({
   weatherItemVal: {
     color: color.text,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     fontFamily: mono,
   },
   privateNotice: {
@@ -638,7 +639,7 @@ const styles = StyleSheet.create({
   shareBtnText: {
     color: '#000',
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     fontFamily: mono,
     letterSpacing: 0.5,
   },
@@ -686,7 +687,7 @@ const styles = StyleSheet.create({
   },
   reportOptionText: {
     color: color.text,
-    fontSize: 14,
+    fontSize: 13,
   },
   reportNote: {
     color: color.textDim,
@@ -721,7 +722,7 @@ const styles = StyleSheet.create({
   },
   feedbackCardTitle: {
     color: '#FFB380',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
     fontFamily: mono,
     letterSpacing: 0.3,
@@ -759,7 +760,7 @@ const styles = StyleSheet.create({
   },
   feedbackBtnText: {
     color: color.textDim,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   feedbackBtnTextActive: {

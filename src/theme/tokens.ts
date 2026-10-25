@@ -40,7 +40,8 @@ const darkColorShape = {
 
   text: '#F1F5F9',
   textDim: '#94A3B8',
-  textMute: '#64748B',
+  /** bg 5.3 · panel 5.0 · panelRaised 4.6 : 1. 예전 #64748B 는 panel 위 3.9 : 1 로 4.5 에 못 미쳤습니다(2026-10-25). */
+  textMute: '#778699',
 
   accent: '#38BDF8',
   accentSoft: 'rgba(56, 189, 248, 0.14)',
@@ -91,7 +92,8 @@ const darkDataShape = {
   qEpic: '#FF5C3F',
   qGreat: '#FF8A3D',
   qFair: '#E6C25A',
-  qOvercast: '#6B7886',
+  /** panel 5.4 : 1. 예전 #6B7886 은 4.1 : 1 이었습니다(2026-10-25). */
+  qOvercast: '#7D8BA0',
   qClean: '#4DA0B0',
 } as const;
 export const dataColor = darkDataShape;
@@ -248,7 +250,7 @@ export const motion = {
   },
   /** 나타날 때 아래에서 떠오르는 거리(px) */
   rise: 8,
-  /** 가운데 뜨는 창(경고·목록)이 커지기 시작하는 배율 */
+  /** 가운데 뜨는 창(저장 목록)이 커지기 시작하는 배율 */
   popFrom: 0.94,
 } as const;
 

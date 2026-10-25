@@ -1,7 +1,7 @@
 /**
  * TabNavigator.tsx
  *
- * 평면 2탭(시뮬레이션 · 갤러리) 컨텐츠 스위처. 스와이프 순서는 `TAB_ORDER` 하나에서 나오므로
+ * 평면 3탭(01 하늘 · 02 예보 · 03 기록) 컨텐츠 스위처. 스와이프 순서는 `TAB_ORDER` 하나에서 나오므로
  * 헤더 탭 순서와 어긋날 수 없습니다.
  *
  * Why (docs/IA_REDESIGN.md §1-B): 이전 구현은
@@ -16,6 +16,7 @@ import { StyleSheet, View, Animated, Platform, Dimensions, PanResponder } from '
 import { useCelestialStore } from '../store/useCelestialStore';
 import { SkyScreen } from './SkyScreen/SkyScreen';
 import { Gallery } from './Gallery';
+import { ForecastScreen } from './ForecastScreen/ForecastScreen';
 import { TAB_ORDER, type AppTab } from './AppHeader';
 import { springTo } from '../theme/motion';
 
@@ -141,6 +142,13 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({
           onCameraPress={onCameraPress}
           onOpenDatePicker={onOpenDatePicker}
           isActive={activeTab === 'sky' && !isSuspended}
+        />
+      </View>
+      <View style={[styles.page, { width }, activeTab !== 'forecast' && styles.hiddenPage]}>
+        <ForecastScreen
+          isActive={activeTab === 'forecast' && !isSuspended}
+          setCurrentTime={setCurrentTime}
+          onOpenSky={() => setActiveTab('sky')}
         />
       </View>
       <View style={[styles.page, { width }, activeTab !== 'log' && styles.hiddenPage]}>

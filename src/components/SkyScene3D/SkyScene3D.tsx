@@ -155,6 +155,7 @@ import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanet
 import { effectiveMagLimit } from '../../utils/moonlight';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
+import { isReducedMotion } from '../../theme/motion';
 
 // 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
 const tempPlanetVec = new THREE.Vector3();
@@ -280,6 +281,8 @@ interface SkyScene3DProps {
   hideHudOverlay?: boolean;
   /** 내부 하단 나침반 눈금자 Bar 숨김 여부 */
   hideCompassBar?: boolean;
+  /** 땅을 떠나 위로 올라갔는지(지상 시야각 단계를 넘었는지) 바뀔 때. 화면이 "지도로" 버튼을 숨기는 데 씁니다. */
+  onAscendedChange?: (ascended: boolean) => void;
 }
 
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
@@ -303,6 +306,11 @@ export interface SkyScene3DHandle {
    * 높이·운해·안개·운량장은 예보에서 여러 단계를 거쳐 나옵니다(`readCloudSlabState`).
    */
   getRenderState: () => SkyRenderState | null;
+  /**
+   * 하늘 → 지도(구름 레이더 축척)로 날아갑니다. 두 손가락 줌아웃의 **누르기 대안**입니다(디자인 2단).
+   * 돌아올 때는 지도 위의 "착륙"을 씁니다.
+   */
+  flyToMap: () => void;
 }
 
 /** `SkyScene3DHandle.getRenderState` 의 값. */
@@ -372,6 +380,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     fovProp,
     hideHudOverlay = false,
     hideCompassBar = false,
+    onAscendedChange,
   },
   ref
 ) => {
@@ -473,6 +482,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * 지상↔상공을 오갈 때마다 지도를 새로 만들었습니다(타일도 새로 받음).
    */
   const ascended = zoomProgressState > P_FOV_END;
+  useEffect(() => { onAscendedChange?.(ascended); }, [ascended, onAscendedChange]);
+  /** 손으로 시선·줌을 바꾸는 중 — 고도·시야각 눈금은 이때만 보입니다(놓고 0.9초 뒤 숨김). */
+  const [viewAdjusting, setViewAdjusting] = useState(false);
+  const adjustTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markAdjustingRef = useRef((on: boolean) => {
+    if (adjustTimerRef.current) { clearTimeout(adjustTimerRef.current); adjustTimerRef.current = null; }
+    if (on) setViewAdjusting(true);
+    else adjustTimerRef.current = setTimeout(() => setViewAdjusting(false), 900);
+  });
+  useEffect(() => () => { if (adjustTimerRef.current) clearTimeout(adjustTimerRef.current); }, []);
   const [overlayWarm, setOverlayWarm] = useState(false);
   useEffect(() => {
     if (ascended) { setOverlayWarm(true); return; }
@@ -700,6 +719,40 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const cancelSettleRef = useRef(cancelSettle);
   cancelSettleRef.current = cancelSettle;
 
+  /**
+   * 버튼으로 줌 진행도를 옮깁니다 — 손짓 없이 같은 길(`applyZoomProgress`)을 지납니다.
+   * 동작 줄이기면 바로 끝값으로 갑니다.
+   */
+  const flyFrameRef = useRef<number | null>(null);
+  const flyToProgress = useCallback((target: number, durationMs = 1100) => {
+    cancelSettle();
+    if (flyFrameRef.current !== null) cancelAnimationFrame(flyFrameRef.current);
+    const from = zoomProgressRef.current;
+    const finish = () => {
+      flyFrameRef.current = null;
+      applyZoomProgress(target, { force: true, keepCenter: true });
+      setCameraFov(fovRef.current);
+    };
+    if (isReducedMotion() || Math.abs(target - from) < 1e-3) { finish(); return; }
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / durationMs);
+      if (t < 1) {
+        applyZoomProgress(from + (target - from) * easeOutCubic(t));
+        flyFrameRef.current = requestAnimationFrame(step);
+      } else finish();
+    };
+    flyFrameRef.current = requestAnimationFrame(step);
+  }, [applyZoomProgress, cancelSettle]);
+  useEffect(() => () => { if (flyFrameRef.current !== null) cancelAnimationFrame(flyFrameRef.current); }, []);
+  /** 지도 폭 6°(약 500 km) — 구름 레이더 고리(380 km)가 한 화면에 들어옵니다. */
+  const flyToMapRef = useRef(() => {});
+  flyToMapRef.current = () => {
+    const vs = viewSizeRef.current;
+    const target = Math.min(P_MAX, Math.max(P_HANDOFF + 0.05, progressForLonDelta(6, homeRef.current.latitude, vs.w / vs.h)));
+    flyToProgress(target);
+  };
+
   useEffect(() => () => {
     if (overlayFrameRef.current !== null) cancelAnimationFrame(overlayFrameRef.current);
     if (divingAnimFrameRef.current !== null) cancelAnimationFrame(divingAnimFrameRef.current);
@@ -758,6 +811,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useImperativeHandle(ref, () => ({
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
     getLastBufferMean: () => lastBufferMeanRef.current,
+    flyToMap: () => flyToMapRef.current(),
     getRenderState: () => {
       const cam = cameraRef.current;
       if (!cam) return null;
@@ -973,6 +1027,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   }, [fovProp, requestRender]);
 
   const teleportTarget = useCelestialStore((s) => s.teleportTarget);
+  const language = useCelestialStore((s) => s.language);
   useEffect(() => {
     if (!teleportTarget) return;
     if (teleportTarget.cameraAz !== undefined) {
@@ -1228,6 +1283,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       onPanResponderGrant: (evt) => {
         // 드래그 시작: TabNavigator가 수평 스와이프를 가로채지 않도록 차단
         useCelestialStore.getState().setGestureBlocked(true);
+        markAdjustingRef.current(true);
         requestRender(4);
         // 미끄러지던 줌은 손을 대는 자리에서 멈추고 이어 받습니다.
         cancelSettleRef.current();
@@ -1348,6 +1404,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         requestRender(5);
         // 드래그 종료: TabNavigator 스와이프 다시 허용
         useCelestialStore.getState().setGestureBlocked(false);
+        markAdjustingRef.current(false);
       },
       onPanResponderTerminate: () => {
         if (longPressTimerRef.current) {
@@ -1365,6 +1422,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         settleZoomRef.current(0);
         requestRender(3);
         useCelestialStore.getState().setGestureBlocked(false);
+        markAdjustingRef.current(false);
       },
     })
   ).current;
@@ -3148,13 +3206,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         />
       </Animated.View>
 
-      {/* ── 전문가용 카메라 뷰파인더 오버레이 (3등분선, 위아래 방위 눈금자, 우측 고도각 눈금자, 좌측 시야각 눈금자) ── */}
+      {/* ── 하늘 위 눈금: 방위 한 줄(늘) + 고도·시야각(손으로 바꾸는 동안만) ── */}
       {!hideHudOverlay && !hideCompassBar && zoomProgressState <= P_FOV_END + 0.1 && (
         <ViewfinderOverlay
           cameraAzimuth={cameraAzimuth}
           cameraElevation={cameraElevation}
           cameraFov={cameraFov}
           theme={theme}
+          adjusting={viewAdjusting}
         />
       )}
 
@@ -3308,10 +3367,16 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           <View style={[styles.radarHudDot, isGlobeMode && { backgroundColor: '#F59E0B' }]} />
           <Text style={styles.radarHudTitle}>
             {divingLocation
-              ? `📍 (${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) 다이빙 착륙 중...`
+              ? L3(language,
+                  `(${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) 착륙 중`,
+                  `Landing at (${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°)`,
+                  `(${divingLocation.latitude.toFixed(2)}°, ${divingLocation.longitude.toFixed(2)}°) に着陸中`)
               : isGlobeMode
-              ? '🌍 우주 궤도 · 지구본 (노을 등시선)'
-              : `상공 ${altitudeMState >= 1000 ? `${(altitudeMState / 1000).toFixed(1)}km` : `${Math.round(altitudeMState)}m`} · 구름 레이더`}
+              ? L3(language, '지구본 · 노을 등시선', 'Globe · sunset isolines', '地球儀 · 夕焼け等時線')
+              : (() => {
+                  const alt = altitudeMState >= 1000 ? `${(altitudeMState / 1000).toFixed(1)}km` : `${Math.round(altitudeMState)}m`;
+                  return L3(language, `상공 ${alt} · 구름 레이더`, `${alt} up · cloud radar`, `上空 ${alt} · 雲レーダー`);
+                })()}
           </Text>
           <TouchableOpacity
             style={styles.radarHudResetBtn}
@@ -3321,7 +3386,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               startDivingLanding(cLat, cLon);
             }}
           >
-            <Text style={styles.radarHudResetText}>착륙 ⤓</Text>
+            <Text style={styles.radarHudResetText}>{L3(language, '착륙', 'Land', '着陸')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -3330,17 +3395,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       {pendingPick && atMapStage && !divingLocation && (
         <View style={styles.pickCard}>
           <Text style={styles.pickTitle}>
-            📍 {pendingPick.latitude.toFixed(2)}°, {pendingPick.longitude.toFixed(2)}°
+            {pendingPick.latitude.toFixed(2)}°, {pendingPick.longitude.toFixed(2)}°
           </Text>
           <Text style={styles.pickSub}>
-            {pendingPick.sameCell ? '지금 위치와 같은 날씨 칸입니다' : '이 위치의 날씨를 새로 받아 착륙합니다'}
+            {pendingPick.sameCell
+              ? L3(language, '지금 위치와 같은 날씨 칸입니다', 'Same weather cell as your location', '現在地と同じ天気のマスです')
+              : L3(language, '이 위치의 날씨를 새로 받아 착륙합니다', 'Fetches weather here, then lands', 'ここの天気を取得して着陸します')}
           </Text>
           <View style={styles.pickRow}>
             <TouchableOpacity style={styles.pickCancel} onPress={() => setPendingPick(null)}>
-              <Text style={styles.pickCancelText}>취소</Text>
+              <Text style={styles.pickCancelText}>{L3(language, '취소', 'Cancel', 'キャンセル')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.pickGo} onPress={confirmPick}>
-              <Text style={styles.pickGoText}>여기로 이동 ⤓</Text>
+              <Text style={styles.pickGoText}>{L3(language, '여기로 이동', 'Go here', 'ここへ移動')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3350,7 +3417,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       {hintOn && !pendingPick && !divingLocation && (
         <View style={styles.radarHintToast} pointerEvents="none">
           <Text style={styles.radarHintText}>
-            💡 길게 눌러 위치를 고르면, 확인 후 그곳으로 이동합니다
+            {L3(language, '길게 눌러 위치를 고르면, 확인 후 그곳으로 이동합니다', 'Long-press to pick a place, then confirm to go there', '長押しで場所を選び、確認するとそこへ移動します')}
           </Text>
         </View>
       )}
@@ -3378,7 +3445,7 @@ const styles = StyleSheet.create({
   },
   modeText: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
   },
@@ -3406,7 +3473,7 @@ const styles = StyleSheet.create({
   },
   labelText: {
     color: '#F8FAFC',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
   radarHudPill: {
@@ -3437,7 +3504,7 @@ const styles = StyleSheet.create({
   },
   radarHudTitle: {
     color: '#F8FAFC',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
@@ -3470,7 +3537,7 @@ const styles = StyleSheet.create({
   radarHintText: {
     color: '#E2E8F0',
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
   pickCard: {
@@ -3490,7 +3557,7 @@ const styles = StyleSheet.create({
   pickSub: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
   pickRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8, gap: 8 },
   pickCancel: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(148, 163, 184, 0.18)' },
-  pickCancelText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
+  pickCancelText: { color: '#CBD5E1', fontSize: 13, fontWeight: '700' },
   pickGo: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#0EA5E9' },
-  pickGoText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  pickGoText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 });

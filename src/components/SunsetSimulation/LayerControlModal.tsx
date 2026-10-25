@@ -354,7 +354,7 @@ const useStyles = makeStyles((color) => ({
   },
   sliderValue: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sliderHint: {
     fontSize: 11,

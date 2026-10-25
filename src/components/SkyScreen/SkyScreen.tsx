@@ -12,8 +12,8 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw } from 'lucide-react-native';
-import { SkyScene3D } from '../SkyScene3D/SkyScene3D';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Target, SlidersVertical, CloudOff, RefreshCw, Globe } from 'lucide-react-native';
+import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
 import { DateTimeBar, type ScrubKind } from '../TimeBar/DateTimeBar';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -43,14 +43,16 @@ import {
   isTimelineUsable,
   type SkyTimeline,
 } from '../../utils/skyTimeline';
-import { PredictionCard } from '../SunsetSimulation/PredictionCard';
+import { PredictionCard, VerdictMeter, verdictColor, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
+import { findGlowPeak } from '../../utils/glowPeak';
+import { hapticError } from '../../utils/haptics';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
 import SunCalc from 'suncalc';
 import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
-import { t } from '../../utils/i18n';
+import { t, L3 } from '../../utils/i18n';
 import { color, color as DARK, radius, mono, dataColor } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors, OVERLAY_THEME } from '../../theme/useTheme';
 import { PressScale, OverlayButton, Reveal } from '../ui';
@@ -378,6 +380,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       console.warn('3D weather fetch error:', msg);
       if (pathData.length === 0) {
         setWeatherError(msg);
+        hapticError();
       }
     } finally {
       if (weatherAbortControllerRef.current === controller) {
@@ -538,6 +541,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 그 뒤로는 시간을 아무리 움직여도 네트워크도, fBm도 다시 돌지 않고
   // 키프레임 사이 보간만 합니다 (utils/skyTimeline.ts).
   const [isDevPanelOpen, setDevPanelOpen] = useState(false);
+  const sceneRef = useRef<SkyScene3DHandle>(null);
+  /** 하늘을 떠나 지도·구 단계에 있는지 — 그때는 "지도로" 버튼 대신 지도 위 "착륙"이 돌아오는 길입니다. */
+  const [ascended, setAscended] = useState(false);
   const [timeline, setTimeline] = useState<SkyTimeline | null>(null);
 
   // 날짜나 장소가 바뀌면 계산해 둔 하늘은 더 이상 맞지 않습니다.
@@ -560,10 +566,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     pathData,
     time: currentTime,
     sunAltDeg: sunAltitude,
+    sunAzDeg: sunAzimuth,
     obs: interpolatedWeather[0],
     latitude,
     observerElevM: terrainData.observerElevation,
-  }), [pathData, interpolatedWeather, currentTime, sunAltitude, latitude, terrainData.observerElevation]);
+  }), [pathData, interpolatedWeather, currentTime, sunAltitude, sunAzimuth, latitude, terrainData.observerElevation]);
 
   // 오늘의 추천 및 일반 이벤트 — 모두 계산에서 나옵니다(`skyEvents.ts` 머리말).
   // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
@@ -574,6 +581,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       pathData,
       time: tm,
       sunAltDeg: sp.altitude * (180 / Math.PI),
+      sunAzDeg: sp.azimuth * (180 / Math.PI) + 180,
       obs: getInterpolatedWeather(pathData, tm)[0],
       latitude,
       observerElevM: terrainData.observerElevation,
@@ -589,7 +597,28 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     sunrisePrediction: predictionAt(events?.sunrise),
     language,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [currentTime.toDateString(), events, pathData, latitude, language, terrainData.observerElevation]);
+  }), [currentTime.toDateString(), events, pathData, latitude, longitude, language, terrainData.observerElevation]);
+
+  // 판정 한 줄(디자인 개정 A2): 다가오는 출몰(밤이고 일출 전이면 일출, 아니면 일몰)의 노을 판정과
+  // "가장 붉을 때". 지금 시각의 점수가 아니라 그 출몰 앞뒤에서 점수가 가장 높은 순간입니다(`utils/glowPeak.ts`).
+  const isSunriseSide = sunAltitude < 0 && (events?.sunrise ? currentTime < events.sunrise : false);
+  const glow = useMemo(() => findGlowPeak(
+    isSunriseSide ? events?.sunrise : events?.sunset,
+    isSunriseSide ? 'sunrise' : 'sunset',
+    (tm) => {
+      if (!pathData.length) return null;
+      const sp = sunPosition(tm, latitude, longitude);
+      return scenePrediction({
+        pathData,
+        time: tm,
+        sunAltDeg: sp.altitude * (180 / Math.PI),
+        sunAzDeg: sp.azimuth * (180 / Math.PI) + 180,
+        obs: getInterpolatedWeather(pathData, tm)[0],
+        latitude,
+        observerElevM: terrainData.observerElevation,
+      });
+    },
+  ), [isSunriseSide, events, pathData, latitude, longitude, terrainData.observerElevation]);
 
   const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
   const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);
@@ -600,12 +629,9 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     return `${hh}:${mm}`;
   };
 
-  // 요약 한 줄에 쓸 값들
-  const scoreText = prediction?.score != null ? t('evScore', language).replace('{n}', String(Math.round(prediction.score))) : '—';
   const sunsetText = events?.sunset
     ? `${String(events.sunset.getHours()).padStart(2, '0')}:${String(events.sunset.getMinutes()).padStart(2, '0')}`
     : '--:--';
-  const highCloudPct = interpolatedWeather[0]?.high;
 
   return (
     <View style={styles.container}>
@@ -614,6 +640,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       <View style={styles.stage} onLayout={(e) => setStageH(e.nativeEvent.layout.height)}>
       <View style={styles.sceneWrapper}>
         <SkyScene3D
+          ref={sceneRef}
+          onAscendedChange={setAscended}
           sim={simObj}
           currentTime={currentTime}
           sunAltitude={sunAltitude}
@@ -657,6 +685,16 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           >
             <SlidersHorizontal size={16} color={DARK.text} />
           </OverlayButton>
+
+          {/* 구/지도 — 두 손가락 줌아웃의 누르기 대안(디자인 2단). 지도에서는 "착륙"으로 돌아옵니다. */}
+          {!ascended && (
+            <OverlayButton
+              onPress={() => sceneRef.current?.flyToMap()}
+              accessibilityLabel={L3(language, '지도 · 구름 레이더로', 'Map · cloud radar', '地図 · 雲レーダーへ')}
+            >
+              <Globe size={16} color={DARK.text} />
+            </OverlayButton>
+          )}
 
           {/* 개발자 튜닝 — 레이어 버튼 길게 누르기로도 열립니다 */}
           {isDevPanelOpen && (
@@ -707,28 +745,30 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         maxHeight={stageH || undefined}
         summary={
           <View style={styles.summaryRow}>
-            <Flame size={13} color={color.glow} />
-            <Text style={[styles.summaryScore, { color: theme.text }]}>{scoreText}</Text>
-            <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
-            <Sunset size={12} color={color.glow} />
-            <Text style={[styles.summaryValue, { color: theme.text }]}>{sunsetText}</Text>
-            {highCloudPct != null && (
+            {glow ? (
               <>
-                <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
-                <Text style={[styles.summaryValue, { color: theme.subText }]}>
-                  {t('highCloudPct', language).replace('{n}', String(Math.round(highCloudPct)))}
+                <VerdictMeter quality={glow.prediction.quality} />
+                <Text style={[styles.summaryVerdict, { color: verdictColor(glow.prediction.quality, dataColor, color) }]}>
+                  {verdictWord(glow.prediction.quality, language)}
                 </Text>
+                <Text style={[styles.summaryScore, { color: theme.text }]}>{Math.round(glow.score)}</Text>
+                <Text style={[styles.summaryDot, { color: theme.subText }]}>·</Text>
+                <Text style={[styles.summaryLabel, { color: theme.subText }]} numberOfLines={1}>{t('peakGlow', language)}</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>{localHHMM(glow.time, tz)}</Text>
               </>
+            ) : (
+              <Text style={[styles.summaryLabel, { color: theme.subText }]} numberOfLines={1}>{t('verdictNeedsWeather', language)}</Text>
             )}
           </View>
         }
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetScroll}>
-          {prediction && (
+          {(glow?.prediction ?? prediction) && (
             <PredictionCard
-              prediction={prediction}
+              prediction={(glow?.prediction ?? prediction)!}
               theme={theme}
-              isSunrise={sunAltitude < 0 && (events?.sunrise ? currentTime < events.sunrise : false)}
+              isSunrise={isSunriseSide}
+              peakTime={glow?.time}
             />
           )}
 
@@ -934,13 +974,13 @@ const overlayStyles = StyleSheet.create({
     alignItems: 'center',
   },
   weatherErrorTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     color: '#F87171',
   },
   weatherErrorDesc: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: color.textMute,
     marginTop: 2,
   },
@@ -1014,19 +1054,28 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
     gap: 6,
   },
+  summaryVerdict: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
   summaryScore: {
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     letterSpacing: -0.3,
     fontFamily: mono,
   },
+  summaryLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    flexShrink: 1,
+  },
   summaryValue: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     fontFamily: mono,
   },
   summaryDot: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     opacity: 0.5,
   },
@@ -1091,7 +1140,7 @@ const useStyles = makeStyles((color) => ({
   },
   tabTextActive: {
     color: color.accent,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   // 이벤트를 가로 스크롤 카드가 아니라 세로 목록으로 바꿨습니다.
   // 시트 안에서는 세로 스크롤이 이미 있어서 가로 스크롤과 충돌합니다.
@@ -1132,7 +1181,7 @@ const useStyles = makeStyles((color) => ({
   },
   eventTime: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     fontFamily: mono,
     letterSpacing: 0.4,
   },

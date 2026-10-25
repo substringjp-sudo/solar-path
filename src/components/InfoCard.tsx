@@ -59,7 +59,7 @@ const useStyles = makeStyles((color) => ({
   },
   value: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     fontFamily: mono,
   },
   subValue: {

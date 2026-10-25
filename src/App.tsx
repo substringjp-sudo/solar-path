@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking } from 'react-native';
 import Constants from 'expo-constants';
-import { MapPin, Star, Trash2, X, Camera } from 'lucide-react-native';
+import { MapPin, Star, Trash2, X } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { useCelestialApp } from './hooks/useCelestialApp';
@@ -14,11 +14,11 @@ import { SettingsModal } from './components/SettingsModal';
 import { PermissionRequestView } from './components/PermissionRequestView';
 import { useCelestialStore } from './store/useCelestialStore';
 import { parseTeleportUrl } from './utils/teleport';
-import { t } from './utils/i18n';
+import { t, L3 } from './utils/i18n';
 import { PressScale } from './components/ui';
 import { springTo, timeTo } from './theme/motion';
-import { motion, color, dataColor } from './theme/tokens';
-import { makeStyles, useThemeColors, useDataColors, useScheme } from './theme/useTheme';
+import { motion, color } from './theme/tokens';
+import { makeStyles, useThemeColors, useScheme } from './theme/useTheme';
 
 /** 가운데 창은 94% 에서 스프링으로 커지며 나타납니다(docs/DESIGN_SYSTEM.md §7). */
 const POP_FROM = motion.popFrom;
@@ -73,7 +73,7 @@ const LOAD_IMAGES = [
 ];
 
 export default function App() {
-  const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles(); const scheme = useScheme();
+  const color = useThemeColors(); const styles = useStyles(); const scheme = useScheme();
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const { language, isAppReady, preloadInitialData, preloadStatus, setTeleportTarget } = useCelestialStore();
   const {
@@ -89,8 +89,6 @@ export default function App() {
     setActiveTab,
     isSunCameraVisible,
     setSunCameraVisible,
-    isCameraWarningVisible,
-    setCameraWarningVisible,
     contentOpacity,
     contentTranslateX,
     currentTime,
@@ -168,21 +166,8 @@ export default function App() {
   }, [preloadStatus]);
 
   // 커스텀 고급 팝업 애니메이션 효과용 상태
-  const warningScale = React.useRef(new Animated.Value(POP_FROM)).current;
-  const warningOpacity = React.useRef(new Animated.Value(0)).current;
   const savedListScale = React.useRef(new Animated.Value(POP_FROM)).current;
   const savedListOpacity = React.useRef(new Animated.Value(0)).current;
-
-  React.useEffect(() => {
-    if (isCameraWarningVisible) {
-      warningScale.setValue(POP_FROM);
-      warningOpacity.setValue(0);
-      Animated.parallel([
-        springTo(warningScale, 1, 'sheet'),
-        timeTo(warningOpacity, 1, 'fast', 'enter', { keepWhenReduced: true }),
-      ]).start();
-    }
-  }, [isCameraWarningVisible]);
 
   React.useEffect(() => {
     if (isSavedListVisible) {
@@ -415,57 +400,6 @@ export default function App() {
         dynamicTheme={dynamicTheme}
       />
 
-      {/* 카메라 비활성화 안내 모달 */}
-      <Modal
-        visible={isCameraWarningVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCameraWarningVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Animated.View style={[
-            styles.warningModal, 
-            { 
-              backgroundColor: theme.card || '#1A1D24', 
-              borderColor: theme.border,
-              opacity: warningOpacity,
-              transform: [{ scale: warningScale }]
-            }
-          ]}>
-            <View style={styles.warningIconContainer}>
-              <View style={[styles.warningIconBg, { backgroundColor: 'rgba(255, 165, 0, 0.15)' }]}>
-                <Camera size={28} color={dataColor.sunrise} />
-              </View>
-            </View>
-            
-            <Text style={[styles.warningTitle, { color: theme.text }]}>{t('waitingGoldenHour', language)}</Text>
-            
-            <Text style={[styles.warningMessage, { color: theme.subText }]}>
-              {t('cameraWarningMessage', language)}
-            </Text>
-
-            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
-              <PressScale 
-                onPress={() => setCameraWarningVisible(false)} 
-                style={[styles.warningCancelBtn, { flex: 1, borderColor: theme.border }]}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.warningConfirmText, { color: theme.text }]}>{t('cancel', language)}</Text>
-              </PressScale>
-              <PressScale 
-                onPress={() => {
-                  setCameraWarningVisible(false);
-                  setSunCameraVisible(true);
-                }} 
-                style={[styles.warningConfirmBtn, { flex: 1, backgroundColor: theme.accent || color.sun }]}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.warningConfirmText, { color: color.onAccent }]}>{t('enterAnyway', language)}</Text>
-              </PressScale>
-            </View>
-          </Animated.View>
-        </View>
-      </Modal>
       </AnimatedSafeAreaView>
 
       {/* 앱 초기 기동 스플래시 오버레이: 3D 씬이 백그라운드에서 완전히 준비될 때까지 유지되다 부드럽게 페이드아웃 */}
@@ -526,9 +460,10 @@ export default function App() {
                 </Text>
 
                 <Text style={styles.capturedText}>
-                  {language === 'ko'
-                    ? `📸 ${randomImageRef.current.location.ko}에서 촬영된 노을`
-                    : `📸 Sunset captured in ${randomImageRef.current.location.en}`}
+                  {L3(language,
+                    `${randomImageRef.current.location.ko}에서 촬영된 노을`,
+                    `Sunset captured in ${randomImageRef.current.location.en}`,
+                    `${randomImageRef.current.location.en}で撮影された夕焼け`)}
                 </Text>
               </View>
             </Animated.View>
@@ -556,7 +491,7 @@ const useStyles = makeStyles((color) => ({
   loadingText: {
     color: color.textDim,
     marginTop: 15,
-    fontSize: 14,
+    fontSize: 13,
   },
   errorText: {
     color: color.danger,
@@ -594,8 +529,8 @@ const useStyles = makeStyles((color) => ({
     paddingBottom: 10,
   },
   modalTitle: {
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
@@ -614,7 +549,7 @@ const useStyles = makeStyles((color) => ({
     alignItems: 'center',
   },
   savedName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     marginBottom: 2,
   },
@@ -631,62 +566,6 @@ const useStyles = makeStyles((color) => ({
   },
   closeBtn: {
     padding: 4,
-  },
-  warningModal: {
-    width: '88%',
-    borderRadius: 4,
-    borderWidth: 1,
-    padding: 20,
-    alignItems: 'center',
-    elevation: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-  },
-  warningIconContainer: {
-    marginBottom: 14,
-  },
-  warningIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 165, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  warningTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    marginBottom: 10,
-    textAlign: 'center',
-    letterSpacing: 0.3,
-  },
-  warningMessage: {
-    fontSize: 12.5,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  warningConfirmBtn: {
-    paddingVertical: 10,
-    borderRadius: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  warningCancelBtn: {
-    paddingVertical: 10,
-    borderRadius: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  warningConfirmText: {
-    fontSize: 12.5,
-    fontWeight: '900',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.4,
   },
   loadingContainer: {
     flex: 1,
@@ -705,7 +584,7 @@ const useStyles = makeStyles((color) => ({
   appNameText: {
     color: color.text,
     fontSize: 32,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     textShadowColor: color.accentLine,
