@@ -144,6 +144,31 @@ export const layerWindsFrom = (d?: CloudData | null): LayerWinds | null => {
   return { low, mid, high };
 };
 
+export interface RawWeatherSnapshot {
+  fetchedAt: number;
+  latitude: number;
+  longitude: number;
+  targetDate: string;
+  sourceUrl?: string;
+  mainForecast?: any;
+  winds?: any;
+  airQuality?: any;
+  thermo?: any;
+}
+
+let lastRawWeather: RawWeatherSnapshot | null = null;
+const rawWeatherListeners = new Set<(snapshot: RawWeatherSnapshot | null) => void>();
+
+export const getLastRawWeather = (): RawWeatherSnapshot | null => lastRawWeather;
+export const subscribeRawWeather = (listener: (snapshot: RawWeatherSnapshot | null) => void) => {
+  rawWeatherListeners.add(listener);
+  return () => { rawWeatherListeners.delete(listener); };
+};
+export const setLastRawWeather = (snapshot: RawWeatherSnapshot | null) => {
+  lastRawWeather = snapshot;
+  rawWeatherListeners.forEach(fn => fn(snapshot));
+};
+
 export interface WeatherPoint {
   latitude: number;
   longitude: number;
@@ -1405,6 +1430,18 @@ export const fetchDayWeatherRing = async (
       fetchSatelliteIrradiance(lat, lon, targetDate, signal),
     ]);
     const results = Array.isArray(data) ? data : [data];
+    const observerRaw = results[0] || (Array.isArray(data) ? data[0] : data);
+    setLastRawWeather({
+      fetchedAt: Date.now(),
+      latitude: lat,
+      longitude: lon,
+      targetDate: targetDateStr,
+      sourceUrl: url,
+      mainForecast: observerRaw,
+      winds,
+      airQuality: air,
+      thermo,
+    });
 
     const out: CloudPathData[] = virtualPoints.map((vp, i) => {
       const res = results[idxOf[i]];

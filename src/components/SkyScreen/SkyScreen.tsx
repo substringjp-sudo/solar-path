@@ -12,9 +12,10 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, ScrollView, Animated, ActivityIndicator, Platform } from 'react-native';
-import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Target, SlidersVertical, CloudOff, RefreshCw, Globe } from 'lucide-react-native';
+import { SlidersHorizontal, Sparkles, Sun, Sunset, Moon, Star, Flame, Target, SlidersVertical, CloudOff, RefreshCw, Globe, Cloud } from 'lucide-react-native';
 import { SkyScene3D, type SkyScene3DHandle } from '../SkyScene3D/SkyScene3D';
 import { LayerControlModal } from '../SunsetSimulation/LayerControlModal';
+import { WeatherInfoView } from './WeatherInfoView';
 import { DateTimeBar, type ScrubKind } from '../TimeBar/DateTimeBar';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import {
@@ -104,7 +105,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [stageH, setStageH] = useState(0);
   const { location, weatherCacheList, terrainCacheList, addTerrainCache, addWeatherCache, language, timezoneOffsetHours, isCacheHydrated } = useCelestialStore();
   const [isLayerModalVisible, setLayerModalVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<'featured' | 'general'>('featured');
+  const [activeSheetTab, setActiveSheetTab] = useState<'events' | 'weather'>('events');
   const [trackingTarget, setTrackingTarget] = useState<string | null>(null);
   // 레이어·하늘 설정은 스토어에 둡니다 — 촬영하기(카메라)의 3D 가 같은 값으로 그리게.
   const layers = useCelestialStore(s => s.skyLayers);
@@ -622,6 +623,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
 
   const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
   const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);
+  // 추천 이벤트를 상단에 배치하고 일반 이벤트를 이어서 단일 목록으로 합침
+  const combinedEventList = useMemo(() => [...featuredList, ...generalList], [featuredList, generalList]);
 
   const formatTimeStr = (d: Date) => {
     const hh = String(d.getHours()).padStart(2, '0');
@@ -772,60 +775,73 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             />
           )}
 
-          {/* 이벤트 — 탭하면 그 시각으로 이동 */}
+          {/* 이벤트 & 기상정보 탭 토글 */}
           <View style={styles.eventSection}>
             <View style={styles.tabToggleGroup}>
               <PressScale
-                style={[styles.tabButton, activeTab === 'featured' && styles.tabButtonActive]}
-                onPress={() => setActiveTab('featured')}
+                style={[styles.tabButton, activeSheetTab === 'events' && styles.tabButtonActive]}
+                onPress={() => setActiveSheetTab('events')}
                 activeOpacity={0.8}
               >
-                <Sparkles size={12} color={activeTab === 'featured' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeTab === 'featured' && styles.tabTextActive]}>{t('evFeatured', language)}</Text>
+                <Sparkles size={12} color={activeSheetTab === 'events' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
+                <Text style={[styles.tabText, activeSheetTab === 'events' && styles.tabTextActive]}>{t('tabEvents', language)}</Text>
               </PressScale>
 
               <PressScale
-                style={[styles.tabButton, activeTab === 'general' && styles.tabButtonActive]}
-                onPress={() => setActiveTab('general')}
+                style={[styles.tabButton, activeSheetTab === 'weather' && styles.tabButtonActive]}
+                onPress={() => setActiveSheetTab('weather')}
                 activeOpacity={0.8}
               >
-                <Sun size={12} color={activeTab === 'general' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
-                <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>{t('evGeneral', language)}</Text>
+                <Cloud size={12} color={activeSheetTab === 'weather' ? color.accent : color.textDim} style={{ marginRight: 4 }} />
+                <Text style={[styles.tabText, activeSheetTab === 'weather' && styles.tabTextActive]}>{t('tabWeather', language)}</Text>
               </PressScale>
             </View>
 
-            {(activeTab === 'featured' ? featuredList : generalList).map(item => (
-              <PressScale
-                key={item.id}
-                style={[
-                  styles.eventRow,
-                  { borderColor: theme.border },
-                  item.category === 'featured' && styles.eventRowFeatured,
-                ]}
-                onPress={() => setCurrentTime(item.time)}
-                activeOpacity={0.75}
-              >
-                {(() => {
-                  if (item.id.includes('sunset')) return <Sunset size={14} color={color.glow} />;
-                  if (item.id.includes('sunrise')) return <Sun size={14} color={color.sun} />;
-                  if (item.id.includes('crescent')) return <Moon size={14} color={color.moon} />;
-                  if (item.id.includes('milkyway')) return <Sparkles size={14} color="#A78BFA" />;
-                  if (item.id.includes('planets')) return <Star size={14} color="#F43F5E" />;
-                  if (item.id.includes('moon')) return <Moon size={14} color={color.moon} />;
-                  return <Sun size={14} color={color.sun} />;
-                })()}
-                <View style={styles.eventRowText}>
-                  <Text style={[styles.eventTitle, { color: theme.text }]}>{item.title}</Text>
-                  <Text style={[styles.eventDesc, { color: theme.subText }]} numberOfLines={1}>
-                    {item.description}
-                  </Text>
-                </View>
-                {item.badge && (
-                  <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
-                )}
-                <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
-              </PressScale>
-            ))}
+            {activeSheetTab === 'events' ? (
+              combinedEventList.map(item => (
+                <PressScale
+                  key={item.id}
+                  style={[
+                    styles.eventRow,
+                    { borderColor: theme.border },
+                    item.category === 'featured' && styles.eventRowFeatured,
+                  ]}
+                  onPress={() => setCurrentTime(item.time)}
+                  activeOpacity={0.75}
+                >
+                  {(() => {
+                    if (item.id.includes('sunset')) return <Sunset size={14} color={color.glow} />;
+                    if (item.id.includes('sunrise')) return <Sun size={14} color={color.sun} />;
+                    if (item.id.includes('crescent')) return <Moon size={14} color={color.moon} />;
+                    if (item.id.includes('milkyway')) return <Sparkles size={14} color="#A78BFA" />;
+                    if (item.id.includes('planets')) return <Star size={14} color="#F43F5E" />;
+                    if (item.id.includes('moon')) return <Moon size={14} color={color.moon} />;
+                    return <Sun size={14} color={color.sun} />;
+                  })()}
+                  <View style={styles.eventRowText}>
+                    <Text style={[styles.eventTitle, { color: theme.text }]}>{item.title}</Text>
+                    <Text style={[styles.eventDesc, { color: theme.subText }]} numberOfLines={1}>
+                      {item.description}
+                    </Text>
+                  </View>
+                  {item.badge && (
+                    <Text style={[styles.eventBadge, { color: theme.subText, borderColor: theme.border }]}>{item.badge}</Text>
+                  )}
+                  <Text style={[styles.eventTime, { color: theme.text }]}>{formatTimeStr(item.time)}</Text>
+                </PressScale>
+              ))
+            ) : (
+              <WeatherInfoView
+                currentTime={currentTime}
+                interpolatedWeather={interpolatedWeather}
+                pathData={pathData}
+                prediction={prediction}
+                latitude={latitude}
+                longitude={longitude}
+                theme={theme}
+                language={language}
+              />
+            )}
           </View>
 
           {/* 태양·달 수치 — 맨 아래: 예측(판단) → 이벤트(언제) → 수치(근거) 순으로 읽습니다. */}
