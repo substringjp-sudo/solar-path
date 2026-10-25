@@ -5,7 +5,6 @@ import {
   Dimensions, Platform, Alert, ActivityIndicator, Image, PanResponder, ScrollView
 } from 'react-native';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
-import { horizontalFovDeg, azimuthOffsetToPx } from '../utils/arProjection';
 import { localDateString } from '../utils/localDate';
 import { weatherCacheKey, findEntry, findNearestEntry } from '../utils/cachePolicy';
 import { poseFromRotation, compassToCameraHeading, type DevicePose } from '../utils/devicePose';
@@ -18,8 +17,7 @@ import { loadHorizon, frameFromPhoto, hfovFromExif } from '../utils/arVisionNati
 import * as MediaLibrary from 'expo-media-library';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Location from 'expo-location';
-import Svg, { Line, Text as SvgText, Rect, Polygon } from 'react-native-svg';
-import { X, Camera, RotateCcw, Sun, Aperture, Check, RefreshCw, Star, QrCode } from 'lucide-react-native';
+import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode } from 'lucide-react-native';
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
@@ -29,7 +27,6 @@ import { SimReportQR } from './SkyScreen/SimReportQR';
 
 import {
   analyzeScene,
-  EnhancementParams,
   GoldenTimeInfo,
 } from '../utils/sunCamera';
 import { getSunPosition, getMoonPosition, getCelestialEvents } from '../utils/celestial';
@@ -43,7 +40,9 @@ import { t, Language, translateSunsetDesc, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
 import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkyScene3D';
 import { PressScale } from './ui';
-import { color, dataColor } from '../theme/tokens';
+import { color, radius, space, type, TOUCH } from '../theme/tokens';
+import { SunPathOverlay } from './SunPathOverlay';
+import { previewOptics, sunDayPath, nextSunEvent, DEFAULT_SENSOR_SHORT_FOV_DEG } from '../utils/cameraOverlay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 /**
@@ -171,26 +170,30 @@ const getAzimuthCardinal = (az: number): string => {
   return 'NW';
 };
 
-/** 보정 배지 문구 — `sunCamera.ts` 의 설명은 한국어 한 벌이라 여기서 세 언어로(출시 점검 2026-09-30). */
-const sceneLabel = (t: 'overcast' | 'partial_sun' | 'clear_golden' | 'dramatic', lang: Language) =>
-  t === 'overcast' ? L3(lang, '흐린 하늘 — 자연스러운 톤 유지', 'Overcast — natural tones', '曇り空 — 自然なトーン')
-  : t === 'dramatic' ? L3(lang, '드라마틱 구름 — 대비 강화, 구름 부피감 극대화', 'Dramatic clouds — more contrast and depth', 'ドラマチックな雲 — コントラストと立体感を強調')
-  : t === 'clear_golden' ? L3(lang, '골든아워 — 따뜻한 색감, 부드러운 채도 강화', 'Golden hour — warm, gently saturated', 'ゴールデンアワー — 暖かく柔らかな彩度')
-  : L3(lang, '맑은 하늘 — 밸런스 보정', 'Clear sky — balanced', '晴れ — バランス補正');
+
+/** 아래 도킹 단추(아이콘 칸 40 + 글자) 크기 · 셔터 지름 · 위 여백 — "예측 보기" 칸 자리 계산과 스타일이 함께 씁니다. */
+const DOCK_BTN_W = 64;
+const DOCK_BTN_H = 60;
+const DOCK_PAD_TOP = 16;
+const SHUTTER = 72;
+/** 노출 막대 길이(px) — 끌기 계산과 스타일이 같은 값. */
+const EXPOSURE_TRACK_H = 160;
 
 export const SunCamera: React.FC<SunCameraProps> = ({
   visible, onClose, latitude, longitude, currentTime, goldenTimeInfo,
 }) => {
   const { width: W, height: H } = Dimensions.get('window');
-  // 스크롤 없이 단일 화면에 상단 카메라 + 눈금자 + 하단 시뮬레이터가 4:3으로 딱 맞게 들어가도록 가용 높이 계산
-  const topReserved = Platform.OS === 'ios' ? 74 : 56;
-  const bottomReserved = Platform.OS === 'ios' ? 96 : 80;
-  const RULER_HEIGHT = 26;
-  const GAP_HEIGHT = 8;
-  const availH = H - topReserved - bottomReserved - (RULER_HEIGHT + GAP_HEIGHT);
-  const maxBoxH = Math.floor(availH / 2);
-  const BOX_HEIGHT = Math.min(Math.round(W * (3 / 4)), maxBoxH);
-  const BOX_WIDTH = Math.round(BOX_HEIGHT * (4 / 3));
+  // 전체 화면 카메라 — 무대(카메라) + 아래 도킹. 무대 크기는 3D 예측의 GL 크기이기도 해서 바뀌지 않게 둡니다.
+  const TOP_INSET = Platform.OS === 'ios' ? 52 : 32;
+  const DOCK_H = Platform.OS === 'ios' ? 152 : 136;
+  const stageH = H - DOCK_H;
+  /** 방위 눈금 · 배율 줄의 자리(무대 아래에서) */
+  const RULER_FROM_BOTTOM = 112;
+  const ZOOM_FROM_BOTTOM = 64;
+  /** "예측 보기" 단추의 살아 있는 3D 칸 — 도킹 스타일(dockBtn 64 · 칸 40 · 좌우 16)과 맞춘 자리 */
+  const THUMB = TOUCH;
+  const thumbX = W - space.lg - DOCK_BTN_W + (DOCK_BTN_W - THUMB) / 2;
+  const thumbY = stageH + DOCK_PAD_TOP + (SHUTTER - DOCK_BTN_H) / 2;
 
   const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
   // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
@@ -217,33 +220,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return 1.0 + zoom * 4.0;
   }, [zoom]);
 
-  // 카메라 화각(FOV, 기본 1x일 때) 연동.
-  //
-  // ⚠ **이 60° 는 근거 없는 추측값입니다.** three.js 의 `fov` 는 **세로**
-  //   화각이고 상자가 4:3 이므로 시뮬레이터의 가로 화각은 75.18° 가 됩니다
-  //   (build-ar-azimuth 로 렌더 화소에서 확인). 그런데 위 상자의 진짜
-  //   카메라가 가로로 몇 도를 담는지는 아무도 안 쟀습니다 — expo-camera 는
-  //   화각을 알려주지 않습니다.
-  //
-  //   두 상자가 얼마나 어긋나는지는 그 값에 그대로 걸립니다. 중심에서 20°
-  //   옆 물체가 두 상자에서 벌어지는 거리(상자 폭 480px 기준):
-  //
-  //     카메라 가로 50° → +73.9px (방위로 +11.00°)
-  //     카메라 가로 54° → +58.0px (+8.81°)
-  //     카메라 가로 60° → +37.8px (+5.89°)
-  //     카메라 가로 70° → +11.3px (+1.81°)
-  //     카메라 가로 75.18° →   0px (0°)  ← 여기서만 맞습니다
-  //
-  //   곧 "카메라와 시뮬레이터의 방위각이 많이 다르다"의 크기는 이 상수
-  //   하나가 정합니다. 기기에서 재서 정해야 하고, 지금은 못 정했습니다
-  //   (SKY_REBUILD_PLAN 49.3절).
-  const BASE_CAMERA_FOV_DEG = 60;
-
-  const currentFov = useMemo(() => {
-    const baseFovRad = (BASE_CAMERA_FOV_DEG * Math.PI) / 180;
-    const tanHalf = Math.tan(baseFovRad / 2) / currentMagnification;
-    return (2 * Math.atan(tanHalf) * 180) / Math.PI;
-  }, [currentMagnification]);
+  // 화각은 이제 **화면을 채운 미리보기**에서 셉니다(`cameraOverlay.previewOptics`). 예전에는 세로 60° 를 근거 없이
+  // 박아 4:3 상자의 시뮬레이터에 넘겼습니다(SKY_REBUILD_PLAN 49.3절). 지금은 센서 짧은 변 화각 — 화면 보정이
+  // 사진 EXIF 로 잰 값(`measuredHfov`), 없으면 26mm 환산 기본값 — 에 cover 자르기와 배율을 반영합니다.
+  // ⚠ 기본값과 cover 는 기기에서 확인해야 합니다(docs/CAMERA_FULLSCREEN_CHECK.md).
 
   // 배율 직접 설정 헬퍼 (1x, 2x, 3x)
   const setMagnification = useCallback((mag: number) => {
@@ -288,7 +268,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   }), [zoom]);
 
   // 2. Exposure Vertical Slider PanResponder
-  const EXPOSURE_SLIDER_HEIGHT = 160;
+  const EXPOSURE_SLIDER_HEIGHT = EXPOSURE_TRACK_H;
   const startExposure = useRef(0);
   const exposurePanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -828,6 +808,27 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     return Math.max(-90, Math.min(90, basePitch));
   }, [devicePitch, cameraFacing]);
 
+  // ── 전체 화면 카메라 위 그림(2026-10-25) ──
+  /** 3D 예측을 무대에 펼쳤나(아니면 "예측 보기" 단추 칸 안의 작은 살아 있는 그림). */
+  const [showPrediction, setShowPrediction] = useState(false);
+  const tzHours = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
+  const optics = useMemo(
+    () => previewOptics(W, stageH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
+    [W, stageH, measuredHfov, currentMagnification],
+  );
+  const sunDayPathPts = useMemo(
+    () => sunDayPath(currentTime, latitude, longitude),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
+    [camDateStr, latitude, longitude],
+  );
+  /** 지평선에 표시할 출몰 — 골든 타임이면 그 출몰(지났어도), 아니면 다음 출몰. */
+  const markerEvent = useMemo(() => {
+    const ev = goldenTimeInfo.isActive && goldenTimeInfo.type && goldenTimeInfo.eventTime
+      ? { type: goldenTimeInfo.type, at: goldenTimeInfo.eventTime }
+      : nextSunEvent(currentTime, latitude, longitude);
+    return ev ? { ...ev, az: getSunPosition(ev.at, latitude, longitude).azimuth } : null;
+  }, [goldenTimeInfo.isActive, goldenTimeInfo.type, goldenTimeInfo.eventTime, currentTime, latitude, longitude]);
+
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || isCapturing) return;
 
@@ -1262,12 +1263,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
         <View style={styles.permissionContainer}>
           <Camera size={64} color={color.sun} />
-          <Text style={styles.permissionTitle}>Camera Permission Required</Text>
+          <Text style={styles.permissionTitle}>{L3(language, '카메라 권한이 필요합니다', 'Camera permission required', 'カメラの許可が必要です')}</Text>
           <Text style={styles.permissionDesc}>
-            Camera access is required for AR Sun tracking.
+            {L3(language, '카메라 위에 해 경로를 겹쳐 보여 주려면 카메라가 필요합니다.', 'The camera is needed to show the Sun’s path over the live view.', 'カメラ映像に太陽の軌道を重ねるにはカメラが必要です。')}
           </Text>
           <PressScale style={styles.permissionBtn} onPress={requestCameraPermission}>
-            <Text style={styles.permissionBtnText}>Allow Permission</Text>
+            <Text style={styles.permissionBtnText}>{L3(language, '허용하기', 'Allow', '許可する')}</Text>
           </PressScale>
           <PressScale style={styles.closeTextBtn} onPress={onClose}>
             <Text style={styles.closeTextBtnText}>{t('close', language)}</Text>
@@ -1277,13 +1278,39 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     );
   }
 
-  // 골든타임 타입에 따른 색상
-  const eventColor = goldenTimeInfo.type === 'sunrise' ? dataColor.sunrise : dataColor.sunset;
-  const eventLabel = t(goldenTimeInfo.type === 'sunrise' ? 'sunrise' : 'sunset', language);
-  const minutesBefore = Math.abs(Math.round(goldenTimeInfo.minutesToEvent));
-  const isBeforeEvent = goldenTimeInfo.minutesToEvent < 0;
-
   if (!visible) return null;
+
+  const hhmmAt = (d: Date) => {
+    const l = new Date(d.getTime() + tzHours * 3_600_000);
+    return `${String(l.getUTCHours()).padStart(2, '0')}:${String(l.getUTCMinutes()).padStart(2, '0')}`;
+  };
+  // 위쪽 가운데 — "일몰까지 31분". 세 시간 넘게 남았으면 출몰 시각만.
+  const countdown = (() => {
+    if (!markerEvent) return null;
+    const word = t(markerEvent.type, language);
+    const m = Math.round((markerEvent.at.getTime() - currentTime.getTime()) / 60_000);
+    const a = Math.abs(m);
+    if (a >= 180) return { label: word, value: hhmmAt(markerEvent.at) };
+    const h = Math.floor(a / 60), mm = a % 60;
+    const value = h === 0
+      ? L3(language, `${a}분`, `${a} min`, `${a}分`)
+      : L3(language, `${h}시간 ${mm}분`, `${h} h ${mm} m`, `${h}時間${mm}分`);
+    const label = m >= 0
+      ? L3(language, `${word}까지`, `${word} in`, `${word}まで`)
+      : L3(language, `${word} 뒤`, `Since ${word.toLowerCase()}`, `${word}から`);
+    return { label, value };
+  })();
+  // 카메라 자세 — 방위·앙각은 화면이 쓰는 값, 기울기는 원시 회전에서(센서가 바뀔 때마다 다시 그려집니다).
+  const overlayAttitude: Attitude = (() => {
+    const r = rawRotationRef.current;
+    return { yawDeg: effectiveAz, pitchDeg: effectivePitch, rollDeg: r ? attitudeFromEuler(r.a, r.b, r.g).rollDeg : 0 };
+  })();
+  const headingTone = headingStatus?.seeded && headingStatus.trueNorth ? color.success : color.warning;
+  const headingWord = !headingStatus?.seeded
+    ? L3(language, '보정 중', 'Calibrating', '補正中')
+    : headingStatus.trueNorth
+      ? L3(language, '보정됨', 'Calibrated', '補正済み')
+      : L3(language, '자북 기준', 'Magnetic N', '磁北基準');
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -1461,290 +1488,95 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             </ScrollView>
           </View>
         ) : (
-          // 스크롤 없는 풀스크린 맞춤형 4:3 듀얼 뷰 레이아웃
-          <View style={styles.fullscreenContainer}>
-            {/* 1. 상단 고정 통합 HUD 바 */}
-            <View style={styles.topHudBar}>
-              <PressScale style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <X size={22} color={color.text} />
-              </PressScale>
-
-              <View style={styles.eventBadge}>
-                <Sun size={13} color={eventColor} />
-                <Text style={[styles.eventText, { color: eventColor }]}>
-                  {goldenTimeInfo.isActive
-                    ? (isBeforeEvent
-                        ? L3(language, `${eventLabel} ${minutesBefore}분 전`, `${eventLabel} in ${minutesBefore}m`, `${eventLabel}まで${minutesBefore}分`)
-                        : L3(language, `${eventLabel} ${minutesBefore}분 후`, `${eventLabel} +${minutesBefore}m`, `${eventLabel}から${minutesBefore}分`))
-                    : L3(language, `${eventLabel} 대기`, `${eventLabel} ahead`, `${eventLabel} 待機`)}
-                </Text>
-              </View>
-
-              <View style={styles.compassBadge}>
-                <Text style={styles.compassText}>
-                  {Math.round(effectiveAz)}° | {Math.round(effectivePitch)}°↑
-                </Text>
-              </View>
+          // 전체 화면 카메라(2026-10-25, 디자인 2단). 예전에는 카메라와 3D 시뮬을 위아래 4:3 상자로 나눠 둘 다 작았고
+          // 카메라 위에 해 경로가 없었습니다. 이제 카메라가 화면을 채우고 그 위에 해 경로를 겹칩니다(`SunPathOverlay`).
+          // 3D 예측은 **같은 크기로 늘 붙어 있고**(GL 버퍼 크기를 바꾸지 않게) 평소에는 "예측 보기" 단추 안으로 줄여 둡니다.
+          <View style={styles.liveRoot}>
+            <View style={[styles.stage, { height: stageH }]}>
+              <CameraView
+                ref={cameraRef}
+                style={StyleSheet.absoluteFill}
+                facing={cameraFacing}
+                zoom={zoom}
+              />
+              {/* 소프트웨어 노출 — 카메라 그림에만 */}
+              {exposure !== 0 && (
+                <View
+                  style={[StyleSheet.absoluteFill, { backgroundColor: exposure < 0 ? `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})` : `rgba(255, 255, 255, ${exposure * 0.4})` }]}
+                  pointerEvents="none"
+                />
+              )}
+              <View style={StyleSheet.absoluteFill} {...pinchPanResponder.panHandlers} pointerEvents="box-none" />
+              {cameraFacing === 'back' && !showPrediction && (
+                <SunPathOverlay
+                  width={W}
+                  height={stageH}
+                  optics={optics}
+                  attitude={overlayAttitude}
+                  path={sunDayPathPts}
+                  sun={{ az: sunPos.azimuth, alt: apparentAltitude(sunPos.altitude) }}
+                  sunLabel={`${L3(language, '태양', 'Sun', '太陽')} ${apparentAltitude(sunPos.altitude) >= 0 ? '+' : ''}${apparentAltitude(sunPos.altitude).toFixed(1)}°`}
+                  event={markerEvent ? { az: markerEvent.az, label: `${t(markerEvent.type, language)} ${hhmmAt(markerEvent.at)}` } : null}
+                  rulerY={stageH - RULER_FROM_BOTTOM}
+                />
+              )}
             </View>
 
-            {hasInterference && (
-              <View style={styles.warningBannerFloating}>
-                <Text style={styles.warningText}>
-                  {L3(language, '자기 간섭! 폰을 8자로 움직여 주세요', 'Magnetic interference! Move the phone in a figure 8', '磁気干渉!スマホを8の字に動かしてください')}
-                </Text>
-              </View>
-            )}
-
-            {/* ⚠ 방위 보정 상태. 실기 보고 "지자기 초기화가 잘 동작 안 하는
-                것 같다" 는 **되고 있는지 볼 길이 없어서** 나온 말입니다.
-                이제 보입니다:
-                  · 씨앗을 아직 못 잡았으면 왜 못 잡는지(자이로 없음 /
-                    폰이 누워 있음)를 그대로 적습니다.
-                  · 자북만 받고 있으면 편각만큼 어긋난다고 알립니다.
-                    이때는 Sun-Snap 이 확실한 길입니다. */}
-            {/* 화면 보정 결과 — 몇 초 보이고 사라집니다. */}
-            {visionStatus && (
-              <View style={styles.headingBanner}>
-                <Text style={styles.headingBannerText}>
-                  {`${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
-                </Text>
-              </View>
-            )}
-            {headingStatus && !headingStatus.seeded && (
-              <View style={styles.headingBanner}>
-                <Text style={styles.headingBannerText}>
-                  {headingStatus.lastReject === 'ill-pose'
-                    ? L3(language,
-                        '방위 보정 중 — 폰을 세워 지평선을 향해 주세요',
-                        'Calibrating — hold the phone upright toward the horizon',
-                        '方位補正中 — スマホを立てて地平線に向けてください')
-                    : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
-                      ? L3(language, '자이로 신호를 기다리는 중', 'Waiting for motion sensor', 'ジャイロ信号を待っています')
-                      : L3(language,
-                          `방위 보정 중 (${headingStatus.seedCount}/8)`,
-                          `Calibrating heading (${headingStatus.seedCount}/8)`,
-                          `方位補正中 (${headingStatus.seedCount}/8)`)}
-                </Text>
-              </View>
-            )}
-            {headingStatus && headingStatus.seeded && !headingStatus.trueNorth && (
-              <View style={styles.headingBanner}>
-                <Text style={styles.headingBannerText}>
-                  {L3(language,
-                    '자북 기준입니다 — 약 8° 어긋납니다. Sun-Snap 으로 맞추세요',
-                    'Magnetic north only (~8° off). Use Sun-Snap to correct',
-                    '磁北基準です — 約8°ずれます。Sun-Snapで補正してください')}
-                </Text>
-              </View>
-            )}
-
-            {/* 2. 가운데 듀얼 4:3 뷰 영역 (화면 높이에 정확히 맞춰져 스크롤 불필요) */}
-            <View style={styles.dualViewCenter}>
-              {/* 상단 4:3 실제 카메라 박스 */}
-              <View style={[styles.cameraBox, { width: BOX_WIDTH, height: BOX_HEIGHT }]}>
-                <CameraView
-                  ref={cameraRef}
-                  style={StyleSheet.absoluteFill}
-                  facing={cameraFacing}
-                  zoom={zoom}
-                />
-
-                {/* 소프트웨어 노출 조절 오버레이 */}
-                {exposure < 0 && (
-                  <View 
-                    style={[
-                      StyleSheet.absoluteFill, 
-                      { backgroundColor: `rgba(0, 0, 0, ${Math.abs(exposure) * 0.7})` }
-                    ]} 
-                    pointerEvents="none" 
-                  />
-                )}
-                {exposure > 0 && (
-                  <View 
-                    style={[
-                      StyleSheet.absoluteFill, 
-                      { backgroundColor: `rgba(255, 255, 255, ${exposure * 0.4})` }
-                    ]} 
-                    pointerEvents="none" 
-                  />
-                )}
-
-                {/* 핀치 제스처 인식을 위한 오버레이 */}
-                <View 
-                  style={StyleSheet.absoluteFill} 
-                  {...pinchPanResponder.panHandlers} 
-                  pointerEvents="box-none" 
-                />
-
-                {/* 카메라 뷰 헤더 (좌: 뷰 이름, 우: 보정 프리셋 배지) */}
-                <View style={styles.cameraHeaderOverlay} pointerEvents="none">
-                  <View style={styles.viewHeaderBadge}>
-                    <Camera size={11} color={color.sun} />
-                    <Text style={styles.viewHeaderText}>{L3(language, '카메라', 'CAMERA', 'カメラ')}</Text>
-                  </View>
-                  <View style={[styles.enhancementBadgeCompact, { borderColor: getSceneColor(currentEnhancement.sceneType), flexShrink: 1 }]}>
-                    <Aperture size={10} color={getSceneColor(currentEnhancement.sceneType)} />
-                    <Text style={[styles.enhancementTextCompact, { flexShrink: 1 }]} numberOfLines={1}>{sceneLabel(currentEnhancement.sceneType, language)}</Text>
-                  </View>
+            {/* 아래 도킹 — 화면 보정 · 방위 맞춤 · 셔터 · 예측 보기 */}
+            <View style={[styles.dock, { height: DOCK_H }]}>
+              {/* 누르면 능선·해·달로 방위를 맞춥니다. 길게 누르면 Sun-Snap(해를 가운데 두고 그 방위로 고정). */}
+              <PressScale
+                style={styles.dockBtn}
+                onPress={handleVisionCalibrate}
+                onLongPress={handleSunSnap}
+                disabled={isVisionRunning}
+                accessibilityRole="button"
+                accessibilityLabel={L3(language, '화면 보정 — 길게 누르면 해에 맞춤', 'Auto-align — long press to snap to the Sun', '画面補正 — 長押しで太陽に合わせる')}
+              >
+                <View style={[styles.dockIcon, isVisionRunning && { opacity: 0.5 }]}>
+                  {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={18} color={color.sun} />}
                 </View>
+                <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '화면 보정', 'Align', '画面補正')}</Text>
+              </PressScale>
 
-                {/* 줌 퀵 프리셋 버튼 바 (1x, 2x, 3x, 5x) 및 실시간 배율 배지 */}
-                <View style={styles.zoomQuickRow} pointerEvents="box-none">
-                  {[1, 2, 3, 5].map((mag) => {
-                    const isSelected = Math.abs(currentMagnification - mag) < 0.25;
-                    return (
-                      <PressScale
-                        key={mag}
-                        style={[styles.zoomQuickBtn, isSelected && styles.zoomQuickBtnActive]}
-                        onPress={() => setMagnification(mag)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.zoomQuickText, isSelected && styles.zoomQuickTextActive]}>
-                          {mag}x
-                        </Text>
-                      </PressScale>
-                    );
-                  })}
-                  <View style={styles.zoomLiveBadge}>
-                    <Text style={styles.zoomLiveText}>{currentMagnification.toFixed(1)}x</Text>
-                  </View>
+              <PressScale style={styles.dockBtn} onPress={handleCalibrate} accessibilityRole="button" accessibilityLabel={L3(language, '방위 맞춤', 'Calibrate heading', '方位補正')}>
+                <View style={styles.dockIcon}><RotateCcw size={18} color={color.text} /></View>
+                <Text style={styles.dockLabel} numberOfLines={1}>{L3(language, '방위 맞춤', 'Heading', '方位補正')}</Text>
+              </PressScale>
+
+              <PressScale
+                style={[styles.shutter, isCapturing && { opacity: 0.5 }]}
+                onPress={handleCapture}
+                disabled={isCapturing}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={L3(language, '셔터', 'Shutter', 'シャッター')}
+              >
+                <View style={styles.shutterInner}>
+                  {isCapturing ? <ActivityIndicator size="small" color={color.onAccent} /> : <Camera size={22} color={color.onAccent} />}
                 </View>
+              </PressScale>
 
-                {/* 우측 슬림 노출 조절 슬라이더 */}
-                <View style={styles.exposureSliderWrapper}>
-                  <Sun size={10} color={color.sun} style={styles.exposureIconTop} />
-                  <View 
-                    style={styles.exposureSliderTrackContainer}
-                    {...exposurePanResponder.panHandlers}
-                  >
-                    <View style={styles.exposureTrack} />
-                    <View 
-                      style={[
-                        styles.exposureActiveBar, 
-                        { height: `${((exposure + 1) / 2) * 100}%` }
-                      ]} 
-                    />
-                    <View 
-                      style={[
-                        styles.exposureKnob, 
-                        { bottom: `${((exposure + 1) / 2) * 100}%`, marginBottom: -5 }
-                      ]} 
-                    />
-                  </View>
-                  <Sun size={8} color="rgba(255,255,255,0.4)" style={styles.exposureIconBottom} />
+              {/* 예측 보기 — 아이콘 칸이 살아 있는 3D 예측(아래 simWrap 이 그 자리로 줄어듭니다). */}
+              <PressScale
+                style={styles.dockBtn}
+                onPress={() => setShowPrediction(v => !v)}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: showPrediction }}
+                accessibilityLabel={showPrediction ? L3(language, '카메라 보기', 'Show camera', 'カメラを表示') : L3(language, '예측 보기', 'Show prediction', '予測を表示')}
+              >
+                <View style={styles.dockIcon}>
+                  {showPrediction && <Camera size={18} color={color.text} />}
                 </View>
-              </View>
+                <Text style={styles.dockLabel} numberOfLines={1}>{showPrediction ? L3(language, '카메라', 'Camera', 'カメラ') : L3(language, '예측 보기', 'Predict', '予測')}</Text>
+              </PressScale>
+            </View>
 
-              {/* 시뮬레이터 밖 전용 나침반 눈금자 (Compass Ruler) */}
-              <View style={[styles.compassRulerBar, { width: BOX_WIDTH, height: RULER_HEIGHT }]}>
-                <Svg width={BOX_WIDTH} height={RULER_HEIGHT}>
-                  <Rect width={BOX_WIDTH} height={RULER_HEIGHT} fill="rgba(8, 12, 22, 0.88)" rx={6} />
-                  {(() => {
-                    const centerX = BOX_WIDTH / 2;
-                    // ⚠ 예전에는 `pxPerDeg = (BOX_WIDTH - 24) / 70` 이었습니다 —
-                    //   70° 상수를 **선형**으로 폈고 `currentFov` 를 안 봤습니다.
-                    //   그런데 시뮬레이터 상자는 세로 화각 currentFov 의 원근
-                    //   투영이라 가로 화각이 75.18°(1배)이고 화소는 각이 아니라
-                    //   탄젠트에 비례합니다. 재 보니(build-ar-azimuth) 눈금이
-                    //   가리키는 각과 그 화소에 실제로 그려진 각이 1배에서
-                    //   최대 2.68°, 2배 −8.2°, 5배 −15.2° 어긋났습니다.
-                    //   줌에서 벌어지는 것은 눈금자가 줌을 아예 안 봤기 때문입니다.
-                    //   이제 렌더와 **같은 함수**를 씁니다 (utils/arProjection).
-                    const hFov = horizontalFovDeg(currentFov, BOX_WIDTH / BOX_HEIGHT);
-                    const ticks = [];
-                    for (let offset = -40; offset <= 40; offset += 5) {
-                      const tickDeg = Math.round((effectiveAz + offset) / 5) * 5;
-                      const normDeg = (tickDeg % 360 + 360) % 360;
-                      // 방위 차는 -180~180 으로 접습니다 — 0°/360° 를 지날 때
-                      // 눈금이 화면 밖으로 튀지 않게.
-                      let d = tickDeg - effectiveAz;
-                      d = ((d + 540) % 360) - 180;
-                      const dx = azimuthOffsetToPx(d, BOX_WIDTH, hFov);
-                      if (dx === null) continue;
-                      const x = centerX + dx;
-                      if (x < 6 || x > BOX_WIDTH - 6) continue;
-
-                      const isCardinal = normDeg % 45 === 0;
-                      const isTen = normDeg % 10 === 0;
-
-                      let label = '';
-                      if (normDeg === 0) label = 'N';
-                      else if (normDeg === 45) label = 'NE';
-                      else if (normDeg === 90) label = 'E';
-                      else if (normDeg === 135) label = 'SE';
-                      else if (normDeg === 180) label = 'S';
-                      else if (normDeg === 225) label = 'SW';
-                      else if (normDeg === 270) label = 'W';
-                      else if (normDeg === 315) label = 'NW';
-
-                      const strokeColor = isCardinal 
-                        ? (normDeg === 0 ? color.danger : color.accent) 
-                        : (isTen ? 'rgba(255,255,255,0.6)' : color.borderStrong);
-                      const tickH = isCardinal ? 8 : (isTen ? 5 : 3.5);
-
-                      ticks.push(
-                        <React.Fragment key={`ruler-${tickDeg}`}>
-                          <Line
-                            x1={x}
-                            y1={RULER_HEIGHT - tickH}
-                            x2={x}
-                            y2={RULER_HEIGHT}
-                            stroke={strokeColor}
-                            strokeWidth={isCardinal ? 1.5 : 0.9}
-                          />
-                          {label !== '' && (
-                            <SvgText
-                              x={x}
-                              y={RULER_HEIGHT - tickH - 2}
-                              fill={normDeg === 0 ? color.danger : color.accent}
-                              fontSize={8}
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              {label}
-                            </SvgText>
-                          )}
-                          {label === '' && isTen && (
-                            <SvgText
-                              x={x}
-                              y={RULER_HEIGHT - tickH - 2}
-                              fill="rgba(255,255,255,0.45)"
-                              fontSize={7}
-                              textAnchor="middle"
-                            >
-                              {normDeg}°
-                            </SvgText>
-                          )}
-                        </React.Fragment>
-                      );
-                    }
-                    return ticks;
-                  })()}
-                  {/* 중앙 포인터 인디케이터 */}
-                  <Polygon
-                    points={`${BOX_WIDTH / 2 - 4},0 ${BOX_WIDTH / 2 + 4},0 ${BOX_WIDTH / 2},5`}
-                    fill={color.sun}
-                  />
-                  <Line
-                    x1={BOX_WIDTH / 2}
-                    y1={0}
-                    x2={BOX_WIDTH / 2}
-                    y2={RULER_HEIGHT}
-                    stroke={color.sun}
-                    strokeWidth={1}
-                    strokeDasharray="2,2"
-                  />
-                </Svg>
-                {/* 중앙 현재 방위각 배지 */}
-                <View style={styles.compassCenterBadge} pointerEvents="none">
-                  <Text style={styles.compassCenterText}>
-                    {Math.round(effectiveAz)}° {getAzimuthCardinal(effectiveAz)}
-                  </Text>
-                </View>
-              </View>
-
-              {/* 하단 4:3 시뮬레이터 박스 (실시간 동기화) */}
-              <View style={[styles.simBox, { width: BOX_WIDTH, height: BOX_HEIGHT }]}>
+            {/* 3D 예측 — 크기는 늘 무대 크기, 평소에는 단추 칸 안으로 줄여 잘라 둡니다. 누르기는 받지 않습니다. */}
+            <View pointerEvents="none" style={showPrediction ? [styles.simWrapFull, { width: W, height: stageH }] : [styles.simWrapThumb, { left: thumbX, top: thumbY }]}>
+              <View style={[{ position: 'absolute', width: W, height: stageH }, showPrediction
+                ? { left: 0, top: 0 }
+                : { left: (THUMB - W) / 2, top: (THUMB - stageH) / 2, transform: [{ scale: THUMB / W }] }]}>
                 <SkyScene3D
                   ref={sky3dRef}
                   sim={cameraSimState}
@@ -1761,68 +1593,127 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   timeline={camTimeline}
                   layers={skyLayers}
                   skySettings={camSkySettings}
-                  theme={{ accent: '#FF9800' }}
+                  theme={{ accent: color.accent }}
                   cameraAzimuthProp={effectiveAz}
                   cameraElevationProp={effectivePitch}
-                  fovProp={currentFov}
+                  // 미리보기와 같은 세로 화각 — 카메라와 3D 가 같은 하늘 넓이를 보여야 견줄 수 있습니다.
+                  fovProp={optics.vFovDeg}
                   fullScreen={true}
                   hideHudOverlay={true}
                   hideCompassBar={true}
                   isActive={visible}
                 />
-
-                {/* 시뮬레이터 헤더 오버레이 배지 (가림/중복 없이 좌측 배지와 우측 단일 FOV 배지 분리) */}
-                <View style={styles.simHeaderOverlay} pointerEvents="none">
-                  <View style={[styles.viewHeaderBadge, { backgroundColor: 'rgba(0, 160, 255, 0.25)', borderColor: color.accent }]}>
-                    <Aperture size={10} color={color.accent} />
-                    <Text style={[styles.viewHeaderText, { color: color.accent, fontSize: 9 }]}>{L3(language, '3D 시뮬', '3D SIM', '3Dシム')}</Text>
-                  </View>
-                  <View style={styles.fovBadge}>
-                    <Text style={styles.fovBadgeText}>FOV {Math.round(currentFov)}°</Text>
-                  </View>
-                </View>
               </View>
             </View>
 
-            {/* 3. 하단 고정 컨트롤 바 */}
-            <View style={styles.bottomControlsBar}>
-              {/* 화면 보정 — 누르면 능선·해·달로 방위를 맞춥니다. 길게 누르면 예전 Sun-Snap
-                  (해를 화면 한가운데 두고 그 방위로 고정). */}
-              <PressScale
-                style={[styles.sideBtn, isVisionRunning && { opacity: 0.5 }]}
-                onPress={handleVisionCalibrate}
-                onLongPress={handleSunSnap}
-                disabled={isVisionRunning}
-              >
-                {isVisionRunning ? <ActivityIndicator size="small" color={color.sun} /> : <Sun size={22} color={color.sun} />}
-                <Text style={styles.sideBtnText}>{L3(language, '화면 보정', 'Auto-align', '画面補正')}</Text>
-              </PressScale>
-
-              <PressScale style={styles.sideBtn} onPress={handleCalibrate}>
-                <RotateCcw size={18} color={color.text} />
-                <Text style={styles.sideBtnText}>{L3(language, '방위 맞춤', 'Calibrate', '方位補正')}</Text>
-              </PressScale>
-
-              <PressScale
-                style={[styles.captureBtn, isCapturing && { opacity: 0.5 }]}
-                onPress={handleCapture}
-                disabled={isCapturing}
-                activeOpacity={0.7}
-              >
-                {isCapturing ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <View style={styles.captureBtnInner} />
+            {/* 무대 위 조작 — 3D 예측을 펼쳐도 위에 남습니다. */}
+            <View style={[styles.hud, { height: stageH }]} pointerEvents="box-none">
+              <View style={[styles.topRow, { top: TOP_INSET }]} pointerEvents="box-none">
+                <PressScale style={styles.hudBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('close', language)}>
+                  <X size={18} color={color.text} />
+                </PressScale>
+                {countdown && (
+                  <View style={styles.countdown}>
+                    <View style={[styles.dot, { backgroundColor: color.sun }]} />
+                    <Text style={styles.countdownLabel}>{countdown.label}</Text>
+                    <Text style={styles.countdownValue}>{countdown.value}</Text>
+                  </View>
                 )}
-              </PressScale>
+                <View style={styles.azBox}>
+                  <Text style={styles.microText}>{`AZ ${Math.round(effectiveAz)}°`}</Text>
+                  <Text style={styles.microText}>{`ALT ${effectivePitch >= 0 ? '+' : ''}${effectivePitch.toFixed(1)}°`}</Text>
+                </View>
+              </View>
 
-              <PressScale 
-                style={styles.sideBtn} 
-                onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
-              >
-                <RefreshCw size={18} color={color.text} />
-                <Text style={styles.sideBtnText}>{L3(language, '전환', 'Flip', '切替')}</Text>
-              </PressScale>
+              <View style={[styles.statusCol, { top: TOP_INSET + TOUCH + space.sm }]} pointerEvents="none">
+                <View style={styles.badge}>
+                  {showPrediction ? (
+                    <>
+                      <Text style={styles.badgeText}>{L3(language, '3D 예측', '3D prediction', '3D予測')}</Text>
+                      <Text style={styles.microText}>{`${L3(language, '화각', 'FOV', '画角')} ${Math.round(optics.vFovDeg)}°`}</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.badgeText}>{L3(language, '실제 카메라', 'Live camera', '実カメラ')}</Text>
+                      <View style={[styles.dot, { backgroundColor: headingTone }]} />
+                      <Text style={styles.microText}>{headingWord}</Text>
+                    </>
+                  )}
+                </View>
+                {hasInterference && (
+                  <View style={styles.banner}>
+                    <Text style={[styles.bannerText, { color: color.warning }]}>
+                      {L3(language, '자기 간섭! 폰을 8자로 움직여 주세요', 'Magnetic interference! Move the phone in a figure 8', '磁気干渉!スマホを8の字に動かしてください')}
+                    </Text>
+                  </View>
+                )}
+                {/* ⚠ 방위 보정 상태 — "지자기 초기화가 잘 동작 안 하는 것 같다" 는 되고 있는지 볼 길이 없어서
+                    나온 말입니다. 왜 못 잡는지(자이로 없음 / 폰이 누워 있음), 자북만 받는지를 적습니다. */}
+                {visionStatus && (
+                  <View style={styles.banner}>
+                    <Text style={styles.bannerText}>
+                      {`${visionStatus}${measuredHfov ? ` · ${L3(language, '카메라 화각', 'Camera FOV', 'カメラ画角')} ${measuredHfov.toFixed(0)}°` : ''}`}
+                    </Text>
+                  </View>
+                )}
+                {headingStatus && !headingStatus.seeded && (
+                  <View style={styles.banner}>
+                    <Text style={styles.bannerText}>
+                      {headingStatus.lastReject === 'ill-pose'
+                        ? L3(language, '방위 보정 중 — 폰을 세워 지평선을 향해 주세요', 'Calibrating — hold the phone upright toward the horizon', '方位補正中 — スマホを立てて地平線に向けてください')
+                        : headingStatus.lastReject === 'no-gyro' || !headingStatus.hasGyro
+                          ? L3(language, '자이로 신호를 기다리는 중', 'Waiting for motion sensor', 'ジャイロ信号を待っています')
+                          : L3(language, `방위 보정 중 (${headingStatus.seedCount}/8)`, `Calibrating heading (${headingStatus.seedCount}/8)`, `方位補正中 (${headingStatus.seedCount}/8)`)}
+                    </Text>
+                  </View>
+                )}
+                {headingStatus && headingStatus.seeded && !headingStatus.trueNorth && (
+                  <View style={styles.banner}>
+                    <Text style={styles.bannerText}>
+                      {L3(language, '자북 기준입니다 — 약 8° 어긋납니다. 화면 보정을 길게 눌러 해에 맞추세요', 'Magnetic north only (~8° off). Long-press Align to snap to the Sun', '磁北基準です — 約8°ずれます。画面補正を長押しして太陽に合わせてください')}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* 노출 — 오른쪽 세로 막대 */}
+              <View style={[styles.exposure, { top: TOP_INSET + TOUCH + 64 }]}>
+                <Sun size={12} color={color.sun} />
+                <View style={styles.exposureTrackBox} {...exposurePanResponder.panHandlers}>
+                  <View style={styles.exposureLine} />
+                  <View style={[styles.exposureFill, { height: `${((exposure + 1) / 2) * 100}%` }]} />
+                  <View style={[styles.exposureThumb, { bottom: `${((exposure + 1) / 2) * 100}%` }]} />
+                </View>
+                <Text style={styles.microText}>{`${exposure >= 0 ? '+' : ''}${exposure.toFixed(1)}`}</Text>
+              </View>
+
+              {/* 배율 · 카메라 전환 */}
+              <View style={[styles.zoomRow, { top: stageH - ZOOM_FROM_BOTTOM }]} pointerEvents="box-none">
+                <View style={styles.zoomGroup} accessibilityRole="radiogroup">
+                  {[1, 2, 3, 5].map((mag) => {
+                    const sel = Math.abs(currentMagnification - mag) < 0.25;
+                    return (
+                      <PressScale
+                        key={mag}
+                        style={[styles.zoomBtn, sel && styles.zoomBtnOn]}
+                        onPress={() => setMagnification(mag)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: sel }}
+                      >
+                        <Text style={[styles.zoomText, sel && { color: color.accent }]}>{sel ? `${currentMagnification.toFixed(1)}x` : `${mag}x`}</Text>
+                      </PressScale>
+                    );
+                  })}
+                </View>
+                <PressScale
+                  style={styles.hudBtn}
+                  onPress={() => setCameraFacing(prev => prev === 'back' ? 'front' : 'back')}
+                  accessibilityRole="button"
+                  accessibilityLabel={L3(language, '앞뒤 카메라 바꾸기', 'Switch camera', 'カメラ切替')}
+                >
+                  <RefreshCw size={16} color={color.text} />
+                </PressScale>
+              </View>
             </View>
           </View>
         )}
@@ -1841,18 +1732,80 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   );
 };
 
-// 장면 유형별 색상
-const getSceneColor = (sceneType: EnhancementParams['sceneType']): string => {
-  switch (sceneType) {
-    case 'clear_golden': return color.sun;
-    case 'dramatic': return '#FF6B3F';
-    case 'partial_sun': return '#FFA64D';
-    case 'overcast': return color.textDim;
-  }
-};
 
 
 const styles = StyleSheet.create({
+  // ── 전체 화면 카메라(2026-10-25) ──
+  liveRoot: { flex: 1, backgroundColor: '#000' },
+  stage: { width: '100%', overflow: 'hidden', backgroundColor: '#000' },
+  dock: {
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
+    paddingHorizontal: space.lg, paddingTop: DOCK_PAD_TOP,
+    backgroundColor: color.panel, borderTopWidth: 1, borderColor: color.border,
+    borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
+  },
+  dockBtn: { width: DOCK_BTN_W, height: DOCK_BTN_H, marginTop: (SHUTTER - DOCK_BTN_H) / 2, alignItems: 'center', gap: space.xs },
+  dockIcon: {
+    width: TOUCH, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
+    backgroundColor: color.fill, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  dockLabel: { ...type.label, color: color.text },
+  shutter: {
+    width: SHUTTER, height: SHUTTER, borderRadius: SHUTTER / 2, borderWidth: 3, borderColor: color.accent,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: color.accent, alignItems: 'center', justifyContent: 'center' },
+  simWrapFull: { position: 'absolute', left: 0, top: 0, overflow: 'hidden', backgroundColor: '#03050C' },
+  simWrapThumb: { position: 'absolute', width: TOUCH, height: TOUCH, overflow: 'hidden', borderRadius: radius.xs },
+  hud: { position: 'absolute', left: 0, right: 0, top: 0 },
+  topRow: { position: 'absolute', left: space.md, right: space.md, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space.sm },
+  hudBtn: {
+    width: TOUCH, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
+    backgroundColor: color.overlay, alignItems: 'center', justifyContent: 'center',
+  },
+  countdown: {
+    height: TOUCH, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, flexShrink: 1,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
+  },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  countdownLabel: { ...type.body, color: color.textDim, flexShrink: 1 },
+  countdownValue: { ...type.display, color: color.text },
+  azBox: {
+    height: TOUCH, justifyContent: 'center', paddingHorizontal: space.sm,
+    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
+  },
+  microText: { ...type.micro, color: color.textDim },
+  statusCol: { position: 'absolute', left: space.md, right: TOUCH + space.md * 2, gap: space.xs, alignItems: 'flex-start' },
+  badge: {
+    height: 24, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.sm,
+    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
+  },
+  badgeText: { ...type.label, color: color.text },
+  banner: {
+    paddingHorizontal: space.sm, paddingVertical: space.xs,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
+  },
+  bannerText: { ...type.label, color: color.text },
+  exposure: {
+    position: 'absolute', right: space.md, width: TOUCH, paddingVertical: space.sm, gap: space.sm, alignItems: 'center',
+    borderRadius: radius.xs, borderWidth: 1, borderColor: color.border, backgroundColor: color.overlay,
+  },
+  exposureTrackBox: { height: EXPOSURE_TRACK_H, width: TOUCH, alignItems: 'center' },
+  exposureLine: { position: 'absolute', top: 0, bottom: 0, width: 4, borderRadius: 2, backgroundColor: color.border },
+  exposureFill: { position: 'absolute', bottom: 0, width: 4, borderRadius: 2, backgroundColor: color.sun },
+  exposureThumb: {
+    position: 'absolute', width: 20, height: 20, marginBottom: -10, borderRadius: 10,
+    borderWidth: 2, borderColor: color.sun, backgroundColor: color.panelRaised,
+  },
+  zoomRow: { position: 'absolute', left: space.md, right: space.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  zoomGroup: { flexDirection: 'row', gap: space.sm },
+  zoomBtn: {
+    width: 48, height: TOUCH, borderRadius: radius.xs, borderWidth: 1, borderColor: color.border,
+    backgroundColor: color.overlay, alignItems: 'center', justifyContent: 'center',
+  },
+  zoomBtnOn: { borderColor: color.accentLine, backgroundColor: color.accentSoft },
+  zoomText: { ...type.label, color: color.text },
+
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -1907,64 +1860,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
   },
-  closeBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: color.scrim,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  eventBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: color.scrim,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    gap: 6,
-  },
-  eventText: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  compassBadge: {
-    backgroundColor: color.scrim,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-  },
-  compassText: {
-    color: color.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  sideBtn: {
-    alignItems: 'center',
-    gap: 4,
-    minWidth: 56,
-  },
-  sideBtnText: {
-    color: color.text,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  captureBtn: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 3.5,
-    borderColor: color.text,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: color.border,
-  },
-  captureBtnInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: color.text,
-  },
   captureSubText: {
     color: color.textDim,
     fontSize: 13,
@@ -1980,12 +1875,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     zIndex: 150,
-  },
-  warningText: {
-    color: color.text,
-    fontSize: 11,
-    fontWeight: '800',
-    textAlign: 'center',
   },
   manualTuningPanel: {
     position: 'absolute',
@@ -2075,22 +1964,6 @@ const styles = StyleSheet.create({
   compareImage: {
     flex: 1,
     resizeMode: 'cover',
-  },
-  headingBanner: {
-    marginTop: 4,
-    alignSelf: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 160, 255, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 229, 255, 0.45)',
-  },
-  headingBannerText: {
-    color: '#9FE8FF',
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
   },
   simBufBadge: {
     position: 'absolute',
@@ -2313,61 +2186,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  exposureSliderWrapper: {
-    position: 'absolute',
-    right: 12,
-    top: '20%',
-    height: 140,
-    width: 32,
-    borderRadius: 16,
-    backgroundColor: color.scrim,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    zIndex: 20,
-  },
-  exposureIconTop: {
-    marginBottom: 2,
-  },
-  exposureIconBottom: {
-    marginTop: 2,
-  },
-  exposureSliderTrackContainer: {
-    flex: 1,
-    width: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  exposureTrack: {
-    position: 'absolute',
-    width: 3,
-    height: '100%',
-    backgroundColor: color.borderStrong,
-    borderRadius: 1.5,
-  },
-  exposureActiveBar: {
-    position: 'absolute',
-    bottom: 0,
-    width: 3,
-    backgroundColor: color.sun,
-    borderRadius: 1.5,
-  },
-  exposureKnob: {
-    position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: color.text,
-    borderWidth: 1.5,
-    borderColor: color.sun,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 3,
-  },
   arLayerChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -2389,201 +2207,5 @@ const styles = StyleSheet.create({
     color: color.text,
     fontWeight: '800',
   },
-  fullscreenContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  topHudBar: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 52 : 36,
-    paddingBottom: 4,
-    zIndex: 50,
-  },
-  warningBannerFloating: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 96 : 80,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(255, 152, 0, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    zIndex: 100,
-  },
-  dualViewCenter: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-  },
-  cameraBox: {
-    backgroundColor: '#000',
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-  },
-  simBox: {
-    backgroundColor: '#03050C',
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 229, 255, 0.25)',
-  },
-  cameraHeaderOverlay: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    right: 8,
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 15,
-  },
-  viewHeaderBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: color.scrim,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 0.8,
-    borderColor: 'rgba(255, 215, 0, 0.5)',
-  },
-  viewHeaderText: {
-    color: color.sun,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  enhancementBadgeCompact: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: color.scrim,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 0.8,
-    gap: 4,
-  },
-  enhancementTextCompact: {
-    color: color.text,
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  simHeaderOverlay: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    right: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 15,
-  },
-  fovBadge: {
-    backgroundColor: color.scrim,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 0.8,
-    borderColor: 'rgba(0, 229, 255, 0.5)',
-  },
-  fovBadgeText: {
-    color: color.accent,
-    fontSize: 9,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  zoomQuickRow: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: color.scrim,
-    padding: 3,
-    borderRadius: 14,
-    borderWidth: 0.8,
-    borderColor: color.borderStrong,
-    zIndex: 20,
-  },
-  zoomQuickBtn: {
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    borderRadius: 8,
-  },
-  zoomQuickBtnActive: {
-    backgroundColor: color.accent,
-  },
-  zoomQuickText: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  zoomQuickTextActive: {
-    color: color.onAccent,
-    fontWeight: '800',
-  },
-  zoomLiveBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderLeftWidth: 0.8,
-    borderColor: color.borderStrong,
-  },
-  zoomLiveText: {
-    color: color.textDim,
-    fontSize: 11,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  compassRulerBar: {
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 6,
-    borderWidth: 0.8,
-    borderColor: color.borderStrong,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#080C16',
-  },
-  compassCenterBadge: {
-    position: 'absolute',
-    top: 2,
-    alignSelf: 'center',
-    backgroundColor: color.scrim,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-    borderWidth: 0.6,
-    borderColor: 'rgba(255, 215, 0, 0.4)',
-  },
-  compassCenterText: {
-    color: color.sun,
-    fontSize: 9,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
 
-  bottomControlsBar: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 6,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
-    zIndex: 50,
-  },
 });
