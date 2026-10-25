@@ -1,31 +1,42 @@
-# RULER-ringtruth — 실제 NWP 고리 ↔ 현실 기준선 + 리드 타임 곡선 (2026-10-25 초안, 짝짓기 전에 고정)
+# RULER-ringtruth — 실제 NWP 고리 ↔ 현실 기준선 + 리드 타임 곡선 (2026-10-25 동결, 짝짓기 전)
 
-설계 판정단(2026-10-25) 2 순위. RULER-macro(§156)의 corr50 0.77·corr12 0.57 은 위성 마스크의 7 km 평균을 '예보' 로 넣은 **NWP 오차 0** 조건의 상한이다. 실제 예보 고리의 공간 배치가 현실과 얼마나 맞는지는 한 번도 재지 않았고, 리드별 품질은 §98 에서 관측점 총운량·3 일까지 한 번뿐이다. 이후 모든 합격선(지역 모델 채택, 잡음 모드, 리드별 렌더, 시간바 등급)의 기준선이 여기서 나온다.
+설계 판정단(2026-10-25) 2 순위. RULER-macro(§156)의 held 수치 — corr50 Barnes **0.770**, corr12 Barnes **0.649**(잡음 V 는 0.573), ringRmseTrue **0.181**, C0 corr50 0.557 — 는 위성 마스크의 7 km 평균을 '예보' 로 넣은 **NWP 오차 0** 조건의 상한이다(2026-10-25 macro.py 에 corr12Base 를 추가해 같은 은행으로 재측정). 실제 예보 고리의 공간 배치가 현실과 얼마나 맞는지는 한 번도 재지 않았고, 리드별 품질은 §98 에서 관측점 총운량·3 일까지뿐이다. 이후 모든 합격선(지역 모델 채택, 잡음 모드, 리드별 렌더, 시간바 등급)의 기준선이 여기서 나온다. 초안을 3 관점이 비판한 뒤 고친 판(§7).
 
 ## 1. 질문
-- Q1 실제 과거 예보 보관 고리 90 점(총운량)으로 Barnes 격자를 만들면 MODIS 참값과 corr50·corr12 가 얼마인가. 대용 입력(0.77/0.57) 과 C0(관측점 + 기울기) 와의 차는.
-- Q2 리드 0~7 일에 따라 총운량·GHI 투과율의 위성 대비 기술이 어떻게 떨어지는가. 어느 리드에서 기후값과 같아지는가 → 시간바 등급(72/168 h, '실측 아님')을 숫자로.
-- Q3 (예산이 남으면) 모델별 Q1: ecmwf_ifs025·icon_seamless 단독, 한·일 장면은 jma_msm. 공간 배치를 가장 잘 맞히는 모델은(채택은 별도 자).
+- Q1 보관의 **최단 리드(≈ 0~6 h)** 에서 실제 NWP 고리 91 점(총운량)으로 Barnes 격자를 만들면 MODIS 참값과 corr50·corr12 가 얼마인가. 대용 입력(0.770/0.649)·C0 와의 차는. 이것은 앱이 내일·사흘 뒤를 그릴 때의 공간 기술이 아니라 그 **상한**이다. 층별 장의 기술은 MODIS(총운량 마스크)로 못 가른다 — 층별 장은 이 상한 아래다.
+- Q2 리드 0~7 일(previous_dayN = 유효 시각 24N h 전 발행 런, 실제 리드 24N ~ 24N + 6 h; L0 는 현재 런 = 보관과 동치 = 시간바 `past`)에 따라 GHI 투과율·총운량의 위성 대비 기술이 어떻게 떨어지는가 → 시간바 등급(72/168 h, '실측 아님')을 숫자로.
+- Q3 (예산이 남으면) JMA MSM 영역 held 장면에서 jma_msm 고리의 corr50 이 블렌드보다 나은가(채택은 별도 자).
+- Q1-b (예산이 남으면) archive(B0 모델 미지정·B1 era5) 고리의 corr50 — RULER-source 전환 판단과 직결.
 
 ## 2. 정답·입력
-- **Q1 정답**: `.harness/macro/sat` 130 장면(dev 서울·가나자와 24+ / held 8 곳 97+, 2026-09-01 ~ 10-22, 4 일 간격) 의 `trueGrid` 256² × 3 km(MODIS Terra 진색 흰 정도 마스크, RULER-macro §2). **입력**: historical-forecast-api, 장면 날짜 하루, `hourly=cloud_cover`(총운량, MODIS 마스크가 총운량이므로), 고리 91 점(관측점 + RING 90), 모델 블렌드 `ecmwf_ifs025,icon_seamless` 평균(앱 `blendHourly` 와 같게; 2024-02 이후라 둘 다 있음). 시각: MODIS Terra 통과 ≈ 현지 10:30 → UTC 변환 뒤 **앞뒤 정시 두 값을 선형 보간**(운량은 순간값). 장면 JSON 의 `ring[].cover` 를 이 값으로 바꾼 사본을 `sceneDir-nwp/` 에 쓰고 `downscale-run.mjs --variant prior`(Barnes 모드) → `macro.py --gate`.
-- **Q2 정답**: satellite-api archive `shortwave_radiation`(관측 GHI, 직전 1 h 평균) 10 곳, 2026-08-01 ~ 10-23. **입력**: previous-runs-api `shortwave_radiation_previous_day0..7` 와 `cloud_cover_previous_day0..7`(총운량만 지원) 같은 10 곳·기간, best_match. 투과율 = GHI / 맑은 GHI(Haurwitz 창 평균, 해 ≥ 15°) — 둘 다 같은 창 평균량이라 시간 의미가 맞는다. 기후값 = 같은 자리·같은 시각대의 기간 평균 투과율.
-- 요청 가중(문서: 변수 10 개·14 일 단위로 분수 계산, 지점은 지점 수만큼): Q1 장면당 91 지점 × 1 → 91, 130 장면 ≈ 11,800 → **held 97 장면부터**, 하루 한도에 걸리면 다음 날 이어서(resume). Q2 10 곳 × 16 변수 × 84 일 ≈ 10 × 1.6 × 6 = 96. Q3 는 Q1 의 모델 수만큼 곱(한·일 5 곳 held 장면만, +jma_msm·+단독 2 = 약 2,700).
-- 나누기: Q1 은 held 로 보고(dev 는 손잡이 확인용). Q2 는 8/1~9/15 로 기후값·문턱을 정하고 9/16~10/23 로 보고.
+- **장면 은행**: `.harness/macro/sat` 121 장면(130 중 9 제외; dev 서울·가나자와 24 / held 8 곳 97; 2026-09-01 ~ 10-19, 4 일 간격 13 날짜) 의 `trueGrid` 256² × 3 km(MODIS Terra 진색 흰 정도 마스크, RULER-macro §2). 사이트 좌표는 fetch-sat.py SITES.
+- **Q1 시각**: 장면마다 NASA CMR(키 없음) `granules.json?short_name=MOD03&temporal=<날짜>&bounding_box=<768 km 상자>` 의 **DAY granule 시작 시각(UTC)** 을 `modisTimeUtc` 로 장면 사본에 기록(2026-10-25 확인: 부산 09-01 → 01:05Z, 중복 항목은 하나로). DAY granule 이 둘 이상 상자를 덮으면 `seam: true` 로 표시해 따로 보고. CMR 실패 시 대안 = 평균 태양시 10:30 → UTC 10:30 − lon/15 h(법정 시간대 아님). NWP 총운량은 **순간값**이라 그 시각 앞뒤 정시 두 값을 선형 보간. 민감도: t0 ± 1 h 보간값으로도 corr50 을 내어 표에 적되 **판정은 t0 로만**(측정 뒤 시각을 고르지 않음).
+- **Q1 입력·요청**: historical-forecast-api, **사이트별 1 요청**(91 지점, `start_date=2026-09-01&end_date=2026-10-19`, `hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high`, `models=ecmwf_ifs025,icon_seamless`, `timezone=GMT`), 두 모델 시각별 산술평균(`blendHourly` 와 같게; 한 모델 null 이면 다른 모델 값, 둘 다 null 이면 그 지점 결측). 가중 ≈ 91 × (49/14) ≈ 320/사이트, 10 곳 ≈ 3,200. 사이트 사이 60 s. resume 은 사이트 단위(`ring/nwp/<site>.json`). `sceneDir-nwp/<site>_<date>.json` = 원본 장면 사본에 `ring[].cover` = 보간한 총운량 %/100(0~1, 반올림 금지), `cover`·`trueGrid` 원본 유지, 메타(`modisTimeUtc`, `seam`, `models`, `missing`, 보간 가중) 기록. 결측 지점은 그 지점만 빼고(`missing` 수), 91 중 10 % 넘게 빠지면 장면 제외. 보조 입력: 같은 응답의 저·중 운량으로 "저+중 무작위 겹침 = 1 − (1−low)(1−mid)" 사본도 만들어 MODIS 마스크의 권운 맹점 몫을 잰다(판정은 총운량).
+- **Q1 실행**: `downscale-run.mjs <sceneDir-nwp> <out> --variant prior`(손잡이 σ 6 km/0.6·β 1.25 는 RULER-macro 그대로, 바꾸지 않음) → `macro.py --gate --group held`. 판정 지표는 **`base`(Barnes, 앱 기본)** 의 corr50Base·corr12Base; `syn`(V) 은 참고. 같은 절차를 대용 은행(.harness/macro/sat)에도 돌려 세 입력(대용 / 실제 NWP / C0)을 나란히.
+- **Q2 정답**: satellite-api archive `shortwave_radiation`(관측 GHI, 직전 1 h 평균) 9 곳(denver 제외: GOES 미통합), `start_date=2026-08-01&end_date=2026-10-23&timezone=GMT`. **입력**: previous-runs-api `models=ecmwf_ifs025,icon_seamless`, `shortwave_radiation_previous_day0..7`·`cloud_cover_previous_day0..7`, 같은 9 곳·기간·`timezone=GMT`(past_days 금지), 두 모델 시각별 산술평균. 가중 ≈ 9 × 3.2 × 6 ≈ 175. 표본: 위성 τ 와 8 리드 × 2 모델 모두 non-null 인 시각만(같은 표본), 창 가운데 태양고도 ≥ 15°, 맑은 GHI 창 평균 ≥ 226 W/m²(`MIN_CLEAR_GHI`), 지점 유효 시각 < 100 이면 제외. 버린 시각 수를 리드별·지점별 보고.
+- **Q3 입력**: held 중 JMA MSM 영역(22.4~47.6°N, 120~150°E) 안 사이트 — osaka·busan·sapporo(+ shanghai 는 고리 91 점이 모두 영역 안이면 포함, 탐침으로 정해 측정 전 기록). `models=jma_msm` 사이트별 1 요청(≈ 320/사이트). 영역 밖 지점이 하나라도 null 인 장면은 제외.
+- **Q1-b 입력**: held 10 장면(사이트당 1~2) 에 archive B0·B1 고리(날짜별 요청 91 지점 × 2 ≈ 1,800) — 예산이 남을 때만.
+- 나누기·고정: Q1·Q3 은 held 로만 보고(dev 는 파이프라인 확인용; dev 로 시각·σ·β 를 고르지 않는다). Q2 는 보고 기간 = **9/16 ~ 10/23**; 8/1 ~ 9/15 는 기후값 민감도 부록용.
 
 ## 3. 지표
-- Q1: macro.py 그대로(corr50Base·corr12Base·meanErrBaseDisc·ringRmseTrue(고리 값 ↔ 참값 상자 평균 = NWP 점 오차)·partial). 세 입력을 나란히: 대용(지금 자) / 실제 NWP / C0.
-- Q2: 리드 L 별 상관 r(L), MAE(L), 기술 skill(L) = 1 − MSE(L)/MSE(기후값). 총운량도 같은 식(위성 투과율을 Kasten–Czeplak 역함수로 운량화해 비교).
-- 모든 상관은 **날 블록 부트스트랩**(같은 날 시각들의 자기상관) 으로 95 % 구간을 붙인다.
+- Q1: held 97 장면의 **중앙값**과 사분위; 블록 부트스트랩은 **날짜 블록(13)**(동아시아 4 곳은 같은 날 종관계 공유) 95 % 구간. 지표: corr50Base·corr12Base·meanErrDisc(Base)·partial·ringRmseTrue. ringRmseTrue 는 대용 바닥 0.181 을 나란히 적고 NWP 몫 = sqrt(max(0, rmse² − 0.181²)) 를 따로; 거리 고리별(5/10/30/…/380 km)로도 나눠 적는다. 분리 지표: (i) corr50(Barnes(NWP 고리) ↔ Barnes(대용 고리)) — 보간을 고정한 NWP 오차 몫; (ii) 안쪽 19 점(관측점 + 5·10 km)에서 서로 다른 값의 비율(격자 중복률). 민감도: t0 ± 1 h corr50 중앙값 차.
+- Q2: τ 공간에서 리드 L 별 r(L)·MAE(L)·skill_clim(L) = 1 − MSE(L)/MSE(기후값)·skill_pers(L)(기준 = 전날 같은 시각 위성 τ). 기후값 = **보고 기간 그 곳의 τ_sat 평균**(상수, 시각대 분리 없음 — 표준 MSSS). 곳마다 맑음 배율 = 위성 τ p95 하나. 총운량은 `tauFromCover`(Kasten–Czeplak 정방향)로 τ 화해 비교(역함수 금지, satelliteBias 머리말); 순간값이라 (H−1, H) 두 값 평균으로 1 h 창 근사. skill(L) 에 단조 비증가 맞춤(isotonic)을 하고 교차 시각은 맞춤 곡선의 선형 보간(시간 = 24L + 3 h 중앙)으로 읽는다. 블록 = 달력 날짜(그날의 모든 곳), 리드 간 차는 같은 날 블록을 짝지어(paired) 구간. 검정력: ≈ 38 날 블록, skill SE ≈ 0.03~0.05 — 이웃 리드 차는 가르지 않고 곡선으로 읽는다.
 
-## 4. 판정(사전) — 이 자는 기준선 보고가 목적이라 합격/불합격이 아니라 **행동 규칙**
-- Q1 실제 corr50 < 0.50 이면 §156 "고리 값 그대로" 접근이 현실 배치를 못 따라가는 것 → RULER-macro 의 모든 합격선을 실제 기준으로 재등록하고, 거시 격자의 λ_res 하한을 모델 격자(11~25 km)로 둔다(macroField `modelGridKm`).
-- Q1 실제 corr50 ≥ 0.50 이면 지금 기본(Barnes) 유지, 수치만 §156 에 추가.
-- Q2 skill(L) 이 0.5 아래로 떨어지는 L → 시간바 high→medium 경계, 0.2 아래 → medium→low, 0.05 아래 → none. 지금 72 h / 168 h 와 다르면 `TIER_LEAD_HOURS` 를 바꾼다(실측 표기).
-- Q3 한·일 장면에서 jma_msm corr50 ≥ 블렌드 + 0.05 이고 |meanErrDisc| ≤ 블렌드 + 0.03 이면 "무늬만 빌리기(양은 블렌드)" 후보로 다음 자에 등록. 그 외는 블렌드 유지.
+## 4. 판정(사전) — 기준선 보고가 목적이라 합격/불합격이 아니라 행동 규칙
+- Q1 행동은 **민감도 검사(t0 ± 1 h corr50 중앙값 차 ≤ 0.05)를 통과한 뒤에만**. 실패하면 Q1 수치는 보고하되 행동은 보류하고 granule 시각 재측정을 다음 자에 등록.
+- corr50Base 중앙값의 95 % 구간 **전체**가 0.50 아래 → RULER-macro 의 합격선을 실제 기준으로 재등록. 그리고 격자 중복률 ≥ 50 % 일 때만 macroField λ_res 하한 = 모델 격자(`modelGridKm`) 행동 추가. 구간이 0.50 을 걸치면 '미결'(장면 추가는 다음 자). 구간 전체가 0.50 이상이면 기본(Barnes) 유지, 수치만 §156 에 추가.
+- Q2: `TIER_LEAD_HOURS.high` 는 skill_clim 0.5 교차 시각, `.medium` 은 0.2 교차 시각을 24 h 단위로 반올림한 값으로 바꾼다 — 단 교차 시각의 95 % 구간이 지금 값(72 h / 168 h)을 **포함하지 않을 때만**. `low`(FORECAST_DAYS × 24)·`none`(자료 없음 전용)은 바꾸지 않는다. 바꾸면 `tierAt`·`tierCuts`·`dataWindow`·`verify-time-bar.js` 를 함께 갱신하고, timeBar.ts 머리말의 '잰 값이 아니다' 를 '낮 GHI 투과율 skill 로 잼(밤·일몰 미측정)' 으로 바꾼다. L0 skill 은 `past` 등급 설명의 실측 숫자로.
+- Q3: held 쌍 차 Δcorr50(jma − blend) 의 중앙값 ≥ +0.05 이고 날짜 블록 구간 하한 > 0 이고 |meanErrDisc(jma)| ≤ |meanErrDisc(blend)| + 0.03 → "무늬만 빌리기(양은 블렌드)" 후보로 다음 자에 등록. 그 외 블렌드 유지.
+- 403: historical 이 403 이면 Q1 중단·보고; previous-runs 가 403 이면 Q2 는 historical 리드 0 만으로 축소.
 
 ## 5. 사전 예측
-- Q1 실제 corr50 0.55~0.65(대용 0.77), corr12 0.35~0.45(대용 0.57), ringRmseTrue 0.25~0.30, C0 와의 차 +0.10 유지.
-- Q2 skill: L0 0.50, L1 0.45, L2 0.38, L3 0.30, L5 0.15, L7 0.05 → high ≤ 2 일, medium ≤ 5 일, 그 뒤 low. 총운량은 GHI 보다 skill 0.05 낮을 것.
-- Q3 jma_msm 무늬 이득 +0.03 미만(안 넘음).
-- 함정: 10:30 통과 시각 ±30 분·정시 보간; MODIS 마스크의 눈·해빙 오탐(RULER-macro 와 같은 한계); 위성 결측·밤 없음(Q2 는 낮만 — 밤 리드 기술은 METAR 자가 맡음); 요금 FAQ(previous-runs 는 무료 표에 없음 — 첫 요청 403 이면 Q2 를 previous-runs 없이 historical 리드 0 만으로 축소); 한도 공유 IP.
+- Q1 corr50Base 0.55~0.65(대용 0.770), corr12Base 0.40~0.50(대용 0.649), ringRmseTrue 전체 0.25~0.30(NWP 몫 0.17~0.24), 격자 중복률 60~80 %(5·10 km 고리가 11~25 km 격자 안), C0 와의 차 +0.10 유지, 민감도 차 0.02~0.04(통과).
+- Q2 skill_clim: L0 0.50, L1 0.45, L2 0.38, L3 0.30, L5 0.15, L7 0.05 → 0.5 교차 ≈ 24~36 h, 0.2 교차 ≈ 96~120 h — 지금 72/168 h 와 다를 가능성이 있으나 구간이 넓어 바꾸지 않을 확률 반. 총운량 τ 는 GHI 보다 skill 0.05 낮음. skill_pers 는 L1 에서 0.1~0.2.
+- Q3 Δcorr50 +0.03 미만(후보 등록 안 됨).
+- 함정: MODIS 마스크 눈·해빙 오탐·얇은 권운 맹점(보조 입력으로 몫만 잼); Terra 아침 한 시각(Aqua 13:30 은 비용으로 범위 밖); 바다 위 고리 점의 `cell_selection=land` 기본(앱과 같음, 한계로 적음); 모델 버전 계단(8/1~10/23); 한도 공유 IP — 앱 미사용 시간·사이트 단위 resume; 밤 없음(밤 리드 기술은 METAR 자).
+
+## 6. 산출물·파일
+`tools/genus-ruler/ring/fetch-modis-time.py`(CMR → `ring/modis-times.json`), `fetch-nwp-ring.py`(historical, 사이트별 resume → `sceneDir-nwp`·`sceneDir-nwp-lm`(저+중)·`sceneDir-jma`), `lead-curve.py`(previous-runs × satellite → `lead-curve.json`), `macro.py --gate` 결과 `gate-nwp-held.json`, 결과 절 §8 과 docs §162.
+
+## 7. 초안 → 동결에서 바뀐 것(3 관점 비판, 2026-10-25)
+시각: 법정 10:30 → CMR granule 시각(대안 평균 태양시), ±1 h 민감도·행동 게이트; 장면 121·날짜 13; 요청: 날짜별 91 → 사이트별 1 요청(가중 11,800 → 3,200); 사본 단위(0~1)·결측 규칙; 판정 지표 base(corr12Base 추가해 기준선 0.649 재측정); Q2 모델 best_match → 블렌드, 9 곳, start_date, 같은 표본 규칙, 기후값 = 보고 기간 평균 + 지속성 기준, 역함수 금지 → 정방향 τ, 리드 뜻(24N~24N+6), 단조 맞춤·구간이 지금 값을 배제할 때만 변경, none 불변; Q1 행동에 민감도 게이트·중복률 조건; ringRmseTrue 바닥 0.181 분리; 날짜/날 블록 부트스트랩; Q3 사이트 정정; Q1-b archive 고리 추가; 403 규칙.

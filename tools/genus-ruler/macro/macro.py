@@ -160,7 +160,7 @@ def run_gate(sceneDir, synDir, out, group):
                'ringRmseTrue': float(np.sqrt(((rvT - ring_fc) ** 2).mean())),
                'meanErr': float(S.mean() - T.mean()), 'meanErrDisc': float(S[disc].mean() - T[disc].mean()), 'meanErrBaseDisc': float(B[disc].mean() - T[disc].mean()),
                'corr50Syn': corr(box_mean(S, k50), box_mean(T, k50)), 'corr50Base': corr(box_mean(B, k50), box_mean(T, k50)), 'corr50C0': corr(box_mean(C0, k50), box_mean(T, k50)),
-               'corr12Syn': corr(box_mean(S, k12)[sl], box_mean(T, k12)[sl]), 'corr12C0': corr(box_mean(C0, k12)[sl], box_mean(T, k12)[sl]),
+               'corr12Syn': corr(box_mean(S, k12)[sl], box_mean(T, k12)[sl]), 'corr12Base': corr(box_mean(B, k12)[sl], box_mean(T, k12)[sl]), 'corr12C0': corr(box_mean(C0, k12)[sl], box_mean(T, k12)[sl]),
                'partialSyn': float(((S > 0.1) & (S < 0.9)).mean()), 'partialTrue': float(((T > 0.1) & (T < 0.9)).mean()),
                'rangeBad': int(((S < 0) | (S > 1) | ~np.isfinite(S)).sum()), 'ms': sy['ms']}
         for lo, hi in ((6, 12), (12, 24), (24, 48)):
