@@ -353,6 +353,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const [simPreviewUri, setSimPreviewUri] = useState<string | null>(null);
   /** 3D 썸네일을 못 만든 이유. 칸을 조용히 지우지 않고 여기 적습니다. */
   const [simPreviewError, setSimPreviewError] = useState<string | null>(null);
+  /** §165 셔터 때 볼륨 하늘이 준비 전이어서 스냅샷을 쓰지 않음 — 카드 머리글을 "3D 준비 중" 으로 */
+  const [simNotReady, setSimNotReady] = useState(false);
   /** 스냅샷 직전 GL 버퍼 밝기(0~255, −1 = 못 쟀음). 검은 썸네일 진단용. */
   const [simBufferMean, setSimBufferMean] = useState<number>(-1);
   const [capturedQrData, setCapturedQrData] = useState<string | null>(null);
@@ -853,13 +855,25 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       let simBufMean = -1;
       // 스냅샷과 **같은 순간**의 시선·구름판 상태 — QR 에 실어 기기 화면을 그대로 되살립니다.
       let simRenderState: SkyRenderState | null = null;
-      if (sky3dRef.current) {
-        simRenderState = sky3dRef.current.getRenderState();
-        simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
-        simBufMean = sky3dRef.current.getLastBufferMean();
-        if (!simUri) simFailReason = sky3dRef.current.getLastSnapshotError();
-      } else {
-        simFailReason = L3(language, '3D 화면이 아직 준비되지 않음', '3D view not ready yet', '3D画面の準備ができていません');
+      // §165 볼륨 장면이 **적용돼 그려진 뒤에만** 찍습니다. 카메라 화면은 열릴 때마다 대기 표를 새로 만드는데, 그 전에 찍으면
+      //   옛 하늘(파란 하늘 + 빌보드 구름)이 "3D 예측" 으로 저장됩니다(수원 2026-10-26 07:27 카드). 최대 3 초 기다리고,
+      //   그래도 준비 전이면 스냅샷을 쓰지 않고 카드에 "3D 준비 중" 을 적습니다 — 틀린 그림보다 빈 칸이 낫습니다.
+      //   사진을 늦추지는 않습니다(셔터 느낌과 실제 노출이 어긋남) — 준비 전이면 지금은 건너뛰고, 사진 뒤 재시도(아래 1.)에서 한 번 더 봅니다.
+      let simNotReadyPhase: string | null = null;
+      {
+        const sky = sky3dRef.current;
+        if (sky) {
+          simRenderState = sky.getRenderState();
+          if (sky.isVolumetricReady()) {
+            simUri = (await sky.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+            simBufMean = sky.getLastBufferMean();
+            if (!simUri) simFailReason = sky.getLastSnapshotError();
+          } else {
+            simNotReadyPhase = simRenderState?.volPhase ?? 'unknown';
+          }
+        } else {
+          simFailReason = L3(language, '3D 화면이 아직 준비되지 않음', '3D view not ready yet', '3D画面の準備ができていません');
+        }
       }
 
       // 화면 인식 보정용 — 셔터를 누른 순간의 센서 자세
@@ -1029,11 +1043,29 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       }
 
       // 1. 셔터 직전에 못 찍었으면 여기서 한 번 더 시도합니다.
-      if (!simUri && sky3dRef.current) {
-        simUri = (await sky3dRef.current.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
-        simBufMean = sky3dRef.current.getLastBufferMean();
-        if (simUri) simFailReason = null;
-        else simFailReason = sky3dRef.current.getLastSnapshotError() ?? simFailReason;
+      // ⚠ await 뒤에는 ref 를 다시 읽습니다 — 기다리는 동안 카메라를 닫으면 null 입니다.
+      {
+        const sky = sky3dRef.current;
+        if (!simUri && sky) {
+          if (sky.isVolumetricReady()) {
+            simNotReadyPhase = null;
+            simRenderState = sky.getRenderState();
+            simUri = (await sky.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
+            simBufMean = sky.getLastBufferMean();
+            if (simUri) simFailReason = null;
+            else simFailReason = sky.getLastSnapshotError() ?? simFailReason;
+          } else {
+            simNotReadyPhase = sky.getRenderState()?.volPhase ?? 'unknown';
+          }
+        }
+      }
+      if (!simUri && simNotReadyPhase) {
+        // 상태별 사유: creating/updating 은 '준비 중', failed 는 '실패'(기다려도 안 됨), running 인데 장면이 없으면 '예보 대기'.
+        simFailReason = simNotReadyPhase === 'failed'
+          ? L3(language, '볼륨 하늘 생성 실패 — 하늘 화면의 개발 패널에서 사유 확인', 'Volumetric sky failed — see dev panel on the sky screen', 'ボリューム空の生成に失敗 — 空画面の開発パネルで理由を確認')
+          : simNotReadyPhase === 'running'
+            ? L3(language, '볼륨 하늘은 켜졌지만 예보 장면이 아직 없음', 'Volumetric sky on, but no forecast scene yet', 'ボリューム空は有効だが予報シーンがまだない')
+            : L3(language, `볼륨 하늘이 아직 만들어지지 않음(${simNotReadyPhase})`, `Volumetric sky not ready yet (${simNotReadyPhase})`, `ボリューム空がまだ準備できていません(${simNotReadyPhase})`);
       }
       // ⚠ **스토어의 currentSimulationUri 를 대체품으로 쓰지 않습니다.**
       //   그 값은 `generateSimulationImage` 가 만드는데, 지금 그 함수는
@@ -1084,6 +1116,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
             windSynthetic: !windsInfo.measured,
             view: simRenderState?.view,
             slab: simRenderState?.slab,
+            volPhase: simRenderState?.volPhase,
+            scene: simRenderState?.scene,
             glMean: simBufMean,
           })
         );
@@ -1097,6 +1131,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       setPreviewUri(stampedUri);
       setSimPreviewUri(simUri || null);
       setSimPreviewError(simUri ? null : simFailReason);
+      setSimNotReady(!simUri && simNotReadyPhase != null && simNotReadyPhase !== 'failed');
       setSimBufferMean(simBufMean);
       setCapturedQrData(qrPayload);
       
@@ -1346,7 +1381,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
                   ) : (
                     <View style={styles.compareImageMissing}>
                       <Text style={styles.compareImageMissingText}>
-                        {L3(language, '3D 스냅샷을 못 찍었습니다', '3D snapshot unavailable', '3Dスナップショットを取得できませんでした')}
+                        {simNotReady
+                          ? L3(language, '3D 준비 중', '3D not ready', '3D準備中')
+                          : L3(language, '3D 스냅샷을 못 찍었습니다', '3D snapshot unavailable', '3Dスナップショットを取得できませんでした')}
                       </Text>
                       {simPreviewError ? (
                         <Text style={styles.compareImageMissingReason} numberOfLines={3}>

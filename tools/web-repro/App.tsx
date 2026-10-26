@@ -18,6 +18,7 @@ import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { MapGlobe } from '../../src/components/IsolineMap/MapGlobe';
 import { DateTimeBar } from '../../src/components/TimeBar/DateTimeBar';
 import { useCelestialStore } from '../../src/store/useCelestialStore';
+import { getVolumetricStatus } from '../../src/components/VolumetricProbe/volumetricStatus';
 import { getSubsolarPoint, getSublunarPoint, getMoonPhase, getTerminatorSegments } from '../../src/utils/celestial';
 
 const Q = (() => {
@@ -29,6 +30,8 @@ if (Array.isArray(Q.talb)) Object.assign(VOLUMETRIC_TERRAIN_ALBEDO, { r: Q.talb[
 // §157 지형 보임새 손잡이(terrainLook.ts) — 주소 "look":{ao,hemi,ambGain,cloudFill,sheen,mottle}, 실행 중에는 window.__look({...}).
 if (Q.look) setTerrainLook(Q.look);
 (globalThis as any).__look = setTerrainLook;
+// 장면 요약(저·중·상 종류·τ·출처)을 하네스가 읽습니다 — window.__volStatus().summary (§164 수원 재현).
+(globalThis as any).__volStatus = getVolumetricStatus;
 // atmos:"load" — takram 의 미리 만든 대기 표(3파장)를 읽어 볼륨 하늘을 몇 초 만에 켭니다(SwiftShader 에서 15파장 표는 4~10분).
 // 지형 조명 A/B 처럼 하늘 색의 세부가 중요하지 않은 비교용 — 앱과 같은 색은 이 옵션 없이 돌립니다.
 if (Q.atmos === 'load') {

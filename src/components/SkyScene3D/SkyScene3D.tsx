@@ -85,6 +85,9 @@ const loadVolumetric = (): typeof import('../VolumetricProbe/volumetricScene') |
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/volumetricScene') : null);
 const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =>
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/liveScene') : null);
+// §165 장면 캐시 키(순수 모듈) — liveScene 과 같은 이유로 게을리 불러옵니다.
+const loadSceneKey = (): typeof import('../VolumetricProbe/sceneKey') | null =>
+  (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/sceneKey') : null);
 import { createCelestialPathsGroup, updateCelestialPaths, setCelestialPathsNow, setCelestialPathsNearFade, NEAR_FADE_INNER_HOURS, CelestialPathsGroup } from './CelestialPathMesh';
 import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
 import { createCloudField, updateCloudField, type CloudField } from './CloudField';
@@ -306,6 +309,8 @@ export interface SkyScene3DHandle {
    * 높이·운해·안개·운량장은 예보에서 여러 단계를 거쳐 나옵니다(`readCloudSlabState`).
    */
   getRenderState: () => SkyRenderState | null;
+  /** §165 볼륨 장면이 적용돼 마지막 프레임에 실제로 그려졌는가 — 카메라가 스냅샷 전에 묻습니다. */
+  isVolumetricReady: () => boolean;
   /**
    * 하늘 → 지도(구름 레이더 축척)로 날아갑니다. 두 손가락 줌아웃의 **누르기 대안**입니다(디자인 2단).
    * 돌아올 때는 지도 위의 "착륙"을 씁니다.
@@ -314,10 +319,26 @@ export interface SkyScene3DHandle {
 }
 
 /** `SkyScene3DHandle.getRenderState` 의 값. */
+/** §165 이 화면 인스턴스의 볼륨 하늘 상태 — 모듈 저장소(volumetricStatus)는 여러 화면이 함께 쓰므로 인스턴스별로 따로 봅니다. */
+export type VolumetricPhaseOf = 'off' | 'creating' | 'updating' | 'running' | 'failed';
+/** §165 마지막으로 **적용된** 볼륨 장면 — QR 에 실어 "카드가 무엇을 그렸는지" 를 입력과 따로 남깁니다. */
+export interface VolumetricSceneState {
+  /** 장면 시각(ISO) — 카메라 셔터 시각이 아니라 장면이 만들어진 시각 */
+  t: string;
+  /** 장면이 쓴 관측점 운량(%) — METAR 덮어쓰기 뒤의 값 */
+  low: number; mid: number; high: number; total?: number;
+  /** 그려진 종류(승격 적용) 'sc/as/-' */
+  genus: string;
+  /** §158 DNI 광학두께(없으면 undefined) */
+  tau?: number;
+}
 export interface SkyRenderState {
   /** 시선: 방위(북 0°, 동 90°) · 고도 · 기울임(오른쪽으로 기울면 +) · 세로 화각 · 가로/세로 */
   view: { az: number; el: number; roll: number; fov: number; aspect: number };
   slab: null;
+  /** 이 인스턴스의 볼륨 상태 · 마지막 적용 장면(없으면 null). 'running' 이 아니면 화면은 옛 하늘입니다(§165). */
+  volPhase: VolumetricPhaseOf;
+  scene: VolumetricSceneState | null;
 }
 
 const DEFAULT_LAYERS: LayerState = {
@@ -562,6 +583,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const volViewRef = useRef('');
   /** §127 첫 장면이 걸리기 전에는 볼륨 하늘을 쓰지 않습니다(날씨를 잘라 만드는 동안 예전 하늘). */
   const volHasSceneRef = useRef(false);
+  const lastVolSceneRef = useRef<VolumetricSceneState | null>(null);   // §165 마지막 적용 장면(QR)
+  const volFreshRef = useRef(false);   // §165 마지막 적용 장면이 한 프레임 이상 실제로 그려졌는가(적용 직후 스냅샷은 옛 장면)
   /** §129 지난 프레임에 볼륨 하늘을 깔았는가 — 바다 쌍둥이(거리·빛 판)는 그때만 그립니다(평소 구름 슬랩의 가림을 바꾸지 않게). */
   const volDrewRef = useRef(false);
   const volPendingRef = useRef(false);
@@ -830,11 +853,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         const right = new THREE.Vector3().crossVectors(fwd, ref);
         roll = (Math.atan2(up.dot(right), up.dot(ref)) * 180) / Math.PI;
       }
+      const volPhase: VolumetricPhaseOf = volFailedRef.current ? 'failed'
+        : (volHasSceneRef.current && volDrewRef.current) ? (volPendingRef.current ? 'updating' : 'running')
+        : (VOLUMETRIC_SKY_ENABLED && skySettingsRef.current.volumetricSky !== false) ? 'creating' : 'off';
       return {
         view: { az, el, roll, fov: cam.fov, aspect: cam.aspect },
         slab: null,
+        volPhase,
+        scene: lastVolSceneRef.current,
       };
     },
+    // 준비 = 실패 아님 · 예보 장면이 적용됨(lastVolSceneRef, 예보 없는 빈 장면은 아님) · 다시 만드는 중 아님 · 적용 뒤 그려졌고 시간 업스케일이 반쯤 가라앉음.
+    isVolumetricReady: () => !volFailedRef.current && volHasSceneRef.current && volDrewRef.current && !volPendingRef.current
+      && lastVolSceneRef.current != null && volFreshRef.current && volSettleRef.current <= 8,
     takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
       lastSnapshotErrorRef.current = null;
       // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
@@ -1980,23 +2011,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // §135 안정적 기상 블록 버킷팅:
             // 분 단위 미세 소수점 차이로 텍스처가 매번 다시 구워지는 것을 방지하기 위해 1시간/5% 단위로 양자화합니다.
             // 같은 시간대 내에서는 구름 형태가 유지되며 vol.setDate(바람 드리프트·태양 조명)만 60fps로 매끄럽게 돌아갑니다.
-            const bHour = Math.floor(renderedTimeMsRef.current / 3600000);
-            const qCover = (v?: number) => (v != null ? Math.round(v / 5) * 5 : '');
-            const qAlt = (v?: number) => (v != null ? (Math.round(v * 2) / 2).toFixed(1) : '');
-            const hasPrecip = (vObs?.precipitation ?? 0) >= 0.1 ? 1 : 0;
             const wLen = weatherRef.current?.length ?? 0;
             const wSample = weatherRef.current?.[Math.min(4, Math.max(0, wLen - 1))];
-            const key = [
-              bHour,
-              vLat.toFixed(2), vLon.toFixed(2), Math.round(vElev / 100) * 100,
-              metarRef.current ? `${metarRef.current.icao}@${metarRef.current.timeMs}` : '',
-              qCover(vObs?.low), qCover(vObs?.mid), qCover(vObs?.high),
-              qAlt(vObs?.lowDeckBaseKm), qAlt(vObs?.lowDeckTopKm),
-              qAlt(vObs?.layerAltMidKm), qAlt(vObs?.layerAltHighKm),
-              hasPrecip,
-              qCover(wSample?.low), qCover(wSample?.mid), qCover(wSample?.high),
-              ...[vObs?.windULow, vObs?.windVLow, vObs?.windUMid, vObs?.windVMid, vObs?.windUHigh, vObs?.windVHigh].map(w => (w != null ? Math.round(w / 10) * 10 : '')),
-            ].join('|');
+            // §165 키는 순수 모듈 sceneKey.ts — 시간 버킷·자리·운량·덱·바람에 τ 구간과 비 0.3 플래그를 더했습니다.
+            const key = loadSceneKey()!.volSceneKey({
+              sceneMs: renderedTimeMsRef.current, lat: vLat, lon: vLon, elevM: vElev,
+              metarId: metarRef.current ? `${metarRef.current.icao}@${metarRef.current.timeMs}` : '',
+              metarTimeMs: metarRef.current?.timeMs ?? null,
+              obs: vObs, sample: wSample,
+            });
             const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
@@ -2026,8 +2049,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 if (applied) {
                   volHasSceneRef.current = true;
                   setVolumetricStatus({ summary: built.summary });
+                  const g = built.genus;
+                  lastVolSceneRef.current = built.obs ? {
+                    t: vDate.toISOString(),
+                    low: Math.round(built.obs.low), mid: Math.round(built.obs.mid), high: Math.round(built.obs.high),
+                    total: built.obs.total != null ? Math.round(built.obs.total) : undefined,
+                    genus: g ? `${g.low ?? '-'}/${g.mid ?? '-'}/${g.high ?? '-'}` : '-',
+                    tau: built.tauDni != null ? Math.round(built.tauDni * 10) / 10 : undefined,
+                  } : null;
                   volViewRef.current = '';          // 다음 프레임에 지금 시선을 다시 겁니다(생성 중에 돌렸을 수 있음)
                   volSettleRef.current = 24;
+                  volFreshRef.current = false;      // §165 새 장면이 한 프레임 그려질 때까지 준비 아님
                 } else if (volKeyRef.current === key) volKeyRef.current = '';
                 if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
                 requestRender(3);
@@ -2095,6 +2127,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           composerNow.setExternalSky(volTex);
           if (!volTex) composerNow.setTerrainLit(false);   // §129 볼륨 하늘이 아니면 지형 빛 판을 그리지 않음
           volDrewRef.current = !!volTex;
+          if (volTex) volFreshRef.current = true;
           if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
 
           // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
@@ -2727,6 +2760,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           sunAzDeg: sunAzRef.current,
           atmosphere,
           weather: weatherRef.current ?? [],
+          // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166).
+          weatherCenterAzDeg: 0,
           maxTotal: getTuning().maxClouds,
         });
 

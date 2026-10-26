@@ -163,6 +163,12 @@ export interface BuildCloudsParams {
   atmosphere: AtmosphereParams;
   /** 관측 팬. 없으면 빈 배열을 넘기면 됩니다(맑은 하늘로 처리). */
   weather: CloudData[];
+  /**
+   * `weather` 의 `azimuthOffset` 이 **어느 방위를 0 으로 잰 것인가**. 없으면 `sunAzDeg`(해 중심 부채꼴 자료).
+   * 360° 고리(`fetchDayWeatherRing`)는 절대 방위(0 = 북)라 **0 을 넘겨야** 합니다. 예전에는 늘 `sunAzDeg` 라
+   * 고리를 해 방위만큼 돌려 읽었습니다(§166). 사전 계산 타임라인(`skyTimeline.ts`)은 처음부터 0 입니다.
+   */
+  weatherCenterAzDeg?: number;
   maxTotal?: number;
 }
 
@@ -264,10 +270,11 @@ export function buildCloudInstances(params: BuildCloudsParams): BuildCloudsResul
     sunAzDeg,
     atmosphere,
     weather,
+    weatherCenterAzDeg,
     maxTotal = 320,
   } = params;
 
-  const fan = new WeatherFan(weather, sunAzDeg);
+  const fan = new WeatherFan(weather, weatherCenterAzDeg ?? sunAzDeg);
   const obs = fan.observerData();
 
   // 바람 — 관측점 기압면 실측이 있으면 그것, 없으면 대용 상수입니다

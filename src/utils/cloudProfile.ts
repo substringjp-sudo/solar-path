@@ -133,22 +133,38 @@ export function layerAltitudes(levels: ProfileLevel[]): LayerAltitudes {
  * @returns 저층에 구름이 없거나 단면이 없으면 `null`.
  */
 export function lowDeck(levels: ProfileLevel[]): { baseKm: number; topKm: number } | null {
+  return bandDeck(levels, 0, LAYER_BAND_KM.lowTop);
+}
+
+/**
+ * 어느 띠(`loKm` ≤ 높이 < `hiKm`, 해발)의 구름 **덱 밑면·윗면** — `lowDeck` 의 반값 폭 규칙을 중·상층에도 그대로(§165).
+ * 봉우리는 띠 안에서 찾고, 반값 이상인 면은 띠 밖으로도 이어 붙입니다(저층 덱 윗면이 2 km 를 넘는 것과 같은 규칙).
+ * 중·상층 기압면 간격은 넓어(700 → 600 hPa ≈ 1.2 km, 300 → 250 hPa ≈ 1.2 km) 경계는 ±600 m 로만 압니다 — 그래도 종류별 상수
+ * (ac 400 m · as 1,500 m · ci 800 m · cs 1,000 m)보다 그날 단면에 가깝습니다.
+ * @returns 그 띠에 구름이 없거나 단면이 없으면 `null`.
+ */
+export function bandDeck(levels: ProfileLevel[], loKm: number, hiKm: number): { baseKm: number; topKm: number; levels: number } | null {
   const ls = [...levels].sort((a, b) => a.heightM - b.heightM);
   let peak = -1;
   for (let i = 0; i < ls.length; i++) {
-    if (ls[i].heightM >= LAYER_BAND_KM.lowTop * 1000) break;
+    if (ls[i].heightM < loKm * 1000) continue;
+    if (ls[i].heightM >= hiKm * 1000) break;
     if (ls[i].coverPct > 0 && (peak < 0 || ls[i].coverPct > ls[peak].coverPct)) peak = i;
   }
   if (peak < 0) return null;
   const half = ls[peak].coverPct / 2;
   let lo = peak, hi = peak;
-  while (lo > 0 && ls[lo - 1].coverPct >= half) lo--;
+  // 아래로는 띠 바닥(loKm)까지만 잇습니다 — 저층 덱 위에 바로 중층 덱이 이어진 기둥(수원 10/26 BKN060 OVC085)은 두 층으로 나눠
+  // 그리므로 중층 덱이 저층 덱 속으로 내려가면 두 층이 겹칩니다. 위로는 저층 덱과 같이 띠를 넘어 이어집니다.
+  while (lo > 0 && ls[lo - 1].heightM >= loKm * 1000 && ls[lo - 1].coverPct >= half) lo--;
   while (hi < ls.length - 1 && ls[hi + 1].coverPct >= half) hi++;
 
-  const HALF_GAP_M = 125;   // 이웃 면이 없을 때 — 기압면 간격의 절반
-  const baseM = lo > 0 ? (ls[lo - 1].heightM + ls[lo].heightM) / 2 : Math.max(0, ls[lo].heightM - HALF_GAP_M);
+  const HALF_GAP_M = 125;   // 이웃 면이 없을 때 — 저층 기압면 간격의 절반
+  const baseRaw = lo > 0 ? (ls[lo - 1].heightM + ls[lo].heightM) / 2 : Math.max(0, ls[lo].heightM - HALF_GAP_M);
+  const baseM = Math.max(loKm * 1000, baseRaw);
   const topM = hi < ls.length - 1 ? (ls[hi].heightM + ls[hi + 1].heightM) / 2 : ls[hi].heightM + HALF_GAP_M;
-  return { baseKm: baseM / 1000, topKm: topM / 1000 };
+  // levels = 반값 이상인 면 수. 1 이면 두께는 자료가 아니라 면 간격(중·상층 1.2 km)의 산물 — 소비자는 두께를 모르는 것으로 다룬다(§165).
+  return { baseKm: baseM / 1000, topKm: topM / 1000, levels: hi - lo + 1 };
 }
 
 /**

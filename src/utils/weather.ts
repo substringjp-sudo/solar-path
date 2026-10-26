@@ -19,7 +19,6 @@ import { clearSkyGHIMean, estimateBias, correctCloudAt, LOOKBACK_HOURS, MIN_CLEA
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ── In-Memory Weather & Terrain Cache (30 min TTL) ──
-const MEM_SUNSET_CACHE = new Map<string, { data: CloudPathData[]; time: number }>();
 const MEM_RING_CACHE = new Map<string, { data: CloudPathData[]; time: number }>();
 const INFLIGHT_REQUESTS = new Map<string, Promise<any>>();
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -319,298 +318,6 @@ function createClearSkyFallback(
   }));
 }
 
-export const fetchSunsetWeather = async (
-  lat: number,
-  lon: number,
-  azimuth: number,
-  useNowcast: boolean = false,
-  targetDate: Date = new Date(),
-  forceRefresh: boolean = false,
-  signal?: AbortSignal
-): Promise<CloudPathData[]> => {
-  // 캐시 키와 요청 날짜는 **같은 날짜**여야 합니다. 예전에는 키만 현지 날짜,
-  // 요청은 UTC 날짜여서 한국 현지 00~08시에 서로 어긋났습니다(§59).
-  const dateKey = localDateString(targetDate);
-  const targetDateStr = dateKey;
-  const bucketedAzimuth = (Math.round(azimuth / 30) * 30) % 360;
-  const sunsetCacheKey = `sunset_${gridBucket(lat, lon)}_${dateKey}_${useNowcast ? 'nc' : 'fc'}_${bucketedAzimuth}`;
-
-  if (forceRefresh) {
-    MEM_SUNSET_CACHE.delete(sunsetCacheKey);
-    INFLIGHT_REQUESTS.delete(sunsetCacheKey);
-  } else {
-    const cachedSunset = MEM_SUNSET_CACHE.get(sunsetCacheKey);
-    if (cachedSunset) {
-      const isFallback = cachedSunset.data?.[0]?.isFallback;
-      const ttl = isFallback ? FALLBACK_CACHE_TTL_MS : CACHE_TTL_MS;
-      if (Date.now() - cachedSunset.time < ttl) {
-        if (__DEV__) console.log(`[WeatherAPI] Cache hit for ${sunsetCacheKey}${isFallback ? ' (temporary fallback)' : ''}`);
-        return cachedSunset.data;
-      }
-    }
-
-    if (INFLIGHT_REQUESTS.has(sunsetCacheKey)) {
-      if (__DEV__) console.log(`[WeatherAPI] Joining inflight request for ${sunsetCacheKey}`);
-      return INFLIGHT_REQUESTS.get(sunsetCacheKey)!;
-    }
-  }
-
-  const startTime = Date.now();
-  if (__DEV__) {
-    console.log(`[WeatherAPI] Fetching 36 multi-point cloud data along solar vector for Azimuth: ${azimuth}° (Bucketed: ${bucketedAzimuth}°), Lat: ${lat}, Lon: ${lon}, Date: ${dateKey}`);
-  }
-
-  const angles = [-20, -10, 0, 10, 20];
-  const distances = [10, 30, 70, 130, 200, 280, 380];
-  const virtualPoints: { dist: number; azOffset: number; lat: number; lon: number; targetLat: number; targetLon: number }[] = [
-    { dist: 0, azOffset: 0, lat, lon, targetLat: lat, targetLon: lon }
-  ];
-
-  angles.forEach(ang => {
-    distances.forEach(d => {
-      // Near distances (10, 30, 70km) use only 3 angles [-10, 0, 10] by mapping outer angles (-20, 20) to adjacent ones.
-      let targetAng = ang;
-      if (d <= 70) {
-        if (ang === -20) targetAng = -10;
-        if (ang === 20) targetAng = 10;
-      }
-      
-      const origDest = calculateDestination(lat, lon, d, bucketedAzimuth + ang);
-      const targetDest = calculateDestination(lat, lon, d, bucketedAzimuth + targetAng);
-      
-      virtualPoints.push({
-        dist: d,
-        azOffset: ang,
-        lat: origDest.latitude,
-        lon: origDest.longitude,
-        targetLat: targetDest.latitude,
-        targetLon: targetDest.longitude
-      });
-    });
-  });
-
-  // Deduplicate target coordinates to send minimum API requests (total 30 points)
-  const uniquePoints: { lat: number; lon: number; key: string }[] = [];
-  const seen = new Set<string>();
-
-  virtualPoints.forEach(vp => {
-    const key = `${vp.targetLat.toFixed(5)},${vp.targetLon.toFixed(5)}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniquePoints.push({ lat: vp.targetLat, lon: vp.targetLon, key });
-    }
-  });
-
-  // 국지 고해상도 모델이 **진짜로 있는 곳**에서만 그것을 씁니다. 없는 곳에서
-  // `getLocalHighResModel` 은 'best_match' 를 돌려주는데, §56 에서 재 보니
-  // best_match 는 짙게 흐린 하늘에서 τ 를 +34 만큼 맑은 쪽으로 틀립니다.
-  // 그럴 바에는 예보 경로와 같은 ecmwf+icon 을 쓰는 편이 낫습니다.
-  const localModel = useNowcast ? getLocalHighResModel(lat, lon) : '';
-  const modelName = localModel && localModel !== 'best_match' ? localModel : '';
-  const modelParam = modelName ? `&models=${modelName}` : BLEND_MODELS_PARAM;
-
-  // 국지 고해상도 모델은 direct_normal_irradiance 및 total_column_integrated_water_vapour를 미지원하므로 제외하고 요청.
-  // 판정 기준이 `useNowcast` 가 아니라 **정말 국지 모델을 쓰는가** 로 바뀌었습니다 —
-  // 한국처럼 국지 모델이 없어 ecmwf+icon 으로 내려앉는 곳은 전지구 모델이라
-  // 둘 다 줍니다(§56). 예전에는 그 경우에도 DNI 를 안 받아 흐림 문장이
-  // 근거를 잃었습니다.
-  // ⚠ `visibility` 를 여기서 뺐습니다. ecmwf·icon 은 시정을 전부 null 로 주므로
-  // 받아 봐야 버리는 자리였습니다. 시정은 §58 에서 관측점 1점 요청으로 옮겼습니다.
-  // 그 빈 자리에 모델 자체 총운량 `cloud_cover` 를 넣습니다 — 변수 수가 그대로라
-  // 호출 가중치도 그대로입니다(8 × 2모델 = 16 → 1.6회).
-  const hourlyVariables = modelName
-    ? 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,precipitation'
-    : 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation';
-
-  const cLats = uniquePoints.map(p => p.lat.toFixed(5)).join(',');
-  const cLons = uniquePoints.map(p => p.lon.toFixed(5)).join(',');
-
-  // §163 자료원 해석기 — 죽은 팬 경로에도 같은 규칙(측정은 고리에서만, RULER-source §0)
-  const fanSrc = weatherSourceFor(targetDateStr, localDateString(new Date()), 'fan', { historicalForbidden: isHistoricalForbidden(), modelParam });
-  const isHistorical = isArchiveOrigin(fanSrc.origin);
-
-  let url = '';
-  if (isHistorical) {
-    // Open-Meteo Archive API (total_column_integrated_water_vapour excluded due to archive support limits)
-    // 아카이브는 모델을 안 붙이므로 시정이 제대로 옵니다 — 그대로 둡니다.
-    const archiveVariables = 'cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,direct_normal_irradiance,precipitation';
-    url = `https://archive-api.open-meteo.com/v1/archive?latitude=${cLats}&longitude=${cLons}` +
-      `&hourly=${archiveVariables}` +
-      `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
-      `&timezone=auto`;
-  } else {
-    // Open-Meteo Forecast API (limit data payload to targetDateStr to drastically reduce download and parsing latency)
-    url = `${fanSrc.baseUrl}?latitude=${cLats}&longitude=${cLons}` +
-      `&hourly=${hourlyVariables}` +
-      `&start_date=${targetDateStr}&end_date=${targetDateStr}` +
-      `&timezone=auto${fanSrc.modelParam}`;
-  }
-
-  if (__DEV__) {
-    console.log(`[WeatherAPI] Request URL: ${url}`);
-  }
-
-  // 층별 바람은 별도 요청입니다 (`fetchLayerWinds` 주석: 기압면 변수 하나가
-  // 없다고 운량까지 통째로 실패하면 안 됩니다). 여기서 미리 던져 두고
-  // 아래에서 거둡니다 — 왕복 한 번 값이 겹칩니다.
-  const windsPromise = fetchLayerWinds(lat, lon, targetDate, signal);
-  // §135 열역학 입력도 따로(실패해도 운량·바람에 영향 없음 — `fetchThermoProfile`).
-  const thermoPromise = fetchThermoProfile(lat, lon, targetDate, signal);
-  // 대기질도 따로, 동시에 던집니다 — 실패해도 운량에는 영향이 없습니다(`fetchAirQuality`).
-  const airPromise = fetchAirQuality(lat, lon, targetDate, signal);
-  // §160 위성 관측 일사도 따로 — 지난 시각의 실제 DNI 로 구름 두께(τ)를 되짚습니다. 실패해도 예보 DNI 로 갑니다.
-  const satIrrPromise = fetchSatelliteIrradiance(lat, lon, targetDate, signal);
-
-  try {
-    let response;
-    try {
-      response = await fetchWithTimeout(url, { signal }, 5000);
-    } catch (err: any) {
-      if (signal?.aborted || err?.name === 'AbortError') {
-        INFLIGHT_REQUESTS.delete(sunsetCacheKey);
-        const abortErr = new Error('Aborted');
-        abortErr.name = 'AbortError';
-        throw abortErr;
-      }
-      const duration = Date.now() - startTime;
-      console.error(`[WeatherAPI] Network failure or Timeout after ${duration}ms. Error: ${err?.message}`);
-      throw new Error(`NETWORK_ERROR: 인터넷 연결이 불안정하거나 타임아웃이 발생했습니다.`);
-    }
-    
-    const duration = Date.now() - startTime;
-    if (!response.ok) {
-      console.warn(`[WeatherAPI] API responded with status ${response.status} in ${duration}ms`);
-      if (response.status === 429) {
-        console.warn(`[WeatherAPI] 429 Rate limit reached. Using synthetic clear sky fallback.`);
-        const fallback = createClearSkyFallback(virtualPoints, targetDate, useNowcast ? 'ultra-short' : 'standard');
-        MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fallback, time: Date.now() });
-        INFLIGHT_REQUESTS.delete(sunsetCacheKey);
-        return fallback;
-      }
-      if (response.status >= 500) {
-        throw new Error(`SERVER_ERROR: 날씨 API 서버에 장애가 발생했습니다. (오류 코드: ${response.status})`);
-      }
-      throw new Error(`HTTP_ERROR: 날씨 데이터를 가져오지 못했습니다. (오류 코드: ${response.status})`);
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      console.error(`[WeatherAPI] Non-JSON content-type received: ${contentType}`);
-      throw new Error(`HTTP_ERROR: 올바르지 않은 응답 형식입니다. (비JSON 응답)`);
-    }
-
-    const data = await response.json();
-    if (data.error) {
-      console.warn(`[WeatherAPI] Open-Meteo API Error: ${data.reason || 'Unknown error'}`);
-      if (data.reason && (data.reason.includes('limit reached') || data.reason.includes('Hourly limit') || data.reason.includes('Minutely usage'))) {
-        console.warn(`[WeatherAPI] Rate limit in error payload. Using synthetic clear sky fallback.`);
-        const fallback = createClearSkyFallback(virtualPoints, targetDate, useNowcast ? 'ultra-short' : 'standard');
-        MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fallback, time: Date.now() });
-        INFLIGHT_REQUESTS.delete(sunsetCacheKey);
-        return fallback;
-      }
-      throw new Error(`HTTP_ERROR: API 호출 오류 (${data.reason || 'Unknown'})`);
-    }
-
-    if (__DEV__) {
-      console.log(`[WeatherAPI] Successfully fetched weather data in ${duration}ms. Deduplicated size: ${uniquePoints.length} items.`);
-    }
-    const results = Array.isArray(data) ? data : [data];
-    // 위에서 미리 던져 둔 바람. 실패했으면 null 이고, 그때는 호출부가
-    // 대용값으로 내려앉습니다 (`skyColumn.ts: resolveLayerWinds`).
-    const winds = await windsPromise;
-    const thermo = await thermoPromise;
-    const air = await airPromise;
-    const satIrr = await satIrrPromise;
-
-    // Reconstruct the 36 CloudPathData items from deduplicated results
-    const fetched: CloudPathData[] = virtualPoints.map((vp, i) => {
-      const targetKey = `${vp.targetLat.toFixed(5)},${vp.targetLon.toFixed(5)}`;
-      const uniqueIdx = uniquePoints.findIndex(up => up.key === targetKey);
-      const res = results[uniqueIdx];
-      // 모델을 둘 이상 요청하면 Open-Meteo 가 변수 이름에 모델 이름을 접미사로
-      // 답니다(`cloud_cover_mid_ecmwf_ifs025`). `blendHourly` 가 접미사를 떼고
-      // 섞어 주므로 아래 코드는 그대로입니다.
-      const resHourly = blendHourly(res?.hourly) as any;
-
-      if (!res || !resHourly) {
-        console.warn(`Weather data missing for virtual point ${i} (${vp.dist}km, offset ${vp.azOffset}°). Using clear sky fallback.`);
-        const fallbackTime: string[] = (blendHourly(results[0]?.hourly)?.time as string[]) || [];
-        return {
-          distance: vp.dist,
-          azimuthOffset: vp.azOffset,
-          hourly: {
-            time: fallbackTime,
-            timeMs: fallbackTime.map(t => new Date(t).getTime()),
-            low: Array(24).fill(0),
-            mid: Array(24).fill(0),
-            high: Array(24).fill(0),
-          },
-          source: useNowcast ? 'ultra-short' : 'standard',
-        };
-      }
-
-      const time: string[] = resHourly.time;
-      const low = Array.isArray(resHourly.cloud_cover_low) && resHourly.cloud_cover_low.length > 0
-        ? resHourly.cloud_cover_low
-        : Array(time.length).fill(0);
-      const mid = Array.isArray(resHourly.cloud_cover_mid) && resHourly.cloud_cover_mid.length > 0
-        ? resHourly.cloud_cover_mid
-        : Array(time.length).fill(0);
-      const high = Array.isArray(resHourly.cloud_cover_high) && resHourly.cloud_cover_high.length > 0
-        ? resHourly.cloud_cover_high
-        : Array(time.length).fill(0);
-
-      const hourly: HourlyCloudData = {
-        time,
-        timeMs: time.map((t: string) => new Date(t).getTime()),
-        low,
-        mid,
-        high,
-        total: Array.isArray(resHourly.cloud_cover) ? resHourly.cloud_cover : undefined,
-        directNormalIrradiance: resHourly.direct_normal_irradiance,
-        totalColumnWaterVapour: resHourly.total_column_integrated_water_vapour,
-        precipitation: resHourly.precipitation,
-      };
-      
-      // Visibility, humidity and wind are only meaningful at the observer (index 0)
-      if (i === 0) {
-        if (Array.isArray(resHourly.visibility)) hourly.visibility = resHourly.visibility;
-        if (Array.isArray(resHourly.relative_humidity_2m)) hourly.humidity = resHourly.relative_humidity_2m;
-        if (winds) attachLayerWinds(hourly, winds);
-        if (thermo) attachThermo(hourly, thermo);
-        if (air) attachAirQuality(hourly, air);
-        if (satIrr) attachSatelliteIrradiance(hourly, satIrr);
-      }
-
-      return {
-        distance: vp.dist,
-        azimuthOffset: vp.azOffset,
-        hourly,
-        source: useNowcast ? 'ultra-short' : 'standard',
-      };
-    });
-
-    // 위성이 방금 본 하늘로 예보의 치우침을 깎습니다(§70). 실패하면 예보
-    // 그대로 갑니다 — 보정은 있으면 좋은 것입니다.
-    try {
-      const sat = await fetchSatelliteBias(lat, lon, targetDate, fetched[0]?.hourly);
-      if (sat?.biasTau != null) applyBiasToPath(fetched, sat.biasTau, sat.observedUntilMs);
-    } catch (e) {
-      console.warn('위성 보정 적용을 건너뜁니다:', e);
-    }
-
-    weatherCache.set(sunsetCacheKey, fetched);
-    MEM_SUNSET_CACHE.set(sunsetCacheKey, { data: fetched, time: Date.now() });
-    INFLIGHT_REQUESTS.delete(sunsetCacheKey);
-    return fetched;
-  } catch (error) {
-    INFLIGHT_REQUESTS.delete(sunsetCacheKey);
-    console.error("Failed to fetch weather data:", error);
-    throw error;
-  }
-};
-
 // ---------------------------------------------------------------------------
 // 360° 하루치 링 — 사전 계산(skyTimeline)용
 // ---------------------------------------------------------------------------
@@ -900,11 +607,15 @@ export const fetchSatelliteBias = async (
  * 예보 배열에 편향을 **시각마다** 적용합니다. 앞선 시간이 길수록 덜 적용하고,
  * 6시간을 넘으면 아예 안 합니다(`satelliteBias.ts` 의 감쇠 곡선).
  *
+ * ⚠ **지금 앱에서 부르는 곳이 없습니다.** 해 방향 부채꼴 요청(`fetchSunsetWeather`)이 유일한 호출처였고
+ * 그 요청을 지웠습니다(§166). 360° 고리 경로(`fetchDayWeatherRing`)에는 위성 보정이 붙어 있지 않습니다.
+ * 다시 붙일 때는 관측점 `fetchSatelliteBias` 값을 이 함수로 고리 점에 거는 것이 가장 짧습니다.
+ *
  * ⚠ 편향은 **관측점 1점**에서 낸 것입니다. 점마다 거리로 줄이고, 층에는 모델이 둔 구름에
  * 비례해 나눕니다(`correctCloudAt`). 예전에는 380km 밖 저·중·상층에 똑같이 더해 후쿠이
  * 2026-10-02 의 서쪽 바다 위에 없던 저층 28~51% 를 만들었습니다(`satelliteBias.ts` 머리말).
  */
-function applyBiasToPath(path: CloudPathData[], bias: number | null, observedUntilMs: number): void {
+export function applyBiasToPath(path: CloudPathData[], bias: number | null, observedUntilMs: number): void {
   if (bias == null || !Number.isFinite(observedUntilMs) || observedUntilMs <= 0) return;
   for (const p of path) {
     const h = p.hourly;
@@ -1323,8 +1034,8 @@ function attachLayerWinds(hourly: HourlyCloudData, w: LayerWindHourly): void {
  * 하루치 날씨를 **360° 전 방위**로 한 번에 받아옵니다.
  *
  * Why 팬이 아니라 링인가:
- * `fetchSunsetWeather`의 팬은 **태양 방위 중심**이라 캐시 키에 방위 버킷이
- * 들어갑니다. 시간을 옮기면 태양 방위가 30° 버킷을 넘어가고, 그때마다
+ * 예전 `fetchSunsetWeather`(§166 에서 지움)의 팬은 **태양 방위 중심**이라 캐시 키에 방위 버킷이
+ * 들어갔습니다. 시간을 옮기면 태양 방위가 30° 버킷을 넘어가고, 그때마다
  * 캐시 미스 → 재요청입니다. 하루를 스크럽하면 방위가 180° 넘게 도니
  * 같은 날 같은 장소인데도 6번 이상 새로 받습니다. "날씨를 매번 받아온다"의
  * 정체가 이것입니다.

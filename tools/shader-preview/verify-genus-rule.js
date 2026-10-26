@@ -39,6 +39,23 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
   console.log('[4] 문턱 이름');
   ok(['nsPrecip', 'nsCover', 'stBaseKm', 'cuThickKm', 'cuCover'].every(k => k in G.GENUS_THRESHOLDS), '자 스크립트가 쓰는 문턱 이름 보존');
   ok(G.GENUS_THRESHOLDS.nsPrecip === 0.3 && G.GENUS_THRESHOLDS.nsCover === 80, `nsPrecip ${G.GENUS_THRESHOLDS.nsPrecip}·nsCover ${G.GENUS_THRESHOLDS.nsCover}`);
+  console.log('[5] §165 중·상층 덱(반값 폭) — 단면에서 밑면·윗면');
+  const H = [110, 320, 540, 760, 990, 1460, 1950, 2470, 3010, 4200, 5570, 7180, 9160, 10360, 11780];
+  const prof3 = H.map(h => ({ heightM: h, coverPct: (h >= 1400 && h < 2000) ? 90 : (h >= 2400 && h < 3100) ? 85 : (h >= 9000 && h < 10400) ? 70 : 0 }));
+  const g3 = G.classifyGenus({ ...base, low: 90, mid: 85, high: 70, profile: prof3, precipitationMm: 0 });
+  ok(g3.midBaseKm != null && Math.abs(g3.midBaseKm - 2.21) < 0.02 && Math.abs(g3.midTopKm - 3.605) < 0.02, `중층 덱 750·700 hPa → ${g3.midBaseKm?.toFixed(2)}~${g3.midTopKm?.toFixed(2)} km`);
+  ok(g3.highBaseKm != null && Math.abs(g3.highBaseKm - 8.17) < 0.02 && Math.abs(g3.highTopKm - 11.07) < 0.02, `상층 덱 300·250 hPa → ${g3.highBaseKm?.toFixed(2)}~${g3.highTopKm?.toFixed(2)} km`);
+  // 한 기둥(1.4~3.1 km)이 두 띠에 걸치면 저층 덱 윗면은 중층 덱 밑면에서 잘린다(겹쳐 그리지 않음).
+  ok(Math.abs(g3.lowBaseKm - 1.225) < 0.02 && Math.abs(g3.lowTopKm - 2.21) < 0.02, `저층 덱 윗면을 중층 덱 밑면에서 자름 → ${g3.lowBaseKm?.toFixed(2)}~${g3.lowTopKm?.toFixed(2)} km`);
+  // 중층 띠에 구름이 없으면 자르지 않는다: 윗면 = 마지막 흐린 면(800 hPa 1,950 m)과 다음 맑은 면(750 hPa 2,470 m)의 가운데 2.21 km.
+  const lowOnly = G.classifyGenus({ ...base, low: 90, mid: 0, high: 0, profile: H.map(h => ({ heightM: h, coverPct: (h >= 1400 && h < 2000) ? 90 : 0 })), precipitationMm: 0 });
+  ok(Math.abs(lowOnly.lowTopKm - 2.21) < 0.02 && lowOnly.midBaseKm == null, `중층 덱 없음 → 저층 덱 1.23~${lowOnly.lowTopKm?.toFixed(2)} km, 중층 null`);
+  const g4 = G.classifyGenus({ ...base, low: 90, mid: 0, high: 0, profile: prof3.map(l => ({ ...l, coverPct: l.heightM < 2000 ? l.coverPct : 0 })), precipitationMm: 0 });
+  ok(g4.midBaseKm == null && g4.highBaseKm == null, '중·상층 구름 없는 단면 → null(종류 상수 두께로)');
+  const one = G.classifyGenus({ ...base, low: 20, mid: 40, high: 0, profile: H.map(h => ({ heightM: h, coverPct: h === 3010 ? 40 : (h < 1000 ? 20 : 0) })), precipitationMm: 0 });
+  ok(one.midDeckLevels === 1 && g3.midDeckLevels === 2 && Math.abs(one.midBaseKm - 2.74) < 0.02, `한 면짜리 중층 덱: levels 1(두께는 상수로), 밑면 ${one.midBaseKm?.toFixed(2)} km · 두 면 덱 levels ${g3.midDeckLevels}`);
+  const g5 = G.classifyGenus({ ...base, low: 90, mid: 85, high: 0, profile: [], precipitationMm: 0 });
+  ok(g5.midBaseKm == null && g5.lowBaseKm == null, '단면 없음 → 전부 null');
   console.log(`\n${pass}/${pass + fail} 통과`);
   fs.rmSync(outDir, { recursive: true, force: true });
   process.exit(fail ? 1 : 0);

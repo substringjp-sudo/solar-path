@@ -77,6 +77,10 @@ export interface LiveScene {
   obs: CloudData | null;
   /** 시험 화면 표시용 한 줄 */
   summary: string;
+  /** §158 DNI 광학두께(해 5° 아래·DNI 없음이면 null) — QR 장면 상태·캐시 키가 읽습니다(§165). */
+  tauDni: number | null;
+  /** 층별 종류 — §158 승격(ac → as, ci → cs)까지 적용한 **그려진** 종류. 예보 없음이면 null. */
+  genus: { low: ForecastGenus | null; mid: ForecastGenus | null; high: ForecastGenus | null } | null;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -107,6 +111,7 @@ export function thermoOf(obs: CloudData, groundM: number): ThermoInput {
 }
 
 import { buildMacroWeatherField } from '../../utils/macroWeatherField';
+import { dropSeamCopies } from '../../utils/macroField';
 
 /**
  * §146 예보의 에어로졸 → 연무 입력. 대기 표(takram)에는 에어로졸이 거의 없으므로 모형의 기준(HAZE_BACKGROUND_AOD, 사진으로 맞춘 노출·색이
@@ -141,13 +146,13 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     altitudeM: a.altitudeM,
     layers: [],
   };
-  if (!obs) return { input: base, forecast: null, obs: null, summary: '예보 없음' };
+  if (!obs) return { input: base, forecast: null, obs: null, summary: '예보 없음', tauDni: null, genus: null };
 
   // §132 거시 상태장: 주변 10여개 좌표로부터 동서/남북 1차 운량 기울기와 해 방향 직달광 차폐율 계산
   const interpolatedList = (a.interpolatedWeather && a.interpolatedWeather.length > 1)
     ? a.interpolatedWeather
     : (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date) : [obs]);
-  const macro = buildMacroWeatherField(interpolatedList, sunAz, sunAltDeg);
+  const macro = buildMacroWeatherField(dropSeamCopies(interpolatedList), sunAz, sunAltDeg);
 
   const forecast = classifyGenus({
     low: obs.low, mid: obs.mid, high: obs.high,
@@ -229,18 +234,29 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers.push({ genus: g, cover: lowCover, baseKm, thicknessM: thicknessM, band: 'low', opts: { ...flowOpts('low'), ...(spacingKm != null ? { spacingKm } : {}) }, physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
+  // §165 중·상층 밑면·두께 — 단면 덱(반값 폭, `bandDeck`)이 있으면 저층과 같은 규칙(밑면 = 덱 밑면, 두께 = 덱 두께 300~3,000 m).
+  // 없으면 예전대로: 밑면 = 운량 가중 평균 높이 − 0.3/0.2 km, 두께 = 종류 상수(GENUS.height).
+  // 두께는 덱이 **두 면 이상**에 걸칠 때만 자료로 본다 — 한 면짜리 덱의 두께는 면 간격(700 → 600 hPa 1.2 km)의 산물이라, 얇은 고적운(상수 400 m)이
+  // 1 km 덩어리로 두꺼워진다(검토 지적). 그때는 밑면만 덱에서 가져오고 두께는 종류 상수.
+  const midDeckThick = forecast.midBaseKm != null && forecast.midTopKm != null && forecast.midDeckLevels >= 2 ? (forecast.midTopKm - forecast.midBaseKm) * 1000 : NaN;
+  const midThicknessM = Number.isFinite(midDeckThick) ? clamp(midDeckThick, 300, 3000) : undefined;
+  const highDeckThick = forecast.highBaseKm != null && forecast.highTopKm != null && forecast.highDeckLevels >= 2 ? (forecast.highTopKm - forecast.highBaseKm) * 1000 : NaN;
+  const highThicknessM = Number.isFinite(highDeckThick) ? clamp(highDeckThick, 300, 3000) : undefined;
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
     const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid);
-    layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
+    const baseKm = Math.max(2.2, forecast.midBaseKm ?? (centerKm - 0.3));
+    layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm, thicknessM: midThicknessM, band: 'mid', opts: flowOpts('mid') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
     const centerKm = obs.layerAltHighKm ?? FALLBACK_ALT_KM.high;
+    const baseKm = Math.max(7.2, forecast.highBaseKm ?? (centerKm - 0.2));
     if (promoteHigh) {
-      const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, tauDni! / 57));
-      layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
+      // τ_render ≈ 57 × densityScale 는 1,000 m 층에서 잰 값 — 덱 두께가 다르면 같은 τ 가 되도록 두께에 반비례.
+      const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, (tauDni! / 57) * (1000 / (highThicknessM ?? 1000))));
+      layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
     } else {
-      layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: flowOpts('high') });
+      layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm, thicknessM: highThicknessM, band: 'high', opts: flowOpts('high') });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
@@ -250,11 +266,12 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
-  const ringPts = interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset));
+  const ringPts = dropSeamCopies(interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
   const macroRing = ringPts.length >= 20 ? {
     low: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.low ?? 0) / 100)) })),
     mid: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.mid ?? 0) / 100)) })),
     high: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.high ?? 0) / 100)) })),
   } : undefined;
-  return { input: { ...base, layers, thermo, ...(haze ? { haze } : {}), ...(macroRing ? { macro: macroRing } : {}) }, forecast, obs, summary };
+  const genus = { low: forecast.low, mid: promoteMid ? 'as' as const : forecast.mid, high: promoteHigh ? 'cs' as const : forecast.high };
+  return { input: { ...base, layers, thermo, ...(haze ? { haze } : {}), ...(macroRing ? { macro: macroRing } : {}) }, forecast, obs, summary, tauDni, genus };
 }
