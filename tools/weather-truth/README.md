@@ -8,7 +8,7 @@
 
 ## verify-grid-spacing.js
 
-`src/utils/cloudGrid.ts` 의 **진짜 팬**(방위 ±30° 7줄기 × 거리 10~380km 10링
+(당시 `src/utils/cloudGrid.ts`, §166 에서 지움) 의 **팬**(방위 ±30° 7줄기 × 거리 10~380km 10링
 = 70점)을 그대로 던지고, Open-Meteo 가 응답에 돌려주는 격자점 좌표를 세서
 **요청 70점이 실제 격자 몇 칸으로 뭉치는지** 잽니다.
 

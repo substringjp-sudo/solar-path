@@ -111,6 +111,7 @@ export function thermoOf(obs: CloudData, groundM: number): ThermoInput {
 }
 
 import { buildMacroWeatherField } from '../../utils/macroWeatherField';
+import { dropSeamCopies } from '../../utils/macroField';
 
 /**
  * §146 예보의 에어로졸 → 연무 입력. 대기 표(takram)에는 에어로졸이 거의 없으므로 모형의 기준(HAZE_BACKGROUND_AOD, 사진으로 맞춘 노출·색이
@@ -151,7 +152,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const interpolatedList = (a.interpolatedWeather && a.interpolatedWeather.length > 1)
     ? a.interpolatedWeather
     : (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date) : [obs]);
-  const macro = buildMacroWeatherField(interpolatedList, sunAz, sunAltDeg);
+  const macro = buildMacroWeatherField(dropSeamCopies(interpolatedList), sunAz, sunAltDeg);
 
   const forecast = classifyGenus({
     low: obs.low, mid: obs.mid, high: obs.high,
@@ -265,7 +266,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
-  const ringPts = interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset));
+  const ringPts = dropSeamCopies(interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
   const macroRing = ringPts.length >= 20 ? {
     low: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.low ?? 0) / 100)) })),
     mid: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.mid ?? 0) / 100)) })),

@@ -79,35 +79,10 @@ tsc로 ESM 변환해 브라우저에 넣습니다. import 경로만 vendor/상�
 `vendor/date-fns.js`는 `addHours`/`startOfDay`만 담은 최소 shim입니다 —
 동작은 date-fns와 같지만, 미리보기 외의 용도로 쓰지 마세요.
 
-## 강화 구름 격자 A/B (`grid.html`)
+## 강화 구름 격자 A/B (삭제됨)
 
-```bash
-node tools/shader-preview/verify-cloud-grid.js     # 어댑터 수치 검증 (23개)
-node tools/shader-preview/stage-esm.js
-node tools/shader-preview/build-grid-preview.js    # 2×2 A/B
-node tools/shader-preview/shoot.js grid.html grid-preview.png
-```
-
-`verify-cloud-grid.js`는 `/tmp/skybuild` 의 CommonJS 산출물을 씁니다:
-
-```bash
-npx tsc --module commonjs --target es2020 --moduleResolution node --skipLibCheck \
-  --resolveJsonModule --outDir /tmp/skybuild \
-  src/utils/skyColumn.ts src/utils/atmosphere.ts \
-  src/utils/cloudGrid.ts src/utils/cloudGridAdapter.ts
-```
-
-(리포에는 이 작업과 무관한 기존 타입 오류가 있어 tsc가 0으로 끝나지 않습니다.
-tsc는 오류가 있어도 emit하므로 산출물은 정상입니다. 프로젝트 tsconfig 기준
-`npx tsc --noEmit`은 통과합니다.)
-
-**같은 "진짜 하늘"을 두 관측 밀도로 본 결과를 나란히 렌더합니다** — 왼쪽이
-기본 팬(5레이 × 7고리), 오른쪽이 강화 격자(7레이 × 10고리). 진짜 하늘에는
-기본 팬의 고리 간격(30→70km)보다 촘촘한 구조와 ±20° 밖의 구조를 일부러
-심어 뒀습니다. 어댑터가 일을 하면 오른쪽에만 그 구조가 나타납니다.
-
-`window.__stats` 에 층·거리대·방위대별 운량이 들어 있어, 화면에서 본 것과
-수치를 대조할 수 있습니다. 결과 해석은 `docs/IA_REDESIGN.md` §8.
+해 방향 부채꼴 격자(`cloudGrid.ts`·`cloudGridAdapter.ts`)와 그 검증·미리보기(`verify-cloud-grid.js`, `build-grid-preview.js`)는
+앱이 360° 고리로 바뀐 뒤 아무도 쓰지 않아 §166 에서 지웠습니다. 필요하면 git 이력에서 꺼냅니다.
 
 ## 박명 곡선 A/B (`twilight.html`)
 

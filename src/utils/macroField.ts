@@ -434,6 +434,18 @@ export function buildMacroField(samples: MacroSample[], opts: MacroFieldOptions 
   return { n, cellKm, cover, base, lambdaRes, beta, betaFit: fit, state: st, ms: { barnes: t1 - t0, synth: t2 - t1, total: t2 - t0 } };
 }
 
+/**
+ * 고리 이음매 복사본을 걸러냅니다. `fetchDayWeatherRing` 은 방위 180° 점마다 −180° 복사본을 하나 더 돌려줍니다
+ * (`WeatherFan` 이 감김에 필요). 보간·간격 계산에는 같은 자리가 두 번 들어가 남쪽 표본이 두 배로 세어지고
+ * `sampleSpacingKm` 의 방위 간격(2πr/개수)이 줄어 Barnes 커널이 약 8 % 좁아집니다(§166).
+ * 같은 거리에서 180° 점이 있을 때만 −180° 점을 뺍니다. 없으면(복사본이 아니라 유일한 점) 둡니다.
+ */
+export function dropSeamCopies<T extends { distance?: number; azimuthOffset?: number }>(points: T[]): T[] {
+  const has180 = new Set<number>();
+  for (const p of points) if (p.azimuthOffset === 180) has180.add(Math.round((p.distance ?? 0) * 1000));
+  return points.filter(p => !(p.azimuthOffset === -180 && has180.has(Math.round((p.distance ?? 0) * 1000))));
+}
+
 /** 고리 자료(거리 km, 방위 북 0° 시계방향, 운량 %) → 표본 */
 export function samplesFromRing(points: Array<{ distance: number; azimuthOffset: number; cover: number }>): MacroSample[] {
   return points.map(p => {
