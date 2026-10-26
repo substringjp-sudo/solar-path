@@ -52,6 +52,8 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
   ok(Math.abs(lowOnly.lowTopKm - 2.21) < 0.02 && lowOnly.midBaseKm == null, `중층 덱 없음 → 저층 덱 1.23~${lowOnly.lowTopKm?.toFixed(2)} km, 중층 null`);
   const g4 = G.classifyGenus({ ...base, low: 90, mid: 0, high: 0, profile: prof3.map(l => ({ ...l, coverPct: l.heightM < 2000 ? l.coverPct : 0 })), precipitationMm: 0 });
   ok(g4.midBaseKm == null && g4.highBaseKm == null, '중·상층 구름 없는 단면 → null(종류 상수 두께로)');
+  const one = G.classifyGenus({ ...base, low: 20, mid: 40, high: 0, profile: H.map(h => ({ heightM: h, coverPct: h === 3010 ? 40 : (h < 1000 ? 20 : 0) })), precipitationMm: 0 });
+  ok(one.midDeckLevels === 1 && g3.midDeckLevels === 2 && Math.abs(one.midBaseKm - 2.74) < 0.02, `한 면짜리 중층 덱: levels 1(두께는 상수로), 밑면 ${one.midBaseKm?.toFixed(2)} km · 두 면 덱 levels ${g3.midDeckLevels}`);
   const g5 = G.classifyGenus({ ...base, low: 90, mid: 85, high: 0, profile: [], precipitationMm: 0 });
   ok(g5.midBaseKm == null && g5.lowBaseKm == null, '단면 없음 → 전부 null');
   console.log(`\n${pass}/${pass + fail} 통과`);

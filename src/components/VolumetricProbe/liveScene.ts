@@ -235,9 +235,11 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
   // §165 중·상층 밑면·두께 — 단면 덱(반값 폭, `bandDeck`)이 있으면 저층과 같은 규칙(밑면 = 덱 밑면, 두께 = 덱 두께 300~3,000 m).
   // 없으면 예전대로: 밑면 = 운량 가중 평균 높이 − 0.3/0.2 km, 두께 = 종류 상수(GENUS.height).
-  const midDeckThick = forecast.midBaseKm != null && forecast.midTopKm != null ? (forecast.midTopKm - forecast.midBaseKm) * 1000 : NaN;
+  // 두께는 덱이 **두 면 이상**에 걸칠 때만 자료로 본다 — 한 면짜리 덱의 두께는 면 간격(700 → 600 hPa 1.2 km)의 산물이라, 얇은 고적운(상수 400 m)이
+  // 1 km 덩어리로 두꺼워진다(검토 지적). 그때는 밑면만 덱에서 가져오고 두께는 종류 상수.
+  const midDeckThick = forecast.midBaseKm != null && forecast.midTopKm != null && forecast.midDeckLevels >= 2 ? (forecast.midTopKm - forecast.midBaseKm) * 1000 : NaN;
   const midThicknessM = Number.isFinite(midDeckThick) ? clamp(midDeckThick, 300, 3000) : undefined;
-  const highDeckThick = forecast.highBaseKm != null && forecast.highTopKm != null ? (forecast.highTopKm - forecast.highBaseKm) * 1000 : NaN;
+  const highDeckThick = forecast.highBaseKm != null && forecast.highTopKm != null && forecast.highDeckLevels >= 2 ? (forecast.highTopKm - forecast.highBaseKm) * 1000 : NaN;
   const highThicknessM = Number.isFinite(highDeckThick) ? clamp(highDeckThick, 300, 3000) : undefined;
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;

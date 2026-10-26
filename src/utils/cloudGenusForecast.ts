@@ -52,6 +52,9 @@ export interface GenusForecast {
   midTopKm: number | null;
   highBaseKm: number | null;
   highTopKm: number | null;
+  /** 덱이 걸친 기압면 수 — 1 이면 두께는 면 간격의 산물이라 렌더는 종류 상수 두께를 쓴다(밑면은 덱 밑면). */
+  midDeckLevels: number;
+  highDeckLevels: number;
   /** 판정 근거(디버그·시험 화면 표시용) */
   why: string;
 }
@@ -154,6 +157,7 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
     lowBaseKm: lowDeckCut?.baseKm ?? null, lowTopKm: lowDeckCut?.topKm ?? null,
     midBaseKm: midDeckCut?.baseKm ?? null, midTopKm: midDeckCut?.topKm ?? null,
     highBaseKm: highDeck?.baseKm ?? null, highTopKm: highDeck?.topKm ?? null,
+    midDeckLevels: midDeck?.levels ?? 0, highDeckLevels: highDeck?.levels ?? 0,
     why: why.join(' · '),
   };
 }

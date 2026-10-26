@@ -143,7 +143,7 @@ export function lowDeck(levels: ProfileLevel[]): { baseKm: number; topKm: number
  * (ac 400 m · as 1,500 m · ci 800 m · cs 1,000 m)보다 그날 단면에 가깝습니다.
  * @returns 그 띠에 구름이 없거나 단면이 없으면 `null`.
  */
-export function bandDeck(levels: ProfileLevel[], loKm: number, hiKm: number): { baseKm: number; topKm: number } | null {
+export function bandDeck(levels: ProfileLevel[], loKm: number, hiKm: number): { baseKm: number; topKm: number; levels: number } | null {
   const ls = [...levels].sort((a, b) => a.heightM - b.heightM);
   let peak = -1;
   for (let i = 0; i < ls.length; i++) {
@@ -163,7 +163,8 @@ export function bandDeck(levels: ProfileLevel[], loKm: number, hiKm: number): { 
   const baseRaw = lo > 0 ? (ls[lo - 1].heightM + ls[lo].heightM) / 2 : Math.max(0, ls[lo].heightM - HALF_GAP_M);
   const baseM = Math.max(loKm * 1000, baseRaw);
   const topM = hi < ls.length - 1 ? (ls[hi].heightM + ls[hi + 1].heightM) / 2 : ls[hi].heightM + HALF_GAP_M;
-  return { baseKm: baseM / 1000, topKm: topM / 1000 };
+  // levels = 반값 이상인 면 수. 1 이면 두께는 자료가 아니라 면 간격(중·상층 1.2 km)의 산물 — 소비자는 두께를 모르는 것으로 다룬다(§165).
+  return { baseKm: baseM / 1000, topKm: topM / 1000, levels: hi - lo + 1 };
 }
 
 /**
