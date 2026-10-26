@@ -77,6 +77,10 @@ export interface LiveScene {
   obs: CloudData | null;
   /** 시험 화면 표시용 한 줄 */
   summary: string;
+  /** §158 DNI 광학두께(해 5° 아래·DNI 없음이면 null) — QR 장면 상태·캐시 키가 읽습니다(§165). */
+  tauDni: number | null;
+  /** 층별 종류 — §158 승격(ac → as, ci → cs)까지 적용한 **그려진** 종류. 예보 없음이면 null. */
+  genus: { low: ForecastGenus | null; mid: ForecastGenus | null; high: ForecastGenus | null } | null;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -141,7 +145,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     altitudeM: a.altitudeM,
     layers: [],
   };
-  if (!obs) return { input: base, forecast: null, obs: null, summary: '예보 없음' };
+  if (!obs) return { input: base, forecast: null, obs: null, summary: '예보 없음', tauDni: null, genus: null };
 
   // §132 거시 상태장: 주변 10여개 좌표로부터 동서/남북 1차 운량 기울기와 해 방향 직달광 차폐율 계산
   const interpolatedList = (a.interpolatedWeather && a.interpolatedWeather.length > 1)
@@ -229,18 +233,27 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers.push({ genus: g, cover: lowCover, baseKm, thicknessM: thicknessM, band: 'low', opts: { ...flowOpts('low'), ...(spacingKm != null ? { spacingKm } : {}) }, physBaseKm: g === 'cu' ? lclKm ?? undefined : undefined });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.low, band: 'low' });
+  // §165 중·상층 밑면·두께 — 단면 덱(반값 폭, `bandDeck`)이 있으면 저층과 같은 규칙(밑면 = 덱 밑면, 두께 = 덱 두께 300~3,000 m).
+  // 없으면 예전대로: 밑면 = 운량 가중 평균 높이 − 0.3/0.2 km, 두께 = 종류 상수(GENUS.height).
+  const midDeckThick = forecast.midBaseKm != null && forecast.midTopKm != null ? (forecast.midTopKm - forecast.midBaseKm) * 1000 : NaN;
+  const midThicknessM = Number.isFinite(midDeckThick) ? clamp(midDeckThick, 300, 3000) : undefined;
+  const highDeckThick = forecast.highBaseKm != null && forecast.highTopKm != null ? (forecast.highTopKm - forecast.highBaseKm) * 1000 : NaN;
+  const highThicknessM = Number.isFinite(highDeckThick) ? clamp(highDeckThick, 300, 3000) : undefined;
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
     const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid);
-    layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm: Math.max(2.2, centerKm - 0.3), band: 'mid', opts: flowOpts('mid') });
+    const baseKm = Math.max(2.2, forecast.midBaseKm ?? (centerKm - 0.3));
+    layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm, thicknessM: midThicknessM, band: 'mid', opts: flowOpts('mid') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
     const centerKm = obs.layerAltHighKm ?? FALLBACK_ALT_KM.high;
+    const baseKm = Math.max(7.2, forecast.highBaseKm ?? (centerKm - 0.2));
     if (promoteHigh) {
-      const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, tauDni! / 57));
-      layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
+      // τ_render ≈ 57 × densityScale 는 1,000 m 층에서 잰 값 — 덱 두께가 다르면 같은 τ 가 되도록 두께에 반비례.
+      const densityScale = Math.min(DNI_VEIL_MAX_DENSITY, Math.max(0.0015, (tauDni! / 57) * (1000 / (highThicknessM ?? 1000))));
+      layers.push({ genus: 'cs', cover: Math.max(obs.high / 100, 0.99), baseKm, thicknessM: highThicknessM, band: 'high', opts: { ...flowOpts('high'), densityScale, ao: 1.5 } });
     } else {
-      layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm: Math.max(7.2, centerKm - 0.2), band: 'high', opts: flowOpts('high') });
+      layers.push({ genus: renderGenusFor(forecast.high), cover: obs.high / 100, baseKm, thicknessM: highThicknessM, band: 'high', opts: flowOpts('high') });
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
@@ -256,5 +269,6 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     mid: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.mid ?? 0) / 100)) })),
     high: ringPts.map(q => ({ distance: q.distance ?? 0, azimuthOffset: q.azimuthOffset ?? 0, cover: Math.min(1, Math.max(0, (q.high ?? 0) / 100)) })),
   } : undefined;
-  return { input: { ...base, layers, thermo, ...(haze ? { haze } : {}), ...(macroRing ? { macro: macroRing } : {}) }, forecast, obs, summary };
+  const genus = { low: forecast.low, mid: promoteMid ? 'as' as const : forecast.mid, high: promoteHigh ? 'cs' as const : forecast.high };
+  return { input: { ...base, layers, thermo, ...(haze ? { haze } : {}), ...(macroRing ? { macro: macroRing } : {}) }, forecast, obs, summary, tauDni, genus };
 }

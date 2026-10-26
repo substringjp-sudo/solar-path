@@ -11,7 +11,7 @@
  * 종류 기호: cu 적운 · cg 웅대적운 · cb 적란운 · sc 층적운 · st 층운 · ns 난층운 · ac 고적운 · as 고층운 ·
  * ci 권운 · cs 권층운. 렌더 쪽 GenusKey 와 이름을 맞춥니다(아직 없는 종류는 렌더에서 가장 가까운 것으로 물러남).
  */
-import { LAYER_BAND_KM, lclKm, lowDeck, type ProfileLevel } from './cloudProfile';
+import { LAYER_BAND_KM, lclKm, lowDeck, type ProfileLevel, bandDeck } from './cloudProfile';
 
 export type LowGenus = 'cu' | 'cg' | 'cb' | 'sc' | 'st' | 'ns';
 export type MidGenus = 'ac' | 'as';
@@ -47,6 +47,11 @@ export interface GenusForecast {
   /** 저층 덱 밑면·윗면(km, 해발) — 단면이 있을 때 */
   lowBaseKm: number | null;
   lowTopKm: number | null;
+  /** 중·상층 덱 밑면·윗면(km, 해발) — 같은 반값 폭 규칙(`bandDeck`), 단면에 그 띠 구름이 있을 때(§165). 없으면 null → 렌더는 종류 상수 두께. */
+  midBaseKm: number | null;
+  midTopKm: number | null;
+  highBaseKm: number | null;
+  highTopKm: number | null;
   /** 판정 근거(디버그·시험 화면 표시용) */
   why: string;
 }
@@ -139,5 +144,16 @@ export function classifyGenus(x: GenusForecastInput, T = GENUS_THRESHOLDS): Genu
     why.push(`${high}: 상층 ${x.high}%`);
   }
 
-  return { low, mid, high, lowBaseKm: deck?.baseKm ?? null, lowTopKm: deck?.topKm ?? null, why: why.join(' · ') };
+  const midDeck = x.profile.length ? bandDeck(x.profile, LAYER_BAND_KM.lowTop, LAYER_BAND_KM.midTop) : null;
+  const highDeck = x.profile.length ? bandDeck(x.profile, LAYER_BAND_KM.midTop, 25) : null;
+  // 한 기둥이 두 띠에 걸치면(수원 10/26: 1.4~3.1 km) 아래 덱의 윗면을 위 덱의 밑면에서 자릅니다 — 같은 높이를 두 층이 겹쳐 그리면 밀도가 두 배.
+  const lowDeckCut = deck && midDeck && deck.topKm > midDeck.baseKm ? { baseKm: deck.baseKm, topKm: Math.max(deck.baseKm + 0.1, midDeck.baseKm) } : deck;
+  const midDeckCut = midDeck && highDeck && midDeck.topKm > highDeck.baseKm ? { baseKm: midDeck.baseKm, topKm: Math.max(midDeck.baseKm + 0.1, highDeck.baseKm) } : midDeck;
+  return {
+    low, mid, high,
+    lowBaseKm: lowDeckCut?.baseKm ?? null, lowTopKm: lowDeckCut?.topKm ?? null,
+    midBaseKm: midDeckCut?.baseKm ?? null, midTopKm: midDeckCut?.topKm ?? null,
+    highBaseKm: highDeck?.baseKm ?? null, highTopKm: highDeck?.topKm ?? null,
+    why: why.join(' · '),
+  };
 }

@@ -84,6 +84,12 @@ export interface SimReportPayload {
   };
   /** 스냅샷 직전 GL 버퍼 가운데 밝기(0~255) — 썸네일 칸의 "GL" 값과 같습니다. */
   gl?: number;
+  /**
+   * §165 3D 카드가 **실제로 그린** 볼륨 장면. `obs` 는 촬영 시각의 예보 입력이고, 이것은 그 순간 화면에 적용돼 있던 장면입니다 —
+   * 둘이 다르면(장면 시각이 다르거나 vol 이 'running' 이 아니면) 카드는 옛 하늘이거나 묵은 장면입니다(수원 2026-10-26 07:27 에서
+   * 이것이 없어 원인을 못 갈랐습니다). vol: off·creating·running·failed. t 장면 시각 · c [저, 중, 상(, 총)] 운량 % · g 종류 'sc/as/-' · tau.
+   */
+  scene?: { vol: string; t?: string; c?: number[]; g?: string; tau?: number };
 }
 
 const round = (v: number, decimals: number): number => {
@@ -134,6 +140,9 @@ export interface BuildSimReportParams {
   } | null;
   /** 스냅샷 직전 GL 버퍼 밝기 (−1 이면 못 잼) */
   glMean?: number;
+  /** §165 이 화면 인스턴스의 볼륨 상태와 마지막 적용 장면(`SkyRenderState.volPhase` · `.scene`) */
+  volPhase?: string;
+  scene?: { t: string; low: number; mid: number; high: number; total?: number; genus: string; tau?: number } | null;
 }
 
 export function buildSimReportPayload(params: BuildSimReportParams): SimReportPayload {
@@ -192,6 +201,19 @@ export function buildSimReportPayload(params: BuildSimReportParams): SimReportPa
         }
       : undefined,
     gl: params.glMean != null && params.glMean >= 0 ? Math.round(params.glMean) : undefined,
+    scene: params.volPhase || params.scene
+      ? {
+          vol: params.volPhase ?? 'unknown',
+          ...(params.scene
+            ? {
+                t: params.scene.t,
+                c: [params.scene.low, params.scene.mid, params.scene.high, ...(params.scene.total != null ? [params.scene.total] : [])],
+                g: params.scene.genus,
+                tau: roundOpt(params.scene.tau, 1),
+              }
+            : {}),
+        }
+      : undefined,
   };
 }
 
