@@ -40,7 +40,8 @@ def blend(h, var, models):
     if not models:
         return h.get(var)
     cols = [h.get(f'{var}_{m}') for m in models if h.get(f'{var}_{m}') is not None]
-    if not cols: return None
+    # 모델이 하나뿐이면 Open-Meteo 는 접미사 없이 평문 키로 준다(jma_msm, 2026-10-26 확인) — 그 값을 쓴다.
+    if not cols: return h.get(var)
     n = len(cols[0]); out = []
     for i in range(n):
         vs = [c[i] for c in cols if c[i] is not None]
