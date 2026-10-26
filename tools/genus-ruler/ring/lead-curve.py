@@ -71,8 +71,9 @@ def build_rows():
         if not (os.path.exists(pp) and os.path.exists(sp)): continue
         P = json.load(open(pp))['hourly']; S = json.load(open(sp))['hourly']
         st = {t: i for i, t in enumerate(S['time'])}
-        ghi = {L: blend(P, f'shortwave_radiation_previous_day{L}') for L in LEADS}
-        cc = {L: blend(P, f'cloud_cover_previous_day{L}') for L in LEADS}
+        # previous-runs 응답은 리드 0(현재 런)을 접미사 없이 `shortwave_radiation_<model>` 로 준다(2026-10-26 확인) — `_previous_day0` 키는 없다.
+        ghi = {L: blend(P, f'shortwave_radiation_previous_day{L}' if L else 'shortwave_radiation') for L in LEADS}
+        cc = {L: blend(P, f'cloud_cover_previous_day{L}' if L else 'cloud_cover') for L in LEADS}
         if any(v is None for v in ghi.values()) or any(v is None for v in cc.values()): print(site, 'variables missing', file=sys.stderr); continue
         sat = S['shortwave_radiation']
         for i, t in enumerate(P['time']):
