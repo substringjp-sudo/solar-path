@@ -2601,7 +2601,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const ow = observerWeather();
       const sunOptics = (ow && aerosolOpticsFromObs(ow)) ?? { aod: 0.12, alpha: 1.3, g: 0.64, omega: 0.95 };
       const sunVis = sunVisibility(sunPlaceAlt, simRef.current?.terrain?.observerElevation ?? 0, sunOptics);
-      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1, sunPlaceAlt, sunScale.scale, sunVis);
+      const cloudOcc = (currentLayers.clouds && lastCloudBuildRef.current)
+        ? lastCloudBuildRef.current.optics.sunTransmittance
+        : 1;
+      updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, cloudOcc, sunPlaceAlt, sunScale.scale, sunVis);
       sunDiscRadiusDegRef.current = sunScale.radiusDeg;
       if (!currentLayers.sun) sunRef.current.mesh.visible = false;
     }
