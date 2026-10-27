@@ -260,24 +260,6 @@ export interface CloudPathData {
   origin?: WeatherOrigin;
 }
 
-export const getLocalHighResModel = (lat: number, lon: number): string => {
-  // 대한민국 영역 (위도 33~39, 경도 124~132)
-  if (lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132) {
-    return 'best_match';
-  }
-  // 미국 영역 (위도 24~50, 경도 -125~-66)
-  if (lat >= 24 && lat <= 50 && lon >= -125 && lon <= -66) {
-    return 'hrrr';
-  }
-  // 독일 및 주변 유럽 영역 (위도 47~55, 경도 5~16)
-  if (lat >= 47 && lat <= 55 && lon >= 5 && lon <= 16) {
-    return 'icon_d2';
-  }
-  return 'best_match';
-};
-
-const weatherCache = new Map<string, CloudPathData[]>();
-
 /**
  * Open-Meteo 일일/분당 API 한도 초과 시 맑은 날씨(구름 0%)를 즉시 생성하는 Fallback 함수
  */
@@ -608,7 +590,8 @@ export const fetchSatelliteBias = async (
  * 6시간을 넘으면 아예 안 합니다(`satelliteBias.ts` 의 감쇠 곡선).
  *
  * ⚠ **지금 앱에서 부르는 곳이 없습니다.** 해 방향 부채꼴 요청(`fetchSunsetWeather`)이 유일한 호출처였고
- * 그 요청을 지웠습니다(§166). 360° 고리 경로(`fetchDayWeatherRing`)에는 위성 보정이 붙어 있지 않습니다.
+ * 그 요청을 지웠습니다(§166). 360° 고리 경로(`fetchDayWeatherRing`)에는 이 **운량 편향** 보정이 붙어 있지 않습니다
+ * (위성 일사로 관측점 τ 를 구하는 일은 `satelliteIrradiance.ts` 로 별개, 살아 있음).
  * 다시 붙일 때는 관측점 `fetchSatelliteBias` 값을 이 함수로 고리 점에 거는 것이 가장 짧습니다.
  *
  * ⚠ 편향은 **관측점 1점**에서 낸 것입니다. 점마다 거리로 줄이고, 층에는 모델이 둔 구름에

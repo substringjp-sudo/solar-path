@@ -3,7 +3,7 @@
 사용자: "과거를 재현하고 미래를 예측하는 시뮬레이션이 주 기능이다. 기상 수치로 한다." → 설계 판정단(2026-10-25) 네 관점이 모두 1 순위로 꼽은 항목. 초안을 3 관점(검증 통계·자료 엔지니어·유지보수)이 비판한 뒤 고친 판. 바뀐 곳은 §7 에.
 
 ## 0. 지금
-- 살아 있는 과거 분기는 셋: `fetchDayWeatherRing`(weather.ts L1362, 고리 91 점·`BLEND_MODELS_PARAM`), `fetchThermoProfile`(L1047, 관측점·모델 미지정), `fetchLayerWinds`(L1137, 관측점·모델 미지정). `fetchSunsetWeather`(L400) 는 호출부가 없는 죽은 경로(해석기만 끼우고 측정하지 않음).
+- 살아 있는 과거 분기는 셋: `fetchDayWeatherRing`(weather.ts L1362, 고리 91 점·`BLEND_MODELS_PARAM`), `fetchThermoProfile`(L1047, 관측점·모델 미지정), `fetchLayerWinds`(L1137, 관측점·모델 미지정). `fetchSunsetWeather`(L400) 는 호출부가 없는 죽은 경로(§166 에서 지움)(해석기만 끼우고 측정하지 않음).
 - 셋 모두 `Math.ceil((Date.now() − target)/일) > 5` 면 `archive-api` 로 간다. **archive 는 모델 미지정 best_match = IFS HRES 9 km 분석 + ERA5 + ERA5-Land 이어붙임**(문서)이라 "ERA5 25 km" 가 아니다 — 이 문서는 `archive` 라 부른다.
 - archive 경로의 손실: CAPE·결빙고도·기압면 기온 15 면·RH 13 면·기압면 운량 단면·지오포텐셜·층별 바람(850/600/250)이 없다. `fetchLayerWinds` 는 `missing level` 로 통째로 null, `fetchThermoProfile` 은 지상 기온·이슬점·경계층만 값(§135.3). → 밑면·두께·LCL·역전·이류 바람이 상수로 물러난다. 과거 장면이 지금 장면보다 한 등급 낮은 입력으로 그려진다.
 - 분기가 **순간(ms) 차** 라 같은 현지 날짜의 09 시와 21 시가 다른 자료원으로 갈 수 있고(캐시 키는 날짜 단위라 먼저 받은 쪽이 이김), 같은 날짜가 보는 시점에 따라 바뀐다.

@@ -218,7 +218,7 @@ fetchCloudGrid          → CloudDensityGrid   ← 기상 필드. 3D도 먹을 �
 운량이고, 이건 3D가 이미 `WeatherFan`으로 먹고 있는 `CloudData`와
 필드 이름만 다릅니다. 그래서 폴리곤화 앞에서 갈라내면 됩니다.
 
-`src/utils/cloudGridAdapter.ts` — `cloudGridToFan()`.
+`src/utils/cloudGridAdapter.ts` — `cloudGridToFan()`. ⚠ 2026-10-26 기록: 앱이 360° 고리로 바뀐 뒤 아무도 쓰지 않아 `cloudGrid.ts`·`cloudGridAdapter.ts`·검증·미리보기 도구를 지웠습니다(`SKY_REBUILD_PLAN.md` §166, git 이력 참조). 아래는 당시 기록입니다.
 
 | | 레이 | 고리 | 점 |
 |---|---|---|---|
@@ -254,7 +254,7 @@ fetchCloudGrid          → CloudDensityGrid   ← 기상 필드. 3D도 먹을 �
 있던 값이라 추가 비용이 없고, `interpolateCloudGrid()` 로 아무 시각이나
 다시 읽습니다. 재요청이 사라집니다.
 
-### 어디에 붙었나
+### 어디에 붙었나 (당시, §166 에서 삭제)
 
 하늘 탭 씬 위 **레이어 아이콘** (⚡ 초단기 실황 옆). 켜면 `SkyScene3D`에
 넘기는 `interpolatedWeather`가 격자 기반으로 바뀝니다.

@@ -437,7 +437,8 @@ export function buildMacroField(samples: MacroSample[], opts: MacroFieldOptions 
 /**
  * 고리 이음매 복사본을 걸러냅니다. `fetchDayWeatherRing` 은 방위 180° 점마다 −180° 복사본을 하나 더 돌려줍니다
  * (`WeatherFan` 이 감김에 필요). 보간·간격 계산에는 같은 자리가 두 번 들어가 남쪽 표본이 두 배로 세어지고
- * `sampleSpacingKm` 의 방위 간격(2πr/개수)이 줄어 Barnes 커널이 약 8 % 좁아집니다(§166).
+ * `sampleSpacingKm` 의 방위 간격(2πr/개수)이 줄어듭니다(12 방위 고리 7.7 %, 5 km 6 방위 고리 14 %, §166). 커널 σ = max(6 km, 0.6·간격)
+ * 이라 30 km 이상 고리의 Barnes 커널이 그만큼 좁아지고, 5·10 km 고리는 6 km 하한에 걸려 그대로입니다.
  * 같은 거리에서 180° 점이 있을 때만 −180° 점을 뺍니다. 없으면(복사본이 아니라 유일한 점) 둡니다.
  */
 export function dropSeamCopies<T extends { distance?: number; azimuthOffset?: number }>(points: T[]): T[] {

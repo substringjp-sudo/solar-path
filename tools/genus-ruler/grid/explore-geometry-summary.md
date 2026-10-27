@@ -2,7 +2,7 @@
 
 **Scope.** These are exploratory dev measurements, not a gate decision. I used only `group=='dev'` scenes (seoul_* 11 + kanazawa_* 13 = 24, in 13 date blocks, Sept–Oct 2026, both sites in East Asia) and never opened a held scene. Intervals are a percentile bootstrap over date blocks (10 000 resamples) with no correction for multiple comparisons. The inputs are idealised (no forecast error is simulated), so treat this as an upper bound on what geometry alone can do.
 
-Scripts are in this folder: `gf_lib.py` (sampler and metrics, imports macro.py), `gf_consistency.py`, `gf_shiftscan.py`, `gf_barnes.cjs` (bundled `src/utils/macroField.ts`), `gf_run.py`, `gf_orient.py`, `gf_diag_ref.py`, `gf_jitter.py`, `gf_stats.py`, `gf_md.py`.
+Scripts (NOT committed — only `geom.py` is in this folder; the numbers below cannot be re-run from the repo alone): `gf_lib.py` (sampler and metrics, imports macro.py), `gf_consistency.py`, `gf_shiftscan.py`, `gf_barnes.cjs` (bundled `src/utils/macroField.ts`), `gf_run.py`, `gf_orient.py`, `gf_diag_ref.py`, `gf_jitter.py`, `gf_stats.py`, `gf_md.py`.
 
 ## 1. Checks
 

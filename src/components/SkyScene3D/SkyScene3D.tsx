@@ -2766,7 +2766,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           sunAzDeg: sunAzRef.current,
           atmosphere,
           weather: weatherRef.current ?? [],
-          // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166).
+          // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166, 기본값도 0).
           weatherCenterAzDeg: 0,
           maxTotal: getTuning().maxClouds,
         });
