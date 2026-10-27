@@ -47,7 +47,8 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
+import { morphParamsOf } from './cloudMorph';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
@@ -390,8 +391,13 @@ export interface VolumetricOptions {
   skeletonTiltScale: number;
   /** §141 진단: 모든 종류 층의 밀도 단면 밑면 값을 이 값으로(null 이면 종류별 GENUS.profileBase 또는 takram 0.25). */
   profileBase: number | null;
+  /**
+   * 연속 형태 생성기(cloudMorph) — 저층(band low, 적란운 제외)의 무늬를 종류 프리셋 대신 예보 연속량(대류성·얼음·바람·전단)으로 만듭니다.
+   * 기본 끔(끄면 날씨 바이트 그대로). flow·skeleton 이 켜져 있으면 그쪽이 우선이고 morph 는 쓰지 않습니다(앱 화면이 throw 로 깨지지 않게).
+   */
+  morph: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, morph: false };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -961,9 +967,15 @@ export async function createVolumetricScene(
     const quantCover = (c: number) => Math.round(Math.max(0, Math.min(1, c)) / quantStep) * quantStep;
     const inputs = p.layers.slice(0, 4).map(L => (opt.macro > 0 && p.macro ? { ...L, cover: macroTileCover(p.macro[bandOfInput(L)], L.cover) } : L));
     const useFlow = opt.flow && opt.genus;
+    const useMorph = opt.morph && opt.genus && !useFlow && !opt.skeleton;
     const gl: (GenusLayer | null)[] = inputs.map((L, i) => {
       if (!L.genus || !(L.cover > 0)) return null;
       const qc = quantCover(L.cover);
+      if (useMorph && bandOfInput(L) === 'low' && L.genus !== 'cb' && L.genus !== 'cbanvil') {
+        const above = inputs.slice(i + 1).find(o => o.baseKm > L.baseKm);
+        const m = morphParamsOf({ ...L.opts, baseKm: L.baseKm, thicknessM: L.thicknessM ?? GENUS[L.genus].height, shearDzKm: Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm) }, p.thermo ?? null);
+        return { genus: L.genus, cover: opt.coverRemap ? morphCoverIn(m, qc) : qc, opts: { ...L.opts, ...morphShapeOpts(m), morph: m } };
+      }
       if (!useFlow) return { genus: L.genus, cover: opt.coverRemap ? genusCoverIn(L.genus, qc) : qc, opts: L.opts };
       // §130 흐름 층: 종류별 흐름 기본값(GENUS_FLOW)을 opts 에 합치고(캐시 키에 자동 포함) 운량 역표는 흐름용(항등으로 시작 —
       // 가산 장은 0 인 곳이 없어 chamfer 스커트가 안 생기므로 §127 표가 맞지 않음). 전단은 바로 위 층까지의 고도 차로 잽니다.

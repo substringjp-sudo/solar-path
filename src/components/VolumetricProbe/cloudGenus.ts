@@ -22,6 +22,7 @@ import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, Repe
 import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
+import type { MorphParams } from './cloudMorph';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -43,6 +44,11 @@ export interface GenusParams extends Partial<FlowLayerParams> {
   skeleton?: Skeleton;
   /** §139 K0h 대조군 — 옛 무늬 그대로, 층 밑면·두께만 뼈대 값(applyScene 이 씀). */
   skelGeom?: { baseM: number; heightM: number };
+  /**
+   * 연속 형태 손잡이(cloudMorph.morphParamsOf) — 있으면 FIELDS[genus] 대신 morphField 하나로 무늬를 만듭니다(종류 이름과 무관).
+   * volumetricScene.weatherPlan 이 옵션 morph 일 때 저층에만 채우며 캐시 키에 자동 포함. 없으면 이전과 같은 바이트.
+   */
+  morph?: MorphParams;
   /** 0 = dome(밑면 평평), 1 = lens */
   mode: number;
   /** 층 두께(m) */
@@ -668,6 +674,103 @@ const FIELDS: Record<GenusKey, Field> = {
  * 적운 512² 은 크롬에서 1.3초, 폰 JS 는 그 몇 배 — 그동안 화면이 멈췄습니다). 동기판은 끝까지 한 번에 돕니다.
  * 두 판의 바이트는 같습니다(계산 순서가 같음).
  */
+// ───── 연속 형태 생성기(morph) ─────
+/** 방위(°, 북 0 동 90)에 가장 가까운 작은 정수 방향 (a, b) ∈ [−3, 3]² — 정수라야 회전한 좌표가 타일 주기를 지킵니다(10~20° 양자화). */
+function intDir(deg: number): [number, number] {
+  const r = (deg * Math.PI) / 180, ex = Math.sin(r), ey = Math.cos(r);
+  let best: [number, number] = [1, 0], bestCos = -2, bestLen = 9;
+  for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) {
+    if (!a && !b) continue;
+    const L = Math.hypot(a, b), c = (a * ex + b * ey) / L;
+    if (c > bestCos + 1e-6 || (Math.abs(c - bestCos) <= 1e-6 && L < bestLen)) { best = [a, b]; bestCos = c; bestLen = L; }
+  }
+  return best;
+}
+/** 방위 deg 로 늘인 주기 fbm — 결 길이 lenKm(바람 방향)·폭 widKm. */
+function alignedFbm(deg: number, lenKm: number, widKm: number, tileKm: number, oct: number, seed: number): F2 {
+  const [a, b] = intDir(deg), L = Math.hypot(a, b);
+  const f = fbm2(Math.max(1, Math.round(tileKm / (lenKm * L))), Math.max(1, Math.round(tileKm / (widKm * L))), oct, seed);
+  return (u, v) => f(a * u + b * v, -b * u + a * v);
+}
+const smoothstep = (e0: number, e1: number, x: number) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+
+/**
+ * 하나의 생성기: 사인파 판(spectralNoise) ⊕ 보로노이 거품(+ c 가 크면 터렛) ⊕ 얼음 결(alignedFbm), 좌표 비틀기와 전단파.
+ *   f = lerp(판, 거품·덮개, smoothstep(0.15, 0.6, c)) → lerp(·, 결, 0.8·ice) → × (1 − w + w·물결)
+ * 문턱(면적 = 운량)·d 바이트는 genusWeatherSteps 의 기존 단계가 맡습니다.
+ */
+export function morphField(S: number, tileKm: number, seed: number, m: MorphParams): FieldPx {
+  const cellKm = Math.max(0.2, m.cellKm), c = m.c;
+  const n = Math.max(2, Math.round(tileKm / cellKm));
+  // 판·덮개는 큰 규모만(파수 상한 8·3) — 스펙트럼 잡음은 파수² 만큼 비싸 폰에서 막힘.
+  const sheet = spectralNoise(Math.min(8, Math.max(1, tileKm / (3 * cellKm))), m.aniso, m.aniso > 1.01 ? m.windDeg : null, seed + 1);
+  const env = spectralNoise(Math.min(3, Math.max(1, tileKm / (8 * cellKm))), 1, null, seed + 5);
+  const wn = Math.min(32, Math.max(4, Math.round(tileKm / (2 * cellKm))));
+  const warp = fbm(wn, 3, seed + 11), warp2 = fbm(wn, 3, seed + 13), wa = 0.35 / n;
+  const bubbleW = smoothstep(0.15, 0.6, c), turretW = smoothstep(0.6, 1, c);
+  const C = cells(n, seed + 3, 0.85);
+  const st = Math.sqrt(Math.max(1, m.aniso));
+  const wr = (m.windDeg * Math.PI) / 180, ex = Math.sin(wr), ey = Math.cos(wr);
+  // 터렛(세포 둘레 부속 봉우리)은 세포마다 한 번만 뽑아 둡니다.
+  const T = 6, tur = new Float32Array(n * n * T * 4);
+  if (turretW > 0) for (let i = 0; i < n * n; i++) {
+    const r = rng((seed ^ (i * 7919 + 17)) | 0);
+    for (let t = 0; t < T; t++) { const o = (i * T + t) * 4; tur[o] = r() * 6.2832; tur[o + 1] = 0.3 + 0.35 * r(); tur[o + 2] = 0.35 + 0.25 * r(); tur[o + 3] = 0.6 + 0.4 * r(); }
+  }
+  const fiber = m.ice > 0.02 ? alignedFbm(m.windDeg, Math.max(2, 3 * cellKm), Math.max(0.12, cellKm / 8), tileKm, 2, seed + 21) : null;
+  const band = m.ice > 0.02 ? alignedFbm(m.windDeg, 12, 2.5, tileKm, 3, seed + 23) : null;
+  let wk: [number, number] = [0, 0];
+  if (m.wave > 0) { const [a, b] = intDir(m.waveDeg), k = Math.max(1, Math.round(tileKm / (2.5 * cellKm) / Math.hypot(a, b))); wk = [a * k, b * k]; }
+  const bubbleAt = (u: number, v: number) => {
+    const ci = Math.floor(u * n), cj = Math.floor(v * n);
+    let best = 0;
+    for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const I = ci + di, J = cj + dj, p = C.at(I, J), idx = (((J % n) + n) % n) * n + (((I % n) + n) % n);
+      const dx = wrapD(u, p.x), dy = wrapD(v, p.y);
+      const R = (0.62 / n) * (0.6 + 0.4 * p.s), h = 0.55 + 0.45 * p.t;
+      const al = (dx * ex + dy * ey) / st, ac = (-dx * ey + dy * ex) * st;
+      const q0 = 1 - (al * al + ac * ac) / (R * R);
+      if (q0 > 0) best = Math.max(best, h * Math.sqrt(q0));
+      if (turretW > 0 && q0 > -1) {
+        for (let t = 0; t < T; t++) {
+          const o = (idx * T + t) * 4, tx = al - Math.cos(tur[o]) * tur[o + 1] * R, ty = ac - Math.sin(tur[o]) * tur[o + 1] * R, rb = tur[o + 2] * R;
+          const qt = 1 - (tx * tx + ty * ty) / (rb * rb);
+          if (qt > 0) best = Math.max(best, turretW * h * tur[o + 3] * Math.sqrt(qt));
+        }
+      }
+    }
+    return best;
+  };
+  return (x, y) => {
+    const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
+    const u = u0 + (warp(u0, v0) - 0.5) * wa, v = v0 + (warp2(u0, v0) - 0.5) * wa;
+    const sh = sheet(u, v);
+    let f = bubbleW > 0 ? sh + (bubbleAt(u, v) * (0.5 + env(u0, v0)) - sh) * bubbleW : sh;
+    if (fiber && band) {
+      const r = 1 - Math.abs(2 * fiber(u, v) - 1), bm = Math.min(1, Math.max(0, (band(u, v) - 0.42) / 0.25));
+      f += (bm * (0.25 + 0.75 * r * r * r * r) * (0.5 + sh) - f) * 0.8 * m.ice;
+    }
+    if (m.wave > 0) f *= 1 - m.wave + m.wave * (0.5 + 0.5 * Math.cos(6.2831853 * (wk[0] * u + wk[1] * v)));
+    return f;
+  };
+}
+
+/** 연속 손잡이 → 층 손잡이(단면·소광·모양 잡음). c 0 판 · 0.5 층적운 · 1 적운 사이 선형 보간, 단면은 돔(mode 0) 하나(셰이더 그대로). */
+const MORPH_SHEET: Partial<GenusParams> = { base: 0.05, top: 0.05, edge: 2, ao: 0.5, domePow: 1, densityScale: 0.2, shapeAmount: 0.15, shapeDetailAmount: 0.1, topQuantile: 0.6 };
+const MORPH_KEYS = ['base', 'top', 'edge', 'ao', 'domePow', 'densityScale', 'shapeAmount', 'shapeDetailAmount', 'topQuantile'] as const;
+export function morphShapeOpts(m: MorphParams): Partial<GenusParams> {
+  const anchor = (g: 'sc' | 'cu') => ({ ...GENUS[g], topQuantile: GENUS[g].topQuantile ?? 0.997 });
+  const [a, b, t] = m.c <= 0.5 ? [MORPH_SHEET, anchor('sc'), m.c / 0.5] : [anchor('sc'), anchor('cu'), (m.c - 0.5) / 0.5];
+  const out: Partial<GenusParams> = { mode: 0 };
+  for (const k of MORPH_KEYS) { const x = a[k] as number, y = b[k] as number; out[k] = Math.round((x + (y - x) * t) * 1e4) / 1e4; }
+  return out;
+}
+/** 운량 역표도 같은 보간(판 = 항등, sc·cu 는 §127 표). 재측정 전까지 근사입니다. */
+export function morphCoverIn(m: MorphParams, cover: number): number {
+  const sc = genusCoverIn('sc', cover), cu = genusCoverIn('cu', cover);
+  return m.c <= 0.5 ? cover + (sc - cover) * (m.c / 0.5) : sc + (cu - sc) * ((m.c - 0.5) / 0.5);
+}
+
 function* genusWeatherSteps(
   data: Uint8Array, layers: (GenusLayer | null)[], S: number, tileKm: number, seed: number, plainCover: number[],
   flow: FlowSceneParams | null = null,
@@ -714,7 +817,8 @@ function* genusWeatherSteps(
       const w = flowLayerWeightsOf(L.opts ?? {}, L.genus, tileKm, 0, L.opts?.shearDzKm ?? 2);
       yield* flowComposeSteps(core, T, TS, S, w, f);
     } else {
-      const px = FIELDS[L.genus](S, tileKm, L.opts?.seed ?? seed + k * 1000, L);
+      const lseed = L.opts?.seed ?? seed + k * 1000;
+      const px = L.opts?.morph ? morphField(S, tileKm, lseed, L.opts.morph) : FIELDS[L.genus](S, tileKm, lseed, L);
       for (let y = 0; y < S; y++) {
         for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
         if (y % ROWS === ROWS - 1) yield;

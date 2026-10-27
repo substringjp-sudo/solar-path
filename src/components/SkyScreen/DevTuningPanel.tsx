@@ -138,6 +138,7 @@ const VolumetricPerfRow: React.FC = () => {
   const phys = useCelestialStore(s => !!s.skySettings.volumetricPhysics);
   const physIce = useCelestialStore(s => !!s.skySettings.volumetricPhysicsIce);
   const macroMode = useCelestialStore(s => s.skySettings.volumetricMacro ?? 1);
+  const morph = useCelestialStore(s => !!s.skySettings.volumetricMorph);
   const camVol = useCelestialStore(s => !!s.skySettings.cameraVolumetric);
   const set = useCelestialStore.getState().setSkySettings;
   const st = volumetricStats;
@@ -187,6 +188,11 @@ const VolumetricPerfRow: React.FC = () => {
         {/* §156 거시 운량 격자 — MAC0 끔(기울기 두 수) · MAC1 Barnes 격자(기본) · MAC2 스펙트럼 잡음까지. 누를 때마다 0→1→2 */}
         <TouchableOpacity onPress={() => set({ volumetricMacro: ((macroMode + 1) % 3) as 0 | 1 | 2 })} style={chip(macroMode > 0)}>
           <Text style={styles.volChipText}>{`MAC${macroMode}`}</Text>
+        </TouchableOpacity>
+        <View style={{ width: 6 }} />
+        {/* 연속 형태 생성기(MORPH) — 예보 연속 물리량(대류성·얼음·바람·전단)으로 저층 형태 생성 */}
+        <TouchableOpacity onPress={() => set({ volumetricMorph: !morph })} style={chip(morph)}>
+          <Text style={styles.volChipText}>MORPH</Text>
         </TouchableOpacity>
         <View style={{ width: 6 }} />
         {/* §143 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘 — 메인 시뮬레이션과 같은 구름. 카메라 스트림과 GPU 를 나눠 쓰므로 기기 확인용 */}

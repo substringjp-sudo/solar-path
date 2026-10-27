@@ -332,6 +332,7 @@ export const useCelestialStore = create<CelestialState>()(
         volumetricPhysics: false,
         volumetricPhysicsIce: false,
         volumetricMacro: 1,
+        volumetricMorph: false,
       },
       setSkySettings: (patch) => set(state => ({ skySettings: { ...state.skySettings, ...patch } })),
       skyTimeline: null,
