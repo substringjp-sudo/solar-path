@@ -1,0 +1,623 @@
+{
+ "tool": "tools/genus-ruler/tsun/tsun_photo.py",
+ "ruler": "RULER-tsun.md (초안)",
+ "color": "sRGB EOTF → 선형 sRGB(ICC 무시), Rec.709 가중",
+ "sun_engine": {
+  "P1": {
+   "alt": -9.8423,
+   "az": 272.6585
+  },
+  "P2": {
+   "alt": -6.9193,
+   "az": 268.972
+  },
+  "P3": {
+   "alt": 1.1076,
+   "az": 263.3732
+  }
+ },
+ "photos": {
+  "P1": {
+   "image": "/root/.claude/uploads/827aa702-2f52-52c8-9fe8-e45a3ff14759/035793bf-image.jpg",
+   "image_sha256": "42bbd2ec6d6e6ee7cf480ce97923ba1b946a6ca79b98e3b5a24d40234c8b03ec",
+   "sha_ok": true,
+   "geo": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/geo-P1.json",
+   "geo_sha256": "07f00fe46daf50af35b4f36be5b938c39f07173685969e770129fcb108dace23",
+   "downsample": 4,
+   "n_sky": 444817,
+   "metrics": {
+    "D1": [
+     1.812,
+     1.733,
+     1.799,
+     1.764
+    ],
+    "D3": [
+     0.248,
+     0.426,
+     0.999,
+     1.416
+    ],
+    "D1_parts": [
+     {
+      "el": [
+       6,
+       10
+      ],
+      "n_deck": 12988,
+      "n_clear": 28702,
+      "RB_deck": 1.171,
+      "RB_clear": 0.646
+     },
+     {
+      "el": [
+       10,
+       15
+      ],
+      "n_deck": 26203,
+      "n_clear": 27940,
+      "RB_deck": 0.892,
+      "RB_clear": 0.514
+     },
+     {
+      "el": [
+       15,
+       20
+      ],
+      "n_deck": 34636,
+      "n_clear": 19413,
+      "RB_deck": 0.703,
+      "RB_clear": 0.391
+     },
+     {
+      "el": [
+       20,
+       30
+      ],
+      "n_deck": 96813,
+      "n_clear": 6004,
+      "RB_deck": 0.522,
+      "RB_clear": 0.296
+     }
+    ],
+    "D2": [
+     1.823,
+     1.64,
+     1.912,
+     1.985,
+     1.815
+    ],
+    "D2_pooled_8_18": 1.796,
+    "D2_pairs": 11108,
+    "D4": 0.362,
+    "D5": 4.135,
+    "D5_ncols": 475,
+    "hue_deck": {
+     "magenta": 0.691,
+     "blue": 0.778,
+     "n": 170640
+    },
+    "hue_sky": {
+     "magenta": 0.484,
+     "blue": 0.827,
+     "n": 368897
+    },
+    "D2t": [
+     1.721,
+     1.596,
+     1.806,
+     2.062,
+     1.955
+    ]
+   },
+   "cited": {
+    "D4s_cloud_over_sky_band": {
+     "value": [
+      0.22,
+      0.24
+     ],
+     "src": "twphoto/critic.md Q5 D4 (meas-P1.json)"
+    }
+   },
+   "repro": [
+    {
+     "metric": "D1",
+     "i": 0,
+     "critic": 1.81,
+     "tool": 1.812,
+     "dev": 0.001,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
+    },
+    {
+     "metric": "D1",
+     "i": 1,
+     "critic": 1.73,
+     "tool": 1.733,
+     "dev": 0.002,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
+    },
+    {
+     "metric": "D1",
+     "i": 2,
+     "critic": 1.8,
+     "tool": 1.799,
+     "dev": -0.0,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
+    },
+    {
+     "metric": "D1",
+     "i": 3,
+     "critic": 1.76,
+     "tool": 1.764,
+     "dev": 0.002,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
+    },
+    {
+     "metric": "D3",
+     "i": 0,
+     "critic": 0.25,
+     "tool": 0.248,
+     "dev": -0.007,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
+    },
+    {
+     "metric": "D3",
+     "i": 1,
+     "critic": 0.43,
+     "tool": 0.426,
+     "dev": -0.009,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
+    },
+    {
+     "metric": "D3",
+     "i": 2,
+     "critic": 1.0,
+     "tool": 0.999,
+     "dev": -0.001,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
+    },
+    {
+     "metric": "D3",
+     "i": 3,
+     "critic": 1.42,
+     "tool": 1.416,
+     "dev": -0.003,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
+    },
+    {
+     "metric": "D2t",
+     "i": 0,
+     "critic": 1.72,
+     "tool": 1.721,
+     "dev": 0.001,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md §1 #7 (critic/mirror.py)"
+    },
+    {
+     "metric": "D2t",
+     "i": 1,
+     "critic": 1.6,
+     "tool": 1.596,
+     "dev": -0.003,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md §1 #7 (critic/mirror.py)"
+    },
+    {
+     "metric": "D2t",
+     "i": 2,
+     "critic": 1.81,
+     "tool": 1.806,
+     "dev": -0.002,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md §1 #7 (critic/mirror.py)"
+    },
+    {
+     "metric": "D2t",
+     "i": 3,
+     "critic": 2.06,
+     "tool": 2.062,
+     "dev": 0.001,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md §1 #7 (critic/mirror.py)"
+    },
+    {
+     "metric": "D2t",
+     "i": 4,
+     "critic": 1.95,
+     "tool": 1.955,
+     "dev": 0.003,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "twphoto/critic.md §1 #7 (critic/mirror.py)"
+    },
+    {
+     "metric": "D4",
+     "i": 0,
+     "critic": 0.356,
+     "tool": 0.362,
+     "dev": 0.018,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "render-metrics.json photos.P1 band_p10_over_glow_luma (warped photo)"
+    },
+    {
+     "metric": "D5",
+     "i": 0,
+     "critic": 4.07,
+     "tool": 4.135,
+     "dev": 0.065,
+     "tol": 0.1,
+     "mode": "abs",
+     "ok": true,
+     "src": "render-metrics.json photos.P1 band_top luma_rule_median (warped photo)"
+    }
+   ],
+   "repro_all_ok": true,
+   "p3_matrix_sensitivity": {
+    "D1": [
+     2.007,
+     1.909,
+     1.985,
+     1.964
+    ],
+    "D2_pooled_8_18": 1.97,
+    "D3": [
+     0.251,
+     0.43,
+     1.006,
+     1.423
+    ],
+    "D4": 0.362
+   }
+  },
+  "P2": {
+   "image": "/root/.claude/uploads/827aa702-2f52-52c8-9fe8-e45a3ff14759/2ffb5792-image.jpg",
+   "image_sha256": "d349990c673a19e3668cd28c7c36a5832024a0346802ab2b1effc33984da8461",
+   "sha_ok": true,
+   "geo": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/geo-P2.json",
+   "geo_sha256": "9ada516ac8c8dfe6cb5449e097aea88dff89b75441e5f680660acbdda3c584e1",
+   "downsample": 2,
+   "n_sky": 1445839,
+   "metrics": {
+    "E1": 2.2,
+    "E2": 3.8,
+    "E1E2_n": [
+     27,
+     28
+    ],
+    "E1_p10_p90": [
+     2.1,
+     3.1
+    ],
+    "E2_p10_p90": [
+     3.385,
+     4.1
+    ],
+    "luma_med": {
+     "strip": 76.634,
+     "band": 192.9,
+     "deck": 49.799,
+     "upper": 40.646
+    },
+    "E3": 2.517,
+    "E4": 3.874,
+    "RB": {
+     "strip": 1.37,
+     "band": 4.405,
+     "deck": 1.023,
+     "upper": 0.823
+    },
+    "E8": 0.311,
+    "E5q": [
+     1.046,
+     1.304
+    ],
+    "E6q": [
+     0.088,
+     0.06
+    ],
+    "E5a": [],
+    "E6a": [],
+    "E5_parts": [
+     {
+      "el": [
+       7.5,
+       8.5
+      ],
+      "n": 105209,
+      "RB_bright": 0.85,
+      "RB_dark": 0.889
+     },
+     {
+      "el": [
+       8.5,
+       9.0
+      ],
+      "n": 52656,
+      "RB_bright": 0.717,
+      "RB_dark": 0.936
+     }
+    ],
+    "hue_sky": {
+     "magenta": 0.0,
+     "blue": 0.377,
+     "n": 1445839
+    }
+   },
+   "cited": {
+    "E5seg": {
+     "value": {
+      "7.5-8.0": 1.349,
+      "8.0-8.5": 1.226,
+      "8.5-9.0": 1.442,
+      "core": [
+       1.393,
+       1.289,
+       1.579
+      ]
+     },
+     "src": "heda/meas-P2.json deck_vs_gap_same_el"
+    },
+    "E6seg": {
+     "value": {
+      "7.5-8.0": 0.152,
+      "8.0-8.5": 0.181,
+      "8.5-9.0": 0.174,
+      "core": [
+       0.124,
+       0.146,
+       0.141
+      ]
+     },
+     "src": "heda/meas-P2.json deck_vs_gap_same_el"
+    },
+    "E7": {
+     "value": {
+      "0.75-2.25": 0.135,
+      "2.25-3.5": 0.352,
+      "3.5-6.25": 0.107,
+      "6.25-9.0": 0.185,
+      "9.0-10.0": 0.141
+     },
+     "src": "heda/meas-P2.json headline ratio_cloud_to_sky_behind (critic Q5 E7 \"0.06-0.43\")"
+    }
+   },
+   "repro": [
+    {
+     "metric": "E1",
+     "i": 0,
+     "critic": 2.2,
+     "tool": 2.2,
+     "dev": 0.0,
+     "tol": 0.1,
+     "mode": "abs",
+     "ok": true,
+     "src": "heda/critic2/p2meas.json adopted/edges_halfmax_cols strip_top_med"
+    },
+    {
+     "metric": "E2",
+     "i": 0,
+     "critic": 3.8,
+     "tool": 3.8,
+     "dev": 0.0,
+     "tol": 0.1,
+     "mode": "abs",
+     "ok": true,
+     "src": "heda/critic2/p2meas.json deck_edge_med"
+    },
+    {
+     "metric": "E3",
+     "i": 0,
+     "critic": 2.504,
+     "tool": 2.517,
+     "dev": 0.005,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/critic2/p2meas.json adopted/meas band_strip"
+    },
+    {
+     "metric": "E4",
+     "i": 0,
+     "critic": 3.876,
+     "tool": 3.874,
+     "dev": -0.001,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/critic2/p2meas.json adopted/meas band_deck"
+    },
+    {
+     "metric": "E5q",
+     "i": 0,
+     "critic": 1.046,
+     "tool": 1.046,
+     "dev": 0.0,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/critic2/p2meas.json deck_vs_gap_quantile 7.5-8.5, 8.5-9.0"
+    },
+    {
+     "metric": "E5q",
+     "i": 1,
+     "critic": 1.304,
+     "tool": 1.304,
+     "dev": 0.0,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/critic2/p2meas.json deck_vs_gap_quantile 7.5-8.5, 8.5-9.0"
+    },
+    {
+     "metric": "E8",
+     "i": 0,
+     "critic": 0.289,
+     "tool": 0.311,
+     "dev": 0.076,
+     "tol": 0.1,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/render-metrics.json photos.P2 strip_over_band_RoverB (band 2.4-3.4, warped) — 정의 차이로 ±10 %"
+    }
+   ],
+   "repro_all_ok": true,
+   "p3_matrix_sensitivity": {
+    "E3": 2.517,
+    "E4": 3.874,
+    "E5q": [
+     1.071,
+     1.393
+    ],
+    "E6q": [
+     0.088,
+     0.061
+    ],
+    "E8": 0.245
+   }
+  },
+  "P3": {
+   "image": "/root/.claude/uploads/827aa702-2f52-52c8-9fe8-e45a3ff14759/b7bca0fb-image.jpg",
+   "image_sha256": "c715077d0eae013744a3d702d5edc0efbe32ab5ccfe040ffed09c4b96ec25966",
+   "sha_ok": true,
+   "geo": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/geo-P3.json",
+   "geo_sha256": "307ff154e051b452bef12743e33390f20f7447ccf79428de02df1c250a8604a9",
+   "downsample": 4,
+   "n_sky": 570307,
+   "metrics": {
+    "RB": {
+     "glow": 5.324,
+     "side": 3.774,
+     "mid": 2.234,
+     "upper": 0.956,
+     "sheet": 1.055,
+     "ref": 1.206,
+     "far": 4.868
+    },
+    "luma_med": {
+     "glow": 149.093,
+     "side": 111.309,
+     "mid": 137.479,
+     "upper": 88.012,
+     "sheet": 92.276,
+     "ref": 119.014,
+     "far": 130.344
+    },
+    "C1": 5.572,
+    "C2": 0.462,
+    "C3r": 0.874,
+    "C4": 6.785,
+    "C4_warm_frac": 0.665,
+    "C4_ref_RBpx_median": 1.062,
+    "C5": 1.75,
+    "C6": 1.694,
+    "hue_sky": {
+     "magenta": 0.001,
+     "blue": 0.331,
+     "n": 570307
+    }
+   },
+   "cited": {
+    "C3": {
+     "value": 0.93,
+     "src": "heda/meas-P3.json headline 6.5-8.25 dark RB_over_ref (critic Q5 C3)"
+    },
+    "C4": {
+     "value": [
+      6.408,
+      6.441,
+      7.767
+     ],
+     "src": "heda/meas-P3.json headline RB_warm_over_ref 1.25-2.5/2.5-3.25/3.25-4.25"
+    }
+   },
+   "repro": [
+    {
+     "metric": "C1",
+     "i": 0,
+     "critic": 5.618,
+     "tool": 5.572,
+     "dev": -0.008,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/render-metrics.json photos.P3 glow_over_upper_RoverB (warped)"
+    },
+    {
+     "metric": "C2",
+     "i": 0,
+     "critic": 0.463,
+     "tool": 0.462,
+     "dev": -0.001,
+     "tol": 0.05,
+     "mode": "abs",
+     "ok": true,
+     "src": "heda/render-metrics.json photos.P3 warm_frac_mid_2x_upperRB (warped)"
+    },
+    {
+     "metric": "C5",
+     "i": 0,
+     "critic": 1.75,
+     "tool": 1.75,
+     "dev": 0.0,
+     "tol": 0.1,
+     "mode": "abs",
+     "ok": true,
+     "src": "heda/render-metrics.json photos.P3 glow.peak_el (warped)"
+    },
+    {
+     "metric": "C6",
+     "i": 0,
+     "critic": 1.693,
+     "tool": 1.694,
+     "dev": 0.001,
+     "tol": 0.05,
+     "mode": "rel",
+     "ok": true,
+     "src": "heda/render-metrics.json photos.P3 glow_over_upper_luma (warped)"
+    }
+   ],
+   "repro_all_ok": true,
+   "p3_matrix_sensitivity": {
+    "C1": 8.074,
+    "C2": 0.502,
+    "C4": 10.224,
+    "C6": 1.694
+   }
+  }
+ }
+}

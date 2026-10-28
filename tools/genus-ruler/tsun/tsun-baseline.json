@@ -1,0 +1,1481 @@
+{
+ "P1_B_t0x_obs_r100": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_B_t0x_obs_r100.png",
+  "png_sha256": "c125f3df13726e8a99ff5267ea7f0e282cfd6673eaf3dc4bb3a60809a6ac76e9",
+  "metrics": {
+   "D1": [
+    1.034,
+    0.777,
+    0.972,
+    1.008
+   ],
+   "D3": [
+    0.292,
+    0.414,
+    0.642,
+    0.617
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 1.237,
+     "RB_clear": 1.196
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 0.327,
+     "RB_clear": 0.421
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 0.141,
+     "RB_clear": 0.145
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 0.125,
+     "RB_clear": 0.124
+    }
+   ],
+   "D2": [
+    1.94,
+    1.196,
+    1.055,
+    0.999,
+    0.918
+   ],
+   "D2_pooled_8_18": 0.709,
+   "D2_pairs": 12806,
+   "D4": 0.568,
+   "D5": 1.779,
+   "D5_ncols": 475,
+   "D5a": 4.857,
+   "D5a_cols_with_cloud": 1.0,
+   "hue_deck": {
+    "magenta": 0.074,
+    "blue": 0.911,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.203,
+    "blue": 0.743,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.506
+  }
+ },
+ "P1_B_t0x_ps_r100": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_B_t0x_ps_r100.png",
+  "png_sha256": "5b91e1b9d3a5ad092fc03d9eb737970d2c53fb82f8ad50c034bcb67686b911ba",
+  "metrics": {
+   "D1": [
+    1.033,
+    0.795,
+    1.033,
+    1.077
+   ],
+   "D3": [
+    0.297,
+    0.448,
+    0.702,
+    0.668
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 1.236,
+     "RB_clear": 1.196
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 0.335,
+     "RB_clear": 0.421
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 0.15,
+     "RB_clear": 0.145
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 0.133,
+     "RB_clear": 0.124
+    }
+   ],
+   "D2": [
+    2.005,
+    1.2,
+    1.074,
+    1.106,
+    1.023
+   ],
+   "D2_pooled_8_18": 0.728,
+   "D2_pairs": 12806,
+   "D4": 0.573,
+   "D5": 1.728,
+   "D5_ncols": 475,
+   "D5a": 4.857,
+   "D5a_cols_with_cloud": 1.0,
+   "hue_deck": {
+    "magenta": 0.077,
+    "blue": 0.912,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.204,
+    "blue": 0.743,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.51
+  }
+ },
+ "P1_B_t0x_obs_r400": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_B_t0x_obs_r400.png",
+  "png_sha256": "56ad9b217caa3e2c52a360cc99cd9ae855f3b26f5370b24e31f9f5678f3f59f0",
+  "metrics": {
+   "D1": [
+    1.038,
+    0.783,
+    0.971,
+    1.005
+   ],
+   "D3": [
+    0.288,
+    0.417,
+    0.639,
+    0.616
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 1.241,
+     "RB_clear": 1.196
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 0.33,
+     "RB_clear": 0.421
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 0.14,
+     "RB_clear": 0.144
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 0.124,
+     "RB_clear": 0.124
+    }
+   ],
+   "D2": [
+    1.819,
+    1.255,
+    1.056,
+    0.992,
+    0.912
+   ],
+   "D2_pooled_8_18": 0.728,
+   "D2_pairs": 12806,
+   "D4": 0.567,
+   "D5": 1.773,
+   "D5_ncols": 475,
+   "D5a": 4.858,
+   "D5a_cols_with_cloud": 0.998,
+   "hue_deck": {
+    "magenta": 0.075,
+    "blue": 0.91,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.203,
+    "blue": 0.742,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.507
+  }
+ },
+ "P1_B_t0x_ps_r400": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_B_t0x_ps_r400.png",
+  "png_sha256": "c986fd56bfe32cc55e307f978f750b4bde925415585ce94c308cef07c6f9257c",
+  "metrics": {
+   "D1": [
+    1.036,
+    0.799,
+    1.032,
+    1.077
+   ],
+   "D3": [
+    0.293,
+    0.449,
+    0.699,
+    0.667
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 1.238,
+     "RB_clear": 1.195
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 0.336,
+     "RB_clear": 0.421
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 0.149,
+     "RB_clear": 0.145
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 0.133,
+     "RB_clear": 0.124
+    }
+   ],
+   "D2": [
+    1.922,
+    1.238,
+    1.071,
+    1.106,
+    1.014
+   ],
+   "D2_pooled_8_18": 0.739,
+   "D2_pairs": 12806,
+   "D4": 0.572,
+   "D5": 1.74,
+   "D5_ncols": 475,
+   "D5a": 4.858,
+   "D5a_cols_with_cloud": 0.998,
+   "hue_deck": {
+    "magenta": 0.077,
+    "blue": 0.911,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.205,
+    "blue": 0.743,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.511
+  }
+ },
+ "P1_A_t0x_obs_r100": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_A_t0x_obs_r100.png",
+  "png_sha256": "fcf5d6239354d171bc81d6bca89b271ecd1574e5916c82796fd5267b885f1af7",
+  "metrics": {
+   "D1": [
+    0.988,
+    0.921,
+    0.994,
+    0.928
+   ],
+   "D3": [
+    0.673,
+    1.001,
+    1.055,
+    0.843
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 1.201,
+     "RB_clear": 1.216
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 0.383,
+     "RB_clear": 0.416
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 0.141,
+     "RB_clear": 0.142
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 0.114,
+     "RB_clear": 0.123
+    }
+   ],
+   "D2": [
+    1.003,
+    1.12,
+    1.099,
+    1.06,
+    1.004
+   ],
+   "D2_pooled_8_18": 1.123,
+   "D2_pairs": 12806,
+   "D4": 0.807,
+   "D5": 1.551,
+   "D5_ncols": 475,
+   "D5a": 4.643,
+   "D5a_cols_with_cloud": 0.701,
+   "hue_deck": {
+    "magenta": 0.098,
+    "blue": 0.926,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.169,
+    "blue": 0.736,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.568
+  }
+ },
+ "P1_B_s25_ps_r100": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_B_s25_ps_r100.png",
+  "png_sha256": "67497c36af96d0fb2b2bf66f786016177d2aa8f90add65e3fd7ed4ded35a69f3",
+  "metrics": {
+   "D1": [
+    1.61,
+    2.01,
+    2.252,
+    2.135
+   ],
+   "D3": [
+    0.807,
+    0.706,
+    0.687,
+    0.695
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 1.763,
+     "RB_clear": 1.095
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 1.712,
+     "RB_clear": 0.852
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 1.549,
+     "RB_clear": 0.688
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 1.25,
+     "RB_clear": 0.586
+    }
+   ],
+   "D2": [
+    3.046,
+    2.613,
+    1.447,
+    2.78,
+    3.983
+   ],
+   "D2_pooled_8_18": 2.181,
+   "D2_pairs": 12806,
+   "D4": 0.32,
+   "D5": 3.891,
+   "D5_ncols": 475,
+   "D5a": 4.857,
+   "D5a_cols_with_cloud": 1.0,
+   "hue_deck": {
+    "magenta": 0.739,
+    "blue": 0.263,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.46,
+    "blue": 0.44,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.377
+  }
+ },
+ "P1_B_s4_ps_r100": {
+  "pid": "P1",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/out/R1/P1_B_s4_ps_r100.png",
+  "png_sha256": "0d8260bfa5b829576f399703feec3292d21f10a1ca4e80f43c65a7d861e03f6d",
+  "metrics": {
+   "D1": [
+    0.847,
+    0.83,
+    0.89,
+    0.856
+   ],
+   "D3": [
+    0.506,
+    0.408,
+    0.443,
+    0.464
+   ],
+   "D1_parts": [
+    {
+     "el": [
+      6,
+      10
+     ],
+     "n_deck": 12984,
+     "n_clear": 28703,
+     "RB_deck": 0.842,
+     "RB_clear": 0.994
+    },
+    {
+     "el": [
+      10,
+      15
+     ],
+     "n_deck": 26201,
+     "n_clear": 27948,
+     "RB_deck": 0.562,
+     "RB_clear": 0.677
+    },
+    {
+     "el": [
+      15,
+      20
+     ],
+     "n_deck": 34643,
+     "n_clear": 19408,
+     "RB_deck": 0.436,
+     "RB_clear": 0.489
+    },
+    {
+     "el": [
+      20,
+      30
+     ],
+     "n_deck": 96840,
+     "n_clear": 6000,
+     "RB_deck": 0.341,
+     "RB_clear": 0.398
+    }
+   ],
+   "D2": [
+    0.514,
+    0.662,
+    0.94,
+    0.715,
+    0.54
+   ],
+   "D2_pooled_8_18": 0.78,
+   "D2_pairs": 12806,
+   "D4": 0.17,
+   "D5": 4.237,
+   "D5_ncols": 475,
+   "D5a": 4.857,
+   "D5a_cols_with_cloud": 1.0,
+   "hue_deck": {
+    "magenta": 0.022,
+    "blue": 0.979,
+    "n": 170668
+   },
+   "hue_sky": {
+    "magenta": 0.089,
+    "blue": 0.866,
+    "n": 368742
+   },
+   "D4s_render_alpha": 0.224
+  }
+ },
+ "P2_B_t0x_obs_r100": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_B_t0x_obs_r100.png",
+  "png_sha256": "5d8f2b2441f52f45e700b0573949afc21c4c2b5a5b7b68f3ec1b8d5b7921a4e7",
+  "metrics": {
+   "E1": 1.9,
+   "E2": 4.15,
+   "E1E2_n": [
+    26,
+    21
+   ],
+   "E1_p10_p90": [
+    1.75,
+    2.3
+   ],
+   "E2_p10_p90": [
+    3.85,
+    4.7
+   ],
+   "luma_med": {
+    "strip": 59.445,
+    "band": 192.418,
+    "deck": 39.426,
+    "upper": 16.083
+   },
+   "E3": 3.237,
+   "E4": 4.881,
+   "RB": {
+    "strip": 2.276,
+    "band": 2.128,
+    "deck": 1.176,
+    "upper": 0.544
+   },
+   "E8": 1.07,
+   "E5q": [
+    0.661,
+    0.725
+   ],
+   "E6q": [
+    0.021,
+    0.039
+   ],
+   "E5a": [
+    0.737,
+    0.722
+   ],
+   "E6a": [
+    0.042,
+    0.037
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.764,
+     "RB_dark": 0.505,
+     "n_cloud": 5244,
+     "n_sky": 898
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.631,
+     "RB_dark": 0.457,
+     "n_cloud": 3147,
+     "n_sky": 39
+    }
+   ],
+   "E7": {
+    "2-2.5": 0.403,
+    "3-3.5": 0.584,
+    "3.5-4": 0.409,
+    "4-5": 0.18,
+    "5-6": 0.15,
+    "6-8": 0.137,
+    "8-10": 0.111,
+    "10-12": 0.138,
+    "12-15": 0.12
+   },
+   "hue_sky": {
+    "magenta": 0.195,
+    "blue": 0.674,
+    "n": 97547
+   }
+  }
+ },
+ "P2_B_t0x_ps_r100": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_B_t0x_ps_r100.png",
+  "png_sha256": "70bdd57d7dae5f50a973ba190350b5f8c12b51c672ac6bf7a14f6ebf9d138eca",
+  "metrics": {
+   "E1": 1.9,
+   "E2": 4.15,
+   "E1E2_n": [
+    26,
+    21
+   ],
+   "E1_p10_p90": [
+    1.75,
+    2.3
+   ],
+   "E2_p10_p90": [
+    3.85,
+    4.7
+   ],
+   "luma_med": {
+    "strip": 59.658,
+    "band": 192.418,
+    "deck": 40.094,
+    "upper": 16.368
+   },
+   "E3": 3.225,
+   "E4": 4.799,
+   "RB": {
+    "strip": 2.278,
+    "band": 2.128,
+    "deck": 1.175,
+    "upper": 0.543
+   },
+   "E8": 1.07,
+   "E5q": [
+    0.66,
+    0.725
+   ],
+   "E6q": [
+    0.021,
+    0.039
+   ],
+   "E5a": [
+    0.735,
+    0.722
+   ],
+   "E6a": [
+    0.043,
+    0.038
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.764,
+     "RB_dark": 0.504,
+     "n_cloud": 5241,
+     "n_sky": 898
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.631,
+     "RB_dark": 0.457,
+     "n_cloud": 3146,
+     "n_sky": 39
+    }
+   ],
+   "E7": {
+    "2-2.5": 0.401,
+    "3-3.5": 0.585,
+    "3.5-4": 0.411,
+    "4-5": 0.181,
+    "5-6": 0.152,
+    "6-8": 0.14,
+    "8-10": 0.113,
+    "10-12": 0.14,
+    "12-15": 0.121
+   },
+   "hue_sky": {
+    "magenta": 0.195,
+    "blue": 0.676,
+    "n": 97547
+   }
+  }
+ },
+ "P2_B_t0x_obs_r400": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_B_t0x_obs_r400.png",
+  "png_sha256": "3b8bbcb4d0caf6c394b8da1bc75259b392c10cb78c37611f937f3601352f390a",
+  "metrics": {
+   "E1": 1.9,
+   "E2": 4.15,
+   "E1E2_n": [
+    25,
+    21
+   ],
+   "E1_p10_p90": [
+    1.72,
+    2.3
+   ],
+   "E2_p10_p90": [
+    3.85,
+    4.65
+   ],
+   "luma_med": {
+    "strip": 60.87,
+    "band": 192.418,
+    "deck": 39.343,
+    "upper": 16.083
+   },
+   "E3": 3.161,
+   "E4": 4.891,
+   "RB": {
+    "strip": 2.345,
+    "band": 2.128,
+    "deck": 1.175,
+    "upper": 0.545
+   },
+   "E8": 1.102,
+   "E5q": [
+    0.66,
+    0.725
+   ],
+   "E6q": [
+    0.02,
+    0.038
+   ],
+   "E5a": [
+    0.732,
+    0.72
+   ],
+   "E6a": [
+    0.04,
+    0.037
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.765,
+     "RB_dark": 0.505,
+     "n_cloud": 5190,
+     "n_sky": 900
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.631,
+     "RB_dark": 0.458,
+     "n_cloud": 3146,
+     "n_sky": 33
+    }
+   ],
+   "E7": {
+    "2-2.5": 0.392,
+    "3-3.5": 0.548,
+    "3.5-4": 0.414,
+    "4-5": 0.181,
+    "5-6": 0.149,
+    "6-8": 0.137,
+    "8-10": 0.11,
+    "10-12": 0.152,
+    "12-15": 0.12
+   },
+   "hue_sky": {
+    "magenta": 0.193,
+    "blue": 0.673,
+    "n": 97547
+   }
+  }
+ },
+ "P2_B_t0x_ps_r400": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_B_t0x_ps_r400.png",
+  "png_sha256": "978aa28eeed670ddee9a9b0956887e69c813f0da593ba86763ea754d3b0523f6",
+  "metrics": {
+   "E1": 1.9,
+   "E2": 4.15,
+   "E1E2_n": [
+    25,
+    21
+   ],
+   "E1_p10_p90": [
+    1.72,
+    2.3
+   ],
+   "E2_p10_p90": [
+    3.85,
+    4.65
+   ],
+   "luma_med": {
+    "strip": 61.01,
+    "band": 192.418,
+    "deck": 40.058,
+    "upper": 16.368
+   },
+   "E3": 3.154,
+   "E4": 4.803,
+   "RB": {
+    "strip": 2.344,
+    "band": 2.128,
+    "deck": 1.174,
+    "upper": 0.545
+   },
+   "E8": 1.101,
+   "E5q": [
+    0.659,
+    0.725
+   ],
+   "E6q": [
+    0.021,
+    0.039
+   ],
+   "E5a": [
+    0.73,
+    0.719
+   ],
+   "E6a": [
+    0.041,
+    0.037
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.765,
+     "RB_dark": 0.504,
+     "n_cloud": 5186,
+     "n_sky": 899
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.631,
+     "RB_dark": 0.458,
+     "n_cloud": 3145,
+     "n_sky": 33
+    }
+   ],
+   "E7": {
+    "2-2.5": 0.392,
+    "3-3.5": 0.548,
+    "3.5-4": 0.415,
+    "4-5": 0.182,
+    "5-6": 0.152,
+    "6-8": 0.14,
+    "8-10": 0.112,
+    "10-12": 0.154,
+    "12-15": 0.121
+   },
+   "hue_sky": {
+    "magenta": 0.193,
+    "blue": 0.675,
+    "n": 97547
+   }
+  }
+ },
+ "P2_A_t0x_obs_r100": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_A_t0x_obs_r100.png",
+  "png_sha256": "8824c9c6f812eb46a01985faa5b34d049e4c3d82fd4f71e6ee4a5eec949466fe",
+  "metrics": {
+   "E1": 1.2,
+   "E2": 3.8,
+   "E1E2_n": [
+    2,
+    25
+   ],
+   "E1_p10_p90": [
+    1.2,
+    1.2
+   ],
+   "E2_p10_p90": [
+    1.57,
+    5.42
+   ],
+   "luma_med": {
+    "strip": 55.375,
+    "band": 45.963,
+    "deck": 35.14,
+    "upper": 15.083
+   },
+   "E3": 0.83,
+   "E4": 1.308,
+   "RB": {
+    "strip": 1.778,
+    "band": 1.045,
+    "deck": 0.839,
+    "upper": 0.443
+   },
+   "E8": 1.701,
+   "E5q": [
+    0.924,
+    0.967
+   ],
+   "E6q": [
+    0.724,
+    0.552
+   ],
+   "E5a": [
+    null,
+    null
+   ],
+   "E6a": [
+    null,
+    null
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.552,
+     "RB_dark": 0.51,
+     "n_cloud": 7140,
+     "n_sky": 0
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.479,
+     "RB_dark": 0.463,
+     "n_cloud": 3542,
+     "n_sky": 0
+    }
+   ],
+   "E7": {},
+   "hue_sky": {
+    "magenta": 0.457,
+    "blue": 0.707,
+    "n": 97547
+   }
+  }
+ },
+ "P2_A_t0x_ps_r400": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_A_t0x_ps_r400.png",
+  "png_sha256": "4166b99c14ac2274d92528f2acfafb0b2010ac839678095fb14f117bcefeb421",
+  "metrics": {
+   "E1": null,
+   "E2": 5.6,
+   "E1E2_n": [
+    0,
+    13
+   ],
+   "E1_p10_p90": null,
+   "E2_p10_p90": [
+    5.16,
+    5.79
+   ],
+   "luma_med": {
+    "strip": 49.451,
+    "band": 46.891,
+    "deck": 35.637,
+    "upper": 15.658
+   },
+   "E3": 0.948,
+   "E4": 1.316,
+   "RB": {
+    "strip": 1.118,
+    "band": 1.052,
+    "deck": 0.838,
+    "upper": 0.444
+   },
+   "E8": 1.063,
+   "E5q": [
+    0.927,
+    0.955
+   ],
+   "E6q": [
+    0.704,
+    0.537
+   ],
+   "E5a": [
+    null,
+    null
+   ],
+   "E6a": [
+    null,
+    null
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.551,
+     "RB_dark": 0.511,
+     "n_cloud": 7140,
+     "n_sky": 0
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.485,
+     "RB_dark": 0.464,
+     "n_cloud": 3542,
+     "n_sky": 0
+    }
+   ],
+   "E7": {},
+   "hue_sky": {
+    "magenta": 0.465,
+    "blue": 0.707,
+    "n": 97547
+   }
+  }
+ },
+ "P2_A_t0_obs_r100": {
+  "pid": "P2",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P2/P2_A_t0_obs_r100.png",
+  "png_sha256": "f9bf8d58ccb7617371725e0452b9087aebd7ad30d52a0685072c27db01c8638a",
+  "metrics": {
+   "E1": 1.175,
+   "E2": 1.8,
+   "E1E2_n": [
+    4,
+    25
+   ],
+   "E1_p10_p90": [
+    1.115,
+    1.2
+   ],
+   "E2_p10_p90": [
+    1.32,
+    4.68
+   ],
+   "luma_med": {
+    "strip": 29.54,
+    "band": 23.763,
+    "deck": 16.924,
+    "upper": 5.578
+   },
+   "E3": 0.804,
+   "E4": 1.404,
+   "RB": {
+    "strip": 2.035,
+    "band": 1.039,
+    "deck": 0.84,
+    "upper": 0.442
+   },
+   "E8": 1.96,
+   "E5q": [
+    0.933,
+    0.968
+   ],
+   "E6q": [
+    0.71,
+    0.542
+   ],
+   "E5a": [
+    null,
+    null
+   ],
+   "E6a": [
+    null,
+    null
+   ],
+   "E5_parts": [
+    {
+     "el": [
+      7.5,
+      8.5
+     ],
+     "n": 7140,
+     "RB_bright": 0.552,
+     "RB_dark": 0.515,
+     "n_cloud": 7140,
+     "n_sky": 0
+    },
+    {
+     "el": [
+      8.5,
+      9.0
+     ],
+     "n": 3542,
+     "RB_bright": 0.484,
+     "RB_dark": 0.469,
+     "n_cloud": 3542,
+     "n_sky": 0
+    }
+   ],
+   "E7": {},
+   "hue_sky": {
+    "magenta": 0.362,
+    "blue": 0.45,
+    "n": 97547
+   }
+  }
+ },
+ "P3_B_t0x_obs_r100": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_B_t0x_obs_r100.png",
+  "png_sha256": "4485f0ae99df68b6cb7e06e3c2a183c80cdf372263993727924277d76d4d98fd",
+  "metrics": {
+   "RB": {
+    "glow": 6.833,
+    "side": 7.285,
+    "mid": 5.225,
+    "upper": 6.37,
+    "sheet": 5.309,
+    "ref": 4.018,
+    "far": 6.123
+   },
+   "luma_med": {
+    "glow": 145.968,
+    "side": 139.044,
+    "mid": 139.041,
+    "upper": 86.03,
+    "sheet": 100.514,
+    "ref": 145.037,
+    "far": 148.676
+   },
+   "C1": 1.073,
+   "C2": 0.0,
+   "C3r": 1.321,
+   "C4": 1.957,
+   "C4_warm_frac": 0.415,
+   "C4_ref_RBpx_median": 3.89,
+   "C5": 1.05,
+   "C6": 1.697,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ },
+ "P3_B_t0x_ps_r100": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_B_t0x_ps_r100.png",
+  "png_sha256": "951cda83e0ec4bc3b1dc4e9589df22f400d1ebdb44d5dbdbdc84228da297d994",
+  "metrics": {
+   "RB": {
+    "glow": 6.819,
+    "side": 7.29,
+    "mid": 5.432,
+    "upper": 7.562,
+    "sheet": 5.878,
+    "ref": 4.056,
+    "far": 6.126
+   },
+   "luma_med": {
+    "glow": 147.62,
+    "side": 140.989,
+    "mid": 140.119,
+    "upper": 88.523,
+    "sheet": 103.434,
+    "ref": 145.252,
+    "far": 149.478
+   },
+   "C1": 0.902,
+   "C2": 0.0,
+   "C3r": 1.449,
+   "C4": 1.956,
+   "C4_warm_frac": 0.403,
+   "C4_ref_RBpx_median": 3.902,
+   "C5": 1.05,
+   "C6": 1.668,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ },
+ "P3_B_t0x_obs_r400": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_B_t0x_obs_r400.png",
+  "png_sha256": "179eb2ab4e241c97148574470fc205712b21b825c71bdcfe81e2e96937e8ceec",
+  "metrics": {
+   "RB": {
+    "glow": 6.836,
+    "side": 7.315,
+    "mid": 5.212,
+    "upper": 6.371,
+    "sheet": 5.32,
+    "ref": 4.005,
+    "far": 6.121
+   },
+   "luma_med": {
+    "glow": 144.195,
+    "side": 139.052,
+    "mid": 139.046,
+    "upper": 86.242,
+    "sheet": 100.582,
+    "ref": 144.54,
+    "far": 148.464
+   },
+   "C1": 1.073,
+   "C2": 0.0,
+   "C3r": 1.328,
+   "C4": 1.959,
+   "C4_warm_frac": 0.417,
+   "C4_ref_RBpx_median": 3.888,
+   "C5": 1.05,
+   "C6": 1.672,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ },
+ "P3_B_t0x_ps_r400": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_B_t0x_ps_r400.png",
+  "png_sha256": "da49222022064e0729542f9f86fe39c64bfc6b871efa33f81af963a0d6733d49",
+  "metrics": {
+   "RB": {
+    "glow": 6.82,
+    "side": 7.323,
+    "mid": 5.418,
+    "upper": 7.565,
+    "sheet": 5.898,
+    "ref": 4.04,
+    "far": 6.125
+   },
+   "luma_med": {
+    "glow": 145.92,
+    "side": 141.399,
+    "mid": 140.115,
+    "upper": 88.732,
+    "sheet": 103.51,
+    "ref": 145.183,
+    "far": 148.957
+   },
+   "C1": 0.902,
+   "C2": 0.0,
+   "C3r": 1.46,
+   "C4": 1.96,
+   "C4_warm_frac": 0.412,
+   "C4_ref_RBpx_median": 3.888,
+   "C5": 1.05,
+   "C6": 1.645,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ },
+ "P3_A_t0x_obs_r100": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_A_t0x_obs_r100.png",
+  "png_sha256": "4d12e2824be46e8c3cb0b2c7bc0022ad09622f8792c91a84b36fe9776e00e715",
+  "metrics": {
+   "RB": {
+    "glow": 6.823,
+    "side": 7.29,
+    "mid": 8.324,
+    "upper": 7.909,
+    "sheet": 7.441,
+    "ref": 8.536,
+    "far": 7.412
+   },
+   "luma_med": {
+    "glow": 144.264,
+    "side": 128.478,
+    "mid": 119.121,
+    "upper": 97.714,
+    "sheet": 99.663,
+    "ref": 120.667,
+    "far": 133.836
+   },
+   "C1": 0.863,
+   "C2": 0.0,
+   "C3r": 0.872,
+   "C4": 0.0,
+   "C4_warm_frac": 0.0,
+   "C4_ref_RBpx_median": 8.406,
+   "C5": 1.05,
+   "C6": 1.476,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ },
+ "P3_A_t0x_ps_r100": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_A_t0x_ps_r100.png",
+  "png_sha256": "d486f18cce2196b463e3e712eac1ddbccc99734b48893b56752f245e86ec6b34",
+  "metrics": {
+   "RB": {
+    "glow": 6.816,
+    "side": 7.321,
+    "mid": 8.864,
+    "upper": 9.943,
+    "sheet": 8.511,
+    "ref": 9.017,
+    "far": 7.472
+   },
+   "luma_med": {
+    "glow": 146.402,
+    "side": 130.623,
+    "mid": 123.121,
+    "upper": 100.987,
+    "sheet": 102.94,
+    "ref": 125.263,
+    "far": 136.91
+   },
+   "C1": 0.685,
+   "C2": 0.0,
+   "C3r": 0.944,
+   "C4": 0.0,
+   "C4_warm_frac": 0.0,
+   "C4_ref_RBpx_median": 8.863,
+   "C5": 1.15,
+   "C6": 1.45,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ },
+ "P3_A_t0_obs_r100": {
+  "pid": "P3",
+  "png": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/out/P3/P3_A_t0_obs_r100.png",
+  "png_sha256": "16e0f2038e97533aa707fcc7c106cc16efd0d764247f006add54985dd0ffcd97",
+  "metrics": {
+   "RB": {
+    "glow": 1.419,
+    "side": 1.503,
+    "mid": 1.671,
+    "upper": 1.857,
+    "sheet": 1.788,
+    "ref": 1.656,
+    "far": 1.51
+   },
+   "luma_med": {
+    "glow": 239.098,
+    "side": 235.093,
+    "mid": 231.8,
+    "upper": 222.149,
+    "sheet": 224.081,
+    "ref": 232.656,
+    "far": 236.307
+   },
+   "C1": 0.764,
+   "C2": 0.0,
+   "C3r": 1.08,
+   "C4": 0.0,
+   "C4_warm_frac": 0.0,
+   "C4_ref_RBpx_median": 1.637,
+   "C5": 1.15,
+   "C6": 1.076,
+   "hue_sky": {
+    "magenta": 0.0,
+    "blue": 0.0,
+    "n": 365093
+   }
+  }
+ }
+}
