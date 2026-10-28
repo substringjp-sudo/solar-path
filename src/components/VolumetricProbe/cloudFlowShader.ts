@@ -159,7 +159,7 @@ export function setSkeletonTilt(mat: PatchableMaterial, layers: (GenusLayer | nu
   if (any) mat.uniforms.genusUvOn.value = 1;
 }
 
-export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | null)[], on: { density: boolean; uv: boolean }, tileKm: number): void {
+export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | null)[], on: { density: boolean; uv: boolean; macroGrad?: boolean }, tileKm: number): void {
   const lane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (layers[i] && layerHasFlow(layers[i]) ? fn(layers[i] as GenusLayer) : 0));
   const set = (u: string, v: number[]) => (mat.uniforms[u].value as Vector4).set(v[0], v[1], v[2], v[3]);
   const dens = on.density ? 1 : 0;
@@ -167,11 +167,11 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
   set('genusDensPow', lane(L => flowParam(L, 'densPow', 0.5)));
   set('genusErode', lane(L => flowParam(L, 'flowErode', 0.5)));
   set('genusTauRef', [4, 4, 4, 4]);
-  // 거시 상태장 기울기
-  const macroLane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (layers[i] ? fn(layers[i] as GenusLayer) : 0));
+  // 거시 상태장 기울기 — §171 on.macroGrad 가 아니면 0(기본 끔; §156 거시 격자가 자리별로 대신함)
+  const macroLane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (on.macroGrad && layers[i] ? fn(layers[i] as GenusLayer) : 0));
   set('genusMacroGradX', macroLane(L => flowParam(L, 'macroGradX', 0)));
   set('genusMacroGradY', macroLane(L => flowParam(L, 'macroGradY', 0)));
-  mat.uniforms.genusMacroOn.value = layers.some(L => !!L && (flowParam(L, 'macroGradX', 0) !== 0 || flowParam(L, 'macroGradY', 0) !== 0)) ? 1 : 0;
+  mat.uniforms.genusMacroOn.value = on.macroGrad && layers.some(L => !!L && (flowParam(L, 'macroGradX', 0) !== 0 || flowParam(L, 'macroGradY', 0) !== 0)) ? 1 : 0;
   // 기울임: 높이 1 타일당 uv 이동(타일 단위). 꼭대기가 전단 쪽(+ŝ)으로 기울게 읽는 자리는 −ŝ 쪽.
   const tilt = (L: GenusLayer, c: 0 | 1) => (on.uv ? -flowParam(L, 'flowTilt', 0) * shearUnit(L)[c] : 0);
   set('genusTiltU', lane(L => tilt(L, 0)));

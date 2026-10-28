@@ -387,6 +387,11 @@ export interface VolumetricOptions {
   macro: 0 | 1 | 2;
   /** 거시 격자 변(2 의 거듭제곱). 768 km 를 덮으므로 128 = 6 km 칸. */
   macroN: number;
+  /**
+   * §171 옛 거시 기울기(§132 두 수: 100 km 당 동·북 운량 변화율을 셰이더에서 타일 운량에 곱함). 기본 끔(사용자 결정 2026-10-28) —
+   * §156 거시 격자가 같은 일을 자리별로 하므로 그 위에 겹쳐 걸리던 것. 켜면 이전과 같은 바이트(비교용).
+   */
+  macroGrad: boolean;
   /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
   skeletonTiltScale: number;
   /** §141 진단: 모든 종류 층의 밀도 단면 밑면 값을 이 값으로(null 이면 종류별 GENUS.profileBase 또는 takram 0.25). */
@@ -397,7 +402,7 @@ export interface VolumetricOptions {
    */
   morph: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, morph: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1098,7 +1103,7 @@ export async function createVolumetricScene(
         setGenusPhysics(m, iceLanes, iceOn);
         setGenusLightFloors(m, opt.debugLightFloors);
         setGenusDiffuse(m, opt.diffuse);
-        setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
+        setFlowUniforms(m, gl, { density: flowDens, uv: flowUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
         // 거시 격자는 표본 시각(장면 시각)에 자리가 맞으므로 그때부터 흐른 시간만큼만(km, 감싸지 않음)
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
