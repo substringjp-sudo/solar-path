@@ -7,19 +7,23 @@ RULER-grain(§169~) 지표·판정 — 알갱이·반짝임(표본 오차). nump
   samp.f16    구름 버퍼 격자 [meanY, stdY(ddof1), meanA, stdA] — 해석(업스케일) 앞 1/4 해상도 표본, 텍셀마다 창 64 프레임에 정확히 4 개.
   lnStd.f16   화소마다 ln(Ld + 0.01) 의 창 64 프레임 표준편차(Ld = skyDenoise 뒤 표시 선형 휘도) · drift.f16 앞·뒤 반 창 평균의 ln 차
   meanA.f16   원(잡음 제거 전) 알파 창 평균 · flags.u8 [세 채널 모두 ≥ 0.98 인 프레임 비율, 아무 채널 ≥ 0.98 비율]·255
-  meanLd.f32, still{k}.Ld.f16 (full 만) · mean.png/.alpha.png(원 경로 창 평균) · still0.png(F-std)
-  기준 잡: ref.Ld.f32 · refA.Ld.f32 · refB.Ld.f32(skyDenoise(평균)) · ref.A.f32 · capMask.u8 · 비용 잡: cost.f16 [x, y, z, cap]
+  meanLd.f32, still{k}.Ld.f16 · still{k}.Lr.f16 (full 만; Ld = 잡음 제거 뒤, Lr = 앞) · mean.png/.alpha.png(원 경로 창 평균) · still0.png(F-std)
+  기준 잡: ref·refA·refB .Lr.f32(원 평균) · .Ld.f32(skyDenoise(평균)) · ref.A.f32 · capMask.u8 · 비용 잡: cost.f16 [x, y, z, cap]
 ── 지표(RULER-grain §2) ──
   σs  = √(Σ_p var_p / Σ_p μ_p²)  (구름 격자, 마스크 텍셀, var·μ 는 텍셀 표본 4 개의 휘도) — 장면 선형·톤/노출/잡음 제거/클리핑 무관. 주 지표.
   표시 부호 V = 255·sRGB(clip(Ld)) (8비트 디더 앞), CSF = Mannos–Sakrison(정점 1로 정규화), 기기 화소 0.0602 mm·30 cm(0.0115°/화소).
-  tCSF = √(mean_M var_k(CSF∗V_k))  정지 4 장(ddof 1) — 기기에 얼어붙는 알갱이의 보이는 크기(부호).
+  tCSF = √(mean_M var_k(CSF∗V_k))  정지 4 장(ddof 1, 잡음 제거 뒤 Ld) — 기기에 얼어붙는 알갱이의 보이는 크기(부호).
   eCSF = median_k √(mean_M (CSF∗(V_k − V_ref))²), 기준 반쪽 차로 뺌 √max(e² − refErr², 0), refErr² = mean (CSF∗(V_A − V_B))² / 4.
+         eCSF(주, raw) = 잡음 제거 앞 정지 Lr 대 원 기준 평균 Lr · eCSFdev = 잡음 제거 뒤 Ld 대 skyDenoise(기준 평균) Ld(나빠지지 않음).
   sparkFrac · T_band(정지 화면 짝 곱 — 잡음에 불편) · eBias · aErr · tStd(ln, 기록) · eFine(기록) · 사진 지표(fm·phys2, 창 평균 PNG).
 ── 판정(RULER-grain §5·§6): 단위 = (장면, 방위, 틀, 영역 Int|Rim), 짝 블록 부트스트랩 CI 로 거른 개선/악화/동률, 세 문턱 벌, 장면 묶음·종류 기준.
 
 쓰는 법:
   grain.py --photos [--out grain-photo-quartiles.json]
-  grain.py --select jobs-grain.json key=val[,val] ... [--out sub.json]      (예: set=heldout arm=E1b frame=dev,std)
+  grain.py --select jobs-grain.json key=val[,val] ... [--order unit] [--out sub.json]   (예: set=heldout arm=C0,E1b frame=dev,std)
+  grain.py --ext --scenes scenes-grain.json --renders DIR --base B --cand E [--calib calib-grain.json] [--g0bundle g0-bundle.json] --out ext.json
+  grain.py --g0 --a DIR_measure --b DIR_knob --out g0-bundle.json          G0b·G0c 번들 점검(§12)
+  grain.py --confirm --scenes scenes-grain.json --renders DIR --base C0 --cand Bfinal --adopt-in adopt-R5.json --out confirm.json
   grain.py --cap DIR [--out caps.json]                                     잡마다 홀로 지표(기록)
   grain.py --gate --scenes scenes-grain.json --renders DIR --base C0 --cand E1b --round 1 [--ref DIR] [--calib calib-grain.json]
            [--external ext.json] [--cumcap 1.40] [--adopt-in adopt-R0.json] --out gate-R1-E1b.json
@@ -27,7 +31,7 @@ RULER-grain(§169~) 지표·판정 — 알갱이·반짝임(표본 오차). nump
   grain.py --stop --scenes scenes-grain.json --renders DIR --base C0 [--ref DIR]   멈춤 규칙(제품 단위 80 % 가 보이지 않음)
   grain.py --calibrate --scenes scenes-grain.json --renders PROBE_DIR [--ref PROBE_DIR] --out calib-grain.json   탐침 P0n·P8·P2·P3·P4·P7
 """
-import sys, os, json, math, glob, hashlib, datetime, zlib
+import sys, os, json, math, glob, hashlib, datetime, zlib, subprocess
 import numpy as np
 from PIL import Image
 
@@ -48,10 +52,11 @@ DELTA_ABS = {'sig': 0.003, 'code': 0.25, 'ln': 0.003}
 DISP_NOT_WORSE = 1.10            # 개선 칸의 표시 보조 지표 점추정 상한
 FLOOR_CODE, FLOOR_WORSE_CODE = 1.0, 1.5
 OVERLAP_MIN = 0.7
-DRIFT_MAX = 0.5                  # RMS 드리프트 > 0.5·tStd 면 무효
+DRIFT_MAX, DRIFT_ABS, DRIFT_R = 0.5, 0.003, 8   # 매끈한(17×17 마스크 평균) 앞·뒤 반 창 차 RMS > 0.5·tStd 이고 > 0.003 이면 무효(검토 통계 #12, 식 고침 §1.5)
 REF_ERR_MAX = 0.25               # 기준 반쪽 오차(부호, CSF) 상한
 BORDER_PX = 8                    # CSF 필터 가장자리 제외
 SPARK_CODE, SPARK_TOL, GUARD_SHARE = 10.0, 0.002, 0.90
+G6_TOL_MIN, G6_TOL_SHARE = 1, 0.05        # G6 점수 허용 손실 = max(1, 5 % 단위, A/A 뒤집힘)
 T_BANDS = ((1, 6), (6, 16)); T_KEEP = 0.85; EL_SPLIT = 6.0
 G5_KEYS = ('logIQR', 'structMid', 'perimPerArea', 'shadeRange', 'darkFrac')
 G5_LN_TOL, G5_ABS_TOL = 0.10, 0.02    # darkFrac 은 절대 차
@@ -60,15 +65,18 @@ G1_CF = 0.06
 G2_SKY, G2_CLOUD, G2_CLOUD_MAX, G2_SAT = 0.01, 0.15, 0.30, 0.01
 G8_MED, G8_BUNDLE, G8_CAP = 1.25, 1.40, 0.01
 NMIN_K, NMIN_KP = 40, 20
+NMIN_Q = (20, 20)                # 확인 집합 Q(방위 s 하나, F-dev 제품 장면만)
 STOP_SHARE = 0.80
 CLUSTER_UPPER = math.log(0.90); SIGN_ALPHA = 0.05; MIN_SCENES = 6
 GENUS_SHARE, GENUS_MIN = 0.6, 3
 HDEV_NEED = 3
 MM_PER_PX, VIEW_MM = 0.0602, 300.0
+VIEW_MM_REC = (250.0, 400.0)     # CSF 시거리 민감도(기록만)
 H_EL = (0.8, 17.0)               # H-dev 측정 고도대
 L_LAYERS = ('cu35', 'sc25', 'sc85', 'ac60', 'ci60')
 JITTER_ARMS = {'E4'}
 DENSITY_ARMS = {'E3', 'E3b', 'E3c', 'E5-', 'E5+'}
+REF_OK_DENSITY = {'E3b'}         # 밀도장을 바꾸지만 C0 의 화소 거른 장을 흉내 — C0 기준(SS)으로 판정(검토 타당성 B1)
 SIMPLE_ARMS = {'E1a.3', 'E1a.0', 'E2a.8', 'E2a.6', 'E5-', 'E5+'}   # 하네스 값(셰이더 손잡이보다 단순)
 
 
@@ -204,8 +212,8 @@ class Job:
     def meanLd(self):
         return self.arr('meanLd.f32')
 
-    def still(self, k):
-        return self.arr('still%d.Ld.f16' % k)
+    def still(self, k, path='dev'):
+        return self.arr('still%d.%s.f16' % (k, 'Ld' if path == 'dev' else 'Lr'))
 
     def nstills(self):
         return sum(1 for k in range(8) if self.has('still%d.Ld.f16' % k))
@@ -349,25 +357,48 @@ def ratio_median_debiased(EB, EE, D, N, key, n=BOOT_N):
 
 
 # ═════════ 잡 하나의 지표(짝 없이, 기록·바닥) ═════════
-def still_codes(job):
-    return [codes(job.still(k)) for k in range(job.nstills())]
+def still_codes(job, path='dev'):
+    return [codes(job.still(k, path)) for k in range(job.nstills())]
 
 
-def ref_codes(ref):
-    return codes(ref.arr('ref.Ld.f32')), codes(ref.arr('refA.Ld.f32')), codes(ref.arr('refB.Ld.f32'))
+def ref_codes(ref, path='dev'):
+    t = 'Ld' if path == 'dev' else 'Lr'
+    return codes(ref.arr('ref.%s.f32' % t)), codes(ref.arr('refA.%s.f32' % t)), codes(ref.arr('refB.%s.f32' % t))
 
 
-def tcsf_field(job):
-    """정지 화면 4 장의 CSF 거른 부호 분산(ddof 1) — 화소별."""
-    F = np.stack([csf_filter(v) for v in still_codes(job)])
+def tcsf_field(job, view_mm=VIEW_MM):
+    """정지 화면 4 장(잡음 제거 뒤 — 기기 길)의 CSF 거른 부호 분산(ddof 1) — 화소별."""
+    F = np.stack([csf_filter(v, view_mm=view_mm) for v in still_codes(job)])
     return F.var(axis=0, ddof=1)
 
 
-def ecsf_fields(job, ref):
-    Vr, VA, VB = ref_codes(ref)
-    E = np.stack([csf_filter(v - Vr) ** 2 for v in still_codes(job)])
+def ecsf_fields(job, ref, path='raw'):
+    """정지 k 의 CSF 거른 오차² 와 기준 반쪽 차². path raw: Lr 대 원 기준 평균(주) · dev: Ld 대 skyDenoise(기준 평균)."""
+    Vr, VA, VB = ref_codes(ref, path)
+    E = np.stack([csf_filter(v - Vr) ** 2 for v in still_codes(job, path)])
     D = csf_filter(VA - VB) ** 2
     return E, D
+
+
+def drift_lp(job, M):
+    """앞·뒤 반 창 평균의 ln 차를 마스크 안 17×17 평균으로 매끈하게 한 RMS — 표본 잡음(공간 백색)은 거의 지우고 느린 표류만 남김."""
+    if not M.any():
+        return float('nan')
+    d = np.nan_to_num(job.drift()) * M
+    w = box(M.astype(np.float64), DRIFT_R)
+    lp = np.where(w > 0, box(d, DRIFT_R) / np.maximum(w, 1e-12), 0.0)
+    return float(math.sqrt((lp[M] ** 2).mean()))
+
+
+def drift_invalid(d, tstd):
+    return isnum(d) and isnum(tstd) and d > DRIFT_MAX * tstd and d > DRIFT_ABS
+
+
+def spark_frac_ref(job, ref, mask):
+    """E4 용: 정지 화면이 기준(skyDenoise(평균))에서 10 부호 넘게 벗어난 화소 비율의 중앙값."""
+    Vr = codes(ref.arr('ref.Ld.f32'))
+    fr = [float((np.abs(v - Vr)[mask] > SPARK_CODE).mean()) for v in still_codes(job)] if mask.any() else []
+    return float(np.median(fr)) if fr else float('nan')
 
 
 def spark_frac(job, mask):
@@ -411,8 +442,8 @@ def photo_metrics(job, top=0.78):
 
 
 def single_metrics(job, ref=None):
-    """잡 하나: σs·tStd·tCSF·바닥 등(기록·멈춤 규칙)."""
-    out = {'name': job.name, 'captureOk': job.ok(), 'wallMs': job.meta.get('wallMs')}
+    """잡 하나: σs·tStd·tCSF·eCSF·바닥 등(기록·멈춤 규칙·보정)."""
+    out = {'name': job.name, 'captureOk': job.ok(), 'wallMs': job.meta.get('wallMs'), 'sampCheck': job.meta.get('sampCheck')}
     if job.meta.get('mode') != 'capture':
         return out
     el_rng = H_EL if job.info['frame'] == 'hdev' else None
@@ -431,22 +462,31 @@ def single_metrics(job, ref=None):
         out['tStd' + reg] = float(math.sqrt((lnS[P] ** 2).mean())) if P.sum() else float('nan')
         sd = s[..., 1][M] / np.maximum(s[..., 0][M], 1e-12)
         out['tail' + reg] = float((sd > 3 * np.median(sd)).mean()) if M.sum() else float('nan')
-    out['driftInt'] = float(math.sqrt((job.drift()[pm['Int']] ** 2).mean())) if pm['Int'].sum() else float('nan')
+        out['drift' + reg] = drift_lp(job, P)
     fl = job.flags()
-    out['rClipFrac'] = float((fl[..., 1][pm['Int'] | pm['Rim']] > 0).mean()) if (pm['Int'] | pm['Rim']).sum() else float('nan')
+    IR = pm['Int'] | pm['Rim']
+    out['rClipFrac'] = float((fl[..., 1][IR] > 0).mean()) if IR.sum() else float('nan')
+    out['satFrac'] = float(sat[job.meanA() >= 0.15].mean()) if (job.meanA() >= 0.15).any() else float('nan')
     if job.nstills() >= 2:
         tv = tcsf_field(job)
+        tvr = {vm: tcsf_field(job, vm) for vm in VIEW_MM_REC}
+        Vq = np.stack([np.round(v) for v in still_codes(job)])
+        tq = Vq.var(axis=0, ddof=1)
         for reg in ('Int', 'Rim'):
             P = pm[reg]
             out['tCSF' + reg] = float(math.sqrt(tv[P].mean())) if P.sum() else float('nan')
-        out['sparkFrac'] = spark_frac(job, pm['Int'] | pm['Rim'])
-        if ref is not None:
-            E, D = ecsf_fields(job, ref)
-            for reg in ('Int', 'Rim'):
-                P = pm[reg]
-                if P.sum():
-                    e = float(np.median([math.sqrt(E[k][P].mean()) for k in range(len(E))])); rr = math.sqrt(D[P].mean() / 4)
-                    out['eCSF' + reg] = math.sqrt(max(e * e - rr * rr, 0)); out['refErr' + reg] = rr
+            for vm, f in tvr.items():
+                out['tCSF%d%s' % (int(vm / 10), reg)] = float(math.sqrt(f[P].mean())) if P.sum() else float('nan')
+            out['tCodeQ' + reg] = float(math.sqrt(tq[P].mean())) if P.sum() else float('nan')
+        out['sparkFrac'] = spark_frac(job, IR)
+        if ref is not None and ref_valid(ref):
+            for path, tag in (('raw', 'eCSF'), ('dev', 'eCSFdev')):
+                E, D = ecsf_fields(job, ref, path)
+                for reg in ('Int', 'Rim'):
+                    P = pm[reg]
+                    if P.sum():
+                        e = float(np.median([math.sqrt(E[k][P].mean()) for k in range(len(E))])); rr = math.sqrt(D[P].mean() / 4)
+                        out[tag + reg] = math.sqrt(max(e * e - rr * rr, 0)); out[tag + 'RefErr' + reg] = rr
     return out
 
 
@@ -464,11 +504,12 @@ def find_ref(refroot, scene, az, frame='dev', arm='C0', tag='ref'):
 
 
 def ref_valid(ref):
-    return ref is not None and bool(ref.meta.get('captureOk')) and ref.has('ref.Ld.f32')
+    return ref is not None and bool(ref.meta.get('captureOk')) and ref.has('ref.Ld.f32') and ref.has('ref.Lr.f32')
 
 
-def unit_pair(B, E, ref, key, primary):
-    """한 (장면, 방위, 틀) 의 두 영역 짝 지표. primary: 'sig' | 'ecsf'. 돌려줌: {Int: {...}, Rim: {...}}."""
+def unit_pair(B, E, ref, key, primary, jitter=False):
+    """한 (장면, 방위, 틀) 의 두 영역 짝 지표. primary: 'sig' | 'ecsf'. ref: C0 기준(밀도장을 바꾸는 팔은 None — 호출자가 정함).
+    jitter: 지터 생성기를 바꾸는 팔(E4) — tCSF·tStd 는 기록만(검토 통계 #8·타당성 M3). 돌려줌: {Int: {...}, Rim: {...}}."""
     frame = B.info['frame']
     el_rng = H_EL if frame == 'hdev' else None
     res = {}
@@ -486,11 +527,12 @@ def unit_pair(B, E, ref, key, primary):
     lnB, lnE = B.lnStd(), E.lnStd()
     tvB = tcsf_field(B) if full_disp else None
     tvE = tcsf_field(E) if full_disp else None
-    ecs = None
+    ecs = {}
     if full_disp and ref_valid(ref):
-        EB_, D = ecsf_fields(B, ref); EE_, _ = ecsf_fields(E, ref); ecs = (EB_, EE_, D)
+        for path in ('raw', 'dev'):
+            EB_, D = ecsf_fields(B, ref, path); EE_, _ = ecsf_fields(E, ref, path); ecs[path] = (EB_, EE_, D)
     for reg in ('Int', 'Rim'):
-        u = {'region': reg}
+        u = {'region': reg, 'jitter': bool(jitter)}
         Mt = tB[reg] & tE[reg]
         u['nTex'] = int(Mt.sum()); u['overlapTex'] = float(Mt.sum() / max(tB[reg].sum(), 1))
         u['sig'] = ratio_rms(block_sums(sB[..., 1] ** 2, Mt, bidT), block_sums(sB[..., 0] ** 2, Mt, bidT),
@@ -502,66 +544,68 @@ def unit_pair(B, E, ref, key, primary):
         if full_disp:
             u['tcsf'] = ratio_rms(block_sums(tvB, Mp, bidP), cnt, block_sums(tvE, Mp, bidP), cnt, key + reg + 'tcsf')
             u['spark'] = {'B': spark_frac(B, Mp), 'E': spark_frac(E, Mp)}
-        if ecs is not None:
-            EB_, EE_, D = ecs
-            u['ecsf'] = ratio_median_debiased(np.stack([block_sums(x, Mp, bidP) for x in EB_]), np.stack([block_sums(x, Mp, bidP) for x in EE_]),
-                                              block_sums(D, Mp, bidP), cnt, key + reg + 'ecsf')
-        # 드리프트(두 팔 모두)
-        dB = math.sqrt((B.drift()[Mp] ** 2).mean()) if Mp.sum() else float('nan')
-        dE = math.sqrt((E.drift()[Mp] ** 2).mean()) if Mp.sum() else float('nan')
+        for path, tag in (('raw', 'ecsf'), ('dev', 'ecsfDev')):
+            if path in ecs:
+                EB_, EE_, D = ecs[path]
+                u[tag] = ratio_median_debiased(np.stack([block_sums(x, Mp, bidP) for x in EB_]), np.stack([block_sums(x, Mp, bidP) for x in EE_]),
+                                               block_sums(D, Mp, bidP), cnt, key + reg + tag)
+        u['refOk'] = bool('ecsf' in u and 'ecsfDev' in u and isnum(u['ecsf']['refErr']) and isnum(u['ecsfDev']['refErr'])
+                          and u['ecsf']['refErr'] <= REF_ERR_MAX and u['ecsfDev']['refErr'] <= REF_ERR_MAX)
+        # 표류(두 팔 모두, 매끈한 앞·뒤 반 창 차)
+        dB, dE = drift_lp(B, Mp), drift_lp(E, Mp)
         u['drift'] = {'B': dB, 'E': dE}
-        # 유효성
+        # 유효성(분모를 결과와 무관하게 — B·E 의 측정 조건만)
         why = []
         if not (B.ok() and E.ok()): why.append('captureOk')
         if u['nTex'] < MIN_TEX[reg]: why.append('nTex')
         if u['overlapTex'] < OVERLAP_MIN: why.append('overlapTex')
         if u['sig']['nb'] < MIN_BLOCKS: why.append('blocks')
         if frame in ('dev', 'hdev') and u['nPx'] < MIN_PX[reg]: why.append('nPx')
-        tsB, tsE = u['tstd']['mB'], u['tstd']['mE']
-        if isnum(tsB) and isnum(dB) and dB > DRIFT_MAX * tsB: why.append('driftB')
-        if isnum(tsE) and isnum(dE) and dE > DRIFT_MAX * tsE: why.append('driftE')
+        if frame in ('dev', 'hdev') and u['overlapPx'] < OVERLAP_MIN: why.append('overlapPx')
+        if drift_invalid(dB, u['tstd']['mB']): why.append('driftB')
+        if drift_invalid(dE, u['tstd']['mE']): why.append('driftE')
         if primary == 'ecsf':
             if 'ecsf' not in u: why.append('noRef')
-            elif not isnum(u['ecsf']['refErr']) or u['ecsf']['refErr'] > REF_ERR_MAX: why.append('refErr')
-        if 'ecsf' in u and isnum(u['ecsf'].get('refErr')) and u['ecsf']['refErr'] > REF_ERR_MAX:
-            u['ecsfInvalid'] = True
+            elif not u['refOk']: why.append('refErr')
         u['invalid'] = why
         res[reg] = u
     return res
 
 
 def classify(u, primary, tset, frame):
-    """한 단위의 분류: 'imp' | 'worse' | 'tie' | 'na'(무효) | 'floor'(보이지 않음 — 개선 셈 밖, 악화만). 세 문턱 벌 공통 규칙(§5.2)."""
+    """한 단위의 분류: 'imp' | 'worse' | 'tie' | 'na'(무효) | 'floor'(B 가 보이지 않음 — 개선 셈 밖, 악화만). 세 문턱 벌 공통 규칙(§5.2).
+    개선 = 주 지표 비 ≤ r_i 이고 90 % CI 상한 < 1, 그리고 표시 보조 지표 모두 비 ≤ 1.10. 악화 = 주 또는 표시 보조 중 하나가 비 ≥ r_w·CI 하한 > 1·절대 증가 ≥ δ."""
     if u['invalid']:
         return 'na'
     ri, rw = TSETS[tset]
-    P = u['ecsf'] if primary == 'ecsf' else u['sig']
+    P = u[primary]
     if not isnum(P['r']):
         return 'na'
     dkind = 'code' if primary == 'ecsf' else 'sig'
-    disp = []          # 표시 보조(기기 피치): tCSF 늘, eCSF(주 지표가 아니고 유효할 때)
-    if frame in ('dev', 'hdev') and 'tcsf' in u and primary != 'ecsf':
-        disp.append(('tcsf', u['tcsf']))
-        if 'ecsf' in u and not u.get('ecsfInvalid'):
+    disp = []          # 표시(기기 길) 보조 — 나빠지지 않음
+    if frame in ('dev', 'hdev'):
+        if 'tcsf' in u and not u.get('jitter'):
+            disp.append(('tcsf', u['tcsf']))
+        if u.get('refOk') and 'ecsfDev' in u:
+            disp.append(('ecsfDev', u['ecsfDev']))
+        if primary != 'ecsf' and u.get('refOk') and 'ecsf' in u:
             disp.append(('ecsf', u['ecsf']))
-    if frame == 'std':
+    if frame == 'std' and not u.get('jitter'):
         disp.append(('tstd', u['tstd']))
-    # 바닥(보이지 않음) — B 만으로: 기기 피치 단위에서 tCSF_B < 1 부호(그리고 eCSF_B < 1 부호, 있으면)
+    # 바닥(보이지 않음) — B 만으로: 기기 피치 단위에서 기기 길 tCSF_B·eCSFdev_B 의 큰 쪽 < 1 부호
     floor = False
     if frame in ('dev', 'hdev'):
-        vis = []
-        if 'tcsf' in u and isnum(u['tcsf']['mB']) and primary != 'ecsf': vis.append(u['tcsf']['mB'])
-        if 'ecsf' in u and not u.get('ecsfInvalid') and isnum(u['ecsf']['mB']): vis.append(u['ecsf']['mB'])
+        vis = [m['mB'] for k, m in disp if k in ('tcsf', 'ecsfDev') and isnum(m['mB'])]
         floor = bool(vis) and max(vis) < FLOOR_CODE
 
     def worse_of(m, kind):
         return isnum(m['r']) and m['r'] >= rw and isnum(m['lo']) and m['lo'] > 1 and (m['mE'] - m['mB']) >= DELTA_ABS[kind]
     dworse = any(worse_of(m, 'ln' if k == 'tstd' else 'code') for k, m in disp)
+    pworse = worse_of(P, dkind)
     if floor:
-        big = any(isnum(m['mE']) and m['mE'] >= FLOOR_WORSE_CODE for k, m in disp if k != 'tstd') or (primary == 'ecsf' and isnum(P['mE']) and P['mE'] >= FLOOR_WORSE_CODE)
-        pw = primary == 'ecsf' and worse_of(P, 'code')
-        return 'worse' if (dworse or pw) and big else 'floor'
-    if worse_of(P, dkind) or dworse:
+        big = any(isnum(m['mE']) and m['mE'] >= FLOOR_WORSE_CODE for k, m in disp if k != 'tstd')
+        return 'worse' if (dworse or pworse) and big else 'floor'
+    if pworse or dworse:
         return 'worse'
     if P['r'] <= ri and isnum(P['hi']) and P['hi'] < 1 and all(isnum(m['r']) and m['r'] <= DISP_NOT_WORSE for k, m in disp):
         return 'imp'
@@ -601,24 +645,25 @@ def k_of(arm):
             'E4': 'E4', 'E5-': 'E5', 'E5+': 'E5'}.get(arm)
 
 
-def collect_units(S, root, base, cand, refroot, primary, sets=('heldout', 'hdev')):
-    """held-out 단위 전부(두 팔 모두 그려진 것). 돌려줌: [단위 dict]."""
+def collect_units(S, root, base, cand, refroot, primary, tag=None, frames=('dev', 'std', 'hdev'), azs=('t', 's', 'a')):
+    """held-out(또는 tag 'Q' 확인 집합) 단위 전부(두 팔 모두 그려진 것). 돌려줌: [단위 dict].
+    C0 기준(refroot)은 C0 와 밀도장이 같은 팔(E1·E2·E4)과 E3b 에만 — 밀도장을 바꾸는 팔(E3·E3c·E5±)은 기준 없이(σs·tCSF 만)."""
     units = []
     scenes = S['scenes']
+    use_ref = cand not in DENSITY_ARMS or cand in REF_OK_DENSITY
+    jit = cand in JITTER_ARMS
     for key, sc in scenes.items():
         if sc.get('record'):
             continue
-        for az in ('t', 's', 'a'):
-            for frame in ('dev', 'std', 'hdev'):
-                B = find_job(root, base, key, az, frame); E = find_job(root, cand, key, az, frame)
+        for az in azs:
+            for frame in frames:
+                B = find_job(root, base, key, az, frame, tag); E = find_job(root, cand, key, az, frame, tag)
                 if B is None or E is None:
                     continue
-                ref = find_ref(refroot, key, az) if frame == 'dev' else None
-                if primary == 'ecsf' and frame != 'dev':
+                ref = find_ref(refroot, key, az) if (frame == 'dev' and use_ref and tag is None) else None
+                if primary == 'ecsf' and (frame != 'dev' or ref is None):
                     continue
-                if primary == 'ecsf' and ref is None:
-                    continue
-                pr = unit_pair(B, E, ref, job_name('', key, az, frame), primary)
+                pr = unit_pair(B, E, ref, job_name('', key, az, frame, tag), primary, jit)
                 for reg, u in pr.items():
                     u.update({'scene': key, 'layer': sc['layer'], 'time': sc['time'], 'bundle': sc['bundle'], 'az': az, 'frame': frame,
                               'product': bool(sc['product']) and frame == 'dev'})
@@ -626,9 +671,11 @@ def collect_units(S, root, base, cand, refroot, primary, sets=('heldout', 'hdev'
     return units
 
 
-def verdict_for(units, S, arm, primary):
+def verdict_for(units, S, arm, primary, claims_override=None, nmin=None):
+    """§5.2 판정. claims_override: 확인 집합 Q 처럼 K 를 밖에서 줄 때(채택 팔들의 K 합집합). nmin: (|V∩K|, |V∩K∩P|) 최소(기본 40·20)."""
     kk = k_of(arm)
-    claims = S['claims'][kk] if kk else None
+    claims = claims_override if claims_override is not None else (S['claims'][kk] if kk else None)
+    nk, nkp = nmin or (NMIN_K, NMIN_KP)
     inK = (lambda u: claims[u['scene']].get(u['frame'], False)) if claims else (lambda u: True)
     out = {'sets': {}}
     for tset in TSETS:
@@ -644,15 +691,14 @@ def verdict_for(units, S, arm, primary):
         r = {'V': len(V), 'Vimp': len(Vimp), 'VK': len(VK), 'VimpK': len(VimpK), 'VimpKP': len(VimpKP), 'VP': len(VP),
              'impK': imp(VimpK), 'impKP': imp(VimpKP), 'worse': wor(V), 'worseP': wor(VP), 'floor': sum(1 for c in cls if c == 'floor')}
         r['i'] = r['impK'] >= 0.5 * r['VimpK']
-        r['ii'] = (r['impKP'] >= 0.5 * r['VimpKP']) if r['VimpKP'] >= NMIN_KP else True
+        r['ii'] = (r['impKP'] >= 0.5 * r['VimpKP']) if r['VimpKP'] >= nkp else True
         r['iii'] = r['worse'] <= 0.10 * r['V'] and (r['worseP'] <= 0.10 * r['VP'] if r['VP'] else True)
         # 종류 기준(v): L 층마다 K 유효 단위 ≥ 3 → 층 중앙 비 ≤ r_i 인 층 비율 ≥ 60 %, 층 ≥ 3
         lay = {}
         for i in VimpK:
             u = units[i]
             if u['layer'] in L_LAYERS:
-                P_ = u['ecsf'] if primary == 'ecsf' else u['sig']
-                lay.setdefault(u['layer'], []).append(P_['r'])
+                lay.setdefault(u['layer'], []).append(u[primary]['r'])
         lay = {k: float(np.median(v)) for k, v in lay.items() if len(v) >= 3}
         r['genus'] = lay
         r['v'] = None if len(lay) < GENUS_MIN else (sum(1 for v in lay.values() if v <= TSETS[tset][0]) >= GENUS_SHARE * len(lay))
@@ -664,14 +710,14 @@ def verdict_for(units, S, arm, primary):
     for i, u in enumerate(units):
         if nom[i] in ('na', 'floor') or not inK(u) or not u['product']:
             continue
-        P_ = u['ecsf'] if primary == 'ecsf' else u['sig']
+        P_ = u[primary]
         if isnum(P_['r']) and P_['r'] > 0:
             sv.setdefault(u['scene'], []).append(math.log(P_['r']))
     out['cluster'] = cluster_criterion([float(np.median(v)) for v in sv.values()])
     out['sceneValues'] = {k: float(np.median(v)) for k, v in sv.items()}
     # H-dev(vi): K 가 H 단위를 포함하면 기기 피치 H 잡 4 개 중 ≥ 3 에서 Int σs 비 ≤ 1.0, 그리고 H-dev 악화 단위 없음
     hd = [(i, u) for i, u in enumerate(units) if u['frame'] == 'hdev']
-    needH = claims is not None and any(claims[k].get('std') and S['scenes'][k]['bundle'] in ('H', 'O45') for k in claims)
+    needH = claims_override is None and claims is not None and any(claims[k].get('std') and S['scenes'][k]['bundle'] in ('H', 'O45') for k in claims)
     if needH and primary == 'sig':
         ints = [u for i, u in hd if u['region'] == 'Int' and not u['invalid']]
         okn = sum(1 for u in ints if isnum(u['sig']['r']) and u['sig']['r'] <= 1.0)
@@ -685,9 +731,9 @@ def verdict_for(units, S, arm, primary):
         return r['i'] and r['ii'] and r['iii'] and r['v'] is not False
 
     s = out['sets']['nominal']
-    if s['VK'] < NMIN_K:
+    if s['VK'] < nk:
         out['verdict'] = '평가 불가'
-    elif s['VimpK'] < NMIN_K:
+    elif s['VimpK'] < nk:
         out['verdict'] = '평가 불가(이미 바닥)'
     elif any(out['sets'][t]['v'] is None for t in TSETS) and claims is not None and any(S['scenes'][k]['layer'] in L_LAYERS for k in claims if any(claims[k].values())):
         out['verdict'] = '평가 불가(종류)'
@@ -771,8 +817,10 @@ def guards(S, root, base, cand, refroot, calib, primary, units, ext=None):
                 if isnum(b) and isnum(e):
                     sb += b <= gq; se += e <= gq
             sc6[tset] = {'B': int(sb), 'E': int(se)}
-        t6 = int((calib or {}).get('g6Tol', 0))
-        g['G6'] = {'scores': sc6, 'tol': t6, 'pass': all(v['E'] >= v['B'] - t6 for v in sc6.values()), 'recordOnly': cand not in DENSITY_ARMS}
+        nsc = sum(1 for r in rows if isnum(r['B'].get('grainShareMid')) and isnum(r['E'].get('grainShareMid')))
+        fr = (calib or {}).get('g6FlipRate')
+        t6 = max(G6_TOL_MIN, int(round(G6_TOL_SHARE * nsc)), int(round(fr * nsc)) if isnum(fr) else 0)
+        g['G6'] = {'scores': sc6, 'n': nsc, 'tol': t6, 'pass': all(v['E'] >= v['B'] - t6 for v in sc6.values()), 'recordOnly': cand not in DENSITY_ARMS}
     # 기준 칸(F-dev): G1c·G7
     g1c, g7 = [], []
     if refroot:
@@ -798,7 +846,8 @@ def guards(S, root, base, cand, refroot, calib, primary, units, ext=None):
                     g7.append(bias['E']['eBias'] <= max(G7_MUL * bias['B']['eBias'], bias['B']['eBias'] + G7_ADD) and bias['E']['aErr'] <= bias['B']['aErr'] + AERR_ADD)
         g['G1c'] = {'n': len(g1c), 'share': float(np.mean(g1c)) if g1c else float('nan'), 'pass': (float(np.mean(g1c)) >= GUARD_SHARE) if g1c else None}
         g['G7'] = {'n': len(g7), 'share': float(np.mean(g7)) if g7 else float('nan'), 'pass': (float(np.mean(g7)) >= GUARD_SHARE) if g7 else None}
-        if cand in DENSITY_ARMS and cand != 'E3b':
+        if cand in DENSITY_ARMS and cand not in REF_OK_DENSITY:
+            g['G1c']['recordOnly'] = g['G7']['recordOnly'] = True
             g['G1c']['note'] = g['G7']['note'] = '밀도장을 바꾸는 팔 — C0 기준과의 비교는 기록만'
     # G10 질감 보존(F-dev, 정지 화면 짝 곱; E4 는 eCSF 로 대신) · G11 반짝임(sparkFrac)
     t10, s11 = {}, []
@@ -814,14 +863,18 @@ def guards(S, root, base, cand, refroot, calib, primary, units, ext=None):
             M = (pB['Int'] | pB['Rim']) & (pE['Int'] | pE['Rim'])
             if M.sum() < MIN_PX['Int']:
                 continue
+            ref = find_ref(refroot, key, az)
+            if cand in JITTER_ARMS:
+                # E4: 창 평균 대비 반짝임은 지터 생성기에 걸림 → 기준 대비(|V_k − V_ref| > 10 부호) 비율로(기준 없으면 셈 밖)
+                if ref_valid(ref):
+                    spB, spE = spark_frac_ref(B, ref, M), spark_frac_ref(E, ref, M)
+                    s11.append(spE <= spB + SPARK_TOL)
+                continue
             spB, spE = spark_frac(B, M), spark_frac(E, M)
             s11.append(spE <= spB + SPARK_TOL)
-            if cand in JITTER_ARMS:
-                continue
             el = B.elevation()
             TB, TE = t_band(B, M, el), t_band(E, M, el)
-            ref = find_ref(refroot, key, az)
-            TR = t_band_ref(ref, M, el) if ref_valid(ref) and cand not in DENSITY_ARMS else None
+            TR = t_band_ref(ref, M, el) if ref_valid(ref) and (cand not in DENSITY_ARMS or cand in REF_OK_DENSITY) else None
             for k in TB:
                 if not (isnum(TB[k]) and isnum(TE[k]) and TB[k] > 0):
                     continue
@@ -835,6 +888,8 @@ def guards(S, root, base, cand, refroot, calib, primary, units, ext=None):
     # G8 비용
     cb, ce, capd, bund = [], [], [], {}
     for key, s in sc.items():
+        if s.get('record'):
+            continue
         for frame in ('dev', 'std'):
             B = find_job(root, base, key, 's', frame, 'cost'); E = find_job(root, cand, key, 's', frame, 'cost')
             if B is None or E is None:
@@ -865,14 +920,40 @@ def t_band_ref(ref, M, el):
     return out
 
 
+def claims_union(S, arms):
+    ks = {k_of(x) for x in arms if k_of(x)}
+    out = {}
+    for key in S['scenes']:
+        out[key] = {f: any(S['claims'][k][key].get(f, False) for k in ks) for f in ('dev', 'std', 'hdev')}
+    return out
+
+
+def run_confirm(a, S, calib):
+    """확인 집합 Q(§5.5, 검토 통계 #7): R6 에서 한 번 — C0 대 B_final, F-dev·방위 s·새 시드, σs 주 + tCSF 나빠지지 않음, K = 채택 팔들의 K 합집합."""
+    adopted = [x['arm'] for x in json.load(open(a['adopt_in']))['adopted']] if a.get('adopt_in') else []
+    units = collect_units(S, a['renders'], a['base'], a['cand'], None, 'sig', tag='Q', frames=('dev',), azs=('s',))
+    v = verdict_for(units, S, a['cand'], 'sig', claims_override=claims_union(S, adopted), nmin=NMIN_Q)
+    doc = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'set': 'confirm', 'base': a['base'], 'cand': a['cand'], 'adopted': adopted,
+           'verdict': v['verdict'], 'detail': {k: v[k] for k in v if k != 'classesNominal'}, 'units': units, 'calibrated': calib is not None}
+    doc['status'] = '확인 통과(채택)' if v['verdict'] == '통과' else '확인 실패(채택 안 함)'
+    json.dump(doc, open(a['out'], 'w'), indent=1, default=lambda o: None)
+    print('confirm', a['cand'], 'vs', a['base'], v['verdict'], doc['status'], json.dumps(v['cluster']))
+
+
 def run_gate(a):
     S = json.load(open(a['scenes']))
     calib = json.load(open(a['calib'])) if a.get('calib') and os.path.exists(a['calib']) else None
+    if calib and calib.get('blk'):
+        set_blocks(*calib['blk'])
+    if a.get('confirm'):
+        return run_confirm(a, S, calib)
     ext = json.load(open(a['external'])) if a.get('external') and os.path.exists(a['external']) else None
     arm, base = a['cand'], a['base']
-    primary = arm_primary(arm)
+    adopted = [x['arm'] for x in json.load(open(a['adopt_in']))['adopted']] if a.get('adopt_in') else []
+    # R6 결합(Bfinal 대 C0): K = 채택 팔들의 K 합집합; E4 가 채택돼 지터 생성기가 다르면 eCSF 로(검토 통계 #8)
+    primary = ('ecsf' if any(x in JITTER_ARMS for x in adopted) else 'sig') if arm == 'Bfinal' else arm_primary(arm)
     units = collect_units(S, a['renders'], base, arm, a.get('ref'), primary)
-    v = verdict_for(units, S, arm, primary)
+    v = verdict_for(units, S, arm, primary, claims_override=claims_union(S, adopted) if arm == 'Bfinal' else None)
     gd = guards(S, a['renders'], base, arm, a.get('ref'), calib, primary, units, ext)
     # 누적 비용(§5.5): C0 대비
     cum = None
@@ -885,18 +966,24 @@ def run_gate(a):
                     r.append(E.meta['cost']['fetch'] / C.meta['cost']['fetch'])
         cum = {'median': float(np.median(r)) if r else float('nan'), 'cap': float(a['cumcap'])}
         cum['pass'] = bool(r) and cum['median'] <= cum['cap']
-    gnames = ['G1b', 'G2', 'G5', 'G1c', 'G7', 'G10', 'G11'] + (['G6'] if arm in DENSITY_ARMS else []) + [k for k in ('G0', 'G3', 'G4', 'G9') if k in gd]
+    gnames = ['G1b', 'G2', 'G5', 'G11'] + ([] if gd.get('G1c', {}).get('recordOnly') else ['G1c', 'G7']) + ([] if arm in JITTER_ARMS else ['G10']) \
+        + (['G6'] if arm in DENSITY_ARMS else []) + ['G0', 'G3', 'G4', 'G9']
+    for k in ('G0', 'G3', 'G4', 'G9'):
+        gd.setdefault(k, {'pass': None, 'note': 'eval-grain.sh 의 외부 가드 JSON 없음'})
     gfail = [k for k in gnames if k in gd and gd[k].get('pass') is False]
     gnone = [k for k in gnames if k in gd and gd[k].get('pass') is None]
     doc = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'date': datetime.date.today().isoformat(), 'round': a.get('round'), 'base': base, 'cand': arm,
            'primary': primary, 'claim': k_of(arm), 'verdict': v['verdict'], 'detail': {k: v[k] for k in v if k != 'classesNominal'},
            'guards': gd, 'guardFail': gfail, 'guardUnknown': gnone, 'cost': gd.get('G8'), 'cumCost': cum,
            'units': [{k: u[k] for k in u if k not in ()} for u in units], 'classesNominal': v['classesNominal'],
-           'calibrated': calib is not None}
+           'calibrated': calib is not None, 'blk': [BLK_TEX, BLK_PX]}
     st = doc['verdict']
-    if st == '통과' and not gfail and gd.get('G8', {}).get('pass') and (cum is None or cum['pass']):
+    costOk = bool(gd.get('G8', {}).get('pass')) and (cum is None or cum['pass'])
+    if st == '통과' and gnone:
+        doc['status'] = '가드 미평가'          # 평가 안 된 가드가 있으면 채택하지 않음(외부 가드 JSON·기준 없음 등)
+    elif st == '통과' and not gfail and costOk:
         doc['status'] = '채택 후보'
-    elif st == '통과' and gfail == [] and not gd.get('G8', {}).get('pass'):
+    elif st == '통과' and not gfail and not costOk:
         doc['status'] = '비용 보류'
     elif st == '통과' and set(gfail) <= {'G1b', 'G1c'} and gfail:
         doc['status'] = '면적 재맞춤 필요'
@@ -911,6 +998,145 @@ def run_gate(a):
     print('%s vs %s (%s): %s | 상태 %s | V %d Vimp %d K %d impK %d KP %d impKP %d worse %d | 장면 %s | H %s | 가드 실패 %s' % (
         arm, base, primary, v['verdict'], doc['status'], s['V'], s['Vimp'], s['VK'], s['impK'], s['VimpKP'], s['impKP'], s['worse'],
         json.dumps(v['cluster']), json.dumps(v['hdev']), gfail))
+
+
+# ═════════ 외부 가드(G0 상태·G3 CLIP·G4 박명 색·G9 순서) — eval-grain.sh 가 --ext 로 만들어 --gate --external 에 넘김 ═════════
+# 팔마다 B(C0) 와 다를 수 있는 상태 해시 필드(G0e — 의도한 필드만 달라야 함; 비어 있으면 '안 걸린 팔'). 손잡이 팔은 구현(§8.2) 때 이 표 그대로.
+G0_ALLOWED = {
+    'E1a.3': {'clouds.perUniform:perspectiveStepScale'},
+    'E1a.0': {'clouds.perUniform:perspectiveStepScale', 'clouds.perUniform:maxIterationCount'},
+    'E1b': {'clouds.shader'},
+    'E2a.8': {'clouds.perUniform:maxIterationCountToSun', 'clouds.perUniform:minSecondaryStepSize', 'clouds.perUniform:secondaryStepScale'},
+    'E2a.6': {'clouds.perUniform:maxIterationCountToSun', 'clouds.perUniform:minSecondaryStepSize', 'clouds.perUniform:secondaryStepScale'},
+    'E2b': {'clouds.shader'},
+    'E2c': {'clouds.shader', 'clouds.perUniform:maxIterationCountToSun', 'clouds.perUniform:minSecondaryStepSize', 'clouds.perUniform:secondaryStepScale'},
+    'E3': {'clouds.shader', 'shadow.shader'},
+    'E3b': {'clouds.shader', 'shadow.shader', 'clouds.perUniform:erodePixelAngle'},
+    'E3c': {'layers', 'clouds.perUniform:densityScales', 'shadow.perUniform:densityScales'},
+    'E4': {'clouds.shader'},
+    'E5-': {'clouds.perUniform:shapeRepeat', 'shadow.perUniform:shapeRepeat'},
+    'E5+': {'clouds.perUniform:shapeRepeat', 'shadow.perUniform:shapeRepeat'},
+}
+STATE_SKIP = {'frame', 'camera'}
+
+
+def state_diff(a, b):
+    """두 상태 해시(capture.ts stateHash)의 다른 필드 — perUniform 은 균일변수 이름까지, 묶음 해시(*.uniforms)는 빼고 셈."""
+    d = set()
+    for k in set(a) | set(b):
+        if k in STATE_SKIP or k.endswith('.uniforms'):
+            continue
+        va, vb = a.get(k), b.get(k)
+        if k.endswith('.perUniform'):
+            tag = k.split('.')[0]
+            for u in set(va or {}) | set(vb or {}):
+                if (va or {}).get(u) != (vb or {}).get(u):
+                    d.add(tag + '.perUniform:' + u)
+        elif va != vb:
+            d.add(k)
+    return d
+
+
+def run_ext(a):
+    S = json.load(open(a['scenes']))
+    root, base, cand = a['renders'], a['base'], a['cand']
+    out = {'grainSha256': grain_sha256(), 'base': base, 'cand': cand}
+    # G0e: 상태 잡(<팔>__cu35_e5__s__dev__state · 개발 장면)끼리
+    sb, se = find_job(root, base, 'cu35_e5', 's', 'dev', 'state'), find_job(root, cand, 'cu35_e5', 's', 'dev', 'state')
+    g0 = {}
+    if sb is not None and se is not None:
+        d = state_diff(sb.meta['stateHash'], se.meta['stateHash'])
+        allowed = G0_ALLOWED.get(cand, set())
+        # 앞 라운드 채택이 B 에 이미 있으면 B·E 둘 다 그 필드가 같음 — 차이는 이 팔의 델타만
+        g0['stateDiff'] = sorted(d); g0['allowed'] = sorted(allowed)
+        g0['pass'] = bool(d) and d <= allowed
+    else:
+        g0['pass'] = None; g0['note'] = '상태 잡 없음'
+    if a.get('g0bundle') and os.path.exists(a['g0bundle']):
+        gb = json.load(open(a['g0bundle'])); g0['bundle'] = gb
+        if gb.get('pass') is not True:
+            g0['pass'] = False if gb.get('pass') is False else None
+    out['G0'] = g0
+    # G3 CLIP(창 평균 PNG): ac60·ci60 × e20·e45, 장면마다 맞는 방위 수(E) ≥ (B)
+    clip = os.path.join(HERE, '..', 'flow', 'clip-labels.py')
+    g3 = {}
+    for layer, gen in (('ac60', 'AcCc'), ('ci60', 'Ci')):
+        for time in ('e20', 'e45'):
+            hits = {}
+            for tag, arm in (('B', base), ('E', cand)):
+                pat = os.path.join(os.path.abspath(root), job_name(arm, layer + '_' + time, '{az}', 'std'), 'mean.png')
+                if not all(os.path.exists(pat.format(az=z)) for z in ('t', 's', 'a')):
+                    hits[tag] = None; continue
+                try:
+                    r = subprocess.run([sys.executable, clip, gen, pat, 't,s,a'], capture_output=True, text=True, timeout=900)
+                    hits[tag] = json.loads(r.stdout.strip().splitlines()[-1])['hits']
+                except Exception as e:   # noqa: BLE001
+                    hits[tag] = None; g3.setdefault('errors', []).append(str(e)[:200])
+            g3[layer + '_' + time] = hits
+    vals = [v for k, v in g3.items() if k != 'errors']
+    g3['pass'] = (all(v['E'] >= v['B'] for v in vals) if vals and all(v.get('B') is not None and v.get('E') is not None for v in vals) else None)
+    out['G3'] = g3
+    # G4 박명 색(창 평균 PNG, --horizon): T·T4 묶음 + tw1734·tw1746
+    th = _twilight()
+    rows, guards_ = [], []
+    for key, sc in S['scenes'].items():
+        if sc['bundle'] not in ('T', 'T4'):
+            continue
+        for az in ('t', 's', 'a'):
+            pb = os.path.join(root, job_name(base, key, az, 'std'), 'mean.png'); pe = os.path.join(root, job_name(cand, key, az, 'std'), 'mean.png')
+            if os.path.exists(pb) and os.path.exists(pe):
+                rows.append((key + ':' + az, th.measure(th.sky_pixels(pb, True)), th.measure(th.sky_pixels(pe, True))))
+    for nm in ('tw1734', 'tw1746'):
+        pb = os.path.join(root, '__'.join([base, nm, 'g', 'std']), 'mean.png'); pe = os.path.join(root, '__'.join([cand, nm, 'g', 'std']), 'mean.png')
+        if os.path.exists(pb) and os.path.exists(pe):
+            guards_.append((nm, th.measure(th.sky_pixels(pb, True)), th.measure(th.sky_pixels(pe, True))))
+
+    # B 대비 무회귀: B 가 색 조건(자주 ≤ 0.10·푸른 ≥ 0.10)을 넘는 그림에서는 E 도 넘고, 모든 그림에서 하늘 L 중앙 비 ∈ [0.5, 2]
+    hue = lambda m: m['magenta'] <= 0.10 and m['blue'] >= 0.10
+    lum_ok = lambda mb, me: mb['L'][1] > 0 and 0.5 <= me['L'][1] / mb['L'][1] <= 2.0
+    okr = [(hue(e) or not hue(b)) and lum_ok(b, e) for _, b, e in rows]
+    okg = [(hue(e) or not hue(b)) and lum_ok(b, e) for _, b, e in guards_]
+    need = math.ceil(0.88 * len(okr)) if okr else 0
+    out['G4'] = {'n': len(okr), 'ok': int(sum(okr)), 'need': need, 'bHueOk': int(sum(hue(b) for _, b, _e in rows)), 'guards': {n: bool(x) for (n, _, _), x in zip(guards_, okg)},
+                 'pass': (sum(okr) >= need and len(okg) == 2 and all(okg)) if okr and len(okg) == 2 else None}
+    # G9 순서 불변(보정 P3)
+    calib = json.load(open(a['calib'])) if a.get('calib') and os.path.exists(a['calib']) else {}
+    out['G9'] = {'pass': (calib.get('P3') or {}).get('pass'), 'warmHigh': calib.get('warmHigh')}
+    json.dump(out, open(a['out'], 'w'), indent=1, default=lambda o: None)
+    print(json.dumps({k: (v.get('pass') if isinstance(v, dict) else v) for k, v in out.items()}))
+
+
+def run_g0bundle(a):
+    """G0b·G0c(§6, §12): 같은 잡(set g0state·g0cap)을 측정 번들(A)과 손잡이 번들(B)로 그린 두 폴더. 상태 해시는 frame 빼고 전부 같아야,
+    캡처 창 평균 PNG(rgb·알파)는 평균 |Δ| ≤ 0.05/255 이고 32 단계 넘게 다른 화소 ≤ 0.5 %(SwiftShader 비결정성 허용폭, 절차 B4)."""
+    A, B = a['a'], a['b']
+    out = {'grainSha256': grain_sha256(), 'state': {}, 'capture': {}}
+    names = sorted(n for n in os.listdir(A) if os.path.exists(os.path.join(A, n, 'meta.json')))
+    for n in names:
+        if not os.path.exists(os.path.join(B, n, 'meta.json')):
+            continue
+        ma, mb = json.load(open(os.path.join(A, n, 'meta.json'))), json.load(open(os.path.join(B, n, 'meta.json')))
+        if ma.get('mode') == 'state':
+            d = state_diff(ma['stateHash'], mb['stateHash'])
+            out['state'][n] = sorted(d)
+        elif ma.get('mode') == 'capture':
+            r = {}
+            for f in ('mean.png', 'mean.alpha.png'):
+                x = np.asarray(Image.open(os.path.join(A, n, f))).astype(int); y = np.asarray(Image.open(os.path.join(B, n, f))).astype(int)
+                dd = np.abs(x - y); r[f] = {'meanAbs': float(dd.mean()), 'max': int(dd.max()), 'fracOver32': float((dd > 32).mean()), 'identical': bool(dd.max() == 0)}
+            out['capture'][n] = r
+    out['stateSame'] = bool(out['state']) and all(not v for v in out['state'].values())
+    out['captureOk'] = bool(out['capture']) and all(v['meanAbs'] <= 0.05 and v['fracOver32'] <= 0.005 for r in out['capture'].values() for v in r.values())
+    out['pass'] = out['stateSame'] and out['captureOk']
+    json.dump(out, open(a['out'], 'w'), indent=1)
+    print('G0 bundle: state same %s (%d) · capture ok %s (%d) → %s' % (out['stateSame'], len(out['state']), out['captureOk'], len(out['capture']), out['pass']))
+
+
+def _twilight():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('twilight_hue', os.path.join(HERE, '..', 'genus', 'twilight-hue.py'))
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    return m
 
 
 def run_adopt(a):
@@ -934,7 +1160,8 @@ def run_adopt(a):
 
 
 def run_stop(a):
-    """멈춤 규칙(§5.3): 기준 팔의 제품 단위(F-dev) 중 ≥ 80 % 가 보이지 않음(tCSF_B < 1 부호, 기준 있으면 eCSF_B < 1 부호)."""
+    """멈춤 규칙(§5.3): 기준 팔의 제품 단위(F-dev, (장면, 방위, 영역), 마스크 최소 충족) 중 ≥ 80 % 가 보이지 않음 —
+    기기 길 tCSF_B 와 eCSFdev_B(기준 있으면)의 큰 쪽 < 1 부호. C0 를 먼저 그린 뒤, 그리고 라운드마다 B_k 로."""
     S = json.load(open(a['scenes']))
     inv, n = 0, 0
     rows = []
@@ -947,13 +1174,13 @@ def run_stop(a):
                 continue
             m = single_metrics(B, find_ref(a.get('ref'), key, az) if a.get('ref') else None)
             for reg in ('Int', 'Rim'):
-                t = m.get('tCSF' + reg); e = m.get('eCSF' + reg)
-                if not isnum(t):
+                t = m.get('tCSF' + reg); e = m.get('eCSFdev' + reg)
+                if not isnum(t) or m.get('nPx' + reg, 0) < MIN_PX[reg]:
                     continue
                 n += 1
                 vis = max(t, e if isnum(e) else 0)
                 inv += vis < FLOOR_CODE
-                rows.append({'scene': key, 'az': az, 'region': reg, 'tCSF': t, 'eCSF': e, 'sig': m.get('sig' + reg)})
+                rows.append({'scene': key, 'az': az, 'region': reg, 'tCSF': t, 'eCSFdev': e, 'sig': m.get('sig' + reg)})
     share = inv / n if n else float('nan')
     doc = {'n': n, 'invisible': inv, 'share': share, 'stop': bool(n and share >= STOP_SHARE), 'rows': rows}
     json.dump(doc, open(a['out'], 'w'), indent=1) if a.get('out') else None
@@ -965,79 +1192,165 @@ def mask_class(n):
     return 'small' if n < 1000 else ('mid' if n < 4000 else 'large')
 
 
-def run_calibrate(a):
-    S = json.load(open(a['scenes']))
-    root = a['renders']
-    sc = {}
-    # 개발 장면 키(층_시각) — 장면 표에는 held-out 만 있으므로 이름으로
-    jobs = sorted(os.listdir(root))
-    def J(name):
-        d = os.path.join(root, name)
-        return Job(d) if os.path.exists(os.path.join(d, 'meta.json')) else None
+BLK_LADDER = ((4, 16), (8, 32), (16, 64))   # A/A 에서 CI 가 1 을 빼는 비율 > 15 % 면 블록을 두 배로(검토 통계 #1d) — 미리 정한 사다리
+CI_EXCL_MAX, AA_WORSE_MAX = 0.15, 0.10
+REF_BUDGET_H = 24.0                          # C0 기준 한 벌 + 보고 기준의 시간 상한 — 넘으면 층화 4×4 → 2×2(n 32 → 8)
+
+
+def set_blocks(bt, bp):
+    global BLK_TEX, BLK_PX
+    BLK_TEX, BLK_PX = int(bt), int(bp)
+
+
+def aa_units(root, other, frames=('dev', 'std')):
+    """개발 집합 A/A 단위: C0 씨앗 12345(P8A) 대 other(P8n777·P8n4242·P8B). 단위 dict 목록(collect_units 와 같은 꼴)."""
     pairs = {}
-    for nm in jobs:
+    for nm in sorted(os.listdir(root)):
         try:
             p = parse_name(nm)
         except ValueError:
             continue
-        if p['tag'] and p['tag'].startswith('P8'):
-            pairs.setdefault((p['scene'], p['az'], p['frame']), {})[p['tag'][2:]] = nm
-    out = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'date': datetime.date.today().isoformat(), 'blkTex': BLK_TEX, 'blkPx': BLK_PX}
-    # P8 A/A: 씨앗 12345(A) 대 777·4242 — σs·tCSF·tStd 의 ln 비, CI 가 1 을 빼는 비율, 마스크 크기별 sd
-    lnr, excl, cls_n = {}, [], {}
-    g5d = {k: [] for k in G5_KEYS}; g6d = []
-    p0n = {}
-    for key, tg in pairs.items():
-        scene, az, frame = key
-        A = J(tg['A']) if 'A' in tg else None
-        if A is None:
+        if p['arm'] == 'C0' and p['tag'] in ('P8A', 'P8' + other) and p['frame'] in frames and os.path.exists(os.path.join(root, nm, 'meta.json')):
+            pairs.setdefault((p['scene'], p['layer'], p['time'], p['az'], p['frame']), {})[p['tag'][2:]] = Job(os.path.join(root, nm))
+    units = []
+    for (scene, layer, time, az, frame), d in sorted(pairs.items()):
+        if 'A' not in d or other not in d:
             continue
-        for other in ('n777', 'n4242', 'B'):
-            if other not in tg:
+        pr = unit_pair(d['A'], d[other], None, job_name('', scene, az, frame) + other, 'sig')
+        for reg, u in pr.items():
+            u.update({'scene': scene, 'layer': layer, 'time': time, 'bundle': 'dev', 'az': az, 'frame': frame, 'product': frame == 'dev', 'A': d['A'], 'E': d[other]})
+            units.append(u)
+    return units
+
+
+def aa_gate(units):
+    """A/A 판정(검토 통계 #1d): K = 전부. 세 벌 어디서도 (i)∧(ii)∧(iii) 가 성립하면 안 되고, 악화 ≤ 10 %."""
+    out = {}
+    for tset in TSETS:
+        cls = [classify(u, 'sig', tset, u['frame']) for u in units]
+        V = [i for i, c in enumerate(cls) if c != 'na']
+        Vimp = [i for i in V if cls[i] != 'floor']
+        VP = [i for i in Vimp if units[i]['product']]
+        imp = sum(1 for i in Vimp if cls[i] == 'imp'); impP = sum(1 for i in VP if cls[i] == 'imp')
+        wor = sum(1 for i in V if cls[i] == 'worse')
+        holds = len(Vimp) > 0 and imp >= 0.5 * len(Vimp) and (impP >= 0.5 * len(VP) if len(VP) >= NMIN_KP else True) and wor <= 0.10 * len(V)
+        out[tset] = {'V': len(V), 'Vimp': len(Vimp), 'imp': imp, 'worse': wor, 'worseShare': wor / len(V) if V else float('nan'), 'holds': bool(holds)}
+    out['pass'] = all(not out[t]['holds'] and (out[t]['worseShare'] <= AA_WORSE_MAX if isnum(out[t]['worseShare']) else False) for t in TSETS)
+    return out
+
+
+def ci_excl(units, mets=('sig', 'tcsf')):
+    ex = []
+    for u in units:
+        if u['invalid']:
+            continue
+        for m in mets:
+            if m in u and isnum(u[m]['lo']) and isnum(u[m]['hi']):
+                ex.append(not (u[m]['lo'] <= 1 <= u[m]['hi']))
+    return float(np.mean(ex)) if ex else float('nan'), len(ex)
+
+
+def run_calibrate(a):
+    """탐침(§8.3, 개발 집합만 — 판정 렌더 아님) → calib-grain.json. 미리 정한 선택지만 고름: 블록 크기 사다리, B_k 재사용, 높은 해 데움 16/64,
+    기준 층화 4×4/2×2 · 보폭 10/5 m, G5·G6 허용폭. 결과는 RULER-grain §11 에 적고 판정 렌더 전에 커밋."""
+    root = a['renders']
+    out = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'date': datetime.date.today().isoformat()}
+    J = lambda name: (Job(os.path.join(root, name)) if os.path.exists(os.path.join(root, name, 'meta.json')) else None)
+    # P8 A/A: 블록 사다리 — CI 가 1 을 빼는 비율 ≤ 15 % 인 첫 크기
+    chosen = None
+    for bt, bp in BLK_LADDER:
+        set_blocks(bt, bp)
+        U = aa_units(root, 'n777') + aa_units(root, 'n4242')
+        if not U:
+            break
+        exr, nex = ci_excl(U)
+        rec = {'blkTex': bt, 'blkPx': bp, 'ciExcludeShare': exr, 'nCells': nex, 'aaGate777': aa_gate([u for u in U if u['E'].info['tag'] == 'P8n777']),
+               'aaGate4242': aa_gate([u for u in U if u['E'].info['tag'] == 'P8n4242'])}
+        out.setdefault('blockLadder', []).append(rec)
+        if isnum(exr) and exr <= CI_EXCL_MAX:
+            chosen = rec; break
+    if chosen is None and out.get('blockLadder'):
+        chosen = out['blockLadder'][-1]; out['blockNote'] = '사다리 끝까지 CI 제외 > 15 % — 마지막 크기로, 판정 전 사용자에게 알림'
+    if chosen:
+        out['blk'] = [chosen['blkTex'], chosen['blkPx']]; set_blocks(*out['blk'])
+        out['aaGate'] = {'n777': chosen['aaGate777'], 'n4242': chosen['aaGate4242'], 'pass': chosen['aaGate777']['pass'] and chosen['aaGate4242']['pass']}
+        U = aa_units(root, 'n777') + aa_units(root, 'n4242')
+        lnr = {}
+        for u in U:
+            if u['invalid']:
                 continue
-            E = J(tg[other])
-            if E is None:
+            for met, n in (('sig', u['nTex']), ('tcsf', u['nPx'] // 4), ('tstd', u['nPx'] // 4)):
+                if met in u and isnum(u[met]['r']) and u[met]['r'] > 0:
+                    lnr.setdefault(met + ':' + mask_class(n), []).append(math.log(u[met]['r']))
+        out['aaSd'] = {k: {'n': len(v), 'sd': float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')} for k, v in lnr.items()}
+        # G5 허용폭(창 평균, F-std): |ln 비| 의 95 분위(darkFrac 은 |Δ|) · G6 점수 뒤집힘 비율
+        g5d = {k: [] for k in G5_KEYS}; flips = {t: [] for t in TSETS}
+        Qp = json.load(open(os.path.join(HERE, 'grain-photo-quartiles.json')))['g6'] if os.path.exists(os.path.join(HERE, 'grain-photo-quartiles.json')) else {}
+        seen = set()
+        for u in U:
+            if u['frame'] != 'std' or (u['scene'], u['az'], u['E'].name) in seen:
                 continue
-            pr = unit_pair(A, E, None, job_name('', scene, az, frame) + other, 'sig')
-            for reg, u in pr.items():
-                for met in ('sig', 'tcsf', 'tstd'):
-                    if met not in u or not isnum(u[met]['r']) or u['invalid']:
-                        continue
-                    r = u[met]
-                    if other == 'B':
-                        p0n.setdefault(met, []).append(abs(r['r'] - 1))
-                        continue
-                    c = mask_class(u['nTex'] if met == 'sig' else u['nPx'] // 4)
-                    lnr.setdefault(met + ':' + c, []).append(math.log(r['r']))
-                    excl.append(not (r['lo'] <= 1 <= r['hi']))
-            if frame == 'std' and other != 'B':
-                mA, mE = photo_metrics(A), photo_metrics(E)
-                for k in G5_KEYS:
-                    if isnum(mA.get(k)) and isnum(mE.get(k)):
-                        g5d[k].append(abs(mE[k] - mA[k]) if k == 'darkFrac' else (abs(math.log(mE[k] / mA[k])) if mA[k] > 0 and mE[k] > 0 else float('nan')))
-    out['aaSd'] = {k: {'n': len(v), 'sd': float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')} for k, v in lnr.items()}
-    out['ciExcludeShare'] = float(np.mean(excl)) if excl else float('nan')
-    out['ciOk'] = bool(excl) and out['ciExcludeShare'] <= 0.15
-    out['g5Tol'] = {k: float(2 * np.nanstd([x for x in v if isnum(x)], ddof=1)) for k, v in g5d.items() if sum(isnum(x) for x in v) > 2}
-    out['p0n'] = {k: {'n': len(v), 'p95': float(np.quantile(v, 0.95))} for k, v in p0n.items() if v}
-    out['bkReuse'] = bool(out['p0n']) and all(v['p95'] < 0.05 for v in out['p0n'].values())
-    # A/A 게이트 전체(의사 후보 = 씨앗 777, K 전부): '불합격' 이고 악화 ≤ 10 % 여야 함
-    out['aaGateNote'] = 'eval-grain.sh calibrate 가 같은 코드로 --gate 를 돌려 aaGate 에 붙임'
-    # P2 기준 수렴·앨리어싱 몫, P4 창 등가, P3 순서, P1 시간, P7 비용
-    if a.get('ref'):
-        r10, r5, rpt, c0 = J(job_name('C0', 'cu35_e5', 's', 'dev', 'P2ref10')), J(job_name('C0', 'cu35_e5', 's', 'dev', 'P2ref5')), J(job_name('C0', 'cu35_e5', 's', 'dev', 'P2refpt')), J(job_name('C0', 'cu35_e5', 's', 'dev', 'P8A'))
-        if r10 and r5 and c0 and ref_valid(r10) and ref_valid(r5):
-            m = px_masks(c0, sat_mask(c0))
-            M = m['Int'] | m['Rim']
-            d = csf_filter(codes(r10.arr('ref.Ld.f32')) - codes(r5.arr('ref.Ld.f32')))
-            e = single_metrics(c0, r10)
-            ec = max(e.get('eCSFInt', float('nan')), e.get('eCSFRim', float('nan')))
-            out['P2'] = {'diff10v5': float(math.sqrt((d[M] ** 2).mean())), 'eCSF_C0': ec, 'refErr': e.get('refErrInt')}
-            out['P2']['use5m'] = bool(out['P2']['diff10v5'] > 0.25 * ec)
-            if rpt and ref_valid(rpt):
-                aa = csf_filter(codes(rpt.arr('ref.Ld.f32')) - codes(r10.arr('ref.Ld.f32')))
-                out['P2']['aliasShare'] = float(math.sqrt((aa[M] ** 2).mean()) / ec) if ec > 0 else float('nan')
-            out['P1'] = {'refWallMsPerFrame': r10.meta.get('wallMs', 0) / max(1, r10.meta['grain'].get('n', 1))}
+            seen.add((u['scene'], u['az'], u['E'].name))
+            mA, mE = photo_metrics(u['A']), photo_metrics(u['E'])
+            for k in G5_KEYS:
+                if isnum(mA.get(k)) and isnum(mE.get(k)):
+                    if k == 'darkFrac':
+                        g5d[k].append(abs(mE[k] - mA[k]))
+                    elif mA[k] > 0 and mE[k] > 0:
+                        g5d[k].append(abs(math.log(mE[k] / mA[k])))
+            pg = {'cu35': 'Cu', 'sc85': 'StSc', 'sc25': 'StSc', 'ac60': 'AcCc', 'ci60': 'Ci'}.get(u['layer'])
+            for t, kq in (('nominal', 'q75'), ('liberal', 'ci75hi'), ('strict', 'ci75lo')):
+                q = (Qp.get(pg) or {}).get(kq)
+                if q is not None and isnum(mA.get('grainShareMid')) and isnum(mE.get('grainShareMid')):
+                    flips[t].append(int(mA['grainShareMid'] <= q) != int(mE['grainShareMid'] <= q))
+        out['g5Tol'] = {k: float(np.quantile(v, 0.95)) for k, v in g5d.items() if len(v) >= 5}
+        out['g6FlipRate'] = max((float(np.mean(v)) for v in flips.values() if v), default=float('nan'))
+        # P0n: 같은 씨앗을 다른 페이지에서(P8B) — 지표 비 |m1/m2 − 1| 의 95 분위 → B_k 재사용 여부
+        p0 = {}
+        for u in aa_units(root, 'B'):
+            if u['invalid']:
+                continue
+            for met in ('sig', 'tcsf', 'tstd'):
+                if met in u and isnum(u[met]['r']):
+                    p0.setdefault(met, []).append(abs(u[met]['r'] - 1))
+        out['p0n'] = {k: {'n': len(v), 'p95': float(np.quantile(v, 0.95))} for k, v in p0.items() if v}
+        lim = (1 - TSETS['nominal'][0]) / 4
+        out['bkReuse'] = bool(out['p0n']) and all(v['p95'] < lim for v in out['p0n'].values())
+        out['bkReuseLimit'] = lim
+    # P2 기준 수렴·앨리어싱 몫·기하 점검(eBiasMean)
+    r10, r5, rpt, c0 = (J(job_name('C0', 'cu35_e5', 's', 'dev', t)) for t in ('P2ref10', 'P2ref5', 'P2refpt', 'P8A'))
+    if r10 and r5 and c0 and ref_valid(r10) and ref_valid(r5):
+        m = px_masks(c0, sat_mask(c0)); M = m['Int'] | m['Rim']
+        d = csf_filter(codes(r10.arr('ref.Lr.f32')) - codes(r5.arr('ref.Lr.f32')))
+        e = single_metrics(c0, r10)
+        ec = np.nanmax([e.get('eCSFInt', float('nan')), e.get('eCSFRim', float('nan'))])
+        I = m['Int']
+        eb = box(np.log(c0.meanLd() + LN_OFF) - np.log(r10.arr('ref.Ld.f32') + LN_OFF), 8)
+        out['P2'] = {'diff10v5': float(math.sqrt((d[M] ** 2).mean())), 'eCSF_C0': float(ec), 'refErr': e.get('eCSFRefErrInt'),
+                     'eBiasMeanC0': float(np.mean(eb[I])) if I.sum() >= 400 else float('nan')}
+        out['P2']['use5m'] = bool(out['P2']['diff10v5'] > 0.25 * ec)
+        if rpt and ref_valid(rpt):
+            aa = csf_filter(codes(rpt.arr('ref.Lr.f32')) - codes(r10.arr('ref.Lr.f32')))
+            out['P2']['aliasShare'] = float(math.sqrt((aa[M] ** 2).mean()) / ec) if ec > 0 else float('nan')
+    # P1 시간 → 기준 층화 사다리
+    p1, p1r = J(job_name('C0', 'sc25_e3', 's', 'dev', 'P1')), J(job_name('C0', 'sc25_e3', 's', 'dev', 'P1ref'))
+    if p1 and p1r:
+        sec_cap = p1.meta.get('wallMs', 0) / 1000 / 80
+        sec_ref = p1r.meta.get('wallMs', 0) / 1000 / max(1, p1r.meta['grain'].get('n', 1))
+        nref = int(a.get('nref', 78))
+        mult = 2.0 if out.get('P2', {}).get('use5m') else 1.0
+        h32 = nref * 32 * sec_ref * mult / 3600
+        out['P1'] = {'secPerCaptureFrame': sec_cap, 'secPerRefFrame': sec_ref, 'refHoursAtSs4': h32, 'refBudgetH': REF_BUDGET_H}
+        out['refSs'] = 4 if h32 <= REF_BUDGET_H else 2
+    # P3 순서 불변(G9) → 높은 해 데움
+    a3, b3 = J(job_name('C0', 'cu35_e20', 't', 'std', 'P3')), J(job_name('C0', 'cu35_e20', 't', 'std', 'P3a'))
+    if a3 and b3:
+        x = np.asarray(Image.open(os.path.join(a3.dir, 'mean.png'))).astype(int); y = np.asarray(Image.open(os.path.join(b3.dir, 'mean.png'))).astype(int)
+        dd = np.abs(x - y)
+        out['P3'] = {'meanAbs255': float(dd.mean()), 'max': int(dd.max()), 'fracOver32': float((dd > 32).mean())}
+        out['P3']['pass'] = out['P3']['meanAbs255'] <= 0.05 and out['P3']['fracOver32'] <= 0.005
+        out['warmHigh'] = 16 if out['P3']['pass'] else 64
+    # P4 창 등가(기기 전체 틀 가운데 ↔ F-dev)
     p4 = []
     for layer in ('cu35', 'sc85', 'ac60'):
         Dd, Fd = J(job_name('C0', layer + '_e5', 's', 'ddev', 'P4')), J(job_name('C0', layer + '_e5', 's', 'dev', 'P8A'))
@@ -1051,18 +1364,19 @@ def run_calibrate(a):
                     p4.append(mD[met + reg] / mF[met + reg])
     if p4:
         out['P4'] = {'ratios': p4, 'median': float(np.median(p4)), 'pass': all(0.8 <= x <= 1.25 for x in p4) and 0.9 <= float(np.median(p4)) <= 1.11 and len(p4) >= 6}
-    a3, b3 = J(job_name('C0', 'cu35_e20', 't', 'std', 'P3')), J(job_name('C0', 'cu35_e20', 't', 'std', 'P8A'))
-    if a3 and b3:
-        p1, p2 = os.path.join(a3.dir, 'mean.png'), os.path.join(b3.dir, 'mean.png')
-        x, y = np.asarray(Image.open(p1)).astype(int), np.asarray(Image.open(p2)).astype(int)
-        dd = np.abs(x - y)
-        out['P3'] = {'meanAbs255': float(dd.mean()), 'max': int(dd.max()), 'fracOver32': float((dd > 32).mean())}
-        out['P3']['pass'] = out['P3']['meanAbs255'] <= 0.05 and out['P3']['fracOver32'] <= 0.005
+    # P7 비용 변형 상식 · 포화(검토 타당성 B2 satcheck): 개발 F-dev 해 쪽(t) 단위의 R 잘림 비율
     p7 = J(job_name('C0', 'cu35_e5', 's', 'dev', 'P7'))
     if p7:
         out['P7'] = p7.meta.get('cost')
+    sat = {}
+    for layer in ('cu35', 'sc85', 'ac60'):
+        j = J(job_name('C0', layer + '_e5', 't', 'dev', 'P8A'))
+        if j:
+            m = single_metrics(j)
+            sat[layer] = {'rClipFrac': m.get('rClipFrac'), 'satFrac': m.get('satFrac'), 'nPxInt': m.get('nPxInt'), 'nPxRim': m.get('nPxRim')}
+    out['satcheck'] = sat
     json.dump(out, open(a['out'], 'w'), indent=1, default=lambda o: None)
-    print(json.dumps({k: out[k] for k in out if k in ('aaSd', 'ciExcludeShare', 'ciOk', 'g5Tol', 'p0n', 'bkReuse', 'P2', 'P3', 'P4', 'P7')}, indent=1, default=str))
+    print(json.dumps({k: out[k] for k in out if k not in ('blockLadder',)}, indent=1, default=str)[:4000])
 
 
 def single_metrics_center(job, x0, w, h):
@@ -1092,6 +1406,10 @@ def run_select(a):
         k, v = c.split('=', 1)
         conds.append((k, set(v.split(','))))
     sel = [j for j in jobs if all(str(j.get(k)) in vs for k, vs in conds)]
+    if a.get('order') == 'unit':
+        # 단위마다 기준 팔(C0·B*)을 먼저, 후보를 바로 뒤에 — 덩어리(--max-min)로 나뉘어도 짝이 대개 같은 페이지에(절차 B4)
+        rank = lambda arm: (0 if arm == 'C0' else 1 if arm.startswith('B') else 2, arm)
+        sel.sort(key=lambda j: (j.get('set', ''), j.get('frame', ''), str(j.get('layer')) + '_' + str(j.get('time')), j.get('az', ''), str(j.get('tag') or ''), rank(j.get('arm', ''))))
     s = json.dumps(sel)
     if a.get('out'):
         open(a['out'], 'w').write(s)
@@ -1165,12 +1483,14 @@ def parse_args(argv):
     i = 0
     while i < len(argv):
         k = argv[i]
-        if k in ('--photos', '--gate', '--adopt', '--stop', '--calibrate', '--final'):
+        if k in ('--photos', '--gate', '--adopt', '--stop', '--calibrate', '--final', '--ext', '--confirm'):
             a[k[2:]] = True; i += 1
         elif k == '--select':
             a['select'] = True; a['jobs'] = argv[i + 1]; i += 2
         elif k == '--cap':
             a['cap'] = True; a['dir'] = argv[i + 1]; i += 2
+        elif k == '--g0':
+            a['g0bundle_mode'] = True; i += 1
         elif k == '--gates':
             i += 1
             while i < len(argv) and not argv[i].startswith('--'):
@@ -1190,10 +1510,14 @@ def main(argv):
         run_select(a)
     elif a.get('cap'):
         run_cap({**a, 'out': a.get('out', os.path.join(a['dir'], 'caps.json'))})
-    elif a.get('gate'):
+    elif a.get('gate') or a.get('confirm'):
         run_gate(a)
     elif a.get('adopt'):
         run_adopt(a)
+    elif a.get('ext'):
+        run_ext(a)
+    elif a.get('g0bundle_mode'):
+        run_g0bundle(a)
     elif a.get('stop'):
         run_stop(a)
     elif a.get('calibrate'):

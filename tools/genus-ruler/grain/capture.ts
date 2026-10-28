@@ -8,9 +8,11 @@
  *                    텍셀마다 표본 4 개의 휘도·알파 평균·표준편차(σs 의 입력) — 톤·노출·업스케일 클리핑·잡음 제거 앞의 장면 선형 값.
  *                (b) 합성기 출력(톤 뒤 표시 선형, 반정밀도)과 그것을 SceneComposer `skyDenoise` 같은 글자로 거른 값(float)을 읽어
  *                    화소마다 ln(Ld + 0.01) 평균·분산, 앞·뒤 반 창 평균 Ld, 포화 횟수, 원 알파 평균, 원 RGBA 평균(PNG).
- *                (c) 창 안 정지 화면(stills) 의 잡음 제거 휘도 Ld(f16) 와, pngStills 는 8비트 PNG(원 경로 — 옛 자와 같은 관행) + captureOk 대조.
+ *                (c) 창 안 정지 화면(stills) 의 휘도 — 잡음 제거 뒤 Ld 와 앞 Lr(f16, full 만) — 와, 정지 0 은 늘 캔버스 8비트 부호화와 float 원 값을
+ *                    대조(captureOk), pngStills 는 8비트 PNG 로도 씀(원 경로 — 옛 자와 같은 관행).
+ *                (d) 창 첫 프레임에 해석 출력(history RT)의 갱신 텍셀이 1/4 표본과 비트 같은지 대조(sampCheck — Bayer 흩기 검증).
  *  - reference : temporalUpscale 끔 + resolve temporalAlpha 1(잡 JSON 이 걸어야 함 — 아니면 throw). n 프레임(ss×ss 층화 화소 오프셋,
- *                camera.setViewOffset, 구름 텍셀 ±0.5) 원 출력 평균을 앞·뒤 반으로 따로 누적 → 평균·반쪽 각각 skyDenoise.
+ *                camera.setViewOffset, 구름 텍셀 ±0.5) 원 출력 평균을 앞·뒤 반으로 따로 누적 → 평균·반쪽 각각 원(Lr)과 skyDenoise(Ld).
  *                capFrames > 0 이면 끝에 비용 변형으로 그 프레임 수만큼 그려 반복 상한 텍셀 표지(capMask).
  *  - cost      : 비용 변형(DEBUG_SHOW_SAMPLE_COUNT + 전역 셈, 아래 COST_PATCH)으로 frames 프레임 → 텍셀마다 1차 날씨 x · 모양 fetch y ·
  *                2차(해·땅 행진) 걸음 z · 반복 상한 표지 cap.
@@ -109,7 +111,9 @@ vec4 skyDenoise(sampler2D tex, vec2 uv, vec2 texSize){
  * (marchOpticalDepth — 해·땅; 걸음마다 날씨 1 + 모양 1), A = 1차 행진이 반복 상한에서 끝남(T > minTransmittance, 광선 안) 0/1.
  */
 export const COST_PATCH: [string, string][] = [
-  ['MediaSample sampleMedia(', 'int gCostShape = 0;\nint gCostSun = 0;\nint gCostIter = 0;\nfloat gCostCap = 0.0;\nMediaSample sampleMedia('],
+  // 전역 셈은 첫 sampleMedia(6 인자, out sampleCount) 앞에 — 5 인자 오버로드가 그것을 부르므로 모양 fetch 는 한 곳에서 셈(절차 m1).
+  ['MediaSample sampleMedia(\n  const WeatherSample weather,\n  const vec3 position,\n  const vec2 uv,\n  const float mipLevel,\n  const float jitter,\n  out ivec3 sampleCount\n)',
+    'int gCostShape = 0;\nint gCostSun = 0;\nint gCostIter = 0;\nfloat gCostCap = 0.0;\nMediaSample sampleMedia(\n  const WeatherSample weather,\n  const vec3 position,\n  const vec2 uv,\n  const float mipLevel,\n  const float jitter,\n  out ivec3 sampleCount\n)'],
   ['float shape = texture(shapeTexture, shapePosition).r;', 'float shape = texture(shapeTexture, shapePosition).r;\n  ++gCostShape;'],
   ['    MediaSample media = sampleMedia(weather, position, uv, mipLevel, jitter);\n    opticalDepth += media.extinction * stepSize;',
     '    ++gCostSun;\n    MediaSample media = sampleMedia(weather, position, uv, mipLevel, jitter);\n    opticalDepth += media.extinction * stepSize;'],
@@ -134,6 +138,10 @@ export const REPACKED_LAYER_UNIFORMS = ['minLayerHeights', 'maxLayerHeights', 'm
   'shapeDetailAmounts', 'weatherExponents', 'shapeAlteringBiases', 'coverageFilterWidths', 'densityProfile'];
 export function checkGrainMaterial(material: AnyRec | undefined): void {
   for (const k of Object.keys(material ?? {})) if (REPACKED_LAYER_UNIFORMS.includes(k)) throw new Error('grain job: material.' + k + ' is repacked from cloudLayers every frame (void arm)');
+}
+/** grain 잡 옵션 키가 앱 옵션(DEFAULT_VOLUMETRIC_OPTIONS)에 없으면 throw — 아직 구현 안 된 손잡이 팔이 조용히 C0 이 되지 않게(RULER-grain G0e). */
+export function checkGrainOptions(options: AnyRec | undefined): void {
+  for (const k of Object.keys(options ?? {})) if (!(k in DEFAULT_VOLUMETRIC_OPTIONS)) throw new Error('grain job: unknown option ' + k + ' (knob not implemented in this bundle — void arm)');
 }
 
 /** grain 잡의 옵션 기본값: 앱 기본값 전부(DEFAULT_VOLUMETRIC_OPTIONS — 새 손잡이도 기본 0 으로 자동 포함) 위에 하네스 기본(JOB_BASE_OPTIONS) — 앞 잡 옵션이 새지 않음(절차 B2). */
@@ -242,8 +250,9 @@ function gpu(W: number, H: number): Gpu {
   }
   return GPU;
 }
-type ReadState = { errors: number[] };
-function glCheck(renderer: WebGLRenderer, st: ReadState): void { const e = renderer.getContext().getError(); if (e) st.errors.push(e); }
+type ReadState = { errors: (number | string)[] };
+/** gl.getError 를 비우며 기록(어느 단계에서 났는지 꼬리표) — 오류가 하나라도 있으면 captureOk false(절차 M9). */
+function glCheck(renderer: WebGLRenderer, st: ReadState, tag = ''): void { const e = renderer.getContext().getError(); if (e) st.errors.push(tag ? tag + ':' + e : e); }
 /** skyDenoise(tex) → float RGBA(행 gy0..gy0+gh, GL 순서). texSize = 텍스처 자체 크기(기기와 같음: 볼륨 텍스처 = 드로잉 버퍼 크기). */
 function denoiseRead(ctx: Ctx, tex: Texture, gy0: number, gh: number, out: Float32Array, st: ReadState): void {
   const { renderer, W, H } = ctx, g = gpu(W, H);
@@ -251,12 +260,14 @@ function denoiseRead(ctx: Ctx, tex: Texture, gy0: number, gh: number, out: Float
   const prevRT = renderer.getRenderTarget(), prevClear = renderer.autoClear;
   renderer.setRenderTarget(g.rt); renderer.autoClear = false; renderer.render(g.scene, g.cam);
   renderer.setRenderTarget(prevRT); renderer.autoClear = prevClear;
+  glCheck(renderer, st, 'preDenoise');
   renderer.readRenderTargetPixels(g.rt as WebGLRenderTarget, 0, gy0, W, gh, out);
-  glCheck(renderer, st);
+  glCheck(renderer, st, 'denoiseRead');
 }
-function readHalfRT(renderer: WebGLRenderer, rt: WebGLRenderTarget, x: number, y: number, w: number, h: number, u16: Uint16Array, out: Float32Array, st: ReadState): void {
+function readHalfRT(renderer: WebGLRenderer, rt: WebGLRenderTarget, x: number, y: number, w: number, h: number, u16: Uint16Array, out: Float32Array, st: ReadState, tag = 'half'): void {
+  glCheck(renderer, st, 'pre-' + tag);
   renderer.readRenderTargetPixels(rt, x, y, w, h, u16, undefined, 0);
-  glCheck(renderer, st);
+  glCheck(renderer, st, tag);
   const lut = C.halfLut();
   for (let i = 0; i < w * h * 4; i++) out[i] = lut[u16[i]];
 }
@@ -283,7 +294,12 @@ async function pngOfFloat(ctx: Ctx, job: string, base: string, rgba: Float32Arra
   ctx.renderer.autoClear = prev;
   t.dispose();
 }
-const syncMs = (renderer: WebGLRenderer) => { const gl = renderer.getContext(); const p = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p); return performance.now(); };
+/** GPU 를 기다린 뒤 시각(1 화소 동기 읽기). 기본 프레임 버퍼(8비트)에서 읽음 — 반정밀도 RT 가 묶인 채 UNSIGNED_BYTE 로 읽으면 1282(INVALID_OPERATION). */
+const syncMs = (renderer: WebGLRenderer) => {
+  const prev = renderer.getRenderTarget(); renderer.setRenderTarget(null);
+  const gl = renderer.getContext(); const p = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p);
+  renderer.setRenderTarget(prev); return performance.now();
+};
 
 // ───────── 잡 ─────────
 export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: GrainJob }): Promise<AnyRec> {
@@ -297,7 +313,8 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
     name: job.name, mode: g.mode, W, H, grain: g, temporalUpscale: clouds.temporalUpscale, resolutionScale: vol.resolutionScale(), quality: job.quality ?? 'low',
     options: job.options ?? null, material: job.material ?? null, resolve: job.resolve ?? null, clouds: job.clouds ?? null, input: job.input, noiseSeed: g.noiseSeed ?? 12345,
   };
-  if (g.mode === 'state') { meta.stateHash = stateHash(vol); return meta; }
+  checkGrainOptions(job.options as AnyRec | undefined);
+  if (g.mode === 'state') { meta.stateHash = stateHash(vol); meta.shaderHash = shaderHash(vol); return meta; }
   const frame0 = g.frame0 ?? 0;
   const cy0 = Math.floor((g.crop?.[0] ?? 0) * H), cy1 = Math.ceil((g.crop?.[1] ?? 1) * H);
   const gy0 = H - cy1, gh = cy1 - cy0;                          // GL 행
@@ -324,7 +341,7 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
     for (let i = 0; i < frames; i++) {
       vol.renderToTexture(1 / 60);
       const f = clouds.frame;
-      readHalfRT(renderer, cur, 0, 0, lw, lh, u16c, fc, st);
+      readHalfRT(renderer, cur, 0, 0, lw, lh, u16c, fc, st, 'costCur');
       if (clouds.temporalUpscale) {
         const [bx, by] = C.bayerPos(f % 16);
         for (let Y = 0; Y < lh; Y++) { const y = 4 * Y + by; if (y >= chh) continue; for (let X = 0; X < lw; X++) { const x = 4 * X + bx; if (x >= cw) continue; const k = (Y * lw + X) * 4, j = y * cw + x; sx[j] += fc[k]; sy[j] += fc[k + 1]; sz[j] += fc[k + 2]; sc[j] += fc[k + 3]; n[j]++; } }
@@ -361,7 +378,7 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
         const [dx, dy] = C.stratumOffset(k, ss, res); offs.push([dx, dy]);
         cam.setViewOffset(W, H, dx, dy, W, H); viewOffsetSet = true;
         const tex = vol.renderToTexture(1 / 60);
-        readHalfRT(renderer, (tex as unknown as { renderTarget: WebGLRenderTarget }).renderTarget, 0, gy0, W, gh, u16d, raw, st);
+        readHalfRT(renderer, (tex as unknown as { renderTarget: WebGLRenderTarget }).renderTarget, 0, gy0, W, gh, u16d, raw, st, 'refOut');
         const acc = k < n / 2 ? A : B;
         for (let i = 0; i < nP * 4; i++) acc[i] += raw[i];
       }
@@ -375,9 +392,14 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
       for (let i = 0; i < nP * 4; i++) full[gy0 * W * 4 + i] = (src ? src[i] : A[i] + B[i]) / div;
       const t = new DataTexture(full, W, H, RGBAFormat, FloatType); t.minFilter = t.magFilter = NearestFilter; t.needsUpdate = true;
       denoiseRead(ctx, t, gy0, gh, dn, st);
-      const Ld = new Float32Array(nP), Al = new Float32Array(nP);
-      for (let p = 0; p < nP; p++) { Ld[p] = C.lum(dn[p * 4], dn[p * 4 + 1], dn[p * 4 + 2]); Al[p] = full[gy0 * W * 4 + p * 4 + 3]; }
+      // Lr = 원(잡음 제거 앞) 평균의 휘도(주 eCSF_raw 의 진실), Ld = skyDenoise(평균)(기기 길 eCSF_dev 의 진실) — 둘 다 표시 선형(톤 뒤).
+      const Ld = new Float32Array(nP), Lr = new Float32Array(nP), Al = new Float32Array(nP);
+      for (let p = 0; p < nP; p++) {
+        const k = gy0 * W * 4 + p * 4;
+        Ld[p] = C.lum(dn[p * 4], dn[p * 4 + 1], dn[p * 4 + 2]); Lr[p] = C.lum(full[k], full[k + 1], full[k + 2]); Al[p] = full[k + 3];
+      }
       outs[tag + '.Ld.f32'] = C.flipRows(Ld, W, gh, 1);
+      outs[tag + '.Lr.f32'] = C.flipRows(Lr, W, gh, 1);
       outs[tag + '.A.f32'] = C.flipRows(Al, W, gh, 1);
       if (tag === 'ref') await pngOfFloat(ctx, job.name, 'ref', full.slice());
       t.dispose();
@@ -392,7 +414,7 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
       const u16f = new Uint16Array(cw * chh * 4), ff = new Float32Array(cw * chh * 4);
       for (let i = 0; i < (g.capFrames ?? 0); i++) {
         vol.renderToTexture(1 / 60);
-        readHalfRT(renderer, cur, 0, 0, cw, chh, u16f, ff, st);
+        readHalfRT(renderer, cur, 0, 0, cw, chh, u16f, ff, st, 'capCur');
         for (let j = 0; j < cw * chh; j++) if (ff[j * 4 + 3] > 0.5) cap[j] = 1;
       }
       const capC = new Uint8Array(cw * cgh);
@@ -413,16 +435,26 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
   const sR = new Float64Array(nP * 4);            // 원 RGBA 합(창 평균 PNG·알파)
   const sLn = new Float64Array(nP), sLn2 = new Float64Array(nP), sL1 = new Float64Array(nP), sL2 = new Float64Array(nP);
   const satAll = new Uint16Array(nP), clipAny = new Uint16Array(nP);
-  const stillLd: Float32Array[] = [];
+  const stillLd: Float32Array[] = [], stillLr: Float32Array[] = [];
   const pngOk: AnyRec[] = [];
   const gl = renderer.getContext();
   for (let i = 0; i < warm + win; i++) {
     const tex = vol.renderToTexture(1 / 60);
     if (i < warm) continue;
     const t = i - warm, f = clouds.frame;
-    readHalfRT(renderer, cur, 0, 0, lw, lh, u16c, fc, st);
+    readHalfRT(renderer, cur, 0, 0, lw, lh, u16c, fc, st, 'cur');
     C.scatterQuarter(fc, lw, lh, f, cw, chh, sY, sY2, sA, sA2, nS);
-    readHalfRT(renderer, (tex as unknown as { renderTarget: WebGLRenderTarget }).renderTarget, 0, gy0, W, gh, u16d, raw, st);
+    if (t === 0 && clouds.temporalUpscale) {
+      // sampCheck: 이 프레임에 갱신된 텍셀(bayer == f % 16)의 해석 출력 = 1/4 표본(비트 같음, cloudsResolve.frag currentFrame 갈래).
+      const hist = cp.historyRenderTarget as WebGLRenderTarget, u16h = new Uint16Array(cw * chh * 4);
+      renderer.readRenderTargetPixels(hist, 0, 0, cw, chh, u16h, undefined, 0); glCheck(renderer, st, 'hist');
+      const [bx, by] = C.bayerPos(f % 16);
+      let nChk = 0, nEq = 0;
+      for (let Y = 0; Y < lh; Y++) { const y = 4 * Y + by; if (y >= chh) continue; for (let X = 0; X < lw; X++) { const x = 4 * X + bx; if (x >= cw) continue;
+        nChk++; let eq = true; for (let c = 0; c < 4; c++) if (u16h[(y * cw + x) * 4 + c] !== u16c[(Y * lw + X) * 4 + c]) eq = false; if (eq) nEq++; } }
+      meta.sampCheck = { frame: f, n: nChk, equal: nEq };
+    }
+    readHalfRT(renderer, (tex as unknown as { renderTarget: WebGLRenderTarget }).renderTarget, 0, gy0, W, gh, u16d, raw, st, 'out');
     denoiseRead(ctx, tex, gy0, gh, dn, st);
     const first = t < win / 2;
     for (let p = 0; p < nP; p++) {
@@ -437,19 +469,26 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
     }
     const si = stills.indexOf(t);
     if (si >= 0) {
-      if (full) { const Ld = new Float32Array(nP); for (let p = 0; p < nP; p++) Ld[p] = C.lum(dn[p * 4], dn[p * 4 + 1], dn[p * 4 + 2]); stillLd[si] = Ld; }
-      if (pngStills.has(si)) {
+      if (full) {
+        const Ld = new Float32Array(nP), Lr = new Float32Array(nP);
+        for (let p = 0; p < nP; p++) { Ld[p] = C.lum(dn[p * 4], dn[p * 4 + 1], dn[p * 4 + 2]); Lr[p] = C.lum(raw[p * 4], raw[p * 4 + 1], raw[p * 4 + 2]); }
+        stillLd[si] = Ld; stillLr[si] = Lr;
+      }
+      if (si === 0 || pngStills.has(si)) {
         const prev = renderer.autoClear;
         const rgbUrl = ctx.show(tex, 0);
-        // captureOk: 캔버스(8비트, 위 blit 의 sRGB 부호화) 와 float 원 값의 부호화가 1 단계 안(≥ 99.9 %).
-        const px = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
-        let bad = 0;
-        for (let p = 0; p < nP; p++) for (let c = 0; c < 3; c++) { const e = Math.round(255 * C.linearToSrgb(raw[p * 4 + c])); if (Math.abs(e - px[(gy0 * W + p) * 4 + c]) > 1) bad++; }
-        const alphaUrl = ctx.show(tex, 1);
+        // captureOk(절차 M9): 캔버스(8비트, 위 blit 의 sRGB 부호화) 와 float 원 값의 부호화가 1 단계 안(≥ 99.9 %) — 정지 0 은 모든 잡에서.
+        const px = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px); glCheck(renderer, st);
+        let bad = 0, nz = 0;
+        for (let p = 0; p < nP; p++) for (let c = 0; c < 3; c++) { const e = Math.round(255 * C.linearToSrgb(raw[p * 4 + c])); if (Math.abs(e - px[(gy0 * W + p) * 4 + c]) > 1) bad++; if (raw[p * 4 + c] > 0) nz++; }
+        let alphaUrl = '';
+        if (pngStills.has(si)) alphaUrl = ctx.show(tex, 1);
         renderer.autoClear = prev;
-        await writePng(job.name, 'still' + si + '.png', rgbUrl);
-        await writePng(job.name, 'still' + si + '.alpha.png', alphaUrl);
-        pngOk.push({ still: si, badFrac: bad / (nP * 3) });
+        if (pngStills.has(si)) {
+          await writePng(job.name, 'still' + si + '.png', rgbUrl);
+          await writePng(job.name, 'still' + si + '.alpha.png', alphaUrl);
+        }
+        pngOk.push({ still: si, badFrac: bad / (nP * 3), nonzeroFrac: nz / (nP * 3) });
       }
     }
   }
@@ -482,14 +521,19 @@ export async function runGrain(ctx: Ctx, job: AnyRec & { name: string; grain: Gr
   await writeFile(job.name, 'flags.u8', C.flipRows(flags, W, gh, 2));
   if (full) {
     await writeFile(job.name, 'meanLd.f32', bytesOf(C.flipRows(meanLd, W, gh, 1)));
-    for (let k = 0; k < stillLd.length; k++) if (stillLd[k]) await writeFile(job.name, 'still' + k + '.Ld.f16', bytesOf(C.encodeHalfArray(C.flipRows(stillLd[k], W, gh, 1))));
+    for (let k = 0; k < stillLd.length; k++) if (stillLd[k]) {
+      await writeFile(job.name, 'still' + k + '.Ld.f16', bytesOf(C.encodeHalfArray(C.flipRows(stillLd[k], W, gh, 1))));
+      await writeFile(job.name, 'still' + k + '.Lr.f16', bytesOf(C.encodeHalfArray(C.flipRows(stillLr[k], W, gh, 1))));
+    }
   }
   // 창 평균(원 경로) PNG — 사진 기준 가드(G5·G6)·면적(G1)·밝기(G2)의 입력.
   const meanRGBA = new Float32Array(W * H * 4);
   for (let i = 0; i < nP * 4; i++) meanRGBA[gy0 * W * 4 + i] = sR[i] / win;
   await pngOfFloat(ctx, job.name, 'mean', meanRGBA);
   meta.pngStills = pngOk;
-  meta.captureOk = st.errors.length === 0 && meta.sampFullFrac === 1 && pngOk.every(r => (r.badFrac as number) <= 0.001);
+  const sc = meta.sampCheck as { n: number; equal: number } | undefined;
+  meta.captureOk = st.errors.length === 0 && meta.sampFullFrac === 1 && pngOk.length > 0 && pngOk.every(r => (r.badFrac as number) <= 0.001 && (r.nonzeroFrac as number) > 0)
+    && (!clouds.temporalUpscale || (sc != null && sc.n > 0 && sc.equal === sc.n));
   meta.glErrors = st.errors;
   meta.shaderHash = shaderHash(vol); meta.stateHash = stateHash(vol);
   meta.lastScene = vol.lastScene();

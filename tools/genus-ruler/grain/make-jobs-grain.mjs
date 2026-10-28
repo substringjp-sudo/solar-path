@@ -2,9 +2,11 @@
 /**
  * make-jobs-grain.mjs — RULER-grain 잡·장면 표(동결 대상). 손으로 고치지 말고 이 스크립트를 고칩니다(고치면 새 자).
  *   node tools/genus-ruler/grain/make-jobs-grain.mjs [--out jobs-grain.json] [--scenes-out scenes-grain.json]
- *        [--adopt adopt-R{k}.json] [--ref-ss 4|2] [--warm-high 16|64] [--device-h 2340] [--device-res 0.5]
+ *        [--adopt adopt-R{k}.json] [--rerender-base] [--ref-ss 4|2] [--ref-step 10|5] [--warm-high 16|64] [--device-h 2340] [--device-res 0.5]
  *  --adopt: grain.py --gate 가 쓴 채택 파일(손으로 쓰지 않음) — 라운드 k+1 의 B_k = C0 + 채택 델타 들. 없으면 모든 라운드의 기준이 C0(동결 파일).
- *  --ref-ss / --warm-high / --device-*: §4.5 줄이기 사다리·§3 G9 대안·기기 피치 재계산(m2) — 탐침(판정 아님) 결과로만, 판정 렌더 전에 정하고 인자를 기록.
+ *  --rerender-base: 보정(calib-grain.json) 의 bkReuse 가 false 면 라운드 k 의 기준 B_{k-1} 을 이름 'B{k-1}' 로 다시 그림(같은 페이지 근처에).
+ *  --ref-ss / --ref-step / --warm-high / --device-*: §11 보정 사다리(층화 4×4/2×2 · 보폭 10/5 m · 높은 해 데움 16/64)·기기 피치 재계산(m2)
+ *    — 탐침(개발 집합, 판정 아님) 결과로만, 판정 렌더 전에 정하고 인자를 기록.
  * 장면 이름 규칙(grain.py 가 같은 규칙으로 읽음 — grain-test.py 시험): <팔>__<층>_<시각>__<방위 t|s|a>__<틀 dev|std|hdev|ddev>[__<꼬리표>]
  */
 import fs from 'node:fs';
@@ -16,6 +18,8 @@ const OUT = arg('--out', path.join(HERE, 'jobs-grain.json'));
 const SCENES_OUT = arg('--scenes-out', path.join(HERE, 'scenes-grain.json'));
 const ADOPT = arg('--adopt', null);
 const REF_SS = Number(arg('--ref-ss', '4'));
+const REF_STEP = Number(arg('--ref-step', '10'));
+const RERENDER_BASE = process.argv.includes('--rerender-base');
 const WARM_HIGH = Number(arg('--warm-high', '16'));
 const DEV_H = Number(arg('--device-h', '2340'));
 const DEV_RES = Number(arg('--device-res', '0.5'));
@@ -122,7 +126,7 @@ const baseFor = round => {
 };
 
 // ───── 잡 만들기 ─────
-const REF_MAT = { minStepSize: 10, maxStepSize: 10, perspectiveStepScale: 1.0, maxIterationCount: 8000 };
+const REF_MAT = { minStepSize: REF_STEP, maxStepSize: REF_STEP, perspectiveStepScale: 1.0, maxIterationCount: REF_STEP >= 10 ? 8000 : 16000 };
 const REF_OPT = { sunMarch: [26, 260, 1.1], temporalUpscale: false };
 const layerInput = (layer, seedSet) => { const L = LAYERS[layer]; return [{ genus: L.genus, cover: L.cover, baseKm: L.baseKm, band: L.band, opts: { seed: SEEDS[seedSet].seed } }]; };
 function inputFor(layer, time, azk, frame, seedSet) {
@@ -164,10 +168,15 @@ const twGuardJob = (arm, armCfg, round, [nm, date, az, el]) => ({
 
 const jobs = [];
 const armList = ['C0', ...Object.values(ROUND_ARMS).flat()];
-for (const arm of armList) {
+// --rerender-base: 라운드 k ≥ 2 의 기준 B_{k-1}(채택 델타 합)을 따로 그릴 팔 이름 'B{k-1}'
+const rerender = [];
+if (RERENDER_BASE && adopt) for (let r = 2; r <= 6; r++) { const b = baseFor(r); if (b.label !== 'C0') { ARMS['B' + (r - 1)] = { round: r, delta: b.cfg, base: true }; rerender.push('B' + (r - 1)); } }
+for (const arm of [...armList, ...rerender]) {
   const A = ARMS[arm], base = baseFor(A.round || 1);
-  const cfg = arm === 'C0' ? { options: {}, material: {} } : merge(base.cfg, A.delta);
-  const round = A.round, hClaim = ['E1a.3', 'E1a.0', 'E1b', 'E2a.8', 'E2a.6', 'E2b', 'E2c'].includes(arm) || arm === 'C0';
+  const cfg = arm === 'C0' ? { options: {}, material: {} } : A.base ? A.delta : merge(base.cfg, A.delta);
+  // G0e 상태 잡(그리지 않음 — 개발 장면): 이 팔의 상태 해시가 B 와 의도한 필드에서만 다른지(grain.py --ext)
+  jobs.push(job({ set: 'state', round: A.round, arm, armCfg: cfg, layer: 'cu35', time: 'e5', azk: 's', frame: 'dev', seedSet: 'dev', tag: 'state', grain: { mode: 'state' } }));
+  const round = A.round, hClaim = ['E1a.3', 'E1a.0', 'E1b', 'E2a.8', 'E2a.6', 'E2b', 'E2c'].includes(arm) || arm === 'C0' || !!A.base;
   for (const u of HELD_DEV) jobs.push(job({ set: 'heldout', round, arm, armCfg: cfg, ...u, grain: captureGrain('dev', u.time) }));
   for (const u of HELD_STD) jobs.push(job({ set: 'heldout', round, arm, armCfg: cfg, ...u, grain: captureGrain('std', u.time) }));
   if (hClaim) for (const u of HELD_HDEV) jobs.push(job({ set: 'hdev', round, arm, armCfg: cfg, ...u, grain: captureGrain('hdev', u.time) }));
@@ -202,9 +211,11 @@ for (const arm of ['E3', 'E5-', 'E5+']) for (const u of REPORT9) jobs.push({ ...
 const DEV_UNITS_FDEV = ['cu35', 'sc85', 'ac60'].flatMap(layer => ['t', 's', 'a'].map(azk => ({ layer, time: 'e5', azk, frame: 'dev' })));
 const DEV_UNITS_FSTD = ['cu35', 'sc85', 'ac60'].flatMap(layer => ['e5', 'e20'].flatMap(time => ['t', 's', 'a'].map(azk => ({ layer, time, azk, frame: 'std' }))));
 const C0 = { options: {}, material: {} };
+// P8B = 같은 씨앗을 **다른 페이지**에서(P0n, SwiftShader 비결정성) — set 'probeB' 는 eval-grain.sh 가 따로 부름.
 for (const [tag, seed] of [['A', 12345], ['B', 12345], ['n777', 777], ['n4242', 4242]]) {
-  for (const u of DEV_UNITS_FDEV) jobs.push(job({ set: 'probe', round: -1, arm: 'C0', armCfg: C0, ...u, seedSet: 'dev', tag: 'P8' + tag, grain: captureGrain('dev', u.time, { noiseSeed: seed }) }));
-  for (const u of DEV_UNITS_FSTD) jobs.push(job({ set: 'probe', round: -1, arm: 'C0', armCfg: C0, ...u, seedSet: 'dev', tag: 'P8' + tag, grain: captureGrain('std', u.time, { noiseSeed: seed }) }));
+  const set = tag === 'B' ? 'probeB' : 'probe';
+  for (const u of DEV_UNITS_FDEV) jobs.push(job({ set, round: -1, arm: 'C0', armCfg: C0, ...u, seedSet: 'dev', tag: 'P8' + tag, grain: captureGrain('dev', u.time, { noiseSeed: seed }) }));
+  for (const u of DEV_UNITS_FSTD) jobs.push(job({ set, round: -1, arm: 'C0', armCfg: C0, ...u, seedSet: 'dev', tag: 'P8' + tag, grain: captureGrain('std', u.time, { noiseSeed: seed }) }));
 }
 for (const [tag, seed] of [['A', 12345], ['n777', 777]]) jobs.push(job({ set: 'probe', round: -1, arm: 'C0', armCfg: C0, layer: 'cu35', time: 'e20', azk: 's', frame: 'hdev', seedSet: 'dev', tag: 'P8' + tag, grain: captureGrain('hdev', 'e20', { noiseSeed: seed }) }));
 // P1 시간(최악: sc25 e3 F-dev — 성기고 긴 맑은 광선), 기준 4 프레임(n = 2·ss² 아래로는 반쪽 비교 불가라 시간만)
@@ -213,15 +224,34 @@ jobs.push({ ...refJob('C0', C0, { layer: 'sc25', time: 'e3', azk: 's', frame: 'd
 // P2 기준 수렴: (10, 10, 8000) vs (5, 5, 16000), 그리고 화소 점 표본 기준(ss 1) — 앨리어싱 몫 A
 for (const [tag, mat, g] of [['P2ref10', REF_MAT, refGrain], ['P2ref5', { minStepSize: 5, maxStepSize: 5, perspectiveStepScale: 1.0, maxIterationCount: 16000 }, refGrain], ['P2refpt', REF_MAT, { ...refGrain, ss: 1 }]])
   jobs.push({ ...refJob('C0', C0, { layer: 'cu35', time: 'e5', azk: 's', frame: 'dev' }, tag, mat, REF_OPT, g), set: 'probe', input: inputFor('cu35', 'e5', 's', 'dev', 'dev') });
-// P3 순서 불변(G9): 같은 F-std 잡을 페이지 맨 앞(P8A 의 첫 F-std 잡)과, 해 ≥ 12° 잡 네 개 뒤에 다시
+// P3 순서 불변(G9): 한 페이지(set probe3 만 따로 부름)에서 같은 F-std 잡을 맨 앞(P3a)과, 해 ≥ 12° 잡 네 개 뒤(P3)에
+jobs.push(job({ set: 'probe3', round: -1, arm: 'C0', armCfg: C0, layer: 'cu35', time: 'e20', azk: 't', frame: 'std', seedSet: 'dev', tag: 'P3a', grain: captureGrain('std', 'e20') }));
 for (const time of ['e20', 'e45']) for (const azk of ['t', 's']) jobs.push(job({ set: 'probe3', round: -1, arm: 'C0', armCfg: C0, layer: 'ac60', time, azk, frame: 'std', seedSet: 'dev', tag: 'P3pre', grain: captureGrain('std', time) }));
 jobs.push(job({ set: 'probe3', round: -1, arm: 'C0', armCfg: C0, layer: 'cu35', time: 'e20', azk: 't', frame: 'std', seedSet: 'dev', tag: 'P3', grain: captureGrain('std', 'e20') }));
 // P4 창 등가: 기기 전체 틀(1080×H·×res, 시선 9°) 가운데 390×584 ↔ F-dev(P8A) — 개발 F-dev 세 단위
 for (const layer of ['cu35', 'sc85', 'ac60']) jobs.push(job({ set: 'probeDev', round: -1, arm: 'C0', armCfg: C0, layer, time: 'e5', azk: 's', frame: 'ddev', seedSet: 'dev', tag: 'P4', grain: captureGrain('ddev', 'e5') }));
-// P6 손잡이·덮어쓰기 팔 컴파일 점검(상태 해시만, 지표 없음) · P7 비용 변형 C0 상식 점검
-for (const arm of armList.filter(a => a !== 'C0')) jobs.push(job({ set: 'probe6', round: -1, arm, armCfg: ARMS[arm].delta, layer: 'cu35', time: 'e5', azk: 's', frame: 'dev', seedSet: 'dev', tag: 'P6', grain: { mode: 'state' } }));
-jobs.push(job({ set: 'probe6', round: -1, arm: 'C0', armCfg: C0, layer: 'cu35', time: 'e5', azk: 's', frame: 'dev', seedSet: 'dev', tag: 'P6', grain: { mode: 'state' } }));
+// P6(팔마다 상태 해시)는 라운드마다 그리는 set 'state' 잡(G0e)과 g0 단계(§12)가 맡음 · P7 비용 변형 C0 상식 점검
 jobs.push(job({ set: 'probe', round: -1, arm: 'C0', armCfg: C0, layer: 'cu35', time: 'e5', azk: 's', frame: 'dev', seedSet: 'dev', tag: 'P7', grain: { mode: 'cost', frame0: 0, frames: 16 } }));
+
+// ───── G0 번들 점검(§6 G0b·G0c, §12): 측정 번들(동결) ↔ 손잡이 번들에서 C0 가 같은지 — 상태 해시(그리지 않음, held-out 장면 전부·방위 s)
+//        + 개발 장면 C0 캡처 4 개(화소 허용폭). eval-grain.sh g0 이 두 번들로 따로 그림.
+for (const [b, layers, times] of BUNDLES) for (const layer of layers) for (const time of times) for (const frame of (TIMES[time].el < 12 ? ['dev', 'std'] : ['std']))
+  jobs.push(job({ set: 'g0state', round: -1, arm: 'C0', armCfg: C0, layer, time, azk: 's', frame, tag: 'g0', grain: { mode: 'state' } }));
+for (const [layer, time, azk, frame] of [['cu35', 'e5', 's', 'dev'], ['sc85', 'e5', 's', 'dev'], ['ac60', 'e5', 's', 'dev'], ['cu35', 'e20', 't', 'std']])
+  jobs.push(job({ set: 'g0cap', round: -1, arm: 'C0', armCfg: C0, layer, time, azk, frame, seedSet: 'dev', tag: 'g0cap', grain: captureGrain(frame, time) }));
+
+// ───── 눈 확인 묶음(§4.4, 판정 아님): 기기 전체 틀 1080×H·×res, C0(그리고 --adopt final 이면 Bfinal) — 100 % 크롭 대조판용 PNG ─────
+const S4 = JSON.parse(fs.readFileSync(path.join(HERE, '../shape/jobs-grain-low.json'), 'utf8')).find(j => j.name === 'Aqlow_S4_1021_sw').input;
+const EYE = [['S4_1021_sw', { ...S4, fov: 60 }], ...TW_GUARD.map(([nm, date, az, el]) => [nm, { lat: 37.81, lon: 138.28, heightM: 5, date, az, el, fov: 60, layers: [{ genus: 'sc', cover: 0.23, baseKm: 1, band: 'low' }, { genus: 'ac', cover: 0.43, baseKm: 3.5, band: 'mid' }] }])];
+const eyeArms = [['C0', { options: {}, material: {} }]];
+if (adopt?.final) { let b = { options: {}, material: {} }; for (const a of adopt.adopted ?? []) b = merge(b, ARMS[a.arm].delta); eyeArms.push(['Bfinal', b]); }
+for (const [arm, cfg] of eyeArms) for (const [nm, input] of EYE) {
+  const j = { name: [arm, nm, 'g', 'eye'].join('__'), set: 'eye', round: 7, arm, layer: nm, time: nm, az: 'g', frame: 'eye', canvas: [1080, DEV_H], quality: 'low', res: DEV_RES, input,
+    grain: { mode: 'capture', frame0: 0, warm: 16, window: 64, stills: [7, 23, 39, 55], store: 'lite', pngStills: [0, 1, 2, 3] } };
+  if (Object.keys(cfg.options ?? {}).length) j.options = cfg.options;
+  if (Object.keys(cfg.material ?? {}).length) j.material = cfg.material;
+  jobs.push(j);
+}
 
 // ───── 장면 표(grain.py 가 읽음): 단위·묶음·P·K ─────
 const scenes = {};
@@ -241,16 +271,25 @@ const K = {
 };
 const claims = {};
 for (const [k, fn] of Object.entries(K)) { claims[k] = {}; for (const [key, s] of Object.entries(scenes)) claims[k][key] = Object.fromEntries(['dev', 'std', 'hdev'].map(f => [f, !!fn(s, f)])); }
-// 예산(§4.5 추정 — 탐침 P1 이 고침): 초/프레임, 캔버스·해 고도·모드별 근사.
+// 예산(§4.5): 초/프레임 — 동결 전 연기 시험(개발 장면 cu35, 2026-10-28, SwiftShader 4 CPU)에서 잰 값. 탐침 P1 이 다시 잼.
+//   F-dev 캡처 70 s/80 프레임(≈0.85) · F-std 해 20° 177 s/80(≈2.2, 그림자 지도) · 1080×2340 해 20° ≈2.5 · 비용 16 프레임 15.6 s(≈1.0)
+//   기준(10 m·업스케일 끔) ≈45 s/프레임(n 8: 400 s) · 상태 잡 0.1 s.
 const secPerFrame = j => {
-  const big = j.canvas[0] * j.canvas[1] > 1e6, high = TIMES[j.time]?.el >= 12;
-  if (j.grain.mode === 'reference') return (big ? 10 : 1) * 30;   // 10 m 걸음 · 업스케일 끔(1/16 아님) · 8000 반복 — 추정 15~45 s
+  const big = j.canvas[0] * j.canvas[1] > 1e6, high = (TIMES[j.time]?.el ?? 20) >= 12;
+  if (j.grain.mode === 'reference') return (big ? 10 : 1) * 45 * (REF_STEP < 10 ? 2 : 1);
   if (j.grain.mode === 'state') return 0;
-  return (big ? 11 : 1) * (high ? 0.75 : 0.5) + (big ? 1.0 : 0.08);   // 렌더 + 읽기·누적
+  if (j.grain.mode === 'cost') return big ? 4 : 1.0;
+  return big ? (high ? 2.5 : 1.6) : (high ? 2.2 : 0.85);
 };
 const framesOf = j => j.grain.mode === 'reference' ? j.grain.n + (j.grain.capFrames ?? 0) : j.grain.mode === 'cost' ? j.grain.frames : j.grain.mode === 'state' ? 0 : (j.grain.warm + j.grain.window);
 const budget = {};
-for (const j of jobs) { const key = j.set + ':' + j.arm; budget[key] = (budget[key] ?? 0) + secPerFrame(j) * framesOf(j) + 4; }
+for (const j of jobs) { const key = j.set + ':' + j.arm; budget[key] = (budget[key] ?? 0) + secPerFrame(j) * framesOf(j) + (j.grain.mode === 'state' ? 0.5 : 4); }
+// 단계별(eval-grain.sh 단계) 합: 보정 · c0 · 라운드마다(후보 팔 전부) · final(Bfinal + Q) · eye. 페이지 시작(대기 표 생성 ≈100 s)은 덩어리(60 분)마다 한 번.
+const stageOf = j => (['probe', 'probeB', 'probe3', 'probeDev'].includes(j.set) ? 'calibrate' : ['g0state', 'g0cap'].includes(j.set) ? 'g0' : j.set === 'eye' ? 'eye' : j.set === 'refReport' ? 'refreport'
+  : (j.arm === 'C0' && j.set !== 'confirm') ? 'c0' : j.set === 'confirm' || j.arm === 'Bfinal' ? 'final' : 'R' + j.round);
+const stages = {};
+for (const j of jobs) { const k = stageOf(j); stages[k] = (stages[k] ?? 0) + secPerFrame(j) * framesOf(j) + (j.grain.mode === 'state' ? 0.5 : 4); }
+for (const k of Object.keys(stages)) stages[k] = +((stages[k] * (1 + 100 / 3600)) / 3600).toFixed(1);
 const hours = Object.fromEntries(Object.entries(budget).map(([k, v]) => [k, +(v / 3600).toFixed(2)]));
 const total = Object.values(budget).reduce((a, b) => a + b, 0) / 3600;
 
@@ -258,11 +297,10 @@ const doc = {
   ruler: 'RULER-grain', generator: 'make-jobs-grain.mjs', args: { adopt: ADOPT ? path.basename(ADOPT) : null, refSs: REF_SS, warmHigh: WARM_HIGH, deviceH: DEV_H, deviceRes: DEV_RES },
   site: SITE, times: TIMES, azOffsets: AZ_OFF, layers: LAYERS, seeds: SEEDS, frames: FRAMES, crops: CROP, bundles: BUNDLES.map(([b, layers, times, product]) => ({ bundle: b, layers, times, product })),
   arms: ARMS, roundArms: ROUND_ARMS, refMaterial: REF_MAT, refOptions: REF_OPT, refGrain, stepTable: STEP_TABLE, scenes, claims,
-  budgetHours: hours, budgetTotalHours: +total.toFixed(1), nJobs: jobs.length,
+  budgetHours: hours, budgetStageHours: stages, budgetTotalHours: +total.toFixed(1), nJobs: jobs.length,
 };
 fs.writeFileSync(OUT, JSON.stringify(jobs));
 fs.writeFileSync(SCENES_OUT, JSON.stringify(doc, null, 1));
 const bySet = {}; for (const j of jobs) bySet[j.set] = (bySet[j.set] ?? 0) + 1;
 console.log('jobs', jobs.length, JSON.stringify(bySet), 'F-dev vfov', DEV_VFOV, 'hdev crop', CROP.hdev);
-console.log('budget total h', total.toFixed(1));
-for (const [k, v] of Object.entries(hours).sort()) console.log('  ', k, v);
+console.log('budget total h', total.toFixed(1), 'by stage', JSON.stringify(stages));
