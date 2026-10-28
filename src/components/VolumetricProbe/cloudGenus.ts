@@ -23,6 +23,7 @@ import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, INV_2PI, MU0_MIN, SKY_SECANT } from 
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
+import { applyLightingFixClouds, LIGHTING_FIX_OFF, type LightingFixFlags } from './lightingFix';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -1102,11 +1103,11 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
-interface ShaderVariant extends GrainKnobs { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean }
+interface ShaderVariant extends GrainKnobs { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean; lighting: LightingFixFlags }
 const VARIANT = new WeakMap<object, ShaderVariant>();
 function variantOf(mat: PatchableMaterial): ShaderVariant {
   let v = VARIANT.get(mat);
-  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF }; VARIANT.set(mat, v); }
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF, lighting: LIGHTING_FIX_OFF }; VARIANT.set(mat, v); }
   return v;
 }
 function refreshVariant(mat: PatchableMaterial): void {
@@ -1132,6 +1133,8 @@ function refreshVariant(mat: PatchableMaterial): void {
     want = injectGrainRefine(want, v.refine);
     want = injectGrainSunLowpass(want, v.sunLowpass);
     want = injectGrainJitter(want, v.jitter);
+    // §178 조명 결함 고침(산란 자르기 · 조도 μs 로그 보간) — 앵커가 대기 함수(applyAerialPerspective·GetIrradiance)라 위 주입과 겹치지 않음. 맨 끝.
+    want = applyLightingFixClouds(want, v.lighting);
   }
   if (mat.fragmentShader !== want) { mat.fragmentShader = want; mat.needsUpdate = true; }
   // E3b 화소 발자국 각(°) — 구름 패스에 erode 2 일 때만 균일변수가 있음(끄면 목록이 base 와 같음).
@@ -1526,6 +1529,16 @@ export function injectGrainJitter(base: string, on: 0 | 1): string {
   if (!on) return base;
   return grainReplace(base, GRAIN_JITTER_ANCHOR,
     `  float stbn = fract(interleavedGradientNoise(gl_FragCoord.xy) + ${GRAIN_KNOB.jitterGolden} * float(frame % ${GRAIN_KNOB.jitterPeriod}));   // RULER-grain E4`, 'jitter');
+}
+
+/**
+ * §178 조명 결함 고침(lightingFix.ts)을 켜고 끕니다(재질마다, 구름 패스만 — 그림자 패스는 대기 함수가 없어 아무것도 안 함).
+ * 끄면 삽입 전 원문(base) 그대로.
+ */
+export function setLightingFix(mat: PatchableMaterial, flags: LightingFixFlags): void {
+  const v = variantOf(mat);
+  v.lighting = { clampInscatter: !!flags.clampInscatter, irradianceLogMu: !!flags.irradianceLogMu };
+  refreshVariant(mat);
 }
 
 /**

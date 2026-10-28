@@ -47,8 +47,9 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
+import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
@@ -416,8 +417,20 @@ export interface VolumetricOptions {
   jitterMode: 0 | 1;
   /** E3c 진단 전용 — setScene 의 층 CloudLayer.densityScale 에 곱함(기본 1 = 손대지 않음). 채택 대상 아님. */
   debugDensityMul: number;
+  /**
+   * §178 (e) 대기 원근 산란(GetSkyRadianceToPoint)을 0 에서 자름 — 구름 패스와 대기 효과(지형 빛 판) 둘 다. 깊은 박명(해 ≲ −9°)에 낮은 고도의
+   * 높은 덮개가 음수 산란으로 검게 그려지던 결함(§177.6). 끄면 셰이더 글자가 고치기 전과 같음(A/B 용).
+   * 여기 기본값은 끔(하네스 관례: 동결된 grain·tsun 꾸러미가 새 손잡이를 기본 0 으로 받음) — 앱은 SkyScene3D·VolumetricProbe 가 켜서 넘깁니다(사용자 승인 기본 켬).
+   */
+  clampInscatter: boolean;
+  /**
+   * §178 (f) GetIrradiance 의 μs 축을 로그 선형으로 읽음(lightingFix.ts) — 구름 패스 정점·조각, 대기 효과. 박명 하늘빛이 1.3~1.95 배 밝고 1.83° 주기로
+   * 출렁이던 결함(§177.6). 이웃 텍셀 비로 log 가중(2 배 이하 선형 · 4 배 이상 log). 끄면 셰이더 글자가 고치기 전과 같음(A/B 용).
+   * 기본값은 clampInscatter 와 같이 여기서는 끔, 앱 길에서 켬.
+   */
+  irradianceLogMu: boolean;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1 };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -509,6 +522,8 @@ export async function createVolumetricScene(
     };
   }
   const opt: VolumetricOptions = { ...DEFAULT_VOLUMETRIC_OPTIONS, ...options };
+  /** §178 조명 결함 고침 플래그(lightingFix.ts) — 옵션에서 읽음. */
+  const lightingFlags = (): LightingFixFlags => ({ clampInscatter: !!opt.clampInscatter, irradianceLogMu: !!opt.irradianceLogMu });
   const baseMarch = { n: 0, step: 0, scale: 0 };
   const camera = new PerspectiveCamera(60, width / height, 1, 1e7);
   const scene = new Scene();
@@ -663,6 +678,8 @@ export async function createVolumetricScene(
     lodUniforms.weatherLodBias.value = opt.weatherLod ?? 0;
     lodUniforms.weatherPixelAngle.value = radians(camera.fov) / Math.max(1, viewH * clouds.resolutionScale);
   };
+  /** §178 대기 효과의 고치기 전 글자(앱 패치까지 넣은 것) — clampInscatter·irradianceLogMu 를 켜고 끌 때 여기서 다시 만듭니다. */
+  let aerialBase = '';
   // §127 하늘 텍스처의 알파 = 구름 불투명도, 지형 화소의 하늘은 검게. (aerial 은 아래 EffectPass 를 만들기 전에 고쳐야
   // 합니다 — EffectPass 가 효과 셰이더를 합쳐 컴파일합니다. 균일변수 이름은 EffectPass 가 접두어를 붙여 맞춥니다.)
   {
@@ -825,7 +842,8 @@ export async function createVolumetricScene(
     fx.uniforms.set('sunRidgeTex', new Uniform(null));
     fx.uniforms.set('sunRidgeOn', new Uniform(0));
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
-    fx.setFragmentShader(src);
+    aerialBase = src;
+    fx.setFragmentShader(applyLightingFixAerial(src, lightingFlags()));
   }
   const setTerrainDistance = (tex: Texture | null, lit: Texture | null = null, ridge: Texture | null = null, seaSlope = 0.03, lit2: Texture | null = null) => {
     const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
@@ -860,6 +878,20 @@ export async function createVolumetricScene(
   patchMacroShader(clouds.cloudsPass.currentMaterial as never);
   patchMacroShader(clouds.shadowPass.currentMaterial as never);
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
+  // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
+  // 다시 만듭니다. 끄면 세 글자 모두 고치기 전과 바이트가 같습니다(verify-lighting-fixes.js).
+  const cloudVert = clouds.cloudsPass.currentMaterial as unknown as { vertexShader: string; needsUpdate: boolean };
+  const cloudVertBase = cloudVert.vertexShader;
+  const aerialFx = aerial as unknown as { getFragmentShader(): string; setFragmentShader(s: string): void };
+  const applyLightingFix = () => {
+    const f = lightingFlags();
+    setLightingFix(clouds.cloudsPass.currentMaterial as never, f);
+    const vs = applyLightingFixCloudsVertex(cloudVertBase, f);
+    if (cloudVert.vertexShader !== vs) { cloudVert.vertexShader = vs; cloudVert.needsUpdate = true; }
+    const fs = applyLightingFixAerial(aerialBase, f);
+    if (aerialFx.getFragmentShader() !== fs) aerialFx.setFragmentShader(fs);   // EffectPass 가 change 사건으로 다시 합칩니다
+  };
+  applyLightingFix();
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
   clouds.shapeDetailTexture = new CloudShapeDetail();
@@ -935,6 +967,21 @@ export async function createVolumetricScene(
   let last: { sunAltDeg: number; exposure: number } | null = null;
   let curPos = new Vector3(), curNue = new Matrix4();
   let lastShadow: boolean | null = null;
+  /**
+   * §178 g2 — applyScene 이 정한 층별 그림자 지도(BSM) 드리움 자격(해 고도와 무관: 종류 없는 상층·빈 채널은 false). setDate 가 해 12° 를 넘을 때
+   * 이것만 다시 겁니다 — 예전에는 `layer.shadow !== undefined`(CloudLayer.shadow 기본 false 라 늘 참)로 모든 층을 켜서, 다시 만들지 않고 해가 12° 를
+   * 위로 넘으면 운량 0·상층·빈 채널까지 드리워 그림자 지도 꼭대기가 5.4 → 10.4 km 로 뛰고 low 25 걸음 행진이 저층을 놓쳤습니다(§177.6).
+   * 기록: 자격은 applyScene 규칙 그대로라 운량 0 인 중·저층은 여전히 드리우고(꼭대기 5.4 km — 빈 BSM 비용뿐), 종류 권운 층도 설계상 드리웁니다
+   * (g3, 꼭대기 9.8 km — 바꾸지 않음). 이 마스크·꼭대기 0 은 clampInscatter·irradianceLogMu 와 달리 스위치가 없습니다.
+   */
+  let castEligible: boolean[] = [];
+  const layerU = (clouds as unknown as { layerUniforms: { shadowTopHeight: Uniform<number>; shadowBottomHeight: Uniform<number> } }).layerUniforms;
+  /** 자격 × 해 고도 조건으로 층 그림자를 겁니다. 아무 층도 드리우지 않으면 그림자 지도 꼭대기·밑을 0 으로 — takram(Ht)은 이때 꼭대기를 지우지 않아 낡은 값이 남았습니다. */
+  const applyCastMask = (on: boolean) => {
+    let any = false;
+    clouds.cloudLayers.forEach((layer, i) => { const c = on && !!castEligible[i]; layer.shadow = c; if (c && layer.height > 0) any = true; });
+    if (!any) { layerU.shadowTopHeight.value = 0; layerU.shadowBottomHeight.value = 0; }
+  };
   const placeCamera = (p: VolumetricSceneInput) => {
     const az = radians(p.az), el = radians(p.el);
     const position = curPos, nue = curNue;
@@ -1071,6 +1118,7 @@ export async function createVolumetricScene(
     const densityMul = opt.debugDensityMul;
     if (typeof densityMul !== 'number' || !Number.isFinite(densityMul) || densityMul < 0) throw new Error('volumetricScene: debugDensityMul must be a finite number >= 0, got ' + densityMul);
     clouds.cloudLayers.length = 0;
+    const eligible: boolean[] = [];
     // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
     const CH = ['r', 'g', 'b', 'a'] as const;
     const { inputs, gl, useGenus } = plan;
@@ -1083,15 +1131,17 @@ export async function createVolumetricScene(
     for (let i = 0; i < 4; i++) {
       const L = inputs[i];
       // 입력이 없는 채널만 빈 층. 운량 0 인 층도 층 높이는 그대로 둡니다 — 층 높이 범위가 하늘빛 보간·행진 구간에 들어갑니다.
-      if (!L) { clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: 0, height: 0, densityScale: 0 })); continue; }
+      if (!L) { eligible.push(false); clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude: 0, height: 0, densityScale: 0 })); continue; }
       const g = useGenus ? gl[i] : null;
       const shape = g ? genusLayerShape(g, flowDens) : bandShape(bandOf(L));
       if (L.thicknessM) shape.height = L.thicknessM;
       // §139 뼈대(K0h·K1·K2): 층 밑면·두께는 뼈대 값이 최종(예보 덱 두께·physBaseKm 보다 우선). 뚜껑 층은 밀도 단면 평평(밑면이 가장 옅지 않게).
       const skg = g?.opts?.skeleton ?? g?.opts?.skelGeom;
       if (skg) shape.height = skg.heightM;
-      // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음).
-      const layerShadow = bandOf(L) === 'high' && !g ? undefined : shadow;
+      // 상층(권운류)은 얇고 멀어 층 그림자 지도를 쓰지 않습니다(이전과 같음). 종류 권운 층은 설계상 드리움(§177.6 g3 — 그대로 둠).
+      const canCast = !(bandOf(L) === 'high' && !g);
+      eligible.push(canCast);
+      const layerShadow = canCast ? shadow : undefined;
       // §136 물리: 종류 층의 소광·세로 단면을 기온·기압에서(cloudPhysics). 꺼져 있으면 CloudLayer 에 아무것도 더하지 않습니다(이전과 같은 바이트).
       const physRaw = g && opt.physics ? layerPhysics(g.genus, (L.physBaseKm ?? L.baseKm) * 1000, shape.height ?? 0, p.thermo, genusEnvelope(g)) : null;
       // 입력이 깨져(NaN) 값이 유한하지 않으면 그 층은 손값 그대로 — 구름이 조용히 사라지지 않게.
@@ -1109,6 +1159,9 @@ export async function createVolumetricScene(
       clouds.cloudLayers.push(layer);
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
+    // §178 g2 자격을 기억하고(setDate 가 다시 씀) 같은 규칙으로 한 번 겁니다 — 층 값은 위 생성자와 같고, 드리우는 층이 없으면 꼭대기를 0 으로.
+    castEligible = eligible;
+    applyCastMask(shadow);
     // §136·§137 얼음 레인: physics+physicsIce 면 물리 값, 아니면 iceHalo·icePowderOff 의 손값 레인(얼음 종류 층만), 둘 다 아니면 없음.
     const physIce = opt.physics && opt.physicsIce;
     const handIce = !physIce && (opt.iceHalo || opt.icePowderOff);
@@ -1118,6 +1171,7 @@ export async function createVolumetricScene(
     const iceOn = physIce || handIce;
     // RULER-grain §8.2 셰이더 손잡이 — 종류 모형 여부와 무관하게 두 재질 모두(구름 패스 전용 손잡이는 그림자 패스에서 아무것도 안 함).
     for (const m of genusMats) setGrainKnobs(m, grainKnobs, opt.erodePixelAngleDeg);
+    applyLightingFix();
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
@@ -1234,12 +1288,8 @@ export async function createVolumetricScene(
     if ((sunAltDeg > opt.shadowMinSunDeg) !== lastShadow) {
       lastShadow = sunAltDeg > opt.shadowMinSunDeg;
       // 씬 전체를 동기 재생성(makeGenusWeather)하면 슬라이더 드래그 중 ANR이 발생하므로
-      // 구름 레이어의 그림자 플래그만 안전하게 갱신합니다.
-      for (const layer of clouds.cloudLayers) {
-        if (layer && (layer as any).shadow !== undefined) {
-          (layer as any).shadow = lastShadow;
-        }
-      }
+      // 구름 레이어의 그림자 플래그만 안전하게 갱신합니다 — §178 g2: applyScene 이 정한 자격(castEligible)만.
+      applyCastMask(lastShadow);
     }
     aerial.sunDirection.copy(sun);
     clouds.sunDirection.copy(sun);
@@ -1318,6 +1368,7 @@ export async function createVolumetricScene(
       clouds.shadow.temporalPass = opt.shadowTemporal;
       applySunLight();
       applyMaxRay();
+      applyLightingFix();
       // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
       if (lastInput && reapply) setScene(lastInput);
     },

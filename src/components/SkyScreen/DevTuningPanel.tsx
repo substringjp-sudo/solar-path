@@ -139,6 +139,8 @@ const VolumetricPerfRow: React.FC = () => {
   const physIce = useCelestialStore(s => !!s.skySettings.volumetricPhysicsIce);
   const macroMode = useCelestialStore(s => s.skySettings.volumetricMacro ?? 1);
   const morph = useCelestialStore(s => !!s.skySettings.volumetricMorph);
+  const clampIn = useCelestialStore(s => s.skySettings.volumetricClampInscatter ?? true);
+  const logMu = useCelestialStore(s => s.skySettings.volumetricIrradianceLogMu ?? true);
   const camVol = useCelestialStore(s => !!s.skySettings.cameraVolumetric);
   const set = useCelestialStore.getState().setSkySettings;
   const st = volumetricStats;
@@ -193,6 +195,14 @@ const VolumetricPerfRow: React.FC = () => {
         {/* 연속 형태 생성기(MORPH) — 예보 연속 물리량(대류성·얼음·바람·전단)으로 저층 형태 생성 */}
         <TouchableOpacity onPress={() => set({ volumetricMorph: !morph })} style={chip(morph)}>
           <Text style={styles.volChipText}>MORPH</Text>
+        </TouchableOpacity>
+        <View style={{ width: 6 }} />
+        {/* §178 조명 결함 고침 A/B — CLAMP 대기 원근 산란 0 자르기 · LOGμ 조도 표 μs 로그 보간(둘 다 기본 켬) */}
+        <TouchableOpacity onPress={() => set({ volumetricClampInscatter: !clampIn })} style={chip(clampIn)}>
+          <Text style={styles.volChipText}>CLAMP</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => set({ volumetricIrradianceLogMu: !logMu })} style={chip(logMu)}>
+          <Text style={styles.volChipText}>LOGμ</Text>
         </TouchableOpacity>
         <View style={{ width: 6 }} />
         {/* §143 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘 — 메인 시뮬레이션과 같은 구름. 카메라 스트림과 GPU 를 나눠 쓰므로 기기 확인용 */}
