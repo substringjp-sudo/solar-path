@@ -1127,7 +1127,7 @@ export async function createVolumetricScene(
       const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
       lastCamKm = camKm;
       // §173 takram 은 광선을 '고도 보정' 공간(ECEF + altitudeCorrection, 타원체 → 구)에서 걷습니다. 날씨 좌표 원점도 같은 공간에 둬야
-      // 관측점이 무늬 원점에 놓입니다 — 보정 벡터의 북쪽 성분이 위도 36° 에서 ~21 km 라, 예전에는 거시 격자(고리 자료)가 그만큼 남쪽에 그려졌습니다.
+      // 관측점이 무늬 원점에 놓입니다 — 보정 벡터의 북쪽 성분이 위도 36° 에서 ~20 km 라, 예전에는 거시 격자(고리 자료)가 그만큼 남쪽에 그려졌습니다.
       const altCorr = getAltitudeCorrectionOffset(position, atmosphereParams.bottomRadius, Ellipsoid.WGS84, new Vector3());
       const driftSec = driftSecOverride ?? p.date.getTime() / 1000;
       for (const m of genusMats) {
