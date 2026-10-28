@@ -47,9 +47,10 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
+import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
@@ -188,6 +189,8 @@ export interface GLCapabilities {
   colorBufferFloat: boolean;
   colorBufferHalfFloat: boolean;
   floatLinear: boolean;
+  /** §179 WP0 조각 셰이더 텍스처 단위 수(MAX_TEXTURE_IMAGE_UNITS, WebGL2 최소 16) — T_sun 이 샘플러 하나를 더함(cloudTsun.ts checkTsunSamplerBudget). */
+  maxTextureImageUnits: number;
 }
 
 export function readCapabilities(gl: WebGL2RenderingContext): GLCapabilities {
@@ -203,6 +206,7 @@ export function readCapabilities(gl: WebGL2RenderingContext): GLCapabilities {
     colorBufferFloat: has('EXT_color_buffer_float'),
     colorBufferHalfFloat: has('EXT_color_buffer_half_float') || has('EXT_color_buffer_float'),
     floatLinear: has('OES_texture_float_linear'),
+    maxTextureImageUnits: Number(gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) ?? 0),
   };
 }
 
@@ -274,7 +278,7 @@ function makeWhiteNoise3D(): Data3DTexture {
 const GENUS_TILE_KM = 24;
 
 /** 시험용 손잡이 — 기본값은 기기 시험판 그대로. */
-export interface VolumetricOptions {
+export interface VolumetricOptions extends TsunOptions {
   /** 날씨 잡음의 가장 굵은 주기(256 칸 타일 한 장에 몇 번). 클수록 구름 덩어리가 잘다. */
   weatherPeriod: number;
   /** 문턱 위 경사 — 클수록 덩어리 속이 고르게 찬다. */
@@ -429,8 +433,10 @@ export interface VolumetricOptions {
    * 기본값은 clampInscatter 와 같이 여기서는 끔, 앱 길에서 켬.
    */
   irradianceLogMu: boolean;
+  // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
+  // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -482,10 +488,26 @@ export interface VolumetricScene {
   flowInfo(): { s90: number | null; hoursUsed: number | null; camKm: [number, number] | null };
   /** §136 진단: 마지막 장면의 층별 물리 값(β·τ·얼음·무리·가루) — 물리가 꺼져 있으면 null */
   physicsInfo(): (LayerPhysics | null)[] | null;
+  /**
+   * §179 T_sun 아틀라스를 겁니다(하네스 전용 — 구축기 WP2 의 출력, 형식은 cloudTsun.ts TsunAtlas). null 이면 '아틀라스 없음'(gTsunOn 0 = C0ps 빛).
+   * 옵션(tsunN·tsunRangeKm·archLight)·지금 장면(tsunSceneSerial)과 안 맞으면 throw. 텍스처는 부른 쪽이 소유(dispose 하지 않음). applyScene 은 아틀라스를 버림.
+   */
+  setTsunAtlas(atlas: TsunAtlas | null): void;
+  /** §179 지금 장면 번호 — applyScene 마다 1 씩 오름. 아틀라스는 이 값을 sceneSerial 로 들고 와야 함. */
+  tsunSceneSerial(): number;
+  /** §179 T_sun 상태(하네스 meta·렌더 전 확인용). */
+  tsunInfo(): TsunInfo;
   /** 진단용 — 하네스에서만 씁니다. */
   debug: { clouds: CloudsEffect; toneMapping: ToneMappingEffect };
   /** §128 대기 표가 파장 15개(분광 휘도)인지 — false 면 takram 3파장. */
   readonly spectral: boolean;
+}
+
+/** §179 T_sun 상태(tsunInfo) — injected = 글자가 들어감(tsun 1 · 해 ≤ shadowMinSunDeg), atlasValid = gTsunOn 1. */
+export interface TsunInfo {
+  enabled: boolean; injected: boolean; arch: boolean; belowShadow: boolean | null; atlasValid: boolean; reason: string | null;
+  archW: number; samplers: { count: number; limit: number; limitKnown: boolean } | null; sceneSerial: number;
+  atlasMeta: TsunAtlas['meta'] | null;
 }
 
 /**
@@ -522,6 +544,8 @@ export async function createVolumetricScene(
     };
   }
   const opt: VolumetricOptions = { ...DEFAULT_VOLUMETRIC_OPTIONS, ...options };
+  // §179 T_sun 손잡이 점검(정해진 값·의존 — 하네스가 잘못 준 팔이 조용히 C0 이 되지 않게).
+  validateTsunOptions(opt);
   /** §178 조명 결함 고침 플래그(lightingFix.ts) — 옵션에서 읽음. */
   const lightingFlags = (): LightingFixFlags => ({ clampInscatter: !!opt.clampInscatter, irradianceLogMu: !!opt.irradianceLogMu });
   const baseMarch = { n: 0, step: 0, scale: 0 };
@@ -544,8 +568,11 @@ export async function createVolumetricScene(
   /** 품질 단계가 정한 accurateSunSkyLight — 해가 낮을 때 켰다가 되돌릴 값. */
   let baseAccurate = clouds.clouds.accurateSunSkyLight;
   let lastSunAltForLight = 90;
+  /** §179 지금 품질 단계(T_sun 샘플러 한도 점검용) — setQuality 가 바꿈. */
+  let curQuality: VolumetricQuality = 'low';
   const applySunLight = () => {
-    const want = baseAccurate || (opt.accurateSunBelowDeg != null && lastSunAltForLight < opt.accurateSunBelowDeg);
+    // §179 T_sun 은 해 ≤ shadowMinSunDeg(그림자 지도 꺼짐과 같은 한 불리언 — v2.1 eng m3)에서 표본별 해·하늘빛을 강제합니다(설계 v2 §4.2). 끄면 이전 식과 같은 값.
+    const want = baseAccurate || (opt.accurateSunBelowDeg != null && lastSunAltForLight < opt.accurateSunBelowDeg) || (opt.tsun === 1 && !(lastSunAltForLight > opt.shadowMinSunDeg));
     if (clouds.clouds.accurateSunSkyLight !== want) clouds.clouds.accurateSunSkyLight = want;   // 셰이더 정의가 바뀌어 한 번 다시 컴파일
   };
   baseMarch.n = clouds.clouds.maxIterationCountToSun;
@@ -892,6 +919,35 @@ export async function createVolumetricScene(
     if (aerialFx.getFragmentShader() !== fs) aerialFx.setFragmentShader(fs);   // EffectPass 가 change 사건으로 다시 합칩니다
   };
   applyLightingFix();
+  // §179 T_sun(하네스 전용, 기본 끔) — 구름 패스 재질만. 글자는 tsun 1 이고 해 ≤ shadowMinSunDeg(lastShadow === false)일 때만 들어갑니다(v2.1 eng m2:
+  // 위에서는 C0ps 글자와 바이트 같음). 아틀라스는 setTsunAtlas 로 받고, 없거나 옵션과 안 맞으면 gTsunOn 0(= C0ps 빛) — 하네스가 tsunInfo 로 확인.
+  let tsunAtlas: TsunAtlas | null = null;
+  let tsunAtlasValid = false;
+  let tsunReason: string | null = null;
+  let tsunSamplers: { count: number; limit: number; limitKnown: boolean } | null = null;
+  let tsunArchW = 0;
+  /** applyScene 마다 1 씩 — 다른 장면에서 지은 아틀라스를 걸지 않게(cloudTsun.ts D11). */
+  let sceneSerial = 0;
+  const maxTextureUnits = () => (renderer.capabilities as unknown as { maxTextures?: number } | undefined)?.maxTextures;
+  const applyTsun = () => {
+    const mat = clouds.cloudsPass.currentMaterial as never;
+    if (opt.tsun !== 1) {
+      tsunSamplers = null; tsunAtlasValid = false; tsunReason = 'tsun 0'; tsunArchW = 0;
+      setTsunShader(mat, null);
+      return;
+    }
+    // WP0: 정적 샘플러 수 + 1 > MAX_TEXTURE_IMAGE_UNITS 면 throw(하네스 — 조용히 끄지 않음).
+    tsunSamplers = checkTsunSamplerBudget(curQuality, maxTextureUnits());
+    let atlas = tsunAtlas;
+    tsunReason = atlas ? null : 'no atlas';
+    if (atlas) {
+      try { validateTsunAtlas(atlas, opt, sceneSerial); } catch (e) { atlas = null; tsunReason = (e as Error).message; }
+    }
+    tsunAtlasValid = !!atlas;
+    tsunArchW = opt.archLight === 1 ? archWeight(lastSunAltForLight) : 0;
+    setTsunUniforms(mat, tsunUniformValues(atlas, tsunArchW, opt.archNoT));   // 값 먼저 — 글자를 넣을 때 이 값으로 균일변수를 만듦
+    setTsunShader(mat, lastShadow === false ? { arch: opt.archLight === 1 } : null);
+  };
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
   clouds.shapeDetailTexture = new CloudShapeDetail();
@@ -1092,6 +1148,9 @@ export async function createVolumetricScene(
   /** 날씨가 준비된 뒤 장면을 한 번에 겁니다(층·종류 균일변수·날씨·노출). */
   const applyScene = (p: VolumetricSceneInput, plan: WeatherPlan, tex: DataTexture) => {
     lastInput = p;
+    // §179 새 장면 — 아틀라스 틀(종류 원점)·운량장이 바뀌므로 걸린 아틀라스를 버립니다(하네스는 setScene 뒤에 짓고 겁니다).
+    sceneSerial++;
+    tsunAtlas = null;
     const position = new Geodetic(radians(p.lon), radians(p.lat), p.heightM).toECEF();
     const nue = Ellipsoid.WGS84.getNorthUpEastFrame(position, new Matrix4());
     curPos = position; curNue = nue;
@@ -1172,6 +1231,7 @@ export async function createVolumetricScene(
     // RULER-grain §8.2 셰이더 손잡이 — 종류 모형 여부와 무관하게 두 재질 모두(구름 패스 전용 손잡이는 그림자 패스에서 아무것도 안 함).
     for (const m of genusMats) setGrainKnobs(m, grainKnobs, opt.erodePixelAngleDeg);
     applyLightingFix();
+    applyTsun();
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
@@ -1295,6 +1355,8 @@ export async function createVolumetricScene(
     clouds.sunDirection.copy(sun);
     lastSunAltForLight = sunAltDeg;
     applySunLight();
+    // §179 T_sun: 해 12° 건넘에 글자 넣기·빼기, 아치 무게 w(θ) 갱신(끄면 아무것도 안 함).
+    if (opt.tsun === 1) applyTsun();
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
     if (genLayers) {
       const driftSec = driftSecOverride ?? date.getTime() / 1000;
@@ -1322,6 +1384,8 @@ export async function createVolumetricScene(
     last = { sunAltDeg, exposure };
   };
 
+  // §179 만들 때 tsun 1 이면 샘플러 한도를 여기서 점검(장면 전이라 글자는 아직 넣지 않음). 끄면 아무것도 안 함.
+  applyTsun();
   return {
     debug: { clouds, toneMapping },
     spectral,
@@ -1343,6 +1407,9 @@ export async function createVolumetricScene(
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
+      // §179 T_sun 이 켜져 있으면 새 단계의 샘플러 한도를 바꾸기 전에 점검(넘으면 throw — 상태를 바꾸지 않음).
+      if (opt.tsun === 1) checkTsunSamplerBudget(q, maxTextureUnits());
+      curQuality = q;
       // §169 takram 품질 단계는 resolutionScale 까지 1 로 덮어씁니다. 하늘 화면은 해상도를 품질 다음에 다시 걸지 않아
       // (자동 조절기가 값이 그대로면 null) 기기가 설정 0.5 대신 1.0 으로 그렸습니다 — 하네스는 품질 뒤에 해상도를 걸어 0.5.
       const res = clouds.resolutionScale;
@@ -1359,8 +1426,16 @@ export async function createVolumetricScene(
       baseMarch.step = clouds.clouds.minSecondaryStepSize;
       baseMarch.scale = clouds.clouds.secondaryStepScale;
       applySunMarch();
+      applyTsun();
     },
     setOptions: (o, reapply = true) => {
+      // §179 합친 값으로 먼저 점검 — throw 하면 옵션을 바꾸지 않음. 하늘 화면은 매 프레임 부르므로 T_sun 이 꺼져 있고 관련 키(T_sun 손잡이·genus·diffuse)를
+      // 건드리지 않으면 건너뜀(이미 점검한 값 그대로).
+      if (opt.tsun === 1 || Object.keys(o).some(k => k in TSUN_OPTIONS_OFF || k === 'genus' || k === 'diffuse')) {
+        const next = { ...opt, ...o } as VolumetricOptions;
+        validateTsunOptions(next);
+        if (next.tsun === 1) checkTsunSamplerBudget(curQuality, maxTextureUnits());
+      }
       Object.assign(opt, o);
       applySunMarch();
       updateLod();
@@ -1369,6 +1444,7 @@ export async function createVolumetricScene(
       applySunLight();
       applyMaxRay();
       applyLightingFix();
+      applyTsun();
       // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
       if (lastInput && reapply) setScene(lastInput);
     },
@@ -1385,6 +1461,17 @@ export async function createVolumetricScene(
       return (composer.inputBuffer as unknown as { texture: Texture }).texture;
     },
     setTerrainDistance,
+    setTsunAtlas: atlas => {
+      if (atlas) validateTsunAtlas(atlas, opt, sceneSerial);
+      tsunAtlas = atlas;
+      applyTsun();
+    },
+    tsunSceneSerial: () => sceneSerial,
+    tsunInfo: () => ({
+      enabled: opt.tsun === 1, injected: opt.tsun === 1 && lastShadow === false, arch: opt.archLight === 1,
+      belowShadow: lastShadow === null ? null : !lastShadow, atlasValid: opt.tsun === 1 && tsunAtlasValid, reason: tsunReason,
+      archW: tsunArchW, samplers: tsunSamplers, sceneSerial, atlasMeta: tsunAtlas?.meta ?? null,
+    }),
     setSize: (w, h) => {
       camera.aspect = w / h; camera.updateProjectionMatrix();
       composer.setSize(w, h);
@@ -1392,6 +1479,7 @@ export async function createVolumetricScene(
     },
     dispose: () => {
       disposeMacro();
+      tsunAtlas = null;   // §179 아틀라스 텍스처는 부른 쪽 소유(dispose 하지 않음)
       disposed = true;
       composer.dispose();
       clouds.dispose();

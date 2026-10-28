@@ -24,6 +24,7 @@ import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps,
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
 import { applyLightingFixClouds, LIGHTING_FIX_OFF, type LightingFixFlags } from './lightingFix';
+import { injectTsun, syncTsunUniforms, tsunUniformValues, type TsunShaderConfig, type TsunUniformValues } from './cloudTsun';
 
 /**
  * 종류 기호(§126): cu 적운 · cg 웅대적운 · cb 적란운 탑 · cbanvil 적란운 모루(별도 층) · sc 층적운 · st 층운 ·
@@ -1103,11 +1104,15 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
-interface ShaderVariant extends GrainKnobs { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean; lighting: LightingFixFlags }
+interface ShaderVariant extends GrainKnobs {
+  base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean; lighting: LightingFixFlags;
+  /** §179 T_sun 글자 설정(null = 넣지 않음 — tsun 0 이거나 해 > shadowMinSunDeg)과 균일변수 값(cloudTsun.ts). */
+  tsun: TsunShaderConfig | null; tsunValues: TsunUniformValues;
+}
 const VARIANT = new WeakMap<object, ShaderVariant>();
 function variantOf(mat: PatchableMaterial): ShaderVariant {
   let v = VARIANT.get(mat);
-  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF, lighting: LIGHTING_FIX_OFF }; VARIANT.set(mat, v); }
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF, lighting: LIGHTING_FIX_OFF, tsun: null, tsunValues: tsunUniformValues(null, 0, 0) }; VARIANT.set(mat, v); }
   return v;
 }
 function refreshVariant(mat: PatchableMaterial): void {
@@ -1121,8 +1126,11 @@ function refreshVariant(mat: PatchableMaterial): void {
   }
   // §138 확산광은 thru 블록·하늘빛 줄을 통째로 바꾸므로 **먼저** 넣고, 바닥값 치환은 그 뒤(L2·L3 에서는 앵커가 사라져 바닥값 치환이 조용히 비활성 — 둘은 함께 쓰지 않음).
   if (v.diffuse >= 2 && v.floors && isClouds) throw new Error('cloudGenus: debugLightFloors 는 diffuse 2·3 과 함께 쓸 수 없습니다(바닥값 앵커가 교체됨)');
+  // §179 T_sun 의 I-T 앵커(thru 줄)를 확산 L2·L3·9 가 지움 — 옵션 점검(validateTsunOptions)과 같은 규칙을 여기서도.
+  if (v.tsun && isClouds && v.diffuse >= 2) throw new Error('cloudGenus: T_sun 은 diffuse 2·3·9 와 함께 쓸 수 없습니다(thru 줄 앵커가 교체됨)');
   // §139 뼈대 레인은 날씨 단계(sampleWeather)만 바꾸므로 확산·바닥값·얼음 앵커와 겹치지 않음 — 가장 먼저.
   // RULER-grain §8.2 주입 순서: 뼈대 → erode(sampleMedia) → diffuse → floors → ice → refine(marchClouds) → sunLowpass(marchOpticalDepth) → jitter(main).
+  // §179 T_sun(구름 패스만)은 ice 뒤 · refine 앞(설계 v2 §4.4 순서) — 앵커(MS 줄·thru 줄·2차 행진 호출·출력 선언·marchClouds 머리·main 의 rayOrigin)가 grain 앵커와 겹치지 않음.
   let want = v.skeleton ? injectGenusSkeleton(v.base) : v.base;
   want = injectGrainErode(want, v.erode, isClouds);
   want = injectGenusDiffuse(want, v.diffuse);
@@ -1130,6 +1138,7 @@ function refreshVariant(mat: PatchableMaterial): void {
   if (v.ice) want = injectGenusIce(want);
   // 구름 패스 전용 손잡이 — 구름 패스 표지가 없는 재질(그림자 패스)은 그대로.
   if (isClouds) {
+    if (v.tsun) want = injectTsun(want, v.tsun);
     want = injectGrainRefine(want, v.refine);
     want = injectGrainSunLowpass(want, v.sunLowpass);
     want = injectGrainJitter(want, v.jitter);
@@ -1154,6 +1163,8 @@ function refreshVariant(mat: PatchableMaterial): void {
   const skOn = v.skeleton && want.includes('uniform vec4 genusSkel;');
   if (skOn && !mat.uniforms.genusSkel) mat.uniforms.genusSkel = { value: new Vector4() };
   if (!skOn && mat.uniforms.genusSkel) { delete mat.uniforms.genusSkel; mat.needsUpdate = true; }
+  // §179 T_sun 균일변수 — 글자를 넣었을 때만 있음(끄면 목록이 이 기능이 없던 트리와 같음).
+  syncTsunUniforms(mat, isClouds ? v.tsun : null, v.tsunValues);
 }
 
 /**
@@ -1529,6 +1540,24 @@ export function injectGrainJitter(base: string, on: 0 | 1): string {
   if (!on) return base;
   return grainReplace(base, GRAIN_JITTER_ANCHOR,
     `  float stbn = fract(interleavedGradientNoise(gl_FragCoord.xy) + ${GRAIN_KNOB.jitterGolden} * float(frame % ${GRAIN_KNOB.jitterPeriod}));   // RULER-grain E4`, 'jitter');
+}
+
+/**
+ * §179 T_sun 글자를 넣고 뺍니다(구름 패스 재질만 — 그림자 패스에는 아무것도 하지 않음). cfg null = 원문 그대로·균일변수 지움.
+ * 해 고도 조건(해 ≤ shadowMinSunDeg)·옵션 점검은 부르는 쪽(volumetricScene.ts applyTsun) 몫.
+ */
+export function setTsunShader(mat: PatchableMaterial, cfg: TsunShaderConfig | null): void {
+  const v = variantOf(mat);
+  const same = (v.tsun === null && cfg === null) || (!!v.tsun && !!cfg && v.tsun.arch === cfg.arch);
+  if (same) return;
+  v.tsun = cfg ? { arch: !!cfg.arch } : null;
+  refreshVariant(mat);
+}
+/** §179 T_sun 균일변수 값(아틀라스·아치 무게)을 바꿉니다 — 글자가 들어가 있으면 곧바로, 아니면 다음에 넣을 때 씀. 글자는 바꾸지 않음. */
+export function setTsunUniforms(mat: PatchableMaterial, values: TsunUniformValues): void {
+  const v = variantOf(mat);
+  v.tsunValues = values;
+  for (const k of Object.keys(values)) if (mat.uniforms[k]) mat.uniforms[k].value = values[k];
 }
 
 /**
