@@ -12,7 +12,9 @@
  * U1b (관문): |ln(⟨T⟩_brute / T_law)| ≤ ln 1.25, T_brute ≥ 0.01, 8 방위(P1·P2·P3 + RA +8·+4·+1.1·−1.0·−2.5°), L 2~20 km.
  * U1c (관문, --u1c 가 있을 때): 두 번 만든 표의 bin·json 바이트가 같음(sha256).
  * U1d (보고): 모양 잡음 없는 바이트만의 λ₁₀ ÷ 침식한 λ₁₀ (설계 예상 sc ×1.8).
- * U1e (관문): 구름 안 시작 도달 0.25/0.5/1.1 km 뒤 L 2/5/10 km 의 τ: 무차별(σ 가중) 대 G(λ₁₀L) + τ_c, |Δτ| ≤ 0.3 (T_brute ≥ 0.01).
+ * U1e (관문): 구름 안 시작 도달 0.25/0.5/1.1 km 뒤 L 2/5/10 km 의 τ: 무차별(σ 가중) 대 τ_x(L) + τ_c(L), |Δτ| ≤ 0.3 (T_brute ≥ 0.01).
+ *      τ_c 는 방위·L 별 표(tauCPhi — 빌더가 해 방위로 읽음)로 판정. 방위 평균 L 별(tauCL)·설계의 상수(tauC, 균일 변수 표 형태)·τ_c 없음·
+ *      몬테카를로 바닥은 같은 점에서 보고(§179 결정).
  * U1f (보고): mip 1 ÷ mip 0 의 λ₁₀·τ(5 km)·τ(10 km).
  * 덧붙임(보고): 거시 문턱 근사(타일 C₀ 0.9 를 문턱으로 c 까지 깎은 장 대 c 로 만든 장) · 레인 대체(다른 실현) 오차.
  */
@@ -168,39 +170,43 @@ const U1B_L = [2, 3, 5, 7, 10, 14, 20], LIM = Math.log(1.25);
     { points: n, fail: bad, maxAbsLn: worst.v, worst, byTBand: band, perScene, maxPerAzimuth: Object.fromEntries(Object.entries(perAz).map(([k, v]) => [k, +v.toFixed(4)])) });
 }
 
+// ───── G 와 법칙의 일치(평가기 자기 점검): 균일 수평선이면 G(λ₁₀·L) = τ_x(L) ─────
+{
+  let mx = 0, n = 0;
+  for (const c of cells.filter(c => c.kind === 'main')) {
+    const s = SCENES[c.si], e = entryOf(s);
+    const lam = X.tsunLambda10(fx, e, s.cover, c.hf, c.az);
+    for (const L of U1B_L) { n++; mx = Math.max(mx, Math.abs(X.tsunCurveOfGrowth(fx, e, lam * L, s.cover, c.hf, c.az) - X.tsunLawTau(fx, e, L, s.cover, c.hf, c.az))); }
+  }
+  check('G(λ₁₀·L) equals the homogeneous law τ(L) (evaluator self-check, |Δτ| ≤ 1e-6)', mx <= 1e-6, { points: n, maxAbs: mx });
+}
+
 // ───── U1e ─────
+// 관문은 L 별 τ_c(tauCL — 셰이더가 u_true 로 읽는 형태), 설계의 상수 τ_c 는 같은 점에서 보고. 바닥 = 표 설정 무차별 대 기준 무차별(법칙 없음).
 {
   const RE = [0.25, 0.5, 1.1], LE = [2, 5, 10];
-  let n = 0, bad = 0, worst = { v: 0 }, noLaw = 0;
-  for (const c of cells.filter(c => c.kind === 'main')) {
-    const s = SCENES[c.si], e = entryOf(s), r = c.rec;
+  const acc = () => ({ n: 0, fail: 0, worst: { v: 0 } });
+  const A = { P: acc(), L: acc(), C: acc(), none: acc(), floor: acc() };
+  const add = (a, d, info) => { a.n++; if (Math.abs(d) > 0.3) a.fail++; if (Math.abs(d) > Math.abs(a.worst.v)) a.worst = { v: +d.toFixed(4), ...info }; };
+  for (const c of mainCells) {
+    const s = SCENES[c.si], e = entryOf(s), r = c.rec, f = c.floor;
     if (!(r.sumW > 0)) continue;
     for (const reach of RE) for (const L of LE) {
-      const ri = F.REACH_GRID.indexOf(reach), cl = F.CONDL_KM.indexOf(L);
-      const Tb = r.sumWT[ri * F.CONDL_IDX.length + cl] / r.sumW;
+      const ri = F.REACH_GRID.indexOf(reach), cl = F.CONDL_KM.indexOf(L), nCL = F.CONDL_IDX.length;
+      const Tb = r.sumWT[ri * nCL + cl] / r.sumW;
       if (!(Tb >= 0.01)) continue;
-      const tauB = -Math.log(Tb);
-      const tauL = X.tsunLawTau(fx, e, L, s.cover, c.hf, c.az) + X.tsunTauCond(fx, e, s.cover, c.hf, reach);
-      const d = tauB - tauL;
-      n++;
-      if (Math.abs(d) > 0.3) bad++;
-      if (Math.abs(d) > Math.abs(worst.v)) worst = { v: +d.toFixed(4), scene: s.name, hf: c.hf, az: c.an, reach, L, tauBrute: +tauB.toFixed(3), tauLaw: +tauL.toFixed(3), tauC: +X.tsunTauCond(fx, e, s.cover, c.hf, reach).toFixed(3) };
-    }
-    if (!(r.sumW > 0)) noLaw++;
-  }
-  // 같은 점들에서 τ_c 없이(법칙만) 했을 때의 최대 |Δτ| — τ_c 의 효과(보고)
-  let worst0 = 0;
-  for (const c of cells.filter(c => c.kind === 'main')) {
-    const s = SCENES[c.si], e = entryOf(s), r = c.rec;
-    if (!(r.sumW > 0)) continue;
-    for (const reach of RE) for (const L of LE) {
-      const Tb = r.sumWT[F.REACH_GRID.indexOf(reach) * F.CONDL_IDX.length + F.CONDL_KM.indexOf(L)] / r.sumW;
-      if (!(Tb >= 0.01)) continue;
-      worst0 = Math.max(worst0, Math.abs(-Math.log(Tb) - X.tsunLawTau(fx, e, L, s.cover, c.hf, c.az)));
+      const tauB = -Math.log(Tb), law = X.tsunLawTau(fx, e, L, s.cover, c.hf, c.az);
+      const info = { scene: s.name, hf: c.hf, az: c.an, reach, L, tauBrute: +tauB.toFixed(3) };
+      add(A.P, tauB - (law + X.tsunTauCond(fx, e, s.cover, c.hf, reach, L, c.az)), info);
+      add(A.L, tauB - (law + X.tsunTauCond(fx, e, s.cover, c.hf, reach, L)), info);
+      add(A.C, tauB - (law + X.tsunTauCond(fx, e, s.cover, c.hf, reach)), info);
+      add(A.none, tauB - law, info);
+      if (f.sumW > 0) { const Tf = f.sumWT[ri * nCL + cl] / f.sumW; add(A.floor, Tf > 0 ? tauB + Math.log(Tf) : 99, info); }
     }
   }
-  check('U1e in-cloud start τ beyond reach (0.25/0.5/1.1 km, L 2/5/10 km) |Δτ| ≤ 0.3', n > 0 && bad === 0,
-    { points: n, fail: bad, maxAbs: worst.v, worst, maxAbsWithoutTauC: +worst0.toFixed(4) });
+  const pack = a => ({ points: a.n, fail: a.fail, maxAbs: a.worst.v, worst: a.worst });
+  check('U1e in-cloud start τ beyond reach (0.25/0.5/1.1 km, L 2/5/10 km) |Δτ| ≤ 0.3 — azimuth- and L-resolved τ_c', A.P.n > 0 && A.P.fail === 0,
+    { ...pack(A.P), azimuthAveragedL: pack(A.L), constantTauC: pack(A.C), withoutTauC: pack(A.none), monteCarloFloor: pack(A.floor) });
 }
 
 // ───── U1a (보고) ─────

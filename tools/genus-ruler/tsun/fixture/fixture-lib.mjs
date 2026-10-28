@@ -25,6 +25,11 @@ export const REACH_GRID = [0, 0.125, 0.25, 0.5, 0.75, 1.1, 1.5];
 /** τ_c 를 맞추는 L(km, L_GRID 의 첨자) — v2.1 §1 M4 의 2/5/10 km 를 포함, 최대 오차 최소(minimax) 상수. */
 export const CONDL_KM = [2, 3, 5, 7, 10];
 export const CONDL_IDX = CONDL_KM.map(l => L_GRID.indexOf(l));
+/** 방위별 τ_c 표의 도달·L 부분 격자(REACH_GRID·CONDL_KM 의 부분 — 크기를 줄임: 셰이더 도달은 0(대용) 또는 0.25~1.1 km) */
+export const REACH_PHI = [0, 0.25, 0.5, 1.1];
+export const CONDL_PHI = [2, 5, 10];
+/** 방위별 τ_c 를 고르게 하는 반폭(도): 타일 축 ±15° 안 2.5°, 그 밖 7.5°(이웃 칸 ±2 · ±5° 를 삼각 무게로) [decision] */
+export const PHI_SMOOTH = phi => { const a = ((phi % 90) + 90) % 90; return a <= 15 || a >= 75 ? 2.5 : 7.5; };
 /** U1a 자유 경로 점(km): 4·8·16 km 의 국소 비율 = 이웃 두 점(l/√2, l√2)의 로그 기울기 */
 export const FREE_KM = [2 * Math.SQRT2, 4 * Math.SQRT2, 8 * Math.SQRT2, 16 * Math.SQRT2];
 /** 높이 비율 hf. 양 끝(0·1)은 두 단면 모두 hs = 0 → 구름 없음(평가기가 0 칸을 덧붙임). */
@@ -32,9 +37,10 @@ export const HF_GRID = [0.02, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.98]
 /**
  * 타일 운량(makeGenusWeather 입력). 0 아래는 평가기가 0 칸(c = 0)과 선형.
  * 생성기는 c ≥ 0.999 에서 문턱을 끄고(th = −1) 장 전체를 씁니다 → 0.998 과 1.0 사이가 불연속(ac hf 0.6: λ₁₀ 0.5 → 39 /km [computed]).
- * 그래서 0.98·0.998 을 더 두고, 평가기는 c < FULL_COVER 이면 0.998 이하 칸끼리만, c ≥ FULL_COVER 이면 1.0 칸만 씁니다.
+ * ac 는 0.95 위에서 τ 가 가파르게 오름(hf 0.37, τ(10 km): 0.95 4.2 · 0.97 4.8 · 0.99 6.3 · 0.998 8.7 [measured, 행 256]) — 그래서 0.95~0.998 을
+ * 촘촘히(앱 역표가 ac 0.75/0.85/0.9 → 0.934/0.961/0.974, cu 0.5 → 0.927 로 이 구간에 몰림) 두고, 평가기는 c < FULL_COVER 이면 0.998 이하 칸끼리만, c ≥ FULL_COVER 이면 1.0 칸만 씁니다.
  */
-export const COVER_GRID = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.998, 1.0];
+export const COVER_GRID = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.96, 0.97, 0.98, 0.99, 0.998, 1.0];
 /** cloudGenus.genusWeatherSteps 의 `L.cover >= 0.999` 와 같은 값 */
 export const FULL_COVER = 0.999;
 /** 방위 φ(도, 북에서 시계, mod 180 — 선을 뒤집어도 창 모집단이 같음): 타일 축(0·90°) ±15° 안은 1°, 그 밖은 5° (v2.1 §2 M6). */
@@ -218,16 +224,30 @@ export function readRecords(outPath) {
   return recs;
 }
 
-/** 여러 계획을 동시 jobs 개로(각각 nice 19). 결과 순서 = 입력 순서. */
-export async function runMany(exe, tilesPath, jobs, conc = 2) {
+/**
+ * 여러 계획을 동시 conc 개로(각각 nice 19). 결과 순서 = 입력 순서.
+ * 캐시: outPath 옆 .key 에 sha256(계획 글자 + 타일 묶음 sha + 핵 실행 파일 sha)를 적어 두고 같으면 다시 돌리지 않습니다 — 긴 표 꾸리기를
+ * `--only` 로 여러 번(각 ≤ 10 CPU 분) 나눠 돌린 뒤 전체를 한 번 더 부르면 이어 붙입니다. U1c(두 번 만들기)는 다른 --tmp 로 캐시 없이.
+ */
+export async function runMany(exe, tilesPath, jobs, conc = 2, cacheSalt = '') {
   const out = new Array(jobs.length);
+  const exeSha = sha256(fs.readFileSync(exe));
   let next = 0;
   const worker = async () => {
     for (;;) {
       const i = next++;
       if (i >= jobs.length) return;
       const t0 = Date.now();
+      const key = sha256(jobs[i].plan + '\n' + cacheSalt + '\n' + exeSha);
+      const keyPath = jobs[i].outPath + '.key';
+      if (fs.existsSync(keyPath) && fs.existsSync(jobs[i].outPath) && fs.readFileSync(keyPath, 'utf8') === key) {
+        out[i] = readRecords(jobs[i].outPath);
+        if (jobs[i].label) console.log(`  ${jobs[i].label}: 캐시 ${jobs[i].cells} 칸`);
+        continue;
+      }
+      if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath);
       out[i] = await runCore(exe, tilesPath, jobs[i].plan, jobs[i].outPath);
+      fs.writeFileSync(keyPath, key);
       if (jobs[i].label) console.log(`  ${jobs[i].label}: ${jobs[i].cells} 칸 ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     }
   };

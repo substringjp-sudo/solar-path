@@ -36,7 +36,7 @@
 #define MAXR 16
 #define SH 128
 
-static unsigned char SHAPE[SH * SH * SH];
+static unsigned char SHAPE[SH * SH * SH]; // u8 그대로(2 MB — float 8 MB 보다 캐시에 잘 맞음)
 static unsigned char *TILES = NULL;
 static long TILES_LEN = 0;
 static float TILE_F[256 * 256];
@@ -76,14 +76,15 @@ static void load_tile(int idx, int mip) {
 
 /* n 은 2 의 거듭제곱(타일 256·128, 모양 128) — 2 의 보수 & 로 음수도 바르게 감습니다 */
 static inline int wrapi(long i, int n) { return (int)(i & (long)(n - 1)); }
+/* floor(): x86-64 기본(SSE2)에는 roundsd 가 없어 libm 호출이 됨 — 정수 자르기로 같은 값(|x| < 2^52) */
+static inline long ifloor(double x) { long i = (long)x; return i - (x < (double)i); }
 
 /* 평면 (동, 북) km → 타일 이중선형(RepeatWrapping) */
 static inline double tile_bil(double ex, double ny) {
   const int n = CUR_SM;
   double u = ex / TILE_KM * n - 0.5, v = ny / TILE_KM * n - 0.5;
-  double fu = floor(u), fv = floor(v);
-  long i0 = (long)fu, j0 = (long)fv;
-  double a = u - fu, b = v - fv;
+  long i0 = ifloor(u), j0 = ifloor(v);
+  double a = u - (double)i0, b = v - (double)j0;
   int x0 = wrapi(i0, n), x1 = wrapi(i0 + 1, n), y0 = wrapi(j0, n), y1 = wrapi(j0 + 1, n);
   double p = TILE_F[y0 * n + x0] * (1 - a) + TILE_F[y0 * n + x1] * a;
   double q = TILE_F[y1 * n + x0] * (1 - a) + TILE_F[y1 * n + x1] * a;
@@ -93,9 +94,8 @@ static inline double tile_bil(double ex, double ny) {
 /* 모양 텍스처 삼선형(텍스처 단위 좌표, 주기 1) */
 static inline double shape_tri(double u, double v, double w) {
   double x = u * SH - 0.5, y = v * SH - 0.5, z = w * SH - 0.5;
-  double fx = floor(x), fy = floor(y), fz = floor(z);
-  long ix = (long)fx, iy = (long)fy, iz = (long)fz;
-  double ax = x - fx, ay = y - fy, az = z - fz;
+  long ix = ifloor(x), iy = ifloor(y), iz = ifloor(z);
+  double ax = x - (double)ix, ay = y - (double)iy, az = z - (double)iz;
   int x0 = wrapi(ix, SH), x1 = wrapi(ix + 1, SH), y0 = wrapi(iy, SH), y1 = wrapi(iy + 1, SH), z0 = wrapi(iz, SH), z1 = wrapi(iz + 1, SH);
 #define SV(xx, yy, zz) ((double)SHAPE[((zz) * SH + (yy)) * SH + (xx)])
   double c00 = SV(x0, y0, z0) * (1 - ax) + SV(x1, y0, z0) * ax;
@@ -104,7 +104,7 @@ static inline double shape_tri(double u, double v, double w) {
   double c11 = SV(x0, y1, z1) * (1 - ax) + SV(x1, y1, z1) * ax;
 #undef SV
   double c0 = c00 * (1 - ay) + c10 * ay, c1 = c01 * (1 - ay) + c11 * ay;
-  return (c0 * (1 - az) + c1 * az) / 255.0;
+  return (c0 * (1 - az) + c1 * az) * (1.0 / 255.0);
 }
 
 static double smoothstep(double e0, double e1, double x) {
@@ -219,18 +219,21 @@ int main(int argc, char **argv) {
         sigSum += sg; nSamp++;
       }
 #define CAT(x) ({ double _q = (x) * invDs; long _i = (long)_q; double _f = _q - _i; C[_i] + _f * (C[_i + 1] - C[_i]); })
+      // 창 투과율은 float exp(τ < 87 에서 상대 1e−7 — 평균 T 에 충분), 조건부 창은 시작 둘 중 하나만(비용 절반, §179 결정)
       for (int a = 0; a < nStartsLine; a++) {
         const int k0 = a * stride;
         const double s0 = k0 * ds;
         const double c0 = C[k0];
-        for (int i = 0; i < nL; i++) sumT[i] += exp(-(CAT(s0 + L[i]) - c0));
+        for (int i = 0; i < nL; i++) sumT[i] += expf((float)-(CAT(s0 + L[i]) - c0));
         const double sg0 = SG[k0];
         if (sg0 >= 0.1) {
           inCnt += 1;
-          sumW += sg0; nIn += 1;
-          for (int r = 0; r < nR; r++) {
-            const double cr = CAT(s0 + R[r]);
-            for (int c = 0; c < nCL; c++) sumWT[r * nCL + c] += sg0 * exp(-(CAT(s0 + R[r] + L[CL[c]]) - cr));
+          if ((a & 1) == 0) {
+            sumW += sg0; nIn += 1;
+            for (int r = 0; r < nR; r++) {
+              const double cr = CAT(s0 + R[r]);
+              for (int c = 0; c < nCL; c++) sumWT[r * nCL + c] += sg0 * expf((float)-(CAT(s0 + R[r] + L[CL[c]]) - cr));
+            }
           }
         } else {
           nClear += 1;

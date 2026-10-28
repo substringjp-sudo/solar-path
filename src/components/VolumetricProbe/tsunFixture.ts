@@ -4,10 +4,12 @@
  * 표는 tools/genus-ruler/tsun/fixture/build-fixture.mjs 가 만듭니다(tsun-fixture.json 머리말 + tsun-fixture.bin). 앱 종류 타일
  * (makeGenusWeather, 씨앗 7)을 렌더러 밀도식(종류 단면 × shape.bin 침식, mip 0)으로 다시 세워 수평선마다 무차별 적분한 것:
  *   τ_칸(L) = −ln⟨T(0, L)⟩      칸 = (항목(종류, 레인), 운량 c, 높이 비율 hf, 방위 φ), L 격자 12 점
- *   λ₁₀(칸) = τ(L*)/L*           명목 소광률(L* = τ ≤ ln 1e4 인 가장 긴 격자 L ≤ 10 km)
- *   G(Λ; 칸) = τ_칸(Λ/λ₁₀)        성장 곡선(curve of growth) — 빌더는 줄을 따라 Λ = ∫ λ₁₀(c(x), hf, φ) ds 를 쌓고 끝에서 τ = G(Λ)
+ *   τ_x(L)                       자리 x = (c, hf, φ) 의 곡선 = 이웃 칸 τ_칸(L) 의 섞음(아래 blendOf)
+ *   λ₁₀(x) = τ_x(10)/10          명목 소광률(τ_x(10) > ln 1e4 이면 τ_x(L_K) = ln 1e4 인 L_K 로 ln 1e4 / L_K — 연속)
+ *   G(Λ; x) = τ_x(Λ/λ₁₀(x))       성장 곡선(curve of growth) — 빌더는 줄을 따라 Λ = ∫ λ₁₀(c(x), hf, φ) ds 를 쌓고 끝에서 τ = G(Λ)
  *   τ_c(c, hf, reach)            구름 안 표본에서 2차 행진 도달(reach) 뒤의 추가 광학두께(방위 평균)
- * 사이 값은 c·hf·φ 의 다중 선형 무게(최대 8 칸)로 ε 기하 평균, G 는 같은 Λ 에서 칸마다 τ_칸(Λ/λ₁₀_칸) 를 섞습니다(design v2.1 §2 M6).
+ * 사이 값은 c·hf·φ 의 다중 선형 무게(최대 8 칸)로 같은 L 에서 ε 기하 평균합니다. 칸마다 다른 λ₁₀ 로 Λ 를 나누면(처음 판) λ 규칙의 L*
+ * 가 칸마다 달라질 때 곡선이 어긋나(ac c 0.98 hf 0.4: +0.7 ln) 섞은 곡선 하나에서 λ 를 다시 셉니다 [measured, 개발 diag4].
  * 경계: hf 0·1 과 c 0 은 0 칸(구름 없음), φ 는 mod 180, c ≥ 0.999 는 1.0 칸만(생성기 불연속), L 은 0 에서 τ = 0, 마지막 격자 너머는
  * 마지막 마디 기울기.
  * 순수 함수(three·DOM 없음) — 시험(fixture-test.mjs)이 esbuild 로 묶어 C 무차별 적분과 맞대 봅니다(U1b·U1e).
@@ -19,13 +21,19 @@ export interface TsunFixtureEntry {
   covers: number[];
   tauOffset: number;
   tauCOffset: number;
+  tauCPhiOffset: number;
   profile: { densityScale: number; [k: string]: number };
 }
 export interface TsunFixtureHeader {
   name: string;
   version: number;
-  grids: { L: number[]; reach: number[]; hf: number[]; phi: number[]; covers: number[]; condL: number[]; fullCover: number };
-  layout: { tau: { offsetBytes: number; count: number; scale: number }; tauC: { offsetBytes: number; count: number; scale: number } };
+  grids: { L: number[]; reach: number[]; hf: number[]; phi: number[]; covers: number[]; condL: number[]; fullCover: number; reachPhi: number[]; condLPhi: number[] };
+  layout: {
+    tau: { offsetBytes: number; count: number; scale: number };
+    tauC: { offsetBytes: number; count: number; scale: number };
+    tauCL: { offsetBytes: number; count: number; scale: number };
+    tauCPhi: { offsetBytes: number; count: number; scale: number };
+  };
   entries: TsunFixtureEntry[];
   binSha256: string;
   binBytes: number;
@@ -35,6 +43,10 @@ export interface TsunFixture {
   header: TsunFixtureHeader;
   tau: Uint16Array;
   tauC: Int16Array;
+  /** τ_c 의 L 별 표 [entry][cover][hf][reach][condL] */
+  tauCL: Int16Array;
+  /** τ_c 의 방위·L 별 표 [entry][cover][hf][phi][reachPhi][condLPhi] */
+  tauCPhi: Int16Array;
   /** 항목마다 [c][hf][φ] 의 λ₁₀ (1/km) */
   lam10: Float32Array[];
 }
@@ -50,6 +62,8 @@ export function parseTsunFixture(header: TsunFixtureHeader, bytes: Uint8Array): 
   const buf = bytes.slice().buffer;
   const tau = new Uint16Array(buf, lt.offsetBytes, lt.count);
   const tauC = new Int16Array(buf, lc.offsetBytes, lc.count);
+  const tauCL = new Int16Array(buf, header.layout.tauCL.offsetBytes, header.layout.tauCL.count);
+  const tauCPhi = new Int16Array(buf, header.layout.tauCPhi.offsetBytes, header.layout.tauCPhi.count);
   const { L, hf, phi } = header.grids;
   const nL = L.length, nH = hf.length, nP = phi.length;
   const lam10 = header.entries.map(E => {
@@ -66,7 +80,7 @@ export function parseTsunFixture(header: TsunFixtureHeader, bytes: Uint8Array): 
     }
     return out;
   });
-  return { header, tau, tauC, lam10 };
+  return { header, tau, tauC, tauCL, tauCPhi, lam10 };
 }
 
 /** (종류, 레인) → 항목 번호. 없으면 같은 종류의 첫 항목(다른 타일 실현 — §179 결정), 종류도 없으면 −1. */
@@ -130,9 +144,10 @@ function cellTau(fx: TsunFixture, base: number, Lkm: number): number {
 }
 
 /**
- * 이웃 칸(최대 8)을 돌며 0 칸(hf 끝·c 0)의 무게 w0 를 따로 셉니다. 섞기는 0 이 아닌 칸끼리 ε 기하 평균(log(τ + ε) 선형) 뒤 (1 − w0) 배:
- * 개발 측정에서 τ 는 hf·c 에 대해 지수에 가깝게 변해(ac hf 0.3 → 0.4 에서 τ(10 km) 2.2 → 5.3) τ 선형은 과대(+0.5 ln), T 선형은 과소였고
- * 기하 평균이 무차별 값에 가장 가까웠습니다 [measured, fixture-test 개발 diag2]. ε = 0.01 은 τ → 0 근처에서 선형으로 넘어가게 합니다.
+ * 이웃 칸(최대 8)을 돌며 0 칸(hf 끝·c 0·구름 없는 칸)의 무게 w0 를 따로 셉니다. 섞기는 0 이 아닌 칸끼리 같은 L 에서 ε 기하 평균
+ * (log(τ + ε) 선형) 뒤 (1 − w0) 배: 개발 측정에서 τ 는 hf·c 에 대해 지수에 가깝게 변해(ac hf 0.3 → 0.4 에서 τ(10 km) 2.2 → 5.3)
+ * τ 선형은 과대(+0.5 ln), T 선형은 과소였고 기하 평균이 무차별 값에 가장 가까웠습니다 [measured, fixture-test 개발 diag2].
+ * ε = 0.01 은 τ → 0 근처에서 선형으로 넘어가게 합니다.
  */
 const GEO_EPS = 0.01;
 interface Blend { w0: number; cells: [number, number][] } // [칸 첨자, 0 아닌 칸 안에서 정규화한 무게]
@@ -156,42 +171,70 @@ function blendOf(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: 
   if (sw > 0) for (const c of cells) c[1] /= sw;
   return { w0, cells };
 }
-
-/** 명목 소광률 λ₁₀(c, hf, φ) [1/km] = (1 − w0) × 0 아닌 칸 λ₁₀ 의 기하 평균 — 빌더가 줄을 따라 Λ = ∫ λ₁₀ ds 로 쌓는 값 */
-export function tsunLambda10(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): number {
-  const b = blendOf(fx, e, cover, hf, phiDeg);
-  if (!b.cells.length || b.w0 >= 1) return 0;
+function blendTau(fx: TsunFixture, e: number, b: Blend, Lkm: number): number {
+  if (!b.cells.length || b.w0 >= 1 || !(Lkm > 0)) return 0;
+  const base = fx.header.entries[e].tauOffset, nL = fx.header.grids.L.length;
   let s = 0;
-  for (const [k, w] of b.cells) s += w * Math.log(fx.lam10[e][k]);
-  return (1 - b.w0) * Math.exp(s);
+  for (const [k, w] of b.cells) s += w * Math.log(cellTau(fx, base + k * nL, Lkm) + GEO_EPS);
+  return (1 - b.w0) * Math.max(0, Math.exp(s) - GEO_EPS);
+}
+/** 섞은 곡선에서 λ₁₀ 규칙(연속형): τ(10) ≤ K 면 τ(10)/10, 아니면 τ(L_K) = K 인 L_K 로 K/L_K (K = ln 1e4) */
+function blendLambda(fx: TsunFixture, e: number, b: Blend): number {
+  const t10 = blendTau(fx, e, b, LAM_L_MAX);
+  if (!(t10 > 0)) return 0;
+  if (t10 <= LAM_TAU_OK) return t10 / LAM_L_MAX;
+  let lo = 0, hi = LAM_L_MAX;
+  for (let it = 0; it < 40; it++) { const m = 0.5 * (lo + hi); if (blendTau(fx, e, b, m) > LAM_TAU_OK) hi = m; else lo = m; }
+  return LAM_TAU_OK / Math.max(hi, 1e-6);
+}
+
+/** 균일 운량 수평선 L km 의 법칙 τ_x(L) — 칸 곡선의 같은 L 에서의 섞음(위 규칙). */
+export function tsunLawTau(fx: TsunFixture, e: number, Lkm: number, cover: number, hf: number, phiDeg: number): number {
+  return blendTau(fx, e, blendOf(fx, e, cover, hf, phiDeg), Lkm);
+}
+
+/** 명목 소광률 λ₁₀(c, hf, φ) [1/km] — 빌더가 줄을 따라 Λ = ∫ λ₁₀ ds 로 쌓는 값(섞은 곡선에서 연속 규칙) */
+export function tsunLambda10(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): number {
+  return blendLambda(fx, e, blendOf(fx, e, cover, hf, phiDeg));
 }
 
 /**
- * 성장 곡선 G(Λ; c, hf, φ): 명목 지수 Λ → 유효 광학두께 τ. 칸마다 실효 λ = (1 − w0)·λ₁₀_칸 으로 L_칸 = Λ/λ 를 정하고
- * τ = (1 − w0)·[exp(Σ w ln(τ_칸(L_칸) + ε)) − ε]. 균일 수평선이면 Λ = λ₁₀(c, hf, φ)·L 이라 L_칸 = L·λ_기하/λ_칸.
+ * 성장 곡선 G(Λ; c, hf, φ) = τ_x(Λ/λ_x): 명목 지수 Λ → 유효 광학두께 τ. 빌더는 줄 끝 자리의 (c, hf, φ)로 부릅니다.
+ * 균일 수평선이면 Λ = λ_x·L 이라 정확히 tsunLawTau 와 같습니다(같은 곡선) — 다른 운량이 섞인 줄은 Λ 로 "같은 명목 지수의 등가 길이"를 씀.
  */
 export function tsunCurveOfGrowth(fx: TsunFixture, e: number, Lambda: number, cover: number, hf: number, phiDeg: number): number {
   if (!(Lambda > 0)) return 0;
   const b = blendOf(fx, e, cover, hf, phiDeg);
-  if (!b.cells.length || b.w0 >= 1) return 0;
-  const E = fx.header.entries[e], nL = fx.header.grids.L.length, f = 1 - b.w0;
-  let s = 0;
-  for (const [k, w] of b.cells) s += w * Math.log(cellTau(fx, E.tauOffset + k * nL, Lambda / (f * fx.lam10[e][k])) + GEO_EPS);
-  return f * Math.max(0, Math.exp(s) - GEO_EPS);
+  const lam = blendLambda(fx, e, b);
+  return lam > 0 ? blendTau(fx, e, b, Lambda / lam) : 0;
 }
 
-/** 균일 운량 수평선 L km 의 법칙 τ = G(λ₁₀·L) */
-export function tsunLawTau(fx: TsunFixture, e: number, Lkm: number, cover: number, hf: number, phiDeg: number): number {
-  return tsunCurveOfGrowth(fx, e, tsunLambda10(fx, e, cover, hf, phiDeg) * Lkm, cover, hf, phiDeg);
-}
-
-/** 구름 안 표본의 도달 뒤 추가 광학두께 τ_c(c, hf, reach) — c·hf 는 격자 끝에서 자름(0 칸 없음), reach 선형·자름 */
-export function tsunTauCond(fx: TsunFixture, e: number, cover: number, hf: number, reachKm: number): number {
+/**
+ * 구름 안 표본의 도달 뒤 추가 광학두께 τ_c(c, hf, reach[, L[, φ]]) — c·hf 는 격자 끝에서 자름(0 칸 없음), reach 선형·자름.
+ *  - Lkm 없음: 설계의 상수(방위 평균, L 2~10 km 의 minimax) — 셰이더 균일 변수 표 형태(design v2.1 §4.3).
+ *  - Lkm 있음: 방위 평균 L 별 표(condL 사이 선형, L < 2 km 는 0 에서 선형, L > 10 km 는 10 km 값).
+ *  - Lkm·phiDeg 있음: 방위·L 별 표(빌더가 해 방위로 읽음; reach 는 {0, 0.25, 0.5, 1.1}, L 은 {2, 5, 10} 사이 선형).
+ */
+export function tsunTauCond(fx: TsunFixture, e: number, cover: number, hf: number, reachKm: number, Lkm?: number, phiDeg?: number): number {
   const E = fx.header.entries[e], g = fx.header.grids, nH = g.hf.length, nR = g.reach.length, s = fx.header.layout.tauC.scale;
   const cw = coverW(E, cover, g.fullCover, false);
+  const ramp = (grid: number[]): [W, number] => (Lkm! < grid[0] ? [[[0, 1]], Math.max(0, Lkm!) / grid[0]] : [bracket(grid, Lkm!), 1]);
   let v = 0;
-  for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [ri, wr] of bracket(g.reach, reachKm)) {
-    v += wc * wh * wr * fx.tauC[E.tauCOffset + (ci * nH + hi) * nR + ri] * s;
+  if (Lkm !== undefined && phiDeg !== undefined) {
+    const nP = g.phi.length, nRp = g.reachPhi.length, nLp = g.condLPhi.length;
+    const [lw, rmp] = ramp(g.condLPhi);
+    for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [pi, wp] of phiW(g.phi, phiDeg))
+      for (const [ri, wr] of bracket(g.reachPhi, reachKm)) for (const [li, wl] of lw) {
+        v += wc * wh * wp * wr * wl * fx.tauCPhi[E.tauCPhiOffset + (((ci * nH + hi) * nP + pi) * nRp + ri) * nLp + li] * s;
+      }
+    return v * rmp;
   }
-  return v;
+  const CL = g.condL, nCL = CL.length;
+  const [lw, rmp] = Lkm !== undefined ? ramp(CL) : [null, 1];
+  for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [ri, wr] of bracket(g.reach, reachKm)) {
+    const k = E.tauCOffset + (ci * nH + hi) * nR + ri;
+    if (!lw) { v += wc * wh * wr * fx.tauC[k] * s; continue; }
+    for (const [li, wl] of lw) v += wc * wh * wr * wl * fx.tauCL[k * nCL + li] * s;
+  }
+  return v * rmp;
 }
