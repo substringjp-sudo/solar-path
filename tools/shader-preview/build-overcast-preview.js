@@ -169,7 +169,7 @@ SCENES.forEach((s,i)=>{
 
   const built = buildCloudInstances({
     atlas, currentTime: DATE, sunAltDeg: s.sunAlt, sunAzDeg: SUN_AZ,
-    atmosphere, weather: makeFan(s), maxTotal: 320,
+    atmosphere, weather: makeFan(s), weatherCenterAzDeg: SUN_AZ, maxTotal: 320,   // 해 중심 부채꼴(§166: 기본은 절대 방위 0)
   });
 
   updateCloudField(cloudField, atlas, built.instances, SUN_AZ, s.sunAlt, {

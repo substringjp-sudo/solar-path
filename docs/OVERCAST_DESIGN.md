@@ -572,7 +572,7 @@ API 팬은 0km 표본을 `azimuthOffset = 0` 레이에만 답니다. 나머지 �
 역방향 검사를 같이 둔 이유: 한 방향으로만 맞추면 "항상 맑게 보이는" 반대
 버그가 됩니다.
 
-검증: `tools/shader-preview/verify-cloud-grid.js` §"머리 위 일관성".
+검증: `tools/shader-preview/verify-cloud-grid.js` §"머리 위 일관성"(§166 에서 격자 모듈과 함께 지움, git 이력 참조).
 
 ---
 

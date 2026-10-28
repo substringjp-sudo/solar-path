@@ -36,7 +36,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getSunDirectionECEF } from '@takram/three-atmosphere';
+import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getSunDirectionECEF } from '@takram/three-atmosphere';
 import { CloudLayer, CloudShape, CloudShapeDetail, CloudsEffect, Turbulence } from '@takram/three-clouds';
 import {
   Ellipsoid,
@@ -47,7 +47,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
@@ -387,6 +387,11 @@ export interface VolumetricOptions {
   macro: 0 | 1 | 2;
   /** 거시 격자 변(2 의 거듭제곱). 768 km 를 덮으므로 128 = 6 km 칸. */
   macroN: number;
+  /**
+   * §171 옛 거시 기울기(§132 두 수: 100 km 당 동·북 운량 변화율을 셰이더에서 타일 운량에 곱함). 기본 끔(사용자 결정 2026-10-28) —
+   * §156 거시 격자가 같은 일을 자리별로 하므로 그 위에 겹쳐 걸리던 것. 켜면 이전과 같은 바이트(비교용).
+   */
+  macroGrad: boolean;
   /** §139 진단 전용 — K2 전단 기울기 배율(기본 1). 자의 후보가 아니라 fetch 레인 단위 확인용. */
   skeletonTiltScale: number;
   /** §141 진단: 모든 종류 층의 밀도 단면 밑면 값을 이 값으로(null 이면 종류별 GENUS.profileBase 또는 takram 0.25). */
@@ -396,8 +401,23 @@ export interface VolumetricOptions {
    * 기본 끔(끄면 날씨 바이트 그대로). flow·skeleton 이 켜져 있으면 그쪽이 우선이고 morph 는 쓰지 않습니다(앱 화면이 throw 로 깨지지 않게).
    */
   morph: boolean;
+  /**
+   * RULER-grain §8.2 알갱이 손잡이(전부 기본 끔 — 끄면 셰이더 글자·균일변수·층 값이 측정 번들과 같음, cloudGenus.ts `setGrainKnobs`).
+   * E1b — 1차 행진에서 광선당 한 번, 첫 적중 표본을 직전 증분 Δ 만큼 되감아 h = max(50 m, Δ/8) 보폭으로 최대 8 표본 다시 걷기(구름 패스).
+   */
+  refineOnHit: 0 | 1;
+  /** E2b — 해 쪽 행진(marchOpticalDepth)의 i ≥ 1 표본은 모양 텍스처 대신 shape = 0.797(구름 패스, 표지는 함수 뒤 되돌림). */
+  sunLowpass: 0 | 1;
+  /** E3(1) — 모양 침식을 평균 보존 곱 d·clamp(1 + e·0.35·(s − 0.7906)/0.0785, 0, 2)(두 패스) · E3b(2) — E3 + 구름 패스 화소 발자국 페이드(150~600 m). */
+  erodeCentered: 0 | 1 | 2;
+  /** E3b 화소 각(°) — null 이면 기기 가운데 텍셀 0.0566°(모든 틀 같음). 균일변수 `erodePixelAngle`(erodeCentered 2 일 때만 있음). */
+  erodePixelAngleDeg: number | null;
+  /** E4 — 1차 행진 지터를 IGN + 0.618·(frame % 64) 로(구름 패스만, 그림자 패스는 백색 잡음 그대로). */
+  jitterMode: 0 | 1;
+  /** E3c 진단 전용 — setScene 의 층 CloudLayer.densityScale 에 곱함(기본 1 = 손대지 않음). 채택 대상 아님. */
+  debugDensityMul: number;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, morph: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -432,8 +452,11 @@ export interface VolumetricScene {
   setTerrainDistance(tex: Texture | null, lit?: Texture | null, sunRidge?: Texture | null, seaSlopeVar?: number, lit2?: Texture | null): void;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
+  /** 품질 단계를 겁니다. 구름 해상도 배율은 바꾸지 않습니다(§169 — 해상도는 setResolutionScale 몫). */
   setQuality(q: VolumetricQuality): void;
   setResolutionScale(s: number): void;
+  /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
+  resolutionScale(): number;
   /** 손잡이를 바꾸고 지금 장면에 다시 겁니다. */
   /** 옵션을 바꿉니다. reapply=false 면 장면을 다시 걸지 않습니다(호출자가 setSceneAsync 로 다시 만듦 — §130 흐름 날씨는 동기로 만들면 수 초 멈춤). */
   setOptions(o: Partial<VolumetricOptions>, reapply?: boolean): void;
@@ -1037,6 +1060,16 @@ export async function createVolumetricScene(
     lastSunAltForLight = sunAltDeg;
     applySunLight();
 
+    // RULER-grain §8.2 손잡이 값 점검(층을 지우기 전에 throw) — 정해진 값만: '2'·true·3 같은 값이 조용히 다른 팔(E3b → E3 등)이 되지 않게,
+    // E3c 층 배율은 유한한 0 이상 수만(null·NaN 이 층 소광을 조용히 0·NaN 으로 만들지 않게).
+    const knobOf = <T extends number>(k: 'refineOnHit' | 'sunLowpass' | 'erodeCentered' | 'jitterMode', allowed: readonly T[]): T => {
+      const x = opt[k] as unknown;
+      if (!allowed.includes(x as T)) throw new Error('volumetricScene: ' + k + ' must be one of ' + allowed.join('/') + ', got ' + JSON.stringify(x));
+      return x as T;
+    };
+    const grainKnobs = { refine: knobOf('refineOnHit', [0, 1] as const), sunLowpass: knobOf('sunLowpass', [0, 1] as const), erode: knobOf('erodeCentered', [0, 1, 2] as const), jitter: knobOf('jitterMode', [0, 1] as const) };
+    const densityMul = opt.debugDensityMul;
+    if (typeof densityMul !== 'number' || !Number.isFinite(densityMul) || densityMul < 0) throw new Error('volumetricScene: debugDensityMul must be a finite number >= 0, got ' + densityMul);
     clouds.cloudLayers.length = 0;
     // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
     const CH = ['r', 'g', 'b', 'a'] as const;
@@ -1070,7 +1103,10 @@ export async function createVolumetricScene(
         : g && (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase) != null
           ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 1 - (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)!, constantTerm: (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)! } }
         : {};
-      clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
+      const layer = new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow });
+      // RULER-grain E3c 진단: 층 소광 배율(균일변수가 아니라 층 값 — takram 이 매 프레임 재포장해도 남음). 기본 1 이면 손대지 않음.
+      if (densityMul !== 1) layer.densityScale *= densityMul;
+      clouds.cloudLayers.push(layer);
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
     // §136·§137 얼음 레인: physics+physicsIce 면 물리 값, 아니면 iceHalo·icePowderOff 의 손값 레인(얼음 종류 층만), 둘 다 아니면 없음.
@@ -1080,6 +1116,8 @@ export async function createVolumetricScene(
       : handIce ? [0, 1, 2, 3].map(i => (useGenus && gl[i] ? iceLaneHand(gl[i]!.genus, { halo: opt.iceHalo, powderOff: opt.icePowderOff }) : null))
       : [];
     const iceOn = physIce || handIce;
+    // RULER-grain §8.2 셰이더 손잡이 — 종류 모형 여부와 무관하게 두 재질 모두(구름 패스 전용 손잡이는 그림자 패스에서 아무것도 안 함).
+    for (const m of genusMats) setGrainKnobs(m, grainKnobs, opt.erodePixelAngleDeg);
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
@@ -1088,6 +1126,9 @@ export async function createVolumetricScene(
       // §131 K: 관측점을 국소 운량 ≈ 전역 운량인 칸으로(타일 바이트는 그대로). 장면 입력이 오프셋을 주면 그것이 우선.
       const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
       lastCamKm = camKm;
+      // §173 takram 은 광선을 '고도 보정' 공간(ECEF + altitudeCorrection, 타원체 → 구)에서 걷습니다. 날씨 좌표 원점도 같은 공간에 둬야
+      // 관측점이 무늬 원점에 놓입니다 — 보정 벡터의 북쪽 성분이 위도 36° 에서 ~21 km 라, 예전에는 거시 격자(고리 자료)가 그만큼 남쪽에 그려졌습니다.
+      const altCorr = getAltitudeCorrectionOffset(position, atmosphereParams.bottomRadius, Ellipsoid.WGS84, new Vector3());
       const driftSec = driftSecOverride ?? p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
@@ -1095,13 +1136,13 @@ export async function createVolumetricScene(
         setGenusPhysics(m, iceLanes, iceOn);
         setGenusLightFloors(m, opt.debugLightFloors);
         setGenusDiffuse(m, opt.diffuse);
-        setFlowUniforms(m, gl, { density: flowDens, uv: flowUv }, GENUS_TILE_KM);
+        setFlowUniforms(m, gl, { density: flowDens, uv: flowUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
         setGenusDrift(m, gl, driftSec, GENUS_TILE_KM);
         // 거시 격자는 표본 시각(장면 시각)에 자리가 맞으므로 그때부터 흐른 시간만큼만(km, 감싸지 않음)
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
         if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
-        const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
+        const origin = position.clone().add(altCorr).addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
       // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
@@ -1252,7 +1293,11 @@ export async function createVolumetricScene(
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
+      // §169 takram 품질 단계는 resolutionScale 까지 1 로 덮어씁니다. 하늘 화면은 해상도를 품질 다음에 다시 걸지 않아
+      // (자동 조절기가 값이 그대로면 null) 기기가 설정 0.5 대신 1.0 으로 그렸습니다 — 하네스는 품질 뒤에 해상도를 걸어 0.5.
+      const res = clouds.resolutionScale;
       clouds.qualityPreset = q;
+      clouds.resolutionScale = res;
       // §140 low 프리셋의 1차 행진 최소 보폭 100 m 는 모양 잡음(수백 m 주기)을 성기게 떠서 텍셀마다 투과율이 3~4 텍셀 덩어리로 흔들립니다
       // (기기 캡처의 흰 점·알갱이; 하네스 low 렌더 알파 편차 0.0070 → 0.0044, medium 0.0045). 보폭만 medium 과 같은 50 m 로 — 반복 수 200·종료 투과율 0.1 은 그대로.
       if (q === 'low') clouds.clouds.minStepSize = LOW_MIN_STEP_M;
@@ -1277,6 +1322,7 @@ export async function createVolumetricScene(
       if (lastInput && reapply) setScene(lastInput);
     },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
+    resolutionScale: () => clouds.resolutionScale,
     render: dt => { tonePass.renderToScreen = true; setCloudAlphaOut(false); composer.render(dt); },
     // 마지막 패스를 화면 대신 출력 버퍼로 — 패스가 끝나면 버퍼가 바뀌어 결과는 inputBuffer 에 있습니다(postprocessing 6).
     // postprocessing 은 렌더러의 autoClear 를 끕니다 — 하늘 화면 합성기는 제 몫을 스스로 정하지만, 다른 직접 그리기

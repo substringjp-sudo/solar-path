@@ -6,6 +6,8 @@
  *  [2] `dropSeamCopies` 는 같은 거리에서 180° 점이 있는 −180° 점만 빼서 91 점을 돌려주고, 간격이 91 점 자료와 소수점까지 같다.
  *  [3] 180° 점 없이 −180° 점만 있으면 그대로 둔다(복사본이 아니다). 입력 순서·나머지 점은 그대로.
  *  [4] 끝에서 끝: 99 점 고리로 `buildLiveScene` 을 부르면 거시 격자 입력(저·중·상)이 91 점이다(복사본이 렌더러까지 가지 않는다).
+ *  [5] 남쪽이 흐린 고리에서 99 점과 91 점 입력의 층 계획(거시 기울기·빔 투과)이 같다 — 두 번째 자리(`buildMacroWeatherField`)도 걸러짐.
+ *      음성 대조: 걸러내지 않은 99 점을 `buildMacroWeatherField` 에 바로 넣으면 기울기가 달라진다.
  */
 const path = require('path'); const os = require('os'); const fs = require('fs'); const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -42,21 +44,32 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
   ok(mx.length === 2 && mx[0].azimuthOffset === 180 && mx[1].distance === 30, '거리마다 따로 판단한다(10 km 복사본만 뺌)');
   console.log('[4] buildLiveScene 끝에서 끝');
   const entry = path.join(outDir, 'entry.ts'), out2 = path.join(outDir, 'live.mjs');
-  fs.writeFileSync(entry, `export { buildLiveScene } from '${ROOT}/src/components/VolumetricProbe/liveScene';\nexport { getInterpolatedWeather } from '${ROOT}/src/utils/weather';\n`);
+  fs.writeFileSync(entry, `export { buildLiveScene } from '${ROOT}/src/components/VolumetricProbe/liveScene';\nexport { getInterpolatedWeather } from '${ROOT}/src/utils/weather';\nexport { buildMacroWeatherField } from '${ROOT}/src/utils/macroWeatherField';\n`);
   execFileSync('npx', ['esbuild', entry, '--bundle', '--format=esm', '--platform=node', '--define:__DEV__=false', '--outfile=' + out2], { cwd: ROOT, stdio: 'ignore' });
   const L = await import('file://' + out2);
   const t0 = Date.UTC(2026, 9, 25, 22, 0);   // 수원 07:00 KST 근처
   const hrs = Array.from({ length: 24 }, (_, i) => i);
   const timeMs = hrs.map(h => t0 + (h - 22) * 3600000), time = timeMs.map(ms => new Date(ms).toISOString().slice(0, 13) + ':00');
-  const mk = p => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, source: 'standard', origin: 'forecast',
-    hourly: { time, timeMs, low: hrs.map(() => 60), mid: hrs.map(() => 30), high: hrs.map(() => 10), total: hrs.map(() => 70), directNormalIrradiance: hrs.map(() => 200), visibility: hrs.map(() => 20000), humidity: hrs.map(() => 60), precipitation: hrs.map(() => 0) } });
+  const mk = (p, lowOf = () => 60) => ({ distance: p.distance, azimuthOffset: p.azimuthOffset, source: 'standard', origin: 'forecast',
+    hourly: { time, timeMs, low: hrs.map(() => lowOf(p)), mid: hrs.map(() => 30), high: hrs.map(() => 10), total: hrs.map(() => 70), directNormalIrradiance: hrs.map(() => 200), visibility: hrs.map(() => 20000), humidity: hrs.map(() => 60), precipitation: hrs.map(() => 0) } });
   const date = new Date(t0 + 22 * 3600000 + 30 * 60000);
-  const path99 = ring99.map(mk), iw = L.getInterpolatedWeather(path99, date);
+  const path99 = ring99.map(p => mk(p)), iw = L.getInterpolatedWeather(path99, date);
   const built = L.buildLiveScene({ lat: 37.4852, lon: 127.0367, heightM: 29, date, pathData: path99, interpolatedWeather: iw });
   const m = built.input.macro;
   ok(iw.length === 99, `보간 결과는 99 점(WeatherFan 용으로 그대로)`);
   ok(m && m.low.length === 91 && m.mid.length === 91 && m.high.length === 91, `거시 입력 저·중·상 = ${m && m.low.length}·${m && m.mid.length}·${m && m.high.length} 점(복사본 8 개 빠짐)`);
   ok(m && !m.low.some(q => q.azimuthOffset === -180), '거시 입력에 −180° 점이 없다');
+  console.log('[5] 두 번째 자리(buildMacroWeatherField)까지 — 남쪽이 흐린 고리');
+  const south = p => (p.distance > 0 && Math.abs(p.azimuthOffset) >= 120 ? 95 : 15);
+  const p91 = ring91.map(p => mk(p, south)), p99 = ring99.map(p => mk(p, south));
+  const iw91 = L.getInterpolatedWeather(p91, date), iw99 = L.getInterpolatedWeather(p99, date);
+  const b91 = L.buildLiveScene({ lat: 37.4852, lon: 127.0367, heightM: 29, date, pathData: p91, interpolatedWeather: iw91 });
+  const b99 = L.buildLiveScene({ lat: 37.4852, lon: 127.0367, heightM: 29, date, pathData: p99, interpolatedWeather: iw99 });
+  const sunAz = 120, sunAlt = 10;
+  const raw91 = L.buildMacroWeatherField(iw91, sunAz, sunAlt), raw99 = L.buildMacroWeatherField(iw99, sunAz, sunAlt);
+  ok(Math.abs(raw91.low.gradYPer100Km - raw99.low.gradYPer100Km) > 1e-4, `음성 대조: 걸러내지 않으면 남북 기울기가 다르다 (${raw91.low.gradYPer100Km.toFixed(4)} vs ${raw99.low.gradYPer100Km.toFixed(4)})`);
+  ok(JSON.stringify(b91.input.layers) === JSON.stringify(b99.input.layers) && b91.summary === b99.summary, '앱 경로(buildLiveScene)의 층 계획·요약은 91 점과 99 점이 같다');
+  fs.rmSync(outDir, { recursive: true, force: true });
   console.log(`\n${fail ? 'FAILURES' : 'ALL PASS'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('ERR', e); process.exit(1); });

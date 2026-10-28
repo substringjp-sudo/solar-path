@@ -6,8 +6,8 @@ from a cache after the observer moves, and how many locations must then be reque
 or about Barnes/FFT accuracy; other agents are measuring those.
 
 Scripts: `cache_sim.py` (simulation, uses `geom.py` GEOMS unchanged), `cache_agg.py` (aggregation), `cache_md.py` (this file).
-Raw per-start output: `cache_raw.json`. Aggregates: `cache-results.json`. All files are in
-`/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/grid/`.
+Raw per-start output: `cache_raw.json`. Aggregates: `cache-results.json`. These scripts and files were NOT committed
+(they lived in a session scratch folder); only `geom.py` is in this folder.
 
 ## Setup
 

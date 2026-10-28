@@ -2090,7 +2090,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 16); }
               }
               volumetricStats.frameMs = gov?.emaMs ?? 0;
-              volumetricStats.resScale = gov?.scale ?? 0;
+              // §169 조절기 값이 아니라 렌더러가 실제로 쓰는 배율 — 둘이 어긋나던 버그(품질 단계가 1.0 으로 되돌림)를 숨기지 않게.
+              volumetricStats.resScale = vol.resolutionScale();
               volumetricStats.quality = q;
               // §127 지형 거리 — 이번 프레임의 판을 먼저 그려 구름 행진이 지형에서 멈추게 합니다(산 앞 구름은 산 위, 산 뒤 구름은 가림).
               // §129 지형 빛 판도 같이 — 지형을 takram 이 하늘·구름과 같은 빛·노출로 칠합니다.
@@ -2766,7 +2767,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           sunAzDeg: sunAzRef.current,
           atmosphere,
           weather: weatherRef.current ?? [],
-          // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166).
+          // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166, 기본값도 0).
           weatherCenterAzDeg: 0,
           maxTotal: getTuning().maxClouds,
         });

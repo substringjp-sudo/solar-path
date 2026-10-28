@@ -3,9 +3,9 @@
  *   node tools/shader-preview/verify-ring-fan-center.js
  *  고리(`fetchDayWeatherRing`)의 `azimuthOffset` 은 절대 방위(0 = 북)인데, 사전 계산 타임라인이 없을 때의 경로는
  *  `WeatherFan(weather, sunAzDeg)` 로 읽어 고리를 해 방위만큼 돌려 놓았습니다. 동쪽만 흐린 고리로 보면:
- *  [1] 옛 기본(중심 = 해 방위 200°): 동쪽 90° 저층 운량 ≈ 0, 서쪽 270° 에 구름이 생긴다(음성 대조).
- *  [2] `weatherCenterAzDeg: 0`: 동쪽에 구름, 서쪽은 맑음.
- *  [3] 중심을 안 주면 옛 동작 그대로(미리보기 도구는 해 중심 부채꼴을 씁니다).
+ *  [1] 옛 동작(중심 = 해 방위 200°, 이제는 `weatherCenterAzDeg: 200` 으로 명시해야 남): 동쪽 90° 저층 운량 ≈ 0, 서쪽 270° 에 구름(음성 대조).
+ *  [2] 중심을 안 주면(기본 0) 동쪽에 구름, 서쪽은 맑음 — 고리를 넘기면서 인자를 빠뜨려도 돌아가지 않는다.
+ *  [3] `weatherCenterAzDeg: 0` 명시도 같다(앱 SkyScene3D 가 넘기는 값).
  */
 const path = require('path'); const os = require('os'); const fs = require('fs'); const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -25,14 +25,14 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
   const atlas = { texture: {}, rects: new Map(), keys: [], dispose() {} };   // 배치 계산은 아틀라스 내용을 안 봅니다
   const run = extra => M.buildCloudInstances({ atlas, currentTime: new Date(tm), sunAltDeg: 30, sunAzDeg: 200, atmosphere: {}, weather: ring, maxTotal: 320, ...extra });
   const cover = (r, az) => { const s = r.samples.filter(x => x.layer === 'low' && Math.abs(((x.azimuthDeg - az + 540) % 360) - 180) < 8); return s.reduce((u, x) => u + x.cover, 0) / s.length; };
-  const old = run({}), fixed = run({ weatherCenterAzDeg: 0 });
-  console.log('[1] 옛 기본 — 해 방위 200° 를 0 으로 읽음');
+  const old = run({ weatherCenterAzDeg: 200 }), fixed = run({}), explicit0 = run({ weatherCenterAzDeg: 0 });
+  console.log('[1] 옛 동작 — 해 방위 200° 를 0 으로 읽음');
   ok(cover(old, 90) < 0.02 && cover(old, 270) > 0.1, `동 ${cover(old, 90).toFixed(2)} · 서 ${cover(old, 270).toFixed(2)} (구름이 반대편으로 돌아가 있다)`);
-  console.log('[2] weatherCenterAzDeg: 0');
+  console.log('[2] 기본값(인자 없음)');
   ok(cover(fixed, 90) > 0.1 && cover(fixed, 270) < 0.02, `동 ${cover(fixed, 90).toFixed(2)} · 서 ${cover(fixed, 270).toFixed(2)}`);
-  console.log('[3] 하위 호환');
-  const same = run({ weatherCenterAzDeg: 200 });
-  ok(Math.abs(cover(same, 270) - cover(old, 270)) < 1e-9 && Math.abs(cover(same, 90) - cover(old, 90)) < 1e-9, '중심 200° 를 명시하면 옛 기본과 같다(미리보기 도구가 쓰는 해 중심 부채꼴 호환)');
+  console.log('[3] 0 명시');
+  ok(Math.abs(cover(explicit0, 90) - cover(fixed, 90)) < 1e-9 && Math.abs(cover(explicit0, 270) - cover(fixed, 270)) < 1e-9, '0 을 명시해도 기본값과 같다');
+  fs.rmSync(outDir, { recursive: true, force: true });
   console.log(`\n${fail ? 'FAILURES' : 'ALL PASS'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('ERR', e); process.exit(1); });

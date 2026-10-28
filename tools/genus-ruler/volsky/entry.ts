@@ -9,6 +9,7 @@ import { DataTexture, Mesh, NearestFilter, OrthographicCamera, PerspectiveCamera
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { autoExposure, createVolumetricScene, type VolumetricOptions, type VolumetricQuality, type VolumetricSceneInput } from '../../../src/components/VolumetricProbe/volumetricScene';
 import { sunPosition } from '../../../src/utils/solarPosition';
+import { applyNoiseSeed, checkGrainMaterial, grainBaseOptions, restoreGrainState, runGrain, type GrainJob } from '../grain/capture';
 
 type Job = {
   input: Omit<VolumetricSceneInput, 'date'> & { date: string };
@@ -38,6 +39,13 @@ type Job = {
   resolve?: Record<string, number>;
   /** §140 조명 진단: 구름 패스 재질 균일변수(minStepSize·maxIterationCount·shapeRepeat 배율 등) 덮어쓰기 — 숫자는 그대로, {scale} 는 벡터/숫자에 배율. 잡마다 되돌림. */
   material?: Record<string, number | { scale: number }>;
+  /**
+   * RULER-grain(§grain) 캡처 — **없으면 이 파일의 예전 길 그대로**(옛 잡 화소 동일, RULER-grain G0d). 있으면: 옵션 기본값 = 앱 기본값 전부 + 위 하네스 기본
+   * (앞 잡 옵션이 새지 않음), 층 균일변수 덮어쓰기 금지, 잡음 씨앗(noiseSeed), frame0 리셋, 창 프레임마다 해석 전 구름 표본·표시 선형 값 읽기,
+   * 기준 렌더(층화 화소 오프셋 평균)·비용 변형. 파일은 grain/run-grain.js 가 받습니다. 정의: grain/capture.ts.
+   */
+  grain?: GrainJob;
+  name?: string;
 };
 const resolveDefaults: Record<string, number> = {};
 const materialDefaults: Record<string, unknown> = {};
@@ -125,9 +133,11 @@ const show = (tex: Texture, mode: number) => {
     const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
-      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null,
+      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macroGrad: false,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
+      // §grain 앞 grain 잡이 남긴 비용 변형·화소 오프셋만 되돌림(grain 잡이 없던 페이지에서는 아무것도 하지 않음).
+      restoreGrainState(vol);
       const input = { ...job.input, date: new Date(job.input.date) } as VolumetricSceneInput;
       if (job.exposureScale != null && job.exposureScale !== 1) {
         const sunAltDeg = (sunPosition(input.date, input.lat, input.lon).altitude * 180) / Math.PI;
@@ -135,7 +145,7 @@ const show = (tex: Texture, mode: number) => {
       }
       // §130 잡마다 옵션을 기본값으로 되돌린 뒤 덮어씁니다 — 예전에는 options 없는 잡이 앞 잡의 옵션(flow 등)을 물려받았습니다.
       // reapply=false: 아래 setScene 이 장면을 걸므로 두 번 만들지 않습니다.
-      vol.setOptions({ ...JOB_BASE_OPTIONS, ...(job.options ?? {}) }, false);
+      vol.setOptions({ ...(job.grain ? grainBaseOptions(JOB_BASE_OPTIONS, Q.get('celestial') === '1') : JOB_BASE_OPTIONS), ...(job.options ?? {}) }, false);
       if (job.tone != null) vol.debug.toneMapping.mode = job.tone;
       // §137 잡마다 하늘빛·지면 반사 배율을 기본값 1 로 되돌린 뒤 덮어씁니다(앞 잡의 진단 값을 물려받지 않게).
       vol.debug.clouds.skyLightScale = job.fill?.skyLightScale ?? 1;
@@ -149,6 +159,7 @@ const show = (tex: Texture, mode: number) => {
         const ru = (vol.debug.clouds as unknown as { cloudsPass: { resolveMaterial: { uniforms: Record<string, { value: number }> } } }).cloudsPass.resolveMaterial.uniforms;
         for (const [k, v] of Object.entries(resolveDefaults)) if (ru[k]) ru[k].value = v;
         for (const [k, v] of Object.entries(job.resolve ?? {})) { if (!ru[k]) throw new Error('resolve uniform missing: ' + k); if (!(k in resolveDefaults)) resolveDefaults[k] = ru[k].value; ru[k].value = v; }
+        if (job.grain) checkGrainMaterial(job.material);
         const mu = (vol.debug.clouds as unknown as { cloudsPass: { currentMaterial: { uniforms: Record<string, { value: unknown }>; needsUpdate: boolean } } }).cloudsPass.currentMaterial;
         const clone = (x: unknown) => (x && typeof x === 'object' && 'clone' in (x as object) ? (x as { clone(): unknown }).clone() : x);
         for (const [k, v] of Object.entries(materialDefaults)) if (mu.uniforms[k]) mu.uniforms[k].value = clone(v);
@@ -162,9 +173,12 @@ const show = (tex: Texture, mode: number) => {
           else throw new Error('material uniform not scalable: ' + k);
         }
       }
+      // §grain 잡음 텍스처 씨앗(없으면 12345 = 앱; 지금 텍스처와 같으면 아무것도 안 함).
+      applyNoiseSeed(vol, job.grain?.noiseSeed);
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setScene(input);
       vol.setTerrainDistance(job.terrain ? terrainTex(job.terrain.km, job.terrain.frac) : null);
+      if (job.grain) return runGrain({ renderer, vol, W, H, show }, job as never);
       const frames = job.frames ?? 48;
       if (job.views) {
         const gl = renderer.getContext(), px = new Uint8Array(W * H * 4), th = Math.round((job.alphaMin ?? 0.15) * 255);

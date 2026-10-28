@@ -205,8 +205,8 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     ...skySettings,
     volumetricSky: true,
   }), [skySettings]);
-  // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 예전처럼
-  // 해 방향 부채꼴 기상(camInterpolated)으로 그립니다.
+  // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 카메라가 따로 받은
+  // 360° 고리 기상(camInterpolated, 절대 방위 = 중심 0)으로 그립니다.
   const sharedTimeline = useCelestialStore(s => s.skyTimeline);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ writeOnly: true });
