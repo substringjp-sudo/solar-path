@@ -5,7 +5,7 @@
  * 그래서 해가 5° 아래일 때 만든 ac 장면이, 해가 올라 τ 가 3 을 넘어도(§158 as 승격) 같은 시간 버킷 안에서는 그대로 남았습니다
  * (수원 2026-10-26 07:27 카드의 틈 원인 후보). 이제 τ 구간(없음·< 1.5·< 3·≥ 3)과 비 0.3 플래그, 중·상층 덱(0.5 km 눈금)이 키에 들어갑니다.
  */
-import SunCalc from 'suncalc';
+import { sunPosition } from '../../utils/solarPosition';
 import type { CloudData } from '../../utils/weather';
 import { METAR_MAX_AGE_MIN } from '../../utils/metar';
 import { LAYER_BAND_KM, bandDeck } from '../../utils/cloudProfile';
@@ -46,9 +46,9 @@ export function volSceneKey(i: SceneKeyInput): string {
   const o = i.obs ?? null;
   const bHour = Math.floor(i.sceneMs / 3600000);
   const precip = o?.precipitation ?? 0;
-  // τ 의 태양 고도는 liveScene 과 **같은** SunCalc·같은 장면 시각으로 — 화면의 sunAltRef(solarPosition·5 분 보간)와 0.02~0.07° 어긋나
+  // τ 의 태양 고도는 liveScene 과 **같은** 엔진 해(solarPosition, §175)·같은 장면 시각으로 — 화면의 sunAltRef(solarPosition·5 분 보간)와 0.02~0.07° 어긋나
   // 5° 경계에서 키는 '2' 인데 장면은 τ 없음으로 만들어지는 틈(§165 검토 지적)을 막습니다.
-  const sunAltDeg = (SunCalc.getPosition(new Date(i.sceneMs), i.lat, i.lon).altitude * 180) / Math.PI;
+  const sunAltDeg = (sunPosition(new Date(i.sceneMs), i.lat, i.lon).altitude * 180) / Math.PI;
   const tau = o ? cloudOpticalDepthFromDni(pickDni(o).dni, sunAltDeg, o.aod550) : null;
   const metarActive = i.metarTimeMs != null && Math.abs(i.sceneMs - i.metarTimeMs) <= METAR_MAX_AGE_MIN * 60_000 ? 1 : 0;
   const prof = o ? profileOf(o) : [];
