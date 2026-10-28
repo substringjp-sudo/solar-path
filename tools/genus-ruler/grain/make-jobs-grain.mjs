@@ -176,7 +176,8 @@ for (const arm of [...armList, ...rerender]) {
   const cfg = arm === 'C0' ? { options: {}, material: {} } : A.base ? A.delta : merge(base.cfg, A.delta);
   // G0e 상태 잡(그리지 않음 — 개발 장면): 이 팔의 상태 해시가 B 와 의도한 필드에서만 다른지(grain.py --ext)
   jobs.push(job({ set: 'state', round: A.round, arm, armCfg: cfg, layer: 'cu35', time: 'e5', azk: 's', frame: 'dev', seedSet: 'dev', tag: 'state', grain: { mode: 'state' } }));
-  const round = A.round, hClaim = ['E1a.3', 'E1a.0', 'E1b', 'E2a.8', 'E2a.6', 'E2b', 'E2c'].includes(arm) || arm === 'C0' || !!A.base;
+  // H-dev(기기 피치 H, §5.3 vi): H 를 주장할 수 있는 모든 팔 — E4 만 빠짐(K(E4) = F-dev eCSF 단위)
+  const round = A.round, hClaim = arm !== 'E4';
   for (const u of HELD_DEV) jobs.push(job({ set: 'heldout', round, arm, armCfg: cfg, ...u, grain: captureGrain('dev', u.time) }));
   for (const u of HELD_STD) jobs.push(job({ set: 'heldout', round, arm, armCfg: cfg, ...u, grain: captureGrain('std', u.time) }));
   if (hClaim) for (const u of HELD_HDEV) jobs.push(job({ set: 'hdev', round, arm, armCfg: cfg, ...u, grain: captureGrain('hdev', u.time) }));
@@ -197,6 +198,11 @@ if (adopt?.final) {
   for (const u of HELD_STD) jobs.push(job({ set: 'heldout', round: 6, arm: 'Bfinal', armCfg: b, ...u, grain: captureGrain('std', u.time) }));
   for (const u of HELD_HDEV) jobs.push(job({ set: 'hdev', round: 6, arm: 'Bfinal', armCfg: b, ...u, grain: captureGrain('hdev', u.time) }));
   for (const g of TW_GUARD) jobs.push(twGuardJob('Bfinal', b, 6, g));
+  jobs.push(job({ set: 'state', round: 6, arm: 'Bfinal', armCfg: b, layer: 'cu35', time: 'e5', azk: 's', frame: 'dev', seedSet: 'dev', tag: 'state', grain: { mode: 'state' } }));
+  for (const u of unitsOf(['L', 'T', 'T4', 'O5'], ['dev']).filter(x => x.azk === 's'))
+    jobs.push(job({ set: 'cost', round: 6, arm: 'Bfinal', armCfg: b, ...u, tag: 'cost', grain: { mode: 'cost', frame0: 0, frames: 16 } }));
+  for (const u of unitsOf(['H', 'O45'], ['std']).filter(x => x.azk === 's'))
+    jobs.push(job({ set: 'cost', round: 6, arm: 'Bfinal', armCfg: b, ...u, tag: 'cost', grain: { mode: 'cost', frame0: 0, frames: 16 } }));
   for (const u of unitsOf(['L', 'T', 'T4', 'O5'], ['dev']).filter(x => x.azk === 's'))
     jobs.push(job({ set: 'confirm', round: 6, arm: 'Bfinal', armCfg: b, ...u, seedSet: 'confirm', tag: 'Q', grain: captureGrain('dev', u.time) }));
 }
@@ -242,7 +248,7 @@ for (const [layer, time, azk, frame] of [['cu35', 'e5', 's', 'dev'], ['sc85', 'e
 
 // ───── 눈 확인 묶음(§4.4, 판정 아님): 기기 전체 틀 1080×H·×res, C0(그리고 --adopt final 이면 Bfinal) — 100 % 크롭 대조판용 PNG ─────
 const S4 = JSON.parse(fs.readFileSync(path.join(HERE, '../shape/jobs-grain-low.json'), 'utf8')).find(j => j.name === 'Aqlow_S4_1021_sw').input;
-const EYE = [['S4_1021_sw', { ...S4, fov: 60 }], ...TW_GUARD.map(([nm, date, az, el]) => [nm, { lat: 37.81, lon: 138.28, heightM: 5, date, az, el, fov: 60, layers: [{ genus: 'sc', cover: 0.23, baseKm: 1, band: 'low' }, { genus: 'ac', cover: 0.43, baseKm: 3.5, band: 'mid' }] }])];
+const EYE = [['S4sw1021', { ...S4, fov: 60 }], ...TW_GUARD.map(([nm, date, az, el]) => [nm, { lat: 37.81, lon: 138.28, heightM: 5, date, az, el, fov: 60, layers: [{ genus: 'sc', cover: 0.23, baseKm: 1, band: 'low' }, { genus: 'ac', cover: 0.43, baseKm: 3.5, band: 'mid' }] }])];
 const eyeArms = [['C0', { options: {}, material: {} }]];
 if (adopt?.final) { let b = { options: {}, material: {} }; for (const a of adopt.adopted ?? []) b = merge(b, ARMS[a.arm].delta); eyeArms.push(['Bfinal', b]); }
 for (const [arm, cfg] of eyeArms) for (const [nm, input] of EYE) {

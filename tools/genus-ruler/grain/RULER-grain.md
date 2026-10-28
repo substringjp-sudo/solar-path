@@ -7,7 +7,7 @@
 ## 1.5 설계 검토에서 받아들인 것(렌더 전)
 | 관점 | 지적 | 조치 |
 |---|---|---|
-| 통계 B | 판정에 검정력이 없음: 칸별 불확실성 없음, 엄격 벌이 묶고, 악화 셈이 잡음 안(A/A 에서 \|I\| 400 화소면 null 칸의 25~43 % 가 '악화') | 칸마다 **짝 블록 부트스트랩**(같은 블록을 두 팔에, 2000 회, 씨앗 20261028, 90 % CI): 개선 = 비 ≤ r_i **그리고 CI 상한 < 1**, 악화 = 비 ≥ r_w **그리고 CI 하한 > 1** 그리고 절대 증가 ≥ δ, 나머지 동률(§5.2). 최소 마스크 I ≥ 400 텍셀(1600 캔버스 화소)·R ≥ 200 텍셀(800), 블록 ≥ 25. **장면 묶음 기준**(장면 부트스트랩 중앙 ln 비의 90 % 상한 < ln 0.90 + 장면 부호 검정 α 0.05: 15 장면이면 ≥ 12, 21 이면 ≥ 15) 추가(§5.3 iv). A/A 보정(P8)이 '통과 아님'·악화 ≤ 10 %·CI 제외 ≤ 15 % 를 못 맞추면 블록을 두 배로(사다리 4/16 → 8/32 → 16/64 — §8.3) |
+| 통계 B | 판정에 검정력이 없음: 칸별 불확실성 없음, 엄격 벌이 묶고, 악화 셈이 잡음 안(A/A 에서 \|I\| 400 화소면 null 칸의 25~43 % 가 '악화') | 칸마다 **짝 블록 부트스트랩**(같은 블록을 두 팔에, 2000 회, 씨앗 20261028, 90 % CI): 개선 = 비 ≤ r_i **그리고 CI 상한 < 1**, 악화 = 비 ≥ r_w **그리고 CI 하한 > 1** 그리고 절대 증가 ≥ δ, 나머지 동률(§5.2). 최소 마스크 I ≥ 400 텍셀(1600 캔버스 화소)·R ≥ 200 텍셀(800), 블록 ≥ 25. **장면 묶음 기준**(장면 부트스트랩 중앙 ln 비의 90 % 상한 < ln 0.90 + 장면 부호 검정 α 0.05: 15 장면이면 ≥ 12, 21 이면 ≥ 15) 추가(§5.3 iv). A/A 보정(P8): 블록 사다리(4/16 → 8/32 → 16/64)에서 σs 부트스트랩 CI 가 1 을 빼는 비율 ≤ 15 % 인 첫 크기, 그리고 **모든 CI 에 A/A 바닥** = ln r ± 1.645·sd_AA(지표·마스크 등급)(합성 A/A: tCSF 는 CSF 거른 장이 블록보다 넓게 상관돼 16 화소 블록 CI 제외 25 %, 블록을 키우면 블록 수가 줄어 더 나빠짐 30~50 % → 바닥 뒤 6 %·σs 9 %·tStd 12 % — T23). A/A 판정이 '통과 아님'·악화 ≤ 10 % 를 못 맞추면 판정 전에 사용자에게 |
 | 통계 M | 잡음 실현이 하나뿐: frame0 를 바꿔도 같은 백색 잡음 조각(Bayer 갱신 프레임 b+16k) | 하네스 잡 필드 `grain.noiseSeed`(없으면 앱 12345 — 텍스처를 건드리지 않음). A/A 탐침 P8 = 씨앗 12345·777·4242. 초안 Q15(frame0 두 개) 삭제, §9 의 "실현"은 잡음 텍스처 |
 | 통계 M | tStd 가 해석(분산 클리핑 γ 2)과 섞여 비가 1 쪽으로 눌림(진짜 0.5 → 0.59~0.61), σ = 0 에서도 바닥 | **주 지표 = σs**: 해석 앞 1/4 해상도 구름 패스 출력(`currentRenderTarget`, 반정밀도)을 Bayer 자리로 구름 버퍼에 흩어 텍셀마다 표본 4 개(창 64 프레임) → σs = √(Σvar/Σμ²)(Rec.709 휘도, 미리곱 rgb). 톤·노출·잡음 제거·클리핑 무관, 바닥 없음. 흩기는 창 첫 프레임에 해석 출력의 갱신 텍셀과 **비트 대조**(sampCheck, 연기 시험 3577/3577 같음). 클리핑 모형을 `grain-test.py` T6 으로 옮기고 압축을 기록(§2.6) |
 | 통계 M | 표시 로그 지표가 ACES 국소 기울기·검은 눌림·1e-4 바닥에 흔들림(밝기 +20 % 만으로 tStd 비 0.82~0.89) | σs 주. 표시 지표는 부호(V = 255·sRGB(L), 디더 앞)·CSF 로(아래 타당성 M1·M2), 기록용 ln 은 ln(L + 0.01). 개선은 σs 개선 **그리고** 표시 보조(tCSF·eCSFdev)가 1.10 배를 넘지 않을 때만. 구름 안쪽 중앙 L 의 Δln 기록, \|Δln\| > 0.05 칸 표시 |
@@ -33,7 +33,7 @@
 | 절차 B | G0c·G0d·G9·B_k 재사용이 바이트 동일을 요구 — SwiftShader 는 못 함 | 화소 허용폭(평균 \|Δ\| ≤ 0.05/255, 32 단계 넘는 화소 ≤ 0.5 %) + 상태 해시 같음. **P0n**(P8B: 같은 씨앗을 다른 페이지에서) → 지표 비 \|m1/m2 − 1\| 95 분위 < (1 − r_i)/4 = 0.05 일 때만 B_k 재사용, 아니면 'B{k−1}' 을 다시 그림. 바이트 대조 통제 = 바이트 안정 장면(§10 의 P0_ac_5) |
 | 절차 M | E1b 가 층 밑면 진입·첫 표본에서 정의 안 됨 · §7.1 보폭 표가 빈 날씨 mip 걸음을 빼먹음 | E1b Δ = 직전 증분(층 사이·빈 날씨·구름 안 세 `rayDistance +=` 모두에서 저장), 첫 표본이면 그 표본까지의 거리. §7.1 을 첫 적중 직전 증분(층 안 거리 2·5·10 km 중앙)으로 다시 셈 — K(E1) 도 그 표에서 |
 | 절차 M | 멈춤 규칙이 늦고 좁고 뒤 라운드에 없음 · 비용 상한이 누적 아님 · 비용 대리가 F-std 만 | C0 를 **먼저 혼자**, 멈춤 = 제품 단위 80 % 가 보이지 않음(부호), 라운드마다 B_k 로 다시; 바닥 단위는 분모에서 빼고 \|V∩K∖바닥\| < 40 이면 '평가 불가(이미 바닥)' · 누적 장부 fetch(E)/fetch(C0) ≤ cap_cum(= min(1.40, 0.9·50/frameMs_C0), 사용자 값 전엔 1.40) · 비용 잡 F-dev(L·T·T4·O5, 방위 s) + F-std(H·O45) |
-| 절차 M | E3c 가 균일변수 재포장에 지워짐 · 상태 해시가 좁음 · 캡처가 조용히 실패 · E5 종류별 길 없음 · 예산 과소·이어 그리기 없음 · 동결 목록 불완전 · fm/phys2 renders 모드가 이름을 잘못 읽음 | E3c = `setScene` 에서 CloudLayer.densityScale 곱(구현 명세), grain 잡의 material 이 재포장 층 균일변수를 부르면 throw · 상태 해시 = capture.ts `stateHash`(define·해석 재질·해상도·업스케일·그림자 크기·프레임·카메라·잡음 텍스처; 'state' 모드) · 읽을 때마다 gl.getError 꼬리표, 정지 0 은 늘 8 비트 캔버스와 1 단계 대조, 0 아닌 비율, sampCheck → captureOk · E5 = 전역(E5−·E5+·없음) · §4.5 실측 예산·`run-grain.js` 이어 그리기(번들·잡 sha 같으면 건너뜀, 60 분 덩어리, 실패 잡 error.txt) · §10 · grain.py 는 파일마다 fm.all_metrics·phys2.all_metrics2 를 부르고 renders 모드를 안 씀 |
+| 절차 M | E3c 가 균일변수 재포장에 지워짐 · 상태 해시가 좁음 · 캡처가 조용히 실패 · E5 종류별 길 없음 · 예산 과소·이어 그리기 없음 · 동결 목록 불완전 · fm/phys2 renders 모드가 이름을 잘못 읽음 | E3c = `setScene` 에서 CloudLayer.densityScale 곱(구현 명세), grain 잡의 material 이 재포장 층 균일변수를 부르면 throw · 상태 해시 = capture.ts `stateHash`(define·해석 재질·해상도·업스케일·그림자 크기·프레임·카메라·잡음 텍스처; 'state' 모드) · 읽을 때마다 gl.getError 꼬리표, 정지 0 은 늘 8 비트 캔버스와 1 단계 대조, 0 아닌 비율, sampCheck → captureOk · E5 = 전역(E5−·E5+·없음) · §4.6 실측 예산·`run-grain.js` 이어 그리기(번들·잡 sha 같으면 건너뜀, 60 분 덩어리, 실패 잡 error.txt) · §10 · grain.py 는 파일마다 fm.all_metrics·phys2.all_metrics2 를 부르고 renders 모드를 안 씀 |
 | 절차 m | 비용 변형 내부 · 전역 변수 · E3 앵커 · 마스크 알파 · §9 한계 · 기기 후속 · P1/P2 설정 · 채택 길 · 프레임 번호 · tw 이름 | 반복 상한은 명시 표지(i 가 상한·T > minTransmittance·광선 안) · 해 행진 셈은 두 오버로드 다(6 인자 앞에 전역 셈) · E2b 표지는 marchOpticalDepth 뒤 되돌림, E3b footM 은 1차 표본 것, E4 는 구름 패스만 · E3 앵커 = patchFlowShader 글자 · 마스크는 원(잡음 제거 앞) 알파 · 앱 macro·디더 차이 §9 · 기기 후속 절차 §5.6 · P1 = sc25 e3 F-dev(최악), P2 5 m 는 16000 반복 · G0g(앱 길 상태 = 하네스 덮어쓰기 상태) · 정지 = 렌더 프레임 24·40·56·72(frame0 0 → 첫 렌더 1) · sc25 −1.9° 는 TERM 기록 |
 
 **고쳐 받아들인 것**:
@@ -89,7 +89,7 @@
 ### 2.2 주 지표 — σs(표본 오차, 장면 선형, 해석 앞)
 - 텍셀 마스크(구름 버퍼): 안쪽 I = 창 평균 알파 ≥ 0.9 이고 3×3 전부, 테두리 R = 0.15 ≤ 알파 < 0.9; 기준의 반복 상한 텍셀 뺌; H-dev 는 고도 띠. 짝 비교는 **I_B∩I_E·R_B∩R_E**(겹침 < 0.7 무효).
 - **σs(영역) = √(Σ_p var_p / Σ_p μ_p²)**(p = 마스크 텍셀, var·μ = 텍셀 표본 4 개의 휘도). 노출·톤 배율 불변(T4), 경사 불변(T3), 알려진 잡음에서 비 0.99(T2).
-- 짝 비 = √(Σvar_E/Σμ_E²) ÷ √(Σvar_B/Σμ_B²), CI = 같은 4×4 텍셀 블록을 두 팔에 다시 뽑는 부트스트랩(2000, 씨앗 20261028 + 단위 이름 crc32). 최소: 텍셀 I 400·R 200, 블록 25.
+- 짝 비 = √(Σvar_E/Σμ_E²) ÷ √(Σvar_B/Σμ_B²), CI = 같은 4×4 텍셀 블록을 두 팔에 다시 뽑는 부트스트랩(2000, 씨앗 20261028 + 단위 이름 crc32, 5~95 %) 과 A/A 바닥(ln r ± 1.645·sd_AA, `calib-grain.json` aaSd 의 지표·마스크 등급 small < 1000 ≤ mid < 4000 ≤ large 텍셀; 표시 지표는 화소/4) 중 넓은 쪽 — 표시 지표도 같음. 최소: 텍셀 I 400·R 200, 블록 25.
 ### 2.3 표시 지표(기기 길, 부호; F-dev·H-dev)
 - 부호 V = 255·sRGB(clip(L))(8 비트 디더 앞). CSF = Mannos–Sakrison 정점 1(≈ 7.9 cyc/°), 기기 0.0602 mm/화소·30 cm = 0.0115°/화소, 대칭 확장 FFT. 화소 마스크 = 원 알파로 I(5×5 전부 ≥ 0.9)·R, 포화 합집합 뺌, 가장자리 8 화소 뺌; 최소 I 1600·R 800 화소; 블록 16×16 화소.
 - **tCSF** = √mean_M var_k(CSF∗V_k)(정지 4 장, 잡음 제거 뒤 Ld, ddof 1) — 기기에 얼어붙는 알갱이의 보이는 크기. 기록: 25·40 cm, 반올림 부호 tCodeQ, ln(Ld + 0.01) 의 창 tStd(F-std 단위에선 나빠지지 않음 보조).
@@ -104,7 +104,7 @@
 - 기록: tail(I) = s_p/μ_p > 3·중앙값 텍셀 비율(동질 잡음 χ²₃ 기댓값 ≈ 9e-5), 빨강 잘림 비율, eFine(5×5 고역), speckleExcess·granSpatial.
 ### 2.5 사진 기준 지표(창 평균 PNG — `fm.py`·`phys2.py` import, 파일마다)
 폭 320, 위 78 % 크롭, 알파 ≥ 0.15: logIQR · shadeRange · perimPerArea · darkFrac · edgeWidthPx(fm) · structMid · grainShareMid(phys2 interior). 장면 이름은 동결 장면 표에서 읽고 `run_renders` 를 쓰지 않음(장면 이름의 시각 꼬리가 종류를 잃게 함).
-### 2.6 렌더 전 합성 시험(`grain-test.py`, 53 개 — §10 결과)
+### 2.6 렌더 전 합성 시험(`grain-test.py`, 57 개 — §10 결과)
 | 시험 | 값 |
 |---|---|
 | T2 σs 알려진 잡음 σ 0.01·0.05·0.2 | 비 0.991·0.991·0.988 |
@@ -121,6 +121,8 @@
 | T17 golden 지터 | tStd 비 0.931, 정지 RMS 비 1.000 |
 | T19 기준 잡음 3 % | eCSF 2.017 대 잡음 없는 기준 2.019 |
 | T22 합성 8 장면 × 3 방위 끝까지 | σ 반감 → '통과', A/A → '불합격'(악화 0) |
+| T23 보정 끝까지(합성 개발 집합 27 단위 × 씨앗 4) | 블록 4/16 선택(σs 부트스트랩 CI 제외 12 %), tCSF 부트스트랩 25 % → A/A 바닥 뒤 σs 9 %·tCSF 6 %·tStd 12 %, A/A 판정 통과 아님, P0n 0 → 재사용 |
+| T24 확인 집합 Q(12 장면) | σ 반감 → '확인 통과' |
 - skyDenoise 감쇠(초안 `denoise-synth.json`): σ 0.02~0.05 → 0.63~0.78 배, σ ≥ 0.2 → 0.95~0.99 — 약한 알갱이는 지우고 강한 반점은 남김(그래서 표시 지표는 잡음 제거 뒤).
 
 ## 3. 진실
@@ -161,7 +163,7 @@
 | **O45** | {st90, ns100, as90} × e45 | F-std | 9 | 아니오 |
 | TERM(기록) | sc25 × tw(1.5 km 에서 해 지는 고도 ≈ −1.8°) | F-dev + F-std | 3 | 판정 밖 |
 - **H-dev**: {cu35, ac60} × {e20, e45} × 방위 s, 1080×2340·res 0.5·시야 60°·시선 20°, 고도 0.8~17° 행.
-- 팔마다 잡 183(F-dev 72 + F-std 111) + H-dev 4(E1·E2 계열·C0·B_final) + 박명 가드 2 + 비용 36 + 상태 1. 제품 P = F-dev 의 L·T·T4·O5 단위.
+- 팔마다 잡 183(F-dev 72 + F-std 111) + H-dev 4(E4 만 빼고 모든 팔 — E4 의 K 는 F-dev eCSF) + 박명 가드 2 + 비용 36 + 상태 1. 제품 P = F-dev 의 L·T·T4·O5 단위.
 - ci 는 3° 에서 142 km 라 최대 광선 100 km 밖 — 창 위쪽에만(마스크가 작으면 단위 무효).
 ### 4.2 확인 집합 Q(R6 에서 한 번)
 시드 5858 · 오프셋 [−9, 4] · F-dev · 방위 s · L·T·T4·O5 23 장면 — C0 와 B_final 만.
@@ -170,19 +172,19 @@
 ### 4.4 가드·비용·보고 기준
 박명 색 가드 tw1734·tw1746(사도, §136 G2 장면, F-std) · 비용 잡 F-dev(L·T·T4·O5, s) 23 + F-std(H·O45, s) 13 · 보고 기준 9 칸 × {E3, E5−, E5+}.
 ### 4.5 눈 확인 묶음(판정 아님)
-S4_1021_sw(§140) · tw1734 · tw1746 을 기기 전체 틀(1080×2340·0.5)로 C0 와 B_final, 정지 4 장 PNG — 100 % 크롭 대조판. 서울 10/16·수원 10/26 은 사용자의 새 캡처 QR 로 그때 더함.
+S4_1021_sw(§140, 잡 이름 'S4sw1021' — `shape/jobs-grain-low.json` 의 입력, 시야 60°) · tw1734 · tw1746 을 기기 전체 틀(1080×2340·0.5)로 C0 와 B_final, 정지 4 장 PNG — 100 % 크롭 대조판. 서울 10/16·수원 10/26 은 사용자의 새 캡처 QR 로 그때 더함.
 ### 4.6 시간 예산(연기 시험 실측 — SwiftShader 4 CPU: F-dev 80 프레임 ≈ 70 s · F-std 해 20° ≈ 180 s · 비용 16 프레임 16 s · 기준 ≈ 45 s/프레임; 탐침 P1 이 다시 잼)
 | 단계 | 내용 | 시간 |
 |---|---|---|
-| calibrate | 개발 탐침(P1~P8) | ≈ 4.3~5.2 h |
+| calibrate | 개발 탐침(P1~P8, 기준 3) | ≈ 4.3 h(ss 2) / 5.2 h(ss 4) |
 | g0 | 두 번들 × (상태 61 + 캡처 4) | ≈ 0.2 h |
-| c0 | C0 held-out·H-dev·가드·비용 + C0 기준 69 | ≈ 14.4 h(ss 2) / 35.7 h(ss 4) |
-| 팔 하나 | held-out 183 + H-dev 4 + 가드·비용·상태 | ≈ 5.3 h |
-| R1 · R2 · R3 · R4 · R5 | 3 · 4(E2c 포함) · 3 · 1 · 2 팔 | 16.5 · 22.0 · 15.8 · 5.3 · 10.5 h |
+| c0 | C0 held-out·H-dev·가드·비용·상태 + C0 기준 69 | ≈ 14.4 h(ss 2) / 35.7 h(ss 4) |
+| 팔 하나 | held-out 183(4.8 h) + H-dev 4 + 가드·비용·상태 | ≈ 5.4 h |
+| R1 · R2 · R3 · R4 · R5 | 3 · 4(E2c 포함) · 3 · 1 · 2 팔 | 16.5 · 22.0 · 16.5 · 5.3 · 11.0 h |
 | 보고 기준 | 27 | ≈ 3.5 h(ss 2) / 11.8 h(ss 4) |
-| final | B_final 한 팔 + Q 46 | ≈ 6 h |
-| eye | 6 | ≈ 0.4 h |
-| **합** | 전체 잡 목록 | **≈ 100 h(ss 2) · ≈ 130 h(ss 4)** |
+| final | B_final 한 팔 + Q 46 | ≈ 6.5 h |
+| eye | 6 | ≈ 0.3 h |
+| **합** | 전체 잡 목록(재시도·B_k 다시 그리기 빼고) | **≈ 98 h(ss 2) · ≈ 128 h(ss 4)** |
 - 덩어리 60 분(`run-grain.js --max-min 60`, 이어 그리기), 덩어리마다 대기 표 생성 ≈ 100 s. `.harness/volsky` 의 다른 하네스와 동시에 돌리지 않음(eval-grain.sh 가 막음).
 
 ## 5. 규칙
@@ -191,7 +193,7 @@ S4_1021_sw(§140) · tw1734 · tw1746 을 기기 전체 틀(1080×2340·0.5)로 
 ### 5.2 단위 분류(B = 그 라운드의 기준)
 - 표시 보조(나빠지지 않음): F-dev·H-dev 는 tCSF(E4 제외) + eCSFdev(기준 유효) + eCSF(σs 주이고 기준 유효), F-std 는 ln tStd(E4 제외).
 - **바닥**: F-dev·H-dev 에서 B 의 max(tCSF, eCSFdev) < 1.0 부호 → 개선 셈 밖, 악화는 (주 또는 표시 보조가 악화 조건) 그리고 E ≥ 1.5 부호일 때만.
-- **개선** = 주 비 ≤ r_i 그리고 90 % CI 상한 < 1 그리고 표시 보조 비 모두 ≤ 1.10. **악화** = 주 또는 표시 보조 중 하나가 비 ≥ r_w 그리고 CI 하한 > 1 그리고 절대 증가 ≥ δ(σs 0.003 · 부호 0.25 · ln 0.003). 그 밖 **동률**.
+- CI = 블록 부트스트랩과 A/A 바닥 중 넓은 쪽(§2.2). **개선** = 주 비 ≤ r_i 그리고 90 % CI 상한 < 1 그리고 표시 보조 비 모두 ≤ 1.10. **악화** = 주 또는 표시 보조 중 하나가 비 ≥ r_w 그리고 CI 하한 > 1 그리고 절대 증가 ≥ δ(σs 0.003 · 부호 0.25 · ln 0.003). 그 밖 **동률**.
 - 문턱 세 벌: 기본 (0.80, 1.10) · 넓게 (0.85, 1.15) · 좁게 (0.70, 1.05).
 ### 5.3 후보 판정
 **주장 K**(렌더 전 고정, 물리에서): K(E1) = 첫 적중 직전 증분(§7.1, 틀 가운데 고도) ≥ 100 m 인 장면·틀 · K(E2) = 해 ≥ 3° 이고 {cu35, sc25, sc85, ac60, ci60}(L·H) · K(E3)·K(E5) = {cu35, sc25, sc85, ac60} 전부(L·T·T4·H) · K(E4) = F-dev 전부(eCSF 단위).
@@ -281,20 +283,20 @@ S4_1021_sw(§140) · tw1734 · tw1746 을 기기 전체 틀(1080×2340·0.5)로 
 ### 8.3 보정 탐침(동결 뒤·판정 렌더 전, 개발 집합만 — `eval-grain.sh calibrate` → `calib-grain.json` → §11)
 | 탐침 | 무엇 | 미리 정한 결과 |
 |---|---|---|
-| P8 A/A | C0 씨앗 12345 대 777·4242(F-dev 9 + F-std 18 단위) | 블록 사다리 4/16 → 8/32 → 16/64 중 CI 제외 ≤ 15 % 인 첫 크기; A/A 판정 '통과 아님'·악화 ≤ 10 %(아니면 판정 전에 사용자에게); A/A ln 비 sd 를 마스크 크기별로 기록; G5 허용폭(95 분위)·G6 뒤집힘 비율 |
+| P8 A/A | C0 씨앗 12345 대 777·4242(F-dev 9 + F-std 18 단위) | 블록 사다리 4/16 → 8/32 → 16/64 중 σs 부트스트랩 CI 제외 ≤ 15 % 인 첫 크기(없으면 4/16 + 알림); 지표·마스크 등급별 A/A ln 비 sd(aaSd, 등급당 ≥ 5) → 모든 CI 바닥; 바닥 뒤 CI 제외율 기록(> 15 % 면 알림); A/A 판정 '통과 아님'·악화 ≤ 10 %(아니면 판정 전에 사용자에게); G5 허용폭(95 분위)·G6 뒤집힘 비율 |
 | P0n | 같은 씨앗을 다른 페이지(P8B) | 지표 비 \|m1/m2 − 1\| 95 분위 < 0.05 → B_k 재사용, 아니면 다시 그림 |
 | P1 | sc25 e3 F-dev 캡처·기준 2 프레임 시간 | 기준 한 벌(69 + 보고 9) × 32 프레임 추정 ≤ 24 h → ss 4, 넘으면 ss 2 |
 | P2 | cu35 e5 s 기준 10 m 대 5 m, 점 표본 | diff(10, 5) > 0.25·eCSF(C0) → 5 m(16000 반복); 앨리어싱 몫 A·eBiasMean(C0) 기록 |
 | P3 | 같은 F-std 잡을 페이지 맨 앞과 해 ≥ 12° 잡 넷 뒤 | 화소 허용폭 안 → 데움 16, 아니면 64 |
 | P4 | D-dev 3 단위 가운데 ↔ F-dev(I·R × σs·tCSF) | 비 모두 [0.8, 1.25]·중앙 [0.9, 1.11] → F-dev 를 기기 대리로; 아니면 판정 전에 사용자에게(L 을 방위 s 하나·기기 틀로 바꾸는 대안) |
-| P7·포화 | 비용 변형 C0 상식(z ≈ 6×빛 받은 표본) · 해 쪽 단위의 빨강 잘림·포화 비율 | 기록 |
+| P7·포화 | 비용 변형 C0 값(x·y·z·capFrac) · 해 쪽 단위의 빨강 잘림·포화 비율 | 기록 |
 - 사용자 기기 값(§3.3)을 받으면: cap_cum = min(1.40, 0.9·50/frameMs_C0), resScale ≠ 0.5 또는 높이 10 % 넘게 다르면 `--device-h`·`--device-res` 로 F-dev 시야를 다시 셈(피치 변경이지 규칙 변경 아님) — 둘 다 §11 에 적고 R1 전에.
 ### 8.4 판정 코드(`grain.py`, `eval-grain.sh`)
 - `grain.py`: `--photos`(→ grain-photo-quartiles.json) · `--select … --order unit` · `--cap DIR`(잡마다 기록 지표) · `--calibrate` · `--g0 --a --b` · `--ext`(G0e·G3·G4·G9) · `--gate`(§5·§6 → gate-R{k}-{팔}.json) · `--adopt`(→ adopt-R{k}.json, 손으로 안 고침) · `--stop` · `--confirm`(Q).
-- `eval-grain.sh build | test | calibrate | g0 OLD | c0 | round K | refreport K | final | eye`. 라운드 잡은 동결 생성기에 `--adopt adopt-R{k−1}.json`(+ 보정 인자)으로 만듦.
+- `eval-grain.sh build | test | calibrate | g0 OLD | c0 | round K | refreport K | final [ADOPT [--drop-last | --add 팔]] | eye`. 라운드 잡은 동결 생성기에 `--adopt adopt-R{k−1}.json`(+ 보정 인자)으로 만듦. R6 재시도(마지막 채택 빼기·비용 보류 더하기)의 채택 파일도 `grain.py --adopt --final --drop-last|--add` 가 만듦(손으로 안 고침).
 
 ## 9. 알려진 한계
-- 하네스 ≠ 기기: 지형(DEM)·바람 흐름·조절기·합성기 마지막 Catmull-Rom 확대·출력 디더(±0.5 부호)가 없음(잡음 제거는 같은 글자), 기기는 `macro: volumetricMacro ?? 1` 로 돌고 하네스 grain 잡은 앱 기본(macro 0) — 이 장면들은 고리 자료가 없어 무관. SwiftShader 부동소수·비결정성(§1.5). 시야 60° 만(사용자는 20~120° 로 바꿀 수 있음).
+- 하네스 ≠ 기기: 지형(DEM)·바람 흐름·조절기·합성기 마지막 Catmull-Rom 확대·출력 디더(±0.5 부호)가 없음(잡음 제거는 같은 글자), 기기는 `macro: volumetricMacro ?? 1` 로 돌고 하네스 grain 잡은 앱 기본(macro 0) — 이 장면들은 고리 자료가 없어 무관; 하네스 기본 genus true·flowCamCell true 는 앱 기본(false)과 다르나 하늘 화면도 종류 모형을 켜고 흐름이 꺼져 있어 무관. SwiftShader 부동소수·비결정성(§1.5). 시야 60° 만(사용자는 20~120° 로 바꿀 수 있음).
 - F-dev 창은 해 12° 미만에서만 기기 등가(그림자 단계 맞춤이 시야에 걸림) — 그래서 H 는 F-std + H-dev 4 잡.
 - 기준은 같은 렌더러의 수렴값(같은 밉·끝내기 규칙)이지 실제 하늘이 아님. minTransmittance 0.1·알파 remap 의 계통 오차는 이 자가 보지 않음. 기준은 mean(tone) 이지 tone(mean) 이 아님(§1.5).
 - 잡음 실현은 noiseSeed 로 바꿀 수 있지만 판정은 씨앗 12345 하나(A/A 로 실현 사이 변동의 크기만 잼). 기기는 frame 이 계속 오름.
@@ -305,10 +307,28 @@ S4_1021_sw(§140) · tw1734 · tw1746 을 기기 전체 틀(1080×2340·0.5)로 
 - §7 의 수치는 코드 읽기·근사 계산이며 렌더로 확인되지 않음. 연기 시험 값(§11.0)은 개발 장면 하나의 도구 점검.
 
 ## 10. 동결 목록·해시 (2026-10-28, 상태: **동결(렌더 전)**)
-(이 문서 커밋에서 계산 — 아래 표는 동결 커밋 직전 sha256)
+이 문서는 동결 커밋 자체로 고정(그 커밋 뒤 §11·§12 에 덧붙이기만). 아래는 동결 커밋 직전 sha256.
+- `grain/grain.py` 0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a
+- `grain/grain-test.py` 41cfff416a16c1dc33655fcccccc70ba433d6ca1d3ccd7bfeeef67b89c6b4b11 · 결과 `grain/grain-test.json` 9c72a0b7ce788c8e731d5d3ee1c682e356d4a38ee93a266d0696eee1ead59be6(57 통과·0 실패, grain.py 0bc75131…)
+- `grain/capture-test.mjs` 2ea94c48bc79e17b7257906f4c07c9d5d569c27cc7dde2a44a3b0f1d7514ac0e(57 통과·0 실패: Bayer 표 = takram bayer.ts·cloudsResolve.frag·CloudsMaterial 오프셋, 반정밀도, 흩기, 백색 잡음 LCG = 앱, 층화 오프셋, skyDenoise·캣멀롬 GLSL 사본 = SceneComposer 글자, 비용 앵커 6 개가 takram 원문에, 재포장 균일변수 11 개, JOB_BASE_OPTIONS ⊆ 앱 기본, grain 갈래가 job.grain 으로만)
+- `grain/capture.ts` 2f2ce521effc83aa68d31eccd273a4c075425ebd9efa7e03d2aa19db1725aa3e · `grain/capture-core.ts` 906465d693c98f47d4aed50c7a9a0afdf2a108e7ee0c28a73e3a7068081529bd · `grain/run-grain.js` bce938de86048be95578812d58add9362c067a1be6559f5b3ca8947e27c23ebe · `volsky/entry.ts` 6c055aa0b6fe13ca1127e6bda56990c02cd5496adba932f88eef90b8cec656f6
+- `grain/make-jobs-grain.mjs` 50411f60ad999fe348626bf1a6f75517283f4e44d6cb9e8fac58be3ef1324eed → 기본 인자 출력 `grain/jobs-grain.json` ce9a07b5fc024f9c78c0988ea8d9c6f6bd3d5de0c716eeece3c84b66a8b7ddcc(3472 잡: heldout 2562 · hdev 52 · guard 28 · cost 504 · state 14 · confirm 23 · ref 69 · refReport 27 · probe 89 · probeB 27 · probe3 6 · probeDev 3 · g0state 61 · g0cap 4 · eye 3) · `grain/scenes-grain.json` fdbe7b9097dc5e787d22dd76e7ea6a980637153849807d7ed22f6a7d5a6c5fc3(장면·묶음·P·K·§7.1 표·예산). 라운드 R2~R6·보정 인자 잡 목록은 같은 생성기에 grain.py 가 쓴 adopt/calib 파일을 넣어 만듦(손으로 안 고침).
+- `grain/eval-grain.sh` 4d54c9ca63fcd52fcbb77564b5254cfa26815a9d24dd8ccbb1677a7e200c5cb8
+- `grain/grain-photo-quartiles.json` 6a5cf8b1be24a1b1133471af0d9aa341bebb65183aa480bd3b8f5d830a99e953(grain.py 0bc75131…·fm 021b2313…·phys2 5a54cc13… 를 안에 적음)
+- **측정 번들** `.harness/volsky-grain/app.js` f50991e0984b00ebc45f77df0055221d89eb5d293c27f35768a8e5870a56d0ee — 번들은 커밋하지 않고 sha256 + 빌드 명령 + 깨끗한 작업 트리의 커밋(이 동결 커밋)으로 고정: `npx esbuild tools/genus-ruler/volsky/entry.ts --bundle --format=esm --outfile=.harness/volsky-grain/app.js --define:__DEV__=false --define:process.env.EXPO_PUBLIC_VOLUMETRIC_SKY='"1"'`(esbuild 0.28.2, 같은 트리에서 두 번 묶어 같은 해시). 옛 번들(G0d 대조) `.harness/volsky-grain/base/app.js` ee8eb03118496c15a141ae80f30bac75d7fadcdd5e8387d9b298eec2ced3e71a = cd746eb 트리(`git archive`)를 같은 명령으로.
+- 환경: package-lock.json a17ffd54407eb864e840788b7d18615356fe1a23e0cbcf1f085cc3ec821b9683(three 0.185.1 · @takram/three-clouds 0.7.6 · @takram/three-atmosphere 0.19.1 · postprocessing 6.39.5 — 셰이더 앵커가 이 판에 걸림) · Chromium 141.0.7390.37(ANGLE SwiftShader, playwright) · node 22.22.0 · Python 3.11.15 · numpy 2.4.6 · Pillow 12.3.0 · scipy 1.17.1(grain-test T6) · onnxruntime 1.30.0 · tokenizers 0.23.2. 앱 `SceneComposer.ts` 32ef6b05db8a6fc5575f5e35a697d04899e62bffa34ad2b0f0e5b924358a3bba(잡음 제거 글자 원본).
+- 그대로 쓰는 것(고치지 않음): `flow/fm.py` 021b23130b8f4234ee781f9509c512ace4e4a4b9cef937d57dd15d4ff1b9be6a · `flow/phys2.py` 5a54cc13c1ea75a93e84ef72804abd312dc2879f3a268bbc363f71cfb0e7d8e7 · `flow/photo-flow-quartiles.json` a4d5df46aad859c650c0ffc6c69d270b527fd200fa00e1b3a7b965cdcfb5375e · `flow/phys2-photo-quartiles.json` f6a2d3832b79bc48f40baf274146117710f337dd3023df24a757fc3da23bb0ca · `flow/clip-labels.py` ed09256f53b39971f96238a63bf2280004dff6ea878f5da8b935d04d28febaa5 · `clip/judge2.py` a6437f72ff329f81b99548dbb60ece0f0b067ebe3af010ef9ffe06c36a8c05dc · CLIP 무게(커밋 안 됨) vision 9a658de8944a2001719beabf6c5030cfe7b3dc80e85983f69fc648d6b4d7ec0f · text 6d31c7a212681c3918d78193b6b4f98c70fe540577f9a0a57fe7ba8c7439244c · tokenizer 72ed5c96db5729294468543e4bc75fce14ca63f58e37300290189ba1c1e52b85 · `genus/twilight-hue.py` df1829bc386c1d2abe92ec5a27ac84884d83bbcac847e15ed143627fed620bc5 · `volsky/state-hash.js` 4915ff49ac60795b87d5448f3be1eb0750e7f814d80871e7301ef52936244cfe · `volsky/sun-azel.mjs` 9078b575e1a4ad4ab4dd6b0bd84cae795f7ab981e4bb33a2f067872a90eb96e4 · `shape/jobs-grain-low.json` 2987ac35551285c917a456b80e7a2e72445232e507b915ae301e504a1847e33b(눈 확인 S4 입력).
+- 나중에 이 절 아래(§11·§12)에 붙는 것: `calib-grain.json`·`g0-bundle.json`·손잡이 구현 커밋·손잡이 번들 sha256·`grain-shader-test.mjs` — 그리고 판정 출력(gate-·adopt-·stop-·confirm-·ext-*.json, eval-grain.sh 가 만듦, 손으로 안 고침).
+- **G0d 바이트 대조**(동결 전, 이 번들): grain 필드 없는 옛 잡 둘(scratchpad `grain/bytecheck/jobs-prior.json` = §137 P0_ac_5(high, ac 0.6, 해 49°) + §140 Aqlow_S4_1021_sw(low))을 옛 번들로 세 페이지·측정 번들로 두 페이지: **P0_ac_5 rgb 8caace9e6f701eaff9b6fd7f08857c86 · 알파 9d4e1f3127f4e73ec157302912d7cba7 — 다섯 번 모두 md5 같음**. Aqlow_S4_1021_sw 는 **옛 번들끼리도 다름**(SwiftShader 비결정성: 평균 \|Δ\| 0.00013~0.0018 단계, 최대 6~9, 32 단계 넘는 화소 0) — 측정 번들 대 옛 번들 평균 0.0015~0.0016, 최대 8, 0 화소 > 32 → 허용폭 안.
 
 ## 11. 보정 기록(동결 뒤·판정 렌더 전에 이 절에만 덧붙임)
-### 11.0 연기 시험(동결 전, 도구 점검 — 개발 장면 시드 4242, 판정·보정에 안 씀)
+### 11.0 연기 시험(동결 전, 도구 점검 — 개발 장면 시드 4242·오프셋 [7, −5], 판정·보정·문턱에 안 씀)
+- 캡처 cu35 e5 F-dev 방위 t: 80 프레임 70~112 s(첫 잡은 셰이더 컴파일 포함), sampCheck 3577/3577 비트 같음, captureOk. σs Int 0.146·Rim 0.638 · tCSF 0.64·1.07 부호 · ln tStd 0.0083·0.0114 · 빨강 잘림 0.176·세 채널 포화 0(→ 타당성 B2 확인). 방위 s: σs 0.138·0.587 · tCSF 1.77·2.97 부호 · eCSF(점 표본 2 프레임 기준 대비) 3.84·5.06 부호(refErr 0.20·0.12) · sparkFrac 0.003.
+- F-std cu35 e20 방위 t(그림자 지도 켬): 80 프레임 177 s, σs 0.163·0.445, ln tStd 0.016·0.023. H-dev 1080×2340 해 20°: 20 프레임 67 s(컴파일 포함).
+- 기준 cu35 e5 s: ss 2·n 8 에 400 s(≈ 50 s/프레임), 반쪽 차 상대 RMS 0.15 %, cf 0.76. 비용 변형: x 8.46·y 11.89·z 7.85·capFrac 0·fetch 28.2/텍셀(16 프레임 12~16 s).
+- 상태 잡: E1a.3·E1a.0·E2a.8·E2a.6·E5± 의 차이 필드가 G0_ALLOWED 안(§1); 손잡이 팔(E1b·E2b·E2c·E3·E3b·E3c·E4)은 "unknown option" 으로 throw.
+- 도구 결함을 이 시험에서 찾아 고침: 비용 변형 첫 앵커가 sampleMedia 두 오버로드에 다 맞음(→ 6 인자 시그니처로), 동기 읽기가 반정밀도 FBO 에서 UNSIGNED_BYTE 로 읽어 gl 1282(→ 기본 프레임 버퍼에서), 캔버스가 다른 잡이 있으면 실행기가 멈춤(→ 건너뜀).
+- 판정 코드 끝까지: 위 잡을 이름만 바꿔 B = E 로 `--cap`·`--ext`·`--gate`·`--stop` 이 오류 없이 돎(단위 6, 장면 1 → '평가 불가(장면)', G0 통과, G3·G4·G9 '미평가' → 채택 안 함).
 ### 11.1 보정 결과(`calib-grain.json`) — 비어 있음
 
 ## 12. 손잡이 번들 기록(구현 뒤·판정 렌더 전에 이 절에만 덧붙임) — 비어 있음

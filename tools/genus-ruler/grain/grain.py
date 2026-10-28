@@ -931,7 +931,7 @@ def claims_union(S, arms):
 def run_confirm(a, S, calib):
     """확인 집합 Q(§5.5, 검토 통계 #7): R6 에서 한 번 — C0 대 B_final, F-dev·방위 s·새 시드, σs 주 + tCSF 나빠지지 않음, K = 채택 팔들의 K 합집합."""
     adopted = [x['arm'] for x in json.load(open(a['adopt_in']))['adopted']] if a.get('adopt_in') else []
-    units = collect_units(S, a['renders'], a['base'], a['cand'], None, 'sig', tag='Q', frames=('dev',), azs=('s',))
+    units = apply_aa_floor(collect_units(S, a['renders'], a['base'], a['cand'], None, 'sig', tag='Q', frames=('dev',), azs=('s',)), (calib or {}).get('aaSd'))
     v = verdict_for(units, S, a['cand'], 'sig', claims_override=claims_union(S, adopted), nmin=NMIN_Q)
     doc = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'set': 'confirm', 'base': a['base'], 'cand': a['cand'], 'adopted': adopted,
            'verdict': v['verdict'], 'detail': {k: v[k] for k in v if k != 'classesNominal'}, 'units': units, 'calibrated': calib is not None}
@@ -952,7 +952,7 @@ def run_gate(a):
     adopted = [x['arm'] for x in json.load(open(a['adopt_in']))['adopted']] if a.get('adopt_in') else []
     # R6 결합(Bfinal 대 C0): K = 채택 팔들의 K 합집합; E4 가 채택돼 지터 생성기가 다르면 eCSF 로(검토 통계 #8)
     primary = ('ecsf' if any(x in JITTER_ARMS for x in adopted) else 'sig') if arm == 'Bfinal' else arm_primary(arm)
-    units = collect_units(S, a['renders'], base, arm, a.get('ref'), primary)
+    units = apply_aa_floor(collect_units(S, a['renders'], base, arm, a.get('ref'), primary), (calib or {}).get('aaSd'))
     v = verdict_for(units, S, arm, primary, claims_override=claims_union(S, adopted) if arm == 'Bfinal' else None)
     gd = guards(S, a['renders'], base, arm, a.get('ref'), calib, primary, units, ext)
     # 누적 비용(§5.5): C0 대비
@@ -1047,6 +1047,9 @@ def run_ext(a):
     if sb is not None and se is not None:
         d = state_diff(sb.meta['stateHash'], se.meta['stateHash'])
         allowed = G0_ALLOWED.get(cand, set())
+        if cand == 'Bfinal' and a.get('adopt_in'):   # R6: 채택 팔들의 필드 합집합
+            for x in json.load(open(a['adopt_in']))['adopted']:
+                allowed = allowed | G0_ALLOWED.get(x['arm'], set())
         # 앞 라운드 채택이 B 에 이미 있으면 B·E 둘 다 그 필드가 같음 — 차이는 이 팔의 델타만
         g0['stateDiff'] = sorted(d); g0['allowed'] = sorted(allowed)
         g0['pass'] = bool(d) and d <= allowed
@@ -1152,7 +1155,13 @@ def run_adopt(a):
     nxt = []
     if any(g['cand'] == 'E2a.8' and g.get('status') == '비용 보류' for g in gates):
         nxt.append('E2c')
-    doc = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'round': int(a['round']), 'adopted': prev['adopted'] + ([{'arm': pick, 'round': int(a['round'])}] if pick else []),
+    adopted = prev['adopted'] + ([{'arm': pick, 'round': int(a['round'])}] if pick else [])
+    # R6 재시도(§5.6): 결합이 실패하면 마지막 채택을 뺀 파일(--drop-last), 비용 보류 후보를 더한 파일(--add ARM) — 손으로 쓰지 않음
+    if a.get('drop_last') and adopted:
+        adopted = adopted[:-1]
+    if a.get('add'):
+        adopted = adopted + [{'arm': a['add'], 'round': 6, 'costHold': True}]
+    doc = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'round': int(a['round']), 'adopted': adopted,
            'costHold': prev.get('costHold', []) + hold, 'conditionalNext': nxt, 'gates': [{'cand': g['cand'], 'status': g['status'], 'verdict': g['verdict']} for g in gates],
            'final': bool(a.get('final'))}
     json.dump(doc, open(a['out'], 'w'), indent=1)
@@ -1239,7 +1248,49 @@ def aa_gate(units):
     return out
 
 
-def ci_excl(units, mets=('sig', 'tcsf')):
+Z90 = 1.6448536269514722
+AA_METS = ('sig', 'tcsf', 'tstd', 'ecsf', 'ecsfDev')
+
+
+def aa_class(u, met):
+    """A/A sd 를 묶는 마스크 크기 등급(σs 는 텍셀 수, 표시 지표는 화소 수/4)."""
+    return met + ':' + mask_class(u['nTex'] if met == 'sig' else u['nPx'] // 4)
+
+
+def apply_aa_floor(units, aasd):
+    """CI = 블록 부트스트랩과 A/A 보정 정규 CI(ln r ± 1.645·sd_AA(등급)) 중 넓은 쪽(검토 통계 #1d — 표시 지표는 CSF 거른 장이 블록보다
+    넓게 상관돼 부트스트랩이 좁음: 합성 A/A 에서 tCSF 16 화소 블록 CI 제외 25 %). sd_AA 가 없는 등급은 그대로."""
+    if not aasd:
+        return units
+    for u in units:
+        for m in AA_METS:
+            x = u.get(m)
+            if not isinstance(x, dict) or not isnum(x.get('r')) or x['r'] <= 0:
+                continue
+            sd = (aasd.get(aa_class(u, m)) or {}).get('sd')
+            if not isnum(sd):
+                continue
+            lr = math.log(x['r'])
+            half = Z90 * sd
+            lo = min(x['lo'], math.exp(lr - half)) if isnum(x.get('lo')) else math.exp(lr - half)
+            hi = max(x['hi'], math.exp(lr + half)) if isnum(x.get('hi')) else math.exp(lr + half)
+            x['loBoot'], x['hiBoot'] = x.get('lo'), x.get('hi')
+            x['lo'], x['hi'] = lo, hi
+    return units
+
+
+def aa_sd(units):
+    lnr = {}
+    for u in units:
+        if u['invalid']:
+            continue
+        for met in AA_METS:
+            if met in u and isnum(u[met]['r']) and u[met]['r'] > 0:
+                lnr.setdefault(aa_class(u, met), []).append(math.log(u[met]['r']))
+    return {k: {'n': len(v), 'sd': float(np.std(v, ddof=1)) if len(v) >= 5 else float('nan')} for k, v in lnr.items()}
+
+
+def ci_excl(units, mets=('sig',)):
     ex = []
     for u in units:
         if u['invalid']:
@@ -1256,33 +1307,29 @@ def run_calibrate(a):
     root = a['renders']
     out = {'ruler': 'RULER-grain', 'grainSha256': grain_sha256(), 'date': datetime.date.today().isoformat()}
     J = lambda name: (Job(os.path.join(root, name)) if os.path.exists(os.path.join(root, name, 'meta.json')) else None)
-    # P8 A/A: 블록 사다리 — CI 가 1 을 빼는 비율 ≤ 15 % 인 첫 크기
+    # P8 A/A: (1) 블록 사다리 — 주 지표 σs 의 부트스트랩 CI 가 1 을 빼는 비율 ≤ 15 % 인 첫 크기,
+    #         (2) 그 크기에서 지표·마스크 등급별 A/A ln 비 sd → 모든 CI 에 바닥(apply_aa_floor), (3) 바닥 뒤 CI 제외율·A/A 판정
     chosen = None
     for bt, bp in BLK_LADDER:
         set_blocks(bt, bp)
         U = aa_units(root, 'n777') + aa_units(root, 'n4242')
         if not U:
             break
-        exr, nex = ci_excl(U)
-        rec = {'blkTex': bt, 'blkPx': bp, 'ciExcludeShare': exr, 'nCells': nex, 'aaGate777': aa_gate([u for u in U if u['E'].info['tag'] == 'P8n777']),
-               'aaGate4242': aa_gate([u for u in U if u['E'].info['tag'] == 'P8n4242'])}
+        rec = {'blkTex': bt, 'blkPx': bp, 'ciExcludeBoot': {m: ci_excl(U, (m,))[0] for m in ('sig', 'tcsf', 'tstd')}}
         out.setdefault('blockLadder', []).append(rec)
-        if isnum(exr) and exr <= CI_EXCL_MAX:
+        if isnum(rec['ciExcludeBoot']['sig']) and rec['ciExcludeBoot']['sig'] <= CI_EXCL_MAX:
             chosen = rec; break
     if chosen is None and out.get('blockLadder'):
-        chosen = out['blockLadder'][-1]; out['blockNote'] = '사다리 끝까지 CI 제외 > 15 % — 마지막 크기로, 판정 전 사용자에게 알림'
+        chosen = out['blockLadder'][0]; out['blockNote'] = '사다리 어디서도 σs CI 제외 ≤ 15 % 가 아님 — 첫 크기 + A/A 바닥으로, 판정 전 사용자에게 알림'
     if chosen:
         out['blk'] = [chosen['blkTex'], chosen['blkPx']]; set_blocks(*out['blk'])
-        out['aaGate'] = {'n777': chosen['aaGate777'], 'n4242': chosen['aaGate4242'], 'pass': chosen['aaGate777']['pass'] and chosen['aaGate4242']['pass']}
         U = aa_units(root, 'n777') + aa_units(root, 'n4242')
-        lnr = {}
-        for u in U:
-            if u['invalid']:
-                continue
-            for met, n in (('sig', u['nTex']), ('tcsf', u['nPx'] // 4), ('tstd', u['nPx'] // 4)):
-                if met in u and isnum(u[met]['r']) and u[met]['r'] > 0:
-                    lnr.setdefault(met + ':' + mask_class(n), []).append(math.log(u[met]['r']))
-        out['aaSd'] = {k: {'n': len(v), 'sd': float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')} for k, v in lnr.items()}
+        out['aaSd'] = aa_sd(U)
+        apply_aa_floor(U, out['aaSd'])
+        out['ciExcludeFloored'] = {m: ci_excl(U, (m,))[0] for m in ('sig', 'tcsf', 'tstd')}
+        out['ciOk'] = all((not isnum(v)) or v <= CI_EXCL_MAX for v in out['ciExcludeFloored'].values())
+        g7, g4 = aa_gate([u for u in U if u['E'].info['tag'] == 'P8n777']), aa_gate([u for u in U if u['E'].info['tag'] == 'P8n4242'])
+        out['aaGate'] = {'n777': g7, 'n4242': g4, 'pass': g7['pass'] and g4['pass']}
         # G5 허용폭(창 평균, F-std): |ln 비| 의 95 분위(darkFrac 은 |Δ|) · G6 점수 뒤집힘 비율
         g5d = {k: [] for k in G5_KEYS}; flips = {t: [] for t in TSETS}
         Qp = json.load(open(os.path.join(HERE, 'grain-photo-quartiles.json')))['g6'] if os.path.exists(os.path.join(HERE, 'grain-photo-quartiles.json')) else {}
@@ -1483,8 +1530,8 @@ def parse_args(argv):
     i = 0
     while i < len(argv):
         k = argv[i]
-        if k in ('--photos', '--gate', '--adopt', '--stop', '--calibrate', '--final', '--ext', '--confirm'):
-            a[k[2:]] = True; i += 1
+        if k in ('--photos', '--gate', '--adopt', '--stop', '--calibrate', '--final', '--ext', '--confirm', '--drop-last'):
+            a[k[2:].replace('-', '_')] = True; i += 1
         elif k == '--select':
             a['select'] = True; a['jobs'] = argv[i + 1]; i += 2
         elif k == '--cap':

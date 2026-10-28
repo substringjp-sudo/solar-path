@@ -9,6 +9,7 @@ grain-test.py — RULER-grain 판정 코드(grain.py)의 합성 시험(렌더 �
   T10 A/A 귀무(블록 부트스트랩 CI 포함률·오분류율)   T11 검정력(σ 반감)   T12 분류 표   T13 분모·장면 묶음·부호 검정
   T14 T_band(정지 짝 곱) 잡음 불편·흐림 검출   T15 sparkFrac   T16 CSF 필터   T17 E4 지터 인공물(golden)
   T18 화소 고도   T19 eCSF 기준 잡음 빼기   T20 G0 상태 차이   T21 부트스트랩 결정성   T22 끝까지(합성 잡 폴더 → 판정)
+  T23 보정 끝까지(합성 A/A → 블록·P0n·허용폭)   T24 확인 집합 Q
 """
 import sys, os, json, math, tempfile, shutil
 import numpy as np
@@ -63,6 +64,11 @@ def write_job(root, name, mu_tex, alpha_tex, sigma, seed, el=9.0, fov=16.399, st
         for k in range(4):
             Lk[k].astype('<f2').tofile(os.path.join(d, 'still%d.Ld.f16' % k))
             Lk[k].astype('<f2').tofile(os.path.join(d, 'still%d.Lr.f16' % k))
+    from PIL import Image
+    g8 = lambda x: np.round(255 * G.srgb_enc(x)).astype(np.uint8)
+    mL = Lk.mean(0); ua = up(alpha_tex)
+    Image.fromarray(np.stack([g8(mL)] * 3, -1)).save(os.path.join(d, 'mean.png'))
+    Image.fromarray(np.round(255 * np.clip(ua, 0, 1)).astype(np.uint8)).save(os.path.join(d, 'mean.alpha.png'))
     meta = {'name': name, 'mode': 'capture', 'W': W, 'H': H, 'canvasCropRows': [0, H], 'cloudGrid': {'cw': cw, 'ch': ch, 'lw': -(-cw // 4), 'lh': -(-ch // 4), 'cropRows': [0, ch]},
             'captureOk': True, 'input': {'el': el, 'fov': fov}, 'grain': {'mode': 'capture'}}
     meta.update(extra or {})
@@ -268,6 +274,10 @@ def run_all(rng, tmp, jobs_f, scenes_f):
     check('T21 bootstrap deterministic per unit key', r_a == r_b)
     # T22 끝까지: 8 장면 × 3 방위, E = σ 반감 → 통과; A/A → 통과 아님
     t22(check, tmp)
+    # T23 보정(--calibrate) 끝까지: 합성 개발 집합(P8A·P8n777·P8n4242·P8B) → 블록 사다리·A/A 판정·P0n·G5 허용폭
+    t23(check, tmp)
+    # T24 확인 집합 Q(--confirm): 12 장면 방위 s, B_final σ 반감 → 확인 통과
+    t24(check, tmp)
 
 
 def clip_model(rng):
@@ -411,6 +421,47 @@ def t22(check, tmp):
     s = v['sets']['nominal']
     check('T22 end-to-end: σ halved on every unit → 통과', v['verdict'] == '통과', verdict=v['verdict'], V=s['V'], impK=s['impK'], VimpK=s['VimpK'], cluster=v['cluster'])
     check('T22 end-to-end: A/A (same σ, new noise) → not 통과', v0['verdict'] not in ('통과', '불확정(효과 문턱)'), verdict=v0['verdict'], worse=v0['sets']['nominal']['worse'])
+
+
+def t23(check, tmp):
+    root = os.path.join(tmp, 'cal'); os.makedirs(root)
+    k = 0
+    for layer in ('cu35', 'sc85', 'ac60'):
+        for time, frames in (('e5', ('dev', 'std')), ('e20', ('std',))):
+            for frame in frames:
+                for az in ('t', 's', 'a'):
+                    mu, a = cloud_field(np.random.default_rng(700 + k), cover=0.7); k += 1
+                    for tag, seed in (('P8A', 1), ('P8B', 1), ('P8n777', 2), ('P8n4242', 3)):
+                        write_job(root, G.job_name('C0', layer + '_' + time, az, frame, tag), mu, a, 0.05, 10000 * seed + k, el=(9 if frame == 'dev' else 20), fov=(16.399 if frame == 'dev' else 60))
+    out = os.path.join(tmp, 'calib.json')
+    G.run_calibrate({'renders': root, 'out': out})
+    c = json.load(open(out))
+    G.set_blocks(4, 16)
+    check('T23 calibrate: σs block 4×4 accepted; after A/A floor every metric CI-excl ≤ 15 %; A/A gate not passing (pass=True means no false pass)',
+          c.get('blk') == [4, 16] and c['ciOk'] is True and c['aaGate']['pass'] is True,
+          blk=c.get('blk'), boot=c['blockLadder'][0]['ciExcludeBoot'], floored=c['ciExcludeFloored'], aa=c['aaGate']['pass'])
+    check('T23 calibrate: P0n identical replay → B_k reuse allowed', c['bkReuse'] is True and all(v['p95'] == 0 for v in c['p0n'].values()), p0n=c['p0n'])
+    check('T23 calibrate: G5 tolerances from A/A (5 metrics) and aaSd recorded', len(c['g5Tol']) >= 4 and len(c['aaSd']) >= 2, g5Tol=c['g5Tol'])
+
+
+def t24(check, tmp):
+    root = os.path.join(tmp, 'q'); os.makedirs(root)
+    layers = ['cu35', 'sc25', 'sc85', 'ac60', 'ci60']
+    scenes, claims = {}, {}
+    for i in range(12):
+        key = '%s_q%d' % (layers[i % 5], i)
+        scenes[key] = {'layer': layers[i % 5], 'time': 'q%d' % i, 'bundle': 'L', 'product': True, 'sunEl': 5.0, 'photoGenus': 'Cu', 'record': False}
+        claims[key] = {'dev': True, 'std': False, 'hdev': False}
+        mu, a = cloud_field(np.random.default_rng(800 + i), cover=0.75)
+        write_job(root, G.job_name('C0', key, 's', 'dev', 'Q'), mu, a, 0.06, 1)
+        write_job(root, G.job_name('Bfinal', key, 's', 'dev', 'Q'), mu, a, 0.03, 2)
+    S = {'scenes': scenes, 'claims': {'E2': claims}}
+    sf = os.path.join(tmp, 'qs.json'); json.dump(S, open(sf, 'w'))
+    af = os.path.join(tmp, 'qa.json'); json.dump({'adopted': [{'arm': 'E2a.8', 'round': 2}]}, open(af, 'w'))
+    of = os.path.join(tmp, 'qo.json')
+    G.run_gate({'scenes': sf, 'renders': root, 'base': 'C0', 'cand': 'Bfinal', 'adopt_in': af, 'confirm': True, 'out': of})
+    d = json.load(open(of))
+    check('T24 confirm set Q: σ halved → 확인 통과', d['status'] == '확인 통과(채택)', verdict=d['verdict'], n=len(d['units']))
 
 
 if __name__ == '__main__':

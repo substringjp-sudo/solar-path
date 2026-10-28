@@ -1,0 +1,351 @@
+{
+ "grainSha256": "0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a",
+ "passed": 57,
+ "failed": 0,
+ "results": [
+  {
+   "test": "T1 name round trip",
+   "pass": true,
+   "name": "E1b__cu35_e5__s__dev__ref"
+  },
+  {
+   "test": "T1 every job name parses to its fields",
+   "pass": true,
+   "n": 3472,
+   "bad": []
+  },
+  {
+   "test": "T1 held-out scenes in scene table",
+   "pass": true,
+   "missing": []
+  },
+  {
+   "test": "T1 F-dev vfov = device centre pitch",
+   "pass": true,
+   "fov": 16.399
+  },
+  {
+   "test": "T1 job names unique",
+   "pass": true,
+   "dup": 0
+  },
+  {
+   "test": "T1 reference jobs: upscale off, temporalAlpha 1, n = 2\u00b7ss\u00b2k",
+   "pass": true,
+   "n": 100
+  },
+  {
+   "test": "T1 no job overrides a repacked layer uniform",
+   "pass": true,
+   "nRepacked": 11,
+   "bad": []
+  },
+  {
+   "test": "T2 sigma_samp \u2248 \u03c3 (\u03c3=0.01)",
+   "pass": true,
+   "ratio": 0.9914529733595129
+  },
+  {
+   "test": "T2 sigma_samp \u2248 \u03c3 (\u03c3=0.05)",
+   "pass": true,
+   "ratio": 0.9913871497297972
+  },
+  {
+   "test": "T2 sigma_samp \u2248 \u03c3 (\u03c3=0.2)",
+   "pass": true,
+   "ratio": 0.9879101317314509
+  },
+  {
+   "test": "T3 ramp without noise: \u03c3s = 0, tCSF = 0",
+   "pass": true,
+   "sig": 0.0,
+   "tcsf": 0.0
+  },
+  {
+   "test": "T3 \u03c3s on ramp = \u03c3s on flat (same noise)",
+   "pass": true
+  },
+  {
+   "test": "T3 T_band band-pass of a linear ramp \u2248 0 (interior)",
+   "pass": true,
+   "maxAbs": 3.353761712787673e-12
+  },
+  {
+   "test": "T4 \u03c3s invariant to exposure \u00d71.7",
+   "pass": true,
+   "ratio": 1.000006627240451
+  },
+  {
+   "test": "T4 paired \u03c3s ratio invariant to common exposure",
+   "pass": true,
+   "r1": 0.5007313690584643,
+   "r2": 0.5007334962245281
+  },
+  {
+   "test": "T5 tStd/\u03c3 = 0.873 under hold model",
+   "pass": true,
+   "ratio": 0.8742159360202086
+  },
+  {
+   "test": "T6 clip model compresses display tStd (flat \u2248 0.46, textured 0.50\u20130.9; hold model 0.867)",
+   "pass": true,
+   "flat": 0.4582638058888507,
+   "fbm_0.02": 0.9903946048277302,
+   "fbm_0.05": 0.750952567640908,
+   "fbm_0.1": 0.6291521455577745,
+   "fbm_0.2": 0.526582964097188,
+   "sig_samp": 0.9994399261223571
+  },
+  {
+   "test": "T6 \u2192 a true \u03c3 ratio of 0.5 (0.2 \u2192 0.1, textured) reads > 0.5 on display tStd (ratios pulled toward 1)",
+   "pass": true,
+   "displayRatio": 0.597391283476516
+  },
+  {
+   "test": "T6 \u03c3s (pre-resolve) uncompressed by construction",
+   "pass": true,
+   "sig": 0.9994399261223571
+  },
+  {
+   "test": "T7 pure noise: smoothed drift < 0.5\u00b7tStd (not invalid)",
+   "pass": true,
+   "drift": 0.005673151661310987,
+   "tstd": 0.04107857680566805
+  },
+  {
+   "test": "T7 smooth 5 % drift flagged",
+   "pass": true,
+   "drift": 0.09515699200215604,
+   "tstd": 0.04107857680566805
+  },
+  {
+   "test": "T7 (the review rule on unsmoothed D would flag pure noise)",
+   "pass": true,
+   "rawD": 0.04770496777854858,
+   "tstd": 0.04107857680566805
+  },
+  {
+   "test": "T8 red-only clipping kept; all-channel \u2265 50 % frames and mean L \u2265 0.98 excluded",
+   "pass": true
+  },
+  {
+   "test": "T9 tail fraction \u2248 \u03c7\u00b2\u2083 expectation (< 1e-3)",
+   "pass": true,
+   "tail": 0.0
+  },
+  {
+   "test": "T10 A/A: 90 % CI excludes 1 in \u2264 15 % of null units",
+   "pass": true,
+   "rate": 0.11666666666666667,
+   "n": 60
+  },
+  {
+   "test": "T10 A/A: improved \u2264 5 %, worse \u2264 5 %",
+   "pass": true,
+   "imp": 0.0,
+   "worse": 0.0
+  },
+  {
+   "test": "T11 power: \u03c3 halved \u2192 improved in \u2265 95 %",
+   "pass": true,
+   "rate": 1.0,
+   "n": 60
+  },
+  {
+   "test": "T12a improved: \u03c3s 0.70 (CI<1) and tCSF \u2264 1.10",
+   "pass": true
+  },
+  {
+   "test": "T12b display worse-ish (1.2, CI touches 1) \u2192 tie, not improved",
+   "pass": true
+  },
+  {
+   "test": "T12c \u03c3s 1.2, CI>1, \u0394 \u2265 0.003 \u2192 worse",
+   "pass": true
+  },
+  {
+   "test": "T12d \u03c3s 1.2 but CI includes 1 \u2192 tie",
+   "pass": true
+  },
+  {
+   "test": "T12e B invisible (tCSF 0.5 code) \u2192 floor (not counted as improved)",
+   "pass": true
+  },
+  {
+   "test": "T12f floor but E becomes visible (\u2265 1.5 code, worse) \u2192 worse",
+   "pass": true
+  },
+  {
+   "test": "T12g invalid \u2192 na",
+   "pass": true
+  },
+  {
+   "test": "T12h jitter arm: tCSF not a gate (judged on eCSF)",
+   "pass": true
+  },
+  {
+   "test": "T12i r 0.75: improved at nominal (0.80) but tie at strict (0.70)",
+   "pass": true
+  },
+  {
+   "test": "T12j F-std: display tStd(ln) worse \u2192 worse",
+   "pass": true
+  },
+  {
+   "test": "T13 sign-test cut: 12 of 15, 15 of 21, 7 of 8",
+   "pass": true
+  },
+  {
+   "test": "T13 cluster: 12/15 at 0.6 passes, 11/15 fails, < 6 scenes \u2192 None",
+   "pass": true
+  },
+  {
+   "test": "T13 floor units leave V_imp; V_imp\u2229K < 40 \u2192 \ud3c9\uac00 \ubd88\uac00(\uc774\ubbf8 \ubc14\ub2e5)",
+   "pass": true,
+   "Vimp": 30,
+   "verdict": "\ud3c9\uac00 \ubd88\uac00(\uc774\ubbf8 \ubc14\ub2e5)"
+  },
+  {
+   "test": "T14 T_xcov unbiased at noise \u03c3 0.02/0.08 (within 5 %)",
+   "pass": true,
+   "true": 48.81425742840879,
+   "xcov_0.02": 48.83161778584366,
+   "xcov_0.08": 48.897362723360544,
+   "blur_xcov": 24.307039391854826
+  },
+  {
+   "test": "T14 5\u00d75 blur of texture drops T below 0.85\u00b7T(B)",
+   "pass": true,
+   "true": 48.81425742840879,
+   "xcov_0.02": 48.83161778584366,
+   "xcov_0.08": 48.897362723360544,
+   "blur_xcov": 24.307039391854826
+  },
+  {
+   "test": "T15 sparkFrac \u2248 injected 1 %",
+   "pass": true,
+   "spark": 0.010693521594684386
+  },
+  {
+   "test": "T16 CSF peak 1 at \u2248 8 cpd; DC gain = csf(0)",
+   "pass": true,
+   "peak_cpd": 7.89,
+   "dc": 0.050893185784044885
+  },
+  {
+   "test": "T16 white-noise (1 px) CSF gain recorded (0.0115\u00b0/px)",
+   "pass": true,
+   "gain": 0.359535279418563,
+   "degPerPx": 0.01149735293463679
+  },
+  {
+   "test": "T17 golden-ratio jitter: tStd ratio \u2248 0.93 while still RMS \u2248 1.00 (\u2192 E4 judged on eCSF only)",
+   "pass": true,
+   "tstd": 0.9306284204202786,
+   "still": 0.9997420879096313
+  },
+  {
+   "test": "T18 pixel elevation: centre = el, top/bottom \u2248 el \u00b1 vfov/2",
+   "pass": true,
+   "top": 17.185649661911107,
+   "bottom": 0.8143497853469052
+  },
+  {
+   "test": "T19 eCSF with noisy reference, debiased \u2248 noiseless-reference value (\u00b110 %)",
+   "pass": true,
+   "e_true": 2.018987430333504,
+   "e_noisyref": 2.01744049583077
+  },
+  {
+   "test": "T20 state diff: only intended uniform, frame/aggregate skipped",
+   "pass": true,
+   "diff": [
+    "clouds.perUniform:perspectiveStepScale"
+   ]
+  },
+  {
+   "test": "T20 E5 must touch both passes (shared uniform)",
+   "pass": true
+  },
+  {
+   "test": "T21 bootstrap deterministic per unit key",
+   "pass": true
+  },
+  {
+   "test": "T22 end-to-end: \u03c3 halved on every unit \u2192 \ud1b5\uacfc",
+   "pass": true,
+   "verdict": "\ud1b5\uacfc",
+   "V": 48,
+   "impK": 48,
+   "VimpK": 48,
+   "cluster": {
+    "n": 8,
+    "median": -0.6909646329378603,
+    "upper90": -0.6855751507330243,
+    "neg": 8,
+    "need": 7,
+    "ok": true
+   }
+  },
+  {
+   "test": "T22 end-to-end: A/A (same \u03c3, new noise) \u2192 not \ud1b5\uacfc",
+   "pass": true,
+   "verdict": "\ubd88\ud569\uaca9",
+   "worse": 0
+  },
+  {
+   "test": "T23 calibrate: \u03c3s block 4\u00d74 accepted; after A/A floor every metric CI-excl \u2264 15 %; A/A gate not passing (pass=True means no false pass)",
+   "pass": true,
+   "blk": [
+    4,
+    16
+   ],
+   "boot": {
+    "sig": 0.12037037037037036,
+    "tcsf": 0.25,
+    "tstd": 0.16666666666666666
+   },
+   "floored": {
+    "sig": 0.09259259259259259,
+    "tcsf": 0.05555555555555555,
+    "tstd": 0.12037037037037036
+   },
+   "aa": true
+  },
+  {
+   "test": "T23 calibrate: P0n identical replay \u2192 B_k reuse allowed",
+   "pass": true,
+   "p0n": {
+    "sig": {
+     "n": 54,
+     "p95": 0.0
+    },
+    "tstd": {
+     "n": 54,
+     "p95": 0.0
+    },
+    "tcsf": {
+     "n": 18,
+     "p95": 0.0
+    }
+   }
+  },
+  {
+   "test": "T23 calibrate: G5 tolerances from A/A (5 metrics) and aaSd recorded",
+   "pass": true,
+   "g5Tol": {
+    "logIQR": 0.029774188540740244,
+    "structMid": 0.011343536186888468,
+    "perimPerArea": 0.0,
+    "shadeRange": 0.01838059751008003,
+    "darkFrac": 0.005463400301350679
+   }
+  },
+  {
+   "test": "T24 confirm set Q: \u03c3 halved \u2192 \ud655\uc778 \ud1b5\uacfc",
+   "pass": true,
+   "verdict": "\ud1b5\uacfc",
+   "n": 24
+  }
+ ]
+}

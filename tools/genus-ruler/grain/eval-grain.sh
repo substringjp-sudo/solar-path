@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # eval-grain.sh — RULER-grain 끝까지(동결 대상). 렌더(run-grain.js, 덩어리 ≤ 60 분·이어 그리기) → 지표 → 판정 → 채택.
-#   tools/genus-ruler/grain/eval-grain.sh build | test | calibrate | g0 OLD_BUNDLE_DIR | c0 | round K | refreport K | final | eye
+#   tools/genus-ruler/grain/eval-grain.sh build | test | calibrate | g0 OLD_BUNDLE_DIR | c0 | round K | refreport K | final [ADOPT [--drop-last|--add ARM]] | eye
 # 환경: OUT(렌더·판정 폴더, 기본 .harness/volsky-grain/out) · CUMCAP(누적 비용 상한, 기본 1.40 — §5.5 기기 frameMs 식) · FORCE=1(다른 하네스와 동시 실행 허용 안 함을 무시)
 # 순서(§5.3): build → test → calibrate(개발 집합만) → [§11 커밋] → 손잡이 구현(§8.2) → g0(§12 커밋) → c0(멈춤 규칙) → round 1 … round 5
 #             → final(확인 집합 Q 포함) → eye.
@@ -129,10 +129,13 @@ EOF
     K="${2:?round K}"
     select_jobs "$JD/refrep-R$K.json" "$JD/jobs-grain-R$K.json" set=refReport; render "$JD/refrep-R$K.json" ;;
   final)
-    $PY --adopt --round 6 --final --gates --adopt-in "$JD/adopt-R5.json" --out "$JD/adopt-final.json"
+    # final [채택 파일] [--drop-last | --add 팔] — R6 재시도(§5.6)는 앞 결합 채택 파일에서 grain.py 가 만든 새 파일로(손으로 안 고침)
+    SRC="${2:-$JD/adopt-R5.json}"; shift $(( $# > 1 ? 2 : 1 ))
+    $PY --adopt --round 6 --final --gates --adopt-in "$SRC" "$@" --out "$JD/adopt-final.json"
     node "$GR/make-jobs-grain.mjs" --out "$JD/jobs-grain-final.json" --scenes-out "$JD/scenes-grain-final.json" --adopt "$JD/adopt-final.json" $(calib_args)
     select_jobs "$JD/final.json" "$JD/jobs-grain-final.json" set=heldout,hdev,guard,cost,state,confirm arm=C0,Bfinal; render "$JD/final.json"
-    $PY --ext --scenes "$GR/scenes-grain.json" --renders "$R" --base C0 --cand Bfinal --calib "$JD/calib-grain.json" --out "$JD/ext-final.json"
+    $PY --ext --scenes "$GR/scenes-grain.json" --renders "$R" --base C0 --cand Bfinal --calib "$JD/calib-grain.json" --adopt-in "$JD/adopt-final.json" \
+      ${G0BUNDLE:+--g0bundle "$G0BUNDLE"} --out "$JD/ext-final.json"
     $PY --gate --scenes "$GR/scenes-grain.json" --renders "$R" --base C0 --cand Bfinal --round 6 --ref "$R" --calib "$JD/calib-grain.json" \
       --external "$JD/ext-final.json" --c0 C0 --cumcap "$CUMCAP" --adopt-in "$JD/adopt-final.json" --out "$JD/gate-final.json"
     $PY --confirm --scenes "$GR/scenes-grain.json" --renders "$R" --base C0 --cand Bfinal --adopt-in "$JD/adopt-final.json" --calib "$JD/calib-grain.json" --out "$JD/confirm.json" ;;
