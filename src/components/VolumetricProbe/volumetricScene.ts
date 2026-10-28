@@ -36,7 +36,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getSunDirectionECEF } from '@takram/three-atmosphere';
+import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getSunDirectionECEF } from '@takram/three-atmosphere';
 import { CloudLayer, CloudShape, CloudShapeDetail, CloudsEffect, Turbulence } from '@takram/three-clouds';
 import {
   Ellipsoid,
@@ -1126,6 +1126,9 @@ export async function createVolumetricScene(
       // §131 K: 관측점을 국소 운량 ≈ 전역 운량인 칸으로(타일 바이트는 그대로). 장면 입력이 오프셋을 주면 그것이 우선.
       const camKm = plan.flow && opt.flowCamCell && !p.weatherOffsetKm ? flowCamCellOffsetKm(tex.image.data as Uint8Array, tex.image.width, gl, GENUS_TILE_KM) : null;
       lastCamKm = camKm;
+      // §173 takram 은 광선을 '고도 보정' 공간(ECEF + altitudeCorrection, 타원체 → 구)에서 걷습니다. 날씨 좌표 원점도 같은 공간에 둬야
+      // 관측점이 무늬 원점에 놓입니다 — 보정 벡터의 북쪽 성분이 위도 36° 에서 ~21 km 라, 예전에는 거시 격자(고리 자료)가 그만큼 남쪽에 그려졌습니다.
+      const altCorr = getAltitudeCorrectionOffset(position, atmosphereParams.bottomRadius, Ellipsoid.WGS84, new Vector3());
       const driftSec = driftSecOverride ?? p.date.getTime() / 1000;
       for (const m of genusMats) {
         setGenusUniforms(m, gl);
@@ -1139,7 +1142,7 @@ export async function createVolumetricScene(
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
         if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
-        const origin = position.clone().addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
+        const origin = position.clone().add(altCorr).addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
       // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
