@@ -16,8 +16,14 @@
  *  D. TS 상수(0.7906·0.0785·0.35·0.797·50·8·150·600·0.0566) = RULER-grain §1 글자 = GLSL 글자(0.0566 은 균일변수 값 + radians()).
  *  E. 살아 있는 글자 = inject(base)(주입 함수를 §8.2 순서로 합성) · 상태 해시 차이 ⊆ grain.py G0_ALLOWED 이고 비어 있지 않음(G0e 예측).
  *  F. 비용 변형(capture.ts applyCostPatch — 동결)이 모든 팔의 구름 글자에 걸림(앵커 6 개 정확히 한 번), E2b 는 실제 fetch 만 셈.
- *  G. E3c: 층 densityScale × debugDensityMul 정확히(셰이더·균일변수 이름 그대로) · E3b 균일변수 값 · 앵커 훼손·중복 → throw.
- * 출력: inject(base) 해시 표(G0f) — 팔마다 구름·그림자 `fnv:길이`(capture.ts shaderHash 와 같은 꼴)와 sha256. --out 이면 JSON.
+ *  G. E3c: 층 densityScale × debugDensityMul 정확히(셰이더·균일변수 이름 그대로) · E3b 균일변수 값 · 앵커 훼손·중복 → throw ·
+ *     손잡이 값 점검(정해진 값 밖·문자열·true·null·음수·0 → setScene throw) · 구름 패스 판별 줄이 없는데 구름 패스 전용 손잡이 → throw.
+ *  H. 기본값·동결(검토 반영): 앱 DEFAULT_VOLUMETRIC_OPTIONS 의 손잡이 값 = §8.2(하네스 JOB_BASE_OPTIONS 를 덮지 않은 앱 길 C0 도 측정 번들 트리와 같음) ·
+ *     grain 잡 기본값(capture.ts grainBaseOptions)의 손잡이 값 = 앱 기본 · RULER-grain §10 동결 파일 sha256 그대로(entry.ts 포함).
+ *  I. 고정 해시: inject(base) 표가 검토로 확인한 값(아래 PINNED)과 같음 — 같은 함수로 다시 셈하는 순환을 끊음.
+ *  J. 주입 순서: 뼈대 2·얼음 무리·확산 2(또는 확산 1 + 바닥값)·손잡이 전부 켠 살아 있는 글자 = 이 시험이 §8.2 순서로 따로 합성한 글자.
+ * 출력: inject(base) 해시 표(G0f) — 팔마다 구름·그림자 `fnv:길이`(capture.ts shaderHash 와 같은 꼴)와 sha256, 그리고 비용 변형(applyCostPatch — cost 잡·
+ *       capFrames 기준 잡의 meta.shaderHash 는 이 글자) 뒤 구름 `costClouds`. --out 이면 JSON.
  */
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -59,13 +65,50 @@ const C0 = jobOf('C0');
 const KNOBS = { E1b: { refine: 1 }, E2b: { sunLowpass: 1 }, E2c: { sunLowpass: 1 }, E3: { erode: 1 }, E3b: { erode: 2 }, E3c: {}, E4: { jitter: 1 } };
 const QUALITIES = ['low', 'medium', 'high'];
 const ALL_ON = { refineOnHit: 1, sunLowpass: 1, erodeCentered: 2, jitterMode: 1 };
+/** §8.2 손잡이 옵션의 앱 기본값(DEFAULT_VOLUMETRIC_OPTIONS) — 하네스 JOB_BASE_OPTIONS(동결 entry.ts)에는 없고 grain 잡은 grainBaseOptions 로 앱 기본을 받음. */
+const KNOB_DEFAULTS = { refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1 };
+/**
+ * 고정 inject(base) 표(검토 d3630cc 에서 두 검토가 따로 확인: 글자 sha256 접두·fnv 는 identity 검토, 비용 변형 fnv 는 GLSL 검토).
+ * 바뀌면 주입 글자가 바뀐 것 — 의도한 변경이면 RULER-grain §12 에 새 값을 적고 여기를 고칩니다.
+ */
+const PINNED = {
+  C0: { clouds: '3569507753:108073', shadow: '4275704291:29112', costClouds: '81476882:108363',
+    cloudsSha256: '838d48a3029f42926c80b45065edee13311203e73e1dfa131d9fb5408b12d8f8', shadowSha256: '61d6af913d4c1723e1be2c2aff9d4af8a2835fe1f9209400ff76032ea8dccd91' },
+  E1b: { clouds: '3483738118:109505', shadow: '4275704291:29112', costClouds: '3901578747:109795',
+    cloudsSha256: 'c09a3336a76a484ff40d43790519647f8e0255688c4e8b2c930519a254253dd2', shadowSha256: '61d6af913d4c1723e1be2c2aff9d4af8a2835fe1f9209400ff76032ea8dccd91' },
+  E2b: { clouds: '2112161013:108398', shadow: '4275704291:29112', costClouds: '1823354940:108688',
+    cloudsSha256: '436999760bb1a26150ef77258be0eba28cbebdae6709881ce75bfc89b2918a21', shadowSha256: '61d6af913d4c1723e1be2c2aff9d4af8a2835fe1f9209400ff76032ea8dccd91' },
+  E3: { clouds: '4094999231:108222', shadow: '863941399:29261', costClouds: '1484934132:108512',
+    cloudsSha256: '56dba5c05fcecad705fd79b9e132d41d865aaccf591b785547548aa1705c8b24', shadowSha256: 'c493d7c6a9fde65b7eee622e01eb0de303e1dffacaa3aa774955d71a078bcb43' },
+  E3b: { clouds: '16459961:108548', shadow: '863941399:29261', costClouds: '763342338:108838',
+    cloudsSha256: '02ffefec0cecbbb33ac3b87eddd4e1ca5016ae84a72c2369a2b3058ab81a56a7', shadowSha256: 'c493d7c6a9fde65b7eee622e01eb0de303e1dffacaa3aa774955d71a078bcb43' },
+  E4: { clouds: '1086911109:108168', shadow: '4275704291:29112', costClouds: '4017301390:108458',
+    cloudsSha256: 'd947d1f4913b5133011105855c5962ffc9a20385fca609064ea328d303086279', shadowSha256: '61d6af913d4c1723e1be2c2aff9d4af8a2835fe1f9209400ff76032ea8dccd91' },
+};
+PINNED.E2c = PINNED.E2b; PINNED.E3c = PINNED.C0;
+/** 주입 순서 시험(J)의 장면: 동결 상태 잡의 적운 35 % 층 + 권운 60 % 층(얼음 무리 레인이 실제로 켜지게) — 그리기 없음. */
+const COMBO_CI = { genus: 'ci', cover: 0.6, baseKm: 9, band: 'high', opts: { seed: 5757 } };
+// (D1F 를 먼저: 같은 재질에서 확산 2 다음에 바닥값을 켜면 setGenusLightFloors 가 setGenusDiffuse 보다 먼저 불려 기존 throw — 손잡이와 무관한 cf42e33 그대로의 동작)
+const COMBOS = [
+  { tag: 'ORDER_D1F', options: { ...ALL_ON, diffuse: 1, skeleton: 2, iceHalo: true, debugLightFloors: [0.2, 0.2] },
+    k: { skeleton: true, erode: 2, diffuse: 1, floors: [0.2, 0.2], ice: true, refine: 1, sunLowpass: 1, jitter: 1 } },
+  { tag: 'ORDER_D2', options: { ...ALL_ON, diffuse: 2, skeleton: 2, iceHalo: true },
+    k: { skeleton: true, erode: 2, diffuse: 2, floors: null, ice: true, refine: 1, sunLowpass: 1, jitter: 1 } },
+];
+/** 손잡이 값 점검(G) — 정해진 값 밖은 setScene 이 throw 해야 함. */
+const BAD_KNOBS = [
+  { tag: 'BAD_erode3', options: { erodeCentered: 3 } }, { tag: 'BAD_erodeStr', options: { erodeCentered: '2' } },
+  { tag: 'BAD_refineTrue', options: { refineOnHit: true } }, { tag: 'BAD_jitter2', options: { jitterMode: 2 } },
+  { tag: 'BAD_densNull', options: { debugDensityMul: null } }, { tag: 'BAD_densNeg', options: { debugDensityMul: -1 } },
+  { tag: 'BAD_pxStr', options: { erodeCentered: 2, erodePixelAngleDeg: '0.0566' } }, { tag: 'BAD_px0', options: { erodeCentered: 2, erodePixelAngleDeg: 0 } },
+];   // (NaN 은 JSON 으로 못 넘겨 null(= 기본 0.0566°)이 되므로 문자열·0·음수로 시험)
 
 // ───── node 꾸러미: 가짜 렌더러로 createVolumetricScene → 잡 순서대로 → 글자·균일변수·define·상태 해시 ─────
 const DUMP = (tree, extra) => `
 import fs from 'node:fs';
 import { Vector2 } from 'three';
 import { createVolumetricScene, DEFAULT_VOLUMETRIC_OPTIONS } from '${tree}/src/components/VolumetricProbe/volumetricScene';
-import { stateHash, applyCostPatch } from '${ROOT}/tools/genus-ruler/grain/capture';
+import { stateHash, applyCostPatch, grainBaseOptions } from '${ROOT}/tools/genus-ruler/grain/capture';
 ${extra.imports ?? ''}
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const W = 390, H = 584;
@@ -75,15 +118,16 @@ const renderer: any = { getSize: (v: Vector2) => v.set(W, H), getDrawingBufferSi
 (async () => {
   const vol: any = await createVolumetricScene(renderer, W, H, { genus: true, celestial: false, precomputed: {} as never });
   const c: any = vol.debug.clouds;
-  const res: any = { runs: {} };
+  const res: any = { runs: {}, defaults: Object.fromEntries((cfg.knobKeys ?? []).map((k: string) => [k, (DEFAULT_VOLUMETRIC_OPTIONS as any)[k]])) };
   for (const run of cfg.runs) {
-    // entry.ts __job 과 같은 순서(grain 잡: 앱 기본 전부 + 하네스 기본 + 잡 옵션).
-    vol.setOptions({ ...DEFAULT_VOLUMETRIC_OPTIONS, ...cfg.jobBase, celestial: false, ...(run.options ?? {}) }, false);
+    // entry.ts __job 과 같은 순서(grain 잡: 앱 기본 전부 + 하네스 기본 + 잡 옵션). noJobBase = 하네스 기본 없이 앱 기본만(앱 길).
+    vol.setOptions({ ...DEFAULT_VOLUMETRIC_OPTIONS, ...(run.noJobBase ? {} : cfg.jobBase), celestial: false, ...(run.options ?? {}) }, false);
     c.skyLightScale = 1; c.groundBounceScale = 1;
     vol.setQuality(run.quality);
     vol.setResolutionScale(0.5);
     let error = null;
-    try { vol.setScene({ ...cfg.input, date: new Date(cfg.input.date) }); } catch (e: any) { error = String(e && e.message || e); }
+    const inp = run.input ?? cfg.input;
+    try { vol.setScene({ ...inp, date: new Date(inp.date) }); } catch (e: any) { error = String(e && e.message || e); }
     vol.setTerrainDistance(null);
     const m = c.cloudsPass.currentMaterial, s = c.shadowPass.currentMaterial;
     let cost = null;
@@ -103,14 +147,42 @@ const NEW_EXTRA = {
   body: `
   // inject(base): 측정 번들 글자에 주입 함수를 §8.2 순서로(erode → refine → sunLowpass → jitter; 그림자 패스는 erode 만, 페이드 없음).
   const base = JSON.parse(fs.readFileSync(cfg.baseFile, 'utf8')).runs['C0_low'];
-  const inj = (k: any) => ({
-    clouds: G.injectGrainJitter(G.injectGrainSunLowpass(G.injectGrainRefine(G.injectGrainErode(base.clouds, k.erode ?? 0, true), k.refine ?? 0), k.sunLowpass ?? 0), k.jitter ?? 0),
-    shadow: G.injectGrainErode(base.shadow, k.erode ?? 0, false),
-  });
+  const inj = (k: any) => {
+    const clouds = G.injectGrainJitter(G.injectGrainSunLowpass(G.injectGrainRefine(G.injectGrainErode(base.clouds, k.erode ?? 0, true), k.refine ?? 0), k.sunLowpass ?? 0), k.jitter ?? 0);
+    // cost 잡·capFrames 기준 잡의 meta.shaderHash.clouds 는 비용 변형(동결 applyCostPatch) 뒤 글자.
+    return { clouds, shadow: G.injectGrainErode(base.shadow, k.erode ?? 0, false), costClouds: applyCostPatch(clouds) };
+  };
   res.inject = {};
   for (const [arm, k] of Object.entries(cfg.knobs)) res.inject[arm] = inj(k);
   res.inject.ALL = inj({ refine: 1, sunLowpass: 1, erode: 2, jitter: 1 });
+  res.inject.C0 = inj({});
   res.K = G.GRAIN_KNOB;
+  // grain 잡 옵션 기본값(동결 capture.ts grainBaseOptions — entry.ts 가 grain 잡에 쓰는 것)의 손잡이 값.
+  const gb: any = grainBaseOptions(cfg.jobBase, false);
+  res.grainBase = Object.fromEntries((cfg.knobKeys ?? []).map((k: string) => [k, gb[k]]));
+  // J. §8.2 순서를 이 시험이 따로 적어 합성(refreshVariant 와 별개): 뼈대 → erode → diffuse → floors → ice → [구름 패스만] refine → sunLowpass → jitter.
+  const order = (txt: string, isClouds: boolean, k: any) => {
+    let s = k.skeleton ? G.injectGenusSkeleton(txt) : txt;
+    s = G.injectGrainErode(s, k.erode, isClouds);
+    s = G.injectGenusDiffuse(s, k.diffuse);
+    s = G.applyGenusFloors(s, k.floors);
+    if (k.ice) s = G.injectGenusIce(s);
+    if (isClouds) { s = G.injectGrainRefine(s, k.refine); s = G.injectGrainSunLowpass(s, k.sunLowpass); s = G.injectGrainJitter(s, k.jitter); }
+    return s;
+  };
+  res.order = {};
+  for (const cb of cfg.combos ?? []) res.order[cb.tag] = { clouds: order(base.clouds, true, cb.k), shadow: order(base.shadow, false, cb.k) };
+  // G. 구름 패스 판별 줄이 사라진 구름 글자(takram 판 바뀜 흉내)에 구름 패스 전용 손잡이 → throw, E3(1) 은 두 패스 공용이라 throw 안 함.
+  const IS_CLOUDS = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
+  const fakeMat = (fs0: string) => ({ fragmentShader: fs0, uniforms: {} as any, defines: {} as any, needsUpdate: false });
+  const noMarker = base.clouds.replace(IS_CLOUDS, 'radiance += skyIrradiance * skyGradient * skyLightScale;');
+  const throwsK = (txt: string, k: any) => { try { G.setGrainKnobs(fakeMat(txt) as any, { ...G.GRAIN_KNOBS_OFF, ...k }); return false; } catch { return true; } };
+  res.markerChecks = {
+    markerGoneRefine: throwsK(noMarker, { refine: 1 }), markerGoneSun: throwsK(noMarker, { sunLowpass: 1 }), markerGoneJitter: throwsK(noMarker, { jitter: 1 }),
+    markerGoneE3b: throwsK(noMarker, { erode: 2 }), markerGoneE3ok: !throwsK(noMarker, { erode: 1 }), markerGoneOffOk: !throwsK(noMarker, {}),
+    shadowAllOk: !throwsK(base.shadow, { refine: 1, sunLowpass: 1, erode: 2, jitter: 1 }), cloudsAllOk: !throwsK(base.clouds, { refine: 1, sunLowpass: 1, erode: 2, jitter: 1 }),
+    witnessCloudsOnly: base.clouds.includes(G.GRAIN_CLOUD_WITNESS) && !base.shadow.includes(G.GRAIN_CLOUD_WITNESS),
+  };
   // 구름 패스 전용 주입은 그림자 글자(판별 줄 없음)를 refreshVariant 가 건너뜀 — 주입 함수 자체는 앵커가 없으면 throw.
   const throws = (f: () => unknown) => { try { f(); return false; } catch { return true; } };
   const bc = base.clouds;
@@ -140,7 +212,14 @@ function runDump(tag, tree, extra, cfg) {
   return JSON.parse(fs.readFileSync(out, 'utf8'));
 }
 const input = C0.input;
-const B = runDump('base', BASE_TREE, {}, { input, jobBase: JOB_BASE.base, runs: QUALITIES.map(q => ({ tag: 'C0_' + q, quality: q, options: {} })) });
+const comboInput = { ...input, layers: [...input.layers, COMBO_CI] };
+const KNOB_KEYS = Object.keys(KNOB_DEFAULTS);
+const B = runDump('base', BASE_TREE, {}, { input, jobBase: JOB_BASE.base, knobKeys: KNOB_KEYS, runs: [
+  ...QUALITIES.map(q => ({ tag: 'C0_' + q, quality: q, options: {} })),
+  // 앱 길(하네스 JOB_BASE_OPTIONS 없이 앱 기본만) — 손잡이 기본값이 앱 기본에서만 오는지
+  { tag: 'APP_low', quality: 'low', options: {}, noJobBase: true },
+  { tag: 'APP_high', quality: 'high', options: {}, noJobBase: true },
+] });
 const runs = [
   ...QUALITIES.map(q => ({ tag: 'C0_' + q, quality: q, options: C0.options ?? {} })),
   ...KNOB_ARMS.map(a => ({ tag: a, quality: 'low', options: jobOf(a).options ?? {} })),
@@ -148,14 +227,21 @@ const runs = [
   { tag: 'OFF_AGAIN', quality: 'low', options: {} },
   { tag: 'E3b_px03', quality: 'low', options: { erodeCentered: 2, erodePixelAngleDeg: 0.03 } },
   { tag: 'C0_after', quality: 'low', options: {} },
+  { tag: 'APP_low', quality: 'low', options: {}, noJobBase: true },
+  { tag: 'APP_high', quality: 'high', options: {}, noJobBase: true },
+  ...COMBOS.map(cb => ({ tag: cb.tag, quality: 'high', options: cb.options, input: comboInput })),
+  { tag: 'COMBO_OFF', quality: 'high', options: {}, input: comboInput },
+  ...BAD_KNOBS.map(b => ({ ...b, quality: 'low' })),
+  { tag: 'C0_final', quality: 'low', options: {} },
 ];
-const N = runDump('cur', ROOT, NEW_EXTRA, { input, jobBase: JOB_BASE.cur, runs, knobs: KNOBS, baseFile: path.join(WORK, 'out-base.json') });
+const N = runDump('cur', ROOT, NEW_EXTRA, { input, jobBase: JOB_BASE.cur, knobKeys: KNOB_KEYS, runs, knobs: KNOBS, combos: COMBOS, baseFile: path.join(WORK, 'out-base.json') });
 
 // ───── 판정 ─────
 const results = [];
 const check = (name, ok, d) => { results.push(!!ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${d != null ? '  ' + d : ''}`); };
 const R = N.runs, b0 = B.runs.C0_low;
-for (const r of Object.values(R)) if (r.error) check('setScene 오류 없음', false, r.error);
+for (const [tag, r] of Object.entries(R)) if (r.error && !tag.startsWith('BAD_')) check(`${tag}: setScene 오류 없음`, false, r.error);
+for (const [tag, r] of Object.entries(B.runs)) if (r.error) check(`측정 트리 ${tag}: setScene 오류 없음`, false, r.error);
 
 // A. 끄면 그대로
 console.log(`— A. 끄면 그대로(측정 번들 트리 ${BASE} 대 지금 트리, 손잡이 기본값)`);
@@ -285,15 +371,67 @@ check('E2b·E2c: 모양 fetch 셈(++gCostShape)이 gSunLowpass 분기 안(실제
 console.log('— G. 앵커 훼손');
 const T = N.throwChecks;
 check('앵커가 없거나 둘이면 throw(refine·sunLowpass·erode 두 패스·jitter), 끈 주입은 앵커와 무관', Object.values(T).every(Boolean), JSON.stringify(T));
+const M = N.markerChecks;
+check('구름 패스 판별 줄이 없는 구름 글자(증인 marchOpticalDepth 있음)에 E1b·E2b·E4·E3b → throw, E3·끔은 그대로, 그림자·구름 원문에 전부 켬은 throw 없음',
+  Object.values(M).every(Boolean), JSON.stringify(M));
+const badOk = BAD_KNOBS.map(b => [b.tag, !!R[b.tag].error]);
+check('정해진 값 밖의 손잡이(erodeCentered 3·"2", refineOnHit true, jitterMode 2, debugDensityMul null·−1, erodePixelAngleDeg "0.0566"·0) → setScene throw',
+  badOk.every(([, e]) => e), badOk.map(([t, e]) => t + '=' + (e ? 'throw' : 'NO')).join(' '));
+check('throw 뒤 다음 잡(C0)은 측정 번들 글자·균일변수·층 값 그대로', R.C0_final.clouds === b0.clouds && R.C0_final.shadow === b0.shadow && R.C0_final.cu.join() === b0.cu.join()
+  && R.C0_final.su.join() === b0.su.join() && JSON.stringify(R.C0_final.layers) === JSON.stringify(b0.layers) && stateDiff(b0.state, R.C0_final.state).length === 0);
+
+// H. 기본값·동결
+console.log('— H. 기본값·동결(§10)');
+check('앱 DEFAULT_VOLUMETRIC_OPTIONS 의 손잡이 6 개 = §8.2 기본(0·0·0·null·0·1)', JSON.stringify(N.defaults) === JSON.stringify(KNOB_DEFAULTS), JSON.stringify(N.defaults));
+check('grain 잡 옵션 기본값(capture.ts grainBaseOptions(JOB_BASE_OPTIONS))의 손잡이 = 앱 기본', JSON.stringify(N.grainBase) === JSON.stringify(KNOB_DEFAULTS), JSON.stringify(N.grainBase));
+for (const q of ['low', 'high']) {
+  const b = B.runs['APP_' + q], n = R['APP_' + q];
+  check(`앱 길 ${q}(JOB_BASE 없이 앱 기본만): 글자·균일변수·define·층 값·상태 해시 = 측정 번들 트리`, b.clouds === n.clouds && b.shadow === n.shadow && b.cu.join() === n.cu.join()
+    && b.su.join() === n.su.join() && b.cd === n.cd && b.sd === n.sd && JSON.stringify(b.layers) === JSON.stringify(n.layers) && stateDiff(b.state, n.state).length === 0,
+    `sha256 ${sha(n.clouds).slice(0, 16)}… / ${sha(n.shadow).slice(0, 16)}…`);
+}
+// RULER-grain §10 의 `grain/…`·`volsky/…`·`flow/…` 등 경로와 sha256(측정 번들 등 .harness 경로는 빼고) — 손잡이 구현이 동결 파일을 건드리지 않음.
+const sec10 = RULER.slice(RULER.indexOf("## 10."), RULER.indexOf("## 11."));
+const frozen = [...sec10.matchAll(/`((?:grain|volsky|flow|clip|genus|shape)\/[^`]+)` ([0-9a-f]{64})/g)].map(m => [path.join('tools/genus-ruler', m[1]), m[2]]);
+const scm = sec10.match(/`SceneComposer\.ts` ([0-9a-f]{64})/), lock = sec10.match(/package-lock\.json ([0-9a-f]{64})/);
+if (scm) frozen.push(['src/components/SkyScene3D/SceneComposer.ts', scm[1]]);
+if (lock) frozen.push(['package-lock.json', lock[1]]);
+const frozenBad = frozen.filter(([p, h]) => !fs.existsSync(path.join(ROOT, p)) || crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, p))).digest('hex') !== h);
+check(`RULER-grain §10 동결 파일 ${frozen.length} 개 sha256 그대로(entry.ts·capture.ts·grain.py·잡 목록 …)`, frozen.length >= 20 && frozen.some(([p]) => p.endsWith('volsky/entry.ts')) && frozenBad.length === 0,
+  frozenBad.map(([p]) => p).join(', '));
+
+// J. 주입 순서(§8.2) — 이 시험이 따로 합성한 글자와 살아 있는 글자
+console.log('— J. 주입 순서(뼈대 → erode → diffuse → floors → ice → refine → sunLowpass → jitter)');
+for (const cb of COMBOS) {
+  const live = R[cb.tag], ref = N.order[cb.tag];
+  const lanes = { skeleton: live.clouds.includes('uniform vec4 genusSkel;') && live.shadow.includes('uniform vec4 genusSkel;'), ice: live.clouds.includes('uniform float genusPhysOn;'),
+    diffuse: live.clouds.includes('§138'), erode: live.clouds.includes('gErodeK * shapeAmounts') && live.shadow.includes('0.35 * shapeAmounts'), refine: live.clouds.includes('gRefState == 0 &&'),
+    sun: live.clouds.includes('gSunLowpass = i >= 1'), jitter: live.clouds.includes('fract(interleavedGradientNoise') };
+  check(`${cb.tag}: 레인이 실제로 켜짐(뼈대·얼음·확산·erode 두 패스·refine·sunLowpass·jitter)`, Object.values(lanes).every(Boolean), JSON.stringify(lanes));
+  check(`${cb.tag}: 살아 있는 글자 = §8.2 순서 합성(두 패스)`, live.clouds === ref.clouds && live.shadow === ref.shadow,
+    `${fnvLen(live.clouds)} / ${fnvLen(ref.clouds)}`);
+  check(`${cb.tag}: 비용 변형 앵커 6 개 정확히 한 번`, live.cost.ok, live.cost.error ?? '');
+}
+check('뼈대·얼음·확산·손잡이를 다 켠 뒤 같은 장면에서 모두 끄면 글자·균일변수 이름 = 측정 번들(두 패스)', R.COMBO_OFF.clouds === bc && R.COMBO_OFF.shadow === bs
+  && R.COMBO_OFF.cu.join() === b0.cu.join() && R.COMBO_OFF.su.join() === b0.su.join());
 
 // ───── inject(base) 해시 표(G0f) ─────
 const table = { base: BASE, measurementText: { clouds: { fnv: fnvLen(bc), sha256: sha(bc) }, shadow: { fnv: fnvLen(bs), sha256: sha(bs) } }, offSha256: offSha, arms: {} };
 for (const a of ['C0', ...KNOB_ARMS]) {
-  const x = a === 'C0' ? { clouds: bc, shadow: bs } : N.inject[a];
-  table.arms[a] = { clouds: fnvLen(x.clouds), shadow: fnvLen(x.shadow), cloudsSha256: sha(x.clouds), shadowSha256: sha(x.shadow) };
+  const x = a === 'C0' ? N.inject.C0 : N.inject[a];
+  table.arms[a] = { clouds: fnvLen(x.clouds), shadow: fnvLen(x.shadow), costClouds: fnvLen(x.costClouds), cloudsSha256: sha(x.clouds), shadowSha256: sha(x.shadow), costCloudsSha256: sha(x.costClouds) };
 }
-console.log('\ninject(base) 해시 표(G0f — 살아 있는 meta.shaderHash.clouds·shadow 와 견줌):');
-for (const [a, h] of Object.entries(table.arms)) console.log(`  ${a.padEnd(4)} clouds ${h.clouds.padEnd(18)} shadow ${h.shadow.padEnd(17)} sha256 ${h.cloudsSha256.slice(0, 12)}… / ${h.shadowSha256.slice(0, 12)}…`);
+check('C0 의 inject(base) = 측정 번들 글자(주입 함수가 끄면 원문)', N.inject.C0.clouds === bc && N.inject.C0.shadow === bs);
+
+// I. 고정 해시(검토로 확인한 값)
+console.log('— I. 고정 inject(base) 해시');
+for (const a of ['C0', ...KNOB_ARMS]) {
+  const h = table.arms[a], p = PINNED[a];
+  const ok = ['clouds', 'shadow', 'costClouds', 'cloudsSha256', 'shadowSha256'].every(k => h[k] === p[k]);
+  check(`${a}: inject(base) 해시 = 고정값(구름·그림자 fnv·sha256, 비용 변형 구름 fnv)`, ok, ok ? '' : JSON.stringify({ got: h, want: p }));
+}
+console.log('\ninject(base) 해시 표(G0f — 살아 있는 meta.shaderHash.clouds·shadow 와 견줌; cost 잡·capFrames 기준 잡의 clouds 는 costClouds):');
+for (const [a, h] of Object.entries(table.arms)) console.log(`  ${a.padEnd(4)} clouds ${h.clouds.padEnd(18)} shadow ${h.shadow.padEnd(17)} costClouds ${h.costClouds.padEnd(18)} sha256 ${h.cloudsSha256.slice(0, 12)}… / ${h.shadowSha256.slice(0, 12)}…`);
 if (OUT) { fs.writeFileSync(OUT, JSON.stringify(table, null, 1)); console.log('→ ' + OUT); }
 const pass = results.filter(Boolean).length;
 console.log(`\ngrain-shader-test: ${pass} passed, ${results.length - pass} failed`);

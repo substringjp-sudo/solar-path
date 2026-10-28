@@ -1060,6 +1060,16 @@ export async function createVolumetricScene(
     lastSunAltForLight = sunAltDeg;
     applySunLight();
 
+    // RULER-grain §8.2 손잡이 값 점검(층을 지우기 전에 throw) — 정해진 값만: '2'·true·3 같은 값이 조용히 다른 팔(E3b → E3 등)이 되지 않게,
+    // E3c 층 배율은 유한한 0 이상 수만(null·NaN 이 층 소광을 조용히 0·NaN 으로 만들지 않게).
+    const knobOf = <T extends number>(k: 'refineOnHit' | 'sunLowpass' | 'erodeCentered' | 'jitterMode', allowed: readonly T[]): T => {
+      const x = opt[k] as unknown;
+      if (!allowed.includes(x as T)) throw new Error('volumetricScene: ' + k + ' must be one of ' + allowed.join('/') + ', got ' + JSON.stringify(x));
+      return x as T;
+    };
+    const grainKnobs = { refine: knobOf('refineOnHit', [0, 1] as const), sunLowpass: knobOf('sunLowpass', [0, 1] as const), erode: knobOf('erodeCentered', [0, 1, 2] as const), jitter: knobOf('jitterMode', [0, 1] as const) };
+    const densityMul = opt.debugDensityMul;
+    if (typeof densityMul !== 'number' || !Number.isFinite(densityMul) || densityMul < 0) throw new Error('volumetricScene: debugDensityMul must be a finite number >= 0, got ' + densityMul);
     clouds.cloudLayers.length = 0;
     // 층 4개(채널 r·g·b·a). 입력이 모자라면 빈 층으로 채웁니다 — 셰이더는 늘 4층을 받습니다.
     const CH = ['r', 'g', 'b', 'a'] as const;
@@ -1095,7 +1105,7 @@ export async function createVolumetricScene(
         : {};
       const layer = new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow });
       // RULER-grain E3c 진단: 층 소광 배율(균일변수가 아니라 층 값 — takram 이 매 프레임 재포장해도 남음). 기본 1 이면 손대지 않음.
-      if (opt.debugDensityMul !== 1) layer.densityScale *= opt.debugDensityMul;
+      if (densityMul !== 1) layer.densityScale *= densityMul;
       clouds.cloudLayers.push(layer);
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
@@ -1107,7 +1117,6 @@ export async function createVolumetricScene(
       : [];
     const iceOn = physIce || handIce;
     // RULER-grain §8.2 셰이더 손잡이 — 종류 모형 여부와 무관하게 두 재질 모두(구름 패스 전용 손잡이는 그림자 패스에서 아무것도 안 함).
-    const grainKnobs = { refine: opt.refineOnHit ? 1 : 0, sunLowpass: opt.sunLowpass ? 1 : 0, erode: opt.erodeCentered === 2 ? 2 : opt.erodeCentered ? 1 : 0, jitter: opt.jitterMode ? 1 : 0 } as const;
     for (const m of genusMats) setGrainKnobs(m, grainKnobs, opt.erodePixelAngleDeg);
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.

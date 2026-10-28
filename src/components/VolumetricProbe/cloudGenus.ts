@@ -1113,6 +1113,11 @@ function refreshVariant(mat: PatchableMaterial): void {
   const v = variantOf(mat);
   // 구름 패스 판별은 삽입 전 원문으로(확산 L2 가 판별 줄을 바꾸므로 지금 글자로 보면 안 됨).
   const isClouds = v.base.includes(IS_CLOUDS);
+  // RULER-grain §8.2: 판별 줄이 사라진(takram 판이 바뀐) 구름 패스에서 구름 패스 전용 손잡이가 조용히 C0 이 되지 않게 throw.
+  // 증인 = 해 쪽 행진 marchOpticalDepth(구름 패스에만 있음 — 그림자 패스 0 번; marchClouds 는 두 패스 모두에 있어 증인이 못 됨).
+  if (!isClouds && v.base.includes(GRAIN_CLOUD_WITNESS) && (v.refine || v.sunLowpass || v.jitter || v.erode === 2)) {
+    throw new Error('cloudGenus: grain knob needs the cloud-pass marker, which is missing from a shader that has ' + GRAIN_CLOUD_WITNESS);
+  }
   // §138 확산광은 thru 블록·하늘빛 줄을 통째로 바꾸므로 **먼저** 넣고, 바닥값 치환은 그 뒤(L2·L3 에서는 앵커가 사라져 바닥값 치환이 조용히 비활성 — 둘은 함께 쓰지 않음).
   if (v.diffuse >= 2 && v.floors && isClouds) throw new Error('cloudGenus: debugLightFloors 는 diffuse 2·3 과 함께 쓸 수 없습니다(바닥값 앵커가 교체됨)');
   // §139 뼈대 레인은 날씨 단계(sampleWeather)만 바꾸므로 확산·바닥값·얼음 앵커와 겹치지 않음 — 가장 먼저.
@@ -1343,6 +1348,8 @@ export interface GrainKnobs {
   jitter: 0 | 1;
 }
 export const GRAIN_KNOBS_OFF: GrainKnobs = { refine: 0, sunLowpass: 0, erode: 0, jitter: 0 };
+/** 구름 패스 증인 — 해 쪽 행진 함수는 구름 패스 글자에만 있음(refreshVariant 의 판별 줄 점검). */
+export const GRAIN_CLOUD_WITNESS = 'marchOpticalDepth(';
 /** RULER-grain §1 의 수치 — GLSL 에 이 값이 글자로 들어갑니다(grain-shader-test 가 대조). */
 export const GRAIN_KNOB = {
   /** E3: 모양 텍스처 실측 평균·표준편차, 변조 세기 k */
@@ -1526,6 +1533,10 @@ export function injectGrainJitter(base: string, on: 0 | 1): string {
  * 끄면(GRAIN_KNOBS_OFF) 삽입 전 원문·균일변수 목록으로 되돌립니다.
  */
 export function setGrainKnobs(mat: PatchableMaterial, knobs: GrainKnobs, erodePixelAngleDeg: number | null = null): void {
+  // 화소 각은 null(기기 0.0566°) 또는 유한한 양수만 — NaN·음수가 균일변수로 조용히 들어가지 않게.
+  if (erodePixelAngleDeg != null && !(typeof erodePixelAngleDeg === 'number' && Number.isFinite(erodePixelAngleDeg) && erodePixelAngleDeg > 0)) {
+    throw new Error('cloudGenus: erodePixelAngleDeg must be null or a finite number > 0, got ' + erodePixelAngleDeg);
+  }
   const v = variantOf(mat);
   v.refine = knobs.refine; v.sunLowpass = knobs.sunLowpass; v.erode = knobs.erode; v.jitter = knobs.jitter;
   refreshVariant(mat);
