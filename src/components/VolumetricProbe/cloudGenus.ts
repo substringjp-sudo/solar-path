@@ -1102,23 +1102,37 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 셰이더 변형 상태 — 재질마다 삽입 전 원문(base)과 지금 켠 변형(얼음 무리·가루, 바닥값 치환)을 기억합니다. 변형을 모두 끄면 글자가 base 와 같고
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
-interface ShaderVariant { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean }
+interface ShaderVariant extends GrainKnobs { base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean }
 const VARIANT = new WeakMap<object, ShaderVariant>();
 function variantOf(mat: PatchableMaterial): ShaderVariant {
   let v = VARIANT.get(mat);
-  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false }; VARIANT.set(mat, v); }
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF }; VARIANT.set(mat, v); }
   return v;
 }
 function refreshVariant(mat: PatchableMaterial): void {
   const v = variantOf(mat);
+  // 구름 패스 판별은 삽입 전 원문으로(확산 L2 가 판별 줄을 바꾸므로 지금 글자로 보면 안 됨).
+  const isClouds = v.base.includes(IS_CLOUDS);
   // §138 확산광은 thru 블록·하늘빛 줄을 통째로 바꾸므로 **먼저** 넣고, 바닥값 치환은 그 뒤(L2·L3 에서는 앵커가 사라져 바닥값 치환이 조용히 비활성 — 둘은 함께 쓰지 않음).
-  if (v.diffuse >= 2 && v.floors && v.base.includes(IS_CLOUDS)) throw new Error('cloudGenus: debugLightFloors 는 diffuse 2·3 과 함께 쓸 수 없습니다(바닥값 앵커가 교체됨)');
+  if (v.diffuse >= 2 && v.floors && isClouds) throw new Error('cloudGenus: debugLightFloors 는 diffuse 2·3 과 함께 쓸 수 없습니다(바닥값 앵커가 교체됨)');
   // §139 뼈대 레인은 날씨 단계(sampleWeather)만 바꾸므로 확산·바닥값·얼음 앵커와 겹치지 않음 — 가장 먼저.
+  // RULER-grain §8.2 주입 순서: 뼈대 → erode(sampleMedia) → diffuse → floors → ice → refine(marchClouds) → sunLowpass(marchOpticalDepth) → jitter(main).
   let want = v.skeleton ? injectGenusSkeleton(v.base) : v.base;
+  want = injectGrainErode(want, v.erode, isClouds);
   want = injectGenusDiffuse(want, v.diffuse);
   want = applyGenusFloors(want, v.floors);
   if (v.ice) want = injectGenusIce(want);
+  // 구름 패스 전용 손잡이 — 구름 패스 표지가 없는 재질(그림자 패스)은 그대로.
+  if (isClouds) {
+    want = injectGrainRefine(want, v.refine);
+    want = injectGrainSunLowpass(want, v.sunLowpass);
+    want = injectGrainJitter(want, v.jitter);
+  }
   if (mat.fragmentShader !== want) { mat.fragmentShader = want; mat.needsUpdate = true; }
+  // E3b 화소 발자국 각(°) — 구름 패스에 erode 2 일 때만 균일변수가 있음(끄면 목록이 base 와 같음).
+  const epOn = v.erode === 2 && isClouds;
+  if (epOn && !mat.uniforms.erodePixelAngle) mat.uniforms.erodePixelAngle = { value: GRAIN_KNOB.devicePixelAngleDeg };
+  if (!epOn && mat.uniforms.erodePixelAngle) { delete mat.uniforms.erodePixelAngle; mat.needsUpdate = true; }
   const injected = v.ice && want.includes('genusPhysOn');
   if (injected && !mat.uniforms.genusPhysOn) {
     mat.uniforms.genusHalo = { value: new Vector4() };
@@ -1308,4 +1322,212 @@ export function genusLayerShape(L: GenusLayer, flowDensity = false) {
     shapeAmount: (fd ? fp(L, 'flowShapeAmount') : undefined) ?? param(L, 'shapeAmount'),
     shapeDetailAmount: (fd ? fp(L, 'flowShapeDetailAmount') : undefined) ?? param(L, 'shapeDetailAmount'),
   };
+}
+
+// ───── RULER-grain §8.2 알갱이 손잡이(기본 끔) ─────
+/**
+ * 셰이더 손잡이 4 개(E1b refineOnHit · E2b sunLowpass · E3/E3b erodeCentered · E4 jitterMode) — `refreshVariant` 가 정해진 순서로 주입합니다
+ * (뼈대 → erode → diffuse → floors → ice → refine → sunLowpass → jitter). **켤 때만** 글자를 넣고, 끄면 삽입 전 원문(base) 그대로 —
+ * 셰이더 글자·균일변수 목록이 측정 번들과 같습니다(RULER-grain G0a). 새 균일변수는 E3b 의 `erodePixelAngle`(구름 패스) 하나뿐이고,
+ * 나머지 상수는 글자로 넣습니다(G0e: E1b·E2b·E4 는 구름 셰이더 글자만, E3 은 두 패스 글자만 달라야 함).
+ * 앵커가 정확히 한 번 나오지 않으면 throw(조용히 C0 이 되지 않게). E3c(debugDensityMul)는 셰이더가 아니라 setScene 의 층 값(volumetricScene.ts).
+ */
+export interface GrainKnobs {
+  /** E1b: 1차 행진에서 광선당 한 번, 첫 적중 표본을 직전 증분만큼 되감아 h = max(50 m, Δ/8) 로 다시 걷기(구름 패스) */
+  refine: 0 | 1;
+  /** E2b: 해 쪽 행진(marchOpticalDepth)의 i ≥ 1 표본은 모양 텍스처 대신 shape = 0.797(구름 패스) */
+  sunLowpass: 0 | 1;
+  /** E3(1): 모양 침식을 평균 보존 곱으로(두 패스) · E3b(2): E3 + 구름 패스 화소 발자국 페이드 */
+  erode: 0 | 1 | 2;
+  /** E4: 1차 행진 지터 = IGN + 황금비 × (frame % 64)(구름 패스) */
+  jitter: 0 | 1;
+}
+export const GRAIN_KNOBS_OFF: GrainKnobs = { refine: 0, sunLowpass: 0, erode: 0, jitter: 0 };
+/** RULER-grain §1 의 수치 — GLSL 에 이 값이 글자로 들어갑니다(grain-shader-test 가 대조). */
+export const GRAIN_KNOB = {
+  /** E3: 모양 텍스처 실측 평균·표준편차, 변조 세기 k */
+  erodeMean: 0.7906, erodeSd: 0.0785, erodeK: 0.35,
+  /** E3b: 발자국 페이드 구간(m)과 기본 화소 각(°, 기기 가운데 텍셀 — 모든 틀 같음) */
+  erodeFadeM: [150, 600] as [number, number], devicePixelAngleDeg: 0.0566,
+  /** E2b: 해 행진 i ≥ 1 표본의 모양 값(실측 중앙값) */
+  sunLowpassShape: 0.797,
+  /** E1b: 정제 보폭 하한(m)·최대 표본 수 */
+  refineMinStepM: 50, refineMaxSamples: 8,
+  /** E4: 황금비 오프셋 · 주기(프레임) */
+  jitterGolden: 0.61803398875, jitterPeriod: 64,
+};
+/** GLSL float 글자(정수는 .0 을 붙임). */
+const gf = (x: number) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
+const countOf = (s: string, a: string) => s.split(a).length - 1;
+function grainReplace(src: string, anchor: string, to: string, tag: string): string {
+  const n = countOf(src, anchor);
+  if (n !== 1) throw new Error('cloudGenus: grain ' + tag + ' anchor count ' + n + ' — ' + anchor.trim().slice(0, 48));
+  return src.replace(anchor, () => to);
+}
+
+// E3·E3b — patchFlowShader 가 만든 S7 mix 의 첫 인자(takram 문턱 remap)만 바꿈.
+export const GRAIN_ERODE_ANCHOR = '  density = mix(remapClamped(density, vec4(1.0 - shape) * shapeAmounts, vec4(1.0)),';
+const GRAIN_DECL = 'uniform vec4 coverageFilterWidths;';
+const GRAIN_PRIMARY_MEDIA = '    MediaSample media = sampleMedia(weather, position, uv, mipLevel, jitter, sampleCount);';
+/** E3(1)·E3b(2). isClouds 가 아니면(그림자 패스) E3b 도 E3 과 같음(화소 발자국은 카메라 광선에만 있음). */
+export function injectGrainErode(base: string, mode: 0 | 1 | 2, isClouds: boolean): string {
+  if (!mode) return base;
+  const K = GRAIN_KNOB;
+  const fade = mode === 2 && isClouds;
+  const mod = `((shape - ${gf(K.erodeMean)}) / ${gf(K.erodeSd)})`;
+  let src = grainReplace(base, GRAIN_ERODE_ANCHOR, [
+    `  // RULER-grain E3 erodeCentered: 문턱 remap 대신 d·clamp(1 + e·k·(s − 평균)/SD, 0, 2)(e = 층 shapeAmount — 자르기 전 기댓값 1)${fade ? ', E3b 발자국 페이드' : ''}`,
+    fade
+      ? `  float gErodeK = ${gf(K.erodeK)} * (1.0 - smoothstep(${gf(K.erodeFadeM[0])}, ${gf(K.erodeFadeM[1])}, gErodeFootM));`
+      : null,
+    `  density = mix(density * clamp(vec4(1.0) + ${fade ? 'gErodeK' : gf(K.erodeK)} * shapeAmounts * ${mod}, vec4(0.0), vec4(2.0)),`,
+  ].filter((l): l is string => l != null).join('\n'), 'erode');
+  if (fade) {
+    src = grainReplace(src, GRAIN_DECL, GRAIN_DECL + '\nuniform float erodePixelAngle;   // RULER-grain E3b 화소 각(°)\nfloat gErodeFootM = 0.0;', 'erode decl');
+    // footM = (rayNearFar.x + rayDistance)·pixelAngle / max(|sinEl|, 0.05) — 1차 표본에서만 갱신(해 행진 동안은 1차 표본 것).
+    src = grainReplace(src, GRAIN_PRIMARY_MEDIA, [
+      '    gErodeFootM = (rayNearFar.x + rayDistance) * radians(erodePixelAngle) / max(abs(dot(rayDirection, normalize(position))), 0.05);   // RULER-grain E3b',
+      GRAIN_PRIMARY_MEDIA,
+    ].join('\n'), 'erode footM');
+  }
+  return src;
+}
+
+// E1b — marchClouds 의 세 `rayDistance +=` 자리(층 사이·빈 날씨·구름 안)와 첫 적중.
+export const GRAIN_REFINE_INIT = '  float rayDistance = stepSize * jitter * 2.0;';
+export const GRAIN_REFINE_GAP = [
+  '    if (insideLayerIntervals(height)) {',
+  '      stepSize *= perspectiveStepScale;',
+  '      rayDistance += mix(stepSize, maxStepSize, min(1.0, mipLevel));',
+  '      continue;',
+  '    }',
+].join('\n');
+export const GRAIN_REFINE_EMPTY = [
+  '      // Possible improvement: Binary search refinement',
+  '      stepSize *= perspectiveStepScale;',
+  '      rayDistance += mix(stepSize, maxStepSize, min(1.0, mipLevel));',
+  '      continue;',
+  '    }',
+].join('\n');
+export const GRAIN_REFINE_HIT = '    if (media.extinction > minExtinction) {';
+export const GRAIN_REFINE_CLOUD = [
+  "    // Take a shorter step because we've already hit the clouds.",
+  '    stepSize *= perspectiveStepScale;',
+  '    rayDistance += stepSize;',
+  '  }',
+].join('\n');
+export function injectGrainRefine(base: string, on: 0 | 1): string {
+  if (!on) return base;
+  const K = GRAIN_KNOB;
+  // 정제 중 한 걸음: h 만큼, 최대 표본 수에 닿거나 적중 표본 자리(되감은 구간 끝)에 닿으면 저장한 stepSize 로 복귀.
+  const step = (ind: string, cont: boolean) => [
+    `${ind}if (gRefState == 1) {`,
+    `${ind}  gRefCount++;`,
+    `${ind}  rayDistance += gRefH;`,
+    `${ind}  if (gRefCount >= ${K.refineMaxSamples} || rayDistance >= gRefEnd) { gRefState = 2; stepSize = gRefStep; }`,
+    cont ? `${ind}  continue;` : null,
+    `${ind}}`,
+  ].filter((l): l is string => l != null);
+  let src = grainReplace(base, GRAIN_REFINE_INIT, [
+    GRAIN_REFINE_INIT,
+    '  // RULER-grain E1b refineOnHit: 직전 증분 Δ(층 사이·빈 날씨·구름 안 세 증분 자리에서 저장, 첫 표본이면 rayNearFar.x 에서 그 표본까지)·정제 상태(0 아직, 1 정제 중, 2 끝 — 광선당 한 번).',
+    '  float gRefInc = rayDistance;',
+    '  int gRefState = 0;',
+    '  int gRefCount = 0;',
+    '  float gRefH = 0.0;',
+    '  float gRefEnd = 0.0;',
+    '  float gRefStep = 0.0;',
+  ].join('\n'), 'refine init');
+  src = grainReplace(src, GRAIN_REFINE_GAP, [
+    '    if (insideLayerIntervals(height)) {',
+    ...step('      ', true),
+    '      stepSize *= perspectiveStepScale;',
+    '      gRefInc = mix(stepSize, maxStepSize, min(1.0, mipLevel));',
+    '      rayDistance += gRefInc;',
+    '      continue;',
+    '    }',
+  ].join('\n'), 'refine gap');
+  src = grainReplace(src, GRAIN_REFINE_EMPTY, [
+    '      // Possible improvement: Binary search refinement',
+    ...step('      ', true),
+    '      stepSize *= perspectiveStepScale;',
+    '      gRefInc = mix(stepSize, maxStepSize, min(1.0, mipLevel));',
+    '      rayDistance += gRefInc;',
+    '      continue;',
+    '    }',
+  ].join('\n'), 'refine empty');
+  src = grainReplace(src, GRAIN_REFINE_HIT, [
+    '    if (gRefState == 0 && media.extinction > minExtinction) {',
+    '      // RULER-grain E1b: 첫 적중 표본은 적분하지 않고 Δ 만큼 되감아 h = max(50 m, Δ/8) 로 다시 걸음(첫 표본 h·jitter, 정제 표본은 반복 상한에 셈).',
+    '      gRefState = 1;',
+    '      gRefCount = 0;',
+    `      gRefH = max(${gf(K.refineMinStepM)}, gRefInc / ${gf(K.refineMaxSamples)});`,
+    '      gRefEnd = rayDistance;',
+    '      gRefStep = stepSize;',
+    '      stepSize = gRefH;',
+    '      rayDistance = rayDistance - gRefInc + gRefH * jitter;',
+    '      if (rayDistance >= gRefEnd) { gRefState = 2; stepSize = gRefStep; }',
+    '      continue;',
+    '    }',
+    GRAIN_REFINE_HIT,
+  ].join('\n'), 'refine hit');
+  src = grainReplace(src, GRAIN_REFINE_CLOUD, [
+    "    // Take a shorter step because we've already hit the clouds.",
+    ...step('    ', false).slice(0, -1),
+    '    } else {',
+    '      stepSize *= perspectiveStepScale;',
+    '      gRefInc = stepSize;',
+    '      rayDistance += gRefInc;',
+    '    }',
+    '  }',
+  ].join('\n'), 'refine cloud');
+  return src;
+}
+
+// E2b — 해 쪽 행진 i ≥ 1 표본의 모양 fetch 를 상수로(첫 표본은 그대로). 비용 변형 앵커(모양 fetch 줄)는 글자 그대로 한 번 남김.
+export const GRAIN_SUN_SHAPE = '  float shape = texture(shapeTexture, shapePosition).r;';
+export const GRAIN_SUN_SAMPLE = [
+  '    WeatherSample weather = sampleWeather(uv, height, mipLevel);',
+  '    MediaSample media = sampleMedia(weather, position, uv, mipLevel, jitter);',
+  '    opticalDepth += media.extinction * stepSize;',
+].join('\n');
+export const GRAIN_SUN_END = '    stepSize *= secondaryStepScale;\n  }\n  return opticalDepth;';
+export function injectGrainSunLowpass(base: string, on: 0 | 1): string {
+  if (!on) return base;
+  let src = grainReplace(base, GRAIN_DECL, GRAIN_DECL + '\nint gSunLowpass = 0;   // RULER-grain E2b 표지(marchOpticalDepth i ≥ 1)', 'sunLowpass decl');
+  src = grainReplace(src, GRAIN_SUN_SHAPE, [
+    `  float gShapeLp = ${gf(GRAIN_KNOB.sunLowpassShape)};   // RULER-grain E2b: 해 행진 i ≥ 1 표본은 모양 텍스처를 읽지 않음`,
+    '  if (gSunLowpass == 0) {',
+    GRAIN_SUN_SHAPE,
+    '  gShapeLp = shape;',
+    '  }',
+    '  float shape = gShapeLp;',
+  ].join('\n'), 'sunLowpass shape');
+  src = grainReplace(src, GRAIN_SUN_SAMPLE, [
+    '    WeatherSample weather = sampleWeather(uv, height, mipLevel);',
+    '    gSunLowpass = i >= 1 ? 1 : 0;   // RULER-grain E2b',
+    '    MediaSample media = sampleMedia(weather, position, uv, mipLevel, jitter);',
+    '    opticalDepth += media.extinction * stepSize;',
+  ].join('\n'), 'sunLowpass sample');
+  src = grainReplace(src, GRAIN_SUN_END, '    stepSize *= secondaryStepScale;\n  }\n  gSunLowpass = 0;   // RULER-grain E2b 표지 되돌림\n  return opticalDepth;', 'sunLowpass end');
+  return src;
+}
+
+// E4 — 1차 행진 지터만(그림자 패스 getSTBN 은 백색 그대로).
+export const GRAIN_JITTER_ANCHOR = '  float stbn = getSTBN();';
+export function injectGrainJitter(base: string, on: 0 | 1): string {
+  if (!on) return base;
+  return grainReplace(base, GRAIN_JITTER_ANCHOR,
+    `  float stbn = fract(interleavedGradientNoise(gl_FragCoord.xy) + ${GRAIN_KNOB.jitterGolden} * float(frame % ${GRAIN_KNOB.jitterPeriod}));   // RULER-grain E4`, 'jitter');
+}
+
+/**
+ * 손잡이 켜기·끄기(재질마다). 구름 패스 전용 손잡이는 그림자 패스에서 아무것도 하지 않습니다. erodePixelAngleDeg 는 E3b 균일변수 값(°, null = 기기 0.0566°).
+ * 끄면(GRAIN_KNOBS_OFF) 삽입 전 원문·균일변수 목록으로 되돌립니다.
+ */
+export function setGrainKnobs(mat: PatchableMaterial, knobs: GrainKnobs, erodePixelAngleDeg: number | null = null): void {
+  const v = variantOf(mat);
+  v.refine = knobs.refine; v.sunLowpass = knobs.sunLowpass; v.erode = knobs.erode; v.jitter = knobs.jitter;
+  refreshVariant(mat);
+  if (mat.uniforms.erodePixelAngle) mat.uniforms.erodePixelAngle.value = erodePixelAngleDeg ?? GRAIN_KNOB.devicePixelAngleDeg;
 }

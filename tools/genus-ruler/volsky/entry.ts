@@ -134,6 +134,8 @@ const show = (tex: Texture, mode: number) => {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
       flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macroGrad: false,
+      // RULER-grain §8.2 손잡이(기본 끔 — 앞 잡의 손잡이가 새지 않게)
+      refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       // §grain 앞 grain 잡이 남긴 비용 변형·화소 오프셋만 되돌림(grain 잡이 없던 페이지에서는 아무것도 하지 않음).

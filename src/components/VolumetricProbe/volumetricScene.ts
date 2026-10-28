@@ -47,7 +47,7 @@ import {
   STBN_TEXTURE_WIDTH,
 } from '@takram/three-geospatial';
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
-import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
+import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
@@ -401,8 +401,23 @@ export interface VolumetricOptions {
    * 기본 끔(끄면 날씨 바이트 그대로). flow·skeleton 이 켜져 있으면 그쪽이 우선이고 morph 는 쓰지 않습니다(앱 화면이 throw 로 깨지지 않게).
    */
   morph: boolean;
+  /**
+   * RULER-grain §8.2 알갱이 손잡이(전부 기본 끔 — 끄면 셰이더 글자·균일변수·층 값이 측정 번들과 같음, cloudGenus.ts `setGrainKnobs`).
+   * E1b — 1차 행진에서 광선당 한 번, 첫 적중 표본을 직전 증분 Δ 만큼 되감아 h = max(50 m, Δ/8) 보폭으로 최대 8 표본 다시 걷기(구름 패스).
+   */
+  refineOnHit: 0 | 1;
+  /** E2b — 해 쪽 행진(marchOpticalDepth)의 i ≥ 1 표본은 모양 텍스처 대신 shape = 0.797(구름 패스, 표지는 함수 뒤 되돌림). */
+  sunLowpass: 0 | 1;
+  /** E3(1) — 모양 침식을 평균 보존 곱 d·clamp(1 + e·0.35·(s − 0.7906)/0.0785, 0, 2)(두 패스) · E3b(2) — E3 + 구름 패스 화소 발자국 페이드(150~600 m). */
+  erodeCentered: 0 | 1 | 2;
+  /** E3b 화소 각(°) — null 이면 기기 가운데 텍셀 0.0566°(모든 틀 같음). 균일변수 `erodePixelAngle`(erodeCentered 2 일 때만 있음). */
+  erodePixelAngleDeg: number | null;
+  /** E4 — 1차 행진 지터를 IGN + 0.618·(frame % 64) 로(구름 패스만, 그림자 패스는 백색 잡음 그대로). */
+  jitterMode: 0 | 1;
+  /** E3c 진단 전용 — setScene 의 층 CloudLayer.densityScale 에 곱함(기본 1 = 손대지 않음). 채택 대상 아님. */
+  debugDensityMul: number;
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1 };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1078,7 +1093,10 @@ export async function createVolumetricScene(
         : g && (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase) != null
           ? { densityProfile: { expTerm: 0, exponent: 0, linearTerm: 1 - (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)!, constantTerm: (opt.profileBase ?? g.opts?.profileBase ?? GENUS[g.genus].profileBase)! } }
         : {};
-      clouds.cloudLayers.push(new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow }));
+      const layer = new CloudLayer({ channel: CH[i], altitude, ...shape, ...physShape, coverageFilterWidth: CFW, shadow: layerShadow });
+      // RULER-grain E3c 진단: 층 소광 배율(균일변수가 아니라 층 값 — takram 이 매 프레임 재포장해도 남음). 기본 1 이면 손대지 않음.
+      if (opt.debugDensityMul !== 1) layer.densityScale *= opt.debugDensityMul;
+      clouds.cloudLayers.push(layer);
     }
     lastPhysics = physLanes.some(Boolean) ? physLanes : null;
     // §136·§137 얼음 레인: physics+physicsIce 면 물리 값, 아니면 iceHalo·icePowderOff 의 손값 레인(얼음 종류 층만), 둘 다 아니면 없음.
@@ -1088,6 +1106,9 @@ export async function createVolumetricScene(
       : handIce ? [0, 1, 2, 3].map(i => (useGenus && gl[i] ? iceLaneHand(gl[i]!.genus, { halo: opt.iceHalo, powderOff: opt.icePowderOff }) : null))
       : [];
     const iceOn = physIce || handIce;
+    // RULER-grain §8.2 셰이더 손잡이 — 종류 모형 여부와 무관하게 두 재질 모두(구름 패스 전용 손잡이는 그림자 패스에서 아무것도 안 함).
+    const grainKnobs = { refine: opt.refineOnHit ? 1 : 0, sunLowpass: opt.sunLowpass ? 1 : 0, erode: opt.erodeCentered === 2 ? 2 : opt.erodeCentered ? 1 : 0, jitter: opt.jitterMode ? 1 : 0 } as const;
+    for (const m of genusMats) setGrainKnobs(m, grainKnobs, opt.erodePixelAngleDeg);
     if (useGenus) {
       // §124: 층마다 종류별 무늬·단면. 종류가 없는 층은 기본 잡음을 같은 텍스처의 다른 채널에 둡니다.
       const north = new Vector3(), up = new Vector3(), east = new Vector3();
