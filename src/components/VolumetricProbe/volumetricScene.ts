@@ -432,8 +432,11 @@ export interface VolumetricScene {
   setTerrainDistance(tex: Texture | null, lit?: Texture | null, sunRidge?: Texture | null, seaSlopeVar?: number, lit2?: Texture | null): void;
   /** 마지막으로 그린 장면의 해 고도(°)와 쓴 노출 — 시험 화면 표시용. */
   lastScene(): { sunAltDeg: number; exposure: number } | null;
+  /** 품질 단계를 겁니다. 구름 해상도 배율은 바꾸지 않습니다(§169 — 해상도는 setResolutionScale 몫). */
   setQuality(q: VolumetricQuality): void;
   setResolutionScale(s: number): void;
+  /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
+  resolutionScale(): number;
   /** 손잡이를 바꾸고 지금 장면에 다시 겁니다. */
   /** 옵션을 바꿉니다. reapply=false 면 장면을 다시 걸지 않습니다(호출자가 setSceneAsync 로 다시 만듦 — §130 흐름 날씨는 동기로 만들면 수 초 멈춤). */
   setOptions(o: Partial<VolumetricOptions>, reapply?: boolean): void;
@@ -1252,7 +1255,11 @@ export async function createVolumetricScene(
     lastScene: () => last,
     // 품질 단계가 2차 행진 값을 덮어쓰므로 다시 겁니다.
     setQuality: q => {
+      // §169 takram 품질 단계는 resolutionScale 까지 1 로 덮어씁니다. 하늘 화면은 해상도를 품질 다음에 다시 걸지 않아
+      // (자동 조절기가 값이 그대로면 null) 기기가 설정 0.5 대신 1.0 으로 그렸습니다 — 하네스는 품질 뒤에 해상도를 걸어 0.5.
+      const res = clouds.resolutionScale;
       clouds.qualityPreset = q;
+      clouds.resolutionScale = res;
       // §140 low 프리셋의 1차 행진 최소 보폭 100 m 는 모양 잡음(수백 m 주기)을 성기게 떠서 텍셀마다 투과율이 3~4 텍셀 덩어리로 흔들립니다
       // (기기 캡처의 흰 점·알갱이; 하네스 low 렌더 알파 편차 0.0070 → 0.0044, medium 0.0045). 보폭만 medium 과 같은 50 m 로 — 반복 수 200·종료 투과율 0.1 은 그대로.
       if (q === 'low') clouds.clouds.minStepSize = LOW_MIN_STEP_M;
@@ -1277,6 +1284,7 @@ export async function createVolumetricScene(
       if (lastInput && reapply) setScene(lastInput);
     },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
+    resolutionScale: () => clouds.resolutionScale,
     render: dt => { tonePass.renderToScreen = true; setCloudAlphaOut(false); composer.render(dt); },
     // 마지막 패스를 화면 대신 출력 버퍼로 — 패스가 끝나면 버퍼가 바뀌어 결과는 inputBuffer 에 있습니다(postprocessing 6).
     // postprocessing 은 렌더러의 autoClear 를 끕니다 — 하늘 화면 합성기는 제 몫을 스스로 정하지만, 다른 직접 그리기
