@@ -375,26 +375,9 @@ def p1_d1m(I, a_d=A_DECK):
     return [matched(I, deckbox & dmask & (I.el >= lo) & (I.el < hi), clearbox & cmask & (I.el >= lo) & (I.el < hi), lo, hi) for lo, hi in P1_BINS]
 
 
-def metrics_P1(I):
+def p1_d2(I, above, below):
     az, el, sky = I.az, I.el, I.sky
-    above, below, deckbox, clearbox = p1_boxes(I)
-    out = {'D1box': [], 'D3box': [], 'D1box_parts': []}
-    for lo, hi in P1_BINS:   # 초안의 상자 정의(보고 — 렌더에선 틈·구름이 섞임, 통계 #4·타당성 M3)
-        b = (el >= lo) & (el < hi)
-        dk = deckbox & b; cl = clearbox & b
-        rd, rc = I.RB(dk), I.RB(cl); yd, yc = I.Ym(dk), I.Ym(cl)
-        out['D1box'].append(None if (rd is None or rc is None) else rd / rc)
-        out['D3box'].append(None if (yd is None or yc is None) else yd / yc)
-        out['D1box_parts'].append(dict(el=[lo, hi], n_deck=int(dk.sum()), n_clear=int(cl.sum()), RB_deck=rd, RB_clear=rc))
-    # D1m·D3m(판정 정의): 알파로 거른 구름/하늘, 같은 고도 맞춤
-    parts = p1_d1m(I)
-    out['D1m'] = [p['D1m'] for p in parts]; out['D3m'] = [p['D3m'] for p in parts]; out['D1m_parts'] = parts
-    if I.alpha is not None:
-        out['D1m_a09'] = [p['D1m'] for p in p1_d1m(I, 0.9)]
-        out['deckbox_cloud_frac'] = [float((I.alpha[deckbox & (el >= lo) & (el < hi)] >= 0.5).mean()) if (deckbox & (el >= lo) & (el < hi)).any() else None for lo, hi in P1_BINS]
-        out['clearbox_cloud_frac'] = [float((I.alpha[clearbox & (el >= lo) & (el < hi)] >= 0.1).mean()) if (clearbox & (el >= lo) & (el < hi)).any() else None for lo, hi in P1_BINS]
-        out['deck_toe_frac'] = [float((I.rgb8[deckbox & (el >= lo) & (el < hi) & (I.alpha >= A_DECK)].min(-1) < TOE_LO).mean())
-                                if (deckbox & (el >= lo) & (el < hi) & (I.alpha >= A_DECK)).any() else None for lo, hi in P1_BINS]
+    out = {}
     # D2 기하 거울: 덮개 쪽 = 해 방위 − d (3 ≤ d ≤ 20), 가장자리 + 2° 위; 거울 = 해 방위 + d, 같은 줄 ±0.2°, 가장자리 − 2° 아래.
     # 렌더는 덮개 쪽 α ≥ 0.7, 거울 쪽 α < 0.1(통계 #5 공동 관문).
     dmask, cmask = cloud_masks(I)
@@ -428,11 +411,52 @@ def metrics_P1(I):
         if len(dk) >= 100:
             out['D2_pooled_8_18'] = float((dk[:, 0].mean() / dk[:, 2].mean()) / (cl[:, 0].mean() / cl[:, 2].mean()))
         out['D2_pairs'] = int(len(dk))
-    # D4 띠 p10 / 빛 중앙(표시 luma)
+    return out
+
+
+def p1_d4(I):
+    az, el, sky = I.az, I.el, I.sky
     band = sky & (el <= 4.0) & (az >= 255) & (az <= 308)
     glow = sky & (el >= 5.5) & (el <= 7.5) & (az >= 268) & (az <= 305)
     gm = I.lmed(glow)
-    out['D4'] = None if (gm is None or band.sum() < 30) else float(np.percentile(I.luma[band], 10) / max(gm, 0.5))
+    return (None if (gm is None or band.sum() < 30) else float(np.percentile(I.luma[band], 10) / max(gm, 0.5))), band
+
+
+def p1_core(I):
+    """D1m·D3m·D2·D4 만(가능성 점검용, metrics_P1 와 같은 정의)."""
+    above, below, _, _ = p1_boxes(I)
+    parts = p1_d1m(I)
+    out = dict(D1m=[p['D1m'] for p in parts], D3m=[p['D3m'] for p in parts])
+    out.update(p1_d2(I, above, below))
+    out['D4'] = p1_d4(I)[0]
+    return out
+
+
+def metrics_P1(I):
+    az, el, sky = I.az, I.el, I.sky
+    above, below, deckbox, clearbox = p1_boxes(I)
+    out = {'D1box': [], 'D3box': [], 'D1box_parts': []}
+    for lo, hi in P1_BINS:   # 초안의 상자 정의(보고 — 렌더에선 틈·구름이 섞임, 통계 #4·타당성 M3)
+        b = (el >= lo) & (el < hi)
+        dk = deckbox & b; cl = clearbox & b
+        rd, rc = I.RB(dk), I.RB(cl); yd, yc = I.Ym(dk), I.Ym(cl)
+        out['D1box'].append(None if (rd is None or rc is None) else rd / rc)
+        out['D3box'].append(None if (yd is None or yc is None) else yd / yc)
+        out['D1box_parts'].append(dict(el=[lo, hi], n_deck=int(dk.sum()), n_clear=int(cl.sum()), RB_deck=rd, RB_clear=rc))
+    # D1m·D3m(판정 정의): 알파로 거른 구름/하늘, 같은 고도 맞춤
+    parts = p1_d1m(I)
+    out['D1m'] = [p['D1m'] for p in parts]; out['D3m'] = [p['D3m'] for p in parts]; out['D1m_parts'] = parts
+    if I.alpha is not None:
+        out['D1m_a09'] = [p['D1m'] for p in p1_d1m(I, 0.9)]
+        out['deckbox_cloud_frac'] = [float((I.alpha[deckbox & (el >= lo) & (el < hi)] >= 0.5).mean()) if (deckbox & (el >= lo) & (el < hi)).any() else None for lo, hi in P1_BINS]
+        out['clearbox_cloud_frac'] = [float((I.alpha[clearbox & (el >= lo) & (el < hi)] >= 0.1).mean()) if (clearbox & (el >= lo) & (el < hi)).any() else None for lo, hi in P1_BINS]
+        out['deck_toe_frac'] = [float((I.rgb8[deckbox & (el >= lo) & (el < hi) & (I.alpha >= A_DECK)].min(-1) < TOE_LO).mean())
+                                if (deckbox & (el >= lo) & (el < hi) & (I.alpha >= A_DECK)).any() else None for lo, hi in P1_BINS]
+    out.update(p1_d2(I, above, below))
+    dmask, cmask = cloud_masks(I)
+    sun = SUN['P1']['az']
+    # D4 띠 p10 / 빛 중앙(표시 luma)
+    out['D4'], band = p1_d4(I)
     # D5 띠 꼭대기(휘도 규칙)
     tops = []
     for a0 in np.arange(255.0, 308.0, 0.1):
@@ -1213,7 +1237,8 @@ def pair_spread(r1, r2):
 
 
 def margins_from(aa_pairs, var_pairs):
-    """m_k = max(적은 값, 2 × (A/A_k + 변형_k)) (통계 #8). aa·var = [(rec, rec), …]."""
+    """m_k = max(적은 값, 3 × A/A_k) (통계 #8 을 고쳐 받아들임 — C0 대 C0ps 차이는 표본별 하늘빛이라는 진짜 경로 차이라 여유에 넣지 않고 보고만).
+       aa = 같은 잡을 다른 페이지에서 두 번(C0·C0ps), var = 보고용 쌍."""
     A, Vv = {}, {}
     for r1, r2 in aa_pairs:
         for k, v in pair_spread(r1, r2).items():
@@ -1221,14 +1246,14 @@ def margins_from(aa_pairs, var_pairs):
     for r1, r2 in var_pairs:
         for k, v in pair_spread(r1, r2).items():
             Vv[k] = max(Vv.get(k, 0), v)
-    return {k: max(MARGIN0[k], 2 * (A.get(k, 0) + Vv.get(k, 0))) for k in MARGIN0}, A, Vv
+    return {k: max(MARGIN0[k], 3 * A.get(k, 0)) for k in MARGIN0}, A, Vv
 
 
 def cmd_margins(a):
     ld = lambda ps: [json.load(open(p)) for p in ps]
     aa, var = ld(a.aa or []), ld(a.var or [])
     m, A, Vv = margins_from(list(zip(aa[::2], aa[1::2])), list(zip(var[::2], var[1::2])))
-    r = dict(margins=r3(m, 4), aa=r3(A, 4), variant=r3(Vv, 4), rule='m_k = max(적은 값, 2 × (A/A + 변형 퍼짐))')
+    r = dict(margins=r3(m, 4), aa=r3(A, 4), variant_report=r3(Vv, 4), rule='m_k = max(적은 값, 3 × A/A)')
     print(json.dumps(r, ensure_ascii=False))
     if a.out:
         json.dump(r, open(a.out, 'w'), indent=1, ensure_ascii=False)
@@ -1248,7 +1273,7 @@ def feas_scan(png, hi, rgb, guard_base=None, photo=None, fs=None, where='cloud')
     Yd = float((S[dm] @ LUM).mean())
     w = al * ((I.el >= 5.0) if where == 'deck' else 1.0)
     # 표시 8 비트 다시 만들기: 장면 선형 → ACES(k = 1, 역변환과 같은 척도) → sRGB 8 비트
-    base_rec = dict(metrics=METRICS['P1'](I), metrics_scene={k: v for k, v in METRICS['P1'](I.scene).items()})
+    base_rec = dict(metrics=p1_core(I), metrics_scene=p1_core(I.scene))
     photo = photo or json.load(open(os.path.join(HERE, 'tsun-photo.json')))
     B = guard_base or base_rec
     rows = []
@@ -1258,7 +1283,7 @@ def feas_scan(png, hi, rgb, guard_base=None, photo=None, fs=None, where='cloud')
         J = Img('P1', rgb8, I.az, I.el, I.alpha, 'render')
         ok2 = (rgb8.min(-1) >= TOE_LO) & (rgb8.max(-1) <= TOE_HI)
         Js = J.with_lin(S2, ok2 | (I.scene.sky if hi else np.zeros_like(ok2)), 'scene')
-        rec = dict(metrics=METRICS['P1'](J), metrics_scene=METRICS['P1'](Js))
+        rec = dict(metrics=p1_core(J), metrics_scene=p1_core(Js))
         V = judge_one('P1', photo, rec, B)
         rows.append(dict(f=f, D1m=r3(rec['metrics']['D1m']), D1m_scene=r3(rec['metrics_scene']['D1m']), D2=r3(rec['metrics']['D2_pooled_8_18']),
                          D2_scene=r3(rec['metrics_scene']['D2_pooled_8_18']), D3m=r3(rec['metrics']['D3m']), D4=r3(rec['metrics']['D4']),

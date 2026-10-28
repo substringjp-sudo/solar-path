@@ -18,7 +18,7 @@ function solve(lat, lon, day, target) {
   for (let i = 0; i < 60; i++) { const c = (a + b) / 2; const al = S.sunPosition(new Date(c), lat, lon).altitude * D; if (al > target) a = c; else b = c; }
   const t = new Date(Math.round((a + b) / 2 / 1000) * 1000); return { iso: t.toISOString(), ...pos(t.toISOString(), lat, lon) };
 }
-for (const s of [15, 8, 4, 1.1, -1.0, -2.5, -4.0, -6.9, -9.8]) res.ra['heda_' + s] = solve(34.97342, 138.77713, '2026-10-05', s);
+for (const s of [15, 8, 4, 1.1, -0.9, -1.0, -1.1, -1.9, -2.1, -2.5, -3.0, -3.3, -3.6, -4.0, -6.9, -9.8]) res.ra['heda_' + s] = solve(34.97342, 138.77713, '2026-10-05', s);
 for (const s of [-2.5, -4.0, -9.84]) res.ra['fukui_' + s] = solve(36.046, 136.278, '2026-10-02', s);
 // high-sun guard times (afternoon, Heda)
 function solveUp(lat, lon, day, target) {

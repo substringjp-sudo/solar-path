@@ -1,5 +1,5 @@
 {
- "note": "RULER-tsun 장면(초안). 판정 장면 = B(사진 맞춤), A(예보)는 보고·배치 점검. 사진은 저장소 밖(tsun-photo.json 의 sha256).",
+ "note": "RULER-tsun 장면(동결 후보). 판정 장면 = B(사진 맞춤), A(예보)는 보고·배치 점검. 사진은 저장소 밖(tsun-photo.json 의 sha256).",
  "sources": {
   "P1": {
    "path": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/rend/jobs-R1.json",
@@ -14,12 +14,16 @@
    "sha256": "9cda2e49d9d26e21829727ce7d5095e5069ba45b354e2d0d6abcdb9f418cbe16"
   },
   "TW": {
-   "path": "/home/user/solar-path/tools/genus-ruler/flow/jobs-flow-guards.json",
+   "path": "tools/genus-ruler/flow/jobs-flow-guards.json",
    "sha256": "2d16e1be31c56db2d63ef43fbc5cafd59fff96f502b9a706b5982eaeaec4dbc5"
   },
   "DEV": {
    "path": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/jobs-P2-1.json",
    "sha256": "393ba28764ae79a2ff742cab4ed4114822651495f5b92e885d3dfd1f9f64a0db"
+  },
+  "GRAIN": {
+   "path": "tools/genus-ruler/grain/jobs-grain.json",
+   "sha256": "ce9a07b5fc024f9c78c0988ea8d9c6f6bd3d5de0c716eeece3c84b66a8b7ddcc"
   }
  },
  "engine_sun": {
@@ -60,15 +64,50 @@
     "alt": 1.1003,
     "az": 263.3783
    },
+   "heda_-0.9": {
+    "iso": "2026-10-05T08:24:19.000Z",
+    "alt": -0.8984,
+    "az": 264.7813
+   },
    "heda_-1": {
     "iso": "2026-10-05T08:24:49.000Z",
     "alt": -1.0005,
     "az": 264.8527
    },
+   "heda_-1.1": {
+    "iso": "2026-10-05T08:25:18.000Z",
+    "alt": -1.0993,
+    "az": 264.9217
+   },
+   "heda_-1.9": {
+    "iso": "2026-10-05T08:29:13.000Z",
+    "alt": -1.8996,
+    "az": 265.4805
+   },
+   "heda_-2.1": {
+    "iso": "2026-10-05T08:30:12.000Z",
+    "alt": -2.1006,
+    "az": 265.6207
+   },
    "heda_-2.5": {
     "iso": "2026-10-05T08:32:09.000Z",
     "alt": -2.4993,
     "az": 265.8986
+   },
+   "heda_-3": {
+    "iso": "2026-10-05T08:34:36.000Z",
+    "alt": -3.0005,
+    "az": 266.2475
+   },
+   "heda_-3.3": {
+    "iso": "2026-10-05T08:36:04.000Z",
+    "alt": -3.3007,
+    "az": 266.4564
+   },
+   "heda_-3.6": {
+    "iso": "2026-10-05T08:37:32.000Z",
+    "alt": -3.6009,
+    "az": 266.6652
    },
    "heda_-4": {
     "iso": "2026-10-05T08:39:29.000Z",
@@ -149,14 +188,28 @@
    "W": 800,
    "H": 600,
    "roll": 0.0
+  },
+  "TW": {
+   "W": 390,
+   "H": 584,
+   "src": "flow/README.md:13"
+  },
+  "DEV": {
+   "W": 390,
+   "H": 520,
+   "src": "heda/render-metrics.json device_view_cams"
+  },
+  "RA": {
+   "W": 400,
+   "H": 300
   }
  },
  "scenes": {
   "P1B": {
-   "role": "판정(R-B-deep D1~D5)",
+   "role": "판정(R-B-deep D1m·D2, 가드 D3·D4)",
    "exposureScale": 45,
    "job": {
-    "name": "P1_B_t0x_obs_r100",
+    "name": "P1B",
     "input": {
      "thermo": {
       "groundM": 23,
@@ -356,7 +409,7 @@
        "high": 9319
       },
       "critic_preshift_sha256": "a214ed0be7b243cd3f1927c58a54791b4890c5343f4a9fd5f5cce66276edce3c",
-      "note": "비평 잡의 고리는 §173 버그를 상쇄하려고 북쪽 20.34 km 미리 밀었음(rend/mkjobs.py MACRO_SHIFT). §173 고친 번들에서는 밀지 않은 고리(shift 0)를 씀 — 이 sha. 미리 민 원본 sha 는 critic_preshift_sha256."
+      "note": "비평 잡의 고리는 §173 버그를 상쇄하려고 북쪽 20.34 km 미리 밀었음(rend/mkjobs.py MACRO_SHIFT). §173 고친 번들에서는 밀지 않은 고리(shift 0)를 씀 — 이 sha. 미리 민 원본 sha 는 critic_preshift_sha256. §173 은 24 km 종류 타일 원점도 0.85 타일 옮겨 구름 질감 실현은 비평 렌더와 다름(절차 #8)."
      },
      "date_critic": "2026-10-02T09:22:21Z"
     },
@@ -461,11 +514,234 @@
     ]
    ]
   },
+  "P1Bh": {
+   "role": "장면 선형 합침(×16 노출, §3.1) — P1B 와 같은 잡, 노출만",
+   "exposureScale": 720,
+   "job": {
+    "name": "P1Bh",
+    "input": {
+     "thermo": {
+      "groundM": 23,
+      "t2mC": 19.6275,
+      "td2mC": 13.08825,
+      "levels": [
+       {
+        "zM": 150.754225,
+        "tC": 19.1765,
+        "pHPa": 1000
+       },
+       {
+        "zM": 366.5005,
+        "tC": 17.713749999999997,
+        "pHPa": 975
+       },
+       {
+        "zM": 588.4,
+        "tC": 15.850999999999999,
+        "pHPa": 950
+       },
+       {
+        "zM": 813.95,
+        "tC": 13.9255,
+        "pHPa": 925
+       },
+       {
+        "zM": 1049.31,
+        "tC": 12.03725,
+        "pHPa": 900
+       },
+       {
+        "zM": 1520.03,
+        "tC": 8.51175,
+        "pHPa": 850
+       },
+       {
+        "zM": 2020.17,
+        "tC": 6.749,
+        "pHPa": 800
+       },
+       {
+        "zM": 2547.8625,
+        "tC": 6.774500000000001,
+        "pHPa": 750
+       },
+       {
+        "zM": 3112.3605000000002,
+        "tC": 4.4745,
+        "pHPa": 700
+       },
+       {
+        "zM": 4354.15,
+        "tC": -1.249,
+        "pHPa": 600
+       },
+       {
+        "zM": 5785.92,
+        "tC": -9.1745,
+        "pHPa": 500
+       },
+       {
+        "zM": 7470,
+        "tC": -19.3235,
+        "pHPa": 400
+       },
+       {
+        "zM": 9569.39,
+        "tC": -30,
+        "pHPa": 300
+       },
+       {
+        "zM": 10834.01,
+        "tC": -40,
+        "pHPa": 250
+       },
+       {
+        "zM": 12315.33,
+        "tC": -52,
+        "pHPa": 200
+       }
+      ],
+      "pblM": 592.25,
+      "capeJkg": 0,
+      "freezingLevelM": 4035.1,
+      "rhLevels": [
+       {
+        "zM": 150.754225,
+        "rhPct": 58.49
+       },
+       {
+        "zM": 366.5005,
+        "rhPct": 60.49
+       },
+       {
+        "zM": 588.4,
+        "rhPct": 65.1175
+       },
+       {
+        "zM": 813.95,
+        "rhPct": 68.3725
+       },
+       {
+        "zM": 1049.31,
+        "rhPct": 70.255
+       },
+       {
+        "zM": 1520.03,
+        "rhPct": 63.765
+       },
+       {
+        "zM": 2020.17,
+        "rhPct": 33.765
+       },
+       {
+        "zM": 2547.8625,
+        "rhPct": 2
+       },
+       {
+        "zM": 3112.3605000000002,
+        "rhPct": 2
+       },
+       {
+        "zM": 4354.15,
+        "rhPct": 5
+       },
+       {
+        "zM": 5785.92,
+        "rhPct": 4
+       },
+       {
+        "zM": 7470,
+        "rhPct": 10.1375
+       },
+       {
+        "zM": 9569.39,
+        "rhPct": 12.51
+       }
+      ],
+      "windLowMps": [
+       -2.1763347561725137,
+       -10.405479433612953
+      ],
+      "windMidMps": [
+       17.981470053000315,
+       -0.6279267708435763
+      ],
+      "precipMm": 0
+     },
+     "layers": [
+      {
+       "genus": "cu",
+       "cover": 0.5,
+       "baseKm": 1.0,
+       "thicknessM": 2000,
+       "band": "low",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": null,
+       "cover": 0,
+       "baseKm": 4.5,
+       "band": "mid"
+      },
+      {
+       "genus": "ac",
+       "cover": 0.75,
+       "baseKm": 7.4,
+       "thicknessM": 500,
+       "band": "high",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      }
+     ],
+     "lat": 36.046,
+     "lon": 136.278,
+     "heightM": 13,
+     "az": 275.301,
+     "el": 8.452,
+     "fov": 58.285,
+     "date": "2026-10-02T09:22:21.793Z",
+     "macroRef": {
+      "gen": "P1B",
+      "params": {
+       "shift_km": [
+        0.0,
+        0.0
+       ]
+      },
+      "sha256": "d7373122197ab7e1f54ef41973f6c3bcd29abcd755d69b38a05d8458b0223f33",
+      "n_points": {
+       "low": 9319,
+       "mid": 9319,
+       "high": 9319
+      },
+      "critic_preshift_sha256": "a214ed0be7b243cd3f1927c58a54791b4890c5343f4a9fd5f5cce66276edce3c",
+      "note": "비평 잡의 고리는 §173 버그를 상쇄하려고 북쪽 20.34 km 미리 밀었음(rend/mkjobs.py MACRO_SHIFT). §173 고친 번들에서는 밀지 않은 고리(shift 0)를 씀 — 이 sha. 미리 민 원본 sha 는 critic_preshift_sha256. §173 은 24 km 종류 타일 원점도 0.85 타일 옮겨 구름 질감 실현은 비평 렌더와 다름(절차 #8)."
+     },
+     "date_critic": "2026-10-02T09:22:21Z"
+    },
+    "frames": 32,
+    "timedN": 4,
+    "quality": "low",
+    "res": 0.5,
+    "options": {
+     "maxRayKm": 100,
+     "macro": 1,
+     "macroN": 256,
+     "accurateSunBelowDeg": null,
+     "flowCamCell": false
+    },
+    "out": "both",
+    "exposureScale": 720
+   }
+  },
   "P1CF": {
-   "role": "가드(서쪽 흐림 반사실, §4.5)",
+   "role": "관문(서쪽 흐림 반사실, §4.5)",
    "exposureScale": 45,
    "job": {
-    "name": "P1_B_t0x_obs_r100",
+    "name": "P1CF",
     "input": {
      "thermo": {
       "groundM": 23,
@@ -630,7 +906,7 @@
        "genus": "ns",
        "cover": 1.0,
        "baseKm": 2.0,
-       "thicknessM": 10000,
+       "thicknessM": 14000,
        "band": "mid",
        "opts": {
         "beamTransmittance": 0.0
@@ -662,7 +938,7 @@
         0.0
        ]
       },
-      "sha256": "dadbe9ee301be22beecec7d39267f836430adc83c29ff54b659dd9870bfd3933"
+      "sha256": "8724f582251f71b50999ca7937746b0ddacc1eee5b0ce98331f3fefe9e74a23b"
      },
      "date_critic": "2026-10-02T09:22:21Z"
     },
@@ -682,8 +958,8 @@
    },
    "params": {
     "az": [
-     240,
-     305
+     180,
+     360
     ],
     "dist": [
      100,
@@ -692,14 +968,696 @@
     "cover": 1.0,
     "genus": "ns",
     "baseKm": 2.0,
-    "thicknessM": 10000
+    "thicknessM": 14000
+   },
+   "src": {
+    "derived_from": "P1B",
+    "note": "P1B + 중층 벽(이름 따로, 절차 #17)"
+   }
+  },
+  "P1CFh": {
+   "role": "P1CF 의 ×16 노출(장면 선형 합침)",
+   "exposureScale": 720,
+   "job": {
+    "name": "P1CFh",
+    "input": {
+     "thermo": {
+      "groundM": 23,
+      "t2mC": 19.6275,
+      "td2mC": 13.08825,
+      "levels": [
+       {
+        "zM": 150.754225,
+        "tC": 19.1765,
+        "pHPa": 1000
+       },
+       {
+        "zM": 366.5005,
+        "tC": 17.713749999999997,
+        "pHPa": 975
+       },
+       {
+        "zM": 588.4,
+        "tC": 15.850999999999999,
+        "pHPa": 950
+       },
+       {
+        "zM": 813.95,
+        "tC": 13.9255,
+        "pHPa": 925
+       },
+       {
+        "zM": 1049.31,
+        "tC": 12.03725,
+        "pHPa": 900
+       },
+       {
+        "zM": 1520.03,
+        "tC": 8.51175,
+        "pHPa": 850
+       },
+       {
+        "zM": 2020.17,
+        "tC": 6.749,
+        "pHPa": 800
+       },
+       {
+        "zM": 2547.8625,
+        "tC": 6.774500000000001,
+        "pHPa": 750
+       },
+       {
+        "zM": 3112.3605000000002,
+        "tC": 4.4745,
+        "pHPa": 700
+       },
+       {
+        "zM": 4354.15,
+        "tC": -1.249,
+        "pHPa": 600
+       },
+       {
+        "zM": 5785.92,
+        "tC": -9.1745,
+        "pHPa": 500
+       },
+       {
+        "zM": 7470,
+        "tC": -19.3235,
+        "pHPa": 400
+       },
+       {
+        "zM": 9569.39,
+        "tC": -30,
+        "pHPa": 300
+       },
+       {
+        "zM": 10834.01,
+        "tC": -40,
+        "pHPa": 250
+       },
+       {
+        "zM": 12315.33,
+        "tC": -52,
+        "pHPa": 200
+       }
+      ],
+      "pblM": 592.25,
+      "capeJkg": 0,
+      "freezingLevelM": 4035.1,
+      "rhLevels": [
+       {
+        "zM": 150.754225,
+        "rhPct": 58.49
+       },
+       {
+        "zM": 366.5005,
+        "rhPct": 60.49
+       },
+       {
+        "zM": 588.4,
+        "rhPct": 65.1175
+       },
+       {
+        "zM": 813.95,
+        "rhPct": 68.3725
+       },
+       {
+        "zM": 1049.31,
+        "rhPct": 70.255
+       },
+       {
+        "zM": 1520.03,
+        "rhPct": 63.765
+       },
+       {
+        "zM": 2020.17,
+        "rhPct": 33.765
+       },
+       {
+        "zM": 2547.8625,
+        "rhPct": 2
+       },
+       {
+        "zM": 3112.3605000000002,
+        "rhPct": 2
+       },
+       {
+        "zM": 4354.15,
+        "rhPct": 5
+       },
+       {
+        "zM": 5785.92,
+        "rhPct": 4
+       },
+       {
+        "zM": 7470,
+        "rhPct": 10.1375
+       },
+       {
+        "zM": 9569.39,
+        "rhPct": 12.51
+       }
+      ],
+      "windLowMps": [
+       -2.1763347561725137,
+       -10.405479433612953
+      ],
+      "windMidMps": [
+       17.981470053000315,
+       -0.6279267708435763
+      ],
+      "precipMm": 0
+     },
+     "layers": [
+      {
+       "genus": "cu",
+       "cover": 0.5,
+       "baseKm": 1.0,
+       "thicknessM": 2000,
+       "band": "low",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": "ns",
+       "cover": 1.0,
+       "baseKm": 2.0,
+       "thicknessM": 14000,
+       "band": "mid",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": "ac",
+       "cover": 0.75,
+       "baseKm": 7.4,
+       "thicknessM": 500,
+       "band": "high",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      }
+     ],
+     "lat": 36.046,
+     "lon": 136.278,
+     "heightM": 13,
+     "az": 275.301,
+     "el": 8.452,
+     "fov": 58.285,
+     "date": "2026-10-02T09:22:21.793Z",
+     "macroRef": {
+      "gen": "P1CF",
+      "params": {
+       "shift_km": [
+        0.0,
+        0.0
+       ]
+      },
+      "sha256": "8724f582251f71b50999ca7937746b0ddacc1eee5b0ce98331f3fefe9e74a23b"
+     },
+     "date_critic": "2026-10-02T09:22:21Z"
+    },
+    "frames": 32,
+    "timedN": 4,
+    "quality": "low",
+    "res": 0.5,
+    "options": {
+     "maxRayKm": 100,
+     "macro": 1,
+     "macroN": 256,
+     "accurateSunBelowDeg": null,
+     "flowCamCell": false
+    },
+    "out": "both",
+    "exposureScale": 720
+   }
+  },
+  "P1CE": {
+   "role": "관문(동쪽 대조, §4.5)",
+   "exposureScale": 45,
+   "job": {
+    "name": "P1CE",
+    "input": {
+     "thermo": {
+      "groundM": 23,
+      "t2mC": 19.6275,
+      "td2mC": 13.08825,
+      "levels": [
+       {
+        "zM": 150.754225,
+        "tC": 19.1765,
+        "pHPa": 1000
+       },
+       {
+        "zM": 366.5005,
+        "tC": 17.713749999999997,
+        "pHPa": 975
+       },
+       {
+        "zM": 588.4,
+        "tC": 15.850999999999999,
+        "pHPa": 950
+       },
+       {
+        "zM": 813.95,
+        "tC": 13.9255,
+        "pHPa": 925
+       },
+       {
+        "zM": 1049.31,
+        "tC": 12.03725,
+        "pHPa": 900
+       },
+       {
+        "zM": 1520.03,
+        "tC": 8.51175,
+        "pHPa": 850
+       },
+       {
+        "zM": 2020.17,
+        "tC": 6.749,
+        "pHPa": 800
+       },
+       {
+        "zM": 2547.8625,
+        "tC": 6.774500000000001,
+        "pHPa": 750
+       },
+       {
+        "zM": 3112.3605000000002,
+        "tC": 4.4745,
+        "pHPa": 700
+       },
+       {
+        "zM": 4354.15,
+        "tC": -1.249,
+        "pHPa": 600
+       },
+       {
+        "zM": 5785.92,
+        "tC": -9.1745,
+        "pHPa": 500
+       },
+       {
+        "zM": 7470,
+        "tC": -19.3235,
+        "pHPa": 400
+       },
+       {
+        "zM": 9569.39,
+        "tC": -30,
+        "pHPa": 300
+       },
+       {
+        "zM": 10834.01,
+        "tC": -40,
+        "pHPa": 250
+       },
+       {
+        "zM": 12315.33,
+        "tC": -52,
+        "pHPa": 200
+       }
+      ],
+      "pblM": 592.25,
+      "capeJkg": 0,
+      "freezingLevelM": 4035.1,
+      "rhLevels": [
+       {
+        "zM": 150.754225,
+        "rhPct": 58.49
+       },
+       {
+        "zM": 366.5005,
+        "rhPct": 60.49
+       },
+       {
+        "zM": 588.4,
+        "rhPct": 65.1175
+       },
+       {
+        "zM": 813.95,
+        "rhPct": 68.3725
+       },
+       {
+        "zM": 1049.31,
+        "rhPct": 70.255
+       },
+       {
+        "zM": 1520.03,
+        "rhPct": 63.765
+       },
+       {
+        "zM": 2020.17,
+        "rhPct": 33.765
+       },
+       {
+        "zM": 2547.8625,
+        "rhPct": 2
+       },
+       {
+        "zM": 3112.3605000000002,
+        "rhPct": 2
+       },
+       {
+        "zM": 4354.15,
+        "rhPct": 5
+       },
+       {
+        "zM": 5785.92,
+        "rhPct": 4
+       },
+       {
+        "zM": 7470,
+        "rhPct": 10.1375
+       },
+       {
+        "zM": 9569.39,
+        "rhPct": 12.51
+       }
+      ],
+      "windLowMps": [
+       -2.1763347561725137,
+       -10.405479433612953
+      ],
+      "windMidMps": [
+       17.981470053000315,
+       -0.6279267708435763
+      ],
+      "precipMm": 0
+     },
+     "layers": [
+      {
+       "genus": "cu",
+       "cover": 0.5,
+       "baseKm": 1.0,
+       "thicknessM": 2000,
+       "band": "low",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": "ns",
+       "cover": 1.0,
+       "baseKm": 2.0,
+       "thicknessM": 14000,
+       "band": "mid",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": "ac",
+       "cover": 0.75,
+       "baseKm": 7.4,
+       "thicknessM": 500,
+       "band": "high",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      }
+     ],
+     "lat": 36.046,
+     "lon": 136.278,
+     "heightM": 13,
+     "az": 275.301,
+     "el": 8.452,
+     "fov": 58.285,
+     "date": "2026-10-02T09:22:21.793Z",
+     "macroRef": {
+      "gen": "P1CE",
+      "params": {
+       "shift_km": [
+        0.0,
+        0.0
+       ]
+      },
+      "sha256": "bddf997b9427d96b39084b87556a7143ae12b20c1ed1d05690576f166d3ab585"
+     },
+     "date_critic": "2026-10-02T09:22:21Z"
+    },
+    "frames": 32,
+    "timedN": 4,
+    "quality": "low",
+    "res": 0.5,
+    "options": {
+     "maxRayKm": 100,
+     "macro": 1,
+     "macroN": 256,
+     "accurateSunBelowDeg": null,
+     "flowCamCell": false
+    },
+    "out": "both",
+    "exposureScale": 45
+   },
+   "params": {
+    "az": [
+     0,
+     180
+    ],
+    "dist": [
+     100,
+     380
+    ],
+    "cover": 1.0,
+    "genus": "ns",
+    "baseKm": 2.0,
+    "thicknessM": 14000
+   },
+   "src": {
+    "derived_from": "P1B",
+    "note": "P1B + 중층 벽(이름 따로, 절차 #17)"
+   }
+  },
+  "P1CEh": {
+   "role": "P1CE 의 ×16 노출(장면 선형 합침)",
+   "exposureScale": 720,
+   "job": {
+    "name": "P1CEh",
+    "input": {
+     "thermo": {
+      "groundM": 23,
+      "t2mC": 19.6275,
+      "td2mC": 13.08825,
+      "levels": [
+       {
+        "zM": 150.754225,
+        "tC": 19.1765,
+        "pHPa": 1000
+       },
+       {
+        "zM": 366.5005,
+        "tC": 17.713749999999997,
+        "pHPa": 975
+       },
+       {
+        "zM": 588.4,
+        "tC": 15.850999999999999,
+        "pHPa": 950
+       },
+       {
+        "zM": 813.95,
+        "tC": 13.9255,
+        "pHPa": 925
+       },
+       {
+        "zM": 1049.31,
+        "tC": 12.03725,
+        "pHPa": 900
+       },
+       {
+        "zM": 1520.03,
+        "tC": 8.51175,
+        "pHPa": 850
+       },
+       {
+        "zM": 2020.17,
+        "tC": 6.749,
+        "pHPa": 800
+       },
+       {
+        "zM": 2547.8625,
+        "tC": 6.774500000000001,
+        "pHPa": 750
+       },
+       {
+        "zM": 3112.3605000000002,
+        "tC": 4.4745,
+        "pHPa": 700
+       },
+       {
+        "zM": 4354.15,
+        "tC": -1.249,
+        "pHPa": 600
+       },
+       {
+        "zM": 5785.92,
+        "tC": -9.1745,
+        "pHPa": 500
+       },
+       {
+        "zM": 7470,
+        "tC": -19.3235,
+        "pHPa": 400
+       },
+       {
+        "zM": 9569.39,
+        "tC": -30,
+        "pHPa": 300
+       },
+       {
+        "zM": 10834.01,
+        "tC": -40,
+        "pHPa": 250
+       },
+       {
+        "zM": 12315.33,
+        "tC": -52,
+        "pHPa": 200
+       }
+      ],
+      "pblM": 592.25,
+      "capeJkg": 0,
+      "freezingLevelM": 4035.1,
+      "rhLevels": [
+       {
+        "zM": 150.754225,
+        "rhPct": 58.49
+       },
+       {
+        "zM": 366.5005,
+        "rhPct": 60.49
+       },
+       {
+        "zM": 588.4,
+        "rhPct": 65.1175
+       },
+       {
+        "zM": 813.95,
+        "rhPct": 68.3725
+       },
+       {
+        "zM": 1049.31,
+        "rhPct": 70.255
+       },
+       {
+        "zM": 1520.03,
+        "rhPct": 63.765
+       },
+       {
+        "zM": 2020.17,
+        "rhPct": 33.765
+       },
+       {
+        "zM": 2547.8625,
+        "rhPct": 2
+       },
+       {
+        "zM": 3112.3605000000002,
+        "rhPct": 2
+       },
+       {
+        "zM": 4354.15,
+        "rhPct": 5
+       },
+       {
+        "zM": 5785.92,
+        "rhPct": 4
+       },
+       {
+        "zM": 7470,
+        "rhPct": 10.1375
+       },
+       {
+        "zM": 9569.39,
+        "rhPct": 12.51
+       }
+      ],
+      "windLowMps": [
+       -2.1763347561725137,
+       -10.405479433612953
+      ],
+      "windMidMps": [
+       17.981470053000315,
+       -0.6279267708435763
+      ],
+      "precipMm": 0
+     },
+     "layers": [
+      {
+       "genus": "cu",
+       "cover": 0.5,
+       "baseKm": 1.0,
+       "thicknessM": 2000,
+       "band": "low",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": "ns",
+       "cover": 1.0,
+       "baseKm": 2.0,
+       "thicknessM": 14000,
+       "band": "mid",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      },
+      {
+       "genus": "ac",
+       "cover": 0.75,
+       "baseKm": 7.4,
+       "thicknessM": 500,
+       "band": "high",
+       "opts": {
+        "beamTransmittance": 0.0
+       }
+      }
+     ],
+     "lat": 36.046,
+     "lon": 136.278,
+     "heightM": 13,
+     "az": 275.301,
+     "el": 8.452,
+     "fov": 58.285,
+     "date": "2026-10-02T09:22:21.793Z",
+     "macroRef": {
+      "gen": "P1CE",
+      "params": {
+       "shift_km": [
+        0.0,
+        0.0
+       ]
+      },
+      "sha256": "bddf997b9427d96b39084b87556a7143ae12b20c1ed1d05690576f166d3ab585"
+     },
+     "date_critic": "2026-10-02T09:22:21Z"
+    },
+    "frames": 32,
+    "timedN": 4,
+    "quality": "low",
+    "res": 0.5,
+    "options": {
+     "maxRayKm": 100,
+     "macro": 1,
+     "macroN": 256,
+     "accurateSunBelowDeg": null,
+     "flowCamCell": false
+    },
+    "out": "both",
+    "exposureScale": 720
    }
   },
   "P1A": {
    "role": "보고(예보 장면, 덮개 없음)",
    "exposureScale": 45,
    "job": {
-    "name": "P1_A_t0x_obs_r100",
+    "name": "P1A",
     "input": {
      "lat": 36.046,
      "lon": 136.278,
@@ -2294,10 +3252,10 @@
    "note": "scene-P1-forecast.json(§175 전 liveScene, SunCalc). 해 −9.84 라 빔·τ 영향 없음 [estimate]."
   },
   "P2B": {
-   "role": "판정(R-B-deep E5~E8)",
+   "role": "가드(E3·E4·E7·E8, H2) · 보고(E5·E6)",
    "exposureScale": 2.0,
    "job": {
-    "name": "P2_B_t0x_obs_r100",
+    "name": "P2B",
     "input": {
      "lat": 34.97342,
      "lon": 138.77713,
@@ -2535,7 +3493,7 @@
    "role": "배치 점검·보고(E1~E4)",
    "exposureScale": 2.0,
    "job": {
-    "name": "P2_A_t0x_obs_r100",
+    "name": "P2A",
     "input": {
      "lat": 34.97342,
      "lon": 138.77713,
@@ -4130,13 +5088,13 @@
     "file": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/jobs-P2-2.json",
     "name": "P2_A_t0x_obs_r100"
    },
-   "note": "heda/rend2/scenes/forecast-scenes.json(80f22a6 liveScene = §175 전, SunCalc 빔·τ). P3 은 해 +1.1 이라 빔·τ 가 §175 뒤 달라질 수 있음 — 재측정 때 HEAD liveScene 으로 다시 만들지 말 것(고정), 차이는 보고만."
+   "note": "heda/rend2/scenes/forecast-scenes.json(80f22a6 liveScene = §175 전, SunCalc 빔·τ). 고정 — 다시 만들지 말 것, 차이는 보고만."
   },
   "P3B": {
-   "role": "판정(R-C C1~C5)",
+   "role": "판정(R-C C1, 가드 C5·FL)",
    "exposureScale": 0.13,
    "job": {
-    "name": "P3_B_t0x_obs_r100",
+    "name": "P3B",
     "input": {
      "lat": 34.97342,
      "lon": 138.77713,
@@ -4372,7 +5330,7 @@
    "role": "보고",
    "exposureScale": 0.13,
    "job": {
-    "name": "P3_A_t0x_obs_r100",
+    "name": "P3A",
     "input": {
      "lat": 34.97342,
      "lon": 138.77713,
@@ -5967,12 +6925,12 @@
     "file": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/rend2/jobs-P3-2.json",
     "name": "P3_A_t0x_obs_r100"
    },
-   "note": "heda/rend2/scenes/forecast-scenes.json(80f22a6 liveScene = §175 전, SunCalc 빔·τ). P3 은 해 +1.1 이라 빔·τ 가 §175 뒤 달라질 수 있음 — 재측정 때 HEAD liveScene 으로 다시 만들지 말 것(고정), 차이는 보고만."
+   "note": "heda/rend2/scenes/forecast-scenes.json(80f22a6 liveScene = §175 전, SunCalc 빔·τ). 고정 — 다시 만들지 말 것, 차이는 보고만."
   },
   "tw1734": {
-   "role": "가드(RULER-twilight-hue H1)",
+   "role": "가드(RULER-twilight-hue H1; quality high 라 C0 ≡ C0ps, 절차 #13)",
    "job": {
-    "name": "C0_tw1734",
+    "name": "tw1734",
     "input": {
      "lat": 37.81,
      "lon": 138.28,
@@ -6002,14 +6960,14 @@
     "out": "both"
    },
    "src": {
-    "file": "/home/user/solar-path/tools/genus-ruler/flow/jobs-flow-guards.json",
+    "file": "tools/genus-ruler/flow/jobs-flow-guards.json",
     "name": "C0_tw1734"
    }
   },
   "tw1746": {
-   "role": "가드(RULER-twilight-hue H1)",
+   "role": "가드(RULER-twilight-hue H1; quality high 라 C0 ≡ C0ps, 절차 #13)",
    "job": {
-    "name": "C0_tw1746",
+    "name": "tw1746",
     "input": {
      "lat": 37.81,
      "lon": 138.28,
@@ -6039,14 +6997,14 @@
     "out": "both"
    },
    "src": {
-    "file": "/home/user/solar-path/tools/genus-ruler/flow/jobs-flow-guards.json",
+    "file": "tools/genus-ruler/flow/jobs-flow-guards.json",
     "name": "C0_tw1746"
    }
   },
   "DEV_A_t1734": {
    "role": "보고(헤다 기기 시점 박명 색)",
    "job": {
-    "name": "DEV_A_t1734_obs_r100",
+    "name": "DEV_A_t1734",
     "input": {
      "lat": 34.97342,
      "lon": 138.77713,
@@ -7644,7 +8602,7 @@
   "DEV_A_t1746": {
    "role": "보고(헤다 기기 시점 박명 색)",
    "job": {
-    "name": "DEV_A_t1746_obs_r100",
+    "name": "DEV_A_t1746",
     "input": {
      "lat": 34.97342,
      "lon": 138.77713,
@@ -9243,9 +10201,10 @@
    "role": "R-A 긴 광선 기준(§4.3)",
    "desc": {
     "RA1": "균일 ac 덮개(층 안 스치는 광학두께)",
-    "RA2": "P3-B 장면(가까운 덮개 + 먼 해 쪽 층적운)",
+    "RA2": "P3-B 장면(가까운 덮개 + 먼 해 쪽 층적운 — 먼 층이 더 낮음)",
     "RA3": "해 쪽 먼 둑(40~150 km, 운량 1) + 머리 위 ac 조각(30 km 안)",
-    "RA4": "높은 권운 박명(9 km, 60 %) — 표본별 지구 그림자"
+    "RA4": "높은 권운 박명(9 km, 60 %) — 표본별 지구 그림자(−3.0·−3.6° 에서 경계가 화면을 가로지름)",
+    "RA5": "가까운 sc 0.6(1.0~1.5 km, 30 km 안) + 해 쪽 먼 더 높은 ac 1.0(2.8~4.8 km, 40~200 km, ±40°) — 해가 떠 있을 때 먼 그늘(타당성 B2)"
    },
    "units": [
     {
@@ -9444,7 +10403,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 720,
+      "f_vis": 0.6,
+      "f_lit": 1.0,
+      "f_in": 0.847,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 6.75,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA1_s8_V2",
@@ -9642,7 +10613,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 1040,
+      "f_vis": 0.867,
+      "f_lit": 1.0,
+      "f_in": 0.697,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 6.75,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA1_s4_V1",
@@ -9840,7 +10823,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 720,
+      "f_vis": 0.6,
+      "f_lit": 1.0,
+      "f_in": 1.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 13.25,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA1_s4_V2",
@@ -10038,7 +11033,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 1040,
+      "f_vis": 0.867,
+      "f_lit": 1.0,
+      "f_in": 1.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 13.5,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA1_s1.1_V1",
@@ -10236,7 +11243,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 720,
+      "f_vis": 0.6,
+      "f_lit": 1.0,
+      "f_in": 1.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 39.38,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA1_s1.1_V2",
@@ -10434,7 +11453,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 1040,
+      "f_vis": 0.867,
+      "f_lit": 1.0,
+      "f_in": 1.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 42.25,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA2_s4_V1",
@@ -10641,7 +11672,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 680,
+      "f_vis": 0.567,
+      "f_lit": 1.0,
+      "f_in": 0.824,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 13.25,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA2_s4_V2",
@@ -10848,7 +11891,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 1074,
+      "f_vis": 0.895,
+      "f_lit": 1.0,
+      "f_in": 0.973,
+      "f_far": 0.085,
+      "f_es": 0.0,
+      "in_path_med_km": 13.25,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA2_s1.1_V1",
@@ -11055,7 +12110,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 680,
+      "f_vis": 0.567,
+      "f_lit": 1.0,
+      "f_in": 0.941,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 19.0,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA2_s1.1_V2",
@@ -11262,7 +12329,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 1075,
+      "f_vis": 0.896,
+      "f_lit": 1.0,
+      "f_in": 0.972,
+      "f_far": 0.046,
+      "f_es": 0.0,
+      "in_path_med_km": 31.75,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA2_s-1_V1",
@@ -11469,7 +12548,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 680,
+      "f_vis": 0.567,
+      "f_lit": 1.0,
+      "f_in": 0.059,
+      "f_far": 0.765,
+      "f_es": 0.0,
+      "in_path_med_km": 1.0,
+      "far_path_med_km": 51.75,
+      "family": "far",
+      "disc": true
+     }
     },
     {
      "name": "RA2_s-1_V2",
@@ -11676,7 +12767,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 1076,
+      "f_vis": 0.897,
+      "f_lit": 0.996,
+      "f_in": 0.05,
+      "f_far": 0.887,
+      "f_es": 0.004,
+      "in_path_med_km": 1.75,
+      "far_path_med_km": 74.75,
+      "family": "far",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s4_V1",
@@ -11885,7 +12988,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 636,
+      "f_vis": 0.53,
+      "f_lit": 1.0,
+      "f_in": 0.755,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 13.0,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s4_V2",
@@ -12094,7 +13209,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 960,
+      "f_vis": 0.8,
+      "f_lit": 1.0,
+      "f_in": 0.995,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 13.5,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s1.1_V1",
@@ -12303,7 +13430,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 636,
+      "f_vis": 0.53,
+      "f_lit": 1.0,
+      "f_in": 0.881,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 17.12,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s1.1_V2",
@@ -12512,7 +13651,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 960,
+      "f_vis": 0.8,
+      "f_lit": 1.0,
+      "f_in": 0.995,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 29.25,
+      "far_path_med_km": 0.0,
+      "family": "in",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s-1_V1",
@@ -12721,7 +13872,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 636,
+      "f_vis": 0.53,
+      "f_lit": 1.0,
+      "f_in": 0.044,
+      "f_far": 0.818,
+      "f_es": 0.0,
+      "in_path_med_km": 1.0,
+      "far_path_med_km": 84.0,
+      "family": "far",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s-1_V2",
@@ -12930,7 +14093,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 960,
+      "f_vis": 0.8,
+      "f_lit": 1.0,
+      "f_in": 0.056,
+      "f_far": 1.0,
+      "f_es": 0.0,
+      "in_path_med_km": 2.0,
+      "far_path_med_km": 105.75,
+      "family": "far",
+      "disc": true
+     }
     },
     {
      "name": "RA3_s-2.5_V1",
@@ -13139,7 +14314,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 636,
+      "f_vis": 0.53,
+      "f_lit": 0.0,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 0.0,
+      "far_path_med_km": 0.0,
+      "family": "dark",
+      "disc": false
+     }
     },
     {
      "name": "RA3_s-2.5_V2",
@@ -13348,7 +14535,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 960,
+      "f_vis": 0.8,
+      "f_lit": 0.0,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 0.0,
+      "far_path_med_km": 0.0,
+      "family": "dark",
+      "disc": false
+     }
     },
     {
      "name": "RA4_s-1_V1",
@@ -13546,7 +14745,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 560,
+      "f_vis": 0.467,
+      "f_lit": 1.0,
+      "f_in": 0.0,
+      "f_far": 1.0,
+      "f_es": 0.0,
+      "in_path_med_km": 2.0,
+      "far_path_med_km": 53.75,
+      "family": "far",
+      "disc": true
+     }
     },
     {
      "name": "RA4_s-1_V2",
@@ -13744,7 +14955,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 976,
+      "f_vis": 0.813,
+      "f_lit": 1.0,
+      "f_in": 0.061,
+      "f_far": 1.0,
+      "f_es": 0.0,
+      "in_path_med_km": 2.25,
+      "far_path_med_km": 39.75,
+      "family": "far",
+      "disc": true
+     }
     },
     {
      "name": "RA4_s-2.5_V1",
@@ -13942,7 +15165,19 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 560,
+      "f_vis": 0.467,
+      "f_lit": 1.0,
+      "f_in": 0.0,
+      "f_far": 0.071,
+      "f_es": 0.0,
+      "in_path_med_km": 0.5,
+      "far_path_med_km": 0.0,
+      "family": "ctrl",
+      "disc": false
+     }
     },
     {
      "name": "RA4_s-2.5_V2",
@@ -14140,22 +15375,34 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 976,
+      "f_vis": 0.813,
+      "f_lit": 1.0,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 0.75,
+      "far_path_med_km": 0.0,
+      "family": "ctrl",
+      "disc": false
+     }
     },
     {
-     "name": "RA4_s-4_V1",
+     "name": "RA4_s-3_V1",
      "scene": "RA4",
      "sun": {
-      "iso": "2026-10-05T08:39:29.000Z",
-      "alt": -4.0001,
-      "az": 266.9428
+      "iso": "2026-10-05T08:34:36.000Z",
+      "alt": -3.0005,
+      "az": 266.2475
      },
      "view": "V1",
      "input": {
       "lat": 34.97342,
       "lon": 138.77713,
       "heightM": 2.74,
-      "date": "2026-10-05T08:39:29.000Z",
+      "date": "2026-10-05T08:34:36.000Z",
       "layers": [
        {
         "genus": null,
@@ -14328,7 +15575,7 @@
        ],
        "precipMm": 0
       },
-      "az": 266.943,
+      "az": 266.248,
       "el": 4.0,
       "fov": 30.0
      },
@@ -14338,22 +15585,34 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 560,
+      "f_vis": 0.467,
+      "f_lit": 1.0,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.0,
+      "in_path_med_km": 0.25,
+      "far_path_med_km": 0.0,
+      "family": "ctrl",
+      "disc": false
+     }
     },
     {
-     "name": "RA4_s-4_V2",
+     "name": "RA4_s-3_V2",
      "scene": "RA4",
      "sun": {
-      "iso": "2026-10-05T08:39:29.000Z",
-      "alt": -4.0001,
-      "az": 266.9428
+      "iso": "2026-10-05T08:34:36.000Z",
+      "alt": -3.0005,
+      "az": 266.2475
      },
      "view": "V2",
      "input": {
       "lat": 34.97342,
       "lon": 138.77713,
       "heightM": 2.74,
-      "date": "2026-10-05T08:39:29.000Z",
+      "date": "2026-10-05T08:34:36.000Z",
       "layers": [
        {
         "genus": null,
@@ -14526,7 +15785,7 @@
        ],
        "precipMm": 0
       },
-      "az": 356.943,
+      "az": 356.248,
       "el": 25.0,
       "fov": 60.0
      },
@@ -14536,12 +15795,1780 @@
       "maxRayKm": 100
      },
      "W": 400,
-     "H": 300
+     "H": 300,
+     "geo": {
+      "n_vis": 976,
+      "f_vis": 0.813,
+      "f_lit": 0.726,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.267,
+      "in_path_med_km": 0.75,
+      "far_path_med_km": 0.0,
+      "family": "es",
+      "disc": true
+     }
+    },
+    {
+     "name": "RA4_s-3.6_V1",
+     "scene": "RA4",
+     "sun": {
+      "iso": "2026-10-05T08:37:32.000Z",
+      "alt": -3.6009,
+      "az": 266.6652
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:37:32.000Z",
+      "layers": [
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 1.0,
+        "band": "low"
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 4.5,
+        "band": "mid"
+       },
+       {
+        "genus": "ci",
+        "cover": 0.6,
+        "baseKm": 9.0,
+        "thicknessM": 800,
+        "band": "high",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 266.665,
+      "el": 4.0,
+      "fov": 30.0
+     },
+     "options": {
+      "macro": 0,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 560,
+      "f_vis": 0.467,
+      "f_lit": 0.214,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.143,
+      "in_path_med_km": 0.0,
+      "far_path_med_km": 0.0,
+      "family": "es",
+      "disc": true
+     }
+    },
+    {
+     "name": "RA4_s-3.6_V2",
+     "scene": "RA4",
+     "sun": {
+      "iso": "2026-10-05T08:37:32.000Z",
+      "alt": -3.6009,
+      "az": 266.6652
+     },
+     "view": "V2",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:37:32.000Z",
+      "layers": [
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 1.0,
+        "band": "low"
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 4.5,
+        "band": "mid"
+       },
+       {
+        "genus": "ci",
+        "cover": 0.6,
+        "baseKm": 9.0,
+        "thicknessM": 800,
+        "band": "high",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 356.665,
+      "el": 25.0,
+      "fov": 60.0
+     },
+     "options": {
+      "macro": 0,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 976,
+      "f_vis": 0.813,
+      "f_lit": 0.0,
+      "f_in": 0.0,
+      "f_far": 0.0,
+      "f_es": 0.002,
+      "in_path_med_km": 0.0,
+      "far_path_med_km": 0.0,
+      "family": "dark",
+      "disc": false
+     }
+    },
+    {
+     "name": "RA5_s4_V1",
+     "scene": "RA5",
+     "sun": {
+      "iso": "2026-10-05T08:00:15.000Z",
+      "alt": 3.9996,
+      "az": 261.3188
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:00:15.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.0,
+        "thicknessM": 500,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 1.0,
+        "baseKm": 2.8,
+        "thicknessM": 2000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 261.319,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA5",
+       "params": {
+        "sun_az": 261.3188
+       },
+       "sha256": "4f5b78681a9a51987c364a6b1911b38e739383eefa7c02231b698296be7753fc"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 720,
+      "f_vis": 0.6,
+      "f_lit": 1.0,
+      "f_in": 0.597,
+      "f_far": 0.944,
+      "f_es": 0.0,
+      "in_path_med_km": 6.75,
+      "far_path_med_km": 15.75,
+      "family": "far",
+      "disc": true
+     }
+    },
+    {
+     "name": "RA5_s4_V2",
+     "scene": "RA5",
+     "sun": {
+      "iso": "2026-10-05T08:00:15.000Z",
+      "alt": 3.9996,
+      "az": 261.3188
+     },
+     "view": "V2",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:00:15.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.0,
+        "thicknessM": 500,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 1.0,
+        "baseKm": 2.8,
+        "thicknessM": 2000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 351.319,
+      "el": 25.0,
+      "fov": 60.0,
+      "macroRef": {
+       "gen": "RA5",
+       "params": {
+        "sun_az": 261.3188
+       },
+       "sha256": "4f5b78681a9a51987c364a6b1911b38e739383eefa7c02231b698296be7753fc"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 1040,
+      "f_vis": 0.867,
+      "f_lit": 1.0,
+      "f_in": 0.399,
+      "f_far": 1.0,
+      "f_es": 0.0,
+      "in_path_med_km": 6.5,
+      "far_path_med_km": 10.75,
+      "family": "far",
+      "disc": true
+     }
+    },
+    {
+     "name": "RA5_s1.1_V1",
+     "scene": "RA5",
+     "sun": {
+      "iso": "2026-10-05T08:14:31.000Z",
+      "alt": 1.1003,
+      "az": 263.3783
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:14:31.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.0,
+        "thicknessM": 500,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 1.0,
+        "baseKm": 2.8,
+        "thicknessM": 2000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 263.378,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA5",
+       "params": {
+        "sun_az": 263.3783
+       },
+       "sha256": "f986502de6f94949e4f9ee8357ff2be4ba099052af6797a6668025c09e36c94b"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 720,
+      "f_vis": 0.6,
+      "f_lit": 1.0,
+      "f_in": 0.997,
+      "f_far": 0.944,
+      "f_es": 0.0,
+      "in_path_med_km": 21.75,
+      "far_path_med_km": 56.5,
+      "family": "far",
+      "disc": true
+     }
+    },
+    {
+     "name": "RA5_s1.1_V2",
+     "scene": "RA5",
+     "sun": {
+      "iso": "2026-10-05T08:14:31.000Z",
+      "alt": 1.1003,
+      "az": 263.3783
+     },
+     "view": "V2",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:14:31.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.0,
+        "thicknessM": 500,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 1.0,
+        "baseKm": 2.8,
+        "thicknessM": 2000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 353.378,
+      "el": 25.0,
+      "fov": 60.0,
+      "macroRef": {
+       "gen": "RA5",
+       "params": {
+        "sun_az": 263.3783
+       },
+       "sha256": "f986502de6f94949e4f9ee8357ff2be4ba099052af6797a6668025c09e36c94b"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 1040,
+      "f_vis": 0.867,
+      "f_lit": 1.0,
+      "f_in": 1.0,
+      "f_far": 1.0,
+      "f_es": 0.0,
+      "in_path_med_km": 22.0,
+      "far_path_med_km": 57.5,
+      "family": "far",
+      "disc": true
+     }
+    },
+    {
+     "name": "RA5_s-1_V1",
+     "scene": "RA5",
+     "sun": {
+      "iso": "2026-10-05T08:24:49.000Z",
+      "alt": -1.0005,
+      "az": 264.8527
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:24:49.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.0,
+        "thicknessM": 500,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 1.0,
+        "baseKm": 2.8,
+        "thicknessM": 2000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 264.853,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA5",
+       "params": {
+        "sun_az": 264.8527
+       },
+       "sha256": "547277615c578a127040817a34f594d43b1be7fc83e700144f42a14eebd25d3c"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 720,
+      "f_vis": 0.6,
+      "f_lit": 1.0,
+      "f_in": 0.0,
+      "f_far": 0.056,
+      "f_es": 0.0,
+      "in_path_med_km": 0.75,
+      "far_path_med_km": 0.0,
+      "family": "ctrl",
+      "disc": false
+     }
+    },
+    {
+     "name": "RA5_s-1_V2",
+     "scene": "RA5",
+     "sun": {
+      "iso": "2026-10-05T08:24:49.000Z",
+      "alt": -1.0005,
+      "az": 264.8527
+     },
+     "view": "V2",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:24:49.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.0,
+        "thicknessM": 500,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 1.0,
+        "baseKm": 2.8,
+        "thicknessM": 2000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 354.853,
+      "el": 25.0,
+      "fov": 60.0,
+      "macroRef": {
+       "gen": "RA5",
+       "params": {
+        "sun_az": 264.8527
+       },
+       "sha256": "547277615c578a127040817a34f594d43b1be7fc83e700144f42a14eebd25d3c"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300,
+     "geo": {
+      "n_vis": 1040,
+      "f_vis": 0.867,
+      "f_lit": 0.932,
+      "f_in": 0.052,
+      "f_far": 0.0,
+      "f_es": 0.113,
+      "in_path_med_km": 2.0,
+      "far_path_med_km": 0.0,
+      "family": "ctrl",
+      "disc": false
+     }
     }
+   ],
+   "classify": {
+    "rule": "화면 40×30 광선의 첫 구름 점마다: 해 쪽 층 안 경로 > 6.5 km(in), 다른 구름 경로 > 1 km(far), 층 기둥 안 그림자 경계(es); 또는 밝은 분율 0.1~0.9(경계가 화면을 가로지름, es); 분율 ≥ 0.25 면 변별, 가족 = far > es > in 우선",
+    "sec_march_km": 6.5
+   },
+   "aa_units": [
+    "RA1_s1.1_V1",
+    "RA2_s-1_V1",
+    "RA5_s1.1_V1",
+    "RA4_s-3.6_V1"
    ]
   },
   "HS": {
-   "role": "가드(높은 해 ≥ 12° 그대로 · 12° 이음매, §4.4)",
+   "role": "가드(높은 해 ≥ 12° 그대로 · 12° 이음매, §4.4) + REF 검증(45·30·15°)",
    "units": [
     {
      "name": "HS_RA1_s45_V1",
@@ -18614,11 +21641,1698 @@
      "H": 300
     }
    ]
+  },
+  "AS": {
+   "role": "가드(아치 켜짐 이음매 −1°·−2°, §4.6b)",
+   "units": [
+    {
+     "name": "AS_RA3_s-0.9_V1",
+     "scene": "RA3",
+     "sun": {
+      "iso": "2026-10-05T08:24:19.000Z",
+      "alt": -0.8984,
+      "az": 264.7813
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:24:19.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.736,
+        "thicknessM": 527,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 0.6,
+        "baseKm": 2.822,
+        "thicknessM": 1000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 264.781,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA3",
+       "params": {
+        "sun_az": 264.7813
+       },
+       "sha256": "f780dc7cb83e09e921b3bdb89671da467d506a83599067c756c0f8ffe400c9cf"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA4_s-0.9_V1",
+     "scene": "RA4",
+     "sun": {
+      "iso": "2026-10-05T08:24:19.000Z",
+      "alt": -0.8984,
+      "az": 264.7813
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:24:19.000Z",
+      "layers": [
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 1.0,
+        "band": "low"
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 4.5,
+        "band": "mid"
+       },
+       {
+        "genus": "ci",
+        "cover": 0.6,
+        "baseKm": 9.0,
+        "thicknessM": 800,
+        "band": "high",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 264.781,
+      "el": 4.0,
+      "fov": 30.0
+     },
+     "options": {
+      "macro": 0,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA3_s-1.1_V1",
+     "scene": "RA3",
+     "sun": {
+      "iso": "2026-10-05T08:25:18.000Z",
+      "alt": -1.0993,
+      "az": 264.9217
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:25:18.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.736,
+        "thicknessM": 527,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 0.6,
+        "baseKm": 2.822,
+        "thicknessM": 1000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 264.922,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA3",
+       "params": {
+        "sun_az": 264.9217
+       },
+       "sha256": "4acd4c92ed010949c81c7c30751a0ed738ed5095d17db3f3eb3fcce0ab6b55b9"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA4_s-1.1_V1",
+     "scene": "RA4",
+     "sun": {
+      "iso": "2026-10-05T08:25:18.000Z",
+      "alt": -1.0993,
+      "az": 264.9217
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:25:18.000Z",
+      "layers": [
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 1.0,
+        "band": "low"
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 4.5,
+        "band": "mid"
+       },
+       {
+        "genus": "ci",
+        "cover": 0.6,
+        "baseKm": 9.0,
+        "thicknessM": 800,
+        "band": "high",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 264.922,
+      "el": 4.0,
+      "fov": 30.0
+     },
+     "options": {
+      "macro": 0,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA3_s-1.9_V1",
+     "scene": "RA3",
+     "sun": {
+      "iso": "2026-10-05T08:29:13.000Z",
+      "alt": -1.8996,
+      "az": 265.4805
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:29:13.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.736,
+        "thicknessM": 527,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 0.6,
+        "baseKm": 2.822,
+        "thicknessM": 1000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 265.481,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA3",
+       "params": {
+        "sun_az": 265.4805
+       },
+       "sha256": "8e22f29c4049aba28982a23e9b26c37e3060ad4b1b16a2c0e087e2435be8257a"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA4_s-1.9_V1",
+     "scene": "RA4",
+     "sun": {
+      "iso": "2026-10-05T08:29:13.000Z",
+      "alt": -1.8996,
+      "az": 265.4805
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:29:13.000Z",
+      "layers": [
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 1.0,
+        "band": "low"
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 4.5,
+        "band": "mid"
+       },
+       {
+        "genus": "ci",
+        "cover": 0.6,
+        "baseKm": 9.0,
+        "thicknessM": 800,
+        "band": "high",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 265.481,
+      "el": 4.0,
+      "fov": 30.0
+     },
+     "options": {
+      "macro": 0,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA3_s-2.1_V1",
+     "scene": "RA3",
+     "sun": {
+      "iso": "2026-10-05T08:30:12.000Z",
+      "alt": -2.1006,
+      "az": 265.6207
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:30:12.000Z",
+      "layers": [
+       {
+        "genus": "sc",
+        "cover": 1.0,
+        "baseKm": 1.736,
+        "thicknessM": 527,
+        "band": "low",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": "ac",
+        "cover": 0.6,
+        "baseKm": 2.822,
+        "thicknessM": 1000,
+        "band": "mid",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 10,
+        "band": "high"
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 265.621,
+      "el": 4.0,
+      "fov": 30.0,
+      "macroRef": {
+       "gen": "RA3",
+       "params": {
+        "sun_az": 265.6207
+       },
+       "sha256": "f98616b190aa7bc3892e4d94f08eea92901c61e07d74ffae0c0a285f0770a4c3"
+      }
+     },
+     "options": {
+      "macro": 1,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    },
+    {
+     "name": "AS_RA4_s-2.1_V1",
+     "scene": "RA4",
+     "sun": {
+      "iso": "2026-10-05T08:30:12.000Z",
+      "alt": -2.1006,
+      "az": 265.6207
+     },
+     "view": "V1",
+     "input": {
+      "lat": 34.97342,
+      "lon": 138.77713,
+      "heightM": 2.74,
+      "date": "2026-10-05T08:30:12.000Z",
+      "layers": [
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 1.0,
+        "band": "low"
+       },
+       {
+        "genus": null,
+        "cover": 0,
+        "baseKm": 4.5,
+        "band": "mid"
+       },
+       {
+        "genus": "ci",
+        "cover": 0.6,
+        "baseKm": 9.0,
+        "thicknessM": 800,
+        "band": "high",
+        "opts": {
+         "beamTransmittance": 1.0
+        }
+       }
+      ],
+      "thermo": {
+       "groundM": 2.74,
+       "t2mC": 22.896538555555555,
+       "td2mC": 19.32413463888889,
+       "levels": [
+        {
+         "zM": 78.45,
+         "tC": 22.751730722222224,
+         "pHPa": 1000
+        },
+        {
+         "zM": 304.01,
+         "tC": 21.35173072222222,
+         "pHPa": 975
+        },
+        {
+         "zM": 529.56,
+         "tC": 20.47586536111111,
+         "pHPa": 950
+        },
+        {
+         "zM": 755.11,
+         "tC": 19.47586536111111,
+         "pHPa": 925
+        },
+        {
+         "zM": 990.47,
+         "tC": 18.575865361111113,
+         "pHPa": 900
+        },
+        {
+         "zM": 1480.8,
+         "tC": 16.2,
+         "pHPa": 850
+        },
+        {
+         "zM": 1990.75,
+         "tC": 13.172403916666667,
+         "pHPa": 800
+        },
+        {
+         "zM": 2535.241346388889,
+         "tC": 11.524134638888889,
+         "pHPa": 750
+        },
+        {
+         "zM": 3108.71,
+         "tC": 7.972403916666667,
+         "pHPa": 700
+        },
+        {
+         "zM": 4373.77,
+         "tC": 1.3,
+         "pHPa": 600
+        },
+        {
+         "zM": 5825.15,
+         "tC": -5.8,
+         "pHPa": 500
+        },
+        {
+         "zM": 7542.65,
+         "tC": -15.3,
+         "pHPa": 400
+        },
+        {
+         "zM": 9648.48,
+         "tC": -29.5,
+         "pHPa": 300
+        },
+        {
+         "zM": 10927.41,
+         "tC": -39.5,
+         "pHPa": 250
+        },
+        {
+         "zM": 12406.55,
+         "tC": -50.5,
+         "pHPa": 200
+        }
+       ],
+       "pblM": 439.48555694444445,
+       "capeJkg": 0,
+       "freezingLevelM": 4795.173072222222,
+       "rhLevels": [
+        {
+         "zM": 78.45,
+         "rhPct": 73.24134638888889
+        },
+        {
+         "zM": 304.01,
+         "rhPct": 76.24134638888889
+        },
+        {
+         "zM": 529.56,
+         "rhPct": 78.24134638888889
+        },
+        {
+         "zM": 755.11,
+         "rhPct": 80.48269277777777
+        },
+        {
+         "zM": 990.47,
+         "rhPct": 81.48269277777777
+        },
+        {
+         "zM": 1480.8,
+         "rhPct": 79.48269277777777
+        },
+        {
+         "zM": 1990.75,
+         "rhPct": 85.51730722222223
+        },
+        {
+         "zM": 2535.241346388889,
+         "rhPct": 63.41346388888889
+        },
+        {
+         "zM": 3108.71,
+         "rhPct": 96.79326805555556
+        },
+        {
+         "zM": 4373.77,
+         "rhPct": 94.51730722222223
+        },
+        {
+         "zM": 5825.15,
+         "rhPct": 100
+        },
+        {
+         "zM": 7542.65,
+         "rhPct": 55.31057527777778
+        },
+        {
+         "zM": 9648.48,
+         "rhPct": 21.51730722222222
+        }
+       ],
+       "windLowMps": [
+        -2.2828471589225305,
+        -0.23145178225331367
+       ],
+       "windMidMps": [
+        8.287027636852276,
+        2.2534495808910875
+       ],
+       "precipMm": 0
+      },
+      "az": 265.621,
+      "el": 4.0,
+      "fov": 30.0
+     },
+     "options": {
+      "macro": 0,
+      "macroN": 256,
+      "maxRayKm": 100
+     },
+     "W": 400,
+     "H": 300
+    }
+   ]
+  },
+  "COST": {
+   "role": "비용(§4.7) — RULER-grain jobs-grain.json 의 C0__*__cost 입력 + P1B·P2B·P3B",
+   "names": [
+    "C0__ac60_e20__s__std__cost",
+    "C0__ac60_e3__s__dev__cost",
+    "C0__ac60_e45__s__std__cost",
+    "C0__ac60_e5__s__dev__cost",
+    "C0__ac60_e8__s__dev__cost",
+    "C0__ac60_tw4__s__dev__cost",
+    "C0__ac60_tw__s__dev__cost",
+    "C0__as90_e45__s__std__cost",
+    "C0__as90_e5__s__dev__cost",
+    "C0__ci60_e20__s__std__cost",
+    "C0__ci60_e3__s__dev__cost",
+    "C0__ci60_e45__s__std__cost",
+    "C0__ci60_e5__s__dev__cost",
+    "C0__ci60_e8__s__dev__cost",
+    "C0__ci60_tw4__s__dev__cost",
+    "C0__ci60_tw__s__dev__cost",
+    "C0__cu35_e20__s__std__cost",
+    "C0__cu35_e3__s__dev__cost",
+    "C0__cu35_e45__s__std__cost",
+    "C0__cu35_e5__s__dev__cost",
+    "C0__cu35_e8__s__dev__cost",
+    "C0__ns100_e45__s__std__cost",
+    "C0__ns100_e5__s__dev__cost",
+    "C0__sc25_e20__s__std__cost",
+    "C0__sc25_e3__s__dev__cost",
+    "C0__sc25_e45__s__std__cost",
+    "C0__sc25_e5__s__dev__cost",
+    "C0__sc25_e8__s__dev__cost",
+    "C0__sc25_tw4__s__dev__cost",
+    "C0__sc85_e20__s__std__cost",
+    "C0__sc85_e3__s__dev__cost",
+    "C0__sc85_e45__s__std__cost",
+    "C0__sc85_e5__s__dev__cost",
+    "C0__sc85_e8__s__dev__cost",
+    "C0__st90_e45__s__std__cost",
+    "C0__st90_e5__s__dev__cost"
+   ]
   }
  },
  "checks": {
   "P1B_preshift_regen_equals_critic": true,
   "P2B_regen_equals_critic": true,
   "P3B_regen_equals_critic": true
+ },
+ "seeds": {
+  "noiseSeed": "앱 기본 12345 (applyNoiseSeed(undefined))",
+  "flowSeed": "없음(흐름 끔)",
+  "genusDrift": "input.date 에서(ms 까지 고정)"
+ },
+ "renderer_sun_note": "조명·그림자 스위치는 takram getSunDirectionECEF(엔진 NOAA 와 P2 +0.0012°, P3 +0.0011° 차 [measured, 절차 #12]) — 무시할 만함, results.scene 에 기록",
+ "exposure_effective": {
+  "P1B": 45000.0,
+  "P1Bh": 720000.0,
+  "P2B": 1250.617,
+  "P3B": 3.89,
+  "note": "autoExposure × exposureScale [computed, 절차 #2d] — tsun_photo.py render 가 results.scene.exposure 와 대조(±0.1 %)"
  }
 }

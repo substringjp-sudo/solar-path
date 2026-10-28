@@ -1,7 +1,15 @@
 {
  "tool": "tools/genus-ruler/tsun/tsun_photo.py",
- "ruler": "RULER-tsun.md (초안)",
- "color": "sRGB EOTF → 선형 sRGB(ICC 무시), Rec.709 가중",
+ "ruler": "RULER-tsun.md (동결 후보)",
+ "color": {
+  "primary": "Display-P3 → 선형 sRGB 행렬(파일 ICC), 음수 0",
+  "alt": "ICC 무시(sRGB EOTF 만 — 비평과 같은 길, 재현 검사는 이 길)",
+  "luma": "표시 luma 는 두 길 같음(8 비트 값)"
+ },
+ "geo": {
+  "file": "tsun-geo.json",
+  "sha256": "1642049f020ebbbccd6a638f319b024c963676edced1b4898b240acb0011c26b"
+ },
  "sun_engine": {
   "P1": {
    "alt": -9.8423,
@@ -16,29 +24,290 @@
    "az": 263.3732
   }
  },
+ "boot": {
+  "seed": 20261028,
+  "n": 2000
+ },
  "photos": {
   "P1": {
    "image": "/root/.claude/uploads/827aa702-2f52-52c8-9fe8-e45a3ff14759/035793bf-image.jpg",
    "image_sha256": "42bbd2ec6d6e6ee7cf480ce97923ba1b946a6ca79b98e3b5a24d40234c8b03ec",
    "sha_ok": true,
-   "geo": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/geo-P1.json",
-   "geo_sha256": "07f00fe46daf50af35b4f36be5b938c39f07173685969e770129fcb108dace23",
    "downsample": 4,
    "n_sky": 444817,
+   "geo_source": {
+    "path": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/geo-P1.json",
+    "sha256": "07f00fe46daf50af35b4f36be5b938c39f07173685969e770129fcb108dace23",
+    "scratch_present": true,
+    "scratch_sha_ok": true
+   },
    "metrics": {
-    "D1": [
+    "D1box": [
+     2.007,
+     1.909,
+     1.985,
+     1.964
+    ],
+    "D3box": [
+     0.251,
+     0.43,
+     1.006,
+     1.423
+    ],
+    "D1box_parts": [
+     {
+      "el": [
+       6,
+       10
+      ],
+      "n_deck": 12988,
+      "n_clear": 28702,
+      "RB_deck": 1.267,
+      "RB_clear": 0.631
+     },
+     {
+      "el": [
+       10,
+       15
+      ],
+      "n_deck": 26203,
+      "n_clear": 27940,
+      "RB_deck": 0.946,
+      "RB_clear": 0.495
+     },
+     {
+      "el": [
+       15,
+       20
+      ],
+      "n_deck": 34636,
+      "n_clear": 19413,
+      "RB_deck": 0.73,
+      "RB_clear": 0.368
+     },
+     {
+      "el": [
+       20,
+       30
+      ],
+      "n_deck": 96813,
+      "n_clear": 6004,
+      "RB_deck": 0.526,
+      "RB_clear": 0.268
+     }
+    ],
+    "D1m": [
+     2.053,
+     1.933,
+     2.026,
+     2.195
+    ],
+    "D3m": [
+     0.263,
+     0.45,
+     1.059,
+     1.962
+    ],
+    "D1m_parts": [
+     {
+      "el": [
+       6,
+       10
+      ],
+      "n_deck_box": 12988,
+      "n_clear_box": 28702,
+      "n_deck": 12988,
+      "n_clear": 28702,
+      "frac_deck_kept": 1.0,
+      "D1m": 2.053,
+      "D3m": 0.263,
+      "RB_deck": 1.267,
+      "RB_clear": 0.617
+     },
+     {
+      "el": [
+       10,
+       15
+      ],
+      "n_deck_box": 26203,
+      "n_clear_box": 27940,
+      "n_deck": 26203,
+      "n_clear": 27940,
+      "frac_deck_kept": 1.0,
+      "D1m": 1.933,
+      "D3m": 0.45,
+      "RB_deck": 0.946,
+      "RB_clear": 0.489
+     },
+     {
+      "el": [
+       15,
+       20
+      ],
+      "n_deck_box": 34636,
+      "n_clear_box": 19413,
+      "n_deck": 34636,
+      "n_clear": 19413,
+      "frac_deck_kept": 1.0,
+      "D1m": 2.026,
+      "D3m": 1.059,
+      "RB_deck": 0.73,
+      "RB_clear": 0.36
+     },
+     {
+      "el": [
+       20,
+       30
+      ],
+      "n_deck_box": 96813,
+      "n_clear_box": 6004,
+      "n_deck": 29857,
+      "n_clear": 6002,
+      "frac_deck_kept": 0.308,
+      "D1m": 2.195,
+      "D3m": 1.962,
+      "RB_deck": 0.565,
+      "RB_clear": 0.257
+     }
+    ],
+    "D2": [
+     2.007,
+     1.784,
+     2.111,
+     2.196,
+     1.983
+    ],
+    "D2_pooled_8_18": 1.97,
+    "D2_pairs": 11108,
+    "D4": 0.362,
+    "D5": 4.135,
+    "D5_ncols": 475,
+    "D6_profile": [
+     [
+      0.75,
+      null
+     ],
+     [
+      1.25,
+      0.898
+     ],
+     [
+      1.75,
+      1.215
+     ],
+     [
+      2.25,
+      1.189
+     ],
+     [
+      2.75,
+      0.971
+     ],
+     [
+      3.25,
+      0.964
+     ],
+     [
+      3.75,
+      0.967
+     ],
+     [
+      4.25,
+      0.991
+     ],
+     [
+      4.75,
+      0.945
+     ],
+     [
+      5.25,
+      0.882
+     ],
+     [
+      5.75,
+      0.812
+     ],
+     [
+      6.25,
+      0.754
+     ],
+     [
+      6.75,
+      0.709
+     ],
+     [
+      7.25,
+      0.678
+     ],
+     [
+      7.75,
+      0.652
+     ],
+     [
+      8.25,
+      0.634
+     ],
+     [
+      8.75,
+      0.621
+     ],
+     [
+      9.25,
+      0.61
+     ],
+     [
+      9.75,
+      0.6
+     ],
+     [
+      10.25,
+      0.589
+     ],
+     [
+      10.75,
+      0.577
+     ],
+     [
+      11.25,
+      0.569
+     ],
+     [
+      11.75,
+      0.557
+     ]
+    ],
+    "D6": [
+     "above_profile",
+     1.335,
+     6.513,
+     11.419
+    ],
+    "hue_deck": {
+     "magenta": 0.691,
+     "blue": 0.778,
+     "n": 170640
+    },
+    "hue_sky": {
+     "magenta": 0.484,
+     "blue": 0.827,
+     "n": 368897
+    },
+    "n_valid_scene": null
+   },
+   "metrics_icc_ignored": {
+    "D1box": [
      1.812,
      1.733,
      1.799,
      1.764
     ],
-    "D3": [
+    "D3box": [
      0.248,
      0.426,
      0.999,
      1.416
     ],
-    "D1_parts": [
+    "D1box_parts": [
      {
       "el": [
        6,
@@ -80,6 +349,80 @@
       "RB_clear": 0.296
      }
     ],
+    "D1m": [
+     1.85,
+     1.754,
+     1.833,
+     1.948
+    ],
+    "D3m": [
+     0.26,
+     0.446,
+     1.052,
+     1.951
+    ],
+    "D1m_parts": [
+     {
+      "el": [
+       6,
+       10
+      ],
+      "n_deck_box": 12988,
+      "n_clear_box": 28702,
+      "n_deck": 12988,
+      "n_clear": 28702,
+      "frac_deck_kept": 1.0,
+      "D1m": 1.85,
+      "D3m": 0.26,
+      "RB_deck": 1.171,
+      "RB_clear": 0.633
+     },
+     {
+      "el": [
+       10,
+       15
+      ],
+      "n_deck_box": 26203,
+      "n_clear_box": 27940,
+      "n_deck": 26203,
+      "n_clear": 27940,
+      "frac_deck_kept": 1.0,
+      "D1m": 1.754,
+      "D3m": 0.446,
+      "RB_deck": 0.892,
+      "RB_clear": 0.508
+     },
+     {
+      "el": [
+       15,
+       20
+      ],
+      "n_deck_box": 34636,
+      "n_clear_box": 19413,
+      "n_deck": 34636,
+      "n_clear": 19413,
+      "frac_deck_kept": 1.0,
+      "D1m": 1.833,
+      "D3m": 1.052,
+      "RB_deck": 0.703,
+      "RB_clear": 0.384
+     },
+     {
+      "el": [
+       20,
+       30
+      ],
+      "n_deck_box": 96813,
+      "n_clear_box": 6004,
+      "n_deck": 29857,
+      "n_clear": 6002,
+      "frac_deck_kept": 0.308,
+      "D1m": 1.948,
+      "D3m": 1.951,
+      "RB_deck": 0.557,
+      "RB_clear": 0.286
+     }
+    ],
     "D2": [
      1.823,
      1.64,
@@ -92,6 +435,106 @@
     "D4": 0.362,
     "D5": 4.135,
     "D5_ncols": 475,
+    "D6_profile": [
+     [
+      0.75,
+      null
+     ],
+     [
+      1.25,
+      0.877
+     ],
+     [
+      1.75,
+      1.147
+     ],
+     [
+      2.25,
+      1.127
+     ],
+     [
+      2.75,
+      0.942
+     ],
+     [
+      3.25,
+      0.938
+     ],
+     [
+      3.75,
+      0.943
+     ],
+     [
+      4.25,
+      0.966
+     ],
+     [
+      4.75,
+      0.928
+     ],
+     [
+      5.25,
+      0.872
+     ],
+     [
+      5.75,
+      0.811
+     ],
+     [
+      6.25,
+      0.758
+     ],
+     [
+      6.75,
+      0.718
+     ],
+     [
+      7.25,
+      0.688
+     ],
+     [
+      7.75,
+      0.664
+     ],
+     [
+      8.25,
+      0.646
+     ],
+     [
+      8.75,
+      0.634
+     ],
+     [
+      9.25,
+      0.623
+     ],
+     [
+      9.75,
+      0.613
+     ],
+     [
+      10.25,
+      0.603
+     ],
+     [
+      10.75,
+      0.59
+     ],
+     [
+      11.25,
+      0.581
+     ],
+     [
+      11.75,
+      0.57
+     ]
+    ],
+    "D6": [
+     "above_profile",
+     1.281,
+     6.997,
+     "below_profile"
+    ],
     "hue_deck": {
      "magenta": 0.691,
      "blue": 0.778,
@@ -102,12 +545,115 @@
      "blue": 0.827,
      "n": 368897
     },
+    "n_valid_scene": null,
     "D2t": [
      1.721,
      1.596,
      1.806,
      2.062,
      1.955
+    ]
+   },
+   "robustness": {
+    "D1m_boot": [
+     {
+      "el": [
+       6,
+       10
+      ],
+      "p5": 1.93,
+      "p50": 2.057,
+      "p95": 2.189,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.0,
+      "n_blocks": 37
+     },
+     {
+      "el": [
+       10,
+       15
+      ],
+      "p5": 1.767,
+      "p50": 1.932,
+      "p95": 2.133,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.0,
+      "n_blocks": 37
+     },
+     {
+      "el": [
+       15,
+       20
+      ],
+      "p5": 1.794,
+      "p50": 2.039,
+      "p95": 2.3,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.0,
+      "n_blocks": 37
+     },
+     {
+      "el": [
+       20,
+       30
+      ],
+      "p5": 2.038,
+      "p50": 2.193,
+      "p95": 2.352,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.001,
+      "n_blocks": 37
+     }
+    ],
+    "D1m_boot_alt": [
+     {
+      "el": [
+       6,
+       10
+      ],
+      "p5": 1.752,
+      "p50": 1.854,
+      "p95": 1.957,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.0,
+      "n_blocks": 37
+     },
+     {
+      "el": [
+       10,
+       15
+      ],
+      "p5": 1.62,
+      "p50": 1.753,
+      "p95": 1.914,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.0,
+      "n_blocks": 37
+     },
+     {
+      "el": [
+       15,
+       20
+      ],
+      "p5": 1.65,
+      "p50": 1.843,
+      "p95": 2.048,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.0,
+      "n_blocks": 37
+     },
+     {
+      "el": [
+       20,
+       30
+      ],
+      "p5": 1.831,
+      "p50": 1.946,
+      "p95": 2.061,
+      "frac_below_1_3": 0.0,
+      "frac_undefined": 0.001,
+      "n_blocks": 37
+     }
     ]
    },
    "cited": {
@@ -121,7 +667,7 @@
    },
    "repro": [
     {
-     "metric": "D1",
+     "metric": "D1box",
      "i": 0,
      "critic": 1.81,
      "tool": 1.812,
@@ -132,7 +678,7 @@
      "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
     },
     {
-     "metric": "D1",
+     "metric": "D1box",
      "i": 1,
      "critic": 1.73,
      "tool": 1.733,
@@ -143,7 +689,7 @@
      "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
     },
     {
-     "metric": "D1",
+     "metric": "D1box",
      "i": 2,
      "critic": 1.8,
      "tool": 1.799,
@@ -154,7 +700,7 @@
      "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
     },
     {
-     "metric": "D1",
+     "metric": "D1box",
      "i": 3,
      "critic": 1.76,
      "tool": 1.764,
@@ -165,7 +711,7 @@
      "src": "twphoto/critic.md Q5 D1 (critic/pdeck.py)"
     },
     {
-     "metric": "D3",
+     "metric": "D3box",
      "i": 0,
      "critic": 0.25,
      "tool": 0.248,
@@ -176,7 +722,7 @@
      "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
     },
     {
-     "metric": "D3",
+     "metric": "D3box",
      "i": 1,
      "critic": 0.43,
      "tool": 0.426,
@@ -187,7 +733,7 @@
      "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
     },
     {
-     "metric": "D3",
+     "metric": "D3box",
      "i": 2,
      "critic": 1.0,
      "tool": 0.999,
@@ -198,7 +744,7 @@
      "src": "twphoto/critic.md Q5 D3 (critic/pdeck.py) — 두 자리 반올림"
     },
     {
-     "metric": "D3",
+     "metric": "D3box",
      "i": 3,
      "critic": 1.42,
      "tool": 1.416,
@@ -286,33 +832,150 @@
      "src": "render-metrics.json photos.P1 band_top luma_rule_median (warped photo)"
     }
    ],
-   "repro_all_ok": true,
-   "p3_matrix_sensitivity": {
-    "D1": [
-     2.007,
-     1.909,
-     1.985,
-     1.964
-    ],
-    "D2_pooled_8_18": 1.97,
-    "D3": [
-     0.251,
-     0.43,
-     1.006,
-     1.423
-    ],
-    "D4": 0.362
-   }
+   "repro_all_ok": true
   },
   "P2": {
    "image": "/root/.claude/uploads/827aa702-2f52-52c8-9fe8-e45a3ff14759/2ffb5792-image.jpg",
    "image_sha256": "d349990c673a19e3668cd28c7c36a5832024a0346802ab2b1effc33984da8461",
    "sha_ok": true,
-   "geo": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/geo-P2.json",
-   "geo_sha256": "9ada516ac8c8dfe6cb5449e097aea88dff89b75441e5f680660acbdda3c584e1",
    "downsample": 2,
    "n_sky": 1445839,
+   "geo_source": {
+    "path": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/geo-P2.json",
+    "sha256": "9ada516ac8c8dfe6cb5449e097aea88dff89b75441e5f680660acbdda3c584e1",
+    "scratch_present": true,
+    "scratch_sha_ok": true
+   },
    "metrics": {
+    "E1": 2.2,
+    "E2": 3.8,
+    "E1E2_n": [
+     27,
+     28
+    ],
+    "E1_p10_p90": [
+     2.1,
+     3.1
+    ],
+    "E2_p10_p90": [
+     3.385,
+     4.1
+    ],
+    "luma_med": {
+     "strip": 76.634,
+     "band": 192.9,
+     "deck": 49.799,
+     "upper": 40.646
+    },
+    "E3": 2.517,
+    "E4": 3.874,
+    "RB": {
+     "strip": 1.449,
+     "band": 5.911,
+     "deck": 1.034,
+     "upper": 0.805
+    },
+    "E8": 0.245,
+    "E5q": [
+     1.071,
+     1.393
+    ],
+    "E6q": [
+     0.088,
+     0.061
+    ],
+    "E5a": [],
+    "E6a": [],
+    "E5_parts": [
+     {
+      "el": [
+       7.5,
+       8.5
+      ],
+      "n": 105209,
+      "RB_bright": 0.828,
+      "RB_dark": 0.887
+     },
+     {
+      "el": [
+       8.5,
+       9.0
+      ],
+      "n": 52656,
+      "RB_bright": 0.675,
+      "RB_dark": 0.941
+     }
+    ],
+    "E5q_scan": [
+     [
+      6.0,
+      6.5,
+      0.578
+     ],
+     [
+      6.5,
+      7.0,
+      0.667
+     ],
+     [
+      7.0,
+      7.5,
+      0.925
+     ],
+     [
+      7.5,
+      8.0,
+      1.027
+     ],
+     [
+      8.0,
+      8.5,
+      1.028
+     ],
+     [
+      8.5,
+      9.0,
+      1.393
+     ],
+     [
+      9.0,
+      9.5,
+      0.859
+     ],
+     [
+      9.5,
+      10.0,
+      0.786
+     ],
+     [
+      10.0,
+      10.5,
+      0.733
+     ],
+     [
+      10.5,
+      11.0,
+      0.85
+     ],
+     [
+      11.0,
+      11.5,
+      1.008
+     ],
+     [
+      11.5,
+      12.0,
+      0.984
+     ]
+    ],
+    "hue_sky": {
+     "magenta": 0.0,
+     "blue": 0.377,
+     "n": 1445839
+    },
+    "n_valid_scene": null
+   },
+   "metrics_icc_ignored": {
     "E1": 2.2,
     "E2": 3.8,
     "E1E2_n": [
@@ -372,10 +1035,361 @@
       "RB_dark": 0.936
      }
     ],
+    "E5q_scan": [
+     [
+      6.0,
+      6.5,
+      0.617
+     ],
+     [
+      6.5,
+      7.0,
+      0.7
+     ],
+     [
+      7.0,
+      7.5,
+      0.925
+     ],
+     [
+      7.5,
+      8.0,
+      1.013
+     ],
+     [
+      8.0,
+      8.5,
+      1.006
+     ],
+     [
+      8.5,
+      9.0,
+      1.304
+     ],
+     [
+      9.0,
+      9.5,
+      0.868
+     ],
+     [
+      9.5,
+      10.0,
+      0.807
+     ],
+     [
+      10.0,
+      10.5,
+      0.761
+     ],
+     [
+      10.5,
+      11.0,
+      0.861
+     ],
+     [
+      11.0,
+      11.5,
+      0.992
+     ],
+     [
+      11.5,
+      12.0,
+      0.977
+     ]
+    ],
     "hue_sky": {
      "magenta": 0.0,
      "blue": 0.377,
      "n": 1445839
+    },
+    "n_valid_scene": null
+   },
+   "robustness": {
+    "E5": {
+     "definitions": [
+      {
+       "split": "q5/30",
+       "v": [
+        0.913,
+        0.964
+       ]
+      },
+      {
+       "split": "q5/50",
+       "v": [
+        1.16,
+        1.488
+       ]
+      },
+      {
+       "split": "q5/70",
+       "v": [
+        1.4,
+        1.839
+       ]
+      },
+      {
+       "split": "q10/30",
+       "v": [
+        0.882,
+        0.941
+       ]
+      },
+      {
+       "split": "q10/50",
+       "v": [
+        1.121,
+        1.452
+       ]
+      },
+      {
+       "split": "q10/70",
+       "v": [
+        1.352,
+        1.795
+       ]
+      },
+      {
+       "split": "q15/30",
+       "v": [
+        0.842,
+        0.903
+       ]
+      },
+      {
+       "split": "q15/50",
+       "v": [
+        1.071,
+        1.393
+       ]
+      },
+      {
+       "split": "q15/70",
+       "v": [
+        1.292,
+        1.723
+       ]
+      },
+      {
+       "split": "q20/30",
+       "v": [
+        0.807,
+        0.876
+       ]
+      },
+      {
+       "split": "q20/50",
+       "v": [
+        1.026,
+        1.352
+       ]
+      },
+      {
+       "split": "q20/70",
+       "v": [
+        1.238,
+        1.671
+       ]
+      },
+      {
+       "split": "q30/30",
+       "v": [
+        0.752,
+        0.795
+       ]
+      },
+      {
+       "split": "q30/50",
+       "v": [
+        0.957,
+        1.227
+       ]
+      },
+      {
+       "split": "q30/70",
+       "v": [
+        1.154,
+        1.518
+       ]
+      },
+      {
+       "split": "otsu",
+       "v": [
+        0.707,
+        0.848
+       ]
+      }
+     ],
+     "frac_both_ge1": 0.562,
+     "n_definitions": 16,
+     "boot_q15_50": [
+      {
+       "el": [
+        7.5,
+        8.5
+       ],
+       "p5": 0.79,
+       "p50": 1.055,
+       "p95": 1.344,
+       "p_below_1": 0.395,
+       "n_blocks": 23
+      },
+      {
+       "el": [
+        8.5,
+        9.0
+       ],
+       "p5": 0.829,
+       "p50": 1.356,
+       "p95": 1.822,
+       "p_below_1": 0.143,
+       "n_blocks": 23
+      }
+     ],
+     "rule": "E5 를 관문으로 쓰려면 정의 묶음의 ≥ 80 % 에서 두 칸 모두 ≥ 1 이어야 함(통계 #1) — 못 미치면 보고만"
+    },
+    "E5_alt": {
+     "definitions": [
+      {
+       "split": "q5/30",
+       "v": [
+        0.905,
+        0.946
+       ]
+      },
+      {
+       "split": "q5/50",
+       "v": [
+        1.116,
+        1.374
+       ]
+      },
+      {
+       "split": "q5/70",
+       "v": [
+        1.314,
+        1.653
+       ]
+      },
+      {
+       "split": "q10/30",
+       "v": [
+        0.881,
+        0.928
+       ]
+      },
+      {
+       "split": "q10/50",
+       "v": [
+        1.086,
+        1.348
+       ]
+      },
+      {
+       "split": "q10/70",
+       "v": [
+        1.279,
+        1.622
+       ]
+      },
+      {
+       "split": "q15/30",
+       "v": [
+        0.849,
+        0.898
+       ]
+      },
+      {
+       "split": "q15/50",
+       "v": [
+        1.046,
+        1.304
+       ]
+      },
+      {
+       "split": "q15/70",
+       "v": [
+        1.232,
+        1.569
+       ]
+      },
+      {
+       "split": "q20/30",
+       "v": [
+        0.819,
+        0.876
+       ]
+      },
+      {
+       "split": "q20/50",
+       "v": [
+        1.01,
+        1.273
+       ]
+      },
+      {
+       "split": "q20/70",
+       "v": [
+        1.189,
+        1.531
+       ]
+      },
+      {
+       "split": "q30/30",
+       "v": [
+        0.773,
+        0.81
+       ]
+      },
+      {
+       "split": "q30/50",
+       "v": [
+        0.953,
+        1.176
+       ]
+      },
+      {
+       "split": "q30/70",
+       "v": [
+        1.122,
+        1.415
+       ]
+      },
+      {
+       "split": "otsu",
+       "v": [
+        0.735,
+        0.858
+       ]
+      }
+     ],
+     "frac_both_ge1": 0.562,
+     "n_definitions": 16,
+     "boot_q15_50": [
+      {
+       "el": [
+        7.5,
+        8.5
+       ],
+       "p5": 0.807,
+       "p50": 1.034,
+       "p95": 1.272,
+       "p_below_1": 0.426,
+       "n_blocks": 23
+      },
+      {
+       "el": [
+        8.5,
+        9.0
+       ],
+       "p5": 0.84,
+       "p50": 1.273,
+       "p95": 1.641,
+       "p_below_1": 0.16,
+       "n_blocks": 23
+      }
+     ],
+     "rule": "E5 를 관문으로 쓰려면 정의 묶음의 ≥ 80 % 에서 두 칸 모두 ≥ 1 이어야 함(통계 #1) — 못 미치면 보고만"
     }
    },
    "cited": {
@@ -495,38 +1509,30 @@
      "src": "heda/render-metrics.json photos.P2 strip_over_band_RoverB (band 2.4-3.4, warped) — 정의 차이로 ±10 %"
     }
    ],
-   "repro_all_ok": true,
-   "p3_matrix_sensitivity": {
-    "E3": 2.517,
-    "E4": 3.874,
-    "E5q": [
-     1.071,
-     1.393
-    ],
-    "E6q": [
-     0.088,
-     0.061
-    ],
-    "E8": 0.245
-   }
+   "repro_all_ok": true
   },
   "P3": {
    "image": "/root/.claude/uploads/827aa702-2f52-52c8-9fe8-e45a3ff14759/b7bca0fb-image.jpg",
    "image_sha256": "c715077d0eae013744a3d702d5edc0efbe32ab5ccfe040ffed09c4b96ec25966",
    "sha_ok": true,
-   "geo": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/geo-P3.json",
-   "geo_sha256": "307ff154e051b452bef12743e33390f20f7447ccf79428de02df1c250a8604a9",
    "downsample": 4,
    "n_sky": 570307,
+   "geo_source": {
+    "path": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/twphoto/heda/geo-P3.json",
+    "sha256": "307ff154e051b452bef12743e33390f20f7447ccf79428de02df1c250a8604a9",
+    "scratch_present": true,
+    "scratch_sha_ok": true
+   },
    "metrics": {
     "RB": {
-     "glow": 5.324,
-     "side": 3.774,
-     "mid": 2.234,
-     "upper": 0.956,
-     "sheet": 1.055,
-     "ref": 1.206,
-     "far": 4.868
+     "glow": 7.768,
+     "side": 4.759,
+     "mid": 2.548,
+     "upper": 0.962,
+     "sheet": 1.072,
+     "ref": 1.232,
+     "far": 6.669,
+     "glow_s": 6.916
     },
     "luma_med": {
      "glow": 149.093,
@@ -535,9 +1541,48 @@
      "upper": 88.012,
      "sheet": 92.276,
      "ref": 119.014,
-     "far": 130.344
+     "far": 130.344,
+     "glow_s": 146.809
+    },
+    "C1": 8.074,
+    "C1_glow_s": 7.189,
+    "C2": 0.502,
+    "C3r": 0.87,
+    "C4": 10.224,
+    "C4_warm_frac": 0.703,
+    "C4_ref_RBpx_median": 1.059,
+    "C5": 1.75,
+    "C6": 1.694,
+    "hue_sky": {
+     "magenta": 0.001,
+     "blue": 0.331,
+     "n": 570307
+    },
+    "n_valid_scene": null
+   },
+   "metrics_icc_ignored": {
+    "RB": {
+     "glow": 5.324,
+     "side": 3.774,
+     "mid": 2.234,
+     "upper": 0.956,
+     "sheet": 1.055,
+     "ref": 1.206,
+     "far": 4.868,
+     "glow_s": 4.883
+    },
+    "luma_med": {
+     "glow": 149.093,
+     "side": 111.309,
+     "mid": 137.479,
+     "upper": 88.012,
+     "sheet": 92.276,
+     "ref": 119.014,
+     "far": 130.344,
+     "glow_s": 146.809
     },
     "C1": 5.572,
+    "C1_glow_s": 5.11,
     "C2": 0.462,
     "C3r": 0.874,
     "C4": 6.785,
@@ -549,8 +1594,10 @@
      "magenta": 0.001,
      "blue": 0.331,
      "n": 570307
-    }
+    },
+    "n_valid_scene": null
    },
+   "robustness": {},
    "cited": {
     "C3": {
      "value": 0.93,
@@ -611,13 +1658,7 @@
      "src": "heda/render-metrics.json photos.P3 glow_over_upper_luma (warped)"
     }
    ],
-   "repro_all_ok": true,
-   "p3_matrix_sensitivity": {
-    "C1": 8.074,
-    "C2": 0.502,
-    "C4": 10.224,
-    "C6": 1.694
-   }
+   "repro_all_ok": true
   }
  }
 }
