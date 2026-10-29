@@ -5,7 +5,7 @@
  *   nice -n 19 node tools/genus-ruler/tsun/fixture/fixture-test.mjs [--fixture=<dir>] [--tmp=<dir>] [--u1c=<dirA>,<dirB>]
  *
  * 법칙 쪽은 src/components/VolumetricProbe/tsunFixture.ts(빌더가 쓸 평가기)를 esbuild 로 묶어 부르고, 무차별 쪽은 같은 C 핵(tsunfix.c)을
- * **다른 씨앗·8 배 행**으로, 격자 밖 값(운량 = 장면의 역표 운량, hf 0.13/0.37/0.62/0.88, 방위 = 사진·RA 해 방위)에서 돌립니다.
+ * **다른 씨앗·행 1024**로, 격자 밖 값(운량 = 장면의 역표 운량, hf 0.13/0.37/0.62/0.88, 방위 = 사진·RA 해 방위)에서 돌립니다.
  * 그래서 U1b 는 표 보간(c·hf·φ)과 표본 잡음만 잽니다(같은 밀도 복제 — 렌더러와의 차이는 WP7/R-A_T 몫).
  *
  * U1a (보고 — v2.1 §8 이 U1b′ 로 대체): 맑은 시작 자유 경로 P(τ(0,l) < 0.105) 의 국소 비율이 4·8·16 km 에서 5 % 안(지수 법칙).
@@ -13,8 +13,9 @@
  * U1c (관문, --u1c 가 있을 때): 두 번 만든 표의 bin·json 바이트가 같음(sha256).
  * U1d (보고): 모양 잡음 없는 바이트만의 λ₁₀ ÷ 침식한 λ₁₀ (설계 예상 sc ×1.8).
  * U1e (관문): 구름 안 시작 도달 0.25/0.5/1.1 km 뒤 L 2/5/10 km 의 τ: 무차별(σ 가중) 대 τ_x(L) + τ_c(L), |Δτ| ≤ 0.3 (T_brute ≥ 0.01).
- *      τ_c 는 방위·L 별 표(tauCPhi — 빌더가 해 방위로 읽음)로 판정. 방위 평균 L 별(tauCL)·설계의 상수(tauC, 균일 변수 표 형태)·τ_c 없음·
- *      몬테카를로 바닥은 같은 점에서 보고(§179 결정).
+ *      τ_c 는 방위(360° — 해 쪽 방향 그대로; 조건부 창은 뒤집기 대칭이 아님)·L 별 표(tauCPhi — 빌더가 해 방위로 읽음)로 판정.
+ *      방위 평균 L 별(tauCL)·설계의 상수(tauC, 균일 변수 표 형태)·τ_c 없음·뒤집힌 방위(φ + 180°)로 읽은 τ_c·몬테카를로 바닥은
+ *      같은 점에서 보고(§179 결정).
  * U1f (보고): mip 1 ÷ mip 0 의 λ₁₀·τ(5 km)·τ(10 km).
  * 덧붙임(보고): 거시 문턱 근사(타일 C₀ 0.9 를 문턱으로 c 까지 깎은 장 대 c 로 만든 장) · 레인 대체(다른 실현) 오차.
  */
@@ -65,9 +66,9 @@ const SCENES = [
   { name: 'P1CF ns', genus: 'ns', lane: 1, cover: G.genusCoverIn('ns', 1.0) },
   { name: 'RA5 sc', genus: 'sc', lane: 0, cover: G.genusCoverIn('sc', 0.6) },
 ].filter(s => header.entries.some(E => E.genus === s.genus && E.lane === s.lane));
-// 무차별 기준: 표의 8 배 행(1024 격자 행 — T ≈ 0.01 에서 ln 표준편차 ≈ 표의 1/3 [estimate, 1/√8]). FLOOR 는 표와 같은 표본 설정의
+// 무차별 기준: 행 1024(R2 점 집합 — T ≈ 0.01~0.03 에서 ln 표준편차 ≤ 0.05 [measured, 씨앗 12]). FLOOR 는 표와 같은 표본 설정의
 // 독립 무차별 — 법칙 없이 "표 표본 잡음만으로" U1b 를 넘는 비율(몬테카를로 바닥, 보고).
-const TEST_PARAM = { ...F.BUILD_PARAM, rows: 1024 };
+const TEST_PARAM = { ...F.BUILD_PARAM, rows: 1024, lattice: 2 }; // R2 — 황금비 격자는 행 수에 따라 공명(tsunfix.c 머리말)
 const FLOOR_PARAM = { ...F.BUILD_PARAM };
 const TEST_SEED = 0x7e57a179n;
 
@@ -186,7 +187,7 @@ const U1B_L = [2, 3, 5, 7, 10, 14, 20], LIM = Math.log(1.25);
 {
   const RE = [0.25, 0.5, 1.1], LE = [2, 5, 10];
   const acc = () => ({ n: 0, fail: 0, worst: { v: 0 } });
-  const A = { P: acc(), L: acc(), C: acc(), none: acc(), floor: acc() };
+  const A = { P: acc(), L: acc(), C: acc(), none: acc(), flip: acc(), floor: acc() };
   const add = (a, d, info) => { a.n++; if (Math.abs(d) > 0.3) a.fail++; if (Math.abs(d) > Math.abs(a.worst.v)) a.worst = { v: +d.toFixed(4), ...info }; };
   for (const c of mainCells) {
     const s = SCENES[c.si], e = entryOf(s), r = c.rec, f = c.floor;
@@ -201,12 +202,13 @@ const U1B_L = [2, 3, 5, 7, 10, 14, 20], LIM = Math.log(1.25);
       add(A.L, tauB - (law + X.tsunTauCond(fx, e, s.cover, c.hf, reach, L)), info);
       add(A.C, tauB - (law + X.tsunTauCond(fx, e, s.cover, c.hf, reach)), info);
       add(A.none, tauB - law, info);
+      add(A.flip, tauB - (law + X.tsunTauCond(fx, e, s.cover, c.hf, reach, L, c.az + 180)), info); // 처음 판의 mod 180 접기에 해당
       if (f.sumW > 0) { const Tf = f.sumWT[ri * nCL + cl] / f.sumW; add(A.floor, Tf > 0 ? tauB + Math.log(Tf) : 99, info); }
     }
   }
   const pack = a => ({ points: a.n, fail: a.fail, maxAbs: a.worst.v, worst: a.worst });
   check('U1e in-cloud start τ beyond reach (0.25/0.5/1.1 km, L 2/5/10 km) |Δτ| ≤ 0.3 — azimuth- and L-resolved τ_c', A.P.n > 0 && A.P.fail === 0,
-    { ...pack(A.P), azimuthAveragedL: pack(A.L), constantTauC: pack(A.C), withoutTauC: pack(A.none), monteCarloFloor: pack(A.floor) });
+    { ...pack(A.P), azimuthAveragedL: pack(A.L), constantTauC: pack(A.C), withoutTauC: pack(A.none), reversedAzimuth: pack(A.flip), monteCarloFloor: pack(A.floor) });
 }
 
 // ───── U1a (보고) ─────

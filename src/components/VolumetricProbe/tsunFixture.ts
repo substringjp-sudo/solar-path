@@ -7,12 +7,17 @@
  *   τ_x(L)                       자리 x = (c, hf, φ) 의 곡선 = 이웃 칸 τ_칸(L) 의 섞음(아래 blendOf)
  *   λ₁₀(x) = τ_x(10)/10          명목 소광률(τ_x(10) > ln 1e4 이면 τ_x(L_K) = ln 1e4 인 L_K 로 ln 1e4 / L_K — 연속)
  *   G(Λ; x) = τ_x(Λ/λ₁₀(x))       성장 곡선(curve of growth) — 빌더는 줄을 따라 Λ = ∫ λ₁₀(c(x), hf, φ) ds 를 쌓고 끝에서 τ = G(Λ)
- *   τ_c(c, hf, reach)            구름 안 표본에서 2차 행진 도달(reach) 뒤의 추가 광학두께(방위 평균)
+ *   τ_c(c, hf, reach[, L[, φ]])  구름 안 표본에서 2차 행진 도달(reach) 뒤의 추가 광학두께 — 상수(방위 평균)·L 별·방위(360°)·L 별.
+ *                                조건부 창은 뒤집기 대칭이 아니라(같은 선의 앞·뒤가 0.4 까지 다름) φ 는 해 쪽 방향 그대로 0~360°.
  * 사이 값은 c·hf·φ 의 다중 선형 무게(최대 8 칸)로 같은 L 에서 ε 기하 평균합니다. 칸마다 다른 λ₁₀ 로 Λ 를 나누면(처음 판) λ 규칙의 L*
  * 가 칸마다 달라질 때 곡선이 어긋나(ac c 0.98 hf 0.4: +0.7 ln) 섞은 곡선 하나에서 λ 를 다시 셉니다 [measured, 개발 diag4].
- * 경계: hf 0·1 과 c 0 은 0 칸(구름 없음), φ 는 mod 180, c ≥ 0.999 는 1.0 칸만(생성기 불연속), L 은 0 에서 τ = 0, 마지막 격자 너머는
- * 마지막 마디 기울기.
+ * 경계: hf 0·1 과 c 0 은 0 칸(구름 없음), τ 의 φ 는 mod 180(τ_c 는 360), c ≥ 0.999 는 1.0 칸만(생성기 불연속), L 은 0 에서 τ = 0,
+ * 마지막 격자 너머는 마지막 마디 기울기. φ 는 북에서 시계 방향의 해 쪽 선 방향, 평면 (동, 북) = 종류 타일 uv(cloudGenus 평면 틀).
  * 순수 함수(three·DOM 없음) — 시험(fixture-test.mjs)이 esbuild 로 묶어 C 무차별 적분과 맞대 봅니다(U1b·U1e).
+ *
+ * 싣기(§179 결정): 표는 하네스가 읽는 자산 tools/genus-ruler/tsun/fixture/tsun-fixture.{json,bin} 입니다(bin ≈ 9.8 MB — 앱 묶음에
+ * import 하기엔 큼). 이 모듈은 fetch·파일 읽기를 하지 않고 (머리말, 바이트)만 받습니다 — 바이트의 sha256 을 머리말 binSha256 과 맞추는
+ * 일은 부르는 쪽(하네스 run-tsun.js, node crypto)이 하고, 여기서는 길이만 확인합니다.
  */
 
 export interface TsunFixtureEntry {
@@ -27,12 +32,12 @@ export interface TsunFixtureEntry {
 export interface TsunFixtureHeader {
   name: string;
   version: number;
-  grids: { L: number[]; reach: number[]; hf: number[]; phi: number[]; covers: number[]; condL: number[]; fullCover: number; reachPhi: number[]; condLPhi: number[] };
+  grids: { L: number[]; reach: number[]; hf: number[]; phi: number[]; phi360: number[]; covers: number[]; condL: number[]; fullCover: number };
   layout: {
     tau: { offsetBytes: number; count: number; scale: number };
     tauC: { offsetBytes: number; count: number; scale: number };
     tauCL: { offsetBytes: number; count: number; scale: number };
-    tauCPhi: { offsetBytes: number; count: number; scale: number };
+    tauCPhi: { offsetBytes: number; count: number; scale: number; offset: number };
   };
   entries: TsunFixtureEntry[];
   binSha256: string;
@@ -45,8 +50,8 @@ export interface TsunFixture {
   tauC: Int16Array;
   /** τ_c 의 L 별 표 [entry][cover][hf][reach][condL] */
   tauCL: Int16Array;
-  /** τ_c 의 방위·L 별 표 [entry][cover][hf][phi][reachPhi][condLPhi] */
-  tauCPhi: Int16Array;
+  /** τ_c 의 방위(360°)·도달·L 별 표 [entry][cover][hf][phi360][reach][condL] (uint8: offset + scale·b) */
+  tauCPhi: Uint8Array;
   /** 항목마다 [c][hf][φ] 의 λ₁₀ (1/km) */
   lam10: Float32Array[];
 }
@@ -63,7 +68,7 @@ export function parseTsunFixture(header: TsunFixtureHeader, bytes: Uint8Array): 
   const tau = new Uint16Array(buf, lt.offsetBytes, lt.count);
   const tauC = new Int16Array(buf, lc.offsetBytes, lc.count);
   const tauCL = new Int16Array(buf, header.layout.tauCL.offsetBytes, header.layout.tauCL.count);
-  const tauCPhi = new Int16Array(buf, header.layout.tauCPhi.offsetBytes, header.layout.tauCPhi.count);
+  const tauCPhi = new Uint8Array(buf, header.layout.tauCPhi.offsetBytes, header.layout.tauCPhi.count);
   const { L, hf, phi } = header.grids;
   const nL = L.length, nH = hf.length, nP = phi.length;
   const lam10 = header.entries.map(E => {
@@ -119,10 +124,12 @@ function hfW(grid: number[], h: number): W {
   const ext = [0, ...grid, 1];
   return bracket(ext, h).map(([i, w]) => [i === 0 || i === ext.length - 1 ? -1 : i - 1, w] as [number, number]);
 }
-function phiW(grid: number[], phiDeg: number): W {
-  const p = ((phiDeg % 180) + 180) % 180, n = grid.length;
-  if (p >= grid[n - 1]) {
-    const t = (p - grid[n - 1]) / (180 - grid[n - 1]);
+/** 원형 격자(주기 period) 무게 — τ 는 180, τ_c 는 360 */
+function phiW(grid: number[], phiDeg: number, period = 180): W {
+  const p = ((phiDeg % period) + period) % period, n = grid.length;
+  if (p >= grid[n - 1] || p < grid[0]) {
+    const span = grid[0] + period - grid[n - 1], x = p >= grid[n - 1] ? p - grid[n - 1] : p + period - grid[n - 1];
+    const t = x / span;
     return [[n - 1, 1 - t], [0, t]];
   }
   return bracket(grid, p);
@@ -213,24 +220,24 @@ export function tsunCurveOfGrowth(fx: TsunFixture, e: number, Lambda: number, co
  * 구름 안 표본의 도달 뒤 추가 광학두께 τ_c(c, hf, reach[, L[, φ]]) — c·hf 는 격자 끝에서 자름(0 칸 없음), reach 선형·자름.
  *  - Lkm 없음: 설계의 상수(방위 평균, L 2~10 km 의 minimax) — 셰이더 균일 변수 표 형태(design v2.1 §4.3).
  *  - Lkm 있음: 방위 평균 L 별 표(condL 사이 선형, L < 2 km 는 0 에서 선형, L > 10 km 는 10 km 값).
- *  - Lkm·phiDeg 있음: 방위·L 별 표(빌더가 해 방위로 읽음; reach 는 {0, 0.25, 0.5, 1.1}, L 은 {2, 5, 10} 사이 선형).
+ *  - Lkm·phiDeg 있음: 방위(360°, 해 쪽 선 방향)·L 별 표 — 빌더가 해 방위로 읽음.
  */
 export function tsunTauCond(fx: TsunFixture, e: number, cover: number, hf: number, reachKm: number, Lkm?: number, phiDeg?: number): number {
   const E = fx.header.entries[e], g = fx.header.grids, nH = g.hf.length, nR = g.reach.length, s = fx.header.layout.tauC.scale;
   const cw = coverW(E, cover, g.fullCover, false);
-  const ramp = (grid: number[]): [W, number] => (Lkm! < grid[0] ? [[[0, 1]], Math.max(0, Lkm!) / grid[0]] : [bracket(grid, Lkm!), 1]);
+  const CL = g.condL, nCL = CL.length;
+  const ramp = (): [W, number] => (Lkm! < CL[0] ? [[[0, 1]], Math.max(0, Lkm!) / CL[0]] : [bracket(CL, Lkm!), 1]);
   let v = 0;
   if (Lkm !== undefined && phiDeg !== undefined) {
-    const nP = g.phi.length, nRp = g.reachPhi.length, nLp = g.condLPhi.length;
-    const [lw, rmp] = ramp(g.condLPhi);
-    for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [pi, wp] of phiW(g.phi, phiDeg))
-      for (const [ri, wr] of bracket(g.reachPhi, reachKm)) for (const [li, wl] of lw) {
-        v += wc * wh * wp * wr * wl * fx.tauCPhi[E.tauCPhiOffset + (((ci * nH + hi) * nP + pi) * nRp + ri) * nLp + li] * s;
+    const nP2 = g.phi360.length, sp = fx.header.layout.tauCPhi.scale, so = fx.header.layout.tauCPhi.offset;
+    const [lw, rmp] = ramp();
+    for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [pi, wp] of phiW(g.phi360, phiDeg, 360))
+      for (const [ri, wr] of bracket(g.reach, reachKm)) for (const [li, wl] of lw) {
+        v += wc * wh * wp * wr * wl * (so + fx.tauCPhi[E.tauCPhiOffset + (((ci * nH + hi) * nP2 + pi) * nR + ri) * nCL + li] * sp);
       }
     return v * rmp;
   }
-  const CL = g.condL, nCL = CL.length;
-  const [lw, rmp] = Lkm !== undefined ? ramp(CL) : [null, 1];
+  const [lw, rmp] = Lkm !== undefined ? ramp() : [null, 1];
   for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [ri, wr] of bracket(g.reach, reachKm)) {
     const k = E.tauCOffset + (ci * nH + hi) * nR + ri;
     if (!lw) { v += wc * wh * wr * fx.tauC[k] * s; continue; }

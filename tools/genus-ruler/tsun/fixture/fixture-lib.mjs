@@ -20,20 +20,26 @@ export const SHAPE_BIN = path.join(ROOT, 'node_modules/@takram/three-clouds/asse
 // ───── 격자(§179 결정 — design v2.1 §4.4·§8, 숫자는 [decision]) ─────
 /** 창 길이 L(km). τ(L) = −ln⟨T(0, L)⟩ 를 이 점들에서 저장, 사이는 선형, 40 km 너머는 마지막 마디 기울기로 연장. */
 export const L_GRID = [0.125, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 14, 20, 40];
-/** τ_c 의 해 쪽 2차 행진 도달(km) — codemap: 들머리 1.10 km → 70~80 km 에서 0.25 km, 그 너머 0(τ 0.5 대용). */
-export const REACH_GRID = [0, 0.125, 0.25, 0.5, 0.75, 1.1, 1.5];
-/** τ_c 를 맞추는 L(km, L_GRID 의 첨자) — v2.1 §1 M4 의 2/5/10 km 를 포함, 최대 오차 최소(minimax) 상수. */
-export const CONDL_KM = [2, 3, 5, 7, 10];
+/**
+ * τ_c 의 해 쪽 2차 행진 도달(km) — codemap: 들머리 1.10 km → 41 km 에서 0.43 km → 78 km 부터 0(τ 0.5 대용). 사이는 선형.
+ * §179 결정: 처음 판의 7 도달 × 5 L(0.125·1.5 km, 3·7 km 포함)은 조건부 창이 칸 비용의 대부분이라(앞·뒤 두 방향이면 ns 60 ms/칸
+ * [measured]) 셰이더 도달 범위(0~1.1 km)와 U1e 점(0.25·0.5·1.1 km × 2·5·10 km)을 덮는 5 × 3 으로 줄임.
+ */
+export const REACH_GRID = [0, 0.25, 0.5, 0.75, 1.1];
+/** τ_c 를 재는 L(km, L_GRID 의 첨자) — v2.1 §1 M4 의 2/5/10 km. */
+export const CONDL_KM = [2, 5, 10];
 export const CONDL_IDX = CONDL_KM.map(l => L_GRID.indexOf(l));
-/** 방위별 τ_c 표의 도달·L 부분 격자(REACH_GRID·CONDL_KM 의 부분 — 크기를 줄임: 셰이더 도달은 0(대용) 또는 0.25~1.1 km) */
-export const REACH_PHI = [0, 0.25, 0.5, 1.1];
-export const CONDL_PHI = [2, 5, 10];
 /** 방위별 τ_c 를 고르게 하는 반폭(도): 타일 축 ±15° 안 2.5°, 그 밖 7.5°(이웃 칸 ±2 · ±5° 를 삼각 무게로) [decision] */
 export const PHI_SMOOTH = phi => { const a = ((phi % 90) + 90) % 90; return a <= 15 || a >= 75 ? 2.5 : 7.5; };
 /** U1a 자유 경로 점(km): 4·8·16 km 의 국소 비율 = 이웃 두 점(l/√2, l√2)의 로그 기울기 */
 export const FREE_KM = [2 * Math.SQRT2, 4 * Math.SQRT2, 8 * Math.SQRT2, 16 * Math.SQRT2];
-/** 높이 비율 hf. 양 끝(0·1)은 두 단면 모두 hs = 0 → 구름 없음(평가기가 0 칸을 덧붙임). */
-export const HF_GRID = [0.02, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.98];
+/**
+ * 높이 비율 hf. 양 끝(0·1)은 두 단면 모두 hs = 0 → 구름 없음(평가기가 0 칸을 덧붙임).
+ * §179 고침: 0.1 간격(11 점)은 U1b 를 hf 보간에서 놓쳤음 — ac c 0.961 φ 78.4°: τ(10 km) 가 hf 0.30 2.40 · 0.35 3.79 · 0.37 4.25 · 0.40 4.91
+ * 로 오목해서 0.3·0.4 사이 기하 섞음이 4.00(−0.30 ln) [measured, 행 256]. 0.05 간격(21 점, 설계 v2 §6.1 의 '11–21 heights' 상한)이면
+ * 같은 점이 4.20(−0.05 ln).
+ */
+export const HF_GRID = [0.02, ...Array.from({ length: 19 }, (_, i) => +(0.05 * (i + 1)).toFixed(2)), 0.98];
 /**
  * 타일 운량(makeGenusWeather 입력). 0 아래는 평가기가 0 칸(c = 0)과 선형.
  * 생성기는 c ≥ 0.999 에서 문턱을 끄고(th = −1) 장 전체를 씁니다 → 0.998 과 1.0 사이가 불연속(ac hf 0.6: λ₁₀ 0.5 → 39 /km [computed]).
@@ -44,6 +50,8 @@ export const COVER_GRID = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.
 /** cloudGenus.genusWeatherSteps 의 `L.cover >= 0.999` 와 같은 값 */
 export const FULL_COVER = 0.999;
 /** 방위 φ(도, 북에서 시계, mod 180 — 선을 뒤집어도 창 모집단이 같음): 타일 축(0·90°) ±15° 안은 1°, 그 밖은 5° (v2.1 §2 M6). */
+/** 조건부 τ_c 의 방위 격자: 뒤집기 대칭이 아니라 360° — PHI_GRID(앞 창) ∪ PHI_GRID + 180°(같은 선의 뒤 창, tsunfix.c) */
+export const phi360 = phi => [...phi, ...phi.map(p => p + 180)];
 export const PHI_GRID = (() => {
   const s = new Set();
   for (let a = -15; a <= 15; a++) s.add(((a % 180) + 180) % 180);
@@ -68,11 +76,12 @@ export const ENTRIES = [
 
 /**
  * C 핵 매개변수(표 꾸리기). 관측점 = 헤다(P2/P3/RA 장면) — 모양 잡음 좌표의 ECEF 방향만 정함.
- * 표본 수 [measured, fixture-test 개발 측정]: T ≈ 0.01~0.02 의 ln⟨T⟩ 표준편차가 행 64·24 km 에서 0.16~0.41, 행 256 에서 0.07~0.14,
- * 행 128 격자·시작 48 km 에서 0.05~0.13 — 좁은 틈 통로가 평균을 정해서(모양 잡음을 꺼도 0.135) 표본에 느리게 수렴합니다.
- * 그래서 행은 격자(lattice: 한 칸의 공통 이동 하나), 줄은 길게(시작 구간 48 km — 같은 표본 수에서 행 수보다 효율적).
+ * 표본 수 [measured]: T ≈ 0.01~0.03 의 ln⟨T⟩ 씨앗 간 표준편차 — 좁은 틈 통로가 평균을 정해서(모양 잡음을 꺼도 0.135) 표본에 느리게 수렴.
+ * 처음 판(황금비 격자, 행 128, 시작 48 km)은 0.03~0.19 였고 법칙이 U1b 를 3/980 점에서 놓쳤음(최대 0.236 > ln 1.25, 표 설정 바닥 자체가
+ * T 0.01~0.03 띠에서 4/39 실패). §179 결정: R2 점 집합(lattice 2)·행 256·시작 구간 48 km → 0.03~0.08 [measured, 여섯 칸 × 씨앗 12].
+ * 비용은 칸당 ≈ 2 배(부하 아래 sc·ac 의 어려운 칸 ≈ 40 ms).
  */
-export const BUILD_PARAM = { S: 256, tileKm: 24, ds: 0.05, rows: 128, startStep: 0.2, startRange: 48, lat: 34.97342, lon: 138.77713, lattice: 1 };
+export const BUILD_PARAM = { S: 256, tileKm: 24, ds: 0.05, rows: 256, startStep: 0.2, startRange: 48, lat: 34.97342, lon: 138.77713, lattice: 2 };
 export const BUILD_SEED = 0x7155a179n; // §179 표 씨앗(시험은 다른 씨앗)
 export const SIGMA_IN = 0.1; // 1/km — 구름 안 시작(C 핵과 같은 값)
 
@@ -176,7 +185,7 @@ export function compileCore(tmp) {
   return exe;
 }
 
-export const recLen = () => 1 + L_GRID.length + 2 + REACH_GRID.length * CONDL_IDX.length + 1 + FREE_KM.length + 2;
+export const recLen = () => 1 + L_GRID.length + 2 + 2 * REACH_GRID.length * CONDL_IDX.length + 1 + FREE_KM.length + 2;
 
 /** 계획 글자: 머리 + 칸 줄들 */
 export function planText(param, cells) {
@@ -186,7 +195,7 @@ export function planText(param, cells) {
     `REACH ${REACH_GRID.length} ${REACH_GRID.join(' ')}`,
     `CONDL ${CONDL_IDX.length} ${CONDL_IDX.join(' ')}`,
     `FREE ${FREE_KM.length} ${FREE_KM.map(v => v.toFixed(12)).join(' ')}`,
-    `LATTICE ${P.lattice ? 1 : 0}`,
+    `LATTICE ${P.lattice | 0}`,
     `PARAM ${P.S} ${P.tileKm} ${P.ds} ${P.rows} ${P.startStep} ${P.startRange} ${P.lat} ${P.lon}`,
     `CELLS ${cells.length}`,
   ];
@@ -216,23 +225,24 @@ export function readRecords(outPath) {
     const meanT = Array.from(f.subarray(p, p + nL)); p += nL;
     const sumW = f[p++], nIn = f[p++];
     const sumWT = Array.from(f.subarray(p, p + nR * nCL)); p += nR * nCL;
+    const sumWTb = Array.from(f.subarray(p, p + nR * nCL)); p += nR * nCL; // 같은 선의 뒤 창(방향 φ + 180°)
     const nClear = f[p++];
     const okF = Array.from(f.subarray(p, p + nF)); p += nF;
     const meanSigma = f[p++], inFrac = f[p++];
-    recs.push({ nStarts, meanT, sumW, nIn, sumWT, nClear, okF, meanSigma, inFrac });
+    recs.push({ nStarts, meanT, sumW, nIn, sumWT, sumWTb, nClear, okF, meanSigma, inFrac });
   }
   return recs;
 }
 
 /**
- * 여러 계획을 동시 conc 개로(각각 nice 19). 결과 순서 = 입력 순서.
+ * 여러 계획을 동시 conc 개로(각각 nice 19). 결과 순서 = 입력 순서. maxNew = 새로 돌릴 최대 일감 수(넘으면 그 자리는 null).
  * 캐시: outPath 옆 .key 에 sha256(계획 글자 + 타일 묶음 sha + 핵 실행 파일 sha)를 적어 두고 같으면 다시 돌리지 않습니다 — 긴 표 꾸리기를
  * `--only` 로 여러 번(각 ≤ 10 CPU 분) 나눠 돌린 뒤 전체를 한 번 더 부르면 이어 붙입니다. U1c(두 번 만들기)는 다른 --tmp 로 캐시 없이.
  */
-export async function runMany(exe, tilesPath, jobs, conc = 2, cacheSalt = '') {
-  const out = new Array(jobs.length);
+export async function runMany(exe, tilesPath, jobs, conc = 2, cacheSalt = '', maxNew = Infinity) {
+  const out = new Array(jobs.length).fill(null);
   const exeSha = sha256(fs.readFileSync(exe));
-  let next = 0;
+  let next = 0, started = 0;
   const worker = async () => {
     for (;;) {
       const i = next++;
@@ -245,6 +255,8 @@ export async function runMany(exe, tilesPath, jobs, conc = 2, cacheSalt = '') {
         if (jobs[i].label) console.log(`  ${jobs[i].label}: 캐시 ${jobs[i].cells} 칸`);
         continue;
       }
+      if (started >= maxNew || jobs[i].skip) continue; // 예산 끝·이번에 돌리지 않을 항목 — null 로 남김(부른 쪽이 미완 처리)
+      started++;
       if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath);
       out[i] = await runCore(exe, tilesPath, jobs[i].plan, jobs[i].outPath);
       fs.writeFileSync(keyPath, key);
