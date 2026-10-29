@@ -169,6 +169,11 @@ const rel = (a, b) => Math.abs(a - b) / Math.max(Math.abs(b), 1e-300);
     const ok = T.ARCH_GL2.length === 2 && T.ARCH_GL2.every((v, i) => v === Q.ARCH_GL2_FRACTIONS[i]) && T.ARCH_AZ_DEG.every((v, i) => v === Q.ARCH_AZ_NODES_DEG[i]) &&
       T.ARCH_AZ_WIDTH_DEG === Q.ARCH_AZ_NODE_WIDTH_DEG;
     check('cloudTsun.ts ARCH_GL2/ARCH_AZ_DEG/ARCH_AZ_WIDTH_DEG = archQuad.ts', ok, `${JSON.stringify(T.ARCH_GL2)} ${JSON.stringify(T.ARCH_AZ_DEG)} ${T.ARCH_AZ_WIDTH_DEG}`);
+    // §179 검토 물리 12: 아치 옥타브 수(셰이더 고정 8) = archQuad.ts = takram 품질 단계마다의 multiScatteringOctaves(셰이더는 #error 로도 단언)
+    const shared = fs.readFileSync(path.join(ROOT, 'node_modules/@takram/three-clouds/build/shared.js'), 'utf8');
+    const presetOct = [...shared.matchAll(/multiScatteringOctaves:\s*(\d+)/g)].map(m => Number(m[1]));
+    const octOk = T.ARCH_OCTAVES === Q.ARCH_OCTAVES && presetOct.length > 0 && presetOct.every(v => v === T.ARCH_OCTAVES);
+    check('arch octaves: cloudTsun.ts ARCH_OCTAVES = archQuad.ts = takram multiScatteringOctaves (every preset)', octOk, `cloudTsun ${T.ARCH_OCTAVES} · archQuad ${Q.ARCH_OCTAVES} · takram ${JSON.stringify(presetOct)}`);
   }
 }
 

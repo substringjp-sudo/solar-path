@@ -1,6 +1,6 @@
 /**
  * archQuad.ts — §179 WP5 아치 빛 계약 적분의 **노드·가중치**(셰이더가 쓸 구적)와 takram 옥타브 식. three.js 없음, 순수 함수.
- * **하네스 전용**(2026-10-28 사용자 결정: 앱 경로 없음, 기본 끔). 셰이더 쪽 글자는 cloudTsun.ts(WP4) 의 gArchFill·I-4 가 같은 식을 씁니다.
+ * **하네스 전용**(2026-10-28 사용자 결정: 앱 경로 없음, 기본 끔). 셰이더 쪽 글자는 cloudTsunShader.ts(WP4) 의 gArchFill·I-4 가 같은 식을 씁니다(옥타브 수 정적 단언 포함 — 검토 물리 12).
  * CPU 기준 적분기는 tools/genus-ruler/tsun/archcpu/(archquad.py 가 이 파일의 파이썬 거울 — archquad-test.mjs 가 둘을 1e-12 로 견줌).
  *
  * 계약(ruler-delta A2(c)(d) · design v2 §3.2 · v2.1 §4.5) — 그늘 표본 x 의 아치 항:
@@ -10,7 +10,8 @@
  *     방위 −20° · 0° · +20°(줄 방향 = 아틀라스 구축 때의 해 방위를 그 자리 접평면에 — 셰이더 gArchRowAxis 와 같음).
  *   가중치 dΩ = sin(dip)/2 × 20°(라디안) — **띠의 정확한 입체각** sin(dip)·60° 를 여섯 등분(U5a: 합 = sin(dip)·π/3 sr).
  *     (결정 D-q1) GL 본래 가중치 (dip/2)·cos e_g 가 아니라 정확한 입체각을 고도마다 반씩: 설계 v2 §3.2 그대로. 둘의 차는
- *     dip ≤ 3.05°(9 km) 에서 상대 ≤ 1e−7 [computed] 이라 노드 값에는 무관하고, 합이 띠의 입체각과 정확히 같아짐.
+ *     **합**에서 상대 ≤ 4e−9, **노드마다**는 ±1.1e−5(h 0.25 km) ~ ±5.9e−4(h 13 km) [computed, §179 검토 물리 12 — 처음 판의 '≤ 1e−7'은 합에만 맞음].
+ *     물리적으로 무시할 크기이고, 합이 띠의 입체각과 정확히 같아짐.
  *   옥타브(takram approximateMultipleScattering, a = b = c = 0.5, 8 옥타브 — qualityPresets 의 multiScatteringOctaves 8):
  *     C_{g,i} = Σ_방위 aⁱ · p(ω_k·v; cⁱ) · L_k · dΩ_k             (광선마다 채우는 캐시, v = 시선 방향 rayDirection)
  *     S       = Σ_g [ Σ_i C_{g,i} · exp(−bⁱ(τ_mid + τ_own,g)) ] · exp(−τ_rest,g)   (archNoT 면 τ_rest ≡ 0)

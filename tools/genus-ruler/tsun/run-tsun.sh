@@ -29,8 +29,10 @@ case "$cmd" in
     [ "$A" = "$B" ] || { echo "run-tsun.sh: two builds differ" >&2; exit 1; } ;;
   run)
     BUNDLE="$1"; JOBS="$2"; OUTD="$3"; W="$4"; H="$5"; ATM="${6:-gen}"
-    [ -n "$H" ] || { echo "usage: run-tsun.sh run <번들 폴더> jobs.json outDir W H [gen|load]" >&2; exit 2; }
+    [ -n "$H" ] || { echo "usage: run-tsun.sh run <번들 폴더> jobs.json outDir W H [gen|load] [--retry-watchdog] [--watchdog-scale s]" >&2; exit 2; }
+    shift 5; [ $# -gt 0 ] && shift
     # 한 번 = 한 덩어리(≤ 110 분). 종료 코드 3 이면 남은 잡이 있음 — 예약 창 안에서 사람이 다시 부름(창을 넘겨 저절로 이어 돌지 않게).
-    VROOT="$BUNDLE" exec nice -n 19 node "$HERE/run-tsun.js" --guard-tag genus-ruler/volsky/run.js --max-min 110 "$JOBS" "$OUTD" "$W" "$H" "$ATM" ;;
-  *) echo "usage: run-tsun.sh build <폴더> | run <번들 폴더> jobs.json outDir W H [gen|load]" >&2; exit 2 ;;
+    # §179 검토 반영: 남은 인자(--retry-watchdog · --watchdog-scale s)는 그대로 넘김 — 실행기가 모르는 깃발은 거부(종료 2).
+    VROOT="$BUNDLE" exec nice -n 19 node "$HERE/run-tsun.js" --guard-tag genus-ruler/volsky/run.js --max-min 110 "$@" "$JOBS" "$OUTD" "$W" "$H" "$ATM" ;;
+  *) echo "usage: run-tsun.sh build <폴더> | run <번들 폴더> jobs.json outDir W H [gen|load] [--retry-watchdog] [--watchdog-scale s]" >&2; exit 2 ;;
 esac

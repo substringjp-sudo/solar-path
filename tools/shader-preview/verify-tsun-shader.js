@@ -2,12 +2,16 @@
  * §179 T_sun 셰이더 주입(cloudTsun.ts · WP0 + WP4) 합격 판정 — 브라우저 없음(RULER-grain C0 렌더와 함께 돌아도 됨: GPU·Chromium 안 씀).
  * esbuild 로 앱의 createVolumetricScene 을 묶어 **가짜 렌더러**(GL 호출 없음)로 돌리고 셰이더 글자·균일변수·define 만 봅니다(그리지 않음) —
  * verify-lighting-fixes.js 와 같은 방식.
- *   node tools/shader-preview/verify-tsun-shader.js [--base HEAD] [--work DIR]
- * 임시 출력은 os.tmpdir()(TMPDIR) 아래 새 폴더(--work 로 바꿈). 비교 기준 트리(--base, 기본 HEAD = §179 전)는 git archive 로 꺼냅니다.
+ *   node tools/shader-preview/verify-tsun-shader.js [--base e0f93f2] [--work DIR]
+ * 임시 출력은 os.tmpdir()(TMPDIR) 아래 새 폴더(--work 로 바꿈). 비교 기준 트리(--base, 기본 e0f93f2 = §179 전 마지막 커밋)는 git archive 로 꺼냅니다.
+ * §179 검토 반영(회귀 2): 처음 판의 기본 HEAD 는 이제 §179 스냅샷 — 기준 트리에 cloudTsun.ts 가 있으면 멈춤(종료 2).
  *
  *  [byte] 끄면 그대로: tsun 0(옵션을 안 넘김 · TSUN_OPTIONS_OFF 를 명시) — 구름 조각·정점·그림자 조각·정점·대기 효과·EffectPass 합친 글자 ·
- *         두 재질의 균일변수 이름·define 이 기준 트리와 바이트 같음. low·medium·high × 낮·박명 × 변형(없음 · §178 고침 · 확산 1 · 확산 2 · 얼음 무리 ·
- *         grain 손잡이 전부 · C0ps · 모두).
+ *         두 재질의 균일변수 이름 **과 값** · define · 효과 값(ACCURATE·층·해상도) · 만든 텍스처 수가 기준 트리와 바이트 같음.
+ *         low·medium·high × 낮 29.6°·박명 6.8°·깊은 박명 −9.8° × 변형 19(없음 · §178 고침 · 확산 1·2·3·9 · debugLightFloors · 얼음 · 얼음+가루 끔 ·
+ *         물리+물리 얼음 · 뼈대 1·3 · grain 전부 · erode 1 + 화소각 · debugDensityMul · C0ps · macro 0 · shadowMinSunDeg 90 · 모두), 거시 고리 입력 켬 ·
+ *         setDate 쓸기(낮 → 17:40 → −9.8° → 박명 → 낮, 앱 setOptions 키·품질 바꿈) · SkyScene3D·VolumetricProbe 길 흉내(검토 회귀 3 — rev-byte.js 를 옮김).
+ *  [bundle] 앱 묶음(volumetricScene.ts 축소, three·postprocessing·takram 밖)에 하네스 글자(구축기·셰이더 글자)가 없음, 크기 차 기록(검토 회귀 1).
  *  [U0a] 정적 활성 샘플러 수(만든 글자를 define 으로 전처리 → main 에서 닿는 함수의 texture 계열 호출 — §177.6 h samplers.py 를 옮김):
  *         낮 끈 상태 low 12 · medium 13 · high 15 [§177.6 h], C0ps 박명 = TSUN_CLOUD_SAMPLERS, T 켬 = 그 + 1(더한 것은 gTsunTex 하나), 그림자 패스 그대로.
  *  [U0b] MAX_TEXTURE_IMAGE_UNITS 보다 많으면 throw(만들 때 · setOptions · setQuality — 상태를 안 바꿈), 모르면 16 으로 봄, readCapabilities 가 읽음.
@@ -19,12 +23,15 @@
  *  [U4e] gTsunOn = 0 가지(else)에 원래 thru 줄이 글자 그대로.
  *  [U4g] T 팔의 해 > 12° 글자 = C0ps 글자(구름·그림자·정점·균일변수·define), 낮 → 박명 → 낮 왕복.
  *  [atlas] setTsunAtlas: 균일변수 값 · 옵션/장면 불일치 throw · 옵션을 바꾸면 무효(gTsunOn 0) · applyScene 이 버림 · 아치 무게 w(θ).
- *  [glsl] u_true(gTsunPath)를 주입 글자에서 그대로 옮겨(GLSL → JS) 5 m 무차별 적분과 대조, 괄호 균형, 선언 전 사용 없음(도움 함수 순서).
+ *  [glsl] u_true(gTsunPath)를 주입 글자에서 그대로 옮겨(GLSL → JS) 5 m 무차별 적분과 대조, 괄호 균형, 선언 전 사용 없음(도움 함수 순서) ·
+ *         조각 보간(gTsunSliceTau·gTsunPathW·gTsunGL4·gTsunLam)과 τ_c 표(gTsunCondAt)를 글자에서 옮겨 CPU 거울(tsunAtlas.ts)과 대조(§179 검토 반영) ·
+ *         아치 옥타브 정적 단언.
  */
 const path = require('path'); const os = require('os'); const fs = require('fs'); const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..', '..');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i >= 0 ? process.argv[i + 1] : d; };
-const BASE_REV = arg('--base', 'HEAD');
+const PRE179 = 'e0f93f2';
+const BASE_REV = arg('--base', PRE179);
 const WORK = arg('--work', null) ? path.resolve(arg('--work')) : fs.mkdtempSync(path.join(os.tmpdir(), 'tsun-shader-'));
 fs.mkdirSync(WORK, { recursive: true });
 let pass = 0, fail = 0;
@@ -32,17 +39,27 @@ const ok = (c, m) => { if (c) { pass++; console.log('  PASS: ' + m); } else { fa
 const count = (s, a) => s.split(a).length - 1;
 
 const JST = s => s + '+09:00';
-const T = { day: JST('2026-10-02T15:00:00'), tw: JST('2026-10-02T17:00:00'), deep: JST('2026-10-02T18:22:21') };   // 후쿠이 P1: 29.6° · 6.8° · −9.8° (§178 defects)
+const T = { day: JST('2026-10-02T15:00:00'), tw: JST('2026-10-02T17:00:00'), deep: JST('2026-10-02T18:22:21'), gh: JST('2026-10-02T17:40:00') };   // 후쿠이 P1: 29.6° · 6.8° · −9.8° (§178 defects) · 17:40
 const LAYERS = [{ genus: 'sc', cover: 0.45, baseKm: 1.5, thicknessM: 750, band: 'low', opts: { seed: 4242 } }, { genus: 'ac', cover: 0.4, baseKm: 4.0, band: 'mid', opts: { seed: 5 } }, { genus: null, cover: 0, baseKm: 7.5, band: 'high' }, { genus: 'ci', cover: 0.3, baseKm: 9.0, band: 'high', opts: { seed: 77 } }];
 const SCENE = { lat: 36.046, lon: 136.278, heightM: 23, az: 272, el: 10, fov: 60 };
 const GRAIN_ALL = { refineOnHit: 1, sunLowpass: 1, erodeCentered: 2, jitterMode: 1 };
 const VARIANTS = {
-  plain: {}, fix178: { clampInscatter: true, irradianceLogMu: true }, diff1: { diffuse: 1 }, diff2: { diffuse: 2 }, ice: { iceHalo: true },
-  grain: GRAIN_ALL, c0ps: { accurateSunBelowDeg: 12 }, all: { clampInscatter: true, irradianceLogMu: true, diffuse: 1, iceHalo: true, accurateSunBelowDeg: 12, ...GRAIN_ALL },
+  plain: {}, fix178: { clampInscatter: true, irradianceLogMu: true }, diff1: { diffuse: 1 }, diff2: { diffuse: 2 }, diff3: { diffuse: 3 }, diff9: { diffuse: 9 },
+  floors: { debugLightFloors: [0.1, 0.2] }, ice: { iceHalo: true }, icePow: { iceHalo: true, icePowderOff: true }, phys: { physics: true, physicsIce: true },
+  skel1: { skeleton: 1 }, skel3: { skeleton: 3 }, grain: GRAIN_ALL, erode1: { erodeCentered: 1, erodePixelAngleDeg: 0.03 }, dmul: { debugDensityMul: 0.2 },
+  c0ps: { accurateSunBelowDeg: 12 }, macro0: { macro: 0 }, smd90: { shadowMinSunDeg: 90 },
+  all: { clampInscatter: true, irradianceLogMu: true, diffuse: 1, iceHalo: true, accurateSunBelowDeg: 12, ...GRAIN_ALL },
 };
+// 거시 고리 입력(검토 회귀 3 — rev-byte.js 와 같은 고리) — 끈 길 비교에만
+const RING = Array.from({ length: 24 }, (_, i) => ({ distance: 30 + (i % 4) * 60, azimuthOffset: i * 15, cover: 0.2 + 0.6 * ((i * 7) % 10) / 10 }));
 const OFF_RUNS = [];
-for (const q of ['low', 'medium', 'high']) for (const t of ['day', 'tw']) for (const [vn, vo] of Object.entries(VARIANTS)) OFF_RUNS.push({ tag: `${q}_${t}_${vn}`, quality: q, iso: T[t], options: vo });
-const KINDS = ['cloudsFrag', 'cloudsVert', 'shadowFrag', 'shadowVert', 'aerial', 'merged', 'uniforms', 'defines'];
+for (const q of ['low', 'medium', 'high']) for (const t of ['day', 'tw', 'deep']) for (const [vn, vo] of Object.entries(VARIANTS)) OFF_RUNS.push({ tag: `${q}_${t}_${vn}`, quality: q, iso: T[t], options: vo });
+const KINDS = ['cloudsFrag', 'cloudsVert', 'shadowFrag', 'shadowVert', 'aerial', 'merged', 'uniforms', 'uniformValues', 'defines', 'effect'];
+/** setDate 쓸기·앱 길 흉내 dump 이름(두 트리 같은 길 — 검토 회귀 3). */
+const EXTRA_TAGS = [
+  ...['low', 'high'].flatMap(q => [...['day', 'gh', 'deep', 'tw', 'day2'].map((k, i) => `sweep_${q}_${i}${k}`), `sweepC_${q}`]),
+  ...['low', 'medium', 'high'].flatMap(q => ['day', 'tw', 'deep'].flatMap(t => [`app_${q}_${t}`, `probe_${q}_${t}`])),
+];
 
 const HARNESS = (tree, isCur) => `
 import fs from 'node:fs';
@@ -50,8 +67,9 @@ import path from 'node:path';
 import { DataTexture, FloatType, RGBAFormat, Texture, Vector2 } from 'three';
 import { EffectComposer } from 'postprocessing';
 import { createVolumetricScene, DEFAULT_VOLUMETRIC_OPTIONS${isCur ? ', readCapabilities' : ''} } from '${tree}/src/components/VolumetricProbe/volumetricScene';
-${isCur ? `import * as TS from '${tree}/src/components/VolumetricProbe/cloudTsun';
-import { applyCostPatch } from '${ROOT}/tools/genus-ruler/grain/capture';` : ''}
+${isCur ? `import * as TS from '${tree}/src/components/VolumetricProbe/cloudTsunShader';
+import { applyCostPatch } from '${ROOT}/tools/genus-ruler/grain/capture';
+TS.installTsunShader();   // §179 검토 반영(회귀 1): 셰이더 글자는 하네스·시험만 검` : ''}
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const OUT = process.argv[3];
 const W = 390, H = 584;
@@ -74,14 +92,29 @@ const mk = async (options: any, quality: string, maxTextures?: number, createOpt
   return { v, ps };
 };
 const inp = (iso: string) => ({ ...cfg.scene, date: new Date(iso), layers: cfg.layers });
+const inpRing = (iso: string, ring = true) => ({ ...cfg.scene, date: new Date(iso), layers: cfg.layers, ...(ring ? { macro: { low: cfg.ring, mid: cfg.ring, high: cfg.ring } } : {}) });
+/** 균일변수 값 직렬화(검토 회귀 3 — rev-byte.js ser): 벡터·행렬은 배열, 텍스처는 id·형. */
+const ser = (x: any, d = 0): any => {
+  if (x == null || typeof x !== 'object') return typeof x === 'number' && !Number.isFinite(x) ? String(x) : x;
+  if (x.isTexture) return 'tex#' + x.id + ':' + (x.constructor && x.constructor.name);
+  if (x.isVector2 || x.isVector3 || x.isVector4 || x.isColor || x.isQuaternion) return (x.toArray ? x.toArray() : [x.x, x.y, x.z, x.w]);
+  if (x.isMatrix3 || x.isMatrix4) return x.elements.slice();
+  if (ArrayBuffer.isView(x)) return 'typed' + (x as any).length;
+  if (Array.isArray(x)) return x.map(e => ser(e, d + 1));
+  if (d > 3) return '[obj]';
+  const o: any = {}; for (const k of Object.keys(x).sort()) { if (typeof x[k] === 'function') continue; o[k] = ser(x[k], d + 1); } return o;
+};
 const aerialOf = (ps: any[]) => { for (const p of ps) for (const e of (p.effects ?? [])) if (typeof e.getFragmentShader === 'function' && e.getFragmentShader().includes('volBaseImage')) return { pass: p, effect: e }; return null; };
 const texts = (v: any, ps: any[], merged = true) => {
   const c = v.debug.clouds, a = aerialOf(ps);
   let m = '';
   if (merged && a) { try { a.pass.recompile(); m = a.pass.fullscreenMaterial.fragmentShader; } catch (e: any) { m = 'ERR ' + (e && e.message); } }
   const cm = c.cloudsPass.currentMaterial, sm = c.shadowPass.currentMaterial;
+  const uv = (mat: any) => { const o: any = {}; for (const k of Object.keys(mat.uniforms).sort()) o[k] = ser(mat.uniforms[k].value); return o; };
   return { cloudsFrag: cm.fragmentShader, cloudsVert: cm.vertexShader, shadowFrag: sm.fragmentShader, shadowVert: sm.vertexShader, aerial: a ? a.effect.getFragmentShader() : '', merged: m,
-    uniforms: JSON.stringify([Object.keys(cm.uniforms).sort(), Object.keys(sm.uniforms).sort()]), defines: JSON.stringify([cm.defines, sm.defines]) };
+    uniforms: JSON.stringify([Object.keys(cm.uniforms).sort(), Object.keys(sm.uniforms).sort()]), defines: JSON.stringify([cm.defines, sm.defines]),
+    uniformValues: JSON.stringify([uv(cm), uv(sm)]),
+    effect: JSON.stringify(ser({ acc: c.clouds?.accurateSunSkyLight, layers: c.cloudLayers?.map((l: any) => ({ a: l.altitude, h: l.height, d: l.densityScale, s: l.shadow })), res: c.resolutionScale })) };
 };
 const dump = (tag: string, t: Record<string, string>) => { for (const [k, s] of Object.entries(t)) fs.writeFileSync(path.join(OUT, tag + '.' + k + '.glsl'), s); };
 const meta = (v: any) => { const c = v.debug.clouds; return { cascades: c.shadow.cascadeCount, cloudDefines: { ...c.cloudsPass.currentMaterial.defines }, shadowDefines: { ...c.shadowPass.currentMaterial.defines } }; };
@@ -94,9 +127,11 @@ const texId = () => new Texture().id;   // three 텍스처 id 는 전역 증가 
 /** 시험용 아틀라스(부른 쪽이 만든 텍스처) */
 const fakeAtlas = (v: any, o: any = {}) => {
   const n = o.n ?? 128, blocks = o.blocks ?? 2, arch = !!o.arch;
-  const tex = new DataTexture(new Float32Array(n * blocks * n * (arch ? 3 : 1) * 4), n * blocks, n * (arch ? 3 : 1), RGBAFormat, FloatType);
+  const rows = (TS as any).tsunAtlasRows(arch);
+  const tex = new DataTexture(new Float32Array(n * blocks * n * rows * 4), n * blocks, n * rows, RGBAFormat, FloatType);
   return { texture: tex, n, blocks, laneBlock: o.laneBlock ?? [0, 1, -1, -1], centerKm: [1.5, -2.0], rowAxisEN: [Math.cos(0.3), Math.sin(0.3)], halfKm: 104,
-    rangeKm: o.rangeKm ?? 400, arch, tauCond: Array.from({ length: 36 }, (_, k) => 0.01 * k), sceneSerial: o.serial ?? v.tsunSceneSerial(), meta: { builder: 'test' } };
+    rangeKm: o.rangeKm ?? 400, arch, tauCond: Array.from({ length: (TS as any).TSUN_COND_LEN }, (_, k) => 0.01 * k), prof: Array.from({ length: (TS as any).TSUN_PROF_N * 4 }, (_, k) => 0.1 * k),
+    sceneSerial: o.serial ?? v.tsunSceneSerial(), meta: { builder: 'test' } };
 };
 async function curTests(res: any) {
   const M = TS.TSUN_MARKS;
@@ -208,7 +243,8 @@ async function curTests(res: any) {
     const a = fakeAtlas(v, { arch: true });
     v.setTsunAtlas(a);
     const vals = { on: u().gTsunOn.value, tex: u().gTsunTex.value === a.texture, frame: u().gTsunFrame.value.toArray(), lane: u().gTsunLaneBlock.value.toArray(), epoch: u().gTsunEpoch.value.toArray(),
-      cond0: u().gTsunCond.value[0].toArray(), cond8: u().gTsunCond.value[8].toArray(), archW: u().gArchW.value, archNoT: u().gArchNoT.value, info: v.tsunInfo() };
+      cond0: u().gTsunCond.value[0].toArray(), cond8: u().gTsunCond.value[8].toArray(), condN: u().gTsunCond.value.length, prof16: u().gTsunProf.value[16].toArray(), profN: u().gTsunProf.value.length,
+      archW: u().gArchW.value, archNoT: u().gArchNoT.value, info: v.tsunInfo() };
     const errs = {
       wrongN: throwsMsg(() => v.setTsunAtlas(fakeAtlas(v, { arch: true, n: 256 }))), wrongSerial: throwsMsg(() => v.setTsunAtlas(fakeAtlas(v, { arch: true, serial: -5 }))),
       wrongRange: throwsMsg(() => v.setTsunAtlas(fakeAtlas(v, { arch: true, rangeKm: 300 }))), noArch: throwsMsg(() => v.setTsunAtlas(fakeAtlas(v, { arch: false }))),
@@ -233,17 +269,50 @@ async function curTests(res: any) {
   }
   res.defaults = T_KEYS.map(k => [k, (DEFAULT_VOLUMETRIC_OPTIONS as any)[k]]);
   res.consts = { anchorsT: [TS.TSUN_DECL_ANCHOR, TS.TSUN_HELPER_ANCHOR, TS.TSUN_I2_ANCHOR, TS.TSUN_IT_ANCHOR], anchorsA: [TS.TSUN_I0_ANCHOR, TS.TSUN_I1_ANCHOR, TS.TSUN_I4_ANCHOR],
-    samplers: (TS as any).TSUN_CLOUD_SAMPLERS, slices: (TS as any).TSUN_SLICE_HF, countLine: TS.TSUN_COUNT_LINE, itAnchor: TS.TSUN_IT_ANCHOR };
+    samplers: (TS as any).TSUN_CLOUD_SAMPLERS, slices: (TS as any).TSUN_SLICE_HF, countLine: TS.TSUN_COUNT_LINE, itAnchor: TS.TSUN_IT_ANCHOR,
+    profN: (TS as any).TSUN_PROF_N, condLen: (TS as any).TSUN_COND_LEN };
 }
 ` : ''}
 (async () => {
-  const res: any = { runs: {}, meta: {} };
+  const res: any = { runs: {}, meta: {}, ids: {} };
+  const tid = () => new Texture().id;   // three 텍스처 id 는 전역 증가 — 사이의 증가 = 만든 텍스처 수(+1)
   for (const run of cfg.offRuns) {
+    const id0 = tid();
     const { v, ps } = await mk(run.options, run.quality);
-    v.setScene(inp(run.iso)); v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex);
+    v.setScene(inpRing(run.iso)); v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex);
     dump(run.tag, texts(v, ps)); res.meta[run.tag] = meta(v);
+    res.ids[run.tag] = tid() - id0;
     ${isCur ? `// 같은 길에 T_sun 손잡이를 끈 값으로 명시(하네스 잡이 모든 새 손잡이를 줌 — ruler-delta A1)
-    if (run.quality !== 'medium') { const e = await mk({ ...run.options, ...(TS as any).TSUN_OPTIONS_OFF }, run.quality); e.v.setScene(inp(run.iso)); e.v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex); dump(run.tag + '_explicit', texts(e.v, e.ps)); }` : ''}
+    if (run.quality !== 'medium') { const e = await mk({ ...run.options, ...(TS as any).TSUN_OPTIONS_OFF }, run.quality); e.v.setScene(inpRing(run.iso)); e.v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex); dump(run.tag + '_explicit', texts(e.v, e.ps)); }` : ''}
+  }
+  // U0a 원본(거시 고리 없이 — §177.6 h 의 12/13/15 와 같은 조건)
+  for (const q of ['low', 'medium', 'high']) for (const [t, o] of [['day', {}], ['tw_c0ps', { accurateSunBelowDeg: 12 }]] as [string, any][]) {
+    const { v, ps } = await mk(o, q); v.setScene(inp(t === 'day' ? cfg.iso.day : cfg.iso.tw)); v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex);
+    dump('u0a_' + q + '_' + t, texts(v, ps)); res.meta['u0a_' + q + '_' + t] = meta(v);
+  }
+  // 검토 회귀 3: setDate 쓸기(낮 → 17:40 → −9.8° → 박명 → 낮) · 앱 setOptions 키(reapply false) · 품질 바꿈 — 한 장면, low·high
+  const APP_KEYS = { flow: false, flowUv: false, physics: false, physicsIce: false, macro: 1, morph: false, clampInscatter: true, irradianceLogMu: true };
+  for (const q of ['low', 'high']) {
+    const { v, ps } = await mk({ accurateSunBelowDeg: 12 }, q);
+    v.setScene(inpRing(cfg.iso.day)); v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex);
+    let i = 0; for (const k of ['day', 'gh', 'deep', 'tw', 'day2']) { v.setDate(new Date(cfg.iso[k === 'day2' ? 'day' : k])); dump('sweep_' + q + '_' + (i++) + k, texts(v, ps)); }
+    v.setOptions(APP_KEYS, false); v.setQuality('medium'); v.setQuality(q);
+    dump('sweepC_' + q, texts(v, ps));
+  }
+  // 검토 회귀 3: 앱 길 흉내 — SkyScene3D(만들기 {genus, celestial false} + 그 setOptions 키만, 하네스 옵션 없음) · VolumetricProbe(만들기 옵션만)
+  for (const q of ['low', 'medium', 'high']) for (const t of ['day', 'tw', 'deep']) {
+    passes.length = 0;
+    const id0 = tid();
+    const a: any = await createVolumetricScene(mkRenderer(), W, H, { genus: true, celestial: false, precomputed: {} as never });
+    const pa = passes.slice();
+    a.setQuality(q); a.setOptions(APP_KEYS, false);
+    a.setScene(inpRing(cfg.iso[t])); a.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex); a.setOptions(APP_KEYS, false);
+    dump('app_' + q + '_' + t, texts(a, pa)); res.ids['app_' + q + '_' + t] = tid() - id0;
+    passes.length = 0;
+    const b: any = await createVolumetricScene(mkRenderer(), W, H, { genus: true, clampInscatter: true, irradianceLogMu: true, precomputed: {} as never } as any);
+    const pb = passes.slice();
+    b.setQuality(q); b.setScene(inpRing(cfg.iso[t], false));
+    dump('probe_' + q + '_' + t, texts(b, pb));
   }
   ${isCur ? 'await curTests(res);' : ''}
   fs.writeFileSync(path.join(OUT, 'result.json'), JSON.stringify(res));
@@ -254,7 +323,7 @@ function runTree(tag, tree, isCur) {
   const dir = path.join(WORK, tag); fs.mkdirSync(dir, { recursive: true });
   const ts = path.join(WORK, `harness-${tag}.ts`), cjs = path.join(WORK, `harness-${tag}.cjs`), cfgF = path.join(WORK, `cfg-${tag}.json`);
   fs.writeFileSync(ts, HARNESS(tree, isCur));
-  fs.writeFileSync(cfgF, JSON.stringify({ scene: SCENE, layers: LAYERS, iso: T, offRuns: OFF_RUNS, grainAll: GRAIN_ALL }));
+  fs.writeFileSync(cfgF, JSON.stringify({ scene: SCENE, layers: LAYERS, iso: T, offRuns: OFF_RUNS, grainAll: GRAIN_ALL, ring: RING }));
   execFileSync('npx', ['esbuild', ts, '--bundle', '--format=cjs', '--platform=node', '--define:__DEV__=false', '--define:process.env.EXPO_PUBLIC_VOLUMETRIC_SKY="1"', `--outfile=${cjs}`, '--log-level=error'],
     { cwd: ROOT, stdio: 'inherit', env: { ...process.env, NODE_PATH: path.join(ROOT, 'node_modules') } });
   execFileSync('node', [cjs, cfgF, dir], { stdio: 'inherit' });
@@ -363,6 +432,25 @@ function glslFn(src, name) {
   while (d && k < src.length) { if (src[k] === '{') d++; else if (src[k] === '}') d--; k++; }
   return src.slice(i, k);
 }
+/** 머리 글자(형 포함)로 GLSL 함수 하나. */
+function glslFnHead(src, head) {
+  const i = src.indexOf(head);
+  if (i < 0) return null;
+  let j = src.indexOf('{', i), d = 1, k = j + 1;
+  while (d && k < src.length) { if (src[k] === '{') d++; else if (src[k] === '}') d--; k++; }
+  return src.slice(i, k);
+}
+/** §179 검토 반영: 조각 보간 도움 함수용 작은 GLSL → JS(스칼라 레인 하나 — vecN 은 배열 + 성분 접근자, dot = 곱). */
+function glslToJs(src) {
+  let s = src.replace(/\/\/[^\n]*/g, '');
+  s = s.replace(/^(?:float|int|vec2|vec3|vec4|void)\s+(\w+)\s*\(([^)]*)\)\s*\{/gm, (_, n, ps) => `function ${n}(${ps.split(',').map(p => p.trim().split(/\s+/).pop()).filter(Boolean).join(', ')}) {`);
+  s = s.replace(/\bconst\s+(?:float|int|vec2|vec3|vec4)\s+/g, 'const ');
+  s = s.replace(/\b(?:float|int|vec2|vec3|vec4|bool)\s+(?=[A-Za-z_]\w*\s*(?:=|,|;))/g, 'let ');
+  s = s.replace(/\bfloat\(/g, 'Number(').replace(/\bint\(/g, 'Math.trunc(');
+  s = s.replace(/(?<![\w.])(max|min|sqrt|abs|floor|pow)\(/g, 'Math.$1(');
+  if (/\b(float|vec[234]|int)\b(?!\()/.test(s.replace(/function \w+\([^)]*\)/g, ''))) throw new Error('GLSL 형이 남음: ' + s.match(/.{0,40}\b(float|vec[234]|int)\b.{0,40}/)[0]);
+  return s;
+}
 function toJs(fn, consts) {
   let s = fn.replace(/^float\s+(\w+)\s*\(([^)]*)\)/, (_, n, ps) => `(function ${n}(${ps.split(',').map(p => p.trim().split(/\s+/).pop()).join(', ')})`);
   s = s.replace(/\bfloat\s+/g, 'let ').replace(/\b(sqrt|max|min|abs)\(/g, 'Math.$1(');
@@ -384,6 +472,8 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
   const BASE_TREE = path.join(WORK, 'base-tree');
   fs.rmSync(BASE_TREE, { recursive: true, force: true }); fs.mkdirSync(BASE_TREE, { recursive: true });
   execFileSync('bash', ['-c', `git -C "${ROOT}" archive "${BASE_REV}" src | tar -x -C "${BASE_TREE}"`]);
+  // 검토 회귀 2: 기준 트리가 §179 를 품으면 '끈 = §179 전' 비교가 뜻이 없음 — 멈춤
+  if (fs.existsSync(path.join(BASE_TREE, 'src/components/VolumetricProbe/cloudTsun.ts'))) { console.error(`기준 트리 ${BASE_REV} 에 cloudTsun.ts 가 있음 — §179 전 커밋(${PRE179})을 쓰세요`); process.exit(2); }
   const B = runTree('base', BASE_TREE, false);
   const Cu = runTree('cur', ROOT, true);
   ok(true, 'esbuild 묶기·가짜 렌더러 실행(두 트리)');
@@ -395,7 +485,16 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
     for (const k of KINDS) { nAll++; if (rd(Cu.dir, run.tag, k) === rd(B.dir, run.tag, k)) nSame++; else diffs.push(run.tag + '.' + k); }
     if (run.quality !== 'medium') for (const k of KINDS) { nAll++; if (rd(Cu.dir, run.tag + '_explicit', k) === rd(B.dir, run.tag, k)) nSame++; else diffs.push(run.tag + '_explicit.' + k); }
   }
-  ok(nSame === nAll && nAll > 0, `옵션 안 넘김·TSUN_OPTIONS_OFF 명시: ${OFF_RUNS.length} 길(품질 3 × 낮·박명 × 변형 ${Object.keys(VARIANTS).length}) × ${KINDS.join('·')} — ${nSame}/${nAll} 같음${diffs.length ? ' — 다름: ' + diffs.slice(0, 8).join(', ') : ''}`);
+  ok(nSame === nAll && nAll > 0, `옵션 안 넘김·TSUN_OPTIONS_OFF 명시: ${OFF_RUNS.length} 길(품질 3 × 낮·박명·깊은 박명 × 변형 ${Object.keys(VARIANTS).length}, 거시 고리 켬) × ${KINDS.join('·')} — ${nSame}/${nAll} 같음${diffs.length ? ' — 다름: ' + diffs.slice(0, 8).join(', ') : ''}`);
+  {
+    const ed = [];
+    for (const tag of EXTRA_TAGS) for (const k of KINDS) if (rd(Cu.dir, tag, k) !== rd(B.dir, tag, k)) ed.push(tag + '.' + k);
+    ok(ed.length === 0, `setDate 쓸기(low·high, 낮 → 17:40 → −9.8° → 박명 → 낮 · 앱 setOptions 키 · 품질 바꿈) · SkyScene3D·VolumetricProbe 길 흉내(품질 3 × 시각 3): ${EXTRA_TAGS.length} 덤프 × ${KINDS.length} = 기준 트리` + (ed.length ? ' — 다름: ' + ed.slice(0, 8).join(', ') : ''));
+    const idDiff = Object.keys(B.res.ids).filter(k => B.res.ids[k] !== Cu.res.ids[k]);
+    ok(idDiff.length === 0 && Object.keys(B.res.ids).length === OFF_RUNS.length + 9, `만든 텍스처 수(three id 증가)가 기준 트리와 같음 — ${Object.keys(B.res.ids).length} 길` + (idDiff.length ? ' — 다름 ' + idDiff.slice(0, 6).join(',') : ''));
+    const hits = [...OFF_RUNS.map(r => r.tag), ...EXTRA_TAGS].filter(tag => KINDS.some(k => /§179|gTsun|gArch|gMarchDir/.test(rd(Cu.dir, tag, k))));
+    ok(hits.length === 0, '끈 길의 어느 덤프(글자·균일변수 이름·값·define)에도 §179·gTsun·gArch·gMarchDir 없음' + (hits.length ? ' — ' + hits.slice(0, 5).join(',') : ''));
+  }
   ok(!rd(Cu.dir, 'low_tw_plain', 'merged').startsWith('ERR') && rd(Cu.dir, 'low_tw_plain', 'merged').length > 1000, 'EffectPass 합친 글자를 얻음(비교가 비지 않음)');
   ok(OFF_RUNS.every(r => count(rd(Cu.dir, r.tag, 'cloudsFrag'), '§179') === 0 && count(rd(Cu.dir, r.tag, 'shadowFrag'), '§179') === 0), '끈 글자에 §179 표지 없음');
   ok(R.defaults.every(([k, v]) => ({ tsun: 0, tsunN: 128, tsunRangeKm: 400, archLight: 0, archNoT: 0, tsunRef: 0, tsunRefStepM: 200, tsunDebug: 0, tsunSync: false })[k] === v), 'DEFAULT_VOLUMETRIC_OPTIONS: T_sun 손잡이 모두 끔 ' + JSON.stringify(R.defaults));
@@ -408,11 +507,11 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
   console.log('\n[U0a] 정적 활성 샘플러 수');
   const cnt = {};
   for (const q of ['low', 'medium', 'high']) {
-    const m = B.res.meta[`${q}_day_plain`];
-    const day = activeSamplers(rd(B.dir, `${q}_day_plain`, 'cloudsFrag'), runtimeDefines(m.cloudDefines, q, m.cascades, false));
-    const mc = Cu.res.meta[`${q}_tw_c0ps`];
-    const c0ps = activeSamplers(rd(Cu.dir, `${q}_tw_c0ps`, 'cloudsFrag'), runtimeDefines(mc.cloudDefines, q, mc.cascades, false));
-    const sh0 = activeSamplers(rd(Cu.dir, `${q}_tw_c0ps`, 'shadowFrag'), runtimeDefines(mc.shadowDefines, q, mc.cascades, true));
+    const m = B.res.meta[`u0a_${q}_day`];
+    const day = activeSamplers(rd(B.dir, `u0a_${q}_day`, 'cloudsFrag'), runtimeDefines(m.cloudDefines, q, m.cascades, false));
+    const mc = Cu.res.meta[`u0a_${q}_tw_c0ps`];
+    const c0ps = activeSamplers(rd(Cu.dir, `u0a_${q}_tw_c0ps`, 'cloudsFrag'), runtimeDefines(mc.cloudDefines, q, mc.cascades, false));
+    const sh0 = activeSamplers(rd(Cu.dir, `u0a_${q}_tw_c0ps`, 'shadowFrag'), runtimeDefines(mc.shadowDefines, q, mc.cascades, true));
     const out = { day: day.active.length, c0ps: c0ps.active.length };
     for (const a of ['t', 'a']) {
       const mo = R.onMeta[q + '_' + (a === 'a' ? 1 : 0)];
@@ -461,7 +560,7 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
   console.log('\n[U4b·U4c] 끄기·균일변수·텍스처');
   ok(R.u4bToggle.length === 0, '실행 중 tsun 1(아치·아틀라스) → 0: 구름 조각·정점·그림자·균일변수·define = C0ps' + (R.u4bToggle.length ? ' — 다름 ' + R.u4bToggle.join(',') : ''));
   ok(R.u4c.offNames.length === 0 && R.u4c.offAtlasNames.length === 0, '끄면 두 재질에 gTsun…·gArch… 균일변수 없음(아틀라스를 걸어도)');
-  ok(R.u4c.onNames.sort().join() === ['gArchNoT', 'gArchW', 'gTsunCond', 'gTsunEpoch', 'gTsunFrame', 'gTsunLaneBlock', 'gTsunOn', 'gTsunTex'].join(), '켜면(아치) 구름 패스에 균일변수 8 개 ' + JSON.stringify(R.u4c.onNames));
+  ok(R.u4c.onNames.sort().join() === ['gArchNoT', 'gArchW', 'gTsunCond', 'gTsunEpoch', 'gTsunFrame', 'gTsunLaneBlock', 'gTsunOn', 'gTsunProf', 'gTsunTex'].join(), '켜면(아치) 구름 패스에 균일변수 9 개(§179 검토 반영 gTsunProf 더함) ' + JSON.stringify(R.u4c.onNames));
   ok(R.u4c.texOff === R.u4c.texOn, `텍스처를 새로 만들지 않음 — 같은 길에서 만든 텍스처 수 끔 ${R.u4c.texOff - 1} · 켬 ${R.u4c.texOn - 1}`);
   ok(R.u4c.offAtlasInfo.atlasValid === false && R.u4c.offAtlasInfo.injected === false, 'tsun 0 에 아틀라스를 걸어도 무효·글자 없음');
 
@@ -498,7 +597,8 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
     ok(A.before.on === 0 && A.before.info.atlasValid === false && A.before.info.reason === 'no atlas', '걸기 전: gTsunOn 0(아틀라스 없음 = C0ps 빛)');
     const fr = A.vals.frame;
     ok(A.vals.on === 1 && A.vals.tex && Math.abs(fr[0] - Math.cos(0.3)) < 1e-6 && Math.abs(fr[2] - 104) < 1e-9 && Math.abs(fr[3] - 208 / 128) < 1e-9 && A.vals.lane.join() === '0,1,-1,-1' && A.vals.epoch.join() === '1.5,-2,400,0'
-      && Math.abs(A.vals.cond0[3] - 0.03) < 1e-9 && Math.abs(A.vals.cond8[0] - 0.32) < 1e-9 && A.vals.archNoT === 0 && A.vals.info.atlasValid, `값: gTsunOn 1 · 텍스처 · 틀 ${fr.map(x => +x.toFixed(4))} · 레인 ${A.vals.lane} · 에포크 ${A.vals.epoch} · τ_c 순서`);
+      && Math.abs(A.vals.cond0[3] - 0.03) < 1e-9 && Math.abs(A.vals.cond8[0] - 0.32) < 1e-9 && A.vals.condN === 21 && A.vals.profN === 17 && Math.abs(A.vals.prof16[3] - 6.7) < 1e-9 && A.vals.archNoT === 0 && A.vals.info.atlasValid,
+      `값: gTsunOn 1 · 텍스처 · 틀 ${fr.map(x => +x.toFixed(4))} · 레인 ${A.vals.lane} · 에포크 ${A.vals.epoch} · τ_c 순서(21 vec4) · λ̂ 단면(17 vec4)`);
     ok(Math.abs(A.vals.archW - 1) < 1e-12 && Math.abs(A.twArch.archW) < 1e-12 && A.twArch.info.belowShadow === true, `아치 무게 w(θ): 해 −9.8° → ${A.vals.archW} · 해 6.8° → ${A.twArch.archW}`);
     const aw = A.archWeight;
     ok(aw[0] === 0 && aw[1] === 0 && Math.abs(aw[2] - 0.5) < 1e-12 && aw[3] === 1 && aw[4] === 1, 'archWeight = smoothstep(−1°, −2°, θ): 0 / 0 / 0.5 / 1 / 1');
@@ -512,7 +612,7 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
     const t = rd(Cu.dir, `on_low_${a}`, 'cloudsFrag');
     ok(balanced(t), `${a === 'a' ? '아치' : 'T'}: 괄호 () {} [] 균형(주석 뺌)`);
     const pos = n => t.indexOf(n);
-    const order = ['float gTsunPath(', 'vec2 gTsunUvOf(', 'float gTsunSliceTau(', 'vec4 gTsunCondAt(', 'vec4 gTsunEddDiff(', 'float gTsunReach(', 'vec4 marchClouds('];
+    const order = ['float gTsunPath(', 'float gTsunLam(', 'float gTsunGL4(', 'float gTsunPathW(', 'vec2 gTsunUvOf(', 'float gTsunSliceTau(', 'vec4 gTsunCondAt(', 'vec4 gTsunEddDiff(', 'float gTsunReach(', 'vec4 marchClouds('];
     const orderA = ['float gArchVis(', 'float gArchDip(', 'vec3 gArchRowAxis(', 'vec3 gArchDirMid(', 'void gArchFill(', 'vec4 marchClouds('];
     const inc = arr => arr.every((n, i) => pos(n) > 0 && (i === 0 || pos(arr[i - 1]) < pos(n)));
     ok(inc(order) && (a === 't' || (inc(orderA) && pos('float phaseFunction(') < pos('void gArchFill(') && pos('GetSkyLuminance(') < pos('void gArchFill(')))
@@ -533,6 +633,58 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
       }
       ok(n > 50 && worst <= 1, `u_true(gTsunPath, 주입 글자에서 옮김) vs ${BRUTE_DS * 1000} m 무차별 적분: ${n} 경우, |차| / (경계 4 개 × 보폭 + 1e-4·길이) 최대 ${worst.toFixed(3)} ≤ 1 (층 4 · 해 −1.5..+12° · 층 안·밑·위 시작)`);
     } catch (e) { ok(false, 'gTsunPath 옮기기 실패: ' + e.message); }
+  }
+
+  // §179 검토 반영: 조각 보간·τ_c 표를 글자에서 옮겨 CPU 거울(tsunAtlas.ts)과 대조 — 셰이더 = 거울이어야 U2g·U4h 가 셰이더를 잰 것
+  {
+    const t = rd(Cu.dir, 'on_low_t', 'cloudsFrag');
+    try {
+      const cjs = path.join(WORK, 'tsunAtlas-mirror.cjs');
+      execFileSync('npx', ['esbuild', path.join(ROOT, 'src/components/VolumetricProbe/tsunAtlas.ts'), '--bundle', '--format=cjs', '--platform=node', `--outfile=${cjs}`, '--log-level=error'], { cwd: ROOT, stdio: 'inherit' });
+      const TA = require(cjs);
+      const fns = ['float gTsunPath(', 'float gTsunLam(', 'float gTsunGL4(', 'float gTsunPathW(', 'float gTsunSliceTau(', 'vec3 gTsunTent(', 'vec4 gTsunCondAt('].map(h => { const f = glslFnHead(t, h); if (!f) throw new Error('no ' + h); return f; });
+      const js = glslToJs(fns.join('\n'));
+      const V = (...a) => { const o = a.slice(); Object.assign(o, { get x() { return o[0]; }, get y() { return o[1]; }, get z() { return o[2]; }, get w() { return o[3]; } });
+        Object.defineProperty(o, 'xy', { get: () => V(o[0], o[1]) }); Object.defineProperty(o, 'yz', { get: () => V(o[1], o[2]) }); Object.defineProperty(o, 'zw', { get: () => V(o[2], o[3]) }); return o; };
+      const env = { mix: (a, b, k) => a + (b - a) * k, clamp: (x, a, b) => Math.min(Math.max(x, a), b), dot: (a, b) => a * b, vec2: V, vec3: V, vec4: V, bottomRadius: 6360e3 };
+      const mkG = (prof, cond) => new Function(...Object.keys(env), 'gTsunProf', 'gTsunCond', js + '\nreturn { gTsunSliceTau, gTsunCondAt, gTsunPathW };')(...Object.values(env), prof, cond);
+      const rr = (() => { let q = 12345; return () => { q = (q * 1103515245 + 12345) % 2147483648; return q / 2147483648; }; })();
+      let worstS = 0, worstC = 0, worstW = 0, nS = 0;
+      for (let rep = 0; rep < 40; rep++) {
+        const NP = R.consts.profN, NC = R.consts.condLen;
+        const prof4 = new Array(NP * 4).fill(0), cond4 = new Array(NC).fill(0);
+        for (let k = 0; k < NP; k++) prof4[k * 4] = Math.max(0, 0.2 + 2 * Math.sin(k * 0.7 + rep) ** 2);
+        for (let k = 0; k < NC / 4; k++) cond4[k * 4] = 3 * rr();
+        const G = mkG(Array.from({ length: NP }, (_, k) => prof4[k * 4]), Array.from({ length: NC / 4 }, (_, k) => cond4[k * 4]));
+        for (let q = 0; q < 25; q++) {
+          const hb = 0.5 + 6 * rr(), ht = hb + 0.3 + 2.5 * rr(), he = hb + (ht - hb) * (-0.05 + 1.1 * rr()), sinE = Math.sin((-1.5 + 14 * rr()) * Math.PI / 180);
+          const tex = [5 * rr(), 4 * rr(), 3 * rr(), 2 * rr()];
+          const a = G.gTsunSliceTau(V(...tex), he, hb, ht, sinE, 400, 1), b = TA.tsunSliceTauCpu(tex, he, hb, ht, sinE, 400, 6360, prof4, 0);
+          worstS = Math.max(worstS, Math.abs(a - b) / Math.max(1e-6, Math.abs(b))); nS++;
+          const w1 = G.gTsunPathW(he, sinE, hb, ht, 400, 1), w2 = TA.tsunPathWKm(he, sinE, hb, ht, 400, 6360, prof4, 0);
+          worstW = Math.max(worstW, Math.abs(w1 - w2) / Math.max(1e-6, Math.abs(w2)));
+          const hf = -0.1 + 1.2 * rr(), reach = 1.4 * rr();
+          worstC = Math.max(worstC, Math.abs(G.gTsunCondAt(hf, reach) - TA.tsunCondAtCpu(cond4, Math.min(1, Math.max(0, hf)), reach, 0)));
+        }
+      }
+      ok(nS === 1000 && worstS < 1e-9 && worstW < 1e-9 && worstC < 1e-9, `조각 보간(gTsunSliceTau·gTsunPathW·gTsunGL4·gTsunLam)·τ_c(gTsunCondAt) 글자 = CPU 거울(tsunSliceTauCpu·tsunPathWKm·tsunCondAtCpu): ${nS} 경우 상대 최대 ${worstS.toExponential(1)} · W ${worstW.toExponential(1)} · τ_c ${worstC.toExponential(1)}`);
+    } catch (e) { ok(false, '조각 보간·τ_c 글자 옮기기 실패: ' + e.message); }
+    const ta = rd(Cu.dir, 'on_low_a', 'cloudsFrag');
+    ok(count(ta, '#if defined(MULTI_SCATTERING_OCTAVES) && MULTI_SCATTERING_OCTAVES != 8') === 1 && count(ta, '#error T_sun arch octave count 8') === 1 && /"MULTI_SCATTERING_OCTAVES":"8"/.test(rd(Cu.dir, 'on_low_a_tw', 'defines')),
+      '아치 옥타브 정적 단언(#if … #error, 검토 물리 12) 한 번 · 구름 패스 define MULTI_SCATTERING_OCTAVES 8');
+  }
+
+  console.log('\n[bundle] 앱 묶음에 하네스 글자가 없음(검토 회귀 1)');
+  {
+    const out = {};
+    for (const [tag, tree] of [['base', BASE_TREE], ['cur', ROOT]]) {
+      const f = path.join(WORK, `vs-${tag}.js`);
+      execFileSync('npx', ['esbuild', 'src/components/VolumetricProbe/volumetricScene.ts', '--bundle', '--minify', '--format=esm', '--external:three', '--external:postprocessing', '--external:@takram/*', '--define:__DEV__=false', `--outfile=${f}`, '--log-level=error'],
+        { cwd: tree, stdio: 'inherit', env: { ...process.env, NODE_PATH: path.join(ROOT, 'node_modules') } });
+      out[tag] = fs.readFileSync(f, 'utf8');
+    }
+    const harness = ['gTsunRefMarch', 'LP3-fixture', 'gTsunSliceTau', 'gArchFill', 'tsunLineTau', '§179 I-2'].filter(x => out.cur.includes(x));
+    ok(harness.length === 0, `축소 묶음(volumetricScene.ts, three·postprocessing·takram 밖)에 구축기·셰이더 글자 없음 — ${out.base.length} → ${out.cur.length} B (+${out.cur.length - out.base.length} B [measured]: 옵션 점검·균일변수·주입 등록만)` + (harness.length ? ' — 있음: ' + harness.join(',') : ''));
   }
 
   console.log(`\n${fail === 0 ? 'ALL PASS' : 'FAILURES'} — ${pass} pass / ${fail} fail (작업 폴더 ${WORK})`);

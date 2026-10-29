@@ -1107,12 +1107,12 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
 interface ShaderVariant extends GrainKnobs {
   base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean; lighting: LightingFixFlags;
   /** §179 T_sun 글자 설정(null = 넣지 않음 — tsun 0 이거나 해 > shadowMinSunDeg)과 균일변수 값(cloudTsun.ts). */
-  tsun: TsunShaderConfig | null; tsunValues: TsunUniformValues;
+  tsun: TsunShaderConfig | null; tsunValues: TsunUniformValues | null;   // §179 검토 반영(회귀 6): 값은 처음 켤 때 만듦(끈 재질에 JS 객체도 없음)
 }
 const VARIANT = new WeakMap<object, ShaderVariant>();
 function variantOf(mat: PatchableMaterial): ShaderVariant {
   let v = VARIANT.get(mat);
-  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF, lighting: LIGHTING_FIX_OFF, tsun: null, tsunValues: tsunUniformValues(null, 0, 0) }; VARIANT.set(mat, v); }
+  if (!v) { v = { base: mat.fragmentShader, ice: false, floors: null, diffuse: 0, skeleton: false, ...GRAIN_KNOBS_OFF, lighting: LIGHTING_FIX_OFF, tsun: null, tsunValues: null }; VARIANT.set(mat, v); }
   return v;
 }
 function refreshVariant(mat: PatchableMaterial): void {
@@ -1164,7 +1164,8 @@ function refreshVariant(mat: PatchableMaterial): void {
   if (skOn && !mat.uniforms.genusSkel) mat.uniforms.genusSkel = { value: new Vector4() };
   if (!skOn && mat.uniforms.genusSkel) { delete mat.uniforms.genusSkel; mat.needsUpdate = true; }
   // §179 T_sun 균일변수 — 글자를 넣었을 때만 있음(끄면 목록이 이 기능이 없던 트리와 같음).
-  syncTsunUniforms(mat, isClouds ? v.tsun : null, v.tsunValues);
+  if (isClouds && v.tsun && !v.tsunValues) v.tsunValues = tsunUniformValues(null, 0, 0);
+  syncTsunUniforms(mat, isClouds ? v.tsun : null, v.tsunValues ?? {});
 }
 
 /**

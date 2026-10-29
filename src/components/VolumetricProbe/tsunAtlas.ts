@@ -18,15 +18,16 @@
  *    덜 자의적). 떨어진 구간(해 아래 지평 쪽으로 내려갔다 올라오는 선의 두 번째 통과)은 상관이 없어 따로 G 후 합(Beer).
  *  - 해 블록 네 조각 hf 0.02/0.35/0.68/1.0(A = 꼭대기 = T_top), 거리 rangeKm(옵션, 400 — v2 §4.1 D16: 500 아님), 땅에 닿으면 거기서 끊고
  *    지구 그림자 표시(earthShadow 비트 — 셰이더는 sunIrradiance = 0 이라 읽지 않음, 값은 땅까지의 τ 로 연속).
- *  - 아치 블록(archLight): 층 밑(hf 0)·꼭대기(hf 1)에서 고도 −f_g·dip(h)(f = GL2 (3 ∓ √3)/6, cloudTsun D9) × 줄 방향(그 자리 접평면) 두 광선,
+ *  - 아치 블록(archLight): 네 조각 hf 0.02/0.35/0.68/1.0(§179 고침, 검토 물리 4 — 처음 판은 층 밑·꼭대기 둘)에서 고도 −f_g·dip(h)(f = GL2 (3 ∓ √3)/6, cloudTsun D9) × 줄 방향(그 자리 접평면) 두 광선,
  *    (τ_own,1 · τ_rest,1 · τ_own,2 · τ_rest,2): own = 자기 레인 D_L 안(G(Λ_near)), rest = 나머지 모두(자기 레인 첫 구간의 G(Λ) − own + 다른 구간·레인).
  *    아치 광선의 평면 투영은 줄에서 옆으로 조금 흐름 — LP3 는 무시(U2d 가 잼, 설계 v2 §6.1 "≤ 0.021").
  *  - 운량장: 거시 격자(macroShader — RGBA8 두 장 A·B 를 mix, 선형 필터·가장자리 고정)를 셰이더와 같은 식으로 읽고 c = min(C, 타일 운량)
  *    (C ≥ 타일 운량이면 문턱 0 = 타일 그대로). 격자 밖(±extent/2 너머)은 **부채꼴 평균**(바깥 30 km 고리 × 해 방위 ±20°, 결코 1.0 아님 — v2 §6.1
  *    가장자리 규칙). 거시 격자가 없으면 레인 운량 그대로(v2.1 eng m11 스칼라 길).
- *  - τ_c 표(gTsunCond[9], v2.1 §4.3): hf 0.1/0.5/0.9 × 도달 0.25/0.5/1.1 km × 레인 — WP1 의 방위(360°)·L 별 표를 구축 시 해 방위로 읽고
+ *  - τ_c 표(gTsunCond[21], v2.1 §4.3 + §179 고침 검토 물리 2): hf 0.05~0.95(7 마디) × 도달 0.25/0.5/1.1 km × 레인 — WP1 의 방위(360°)·L 별 표를 구축 시 해 방위로 읽고
  *    (WP1 열린 문제: 방위 평균 상수형은 U1e 334/2146 실패), L = 관측점 국소 해에서 그 hf 부터의 층 안 경로 u_true(셰이더에 L 축이 없어
- *    구축 쪽에서 고름 — [decision]), 운량 = 운량 무게 평균 c(Σc²/Σc, 아틀라스 원판 안).
+ *    구축 쪽에서 고름 — [decision]), 운량 = 운량 무게 평균 c(Σc²/Σc, 아틀라스 원판 안). 운량 축은 두지 않음(결정 A10).
+ *  - λ̂ 단면(gTsunProf[17], §179 고침 검토 물리 1): 레인마다 λ(c̄, hf = k/16)(c̄ = 위 τ_c 와 같은 운량 무게 평균) — 셰이더가 위 두 조각 쌍을 λ 무게 경로로 보간.
  *
  * 결정(설계가 모호하거나 틀렸다고 본 것 — 요약에도 적음):
  *  (A1) G 의 (c, hf) 는 구간의 Λ 무게 평균: c_eff = Σ A_j(c)·c / Σ A_j(c)(칸 평균 몫만 — 처음 판은 분모에 B 항이 든 Λ 를 써서 hf 기울기가
@@ -48,15 +49,19 @@
  *  (A9) 셰이더 D8(u_true 보간 계수 [−1, 2] 자름)은 그대로 둠: 국소 해 < 0 에서 근지점이 두꺼운 레인 밑 근처에 들면 u_true 가 조각 0.02·0.35
  *       사이에서 꺾여(s ≈ 7) 균일 층에서도 τ 가 최대 12 % 틀림 [computed, U2c 보고] — 자르지 않으면 균일 층은 맞지만 비균일 층에서 ×7 외삽.
  *
+ *  (A10) §179 검토 물리 2(c) 결정: τ_c 에 운량 축을 더하지 않음 — 표본 자리의 거시 운량은 I-2 에서 읽을 수 없어 genusMacroCoverAt 한 번(텍스처 읽기)이
+ *       더 들고, 비용 상한 1.15(ruler-delta) 안의 여유가 B0 전에는 알려지지 않음. 남는 오차(같은 레인 안 운량 0.5~0.96 에서 ac τ_c 2.17~3.46)는
+ *       U4h(verify-tsun-atlas)가 실제 장면 표본에서 재어 보고 — R-A_T 가 그 몫을 함께 봄.
+ *
  * 순수 계산(THREE 는 makeTsunAtlas 의 DataTexture 만). 시험: tools/shader-preview/verify-tsun-atlas.js(U2a~U2g, 브라우저 없음).
  */
 import { ClampToEdgeWrapping, DataTexture, DataUtils, HalfFloatType, LinearFilter, NoColorSpace, RGBAFormat } from 'three';
-import { ARCH_GL2, TSUN_COND_HF, TSUN_COND_REACH_KM, TSUN_SLICE_HF, type TsunAtlas } from './cloudTsun';
+import { ARCH_GL2, TSUN_COND_HF, TSUN_COND_HF_STEP, TSUN_COND_LEN, TSUN_COND_REACH_KM, TSUN_GL4_W, TSUN_GL4_X, TSUN_PROF_N, TSUN_SLICE_HF, tsunAtlasRows, type TsunAtlas } from './cloudTsun';
 import { tsunFixtureEntry, tsunTauCond, type TsunFixture } from './tsunFixture';
 
 export const TSUN_ATLAS_MARK = '§179';
 /** 구축기 판(meta.builder) — 수식·격자가 바뀌면 올립니다. */
-export const TSUN_ATLAS_BUILDER = 'LP3-fixture-v1';
+export const TSUN_ATLAS_BUILDER = 'LP3-fixture-v2';   // §179 검토 반영: τ_c hf 7 마디 · λ̂ 단면 · 아치 네 조각
 /** LP3 설정 [from doc: 설계 v2 §6.1 K 8 (해 < 0° 16) · 시제품 dq 1 km · nc 256 · 칸 안 표본 16] — 이 단계에서 손잡이로 열지 않음. */
 export const TSUN_LP3 = { K: 8, Klow: 16, dqKm: 1, nc: 256, fitSub: 16, clampTau: 60 } as const;
 /** 가장자리 규칙(설계 v2 §6.1 시제품 edgeCover): 바깥 30 km 고리 × 해 방위 ±20° 의 평균 운량. */
@@ -438,28 +443,66 @@ export function tsunPathKm(h0: number, sinE: number, hb: number, ht: number, D: 
   if (discB > 0) { const qB = Math.sqrt(discB); len -= Math.max(0, Math.min(-b + qB, D) - Math.max(-b - qB, 0)); }
   return Math.max(len, 0);
 }
-/** gTsunSliceTau 의 거울. */
-export function tsunSliceTauCpu(t: ArrayLike<number>, he: number, hb: number, ht: number, sinE: number, D: number, Rkm: number): number {
+/** gTsunLam 의 거울 — λ̂(hf) = prof 마디(hf k/16) 선형, 레인 lane. */
+export function tsunLamProfCpu(prof: ArrayLike<number>, hf: number, lane: number): number {
+  const x = Math.min(1, Math.max(0, hf)) * (TSUN_PROF_N - 1), i = Math.min(Math.floor(x), TSUN_PROF_N - 2), t = x - i;
+  return prof[i * 4 + lane] * (1 - t) + prof[(i + 1) * 4 + lane] * t;
+}
+/** gTsunPathW 의 거울(f64) — λ 무게 층 안 경로 ∫ λ̂(hf(s)) ds, 구간마다 GL 4 점, 땅에서 끝. */
+export function tsunPathWKm(h0: number, sinE: number, hb: number, ht: number, D: number, Rkm: number, prof: ArrayLike<number>, lane: number): number {
+  const r0 = Rkm + h0, b = r0 * sinE;
+  const discT = b * b + (ht - h0) * (2 * Rkm + ht + h0);
+  if (discT <= 0) return 0;
+  const qT = Math.sqrt(discT);
+  const a0 = Math.max(-b - qT, 0);
+  let a1 = Math.min(-b + qT, D);
+  const discG = b * b - h0 * (2 * Rkm + h0);
+  if (discG > 0 && -b - Math.sqrt(discG) > 0) a1 = Math.min(a1, -b - Math.sqrt(discG));
+  if (a1 <= a0) return 0;
+  let c0 = a1, c1 = a1;
+  const discB = b * b + (hb - h0) * (2 * Rkm + hb + h0);
+  if (discB > 0) { const qB = Math.sqrt(discB); c0 = Math.min(a1, Math.max(a0, -b - qB)); c1 = Math.min(a1, Math.max(a0, -b + qB)); }
+  const H = Math.max(ht - hb, 1e-3);
+  const gl = (a: number, c: number) => {
+    const L = c - a;
+    if (!(L > 0)) return 0;
+    let acc = 0;
+    for (let k = 0; k < 4; k++) {
+      const sk = a + TSUN_GL4_X[k] * L, q = sk * (2 * b + sk);
+      acc += TSUN_GL4_W[k] * tsunLamProfCpu(prof, (h0 + q / (Math.sqrt(r0 * r0 + q) + r0) - hb) / H, lane);
+    }
+    return acc * L;
+  };
+  return gl(a0, c0) + gl(c1, a1);
+}
+/**
+ * gTsunSliceTau 의 거울. prof(λ̂ 단면, TSUN_PROF_N·4)가 있으면 셰이더와 같은 'hybrid'(가장 낮은 쌍 u_true, 위 두 쌍 λ 무게 경로 W — §179 고침,
+ * 검토 물리 1), 없으면(null) 처음 판의 u_true 만(비교용 — U2g 가 둘 다 보고).
+ */
+export function tsunSliceTauCpu(t: ArrayLike<number>, he: number, hb: number, ht: number, sinE: number, D: number, Rkm: number, prof: ArrayLike<number> | null = null, lane = 0): number {
   const S = TSUN_SLICE_HF;
   const H = Math.max(ht - hb, 1e-3);
   const f = Math.min(1, Math.max(0, (he - hb) / H));
   const k = f < S[1] ? 0 : f < S[2] ? 1 : 2;
   const fk0 = S[k], fk1 = S[k + 1];
-  const u0 = tsunPathKm(hb + fk0 * H, sinE, hb, ht, D, Rkm), u1 = tsunPathKm(hb + fk1 * H, sinE, hb, ht, D, Rkm);
+  const P = prof && k > 0 ? (h: number) => tsunPathWKm(h, sinE, hb, ht, D, Rkm, prof, lane) : (h: number) => tsunPathKm(h, sinE, hb, ht, D, Rkm);
+  const u0 = P(hb + fk0 * H), u1 = P(hb + fk1 * H);
   const du = u1 - u0;
-  const s = Math.abs(du) < 1e-3 ? (f - fk0) / (fk1 - fk0) : (tsunPathKm(he, sinE, hb, ht, D, Rkm) - u0) / du;
+  const s = Math.abs(du) < 1e-3 ? (f - fk0) / (fk1 - fk0) : (P(he) - u0) / du;
   const ss = Math.min(2, Math.max(-1, s));
   return Math.max(0, t[k] + (t[k + 1] - t[k]) * ss);
 }
-/** gTsunCondAt 의 거울(한 레인). */
+/** gTsunCondAt 의 거울(한 레인) — hf 7 마디 등간격(조각 선형, 끝 고정) × 도달 3 마디 천막. */
 export function tsunCondAtCpu(cond: ArrayLike<number>, hf: number, reachKm: number, lane: number): number {
   const tent = (x: number, k: readonly number[]) => {
     const w0 = Math.min(1, Math.max(0, (k[1] - x) / (k[1] - k[0]))), w2 = Math.min(1, Math.max(0, (x - k[1]) / (k[2] - k[1])));
     return [w0, 1 - w0 - w2, w2];
   };
-  const a = tent(hf, TSUN_COND_HF), r = tent(reachKm, TSUN_COND_REACH_KM);
+  const nH = TSUN_COND_HF.length;
+  const x = Math.min(nH - 1, Math.max(0, (hf - TSUN_COND_HF[0]) / TSUN_COND_HF_STEP)), i = Math.min(Math.floor(x), nH - 2), th = x - i;
+  const r = tent(reachKm, TSUN_COND_REACH_KM);
   let v = 0;
-  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) v += a[i] * r[j] * cond[(i * 3 + j) * 4 + lane];
+  for (let j = 0; j < 3; j++) v += r[j] * (cond[(i * 3 + j) * 4 + lane] * (1 - th) + cond[((i + 1) * 3 + j) * 4 + lane] * th);
   return v;
 }
 /**
@@ -481,19 +524,37 @@ export function tsunAtlasSampleCpu(d: TsunAtlasData, xKm: number, yKm: number, b
 }
 /**
  * I-2 의 CPU 거울: 행진 끝 p_end(국소 틀 km 점)·레인·도달(km) → 셰이더가 sunIrradiance 에 곱할 τ(조각 보간 + τ_c). 레인 블록이 없으면 null.
+ * opt.uTrueOnly = 처음 판(u_true 만) 보간 — U2g 비교용.
  */
-export function tsunShaderTauCpu(d: TsunAtlasData, geom: TsunFrameGeom, pEnd: ArrayLike<number>, lane: number, laneBaseKm: number, laneTopKm: number, reachKm: number, half = true): number | null {
+export function tsunShaderTauCpu(d: TsunAtlasData, geom: TsunFrameGeom, pEnd: ArrayLike<number>, lane: number, laneBaseKm: number, laneTopKm: number, reachKm: number, half = true, opt: { uTrueOnly?: boolean } = {}): number | null {
   const blk = d.laneBlock[lane];
   if (blk < 0) return null;
   const x = pEnd[0] - geom.O[0], y = pEnd[1] - geom.O[1];
   const t = tsunAtlasSampleCpu(d, x, y, blk, 0, half);
   const r = Math.hypot(pEnd[0], pEnd[1], pEnd[2]), he = r - geom.R;
   const sinE = (pEnd[0] * geom.sun[0] + pEnd[1] * geom.sun[1] + pEnd[2] * geom.sun[2]) / r;
-  let tau = tsunSliceTauCpu(t, he, laneBaseKm, laneTopKm, sinE, d.rangeKm, geom.R);
+  let tau = tsunSliceTauCpu(t, he, laneBaseKm, laneTopKm, sinE, d.rangeKm, geom.R, opt.uTrueOnly ? null : d.prof, lane);
   const hf = (he - laneBaseKm) / Math.max(laneTopKm - laneBaseKm, 1e-3);
   const own = hf >= 0 && hf <= 1 ? 1 : 0;
   tau = Math.max(0, tau + tsunCondAtCpu(d.tauCond, Math.min(1, Math.max(0, hf)), reachKm, lane) * own);
   return tau;
+}
+
+/**
+ * I-4 아치 블록 읽기의 CPU 거울(§179 고침, 검토 물리 4): 행진 끝 p_end(국소 틀 km 점)의 hf 를 [0.02, 1.0] 로 자르고 감싸는 두 조각 줄(1 + k, 2 + k)을
+ * hf 계수로 투과율 공간에서 섞음(τ = −ln(mix(e^−τ_A, e^−τ_B, t)), 채널마다) — (τ_own,1 · τ_rest,1 · τ_own,2 · τ_rest,2). 레인 블록이 없거나 아치 블록이 없으면 null.
+ */
+export function tsunArchSampleCpu(d: TsunAtlasData, geom: TsunFrameGeom, pEnd: ArrayLike<number>, lane: number, laneBaseKm: number, laneTopKm: number, half = true): [number, number, number, number] | null {
+  const blk = d.laneBlock[lane];
+  if (blk < 0 || !d.arch) return null;
+  const S = TSUN_SLICE_HF;
+  const x = pEnd[0] - geom.O[0], y = pEnd[1] - geom.O[1];
+  const he = Math.hypot(pEnd[0], pEnd[1], pEnd[2]) - geom.R;
+  const hf = Math.min(S[3], Math.max(S[0], (he - laneBaseKm) / Math.max(laneTopKm - laneBaseKm, 1e-3)));
+  const k = hf < S[1] ? 0 : hf < S[2] ? 1 : 2;
+  const t = Math.min(1, Math.max(0, (hf - S[k]) / (S[k + 1] - S[k])));
+  const a = tsunAtlasSampleCpu(d, x, y, blk, 1 + k, half), b = tsunAtlasSampleCpu(d, x, y, blk, 2 + k, half);
+  return [0, 1, 2, 3].map(c => -Math.log(Math.max(1e-30, Math.exp(-a[c]) * (1 - t) + Math.exp(-b[c]) * t))) as [number, number, number, number];
 }
 
 /**
@@ -710,8 +771,10 @@ export interface TsunAtlasData {
   tau: Float32Array;
   /** 텍스처 자료(half float 비트, tau 를 clampTau 에서 자른 것). */
   half: Uint16Array;
-  /** τ_c 표 36(인덱스 (hfIdx·3 + reachIdx)·4 + lane). */
+  /** τ_c 표 TSUN_COND_LEN(84, 인덱스 (hfIdx·3 + reachIdx)·4 + lane). */
   tauCond: number[];
+  /** λ̂ 단면 TSUN_PROF_N·4(68, 인덱스 k·4 + lane = λ(c̄, hf k/16)) — §179 고침(검토 물리 1). */
+  prof: number[];
   /** 해 줄이 땅에 닿음(지구 그림자) — [j · n·blocks + blk·n + i] 비트 s = 조각 s. */
   earthShadow: Uint8Array;
   phiDeg: number; sunElCenterDeg: number; K: number;
@@ -764,7 +827,7 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
     lanes.push({ k, law, base: L.baseKm, top: L.topKm, th: L.topKm - L.baseKm, cover: cf.at, edge: cf.edge, A: fit.A, B: fit.B, P: new Float64Array(0), cellH: new Float64Array(0), cellR2: new Float64Array(0) });
   }
   const blocks = Math.max(1, lanes.length);
-  const width = n * blocks, height = n * (input.arch ? 3 : 1);
+  const width = n * blocks, height = n * tsunAtlasRows(input.arch);
   if (Math.max(width, height) > 2048) throw new Error(`tsunAtlas: texture ${width}×${height} exceeds 2048 (WebGL2 MAX_TEXTURE_SIZE minimum)`);
   const tau = new Float32Array(width * height * 4);
   const earthShadow = new Uint8Array(n * width);
@@ -795,9 +858,9 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
           rays++;
         }
         if (!input.arch) continue;
-        // 아치 블록: 층 밑(hf 0) · 꼭대기(hf 1) × GL2 고도 둘
-        for (let sl = 0; sl < 2; sl++) {
-          const h = sl === 0 ? own.base : own.top, r = R + h, Z = Math.sqrt(Math.max(0, r * r - XY2));
+        // 아치 블록: 조각 hf 0.02/0.35/0.68/1.0(§179 고침 — 처음 판은 층 밑·꼭대기 둘) × GL2 고도 둘
+        for (let sl = 0; sl < S.length; sl++) {
+          const h = own.base + S[sl] * own.th, r = R + h, Z = Math.sqrt(Math.max(0, r * r - XY2));
           const ux = X / r, uy = Y / r, uz = Z / r;
           const na = ux * aE + uy * aN;
           let tx = aE - ux * na, ty = aN - uy * na, tz = -uz * na;
@@ -821,8 +884,9 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
     }
   }
   const t2 = now();
-  // τ_c 표(36) — 관측점 국소 해에서 hf 마디부터의 층 안 경로 = L, 운량 = 운량 무게 평균
-  const tauCond = new Array<number>(36).fill(0);
+  // τ_c 표(TSUN_COND_LEN) — 관측점 국소 해에서 hf 마디부터의 층 안 경로 = L, 운량 = 운량 무게 평균. λ̂ 단면(같은 운량)도 여기서.
+  const tauCond = new Array<number>(TSUN_COND_LEN).fill(0);
+  const prof = new Array<number>(TSUN_PROF_N * 4).fill(0);
   const laneCond: { lane: number; cover: number; L: number[] }[] = [];
   {
     const Xc = O[0] + cx, Yc = O[1] + cy;
@@ -836,7 +900,7 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
       }
       const cc = s1 > 0 ? s2 / s1 : input.lanes[L.k]!.tileCover;
       const Ls: number[] = [];
-      for (let hi = 0; hi < 3; hi++) {
+      for (let hi = 0; hi < TSUN_COND_HF.length; hi++) {
         const hf = TSUN_COND_HF[hi], h = L.base + hf * L.th, r = R + h;
         const Zc = Math.sqrt(Math.max(0, r * r - Xc * Xc - Yc * Yc));
         const sinE = (Xc * sun[0] + Yc * sun[1] + Zc * sun[2]) / r;
@@ -844,6 +908,8 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
         Ls.push(Lk);
         for (let ri = 0; ri < 3; ri++) tauCond[(hi * 3 + ri) * 4 + L.k] = L.law.tauCond(cc, hf, TSUN_COND_REACH_KM[ri], Lk);
       }
+      // λ̂(c̄, hf k/16) — 법칙의 λ 는 hf 0·1 에서 0(층 밖)이라 끝 마디는 안쪽 1e-3 에서
+      for (let k = 0; k < TSUN_PROF_N; k++) prof[k * 4 + L.k] = Math.max(0, L.law.lambda(cc, Math.min(1 - 1e-3, Math.max(1e-3, k / (TSUN_PROF_N - 1)))));
       laneCond.push({ lane: L.k, cover: cc, L: Ls });
     }
   }
@@ -856,13 +922,13 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
     half[i] = DataUtils.toHalfFloat(x > clampT ? clampT : x < 0 ? 0 : x);
   }
   const t4 = now();
-  const hdr = JSON.stringify({ n, blocks, laneBlock, centerKm: input.centerKm, rowAxisEN: [aE, aN], halfKm: W, rangeKm: range, arch: input.arch, tauCond });
+  const hdr = JSON.stringify({ n, blocks, laneBlock, centerKm: input.centerKm, rowAxisEN: [aE, aN], halfKm: W, rangeKm: range, arch: input.arch, tauCond, prof });
   const sha = sha256Hex(concatBytes(new Uint8Array(half.buffer, half.byteOffset, half.byteLength), new TextEncoder().encode(hdr)));
   const t5 = now();
   const sunAltDeg = geom.sunElCenterDeg;
   return {
     n, blocks, width, height, laneBlock, centerKm: [cx, cy], rowAxisEN: [aE, aN], halfKm: W, rangeKm: range, arch: input.arch,
-    tau, half, tauCond, earthShadow, phiDeg: geom.phiDeg, sunElCenterDeg: sunAltDeg, K, sha,
+    tau, half, tauCond, prof, earthShadow, phiDeg: geom.phiDeg, sunElCenterDeg: sunAltDeg, K, sha,
     meta: {
       builder: TSUN_ATLAS_BUILDER, buildMs: t5 - t0, msLaw: t1 - t0, msRows, msRays: t2 - t1 - msRows, msHalf: t4 - t3, msSha: t5 - t4,
       pieces: tr.pieces, rays, earthShadowFrac: nSun ? nShadow / nSun : 0, warnings, laneCond, edgeCover,
@@ -961,7 +1027,7 @@ export function makeTsunAtlas(d: TsunAtlasData, sceneSerial: number): TsunAtlas 
   tex.needsUpdate = true;
   return {
     texture: tex, n: d.n, blocks: d.blocks, laneBlock: [...d.laneBlock] as [number, number, number, number], centerKm: [...d.centerKm] as [number, number],
-    rowAxisEN: [...d.rowAxisEN] as [number, number], halfKm: d.halfKm, rangeKm: d.rangeKm, arch: d.arch, tauCond: d.tauCond.slice(), sceneSerial,
+    rowAxisEN: [...d.rowAxisEN] as [number, number], halfKm: d.halfKm, rangeKm: d.rangeKm, arch: d.arch, tauCond: d.tauCond.slice(), prof: d.prof.slice(), sceneSerial,
     meta: {
       sha: d.sha, buildMs: d.meta.buildMs, builder: d.meta.builder, fixtureSha: d.meta.fixtureSha, sunAzDeg: d.meta.sunAzDeg, sunAltDeg: d.meta.sunAltDeg,
       K: d.K, earthShadowFrac: d.meta.earthShadowFrac, warnings: d.meta.warnings.slice(),
