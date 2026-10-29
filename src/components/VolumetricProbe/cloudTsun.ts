@@ -131,15 +131,37 @@ export function checkTsunSamplerBudget(quality: 'low' | 'medium' | 'high', maxTe
 }
 
 // ───── 아틀라스(밖에서 받음 — 구축기 WP2 의 출력 형식) ─────
-/** 해 블록 네 채널의 층 높이 비율 hf(v2.1 §4.4) — A 채널(hf 1.0) 이 층 꼭대기 = T_top. */
+/** 해 블록 네 채널의 층 높이 비율 hf(v2.1 §4.4) — A 채널(hf 1.0) 이 층 꼭대기 = T_top. §179 고침(검토 물리 4): 아치 블록도 같은 네 높이. */
 export const TSUN_SLICE_HF = [0.02, 0.35, 0.68, 1.0] as const;
-/** WP1 조건부 오프셋 τ_c 표의 절점 [from doc: v2.1 §1 M4 · v21/lam_v21] — hf 0.1/0.5/0.9 × 행진 도달 0.25/0.5/1.1 km. */
-export const TSUN_COND_HF = [0.1, 0.5, 0.9] as const;
+/**
+ * WP1 조건부 오프셋 τ_c 표의 절점 — hf × 행진 도달 0.25/0.5/1.1 km [from doc: v2.1 §1 M4]. §179 고침(검토 물리 2): 처음 판의 hf 3 마디(0.1/0.5/0.9)는
+ * WP1 표 대비 |Δτ_c| p90 0.57·최대 2.07 [computed, review-physics exp5] — 끝 마디 고정(cu hf 0.05 참 0.00 대 0.87)이 가장 나빴음. hf 7 마디(0.05~0.95,
+ * 0.15 간격, 양 끝은 층 안 — ns hf 0.05 τ_c 1.74 라 층 밖 0 으로 두는 것도 틀림)로. 셰이더는 등간격을 가정(아래 TSUN_COND_HF_STEP 점검).
+ */
+export const TSUN_COND_HF = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95] as const;
+export const TSUN_COND_HF_STEP = 0.15;
 export const TSUN_COND_REACH_KM = [0.25, 0.5, 1.1] as const;
+/** τ_c 표 길이(hf 마디 × 도달 마디 × 레인 4) — 인덱스 (hfIdx·3 + reachIdx)·4 + lane. */
+export const TSUN_COND_LEN = TSUN_COND_HF.length * TSUN_COND_REACH_KM.length * 4;
+/**
+ * §179 고침(검토 물리 1): 위 두 조각 쌍(hf 0.35~0.68·0.68~1.0)의 보간 좌표 W(h) = ∫ λ̂(hf(s)) ds 가 읽는 레인 단면 λ̂(c̄, hf)의 마디 수 —
+ * hf = k/8 (k = 0..8), 성분 = 레인. u_true(기하만)는 hf 선형보다 나을 것이 없었음(U2g dT p95 0.12~0.37 [computed, review-physics exp3]) — 오차가
+ * 기하가 아니라 연직 λ 단면(ac c 0.96: hf 0.5 에서 0.94 /km, 0.8 에서 0.11)에서 오기 때문. 가장 낮은 쌍(0.02~0.35)은 G 가 hf_eff 에도 기대서
+ * λ 무게가 오히려 나빠(P3B +1.1° 0.046 → 0.207) u_true 를 그대로 둠(검토의 'hybrid').
+ */
+export const TSUN_PROF_N = 9;
+/** W(h) 의 구간 적분 — Gauss–Legendre 4 점([0, 1] 위 마디·무게). 셰이더와 CPU 거울(tsunAtlas.ts tsunPathWKm)이 같은 값. */
+export const TSUN_GL4_X = [0.0694318442, 0.3300094782, 0.6699905218, 0.9305681558] as const;
+export const TSUN_GL4_W = [0.1739274226, 0.3260725774, 0.3260725774, 0.1739274226] as const;
 /** 아치 노드(GL2 고도 비율 × dip, D9) · 방위(줄 방향 기준 °) · 노드당 방위 폭(°). Ω = [−dip, 0] × ±30°(ruler-delta A2(c)). */
 export const ARCH_GL2 = [(3 - Math.sqrt(3)) / 6, (3 + Math.sqrt(3)) / 6] as const;
 export const ARCH_AZ_DEG = [-20, 0, 20] as const;
 export const ARCH_AZ_WIDTH_DEG = 20;
+/**
+ * 아치 옥타브 수 — takram approximateMultipleScattering 의 MULTI_SCATTERING_OCTAVES(qualityPresets.ts: 모든 단계 8)와 같아야 함. 글자에 정적
+ * 단언(#if … #error)을 넣어 다르면 컴파일 실패(§179 고침, 검토 물리 12).
+ */
+export const ARCH_OCTAVES = 8;
 /** 아치 무게 w(θ) = smoothstep(−1°, −2°, θ_sun) (계약 켜짐 곡선, ruler-delta A2(e)) — θ 는 관측점 해 고도(°). */
 export function archWeight(sunAltDeg: number): number {
   const t = Math.min(1, Math.max(0, (-1 - sunAltDeg) / 1));
@@ -151,14 +173,16 @@ export function archWeight(sunAltDeg: number): number {
  *
  * 텍스처 배치(D3): RGBA, 선형 필터, 가장자리 고정(clamp-to-edge), 밉맵 없음.
  *  - 너비 n·blocks: 레인 블록 b 가 열 [b·n, (b+1)·n). 레인 l 의 블록은 laneBlock[l](없으면 −1 — 그 레인 표본은 T_sun 없음 = 오늘 빛).
- *  - 높이 n·(arch ? 3 : 1): 줄 블록 0 = 해(R,G,B,A = τ_sun at hf 0.02/0.35/0.68/1.0, 그 텍셀 자리·그 높이에서 해 쪽으로 rangeKm 까지 모든 층의
- *    광학두께, 자기 층 안 경로 포함, 지구 그림자 제외), 1 = 아치 층 밑(hf 0), 2 = 아치 층 꼭대기(hf 1) — 아치 블록 채널은
+ *  - 높이 n·(arch ? 5 : 1): 줄 블록 0 = 해(R,G,B,A = τ_sun at hf 0.02/0.35/0.68/1.0, 그 텍셀 자리·그 높이에서 해 쪽으로 rangeKm 까지 모든 층의
+ *    광학두께, 자기 층 안 경로 포함, 지구 그림자 제외), 1~4 = 아치 hf 0.02/0.35/0.68/1.0(TSUN_SLICE_HF — §179 고침, 검토 물리 4: 처음 판의 층 밑·꼭대기
+ *    두 줄 선형 섞음은 τ_own 의 계단·τ_rest 의 비단조를 못 따라 ac 그룹 1 hf 0.5 에서 참 τ 56.7 대 0.64 [computed]) — 아치 블록 채널은
  *    (τ_own,1 · τ_rest,1 · τ_own,2 · τ_rest,2), 그룹 1·2 = 고도 −0.2113·dip · −0.7887·dip. τ 는 60 에서 자름(v2 §4.3).
  *  - 텍셀 (i, j) 의 자리: along = −halfKm + (i + 0.5)·texelKm(rowAxisEN 방향 = 해 방위), across = −halfKm + (j + 0.5)·texelKm
  *    (rowAxisEN 을 반시계 90° 돌린 (−y, x) 방향), texelKm = 2·halfKm/n. 원점 = centerKm.
  *  - 틀: centerKm 은 **종류 평면 틀**(셰이더 getGlobeUv × genusTileM — genusOrigin 에서 동·북 km, §173 고도 보정 원점, 관측점은 그 틀에서
  *    weatherOffsetKm·camKm 만큼 떨어진 자리)의 좌표. 에포크 틀(v2.1 eng M8): 한 아틀라스 안에서 고정.
- * τ_c(tauCond): 길이 36, 인덱스 (hfIdx·3 + reachIdx)·4 + lane — TSUN_COND_HF × TSUN_COND_REACH_KM 절점, 운량은 구축 쪽에서 보간(v2.1 §4.3).
+ * τ_c(tauCond): 길이 TSUN_COND_LEN(84), 인덱스 (hfIdx·3 + reachIdx)·4 + lane — TSUN_COND_HF × TSUN_COND_REACH_KM 절점, 운량은 구축 쪽에서 보간(v2.1 §4.3).
+ * λ̂ 단면(prof): 길이 TSUN_PROF_N·4(36), 인덱스 k·4 + lane = λ(c̄, hf k/8) [1/km] — 위 두 조각 쌍의 보간 좌표(§179 고침, 검토 물리 1).
  * 소유: 이 장면은 texture 를 dispose 하지 않습니다(만든 쪽 몫).
  */
 export interface TsunAtlas {
@@ -179,8 +203,10 @@ export interface TsunAtlas {
   rangeKm: number;
   /** 아치 블록(줄 블록 1·2) 있음 — archLight 팔에 필요. */
   arch: boolean;
-  /** τ_c 표(36). 없으면 0(오프셋 없음). */
+  /** τ_c 표(TSUN_COND_LEN). 없으면 0(오프셋 없음). */
   tauCond?: ArrayLike<number>;
+  /** λ̂ 단면(TSUN_PROF_N·4). 없으면 0 — 그때 위 조각 쌍은 hf 선형으로 떨어짐(W 차 < 1e-3). */
+  prof?: ArrayLike<number>;
   /** 이 아틀라스를 지은 장면(VolumetricScene.tsunSceneSerial()) — 다른 장면의 아틀라스를 걸면 throw(D11). */
   sceneSerial: number;
   /** 기록용(meta) — 셰이더와 무관. */
@@ -191,6 +217,8 @@ export interface TsunAtlas {
   };
 }
 
+/** 아틀라스 줄 블록 수 — 해 1 + 아치 네 조각(§179 고침, 검토 물리 4). */
+export const tsunAtlasRows = (arch: boolean): number => (arch ? 1 + TSUN_SLICE_HF.length : 1);
 /** 아틀라스 모양 점검(D11). 옵션과 안 맞거나 깨졌으면 throw. */
 export function validateTsunAtlas(a: TsunAtlas, o: Pick<TsunOptions, 'tsunN' | 'tsunRangeKm' | 'archLight'>, sceneSerial: number): void {
   const bad = (m: string) => { throw new Error('cloudTsun: atlas ' + m); };
@@ -204,11 +232,12 @@ export function validateTsunAtlas(a: TsunAtlas, o: Pick<TsunOptions, 'tsunN' | '
   if (!(Math.abs(Math.hypot(ax, ay) - 1) < 1e-6)) bad('rowAxisEN must be a unit vector');
   if (!a.centerKm || !a.centerKm.every(Number.isFinite)) bad('centerKm must be finite');
   if (o.archLight && !a.arch) bad('has no arch blocks but archLight is 1');
-  if (a.tauCond && (a.tauCond.length !== 36 || !Array.from(a.tauCond).every(Number.isFinite))) bad('tauCond must have 36 finite values');
+  if (a.tauCond && (a.tauCond.length !== TSUN_COND_LEN || !Array.from(a.tauCond).every(Number.isFinite))) bad(`tauCond must have ${TSUN_COND_LEN} finite values`);
+  if (a.prof && (a.prof.length !== TSUN_PROF_N * 4 || !Array.from(a.prof).every(x => Number.isFinite(x) && x >= 0))) bad(`prof must have ${TSUN_PROF_N * 4} finite values >= 0`);
   if (a.sceneSerial !== sceneSerial) bad(`was built for scene ${a.sceneSerial}, current scene is ${sceneSerial}`);
   const img = (a.texture as unknown as { image?: { width?: number; height?: number } }).image;
   if (img && typeof img.width === 'number' && typeof img.height === 'number') {
-    const w = a.n * a.blocks, h = a.n * (a.arch ? 3 : 1);
+    const w = a.n * a.blocks, h = a.n * tsunAtlasRows(a.arch);
     if (img.width !== w || img.height !== h) bad(`texture ${img.width}×${img.height} != ${w}×${h}`);
     if (Math.max(w, h) > 2048) bad('texture larger than 2048 (WebGL2 MAX_TEXTURE_SIZE minimum)');
   }
@@ -217,7 +246,7 @@ export function validateTsunAtlas(a: TsunAtlas, o: Pick<TsunOptions, 'tsunN' | '
 // ───── 균일변수 ─────
 /** 셰이더 설정 — 글자를 넣을 때만(해 ≤ shadowMinSunDeg · tsun 1 또는 tsunRef). ref 1·2 = REF_v2·REF_val(arch 없음), debug 1 = D-1(R-A_T). 없으면 0. */
 export interface TsunShaderConfig { arch: boolean; ref?: 0 | 1 | 2; debug?: 0 | 1 }
-export const TSUN_T_UNIFORMS = ['gTsunOn', 'gTsunTex', 'gTsunFrame', 'gTsunLaneBlock', 'gTsunEpoch', 'gTsunCond'] as const;
+export const TSUN_T_UNIFORMS = ['gTsunOn', 'gTsunTex', 'gTsunFrame', 'gTsunLaneBlock', 'gTsunEpoch', 'gTsunCond', 'gTsunProf'] as const;
 export const TSUN_A_UNIFORMS = ['gArchW', 'gArchNoT'] as const;
 /** §179 WP6 REF 팔 균일변수 — gTsunOn(늘 1) · gTsunRef(보폭 m, 끝 m, T_top 보폭 m, 0). 텍스처 없음. */
 export const TSUN_R_UNIFORMS = ['gTsunOn', 'gTsunRef'] as const;
@@ -229,10 +258,8 @@ export type TsunUniformValues = Record<string, unknown>;
  * 새로 만들지 않음). archW 는 w(θ)·archLight, archNoT 는 0|1.
  */
 export function tsunUniformValues(atlas: TsunAtlas | null, archW: number, archNoT: number, ref: { stepM: number; rangeKm: number } | null = null): TsunUniformValues {
-  const cond = Array.from({ length: 9 }, (_, k) => {
-    const t = atlas?.tauCond;
-    return t ? new Vector4(t[k * 4], t[k * 4 + 1], t[k * 4 + 2], t[k * 4 + 3]) : new Vector4(0, 0, 0, 0);
-  });
+  const vec4s = (t: ArrayLike<number> | undefined, n: number) => Array.from({ length: n }, (_, k) => (t ? new Vector4(t[k * 4], t[k * 4 + 1], t[k * 4 + 2], t[k * 4 + 3]) : new Vector4(0, 0, 0, 0)));
+  const cond = vec4s(atlas?.tauCond, TSUN_COND_LEN / 4);
   return {
     gTsunOn: atlas || ref ? 1 : 0,   // §179 WP6 REF 는 아틀라스 없이 늘 유효
     gTsunTex: atlas ? atlas.texture : null,
@@ -240,6 +267,7 @@ export function tsunUniformValues(atlas: TsunAtlas | null, archW: number, archNo
     gTsunLaneBlock: atlas ? new Vector4(...atlas.laneBlock) : new Vector4(-1, -1, -1, -1),
     gTsunEpoch: atlas ? new Vector4(atlas.centerKm[0], atlas.centerKm[1], atlas.rangeKm, 0) : new Vector4(0, 0, 400, 0),
     gTsunCond: cond,
+    gTsunProf: vec4s(atlas?.prof, TSUN_PROF_N),
     gArchW: archW,
     gArchNoT: archNoT,
     gTsunRef: ref ? new Vector4(ref.stepM, ref.rangeKm * 1000, TSUN_REF_TOP_STEP_M, 0) : new Vector4(200, 400000, TSUN_REF_TOP_STEP_M, 0),
@@ -282,7 +310,8 @@ export const TSUN_I4_ANCHOR = '      radiance *= media.scattering;';
 export const TSUN_COUNT_LINE = '          vec4 gTsunTexel = textureLod(gTsunTex, gTsunUv, 0.0);';
 /** §179 WP8 비용 셈 줄(아치 팔만) — 노드 캐시 채우기의 하늘 LUT 호출 하나(노드마다, n_archLUT)와 I-4 의 아치 블록 읽기 둘. entry-tsun 이 바로 뒤에 셈을 붙임. */
 export const TSUN_ARCH_LUT_LINE = '      vec3 Lw = GetSkyRadiance(p * METER_TO_LENGTH_UNIT, w, 0.0, sunDirection, tr) * dOm;';
-export const TSUN_ARCH_FETCH_LINE = '          vec4 gArchAB = mix(textureLod(gTsunTex, gTsunUvOf(gArchEnd, gArchBlk, 1.0), 0.0), textureLod(gTsunTex, gTsunUvOf(gArchEnd, gArchBlk, 2.0), 0.0), gArchHf);';
+/** §179 고침(검토 물리 4): 아치 블록은 네 조각(줄 1~4) — hf 를 감싸는 두 줄만 읽음(여전히 읽기 둘). */
+export const TSUN_ARCH_FETCH_LINE = '          vec4 gArchAB = mix(textureLod(gTsunTex, gTsunUvOf(gArchEnd, gArchBlk, 1.0 + gArchK), 0.0), textureLod(gTsunTex, gTsunUvOf(gArchEnd, gArchBlk, 2.0 + gArchK), 0.0), gArchT);';
 
 const M = TSUN_MARK;
 const f6 = (x: number) => x.toFixed(10);
@@ -293,15 +322,17 @@ const DECL_T = [
   'uniform vec4 gTsunFrame;        // 줄 방향(동, 북) · 반폭 km · 텍셀 km',
   'uniform vec4 gTsunLaneBlock;    // 레인 → 블록(−1 = 없음)',
   'uniform vec4 gTsunEpoch;        // 아틀라스 중심(종류 평면 동·북 km) · 적분 끝 km · 0',
-  'uniform vec4 gTsunCond[9];      // τ_c [hf 0.1/0.5/0.9 × 도달 0.25/0.5/1.1 km], 성분 = 레인',
+  `uniform vec4 gTsunCond[${TSUN_COND_LEN / 4}];     // τ_c [hf ${TSUN_COND_HF.join('/')} × 도달 ${TSUN_COND_REACH_KM.join('/')} km], 성분 = 레인`,
+  `uniform vec4 gTsunProf[${TSUN_PROF_N}];      // λ̂(c̄, hf k/8) [1/km], 성분 = 레인 — 위 조각 쌍의 보간 좌표`,
 ];
 const DECL_A = [
   `// ${M} 아치 빛 선언`,
   'uniform float gArchW;           // archLight · smoothstep(−1°, −2°, θ_sun)',
   'uniform float gArchNoT;         // H0: τ_rest ≡ 0',
-  'vec3 gArchC[16];                // [그룹·8 + 옥타브] Σ_방위 aⁱ·p(cos; cⁱ)·L·dΩ — 광선마다 채움',
+  `vec3 gArchC[${2 * ARCH_OCTAVES}];                // [그룹·${ARCH_OCTAVES} + 옥타브] Σ_방위 aⁱ·p(cos; cⁱ)·L·dΩ — 광선마다 채움`,
   'vec3 gArchCP = vec3(0.0);',
   'float gArchCH = 0.0;',
+  'float gArchCS = 1.0;            // 채울 때의 sin(dip) — 노드 dΩ ∝ sin(dip(h)) 를 지금 높이로 다시 맞춤',
   'float gArchCL = -1.0;',
   'bool gArchCOk = false;',
 ];
@@ -317,6 +348,7 @@ const DECL_D = [
   'float gTsunDbgT = -1.0;         // 지금 표본의 T_beyond(−1 = 빛 없음·T_sun 없음)',
   'float gTsunDbgW = 0.0;          // Σ wᵢ',
   'float gTsunDbgWT = 0.0;         // Σ wᵢ·T_beyond,i',
+  'float gTsunDbgWM = 0.0;         // Σ wᵢ·mipLevel (§179 고침, 검토 물리 5 — R-A_T 창마다 빛 받는 표본의 평균 mip)',
 ];
 const S = TSUN_SLICE_HF;
 // 도움 함수 조각 — T 팔은 아래 순서 그대로 모두(HELPERS_T, WP4 글자와 바이트 같음), REF 팔(WP6)은 레인·Eddington·도달·무차별 행진만(HELPERS_R).
@@ -358,32 +390,92 @@ const H_UV = [
   '  return vec2(blk * n + g.x, row * n + g.y) / sz;',
   '}',
 ];
+/**
+ * §179 고침(검토 물리 1) — λ 무게 층 안 경로 W(h0) = ∫ λ̂(hf(s)) ds: 높이 h0 에서 국소 해 고도 사인 sinE 로 곧게 D km 가는 선이 [hb, ht] 안에 있는
+ * 구간(최대 둘 — 층 밑 껍질 구간을 뺀 꼭대기 껍질 구간, 땅에 닿으면 거기서 끝)마다 Gauss–Legendre 4 점. 높이는 상쇄 없는 꼴
+ * Δh = s(2b + s) / (√(r0² + s(2b + s)) + r0). λ̂ 는 gTsunProf(hf k/8 마디 선형, 가장 무거운 레인 sel). CPU 거울: tsunAtlas.ts tsunPathWKm.
+ */
+const H_PATHW = [
+  `// ${M} λ̂(hf) — 레인 단면 gTsunProf(hf k/${TSUN_PROF_N - 1} 마디) 선형, 성분 = 레인(sel).`,
+  'float gTsunLam(const float hf, const vec4 sel) {',
+  `  float x = clamp(hf, 0.0, 1.0) * ${(TSUN_PROF_N - 1).toFixed(1)};`,
+  `  int i = min(int(x), ${TSUN_PROF_N - 2});`,
+  '  return dot(mix(gTsunProf[i], gTsunProf[i + 1], x - float(i)), sel);',
+  '}',
+  '// 한 구간 [a, c] 의 ∫ λ̂ ds — Gauss–Legendre 4 점(곧은 선 높이 h(s), 층 [hb, hb + H]).',
+  'float gTsunGL4(const float a, const float c, const float r0, const float b, const float h0, const float hb, const float H, const vec4 sel) {',
+  '  float L = c - a;',
+  '  if (L <= 0.0) return 0.0;',
+  `  const vec4 X = vec4(${TSUN_GL4_X.join(', ')});`,
+  `  const vec4 Wt = vec4(${TSUN_GL4_W.join(', ')});`,
+  '  float acc = 0.0;',
+  '  for (int k = 0; k < 4; ++k) {',
+  '    float s = a + X[k] * L;',
+  '    float q = s * (2.0 * b + s);',
+  '    acc += Wt[k] * gTsunLam((h0 + q / (sqrt(r0 * r0 + q) + r0) - hb) / H, sel);',
+  '  }',
+  '  return acc * L;',
+  '}',
+  '// W(h0) — 위 두 조각 쌍의 보간 좌표(gTsunPath 의 λ 무게 판). 땅(h < 0)에 닿으면 끝.',
+  'float gTsunPathW(const float h0, const float sinE, const float hb, const float ht, const float D, const vec4 sel) {',
+  '  float Rb = bottomRadius * 1e-3;',
+  '  float r0 = Rb + h0;',
+  '  float b = r0 * sinE;',
+  '  float discT = b * b + (ht - h0) * (2.0 * Rb + ht + h0);',
+  '  if (discT <= 0.0) return 0.0;',
+  '  float qT = sqrt(discT);',
+  '  float a0 = max(-b - qT, 0.0), a1 = min(-b + qT, D);',
+  '  float discG = b * b - h0 * (2.0 * Rb + h0);',
+  '  if (discG > 0.0 && -b - sqrt(discG) > 0.0) a1 = min(a1, -b - sqrt(discG));',
+  '  if (a1 <= a0) return 0.0;',
+  '  float c0 = a1, c1 = a1;',
+  '  float discB = b * b + (hb - h0) * (2.0 * Rb + hb + h0);',
+  '  if (discB > 0.0) {',
+  '    float qB = sqrt(discB);',
+  '    c0 = clamp(-b - qB, a0, a1);',
+  '    c1 = clamp(-b + qB, a0, a1);',
+  '  }',
+  '  float H = max(ht - hb, 1e-3);',
+  '  return gTsunGL4(a0, c0, r0, b, h0, hb, H, sel) + gTsunGL4(c1, a1, r0, b, h0, hb, H, sel);',
+  '}',
+];
 const H_SLICE = [
-  `// 조각 τ 를 층 안 경로 u_true 로 보간(조각 hf ${S.join('/')}). |Δu| < 1e-3 km 이면 hf 선형. 보간 계수는 [−1, 2] 로(D8).`,
-  'float gTsunSliceTau(const vec4 t, const float he, const float hb, const float ht, const float sinE, const float D) {',
+  `// 조각 τ 보간(조각 hf ${S.join('/')}): 가장 낮은 쌍은 층 안 경로 u_true, 위 두 쌍은 λ 무게 경로 W(§179 고침 — 검토 물리 1의 'hybrid').`,
+  '// 좌표 차 < 1e-3 이면 hf 선형. 보간 계수는 [−1, 2] 로(D8).',
+  'float gTsunSliceTau(const vec4 t, const float he, const float hb, const float ht, const float sinE, const float D, const vec4 sel) {',
   '  float H = max(ht - hb, 1e-3);',
   '  float f = clamp((he - hb) / H, 0.0, 1.0);',
   `  vec2 fk = f < ${S[1].toFixed(2)} ? vec2(${S[0].toFixed(2)}, ${S[1].toFixed(2)}) : f < ${S[2].toFixed(2)} ? vec2(${S[1].toFixed(2)}, ${S[2].toFixed(2)}) : vec2(${S[2].toFixed(2)}, ${S[3].toFixed(2)});`,
   `  vec2 tk = f < ${S[1].toFixed(2)} ? t.xy : f < ${S[2].toFixed(2)} ? t.yz : t.zw;`,
-  '  float u0 = gTsunPath(hb + fk.x * H, sinE, hb, ht, D);',
-  '  float u1 = gTsunPath(hb + fk.y * H, sinE, hb, ht, D);',
+  '  float u0, u1, ue;',
+  `  if (f < ${S[1].toFixed(2)}) {`,
+  '    u0 = gTsunPath(hb + fk.x * H, sinE, hb, ht, D);',
+  '    u1 = gTsunPath(hb + fk.y * H, sinE, hb, ht, D);',
+  '    ue = gTsunPath(he, sinE, hb, ht, D);',
+  '  } else {',
+  '    u0 = gTsunPathW(hb + fk.x * H, sinE, hb, ht, D, sel);',
+  '    u1 = gTsunPathW(hb + fk.y * H, sinE, hb, ht, D, sel);',
+  '    ue = gTsunPathW(he, sinE, hb, ht, D, sel);',
+  '  }',
   '  float du = u1 - u0;',
-  '  float s = abs(du) < 1e-3 ? (f - fk.x) / (fk.y - fk.x) : (gTsunPath(he, sinE, hb, ht, D) - u0) / du;',
+  '  float s = abs(du) < 1e-3 ? (f - fk.x) / (fk.y - fk.x) : (ue - u0) / du;',
   '  return max(0.0, mix(tk.x, tk.y, clamp(s, -1.0, 2.0)));',
   '}',
 ];
+if (TSUN_COND_HF.some((x, i) => Math.abs(x - (TSUN_COND_HF[0] + i * TSUN_COND_HF_STEP)) > 1e-9)) throw new Error('cloudTsun: TSUN_COND_HF must be evenly spaced by TSUN_COND_HF_STEP');
 const H_COND = [
-  `// τ_c(hf, 도달) — 절점 hf ${TSUN_COND_HF.join('/')} × 도달 ${TSUN_COND_REACH_KM.join('/')} km 의 쌍선형(끝에서 고정), 성분 = 레인.`,
+  `// τ_c(hf, 도달) — 절점 hf ${TSUN_COND_HF.join('/')}(등간격 ${TSUN_COND_HF_STEP}) × 도달 ${TSUN_COND_REACH_KM.join('/')} km 의 쌍선형(끝에서 고정), 성분 = 레인.`,
   'vec3 gTsunTent(const float x, const vec3 k) {',
   '  float w0 = clamp((k.y - x) / (k.y - k.x), 0.0, 1.0), w2 = clamp((x - k.y) / (k.z - k.y), 0.0, 1.0);',
   '  return vec3(w0, 1.0 - w0 - w2, w2);',
   '}',
   'vec4 gTsunCondAt(const float hf, const float reachKm) {',
-  `  vec3 a = gTsunTent(hf, vec3(${TSUN_COND_HF.map(x => x.toFixed(2)).join(', ')}));`,
+  `  float x = clamp((hf - ${TSUN_COND_HF[0].toFixed(2)}) / ${TSUN_COND_HF_STEP.toFixed(2)}, 0.0, ${(TSUN_COND_HF.length - 1).toFixed(1)});`,
+  `  int i = min(int(x), ${TSUN_COND_HF.length - 2});`,
   `  vec3 r = gTsunTent(reachKm, vec3(${TSUN_COND_REACH_KM.map(x => x.toFixed(2)).join(', ')}));`,
-  '  return a.x * (r.x * gTsunCond[0] + r.y * gTsunCond[1] + r.z * gTsunCond[2])',
-  '       + a.y * (r.x * gTsunCond[3] + r.y * gTsunCond[4] + r.z * gTsunCond[5])',
-  '       + a.z * (r.x * gTsunCond[6] + r.y * gTsunCond[7] + r.z * gTsunCond[8]);',
+  '  vec4 c0 = r.x * gTsunCond[i * 3] + r.y * gTsunCond[i * 3 + 1] + r.z * gTsunCond[i * 3 + 2];',
+  '  vec4 c1 = r.x * gTsunCond[i * 3 + 3] + r.y * gTsunCond[i * 3 + 4] + r.z * gTsunCond[i * 3 + 5];',
+  '  return mix(c0, c1, x - float(i));',
   '}',
 ];
 const H_EDD = [
@@ -395,22 +487,36 @@ const H_EDD = [
   '  return max(vec4(1.0) - R - e, vec4(0.0));',
   '}',
 ];
+/**
+ * 2차 행진이 덮은 거리(m) — marchOpticalDepth 와 같은 걸음 식. §179 고침(검토 물리 3): 표본 i 는 Σ_{k<i} step_k + s0·jitter 에 있고 무게 step_i 라
+ * 고른 σ 에서 기댓값이 정확히 σ·Σ_k step_k — 행진의 실제 끝은 **jitter 없는** Σ_k step_k(= sunRayDistance + 마지막 걸음 − s0·jitter).
+ * 처음 판(sunRayDistance + 마지막 걸음)은 s0·jitter(평균 125/n m) 너머에서 아틀라스·REF 를 시작해 그 틈의 τ(n = 1 에서 0.07~0.37)를 빠뜨렸음.
+ * τ_c 의 도달 인자도 이 값(WP1 의 r 은 표본에서 잰 거리). 걸음 0(퍼지 τ 0.5)이면 0 — sunRayDistance(out, 그때 안 씀)를 읽지 않고, τ_c 는
+ * 도달 0.25 km 마디로 고정됨(sc hf 0.5 τ_c(0) 3.8~4.1 대 τ_c(0.25) 0.49~0.87 [computed] — 드묾: 광선 들머리에서 78 km 너머, REF 도 같은 규칙).
+ * float(max(n, 1)): 고르지 않는 가지의 0 나누기(+inf)가 어느 드라이버에서도 NaN 섞음이 되지 않게(검토 물리 9a).
+ */
 const H_REACH = [
-  '// 2차 행진이 덮은 거리(m) — marchOpticalDepth 와 같은 식: 마지막 표본 거리 + 마지막 걸음. 걸음 0(퍼지 τ 0.5)이면 0(sunRayDistance 를 읽지 않음).',
+  '// 2차 행진이 덮은 거리(m) = Σ 걸음(jitter 없음, §179 고침) — marchOpticalDepth 와 같은 걸음 식. 걸음 0(퍼지 τ 0.5)이면 0(sunRayDistance 를 읽지 않음).',
   'float gTsunReach(const float mipLevel, const float jitter, const float sunRayDistance) {',
   '  int n = int(max(0.0, remap(mipLevel, 0.0, 1.0, float(maxIterationCountToSun + 1), 1.0) - jitter));',
-  '  return n > 0 ? sunRayDistance + minSecondaryStepSize / float(n) * pow(secondaryStepScale, float(n - 1)) : 0.0;',
+  '  float s0 = minSecondaryStepSize / float(max(n, 1));',
+  '  return n > 0 ? sunRayDistance + s0 * pow(secondaryStepScale, float(n - 1)) - s0 * jitter : 0.0;',
   '}',
 ];
-const HELPERS_T = [...H_HEAD_T, ...H_LANE, ...H_PATH, ...H_UV, ...H_SLICE, ...H_COND, ...H_EDD, ...H_REACH];
+const HELPERS_T = [...H_HEAD_T, ...H_LANE, ...H_PATH, ...H_PATHW, ...H_UV, ...H_SLICE, ...H_COND, ...H_EDD, ...H_REACH];
 /**
  * §179 WP6 REF 무차별 행진 함수(ruler-delta C1·C2, design v2.1 §5.3) — REF_v2·REF_val 이 **같은 글자**(U6d). 결정(요약에도 적음):
- *  (R1) 밀도 = 1차·2차 행진과 같은 sampleWeather·sampleMedia(표본의 mipLevel — 2차 행진 marchOpticalDepth 와 같음, critic-eng m12 의 'REF 는 표본 mip'),
+ *  (R1) 밀도 = 1차·2차 행진과 같은 sampleWeather·sampleMedia. mip 인자는 부르는 쪽이 줌 — §179 결정(검토 물리 5): REF 의 행진 끝 너머 행진과
+ *       T_top 행진은 **mip 0**(I2_REF·I2_VAL 이 0.0 을 넘김). 아틀라스 법칙(WP1 고정표)이 mip 0 이고(U1f: mip 1 의 λ 는 mip 0 의 0.68~0.93 배
+ *       [from doc]), 해 줄이 지나는 구름장은 보는 이의 LOD 와 무관 — 표본 mip(critic-eng m12)이면 R-A_T 에 거리에 따른 LOD 치우침이 섞임.
+ *       takram 의 가까운 행진 [0, reach] 는 그대로 표본 mip. D-1 진단이 빛 받는 표본의 평균 mip 을 함께 냄(창마다 기록).
  *       날씨 밀도가 minDensity 이하인 빈 하늘은 1차 행진의 빈 칸 규칙 그대로 0(모양 fetch 를 건너뜀 — 400 km 행진 비용).
  *  (R2) 표본 거리 (i + jitter)·보폭(2차 행진처럼 프레임마다 층화), 걸음 수 = ceil(거리/보폭), 상한 TSUN_REF_MAX_STEPS(200 m·400 km = 2000 — 설계의
  *       '≤ 2000 걸음'; REF100 은 같은 400 km 에 4000 걸음이라 상한을 4096 으로 — '≤ 2000' 을 보폭 200 m 의 값으로 읽음).
  *  (R3) 땅(h < 0)에 닿으면 끝 — 그 표본의 지구 그림자는 takram 해 조도(표본별 GetSunAndSkyIrradiance)가 이미 셈('표본별 지구 그림자').
- *       네 레인 꼭대기 중 가장 높은 것 위에서 위로 가면(dot(p, dir) > 0 — 곧은 선의 고도는 그 뒤로 늘기만 함) 끝('가장 높은 층 꼭대기 위로 나가면').
+ *       밀도 있는 레인(densityScales > 0) 꼭대기 중 가장 높은 것 위에서 위로 가면(dot(p, dir) > 0 — 곧은 선의 고도는 그 뒤로 늘기만 함) 끝
+ *       ('가장 높은 층 꼭대기 위로 나가면'). §179 고침(검토 물리 11): 처음 판은 빈 레인(앱이 남겨 두는 7.5~11 km 꼭대기)까지 넣어 거의 늘 400 km 를
+ *       다 걸었음 — densityScales 0 인 레인은 밀도가 0(takram sampleWeather 의 density × densityScales)이라 결과는 같고 비용만 줄어듦.
  *  (R4) 비용 변형 COST_PATCH 의 2차 행진 앵커('    MediaSample media = sampleMedia(weather, position, uv, mipLevel, jitter);\n    opticalDepth +=')와
  *       글자가 겹치지 않게 지역 이름을 gTsun… 로(U6c — 앵커 6 개가 모든 팔에서 정확히 한 번). 모양 fetch 는 sampleMedia 안이라 y 에 저절로 셈.
  */
@@ -422,7 +528,8 @@ export const TSUN_REF_MARCH_HEAD = 'float gTsunRefMarch(';
 const H_REFMARCH = [
   `// REF 무차별 행진(cloudTsun.ts TSUN_REF_MARCH_HEAD 머리말 R1~R4): p0 에서 dir 로 보폭 stepM, rangeM 까지·땅·가장 높은 층 위에서 끝, 걸음 ≤ ${TSUN_REF_MAX_STEPS}.`,
   'float gTsunRefMarch(const vec3 p0, const vec3 dir, const float stepM, const float rangeM, const float mipLevel, const float jitter) {',
-  '  float gTsunHTop = max(max(maxLayerHeights.x, maxLayerHeights.y), max(maxLayerHeights.z, maxLayerHeights.w));',
+  '  vec4 gTsunTops = maxLayerHeights * step(vec4(1e-9), densityScales);',
+  '  float gTsunHTop = max(max(gTsunTops.x, gTsunTops.y), max(gTsunTops.z, gTsunTops.w));',
   `  int gTsunN = min(int(ceil(rangeM / stepM)), ${TSUN_REF_MAX_STEPS});`,
   '  float gTsunTau = 0.0;',
   '  for (int gTsunI = 0; gTsunI < gTsunN; ++gTsunI) {',
@@ -442,6 +549,10 @@ const H_REFMARCH = [
 const HELPERS_R = [`// ${M} T_sun 도움 함수(cloudTsun.ts — REF: 아틀라스 없음, 무차별 행진; Eddington·도달 글자는 T 팔과 같음)`, ...H_LANE, ...H_EDD, ...H_REACH, ...H_REFMARCH];
 const HELPERS_A = [
   `// ${M} 아치 빛 도움 함수 — GetTransmittanceToSun 의 지구 그림자 smoothstep 을 ALU 로 옮긴 것(vis).`,
+  `// 정적 단언(검토 물리 12): 아치 옥타브 ${ARCH_OCTAVES} 이 takram MULTI_SCATTERING_OCTAVES 와 다르면 컴파일 실패(조용히 다른 옥타브 합이 되지 않게).`,
+  `#if defined(MULTI_SCATTERING_OCTAVES) && MULTI_SCATTERING_OCTAVES != ${ARCH_OCTAVES}`,
+  `#error T_sun arch octave count ${ARCH_OCTAVES} differs from MULTI_SCATTERING_OCTAVES`,
+  '#endif',
   'float gArchVis(const vec3 p) {',
   '  float r = length(p) * METER_TO_LENGTH_UNIT;',
   '  float sh = ATMOSPHERE.bottom_radius / r;',
@@ -469,7 +580,7 @@ const HELPERS_A = [
   '  vec3 n = normalize(p), a = gArchRowAxis(n), b = cross(n, a);',
   '  float dip = gArchDip(p);',
   `  float dOm = sin(dip) * 0.5 * radians(${ARCH_AZ_WIDTH_DEG.toFixed(1)});`,
-  '  for (int k = 0; k < 16; ++k) gArchC[k] = vec3(0.0);',
+  `  for (int k = 0; k < ${2 * ARCH_OCTAVES}; ++k) gArchC[k] = vec3(0.0);`,
   '  for (int g = 0; g < 2; ++g) {',
   `    float e = -dip * (g == 0 ? ${f6(ARCH_GL2[0])} : ${f6(ARCH_GL2[1])});`,
   '    for (int j = 0; j < 3; ++j) {',
@@ -479,8 +590,8 @@ const HELPERS_A = [
   TSUN_ARCH_LUT_LINE,
   '      float cv = dot(w, rayDir);',
   '      float ai = 1.0;',
-  '      for (int i = 0; i < 8; ++i) {',
-  '        gArchC[g * 8 + i] += ai * phaseFunction(cv, ai) * Lw;',
+  `      for (int i = 0; i < ${ARCH_OCTAVES}; ++i) {`,
+  `        gArchC[g * ${ARCH_OCTAVES} + i] += ai * phaseFunction(cv, ai) * Lw;`,
   '        ai *= 0.5;',
   '      }',
   '    }',
@@ -519,13 +630,13 @@ const I2 = (arch: boolean, dbg = false) => [
   '          float gTsunHb = dot(minLayerHeights, gTsunSel) * 1e-3;',
   '          float gTsunHt = dot(maxLayerHeights, gTsunSel) * 1e-3;',
   '          float gTsunHe = (length(gTsunEnd) - bottomRadius) * 1e-3;',
-  '          float gTsunTau = gTsunSliceTau(gTsunTexel, gTsunHe, gTsunHb, gTsunHt, dot(normalize(gTsunEnd), sunDirection), gTsunEpoch.z);',
+  '          float gTsunTau = gTsunSliceTau(gTsunTexel, gTsunHe, gTsunHb, gTsunHt, dot(normalize(gTsunEnd), sunDirection), gTsunEpoch.z, gTsunSel);',
   '          float gTsunHf = (gTsunHe - gTsunHb) / max(gTsunHt - gTsunHb, 1e-3);',
   '          float gTsunOwn = step(0.0, gTsunHf) * step(gTsunHf, 1.0);',
   '          gTsunTau = max(0.0, gTsunTau + dot(gTsunCondAt(clamp(gTsunHf, 0.0, 1.0), gTsunReachM * 1e-3), gTsunSel) * gTsunOwn);',
   '          sunIrradiance *= exp(-gTsunTau);',
   ...(dbg ? [`          gTsunDbgT = exp(-gTsunTau);   // ${M} D-1`] : []),
-  '          gTsunTtop = exp(-gTsunTexel.a);',
+  `          gTsunTtop = exp(-(gTsunMu0 >= 0.0 ? gTsunTexel.a : gTsunTexel.x));   // ${M} 해가 표본 지평선 아래(μ0 < 0)면 빛은 밑면으로 — 가장 낮은 조각(검토 물리 7)`,
   '          gTsunW = 1.0 - exp(-gTsunTau);',
   '        }',
   '      }',
@@ -548,12 +659,12 @@ const I2_REF = (dbg: boolean) => [
   '      if (gTsunOn > 0.5 && max(sunIrradiance.r, max(sunIrradiance.g, sunIrradiance.b)) > 0.0) {',
   '        float gTsunReachM = gTsunReach(mipLevel, jitter, sunRayDistance);',
   '        vec3 gTsunEnd = position + gMarchDir * gTsunReachM;',
-  '        float gTsunTau = gTsunRefMarch(gTsunEnd, sunDirection, gTsunRef.x, gTsunRef.y, mipLevel, jitter);',
-  '        // T_top: p_end 위(같은 연직) 가장 무거운 레인의 꼭대기 점에서 gTsunRef.z m 보폭 행진(T 팔의 hf 1.0 조각과 같은 뜻).',
-  '        vec3 gTsunTopP = normalize(gTsunEnd) * (bottomRadius + dot(maxLayerHeights, gTsunLaneSel(media.weight)));',
+  '        float gTsunTau = gTsunRefMarch(gTsunEnd, sunDirection, gTsunRef.x, gTsunRef.y, 0.0, jitter);   // mip 0(R1 결정)',
+  `        // T_top: p_end 위(같은 연직) 가장 무거운 레인의 꼭대기 점(μ0 < 0 이면 hf ${TSUN_SLICE_HF[0]} 조각 — 밑면으로 들어오는 빛)에서 gTsunRef.z m 보폭 행진(T 팔의 조각과 같은 뜻).`,
+  `        vec3 gTsunTopP = normalize(gTsunEnd) * (bottomRadius + dot(mix(minLayerHeights, maxLayerHeights, gTsunMu0 >= 0.0 ? 1.0 : ${TSUN_SLICE_HF[0].toFixed(2)}), gTsunLaneSel(media.weight)));`,
   '        sunIrradiance *= exp(-gTsunTau);',
   ...(dbg ? [`        gTsunDbgT = exp(-gTsunTau);   // ${M} D-1`] : []),
-  '        gTsunTtop = exp(-gTsunRefMarch(gTsunTopP, sunDirection, gTsunRef.z, gTsunRef.y, mipLevel, jitter));',
+  '        gTsunTtop = exp(-gTsunRefMarch(gTsunTopP, sunDirection, gTsunRef.z, gTsunRef.y, 0.0, jitter));',
   '        gTsunW = 1.0 - exp(-gTsunTau);',
   '      }',
   TSUN_I2_ANCHOR,
@@ -566,7 +677,7 @@ const I2_VAL = (dbg: boolean) => [
   `      // ${M} I-2 REF_val — 행진 끝 너머 무차별 행진 τ 를 opticalDepth 에 더함(BSM 같은 규칙: 옥타브·역광 어둡게). thru 줄은 그대로.`,
   ...(dbg ? [D_RESET] : []),
   '      if (gTsunOn > 0.5) {',
-  '        float gTsunTauV = gTsunRefMarch(position + sunDirection * gTsunReach(mipLevel, jitter, sunRayDistance), sunDirection, gTsunRef.x, gTsunRef.y, mipLevel, jitter);',
+  '        float gTsunTauV = gTsunRefMarch(position + sunDirection * gTsunReach(mipLevel, jitter, sunRayDistance), sunDirection, gTsunRef.x, gTsunRef.y, 0.0, jitter);   // mip 0(R1 결정)',
   '        opticalDepth += gTsunTauV;',
   ...(dbg ? [`        if (max(sunIrradiance.r, max(sunIrradiance.g, sunIrradiance.b)) > 0.0) gTsunDbgT = exp(-gTsunTauV);   // ${M} D-1`] : []),
   '      }',
@@ -582,13 +693,14 @@ const D_ACC = [
   '        float gTsunDbgWi = transmittanceIntegral * (1.0 - transmittance);',
   '        gTsunDbgW += gTsunDbgWi;',
   '        gTsunDbgWT += gTsunDbgWi * gTsunDbgT;',
+  '        gTsunDbgWM += gTsunDbgWi * mipLevel;',
   '      }',
   TSUN_DBG_ACC_ANCHOR,
 ];
 const D_OUT = [
   TSUN_DBG_OUT_ANCHOR,
-  `  // ${M} D-1 진단 출력 — R = √T̄(T̄ = Σw·T / Σw), G = Σw, B = Σw·T, A = 1. 하네스(entry-tsun)가 구름 패스 출력(해석 전)을 바로 읽음 — 대기·안개·톤 안 거침.`,
-  '  outputColor = vec4(sqrt(clamp(gTsunDbgWT / max(gTsunDbgW, 1e-6), 0.0, 1.0)), gTsunDbgW, gTsunDbgWT, 1.0);',
+  `  // ${M} D-1 진단 출력 — R = √T̄(T̄ = Σw·T / Σw), G = Σw, B = Σw·T, A = Σw·mip(빛 받는 표본의 평균 mip = A/G, 검토 물리 5). 하네스(entry-tsun)가 구름 패스 출력(해석 전)을 바로 읽음 — 대기·안개·톤 안 거침.`,
+  '  outputColor = vec4(sqrt(clamp(gTsunDbgWT / max(gTsunDbgW, 1e-6), 0.0, 1.0)), gTsunDbgW, gTsunDbgWT, gTsunDbgWM);',
 ];
 /** I-T — V10b. else 가지에 원래 줄 그대로(U4e). */
 const IT = [
@@ -607,6 +719,8 @@ const IT = [
 /** I-4 — 아치 팔만, `radiance *= media.scattering;` 앞(§168 역광 어둡게 뒤, 어둡게 하지 않음). */
 const I4 = [
   `      // ${M} I-4 아치 빛 — S = Σ_g [Σ_i C_g,i·exp(−bⁱ(τ_mid + τ_own,g))]·exp(−τ_rest,g), radiance += r·S (r = w(θ)·(1 − vis)).`,
+  `      // 아치 블록은 조각 hf ${S.join('/')}(줄 1~4) — 행진 끝 hf 를 감싸는 두 줄을 hf 선형으로(계수 [0, 1] 고정, 밖은 끝 조각 값). 노드 캐시는 1 km 마다 채우고`,
+  '      // 그 사이 dΩ ∝ sin(dip(h)) 를 지금 높이로 다시 맞춤(검토 물리 8: 1 km 안에서 ×1.26 까지 흐름).',
   '      if (gArchR > 0.0) {',
   '        vec4 gArchSel = gTsunLaneSel(media.weight);',
   '        float gArchBlk = dot(gTsunLaneBlock, gArchSel);',
@@ -618,20 +732,24 @@ const I4 = [
   '            gArchCL = gArchL;',
   '            gArchCH = height;',
   '            gArchCP = position;',
+  '            gArchCS = max(sin(gArchDip(position)), 1e-6);',
   '          }',
   '          vec3 gArchEnd = position + gMarchDir * gTsunReach(mipLevel, jitter, sunRayDistance);',
   '          float gArchHb = dot(minLayerHeights, gArchSel), gArchHt = dot(maxLayerHeights, gArchSel);',
-  '          float gArchHf = clamp((length(gArchEnd) - bottomRadius - gArchHb) / max(gArchHt - gArchHb, 1.0), 0.0, 1.0);',
+  `          float gArchHf = clamp((length(gArchEnd) - bottomRadius - gArchHb) / max(gArchHt - gArchHb, 1.0), ${S[0].toFixed(2)}, ${S[3].toFixed(2)});`,
+  `          float gArchK = gArchHf < ${S[1].toFixed(2)} ? 0.0 : gArchHf < ${S[2].toFixed(2)} ? 1.0 : 2.0;`,
+  `          vec2 gArchFk = gArchHf < ${S[1].toFixed(2)} ? vec2(${S[0].toFixed(2)}, ${S[1].toFixed(2)}) : gArchHf < ${S[2].toFixed(2)} ? vec2(${S[1].toFixed(2)}, ${S[2].toFixed(2)}) : vec2(${S[2].toFixed(2)}, ${S[3].toFixed(2)});`,
+  '          float gArchT = clamp((gArchHf - gArchFk.x) / (gArchFk.y - gArchFk.x), 0.0, 1.0);',
   TSUN_ARCH_FETCH_LINE,
   '          if (gArchNoT > 0.5) gArchAB.yw = vec2(0.0);',
   '          vec3 gArchS = vec3(0.0);',
   '          float gArchB = 1.0;',
-  '          for (int gArchI = 0; gArchI < 8; ++gArchI) {',
+  `          for (int gArchI = 0; gArchI < ${ARCH_OCTAVES}; ++gArchI) {`,
   '            gArchS += gArchC[gArchI] * exp(-gArchB * (opticalDepth + gArchAB.x) - gArchAB.y)',
-  '                    + gArchC[8 + gArchI] * exp(-gArchB * (opticalDepth + gArchAB.z) - gArchAB.w);',
+  `                    + gArchC[${ARCH_OCTAVES} + gArchI] * exp(-gArchB * (opticalDepth + gArchAB.z) - gArchAB.w);`,
   '            gArchB *= 0.5;',
   '          }',
-  '          radiance += gArchR * gArchS;',
+  '          radiance += gArchR * (sin(gArchDip(position)) / gArchCS) * gArchS;',
   '        }',
   '      }',
   TSUN_I4_ANCHOR,
