@@ -5,7 +5,8 @@
  * 임시 출력은 os.tmpdir()(TMPDIR) 아래 새 폴더(--work 로 바꿈). 고정표(tools/genus-ruler/tsun/fixture/tsun-fixture.{json,bin})는 sha 를 맞춰 읽고,
  * 거시 고리(P3B·RA3·RA5)는 make-jobs-tsun.py 의 생성기를 python -I -B 로 불러 만들어 scenes-tsun.json 의 sha 와 맞춥니다(파일을 고치지 않음).
  *
- *  [wire] 배선: tsun 1 · tsunSync · 고정표면 setScene 이 짓고 검(gTsunOn 1, half float RGBA, n·blocks × n), 같은 시각 setDate 는 다시 짓지 않음,
+ *  [wire] 배선(§179 검토 반영: 구축은 하네스 tools/genus-ruler/tsun/tsun-build.ts — 앱 묶음에 구축기 없음): 잡마다 한 번 짓고 검(gTsunOn 1, half float RGBA,
+ *         n·blocks × n) · 처음 판의 자동 구축 시험(아래 줄)은 이 길로 바뀜 —
  *         해가 움직이면 다시 짓고 옛 텍스처 버림, 해 > 12° 면 짓지 않음, 같은 입력 = 같은 sha(다른 장면 객체로도), tsunN 256·archLight 로 다시 지음,
  *         밖 아틀라스(setTsunAtlas) 동안 쉼·null 이면 다시 지음, tsunSync false·고정표 없음이면 짓지 않고 이유, tsun 0 이면 고정표를 줘도 아무것도 안 함.
  *  [law]  고정표 법칙 표(tsunFixtureLaw): 고정표 마디에서 평가기(tsunLambda10·tsunLawTau)와 같음, 마디 사이 G 와 tsunCurveOfGrowth 의 차(보고).
@@ -17,7 +18,10 @@
  *  [U2e]  등록: 종류 평면 ↔ ECEF ↔ 셰이더 uv(gTsunUvOf 식, 재질 균일변수 값) 왕복 < 1 m, §173 고도 보정 원점 + weatherOffsetKm, 관측점 = 중심,
  *         해 광선의 평면 투영이 줄과 평행, 거시 격자 읽기(이류·채널·mix)가 셰이더 식과 같음, 가장자리 = 부채꼴 평균(≠ 1).
  *  [U2f]  시간 기록(JIT·--jitless, N 128/256 · 레인 2/3 · 아치 0/1 · 해 −1.4/+1.108/+8°) — 판정 없음, WORK/bench-*.json.
- *  [U2g]  (보고) 셰이더 길 τ(half 텍셀 + u_true 보간) vs 참 선 기준 τ, P3B·RA3·RA5 임의 높이 — dT p95.
+ *  [U2d′] 아치 블록 임의 높이(네 조각 사이 투과율 섞음, §179 검토 물리 4) vs 참 3-D 아치 광선 — p95 ≤ 0.2.
+ *  [U2g]  셰이더 길 τ(half 텍셀 + hybrid 조각 보간) vs 참 선 기준 τ, P3B·RA1·RA3·RA5 + P3B·RA1 해 바꿈 임의 높이 — 관문 p95 ≤ 0.05(해 ≥ 4°)·≤ 0.10(해 ≤ 1.1°)
+ *         그리고 처음 판(u_true 만)의 절반 이하(§179 검토 물리 1), 지구 그림자 조각을 감싼 표본은 따로 보고(물리 10).
+ *  [U4h]  셰이더 τ_c 표(hf 7 마디) vs WP1 전체 법칙(국소 운량·참 L·φ) — 실제 장면 표본 |Δτ_c| p90 ≤ 0.3(U1e 허용폭), 넘는 점 수 보고(§179 검토 물리 2).
  */
 const path = require('path'); const os = require('os'); const fs = require('fs'); const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -40,7 +44,9 @@ import { getAltitudeCorrectionOffset } from '@takram/three-atmosphere';
 import { createVolumetricScene, DEFAULT_VOLUMETRIC_OPTIONS } from '${ROOT}/src/components/VolumetricProbe/volumetricScene';
 import * as TA from '${ROOT}/src/components/VolumetricProbe/tsunAtlas';
 import * as TF from '${ROOT}/src/components/VolumetricProbe/tsunFixture';
-import { TSUN_SLICE_HF, ARCH_GL2 } from '${ROOT}/src/components/VolumetricProbe/cloudTsun';
+import * as TB from '${ROOT}/tools/genus-ruler/tsun/tsun-build';
+import { TSUN_SLICE_HF, ARCH_GL2, installTsunShader } from '${ROOT}/src/components/VolumetricProbe/cloudTsunShader';
+installTsunShader();   // §179 검토 반영(회귀 1): 셰이더 글자는 하네스·시험만 검
 
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const OUT = process.argv[3];
@@ -104,69 +110,71 @@ async function main() {
   const fx = loadFixture();
   const res: any = { fixtureSha: fx.header.binSha256 };
   const S = cfg.scenes;
-  // ───────── [wire] ─────────
+  // ───────── [wire] — §179 검토 반영(회귀 1·하네스 7): 구축은 하네스(tsun-build.ts)가 잡마다 한 번, 장면은 setTsunAtlas 만 ─────────
   {
     const w: any = {};
-    const A = await mkScene(S.P3B, { tsun: 1, tsunSync: true });
-    A.setTsunFixture(fx);
+    const opts = { tsun: 1, tsunSync: true };
+    const A = await mkScene(S.P3B, opts);
+    const st = TB.newTsunBuildState();
     const inp0 = sceneInput(S.P3B, 'P3B');
     A.setScene(inp0);
     const U = () => A.debug.clouds.cloudsPass.currentMaterial.uniforms;
     const texOf = () => U().gTsunTex?.value;
+    w.before = { info: A.tsunInfo(), on: U().gTsunOn?.value };
+    const built1 = TB.buildTsunAtlasForJob(A, fx, opts, st);
     const i1 = A.tsunInfo(), t1 = texOf();
     let disp1 = false; t1?.addEventListener?.('dispose', () => { disp1 = true; });
-    w.first = { info: i1, on: U().gTsunOn?.value, tex: t1 ? { w: t1.image.width, h: t1.image.height, type: t1.type, data: t1.image.data?.constructor?.name, min: t1.minFilter, mag: t1.magFilter, flipY: t1.flipY, mip: t1.generateMipmaps } : null };
-    A.setDate(new Date(inp0.date.getTime()));
-    w.sameDate = { builds: A.tsunInfo().builds, sameTex: texOf() === t1 };
-    A.setDate(new Date(inp0.date.getTime() + 120e3));
-    const i2 = A.tsunInfo();
-    w.moved = { builds: i2.builds, sha: i2.atlasMeta?.sha, disp1, valid: i2.atlasValid };
+    w.first = { built: built1, builds: st.builds, info: i1, on: U().gTsunOn?.value, tex: t1 ? { w: t1.image.width, h: t1.image.height, type: t1.type, data: t1.image.data?.constructor?.name, min: t1.minFilter, mag: t1.magFilter, flipY: t1.flipY, mip: t1.generateMipmaps } : null, sha: st.lastSha };
+    // 하네스 7: 잡마다 한 번 — entry 순서(앞 잡 풀기 → setOptions → setScene → 구축)를 세 잡 흉내
+    const perJob: number[] = [];
+    for (let j = 0; j < 3; j++) {
+      const b0 = st.builds;
+      TB.dropTsunAtlas(A, st);
+      A.setOptions({ ...opts, tsunN: j === 1 ? 256 : 128 }, false);
+      A.setScene(inp0);
+      TB.buildTsunAtlasForJob(A, fx, { ...opts }, st);
+      perJob.push(st.builds - b0);
+    }
+    w.perJob = perJob; w.disp1 = disp1;
+    A.setOptions({ ...opts, tsunN: 128 }, false); TB.dropTsunAtlas(A, st); A.setScene(inp0); TB.buildTsunAtlasForJob(A, fx, opts, st);
+    w.back = { sha: st.lastSha, valid: A.tsunInfo().atlasValid };
+    // 해 > 12°: 글자 없음 → 짓지 않음
     A.setDate(new Date('2026-10-05T03:30:00Z'));
-    const i3 = A.tsunInfo();
-    w.high = { builds: i3.builds, injected: i3.injected, autoReason: i3.autoReason, uniforms: Object.keys(U()).filter(k => /^g(Tsun|Arch)/.test(k)) };
+    const bHigh = TB.buildTsunAtlasForJob(A, fx, opts, st);
+    w.high = { built: bHigh, reason: st.reason, injected: A.tsunInfo().injected, uniforms: Object.keys(U()).filter(k => /^g(Tsun|Arch)/.test(k)) };
     A.setDate(new Date(inp0.date.getTime()));
-    const i4 = A.tsunInfo();
-    w.back = { builds: i4.builds, sha: i4.atlasMeta?.sha, valid: i4.atlasValid, on: U().gTsunOn?.value };
-    A.setOptions({ tsunN: 256 }, false);
-    const t256 = texOf();
-    w.n256 = { builds: A.tsunInfo().builds, valid: A.tsunInfo().atlasValid, w: t256?.image.width, h: t256?.image.height };
-    A.setOptions({ archLight: 1 }, false);
+    // 아치·tsunN 256 크기
+    TB.dropTsunAtlas(A, st); A.setOptions({ ...opts, tsunN: 256, archLight: 1 }, false); A.setScene(inp0); TB.buildTsunAtlasForJob(A, fx, { ...opts }, st);
     const ta = texOf();
-    w.arch = { builds: A.tsunInfo().builds, valid: A.tsunInfo().atlasValid, w: ta?.image.width, h: ta?.image.height, archU: Object.keys(U()).filter(k => /^gArch/.test(k)) };
-    A.setOptions({ archLight: 0, tsunN: 128 }, false);
-    w.restore = { builds: A.tsunInfo().builds, valid: A.tsunInfo().atlasValid, sha: A.tsunInfo().atlasMeta?.sha };
-    // 밖 아틀라스
+    w.arch = { valid: A.tsunInfo().atlasValid, w: ta?.image.width, h: ta?.image.height, archU: Object.keys(U()).filter(k => /^gArch/.test(k)) };
+    // 풀기: 텍스처 버림 · gTsunOn 0
+    let dispA = false; ta?.addEventListener?.('dispose', () => { dispA = true; });
+    TB.dropTsunAtlas(A, st);
+    w.dropped = { dispA, on: U().gTsunOn?.value, reason: A.tsunInfo().reason };
+    A.setOptions({ ...opts, tsunN: 128, archLight: 0 }, false); A.setScene(inp0); TB.buildTsunAtlasForJob(A, fx, opts, st);
+    // setScene(applyScene)이 아틀라스를 버리고 옛 장면 아틀라스는 다시 못 검
     const bi = A.tsunBuildInput();
     const laws = TA.tsunLawsFromFixture(fx, bi);
     const dExt = TA.buildTsunAtlasData(bi, laws.laws, { fixtureSha: fx.header.binSha256 });
     const ext = TA.makeTsunAtlas(dExt, A.tsunSceneSerial());
-    let extDisposed = false; ext.texture.addEventListener('dispose', () => { extDisposed = true; });
-    const ownBefore = texOf(); let ownDisp = false; ownBefore?.addEventListener?.('dispose', () => { ownDisp = true; });
-    const bExt = A.tsunInfo().builds;
-    A.setTsunAtlas(ext);
-    A.setDate(new Date(inp0.date.getTime() + 60e3));
-    w.external = { external: A.tsunInfo().external, builds: A.tsunInfo().builds - bExt, autoReason: A.tsunInfo().autoReason, texIsExt: texOf() === ext.texture, ownDisp, extSha: dExt.sha, autoSha: w.back.sha };
-    A.setTsunAtlas(null);
-    w.extNull = { external: A.tsunInfo().external, builds: A.tsunInfo().builds - bExt, valid: A.tsunInfo().atlasValid, extDisposed };
-    const tBefore = texOf(); let dispScene = false; tBefore?.addEventListener?.('dispose', () => { dispScene = true; });
-    const s0 = A.tsunSceneSerial(), b0 = A.tsunInfo().builds;
     A.setScene(inp0);
-    w.rescene = { serial: A.tsunSceneSerial() - s0, builds: A.tsunInfo().builds - b0, dispScene, valid: A.tsunInfo().atlasValid, sha: A.tsunInfo().atlasMeta?.sha };
+    let oldThrows: string | null = null; try { A.setTsunAtlas(ext); } catch (e: any) { oldThrows = String(e.message); }
+    w.rescene = { on: U().gTsunOn?.value, reason: A.tsunInfo().reason, oldThrows };
     // 다른 장면 객체 · 같은 입력 → 같은 sha
-    const F = await mkScene(S.P3B, { tsun: 1, tsunSync: true }); F.setTsunFixture(fx); F.setScene(sceneInput(S.P3B, 'P3B'));
-    w.determinism = { a: i1.atlasMeta?.sha, f: F.tsunInfo().atlasMeta?.sha, back: w.back.sha };
+    const F = await mkScene(S.P3B, opts); const stF = TB.newTsunBuildState(); F.setScene(sceneInput(S.P3B, 'P3B')); TB.buildTsunAtlasForJob(F, fx, opts, stF);
+    w.determinism = { a: w.first.sha, f: stF.lastSha, back: w.back.sha, ext: dExt.sha };
     // tsunSync false · 고정표 없음 · tsun 0
-    const B = await mkScene(S.P3B, { tsun: 1, tsunSync: false }); B.setTsunFixture(fx); B.setScene(sceneInput(S.P3B, 'P3B'));
-    w.syncOff = { builds: B.tsunInfo().builds, valid: B.tsunInfo().atlasValid, autoReason: B.tsunInfo().autoReason, reason: B.tsunInfo().reason };
-    const C = await mkScene(S.P3B, { tsun: 1, tsunSync: true }); C.setScene(sceneInput(S.P3B, 'P3B'));
-    w.noFixture = { builds: C.tsunInfo().builds, valid: C.tsunInfo().atlasValid, autoReason: C.tsunInfo().autoReason };
-    const texCount = async (withFx: boolean) => {
-      const D = await mkScene(S.P3B, {}); if (withFx) D.setTsunFixture(fx);
-      const a = new Texture().id; D.setScene(sceneInput(S.P3B, 'P3B')); D.setDate(new Date(inp0.date.getTime() + 60e3)); const b = new Texture().id;
+    const B = await mkScene(S.P3B, { tsun: 1, tsunSync: false }); const stB = TB.newTsunBuildState(); B.setScene(sceneInput(S.P3B, 'P3B'));
+    w.syncOff = { built: TB.buildTsunAtlasForJob(B, fx, { tsun: 1, tsunSync: false }, stB), reason: stB.reason, valid: B.tsunInfo().atlasValid };
+    const C = await mkScene(S.P3B, opts); const stC = TB.newTsunBuildState(); C.setScene(sceneInput(S.P3B, 'P3B'));
+    w.noFixture = { built: TB.buildTsunAtlasForJob(C, null, opts, stC), reason: stC.reason, valid: C.tsunInfo().atlasValid };
+    const texCount = async (build: boolean) => {
+      const D = await mkScene(S.P3B, {}); const stD = TB.newTsunBuildState();
+      const a0 = new Texture().id; D.setScene(sceneInput(S.P3B, 'P3B')); if (build) TB.buildTsunAtlasForJob(D, fx, { tsun: 0, tsunSync: false }, stD); D.setDate(new Date(inp0.date.getTime() + 60e3)); const b0 = new Texture().id;
       const u = D.debug.clouds.cloudsPass.currentMaterial.uniforms;
-      return { tex: b - a, builds: D.tsunInfo().builds, uni: Object.keys(u).filter(k => /^g(Tsun|Arch)/.test(k)).length, autoReason: D.tsunInfo().autoReason };
+      return { tex: b0 - a0, builds: stD.builds, reason: stD.reason, uni: Object.keys(u).filter(k => /^g(Tsun|Arch)/.test(k)).length };
     };
-    w.off = { withFx: await texCount(true), noFx: await texCount(false) };
+    w.off = { withBuild: await texCount(true), noBuild: await texCount(false) };
     res.wire = w;
     // ───────── [U2e] 등록 ─────────
     const reg = (v: any, inp: any) => {
@@ -227,9 +235,10 @@ async function main() {
         originOffKm: Math.hypot(obs.x - bi.frame.originM[0], obs.y - bi.frame.originM[1], obs.z - bi.frame.originM[2]) / 1000,
         eTexM: eTex, eHm: eH, ePlM: ePl, eLatM: eLat, minAlongKm: minAlong, ortho: geom.orthoErr, eMac, nMac, edges, phi: geom.phiDeg, sunEl: geom.sunElCenterDeg };
     };
+    TB.buildTsunAtlasForJob(A, fx, { tsun: 1, tsunSync: true }, TB.newTsunBuildState());   // 위 [wire] 의 setScene 이 버린 아틀라스를 다시(gTsunFrame·Epoch 균일변수)
     res.u2e = { p3b: reg(A, inp0) };
     const off = sceneInput(S.P3B, 'P3B', { weatherOffsetKm: [3.2, -1.7] });
-    const G = await mkScene(S.P3B, { tsun: 1, tsunSync: true }); G.setTsunFixture(fx); G.setScene(off);
+    const G = await mkScene(S.P3B, { tsun: 1, tsunSync: true }); G.setScene(off); TB.buildTsunAtlasForJob(G, fx, { tsun: 1, tsunSync: true }, TB.newTsunBuildState());
     res.u2e.offset = { ...reg(G, off), valid: G.tsunInfo().atlasValid };
     // 구축기 입력 저장(U2f 시간 측정 · U2a 가 다시 씀)
     const toPlain = (bi: any) => ({ ...bi, lanes: bi.lanes.map((L: any) => L && { ...L, macro: L.macro && { ...L.macro, dataA: Array.from(L.macro.dataA), dataB: L.macro.dataB && Array.from(L.macro.dataB) } }) });
@@ -240,7 +249,7 @@ async function main() {
   const inputsOf: any = { P3B: res.inputs.P3B };
   for (const [name, key] of [['RA1_s1.1_V1', null], ['RA3_s1.1_V1', 'RA3_s1.1_V1'], ['RA5_s1.1_V1', 'RA5_s1.1_V1']] as [string, string | null][]) {
     const job = S[name];
-    const v = await mkScene(job, { tsun: 1, tsunSync: true }); v.setTsunFixture(fx); v.setScene(sceneInput(job, key));
+    const v = await mkScene(job, { tsun: 1, tsunSync: true }); v.setScene(sceneInput(job, key)); TB.buildTsunAtlasForJob(v, fx, { tsun: 1, tsunSync: true }, TB.newTsunBuildState());
     inputsOf[name] = v.tsunBuildInput();
     res[name + '_info'] = v.tsunInfo();
   }
@@ -324,8 +333,8 @@ async function main() {
     for (let k = 0; k < 4; k++) {
       const lb = b2.lanes[k], blk = d.laneBlock[k]; if (blk < 0) continue;
       const law = L.laws[k]!;
-      for (let j = off0; j < d.n; j += stride) for (let i = off0; i < d.n; i += stride) for (let sl = 0; sl < 2; sl++) {
-        const h = sl === 0 ? lb.baseKm : lb.topKm, P = texelPoint(b2, d, g, i, j, h);
+      for (let j = off0; j < d.n; j += stride) for (let i = off0; i < d.n; i += stride) for (let sl = 0; sl < TSUN_SLICE_HF.length; sl++) {
+        const h = lb.baseKm + TSUN_SLICE_HF[sl] * (lb.topKm - lb.baseKm), P = texelPoint(b2, d, g, i, j, h);
         for (let gg = 0; gg < 2; gg++) {
           const dir = archDir(P, g, gg);
           const ref = TA.tsunReferenceTau(b2, L.laws, g, P, dir, { dsKm: 0.05, own: k, split: law.dlKm });
@@ -338,6 +347,20 @@ async function main() {
     }
     worst.sort((a, b) => b.dT - a.dT);
     res.u2d.push({ e, K: d.K, n: dT.length, p95: quant(dT, 0.95), max: Math.max(...dT), ownP95: quant(dOwn, 0.95), worst: worst.slice(0, 3) });
+    // U2d′(§179 검토 물리 4): 임의 높이 — 셰이더 I-4 의 조각 사이 읽기(tsunArchSampleCpu, 투과율 공간) vs 참 3-D 아치 광선
+    const rr = rng(41); const dTp: number[] = [];
+    for (let k = 0; k < 160; k++) {
+      const lane = [0, 1, 2, 3].filter(l => d.laneBlock[l] >= 0)[k % d.blocks], lb = b2.lanes[lane], law = L.laws[lane]!;
+      const rad = 80 * Math.sqrt(rr()), th = 2 * Math.PI * rr(), x = b2.centerKm[0] + rad * Math.cos(th), y = b2.centerKm[1] + rad * Math.sin(th);
+      const he = lb.baseKm + (lb.topKm - lb.baseKm) * (0.02 + 0.98 * rr());
+      const X = g.O[0] + x, Y = g.O[1] + y, P = [X, Y, Math.sqrt((g.R + he) ** 2 - X * X - Y * Y)];
+      const a = TA.tsunArchSampleCpu(d, g, P, lane, lb.baseKm, lb.topKm)!;
+      for (let gg = 0; gg < 2; gg++) {
+        const ref = TA.tsunReferenceTau(b2, L.laws, g, P, archDir(P, g, gg), { dsKm: 0.05, own: lane, split: law.dlKm });
+        dTp.push(Math.abs(Math.exp(-(a[gg * 2] + a[gg * 2 + 1])) - Math.exp(-ref.tau)));
+      }
+    }
+    res.u2d[res.u2d.length - 1].prime = { n: dTp.length, p50: quant(dTp, 0.5), p95: quant(dTp, 0.95), max: Math.max(...dTp) };
   }
   // ───────── [U2b] · [U2c] 균일 층 ─────────
   const synth = (eDeg: number, lanes: [number, number][], n = 16, halfKm = 20) => {
@@ -401,26 +424,62 @@ async function main() {
     }
     res.u2c = out;
   }
-  // ───────── [U2g] 보고 ─────────
+  // ───────── [U2g] 셰이더 길 τ(half 텍셀 + 조각 보간, τ_c 뺌) vs 참 선 기준 — §179 검토 물리 1: hybrid(아래 쌍 u_true · 위 쌍 λ 무게 W) 관문 ─────────
   res.u2g = {};
-  for (const key of ['RA1_s1.1_V1', 'P3B', 'RA3_s1.1_V1', 'RA5_s1.1_V1']) {
-    const bi = inputsOf[key], g = TA.tsunFrameGeom(bi), L = TA.tsunLawsFromFixture(fx, bi);
+  const u2gCases: [string, string, number | null][] = [['RA1_s1.1_V1', 'RA1', null], ['P3B', 'P3B', null], ['RA3_s1.1_V1', 'RA3', null], ['RA5_s1.1_V1', 'RA5', null],
+    ['P3B', 'P3B +0.3', 0.3], ['P3B', 'P3B +1.108', 1.108], ['P3B', 'P3B +4', 4], ['RA1_s1.1_V1', 'RA1 +1.108', 1.108], ['RA1_s1.1_V1', 'RA1 +4', 4], ['RA1_s1.1_V1', 'RA1 +8', 8]];
+  for (const [key, label, eSun] of u2gCases) {
+    const bi = eSun == null ? inputsOf[key] : withSun(inputsOf[key], eSun), g = TA.tsunFrameGeom(bi), L = TA.tsunLawsFromFixture(fx, bi);
     const d = TA.buildTsunAtlasData(bi, L.laws);
     const dz = { ...d, tauCond: d.tauCond.map(() => 0) };
-    const rr = rng(31); const dT: number[] = []; let n = 0; const band: number[][] = [[], [], []];
-    for (let k = 0; k < 400; k++) {
+    const rr = rng(31); const dT: number[] = [], dU: number[] = [], dTerm: number[] = []; let n = 0; const band: number[][] = [[], [], []];
+    for (let k = 0; k < 300; k++) {
       const lane = [0, 1, 2, 3].filter(q => d.laneBlock[q] >= 0)[k % d.blocks], lb = bi.lanes[lane];
       const rad = 90 * Math.sqrt(rr()), th = 2 * Math.PI * rr(), x = bi.centerKm[0] + rad * Math.cos(th), y = bi.centerKm[1] + rad * Math.sin(th);
       const he = lb.baseKm + (lb.topKm - lb.baseKm) * rr();
       const X = g.O[0] + x, Y = g.O[1] + y, Z = Math.sqrt((g.R + he) ** 2 - X * X - Y * Y), P = [X, Y, Z];
       const ref = TA.tsunReferenceTau(bi, L.laws, g, P, g.sun, { dsKm: 0.05 });
       if (ref.ground) continue;
+      const Tr = Math.exp(-ref.tau);
       const sh = TA.tsunShaderTauCpu(dz, g, P, lane, lb.baseKm, lb.topKm, 0, true)!;
-      dT.push(Math.abs(Math.exp(-sh) - Math.exp(-ref.tau))); n++;
+      const su = TA.tsunShaderTauCpu(dz, g, P, lane, lb.baseKm, lb.topKm, 0, true, { uTrueOnly: true })!;
+      dT.push(Math.abs(Math.exp(-sh) - Tr)); dU.push(Math.abs(Math.exp(-su) - Tr)); n++;
       const hfq = (he - lb.baseKm) / (lb.topKm - lb.baseKm);
       band[hfq < 0.35 ? 0 : hfq < 0.68 ? 1 : 2].push(dT[dT.length - 1]);
+      // 검토 물리 10(보고): 감싸는 조각 텍셀 넷 중 하나라도 땅에 닿은(지구 그림자) 조각이면 — 그 표본의 오차를 따로
+      const n0 = d.n, tex = (2 * d.halfKm) / n0, [ax, ay] = d.rowAxisEN, kx = x - d.centerKm[0], ky = y - d.centerKm[1];
+      const gx = Math.min(n0 - 1, Math.max(0, Math.floor((kx * ax + ky * ay + d.halfKm) / tex))), gy = Math.min(n0 - 1, Math.max(0, Math.floor((-kx * ay + ky * ax + d.halfKm) / tex)));
+      if (d.earthShadow[gy * d.width + d.laneBlock[lane] * n0 + gx]) dTerm.push(dT[dT.length - 1]);
     }
-    res.u2g[key] = { n, p50: quant(dT, 0.5), p95: quant(dT, 0.95), max: Math.max(...dT), bands: band.map(b => ({ n: b.length, p50: quant(b, 0.5), p95: quant(b, 0.95) })), sunEl: g.sunElCenterDeg, laneCond: d.meta.laneCond, edge: d.meta.edgeCover };
+    res.u2g[label] = { n, p50: quant(dT, 0.5), p95: quant(dT, 0.95), max: Math.max(...dT), p95uTrue: quant(dU, 0.95), bands: band.map(b => ({ n: b.length, p50: quant(b, 0.5), p95: quant(b, 0.95) })), e: eSun,
+      sunEl: g.sunElCenterDeg, laneCond: d.meta.laneCond, edge: d.meta.edgeCover, term: { n: dTerm.length, p95: quant(dTerm, 0.95), max: dTerm.length ? Math.max(...dTerm) : null } };
+  }
+  // ───────── [U4h] 셰이더 τ_c 표(hf 7 마디 · 전역 c̄ · 구축기 L) vs WP1 전체 법칙(국소 c · 참 L · φ) — §179 검토 물리 2 ─────────
+  res.u4h = {};
+  for (const [key, label] of [['P3B', 'P3B'], ['RA1_s1.1_V1', 'RA1'], ['RA3_s1.1_V1', 'RA3'], ['RA5_s1.1_V1', 'RA5']]) {
+    const bi = inputsOf[key], g = TA.tsunFrameGeom(bi), L = TA.tsunLawsFromFixture(fx, bi), d = TA.buildTsunAtlasData(bi, L.laws);
+    const covers = bi.lanes.map((Ln: any) => (Ln ? TA.tsunCoverFn(Ln, g.phiDeg).at : null));
+    const rr = rng(77); const dd: number[] = [], eCov: number[] = [], eL: number[] = [], eHf: number[] = []; let nF = 0;
+    const Xc = g.O[0] + bi.centerKm[0], Yc = g.O[1] + bi.centerKm[1];
+    for (let k = 0; k < 600; k++) {
+      const lane = [0, 1, 2, 3].filter(q => d.laneBlock[q] >= 0)[k % d.blocks], lb = bi.lanes[lane], e = L.entries[lane];
+      const rad = 90 * Math.sqrt(rr()), th = 2 * Math.PI * rr(), x = bi.centerKm[0] + rad * Math.cos(th), y = bi.centerKm[1] + rad * Math.sin(th);
+      const hf = 0.02 + 0.96 * rr(), he = lb.baseKm + (lb.topKm - lb.baseKm) * hf, reach = [0.25, 0.4, 0.5, 0.8, 1.1][k % 5];
+      const X = g.O[0] + x, Y = g.O[1] + y, Z = Math.sqrt((g.R + he) ** 2 - X * X - Y * Y), sinE = (X * g.sun[0] + Y * g.sun[1] + Z * g.sun[2]) / (g.R + he);
+      const c = covers[lane]!(x, y);
+      if (!(c > 0.02)) continue;
+      const Ltrue = TA.tsunPathKm(he, sinE, lb.baseKm, lb.topKm, d.rangeKm, g.R);
+      const truth = TF.tsunTauCond(fx, e, c, hf, reach, Ltrue, g.phiDeg);
+      const sh = TA.tsunCondAtCpu(d.tauCond, hf, reach, lane);
+      const diff = Math.abs(sh - truth);
+      dd.push(diff); if (diff > 0.3) nF++;
+      // 몫 나누기(보고): 운량(국소 c → 전역 c̄) · L(참 L → 관측점 국소 해의 구축기 L) · hf 마디 보간(나머지)
+      const cb = d.meta.laneCond.find((z: any) => z.lane === lane)!.cover;
+      const r0 = g.R + he, Zc = Math.sqrt(r0 * r0 - Xc * Xc - Yc * Yc), Lb = TA.tsunPathKm(he, (Xc * g.sun[0] + Yc * g.sun[1] + Zc * g.sun[2]) / r0, lb.baseKm, lb.topKm, d.rangeKm, g.R);
+      const tC = TF.tsunTauCond(fx, e, cb, hf, reach, Ltrue, g.phiDeg), tCL = TF.tsunTauCond(fx, e, cb, hf, reach, Lb, g.phiDeg);
+      eCov.push(Math.abs(truth - tC)); eL.push(Math.abs(tC - tCL)); eHf.push(Math.abs(tCL - sh));
+    }
+    res.u4h[label] = { n: dd.length, p50: quant(dd, 0.5), p90: quant(dd, 0.9), max: Math.max(...dd), fail: nF, p90cover: quant(eCov, 0.9), p90L: quant(eL, 0.9), p90hf: quant(eHf, 0.9) };
   }
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify(res, null, 1));
 }
@@ -483,29 +542,25 @@ json.dump(out, open(${JSON.stringify(macros)}, 'w'))
   console.log(`[setup] 주 실행 ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const R = JSON.parse(fs.readFileSync(path.join(WORK, 'results.json'), 'utf8'));
 
-  console.log('\n[wire] 배선(applyScene·setDate·setOptions·setTsunAtlas — 하네스 동기, 잡마다 한 번)');
+  console.log('\n[wire] 배선 — 하네스 구축(tsun-build.ts, 잡마다 한 번) · 장면은 setTsunAtlas 만(§179 검토 반영 회귀 1·하네스 7)');
   {
     const w = R.wire, f = w.first;
-    ok(f.info.atlasValid && f.info.builds === 1 && f.on === 1 && f.info.atlasMeta.builder === 'LP3-fixture-v1' && /^[0-9a-f]{64}$/.test(f.info.atlasMeta.sha) && f.info.atlasMeta.fixtureSha === R.fixtureSha,
-      `setScene(P3B, 해 ${f4(f.info.atlasMeta.sunAltDeg)}°) → 지어서 검: gTsunOn 1, 한 번, sha ${f.info.atlasMeta.sha.slice(0, 12)}…, 고정표 sha 기록, ${f.info.atlasMeta.buildMs.toFixed(0)} ms [measured]`);
+    ok(w.before.on === 0 && !w.before.info.atlasValid && w.before.info.injected, 'setScene 만으로는 짓지 않음(앱 묶음에 구축기 없음) — 글자는 들어가고 gTsunOn 0(C0ps 빛)');
+    ok(f.built && f.builds === 1 && f.info.atlasValid && f.on === 1 && f.info.atlasMeta.builder === 'LP3-fixture-v2' && /^[0-9a-f]{64}$/.test(f.info.atlasMeta.sha) && f.info.atlasMeta.fixtureSha === R.fixtureSha,
+      `buildTsunAtlasForJob(P3B, 해 ${f4(f.info.atlasMeta.sunAltDeg)}°) → 지어서 검: gTsunOn 1, 한 번, sha ${f.info.atlasMeta.sha.slice(0, 12)}…, 고정표 sha 기록, ${f.info.atlasMeta.buildMs.toFixed(0)} ms [measured]`);
     ok(f.tex && f.tex.w === 256 && f.tex.h === 128 && f.tex.type === 1016 && f.tex.data === 'Uint16Array' && f.tex.min === 1006 && f.tex.mag === 1006 && f.tex.flipY === false && f.tex.mip === false,
       `텍스처: ${f.tex && f.tex.w}×${f.tex && f.tex.h} = n·블록 2 × n, RGBA16F(HalfFloatType, Uint16), 선형, 밉맵 없음, flipY 없음`);
-    ok(w.sameDate.builds === 1 && w.sameDate.sameTex, '같은 시각 setDate → 다시 짓지 않음(열쇠 같음)');
-    ok(w.moved.builds === 2 && w.moved.valid && w.moved.sha !== f.info.atlasMeta.sha && w.moved.disp1, '해가 움직이면(+2 분) 다시 짓고 이 장면이 지은 옛 텍스처를 dispose');
-    ok(w.high.injected === false && w.high.builds === 2 && /above shadowMinSunDeg/.test(w.high.autoReason || '') && w.high.uniforms.length === 0, `해 > 12° → 글자·균일변수 없음, 짓지 않음 (${w.high.autoReason})`);
-    ok(w.back.builds === 3 && w.back.valid && w.back.on === 1 && w.back.sha === f.info.atlasMeta.sha, '12° 아래로 돌아오면 다시 지음 — 같은 장면·같은 해 = 같은 sha(결정적)');
-    ok(w.n256.builds === 4 && w.n256.valid && w.n256.w === 512 && w.n256.h === 256, `setOptions({tsunN: 256}) → 다시 지음 ${w.n256.w}×${w.n256.h}`);
-    ok(w.arch.builds === 5 && w.arch.valid && w.arch.w === 512 && w.arch.h === 768 && w.arch.archU.length === 2, `archLight 1 → 아치 블록 둘(높이 3n = ${w.arch.h}), gArchW·gArchNoT`);
-    ok(w.restore.builds === 6 && w.restore.valid && w.restore.sha === f.info.atlasMeta.sha, 'tsunN 128·archLight 0 으로 되돌리면 다시 지어 처음과 같은 sha');
-    ok(w.external.external && w.external.builds === 0 && /external/.test(w.external.autoReason) && w.external.texIsExt && w.external.ownDisp && w.external.extSha === w.external.autoSha,
-      '밖 아틀라스(setTsunAtlas): 이 장면 텍스처를 버리고 검, 거는 동안 setDate 가 자동 구축 안 함, 같은 입력의 밖 구축 sha = 자동 구축 sha');
-    ok(!w.extNull.external && w.extNull.builds === 1 && w.extNull.valid && !w.extNull.extDisposed, 'setTsunAtlas(null) → 다시 자동 구축, 밖 텍스처는 dispose 하지 않음(부른 쪽 소유)');
-    ok(w.rescene.serial === 1 && w.rescene.builds === 1 && w.rescene.dispScene && w.rescene.valid && w.rescene.sha === f.info.atlasMeta.sha, 'setScene 다시 → 장면 번호 +1, 새로 지음, 옛 텍스처 dispose, 같은 sha');
-    ok(w.determinism.a === w.determinism.f, `다른 장면 객체·같은 잡 → 같은 아틀라스 sha (${(w.determinism.f || '').slice(0, 12)}…)`);
-    ok(w.syncOff.builds === 0 && !w.syncOff.valid && /tsunSync false/.test(w.syncOff.autoReason) && w.syncOff.reason === 'no atlas', 'tsunSync false → 짓지 않음(스케줄러 없음), gTsunOn 0 = C0ps 빛, 이유 기록');
-    ok(w.noFixture.builds === 0 && !w.noFixture.valid && /no fixture/.test(w.noFixture.autoReason), '고정표 없음 → 짓지 않음, 이유 "no fixture"');
-    ok(w.off.withFx.builds === 0 && w.off.withFx.uni === 0 && w.off.withFx.tex === w.off.noFx.tex && w.off.withFx.autoReason === null,
-      `tsun 0 → 고정표를 줘도 짓지 않음·균일변수 없음·텍스처 수 같음(${w.off.withFx.tex} = ${w.off.noFx.tex})`);
+    ok(w.perJob.join() === '1,1,1' && w.disp1, `잡마다 정확히 한 번 짓고(entry 순서: 풀기 → setOptions → setScene → 구축 — 처음 판은 T 잡마다 두 번 [measured, 하네스 7]) 앞 잡 텍스처는 버림 — ${w.perJob.join(',')}`);
+    ok(w.back.valid && w.back.sha === f.sha, '같은 장면·같은 해 다시 → 같은 sha(결정적)');
+    ok(!w.high.built && /above shadowMinSunDeg/.test(w.high.reason || '') && w.high.injected === false && w.high.uniforms.length === 0, `해 > 12° → 글자·균일변수 없음, 짓지 않음 (${w.high.reason})`);
+    ok(w.arch.valid && w.arch.w === 512 && w.arch.h === 1280 && w.arch.archU.length === 2, `tsunN 256 · archLight 1 → ${w.arch.w}×${w.arch.h}(아치 네 조각 = 높이 5n, 검토 물리 4), gArchW·gArchNoT`);
+    ok(w.dropped.dispA && w.dropped.on === 0 && /no atlas/.test(w.dropped.reason || ''), 'dropTsunAtlas: 텍스처 dispose · 장면은 gTsunOn 0(아틀라스 없음)');
+    ok(w.rescene.on === 0 && /no atlas/.test(w.rescene.reason || '') && typeof w.rescene.oldThrows === 'string', 'setScene(applyScene)이 아틀라스를 버리고, 옛 장면 아틀라스는 다시 걸 수 없음(D11)');
+    ok(w.determinism.a === w.determinism.f && w.determinism.ext === w.determinism.a, `다른 장면 객체·같은 잡 → 같은 아틀라스 sha · 직접 구축(tsunBuildInput → buildTsunAtlasData)도 같음 (${(w.determinism.f || '').slice(0, 12)}…)`);
+    ok(!w.syncOff.built && /tsunSync false/.test(w.syncOff.reason) && !w.syncOff.valid, 'tsunSync false → 짓지 않음(스케줄러 없음), 이유 기록');
+    ok(!w.noFixture.built && /no fixture/.test(w.noFixture.reason) && !w.noFixture.valid, '고정표 없음 → 짓지 않음, 이유 "no fixture"');
+    ok(w.off.withBuild.builds === 0 && w.off.withBuild.uni === 0 && w.off.withBuild.tex === w.off.noBuild.tex && w.off.withBuild.reason === 'tsun 0',
+      `tsun 0 → 구축을 불러도 짓지 않음·균일변수 없음·텍스처 수 같음(${w.off.withBuild.tex} = ${w.off.noBuild.tex})`);
   }
 
   console.log('\n[law] 고정표 법칙 표(tsunFixtureLaw, 결정 A2)');
@@ -544,6 +599,8 @@ json.dump(out, open(${JSON.stringify(macros)}, 'w'))
   for (const r of R.u2d) {
     ok(r.p95 <= 0.03 && r.n > 500, `P3B 해 ${r.e}°(K ${r.K}): T_g = e^−(own+rest) dT p95 ${f4(r.p95)} ≤ 0.03 · 최대 ${f4(r.max)} · own 만 p95 ${f4(r.ownP95)} (${r.n} 광선; 아치 광선은 해 방위에만 매여 고도와 무관 — K 가 같으면 같은 값)`);
     if (r.max > 0.05) info(`  └ 최악 광선: ${JSON.stringify(r.worst.map(w => ({ dT: +w.dT.toFixed(3), lane: w.lane, i: w.i, j: w.j, sl: w.sl, g: w.g, own: +w.own.toFixed(3), rest: +w.rest.toFixed(3), refOwn: +w.refOwn.toFixed(3), refRest: +w.refRest.toFixed(3) })))}`);
+    // U2d′ 관문(§179 결정): p95 ≤ 0.2 — 처음 판(층 밑·꼭대기 선형 섞음)을 흉내 낸 값 0.618, 네 조각 τ 선형 0.257, 투과율 섞음 0.177 [computed, P3B 고유 해, scratchpad tsunimpl/fix/u2dp3]. 아치는 R-A 로 판정하지 않음(v2.1).
+    ok(r.prime.n > 200 && r.prime.p95 <= 0.2, `U2d′ 임의 높이(조각 사이, 투과율 섞음): T_g dT p50 ${f4(r.prime.p50)} · p95 ${f4(r.prime.p95)} ≤ 0.2 · 최대 ${f4(r.prime.max)} (${r.prime.n} 광선)`);
   }
 
   console.log('\n[U2e] 등록(종류 평면 ↔ ECEF ↔ 셰이더 uv, §173 원점)');
@@ -556,8 +613,27 @@ json.dump(out, open(${JSON.stringify(macros)}, 'w'))
   }
   ok(R.u2e.offset.valid && Math.hypot(R.u2e.offset.centerKm[0] - 3.2, R.u2e.offset.centerKm[1] + 1.7) < 1e-9, 'weatherOffsetKm [3.2, −1.7] → 아틀라스 중심이 그 오프셋(관측점)');
 
-  console.log('\n[U2g] (보고) 셰이더 길 τ(half 텍셀 + u_true 보간, τ_c 뺌) vs 참 선 기준');
-  for (const [k, g] of Object.entries(R.u2g)) info(`${k} 해 ${f4(g.sunEl)}°: ${g.n} 점 dT p50 ${f4(g.p50)} · p95 ${f4(g.p95)} · 최대 ${f4(g.max)}; hf 띠 [0, .35)·[.35, .68)·[.68, 1] p95 ${g.bands.map(b => f4(b.p95) + ' (' + b.n + ')').join(' · ')}; τ_c 운량·L ${JSON.stringify(g.laneCond.map(c => ({ lane: c.lane, c: +c.cover.toFixed(3), L: c.L.map(x => +x.toFixed(2)) })))}`);
+  console.log('\n[U2g] 셰이더 길 τ(half 텍셀 + 조각 보간, τ_c 뺌) vs 참 선 기준 — hybrid(아래 쌍 u_true · 위 쌍 λ 무게 W, §179 검토 물리 1)');
+  // 관문(§179 결정): 해 ≥ 4° p95 ≤ 0.05(검토 제안), 해 ≤ 1.1° p95 ≤ 0.10 — λ 무게 방식의 바닥(수치 적분 + 정확한 λ)이 P3B +0.3° 0.087 · RA1 +1.108° 0.079
+  // [computed, scratchpad tsunimpl/fix/u2gv]라 검토의 0.05 는 낮은 해에서 이 방식으로 닿지 않음 — 남는 몫은 가장 낮은 쌍(0.02~0.35, 스치는 해)이고 R-A_T 가 함께 봄.
+  // 그리고 모든 경우 처음 판(u_true 만)의 절반 이하.
+  for (const [k, g] of Object.entries(R.u2g)) {
+    const lim = g.e == null ? null : g.e >= 4 ? 0.05 : 0.10;
+    const msg = `${k} 해 ${f4(g.sunEl)}°: ${g.n} 점 dT p50 ${f4(g.p50)} · p95 ${f4(g.p95)}${lim != null ? ' ≤ ' + lim : ''} · 최대 ${f4(g.max)} (처음 판 u_true 만 p95 ${f4(g.p95uTrue)}); hf 띠 [0, .35)·[.35, .68)·[.68, 1] p95 ${g.bands.map(b => f4(b.p95) + ' (' + b.n + ')').join(' · ')}`;
+    if (lim != null) ok(g.n > 200 && g.p95 <= lim && g.p95 <= 0.5 * g.p95uTrue, msg);
+    else if (/^(P3B|RA1)/.test(k)) ok(g.n > 200 && g.p95 <= 0.5 * g.p95uTrue + 1e-9, msg + ' — 고유 해(관문: 처음 판의 절반 이하)');
+    else info(msg + ' — 고유 해, 보고만(§179 결정: 검토가 잰 P3B·RA1 만 관문 — RA3·RA5 는 남는 오차가 가장 낮은 쌍·가운데 쌍에 있고 λ 무게 보간으로 거의 줄지 않음 → 열린 문제)');
+    info(`  └ 지구 그림자 조각을 감싼 표본(검토 물리 10, 보고): ${g.term.n} 점 p95 ${f4(g.term.p95)} 최대 ${f4(g.term.max)} · τ_c 운량·L ${JSON.stringify(g.laneCond.map(c => ({ lane: c.lane, c: +c.cover.toFixed(3), L: c.L.map(x => +x.toFixed(2)) })))}`);
+  }
+
+  console.log('\n[U4h] 셰이더 τ_c 표(hf 7 마디 · 전역 c̄ · 구축기 L) vs WP1 전체 법칙(국소 c · 참 L · φ) — §179 검토 물리 2');
+  // 관문: |Δτ_c| p90 ≤ 0.3(U1e 허용폭). 남는 몫은 운량 축 없음(결정 A10)·L 하나 — 처음 판(hf 3 마디) RA1 p90 0.466 [computed, scratchpad tsunimpl/fix/u4h]
+  // RA3·RA5 는 거시 운량장이 듬성해(국소 c > 0.02 인 점이 ~20 %) 전역 c̄(0.95·0.54)와 국소 c 가 크게 다름 — 운량 몫이 지배하면 보고만(결정 A10 의 남는 몫, 열린 문제).
+  for (const [k, g] of Object.entries(R.u4h)) {
+    const msg = `${k}: ${g.n} 점 |Δτ_c| p50 ${f4(g.p50)} · p90 ${f4(g.p90)} ≤ 0.3 · 최대 ${f4(g.max)} · 0.3 넘음 ${g.fail} 점(${(100 * g.fail / g.n).toFixed(1)} %) — 몫 p90: 운량 ${f4(g.p90cover)} · L ${f4(g.p90L)} · hf 마디 보간 ${f4(g.p90hf)}`;
+    if (/^(P3B|RA1)$/.test(k)) ok(g.n > 200 && g.p90 <= 0.3, msg);
+    else { ok(g.p90hf <= 0.3, `${k}: hf 마디 보간 몫(표 자체) p90 ${f4(g.p90hf)} ≤ 0.3`); info(msg + (g.p90 > 0.3 ? ' — U1e 허용폭 넘음: 운량 축 없음(결정 A10)의 남는 몫 → 열린 문제' : '')); }
+  }
 
   if (!NO_BENCH) {
     console.log('\n[U2f] 시간 기록(판정 없음) — node ' + process.version + ', 부하 ' + os.loadavg().map(x => x.toFixed(2)).join('/'));

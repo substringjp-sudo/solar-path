@@ -25,7 +25,7 @@
  *       (R √T̄ · G Σw · B Σw·T). 하네스는 해석 전 구름 패스 RT 를 읽어(RULER-grain 비용 모드와 같은 길) 대기·안개·톤을 거치지 않음 — ruler-delta B1 의
  *       '√T in R, Σw in G' 를 지키되 그림 경로가 아니라 RT 에서. T 팔에서 레인 블록이 없는 빛 받는 표본은 T_beyond = 1(오늘 빛).
  *  (D3) v2.1 은 아틀라스 재사용(eng M3)과 A/B 반쪽(gTsunMix·gTsunHalfB)을 뺐고, 앱 스케줄러가 없으므로 텍스처는 반쪽 없이 한 벌:
- *       너비 n·blocks, 높이 n·(arch ? 3 : 1). 그래서 T 팔의 I-0 은 비울 것이 없어 **주입하지 않음**(아치 팔만 I-0 수 1, T 팔 0).
+ *       너비 n·blocks, 높이 n·(arch ? 5 : 1)(§179 검토 반영: 아치 네 조각 — 처음 판 3). 그래서 T 팔의 I-0 은 비울 것이 없어 **주입하지 않음**(아치 팔만 I-0 수 1, T 팔 0).
  *  (D4) gTsunEpochOrigin(vec2) 대신 vec4 gTsunEpoch = (중심 동 km, 중심 북 km, tsunRangeKm, 0) — u_true 가 행진 끝 거리를 알아야 해서.
  *       T 팔 균일변수 7 개(gTsunOn·gTsunTex·gTsunFrame·gTsunLaneBlock·gTsunEpoch·gTsunCond[21]·gTsunProf[17]) + 아치 2 개(gArchW·gArchNoT) — v2.1 §4.3 의
  *       6 개에 §179 고침(검토 물리 1)의 λ̂ 단면 gTsunProf 하나를 더함(샘플러 아님, gTsunCond·gTsunProf 합 vec4 38 개 — WebGL2 조각 균일 벡터 최소 224 안, B1 에서 링크로 확인).

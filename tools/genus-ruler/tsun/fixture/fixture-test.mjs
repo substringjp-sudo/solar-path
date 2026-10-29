@@ -17,6 +17,8 @@
  *      방위 평균 L 별(tauCL)·설계의 상수(tauC, 균일 변수 표 형태)·τ_c 없음·뒤집힌 방위(φ + 180°)로 읽은 τ_c·몬테카를로 바닥은
  *      같은 점에서 보고(§179 결정).
  * U1f (보고): mip 1 ÷ mip 0 의 λ₁₀·τ(5 km)·τ(10 km).
+ * U1g (관문, §179 검토 반영 물리 6): 기운 직선(관측 기둥 hf 0.02/0.35/0.68 · 해 0.3/1.1/4/8°)에서 무차별 ⟨T⟩(tsunslope.c — tsunfix.c 를 포함한 같은
+ *      밀도 복제) 대 LP3 법칙 값(tsunAtlas.ts tsunLineTau, 성장 곡선 G(Λ; c_eff, hf_eff)) |ln| ≤ ln 1.25 (T ≥ 0.01).
  * 덧붙임(보고): 거시 문턱 근사(타일 C₀ 0.9 를 문턱으로 c 까지 깎은 장 대 c 로 만든 장) · 레인 대체(다른 실현) 오차.
  */
 import { execFileSync } from 'node:child_process';
@@ -209,6 +211,56 @@ const U1B_L = [2, 3, 5, 7, 10, 14, 20], LIM = Math.log(1.25);
   const pack = a => ({ points: a.n, fail: a.fail, maxAbs: a.worst.v, worst: a.worst });
   check('U1e in-cloud start τ beyond reach (0.25/0.5/1.1 km, L 2/5/10 km) |Δτ| ≤ 0.3 — azimuth- and L-resolved τ_c', A.P.n > 0 && A.P.fail === 0,
     { ...pack(A.P), azimuthAveragedL: pack(A.L), constantTauC: pack(A.C), withoutTauC: pack(A.none), reversedAzimuth: pack(A.flip), monteCarloFloor: pack(A.floor) });
+}
+
+// ───── U1g: 기운 직선(§179 검토 반영 물리 6) ─────
+// 무차별(tsunslope.c — tsunfix.c 를 #include 한 같은 밀도 복제)로 관측 기둥에서 hf 0.02/0.35/0.68 · 해 고도 0.3/1.1/4/8° · P3 방위의 곧은 구면 선이
+// 자기 레인을 벗어날 때까지의 ⟨T⟩ 를 재고, LP3 법칙(tsunAtlas.ts tsunLineTau — 아틀라스와 같은 핵, 균일 운량)과 견줌. 관문 |ln(⟨T⟩/T_law)| ≤ ln 1.25
+// (T ≥ 0.01, U1b 와 같은 허용폭). 레인 두께: P3B sc 0.527 · ac 1.0 km [from doc, scenes-tsun P3B], cu 1.5 · ns 3.0 km [estimate].
+{
+  const slopeExe = path.join(TMP, 'tsunslope');
+  execFileSync('gcc', ['-O2', '-ffp-contract=off', '-std=gnu11', '-o', slopeExe, path.join(F.HERE, 'tsunslope.c'), '-lm'], { stdio: 'inherit' });
+  const taBundle = path.join(TMP, 'tsunAtlas.cjs');
+  execFileSync('npx', ['esbuild', path.join(F.ROOT, 'src/components/VolumetricProbe/tsunAtlas.ts'), '--bundle', '--format=cjs', '--platform=node', `--outfile=${taBundle}`, '--log-level=warning'], { cwd: F.ROOT, stdio: 'inherit' });
+  const TA = require(taBundle);
+  const GEO = { 'P3B sc': [1.736, 0.527], 'P3B/RA1 ac': [2.822, 1.0], 'P1B cu': [1.0, 1.5], 'P1CF ns': [0.8, 3.0] };
+  const ES = [0.3, 1.1, 4, 8], HF0 = [0.02, 0.35, 0.68], PHI = AZ.P3, Rkm = 6360;
+  const sc = SCENES.map((s, si) => ({ s, si })).filter(({ s }) => GEO[s.name]);
+  const SP = { S: 256, tileKm: 24, ds: 0.05, rows: 256, starts: 16, startStep: 3.0 };
+  const cellsG = [];
+  for (const { s, si } of sc) for (const hf0 of HF0) for (const e of ES) cellsG.push({ s, si, hf0, e, base: GEO[s.name][0], top: GEO[s.name][0] + GEO[s.name][1], seed: F.cellSeed(TEST_SEED ^ 0x51e7n, si, hf0, e) });
+  const plan = [`SLOPE ${SP.S} ${SP.tileKm} ${SP.ds} ${SP.rows} ${SP.starts} ${SP.startStep} ${F.BUILD_PARAM.lat} ${F.BUILD_PARAM.lon}`, `CELLS ${cellsG.length}`,
+    ...cellsG.map(c => [c.s.tile, 0, -1, c.s.prof.mode, c.s.prof.base, c.s.prof.top, c.s.prof.edge, c.s.prof.densityScale, c.s.prof.shapeAmount, c.s.prof.profLin, c.s.prof.profConst,
+      c.hf0, PHI, c.e, c.base, c.top, c.seed].join(' '))].join('\n') + '\n';
+  const planPath = path.join(TMP, 'slope.plan.txt'), outPath = path.join(TMP, 'slope.f64');
+  fs.writeFileSync(planPath, plan);
+  const tg = Date.now();
+  execFileSync('nice', ['-n', '19', slopeExe, tilesPath, F.SHAPE_BIN, planPath, outPath], { stdio: 'inherit' });
+  const buf = fs.readFileSync(outPath), f64 = new Float64Array(buf.buffer, buf.byteOffset, buf.byteLength / 8);
+  console.log(`기운 직선 무차별 ${cellsG.length} 칸 ${((Date.now() - tg) / 1000).toFixed(1)} s (선 ${SP.rows} × 시작 ${SP.starts})`);
+  let n = 0, bad = 0, worst = { v: 0 };
+  const perScene = {}, rows = [];
+  cellsG.forEach((c, i) => {
+    const Tb = f64[i * 5 + 1], len = f64[i * 5 + 3];
+    // LP3 법칙: 균일 운량(타일 운량) 레인 하나 — 관측 기둥(0, 0)에서 같은 방위·고도의 해
+    const az = PHI * Math.PI / 180, er = c.e * Math.PI / 180;
+    const lanes = [null, null, null, null]; lanes[c.s.lane] = { genus: c.s.genus, tileCover: c.s.cover, baseKm: c.base, topKm: c.top, macro: null };
+    const input = { frame: { originM: [0, 0, Rkm * 1000], eastM: [1, 0, 0], northM: [0, 1, 0], tileM: 24000 }, centerKm: [0, 0],
+      sunDir: [Math.cos(er) * Math.sin(az), Math.cos(er) * Math.cos(az), Math.sin(er)], bottomRadiusKm: Rkm, n: 16, halfKm: 20, rangeKm: 400, arch: false, lanes };
+    const { laws } = TA.tsunLawsFromFixture(fx, input);
+    const tauLaw = TA.tsunLineTau(input, laws, 0, 0, c.base + c.hf0 * (c.top - c.base)).perLane[c.s.lane];
+    const Tl = Math.exp(-tauLaw);
+    const ps = (perScene[c.s.name] ??= { n: 0, fail: 0, maxAbsLn: 0 });
+    rows.push(`${c.s.name} hf ${c.hf0} e ${c.e}°: T ${Tb.toFixed(4)} vs ${Tl.toFixed(4)} (길이 ${len.toFixed(1)} km)`);
+    if (!(Tb >= 0.01)) return;
+    const d = Math.log(Tb / Tl);
+    n++; ps.n++; ps.maxAbsLn = +Math.max(ps.maxAbsLn, Math.abs(d)).toFixed(4);
+    if (Math.abs(d) > LIM) { bad++; ps.fail++; }
+    if (Math.abs(d) > Math.abs(worst.v)) worst = { v: +d.toFixed(4), scene: c.s.name, hf0: c.hf0, e: c.e, Tb: +Tb.toFixed(4), Tlaw: +Tl.toFixed(4), lenKm: +len.toFixed(2) };
+  });
+  check('U1g sloped lines: brute ⟨T⟩ vs LP3 law (curve of growth on Λ) |ln| ≤ ln1.25 (T ≥ 0.01, hf0 0.02/0.35/0.68 × e 0.3/1.1/4/8°, P3 azimuth)', n > 0 && bad === 0,
+    { points: n, fail: bad, maxAbsLn: worst.v, worst, perScene });
+  console.log('  ' + rows.join('\n  '));
 }
 
 // ───── U1a (보고) ─────

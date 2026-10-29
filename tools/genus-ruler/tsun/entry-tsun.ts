@@ -14,7 +14,7 @@
  *    샘플러 한도 거부(WP0)는 setOptions·setQuality 의 throw 가 그대로 잡 실패.
  *  - 진단 잡(tsunDebug 1, R-A_T): 구름 패스 출력(해석 전 1/4 해상도 RT, 반정밀도)을 프레임마다 읽어 Bayer 자리로 흩어 텍셀마다 Σ(Σw·T)·Σ(Σw) —
  *    RULER-grain 비용 모드와 같은 길(그림 경로의 대기·안개·톤을 거치지 않음, cloudTsun D13). 결과 `<잡>.debug.png`(R = √T, G = Σw, B = 값 있음) ·
- *    `<잡>.debug.f16`(구름 격자 T·Σw·그린 표지·0, 위가 0 인 행).
+ *    `<잡>.debug.f16`(구름 격자, 위가 0 인 행: T · Σw · 빛 받는 표본의 평균 mip · 그린 횟수 n — §179 검토 반영 하네스 11·물리 5).
  *  - 비용 잡: 동결 COST_PATCH + T_sun 셈(applyTsunCostPatch) → 텍셀마다 x·y·z·cap·n_tsun(프레임마다 A 해독 뒤 평균) · `<잡>.cost.f16`.
  *  - meta(§5.0 ①·ruler-delta B1): layers · elevProbe · scene(노출·해 고도) · shaderHash · stateHash · toneMapping · frames · belowShadow · tsunInfo
  *    (아틀라스 sha·구축 ms·구축기·고정표 sha) · 그리기 시간(동기, 프레임마다 — REF 한 그리기 > 10 s 면 B2 대체 경로) · GL 오류 · 맥락 손실.

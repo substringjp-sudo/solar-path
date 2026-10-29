@@ -93,10 +93,13 @@ const mk = async (options: any, quality: string, maxTextures?: number, createOpt
 };
 const inp = (iso: string) => ({ ...cfg.scene, date: new Date(iso), layers: cfg.layers });
 const inpRing = (iso: string, ring = true) => ({ ...cfg.scene, date: new Date(iso), layers: cfg.layers, ...(ring ? { macro: { low: cfg.ring, mid: cfg.ring, high: cfg.ring } } : {}) });
-/** 균일변수 값 직렬화(검토 회귀 3 — rev-byte.js ser): 벡터·행렬은 배열, 텍스처는 id·형. */
+/** 텍스처 id 기준(길마다 장면을 만들기 전에 잼 — 두 트리의 다른 시험이 사이에 만든 텍스처 수가 달라도 같은 값). */
+let ID_BASE = 0;
+const markIds = () => { ID_BASE = new Texture().id; return ID_BASE; };
+/** 균일변수 값 직렬화(검토 회귀 3 — rev-byte.js ser): 벡터·행렬은 배열, 텍스처는 (id − 길 기준)·형. */
 const ser = (x: any, d = 0): any => {
   if (x == null || typeof x !== 'object') return typeof x === 'number' && !Number.isFinite(x) ? String(x) : x;
-  if (x.isTexture) return 'tex#' + x.id + ':' + (x.constructor && x.constructor.name);
+  if (x.isTexture) return 'tex#' + (x.id - ID_BASE) + ':' + (x.constructor && x.constructor.name);
   if (x.isVector2 || x.isVector3 || x.isVector4 || x.isColor || x.isQuaternion) return (x.toArray ? x.toArray() : [x.x, x.y, x.z, x.w]);
   if (x.isMatrix3 || x.isMatrix4) return x.elements.slice();
   if (ArrayBuffer.isView(x)) return 'typed' + (x as any).length;
@@ -277,13 +280,13 @@ async function curTests(res: any) {
   const res: any = { runs: {}, meta: {}, ids: {} };
   const tid = () => new Texture().id;   // three 텍스처 id 는 전역 증가 — 사이의 증가 = 만든 텍스처 수(+1)
   for (const run of cfg.offRuns) {
-    const id0 = tid();
+    const id0 = markIds();
     const { v, ps } = await mk(run.options, run.quality);
     v.setScene(inpRing(run.iso)); v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex);
     dump(run.tag, texts(v, ps)); res.meta[run.tag] = meta(v);
     res.ids[run.tag] = tid() - id0;
     ${isCur ? `// 같은 길에 T_sun 손잡이를 끈 값으로 명시(하네스 잡이 모든 새 손잡이를 줌 — ruler-delta A1)
-    if (run.quality !== 'medium') { const e = await mk({ ...run.options, ...(TS as any).TSUN_OPTIONS_OFF }, run.quality); e.v.setScene(inpRing(run.iso)); e.v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex); dump(run.tag + '_explicit', texts(e.v, e.ps)); }` : ''}
+    if (run.quality !== 'medium') { markIds(); const e = await mk({ ...run.options, ...(TS as any).TSUN_OPTIONS_OFF }, run.quality); e.v.setScene(inpRing(run.iso)); e.v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex); dump(run.tag + '_explicit', texts(e.v, e.ps)); }` : ''}
   }
   // U0a 원본(거시 고리 없이 — §177.6 h 의 12/13/15 와 같은 조건)
   for (const q of ['low', 'medium', 'high']) for (const [t, o] of [['day', {}], ['tw_c0ps', { accurateSunBelowDeg: 12 }]] as [string, any][]) {
@@ -293,6 +296,7 @@ async function curTests(res: any) {
   // 검토 회귀 3: setDate 쓸기(낮 → 17:40 → −9.8° → 박명 → 낮) · 앱 setOptions 키(reapply false) · 품질 바꿈 — 한 장면, low·high
   const APP_KEYS = { flow: false, flowUv: false, physics: false, physicsIce: false, macro: 1, morph: false, clampInscatter: true, irradianceLogMu: true };
   for (const q of ['low', 'high']) {
+    markIds();
     const { v, ps } = await mk({ accurateSunBelowDeg: 12 }, q);
     v.setScene(inpRing(cfg.iso.day)); v.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex);
     let i = 0; for (const k of ['day', 'gh', 'deep', 'tw', 'day2']) { v.setDate(new Date(cfg.iso[k === 'day2' ? 'day' : k])); dump('sweep_' + q + '_' + (i++) + k, texts(v, ps)); }
@@ -302,13 +306,14 @@ async function curTests(res: any) {
   // 검토 회귀 3: 앱 길 흉내 — SkyScene3D(만들기 {genus, celestial false} + 그 setOptions 키만, 하네스 옵션 없음) · VolumetricProbe(만들기 옵션만)
   for (const q of ['low', 'medium', 'high']) for (const t of ['day', 'tw', 'deep']) {
     passes.length = 0;
-    const id0 = tid();
+    const id0 = markIds();
     const a: any = await createVolumetricScene(mkRenderer(), W, H, { genus: true, celestial: false, precomputed: {} as never });
     const pa = passes.slice();
     a.setQuality(q); a.setOptions(APP_KEYS, false);
     a.setScene(inpRing(cfg.iso[t])); a.setTerrainDistance(fakeTex, fakeTex, fakeTex, 0.03, fakeTex); a.setOptions(APP_KEYS, false);
     dump('app_' + q + '_' + t, texts(a, pa)); res.ids['app_' + q + '_' + t] = tid() - id0;
     passes.length = 0;
+    markIds();
     const b: any = await createVolumetricScene(mkRenderer(), W, H, { genus: true, clampInscatter: true, irradianceLogMu: true, precomputed: {} as never } as any);
     const pb = passes.slice();
     b.setQuality(q); b.setScene(inpRing(cfg.iso[t], false));

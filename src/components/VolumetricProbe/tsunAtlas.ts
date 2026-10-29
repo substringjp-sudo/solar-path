@@ -43,9 +43,10 @@
  *       종류 층이 아닌 레인(genus 없음)도 같음. 층 밀도(densityScale)가 고정표 단면과 다르면(physics·debugDensityMul 등) 경고만.
  *  (A6) halfKm = maxRayKm + 4(v2 §4.3). maxRayKm 이 없으면(takram 기본 거리) 400 km 로 자르고 경고.
  *  (A7) 높이 칸 K: 설계의 "해 < 0° 면 16" 을 "아틀라스 어느 텍셀의 국소 해라도 < 0°" 로(tsunKFor) — 관측점 해 +1.33° 아래(반폭 104 km)면 16.
- *  (A8) 배선(volumetricScene): tsun 1 **이고 tsunSync true** 이고 고정표(setTsunFixture)가 있을 때만 applyScene·setDate·setOptions 가 동기로 짓고 검
- *       (글자가 들어간 해 ≤ shadowMinSunDeg 일 때만, 입력 열쇠가 같으면 건너뜀 = 잡마다 한 번). tsunSync false 면 짓지 않음(스케줄러 없음 —
- *       밖에서 setTsunAtlas). 지은 텍스처는 장면 소유(다시 지을 때·applyScene·dispose 에 버림), 밖 아틀라스를 거는 동안은 자동 구축을 쉼.
+ *  (A8) 배선: §179 검토 반영(회귀 1·하네스 7, 2026-10-29) — 처음 판은 volumetricScene 이 applyScene·setDate·setOptions 에서 동기로 지어 앱 묶음에
+ *       이 구축기가 실렸고(축소 +51 KB [measured]) T 잡마다 두 번 지었음. 이제 하네스(tools/genus-ruler/tsun/tsun-build.ts)가 잡마다 setScene 뒤
+ *       한 번: tsun 1 · tsunSync true · 글자가 들어감(해 ≤ shadowMinSunDeg) · 고정표 있음일 때 vol.tsunBuildInput() → 이 파일 → vol.setTsunAtlas.
+ *       텍스처는 하네스 소유(다음 잡 시작에 버림). 장면(volumetricScene)은 형(import type)만 씀.
  *  (A9) 셰이더 D8(u_true 보간 계수 [−1, 2] 자름)은 그대로 둠: 국소 해 < 0 에서 근지점이 두꺼운 레인 밑 근처에 들면 u_true 가 조각 0.02·0.35
  *       사이에서 꺾여(s ≈ 7) 균일 층에서도 τ 가 최대 12 % 틀림 [computed, U2c 보고] — 자르지 않으면 균일 층은 맞지만 비균일 층에서 ×7 외삽.
  *
