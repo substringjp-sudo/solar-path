@@ -90,6 +90,27 @@ const activeSamplers = (mat: object): { count: number; names: string[] } | null 
   for (let i = 0; i < n; i++) { const u = gl.getActiveUniform(prog, i); if (u && SAMPLER_TYPES.has(u.type)) { count += u.size; names.push(u.name); } }
   return { count, names: names.sort() };
 };
+/** 균일변수 형 → vec4 칸 수(묶지 않은 위쪽 어림: 스칼라·vec2·vec3 도 한 칸, matN 은 N 칸, matNxM 은 N 칸). 샘플러는 칸을 쓰지 않음. */
+const UNIFORM_SLOTS: Record<number, number> = { 0x8b5a: 2, 0x8b5b: 3, 0x8b5c: 4, 0x8b65: 2, 0x8b66: 2, 0x8b67: 3, 0x8b68: 3, 0x8b69: 4, 0x8b6a: 4 };
+/**
+ * §180 B1(GPU 창): 프로그램의 활성 균일변수 vec4 칸(기본 블록만 — UBO 멤버 뺌, 배열은 크기만큼)과 드라이버 한도(MAX_FRAGMENT/VERTEX_UNIFORM_VECTORS).
+ * ACTIVE_UNIFORMS 는 정점·조각 두 단계를 합친 목록이라 조각 쪽의 **위쪽 어림**(구름 패스 정점 셰이더는 작음). WebGL2 최소 한도 224(조각)·256(정점).
+ */
+const activeUniformVectors = (mat: object): { vectors: number; uniforms: number; maxFragment: number; maxVertex: number; webgl2MinFragment: number } | null => {
+  const prog = (renderer.properties.get(mat) as { currentProgram?: { program?: WebGLProgram } } | undefined)?.currentProgram?.program;
+  if (!prog) return null;
+  const gl = renderer.getContext() as WebGL2RenderingContext;
+  const n = Number(gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS) ?? 0);
+  const idx = Array.from({ length: n }, (_, i) => i);
+  const blocks = n ? (gl.getActiveUniforms(prog, idx, gl.UNIFORM_BLOCK_INDEX) as number[]) : [];
+  let vectors = 0, uniforms = 0;
+  for (let i = 0; i < n; i++) {
+    const u = gl.getActiveUniform(prog, i);
+    if (!u || SAMPLER_TYPES.has(u.type) || (blocks[i] ?? -1) !== -1) continue;
+    uniforms++; vectors += (UNIFORM_SLOTS[u.type] ?? 1) * u.size;
+  }
+  return { vectors, uniforms, maxFragment: Number(gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS)), maxVertex: Number(gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS)), webgl2MinFragment: 224 };
+};
 
 // 표시 복사(volsky entry 와 같은 부호화: 선형 rgb → sRGB, 알파 → 회색).
 const blitScene = new Scene();
@@ -285,6 +306,8 @@ const fnvHash = (s: string) => C.fnv(s) + ':' + s.length;
           const maxT = (renderer.capabilities as unknown as { maxTextures?: number }).maxTextures ?? null;
           const expect = info0.injected ? TSUN_CLOUD_SAMPLERS[quality] + (o.tsun === 1 ? TSUN_EXTRA_SAMPLERS : 0) : null;
           meta.cloudSamplers = { active: sm?.count ?? null, names: sm?.names ?? null, staticExpected: expect, equal: sm && expect != null ? sm.count === expect : null, maxTextures: maxT };
+          // §180 B1: 균일변수 vec4 예산(기록만 — 판단은 gpuwin-post.mjs b1: 같은 품질 C0ps 대비 증가분·WebGL2 최소 224 대비)
+          meta.uniformVectors = activeUniformVectors(clouds.cloudsPass.currentMaterial);
           if (sm && expect != null && sm.count > expect) throw new Error(`entry-tsun: ${job.name} cloud pass has ${sm.count} active samplers > static count ${expect} (TSUN_CLOUD_SAMPLERS stale?)`);
           if (sm && maxT != null && sm.count > maxT) throw new Error(`entry-tsun: ${job.name} cloud pass ${sm.count} samplers > MAX_TEXTURE_IMAGE_UNITS ${maxT}`);
         }
