@@ -105,6 +105,14 @@ else fs.writeFileSync(SCN, JSON.stringify({ P1B: { input: { lat: 36.046, lon: 13
   ok(k0 !== P.keyOf({ bundleSha: 'a', scenesSha: 'b', selfSha: 'c', cpuSha: 'd', fixtureSha: 'E', params: pr }) && k0 !== P.keyOf({ bundleSha: 'a', scenesSha: 'b', selfSha: 'c', cpuSha: 'd', fixtureSha: 'e', params: { ...pr, heightsKm: [0] } }),
     '열쇠가 고정표·인자에 따라 바뀜');
   ok(pr.mus.every((m, i) => m === Math.fround(Math.sin(pr.es[i] * Math.PI / 180))) && Math.abs(pr.es[52] + 9.4) < 1e-9 && pr.es[0] === -12 && pr.es[440] === 10, 'μs = float32 sin(e) · e[52] = −9.4° · −12..+10°');
+  // §180 검토: build --if-changed — 같은 바이트면 app.js·bundle.json 을 그대로(입력 sha 유지), 다르면 바꿈
+  const IR = path.join(WORK, 'ifc'), mkNext = (txt, tag) => { const n = path.join(IR, '.next'); fs.mkdirSync(n, { recursive: true }); fs.writeFileSync(path.join(n, 'app.js'), txt); fs.writeFileSync(path.join(n, 'bundle.json'), JSON.stringify({ tag })); return n; };
+  const i1 = P.installIfChanged(IR, mkNext('A', 1)), bj1 = fs.readFileSync(path.join(IR, 'bundle.json'), 'utf8');
+  const i2 = P.installIfChanged(IR, mkNext('A', 2)), bj2 = fs.readFileSync(path.join(IR, 'bundle.json'), 'utf8');
+  const i3 = P.installIfChanged(IR, mkNext('B', 3)), bj3 = fs.readFileSync(path.join(IR, 'bundle.json'), 'utf8');
+  ok(i1.replaced && !i2.replaced && bj2 === bj1 && i3.replaced && /"tag":3/.test(bj3) && fs.readFileSync(path.join(IR, 'app.js'), 'utf8') === 'B' && !fs.existsSync(path.join(IR, '.next')),
+    '§180 검토: build --if-changed — 없으면 놓음 · 같은 바이트면 bundle.json 까지 그대로 · 다르면 바꿈 · .next 지움');
+  ok(P.parseArgs(['build', '--root', path.join(WORK, 'b'), '--if-changed']).ifChanged === true, 'build --if-changed 인자');
 }
 
 // ───────────────────────── [2] 지킴 ─────────────────────────
@@ -186,6 +194,7 @@ const count = (s: string, a: string) => s.split(a).length - 1;
     'SUN_SPECTRAL_RADIANCE_TO_LUMINANCE', 'SKY_SPECTRAL_RADIANCE_TO_LUMINANCE', 'worldToECEFMatrix', 'altitudeCorrection', 'sunDirection', 'cameraPosition', 'bottomRadius'].filter(k => !(k in m.uniforms));
   res.glsl3 = m.glslVersion; res.isRaw = !!m.isRawShaderMaterial;
   res.aerialMarks = { on: count(frags.aerialOn, '§178 clampInscatter'), off: count(frags.aerialOff, INSCATTER_CLOUDS_ANCHOR), offClamp: count(frags.aerialOff, '§178 clampInscatter') };
+  res.aerialTemplate = { off: S.aerialTemplateCheck(fragOff), on: S.aerialTemplateCheck(fragOn) };
   res.atm = { bottom: m.uniforms.ATMOSPHERE.value.bottom_radius, top: m.uniforms.ATMOSPHERE.value.top_radius };
   res.layers = v.debug.clouds.cloudLayers.map((l: any) => [l.altitude, l.height]);
   fs.writeFileSync(path.join(OUT, 'result.json'), JSON.stringify(res, null, 1));
@@ -247,6 +256,8 @@ if (!process.argv.includes('--no-harness')) {
     ok(R.uniforms.length === 0, '재질 균일변수에 탐침이 쓰는 이름이 모두 있음 ' + JSON.stringify(R.uniforms));
     ok(R.glsl3 === '300 es' && R.isRaw, `구름 재질: RawShaderMaterial · GLSL3(${R.glsl3}) — 탐침도 같은 꼴`);
     ok(R.aerialMarks.on === 1 && R.aerialMarks.off === 1 && R.aerialMarks.offClamp === 0, '산란 탐침: 켬 = §178 clampInscatter 줄 한 번 · 끔 = 원문 합성 줄');
+    ok(R.aerialTemplate && R.aerialTemplate.off.found && R.aerialTemplate.off.same && R.aerialTemplate.on.found && !R.aerialTemplate.on.same,
+      '§180 검토: 산란 탐침 몸통 = 구름 패스 applyAerialPerspective(끔 글자 — 이름·그림자 0·probeSun 만 바꿈), 켬 글자와는 다름(점검이 차이를 봄) ' + JSON.stringify(R.aerialTemplate));
     ok(Math.abs(R.atm.bottom - 6360) < 1e-6 && Math.abs(R.atm.top - 6420) < 1e-6, `ATMOSPHERE 반지름 ${R.atm.bottom}..${R.atm.top} km(고정표 행 4 km = 60/15)`);
     ok(R.layers.some(([a, h2]) => Math.abs(a - 7400) < 300 && h2 > 0), 'P1B 층에 7.4 km 덮개 ' + JSON.stringify(R.layers));
     console.log(`      앞부분 ${R.prefixBytes[0]} / ${R.prefixBytes[1]} 자(구름 조각 ${R.prefixBytes[2]} 자) · 탐침 글자 ${hd}/probe.*.frag`);
@@ -332,6 +343,17 @@ function mkRaw(tableArr, fnOld, fnNew, atm = { bottom: 6360, top: 6420, W: 64, H
   const rawQ = mkRaw(syn, (T, a, h, mu) => { const [u, v] = C.uvOf(a, h, mu); return bilinearQ(T, u, v); }, (T, a, h, mu) => { const [u, v] = C.uvOf(a, h, mu); return newWithQ(T, u, v); });
   const AQ = C.analyzeIrr(rawQ, FX);
   ok(AQ.gpuVsCpu.old.maxRel > 1e-4 && AQ.gpuVsCpu.old.maxRel < 0.05 && AQ.gpuVsCpu.worst !== null, `분석: 8 비트 필터 가중치 흉내 → GPU−CPU 최대 상대 예전 ${fmt(AQ.gpuVsCpu.old.maxRel)} · 새 ${fmt(AQ.gpuVsCpu.new.maxRel)} (p99 ${fmt(AQ.gpuVsCpu.old.p99Rel)}) — 박명 이웃 비 10 배에서 [estimate 확인]`);
+  // §180 검토: 필터 가중치 모형 맞춤 — 8 비트 흉내면 8bit-round 가, 같은 식이면 float 이 가장 맞고, 그 모형에서 남는 차는 float 반올림 수준
+  ok(AQ.filterFit && AQ.filterFit.best.model === '8bit-round' && Math.max(AQ.filterFit.best.old, AQ.filterFit.best.new) < 1e-6 && A0.filterFit.best.model === 'float',
+    `§180 검토: 필터 모형 맞춤 — 8 비트 흉내 → ${AQ.filterFit && AQ.filterFit.best.model} (남는 차 ${AQ.filterFit && fmt(Math.max(AQ.filterFit.best.old, AQ.filterFit.best.new))}) · 같은 식 → ${A0.filterFit && A0.filterFit.best.model}`);
+  // §180 검토: 건전성 — 읽기가 비면(모두 0) GPU−이식 비교가 비어 통과처럼 보이던 것을 실패로
+  const rawZ = mkRaw(new Float32Array(64 * 16 * 4), C.irrPort.old, C.irrPort.new);
+  const AZ = C.analyzeIrr(rawZ, FX), sz = C.sanity(rawZ, AZ), s0 = C.sanity(raw0, A0);
+  ok(AZ.gpuVsCpu.old.n === 0 && sz.length >= 3 && s0.length === 0, `§180 검토: 빈 읽기(표·조도 0) → 건전성 문제 ${sz.length} 개(${sz.slice(0, 2).join(' | ')}) · 정상 원값 → 0 개`);
+  const goodChecks = { prefixOnEqualsInjectedOff: true, prefixOffIsTakramOriginal: true, prefixOnMarked: true, vertexSameGetIrradiance: true, aerialTemplateSame: true, packReadbackBitExact: null, spectral: true };
+  ok(P.gateProblems(goodChecks, []).length === 0 && P.gateProblems({ ...goodChecks, spectral: false }, []).length === 1 && P.gateProblems({ ...goodChecks, packReadbackBitExact: false }, []).length === 1
+    && P.gateProblems(goodChecks, sz).length === sz.length && P.gateProblems({ ...goodChecks, prefixOnEqualsInjectedOff: undefined }, []).length === 1,
+    '§180 검토: ok 문 — 글자 점검(켬 = 주입(끔)·정점 같음·산란 몸통 같음)·15 파장·비트 포장 읽기·건전성 중 하나라도 어긋나면 ok 아님');
   // 고정표를 GPU 표 자리에(RGBA 로) — verify 의 CPU 결과와 같은 쪽: 깊은 박명 출렁임·과밝음이 줄어듦
   const fxRGBA = new Float32Array(64 * 16 * 4); for (let k = 0; k < 64 * 16; k++) { for (let c = 0; c < 3; c++) fxRGBA[k * 4 + c] = FX.coarse.arr[k * 3 + c]; fxRGBA[k * 4 + 3] = 1; }
   const rawF = mkRaw(fxRGBA, C.irrPort.old, C.irrPort.new);
@@ -421,7 +443,7 @@ if (PATCH) {
   const dr = run('bash', [SHP, 'run'], env, { cwd: FT, timeout: 300000 });
   const glog = (() => { try { return fs.readFileSync(path.join(GR, 'out', 'logs', 'gpu-window.log'), 'utf8'); } catch { return ''; } })();
   const dl = (() => { try { return fs.readFileSync(path.join(GR, 'out', 'logs', 'L7irrprobe.log'), 'utf8'); } catch { return ''; } })();
-  ok(dr.status === 0 && /\[dry\] L7irrprobe: would build/.test(glog) && /L1compile: not selected/.test(glog) && /\[dry\] post light/.test(glog) && /\[dry\] exit 0/.test(glog),
+  ok(dr.status === 0 && /\[dry\] L7irrprobe: would build \S+ \(--if-changed\)/.test(glog) && /L1compile: not selected/.test(glog) && /\[dry\] post light/.test(glog) && /\[dry\] exit 0/.test(glog),
     `GW_DRY=1 GW_STEPS=L7irrprobe,post-light run: 다른 단계 '선택 안 됨' · L7 번들 묶기 예고 · post light · 종료 ${dr.status}`);
   const cmdLine = (dl.match(/^\[dry\] (.*gpuwin-irrprobe\.js .*)$/m) || [])[1] || '';
   const parts = cmdLine.trim().split(/\s+/), ri = parts.findIndex(x => /gpuwin-irrprobe\.js$/.test(x));
@@ -438,6 +460,14 @@ if (PATCH) {
   const s7 = LR && LR.stages && LR.stages.L7irrprobe;
   ok(po.status === 0 && s7 && s7.verdictGpuMatchesPort === 'pass' && s7.verdictDeepTwilightPulsingDown === 'pass' && s7.verdictClampNotNegative === 'pass' && s7.defectReproducedWhenOff === true && LR.missing.length === 6,
     `패치한 post light: L7 보고(${s7 && [s7.verdictGpuMatchesPort, s7.verdictDeepTwilightPulsingDown, s7.verdictClampNotNegative].join('/')}) · missing 은 L1~L6 그대로`);
+  ok(s7 && s7.verdictGpuMatchesPortUnderFilterModel === 'pass' && s7.filterFit && Array.isArray(s7.sanity), `§180 검토: post 에 필터 모형 맞춤(${s7 && s7.filterFit && s7.filterFit.best.model}) · 건전성 목록`);
+  // §180 검토: 빈 읽기의 L7 출력 → GPU−이식 판정이 pass 가 아니라 na
+  const rawZ5 = mkRaw(new Float32Array(64 * 16 * 4), C.irrPort.old, C.irrPort.new);
+  fs.writeFileSync(path.join(LD, 'L7irrprobe.json'), JSON.stringify({ stage: 'L7irrprobe', ok: false, result: { readback: 'float32' }, checks: {}, analysis: P.analyzeAll(rawZ5, P.DEFAULT_FIXTURE) }));
+  run('node', [path.join(FD, 'gpuwin-post.mjs'), 'light', '--out', path.join(GR, 'out'), '--jobs', JD]);
+  let LZ = null; try { LZ = JSON.parse(fs.readFileSync(path.join(GR, 'out', 'reports', 'light.json'), 'utf8')); } catch { /* */ }
+  const z7 = LZ && LZ.stages && LZ.stages.L7irrprobe;
+  ok(z7 && z7.verdictGpuMatchesPort === 'na' && z7.ok === false && z7.sanity.length > 0, `§180 검토: 빈 읽기 → post GPU−이식 판정 ${z7 && z7.verdictGpuMatchesPort}(통과 아님) · 건전성 ${z7 && z7.sanity.length} 개`);
 } else console.log('[5] 패치 — --patch 없음, 건너뜀');
 
 console.log(`\n${pass} passed, ${fail} failed (work ${WORK})`);
