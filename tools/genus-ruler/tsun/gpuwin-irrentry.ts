@@ -18,7 +18,7 @@ import { DataTexture, FloatType, GLSL3, Mesh, NearestFilter, OrthographicCamera,
   type IUniform, type Matrix4, type PerspectiveCamera, type Texture } from 'three';
 import { createVolumetricScene, type VolumetricOptions, type VolumetricQuality, type VolumetricSceneInput } from '../../../src/components/VolumetricProbe/volumetricScene';
 import { grainBaseOptions } from '../grain/capture';
-import { PROBE_VERT, aerialProbeFragment, checkPrefixPair, cutAtmospherePrefix, functionText, GET_IRRADIANCE_SIG, irrProbeFragment, staticCheck, tableProbeFragment, type AerialMode } from './gpuwin-irrshader';
+import { PROBE_VERT, aerialProbeFragment, aerialTemplateCheck, checkPrefixPair, cutAtmospherePrefix, functionText, GET_IRRADIANCE_SIG, irrProbeFragment, staticCheck, tableProbeFragment, type AerialMode } from './gpuwin-irrshader';
 
 type AnyRec = Record<string, unknown>;
 type In = Omit<VolumetricSceneInput, 'date'> & { date: string };
@@ -87,7 +87,9 @@ const FLAGS = { off: { clampInscatter: false, irradianceLogMu: false }, on: { cl
       const pair = checkPrefixPair(preOff, preOn);
       const fnOf = (s: string) => functionText(s, GET_IRRADIANCE_SIG);
       const textChecks = { ...pair, prefixBytes: [preOff.length, preOn.length], fragOnHasMark: fragOn.includes('§178 irradianceLogMu'),
-        vertexGetIrradianceSameAsFragment: { off: fnOf(vertOff) === fnOf(preOff), on: fnOf(vertOn) === fnOf(preOn) }, getIrradianceOn: fnOf(preOn) };
+        vertexGetIrradianceSameAsFragment: { off: fnOf(vertOff) === fnOf(preOff), on: fnOf(vertOn) === fnOf(preOn) }, getIrradianceOn: fnOf(preOn),
+        // §180 검토: 산란 탐침의 손 옮김 몸통 = 구름 패스 applyAerialPerspective(끔 글자, 이름·그림자 길이·해 방향만 바꿈)
+        aerialTemplate: aerialTemplateCheck(fragOff) };
       const m = mat();
       const defines = { ...m.defines } as Record<string, unknown>;
       const iw = Number(defines.IRRADIANCE_TEXTURE_WIDTH), ih = Number(defines.IRRADIANCE_TEXTURE_HEIGHT);
@@ -166,11 +168,15 @@ const FLAGS = { off: { clampInscatter: false, irradianceLogMu: false }, on: { cl
       const [gw, gh] = ag.grid;
       const endData = new Float32Array(gw * gh * 4), el = new Float32Array(gw * gh), hit = new Uint8Array(gw * gh);
       const cam = vol.camera as PerspectiveCamera, vv = new Vector3(), dE = new Vector3();
+      // §180 검토: unproject 는 matrixWorld 를 쓰므로 빼는 것도 세계 위치(부모가 있으면 cam.position 은 지역 좌표)
+      cam.updateMatrixWorld(); const camPosW = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+      const upE = camE.clone().normalize(); let elDiff = 0;
       for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
         const k = j * gw + i;
-        vv.set(((i + 0.5) / gw) * 2 - 1, ((j + 0.5) / gh) * 2 - 1, 0.5).unproject(cam).sub(cam.position).normalize();
+        vv.set(((i + 0.5) / gw) * 2 - 1, ((j + 0.5) / gh) * 2 - 1, 0.5).unproject(cam).sub(camPosW).normalize();
         el[k] = (Math.asin(vv.y) * 180) / Math.PI;   // entry-gpuwin elevAt 과 같은 정의(장면 좌표 y = 위)
         dE.copy(vv).transformDirection(w2e);
+        elDiff = Math.max(elDiff, Math.abs((Math.asin(Math.max(-1, Math.min(1, dE.dot(upE)))) * 180) / Math.PI - el[k]));   // ECEF 고도와 대조(장면 y = 위 가정 점검)
         // |camE + t dE| = Rdeck 의 양의 근(카메라는 덮개 아래)
         const b = camE.dot(dE), c = camE.lengthSq() - Rdeck * Rdeck, disc = b * b - c;
         if (disc < 0) continue;
@@ -189,7 +195,7 @@ const FLAGS = { off: { clampInscatter: false, irradianceLogMu: false }, on: { cl
           readback: floatRT ? 'float32' : 'rgba8-bits', packCheck, atm, texInfo, defines: { IRRADIANCE_TEXTURE_WIDTH: iw, IRRADIANCE_TEXTURE_HEIGHT: ih, METER_TO_LENGTH_UNIT: defines.METER_TO_LENGTH_UNIT },
           textChecks, sourceBytes: Object.fromEntries(Object.entries(sources).map(([k, s]) => [k, s.length])),
           scene: { sunAltDeg: vol.lastScene()?.sunAltDeg ?? null, camE: camE.toArray(), camHeightM: camE.length() - bottomM, sunE: sunE.toArray(), sunElevGeocentricDeg: (Math.asin(sunE.dot(camE.clone().normalize())) * 180) / Math.PI,
-            bottomRadiusM: bottomM, deckAltM: deckAlt, layers },
+            bottomRadiusM: bottomM, deckAltM: deckAlt, layers, camWorldMinusUniformM: camPosW.distanceTo(camW), elevSceneVsEcefMaxDeg: elDiff },
           raw: { atm, heightsKm: hs, es, mus, table: toArr(table), irr: { old: toArr(irrOld), new: toArr(irrNew) },
             aerial: { gw, gh, el: Array.from(el), hit: Array.from(hit), ...aer } },
         },

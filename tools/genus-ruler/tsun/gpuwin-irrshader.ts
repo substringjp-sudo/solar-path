@@ -111,6 +111,23 @@ export function aerialTemplate(): string {
     '}',
   ].join('\n');
 }
+/**
+ * §180 검토: 손으로 옮긴 aerialTemplate 이 구름 패스의 진짜 applyAerialPerspective 와 같은 몸통인지(takram 판이 바뀌어 조용히 어긋나지 않게).
+ * 끔 글자에서 함수를 잘라 주석·공백을 지우고, 탐침이 바꾼 네 곳(카메라·끝점 이름, 그림자 길이 → 0, sunDirection → probeSun)만 바꿔 비교.
+ */
+export function aerialTemplateCheck(fragOff: string): { found: boolean; same: boolean } {
+  const real = functionText(fragOff, 'void applyAerialPerspective(');
+  if (!real) return { found: false, same: false };
+  const norm = (s: string) => s.slice(s.indexOf('{')).replace(/\/\/[^\n]*/g, '').replace(/\s+/g, '');
+  const sub = (s: string, a: string, b: string) => s.split(a).join(b);
+  let want = norm(real);
+  want = sub(want, 'cameraPosition*METER_TO_LENGTH_UNIT', 'camPos*METER_TO_LENGTH_UNIT');
+  want = sub(want, 'frontPosition*METER_TO_LENGTH_UNIT', 'frontPos*METER_TO_LENGTH_UNIT');
+  want = sub(want, 'shadowLength*METER_TO_LENGTH_UNIT', '0.0*METER_TO_LENGTH_UNIT');
+  want = sub(want, ',sunDirection,', ',probeSun,');
+  return { found: true, same: want === norm(aerialTemplate()) };
+}
+
 /** 산란 자르기 탐침. probeEnd 텍셀 = 덮개 밑면 끝점 ECEF(m, w = 1 이면 덮개에 닿음) · probeCam = 구름 패스 카메라(ECEF + 고도 보정, m) · probeSun = 해 방향(ECEF). */
 export function aerialProbeFragment(prefix: string, mode: AerialMode): string {
   let fn: string;

@@ -44,10 +44,11 @@ function uvOf(atm, hKm, mu, f32 = true) {
   const r = F(atm.bottom + hKm), xr = F(F(r - atm.bottom) / F(atm.top - atm.bottom)), xm = F(F(mu * 0.5) + 0.5);
   return [coord(xm, atm.W), coord(xr, atm.H)];
 }
-/** 하드웨어 쌍선형(ClampToEdge) — 예전 GetIrradiance. */
-function bilinear(T, u, v) {
+/** 하드웨어 쌍선형(ClampToEdge) — 예전 GetIrradiance. q = 필터 가중치 모형(null = float, { bits, mode: 'round'|'floor' } = 소수부를 2^−bits 로 자름 — §180 검토). */
+function quantW(a, q) { if (!q) return a; const n = 2 ** q.bits; return (q.mode === 'floor' ? Math.floor(a * n) : Math.round(a * n)) / n; }
+function bilinear(T, u, v, q = null) {
   const fx = u * T.W - 0.5, fy = v * T.H - 0.5;
-  const x0 = Math.floor(fx), y0 = Math.floor(fy), ax = fx - x0, ay = fy - y0;
+  const x0 = Math.floor(fx), y0 = Math.floor(fy), ax = quantW(fx - x0, q), ay = quantW(fy - y0, q);
   const cx = i => Math.max(0, Math.min(T.W - 1, i)), cy = j => Math.max(0, Math.min(T.H - 1, j));
   const out = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
@@ -57,14 +58,14 @@ function bilinear(T, u, v) {
   }
   return out;
 }
-const irrOldUv = (T, u, v) => bilinear(T, u, v);
+const irrOldUv = (T, u, v, q = null) => bilinear(T, u, v, q);
 /** §178 IRRADIANCE_LOG_MU(lightingFix.ts)를 줄 그대로 — 이웃 두 텍셀 가운데 fetch(r 축만 선형) · log 보간 · |ln B/A| 램프 가중 · 0·음수 이웃 채널은 선형. */
-function irrNewUv(T, u, v) {
+function irrNewUv(T, u, v, q = null) {
   const irrW = T.W;
   const irrX = Math.min(Math.max(u * irrW - 0.5, 0), irrW - 1);
   const irrI = Math.min(Math.floor(irrX), irrW - 2);
   const irrF = irrX - irrI;
-  const A = bilinear(T, (irrI + 0.5) / irrW, v), B = bilinear(T, (irrI + 1.5) / irrW, v);
+  const A = bilinear(T, (irrI + 0.5) / irrW, v, q), B = bilinear(T, (irrI + 1.5) / irrW, v, q);
   return [0, 1, 2].map(c => {
     const lin = A[c] * (1 - irrF) + B[c] * irrF;
     const la = Math.log(Math.max(A[c], PIN.FLOOR)), lb = Math.log(Math.max(B[c], PIN.FLOOR));
@@ -74,7 +75,9 @@ function irrNewUv(T, u, v) {
     return lin * (1 - pos * w) + lg * pos * w;
   });
 }
-const irrPort = { old: (T, atm, h, mu) => { const [u, v] = uvOf(atm, h, mu); return irrOldUv(T, u, v); }, new: (T, atm, h, mu) => { const [u, v] = uvOf(atm, h, mu); return irrNewUv(T, u, v); } };
+const irrPort = { old: (T, atm, h, mu, q = null) => { const [u, v] = uvOf(atm, h, mu); return irrOldUv(T, u, v, q); }, new: (T, atm, h, mu, q = null) => { const [u, v] = uvOf(atm, h, mu); return irrNewUv(T, u, v, q); } };
+/** §180 검토: GPU 필터 가중치 정밀도 모형(float · 16..4 비트 × 반올림·내림). GPU−이식 차를 이 모형들로 설명 — 가장 맞는 모형에서 차가 ~float 반올림이면 '같은 산술'. */
+const FILTER_MODELS = [null, ...[16, 12, 10, 9, 8, 7, 6, 4].flatMap(bits => [{ bits, mode: 'round' }, { bits, mode: 'floor' }])];
 
 /** 고정표(fixtures/irradiance-app15.json) 풀기 — coarse 16×64 · fine 4×505(rows 0/4/8/12 km). */
 function loadFixture(fx) {
@@ -137,6 +140,24 @@ function analyzeIrr(raw, fxd, p = DEFAULT_PARAMS) {
     all.sort((a, b) => a - b);
     out.gpuVsCpu[v] = { maxRel: mx, maxRelY: mxY, p99Rel: all.length ? all[Math.floor(0.99 * (all.length - 1))] : null, medianRel: all.length ? all[Math.floor(all.length / 2)] : null,
       n, skippedNearZero: skipped, nOver1e3: over3, nOver1e2: over2, worst: at };
+  }
+  // §180 검토: 필터 가중치 모형 맞춤 — 두 변형을 한 모형으로 함께 설명해야 함(같은 하드웨어). best = max(예전, 새) 가 가장 작은 모형.
+  {
+    const models = FILTER_MODELS.map(q => {
+      const r = { model: q ? `${q.bits}bit-${q.mode}` : 'float' };
+      for (const v of ['old', 'new']) {
+        let mx = 0, n = 0;
+        for (let j = 0; j < hs.length; j++) for (let i = 0; i < N; i++) {
+          const g = gpuAt(v, j, i), c = irrPort[v](T, atm, hs[j], raw.mus[i], q);
+          for (let ch = 0; ch < 3; ch++) { if (!(Math.abs(c[ch]) >= 1e-25)) continue; n++; mx = Math.max(mx, relErr(g[ch], c[ch])); }
+        }
+        r[v] = n ? mx : null;
+      }
+      return r;
+    });
+    const score = m => (m.old == null || m.new == null ? Infinity : Math.max(m.old, m.new));
+    const best = models.reduce((a, b) => (score(b) < score(a) ? b : a));
+    out.filterFit = { models, best, note: 'GPU − CPU 이식 최대 상대 차를 필터 가중치 모형마다(소수부 2^−bits). best 의 차가 ≲ 1e−5 면 셰이더 산술이 같고 차는 하드웨어 필터 정밀도 몫' };
   }
   // 낮(해 ≥ +1°): 새 = 예전(같은 식이 되어야) — GPU 와 CPU 둘 다
   {
@@ -231,11 +252,48 @@ function analyzeAerial(A, p = DEFAULT_PARAMS) {
     expectation: '§177/§178: P1 6~10° 산란 Y/맑은 하늘 Y −0.10~−0.17(끔, 음수) → 켬 0(자르기), 원래 값(+0.05~+0.06)은 되살리지 않음' };
 }
 
+/**
+ * §180 검토: 원값 건전성 — 읽기가 조용히 실패하면(three readRenderTargetPixels 는 console 오류만 내고 0 을 남김, 불완전 텍스처는 0 을 줌)
+ * 표·조도가 모두 0 → GPU−이식 비교가 '0 근처 건너뜀'으로 비어 통과처럼 보임. 이것을 실패로 잡음. 문제 목록(비면 통과).
+ */
+function sanity(raw, an) {
+  const P = [];
+  const fin = a => Array.isArray(a) || ArrayBuffer.isView(a) ? Array.prototype.every.call(a, Number.isFinite) : false;
+  const atm = raw.atm || {}, W = atm.W, H = atm.H;
+  if (!(W > 1 && H > 1) || !raw.table || raw.table.length !== W * H * 4) P.push('table shape');
+  else {
+    if (!fin(raw.table)) P.push('table has non-finite values');
+    const T = makeTable(raw.table, W, H, 4);
+    let dayPos = 0, day = 0;
+    for (let j = 0; j < H; j++) for (let i = Math.ceil((W - 1) / 2); i < W; i++) { day++; if (Yof([0, 1, 2].map(c => T.at(j, i, c))) > 0) dayPos++; }
+    if (dayPos !== day) P.push(`table: ${day - dayPos}/${day} day texels (μs ≥ 0) not positive — readback failed or texture incomplete?`);
+  }
+  const N = (raw.es || []).length, nh = (raw.heightsKm || []).length;
+  for (const v of ['old', 'new']) {
+    const a = raw.irr && raw.irr[v];
+    if (!a || a.length !== N * nh * 4) { P.push(`irr.${v} shape`); continue; }
+    if (!fin(a)) P.push(`irr.${v} has non-finite values`);
+    let bad = 0, n = 0;
+    for (let j = 0; j < nh; j++) for (let i = 0; i < N; i++) if (raw.es[i] >= 0) { n++; const k = (j * N + i) * 4; if (!(Yof([a[k], a[k + 1], a[k + 2]]) > 0)) bad++; }
+    if (!n || bad) P.push(`irr.${v}: ${bad}/${n} texels with sun ≥ 0° not positive`);
+  }
+  if (an && an.gpuVsCpu) for (const v of ['old', 'new']) if (!(an.gpuVsCpu[v].n > 0)) P.push(`gpuVsCpu.${v}: no comparable samples`);
+  const A = raw.aerial;
+  if (A) {
+    const nHit = Array.prototype.reduce.call(A.hit || [], (s, x) => s + (x ? 1 : 0), 0);
+    if (!nHit) P.push('aerial: no ray reached the deck');
+    for (const m of ['raw', 'off', 'on', 'sky']) if (!A[m] || A[m].length !== A.gw * A.gh * 4 || !fin(A[m])) P.push(`aerial.${m} shape/non-finite`);
+    if (A.sky && nHit) { let pos = 0; for (let k = 0; k < A.gw * A.gh; k++) if (A.hit[k] && Yof([A.sky[k * 4], A.sky[k * 4 + 1], A.sky[k * 4 + 2]]) > 0) pos++; if (!pos) P.push('aerial.sky all ≤ 0 — readback failed?'); }
+  }
+  return P;
+}
+
 /** 요약 한 줄들(보고·로그용). */
 function summarize(irr, aer, tvf) {
   const L = [];
   if (irr) {
-    L.push(`GPU vs CPU-port max rel: old ${irr.gpuVsCpu.old.maxRel.toExponential(2)} · new ${irr.gpuVsCpu.new.maxRel.toExponential(2)} (p99 ${irr.gpuVsCpu.old.p99Rel?.toExponential(2)} / ${irr.gpuVsCpu.new.p99Rel?.toExponential(2)})`);
+    L.push(`GPU vs CPU-port max rel: old ${irr.gpuVsCpu.old.maxRel.toExponential(2)} · new ${irr.gpuVsCpu.new.maxRel.toExponential(2)} (p99 ${irr.gpuVsCpu.old.p99Rel?.toExponential(2)} / ${irr.gpuVsCpu.new.p99Rel?.toExponential(2)}, n ${irr.gpuVsCpu.old.n}/${irr.gpuVsCpu.new.n})`);
+    if (irr.filterFit) { const b = irr.filterFit.best; L.push(`filter-weight model best fit: ${b.model} → old ${b.old?.toExponential(2)} · new ${b.new?.toExponential(2)}`); }
     for (const r of irr.perHeight) {
       if (!r.pulsingGain) { L.push(`h ${r.hKm} km: no ref`); continue; }
       const b = r.pulsingGain.find(x => x.band[0] === -10), o = r.variants.old.ref.at, n = r.variants.new.ref.at;
@@ -248,5 +306,5 @@ function summarize(irr, aer, tvf) {
   return L;
 }
 
-module.exports = { PIN, DEFAULT_PARAMS, Yof, eGrid, muOf, makeTable, coord, uvOf, bilinear, irrOldUv, irrNewUv, irrPort, loadFixture, fineRow, refAt, nodeAt, windowP2P,
-  analyzeIrr, tableVsFixture, analyzeAerial, summarize };
+module.exports = { PIN, DEFAULT_PARAMS, FILTER_MODELS, Yof, eGrid, muOf, makeTable, coord, uvOf, quantW, bilinear, irrOldUv, irrNewUv, irrPort, loadFixture, fineRow, refAt, nodeAt, windowP2P,
+  analyzeIrr, tableVsFixture, analyzeAerial, sanity, summarize };

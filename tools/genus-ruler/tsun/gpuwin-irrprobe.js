@@ -9,7 +9,9 @@
  *   SwiftShader GPU 과정이 이미 있으면 거부 · /tmp/run-tsun.lock(run-tsun·조명 단계와 같은 잠금) · 출력은 .harness/·grain·volsky·src 아래 금지 ·
  *   bundle.json 이 app.js 를 보증(두 번 묶어 같음)·더러운 트리 번들은 --allow-dirty 일 때만.
  *
- *   nice -n 19 node tools/genus-ruler/tsun/gpuwin-irrprobe.js build --root <GW_ROOT>/bundle-irr          번들(esbuild 두 번 · bundle.json)
+ *   nice -n 19 node tools/genus-ruler/tsun/gpuwin-irrprobe.js build --root <GW_ROOT>/bundle-irr [--if-changed]   번들(esbuild 두 번 · bundle.json)
+ *       --if-changed(§180 검토): <root>/.next 에 묶어 app.js 바이트가 지금 것과 다를 때만 바꿈 — 같으면 app.js·bundle.json 을 그대로 둠(입력 sha 유지,
+ *       끝난 L7 은 건너뜀). 탐침 글자(gpuwin-irr*.ts)를 고친 뒤에는 새 번들 → 새 sha → L7 이 다시 돎(옛 번들을 조용히 다시 쓰지 않음).
  *   nice -n 19 node tools/genus-ruler/tsun/gpuwin-irrprobe.js run --guard-tag genus-ruler/volsky/run.js --root <GW_ROOT>/bundle-irr \
  *       --scenes <GW_ROOT>/jobs/light-scenes.json --out <OUT>/L [--max-min 58] [--lock /tmp/run-tsun.lock] [--fixture F] [--allow-dirty] [--dry]
  *   node tools/genus-ruler/tsun/gpuwin-irrprobe.js analyze --raw <OUT>/L/L7irrprobe.raw.json [--fixture F] [--json OUT]   (브라우저 없이 다시 분석)
@@ -46,7 +48,7 @@ function parseArgs(argvIn) {
   try {
     a = { cmd, guardTag: take('--guard-tag'), root: take('--root'), scenes: take('--scenes'), out: take('--out'), maxMin: Number(take('--max-min', String(G.LIGHT_MAX_MIN))),
       lock: take('--lock', process.env.TSUN_LOCK || '/tmp/run-tsun.lock'), fixture: take('--fixture', DEFAULT_FIXTURE), raw: take('--raw'), json: take('--json'),
-      allowDirty: flag('--allow-dirty'), dry: flag('--dry') };
+      allowDirty: flag('--allow-dirty'), dry: flag('--dry'), ifChanged: flag('--if-changed') };
   } catch (e) { return err('gpuwin-irrprobe: ' + e.message); }
   if (argv.length) return err('gpuwin-irrprobe: unknown argument(s) ' + argv.join(' '));
   if (!['run', 'build', 'analyze', 'estimate'].includes(cmd)) return err('gpuwin-irrprobe: command must be run|build|analyze|estimate');
@@ -96,21 +98,52 @@ function build(root) {
   fs.writeFileSync(path.join(root, 'bundle.json'), JSON.stringify(info) + '\n');
   return info;
 }
+/** §180 검토: --if-changed — next 폴더(새로 묶음)의 app.js 가 root 의 것과 바이트까지 같으면 root 를 그대로 두고 next 를 지움, 다르면(또는 root 에 없으면)
+ *  app.js·bundle.json 을 옮김. 반환 { replaced, sha }. */
+function installIfChanged(root, next) {
+  const cur = path.join(root, 'app.js'), nw = path.join(next, 'app.js');
+  const same = fs.existsSync(cur) && fs.existsSync(path.join(root, 'bundle.json')) && sha(fs.readFileSync(cur)) === sha(fs.readFileSync(nw));
+  if (!same) {
+    fs.mkdirSync(root, { recursive: true });
+    fs.copyFileSync(nw, cur + '.tmp'); fs.renameSync(cur + '.tmp', cur);
+    fs.copyFileSync(path.join(next, 'bundle.json'), path.join(root, 'bundle.json.tmp')); fs.renameSync(path.join(root, 'bundle.json.tmp'), path.join(root, 'bundle.json'));
+  }
+  fs.rmSync(next, { recursive: true, force: true });
+  return { replaced: !same, sha: sha(fs.readFileSync(cur)) };
+}
+/** §180 검토: 실행 결과의 핵심 점검 — 하나라도 거짓이면 ok 아님(탐침이 구름 패스 글자·앱 15 파장 표를 재지 않았거나 읽기가 비었음). */
+function gateProblems(checks, sanityProblems) {
+  const req = ['prefixOnEqualsInjectedOff', 'prefixOffIsTakramOriginal', 'prefixOnMarked', 'vertexSameGetIrradiance', 'aerialTemplateSame', 'spectral'];
+  const bad = req.filter(k => checks[k] !== true);
+  if (checks.packReadbackBitExact === false) bad.push('packReadbackBitExact');
+  return [...bad.map(k => 'check ' + k), ...(sanityProblems || [])];
+}
 /** 원값 → 지표(브라우저 뒤·analyze 명령 공통). */
 function analyzeAll(raw, fixturePath, params = C.DEFAULT_PARAMS) {
   const fxd = fixturePath && fs.existsSync(fixturePath) ? C.loadFixture(JSON.parse(fs.readFileSync(fixturePath, 'utf8'))) : null;
   const irr = C.analyzeIrr(raw, fxd, params), tvf = C.tableVsFixture(raw, fxd), aerial = raw.aerial ? C.analyzeAerial(raw.aerial, params) : null;
-  return { irr, tableVsFixture: tvf, aerial, summary: C.summarize(irr, aerial, tvf), fixture: fxd ? path.relative(REPO, fixturePath) : null };
+  const sanity = C.sanity(raw, irr);
+  const summary = C.summarize(irr, aerial, tvf); if (sanity.length) summary.unshift('SANITY: ' + sanity.join('; '));
+  return { irr, tableVsFixture: tvf, aerial, sanity, summary, fixture: fxd ? path.relative(REPO, fixturePath) : null };
 }
 
-module.exports = { STAGE, CANVAS, EST, estimateMin, parseArgs, guardProblems, probeParams, keyOf, bundleProblem, analyzeAll, DEFAULT_FIXTURE, ENTRY };
+module.exports = { STAGE, CANVAS, EST, estimateMin, parseArgs, guardProblems, probeParams, keyOf, bundleProblem, installIfChanged, gateProblems, analyzeAll, DEFAULT_FIXTURE, ENTRY };
 
 // ───── 실행 ─────
 if (require.main === module) {
   const a = parseArgs(process.argv.slice(2));
   if (a.error) { console.error(a.error); process.exit(a.code); }
   if (a.cmd === 'estimate') { const [lo, hi] = estimateMin(); console.log(JSON.stringify({ stage: STAGE, estimateMin: [lo, hi], parts: EST, note: 'one page: atmosphere + start + cloud-pass low compile/2 frames + probe programs + close [estimate]' })); process.exit(0); }
-  if (a.cmd === 'build') { const info = build(path.resolve(a.root)); console.log(JSON.stringify(info)); process.exit(info.same ? 0 : 1); }
+  if (a.cmd === 'build') {
+    const root = path.resolve(a.root);
+    if (!a.ifChanged) { const info = build(root); console.log(JSON.stringify(info)); process.exit(info.same ? 0 : 1); }
+    const next = path.join(root, '.next'); fs.rmSync(next, { recursive: true, force: true });
+    const info = build(next);
+    if (!info.same) { console.error('gpuwin-irrprobe build: two builds differ — keeping the current bundle'); fs.rmSync(next, { recursive: true, force: true }); process.exit(1); }
+    const r = installIfChanged(root, next);
+    console.log(JSON.stringify({ ...info, ifChanged: true, replaced: r.replaced, installedSha: r.sha }));
+    process.exit(0);
+  }
   if (a.cmd === 'analyze') {
     const raw = JSON.parse(fs.readFileSync(a.raw, 'utf8'));
     const res = analyzeAll(raw, a.fixture);
@@ -180,14 +213,17 @@ if (require.main === module) {
       const tc = r.result.textChecks || {};
       const checks = { prefixOnEqualsInjectedOff: tc.onEqualsInjected === true, prefixOffIsTakramOriginal: tc.offHasAnchor === true && tc.offMarks === 0, prefixOnMarked: tc.onMarks === 1,
         vertexSameGetIrradiance: !!(tc.vertexGetIrradianceSameAsFragment && tc.vertexGetIrradianceSameAsFragment.off && tc.vertexGetIrradianceSameAsFragment.on),
+        aerialTemplateSame: !!(tc.aerialTemplate && tc.aerialTemplate.found && tc.aerialTemplate.same),
         packReadbackBitExact: r.result.packCheck ? r.result.packCheck.texelsDiffering === 0 : null, spectral: spectral === true };
-      const ok = !r.ctxLost && r.glError === 0 && !(r.errors || []).length && !(r.shaderErrors || []).length && !(r.brokenPrograms || []).length && !analysisError;
+      // §180 검토: GL 건강만이 아니라 '같은 글자·같은 표·빈 읽기 아님' 도 ok 의 조건(아니면 표지가 done 이 되어 잘못된 값이 결과로 남음)
+      const gate = analysisError ? ['analysis error'] : gateProblems(checks, analysis ? analysis.sanity : ['no analysis']);
+      const ok = !r.ctxLost && r.glError === 0 && !(r.errors || []).length && !(r.shaderErrors || []).length && !(r.brokenPrograms || []).length && !gate.length;
       const rec = { stage: STAGE, key: KEY, ok, bundleSha256: BUNDLE_SHA, scenesSha256: sha(scenesBuf), bundle: { esbuild: bundleInfo.esbuild, gitHead: bundleInfo.gitHead, dirtyFiles: bundleInfo.dirtyFiles, entry: bundleInfo.entry },
-        chromium: b.version(), atmosMs, spectral, wallMin: (Date.now() - t0) / 60000, finishedAt: new Date().toISOString(), guardTag: a.guardTag, checks, analysisError,
+        chromium: b.version(), atmosMs, spectral, wallMin: (Date.now() - t0) / 60000, finishedAt: new Date().toISOString(), guardTag: a.guardTag, checks, gateProblems: gate, analysisError,
         ...r, analysis, rawFile: path.basename(rawFile), params: { heightsKm: params.heightsKm, e: [params.es[0], params.es[params.es.length - 1], C.DEFAULT_PARAMS.eStep], aerial: params.aerial } };
       fs.writeFileSync(outFile + '.tmp', JSON.stringify(rec, null, 1)); fs.renameSync(outFile + '.tmp', outFile);
       if (analysis) console.log(analysis.summary.join('\n'));
-      console.log(STAGE, ok ? 'OK' : 'NOT OK', 'wall', rec.wallMin.toFixed(1), 'min', JSON.stringify(checks));
+      console.log(STAGE, ok ? 'OK' : 'NOT OK', 'wall', rec.wallMin.toFixed(1), 'min', JSON.stringify(checks), gate.length ? 'gate: ' + gate.join('; ') : '');
       return finish(r.ctxLost ? 6 : ok ? 0 : 1);
     } catch (e) {
       clearTimeout(timer);
