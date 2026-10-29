@@ -11684,3 +11684,18 @@ S1 동일성 100 %(3 층 운량 n 2,088 · DNI · 강수 · 열역학·바람 47
 4. **기본값**: `DEFAULT_VOLUMETRIC_OPTIONS` 는 둘 다 끔(하네스 관례 — 동결된 grain·tsun 꾸러미가 새 손잡이를 기본 0 으로 받음). 앱은 켬: SkyScene3D(스토어 기본 true, `?? true`)와 VolumetricProbe 가 켜서 넘김. 개발 패널 칩 CLAMP·LOGμ 로 끄고 켜 비교.
 5. **확인**: `npx tsc --noEmit` 0 · `verify-lighting-fixes.js` 152/152(끄면 셰이더 글자 18 가지가 08a9c4d 와 바이트 같음, 켜면 앵커마다 정확히 한 번, 낮·박명 띠별 '예전보다 나쁘지 않음', 그림자 자격 6 층 구성 × 시간 이동 4 가지 + 적대 시나리오 37, 앱 배선 정적 점검, 돌연변이 점검 — 순수 log 로 되돌리면 실패) · 브라우저 없는 다른 verify 46/48(실패 둘은 10/26 의 낡은 /tmp 꾸러미를 읽는 스크립트, 이 변경과 무관) · `grain-shader-test` HEAD 82/6(이전과 같은 실패 목록 — 기본값이 꺼져 있어서).
 6. **남은 것**: GPU 컴파일·렌더 확인(브라우저가 필요해 RULER-grain C0 뒤 빈 시간에) — low·medium·high 컴파일, P1 해 ≤ −9° 덮개가 검지 않음, 박명·일몰 0~5° 시간 이동 출렁임, 해 12° 위로 넘을 때 저층 그늘, high 의 프레임 시간(표본마다 텍스처 읽기 둘 + log/exp, ≤ 1~2 % 추정). RULER-grain·tsun 꾸러미는 다시 묶지 않음(묶어도 기본값이 꺼져 셰이더 글자는 그대로지만, g2 는 스위치가 없어 상태 해시의 꼭대기 값이 다를 수 있음 — low 화소 영향 없음).
+
+## §179 T_sun 하네스 도구(기본 꺼짐) 구현 — CPU 시험 통과, GPU 창 대기 (2026-10-29)
+
+사용자: "하네스 도구로만"(§177.5 의 권고, U9(b)). 앱 길·판정 회차 없음. 워크플로(셰이더 주입 WP0+WP4 · 고정표 WP1 · 아치 적분기 WP5 → 아틀라스 WP2 → 기준 경로 WP6 + 하네스 WP8 + R-A_T 디버그 → 독립 검토 셋: 물리 / 회귀 / 하네스 → 반영). 컨테이너 재시작 한 번을 넘어 이어 돌림. 기록: scratchpad `tsunimpl/`(review-{physics,regression,harness}.txt · final/summary.txt), 진행 중 스냅샷 2421e54~3643dfa.
+
+1. **파일**
+   - 앱 번들 안(옵션이 꺼지면 아무것도 만들지 않음): `cloudTsun.ts`(옵션 검증·주입기 등록부·균일변수, `setTsunAtlas`·`tsunInfo`), `tsunAtlas.ts`(LP3 아틀라스 꼴·표본기), `archQuad.ts`(아치 6 마디 가중), `tsunFixture.ts`(고정표 읽기). `volumetricScene.ts`·`cloudGenus.ts` 는 배선만. 앱 번들 +8.5 kB, 하네스 글자 없음 [measured].
+   - 하네스 전용: `cloudTsunShader.ts`(T·REF·아치·디버그 GLSL 전부), `tools/genus-ruler/tsun/`의 `tsun-build.ts`(잡마다 setScene 뒤 아틀라스 한 번), `entry-tsun.ts`·`tsun-harness.ts`·`run-tsun.js`·`run-tsun-lib.js`·`run-tsun.sh`(RULER-grain 이 돌면 거부 · 원자 잠금 · 감시 시간 · 셰이더/GL 오류 = 잡 실패 · 활성 샘플러 수 검사 · 비용 셈 · 이어 그리기 키에 고정표 sha), `ra-t.mjs`(R-A_T 계산), `fixture/`(WP1 고정표 생성기·C 핵·시험), `archcpu/`(WP5 기준 적분기).
+   - 고정표 본체 `fixture/tsun-fixture.bin`(10 MB)은 저장소 밖: `fixture-build.mjs` 가 같은 바이트를 다시 만들고(U1c), 머리말 `tsun-fixture.json` 이 sha256 0303507b… 를 고정.
+2. **옵션**(모두 `DEFAULT_VOLUMETRIC_OPTIONS` 에서 끔, 앱은 넘기지 않음): `tsun` 0|1 · `tsunN` 128|256 · `tsunRangeKm` · `archLight` · `archNoT` · `tsunRef` 0|1|2 · `tsunRefStepM` · `tsunDebug` 0..7 · `tsunSync`. 모순 조합(diffuse ≥ 2 와 함께, 종류 모형 꺼짐, tsun 과 tsunRef 동시 등)은 throw. 글자는 해 ≤ 12° 일 때만 들어가고(그때 표본별 하늘빛을 켬), 그 위에서는 C0ps 와 같은 글자.
+3. **꺼짐 = 그대로** [measured]: 셰이더 글자·균일변수 이름과 값·define·텍스처 수가 §179 앞(e0f93f2)과 2850/2850 같음(19 변형 × 3 시각 × 3 품질). verify-lighting-fixes 152/152, grain-shader-test 82/6(같은 genusOrigin 여섯), verify-scene-key 13/13 · genus-rule 17/17 · ring-seam 11/11, tsc 0.
+4. **CPU 시험** [computed]: verify-tsun-shader 68/68(켬: 앵커마다 한 번, 그림자 패스 0, 168 조합), verify-tsun-atlas 65/0(U2a~U2f, 구면 층 경로 43.89 km ± 0.5 % 등), verify-tsun-ref 69/69(U6a 판 투과율, REF_v2 와 T1 이 같은 Eddington 경로), archquad(U5a·U5b), ra-t 15/15.
+5. **남은 물리 빈틈(기록, 판정 전 고칠 것)**: (a) 비탈진 선의 고적운(U1g): 26 점 중 4 점이 ln 1.25 밖(가장 나쁜 곳 해 4°, ln −0.50 — 법칙이 너무 투명), 층적운 0.12·적운 0.20 안. (b) 조각 보간 U2g p95: P3B 0.057(예전 0.219), RA1 0.065(0.368), RA5 0.211 — 낮은 해의 RA5 는 목표 0.05 밖. (c) τ_c 표 U4h p90: P3B 0.21·RA1 0.23 은 0.3 안, RA3 0.64·RA5 1.19 는 밖(운량 축 없음 — 고치려면 거시 읽기 + 균일변수, 비용 상한과 맞바꿈).
+6. **GPU 창에서 할 것(아직 안 함, 약 2.5~4 h)**: B1 모든 변형 컴파일·링크 + 활성 샘플러(low 13/14 · medium 14/15 · high 15/16 = WebGL2 최소)·조각 균일변수 벡터 예산(+38 vec4) 확인 · WP7 GPU↔CPU 일치 · B0 비용(상한 1.15)·REF 그리기 시간(10 s 넘으면 가위 타일 대안) · B2 보정 렌더와 R-A_T. 그리고 §178 조명 고침의 렌더 확인(약 30 분). RULER-grain C0 가 끝난 뒤 R1 앞에 둠.
+7. **동결 전 고칠 것(RULER-tsun)**: 동결 잡 생성기 `make-jobs-tsun.py` 가 내는 실행 줄을 run-tsun 이 거부(A1/E8 갱신), gCostTsun 자리 편차를 ruler-delta B1 에. 판정은 새 보류 사진이 있는 RULER-tsun2 에서(§177.5).

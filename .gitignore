@@ -52,3 +52,5 @@ tools/genus-ruler/metar/pairs_metar.jsonl
 tools/genus-ruler/ring/nwp/
 tools/genus-ruler/ring/lead/
 tools/genus-ruler/source/raw/
+# §179 T_sun 고정표 본체(10 MB) — fixture-build.mjs 로 같은 바이트를 다시 만듦(머리말 tsun-fixture.json 이 sha256 을 고정)
+tools/genus-ruler/tsun/fixture/tsun-fixture.bin
