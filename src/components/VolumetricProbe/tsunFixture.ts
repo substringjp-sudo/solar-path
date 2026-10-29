@@ -24,6 +24,8 @@ export interface TsunFixtureEntry {
   genus: string;
   lane: number;
   covers: number[];
+  /** 항목의 hf 격자(기본 grids.hf + 덧붙인 마디). 없으면 grids.hf */
+  hf?: number[];
   tauOffset: number;
   tauCOffset: number;
   tauCPhiOffset: number;
@@ -69,10 +71,10 @@ export function parseTsunFixture(header: TsunFixtureHeader, bytes: Uint8Array): 
   const tauC = new Int16Array(buf, lc.offsetBytes, lc.count);
   const tauCL = new Int16Array(buf, header.layout.tauCL.offsetBytes, header.layout.tauCL.count);
   const tauCPhi = new Uint8Array(buf, header.layout.tauCPhi.offsetBytes, header.layout.tauCPhi.count);
-  const { L, hf, phi } = header.grids;
-  const nL = L.length, nH = hf.length, nP = phi.length;
+  const { L, phi } = header.grids;
+  const nL = L.length, nP = phi.length;
   const lam10 = header.entries.map(E => {
-    const out = new Float32Array(E.covers.length * nH * nP);
+    const out = new Float32Array(E.covers.length * (E.hf ?? header.grids.hf).length * nP);
     for (let k = 0; k < out.length; k++) {
       const base = E.tauOffset + k * nL;
       let lam = 0;
@@ -159,12 +161,12 @@ function cellTau(fx: TsunFixture, base: number, Lkm: number): number {
 const GEO_EPS = 0.01;
 interface Blend { w0: number; cells: [number, number][] } // [칸 첨자, 0 아닌 칸 안에서 정규화한 무게]
 function blendOf(fx: TsunFixture, e: number, cover: number, hf: number, phiDeg: number): Blend {
-  const E = fx.header.entries[e], g = fx.header.grids, nH = g.hf.length, nP = g.phi.length;
+  const E = fx.header.entries[e], g = fx.header.grids, hfG = E.hf ?? g.hf, nH = hfG.length, nP = g.phi.length;
   let w0 = 0;
   const cells: [number, number][] = [];
   for (const [ci, wc] of coverW(E, cover, g.fullCover, true)) {
     if (wc === 0) continue;
-    for (const [hi, wh] of hfW(g.hf, hf)) {
+    for (const [hi, wh] of hfW(hfG, hf)) {
       if (wh === 0) continue;
       for (const [pi, wp] of phiW(g.phi, phiDeg)) {
         if (wp === 0) continue;
@@ -223,7 +225,7 @@ export function tsunCurveOfGrowth(fx: TsunFixture, e: number, Lambda: number, co
  *  - Lkm·phiDeg 있음: 방위(360°, 해 쪽 선 방향)·L 별 표 — 빌더가 해 방위로 읽음.
  */
 export function tsunTauCond(fx: TsunFixture, e: number, cover: number, hf: number, reachKm: number, Lkm?: number, phiDeg?: number): number {
-  const E = fx.header.entries[e], g = fx.header.grids, nH = g.hf.length, nR = g.reach.length, s = fx.header.layout.tauC.scale;
+  const E = fx.header.entries[e], g = fx.header.grids, hfG = E.hf ?? g.hf, nH = hfG.length, nR = g.reach.length, s = fx.header.layout.tauC.scale;
   const cw = coverW(E, cover, g.fullCover, false);
   const CL = g.condL, nCL = CL.length;
   const ramp = (): [W, number] => (Lkm! < CL[0] ? [[[0, 1]], Math.max(0, Lkm!) / CL[0]] : [bracket(CL, Lkm!), 1]);
@@ -231,14 +233,14 @@ export function tsunTauCond(fx: TsunFixture, e: number, cover: number, hf: numbe
   if (Lkm !== undefined && phiDeg !== undefined) {
     const nP2 = g.phi360.length, sp = fx.header.layout.tauCPhi.scale, so = fx.header.layout.tauCPhi.offset;
     const [lw, rmp] = ramp();
-    for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [pi, wp] of phiW(g.phi360, phiDeg, 360))
+    for (const [ci, wc] of cw) for (const [hi, wh] of bracket(hfG, hf)) for (const [pi, wp] of phiW(g.phi360, phiDeg, 360))
       for (const [ri, wr] of bracket(g.reach, reachKm)) for (const [li, wl] of lw) {
         v += wc * wh * wp * wr * wl * (so + fx.tauCPhi[E.tauCPhiOffset + (((ci * nH + hi) * nP2 + pi) * nR + ri) * nCL + li] * sp);
       }
     return v * rmp;
   }
   const [lw, rmp] = Lkm !== undefined ? ramp() : [null, 1];
-  for (const [ci, wc] of cw) for (const [hi, wh] of bracket(g.hf, hf)) for (const [ri, wr] of bracket(g.reach, reachKm)) {
+  for (const [ci, wc] of cw) for (const [hi, wh] of bracket(hfG, hf)) for (const [ri, wr] of bracket(g.reach, reachKm)) {
     const k = E.tauCOffset + (ci * nH + hi) * nR + ri;
     if (!lw) { v += wc * wh * wr * fx.tauC[k] * s; continue; }
     for (const [li, wl] of lw) v += wc * wh * wr * wl * fx.tauCL[k * nCL + li] * s;
