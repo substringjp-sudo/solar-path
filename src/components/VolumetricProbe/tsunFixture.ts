@@ -1,7 +1,7 @@
 /**
  * tsunFixture.ts — §179 WP1 T_sun 빈틈 법칙 고정표 읽기·평가(하네스 전용, 앱 경로 없음 — 2026-10-28 사용자 결정).
  *
- * 표는 tools/genus-ruler/tsun/fixture/build-fixture.mjs 가 만듭니다(tsun-fixture.json 머리말 + tsun-fixture.bin). 앱 종류 타일
+ * 표는 tools/genus-ruler/tsun/fixture/fixture-build.mjs 가 만듭니다(tsun-fixture.json 머리말 + tsun-fixture.bin). 앱 종류 타일
  * (makeGenusWeather, 씨앗 7)을 렌더러 밀도식(종류 단면 × shape.bin 침식, mip 0)으로 다시 세워 수평선마다 무차별 적분한 것:
  *   τ_칸(L) = −ln⟨T(0, L)⟩      칸 = (항목(종류, 레인), 운량 c, 높이 비율 hf, 방위 φ), L 격자 12 점
  *   τ_x(L)                       자리 x = (c, hf, φ) 의 곡선 = 이웃 칸 τ_칸(L) 의 섞음(아래 blendOf)

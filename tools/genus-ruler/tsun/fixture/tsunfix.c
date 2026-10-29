@@ -1,6 +1,6 @@
 /*
  * tsunfix.c — §179 WP1 T_sun 빈틈 법칙 고정표(fixture)의 C 핵. 앱 종류 타일(makeGenusWeather 바이트)을 렌더러 밀도식으로
- * 다시 세워(CPU 복제) 수평 직선마다 투과율을 무차별로 적분합니다. 표 꾸리기(build-fixture.mjs)와 단위 시험(fixture-test.mjs)이
+ * 다시 세워(CPU 복제) 수평 직선마다 투과율을 무차별로 적분합니다. 표 꾸리기(fixture-build.mjs)와 단위 시험(fixture-test.mjs)이
  * 같은 칸 함수를 씁니다 — 두 쪽 결과가 같은 코드에서 나와야 U1b 의 "법칙 대 무차별" 비교가 표 보간·표본만 재게 됩니다.
  *
  * 밀도식(렌더러와 같은 순서 — takram shared.js sampleWeather/sampleMedia + cloudGenus.patchGenusShader, quality low = 모양 세부 없음):

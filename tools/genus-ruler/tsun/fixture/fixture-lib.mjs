@@ -1,6 +1,6 @@
 /**
  * fixture-lib.mjs — §179 WP1 T_sun 고정표 도구의 공용 부분(격자·항목·앱 타일 덤프·C 핵 실행·기록 읽기).
- * build-fixture.mjs(표 꾸리기)와 fixture-test.mjs(U1a~U1f)가 함께 씁니다. 중간 산출물은 os.tmpdir() 또는 --tmp 아래에만 씁니다.
+ * fixture-build.mjs(표 꾸리기)와 fixture-test.mjs(U1a~U1f)가 함께 씁니다. 중간 산출물은 os.tmpdir() 또는 --tmp 아래에만 씁니다.
  *
  * 앱 타일: src/components/VolumetricProbe/cloudGenus.ts 의 makeGenusWeather 를 esbuild 로 묶어(three 는 가짜 상자) 앱과 같은 인자
  * (S 256, 24 km, 씨앗 7, 층 자리 = 레인)로 부릅니다. 운량 축 c = makeGenusWeather 에 들어가는 값(genusCoverIn 역표 **뒤**, 1 % 눈금 앞뒤 무관).
