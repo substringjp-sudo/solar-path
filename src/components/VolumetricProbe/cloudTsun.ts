@@ -6,7 +6,7 @@
  * 판정 회차도 없음 — 판정은 새 보류 사진이 있는 RULER-tsun2 에서. 여기서는 하네스(B0·B2 보정 렌더)가 쓸 글자와 균일변수만.
  *
  * 무엇을 하나(V10b, 해 고도 ≤ shadowMinSunDeg 일 때만 글자가 들어감 — v2.1 eng m2, 위에서는 C0ps 글자와 바이트 같음):
- *  - I-2  2차 행진 끝(p_end) 너머 해 줄의 광학두께 τ(아틀라스 한 번 읽기 + 층 안 경로 u_true 보간 + WP1 조건부 오프셋 τ_c)를
+ *  - I-2  2차 행진 끝(p_end) 너머 해 줄의 광학두께 τ(아틀라스 한 번 읽기 + 조각 보간(아래 쌍 u_true, 위 두 쌍 λ 무게 경로 W) + WP1 조건부 오프셋 τ_c)를
  *         직달 햇빛 sunIrradiance 에 Beer 로 곱함(MS 옥타브·얼음 무리가 이 값을 씀). opticalDepth 에는 더하지 않음(역광 어둡게는 행진 τ 그대로).
  *  - I-T  종류 thru 줄을 mix(오늘 thru, Eddington 확산 투과, 1 − e^(−τ_far)) 로(V10b). gTsunOn = 0 이면 원래 줄 그대로(else 가지에 글자 그대로).
  *  - I-1·I-4·I-0 (아치 팔 archLight 만) 2차 행진 방향을 r = w(θ)·(1 − vis) 로 연속으로 돌리고(r = 0 이면 sunDirection 비트 같음),
@@ -27,7 +27,8 @@
  *  (D3) v2.1 은 아틀라스 재사용(eng M3)과 A/B 반쪽(gTsunMix·gTsunHalfB)을 뺐고, 앱 스케줄러가 없으므로 텍스처는 반쪽 없이 한 벌:
  *       너비 n·blocks, 높이 n·(arch ? 3 : 1). 그래서 T 팔의 I-0 은 비울 것이 없어 **주입하지 않음**(아치 팔만 I-0 수 1, T 팔 0).
  *  (D4) gTsunEpochOrigin(vec2) 대신 vec4 gTsunEpoch = (중심 동 km, 중심 북 km, tsunRangeKm, 0) — u_true 가 행진 끝 거리를 알아야 해서.
- *       T 팔 균일변수 6 개(gTsunOn·gTsunTex·gTsunFrame·gTsunLaneBlock·gTsunEpoch·gTsunCond[9]) + 아치 2 개(gArchW·gArchNoT) — v2.1 §4.3 수와 같음.
+ *       T 팔 균일변수 7 개(gTsunOn·gTsunTex·gTsunFrame·gTsunLaneBlock·gTsunEpoch·gTsunCond[21]·gTsunProf[9]) + 아치 2 개(gArchW·gArchNoT) — v2.1 §4.3 의
+ *       6 개에 §179 고침(검토 물리 1)의 λ̂ 단면 gTsunProf 하나를 더함(샘플러 아님, vec4 30 개 — B1 에서 링크로 확인).
  *  (D5) 아틀라스는 textureLod(…, 0.0) 로 읽음(비균일 분기 안 — 밉맵 없음이라 값은 같고 도함수 문제를 피함). 세는 줄은 `TSUN_COUNT_LINE`.
  *  (D6) 이름 충돌을 피하려고 셰이더 지역 변수는 gTsun…·gArch… 접두(설계의 gMu0·gW·gTtop·gSunIrrUncut → gTsunMu0·gTsunW·gTsunTtop·
  *       gTsunIrrUncut). 설계가 이름을 박은 gMarchDir 만 그대로(팔마다 선언 정확히 하나 — U4a).
@@ -39,6 +40,12 @@
  *  (D11) 아틀라스가 옵션(tsunN·tsunRangeKm·archLight)과 맞지 않거나 다른 장면(sceneSerial)의 것이면 setTsunAtlas 가 throw. 아틀라스를
  *       건 뒤 옵션을 바꾸면 아틀라스를 '무효'(gTsunOn = 0 = C0ps 빛)로 두고 tsunInfo().reason 에 남김 — 하네스(WP8)가 렌더 전에 확인.
  *       applyScene 은 아틀라스를 버립니다(틀·운량장이 바뀜) — 하네스는 setScene 뒤에 짓고 겁니다.
+ *
+ *  (D14, §179 검토 반영 2026-10-29 — 물리 검토 1~5·7~12, 요약에도 적음) ① 위 두 조각 쌍은 λ 무게 경로 W(gTsunPathW, GL 4 점)로 보간(U2g 관문) ·
+ *       ② τ_c 표 hf 7 마디(U4h) · ③ 행진 끝 = jitter 없는 Σ 걸음(H_REACH) · ④ 아치 블록 네 조각 · ⑤ REF 의 너머·T_top 행진 mip 0(R1) ·
+ *       ⑦ μ0 < 0 이면 T_top 을 가장 낮은 조각에서 · ⑧ 아치 캐시 sin(dip) 다시 맞춤 · ⑨ float(max(n, 1)) · ⑪ REF 끝 = 밀도 있는 레인 꼭대기 ·
+ *       ⑫ 아치 옥타브 정적 단언. ⑥ 은 WP1 시험 U1g(fixture-test.mjs), ⑩(지구 그림자 경계를 걸친 조각)은 부호화를 바꾸지 않고 U2g 에서 따로 보고 —
+ *       선형 필터가 부호 표지를 섞어 버리고, 표본 자신의 지구 그림자는 takram 표본별 해 조도가 이미 셈.
  *
  * 끄면(tsun 0 — 기본): 셰이더 글자(구름 조각·정점·그림자·대기·합친 효과)·균일변수·define 이 이 파일이 없던 트리와 바이트 같고 텍스처를 만들지 않음
  * (tools/shader-preview/verify-tsun-shader.js). 켜도 해 > shadowMinSunDeg 면 C0ps(accurateSunBelowDeg 12) 글자와 같음(U4g).
