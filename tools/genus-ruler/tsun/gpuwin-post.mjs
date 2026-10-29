@@ -8,7 +8,9 @@
  *   node gpuwin-post.mjs b0      --out OUT     B0: 비용(F_cloud T/C0ps 중앙 ≤ 1.15) · 비용 A/A · REF 시간 결정(decisions.json) · 바닥 페이지 상태
  *   node gpuwin-post.mjs b2      --out OUT     B2: R-A_T(ra-t.mjs unit, f16) 단위·가족 요약 · Floor_T · REF 검증 (i)(tsun_photo.py ra, 읽기만)
  *   node gpuwin-post.mjs w7      --out OUT     WP7: P1 아틀라스 읽기 대조 · P2 G-A(막힘: tsunDebug 5 없음) · P3 합성 덮개(T1/C0ps 덮개 Y, T 진단)
- *   node gpuwin-post.mjs summary --out OUT [--estimate F]   → OUT/gpu-window-summary.json(단계 표지 + 위 보고 + 어림)
+ *   node gpuwin-post.mjs summary --out OUT [--estimate F] [--exit-rc N --exit-msg T]   → OUT/gpu-window-summary.json(단계 표지 + 위 보고 + 어림 + 끝난 까닭)
+ * §180 검토 4: 조명 단계는 페이지 둘로 나뉨(L2deck-low·high · L5cross12-low·medium · L6frametime-a·b) — light 보고가 다시 합침.
+ * §180 검토 11: B0·B2 보고 머리에 '§178 g2(castEligible·shadowTop 0) 뒤 렌더러 — 스위치 없음' 을 적음.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +30,8 @@ const readJ = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catc
 const writeJ = (f, o) => { fs.writeFileSync(f + '.tmp', JSON.stringify(o, null, 1)); fs.renameSync(f + '.tmp', f); console.log('wrote', f); };
 const median = a => { const s = a.filter(Number.isFinite).sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const verdict = c => (c === null || c === undefined ? 'na' : c ? 'pass' : 'fail');
+/** §180 검토 11: B0·B2 렌더러 머리말 — §178 g2 는 스위치가 없어 이 창의 모든 렌더가 g2 뒤 렌더러(해 < 12° RA 단위·잡마다 setScene 이라 영향 없음). */
+const RENDERER_NOTE = '§178 g2 (castEligible / shadowTop reset, no switch) is in this bundle: every B0/B2 render is on the post-g2 renderer — harmless for the sun < 12° RA units with per-job setScene; clampInscatter/irradianceLogMu explicit false (F6 baseline)';
 /** run-tsun 출력 폴더의 잡 상태: meta(captureOk) / error.txt / watchdog.txt / 없음. */
 function jobState(dir, name) {
   const m = readJ(path.join(dir, name + '.meta.json'));
@@ -51,8 +55,17 @@ function cloudY(base) {
   return { meanY: n ? s / n : null, n };
 }
 
+/** 나눈 단계 출력(<이름>-<쪽>.json)을 하나로: result.runs 를 이어 붙임 · ok = 모두 ok · parts 에 쪽마다 상태. 한 쪽도 없으면 null. */
+function mergeParts(D, base, parts) {
+  const recs = parts.map(p => [p, readJ(path.join(D, `${base}-${p}.json`))]);
+  const have = recs.filter(([, r]) => r);
+  if (!have.length) return null;
+  return { ok: have.length === parts.length && have.every(([, r]) => r.ok), parts: Object.fromEntries(recs.map(([p, r]) => [p, r ? { ok: r.ok, wallMin: r.wallMin, atmosMs: r.atmosMs } : 'missing'])),
+    result: { runs: have.flatMap(([, r]) => r.result?.runs ?? []) }, pages: have.map(([p, r]) => ({ part: p, ...r.result })) };
+}
 function cmdLight() {
-  const D = path.join(OUT, 'L'), st = n => readJ(path.join(D, n + '.json'));
+  const D = path.join(OUT, 'L'), st = n => (n === 'L2deck' ? mergeParts(D, 'L2deck', ['low', 'high']) : n === 'L5cross12' ? mergeParts(D, 'L5cross12', ['low', 'medium'])
+    : n === 'L6frametime' ? mergeParts(D, 'L6frametime', ['a', 'b']) : readJ(path.join(D, n + '.json')));
   const rep = { note: '§178 렌더 확인 — 기대값 대조(판정 아님)', stages: {} };
   const L1 = st('L1compile');
   if (L1) {
@@ -63,7 +76,7 @@ function cmdLight() {
   const L2 = st('L2deck');
   if (L2) {
     const by = {}; for (const r of L2.result.runs) (by[r.quality] ??= {})[r.flags] = r;
-    rep.stages.L2deck = { ok: L2.ok, perQuality: Object.fromEntries(Object.entries(by).map(([q, f]) => {
+    rep.stages.L2deck = { ok: L2.ok, parts: L2.parts, perQuality: Object.fromEntries(Object.entries(by).map(([q, f]) => {
       const on = f.on?.rt?.deck6_10, off = f.off?.rt?.deck6_10;
       const notBlack = on && on.n > 0 ? on.fracNeg === 0 && on.min >= -1e-3 : null;
       return [q, { sunAltDeg: f.on?.sunAltDeg, deckTexels: on?.n, rtY: { off: off && { min: off.min, median: off.median, fracNeg: off.fracNeg }, logmu: f.logmu?.rt?.deck6_10 && { min: f.logmu.rt.deck6_10.min, median: f.logmu.rt.deck6_10.median, fracNeg: f.logmu.rt.deck6_10.fracNeg }, on: on && { min: on.min, median: on.median, fracNeg: on.fracNeg } },
@@ -78,11 +91,16 @@ function cmdLight() {
       verdictNotWorse: verdict(pc.length ? pc.every((b, i) => po[i]?.rms == null || b.rms == null || po[i].rms <= b.rms * 1.05) : null) };
   }
   const L5 = st('L5cross12');
-  if (L5) rep.stages.L5cross12 = { ok: L5.ok, runs: L5.result.runs.map(r => ({ q: r.quality, config: r.config, rows: r.rows.map(x => ({ time: x.time, sun: +x.sunAltDeg.toFixed(2),
+  if (L5) rep.stages.L5cross12 = { ok: L5.ok, parts: L5.parts, runs: L5.result.runs.map(r => ({ q: r.quality, config: r.config, rows: r.rows.map(x => ({ time: x.time, sun: +x.sunAltDeg.toFixed(2),
     shadowTop: { fixed: x.fixed?.top, preFix: x.preFix?.top, fresh: x.fresh?.top }, Y: { fixed: x.fixed?.Y?.mean, preFix: x.preFix?.Y?.mean, fresh: x.fresh?.Y?.mean },
     ratioFixedOverPreFix: x.ratioFixedOverPreFix, ratioFixedOverFresh: x.ratioFixedOverFresh, fixedEqualsFreshTop: x.fixed?.top === x.fresh?.top })) })) };
   const L6 = st('L6frametime');
-  if (L6) rep.stages.L6frametime = { ok: L6.ok, medianMs: L6.result.medianMs, deltaVsOff: L6.result.deltaVsOff, expectation: '≤ 1~2 % [estimate §178.6]; SwiftShader CPU timings are noisy (ABBA ×2)' };
+  if (L6) {
+    // 페이지마다 자기 '끔' 기준 Δ(ABBA 한 번씩) — 두 페이지 Δ 의 평균과 차이(잡음 크기)
+    const pg = L6.pages.map(p => ({ part: p.part, medianMs: p.medianMs, deltaVsOff: p.deltaVsOff }));
+    const comb = Object.fromEntries(['clamp', 'logmu', 'on'].map(k => { const v = pg.map(p => p.deltaVsOff?.[k]).filter(Number.isFinite); return [k, v.length ? { mean: v.reduce((a, b) => a + b, 0) / v.length, spread: v.length > 1 ? Math.max(...v) - Math.min(...v) : null, n: v.length } : null]; }));
+    rep.stages.L6frametime = { ok: L6.ok, parts: L6.parts, pages: pg, deltaVsOff: comb, expectation: '≤ 1~2 % [estimate §178.6]; SwiftShader CPU timings are noisy (2 pages × ABBA, warm 4 + timed 12 high frames)' };
+  }
   rep.missing = ['L1compile', 'L2deck', 'L3twilight', 'L4sunset', 'L5cross12', 'L6frametime'].filter(n => !st(n));
   writeJ(path.join(R, 'light.json'), rep);
 }
@@ -103,7 +121,12 @@ function cmdB1() {
       samplers: rows.filter(r => r.samplers).map(r => ({ name: r.name, ...r.samplers })),
       uniformVectors: { maxActiveVectors: Number.isFinite(uvMax) ? uvMax : null, C0psVectors: base?.uniformVectors?.vectors ?? null,
         maxFragment: rows.find(r => r.uniformVectors)?.uniformVectors?.maxFragment ?? null, webgl2MinFragment: 224,
-        perJob: rows.filter(r => r.uniformVectors).map(r => ({ name: r.name, vectors: r.uniformVectors.vectors, deltaVsC0ps: base?.uniformVectors ? r.uniformVectors.vectors - base.uniformVectors.vectors : null })) },
+        perJob: rows.filter(r => r.uniformVectors).map(r => ({ name: r.name, vectors: r.uniformVectors.vectors, deltaVsC0ps: base?.uniformVectors ? r.uniformVectors.vectors - base.uniformVectors.vectors : null })),
+        // §180 검토 12: 판단 줄 — 셀 수는 꼭짓점 + 조각 합친 위 끝(보수적)
+        note: 'vectors = combined vertex+fragment upper bound (conservative)',
+        verdictWithinMaxFragment: verdict(Number.isFinite(uvMax) && rows.find(r => r.uniformVectors)?.uniformVectors?.maxFragment ? uvMax <= rows.find(r => r.uniformVectors).uniformVectors.maxFragment : null),
+        verdictWithinWebgl2Min224: verdict(Number.isFinite(uvMax) ? uvMax <= 224 : null),
+        phoneTypical: Number.isFinite(uvMax) ? { within256: uvMax <= 256, within1024: uvMax <= 1024 } : null },
       samplerWithinLimit: verdict(rows.some(r => r.samplers) ? rows.every(r => !r.samplers || r.samplers.maxTextures == null || r.samplers.active <= r.samplers.maxTextures) : null),
       samplerWithinWebgl2Min16: verdict(rows.some(r => r.samplers) ? rows.every(r => !r.samplers || r.samplers.active <= 16) : null) };
     rep.perQuality[q].verdictCompile = verdict(rows.length ? rows.every(r => r.state === 'ok') : null);
@@ -118,7 +141,7 @@ function cmdB1() {
 }
 
 function cmdB0() {
-  const rep = { note: 'B0 — 비용·REF 시간·바닥 페이지(판정 아님)' };
+  const rep = { note: 'B0 — 비용·REF 시간·바닥 페이지(판정 아님)', renderer: RENDERER_NOTE };
   const dec = readJ(path.join(OUT, 'decisions.json'));
   rep.refTiming = dec ?? { missing: true };
   const cd = path.join(OUT, 'B0-cost'), cj = jobsOf(J('b0-cost.json'));
@@ -138,9 +161,10 @@ function cmdB0() {
   }
   const aa = ['b0-costaa-1', 'b0-costaa-2'].map(f => { const j = jobsOf(J(f + '.json'))[0]; return j ? jobState(path.join(OUT, 'B0-' + f.slice(3)), j.name).meta?.cost ?? null : null; });
   rep.costAA = { a: aa[0], b: aa[1], verdict: verdict(aa[0] && aa[1] ? ['x', 'y', 'z', 'nTsun'].every(k => aa[0][k] === aa[1][k]) && aa[0].nTsun === 0 : null), note: 'ruler-delta E2: decoded x·y·z·n_tsun identical, n_tsun 0 on C0' };
-  const fd = path.join(OUT, 'B0-floor'), fj = jobsOf(J('b0-floor.json'));
+  const fd = path.join(OUT, 'B0-floor'), fj = [...jobsOf(J('b0-floor.json')), ...jobsOf(J('b0-floor-ref100.json'))];
   rep.floorPage = fj.map(j => { const s = jobState(fd, j.name); return { name: j.name, state: s.state, wallMin: s.meta ? s.meta.wallMsOuter / 60000 : null }; });
-  rep.scissorDecision = dec ? { scissorNeeded: dec.scissorNeeded, refDrawMaxMs: dec.ref?.drawMaxMs, ref100DrawMaxMs: dec.ref100?.drawMaxMs, refBlocked: dec.refBlocked, reasons: dec.reasons } : null;
+  rep.scissorDecision = dec ? { gate: dec.gate, scissorNeeded: dec.scissorNeeded, refDrawMaxMs: dec.ref?.drawMaxMs, ref100DrawMaxMs: dec.ref100?.drawMaxMs, refBlocked: dec.refBlocked, ref100Blocked: dec.ref100Blocked,
+    watchdogScale: dec.watchdogScale, ref100WatchdogScale: dec.ref100WatchdogScale, reasons: dec.reasons } : null;
   writeJ(path.join(R, 'b0.json'), rep);
 }
 
@@ -155,7 +179,7 @@ function raT(cDir, cName, rDir, rName, cImgDir, cImg, rImgDir, rImg) {
   } catch (e) { return { error: String(e.message).slice(0, 400) }; }
 }
 function cmdB2() {
-  const rep = { note: 'B2 — R-A_T(보고만, U1 미정) · REF 검증 (i)(보고)' };
+  const rep = { note: 'B2 — R-A_T(보고만, U1 미정) · REF 검증 (i)(보고)', renderer: RENDERER_NOTE };
   const T = path.join(OUT, 'B2'), B0F = path.join(OUT, 'B0-floor');
   const units = [...new Set(jobsOf(J('b2-ref.json')).map(j => j.unit))];
   const per = [];
@@ -173,7 +197,7 @@ function cmdB2() {
   for (const r of per) { if (r.status !== 'ok') continue; const k = r.family + '/' + r.cand; (fam[k] ??= []).push(r); }
   rep.raTFamilies = Object.fromEntries(Object.entries(fam).map(([k, rs]) => [k, Object.fromEntries(['0.01', '0.03', '0.1'].map(eps => [eps, { n: rs.length, median_b_T: median(rs.map(r => r.byEps?.[eps]?.b_T)), median_e_T: median(rs.map(r => r.byEps?.[eps]?.e_T)) }]))]));
   // Floor_T: REF 진단 A/A(바닥 페이지 B vs B2 페이지 A) · REF100 진단 vs REF 진단(같은 페이지 B)
-  const floorUnits = [...new Set(jobsOf(J('b0-floor.json')).filter(j => j.arm === 'REF100').map(j => j.unit))];
+  const floorUnits = [...new Set(jobsOf(J('b0-floor-ref100.json')).filter(j => j.arm === 'REF100').map(j => j.unit))];
   const fl = [];
   for (const u of floorUnits) {
     fl.push({ unit: u, kind: 'REF A/A', ...summ(raT(B0F, `REF__${u}__dbg1`, T, `REF__${u}__dbg1`, B0F, `REF__${u}`, T, `REF__${u}`)) });
@@ -212,10 +236,15 @@ function cmdSummary() {
   const steps = {};
   const sd = path.join(OUT, 'steps');
   if (fs.existsSync(sd)) for (const f of fs.readdirSync(sd).filter(f => f.endsWith('.json')).sort()) steps[f.replace(/\.json$/, '')] = readJ(path.join(sd, f));
-  const est = get('--estimate') ? readJ(get('--estimate')) : null;
+  const est = get('--estimate') ? readJ(get('--estimate')) : null, est2 = readJ(path.join(OUT, 'estimate-after-B0.json'));
+  const shortEst = e => e && { totalMin: e.totalMin, totalH: e.totalH, pages: e.chunks, gate: e.gate, refMeasured: e.refMeasured, items1to4Min: e.items1to4Min,
+    branches: (e.branches || []).map(b => ({ name: b.name, totalH: b.totalH, pages: b.pages, lostJobs: b.lost, stalledFiles: b.stalledFiles })) };
+  const rc = get('--exit-rc') != null ? Number(get('--exit-rc')) : null;
+  const counts = {}; for (const m of Object.values(steps)) if (m) counts[m.status] = (counts[m.status] ?? 0) + 1;
   const sum = { note: '§180 GPU 창 요약 — 단계 표지 + 보고(판정 아님). 다시 돌리면 끝난 단계는 건너뜀.', updatedAt: new Date().toISOString(), out: OUT,
-    run: readJ(path.join(OUT, 'run.json')), estimate: est && { totalMin: est.totalMin, totalH: est.totalH, chunks: est.chunks, refMeasured: est.refMeasured },
-    steps, reports: Object.fromEntries(['light', 'b1', 'w7', 'b0', 'b2'].map(k => [k, readJ(path.join(R, k + '.json'))])), decisions: readJ(path.join(OUT, 'decisions.json')) };
+    exit: rc == null ? null : { rc, meaning: { 0: 'all selected steps processed', 2: 'refused (see message)', 75: 'stopped: RULER-grain process', 76: 'stopped: budget/GW_UNTIL — re-run to resume', 130: 'interrupted' }[rc] ?? 'other', message: get('--exit-msg') || null },
+    run: readJ(path.join(OUT, 'run.json')), estimate: shortEst(est), estimateAfterB0: shortEst(est2),
+    stepCounts: counts, steps, reports: Object.fromEntries(['light', 'b1', 'w7', 'b0', 'b2'].map(k => [k, readJ(path.join(R, k + '.json'))])), decisions: readJ(path.join(OUT, 'decisions.json')) };
   writeJ(path.join(OUT, 'gpu-window-summary.json'), sum);
 }
 

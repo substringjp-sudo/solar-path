@@ -1,10 +1,14 @@
 /**
  * §180 §178 조명 고침 렌더 확인 + WP7-P1 아틀라스 읽기 대조 — entry-gpuwin 번들을 SwiftShader Chromium 한 페이지에 띄워 단계 하나를 돌립니다.
- * **GPU 창에서만**(gpu-window.sh 가 부름 — RULER-grain 과정이 없을 때, run-tsun 과 같은 잠금 /tmp/run-tsun.lock). 페이지 하나 = 단계 하나 ≤ 60 분.
+ * **GPU 창에서만**(gpu-window.sh 가 부름 — RULER-grain 과정이 없을 때, run-tsun 과 같은 잠금 /tmp/run-tsun.lock). 페이지 하나 = 단계 하나 ≤ 60 분
+ * (--max-min 58 + 브라우저 닫기 ≤ 1 분 — §180 검토 4).
  *
- *   nice -n 19 node tools/genus-ruler/tsun/lighting-render-check.js --guard-tag genus-ruler/volsky/run.js --stage L2deck \
- *       --root <entry-gpuwin 번들 폴더> --scenes <jobs>/light-scenes.json --out <OUT>/L [--max-min 60] [--lock F] [--allow-dirty] [--dry]
- *   단계: L1compile · L2deck · L3twilight · L4sunset · L5cross12 · L6frametime · W7atlas (gpuwin-lib LIGHT_STAGES — 캔버스도 거기)
+ *   nice -n 19 node tools/genus-ruler/tsun/lighting-render-check.js --guard-tag genus-ruler/volsky/run.js --stage L2deck-high \
+ *       --root <entry-gpuwin 번들 폴더> --scenes <jobs>/light-scenes.json --out <OUT>/L [--max-min 58] [--lock F] [--allow-dirty] [--dry]
+ *   단계(gpuwin-lib LIGHT_STAGES — 캔버스·entry-gpuwin 단계 이름(fn)·인자 덮어쓰기(patch)도 거기): L1compile · L2deck-low · L2deck-high · L3twilight ·
+ *   L4sunset · L5cross12-low · L5cross12-medium · L6frametime-a · L6frametime-b · W7atlas.
+ *   §180 검토 4: 60 분을 넘을 수 있던 L2deck·L5cross12·L6frametime 을 페이지 둘로 나눔(품질별 · L6 은 ABBA 한 번씩 두 페이지, 데움 4 + 잰 12 프레임) —
+ *   한 단계가 시간 한도에 걸리면 그 페이지만 잃음(gpu-window.sh 는 같은 입력의 timeout 을 다시 돌리지 않음, GW_RETRY_FAILED=1 이면 다시).
  *   --dry: 인자·번들·장면·지킴·건너뛰기 판단만 하고 브라우저를 띄우지 않음(종료 0).
  *
  * 출력: <out>/<단계>.json(마지막에 임시 → 이름 바꾸기 — 열쇠 key = 번들 sha · 장면 sha · 인자 sha · 이 파일 sha) · <out>/<단계>/*.png(L2deck).
@@ -21,7 +25,7 @@ const take = (k, d = null) => { const i = argv.indexOf(k); if (i < 0) return d; 
 const flag = k => { const i = argv.indexOf(k); if (i < 0) return false; argv.splice(i, 1); return true; };
 const args = {
   guardTag: take('--guard-tag'), stage: take('--stage'), root: take('--root'), scenes: take('--scenes'), out: take('--out'),
-  maxMin: Number(take('--max-min', '60')), lock: take('--lock', process.env.TSUN_LOCK || '/tmp/run-tsun.lock'),
+  maxMin: Number(take('--max-min', String(G.LIGHT_MAX_MIN))), lock: take('--lock', process.env.TSUN_LOCK || '/tmp/run-tsun.lock'),
   allowDirty: flag('--allow-dirty'), dry: flag('--dry'),
 };
 if (argv.length) { console.error('lighting-render-check: unknown argument(s) ' + argv.join(' ')); process.exit(2); }
@@ -44,10 +48,14 @@ if (Number(bundleInfo.dirtyFiles) > 0 && !args.allowDirty) { console.error(`ligh
 const scenesBuf = fs.readFileSync(args.scenes), SCENES_SHA = sha(scenesBuf), S = JSON.parse(scenesBuf);
 const SELF_SHA = sha(fs.readFileSync(__filename));
 
-/** 단계 인자(장면 파일에서 — 브라우저에 그대로 넘김). 해 고도 계열은 후쿠이 10/02 저녁(해 지는 쪽, 이분 탐색 구간 16:00~19:30 JST). */
+/** 단계 인자(장면 파일에서 — 브라우저에 그대로 넘김). 해 고도 계열은 후쿠이 10/02 저녁(해 지는 쪽, 이분 탐색 구간 16:00~19:30 JST).
+ *  fn = entry-gpuwin 단계 이름, 나눈 단계는 LIGHT_STAGES[stage].patch 로 덮어씀. */
 function stageParams(stage) {
+  return { ...baseParams(ST.fn), ...(ST.patch || {}) };
+}
+function baseParams(fn) {
   const deck = { input: S.P1B.input, options: S.P1B.options };
-  switch (stage) {
+  switch (fn) {
     case 'L1compile': return { scene: deck };
     case 'L2deck': return { scene: deck, qualities: ['low', 'high'], frames: 16 };
     case 'L3twilight': return { scene: deck, from: -10, to: 0, step: 0.2, searchFrom: '2026-10-02T07:00:00Z', searchTo: '2026-10-02T10:30:00Z', bands: [[-10, -6], [-6, -3], [-3, 0]] };
@@ -55,11 +63,11 @@ function stageParams(stage) {
     case 'L5cross12': return { fukui: S.fukui, configs: S.configs, qualities: ['low', 'medium'], frames: 16 };
     case 'L6frametime': return { scene: S.frametimeUnit, warm: 6, timed: 24 };
     case 'W7atlas': return { units: S.wp7Units, arms: S.arms };
-    default: throw new Error('stage ' + stage);
+    default: throw new Error('stage ' + fn);
   }
 }
 const params = stageParams(args.stage);
-const KEY = sha(JSON.stringify({ bundle: BUNDLE_SHA, scenes: SCENES_SHA, self: SELF_SHA, stage: args.stage, canvas: [ST.W, ST.H], params: sha(JSON.stringify(params)) }));
+const KEY = sha(JSON.stringify({ bundle: BUNDLE_SHA, scenes: SCENES_SHA, self: SELF_SHA, stage: args.stage, fn: ST.fn, canvas: [ST.W, ST.H], params: sha(JSON.stringify(params)) }));
 const outFile = path.join(args.out, args.stage + '.json');
 const prev = (() => { try { return JSON.parse(fs.readFileSync(outFile, 'utf8')); } catch { return null; } })();
 if (prev && prev.key === KEY && prev.ok === true) { console.log(`lighting-render-check: ${args.stage} already done with the same key — skip`); process.exit(0); }
@@ -73,7 +81,7 @@ const pg = pattern => { try { return G.pgrepAf(pattern); } catch (e) { console.e
   if (gpu.length) { console.error('lighting-render-check: a SwiftShader GPU process is running — refusing:\n' + gpu.map(p => `  ${p.pid} ${p.cmd.slice(0, 160)}`).join('\n')); process.exit(2); }
 }
 if (args.dry) {
-  console.log(JSON.stringify({ dry: true, stage: args.stage, canvas: [ST.W, ST.H], bundle: BUNDLE_SHA.slice(0, 16), scenes: SCENES_SHA.slice(0, 16), key: KEY.slice(0, 16), out: outFile, wouldSkip: false, paramsBytes: JSON.stringify(params).length }));
+  console.log(JSON.stringify({ dry: true, stage: args.stage, fn: ST.fn, patch: ST.patch || null, maxMin: args.maxMin, canvas: [ST.W, ST.H], bundle: BUNDLE_SHA.slice(0, 16), scenes: SCENES_SHA.slice(0, 16), key: KEY.slice(0, 16), out: outFile, wouldSkip: false, paramsBytes: JSON.stringify(params).length }));
   process.exit(0);
 }
 let lock;
@@ -109,7 +117,7 @@ const server = http.createServer((req, res) => {
     if (errs.length) return finish(1, 'page errors: ' + JSON.stringify(errs).slice(0, 2000));
     const atmosMs = await p.evaluate(() => window.__atmosMs);
     console.log(args.stage, 'atmosphere ms', Math.round(atmosMs), 'chromium', b.version());
-    const r = await Promise.race([p.evaluate(([s, prm]) => window.__stage(s, prm), [args.stage, params]),
+    const r = await Promise.race([p.evaluate(([s, prm]) => window.__stage(s, prm), [ST.fn, params]),
       new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('TIME LIMIT ' + args.maxMin + ' min')), left()); })]);
     clearTimeout(timer);
     // 출렁임 지표(L3·L4) — node 에서
@@ -125,8 +133,8 @@ const server = http.createServer((req, res) => {
     if (Object.keys(pngs).length) fs.mkdirSync(pdir, { recursive: true });
     for (const [n, url] of Object.entries(pngs)) fs.writeFileSync(path.join(pdir, n.replace(/[^A-Za-z0-9_.+-]/g, '_')), Buffer.from(String(url).split(',')[1], 'base64'));
     const ok = !r.ctxLost && r.glError === 0 && !(r.errors || []).length && !(r.shaderErrors || []).length && !(r.brokenPrograms || []).length;
-    const rec = { stage: args.stage, key: KEY, ok, bundleSha256: BUNDLE_SHA, scenesSha256: SCENES_SHA, bundle: { esbuild: bundleInfo.esbuild, gitHead: bundleInfo.gitHead, dirtyFiles: bundleInfo.dirtyFiles },
-      chromium: b.version(), atmosMs, wallMin: (Date.now() - t0) / 60000, finishedAt: new Date().toISOString(), guardTag: args.guardTag, ...r, pngs: Object.keys(pngs) };
+    const rec = { stage: args.stage, fn: ST.fn, patch: ST.patch || null, key: KEY, ok, bundleSha256: BUNDLE_SHA, scenesSha256: SCENES_SHA, bundle: { esbuild: bundleInfo.esbuild, gitHead: bundleInfo.gitHead, dirtyFiles: bundleInfo.dirtyFiles },
+      chromium: b.version(), atmosMs, wallMin: (Date.now() - t0) / 60000, finishedAt: new Date().toISOString(), guardTag: args.guardTag, ...r, stage: args.stage, pngs: Object.keys(pngs) };   // r.stage = fn — 나눈 단계 이름을 남김
     fs.writeFileSync(outFile + '.tmp', JSON.stringify(rec, null, 1)); fs.renameSync(outFile + '.tmp', outFile);
     console.log(args.stage, ok ? 'OK' : 'NOT OK', 'wall', rec.wallMin.toFixed(1), 'min');
     return finish(r.ctxLost ? 6 : ok ? 0 : 1);

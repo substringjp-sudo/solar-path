@@ -13,7 +13,8 @@
  *  - L5cross12  : 후쿠이 아침 06:40(해 9.1°)에 장면 → setDate 로 12° 를 위로 넘김(06:58·07:04·07:10·07:16·07:22) × 저층만 / 권운 함께 × low·medium:
  *                 (a) 지금 코드(§178 g2 castEligible) (b) 고치기 전 흉내(setDate 뒤 모든 층 shadow = 참 — e0f93f2^ 의 `layer.shadow !== undefined`)
  *                 (c) 그 시각에 새로 만든 장면 — 셋의 shadowTopHeight·층별 shadow·구름 RT 평균 Y(저층 텍셀).
- *  - L6frametime: high · RA1_s4_V1(균일 ac 덮개, 해 4°) — {끔, CLAMP, LOGμ, 둘 다} 를 ABBA 두 번, 설정마다 데움 6 + 잰 24 프레임(동기 시각).
+ *  - L6frametime: high · RA1_s4_V1(균일 ac 덮개, 해 4°) — {끔, CLAMP, LOGμ, 둘 다} 를 ABBA(p.order), 설정마다 데움 p.warm + 잰 p.timed 프레임(동기 시각).
+ *                 §180 검토 4: gpu-window 는 L6frametime-a·b 두 페이지(ABBA 한 번씩, 데움 4 + 잰 12) — 페이지마다 자기 '끔' 기준으로 Δ.
  *  - W7atlas    : WP7-P1 — RA 합성 단위에서 T1·T1A(·T2) 아틀라스를 짓고(tsun-build 와 같은 길) 64×64 격자 점마다 GPU 읽기(gTsunUvOf 와 같은 식 +
  *                 하드웨어 선형 필터)와 CPU 거울 tsunAtlasSampleCpu(half) 를 대조: |Δτ| ≤ 1e-3·τ + 1e-3 [design v2 §8 WP7].
  *                 셰이더의 getGlobeUv(구면 → 평면) 단계는 이 탐침에 없음(평면 km 를 바로 넣음) — 그 단계는 B2 R-A_T 가 잼.
@@ -183,7 +184,8 @@ const FLAGS: Record<string, { clampInscatter: boolean; irradianceLogMu: boolean 
       async L2deck(p) {
         const sc = p.scene as { input: In; options: AnyRec };
         const runs: AnyRec[] = [], pngs: Record<string, string> = {};
-        for (const q of (p.qualities as VolumetricQuality[])) for (const fl of ['off', 'logmu', 'on']) {
+        // §180 검토 4: p.flags 로 설정을 고름(L2deck-high 는 끔·켬 둘만 — 한 페이지 60 분 안)
+        for (const q of (p.qualities as VolumetricQuality[])) for (const fl of ((p.flags as string[] | undefined) ?? ['off', 'logmu', 'on'])) {
           setup(sc.input, { ...sc.options, ...FLAGS[fl] }, q);
           const f = frames(Number(p.frames ?? 16), 4);
           const band = (lo: number, hi: number) => statsY(f.texels.filter(t => t.a >= 0.5 && t.el >= lo && t.el <= hi).map(t => t.Y));
@@ -264,7 +266,8 @@ const FLAGS: Record<string, { clampInscatter: boolean; irradianceLogMu: boolean 
       // ── L6 프레임 시간(high) ──
       async L6frametime(p) {
         const sc = p.scene as { input: In; options: AnyRec };
-        const order = ['off', 'clamp', 'logmu', 'on', 'on', 'logmu', 'clamp', 'off', 'off', 'clamp', 'logmu', 'on', 'on', 'logmu', 'clamp', 'off'];
+        // §180 검토 4: p.order 로 블록 차례를 받음(L6frametime-a·b = ABBA 한 번씩 두 페이지)
+        const order = (p.order as string[] | undefined) ?? ['off', 'clamp', 'logmu', 'on', 'on', 'logmu', 'clamp', 'off', 'off', 'clamp', 'logmu', 'on', 'on', 'logmu', 'clamp', 'off'];
         const nWarm = Number(p.warm ?? 6), nTimed = Number(p.timed ?? 24);
         const per: Record<string, number[]> = { off: [], clamp: [], logmu: [], on: [] };
         const log: AnyRec[] = [];

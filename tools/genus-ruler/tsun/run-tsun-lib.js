@@ -48,15 +48,19 @@ function ancestorsOf(pid, readFile = f => fs.readFileSync(f, 'utf8')) {
   return out;
 }
 
+/** §180 검토 1: 이 부팅의 id(/proc/sys/kernel/random/boot_id) — 다시 켠 뒤 pid 가 재사용되어 낡은 잠금이 '살아 있음'으로 보이지 않게. 없으면 null. */
+function bootId(readFile = f => fs.readFileSync(f, 'utf8')) { try { return readFile('/proc/sys/kernel/random/boot_id').trim() || null; } catch { return null; } }
 /**
  * 잠금 얻기. 이미 있으면: 그 pid 가 살아 있으면 throw, 죽었으면 치우고 다시(기록 stale). 돌려주는 release() 는 자기 잠금만 지움.
- * @param {string} file @param {{pid?:number, alive?:(pid:number)=>boolean, now?:()=>string}} [o]
+ * §180 검토 1: 잠금에 bootId 를 적고, 쥔 쪽 bootId 가 지금 부팅과 다르면(다시 켠 뒤) pid 가 살아 있어도 낡음으로 치움(옛 잠금 — bootId 없음 — 은 예전 규칙).
+ * @param {string} file @param {{pid?:number, alive?:(pid:number)=>boolean, now?:()=>string, nowMs?:()=>number, bootId?:string|null}} [o]
  */
 function acquireLock(file, o = {}) {
   const pid = o.pid ?? process.pid;
   const alive = o.alive ?? (p => { try { process.kill(p, 0); return true; } catch (e) { return e.code === 'EPERM'; } });
   const nowMs = o.nowMs ?? (() => Date.now());
-  const body = JSON.stringify({ pid, started: (o.now ?? (() => new Date().toISOString()))() });
+  const boot = o.bootId !== undefined ? o.bootId : bootId();
+  const body = JSON.stringify({ pid, started: (o.now ?? (() => new Date().toISOString()))(), bootId: boot });
   let stale = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     // 하네스 14(c): 내용을 다 쓴 임시 파일을 link 로 걸어 '빈 잠금' 순간이 없게(openSync('wx') 뒤 writeSync 사이의 경합)
@@ -71,7 +75,8 @@ function acquireLock(file, o = {}) {
       if (e.code !== 'EEXIST') throw e;
       let held = null;
       try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { held = null; }
-      if (held && Number.isFinite(held.pid) && alive(held.pid)) throw new Error(`run-tsun: lock ${file} is held by live pid ${held.pid} (since ${held.started}) — one tsun chunk at a time`);
+      const otherBoot = !!(held && held.bootId && boot && held.bootId !== boot);   // §180 검토 1: 다른 부팅의 잠금
+      if (held && Number.isFinite(held.pid) && !otherBoot && alive(held.pid)) throw new Error(`run-tsun: lock ${file} is held by live pid ${held.pid} (since ${held.started}) — one tsun chunk at a time`);
       if (!held) {
         // 읽을 수 없는 잠금: 10 초 안에 만들어진 것은 다른 과정이 쓰는 중으로 보고 거부(옛 판의 openSync 경합 대비), 그보다 오래면 낡음
         let age = Infinity; try { age = nowMs() - fs.statSync(file).mtimeMs; } catch { /* 없음 */ }
@@ -154,4 +159,4 @@ function startsWithinChunk(elapsedMin, jobWatchdogMs, maxMin) {
   return elapsedMin + jobWatchdogMs / 60000 <= maxMin;
 }
 
-module.exports = { GRAIN_PATTERN, GUARD_TAG, SWIFTSHADER_GPU_PATTERN, FIRST_JOB_EXTRA_MIN, MAX_CHUNK_MIN, conflictingProcesses, ancestorsOf, acquireLock, watchdogMs, mixedQualities, duplicateNames, parseArgs, startsWithinChunk };
+module.exports = { GRAIN_PATTERN, GUARD_TAG, SWIFTSHADER_GPU_PATTERN, FIRST_JOB_EXTRA_MIN, MAX_CHUNK_MIN, conflictingProcesses, ancestorsOf, bootId, acquireLock, watchdogMs, mixedQualities, duplicateNames, parseArgs, startsWithinChunk };

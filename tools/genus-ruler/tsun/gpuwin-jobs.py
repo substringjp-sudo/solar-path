@@ -4,7 +4,7 @@
 **렌더하지 않음**(파일만 씀). 판정 회차 없음 — 후보 손잡이(T·아치)는 사진 장면(P1B·P2B·P3B 등)에 걸지 않고 합성 단위(RA·HS·grain 비용 입력)에만
 (2026-10-28 사용자 결정: 사진은 후보 손잡이에 보이지 않게).
 
-  nice -n 19 python3 -I tools/genus-ruler/tsun/gpuwin-jobs.py --outdir DIR
+  nice -n 19 python3 -I -B tools/genus-ruler/tsun/gpuwin-jobs.py --outdir DIR   (-B: 동결 파일 옆에 __pycache__ 를 남기지 않음 — §180 검토 13)
 
 읽기만: scenes-tsun.json · make-jobs-tsun.py(동결 후보 — 모듈로 불러 고리 재생성 GEN·sha_obj 만 씀, 고치지 않음) · ../grain/jobs-grain.json(비용 입력).
 팔은 설계 v2.1 §5.1 그대로(새 손잡이 9 개를 모든 잡에 명시 — ruler-delta A1). 동결 확장기(make-jobs-tsun expand)의 ARMS 는 옛 T1A1/T1A2 와
@@ -17,7 +17,8 @@
   w7-emu.json                                    WP7-P3 합성 덮개(RA1)의 C0ps 그림(T1 그림은 b2-t 의 것과 짝)
   b0-time.json                                   B0 REF·REF100 시간(프레임마다 그리기 시간 → 가위 대체 경로 > 10 s 판단, 감시 시간 배율)
   b0-cost.json · b0-costaa-1.json · b0-costaa-2.json   B0 비용(390×584, grain 비용 입력) · 비용 A/A(E2)
-  b0-floor.json                                  B0 바닥 페이지(B): REF·C0ps·REF100 A/A 단위 + REF·REF100 진단(Floor_T)
+  b0-floor.json                                  B0 바닥 페이지(B): C0ps·REF A/A 단위 + REF 진단(Floor_T)
+  b0-floor-ref100.json                           B0 바닥 REF100 쪽(같은 단위의 REF100 진단·그림 — §180 검토 2: REF100 감시 시간·막힘이 따로라 따로 된 페이지)
   b2-t.json                                      B2 R-A_T 후보 쪽: T1·T2 그림 + 진단(34 RA 단위)
   b2-ref.json                                    B2 REF_v2 진단 + 그림(34 RA, 바닥 단위 먼저)
   b2-refval.json                                 B2 REF 검증 (i): REF_val × HS 45·30·15° 12 + C0 12
@@ -35,7 +36,9 @@ MJ = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(MJ)
 
 # ── 설계 v2.1 §5.1 팔(새 손잡이 9 개 모두 명시). tsunSync: T 팔 true(하네스 동기 구축), 나머지 false(끔 값).
-K0 = dict(tsun=0, tsunN=128, tsunRangeKm=400, archLight=0, archNoT=0, tsunRef=0, tsunRefStepM=200, tsunDebug=0, tsunSync=False)
+# §180 검토 11: §178 앱 조명 고침 둘(clampInscatter·irradianceLogMu)도 모든 T_sun 잡에 끔(F6 기준선)으로 명시 — 기본값과 같지만 '모든 손잡이 명시'.
+K0 = dict(tsun=0, tsunN=128, tsunRangeKm=400, archLight=0, archNoT=0, tsunRef=0, tsunRefStepM=200, tsunDebug=0, tsunSync=False,
+          clampInscatter=False, irradianceLogMu=False)
 ARMS = {
     'C0': dict(K0, accurateSunBelowDeg=None),
     'C0ps': dict(K0, accurateSunBelowDeg=12),
@@ -161,11 +164,12 @@ def main(outdir):
     files['b0-costaa-1.json'] = [cost_job('AA', 'C0', 'C0__cu35_e5__s__dev__cost')]
     files['b0-costaa-2.json'] = [cost_job('AA', 'C0', 'C0__cu35_e5__s__dev__cost')]
 
-    # ── B0 바닥 페이지 B(동결 확장기의 page B RA 와 같은 단위·팔 + 진단 바닥): 싼 것 먼저, REF100 은 끝에(감시 시간 50 분)
+    # ── B0 바닥 페이지 B(동결 확장기의 page B RA 와 같은 단위·팔 + 진단 바닥): 싼 것 먼저. §180 검토 2: REF100 은 따로 된 파일(감시 시간 배율·막힘이
+    # REF 와 따로 — gpu-window.sh B0floor100 단계, 같은 출력 폴더 B0-floor)
     fl = [unit_job('', 'C0ps', u, 0) for u in aa] + [unit_job('', 'C0ps', 'HS_RA1_s30_V1', 0, note='HS phase test (page B)')]
     fl += [unit_job('', 'REF', u, 1) for u in aa] + [unit_job('', 'REF', u, 0) for u in aa]
-    fl += [unit_job('', 'REF100', u, 1) for u in aa] + [unit_job('', 'REF100', u, 0) for u in aa]
     files['b0-floor.json'] = fl
+    files['b0-floor-ref100.json'] = [unit_job('', 'REF100', u, 1) for u in aa] + [unit_job('', 'REF100', u, 0) for u in aa]
 
     # ── B2: R-A_T 후보 쪽(싼 것) · REF_v2(바닥 단위 먼저, 단위마다 진단 → 그림) · REF 검증
     files['b2-t.json'] = [unit_job('', arm, u, d) for u in ra_names for arm in ('T1', 'T2') for d in (0, 1)]
@@ -173,37 +177,35 @@ def main(outdir):
     files['b2-ref.json'] = [unit_job('', 'REF', u, d) for u in order for d in (1, 0)]
     files['b2-refval.json'] = [unit_job('', 'REFval', u, 0) for u in hs_ref] + [unit_job('', 'C0', u, 0) for u in hs_ref]
 
-    # ── 감시 시간(watchdogMin, run-tsun-lib watchdogMs 가 잡 값을 먼저 씀): 잡마다 새 프로그램을 컴파일하는 B1 은 품질별 고정값(REF 1 프레임에
-    # 기본 25·50 분은 덩어리 55 분에 REF100 이 첫 잡으로만 들어가 진전이 막힘) · 그 밖 파일은 팔 글자 종류의 첫 잡만 컴파일 여유(8 분 × 품질 배율).
-    # 시작값은 기본 그대로(REF 25 · REF100 50 · REF 진단 8·16 · 그 밖 2 × 화소 비) — B0 시간 뒤 REF 파일만 --watchdog-scale 로 다시 정함.
+    # ── 감시 시간(watchdogMin, run-tsun-lib watchdogMs 가 잡 값을 먼저 씀): 잡마다 새 프로그램을 컴파일하는 B1 은 품질별 고정값.
+    # §180 검토 3: 페이지(덩어리)마다 프로그램을 새로 컴파일하므로 컴파일 여유(8 분 × 품질 배율)를 **모든** 잡에(예전: 파일 안 종류의 첫 잡만 —
+    # 둘째 덩어리의 첫 T2·진단 잡이 2 분 감시 시간에 걸려 영영 건너뛰어졌음). 값 = max(기본, 8 × 품질 배율). 비용: 덩어리 끝 8 분은 새 잡을 받지 않음.
+    # §180 검토 2: REF100 은 기본 50 분이면 대기 생성(7.5~12 분, c0.log) 뒤 55 분 덩어리에 영영 못 들어감 → 그림 30 분 · 진단 16 분으로 명시
+    # (30 분을 넘는 REF100 은 어차피 한 그리기 > 10 s — 감시 시간에 걸리면 decide-b0 가 '너무 느림'으로 적음).
+    # B0 시간 뒤 REF 파일은 --watchdog-scale(≥ 1 — 줄이지 않음, decideB0)로만 늘림.
+    # B1(잡마다 새 프로그램 + 1 프레임): REF 팔은 품질별 10·15·25 분, 그 밖 팔은 8·12·16 분(§180 검토 6: B1-high 가 어림 높은 끝을 차지 — 25 분 고정 감시 시간이
+    # 덩어리 끝 25 분을 비워 둠. T 팔 high 1 프레임 = 컴파일 2~5 분 + 1 분 미만 [estimate] 이라 16 분이면 세 배 넘는 여유).
     B1_WD = {'low': 10, 'medium': 15, 'high': 25}
+    B1_WD_NONREF = {'low': 8, 'medium': 12, 'high': 16}
     QMUL = {'low': 1, 'medium': 1.5, 'high': 2}
+    REF100_WD = {'image': 30, 'debug': 16}
 
     def default_wd(j):
         o = j['options']
         W, H = (j['canvas'] if j.get('canvas') else (j['W'], j['H']))
+        if o.get('tsunRef') and o.get('tsunRefStepM', 200) <= 100:
+            return REF100_WD['debug' if o.get('tsunDebug') else 'image']
         if o.get('tsunRef') and o.get('tsunDebug'):
             return 8 * max(1, 200 / max(1, o.get('tsunRefStepM', 200)))
-        if o.get('tsunRef') and o.get('tsunRefStepM', 200) <= 100:
-            return 50
         if o.get('tsunRef'):
             return 25
         return 2 * max(1, W * H / (400 * 300))
 
-    def prog_class(j):
-        o = j['options']
-        return (o.get('accurateSunBelowDeg'), o.get('shadowMinSunDeg'), o.get('tsun'), o.get('archLight'), o.get('tsunRef'), o.get('tsunDebug'), bool(j.get('grain')))
-
     for fn, js in files.items():
-        if fn.startswith('b1-'):
-            for j in js:
-                j['watchdogMin'] = B1_WD[j.get('quality', 'low')]
-            continue
-        seen = set()
         for j in js:
-            c = prog_class(j)
-            if c not in seen:
-                seen.add(c)
+            if fn.startswith('b1-'):
+                j['watchdogMin'] = (B1_WD if j['options'].get('tsunRef') else B1_WD_NONREF)[j.get('quality', 'low')]
+            else:
                 j['watchdogMin'] = max(default_wd(j), 8 * QMUL[j.get('quality', 'low')])
 
     # ── 점검: 이름 겹침(파일 안·출력 폴더를 같이 쓰는 파일 사이) · 품질 섞기 · 캔버스
@@ -231,7 +233,16 @@ def main(outdir):
         for j in js:
             k = kind_of(j)
             kinds[k] = kinds.get(k, 0) + 1
-        man['files'][fn] = dict(n=len(js), W=W, H=H, quality=js[0].get('quality', 'low'), kinds=kinds, sha256=sha_file(p))
+        # §180 검토 6: 시간 어림(gpuwin-lib simulateFile)이 run-tsun 받아들임 규칙을 잡마다 흉내 내도록 가벼운 목록(130 MB 잡 파일을 다시 읽지 않게)
+        sim = []
+        for j in js:
+            o = j['options']
+            jw, jh = (j['canvas'] if j.get('canvas') else (j['W'], j['H']))
+            cls = [o.get('accurateSunBelowDeg'), o.get('shadowMinSunDeg'), o.get('tsun'), o.get('tsunN'), o.get('archLight'), o.get('archNoT'),
+                   o.get('tsunRef'), o.get('tsunRefStepM'), o.get('tsunDebug'), bool(j.get('grain'))]
+            sim.append(dict(n=j['name'], k=kind_of(j), c=json.dumps(cls), q=j.get('quality', 'low'), W=jw, H=jh, g=bool(j.get('grain')), wd=j.get('watchdogMin'),
+                            o={k: o.get(k) for k in ('tsunRef', 'tsunDebug', 'tsunRefStepM')}))
+        man['files'][fn] = dict(n=len(js), W=W, H=H, quality=js[0].get('quality', 'low'), kinds=kinds, sha256=sha_file(p), sim=sim)
 
     # ── §178 렌더 확인 장면(후보 손잡이 없음 — 앱 조명 고침 둘만 켜고 끔)
     P1B = S['scenes']['P1B']['job']
