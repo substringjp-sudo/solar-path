@@ -1,0 +1,107 @@
+{
+ "canonical_sha256": "0ab7fa5c96f708ea25831290ac6cb3c80503518da0ff17851d623952098ca8f2",
+ "arrays": {
+  "T": {
+   "shape": [
+    64,
+    256,
+    3
+   ],
+   "sha256": "bf6966177c7d98d45db209b646bb32fc1f591df3e9f1725d701c502dde26f34b"
+  },
+  "I": {
+   "shape": [
+    16,
+    64,
+    3
+   ],
+   "sha256": "d5ce218d3e8b35204354e3889a2470b750ae99a83e9d60a7231d6f45b6fa4bf8"
+  },
+  "S": {
+   "shape": [
+    32,
+    128,
+    256,
+    3
+   ],
+   "sha256": "2049b241cab811b046a8b49e4e6af7663ad99d566733dd84b5aba1c918f28edf"
+  },
+  "M": {
+   "shape": [
+    32,
+    128,
+    256,
+    3
+   ],
+   "sha256": "31487e470bd60a20642ddc8aed67df524cb78333d3ee516510befba887a9a946"
+  },
+  "H": {
+   "shape": [
+    32,
+    128,
+    256,
+    3
+   ],
+   "sha256": "422163e69c94188993620ab8d587978838433a9345a38b36ea8630708a50135f"
+  },
+  "K": {
+   "shape": [],
+   "sha256": "bdc2bd105819654c0f58f707fc2d2b9b9db7154715132892ae653fbbf85d9bf9"
+  }
+ },
+ "K": 0.009020395868491179,
+ "batches": {
+  "s0": {
+   "transmittance.f32": "7ecb248cf216b832134f21b01302f0db8fe5b691bd821f5a2e10f14559adc286",
+   "irradiance.f32": "3cf76bde5e12d25a85cb7e0e132441c6cd1b5a40921d24c99c0370a42edbbf07",
+   "scattering.f32": "2bc164506b977ba205fe3bd76e4a987b34907ebe1bd271142482e188024aa4ce",
+   "mie.f32": "66e61c6b7c281572ff1c944326d3f363ebc0eb5d63e8bf74bec0701ee8e0bf0e",
+   "higher.f32": "71ba895b1e1a6dd596b4be9a34b12414768b4e6d74e1f5044c6d03367a076364"
+  },
+  "s1": {
+   "transmittance.f32": "adc18b28ca751653d302265da5277cc482b4a0f0037f41be3fcd62194291a94d",
+   "irradiance.f32": "885cd93f59bbc8d21e8a5d2ae0a9a116a56bd055f1ae6bebd1568e407b113980",
+   "scattering.f32": "08a425fbd2b9807c18d4ec687cd828f20dcfd4b5b02a74c16876ec333c5b0525",
+   "mie.f32": "c6d85aed726a83386fba17168a39b5f0177c292294645ce54c72ae1c39043e79",
+   "higher.f32": "49c28a6198e45654bffc123832e901a556df18b52dab04b5114feec281a81f6e"
+  },
+  "s2": {
+   "transmittance.f32": "2ddbc71653c7afeafb605ea0dd78a31257d1d117f78c8b26d7fd749587793e2b",
+   "irradiance.f32": "cb507a3054deafca8e9eaa1063e2d257dc8dd5e1d44d7bd4cf96faf7d63950ca",
+   "scattering.f32": "ef433ad7b9173b7447a4e18135422868a04e7607d59ca0c91ac99f04a253ff64",
+   "mie.f32": "020ea68bb769ee754f70950f35aadf3c12b4b4e70e8629e7291420b15de349e0",
+   "higher.f32": "a9d208f9d9fa04ebb91a80d19545c4210f6af494fbb00c35ba6ef1366a9b196e"
+  },
+  "s3": {
+   "transmittance.f32": "f8684c68ac6b619ab3331710c40ed1985362738c8d14e2cf5b0dc3ca82116979",
+   "irradiance.f32": "35826eff18d8e06b7b2b4a1476cb68cdef7ad329ba91de22226feb0ab7bbff70",
+   "scattering.f32": "77345c1940906ad3450d6c18a45affa0df66aa2bae866cd71d23f6f63881f542",
+   "mie.f32": "3553e2632e44c4e2228259120fb4f42875bddacd644683dae8eb5ca32fcdf309",
+   "higher.f32": "cdfb8264d25a4fde4258685b333e1dfceb989e125948598b4527e07a13740b57"
+  },
+  "s4": {
+   "transmittance.f32": "bbf6ac8ee21e9bc66ac1266709754b8b8ba9f8ae8cb477b402bd936427bb3b71",
+   "irradiance.f32": "69d39d4c092618546237df5222e67f8eb8ccc094219b4ae42a10f74d4972ec23",
+   "scattering.f32": "e609ee7502666d897df3468b056d30f892c87decef915906f1ae6d5e1b00448c",
+   "mie.f32": "be7abdeef3126e7cf0afd0313a4b90e2835902daacf169d483397a23c3fede61",
+   "higher.f32": "1424089283332afeb1b1e82da041002c62e3e3c5641cda82ee103f3672256d7d"
+  }
+ },
+ "params_sha256": {
+  "s0": "eb6a42bd27ad9f64ae9546530bfe2d1e31d3fbf62f277a4943234ef734be74c1",
+  "s1": "cedb0f1c2bf46f450e5e98e86b2331f06632fab71acc08251f5bd8da6d49c390",
+  "s2": "dd7c23729709bc61ef48b03fb71d4c36c65e7053205df1020235ac46bf9ce289",
+  "s3": "42e49d3f3a2c91212f9595a81f3d95aed19983984e74e80004cb97248334aaef",
+  "s4": "d192eae5cc9a013698bd61fb3e962fefe32916271743e9780541273f5b872a58"
+ },
+ "meta": {
+  "tool": "archcpu/gen_tables.py \u00a7179",
+  "numpy": "2.4.6",
+  "python": "3.11.15",
+  "machine": "x86_64",
+  "precompute_c_sha256": "df296e9b4389b1004c2883fdae19988758b2503a1fa65fc5363ef84f202f25b8",
+  "compile": "gcc -O2 -mfma -o precompute precompute.c -lm",
+  "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "source": "precompute"
+ }
+}

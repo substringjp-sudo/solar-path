@@ -5,7 +5,7 @@
  * (`cloudGenusForecast.ts`)으로 층별 종류를 정해 `VolumetricSceneInput` 으로 옮깁니다. 시험 화면과 (다음 단계)
  * 하늘 화면이 같은 함수를 씁니다.
  */
-import SunCalc from 'suncalc';
+import { sunPosition } from '../../utils/solarPosition';
 import { getInterpolatedWeather, PROFILE_LEVELS, THERMO_RH_LEVELS, type CloudData, type CloudPathData } from '../../utils/weather';
 import { classifyGenus, type ForecastGenus, type GenusForecast } from '../../utils/cloudGenusForecast';
 import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
@@ -133,7 +133,8 @@ export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; 
 }
 
 export function buildLiveScene(a: LiveSceneArgs): LiveScene {
-  const sun = SunCalc.getPosition(a.date, a.lat, a.lon);
+  // §175 해 위치는 엔진(NOAA, solarPosition)으로 — 렌더(takram)와 0.003° 안. 예전 SunCalc 는 0.19~0.21° 높아 요약 패널·빔·τ 가 렌더와 어긋났음.
+  const sun = sunPosition(a.date, a.lat, a.lon);
   const sunAz = ((sun.azimuth * 180) / Math.PI + 180 + 360) % 360;
   const sunAltDeg = (sun.altitude * 180) / Math.PI;
   const obsRaw = a.obs ?? (a.interpolatedWeather?.[0] ?? (a.pathData?.length ? getInterpolatedWeather(a.pathData, a.date)[0] ?? null : null));

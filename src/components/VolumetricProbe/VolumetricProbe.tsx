@@ -95,7 +95,8 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
       renderer.setSize(w, h);
       setStatus('대기 표 생성 중 (기기 GPU)');
       const t0 = Date.now();
-      const scene = await createVolumetricScene(renderer, w, h, { genus: genusOn });
+      // §178 조명 결함 고침(산란 자르기 · 조도 μs 로그 보간)은 앱 길에서 켬 — DEFAULT_VOLUMETRIC_OPTIONS 는 하네스 관례로 끔.
+      const scene = await createVolumetricScene(renderer, w, h, { genus: genusOn, clampInscatter: true, irradianceLogMu: true });
       if (!aliveRef.current) { scene.dispose(); return; }
       setGenMs(Date.now() - t0);
       applyScene(scene, presetIdx);

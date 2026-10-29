@@ -1,0 +1,28 @@
+{
+ "tool": "archcpu §179 WP5",
+ "files": {
+  "archcpu-results.json": "83d27625960c5a2f11cdcbb63433cbb5e8d9701259dcbdac91e578d804f1b6c9",
+  "archcpu.py": "294b654e32db80cbf54f24ef6d478504128c4c42a112a456b37907a19d341a15",
+  "archquad-test.mjs": "5938138c1acaff1063bdc595e5ea354f3d2a2699d32c26d4c218b859cbdde9bd",
+  "archquad.py": "f0b976c073c299cd484400af8416977c3a27fb583dcd7140e9d646db133b7876",
+  "gen_tables.py": "f54ca81a73aed3f8adb8c50f22c1776561ee8799855610955dfd4f9a46081070",
+  "geom.py": "8eb38750140557ffdedb0940126090b2062c27b858f41ee56c37a7c1de6c4132",
+  "luts.py": "91f3b24f6df15f073a8bacee32f0c5148cdb1e7fa5d86af3a2bb5b258529070f",
+  "precompute.c": "df296e9b4389b1004c2883fdae19988758b2503a1fa65fc5363ef84f202f25b8",
+  "spec.py": "ee6d24ce2de4bbef20a913b5b4a84aff62fe12375e835a23988353df4a7b0a5f",
+  "sun.py": "47db4748349b20d59f801203e45f5717dac32adea4bd7b2ad84ef1e8cc1449a1",
+  "tables-sha256.json": "5ac7f6fdde725ec77878758d6678093def2665c1b3903404515a857dcc546ffd",
+  "ref/arch-nodes.json": "5c94d15db3f084edfc61ef5b22ca0d7640bd109ffbc0406a54726d1fe4e41a51"
+ },
+ "archQuad_ts": "86cc992776cb9f8486c1d96a5fdc7db7d385ad81e84d8a8c643f633496857c34",
+ "derived_from": {
+  "pretest/code/precompute.c": "df296e9b4389b1004c2883fdae19988758b2503a1fa65fc5363ef84f202f25b8 (그대로)",
+  "pretest/code/luts.py": "6c95cc015ce390656bd83e9bedefb36290d282bd54821cbed123810fab158bcd (ASSETS 경로 줄만)",
+  "pretest/code/spec.py": "b8ee5b798bf0d0c868cab393e1ad6bdf02de0a848095c4c142fa4b870d1c1ef9 (SRC 경로 줄만)",
+  "pretest/code/sun.py": "47db4748349b20d59f801203e45f5717dac32adea4bd7b2ad84ef1e8cc1449a1 (그대로)",
+  "pretest/code/analysis.py": "7135df20befa731f200289c82bbd00c88c14b5ac7817484ad83a25675e3d0ccd (geom.py 로 일부 함수 그대로)",
+  "pretest/code/assemble.py": "983ced1c1901967ebb70981eec66bc4ac0336370b64bd0bdfa942557aae14cca (gen_tables.assemble 같은 식)",
+  "tsun2/arch/nodes.json": "ref/arch-nodes.json (그대로)"
+ },
+ "tables": "0ab7fa5c96f708ea25831290ac6cb3c80503518da0ff17851d623952098ca8f2"
+}
