@@ -516,6 +516,8 @@ export interface VolumetricScene {
 /** §179 T_sun 상태(tsunInfo) — injected = 글자가 들어감(tsun 1 · 해 ≤ shadowMinSunDeg), atlasValid = gTsunOn 1. */
 export interface TsunInfo {
   enabled: boolean; injected: boolean; arch: boolean; belowShadow: boolean | null; atlasValid: boolean; reason: string | null;
+  /** §179 WP6·WP8 기준 팔(0 · 1 REF_v2 · 2 REF_val)·진단(0 · 1 D-1) — injected 는 T 팔 또는 REF 팔의 글자가 들어간 상태. */
+  ref: number; debug: number;
   archW: number; samplers: { count: number; limit: number; limitKnown: boolean } | null; sceneSerial: number;
   atlasMeta: TsunAtlas['meta'] | null;
   /** §179 WP2 자동(동기) 구축: 지은 횟수 · 마지막으로 짓지 않은 이유(null = 지었거나 지을 일 없음) · 걸린 아틀라스가 밖에서 온 것인지. */
@@ -584,7 +586,8 @@ export async function createVolumetricScene(
   let curQuality: VolumetricQuality = 'low';
   const applySunLight = () => {
     // §179 T_sun 은 해 ≤ shadowMinSunDeg(그림자 지도 꺼짐과 같은 한 불리언 — v2.1 eng m3)에서 표본별 해·하늘빛을 강제합니다(설계 v2 §4.2). 끄면 이전 식과 같은 값.
-    const want = baseAccurate || (opt.accurateSunBelowDeg != null && lastSunAltForLight < opt.accurateSunBelowDeg) || (opt.tsun === 1 && !(lastSunAltForLight > opt.shadowMinSunDeg));
+    // §179 WP6 REF(tsunRef)도 같은 조건으로 강제(팔은 accurateSunBelowDeg 90 을 명시하므로 같은 값 — 빠뜨린 잡이 해 조도 길을 바꾸지 않게).
+    const want = baseAccurate || (opt.accurateSunBelowDeg != null && lastSunAltForLight < opt.accurateSunBelowDeg) || ((opt.tsun === 1 || opt.tsunRef !== 0) && !(lastSunAltForLight > opt.shadowMinSunDeg));
     if (clouds.clouds.accurateSunSkyLight !== want) clouds.clouds.accurateSunSkyLight = want;   // 셰이더 정의가 바뀌어 한 번 다시 컴파일
   };
   baseMarch.n = clouds.clouds.maxIterationCountToSun;
@@ -956,6 +959,13 @@ export async function createVolumetricScene(
   const maxTextureUnits = () => (renderer.capabilities as unknown as { maxTextures?: number } | undefined)?.maxTextures;
   const applyTsun = () => {
     const mat = clouds.cloudsPass.currentMaterial as never;
+    if (opt.tsun !== 1 && opt.tsunRef !== 0) {
+      // §179 WP6 REF 팔(REF_v2·REF_val): 아틀라스·텍스처·샘플러 없음 — gTsunOn 1, 무차별 행진 보폭·끝은 균일변수. 글자는 T 팔과 같은 불리언(해 ≤ shadowMinSunDeg).
+      tsunSamplers = null; tsunAtlasValid = false; tsunReason = null; tsunArchW = 0;
+      setTsunUniforms(mat, tsunUniformValues(null, 0, 0, { stepM: opt.tsunRefStepM, rangeKm: opt.tsunRangeKm }));
+      setTsunShader(mat, lastShadow === false ? { arch: false, ref: opt.tsunRef, debug: opt.tsunDebug === 1 ? 1 : 0 } : null);
+      return;
+    }
     if (opt.tsun !== 1) {
       tsunSamplers = null; tsunAtlasValid = false; tsunReason = 'tsun 0'; tsunArchW = 0;
       setTsunShader(mat, null);
@@ -971,7 +981,7 @@ export async function createVolumetricScene(
     tsunAtlasValid = !!atlas;
     tsunArchW = opt.archLight === 1 ? archWeight(lastSunAltForLight) : 0;
     setTsunUniforms(mat, tsunUniformValues(atlas, tsunArchW, opt.archNoT));   // 값 먼저 — 글자를 넣을 때 이 값으로 균일변수를 만듦
-    setTsunShader(mat, lastShadow === false ? { arch: opt.archLight === 1 } : null);
+    setTsunShader(mat, lastShadow === false ? { arch: opt.archLight === 1, ...(opt.tsunDebug === 1 ? { debug: 1 as const } : {}) } : null);
   };
   const baseWeatherRepeat = clouds.localWeatherRepeat.clone();
   clouds.shapeTexture = new CloudShape();
@@ -1386,7 +1396,7 @@ export async function createVolumetricScene(
     lastSunAltForLight = sunAltDeg;
     applySunLight();
     // §179 T_sun: 해 12° 건넘에 글자 넣기·빼기, 아치 무게 w(θ) 갱신(끄면 아무것도 안 함).
-    if (opt.tsun === 1) applyTsun();
+    if (opt.tsun === 1 || opt.tsunRef !== 0) applyTsun();
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
     if (genLayers) {
       const driftSec = driftSecOverride ?? date.getTime() / 1000;
@@ -1527,7 +1537,7 @@ export async function createVolumetricScene(
     setOptions: (o, reapply = true) => {
       // §179 합친 값으로 먼저 점검 — throw 하면 옵션을 바꾸지 않음. 하늘 화면은 매 프레임 부르므로 T_sun 이 꺼져 있고 관련 키(T_sun 손잡이·genus·diffuse)를
       // 건드리지 않으면 건너뜀(이미 점검한 값 그대로).
-      if (opt.tsun === 1 || Object.keys(o).some(k => k in TSUN_OPTIONS_OFF || k === 'genus' || k === 'diffuse')) {
+      if (opt.tsun === 1 || opt.tsunRef !== 0 || Object.keys(o).some(k => k in TSUN_OPTIONS_OFF || k === 'genus' || k === 'diffuse')) {
         const next = { ...opt, ...o } as VolumetricOptions;
         validateTsunOptions(next);
         if (next.tsun === 1) checkTsunSamplerBudget(curQuality, maxTextureUnits());
@@ -1575,7 +1585,8 @@ export async function createVolumetricScene(
     tsunBuildInput: () => tsunBuildInputOf(),
     tsunSceneSerial: () => sceneSerial,
     tsunInfo: () => ({
-      enabled: opt.tsun === 1, injected: opt.tsun === 1 && lastShadow === false, arch: opt.archLight === 1,
+      enabled: opt.tsun === 1, injected: (opt.tsun === 1 || opt.tsunRef !== 0) && lastShadow === false, arch: opt.archLight === 1,
+      ref: opt.tsunRef, debug: opt.tsunDebug,
       belowShadow: lastShadow === null ? null : !lastShadow, atlasValid: opt.tsun === 1 && tsunAtlasValid, reason: tsunReason,
       archW: tsunArchW, samplers: tsunSamplers, sceneSerial, atlasMeta: tsunAtlas?.meta ?? null,
       builds: tsunBuilds, autoReason: tsunAutoReason, external: tsunExternal,

@@ -1548,9 +1548,10 @@ export function injectGrainJitter(base: string, on: 0 | 1): string {
  */
 export function setTsunShader(mat: PatchableMaterial, cfg: TsunShaderConfig | null): void {
   const v = variantOf(mat);
-  const same = (v.tsun === null && cfg === null) || (!!v.tsun && !!cfg && v.tsun.arch === cfg.arch);
+  // §179 WP6·WP8: REF(ref 1·2)·D-1 진단(debug 1)도 글자 설정 — 셋 중 하나라도 바뀌면 다시 넣음.
+  const same = (v.tsun === null && cfg === null) || (!!v.tsun && !!cfg && v.tsun.arch === cfg.arch && (v.tsun.ref ?? 0) === (cfg.ref ?? 0) && (v.tsun.debug ?? 0) === (cfg.debug ?? 0));
   if (same) return;
-  v.tsun = cfg ? { arch: !!cfg.arch } : null;
+  v.tsun = cfg ? { arch: !!cfg.arch, ...(cfg.ref ? { ref: cfg.ref } : {}), ...(cfg.debug ? { debug: cfg.debug } : {}) } : null;
   refreshVariant(mat);
 }
 /** §179 T_sun 균일변수 값(아틀라스·아치 무게)을 바꿉니다 — 글자가 들어가 있으면 곧바로, 아니면 다음에 넣을 때 씀. 글자는 바꾸지 않음. */
