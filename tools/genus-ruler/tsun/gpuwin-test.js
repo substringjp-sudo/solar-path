@@ -123,7 +123,7 @@ const planLines = plan.stdout.split('\n').filter(l => /^[A-Za-z0-9-]+: /.test(l)
   const d = fakeDir('clear');
   let dryOk = 0, outs = [];
   for (const l of lightLines) {
-    const toks = l.split(/\s+/); const k = toks.indexOf(path.join(__dirname, 'lighting-render-check.js'));
+    const toks = l.split(/\s+/).filter(Boolean); const k = toks.indexOf(path.join(__dirname, 'lighting-render-check.js'));   // 깨끗한 트리면 끝 빈칸(빈 DIRTY_FLAG)
     const r = run('node', [...toks.slice(k), '--dry'], fenv(d));
     try { const j = JSON.parse(r.stdout.trim().split('\n').pop()); if (r.status === 0 && j.dry) { dryOk++; outs.push(j.out); } } catch { /* 실패 */ }
   }
