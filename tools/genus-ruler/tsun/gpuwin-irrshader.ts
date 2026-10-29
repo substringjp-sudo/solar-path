@@ -29,7 +29,8 @@ export function cutAtmospherePrefix(frag: string): string {
   if (n !== 1) throw new Error(`irrshader: prefix end marker count ${n} (takram runtime changed?)`);
   const pre = frag.slice(0, frag.indexOf(PREFIX_END) + PREFIX_END.length) + '\n';
   if (/\bvoid\s+main\s*\(/.test(pre)) throw new Error('irrshader: prefix contains main()');
-  if (/(^|\n)\s*(layout\s*\([^)]*\)\s*)?out\s+(highp\s+|mediump\s+|lowp\s+)?vec4\b/.test(pre)) throw new Error('irrshader: prefix declares a fragment output');
+  // 전역 출력 선언(… out vec4 이름;)만 — 함수 인자 'out vec4 x,' 는 아님
+  if (/(^|\n)[ \t]*(layout\s*\([^)]*\)\s*)?out\s+(highp\s+|mediump\s+|lowp\s+)?(vec[234]|float|int|uint|ivec[234]|uvec[234])\s+\w+\s*;/.test(pre)) throw new Error('irrshader: prefix declares a fragment output');
   for (const [k, want] of [[GET_IRRADIANCE_SIG, 1], ['uniform sampler2D irradiance_texture;', 1], ['uniform AtmosphereParameters ATMOSPHERE;', 1],
     ['#define GetSkyRadianceToPoint GetSkyLuminanceToPoint', 1], ['#define GetSkyRadiance GetSkyLuminance', 1]] as const) {
     const c = countOf(pre, k);
