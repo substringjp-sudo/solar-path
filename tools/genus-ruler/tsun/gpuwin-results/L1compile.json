@@ -1,0 +1,136 @@
+{
+ "stage": "L1compile",
+ "fn": "L1compile",
+ "patch": null,
+ "key": "f0a907b81a04aad61422f0a27b7c9b1a53b787c573359404a4ce17b8f0d1f15c",
+ "ok": true,
+ "bundleSha256": "ad9e61544fb13cbefaaaeb37f091f58a878ed976b97b997fdef15584a6857832",
+ "scenesSha256": "6b4d92b53ae3251051b320b77c442477e31e15bcfc14d1c63e8137b32f383463",
+ "bundle": {
+  "esbuild": "0.28.2",
+  "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+  "dirtyFiles": 0
+ },
+ "chromium": "141.0.7390.37",
+ "atmosMs": 199128.40000000596,
+ "wallMin": 10.150283333333334,
+ "finishedAt": "2026-10-29T10:29:07.950Z",
+ "guardTag": "genus-ruler/volsky/run.js",
+ "result": {
+  "runs": [
+   {
+    "quality": "low",
+    "flags": "off",
+    "ok": true,
+    "shaderErrors": [],
+    "programs": 21,
+    "newPrograms": 10,
+    "marks": {
+     "clamp": 0,
+     "logmu": 0
+    },
+    "frameMs": [
+     9826,
+     2499
+    ],
+    "groundBounce": false
+   },
+   {
+    "quality": "low",
+    "flags": "on",
+    "ok": true,
+    "shaderErrors": [],
+    "programs": 23,
+    "newPrograms": 2,
+    "marks": {
+     "clamp": 1,
+     "logmu": 1
+    },
+    "frameMs": [
+     2996,
+     756
+    ],
+    "groundBounce": false
+   },
+   {
+    "quality": "medium",
+    "flags": "off",
+    "ok": true,
+    "shaderErrors": [],
+    "programs": 27,
+    "newPrograms": 4,
+    "marks": {
+     "clamp": 0,
+     "logmu": 0
+    },
+    "frameMs": [
+     5541,
+     2829
+    ],
+    "groundBounce": true
+   },
+   {
+    "quality": "medium",
+    "flags": "on",
+    "ok": true,
+    "shaderErrors": [],
+    "programs": 29,
+    "newPrograms": 2,
+    "marks": {
+     "clamp": 1,
+     "logmu": 1
+    },
+    "frameMs": [
+     4465,
+     2221
+    ],
+    "groundBounce": true
+   },
+   {
+    "quality": "high",
+    "flags": "off",
+    "ok": true,
+    "shaderErrors": [],
+    "programs": 33,
+    "newPrograms": 4,
+    "marks": {
+     "clamp": 0,
+     "logmu": 0
+    },
+    "frameMs": [
+     12557,
+     8825
+    ],
+    "groundBounce": true
+   },
+   {
+    "quality": "high",
+    "flags": "on",
+    "ok": true,
+    "shaderErrors": [],
+    "programs": 35,
+    "newPrograms": 2,
+    "marks": {
+     "clamp": 1,
+     "logmu": 1
+    },
+    "frameMs": [
+     10660,
+     8030
+    ],
+    "groundBounce": true
+   }
+  ]
+ },
+ "wallMs": 407032.5,
+ "errors": [],
+ "shaderErrors": [],
+ "brokenPrograms": [],
+ "glError": 0,
+ "ctxLost": false,
+ "canvas": [
+  400,
+  300
+ ],
+ "pngs": []
+}

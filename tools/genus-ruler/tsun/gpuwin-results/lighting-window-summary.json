@@ -1,0 +1,886 @@
+{
+ "note": "§180 GPU 창 요약 — 단계 표지 + 보고(판정 아님). 다시 돌리면 끝난 단계는 건너뜀.",
+ "updatedAt": "2026-10-29T12:49:20.252Z",
+ "out": "/tmp/claude-0/-home-user-solar-path/827aa702-2f52-52c8-9fe8-e45a3ff14759/scratchpad/gpuwin/out",
+ "exit": {
+  "rc": 0,
+  "meaning": "all selected steps processed",
+  "message": "gpu-window: all selected steps processed"
+ },
+ "run": {
+  "startedAt": "2026-10-29T10:18:58.371Z",
+  "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+  "treeSha": "40ccb11a5afc44620b3a5dbe871fa27ffe79ece5280041acc964a51a83059f9f",
+  "allowDirty": false,
+  "bundles": {
+   "tsun": {
+    "bundleSha256": "6ed9316255193b2732b4acaa0ad33f792fa488e5fbfdb88b99f07e673e1bcc1c",
+    "again": "6ed9316255193b2732b4acaa0ad33f792fa488e5fbfdb88b99f07e673e1bcc1c",
+    "same": true,
+    "esbuild": "0.28.2",
+    "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+    "dirtyFiles": 0,
+    "entry": "tools/genus-ruler/tsun/entry-tsun.ts"
+   },
+   "light": {
+    "bundleSha256": "ad9e61544fb13cbefaaaeb37f091f58a878ed976b97b997fdef15584a6857832",
+    "again": "ad9e61544fb13cbefaaaeb37f091f58a878ed976b97b997fdef15584a6857832",
+    "same": true,
+    "esbuild": "0.28.2",
+    "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+    "dirtyFiles": 0,
+    "entry": "tools/genus-ruler/tsun/entry-gpuwin.ts"
+   }
+  },
+  "dry": false,
+  "env": {
+   "GW_STEPS": "L1compile,L2deck-low,L2deck-high,L3twilight,L4sunset,L5cross12-low,L5cross12-medium,L6frametime-a,L6frametime-b,post-light"
+  }
+ },
+ "estimate": {
+  "totalMin": [
+   539.27484375,
+   1690.4541666666669
+  ],
+  "totalH": [
+   8.9879140625,
+   28.174236111111114
+  ],
+  "pages": [
+   24,
+   47
+  ],
+  "gate": "strict",
+  "refMeasured": false,
+  "items1to4Min": [
+   469.0748437499999,
+   1181.0234375000002
+  ],
+  "branches": [
+   {
+    "name": "REF blocked (strict, REF > 2.67 min/unit — likely)",
+    "totalH": [
+     8.9879140625,
+     23.56872395833334
+    ],
+    "pages": [
+     24,
+     37
+    ],
+    "lostJobs": 0,
+    "stalledFiles": []
+   },
+   {
+    "name": "REF allowed (strict, REF ≤ 2.67 min/unit)",
+    "totalH": [
+     12.297604166666666,
+     28.174236111111114
+    ],
+    "pages": [
+     31,
+     47
+    ],
+    "lostJobs": 0,
+    "stalledFiles": []
+   }
+  ]
+ },
+ "estimateAfterB0": null,
+ "stepCounts": {
+  "done": 9
+ },
+ "steps": {
+  "L1compile": {
+   "id": "L1compile",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T10:18:58Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T10:29:08.243Z"
+  },
+  "L2deck-high": {
+   "id": "L2deck-high",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T10:39:34Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T10:53:30.507Z"
+  },
+  "L2deck-low": {
+   "id": "L2deck-low",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T10:29:08Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T10:39:34.069Z"
+  },
+  "L3twilight": {
+   "id": "L3twilight",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T10:53:30Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T11:09:13.245Z"
+  },
+  "L4sunset": {
+   "id": "L4sunset",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T11:09:13Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T11:21:43.772Z"
+  },
+  "L5cross12-low": {
+   "id": "L5cross12-low",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T11:21:43Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T11:38:20.704Z"
+  },
+  "L5cross12-medium": {
+   "id": "L5cross12-medium",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T11:38:20Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T12:08:05.319Z"
+  },
+  "L6frametime-a": {
+   "id": "L6frametime-a",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T12:08:05Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T12:28:28.077Z"
+  },
+  "L6frametime-b": {
+   "id": "L6frametime-b",
+   "status": "done",
+   "inputSha": "8e6b8378b4b376b0d5c6f1cd315a91a595e633b9a710b765f9de30103b7f4697",
+   "rc": 0,
+   "startedAt": "2026-10-29T12:28:28Z",
+   "chunks": 1,
+   "note": "",
+   "writtenAt": "2026-10-29T12:49:20.039Z"
+  }
+ },
+ "reports": {
+  "light": {
+   "note": "§178 렌더 확인 — 기대값 대조(판정 아님)",
+   "stages": {
+    "L1compile": {
+     "ok": true,
+     "verdict": "pass",
+     "runs": [
+      {
+       "q": "low",
+       "flags": "off",
+       "ok": true,
+       "marks": {
+        "clamp": 0,
+        "logmu": 0
+       },
+       "newPrograms": 10,
+       "frameMs": [
+        9826,
+        2499
+       ]
+      },
+      {
+       "q": "low",
+       "flags": "on",
+       "ok": true,
+       "marks": {
+        "clamp": 1,
+        "logmu": 1
+       },
+       "newPrograms": 2,
+       "frameMs": [
+        2996,
+        756
+       ]
+      },
+      {
+       "q": "medium",
+       "flags": "off",
+       "ok": true,
+       "marks": {
+        "clamp": 0,
+        "logmu": 0
+       },
+       "newPrograms": 4,
+       "frameMs": [
+        5541,
+        2829
+       ]
+      },
+      {
+       "q": "medium",
+       "flags": "on",
+       "ok": true,
+       "marks": {
+        "clamp": 1,
+        "logmu": 1
+       },
+       "newPrograms": 2,
+       "frameMs": [
+        4465,
+        2221
+       ]
+      },
+      {
+       "q": "high",
+       "flags": "off",
+       "ok": true,
+       "marks": {
+        "clamp": 0,
+        "logmu": 0
+       },
+       "newPrograms": 4,
+       "frameMs": [
+        12557,
+        8825
+       ]
+      },
+      {
+       "q": "high",
+       "flags": "on",
+       "ok": true,
+       "marks": {
+        "clamp": 1,
+        "logmu": 1
+       },
+       "newPrograms": 2,
+       "frameMs": [
+        10660,
+        8030
+       ]
+      }
+     ]
+    },
+    "L2deck": {
+     "ok": true,
+     "parts": {
+      "low": {
+       "ok": true,
+       "wallMin": 10.416983333333333,
+       "atmosMs": 187252
+      },
+      "high": {
+       "ok": true,
+       "wallMin": 13.92765,
+       "atmosMs": 172012
+      }
+     },
+     "perQuality": {
+      "low": {
+       "sunAltDeg": -9.842505481116456,
+       "deckTexels": 609,
+       "rtY": {
+        "off": {
+         "min": -0.0000011881470680236817,
+         "median": -8.580684661865234e-8,
+         "fracNeg": 0.5993431855500821
+        },
+        "logmu": {
+         "min": -0.0000011881470680236817,
+         "median": -9.84787940979004e-8,
+         "fracNeg": 0.6371100164203612
+        },
+        "on": {
+         "min": 0,
+         "median": 9.762048721313476e-8,
+         "fracNeg": 0
+        }
+       },
+       "display": {
+        "off": {
+         "n": 9409,
+         "medianY": 0,
+         "meanY": 0.0000023880466899535657,
+         "fracBlack": 0.997661813157615
+        },
+        "on": {
+         "n": 9764,
+         "medianY": 0,
+         "meanY": 0.000003119010207086475,
+         "fracBlack": 0.9972347398607129
+        }
+       },
+       "defectReproducedWhenOff": true,
+       "verdictNotBlack": "pass",
+       "displayNotDarker": "pass"
+      },
+      "high": {
+       "sunAltDeg": -9.842505481116456,
+       "deckTexels": 562,
+       "rtY": {
+        "off": {
+         "min": -0.0000010777115821838379,
+         "median": -3.911256790161131e-8,
+         "fracNeg": 0.5604982206405694
+        },
+        "on": {
+         "min": 1.697540283203125e-8,
+         "median": 1.1029243469238282e-7,
+         "fracNeg": 0
+        }
+       },
+       "display": {
+        "off": {
+         "n": 8456,
+         "medianY": 0,
+         "meanY": 0.0000021737499871496345,
+         "fracBlack": 0.9976348155156102
+        },
+        "on": {
+         "n": 8770,
+         "medianY": 0,
+         "meanY": 0.000002721886012154505,
+         "fracBlack": 0.9970353477765108
+        }
+       },
+       "defectReproducedWhenOff": true,
+       "verdictNotBlack": "pass",
+       "displayNotDarker": "pass"
+      }
+     }
+    },
+    "L3twilight": {
+     "ok": true,
+     "bands": [
+      {
+       "band": [
+        -10,
+        -6
+       ],
+       "rmsLogmuOff": 0.5970544211159804,
+       "rmsLogmuOn": 0.6619990609694038,
+       "p2pRatioOff": 5.933085194319398,
+       "p2pRatioOn": 7.742359100276741,
+       "reduction": 0.9018961752629662
+      },
+      {
+       "band": [
+        -6,
+        -3
+       ],
+       "rmsLogmuOff": 0.22548863821573153,
+       "rmsLogmuOn": 0.24962430930982976,
+       "p2pRatioOff": 2.4710732521152696,
+       "p2pRatioOn": 2.762564738982495,
+       "reduction": 0.9033120165226319
+      },
+      {
+       "band": [
+        -3,
+        0
+       ],
+       "rmsLogmuOff": 0.06664979898369978,
+       "rmsLogmuOn": 0.05857499688585802,
+       "p2pRatioOff": 1.2651866967731982,
+       "p2pRatioOn": 1.2455819629513405,
+       "reduction": 1.1378540764342966
+      }
+     ],
+     "verdictNotWorse": "fail"
+    },
+    "L4sunset": {
+     "ok": true,
+     "bands": [
+      {
+       "band": [
+        0,
+        2
+       ],
+       "rmsLogmuOff": 0.020315234182690954,
+       "rmsLogmuOn": 0.020317187940539265,
+       "p2pRatioOff": 1.0757612974733581,
+       "p2pRatioOn": 1.075763672761943,
+       "reduction": 0.9999038371917399
+      },
+      {
+       "band": [
+        2,
+        5
+       ],
+       "rmsLogmuOff": 0.010681782063817164,
+       "rmsLogmuOn": 0.010681780912479075,
+       "p2pRatioOff": 1.0447328591809086,
+       "p2pRatioOn": 1.0447328591809086,
+       "reduction": 1.0000001077852185
+      }
+     ],
+     "verdictNotWorse": "pass"
+    },
+    "L5cross12": {
+     "ok": true,
+     "parts": {
+      "low": {
+       "ok": true,
+       "wallMin": 16.601816666666668,
+       "atmosMs": 186209
+      },
+      "medium": {
+       "ok": true,
+       "wallMin": 29.730616666666666,
+       "atmosMs": 215263.8999999985
+      }
+     },
+     "runs": [
+      {
+       "q": "low",
+       "config": "lowOnly",
+       "rows": [
+        {
+         "time": "2026-10-01T21:58:00.000Z",
+         "sun": 12.66,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.06850969494312849,
+          "preFix": 0.06851777267596135,
+          "fresh": 0.0685183213535494
+         },
+         "ratioFixedOverPreFix": 0.9998821074807691,
+         "ratioFixedOverFresh": 0.9998741006748194,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:04:00.000Z",
+         "sun": 13.83,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.07100470058904855,
+          "preFix": 0.07100512713580448,
+          "fresh": 0.07100512713580448
+         },
+         "ratioFixedOverPreFix": 0.9999939927330161,
+         "ratioFixedOverFresh": 0.9999939927330161,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:10:00.000Z",
+         "sun": 15,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.07321482022916205,
+          "preFix": 0.07321454684635385,
+          "fresh": 0.07321482499452167
+         },
+         "ratioFixedOverPreFix": 1.0000037339957697,
+         "ratioFixedOverFresh": 0.9999999349126407,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:16:00.000Z",
+         "sun": 16.16,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.07515313474421903,
+          "preFix": 0.0751534848121086,
+          "fresh": 0.07515313474421903
+         },
+         "ratioFixedOverPreFix": 0.9999953419606498,
+         "ratioFixedOverFresh": 1,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:22:00.000Z",
+         "sun": 17.32,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.07680419334890749,
+          "preFix": 0.07680379389252609,
+          "fresh": 0.07680389881617364
+         },
+         "ratioFixedOverPreFix": 1.0000052009980387,
+         "ratioFixedOverFresh": 1.0000038348669584,
+         "fixedEqualsFreshTop": true
+        }
+       ]
+      },
+      {
+       "q": "low",
+       "config": "withCi",
+       "rows": [
+        {
+         "time": "2026-10-01T21:58:00.000Z",
+         "sun": 12.66,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.06317959861314427,
+          "preFix": 0.06317959861314427,
+          "fresh": 0.06573542597996163
+         },
+         "ratioFixedOverPreFix": 1,
+         "ratioFixedOverFresh": 0.9611194827033379,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:04:00.000Z",
+         "sun": 13.83,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.06643705996271186,
+          "preFix": 0.06643706905278138,
+          "fresh": 0.06856529456571184
+         },
+         "ratioFixedOverPreFix": 0.9999998631777464,
+         "ratioFixedOverFresh": 0.968960468754928,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:10:00.000Z",
+         "sun": 15,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.0721560940070747,
+          "preFix": 0.0721560940070747,
+          "fresh": 0.07217543686100152
+         },
+         "ratioFixedOverPreFix": 1,
+         "ratioFixedOverFresh": 0.9997320022604912,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:16:00.000Z",
+         "sun": 16.16,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.07406893389913953,
+          "preFix": 0.07406893389913953,
+          "fresh": 0.07406903141856816
+         },
+         "ratioFixedOverPreFix": 1,
+         "ratioFixedOverFresh": 0.9999986833980847,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:22:00.000Z",
+         "sun": 17.32,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.0756767000172312,
+          "preFix": 0.07567669092716169,
+          "fresh": 0.07567668638212695
+         },
+         "ratioFixedOverPreFix": 1.0000001201171642,
+         "ratioFixedOverFresh": 1.000000180175757,
+         "fixedEqualsFreshTop": true
+        }
+       ]
+      },
+      {
+       "q": "medium",
+       "config": "lowOnly",
+       "rows": [
+        {
+         "time": "2026-10-01T21:58:00.000Z",
+         "sun": 12.66,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.06587191679451698,
+          "preFix": 0.06592331633306273,
+          "fresh": 0.0659290167096412
+         },
+         "ratioFixedOverPreFix": 0.9992203132153417,
+         "ratioFixedOverFresh": 0.9991339182961625,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:04:00.000Z",
+         "sun": 13.83,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.06833601034652548,
+          "preFix": 0.06833601034652548,
+          "fresh": 0.06833601200257143
+         },
+         "ratioFixedOverPreFix": 1,
+         "ratioFixedOverFresh": 0.9999999757661311,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:10:00.000Z",
+         "sun": 15,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.07042838119518292,
+          "preFix": 0.0704340629328197,
+          "fresh": 0.07042838119518292
+         },
+         "ratioFixedOverPreFix": 0.99991933253031,
+         "ratioFixedOverFresh": 1,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:16:00.000Z",
+         "sun": 16.16,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.0723353696145302,
+          "preFix": 0.0723353696145302,
+          "fresh": 0.07234094915665976
+         },
+         "ratioFixedOverPreFix": 1,
+         "ratioFixedOverFresh": 0.9999228715935498,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:22:00.000Z",
+         "sun": 17.32,
+         "shadowTop": {
+          "fixed": 5400,
+          "preFix": 10400,
+          "fresh": 5400
+         },
+         "Y": {
+          "fixed": 0.07405968394718525,
+          "preFix": 0.07405968394718525,
+          "fresh": 0.07405968394718525
+         },
+         "ratioFixedOverPreFix": 1,
+         "ratioFixedOverFresh": 1,
+         "fixedEqualsFreshTop": true
+        }
+       ]
+      },
+      {
+       "q": "medium",
+       "config": "withCi",
+       "rows": [
+        {
+         "time": "2026-10-01T21:58:00.000Z",
+         "sun": 12.66,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.047447483467816756,
+          "preFix": 0.04744747449714671,
+          "fresh": 0.04850919476115836
+         },
+         "ratioFixedOverPreFix": 1.0000001890652799,
+         "ratioFixedOverFresh": 0.9781131948578186,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:04:00.000Z",
+         "sun": 13.83,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.04390907238018467,
+          "preFix": 0.04390907686551969,
+          "fresh": 0.04422486957664775
+         },
+         "ratioFixedOverPreFix": 0.9999998978494803,
+         "ratioFixedOverFresh": 0.9928592848438872,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:10:00.000Z",
+         "sun": 15,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.04434880402159865,
+          "preFix": 0.04434879953626364,
+          "fresh": 0.04443004496390132
+         },
+         "ratioFixedOverPreFix": 1.0000001011376871,
+         "ratioFixedOverFresh": 0.9981714863811487,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:16:00.000Z",
+         "sun": 16.16,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.044784759663365294,
+          "preFix": 0.044784798811943215,
+          "fresh": 0.044822085740596714
+         },
+         "ratioFixedOverPreFix": 0.9999991258512049,
+         "ratioFixedOverFresh": 0.9991672391720582,
+         "fixedEqualsFreshTop": true
+        },
+        {
+         "time": "2026-10-01T22:22:00.000Z",
+         "sun": 17.32,
+         "shadowTop": {
+          "fixed": 9800,
+          "preFix": 9800,
+          "fresh": 9800
+         },
+         "Y": {
+          "fixed": 0.04549361685612108,
+          "preFix": 0.04549359279649709,
+          "fresh": 0.045561136507205016
+         },
+         "ratioFixedOverPreFix": 1.0000005288574172,
+         "ratioFixedOverFresh": 0.9985180428703032,
+         "fixedEqualsFreshTop": true
+        }
+       ]
+      }
+     ]
+    },
+    "L6frametime": {
+     "ok": true,
+     "parts": {
+      "a": {
+       "ok": true,
+       "wallMin": 20.367583333333332,
+       "atmosMs": 173484.19999999553
+      },
+      "b": {
+       "ok": true,
+       "wallMin": 20.85495,
+       "atmosMs": 175861.1000000015
+      }
+     },
+     "pages": [
+      {
+       "part": "a",
+       "medianMs": {
+        "off": 5288.69999999553,
+        "clamp": 5416.60000000149,
+        "logmu": 5112.70000000298,
+        "on": 5336.60000000149
+       },
+       "deltaVsOff": {
+        "clamp": 0.024183636811705878,
+        "logmu": -0.03327849944082628,
+        "on": 0.009057046156144333
+       }
+      },
+      {
+       "part": "b",
+       "medianMs": {
+        "off": 5352.89999999851,
+        "clamp": 5605.10000000149,
+        "logmu": 5553.5,
+        "on": 5487.5
+       },
+       "deltaVsOff": {
+        "clamp": 0.04711464813522581,
+        "logmu": 0.03747501354434912,
+        "on": 0.025145248370327833
+       }
+      }
+     ],
+     "deltaVsOff": {
+      "clamp": {
+       "mean": 0.035649142473465845,
+       "spread": 0.022931011323519934,
+       "n": 2
+      },
+      "logmu": {
+       "mean": 0.0020982570517614207,
+       "spread": 0.0707535129851754,
+       "n": 2
+      },
+      "on": {
+       "mean": 0.017101147263236083,
+       "spread": 0.0160882022141835,
+       "n": 2
+      }
+     },
+     "expectation": "≤ 1~2 % [estimate §178.6]; SwiftShader CPU timings are noisy (2 pages × ABBA, warm 4 + timed 12 high frames)"
+    }
+   },
+   "missing": []
+  },
+  "b1": null,
+  "w7": null,
+  "b0": null,
+  "b2": null
+ },
+ "decisions": null
+}

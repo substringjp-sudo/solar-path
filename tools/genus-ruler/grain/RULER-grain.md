@@ -365,3 +365,5 @@ S4_1021_sw(§140, 잡 이름 'S4sw1021' — `shape/jobs-grain-low.json` 의 입�
 - 렌더: `eval-grain.sh c0` — C0 held-out·H-dev·가드·비용·상태 226 잡 + C0 기준 69(ss 4). 손잡이 번들 6b9cf05a. 컨테이너 재시작 셋(20:06Z·21:39Z 앞뒤·23:51Z)마다 이어 그리기로 다시 띄움(로그 `c0-try1~3.log`; meta.json 이 없는 잡만 다시 그림). 렌더 실패 0.
 - **멈춤 규칙(§5.4)**: `grain/stop-C0.json` 5c0904dac674c302a1307f8df85659c79f3b28a186b65c8a6f66b88e8e09ddc5 — 제품 단위 118 중 보이지 않음(max(tCSF, eCSFdev) < 1) **6 (0.051)** → 80 % 아래라 **계속**(R1). 보이지 않는 6 단위: ci60_e3 a Rim · ci60_e5 a Rim · ac60_tw4 a Int · ci60_tw4 a Rim · ns100_e5 t Int · as90_e5 t Int(권운 가장자리·박명·흐린 층). 단위 중앙 tCSF 1.84 · eCSFdev 3.79 — C0 의 알갱이는 대부분 단위에서 보이는 크기.
 - 다음: §178 조명 고침 렌더 확인(GPU 창, R1 잡과 겹치지 않게 앞에) 뒤 `G0BUNDLE=$OUT/judge/g0-bundle.json eval-grain.sh round 1`.
+### 13.2 R1 시작(2026-10-29 12:59Z)
+- C0 뒤 §178 조명 확인 GPU 창(10:18~12:58Z, grain 과 겹치지 않음 — 창이 grain 가드와 잠금을 지킴)을 거쳐 `G0BUNDLE=$OUT/judge/g0-bundle.json eval-grain.sh round 1`. 잡 904(그중 기준 C0 는 이미 그린 것 재사용, 첫 캔버스 남은 666). 손잡이 번들 6b9cf05a.
