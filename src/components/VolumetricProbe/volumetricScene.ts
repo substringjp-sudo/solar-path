@@ -51,6 +51,8 @@ import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLay
 import { morphParamsOf } from './cloudMorph';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
+import { buildTsunAtlasData, makeTsunAtlas, tsunLawsFromFixture, type TsunBuildInput, type TsunLaneInput } from './tsunAtlas';
+import type { TsunFixture } from './tsunFixture';
 import type { FlowSceneParams } from './cloudFlow';
 import { iceLaneHand, layerPhysics, type LayerPhysics, type ThermoInput } from './cloudPhysics';
 import { skeletonOf, type SkeletonGenus } from './cloudSkeleton';
@@ -497,6 +499,14 @@ export interface VolumetricScene {
   tsunSceneSerial(): number;
   /** §179 T_sun 상태(하네스 meta·렌더 전 확인용). */
   tsunInfo(): TsunInfo;
+  /**
+   * §179 WP2 하네스 동기 구축(tsunAtlas.ts LP3)이 쓸 WP1 고정표(tsunFixture.parseTsunFixture 결과 — sha 확인은 부른 쪽). null 이면 자동 구축 없음.
+   * tsun 1 · tsunSync true 이고 고정표가 있으면 applyScene·setDate·setOptions 가 해 ≤ shadowMinSunDeg 에서 아틀라스를 짓고 겁니다
+   * (잡마다 한 번 — 입력(장면 번호·해 방향·거시 격자·옵션)이 같으면 다시 짓지 않음, 스케줄러 없음). 지은 텍스처는 이 장면이 소유(다시 지을 때·dispose 에 버림).
+   */
+  setTsunFixture(fixture: TsunFixture | null): void;
+  /** §179 진단(하네스·verify-tsun-atlas): 지금 장면에서 구축기가 받을 입력(종류 틀·해·레인·거시 격자). 종류 장면이 아니면 null. */
+  tsunBuildInput(): TsunBuildInput | null;
   /** 진단용 — 하네스에서만 씁니다. */
   debug: { clouds: CloudsEffect; toneMapping: ToneMappingEffect };
   /** §128 대기 표가 파장 15개(분광 휘도)인지 — false 면 takram 3파장. */
@@ -508,6 +518,8 @@ export interface TsunInfo {
   enabled: boolean; injected: boolean; arch: boolean; belowShadow: boolean | null; atlasValid: boolean; reason: string | null;
   archW: number; samplers: { count: number; limit: number; limitKnown: boolean } | null; sceneSerial: number;
   atlasMeta: TsunAtlas['meta'] | null;
+  /** §179 WP2 자동(동기) 구축: 지은 횟수 · 마지막으로 짓지 않은 이유(null = 지었거나 지을 일 없음) · 걸린 아틀라스가 밖에서 온 것인지. */
+  builds: number; autoReason: string | null; external: boolean;
 }
 
 /**
@@ -928,6 +940,19 @@ export async function createVolumetricScene(
   let tsunArchW = 0;
   /** applyScene 마다 1 씩 — 다른 장면에서 지은 아틀라스를 걸지 않게(cloudTsun.ts D11). */
   let sceneSerial = 0;
+  // §179 WP2 하네스 동기 구축(tsunAtlas.ts) — 고정표(setTsunFixture)가 있고 tsun 1 · tsunSync 일 때만. 끄면 아무것도 만들지 않음.
+  let tsunFixture: TsunFixture | null = null;
+  /** 이 장면이 지은(소유한) 아틀라스 텍스처 — 다시 지을 때·applyScene·밖 아틀라스·dispose 에 버림. */
+  let tsunOwnTex: Texture | null = null;
+  /** 마지막으로 지은 입력의 열쇠(같으면 다시 짓지 않음 — 잡마다 한 번). */
+  let tsunAutoKey: string | null = null;
+  let tsunAutoReason: string | null = null;
+  let tsunBuilds = 0;
+  /** setTsunAtlas 로 밖에서 건 아틀라스 — 그동안 자동 구축을 쉼(applyScene·null 이 풀어 줌). */
+  let tsunExternal = false;
+  /** §173 관측점의 종류 평면 좌표(km) = weatherOffsetKm ?? camKm ?? 0 — 아틀라스 중심. */
+  let tsunObsKm: [number, number] = [0, 0];
+  const tsunDropOwn = () => { if (tsunOwnTex) { tsunOwnTex.dispose(); tsunOwnTex = null; } tsunAutoKey = null; };
   const maxTextureUnits = () => (renderer.capabilities as unknown as { maxTextures?: number } | undefined)?.maxTextures;
   const applyTsun = () => {
     const mat = clouds.cloudsPass.currentMaterial as never;
@@ -1151,6 +1176,8 @@ export async function createVolumetricScene(
     // §179 새 장면 — 아틀라스 틀(종류 원점)·운량장이 바뀌므로 걸린 아틀라스를 버립니다(하네스는 setScene 뒤에 짓고 겁니다).
     sceneSerial++;
     tsunAtlas = null;
+    tsunDropOwn();   // §179 WP2 이 장면이 지은 텍스처(밖 아틀라스는 부른 쪽 소유)
+    tsunExternal = false;
     const position = new Geodetic(radians(p.lon), radians(p.lat), p.heightM).toECEF();
     const nue = Ellipsoid.WGS84.getNorthUpEastFrame(position, new Matrix4());
     curPos = position; curNue = nue;
@@ -1256,6 +1283,7 @@ export async function createVolumetricScene(
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
         if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
         const [ox, oy] = p.weatherOffsetKm ?? camKm ?? [0, 0];
+        tsunObsKm = [ox, oy];   // §179 WP2 아틀라스 중심(종류 평면 km)
         const origin = position.clone().add(altCorr).addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
@@ -1293,6 +1321,8 @@ export async function createVolumetricScene(
     applyHaze(p.haze);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
+    // §179 WP2 하네스 동기 구축 — 틀·거시 격자·해가 모두 걸린 뒤(끄면 아무것도 안 함).
+    if (opt.tsun === 1) tsunAutoBuild();
   };
   const setScene = (p: VolumetricSceneInput) => {
     sceneToken++;   // 진행 중인 비동기 생성은 버립니다
@@ -1382,6 +1412,72 @@ export async function createVolumetricScene(
     applyHaze(lastInput.haze);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
+    // §179 WP2 해가 움직였으면(또는 12° 를 내려 건넜으면) 다시 지음 — 드리프트·거시 격자 갱신 뒤. 같은 시각이면 열쇠가 같아 건너뜀.
+    if (opt.tsun === 1) tsunAutoBuild();
+  };
+
+  /**
+   * §179 WP2 구축기 입력 — 셰이더가 쓰는 값 그대로 읽음: 종류 평면 틀(genusOrigin·East·North·TileM 균일변수, §173 보정 원점), 해(clouds.sunDirection),
+   * 층 높이(CloudLayer altitude·height = minLayerHeights·maxLayerHeights), 타일 운량(makeGenusWeather 입력 = 고정표 운량축), 거시 격자 바이트·mix·이류
+   * (genusMacroMix·DriftU/V 균일변수). halfKm = maxRayKm + 4(설계 v2 §4.3, 없으면 400 으로 자름 — tsunAtlas 결정 A6).
+   */
+  const tsunBuildInputOf = (): TsunBuildInput | null => {
+    const mat = clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown } | undefined> };
+    const U = mat.uniforms;
+    if (!(U.genusPlanar && (U.genusPlanar.value as number) > 0.5)) return null;
+    const v3 = (k: string): [number, number, number] => { const v = U[k]!.value as Vector3; return [v.x, v.y, v.z]; };
+    const warnings: string[] = [];
+    let maxRay = opt.maxRayKm;
+    if (maxRay == null) { maxRay = Math.min(400, baseMaxRay / 1000); warnings.push(`maxRayKm null — halfKm from takram maxRayDistance capped at 400 km (${maxRay} km)`); }
+    const dU = U.genusMacroDriftU?.value as Vector4 | undefined, dV = U.genusMacroDriftV?.value as Vector4 | undefined;
+    const mixU = (U.genusMacroMix?.value as number | undefined) ?? 0;
+    const lanes: (TsunLaneInput | null)[] = [0, 1, 2, 3].map(i => {
+      const g = genLayers[i], layer = clouds.cloudLayers[i];
+      if (!g || !layer || !(layer.height > 0) || !(layer.densityScale > 0)) return null;
+      const band = macro?.laneBand[i] ?? null;
+      const comp = (v: Vector4 | undefined) => (v ? [v.x, v.y, v.z, v.w][i] : 0);
+      return {
+        genus: g.genus, tileCover: g.cover, baseKm: layer.altitude / 1000, topKm: (layer.altitude + layer.height) / 1000, densityScale: layer.densityScale,
+        macro: macro && band ? {
+          n: macro.n, extentKm: macro.extentKm, dataA: macro.texA.image.data as Uint8Array, dataB: macro.texB === macro.texA ? null : (macro.texB.image.data as Uint8Array),
+          mix: mixU, channel: (band === 'low' ? 0 : band === 'mid' ? 1 : 2) as 0 | 1 | 2, driftKm: [comp(dU), comp(dV)] as [number, number],
+        } : null,
+      };
+    });
+    return {
+      frame: { originM: v3('genusOrigin'), eastM: v3('genusEast'), northM: v3('genusNorth'), tileM: U.genusTileM!.value as number },
+      centerKm: [tsunObsKm[0], tsunObsKm[1]], sunDir: [clouds.sunDirection.x, clouds.sunDirection.y, clouds.sunDirection.z],
+      bottomRadiusKm: atmosphereParams.bottomRadius / 1000, n: opt.tsunN, halfKm: maxRay + 4, rangeKm: opt.tsunRangeKm, arch: opt.archLight === 1, lanes, warnings,
+    };
+  };
+  /**
+   * §179 WP2 하네스 동기 구축(잡마다 한 번 — 스케줄러 없음). tsun 1 · tsunSync · 고정표 · 해 ≤ shadowMinSunDeg(글자가 들어간 상태)일 때만.
+   * 열쇠 = 장면 번호 · 해 방향 · 중심 · 옵션(n·거리·아치) · 거시 격자(텍스처 id·mix·이류) — 같으면 건너뜀. 짓지 못하면 이유만 남기고 gTsunOn 0(C0ps 빛) —
+   * 하네스(WP8)가 tsunInfo().atlasValid 를 렌더 전에 확인.
+   */
+  const tsunAutoBuild = () => {
+    if (opt.tsun !== 1) return;
+    if (!opt.tsunSync) { tsunAutoReason = 'tsunSync false (no scheduler — atlas must come from setTsunAtlas)'; return; }
+    if (tsunExternal) { tsunAutoReason = 'external atlas (setTsunAtlas)'; return; }
+    if (lastShadow !== false) { tsunAutoReason = lastShadow === null ? 'no scene' : 'sun above shadowMinSunDeg (no T text)'; return; }
+    if (!tsunFixture) { tsunAutoReason = 'no fixture (setTsunFixture)'; return; }
+    const input = tsunBuildInputOf();
+    if (!input) { tsunAutoReason = 'no genus planar frame'; return; }
+    const key = JSON.stringify([sceneSerial, input.sunDir, input.centerKm, input.n, input.halfKm, input.rangeKm, input.arch, macro ? [macro.texA.id, macro.texB.id] : 0,
+      input.lanes.map(L => (L ? [L.genus, L.tileCover, L.baseKm, L.topKm, L.macro ? [L.macro.mix, L.macro.driftKm] : 0] : 0))]);
+    if (tsunAtlas && tsunAtlasValid && key === tsunAutoKey) { tsunAutoReason = null; return; }
+    const { laws, warnings } = tsunLawsFromFixture(tsunFixture, input);
+    input.warnings = [...(input.warnings ?? []), ...warnings];
+    const data = buildTsunAtlasData(input, laws, { fixtureSha: tsunFixture.header.binSha256 });
+    const atlas = makeTsunAtlas(data, sceneSerial);
+    validateTsunAtlas(atlas, opt, sceneSerial);   // 구축기가 옵션과 다른 것을 내면 버그 — throw
+    tsunDropOwn();
+    tsunOwnTex = atlas.texture;
+    tsunAtlas = atlas;
+    tsunAutoKey = key;
+    tsunBuilds++;
+    tsunAutoReason = null;
+    applyTsun();
   };
 
   // §179 만들 때 tsun 1 이면 샘플러 한도를 여기서 점검(장면 전이라 글자는 아직 넣지 않음). 끄면 아무것도 안 함.
@@ -1447,6 +1543,7 @@ export async function createVolumetricScene(
       applyTsun();
       // §130 하늘 화면은 reapply=false 로 부르고 제 키를 비워 setSceneAsync 로 다시 만듭니다(흐름 날씨를 동기로 만들면 수 초 멈춤).
       if (lastInput && reapply) setScene(lastInput);
+      else if (opt.tsun === 1) tsunAutoBuild();   // §179 WP2 옵션(tsunN·거리·아치)이 바뀌었으면 다시 지음(같으면 건너뜀)
     },
     setResolutionScale: s => { clouds.resolutionScale = s; updateLod(); },
     resolutionScale: () => clouds.resolutionScale,
@@ -1463,14 +1560,25 @@ export async function createVolumetricScene(
     setTerrainDistance,
     setTsunAtlas: atlas => {
       if (atlas) validateTsunAtlas(atlas, opt, sceneSerial);
+      // §179 WP2 밖 아틀라스는 부른 쪽 소유 — 이 장면이 지은 것은 버리고, 거는 동안 자동 구축을 쉼. null 이면 다시 자동 구축 가능.
+      if (atlas !== tsunAtlas || !atlas) tsunDropOwn();
+      tsunExternal = !!atlas;
       tsunAtlas = atlas;
       applyTsun();
+      if (!atlas && opt.tsun === 1) tsunAutoBuild();
     },
+    setTsunFixture: fx => {
+      tsunFixture = fx;
+      tsunAutoKey = null;
+      if (opt.tsun === 1) tsunAutoBuild();
+    },
+    tsunBuildInput: () => tsunBuildInputOf(),
     tsunSceneSerial: () => sceneSerial,
     tsunInfo: () => ({
       enabled: opt.tsun === 1, injected: opt.tsun === 1 && lastShadow === false, arch: opt.archLight === 1,
       belowShadow: lastShadow === null ? null : !lastShadow, atlasValid: opt.tsun === 1 && tsunAtlasValid, reason: tsunReason,
       archW: tsunArchW, samplers: tsunSamplers, sceneSerial, atlasMeta: tsunAtlas?.meta ?? null,
+      builds: tsunBuilds, autoReason: tsunAutoReason, external: tsunExternal,
     }),
     setSize: (w, h) => {
       camera.aspect = w / h; camera.updateProjectionMatrix();
@@ -1480,6 +1588,7 @@ export async function createVolumetricScene(
     dispose: () => {
       disposeMacro();
       tsunAtlas = null;   // §179 아틀라스 텍스처는 부른 쪽 소유(dispose 하지 않음)
+      tsunDropOwn();      // §179 WP2 이 장면이 지은 텍스처만 버림
       disposed = true;
       composer.dispose();
       clouds.dispose();

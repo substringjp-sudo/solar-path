@@ -176,7 +176,11 @@ export interface TsunAtlas {
   /** 이 아틀라스를 지은 장면(VolumetricScene.tsunSceneSerial()) — 다른 장면의 아틀라스를 걸면 throw(D11). */
   sceneSerial: number;
   /** 기록용(meta) — 셰이더와 무관. */
-  meta?: { sha?: string; buildMs?: number; builder?: string; fixtureSha?: string; sunAzDeg?: number; sunAltDeg?: number };
+  meta?: {
+    sha?: string; buildMs?: number; builder?: string; fixtureSha?: string; sunAzDeg?: number; sunAltDeg?: number;
+    /** §179 WP2 구축기(tsunAtlas.ts) 기록 — 높이 칸 수 K · 해 줄이 땅에 닿은 텍셀·조각 비율 · 경고(법칙 없는 레인 등). */
+    K?: number; earthShadowFrac?: number; warnings?: string[];
+  };
 }
 
 /** 아틀라스 모양 점검(D11). 옵션과 안 맞거나 깨졌으면 throw. */
