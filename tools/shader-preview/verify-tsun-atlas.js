@@ -320,7 +320,7 @@ async function main() {
   for (const e of [1.108, 0.3, -1.0]) {
     const b2 = { ...withSun(inputsOf.P3B, e), arch: true }, g = TA.tsunFrameGeom(b2), L = TA.tsunLawsFromFixture(fx, b2);
     const d = TA.buildTsunAtlasData(b2, L.laws);
-    const dT: number[] = [], dOwn: number[] = [];
+    const dT: number[] = [], dOwn: number[] = []; const worst: any[] = [];
     for (let k = 0; k < 4; k++) {
       const lb = b2.lanes[k], blk = d.laneBlock[k]; if (blk < 0) continue;
       const law = L.laws[k]!;
@@ -332,10 +332,12 @@ async function main() {
           const o = (((1 + sl) * d.n + j) * d.width + blk * d.n + i) * 4 + gg * 2;
           dT.push(Math.abs(Math.exp(-(d.tau[o] + d.tau[o + 1])) - Math.exp(-ref.tau)));
           dOwn.push(Math.abs(Math.exp(-d.tau[o]) - Math.exp(-ref.own)));
+          worst.push({ dT: dT[dT.length - 1], lane: k, i, j, sl, g: gg, own: d.tau[o], rest: d.tau[o + 1], refOwn: ref.own, refRest: ref.rest });
         }
       }
     }
-    res.u2d.push({ e, n: dT.length, p95: quant(dT, 0.95), max: Math.max(...dT), ownP95: quant(dOwn, 0.95) });
+    worst.sort((a, b) => b.dT - a.dT);
+    res.u2d.push({ e, K: d.K, n: dT.length, p95: quant(dT, 0.95), max: Math.max(...dT), ownP95: quant(dOwn, 0.95), worst: worst.slice(0, 3) });
   }
   // ───────── [U2b] · [U2c] 균일 층 ─────────
   const synth = (eDeg: number, lanes: [number, number][], n = 16, halfKm = 20) => {
@@ -405,7 +407,7 @@ async function main() {
     const bi = inputsOf[key], g = TA.tsunFrameGeom(bi), L = TA.tsunLawsFromFixture(fx, bi);
     const d = TA.buildTsunAtlasData(bi, L.laws);
     const dz = { ...d, tauCond: d.tauCond.map(() => 0) };
-    const rr = rng(31); const dT: number[] = []; let n = 0;
+    const rr = rng(31); const dT: number[] = []; let n = 0; const band: number[][] = [[], [], []];
     for (let k = 0; k < 400; k++) {
       const lane = [0, 1, 2, 3].filter(q => d.laneBlock[q] >= 0)[k % d.blocks], lb = bi.lanes[lane];
       const rad = 90 * Math.sqrt(rr()), th = 2 * Math.PI * rr(), x = bi.centerKm[0] + rad * Math.cos(th), y = bi.centerKm[1] + rad * Math.sin(th);
@@ -415,8 +417,10 @@ async function main() {
       if (ref.ground) continue;
       const sh = TA.tsunShaderTauCpu(dz, g, P, lane, lb.baseKm, lb.topKm, 0, true)!;
       dT.push(Math.abs(Math.exp(-sh) - Math.exp(-ref.tau))); n++;
+      const hfq = (he - lb.baseKm) / (lb.topKm - lb.baseKm);
+      band[hfq < 0.35 ? 0 : hfq < 0.68 ? 1 : 2].push(dT[dT.length - 1]);
     }
-    res.u2g[key] = { n, p50: quant(dT, 0.5), p95: quant(dT, 0.95), max: Math.max(...dT), sunEl: g.sunElCenterDeg, laneCond: d.meta.laneCond, edge: d.meta.edgeCover };
+    res.u2g[key] = { n, p50: quant(dT, 0.5), p95: quant(dT, 0.95), max: Math.max(...dT), bands: band.map(b => ({ n: b.length, p50: quant(b, 0.5), p95: quant(b, 0.95) })), sunEl: g.sunElCenterDeg, laneCond: d.meta.laneCond, edge: d.meta.edgeCover };
   }
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify(res, null, 1));
 }
@@ -537,7 +541,10 @@ json.dump(out, open(${JSON.stringify(macros)}, 'w'))
   }
 
   console.log('\n[U2d] 아치 블록(LP3 옆 흐름 무시) vs 참 3-D 아치 광선');
-  for (const r of R.u2d) ok(r.p95 <= 0.03 && r.n > 500, `P3B 해 ${r.e}°: T_g = e^−(own+rest) dT p95 ${f4(r.p95)} ≤ 0.03 · 최대 ${f4(r.max)} · own 만 p95 ${f4(r.ownP95)} (${r.n} 광선)`);
+  for (const r of R.u2d) {
+    ok(r.p95 <= 0.03 && r.n > 500, `P3B 해 ${r.e}°(K ${r.K}): T_g = e^−(own+rest) dT p95 ${f4(r.p95)} ≤ 0.03 · 최대 ${f4(r.max)} · own 만 p95 ${f4(r.ownP95)} (${r.n} 광선; 아치 광선은 해 방위에만 매여 고도와 무관 — K 가 같으면 같은 값)`);
+    if (r.max > 0.05) info(`  └ 최악 광선: ${JSON.stringify(r.worst.map(w => ({ dT: +w.dT.toFixed(3), lane: w.lane, i: w.i, j: w.j, sl: w.sl, g: w.g, own: +w.own.toFixed(3), rest: +w.rest.toFixed(3), refOwn: +w.refOwn.toFixed(3), refRest: +w.refRest.toFixed(3) })))}`);
+  }
 
   console.log('\n[U2e] 등록(종류 평면 ↔ ECEF ↔ 셰이더 uv, §173 원점)');
   for (const [k, g] of Object.entries(R.u2e)) {
@@ -550,7 +557,7 @@ json.dump(out, open(${JSON.stringify(macros)}, 'w'))
   ok(R.u2e.offset.valid && Math.hypot(R.u2e.offset.centerKm[0] - 3.2, R.u2e.offset.centerKm[1] + 1.7) < 1e-9, 'weatherOffsetKm [3.2, −1.7] → 아틀라스 중심이 그 오프셋(관측점)');
 
   console.log('\n[U2g] (보고) 셰이더 길 τ(half 텍셀 + u_true 보간, τ_c 뺌) vs 참 선 기준');
-  for (const [k, g] of Object.entries(R.u2g)) info(`${k} 해 ${f4(g.sunEl)}°: ${g.n} 점 dT p50 ${f4(g.p50)} · p95 ${f4(g.p95)} · 최대 ${f4(g.max)}; τ_c 운량·L ${JSON.stringify(g.laneCond.map(c => ({ lane: c.lane, c: +c.cover.toFixed(3), L: c.L.map(x => +x.toFixed(2)) })))}`);
+  for (const [k, g] of Object.entries(R.u2g)) info(`${k} 해 ${f4(g.sunEl)}°: ${g.n} 점 dT p50 ${f4(g.p50)} · p95 ${f4(g.p95)} · 최대 ${f4(g.max)}; hf 띠 [0, .35)·[.35, .68)·[.68, 1] p95 ${g.bands.map(b => f4(b.p95) + ' (' + b.n + ')').join(' · ')}; τ_c 운량·L ${JSON.stringify(g.laneCond.map(c => ({ lane: c.lane, c: +c.cover.toFixed(3), L: c.L.map(x => +x.toFixed(2)) })))}`);
 
   if (!NO_BENCH) {
     console.log('\n[U2f] 시간 기록(판정 없음) — node ' + process.version + ', 부하 ' + os.loadavg().map(x => x.toFixed(2)).join('/'));

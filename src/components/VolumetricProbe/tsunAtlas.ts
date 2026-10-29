@@ -573,7 +573,9 @@ class Lp3Tracer {
     const ith = 1 / L.th, f1 = (h1 - L.base) * ith, fm = (hm - L.base) * ith, f2 = (h2 - L.base) * ith;
     const ql1 = q0 + t1 * dqdt - qMin, ql2 = q0 + t2 * dqdt - qMin, qlm = 0.5 * (ql1 + ql2);
     const D = ql2 - ql1;
-    if (!(D > 1e-12)) { this.pc = 0; return 0; }
+    // 1 mm 보다 짧은 조각(시작 높이가 레인 경계와 1e-12 km 차로 걸친 것)은 버림 — 세 점 2차식이 D ≈ 1e-11 에서 터져 Λ 33 을 냈음 [measured, P3B
+    // sc 꼭대기 조각]. 1 m 보다 짧으면 2차식 대신 가운데 점 꼴.
+    if (!(t2 - t1 > 1e-6)) { this.pc = 0; this.pa = 0; this.ph = 0; return 0; }
     let g1 = ql1 * invDq; if (g1 < 0) g1 = 0; if (g1 > Nq) g1 = Nq; let m1 = g1 | 0; if (m1 > Nq - 1) m1 = Nq - 1;
     let g2 = ql2 * invDq; if (g2 < 0) g2 = 0; if (g2 > Nq) g2 = Nq; let m2 = g2 | 0; if (m2 > Nq - 1) m2 = Nq - 1;
     const o1 = (j * stride + m1) * 5, o2 = (j * stride + m2) * 5, e1 = g1 - m1, e2 = g2 - m2;
@@ -584,19 +586,30 @@ class Lp3Tracer {
     const M11 = P[o1 + 2] + (Bm1 * (ql1 * ql1 - qa1 * qa1)) * 0.5, M12 = P[o2 + 2] + (Bm2 * (ql2 * ql2 - qa2 * qa2)) * 0.5;
     const M21 = P[o1 + 3] + (Bm1 * (ql1 * ql1 * ql1 - qa1 * qa1 * qa1)) / 3, M22 = P[o2 + 3] + (Bm2 * (ql2 * ql2 * ql2 - qa2 * qa2 * qa2)) / 3;
     const C1 = P[o1 + 4] + (P[o1 + 9] - P[o1 + 4]) * e1, C2 = P[o2 + 4] + (P[o2 + 9] - P[o2 + 4]) * e2;
-    const s1 = (fm - f1) / (qlm - ql1), s12 = (f2 - fm) / (ql2 - qlm), s2 = (s12 - s1) / D;
-    const gam = s2, bet = s1 - s2 * (ql1 + qlm), alp = f1 - s1 * ql1 + s2 * ql1 * qlm;
     const hc = (j + 0.5) / this.K;
     const idq = 1 / dqdt;
     const dA = A2 - A1, dB = B2 - B1;
-    const lam = (dA + (alp - hc) * dB + bet * (M12 - M11) + gam * (M22 - M21)) * idq;
-    // 운량 무게 Σ λ·c: A 몫은 누적합(Σ A·c), B 몫(λ − A)은 조각의 A 무게 평균 운량으로 나눠 줌(결정 A1)
-    const pcA = (C2 - C1) * idq, paA = dA * idq;
-    this.pc = pcA + (paA > 0 ? (lam - paA) * (pcA / paA) : 0);
-    this.pa = lam;
-    // 높이 무게 ∫ hf·λ ≈ ΔA·⟨hf⟩ + ΔB·(⟨hf²⟩ − hc·⟨hf⟩) — 조각 안 A·B 를 고르게, hf(q) 2차의 평균은 심프슨(결정 A1: 무게용)
+    let alp = fm, bet = 0, gam = 0;
+    if (D > 1e-3) {
+      const s1 = (fm - f1) / (qlm - ql1), s12 = (f2 - fm) / (ql2 - qlm), s2 = (s12 - s1) / D;
+      gam = s2; bet = s1 - s2 * (ql1 + qlm); alp = f1 - s1 * ql1 + s2 * ql1 * qlm;
+    }
+    // 참 피적분 λ ≥ 0 — 칸 안 선형 맞춤이 거시 가장자리에서 조각 Λ 를 조금 음수로 만들 수 있어 0 에서 자름(그런 조각끼리 상쇄해 Λ ≈ 0 인데
+    // hf 무게만 남아 G 가 76 까지 튄 일이 있었음 [measured, P3B sc 꼭대기 → ac 레인, 해 12°])
+    const lam = Math.max(0, (dA + (alp - hc) * dB + bet * (M12 - M11) + gam * (M22 - M21)) * idq);
+    // 운량 무게: Σ A·c / Σ A(칸 평균 λ 몫만 — 늘 [0, 1]). B 몫(λ − A)까지 조각 평균 운량으로 나눠 주는 판은 A ≈ 0 인 거시 가장자리 조각에서
+    // c_eff 가 튀어 G 가 76 까지 갔음 [measured, P3B sc 꼭대기 조각] — 되돌림(결정 A1).
+    this.pc = (C2 - C1) * idq;
+    this.pa = dA * idq;
+    // 높이 무게: 조각 안 λ 무게 평균 hf = [ΔA·⟨hf⟩ + ΔB·(⟨hf²⟩ − hc·⟨hf⟩)] / [ΔA + ΔB·(⟨hf⟩ − hc)](A·B 를 조각 안에서 고르게, hf(q) 2차 평균은
+    // 심프슨)를 조각의 hf 범위로 자르고 정확한 Λ(누적합)에 곱함 — 처음 판은 분자만 더해 거시 가장자리를 지나는 긴 스치는 조각에서 hf_eff 가 1 을
+    // 넘었음 [measured, P3B −1° 꼭대기 조각](결정 A1).
     const hm1 = (f1 + 4 * fm + f2) / 6, hm2 = (f1 * f1 + 4 * fm * fm + f2 * f2) / 6;
-    this.ph = (dA * hm1 + dB * (hm2 - hc * hm1)) * idq;
+    const den = dA + dB * (hm1 - hc);
+    let hw = den > 1e-12 ? (dA * hm1 + dB * (hm2 - hc * hm1)) / den : hm1;
+    const flo = Math.min(f1, fm, f2), fhi = Math.max(f1, fm, f2);
+    if (!(hw >= flo)) hw = flo; else if (hw > fhi) hw = fhi;
+    this.ph = lam * hw;
     this.pieces++;
     return lam;
   }
@@ -667,7 +680,7 @@ class Lp3Tracer {
  */
 type Acc4 = [number, number, number, number];   // Λ, ΣA·c, ΣA, Σλ·hf
 function laneTau(acc: { accL: Float64Array; accC: Float64Array; accA: Float64Array; accH: Float64Array; tF: Float64Array; tL: Float64Array }, k: number, law: TsunLaneLaw, near: Acc4 | null): [number, number] {
-  const Gm = (a: Acc4) => (a[0] > 0 ? law.G(a[0], a[2] > 0 ? Math.min(1, Math.max(0, a[1] / a[2])) : 0, Math.min(1 - 1e-6, Math.max(1e-6, a[3] / a[0]))) : 0);
+  const Gm = (a: Acc4) => (a[0] > 1e-9 ? law.G(a[0], a[2] > 0 ? Math.min(1, Math.max(0, a[1] / a[2])) : 0, Math.min(1 - 1e-6, Math.max(1e-6, a[3] / a[0]))) : 0);
   const s0 = k * 2, s1 = k * 2 + 1;
   const a0 = acc.tF[s0] < Infinity, a1 = acc.tF[s1] < Infinity;
   const A0: Acc4 = [acc.accL[s0], acc.accC[s0], acc.accA[s0], acc.accH[s0]], A1: Acc4 = [acc.accL[s1], acc.accC[s1], acc.accA[s1], acc.accH[s1]];
