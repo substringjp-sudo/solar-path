@@ -575,7 +575,7 @@ const I2_VAL = (dbg: boolean) => [
 /** D-1 누적 앵커(marchClouds 적분 줄, 구름 패스 1 번) — 이 줄 **앞**에 wᵢ 누적. */
 export const TSUN_DBG_ACC_ANCHOR = '      radianceIntegral += transmittanceIntegral * scatteringIntegral;';
 /** D-1 출력 앵커(main 끝) — 마지막 색 쓰기 뒤에 진단 값으로 덮어씀. */
-export const TSUN_DBG_OUT_ANCHOR = '  outputColor = color;\n  outputDepthVelocity = depthVelocity;';
+export const TSUN_DBG_OUT_ANCHOR = '  outputColor = ((any(isnan(color)) || any(isinf(color))) ? vec4(0.0) : color);';
 const D_ACC = [
   `      // ${M} D-1 진단 누적 — wᵢ = T_앞·(1 − e^(−σΔs)): 이 표본이 화소에 들어가는 적분 무게(빛 받는 표본만).`,
   '      if (gTsunDbgT >= 0.0) {',
@@ -586,10 +586,9 @@ const D_ACC = [
   TSUN_DBG_ACC_ANCHOR,
 ];
 const D_OUT = [
-  '  outputColor = color;',
+  TSUN_DBG_OUT_ANCHOR,
   `  // ${M} D-1 진단 출력 — R = √T̄(T̄ = Σw·T / Σw), G = Σw, B = Σw·T, A = 1. 하네스(entry-tsun)가 구름 패스 출력(해석 전)을 바로 읽음 — 대기·안개·톤 안 거침.`,
-  '  outputColor = vec4(sqrt(gTsunDbgWT / max(gTsunDbgW, 1e-6)), gTsunDbgW, gTsunDbgWT, 1.0);',
-  '  outputDepthVelocity = depthVelocity;',
+  '  outputColor = vec4(sqrt(clamp(gTsunDbgWT / max(gTsunDbgW, 1e-6), 0.0, 1.0)), gTsunDbgW, gTsunDbgWT, 1.0);',
 ];
 /** I-T — V10b. else 가지에 원래 줄 그대로(U4e). */
 const IT = [

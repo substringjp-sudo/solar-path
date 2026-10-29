@@ -178,7 +178,7 @@ async function curTests(res: any) {
       diff3: L({ tsun: 1, diffuse: 3 }), diff9: L({ tsun: 1, diffuse: 9 }), diff1: L({ tsun: 1, diffuse: 1 }), diff2Off: L({ tsun: 0, diffuse: 2 }),
       archNoTsun: L({ archLight: 1 }), noTNoArch: L({ tsun: 1, archNoT: 1 }), badTsun: L({ tsun: 2 }), badTsunStr: L({ tsun: '1' }), badN: L({ tsun: 1, tsunN: 64 }),
       badRange: L({ tsun: 1, tsunRangeKm: 0 }), badRangeNaN: L({ tsun: 1, tsunRangeKm: NaN }), badStep: L({ tsunRefStepM: -1 }), badSync: L({ tsunSync: 1 }),
-      refNotImpl: L({ tsunRef: 1 }), refAndT: L({ tsun: 1, tsunRef: 1 }), dbgNotImpl: L({ tsun: 1, tsunDebug: 1 }), dbg1NoT: L({ tsunDebug: 1 }), dbgArchNoArch: L({ tsun: 1, tsunDebug: 3 }),
+      refNotImpl: L({ tsunRef: 1, tsunDebug: 6 }), refAndT: L({ tsun: 1, tsunRef: 1 }), dbgNotImpl: L({ tsun: 1, tsunDebug: 7 }), /* §179 WP6·WP8: tsunRef 1·2 · tsunDebug 1 은 구현됨 — 미구현은 진단 2~7(verify-tsun-ref.js) */ dbg1NoT: L({ tsunDebug: 1 }), dbgArchNoArch: L({ tsun: 1, tsunDebug: 3 }),
       noGenus: L({ tsun: 1, genus: false }), okT: L({ tsun: 1 }), okA: L({ tsun: 1, archLight: 1 }), okH0: L({ tsun: 1, archLight: 1, archNoT: 1 }), okT2: L({ tsun: 1, tsunN: 256 }),
       okOff: L({}),
     };
