@@ -1,0 +1,47 @@
+{
+ "files": {
+  "grain2.py": "de6d443a1fc790318623c50de9687087919426396f619e0d232450927ac8567d",
+  "grain2-test.py": "8574585d066fedcef89e2cb715b5b094eebe3b04f66171eb2b5406b14a7ed2a3",
+  "grain2-photos.py": "48e0e962fe8c4380048c5ac5280491049ff59ca72d926efc953f9cfe9121aeae",
+  "eval-grain2.sh": "b567894b068ccd013c0c58dd177d2396890c5b964cafa6108b87a6c4ab6a75b7",
+  "make-jobs-aa.py": "6b99781674c31ba4cf0c9ece90dfc30092c485a52c3c0d752df5729109918d8d",
+  "aa-jobs.json": "ee60f9acecae383c0c5c23f2363ae5e13378c554983e5bc4bc590f8bac62d4f9",
+  "run-aa.sh": "ecd8f72106717fd07c74c4d22540e49010f9e043bf1bce41fb9d93806e0eaf25",
+  "chain-r2.sh": "4ba8595938685fdd2fb6f459bcaadbf5d17e938d339137911dff66003cafdb79",
+  "RULER-grain2.md": "6736ee6145f1c759d247ba09cf78a4bcb205f23d3ee35f7dfc458d9e0c3ceb8c",
+  "overrides.json": "0474ac0913edd1b3a70a607aafdaabbadf0e5676346c05f51dae82e3ecc94e21",
+  "aa-grain2-report.json": "ad9bd7bfdaf83b35b29761195b26b5bb23c3154481f00a5c26c4036548023edd",
+  "g3-near.json": "401d55b114fce771cf9ad32a4887a0a6d0515a0de31af85cf5772b88e20506cb",
+  "grain2-photos.json": "c2065a99be2d20297c8ee9895d87b6df5ce2a636148f14894e880057a95a4993",
+  "grain2-test.txt": "42a692c6f1eadb4ef0ea79f5ffc4819e4c263b7ec8395db269bdefe1eb4fe746"
+ },
+ "old": {
+  "grain/grain.py": "0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a",
+  "grain/eval-grain.sh": "4d54c9ca63fcd52fcbb77564b5254cfa26815a9d24dd8ccbb1677a7e200c5cb8",
+  "grain/scenes-grain.json": "fdbe7b9097dc5e787d22dd76e7ea6a980637153849807d7ed22f6a7d5a6c5fc3",
+  "grain/make-jobs-grain.mjs": "50411f60ad999fe348626bf1a6f75517283f4e44d6cb9e8fac58be3ef1324eed",
+  "grain/run-grain.js": "bce938de86048be95578812d58add9362c067a1be6559f5b3ca8947e27c23ebe",
+  "grain/calib-grain.json": "97b93f1cce8ee75b3837ca9bc987da34913f5556e363029a0cf2c11fdcf21b2f",
+  "grain/g0-bundle.json": "4e0622b940de7042bfb76b6d5f26856b11ea8392d452d0e83f435b45162dccfd",
+  "flow/fm.py": "021b23130b8f4234ee781f9509c512ace4e4a4b9cef937d57dd15d4ff1b9be6a",
+  "clip/judge2.py": "a6437f72ff329f81b99548dbb60ece0f0b067ebe3af010ef9ffe06c36a8c05dc",
+  "clip/prompts2.json": "15cc9bf2bf98dca451f817cc85fab3e6b3b41e50af1ba17be793aefceae88634",
+  "clip/tokenizer.json": "72ed5c96db5729294468543e4bc75fce14ca63f58e37300290189ba1c1e52b85",
+  "clip/vision_model_quantized.onnx": "9a658de8944a2001719beabf6c5030cfe7b3dc80e85983f69fc648d6b4d7ec0f",
+  "clip/text_model_quantized.onnx": "6d31c7a212681c3918d78193b6b4f98c70fe540577f9a0a57fe7ba8c7439244c"
+ },
+ "runtime": {
+  "app.js": "6b9cf05acfb0ed85dd411bae1f30d9465f25f5c88f4de9942732e5cdaa8c5b7a",
+  "judge/calib-grain.json": "97b93f1cce8ee75b3837ca9bc987da34913f5556e363029a0cf2c11fdcf21b2f",
+  "g0bundle": "4e0622b940de7042bfb76b6d5f26856b11ea8392d452d0e83f435b45162dccfd"
+ },
+ "versions": {
+  "scipy": "1.17.1",
+  "numpy": "2.4.6",
+  "PIL": "12.3.0",
+  "onnxruntime": "1.30.0"
+ },
+ "clipCfg": "08967021174a028eb587cd31e7d1306853ccc460516f93fce4cc8699f5a1b424",
+ "near": 0.4022000000000001,
+ "r2JudgeFilesAtFreeze": []
+}
