@@ -5,7 +5,7 @@
 맞음: AcCc 사진 → argmax AcCc, Ci 사진 → argmax ∈ {Ci, Cs}(clip-labels.py 와 같음). 혼동 종류(Cu·Cs·Sc)는 AcCc·Ci 로 잘못 붙는 비율만 기록.
 받아들임(미리 정함): AcCc·Ci 각각 새 정확도 ≥ 옛 정확도 − 0.05.
 """
-import argparse, hashlib, json, os, sys
+import argparse, json, os, sys
 import numpy as np
 from PIL import Image
 
@@ -32,25 +32,6 @@ def photo_list():
     return out
 
 
-def smooth(path, top, cache):
-    j2, names, C = G2._judge2()
-    import inspect
-    key = 'photo|%s|top%.4f|%s' % (G2.sha256(path), top, hashlib.sha256(inspect.getsource(smooth).encode()).hexdigest()[:16])
-    ent = cache['entries']
-    if key in ent:
-        return np.array(ent[key]['P']).mean(0), names
-    a = np.asarray(Image.open(path).convert('RGB')).astype(np.int16)
-    P = []
-    for k in range(G2.G3_K):
-        rng = np.random.default_rng(G2.G3_SEED0 + k)
-        x = np.clip(a + rng.integers(-1, 2, size=a.shape), 0, 255).astype(np.uint8)
-        e = j2.vis().run(None, {'pixel_values': np.stack([j2.prep(Image.fromarray(x), top)])})[0]
-        e = e / np.linalg.norm(e, axis=1, keepdims=True)
-        P.append(j2.probs(e, C)[0])
-    ent[key] = {'P': [[float(v) for v in row] for row in P], 'png': path}
-    return np.mean(P, 0), names
-
-
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument('--cache'); ap.add_argument('--out', required=True); ap.add_argument('--classes', default='AcCc,Ci')
@@ -62,12 +43,12 @@ def main(argv):
     assert len(ph) == len(lab) == len(E) and [p['label'] for p in ph] == lab, '사진 목록이 photo-emb2 와 다름'
     Pold = j2.probs(E, C); amold = [names[i] for i in Pold.argmax(1)]
     cache = G2.load_cache(a.cache)
-    res = {'clipCfg': G2.clip_cfg()[0], 'K': G2.G3_K, 'classes': {}}
+    res = {'provenance': G2.provenance(), 'clipCfg': G2.clip_cfg()[0], 'K': G2.G3_K, 'classes': {}}
     for g in cls:
         idx = [i for i, p in enumerate(ph) if p['label'] == g]
         new = []
         for n, i in enumerate(idx):
-            p, _ = smooth(ph[i]['file'], ph[i]['top'], cache)
+            p, _, _ = G2.clip_smooth(ph[i]['file'], cache, top=ph[i]['top'])   # 렌더 판정과 같은 함수(자름만 사진의 것)
             new.append(names[int(np.argmax(p))])
             if n % 10 == 9:
                 G2.save_cache(a.cache, cache)

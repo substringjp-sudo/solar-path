@@ -62,7 +62,7 @@ def job_paths(root, arm, tag, scene, az, frame='std'):
         return None
     inp = meta['input'] if 'input' in meta else meta['job']['input']
     cr = meta.get('canvasCropRows')
-    return {'png': p, 'alpha': a, 'el': inp['el'], 'fov': inp['fov'], 'rows': cr}
+    return {'png': p, 'alpha': a, 'el': inp['el'], 'fov': inp['fov'], 'rows': cr, 'W': meta.get('W'), 'H': meta.get('H')}
 
 
 def load_rgb(p):
@@ -102,12 +102,12 @@ def sky_row(rgb_b, al_b, rgb_e, al_e, el):
             m = S & (el > lo) & (el <= hi)
             if m.sum() >= SKY_MIN_PX:
                 mb, me = float(Lb[m].mean()), float(Le[m].mean())
-                bands['%g-%g' % (lo, hi)] = abs(math.log(me / mb)) if mb > 0 and me > 0 else SHARED_FAIL
+                bands['%g-%g' % (lo, hi)] = abs(math.log(me / mb)) if mb > 0 and me > 0 else (0.0 if mb == me == 0 else SHARED_FAIL)
         if bands:
             out['d'] = float(max(bands.values()))
         else:
             mb, me = float(Lb[S].mean()), float(Le[S].mean())
-            out['d'] = abs(math.log(me / mb)) if mb > 0 and me > 0 else SHARED_FAIL
+            out['d'] = abs(math.log(me / mb)) if mb > 0 and me > 0 else (0.0 if mb == me == 0 else SHARED_FAIL)
         out['bands'] = bands
         mdb, mde = float(np.median(Lb[S])), float(np.median(Le[S]))
         out['medianD'] = abs(math.log(mde / mdb)) if mdb > 0 and mde > 0 else None   # 기록(옛 꼴의 중앙값 비)
@@ -136,12 +136,15 @@ def g2s(S, root, base, cand, scenes=None, perturb=None, full=True):
             B, E = job_paths(root, ba, bt, key, az), job_paths(root, ea, et, key, az)
             if B is None or E is None:
                 missing.append(key + ':' + az); continue
-            if (B['el'], B['fov']) != (E['el'], E['fov']):
-                raise ValueError('카메라가 다름 %s:%s' % (key, az))
+            if (B['el'], B['fov'], B['rows'], B['W'], B['H']) != (E['el'], E['fov'], E['rows'], E['W'], E['H']):
+                raise ValueError('카메라·캔버스가 다름 %s:%s' % (key, az))
             rgb_b, al_b, rgb_e, al_e = load_rgb(B['png']), load_alpha(B['alpha']), load_rgb(E['png']), load_alpha(E['alpha'])
-            H, W = al_b.shape
+            h, w = al_b.shape
+            W, H = (B['W'] or w), (B['H'] or h)
             rr = np.arange(*B['rows']) if B.get('rows') else None
             el = G.pixel_elevation(W, H, B['el'], B['fov'], rr)
+            if el.shape != al_b.shape:
+                raise ValueError('고도 격자와 그림 크기가 다름 %s:%s' % (key, az))
             if perturb is not None:
                 rgb_b, al_b, rgb_e, al_e = perturb(key, az, rgb_b, al_b, rgb_e, al_e, el)
             r = sky_row(rgb_b, al_b, rgb_e, al_e, el)
@@ -255,13 +258,14 @@ def clip_cfg():
     if _CFG is None:
         import onnxruntime
         import PIL
+        import tokenizers
         f = lambda n: sha256(os.path.join(CLIPDIR, n))  # noqa: E731
         import inspect
         code = hashlib.sha256(inspect.getsource(clip_smooth).encode()).hexdigest()   # 점수 코드만(다른 곳을 고쳐도 캐시 유지)
         parts = {'clipSmoothSrc': code, 'judge2': f('judge2.py'), 'vision': f('vision_model_quantized.onnx'),
                  'text': f('text_model_quantized.onnx'), 'tokenizer': f('tokenizer.json'), 'prompts2': f('prompts2.json'),
                  'ort': onnxruntime.__version__, 'numpy': np.__version__, 'PIL': PIL.__version__, 'cpu': os.cpu_count(),
-                 'affinity': sorted(os.sched_getaffinity(0)),
+                 'affinity': sorted(os.sched_getaffinity(0)), 'tokenizers': tokenizers.__version__, 'python': sys.version.split()[0],
                  'K': G3_K, 'seed0': G3_SEED0, 'top': G3_TOP}
         _CFG = (hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest(), parts)
     return _CFG
@@ -278,26 +282,27 @@ def load_cache(p):
 
 def save_cache(p, c):
     if p and c is not None:
-        tmp = p + '.tmp'; json.dump({'cfg': c['cfg'], 'entries': c['entries']}, open(tmp, 'w')); os.replace(tmp, p)
+        tmp = '%s.%d.tmp' % (p, os.getpid()); json.dump({'cfg': c['cfg'], 'entries': c['entries']}, open(tmp, 'w')); os.replace(tmp, p)
 
 
-def clip_smooth(png, cache=None):
-    """그림 하나: K 개 ±1 LSB 떨림 복사본을 하나씩(배치 1) 넣은 확률. 반환 (평균 확률, 이름, 복사본별 확률 K×C)."""
+def clip_smooth(png, cache=None, top=G3_TOP):
+    """그림 하나: K 개 ±1 LSB 떨림 복사본을 하나씩(배치 1) 넣은 확률(float64). 반환 (평균 확률, 이름, 복사본별 확률 K×C).
+    top = 위쪽 자름(렌더 0.78; 사진 검증은 사진마다의 자름)."""
     j2, names, C = _judge2()
-    key = sha256(png)
+    key = sha256(png) + ('' if top == G3_TOP else '|top%.4f' % top)
     ent = cache['entries'] if cache is not None else None
     if ent is not None and key in ent:
-        P = np.array(ent[key]['P'])
+        P = np.array(ent[key]['P'], dtype=np.float64)
         return P.mean(0), names, P
     a = np.asarray(Image.open(png).convert('RGB')).astype(np.int16)
     P = []
     for k in range(G3_K):
         rng = np.random.default_rng(G3_SEED0 + k)
         x = np.clip(a + rng.integers(-1, 2, size=a.shape), 0, 255).astype(np.uint8)
-        e = j2.vis().run(None, {'pixel_values': np.stack([j2.prep(Image.fromarray(x), G3_TOP)])})[0]
+        e = j2.vis().run(None, {'pixel_values': np.stack([j2.prep(Image.fromarray(x), top)])})[0]
         e = e / np.linalg.norm(e, axis=1, keepdims=True)
         P.append(j2.probs(e, C)[0])
-    P = np.array(P)
+    P = np.array([[float(v) for v in row] for row in P], dtype=np.float64)   # 캐시와 같은 수(float32 → float64 → JSON 이 되돌아옴)
     if ent is not None:
         ent[key] = {'P': [[float(v) for v in row] for row in P], 'png': png}
     return P.mean(0), names, P
@@ -321,9 +326,20 @@ def score_image(png, gen, cache=None):
 
 
 def load_near():
+    """동결된 δ. CLIP 설정 해시가 동결 때와 다르면 None(G3 평가 불가)."""
     if not os.path.exists(NEAR_FILE):
         return None
-    return json.load(open(NEAR_FILE)).get('near')
+    d = json.load(open(NEAR_FILE))
+    return d.get('near') if d.get('clipCfg') == clip_cfg()[0] else None
+
+
+def provenance(clip=True):
+    """보고서가 어느 코드로 만들어졌는지(동결 때 대조)."""
+    f = lambda n: sha256(os.path.join(HERE, n))  # noqa: E731
+    p = {'grain2Sha256': f('grain2.py'), 'testSha256': f('grain2-test.py'), 'photosSha256': f('grain2-photos.py')}
+    if clip:
+        p['clipCfg'] = clip_cfg()[0]
+    return p
 
 
 def g3_lost(mB, mE, scenes=('ac60_e20', 'ac60_e45', 'ci60_e20', 'ci60_e45')):
@@ -483,7 +499,8 @@ def rejudge(old, S, root, cache=None):
     gfail, gnone, status = restatus(doc)
     doc.update({'ruler': 'RULER-grain2', 'grainSha256': G.grain_sha256(), 'grain2Sha256': sha256(os.path.abspath(__file__)),
                 'clipCfg': clip_cfg()[0], 'near': g3new.get('near'),
-                'oldStatus': old.get('status'), 'oldGuardFail': old.get('guardFail'), 'guardFail': gfail, 'guardUnknown': gnone, 'status': status})
+                'oldStatus': old.get('status'), 'oldGuardFail': old.get('guardFail'), 'oldGuardUnknown': old.get('guardUnknown'),
+                'rejudgeDate': __import__('datetime').date.today().isoformat(), 'guardFail': gfail, 'guardUnknown': gnone, 'status': status})
     return doc
 
 
@@ -517,21 +534,22 @@ def tf_blend(root, other_arm, other_tag, other_layer, w):
     return f
 
 
-def aa_report(S, root, cache, cache_path=None, log=print):
-    """A/A 쌍과 합성 대조. 후보 팔 렌더는 읽지 않음."""
-    rep = {'clipCfg': clip_cfg()[0], 'clipCfgParts': clip_cfg()[1], 'g2s': {}, 'g2sCtl': {}, 'g2sRate': {}, 'g3': {}, 'g3Ctl': {}, 'g3Rec': {}}
-    # ── G2s A/A ──
-    r = g2s(S, root, 'C0', 'C0:AA777'); rep['g2s']['C0|C0:AA777'] = _strip(r); log('g2s C0|AA777', r.get('pass'), r.get('max'), r.get('memMax'))
-    for b, e in (('C0:P8A', 'C0:P8B'), ('C0:P8A', 'C0:P8n777'), ('C0:P8A', 'C0:P8n4242'), ('C0:P8n777', 'C0:P8n4242')):
-        r = g2s(S, root, b, e, full=False); x = _strip(r)
-        x['devMax'] = float(max(r['scene'].values())) if r['scene'] else None
-        x['devMemMax'] = float(max(r['memScene'].values())) if r['memScene'] else None
-        rep['g2s'][b + '|' + e] = x; log('g2s', b, e, x['devMax'], x['devMemMax'])
-    # ── G2s 대조(반드시 실패 / 반드시 통과) ──
+G2S_CTL_FAIL = {   # 이름 → (지켜야 할 조항, 만드는 법) — 반드시 실패
+    'gain1.015': 'lum', 'gain1.015_t': 'lum', 'gain1.015_s': 'lum', 'gain1.015_a': 'lum',
+    'T_gain1.05_el0-5': 'lum', 'T_gain1.03_el0-10': 'lum', 't_gain1.03': 'lum', 't_gain1.05_el0-15': 'lum', '3scenes_gain1.02': 'lum',
+    'veil_el0-20': 'mem', 'veil_el0-12_a0.03': 'mem', 'veil_all_9scenes': 'any'}
+G2S_CTL_PASS = ('gain1.005_dq', 'alpha_add0.01')
+G2S_CTL_REC = ('ring2_1.10',)
+G2S_CTL_BASES = ('C0', 'C0:AA777')
+G2S_RATES = {'gain1.0025': (1.0025, 'ge', 0.95), 'gain1.01': (1.01, 'le', 0.05)}
+G3_CTL_FAIL = ('swap ci60→sc85', 'swap ac60→cu35', 'swap ci60_e45→sc85', 'swap ci60_e20→sc85', 'swap ac60_e45→cu35', 'swap ac60_e20→cu35',
+               'swap ci60→ac60', 'swap ac60→sc25', 'blur2 ci60', 'blur2 ac60')
+
+
+def g2s_controls(S, open_sky):
     T = [k for k, s in S['scenes'].items() if s['bundle'] in ('T', 'T4') and not s.get('record')]
-    open_sky = sorted(k for k, v in rep['g2s']['C0|C0:AA777']['scene'].items())
-    nine = open_sky[:9]; three = open_sky[:3]
-    must_fail = {
+    nine, three = open_sky[:9], open_sky[:3]
+    f = {
         'gain1.015': pert_gain(1.015, seed=1), 'gain1.015_t': pert_gain(1.015, seed=1, az_set='t'),
         'gain1.015_s': pert_gain(1.015, seed=1, az_set='s'), 'gain1.015_a': pert_gain(1.015, seed=1, az_set='a'),
         'T_gain1.05_el0-5': pert_gain(1.05, seed=1, scene_set=T, el_lo=0, el_hi=5),
@@ -540,29 +558,45 @@ def aa_report(S, root, cache, cache_path=None, log=print):
         '3scenes_gain1.02': pert_gain(1.02, seed=1, scene_set=three),
         'veil_el0-20': pert_veil(0.05, 1.10, 20.0), 'veil_el0-12_a0.03': pert_veil(0.03, 1.10, 12.0),
         'veil_all_9scenes': pert_veil(0.05, 1.0, 90.0, scene_set=nine),
-    }
-    must_pass = {'gain1.005_dq': pert_gain(1.005, seed=1), 'alpha_add0.01': pert_alpha_add(0.01, 0.01)}
-    record = {'ring2_1.10': pert_ring(2.0, 1.10)}
-    for base_e in ('C0', 'C0:AA777'):
-        for nm, f in list(must_fail.items()) + list(must_pass.items()) + list(record.items()):
+        'gain1.005_dq': pert_gain(1.005, seed=1), 'alpha_add0.01': pert_alpha_add(0.01, 0.01), 'ring2_1.10': pert_ring(2.0, 1.10)}
+    assert set(f) == set(G2S_CTL_FAIL) | set(G2S_CTL_PASS) | set(G2S_CTL_REC)
+    return f
+
+
+def aa_report(S, root, cache, cache_path=None, log=print):
+    """A/A 쌍과 합성 대조. 후보 팔 렌더는 읽지 않음."""
+    import scipy
+    rep = {'provenance': provenance(), 'clipCfg': clip_cfg()[0], 'clipCfgParts': clip_cfg()[1], 'scipy': scipy.__version__,
+           'g2s': {}, 'g2sCtl': {}, 'g2sRate': {}, 'g3': {}, 'g3Ctl': {}, 'g3Rec': {}}
+    # ── G2s A/A ──
+    r = g2s(S, root, 'C0', 'C0:AA777'); rep['g2s']['C0|C0:AA777'] = _strip(r); log('g2s C0|AA777', r.get('pass'), r.get('max'), r.get('memMax'))
+    for b, e in (('C0:P8A', 'C0:P8B'), ('C0:P8A', 'C0:P8n777'), ('C0:P8A', 'C0:P8n4242'), ('C0:P8n777', 'C0:P8n4242')):
+        r = g2s(S, root, b, e, full=False); x = _strip(r)
+        x['devMax'] = float(max(r['scene'].values())) if r['scene'] else None
+        x['devMemMax'] = float(max(r['memScene'].values())) if r['memScene'] else None
+        rep['g2s'][b + '|' + e] = x; log('g2s', b, e, x['devMax'], x['devMemMax'])
+    # ── G2s 대조(반드시 실패 / 반드시 통과 / 기록), C0 와 AA777 위에서 둘 다 ──
+    ctl = g2s_controls(S, sorted(rep['g2s']['C0|C0:AA777']['scene']))
+    for base_e in G2S_CTL_BASES:
+        for nm, f in ctl.items():
             r = g2s(S, root, 'C0', base_e, perturb=f)
             x = {k: r.get(k) for k in ('pass', 'lumPass', 'memPass', 'share', 'max', 'memShare', 'memMax', 'nScenes', 'note')}
-            x['want'] = 'fail' if nm in must_fail else ('pass' if nm in must_pass else 'record')
-            rep['g2sCtl'][base_e + '|' + nm] = x; log('g2s ctl', base_e, nm, x['pass'], x['max'], x['memMax'])
-    for gain, want in ((1.0025, 'passRate>=0.95'), (1.01, 'passRate<=0.05')):
-        ps = []
-        for sd in range(20):
-            r = g2s(S, root, 'C0', 'C0', perturb=pert_gain(gain, seed=100 + sd)); ps.append(r.get('pass') is True)
-        rep['g2sRate']['gain%g' % gain] = {'passRate': float(np.mean(ps)), 'want': want}; log('g2s rate', gain, np.mean(ps))
+            x['want'] = 'fail' if nm in G2S_CTL_FAIL else ('pass' if nm in G2S_CTL_PASS else 'record')
+            x['wantClause'] = G2S_CTL_FAIL.get(nm)
+            rep['g2sCtl'][base_e + '|' + nm] = x; log('g2s ctl', base_e, nm, x['pass'], x['lumPass'], x['memPass'], x['max'], x['memMax'])
+    for base_e in G2S_CTL_BASES:
+        for nm, (gain, _, _) in G2S_RATES.items():
+            ps = [g2s(S, root, 'C0', base_e, perturb=pert_gain(gain, seed=100 + sd)).get('pass') is True for sd in range(20)]
+            rep['g2sRate'][base_e + '|' + nm] = {'passRate': float(np.mean(ps)), 'n': len(ps)}; log('g2s rate', base_e, nm, np.mean(ps))
     # ── G3 A/A: 여백 36 개 · σ · near · 6 순서쌍 · P_FF · 검정력 ──
-    reals = {'C0': ('C0', None), 'AA777': ('C0', 'AA777'), 'AA4242': ('C0', 'AA4242')}
+    reals = {'C0': 'C0', 'AA777': 'C0:AA777', 'AA4242': 'C0:AA4242'}
     M = {}
-    for k, (a, t) in reals.items():
-        M[k] = g3_margins(root, a, t, cache); save_cache(cache_path, cache)
+    for k, armtag in reals.items():
+        a_, t_ = arm_tag(armtag)
+        M[k] = g3_margins(root, a_, t_, cache); save_cache(cache_path, cache)
         log('g3 margins', k, None if M[k] is None else np.round(M[k], 3).tolist())
     rep['g3']['margins'] = {k: (None if v is None else v.tolist()) for k, v in M.items()}
-    ok3 = all(v is not None for v in M.values())
-    if ok3:
+    if all(v is not None for v in M.values()):
         X = np.stack([M['C0'], M['AA777'], M['AA4242']])           # 3 × 4 × 3
         s2 = float(((X - X.mean(0)) ** 2).sum() / (12 * (3 - 1)))  # 그림 안 분산을 모음(자유도 24)
         sig = math.sqrt(s2); sigU = sig * math.sqrt(24 / CHI2_10_24)
@@ -572,23 +606,23 @@ def aa_report(S, root, cache, cache_path=None, log=print):
         rep['g3']['pff'] = g3_pff(M['C0'], sigU, near)
         rep['g3']['power'] = {g: float(g3_pff(M['C0'], sigU, near, shift={g: -POWER_SHIFT})) for g in ('AcCc', 'Ci')}   # 한 종류 여백 −1 일 때 실패율
         log('g3 sigma', sig, 'sigmaU', sigU, 'near', near, 'pff', rep['g3']['pff'], 'power(fail rate)', rep['g3']['power'])
-        names = list(reals)
-        for i in names:
-            for j in names:
+        for i in reals:
+            for j in reals:
                 if i != j:
-                    r = g3(root, '%s:%s' % reals[i] if reals[i][1] else 'C0', '%s:%s' % reals[j] if reals[j][1] else 'C0', cache, near=near)
+                    r = g3(root, reals[i], reals[j], cache, near=near)
                     rep['g3']['pair %s|%s' % (i, j)] = {'pass': r['pass'], 'lost': r['lost'], 'sumB': r.get('sumB'), 'sumE': r.get('sumE')}
                     log('g3 pair', i, j, r['pass'])
         save_cache(cache_path, cache)
-        # ── G3 대조(반드시 실패): E 는 AA777 그림에서 ──
-        ctl = {
+        # ── G3 대조(반드시 실패): B = C0, E 는 AA777 그림에서 ──
+        spec = {
             'swap ci60→sc85': ({'ci60': 'sc85'}, None), 'swap ac60→cu35': ({'ac60': 'cu35'}, None),
             'swap ci60_e45→sc85': ({'ci60_e45': 'sc85'}, None), 'swap ci60_e20→sc85': ({'ci60_e20': 'sc85'}, None),
             'swap ac60_e45→cu35': ({'ac60_e45': 'cu35'}, None), 'swap ac60_e20→cu35': ({'ac60_e20': 'cu35'}, None),
             'swap ci60→ac60': ({'ci60': 'ac60'}, None), 'swap ac60→sc25': ({'ac60': 'sc25'}, None),
             'blur2 ci60': ({}, ('ci60', tf_blur(2.0))), 'blur2 ac60': ({}, ('ac60', tf_blur(2.0))),
         }
-        for nm, (sw, tf) in ctl.items():
+        assert tuple(spec) == G3_CTL_FAIL
+        for nm, (sw, tf) in spec.items():
             trans = None
             if tf:
                 lay, fn = tf; trans = (lambda fn_, lay_: (lambda png, sc, az: fn_(png, sc, az) if sc.startswith(lay_) else png))(fn, lay)
@@ -604,26 +638,37 @@ def aa_report(S, root, cache, cache_path=None, log=print):
 
 
 def aa_accept(rep):
-    """받아들임(§4, 미리 정함). 순수 함수 — 시험이 직접 부름."""
+    """받아들임(§4, 미리 정함). 순수 함수 — 시험이 직접 부름. 이름이 다 있어야 함(부분 집합은 안 받아들임)."""
     a = {}
     g = rep['g2s'].get('C0|C0:AA777', {})
-    a['g2sAA'] = bool(g.get('pass') is True and g.get('nRows') == g.get('expectedRows') and not g.get('missing')
+    a['g2sAA'] = bool(g.get('pass') is True and g.get('nRows') == g.get('expectedRows') == 108 and not g.get('missing')
                       and g.get('max') is not None and g['max'] <= G2S_TOL / 2 and g.get('memMax') is not None and g['memMax'] <= MEM_TOL / 2)
     dev = {k: v for k, v in rep['g2s'].items() if k.startswith('C0:P8')}
-    a['g2sAAdev'] = bool(len(dev) == 4 and all(v.get('nScenes') == 6 and v.get('nRowsValid') == 18 and v.get('devMax') is not None
-                                               and v['devMax'] <= G2S_TOL for v in dev.values()))
+    a['g2sAAdev'] = bool(set(dev) == {'C0:P8A|C0:P8B', 'C0:P8A|C0:P8n777', 'C0:P8A|C0:P8n4242', 'C0:P8n777|C0:P8n4242'}
+                         and all(v.get('nScenes') == 6 and v.get('nRowsValid') == 18 and v.get('devMax') is not None and v['devMax'] <= G2S_TOL for v in dev.values()))
     pb = dev.get('C0:P8A|C0:P8B', {})
     a['g2sP8Bexact'] = bool(pb.get('devMax') is not None and pb['devMax'] <= 1e-3)
     ctl = rep.get('g2sCtl', {})
-    a['g2sCtl'] = bool(ctl) and all((v['pass'] is False) if v['want'] == 'fail' else (v['pass'] is True) for v in ctl.values() if v['want'] != 'record')
+    want = {b + '|' + n for b in G2S_CTL_BASES for n in list(G2S_CTL_FAIL) + list(G2S_CTL_PASS) + list(G2S_CTL_REC)}
+
+    def ok_ctl(v):
+        if v['want'] == 'record':
+            return True
+        if v['want'] == 'pass':
+            return v['pass'] is True
+        cl = v.get('wantClause')
+        return v['pass'] is False and (cl == 'any' or (cl == 'lum' and v.get('lumPass') is False) or (cl == 'mem' and v.get('memPass') is False))
+    a['g2sCtl'] = bool(set(ctl) == want and all(ok_ctl(v) for v in ctl.values()))
     rt = rep.get('g2sRate', {})
-    a['g2sRate'] = bool(rt.get('gain1.0025', {}).get('passRate', 0) >= 0.95 and rt.get('gain1.01', {}).get('passRate', 1) <= 0.05)
+    a['g2sRate'] = bool(set(rt) == {b + '|' + n for b in G2S_CTL_BASES for n in G2S_RATES} and all(
+        (rt[k]['passRate'] >= G2S_RATES[k.split('|')[1]][2]) if G2S_RATES[k.split('|')[1]][1] == 'ge' else (rt[k]['passRate'] <= G2S_RATES[k.split('|')[1]][2])
+        for k in rt))
     g3_ = rep.get('g3', {})
     a['g3Near'] = bool(g3_.get('near') is not None and g3_['near'] <= G3_NEAR_MAX)
     a['g3Pff'] = bool(g3_.get('pff') is not None and g3_['pff'] <= PFF_MAX)
-    a['g3Power'] = bool(g3_.get('power') and all(v >= POWER_MIN for v in g3_['power'].values()))
+    a['g3Power'] = bool(set(g3_.get('power') or {}) == {'AcCc', 'Ci'} and all(v >= POWER_MIN for v in g3_['power'].values()))
     c3 = rep.get('g3Ctl', {})
-    a['g3Ctl'] = bool(len(c3) == 10 and all(v['pass'] is False for v in c3.values()))
+    a['g3Ctl'] = bool(set(c3) == set(G3_CTL_FAIL) and all(v['pass'] is False for v in c3.values()))
     a['all'] = all(a.values())
     return a
 

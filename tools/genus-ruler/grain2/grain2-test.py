@@ -37,8 +37,13 @@ def make_scene(W=390, H=584, el=20, fov=60, rim=0.012, seed=0, clouds=True):
 # ── G2s 행 ──
 rb, ab, el = make_scene(rim=0.012)
 re_, ae, _ = make_scene(rim=0.043)            # E: 테두리 알파만 0.012 → 0.043(문턱 0.02 를 넘음), 하늘 화소는 같음
+rim = (ae >= 0.02) & (ae < 0.15)
+re_ = np.repeat(G2._enc(G2._lin(re_[..., 0]) * np.where(rim, 1.2, 1.0))[..., None], 3, -1)   # E 의 테두리(0.02 ≤ 알파 < 0.15)만 × 1.2
 r = G2.sky_row(rb, ab, re_, ae, el)
-check('T1 테두리만 바뀜 → 하늘 값 0 · 소속 값 0', r['scope'] and r['d'] < 1e-12 and r['mem'] == 0.0, d=r['d'], mem=r['mem'], n=r['n'])
+Lb_, _ = G2.fm.luminance(rb); Le_, _ = G2.fm.luminance(re_); own = (ab < 0.02) & (el > 0)
+alt = abs(math.log(Le_[own].mean() / Lb_[own].mean()))
+check('T1 테두리만 바뀜(알파·밝기) → 공유 마스크 하늘 값 0 · 소속 값 0, B 만의 마스크라면 0 아님', r['scope'] and r['d'] < 1e-12 and r['mem'] == 0.0 and alt > 1e-3,
+      d=r['d'], mem=r['mem'], n=r['n'], altOwnMask=alt)
 
 
 def old_sky(rgb, al):
@@ -138,6 +143,40 @@ try:
 finally:
     G2.job_paths, G2.score_image = real_jp, real_si
 
+# ── g2s 끝에서 끝(가짜 잡 폴더) ──
+def fake_job(root, name, rgb, al, el=20, fov=60, ok=True, W=390, H=584):
+    d = os.path.join(root, name); os.makedirs(d, exist_ok=True)
+    Image.fromarray(rgb.astype(np.uint8)).save(os.path.join(d, 'mean.png'))
+    Image.fromarray(np.round(al * 255).astype(np.uint8)).save(os.path.join(d, 'mean.alpha.png'))
+    json.dump({'name': name, 'captureOk': ok, 'W': W, 'H': H, 'canvasCropRows': [0, H], 'input': {'el': el, 'fov': fov}}, open(os.path.join(d, 'meta.json'), 'w'))
+with tempfile.TemporaryDirectory() as root:
+    S_ = {'scenes': {'p1': {'bundle': 'L'}, 'p2': {'bundle': 'L'}, 'rec': {'bundle': 'L', 'record': True}}}
+    for sc in ('p1', 'p2'):
+        for az in 'tsa':
+            fake_job(root, 'C0__%s__%s__std' % (sc, az), rb, ab); fake_job(root, 'E9__%s__%s__std' % (sc, az), rb, ab, ok=not (sc == 'p2' and az == 'a'))
+    rr = G2.g2s(S_, root, 'C0', 'E9')
+    check('T11a g2s: captureOk 거짓 행 → 빠진 행 → 평가 불가 · record 장면 뺌', rr['pass'] is None and rr['missing'] == ['p2:a'] and rr['expectedRows'] == 6, missing=rr['missing'])
+    fake_job(root, 'E9__p2__a__std', rb, ab, el=21)
+    try:
+        G2.g2s(S_, root, 'C0', 'E9'); raised = False
+    except ValueError:
+        raised = True
+    check('T11b g2s: 카메라 고도가 다르면 멈춤', raised)
+# g3_margins 순서 = g3_pff 의 종류 행
+try:
+    G2.job_paths = lambda root, arm, tag, scene, az, frame='std': {'png': '%s|%s|%s' % (arm, scene, az), 'alpha': None, 'el': 20, 'fov': 60, 'rows': None}
+    G2.score_image = lambda png, gen, cache=None: {'margin': MB[scn.index(png.split('|')[1])]['tsa'.index(png.split('|')[2])]}
+    mm = G2.g3_margins('R', 'C0', None, None)
+    check('T11c g3_margins 순서(ac60_e20, ac60_e45, ci60_e20, ci60_e45 × t·s·a)', np.allclose(mm, MB))
+finally:
+    G2.job_paths, G2.score_image = real_jp, real_si
+same = 0
+for sd in range(200):
+    f = G2.g3_pff(MB, 0.2, NEAR, n=1, seed=sd)
+    Ed = np.asarray(MB)[None] + np.random.default_rng(sd).standard_normal((1, 4, 3)) * math.sqrt(2) * 0.2
+    same += int(f == (0.0 if G2.g3_rule(G2.g3_lost(MB, Ed[0]), NEAR) else 1.0))
+check('T11d g3_pff 한 번씩 = g3_rule(g3_lost) (200 씨앗)', same == 200, same=same)
+
 # ── G2 결합·상태 규칙 ──
 ok_old = {'cloudShare': 0.95, 'cloudMax': 0.1, 'satMax': 0.0}
 check('T12a 구름 조항 실패 → G2 실패(하늘 무엇이든)', G2.combine_g2({**ok_old, 'cloudShare': 0.8}, {'pass': True}) is False)
@@ -166,31 +205,42 @@ if r1d:
 # ── 받아들임(순수 함수) ──
 def good_rep():
     p8 = {'nScenes': 6, 'nRowsValid': 18, 'devMax': 0.0003}
+    ctl = {}
+    for bse in G2.G2S_CTL_BASES:
+        for n, cl in G2.G2S_CTL_FAIL.items():
+            ctl[bse + '|' + n] = {'pass': False, 'want': 'fail', 'wantClause': cl, 'lumPass': cl != 'lum' and cl != 'any' and True, 'memPass': cl != 'mem'}
+            if cl == 'lum':
+                ctl[bse + '|' + n]['lumPass'] = False
+            if cl == 'any':
+                ctl[bse + '|' + n]['lumPass'] = False
+        for n in G2.G2S_CTL_PASS:
+            ctl[bse + '|' + n] = {'pass': True, 'want': 'pass', 'wantClause': None}
+        for n in G2.G2S_CTL_REC:
+            ctl[bse + '|' + n] = {'pass': False, 'want': 'record', 'wantClause': None}
+    rates = {bse + '|' + n: {'passRate': (1.0 if n == 'gain1.0025' else 0.0)} for bse in G2.G2S_CTL_BASES for n in G2.G2S_RATES}
     return {'g2s': {'C0|C0:AA777': {'pass': True, 'nRows': 108, 'expectedRows': 108, 'missing': [], 'max': 0.0, 'memMax': 0.0},
                     'C0:P8A|C0:P8B': dict(p8, devMax=0.0), 'C0:P8A|C0:P8n777': dict(p8), 'C0:P8A|C0:P8n4242': dict(p8), 'C0:P8n777|C0:P8n4242': dict(p8)},
-            'g2sCtl': {'x|f': {'pass': False, 'want': 'fail'}, 'x|p': {'pass': True, 'want': 'pass'}, 'x|r': {'pass': True, 'want': 'record'}},
-            'g2sRate': {'gain1.0025': {'passRate': 1.0}, 'gain1.01': {'passRate': 0.0}},
-            'g3': {'near': 0.3, 'pff': 0.02, 'power': {'AcCc': 1.0, 'Ci': 1.0}},
-            'g3Ctl': {'c%d' % i: {'pass': False} for i in range(10)}}
-check('T14a 모두 좋음 → 받아들임', G2.aa_accept(good_rep())['all'] is True)
-r = good_rep(); r['g2s']['C0:P8A|C0:P8n777']['devMax'] = 0.011
-check('T14b P8 장면 값 0.011 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g2s']['C0:P8A|C0:P8n777']['nScenes'] = 5
-check('T14c P8 쌍 장면 5 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); del r['g2s']['C0:P8A|C0:P8n4242']
-check('T14d P8 쌍 빠짐 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g2s']['C0|C0:AA777']['nRows'] = 100
-check('T14e AA777 행 빠짐 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g3']['pff'] = 0.11
-check('T14f P_FF 0.11 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g3']['near'] = 0.61
-check('T14g near 0.61 > 0.60 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g2sCtl']['x|f']['pass'] = True
-check('T14h 반드시 실패할 대조가 통과 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g3Ctl']['c3']['pass'] = None
-check('T14i G3 대조 평가 불가 → 안 받아들임', G2.aa_accept(r)['all'] is False)
-r = good_rep(); r['g2sRate']['gain1.01']['passRate'] = 0.10
-check('T14j × 1.01 통과율 0.10 → 안 받아들임', G2.aa_accept(r)['all'] is False)
+            'g2sCtl': ctl, 'g2sRate': rates, 'g3': {'near': 0.3, 'pff': 0.02, 'power': {'AcCc': 1.0, 'Ci': 1.0}},
+            'g3Ctl': {n: {'pass': False} for n in G2.G3_CTL_FAIL}}
+check('T14a 모두 좋음 → 받아들임', G2.aa_accept(good_rep())['all'] is True, acc=G2.aa_accept(good_rep()))
+def bad(fn):
+    r = good_rep(); fn(r); return G2.aa_accept(r)['all'] is False
+check('T14b P8 장면 값 0.011 → 안 받아들임', bad(lambda r: r['g2s']['C0:P8A|C0:P8n777'].update(devMax=0.011)))
+check('T14c P8 쌍 장면 5 → 안 받아들임', bad(lambda r: r['g2s']['C0:P8A|C0:P8n777'].update(nScenes=5)))
+check('T14d P8 쌍 빠짐 → 안 받아들임', bad(lambda r: r['g2s'].pop('C0:P8A|C0:P8n4242')))
+check('T14e AA777 행 빠짐 → 안 받아들임', bad(lambda r: r['g2s']['C0|C0:AA777'].update(nRows=100)))
+check('T14f AA777 장면 값 0.0051 > tol/2 → 안 받아들임', bad(lambda r: r['g2s']['C0|C0:AA777'].update(max=0.0051)))
+check('T14g AA777 소속 0.011 > 0.01 → 안 받아들임', bad(lambda r: r['g2s']['C0|C0:AA777'].update(memMax=0.011)))
+check('T14h P_FF 0.11 → 안 받아들임', bad(lambda r: r['g3'].update(pff=0.11)))
+check('T14i near 0.61 > 0.60 → 안 받아들임', bad(lambda r: r['g3'].update(near=0.61)))
+check('T14j 반드시 실패할 대조가 통과 → 안 받아들임', bad(lambda r: r['g2sCtl']['C0|gain1.015'].update(**{'pass': True})))
+check('T14k 소속 대조가 휘도로만 실패(소속 통과) → 안 받아들임', bad(lambda r: r['g2sCtl']['C0|veil_el0-20'].update(memPass=True, lumPass=False)))
+check('T14l 대조 하나 빠짐 → 안 받아들임', bad(lambda r: r['g2sCtl'].pop('C0:AA777|gain1.015_t')))
+check('T14m G3 대조 평가 불가 → 안 받아들임', bad(lambda r: r['g3Ctl']['swap ci60→sc85'].update(**{'pass': None})))
+check('T14n G3 대조 하나 빠짐 → 안 받아들임', bad(lambda r: r['g3Ctl'].pop('blur2 ac60')))
+check('T14o × 1.01 통과율 0.10 → 안 받아들임', bad(lambda r: r['g2sRate']['C0:AA777|gain1.01'].update(passRate=0.10)))
+check('T14p 통과율 하나 빠짐 → 안 받아들임', bad(lambda r: r['g2sRate'].pop('C0|gain1.0025')))
+check('T14q 검정력 0.94 → 안 받아들임', bad(lambda r: r['g3']['power'].update(Ci=0.94)))
 
 # ── CLIP(무게가 있을 때만, --clip): 결정성·프로세스 사이 비트 같음·캐시 설정 ──
 if '--clip' in sys.argv:
@@ -205,6 +255,10 @@ if '--clip' in sys.argv:
         G2.G3_K = old_k
         check('T15a CLIP 떨림 평균 결정성(같은 프로세스, K=2)', np.array_equal(p1, p2) and abs(sum(p1) - 1) < 1e-4)
         check('T15b 프로세스 둘에서 비트 같음', outs[0] == outs[1] == mine, a=outs[0][:60], b=outs[1][:60])
+        G2.G3_K = 2
+        cc = {'cfg': G2.clip_cfg()[0], 'entries': {}}; q1 = G2.clip_smooth(pth, cc)[0]; q2 = G2.clip_smooth(pth, cc)[0]
+        G2.G3_K = old_k
+        check('T15d 캐시에서 되읽은 확률 = 처음 계산(비트 같음)', np.array_equal(q1, q2))
         c = G2.load_cache(None); c['cfg'] = 'stale'; cp = os.path.join(d, 'cache.json')
         json.dump({'cfg': 'stale', 'entries': {'x': {'P': [[1.0]]}}}, open(cp, 'w'))
         c2 = G2.load_cache(cp)
@@ -213,5 +267,5 @@ if '--clip' in sys.argv:
 npass = sum(r['ok'] for r in res)
 for r in res:
     print(('PASS ' if r['ok'] else 'FAIL ') + r['name'], {k: v for k, v in r.items() if k not in ('name', 'ok')})
-print(json.dumps({'pass': npass, 'fail': len(res) - npass, 'grain2Sha256': G2.sha256(os.path.join(HERE, 'grain2.py'))}))
+print(json.dumps({'pass': npass, 'fail': len(res) - npass, 'clip': '--clip' in sys.argv, 'r1': bool(r1d), 'provenance': G2.provenance(clip='--clip' in sys.argv)}))
 sys.exit(0 if npass == len(res) else 1)
