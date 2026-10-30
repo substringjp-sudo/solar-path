@@ -1,0 +1,177 @@
+{
+ "grainSha256": "0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a",
+ "base": "C0",
+ "cand": "E1a.0",
+ "G0": {
+  "stateDiff": [
+   "clouds.perUniform:maxIterationCount",
+   "clouds.perUniform:perspectiveStepScale"
+  ],
+  "allowed": [
+   "clouds.perUniform:maxIterationCount",
+   "clouds.perUniform:perspectiveStepScale"
+  ],
+  "pass": true,
+  "bundle": {
+   "grainSha256": "0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a",
+   "state": {
+    "C0__ac60_e20__s__std__g0": [],
+    "C0__ac60_e3__s__dev__g0": [],
+    "C0__ac60_e3__s__std__g0": [],
+    "C0__ac60_e45__s__std__g0": [],
+    "C0__ac60_e5__s__dev__g0": [],
+    "C0__ac60_e5__s__std__g0": [],
+    "C0__ac60_e8__s__dev__g0": [],
+    "C0__ac60_e8__s__std__g0": [],
+    "C0__ac60_tw4__s__dev__g0": [],
+    "C0__ac60_tw4__s__std__g0": [],
+    "C0__ac60_tw__s__dev__g0": [],
+    "C0__ac60_tw__s__std__g0": [],
+    "C0__as90_e45__s__std__g0": [],
+    "C0__as90_e5__s__dev__g0": [],
+    "C0__as90_e5__s__std__g0": [],
+    "C0__ci60_e20__s__std__g0": [],
+    "C0__ci60_e3__s__dev__g0": [],
+    "C0__ci60_e3__s__std__g0": [],
+    "C0__ci60_e45__s__std__g0": [],
+    "C0__ci60_e5__s__dev__g0": [],
+    "C0__ci60_e5__s__std__g0": [],
+    "C0__ci60_e8__s__dev__g0": [],
+    "C0__ci60_e8__s__std__g0": [],
+    "C0__ci60_tw4__s__dev__g0": [],
+    "C0__ci60_tw4__s__std__g0": [],
+    "C0__ci60_tw__s__dev__g0": [],
+    "C0__ci60_tw__s__std__g0": [],
+    "C0__cu35_e20__s__std__g0": [],
+    "C0__cu35_e3__s__dev__g0": [],
+    "C0__cu35_e3__s__std__g0": [],
+    "C0__cu35_e45__s__std__g0": [],
+    "C0__cu35_e5__s__dev__g0": [],
+    "C0__cu35_e5__s__std__g0": [],
+    "C0__cu35_e8__s__dev__g0": [],
+    "C0__cu35_e8__s__std__g0": [],
+    "C0__ns100_e45__s__std__g0": [],
+    "C0__ns100_e5__s__dev__g0": [],
+    "C0__ns100_e5__s__std__g0": [],
+    "C0__sc25_e20__s__std__g0": [],
+    "C0__sc25_e3__s__dev__g0": [],
+    "C0__sc25_e3__s__std__g0": [],
+    "C0__sc25_e45__s__std__g0": [],
+    "C0__sc25_e5__s__dev__g0": [],
+    "C0__sc25_e5__s__std__g0": [],
+    "C0__sc25_e8__s__dev__g0": [],
+    "C0__sc25_e8__s__std__g0": [],
+    "C0__sc25_tw4__s__dev__g0": [],
+    "C0__sc25_tw4__s__std__g0": [],
+    "C0__sc25_tw__s__dev__g0": [],
+    "C0__sc25_tw__s__std__g0": [],
+    "C0__sc85_e20__s__std__g0": [],
+    "C0__sc85_e3__s__dev__g0": [],
+    "C0__sc85_e3__s__std__g0": [],
+    "C0__sc85_e45__s__std__g0": [],
+    "C0__sc85_e5__s__dev__g0": [],
+    "C0__sc85_e5__s__std__g0": [],
+    "C0__sc85_e8__s__dev__g0": [],
+    "C0__sc85_e8__s__std__g0": [],
+    "C0__st90_e45__s__std__g0": [],
+    "C0__st90_e5__s__dev__g0": [],
+    "C0__st90_e5__s__std__g0": []
+   },
+   "capture": {
+    "C0__ac60_e5__s__dev__g0cap": {
+     "mean.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     },
+     "mean.alpha.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     }
+    },
+    "C0__cu35_e20__t__std__g0cap": {
+     "mean.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     },
+     "mean.alpha.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     }
+    },
+    "C0__cu35_e5__s__dev__g0cap": {
+     "mean.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     },
+     "mean.alpha.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     }
+    },
+    "C0__sc85_e5__s__dev__g0cap": {
+     "mean.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     },
+     "mean.alpha.png": {
+      "meanAbs": 0.0,
+      "max": 0,
+      "fracOver32": 0.0,
+      "identical": true
+     }
+    }
+   },
+   "stateSame": true,
+   "captureOk": true,
+   "pass": true
+  }
+ },
+ "G3": {
+  "ac60_e20": {
+   "B": 1,
+   "E": 1
+  },
+  "ac60_e45": {
+   "B": 1,
+   "E": 2
+  },
+  "ci60_e20": {
+   "B": 2,
+   "E": 2
+  },
+  "ci60_e45": {
+   "B": 3,
+   "E": 1
+  },
+  "pass": false
+ },
+ "G4": {
+  "n": 15,
+  "ok": 15,
+  "need": 14,
+  "bHueOk": 9,
+  "guards": {
+   "tw1734": true,
+   "tw1746": true
+  },
+  "pass": true
+ },
+ "G9": {
+  "pass": true,
+  "warmHigh": 16
+ }
+}
