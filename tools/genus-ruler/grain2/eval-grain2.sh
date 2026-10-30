@@ -72,7 +72,7 @@ F, ROOT, JD, G0B = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3], sys.a
 h = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest() if os.path.exists(p) else None  # noqa: E731
 GR2 = os.path.join(ROOT, 'tools/genus-ruler')
 want = {'grain2.py', 'grain2-test.py', 'grain2-photos.py', 'eval-grain2.sh', 'make-jobs-aa.py', 'aa-jobs.json', 'run-aa.sh', 'chain-r2.sh',
-        'g3-near.json', 'aa-grain2-report.json', 'grain2-photos.json', 'grain2-test.txt', 'RULER-grain2.md'}
+        'g3-near.json', 'aa-grain2-report.json', 'grain2-photos.json', 'grain2-test.txt', 'RULER-grain2.md', 'overrides.json'}
 bad = [] if set(F['files']) == want else ['files 목록']
 bad += [n for n, v in F['files'].items() if h(os.path.join(GR2, 'grain2', n)) != v and n != 'RULER-grain2.md']
 bad += [n for n, v in F['old'].items() if h(os.path.join(GR2, n)) != v]
@@ -158,7 +158,11 @@ ph = json.load(open(os.path.join(J2, 'grain2-photos.json')))
 near = json.load(open(os.path.join(J2, 'g3-near.json')))
 t = json.loads(open(os.path.join(J2, 'grain2-test.txt')).read().strip().splitlines()[-1])
 cur = grain2.provenance()
-checks = {'aaAccept': bool(rep['accept']['all'] and grain2.aa_accept(rep) == rep['accept']), 'photos': ph['accept'] is True,
+ovp = os.path.join(D, 'overrides.json'); ov = json.load(open(ovp)).get('photos') if os.path.exists(ovp) else None
+photos_ok = ph['accept'] is True or bool(ov and ov['decidedBy'] == 'user' and ov['photosProvenance'] == ph['provenance']
+                                          and ov['Ci']['newAcc'] == ph['classes']['Ci']['newAcc'] and ov['Ci']['oldAcc'] == ph['classes']['Ci']['oldAcc']
+                                          and ph['classes']['AcCc']['pass'] is True)   # 사용자 결정(overrides.json, §4 (e))
+checks = {'aaAccept': bool(rep['accept']['all'] and grain2.aa_accept(rep) == rep['accept']), 'photos': photos_ok,
           'test': t['fail'] == 0 and t['clip'] is True and t['r1'] is True,
           'provAA': rep.get('provenance') == cur, 'provPhotos': ph.get('provenance') == cur, 'provTest': t.get('provenance') == cur,
           'near': near['clipCfg'] == cur['clipCfg'] and near['near'] == rep['g3']['near']}
@@ -167,7 +171,7 @@ if not all(checks.values()):
     print('받아들임 아님 또는 보고서가 지금 코드와 다름 — 동결하지 않고 사용자에게 보고', file=sys.stderr); sys.exit(7)
 import scipy, numpy, PIL, onnxruntime  # noqa: E401,E402
 src = {n: os.path.join(J2, n) for n in ('aa-grain2-report.json', 'g3-near.json', 'grain2-photos.json', 'grain2-test.txt')}
-files = ['grain2.py', 'grain2-test.py', 'grain2-photos.py', 'eval-grain2.sh', 'make-jobs-aa.py', 'aa-jobs.json', 'run-aa.sh', 'chain-r2.sh', 'RULER-grain2.md']
+files = ['grain2.py', 'grain2-test.py', 'grain2-photos.py', 'eval-grain2.sh', 'make-jobs-aa.py', 'aa-jobs.json', 'run-aa.sh', 'chain-r2.sh', 'RULER-grain2.md', 'overrides.json']
 F = {'files': {**{n: h(os.path.join(D, n)) for n in files}, **{n: h(p) for n, p in src.items()}},
      'old': {n: h(os.path.join(D, '..', n)) for n in ('grain/grain.py', 'grain/eval-grain.sh', 'grain/scenes-grain.json', 'grain/make-jobs-grain.mjs',
              'grain/run-grain.js', 'grain/calib-grain.json', 'grain/g0-bundle.json', 'flow/fm.py', 'clip/judge2.py', 'clip/prompts2.json',

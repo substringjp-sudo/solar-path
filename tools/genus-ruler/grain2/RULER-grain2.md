@@ -60,6 +60,7 @@
 - **(c) G3 A/A**: C0·AA777·AA4242 의 여백 36 개. σ̂² = 그림 안 분산을 모은 값(자유도 24), σ_U = σ̂·√(24/χ²₀.₁₀,₂₄) = 1.238 σ̂. δ ≤ 0.60. **P_FF**(C0 여백을 B 로, E_i ~ N(m_B,i, 2σ_U²), 2 × 10⁵ 번, 씨앗 20261030) ≤ 0.10. **검정력**: 한 종류의 여백 6 개를 −1 만큼 옮기면 실패율 ≥ 0.95(AcCc·Ci 각각). 여섯 순서쌍의 판정은 기록.
 - **(d) G3 대조**(B = C0, E = AA777 그림에서 만듦, 모두 반드시 실패): ci60 → sc85, ac60 → cu35(두 시각 모두), 장면 하나씩 ci60_e45 → sc85 · ci60_e20 → sc85 · ac60_e45 → cu35 · ac60_e20 → cu35, ci60 → ac60, ac60 → sc25, 종류별 가우스 흐림 σ = 2. 기록만: 흐림 σ = 1·2(전부), ci60 에 sc85 를 선형 빛으로 0.25·0.5 섞기.
 - **(e) 사진**(`grain2-photos.py`, 렌더 안 봄): 새 판정기(`grain2.clip_smooth` 그대로 — 자름만 사진마다의 것, judge-validity 와 같음)로 AcCc 59 장·Ci 29 장의 정확도 ≥ 옛 판정기(8 장 묶음 임베딩 `photo-emb2.npy`)의 정확도 − 0.05.
+  - **결과와 사용자 결정(2026-10-30, 동결 전)**: AcCc 0.678(옛 0.661) 통과, **Ci 0.828(옛 0.897) — 기준을 넘지 못함**(29 장 중 2 장: Ci/060 여백 0.854 → −0.228, Ci/061 0.301 → −0.004; 묶음 크기 8 → 1 에 따른 체계적 차이, McNemar 정확 p = 0.5). 사용자에게 물었고 답은 **"기록하고 진행"** — `overrides.json` 에 적고 `freeze` 가 그 값이 사진 결과와 같을 때만 받아들입니다. 뜻: 새 G3 의 권운 판정은 사진에서 옛 판정기보다 조금(2 장) 덜 맞을 수 있습니다.
 - **(f)** `grain2-test.py` 전부 통과(마스크·띠·소속·되양자화·장면 판정·G3 규칙 진리표(C0 여백)·끝에서 끝 g3()·P_FF·G2 결합·R1 게이트로 상태 규칙 대조·받아들임 함수·CLIP 결정성과 프로세스 사이 비트 같음·캐시 설정).
 - **(g) 보고서 출처**: A/A 보고서·사진 결과·시험 결과 셋 모두 지금 코드(`grain2.py`·`grain2-test.py`·`grain2-photos.py` 해시와 clipCfg)로 만들어졌어야 하고, 시험은 `--r1`·`--clip` 를 켜고 돌았어야 하며, 저장된 받아들임 = 지금 `aa_accept` 로 다시 매긴 값. `freeze` 가 이것을 확인합니다.
 - 하나라도 어기면 동결하지 않고 사용자에게 보고합니다. 새 A/A 렌더(새 씨앗)를 더 그릴지는 사용자에게 묻습니다.
@@ -81,7 +82,7 @@
 - A/A 는 잡음 씨앗만 바꾸므로 '기대 그림이 안 바뀌는 변화'만 대표합니다.
 
 ## 7. 동결 목록(동결 커밋에서 `FROZEN.json` 이 해시를 담음)
-- 이 자: `RULER-grain2.md`(해시는 기록만 — §8 에 덧붙이므로) · `grain2.py` · `grain2-test.py`(+ 결과 `grain2-test.txt`) · `grain2-photos.py`(+ 결과 `grain2-photos.json`) · `eval-grain2.sh` · `make-jobs-aa.py` · `aa-jobs.json` · `run-aa.sh` · `chain-r2.sh` · `g3-near.json` · `aa-grain2-report.json`(clipCfg 와 그 부분 해시 포함).
+- 이 자: `RULER-grain2.md`(해시는 기록만 — §8 에 덧붙이므로) · `overrides.json`(사용자 결정) · `grain2.py` · `grain2-test.py`(+ 결과 `grain2-test.txt`) · `grain2-photos.py`(+ 결과 `grain2-photos.json`) · `eval-grain2.sh` · `make-jobs-aa.py` · `aa-jobs.json` · `run-aa.sh` · `chain-r2.sh` · `g3-near.json` · `aa-grain2-report.json`(clipCfg 와 그 부분 해시 포함).
 - 그대로 쓰는 옛 자 파일(바꾸지 않음): `grain/grain.py` 0bc75131… · `grain/eval-grain.sh` 4d54c9ca…(calib_args 를 실행 때 읽음) · `grain/scenes-grain.json` fdbe7b90… · `grain/make-jobs-grain.mjs` 50411f60… · `grain/run-grain.js` bce938de… · `grain/calib-grain.json` 97b93f1c… · `grain/g0-bundle.json` 4e0622b9… · `flow/fm.py` 021b2313… · `clip/judge2.py` a6437f72… · `clip/prompts2.json` 15cc9bf2… · `clip/tokenizer.json` 72ed5c96… · CLIP 무게(vision 9a658de8… · text 6d31c7a2…) · 손잡이 번들 6b9cf05a · onnxruntime 1.30.0 · numpy 2.4.6 · Pillow 12.3.0 · scipy 1.17.1.
 - `FROZEN.json` 의 `r2JudgeFilesAtFreeze` = 동결 때 judge/ 에 있던 R2 판정 파일(gate·ext·adopt·stop) 이름 목록(열지 않음; R2 렌더 중이면 빈 목록).
 
