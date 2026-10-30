@@ -1,0 +1,1130 @@
+{
+ "stage": "L5cross12-medium",
+ "fn": "L5cross12",
+ "patch": {
+  "qualities": [
+   "medium"
+  ]
+ },
+ "key": "ae5368300da41e308a1b5d51cb55d03c9519abd70c6ea312707a8f9d65b2a0c4",
+ "ok": true,
+ "bundleSha256": "ad9e61544fb13cbefaaaeb37f091f58a878ed976b97b997fdef15584a6857832",
+ "scenesSha256": "6b4d92b53ae3251051b320b77c442477e31e15bcfc14d1c63e8137b32f383463",
+ "bundle": {
+  "esbuild": "0.28.2",
+  "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+  "dirtyFiles": 0
+ },
+ "chromium": "141.0.7390.37",
+ "atmosMs": 215263.8999999985,
+ "wallMin": 29.730616666666666,
+ "finishedAt": "2026-10-29T12:08:05.106Z",
+ "guardTag": "genus-ruler/volsky/run.js",
+ "result": {
+  "runs": [
+   {
+    "quality": "medium",
+    "config": "lowOnly",
+    "rows": [
+     {
+      "time": "2026-10-01T21:58:00.000Z",
+      "sunAltDeg": 12.656634518179443,
+      "fixed": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.06587191679451698,
+        "median": 0.053073510742187496
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 10400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2662,
+        "mean": 0.06592331633306273,
+        "median": 0.05322286376953125
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.0659290167096412,
+        "median": 0.05322286376953125
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 0.9992203132153417,
+      "ratioFixedOverFresh": 0.9991339182961625
+     },
+     {
+      "time": "2026-10-01T22:04:00.000Z",
+      "sunAltDeg": 13.830782175763934,
+      "fixed": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.06833601034652548,
+        "median": 0.05518948364257812
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 10400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.06833601034652548,
+        "median": 0.05518948364257812
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.06833601200257143,
+        "median": 0.05518948364257812
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 1,
+      "ratioFixedOverFresh": 0.9999999757661311
+     },
+     {
+      "time": "2026-10-01T22:10:00.000Z",
+      "sunAltDeg": 14.999710963202544,
+      "fixed": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2662,
+        "mean": 0.07042838119518292,
+        "median": 0.056897088623046876
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 10400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.0704340629328197,
+        "median": 0.056897088623046876
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2662,
+        "mean": 0.07042838119518292,
+        "median": 0.056897088623046876
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 0.99991933253031,
+      "ratioFixedOverFresh": 1
+     },
+     {
+      "time": "2026-10-01T22:16:00.000Z",
+      "sunAltDeg": 16.163019884390028,
+      "fixed": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2662,
+        "mean": 0.0723353696145302,
+        "median": 0.058342974853515625
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 10400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2662,
+        "mean": 0.0723353696145302,
+        "median": 0.058342974853515625
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.07234094915665976,
+        "median": 0.058342974853515625
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 1,
+      "ratioFixedOverFresh": 0.9999228715935498
+     },
+     {
+      "time": "2026-10-01T22:22:00.000Z",
+      "sunAltDeg": 17.32029106802866,
+      "fixed": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.07405968394718525,
+        "median": 0.059802392578125
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 10400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.07405968394718525,
+        "median": 0.059802392578125
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 5400,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        false,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         10000,
+         400
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2661,
+        "mean": 0.07405968394718525,
+        "median": 0.059802392578125
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 1,
+      "ratioFixedOverFresh": 1
+     }
+    ]
+   },
+   {
+    "quality": "medium",
+    "config": "withCi",
+    "rows": [
+     {
+      "time": "2026-10-01T21:58:00.000Z",
+      "sunAltDeg": 12.656634518179443,
+      "fixed": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.047447483467816756,
+        "median": 0.045698468017578125
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04744747449714671,
+        "median": 0.045698468017578125
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04850919476115836,
+        "median": 0.0464637451171875
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 1.0000001890652799,
+      "ratioFixedOverFresh": 0.9781131948578186
+     },
+     {
+      "time": "2026-10-01T22:04:00.000Z",
+      "sunAltDeg": 13.830782175763934,
+      "fixed": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04390907238018467,
+        "median": 0.0420272216796875
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04390907686551969,
+        "median": 0.0420272216796875
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04422486957664775,
+        "median": 0.042400134277343744
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 0.9999998978494803,
+      "ratioFixedOverFresh": 0.9928592848438872
+     },
+     {
+      "time": "2026-10-01T22:10:00.000Z",
+      "sunAltDeg": 14.999710963202544,
+      "fixed": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04434880402159865,
+        "median": 0.042134442138671874
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04434879953626364,
+        "median": 0.042134442138671874
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04443004496390132,
+        "median": 0.04227779541015625
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 1.0000001011376871,
+      "ratioFixedOverFresh": 0.9981714863811487
+     },
+     {
+      "time": "2026-10-01T22:16:00.000Z",
+      "sunAltDeg": 16.163019884390028,
+      "fixed": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.044784759663365294,
+        "median": 0.042390124511718745
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.044784798811943215,
+        "median": 0.042390124511718745
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.044822085740596714,
+        "median": 0.04241843872070312
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 0.9999991258512049,
+      "ratioFixedOverFresh": 0.9991672391720582
+     },
+     {
+      "time": "2026-10-01T22:22:00.000Z",
+      "sunAltDeg": 17.32029106802866,
+      "fixed": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04549361685612108,
+        "median": 0.04291190795898438
+       },
+       "errs": 0
+      },
+      "preFix": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        true
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.04549359279649709,
+        "median": 0.04291190795898438
+       },
+       "errs": 0
+      },
+      "fresh": {
+       "top": 9800,
+       "bottom": 1500,
+       "layerShadow": [
+        true,
+        true,
+        true,
+        false
+       ],
+       "layers": [
+        [
+         1500,
+         750
+        ],
+        [
+         4500,
+         900
+        ],
+        [
+         9000,
+         800
+        ],
+        [
+         0,
+         0
+        ]
+       ],
+       "Y": {
+        "n": 2893,
+        "mean": 0.045561136507205016,
+        "median": 0.04293373413085937
+       },
+       "errs": 0
+      },
+      "ratioFixedOverPreFix": 1.0000005288574172,
+      "ratioFixedOverFresh": 0.9985180428703032
+     }
+    ]
+   }
+  ]
+ },
+ "wallMs": 1567515.700000003,
+ "errors": [],
+ "shaderErrors": [],
+ "brokenPrograms": [],
+ "glError": 0,
+ "ctxLost": false,
+ "canvas": [
+  400,
+  300
+ ],
+ "pngs": []
+}

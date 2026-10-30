@@ -1,0 +1,125 @@
+{
+ "stage": "L2deck-high",
+ "fn": "L2deck",
+ "patch": {
+  "qualities": [
+   "high"
+  ],
+  "flags": [
+   "off",
+   "on"
+  ]
+ },
+ "key": "f34a9b6e890798ddb5c828e279fd9e63476e7ec2115d132ca2d9c79194c3c5ca",
+ "ok": true,
+ "bundleSha256": "ad9e61544fb13cbefaaaeb37f091f58a878ed976b97b997fdef15584a6857832",
+ "scenesSha256": "6b4d92b53ae3251051b320b77c442477e31e15bcfc14d1c63e8137b32f383463",
+ "bundle": {
+  "esbuild": "0.28.2",
+  "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+  "dirtyFiles": 0
+ },
+ "chromium": "141.0.7390.37",
+ "atmosMs": 172012,
+ "wallMin": 13.92765,
+ "finishedAt": "2026-10-29T10:53:30.200Z",
+ "guardTag": "genus-ruler/volsky/run.js",
+ "result": {
+  "runs": [
+   {
+    "quality": "high",
+    "flags": "off",
+    "sunAltDeg": -9.842505481116456,
+    "exposure": 1000,
+    "shaderErrors": [],
+    "rt": {
+     "deck6_10": {
+      "n": 562,
+      "mean": -1.0595255899259614e-7,
+      "median": -3.911256790161131e-8,
+      "p05": -7.370591163635254e-7,
+      "min": -0.0000010777115821838379,
+      "fracNeg": 0.5604982206405694
+     },
+     "deck5_15": {
+      "n": 1842,
+      "mean": 1.8153527789990923e-7,
+      "median": 2.5587081909179686e-7,
+      "p05": -7.326602935791016e-7,
+      "min": -0.0000015966057777404785,
+      "fracNeg": 0.23887079261672095
+     },
+     "all": {
+      "n": 10593,
+      "mean": 7.24350307746935e-7,
+      "median": 2.4296045303344727e-7,
+      "p05": -2.18987464904785e-8,
+      "min": -0.0000015966057777404785,
+      "fracNeg": 0.05097706032285471
+     }
+    },
+    "display": {
+     "n": 8456,
+     "medianY": 0,
+     "meanY": 0.0000021737499871496345,
+     "fracBlack": 0.9976348155156102
+    }
+   },
+   {
+    "quality": "high",
+    "flags": "on",
+    "sunAltDeg": -9.842505481116456,
+    "exposure": 1000,
+    "shaderErrors": [],
+    "rt": {
+     "deck6_10": {
+      "n": 562,
+      "mean": 1.1809268880145008e-7,
+      "median": 1.1029243469238282e-7,
+      "p05": 5.960464477539063e-8,
+      "min": 1.697540283203125e-8,
+      "fracNeg": 0
+     },
+     "deck5_15": {
+      "n": 1842,
+      "mean": 2.8266547557197083e-7,
+      "median": 2.2974014282226563e-7,
+      "p05": 6.821155548095704e-8,
+      "min": 1.697540283203125e-8,
+      "fracNeg": 0
+     },
+     "all": {
+      "n": 10593,
+      "mean": 7.228635485737371e-7,
+      "median": 1.8335580825805664e-7,
+      "p05": 1.1124610900878907e-7,
+      "min": 1.697540283203125e-8,
+      "fracNeg": 0
+     }
+    },
+    "display": {
+     "n": 8770,
+     "medianY": 0,
+     "meanY": 0.000002721886012154505,
+     "fracBlack": 0.9970353477765108
+    }
+   }
+  ]
+ },
+ "wallMs": 660663.5,
+ "errors": [],
+ "shaderErrors": [],
+ "brokenPrograms": [],
+ "glError": 0,
+ "ctxLost": false,
+ "canvas": [
+  1000,
+  750
+ ],
+ "pngs": [
+  "high_off.png",
+  "high_off.alpha.png",
+  "high_on.png",
+  "high_on.alpha.png"
+ ]
+}

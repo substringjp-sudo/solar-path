@@ -1,0 +1,25 @@
+{
+ "photos": {
+  "decision": "기록하고 진행",
+  "decidedBy": "user",
+  "date": "2026-10-30",
+  "question": "새 CLIP 판정기가 권운 사진 검증 기준(새 정확도 ≥ 옛 − 0.05)을 넘지 못함 — 어떻게 할까요?",
+  "Ci": {
+   "oldAcc": 0.896551724137931,
+   "newAcc": 0.8275862068965517,
+   "n": 29
+  },
+  "AcCc": {
+   "oldAcc": 0.6610169491525424,
+   "newAcc": 0.6779661016949152,
+   "n": 59
+  },
+  "photosProvenance": {
+   "grain2Sha256": "de6d443a1fc790318623c50de9687087919426396f619e0d232450927ac8567d",
+   "testSha256": "8574585d066fedcef89e2cb715b5b094eebe3b04f66171eb2b5406b14a7ed2a3",
+   "photosSha256": "48e0e962fe8c4380048c5ac5280491049ff59ca72d926efc953f9cfe9121aeae",
+   "clipCfg": "08967021174a028eb587cd31e7d1306853ccc460516f93fce4cc8699f5a1b424"
+  },
+  "note": "바뀐 두 장(Ci/060 0.854 → −0.228, Ci/061 0.301 → −0.004)은 묶음 크기(8 → 1)에 따른 체계적 차이; McNemar 정확 p = 0.5"
+ }
+}

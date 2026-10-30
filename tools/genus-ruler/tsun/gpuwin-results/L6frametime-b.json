@@ -1,0 +1,151 @@
+{
+ "stage": "L6frametime-b",
+ "fn": "L6frametime",
+ "patch": {
+  "order": [
+   "off",
+   "clamp",
+   "logmu",
+   "on",
+   "on",
+   "logmu",
+   "clamp",
+   "off"
+  ],
+  "warm": 4,
+  "timed": 12
+ },
+ "key": "e83c06e83b26ac7cffa83a6bc934216a10855fc89fc84b076cbefeebe3c232ae",
+ "ok": true,
+ "bundleSha256": "ad9e61544fb13cbefaaaeb37f091f58a878ed976b97b997fdef15584a6857832",
+ "scenesSha256": "6b4d92b53ae3251051b320b77c442477e31e15bcfc14d1c63e8137b32f383463",
+ "bundle": {
+  "esbuild": "0.28.2",
+  "gitHead": "4b67fee639688aeb3036f44f2325a659f16df55c",
+  "dirtyFiles": 0
+ },
+ "chromium": "141.0.7390.37",
+ "atmosMs": 175861.1000000015,
+ "wallMin": 20.85495,
+ "finishedAt": "2026-10-29T12:49:19.816Z",
+ "guardTag": "genus-ruler/volsky/run.js",
+ "result": {
+  "medianMs": {
+   "off": 5352.89999999851,
+   "clamp": 5605.10000000149,
+   "logmu": 5553.5,
+   "on": 5487.5
+  },
+  "deltaVsOff": {
+   "clamp": 0.04711464813522581,
+   "logmu": 0.03747501354434912,
+   "on": 0.025145248370327833
+  },
+  "blocks": [
+   {
+    "flags": "off",
+    "warmMs": [
+     15526,
+     7564,
+     5750,
+     5487
+    ],
+    "median": 5152.69999999553,
+    "errs": 0
+   },
+   {
+    "flags": "clamp",
+    "warmMs": [
+     8365,
+     6050,
+     5772,
+     4979
+    ],
+    "median": 5438.29999999702,
+    "errs": 0
+   },
+   {
+    "flags": "logmu",
+    "warmMs": [
+     8078,
+     5233,
+     6636,
+     5469
+    ],
+    "median": 5376.79999999702,
+    "errs": 0
+   },
+   {
+    "flags": "on",
+    "warmMs": [
+     8899,
+     4827,
+     4604,
+     5263
+    ],
+    "median": 5267.20000000298,
+    "errs": 0
+   },
+   {
+    "flags": "on",
+    "warmMs": [
+     5965,
+     6437,
+     6116,
+     5772
+    ],
+    "median": 5976.70000000298,
+    "errs": 0
+   },
+   {
+    "flags": "logmu",
+    "warmMs": [
+     6914,
+     5447,
+     5023,
+     5891
+    ],
+    "median": 5624.19999999553,
+    "errs": 0
+   },
+   {
+    "flags": "clamp",
+    "warmMs": [
+     5217,
+     5390,
+     5866,
+     5668
+    ],
+    "median": 6135.89999999851,
+    "errs": 0
+   },
+   {
+    "flags": "off",
+    "warmMs": [
+     5474,
+     6000,
+     5616,
+     5706
+    ],
+    "median": 5593.80000000447,
+    "errs": 0
+   }
+  ],
+  "quality": "high",
+  "canvas": [
+   400,
+   300
+  ]
+ },
+ "wallMs": 1074420.8999999985,
+ "errors": [],
+ "shaderErrors": [],
+ "brokenPrograms": [],
+ "glError": 0,
+ "ctxLost": false,
+ "canvas": [
+  400,
+  300
+ ],
+ "pngs": []
+}

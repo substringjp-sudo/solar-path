@@ -1,0 +1,53 @@
+{
+ "provenance": {
+  "grain2Sha256": "de6d443a1fc790318623c50de9687087919426396f619e0d232450927ac8567d",
+  "testSha256": "8574585d066fedcef89e2cb715b5b094eebe3b04f66171eb2b5406b14a7ed2a3",
+  "photosSha256": "48e0e962fe8c4380048c5ac5280491049ff59ca72d926efc953f9cfe9121aeae",
+  "clipCfg": "08967021174a028eb587cd31e7d1306853ccc460516f93fce4cc8699f5a1b424"
+ },
+ "clipCfg": "08967021174a028eb587cd31e7d1306853ccc460516f93fce4cc8699f5a1b424",
+ "K": 16,
+ "classes": {
+  "AcCc": {
+   "n": 59,
+   "newLabels": {
+    "AcCc": 40,
+    "As": 7,
+    "Cg": 2,
+    "Cs": 3,
+    "Cu": 2,
+    "Sc": 5
+   },
+   "oldLabels": {
+    "AcCc": 39,
+    "As": 7,
+    "Cg": 2,
+    "Ci": 1,
+    "Cs": 4,
+    "Sc": 6
+   },
+   "oldAcc": 0.6610169491525424,
+   "newAcc": 0.6779661016949152,
+   "pass": true
+  },
+  "Ci": {
+   "n": 29,
+   "newLabels": {
+    "As": 2,
+    "Cg": 3,
+    "Ci": 23,
+    "Cs": 1
+   },
+   "oldLabels": {
+    "As": 2,
+    "Cg": 1,
+    "Ci": 25,
+    "Cs": 1
+   },
+   "oldAcc": 0.896551724137931,
+   "newAcc": 0.8275862068965517,
+   "pass": false
+  }
+ },
+ "accept": false
+}

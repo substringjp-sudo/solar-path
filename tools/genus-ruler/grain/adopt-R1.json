@@ -1,0 +1,26 @@
+{
+ "ruler": "RULER-grain",
+ "grainSha256": "0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a",
+ "round": 1,
+ "adopted": [],
+ "costHold": [],
+ "conditionalNext": [],
+ "gates": [
+  {
+   "cand": "E1a.3",
+   "status": "\uac00\ub4dc \uc2e4\ud328",
+   "verdict": "\ud1b5\uacfc"
+  },
+  {
+   "cand": "E1a.0",
+   "status": "\uac00\ub4dc \uc2e4\ud328",
+   "verdict": "\ud1b5\uacfc"
+  },
+  {
+   "cand": "E1b",
+   "status": "\ubd88\ud569\uaca9",
+   "verdict": "\ubd88\ud569\uaca9"
+  }
+ ],
+ "final": false
+}

@@ -1,0 +1,7013 @@
+[
+ {
+  "name": "C0__cu35_e3__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e3",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 266.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e3__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e3",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 359.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e3__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e3",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 90.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e8__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e8",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 262.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e8__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e8",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 355.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e8__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e8",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 86.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e3__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e3",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 266.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e3__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e3",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 359.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e3__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e3",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 90.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e8__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e8",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 262.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e8__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e8",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 355.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e8__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e8",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 86.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e3__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e3",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 266.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e3__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e3",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 359.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e3__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e3",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 90.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e8__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e8",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 262.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e8__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e8",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 355.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e8__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e8",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 86.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e3__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e3",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 266.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e3__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e3",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 359.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e3__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e3",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 90.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e8__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e8",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 262.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e8__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e8",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 355.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e8__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e8",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 86.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e3__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e3",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 266.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e3__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e3",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 359.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e3__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e3",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:15:00.000Z",
+   "az": 90.686,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e8__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e8",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 262.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e8__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e8",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 355.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e8__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e8",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T07:50:00.000Z",
+   "az": 86.886,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_tw__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "tw",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 270.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_tw__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "tw",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 3.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_tw__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "tw",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 94.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_tw__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "tw",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 270.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_tw__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "tw",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 3.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_tw__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "tw",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 94.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_tw4__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "tw4",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 271.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_tw4__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "tw4",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 4.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_tw4__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "tw4",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 95.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_tw4__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "tw4",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 271.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_tw4__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "tw4",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 4.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_tw4__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "tw4",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 95.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_tw4__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "tw4",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 271.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_tw4__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "tw4",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 4.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_tw4__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "tw4",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:50:00.000Z",
+   "az": 95.895,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__st90_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "st90",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "st",
+     "cover": 0.9,
+     "baseKm": 0.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__st90_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "st90",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "st",
+     "cover": 0.9,
+     "baseKm": 0.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__st90_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "st90",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "st",
+     "cover": 0.9,
+     "baseKm": 0.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ns100_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ns100",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ns",
+     "cover": 1,
+     "baseKm": 1,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ns100_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ns100",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ns",
+     "cover": 1,
+     "baseKm": 1,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ns100_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ns100",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ns",
+     "cover": 1,
+     "baseKm": 1,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__as90_e5__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "as90",
+  "time": "e5",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 265.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "as",
+     "cover": 0.9,
+     "baseKm": 4,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__as90_e5__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "as90",
+  "time": "e5",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 358.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "as",
+     "cover": 0.9,
+     "baseKm": 4,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__as90_e5__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "as90",
+  "time": "e5",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:05:00.000Z",
+   "az": 89.178,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "as",
+     "cover": 0.9,
+     "baseKm": 4,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e20__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e20__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e20__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__cu35_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "cu35",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "cu",
+     "cover": 0.35,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e20__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e20__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e20__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e20__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e20__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e20__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc85_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc85",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.85,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e20__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e20__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e20__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e20__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e20__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e20__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ci60_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__st90_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "st90",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "st",
+     "cover": 0.9,
+     "baseKm": 0.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__st90_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "st90",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "st",
+     "cover": 0.9,
+     "baseKm": 0.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__st90_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "st90",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "st",
+     "cover": 0.9,
+     "baseKm": 0.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ns100_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ns100",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ns",
+     "cover": 1,
+     "baseKm": 1,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ns100_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ns100",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ns",
+     "cover": 1,
+     "baseKm": 1,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ns100_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ns100",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ns",
+     "cover": 1,
+     "baseKm": 1,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__as90_e45__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "as90",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "as",
+     "cover": 0.9,
+     "baseKm": 4,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__as90_e45__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "as90",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "as",
+     "cover": 0.9,
+     "baseKm": 4,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__as90_e45__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "as90",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "as",
+     "cover": 0.9,
+     "baseKm": 4,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_tw__t__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "tw",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 270.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_tw__s__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "tw",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 3.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__sc25_tw__a__std__AA777",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "sc25",
+  "time": "tw",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T08:40:00.000Z",
+   "az": 94.412,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "sc",
+     "cover": 0.25,
+     "baseKm": 1.5,
+     "band": "low",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 777
+  }
+ },
+ {
+  "name": "C0__ac60_e20__t__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ac60_e20__s__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ac60_e20__a__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ac60_e45__t__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ac60_e45__s__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ac60_e45__a__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ac60",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ac",
+     "cover": 0.6,
+     "baseKm": 4.5,
+     "band": "mid",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ci60_e20__t__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e20",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 252.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ci60_e20__s__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e20",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 345.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ci60_e20__a__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e20",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T06:45:00.000Z",
+   "az": 76.23,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ci60_e45__t__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e45",
+  "az": "t",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 212.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ci60_e45__s__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e45",
+  "az": "s",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 305.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ },
+ {
+  "name": "C0__ci60_e45__a__std__AA4242",
+  "set": "aa",
+  "round": -2,
+  "arm": "C0",
+  "layer": "ci60",
+  "time": "e45",
+  "az": "a",
+  "frame": "std",
+  "canvas": [
+   390,
+   584
+  ],
+  "quality": "low",
+  "res": 0.5,
+  "input": {
+   "lat": 36.5679,
+   "lon": 136.6774,
+   "heightM": 103,
+   "date": "2026-10-03T04:00:00.000Z",
+   "az": 36.268,
+   "el": 20,
+   "fov": 60,
+   "weatherOffsetKm": [
+    11,
+    6
+   ],
+   "layers": [
+    {
+     "genus": "ci",
+     "cover": 0.6,
+     "baseKm": 9,
+     "band": "high",
+     "opts": {
+      "seed": 5757
+     }
+    }
+   ]
+  },
+  "grain": {
+   "mode": "capture",
+   "frame0": 0,
+   "warm": 16,
+   "window": 64,
+   "stills": [
+    7,
+    23,
+    39,
+    55
+   ],
+   "store": "lite",
+   "pngStills": [
+    0
+   ],
+   "noiseSeed": 4242
+  }
+ }
+]
