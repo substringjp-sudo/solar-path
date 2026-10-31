@@ -66,8 +66,9 @@ const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const OUT = process.argv[3];
 const W = 390, H = 584;
 const gl = { getContextAttributes: () => ({ alpha: false }), getExtension: () => null, getParameter: () => 0 };
+// 한도 32 = GPU 창의 SwiftShader(§181 뒤 T_sun high 는 17 이라, 한도를 모르면 WebGL2 최소 16 으로 보고 거부함)
 const mkRenderer = (): any => ({ getSize: (v: Vector2) => v.set(W, H), getDrawingBufferSize: (v: Vector2) => v.set(W, H), getPixelRatio: () => 1,
-  getContext: () => gl, outputColorSpace: 'srgb-linear', autoClear: true, toneMappingExposure: 1, capabilities: { logarithmicDepthBuffer: false, isWebGL2: true } });
+  getContext: () => gl, outputColorSpace: 'srgb-linear', autoClear: true, toneMappingExposure: 1, capabilities: { logarithmicDepthBuffer: false, isWebGL2: true, maxTextures: 32 } });
 const passes: any[] = [];
 const origAdd = (EffectComposer.prototype as any).addPass;
 (EffectComposer.prototype as any).addPass = function (p: any, i?: number) { passes.push(p); return origAdd.call(this, p, i); };
