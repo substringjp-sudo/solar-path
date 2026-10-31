@@ -1,0 +1,28 @@
+{
+ "ruler": "RULER-grain",
+ "grainSha256": "0bc75131bab602dd6d7c02354e139e0545e07668ea5cfa32bec3101d4039992a",
+ "round": 3,
+ "adopted": [],
+ "costHold": [],
+ "conditionalNext": [],
+ "gates": [
+  {
+   "cand": "E3",
+   "status": "\ubd88\ud569\uaca9",
+   "verdict": "\ubd88\ud569\uaca9"
+  },
+  {
+   "cand": "E3b",
+   "status": "\ubd88\ud569\uaca9",
+   "verdict": "\ubd88\ud569\uaca9"
+  },
+  {
+   "cand": "E3c",
+   "status": "\uc9c4\ub2e8(\ucc44\ud0dd \uc548 \ud568)",
+   "verdict": "\ubd88\ud569\uaca9"
+  }
+ ],
+ "final": false,
+ "ruler2": "RULER-grain2",
+ "grain2Sha256": "de6d443a1fc790318623c50de9687087919426396f619e0d232450927ac8567d"
+}
