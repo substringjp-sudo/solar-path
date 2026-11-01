@@ -538,9 +538,16 @@ export async function loadDemPatch(
     return hit;
   }
 
-  const tiles: (THREE.Texture | null)[] = [];
+  // block * block 개의 타일을 병렬(Promise.all)로 동시 로드하여 초기 기동 시간 단축
+  const tileIndices: { dx: number; dy: number }[] = [];
   for (let dy = 0; dy < block; dy++) {
     for (let dx = 0; dx < block; dx++) {
+      tileIndices.push({ dx, dy });
+    }
+  }
+
+  const tiles = await Promise.all(
+    tileIndices.map(async ({ dx, dy }) => {
       try {
         const tx = originX + dx;
         const ty = originY + dy;
@@ -559,12 +566,12 @@ export async function loadDemPatch(
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.flipY = false;
         tex.needsUpdate = true;
-        tiles.push(tex);
+        return tex;
       } catch {
-        tiles.push(null);
+        return null;
       }
-    }
-  }
+    }),
+  );
   const got = tiles.filter((x) => x !== null).length;
   if (got === 0) return null;
 

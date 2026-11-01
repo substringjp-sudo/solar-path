@@ -145,7 +145,7 @@ export default function App() {
 
   React.useEffect(() => {
     if (isAppReady) {
-      timeTo(splashFadeAnim, 0, 'slow', 'exit', { keepWhenReduced: true }).start(() => setIsSplashDismissed(true));
+      timeTo(splashFadeAnim, 0, 'fast', 'exit', { keepWhenReduced: true }).start(() => setIsSplashDismissed(true));
     }
   }, [isAppReady]);
 
