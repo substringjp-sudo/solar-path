@@ -13,7 +13,9 @@
  *         setDate 쓸기(낮 → 17:40 → −9.8° → 박명 → 낮, 앱 setOptions 키·품질 바꿈) · SkyScene3D·VolumetricProbe 길 흉내(검토 회귀 3 — rev-byte.js 를 옮김).
  *  [bundle] 앱 묶음(volumetricScene.ts 축소, three·postprocessing·takram 밖)에 하네스 글자(구축기·셰이더 글자)가 없음, 크기 차 기록(검토 회귀 1).
  *  [U0a] 정적 활성 샘플러 수(만든 글자를 define 으로 전처리 → main 에서 닿는 함수의 texture 계열 호출 — §177.6 h samplers.py 를 옮김):
- *         낮 끈 상태 low 12 · medium 13 · high 15 [§177.6 h], C0ps 박명 = TSUN_CLOUD_SAMPLERS, T 켬 = 그 + 1(더한 것은 gTsunTex 하나), 그림자 패스 그대로.
+ *         낮 끈 상태 low 12 · medium 13 · high 15 [§177.6 h], T 켬 = 그 + 1(더한 것은 gTsunTex 하나), 그림자 패스 그대로.
+ *         TSUN_CLOUD_SAMPLERS 는 ANGLE 식 셈(닿는 호출에 인자로만 넘긴 샘플러도 활성) — 합친 산란이라 읽지 않는 single_mie_scattering_texture 가
+ *         하나 더 들어감(§181, GPU 창 B1 측정과 같음).
  *  [U0b] MAX_TEXTURE_IMAGE_UNITS 보다 많으면 throw(만들 때 · setOptions · setQuality — 상태를 안 바꿈), 모르면 16 으로 봄, readCapabilities 가 읽음.
  *  [U4a] 표지·앵커 수: 품질 3 × 얼음 2 × 확산 0·1 × grain 손잡이 7 가지 × T·아치 — 구름 조각 주입점마다 정확히 한 번, 그림자 조각 0 번,
  *         gMarchDir 선언 하나, 세는 줄 하나, 비용 변형(capture.ts applyCostPatch, 동결 — 앵커 6 개 정확히 한 번)이 걸림 · grain 표지 그대로.
@@ -74,7 +76,8 @@ const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const OUT = process.argv[3];
 const W = 390, H = 584;
 const gl = { getContextAttributes: () => ({ alpha: false }), getExtension: () => null, getParameter: () => 0 };
-const mkRenderer = (maxTextures?: number): any => ({ getSize: (v: Vector2) => v.set(W, H), getDrawingBufferSize: (v: Vector2) => v.set(W, H), getPixelRatio: () => 1,
+// 한도: 기본 32(GPU 창의 SwiftShader 와 같음 — §181 뒤 T_sun high 는 17 이라 WebGL2 최소 16 을 넘음), null = 모름(readCapabilities 가 못 읽은 기기).
+const mkRenderer = (maxTextures: number | null = 32): any => ({ getSize: (v: Vector2) => v.set(W, H), getDrawingBufferSize: (v: Vector2) => v.set(W, H), getPixelRatio: () => 1,
   getContext: () => gl, outputColorSpace: 'srgb-linear', autoClear: true, toneMappingExposure: 1,
   capabilities: { logarithmicDepthBuffer: false, isWebGL2: true, ...(maxTextures != null ? { maxTextures } : {}) } });
 const passes: any[] = [];
@@ -82,7 +85,7 @@ const origAdd = (EffectComposer.prototype as any).addPass;
 (EffectComposer.prototype as any).addPass = function (p: any, i?: number) { passes.push(p); return origAdd.call(this, p, i); };
 const fakeTex = { isTexture: true } as any;
 const BASEOPT = { genus: true, celestial: false, macro: 1 };
-const mk = async (options: any, quality: string, maxTextures?: number, createOpts: any = {}) => {
+const mk = async (options: any, quality: string, maxTextures?: number | null, createOpts: any = {}) => {
   passes.length = 0;
   const v: any = await createVolumetricScene(mkRenderer(maxTextures), W, H, { genus: true, celestial: false, precomputed: {} as never, ...createOpts });
   const ps = passes.slice();
@@ -224,14 +227,14 @@ async function curTests(res: any) {
   // ── U0b: 샘플러 한도
   {
     const cnt = (TS as any).TSUN_CLOUD_SAMPLERS;
-    const at = async (q: string, lim: number | undefined) => await athrowsMsg(async () => { await mk({ tsun: 1 }, q, lim); });
+    const at = async (q: string, lim: number | null) => await athrowsMsg(async () => { await mk({ tsun: 1 }, q, lim); });
     res.u0b = {
       table: cnt,
       lowAtCount: await at('low', cnt.low), lowAtCount1: await at('low', cnt.low + 1),
       medAtCount: await at('medium', cnt.medium), medAtCount1: await at('medium', cnt.medium + 1),
-      highAt15: await at('high', 15), highAt16: await at('high', 16), highUnknown: await at('high', undefined),
+      highAt16: await at('high', 16), highAt17: await at('high', 17), highUnknown: await at('high', null), medUnknown: await at('medium', null),
       createThrows: await athrowsMsg(async () => { await createVolumetricScene(mkRenderer(cnt.low), W, H, { genus: true, celestial: false, precomputed: {} as never, tsun: 1 } as any); }),
-      quality: await (async () => { const { v } = await mk({ tsun: 1 }, 'low', 15); const m = throwsMsg(() => v.setQuality('high')); const keptLow = v.tsunInfo().samplers;
+      quality: await (async () => { const { v } = await mk({ tsun: 1 }, 'low', 16); const m = throwsMsg(() => v.setQuality('high')); const keptLow = v.tsunInfo().samplers;
         const q2 = throwsMsg(() => v.setQuality('medium')); return { m, keptLow, mediumOk: q2, samplers: v.tsunInfo().samplers }; })(),
       offAt4: await athrowsMsg(async () => { await mk({}, 'high', 4); }),
       caps: (() => { const g: any = { getSupportedExtensions: () => [], getExtension: () => null, RENDERER: 1, VERSION: 2, MAX_3D_TEXTURE_SIZE: 3, MAX_TEXTURE_IMAGE_UNITS: 4,
@@ -400,7 +403,7 @@ function parseFuncs(txt) {
   }
   return funcs;
 }
-function activeSamplers(src, defines) {
+function activeSamplers(src, defines, opts = {}) {
   const txt = preprocess(stripComments(src), defines);
   const samplers = [...txt.matchAll(/uniform\s+(?:(?:lowp|mediump|highp)\s+)?(sampler\w+)\s+(\w+)\s*;/g)].map(m => m[2]);
   const sset = new Set(samplers), funcs = parseFuncs(txt);
@@ -419,6 +422,8 @@ function activeSamplers(src, defines) {
   while (st.length) { const f = st.pop(); if (reach.has(f) || !funcs[f]) continue; reach.add(f); for (const [, body] of funcs[f]) for (const [name] of callsIn(body)) if (funcs[name] && !reach.has(name)) st.push(name); }
   const active = new Set();
   for (const f of reach) for (const [, body] of funcs[f]) for (const [name, args] of callsIn(body)) for (const a of targets(name, args)) { const r = root(a); if (r && sset.has(r)) active.add(r); }
+  // opts.args(§181): ANGLE(Chrome·SwiftShader)은 닿는 함수에서 인자로 넘기기만 한 샘플러도 활성으로 셈(읽지 않아도) — GPU 창 B1 의 ACTIVE_UNIFORMS 와 맞춤
+  if (opts.args) for (const f of reach) for (const [, body] of funcs[f]) for (const [, args] of callsIn(body)) for (const a of args) { const r = root(a); if (r && sset.has(r)) active.add(r); }
   return { declared: [...sset].sort(), active: [...active].sort() };
 }
 /** samplers.py 와 같은 실행 시 define(onBeforeRender·생성기가 더하는 것). */
@@ -517,30 +522,39 @@ const balanced = s => { let p = 0, b = 0, c = 0; for (const ch of stripComments(
     const mc = Cu.res.meta[`u0a_${q}_tw_c0ps`];
     const c0ps = activeSamplers(rd(Cu.dir, `u0a_${q}_tw_c0ps`, 'cloudsFrag'), runtimeDefines(mc.cloudDefines, q, mc.cascades, false));
     const sh0 = activeSamplers(rd(Cu.dir, `u0a_${q}_tw_c0ps`, 'shadowFrag'), runtimeDefines(mc.shadowDefines, q, mc.cascades, true));
-    const out = { day: day.active.length, c0ps: c0ps.active.length };
+    // §181: TSUN_CLOUD_SAMPLERS 는 ANGLE 식 셈(인자로만 넘긴 샘플러도 활성). 앱·하네스·CPU 모두 합친 산란(takram 생성기 기본)이라
+    // single_mie_scattering_texture 는 읽히지 않고 인자로만 넘어감 — 읽는 샘플러 셈과의 차이는 그 하나뿐이어야 함.
+    const c0psA = activeSamplers(rd(Cu.dir, `u0a_${q}_tw_c0ps`, 'cloudsFrag'), runtimeDefines(mc.cloudDefines, q, mc.cascades, false), { args: true });
+    const argOnly = c0psA.active.filter(x => !c0ps.active.includes(x));
+    ok('COMBINED_SCATTERING_TEXTURES' in mc.cloudDefines && argOnly.join() === 'single_mie_scattering_texture',
+      `${q} 합친 산란 · 인자로만 넘긴 샘플러 = ${argOnly.join(',') || '없음'} (읽는 셈 ${c0ps.active.length} → ANGLE 식 ${c0psA.active.length})`);
+    const out = { day: day.active.length, c0ps: c0ps.active.length, c0psAngle: c0psA.active.length };
     for (const a of ['t', 'a']) {
       const mo = R.onMeta[q + '_' + (a === 'a' ? 1 : 0)];
       const on = activeSamplers(rd(Cu.dir, `on_${q}_${a}_tw`, 'cloudsFrag'), runtimeDefines(mo.cloudDefines, q, mo.cascades, false));
+      const onA = activeSamplers(rd(Cu.dir, `on_${q}_${a}_tw`, 'cloudsFrag'), runtimeDefines(mo.cloudDefines, q, mo.cascades, false), { args: true });
       const sh = activeSamplers(rd(Cu.dir, `on_${q}_${a}_tw`, 'shadowFrag'), runtimeDefines(mo.shadowDefines, q, mo.cascades, true));
       const extra = on.active.filter(x => !c0ps.active.includes(x)), lost = c0ps.active.filter(x => !on.active.includes(x));
-      out[a] = on.active.length;
-      ok(on.active.length === R.consts.samplers[q] + 1 && extra.join() === 'gTsunTex' && lost.length === 0, `${q} ${a === 'a' ? '아치' : 'T'} 켬(박명): ${on.active.length} = TSUN_CLOUD_SAMPLERS ${R.consts.samplers[q]} + 1 (더한 것 ${extra.join(',') || '없음'}${lost.length ? ', 빠진 것 ' + lost.join(',') : ''})`);
+      out[a] = onA.active.length;
+      ok(onA.active.length === R.consts.samplers[q] + 1 && extra.join() === 'gTsunTex' && lost.length === 0, `${q} ${a === 'a' ? '아치' : 'T'} 켬(박명): ANGLE 식 ${onA.active.length} = TSUN_CLOUD_SAMPLERS ${R.consts.samplers[q]} + 1 (더한 것 ${extra.join(',') || '없음'}${lost.length ? ', 빠진 것 ' + lost.join(',') : ''})`);
       ok(sh.active.join() === sh0.active.join(), `${q} ${a === 'a' ? '아치' : 'T'}: 그림자 패스 샘플러 그대로 (${sh.active.length})`);
     }
     cnt[q] = out;
     ok(day.active.length === { low: 12, medium: 13, high: 15 }[q], `${q} 낮 끈 상태 ${day.active.length} (§177.6 h: 12/13/15) — ${day.active.join(',')}`);
-    ok(c0ps.active.length === R.consts.samplers[q], `${q} C0ps 박명(ACCURATE 켬) ${c0ps.active.length} = TSUN_CLOUD_SAMPLERS ${R.consts.samplers[q]}`);
+    ok(c0psA.active.length === R.consts.samplers[q], `${q} C0ps 박명(ACCURATE 켬) ANGLE 식 ${c0psA.active.length} = TSUN_CLOUD_SAMPLERS ${R.consts.samplers[q]}`);
   }
   console.log('   샘플러 수 ' + JSON.stringify(cnt));
 
   console.log('\n[U0b] 샘플러 한도');
   const u0b = R.u0b;
-  ok(u0b.lowAtCount && /MAX_TEXTURE_IMAGE_UNITS is 13/.test(u0b.lowAtCount) && u0b.lowAtCount1 === null, `low: 한도 ${u0b.table.low} → throw · ${u0b.table.low + 1} → 됨 (${(u0b.lowAtCount || '').slice(0, 90)})`);
+  ok(u0b.lowAtCount && new RegExp('MAX_TEXTURE_IMAGE_UNITS is ' + u0b.table.low + '\\b').test(u0b.lowAtCount) && u0b.lowAtCount1 === null, `low: 한도 ${u0b.table.low} → throw · ${u0b.table.low + 1} → 됨 (${(u0b.lowAtCount || '').slice(0, 90)})`);
   ok(u0b.medAtCount && u0b.medAtCount1 === null, `medium: 한도 ${u0b.table.medium} → throw · ${u0b.table.medium + 1} → 됨`);
-  ok(u0b.highAt15 && u0b.highAt16 === null && u0b.highUnknown === null, 'high: 15 → throw · 16 → 됨 · 한도 모름(가짜 렌더러) → WebGL2 최소 16 으로 봄');
+  ok(u0b.table.high === 16 && u0b.highAt16 && u0b.highAt17 === null && u0b.highUnknown && /MAX_TEXTURE_IMAGE_UNITS is 16 \(unknown, WebGL2 minimum\)/.test(u0b.highUnknown),
+    'high: 16 → throw · 17 → 됨 · 한도 모름(가짜 렌더러) → WebGL2 최소 16 으로 봐서 throw(T_sun 켬 high = 17, §181)');
+  ok(u0b.medUnknown === null, 'medium: 한도 모름 → 16 으로 보고 T_sun 켬 16 은 됨(경계)');
   ok(!!u0b.createThrows, '만들 때 옵션 tsun 1 + 한도 초과 → throw');
   ok(!!u0b.quality.m && u0b.quality.keptLow && u0b.quality.keptLow.count === u0b.table.low + 1 && u0b.quality.mediumOk === null && u0b.quality.samplers && u0b.quality.samplers.count === u0b.table.medium + 1,
-    `setQuality('high')(한도 15) → throw(low 그대로 ${JSON.stringify(u0b.quality.keptLow)}), 그다음 medium 은 됨 — ${JSON.stringify(u0b.quality.samplers)}`);
+    `setQuality('high')(한도 16) → throw(low 그대로 ${JSON.stringify(u0b.quality.keptLow)}), 그다음 medium 은 됨 — ${JSON.stringify(u0b.quality.samplers)}`);
   ok(u0b.offAt4 === null, 'tsun 0 이면 한도와 무관(한도 4 로도 만들어짐)');
   ok(u0b.caps.maxTextureImageUnits === 16, 'readCapabilities: MAX_TEXTURE_IMAGE_UNITS 를 maxTextureImageUnits 로 읽음 (' + u0b.caps.maxTextureImageUnits + ')');
 
