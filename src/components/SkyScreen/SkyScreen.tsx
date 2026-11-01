@@ -891,6 +891,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           onCameraPress={onCameraPress}
           events={events}
           seasonPcts={seasonMarkerPositions}
+          isTrackingSun={trackingTarget === 'sun'}
+          onToggleTrackingSun={() => setTrackingTarget(prev => prev === 'sun' ? null : 'sun')}
         />
       </View>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { CustomCalendarModal } from './CustomCalendarModal';
 
 interface AdaptiveDatePickerProps {
   value: Date;
@@ -9,14 +9,11 @@ interface AdaptiveDatePickerProps {
 
 export const AdaptiveDatePicker = ({ value, onChange, onClose }: AdaptiveDatePickerProps) => {
   return (
-    <DateTimePicker
+    <CustomCalendarModal
+      visible={true}
       value={value}
-      mode="date"
-      display="default"
-      onChange={(event, selectedDate) => {
-        onClose();
-        if (selectedDate) onChange(selectedDate);
-      }}
+      onChange={onChange}
+      onClose={onClose}
     />
   );
 };

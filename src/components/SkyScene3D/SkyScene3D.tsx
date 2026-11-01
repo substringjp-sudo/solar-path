@@ -1843,7 +1843,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             while (azDiff > 180) azDiff -= 360;
             while (azDiff < -180) azDiff += 360;
 
-            const minElev = -20;
+            // 태양(sun) 추적 시 지평선 아래로 내려가면 지평선(0°)에 고정하여 땅 밑을 보지 않음
+            const minElev = target === 'sun' ? 0 : -20;
             const clampedTargetElev = Math.max(minElev, targetElev);
             const elevDiff = clampedTargetElev - cameraElevRef.current;
 

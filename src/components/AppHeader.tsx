@@ -28,6 +28,7 @@ import type { SavedLocation } from '../store/useCelestialStore';
 import { PressScale } from './ui';
 import { timeTo } from '../theme/motion';
 import { makeStyles, useThemeColors } from '../theme/useTheme';
+import { useAdministrativeArea } from '../utils/reverseGeocode';
 
 /** 앱의 최상위 화면. 이 셋이 전부입니다. */
 export type AppTab = 'sky' | 'forecast' | 'log';
@@ -39,10 +40,17 @@ export const APP_TABS: { id: AppTab; code: string; label: string }[] = [
 ];
 
 /**
- * 헤더 위치 버튼에 적을 이름. 저장한 장소와 1km 안이면 그 이름, 아니면 짧은 좌표입니다.
- * 역지오코딩(네트워크)은 부르지 않습니다 — 사진 올리기에서만 씁니다.
+ * 헤더 위치 버튼에 적을 이름.
+ * 1. 저장한 장소와 1km 안이면 그 이름(별칭)
+ * 2. 행정구역 이름(시/도/구/동, 해외 도시명)
+ * 3. 역지오코딩 전이거나 실패 시 짧은 좌표
  */
-export function placeLabel(lat: number | undefined, lon: number | undefined, saved: SavedLocation[]): string | null {
+export function placeLabel(
+  lat: number | undefined,
+  lon: number | undefined,
+  saved: SavedLocation[],
+  adminName?: string | null,
+): string | null {
   if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   const kmPerDegLat = 111.32;
   const kmPerDegLon = 111.32 * Math.cos((lat * Math.PI) / 180);
@@ -52,6 +60,7 @@ export function placeLabel(lat: number | undefined, lon: number | undefined, sav
     if (d <= 1 && (!best || d < best.d)) best = { name: s.name, d };
   }
   if (best) return best.name;
+  if (adminName) return adminName;
   return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
 }
 
@@ -75,9 +84,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const language = useCelestialStore(s => s.language);
   const location = useCelestialStore(s => s.location);
   const savedLocations = useCelestialStore(s => s.savedLocations);
+  const adminName = useAdministrativeArea(location?.coords?.latitude, location?.coords?.longitude);
   const place = useMemo(
-    () => placeLabel(location?.coords?.latitude, location?.coords?.longitude, savedLocations),
-    [location?.coords?.latitude, location?.coords?.longitude, savedLocations],
+    () => placeLabel(location?.coords?.latitude, location?.coords?.longitude, savedLocations, adminName),
+    [location?.coords?.latitude, location?.coords?.longitude, savedLocations, adminName],
   );
 
   // 탭이 셋이 되어 좁은 폭(360 미만)에서는 장소 이름을 접고 핀만 둡니다 — 이름은 읽기 라벨에 그대로 남습니다.
@@ -221,7 +231,7 @@ const useStyles = makeStyles((color) => ({
     gap: space.xs,
     height: TOUCH,
     minWidth: TOUCH,
-    maxWidth: 112,
+    maxWidth: 160,
     paddingHorizontal: space.md,
     borderRadius: radius.xs,
     borderWidth: 1,

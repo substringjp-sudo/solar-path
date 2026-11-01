@@ -935,7 +935,7 @@ export async function makeGenusWeatherAsync(
   const stats = {};
   const it = genusWeatherSteps(data, layers, S, tileKm, seed, plainCover, flow, stats);
   let t0 = Date.now();
-  for (;;) {
+  for (; ;) {
     if (it.next().done) break;
     if (Date.now() - t0 >= sliceMs) {
       await new Promise<void>(r => setTimeout(r, 0));

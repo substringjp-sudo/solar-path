@@ -27,7 +27,9 @@ import { useThemeColors } from '../../theme/useTheme';
 /** 손잡이 가로 폭 — 가장자리 여백(손잡이가 트랙 끝에서 잘리지 않게)이 이 절반입니다. */
 export const KNOB_W = 56;
 export const KNOB_H = 30;
-const PAD = KNOB_W / 2;
+const KNOB_PAD = KNOB_W / 2;
+const PIN_W = 16;
+const PIN_PAD = 8;
 
 interface Props {
   /** 손잡이 위치 0~100 (바깥이 정한 값. 손가락을 쥐고 있는 동안은 손가락이 이깁니다). */
@@ -52,17 +54,29 @@ interface Props {
   accessibilityValue?: string;
   style?: StyleProp<ViewStyle>;
   knobTone?: string;
+  /** 손잡이 스타일: 기존 박스형('knob') 또는 마커를 가리지 않는 핀형('pin'). 기본값은 'knob'. */
+  variant?: 'knob' | 'pin';
+  /** 트랙 우측에 실시간으로 연동되는 고정 라벨 배지를 렌더링할 때 사용 */
+  renderValueBadge?: (label: string) => React.ReactNode;
+  /** 드래그 중 상단에 표시할 정밀 돋보기(Loupe) 렌더러 */
+  renderLoupe?: (pct: number, label: string) => React.ReactNode;
 }
 
 export const ScrubTrack: React.FC<Props> = ({
   value, onScrub, onScrubStart, onScrubEnd, formatLabel, height = 44,
   children, trackTop, trackHeight = 4, onAdjust, accessibilityLabel, accessibilityValue, style, knobTone,
+  variant = 'knob', renderValueBadge, renderLoupe,
 }) => {
   const color = useThemeColors();
-  const [width, setWidth] = useState(0);
-  const usable = Math.max(1, width - 2 * PAD);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const pad = variant === 'pin' ? PIN_PAD : KNOB_PAD;
+  const usable = Math.max(1, trackWidth - 2 * pad);
   const usableRef = useRef(usable);
   usableRef.current = usable;
+  const padRef = useRef(pad);
+  padRef.current = pad;
+  const variantRef = useRef(variant);
+  variantRef.current = variant;
 
   const [dragPct, setDragPct] = useState<number | null>(null);
   const draggingRef = useRef(false);
@@ -74,8 +88,8 @@ export const ScrubTrack: React.FC<Props> = ({
 
   const currentPct = dragPct !== null ? dragPct : Math.max(0, Math.min(100, value));
 
-  const onLayout = (e: LayoutChangeEvent) => {
-    setWidth(e.nativeEvent.layout.width);
+  const onTrackLayout = (e: LayoutChangeEvent) => {
+    setTrackWidth(e.nativeEvent.layout.width);
   };
 
   const end = useCallback(() => {
@@ -97,16 +111,19 @@ export const ScrubTrack: React.FC<Props> = ({
 
       const touchX = evt.nativeEvent.locationX;
       const u = usableRef.current;
-      // 현재 마커 중심의 X 위치 (rootView 기준)
-      const currentMarkerX = PAD + (startPctRef.current / 100) * u;
+      const curPad = padRef.current;
+      const curVariant = variantRef.current;
+      // 현재 마커 중심의 X 위치 (트랙 View 기준)
+      const currentMarkerX = curPad + (startPctRef.current / 100) * u;
       const dist = Math.abs(touchX - currentMarkerX);
+      const grabRadius = curVariant === 'pin' ? 24 : KNOB_W / 2 + 8;
 
-      if (dist <= KNOB_W / 2 + 8) {
+      if (dist <= grabRadius) {
         // 손잡이 근처를 잡은 경우: 현재 위치 유지한 채 dx 이동 준비
         setDragPct(startPctRef.current);
       } else {
         // 트랙의 다른 부분을 탭한 경우: 탭한 위치로 즉시 점프
-        const tapPct = Math.max(0, Math.min(100, ((touchX - PAD) / u) * 100));
+        const tapPct = Math.max(0, Math.min(100, ((touchX - curPad) / u) * 100));
         startPctRef.current = tapPct;
         setDragPct(tapPct);
         cb.current.onScrub(tapPct);
@@ -136,42 +153,108 @@ export const ScrubTrack: React.FC<Props> = ({
   const top = trackTop ?? (height - trackHeight) / 2;
   const label = formatLabel(currentPct);
 
+  const isDragging = dragPct !== null;
+  const LOUPE_W = 154;
+  const markerCenter = pad + (currentPct / 100) * usable;
+  // 슬라이더 트랙보다 좌우로 자연스럽게 넘어가도록 마커 중심 기준으로 직접 배치
+  const loupeLeft = markerCenter - LOUPE_W / 2;
+  const caretX = LOUPE_W / 2;
+
   return (
-    <View
-      style={[{ height, justifyContent: 'center', width: '100%' }, style]}
-      onLayout={onLayout}
-      accessible
-      accessibilityRole="adjustable"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
-      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-      onAccessibilityAction={(e) => {
-        if (e.nativeEvent.actionName === 'increment') onAdjust?.(1);
-        else if (e.nativeEvent.actionName === 'decrement') onAdjust?.(-1);
-      }}
-      {...responder.panHandlers}
-    >
-      {/* 트랙 바탕 — 좌우 PAD 내에서 0~100% 범위 */}
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { left: PAD, right: PAD, top: 0, bottom: 0 }]}>
-        <View style={{ position: 'absolute', left: 0, right: 0, top, height: trackHeight }}>{children}</View>
+    <View style={[{ height, flexDirection: 'row', alignItems: 'center', width: '100%' }, style]}>
+      {/* 인터랙션 트랙 영역 */}
+      <View
+        style={{ flex: 1, height, justifyContent: 'center' }}
+        onLayout={onTrackLayout}
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
+        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'increment') onAdjust?.(1);
+          else if (e.nativeEvent.actionName === 'decrement') onAdjust?.(-1);
+        }}
+        {...responder.panHandlers}
+      >
+        {/* 트랙 바탕 — 좌우 pad 내에서 0~100% 범위 */}
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { left: pad, right: pad, top: 0, bottom: 0 }]}>
+          <View style={{ position: 'absolute', left: 0, right: 0, top, height: trackHeight }}>{children}</View>
+        </View>
+
+        {/* 손잡이 / 핀: transform translateX 로 이동 */}
+        {variant === 'pin' ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.pinContainer,
+              {
+                height,
+                transform: [{ translateX: (currentPct / 100) * usable }],
+              },
+            ]}
+          >
+            {/* 상단 핀 마커 (다이아몬드) */}
+            <View
+              style={[
+                styles.pinDiamond,
+                {
+                  top: top - 8,
+                  backgroundColor: knobTone ?? color.accent,
+                  borderColor: color.panelRaised,
+                },
+              ]}
+            />
+            {/* 세로 관통 침 (선) */}
+            <View
+              style={[
+                styles.pinNeedle,
+                {
+                  top: top - 5,
+                  height: trackHeight + 11,
+                  backgroundColor: knobTone ?? color.accent,
+                },
+              ]}
+            />
+          </View>
+        ) : (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.knob,
+              {
+                top: (height - KNOB_H) / 2,
+                left: 0,
+                transform: [{ translateX: (currentPct / 100) * usable }],
+                backgroundColor: color.panelRaised,
+                borderColor: knobTone ?? color.accentLine,
+              },
+            ]}
+          >
+            <Text style={[styles.knobText, { color: color.accent }]} numberOfLines={1}>{label}</Text>
+          </View>
+        )}
+
+        {/* ── 드래그 중 실시간 돋보기(Loupe) 팝업 ─────────────────────── */}
+        {isDragging && renderLoupe && trackWidth > 0 && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.loupeAnchor,
+              {
+                left: loupeLeft,
+                top: top - 62,
+              },
+            ]}
+          >
+            {renderLoupe(currentPct, label)}
+            <View style={[styles.loupeCaret, { left: caretX - 5 }]} />
+          </View>
+        )}
       </View>
 
-      {/* 손잡이 (knob): 루트 View의 직접 자식으로 배치, transform translateX 로 이동 */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.knob,
-          {
-            top: (height - KNOB_H) / 2,
-            left: 0,
-            transform: [{ translateX: (currentPct / 100) * usable }],
-            backgroundColor: color.panelRaised,
-            borderColor: knobTone ?? color.accentLine,
-          },
-        ]}
-      >
-        <Text style={[styles.knobText, { color: color.accent }]} numberOfLines={1}>{label}</Text>
-      </View>
+      {/* 우측 고정 라벨 배지 */}
+      {renderValueBadge && renderValueBadge(label)}
     </View>
   );
 };
@@ -192,4 +275,50 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   knobText: { fontSize: 11, fontWeight: '800', fontFamily: mono, letterSpacing: 0.4 },
+  pinContainer: {
+    position: 'absolute',
+    left: 0,
+    width: PIN_W,
+    alignItems: 'center',
+  },
+  pinDiamond: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    transform: [{ rotate: '45deg' }],
+    borderWidth: 1.5,
+    borderRadius: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 2,
+    elevation: 4,
+    zIndex: 2,
+  },
+  pinNeedle: {
+    position: 'absolute',
+    width: 2,
+    borderRadius: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 1.5,
+    elevation: 3,
+    zIndex: 1,
+  },
+  loupeAnchor: {
+    position: 'absolute',
+    width: 154,
+    zIndex: 99,
+  },
+  loupeCaret: {
+    position: 'absolute',
+    bottom: -5,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: 'rgba(18, 22, 32, 0.95)',
+  },
 });
