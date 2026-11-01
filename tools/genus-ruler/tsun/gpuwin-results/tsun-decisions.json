@@ -1,0 +1,30 @@
+{
+ "gate": "strict",
+ "ref": {
+  "frames": 16,
+  "frame0Ms": 7809,
+  "drawMaxMs": 2145,
+  "unitMin": 0.2920355555555556,
+  "wallMin": 4.5198
+ },
+ "ref100": {
+  "frames": 16,
+  "frame0Ms": 2333,
+  "drawMaxMs": 1610,
+  "unitMin": 0.39744,
+  "wallMin": 0.4126
+ },
+ "refUnitMin": 0.2920355555555556,
+ "ref100UnitMin": 0.39744,
+ "chunkMin": 55,
+ "admitOverheadMin": 17,
+ "reasons": [],
+ "scissorNeeded": false,
+ "watchdogScale": 1,
+ "ref100WatchdogScale": 1,
+ "refWatchdogMin": 25,
+ "ref100WatchdogMin": 30,
+ "refBlocked": false,
+ "ref100Blocked": false,
+ "decidedAt": "2026-11-01T00:34:46.943Z"
+}

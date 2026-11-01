@@ -1,0 +1,159 @@
+{
+ "note": "WP7 GPU 일치(보고)",
+ "P1atlas": {
+  "ok": true,
+  "tolerance": "|dtau| <= 1e-3*tau + 1e-3 per channel (design v2 §8 WP7-P1)",
+  "note": "planar-km probe: getGlobeUv stage not exercised",
+  "rows": [
+   {
+    "unit": "RA1_s1.1_V1",
+    "arm": "T1",
+    "samples": 16384,
+    "fail": 0,
+    "maxAbs": 0.000015630657259180225,
+    "atlasSha": "4319a498e14a66cf7961e32b1383cd7d18b935f4f53fe0ef0895f6bdd8c3d064"
+   },
+   {
+    "unit": "RA1_s1.1_V1",
+    "arm": "T2",
+    "samples": 16384,
+    "fail": 0,
+    "maxAbs": 0.000015042093551187463,
+    "atlasSha": "495a0bb6a2abb202418d135e95c41dbee45048f296cfd64c15293af58d01090b"
+   },
+   {
+    "unit": "RA1_s1.1_V1",
+    "arm": "T1A",
+    "samples": 81920,
+    "fail": 0,
+    "maxAbs": 0.000015630657259180225,
+    "atlasSha": "b1eabd407fb4dba3d73bcb113316615640366ea1a08f7344d86967077204a97a"
+   },
+   {
+    "unit": "RA2_s-1_V1",
+    "arm": "T1",
+    "samples": 32768,
+    "fail": 0,
+    "maxAbs": 0.00022407928543088929,
+    "atlasSha": "0bad065b229c5f44ae852b0568eeb638d08a629f392a5838898a01f5172c6052"
+   },
+   {
+    "unit": "RA2_s-1_V1",
+    "arm": "T1A",
+    "samples": 163840,
+    "fail": 0,
+    "maxAbs": 0.0005212268189538349,
+    "atlasSha": "01647bf9262f97e113f2693d31d36eae701d3ea0eec4913662cbe68cb0211bfd"
+   },
+   {
+    "unit": "RA3_s1.1_V1",
+    "arm": "T1",
+    "samples": 32768,
+    "fail": 0,
+    "maxAbs": 0.0004586126496732845,
+    "atlasSha": "ee4a61b8ffe5245ae9b0837ea1c770f3bfbb2ae5d0b19b7d18e2c0ed6e061bb4"
+   },
+   {
+    "unit": "RA3_s1.1_V1",
+    "arm": "T1A",
+    "samples": 163840,
+    "fail": 0,
+    "maxAbs": 0.0024749998720565713,
+    "atlasSha": "4965b5eb8689e930cbd4c1430f000dcdeccdbe75109e77326b96bb3b5d269972"
+   },
+   {
+    "unit": "RA4_s-3_V1",
+    "arm": "T1",
+    "samples": 16384,
+    "fail": 0,
+    "maxAbs": 4.278658366496657e-8,
+    "atlasSha": "940904e40f5b985bf2453c42a5dc6c8c1f8e7e20058e6090650f2e74494c6777"
+   },
+   {
+    "unit": "RA4_s-3_V1",
+    "arm": "T1A",
+    "samples": 81920,
+    "fail": 0,
+    "maxAbs": 0.000007881605322612728,
+    "atlasSha": "cc345ac0ddc99c644df9a4bffbb7917dc35ae3d7e652ccd5169614c9c327ce1b"
+   },
+   {
+    "unit": "RA5_s1.1_V1",
+    "arm": "T1",
+    "samples": 32768,
+    "fail": 0,
+    "maxAbs": 0.0004004055256814354,
+    "atlasSha": "428a57b419807ed8ca39c99bf0c3efd7c49763709ec204caf99a0d6001eda8c9"
+   },
+   {
+    "unit": "RA5_s1.1_V1",
+    "arm": "T1A",
+    "samples": 163840,
+    "fail": 0,
+    "maxAbs": 0.001186275004727122,
+    "atlasSha": "f8b5f511ed241f359ea4ad6c27b5e47ff048cf4cece08d47fd8ed3f297ccec6b"
+   }
+  ],
+  "verdict": "pass"
+ },
+ "P2GA": {
+  "status": "blocked",
+  "reason": "G-A needs shader debug E_arch (tsunDebug 5); this bundle implements tsunDebug 0|1 only (cloudTsun TSUN_IMPLEMENTED) — the CPU side (archcpu ↔ archQuad U5b) passed in §179"
+ },
+ "P3emu": [
+  {
+   "unit": "RA1_s8_V1",
+   "C0psY": 0.7301090911828556,
+   "T1Y": 0.6594242828544271,
+   "ratioT1overC0ps": 0.9031859633278755,
+   "T1debugMeanMip": 0.2372985545743594,
+   "REFdebugCovered": 0.25,
+   "note": "emulator (arch/emu.py · p3light/emulate.py) comparison is a CPU step after the window"
+  },
+  {
+   "unit": "RA1_s8_V2",
+   "C0psY": 0.4386377017091268,
+   "T1Y": 0.2768335242558898,
+   "ratioT1overC0ps": 0.6311211352266888,
+   "T1debugMeanMip": 0.1280439790139657,
+   "REFdebugCovered": 0.25,
+   "note": "emulator (arch/emu.py · p3light/emulate.py) comparison is a CPU step after the window"
+  },
+  {
+   "unit": "RA1_s4_V1",
+   "C0psY": 0.7064947148638295,
+   "T1Y": 0.5867545411738133,
+   "ratioT1overC0ps": 0.8305151175644746,
+   "T1debugMeanMip": 0.234802375274682,
+   "REFdebugCovered": 0.25,
+   "note": "emulator (arch/emu.py · p3light/emulate.py) comparison is a CPU step after the window"
+  },
+  {
+   "unit": "RA1_s4_V2",
+   "C0psY": 0.4379122475803147,
+   "T1Y": 0.20985212243315143,
+   "ratioT1overC0ps": 0.47921044362812387,
+   "T1debugMeanMip": 0.1284564038251915,
+   "REFdebugCovered": 0.25,
+   "note": "emulator (arch/emu.py · p3light/emulate.py) comparison is a CPU step after the window"
+  },
+  {
+   "unit": "RA1_s1.1_V1",
+   "C0psY": 0.652777471945877,
+   "T1Y": 0.47052874585980925,
+   "ratioT1overC0ps": 0.7208103313633067,
+   "T1debugMeanMip": 0.23341420611129957,
+   "REFdebugCovered": 0.25,
+   "note": "emulator (arch/emu.py · p3light/emulate.py) comparison is a CPU step after the window"
+  },
+  {
+   "unit": "RA1_s1.1_V2",
+   "C0psY": 0.4110875634445953,
+   "T1Y": 0.15451974324190323,
+   "ratioT1overC0ps": 0.3758803646287606,
+   "T1debugMeanMip": 0.12922000702309067,
+   "REFdebugCovered": 0.25,
+   "note": "emulator (arch/emu.py · p3light/emulate.py) comparison is a CPU step after the window"
+  }
+ ]
+}

@@ -1,0 +1,793 @@
+{
+ "note": "B1 — 모든 T_sun 변형 컴파일·링크(품질마다 한 페이지)",
+ "perQuality": {
+  "low": {
+   "jobs": 20,
+   "ok": 20,
+   "failed": [],
+   "textAbove12EqualsC0ps": "pass",
+   "samplers": [
+    {
+     "name": "B1l__C0__RA1_s1.1_V1",
+     "active": 14,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__C0ps__RA1_s1.1_V1",
+     "active": 14,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T1__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T2__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T1A__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__H0__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REF__RA1_s1.1_V1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REF100__RA1_s1.1_V1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REFval__RA1_s1.1_V1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T1__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T2__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T1A__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__H0__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REF__RA1_s1.1_V1__dbg1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REF100__RA1_s1.1_V1__dbg1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REFval__RA1_s1.1_V1__dbg1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__C0ps__HS_RA1_s30_V1",
+     "active": 14,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T1__HS_RA1_s30_V1",
+     "active": 14,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__T1A__HS_RA1_s30_V1",
+     "active": 14,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1l__REF__HS_RA1_s30_V1",
+     "active": 14,
+     "staticExpected": 14,
+     "maxTextures": 32
+    }
+   ],
+   "uniformVectors": {
+    "maxActiveVectors": 221,
+    "C0psVectors": 177,
+    "maxFragment": 4096,
+    "webgl2MinFragment": 224,
+    "perJob": [
+     {
+      "name": "B1l__C0__RA1_s1.1_V1",
+      "vectors": 177,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1l__C0ps__RA1_s1.1_V1",
+      "vectors": 177,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1l__T1__RA1_s1.1_V1",
+      "vectors": 219,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1l__T2__RA1_s1.1_V1",
+      "vectors": 219,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1l__T1A__RA1_s1.1_V1",
+      "vectors": 221,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1l__H0__RA1_s1.1_V1",
+      "vectors": 221,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1l__REF__RA1_s1.1_V1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1l__REF100__RA1_s1.1_V1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1l__REFval__RA1_s1.1_V1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1l__T1__RA1_s1.1_V1__dbg1",
+      "vectors": 219,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1l__T2__RA1_s1.1_V1__dbg1",
+      "vectors": 219,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1l__T1A__RA1_s1.1_V1__dbg1",
+      "vectors": 221,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1l__H0__RA1_s1.1_V1__dbg1",
+      "vectors": 221,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1l__REF__RA1_s1.1_V1__dbg1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1l__REF100__RA1_s1.1_V1__dbg1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1l__REFval__RA1_s1.1_V1__dbg1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1l__C0ps__HS_RA1_s30_V1",
+      "vectors": 177,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1l__T1__HS_RA1_s30_V1",
+      "vectors": 177,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1l__T1A__HS_RA1_s30_V1",
+      "vectors": 177,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1l__REF__HS_RA1_s30_V1",
+      "vectors": 179,
+      "deltaVsC0ps": 2
+     }
+    ],
+    "note": "vectors = combined vertex+fragment upper bound (conservative)",
+    "verdictWithinMaxFragment": "pass",
+    "verdictWithinWebgl2Min224": "pass",
+    "phoneTypical": {
+     "within256": true,
+     "within1024": true
+    }
+   },
+   "samplerWithinLimit": "pass",
+   "samplerWithinWebgl2Min16": "pass",
+   "verdictCompile": "pass"
+  },
+  "medium": {
+   "jobs": 20,
+   "ok": 20,
+   "failed": [],
+   "textAbove12EqualsC0ps": "pass",
+   "samplers": [
+    {
+     "name": "B1m__C0__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__C0ps__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T1__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T2__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T1A__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__H0__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REF__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REF100__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REFval__RA1_s1.1_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T1__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T2__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T1A__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__H0__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REF__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REF100__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REFval__RA1_s1.1_V1__dbg1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__C0ps__HS_RA1_s30_V1",
+     "active": 15,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T1__HS_RA1_s30_V1",
+     "active": 15,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__T1A__HS_RA1_s30_V1",
+     "active": 15,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1m__REF__HS_RA1_s30_V1",
+     "active": 15,
+     "staticExpected": 15,
+     "maxTextures": 32
+    }
+   ],
+   "uniformVectors": {
+    "maxActiveVectors": 231,
+    "C0psVectors": 187,
+    "maxFragment": 4096,
+    "webgl2MinFragment": 224,
+    "perJob": [
+     {
+      "name": "B1m__C0__RA1_s1.1_V1",
+      "vectors": 187,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1m__C0ps__RA1_s1.1_V1",
+      "vectors": 187,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1m__T1__RA1_s1.1_V1",
+      "vectors": 229,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1m__T2__RA1_s1.1_V1",
+      "vectors": 229,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1m__T1A__RA1_s1.1_V1",
+      "vectors": 231,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1m__H0__RA1_s1.1_V1",
+      "vectors": 231,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1m__REF__RA1_s1.1_V1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1m__REF100__RA1_s1.1_V1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1m__REFval__RA1_s1.1_V1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1m__T1__RA1_s1.1_V1__dbg1",
+      "vectors": 229,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1m__T2__RA1_s1.1_V1__dbg1",
+      "vectors": 229,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1m__T1A__RA1_s1.1_V1__dbg1",
+      "vectors": 231,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1m__H0__RA1_s1.1_V1__dbg1",
+      "vectors": 231,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1m__REF__RA1_s1.1_V1__dbg1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1m__REF100__RA1_s1.1_V1__dbg1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1m__REFval__RA1_s1.1_V1__dbg1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1m__C0ps__HS_RA1_s30_V1",
+      "vectors": 187,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1m__T1__HS_RA1_s30_V1",
+      "vectors": 187,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1m__T1A__HS_RA1_s30_V1",
+      "vectors": 187,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1m__REF__HS_RA1_s30_V1",
+      "vectors": 189,
+      "deltaVsC0ps": 2
+     }
+    ],
+    "note": "vectors = combined vertex+fragment upper bound (conservative)",
+    "verdictWithinMaxFragment": "pass",
+    "verdictWithinWebgl2Min224": "fail",
+    "phoneTypical": {
+     "within256": true,
+     "within1024": true
+    }
+   },
+   "samplerWithinLimit": "pass",
+   "samplerWithinWebgl2Min16": "pass",
+   "verdictCompile": "pass"
+  },
+  "high": {
+   "jobs": 20,
+   "ok": 20,
+   "failed": [],
+   "textAbove12EqualsC0ps": "pass",
+   "samplers": [
+    {
+     "name": "B1h__C0__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__C0ps__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T1__RA1_s1.1_V1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T2__RA1_s1.1_V1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T1A__RA1_s1.1_V1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__H0__RA1_s1.1_V1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REF__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REF100__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REFval__RA1_s1.1_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T1__RA1_s1.1_V1__dbg1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T2__RA1_s1.1_V1__dbg1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T1A__RA1_s1.1_V1__dbg1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__H0__RA1_s1.1_V1__dbg1",
+     "active": 17,
+     "staticExpected": 17,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REF__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REF100__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REFval__RA1_s1.1_V1__dbg1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__C0ps__HS_RA1_s30_V1",
+     "active": 16,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T1__HS_RA1_s30_V1",
+     "active": 16,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__T1A__HS_RA1_s30_V1",
+     "active": 16,
+     "staticExpected": null,
+     "maxTextures": 32
+    },
+    {
+     "name": "B1h__REF__HS_RA1_s30_V1",
+     "active": 16,
+     "staticExpected": 16,
+     "maxTextures": 32
+    }
+   ],
+   "uniformVectors": {
+    "maxActiveVectors": 236,
+    "C0psVectors": 192,
+    "maxFragment": 4096,
+    "webgl2MinFragment": 224,
+    "perJob": [
+     {
+      "name": "B1h__C0__RA1_s1.1_V1",
+      "vectors": 192,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1h__C0ps__RA1_s1.1_V1",
+      "vectors": 192,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1h__T1__RA1_s1.1_V1",
+      "vectors": 234,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1h__T2__RA1_s1.1_V1",
+      "vectors": 234,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1h__T1A__RA1_s1.1_V1",
+      "vectors": 236,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1h__H0__RA1_s1.1_V1",
+      "vectors": 236,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1h__REF__RA1_s1.1_V1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1h__REF100__RA1_s1.1_V1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1h__REFval__RA1_s1.1_V1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1h__T1__RA1_s1.1_V1__dbg1",
+      "vectors": 234,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1h__T2__RA1_s1.1_V1__dbg1",
+      "vectors": 234,
+      "deltaVsC0ps": 42
+     },
+     {
+      "name": "B1h__T1A__RA1_s1.1_V1__dbg1",
+      "vectors": 236,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1h__H0__RA1_s1.1_V1__dbg1",
+      "vectors": 236,
+      "deltaVsC0ps": 44
+     },
+     {
+      "name": "B1h__REF__RA1_s1.1_V1__dbg1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1h__REF100__RA1_s1.1_V1__dbg1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1h__REFval__RA1_s1.1_V1__dbg1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     },
+     {
+      "name": "B1h__C0ps__HS_RA1_s30_V1",
+      "vectors": 192,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1h__T1__HS_RA1_s30_V1",
+      "vectors": 192,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1h__T1A__HS_RA1_s30_V1",
+      "vectors": 192,
+      "deltaVsC0ps": 0
+     },
+     {
+      "name": "B1h__REF__HS_RA1_s30_V1",
+      "vectors": 194,
+      "deltaVsC0ps": 2
+     }
+    ],
+    "note": "vectors = combined vertex+fragment upper bound (conservative)",
+    "verdictWithinMaxFragment": "pass",
+    "verdictWithinWebgl2Min224": "fail",
+    "phoneTypical": {
+     "within256": true,
+     "within1024": true
+    }
+   },
+   "samplerWithinLimit": "pass",
+   "samplerWithinWebgl2Min16": "fail",
+   "verdictCompile": "pass"
+  }
+ },
+ "debugRefusals": {
+  "rows": [
+   {
+    "name": "B1r__T1A__RA1_s1.1_V1__dbg2",
+    "dbg": 2,
+    "state": "error",
+    "refusedAsExpected": true
+   },
+   {
+    "name": "B1r__T1A__RA1_s1.1_V1__dbg3",
+    "dbg": 3,
+    "state": "error",
+    "refusedAsExpected": true
+   },
+   {
+    "name": "B1r__T1A__RA1_s1.1_V1__dbg4",
+    "dbg": 4,
+    "state": "error",
+    "refusedAsExpected": true
+   },
+   {
+    "name": "B1r__T1A__RA1_s1.1_V1__dbg5",
+    "dbg": 5,
+    "state": "error",
+    "refusedAsExpected": true
+   },
+   {
+    "name": "B1r__T1__RA1_s1.1_V1__dbg6",
+    "dbg": 6,
+    "state": "error",
+    "refusedAsExpected": true
+   },
+   {
+    "name": "B1r__T1__RA1_s1.1_V1__dbg7",
+    "dbg": 7,
+    "state": "error",
+    "refusedAsExpected": true
+   }
+  ],
+  "verdict": "pass",
+  "note": "tsunDebug 2~7 = 이 묶음에 셰이더 없음(TSUN_IMPLEMENTED) — 잡 실패(error.txt)가 기대값"
+ },
+ "atlasDeterminism": {
+  "shas": [
+   "ee4a61b8ffe5245ae9b0837ea1c770f3bfbb2ae5d0b19b7d18e2c0ed6e061bb4",
+   "ee4a61b8ffe5245ae9b0837ea1c770f3bfbb2ae5d0b19b7d18e2c0ed6e061bb4"
+  ],
+  "verdict": "pass",
+  "note": "ruler-delta E2: 같은 T1 잡 둘 → 같은 아틀라스 sha(tsunSync 1)"
+ }
+}
