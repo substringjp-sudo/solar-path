@@ -119,9 +119,10 @@ export function validateTsunOptions(o: TsunOptions & { genus: boolean; diffuse: 
  * low·medium 은 이때 irradiance_texture 가 하나 늘어남). [computed: verify-tsun-shader.js U0a — 만든 글자를 define 으로 전처리하고 main 에서
  * 닿는 함수의 texture 계열 호출을 따라간 정적 분석(§177.6 h 의 samplers.py 를 옮김). 끈 상태(낮 low) 12 · 13 · 15 는 그 분석과 같음.]
  * 정적 분석이라 컴파일러의 죽은 코드 제거를 못 봅니다 — 실제 활성 수는 B1 에서 gl.getProgramParameter(ACTIVE_UNIFORMS)로 (eng m6).
- * §181 고침: 위 분석의 CPU 재질은 미리 계산한 텍스처가 없어(single_mie_scattering_texture = null) takram 이 COMBINED_SCATTERING_TEXTURES 를
- * 켬 — 실제 대기 표는 단일 Mie 를 따로 넘기므로 single_mie_scattering_texture 가 하나 더 활성. [measured: GPU 창 B1 C0ps 14 · 15 · 16, 2026-10-31]
- * 그래서 이 값 = 분석 값 + 1. high 에서 T_sun 을 켜면 17 이라 WebGL2 최소 16 을 넘음(한도를 모르면 하네스가 거부).
+ * §181 고침: 앱·하네스·CPU 모두 합친 산란(takram 생성기 기본 combinedScattering)이라 single_mie_scattering_texture 는 읽히지 않고
+ * 함수 인자로만 넘어가는데, ANGLE(Chrome·SwiftShader)은 그것도 활성으로 셈. [measured: GPU 창 B1 C0ps 14 · 15 · 16, 2026-10-31]
+ * 그래서 이 값 = 읽는 샘플러 분석 + 1(verify-tsun-shader U0a 의 ANGLE 식 셈과 같음). 그 샘플러를 지우는 드라이버에서는 1 많게 잡혀
+ * 한도를 하나 일찍 거부함(안전한 쪽). high 에서 T_sun 을 켜면 17 이라 WebGL2 최소 16 을 넘음(한도를 모르면 하네스가 거부).
  */
 export const TSUN_CLOUD_SAMPLERS: Record<'low' | 'medium' | 'high', number> = { low: 14, medium: 15, high: 16 };
 /** WebGL2 가 보장하는 MAX_TEXTURE_IMAGE_UNITS 최솟값 — 한도를 모를 때(D10). */
