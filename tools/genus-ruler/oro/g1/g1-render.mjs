@@ -17,6 +17,13 @@
  *   그리는 동안에는 1 s 마다 /proc 을 읽어 이 도구의 자손이 아닌 프로세스의 CPU(foreignCores = (전체 바쁨 − 우리 나무) / 벽시계)를 잽니다.
  *   res.load[step] = {before: os.loadavg(), cpus, waitedSec, heavy, during: {wallSec, busyCores, ourCores, foreignCores, foreignPeakCores,
  *   foreignTop}}. g1-baseline.mjs 는 네 단계 모두 before[0] < 1.0·heavy 없음·foreignCores < 0.5 가 아니면 쓰지 않습니다.
+ * SwiftShader 일꾼 수(--swiftshader-threads N, 고르는 것 — 주지 않으면 예전 그대로 SwiftShader 기본 = CPU 수):
+ *   P0_seoul 의 지평선 몇 화소는 SwiftShader 일꾼 스레드 일정에 따라 렌더마다 1 단계씩 달라집니다(g1det 조사: 같은 GL 명령열·같은
+ *   입력에서 구름 행진 그리기 하나가 1~2 텍셀을 다르게 씀; 일꾼 1 개면 늘 같음). N 을 주면 run.js 가 부르는 chromium 디렉터리를
+ *   .harness/oro/g1/chromium-ssN 에 하드 링크로 복사하고(같은 inode = 같은 바이너리·판·깃발) SwiftShader.ini([Processor] ThreadCount=N)를
+ *   둔 뒤, run.js·g1-keys.cjs 를 `node --require g1-swiftshader.cjs` 로 띄워 그 사본의 chrome 을 쓰게 합니다(volsky·src 는 그대로).
+ *   res.versions.swiftshader = {threads, ini, launchDir, sameInode}; 그리는 단계마다 during.swiftshaderWorkers(GPU 프로세스의 marl
+ *   일꾼 스레드 수 최댓값)를 적고, N 과 다르면 exit 3.
  * 출력(--out): 키 정렬 JSON. 표준 출력은 단계·md5·수만.
  */
 import fs from 'node:fs';
@@ -96,6 +103,7 @@ function procSnapshot() {
 class ForeignMonitor {
   constructor() {
     this.ours = new Set([process.pid]); this.base = new Map(); this.last = new Map(); this.comms = new Map(); this.peak = 0;
+    this.gpuSeen = new Set(); this.gpuPids = new Set(); this.ssWorkers = 0;
     this.s0 = this.prev = procSnapshot();
     for (const [pid, p] of this.s0.procs) { this.base.set(pid, p.t); this.last.set(pid, p.t); this.comms.set(pid, p.comm); }
     this.markOurs(this.s0); this.prevOur = this.ourTicks();
@@ -116,6 +124,17 @@ class ForeignMonitor {
     // 끝 표본은 자식이 끝나며 잃는 틱(재지 못한 마지막 몫)이 '남의 것' 으로 보여 봉우리에서 뺌(봉우리는 참고값)
     if (dt > 0 && !final) this.peak = Math.max(this.peak, ((s.busy - this.prev.busy) - (our - this.prevOur)) / HZ / dt);
     this.prev = s; this.prevOur = our;
+    // 우리 나무의 chromium GPU 프로세스에서 SwiftShader(marl) 일꾼 스레드 'Thread<NN>' 수
+    for (const pid of this.ours) {
+      if (this.gpuSeen.has(pid)) continue;
+      this.gpuSeen.add(pid);
+      try { if (fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('--type=gpu-process')) this.gpuPids.add(pid); } catch { /* gone */ }
+    }
+    for (const pid of this.gpuPids) {
+      let n = 0;
+      try { for (const t of fs.readdirSync(`/proc/${pid}/task`)) { try { if (/^Thread<\d+>$/.test(fs.readFileSync(`/proc/${pid}/task/${t}/comm`, 'utf8').trim())) n++; } catch { /* gone */ } } } catch { continue; }
+      this.ssWorkers = Math.max(this.ssWorkers, n);
+    }
   }
   result() {
     this.sample(true);
@@ -124,15 +143,15 @@ class ForeignMonitor {
       .filter(x => x.ticks > 0).sort((a, b) => b.ticks - a.ticks || (a.comm < b.comm ? -1 : 1)).slice(0, 3);
     const r3 = x => Math.round(x * 1000) / 1000;
     return { wallSec: Math.round(wall), busyCores: r3(busy / HZ / wall), ourCores: r3(our / HZ / wall), foreignCores: r3(Math.max(0, busy - our) / HZ / wall),
-      foreignPeakCores: r3(this.peak), foreignTop: foreign.map(x => ({ comm: x.comm, cores: r3(x.ticks / HZ / wall) })) };
+      foreignPeakCores: r3(this.peak), foreignTop: foreign.map(x => ({ comm: x.comm, cores: r3(x.ticks / HZ / wall) })), swiftshaderWorkers: this.ssWorkers };
   }
 }
-/** runLogged 와 같되, 도는 동안 1 s 마다 ForeignMonitor 를 표본함. */
-export function runMonitored(cmd, args, log) {
+/** runLogged 와 같되, 도는 동안 1 s 마다 ForeignMonitor 를 표본함. env 를 주면 자식 환경에 덧붙임. */
+export function runMonitored(cmd, args, log, env = null) {
   return new Promise(resolve => {
     const fd = fs.openSync(log, 'w');
     const mon = new ForeignMonitor();
-    const child = cp.spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', fd, fd] });
+    const child = cp.spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', fd, fd], env: env ? { ...process.env, ...env } : process.env });
     const iv = setInterval(() => mon.sample(), 1000);
     child.on('exit', code => { clearInterval(iv); fs.closeSync(fd); resolve({ status: code, during: mon.result() }); });
   });
@@ -152,13 +171,36 @@ function runJsLaunch() {
   if (!ex || !ar) die('run.js: launch options not found', 3);
   return { executablePath: ex[1], args: JSON.parse(ar[1].replace(/'/g, '"')) };
 }
+/**
+ * --swiftshader-threads N: run.js 의 chromium 디렉터리를 .harness/oro/g1/chromium-ssN 에 하드 링크로 복사하고 SwiftShader.ini 를 둠.
+ * SwiftShader 는 ini 를 실행 파일 디렉터리에서 읽음(ANGLE 이 ICD 를 실을 때 그리로 chdir). 사본의 chrome 은 원본과 같은 inode 여야 함.
+ */
+export function swiftshaderDir(threads, L) {
+  const real = fs.realpathSync(L.executablePath);
+  const dir = path.join(ROOT, `.harness/oro/g1/chromium-ss${threads}`);
+  const exe = path.join(dir, path.basename(real));
+  const same = () => fs.existsSync(exe) && fs.statSync(exe).ino === fs.statSync(real).ino && fs.statSync(exe).dev === fs.statSync(real).dev;
+  if (!same()) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    const r = cp.spawnSync('cp', ['-al', path.dirname(real), dir], { encoding: 'utf8' });
+    if (r.status !== 0 || !same()) die(`--swiftshader-threads: cp -al ${path.dirname(real)} ${dir} failed (${(r.stderr || '').trim()})`, 3);
+  }
+  const ini = `[Processor]\nThreadCount=${threads}\n`;
+  const iniPath = path.join(dir, 'SwiftShader.ini');
+  if (fs.existsSync(iniPath)) fs.rmSync(iniPath);   // 새 파일(하드 링크 아님)로 씀
+  fs.writeFileSync(iniPath, ini);
+  return { threads, ini, iniSha256: sha256(Buffer.from(ini)), launchDir: path.relative(ROOT, dir), launchExecutable: path.relative(ROOT, exe), sameInode: same() };
+}
 function buildShEsbuild() {
   const m = fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/volsky/build.sh'), 'utf8').match(/esbuild@([0-9.]+)/);
   return m ? m[1] : null;
 }
 
 async function main() {
-  const o = parseArgs(TOOL, process.argv.slice(2), { '--jobs': true, '--control': true, '--out': true, '--work': true, '--steps': true, '--wait-idle': true });
+  const o = parseArgs(TOOL, process.argv.slice(2), { '--jobs': true, '--control': true, '--out': true, '--work': true, '--steps': true, '--wait-idle': true, '--swiftshader-threads': true });
+  const ssThreads = o['--swiftshader-threads'] === undefined ? null : Number(o['--swiftshader-threads']);
+  if (ssThreads !== null && !(Number.isInteger(ssThreads) && ssThreads >= 1 && ssThreads <= 16)) die('--swiftshader-threads: a whole number 1..16');
   if (!o['--jobs'] || !o['--control'] || !o['--out']) die('--jobs, --control and --out are required');
   for (const k of ['--jobs', '--control', '--out', '--work']) if (o[k] && forbiddenPath(o[k])) die(`${k}: path refused`);
   const work = path.resolve(o['--work'] ?? path.join(ROOT, '.harness/oro/g1/render'));
@@ -185,6 +227,17 @@ async function main() {
     node: process.version, esbuild: buildShEsbuild(), chromium: chromiumVersion,
     chromiumPath: L.executablePath, chromiumRealPath: fs.realpathSync(L.executablePath), chromiumFlags: L.args,
   };
+  // SwiftShader 일꾼 수 고정(고를 때만): 같은 chromium 의 하드 링크 사본 + SwiftShader.ini, run.js·g1-keys 는 preload 로 그 사본을 띄움
+  const SS_SHIM = 'tools/genus-ruler/oro/g1/g1-swiftshader.cjs';
+  let ssEnv = null;
+  if (ssThreads !== null) {
+    res.versions.swiftshader = swiftshaderDir(ssThreads, L);
+    ssEnv = { G1_SWIFTSHADER_DIR: path.join(ROOT, res.versions.swiftshader.launchDir) };
+  }
+  const nodeArgs = script => (ssEnv ? ['--require', `./${SS_SHIM}`, script] : [script]);
+  const checkWorkers = (step, during) => {
+    if (ssThreads !== null && during.swiftshaderWorkers !== ssThreads) die(`${step}: GPU process ran ${during.swiftshaderWorkers} SwiftShader workers, not ${ssThreads}`, 3);
+  };
   const save = () => { fs.mkdirSync(path.dirname(outPath), { recursive: true }); fs.writeFileSync(outPath, canonicalJson(res)); };
   for (const step of steps) {
     const log = path.join(work, `${step}.log`);
@@ -204,8 +257,9 @@ async function main() {
       const dir = path.join(work, step);
       fs.rmSync(dir, { recursive: true, force: true });
       const jf = step === 'control' ? path.resolve(o['--control']) : path.resolve(o['--jobs']);
-      const { status: rc, during } = await runMonitored('node', ['tools/genus-ruler/volsky/run.js', jf, dir, W, H, 'gen'], log);
+      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/volsky/run.js'), jf, dir, W, H, 'gen'], log, ssEnv);
       if (rc !== 0) die(`run.js ${step} exit ${rc}`, 3);
+      checkWorkers(step, during);
       res.load = { ...(res.load ?? {}), [step]: { ...gate, during } };
       res[step] = pngMd5(dir, step === 'control' ? cnames : names);
       res[`${step}Bundle`] = res.harnessBundle.sha256;
@@ -218,8 +272,9 @@ async function main() {
       const dir = path.join(work, 'keys');
       fs.rmSync(dir, { recursive: true, force: true });
       const kj = path.join(work, 'keys.json');
-      const { status: rc, during } = await runMonitored('node', ['tools/genus-ruler/oro/g1/g1-keys.cjs', path.resolve(o['--jobs']), dir, kj, W, H], log);
+      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/oro/g1/g1-keys.cjs'), path.resolve(o['--jobs']), dir, kj, W, H], log, ssEnv);
       if (rc !== 0) die(`g1-keys exit ${rc}`, 3);
+      checkWorkers('keys', during);
       res.load = { ...(res.load ?? {}), keys: { ...gate, during } };
       const k = JSON.parse(fs.readFileSync(kj, 'utf8'));
       res.keys = k.jobs;
