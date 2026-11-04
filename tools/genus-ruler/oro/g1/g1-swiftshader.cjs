@@ -1,11 +1,14 @@
 /**
  * g1-swiftshader.cjs — `node --require` preload for G1(b) renders (opt-in, g1-render --swiftshader-threads N).
  *
- * Why: the takram cloud ray-march takes dFdx/dFdy (getMipLevel) inside `if (!intersectsGround && !intersectsScene)`, i.e. in
- * non-uniform control flow (GLSL undefined behaviour). In 2×2 quads that straddle the horizon SwiftShader fills the derivative
- * from lanes that skipped the branch, whose values are left-overs of whatever that worker thread ran before. With 4 workers the
- * left-overs depend on scheduling, so a few horizon texels of P0_seoul change from run to run (rgb 97b2edf6/a6d7d5c8 control,
- * ee0ad83b/bc8cd61f/520cb701/... G1). With ONE worker the order is fixed and the render is repeatable.
+ * Why (scratchpad g1det): with a bit-identical WebGL command stream and bit-identical inputs, SwiftShader's multi-worker execution
+ * of ONE draw — the takram cloud ray-march (quarter-resolution CloudsPass current target) — now and then writes 1–2 horizon texels
+ * (quarter-res row 3) ~1 half-float ulp differently, in single frames at certain temporal-jitter phases. The 16-frame temporal
+ * upscale carries it to the output, so P0_seoul's rgb lands on one of a few discrete states (control 97b2edf6/a6d7d5c8, G1
+ * ee0ad83b/bc8cd61f/520cb701/771abaab/...). Not the CPU/GL side, not GPU command timing (gl.finish after every draw keeps it), not
+ * ANGLE event barriers / async GC, not the FP mode (all workers FTZ|DAZ). Two shader candidates were tested and did NOT remove it
+ * (marchOpticalDepth's unwritten out param; getMipLevel's dFdx/dFdy in non-uniform control flow) — the instruction-level cause
+ * inside SwiftShader is not isolated. With ONE SwiftShader worker the render is repeatable (on a different, equally valid state).
  *
  * How: SwiftShader reads `SwiftShader.ini` ([Processor] ThreadCount) from the directory of the running chrome executable (ANGLE
  * chdir()s there while it loads the SwiftShader ICD). g1-render makes a hard-linked copy of the chromium directory that run.js
