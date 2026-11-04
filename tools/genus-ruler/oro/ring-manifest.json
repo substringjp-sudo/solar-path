@@ -1,0 +1,147 @@
+{
+ "schema": "ring-manifest/1",
+ "tags": {
+  "blend": {
+   "busan": {
+    "bytes": 5378287,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/busan.json",
+    "sha256": "b7e0a1062b6e37d9e011c3e95202de1ae4dffbac4cf07fcede966f44f834a681"
+   },
+   "denver": {
+    "bytes": 5271207,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/denver.json",
+    "sha256": "0b3986f952857e3a20f010f13069abc9801f200e015f809c121a61cc31806985"
+   },
+   "hamburg": {
+    "bytes": 5527063,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/hamburg.json",
+    "sha256": "74f5338f34f559c8bc96666539d92aa9ecd87f7a1c42fa3c449eac0e6e15d860"
+   },
+   "kanazawa": {
+    "bytes": 5514582,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/kanazawa.json",
+    "sha256": "4cdbfa2a787e0673e19d4498ce67f63cb020b2f98f7873107483ddf259beb162"
+   },
+   "lisbon": {
+    "bytes": 5170921,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/lisbon.json",
+    "sha256": "3e4143f7456e2671ea8787c96e450dfcae28874c60d75b44daff824f3c44cb1d"
+   },
+   "osaka": {
+    "bytes": 5504180,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/osaka.json",
+    "sha256": "1aa21466eb0c51659c8bbb292a69b456fc3a27f876662999f992c4aedd3fca76"
+   },
+   "sapporo": {
+    "bytes": 5375229,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/sapporo.json",
+    "sha256": "9e2ec55bd635c7f902be1623322e6f7acad6cb0f205637b563506ebecbf4b53e"
+   },
+   "seoul": {
+    "bytes": 5301203,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/seoul.json",
+    "sha256": "175b7e7c4a98cd12aa896ff5d7ec39941c7a6a0145c48bb08d7c00e76885263d"
+   },
+   "shanghai": {
+    "bytes": 5426058,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/shanghai.json",
+    "sha256": "c696ac345b82ad0169166cf138a5f4234d6b201aeb91f3a6ab97da3f4cc0a138"
+   },
+   "sydney": {
+    "bytes": 5236710,
+    "endpoint": "historical",
+    "firstHour": "2026-09-01T00:00",
+    "lastHour": "2026-10-19T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 1176,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend/sydney.json",
+    "sha256": "aa9153ebaeb25fd49fb30ecfe3a137f93ea9367db8d35ee78ea1ba3dc1a54eab"
+   }
+  }
+ }
+}
