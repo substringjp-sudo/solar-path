@@ -1,0 +1,5919 @@
+[
+ {
+  "exposureScale": 0.5,
+  "frames": 32,
+  "input": {
+   "az": 105,
+   "date": "2026-10-15T23:01:00.000Z",
+   "el": 30,
+   "fov": 60,
+   "heightM": 40,
+   "lat": 37.4862,
+   "layers": [
+    {
+     "band": "low",
+     "baseKm": 0.30400499999999997,
+     "cover": 0.836,
+     "genus": "sc",
+     "opts": {
+      "beamTransmittance": 0.06600841706593429,
+      "flowSeed": 10842783,
+      "macroGradX": 0.002661346003058693,
+      "macroGradY": 0.09595025431922863,
+      "shearU": 29.544232590366242,
+      "shearV": -5.2094453300079095,
+      "spacingKm": 2.459508,
+      "sunGap": 0.2035475102976081,
+      "windU": 25,
+      "windV": -10
+     },
+     "thicknessM": 1024.795
+    },
+    {
+     "band": "mid",
+     "baseKm": 4.5,
+     "cover": 0,
+     "genus": null
+    },
+    {
+     "band": "high",
+     "baseKm": 9.8,
+     "cover": 0.9508333333333333,
+     "genus": "ci",
+     "opts": {
+      "beamTransmittance": 1,
+      "flowSeed": 10842783,
+      "macroGradX": -0.013113247868454343,
+      "macroGradY": 0.03972185244958208,
+      "shearU": 60.6217782649107,
+      "shearV": 35.00000000000001,
+      "sunGap": 0.2035475102976081,
+      "windU": 115,
+      "windV": 15
+     }
+    }
+   ],
+   "lon": 127.0379,
+   "macro": {
+    "high": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.0025,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.0025,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.00875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.0225,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0225,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.01375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.05625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.05625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0325,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.015,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.0275,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.00625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.01375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.05,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.04125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.5,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.05625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.03125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0425,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.04125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.12,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.3075,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.27625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 380
+     }
+    ],
+    "low": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.39875,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.39875,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.39875,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.39875,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.39875,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.39875,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.39875,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.45875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.45875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.40875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.40875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.40875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.29,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.29,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.29,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.39875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.39875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.39875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.45875,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.475,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.335,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.3275,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.21375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.14375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.0375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.11375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.33875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.33875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.34875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.39375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.4,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.26875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.355,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.46625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.4525,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.41875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.04,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.1575,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.28,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.29625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.285,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.275,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.53625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.37,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.52,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.365,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.43875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.18,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.14625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.15,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.47625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.3075,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.52625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.48,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.14875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.01125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.1125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.0225,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.13875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.69,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.37875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.4025,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.92375,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.14125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.06375,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.09625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.235,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.5525,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.70875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.47375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.23625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.19,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.01125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.04125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.0425,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.11625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.74375,
+      "distance": 380
+     }
+    ],
+    "mid": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.6025,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.6025,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.6025,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.6025,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.6025,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.6025,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.6025,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.66,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.66,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.60375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.60375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.60375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.60625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.60625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.60625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.6025,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.6025,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.6025,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.66,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.63125,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.6925,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.66375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.70125,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.71875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.7,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.69625,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.56875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.56875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.5975,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.5,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.59875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.83,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.84875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.64875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.60125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.56125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.55125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.52875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.32375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.35875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.685,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.89875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.7225,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.465,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.52625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.665,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.31625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.2675,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.185,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.23875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.20625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.32375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.705,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.9525,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.95875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.3975,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.53375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.57375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.06875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.00125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.23,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.47875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.47375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.40125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.28125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.7025,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.4225,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.00125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.265,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.255,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.255,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.51625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.595,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.27125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.00375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0025,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.29125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.16625,
+      "distance": 380
+     }
+    ]
+   },
+   "thermo": {
+    "capeJkg": 99.66666666666667,
+    "freezingLevelM": 3071.3333333333335,
+    "groundM": 40,
+    "levels": [
+     {
+      "pHPa": 1000,
+      "tC": 14.005,
+      "zM": 196.13
+     },
+     {
+      "pHPa": 975,
+      "tC": 15.598333333333333,
+      "zM": 411.88
+     },
+     {
+      "pHPa": 950,
+      "tC": 15.2,
+      "zM": 637.43
+     },
+     {
+      "pHPa": 925,
+      "tC": 13.5,
+      "zM": 862.99
+     },
+     {
+      "pHPa": 900,
+      "tC": 11.7,
+      "zM": 1088.54
+     },
+     {
+      "pHPa": 850,
+      "tC": 9.103333333333333,
+      "zM": 1569.06
+     },
+     {
+      "pHPa": 800,
+      "tC": 6.705,
+      "zM": 2069.2
+     },
+     {
+      "pHPa": 750,
+      "tC": 2.8,
+      "zM": 2590.0666666666666
+     },
+     {
+      "pHPa": 700,
+      "tC": 0.0033333333333333335,
+      "zM": 3147.93
+     },
+     {
+      "pHPa": 600,
+      "tC": -5.003333333333333,
+      "zM": 4364.1235
+     },
+     {
+      "pHPa": 500,
+      "tC": -14.503333333333334,
+      "zM": 5776.12
+     },
+     {
+      "pHPa": 400,
+      "tC": -26.4,
+      "zM": 7433.68
+     },
+     {
+      "pHPa": 300,
+      "tC": -41.5,
+      "zM": 9442.85
+     },
+     {
+      "pHPa": 250,
+      "tC": -52.5,
+      "zM": 10647.22
+     },
+     {
+      "pHPa": 200,
+      "tC": -59.5,
+      "zM": 12064.46
+     }
+    ],
+    "pblM": 141.58333333333334,
+    "precipMm": 0,
+    "rhLevels": [
+     {
+      "rhPct": 91.98333333333333,
+      "zM": 196.13
+     },
+     {
+      "rhPct": 91.01666666666667,
+      "zM": 411.88
+     },
+     {
+      "rhPct": 91,
+      "zM": 637.43
+     },
+     {
+      "rhPct": 91.98333333333333,
+      "zM": 862.99
+     },
+     {
+      "rhPct": 88.98333333333333,
+      "zM": 1088.54
+     },
+     {
+      "rhPct": 66.91666666666667,
+      "zM": 1569.06
+     },
+     {
+      "rhPct": 42.95,
+      "zM": 2069.2
+     },
+     {
+      "rhPct": 31.983333333333334,
+      "zM": 2590.0666666666666
+     },
+     {
+      "rhPct": 31.9,
+      "zM": 3147.93
+     },
+     {
+      "rhPct": 15,
+      "zM": 4364.1235
+     },
+     {
+      "rhPct": 26.016666666666666,
+      "zM": 5776.12
+     },
+     {
+      "rhPct": 33.03333333333333,
+      "zM": 7433.68
+     },
+     {
+      "rhPct": 62,
+      "zM": 9442.85
+     }
+    ],
+    "t2mC": 14.123333333333333,
+    "td2mC": 12.808333333333334,
+    "windLowMps": [
+     6.551182978885634,
+     -2.926403305581022
+    ],
+    "windMidMps": [
+     14.57174630622854,
+     -4.4594656526486025
+    ]
+   }
+  },
+  "name": "B0_app",
+  "options": {
+   "macro": 1,
+   "macroN": 128,
+   "macroOro": 0,
+   "regime": 0
+  },
+  "out": "both",
+  "quality": "low",
+  "res": 0.5
+ },
+ {
+  "frames": 32,
+  "input": {
+   "az": 129,
+   "date": "2026-10-12T03:09:00.000Z",
+   "el": 35,
+   "fov": 75,
+   "heightM": 40,
+   "lat": 37.57,
+   "layers": [
+    {
+     "band": "low",
+     "baseKm": 1.2,
+     "cover": 0.25,
+     "genus": "sc",
+     "opts": {
+      "flowSeed": 4242,
+      "macroGradX": 0.3,
+      "macroGradY": 0,
+      "shearU": 22,
+      "shearV": 6,
+      "windU": 18,
+      "windV": 4
+     }
+    },
+    {
+     "band": "mid",
+     "baseKm": 4,
+     "cover": 0.3,
+     "genus": "ac",
+     "opts": {
+      "flowSeed": 4242,
+      "macroGradX": 0,
+      "macroGradY": 0.4,
+      "shearU": 40,
+      "shearV": 5,
+      "windU": 40,
+      "windV": 10
+     }
+    },
+    {
+     "band": "high",
+     "baseKm": 9,
+     "cover": 0.4,
+     "genus": "ci",
+     "opts": {
+      "flowSeed": 4242,
+      "macroGradX": 0.6,
+      "macroGradY": 0,
+      "shearU": 0,
+      "shearV": 0,
+      "windU": 80,
+      "windV": 15
+     }
+    }
+   ],
+   "lon": 126.98,
+   "macro": {
+    "high": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0037500000000000016,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0037500000000000016,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.0037500000000000016,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.0037500000000000016,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.0037500000000000016,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0037500000000000016,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.0037500000000000016,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0037500000000000016,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.0037500000000000016,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.00666666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.00666666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.00666666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.013333333333333334,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.013333333333333334,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.013333333333333334,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0037500000000000016,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.0037500000000000016,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.0037500000000000016,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.0037500000000000016,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.03291666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.04375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.04375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.03291666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.016666666666666666,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.011666666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.009583333333333333,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.009583333333333333,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.009583333333333333,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.009166666666666668,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.002083333333333334,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.002083333333333334,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.008333333333333335,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.09,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.11875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.11416666666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.01791666666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.004583333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.014166666666666668,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.009583333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.012916666666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.12916666666666665,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.4045833333333333,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.08375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.06875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.009583333333333333,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.3158333333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.1375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.17499999999999996,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.009166666666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.10416666666666669,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.07666666666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.3154166666666666,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.018333333333333333,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.03,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.018333333333333333,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.7229166666666665,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.07416666666666666,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 380
+     }
+    ],
+    "low": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.4095833333333333,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.4095833333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.4095833333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.4095833333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.4095833333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.4095833333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.4095833333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.36791666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.36791666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.4666666666666666,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.4666666666666666,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.4666666666666666,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.44625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.44625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.44625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.4095833333333333,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.4095833333333333,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.4095833333333333,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.36791666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.09791666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.3258333333333333,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.34875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.5479166666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.69875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.6883333333333332,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.6791666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.5579166666666666,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.5579166666666666,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.3070833333333333,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.14916666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.06958333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.29333333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.3754166666666666,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.47125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.5291666666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.5033333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.575,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.6129166666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.0825,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.07583333333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.12666666666666665,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.20958333333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.4275,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.37333333333333335,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.37125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.3983333333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.022916666666666665,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.16208333333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.44625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.5054166666666666,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.2,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.33,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.3254166666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.175,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.4670833333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.0012500000000000005,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.2058333333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.41375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.3879166666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.3141666666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.3420833333333333,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.30333333333333334,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.14375,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.24625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.86375,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.17791666666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.26625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.24791666666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.015416666666666674,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.16583333333333336,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.23541666666666664,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.2341666666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.024583333333333332,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.20125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.43875,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.7108333333333333,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.16749999999999995,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.255,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.4416666666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.00916666666666667,
+      "distance": 380
+     }
+    ],
+    "mid": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0054166666666666695,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0054166666666666695,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.0054166666666666695,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.0054166666666666695,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.0054166666666666695,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0054166666666666695,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.0054166666666666695,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.003333333333333335,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.003333333333333335,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.1375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.1375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.1375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.0054166666666666695,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.0054166666666666695,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.0054166666666666695,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.003333333333333335,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.018333333333333333,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.1375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.1375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.03958333333333334,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.03958333333333334,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.14041666666666666,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.10291666666666666,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.09625,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.1625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.008333333333333337,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.015416666666666674,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.29166666666666663,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.24916666666666665,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.30583333333333335,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.12833333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.004583333333333335,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.04291666666666668,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.17625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.28958333333333336,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.38625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.17666666666666667,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.14541666666666667,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.012916666666666672,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.25416666666666665,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.45583333333333337,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.2970833333333333,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.3245833333333333,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.022083333333333333,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.030416666666666668,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.2,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.3270833333333333,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.4608333333333334,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.51125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.19375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.2025,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.3170833333333334,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.45666666666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.36833333333333335,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.19208333333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.030833333333333334,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.13,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.50375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.5866666666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.5591666666666666,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.4825,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.41666666666666663,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.2383333333333333,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.30583333333333335,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.64875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.35541666666666666,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.2658333333333333,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.02,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.15250000000000002,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.31666666666666665,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.45083333333333336,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.3420833333333333,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.47666666666666674,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.3754166666666666,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.24166666666666664,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.2866666666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.5770833333333333,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.4295833333333334,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.13958333333333334,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.10125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.002916666666666668,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 380
+     }
+    ]
+   },
+   "thermo": {
+    "groundM": 40,
+    "levels": [
+     {
+      "pHPa": 1000,
+      "tC": 19,
+      "zM": 110
+     },
+     {
+      "pHPa": 850,
+      "tC": 9,
+      "zM": 1500
+     },
+     {
+      "pHPa": 700,
+      "tC": 0,
+      "zM": 3100
+     },
+     {
+      "pHPa": 500,
+      "tC": -14,
+      "zM": 5800
+     },
+     {
+      "pHPa": 300,
+      "tC": -40,
+      "zM": 9500
+     },
+     {
+      "pHPa": 250,
+      "tC": -50,
+      "zM": 10800
+     }
+    ],
+    "t2mC": 20,
+    "td2mC": 11
+   }
+  },
+  "name": "P0_seoul",
+  "options": {
+   "macro": 1,
+   "macroN": 128,
+   "macroOro": 0,
+   "physics": false,
+   "physicsIce": false,
+   "regime": 0
+  },
+  "out": "both",
+  "quality": "low",
+  "res": 0.5
+ },
+ {
+  "frames": 32,
+  "input": {
+   "az": 129,
+   "date": "2026-09-01T01:07:30.000Z",
+   "el": 35,
+   "fov": 75,
+   "heightM": 40,
+   "lat": 36.5679,
+   "layers": [
+    {
+     "band": "low",
+     "baseKm": 1.2,
+     "cover": 0,
+     "genus": null
+    },
+    {
+     "band": "mid",
+     "baseKm": 4,
+     "cover": 0.110625,
+     "genus": "ac",
+     "opts": {
+      "flowSeed": 4242,
+      "macroGradX": 0,
+      "macroGradY": 0.4,
+      "shearU": 40,
+      "shearV": 5,
+      "windU": 40,
+      "windV": 10
+     }
+    },
+    {
+     "band": "high",
+     "baseKm": 9,
+     "cover": 0,
+     "genus": null
+    }
+   ],
+   "lon": 136.6774,
+   "macro": {
+    "high": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.016875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0425,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.02875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.0225,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.03875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.023125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.035,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.07125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.564375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.0525,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.07625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.023125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 1,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 1,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.9425,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.28875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.011875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.2525,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.69875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.92125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.876875,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.9125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.011875,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.023125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.639375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.833125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.88,
+      "distance": 380
+     }
+    ],
+    "low": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.05,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.05,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.05,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.05,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.05,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.203125,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.203125,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.123125,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.123125,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.038125,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.136875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.249375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.174375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.301875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.26125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.02625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.35125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.29,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.453125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.36875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.033125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.013125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.091875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.164375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.32375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.33,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.11375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.180625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.295625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.29,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.515,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.278125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.124375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.02875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.378125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.4875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.4775,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.211875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.770625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.235,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.385625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.68375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.3325,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.084375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.27875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.3,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.5125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.39625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.461875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.515625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.891875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.61,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.37,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.449375,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.24,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.33,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.3625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.320625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.515,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.624375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.385625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.779375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.74125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.465625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.543125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.204375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.26625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.365,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.263125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.4425,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.558125,
+      "distance": 380
+     }
+    ],
+    "mid": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.110625,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.110625,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.179375,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.179375,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.14,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.14,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.110625,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.110625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.179375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.179375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.179375,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.133125,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.133125,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.14,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.14,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.14,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.110625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.110625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.110625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.0075,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.01875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.010625,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.055625,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.06,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.093125,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.174375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.14,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.14,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.001875,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.110625,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.219375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.23875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.009375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.009375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.17125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.1925,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.00875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.039375,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.0175,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.12375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.4125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.045,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.04875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.254375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.320625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.01125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.029375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.17125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.09625,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.240625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.435625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.238125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.018125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.029375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.220625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.0075,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.01875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.19,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.019375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.106875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.015,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.07125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.545625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.040625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.0325,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.248125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.260625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.043125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.19125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.7275,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.23375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.725,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.110625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.029375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.015,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.39,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.715625,
+      "distance": 380
+     }
+    ]
+   }
+  },
+  "name": "M_kanazawa_2026-09-01",
+  "options": {
+   "macro": 1,
+   "macroN": 128,
+   "macroOro": 0,
+   "regime": 0
+  },
+  "out": "both",
+  "quality": "low",
+  "res": 0.5
+ },
+ {
+  "frames": 32,
+  "input": {
+   "az": 129,
+   "date": "2026-09-05T00:27:30.000Z",
+   "el": 35,
+   "fov": 75,
+   "heightM": 40,
+   "lat": 36.5679,
+   "layers": [
+    {
+     "band": "low",
+     "baseKm": 1.2,
+     "cover": 0.31333333333333335,
+     "genus": "sc",
+     "opts": {
+      "flowSeed": 4242,
+      "macroGradX": 0.3,
+      "macroGradY": 0,
+      "shearU": 22,
+      "shearV": 6,
+      "windU": 18,
+      "windV": 4
+     }
+    },
+    {
+     "band": "mid",
+     "baseKm": 4,
+     "cover": 0,
+     "genus": null
+    },
+    {
+     "band": "high",
+     "baseKm": 9,
+     "cover": 0,
+     "genus": null
+    }
+   ],
+   "lon": 136.6774,
+   "macro": {
+    "high": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.006875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.03666666666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.459375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.029791666666666664,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.044583333333333336,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.23979166666666668,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 1,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 1,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 1,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.15125,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.21625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.005,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.43125,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 1,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 1,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.9091666666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 1,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.026458333333333334,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.43333333333333335,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.34,
+      "distance": 380
+     }
+    ],
+    "low": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0.31333333333333335,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.31333333333333335,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.47833333333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.47833333333333333,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.300625,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.300625,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.31333333333333335,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.360625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.525625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.47833333333333333,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.47833333333333333,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.4660416666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.4660416666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.300625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.300625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.300625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.360625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.360625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.360625,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.3835416666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.41708333333333336,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.46104166666666674,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.6375000000000001,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.6016666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.4554166666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.3425,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.07541666666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.209375,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.30479166666666674,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.2172916666666667,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.360625,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.2685416666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.3304166666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.17145833333333335,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.518125,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.551875,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.5804166666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.44041666666666673,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.275,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.110625,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.35708333333333336,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.10583333333333333,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.1872916666666667,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.24875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.26083333333333336,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.47708333333333336,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.4504166666666667,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.5016666666666667,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.38583333333333336,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.2577083333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.368125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.161875,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.335,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.16666666666666669,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.258125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.28,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.273125,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.301875,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.674375,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.14583333333333334,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.03895833333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.23458333333333337,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.46020833333333333,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.3891666666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.31583333333333335,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.31666666666666665,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.3535416666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.26395833333333335,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.2275,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.17583333333333337,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.880625,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.8047916666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.8627083333333334,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.7610416666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.045208333333333336,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.1725,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.441875,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.28708333333333336,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.15708333333333335,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0.26,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.379375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.27979166666666666,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.64625,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.5529166666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.535,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.8183333333333335,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.10729166666666666,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.349375,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.3291666666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0.3479166666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0.381875,
+      "distance": 380
+     }
+    ],
+    "mid": [
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 0
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.02166666666666667,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.02166666666666667,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 5
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0.02166666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.02166666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.02166666666666667,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 10
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.04062500000000001,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.08937500000000002,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 30
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.18666666666666668,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 70
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.2677083333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.08125000000000002,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.04333333333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.14854166666666666,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.268125,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.15895833333333334,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.154375,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 130
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0.08125000000000002,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.30625,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.2622916666666667,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.5383333333333334,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.145,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.26666666666666666,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.12750000000000003,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 200
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.48375,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.5835416666666667,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.6914583333333334,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.7745833333333334,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.4608333333333334,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 280
+     },
+     {
+      "azimuthOffset": 0,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 30,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 90,
+      "cover": 0.5,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 120,
+      "cover": 0.9564583333333334,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 150,
+      "cover": 0.8172916666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": 180,
+      "cover": 0.9839583333333334,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -150,
+      "cover": 0.6072916666666667,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -120,
+      "cover": 0.27,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -90,
+      "cover": 0.10750000000000001,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -60,
+      "cover": 0,
+      "distance": 380
+     },
+     {
+      "azimuthOffset": -30,
+      "cover": 0,
+      "distance": 380
+     }
+    ]
+   }
+  },
+  "name": "M_kanazawa_2026-09-05",
+  "options": {
+   "macro": 1,
+   "macroN": 128,
+   "macroOro": 0,
+   "regime": 0
+  },
+  "out": "both",
+  "quality": "low",
+  "res": 0.5
+ }
+]

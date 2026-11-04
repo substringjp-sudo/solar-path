@@ -56,6 +56,7 @@ def _load(name, path):
 
 
 O = _load('oro_ref', os.path.join(HERE, 'oro_ref.py'))
+sys.modules['oro_ref'] = O              # oro.py reuses this instance: one guard, one allow() context per process
 O.install_guard()
 
 import numpy as np                      # noqa: E402  (가드 뒤)
