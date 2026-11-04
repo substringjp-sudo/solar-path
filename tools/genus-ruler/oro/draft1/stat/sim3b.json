@@ -1,0 +1,50 @@
+{
+ "n15_q0.0": {
+  "naive_f": 0.01,
+  "perm_f": 0.003,
+  "perm_V": 0.03,
+  "f_expected_vs_uniform": 0.333
+ },
+ "n15_q0.15": {
+  "naive_f": 0.037,
+  "perm_f": 0.013,
+  "perm_V": 0.05,
+  "f_expected_vs_uniform": 0.426
+ },
+ "n15_q0.27": {
+  "naive_f": 0.188,
+  "perm_f": 0.045,
+  "perm_V": 0.133,
+  "f_expected_vs_uniform": 0.5
+ },
+ "n15_q0.4": {
+  "naive_f": 0.372,
+  "perm_f": 0.083,
+  "perm_V": 0.168,
+  "f_expected_vs_uniform": 0.58
+ },
+ "n30_q0.0": {
+  "naive_f": 0.022,
+  "perm_f": 0.015,
+  "perm_V": 0.02,
+  "f_expected_vs_uniform": 0.333
+ },
+ "n30_q0.15": {
+  "naive_f": 0.147,
+  "perm_f": 0.068,
+  "perm_V": 0.117,
+  "f_expected_vs_uniform": 0.426
+ },
+ "n30_q0.27": {
+  "naive_f": 0.39,
+  "perm_f": 0.193,
+  "perm_V": 0.29,
+  "f_expected_vs_uniform": 0.5
+ },
+ "n30_q0.4": {
+  "naive_f": 0.74,
+  "perm_f": 0.405,
+  "perm_V": 0.485,
+  "f_expected_vs_uniform": 0.58
+ }
+}
