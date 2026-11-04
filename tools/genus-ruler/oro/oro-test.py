@@ -21,6 +21,15 @@ exit 0 iff FAIL 없음. SKIP 은 동결 문턱(§9.1 ⑨)의 통과가 아닙니
   U-ALLOW  §1.13 의 로더 몫(허용 키만, 해시만). 'builder 출력이 가짜 키에 무관' 몫은 inputs 빌더와 함께 더합니다.
   U-GUARD  §5.1: 금지 꼴마다 감사 훅이 파일을 건드리기 전에 PermissionError(없는 이름으로만 시험), png-judge 는 lock 이
            있을 때만, 심볼릭 링크 우회 막힘, 이 실행이 __pycache__ 를 쓰지 않음.
+
+S3b(oro.py, S3-design §6.9): U-TAU · U-APP · U-LAMAPP · B-FILL(§6.1), U-TRUTH · U-EMPTY · U-MASKJ(§6.2),
+  U-METRIC · U-LMINUS · U-FINE · U-C45 · U-AUX · U-SCENE · U-ARMS0 · U-GSHUF(§6.3, §6.5 팔), U-BOOT · U-SIGNFLIP · U-STATS(§6.4),
+  U-CLAUSE(§6.5), U-RHASH · U-PRECHK(§6.6), G6f · G6g · G6h(가짜 참값, test-tmp), G8b~G8f(G8d 는 합성 git 저장소에서만 판정을
+  돌림 — 진짜 은행 경로는 열지 않고, 진짜 저장소에는 --precheck 만).
+  G6f 는 커밋된 oro-apply.json 의 dev 판정 장면(A1~A8)을 날짜 순으로 쓰고 모자라면 합성으로 채움; 11-05 재빌드가 탈 dev 갈래는
+  B-SYN 고정물로 미리 돌림(키 앞 'dry'). G8c 는 FROZEN.json 이 oro-test.txt 뒤에 쓰이므로(L876) 동결 전에는 마른 구조 시험
+  (mode=dry), FROZEN.json 이 있으면 진짜 파일도 봄(mode=real). 동결 뒤 G8 을 다시 잴 때(§9.3 ②)는 --only G8a,…,G8f 로
+  돌리고 --out 은 주지 않거나 다른 곳으로(oro-test.txt 는 동결 파일, L876).
 """
 import sys
 sys.dont_write_bytecode = True
@@ -77,6 +86,13 @@ HEADER = (
     "(Q-33), G6(d) mountains, bands and the report-only easterly mirror (Q-34), G6(e) quadrant sea-fraction thresholds (Q-35). "
     "Q-34/Q-35 were pinned after a DEM-only prototype run (no MODIS, no B); criteria are fixed as written before the first "
     "oro-test run (L793).\n"
+    "# Pinned additions, not ruler values (S3b, build notes 12-13): G6(f)(g)(h) fixtures - synthetic sounding (U 8 m/s, "
+    "N 0.01, H_w 2500 m, kappa = gamma_s(280 K)/0.15), synthetic B = logistic(1.2 smooth_field(128, 100 km, seed "
+    "20261103+11..14)) with band B low = mid = 0.3 and high 0, masks off (z_snow = max h + 1000 m), the fake PNG empty px "
+    "in the max |box dC| window box ((f), (h)) or box (0, 0) ((g)), and the (iv) seed order site > set > scene > "
+    "replicate. G6(g) reading (build note 12): every scene of a set is both a G-shuf j and k (J = K, as the ruler's "
+    "'(ii) mean exactly 0' needs); this reading was chosen after an S3b run in which J = the scenes with |S| >= 20 (K = all) gave "
+    "seoul/skew (ii) mean -0.051; no criterion value was changed. To be put to the S4 short review.\n"
 )
 
 TESTS = []
@@ -2126,6 +2142,1926 @@ def t_g6e():
     ck.kv.update({'busanFromDeg': dd, 'busanTowardDeg': brg, 'busanSpeed': S})
     return ck.result()
 # ═══════════════════════ S3a MODEL TESTS — END ═══════════════════════
+
+
+# ═══════════════════════ S3b JUDGE TESTS — BEGIN (S3-design §6.9 and units of every §6.1/§6.3–§6.6 function) ═══════════════════════
+# oro.py is imported once per run and shares this process's oro_ref (one guard). Every truth here is fake and MODIS-free
+# (clip(B + ΔC), synthetic noise), written under .harness/oro/test-tmp; the judge runs only on synthetic repos there.
+# G8(f) audits that no real scene JSON / PNG / index / quartile / gate path is opened by G6 (f)(g)(h).
+import ast
+import itertools
+import types
+from datetime import date as _date
+from PIL import Image
+
+ORO_REL = 'tools/genus-ruler/oro'
+T_G6 = os.path.join(TMP, 'g6')
+G8D = os.path.join(TMP, 'g8d')
+DEM_GRIDS_P = os.path.join(HERE, 'dem-grids.json')
+REAL_APPLY = os.path.join(HERE, 'oro-apply.json')
+G6_SITES = ('kanazawa', 'seoul')
+G6_SETS = {'even': (tuple(range(0, 360, 45)), 0), 'skew': ((270, 285, 300, 315, 330, 345, 105, 150), 300)}
+G6_BSEED = {('kanazawa', 'even'): SEED + 11, ('kanazawa', 'skew'): SEED + 12, ('seoul', 'even'): SEED + 13,
+            ('seoul', 'skew'): SEED + 14}
+G6_EMPTY_BOX = (0, 0)          # (g) scenes: the fake PNG's empty px sits in the same window box for every scene
+_G6_OPENS = {}
+G8F_COMMITTED_OK = tuple(os.path.abspath(p) for p in (REAL_APPLY, REAL_INPUTS, DEM_GRIDS_P))
+
+
+def _R():
+    if 'oro' not in _FIX:
+        _FIX['oro'] = _load('oro_judge', os.path.join(HERE, 'oro.py'))
+    return _FIX['oro']
+
+
+def _run_oro(args, check=True):
+    r = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'oro.py')] + list(args), cwd=ROOT, capture_output=True,
+                       text=True)
+    if check and r.returncode != 0:
+        raise RuntimeError(f'oro.py {args[0]} exit {r.returncode}: {r.stderr.strip()[-300:]}')
+    return r
+
+
+@contextlib.contextmanager
+def _record_opens(tag):
+    lst = []
+    prev = _REC['on']
+    _REC['on'] = lst
+    try:
+        yield lst
+    finally:
+        _REC['on'] = prev
+        _G6_OPENS[tag] = lst
+
+
+# ── fake scene files ((f) form, L766-L770) ──
+def _fake_tg(T128):
+    """clip(T) → 2×2 replicate (no bilinear) → u8 → row 0 = north → base64 (fetch-sat form)."""
+    u = np.round(np.kron(np.clip(T128, 0.0, 1.0), np.ones((2, 2))) * 255.0).astype(np.uint8)[::-1]
+    return base64.b64encode(np.ascontiguousarray(u).tobytes()).decode('ascii')
+
+
+def _fake_png(path, empty_box):
+    """RGB (128, 128, 128) 256², one (0, 0, 0) 3 km px inside window box empty_box (row 0 = north)."""
+    a = np.full((256, 256, 3), 128, dtype=np.uint8)
+    if empty_box is not None:
+        bi, bj = empty_box
+        p, q = 98 + 4 * bi + 1, 98 + 4 * bj + 2
+        a[255 - p, q] = 0
+    Image.fromarray(a, 'RGB').save(path)
+
+
+def _fake_files(d, name, site, lat, lon, date_s, T128, empty_box):
+    """Fake scene JSON (allow-list fields + fake trueGrid only) and fake PNG in test-tmp."""
+    pj, pp = os.path.join(d, name + '.json'), os.path.join(d, name + '.png')
+    sc = {'site': site, 'lat': lat, 'lon': lon, 'date': date_s, 'grid': 256, 'cellKm': 3.0,
+          'ring': [{'dist': a, 'az': b} for a, b in O.ring91()], 'trueGrid': _fake_tg(T128)}
+    with open(pj, 'w') as f:
+        json.dump(sc, f)
+    _fake_png(pp, empty_box)
+    return pj, pp
+
+
+def _judge_one(p, pj, pp, primary='rho_res', lam=1.0):
+    """The judge path of one scene: load_truth (flip, 2×2 mean) + empty_cells → judge_masks → scene_main."""
+    R = _R()
+    tr = R.load_truth(pj)
+    tr['empty'], tr['dark'] = R.empty_cells(pp)
+    mk = R.judge_masks(p['dem']['hmax6'], p['tm']['zSnow'], p['Bs']['high'], tr['empty'])
+    return R.scene_main(p, tr, mk, primary, lam), tr, mk
+
+
+# ── (g) synthetic soundings and B (L777-L780) ──
+def _g6_site(site):
+    key = ('g6site', site)
+    if key not in _FIX:
+        dg = _jload(DEM_GRIDS_P)
+        dem = O.SiteCache(dg).get(site)
+        _FIX[key] = {'dem': dem, 'lat': dg['sites'][site]['lat'], 'lon': dg['sites'][site]['lon'],
+                     'zs': float(np.max(dem['hmax6'])) + 1000.0}       # z_snow > max h + 300 m: snow mask inactive
+    return _FIX[key]
+
+
+def _g6_snd(frm):
+    """U 8 m/s from `frm`, N 0.01, H_w 2500 m, κ = γ_s(280 K)/0.15 (the G6(d) synthetic sounding with the (g) wind)."""
+    U, V = O.wind_to_uv(8.0, float(frm))
+    gs = O.gamma_s(280.0)
+    return {'Vref': [U, V], 'speedRef': 8.0, 'N': 0.01, 'N2': 1e-4, 'Hw_m': 2500.0, 'kappa': gs / 0.15, 'gammaS': gs,
+            'sRel': 0.15, 'complete': True, 'refEmpty': False}
+
+
+def _g6_B(key):
+    return 1.0 / (1.0 + np.exp(-1.2 * smooth_field(128, 100, G6_BSEED[key])))
+
+
+def _g6_prep(site, frm, B, name):
+    """prep_fields for a synthetic scene: B_tot = the set's B, bands low = mid = 0.3 (one field), high 0 (masks inactive,
+    L777; the band form is that of the ρ^vis fallback scenes, L775); ring = the band value at every point."""
+    s = _g6_site(site)
+    one = np.ones((128, 128))
+    Bs = {'total': B, 'low': 0.3 * one, 'mid': 0.3 * one, 'high': 0.0 * one}
+    rings = {'total': np.full(91, 0.5), 'low': np.full(91, 0.3), 'mid': np.full(91, 0.3), 'high': np.zeros(91)}
+    snd = _g6_snd(frm)
+    tm = {'snd': snd, 'sndEcmwf': None, 'zSnow': s['zs'], 'zSnow7': s['zs'], 'zSnow42': None, 'z0': s['zs']}
+    sc = {'site': site, 'lat': s['lat'], 'lon': s['lon'], 'times': {'closest': tm}}
+    return _R().prep_fields(name, sc, s['dem'], snd, s['lat'], Bs, rings, [d for d, _ in O.ring91()], tm)
+
+
+def _g6_date(i):
+    return (_date(2026, 9, 1) + timedelta(days=i)).isoformat()
+
+
+def _g6_names(site, sname):
+    dirs = G6_SETS[sname][0]
+    return [f'g6{site}-{sname}-{frm:03d}_{_g6_date(i)}' for i, frm in enumerate(dirs)]
+
+
+def _a1to8(row):
+    """The judge definition A1–A8 of one oro-apply row (L298, Q-44), read flag by flag (not through row['judge'])."""
+    a6 = row['A6']['judge']
+    return bool(all(row[f'A{i}']['ok'] for i in range(1, 6)) and a6 is not None and a6['ok'] and row['A7']['ok']
+                and row['A8']['ok'])
+
+
+def _dev_judge_names(app):
+    """'dev 적용 장면' (L765, Q-44): dev rows of oro-apply with A1–A8 true, by date (then name). Must equal
+    summary.devJudgeable and row['judge'] (checked by the caller)."""
+    rows = app['scenes']
+    return sorted((n for n, r in rows.items() if r['group'] == 'dev' and _a1to8(r)), key=lambda n: (rows[n]['date'], n))
+
+
+def _g6f_fill(dev_entries, syn_entries):
+    """L765: the first 3 dev scenes by date; fewer than 3 → filled from the (g) even-set synthetic scenes in the order
+    0°, 90°, 180°. The dev scenes after the third are kept for the ρ^vis fallback (L775)."""
+    out = list(dev_entries[:3])
+    out += list(syn_entries[:3 - len(out)])
+    return out, list(dev_entries[3:])
+
+
+def _g6f_syn():
+    """The (g) even-set synthetic scenes 0°, 90°, 180° (kanazawa, the dev site with A1 true, Q-44; build note 13)."""
+    if 'g6fSyn' not in _FIX:
+        syn = []
+        B = _g6_B(('kanazawa', 'even'))
+        names = _g6_names('kanazawa', 'even')
+        s = _g6_site('kanazawa')
+        for frm in (0, 90, 180):
+            i = G6_SETS['even'][0].index(frm)
+            syn.append(('syn', names[i], 'kanazawa', s['lat'], s['lon'], _g6_date(i), _g6_prep('kanazawa', frm, B, names[i])))
+        _FIX['g6fSyn'] = syn
+    return _FIX['g6fSyn']
+
+
+def _g6f_select(apply_path, inputs_path, base_dir, key):
+    """G6(f) scenes (L765) from one oro-apply / oro-inputs / B dir: dev judge scenes by date (≤ 3) through the judge's
+    own prep_scene (it also checks the judge-path combiner against the row), filled per _g6f_fill. Cached by key."""
+    if key in _FIX:
+        return _FIX[key]
+    R = _R()
+    app = _jload(apply_path)
+    dev = _dev_judge_names(app)
+    consistent = (dev == sorted(app['summary']['devJudgeable'], key=lambda n: (app['scenes'][n]['date'], n))
+                  and all(app['scenes'][n]['judge'] for n in dev)
+                  and not any(r['judge'] for n, r in app['scenes'].items() if r['group'] == 'dev' and n not in dev))
+    ent = []
+    if dev:
+        inp = _jload(inputs_path)
+        cache = O.SiteCache(_jload(DEM_GRIDS_P))
+        for n in dev:
+            sc = inp['scenes'][n]
+            p = R.prep_scene(n, sc, app['scenes'][n], cache.get(sc['site']), {'dir': base_dir, 'checkSha': True})
+            ent.append(('dev', n, sc['site'], sc['lat'], sc['lon'], sc['date'], p))
+    syn = _g6f_syn()
+    out, more = _g6f_fill(ent, syn)
+    _FIX[key] = {'scenes': out, 'moreDev': more, 'syn': syn, 'devNames': dev, 'devConsistent': consistent}
+    return _FIX[key]
+
+
+def _g6f_scenes():
+    """The real G6(f)/(h) scenes: the committed oro-apply.json (provisional until the 10 soundings exist), oro-inputs.json
+    and the sealed B in .harness/oro/base."""
+    return _g6f_select(REAL_APPLY, REAL_INPUTS, REAL_BASE, 'g6f')
+
+
+# ───────────────────────── §6.1 app path arm ─────────────────────────
+@test('U-TAU')
+def t_tau():
+    """τ_band = macroTileCover (volumetricScene.ts:1028-1033) with the band's ring point 0 as first argument (Q-36)."""
+    ck = Checks()
+    R = _R()
+    dist = [d for d, _ in O.ring91()]
+    v = np.arange(91) / 100.0
+    ck(sum(1 for x in dist if x <= 150) == 55, 'near55')
+    ck(R.tau_band(v, dist, R.ring_first(v)) == 0.41, 'p75')            # near = 0.00..0.54, index floor(0.75·55) = 41
+    ck(R.tau_band(v, dist, 0.6) == 0.6, 'firstWins')
+    w = v.copy()
+    w[41:55] = 1.5
+    ck(R.tau_band(w, dist, 0.0) == 1.0, 'clamp01')
+    few = np.full(91, np.nan)
+    few[:11] = 0.5
+    ck(R.tau_band(few, dist, 0.2) == 0.2, 'lt12Points')
+    nn = v.copy()
+    nn[5:55] = np.nan                                                   # 5 near points, 41 finite
+    ck(R.tau_band(nn, dist, 0.33) == 0.33, 'lt6Near')
+    z = v.copy()
+    z[0] = np.nan
+    ck(R.ring_first(z) == 0.0 and R.ring_first(v + 0.07) == 0.07, 'firstNullIs0')
+    return ck.result()
+
+
+@test('U-APP')
+def t_app():
+    """ΔC^app, C^vis, B^vis, ΔC^vis by hand (L545-L548); app_arm with F ≡ 0 is exactly 0; low-only arm uses C_mid = B_mid."""
+    ck = Checks()
+    R = _R()
+    one = np.ones((128, 128))
+    Bs = {'low': 0.2 * one, 'mid': 0.3 * one, 'high': 0.5 * one}
+    out = R.app_fields(Bs, 0.25 * one, 0.35 * one, {'low': 0.22, 'mid': 1.0, 'high': 0.4})
+    hand = {'dCapp': (1 - 0.75 * 0.65 * 0.5) - (1 - 0.8 * 0.7 * 0.5), 'Cvis': 1 - 0.78 * 0.65 * 0.6,
+            'Bvis': 1 - 0.8 * 0.7 * 0.6}
+    for k, h in hand.items():
+        ck(float(np.max(np.abs(out[k] - h))) <= 1e-15, k)
+    ck(abs(hand['dCapp'] - 0.03625) <= 1e-15 and abs(hand['Cvis'] - 0.6958) <= 1e-15 and abs(hand['Bvis'] - 0.664) <= 1e-15,
+       'handLiterals')
+    ck(float(np.max(np.abs(out['dCvis'] - 0.0318))) <= 1e-15, 'dCvis')
+    B = _comb_B()
+    Bs4 = {'total': B, 'low': 0.6 * B, 'mid': 0.4 * B, 'high': 0.2 * B}
+    rings = {b: np.full(91, 0.3) for b in O.BANDS}
+    dist = [d for d, _ in O.ring91()]
+    z = R.app_arm(Bs4, np.zeros_like(B), rings, dist)
+    ck(not np.any(z['dCapp']) and not np.any(z['dCvis']) and z['okLow'] and z['okMid'], 'F0isZero')
+    F = 0.3 * smooth_field(128, 30, SEED + 2)
+    full, lo = R.app_arm(Bs4, F, rings, dist), R.app_arm(Bs4, F, rings, dist, low_only=True)
+    clo = O.combine(Bs4['low'], F)['C']
+    ck(np.array_equal(lo['dCapp'], R.app_total(clo, Bs4['mid'], Bs4['high']) - R.app_total(Bs4['low'], Bs4['mid'], Bs4['high']))
+       and lo['okMid'] is None and not np.array_equal(lo['dCapp'], full['dCapp']), 'lowOnly')
+    ck(full['taus'] == {'low': 0.3, 'mid': 0.3, 'high': 0.3}, 'taus')
+    return ck.result()
+
+
+@test('U-LAMAPP')
+def t_lamapp():
+    """λ_app (L510), masked app share (L308), G7corr (L754), m8 app rms — box hand values."""
+    ck = Checks()
+    R = _R()
+    d = np.zeros((15, 15))
+    a = np.zeros((15, 15))
+    W = np.ones((15, 15), dtype=bool)
+    W[14, :] = False
+    d[0, 0], d[0, 1], d[0, 2] = 0.1, -0.2, 0.05
+    a[0, 0], a[0, 1], a[0, 2] = 0.12, -0.25, 0.04
+    a[3, 3] = 0.3                     # ΔC = 0 there: no weight in λ_app
+    d[14, 0], a[14, 0] = 5.0, 5.0     # outside W
+    ck(_close(R.lambda_app(a, d, W), 0.064 / 0.0525, 1e-12), 'lambdaApp')
+    ck(R.lambda_app(a, np.zeros((15, 15)), W) is None, 'lambdaNone')
+    Min = np.zeros((15, 15), dtype=bool)
+    Min[5, 5] = True
+    b = np.zeros((15, 15))
+    b[5, 5], b[0, 0], b[0, 1] = 0.1, 0.2, 0.2
+    ck(_close(R.masked_app_share(b, Min), 0.01 / 0.09, 1e-12) and R.masked_app_share(np.zeros((15, 15)), Min) is None, 'share')
+    ck(_close(O.pearson(d[W], a[W]), statistics.correlation(list(d[W]), list(a[W])), 1e-12), 'g7')
+    return ck.result()
+
+
+@test('B-FILL')
+def t_bfill():
+    """--fill-apply (§6.1): separate processes give identical bytes (idempotent), medians over counted, λ̃* = max(1, ·),
+    rows without a combiner stay null, other fields untouched, foreign inputs refused, and the committed oro-apply.json
+    is exactly this code's filled output."""
+    ck = Checks()
+    R = _R()
+    fx = _fixture_syn()
+    d = fresh_dir(os.path.join(TMP, 'fill'))
+    ap = os.path.join(d, 'oro-apply.json')
+    shutil.copyfile(fx['apply'], ap)
+    args = ['--fill-apply', '--apply', ap, '--inputs', fx['inputs'], '--base', fx['base']]
+    _run_oro(args)
+    b1 = read_bytes(ap)
+    _run_oro(args)
+    ck(read_bytes(ap) == b1, 'idempotentTwoProcesses')
+    doc = json.loads(b1)
+    sm, rows = doc['summary'], doc['scenes']
+    cnt = [r for _, r in sorted(rows.items()) if r['counted']]
+    med = R.median([r['lambdaApp'] for r in cnt])
+    ck(sm['lambdaAppMedian'] == med and sm['lambdaTilde'] == (None if med is None else max(1.0, med)), 'lambdaTilde')
+    g7 = R.median([r['G7corr'] for r in cnt])
+    ck(sm['G7median'] == g7 and sm['G7pass'] == (None if g7 is None else g7 >= 0.7), 'G7')
+    ck(sm['maskedAppShareMedian'] == R.median([r['maskedAppShare'] for r in cnt]), 'shareMedian')
+    ck(all(r['lambdaApp'] is None and r['G7corr'] is None and r['maskedAppShare'] is None and r['m8']['rmsDCapp'] is None
+           for r in rows.values() if r['A6']['judge'] is None), 'nullWithoutCombiner')
+    nf = sum(1 for r in rows.values() if r['m8']['rmsDCapp'] is not None)
+    ck(nf > 0 and nf == sum(1 for r in rows.values() if r['A6']['judge'] is not None), 'filledWhereCombined')
+    ck(doc['sources']['code'].get('oro.py') == O.sha256_file(os.path.join(HERE, 'oro.py')), 'codeSha')
+    orig = _jload(fx['apply'])
+
+    def strip(x):
+        x = json.loads(json.dumps(x))
+        for r in x['scenes'].values():
+            for k in ('lambdaApp', 'G7corr', 'maskedAppShare'):
+                r[k] = None
+            r['m8']['rmsDCapp'] = None
+        for k in ('lambdaAppMedian', 'lambdaTilde', 'G7median', 'maskedAppShareMedian', 'G7pass'):
+            x['summary'].pop(k, None)
+        x['sources']['code'].pop('oro.py', None)
+        return x
+    ck(strip(doc) == strip(orig), 'restUntouched')
+    bad = json.loads(b1)
+    bad['sources']['oroInputsSha256'] = '0' * 64
+    bp = os.path.join(d, 'bad.json')
+    O.dump_json(bad, bp)
+    ck(_run_oro(['--fill-apply', '--apply', bp, '--inputs', fx['inputs'], '--base', fx['base']], check=False).returncode != 0,
+       'refusesForeignInputs')
+    if os.path.exists(REAL_APPLY):
+        rp = os.path.join(d, 'real.json')
+        shutil.copyfile(REAL_APPLY, rp)
+        _run_oro(['--fill-apply', '--apply', rp])
+        ck(read_bytes(rp) == read_bytes(REAL_APPLY), 'committedApplyIsFilled')
+    ck.kv.update({'filled': nf, 'counted': len(cnt), 'synLambdaTilde': sm['lambdaTilde'], 'synG7median': sm['G7median']})
+    return ck.result()
+
+
+# ───────────────────────── §6.2 truth and judge masks ─────────────────────────
+@test('U-TRUTH')
+def t_truth():
+    """load_truth: trueGrid → u8/255 → flip rows (row 0 north → south) → 2×2 mean (and 4×4 for the 64² arm); only
+    `trueGrid`/`grid` read; no trueGrid or no file → None; a real bank path is refused without judge.lock (C2)."""
+    ck = Checks()
+    R = _R()
+    d = fresh_dir(os.path.join(TMP, 'truth'))
+    g = ((np.arange(256)[:, None] * 7 + np.arange(256)[None, :] * 3) % 256).astype(np.uint8)
+    p = os.path.join(d, 'x_2026-09-01.json')
+    with open(p, 'w') as f:
+        json.dump({'site': 'x', 'grid': 256, 'cellKm': 3.0, 'cover': 0.5, 'empty': 0.1,
+                   'trueGrid': base64.b64encode(g.tobytes()).decode('ascii')}, f)
+    tr = R.load_truth(p)
+    gf = g.astype(np.float64) / 255.0
+    ck(np.array_equal(tr['T256'], gf[::-1]), 'flip')
+    ck(abs(tr['T'][0, 0] - (gf[255, 0] + gf[255, 1] + gf[254, 0] + gf[254, 1]) / 4.0) <= 1e-15
+       and abs(tr['T'][127, 127] - (gf[0, 254] + gf[0, 255] + gf[1, 254] + gf[1, 255]) / 4.0) <= 1e-15, 'mean2x2')
+    ck(abs(tr['T64'][0, 0] - float(gf[252:256, 0:4].mean())) <= 1e-15 and tr['T64'].shape == (64, 64), 'mean4x4')
+    with open(p, 'w') as f:
+        json.dump({'site': 'x', 'grid': 256}, f)
+    ck(R.load_truth(p) is None and R.load_truth(os.path.join(d, 'absent.json')) is None, 'noTrueGridNone')
+    ck(not os.path.exists(O.JUDGE_LOCK), 'noRealLock')
+    for probe in ('.harness/macro/sat/__oro_truth_probe__.json', '.harness/oro/sat-ext/__oro_truth_probe__.json'):
+        try:
+            R.load_truth(os.path.join(ROOT, *probe.split('/')))
+            ck(False, f'refused:{probe}')
+        except PermissionError:
+            pass
+    return ck.result()
+
+
+@test('U-EMPTY')
+def t_empty():
+    """empty_cells: R = G = B = 0 px, rows flipped; dark px = max(RGB)/255 < 0.02 and not empty (report); extended boxes."""
+    ck = Checks()
+    R = _R()
+    d = fresh_dir(os.path.join(TMP, 'empty'))
+    a = np.full((256, 256, 3), 128, dtype=np.uint8)
+    a[10, 20] = 0
+    a[30, 40] = 3
+    a[40, 50] = 6
+    a[255 - 98, 98] = (0, 0, 1)
+    p = os.path.join(d, 'x.png')
+    Image.fromarray(a, 'RGB').save(p)
+    e, k = R.empty_cells(p)
+    ck(np.argwhere(e).tolist() == [[245, 20]], 'emptyFlipped')
+    ck(sorted(map(tuple, np.argwhere(k).tolist())) == [(98, 98), (225, 40)], 'darkReport')
+    ck(np.argwhere(R.ext_empty(e)).tolist() == [[61, 5]], 'extBox')
+    e2 = np.zeros((256, 256), dtype=bool)
+    e2[98 + 13, 98 + 18] = True                       # window box (3, 4)
+    mk = R.judge_masks(np.zeros((128, 128)), 1e9, np.zeros((128, 128)), e2)
+    ck(np.argwhere(mk['empty']).tolist() == [[3, 4]] and not mk['W'][3, 4] and int(mk['W'].sum()) == 224, 'windowBox')
+    ck(bool(R.empty_from_rgb(np.zeros((256, 256, 3), dtype=np.uint8))[0].all()), 'allZeroEmpty')
+    try:
+        R.empty_cells(os.path.join(ROOT, '.harness', 'macro', 'sat', '__oro_png_probe__.png'))
+        ck(False, 'realPngRefused')
+    except PermissionError:
+        pass
+    return ck.result()
+
+
+@test('U-MASKJ')
+def t_maskj():
+    """M_judge on the extended tiling (R4): window part = masks_input; edge half boxes (box mean over present cells);
+    6 km weight m and 3 km mask from the extended boxes."""
+    ck = Checks()
+    R = _R()
+    rng = np.random.default_rng(SEED)
+    hmax6, Bhi = rng.uniform(0, 2000, (128, 128)), rng.uniform(0, 0.6, (128, 128))
+    mk, mi = R.judge_masks(hmax6, 1500.0, Bhi), O.masks_input(hmax6, 1500.0, Bhi)
+    ck(np.array_equal(mk['snow'], mi['snow']) and np.array_equal(mk['high'], mi['high'])
+       and np.array_equal(mk['W'], mi['W_in']), 'windowEqualsMasksInput')
+    h = np.zeros((128, 128))
+    h[0, 0] = h[127, 127] = h[1, 2] = 1000.0
+    ext = R.judge_masks(h, 1200.0, np.zeros((128, 128)))['ext']
+    ck(bool(ext[0, 0] and ext[64, 64] and ext[1, 1]) and int(ext.sum()) == 3, 'snowExtBoxes')
+    b = np.zeros((128, 128))
+    b[0, 0], b[0, 1], b[2, 1], b[2, 2] = 0.31, 0.7, 0.62, 0.62
+    ext = R.judge_masks(np.zeros((128, 128)), 1e9, b)['ext']
+    ck(sorted(map(tuple, np.argwhere(ext).tolist())) == [(0, 0), (0, 1), (1, 1)], 'highHalfBoxes')
+    ck(R.judge_masks(h, 1200.0, b, snow_on=False, high_on=False)['ext'].sum() == 0, 'armsOff')
+    Mx = np.zeros((65, 65), dtype=bool)
+    Mx[25, 25] = Mx[0, 0] = Mx[64, 64] = True
+    m6, m3 = R.mask6(Mx), R.mask3(Mx)
+    ck(np.argwhere(m6 == 0).tolist() == [[0, 0], [49, 49], [49, 50], [50, 49], [50, 50], [127, 127]], 'mask6')
+    ck(int(m3.sum()) == 4 + 16 + 4 and bool(m3[98:102, 98:102].all() and m3[0:2, 0:2].all() and m3[254:, 254:].all()), 'mask3')
+    ck(R.ext_idx3()[[0, 1, 2, 3, 4, 5, 6, 253, 254, 255]].tolist() == [0, 0, 1, 1, 1, 1, 2, 63, 64, 64]
+       and R.ext_idx6()[[0, 1, 2, 49, 50, 51, 126, 127]].tolist() == [0, 1, 1, 25, 25, 26, 63, 64], 'tilingIndex')
+    m64 = R.judge_masks64(np.zeros((64, 64)), 1e9, np.zeros((64, 64)), None)
+    ck(int(m64['W'].sum()) == 64 and m64['m12'].shape == (64, 64), 'grid64')
+    e3 = np.zeros((256, 256), dtype=bool)
+    e3[96 + 8 * 2 + 3, 96 + 8 * 5 + 1] = True         # 24 km box (2, 5) of the 12 km window
+    m64 = R.judge_masks64(np.zeros((64, 64)), 1e9, np.zeros((64, 64)), e3)
+    ck(np.argwhere(m64['M']).tolist() == [[2, 5]], 'grid64Empty')
+    return ck.result()
+
+
+# ───────────────────────── §6.3 per-scene metrics ─────────────────────────
+def _hand_boxes():
+    """15×15 hand case: S = 3 boxes, S∪ = 4, |W| = 150 (rows 0..9), one masked box with large values."""
+    d, dr, r = np.zeros((15, 15)), np.zeros((15, 15)), np.zeros((15, 15))
+    W = np.ones((15, 15), dtype=bool)
+    W[10:, :] = False
+    d[0, 0], d[0, 1], d[0, 2] = 0.02, 0.04, 0.06
+    r[0, 0], r[0, 1], r[0, 2] = 0.01, 0.03, 0.02
+    dr[0, 0], dr[0, 1], dr[0, 2] = -0.03, 0.01, -0.05
+    d[1, 0], r[1, 0] = 0.01, 0.05
+    dr[2, 0] = 0.03
+    d[12, 0] = r[12, 0] = 0.5
+    return d, dr, r, W
+
+
+@test('U-METRIC')
+def t_metric():
+    """ρ_res (L503), β_res, ΔMSE_W, ΔMSE_W(λ) (L505-L513), d with the 0 rules (L519, L354), d on S (§6 arm), ρ′ for
+    ρ_even/ρ_odd (L525), fine versions on the total-ΔC sets (L576), box-level drops (splits) — hand values."""
+    ck = Checks()
+    R = _R()
+    d, dr, r, W = _hand_boxes()
+    S, Su = R.sets(d, dr, W)
+    ck(int(S.sum()) == 3 and int(Su.sum()) == 4 and not S[12, 0], 'sets')
+    core = R.rho_d(d, dr, r, W, True)
+    ck(_close(core['rho_res'], 0.5, 1e-12), 'rhoRes')
+    ck(_close(R.beta_res(d, r, W), 0.0031 / 0.0057, 1e-12), 'betaRes')
+    ck(_close(R.dmse(d, r, W), -0.0005 / 150, 1e-16) and _close(R.dmse(d, r, W, 1.2), 0.000768 / 150, 1e-16), 'dMSE')
+    ck(_close(core['d'], 0.8 + 0.2 * math.sqrt(2.0), 1e-12), 'dGrev')
+    ck(_close(O.pearson(d[Su], r[Su]), 0.8, 1e-12) and _close(O.pearson(dr[Su], r[Su]), -0.2 * math.sqrt(2.0), 1e-12), 'rhoPrime')
+    ck(R.rho_d(d, dr, r, W, False)['d'] == 0.0, 'dRevFailIs0')
+    dr2 = dr.copy()
+    dr2[Su] = 0.03
+    ck(R.rho_d(d, dr2, r, W, True)['d'] == 0.0, 'dZeroVarIs0')
+    ck(_close(R.rho_d(d, dr, r, W, True, use_S_for_d=True)['d'], 0.5 - math.sqrt(3.0 / 7.0), 1e-12), 'dOnS')
+    cf = R.rho_d(d, dr, r, W, True, fine=(2 * d, 2 * dr, 3 * r))
+    ck(_close(cf['rho_fine'], 0.5, 1e-12) and _close(cf['d_fine'], core['d'], 1e-12)
+       and R.star(cf, 'rho_fine') == (cf['rho_fine'], cf['d_fine']) and R.star(core, 'rho_res') == (core['rho_res'], core['d']),
+       'fineSameSets')
+    ck(R.pearson_def([1.0], [2.0]) == (0.0, False) and R.pearson_def([1, 1, 1], [1, 2, 3]) == (0.0, False)
+       and R.pearson_def([1, 2], [2, 4]) == (1.0, True), 'pearsonDef')
+    drop = np.zeros((15, 15), dtype=bool)
+    drop[0, 2] = True
+    cd = R.rho_d(d, dr, r, W, True, drop=drop)
+    ck(cd['nS'] == 2 and cd['nW'] == 149 and _close(cd['rho_res'], 1.0, 1e-12), 'dropBoxes')
+    return ck.result()
+
+
+@test('U-LMINUS')
+def t_lminus():
+    """L⁻ (L551-L562): sea stratum + land h tertiles (linear quantiles, h ≤ q₁ / q₁ < h ≤ q₂ / else — L5 sits on q₂ and
+    belongs to stratum 2), strata without neutral boxes dropped, weights ∝ |Lee_t|; report forms by hand."""
+    ck = Checks()
+    R = _R()
+    W, sea = np.zeros((15, 15), dtype=bool), np.zeros((15, 15), dtype=bool)
+    h, d, dr, r = (np.zeros((15, 15)) for _ in range(4))
+    boxes = {'A': ((0, 0), True, 0.0, -0.05, 0.0, -0.04), 'B': ((0, 1), True, 0.0, 0.0, 0.0, 0.01),
+             'L1': ((1, 0), False, 100.0, -0.03, 0.0, -0.02), 'L2': ((1, 1), False, 100.0, 0.01, 0.01, 0.0),
+             'L3': ((1, 2), False, 200.0, -0.04, 0.0, -0.05), 'L4': ((1, 3), False, 300.0, 0.0, 0.0, 0.02),
+             'L5': ((1, 4), False, 300.0, -0.02, 0.0, 0.01), 'L6': ((1, 5), False, 400.0, -0.06, 0.0, -0.03)}
+    for pos, s_, hh, a, b, rr in boxes.values():
+        W[pos], sea[pos], h[pos], d[pos], dr[pos], r[pos] = True, s_, hh, a, b, rr
+    d[5, 5], r[5, 5] = -0.5, 0.9                      # masked box: no effect
+    S, _ = R.sets(d, dr, W)
+    ck(_close(R.lminus(d, dr, r, W, S, sea, h, 'strata'), -0.0375, 1e-15), 'strata')
+    ck(_close(R.lminus(d, dr, r, W, S, sea, h, 'tertile'), -0.0325, 1e-15), 'seaAgnosticTertile')
+    ck(_close(R.lminus(d, dr, r, W, S, sea, h, 'window'), -0.0135, 1e-15), 'windowMean2draft')
+    d0 = np.where(d < 0, 0.0, d)
+    ck(R.lminus(d0, dr, r, W, R.sets(d0, dr, W)[0], sea, h, 'strata') == 0.0
+       and R.lminus(d0, dr, r, W, R.sets(d0, dr, W)[0], sea, h, 'window') == 0.0, 'noLeeIs0')
+    dr3 = np.where(W, 0.05, 0.0)                     # no neutral box anywhere
+    ck(R.lminus(d, dr3, r, W, S, sea, h, 'strata') == 0.0, 'noNeutralIs0')
+    return ck.result()
+
+
+@test('U-FINE')
+def t_fine():
+    """G₁₀ ⊛_M (L567-L570): masked values do not leak, normalised masked convolution equals a brute-force sum, NaN only
+    where the whole 3σ neighbourhood is masked."""
+    ck = Checks()
+    R = _R()
+    m = np.ones((128, 128))
+    m[40:60, 30:90] = 0.0
+    X = np.where(m > 0, 1.0, 100.0)
+    fine, coarse = R.fine_coarse(X, m)
+    ck(float(np.max(np.abs(coarse[m > 0] - 1.0))) <= 1e-12 and float(np.max(np.abs(fine[m > 0]))) <= 1e-12, 'noLeak')
+    Y = np.random.default_rng(SEED).standard_normal((128, 128))
+    _, cy = R.fine_coarse(Y, m)
+    w = np.exp(-((np.arange(-5, 6) * 6000.0) ** 2) / (2.0 * 1e8))
+    for (i, j) in ((0, 0), (64, 64), (45, 25), (100, 127), (39, 31)):
+        num = den = 0.0
+        for a in range(-5, 6):
+            for b in range(-5, 6):
+                ii, jj = i + a, j + b
+                if 0 <= ii < 128 and 0 <= jj < 128:
+                    num += w[a + 5] * w[b + 5] * Y[ii, jj] * m[ii, jj]
+                    den += w[a + 5] * w[b + 5] * m[ii, jj]
+        ck(abs(cy[i, j] - num / den) <= 1e-12, f'brute{i}_{j}')
+    m2 = np.ones((128, 128))
+    m2[20:50, 20:50] = 0
+    _, c2 = R.fine_coarse(Y, m2)
+    ck(bool(np.isnan(c2[35, 35])) and bool(np.all(np.isfinite(c2[m2 > 0]))), 'nanOnlyFullyMasked')
+    return ck.result()
+
+
+@test('U-C45')
+def t_c45():
+    """Δcorr12, Δcorr50, ΔmeanErr (L583-L585): bilinear 128² → 256² (c/2 − 0.25, clamp, sampleGrid formula); unmasked =
+    macro.py formulas; masked corr12 drops windows touching a masked cell, corr50 masked mean with the half rule, meanErr on
+    disc ∩ unmasked (brute force)."""
+    ck = Checks()
+    R = _R()
+    cols = np.tile(np.arange(128.0)[None, :], (128, 1))
+    u = R.up256(cols)
+    ck([u[0, q] for q in (0, 1, 2, 3, 254, 255)] == [0.0, 0.25, 0.75, 1.25, 126.75, 127.0], 'bilinearHand')
+    ck(np.array_equal(R.up256(cols.T), u.T), 'bilinearRows')
+    f = np.clip(np.arange(256) / 2.0 - 0.25, 0, 127)
+    ck(float(np.max(np.abs(R.up256(cols.T * 1000.0 + cols) - (f[:, None] * 1000.0 + f[None, :])))) <= 1e-9, 'bilinearPlane')
+    rng = np.random.default_rng(SEED)
+    B = 1 / (1 + np.exp(-1.2 * smooth_field(128, 100, SEED + 3)))
+    C = np.clip(B + 0.05 * smooth_field(128, 30, SEED + 4), 0, 1)
+    T = np.clip(R.up256(C) + 0.1 * rng.standard_normal((256, 256)), 0, 1)
+    Cu, Bu = R.up256(C), R.up256(B)
+    sl = slice(98, 158)
+    bm = R.box_mean
+    yy, xx = np.mgrid[0:256, 0:256]
+    disc = ((xx + .5) * 3 - 384) ** 2 + ((yy + .5) * 3 - 384) ** 2 <= 380 ** 2
+    un = R.c45(C, B, T, None)
+    e12 = R.corr(bm(Cu, 4)[sl, sl], bm(T, 4)[sl, sl]) - R.corr(bm(Bu, 4)[sl, sl], bm(T, 4)[sl, sl])
+    e50 = R.corr(bm(Cu, 17), bm(T, 17)) - R.corr(bm(Bu, 17), bm(T, 17))
+    eme = (Cu[disc].mean() - T[disc].mean()) - (Bu[disc].mean() - T[disc].mean())
+    ck(un['dcorr12'] == e12 and un['dcorr50'] == e50 and un['dmeanErr'] == eme, 'unmaskedEqualsMacro')
+    z = R.c45(C, B, T, np.zeros((256, 256), dtype=bool))
+    ck(all(abs(z[k] - un[k]) <= 1e-12 for k in un), 'emptyMaskEqualsUnmasked')
+    m3 = np.zeros((256, 256), dtype=bool)
+    m3[120, 120] = True
+    ok = np.ones((60, 60), dtype=bool)
+    ok[119 - 98:123 - 98, 119 - 98:123 - 98] = False
+    a12 = [R.corr(bm(X, 4)[sl, sl][ok], bm(T, 4)[sl, sl][ok]) for X in (Cu, Bu)]
+    ck(_close(R.c45(C, B, T, m3)['dcorr12'], a12[0] - a12[1], 1e-12) and int((~ok).sum()) == 16, 'corr12Exclusion')
+    m3b = np.zeros((256, 256), dtype=bool)
+    m3b[:100, :] = True
+    m3b[150:160, 30:200] = True
+    um = (~m3b).astype(np.float64)
+
+    def wsum(X):                                       # brute-force 17×17 window sums (rows y−8..y+8, clipped)
+        P = np.zeros((272, 272))
+        P[8:264, 8:264] = X
+        out = np.zeros((256, 256))
+        for a in range(17):
+            for b in range(17):
+                out += P[a:a + 256, b:b + 256]
+        return out
+    cnt, su = wsum(np.ones((256, 256))), wsum(um)
+    keep = su >= 0.5 * cnt
+    mt = wsum(T * um)[keep] / su[keep]
+    e50m = R.corr(wsum(Cu * um)[keep] / su[keep], mt) - R.corr(wsum(Bu * um)[keep] / su[keep], mt)
+    mb = R.c45(C, B, T, m3b)
+    ck(_close(mb['dcorr50'], e50m, 1e-9) and 0 < int(keep.sum()) < 65536, 'corr50HalfRule')
+    sel = disc & ~m3b
+    ck(_close(mb['dmeanErr'], (Cu[sel].mean() - T[sel].mean()) - (Bu[sel].mean() - T[sel].mean()), 1e-12)
+       and _close(mb['dmeanErr'], float((Cu - Bu)[sel].mean()), 1e-12), 'meanErrDiscUnmasked')
+    return ck.result()
+
+
+@test('U-AUX')
+def t_aux():
+    """Screen weight (L563, Q-2: 5 near boxes), windward/lee contrast (L587), rotation about the observer corner (Q-39)."""
+    ck = Checks()
+    R = _R()
+    ck(int(R.NEAR15.sum()) == 5 and bool(R.NEAR15[7, 7] and R.NEAR15[6, 7] and R.NEAR15[8, 7] and R.NEAR15[7, 6]
+                                         and R.NEAR15[7, 8]) and not R.NEAR15[6, 6], 'nearFive')
+    d, dr, r, W = _hand_boxes()
+    d[7, 7], r[7, 7] = 0.03, 0.01
+    sw = R.screen_weight(d, r, W)
+    tot = R.dmse(d, r, W)
+    ck(sw['nNear'] == 5 and sw['nNear'] + sw['nFar'] == int(W.sum()) and sw['nNearTiling'] == 5
+       and _close((5 * sw['dMSEnear'] + sw['nFar'] * sw['dMSEfar']) / W.sum(), tot, 1e-16)
+       and _close(sw['dMSEnear'], (0.03 ** 2 - 2 * 0.03 * 0.01) / 5, 1e-16), 'screenSplit')
+    F, rr, Wk = np.zeros((15, 15)), np.zeros((15, 15)), np.zeros((15, 15), dtype=bool)
+    for i, (fv, x) in enumerate(zip([1, 2, 3, 4, 5, 6], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6])):
+        F[0, i], rr[0, i], Wk[0, i] = fv, x, True
+    ck(_close(R.wl_contrast(F, rr, Wk), 0.4, 1e-12) and R.wl_contrast(F, rr, np.zeros((15, 15), dtype=bool)) is None,
+       'wlContrast')
+    h = np.zeros((128, 128))
+    h[10, 20] = 500.0
+    x, y = O.cell_xy_km()
+    ck(np.rot90(h, 2)[117, 107] == 500.0 and x[10, 20] == -x[117, 107] and y[10, 20] == -y[117, 107], 'rot180Corner')
+    hm = O.dec_f32(_jload(DEM_GRIDS_P)['sites']['kanazawa']['hmean6'], 128)
+    a_, _ = O.h_sub_field(np.rot90(hm, 2))
+    ck(float(np.max(np.abs(a_ - np.rot90(O.h_sub_field(hm)[0], 2)))) <= 1e-9, 'hsubRotationEquivariant')
+    return ck.result()
+
+
+@test('U-SCENE')
+def t_scene():
+    """scene_main wiring on a synthetic scene (kanazawa, 270°, fake truth = B + ΔC + noise): every value equals an
+    independent recomputation from the boxes, the masks and the cell fields."""
+    ck = Checks()
+    R = _R()
+    d = fresh_dir(os.path.join(TMP, 'scene'))
+    B = _g6_B(('kanazawa', 'even'))
+    p = _g6_prep('kanazawa', 270, B, 'g6scene_2026-09-01')
+    s = _g6_site('kanazawa')
+    Tf = B + p['cj']['dC'] + 0.05 * smooth_field(128, 20, SEED + 9)
+    pj, pp = _fake_files(d, 'g6scene_2026-09-01', 'kanazawa', s['lat'], s['lon'], '2026-09-01', Tf, (7, 7))
+    v, tr, mk = _judge_one(p, pj, pp, lam=1.3)
+    T, Bt, dC, dCr = tr['T'], p['Bs']['total'], p['cj']['dC'], p['cr']['dC']
+    r = T - Bt
+    d15, dr15, r15 = O.box15(dC), O.box15(dCr), O.box15(r)
+    W = mk['W']
+    S, Su = R.sets(d15, dr15, W)
+    ck(v['nW'] == int(W.sum()) == 224 and v['nS'] == int(S.sum()) and v['nEmptyBoxes'] == 1 and not W[7, 7], 'sets')
+    ck(v['rho_res'] == O.pearson(d15[S], r15[S]) and v['rho_star'] == v['rho_res'] and v['d_star'] == v['d'], 'rhoRes')
+    ck(v['beta_res'] == R.beta_res(d15, r15, W) and v['dMSE'] == R.dmse(d15, r15, W)
+       and v['dMSElam'] == R.dmse(d15, r15, W, 1.3), 'amplitude')
+    rs, rr = O.pearson(d15[Su], r15[Su]), O.pearson(dr15[Su], r15[Su])
+    ck(v['d'] == R.d_pair(d15, dr15, r15, Su) and v['rho_even'] == 0.5 * (rs + rr) and v['rho_odd'] == 0.5 * (rs - rr), 'grev')
+    ck(v['rho_rot'] == O.pearson(O.box15(p['co']['dC'])[Su], r15[Su]) and v['rotOk'], 'rhoRot')
+    m6 = R.mask6(mk['ext'])
+    ck(int((m6 == 0).sum()) == 4 and m6[49 + 14, 49 + 14] == 0, 'mask6EmptyBox')
+    fd = O.box15(dC - O.gauss_smooth(dC, 10000.0, mask=m6))
+    fr = O.box15(r - O.gauss_smooth(r, 10000.0, mask=m6))
+    ck(v['rho_fine'] == O.pearson(fd[S], fr[S]), 'rhoFine')
+    ck(v['rho_coarse'] == O.pearson(O.box15(O.gauss_smooth(dC, 10000.0, mask=m6))[S],
+                                    O.box15(O.gauss_smooth(r, 10000.0, mask=m6))[S]), 'rhoCoarse')
+    ck(v['rho_hp'] == O.pearson(d15[S], O.box15(r - O.gauss_smooth(r, 20000.0))[S]), 'rhoHp')
+    a = p['app']
+    ck(v['rho_vis'] == O.pearson(O.box15(a['dCvis'])[S], O.box15(T - a['Bvis'])[S]), 'rhoVis')
+    T15 = O.box15(T)
+    ck(_close(v['dMSEvis'], float(np.mean((O.box15(a['Cvis'])[W] - T15[W]) ** 2 - (O.box15(a['Bvis'])[W] - T15[W]) ** 2)),
+              1e-16), 'dMSEvis')
+    ck(v['Lminus'] == R.lminus(d15, dr15, r15, W, S, p['dem']['sea'], O.box15(p['dem']['hmean6']), 'strata'), 'Lminus')
+    m3 = R.mask3(mk['ext'])
+    ck(int(m3.sum()) == 16 and v['dcorr12'] == R.c45(p['cj']['C'], Bt, tr['T256'], m3)['dcorr12'], 'c45')
+    ck(v['wlContrast'] == R.wl_contrast(O.box15(p['F']), r15, W) and v['nNear'] == 4, 'aux')
+    ck.kv.update({'rhoRes': v['rho_res'], 'beta': v['beta_res'], 'nS': v['nS']})
+    return ck.result()
+
+
+@test('U-ARMS0')
+def t_arms0():
+    """Sensitivity machinery (§6.5): an arm set to the main model's values reproduces the main ρ*, d exactly; a missing
+    arm input drops the scene from that arm only."""
+    ck = Checks()
+    R = _R()
+    d = fresh_dir(os.path.join(TMP, 'arms0'))
+    B = _g6_B(('kanazawa', 'even'))
+    p = _g6_prep('kanazawa', 270, B, 'g6arms_2026-09-01')
+    s = _g6_site('kanazawa')
+    pj, pp = _fake_files(d, 'g6arms_2026-09-01', 'kanazawa', s['lat'], s['lon'], '2026-09-01', B + p['cj']['dC'], (0, 0))
+    v, tr, mk = _judge_one(p, pj, pp)
+    for cfg in ({}, {'s_m': 10000.0}, {'sigma_G_m': 20000.0}, {'hi': 0.3}, {'time': 'closest'}, {'zSnowKey': 'zSnow'},
+                {'block': 'clip', 'vertical': 'col', 'N_scale': 1.0, 'lambda_smin': 200000.0}):
+        a = R.arm_core(p, tr, mk, 'rho_res', cfg, None, {})
+        ck(a.get('rho_star') == v['rho_res'] and a.get('d_star') == v['d'], 'identity:' + (','.join(sorted(cfg)) or 'none'))
+    ck(R.arm_core(p, tr, mk, 'rho_res', {'sndKey': 'sndEcmwf'}, None, {}) == {'drop': 'input'}
+       and R.arm_core(p, tr, mk, 'rho_res', {'zSnowKey': 'zSnow42'}, None, {}) == {'drop': 'input'}, 'missingInputDrops')
+    a = R.arm_core(p, tr, mk, 'rho_res', {'N_scale': 0.6}, None, {})
+    ck('rho_star' in a and a['rho_star'] != v['rho_res'], 'armChanges')
+    names = [n for n, _ in R.MODEL_ARMS + R.MASK_ARMS]
+    ck(len(names) == len(set(names)) == 29, 'armTable')
+    return ck.result()
+
+
+@test('U-GSHUF')
+def t_gshuf():
+    """d_shuf,j = Pearson_W(ΔC_j, r_j) − mean_k Pearson_W(ΔC_{j|k}, r_j) (L526-L535): hand values; failed (j|k) combiner →
+    k skipped; all skipped → j excluded; ρ_odd,swap (M5); gshuf_all: j and k = the site's finally judged scenes (L526,
+    build note FX-2), so a scene dropped after T is neither j nor k, F_{j|k} = F_k with the combiner on B_j — against a
+    direct recomputation; a site left with < 3 judged scenes leaves G-shuf (L354 ⑨)."""
+    ck = Checks()
+    R = _R()
+    W = np.zeros((15, 15), dtype=bool)
+    W[0, :4] = True
+
+    def row(v):
+        a = np.zeros((15, 15))
+        a[0, :4] = v
+        return a
+    d, r, dr = row([1, 2, 3, 4]), row([1, 3, 2, 4]), row([4, 3, 2, 1])
+    jb = {'d15': d, 'dr15': dr, 'r15': r, 'W': W, 'Su': W.copy(), 'fine': (d, dr, r)}
+    k1, k2, kr1, kr2 = row([4, 3, 2, 1]), row([1, 3, 2, 4]), row([1, 2, 3, 4]), row([4, 3, 2, 1])
+    k3 = row([5, -1, 7, 2])
+    a, sw = R.dshuf_scene(jb, [(True, k1, kr1, True), (True, k2, kr2, True), (False, k3, k3, True)], False, 'W')
+    ck(_close(a, 0.8 - 0.5 * (-0.8 + 1.0), 1e-12) and _close(sw, 0.8 - 0.5 * (-0.8 + 0.9), 1e-12), 'hand')
+    a2, sw2 = R.dshuf_scene(jb, [(True, k1, kr1, True), (True, k2, kr2, False)], False, 'W')
+    ck(_close(a2, a, 1e-15) and _close(sw2, 0.8 - (-0.8), 1e-12), 'revFailSkipsSwapOnly')
+    ck(R.dshuf_scene(jb, [(False, k1, kr1, True)], False, 'W') == (None, None), 'allSkippedExcluded')
+    fb = {'d15': 0 * d, 'dr15': 0 * dr, 'r15': 0 * r, 'W': W, 'Su': W, 'fine': (d, dr, r)}
+    ck(_close(R.dshuf_scene(fb, [(True, k1, kr1, True), (True, k2, kr2, True)], True, 'W')[0], a, 1e-15), 'fineMode')
+    B = _g6_B(('kanazawa', 'even'))
+    dirs = (270, 0, 90, 180)
+    names = [f'gsh{f:03d}_{_g6_date(i)}' for i, f in enumerate(dirs)]
+    preps = {n: _g6_prep('kanazawa', f, B, n) for n, f in zip(names, dirs)}
+    rows = {n: {'site': 'kanazawa', 'date': n.rsplit('_', 1)[1], 'counted': True} for n in names}
+    rows['other_2026-09-30'] = {'site': 'seoul', 'date': '2026-09-30', 'counted': True}
+    td = fresh_dir(os.path.join(TMP, 'gshuf'))
+    s = _g6_site('kanazawa')
+    vals = {}
+    for i, n in enumerate(names):
+        T = B + preps[n]['cj']['dC'] + 0.03 * smooth_field(128, 30, SEED + 40 + i)
+        pj, pp = _fake_files(td, n, 'kanazawa', s['lat'], s['lon'], rows[n]['date'], T, (0, 0))
+        vals[n] = _judge_one(preps[n], pj, pp)[0]
+    judged = names[:3] + ['other_2026-09-30']         # names[3] dropped after T: neither a j nor a k (J = K)
+    ds, dsw, ds2, excl = R.gshuf_all(judged, rows, preps, vals, ['kanazawa'], 'rho_res')
+    ck(sorted(ds) == sorted(names[:3]) and not excl, 'jSet')
+    for j in names[:3]:
+        bx = vals[j]['_box']
+        Wj, r15 = bx['W'], bx['r15']
+        ks = [O.pearson(O.box15(O.combine(preps[j]['Bs']['total'], preps[k]['F'])['dC'])[Wj], r15[Wj])
+              for k in names[:3] if k != j]
+        ck(len(ks) == 2 and _close(ds[j], O.pearson(bx['d15'][Wj], r15[Wj]) - float(np.mean(ks)), 1e-12), f'direct:{j}')
+    ds2s = R.gshuf_all(names[:2], rows, preps, vals, ['kanazawa'], 'rho_res')[0]
+    ck(ds2s == {} and R.gshuf_sites_post(names[:2], rows, ['kanazawa']) == []
+       and R.gshuf_sites_post(names[:3], rows, ['kanazawa']) == ['kanazawa'] and R.GSHUF_MIN_SITE == 3, 'siteBelow3Leaves')
+    ck.kv.update({'dshufMean': R.mean(list(ds.values()))})
+    return ck.result()
+
+
+@test('U-GSHUFJK')
+def t_gshufjk():
+    """J = K under a judge-time drop (L526 "같은 사이트의 다른 판정 장면 k", L532 Σ_j(a_j − ā_−j) = 0; build note FX-2): per
+    G6 site one synthetic B and one site-fixed truth T = B + ΔC_{k*} for every scene (the (g)(ii) form, no day effect),
+    five winds of the skew set, one scene dropped from the judged set after T. The judge's gshuf_all must give
+    mean d_shuf = 0 (|·| ≤ 1e-12) for ρ_res and ρ_fine; control: the same drop with k still ranging over all five scenes
+    (J ⊊ K, the replaced Q-55 reading), recomputed here directly, is not 0 (|·| > 1e-3)."""
+    ck = Checks()
+    R = _R()
+    dirs, kstar, dropped = (270, 300, 330, 105, 150), 300, 270
+    td = fresh_dir(os.path.join(TMP, 'gshufjk'))
+    for site in G6_SITES:
+        s = _g6_site(site)
+        B = _g6_B((site, 'skew'))
+        names = [f'gjk{site}-{f:03d}_{_g6_date(i)}' for i, f in enumerate(dirs)]
+        preps = {n: _g6_prep(site, f, B, n) for n, f in zip(names, dirs)}
+        rows = {n: {'site': site, 'date': n.rsplit('_', 1)[1], 'counted': True} for n in names}
+        T = B + preps[names[dirs.index(kstar)]]['cj']['dC']          # one truth for every scene of the site
+        vals = {}
+        for n in names:
+            pj, pp = _fake_files(td, n, site, s['lat'], s['lon'], rows[n]['date'], T, G6_EMPTY_BOX)
+            vals[n] = _judge_one(preps[n], pj, pp)[0]
+        judged = [n for n, f in zip(names, dirs) if f != dropped]
+        for primary in ('rho_res', 'rho_fine'):
+            ds, _dsw, _ds2, excl = R.gshuf_all(judged, rows, preps, vals, [site], primary)
+            m = R.mean([ds[n] for n in sorted(ds)])
+            ck(sorted(ds) == sorted(judged) and not excl and m is not None and abs(m) <= 1e-12, f'{site}:{primary}:mean0')
+            ck.kv[f'{site}:{primary}:mean'] = m
+        ctl = []
+        for j in judged:
+            bx = vals[j]['_box']
+            Wj, r15 = bx['W'], bx['r15']
+            ks = [O.pearson(O.box15(O.combine(B, preps[k]['F'])['dC'])[Wj], r15[Wj]) for k in names if k != j]
+            ctl.append(O.pearson(bx['d15'][Wj], r15[Wj]) - float(np.mean(ks)))
+        c = float(np.mean(ctl))
+        ck(abs(c) > 1e-3, f'{site}:controlJsubK')
+        ck.kv[f'{site}:controlJsubK'] = c
+    return ck.result()
+
+
+# ───────────────────────── §6.4 statistics ─────────────────────────
+@test('U-BOOT')
+def t_boot():
+    """date_block_ci = eval-ringtruth.date_block_ci (function text taken with ast, the script is never run; L600) for two
+    (B, seed); constant → [v, v]; one block → [median, median]; fresh RNG per call; pins B 10000, seed 20261103."""
+    ck = Checks()
+    R = _R()
+    with open(os.path.join(ROOT, 'tools', 'genus-ruler', 'ring', 'eval-ringtruth.py'), encoding='utf-8') as f:
+        tree = ast.parse(f.read())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'date_block_ci')
+    ns = {'np': np}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), 'eval-ringtruth.date_block_ci', 'exec'), ns)
+    rng = np.random.default_rng(SEED + 5)
+    dates = [f'2026-09-{x:02d}' for x in (1, 5, 9, 13, 17, 21, 25, 29)]
+    rows, vals, dts = [], [], []
+    for i, dd in enumerate(dates):
+        for s in range(1 + i % 3):
+            v = float(rng.normal(0.1, 0.2))
+            rows.append({'name': f's{s}_{dd}', 'x': v})
+            vals.append(v)
+            dts.append(dd)
+    rows.append({'name': 's9_2026-09-29', 'x': None})
+    vals.append(None)
+    dts.append('2026-09-29')
+    for B, seed in ((1000, 7), (10000, SEED)):
+        ck(ns['date_block_ci'](rows, 'x', B=B, seed=seed) == R.date_block_ci(vals, dts, B=B, seed=seed), f'port{B}')
+    ck(R.date_block_ci([0.3] * 5, dates[:5]) == [0.3, 0.3], 'constant')
+    ck(R.date_block_ci([0.1, 0.2, 0.6], ['2026-09-01'] * 3) == [0.2, 0.2], 'oneBlock')
+    ck(R.date_block_ci(vals, dts) == R.date_block_ci(vals, dts), 'freshRng')
+    ck(R.BOOT_B == 10000 and R.SEED == 20261103, 'pins')
+    return ck.result()
+
+
+@test('U-SIGNFLIP')
+def t_signflip():
+    """Exact date-block sign flip (D11, L601-L604) by hand: 2^G vectors incl. identity, ties count as ≥; G > 16 → 65,536
+    draws of default_rng(20261103), p = (1 + #≥)/65,537. Regression (build note FX-1): random mean and median cases with
+    n ≥ 9 values (where a separate (1, n) reduction of the observed mean can sit 1 ulp above the identity row) against an
+    independent count — one 1-D np.mean/np.median per sign vector against that of the values — incl. all-zero blocks
+    (exact ties) and an MC case; PlacementTests.p (power) gives the same p."""
+    ck = Checks()
+    R = _R()
+    ck(R.sign_flip_p([0.1, 0.2, -0.05], ['a', 'b', 'c'], 'median') == 0.25, 'hand3median')
+    ck(R.sign_flip_p([0.3, -0.1, 0.2], ['a', 'a', 'b'], 'mean') == 0.25, 'hand2blocksMean')
+    ck(R.sign_flip_p([0.0, 0.1, 0.2, 0.3], list('abcd'), 'median') == 2 / 16, 'tiesCountGE')
+    ck(R.sign_flip_p([0.1, 0.2, 0.3, 0.4], list('abcd'), 'mean') == 1 / 16, 'identityOnly')
+    ds = [f'd{i:02d}' for i in range(17)]
+    signs = np.random.default_rng(SEED).choice([1, -1], size=(65536, 17))
+    cnt = int(np.sum(np.all(signs == 1, axis=1)))
+    ck(R.sign_flip_p([1.0] * 17, ds, 'mean') == (1 + cnt) / 65537, 'mc17')
+    ck(R.sign_flip_p([1.0] * 16, ds[:16], 'mean') == 1 / 65536, 'exact16')
+    ck(R.sign_flip_p([None, 0.2], ['a', 'b'], 'mean') == 0.5 and R.sign_flip_p([None], ['a']) is None, 'nones')
+    rng = np.random.default_rng(SEED + 7)
+    nbad, nzero, nplace = [], 0, 0
+    cases = [(int(rng.integers(8, 13)), t) for t in range(40)] + [(16, 40), (16, 41), (17, 42), (17, 43)]
+    for G, t in cases:
+        n = G + int(rng.integers(1, 12))
+        blocks = [f'2026-{9 + i // 30:02d}-{1 + i % 30:02d}' for i in range(G)]
+        dts = blocks + [blocks[int(i)] for i in rng.integers(0, G, n - G)]
+        v = rng.normal(0.05, 0.15, n)
+        if t % 5 == 0:                                   # one all-zero block: its flip is an exact tie
+            v[np.array([d == blocks[0] for d in dts])] = 0.0
+            nzero += 1
+        idx = np.array([blocks.index(d) for d in dts])
+        if G <= 16:
+            sv = np.array(list(itertools.product((1, -1), repeat=G)), dtype=np.float64)
+        else:
+            sv = np.random.default_rng(SEED).choice([1, -1], size=(65536, G)).astype(np.float64)
+        for stat, fn in (('mean', np.mean), ('median', np.median)):
+            obs = float(fn(v))
+            c = sum(1 for x in sv if float(fn(v * x[idx])) >= obs)
+            ref = c / 2.0 ** G if G <= 16 else (1.0 + c) / 65537.0
+            got = R.sign_flip_p([float(x) for x in v], dts, stat)
+            if got != ref or (G <= 16 and stat == 'mean' and got * 2 ** G < (2 if t % 5 == 0 else 1)):
+                nbad.append(f'{stat}G{G}n{n}')
+            if stat == 'mean' and t % 4 == 0:
+                nplace += 1
+                if R.PlacementTests(dts, B=10).p(v, stat) != got:
+                    nbad.append(f'place{stat}G{G}')
+    ck(not nbad, 'identityRegression' + ('(' + ','.join(nbad[:4]) + ')' if nbad else ''))
+    ck.kv.update({'regCases': len(cases), 'regZeroBlock': nzero, 'regPlacement': nplace, 'regBad': len(nbad)})
+    return ck.result()
+
+
+@test('U-STATS')
+def t_stats():
+    """8-day blocks (L742, Q-54), |S|-weighted Fisher z (L589), c1 (L627), site table / LOSO / median of site medians
+    (L590), summary_stat — hand values."""
+    ck = Checks()
+    R = _R()
+    hand = {'2026-09-01': 0, '2026-09-05': 0, '2026-09-09': 1, '2026-09-13': 1, '2026-10-11': 5, '2026-10-15': 5,
+            '2026-10-19': 6, '2026-10-23': 6, '2026-10-27': 7, '2026-10-31': 7, '2026-11-04': 8}
+    ck(all(R.block8(k) == v for k, v in hand.items()), 'block8')
+    z = (20 * math.atanh(0.5) + 10 * math.atanh(-0.2)) / 30
+    fz = R.fisher_stat([(0.5, 23), (-0.2, 13)])
+    ck(_close(fz, math.tanh(z), 1e-15) and _close(fz, 0.29006, 1e-5), 'fisher')
+    ck(_close(R.fisher_stat([(1.0, 23)]), 0.999999, 1e-12) and R.fisher_stat([(0.5, 3)]) is None, 'fisherClipWeight')
+    rows = {}
+    k = 0
+    for site, nd in (('a', 10), ('b', 6), ('c', 4)):
+        for i in range(nd):
+            rows[f'{site}_2026-09-{1 + (k % 8) * 4:02d}x{k}'] = {'site': site, 'date': f'2026-09-{1 + (k % 8) * 4:02d}'}
+            k += 1
+    c1 = R.clause_c1(sorted(rows), rows)
+    ck(c1['n'] == 20 and c1['dates'] == 8 and c1['sites'] == 3 and c1['maxShare'] == 0.5 and c1['pass'], 'c1pass')
+    names = sorted(rows)[1:]
+    c1b = R.clause_c1(names, rows)
+    ck(not c1b['pass'] and not c1b['n>=20'] and c1b['maxShare<=0.5'], 'c1n19')
+    rows2 = dict(rows)
+    rows2['a_extra'] = {'site': 'a', 'date': '2026-09-01'}
+    c1c = R.clause_c1(sorted(rows2), rows2)
+    ck(c1c['n'] == 21 and not c1c['maxShare<=0.5'] and not c1c['pass'], 'c1share')
+    vals = {n: {'rho_star': (0.1 if rows[n]['site'] == 'a' else (0.3 if rows[n]['site'] == 'b' else -0.2)), 'd_star': 0.05}
+            for n in rows}
+    dsh = {n: 0.02 for n in rows if rows[n]['site'] == 'a'}
+    t = R.site_table(sorted(rows), rows, vals, dsh)
+    ck(t['sites']['a']['n'] == 10 and t['sites']['a']['medianRhoStar'] == 0.1 and t['sites']['b']['medianRhoStar'] == 0.3
+       and _close(t['sites']['a']['meanDshuf'], 0.02, 1e-15) and t['sites']['b']['meanDshuf'] is None, 'siteTable')
+    ck(t['loso']['a'] == 0.3 and t['loso']['c'] == 0.1 and t['medianOfSiteMedians'] == 0.1, 'losoMedianOfMedians')
+    ss = R.summary_stat([0.1, None, 0.3], ['x', 'y', 'z'], 'mean', with_p=True)
+    ck(ss['n'] == 2 and _close(ss['value'], 0.2, 1e-15) and ss['p'] == 0.25 and ss['ci'][0] <= ss['ci'][1], 'summaryStat')
+    return ck.result()
+
+
+# ───────────────────────── §6.5 clauses, actions, tags ─────────────────────────
+def _st(**ov):
+    st = {'primary': 'rho_res', 'c1': {'pass': True}, 'c3bMeasurable': True, 'c7': True,
+          'rho': {'value': 0.1, 'ci': [0.02, 0.2], 'p': 0.01}, 'd': {'value': 0.2, 'ci': [0.05, 0.3], 'p': 0.01},
+          'dMSE': {'value': -0.001, 'ci': [-0.003, 0.001]}, 'dMSElam': {'value': -0.0005, 'ci': None},
+          'beta': {'value': 0.6}, 'dshuf': {'value': 0.02, 'p': 0.05},
+          'dcorr12': {'value': 0.01, 'ci': [0.0, 0.02]}, 'dcorr50': {'value': 0.0}, 'dmeanErr': {'value': 0.001},
+          'rhoVis': {'value': 0.05, 'ci': [-0.01, 0.1]}, 'Lminus': {'value': -0.01, 'ci': [-0.02, -0.001]},
+          'rhoRot': {'value': 0.01}, 'rhoEven': {'value': 0.02}, 'rhoOdd': {'value': 0.08},
+          'rhoFine': {'value': 0.05, 'ci': [0.01, 0.1]}}
+    for k, v in ov.items():
+        if isinstance(v, dict) and isinstance(st.get(k), dict):
+            st[k] = dict(st[k], **v)
+        else:
+            st[k] = v
+    return st
+
+
+@test('U-CLAUSE')
+def t_clause():
+    """c1–c8 boundaries (L627-L636) and the action lines ①–⑥ with their tags (L646-L683)."""
+    ck = Checks()
+    R = _R()
+
+    def run(exp=None, **ov):
+        st = _st(**ov)
+        c = R.clauses(st)
+        return c, R.action(c, st, exp)
+    c, a = run()
+    ck(all(c[k] is True for k in ('c1', 'c2', 'c2b', 'c3', 'c3b', 'c4', 'c5', 'c7', 'c8')) and c['c6'] == 'report', 'allPass')
+    ck(a['line'] == '3-5' and a['verdict'] == '합격' and a['failed'] == []
+       and a['tags'] == ['사이트 고정 무늬와 약하게만 가름(p 값)', '아침(Terra ≈ 09:00) 판정']
+       and a['effect']['rhoOdd']['median'] == 0.08, 'passTags')
+    ck(R.clauses(_st(rho={'p': 0.025}))['c2'] is True and R.clauses(_st(rho={'ci': [0.0, 0.2]}))['c2'] is False
+       and R.clauses(_st(rho={'value': 0.0}))['c2'] is False and R.clauses(_st(rho={'p': 0.0251}))['c2'] is False, 'c2bounds')
+    ck(R.clauses(_st(dMSE={'value': 0.0}))['c2b'] is True and R.clauses(_st(dMSE={'value': 1e-9}))['c2b'] is False, 'c2bBound')
+    ck(R.clauses(_st(d={'ci': [0.0, 0.3]}))['c3'] is False and R.clauses(_st(d={'p': 0.025}))['c3'] is True, 'c3bounds')
+    ck(R.clauses(_st(dshuf={'p': 0.10}))['c3b'] is True and R.clauses(_st(dshuf={'p': 0.1001}))['c3b'] is False
+       and R.clauses(_st(dshuf={'value': 0.0}))['c3b'] is False and R.clauses(_st(c3bMeasurable=False))['c3b'] == '못 잼', 'c3b')
+    ck(R.clauses(_st(dcorr12={'value': 0.0, 'ci': [-0.01, 0.01]}))['c4'] is True
+       and R.clauses(_st(dcorr12={'ci': [-0.0101, 0.02]}))['c4'] is False, 'c4bounds')
+    ck(R.clauses(_st(dcorr50={'value': -0.01}, dmeanErr={'value': -0.01}))['c5'] is True
+       and R.clauses(_st(dmeanErr={'value': 0.0101}))['c5'] is False and R.clauses(_st(dcorr50={'value': -0.0101}))['c5'] is False,
+       'c5bounds')
+    ck(R.clauses(_st(rhoVis={'value': 0.0}))['c8'] is True and R.clauses(_st(Lminus={'value': 0.0}))['c8'] is False, 'c8bounds')
+    lines = {
+        '1': dict(c7=False), '2': dict(c1={'pass': False}), '3-1a': dict(c3bMeasurable=False),
+        '3-1b': dict(dshuf={'p': 0.3}, dMSE={'value': 0.002}),
+        '3-2a': dict(dMSE={'value': 0.002, 'ci': [0.0005, 0.004]}), '3-2b': dict(dMSE={'value': 0.002, 'ci': [-0.001, 0.004]}),
+        '3-3a': dict(Lminus={'value': 0.001, 'ci': [0.0005, 0.002]}), '3-3b': dict(Lminus={'value': 0.001, 'ci': [-0.001, 0.002]}),
+        '3-4a': dict(dcorr12={'value': -0.001}), '3-4b': dict(dmeanErr={'value': 0.02}),
+        '4': dict(rho={'value': -0.01}), '5a': dict(d={'p': 0.5}), '5b': dict(d={'p': 0.5, 'ci': [-0.05, 0.08]}),
+        '6a': dict(rho={'p': 0.5, 'ci': [-0.1, 0.04]}, d={'p': 0.5, 'ci': [-0.1, 0.09]}),
+        '6b': dict(rho={'p': 0.5, 'ci': [-0.1, 0.04]}, d={'p': 0.5, 'ci': [-0.1, 0.2]})}
+    want = {'1': ('1', '가드 실패', None), '2': ('2', '미결', None), '3-1a': ('3-1', '미결', None), '3-1b': ('3-1', '미결', None),
+            '3-2a': ('3-2', '불합격', '진폭 과대'), '3-2b': ('3-2', '불합격', '진폭 못 가름(점 추정만 > 0)'),
+            '3-3a': ('3-3', '불합격', '보이는 쪽 반대'), '3-3b': ('3-3', '불합격', '보이는 쪽 못 가름(점 추정만)'),
+            '3-4a': ('3-4', '불합격', '방향 통과·c4 실패'), '3-4b': ('3-4', '불합격', '방향 통과·c5 실패'),
+            '4': ('4', '미결', None), '5a': ('5', '불합격', '바람 홀수 몫 못 가름'),
+            '5b': ('5', '불합격', '바람 홀수 몫 작음 — c2 의 상관은 바람과 무관한 지형 상관(눈·안개 등)일 수 있음'),
+            '6a': ('6', '불합격', '작음'), '6b': ('6', '불합격', '못 가름')}
+    for k, ov in lines.items():
+        _, a = run(**ov)
+        ln, vd, tag = want[k]
+        ck(a['line'] == ln and a['verdict'] == vd and (tag is None or a['tags'] == [tag]), f'line{k}')
+    _, a = run(**lines['3-1a'])
+    ck(a['reason'] == 'G-shuf 못 잼', 'reason31a')
+    _, a = run(**lines['3-1b'])
+    ck(a['reason'] == '사이트에 고정된 지형·지표 무늬와 구분 안 됨' and a['register'] == {'kappaTimesBetaTilde': 0.6}
+       and 'c2b' in a['notes'] and 'c2b' in a['failed'] and 'c3b' in a['failed'], 'reason31bRegister')
+    _, a = run(**lines['3-2a'])
+    ck(a['register'] == {'kappaTimesBetaTilde': 0.6}, 'register32')
+    _, a = run(dcorr12={'value': -0.001}, dmeanErr={'value': 0.02})
+    ck(a['tags'] == ['방향 통과·c4·c5 실패'] and a['failed'] == ['c4', 'c5'], 'line34both')
+    _, a = run('held 집계')
+    ck(a['tags'][-2:] == ['동결 전 held 집계 노출(§0.5)', '아침(Terra ≈ 09:00) 판정'], 'exposureAggregate')
+    _, a = run('모름', **lines['6a'])
+    ck(a['tags'] == ['작음', '동결 전 held 장면별 노출(§0.5)'], 'exposureUnknownIsPerScene')
+    _, a = run('없음')
+    ck('동결 전 held 집계 노출(§0.5)' not in a['tags'] and len(a['tags']) == 2, 'exposureNone')
+    _, a = run(rhoRot={'value': -0.031}, rhoEven={'value': 0.08}, rhoFine={'value': 0.05, 'ci': [-0.01, 0.1]},
+               Lminus={'ci': [-0.02, 0.0]}, dMSElam={'value': 0.0001}, dshuf={'p': 0.02})
+    ck(a['tags'] == ['null 이 0 이 아님', '높이 착시 몫이 바람 홀수 몫만큼 큼',
+                     '50 km 아래 신호는 확인 안 됨 — 예보 자체의 지형 오차·고리 표본 오차와 구분 안 됨',
+                     '풍하 갬 근거는 점추정뿐', '앱 진폭 과대 가능(λ̃* 배 — 판정 경로 진폭만 합격)', '아침(Terra ≈ 09:00) 판정'],
+       'passTagsAll')
+    _, a = run(rhoFine={'value': -0.01, 'ci': [-0.05, 0.03]}, dshuf={'p': 0.02})
+    ck(a['tags'] == ['신호가 50 km 넘는 규모에만 있음', '아침(Terra ≈ 09:00) 판정'], 'fineNonPositive')
+    _, a = run(primary='rho_fine', rhoFine={'value': -0.01, 'ci': [-0.05, 0.03]}, dshuf={'p': 0.02})
+    ck(a['tags'] == ['아침(Terra ≈ 09:00) 판정'], 'fineTagOnlyWithRhoRes')
+    return ck.result()
+
+
+# ───────────────────────── §6.6 rulerHash, prechecks ─────────────────────────
+@test('U-RHASH')
+def t_rhash():
+    """rulerHash (L871): lines strictly between '## 10.' and '## 11.' removed; exactly one of each; CLI = function."""
+    ck = Checks()
+    R = _R()
+    t = b'# x\n## 9. a\nA\n## 10. rec\nB\n### 10.2 g\nC\n## 11. ans\nD\n'
+    exp = sha(b'# x\n## 9. a\nA\n## 10. rec\n## 11. ans\nD\n')
+    ck(R.ruler_hash_bytes(t) == exp, 'hand')
+    ck(R.ruler_hash_bytes(t.replace(b'C\n', b'C\nappended record line\n')) == exp, 'section10Free')
+    ck(R.ruler_hash_bytes(t.replace(b'A\n', b'A2\n')) != exp and R.ruler_hash_bytes(t.replace(b'D\n', b'D2\n')) != exp,
+       'restBound')
+    for bad in (t + b'## 10. again\n', t.replace(b'## 11. ans\n', b''), b'## 11. x\n## 10. y\n', t + b'## 11. two\n'):
+        try:
+            R.ruler_hash_bytes(bad)
+            ck(False, 'refusesBadStructure')
+        except ValueError:
+            pass
+    rp = os.path.join(HERE, 'RULER-oro.md')
+    h = R.ruler_hash(rp)
+    ck(_run_oro(['--ruler-hash']).stdout.strip() == h, 'cliEqualsFunction')
+    ck(R.section_text(t, b'### 10.2', b'## 11.') == b'### 10.2 g\nC', 'section102')
+    ck.kv['rulerHash'] = h
+    return ck.result()
+
+
+@test('U-PRECHK')
+def t_prechk():
+    """T-free recompute comparison (Q-56): env differences recorded only, floats ≤ 1e-9, flags/counts exact; versions."""
+    ck = Checks()
+    R = _R()
+    a = {'sources': {'env': {'numpy': '2.5.3'}}, 'scenes': {'x': {'A1': {'ok': True, 'rmsM': 101.0}, 'counts': {'S': 21}}}}
+
+    def mod(f):
+        b = json.loads(json.dumps(a))
+        f(b)
+        return R.compare_apply(b, a)
+    c = mod(lambda b: None)
+    ck(c['identical'] and c['ok'], 'same')
+    c = mod(lambda b: b['scenes']['x']['A1'].update(rmsM=101.0 + 1e-10))
+    ck(c['ok'] and not c['identical'] and c['nFloatDiffs'] == 1, 'float1e-10')
+    ck(not mod(lambda b: b['scenes']['x']['A1'].update(rmsM=101.0 + 1e-8))['ok'], 'float1e-8')
+    c = mod(lambda b: b['scenes']['x']['A1'].update(ok=False))
+    ck(not c['ok'] and c['flagDiffs'] == ['/scenes/x/A1/ok'], 'flag')
+    ck(not mod(lambda b: b['scenes']['x']['counts'].update(S=22))['ok'], 'countS')
+    ck(mod(lambda b: b['sources']['env'].update(numpy='9.9'))['identical'], 'envIgnored')
+    ok, rec = R.versions_ok({'versions': R.versions_ok({})[1]['running']})
+    ck(ok and not R.versions_ok({'versions': dict(rec['running'], numpy='0.0')})[0], 'versions')
+    return ck.result()
+
+
+# ───────────────────────── §6.9 G6 (f)(g)(h) ─────────────────────────
+def _g6_empty_box(p):
+    """Window box for the fake PNG's one empty 3 km px ((f), (h); L769): the box of S without the empty px (input masks
+    snow ∪ high on the judge tiling) with the largest |box ΔC|, so that the box is in W, S and S∪ before the px and the
+    check 'it leaves W·S·S∪' has content. Masks are off in the synthetic scenes, so there it is the window's max |box ΔC|.
+    Returns (box, S without the empty px, W without the empty px)."""
+    d15 = O.box15(p['cj']['dC'])
+    mk0 = _R().judge_masks(p['dem']['hmax6'], p['tm']['zSnow'], p['Bs']['high'], None)
+    S0 = mk0['W'] & (np.abs(d15) >= O.DC_SEL)
+    a = np.where(S0, np.abs(d15), -1.0)
+    return tuple(int(x) for x in np.unravel_index(int(np.argmax(a)), a.shape)), S0, mk0['W']
+
+
+def _g6f_eval(entry, d, empty_box=None):
+    """One G6(f) scene through the judge path with T_fake = clip(B + ΔC) ((f) form). Returns (v, tr, mk, box, clipped)."""
+    kind, name, site, lat, lon, date_s, p = entry
+    B, dC = p['Bs']['total'], p['cj']['dC']
+    if empty_box is None:
+        empty_box = _g6_empty_box(p)[0]
+    pj, pp = _fake_files(d, name, site, lat, lon, date_s, B + dC, empty_box)
+    v, tr, mk = _judge_one(p, pj, pp)
+    return v, tr, mk, empty_box, (B + dC < 0) | (B + dC > 1), pj, pp
+
+
+def _g6f_criteria(fx, d, ck, pre=''):
+    """The G6(f) criteria (L771-L776) on the scenes fx['scenes'] (and the ρ^vis fallback scenes), checked into ck with
+    names prefixed by pre. Returns the number of scenes evaluated."""
+    vis = []
+    for i, entry in enumerate(fx['scenes']):
+        kind, name = entry[0], entry[1]
+        tag = f'{pre}{kind}{i}'
+        v, tr, mk, box, clipped, pj, pp = _g6f_eval(entry, d)
+        bx = v['_box']
+        d15, r15 = bx['d15'], bx['r15']
+        okb = mk['W'] & ~(O.box15(clipped.astype(np.float64)) > 0)
+        err = float(np.max(np.abs(r15 - d15)[okb])) if okb.any() else None
+        ck(err is not None and err <= 0.003, f'{tag}:rMinusDC')
+        ck(v['rho_res'] >= 0.99, f'{tag}:rhoRes')
+        ck(v['beta_res'] is not None and 0.97 <= v['beta_res'] <= 1.03, f'{tag}:betaRes')
+        ck(v['d'] > 0, f'{tag}:d')
+        ck(v['dMSE'] is not None and v['dMSE'] < 0, f'{tag}:dMSE')
+        ck(v['dcorr12'] > 0, f'{tag}:dcorr12')
+        ck(v['rho_fine'] > 0, f'{tag}:rhoFine')
+        ck(v['Lminus'] < 0, f'{tag}:Lminus')
+        _b, S0, W0 = _g6_empty_box(entry[6])
+        ck(_b == box and W0[box] and S0[box] and not mk['W'][box] and not bx['S'][box] and not bx['Su'][box]
+           and v['nEmptyBoxes'] == 1 and v['nS'] == int(S0.sum()) - 1 and v['nW'] == int(W0.sum()) - 1, f'{tag}:emptyBox')
+        p = entry[6]
+        for fl, sl in (('NS', (slice(None, None, -1), slice(None))), ('EW', (slice(None), slice(None, None, -1)))):
+            pjx, ppx = _fake_files(d, f'{name}-{fl}', entry[2], entry[3], entry[4], entry[5],
+                                   (p['Bs']['total'] + p['cj']['dC'])[sl], box)
+            vx, _, _ = _judge_one(p, pjx, ppx)
+            ck(vx['rho_res'] < v['rho_res'] - 0.3, f'{tag}:flip{fl}')
+            ck.kv[f'{tag}rho{fl}'] = vx['rho_res']
+        vis.append(_g6f_vis(entry, d, box))
+        ck.kv.update({f'{tag}rhoRes': v['rho_res'], f'{tag}beta': v['beta_res'], f'{tag}errMax': err, f'{tag}nS': v['nS'],
+                      f'{tag}nClipped': int(clipped.sum()), f'{tag}Lminus': v['Lminus']})
+    # ρ^vis (L775): scenes with sd_S(ΔC^vis) ≥ 0.01 must reach 0.99; none → further dev scenes by date, then the (g)
+    # synthetic scenes 0°, 90°, 180° (band B 0.3, high 0): the first with sd ≥ 0.01; none at all → G6(f) fails
+    meas = [x for x in vis if x[2] is not None and x[2] >= 0.01]
+    src = 'scenes'
+    if not meas:
+        for entry in fx['moreDev'] + fx['syn']:
+            x = _g6f_vis(entry, d, None)
+            if x[2] is not None and x[2] >= 0.01:
+                meas, src = [x], ('moreDev' if entry[0] == 'dev' else 'synthetic')
+                break
+    ck(bool(meas), f'{pre}visMeasurable')
+    for tag, rv, sd in meas:
+        ck(rv is not None and rv >= 0.99, f'{pre}vis:{tag}')
+    for i, (tag, rv, sd) in enumerate(vis):
+        ck.kv[f'{pre}vis{i}'] = rv
+        ck.kv[f'{pre}visSd{i}'] = sd
+    ck.kv.update({f'{pre}visSource': src, f'{pre}visN': len(meas)})
+    return len(fx['scenes'])
+
+
+@test('G6f')
+def t_g6f():
+    """Judge path end to end with fake truth (L764-L776): |r_b − ΔC_b| ≤ 0.003 on unclipped W boxes; ρ_res ≥ 0.99,
+    β_res ∈ [0.97, 1.03], d > 0, ΔMSE_W < 0, Δcorr12 > 0, ρ_fine > 0, L⁻ < 0; the empty-px box leaves W, S, S∪ and is the
+    only empty box; N/S and E/W flips of T_fake drop ρ_res by > 0.3; ρ^vis ≥ 0.99 on scenes with sd_S(ΔC^vis) ≥ 0.01 (app
+    path fake truth, the L775 fallback order).
+    Scenes: the dev judge scenes (A1–A8 true) of the committed oro-apply.json by date, else the synthetic fill. While the
+    soundings are pending (provisional oro-apply, no dev judge scene) the fill is all three; the dev branch that the
+    11-05 rebuild will take is run here as a dry run on the B-SYN fixture (synthetic soundings and B, real DEM), with the
+    same criteria, so a failure of that branch shows now (prefix 'dry'). The fill rule is checked for 0–4 dev scenes."""
+    ck = Checks()
+    with _record_opens('G6f'):
+        d = fresh_dir(os.path.join(T_G6, 'f'))
+        fx = _g6f_scenes()
+        ck(fx['devConsistent'], 'devSelectionConsistent')
+        nd = sum(1 for e in fx['scenes'] if e[0] == 'dev')
+        ck(nd == min(3, len(fx['devNames'])) and [e[1] for e in fx['scenes'] if e[0] == 'dev'] == fx['devNames'][:3],
+           'devFirstByDate')
+        _g6f_criteria(fx, d, ck)
+        ck.kv.update({'nDev': nd, 'nDevJudgeable': len(fx['devNames'])})
+        # fill rule (L765): k dev scenes → dev[:3] then synthetic 0°, 90°, 180°
+        syn = _g6f_syn()
+        ck([e[1].split('-')[2].split('_')[0] for e in syn] == ['000', '090', '180'], 'synOrder')
+        fill_ok = True
+        for k in range(5):
+            devs = [('dev', f'x{i}') for i in range(k)]
+            out, more = _g6f_fill(devs, [('syn', s[1]) for s in syn])
+            want = [x[1] for x in devs[:3]] + [s[1] for s in syn][:max(0, 3 - k)]
+            fill_ok &= [x[1] for x in out] == want and [x[1] for x in more] == [x[1] for x in devs[3:]]
+        ck(fill_ok, 'fillRule')
+    # dev branch dry run (synthetic fixture; its opens are audited by G8f too)
+    with _record_opens('G6fDry'):
+        fs = _fixture_syn()
+        dd = fresh_dir(os.path.join(T_G6, 'f-dry'))
+        fxd = _g6f_select(fs['apply'], fs['inputs'], fs['base'], 'g6fDry')
+        ck(fxd['devConsistent'] and len(fxd['devNames']) >= 4 and [e[0] for e in fxd['scenes']] == ['dev'] * 3
+           and [e[1] for e in fxd['scenes']] == fxd['devNames'][:3] and [e[1] for e in fxd['moreDev']] == fxd['devNames'][3:],
+           'dryDevSelection')
+        _g6f_criteria(fxd, dd, ck, 'dry')
+        ck.kv['dryNDevJudgeable'] = len(fxd['devNames'])
+    return ck.result()
+
+
+def _g6f_vis(entry, d, box):
+    """ρ^vis with the app-path fake truth T^vis = clip(B^vis + ΔC^vis) ((f) form; L775, check-procedure q-b)."""
+    kind, name, site, lat, lon, date_s, p = entry
+    if box is None:
+        box = _g6_empty_box(p)[0]
+    a = p['app']
+    pj, pp = _fake_files(d, f'{name}-vis', site, lat, lon, date_s, a['Bvis'] + a['dCvis'], box)
+    v, _, _ = _judge_one(p, pj, pp)
+    return name, v['rho_vis'], v['sdVisS']
+
+
+@test('G6g')
+def t_g6g():
+    """Contrasts (L777-L785): two dev sites × even/skew sets, U 8 m/s, N 0.01, one B per site/set, masks inactive.
+    (i) T = B + ΔC_j vs (ii) T = B + ΔC_{j|k*}: mean d_shuf(i) > mean d_shuf(ii) + 0.2, |mean d_shuf(ii)| ≤ 0.05, (ii) c3b
+    sign-flip p > 0.10; (iii) T = B + ΔC_rot: median ρ_rot ≥ 0.99 and > median ρ_res + 0.3; (iv) 200 noise truths per
+    scene (gauss50, amplitude 0.25 in the (f) clip, seeds 20261103, 20261104, … in loop order): |mean ρ_rot| ≤ 0.01."""
+    ck = Checks()
+    R = _R()
+    with _record_opens('G6g'):
+        d = fresh_dir(os.path.join(T_G6, 'g'))
+        seed = SEED
+        allrot, nclip, ncell = [], 0, 0
+        iv_full_diff, iv_full_n = 0.0, 0
+        for site in G6_SITES:
+            s = _g6_site(site)
+            for sname, (dirs, kstar) in G6_SETS.items():
+                B = _g6_B((site, sname))
+                names = _g6_names(site, sname)
+                preps = {n: _g6_prep(site, frm, B, n) for n, frm in zip(names, dirs)}
+                rows = {n: {'site': site, 'date': n.rsplit('_', 1)[1], 'counted': True} for n in names}
+                kname = names[dirs.index(kstar)]
+                res = {}
+                for mode in ('i', 'ii', 'iii'):
+                    vals = {}
+                    for n in names:
+                        p = preps[n]
+                        add = {'i': p['cj']['dC'], 'ii': preps[kname]['cj']['dC'], 'iii': p['co']['dC']}[mode]
+                        pj, pp = _fake_files(d, f'{n}-{mode}', site, s['lat'], s['lon'], rows[n]['date'], B + add, G6_EMPTY_BOX)
+                        vals[n] = _judge_one(p, pj, pp)[0]
+                    # every scene of the set is a G-shuf j and k (the set is the test's applied list, L777-L781): the
+                    # ruler's "(ii) mean exactly 0" needs J = K; A7 is not applied to synthetic scenes (build note 12)
+                    ds, dsw, ds2, excl = R.gshuf_all(list(names), rows, preps, vals, [site], 'rho_res')
+                    res[mode] = {'vals': vals, 'ds': ds, 'ds2': ds2, 'excl': excl}
+                tag = f'{site}/{sname}'
+                m1, m2 = R.mean(list(res['i']['ds'].values())), R.mean(list(res['ii']['ds'].values()))
+                jd = sorted(res['ii']['ds'])
+                p2 = R.sign_flip_p([res['ii']['ds'][n] for n in jd], [rows[n]['date'] for n in jd], 'mean')
+                ck(m1 is not None and m2 is not None and m1 > m2 + 0.2, f'{tag}:iGTii')
+                ck(m2 is not None and abs(m2) <= 0.05, f'{tag}:iiMean')
+                ck(p2 is not None and p2 > 0.10, f'{tag}:iiP')
+                v3 = res['iii']['vals']
+                mrot = R.median([v3[n]['rho_rot'] for n in names])
+                mres = R.median([v3[n]['rho_res'] for n in names])
+                ck(mrot is not None and mrot >= 0.99 and mrot > mres + 0.3, f'{tag}:iiiRot')
+                ck(not res['i']['excl'] and len(res['i']['ds']) == len(res['ii']['ds']) == len(names), f'{tag}:everyJ')
+                nsv = [res['i']['vals'][n]['nS'] for n in names]
+                ck.kv.update({f'{tag}:nSmin': min(nsv), f'{tag}:nSlt20': sum(1 for x in nsv if x < O.A7_MIN_S)})
+                ck.kv.update({f'{tag}:i': m1, f'{tag}:ii': m2, f'{tag}:iiP': p2, f'{tag}:rot': mrot, f'{tag}:rotRes': mres})
+                if sname == 'skew':
+                    ck.kv[f'{tag}:iiMedian'] = R.median(list(res['ii']['ds'].values()))
+                    ck.kv[f'{tag}:iiForm2Mean'] = R.mean(list(res['ii']['ds2'].values()))
+                # (iv) pure-noise truths through the judge decoding (u8 2×2 replicate, row flip, 2×2 mean). ρ_rot =
+                # pearson_S∪(ΔC_rot, r) with S∪ fixed by ΔC, ΔC_rev and W (same PNG for every truth of the scene), so
+                # only r changes; replicate 0 of every scene also goes through the whole judge path (fake JSON + PNG
+                # → load_truth → empty_cells → judge_masks → scene_main) and must give the same ρ_rot bit for bit.
+                v1 = res['i']['vals']
+                rep0, rep_meds = [], []
+                per_rep = [[] for _ in range(200)]
+                for n in names:
+                    p = preps[n]
+                    Su = v1[n]['_box']['Su']
+                    rot15 = O.box15(p['co']['dC'])
+                    for rep in range(200):
+                        raw = B + 0.25 * smooth_field(128, 50, seed)
+                        nclip += int(np.sum((raw < 0) | (raw > 1)))
+                        ncell += raw.size
+                        u = np.round(np.kron(np.clip(raw, 0, 1), np.ones((2, 2))) * 255.0).astype(np.uint8)[::-1]
+                        Tj = R.truth_from_u8(u.astype(np.float64) / 255.0)['T']
+                        x = O.pearson(rot15[Su], O.box15(Tj - B)[Su])
+                        allrot.append(x)
+                        per_rep[rep].append(x)
+                        if rep == 0:
+                            rep0.append(x)
+                            pj, pp = _fake_files(d, f'{n}-iv{seed}', site, s['lat'], s['lon'], rows[n]['date'], raw,
+                                                 G6_EMPTY_BOX)
+                            vj = _judge_one(p, pj, pp)[0]
+                            iv_full_diff = max(iv_full_diff, abs(vj['rho_rot'] - x) if vj['rho_rot'] is not None else 9.0)
+                            iv_full_n += 1
+                        seed += 1
+                rep_meds = [R.median(xs) for xs in per_rep]
+                ck.kv[f'{tag}:noiseRep0Median'] = R.median(rep0)
+                ck.kv[f'{tag}:noiseShareAbsMedGt0.05'] = sum(1 for m in rep_meds if abs(m) > 0.05) / len(rep_meds)
+        mr = float(np.mean(allrot))
+        ck(abs(mr) <= 0.01, 'ivNoiseMean')
+        ck(len(allrot) == 2 * 2 * 8 * 200 and seed - 1 == SEED + len(allrot) - 1, 'ivCountAndSeeds')
+        ck(iv_full_n == 2 * 2 * 8 and iv_full_diff == 0.0, 'ivEqualsJudgePath')
+        ck.kv.update({'ivMeanRot': mr, 'ivN': len(allrot), 'ivClipFrac': nclip / ncell, 'ivLastSeed': seed - 1,
+                      'ivJudgePathN': iv_full_n, 'ivJudgePathMaxDiff': iv_full_diff})
+    return ck.result()
+
+
+@test('G6h')
+def t_g6h():
+    """c8 test (L786-L792) on the (f) scenes: T = B + ΔC·1[box ΔC ≥ 0.02] (window boxes, T = B outside) → |median L⁻| ≤
+    0.003; coastal version + s·1[sea stratum box] (s = +0.05 if the scene's sea-box median B ≤ 0.5 else −0.05, clipped) →
+    the same; the sea-agnostic tertile and 2-draft window-mean forms are reported."""
+    ck = Checks()
+    R = _R()
+    with _record_opens('G6h'):
+        d = fresh_dir(os.path.join(T_G6, 'h'))
+        fx = _g6f_scenes()
+        L1, L2, tert, win, tert2 = [], [], [], [], []
+        for i, entry in enumerate(fx['scenes']):
+            kind, name, site, lat, lon, date_s, p = entry
+            B, dC = p['Bs']['total'], p['cj']['dC']
+            d15 = O.box15(dC)
+            box = _g6_empty_box(p)[0]
+            ind = np.zeros((128, 128))
+            ind[49:79, 49:79] = np.kron((d15 >= 0.02).astype(np.float64), np.ones((2, 2)))
+            pj, pp = _fake_files(d, f'{name}-h', site, lat, lon, date_s, B + dC * ind, box)
+            v, tr, mk = _judge_one(p, pj, pp)
+            L1.append(v['Lminus'])
+            tert.append(v['LminusTertile'])
+            win.append(v['LminusWindow'])
+            seab = p['dem']['sea'] & mk['W']
+            sv = 0.0
+            if seab.any():
+                sv = 0.05 if float(np.median(O.box15(B)[seab])) <= 0.5 else -0.05
+            sea6 = np.zeros((128, 128))
+            sea6[49:79, 49:79] = np.kron(seab.astype(np.float64), np.ones((2, 2)))
+            pj, pp = _fake_files(d, f'{name}-hc', site, lat, lon, date_s, B + dC * ind + sv * sea6, box)
+            v2, _, _ = _judge_one(p, pj, pp)
+            L2.append(v2['Lminus'])
+            tert2.append(v2['LminusTertile'])
+            bx = v['_box']
+            lee = bx['S'] & (bx['d15'] <= -O.DC_SEL)
+            neu = bx['W'] & (np.abs(bx['d15']) < O.DC_SEL) & (np.abs(bx['dr15']) < O.DC_SEL)
+            ck.kv.update({f's{i}nSea': int(seab.sum()), f's{i}seaS': sv, f's{i}seaLee': int((lee & seab).sum()),
+                          f's{i}seaNeutral': int((neu & seab).sum()), f's{i}L': v['Lminus'], f's{i}Lcoastal': v2['Lminus'],
+                          f's{i}LtertileCoastal': v2['LminusTertile']})
+        m1, m2 = R.median(L1), R.median(L2)
+        ck(abs(m1) <= 0.003, 'windwardOnly')
+        ck(abs(m2) <= 0.003, 'coastal')
+        ck.kv.update({'medianL': m1, 'medianLcoastal': m2, 'medianTertile': R.median(tert),
+                      'medianTertileCoastal': R.median(tert2), 'medianWindow2draft': R.median(win)})
+    return ck.result()
+
+
+# ───────────────────────── §6.9 G8 (b)–(f) ─────────────────────────
+@test('G8b')
+def t_g8b():
+    """oro-fingerprint.py (byte-identical, imported, main never run) on a synthetic bank with patched SAT/NWP/ORO/MACRO/RING
+    (C3): --f1/--f3 identical with and without trueGrid in the scene copies and with real-looking vs fake index cover;
+    --f2 with a stub subprocess.run reads only its --out file and the (fake) committed file and prints counts only."""
+    ck = Checks()
+    fpp = os.path.join(HERE, 'oro-fingerprint.py')
+    ck(O.sha256_file(fpp) == FP_SHA, 'byteIdentical')
+    fpm = _load('oro_fingerprint_g8b', fpp)
+    d = fresh_dir(os.path.join(TMP, 'g8b'))
+    dd = {k: os.path.join(d, k) for k in ('sat', 'nwp', 'oro', 'macro', 'ring')}
+    for v in dd.values():
+        os.makedirs(v)
+    os.makedirs(os.path.join(dd['oro'], 'syn-blend'))
+    shutil.copyfile(os.path.join(ROOT, 'tools', 'genus-ruler', 'macro', 'macro.py'), os.path.join(dd['macro'], 'macro.py'))
+    for k, v in (('SAT', dd['sat']), ('NWP', dd['nwp']), ('ORO', dd['oro']), ('MACRO', dd['macro']), ('RING', dd['ring'])):
+        setattr(fpm, k, v)
+    Mm = fpm.load_macro()                              # the byte copy in test-tmp
+    rng = np.random.default_rng(SEED + 21)
+    order = O.ring91()
+    names = ['busan_2026-09-01', 'busan_2026-09-05', 'osaka_2026-09-09', 'seoul_2026-09-01']
+
+    def u8b64(a):
+        return base64.b64encode(np.round(np.clip(a, 0, 1) * 255).astype(np.uint8).tobytes()).decode('ascii')
+    gate, scenes = [], {}
+    for i, n in enumerate(names):
+        site, dt = n.rsplit('_', 1)
+        la, lo, _g = O.sites_table()[site]
+        ring = [{'dist': a, 'az': b, 'cover': float(rng.uniform(0, 1))} for a, b in order]
+        sc = {'site': site, 'lat': la, 'lon': lo, 'date': dt, 'grid': 256, 'cellKm': 3.0, 'ring': ring,
+              'trueGrid': u8b64(rng.uniform(0, 1, (256, 256))), 'cover': 0.37, 'empty': 0.01}
+        scenes[n] = sc
+        sy = {k: u8b64(1 / (1 + np.exp(-1.2 * smooth_field(256, 60, SEED + 30 + 3 * i + j, 3000.0))))
+              for j, k in enumerate(('syn', 'base', 'c0'))}
+        sy['ms'] = 1.0
+        with open(os.path.join(dd['oro'], 'syn-blend', n + '.syn.json'), 'w') as f:
+            json.dump(sy, f)
+        S, Bb, C0 = Mm.load_u8(sy['syn'], 256), Mm.load_u8(sy['base'], 256), Mm.load_u8(sy['c0'], 256)
+        fc = np.array([r['cover'] for r in ring])
+        rv, rvB = Mm.ring_values(S, ring, 256, 3.0), Mm.ring_values(Bb, ring, 256, 3.0)
+        gate.append({'name': n, 'ringRmse': float(np.sqrt(((rv - fc) ** 2).mean())),
+                     'ringRmseBase': float(np.sqrt(((rvB - fc) ** 2).mean())), 'betaSyn': Mm.beta_of(S, 3.0),
+                     'betaC0': Mm.beta_of(C0, 3.0), 'partialSyn': float(((S > 0.1) & (S < 0.9)).mean()),
+                     'betaTrue': 9.9, 'corr50Base': 0.123, 'ringRmseTrue': 0.2, 'partialTrue': 0.4})   # fake truth columns
+    with open(os.path.join(dd['ring'], 'gate-blend-held.json'), 'w') as f:
+        json.dump({'rows': gate}, f)
+    with open(os.path.join(dd['ring'], 'modis-times.json'), 'w') as f:
+        json.dump({n: {'modisTimeUtc': '2026-09-01T02:00:00Z'} for n in names + ['lisbon_2026-09-13']}, f)
+    with open(os.path.join(dd['macro'], 'sat-quartiles.json'), 'w') as f:
+        json.dump({'n': 4, 'quartiles': {'betaTrue': {'q25': 1.0, 'q50': 2.0, 'q75': 3.0, 'n': 4}}}, f)
+
+    def write_bank(with_tg, cover, scene_truth=None):
+        """Scene copies (bank and sat-nwp-blend) with or without trueGrid; scene_truth replaces the scene-level
+        `cover`/`empty`; index.json with `cover` from cover(i); a fake PNG next to each scene (never to be opened)."""
+        for n, sc in scenes.items():
+            x = dict(sc) if with_tg else {k: v for k, v in sc.items() if k != 'trueGrid'}
+            if scene_truth is not None:
+                x.update(scene_truth)
+            for dn in ('sat', 'nwp'):
+                with open(os.path.join(dd[dn], n + '.json'), 'w') as f:
+                    json.dump(x, f)
+            _fake_png(os.path.join(dd['sat'], n + '.png'), (0, 0))
+        idx = [{'name': n, 'cover': cover(i), 'skip': False, 'error': None} for i, n in enumerate(names)]
+        idx += [{'name': 'x_skip', 'skip': True, 'cover': cover(9)}, {'name': 'x_err', 'error': 'timeout', 'cover': cover(8)}]
+        with open(os.path.join(dd['sat'], 'index.json'), 'w') as f:
+            json.dump(idx, f)
+
+    f13_opens = []
+
+    def run13():
+        """(F1 result, F1 stdout, F3 result, F3 stdout) with F3's node run skipped (skip_run); opens kept in f13_opens."""
+        prev = _REC['on']
+        _REC['on'] = f13_opens
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as s1:
+                r1 = fpm.f1()
+            with contextlib.redirect_stdout(io.StringIO()) as s3:
+                r3 = fpm.f3(True)
+        finally:
+            _REC['on'] = prev
+        opened.extend(f13_opens)
+        return r1, s1.getvalue(), r3, s3.getvalue()
+    opened = []
+    _REC['on'] = opened
+    real_sub = fpm.subprocess
+    try:
+        real_cover = lambda i: round(0.1 + 0.07 * i, 3)                    # noqa: E731
+        fake_cover = lambda i: 0.999                                       # noqa: E731
+        runs = {}
+        for tag, with_tg, cov, st in (('withTG', True, real_cover, None), ('noTG', False, real_cover, None),
+                                      ('noTGfakeIndexCover', False, fake_cover, None),
+                                      ('withTGfakeIndexCover', True, fake_cover, None),
+                                      ('fakeSceneCoverEmpty', True, real_cover, {'cover': 0.0, 'empty': 0.93})):
+            write_bank(with_tg, cov, st)
+            runs[tag] = run13()
+        f1a, f3a = runs['withTG'][0], runs['withTG'][2]
+        ck(all(r[0] == f1a and r[1] == runs['withTG'][1] for r in runs.values()) and f1a['nCommon'] == 4
+           and f1a['missing'] == ['lisbon_2026-09-13'] and f1a['indexSkip'] == 1 and f1a['indexError'] == 1, 'f1Independent')
+        ck(all(r[2] == f3a and r[3] == runs['withTG'][3] for r in runs.values()) and f3a['nAllFiveSame'] == 4
+           and f3a['nCompared'] == 4, 'f3Independent')
+        ck(all(re.fullmatch(r'F1 files \d+ keys \d+ common \d+ missing \d+ extra \d+ index skip \d+ error \d+ \| nwp-blend \d+'
+                            r' common \d+\n', r[1]) and re.fullmatch(r'F3 \d+/\d+ scenes with all five columns same '
+                                                                     r'\(compared \d+, missing \d+\) per column \{.*\}\n', r[3])
+               for r in runs.values()), 'f13CountsOnly')
+        ck(f13_opens and not any(x.endswith('.png') for x in f13_opens), 'f13NoPngOpened')
+        ck.kv['variants'] = len(runs)
+        calls = []
+
+        def stub_run(cmd, **kw):
+            calls.append(list(cmd))
+            out = cmd[cmd.index('--out') + 1]
+            with open(out, 'w') as f:
+                json.dump({'n': 4, 'quartiles': {'betaTrue': {'q25': 1.0, 'q50': 2.5, 'q75': 3.0, 'n': 4}}}, f)
+            return subprocess.CompletedProcess(cmd, 0)
+        fpm.subprocess = types.SimpleNamespace(run=stub_run, STDOUT=subprocess.STDOUT)
+        del opened[:]
+        with contextlib.redirect_stdout(io.StringIO()) as so2:
+            f2 = fpm.f2()
+        f2_opens = sorted({os.path.abspath(x) for x in opened if os.path.abspath(x).startswith(ROOT + os.sep)})
+    finally:
+        _REC['on'] = None
+        fpm.subprocess = real_sub
+    allowed = {os.path.join(dd['oro'], 'f2.log'), os.path.join(dd['oro'], 'sat-quartiles-restore.json'),
+               os.path.join(dd['macro'], 'sat-quartiles.json')}
+    ck(set(f2_opens) <= allowed and os.path.join(dd['macro'], 'sat-quartiles.json') in f2_opens, 'f2ReadsOnlyOutAndCommitted')
+    ck(len(calls) == 1 and calls[0][2:4] == ['--truth', dd['sat']], 'f2Stubbed')
+    ck(f2 == {'nLeavesOld': 5, 'nLeavesNew': 5, 'nCommon': 5, 'nSame': 4}     # leaves n, q25, q50 (differs), q75, n
+       and re.fullmatch(r'F2 numeric leaves old \d+ new \d+ common \d+ same \d+\n', so2.getvalue()) is not None, 'f2CountsOnly')
+    real_forbidden = [os.path.join(ROOT, *p.split('/')) for p in ('.harness/macro/sat/index.json',
+                                                                 'tools/genus-ruler/macro/sat-quartiles.json',
+                                                                 'tools/genus-ruler/ring/gate-blend-held.json')]
+    ck(not any(os.path.abspath(x) in real_forbidden for x in opened), 'realFilesUntouched')
+    ck(all(O.guard_verdict(x) is None for x in opened), 'noGuardedPath')
+    return ck.result()
+
+
+def _frozen_lists_inputs(frozen, root):
+    """G8(c): FROZEN `files` holds oro-apply.json and oro-inputs.json with their current sha256 (L755)."""
+    files = frozen.get('files') or {}
+    need = [f'{ORO_REL}/oro-apply.json', f'{ORO_REL}/oro-inputs.json']
+    return all(k in files and os.path.exists(os.path.join(root, *k.split('/')))
+               and O.sha256_file(os.path.join(root, *k.split('/'))) == files[k] for k in need)
+
+
+@test('G8c')
+def t_g8c():
+    """FROZEN contains the oro-apply.json and oro-inputs.json hashes (L755 (c)). FROZEN.json lists oro-test.txt (L876),
+    so it is written after this file's output and the committed line is a dry structure test (mode=dry):
+    (1) the judge requires both keys (oro.py FROZEN_REQUIRED); (2) a FROZEN `files` built in the S4 layout (build note 15:
+    repo path → sha256) from the current committed files is accepted by oro.py's own hash check; (3) the judge's precheck
+    (§9.3 ④ 2a) on the synthetic post-freeze repo of G8d refuses, at step 2a with the key named, a FROZEN that lacks
+    oro-apply.json, lacks oro-inputs.json, keys them by bare file name instead of repo path, or holds a wrong sha256 —
+    and accepts the valid one. When FROZEN.json exists (a run after the freeze, written elsewhere than oro-test.txt) the
+    real file is checked the same way (mode=real)."""
+    ck = Checks()
+    R = _R()
+    need = {'oro-apply.json', 'oro-inputs.json'}
+    ck(set(R.FROZEN_REQUIRED) >= need, 'precheckRequires')
+    cand = {f'{ORO_REL}/{x}': O.sha256_file(os.path.join(HERE, x)) for x in sorted(R.FROZEN_REQUIRED)}
+    ck(R.files_hashes_ok(R.Ctx(ROOT), cand) == [] and _frozen_lists_inputs({'files': cand}, ROOT), 'currentFilesLayoutOk')
+    _g8d_base()
+
+    def fz_edit(fn):
+        """FROZEN.json edited and committed; that commit is passed as the freeze commit (as G8d notFrozen), so git
+        diff/status are clean and step 2a can fail only on the FROZEN content."""
+        def mut(root):
+            fz = _jload(_od(root, 'FROZEN.json'))
+            fn(fz['files'])
+            O.dump_json(fz, _od(root, 'FROZEN.json'))
+            _git(root, 'commit', '-q', '-am', 'FROZEN edit (G8c)')
+            return _git(root, 'rev-parse', 'HEAD')
+        return mut
+
+    def drop(k):
+        return lambda files: files.pop(f'{ORO_REL}/{k}')
+
+    def bare(files):
+        for k in sorted(files):
+            if k.endswith(('/oro-apply.json', '/oro-inputs.json')):
+                files[k.rsplit('/', 1)[1]] = files.pop(k)
+
+    def wrong(files):
+        files[f'{ORO_REL}/oro-apply.json'] = '0' * 64
+    ok, rec = _g8d_case('g8cValid')
+    ck(ok and rec['steps']['2a'] and rec['2a']['notFrozen'] == [] and rec['2a']['hashMismatch'] == [], 'validAccepted')
+    for tag, fn, want_nf, want_bad in (('noApply', drop('oro-apply.json'), [f'{ORO_REL}/oro-apply.json'], []),
+                                       ('noInputs', drop('oro-inputs.json'), [f'{ORO_REL}/oro-inputs.json'], []),
+                                       ('bareNames', bare, [f'{ORO_REL}/oro-apply.json', f'{ORO_REL}/oro-inputs.json'],
+                                        ['oro-apply.json', 'oro-inputs.json']),
+                                       ('wrongSha', wrong, [], [f'{ORO_REL}/oro-apply.json'])):
+        ok, rec = _g8d_case('g8c' + tag, fz_edit(fn))
+        bad = sorted(k for k, v in rec['steps'].items() if not v)
+        ck(not ok and '2a' in bad and set(bad) <= {'2a', '5', 'tread'} and rec['2a']['git'] == 'ok'
+           and rec['2a']['notFrozen'] == want_nf and rec['2a']['hashMismatch'] == want_bad, f'{tag}Refused')
+    fz = os.path.join(HERE, 'FROZEN.json')
+    if os.path.exists(fz):
+        ck(_frozen_lists_inputs(_jload(fz), ROOT), 'realFrozen')
+    ck.kv['mode'] = 'real' if os.path.exists(fz) else 'dry'
+    return ck.result()
+
+
+# ── G8(d): synthetic git repos ──
+RULER_SYN = (b'# RULER synthetic (G8d)\n## 0. rules\nrule text\n## 9. freeze\nlist\n## 10. records\n### 10.1 freeze\n'
+             b'### 10.2 guards\n### 10.3 judgement\n## 11. answers\nend\n')
+
+
+def _git(root, *args):
+    r = subprocess.run(['git', '-c', 'user.name=oro-test', '-c', 'user.email=oro-test@example.invalid', '-c',
+                        'commit.gpgsign=false', *args], cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f'git {args[0]} exit {r.returncode}')
+    return r.stdout.strip()
+
+
+def _g8d_ok(ctx, frozen, ip):
+    return {'ok': True, 'mode': 'test', 'baseDir': ctx.base, 'checkSha': True}
+
+
+def _g8d_bad(ctx, frozen, ip):
+    return {'ok': False, 'mode': 'test-diff'}
+
+
+def _g8d_base():
+    """A synthetic post-freeze repo: B-SYN inputs (sealed, synthetic B), real dem-grids/cmr-geom, oro-apply filled by
+    oro.py, a fake bank (allow-list fields + fake trueGrid = clip(B + ΔC), fake PNG) for the counted and dev judge scenes
+    with its bank-manifest, a synthetic ruler, FROZEN.json at the freeze commit, then guards-oro.json + §10.2 hashes."""
+    if 'g8d' in _FIX:
+        return _FIX['g8d']
+    R = _R()
+    fx = _fixture_syn()
+    root = fresh_dir(os.path.join(G8D, 'base'))
+    od = os.path.join(root, *ORO_REL.split('/'))
+    os.makedirs(od)
+    inputs, dg = _jload(fx['inputs']), _jload(DEM_GRIDS_P)
+    shutil.copyfile(fx['inputs'], os.path.join(od, 'oro-inputs.json'))
+    shutil.copyfile(DEM_GRIDS_P, os.path.join(od, 'dem-grids.json'))
+    shutil.copyfile(os.path.join(HERE, 'cmr-geom.json'), os.path.join(od, 'cmr-geom.json'))
+    app = _jload(fx['apply'])
+    R.fill_apply_doc(app, inputs, dg, fx['base'], O.sha256_file(os.path.join(HERE, 'oro.py')))
+    O.dump_json(app, os.path.join(od, 'oro-apply.json'))
+    os.makedirs(os.path.join(root, '.harness', 'oro'))
+    os.symlink(fx['base'], os.path.join(root, '.harness', 'oro', 'base'))
+    bank = os.path.join(root, '.harness', 'macro', 'sat')
+    os.makedirs(bank)
+    cache = O.SiteCache(dg)
+    want = sorted(n for n, r in app['scenes'].items() if r['counted'] or (r['group'] == 'dev' and r['judge']))
+    for n in want:
+        sc = inputs['scenes'][n]
+        p = R.prep_scene(n, sc, app['scenes'][n], cache.get(sc['site']), {'dir': fx['base'], 'checkSha': True})
+        _fake_files(bank, n, sc['site'], sc['lat'], sc['lon'], sc['date'], p['Bs']['total'] + p['cj']['dC'], (0, 0))
+    with contextlib.redirect_stdout(io.StringIO()):
+        man = O.bank_manifest_doc(['orig'], table=lambda b: dict(O.bank_table(b), dir=O.rel(bank)))
+    O.dump_json(man, os.path.join(od, 'bank-manifest.json'))
+    with open(os.path.join(od, 'x.py'), 'w') as f:
+        f.write('X = 1\n')
+    with open(os.path.join(od, 'RULER-oro.md'), 'wb') as f:
+        f.write(RULER_SYN)
+    with open(os.path.join(root, '.gitignore'), 'w') as f:
+        f.write('.harness/\n')
+    frozen_files = ('RULER-oro.md', 'oro-inputs.json', 'oro-apply.json', 'dem-grids.json', 'cmr-geom.json',
+                    'bank-manifest.json', 'x.py')
+    frozen = {'files': {f'{ORO_REL}/{x}': O.sha256_file(os.path.join(od, x)) for x in frozen_files},
+              'versions': R.versions_ok({})[1]['running'],
+              'decisions': {'primaryMetric': app['summary']['primaryMetric'], 'lambdaTilde': app['summary']['lambdaTilde']},
+              'exposure': {'grade': '없음'}, 'rulerHash': R.ruler_hash(os.path.join(od, 'RULER-oro.md')),
+              'runtime': {'bCommit': 'synthetic'}, 'gateFilesAtFreeze': []}
+    O.dump_json(frozen, os.path.join(od, 'FROZEN.json'))
+    _git(root, 'init', '-q', '-b', 'main')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-q', '-m', 'freeze')
+    freeze = _git(root, 'rev-parse', 'HEAD')
+    with open(os.path.join(od, 'oroLift.ts'), 'w') as f:
+        f.write('export const oro = 1;\n')
+    h = O.sha256_file(os.path.join(od, 'oroLift.ts'))
+    O.dump_json({'guards': {f'G{i}': {'status': 'PASS'} for i in range(1, 10)}, 'hashes': {f'{ORO_REL}/oroLift.ts': h}},
+                os.path.join(od, 'guards-oro.json'))
+    with open(os.path.join(od, 'RULER-oro.md'), 'wb') as f:
+        f.write(RULER_SYN.replace(b'### 10.2 guards\n', b'### 10.2 guards\noroLift.ts ' + h.encode('ascii') + b'\n'))
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-q', '-m', 'post-freeze: G5 hashes')
+    _FIX['g8d'] = {'root': root, 'freeze': freeze, 'counted': sum(1 for r in app['scenes'].values() if r['counted'])}
+    return _FIX['g8d']
+
+
+def _g8d_copy(tag):
+    base = _g8d_base()
+    root = os.path.join(G8D, tag)
+    shutil.rmtree(root, ignore_errors=True)
+    shutil.copytree(base['root'], root, symlinks=True)
+    return root
+
+
+def _g8d_case(tag, mutate=None, b_checker=_g8d_ok, env=False):
+    R = _R()
+    root = _g8d_copy(tag)
+    fc = mutate(root) if mutate else None
+    ok, rec = R.precheck(R.Ctx(root, fc), b_checker=b_checker, env_check=env)
+    shutil.rmtree(root, ignore_errors=True)
+    return ok, rec
+
+
+def _od(root, *x):
+    return os.path.join(root, *ORO_REL.split('/'), *x)
+
+
+def _write(p, s, mode='w'):
+    with open(p, mode) as f:
+        f.write(s)
+
+
+@test('G8d')
+def t_g8d():
+    """The judge runs only when the §9.3 ④ conditions hold (L755 (d), L896-L913): a valid synthetic repo passes every
+    step; each violation is refused at its own step without a lock; the CLI --judge refuses with exit 2 and writes no lock;
+    the full judge then runs end to end on the synthetic repo (lock → T → one write; stop → judge-stop.json; rerun via
+    judge.lock.1), never opening a real bank path. The real repo is only --precheck'ed (no FROZEN → refused)."""
+    ck = Checks()
+    R = _R()
+    with _record_opens('G8d') as opened:
+        base = _g8d_base()
+        ok, rec = _g8d_case('baseline', env=True)
+        ck(ok and all(rec['steps'].values()) and rec['tread']['bankDiffs'] == [] and rec['env']['recompute']['identical'],
+           'baselinePasses')
+        ck.kv['steps'] = ','.join(sorted(rec['steps']))
+
+        def side(root):
+            _git(root, 'checkout', '-q', '-b', 'side')
+            _write(os.path.join(root, 'side.txt'), 's\n')
+            _git(root, 'add', '-A')
+            _git(root, 'commit', '-q', '-m', 'side')
+            h = _git(root, 'rev-parse', 'HEAD')
+            _git(root, 'checkout', '-q', 'main')
+            return h
+
+        def commit_x(root):
+            _write(_od(root, 'x.py'), 'X = 2\n')
+            _git(root, 'commit', '-q', '-am', 'edit frozen')
+
+        def worktree_x(root):
+            _write(_od(root, 'x.py'), 'X = 2\n')
+
+        def frozen_json(root):
+            fz = _jload(_od(root, 'FROZEN.json'))
+            fz['note'] = 'edited'
+            O.dump_json(fz, _od(root, 'FROZEN.json'))
+            _git(root, 'commit', '-q', '-am', 'edit FROZEN')
+
+        def not_frozen(root):
+            fz = _jload(_od(root, 'FROZEN.json'))
+            del fz['files'][f'{ORO_REL}/oro-inputs.json']
+            O.dump_json(fz, _od(root, 'FROZEN.json'))
+            _git(root, 'commit', '-q', '-am', 'FROZEN without oro-inputs')
+            return _git(root, 'rev-parse', 'HEAD')
+
+        def ext(root, wrong_sha=False, later_edit=False):
+            _write(_od(root, 'x2.py'), 'Y = 1\n')
+            h = '0' * 64 if wrong_sha else O.sha256_file(_od(root, 'x2.py'))
+            O.dump_json({'files': {f'{ORO_REL}/x2.py': h}}, _od(root, 'FROZEN-ext1.json'))
+            _git(root, 'add', '-A')
+            _git(root, 'commit', '-q', '-m', 'FROZEN-ext1')
+            if later_edit:
+                fz = _jload(_od(root, 'FROZEN-ext1.json'))
+                fz['note'] = 'edited'
+                O.dump_json(fz, _od(root, 'FROZEN-ext1.json'))
+                _git(root, 'commit', '-q', '-am', 'edit ext')
+
+        def ruler(root):
+            p = _od(root, 'RULER-oro.md')
+            with open(p, 'rb') as f:
+                b = f.read()
+            _write(p, b.replace(b'rule text', b'rule text changed'), 'wb')
+            _git(root, 'commit', '-q', '-am', 'ruler')
+
+        def ruler_sec10(root):
+            p = _od(root, 'RULER-oro.md')
+            with open(p, 'rb') as f:
+                b = f.read()
+            _write(p, b.replace(b'### 10.3 judgement\n', b'### 10.3 judgement\nrecord appended after freeze\n'), 'wb')
+            _git(root, 'commit', '-q', '-am', 'ruler §10 record')
+
+        def impl(root):
+            _write(_od(root, 'oroLift.ts'), 'export const oro = 2;\n')
+
+        def impl_not102(root):
+            g = _jload(_od(root, 'guards-oro.json'))
+            g['hashes'][f'{ORO_REL}/x.py'] = O.sha256_file(_od(root, 'x.py'))
+            O.dump_json(g, _od(root, 'guards-oro.json'))
+
+        def no_guards(root):
+            os.remove(_od(root, 'guards-oro.json'))
+
+        def gate(root):
+            _write(_od(root, 'gate-oro-held.json'), '{}\n')
+
+        def lock(root):
+            _write(_od(root, 'judge.lock'), 'x\n')
+
+        def lock1(root):
+            _write(_od(root, 'judge.lock.1'), 'x\n')
+
+        app = _jload(_od(base['root'], 'oro-apply.json'))
+        cnt = sorted(n for n, r in app['scenes'].items() if r['counted'])
+
+        def no_png(root):
+            os.remove(os.path.join(root, '.harness', 'macro', 'sat', cnt[0] + '.png'))
+
+        def bank_diff(root):
+            p = os.path.join(root, '.harness', 'macro', 'sat', cnt[0] + '.json')
+            sc = _jload(p)
+            sc['extra'] = 1
+            with open(p, 'w') as f:
+                json.dump(sc, f)
+
+        cases = [('1', 'notAncestor', side, {}), ('2a', 'frozenFileCommitted', commit_x, {}),
+                 ('2a', 'frozenFileWorktree', worktree_x, {}), ('2a', 'frozenJsonEdited', frozen_json, {}),
+                 ('2a', 'notFrozen', not_frozen, {}), ('2b', 'extEdited', lambda r: ext(r, later_edit=True), {}),
+                 ('6', 'extWrongSha', lambda r: ext(r, wrong_sha=True), {}), ('3', 'rulerEdited', ruler, {}),
+                 ('4', 'implChanged', impl, {}), ('4', 'implNotIn10_2', impl_not102, {}), ('4', 'noGuardsRecord', no_guards, {}),
+                 ('5', 'bRebuildDiffers', None, {'b_checker': _g8d_bad}), ('7', 'gateExists', gate, {}),
+                 ('7', 'lockExists', lock, {}), ('tread', 'missingPng', no_png, {})]
+        for step, tag, mut, kw in cases:
+            ok, rec = _g8d_case(tag, mut, **kw)
+            bad = sorted(k for k, v in rec['steps'].items() if not v)
+            exp_bad = {step, 'tread'} | ({'5'} if step in ('1', '2a', '2b', '3', '4', '6', '7') else set())
+            ck(not ok and step in bad and set(bad) <= exp_bad, f'{tag}:refusedAt{step}')
+            if tag == 'notFrozen':
+                ck(rec['2a']['notFrozen'] == [f'{ORO_REL}/oro-inputs.json'] and rec['2a']['git'] == 'ok', 'notFrozenReason')
+        ok, rec = _g8d_case('rulerSec10', ruler_sec10)
+        ck(ok, 'section10AppendAllowed')
+        ok, rec = _g8d_case('rerunMode', lock1)
+        ck(ok and rec['rerun'], 'lock1RerunMode')
+        devj = sorted(n for n, r in app['scenes'].items() if r['group'] == 'dev' and r['judge'])
+        if devj:
+            ok, rec = _g8d_case('devPngMissing', lambda root: os.remove(os.path.join(root, '.harness', 'macro', 'sat',
+                                                                                      devj[0] + '.png')))
+            ck(ok and rec['tread']['devMissing'] == [devj[0]] and not rec['tread']['missingPng'], 'devMissingIsReportOnly')
+        ck.kv['devJudge'] = len(devj)
+        ok, rec = _g8d_case('bankDiff', bank_diff)
+        ck(ok and rec['tread']['bankDiffs'] == [cnt[0]] and rec['tread']['nDiffs'] == 1, 'bankDiffRecordedNotRefused')
+        fz = _jload(_od(base['root'], 'FROZEN.json'))
+        ck(not R.versions_ok(dict(fz, versions=dict(fz['versions'], numpy='0.0.0')))[0]
+           and not R.env_precheck(R.Ctx(base['root']), dict(fz, versions=dict(fz['versions'], numpy='0.0.0')))['ok'],
+           'versionsRefused')
+        root = _g8d_copy('recompute')
+        ap = _od(root, 'oro-apply.json')
+        a = _jload(ap)
+        n0 = cnt[0]
+        a['scenes'][n0]['m8']['rmsDC'] += 1e-6
+        O.dump_json(a, ap)
+        e = R.env_precheck(R.Ctx(root), fz)
+        ck(not e['ok'] and e['recompute']['maxAbsFloat'] > 9e-7 and e['recompute']['nFloatDiffs'] == 1
+           and not e['recompute']['flagDiffs'], 'recomputeFloat')
+        a['scenes'][n0]['m8']['rmsDC'] -= 1e-6
+        a['scenes'][n0]['A8']['ok'] = not a['scenes'][n0]['A8']['ok']
+        O.dump_json(a, ap)
+        e = R.env_precheck(R.Ctx(root), fz)
+        ck(not e['ok'] and e['recompute']['flagDiffs'] == [f'/scenes/{n0}/A8/ok'], 'recomputeFlag')
+        shutil.rmtree(root, ignore_errors=True)
+        # CLI refusals (no lock written); the real repo is only prechecked (FROZEN.json absent → refused)
+        root = _g8d_copy('cli')
+        gate(root)
+        r = _run_oro(['--judge', '--root', root], check=False)
+        ck(r.returncode == 2 and r.stdout.startswith('REFUSE') and not os.path.exists(_od(root, 'judge.lock')), 'cliJudgeRefuses')
+        shutil.rmtree(root, ignore_errors=True)
+        r = _run_oro(['--precheck'], check=False)
+        ck(r.returncode == 1 and 'CHECK frozen FAIL' in r.stdout, 'realRepoPrecheckRefuses')
+        # end to end on the synthetic repo
+        root = _g8d_copy('e2e')
+        ctx = R.Ctx(root)
+        with contextlib.redirect_stdout(io.StringIO()) as so:
+            rc = R.run_judge(ctx, b_checker=_g8d_ok)
+        g = _jload(ctx.gate) if os.path.exists(ctx.gate) else {}
+        ck(rc == 0 and os.path.exists(ctx.lock) and os.path.exists(_od(root, 'judge-pret.json')), 'e2eWrote')
+        ck(set(g.get('clauses', {})) == {'c1', 'c2', 'c2b', 'c3', 'c3b', 'c4', 'c5', 'c6', 'c7', 'c8'}
+           and g['action']['line'] in ('1', '2', '3-1', '3-2', '3-3', '3-4', '3-5', '4', '5', '6'), 'e2eClauses')
+        st = g.get('stats', {})
+        ck(st and st['rhoRes']['value'] >= 0.99 and st['d']['value'] > 0 and g['judged']['c1']['n'] == len(g['judged']['names'])
+           and set(g['judged']['names']) <= set(cnt), 'e2eValues')
+        ck(len(g.get('sensitivity', {})) == 29 + 7 and g['sensitivity']['ecmwf'] == {'status': '못 잼'}, 'e2eArms')
+        lines = so.getvalue().splitlines()
+        ck(all(re.fullmatch(r'(PRET \S+ sha256 [0-9a-f]{64}|LOCK written|PREP \d+|TRUTH \d+/\d+|METRICS judged \d+ dev \d+'
+                            r'|GSHUF j \d+|ARMS|WROTE \S+ sha256 [0-9a-f]{64})', x) for x in lines), 'e2eStdoutProgressOnly')
+        ck([x.split()[0] for x in lines][:3] == ['PRET', 'PREP', 'LOCK'], 'e2ePrepBeforeLock')
+        ck.kv.update({'e2eJudged': len(g.get('judged', {}).get('names', [])), 'e2eLine': g.get('action', {}).get('line'),
+                      'e2eVerdict': g.get('action', {}).get('verdict')})
+        with contextlib.redirect_stdout(io.StringIO()):
+            ck(R.run_judge(ctx, b_checker=_g8d_ok) == 2, 'e2eSecondRunRefused')
+        shutil.rmtree(root, ignore_errors=True)
+        # stop after the lock → judge-stop.json (exception type only), then the one environment-only rerun via judge.lock.1
+        root = _g8d_copy('stop')
+        ctx = R.Ctx(root)
+        bankd = os.path.join(root, '.harness', 'macro', 'sat')
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = R.run_judge(ctx, b_checker=_g8d_ok, truth_fn=lambda n: os.path.join(bankd, n + '.json'),
+                             png_fn=lambda n: os.path.join(bankd, n + '.absent.png'))
+        stop = _jload(_od(root, 'judge-stop.json')) if os.path.exists(_od(root, 'judge-stop.json')) else {}
+        ck(rc == 3 and stop.get('exception') == 'FileNotFoundError' and stop.get('rerun') is False
+           and not os.path.exists(ctx.gate) and os.path.exists(ctx.lock), 'stopRecorded')
+        os.rename(ctx.lock, ctx.lock1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = R.run_judge(ctx, b_checker=_g8d_ok)
+        ck(rc == 0 and _jload(ctx.gate)['pret']['rerun'] is True, 'rerunViaLock1')
+        shutil.rmtree(root, ignore_errors=True)
+    ck(not os.path.exists(O.JUDGE_LOCK) and not os.path.exists(os.path.join(HERE, 'gate-oro-held.json')), 'noRealLockOrGate')
+    ck(all(O.guard_verdict(x) is None for x in opened), 'noRealBankOpened')
+    return ck.result()
+
+
+@test('G8e')
+def t_g8e():
+    """At freeze: no C4 satellite files (.harness/regime/sat*), no gate-oro-*, no judge.lock(.1) (L755 (e), L890)."""
+    ck = Checks()
+    gates = sorted(f for f in os.listdir(HERE) if f.startswith('gate-oro'))
+    ck(not gates, 'noGateOro')
+    ck(not os.path.exists(os.path.join(HERE, 'judge.lock')) and not os.path.exists(os.path.join(HERE, 'judge.lock.1')), 'noLock')
+    reg = os.path.join(ROOT, '.harness', 'regime')
+    c4 = sorted(f for f in os.listdir(reg) if f.startswith('sat')) if os.path.isdir(reg) else []
+    ck(not c4, 'noC4Satellite')
+    fz = os.path.join(HERE, 'FROZEN.json')
+    if os.path.exists(fz):
+        ck(_jload(fz).get('gateFilesAtFreeze') == [], 'frozenGateFilesEmpty')
+    ck.kv['frozen'] = os.path.exists(fz)
+    return ck.result()
+
+
+@test('G8f')
+def t_g8f():
+    """The open guard is armed during G6 (f)(g)(h) and none of them opened (or tried to open) a real scene JSON, PNG,
+    index, quartile or gate path (L755 (f)); the judge's truth/PNG decoders refuse real bank paths without the lock."""
+    ck = Checks()
+    R = _R()
+    ck(O.guard_installed() and R.O is O, 'guardArmed')
+    tmp_root = os.path.abspath(TMP) + os.sep
+    allow_keys = {'site', 'lat', 'lon', 'date', 'grid', 'cellKm', 'ring', 'trueGrid'}      # L768: allow-list + T_fake
+    for tag, fn in (('G6f', t_g6f), ('G6g', t_g6g), ('G6h', t_g6h)):
+        if tag not in _G6_OPENS:
+            fn()
+        opens = _G6_OPENS[tag] + (_G6_OPENS.get('G6fDry') or [] if tag == 'G6f' else [])
+        bad = [p for p in opens if O.guard_verdict(p) is not None]
+        ck(not bad, f'{tag}:noRealBankOpen')
+        # every JSON / PNG the test opened lies in test-tmp, except the committed MODIS-free inputs (oro-apply,
+        # oro-inputs, dem-grids); B files (.f32) are MODIS-free too
+        js = sorted({os.path.abspath(p) for p in opens if p.endswith(('.json', '.png'))} - set(G8F_COMMITTED_OK))
+        ck(all(p.startswith(tmp_root) for p in js), f'{tag}:sceneFilesInTmp')
+        ck.kv[f'{tag}Opens'] = len(opens)
+    # the fake scene JSONs written by G6 (f)(g)(h) carry only allow-list fields and T_fake (no cover/empty, no ring cover)
+    nj, keys_ok = 0, True
+    for sub in sorted(os.listdir(T_G6)) if os.path.isdir(T_G6) else []:
+        for fnm in sorted(os.listdir(os.path.join(T_G6, sub))):
+            if fnm.endswith('.json'):
+                sc = _jload(os.path.join(T_G6, sub, fnm))
+                nj += 1
+                keys_ok &= set(sc) <= allow_keys and all(set(x) <= {'dist', 'az'} for x in sc.get('ring', []))
+    ck(nj > 0 and keys_ok, 'fakeSceneKeysAllowListOnly')
+    ck.kv['fakeSceneJson'] = nj
+    for probe in ('.harness/macro/sat/__g8f_probe__.json', '.harness/macro/sat/__g8f_probe__.png',
+                  '.harness/oro/sat-ext/__g8f_probe__.png'):
+        p = os.path.join(ROOT, *probe.split('/'))
+        try:
+            (R.empty_cells if p.endswith('.png') else R.load_truth)(p)
+            ck(False, f'refused:{probe}')
+        except PermissionError:
+            pass
+    # positive controls: the interception would have caught an open of a real bank path. A scene JSON path opened under
+    # allow('scene-json') (the context load_truth uses) is recorded and flagged; a bank PNG under png-judge is refused by
+    # the guard before any open (no judge.lock). Probe names do not exist in the bank.
+    pj = os.path.join(ROOT, '.harness', 'macro', 'sat', '__g8f_probe__.json')
+    with _record_opens('G8fProbe') as rec:
+        with O.allow('scene-json'):
+            try:
+                open(pj, 'rb').close()
+            except FileNotFoundError:
+                pass
+    ck(any(os.path.abspath(x) == pj and O.guard_verdict(x) is not None for x in rec), 'interceptCatchesSceneJson')
+    pp = os.path.join(ROOT, '.harness', 'macro', 'sat', '__g8f_probe__.png')
+    try:
+        with O.allow('png-judge'):
+            open(pp, 'rb').close()
+        ck(False, 'guardRefusesBankPng')
+    except PermissionError:
+        pass
+    except FileNotFoundError:
+        ck(False, 'guardRefusesBankPng')
+    _G6_OPENS.pop('G8fProbe', None)
+    return ck.result()
+# ═══════════════════════ S3b JUDGE TESTS — END ═══════════════════════
 
 
 # ───────────────────────── 실행 ─────────────────────────

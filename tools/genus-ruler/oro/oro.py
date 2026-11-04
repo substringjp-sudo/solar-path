@@ -5,6 +5,12 @@ oro.py — RULER-oro judgement code (FROZEN file, ruler L874). Spec: tools/genus
   python3 -I tools/genus-ruler/oro/oro.py --fill-apply [--apply tools/genus-ruler/oro/oro-apply.json]
                                                        [--inputs tools/genus-ruler/oro/oro-inputs.json]
                                                        [--dem-grids tools/genus-ruler/oro/dem-grids.json] [--base .harness/oro/base]
+  python3 -I tools/genus-ruler/oro/oro.py --power      [--apply …/oro-apply.json] [--out …/power-oro.json]
+                                                       [--reps 1000 --boot 1000 --cal-reps 2000]   (trial runs: --out only)
+  python3 -I tools/genus-ruler/oro/oro.py --sunset     [--sounding .harness/oro/sounding.json] [--dem-grids …]
+                                                       [--ring-dir tools/genus-ruler/ring/nwp/blend] [--commit <B commit>]
+                                                       [--inputs-out .harness/oro/sunset-inputs.json]
+                                                       [--base-out .harness/oro/sunset-base] [--out …/sunset-apply.json]
   python3 -I tools/genus-ruler/oro/oro.py --ruler-hash [--ruler tools/genus-ruler/oro/RULER-oro.md]
   python3 -I tools/genus-ruler/oro/oro.py --precheck   [--root <repo>] [--frozen-commit <sha>]
   python3 -I tools/genus-ruler/oro/oro.py --judge      [--root <repo>] [--frozen-commit <sha>]
@@ -18,7 +24,13 @@ Modes (S3-design §6 table):
                 T-read precheck (inputs present, bank vs bank-manifest by hashing only). No T read, no lock. Exit 0 iff ok.
   --judge       once, post-freeze: precheck → pre-T record → judge.lock → T read (trueGrid, PNG empty pixels) → every
                 T-dependent value in one pass → one write of gate-oro-held.json (with a dev report block).
-  --power / --sunset (§6.7, §6.8) are separate S3b steps and are not built in this file yet.
+  --power       pre-freeze, MODIS-free (§6.7, L610-L621): power-oro.json from the oro-apply placement (counted scenes,
+                dates, sites, G-shuf membership) with the two fixed models (A: draft1 sim2c for c2∧c3; B: draft2 simA2 for
+                c3b), β(μ, κ) calibration (Q-48), 1000 replicates per cell, seeds 20261103 (+ cell index). Writing the
+                committed file needs the pinned counts and the committed oro-apply.json; --out allows trial runs.
+  --sunset      pre-freeze, MODIS-free (§6.8, L594, Q-42): sunset-apply.json — per site, the sounding hours 06-01..10-31 with
+                sun altitude in [−2°, 8°] and descending; A1–A5 counts, and on the ring hours A6 app (low, mid) with B from
+                the uncommitted .harness/oro/sunset-inputs.json run through oro-base.mjs (commit of .harness/oro/base).
 
 Contamination (§0.1): the open guard is installed first. Scene JSON `trueGrid` and bank PNG pixels are decoded only by
 load_truth / empty_cells, which refuse a real bank path unless tools/genus-ruler/oro/judge.lock exists (C2); the guard
@@ -38,7 +50,7 @@ import os
 import platform
 import subprocess
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
@@ -75,6 +87,7 @@ SIGMA_FINE_M = 10000.0          # G₁₀ (L568)
 P_C2 = 0.025                    # c2, c3 (L628, L630)
 P_C3B = 0.10                    # c3b (L631)
 C3B_MIN_SCENES = 10             # L355
+GSHUF_MIN_SITE = 3              # G-shuf sites: ≥ 3 judged scenes (L526, L354 ⑨)
 RHO_ROT_TAG = 0.03              # L676
 SMALL_RHO_U95 = 0.05            # L664
 SMALL_D_U95 = 0.10              # L664, L667
@@ -101,8 +114,6 @@ EXPOSURE_TAG = {'held 장면별': '동결 전 held 장면별 노출(§0.5)', '�
 
 
 # ═══════════════════════ helpers ═══════════════════════
-def _f(x):
-    return None if x is None else float(x)
 
 
 def median(v):
@@ -594,10 +605,29 @@ def _rowstat(X, stat):
     raise ValueError(stat)
 
 
+def _sign_matrix(G):
+    """Sign vectors of the date-block flip, row 0 = the identity: G ≤ 16 → all 2^G (itertools.product((1, −1)), whose
+    first row is all +1); G > 16 → the identity row on top of default_rng(20261103).choice([1, −1], size=(65536, G))."""
+    if G <= SF_EXACT_MAX_G:
+        return np.array(list(itertools.product((1, -1), repeat=G)), dtype=np.float64)
+    return np.vstack([np.ones((1, G)), np.random.default_rng(SEED).choice([1, -1], size=(SF_MC, G)).astype(np.float64)])
+
+
+def _flip_p(st, G):
+    """p from the row statistics of _sign_matrix(G): the observed value is st[0], taken from the same reduction as the
+    flipped rows, so a flip that equals the identity always counts as ≥ (a separate (1, n) reduction can come out 1 ulp
+    above the identity row for the mean). Exact: #(st ≥ st[0])/2^G, identity included; MC: (1 + #(st[1:] ≥ st[0]))/65537."""
+    obs = st[0]
+    if G <= SF_EXACT_MAX_G:
+        return int(np.sum(st >= obs)) / float(2 ** G)
+    return (1.0 + int(np.sum(st[1:] >= obs))) / (SF_MC + 1.0)
+
+
 def sign_flip_p(values, dates, stat='median'):
     """One-sided date-block sign-flip p (D11, L601-L604): G = #dates; G ≤ 16 → all 2^G sign vectors
     (itertools.product((1, −1)), identity included), p = #(stat_flip ≥ stat_obs)/2^G; G > 16 → default_rng(20261103)
-    .choice([1, −1], size=(65536, G)), p = (1 + #≥)/65537. Ties count as ≥."""
+    .choice([1, −1], size=(65536, G)), p = (1 + #≥)/65537. Ties count as ≥. stat_obs is the identity row of the same
+    reduction (_flip_p)."""
     pairs = [(v, d) for v, d in zip(values, dates) if v is not None]
     if not pairs:
         return None
@@ -606,14 +636,8 @@ def sign_flip_p(values, dates, stat='median'):
     pos = {b: i for i, b in enumerate(blocks)}
     idx = np.array([pos[d] for _, d in pairs], dtype=np.int64)
     G = len(blocks)
-    if G <= SF_EXACT_MAX_G:
-        signs = np.array(list(itertools.product((1, -1), repeat=G)), dtype=np.float64)
-    else:
-        signs = np.random.default_rng(SEED).choice([1, -1], size=(SF_MC, G)).astype(np.float64)
-    st = _rowstat(vals[None, :] * signs[:, idx], stat)
-    obs = _rowstat(vals[None, :] * np.ones((1, G))[:, idx], stat)[0]
-    cnt = int(np.sum(st >= obs))
-    return cnt / float(2 ** G) if G <= SF_EXACT_MAX_G else (1.0 + cnt) / (SF_MC + 1.0)
+    signs = _sign_matrix(G)
+    return _flip_p(_rowstat(vals[None, :] * signs[:, idx], stat), G)
 
 
 def block8(d):
@@ -1011,7 +1035,7 @@ def judged_rows(ctx):
         for n in sorted(rows):
             if rows[n]['counted']:
                 per[rows[n]['site']] = per.get(rows[n]['site'], 0) + 1
-        gs = sorted(s for s, k in per.items() if k >= 3)
+        gs = sorted(s for s, k in per.items() if k >= GSHUF_MIN_SITE)
         info.update({'gshufSites': gs, 'gshufScenes': sum(per[s] for s in gs)})
         info['c3bMeasurable'] = info['gshufScenes'] >= C3B_MIN_SCENES
     info['ecmwfAvailable'] = ecm
@@ -1024,12 +1048,19 @@ def scene_paths(ctx, sc, name):
 
 
 def tread_precheck(ctx, rows, scenes, b_src, ecmwf_available=True):
-    """T-read precheck (L910-L913): judgement inputs present; bank vs bank-manifest by hashing only (no decode)."""
-    rec = {'missingTrueGrid': [], 'missingPng': [], 'bankDiffs': [], 'missingB': [], 'armUnmeasurable': [], 'ok': True}
+    """T-read precheck (L910-L913): judgement inputs present; bank vs bank-manifest by hashing only (no decode).
+    A missing input of a judged clause (a counted scene's PNG or closest-time B) stops before T (L911); a missing input of
+    a report arm only marks that arm '못 잼' before T (L912): dev scenes (`devMissing`), the latest/m1h/p1h and 64² arms
+    and the ecmwf arm (`armUnmeasurable`). A scene JSON without trueGrid is dropped and counted at judgement (L343)."""
+    rec = {'missingTrueGrid': [], 'missingPng': [], 'bankDiffs': [], 'missingB': [], 'devMissing': [],
+           'armUnmeasurable': [], 'ok': True}
     man = _jl(ctx.o('bank-manifest.json'))
-    want = sorted(n for n, r in rows.items() if r['counted'] or (r['group'] == 'dev' and r['judge']))
-    for name in want:
+    held = sorted(n for n, r in rows.items() if r['counted'])
+    dev = sorted(n for n, r in rows.items() if r['group'] == 'dev' and r['judge'])
+    arm_missing = set()
+    for name in held + dev:
         sc = scenes[name]
+        is_dev = name in dev
         pj, pp = scene_paths(ctx, sc, name)
         mb = ((man.get('banks') or {}).get(sc['bank']) or {}).get('scenes', {}).get(name)
         h = O.scene_hashes(pj) if os.path.exists(pj) else None
@@ -1039,20 +1070,32 @@ def tread_precheck(ctx, rows, scenes, b_src, ecmwf_available=True):
         if os.path.exists(pp):
             with O.allow('png-hash'):
                 png = O.sha256_file(pp)
-        else:
-            rec['missingPng'].append(name)
         if mb is None or h is None or mb.get('jsonSha256') != h['jsonSha256'] or mb.get('trueGridSha256') != h['trueGridSha256'] \
                 or mb.get('pngSha256') != png:
             rec['bankDiffs'].append(name)
+        miss = [] if png is not None else ['png']
         for b in BANDS:
             try:
                 if load_B_src(b_src, name, 'closest', b, sc) is None:
-                    rec['missingB'].append(f'{name}:{b}')
+                    miss.append(f'B:{b}')
             except (OSError, ValueError):
-                rec['missingB'].append(f'{name}:{b}')
+                miss.append(f'B:{b}')
+        if is_dev:
+            if miss:
+                rec['devMissing'].append(name)
+            continue
+        if png is None:
+            rec['missingPng'].append(name)
+        rec['missingB'] += [f'{name}:{m[2:]}' for m in miss if m.startswith('B:')]
+        for tk, n64 in (('latest', False), ('m1h', False), ('p1h', False), ('closest', True)):
+            for b in ('total', 'high'):
+                try:
+                    load_B_src(b_src, name, tk, b, sc, n64=n64)       # None (B null) is a per-scene arm drop, not missing
+                except (OSError, ValueError):
+                    arm_missing.add('grid64' if n64 else tk)
     if not ecmwf_available:
-        rec['armUnmeasurable'].append('ecmwf')
-    # missing PNG of a judged scene = a judgement input missing (empty-pixel mask, L345) → stop before T (L911)
+        arm_missing.add('ecmwf')
+    rec['armUnmeasurable'] = sorted(arm_missing)
     if rec['missingPng'] or rec['missingB']:
         rec['ok'] = False
     rec['nDiffs'] = len(rec['bankDiffs'])
@@ -1124,22 +1167,31 @@ def precheck(ctx, b_checker=None, env_check=True):
     # 7. no gate file, no lock; judge.lock.1 → rerun mode
     st['7'] = not os.path.exists(ctx.gate) and not os.path.exists(ctx.lock)
     rec['rerun'] = os.path.exists(ctx.lock1)
-    # 5. B rebuilt from oro-inputs only
+    cheap_ok = all(st[k] for k in ('1', '2a', '2b', '3', '4', '6', '7'))
+    # 5. B rebuilt from oro-inputs only (skipped once a cheaper check failed: the judge stops anyway)
     ipath = ctx.o('oro-inputs.json')
-    b = (b_checker or default_b_check)(ctx, frozen, ipath) if os.path.exists(ipath) else {'ok': False, 'mode': 'no-inputs'}
+    if not cheap_ok:
+        b = {'ok': False, 'mode': 'skipped'}
+    elif not os.path.exists(ipath):
+        b = {'ok': False, 'mode': 'no-inputs'}
+    else:
+        b = (b_checker or default_b_check)(ctx, frozen, ipath)
     st['5'] = bool(b.get('ok'))
     rec['5'] = {k: v for k, v in b.items() if k != 'baseDir'}
     rec['bSource'] = {'dir': b.get('baseDir'), 'checkSha': b.get('checkSha', True)}
     # environment precheck (D2, D3, Q-56)
     if env_check:
-        e = env_precheck(ctx, frozen) if all(st[k] for k in ('1', '2a', '3', '7')) else {'ok': False, 'skipped': True}
+        e = env_precheck(ctx, frozen) if st['5'] else {'ok': False, 'skipped': True}
         st['env'] = bool(e.get('ok'))
         rec['env'] = e
-    # T-read precheck
-    if all(v for v in st.values()):
-        rows, scenes, info = judged_rows(ctx)
-        tr = tread_precheck(ctx, rows, scenes, rec['bSource'], info['ecmwfAvailable'])
-        st['tread'] = tr['ok']
+    # T-read precheck (L910-L913)
+    if all(bool(v) for v in st.values()):
+        try:
+            rows, scenes, info = judged_rows(ctx)
+            tr = tread_precheck(ctx, rows, scenes, rec['bSource'], info['ecmwfAvailable'])
+        except (OSError, KeyError, ValueError) as e:
+            tr = {'ok': False, 'error': type(e).__name__}
+        st['tread'] = bool(tr['ok'])
         rec['tread'] = tr
     else:
         st['tread'] = False
@@ -1210,9 +1262,6 @@ def prep_scene(name, sc, row, dem, b_src):
     return p
 
 
-def fine_boxes(cells, m6, dx_m=O.DX_M, box=None):
-    box = box or O.box15
-    return [box(fine_coarse(X, m6, dx_m)[0]) for X in cells]
 
 
 def scene_main(p, tr, mk, primary, lam_tilde):
@@ -1385,9 +1434,6 @@ def site_table(names, rows, vals, dshuf):
     return {'sites': tab, 'loso': loso, 'medianOfSiteMedians': median([t['medianRhoStar'] for t in tab.values()])}
 
 
-def split_stats(names, rows, vals, key, dates):
-    v = [vals[n][key] for n in names]
-    return summary_stat(v, [dates[n] for n in names])
 
 
 def scene_stats(names, rows, vals, key, stat='median', with_p=False, blockfn=None):
@@ -1440,28 +1486,41 @@ def _progress(msg):
     print(msg, flush=True)
 
 
-def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_fn=None):
+def judge_prepare(ctx, rows, scenes, b_src, pret=None):
+    """T-free part, run before the lock: the held (counted) and dev judge scenes and their prep_fields (F, F_rev,
+    combiners, app arm, rotated DEM). A failure here stops the judge with no lock written."""
+    tr_pre = (pret or {}).get('tread') or {}
+    cache = O.SiteCache(_jl(ctx.o('dem-grids.json')))
+    held = sorted(n for n, r in rows.items() if r['counted'])
+    skip = set(tr_pre.get('devMissing') or [])
+    dev = sorted(n for n, r in rows.items() if r['group'] == 'dev' and r['judge'] and n not in skip)
+    preps = {n: prep_scene(n, scenes[n], rows[n], cache.get(scenes[n]['site']), b_src) for n in held + dev}
+    return held, dev, preps
+
+
+def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_fn=None, pret=None, prepared=None):
     """Everything after the lock: T read, per-scene metrics, G-shuf, arms, statistics, clauses, action. Returns the
-    gate document (not written). truth_fn / png_fn map a scene name to its JSON / PNG path (tests: synthetic dirs)."""
+    gate document (not written). truth_fn / png_fn map a scene name to its JSON / PNG path (tests: synthetic dirs);
+    prepared = judge_prepare(...) computed before the lock."""
     dec = frozen.get('decisions') or {}
     primary = dec.get('primaryMetric') or summary.get('primaryMetric') or 'rho_res'
     lam_t = dec.get('lambdaTilde')
     if lam_t is None:
         lam_t = summary.get('lambdaTilde') or 1.0
     exposure = (frozen.get('exposure') or {}).get('grade')
-    dg = _jl(ctx.o('dem-grids.json'))
-    cache = O.SiteCache(dg)
-    held = sorted(n for n, r in rows.items() if r['counted'])
-    dev = sorted(n for n, r in rows.items() if r['group'] == 'dev' and r['judge'])
-    preps = {n: prep_scene(n, scenes[n], rows[n], cache.get(scenes[n]['site']), b_src) for n in held + dev}
-    _progress(f'PREP {len(preps)}')
+    tr_pre = (pret or {}).get('tread') or {}
+    unmeas = set(tr_pre.get('armUnmeasurable') or [])
+    if not summary.get('ecmwfAvailable'):
+        unmeas.add('ecmwf')
+    held, dev, preps = prepared if prepared is not None else judge_prepare(ctx, rows, scenes, b_src, pret)
     # T read (the lock exists already)
     truths, drops = {}, {'noTrueGrid': [], 'smallS': []}
     for i, n in enumerate(held + dev):
         pj, pp = (truth_fn(n), png_fn(n)) if truth_fn else scene_paths(ctx, scenes[n], n)
         tr = load_truth(pj)
         if tr is None:
-            drops['noTrueGrid'].append(n)
+            if n in held:
+                drops['noTrueGrid'].append(n)          # dev scenes without trueGrid show up in dev.drops
             continue
         tr['empty'], tr['dark'] = empty_cells(pp)
         truths[n] = tr
@@ -1482,12 +1541,13 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
     dev_j = [n for n in dev if n in vals and vals[n]['nS'] >= O.A7_MIN_S]
     _progress(f'METRICS judged {len(judged)} dev {len(dev_j)}')
     gs_sites = sorted(summary.get('gshufSites') or [])
-    dshuf, dswap, dshuf2, gs_excluded = gshuf_all(held, judged, rows, preps, vals, gs_sites, primary)
+    dshuf, dswap, dshuf2, gs_excluded = gshuf_all(judged, rows, preps, vals, gs_sites, primary)
     _progress(f'GSHUF j {len(dshuf)}')
     extra = {'primary': primary, 'c3bMeasurable': bool(summary.get('c3bMeasurable')),
              'c7': guards_pass(ctx)}
     st = build_stats(judged, rows, vals, dshuf, extra)
     st['dshuf']['postDropJ'] = len(dshuf)
+    st['dshuf']['postDropSites'] = gshuf_sites_post(judged, rows, gs_sites)
     st['dshuf']['excludedAllKSkipped'] = sorted(gs_excluded)
     st['dshuf']['swap'] = {'median': median(list(dswap.values())), 'mean': mean(list(dswap.values()))}
     st['dshuf']['form2'] = {'median': median(list(dshuf2.values())), 'n': len(dshuf2)}
@@ -1498,9 +1558,8 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
     _progress('ARMS')
     arms = {}
     cache_hs = {}
-    inp_ecmwf = bool(summary.get('ecmwfAvailable'))
     for name, cfg in MODEL_ARMS + MASK_ARMS:
-        if name == 'ecmwf' and not inp_ecmwf:
+        if name in unmeas:
             arms[name] = {'status': '못 잼'}
             continue
         res, nd_s, nd_i = {}, [], []
@@ -1512,13 +1571,13 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
                 res[n] = a
         arms[name] = arm_summary(res, rows, nd_s, nd_i)
     res, nd_s, nd_i = {}, [], []
-    for n in judged:
+    for n in ([] if 'grid64' in unmeas else judged):
         a = arm64(preps[n], truths[n], primary, b_src)
         if 'drop' in a:
             (nd_s if a['drop'] == 'S' else nd_i).append(n)
         else:
             res[n] = a
-    arms['grid64'] = arm_summary(res, rows, nd_s, nd_i)
+    arms['grid64'] = {'status': '못 잼'} if 'grid64' in unmeas else arm_summary(res, rows, nd_s, nd_i)
     arms['blocks8d'] = {'rho': scene_stats(judged, rows, vals, 'rho_star', with_p=True, blockfn=block8),
                         'd': scene_stats(judged, rows, vals, 'd_star', with_p=True, blockfn=block8)}
     arms['grevOnS'] = scene_stats(judged, rows, vals, 'd_S_fine' if primary == 'rho_fine' else 'd_S')
@@ -1532,6 +1591,7 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
     c = clauses(st)
     act = action(c, st, exposure)
     dev_block = {'n': len(dev_j), 'names': dev_j, 'drops': sorted(set(dev) - set(dev_j)),
+                 'unmeasurable': sorted(tr_pre.get('devMissing') or []),
                  'medians': {k: median([vals[n][k] for n in dev_j]) for k in
                              ('rho_res', 'rho_star', 'd_star', 'dMSE', 'rho_vis', 'Lminus', 'rho_fine', 'dcorr12')}}
     scenes_out = {n: {k: v for k, v in vals[n].items() if not k.startswith('_')} for n in sorted(vals)}
@@ -1544,16 +1604,23 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
             'sensitivity': arms, 'splits': splits, 'dev': dev_block, 'scenes': scenes_out}
 
 
-def gshuf_all(held, judged, rows, preps, vals, gs_sites, primary):
-    """G-shuf (L526-L535, Q-55): sites fixed before T (oro-apply gshufSites); j = the site's G-shuf (counted) scenes still
-    in the finally judged set; k = the site's counted scenes ≠ j (T-independent). F_{j|k} = F_k (same DEM and lat, k's
-    sounding), combiner on B_j; a failed (j|k) combiner skips that k (L354). Returns dicts d_shuf, ρ_odd,swap, 2-draft
-    form, and the j excluded because every k was skipped."""
+def gshuf_sites_post(judged, rows, gs_sites):
+    """The oro-apply G-shuf sites (fixed before T) that still have ≥ 3 finally judged scenes (L354 ⑨, L526)."""
+    return [s for s in gs_sites if sum(1 for n in judged if rows[n]['site'] == s) >= GSHUF_MIN_SITE]
+
+
+def gshuf_all(judged, rows, preps, vals, gs_sites, primary):
+    """G-shuf (L526-L535; build note FX-2 replaces the k part of Q-55): sites = oro-apply gshufSites (fixed before T)
+    that keep ≥ 3 finally judged scenes (L354 ⑨); j and k both range over the site's finally judged scenes (L526 "같은
+    사이트의 다른 판정 장면 k"), so J = K and a site-fixed pattern cancels in the mean (L532 Σ_j(a_j − ā_−j) = 0). A scene
+    dropped after T (no trueGrid, |S| < 20 after the empty-pixel mask, L343-L347) is neither a j nor a k.
+    F_{j|k} = F_k (same DEM and lat, k's sounding), combiner on B_j; a failed (j|k) combiner skips that k (L354). Returns dicts d_shuf, ρ_odd,swap, 2-draft form, and
+    the j excluded because every k was skipped."""
     dshuf, dswap, dshuf2, excluded = {}, {}, {}, []
     fine_mode = primary == 'rho_fine'
-    for s in gs_sites:
-        ks = [n for n in held if rows[n]['site'] == s]
-        for j in [n for n in ks if n in judged]:
+    for s in gshuf_sites_post(judged, rows, gs_sites):
+        ks = [n for n in judged if rows[n]['site'] == s]
+        for j in ks:
             p = preps[j]
             kl = []
             for k in ks:
@@ -1650,10 +1717,12 @@ def run_judge(ctx, b_checker=None, truth_fn=None, png_fn=None):
     print(f'PRET {O.rel(pret)} sha256 {O.sha256_bytes(s.encode("utf-8"))}')
     frozen = _jl(ctx.o('FROZEN.json'))
     rows, scenes, summary = judged_rows(ctx)
+    prepared = judge_prepare(ctx, rows, scenes, rec['bSource'], rec)
+    print(f'PREP {len(prepared[2])}')
     write_lock(ctx, rec)
     print('LOCK written')
     try:
-        doc = judge_compute(ctx, rows, scenes, summary, frozen, rec['bSource'], truth_fn, png_fn)
+        doc = judge_compute(ctx, rows, scenes, summary, frozen, rec['bSource'], truth_fn, png_fn, rec, prepared)
         doc['pret'] = {'sha256': O.sha256_bytes(s.encode('utf-8')), 'rerun': rec['rerun']}
         out = O.dump_json(doc, ctx.gate)
         print(f'WROTE {O.rel(ctx.gate)} sha256 {O.sha256_bytes(out.encode("utf-8"))}')
@@ -1665,6 +1734,580 @@ def run_judge(ctx, b_checker=None, truth_fn=None, png_fn=None):
         O.dump_json(stop, ctx.o('judge-stop.json'))
         print(f'STOP {type(e).__name__}')
         return 3
+
+
+# ═══════════════════════ §6.7 power-oro.json (§4.7 L610-L621, Q-48) ═══════════════════════
+# Two fixed models (L612-L615), MODIS-free; the placement is the `counted` set of oro-apply (held judge scenes, their dates,
+# sites and G-shuf membership — no random application). The c2/c3/c3b tests are the judgement's own (median, date-block
+# percentile L95 with B = 1000 instead of 10,000 (Q-48), date-block sign flip, c3b mean + sign flip p ≤ 0.10, '못 잼'
+# when the placement has < 10 G-shuf scenes counted as not passing).
+D_POWER = f'{ORO_REL}/power-oro.json'
+POW_MUS = (0.0, 0.05, 0.10, 0.15)       # L616 "참 중앙 ρ 0, 0.05, 0.10, 0.15"
+POW_SIGMAS = (0.15, 0.20)               # model A scene SD (sim2c, L613)
+POW_KAPPAS = (1.0, 3.0)                 # model B wind skew κ (simA2, L614)
+POW_REPS = 1000                         # replicates per cell (S3-design §6.7)
+POW_BOOT_B = 1000                       # bootstrap inside power (Q-48; 10,000 in the judgement)
+POW_CAL_REPS = 2000                     # β(μ, κ) calibration replicates (Q-48)
+POW_CAL_STEPS = 40                      # bisection steps on [0, 1] (Q-48)
+POW_SITE_SD = 0.05                      # sim2c tau_s (L613 "사이트 SD 0.05")
+POW_E_CORR = -0.79                      # sim2c corr(e1, e2)
+POW_REV_SLOPE = -0.8                    # sim2c ρ_rev = −0.8μ − 0.8u_s + e2
+POW_ART_AS = (0.05, 0.10)               # site-fixed pattern effect (L617 "사이트 고정 무늬(효과 0.05·0.10)")
+POW_DECISION_MU = 0.10                  # L618
+POW_DECISION_MIN = 0.2                  # L618
+# model B generator: draft2 recheck-sims/simA2_gshuf_mean.py, verbatim constants
+MB_N = 64
+MB_DX_KM = 6.0
+MB_S_HP_KM = 10.0
+MB_BAND_WL_KM = 45.0
+MB_BAND_LOGSD = 0.6
+MB_NOISE_KM = 7.0
+MB_C_EVEN = 0.175
+MB_DC = 0.02
+MB_NDIR = 8
+
+
+def _f(x):
+    return None if x is None else float(x)
+
+
+def power_placement(doc):
+    """The fixed placement of §4.7 L610 from an oro-apply document: `counted` rows (sorted by name), their sites and dates,
+    G-shuf sites (≥ 3 counted scenes, L526) and c3b measurability (≥ 10 G-shuf scenes, L355). The summary must agree."""
+    rows = doc['scenes']
+    names = sorted(n for n in rows if rows[n]['counted'])
+    per = {}
+    for n in names:
+        per[rows[n]['site']] = per.get(rows[n]['site'], 0) + 1
+    sites = sorted(per)
+    gs = sorted(s for s in sites if per[s] >= GSHUF_MIN_SITE)
+    gsc = sum(per[s] for s in gs)
+    sm = doc['summary']
+    if (sm.get('n') != len(names) or sm.get('gshufSites') != gs or sm.get('gshufScenes') != gsc
+            or sm.get('c3bMeasurable') != (gsc >= C3B_MIN_SCENES)):
+        raise ValueError('power: oro-apply summary (n, gshufSites, gshufScenes, c3bMeasurable) differs from its counted rows')
+    si = {s: i for i, s in enumerate(sites)}
+    return {'names': names, 'site': [rows[n]['site'] for n in names], 'date': [rows[n]['date'] for n in names],
+            'sites': sites, 'perSite': dict(sorted(per.items())), 'sIdx': np.array([si[rows[n]['site']] for n in names],
+                                                                                   dtype=np.int64),
+            'gshufSites': gs, 'gshufScenes': gsc, 'c3bMeasurable': bool(gsc >= C3B_MIN_SCENES),
+            'gIdx': [j for j, n in enumerate(names) if rows[n]['site'] in gs]}
+
+
+class PlacementTests:
+    """The judgement's tests on one fixed set of dates, vectorised and exactly equal to date_block_ci(…, B, seed) and
+    sign_flip_p(…) (bit equality is test P-EQ): the bootstrap block draws do not depend on the values, so the B × G count
+    matrix is drawn once with the same rng calls (rng.choice(G) ≡ rng.choice(blocks), same stream) and every replicate's
+    L95 is the 2.5 % percentile of B weighted medians; the sign matrix is the same _sign_matrix(G) (2^G for G ≤ 16, or
+    the identity row on top of the MC(65,536) draws) and p comes from the same _flip_p."""
+    def __init__(self, dates, B=POW_BOOT_B, seed=SEED):
+        self.blocks = sorted(set(dates))
+        G = len(self.blocks)
+        pos = {b: i for i, b in enumerate(self.blocks)}
+        self.idx = np.array([pos[d] for d in dates], dtype=np.int64)
+        self.G, self.B = G, B
+        rng = np.random.default_rng(seed)
+        cnt = np.zeros((B, G), dtype=np.int64)
+        for b in range(B):
+            cnt[b] = np.bincount(rng.choice(G, size=G, replace=True), minlength=G)
+        self.W = cnt[:, self.idx] if G else cnt
+        self.signs = _sign_matrix(G)                  # row 0 = identity (same matrix as sign_flip_p)
+
+    def ci(self, vals):
+        """[L95, U95] of the median (date_block_ci with np.median)."""
+        v = np.asarray(vals, dtype=np.float64)
+        o = np.argsort(v, kind='stable')
+        vs = v[o]
+        cw = np.cumsum(self.W[:, o], axis=1)
+        T = cw[:, -1]
+        i0 = np.argmax(cw > ((T - 1) // 2)[:, None], axis=1)
+        i1 = np.argmax(cw > (T // 2)[:, None], axis=1)
+        meds = 0.5 * (vs[i0] + vs[i1])
+        return [float(np.percentile(meds, 2.5)), float(np.percentile(meds, 97.5))]
+
+    def p(self, vals, stat='median'):
+        """sign_flip_p(vals, dates, stat)."""
+        v = np.asarray(vals, dtype=np.float64)
+        return _flip_p(_rowstat(v[None, :] * self.signs[:, self.idx], stat), self.G)
+
+    def pass_median(self, vals):
+        """c2/c3 rule (L628, L630): median > 0 ∧ L95 > 0 ∧ one-sided sign-flip p ≤ 0.025 (short-circuit: same booleans)."""
+        if not float(np.median(np.asarray(vals, dtype=np.float64))) > 0.0:
+            return False
+        if not self.ci(vals)[0] > 0.0:
+            return False
+        return self.p(vals, 'median') <= P_C2
+
+    def pass_mean(self, vals):
+        """c3b rule (L631): mean > 0 ∧ one-sided sign-flip p (statistic = mean) ≤ 0.10."""
+        if not float(np.mean(np.asarray(vals, dtype=np.float64))) > 0.0:
+            return False
+        return self.p(vals, 'mean') <= P_C3B
+
+
+def _model_a_cell(place, tests, mu, sigma, seed, reps):
+    """Model A (draft1 stat/sim2c.py, L613): u_s ~ N(0, 0.05²) per placement site; (e1, e2) ~ N(0, σ²[[1, −0.79],
+    [−0.79, 1]]); ρ = clip(μ + u_s + e1, ±1), ρ_rev = clip(−0.8μ − 0.8u_s + e2, ±1), d = ρ − ρ_rev; c2 on ρ, c3 on d."""
+    rng = np.random.default_rng(seed)
+    Lc = np.linalg.cholesky(np.array([[1.0, POW_E_CORR], [POW_E_CORR, 1.0]]))
+    s_idx = place['sIdx']
+    n, n_s = len(s_idx), len(place['sites'])
+    k2 = k3 = k23 = 0
+    for _ in range(reps):
+        u = rng.normal(0, POW_SITE_SD, n_s)
+        e = (rng.standard_normal((n, 2)) @ Lc.T) * sigma
+        r1 = np.clip(mu + u[s_idx] + e[:, 0], -1, 1)
+        r2 = np.clip(POW_REV_SLOPE * mu + POW_REV_SLOPE * u[s_idx] + e[:, 1], -1, 1)
+        c2 = tests.pass_median(r1)
+        c3 = tests.pass_median(r1 - r2)
+        k2 += c2
+        k3 += c3
+        k23 += c2 and c3
+    return {'pA_c2': k2 / reps, 'pA_c3': k3 / reps, 'pA_c2c3': k23 / reps}
+
+
+def _pear_a2(x, y, m):
+    """simA2 `pear` verbatim (model B's own Pearson): < 3 boxes or a zero SD → 0.0."""
+    if m.sum() < 3:
+        return 0.0
+    a, b = x[m], y[m]
+    sa, sb = a.std(), b.std()
+    if sa == 0 or sb == 0:
+        return 0.0
+    return float(np.mean((a - a.mean()) * (b - b.mean())) / (sa * sb))
+
+
+class ModelB:
+    """Model B (draft2 recheck-sims/simA2_gshuf_mean.py, L614): the same synthetic-terrain generator (64² × 6 km Gaussian
+    band field around 45 km, high-pass s = 10 km, central 30×30 cells → 15×15 boxes), forcing F = [i(ŵ·k)/K + 0.175]ĥ,
+    ΔC = 0.02 F/scale_site, S = |ΔC| ≥ 0.02, r = β z(ΔC) + A·P_site + noise (7 km Gaussian, box SD 1), prevailing wind per
+    site ~ U(0, 2π), scene wind ~ vonMises(prevailing, κ), site-fixed pattern P along the prevailing wind. Restricted to the
+    fixed placement: sites in sorted order, scenes in placement order; G-shuf on W (all 225 boxes) for the scenes of the
+    G-shuf sites, k = the site's other placement scenes. Random draws do not depend on β or A."""
+    def __init__(self):
+        N = MB_N
+        kx = 2 * np.pi * np.fft.fftfreq(N, MB_DX_KM)
+        KX, KY = np.meshgrid(kx, kx)
+        K = np.hypot(KX, KY)
+        self.KX, self.KY = KX, KY
+        self.Ks = np.where(K == 0, 1, K)
+        self.HP = 1 - np.exp(-K ** 2 * MB_S_HP_KM ** 2 / 2)
+        band = np.exp(-((np.log(np.where(K == 0, 1e-9, K)) - np.log(2 * np.pi / MB_BAND_WL_KM)) ** 2)
+                      / (2 * MB_BAND_LOGSD ** 2))
+        band[0, 0] = 0
+        self.BAND = band
+        self.NOISE_FILT = np.exp(-K ** 2 * MB_NOISE_KM ** 2 / 2)
+        self.allW = np.ones(225, dtype=bool)
+
+    @staticmethod
+    def boxes(f):
+        c = f[MB_N // 2 - 15:MB_N // 2 + 15, MB_N // 2 - 15:MB_N // 2 + 15]
+        return c.reshape(15, 2, 15, 2).mean(axis=(1, 3)).ravel()
+
+    def terrain(self, rng):
+        h = np.real(np.fft.ifft2(np.fft.fft2(rng.standard_normal((MB_N, MB_N))) * self.BAND))
+        return np.fft.fft2(h) * self.HP
+
+    def forcing(self, hs, th):
+        w = np.array([np.cos(th), np.sin(th)])
+        return self.boxes(np.real(np.fft.ifft2(hs * (1j * (w[0] * self.KX + w[1] * self.KY) / self.Ks + MB_C_EVEN))))
+
+    def pattern(self, hs, th):
+        w = np.array([np.cos(th), np.sin(th)])
+        p = self.boxes(np.real(np.fft.ifft2(hs * 1j * (w[0] * self.KX + w[1] * self.KY) / self.Ks)))
+        return (p - p.mean()) / p.std()
+
+    def noise(self, rng):
+        z = self.boxes(np.real(np.fft.ifft2(np.fft.fft2(rng.standard_normal((MB_N, MB_N))) * self.NOISE_FILT)))
+        return z / z.std()
+
+    def draw(self, rng, place, kappa, rev=True, pattern=True):
+        """One replicate's random part, in simA2's rng order: terrain per site, prevailing direction per site, wind per
+        scene, noise per scene. Returns dC, dCr (if rev), z(dC), noise per scene and P per site index (if pattern)."""
+        s_idx = place['sIdx']
+        us = sorted(set(int(s) for s in s_idx))
+        hs = {s: self.terrain(rng) for s in us}
+        prev = {s: rng.uniform(0, 2 * np.pi) for s in us}
+        scale = {s: np.mean([self.forcing(hs[s], t).std() for t in np.linspace(0, 2 * np.pi, MB_NDIR, endpoint=False)])
+                 for s in us}
+        P = {s: self.pattern(hs[s], prev[s]) for s in us} if pattern else None
+        th = np.array([rng.vonmises(prev[int(s)], kappa) for s in s_idx])
+        dC = [MB_DC * self.forcing(hs[int(s)], t) / scale[int(s)] for s, t in zip(s_idx, th)]
+        dCr = [MB_DC * self.forcing(hs[int(s)], t + np.pi) / scale[int(s)] for s, t in zip(s_idx, th)] if rev else None
+        z = [(d - d.mean()) / d.std() for d in dC]
+        nz = [self.noise(rng) for _ in range(len(s_idx))]
+        return {'dC': dC, 'dCr': dCr, 'z': z, 'noise': nz, 'P': P}
+
+    def evaluate(self, dr, beta, A, place, tests, tests_g):
+        """(c2, c3, c3b) of one replicate: ρ_res on S, d on S∪, mean d_shuf on W over the G-shuf scenes (simA2 variant
+        'e' = the ruler's c3b); not measurable ('못 잼') → c3b False."""
+        s_idx = place['sIdx']
+        n = len(s_idx)
+        r = [beta * dr['z'][j] + (A * dr['P'][int(s_idx[j])] if A else 0.0) + dr['noise'][j] for j in range(n)]
+        rho = np.zeros(n)
+        dd = np.zeros(n)
+        for j in range(n):
+            S = np.abs(dr['dC'][j]) >= MB_DC
+            Su = S | (np.abs(dr['dCr'][j]) >= MB_DC)
+            rho[j] = _pear_a2(dr['dC'][j], r[j], S)
+            dd[j] = _pear_a2(dr['dC'][j], r[j], Su) - _pear_a2(dr['dCr'][j], r[j], Su)
+        c2 = tests.pass_median(rho)
+        c3 = tests.pass_median(dd)
+        c3b = False
+        if place['c3bMeasurable'] and c2 and c3:
+            ds = []
+            for j in place['gIdx']:
+                ks = [k for k in range(n) if k != j and s_idx[k] == s_idx[j]]
+                ds.append(_pear_a2(dr['dC'][j], r[j], self.allW)
+                          - float(np.mean([_pear_a2(dr['dC'][k], r[j], self.allW) for k in ks])))
+            c3b = tests_g.pass_mean(ds)
+        return c2, c3, c3b
+
+
+def _model_b_cell(mb, place, tests, tests_g, beta, A, kappa, seed, reps):
+    """P(c2∧c3), P(c3b | c2∧c3) and model B's own P(c2∧c3∧c3b) (c3b only matters given c2∧c3, so it is evaluated only
+    there; '못 잼' → 0)."""
+    rng = np.random.default_rng(seed)
+    k2 = k3 = k23 = kj = 0
+    for _ in range(reps):
+        dr = mb.draw(rng, place, kappa, rev=True, pattern=bool(A))
+        c2, c3, c3b = mb.evaluate(dr, beta, A, place, tests, tests_g)
+        k2 += c2
+        k3 += c3
+        k23 += c2 and c3
+        kj += c2 and c3 and c3b
+    return {'pB_c2': k2 / reps, 'pB_c3': k3 / reps, 'pB_c2c3': k23 / reps,
+            'pB_c3b_given': (kj / k23) if k23 else None, 'pB_joint': kj / reps, 'nB_c2c3': k23}
+
+
+class _CalibB:
+    """Model B ρ_res(β) on S for A = 0 from per-scene moments (r = βz + e is linear in β, so the simA2 Pearson is
+    (βC_az + C_ae)/(√V_a √(β²V_z + 2βC_ze + V_e)); < 3 boxes or a zero SD → 0 as in simA2). The draws are made once with a
+    fresh default_rng(seed), i.e. the bisection uses common random numbers at every β (Q-48)."""
+    def __init__(self, mb, place, kappa, reps, seed):
+        rng = np.random.default_rng(seed)
+        n = len(place['sIdx'])
+        M = np.zeros((7, reps, n))
+        for i in range(reps):
+            dr = mb.draw(rng, place, kappa, rev=False, pattern=False)
+            for j in range(n):
+                S = np.abs(dr['dC'][j]) >= MB_DC
+                if S.sum() < 3:
+                    M[6, i, j] = 1.0
+                    continue
+                a = dr['dC'][j][S]
+                zz = dr['z'][j][S]
+                e = dr['noise'][j][S]
+                ac, zc, ec = a - a.mean(), zz - zz.mean(), e - e.mean()
+                M[0, i, j] = np.mean(ac * ac)
+                M[1, i, j] = np.mean(ac * zc)
+                M[2, i, j] = np.mean(ac * ec)
+                M[3, i, j] = np.mean(zc * zc)
+                M[4, i, j] = np.mean(zc * ec)
+                M[5, i, j] = np.mean(ec * ec)
+        self.M = M
+
+    def rho(self, beta):
+        Va, Caz, Cae, Vz, Cze, Ve, small = self.M
+        vb = beta * beta * Vz + 2.0 * beta * Cze + Ve
+        den = np.sqrt(Va) * np.sqrt(np.maximum(vb, 0.0))
+        ok = (small == 0) & (Va > 0) & (vb > 0)
+        return np.where(ok, (beta * Caz + Cae) / np.where(ok, den, 1.0), 0.0)
+
+    def f(self, beta):
+        """Mean over replicates of the median over scenes of ρ_res(β)."""
+        return float(np.mean(np.median(self.rho(beta), axis=1)))
+
+    def solve(self, mu, steps=POW_CAL_STEPS):
+        if mu == 0.0:
+            return 0.0, self.f(0.0), True
+        lo, hi = 0.0, 1.0
+        f0, f1 = self.f(lo), self.f(hi)
+        for _ in range(steps):
+            mid = 0.5 * (lo + hi)
+            if self.f(mid) < mu:
+                lo = mid
+            else:
+                hi = mid
+        b = 0.5 * (lo + hi)
+        return b, self.f(b), bool(f0 <= mu <= f1)
+
+
+def _ck(**kw):
+    """Cell key in the §6.7 schema form, e.g. mu=0.10,sigma=0.15,kappa=1."""
+    def fmt(k, v):
+        return f'{v:.2f}' if k in ('mu', 'sigma', 'A') else (str(int(v)) if float(v).is_integer() else repr(v))
+    return ','.join(f'{k}={fmt(k, v)}' for k, v in kw.items())
+
+
+def power_doc(apply_path, reps=POW_REPS, boot_b=POW_BOOT_B, cal_reps=POW_CAL_REPS, progress=None):
+    """power-oro.json (S3-design §6.7). Seeds: calibration default_rng(20261103) for every (μ, κ); simulation cell i (in
+    the fixed order: model A (μ, σ), model B (μ, κ), site-fixed pattern (A, κ)) uses default_rng(20261103 + i)."""
+    say = progress or (lambda m: None)
+    with open(apply_path) as f:
+        doc = json.load(f)
+    place = power_placement(doc)
+    n = len(place['names'])
+    out = {'schema': 'power-oro/1', 'provisional': bool(doc['summary'].get('provisional')),
+           'pendingSites': doc['summary'].get('pendingSites'),
+           'sources': {'oroApply': {'path': O.rel(apply_path), 'sha256': O.sha256_file(apply_path)},
+                       'code': {'oro.py': O.sha256_file(os.path.abspath(__file__)),
+                                'oro_ref.py': O.sha256_file(os.path.join(HERE, 'oro_ref.py'))},
+                       'env': O.env_record()},
+           'placement': {'n': n, 'dates': sorted(set(place['date'])), 'nDates': len(set(place['date'])),
+                         'sites': place['perSite'], 'gshufSites': place['gshufSites'], 'gshufScenes': place['gshufScenes'],
+                         'c3bMeasurable': place['c3bMeasurable']},
+           'models': {'A': {'source': 'draft1 stat/sim2c.py', 'siteSd': POW_SITE_SD, 'sigmas': list(POW_SIGMAS),
+                            'eCorr': POW_E_CORR, 'revSlope': POW_REV_SLOPE, 'clip': 1.0, 'tests': 'c2 ∧ c3 (median, L95, sign flip)'},
+                      'B': {'source': 'draft2 recheck-sims/simA2_gshuf_mean.py', 'grid': [MB_N, MB_DX_KM],
+                            'highPassKm': MB_S_HP_KM, 'bandWavelengthKm': MB_BAND_WL_KM, 'bandLogSd': MB_BAND_LOGSD,
+                            'noiseKm': MB_NOISE_KM, 'cEven': MB_C_EVEN, 'dCScale': MB_DC, 'kappas': list(POW_KAPPAS),
+                            'patternDirection': 'prevailing', 'c3b': 'mean d_shuf on W, sign flip (mean) p ≤ 0.10; 못 잼 → not passing'}},
+           'reps': {'cell': reps, 'bootstrap': boot_b, 'calibration': cal_reps, 'calibrationSteps': POW_CAL_STEPS},
+           'seeds': {'calibration': SEED, 'bootstrapCalls': SEED, 'signFlipMC': SEED, 'cells': {}},
+           'calibration': {}, 'cellsA': {}, 'cellsB': {}, 'cells': {}, 'falsePass': {'null': {}, 'sitePattern': {}},
+           'decision': {'mu': POW_DECISION_MU, 'value': None, 'below0.2': None, 'over': 'min product over sigma × kappa'},
+           'notes': {'c2bC8': '[estimate] only, not multiplied (L615)', 'c6': 'not included (D12)'}}
+    if n == 0:
+        out['status'] = 'no placement (oro-apply has 0 counted scenes)'
+        say('POWER placement n 0: nothing to simulate')
+        return out
+    out['status'] = 'ok'
+    tests = PlacementTests(place['date'], boot_b, SEED)
+    gdates = [place['date'][j] for j in place['gIdx']]
+    tests_g = PlacementTests(gdates, boot_b, SEED) if gdates else None
+    mb = ModelB()
+    cell = 0
+    plan = ([('A', mu, s) for mu in POW_MUS for s in POW_SIGMAS] + [('B', mu, k) for mu in POW_MUS for k in POW_KAPPAS]
+            + [('P', a, k) for a in POW_ART_AS for k in POW_KAPPAS])
+    seeds = {}
+    for kind, x, y in plan:
+        key = (_ck(mu=x, sigma=y) if kind == 'A' else _ck(mu=x, kappa=y) if kind == 'B' else _ck(A=x, kappa=y))
+        seeds[f'{kind}:{key}'] = SEED + cell
+        cell += 1
+    out['seeds']['cells'] = dict(sorted(seeds.items()))
+    beta = {}
+    for k in POW_KAPPAS:
+        cal = _CalibB(mb, place, k, cal_reps, SEED) if any(mu != 0.0 for mu in POW_MUS) else None
+        for mu in POW_MUS:
+            b, fv, bracket = (0.0, (cal.f(0.0) if cal else None), True) if mu == 0.0 else cal.solve(mu)
+            beta[(mu, k)] = b
+            out['calibration'][_ck(mu=mu, kappa=k)] = {'beta': float(b), 'medianRhoRes': _f(fv), 'bracketed': bracket}
+            say(f'CAL {_ck(mu=mu, kappa=k)} beta {b:.6f} meanMedianRho {fv:.6f} bracketed {bracket}')
+    for kind, x, y in plan:
+        if kind == 'A':
+            key = _ck(mu=x, sigma=y)
+            res = _model_a_cell(place, tests, x, y, seeds[f'A:{key}'], reps)
+            out['cellsA'][key] = res
+            say(f'A {key} pA_c2c3 {res["pA_c2c3"]:.3f}')
+        elif kind == 'B':
+            key = _ck(mu=x, kappa=y)
+            res = _model_b_cell(mb, place, tests, tests_g, beta[(x, y)], 0.0, y, seeds[f'B:{key}'], reps)
+            res['beta'] = float(beta[(x, y)])
+            out['cellsB'][key] = res
+            say(f'B {key} pB_c2c3 {res["pB_c2c3"]:.3f} pB_c3b_given {res["pB_c3b_given"]} pB_joint {res["pB_joint"]:.3f}')
+        else:
+            key = _ck(A=x, kappa=y)
+            res = _model_b_cell(mb, place, tests, tests_g, 0.0, x, y, seeds[f'P:{key}'], reps)
+            out['falsePass']['sitePattern'][key] = res
+            say(f'P {key} pB_c2c3 {res["pB_c2c3"]:.3f} pB_joint {res["pB_joint"]:.3f}')
+    for mu in POW_MUS:
+        for s in POW_SIGMAS:
+            for k in POW_KAPPAS:
+                a = out['cellsA'][_ck(mu=mu, sigma=s)]
+                b = out['cellsB'][_ck(mu=mu, kappa=k)]
+                given = b['pB_c3b_given'] if b['pB_c3b_given'] is not None else 0.0
+                c = {'pA_c2c3': a['pA_c2c3'], 'pB_c3b_given': b['pB_c3b_given'], 'product': a['pA_c2c3'] * given,
+                     'pB_joint': b['pB_joint']}
+                out['cells'][_ck(mu=mu, sigma=s, kappa=k)] = c
+                if mu == 0.0:
+                    out['falsePass']['null'][_ck(sigma=s, kappa=k)] = c
+    dec = [out['cells'][_ck(mu=POW_DECISION_MU, sigma=s, kappa=k)]['product'] for s in POW_SIGMAS for k in POW_KAPPAS]
+    out['decision']['value'] = float(min(dec))
+    out['decision']['below0.2'] = bool(min(dec) < POW_DECISION_MIN)
+    return out
+
+
+# ═══════════════════════ §6.8 sunset-apply.json (§4.6 L594, Q-42) ═══════════════════════
+D_SUNSET = f'{ORO_REL}/sunset-apply.json'
+D_SUNSET_INPUTS = '.harness/oro/sunset-inputs.json'
+D_SUNSET_BASE = '.harness/oro/sunset-base'
+SUNSET_ALT_LO = -2.0            # L594 "해 −2° ~ +8°(저녁)"
+SUNSET_ALT_HI = 8.0
+SUNSET_DESC_MIN = 30            # Q-42: descending = sun_alt(h) < sun_alt(h − 30 min)
+SUNSET_START = '2026-06-01'     # L594 "06-01 ~ 10-31" (= the sounding file range, L223)
+SUNSET_END = '2026-10-31'
+SUNSET_APP_BANDS = ('low', 'mid')   # A6 app (L297)
+
+
+def evening(t, lat, lon):
+    """Q-42: sun altitude in [−2°, +8°] (inclusive) and descending (sun_alt(t) < sun_alt(t − 30 min))."""
+    a = O.sun_alt_deg(t, lat, lon)
+    return bool(SUNSET_ALT_LO <= a <= SUNSET_ALT_HI and a < O.sun_alt_deg(t - timedelta(minutes=SUNSET_DESC_MIN), lat, lon))
+
+
+class RingHours:
+    """Raw hourly ring values (fetch-nwp-ring.blend of the two models, % / 100) at exact hours of one ring/nwp/blend file —
+    no interpolation (S3-design §6.8). `has(h)` = the hour lies in the raw range of every point (D9)."""
+    def __init__(self, path):
+        self.rr = O.RingRaw(path)
+        self.n = len(self.rr.raw['data'])
+
+    def has(self, hk):
+        return all(hk in self.rr._blended(j, O.BAND_VAR['total'])[2] for j in range(self.n))
+
+    def values(self, band, hk):
+        out = []
+        for j in range(self.n):
+            times, s, idx = self.rr._blended(j, O.BAND_VAR[band])
+            i = idx.get(hk)
+            v = None if i is None else s[i]
+            out.append(None if v is None else v / 100.0)
+        return out
+
+
+def sunset_hours(site, sd, dem, zr, lat, lon, ring):
+    """Per evening hour of one site (sounding hours 06-01..10-31 on the hour): A1–A5 (A5 = sounding complete + DEM, ring
+    part only where the ring raw has the hour) with the §2.6 predicates of oro_ref.evaluate_scene, and the A6-app
+    candidates (ring hours with A1–A5 true). REF values come from oro_ref.ref_values at the hour itself, i.e. the raw
+    hourly values, with the §2.3 fallback only where a needed raw value is null (A5's own definition, L295)."""
+    A1 = bool(dem is not None and dem['a1'] >= O.A1_RMS_M)
+    hrs = []
+    for hk in sd.times:
+        if not (SUNSET_START <= hk[:10] <= SUNSET_END):
+            continue
+        t = O.parse_hour(hk)
+        if not evening(t, lat, lon):
+            continue
+        ring_here = ring is not None and ring.has(hk)
+        rv = {b: ring.values(b, hk) for b in BANDS} if ring_here else None
+        r0l = rv['low'][0] if rv else None
+        r0m = rv['mid'][0] if rv else None
+        snd = O.ref_values(sd, t, zr, lat, r0l, r0m) if zr is not None else None
+        usable = snd is not None and not snd['refEmpty']
+        A2 = bool(usable and snd['speedRef'] is not None and snd['speedRef'] >= O.A2_SPEED)
+        A3 = bool(usable and snd['N2'] is not None and snd['N2'] >= O.A3_N2)
+        A4 = bool(snd is not None and snd['A4']['ok'])
+        ring_ok = (not ring_here) or all(sum(1 for v in rv[b] if v is None) <= O.RING_NULL_MAX for b in BANDS)
+        A5 = bool(dem is not None and snd is not None and snd['complete'] and ring_ok)
+        fb = bool(snd is not None and any(v in ('fallback1', 'fallback2') for v in snd['interpHow'].values()))
+        hrs.append({'hour': hk, 't': t, 'ring': ring_here, 'rv': rv, 'snd': snd, 'a15': bool(A1 and A2 and A3 and A4 and A5),
+                    'fallback': fb})
+    return A1, hrs
+
+
+def sunset_doc(sounding_path, dem_path, ring_dir, inputs_out, base_out, commit, run_base=None, progress=None):
+    """sunset-apply.json (S3-design §6.8) and the uncommitted sunset-inputs.json (oro-inputs form: ringGeom + times.h<HH>.ring
+    per <site>_<date>, only the ring hours with A1–A5 true), B from oro-base.mjs (`run_base(inputs, out, commit)` → index)."""
+    say = progress or (lambda m: None)
+    sites = O.sites_table()
+    order = O.ring91()
+    snds = O.load_soundings(sounding_path)
+    with open(dem_path) as f:
+        dg = json.load(f)
+    cache = O.SiteCache(dg)
+    per, cand, ring_src = {}, {}, {}
+    for site in sorted(sites):
+        la, lo, _ = sites[site]
+        sd = snds.get(site)
+        if sd is None:
+            per[site] = {'sounding': False, 'a1': None, 'nEvening': None, 'nA1toA5': None, 'fracA1toA5': None,
+                         'nFallbackHours': None, 'ring': {'nHours': None, 'nA1toA5': None, 'nA1toA6app': None, 'frac': None}}
+            continue
+        rp = os.path.join(ring_dir, f'{site}.json')
+        ring = RingHours(rp) if os.path.exists(rp) else None
+        if ring is not None:
+            if [(p['dist'], p['az']) for p in ring.rr.raw['points']] != order:
+                raise ValueError(f'sunset: ring raw {site}: points not in fetch-sat RING order')
+            ring_src[f'blend/{site}'] = O.sha256_file(rp)
+        dem = cache.get(site)
+        A1, hrs = sunset_hours(site, sd, dem, dg['sites'][site]['zRefM'], la, lo, ring)
+        rh = [h for h in hrs if h['ring']]
+        per[site] = {'sounding': True, 'a1': A1, 'nEvening': len(hrs), 'nA1toA5': sum(h['a15'] for h in hrs),
+                     'nFallbackHours': sum(h['fallback'] for h in hrs),
+                     'ring': {'nHours': len(rh), 'nA1toA5': sum(h['a15'] for h in rh), 'nA1toA6app': 0}}
+        for h in rh:
+            if h['a15']:
+                cand.setdefault(f'{site}_{h["hour"][:10]}', {})[f'h{h["hour"][11:13]}'] = (site, la, h, dem)
+        say(f'SUNSET {site} evening {len(hrs)} A1-5 {per[site]["nA1toA5"]} ringHours {len(rh)} candidates '
+            f'{sum(1 for h in rh if h["a15"])}')
+    sin = {'schema': 'sunset-inputs/1', 'grid': O.GRID_META,
+           'ring': {'n': len(order), 'order': 'fetch-sat RING, observer first', 'encoding': 'f64b64 LE, NaN=null, nullIdx'},
+           'scenes': {}}
+    for name in sorted(cand):
+        times = {}
+        for tk in sorted(cand[name]):
+            h = cand[name][tk][2]
+            times[tk] = {'utc': O.fmt_utc(h['t']), 'ring': {b: O.ring_entry(h['rv'][b]) for b in BANDS}}
+        sin['scenes'][name] = {'site': cand[name][sorted(cand[name])[0]][0],
+                               'ringGeom': {'dist': [int(d) for d, _ in order], 'az': [int(a) for _, a in order]},
+                               'times': times}
+    os.makedirs(os.path.dirname(inputs_out), exist_ok=True)
+    s_in = O.dump_json(sin, inputs_out)
+    in_sha = O.sha256_bytes(s_in.encode('utf-8'))
+    ntimes = sum(len(v) for v in cand.values())
+    base = None
+    if cand:
+        idx = (run_base or run_oro_base)(inputs_out, base_out, commit)
+        if idx.get('inputsFileSha256') != in_sha:
+            raise ValueError('sunset: oro-base index was not built from this sunset-inputs.json')
+        base = {'commit': idx.get('commit'), 'bundleSha256': idx.get('bundleSha256'),
+                'indexSha256': O.sha256_file(os.path.join(base_out, 'index.json'))}
+        for name in sorted(cand):
+            for tk in sorted(cand[name]):
+                site, la, h, dem = cand[name][tk]
+                Bs = {}
+                for b in SUNSET_APP_BANDS:
+                    sha = ((idx.get('entries') or {}).get(name) or {}).get(tk, {}).get(b)
+                    if sha is None:
+                        raise ValueError(f'sunset: no B for {name} {tk} {b}')
+                    with open(os.path.join(base_out, f'{name}__{tk}__{b}.f32'), 'rb') as f:
+                        body = f.read()
+                    if O.sha256_bytes(body) != sha:
+                        raise ValueError(f'sunset: B sha256 mismatch {name} {tk} {b}')
+                    Bs[b] = np.frombuffer(body, dtype='<f4').reshape(O.N_GRID, O.N_GRID).astype(np.float64)
+                F = O.forcing(dem['hsub'], h['snd'], la)
+                if all(O.combine(Bs[b], F)['ok'] for b in SUNSET_APP_BANDS):
+                    per[site]['ring']['nA1toA6app'] += 1
+    for site in sorted(per):
+        p = per[site]
+        if p['sounding']:
+            p['fracA1toA5'] = (p['nA1toA5'] / p['nEvening']) if p['nEvening'] else None
+            p['ring']['frac'] = (p['ring']['nA1toA6app'] / p['ring']['nHours']) if p['ring']['nHours'] else None
+    pend = sorted(s for s in sites if s not in snds)
+    src = O.sounding_source(sounding_path, snds, O.default_sounding_manifest(sounding_path))
+    return {'schema': 'sunset-apply/1', 'provisional': bool(pend), 'pendingSites': {'sounding': pend},
+            'constants': {'altLoDeg': SUNSET_ALT_LO, 'altHiDeg': SUNSET_ALT_HI, 'descendingMinutes': SUNSET_DESC_MIN,
+                          'start': SUNSET_START, 'end': SUNSET_END, 'appBands': list(SUNSET_APP_BANDS)},
+            'sources': {'sounding': src, 'demGridsSha256': O.sha256_file(dem_path), 'ringRaw': dict(sorted(ring_src.items())),
+                        'sunsetInputs': {'path': O.rel(inputs_out), 'sha256': in_sha, 'nScenes': len(cand), 'nTimes': ntimes},
+                        'base': base,
+                        'code': {'oro.py': O.sha256_file(os.path.abspath(__file__)),
+                                 'oro_ref.py': O.sha256_file(os.path.join(HERE, 'oro_ref.py'))},
+                        'env': O.env_record()},
+            'sites': per}
+
+
+def run_oro_base(inputs_path, out_dir, commit):
+    """node oro-base.mjs --inputs <sunset-inputs> --commit <commit> --out <dir> (its stdout — B sha256 per file — is not
+    echoed); returns the parsed index.json. Stale .f32/index.json in out_dir are removed first."""
+    if os.path.isdir(out_dir):
+        for fn in sorted(os.listdir(out_dir)):
+            if fn.endswith('.f32') or fn == 'index.json':
+                os.remove(os.path.join(out_dir, fn))
+    r = subprocess.run(['node', os.path.join(HERE, 'oro-base.mjs'), '--inputs', inputs_path, '--commit', commit,
+                        '--out', out_dir], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f'oro-base.mjs exit {r.returncode}')
+    return _jl(os.path.join(out_dir, 'index.json'))
+
+
+def default_b_commit():
+    """The commit of the judged B (.harness/oro/base/index.json), so the sunset B use the same bundle."""
+    p = os.path.join(O._path(O.D_BASE), 'index.json')
+    if not os.path.exists(p):
+        raise ValueError('sunset: .harness/oro/base/index.json missing; pass --commit')
+    return _jl(p)['commit']
 
 
 # ═══════════════════════ CLI ═══════════════════════
@@ -1683,7 +2326,7 @@ def _opts(argv, spec):
 
 def main(argv):
     if not argv:
-        print('usage: oro.py --fill-apply|--ruler-hash|--precheck|--judge [opts]', file=sys.stderr)
+        print('usage: oro.py --fill-apply|--power|--sunset|--ruler-hash|--precheck|--judge [opts]', file=sys.stderr)
         return 2
     mode, rest = argv[0], argv[1:]
     if mode == '--fill-apply':
@@ -1712,9 +2355,38 @@ def main(argv):
             print(f'CHECK {k} {"ok" if v else "FAIL"}')
         print(f'PRECHECK {"ok" if ok else "FAIL"}' + (' rerun' if rec.get('rerun') else ''))
         return 0 if ok else 1
-    if mode in ('--power', '--sunset'):
-        print(f'oro: {mode} is a separate S3b step (S3-design §6.7/§6.8), not built in this file yet', file=sys.stderr)
-        return 2
+    if mode == '--power':
+        o = _opts(rest, {'--apply': O.D_APPLY, '--out': D_POWER, '--reps': str(POW_REPS), '--boot': str(POW_BOOT_B),
+                         '--cal-reps': str(POW_CAL_REPS)})
+        reps, boot, cal = int(o['--reps']), int(o['--boot']), int(o['--cal-reps'])
+        out = O._path(o['--out'])
+        pinned = (reps, boot, cal) == (POW_REPS, POW_BOOT_B, POW_CAL_REPS)
+        if out == O._path(D_POWER) and (not pinned or O._path(o['--apply']) != O._path(O.D_APPLY)):
+            print('oro: --power writes the committed power-oro.json only from oro-apply.json with the pinned replicate '
+                  'counts (pass --out for a trial run)', file=sys.stderr)
+            return 2
+        doc = power_doc(O._path(o['--apply']), reps, boot, cal, progress=lambda m: print(m, flush=True))
+        s = O.dump_json(doc, out)
+        dec = doc['decision']
+        print(f'POWER n {doc["placement"]["n"]} decision mu {dec["mu"]} value {dec["value"]} below0.2 {dec["below0.2"]}'
+              + (' PROVISIONAL' if doc['provisional'] else ''))
+        print(f'WROTE {O.rel(out)} sha256 {O.sha256_bytes(s.encode("utf-8"))}')
+        return 0
+    if mode == '--sunset':
+        o = _opts(rest, {'--sounding': O.D_SOUNDING, '--dem-grids': O.D_DEM_GRIDS, '--ring-dir': f'{O.D_RING_NWP}/blend',
+                         '--inputs-out': D_SUNSET_INPUTS, '--base-out': D_SUNSET_BASE, '--out': D_SUNSET, '--commit': ''})
+        commit = o['--commit'] or default_b_commit()
+        doc = sunset_doc(O._path(o['--sounding']), O._path(o['--dem-grids']), O._path(o['--ring-dir']),
+                         O._path(o['--inputs-out']), O._path(o['--base-out']), commit,
+                         progress=lambda m: print(m, flush=True))
+        out = O._path(o['--out'])
+        s = O.dump_json(doc, out)
+        tot = [v for v in doc['sites'].values() if v['sounding']]
+        print(f'SUNSET sites {len(tot)} evening {sum(v["nEvening"] for v in tot)} A1-5 {sum(v["nA1toA5"] for v in tot)} '
+              f'ringHours {sum(v["ring"]["nHours"] for v in tot)} A1-6app {sum(v["ring"]["nA1toA6app"] for v in tot)}'
+              + (' PROVISIONAL' if doc['provisional'] else ''))
+        print(f'WROTE {O.rel(out)} sha256 {O.sha256_bytes(s.encode("utf-8"))}')
+        return 0
     print(f'oro: unknown mode {mode!r}', file=sys.stderr)
     return 2
 

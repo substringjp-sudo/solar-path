@@ -801,3 +801,187 @@ Written while building S3a. Each entry names the ruler line it follows. Entries 
     - Ring nulls at the 121 closest, latest and m1h times: 0. The only all-NaN time arm is `sapporo_2026-10-19 p1h` (Q-36, D9 confirmed).
     - `cmr-geom.json`: 116 scenes `ok` (A8 true 98, false 18) and 5 `no-pass` (modis-times `source: solar`: kanazawa 09-29, 10-19; osaka 09-09, 09-29, 10-19). 25 granule queries were fetched from CMR into `.harness/oro/cmr-extra.json`. A cross-track distance above the 1165 km half-swath means the site lies outside every pass granule (the R-G7 nearest-centroid fallback); all such scenes have A8 false.
     - `oro-inputs.json` is ≈ 4.6 MB (the §1.15 estimate was 2–3 MB).
+
+### G1 baseline tooling (§8; `tools/genus-ruler/oro/g1/`)
+12. *(not a ruler conflict)* **Where and what.** The build task put the G1 tools in `tools/genus-ruler/oro/g1/`, not in `tools/genus-ruler/volsky/` as §8 says. The ruler names no folder (L862: "`liveScene` 요청 가로채기 시험, md5 스크립트"). `volsky/build.sh`, `run.js` and `entry.ts` are used unchanged.
+   - `g1-lib.mjs`: shared pieces.
+   - `g1-md5.mjs`: (a).
+   - `g1-jobs.mjs` → `jobs-g1.json`: the (b) job file.
+   - `g1-render.mjs` and `g1-keys.cjs`: (b) renders and the (c) weather key.
+   - `g1-live.mjs`: (d).
+   - `g1-baseline.mjs`: assembles `g1-baseline.json`.
+   - `g1-run.sh`: the whole run, about 35 min.
+   - `g1-test.mjs`: tests.
+   - Parts and PNGs go to `.harness/oro/g1/`, which is ignored.
+13. **State arrays (follows ruler L748 over §8 (a) as written).** §8 (a) says "every Float32 state array". At 115fbe2, `MacroState` holds `re` and `im` as `Float64Array` and has no Float32 array, so that wording would hash nothing. L748 lists "상태 배열" among the hashed arrays ("Float32 배열(`cover`·`base`·`lambdaRes`·상태 배열)만 md5").
+   - **What was built:** `g1-md5` hashes the raw LE bytes of every typed array in `state`, keys sorted (`im`, `re`). `defs.stateArrayTypes` records their element types.
+   - **Not hashed:** numbers. That covers `ms`, `beta`, `betaFit` and the state scalars `rng`, `tSec`, `beta` (L748 "`ms` 같은 시각 값은 뺌").
+14. *(not a ruler conflict)* **(a) details.**
+   - **Mode 1:** uses the B bundle, built with the same entry and command as `oro-base.mjs`, so its sha256 equals the oro-base B bundle (Q-45, checked against `.harness/oro/base/index.json`).
+   - **Mode 2:** uses a second bundle from the same two TS files that also exports `stepMacroState` (build note 1). `aMode2Init` = the `applyScene` field (`noise: true`, state null). `aMode2[k]`, k = 1..15, comes from `stepMacroState(st, 60)` (`MACRO_STEP_SEC`) followed by `buildMacroField(…, st)`. Each step has one md5, over cover ‖ base ‖ lambdaRes ‖ state arrays (keys sorted).
+   - **Inputs:** only `ringGeom` and `times.closest.ring.{low,mid,high}` of `oro-inputs.json`; no scene JSON is read. `inputs.ringInputsSha256` hashes only these ring arrays, so it stays the same when `oro-inputs.json` is rebuilt with the 9 soundings. `oroInputsSha256` changes then, and `g1-run.sh` must be re-run.
+   - **Cross-check:** the mode-1 `base` md5 equals the md5 of every oro-base `<scene>__closest__<band>.f32`, 363/363 (test MD5-CROSS).
+15. *(not a ruler conflict)* **(b) jobs.** Every job carries `options ⊇ {macro: 1, macroN: 128, macroOro: 0, regime: 0}`. The last two do not exist at the baseline commit, so `setOptions` only stores them. The same job file therefore states "both options 0" before and after the change.
+   - **Ring input:** `input.macro.{low,mid,high}` = the closest-time ring of the scene named below. Each point is `{distance, azimuthOffset, cover (0–1)}`, finite points only; `applyScene` multiplies the cover by 100.
+   - **B0_app and P0_seoul:** these are the original jobs, unchanged apart from that input. Their ring comes from the seoul bank scene whose closest time is nearest the job time: `seoul_2026-10-15` for B0_app and `seoul_2026-10-11` for P0_seoul. §8 does not say which scene to use.
+   - **Mountain jobs:** `M_kanazawa_2026-09-01` and `M_kanazawa_2026-09-05` (dev, A1 ✓ in `oro-apply.json`).
+     - Position and time: the site position, the closest time, `heightM` 40, and P0_seoul's view (az 129, el 35, fov 75).
+     - Layers: P0_seoul's sc/ac/ci layers. Each band's cover is that band's ring observer value, as `liveScene` takes the observer forecast, and a band at 0 becomes a layer with no genus.
+     - No `thermo`.
+   - **Macro grid active:** `genusMacroTexOn` = 1 in both passes for all 4 jobs, read from the run.js `results.json`.
+16. *(not a ruler conflict)* **(c) keys.**
+    - **Weather key:** the key that `volumetricScene.ts` `weatherPlan` builds for the weather-texture cache. `g1-keys.cjs` captures it from `Map.prototype.set` in a third render, with the same bundle and the same chromium path and flags, which it reads from the `run.js` source. That render's PNG md5 must equal run 1 (`keysRunMatchesRun1`).
+    - **qKey:** the `const q = …` and `const qKey = \`…\`` expressions of `SkyScene3D.tsx`, taken from the source and evaluated on the job settings: `volumetricQuality` = quality, `volumetricRes` = res, and `volumetric<Option>` for each option. Settings a job does not set keep the app defaults inside the expression.
+17. *(not a ruler conflict)* **(d) test.**
+    - **Path:** `g1-live.mjs` runs the app modules in node.
+      1. SkyScreen's `fetchWeatherCanary` and `fetchDayWeatherRing`.
+      2. SkyScene3D's first `fetchNearestMetar`.
+      3. A scene loop over 05:00–19:00 KST in 5 min steps, 169 frames. It rebuilds through `buildLiveScene` whenever qKey or `volSceneKey` changes.
+    - **Intercepts:** `fetch` returns synthetic Open-Meteo-shaped responses. http, https, net, tls, dns, XMLHttpRequest and WebSocket are refused and recorded. TZ is Asia/Seoul and the clock is fixed at 2026-10-15T00:30Z.
+    - **Measures:** `timers` = the number of setTimeout/setInterval/setImmediate created. `timersDetail` adds cleared, fired and pending counts.
+    - **Supplementary:** `d.harnessPageTimers` holds the page timers created per harness job. These include timers inside the scene object, which node cannot reach.
+18. *(not a ruler conflict)* **Environment check.**
+    - **Control run:** the original B0_app and P0_seoul, without macro, reproduce the `oro/merge-aa.json` post md5s.
+    - **Bundle:** the harness bundle md5 equals merge-aa `post.bundleMd5` (`4333dc41…`).
+    - **Chromium:** Google Chrome for Testing 153.0.8010.12 at `/opt/pw-browsers/chromium`, with the merge-aa flags.
+
+### `oro.py` and its tests (S3b part: §6.1–§6.6, §6.9; `--power`/`--sunset` not yet)
+12. **G6(g) scene set (reading of L777-L781, not a ruler conflict).** Every scene of a (g) set is both a G-shuf j and a k. The ruler states that with one B per site and set "(ii) 의 평균이 바른 구현에서 정확히 0" (L777), which holds only when the j set equals the k set. The synthetic scenes have no oro-apply A7 flag, and seoul (A1 rms 64.7 m, not an A1 site) gives |S| = 15 at 45° and 225° (even) and 17 at 345° (skew). When those scenes were dropped from j and kept as k, the seoul/skew (ii) mean was −0.051, against the 0.05 limit. That came from J ⊊ K, not from d_shuf. The test line records `nSmin` and `nSlt20` for each set. The judge itself keeps Q-55: j are the still-judged scenes, k are the site's counted scenes.
+13. *(not a ruler conflict)* G6(f)(g)(h) fixtures.
+    - **Synthetic sounding:** U 8 m/s from the set's direction, N 0.01. H_w 2500 m and κ = γ_s(280 K)/0.15 are the G6(d) values.
+    - **Synthetic B:** B_tot = 1/(1 + e^{−1.2·smooth_field(128, 100, seed)}), seeds 20261103 + 11..14 (kanazawa even, kanazawa skew, seoul even, seoul skew). Band B: low = mid = 0.3 and high = 0. This is the L775 fallback form, and it is used for every synthetic scene. The ring value at every point is the band value.
+    - **Masks inactive:** z_snow = max hmax6 + 1000 m, B_hi = 0.
+    - **(f) and (h) fill:** the (f) fill when dev judge scenes are fewer than 3 is the kanazawa even set at 0°, 90°, 180° (Q-44: only kanazawa can supply dev judge scenes).
+    - **Fake PNG:** in (f) and (h), the single empty px sits in the window box with the largest |box ΔC|, so it is an S box. In (g), it sits in box (0, 0) for every scene, so W_j is the same for all scenes.
+    - **(iv) noise:** seeds 20261103, 20261104, … run in loop order: site (kanazawa, seoul) → set (even, skew) → scene → replicate. The last seed is 20267502. The clip fraction is 15.4 % (review ≈ 15.5 %).
+14. *(not a ruler conflict)* Build order step **8b**: `python3 -I tools/genus-ruler/oro/oro.py --fill-apply`, run after `oro_ref.py apply` and before `oro-test.py`.
+    - It fills `lambdaApp`, `G7corr`, `maskedAppShare` and `m8.rmsDCapp` for every row whose combiner ran. Rows with an empty W_in get null.
+    - It adds `summary.G7pass` and records `sources.code["oro.py"]`. Medians are taken over `counted` (M6).
+    - It refuses an oro-apply built from other inputs or DEM grids.
+    - B-FILL requires the committed `oro-apply.json` to be byte-identical to this code's filled output. So the 11-05 re-run of steps 3–9 must include 8b.
+    - The environment precheck's T-free recompute is `build_apply` + fill.
+15. *(for S4; not a ruler conflict)* FROZEN keys that `oro.py` reads:
+    - `files`: {repo path: sha256}. It must list `oro-apply.json`, `oro-inputs.json` and `dem-grids.json` (G8(c)). `RULER-oro.md` is only recorded.
+    - `versions.{python, numpy, Pillow}`, checked before T.
+    - `decisions.{primaryMetric, lambdaTilde}`.
+    - `exposure.grade`, one of 없음 / dev 만 / held 집계 / held 장면별 / 모름. Tags: 집계 → "동결 전 held 집계 노출(§0.5)"; 장면별 and 모름 → "동결 전 held 장면별 노출(§0.5)".
+    - `rulerHash`.
+    - `runtime.bCommit`, the commit passed to `oro-base.mjs --check`. If it is absent, `base/index.json` `commit` is used.
+    - `gateFilesAtFreeze`.
+
+    The freeze commit is the commit that added FROZEN.json (`git log --diff-filter=A --format=%H -- <FROZEN.json>`, hashes only), unless `--frozen-commit` is given. Each `FROZEN-extN.json` has `files`, its own adding commit and the pair `oro-apply-extN.json`/`oro-inputs-extN.json`. With extN files present, G-shuf sites and c3b measurability are recomputed with the summary rule over all counted rows.
+16. *(Q-47 detail; not a ruler conflict)* `guards-oro.json` = {`guards`: {G1..G9: {status}}, `hashes`: {repo path or `bundle:<name>`: sha256}}.
+    - ④ 4 needs two things: every non-bundle path's current sha256 equals the recorded one, and every recorded hash string appears in the ruler's §10.2 text (from the `### 10.2` line to the `### 10.3` line).
+    - c7 = G1–G9 all `PASS`.
+17. *(not a ruler conflict)* Records.
+    - `judge-pret.json` is the machine copy of the pre-T §10.3 record (precheck steps, bank differences, unmeasurable report arms). It is written before the lock.
+    - The lock holds HEAD and the FROZEN sha256.
+    - A stop after the lock writes `judge-stop.json`: exception type, rerun flag and the sha256 of a partial gate (if any). Never the message.
+    - A second stop in rerun mode (`judge.lock.1`) is recorded as 미결(판정 실행 두 번 멈춤).
+    - Precheck order: the cheap checks (1, 2a, 2b, 3, 4, 6, 7) run first. Check 5 (B rebuild), the environment check and the T-read check run only when those pass.
+18. **Missing inputs at T-read (L911 vs L912; follows the ruler).**
+    - A counted scene's missing PNG or closest-time B stops before T. The empty-pixel mask is part of M for every judged metric (L345).
+    - A missing scene JSON or trueGrid is dropped and counted (L343).
+    - A missing input of a report arm marks that arm '못 잼' before T: dev scenes (`devMissing`), B files of latest/m1h/p1h/n64, and the ecmwf file.
+19. *(readings of report-only rows; not ruler conflicts)*
+    - **Screen weight:** the far part is the rest of the window (box centre > 15 km), so near + far recombine to ΔMSE_W.
+    - **L⁻^vis:** ΔC^vis in Lee and in the neutral test, with r^vis = T − B^vis. The neutral test also uses the judge path's |ΔC_rev| < 0.02, because there is no app-path G-rev.
+    - **Dark px:** counted in the judging window (3 km rows/cols 98..157).
+    - **G-shuf k:** the site's `counted` scenes, the same rows that `gshufSites` counts.
+    - **ρ_rot:** on the total path.
+    - **Time arms:** use that time's snd, B_tot, B_hi and z_snow, with the closest-time T and the same empty mask.
+    - **Arm failures:** a failed G-rev combiner inside an arm gives d = 0. A failed main combiner inside an arm is not a drop, because A6 is fixed by oro-apply.
+    - **64² arm with ρ_fine:** the fine version uses the even 24 km tiling and G₁₀ at 12 km (R = 2).
+20. *(fact, synthetic only)* In the G8(d) end-to-end run, the 64² × 12 km arm drops all 14 synthetic scenes for |S| < 20 of 64. At 24 km boxes, max |box ΔC| is 0.02–0.04 against 0.05–0.09 at 12 km. Real scenes may also mostly drop. This is the arm's own rule (Q-52, L717) and a report row only.
+21. *(closed)* `--power` (§6.7, `power-oro.json`) and `--sunset` (§6.8, `sunset-apply.json`) are now in `oro.py`; see the build notes PS-1 … PS-10 at the end of this file.
+19. **A/A was not byte-identical once (no change made; reported).** The criterion is unchanged: `g1-baseline.mjs` refuses to write when run 1 ≠ run 2, and the test RENDER fails.
+    - **The failed attempt:** P0_seoul `rgb` differed between run 1 and run 2 by one pixel, (row 553, col 271), by one level in one channel. Its alpha and the other 3 jobs were equal. That run 2 overlapped with heavy CPU work from tests in the same container (4 cores).
+    - **The baseline run:** on a quiet machine, run 1, run 2 and the key run are equal for all 4 jobs. They also equal the failed attempt's run 1 and key run, so 5 of 6 P0_seoul renders agree.
+    - **What G1 needs from this:** the S7 comparison should render on an otherwise idle container. A one-pixel difference with A/A already failing is an environment effect, not an app change. Retrying until equal would weaken L748, so it is not done.
+20. *(not a ruler conflict)* **Commit.**
+    - **Where it was measured:** HEAD `d1b4d09`, a workflow snapshot commit after `375b67b`. `src/` is unchanged since 115fbe2 (`git diff --quiet`), and `src/` and `tools/genus-ruler/volsky` are clean.
+    - **App-identical commits:** `g1-baseline.mjs` accepts parts from different commits only when `src` and `tools/genus-ruler/volsky` are byte-identical between them, and it records `partCommits`. The (a) md5s are identical at `375b67b` and `d1b4d09`.
+    - **Not yet the G1 baseline commit:** the G1 tools in the working tree differ from that commit (`status.g1ToolsCommitted: false`). So this file is not yet the measurement at L862's G1 baseline commit (115fbe2 + bundle fix + G1 tools only). `g1-run.sh` must be re-run at that commit, whose hash goes into FROZEN `runtime`. It must also be re-run after `oro-inputs.json` is rebuilt with the soundings (`oroInputsSha256`).
+
+### `oro-test.py` S3b guards — review pass (G6 (f)(g)(h), G8 (b)–(f); §6.9)
+22. *(not a ruler conflict)* **G6(f) scene selection and the 11-05 path.**
+    - "dev 적용 장면" (L765, Q-44) is read flag by flag from `oro-apply.json`: A1–A5 `ok`, `A6.judge.ok`, `A7.ok`, `A8.ok`. The list must equal `summary.devJudgeable` and the rows' `judge` (`devSelectionConsistent`). Scenes are taken by date, then name.
+    - The provisional `oro-apply.json` (busan sounding only) has no dev judge scene, so the committed G6f line runs on the synthetic fill (`nDev=0`, `nDevJudgeable=0`).
+    - The dev branch that the rebuild after 2026-11-05 will take is run now as a dry run on the B-SYN fixture (synthetic soundings and B, real DEM, 8 kanazawa dev judge scenes): the first three by date through the judge's `prep_scene`, the same criteria, keys prefixed `dry`. A failure of that branch shows now rather than after the soundings arrive.
+    - The fill rule (0–4 dev scenes → the dev scenes, then synthetic 0°, 90°, 180°) is checked directly (`fillRule`, `synOrder`).
+    - The fake PNG's one empty px (L769) goes in the S box (input masks snow ∪ high only) with the largest |box ΔC|. The check requires that box to be in W, S and S∪ without the px and out of all three with it, the only empty box, and |S| and |W| each one less. With real dev scenes the window's max |box ΔC| can sit under the snow mask, where 'leaves W' would hold trivially. In the synthetic scenes the masks are off and the box is unchanged.
+23. *(not a ruler conflict)* **G6(g)(iv) equals the judge path.** The 6400 noise ρ_rot use the judge's decoding (`truth_from_u8`) and the scene's S∪ from the (i) run. S∪ depends only on ΔC, ΔC_rev and W, and W is the same for every truth of a scene (same PNG). Replicate 0 of each of the 32 scenes also runs the whole judge path (fake JSON and PNG → `load_truth` → `empty_cells` → `judge_masks` → `scene_main`) and must give the same ρ_rot bit for bit (`ivEqualsJudgePath`). Per site and set, the share of replicates whose 8-scene median has |·| > 0.05 is recorded (value only, L784).
+24. *(not a ruler conflict)* **G8(b) variants.** F1 and F3 are run on five versions of the synthetic bank: with trueGrid, without trueGrid, without trueGrid and with fake index `cover`, with trueGrid and fake index `cover`, and with fake scene-level `cover`/`empty`. Results and stdout lines must be identical across all five, and stdout must be counts only. A fake PNG beside each scene must never be opened by F1 or F3.
+25. **G8(c) is a dry structure test before freeze (L755 (c) read with L876).** FROZEN.json lists `oro-test.txt`, so it is written after the committed test output, and the committed G8c line cannot see the real FROZEN.
+    - What the line checks: the judge requires both keys (`FROZEN_REQUIRED`). A `files` map in the build-note-15 layout (repo path → sha256), built from the current committed files, passes oro.py's `files_hashes_ok`. On the G8(d) synthetic post-freeze repo, the judge's own precheck refuses at step 2a, with git clean and the key named, a FROZEN without `oro-apply.json`, a FROZEN without `oro-inputs.json`, one keyed by bare file names instead of repo paths, and one with a wrong sha256. It accepts the valid one.
+    - The line prints `mode=dry` while FROZEN.json is absent. When FROZEN.json exists, the real file is checked as well (`mode=real`).
+26. *(for S4/S7; not a ruler conflict)* **G8 after the freeze.**
+    - G8 is measured again after the freeze (§9.3 ②). `oro-test.py` and `oro-test.txt` are FROZEN files (L876), so that run must not rewrite `oro-test.txt`. Run it as `--only G8a,G8b,G8c,G8d,G8e,G8f`, which writes no file unless `--out` is given.
+    - G8(e) checks the state at freeze. After §9.1 ⑩ the C4 held satellites are received, and a later run would fail `noC4Satellite` if they sit under `.harness/regime/sat*`. The post-freeze evidence for G8(e) is therefore the pre-freeze line plus FROZEN `gateFilesAtFreeze: []`. S4 should decide how that is recorded.
+27. *(not a ruler conflict)* **G8(f) audit.** Three additions to the open audit:
+    - Every JSON or PNG that G6 (f)(g)(h) and the G6(f) dry run open must lie in test-tmp, apart from the committed MODIS-free inputs (`oro-apply.json`, `oro-inputs.json`, `dem-grids.json`).
+    - Every fake scene JSON must hold only the allow-list keys plus `trueGrid`, with ring items holding only `dist` and `az`.
+    - Two positive controls show the interception works. A bank scene-JSON path opened under `allow('scene-json')` (the context `load_truth` uses) is recorded and flagged. A bank PNG opened under `allow('png-judge')` is refused by the guard, because no lock exists. Probe names do not exist in the bank.
+28. *(not a ruler conflict)* **Disclosure line.** `oro-test.txt` now carries a second header line. It lists the S3b fixture pins of build note 13 and the build-note-12 J = K reading of G6(g), and states that this reading was chosen after a run in which J = {|S| ≥ 20} gave a seoul/skew (ii) mean of −0.051. No criterion value was changed. The line is for the S4 short review (§9.1 ⑧).
+29. *(fact, synthetic only)* **Mutation checks**, run once from the scratchpad and not part of the suite. Each patches one judge function and reruns the test:
+    - No row flip in `truth_from_u8`: G6f fails on r − ΔC, ρ_res, β_res, ΔMSE_W and the flips.
+    - 2×2 grouping off by one 3 km row: G6f fails on r − ΔC (≤ 0.003), ρ_res, β_res and ρ^vis.
+    - Empty-pixel mask ignored: G6f fails `emptyBox` on all six scenes.
+    - ρ^vis against T − B_tot: G6f fails ρ^vis.
+    - G-rev d with the sign swapped: G6f fails `d`.
+    - L⁻ in the 2-draft window-mean form: G6h fails both the windward-only and the coastal criterion.
+    - N taken over the whole of W instead of per stratum: G6h fails only the coastal criterion.
+    - ΔC_rot = ΔC (terrain not rotated): G6g fails (iii) at both sites and in both sets.
+    - Sea-agnostic h tertiles as the main L⁻: **not caught**. See note 30.
+    - Unmutated G6h passes.
+30. *(fact, synthetic only; not a ruler conflict)* **G6(h) coastal version on the synthetic fill.** In all three fill scenes the sea stratum has 97 boxes in W and no lee box (`s{i}seaLee=0`; synthetic U 8 m/s gives |ΔC| < 0.02 over the sea), so the sea stratum never enters L⁻.
+    - As a result, the coastal L⁻ equals the windward-only L⁻ exactly in each scene. The variant still catches an N taken over all of W, but it cannot tell the strata form from the sea-agnostic tertile form: the sea boxes (h = 0, 97 of 224) form their own lowest tertile.
+    - The criterion and the scenes are the ruler's (L786-L791), so nothing was changed. The line records `s{i}seaLee`/`s{i}seaNeutral` so the S4 review can see this. The dev scenes used after the soundings arrive (kanazawa, real B) may have lee boxes over the sea.
+
+### `oro.py --power` / `--sunset` (S3b remainder, §6.7–§6.8)
+PS-1. *(not a ruler conflict)* **Placement and tests.** `--power` reads only the `counted` rows of `oro-apply.json`: their sites and dates, the G-shuf sites (≥ 3 counted scenes) and c3b measurability (≥ 10 G-shuf scenes). It refuses an oro-apply whose summary (`n`, `gshufSites`, `gshufScenes`, `c3bMeasurable`) disagrees with its rows.
+   - c2 and c3 are the judgement's rule: median > 0, date-block L95 > 0 and sign-flip p ≤ 0.025. c3b is mean d_shuf > 0 and sign-flip p (statistic = mean) ≤ 0.10, over the G-shuf scenes and their dates. '못 잼' makes c3b false.
+   - `PlacementTests` vectorises `date_block_ci(B = 1000, seed 20261103)` and `sign_flip_p`. The results are bit-identical (test P-EQ, exact and MC branches, ties).
+   - The judge calls `date_block_ci` with a fresh `default_rng(20261103)`, so every replicate uses the same B × G block draws, as the judgement would on that data.
+PS-2. *(not a ruler conflict)* **Model A** is sim2c with the placement fixed. Per replicate, u_s is drawn for the placement's sites only (sim2c drew all 6), then (e₁, e₂). The file records P(c2), P(c3) and P(c2∧c3). c6 is not included (D12).
+PS-3. *(not a ruler conflict)* **Model B** is simA2's generator, verbatim: 64² × 6 km, band around 45 km, s 10 km, noise 7 km, c_even 0.175, ΔC = 0.02 F/scale, and simA2's own `pear` with its < 3-box rule.
+   - The rng order is simA2's: terrain, then the prevailing direction per site (sorted site order), then the wind per scene, then the noise per scene.
+   - Restricted to the placement: k = the site's other placement scenes. c3b is simA2 variant 'e' (mean d_shuf on W, sign flip of the mean).
+   - The site-fixed pattern points along the prevailing wind. simA2 ran only 'prevailing'.
+   - P(c3b | c2∧c3) is evaluated only where c2∧c3 holds. If no replicate passes c2∧c3, it is null and the product uses 0.
+PS-4. *(not a ruler conflict)* **Calibration and seeds (Q-48).**
+   - For each κ, the 2000 replicates are drawn once with `default_rng(20261103)` (A = 0; the draws do not depend on β).
+   - ρ_res(β) per scene comes from its moments on S: (βC_az + C_ae)/(√V_a √(β²V_z + 2βC_ze + V_e)). This equals simA2's `pear` to ≤ 1e-12, including the < 3-box rule (test P-CAL).
+   - Bisection: 40 halvings of [0, 1], β = the final midpoint. `bracketed` records f(0) ≤ μ ≤ f(1).
+   - Simulation cells are numbered in a fixed order: model A (μ, σ) 0–7, model B (μ, κ) 8–15, site-fixed pattern (A, κ) 16–19. Cell i uses `default_rng(20261103 + i)`, and the map is written to `seeds.cells`.
+   - Keys look like `mu=0.10,sigma=0.15,kappa=1`: μ, σ and A with two decimals, κ as an integer.
+PS-5. *(not a ruler conflict)* **Output.**
+   - Besides the §6.7 keys, the file has:
+     - `cellsA` (pA_c2, pA_c3, pA_c2c3);
+     - `cellsB` (β, pB_c2, pB_c3, pB_c2c3, pB_c3b_given, pB_joint);
+     - `falsePass.null` (the μ = 0 cells) and `falsePass.sitePattern` (A 0.05·0.10 × κ, β = 0: model B's own pB_c2c3 and joint);
+     - `sources` (oro-apply path and sha256, oro.py/oro_ref.py sha256, env);
+     - `provisional` and `pendingSites`, copied from oro-apply.
+   - With 0 counted scenes, the file has `status: "no placement…"`, no cells and a null decision. That is the current provisional file.
+   - The CLI writes the committed file only from the committed oro-apply.json with the pinned counts (1000 / 1000 / 2000). Other counts need `--out`.
+PS-6. *(fact, synthetic only)* **Model checks against the draft numbers** (tests P-MODA/P-MODB).
+   - The draft-like placement is busan 4, denver 6, lisbon 2, osaka 4, sapporo 5, sydney 3: 24 scenes on 13 dates.
+   - Model B, β 0.06, κ 1: P(c2∧c3) 0.844 and joint 0.836 (simA2 0.825, 0.818). Null: 0.012 (simA2 0.002). Site pattern A 0.10: P(c2∧c3) 0.372 and joint 0.016 (simA2 0.337, 0.030).
+   - Model A, μ 0.10, σ 0.20: P(c2) 0.443 (sim2b sign flip 0.411). Null P(c2∧c3): 0.005.
+   - β(μ, κ = 1) on that placement (200 replicates): ≈ 0.030, 0.061, 0.093 for μ 0.05, 0.10, 0.15.
+PS-7. **Sunset A5 at the evening hour (§6.8 "raw values, no interpolation" read with ruler L295; follows the ruler).**
+   - The REF values come from `oro_ref.ref_values` at the hour itself. When the needed raw values exist, they are used as they are, with no interpolation.
+   - When one is null, A5's own definition applies: "§3.5 의 면이 §2.3 대체 규칙 뒤에 모두 유한" (L295). So the §2.3 ±3 h fallback is used, as the app would. `nFallbackHours` counts such hours per site (busan 0: no nulls).
+   - The ring values are the raw hourly blend at the hour, without `interp`. (`RingRaw.value` would also need the next hour and returns null at 10-19 23Z.)
+   - "Ring exists" means the hour is in the raw range of every point (09-01 00Z … 10-19 23Z). Denver's 10-19 evening falls on 10-20 01Z and is counted without the ring part.
+PS-8. *(not a ruler conflict)* **Sunset A6 app.**
+   - Only the ring hours with A1–A5 true go into `.harness/oro/sunset-inputs.json` (scene `<site>_<UTC date>`, time `h<HH>`, oro-inputs form). `oro-base.mjs` reads only `ringGeom` and `times.*.ring`.
+   - `oro.py --sunset` itself runs `oro-base.mjs --inputs … --out .harness/oro/sunset-base --commit <commit of .harness/oro/base/index.json>`, so the sunset B use the same bundle as the judged B.
+   - It requires the index's `inputsFileSha256` to be the sha256 of that sunset-inputs.json, and checks each B's sha256.
+   - A6 app = the combiner converges on both B_low and B_mid with that hour's F, as in `evaluate_scene`.
+   - With no candidate hour, node is not run and `sources.base` is null. That is the case now: busan is A1 false.
+   - `sunset-apply.json` also records `a1`, `nFallbackHours` and `ring.nA1toA5` per site.
+PS-9. *(not a ruler conflict)* **Build order after the 11-05 soundings:** … step 8 `oro_ref.py apply` → 8b `oro.py --fill-apply` → **8c** `oro.py --power` and `oro.py --sunset` → step 9 `oro-test.py`.
+   - `--power` took ≈ 8 min at pinned counts on a 27-scene trial placement (scratchpad only, not a ruler placement).
+   - All three outputs record the oro.py sha256, and power also records the oro-apply sha256. So any edit of oro.py means re-running 8b and 8c.
+PS-10. *(open, for S4)* The power/sunset tests (P-EQ, P-PLACE, P-CAL, P-MODA, P-MODB, P-MUTE, P-DOC, P-ZERO, P-COMMITTED, S-EVE, S-A15, S-E2E, S-COMMITTED, S-GUARD) were written as a separate script because `oro-test.py` was being edited by another task at the time. They still need to be merged into `oro-test.py` (FROZEN file) before freeze.

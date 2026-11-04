@@ -33,7 +33,7 @@ import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
 import dns from 'node:dns';
-import { ESBUILD, ROOT, SKY_SCENE, canonicalJson, die as die0, extractQKey, forbiddenPath, gitPorcelain, parseArgs, sha256 } from './g1-lib.mjs';
+import { ESBUILD, ROOT, SKY_SCENE, canonicalJson, die as die0, extractQKey, forbiddenPath, gitPorcelain, parseArgs, resolveCommit, sha256 } from './g1-lib.mjs';
 
 const TOOL = 'g1-live';
 const die = (m, c) => die0(TOOL, m, c);
@@ -217,6 +217,7 @@ async function main() {
   if (!o['--out']) die('--out is required');
   if (forbiddenPath(o['--out'])) die('--out: path refused');
   const dirty = gitPorcelain(['src']);
+  const commit = resolveCommit(TOOL, 'HEAD');
   const bundle = buildBundle();
   const skySrc = fs.readFileSync(path.join(ROOT, SKY_SCENE), 'utf8');
   const { fn: qKeyOf } = extractQKey(skySrc);
@@ -229,7 +230,7 @@ async function main() {
   restore();
   const t = log.timers;
   const out = {
-    schema: 'g1-live/1', path: 'SkyScreen fetchWeatherCanary+fetchDayWeatherRing → SkyScene3D fetchNearestMetar → qKey/volSceneKey-driven buildLiveScene loop',
+    schema: 'g1-live/1', commit, path: 'SkyScreen fetchWeatherCanary+fetchDayWeatherRing → SkyScene3D fetchNearestMetar → qKey/volSceneKey-driven buildLiveScene loop',
     options: OPTIONS, fixture: FIXTURE, bundle: { sha256: bundle.sha256, esbuild: ESBUILD, define: '__DEV__=false' }, srcClean: dirty.length === 0,
     requests: log.requests, rebuilds: info ? info.rebuilds : null, timers: t.setTimeout + t.setInterval + t.setImmediate,
     timersDetail: { ...t, pendingAtEnd }, d6d14Requests: log.requests.filter(r => isD6D14(r.url)).length, realNetwork: log.realNetwork,

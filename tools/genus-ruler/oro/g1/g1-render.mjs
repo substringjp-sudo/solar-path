@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import cp from 'node:child_process';
-import { ROOT, canonicalJson, die as die0, forbiddenPath, md5, parseArgs, sha256 } from './g1-lib.mjs';
+import { ROOT, canonicalJson, die as die0, forbiddenPath, gitPorcelain, md5, parseArgs, resolveCommit, sha256 } from './g1-lib.mjs';
 
 const TOOL = 'g1-render';
 const die = (m, c) => die0(TOOL, m, c);
@@ -64,6 +64,10 @@ function main() {
   const ctl = JSON.parse(fs.readFileSync(path.resolve(o['--control']), 'utf8'));
   const names = jobs.map(j => j.name), cnames = ctl.map(j => j.name);
   res.jobsFileSha256 = sha256(fs.readFileSync(path.resolve(o['--jobs'])));
+  // 묶음은 작업 트리에서 만들므로(build.sh) src·volsky 가 깨끗해야 그 커밋의 앱 코드입니다.
+  const dirty = gitPorcelain(['src', 'tools/genus-ruler/volsky']);
+  if (dirty.length) die(`src or tools/genus-ruler/volsky has uncommitted changes (${dirty.length})`, 2);
+  if (steps.includes('build')) res.commit = resolveCommit(TOOL, 'HEAD');
   res.jobOptions = Object.fromEntries(jobs.map(j => [j.name, j.options ?? {}]));
   const L = runJsLaunch();
   const chromiumVersion = cp.execFileSync(L.executablePath, ['--version'], { encoding: 'utf8' }).trim();
@@ -111,7 +115,10 @@ function main() {
   }
   // A/A 와 일치 점검(있는 단계만)
   if (res.run1MacroOn) res.macroOnAllJobs = names.every(n => res.run1MacroOn[n] === true && (!res.run2MacroOn || res.run2MacroOn[n] === true));
-  if (res.run1 && res.run2) res.aa = names.every(n => res.run1[n].rgb && res.run1[n].alpha && res.run1[n].rgb === res.run2[n].rgb && res.run1[n].alpha === res.run2[n].alpha);
+  if (res.run1 && res.run2) {
+    res.aa = names.every(n => res.run1[n].rgb && res.run1[n].alpha && res.run1[n].rgb === res.run2[n].rgb && res.run1[n].alpha === res.run2[n].alpha);
+    res.aaDiff = names.flatMap(n => ['rgb', 'alpha'].filter(k => res.run1[n][k] !== res.run2[n][k]).map(k => `${n}.${k}`));
+  }
   if (res.run1 && res.keys) res.keysMatchRun1 = names.every(n => res.keys[n] && res.keys[n].rgb === res.run1[n].rgb && res.keys[n].alpha === res.run1[n].alpha);
   if (res.control) {
     const aa = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/oro/merge-aa.json'), 'utf8'));

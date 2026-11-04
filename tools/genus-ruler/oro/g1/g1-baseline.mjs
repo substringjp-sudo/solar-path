@@ -32,12 +32,18 @@ function main() {
   const A = rd(path.join(P, 'a.json')), B = rd(path.join(P, 'b.json')), D = rd(path.join(P, 'd.json'));
   const jobsRaw = fs.readFileSync(path.resolve(o['--jobs'])), jobs = JSON.parse(jobsRaw.toString('utf8'));
   const names = jobs.map(j => j.name);
-  const commit = resolveCommit(TOOL, 'HEAD'), mergedFull = resolveCommit(TOOL, MERGED);
+  const head = resolveCommit(TOOL, 'HEAD'), mergedFull = resolveCommit(TOOL, MERGED);
   const problems = [];
   const need = (ok, what) => { if (!ok) problems.push(what); };
 
   // ── 일관성 ──
-  need(A.commit === commit, `a.json commit ${A.commit} != HEAD ${commit}`);
+  // 잰 커밋 = a 조각의 커밋(두 macro 번들을 그 커밋에서 git show 로 꺼냄). 다른 조각과 지금 HEAD 는 같은 커밋이거나,
+  // 앱·하네스 경로(src, tools/genus-ruler/volsky)가 바이트 같은 커밋이어야 합니다(다른 도구의 커밋이 그 사이에 끼어도 잰 값은 같음).
+  const commit = A.commit;
+  const APP = ['src', 'tools/genus-ruler/volsky'];
+  const appSame = (x, y) => x === y || gitQuiet(['diff', '--quiet', x, y, '--', ...APP]);
+  const partCommits = { a: A.commit, b: B.commit ?? null, d: D.commit ?? null, headAtAssembly: head };
+  for (const [k, c] of Object.entries(partCommits)) need(typeof c === 'string' && /^[0-9a-f]{40}$/.test(c) && appSame(commit, c), `${k} commit ${c} is not app-identical to ${commit}`);
   const inputsSha = sha256(fs.readFileSync(path.resolve(o['--inputs'])));
   need(A.inputs.oroInputsSha256 === inputsSha, 'a.json was computed from another oro-inputs.json');
   need(B.jobsFileSha256 === sha256(jobsRaw), 'b.json was rendered from another jobs file');
@@ -57,7 +63,7 @@ function main() {
   need(q45 !== false, 'macro bundle sha256 != oro-base B bundle sha256 (Q-45)');
   const srcDirty = gitPorcelain(['src']), volskyDirty = gitPorcelain(['tools/genus-ruler/volsky']);
   need(srcDirty.length === 0 && volskyDirty.length === 0, 'src or volsky working tree is not clean');
-  const appUnchanged = gitQuiet(['diff', '--quiet', mergedFull, commit, '--', 'src']);
+  const appUnchanged = gitQuiet(['diff', '--quiet', mergedFull, commit, '--', 'src']) && gitQuiet(['diff', '--quiet', mergedFull, head, '--', 'src']);
   need(appUnchanged, `src changed between ${MERGED} and HEAD`);
   if (problems.length) { for (const p of problems) console.error(`PROBLEM ${p}`); die(`${problems.length} problem(s); g1-baseline.json not written`, 1); }
 
@@ -76,11 +82,12 @@ function main() {
 
   const out = {
     schema: 'g1-baseline/1',
-    commit, mergedCommit: MERGED, mergedCommitFull: mergedFull,
+    commit, mergedCommit: MERGED, mergedCommitFull: mergedFull, partCommits,
     status: {
       appUnchangedSinceMerge: appUnchanged, srcClean: true, volskyClean: true,
-      g1ToolsCommitted: toolsPorcelain.length === 0,
-      note: 'measured at HEAD with the G1 tools uncommitted; the ruler L862 G1 baseline commit is 115fbe2 + bundle fix + these tools only — re-run there and keep the commit',
+      // G1 도구(이 폴더)가 잰 커밋에 그대로 들어 있는지: 작업 트리에 바뀐·새 파일이 없고 잰 커밋과도 같음
+      g1ToolsCommitted: toolsPorcelain.length === 0 && gitQuiet(['diff', '--quiet', commit, '--', 'tools/genus-ruler/oro/g1']),
+      note: 'measured at the working-tree HEAD; the ruler L862 G1 baseline commit is 115fbe2 + bundle fix + these tools only (no app code change) — re-run g1-run.sh at that commit and keep its hash in FROZEN runtime',
     },
     bundles: {
       macro: { sha256: A.bundles.macro.sha256, esbuild: ESBUILD, entry: A.bundles.macro.entry, equalsOroBaseB: q45 },
@@ -114,6 +121,7 @@ function main() {
     d: {
       requests: D.requests, rebuilds: D.rebuilds, timers: D.timers, timersDetail: D.timersDetail, d6d14Requests: D.d6d14Requests,
       options: D.options, fixture: D.fixture, frames: D.run.frames, keyFieldChanges: D.run.keyFieldChanges,
+      harnessPageTimers: Object.fromEntries(names.map(n => [n, B.keys[n].pageTimers ?? null])),
     },
   };
   fs.mkdirSync(path.dirname(path.resolve(o['--out'])), { recursive: true });

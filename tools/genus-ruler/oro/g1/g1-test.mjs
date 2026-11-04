@@ -197,7 +197,8 @@ await test('MD5-CROSS', async ck => {
   const A = rdJson(af);
   const names = Object.keys(A.a).sort();
   ck.ok(names.length === 121 && names.every(s => BANDS3.every(b => A.a[s][b] && A.aMode2[s][b] && A.aMode2[s][b].length === 15)), 'shape121x3x15');
-  ck.ok(A.commit === resolveCommit('g1-test', 'HEAD'), 'commitHEAD');
+  const head = resolveCommit('g1-test', 'HEAD');
+  ck.ok(A.commit === head || cp.spawnSync('git', ['diff', '--quiet', A.commit, head, '--', 'src', 'tools/genus-ruler/volsky'], { cwd: ROOT }).status === 0, 'commitAppSameAsHEAD');
   ck.ok(A.inputs.oroInputsSha256 === sha256(fs.readFileSync(INPUTS)), 'inputsSha');
   ck.ok(JSON.stringify(A.defs.stateArrayTypes) === JSON.stringify({ im: 'Float64Array', re: 'Float64Array' }), 'stateArraysReIm');
   let coverEqBase = 0;
@@ -316,6 +317,13 @@ await test('LIVE', async ck => {
   if (fs.existsSync(pd)) ck.ok(fs.readFileSync(pd).equals(fs.readFileSync(path.join(d, 'd1.json'))), 'partSame');
   const hosts = D.requests.map(q => new URL(q.url).hostname);
   ck.ok(D.requests.length === 7 && hosts.filter(h => h === 'api.open-meteo.com').length === 4, 'requestSet');
+  // 감사 자체의 감도: 감사 훅이 읽기를 실제로 적는지(허용 밖 파일 하나를 읽는 작은 스크립트)
+  {
+    const probe = path.join(d, 'probe.cjs');
+    fs.writeFileSync(probe, `require('fs').readFileSync(${JSON.stringify(path.join(ROOT, 'package.json'))});\n`);
+    const { recs } = audited(probe, [], d);
+    ck.ok(classify(recs).reads.has(path.join(ROOT, 'package.json')), 'auditSensitive');
+  }
   // 음성 대조: 가로채기가 남은 타이머·진짜 망·D6 꼴 요청을 실제로 잡는지
   const code = `import { installIntercepts, isD6D14 } from ${JSON.stringify(path.join(G, 'g1-live.mjs'))};
 const { log, pending, restore } = installIntercepts(0);
@@ -356,7 +364,7 @@ await test('RENDER', async ck => {
   ck.ok(keys.size === jobs.length, 'keysDistinct');
   const rgb = new Set(jobs.map(j => B.run1[j.name].rgb));
   ck.ok(rgb.size === jobs.length, 'rendersDistinct');
-  ck.kv = { jobs: jobs.length, oneKey, chromium: JSON.stringify(B.versions.chromium) };
+  ck.kv = { jobs: jobs.length, oneKey, aaDiff: (B.aaDiff ?? []).join('+') || 'none', chromium: JSON.stringify(B.versions.chromium) };
 });
 
 await test('BASELINE', async ck => {
@@ -374,7 +382,9 @@ await test('BASELINE', async ck => {
   const jn = Object.keys(X.b.jobs);
   ck.ok(jn.length === 4 && jn.every(n => /^[0-9a-f]{32}$/.test(X.b.jobs[n].rgb) && /^[0-9a-f]{32}$/.test(X.b.jobs[n].alpha) && X.b.jobs[n].options.macro === 1 && X.b.jobs[n].options.macroN === 128), 'bJobs');
   ck.ok(jn.every(n => X.c[n] && typeof X.c[n].weatherKey === 'string' && typeof X.c[n].qKey === 'string'), 'cJobs');
-  ck.ok(X.b.aa === true && X.d.d6d14Requests === 0 && X.commit === resolveCommit('g1-test', 'HEAD'), 'values');
+  const head = resolveCommit('g1-test', 'HEAD');
+  const appSame = X.commit === head || cp.spawnSync('git', ['diff', '--quiet', X.commit, head, '--', 'src', 'tools/genus-ruler/volsky'], { cwd: ROOT }).status === 0;
+  ck.ok(X.b.aa === true && X.b.macroOnAllJobs === true && X.d.d6d14Requests === 0 && appSame && X.status.appUnchangedSinceMerge === true, 'values');
   // 조각에서 다시 모으면 바이트 같음
   const d = fresh(path.join(TMP, 'baseline'));
   const o2 = path.join(d, 'g1-baseline.json');

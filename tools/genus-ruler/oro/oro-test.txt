@@ -1,8 +1,10 @@
 # Pinned additions, not ruler values: G6(a) eight-case split (Q-32), G6(b) rms definition and precip_base/precip_min (Q-33), G6(d) mountains, bands and the report-only easterly mirror (Q-34), G6(e) quadrant sea-fraction thresholds (Q-35). Q-34/Q-35 were pinned after a DEM-only prototype run (no MODIS, no B); criteria are fixed as written before the first oro-test run (L793).
+# Pinned additions, not ruler values (S3b, build notes 12-13): G6(f)(g)(h) fixtures - synthetic sounding (U 8 m/s, N 0.01, H_w 2500 m, kappa = gamma_s(280 K)/0.15), synthetic B = logistic(1.2 smooth_field(128, 100 km, seed 20261103+11..14)) with band B low = mid = 0.3 and high 0, masks off (z_snow = max h + 1000 m), the fake PNG empty px in the max |box dC| window box ((f), (h)) or box (0, 0) ((g)), and the (iv) seed order site > set > scene > replicate. G6(g) reading (build note 12): every scene of a set is both a G-shuf j and k (J = K, as the ruler's '(ii) mean exactly 0' needs); this reading was chosen after an S3b run in which J = the scenes with |S| >= 20 (K = all) gave seoul/skew (ii) mean -0.051; no criterion value was changed. To be put to the S4 short review.
 B-BASE PASS scenes=121 n128=1932 null128=4 n64=484 null64=0 check=0 bundle=265052526050 commit=115fbe227d78
 B-BASE0 PASS directBundle=68e4b829e06f n128=59 null128=5 n64=15 null64=1 sameAsDirect=74 bmin=0 bmax=1 bundle=265052526050 check=0/1/1 q45=same
 B-BUSAN PASS sitesWithSounding=1 pending=9 completeClosest=13 bMissing=13 provisional=true
 B-DET PASS demGridsSha256=7f79153613f069d145509a00d8c5fe6ce48749427f5deb495ec627b9043649cf
+B-FILL FAIL filled=108 counted=14 synLambdaTilde=1 synG7median=0.972714 fail=codeSha,committedApplyIsFilled
 B-MAN PASS tags=blend ringSites=10 banks=orig bankN=121 bankPng=121 bankInTimes=121 bankTrueGrid=121
 B-RING PASS scenes=3
 B-SUM PASS
@@ -12,38 +14,66 @@ G6b PASS relrms270=1.06763e-12 physical270=0.319301 relrms180=1.25462e-12 physic
 G6c PASS source=real nB=12
 G6d PASS hakusanWwest=0.112013 hakusanWeast=-0.13716 hakusanEwest=-0.153134 hakusanEeast=0.132417 hakusanPeakM=2094.11 odaesanWwest=0.0711009 odaesanWeast=-0.103225 odaesanEwest=-0.0623612 odaesanEeast=0.122482 odaesanPeakM=1143.11
 G6e PASS seaNW=1 seaSE=0 busanFromDeg=197 busanTowardDeg=17 busanSpeed=8.84
+G6f PASS syn0rhoNS=0.0407148 syn0rhoEW=-0.0942427 syn0rhoRes=0.999903 syn0beta=0.995766 syn0errMax=0.00165611 syn0nS=43 syn0nClipped=0 syn0Lminus=-0.0371175 syn1rhoNS=-0.184896 syn1rhoEW=-0.0494587 syn1rhoRes=0.999944 syn1beta=1.00005 syn1errMax=0.0015072 syn1nS=49 syn1nClipped=0 syn1Lminus=-0.0521824 syn2rhoNS=-0.0572752 syn2rhoEW=0.194945 syn2rhoRes=0.999918 syn2beta=1.0002 syn2errMax=0.00147158 syn2nS=43 syn2nClipped=0 syn2Lminus=-0.0344622 vis0=0.999928 visSd0=0.0283943 vis1=0.999939 visSd1=0.0390371 vis2=0.999905 visSd2=0.0275937 visSource=scenes visN=3 nDev=0 nDevJudgeable=0 drydev0rhoNS=0.016672 drydev0rhoEW=0.162178 drydev0rhoRes=0.999834 drydev0beta=1.00647 drydev0errMax=0.00139931 drydev0nS=29 drydev0nClipped=0 drydev0Lminus=-0.0268375 drydev1rhoNS=0.137364 drydev1rhoEW=0.141108 drydev1rhoRes=0.999917 drydev1beta=0.999789 drydev1errMax=0.00144927 drydev1nS=46 drydev1nClipped=0 drydev1Lminus=-0.03987 drydev2rhoNS=0.0547722 drydev2rhoEW=0.0983986 drydev2rhoRes=0.999925 drydev2beta=1.00192 drydev2errMax=0.00161773 drydev2nS=64 drydev2nClipped=0 drydev2Lminus=-0.0397775 dryvis0=0.999634 dryvisSd0=0.00815003 dryvis1=0.999682 dryvisSd1=0.032703 dryvis2=0.999725 dryvisSd2=0.0261177 dryvisSource=scenes dryvisN=2 dryNDevJudgeable=8
+G6g PASS kanazawa/even:nSmin=44 kanazawa/even:nSlt20=0 kanazawa/even:i=1.08638 kanazawa/even:ii=0 kanazawa/even:iiP=0.503906 kanazawa/even:rot=0.993553 kanazawa/even:rotRes=0.14797 kanazawa/even:noiseRep0Median=-0.0589794 kanazawa/even:noiseShareAbsMedGt0.05=0.14 kanazawa/skew:nSmin=32 kanazawa/skew:nSlt20=0 kanazawa/skew:i=0.858422 kanazawa/skew:ii=5.55112e-17 kanazawa/skew:iiP=0.496094 kanazawa/skew:rot=0.998166 kanazawa/skew:rotRes=0.324133 kanazawa/skew:iiMedian=0.470208 kanazawa/skew:iiForm2Mean=0.0136273 kanazawa/skew:noiseRep0Median=0.101187 kanazawa/skew:noiseShareAbsMedGt0.05=0.45 seoul/even:nSmin=15 seoul/even:nSlt20=2 seoul/even:i=1.08313 seoul/even:ii=0 seoul/even:iiP=0.5 seoul/even:rot=0.995769 seoul/even:rotRes=0.0525429 seoul/even:noiseRep0Median=-0.0442582 seoul/even:noiseShareAbsMedGt0.05=0.505 seoul/skew:nSmin=17 seoul/skew:nSlt20=1 seoul/skew:i=0.835677 seoul/skew:ii=0 seoul/skew:iiP=0.5 seoul/skew:rot=0.997067 seoul/skew:rotRes=0.0511089 seoul/skew:iiMedian=0.468384 seoul/skew:iiForm2Mean=0.0124802 seoul/skew:noiseRep0Median=-0.0485919 seoul/skew:noiseShareAbsMedGt0.05=0.42 ivMeanRot=0.00229947 ivN=6400 ivClipFrac=0.154296 ivLastSeed=20267502 ivJudgePathN=32 ivJudgePathMaxDiff=0
+G6h PASS s0nSea=97 s0seaS=0.05 s0seaLee=0 s0seaNeutral=97 s0L=-0.000100927 s0Lcoastal=-0.000100927 s0LtertileCoastal=-0.000537227 s1nSea=97 s1seaS=0.05 s1seaLee=0 s1seaNeutral=96 s1L=6.92289e-05 s1Lcoastal=6.92289e-05 s1LtertileCoastal=-0.000291196 s2nSea=97 s2seaS=0.05 s2seaLee=0 s2seaNeutral=97 s2L=0.000150181 s2Lcoastal=0.000150181 s2LtertileCoastal=-5.87081e-06 medianL=6.92289e-05 medianLcoastal=6.92289e-05 medianTertile=0.000119574 medianTertileCoastal=-0.000291196 medianWindow2draft=-0.00370317
 G8a PASS src=real scenes=3 b=60 reads=3 writes=62 meta=11 extra=0 forbidden=0 cmds=5
+G8b PASS variants=5
+G8c PASS mode=dry
+G8d PASS steps=1,2a,2b,3,4,5,6,7,env,tread devJudge=8 e2eJudged=14 e2eLine=2 e2eVerdict=미결
+G8e PASS frozen=false
+G8f PASS G6fOpens=151 G6gOpens=514 G6hOpens=25 fakeSceneJson=158
 U-ALLOW PASS scope=loader
 U-ALLOWB PASS
+U-APP PASS
+U-ARMS0 PASS
+U-AUX PASS
+U-BOOT PASS
 U-BOX PASS
+U-C45 PASS
+U-CLAUSE PASS
 U-COMB PASS comb4MeanDC=-1.72462e-06 comb4MaxGdC=0.00482087 comb4Iters=5
 U-D PASS
 U-DEM1 PASS tiles=66 maxErrTile=0
 U-DEM2 PASS
+U-EMPTY PASS
+U-FINE PASS
 U-FP PASS opensDuringImport=0
 U-G PASS
 U-GEOM0 PASS
 U-GEOM1 PASS
 U-GEOM2 PASS n_no-pass=5 n_ok=116 A8true=98
 U-GEOM3 PASS onTrackKm=0 edgeKm=1165
+U-GSHUF PASS dshufMean=0.84349
 U-GUARD PASS probes=12
 U-HASH PASS
 U-HOOKS PASS
 U-HP PASS lambdaHalfKm=53.3645
 U-INT PASS
 U-INT0 PASS n=200
+U-LAMAPP PASS
 U-LATEST PASS n=121 differ=0
+U-LMINUS PASS
 U-M PASS
 U-M2 PASS nMean=32 nProp=109711 nEvan=20224 nRot=1105
+U-MASKJ PASS
+U-METRIC PASS
 U-PEARSON PASS
 U-PHI PASS maxPhiDev=6.95087e-08 Phi0=0.5
+U-PRECHK PASS
 U-REF PASS
+U-RHASH PASS rulerHash=2724d1435b27501941c2d772a4793d584352f9354bd5e399f2dfeae09e1ab417
+U-SCENE PASS rhoRes=0.741256 beta=0.988581 nS=48
 U-SEAL PASS
+U-SIGNFLIP PASS
 U-SITES PASS
 U-SLOPE PASS slopeDeg=5.71059
+U-STATS PASS
 U-SUN PASS
 U-SUNAZ PASS az0902=132.056 altAt0902=28.7388 azNoon=179.788
+U-TAU PASS
 U-THERMO PASS
+U-TRUTH PASS
 U-TUKEY PASS
 U-WIND PASS
 U-Z0 PASS

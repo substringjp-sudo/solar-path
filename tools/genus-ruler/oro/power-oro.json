@@ -1,0 +1,116 @@
+{
+ "calibration": {},
+ "cells": {},
+ "cellsA": {},
+ "cellsB": {},
+ "decision": {
+  "below0.2": null,
+  "mu": 0.1,
+  "over": "min product over sigma × kappa",
+  "value": null
+ },
+ "falsePass": {
+  "null": {},
+  "sitePattern": {}
+ },
+ "models": {
+  "A": {
+   "clip": 1.0,
+   "eCorr": -0.79,
+   "revSlope": -0.8,
+   "sigmas": [
+    0.15,
+    0.2
+   ],
+   "siteSd": 0.05,
+   "source": "draft1 stat/sim2c.py",
+   "tests": "c2 ∧ c3 (median, L95, sign flip)"
+  },
+  "B": {
+   "bandLogSd": 0.6,
+   "bandWavelengthKm": 45.0,
+   "c3b": "mean d_shuf on W, sign flip (mean) p ≤ 0.10; 못 잼 → not passing",
+   "cEven": 0.175,
+   "dCScale": 0.02,
+   "grid": [
+    64,
+    6.0
+   ],
+   "highPassKm": 10.0,
+   "kappas": [
+    1.0,
+    3.0
+   ],
+   "noiseKm": 7.0,
+   "patternDirection": "prevailing",
+   "source": "draft2 recheck-sims/simA2_gshuf_mean.py"
+  }
+ },
+ "notes": {
+  "c2bC8": "[estimate] only, not multiplied (L615)",
+  "c6": "not included (D12)"
+ },
+ "pendingSites": {
+  "ring": [],
+  "sounding": [
+   "denver",
+   "hamburg",
+   "kanazawa",
+   "lisbon",
+   "osaka",
+   "sapporo",
+   "seoul",
+   "shanghai",
+   "sydney"
+  ]
+ },
+ "placement": {
+  "c3bMeasurable": false,
+  "dates": [],
+  "gshufScenes": 0,
+  "gshufSites": [],
+  "n": 0,
+  "nDates": 0,
+  "sites": {}
+ },
+ "provisional": true,
+ "reps": {
+  "bootstrap": 1000,
+  "calibration": 2000,
+  "calibrationSteps": 40,
+  "cell": 1000
+ },
+ "schema": "power-oro/1",
+ "seeds": {
+  "bootstrapCalls": 20261103,
+  "calibration": 20261103,
+  "cells": {},
+  "signFlipMC": 20261103
+ },
+ "sources": {
+  "code": {
+   "oro.py": "43900a5c7e51c7038b5fbba3582aec9f32897bfba85abf9f2430c8b292ad368d",
+   "oro_ref.py": "88a600ba7f3df178ca9e46437826e19354f84dd13c9dcd7c4f5e87f9a01576f2"
+  },
+  "env": {
+   "Pillow": "12.3.0",
+   "machine": "x86_64",
+   "numpy": "2.5.3",
+   "numpyCpuBaseline": [
+    "X86_V2"
+   ],
+   "numpyCpuDispatch": [
+    "AVX512_ICL",
+    "AVX512_SPR",
+    "X86_V3",
+    "X86_V4"
+   ],
+   "python": "3.13.18"
+  },
+  "oroApply": {
+   "path": "tools/genus-ruler/oro/oro-apply.json",
+   "sha256": "9af09536cf5bc2810e909cb2ac77311b0c364edc3f5371a3185a33641fe27009"
+  }
+ },
+ "status": "no placement (oro-apply has 0 counted scenes)"
+}

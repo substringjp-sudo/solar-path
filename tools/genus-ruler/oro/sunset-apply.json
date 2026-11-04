@@ -1,0 +1,252 @@
+{
+ "constants": {
+  "altHiDeg": 8.0,
+  "altLoDeg": -2.0,
+  "appBands": [
+   "low",
+   "mid"
+  ],
+  "descendingMinutes": 30,
+  "end": "2026-10-31",
+  "start": "2026-06-01"
+ },
+ "pendingSites": {
+  "sounding": [
+   "denver",
+   "hamburg",
+   "kanazawa",
+   "lisbon",
+   "osaka",
+   "sapporo",
+   "seoul",
+   "shanghai",
+   "sydney"
+  ]
+ },
+ "provisional": true,
+ "schema": "sunset-apply/1",
+ "sites": {
+  "busan": {
+   "a1": false,
+   "fracA1toA5": 0.0,
+   "nA1toA5": 0,
+   "nEvening": 139,
+   "nFallbackHours": 0,
+   "ring": {
+    "frac": 0.0,
+    "nA1toA5": 0,
+    "nA1toA6app": 0,
+    "nHours": 35
+   },
+   "sounding": true
+  },
+  "denver": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "hamburg": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "kanazawa": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "lisbon": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "osaka": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "sapporo": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "seoul": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "shanghai": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  },
+  "sydney": {
+   "a1": null,
+   "fracA1toA5": null,
+   "nA1toA5": null,
+   "nEvening": null,
+   "nFallbackHours": null,
+   "ring": {
+    "frac": null,
+    "nA1toA5": null,
+    "nA1toA6app": null,
+    "nHours": null
+   },
+   "sounding": false
+  }
+ },
+ "sources": {
+  "base": null,
+  "code": {
+   "oro.py": "43900a5c7e51c7038b5fbba3582aec9f32897bfba85abf9f2430c8b292ad368d",
+   "oro_ref.py": "88a600ba7f3df178ca9e46437826e19354f84dd13c9dcd7c4f5e87f9a01576f2"
+  },
+  "demGridsSha256": "7f79153613f069d145509a00d8c5fe6ce48749427f5deb495ec627b9043649cf",
+  "env": {
+   "Pillow": "12.3.0",
+   "machine": "x86_64",
+   "numpy": "2.5.3",
+   "numpyCpuBaseline": [
+    "X86_V2"
+   ],
+   "numpyCpuDispatch": [
+    "AVX512_ICL",
+    "AVX512_SPR",
+    "X86_V3",
+    "X86_V4"
+   ],
+   "python": "3.13.18"
+  },
+  "ringRaw": {
+   "blend/busan": "b7e0a1062b6e37d9e011c3e95202de1ae4dffbac4cf07fcede966f44f834a681"
+  },
+  "sounding": {
+   "fileSha256": "efdc0b1c04ab0a3a81e22e053d0b73d252034944d6ca730a8d616be15d75b396",
+   "manifestSha256": "74ee6175709f2a47eeb055a05f69b02369186160ef926d3c365ae55eacb5599c",
+   "path": ".harness/oro/sounding.json",
+   "sites": {
+    "busan": {
+     "elevation": 19.0,
+     "firstHour": "2026-06-01T00:00",
+     "hourlySha256": "181cc8f35ce97a34528d172ec33fedde2c0f0cdf3a5a1fb9470061f5bf2fa5bf",
+     "lastHour": "2026-10-31T23:00",
+     "nulls": {
+      "geopotential_height_1000hPa": 0,
+      "geopotential_height_500hPa": 0,
+      "geopotential_height_600hPa": 0,
+      "geopotential_height_700hPa": 0,
+      "geopotential_height_750hPa": 0,
+      "geopotential_height_800hPa": 0,
+      "geopotential_height_850hPa": 0,
+      "geopotential_height_900hPa": 0,
+      "geopotential_height_925hPa": 0,
+      "geopotential_height_950hPa": 0,
+      "geopotential_height_975hPa": 0,
+      "relative_humidity_500hPa": 0,
+      "relative_humidity_600hPa": 0,
+      "relative_humidity_700hPa": 0,
+      "relative_humidity_850hPa": 0,
+      "temperature_1000hPa": 0,
+      "temperature_2m": 0,
+      "temperature_500hPa": 0,
+      "temperature_600hPa": 0,
+      "temperature_700hPa": 0,
+      "temperature_750hPa": 0,
+      "temperature_800hPa": 0,
+      "temperature_850hPa": 0,
+      "temperature_900hPa": 0,
+      "temperature_925hPa": 0,
+      "temperature_950hPa": 0,
+      "temperature_975hPa": 0,
+      "wind_direction_500hPa": 0,
+      "wind_direction_600hPa": 0,
+      "wind_direction_700hPa": 0,
+      "wind_direction_850hPa": 0,
+      "wind_speed_500hPa": 0,
+      "wind_speed_600hPa": 0,
+      "wind_speed_700hPa": 0,
+      "wind_speed_850hPa": 0
+     }
+    }
+   }
+  },
+  "sunsetInputs": {
+   "nScenes": 0,
+   "nTimes": 0,
+   "path": ".harness/oro/sunset-inputs.json",
+   "sha256": "d4733629c59bfda379c8a1ec5f5d8171ea044c56ad31d092d3f4afb76d468f09"
+  }
+ }
+}

@@ -126,7 +126,7 @@
     "status": "ok"
    },
    "Ddc": -0.24246489166683557,
-   "G7corr": null,
+   "G7corr": 0.9785936991650399,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -153,13 +153,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 0.8226582030966552,
    "m8": {
     "member": false,
     "rmsDC": 0.00736145111779632,
-    "rmsDCapp": null
+    "rmsDCapp": 0.004650564482260136
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.8131135468306833,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -247,7 +247,7 @@
     "status": "ok"
    },
    "Ddc": 0.07339063966694823,
-   "G7corr": null,
+   "G7corr": 0.996326547092541,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -274,13 +274,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 1.0553286937364463,
    "m8": {
     "member": false,
     "rmsDC": 0.0031095227331766834,
-    "rmsDCapp": null
+    "rmsDCapp": 0.003293961017432528
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -368,7 +368,7 @@
     "status": "ok"
    },
    "Ddc": 0.12230994537186111,
-   "G7corr": null,
+   "G7corr": 0.9854584059819825,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -395,13 +395,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 1.0851520731448043,
    "m8": {
     "member": false,
     "rmsDC": 0.0017662786324686025,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0019454728769222969
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -489,7 +489,7 @@
     "status": "ok"
    },
    "Ddc": 0.023299822136703657,
-   "G7corr": null,
+   "G7corr": 0.9791269883622321,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -516,13 +516,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 0.6748766772039834,
    "m8": {
     "member": false,
     "rmsDC": 0.0025606548774357372,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0009708536117540884
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.6245264574952186,
    "multiPass": true,
    "preCorr": {
     "F_hsub": null,
@@ -641,9 +641,9 @@
    "m8": {
     "member": false,
     "rmsDC": 0.001104503994248541,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0005146865645569878
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 1.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -731,7 +731,7 @@
     "status": "ok"
    },
    "Ddc": 0.09176401006210816,
-   "G7corr": null,
+   "G7corr": 0.9989428250769393,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -758,13 +758,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 1.0043297547605126,
    "m8": {
     "member": false,
     "rmsDC": 0.003041156575911551,
-    "rmsDCapp": null
+    "rmsDCapp": 0.003057860201629567
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -883,9 +883,9 @@
    "m8": {
     "member": false,
     "rmsDC": 0.00026766277789305585,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0002508873972527939
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 1.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -973,7 +973,7 @@
     "status": "ok"
    },
    "Ddc": 0.1403359456640424,
-   "G7corr": null,
+   "G7corr": 0.996845693938212,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -1000,13 +1000,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 1.2599909849036912,
    "m8": {
     "member": false,
     "rmsDC": 0.0013673004859747592,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0012021147424143828
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.7482701236374709,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -1094,7 +1094,7 @@
     "status": "ok"
    },
    "Ddc": -0.0021034209652768827,
-   "G7corr": null,
+   "G7corr": 0.9943152143203436,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -1121,13 +1121,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 0.9161030050076424,
    "m8": {
     "member": false,
     "rmsDC": 0.0008801705900771672,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0005690677227801397
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.5284100679061156,
    "multiPass": true,
    "preCorr": {
     "F_hsub": null,
@@ -1215,7 +1215,7 @@
     "status": "ok"
    },
    "Ddc": -0.00984685432605363,
-   "G7corr": null,
+   "G7corr": 0.9917767378167477,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -1242,13 +1242,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 2.035721771176578,
    "m8": {
     "member": false,
     "rmsDC": 0.000320191173419113,
-    "rmsDCapp": null
+    "rmsDCapp": 0.000656234095688373
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -1336,7 +1336,7 @@
     "status": "ok"
    },
    "Ddc": 0.019525046328226044,
-   "G7corr": null,
+   "G7corr": 0.9961729104554616,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -1363,13 +1363,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 1.2539767414902605,
    "m8": {
     "member": false,
     "rmsDC": 0.0039395601099038325,
-    "rmsDCapp": null
+    "rmsDCapp": 0.004959103018314386
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.0,
    "multiPass": true,
    "preCorr": {
     "F_hsub": 0.0,
@@ -1457,7 +1457,7 @@
     "status": "ok"
    },
    "Ddc": 0.06742402932833783,
-   "G7corr": null,
+   "G7corr": 0.9259769936802599,
    "appA": false,
    "armInputs": {
     "latest": true,
@@ -1484,13 +1484,13 @@
    "extTarget": null,
    "group": "held",
    "judge": false,
-   "lambdaApp": null,
+   "lambdaApp": 1.1427750634008076,
    "m8": {
     "member": false,
     "rmsDC": 0.0005571140478070559,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0006931196691536012
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 0.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -1609,9 +1609,9 @@
    "m8": {
     "member": false,
     "rmsDC": 0.001927758781719968,
-    "rmsDCapp": null
+    "rmsDCapp": 0.0002097798331800356
    },
-   "maskedAppShare": null,
+   "maskedAppShare": 1.0,
    "multiPass": false,
    "preCorr": {
     "F_hsub": null,
@@ -11689,6 +11689,7 @@
   "code": {
    "fetch-nwp-ring.py": "58e4cc416ec1051fd7aa446c7f1ae8e1201f827f79c4667d2d9a7a3c3a741700",
    "fetch-sat.py": "bfa0606f0ef09899adc3cf75abec7825f0240aaaca8478461d11609814f6c4ec",
+   "oro.py": "43900a5c7e51c7038b5fbba3582aec9f32897bfba85abf9f2430c8b292ad368d",
    "oro_ref.py": "88a600ba7f3df178ca9e46437826e19354f84dd13c9dcd7c4f5e87f9a01576f2"
   },
   "demGridsSha256": "7f79153613f069d145509a00d8c5fe6ce48749427f5deb495ec627b9043649cf",
@@ -11712,6 +11713,7 @@
  "summary": {
   "DdcMedian": null,
   "G7median": null,
+  "G7pass": null,
   "a1BySite": {
    "busan": {
     "ok": false,
