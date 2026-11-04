@@ -13,7 +13,10 @@
  *     3. SkyScene3D 의 볼륨 장면 고리(장면 시각 05:00~19:00 KST, 5 분 간격 169 칸): weather = getInterpolatedWeather(path, t),
  *        qKey(앱 식, 설정 = 두 옵션 0) 가 바뀌거나 volSceneKey({sceneMs, lat, lon, elevM, metarId, metarTimeMs, obs: weather[0],
  *        sample: weather[min(4, len−1)]}) 가 바뀌면 buildLiveScene({…, ...OPTIONS}) — 그 횟수가 '장면 재구성 횟수'.
- *   옵션 OPTIONS = {macroOro: 0, regime: 0} 를 buildLiveScene 인자와 설정(qKey)에 함께 넣습니다(기준 커밋에는 없는 이름이라 무시됨).
+ *   옵션 OPTIONS = {macroOro: 0, regime: 0} 를 buildLiveScene 인자와 설정(qKey)에 함께 넣고, 세 요청 뿌리(fetchWeatherCanary·
+ *   fetchDayWeatherRing·fetchNearestMetar)에도 기존 인자 뒤의 마지막 인자로 넘깁니다(기준 커밋에는 없는 이름·자리라 무시됨).
+ *   정적 호출 자리 callSites(scanCallSites): 위 동적 경로가 닿지 못하는 곳(SkyScreen·SkyScene3D·volumetricScene 등)의 망 호출 자리
+ *   목록 — S7 에서 새 자리가 생기면 d 가 달라져 G1 이 실패합니다(build note 17).
  * 가로채기(모듈을 불러오기 전에 겁니다):
  *   - globalThis.fetch → 가짜(URL 을 차례대로 적고 Open-Meteo 꼴의 결정적 합성 응답; METAR 는 빈 목록). http/https/net/tls/dns 와
  *     XMLHttpRequest·WebSocket 은 부르면 적고 실패(진짜 망은 한 번도 안 나감 — 시험이 확인).
@@ -168,16 +171,174 @@ function buildBundle() {
 
 const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
 
+// ── 정적 호출 자리(callSites; build note 17) ──
+// runPath 가 실제로 돌리는 것은 EXEC_MODULES 의 뿌리(아래)뿐이라, SkyScreen·SkyScene3D·volumetricScene 같은 곳에 새로 놓인 요청은
+// 동적 가로채기로는 보이지 않습니다. 그래서 src 의 망 호출 자리를 정적으로 셉니다. 자리 하나 = 문자열 하나, 정렬, 같은 자리가
+// 여러 번이면 여러 번(호출마다 하나).
+//   '원시 망 호출' = `new XMLHttpRequest|WebSocket|EventSource`, 또는 부른 이름(식별자·속성 이름, 이름 바꾼 import 는 원래 이름)이
+//     `fetch` 이거나 `fetch` + 대문자·숫자·_ 로 시작하는 호출(EXEC_MODULES 안에서는 같은 모듈·다른 EXEC 모듈의 이름이 아닐 때만).
+//   그래프: EXEC_MODULES 의 최상위 이름(과 모듈 최상위 코드 '<top>')이 마디. 몸 안에서 같은 모듈 최상위 이름이나 다른 EXEC 모듈에서
+//     import 한 이름을 참조하면 그 마디로 가는 변. '망에 닿음' = 몸에 원시 망 호출이 있거나 변으로 닿는 마디가 닿음.
+//     '실행됨' = 뿌리(EXEC_MODULES 값)와 '<top>' 에서 변으로 닿음 — 동적 경로가 돌리는 코드의 정적 상한.
+//   (1) EXEC_MODULES 안, 실행되지 않는 마디의 원시 망 호출과 망에 닿는 마디 호출 → `<relpath>:<마디>:<부른 이름>`.
+//   (2) 나머지 src/**/*.ts(x): 원시 망 호출과, 부른 이름이 EXEC_MODULES 의 뿌리 아닌 망에 닿는 export 인 호출 → `<relpath>:<부른 이름>`.
+// 별칭으로 넘긴 값(`const f = fetchX; f()`)·동적 import 는 따라가지 않습니다(정적 근사; build note 17).
+export const EXEC_MODULES = {
+  'src/utils/weather.ts': ['fetchDayWeatherRing', 'fetchWeatherCanary', 'getInterpolatedWeather'],
+  'src/utils/metar.ts': ['applyMetarToObs', 'fetchNearestMetar'],
+  'src/components/VolumetricProbe/liveScene.ts': ['buildLiveScene'],
+  'src/components/VolumetricProbe/sceneKey.ts': ['volSceneKey'],
+};
+const FETCHY = n => n === 'fetch' || /^fetch[A-Z0-9_]/.test(n);
+const NET_CTORS = new Set(['XMLHttpRequest', 'WebSocket', 'EventSource']);
+const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+function loadTs() { return createRequire(path.join(ROOT, 'package.json'))('typescript'); }
+function listTsFiles(dir) {
+  const out = [];
+  const walk = d => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => byName(a.name, b.name))) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p); else if (e.isFile() && /\.(ts|tsx)$/.test(e.name)) out.push(p);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+export function scanCallSites(root = ROOT) {
+  const ts = loadTs();
+  const execNames = Object.keys(EXEC_MODULES).sort(byName);
+  const unwrap = e => {
+    for (;;) {
+      if (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isTypeAssertionExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
+      else return e;
+    }
+  };
+  const parseDiagnostics = {};
+  const parse = rel => {
+    const sf = ts.createSourceFile(rel, fs.readFileSync(path.join(root, rel), 'utf8'), ts.ScriptTarget.Latest, true, rel.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const n = (sf.parseDiagnostics ?? []).length;
+    if (n) parseDiagnostics[rel] = n;
+    return sf;
+  };
+  const resolveExec = (fromRel, spec) => {
+    if (!spec.startsWith('.')) return null;
+    const base = path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), spec));
+    for (const c of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) if (execNames.includes(c)) return c;
+    return null;
+  };
+  /** named: 지역 이름 → {imported, mod(EXEC 모듈 경로 또는 null)}; ns: 지역 이름 → EXEC 모듈 경로 또는 null */
+  const importsOf = (sf, rel) => {
+    const named = new Map(), ns = new Map();
+    for (const st of sf.statements) {
+      if (!ts.isImportDeclaration(st) || !st.importClause || st.importClause.isTypeOnly) continue;
+      const mod = resolveExec(rel, st.moduleSpecifier.text), nb = st.importClause.namedBindings;
+      if (nb && ts.isNamespaceImport(nb)) ns.set(nb.name.text, mod);
+      if (nb && ts.isNamedImports(nb)) for (const el of nb.elements) if (!el.isTypeOnly) named.set(el.name.text, { imported: (el.propertyName ?? el.name).text, mod });
+    }
+    return { named, ns };
+  };
+  /** 부른 것: {name(원래 이름), ident(지역 식별자), member, mod(EXEC 모듈이면 그 경로)}. 그 밖(호출 결과를 부름 등)은 null. */
+  const calleeOf = (expr, imp) => {
+    const e = unwrap(expr);
+    if (ts.isIdentifier(e)) { const im = imp.named.get(e.text); return { name: im ? im.imported : e.text, ident: e.text, member: false, mod: im ? im.mod : null }; }
+    if (ts.isPropertyAccessExpression(e)) { const o = unwrap(e.expression); return { name: e.name.text, member: true, mod: ts.isIdentifier(o) ? imp.ns.get(o.text) ?? null : null }; }
+    if (ts.isElementAccessExpression(e) && ts.isStringLiteralLike(e.argumentExpression)) return { name: e.argumentExpression.text, member: true, mod: null };
+    return null;
+  };
+  const isExported = st => (st.modifiers ?? []).some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+  const id = (m, n) => `${m}#${n}`;
+  // 1. EXEC 모듈 그래프
+  const edges = new Map(), calls = new Map(), exportedOf = {};
+  for (const m of execNames) {
+    const sf = parse(m), imp = importsOf(sf, m);
+    const nodes = new Map(), exported = new Set();
+    const add = (n, body) => { if (!nodes.has(n)) nodes.set(n, []); nodes.get(n).push(body); };
+    for (const st of sf.statements) {
+      if (ts.isImportDeclaration(st) || ts.isInterfaceDeclaration(st) || ts.isTypeAliasDeclaration(st)) continue;
+      if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name)) { add(d.name.text, d); if (isExported(st)) exported.add(d.name.text); } else add('<top>', d);
+      } else if ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st) || ts.isEnumDeclaration(st)) && st.name) {
+        add(st.name.text, st); if (isExported(st)) exported.add(st.name.text);
+      } else if (ts.isExportDeclaration(st)) {
+        if (st.exportClause && ts.isNamedExports(st.exportClause) && !st.moduleSpecifier) for (const el of st.exportClause.elements) exported.add((el.propertyName ?? el.name).text);
+      } else add('<top>', st);
+    }
+    if (!nodes.has('<top>')) nodes.set('<top>', []);
+    exportedOf[m] = exported;
+    const top = new Set(nodes.keys());
+    const local = name => top.has(name) && !imp.named.has(name);
+    for (const [n, bodies] of nodes) {
+      const E = new Set(), C = [];
+      const visit = x => {
+        if (ts.isIdentifier(x)) {
+          const p = x.parent;
+          const isName = p && ((ts.isPropertyAccessExpression(p) && p.name === x) || (ts.isPropertyAssignment(p) && p.name === x));
+          if (!isName && x.text !== n && local(x.text)) E.add(id(m, x.text));
+          const im = !isName && imp.named.get(x.text);
+          if (im && im.mod) E.add(id(im.mod, im.imported));
+        }
+        if (ts.isCallExpression(x) || ts.isNewExpression(x)) {
+          const c = calleeOf(x.expression, imp);
+          if (c) {
+            if (ts.isNewExpression(x)) { if (NET_CTORS.has(c.name)) C.push({ callee: c.name, target: null }); }
+            else if (!c.member && local(c.ident)) C.push({ callee: c.name, target: id(m, c.name) });
+            else if (c.mod) { C.push({ callee: c.name, target: id(c.mod, c.name) }); E.add(id(c.mod, c.name)); }
+            else if (FETCHY(c.name)) C.push({ callee: c.name, target: null });
+          }
+        }
+        ts.forEachChild(x, visit);
+      };
+      for (const b of bodies) ts.forEachChild(b, visit);
+      edges.set(id(m, n), E); calls.set(id(m, n), C);
+    }
+  }
+  // 2. 망에 닿음(원시 호출 → 변을 거꾸로), 3. 실행됨(뿌리·<top> → 변)
+  const reach = new Set([...calls].filter(([, C]) => C.some(c => c.target === null)).map(([k]) => k));
+  for (let ch = true; ch;) { ch = false; for (const [k, E] of edges) if (!reach.has(k) && [...E].some(t => reach.has(t))) { reach.add(k); ch = true; } }
+  const ex = new Set(execNames.flatMap(m => [id(m, '<top>'), ...EXEC_MODULES[m].map(r => id(m, r))]));
+  for (let ch = true; ch;) { ch = false; for (const k of [...ex]) for (const t of edges.get(k) ?? []) if (!ex.has(t)) { ex.add(t); ch = true; } }
+  const sites = [], netExports = {}, executed = {}, netOther = new Set();
+  for (const m of execNames) {
+    netExports[m] = [...exportedOf[m]].filter(n => reach.has(id(m, n))).sort(byName);
+    for (const n of netExports[m]) if (!EXEC_MODULES[m].includes(n)) netOther.add(n);
+    executed[m] = [...ex].filter(k => k.startsWith(`${m}#`) && reach.has(k)).map(k => k.slice(m.length + 1)).sort(byName);
+  }
+  for (const [k, C] of calls) {
+    if (ex.has(k)) continue;
+    const [m, n] = [k.slice(0, k.indexOf('#')), k.slice(k.indexOf('#') + 1)];
+    for (const c of C) if (c.target === null || reach.has(c.target)) sites.push(`${m}:${n}:${c.callee}`);
+  }
+  // 4. 나머지 파일
+  const files = listTsFiles(path.join(root, 'src')).map(a => path.relative(root, a).split(path.sep).join('/'));
+  for (const rel of files) {
+    if (execNames.includes(rel)) continue;
+    const sf = parse(rel), imp = importsOf(sf, rel);
+    const visit = x => {
+      if (ts.isCallExpression(x) || ts.isNewExpression(x)) {
+        const c = calleeOf(x.expression, imp);
+        if (c && (ts.isNewExpression(x) ? NET_CTORS.has(c.name) : FETCHY(c.name) || netOther.has(c.name))) sites.push(`${rel}:${c.name}`);
+      }
+      ts.forEachChild(x, visit);
+    };
+    visit(sf);
+  }
+  sites.sort(byName);
+  return { sites, info: { parser: `typescript@${ts.version}`, files: files.length, execModules: EXEC_MODULES, netExports, executed, parseDiagnostics } };
+}
+
 export async function runPath(L, qKeyOf) {
   const F = FIXTURE, t0 = new Date(Date.parse(F.nowIso));
   const ctl = new AbortController();
-  // 1. SkyScreen: 카나리아 + 고리(같이)
+  // 1. SkyScreen: 카나리아 + 고리(같이). 세 요청 뿌리에는 기존 인자 뒤에 OPTIONS 사본을 마지막 인자로 더 넘깁니다
+  //    (기준 커밋에서는 쓰지 않는 자리라 무시됨 — 고리의 6 번째 nowMs 는 undefined 그대로; build note 17 의 S7 규칙).
   const [canary, path_] = await Promise.all([
-    L.fetchWeatherCanary(F.lat, F.lon, t0, ctl.signal).catch(() => null),
-    L.fetchDayWeatherRing(F.lat, F.lon, t0, false, ctl.signal),
+    L.fetchWeatherCanary(F.lat, F.lon, t0, ctl.signal, { ...OPTIONS }).catch(() => null),
+    L.fetchDayWeatherRing(F.lat, F.lon, t0, false, ctl.signal, undefined, { ...OPTIONS }),
   ]);
   // 2. SkyScene3D: METAR 첫 받기
-  const metar = await L.fetchNearestMetar(F.lat, F.lon, ctl.signal).catch(() => null);
+  const metar = await L.fetchNearestMetar(F.lat, F.lon, ctl.signal, { ...OPTIONS }).catch(() => null);
   await flush();
   // 3. 볼륨 장면 고리
   const settings = Object.fromEntries(Object.entries(OPTIONS).map(([k, v]) => ['volumetric' + k[0].toUpperCase() + k.slice(1), v]));
@@ -221,6 +382,7 @@ async function main() {
   const bundle = buildBundle();
   const skySrc = fs.readFileSync(path.join(ROOT, SKY_SCENE), 'utf8');
   const { fn: qKeyOf } = extractQKey(skySrc);
+  const cs = scanCallSites(ROOT);       // 가로채기 전에(파서가 만드는 타이머·시계가 세지지 않게)
   const nowMs = Date.parse(FIXTURE.nowIso);
   const { log, pending, restore } = installIntercepts(nowMs);
   const L = createRequire(import.meta.url)(bundle.file);
@@ -230,7 +392,9 @@ async function main() {
   restore();
   const t = log.timers;
   const out = {
-    schema: 'g1-live/1', commit, path: 'SkyScreen fetchWeatherCanary+fetchDayWeatherRing → SkyScene3D fetchNearestMetar → qKey/volSceneKey-driven buildLiveScene loop',
+    schema: 'g1-live/1', commit,
+    path: 'SkyScreen fetchWeatherCanary+fetchDayWeatherRing → SkyScene3D fetchNearestMetar (each with OPTIONS as an extra last argument) → qKey/volSceneKey-driven buildLiveScene loop; plus static callSites over src',
+    callSites: cs.sites, callSitesInfo: cs.info,
     options: OPTIONS, fixture: FIXTURE, bundle: { sha256: bundle.sha256, esbuild: ESBUILD, define: '__DEV__=false' }, srcClean: dirty.length === 0,
     requests: log.requests, rebuilds: info ? info.rebuilds : null, timers: t.setTimeout + t.setInterval + t.setImmediate,
     timersDetail: { ...t, pendingAtEnd }, d6d14Requests: log.requests.filter(r => isD6D14(r.url)).length, realNetwork: log.realNetwork,
@@ -247,10 +411,12 @@ async function main() {
     ['scene rebuilt at least once', (info?.rebuilds ?? 0) >= 1, `${info?.rebuilds ?? '-'} rebuilds over ${info?.frames ?? '-'} frames`],
     ['every rebuilt scene carries the macro ring', !!info && info.layersSig.every(s => s.endsWith('m')), info ? info.layersSig.join(',') : ''],
     ['no timer left pending', pendingAtEnd === 0, `${pendingAtEnd} pending, ${out.timers} created`],
+    ['call sites scanned without parse errors', cs.sites.length > 0 && Object.keys(cs.info.parseDiagnostics).length === 0,
+      `${cs.sites.length} sites in ${cs.info.files} files, ${Object.keys(cs.info.parseDiagnostics).length} files with parse errors`],
   ];
   let fail = 0;
   for (const [name, ok, detail] of checks) { if (!ok) fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  ${detail}`); }
-  console.log(`requests ${log.requests.length} rebuilds ${out.rebuilds} timers ${out.timers} out-sha256 ${sha256(Buffer.from(canonicalJson(out)))}`);
+  console.log(`requests ${log.requests.length} rebuilds ${out.rebuilds} timers ${out.timers} callSites ${cs.sites.length} out-sha256 ${sha256(Buffer.from(canonicalJson(out)))}`);
   process.exit(fail ? 1 : 0);
 }
 

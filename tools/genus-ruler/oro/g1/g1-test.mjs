@@ -14,7 +14,13 @@
  *              의 나머지는 원래 잡 그대로; 산악 둘 = kanazawa 처음 두 날짜, dev, A1 ✓(oro-apply); 대조 잡 = 원래 잡; 감사.
  *   QKEY       qKey 식 꺼내기: 손으로 계산한 문자열과 같음, 식이 둘이면 거절.
  *   LIVE       g1-live 두 번(따로) 출력 바이트 같음, 검사 통과; 가로채기 음성 대조(남은 타이머·진짜 망 시도·D6 꼴 요청을 잡음).
- *   RENDER     b 조각: A/A, 키 실행 = run1, 대조 = merge-aa.json, chromium 판·깃발 = merge-aa.json, 잡마다 키 하나.
+ *   CALLSITES  정적 호출 자리(build note 17): 작업 트리 = d 조각, 알려진 자리; src 사본(.ts/.tsx 만)에 한 줄씩 바꾼 변이 —
+ *              실행 경로 밖의 요청(SkyScene3D fetch·이름 없는 weather 적재기·지형 요청 더함·volumetricScene WebSocket·liveScene 의
+ *              닿지 않는 export)은 자리가 늘고, 실행 경로 안의 옵션 문(fetchDayWeatherRing 마지막 인자·buildLiveScene 적재기)은 그대로;
+ *              runPath 가 세 요청 뿌리에 OPTIONS 를 마지막 인자로 넘김.
+ *   RENDER     b 조각: A/A, 키 실행 = run1, 대조 = merge-aa.json, chromium 판·깃발 = merge-aa.json, 잡마다 키 하나, 부하 지킴 통과.
+ *   LOADGUARD  부하 지킴(build note 19): 남의 CPU 프로세스(바쁜 고리)가 돌 때 g1-render --wait-idle 0 이 그리지 않고 exit 3; 조각
+ *              b 의 부하 기록을 바꾼 사본으로 g1-baseline 이 쓰지 않음; --final 은 status.final 이 아니면 쓰지 않음(build note 20).
  *   BASELINE   g1-baseline.json: §8 꼴의 키, 장면 121 × 3, 15 걸음, 조각에서 다시 모으면 바이트 같음.
  *   CONTAM     저장소에 gate-oro-*.json·judge.lock(.1) 없음, 조각·잡 파일에 MODIS 키(trueGrid·empty) 없음.
  */
@@ -340,6 +346,72 @@ restore(); console.log(JSON.stringify(out)); process.exit(0);`;
   ck.kv = { requests: D.requests.length, rebuilds: D.rebuilds, timers: D.timers, pendingAtEnd: D.timersDetail.pendingAtEnd, neg: neg ? `${neg.pending}/${neg.real}/${neg.d6}` : 'none' };
 });
 
+await test('CALLSITES', async ck => {
+  const live = await import(path.join(G, 'g1-live.mjs'));
+  const base = live.scanCallSites(ROOT);
+  ck.ok(Object.keys(base.info.parseDiagnostics).length === 0 && base.sites.length > 0 && JSON.stringify(base.sites) === JSON.stringify([...base.sites].sort()), 'parsedSorted');
+  const pd = path.join(PARTS, 'd.json');
+  if (fs.existsSync(pd)) ck.ok(JSON.stringify(rdJson(pd).callSites) === JSON.stringify(base.sites), 'partSame');
+  const want = ['src/components/SkyScreen/SkyScreen.tsx:fetchDayWeatherRing', 'src/components/SkyScreen/SkyScreen.tsx:fetchWeatherCanary',
+    'src/components/SkyScene3D/SkyScene3D.tsx:fetchNearestMetar', 'src/components/SkyScene3D/SkyScene3D.tsx:fetchDayWeatherRing', 'src/store/useCelestialStore.ts:fetch'];
+  ck.ok(want.every(w => base.sites.includes(w)) && !base.sites.some(x => x.startsWith('src/utils/weather.ts:fetchDayWeatherRing:')), 'knownSites');
+  // 변이: src 의 .ts/.tsx 만 사본으로(저장소는 건드리지 않음)
+  const SKY = 'src/components/SkyScene3D/SkyScene3D.tsx', W = 'src/utils/weather.ts', LV = 'src/components/VolumetricProbe/liveScene.ts';
+  const PULL = '    pull();\n    const id = setInterval(pull, 10 * 60_000);';
+  const HEAD = 'export function buildLiveScene(a: LiveSceneArgs): LiveScene {\n';
+  const LOADER = "\nexport const loadOroObs = async (lat: number, lon: number) => {\n  const r = await fetchWithTimeout(`https://x.invalid/?latitude=${lat}&longitude=${lon}`, {}, 8000);\n  return r.ok ? r.json() : null;\n};\n";
+  const CANARY = '\nexport const fetchWeatherCanary = async (';
+  const RING = '  nowMs?: number\n): Promise<CloudPathData[]> => {\n';
+  const MUT = {
+    skyFetch: [[[SKY, PULL, '    pull();\n    void fetch(`https://x.invalid/?wind_speed_700hPa`).catch(() => null);\n    const id = setInterval(pull, 10 * 60_000);']], ['src/components/SkyScene3D/SkyScene3D.tsx:fetch']],
+    skyLoader: [[[W, CANARY, LOADER + CANARY], [SKY, "import { fetchDayWeatherRing, type CloudPathData } from '../../utils/weather';", "import { fetchDayWeatherRing, loadOroObs, type CloudPathData } from '../../utils/weather';"],
+      [SKY, PULL, '    pull();\n    void loadOroObs(metarLat, metarLon).catch(() => null);\n    const id = setInterval(pull, 10 * 60_000);']],
+    ['src/components/SkyScene3D/SkyScene3D.tsx:loadOroObs', 'src/utils/weather.ts:loadOroObs:fetchWithTimeout']],
+    terrainExtra: [[[W, '      const response = await fetchWithTimeout(url, {}, 6000);', '      void fetchWithTimeout(url + "&x=1", {}, 6000);\n      const response = await fetchWithTimeout(url, {}, 6000);']],
+      ['src/utils/weather.ts:fetchTerrainProfile:fetchWithTimeout']],
+    volWebSocket: [[['src/components/VolumetricProbe/volumetricScene.ts', 'export const LOW_MIN_STEP_M = 50;', 'export const LOW_MIN_STEP_M = 50;\nexport const oroWs = (u: string) => new WebSocket(u);']],
+      ['src/components/VolumetricProbe/volumetricScene.ts:WebSocket']],
+    liveOutOfTree: [[[LV, 'export const CB_TOP_KM = 10;', 'export const CB_TOP_KM = 10;\nexport function oroPing(lat: number) { void fetch(`https://x.invalid/?${lat}`).catch(() => null); }']],
+      ['src/components/VolumetricProbe/liveScene.ts:oroPing:fetch']],
+    ringGatedOk: [[[W, CANARY, LOADER + CANARY], [W, RING, '  nowMs?: number,\n  oro?: { macroOro?: number; regime?: number },\n): Promise<CloudPathData[]> => {\n  if (oro?.macroOro || oro?.regime) void loadOroObs(lat, lon).catch(() => null);\n']], []],
+    liveLoaderOk: [[[W, CANARY, LOADER + CANARY], [LV, 'import { getInterpolatedWeather, PROFILE_LEVELS,', 'import { getInterpolatedWeather, loadOroObs, PROFILE_LEVELS,'],
+      [LV, HEAD, HEAD + '  if ((a as any).macroOro || (a as any).regime) void loadOroObs(a.lat, a.lon).catch(() => null);\n']], []],
+  };
+  const root = path.join(TMP, 'callsites');
+  let asExpected = 0;
+  const bad = [];
+  for (const [name, [patches, added]] of Object.entries(MUT)) {
+    const r = fresh(path.join(root, name));
+    const copy = (src, dst) => { for (const e of fs.readdirSync(src, { withFileTypes: true })) { const a = path.join(src, e.name), b = path.join(dst, e.name);
+      if (e.isDirectory()) { fs.mkdirSync(b, { recursive: true }); copy(a, b); } else if (/\.(ts|tsx)$/.test(e.name)) fs.copyFileSync(a, b); } };
+    fs.mkdirSync(path.join(r, 'src'), { recursive: true }); copy(path.join(ROOT, 'src'), path.join(r, 'src'));
+    let anchored = true;
+    for (const [rel, a, b] of patches) {
+      const f = path.join(r, rel), t = fs.readFileSync(f, 'utf8');
+      if (t.split(a).length !== 2) { anchored = false; break; }
+      fs.writeFileSync(f, t.replace(a, b));
+    }
+    const got = anchored ? live.scanCallSites(r) : null;
+    const want2 = [...base.sites, ...added].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+    if (got && Object.keys(got.info.parseDiagnostics).length === 0 && JSON.stringify(got.sites) === JSON.stringify(want2)) asExpected++; else bad.push(name);
+    fs.rmSync(r, { recursive: true, force: true });
+  }
+  ck.ok(asExpected === Object.keys(MUT).length, `mutants:${bad.join('+')}`);
+  // runPath 가 세 요청 뿌리에 OPTIONS 를 마지막 인자로 넘기는지(가짜 모듈)
+  const calls = {};
+  const rec = name => (...args) => { (calls[name] ??= []).push(args); return name === 'fetchDayWeatherRing' ? Promise.resolve([]) : Promise.resolve(null); };
+  const L = { fetchWeatherCanary: rec('fetchWeatherCanary'), fetchDayWeatherRing: rec('fetchDayWeatherRing'), fetchNearestMetar: rec('fetchNearestMetar'),
+    getInterpolatedWeather: () => [], volSceneKey: () => 'k', buildLiveScene: a => { (calls.buildLiveScene ??= []).push([a]); return { input: { layers: [], macro: {} } }; } };
+  await live.runPath(L, () => 'q');
+  const isOpt = x => JSON.stringify(x) === JSON.stringify(live.OPTIONS);
+  const c = calls;
+  ck.ok(c.fetchWeatherCanary?.[0]?.length === 5 && isOpt(c.fetchWeatherCanary[0][4])
+    && c.fetchDayWeatherRing?.[0]?.length === 7 && c.fetchDayWeatherRing[0][5] === undefined && isOpt(c.fetchDayWeatherRing[0][6])
+    && c.fetchNearestMetar?.[0]?.length === 4 && isOpt(c.fetchNearestMetar[0][3])
+    && c.buildLiveScene?.[0]?.[0]?.macroOro === 0 && c.buildLiveScene[0][0].regime === 0, 'optionsPassed');
+  ck.kv = { sites: base.sites.length, files: base.info.files, mutants: `${asExpected}/${Object.keys(MUT).length}`, parser: base.info.parser };
+});
+
 await test('RENDER', async ck => {
   const bf = path.join(PARTS, 'b.json');
   if (!fs.existsSync(bf)) { ck.skip = 'no b.json part'; return; }
@@ -349,6 +421,8 @@ await test('RENDER', async ck => {
   ck.ok(B.aa === true, 'aa'); ck.ok(B.keysMatchRun1 === true, 'keysRunSame'); ck.ok(B.macroOnAllJobs === true, 'macroOn');
   ck.ok(Object.values(B.run1GlError ?? {}).every(v => v === 0) && Object.keys(B.run1GlError ?? {}).length === 4, 'glError0'); ck.ok(B.controlMatchesMergeAA === true, 'controlMergeAA');
   ck.ok(B.controlBundleMd5MatchesMergeAA === true, 'bundleMd5MergeAA');
+  const L = B.load ?? {};
+  ck.ok(B.renderUnloaded === true && ['run1', 'run2', 'control', 'keys'].every(st => L[st] && L[st].before[0] < 1.0 && L[st].heavy.length === 0 && L[st].during.foreignCores < 0.5), 'unloaded');
   ck.ok(B.versions.chromium === aa.chromium && JSON.stringify(B.versions.chromiumFlags) === JSON.stringify(aa.chromiumFlags) && B.versions.esbuild === aa.esbuild, 'versionsMergeAA');
   const jobs = rdJson(path.join(G, 'jobs-g1.json'));
   ck.ok(B.jobsFileSha256 === sha256(fs.readFileSync(path.join(G, 'jobs-g1.json'))), 'jobsFile');
@@ -364,7 +438,53 @@ await test('RENDER', async ck => {
   ck.ok(keys.size === jobs.length, 'keysDistinct');
   const rgb = new Set(jobs.map(j => B.run1[j.name].rgb));
   ck.ok(rgb.size === jobs.length, 'rendersDistinct');
-  ck.kv = { jobs: jobs.length, oneKey, aaDiff: (B.aaDiff ?? []).join('+') || 'none', chromium: JSON.stringify(B.versions.chromium) };
+  ck.kv = { jobs: jobs.length, oneKey, aaDiff: (B.aaDiff ?? []).join('+') || 'none', chromium: JSON.stringify(B.versions.chromium),
+    load1: Math.max(...['run1', 'run2', 'control', 'keys'].map(st => L[st]?.before?.[0] ?? 99)), foreign: Math.max(...['run1', 'run2', 'control', 'keys'].map(st => L[st]?.during?.foreignCores ?? 99)) };
+});
+
+await test('LOADGUARD', async ck => {
+  const d = fresh(path.join(TMP, 'loadguard'));
+  // 1. 남의 CPU 프로세스: g1-render 의 자손이 아닌 바쁜 고리(이 시험의 자식) — ps pcpu ≈ 100
+  const hog = cp.spawn('node', ['-e', 'const t = Date.now(); while (Date.now() - t < 60000) {}'], { stdio: 'ignore' });
+  try {
+    cp.spawnSync('sleep', ['1.5']);
+    const out = path.join(d, 'b.json'), work = path.join(d, 'work'), ctl = path.join(d, 'control.json');
+    fs.writeFileSync(ctl, '[]\n');
+    const r = node([path.join(G, 'g1-render.mjs'), '--jobs', path.join(G, 'jobs-g1.json'), '--control', ctl, '--out', out,
+      '--work', work, '--steps', 'run1', '--wait-idle', '0']);
+    ck.ok(r.status === 3 && /run1: container not idle/.test(r.stderr) && /node\(\d+\)/.test(r.stderr), 'renderRefusedUnderLoad');
+    ck.ok(!fs.existsSync(path.join(work, 'run1')) && !fs.existsSync(out), 'nothingRendered');
+    ck.kv.renderExit = r.status;
+  } finally { hog.kill('SIGKILL'); }
+  // 2. g1-baseline: 부하 기록이 어긋난 b 사본이면 쓰지 않음; --final 은 final 이 아니면 쓰지 않음
+  if (!['a.json', 'b.json', 'd.json'].every(f => fs.existsSync(path.join(PARTS, f)))) { ck.skip = 'no parts'; return; }
+  const B0 = rdJson(path.join(PARTS, 'b.json'));
+  if (!B0.load) { ck.skip = 'b.json without load record'; return; }
+  // 시험 고정물: 부하와 무관한 b 의 판정(A/A·키 실행·대조·거시 격자)이 실제 조각에서 거짓이면 사본에서만 참으로 두고 forced= 로 밝힘
+  // (이 시험은 부하 지킴과 --final 만 봄; 실제 조각의 그 판정은 RENDER 가 봄)
+  const OTHER = ['aa', 'keysMatchRun1', 'controlMatchesMergeAA', 'controlBundleMd5MatchesMergeAA', 'macroOnAllJobs'];
+  const forced = OTHER.filter(k => B0[k] !== true);
+  const assemble = (tag, mut, extra = []) => {
+    const pd = fresh(path.join(d, 'parts'));
+    for (const f of ['a.json', 'd.json']) fs.copyFileSync(path.join(PARTS, f), path.join(pd, f));
+    const B = JSON.parse(JSON.stringify(B0)); for (const k of forced) B[k] = true; mut(B); fs.writeFileSync(path.join(pd, 'b.json'), canonicalJson(B));
+    const o2 = path.join(d, `g1-baseline-${tag}.json`); fs.rmSync(o2, { force: true });
+    const r = node([path.join(G, 'g1-baseline.mjs'), '--parts', pd, '--jobs', path.join(G, 'jobs-g1.json'), '--inputs', INPUTS, '--out', o2, ...extra]);
+    return { r, wrote: fs.existsSync(o2), o2 };
+  };
+  const same = assemble('same', () => {});
+  ck.ok(same.r.status === 0 && same.wrote, 'unchangedWrites');
+  const loaded = assemble('loaded', B => { B.load.run2.before[0] = 1.5; });
+  ck.ok(loaded.r.status === 1 && !loaded.wrote && /render step started under load/.test(loaded.r.stderr), 'loadedBeforeRefused');
+  const busy = assemble('busy', B => { B.load.keys.during.foreignCores = 0.9; });
+  ck.ok(busy.r.status === 1 && !busy.wrote && /used ≥ 0.5 core/.test(busy.r.stderr), 'foreignDuringRefused');
+  const missing = assemble('missing', B => { delete B.load.control; });
+  ck.ok(missing.r.status === 1 && !missing.wrote && /render load record missing for control/.test(missing.r.stderr), 'missingStepRefused');
+  const X = same.wrote ? rdJson(same.o2) : null;
+  const fin = assemble('final', () => {}, ['--final']);
+  if (X && X.status.final === false) ck.ok(fin.r.status === 1 && !fin.wrote && X.status.notFinal.every(k => fin.r.stderr.includes(`NOT-FINAL ${k}`)), 'finalRefused');
+  else ck.ok(X && fin.r.status === 0 && fin.wrote && fs.readFileSync(fin.o2).equals(fs.readFileSync(same.o2)), 'finalWrites');
+  ck.kv = { ...ck.kv, forced: forced.join('+') || 'none', final: X ? X.status.final : '-', notFinal: X ? X.status.notFinal.join('+') || 'none' : '-' };
 });
 
 await test('BASELINE', async ck => {
@@ -374,7 +494,8 @@ await test('BASELINE', async ck => {
   const has = (o, p) => p.split('.').reduce((a, k) => (a && Object.prototype.hasOwnProperty.call(a, k) ? a[k] : undefined), o) !== undefined;
   const keys = ['schema', 'commit', 'mergedCommit', 'bundles.macro.sha256', 'bundles.macro.esbuild', 'bundles.harness.sha256', 'bundles.harness.build',
     'versions.node', 'versions.esbuild', 'versions.chromium', 'versions.chromiumPath', 'versions.chromiumFlags', 'inputs.oroInputsSha256',
-    'a', 'aMode2', 'b.aa', 'b.jobs', 'c', 'd.requests', 'd.rebuilds', 'd.timers'];
+    'a', 'aMode2', 'b.aa', 'b.jobs', 'c', 'd.requests', 'd.rebuilds', 'd.timers', 'd.callSites', 'status.final', 'status.notFinal',
+    'status.g1ToolsCommitted', 'status.renderUnloaded'];
   const missing = keys.filter(k => !has(X, k));
   ck.ok(!missing.length && X.schema === 'g1-baseline/1' && X.mergedCommit === '115fbe2' && X.bundles.macro.esbuild === '0.28.2', 'schemaKeys');
   const sc = Object.keys(X.a);

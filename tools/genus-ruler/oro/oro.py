@@ -109,6 +109,12 @@ BANDS = O.BANDS
 ORO_REL = 'tools/genus-ruler/oro'
 TAG_MORNING = '아침(Terra ≈ 09:00) 판정'
 FROZEN_REQUIRED = ('oro-apply.json', 'oro-inputs.json', 'dem-grids.json')     # G8(c): their hashes must be in FROZEN
+# FROZEN `old` (§9.2 "바꾸지 않음, 해시만"): the judge hashes at ④ 2 every `old` entry under these prefixes (the macro/ring
+# tools it executes at T — macro.py's load_u8/box_mean/corr, fetch-sat.py and fetch-nwp-ring.py through oro_ref — and their
+# neighbours); src/ and volsky entries are G1-baseline-commit hashes that change by design after freeze (§9.3 ①).
+OLD_HASHED_PREFIXES = ('tools/genus-ruler/macro/', 'tools/genus-ruler/ring/')
+OLD_REQUIRED = ('tools/genus-ruler/macro/macro.py', 'tools/genus-ruler/macro/fetch-sat.py',
+                'tools/genus-ruler/ring/fetch-nwp-ring.py')     # executed by the judge: must be listed in `old`
 EXPOSURE_TAG = {'held 장면별': '동결 전 held 장면별 노출(§0.5)', '모름': '동결 전 held 장면별 노출(§0.5)',
                 'held 집계': '동결 전 held 집계 노출(§0.5)'}
 
@@ -902,10 +908,22 @@ def files_hashes_ok(ctx, files):
     return bad
 
 
+def _node_version(v):
+    """'v22.23.4' / '22.23.4' → '22.23.4' (FROZEN `versions.node` is recorded as `node --version` prints it); None if empty."""
+    v = (v or '').strip()
+    return (v[1:] if v.startswith('v') else v) or None
+
+
 def default_b_check(ctx, frozen, inputs_path):
-    """§9.3 ④ 5: B rebuilt from oro-inputs.json (only) must equal the recorded sha256 (oro-base.mjs --check, n128 and
-    n64). On a difference: rebuild into a temp dir and compare floats with the sealed B in .harness/oro/base; all
-    max|ΔB| ≤ 1e-6 → proceed with the rebuilt B; else stop before T. Returns {'ok', 'mode', 'baseDir', 'checkSha', ...}."""
+    """§9.3 ④ 5 (L904-L907): B rebuilt from oro-inputs.json (only) must equal the recorded sha256 (oro-base.mjs --check,
+    n128 and n64; esbuild is pinned inside oro-base.mjs). On a difference:
+      1. "versions 의 node·esbuild 판으로 다시 만듭니다": if the running node is not FROZEN `versions.node`, stop here with
+         mode 'node-version' — an environment fix (install the pinned node and rerun the precheck), no rebuild yet;
+      2. "그래도 다르면": the --check above already ran under the pinned node, so rebuild into a temp dir and record
+         max|ΔB| per scene · time · band · n against the sealed B (`maxAbsDBPer`, key '<scene>|<time>|<band>|n128|n64',
+         for the §10.3 record; None = a recorded B that cannot be compared) and the overall `maxAbsDB`;
+         all ≤ 1e-6 → proceed with the rebuilt B (ok), else stop before T.
+    Returns {'ok', 'mode', 'baseDir', 'checkSha', ...}."""
     commit = (frozen.get('runtime') or {}).get('bCommit')
     if not commit:
         ip = os.path.join(ctx.base, 'index.json')
@@ -918,9 +936,11 @@ def default_b_check(ctx, frozen, inputs_path):
     if r.returncode == 0:
         return {'ok': True, 'mode': 'check', 'baseDir': ctx.base, 'checkSha': True}
     vers = frozen.get('versions') or {}
-    rec = {'ok': False, 'mode': 'rebuild', 'nodeRunning': subprocess.run(['node', '--version'], capture_output=True,
-                                                                         text=True).stdout.strip(),
-           'nodeFrozen': vers.get('node')}
+    running = subprocess.run(['node', '--version'], capture_output=True, text=True).stdout.strip()
+    rec = {'ok': False, 'mode': 'rebuild', 'nodeRunning': running, 'nodeFrozen': vers.get('node')}
+    if _node_version(running) is None or _node_version(running) != _node_version(vers.get('node')):
+        rec['mode'] = 'node-version'
+        return rec
     tmp = tempfile.mkdtemp(prefix='oro-brebuild-', dir=ctx.p('.harness/oro'))
     r2 = subprocess.run(['node', script, '--inputs', inputs_path, '--commit', commit, '--out', tmp], cwd=ctx.root,
                         capture_output=True, text=True)
@@ -928,7 +948,7 @@ def default_b_check(ctx, frozen, inputs_path):
         rec['mode'] = 'rebuild-failed'
         return rec
     inp = _jl(inputs_path)
-    worst = 0.0
+    per = {}
     for sc in sorted(inp['scenes']):
         for tk in sorted(inp['scenes'][sc]['times']):
             tm = inp['scenes'][sc]['times'][tk]
@@ -940,12 +960,19 @@ def default_b_check(ctx, frozen, inputs_path):
                     if shas.get(b) is None:
                         continue
                     nm = f'{sc}__{tk}__{b}' + ('__n64' if n64 else '') + '.f32'
-                    old = O.load_B(sc, tk, b, inp, ctx.base, n64=n64)
-                    with open(os.path.join(tmp, nm), 'rb') as f:
-                        new = np.frombuffer(f.read(), dtype='<f4').astype(np.float64)
-                    worst = max(worst, float(np.max(np.abs(new - old.ravel()))))
-    rec['maxAbsDB'] = worst
-    rec['ok'] = worst <= 1e-6
+                    key = f'{sc}|{tk}|{b}|{"n64" if n64 else "n128"}'
+                    try:
+                        old = O.load_B(sc, tk, b, inp, ctx.base, n64=n64)
+                        with open(os.path.join(tmp, nm), 'rb') as f:
+                            new = np.frombuffer(f.read(), dtype='<f4').astype(np.float64)
+                        per[key] = float(np.max(np.abs(new - old.ravel())))
+                    except (OSError, ValueError):
+                        per[key] = None
+    vals = [v for v in per.values() if v is not None]
+    rec['maxAbsDBPer'] = dict(sorted(per.items()))
+    rec['maxAbsDB'] = max(vals) if vals else None
+    rec['nNotCompared'] = len(per) - len(vals)
+    rec['ok'] = bool(vals) and len(vals) == len(per) and rec['maxAbsDB'] <= 1e-6
     rec['baseDir'] = tmp
     rec['checkSha'] = False
     return rec
@@ -1125,8 +1152,13 @@ def precheck(ctx, b_checker=None, env_check=True):
     ok2a, why = check_files_clean(ctx, fc, frel + [f'{ORO_REL}/FROZEN.json']) if fc else (False, 'no-commit')
     bad = files_hashes_ok(ctx, {k: files[k] for k in frel})
     notf = [f'{ORO_REL}/{x}' for x in FROZEN_REQUIRED if f'{ORO_REL}/{x}' not in files]
-    st['2a'] = bool(ok2a and not bad and not notf)
-    rec['2a'] = {'git': why, 'hashMismatch': bad, 'notFrozen': notf}
+    # ④ 2 also covers FROZEN `old` (§9.2 "바꾸지 않음"): hash only (no git diff — `old` is not in `files`), the macro/ring
+    # entries; the three tools the judge executes must be listed (a FROZEN without them would skip the check silently)
+    old = dict(frozen.get('old') or {})
+    bad_old = files_hashes_ok(ctx, {k: v for k, v in old.items() if k.startswith(OLD_HASHED_PREFIXES)})
+    old_nf = sorted(x for x in OLD_REQUIRED if x not in old)
+    st['2a'] = bool(ok2a and not bad and not notf and not bad_old and not old_nf)
+    rec['2a'] = {'git': why, 'hashMismatch': bad, 'notFrozen': notf, 'oldHashMismatch': bad_old, 'oldNotFrozen': old_nf}
     # 2(b) + 6. every FROZEN-extN: unchanged since its own commit, its files' hashes match
     ok2b, ok6, ext = True, True, {}
     for fx in frozen_extn(ctx):
@@ -1515,15 +1547,16 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
     held, dev, preps = prepared if prepared is not None else judge_prepare(ctx, rows, scenes, b_src, pret)
     # T read (the lock exists already)
     truths, drops = {}, {'noTrueGrid': [], 'smallS': []}
+    # stdout carries T-free progress counters only (L914, §6.6): counts over the prepared list, printed whether or not a
+    # scene has a trueGrid; no judged / dropped / G-shuf count (they depend on T through the empty-pixel mask, L345-L347)
     for i, n in enumerate(held + dev):
         pj, pp = (truth_fn(n), png_fn(n)) if truth_fn else scene_paths(ctx, scenes[n], n)
         tr = load_truth(pj)
-        if tr is None:
-            if n in held:
-                drops['noTrueGrid'].append(n)          # dev scenes without trueGrid show up in dev.drops
-            continue
-        tr['empty'], tr['dark'] = empty_cells(pp)
-        truths[n] = tr
+        if tr is not None:
+            tr['empty'], tr['dark'] = empty_cells(pp)
+            truths[n] = tr
+        elif n in held:
+            drops['noTrueGrid'].append(n)              # dev scenes without trueGrid show up in dev.drops
         if (i + 1) % 10 == 0:
             _progress(f'TRUTH {i + 1}/{len(held) + len(dev)}')
     vals, masks = {}, {}
@@ -1539,10 +1572,10 @@ def judge_compute(ctx, rows, scenes, summary, frozen, b_src, truth_fn=None, png_
     judged = [n for n in held if n in vals and vals[n]['nS'] >= O.A7_MIN_S]
     drops['smallS'] = sorted(n for n in held if n in vals and vals[n]['nS'] < O.A7_MIN_S)
     dev_j = [n for n in dev if n in vals and vals[n]['nS'] >= O.A7_MIN_S]
-    _progress(f'METRICS judged {len(judged)} dev {len(dev_j)}')
+    _progress('METRICS done')
     gs_sites = sorted(summary.get('gshufSites') or [])
     dshuf, dswap, dshuf2, gs_excluded = gshuf_all(judged, rows, preps, vals, gs_sites, primary)
-    _progress(f'GSHUF j {len(dshuf)}')
+    _progress('GSHUF done')
     extra = {'primary': primary, 'c3bMeasurable': bool(summary.get('c3bMeasurable')),
              'c7': guards_pass(ctx)}
     st = build_stats(judged, rows, vals, dshuf, extra)
@@ -1704,16 +1737,49 @@ def write_lock(ctx, rec):
         f.write(f'HEAD {rec.get("head")}\nFROZEN {rec.get("frozenSha256")}\n')
 
 
+def _dump_new(obj, path):
+    """O.dump_json that never replaces a file (open mode 'x'; FileExistsError if it exists)."""
+    s = O.dumps_json(obj)
+    with open(path, 'x', encoding='utf-8', newline='\n') as f:
+        f.write(s)
+    return s
+
+
+def judge_record_names(rerun):
+    """The machine records of one judge run (build note 17): the first run writes judge-pret.json / judge-stop.json; the
+    one environment-only rerun (judge.lock.1, L917) writes judge-pret.1.json / judge-stop.1.json, never over a file."""
+    return ('judge-pret.1.json', 'judge-stop.1.json') if rerun else ('judge-pret.json', 'judge-stop.json')
+
+
 def run_judge(ctx, b_checker=None, truth_fn=None, png_fn=None):
     """--judge (§6.6, §9.3 ④): precheck → pre-T record → lock → one pass → one write. Exit codes: 0 written, 2 refused
-    (no lock), 3 stopped after the lock (judge-stop.json with the exception type only)."""
+    (no lock; the precheck record goes to judge-refused.json, pre-T), 3 stopped after the lock (judge-stop[.1].json with
+    the exception type only). In rerun mode (judge.lock.1) the records are judge-pret.1.json / judge-stop.1.json, opened
+    with mode 'x' so the first run's records are never replaced; the rerun's pre-T record carries the sha256 of the first
+    run's judge-pret.json and judge-stop.json (§10.3 can be completed from the files after a double stop, L916-L919)."""
     ok, rec = precheck(ctx, b_checker)
     if not ok:
         bad = sorted(k for k, v in rec['steps'].items() if not v)
         print(f'REFUSE {" ".join(bad)}')
+        if 'frozenSha256' in rec:               # post-freeze only: pre-T (no lock, no T), e.g. ④ 5's per-key max|ΔB| (L906)
+            rp = ctx.o('judge-refused.json')
+            s0 = O.dump_json(rec, rp)
+            print(f'RECORD {O.rel(rp)} sha256 {O.sha256_bytes(s0.encode("utf-8"))}')
         return 2
-    pret = ctx.o('judge-pret.json')
-    s = O.dump_json(rec, pret)
+    rerun = bool(rec['rerun'])
+    pret_name, stop_name = judge_record_names(rerun)
+    if rerun:
+        first = {}
+        for nm in judge_record_names(False):
+            p = ctx.o(nm)
+            first[nm] = O.sha256_file(p) if os.path.exists(p) else None
+        rec['firstRun'] = {'judgePretSha256': first['judge-pret.json'], 'judgeStopSha256': first['judge-stop.json']}
+    pret = ctx.o(pret_name)
+    try:
+        s = (_dump_new if rerun else O.dump_json)(rec, pret)
+    except FileExistsError:
+        print(f'REFUSE record-exists {pret_name}')      # a rerun record is never replaced; no lock written
+        return 2
     print(f'PRET {O.rel(pret)} sha256 {O.sha256_bytes(s.encode("utf-8"))}')
     frozen = _jl(ctx.o('FROZEN.json'))
     rows, scenes, summary = judged_rows(ctx)
@@ -1723,7 +1789,7 @@ def run_judge(ctx, b_checker=None, truth_fn=None, png_fn=None):
     print('LOCK written')
     try:
         doc = judge_compute(ctx, rows, scenes, summary, frozen, rec['bSource'], truth_fn, png_fn, rec, prepared)
-        doc['pret'] = {'sha256': O.sha256_bytes(s.encode('utf-8')), 'rerun': rec['rerun']}
+        doc['pret'] = {'sha256': O.sha256_bytes(s.encode('utf-8')), 'rerun': rec['rerun'], 'file': pret_name}
         out = O.dump_json(doc, ctx.gate)
         print(f'WROTE {O.rel(ctx.gate)} sha256 {O.sha256_bytes(out.encode("utf-8"))}')
         return 0
@@ -1731,7 +1797,12 @@ def run_judge(ctx, b_checker=None, truth_fn=None, png_fn=None):
         stop = {'exception': type(e).__name__, 'rerun': rec['rerun'],
                 'verdict': '미결(판정 실행 두 번 멈춤)' if rec['rerun'] else None,
                 'partial': ({'gateSha256': O.sha256_file(ctx.gate)} if os.path.exists(ctx.gate) else None)}
-        O.dump_json(stop, ctx.o('judge-stop.json'))
+        if rerun:
+            stop['firstRun'] = rec['firstRun']
+        try:
+            (_dump_new if rerun else O.dump_json)(stop, ctx.o(stop_name))
+        except FileExistsError:
+            print(f'STOP-RECORD-EXISTS {stop_name}')
         print(f'STOP {type(e).__name__}')
         return 3
 

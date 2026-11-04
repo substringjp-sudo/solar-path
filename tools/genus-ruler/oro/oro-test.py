@@ -25,7 +25,9 @@ exit 0 iff FAIL 없음. SKIP 은 동결 문턱(§9.1 ⑨)의 통과가 아닙니
 S3b(oro.py, S3-design §6.9): U-TAU · U-APP · U-LAMAPP · B-FILL(§6.1), U-TRUTH · U-EMPTY · U-MASKJ(§6.2),
   U-METRIC · U-LMINUS · U-FINE · U-C45 · U-AUX · U-SCENE · U-ARMS0 · U-GSHUF(§6.3, §6.5 팔), U-BOOT · U-SIGNFLIP · U-STATS(§6.4),
   U-CLAUSE(§6.5), U-RHASH · U-PRECHK(§6.6), G6f · G6g · G6h(가짜 참값, test-tmp), G8b~G8f(G8d 는 합성 git 저장소에서만 판정을
-  돌림 — 진짜 은행 경로는 열지 않고, 진짜 저장소에는 --precheck 만).
+  돌림 — 진짜 은행 경로는 열지 않고, 진짜 저장소에는 --precheck 만), P-EQ · P-PLACE · P-CAL · P-MODA · P-MODB · P-MUTE · P-DOC ·
+  P-ZERO · P-COMMITTED(§6.7 --power), S-EVE · S-A15 · S-E2E · S-COMMITTED · S-GUARD(§6.8 --sunset; PS-10 에서 옮겨 옴).
+  G8d·G8e 의 동결 뒤 갈래(FROZEN.json 이 있을 때)는 지금 합성 동결 저장소에서 미리 돌림(oro-test.py 는 동결 파일).
   G6f 는 커밋된 oro-apply.json 의 dev 판정 장면(A1~A8)을 날짜 순으로 쓰고 모자라면 합성으로 채움; 11-05 재빌드가 탈 dev 갈래는
   B-SYN 고정물로 미리 돌림(키 앞 'dry'). G8c 는 FROZEN.json 이 oro-test.txt 뒤에 쓰이므로(L876) 동결 전에는 마른 구조 시험
   (mode=dry), FROZEN.json 이 있으면 진짜 파일도 봄(mode=real). 동결 뒤 G8 을 다시 잴 때(§9.3 ②)는 --only G8a,…,G8f 로
@@ -850,7 +852,10 @@ def t_guard():
             json_under_judge = _try_open(probes['satJson'][0])
     finally:
         O.JUDGE_LOCK = real_lock
+        if os.path.exists(fake_lock):         # test-tmp is inside the repo tree: no judge.lock may stay there (FX-3)
+            os.remove(fake_lock)
     ck(no_lock == 'guard' and with_lock == 'notfound' and json_under_judge == 'guard', 'judgeLock')
+    ck(not os.path.exists(fake_lock), 'fakeLockRemoved')
     # 심볼릭 링크로 돌아가기: test-tmp 의 링크 → 금지 꼴(없는 대상)
     link = os.path.join(d, 'link.png')
     os.symlink(probes['satIndex'][0], link)
@@ -2650,6 +2655,29 @@ def t_lminus():
        and R.lminus(d0, dr, r, W, R.sets(d0, dr, W)[0], sea, h, 'window') == 0.0, 'noLeeIs0')
     dr3 = np.where(W, 0.05, 0.0)                     # no neutral box anywhere
     ck(R.lminus(d, dr3, r, W, S, sea, h, 'strata') == 0.0, 'noNeutralIs0')
+    # second hand case: the sea is its own stratum (L553 "바다 층"), not merged into land stratum 1 — the case above gives
+    # the same −0.0375 under that merge, and G6(h)'s synthetic fill has no sea lee box (build note 30). 3 sea W boxes
+    # (one lee, two neutral; r = +0.05 each) and 6 land boxes h 100, 100, 200, 200, 300, 300, lee / neutral alternating,
+    # r = 0: every stratum has lee r = neutral r, so L⁻ = 0 exactly; with the sea merged into stratum 1 it is −1/240.
+    W2, sea2 = np.zeros((15, 15), dtype=bool), np.zeros((15, 15), dtype=bool)
+    h2, d2, dr2, r2 = (np.zeros((15, 15)) for _ in range(4))
+    for pos, s_, hh, a, rr in (((0, 0), True, 0.0, -0.05, 0.05), ((0, 1), True, 0.0, 0.0, 0.05),
+                               ((0, 2), True, 0.0, 0.0, 0.05), ((1, 0), False, 100.0, -0.05, 0.0),
+                               ((1, 1), False, 100.0, 0.0, 0.0), ((1, 2), False, 200.0, -0.05, 0.0),
+                               ((1, 3), False, 200.0, 0.0, 0.0), ((1, 4), False, 300.0, -0.05, 0.0),
+                               ((1, 5), False, 300.0, 0.0, 0.0)):
+        W2[pos], sea2[pos], h2[pos], d2[pos], r2[pos] = True, s_, hh, a, rr
+    S2, _ = R.sets(d2, dr2, W2)
+    ck(R.lminus(d2, dr2, r2, W2, S2, sea2, h2, 'strata') == 0.0, 'coastStratumSeparate')
+    lee2, neu2 = S2 & (d2 <= -0.02), W2 & (np.abs(d2) < 0.02) & (np.abs(dr2) < 0.02)       # control: the merged reading
+    land2 = W2 & ~sea2
+    q1, q2 = np.quantile(h2[land2], [1.0 / 3.0, 2.0 / 3.0])
+    num = den = 0.0
+    for t in ((W2 & sea2) | (land2 & (h2 <= q1)), land2 & (h2 > q1) & (h2 <= q2), land2 & (h2 > q2)):
+        if (lee2 & t).any() and (neu2 & t).any():
+            num += (lee2 & t).sum() * (r2[lee2 & t].mean() - r2[neu2 & t].mean())
+            den += (lee2 & t).sum()
+    ck(_close(num / den, -1.0 / 240.0, 1e-15), 'coastCaseDiscriminates')
     return ck.result()
 
 
@@ -2797,6 +2825,10 @@ def t_scene():
     rs, rr = O.pearson(d15[Su], r15[Su]), O.pearson(dr15[Su], r15[Su])
     ck(v['d'] == R.d_pair(d15, dr15, r15, Su) and v['rho_even'] == 0.5 * (rs + rr) and v['rho_odd'] == 0.5 * (rs - rr), 'grev')
     ck(v['rho_rot'] == O.pearson(O.box15(p['co']['dC'])[Su], r15[Su]) and v['rotOk'], 'rhoRot')
+    # ΔC_rot is the 180° rotation about the observer (L539, Q-39), recomputed here outside prep_fields: a transpose, a 90°
+    # turn or an N–S mirror passes rhoRot (wiring only), G6g (self-consistent) and U-AUX (np.rot90 itself)
+    hrot, _ = O.h_sub_field(np.rot90(s['dem']['hmean6'], 2))
+    ck(np.array_equal(p['co']['dC'], O.combine(B, O.forcing(hrot, p['snd'], s['lat']))['dC']), 'rot180Independent')
     m6 = R.mask6(mk['ext'])
     ck(int((m6 == 0).sum()) == 4 and m6[49 + 14, 49 + 14] == 0, 'mask6EmptyBox')
     fd = O.box15(dC - O.gauss_smooth(dC, 10000.0, mask=m6))
@@ -3680,6 +3712,8 @@ def t_g8c():
 # ── G8(d): synthetic git repos ──
 RULER_SYN = (b'# RULER synthetic (G8d)\n## 0. rules\nrule text\n## 9. freeze\nlist\n## 10. records\n### 10.1 freeze\n'
              b'### 10.2 guards\n### 10.3 judgement\n## 11. answers\nend\n')
+G8D_OLD = ('tools/genus-ruler/macro/macro.py', 'tools/genus-ruler/macro/fetch-sat.py',
+           'tools/genus-ruler/ring/fetch-nwp-ring.py')
 
 
 def _git(root, *args):
@@ -3735,9 +3769,16 @@ def _g8d_base():
         f.write(RULER_SYN)
     with open(os.path.join(root, '.gitignore'), 'w') as f:
         f.write('.harness/\n')
+    # FROZEN `old` (§9.2, build note 15 layout {repo path: sha256}): byte copies of the three tools the judge executes;
+    # the src/ and volsky entries (G1-baseline-commit hashes) name no file here and must be skipped by ④ 2
+    for rel in G8D_OLD:
+        os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+        shutil.copyfile(os.path.join(ROOT, rel), os.path.join(root, rel))
+    old = {rel: O.sha256_file(os.path.join(root, rel)) for rel in G8D_OLD}
+    old.update({'src/utils/macroField.ts': '0' * 64, 'tools/genus-ruler/volsky/run.js': '0' * 64})
     frozen_files = ('RULER-oro.md', 'oro-inputs.json', 'oro-apply.json', 'dem-grids.json', 'cmr-geom.json',
                     'bank-manifest.json', 'x.py')
-    frozen = {'files': {f'{ORO_REL}/{x}': O.sha256_file(os.path.join(od, x)) for x in frozen_files},
+    frozen = {'files': {f'{ORO_REL}/{x}': O.sha256_file(os.path.join(od, x)) for x in frozen_files}, 'old': old,
               'versions': R.versions_ok({})[1]['running'],
               'decisions': {'primaryMetric': app['summary']['primaryMetric'], 'lambdaTilde': app['summary']['lambdaTilde']},
               'exposure': {'grade': '없음'}, 'rulerHash': R.ruler_hash(os.path.join(od, 'RULER-oro.md')),
@@ -3789,16 +3830,20 @@ def _write(p, s, mode='w'):
 @test('G8d')
 def t_g8d():
     """The judge runs only when the §9.3 ④ conditions hold (L755 (d), L896-L913): a valid synthetic repo passes every
-    step; each violation is refused at its own step without a lock; the CLI --judge refuses with exit 2 and writes no lock;
-    the full judge then runs end to end on the synthetic repo (lock → T → one write; stop → judge-stop.json; rerun via
-    judge.lock.1), never opening a real bank path. The real repo is only --precheck'ed (no FROZEN → refused)."""
+    step; each violation is refused at its own step without a lock (incl. an edited FROZEN `old` tool, ④ 2); ④ 5's
+    rebuild branch asks for the pinned node first and records max|ΔB| per scene · time · band · n; the CLI --judge refuses
+    with exit 2 and writes no lock; the full judge then runs end to end on the synthetic repo (lock → T → one write, stdout
+    T-free progress only; stop → judge-stop.json; rerun via judge.lock.1 → judge-pret.1.json / judge-stop.1.json, never
+    over the first run's records), never opening a real bank path. The real repo is only --precheck'ed: before the freeze
+    it is refused for the missing FROZEN.json; after it (§9.3 ② re-measure, build note 26) the CLI must print CHECK /
+    PRECHECK lines only and leave no lock or gate — that branch is exercised now on a synthetic frozen copy."""
     ck = Checks()
     R = _R()
     with _record_opens('G8d') as opened:
         base = _g8d_base()
         ok, rec = _g8d_case('baseline', env=True)
-        ck(ok and all(rec['steps'].values()) and rec['tread']['bankDiffs'] == [] and rec['env']['recompute']['identical'],
-           'baselinePasses')
+        ck(ok and all(rec['steps'].values()) and rec['tread']['bankDiffs'] == [] and rec['env']['recompute']['identical']
+           and rec['2a']['oldHashMismatch'] == [] and rec['2a']['oldNotFrozen'] == [], 'baselinePasses')
         ck.kv['steps'] = ','.join(sorted(rec['steps']))
 
         def side(root):
@@ -3828,6 +3873,19 @@ def t_g8d():
             del fz['files'][f'{ORO_REL}/oro-inputs.json']
             O.dump_json(fz, _od(root, 'FROZEN.json'))
             _git(root, 'commit', '-q', '-am', 'FROZEN without oro-inputs')
+            return _git(root, 'rev-parse', 'HEAD')
+
+        def old_edit(root):
+            # a post-freeze edit of an `old` tool the judge executes (macro.py decodes T and computes c4·c5): it is not
+            # in FROZEN `files`, so git diff (④ 2a) is clean and only the `old` hash check can refuse
+            _write(os.path.join(root, *G8D_OLD[0].split('/')), '\n# edited after freeze\n', 'a')
+            _git(root, 'commit', '-q', '-am', 'edit old macro.py')
+
+        def old_unlisted(root):
+            fz = _jload(_od(root, 'FROZEN.json'))
+            del fz['old'][G8D_OLD[0]]
+            O.dump_json(fz, _od(root, 'FROZEN.json'))
+            _git(root, 'commit', '-q', '-am', 'FROZEN without old macro.py')
             return _git(root, 'rev-parse', 'HEAD')
 
         def ext(root, wrong_sha=False, later_edit=False):
@@ -3891,7 +3949,8 @@ def t_g8d():
 
         cases = [('1', 'notAncestor', side, {}), ('2a', 'frozenFileCommitted', commit_x, {}),
                  ('2a', 'frozenFileWorktree', worktree_x, {}), ('2a', 'frozenJsonEdited', frozen_json, {}),
-                 ('2a', 'notFrozen', not_frozen, {}), ('2b', 'extEdited', lambda r: ext(r, later_edit=True), {}),
+                 ('2a', 'notFrozen', not_frozen, {}), ('2a', 'oldMacroEdited', old_edit, {}),
+                 ('2a', 'oldNotListed', old_unlisted, {}), ('2b', 'extEdited', lambda r: ext(r, later_edit=True), {}),
                  ('6', 'extWrongSha', lambda r: ext(r, wrong_sha=True), {}), ('3', 'rulerEdited', ruler, {}),
                  ('4', 'implChanged', impl, {}), ('4', 'implNotIn10_2', impl_not102, {}), ('4', 'noGuardsRecord', no_guards, {}),
                  ('5', 'bRebuildDiffers', None, {'b_checker': _g8d_bad}), ('7', 'gateExists', gate, {}),
@@ -3903,6 +3962,11 @@ def t_g8d():
             ck(not ok and step in bad and set(bad) <= exp_bad, f'{tag}:refusedAt{step}')
             if tag == 'notFrozen':
                 ck(rec['2a']['notFrozen'] == [f'{ORO_REL}/oro-inputs.json'] and rec['2a']['git'] == 'ok', 'notFrozenReason')
+            if tag == 'oldMacroEdited':
+                ck(rec['2a']['oldHashMismatch'] == [G8D_OLD[0]] and rec['2a']['git'] == 'ok' and rec['2a']['hashMismatch'] == []
+                   and rec['2a']['notFrozen'] == [], 'oldMacroReason')
+            if tag == 'oldNotListed':
+                ck(rec['2a']['oldNotFrozen'] == [G8D_OLD[0]] and rec['2a']['git'] == 'ok', 'oldNotListedReason')
         ok, rec = _g8d_case('rulerSec10', ruler_sec10)
         ck(ok, 'section10AppendAllowed')
         ok, rec = _g8d_case('rerunMode', lock1)
@@ -3934,70 +3998,268 @@ def t_g8d():
         e = R.env_precheck(R.Ctx(root), fz)
         ck(not e['ok'] and e['recompute']['flagDiffs'] == [f'/scenes/{n0}/A8/ok'], 'recomputeFlag')
         shutil.rmtree(root, ignore_errors=True)
-        # CLI refusals (no lock written); the real repo is only prechecked (FROZEN.json absent → refused)
+        _g8d_b5(ck, R)
+        # CLI refusals (no lock written); the real repo is only prechecked
         root = _g8d_copy('cli')
-        gate(root)
-        r = _run_oro(['--judge', '--root', root], check=False)
-        ck(r.returncode == 2 and r.stdout.startswith('REFUSE') and not os.path.exists(_od(root, 'judge.lock')), 'cliJudgeRefuses')
-        shutil.rmtree(root, ignore_errors=True)
-        r = _run_oro(['--precheck'], check=False)
-        ck(r.returncode == 1 and 'CHECK frozen FAIL' in r.stdout, 'realRepoPrecheckRefuses')
+        try:
+            gate(root)
+            r = _run_oro(['--judge', '--root', root], check=False)
+            ck(r.returncode == 2 and r.stdout.startswith('REFUSE') and not os.path.exists(_od(root, 'judge.lock'))
+               and os.path.exists(_od(root, 'judge-refused.json')), 'cliJudgeRefuses')
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        real_ok, mode = _precheck_cli_ok(ROOT)
+        ck(real_ok, 'realRepoPrecheckRefuses' if mode == 'dry' else 'realRepoPrecheckFrozenForm')
+        ck.kv['realPrecheck'] = mode
+        root = _g8d_copy('cliFrozen')           # the post-freeze branch of the line above, on a synthetic frozen repo
+        try:
+            syn_ok, syn_mode = _precheck_cli_ok(root)
+            ck(syn_ok and syn_mode == 'frozen', 'frozenBranchSelfTest')
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
         # end to end on the synthetic repo
         root = _g8d_copy('e2e')
+        try:
+            ctx = R.Ctx(root)
+            with contextlib.redirect_stdout(io.StringIO()) as so:
+                rc = R.run_judge(ctx, b_checker=_g8d_ok)
+            g = _jload(ctx.gate) if os.path.exists(ctx.gate) else {}
+            ck(rc == 0 and os.path.exists(ctx.lock) and os.path.exists(_od(root, 'judge-pret.json'))
+               and g.get('pret', {}).get('file') == 'judge-pret.json', 'e2eWrote')
+            ck(set(g.get('clauses', {})) == {'c1', 'c2', 'c2b', 'c3', 'c3b', 'c4', 'c5', 'c6', 'c7', 'c8'}
+               and g['action']['line'] in ('1', '2', '3-1', '3-2', '3-3', '3-4', '3-5', '4', '5', '6'), 'e2eClauses')
+            st = g.get('stats', {})
+            ck(st and st['rhoRes']['value'] >= 0.99 and st['d']['value'] > 0 and g['judged']['c1']['n'] == len(g['judged']['names'])
+               and set(g['judged']['names']) <= set(cnt), 'e2eValues')
+            ck(len(g.get('sensitivity', {})) == 29 + 7 and g['sensitivity']['ecmwf'] == {'status': '못 잼'}, 'e2eArms')
+            lines = so.getvalue().splitlines()
+            # stdout: progress counters over the T-free prepared list only (L914); no judged / G-shuf counts
+            ck(all(re.fullmatch(r'(PRET \S+ sha256 [0-9a-f]{64}|LOCK written|PREP \d+|TRUTH \d+/\d+|METRICS done'
+                                r'|GSHUF done|ARMS|WROTE \S+ sha256 [0-9a-f]{64})', x) for x in lines), 'e2eStdoutProgressOnly')
+            ck([x.split()[0] for x in lines][:3] == ['PRET', 'PREP', 'LOCK'], 'e2ePrepBeforeLock')
+            ck.kv.update({'e2eJudged': len(g.get('judged', {}).get('names', [])), 'e2eLine': g.get('action', {}).get('line'),
+                          'e2eVerdict': g.get('action', {}).get('verdict')})
+            with contextlib.redirect_stdout(io.StringIO()):
+                ck(R.run_judge(ctx, b_checker=_g8d_ok) == 2, 'e2eSecondRunRefused')
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        _g8d_stop_rerun(ck, R)
+    ck(not os.path.exists(O.JUDGE_LOCK) and not os.path.exists(os.path.join(HERE, 'gate-oro-held.json'))
+       and not os.path.exists(os.path.join(HERE, 'judge-refused.json')), 'noRealLockOrGate')
+    ck(all(O.guard_verdict(x) is None for x in opened), 'noRealBankOpened')
+    ck(not _judge_files_under(G8D), 'noLockOrGateLeftInTestTmp')
+    return ck.result()
+
+
+def _judge_files_under(top):
+    """judge.lock(.1) / gate-oro-* / judge record files left under top (test temp dirs must not keep any)."""
+    out = []
+    for dp, dns, fns in os.walk(top):
+        dns[:] = sorted(x for x in dns if x != '.git')
+        out += [os.path.join(dp, f) for f in sorted(fns) if f.startswith(('judge.lock', 'gate-oro', 'judge-'))]
+    return out
+
+
+def _precheck_cli_ok(root):
+    """`oro.py --precheck --root <root>` (a subprocess). Before the freeze (no FROZEN.json): exit 1 and 'CHECK frozen FAIL'.
+    After it (§9.3 ② re-measure of G8): exit 0 or 1, every stdout line a CHECK/PRECHECK status line, the last one PRECHECK,
+    and no judge.lock / gate-oro-held.json afterwards (the precheck never locks or reads T). Returns (ok, 'dry'|'frozen')."""
+    r = _run_oro(['--precheck', '--root', root], check=False)
+    if not os.path.exists(_od(root, 'FROZEN.json')):
+        return r.returncode == 1 and 'CHECK frozen FAIL' in r.stdout, 'dry'
+    lines = r.stdout.splitlines()
+    ok = (r.returncode in (0, 1) and bool(lines) and lines[-1].startswith('PRECHECK ')
+          and all(re.fullmatch(r'CHECK \S+ (ok|FAIL)|PRECHECK (ok|FAIL)( rerun)?', x) for x in lines)
+          and not os.path.exists(_od(root, 'judge.lock')) and not os.path.exists(_od(root, 'gate-oro-held.json')))
+    return ok, 'frozen'
+
+
+def _g8d_b5(ck, R):
+    """§9.3 ④ 5 (L904-L907) in oro.py default_b_check, with oro-base.mjs stubbed (no node run): after a failed --check,
+    (i) a running node other than FROZEN versions.node stops with mode 'node-version' before any rebuild (environment fix);
+    (ii) with the pinned node the rebuild is compared per scene · time · band · n (`maxAbsDBPer`, every recorded B), all
+    ≤ 1e-6 → ok, one key above → refused; the table is the precheck's step-5 record (judge-pret.json / judge-refused.json)."""
+    root = _g8d_copy('b5')
+    fx = _fixture_syn()
+    real_sp = R.subprocess
+    calls = []
+
+    def stub(node_ver, bump):
+        def run(args, **kw):
+            calls.append(list(args))
+            if list(args[:2]) == ['node', '--version']:
+                return types.SimpleNamespace(returncode=0, stdout=node_ver + '\n', stderr='')
+            if '--check' in args:
+                return types.SimpleNamespace(returncode=1, stdout='', stderr='')
+            out = args[args.index('--out') + 1]
+            for fn in sorted(os.listdir(fx['base'])):
+                if fn.endswith('.f32') and fn != bump[0]:
+                    os.symlink(os.path.join(fx['base'], fn), os.path.join(out, fn))
+            with open(os.path.join(fx['base'], bump[0]), 'rb') as f:
+                a = np.frombuffer(f.read(), dtype='<f4').copy()
+            a[0] = np.float32(np.float64(a[0]) + bump[1])
+            with open(os.path.join(out, bump[0]), 'wb') as f:
+                f.write(a.astype('<f4').tobytes())
+            return types.SimpleNamespace(returncode=0, stdout='', stderr='')
+        return run
+    try:
         ctx = R.Ctx(root)
-        with contextlib.redirect_stdout(io.StringIO()) as so:
-            rc = R.run_judge(ctx, b_checker=_g8d_ok)
-        g = _jload(ctx.gate) if os.path.exists(ctx.gate) else {}
-        ck(rc == 0 and os.path.exists(ctx.lock) and os.path.exists(_od(root, 'judge-pret.json')), 'e2eWrote')
-        ck(set(g.get('clauses', {})) == {'c1', 'c2', 'c2b', 'c3', 'c3b', 'c4', 'c5', 'c6', 'c7', 'c8'}
-           and g['action']['line'] in ('1', '2', '3-1', '3-2', '3-3', '3-4', '3-5', '4', '5', '6'), 'e2eClauses')
-        st = g.get('stats', {})
-        ck(st and st['rhoRes']['value'] >= 0.99 and st['d']['value'] > 0 and g['judged']['c1']['n'] == len(g['judged']['names'])
-           and set(g['judged']['names']) <= set(cnt), 'e2eValues')
-        ck(len(g.get('sensitivity', {})) == 29 + 7 and g['sensitivity']['ecmwf'] == {'status': '못 잼'}, 'e2eArms')
-        lines = so.getvalue().splitlines()
-        ck(all(re.fullmatch(r'(PRET \S+ sha256 [0-9a-f]{64}|LOCK written|PREP \d+|TRUTH \d+/\d+|METRICS judged \d+ dev \d+'
-                            r'|GSHUF j \d+|ARMS|WROTE \S+ sha256 [0-9a-f]{64})', x) for x in lines), 'e2eStdoutProgressOnly')
-        ck([x.split()[0] for x in lines][:3] == ['PRET', 'PREP', 'LOCK'], 'e2ePrepBeforeLock')
-        ck.kv.update({'e2eJudged': len(g.get('judged', {}).get('names', [])), 'e2eLine': g.get('action', {}).get('line'),
-                      'e2eVerdict': g.get('action', {}).get('verdict')})
-        with contextlib.redirect_stdout(io.StringIO()):
-            ck(R.run_judge(ctx, b_checker=_g8d_ok) == 2, 'e2eSecondRunRefused')
+        ip = _od(root, 'oro-inputs.json')
+        inp = _jload(ip)
+        keys = []
+        for sc in sorted(inp['scenes']):
+            for tk, tm in sorted(inp['scenes'][sc]['times'].items()):
+                for b in BANDS:
+                    if (tm.get('bSha256') or {}).get(b) is not None:
+                        keys.append((f'{sc}|{tk}|{b}|n128', f'{sc}__{tk}__{b}.f32'))
+                    if tk == 'closest' and (tm.get('bSha256n64') or {}).get(b) is not None:
+                        keys.append((f'{sc}|{tk}|{b}|n64', f'{sc}__{tk}__{b}__n64.f32'))
+        k0, f0 = keys[len(keys) // 2]
+        fz = {'versions': {'node': 'v22.23.4'}, 'runtime': {'bCommit': 'synthetic'}}
+        R.subprocess = types.SimpleNamespace(run=stub('v20.0.0', (f0, 0.0)))
+        r0 = R.default_b_check(ctx, fz, ip)
+        ck(r0['ok'] is False and r0['mode'] == 'node-version' and r0['nodeFrozen'] == 'v22.23.4'
+           and not any('--out' in c for c in calls), 'b5NodeVersionFirst')
+        res = {}
+        for tag, dv in (('within', 4e-7), ('exceeds', 1e-4)):
+            R.subprocess = types.SimpleNamespace(run=stub('22.23.4', (f0, dv)))
+            res[tag] = R.default_b_check(ctx, fz, ip)
+        a, b = res['within'], res['exceeds']
+        per_ok = (sorted(a.get('maxAbsDBPer') or {}) == sorted(k for k, _ in keys)
+                  and all(v == 0.0 for k, v in a['maxAbsDBPer'].items() if k != k0))
+        ck(a['ok'] is True and a['mode'] == 'rebuild' and a['checkSha'] is False and per_ok
+           and 1e-7 < a['maxAbsDBPer'][k0] <= 1e-6 and a['maxAbsDB'] == a['maxAbsDBPer'][k0] and a['nNotCompared'] == 0,
+           'b5PerKeyWithin')
+        ck(b['ok'] is False and b['maxAbsDBPer'][k0] > 1e-6 and b['maxAbsDB'] == b['maxAbsDBPer'][k0], 'b5PerKeyExceeds')
+        ck.kv['b5Keys'] = len(keys)
+    finally:
+        R.subprocess = real_sp
         shutil.rmtree(root, ignore_errors=True)
-        # stop after the lock → judge-stop.json (exception type only), then the one environment-only rerun via judge.lock.1
-        root = _g8d_copy('stop')
+
+
+def _g8d_stop_rerun(ck, R):
+    """Stop after the lock → judge-stop.json (exception type only); the one environment-only rerun via judge.lock.1 writes
+    judge-pret.1.json / judge-stop.1.json (mode 'x') with the first run's record hashes, never over the first run's files
+    (L916-L919, build note 17); a double stop is 미결; a rerun whose record already exists is refused without a lock."""
+    root = _g8d_copy('stop')
+    try:
         ctx = R.Ctx(root)
         bankd = os.path.join(root, '.harness', 'macro', 'sat')
+        stop_args = dict(truth_fn=lambda n: os.path.join(bankd, n + '.json'),
+                         png_fn=lambda n: os.path.join(bankd, n + '.absent.png'))
         with contextlib.redirect_stdout(io.StringIO()):
-            rc = R.run_judge(ctx, b_checker=_g8d_ok, truth_fn=lambda n: os.path.join(bankd, n + '.json'),
-                             png_fn=lambda n: os.path.join(bankd, n + '.absent.png'))
-        stop = _jload(_od(root, 'judge-stop.json')) if os.path.exists(_od(root, 'judge-stop.json')) else {}
+            rc = R.run_judge(ctx, b_checker=_g8d_ok, **stop_args)
+        sp, pp = _od(root, 'judge-stop.json'), _od(root, 'judge-pret.json')
+        stop = _jload(sp) if os.path.exists(sp) else {}
         ck(rc == 3 and stop.get('exception') == 'FileNotFoundError' and stop.get('rerun') is False
            and not os.path.exists(ctx.gate) and os.path.exists(ctx.lock), 'stopRecorded')
+        first = {p: read_bytes(p) for p in (sp, pp) if os.path.exists(p)}
         os.rename(ctx.lock, ctx.lock1)
         with contextlib.redirect_stdout(io.StringIO()):
-            rc = R.run_judge(ctx, b_checker=_g8d_ok)
-        ck(rc == 0 and _jload(ctx.gate)['pret']['rerun'] is True, 'rerunViaLock1')
+            rc = R.run_judge(ctx, b_checker=_g8d_ok, **stop_args)
+        sp1, pp1 = _od(root, 'judge-stop.1.json'), _od(root, 'judge-pret.1.json')
+        stop1 = _jload(sp1) if os.path.exists(sp1) else {}
+        pret1 = _jload(pp1) if os.path.exists(pp1) else {}
+        fr = {'judgePretSha256': sha(first.get(pp, b'')), 'judgeStopSha256': sha(first.get(sp, b''))}
+        ck(rc == 3 and stop1.get('rerun') is True and stop1.get('verdict') == '미결(판정 실행 두 번 멈춤)'
+           and stop1.get('firstRun') == fr and pret1.get('firstRun') == fr and pret1.get('rerun') is True, 'doubleStopRecorded')
+        ck(len(first) == 2 and all(read_bytes(p) == b for p, b in first.items()), 'firstRunRecordsKept')
+    finally:
         shutil.rmtree(root, ignore_errors=True)
-    ck(not os.path.exists(O.JUDGE_LOCK) and not os.path.exists(os.path.join(HERE, 'gate-oro-held.json')), 'noRealLockOrGate')
-    ck(all(O.guard_verdict(x) is None for x in opened), 'noRealBankOpened')
-    return ck.result()
+    root = _g8d_copy('rerun')
+    try:
+        ctx = R.Ctx(root)
+        _write(ctx.lock1, 'HEAD x\n')                     # the first run stopped after its lock (judge.lock → judge.lock.1)
+        _write(_od(root, 'judge-stop.json'), '{"exception": "MemoryError"}\n')
+        fst = O.sha256_file(_od(root, 'judge-stop.json'))
+
+        def b5_rec(c, frozen, ip):
+            return {'ok': True, 'mode': 'rebuild', 'maxAbsDBPer': {'s|closest|total|n128': 0.0}, 'maxAbsDB': 0.0,
+                    'baseDir': c.base, 'checkSha': True}
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = R.run_judge(ctx, b_checker=b5_rec)
+        g = _jload(ctx.gate) if os.path.exists(ctx.gate) else {}
+        pret1 = _jload(_od(root, 'judge-pret.1.json')) if os.path.exists(_od(root, 'judge-pret.1.json')) else {}
+        ck(rc == 0 and g.get('pret', {}).get('rerun') is True and g['pret'].get('file') == 'judge-pret.1.json'
+           and g['pret'].get('sha256') == O.sha256_file(_od(root, 'judge-pret.1.json'))
+           and not os.path.exists(_od(root, 'judge-pret.json')), 'rerunViaLock1')
+        ck(pret1.get('firstRun') == {'judgePretSha256': None, 'judgeStopSha256': fst}
+           and pret1.get('5', {}).get('maxAbsDBPer') == {'s|closest|total|n128': 0.0}, 'rerunPretRecords')
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    root = _g8d_copy('rerunExists')
+    try:
+        ctx = R.Ctx(root)
+        _write(ctx.lock1, 'HEAD x\n')
+        _write(_od(root, 'judge-pret.1.json'), '{}\n')
+        before = read_bytes(_od(root, 'judge-pret.1.json'))
+        with contextlib.redirect_stdout(io.StringIO()) as so:
+            rc = R.run_judge(ctx, b_checker=_g8d_ok)
+        ck(rc == 2 and so.getvalue().startswith('REFUSE record-exists') and not os.path.exists(ctx.lock)
+           and read_bytes(_od(root, 'judge-pret.1.json')) == before, 'rerunRecordNeverReplaced')
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _g8e_eval(root):
+    """G8(e) on the repo at root (L755 (e), L890). Before the freeze (no FROZEN.json): the live tree has no gate-oro-*,
+    judge.lock(.1) and no C4 satellite dir .harness/regime/sat*. After it (§9.3 ② re-measure, build note 26; the C4 held
+    satellites arrive after the freeze commit, §9.1 ⑩): FROZEN gateFilesAtFreeze == [] and the freeze commit's tree
+    (`git ls-tree -r --name-only`, names only, C4) holds no gate-oro-*, judge.lock, judge.lock.1; the live state is recorded
+    as kv only. Returns (failed check names, kv)."""
+    od = os.path.join(root, *ORO_REL.split('/'))
+    fz = os.path.join(od, 'FROZEN.json')
+    reg = os.path.join(root, '.harness', 'regime')
+    c4 = sorted(f for f in os.listdir(reg) if f.startswith('sat')) if os.path.isdir(reg) else []
+    gates = sorted(f for f in os.listdir(od) if f.startswith('gate-oro')) if os.path.isdir(od) else []
+    locks = [f for f in ('judge.lock', 'judge.lock.1') if os.path.exists(os.path.join(od, f))]
+    if not os.path.exists(fz):
+        return [n for n, bad in (('noGateOro', gates), ('noLock', locks), ('noC4Satellite', c4)) if bad], {'frozen': False}
+    fails = []
+    if _jload(fz).get('gateFilesAtFreeze') != []:
+        fails.append('frozenGateFilesEmpty')
+    fc = _R().frozen_commit_of(_R().Ctx(root), f'{ORO_REL}/FROZEN.json')
+    if not fc:
+        fails.append('freezeCommitFound')
+    else:
+        r = subprocess.run(['git', 'ls-tree', '-r', '--name-only', fc], cwd=root, capture_output=True, text=True)
+        names = [x.rsplit('/', 1)[-1] for x in r.stdout.splitlines()]
+        if r.returncode != 0 or any(x.startswith('gate-oro') or x in ('judge.lock', 'judge.lock.1') for x in names):
+            fails.append('freezeTreeClean')
+    return fails, {'frozen': True, 'liveC4Satellite': bool(c4), 'liveGateOro': len(gates), 'liveLock': len(locks)}
 
 
 @test('G8e')
 def t_g8e():
-    """At freeze: no C4 satellite files (.harness/regime/sat*), no gate-oro-*, no judge.lock(.1) (L755 (e), L890)."""
+    """At freeze: no C4 satellite files (.harness/regime/sat*), no gate-oro-*, no judge.lock(.1) (L755 (e), L890) — the
+    live tree before the freeze, FROZEN gateFilesAtFreeze + the freeze commit's tree after it (_g8e_eval). The post-freeze
+    branch (oro-test.py is FROZEN and cannot change at S7) is exercised now on two tiny synthetic frozen repos: a clean one
+    with a live .harness/regime/sat dir passes, one whose freeze commit holds a judge.lock fails."""
     ck = Checks()
-    gates = sorted(f for f in os.listdir(HERE) if f.startswith('gate-oro'))
-    ck(not gates, 'noGateOro')
-    ck(not os.path.exists(os.path.join(HERE, 'judge.lock')) and not os.path.exists(os.path.join(HERE, 'judge.lock.1')), 'noLock')
-    reg = os.path.join(ROOT, '.harness', 'regime')
-    c4 = sorted(f for f in os.listdir(reg) if f.startswith('sat')) if os.path.isdir(reg) else []
-    ck(not c4, 'noC4Satellite')
-    fz = os.path.join(HERE, 'FROZEN.json')
-    if os.path.exists(fz):
-        ck(_jload(fz).get('gateFilesAtFreeze') == [], 'frozenGateFilesEmpty')
-    ck.kv['frozen'] = os.path.exists(fz)
+    fails, kv = _g8e_eval(ROOT)
+    for n in fails:
+        ck(False, n)
+    ck.kv.update(kv)
+    d = fresh_dir(os.path.join(TMP, 'g8e'))
+    try:
+        for tag, extra, want in (('clean', None, []), ('lockInFreeze', 'judge.lock', ['freezeTreeClean'])):
+            root = os.path.join(d, tag)
+            os.makedirs(os.path.join(root, *ORO_REL.split('/')))
+            os.makedirs(os.path.join(root, '.harness', 'regime', 'sat'))
+            _write(os.path.join(root, '.gitignore'), '.harness/\n')
+            O.dump_json({'files': {}, 'gateFilesAtFreeze': []}, _od(root, 'FROZEN.json'))
+            if extra:
+                _write(_od(root, extra), 'x\n')
+            _git(root, 'init', '-q', '-b', 'main')
+            _git(root, 'add', '-A')
+            _git(root, 'commit', '-q', '-m', 'freeze')
+            if extra:
+                _git(root, 'rm', '-q', _od(root, extra))
+                _git(root, 'commit', '-q', '-m', 'after freeze')
+            f2, kv2 = _g8e_eval(root)
+            ck(f2 == want and kv2.get('liveC4Satellite') is True, f'frozenBranchSelfTest:{tag}')
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
     return ck.result()
 
 
@@ -4062,6 +4324,551 @@ def t_g8f():
     _G6_OPENS.pop('G8fProbe', None)
     return ck.result()
 # ═══════════════════════ S3b JUDGE TESTS — END ═══════════════════════
+
+
+# ═══════════════════════ S3b POWER / SUNSET TESTS (§6.7, §6.8; build notes PS-1 … PS-10) ═══════════════════════
+# MODIS-free: synthetic placements, the committed oro-apply.json placement (counts only), the real sounding (busan's
+# record, relabelled as a code fixture), DEM grids and ring raw (NWP). Temp files under test-tmp/ps/<test>.
+T_PS = os.path.join(TMP, 'ps')
+PS_DATES13 = [f'2026-{m:02d}-{d:02d}' for m, d in ((9, 1), (9, 5), (9, 9), (9, 13), (9, 17), (9, 21), (9, 25), (9, 29),
+                                                   (10, 3), (10, 7), (10, 11), (10, 15), (10, 19))]
+# draft placement (sim2 P_APPLY × 13 dates): the scenario the [computed] simA2/sim2 numbers come from (PS-6)
+PS_DRAFT_PER = {'busan': 4, 'denver': 6, 'lisbon': 2, 'osaka': 4, 'sapporo': 5, 'sydney': 3}
+RING_BLEND = os.path.join(ROOT, 'tools', 'genus-ruler', 'ring', 'nwp', 'blend')
+SOUNDING_P = os.path.join(ROOT, '.harness', 'oro', 'sounding.json')
+
+
+def _ps_dir(sub):
+    return fresh_dir(os.path.join(T_PS, sub))
+
+
+def _ps_apply(per, extra_uncounted=3):
+    """A minimal oro-apply-shaped doc: per = {site: k} counted scenes spread over the 13 dates, plus uncounted rows."""
+    rows = {}
+    for si, (s, k) in enumerate(sorted(per.items())):
+        for i in range(k):
+            d = PS_DATES13[(i * 5 + si * 2) % 13]
+            rows[f'{s}_{d}'] = {'site': s, 'date': d, 'counted': True}
+    for i in range(extra_uncounted):
+        rows[f'zz_{PS_DATES13[i]}'] = {'site': 'zz', 'date': PS_DATES13[i], 'counted': False}
+    gs = sorted(s for s in per if per[s] >= 3)
+    gsc = sum(per[s] for s in gs)
+    return {'scenes': rows, 'summary': {'n': sum(per.values()), 'gshufSites': gs, 'gshufScenes': gsc,
+                                        'c3bMeasurable': gsc >= 10, 'provisional': False}}
+
+
+def _ps_tests(R, dates):
+    return R.PlacementTests(dates, 1000, R.SEED)
+
+
+@test('P-EQ')
+def t_peq():
+    """PlacementTests.ci/p are bit-identical to the judgement's date_block_ci(B = 1000, seed 20261103) and sign_flip_p
+    (median and mean; exact branch G ≤ 16 and the MC branch G = 17; ties; one date)."""
+    ck = Checks()
+    R = _R()
+    rng = np.random.default_rng(7)
+    n_cmp = 0
+    for G in (1, 2, 5, 13, 16, 17):
+        blocks = sorted(f'2026-1{(i // 28)}-{(i % 28) + 1:02d}' for i in range(G))
+        dates = [blocks[i % G] for i in range(G + 9)]
+        T = _ps_tests(R, dates)
+        for rep in range(3 if G >= 16 else 6):
+            v = rng.normal(0.03, 0.2, len(dates))
+            if rep == 1:
+                v = np.round(v, 1)                       # ties
+            ck(R.date_block_ci(list(v), dates, np.median, B=1000) == T.ci(v), f'ci:G{G}')
+            for stat in ('median', 'mean'):
+                ck(R.sign_flip_p(list(v), dates, stat) == T.p(v, stat), f'p:{stat}:G{G}')
+            n_cmp += 1
+    ck.kv['valueSets'] = n_cmp
+    return ck.result()
+
+
+@test('P-PLACE')
+def t_pplace():
+    """power_placement: counted rows only, sorted; G-shuf sites ≥ 3 counted; c3b measurability ≥ 10; a summary that
+    disagrees with the rows is refused; the committed oro-apply.json gives its own summary counts."""
+    ck = Checks()
+    R = _R()
+    doc = _ps_apply({'a': 3, 'b': 2, 'c': 5})
+    p = R.power_placement(doc)
+    ck(p['names'] == sorted(n for n, r in doc['scenes'].items() if r['counted']), 'names')
+    ck(p['gshufSites'] == ['a', 'c'] and p['gshufScenes'] == 8 and p['c3bMeasurable'] is False, 'gshuf')
+    ck(sorted(p['site'][j] for j in p['gIdx']) == ['a'] * 3 + ['c'] * 5, 'gIdx')
+    bad = json.loads(json.dumps(doc))
+    bad['summary']['gshufSites'] = ['a', 'b', 'c']
+    try:
+        R.power_placement(bad)
+        ck(False, 'refuseSummary')
+    except ValueError:
+        pass
+    real = _jload(REAL_APPLY)
+    pr = R.power_placement(real)
+    sm = real['summary']
+    ck(len(pr['names']) == sm['n'] and pr['gshufSites'] == sm['gshufSites'] and pr['gshufScenes'] == sm['gshufScenes'],
+       'realSummary')
+    ck.kv.update({'realN': sm['n'], 'realGshufScenes': sm['gshufScenes'], 'realProvisional': bool(sm.get('provisional'))})
+    return ck.result()
+
+
+@test('P-CAL')
+def t_pcal():
+    """β calibration (Q-48, PS-4): the moment form equals simA2's pear on S to ≤ 1e-12 (incl. |S| < 3 → 0); the solved β
+    reproduces μ (|f(β) − μ| ≤ 1e-9, bracketed); f is increasing on a β grid; β = 0 gives a mean median ρ near 0."""
+    ck = Checks()
+    R = _R()
+    pl = R.power_placement(_ps_apply(PS_DRAFT_PER))
+    mb = R.ModelB()
+    reps = 200
+    cal = R._CalibB(mb, pl, 1.0, reps, R.SEED)
+    rng = np.random.default_rng(R.SEED)
+    mx = 0.0
+    for i in range(min(reps, 20)):
+        dr = mb.draw(rng, pl, 1.0, rev=False, pattern=False)
+        for beta in (0.0, 0.04, 0.37, 1.0):
+            row = cal.rho(beta)[i]
+            for j in range(len(pl['names'])):
+                S = np.abs(dr['dC'][j]) >= R.MB_DC
+                mx = max(mx, abs(row[j] - R._pear_a2(dr['dC'][j], beta * dr['z'][j] + dr['noise'][j], S)))
+    ck(mx <= 1e-12, 'momentsEqualPear')
+    c2 = R._CalibB.__new__(R._CalibB)                    # |S| < 3 branch: same moments, one scene with |S| = 2 → ρ = 0
+    c2.M = np.zeros((7, 1, 2))
+    c2.M[:, 0, 0] = [1.0, 0.5, 0.1, 1.0, 0.0, 1.0, 0.0]
+    c2.M[:, 0, 1] = [1.0, 0.5, 0.1, 1.0, 0.0, 1.0, 1.0]
+    ck(c2.rho(0.3)[0, 1] == 0.0 and c2.rho(0.3)[0, 0] != 0.0, 'smallS')
+    for mu in (0.05, 0.10, 0.15):
+        b, fv, br = cal.solve(mu)
+        ck(br and abs(fv - mu) <= 1e-9 and 0.0 < b < 1.0, f'solve:mu{mu:.2f}')
+        ck.kv[f'beta{mu:.2f}'] = b
+    grid = [cal.f(b) for b in (0.0, 0.02, 0.04, 0.08, 0.16, 0.32)]
+    ck(all(x < y for x, y in zip(grid, grid[1:])), 'increasing')
+    ck(abs(grid[0]) < 0.01, 'nullNear0')
+    ck.kv.update({'reps': reps, 'momentsMaxDiff': mx, 'f0': grid[0]})
+    return ck.result()
+
+
+@test('P-MODA')
+def t_pmoda():
+    """Model A (PS-2) against the draft numbers on the draft placement (MC, generous tolerance): null P(c2∧c3) ≤ 0.03;
+    μ 0.10 σ 0.20 P(c2) ≈ sim2b's sign-flip 0.41 (± 0.12); P(c2∧c3) rises with μ and falls with σ."""
+    ck = Checks()
+    R = _R()
+    pl = R.power_placement(_ps_apply(PS_DRAFT_PER))
+    T = _ps_tests(R, pl['date'])
+    reps = 400
+    r0 = R._model_a_cell(pl, T, 0.0, 0.20, 11, reps)
+    r1 = R._model_a_cell(pl, T, 0.10, 0.20, 12, reps)
+    r2 = R._model_a_cell(pl, T, 0.10, 0.15, 13, reps)
+    r3 = R._model_a_cell(pl, T, 0.15, 0.15, 14, reps)
+    ck(r0['pA_c2c3'] <= 0.03, 'null')
+    ck(abs(r1['pA_c2'] - 0.41) <= 0.12, 'c2VsSim2b')
+    ck(r2['pA_c2c3'] > r1['pA_c2c3'] and r3['pA_c2c3'] > r2['pA_c2c3'], 'monotone')
+    ck.kv.update({'reps': reps, 'null': r0['pA_c2c3'], 'mu10s20c2': r1['pA_c2'], 'mu10s20c2c3': r1['pA_c2c3'],
+                  'mu10s15c2c3': r2['pA_c2c3'], 'mu15s15c2c3': r3['pA_c2c3']})
+    return ck.result()
+
+
+@test('P-MODB')
+def t_pmodb():
+    """Model B (PS-3) against simA2 (kw1) on the draft placement (MC, tolerance 0.12): β 0.06 → c2∧c3 ≈ 0.825 and joint
+    (variant e) ≈ 0.818; null → c2∧c3 ≤ 0.03; site pattern A 0.10 → c2∧c3 ≈ 0.337, joint ≤ 0.10 (simA2 0.030)."""
+    ck = Checks()
+    R = _R()
+    pl = R.power_placement(_ps_apply(PS_DRAFT_PER))
+    T = _ps_tests(R, pl['date'])
+    Tg = _ps_tests(R, [pl['date'][j] for j in pl['gIdx']])
+    mb = R.ModelB()
+    reps = 250
+    h1 = R._model_b_cell(mb, pl, T, Tg, 0.06, 0.0, 1.0, 21, reps)
+    nl = R._model_b_cell(mb, pl, T, Tg, 0.0, 0.0, 1.0, 22, reps)
+    sa = R._model_b_cell(mb, pl, T, Tg, 0.0, 0.10, 1.0, 23, reps)
+    ck(abs(h1['pB_c2c3'] - 0.825) <= 0.12, 'h1c2c3')
+    ck(abs(h1['pB_joint'] - 0.818) <= 0.12, 'h1joint')
+    ck(nl['pB_c2c3'] <= 0.03, 'null')
+    ck(abs(sa['pB_c2c3'] - 0.337) <= 0.12 and sa['pB_joint'] <= 0.10, 'sitePattern')
+    ck(h1['pB_joint'] <= h1['pB_c2c3'] and (h1['pB_c3b_given'] is None or 0.0 <= h1['pB_c3b_given'] <= 1.0), 'consistency')
+    ck.kv.update({'reps': reps, 'beta06c2c3': h1['pB_c2c3'], 'beta06joint': h1['pB_joint'], 'nullc2c3': nl['pB_c2c3'],
+                  'A10c2c3': sa['pB_c2c3'], 'A10joint': sa['pB_joint']})
+    return ck.result()
+
+
+@test('P-MUTE')
+def t_pmute():
+    """'못 잼': a placement with < 10 G-shuf scenes never passes c3b (P(c3b | c2∧c3) = 0, joint 0, product 0) even with a
+    strong effect; the same effect on a measurable placement passes c3b."""
+    ck = Checks()
+    R = _R()
+    pl = R.power_placement(_ps_apply({'a': 4, 'b': 4, 'c': 2, 'd': 2, 'e': 2, 'f': 2, 'g': 2, 'h': 2}))
+    ck(pl['gshufScenes'] == 8 and pl['c3bMeasurable'] is False, 'placement')
+    mb = R.ModelB()
+    r = R._model_b_cell(mb, pl, _ps_tests(R, pl['date']), _ps_tests(R, [pl['date'][j] for j in pl['gIdx']]),
+                        0.25, 0.0, 1.0, 31, 20)
+    ck(r['pB_c2c3'] > 0.5 and r['pB_joint'] == 0.0 and r['pB_c3b_given'] == 0.0, 'mute')
+    pl2 = R.power_placement(_ps_apply({'a': 5, 'b': 5, 'c': 4}))
+    r2 = R._model_b_cell(mb, pl2, _ps_tests(R, pl2['date']), _ps_tests(R, [pl2['date'][j] for j in pl2['gIdx']]),
+                         0.25, 0.0, 1.0, 31, 20)
+    ck(r2['pB_joint'] > 0.5, 'measurable')
+    return ck.result()
+
+
+@test('P-DOC')
+def t_pdoc():
+    """power_doc / CLI on a small synthetic placement (reduced replicate counts, --out in test-tmp): schema, 16 product
+    cells = pA × pB_given, 8 calibrations, 20 seeded cells = 20261103 + index, decision = min over σ × κ at μ 0.10,
+    false-pass blocks; two processes give identical bytes; the committed path is refused for non-pinned counts and for a
+    foreign oro-apply (the committed power-oro.json bytes are unchanged)."""
+    ck = Checks()
+    R = _R()
+    d = _ps_dir('doc')
+    ap = os.path.join(d, 'apply.json')
+    O.dump_json(_ps_apply({'a': 5, 'b': 4, 'c': 3, 'd': 2}), ap)
+    out1, out2 = os.path.join(d, 'p1.json'), os.path.join(d, 'p2.json')
+    args = ['--power', '--apply', ap, '--reps', '12', '--boot', '200', '--cal-reps', '30']
+    r1 = _run_oro(args + ['--out', out1], check=False)
+    r2 = _run_oro(args + ['--out', out2], check=False)
+    ck(r1.returncode == 0 and r2.returncode == 0, 'exit0')
+    if r1.returncode == 0 and r2.returncode == 0:
+        b1 = read_bytes(out1)
+        ck(b1 == read_bytes(out2), 'deterministic')
+        doc = json.loads(b1)
+        ck(doc['schema'] == 'power-oro/1' and doc['status'] == 'ok', 'schema')
+        ck(len(doc['cells']) == 16 and len(doc['cellsA']) == 8 and len(doc['cellsB']) == 8 and len(doc['calibration']) == 8,
+           'counts')
+        ck(all(c['product'] == c['pA_c2c3'] * (c['pB_c3b_given'] or 0.0) for c in doc['cells'].values()), 'product')
+        ck(sorted(doc['seeds']['cells'].values()) == [R.SEED + i for i in range(20)], 'seeds')
+        dec = [doc['cells'][f'mu=0.10,sigma={s},kappa={k}']['product'] for s in ('0.15', '0.20') for k in ('1', '3')]
+        ck(doc['decision']['value'] == min(dec) and doc['decision']['below0.2'] == (min(dec) < 0.2), 'decision')
+        ck(len(doc['falsePass']['null']) == 4 and len(doc['falsePass']['sitePattern']) == 4, 'falsePass')
+        ck(all(doc['calibration'][k]['beta'] == 0.0 for k in doc['calibration'] if k.startswith('mu=0.00')), 'beta0')
+        ck(doc['placement']['n'] == 14 and doc['placement']['gshufScenes'] == 12, 'placement')
+    pp = os.path.join(HERE, 'power-oro.json')
+    before = read_bytes(pp) if os.path.exists(pp) else None
+    r3 = _run_oro(['--power', '--reps', '12'], check=False)
+    r4 = _run_oro(['--power', '--apply', ap], check=False)
+    after = read_bytes(pp) if os.path.exists(pp) else None
+    if after != before and before is not None:          # a broken refusal must not leave a trial file in the committed path
+        with open(pp, 'wb') as f:
+            f.write(before)
+    ck(r3.returncode == 2 and r4.returncode == 2 and after == before, 'refuseCommittedPath')
+    return ck.result()
+
+
+@test('P-ZERO')
+def t_pzero():
+    """An oro-apply with 0 counted scenes (the provisional one) gives status 'no placement', no cells, decision null."""
+    ck = Checks()
+    R = _R()
+    ap = os.path.join(_ps_dir('zero'), 'apply.json')
+    O.dump_json(_ps_apply({}), ap)
+    doc = R.power_doc(ap, 10, 100, 10)
+    ck(doc['status'].startswith('no placement') and doc['cells'] == {} and doc['decision']['value'] is None
+       and doc['decision']['below0.2'] is None, 'zero')
+    return ck.result()
+
+
+@test('P-COMMITTED')
+def t_pcommitted():
+    """The committed power-oro.json is this code's output for the committed oro-apply.json (pinned counts): same oro-apply
+    sha256, same oro.py sha256 (build order 8b → 8c, PS-9); product and decision consistent; with n = 0 it is recomputed
+    and compared byte for byte (with n > 0 the ≈ 8 min recompute is the --power run itself)."""
+    ck = Checks()
+    R = _R()
+    p = os.path.join(HERE, 'power-oro.json')
+    if not os.path.exists(p):
+        ck(False, 'missing')
+        return ck.result()
+    doc = _jload(p)
+    ck(doc['sources']['oroApply']['sha256'] == O.sha256_file(REAL_APPLY), 'applySha')
+    ck(doc['sources']['code']['oro.py'] == O.sha256_file(os.path.join(HERE, 'oro.py')), 'codeSha')
+    ck(doc['reps'] == {'cell': R.POW_REPS, 'bootstrap': R.POW_BOOT_B, 'calibration': R.POW_CAL_REPS,
+                       'calibrationSteps': R.POW_CAL_STEPS}, 'pinned')
+    ck(all(c['product'] == c['pA_c2c3'] * (c['pB_c3b_given'] or 0.0) for c in doc['cells'].values()), 'product')
+    if doc['cells']:
+        dec = [doc['cells'][f'mu=0.10,sigma={s},kappa={k}']['product'] for s in ('0.15', '0.20') for k in ('1', '3')]
+        ck(doc['decision']['value'] == min(dec), 'decision')
+    if doc['placement']['n'] == 0:
+        ck(O.dumps_json(R.power_doc(REAL_APPLY)) == read_bytes(p).decode('utf-8'), 'recomputed')
+    ck.kv.update({'n': doc['placement']['n'], 'decision': doc['decision']['value'], 'provisional': doc['provisional']})
+    return ck.result()
+
+
+def _busan_record():
+    if not os.path.exists(SOUNDING_P):
+        raise Skip('.harness/oro/sounding.json missing')
+    return _jload(SOUNDING_P)['busan']
+
+
+def _fake_sounding(path, sites=('kanazawa', 'osaka'), edit=None):
+    """busan's real hourly record relabelled for A1-true sites (a code fixture, not a physical sounding)."""
+    rec = _busan_record()
+    d = {}
+    for s in sites:
+        r = json.loads(json.dumps(rec))
+        if edit:
+            edit(s, r)
+        d[s] = r
+    O.dump_json(d, path)
+    return path
+
+
+@test('S-EVE')
+def t_seve():
+    """Q-42 evening rule: [−2°, +8°] inclusive and strictly descending vs t − 30 min (patched altitudes); on the real
+    busan hours the selected set is exactly the brute-force set, each evening hour lies in local evening."""
+    ck = Checks()
+    R = _R()
+    if not os.path.exists(SOUNDING_P):
+        raise Skip('.harness/oro/sounding.json missing')
+    real = O.sun_alt_deg
+    t = datetime(2026, 9, 1, 10, tzinfo=timezone.utc)
+    cases = [((8.0, 9.0), True), ((-2.0, 1.0), True), ((8.0001, 9.0), False), ((-2.0001, 1.0), False),
+             ((3.0, 2.0), False), ((3.0, 3.0), False), ((0.0, 5.0), True)]
+    try:
+        for (a, b), want in cases:
+            O.sun_alt_deg = (lambda a_, b_: (lambda tt, la, lo: a_ if tt == t else b_))(a, b)
+            ck(R.evening(t, 35.0, 129.0) is want, f'case:{a},{b}')
+    finally:
+        O.sun_alt_deg = real
+    la, lo, _ = O.sites_table()['busan']
+    sd = O.load_soundings(SOUNDING_P)['busan']
+    want = [h for h in sd.times if '2026-06-01' <= h[:10] <= '2026-10-31'
+            and -2.0 <= O.sun_alt_deg(O.parse_hour(h), la, lo) <= 8.0
+            and O.sun_alt_deg(O.parse_hour(h), la, lo) < O.sun_alt_deg(O.parse_hour(h) - timedelta(minutes=30), la, lo)]
+    _, hrs = R.sunset_hours('busan', sd, None, None, la, lo, None)
+    ck([h['hour'] for h in hrs] == want, 'bruteForce')
+    ck(all(8 <= int(h[11:13]) <= 11 for h in want), 'localEvening')      # UTC+9: 08–11Z = 17–20 KST
+    ck(0 < len(want) <= 153 * 2, 'count')
+    ck.kv['busanEveningHours'] = len(want)
+    return ck.result()
+
+
+@test('S-A15')
+def t_sa15():
+    """A1–A5 per evening hour (PS-7): a null at the hour itself is bridged by the §2.3 fallback (counted in nFallbackHours,
+    A5 true); nulls over ±3 h make A5 false at that hour only; > 9 null ring points in one band at a ring hour make A5
+    false there only, 9 do not; A1 false (busan) → no hour counts; outside the ring range the ring part is not required."""
+    ck = Checks()
+    R = _R()
+    d = _ps_dir('a15')
+    sites = O.sites_table()
+    dg = _jload(DEM_GRIDS_P)
+    cache = O.SiteCache(dg)
+    la, lo, _ = sites['kanazawa']
+    dem = cache.get('kanazawa')
+    zr = dg['sites']['kanazawa']['zRefM']
+    rp = os.path.join(RING_BLEND, 'kanazawa.json')
+    sp = _fake_sounding(os.path.join(d, 's0.json'), ('kanazawa',))
+    sd = O.load_soundings(sp)['kanazawa']
+    A1, base = R.sunset_hours('kanazawa', sd, dem, zr, la, lo, R.RingHours(rp))
+    ck(A1 is True, 'A1')
+    good = [h for h in base if h['ring'] and h['a15']]
+    noring = [h for h in base if not h['ring']]
+    ck(len(good) >= 3 and len(noring) > 0, 'fixture')
+    ck.kv.update({'evening': len(base), 'ring': sum(h['ring'] for h in base), 'A1to5': sum(h['a15'] for h in base),
+                  'ringA1to5': len(good)})
+    if len(good) < 3:
+        return ck.result()
+    h0 = good[1]['hour']
+    i0 = sd.index[h0]
+    base_a15 = {x['hour']: x['a15'] for x in base}
+
+    def null_at(idxs):
+        def ed(s, r):
+            for i in idxs:
+                r['hourly']['temperature_850hPa'][i] = None
+        return ed
+    sd1 = O.load_soundings(_fake_sounding(os.path.join(d, 's1.json'), ('kanazawa',), null_at([i0])))['kanazawa']
+    _, h1 = R.sunset_hours('kanazawa', sd1, dem, zr, la, lo, R.RingHours(rp))
+    m1 = {h['hour']: h for h in h1}
+    ck(m1[h0]['a15'] is True and m1[h0]['fallback'] is True, 'fallbackBridges')
+    ck(sum(h['fallback'] for h in h1) == 1, 'oneFallbackHour')
+    sd2 = O.load_soundings(_fake_sounding(os.path.join(d, 's2.json'), ('kanazawa',),
+                                          null_at(range(i0 - 3, i0 + 4))))['kanazawa']
+    _, h2 = R.sunset_hours('kanazawa', sd2, dem, zr, la, lo, R.RingHours(rp))
+    ck({h['hour']: h for h in h2}[h0]['a15'] is False, 'nullWindowFails')
+    ck(sum(1 for h in h2 if h['a15'] != base_a15[h['hour']]) == 1, 'onlyThatHour')
+    raw = _jload(rp)            # ring nulls: copy the raw ring and null band 'low' at h0 for 9 / 10 points
+    for k, want in ((9, True), (10, False)):
+        rw = json.loads(json.dumps(raw))
+        for j in range(1, k + 1):
+            hh = rw['data'][j]['hourly']
+            i = hh['time'].index(h0)
+            for m in rw['models']:
+                hh[f'cloud_cover_low_{m}'][i] = None
+        rd = os.path.join(d, f'ring{k}')
+        os.makedirs(rd)
+        O.dump_json(rw, os.path.join(rd, 'kanazawa.json'))
+        _, hr = R.sunset_hours('kanazawa', sd, dem, zr, la, lo, R.RingHours(os.path.join(rd, 'kanazawa.json')))
+        ck({h['hour']: h for h in hr}[h0]['a15'] is want, f'ringNull{k}')
+        ck(sum(1 for h in hr if h['a15'] != base_a15[h['hour']]) == (0 if want else 1), f'ringNull{k}OnlyThatHour')
+    lb, lob, _ = sites['busan']
+    A1b, hb = R.sunset_hours('busan', O.load_soundings(sp)['kanazawa'], cache.get('busan'), dg['sites']['busan']['zRefM'],
+                             lb, lob, None)
+    ck(A1b is False and not any(h['a15'] for h in hb), 'A1false')
+    # outside the ring range the A5 ring part is not asked: with no ring at all the same hours pass or fail on the sounding
+    _, hn = R.sunset_hours('kanazawa', sd, dem, zr, la, lo, None)
+    nr = {x['hour'] for x in noring}
+    ck(all(not h['ring'] for h in hn) and [h['a15'] for h in hn if h['hour'] in nr] == [h['a15'] for h in noring],
+       'noRingPart')
+    return ck.result()
+
+
+@test('S-E2E')
+def t_se2e():
+    """--sunset end to end (PS-8) on a fixture sounding (busan's record for kanazawa and osaka) with the real ring raw and
+    DEM: sunset-inputs holds exactly the ring hours with A1–A5 true; oro-base (node, commit of .harness/oro/base) builds
+    their B and its index names this sunset-inputs sha256; A6 app recomputed here from the B files equals the count;
+    counts are consistent; two CLI runs give identical bytes; a corrupted B is refused; A6 app needs both bands."""
+    ck = Checks()
+    R = _R()
+    bip = os.path.join(REAL_BASE, 'index.json')
+    if not os.path.exists(bip):
+        raise Skip('.harness/oro/base/index.json missing')
+    d = _ps_dir('e2e')
+    sp = _fake_sounding(os.path.join(d, 'sounding.json'))
+    sin, sb, out = os.path.join(d, 'sunset-inputs.json'), os.path.join(d, 'base'), os.path.join(d, 'sunset.json')
+    args = ['--sunset', '--sounding', sp, '--inputs-out', sin, '--base-out', sb, '--out', out]
+    r1 = _run_oro(args, check=False)
+    ck(r1.returncode == 0, 'exit0')
+    if r1.returncode != 0:
+        return ck.result()
+    b1 = read_bytes(out)
+    r2 = _run_oro(args, check=False)
+    ck(r2.returncode == 0 and read_bytes(out) == b1, 'deterministic')
+    doc = json.loads(b1)
+    idx = _jload(os.path.join(sb, 'index.json'))
+    sinb = read_bytes(sin)
+    ck(idx['inputsFileSha256'] == O.sha256_bytes(sinb) == doc['sources']['sunsetInputs']['sha256'], 'inputsSha')
+    base_idx = _jload(bip)
+    ck(idx['commit'] == base_idx['commit'] and idx['bundleSha256'] == base_idx['bundleSha256'], 'sameBundle')
+    ck(doc['sources']['base']['commit'] == idx['commit'], 'baseRecorded')
+    si = json.loads(sinb)
+    sites = O.sites_table()
+    dg = _jload(DEM_GRIDS_P)
+    cache = O.SiteCache(dg)
+    snds = O.load_soundings(sp)
+    expect, a6 = {}, {}
+    for s in ('kanazawa', 'osaka'):
+        la, lo, _ = sites[s]
+        A1, hrs = R.sunset_hours(s, snds[s], cache.get(s), dg['sites'][s]['zRefM'], la, lo,
+                                 R.RingHours(os.path.join(RING_BLEND, f'{s}.json')))
+        st = doc['sites'][s]
+        ck(st['nEvening'] == len(hrs) and st['nA1toA5'] == sum(h['a15'] for h in hrs)
+           and st['ring']['nHours'] == sum(h['ring'] for h in hrs), f'{s}:counts')
+        n6 = 0
+        for h in hrs:
+            if h['ring'] and h['a15']:
+                name, tk = f'{s}_{h["hour"][:10]}', f'h{h["hour"][11:13]}'
+                expect.setdefault(name, set()).add(tk)
+                Bs = {}
+                for b in ('low', 'mid'):
+                    body = read_bytes(os.path.join(sb, f'{name}__{tk}__{b}.f32'))
+                    ck(O.sha256_bytes(body) == idx['entries'][name][tk][b], f'{s}:bSha')
+                    Bs[b] = np.frombuffer(body, dtype='<f4').reshape(128, 128).astype(np.float64)
+                F = O.forcing(cache.get(s)['hsub'], h['snd'], la)
+                n6 += all(O.combine(Bs[b], F)['ok'] for b in ('low', 'mid'))
+        a6[s] = n6
+        ck(st['ring']['nA1toA6app'] == n6 and n6 <= st['ring']['nA1toA5'], f'{s}:A6')
+        ck(st['fracA1toA5'] == (st['nA1toA5'] / st['nEvening'] if st['nEvening'] else None), f'{s}:frac')
+        ck(st['ring']['frac'] == (n6 / st['ring']['nHours'] if st['ring']['nHours'] else None), f'{s}:ringFrac')
+    ck({k: set(v['times']) for k, v in si['scenes'].items()} == expect, 'inputsExactlyCandidates')
+    ck(len(expect) > 0, 'nonEmpty')
+    ck(doc['provisional'] is True and 'busan' in doc['pendingSites']['sounding'], 'pending')
+    # ring values in sunset-inputs are the raw hourly blend / 100 at the hour (point 0.., band low, first scene)
+    name0 = sorted(si['scenes'])[0]
+    tk0 = sorted(si['scenes'][name0]['times'])[0]
+    rh = R.RingHours(os.path.join(RING_BLEND, f'{name0.rsplit("_", 1)[0]}.json'))
+    got = O.dec_f64(si['scenes'][name0]['times'][tk0]['ring']['low']['f64'])
+    raw = rh.values('low', f'{name0.rsplit("_", 1)[1]}T{tk0[1:]}:00')
+    ck(all((v is None and np.isnan(g)) or (v is not None and g == v) for g, v in zip(got, raw)), 'rawRing')
+    victim = os.path.join(sb, f'{name0}__{tk0}__low.f32')          # corrupted B → refused (index reused, no node)
+    good_b = read_bytes(victim)
+    bb = bytearray(good_b)
+    bb[100] ^= 1
+    with open(victim, 'wb') as f:
+        f.write(bytes(bb))
+    try:
+        R.sunset_doc(sp, DEM_GRIDS_P, RING_BLEND, os.path.join(d, 'sin2.json'), sb, idx['commit'],
+                     run_base=lambda i, o, c: idx)
+        ck(False, 'corruptRefused')
+    except ValueError:
+        pass
+    with open(victim, 'wb') as f:
+        f.write(good_b)
+    # A6 app needs both bands: a stub combiner failing only the first call (low of the first candidate) removes one hour;
+    # failing every second call (every mid band) removes all
+    real = O.combine
+    try:
+        for mode, want in (('first', sum(a6.values()) - 1), ('mid', 0)):
+            calls = [0]
+
+            def fake(B, F, _m=mode, **kw):
+                c = real(B, F, **kw)
+                calls[0] += 1
+                if (_m == 'first' and calls[0] == 1) or (_m == 'mid' and calls[0] % 2 == 0):
+                    c = dict(c, ok=False)
+                return c
+            O.combine = fake
+            dd = R.sunset_doc(sp, DEM_GRIDS_P, RING_BLEND, os.path.join(d, 'sin3.json'), sb, idx['commit'],
+                              run_base=lambda i, o, c: idx)
+            ck(sum(dd['sites'][s]['ring']['nA1toA6app'] for s in ('kanazawa', 'osaka')) == want, f'bothBands:{mode}')
+    finally:
+        O.combine = real
+    ck.kv.update({'kanazawaA6app': a6['kanazawa'], 'osakaA6app': a6['osaka'], 'scenes': len(expect),
+                  'times': sum(len(v) for v in expect.values())})
+    return ck.result()
+
+
+@test('S-COMMITTED')
+def t_scommitted():
+    """The committed sunset-apply.json equals a fresh in-memory run of this code on the committed inputs (build order 8c,
+    PS-9): sunset-inputs written to test-tmp (same bytes as the uncommitted .harness/oro/sunset-inputs.json, so its path is
+    the only difference), B read from .harness/oro/sunset-base through its index when the committed file names one (no
+    node run); it names this oro.py and marks the pending sites."""
+    ck = Checks()
+    R = _R()
+    p = os.path.join(HERE, 'sunset-apply.json')
+    if not os.path.exists(p):
+        ck(False, 'missing')
+        return ck.result()
+    doc = _jload(p)
+    ck(doc['sources']['code']['oro.py'] == O.sha256_file(os.path.join(HERE, 'oro.py')), 'codeSha')
+    d = _ps_dir('scommit')
+    if doc['sources']['base'] is None:
+        def no_b(*a):
+            raise AssertionError('no B expected')
+        base_out, commit, run_base = os.path.join(d, 'base'), 'unused', no_b
+    else:
+        base_out = O._path(R.D_SUNSET_BASE)
+        ip = os.path.join(base_out, 'index.json')
+        if not os.path.exists(ip):
+            raise Skip('.harness/oro/sunset-base/index.json missing')
+        idx = _jload(ip)
+        base_out, commit, run_base = base_out, doc['sources']['base']['commit'], (lambda i, o, c: idx)
+    sin = os.path.join(d, 'sunset-inputs.json')
+    new = R.sunset_doc(O._path(O.D_SOUNDING), O._path(O.D_DEM_GRIDS), RING_BLEND, sin, base_out, commit, run_base=run_base)
+    ck(new['sources']['sunsetInputs']['path'] == O.rel(sin), 'inputsPathOnlyDiff')
+    new['sources']['sunsetInputs']['path'] = doc['sources']['sunsetInputs']['path']
+    ck(O.dumps_json(new) == read_bytes(p).decode('utf-8'), 'recomputed')
+    ck(sorted(doc['pendingSites']['sounding']) == sorted(s for s, v in doc['sites'].items() if not v['sounding']), 'pending')
+    for s, v in sorted(doc['sites'].items()):
+        if v['sounding']:
+            ck.kv[s] = f'{v["nEvening"]}/{v["nA1toA5"]}/{v["ring"]["nHours"]}/{v["ring"]["nA1toA6app"]}'
+    return ck.result()
+
+
+@test('S-GUARD')
+def t_sguard():
+    """The open guard is armed in this process (installed first), so no power/sunset test could open MODIS content."""
+    ck = Checks()
+    ck(O.guard_installed(), 'installed')
+    try:
+        open(os.path.join(ROOT, 'tools', 'genus-ruler', 'macro', 'sat-quartiles.json')).close()
+        ck(False, 'forbiddenOpenRaised')
+    except PermissionError:
+        pass
+    return ck.result()
 
 
 # ───────────────────────── 실행 ─────────────────────────

@@ -89,7 +89,7 @@
  },
  "sources": {
   "code": {
-   "oro.py": "43900a5c7e51c7038b5fbba3582aec9f32897bfba85abf9f2430c8b292ad368d",
+   "oro.py": "c31fe15db798f5ff96df7304dcaf68f5f264b2d9725dd0fb35fc5b70249f16bd",
    "oro_ref.py": "88a600ba7f3df178ca9e46437826e19354f84dd13c9dcd7c4f5e87f9a01576f2"
   },
   "env": {
@@ -109,7 +109,7 @@
   },
   "oroApply": {
    "path": "tools/genus-ruler/oro/oro-apply.json",
-   "sha256": "9af09536cf5bc2810e909cb2ac77311b0c364edc3f5371a3185a33641fe27009"
+   "sha256": "2fef7d0e2b4b5b7cb365a9450097ceda5438c4d021554c330769d9b5ffec3491"
   }
  },
  "status": "no placement (oro-apply has 0 counted scenes)"
