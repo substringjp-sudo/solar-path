@@ -46,6 +46,8 @@ def get(url):
             return r.status, dict(r.headers.items()), body
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers.items()), e.read()
+    except (urllib.error.URLError, OSError) as e:  # 연결 끊김(SSL EOF 등): 상태 0 으로 돌려 60 s 뒤 다시
+        return 0, {}, str(e).encode()
 
 
 def main(argv):
