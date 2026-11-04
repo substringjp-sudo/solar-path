@@ -3836,7 +3836,10 @@ def t_g8d():
     T-free progress only; stop → judge-stop.json; rerun via judge.lock.1 → judge-pret.1.json / judge-stop.1.json, never
     over the first run's records), never opening a real bank path. The real repo is only --precheck'ed: before the freeze
     it is refused for the missing FROZEN.json; after it (§9.3 ② re-measure, build note 26) the CLI must print CHECK /
-    PRECHECK lines only and leave no lock or gate — that branch is exercised now on a synthetic frozen copy."""
+    PRECHECK lines only and leave no lock or gate — that branch is exercised now on a synthetic frozen copy. A real
+    judge-refused.json (the pre-T record of a refused post-freeze --judge, kept and committed, L906 §10.3) may exist; it
+    must be byte-unchanged by this test (FX-15)."""
+    refused0 = _refused_bytes(HERE)         # before anything else: the real pre-T record, if a refused --judge wrote one
     ck = Checks()
     R = _R()
     with _record_opens('G8d') as opened:
@@ -4044,11 +4047,55 @@ def t_g8d():
         finally:
             shutil.rmtree(root, ignore_errors=True)
         _g8d_stop_rerun(ck, R)
-    ck(not os.path.exists(O.JUDGE_LOCK) and not os.path.exists(os.path.join(HERE, 'gate-oro-held.json'))
-       and not os.path.exists(os.path.join(HERE, 'judge-refused.json')), 'noRealLockOrGate')
+        _g8d_refused_kept(ck)
+    ck(not os.path.exists(O.JUDGE_LOCK) and _no_lock_or_gate(HERE, refused0), 'noRealLockOrGate')
     ck(all(O.guard_verdict(x) is None for x in opened), 'noRealBankOpened')
     ck(not _judge_files_under(G8D), 'noLockOrGateLeftInTestTmp')
     return ck.result()
+
+
+def _refused_bytes(d):
+    """Bytes of d/judge-refused.json, or None if absent."""
+    p = os.path.join(d, 'judge-refused.json')
+    return read_bytes(p) if os.path.exists(p) else None
+
+
+def _no_lock_or_gate(d, refused0):
+    """G8d noRealLockOrGate on directory d: no judge.lock, no gate-oro-held.json, and judge-refused.json as it was at the
+    start of the test (refused0: same bytes, or still absent). A refused post-freeze --judge writes judge-refused.json as
+    its pre-T record (ruler L906, §10.3 table); it is kept and committed, so its presence alone is not a failure (FX-15)."""
+    return (not os.path.exists(os.path.join(d, 'judge.lock')) and not os.path.exists(os.path.join(d, 'gate-oro-held.json'))
+            and _refused_bytes(d) == refused0)
+
+
+def _g8d_refused_kept(ck):
+    """Mutant check of _no_lock_or_gate on a test-tmp dir standing in for tools/genus-ruler/oro: a judge-refused.json that
+    existed at the start passes (the old absence rule failed it), while a newly created judge.lock or gate-oro-held.json, a
+    rewritten judge-refused.json, or one that appears during the test still fail. Removed in finally (FX-13)."""
+    d = fresh_dir(os.path.join(G8D, 'refusedKept'))
+    try:
+        rp, lp, gp = (os.path.join(d, x) for x in ('judge-refused.json', 'judge.lock', 'gate-oro-held.json'))
+        ck(_no_lock_or_gate(d, None), 'refusedAbsentPasses')
+        _write(lp, 'x\n')
+        ck(not _no_lock_or_gate(d, None), 'refusedAbsentNewLockFails')
+        os.remove(lp)
+        _write(rp, '{"steps": {"5": false}}\n')
+        ck(not _no_lock_or_gate(d, None), 'refusedNewFails')
+        r0 = _refused_bytes(d)                  # pre-existing record: snapshot taken as t_g8d does at its start
+        old_rule = not os.path.exists(lp) and not os.path.exists(gp) and not os.path.exists(rp)
+        ck(not old_rule and _no_lock_or_gate(d, r0), 'refusedPreexistingPasses')
+        _write(lp, 'x\n')
+        ck(not _no_lock_or_gate(d, r0), 'refusedPreexistingNewLockFails')
+        os.remove(lp)
+        _write(gp, '{}\n')
+        ck(not _no_lock_or_gate(d, r0), 'refusedPreexistingNewGateFails')
+        os.remove(gp)
+        _write(rp, '{"steps": {"5": true}}\n')
+        ck(not _no_lock_or_gate(d, r0), 'refusedRewrittenFails')
+        os.remove(rp)
+        ck(not _no_lock_or_gate(d, r0), 'refusedRemovedFails')
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def _judge_files_under(top):
