@@ -9,6 +9,8 @@ exit 0 iff FAIL 없음. SKIP 은 동결 문턱(§9.1 ⑨)의 통과가 아닙니
 맨 먼저 열기 가드(oro_ref.install_guard)를 겁니다(§0.1).
 
 지금 들어 있는 시험(S3a 'JS + manifest' 몫):
+  B-BASE   §5.2: 실제 봉인 oro-inputs.json 과 .harness/oro/base 로 oro-base.mjs --check(n128·n64 diff 0), 봉인된 B 마다
+           load_B(sha256) 로 읽어 유한·[0, 1], closest 의 n64 는 n128 이 null 이 아닌 밴드에만. 둘 중 하나가 없으면 SKIP.
   B-BASE0  합성 oro-inputs 고정물(.harness/oro/test/)로 oro-base.mjs 의 B = buildMacroField 를 직접 부른 값(작업 트리
            macroField.ts 를 따로 묶은 번들)과 바이트 비교, index.json, --check(봉인·변조·미봉인), Q-45(115fbe2 번들 = HEAD 번들).
            자의 시험이 아니라 구현 확인(값 기준 없음, 비트 같음만).
@@ -62,6 +64,7 @@ ORO_BASE = os.path.join(HERE, 'oro-base.mjs')
 FIX = os.path.join(ROOT, '.harness', 'oro', 'test')         # 합성 oro-inputs 고정물(B-BASE0, 실제 inputs 가 없을 때 G8a)
 TMP = os.path.join(ROOT, '.harness', 'oro', 'test-tmp')     # 시험 임시(§0.4)
 REAL_INPUTS = os.path.join(HERE, 'oro-inputs.json')
+REAL_BASE = os.path.join(ROOT, '.harness', 'oro', 'base')  # oro-base.mjs 기본 --out(B-BASE)
 BANDS = ('total', 'low', 'mid', 'high')
 TIME_KEYS = ('closest', 'latest', 'm1h', 'p1h')
 SEED = 20261103
@@ -369,6 +372,71 @@ def t_base0():
     ck(rc3 == 0 and q['bundle'] == st['bundle'], 'q45')
     ck.kv['q45'] = 'same' if q['bundle'] == st['bundle'] else 'differs'
     return ck.result()
+
+
+def base_check(inputs_path, base_dir, commit=Q45_COMMIT):
+    """B-BASE body (S3-design §5.2) for one sealed oro-inputs + its oro-base output folder: `oro-base.mjs --check` exit 0
+    with diff 0 at n = 128 and n = 64; every sealed B loads through O.load_B (sha256-checked), is (n, n), finite and in
+    [0, 1]; at the closest time n = 64 is null exactly where n = 128 is null. Line values are counts only."""
+    ck = Checks()
+    rc, lines, err = run_oro_base(['--inputs', inputs_path, '--commit', commit, '--check'])
+    st = parse_base_stdout(lines)
+    c = st['check']
+    ck(rc == 0, 'checkExit')
+    ck(c.get('n128', {}).get('diff') == 0 and c.get('n64', {}).get('diff') == 0, 'checkDiff0')
+    if rc != 0 and err.strip():
+        ck.kv['stderr'] = err.strip().splitlines()[-1][:120]
+    with open(inputs_path) as f:
+        inp = json.load(f)
+    n = {128: [0, 0], 64: [0, 0]}
+    for s in sorted(inp['scenes']):
+        for t in sorted(inp['scenes'][s]['times']):
+            tm = inp['scenes'][s]['times'][t]
+            rec = tm.get('bSha256')
+            if not ck(isinstance(rec, dict) and sorted(rec) == sorted(BANDS), f'sealed:{s}:{t}'):
+                continue
+            r64 = None
+            if t == 'closest':
+                r64 = tm.get('bSha256n64')
+                if not ck(isinstance(r64, dict) and sorted(r64) == sorted(BANDS), f'sealed64:{s}'):
+                    r64 = None
+            for b in BANDS:
+                arms = [(128, rec[b])]
+                if r64 is not None:
+                    ck((r64[b] is None) == (rec[b] is None), f'n64PresentIffN128:{s}:{b}')
+                    arms.append((64, r64[b]))
+                for nn, h in arms:
+                    if h is None:
+                        n[nn][1] += 1
+                        continue
+                    n[nn][0] += 1
+                    try:
+                        B = O.load_B(s, t, b, inp, base_dir, n64=(nn == 64))
+                    except (OSError, ValueError) as e:
+                        ck(False, f'load:{s}:{t}:{b}:{nn}:{type(e).__name__}')
+                        continue
+                    ck(B is not None and B.shape == (nn, nn) and bool(np.all(np.isfinite(B)))
+                       and 0.0 <= float(B.min()) and float(B.max()) <= 1.0, f'range:{s}:{t}:{b}:{nn}')
+    for nn in (128, 64):
+        cc = c.get(f'n{nn}', {})
+        ck(cc.get('same') == n[nn][0] and cc.get('null') == n[nn][1], f'countsEqualCheck{nn}')
+    ck.kv.update({'scenes': len(inp['scenes']), 'n128': n[128][0], 'null128': n[128][1], 'n64': n[64][0],
+                  'null64': n[64][1], 'check': rc, 'bundle': (st['bundle'] or '')[:12]})
+    return ck.result()
+
+
+@test('B-BASE')
+def t_base():
+    """S3-design §5.2 B-BASE on the real sealed tools/genus-ruler/oro/oro-inputs.json and .harness/oro/base (SKIP until
+    the full build: inputs → oro-base.mjs → seal-inputs)."""
+    if not (os.path.exists(REAL_INPUTS) and os.path.exists(os.path.join(REAL_BASE, 'index.json'))):
+        raise Skip('real sealed inputs absent')
+    # --check with the commit that built this B folder (§0.5 step 6 repeats step 4's --commit: 115fbe2 now, later the G1
+    # baseline commit), so the test follows the build instead of pinning a commit here.
+    commit = _jload(os.path.join(REAL_BASE, 'index.json'))['commit']
+    ok, kv = base_check(REAL_INPUTS, REAL_BASE, commit=commit)
+    kv['commit'] = commit[:12]
+    return ok, kv
 
 
 # ───────────────────────── G8(a) ─────────────────────────
@@ -1827,6 +1895,33 @@ def t_seal():
         ck(False, 'refusesForeignIndex')
     except ValueError:
         pass
+    # Partial index (same inputsFileSha256): (a) entries/entriesN64 cut to the first 3 scenes, as an
+    # `oro-base.mjs --scenes a,b,c` run writes it; (c) one scene deleted from both entries and entriesN64; (b) one time key
+    # removed from one scene. All must be refused and leave the (unsealed) inputs bytes as they were, not seal the missing
+    # ones as B-null.
+    full = _jload(idx)
+    first3 = sorted(full['entries'])[:3]
+    part_a = dict(full, entries={s: full['entries'][s] for s in first3},
+                  entriesN64={s: full['entriesN64'][s] for s in first3})
+    sc_c = sorted(full['entries'])[-1]
+    part_c = dict(full, entries={s: v for s, v in full['entries'].items() if s != sc_c},
+                  entriesN64={s: v for s, v in full['entriesN64'].items() if s != sc_c})
+    part_b = json.loads(json.dumps(full))
+    sc_b = sorted(part_b['entries'])[len(part_b['entries']) // 2]
+    del part_b['entries'][sc_b][sorted(part_b['entries'][sc_b])[-1]]
+    for tag, doc in (('refusesPartialScenes', part_a), ('refusesOneSceneMissing', part_c), ('refusesMissingTime', part_b)):
+        ip = os.path.join(d, f'oro-inputs.{tag}.json')
+        with open(ip, 'wb') as f:
+            f.write(fx['unsealed'])
+        xp = os.path.join(d, f'index.{tag}.json')
+        O.dump_json(doc, xp)
+        ck(doc['inputsFileSha256'] == sha(fx['unsealed']), f'{tag}:sameInputsSha')
+        try:
+            O.seal_inputs(ip, xp)
+            ck(False, tag)
+        except ValueError:
+            pass
+        ck(read_bytes(ip) == fx['unsealed'], f'{tag}:inputsUnchanged')
     return ck.result()
 
 

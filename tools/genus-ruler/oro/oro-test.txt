@@ -1,0 +1,52 @@
+# Pinned additions, not ruler values: G6(a) eight-case split (Q-32), G6(b) rms definition and precip_base/precip_min (Q-33), G6(d) mountains, bands and the report-only easterly mirror (Q-34), G6(e) quadrant sea-fraction thresholds (Q-35). Q-34/Q-35 were pinned after a DEM-only prototype run (no MODIS, no B); criteria are fixed as written before the first oro-test run (L793).
+B-BASE PASS scenes=121 n128=1932 null128=4 n64=484 null64=0 check=0 bundle=265052526050 commit=115fbe227d78
+B-BASE0 PASS directBundle=68e4b829e06f n128=59 null128=5 n64=15 null64=1 sameAsDirect=74 bmin=0 bmax=1 bundle=265052526050 check=0/1/1 q45=same
+B-BUSAN PASS sitesWithSounding=1 pending=9 completeClosest=13 bMissing=13 provisional=true
+B-DET PASS demGridsSha256=7f79153613f069d145509a00d8c5fe6ce48749427f5deb495ec627b9043649cf
+B-MAN PASS tags=blend ringSites=10 banks=orig bankN=121 bankPng=121 bankInTimes=121 bankTrueGrid=121
+B-RING PASS scenes=3
+B-SUM PASS
+B-SYN PASS nCombined=108 nJudge=22 nAppA=51 fallback1=5 fallback2=130 N2min=0.000109465 N2max=0.000118872
+G6a PASS maxErrPerpM=1.61583 maxAbsParallelM=0 zM=1570.8
+G6b PASS relrms270=1.06763e-12 physical270=0.319301 relrms180=1.25462e-12 physical180=0.393734 relrms225=6.06882e-06 physical225=0.388422 pad=128
+G6c PASS source=real nB=12
+G6d PASS hakusanWwest=0.112013 hakusanWeast=-0.13716 hakusanEwest=-0.153134 hakusanEeast=0.132417 hakusanPeakM=2094.11 odaesanWwest=0.0711009 odaesanWeast=-0.103225 odaesanEwest=-0.0623612 odaesanEeast=0.122482 odaesanPeakM=1143.11
+G6e PASS seaNW=1 seaSE=0 busanFromDeg=197 busanTowardDeg=17 busanSpeed=8.84
+G8a PASS src=real scenes=3 b=60 reads=3 writes=62 meta=11 extra=0 forbidden=0 cmds=5
+U-ALLOW PASS scope=loader
+U-ALLOWB PASS
+U-BOX PASS
+U-COMB PASS comb4MeanDC=-1.72462e-06 comb4MaxGdC=0.00482087 comb4Iters=5
+U-D PASS
+U-DEM1 PASS tiles=66 maxErrTile=0
+U-DEM2 PASS
+U-FP PASS opensDuringImport=0
+U-G PASS
+U-GEOM0 PASS
+U-GEOM1 PASS
+U-GEOM2 PASS n_no-pass=5 n_ok=116 A8true=98
+U-GEOM3 PASS onTrackKm=0 edgeKm=1165
+U-GUARD PASS probes=12
+U-HASH PASS
+U-HOOKS PASS
+U-HP PASS lambdaHalfKm=53.3645
+U-INT PASS
+U-INT0 PASS n=200
+U-LATEST PASS n=121 differ=0
+U-M PASS
+U-M2 PASS nMean=32 nProp=109711 nEvan=20224 nRot=1105
+U-PEARSON PASS
+U-PHI PASS maxPhiDev=6.95087e-08 Phi0=0.5
+U-REF PASS
+U-SEAL PASS
+U-SITES PASS
+U-SLOPE PASS slopeDeg=5.71059
+U-SUN PASS
+U-SUNAZ PASS az0902=132.056 altAt0902=28.7388 azNoon=179.788
+U-THERMO PASS
+U-TUKEY PASS
+U-WIND PASS
+U-Z0 PASS
+U-Z0B PASS
+U-ZREF PASS
+U-ZSNOW PASS

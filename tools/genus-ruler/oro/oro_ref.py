@@ -1678,15 +1678,27 @@ def seal_inputs(inputs_path, index_path):
     if idx.get('inputsFileSha256') not in (sha256_bytes(raw), sha256_bytes(unsealed_text(inp).encode('utf-8'))):
         raise ValueError('seal-inputs: index inputsFileSha256 is not the sha256 of oro-inputs.json')
     ent, e64 = idx.get('entries') or {}, idx.get('entriesN64') or {}
-    for sc in sorted(inp['scenes']):
+    # The index must list every scene, time and band of this file (null = B null, < 12 ring points). A partial
+    # `oro-base.mjs --scenes …` index has the same inputsFileSha256; without this check its missing scenes would be
+    # sealed as B-null (→ bMissing/judge false) instead of being refused.
+    scenes = sorted(inp['scenes'])
+    if not isinstance(ent, dict) or not isinstance(e64, dict) or sorted(ent) != scenes or sorted(e64) != scenes:
+        raise ValueError('seal-inputs: index does not cover every scene (partial oro-base --scenes run?)')
+    for sc in scenes:
+        tks = sorted(inp['scenes'][sc]['times'])
+        if (not isinstance(ent[sc], dict) or sorted(ent[sc]) != tks
+                or any(not isinstance(ent[sc][tk], dict) or sorted(ent[sc][tk]) != sorted(BANDS) for tk in tks)
+                or not isinstance(e64[sc], dict) or sorted(e64[sc]) != sorted(BANDS)):
+            raise ValueError(f'seal-inputs: index entries for {sc} do not cover every time and band')
+    for sc in scenes:
         for tk in sorted(inp['scenes'][sc]['times']):
             tm = inp['scenes'][sc]['times'][tk]
-            new = {b: (ent.get(sc) or {}).get(tk, {}).get(b) for b in BANDS}
+            new = {b: ent[sc][tk][b] for b in BANDS}
             if tm.get('bSha256') not in (None, new):
                 raise ValueError(f'seal-inputs: {sc} {tk} bSha256 differs from the index')
             tm['bSha256'] = new
             if tk == 'closest':
-                n64 = {b: (e64.get(sc) or {}).get(b) for b in BANDS}
+                n64 = {b: e64[sc][b] for b in BANDS}
                 if tm.get('bSha256n64') not in (None, n64):
                     raise ValueError(f'seal-inputs: {sc} bSha256n64 differs from the index')
                 tm['bSha256n64'] = n64
