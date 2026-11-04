@@ -21,6 +21,7 @@ import { radius, space, type, TOUCH } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 import { PressScale, PrimaryButton } from '../ui';
 import { placeLabel } from '../AppHeader';
+import { useAdministrativeArea } from '../../utils/reverseGeocode';
 import { VERDICT_ORDER, verdictColor, verdictLevel, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
 import {
   bestUpcoming,
@@ -105,7 +106,8 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
 
   const lat = location?.coords?.latitude;
   const lon = location?.coords?.longitude;
-  const place = placeLabel(lat, lon, savedLocations);
+  const adminName = useAdministrativeArea(lat, lon);
+  const place = placeLabel(lat, lon, savedLocations, adminName);
 
   const [forecast, setForecast] = useState<CloudPathData[] | null>(() =>
     lat != null && lon != null ? cachedSunForecast(lat, lon)?.path ?? null : null);

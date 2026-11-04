@@ -1025,13 +1025,18 @@ export const useCelestialStore = create<CelestialState>()(
           try {
             loc = await Location.getLastKnownPositionAsync({});
             if (!loc) {
-              loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+              const gpsPromise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+              const timeoutPromise = new Promise<null>((res) => setTimeout(() => res(null), 1500));
+              loc = await Promise.race([gpsPromise, timeoutPromise]);
             }
           } catch (e) {
             console.warn('Failed to get location, using default:', e);
           }
- 
-          const defaultCoords = { latitude: 37.5665, longitude: 126.9780 };
+
+          const savedFirst = get().savedLocations?.[0];
+          const defaultCoords = savedFirst
+            ? { latitude: savedFirst.latitude, longitude: savedFirst.longitude }
+            : { latitude: 37.5665, longitude: 126.9780 };
           const lat = loc?.coords.latitude ?? defaultCoords.latitude;
           const lon = loc?.coords.longitude ?? defaultCoords.longitude;
  

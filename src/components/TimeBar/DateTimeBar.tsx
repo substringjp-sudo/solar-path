@@ -25,13 +25,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
-import { Calendar, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, Info, Sunrise, Sunset, Zap } from 'lucide-react-native';
+import { Calendar, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, Info, Sun, Sunrise, Sunset, Zap } from 'lucide-react-native';
 import { PressScale, PrimaryButton } from '../ui';
 import { ScrubTrack } from './ScrubTrack';
+import { TimeLoupe } from './TimeLoupe';
 import { crossesMarker, hapticTick } from '../../utils/haptics';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { L3 } from '../../utils/i18n';
-import { radius, space, type, tint, TOUCH } from '../../theme/tokens';
+import { radius, space, type, tint, TOUCH, mono } from '../../theme/tokens';
 import { makeStyles, useThemeColors, useDataColors } from '../../theme/useTheme';
 import {
   MS_HOUR, MS_MIN, TIER_LEAD_HOURS, FORECAST_DAYS, DATA_START_MS,
@@ -60,6 +61,10 @@ interface Props {
   events?: BarEvents | null;
   /** 절기 표시(날짜 트랙 위 점) */
   seasonPcts?: { key: string; pct: number; color: string }[];
+  /** 태양 추적 모드 활성화 여부 */
+  isTrackingSun?: boolean;
+  /** 태양 추적 토글 핸들러 */
+  onToggleTrackingSun?: () => void;
 }
 
 const WEEKDAYS = {
@@ -163,7 +168,7 @@ function eventWindow(minutes: number, sunriseMin: number | null, sunsetMin: numb
 
 export const DateTimeBar: React.FC<Props> = ({
   currentTime, onPick, onSlidingStart, onSlidingComplete, isTimeMachineEnabled, onNow, onOpenDatePicker,
-  onCameraPress, events, seasonPcts = [],
+  onCameraPress, events, seasonPcts = [], isTrackingSun = false, onToggleTrackingSun,
 }) => {
   const color = useThemeColors(); const dataColor = useDataColors(); const styles = useStyles();
   const language = useCelestialStore(s => s.language);
@@ -183,7 +188,10 @@ export const DateTimeBar: React.FC<Props> = ({
   const bandColor = color.textDim;
 
   // ── 시간 막대 범위: 하루(기본) 또는 일몰·일출 앞뒤 3시간 ───────────────────
-  const evMin = (d?: Date | null) => minuteInDay(d ? d.getTime() : null, dayStart);
+  const evMin = (d?: Date | null) => {
+    const m = minuteInDay(d ? d.getTime() : null, dayStart);
+    return m != null ? Math.round(m) : null;
+  };
   const sunriseMin = evMin(events?.sunrise), sunsetMin = evMin(events?.sunset);
   const [zoom, setZoom] = useState(false);
   const zoomWin = eventWindow(minutes, sunriseMin, sunsetMin);
@@ -234,8 +242,10 @@ export const DateTimeBar: React.FC<Props> = ({
     return Math.max(r.from, Math.min(r.to - 1, r.from + Math.floor((pct / 100) * (r.to - r.from))));
   };
   const timeLabel = useCallback((pct: number) => {
-    const m = minuteAtPct(pct);
-    return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+    const m = Math.floor(minuteAtPct(pct));
+    const h = Math.floor(m / 60) % 24;
+    const mm = Math.floor(m % 60);
+    return `${pad2(h)}:${pad2(mm)}`;
   }, []);
 
   const onDateScrub = useCallback((pct: number) => {
@@ -284,7 +294,7 @@ export const DateTimeBar: React.FC<Props> = ({
     if (zoom || !zoomWin) { setZoom(false); return; }
     zoomArmedAt.current = Date.now();
     setZoom(true);
-    if (minutes < zoomWin.from || minutes >= zoomWin.to) step(() => dayStart + zoomWin.at * MS_MIN);
+    if (minutes < zoomWin.from || minutes >= zoomWin.to) step(() => dayStart + Math.round(zoomWin.at) * MS_MIN);
   };
   const markers = [
     { key: 'sr', m: sunriseMin, c: dataColor.sunrise, up: true },
@@ -387,6 +397,12 @@ export const DateTimeBar: React.FC<Props> = ({
             />
             <View style={{ flex: 1 }}>
               <ScrubTrack
+                variant="pin"
+                renderValueBadge={(lbl) => (
+                  <View style={styles.timeBadge}>
+                    <Text style={styles.timeBadgeText}>{lbl}</Text>
+                  </View>
+                )}
                 value={datePct}
                 formatLabel={dayLabel}
                 onScrub={onDateScrub}
@@ -425,6 +441,16 @@ export const DateTimeBar: React.FC<Props> = ({
           />
           <View style={{ flex: 1 }}>
             <ScrubTrack
+              variant="pin"
+              renderValueBadge={(lbl) => (
+                <View style={styles.timeBadge}>
+                  <Text style={styles.timeBadgeText}>{lbl}</Text>
+                </View>
+              )}
+              renderLoupe={(pct, lbl) => {
+                const m = minuteAtPct(pct);
+                return <TimeLoupe label={lbl} minute={m} accentColor={color.accent} />;
+              }}
               value={timePct}
               formatLabel={timeLabel}
               onScrub={onTimeScrub}
@@ -432,7 +458,7 @@ export const DateTimeBar: React.FC<Props> = ({
               onScrubEnd={() => { timeThrottle.flush(); busyRef.current = Math.max(0, busyRef.current - 1); onSlidingComplete?.('time'); }}
               onAdjust={adjustTime}
               accessibilityLabel={L3(language, '시각', 'Time', '時刻')}
-              accessibilityValue={`${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`}
+              accessibilityValue={`${pad2(Math.floor(minutes / 60))}:${pad2(Math.floor(minutes % 60))}`}
               height={40}
               trackTop={22}
               trackHeight={5}
@@ -492,18 +518,25 @@ export const DateTimeBar: React.FC<Props> = ({
           </View>
         )}
 
-        {/* ── 3행: 상태와 주 동작 — 정확도 칩 · 지금으로(SIM 일 때만) · 촬영(이 화면의 주 버튼) ── */}
+        {/* ── 3행: 상태와 주 동작 — 태양 추적 체크박스 · 지금으로(SIM 일 때만) · 촬영(이 화면의 주 버튼) ── */}
         <View style={styles.actionRow}>
-          <PressScale
-            onPress={() => setLegendOpen(v => !v)}
-            style={styles.chip}
-            accessibilityLabel={L3(language, '정확도 범례', 'Accuracy legend', '精度の凡例')}
-            accessibilityState={{ expanded: legendOpen }}
-          >
-            <TierSwatch tier={tier} color={bandColor} width={14} height={4} />
-            <Text style={styles.chipText} numberOfLines={1}>{leadText}</Text>
-            <Info size={12} color={color.textDim} />
-          </PressScale>
+          {onToggleTrackingSun && (
+            <PressScale
+              onPress={onToggleTrackingSun}
+              style={[styles.trackSunBtn, isTrackingSun && styles.trackSunBtnOn]}
+              accessibilityLabel={L3(language, '태양 추적', 'Track Sun', '太陽追尾')}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isTrackingSun }}
+            >
+              <View style={[styles.checkboxBox, isTrackingSun && styles.checkboxBoxOn]}>
+                {isTrackingSun && <Check size={11} color={color.onAccent} strokeWidth={3} />}
+              </View>
+              <Sun size={14} color={isTrackingSun ? color.accent : color.textDim} />
+              <Text style={[styles.trackSunText, isTrackingSun && { color: color.text }]}>
+                {L3(language, '태양 추적', 'Track Sun', '太陽追尾')}
+              </Text>
+            </PressScale>
+          )}
 
           {isTimeMachineEnabled && (
             <PressScale
@@ -554,6 +587,40 @@ const useStyles = makeStyles((color) => ({
   liveText: { ...type.micro, color: color.textDim },
 
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  trackSunBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    height: TOUCH,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.fill,
+  },
+  trackSunBtnOn: {
+    borderColor: color.accentLine,
+    backgroundColor: color.accentSoft,
+  },
+  checkboxBox: {
+    width: 15,
+    height: 15,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderColor: color.textDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  checkboxBoxOn: {
+    borderColor: color.accent,
+    backgroundColor: color.accent,
+  },
+  trackSunText: {
+    ...type.label,
+    color: color.textDim,
+    fontWeight: '700',
+  },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -607,4 +674,23 @@ const useStyles = makeStyles((color) => ({
   legendText: { ...type.micro, color: color.textDim },
 
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  timeBadge: {
+    height: TOUCH,
+    minWidth: 50,
+    paddingHorizontal: space.xs,
+    borderRadius: radius.xs,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.fill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 3,
+  },
+  timeBadgeText: {
+    ...type.label,
+    fontFamily: mono,
+    fontWeight: '700',
+    color: color.accent,
+    letterSpacing: 0.5,
+  },
 }));

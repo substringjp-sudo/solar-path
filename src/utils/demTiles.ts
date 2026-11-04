@@ -48,6 +48,7 @@
  * 디코더를 붙이는 문제가 통째로 사라지고, 65,536점이 JS 를 거치지 않습니다.
  */
 import * as THREE from 'three';
+import { getDemTileUri } from './demTileCache';
 
 /** 적도 둘레 (m). Web Mercator 의 기준입니다. */
 const EARTH_CIRCUMFERENCE_M = 40075016.686;
@@ -509,6 +510,8 @@ export async function loadDemPatch(
      * 쓰게 하려고 열어 둡니다 — 그래야 시험이 망 상태와 CORS 에 안 휘둘립니다.
      */
     tileUrl?: (z: number, x: number, y: number) => string;
+    /** 타일 로컬 캐시/비동기 URI 리졸버 */
+    tileUri?: (z: number, x: number, y: number) => Promise<string> | string;
     /** 블록 한 변의 타일 수 (홀수). 기본 `DEM_BLOCK_TILES`. */
     block?: number;
   },
@@ -535,11 +538,24 @@ export async function loadDemPatch(
     return hit;
   }
 
-  const tiles: (THREE.Texture | null)[] = [];
+  // block * block 개의 타일을 병렬(Promise.all)로 동시 로드하여 초기 기동 시간 단축
+  const tileIndices: { dx: number; dy: number }[] = [];
   for (let dy = 0; dy < block; dy++) {
     for (let dx = 0; dx < block; dx++) {
+      tileIndices.push({ dx, dy });
+    }
+  }
+
+  const tiles = await Promise.all(
+    tileIndices.map(async ({ dx, dy }) => {
       try {
-        const url = (deps.tileUrl ?? demTileUrl)(zoom, originX + dx, originY + dy);
+        const tx = originX + dx;
+        const ty = originY + dy;
+        const url = deps.tileUrl
+          ? deps.tileUrl(zoom, tx, ty)
+          : deps.tileUri
+          ? await deps.tileUri(zoom, tx, ty)
+          : await getDemTileUri(zoom, tx, ty);
         const tex = await deps.loadTexture(url);
         // ⚠ 고도 자료입니다 — 색이 아닙니다. 감마를 걸면 안 됩니다.
         tex.colorSpace = THREE.NoColorSpace;
@@ -550,12 +566,12 @@ export async function loadDemPatch(
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.flipY = false;
         tex.needsUpdate = true;
-        tiles.push(tex);
+        return tex;
       } catch {
-        tiles.push(null);
+        return null;
       }
-    }
-  }
+    }),
+  );
   const got = tiles.filter((x) => x !== null).length;
   if (got === 0) return null;
 
