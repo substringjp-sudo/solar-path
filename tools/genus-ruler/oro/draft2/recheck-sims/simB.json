@@ -1,0 +1,56 @@
+{
+ "H0_iid": {
+  "reject_sitePerm(2\ud310)": 0.025,
+  "reject_siteTwoMonthPerm": 0.025,
+  "reject_timeShift": 0.028,
+  "nP1_med": 31.0
+ },
+ "H0_persist0.7": {
+  "reject_sitePerm(2\ud310)": 0.031,
+  "reject_siteTwoMonthPerm": 0.028,
+  "reject_timeShift": 0.029,
+  "nP1_med": 30.0
+ },
+ "H0_persist0.85": {
+  "reject_sitePerm(2\ud310)": 0.031,
+  "reject_siteTwoMonthPerm": 0.032,
+  "reject_timeShift": 0.049,
+  "nP1_med": 30.0
+ },
+ "H0_season60": {
+  "reject_sitePerm(2\ud310)": 0.063,
+  "reject_siteTwoMonthPerm": 0.026,
+  "reject_timeShift": 0.032,
+  "nP1_med": 30.0
+ },
+ "H0_season60_persist0.7": {
+  "reject_sitePerm(2\ud310)": 0.048,
+  "reject_siteTwoMonthPerm": 0.027,
+  "reject_timeShift": 0.04,
+  "nP1_med": 30.0
+ },
+ "H1_q0.27_iid": {
+  "reject_sitePerm(2\ud310)": 0.288,
+  "reject_siteTwoMonthPerm": 0.172,
+  "reject_timeShift": 0.39,
+  "nP1_med": 30.0
+ },
+ "H1_q0.27_season60_persist0.7": {
+  "reject_sitePerm(2\ud310)": 0.356,
+  "reject_siteTwoMonthPerm": 0.187,
+  "reject_timeShift": 0.382,
+  "nP1_med": 30.0
+ },
+ "H1_q0.40_iid": {
+  "reject_sitePerm(2\ud310)": 0.586,
+  "reject_siteTwoMonthPerm": 0.35,
+  "reject_timeShift": 0.724,
+  "nP1_med": 30.0
+ },
+ "H1_q0.40_season60_persist0.7": {
+  "reject_sitePerm(2\ud310)": 0.616,
+  "reject_siteTwoMonthPerm": 0.4,
+  "reject_timeShift": 0.709,
+  "nP1_med": 30.0
+ }
+}
