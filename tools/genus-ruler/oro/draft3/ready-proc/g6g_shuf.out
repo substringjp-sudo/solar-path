@@ -1,0 +1,34 @@
+{
+ "seoul/even/i": {
+  "mean": 1.0821,
+  "median": 1.0814
+ },
+ "seoul/even/ii": {
+  "mean": 0.0,
+  "median": -0.0313
+ },
+ "seoul/skew/i": {
+  "mean": 0.8528,
+  "median": 0.6502
+ },
+ "seoul/skew/ii": {
+  "mean": 0.0,
+  "median": 0.4638
+ },
+ "synth/even/i": {
+  "mean": 1.0716,
+  "median": 1.0631
+ },
+ "synth/even/ii": {
+  "mean": 0.0,
+  "median": -0.0503
+ },
+ "synth/skew/i": {
+  "mean": 0.8617,
+  "median": 0.6812
+ },
+ "synth/skew/ii": {
+  "mean": 0.0,
+  "median": 0.4191
+ }
+}
