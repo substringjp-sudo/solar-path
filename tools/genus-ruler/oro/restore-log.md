@@ -22,3 +22,20 @@
 - **main 합치기(S1)**: origin/main(98affae·a8a4f61)을 합쳤습니다(115fbe2). 하네스 묶기는 `volsky/build.sh`(react-native·expo-file-system 대체, PNG 빈 모듈). 합치기 전 두 번·후 두 번 B0_app·P0_seoul 의 rgb·alpha md5 가 모두 같습니다(`merge-aa.json`, 묶음 md5 는 다름: 대체 모듈과 main 코드).
   - `tools/shader-preview/stage-esm.js` 는 tsc 출력의 맨 지정자 가운데 three·suncalc·date-fns 만 바꿉니다. 합친 뒤 `utils/demTileCache.js` 에 `from 'react-native'`·`require(...)` 가 그대로 남아, `demTiles.js` 를 부르는 미리보기 도구(약 34 개 `build-*.js`)는 브라우저에서 모듈을 못 풉니다(구조로 확인, 브라우저 실행은 안 함). 오로·레짐 판정 도구는 이 둘을 부르지 않으므로 고치지 않고 적어 둡니다.
   - 예전 esbuild 명령(대체 모듈 없음)으로 `volsky/entry.ts`·`tsun/entry-tsun.ts`·`tsun/entry-gpuwin.ts` 를 묶으면 합친 뒤 셋 다 실패합니다(확인함). 그래서 동결된 grain 의 `eval-grain.sh` 와 tsun 의 `run-tsun.sh`·`gpu-window.sh` 는 지금 그대로는 돌지 않습니다. 둘 다 닫힌 캠페인이라 고치지 않습니다. 다시 돌릴 때는 같은 대체 인자를 붙입니다.
+
+## 노출 기록(RULER-oro 3판 §0.1·§0.5, 계획 3판 §0.1)
+대화 기록(세션 jsonl)에서 복원 명령과 화면에 나온 출력을 다시 확인해 적습니다.
+
+| 단계 | 명령(요지) | 화면에 나온 것 | 위성 값 노출 |
+|---|---|---|---|
+| R2 | `fetch-sat.py .harness/macro/sat --sites all > scratchpad/restore/r2-sat.log 2>&1`(2026-11-04T00:53Z, 백그라운드) | `R2 exit 0`, `ls … \| wc -l` = 122(장면 121 + index) | 없음. `r2-sat.log`(장면마다 `cover` 가 찍힘)는 열지 않음 |
+| R6 | `fetch-nwp-ring.py --tag blend > r6-nwp-stdout.log 2> r6-nwp-stderr.log`(같은 명령 줄) | `R6 exit 0`, 121, stderr 에서 `HTTP\|ERR\|한도\|403` 줄 5 개(JSON 끊김·SSL EOF·연결 재설정, 모두 NWP 받기 오류) | 없음(NWP 고리만) |
+| F1 | `oro-fingerprint.py --f1` | 파일·키·공통 수, index 의 skip 참 9·error 참 0 | 없음(수만; skip 9 는 130 − 121 로 이미 알려진 수) |
+| F2 | `oro-fingerprint.py --f2`(macro.py 표준 출력은 `.harness/oro/f2.log`) | 수치 잎 767/767 같음 | 없음. `f2.log` 는 열지 않음 |
+| F3 | `oro-fingerprint.py --f3`(downscale 출력은 `.harness/oro/f3-run.log`) | 97/97 같음, 열별 수 | 없음. `f3-run.log` 는 `grep -c .`(줄 수 121)와 `grep -i "esbuild\|error"`(맞는 줄 없음, 아무것도 안 나옴)만 함 |
+| R4·R5 | Open-Meteo 관측점 요청 | 상태·가중·null 수 | 해당 없음(위성 아님) |
+| R8 | CMR MYD03·MOD03 | 질의별 granule 수, 달별 DAY 날 수, 통과 시각 사분위 | 해당 없음(시각·폴리곤·주야 깃발만) |
+| R9 | GIBS 64 px 두 장 | 상태·형식·바이트 수 | 없음(디코드·저장 안 함) |
+
+- **노출 등급: 없음**(dev·held 모두). `index.json` 은 항목 수(130)와 skip·error 참 개수만 읽었습니다.
+- 자 초안 작성·재검토·점검 워크플로 에이전트는 각 문서의 '안 본 것' 에 `.harness`·로그를 열지 않았다고 적었습니다.
