@@ -80,7 +80,7 @@
 |---|---|---|---|---|
 | S0 | 사용자 결정 D1~D14 **받음**(2026-11-04, a027662·37787e1, §4.1). 2판 재검토 3 개 → 이 3판. 조건부 물음 D15·D16 은 조건이 생길 때만(§4.2, oro 몫) | — | 자 3판의 전제 | P10·p12·N1 |
 | S1 | main 합치기 + volsky 묶기에 `demTileCache` 대체(별칭 또는 빈 모듈) + 하네스 A/A + 합치기 전후 B0_app·P0_seoul rgb·alpha md5 같음. 그 위에 G1 측정 도구만 더한 **G1 기준 커밋**. **합치기·묶기·A/A 끝**: 115fbe2(origin/main a8a4f61), `volsky/build.sh`(ece32b1), `oro/merge-aa.json` — 합치기 전 A/A·후 A/A·전 = 후 md5 가 B0_app·P0_seoul 의 rgb·alpha 모두 같음(묶음 md5 는 다름: 대체 모듈과 main 코드), chromium 'Google Chrome for Testing 153.0.8010.12', SwiftShader 플래그는 그 파일에. G1 기준 커밋은 아직 | S0 | 합친 커밋, G1 기준 커밋(G1 기준·`old`·`runtime` 의 기준) | P10·p8·q7 |
-| S2 | 자료 복원: R1(커밋)·R2·R3·R4·R6·R7·R8·R9 **끝**, R5 **1/10**(일일 429, 나머지 9 곳은 11-05 리셋 뒤), R11 남음, R10 은 필요할 때. 복원 기록(§0.1, 노출 등급 없음) | 없음(R4·R5·R10·R11 은 한도 안에서) | 은행·탐측·고리·DEM, F1~F3, `restore-fingerprints.json`, `regime/sat-times.json.gz`, 복원 기록(`oro/restore-log.md`) | P2·P3·P8·p1·p2·N4 |
+| S2 | 자료 복원: R1(커밋)·R2·R3·R4·R6·R7·R8·R9 **끝**, R5 **1/10**(일일 429, 나머지 9 곳은 11-05 리셋 뒤), R11 남음, R10 은 필요할 때. 복원 기록(§0.1, 노출 등급 dev 만 — held 없음) | 없음(R4·R5·R10·R11 은 한도 안에서) | 은행·탐측·고리·DEM, F1~F3, `restore-fingerprints.json`, `regime/sat-times.json.gz`, 복원 기록(`oro/restore-log.md`) | P2·P3·P8·p1·p2·N4 |
 | S3 | oro 동결 전 측정 — 아래 목록 | S1·S2 | 위 파일들 | P4~P7·P11·O-B3 |
 | S4 | oro 3판 §0 에 잰 값 → (규칙이 바뀌면 그 차이만 짧게 재검토) → oro `FROZEN.json`·**동결 커밋**. 동결 문턱은 아래 | S3(조건이 생겼으면 D15·D16 의 답) | oro FROZEN | P4·p12·N1 |
 | S5 | regime 동결 전 — 아래 순서 | S4(임시 N_R 은 S2 뒤 언제든) | regime FROZEN | P8·P9·R-B1·R-B4·p11e·N1 |
@@ -463,5 +463,5 @@ D11~D14 를 받아 동결 전에 꼭 받아야 할 결정은 없습니다. 아�
 
 **잰 값(점검 밖)** — 출처 '잰 값'(`oro/restore-log.md`·`restore-fingerprints.json`·`probe-r4.json`·`sounding-manifest.json`·`merge-aa.json`·`regime/sat-times.json.gz`·`regime/probe-layers.json`). 규칙은 바꾸지 않았습니다.
 - §0: 가지, main 합침(115fbe2)과 묶기 영향, 복원 상태(R1 커밋, R3 F1·F2·R4·R7 F3·R8 60/60·R9 끝, R5 1/10 일일 429, R11 남음), esbuild 0.28.2.
-- §0.1: 노출 등급 **없음**(`oro/restore-log.md` '노출 기록').
+- §0.1: 노출 등급 **없음**(`oro/restore-log.md` '노출 기록'). 그 뒤 S3b 에서 dev 장면 값 하나가 화면에 나와 지금은 **dev 만** 입니다(적기만 함).
 - §1 S1(합치기·묶기·A/A 끝, `merge-aa.json`, G1 기준 커밋은 아직)·S2, §2.1 표의 상태 칸과 가중 셈 확인(max(1, V/10)).
