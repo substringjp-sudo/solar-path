@@ -5,7 +5,7 @@ fetch-sounding.py: RULER-oro §2.3 관측점 탐측(RULER-regime 과 공유). Op
 
   python3 tools/genus-ruler/oro/fetch-sounding.py [--sites all|dev|held|name,name] [--start 2026-06-01] [--end 2026-10-31]
                                                   [--out .harness/oro/sounding.json] [--manifest tools/genus-ruler/oro/sounding-manifest.json]
-                                                  [--sleep 10] [--dry]
+                                                  [--models ecmwf_ifs025] [--sleep 10] [--dry]
 
   - 변수: 기압면 T 15 면(THERMO_TEMP_LEVELS), RH 13 면(THERMO_RH_LEVELS), Z 15 면(PROFILE_LEVELS),
           바람 925/850/700/600/500/250 hPa, 지상(T2m, Td2m, 지상 기압, CAPE, BLH, SHF, 10 m 바람, 강수, 일사,
@@ -16,6 +16,10 @@ fetch-sounding.py: RULER-oro §2.3 관측점 탐측(RULER-regime 과 공유). Op
   - --out 에는 사이트별 원응답(hourly 그대로)을 둡니다(.harness, 커밋하지 않음).
     --manifest 에는 사이트마다 요청 URL, 받은 시각, 원응답 sha256, 변수별 null 수, 응답 elevation, X-RateLimit-Cost 를 적습니다.
   - --start/--end/--out/--manifest 로 확장 기간(RULER-regime R10)을 스크립트를 고치지 않고 받습니다.
+  - --models 를 주면 그 모델만 받습니다(RULER-oro §2.5 ④ 의 ecmwf 탐측, 계획 R11). 주지 않으면 best_match(모델 미지정).
+  - --out 이 디렉터리 없는 이름이면 .harness/oro/ 아래에 둡니다. --manifest 를 주지 않으면 --out 이름에서
+    만듭니다(sounding.json → tools/genus-ruler/oro/sounding-manifest.json, sounding-ecmwf.json → sounding-ecmwf-manifest.json).
+    그래서 확장·R11 이 원래 목록을 덮지 않습니다.
 """
 import sys, os, json, time, hashlib, urllib.request, urllib.error
 
@@ -56,20 +60,25 @@ def main(argv):
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.abspath(os.path.join(here, '..', '..', '..'))
     start, end = opt('--start', '2026-06-01'), opt('--end', '2026-10-31')
-    out = opt('--out', os.path.join(root, '.harness', 'oro', 'sounding.json'))
-    manifest_path = opt('--manifest', os.path.join(here, 'sounding-manifest.json'))
+    out = opt('--out', 'sounding.json')
+    if os.path.dirname(out) == '':
+        out = os.path.join(root, '.harness', 'oro', out)
+    stem = os.path.basename(out)[:-5] if out.endswith('.json') else os.path.basename(out)
+    manifest_path = opt('--manifest', os.path.join(here, f'{stem}-manifest.json'))
+    models = opt('--models', '')
     sleep_s = float(opt('--sleep', '10'))
     which = opt('--sites', 'all')
     allsites = {**SITES['dev'], **SITES['held']}
     sites = allsites if which == 'all' else SITES[which] if which in SITES else {k: allsites[k] for k in which.split(',')}
-    print(f'vars {len(VARS)}  sites {len(sites)}  {start}..{end}')
+    print(f'vars {len(VARS)}  sites {len(sites)}  {start}..{end}  model {models or "best_match"}  '
+          f'out {os.path.relpath(out, root)}  manifest {os.path.relpath(manifest_path, root)}')
     if '--dry' in argv:
         print(','.join(VARS))
         return 0
 
     data = json.load(open(out)) if os.path.exists(out) else {}
     man = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {}
-    man.update({'endpoint': BASE, 'model': 'best_match', 'start': start, 'end': end, 'timezone': 'GMT', 'windSpeedUnit': 'ms',
+    man.update({'endpoint': BASE, 'model': models or 'best_match', 'start': start, 'end': end, 'timezone': 'GMT', 'windSpeedUnit': 'ms',
                 'vars': VARS, 'scriptSha256': hashlib.sha256(open(os.path.abspath(__file__), 'rb').read()).hexdigest()})
     man.setdefault('sites', {})
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -82,7 +91,7 @@ def main(argv):
             time.sleep(sleep_s)
         first = False
         url = (f'{BASE}?latitude={lat:.5f}&longitude={lon:.5f}&hourly={",".join(VARS)}&start_date={start}&end_date={end}'
-               f'&timezone=GMT&wind_speed_unit=ms')
+               f'&timezone=GMT&wind_speed_unit=ms' + (f'&models={models}' if models else ''))
         body = None
         for k in range(4):
             st, hdr, raw = get(url)
