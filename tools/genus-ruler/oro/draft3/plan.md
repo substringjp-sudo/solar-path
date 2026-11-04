@@ -1,4 +1,4 @@
-# atmos 1회차 계획 — 자료 복원 → 두 자 동결 → 구현 → 판정 — **초안 3판, 2026-11-04**
+# atmos 1회차 계획 — 자료 복원 → 두 자 동결 → 구현 → 판정 — **초안 3판 고침 1(동결 준비 점검 반영 · 동결 전), 2026-11-04**
 
 범위(사용자 결정 §171.3): C3 + C1(옵션 `macroOro`)과 C4(옵션 `regime`)를 같은 회차에 다루고 판정은 따로 합니다.
 - C3 + C1 은 산악 장면에서만 작동하고 나머지는 바이트 같음입니다.
@@ -10,32 +10,49 @@
 4. 2판(07e368c).
 5. 2판 재검토 3 개(`oro/draft2/recheck-{validity,statistics,procedure}.md`, 07e368c·5bc1ec4).
 6. 사용자 결정 D11~D14(2026-11-04, 37787e1).
-7. **이 3판**.
+7. **이 3판**. 고침 1 은 3판 동결 준비 점검 세 문서(`oro/draft3/ready-{validity,statistics,procedure}.md`, 7db26c0·bb3b3e2)와 복원 기록의 잰 값을 받았습니다(§8 '동결 준비 점검 답').
 
 **자**
 - 2판(커밋 07e368c, 동결 전): `tools/genus-ruler/oro/RULER-oro.md`, `tools/genus-ruler/regime/RULER-regime.md`, 계획 `oro/draft2/plan.md`.
-- 3판: scratchpad `atmos1/RULER-regime.v3.md`(이 계획과 함께 씀). RULER-oro 3판은 같은 재검토·결정을 받아 따로 씁니다.
-- 근거: `oro/draft1/{code-map,data-plan,method}.md`·`bench/`·`stat/`, `oro/draft2/recheck-sims/`, 3판 모의 scratchpad `atmos1/v3-sims/`(simD·simE, MODIS 없음).
+- 3판 고침 1(동결 전): `tools/genus-ruler/oro/RULER-oro.md`, `tools/genus-ruler/regime/RULER-regime.md`, 이 계획. 3판 원문은 7db26c0 입니다(scratchpad `atmos1/*.v3.md` 와 바이트 같음).
+- 근거: `oro/draft1/{code-map,data-plan,method}.md`·`bench/`·`stat/`, `oro/draft2/recheck-sims/`, 3판 모의 `oro/draft3/v3-sims/`(simD·simE), 점검 모의 `oro/draft3/ready-sims/`·`ready-proc/`(모두 MODIS 없음).
 - 검토 답은 §7(2판)·§8(3판)에 있습니다.
 
 **꼬리표**: 자와 같습니다.
 
 ## 0. 지금(2026-11-04)
-- **가지**: `claude/eloquent-clarke-73zhgy` @ 37787e1. 2판 자·계획, 재검토 3 개와 모의, 결정 기록 D1~D14 까지 커밋돼 있습니다.
-  - main(a8a4f61)이 앱 커밋 2 개 앞섭니다(날짜 선택기, DEM 타일 캐시, 역지오코딩). 아직 합치지 않았습니다.
+- **가지**: `claude/eloquent-clarke-73zhgy` @ 8c88acf(고침 1 전). 3판 자·계획(7db26c0), 동결 준비 점검 세 문서(7db26c0·bb3b3e2), 복원 결과와 복원 기록(`oro/restore-log.md`)까지 커밋돼 있습니다.
+  - main(98affae·a8a4f61, 앱 커밋 2 개: 날짜 선택기, DEM 타일 캐시, 역지오코딩)을 S1 에서 합쳤습니다(합친 커밋 115fbe2, §1 S1).
+    - 하네스 묶기는 `volsky/build.sh`(ece32b1: react-native·expo-file-system 대체 모듈, PNG 빈 모듈, esbuild 0.28.2)입니다. 대체 없는 예전 esbuild 명령으로 `volsky/entry.ts`·`tsun/entry-tsun.ts`·`tsun/entry-gpuwin.ts` 를 묶으면 합친 뒤 셋 다 실패합니다 [measured].
+    - `tools/shader-preview/stage-esm.js` 는 합친 뒤 `utils/demTileCache.js` 에 맨 `'react-native'` 를 남깁니다(구조로 확인, 기록만 하고 고치지 않음). 오로·레짐 도구는 `demTiles`·`demCpu` 를 import 하지 않습니다.
   - DEM 관련 사항은 둘입니다.
     - `demTiles.ts` 가 `demTileCache.ts`(react-native·expo-file-system)를 top-level 에서 import 합니다.
     - 받기에 실패하면 **어떤 z/x/y 에든 z0 세계 타일 URI** 를 돌려줍니다 → 틀린 지형이 조용히 들어옵니다.
   - `demCpu.loadCpuDemBlock` 은 캐시를 거치지 않아 안전합니다.
-- **복원 상태**
+- **복원 상태**(2026-11-04, `oro/restore-log.md`) [measured]
   - R2 MODIS 은행·R6 실제 NWP 고리: **끝남**. 커밋된 스크립트(`macro/fetch-sat.py`·`ring/fetch-nwp-ring.py`)로 `.harness/`(gitignore)에 받았습니다.
-  - R1 DEM: `oro/fetch-dem.py`·`oro/dem-manifest.json` 이 작업 트리에 있습니다(66/66, 실패 0, 2026-11-04T02:24Z). 아직 커밋 전입니다.
+  - R1 DEM: **커밋**(679f460). `oro/fetch-dem.py`·`oro/dem-manifest.json`, 66/66, 실패 0, z6 9 곳·hamburg z5.
+  - R3 F1·F2·R7 F3: **끝**(`oro/restore-fingerprints.json`).
+    - F1: 이름 121/121(빠짐·더함 0), `index.json` 의 skip 9·error 0.
+    - F2: 사분위 수치 잎 767/767 같음.
+    - F3: held 97/97 장면에서 T 없는 다섯 열이 모두 같음(esbuild 0.28.2).
+  - R4: **끝**(`oro/probe-r4.json`, 서울 2026-09-05).
+    - best_match 에 BLH·SHF·CAPE·T850 이 있음(24/24 유한). ecmwf_ifs025 는 BLH·SHF 가, icon_seamless 는 BLH 가 없음.
+    - best_match 의 T850·Z700·700 hPa 바람이 00~05Z 매시 유한.
+    - `X-RateLimit-Cost` 1.6(16 변수×모델)·1.0(4 변수) → 위치·하루마다 max(1, V/10) 이 맞음(§2.1 가중 셈).
+  - R5: **1/10**(busan, 가중 76.5, 3,672 h, 70 변수). 다음 곳(denver)은 SSL 끊김 뒤 다시 보내자 일일 429(공유 IP)라 멈췄습니다. 나머지 9 곳은 2026-11-05 00:00 UTC 리셋 뒤 사이트 단위로 잇습니다(`oro/sounding-manifest.json` 은 부분).
+    - 70 변수는 자의 ≈ 69 의 상위 집합입니다: 전체·중층 운량을 더 받고, `freezing_level_height` 는 보관만 합니다(판정에 안 씀).
+    - `oro/fetch-sounding.py` 는 커밋됐고 `--models` 를 받습니다. manifest 이름은 `--manifest` 를 주지 않으면 `--out` 에서 만듭니다: `sounding.json` → `sounding-manifest.json`, `sounding-ecmwf.json` → `sounding-ecmwf-manifest.json`, `sounding-oro-ext1.json` → `sounding-oro-ext1-manifest.json`.
+  - R8: **끝**(`regime/sat-times.json.gz`, 60/60 질의 = 10 사이트 × Aqua·Terra × 기간 3: p2026 06~10, p2026spring 04~05, p2025 06~10. 3판은 둘만 씀).
+    - held DAY 사이트-날(달별): Aqua 2026 239~248, Terra 228~247 → Aqua 가 Terra 의 절반 아래인 달이 없어 VIIRS 대체 없음.
+    - 통과 지방 평균 태양시 사분위: Aqua 2026-06~10 15.17 h(14.67~15.63), 2026 봄 14.93, 2025 14.40. Terra 2026-06~10 9.02 h(8.57~9.52), 2026 봄 9.25, 2025 9.60. ~13:30·~09:40 이 아닙니다(RULER-regime 고침 1 §0.4).
+  - R9: **끝**(`regime/probe-layers.json`). MODIS Aqua·Terra TrueColor 둘 다 HTTP 200 image/png, 디코드하지 않음.
   - 누구도 MODIS 운량 값·held 영상을 열지 않습니다. 복원 로그도 열지 않습니다.
-  - 남은 것: R3 F1·F2, R4, R5(`fetch-sounding.py` 는 아직 저장소에 없음), R7 F3, R8, R9, 필요하면 R10·R11.
+  - 남은 것: R5 9 곳(11-05 리셋 뒤), R11(그 뒤, R5 와 ≥ 1 시간 띄움, §2.2), 필요하면 R10.
 - **커밋 파일 가운데 열지 않는 것**: `ring/modis-times.json`(121 키)은 키만 씁니다. `macro/sat-quartiles.json`·`ring/gate-*-held.json` 은 장면별 위성 값이 있어 열지 않습니다.
 - **도구**
   - node v22.23.4, `node_modules` 없음. `npm ci` 는 하네스 렌더·G1·G5·G10 에만 필요합니다.
-  - esbuild 는 lockfile 에 없음 → 판을 고정합니다(`npx esbuild@<판>`).
+  - esbuild 는 lockfile 에 없음 → 판을 고정합니다(`npx esbuild@<판>`). 복원 F3 와 S1 묶기는 0.28.2 입니다.
   - numpy 2.5.3·Pillow 12.3.0, scipy 없음. 두 자 모두 numpy 만 씁니다. 이전 FROZEN 은 numpy 2.4.6 이었으니 새 판을 기록합니다.
 - **탐침**(2026-11-03, 호스트당 1 요청)
   - GIBS·Terrarium·Open-Meteo forecast·previous-runs 는 200.
@@ -51,6 +68,10 @@
   - **dev 만**: 적기만 합니다(dev 운량은 손잡이에 쓰지 않음).
   - **없음**: 그대로.
   - D11~D14 는 이미 받았고 답이 모두 2판 권장안과 같습니다. 그래서 노출 기록이 나와도 결정 때문에 움직인 손잡이는 없습니다.
+  - 3판과 그 동결 준비 점검 세 문서(커밋)의 고칠 글은 등급과 무관하게 한 번 받습니다. 모두 MODIS 값·영상·held 파일·복원 로그를 열지 않고 MODIS 없는 수로만 썼습니다. 그 뒤의 바꿈은 위 귀결을 따릅니다.
+- **기록**(2026-11-04, 8c88acf): `oro/restore-log.md` 의 '노출 기록' 표. 노출 등급은 **없음**(dev·held 모두)입니다 [measured].
+  - MODIS 운량 값·held 영상·F2/F3 로그가 화면에 나온 적이 없습니다. 화면에 나온 것은 끝 코드·수·NWP 받기 오류 줄뿐입니다.
+  - R2 표준 출력(장면마다 `cover`)은 로그 파일로 갔고 열지 않았습니다. F2 표준 출력(`f2.log`)은 열지 않았고, F3 실행 로그(`f3-run.log`)는 줄 수(`grep -c .`, 121)와 `grep -i "esbuild\|error"`(맞는 줄 없음)만 했습니다(`oro/restore-log.md`).
 - 로그 파일은 이 기록을 쓸 때도 열지 않습니다. 자리와 sha256 만 적습니다.
 - 등급과 시각은 두 자의 §0.4·§0.5 와 FROZEN `decisions` 에 적습니다.
 
@@ -58,8 +79,8 @@
 | 단계 | 무엇 | 선행 | 산출 | 지키는 것 |
 |---|---|---|---|---|
 | S0 | 사용자 결정 D1~D14 **받음**(2026-11-04, a027662·37787e1, §4.1). 2판 재검토 3 개 → 이 3판. 조건부 물음 D15·D16 은 조건이 생길 때만(§4.2, oro 몫) | — | 자 3판의 전제 | P10·p12·N1 |
-| S1 | main 합치기 + volsky 묶기에 `demTileCache` 대체(별칭 또는 빈 모듈) + 하네스 A/A + 합치기 전후 B0_app·P0_seoul rgb·alpha md5 같음. 그 위에 G1 측정 도구만 더한 **G1 기준 커밋** | S0 | 합친 커밋, G1 기준 커밋(G1 기준·`old`·`runtime` 의 기준) | P10·p8·q7 |
-| S2 | 자료 복원: R1(작업 트리)·R2·R6 **끝**, R3~R5·R7~R9 남음, R10·R11 은 필요할 때. 복원 기록(§0.1) | 없음(R4·R5·R10·R11 은 한도 안에서) | 은행·탐측·고리·DEM, F1~F3, `restore-fingerprints.json`, `sat-times.json`, 복원 기록 | P2·P3·P8·p1·p2·N4 |
+| S1 | main 합치기 + volsky 묶기에 `demTileCache` 대체(별칭 또는 빈 모듈) + 하네스 A/A + 합치기 전후 B0_app·P0_seoul rgb·alpha md5 같음. 그 위에 G1 측정 도구만 더한 **G1 기준 커밋**. **합치기·묶기·A/A 끝**: 115fbe2(origin/main a8a4f61), `volsky/build.sh`(ece32b1), `oro/merge-aa.json` — 합치기 전 A/A·후 A/A·전 = 후 md5 가 B0_app·P0_seoul 의 rgb·alpha 모두 같음(묶음 md5 는 다름: 대체 모듈과 main 코드), chromium 'Google Chrome for Testing 153.0.8010.12', SwiftShader 플래그는 그 파일에. G1 기준 커밋은 아직 | S0 | 합친 커밋, G1 기준 커밋(G1 기준·`old`·`runtime` 의 기준) | P10·p8·q7 |
+| S2 | 자료 복원: R1(커밋)·R2·R3·R4·R6·R7·R8·R9 **끝**, R5 **1/10**(일일 429, 나머지 9 곳은 11-05 리셋 뒤), R11 남음, R10 은 필요할 때. 복원 기록(§0.1, 노출 등급 없음) | 없음(R4·R5·R10·R11 은 한도 안에서) | 은행·탐측·고리·DEM, F1~F3, `restore-fingerprints.json`, `regime/sat-times.json.gz`, 복원 기록(`oro/restore-log.md`) | P2·P3·P8·p1·p2·N4 |
 | S3 | oro 동결 전 측정 — 아래 목록 | S1·S2 | 위 파일들 | P4~P7·P11·O-B3 |
 | S4 | oro 3판 §0 에 잰 값 → (규칙이 바뀌면 그 차이만 짧게 재검토) → oro `FROZEN.json`·**동결 커밋**. 동결 문턱은 아래 | S3(조건이 생겼으면 D15·D16 의 답) | oro FROZEN | P4·p12·N1 |
 | S5 | regime 동결 전 — 아래 순서 | S4(임시 N_R 은 S2 뒤 언제든) | regime FROZEN | P8·P9·R-B1·R-B4·p11e·N1 |
@@ -99,17 +120,17 @@
 ### 2.1 단계
 | # | 무엇 | 명령·규칙 | Open-Meteo 가중 | 그 밖 | 시간 |
 |---|---|---|---|---|---|
-| R1 | DEM(**작업 트리, 66/66**) | `tools/genus-ruler/oro/fetch-dem.py`: z6(hamburg z5) 3×3 블록 + ±450 km, 타일 66 개, sha256·ETag·version-id 목록. 커밋만 남음 | 0 | 6 MB | 끝 |
+| R1 | DEM(**커밋, 66/66**) | `tools/genus-ruler/oro/fetch-dem.py`: z6(hamburg z5) 3×3 블록 + ±450 km, 타일 66 개, sha256·ETag·version-id 목록. 679f460 에 커밋 | 0 | 6 MB | 끝 |
 | R2 | MODIS 은행(**끝**) | 커밋된 `fetch-sat.py .harness/macro/sat --sites dev`, 그다음 `--sites all`. 표준 출력은 **읽지 않음**. `index.json` 은 지문 스크립트가 `skip`·`error` 키만 읽음. 복원 기록 §0.1 | 0 | GIBS 130 장, 30 MB | 끝 |
-| R3 | 지문 F1·F2 | F1 은 두 갈래(아래). F2 = `macro.py --truth … --out .harness/oro/sat-quartiles-restore.json > .harness/oro/f2.log`(읽지 않음) 대 `sat-quartiles.json` 의 **같은 수만** | 0 | — | 1 분 |
-| R4 | 탐침 | 서울(dev) 1 요청. 확인 셋은 아래 | ≈ 2 | — | 초 |
-| R5 | 관측점 탐측 | 새 `fetch-sounding.py`: 10 사이트 × 1 요청, best_match, 2026-06-01 ~ 10-31, ≈ 69 변수, `wind_speed_unit=ms`. **요청 사이 ≥ 10 s**. `--start/--end/--out`·`--models` 인자를 둡니다(확장·R11 이 스크립트를 고치지 않게) | ≈ 754 | 10 MB | 3 분 |
+| R3 | 지문 F1·F2(**끝**: F1 121/121, skip 9·error 0 · F2 767/767 같음) | F1 은 두 갈래(아래). F2 = `macro.py --truth … --out .harness/oro/sat-quartiles-restore.json > .harness/oro/f2.log`(읽지 않음) 대 `sat-quartiles.json` 의 **같은 수만** | 0 | — | 끝 |
+| R4 | 탐침(**끝**, `probe-r4.json`) | 서울(dev) 1 요청. 확인 셋은 아래 | ≈ 2(잰 값 1.6 + 1.0) | — | 끝 |
+| R5 | 관측점 탐측(**1/10**, busan) | 새 `fetch-sounding.py`(커밋): 10 사이트 × 1 요청, best_match, 2026-06-01 ~ 10-31, ≈ 69 변수(실제 70, §0), `wind_speed_unit=ms`. **요청 사이 ≥ 10 s**. `--start/--end/--out`·`--models` 인자를 둡니다(확장·R11 이 스크립트를 고치지 않게) | ≈ 754(잰 값 76.5/곳) | 10 MB | 일일 429 로 멈춤, 9 곳은 11-05 00:00 UTC 리셋 뒤 |
 | R6 | 실제 NWP 고리(**끝**) | 커밋된 `fetch-nwp-ring.py --tag blend`(+ `-lm`). 무료 변형: latest·m1h·p1h | ≈ 3,185(쓴 것) | 90 MB | 끝 |
-| R7 | 지문 F3(T 없음) | 아래 | 0 | 35 MB | 2 분 |
-| R8 | C4 시각 | 새 `fetch-sat-times.py`: CMR MYD03·MOD03, 사이트 × 위성 × 후보 기간 2 개(2026-06~10 · 2025-06~10) ≈ 40 질의(쪽 나눔). 평균 태양일 창. 시각·폴리곤·DAY 깃발만 저장. 먼저 Aqua 2026 granule 수(달별 수만) | 0 | — | 수 분 |
-| R9 | C4 레이어 탐침 | 레이어마다 64 px 1 장(내용 보지 않음). **C4 영상은 S5(oro 동결 뒤)에 받음** | 0 | — | 초 |
-| R10 | C4 확장 탐측(필요할 때만) | 임시 N_R < 60 일 때만, held 8 곳, 2025-06-01 ~ 10-31 하나. 같은 `fetch-sounding.py --start … --end … --out sounding-regime-ext.json` | ≈ 603 | — | 2 분 |
-| R11 | oro ecmwf 탐측(oro 3판 §2.5 ④, §6 민감도 팔) | `fetch-sounding.py --models ecmwf_ifs025 --start 2026-06-01 --end 2026-10-31 --out sounding-ecmwf.json` 10 요청(재검토 절차 P4). `sounding-ecmwf-manifest.json`(동결), 장면 값은 `oro-inputs.json` 에. 동결 전에 받지 못하면 그 팔은 '못 잼' | ≈ 750 | — | 2 분 |
+| R7 | 지문 F3(T 없음, **끝**: held 97/97 다섯 열 같음) | 아래 | 0 | 35 MB | 끝 |
+| R8 | C4 시각(**끝**, 60/60) | 새 `fetch-sat-times.py`: CMR MYD03·MOD03, 사이트 × 위성 × 후보 기간 2 개(2026-06~10 · 2025-06~10) ≈ 40 질의(쪽 나눔). 평균 태양일 창. 시각·폴리곤·DAY 깃발만 저장. 먼저 Aqua 2026 granule 수(달별 수만). 실제로는 2판 후보 2026-04~05 까지 기간 3 개 60 질의를 받았고, 3판은 둘만 씀. VIIRS 대체 없음(§0) | 0 | — | 끝 |
+| R9 | C4 레이어 탐침(**끝**: Aqua·Terra 200 image/png) | 레이어마다 64 px 1 장(내용 보지 않음). **C4 영상은 S5(oro 동결 뒤)에 받음** | 0 | — | 끝 |
+| R10 | C4 확장 탐측(필요할 때만) | 임시 N_R < 60 일 때만, held 8 곳, 2025-06-01 ~ 10-31 하나. 같은 `fetch-sounding.py --start … --end … --out sounding-regime-ext.json`. manifest 는 `--out` 에서 만든 `oro/sounding-regime-ext-manifest.json`(RULER-regime §2.2·§10.2 와 같은 이름, 점검 절차 q-a) | ≈ 603 | — | 2 분 |
+| R11 | oro ecmwf 탐측(oro 3판 §2.5 ④, §6 민감도 팔; **남음**, R5 9 곳 뒤 ≥ 1 시간 띄워) | `fetch-sounding.py --models ecmwf_ifs025 --start 2026-06-01 --end 2026-10-31 --out sounding-ecmwf.json` 10 요청(재검토 절차 P4). `sounding-ecmwf-manifest.json`(동결), 장면 값은 `oro-inputs.json` 에. 동결 전에 받지 못하면 그 팔은 '못 잼' | ≈ 750 | — | 2 분 |
 
 - **F1 두 갈래**(R3)
   - 받기 오류(`error`) → 같은 명령을 다시 돌립니다(받은 장면은 캐시로 건너뜀). 3 번 뒤에도 남으면 그 이름만 적고 뺍니다.
@@ -127,12 +148,13 @@
 - **가중 셈**
   - 셈은 위치마다 max(1, V/10) × max(1, D/14) 입니다. V = 변수 × 모델입니다.
   - RULER-ringtruth 의 고리 3,200 과 맞습니다. 조사서 §3.2 의 식(max 안의 곱)은 이보다 작게 나오니, R4 의 헤더로 확인합니다.
+  - 확인함 [measured]: R4 하루 요청이 16 변수×모델 1.6, 4 변수 1.0 이라 위치마다 max(1, V/10)(하루)입니다. R5 busan(70 변수, 153 일)의 76.5 = 7 × 153/14 도 이 식과 맞습니다 [computed].
 - **SHF 민감도**(선택): 모델 지정 요청 icon_seamless·gfs_seamless, 10 곳 ≈ 110. 예산이 남는 날에만 받습니다.
 
 ### 2.2 순서·한도·부분 자료
 - **순서**(재검토 절차 q6 — 사실대로)
   - Open-Meteo 가중 0: R1(커밋)·R3·R8·R9 는 언제든.
-  - R6 은 끝났습니다. 남은 Open-Meteo 단계는 R4 → R5(요청 사이 ≥ 10 s) → R7 입니다. R4 탐침의 가중 확인은 R5 앞에서 뜻을 가집니다.
+  - R6·R4·R7 은 끝났습니다. 남은 Open-Meteo 단계는 R5 9 곳(요청 사이 ≥ 10 s, 2026-11-05 00:00 UTC 리셋 뒤) → R11 입니다. R4 의 가중 확인은 끝났습니다(§2.1 가중 셈).
   - R11 은 고리(R6)가 끝나고 **1 시간 넘게 지난 뒤**, 되도록 다음 날 리셋 직후에 받습니다(oro 3판). R5 와도 다른 시간에 둡니다.
   - R10 은 R11 과 다른 시간에, 되도록 다음 날 리셋 직후에 받습니다.
 - **분당 600**
@@ -155,7 +177,7 @@
   - C4 영상 받기 실패는 3 번 다시 돌린 뒤 이름만 적고 뺍니다.
   - 복원이 며칠에 걸치면 날짜를 기록합니다.
 - **동결 뒤 `.harness/` 가 또 사라지면**
-  - 같은 명령으로 다시 받고 manifest 를 견줍니다(`bank-`·`ring-`·`texture-manifest.json`).
+  - 같은 명령으로 다시 받고 manifest 를 견줍니다(`bank-`·`ring-`·`texture-manifest.json`). 탐측은 `--out sounding-refetchN.json` 으로 받아(manifest 는 그 이름에서) 원 manifest 와 사이트별 sha256 만 견주고(RULER-oro §2.9), `fetch-texture.py` 는 `texture-manifest-refetchN.json` 에 씁니다(RULER-regime §2.3). 동결 manifest 는 덮지 않습니다(점검 절차 q-a).
   - oro 판정은 원자료가 아니라 커밋된 `oro-inputs.json` 을 읽어 B 가 바뀌지 않습니다.
   - 참값이 달라진 장면은 이름·수를 적고 그대로 판정합니다(참값 판은 ΔC·레짐 목록·렌더와 무관).
 
@@ -167,12 +189,12 @@
     - 시각: `fetch-modis-time.py --scenes .harness/oro/sat-ext --out tools/genus-ruler/oro/modis-times-ext.json`(새 파일, 동결 대상).
     - 고리: `fetch-nwp-ring.py --scenes .harness/oro/sat-ext --times <위 파일> --tag blend-ext --start 2026-10-23 --end 2026-10-31`.
     - 추가 장면은 통과 시각 해 고도 ≥ 20° 인 것만 씁니다(m4).
-  - **동결 뒤**(11-04 부터 4 일 간격, 12-31 까지) — 동결 전 확장 뒤에도 c1 이 모자라고 **D15 가 '예'** 일 때만(§4.2). §0.1 노출 규칙에 걸리면 묻지 않고 확장합니다(oro 3판 §2.7)
+  - **동결 뒤**(첫 날은 앞선 확장(동결 전·pre2)의 마지막 날 + 4 일, 그 뒤 4 일 간격, 12-31 까지. pre2 가 없으면 10-31 + 4 = 11-04 — 점검 절차 q-d, RULER-oro §2.7 과 같은 규칙) — 동결 전 확장 뒤에도 c1 이 모자라고 **D15 가 '예'** 일 때만(§4.2). §0.1 노출 규칙에 걸리면 묻지 않고 확장합니다(oro 3판 §2.7)
     - N 번째 동결 뒤 확장(N = 1, 2, …)은 앞 확장의 폴더·파일·태그를 다시 쓰지 않습니다(재검토 절차 P7).
       - 영상: `fetch-sat.py .harness/oro/sat-extN --sites held --dates <첫 날>:<끝 날>:4 > .harness/oro/fetch-sat-extN.log`(읽지 않음).
       - 시각: `fetch-modis-time.py --scenes .harness/oro/sat-extN --out tools/genus-ruler/oro/modis-times-extN.json`(새 파일).
       - 고리: `fetch-nwp-ring.py --scenes .harness/oro/sat-extN --times tools/genus-ruler/oro/modis-times-extN.json --tag blend-extN --start <첫 날> --end <끝 날>`.
-      - 탐측: `fetch-sounding.py --start <첫 날 − 21 일> --end <끝 날> --out sounding-oro-extN.json`. z_snow 는 이 파일 하나로 셉니다.
+      - 탐측: `fetch-sounding.py --start <첫 날 − 21 일> --end <끝 날> --out sounding-oro-extN.json --manifest tools/genus-ruler/oro/sounding-manifest-extN.json`(점검 절차 q-a, RULER-oro §2.7 과 같음; `--manifest` 가 없으면 `sounding-oro-extN-manifest.json` 이 됨). z_snow 는 이 파일 하나로 셉니다.
       - 이유: `fetch-modis-time.py` 는 `--out` 파일에 덧써서 동결 파일을 바꿉니다(`:57·93`). `fetch-nwp-ring.py` 는 같은 태그의 원자료가 있으면 다시 받지 않아, 새 날짜가 모두 'missing' 으로 빠집니다(`:75·86`). 같은 폴더의 `index.json` 은 덮입니다(`fetch-sat.py:113`).
     - 같은 동결 코드로 `oro-apply-extN`·`oro-inputs-extN`·`sounding-manifest-extN`·`ring-manifest-extN`·`bank-manifest-extN`·`cmr-geom-extN`·`modis-times-extN` 을 만듭니다.
     - **짝짓기 전에** `FROZEN-extN.json` 을 별도로 커밋합니다.
@@ -212,7 +234,7 @@
 | O4 | `src/components/VolumetricProbe/volumetricScene.ts` | 아래 | G1·G2·G4 |
 | O5 | `liveScene.ts`·`SkyScene3D.tsx` | 아래 | 오프라인·결측 = 끔 경로 바이트. G2: 도착 경로(아래) |
 | O6(D6·D14) | `src/utils/weather.ts` | 아래 | 기존 요청 URL·캐시 키 바이트 같음 · G1(d) · null 이면 a = 0, 레짐 NA |
-| O7 | `tools/genus-ruler/oro/`(`oro-run.mjs`·`oro-core-test.mjs`·`oro.py`), `tools/genus-ruler/volsky/entry.ts` | esbuild 판 고정 번들(three 검사 포함), 허용 목록 입력, 판정 한 번(읽기 전 확인·lock·멈춤 규칙) | G5·G8, tsc 0 |
+| O7 | `tools/genus-ruler/oro/`(`oro-run.mjs`·`oro-core-test.mjs`·`oro.py`), `tools/genus-ruler/volsky/entry.ts`. `oro.py` 는 oro FROZEN `files`(동결 파일은 S3·S5 에서 완성, 동결 뒤 고치지 않음) | esbuild 판 고정 번들(three 검사 포함), 허용 목록 입력, 판정 한 번(읽기 전 확인·lock·멈춤 규칙) | G5·G8, tsc 0 |
 
 - **O4 내용**
   - 옵션 `macroOro`(+ `DEFAULT_VOLUMETRIC_OPTIONS`)과 입력 `oro?` 를 둡니다. `macro` 객체에 F 를 캐시합니다.
@@ -244,7 +266,7 @@
 | W1 | 새 `src/components/VolumetricProbe/blRegime.ts`(순수) | zi(BLH, 아니면 공기 덩이법) · p_sfc(Z 단면) · U_CBL(높이 가중) · 시어(0.1 zi ~ zi) · 대류 대용 · NA 규칙 · 나무 · θ_CBL(약풍이면 시어 축). 입력은 D6 별도 요청(D14 변수 포함)과 기존 열역학 요청 | = `regime_ref.py`(G7, 경계 여유) |
 | W2 | `cloudGenus.ts` | cu·sc 저층 레인 **셰이더 표본 좌표**(`getGlobeUv` 가 낸 접평면 좌표)에 det 1 사상 M. 조각은 켤 때만 넣고("끄면 원문"), ROLL 일 때만 `L.opts.regime`. CPU FIELDS 전역 늘임은 금지(이음매) | G1~G5·G8·G10, J2 |
 | W3 | `volumetricScene.ts`·`liveScene.ts`·`SkyScene3D.tsx`·`volsky/entry.ts` | 옵션 `regime`, `weatherPlan` 은 ROLL 일 때만 붙임, D6 입력 배선, 개발 설정, 키에는 켜졌을 때만 | 날씨 키·`qKey` 바이트 같음, G1(d) |
-| W4 | 새 `tools/genus-ruler/regime/`(`fetch-sat-times.py`·`fetch-texture.py`·`texture.py`·`texture-test.py`·`regime_ref.py`(시간 이동 축표 포함)·`regime-test.py`·`render-tile.mjs`·`regime.py`) + 하네스 지도 시야 패스(G10) | 위성과 렌더에 같은 지표 코드(500 m 맞춤). 렌더는 CPU 세계 창(M 적용). G10 패스는 앱 틀 경로(ECEF p → `getGlobeUv`)를 지나고 틀·regime 균일변수를 앱 재질에서 복사(재검토 절차 P9) | 합성 롤·세포 지표 · A_null 표 · r(a)·ΔI_mech(a) · G6 프레임 시간 · G10 (a) 무늬·(b) 배선 |
+| W4 | 새 `tools/genus-ruler/regime/`(`fetch-sat-times.py`·`fetch-texture.py`·`texture.py`·`texture-test.py`·`regime_ref.py`(시간 이동 축표 포함)·`regime-test.py`·`render-tile.mjs`·`regime.py`) + 하네스 지도 시야 패스(G10). 도구 여덟(`fetch-sat-times.py`·`fetch-texture.py`·`texture.py`·`texture-test.py`·`regime_ref.py`·`regime-test.py`·`render-tile.mjs`·`regime.py`)은 모두 regime FROZEN `files`(RULER-regime §10.2; 동결 파일은 S3·S5 에서 완성, 동결 뒤 고치지 않음) | 위성과 렌더에 같은 지표 코드(500 m 맞춤). 렌더는 CPU 세계 창(M 적용). G10 패스는 앱 틀 경로(ECEF p → `getGlobeUv`)를 지나고 틀·regime 균일변수를 앱 재질에서 복사(재검토 절차 P9) | 합성 롤·세포 지표 · A_null 표 · r(a)·ΔI_mech(a) · G6 프레임 시간 · G10 (a) 무늬·(b) 배선 |
 
 ### 3.3 공통
 - **main 합치기(D8)**: S1 에서, 곧 동결 전 측정·해시·G1 기준을 만들기 전에 합칩니다(P10).
@@ -252,7 +274,7 @@
   - 합치기 전후로 B0_app·P0_seoul 의 rgb·alpha md5 가 같음을 확인합니다.
   - 그 위에 G1 측정 도구(md5 스크립트, `liveScene` 요청 가로채기 시험)만 더한 **G1 기준 커밋**을 만듭니다. 앱 코드 변경은 없습니다(재검토 절차 q7).
   - G1 기준 커밋을 두 FROZEN 의 G1 기준·`old`·`runtime` 해시의 기준으로 적습니다. 두 자의 `g1-baseline*.json` 은 이 커밋에서 잽니다.
-  - `tools/shader-preview/build-*.js` 등 `demTiles`·`demCpu` 를 import 하는 도구 번들(~34 개)이 react-native 를 끌어오는지는 확인하고 기록합니다(미확인). 오로·레짐 판정 도구는 그 둘을 import 하지 않습니다.
+  - `tools/shader-preview/build-*.js` 등 `demTiles`·`demCpu` 를 import 하는 도구 번들(~34 개)은 `stage-esm.js` 가 `utils/demTileCache.js` 에 맨 `'react-native'` 를 남겨 브라우저에서 모듈을 못 풉니다(구조로 확인, 기록만 하고 고치지 않음, §0). 오로·레짐 판정 도구는 그 둘을 import 하지 않습니다.
 - **문서**: 계획서에 새 절(1회차 착수·자 동결·결과)을 둡니다. D1 대로 조사서 §6 의 "두 고도 평균" 문구 옆에 정정 메모를 붙입니다. D13 으로 좁힌 합격 문구도 같은 메모에 적습니다.
 
 ## 4. 사용자 결정
@@ -279,7 +301,7 @@ D11~D14 를 받아 동결 전에 꼭 받아야 할 결정은 없습니다. 아�
 
 | # | 묻는 조건 | 질문 | 권장 | 이유 | 아니오이면 |
 |---|---|---|---|---|---|
-| D15 | 동결 전 확장(10-23~31) 뒤에도 c1(n ≥ 20, D13 바닥)이 모자람 | oro 의 **동결 뒤 확장**(11-04 부터 4 일 간격, 12-31 까지; 짝짓기 전에 개수만 보고 `FROZEN-extN` 커밋)을 할까. D2 의 "장면 수는 동결 전에 개수만 보고 확장" 보다 넓습니다(재검토 타당성 m8(a)) | 예 | c1 을 넘을 기회를 늘립니다. 짝짓기 전에 개수만 보고 정하므로 순차 검정이 아닙니다(통계 재검토 §4). 비용: 판정 범위에 11~12 월(낮은 해·이른 눈) 장면이 들어옵니다. 해 고도 ≥ 20° 만 씁니다 | 그대로 동결하고 판정 때 c1 미달 = 미결로 닫음. 동결 뒤 확장 글(oro §2.7, 계획 §2.3)은 쓰이지 않음 |
+| D15 | 동결 전 확장(10-23~31) 뒤에도 c1(n ≥ 20, D13 바닥)이 모자람 | oro 의 **동결 뒤 확장**(첫 날 = 앞선 확장(동결 전·pre2)의 마지막 날 + 4 일, pre2 가 없으면 11-04; 4 일 간격, 12-31 까지; 짝짓기 전에 개수만 보고 `FROZEN-extN` 커밋)을 할까. D2 의 "장면 수는 동결 전에 개수만 보고 확장" 보다 넓습니다(재검토 타당성 m8(a)) | 예 | c1 을 넘을 기회를 늘립니다. 짝짓기 전에 개수만 보고 정하므로 순차 검정이 아닙니다(통계 재검토 §4). 비용: 판정 범위에 11~12 월(낮은 해·이른 눈) 장면이 들어옵니다. 해 고도 ≥ 20° 만 씁니다 | 그대로 동결하고 판정 때 c1 미달 = 미결로 닫음. 동결 뒤 확장 글(oro §2.7, 계획 §2.3)은 쓰이지 않음 |
 | D16 | `power-oro.json` 에서 참 중앙 ρ 0.10 의 동시 통과 확률 < 0.2 | 셋 가운데 무엇으로 갈까: (가) 그대로 동결 · (나) 동결 전 확장을 11-04 뒤로 이어 한 번 더 셈(`*-pre2` 이름) · (다) D11·D13 의 답을 다시 정함 | (가) | 검정력은 꼬리표('작음'·'못 가름')와 `power-oro.json` 으로 기록됩니다. (나)·(다)는 결과를 보지 않은 채 할 수 있지만 범위를 넓히거나 받은 결정을 되돌립니다 | — (셋 가운데 고름) |
 
 - §0.1 의 노출 등급이 held 장면별이나 모름이고 그 시각이 물음보다 앞서면, 묻지 않고 3판 규칙으로 갑니다: D15 는 확장 함, D16 은 (가). 두 물음은 held 값과 무관하게 개수·검정력 규칙만 정하기 때문입니다.
@@ -305,7 +327,7 @@ D11~D14 를 받아 동결 전에 꼭 받아야 할 결정은 없습니다. 아�
 | C4 J3 '과장 없음' 이 생성기와 무관하게 떨어짐 | 맞는 C4 가 J3 에서 탈락 | a 내림 + 주 블록 U95(중앙 δ) ≤ ln 1.40(simD), D_λ·D_I 여백에서 기계적 변화를 뺌(V7·N3·R-B2) |
 | n < 20 / P1 대상 < 30 | 미결 | 동결 전 개수 확장 규칙(oro·regime), oro 동결 뒤 확장은 조건부 물음 D15 |
 | best_match 모델 차(동아시아 JMA: BLH·CAPE 없음, 3 시간 기압면), SHF 부호 불명 | C4 입력 결측·잡음 | 공기 덩이 zi, 대류 대용, ±3 h NA 규칙(p2), R4 매시 탐침 |
-| Aqua 2026 공급·드리프트 미확인 | C4 참값 공백 | R8 탐침, CMR 수로 VIIRS 대체를 동결 전에 결정 |
+| Aqua 2026 공급·드리프트(R8 로 확인: 공급 이어짐, 통과 ≈ 15:10, VIIRS 대체 없음, §0) | C4 참값 공백 | 해결됨. 늦은 통과로 해 고도 < 20° 인 장면은 규칙대로 NONE(RULER-regime §0.1) |
 | main 합치기로 하네스 번들이 깨짐 | G1 공회전 또는 재동결 | 동결 전 S1 에서 합치고 묶기 고침, 전후 md5, G1 기준 커밋(P10·q7) |
 | 끔 = 바이트 같음이 빈 시험(잡에 `macro` 없음, 새 요청이 옵션과 무관하게 나감) | '바이트 같음' 이 빈말 | G1 잡 `macro: 1`, G1(d) 요청 목록, D6 요청(D14 변수 포함)은 옵션 켜짐에만(P11) |
 | 바이트 같음이 깨짐(JSON 키 `0`/`null`, 난수 소비, 셰이더 원문) | 모든 장면이 바뀜 | 옵션이 꺼지면 필드를 붙이지 않음, `JOB_BASE_OPTIONS`, G1·G2 md5 |
@@ -320,7 +342,7 @@ D11~D14 를 받아 동결 전에 꼭 받아야 할 결정은 없습니다. 아�
 |---|---|
 | Open-Meteo | R6 ≈ 3,185(썼음) + R4·R5 ≈ 756 + R11 ≈ 750 + R10 ≤ 603 + oro 확장 ≤ 1,000 + SHF 민감도 ≈ 110(선택) |
 | GIBS | MODIS 은행 130(받았음) + C4 ≈ 600~1,000(대류 장면·다른 위성·NONE 20 %, 확장 포함) + oro 확장 ≤ 18 |
-| CMR | ≈ 40 질의(+ VIIRS 대체면 ≈ 20) |
+| CMR | 60 질의(받았음: 10 사이트 × Aqua·Terra × 기간 3, VIIRS 대체 없음) |
 | AWS Terrarium | 66 타일(받았음) |
 | 디스크 | < 1 GB(C4 원영상 포함) |
 | CPU | 판정·부트스트랩·순열·시간 이동·`power-*.json` 모의 수십 분. 하네스 렌더는 A/A·G1·G2·G6·G10·눈용 수십 장 |
@@ -416,3 +438,30 @@ D11~D14 를 받아 동결 전에 꼭 받아야 할 결정은 없습니다. 아�
 - O6 에 D14 변수와 가중 +1.2 를 적었습니다.
 - §3.3 문서 메모에 D13 으로 좁힌 합격 문구를 더했습니다.
 - §4.1 표의 '반영한 곳' 을 3판 기준으로 고쳤습니다.
+
+### 동결 준비 점검 답(3판 → 3판 고침 1)
+**표시**: 위와 같습니다. 대상은 3판 동결 준비 점검 `oro/draft3/ready-{validity,statistics,procedure}.md`(7db26c0·bb3b3e2) 가운데 계획에 닿는 것입니다. **출처** '점검' = 점검 문서의 고칠 글을 받음, '잰 값' = 복원 기록·결과 파일의 수를 옮김(점검 아님, 규칙 바꿈 없음). 이 고침은 MODIS 값·영상, held 파일, 복원 로그를 열지 않고 썼습니다.
+
+**절차(ready-procedure, '동결 불가: N5·N6')**
+- **N6(차단, 계획 몫) 해결** — 출처 '점검'. §0.1 귀결 목록 뒤에 점검의 덧붙임 글 그대로를 넣었습니다: 3판과 그 점검 세 문서의 고칠 글은 등급과 무관하게 한 번 받고, 그 뒤의 바꿈은 귀결을 따릅니다. RULER-oro 3판 §0.1·RULER-regime 고침 1 §0.2 와 같은 뜻입니다.
+- **q-c(차단 아님) 해결** — 출처 '점검'. §3 의 O7(`oro.py`)·W4(도구 여덟: `fetch-sat-times.py`·`fetch-texture.py`·`texture.py`·`texture-test.py`·`regime_ref.py`·`regime-test.py`·`render-tile.mjs`·`regime.py`, RULER-regime §10.2) 칸에 "(동결 파일은 S3·S5 에서 완성, 동결 뒤 고치지 않음)" 을 넣었습니다. 그래서 '동결 뒤' 작업 묶음이 동결 파일을 고쳐 확인 2 에 막히는 길이 없습니다.
+- **q-d(차단 아님) 해결** — 출처 '점검'. §2.3 동결 뒤 확장의 첫 날 = 앞선 확장(동결 전·pre2)의 마지막 날 + 4 일입니다(RULER-oro §2.7 과 같은 규칙). pre2 가 없으면 11-04 이고, 둘을 함께 해도 같은 날짜를 두 번 받지 않습니다. §4.2 D15 질문 칸의 '11-04 부터' 도 이 규칙으로 고쳤습니다.
+- **q-a(차단 아님, regime 몫의 계획 줄)** — 출처 '점검'. R10 에 manifest 이름 `oro/sounding-regime-ext-manifest.json`(`--out` 에서 만듦)을 적어 RULER-regime 고침 1 §2.2·§10.2 와 한 이름으로 맞췄습니다. `fetch-texture.py` 의 `texture-manifest-refetchN.json` 은 RULER-regime §2.3 몫입니다.
+- **q-a(차단 아님, oro 몫의 계획 줄)** — 출처 '점검'. §2.3 동결 뒤 확장 탐측 명령에 `--manifest tools/genus-ruler/oro/sounding-manifest-extN.json` 을, §2.2 다시 받기에 `sounding-refetchN.json`·`texture-manifest-refetchN.json` 을 적어 RULER-oro 고침 1 §2.7·§2.9, RULER-regime 고침 1 §2.3 과 한 이름으로 맞췄습니다.
+- **N5·q-b**: RULER-oro 몫(G6). 계획은 그대로입니다.
+
+**타당성(ready-validity, '동결 불가: N4')**
+- **N4**: RULER-oro 몫(c8 의 L⁻ 층, §4.4·G6(h)). 계획은 그대로입니다.
+
+**통계(ready-statistics, '동결 가능')**
+- 새 막는 결함이 없어 고칠 것이 없습니다.
+
+**고침 1 점검(잰 값을 옮긴 뒤 남은 줄)**
+- **해결** — 출처 '점검'. 고침 1 을 다시 본 점검의 고칠 글 그대로입니다. 규칙은 바꾸지 않았습니다.
+  - 머리 '자'(3판 고침 1 은 작업 트리, 원문 7db26c0)·§2.2 순서(R6·R4·R7 끝, 남은 것 R5 9 곳 → R11)·§3.3(도구 번들의 react-native 는 구조로 확인)·§5 Aqua 행(R8 로 해결)·§6 CMR 행(60 질의, 대체 없음)을 §0·§2.1 의 잰 값과 맞췄습니다.
+  - §0.1 '기록' 의 F2·F3 로그 문장을 `oro/restore-log.md` F3 행대로 고쳤습니다(`f3-run.log` 는 `grep -c .`·`grep -i "esbuild\|error"` 만).
+
+**잰 값(점검 밖)** — 출처 '잰 값'(`oro/restore-log.md`·`restore-fingerprints.json`·`probe-r4.json`·`sounding-manifest.json`·`merge-aa.json`·`regime/sat-times.json.gz`·`regime/probe-layers.json`). 규칙은 바꾸지 않았습니다.
+- §0: 가지, main 합침(115fbe2)과 묶기 영향, 복원 상태(R1 커밋, R3 F1·F2·R4·R7 F3·R8 60/60·R9 끝, R5 1/10 일일 429, R11 남음), esbuild 0.28.2.
+- §0.1: 노출 등급 **없음**(`oro/restore-log.md` '노출 기록').
+- §1 S1(합치기·묶기·A/A 끝, `merge-aa.json`, G1 기준 커밋은 아직)·S2, §2.1 표의 상태 칸과 가중 셈 확인(max(1, V/10)).
