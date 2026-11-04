@@ -19,6 +19,6 @@
   - Aqua: 2025 14.40 h(13.90~14.85) → 2026 봄 14.93 h → 2026 여름·가을 **15.17 h(14.67~15.63)**.
   - Terra: 2025 9.60 h → 2026 봄 9.25 h → 2026 여름·가을 **9.02 h(8.57~9.52)**.
   - RULER-regime 의 "~13:30(Aqua)·~09:40(Terra)" 은 2026 자료에 맞지 않습니다. 통과 시각 탐측 보간은 CMR 시각을 그대로 쓰므로 판정 식은 바뀌지 않지만, 오후 경계층 무너짐과 노을 작동 비율 설명은 이 시각으로 고쳐 적어야 합니다.
-- **main 합치기(S1)**: origin/main(98affae·a8a4f61)을 합쳤습니다(115fbe2). 하네스 묶기는 `volsky/build.sh`(react-native·expo-file-system 대체, PNG 빈 모듈). 합치기 전후 B0_app·P0_seoul md5 비교는 진행 중입니다.
+- **main 합치기(S1)**: origin/main(98affae·a8a4f61)을 합쳤습니다(115fbe2). 하네스 묶기는 `volsky/build.sh`(react-native·expo-file-system 대체, PNG 빈 모듈). 합치기 전 두 번·후 두 번 B0_app·P0_seoul 의 rgb·alpha md5 가 모두 같습니다(`merge-aa.json`, 묶음 md5 는 다름: 대체 모듈과 main 코드).
   - `tools/shader-preview/stage-esm.js` 는 tsc 출력의 맨 지정자 가운데 three·suncalc·date-fns 만 바꿉니다. 합친 뒤 `utils/demTileCache.js` 에 `from 'react-native'`·`require(...)` 가 그대로 남아, `demTiles.js` 를 부르는 미리보기 도구(약 34 개 `build-*.js`)는 브라우저에서 모듈을 못 풉니다(구조로 확인, 브라우저 실행은 안 함). 오로·레짐 판정 도구는 이 둘을 부르지 않으므로 고치지 않고 적어 둡니다.
   - 예전 esbuild 명령(대체 모듈 없음)으로 `volsky/entry.ts`·`tsun/entry-tsun.ts`·`tsun/entry-gpuwin.ts` 를 묶으면 합친 뒤 셋 다 실패합니다(확인함). 그래서 동결된 grain 의 `eval-grain.sh` 와 tsun 의 `run-tsun.sh`·`gpu-window.sh` 는 지금 그대로는 돌지 않습니다. 둘 다 닫힌 캠페인이라 고치지 않습니다. 다시 돌릴 때는 같은 대체 인자를 붙입니다.
