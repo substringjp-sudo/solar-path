@@ -13,7 +13,7 @@
 | R6 실제 NWP 고리 | 10/10(blend·lm) | `ring/nwp/blend/*`(커밋 안 함) |
 | R7 지문 F3 | T 를 쓰지 않는 다섯 열이 held 97/97 장면에서 같음(esbuild 0.28.2) | `restore-fingerprints.json` |
 | R8 CMR 시각 | 60/60 질의(10 사이트 × Aqua·Terra × 기간 3). held DAY 사이트-날 수(달별) Aqua 2026 239~248, Terra 228~247 → VIIRS 대체 안 함 | `regime/sat-times.json.gz`, `regime/fetch-sat-times.py` |
-| R9 레이어 탐침 | 아직 | — |
+| R9 레이어 탐침 | Aqua·Terra TrueColor 둘 다 200 image/png(64 px, 서울 2026-06-15). 영상은 디코드·저장하지 않음 | `regime/probe-layers.json`, `regime/probe-layers.py` |
 
 - **위성 통과 시각 표류**(CMR 메타만, 지방 평균 태양시 사분위)
   - Aqua: 2025 14.40 h(13.90~14.85) → 2026 봄 14.93 h → 2026 여름·가을 **15.17 h(14.67~15.63)**.
