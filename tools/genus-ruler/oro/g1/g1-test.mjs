@@ -10,7 +10,8 @@
  *   MD5-ALLOW  g1-md5 가 허용 목록만 씀: 가짜 trueGrid·cover·empty 와 허용 밖 키를 바꾼 inputs 사본으로 출력 같음, 허용 키 하나를
  *              바꾸면 그 밴드만 달라짐(음성 대조), 두 번 따로 돌려 바이트 같음, fs 감사(읽은 파일·쓴 파일·명령), 금지 경로 거절.
  *   MD5-CROSS  실제 a 조각: oro-inputs 장면 수(121 + 확장) × 3, 모드 1 base md5 = oro-base 가 쓴 .harness/oro/base/<scene>__closest__<band>.f32 의 md5
- *              (같은 허용 목록 길·같은 B 번들), cover = base(noise false), macro 번들 = oro-base B 번들(Q-45), state 배열 = re·im.
+ *              (같은 허용 목록 길·같은 B 번들), cover = base(noise false), macro 번들 = oro-base B 번들(Q-45), state 배열 = re·im;
+ *              closest 고리 점이 12 개 미만인 밴드(확장 은행 osaka·sapporo 2026-10-31)는 a·aMode2 가 null 이고 oro-base 도 B null(그 밴드만).
  *   MD5-CHAIN  모드 2: 걸음마다 md5 가 다름(사슬이 실제로 걸음), 첫 장 ≠ 1 걸음; 사슬 번들로 다시 잰 모드 1 = B 번들 모드 1.
  *   JOBS       잡 파일을 다시 만들면 바이트 같음; 잡 넷·이름·G1 옵션; 고리 입력 = oro-inputs closest 고리(비트 같음); B0_app·P0_seoul
  *              의 나머지는 원래 잡 그대로; 산악 둘 = kanazawa 처음 두 날짜, dev, A1 ✓(oro-apply); 대조 잡 = 원래 잡; 감사.
@@ -33,7 +34,7 @@
  *              (S3-design G1 build note 19 fix G1-REC 의 시험 6: control 이 다른 호출인 b 는 --final 이 거절, 어긋남 마당은 MISMATCH·RENDER.)
  *   MISMATCH   어긋남 재기(fix G1-REC): 거르개 0~4 를 모두 쓴 합성 PNG 풀기, 화소 수·상자·단계·채널; 합성 작업 폴더에서 characterise
  *              (aa·control, 기록과 다른 PNG 는 decoded 거짓); 실제 b 의 mismatches[] 마당; g1-baseline status.mismatches 요약.
- *   BASELINE   g1-baseline.json(--baseline): §8 꼴의 키와 G1 build note 19·20 의 status 마당, 장면(121 + 확장) × 3, 15 걸음,
+ *   BASELINE   g1-baseline.json(--baseline): §8 꼴의 키와 G1 build note 19·20 의 status 마당, 장면(121 + 확장) × 3(고리 점 12 개 미만 밴드는 null), 15 걸음,
  *              조각에서 다시 모으면 바이트 같음.
  *   CONTAM     저장소에 gate-oro-*.json·judge.lock(.1) 없음, 조각·잡 파일·기준 파일·render-attempts.jsonl 에 MODIS 키(trueGrid·empty) 없음.
  */
@@ -58,6 +59,18 @@ const BASELINE_FILE = path.resolve(argOf('--baseline') ?? path.join(ROOT, 'tools
 const STEPS5 = ['build', 'run1', 'run2', 'control', 'keys'], RENDER4 = ['run1', 'run2', 'control', 'keys'], PINNED = ['run1', 'run2', 'keys'];
 /** oro-inputs.json 의 장면 수(121 + 확장; §8 "121 (+ ext)"). 장면 이름만 셈. */
 const nScenes = () => Object.keys(JSON.parse(fs.readFileSync(INPUTS, 'utf8')).scenes).length;
+/** (a) 에서 null 이어야 할 밴드 `<scene>.<band>`: closest 고리의 유한한 점이 12 개 미만(앱 규칙 pts.length >= 12, Q-31; g1-md5 와 oro-base 가
+ *  그 밴드를 null 로 둠). 확장 은행의 시각 끝 장면(osaka·sapporo 2026-10-31)이 그렇습니다. 고리 배열만 읽음(pickRingInputs). */
+const nullBandsExpected = () => {
+  const rings = pickRingInputs('g1-test', JSON.parse(fs.readFileSync(INPUTS, 'utf8')));
+  const out = new Set();
+  for (const sc of Object.keys(rings)) for (const b of BANDS3) if (!ringPoints(rings[sc], b)) out.add(`${sc}.${b}`);
+  return out;
+};
+/** a·aMode2(·aMode2Init) 꼴: null 이어야 할 밴드는 셋 다 null, 나머지는 md5 들과 15 걸음. */
+const aShapeOk = (X, sc, b, nulls) => (nulls.has(`${sc}.${b}`)
+  ? X.a[sc][b] === null && X.aMode2[sc][b] === null && (!X.aMode2Init || X.aMode2Init[sc][b] === null)
+  : !!X.a[sc][b] && typeof X.a[sc][b].cover === 'string' && !!X.a[sc][b].state && Array.isArray(X.aMode2[sc][b]) && X.aMode2[sc][b].length === 15);
 const results = [];
 const fmt = v => (typeof v === 'number' && !Number.isInteger(v) ? Number(v.toPrecision(6)) : v);
 
@@ -223,36 +236,44 @@ await test('MD5-CROSS', async ck => {
   if (!fs.existsSync(af)) { ck.skip = 'no a.json part'; return; }
   const A = rdJson(af);
   const names = Object.keys(A.a).sort();
-  const nSc = nScenes();
-  ck.ok(names.length === nSc && A.inputs.scenes === nSc && names.every(s => BANDS3.every(b => A.a[s][b] && A.aMode2[s][b] && A.aMode2[s][b].length === 15)), 'shapeScenesx3x15');
+  const nSc = nScenes(), nulls = nullBandsExpected();
+  ck.ok(names.length === nSc && A.inputs.scenes === nSc && names.every(s => BANDS3.every(b => aShapeOk(A, s, b, nulls))), 'shapeScenesx3x15');
+  const live = names.flatMap(s => BANDS3.filter(b => !nulls.has(`${s}.${b}`)).map(b => [s, b]));
   const head = resolveCommit('g1-test', 'HEAD');
   ck.ok(A.commit === head || cp.spawnSync('git', ['diff', '--quiet', A.commit, head, '--', 'src', 'tools/genus-ruler/volsky'], { cwd: ROOT }).status === 0, 'commitAppSameAsHEAD');
   ck.ok(A.inputs.oroInputsSha256 === sha256(fs.readFileSync(INPUTS)), 'inputsSha');
   ck.ok(JSON.stringify(A.defs.stateArrayTypes) === JSON.stringify({ im: 'Float64Array', re: 'Float64Array' }), 'stateArraysReIm');
   let coverEqBase = 0;
-  for (const s of names) for (const b of BANDS3) if (A.a[s][b].cover === A.a[s][b].base) coverEqBase++;
-  ck.ok(coverEqBase === names.length * 3, 'coverEqualsBaseNoNoise');
+  for (const [s, b] of live) if (A.a[s][b]?.cover === A.a[s][b]?.base) coverEqBase++;
+  ck.ok(coverEqBase === live.length, 'coverEqualsBaseNoNoise');
   const baseDir = path.join(ROOT, '.harness/oro/base');
   if (!fs.existsSync(path.join(baseDir, 'index.json'))) { ck.skip = 'no .harness/oro/base'; return; }
   const idx = rdJson(path.join(baseDir, 'index.json'));
   ck.ok(idx.bundleSha256 === A.bundles.macro.sha256, 'q45BundleSame');
-  let same = 0, diff = 0, missing = 0;
-  for (const s of names) for (const b of BANDS3) {
+  let same = 0, diff = 0, missing = 0, nullBoth = 0;
+  for (const [s, b] of live) {
     const f = path.join(baseDir, `${s}__closest__${b}.f32`);
     if (!fs.existsSync(f)) { missing++; continue; }
-    if (md5(fs.readFileSync(f)) === A.a[s][b].base) same++; else diff++;
+    if (md5(fs.readFileSync(f)) === A.a[s][b]?.base) same++; else diff++;
   }
-  ck.ok(same === names.length * 3 && diff === 0 && missing === 0, 'baseMd5EqualsOroBase');
-  ck.kv = { scenes: names.length, same, diff, missing, coverEqBase };
+  // null 밴드는 oro-base 도 B null(index 의 closest 항목 null, .f32 없음)
+  for (const k of nulls) {
+    const [s, b] = [k.slice(0, k.lastIndexOf('.')), k.slice(k.lastIndexOf('.') + 1)];
+    if (idx.entries?.[s]?.closest?.[b] === null && !fs.existsSync(path.join(baseDir, `${s}__closest__${b}.f32`))) nullBoth++;
+  }
+  ck.ok(same === live.length && diff === 0 && missing === 0 && nullBoth === nulls.size, 'baseMd5EqualsOroBase');
+  ck.kv = { scenes: names.length, bands: live.length, nullBands: nulls.size, same, diff, missing, nullBoth, coverEqBase };
 });
 
 await test('MD5-CHAIN', async ck => {
   const af = path.join(PARTS, 'a.json');
   if (!fs.existsSync(af)) { ck.skip = 'no a.json part'; return; }
   const A = rdJson(af);
-  let allDistinct = 0, initDiff = 0, total = 0;
+  let allDistinct = 0, initDiff = 0, total = 0, nNull = 0;
   for (const s of Object.keys(A.aMode2)) for (const b of BANDS3) {
-    const ch = A.aMode2[s][b]; total++;
+    const ch = A.aMode2[s][b];
+    if (ch === null) { nNull++; continue; }          // 고리 점 12 개 미만(MD5-CROSS 가 그 자리를 봄)
+    total++;
     if (new Set(ch).size === ch.length) allDistinct++;
     if (A.aMode2Init[s][b] !== ch[0] && !ch.includes(A.aMode2Init[s][b])) initDiff++;
   }
@@ -264,12 +285,13 @@ await test('MD5-CHAIN', async ck => {
   let eq = 0, n = 0;
   for (const s of Object.keys(scenes).sort().slice(0, 2)) for (const b of BANDS3) {
     const pts = ringPoints(scenes[s], b);
+    if (!pts) continue;
     const f = MC.buildMacroField(MC.samplesFromRing(pts.map(p => ({ ...p, cover: p.cover * 100 }))), { n: 128, cellKm: 6, noise: false }, null);
     const by = x => md5(Buffer.from(x.buffer, x.byteOffset, x.byteLength));
     n++; if (by(f.base) === A.a[s][b].base && by(f.lambdaRes) === A.a[s][b].lambdaRes && by(f.state.re) === A.a[s][b].state.re && by(f.state.im) === A.a[s][b].state.im) eq++;
   }
-  ck.ok(eq === n, 'chainBundleMode1Same');
-  ck.kv = { bands: total, distinct: allDistinct, initDiff, mode1Same: `${eq}/${n}` };
+  ck.ok(eq === n && n > 0 && total > 0, 'chainBundleMode1Same');
+  ck.kv = { bands: total, nullBands: nNull, distinct: allDistinct, initDiff, mode1Same: `${eq}/${n}` };
 });
 
 await test('JOBS', async ck => {
@@ -653,8 +675,8 @@ await test('BASELINE', async ck => {
   const missing = keys.filter(k => !has(X, k));
   ck.ok(!missing.length && X.schema === 'g1-baseline/1' && X.mergedCommit === '115fbe2' && X.bundles.macro.esbuild === '0.28.2', 'schemaKeys');
   const sc = Object.keys(X.a);
-  const nSc = nScenes();
-  ck.ok(sc.length === nSc && X.inputs.scenes === nSc && sc.every(s => BANDS3.every(b => X.a[s][b] && typeof X.a[s][b].cover === 'string' && X.a[s][b].state && X.aMode2[s][b].length === 15)), 'aScenesx3');
+  const nSc = nScenes(), nulls = nullBandsExpected();
+  ck.ok(sc.length === nSc && X.inputs.scenes === nSc && sc.every(s => BANDS3.every(b => aShapeOk(X, s, b, nulls))), 'aScenesx3');
   const jn = Object.keys(X.b.jobs);
   ck.ok(jn.length === 4 && jn.every(n => /^[0-9a-f]{32}$/.test(X.b.jobs[n].rgb) && /^[0-9a-f]{32}$/.test(X.b.jobs[n].alpha) && X.b.jobs[n].options.macro === 1 && X.b.jobs[n].options.macroN === 128), 'bJobs');
   ck.ok(jn.every(n => X.c[n] && typeof X.c[n].weatherKey === 'string' && typeof X.c[n].qKey === 'string'), 'cJobs');
@@ -670,7 +692,7 @@ await test('BASELINE', async ck => {
   const o2 = path.join(d, 'g1-baseline.json');
   const r = node([path.join(G, 'g1-baseline.mjs'), '--parts', PARTS, '--jobs', path.join(G, 'jobs-g1.json'), '--inputs', INPUTS, '--out', o2]);
   ck.ok(r.status === 0 && fs.existsSync(o2) && fs.readFileSync(o2).equals(fs.readFileSync(bf)), 'reassembleSame');
-  ck.kv = { file: path.relative(ROOT, bf), missing: missing.length, scenes: sc.length, jobs: jn.length, final: X.status.final, notFinal: (X.status.notFinal ?? []).join('+') || 'none',
+  ck.kv = { file: path.relative(ROOT, bf), missing: missing.length, scenes: sc.length, nullBands: nulls.size, jobs: jn.length, final: X.status.final, notFinal: (X.status.notFinal ?? []).join('+') || 'none',
     attempts: RA ? RA.n : '-', sha256: sha256(fs.readFileSync(bf)).slice(0, 12) };
 });
 
