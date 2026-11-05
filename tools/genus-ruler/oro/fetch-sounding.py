@@ -5,13 +5,14 @@ fetch-sounding.py: RULER-oro §2.3 관측점 탐측(RULER-regime 과 공유). Op
 
   python3 tools/genus-ruler/oro/fetch-sounding.py [--sites all|dev|held|name,name] [--start 2026-06-01] [--end 2026-10-31]
                                                   [--out .harness/oro/sounding.json] [--manifest tools/genus-ruler/oro/sounding-manifest.json]
-                                                  [--models ecmwf_ifs025] [--sleep 10] [--dry]
+                                                  [--models ecmwf_ifs025] [--sleep 10] [--timeout 600] [--dry]
 
   - 변수: 기압면 T 15 면(THERMO_TEMP_LEVELS), RH 13 면(THERMO_RH_LEVELS), Z 15 면(PROFILE_LEVELS),
           바람 925/850/700/600/500/250 hPa, 지상(T2m, Td2m, 지상 기압, CAPE, BLH, SHF, 10 m 바람, 강수, 일사,
           freezing_level_height(보관만, 판정에 안 씀)), 운량(전체·저·중·상). 모두 70 개.
   - timezone=GMT, wind_speed_unit=ms. 요청 사이 --sleep 초(기본 10, 분당 600 한도).
-  - 429: 본문에 'Daily' 가 있으면 멈추고 코드 3. 아니면 60 s × 3 다시, 그래도 안 되면 코드 2.
+  - 429: 본문에 'Daily' 가 있으면 멈추고 코드 3. 그 밖의 실패(끊김·시간 초과·빈 본문 포함)는 60·120·240·480·600 s 뒤
+    다시(모두 6 번), 그래도 안 되면 코드 2. 읽기 시간 제한은 --timeout(기본 600 s).
     이미 받은 사이트는 --out 파일에서 건너뜁니다(사이트 단위로 이어 받기).
   - --out 에는 사이트별 원응답(hourly 그대로)을 둡니다(.harness, 커밋하지 않음).
     --manifest 에는 사이트마다 요청 URL, 받은 시각, 원응답 sha256, 변수별 null 수, 응답 elevation, X-RateLimit-Cost 를 적습니다.
@@ -43,9 +44,9 @@ VARS = (SURFACE
         + [f'wind_{k}_{p}hPa' for p in WIND_LEVELS for k in ('speed', 'direction')])
 
 
-def get(url):
+def get(url, timeout=600):
     try:
-        with urllib.request.urlopen(url, timeout=180) as r:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
             body = r.read()
             return r.status, dict(r.headers.items()), body
     except urllib.error.HTTPError as e:
@@ -67,6 +68,7 @@ def main(argv):
     manifest_path = opt('--manifest', os.path.join(here, f'{stem}-manifest.json'))
     models = opt('--models', '')
     sleep_s = float(opt('--sleep', '10'))
+    timeout_s = float(opt('--timeout', '600'))
     which = opt('--sites', 'all')
     allsites = {**SITES['dev'], **SITES['held']}
     sites = allsites if which == 'all' else SITES[which] if which in SITES else {k: allsites[k] for k in which.split(',')}
@@ -93,8 +95,9 @@ def main(argv):
         url = (f'{BASE}?latitude={lat:.5f}&longitude={lon:.5f}&hourly={",".join(VARS)}&start_date={start}&end_date={end}'
                f'&timezone=GMT&wind_speed_unit=ms' + (f'&models={models}' if models else ''))
         body = None
-        for k in range(4):
-            st, hdr, raw = get(url)
+        waits = [60, 120, 240, 480, 600]  # 다시 시도 사이 대기(초): 큰 요청이 끊기면 점점 길게
+        for k in range(len(waits) + 1):
+            st, hdr, raw = get(url, timeout_s)
             if st == 200:
                 try:
                     json.loads(raw)
@@ -107,9 +110,9 @@ def main(argv):
             if st == 429 and 'Daily' in txt:
                 print(f'  {name}: daily 429, stop')
                 return 3
-            print(f'  {name}: HTTP {st} {txt[:120]}; retry in 60 s')
-            if k < 3:
-                time.sleep(60)
+            if k < len(waits):
+                print(f'  {name}: HTTP {st} {txt[:120]}; retry in {waits[k]} s')
+                time.sleep(waits[k])
         if body is None:
             print(f'  {name}: giving up')
             return 2
