@@ -76,26 +76,31 @@
 - 등급과 시각은 두 자의 §0.4·§0.5 와 FROZEN `decisions` 에 적습니다.
 
 ## 1. 순서 한눈에
+- **상태(2026-11-05 12:06 KST)**: oro 는 S4 에서 **동결**하고 RULER-oro §5.2 줄 ② **미결**(c1 미달: n 4, 날짜 블록 4, 사이트 2, 한 사이트 몫 0.75)로 닫았습니다(`oro/FROZEN.json`, RULER-oro §10.1·§10.3). D15 아니오·D16 (가)(2026-11-05, a8c0806).
+  - 짝짓기·T 읽기·lock·판정 실행은 없습니다. c1 은 MODIS 없이 정해지고 판정 때 줄어들 수만 있기 때문입니다(RULER-oro §2.8 ②③).
+  - S6·S7·S8 의 oro 몫은 하지 않습니다(`macroOro` 안 만듦, C3 는 앱에 없음, oro 의 G1 기준 `g1-baseline.json` 도 재지 않음). G1 기준 커밋과 `g1-baseline-regime.json` 은 regime(S5) 몫으로 남습니다.
+  - **다음은 regime(S5)** 입니다. 그 선행 'oro 동결 커밋' 은 이 동결 커밋(`oro/FROZEN.json` 을 더한 커밋)으로 채워집니다.
+
 | 단계 | 무엇 | 선행 | 산출 | 지키는 것 |
 |---|---|---|---|---|
-| S0 | 사용자 결정 D1~D14 **받음**(2026-11-04, a027662·37787e1, §4.1). 2판 재검토 3 개 → 이 3판. 조건부 물음 D15·D16 은 조건이 생길 때만(§4.2, oro 몫) | — | 자 3판의 전제 | P10·p12·N1 |
+| S0 | 사용자 결정 D1~D14 **받음**(2026-11-04, a027662·37787e1, §4.1). 2판 재검토 3 개 → 이 3판. 조건부 물음 D15·D16 은 조건이 생겨 **받음**(2026-11-05, a8c0806: D15 아니오, D16 (가), §4.2, oro 몫) | — | 자 3판의 전제 | P10·p12·N1 |
 | S1 | main 합치기 + volsky 묶기에 `demTileCache` 대체(별칭 또는 빈 모듈) + 하네스 A/A + 합치기 전후 B0_app·P0_seoul rgb·alpha md5 같음. 그 위에 G1 측정 도구만 더한 **G1 기준 커밋**. **합치기·묶기·A/A 끝**: 115fbe2(origin/main a8a4f61), `volsky/build.sh`(ece32b1), `oro/merge-aa.json` — 합치기 전 A/A·후 A/A·전 = 후 md5 가 B0_app·P0_seoul 의 rgb·alpha 모두 같음(묶음 md5 는 다름: 대체 모듈과 main 코드), chromium 'Google Chrome for Testing 153.0.8010.12', SwiftShader 플래그는 그 파일에. G1 기준 커밋은 아직 | S0 | 합친 커밋, G1 기준 커밋(G1 기준·`old`·`runtime` 의 기준) | P10·p8·q7 |
-| S2 | 자료 복원: R1(커밋)·R2·R3·R4·R6·R7·R8·R9 **끝**, R5 **1/10**(일일 429, 나머지 9 곳은 11-05 리셋 뒤), R11 남음, R10 은 필요할 때. 복원 기록(§0.1, 노출 등급 dev 만 — held 없음) | 없음(R4·R5·R10·R11 은 한도 안에서) | 은행·탐측·고리·DEM, F1~F3, `restore-fingerprints.json`, `regime/sat-times.json.gz`, 복원 기록(`oro/restore-log.md`) | P2·P3·P8·p1·p2·N4 |
+| S2 | 자료 복원: R1(커밋)·R2·R3·R4·R6·R7·R8·R9 **끝**, R5 **10/10**(나머지 9 곳은 11-05 09:32~10:34 KST), R11 받지 않음(oro ecmwf 팔 '못 잼'), R10 은 필요할 때. 복원 기록(§0.1, 노출 등급 dev 만 — held 없음) | 없음(R4·R5·R10·R11 은 한도 안에서) | 은행·탐측·고리·DEM, F1~F3, `restore-fingerprints.json`, `regime/sat-times.json.gz`, 복원 기록(`oro/restore-log.md`) | P2·P3·P8·p1·p2·N4 |
 | S3 | oro 동결 전 측정 — 아래 목록 | S1·S2 | 위 파일들 | P4~P7·P11·O-B3 |
-| S4 | oro 3판 §0 에 잰 값 → (규칙이 바뀌면 그 차이만 짧게 재검토) → oro `FROZEN.json`·**동결 커밋**. 동결 문턱은 아래 | S3(조건이 생겼으면 D15·D16 의 답) | oro FROZEN | P4·p12·N1 |
-| S5 | regime 동결 전 — 아래 순서 | S4(임시 N_R 은 S2 뒤 언제든) | regime FROZEN | P8·P9·R-B1·R-B4·p11e·N1 |
-| S6 | 구현(§3), 합친 main 위에서. 옵션 기본 0. oro 몫은 S4 뒤, regime 몫은 S5 뒤 | S4·S5 | 앱·하네스 코드 | — |
-| S7 | 가드 → 판정 한 번 — 아래 목록 | S6 | `gate-oro-held.json`·`gate-regime-held.json`, 자 §10·§11 | P1·P4·p6·N3 |
-| S8 | 눈 판정 → 기본값은 사용자가 | S7 합격 | 계획서 새 절 | V5·p4·M7·m11 |
+| S4 | oro 3판 §0 에 잰 값 → (규칙이 바뀌면 그 차이만 짧게 재검토) → oro `FROZEN.json`·**동결 커밋**. 동결 문턱은 아래. **끝(2026-11-05)**: 규칙 바뀜 없음(S3-design 이 넘긴 짧은 재검토 항목은 하지 않음, RULER-oro §9.1 ⑧), 동결하고 §5.2 줄 ② **미결**(c1 미달)로 닫음. FROZEN sha256 `a507e949…`, rulerHash `63957b8c…`, 동결 커밋 = `FROZEN.json` 을 더한 커밋 | S3(D15·D16 의 답 받음) | oro FROZEN, RULER-oro §0.5·§10.1·§10.3 | P4·p12·N1 |
+| S5 | regime 동결 전 — 아래 순서. **다음 단계** | S4 — oro 동결 커밋은 이 동결 커밋으로 채워짐(임시 N_R 은 S2 뒤 언제든) | regime FROZEN | P8·P9·R-B1·R-B4·p11e·N1 |
+| S6 | 구현(§3), 합친 main 위에서. 옵션 기본 0. oro 몫은 **하지 않음**(oro 미결, `macroOro` 안 만듦), regime 몫은 S5 뒤 | S5 | 앱·하네스 코드 | — |
+| S7 | 가드 → 판정 한 번 — 아래 목록. oro 몫은 **하지 않음**(oro 미결) | S6 | `gate-regime-held.json`, RULER-regime §11(oro 몫 없음) | P1·P4·p6·N3 |
+| S8 | 눈 판정 → 기본값은 사용자가. oro 몫은 **없음**(합격 아님) | S7 합격 | 계획서 새 절 | V5·p4·M7·m11 |
 
 - **동결 문턱**(재검토 절차 N1)
-  - oro(S4): D11~D13(받음), 복원 기록(§0.1)의 등급, 그리고 조건이 생겼으면 D15(동결 전 확장 뒤에도 c1 미달)·D16(`power-oro.json` 0.10 에서 동시 통과 < 0.2)의 답이 있어야 합니다. 부분 자료로는 동결하지 않습니다(§2.2).
-  - regime(S5): D14(받음), oro 동결 커밋, regime 3판 §10.1 ①~⑨ 의 산출이 있어야 합니다. D15·D16 은 regime 에 닿지 않습니다.
+  - oro(S4): D11~D13(받음), 복원 기록(§0.1)의 등급, 그리고 조건이 생겼으면 D15(동결 전 확장 뒤에도 c1 미달)·D16(`power-oro.json` 0.10 에서 동시 통과 < 0.2)의 답이 있어야 합니다. 부분 자료로는 동결하지 않습니다(§2.2). → 모두 채움(등급 dev 만, D15·D16 받음, 탐측 10/10·고리 10/10), 2026-11-05 동결.
+  - regime(S5): D14(받음), oro 동결 커밋(이 동결 커밋으로 채워짐), regime 3판 §10.1 ①~⑨ 의 산출이 있어야 합니다. D15·D16 은 regime 에 닿지 않습니다.
 - **S3 목록**
   - `oro-base.mjs`(B = `buildMacroField(…).base`, Float32), `oro_ref.py`, G6 전부(oro 3판 §7 — 판정 경로 끝-끝·대조 시험 포함).
   - `dem-/sounding-/bank-/ring-manifest.json`, `oro-inputs.json`, `oro-apply.json`.
   - n 셈 한 번(c1: n ≥ 20 과 D13 의 날짜 블록·사이트 바닥. 필요하면 동결 전 확장 10-23·27·31).
-  - G7, `power-oro.json`(D11~D13 을 받은 규칙 하나로), `g1-baseline.json`(G1 기준 커밋, `macro: 1, macroN: 128` 잡).
+  - G7, `power-oro.json`(D11~D13 을 받은 규칙 하나로), `g1-baseline.json`(G1 기준 커밋, `macro: 1, macroN: 128` 잡). → oro 의 G1 기준은 **하지 않음**(oro 미결로 구현이 없음, RULER-oro §9.1 ⑦). 나머지는 끝(RULER-oro §0.5).
 - **S5 순서**
   1. `regime_ref.py` 로 임시 N_R 을 셉니다. 모자라면 R10 확장 탐측(2025-06~10)을 받고 기간을 정합니다.
   2. 최종 `regime-list.json` 과 `regime-shift-axes.json`(지형 깃발은 동결 `oro_ref.py`)을 **함께 커밋**합니다.
@@ -104,14 +109,14 @@
   5. dev 스칼라 → a(내림)·마스크 점검·고른 a 의 J2 조건(`dev-choice.json`).
   6. 3판 §0.4 에 잰 값 → (재검토) → regime `FROZEN.json`·동결 커밋.
 - **S7 목록**
-  - oro: G1~G5·G8·G9 → 해시를 §10.2 에 → `oro.py --judge` → 곧바로 커밋.
+  - oro: G1~G5·G8·G9 → 해시를 §10.2 에 → `oro.py --judge` → 곧바로 커밋. → **하지 않음**(oro 미결로 닫음).
   - regime: G1~G10 → 해시를 §11.2 에 → `regime.py --judge`(수 한 줄 → P1(두 null)·P2·J3, 값은 결과 파일에만) → 곧바로 커밋.
   - **두 판정 공통**(재검토 절차 N3)
     - 참값(T·held 위성)을 읽기 전에 판정·대조·보고·민감도의 입력이 모두 있고 manifest·FROZEN 해시와 맞는지 봅니다. 없으면 lock 없이 멈춥니다. 없는 팔을 '못 잼' 으로 두는 것은 보고 팔일 때만, 읽기 전에 기록하고 고릅니다.
     - lock 은 참값을 처음 읽기 직전에 씁니다. 표준 출력에는 진행 표시만 찍습니다.
     - 읽은 뒤 멈추면 출력은 열지 않고 sha256 만 적습니다. 코드·입력을 바꾸지 않고 환경만 고쳐 돌 수 있으면 `judge.lock.1` 로 한 번만 다시 돕니다. 코드·입력을 바꿔야 하면 짝짓기 뒤 결함 규칙(판정 경로면 무효(미결))입니다.
 - **S8 장면**
-  - oro 3 장면: 그 가운데 ≥ 2 개는 노을이고, 고르는 규칙은 oro 3판 §5.2 입니다.
+  - oro 3 장면: 그 가운데 ≥ 2 개는 노을이고, 고르는 규칙은 oro 3판 §5.2 입니다. → **없음**(oro 미결).
   - C4: ROLL 5 + 대조 1. 노을·낮 ROLL 비율과, 붙었으면 지형 꼬리표를 먼저 보입니다.
   - '모르겠다' 는 C4·`macroOro` 를 고르지 않은 것으로 셉니다.
 - 동결과 판정 사이에는 main 을 합치지 않습니다.
