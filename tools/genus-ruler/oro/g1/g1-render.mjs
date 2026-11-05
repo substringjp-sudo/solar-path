@@ -26,8 +26,8 @@
  *   일꾼 스레드 수 최댓값)를 적고, 고정한 단계에서 N 과 다르면 exit 3.
  *   고정은 run1·run2·keys(G1(b)(c) 렌더)에만 겁니다(steps). control 은 oro/merge-aa.json(SwiftShader 기본 일꾼 수에서 잼)과 견주는
  *   환경 확인이라 늘 merge-aa 와 같은 원래 chromium·기본 일꾼 수로 그립니다 — 그래서 control 의 P0_seoul 은 드물게(g1det 기록: 기본 일꾼 수 control 10 번 중 1 번)
- *   a6d7d5c8 로 갈릴 수 있고, 그러면 control 단계만 다시 돌립니다(--steps control). 일꾼 1 개의 control 은 a6d7d5c8/d8aa02a4 로 늘 같지만
- *   merge-aa(97b2edf6/6f72aad6)와 다름(지평선 5+1 화소, 1 단계).
+ *   a6d7d5c8 로 갈릴 수 있습니다(그러면 controlMatchesMergeAA 거짓, g1-baseline 은 쓰지 않음; 그때 control 만 다시 그릴지는 S4 가 정함).
+ *   일꾼 1 개의 control 은 a6d7d5c8/d8aa02a4 로 늘 같지만 merge-aa(97b2edf6/6f72aad6)와 다름(지평선 5+1 화소, 1 단계).
  * 출력(--out): 키 정렬 JSON. 표준 출력은 단계·md5·수만.
  */
 import fs from 'node:fs';
