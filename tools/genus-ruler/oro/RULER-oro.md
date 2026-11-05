@@ -959,7 +959,7 @@ G6 의 여덟 시험:
 ## 10. 기록(동결 뒤 이 절에만 덧붙임)
 ### 10.1 동결 — (날짜, 커밋, FROZEN sha256, `rulerHash`, F1~F3, n·날짜·사이트, 확장 여부, D11~D14, 주 지표, λ̃*, 노출 등급, FROZEN-extN)
 - **날짜**: 2026-11-05 12:06 KST(`FROZEN.json` 작성. 11:41 KST 첫 작성 뒤 §0.5·§9.1·머리 고침으로 rulerHash·RULER sha256 을 다시 씀).
-- **커밋**: 이 커밋(`FROZEN.json` 을 더하는 커밋이 동결 커밋, 바탕 HEAD 1fb905a). 해시는 뒤에 덧붙입니다: `______`.
+- **커밋**: 동결 커밋 `881a83c`(`FROZEN.json` 을 더한 커밋, 바탕 HEAD 1fb905a). 동결 뒤 `oro.py --precheck`: 1·2a·2b·3·6·7 통과, 4(구현·가드 기록 없음)부터 실패 — 판정을 돌리지 않으므로 의도대로입니다.
 - **FROZEN sha256**: `a507e949bd1560fecc8ebf65da5dc38381cdc1bb333a29c6221561a23647c484`(`tools/genus-ruler/oro/FROZEN.json`).
 - **rulerHash**: `63957b8c24e7fce0bf14a691fd7cea24ba6d2fba8eddc834ff7be2070f3fdf0f`(`oro.py --ruler-hash`, §10 본문을 뺀 글). FROZEN `files` 의 `RULER-oro.md` sha256 은 §10 을 쓰기 전 판의 값이고 기록만 합니다(§9.2).
 - **files**: §9.2 목록 가운데 있는 23 개. 없는 것: `sounding-ecmwf-manifest.json`(R11 받지 않음), `modis-times-pre2.json`(§4.7 (나) 아님). `g1-baseline.json` 은 d1b4d09 임시 측정이라 해시만(§0.5). `old` 16 개는 HEAD 값(G1 기준 커밋 없음; `cloudFlow.ts` 는 `src/components/VolumetricProbe/` 에 있음).
