@@ -16,8 +16,9 @@
  * 프로세스 없음) 그리는 동안 남의 CPU 가 0.5 코어 아래였어야 씁니다. 수치는 b.json 에만 남기고 여기에는 참·거짓만(재조립 바이트 같음).
  * 호출 기록(G1 build note 19, fix G1-REC): b.json 에 invocation 과 build·run1·run2·control·keys 의 stepRuns(호출 id·시작·끝)와
  *   mismatches[](어긋남 재기)가 없으면 쓰지 않음. status.renderInvocations = 단계들의 호출 id, status.mismatches = b.json 어긋남의
- *   한 줄 요약(g1-png mismatchSummary, 정렬), status.renderAttempts = .harness/oro/g1/render-attempts.jsonl 에서 잰 커밋에서 시작한
- *   호출 전부(b.json 을 만든 호출의 마지막 줄까지; g1-attempts attemptsAtCommit).
+ *   한 줄 요약(g1-png mismatchSummary, 정렬), status.renderAttempts = .harness/oro/g1/render-attempts.jsonl 에서 잰 커밋(과 조각·조립의
+ *   커밋, b.json 을 만든 호출이 시작한 커밋 — 모두 앱·하네스가 바이트 같은 커밋; commits 에 적음)에서 시작한 호출 전부(b.json 을 만든
+ *   호출의 마지막 줄까지; g1-attempts attemptsAtCommit).
  * 최종(S3-design.md G1 build note 20): status.final = 아래 모두 참 — G1 도구 커밋됨, 잰 커밋이 제 부모에서 tools/genus-ruler/oro/g1 밖을 바꾸지 않음,
  * src = 115fbe2, volsky = ece32b1(묶기 고침), 입력 파일이 그 커밋에 그대로 커밋됨, 탐측·고리 대기 사이트 0, 조각·조립이 모두 그 커밋,
  * 부하 지킴 통과, 다섯 단계가 한 g1-render 호출(renderSingleInvocation), 그 호출이 기록 파일에 exit 0 으로 있고 md5 가 같음
@@ -30,7 +31,7 @@ import {
   ESBUILD, ROOT, SKY_SCENE, canonicalJson, die as die0, extractQKey, forbiddenPath, gitPorcelain, gitQuiet, parseArgs,
   resolveCommit, settingsOfJob, sha256,
 } from './g1-lib.mjs';
-import { ATTEMPTS_FILE, INVOCATION_RE, attemptsAtCommit, invocationLogged, readAttempts } from './g1-attempts.mjs';
+import { ATTEMPTS_FILE, INVOCATION_RE, attemptsAtCommit, invocationCommits, invocationLogged, readAttempts } from './g1-attempts.mjs';
 import { mismatchSummary, validMismatch } from './g1-png.mjs';
 
 const TOOL = 'g1-baseline';
@@ -151,7 +152,9 @@ function main() {
       final: notFinal.length === 0, notFinal,
       bundleFixCommit: BUNDLE_FIX,
       renderInvocations,
-      renderAttempts: attemptsAtCommit(attemptRecs, commit, renderInvocations, B.invocation.out ?? null),
+      // 잰 커밋·조각과 조립의 커밋·b 를 만든 호출이 시작한 커밋(모두 앱·하네스가 바이트 같음 — 위 일관성 검사)에서 시작한 시도
+      renderAttempts: attemptsAtCommit(attemptRecs, [commit, ...Object.values(partCommits), ...invocationCommits(attemptRecs, renderInvocations)],
+        renderInvocations, B.invocation.out ?? null),
       mismatches: B.mismatches.map(mismatchSummary).sort(),
       renderGuard: 'run1, run2, control and keys each started with loadavg[0] < 1.0 and no other process at pcpu >= 50 (ps), and other processes used < 0.5 core on average while each ran (/proc); values in the b part',
       note: notFinal.length === 0

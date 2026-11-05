@@ -8,8 +8,10 @@
  *   {event: 'end', invocation, endedAt, exitCode, signal, error, commit, commitAtEnd, completed: [{step, start, end}],
  *    md5: {step: {job: {rgb, alpha}}}, bundle, load: {step: …}, flags: {aa, keysMatchRun1, controlMatchesMergeAA}, mismatches: [...]}
  *   — 끝날 때(정상·die·잡히지 않은 예외·SIGINT/SIGTERM/SIGHUP). SIGKILL 이면 start 만 남음(끝 없음 = 끊긴 시도).
- * attemptsAtCommit: g1-baseline 의 status.renderAttempts — 그 커밋에서 시작한 호출 전부(어떤 --out 이든), b.json 을 만든 호출의
+ * attemptsAtCommit: g1-baseline 의 status.renderAttempts — 그 커밋들에서 시작한 호출 전부(어떤 --out 이든), b.json 을 만든 호출의
  *   마지막 줄까지만(그 뒤에 덧붙은 시도는 그 기준과 무관하므로 빼서, 같은 조각에서 다시 모으면 바이트 같음).
+ *   커밋들 = 잰 커밋 + 조각들·조립의 커밋 + b.json 을 만든 호출이 시작한 커밋(g1-baseline 이 모음; 모두 앱·하네스가 바이트 같은
+ *   커밋). 도는 사이 스냅샷 커밋이 끼어 a 와 b 의 커밋이 달라져도 b 를 만든 호출과 그 커밋의 다른 시도가 빠지지 않게.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,25 +64,32 @@ export function invocationLogged(B, recs, steps) {
   return steps.every(s => B[s] && x.end.md5 && x.end.md5[s] && JSON.stringify(md5Only(x.end.md5[s])) === JSON.stringify(md5Only(B[s])));
 }
 
-/** status.renderAttempts: commit 에서 시작한 호출들(기록 차례), b.json 을 만든 호출(들)의 마지막 줄까지. */
-export function attemptsAtCommit(recs, commit, bIds, bOut) {
+const safeSummary = m => { try { return mismatchSummary(m); } catch { return 'malformed mismatch record'; } };
+/** b.json 을 만든 호출(bIds)이 기록에서 시작한 커밋들(start 줄의 commit; 없으면 뺌). */
+export function invocationCommits(recs, bIds) {
+  const inv = invocations(recs);
+  return [...new Set(bIds.map(id => inv.get(id)?.start?.commit).filter(c => typeof c === 'string'))].sort();
+}
+/** status.renderAttempts: commits(문자열 하나 또는 배열)에서 시작한 호출들(기록 차례), b.json 을 만든 호출(들)의 마지막 줄까지. */
+export function attemptsAtCommit(recs, commits, bIds, bOut) {
+  const at = new Set([commits].flat().filter(c => typeof c === 'string'));
   const inv = invocations(recs);
   const known = bIds.filter(id => inv.has(id));
   const cutoff = known.length ? Math.max(...known.map(id => inv.get(id).last)) : recs.length - 1;
   const rows = [];
   for (const [id, x] of inv) {
-    if (!x.start || x.first > cutoff || x.start.commit !== commit) continue;
+    if (!x.start || x.first > cutoff || !at.has(x.start.commit)) continue;
     const end = x.end && x.last <= cutoff ? x.end : null;
     rows.push({
-      id, startedAt: x.start.startedAt, out: x.start.out ?? null, steps: (x.start.steps ?? []).join(','),
+      id, commit: x.start.commit, startedAt: x.start.startedAt, out: x.start.out ?? null, steps: (x.start.steps ?? []).join(','),
       completed: end ? (end.completed ?? []).map(c => c.step).join(',') : '',
       exit: end ? end.exitCode : null, signal: end ? end.signal ?? null : null,
-      mismatches: end ? (end.mismatches ?? []).map(mismatchSummary).sort() : [],
+      mismatches: end ? (Array.isArray(end.mismatches) ? end.mismatches : []).map(safeSummary).sort() : [],
       usedForThisBaseline: bIds.includes(id),
     });
   }
   return {
-    log: ATTEMPTS_REL, upToInvocationLogged: known.length === bIds.length && bIds.length > 0,
+    log: ATTEMPTS_REL, commits: [...at].sort(), upToInvocationLogged: known.length === bIds.length && bIds.length > 0,
     n: rows.length, samePart: rows.filter(r => r.out === bOut).length,
     rendered: rows.filter(r => r.completed.split(',').some(s => ['run1', 'run2', 'control', 'keys'].includes(s))).length,
     withMismatch: rows.filter(r => r.mismatches.length).length,

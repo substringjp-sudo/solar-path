@@ -28,7 +28,9 @@
  *              --final 은 status.final 이 아니면 쓰지 않음(G1 build note 20).
  *   INVOCATION 호출 id(G1 build note 19 fix G1-REC): control 이 다른 호출 id 인 b 사본은 status.renderSingleInvocation 거짓, --final
  *              이 거절(NOT-FINAL renderSingleInvocation); 호출 기록 없는 사본은 아예 거절; md5 하나를 고친 사본은 renderInvocationLogged
- *              거짓; status.renderAttempts 에 이 b 를 만든 호출.
+ *              거짓; status.renderAttempts 에 이 b 를 만든 호출(그 호출이 시작한 커밋 포함); 합성 기록으로 attemptsAtCommit(커밋들·
+ *              끊긴 시도·b 호출 뒤의 시도 뺌·다른 커밋 뺌·어긋남 한 줄).
+ *              (S3-design G1 build note 19 fix G1-REC 의 시험 6: control 이 다른 호출인 b 는 --final 이 거절, 어긋남 마당은 MISMATCH·RENDER.)
  *   MISMATCH   어긋남 재기(fix G1-REC): 거르개 0~4 를 모두 쓴 합성 PNG 풀기, 화소 수·상자·단계·채널; 합성 작업 폴더에서 characterise
  *              (aa·control, 기록과 다른 PNG 는 decoded 거짓); 실제 b 의 mismatches[] 마당; g1-baseline status.mismatches 요약.
  *   BASELINE   g1-baseline.json(--baseline): §8 꼴의 키와 G1 build note 19·20 의 status 마당, 장면(121 + 확장) × 3, 15 걸음,
@@ -42,7 +44,7 @@ import { createRequire } from 'node:module';
 import {
   BANDS3, G1_HARNESS, ROOT, canonicalJson, extractQKey, md5, pickRingInputs, resolveCommit, ringPoints, sha256,
 } from './g1-lib.mjs';
-import { ATTEMPTS_FILE, INVOCATION_RE, invocationLogged, readAttempts } from './g1-attempts.mjs';
+import { ATTEMPTS_FILE, INVOCATION_RE, appendAttempt, attemptsAtCommit, invocationCommits, invocationLogged, newInvocationId, readAttempts } from './g1-attempts.mjs';
 import { decodePng, encodePng, mismatchSummary, pngDiff, validMismatch } from './g1-png.mjs';
 import { characterise } from './g1-render.mjs';
 
@@ -532,10 +534,29 @@ await test('LOADGUARD', async ck => {
 });
 
 await test('INVOCATION', async ck => {
+  const d = fresh(path.join(TMP, 'invocation'));
+  // 0. 합성 기록으로 attemptsAtCommit(조각 없이도 돎): 커밋 X 의 앞 시도(control 어긋남), 커밋 Y 에서 b 를 만든 호출, SIGKILL 로 끝 줄이
+  //    없는 시도(Y), 다른 커밋 Z 의 시도, b 를 만든 호출이 끝난 뒤의 시도(X) — 앞 셋만 들고(기록 차례), 쓴 호출은 b 의 것 하나
+  const synth = path.join(d, 'attempts-synth.jsonl');
+  const sid = (pid, t) => newInvocationId(pid, new Date(Date.parse('2026-11-05T00:00:00.000Z') + t * 1000));
+  const [iP, iB, iK, iZ, iR] = [sid(11, 0), sid(22, 10), sid(33, 20), sid(44, 30), sid(55, 90)];
+  const mmCtl = { kind: 'control', job: 'P0_seoul', channel: 'rgb', a: { source: 'mergeAA', md5: 'a'.repeat(32) }, b: { source: 'control', md5: 'b'.repeat(32) },
+    decoded: true, reason: null, width: 390, height: 584, pixels: 5, bbox: { row: [549, 552], col: [257, 261] }, maxLevel: 1, channels: ['r', 'g', 'b'], channelPixels: { r: 2, g: 1, b: 2 } };
+  const st = (id, commit, out, steps) => ({ event: 'start', invocation: id, commit, out, steps });
+  const en = (id, exitCode, completed, mismatches = []) => ({ event: 'end', invocation: id, exitCode, signal: null, completed: completed.map(step => ({ step })), md5: {}, mismatches });
+  for (const r of [st(iP, 'X', 'p/b.json', STEPS5), en(iP, 0, STEPS5, [mmCtl]), st(iB, 'Y', 'p/b.json', STEPS5), st(iK, 'Y', 'q/b.json', ['run1']),
+    st(iZ, 'Z', 'p/b.json', STEPS5), en(iZ, 0, STEPS5), en(iB, 0, STEPS5), st(iR, 'X', 'p/b.json', ['run1']), en(iR, 3, [])]) appendAttempt(r, synth);
+  const sr = readAttempts(synth).recs;
+  const SA = attemptsAtCommit(sr, ['X', ...invocationCommits(sr, [iB])], [iB], 'p/b.json');
+  ck.ok(JSON.stringify(invocationCommits(sr, [iB])) === '["Y"]' && JSON.stringify(SA.commits) === '["X","Y"]'
+    && JSON.stringify(SA.attempts.map(a => [a.id, a.commit, a.exit, a.usedForThisBaseline])) === JSON.stringify([[iP, 'X', 0, false], [iB, 'Y', 0, true], [iK, 'Y', null, false]])
+    && SA.n === 3 && SA.samePart === 2 && SA.rendered === 2 && SA.withMismatch === 1 && SA.upToInvocationLogged === true
+    && JSON.stringify(SA.attempts[0].mismatches) === JSON.stringify(['control P0_seoul.rgb mergeAA/control 5 px rows 549-552 cols 257-261 max 1 ch rgb']), 'attemptsSynthetic');
+  // 같은 기록에서 b 의 커밋만 주면(조각이 X 에서 잼) b 를 만든 호출이 빠짐 — g1-baseline 이 b 호출의 커밋을 더하는 까닭
+  ck.ok(!attemptsAtCommit(sr, 'X', [iB], 'p/b.json').attempts.some(a => a.usedForThisBaseline), 'attemptsNeedRenderCommit');
   if (!partsReady()) { ck.skip = 'no parts'; return; }
   const B0 = rdJson(path.join(PARTS, 'b.json'));
   if (!B0.invocation || !B0.stepRuns) { ck.skip = 'b.json without invocation record (g1-render before fix G1-REC)'; return; }
-  const d = fresh(path.join(TMP, 'invocation'));
   const id0 = B0.invocation.id;
   // id 꼴: <pid>-<시작 ISO>-<무작위 8 자>, pid·startedAt 과 맞음
   const m = INVOCATION_RE.exec(id0 ?? '');
@@ -568,7 +589,8 @@ await test('INVOCATION', async ck => {
   ck.ok(!!XE && XE.status.renderInvocationLogged === false && XE.status.notFinal.includes('renderInvocationLogged'), 'editedMd5NotLogged');
   // 5. status.renderAttempts: 이 b 를 만든 호출이 exit 0 으로 들어 있음
   const RA = X?.status?.renderAttempts;
-  ck.ok(!!RA && RA.upToInvocationLogged === true && RA.n === RA.attempts.length && RA.attempts.some(a => a.id === id0 && a.usedForThisBaseline && a.exit === 0 && a.completed === STEPS5.join(',')), 'attemptsListed');
+  ck.ok(!!RA && RA.upToInvocationLogged === true && RA.n === RA.attempts.length && RA.attempts.some(a => a.id === id0 && a.usedForThisBaseline && a.exit === 0 && a.completed === STEPS5.join(',') && a.commit === B0.invocation.commit)
+    && RA.commits.includes(X.commit) && RA.commits.includes(B0.invocation.commit), 'attemptsListed');
   ck.kv = { invocation: id0, single, attempts: RA ? RA.n : '-', samePart: RA ? RA.samePart : '-', rendered: RA ? RA.rendered : '-' };
 });
 
