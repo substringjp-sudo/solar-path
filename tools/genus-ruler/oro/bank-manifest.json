@@ -1,5 +1,155 @@
 {
  "banks": {
+  "ext": {
+   "dir": ".harness/oro/sat-ext",
+   "n": 24,
+   "scenes": {
+    "busan_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "d07e530080085a485b03af221ad87bcd89e577fbb221a57564615c7d1890aacd",
+     "pngSha256": "40af0b280b6cd6a1e87f3d9f160b90956d78290d0cec9ab427207dc534456d15",
+     "trueGridSha256": "1f49f5a3354d187f36f68cc346ca17b70a1116b4e1737af4272762ccf6ee5c83"
+    },
+    "busan_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "6fb8345e62239902319d2be4d207a2361d01c160068e0345d39681da60921609",
+     "pngSha256": "911cda696474dcb29b948eb727e9c1fb29b18a0960e69f74065788e90512b8f8",
+     "trueGridSha256": "aa9ac3264dc83fc401adf75d208f3baa8bed93b3ced7b668a1dcd9295c988d2d"
+    },
+    "busan_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "3db854a805bfb20d14187c91e8bbc18e8c2443b7643ddfc2068abb341c702326",
+     "pngSha256": "09812224b0ae3a0555c3a74a439406e6fdd7b16b5b4836f20ed3e864c2b3b423",
+     "trueGridSha256": "b77a94a95cff91cd60661591ad24fb6b874c0bbe328332d5b999b092c69cbbcf"
+    },
+    "denver_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "0aee73d76b2a8224d23663f42c24a57cc7576cbcc382cb787b9b041121778d4c",
+     "pngSha256": "c2ada3e457b97d4789593114518453a865c0173ef7cc823108f3d3757b460012",
+     "trueGridSha256": "f8daebb03f584f33ef17d26e4cfe37462935aece58442f4ddd4999fbd5bcb401"
+    },
+    "denver_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "b55a073a99956fadf92567c3e7410bd7cbf088d54b67d6c42d280d54aebe3a06",
+     "pngSha256": "5cc17641b87b34d92747aa580f0bacbcd20a2884ccbc37d89cd7c966391e5e07",
+     "trueGridSha256": "114cf325a92a7324ab76e2ee712b629ca71fa62ea41a96be3bdad386cfba276c"
+    },
+    "denver_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "7a1c655e88636f5ea87cb2c7e1b9d64ebb31436ea95d047923f00a13ae5e8b5a",
+     "pngSha256": "b37843767bee76c28e9b2285262664e20301538556d2b97bdcfb3ae71c317112",
+     "trueGridSha256": "506e38e7b727fad6059f7eaf9820c61437693f62f65e21a3e9886916b09b88d0"
+    },
+    "hamburg_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "d4acfc6b335c7da1f68aa51a97895dc447a9df06d3e8883acedddacb38c58045",
+     "pngSha256": "ebd5cf6ac0fd57df667999d32474f87be8d9dead254c2160dfe932610520d31c",
+     "trueGridSha256": "9f4067c48bb6916e3a099b6da6d09570e418a19d09c7e10f1ce14efff31a22b2"
+    },
+    "hamburg_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "e96a376ede997c6de86cf204ebb6c63ae2e244a0c916857b8f59252042c56fa7",
+     "pngSha256": "91ad72cb2d6efd4d9c2114b38d1333d95f6e113c33e915c3376023f1b280fafb",
+     "trueGridSha256": "56c769cbcd95c05f014d7d872c1e6a3b3e5b50ccc40eb183c41b4d79ea8eccd7"
+    },
+    "hamburg_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "fd964194a379eab46206e2dd7b695dc1ceeb50adc3bb286ef57a235855127376",
+     "pngSha256": "66bb9f36da694e7cbdb2e9e11431c5a4dee94a49b3f6e3754a0e7cdadfe5c315",
+     "trueGridSha256": "3a4910d53c89d8f703b09175e0cfb9ee759e383dc8e1b0b0c9048655ed4d9f7f"
+    },
+    "lisbon_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "8bf93af046ddde12a63952923b2f3f6d01fa6a696c849f107636d30559592d82",
+     "pngSha256": "25e1e3fcb3d6c1da9782cee78c47ae4a2d6ad99d6ad4448bbd7a96c8fbf4a569",
+     "trueGridSha256": "681bcf788948ff1400387b5c9c659eb9eba00955b7ec4c720144ccc4e4ed9639"
+    },
+    "lisbon_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "d755b77e6ab4309ca3c8a702e015c19395e697f0da580f82c5fef44ec3fcc4c2",
+     "pngSha256": "8470f17b8cb8228da57681bbffa17188f3d3cdacee65e1699aa2aa0f78c76f88",
+     "trueGridSha256": "10d411ee94c65a43b155bda415b7454ca69237d88c6f62169d7fce7c20cd80d3"
+    },
+    "lisbon_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "74762eb9485b5ebeb85a94635c715db99e692e817d4a2fdf9b408c6b2c3343dd",
+     "pngSha256": "13219d2085b7c62539ef20f31fb4810f3fd2128c314f1f875ec9ec8e4d45b55f",
+     "trueGridSha256": "7d0676d8fda56511b810e2cdeb28198742258eee8a43f18d226399cbc90a0dad"
+    },
+    "osaka_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "10611172652c12408bbd0542151cb88c47f9d68fb375b7e3ba936117a075f989",
+     "pngSha256": "eeb10d827f08c589c22061f632559ff32294d7718713f118dbe481313cc21fc6",
+     "trueGridSha256": "cd461d28b9782f9ff9685dd9dd28a55d7996f99712dbfe70c3137e1738af05e5"
+    },
+    "osaka_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "2cf264410a50ba2cb1a70f54ea63bee47154f814c5c1193e0351af2d4fa2484c",
+     "pngSha256": "c11b3777098e1d945f4bffb5adb83c247f95b343d2b0e4f4369845c3b3ff3145",
+     "trueGridSha256": "1f6ccb29c74658382adf3c43cb826044be593e7bfc087cefd6462803b1f26232"
+    },
+    "osaka_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "4121603bd7266a58979386464fd6a460e2bdf1bcb30584c9595d4fa0c3535225",
+     "pngSha256": "539fb8cb4c7c5d4d939805dffe4e7c20f23c5face173ccc11f257ca835b97102",
+     "trueGridSha256": "4d35ce4f46920b12abd88706782d03768afa852b6495e72f072aeb8e41734c52"
+    },
+    "sapporo_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "8729c72662939fe12aa8d16ac241327571df1cab4be53c0d5174505916438deb",
+     "pngSha256": "5605aa9c6fdf8e006a3706b3fcd1173ffb0b2f6467ee554ca4da41ffb34f260f",
+     "trueGridSha256": "3782af90de3561f8e90639435fbac7fc3383d9b3da8938ebe11a165cac8a13cf"
+    },
+    "sapporo_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "06e347c48234d0f8c9c57a9d5ed647b71a8de09b245676f9b5325620ca12893d",
+     "pngSha256": "60aaf7573b75df8c1821fad19e4f18ed31cb39f5ef85f1930ed32dff565556c6",
+     "trueGridSha256": "fb1988aa450d96e96c4b6fba76c2323aa532bcd7ffa88fb6c799e9f727d98005"
+    },
+    "sapporo_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "6d3c4ff065f5e011e76897056bd93e619ee6529e076b960de55b6f8f3496042d",
+     "pngSha256": "623fa4d9d1f1ec70e8c2c003fe5835615e03def70e70ca7276d8955079b10ed9",
+     "trueGridSha256": "5b87a97ddad9fbf7ac99cae81aff4015c0c4f927234061c7d1471c1b7902ed6c"
+    },
+    "shanghai_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "e5c24d07705fc676abaca75b3c85f340ac0c4d4018842732864cdb3182e7558a",
+     "pngSha256": "628e8bc6dca7f21da0c77e4db5be2e5868c9af0844288e58a69201aa56449f6e",
+     "trueGridSha256": "c7af64fe96ddab4f315d1d8e1532bc3309836927151fdad4a0d49bc5eca4c61a"
+    },
+    "shanghai_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "b7ff9176e9398c1ebe00c12c7cb2f27d1cfd8ae160548487eaec5fa1e5417858",
+     "pngSha256": "a141d898bbeed64285c69dbdcaacc6a1cc1f038adbc36749cafcf228cc8e7513",
+     "trueGridSha256": "df520009f9e372ae16f6cba2ac669a445f5bc7e7d05062947f553777b5d734ff"
+    },
+    "shanghai_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "e8384b44302e51d07f1a6efee53fff2d139d01d07433a261c22e674a2a69877c",
+     "pngSha256": "c5d3f8f8deb15c80406ec986c35d73d1a24d0dde2ba651def5b09b0d15419489",
+     "trueGridSha256": "cd420c305b3933fcefe98b39b844c8f6edc273d39bfb4ce8918a127a5aaaf3a1"
+    },
+    "sydney_2026-10-23": {
+     "inTimes": true,
+     "jsonSha256": "721fba04980f980ce7db43fc685a8ce34613f39afb0c6a8e35c13b07bca71ae5",
+     "pngSha256": "80b4bc1ec776afee51ff3ef2ce882fd5ea1fd2b2343f5e8c1130466d744d392e",
+     "trueGridSha256": "1d97c2fa1245ecbbd4f14ccd8d7ffb9e3b25583da31c0d3198f3aa563c4dad0f"
+    },
+    "sydney_2026-10-27": {
+     "inTimes": true,
+     "jsonSha256": "a3e5462689d96d727eec6f394e9301f3419a18acb54a355b59c484162a89a0e0",
+     "pngSha256": "8866de047fd24ae476e28bffde6c0d99108376ee7d60f02c01685aa9313e865d",
+     "trueGridSha256": "5815503082f029e778c618020a0be89a2cde7df909f85c5eff6675fd166e36e9"
+    },
+    "sydney_2026-10-31": {
+     "inTimes": true,
+     "jsonSha256": "3531d5600113d6b0c22a250e6953eda9a405bff623ccfa7b31e5734189bf9461",
+     "pngSha256": "919cbcf85275469c294155c36860110434e6323aeab54f98ac27166c4f1f656e",
+     "trueGridSha256": "4061787d31fffa9f61918408b92fe4927f47fd6c127538c37bcc693b3129c71c"
+    }
+   }
+  },
   "orig": {
    "dir": ".harness/macro/sat",
    "n": 121,

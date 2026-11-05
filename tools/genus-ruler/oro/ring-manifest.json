@@ -142,6 +142,120 @@
     "path": "tools/genus-ruler/ring/nwp/blend/sydney.json",
     "sha256": "aa9153ebaeb25fd49fb30ecfe3a137f93ea9367db8d35ee78ea1ba3dc1a54eab"
    }
+  },
+  "blend-ext": {
+   "busan": {
+    "bytes": 1073973,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/busan.json",
+    "sha256": "30f596681e376d086a90139115e9614440dee9b06313950a44e45cd182c57b3e"
+   },
+   "denver": {
+    "bytes": 1062196,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/denver.json",
+    "sha256": "ee356a6737f30ddea06745ae7af667c738a662c860347e88592c3fe56da7c7d1"
+   },
+   "hamburg": {
+    "bytes": 1088026,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/hamburg.json",
+    "sha256": "00bb252ce668173dc809e224a100021d325d6703e63ff2ae8007ca4e8df07161"
+   },
+   "lisbon": {
+    "bytes": 1008442,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/lisbon.json",
+    "sha256": "90a18ffaa0b48e55a9fe04d8adddf8f79f2d31eaedef598674e573667f950143"
+   },
+   "osaka": {
+    "bytes": 1084889,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/osaka.json",
+    "sha256": "f599dca15126af085c7b88b82188cff7f0f71bd1b825c44b33be7b3cfb04f71d"
+   },
+   "sapporo": {
+    "bytes": 1061514,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/sapporo.json",
+    "sha256": "914e289bd1e2dd0b5327dfe2250b682c149312c819871aa32340d05af7d3a3f1"
+   },
+   "shanghai": {
+    "bytes": 1046061,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/shanghai.json",
+    "sha256": "9eee32a2cfd2b5af58e3a60c8d68f557dcac6f7e64c37fbf8af9936f3dab1344"
+   },
+   "sydney": {
+    "bytes": 1040036,
+    "endpoint": "historical",
+    "firstHour": "2026-10-23T00:00",
+    "lastHour": "2026-10-31T23:00",
+    "models": [
+     "ecmwf_ifs025",
+     "icon_seamless"
+    ],
+    "nHours": 216,
+    "nPoints": 91,
+    "path": "tools/genus-ruler/ring/nwp/blend-ext/sydney.json",
+    "sha256": "536138507490d7da95b79f07a67b61134f695be9819e4849dc745349ec16131c"
+   }
   }
  }
 }
