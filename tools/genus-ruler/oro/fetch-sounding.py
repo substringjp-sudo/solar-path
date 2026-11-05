@@ -96,8 +96,13 @@ def main(argv):
         for k in range(4):
             st, hdr, raw = get(url)
             if st == 200:
-                body = raw
-                break
+                try:
+                    json.loads(raw)
+                except ValueError:  # 200 인데 본문이 비거나 끊김: 상태 0 으로 보고 다시
+                    st, raw = 0, f'200 with unparsable body ({len(raw)} B)'.encode()
+                else:
+                    body = raw
+                    break
             txt = raw.decode('utf8', 'replace')[:300]
             if st == 429 and 'Daily' in txt:
                 print(f'  {name}: daily 429, stop')

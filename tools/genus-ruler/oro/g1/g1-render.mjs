@@ -22,8 +22,12 @@
  *   입력에서 구름 행진 그리기 하나가 1~2 텍셀을 다르게 씀; 일꾼 1 개면 늘 같음). N 을 주면 run.js 가 부르는 chromium 디렉터리를
  *   .harness/oro/g1/chromium-ssN 에 하드 링크로 복사하고(같은 inode = 같은 바이너리·판·깃발) SwiftShader.ini([Processor] ThreadCount=N)를
  *   둔 뒤, run.js·g1-keys.cjs 를 `node --require g1-swiftshader.cjs` 로 띄워 그 사본의 chrome 을 쓰게 합니다(volsky·src 는 그대로).
- *   res.versions.swiftshader = {threads, ini, launchDir, sameInode}; 그리는 단계마다 during.swiftshaderWorkers(GPU 프로세스의 marl
- *   일꾼 스레드 수 최댓값)를 적고, N 과 다르면 exit 3.
+ *   res.versions.swiftshader = {threads, ini, launchDir, sameInode, steps}; 그리는 단계마다 during.swiftshaderWorkers(GPU 프로세스의 marl
+ *   일꾼 스레드 수 최댓값)를 적고, 고정한 단계에서 N 과 다르면 exit 3.
+ *   고정은 run1·run2·keys(G1(b)(c) 렌더)에만 겁니다(steps). control 은 oro/merge-aa.json(SwiftShader 기본 일꾼 수에서 잼)과 견주는
+ *   환경 확인이라 늘 merge-aa 와 같은 원래 chromium·기본 일꾼 수로 그립니다 — 그래서 control 의 P0_seoul 은 드물게(g1det 기록: 기본 일꾼 수 control 10 번 중 1 번)
+ *   a6d7d5c8 로 갈릴 수 있고, 그러면 control 단계만 다시 돌립니다(--steps control). 일꾼 1 개의 control 은 a6d7d5c8/d8aa02a4 로 늘 같지만
+ *   merge-aa(97b2edf6/6f72aad6)와 다름(지평선 5+1 화소, 1 단계).
  * 출력(--out): 키 정렬 JSON. 표준 출력은 단계·md5·수만.
  */
 import fs from 'node:fs';
@@ -37,6 +41,8 @@ const die = (m, c) => die0(TOOL, m, c);
 const W = '390', H = '584';
 const STEPS_ALL = ['build', 'run1', 'run2', 'control', 'keys'];
 const RENDER_STEPS = ['run1', 'run2', 'control', 'keys'];
+/** --swiftshader-threads 가 걸리는 단계(G1(b)(c) 렌더). control 은 빠짐(merge-aa 환경 그대로). */
+export const SS_STEPS = ['run1', 'run2', 'keys'];
 export const LOAD_MAX = 1.0, PROC_PCPU_MAX = 50, FOREIGN_CORES_MAX = 0.5, POLL_SEC = 5;
 
 function runLogged(cmd, args, log) {
@@ -234,9 +240,13 @@ async function main() {
     res.versions.swiftshader = swiftshaderDir(ssThreads, L);
     ssEnv = { G1_SWIFTSHADER_DIR: path.join(ROOT, res.versions.swiftshader.launchDir) };
   }
-  const nodeArgs = script => (ssEnv ? ['--require', `./${SS_SHIM}`, script] : [script]);
+  // control 은 oro/merge-aa.json 과 견주는 환경 확인이므로 merge-aa 를 잰 그대로(SwiftShader 기본 일꾼 수, 원래 chromium 경로)에서 그림.
+  const ssStep = step => ssThreads !== null && SS_STEPS.includes(step);
+  if (ssThreads !== null) res.versions.swiftshader.steps = SS_STEPS;
+  const nodeArgs = (script, step) => (ssStep(step) ? ['--require', `./${SS_SHIM}`, script] : [script]);
+  const envFor = step => (ssStep(step) ? ssEnv : null);
   const checkWorkers = (step, during) => {
-    if (ssThreads !== null && during.swiftshaderWorkers !== ssThreads) die(`${step}: GPU process ran ${during.swiftshaderWorkers} SwiftShader workers, not ${ssThreads}`, 3);
+    if (ssStep(step) && during.swiftshaderWorkers !== ssThreads) die(`${step}: GPU process ran ${during.swiftshaderWorkers} SwiftShader workers, not ${ssThreads}`, 3);
   };
   const save = () => { fs.mkdirSync(path.dirname(outPath), { recursive: true }); fs.writeFileSync(outPath, canonicalJson(res)); };
   for (const step of steps) {
@@ -257,7 +267,7 @@ async function main() {
       const dir = path.join(work, step);
       fs.rmSync(dir, { recursive: true, force: true });
       const jf = step === 'control' ? path.resolve(o['--control']) : path.resolve(o['--jobs']);
-      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/volsky/run.js'), jf, dir, W, H, 'gen'], log, ssEnv);
+      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/volsky/run.js', step), jf, dir, W, H, 'gen'], log, envFor(step));
       if (rc !== 0) die(`run.js ${step} exit ${rc}`, 3);
       checkWorkers(step, during);
       res.load = { ...(res.load ?? {}), [step]: { ...gate, during } };
@@ -272,7 +282,7 @@ async function main() {
       const dir = path.join(work, 'keys');
       fs.rmSync(dir, { recursive: true, force: true });
       const kj = path.join(work, 'keys.json');
-      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/oro/g1/g1-keys.cjs'), path.resolve(o['--jobs']), dir, kj, W, H], log, ssEnv);
+      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/oro/g1/g1-keys.cjs', 'keys'), path.resolve(o['--jobs']), dir, kj, W, H], log, envFor('keys'));
       if (rc !== 0) die(`g1-keys exit ${rc}`, 3);
       checkWorkers('keys', during);
       res.load = { ...(res.load ?? {}), keys: { ...gate, during } };

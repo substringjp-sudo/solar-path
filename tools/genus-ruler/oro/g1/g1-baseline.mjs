@@ -141,6 +141,8 @@ function main() {
     versions: {
       node: B.versions.node, esbuild: ESBUILD, chromium: B.versions.chromium, chromiumPath: B.versions.chromiumPath,
       chromiumRealPath: B.versions.chromiumRealPath, chromiumFlags: B.versions.chromiumFlags, typescript: D.callSitesInfo.parser,
+      // SwiftShader 일꾼 수 고정(g1-render --swiftshader-threads; 없으면 null = 기본). S7 의 뒤 렌더는 같은 threads·steps 여야 함
+      swiftshader: B.versions.swiftshader ?? null,
     },
     inputs: {
       oroInputsSha256: inputsSha, ringInputsSha256: A.inputs.ringInputsSha256, scenes: A.inputs.scenes,
