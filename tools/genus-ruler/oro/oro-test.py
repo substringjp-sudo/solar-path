@@ -1548,7 +1548,11 @@ def t_geom2():
         st[v['status']] = st.get(v['status'], 0) + 1
         if v['status'] == 'ok':
             ck(v['A8'] == all(v['cornersInside']), 'A8consistent')
-    ck(len(g['scenes']) == 121 and set(st) <= {'ok', 'no-pass', 'missing-granules'}, 'allHaveStatus')
+    # 장면 수는 oro-inputs.json 의 은행(orig + 동결 전 확장 ext)에서 옵니다. 121 은 원 은행만일 때의 수입니다.
+    with open(os.path.join(HERE, 'oro-inputs.json')) as f:
+        n_expect = len(json.load(f)['scenes'])
+    ck(len(g['scenes']) == n_expect and set(g['scenes']) and set(st) <= {'ok', 'no-pass', 'missing-granules'}, 'allHaveStatus')
+    ck.kv['nScenes'] = len(g['scenes'])
     ck(st.get('missing-granules', 0) == 0, 'noMissingGranules')
     ck.kv.update({f'n_{k}': v for k, v in sorted(st.items())})
     ck.kv['A8true'] = sum(1 for v in g['scenes'].values() if v['A8'] is True)

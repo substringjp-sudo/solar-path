@@ -440,7 +440,7 @@
   },
   "oroApply": {
    "path": "tools/genus-ruler/oro/oro-apply.json",
-   "sha256": "14fa36cda5b2faab33d8a38ebe191462a561505d80d59c7df108bc29c1e58cb6"
+   "sha256": "fe6b579cd3df61833bda5b848111f095e74e2d0a7936f232a7fa5992c9d68d1d"
   }
  },
  "status": "ok"

@@ -1633,6 +1633,369 @@
    },
    "sunAltDeg": 37.612840373708366
   },
+  "busan_2026-10-23": {
+   "A1": {
+    "ok": false,
+    "rmsM": 58.08643092302616
+   },
+   "A2": {
+    "ok": false,
+    "speed": 3.474036898817796
+   },
+   "A3": {
+    "N2": 0.000331346030386742,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": -2.7176328155178577,
+     "600": -0.09935506591067611,
+     "700": 1.6991058043949971
+    },
+    "ok": false,
+    "reason": "dot"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0018681114543380585,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0018106071286794784,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0007175809347547777,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.16879561328110812,
+   "G7corr": 0.9977407094130648,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": false,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 63,
+    "maskedBoth": 0,
+    "maskedHigh": 162,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.0962097721585633,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.0025193031886584366,
+    "rmsDCapp": 0.0026329816385698033
+   },
+   "maskedAppShare": 0.09141461160188939,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "busan",
+   "split": {
+    "NhU": 2.0613893378986314,
+    "NhUBin": "1to3",
+    "coastShareW": 0.031746031746031744,
+    "crossTrackKm": 257.9970436534134,
+    "crossTrackLE430": true,
+    "sunAzDeg": 133.98784696306703,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 31.068693888368905
+  },
+  "busan_2026-10-27": {
+   "A1": {
+    "ok": false,
+    "rmsM": 58.08643092302616
+   },
+   "A2": {
+    "ok": true,
+    "speed": 13.803686922508406
+   },
+   "A3": {
+    "N2": 0.0002016383169320512,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 30.435633145834167,
+     "600": 23.35110777713894,
+     "700": 16.473293939200733
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 2,
+      "maxGdC": 0.0036091746811473123,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.004231042980104057,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 2,
+     "maxGdC": 0.0036526345341460808,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 19,
+    "ok": false
+   },
+   "A8": {
+    "ok": false,
+    "status": "ok"
+   },
+   "Ddc": -0.08601656377776717,
+   "G7corr": 0.9983663371037426,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 19,
+    "Scup": 26,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 0.9973971021681,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.010320723589864965,
+    "rmsDCapp": 0.010311446571298505
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": 0.5324475509814999,
+    "Frev_hsub": -0.3403471921288747,
+    "dC_B": -0.23485217137591413
+   },
+   "seam": true,
+   "singlePass": true,
+   "site": "busan",
+   "split": {
+    "NhU": 0.4047109897061027,
+    "NhUBin": "le1",
+    "coastShareW": 0.49777777777777776,
+    "crossTrackKm": 1527.4622269294616,
+    "crossTrackLE430": false,
+    "sunAzDeg": 149.57095490977852,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 37.19780994154218
+  },
+  "busan_2026-10-31": {
+   "A1": {
+    "ok": false,
+    "rmsM": 58.08643092302616
+   },
+   "A2": {
+    "ok": true,
+    "speed": 13.408482555937669
+   },
+   "A3": {
+    "N2": 0.0001371742425608982,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 31.557481987971578,
+     "600": 27.012360212067705,
+     "700": 14.727284871910012
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 2,
+      "maxGdC": 0.003428753738590123,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.004894226265436536,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 2,
+     "maxGdC": 0.003958760727268867,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 21,
+    "ok": true
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.06741592933921202,
+   "G7corr": 0.99942670332212,
+   "appA": false,
+   "armInputs": {
+    "latest": false,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 21,
+    "Scup": 36,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.0438611089188026,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.011269189937416251,
+    "rmsDCapp": 0.011771557472941072
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": 0.5398393923198372,
+    "Frev_hsub": -0.139523448847768,
+    "dC_B": -0.19928236214467068
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "busan",
+   "split": {
+    "NhU": 0.34364515118271266,
+    "NhUBin": "le1",
+    "coastShareW": 0.49777777777777776,
+    "crossTrackKm": 669.2272280454915,
+    "crossTrackLE430": false,
+    "sunAzDeg": 140.08319731444874,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 31.333808001965448
+  },
   "denver_2026-09-01": {
    "A1": {
     "ok": true,
@@ -3084,6 +3447,369 @@
     "surfaceInversion": false
    },
    "sunAltDeg": 27.57328828105794
+  },
+  "denver_2026-10-23": {
+   "A1": {
+    "ok": true,
+    "rmsM": 121.28357820017196
+   },
+   "A2": {
+    "ok": true,
+    "speed": 11.50783573747703
+   },
+   "A3": {
+    "N2": 0.00012237114574840951,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 20.973186308303802,
+     "600": 22.53597687144967,
+     "700": 11.50783573747703
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 4,
+      "maxGdC": 0.004727920800786129,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 3,
+      "maxGdC": 0.004867823508638143,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 5,
+     "maxGdC": 0.004477993076751878,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": false,
+    "status": "ok"
+   },
+   "Ddc": -0.08479300732245561,
+   "G7corr": 0.8221024444323478,
+   "appA": true,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 58,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 167
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.191114488948112,
+   "m8": {
+    "member": true,
+    "rmsDC": 0.017052446201346026,
+    "rmsDCapp": 0.018949865837582153
+   },
+   "maskedAppShare": 0.9986496302202676,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "denver",
+   "split": {
+    "NhU": 0.5462315713194601,
+    "NhUBin": "le1",
+    "coastShareW": 0.0,
+    "crossTrackKm": 1152.698361223187,
+    "crossTrackLE430": false,
+    "sunAzDeg": 148.15295933230442,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 33.422096449562666
+  },
+  "denver_2026-10-27": {
+   "A1": {
+    "ok": true,
+    "rmsM": 121.28357820017196
+   },
+   "A2": {
+    "ok": false,
+    "speed": 3.531199681055768
+   },
+   "A3": {
+    "N2": 8.851892561364978e-05,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 11.157155603007059,
+     "600": 11.792905997768843,
+     "700": 3.5311996810557678
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.004752063191779848,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.002327802820802848,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 1,
+     "maxGdC": 0.00477954976460091,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.03064346994825135,
+   "G7corr": 0.9993150646235188,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 16,
+    "maskedBoth": 65,
+    "maskedHigh": 107,
+    "maskedSnow": 167
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 0.9424581290081374,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.01308986376428237,
+    "rmsDCapp": 0.0024135069690545646
+   },
+   "maskedAppShare": 0.9466154451673054,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "denver",
+   "split": {
+    "NhU": 1.5140029783841629,
+    "NhUBin": "1to3",
+    "coastShareW": 0.0,
+    "crossTrackKm": 339.77406024343315,
+    "crossTrackLE430": true,
+    "sunAzDeg": 138.94554582419454,
+    "sunSlopeExcl": [],
+    "surfaceInversion": true
+   },
+   "sunAltDeg": 27.67006903846459
+  },
+  "denver_2026-10-31": {
+   "A1": {
+    "ok": true,
+    "rmsM": 121.28357820017196
+   },
+   "A2": {
+    "ok": false,
+    "speed": 3.775855297513144
+   },
+   "A3": {
+    "N2": 8.49838821135333e-05,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 2.7016622766911507,
+     "600": 1.9466627723441925,
+     "700": 3.7758552975131443
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.004871478407522875,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 2,
+      "maxGdC": 0.004072432700409662,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 1,
+     "maxGdC": 0.004868325973293217,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": null,
+   "G7corr": null,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 0,
+    "maskedBoth": 86,
+    "maskedHigh": 144,
+    "maskedSnow": 167
+   },
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": null,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.01633628996849213,
+    "rmsDCapp": 0.01525985503628905
+   },
+   "maskedAppShare": 1.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "denver",
+   "split": {
+    "NhU": 1.3873431035694563,
+    "NhUBin": "1to3",
+    "coastShareW": null,
+    "crossTrackKm": 497.95823118397215,
+    "crossTrackLE430": false,
+    "sunAzDeg": 130.93576321103194,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 21.14521562408749
   },
   "hamburg_2026-09-01": {
    "A1": {
@@ -4657,6 +5383,369 @@
     "surfaceInversion": false
    },
    "sunAltDeg": 23.232109790230982
+  },
+  "hamburg_2026-10-23": {
+   "A1": {
+    "ok": false,
+    "rmsM": 10.126746716903956
+   },
+   "A2": {
+    "ok": true,
+    "speed": 13.37324059203307
+   },
+   "A3": {
+    "N2": 0.00013310573708957338,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 11.42826631881001,
+     "600": 11.118399546068833,
+     "700": 12.690200777262351
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.0029197306700595553,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.0032527990564617244,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0036467454924337646,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.0,
+   "G7corr": 0.0,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 1,
+    "maskedBoth": 0,
+    "maskedHigh": 224,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": false,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 0.26815562712981644,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.00016904683646844026,
+    "rmsDCapp": 5.3630082804662405e-05
+   },
+   "maskedAppShare": 0.9998134847547414,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": true,
+   "site": "hamburg",
+   "split": {
+    "NhU": 0.050294481450256334,
+    "NhUBin": "le1",
+    "coastShareW": 0.0,
+    "crossTrackKm": 53.82694178261562,
+    "crossTrackLE430": true,
+    "sunAzDeg": 143.04154230258754,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 18.75184850312883
+  },
+  "hamburg_2026-10-27": {
+   "A1": {
+    "ok": false,
+    "rmsM": 10.126746716903956
+   },
+   "A2": {
+    "ok": true,
+    "speed": 13.287061440814584
+   },
+   "A3": {
+    "N2": 0.0002681414902458333,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 12.504626486045435,
+     "600": 9.479723791268357,
+     "700": 14.769822182981038
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0027063252434343784,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0009261009993033474,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0027104387238980118,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.22081809522042828,
+   "G7corr": 0.9998042555847898,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 0.9993371985526486,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.001181666318139285,
+    "rmsDCapp": 0.0011811315605505448
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "hamburg",
+   "split": {
+    "NhU": 0.07184750171995012,
+    "NhUBin": "le1",
+    "coastShareW": 0.09333333333333334,
+    "crossTrackKm": 931.7289082314154,
+    "crossTrackLE430": false,
+    "sunAzDeg": 157.27330325060677,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 21.5009316385394
+  },
+  "hamburg_2026-10-31": {
+   "A1": {
+    "ok": false,
+    "rmsM": 10.126746716903956
+   },
+   "A2": {
+    "ok": true,
+    "speed": 10.888862616495745
+   },
+   "A3": {
+    "N2": 0.00019655569050243656,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 13.997638715404904,
+     "600": 12.267186863884511,
+     "700": 13.89022915464703
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0024252046349179848,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0005983843795197521,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0024251773178094083,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.07018472206037306,
+   "G7corr": 0.9999554658322691,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": false,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.0094790211181812,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.0008359175807469373,
+    "rmsDCapp": 0.0008438830690259483
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "hamburg",
+   "split": {
+    "NhU": 0.07506178670165033,
+    "NhUBin": "le1",
+    "coastShareW": 0.09333333333333334,
+    "crossTrackKm": 324.17455098659934,
+    "crossTrackLE430": true,
+    "sunAzDeg": 147.80425639171625,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 17.492248973044845
   },
   "kanazawa_2026-09-01": {
    "A1": {
@@ -7562,6 +8651,369 @@
    },
    "sunAltDeg": 27.007827337262114
   },
+  "lisbon_2026-10-23": {
+   "A1": {
+    "ok": false,
+    "rmsM": 26.585438958936486
+   },
+   "A2": {
+    "ok": true,
+    "speed": 8.775568283088171
+   },
+   "A3": {
+    "N2": 0.00012907009798756992,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 11.292649877436837,
+     "600": 11.390972689053077,
+     "700": 8.75698657148112
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0034613542190649123,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.001552266923643096,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.003415106988914546,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.24741572120255495,
+   "G7corr": 0.9945222706528376,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 139,
+    "maskedBoth": 0,
+    "maskedHigh": 86,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 0.9951690223716388,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.0026798717637608917,
+    "rmsDCapp": 0.0022789123577791593
+   },
+   "maskedAppShare": 0.04013115310118352,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "lisbon",
+   "split": {
+    "NhU": 0.2737266950245694,
+    "NhUBin": "le1",
+    "coastShareW": 0.45323741007194246,
+    "crossTrackKm": 962.3881130668216,
+    "crossTrackLE430": false,
+    "sunAzDeg": 144.66065966939027,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 33.11227468984261
+  },
+  "lisbon_2026-10-27": {
+   "A1": {
+    "ok": false,
+    "rmsM": 26.585438958936486
+   },
+   "A2": {
+    "ok": true,
+    "speed": 7.097934784208985
+   },
+   "A3": {
+    "N2": 0.00020260089581485832,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 12.938141736972064,
+     "600": 9.293438527192688,
+     "700": 7.572249804190832
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0009278448346761179,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0015613306605142515,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0015228681505733228,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.02997284241324011,
+   "G7corr": 0.9998308144125595,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.0073844055379928,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.0013890017926814482,
+    "rmsDCapp": 0.0013995403804301944
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "lisbon",
+   "split": {
+    "NhU": 0.4240023460911932,
+    "NhUBin": "le1",
+    "coastShareW": 0.4488888888888889,
+    "crossTrackKm": 130.44541230654247,
+    "crossTrackLE430": true,
+    "sunAzDeg": 135.83854896315825,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 26.976258169454837
+  },
+  "lisbon_2026-10-31": {
+   "A1": {
+    "ok": false,
+    "rmsM": 26.585438958936486
+   },
+   "A2": {
+    "ok": false,
+    "speed": 1.1743742398143582
+   },
+   "A3": {
+    "N2": 0.00021908374257674902,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 3.8397219375219818,
+     "600": 4.981740630269707,
+     "700": 2.2031021099162746
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.00016724977424866573,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 3.9572925669289186e-05,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.00016724857441961674,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.04363267276056568,
+   "G7corr": 0.9537541376277133,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 222,
+    "maskedBoth": 0,
+    "maskedHigh": 3,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.1036419680521983,
+   "m8": {
+    "member": false,
+    "rmsDC": 3.2628031156526374e-05,
+    "rmsDCapp": 3.764730753026852e-05
+   },
+   "maskedAppShare": 7.830830200218687e-05,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "lisbon",
+   "split": {
+    "NhU": 2.6648829797769986,
+    "NhUBin": "1to3",
+    "coastShareW": 0.44144144144144143,
+    "crossTrackKm": 723.2161414624858,
+    "crossTrackLE430": false,
+    "sunAzDeg": 128.20567509682795,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 20.13328573076988
+  },
   "osaka_2026-09-01": {
    "A1": {
     "ok": true,
@@ -9135,6 +10587,339 @@
    },
    "sunAltDeg": 42.42071461156183
   },
+  "osaka_2026-10-23": {
+   "A1": {
+    "ok": true,
+    "rmsM": 106.11663087265813
+   },
+   "A2": {
+    "ok": true,
+    "speed": 5.311155858483195
+   },
+   "A3": {
+    "N2": 0.0002542940725201641,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 6.420547738245584,
+     "600": 3.97227022209225,
+     "700": 3.125443278488522
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0006139070425225008,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.001328462012736716,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0012598546740147133,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": null,
+   "G7corr": null,
+   "appA": true,
+   "armInputs": {
+    "latest": true,
+    "m1h": false,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 0,
+    "maskedBoth": 0,
+    "maskedHigh": 225,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": null,
+   "m8": {
+    "member": true,
+    "rmsDC": 0.0005927411633327682,
+    "rmsDCapp": 0.00028759342468116377
+   },
+   "maskedAppShare": 1.0,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "osaka",
+   "split": {
+    "NhU": 1.4991478602311927,
+    "NhUBin": "1to3",
+    "coastShareW": null,
+    "crossTrackKm": 837.1232506381776,
+    "crossTrackLE430": false,
+    "sunAzDeg": 139.95369128638157,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 35.019277255598595
+  },
+  "osaka_2026-10-27": {
+   "A1": {
+    "ok": true,
+    "rmsM": 106.11663087265813
+   },
+   "A2": {
+    "ok": true,
+    "speed": 14.91240593057061
+   },
+   "A3": {
+    "N2": 0.0002157727397973666,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 30.819416914788444,
+     "600": 22.42148912381049,
+     "700": 17.309065124943473
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.0046896389575873275,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.004573385631624849,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 1,
+     "maxGdC": 0.004709813906982919,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 10,
+    "ok": false
+   },
+   "A8": {
+    "ok": false,
+    "status": "ok"
+   },
+   "Ddc": -0.021904025103346193,
+   "G7corr": 0.9971493446834337,
+   "appA": true,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 10,
+    "Scup": 13,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": false,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.1097568195491154,
+   "m8": {
+    "member": true,
+    "rmsDC": 0.009180882234543077,
+    "rmsDCapp": 0.010217662991000926
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": 0.5398259755463398,
+    "Frev_hsub": -0.41369913901160177,
+    "dC_B": 0.23822399881093567
+   },
+   "seam": true,
+   "singlePass": true,
+   "site": "osaka",
+   "split": {
+    "NhU": 0.491831078216227,
+    "NhUBin": "le1",
+    "coastShareW": 0.11555555555555555,
+    "crossTrackKm": 1398.7545504598868,
+    "crossTrackLE430": false,
+    "sunAzDeg": 120.26268994279636,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 17.997461827121334
+  },
+  "osaka_2026-10-31": {
+   "A1": {
+    "ok": true,
+    "rmsM": 106.11663087265813
+   },
+   "A2": {
+    "ok": true,
+    "speed": 10.027041887755916
+   },
+   "A3": {
+    "N2": 0.00024067843558694127,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 34.79372865245075,
+     "600": 17.001822798586666,
+     "700": 12.440099025728548
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": false,
+    "ringNull": {
+     "high": 91,
+     "low": 91,
+     "mid": 91,
+     "total": 91
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": null,
+    "judge": null
+   },
+   "A7": {
+    "S": null,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": null,
+   "G7corr": null,
+   "appA": false,
+   "armInputs": {
+    "latest": false,
+    "m1h": true,
+    "n64": false,
+    "p1h": false,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": null,
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": null,
+   "m8": {
+    "member": false,
+    "rmsDC": null,
+    "rmsDCapp": null
+   },
+   "maskedAppShare": null,
+   "multiPass": false,
+   "preCorr": null,
+   "seam": false,
+   "singlePass": true,
+   "site": "osaka",
+   "split": {
+    "NhU": 0.7725225362014554,
+    "NhUBin": "le1",
+    "coastShareW": null,
+    "crossTrackKm": 62.10384846726421,
+    "crossTrackLE430": true,
+    "sunAzDeg": 132.9106546434243,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 26.942508966873174
+  },
   "sapporo_2026-09-01": {
    "A1": {
     "ok": true,
@@ -10707,6 +12492,339 @@
     "surfaceInversion": true
    },
    "sunAltDeg": 16.599785414078713
+  },
+  "sapporo_2026-10-23": {
+   "A1": {
+    "ok": true,
+    "rmsM": 106.4397235675945
+   },
+   "A2": {
+    "ok": true,
+    "speed": 12.74643862813158
+   },
+   "A3": {
+    "N2": 0.00022827376005496723,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 19.18522897715344,
+     "600": 16.84282091366294,
+     "700": 14.285271785229762
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.004455706448182238,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.00027119811905789495,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0044557065056844095,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.025656588178384978,
+   "G7corr": 0.9998955008776882,
+   "appA": true,
+   "armInputs": {
+    "latest": true,
+    "m1h": false,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 137,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 88
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.0042437861372115,
+   "m8": {
+    "member": true,
+    "rmsDC": 0.007738474044910586,
+    "rmsDCapp": 0.00781533767706591
+   },
+   "maskedAppShare": 0.8401452117327715,
+   "multiPass": true,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": false,
+   "site": "sapporo",
+   "split": {
+    "NhU": 0.5940559345324021,
+    "NhUBin": "le1",
+    "coastShareW": 0.45985401459854014,
+    "crossTrackKm": 1004.8312942242015,
+    "crossTrackLE430": false,
+    "sunAzDeg": 148.53642205347163,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 30.59941398015917
+  },
+  "sapporo_2026-10-27": {
+   "A1": {
+    "ok": true,
+    "rmsM": 106.4397235675945
+   },
+   "A2": {
+    "ok": true,
+    "speed": 24.90989070477818
+   },
+   "A3": {
+    "N2": 8.26433580741932e-05,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 23.48062493533435,
+     "600": 24.239654992490284,
+     "700": 25.409953355181216
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": false,
+      "iters": 10,
+      "maxGdC": 0.0052815003199762145,
+      "ok": true
+     },
+     "mid": {
+      "converged": false,
+      "iters": 10,
+      "maxGdC": 0.0045845360947965146,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": false,
+     "iters": 10,
+     "maxGdC": 0.005162904292032435,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 15,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.28383796714103426,
+   "G7corr": 0.9771942925142268,
+   "appA": true,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 15,
+    "Scup": 26,
+    "W": 83,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 142
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": false,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.438317887678208,
+   "m8": {
+    "member": true,
+    "rmsDC": 0.04344986135659526,
+    "rmsDCapp": 0.058724881281860965
+   },
+   "maskedAppShare": 0.9348260967836934,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": 0.6373163409900765,
+    "Frev_hsub": 0.5172076572662706,
+    "dC_B": -0.7297392171344564
+   },
+   "seam": true,
+   "singlePass": true,
+   "site": "sapporo",
+   "split": {
+    "NhU": 0.18290280153587965,
+    "NhUBin": "le1",
+    "coastShareW": 0.7590361445783133,
+    "crossTrackKm": 955.3854460613763,
+    "crossTrackLE430": false,
+    "sunAzDeg": 126.95889672019055,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 17.16252849448854
+  },
+  "sapporo_2026-10-31": {
+   "A1": {
+    "ok": true,
+    "rmsM": 106.4397235675945
+   },
+   "A2": {
+    "ok": true,
+    "speed": 22.879880910010087
+   },
+   "A3": {
+    "N2": 0.0003030610685861099,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 35.88434072605087,
+     "600": 31.849587768647126,
+     "700": 29.235464690010446
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": false,
+    "ringNull": {
+     "high": 91,
+     "low": 91,
+     "mid": 91,
+     "total": 91
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": null,
+    "judge": null
+   },
+   "A7": {
+    "S": null,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": null,
+   "G7corr": null,
+   "appA": false,
+   "armInputs": {
+    "latest": false,
+    "m1h": true,
+    "n64": false,
+    "p1h": false,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": null,
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": true,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": null,
+   "m8": {
+    "member": false,
+    "rmsDC": null,
+    "rmsDCapp": null
+   },
+   "maskedAppShare": null,
+   "multiPass": false,
+   "preCorr": null,
+   "seam": false,
+   "singlePass": true,
+   "site": "sapporo",
+   "split": {
+    "NhU": 0.3813287214499648,
+    "NhUBin": "le1",
+    "coastShareW": null,
+    "crossTrackKm": 190.3879125659899,
+    "crossTrackLE430": true,
+    "sunAzDeg": 140.32312254290406,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 23.652586917325603
   },
   "seoul_2026-09-01": {
    "A1": {
@@ -13491,6 +15609,369 @@
    },
    "sunAltDeg": 36.66267457690952
   },
+  "shanghai_2026-10-23": {
+   "A1": {
+    "ok": false,
+    "rmsM": 2.2564215416460036
+   },
+   "A2": {
+    "ok": true,
+    "speed": 5.526418293927089
+   },
+   "A3": {
+    "N2": 0.00015861489870850555,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 10.617798389556441,
+     "600": 8.350844291075308,
+     "700": 6.199210429518233
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0017645348768922141,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0019113449967641293,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0016652900077535665,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.06873813071575445,
+   "G7corr": 0.9991934037272583,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": false,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 171,
+    "maskedBoth": 0,
+    "maskedHigh": 54,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.1825812237163216,
+   "m8": {
+    "member": false,
+    "rmsDC": 6.900245269063323e-05,
+    "rmsDCapp": 8.099185304039633e-05
+   },
+   "maskedAppShare": 0.006435844208050634,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "shanghai",
+   "split": {
+    "NhU": 0.0890585537299728,
+    "NhUBin": "le1",
+    "coastShareW": 0.17543859649122806,
+    "crossTrackKm": 352.2579888099168,
+    "crossTrackLE430": true,
+    "sunAzDeg": 126.22015004150757,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 29.135393027809346
+  },
+  "shanghai_2026-10-27": {
+   "A1": {
+    "ok": false,
+    "rmsM": 2.2564215416460036
+   },
+   "A2": {
+    "ok": true,
+    "speed": 11.710793774821378
+   },
+   "A3": {
+    "N2": 0.0002219403157998814,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 18.36699298662404,
+     "600": 21.20376604463966,
+     "700": 13.505752522447205
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0038942703245623198,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.003592765955777236,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.0040141281658873035,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.00808435195223806,
+   "G7corr": 0.9981063706552973,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.2780589019753255,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.00015108012013031254,
+    "rmsDCapp": 0.00019345587781869199
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": true,
+   "singlePass": true,
+   "site": "shanghai",
+   "split": {
+    "NhU": 0.04971405279246017,
+    "NhUBin": "le1",
+    "coastShareW": 0.3244444444444444,
+    "crossTrackKm": 1014.1592180414065,
+    "crossTrackLE430": false,
+    "sunAzDeg": 140.39312179681446,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 37.07355849039216
+  },
+  "shanghai_2026-10-31": {
+   "A1": {
+    "ok": false,
+    "rmsM": 2.2564215416460036
+   },
+   "A2": {
+    "ok": true,
+    "speed": 5.5399198530732265
+   },
+   "A3": {
+    "N2": 0.00018067509032404483,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 20.47467787963624,
+     "600": 16.358042892688303,
+     "700": 9.344832841483713
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0019732718164686643,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.00012860495277601506,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.001973426737412645,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.008103911582981897,
+   "G7corr": 0.9993486233698874,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.0142632646153613,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.00010843540647021376,
+    "rmsDCapp": 0.00011009317661789368
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "shanghai",
+   "split": {
+    "NhU": 0.09481849571731814,
+    "NhUBin": "le1",
+    "coastShareW": 0.3244444444444444,
+    "crossTrackKm": 93.92583222087072,
+    "crossTrackLE430": true,
+    "sunAzDeg": 132.11776478539153,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 30.12064981387873
+  },
   "sydney_2026-09-05": {
    "A1": {
     "ok": false,
@@ -14700,6 +17181,369 @@
     "surfaceInversion": false
    },
    "sunAltDeg": 25.61892644045173
+  },
+  "sydney_2026-10-23": {
+   "A1": {
+    "ok": false,
+    "rmsM": 49.32735765358127
+   },
+   "A2": {
+    "ok": true,
+    "speed": 5.290867614451863
+   },
+   "A3": {
+    "N2": 0.00010618635127576124,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 1.4315990753571781,
+     "600": 3.6947749603809026,
+     "700": 5.728212824757912
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.002265593238667416,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 0,
+      "maxGdC": 0.0010002602170862507,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 0,
+     "maxGdC": 0.002316666521638873,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 0,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.06676137055162416,
+   "G7corr": 0.9994062440703496,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 0,
+    "Scup": 0,
+    "W": 225,
+    "maskedBoth": 0,
+    "maskedHigh": 0,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-23",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.092868440770126,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.003454705119939715,
+    "rmsDCapp": 0.0037777862604628926
+   },
+   "maskedAppShare": 0.0,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": null,
+    "Frev_hsub": null,
+    "dC_B": null
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "sydney",
+   "split": {
+    "NhU": 0.5125360974629954,
+    "NhUBin": "le1",
+    "coastShareW": 0.4488888888888889,
+    "crossTrackKm": 111.33641887608853,
+    "crossTrackLE430": true,
+    "sunAzDeg": 76.58905071156344,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 38.310593563696614
+  },
+  "sydney_2026-10-27": {
+   "A1": {
+    "ok": false,
+    "rmsM": 49.32735765358127
+   },
+   "A2": {
+    "ok": true,
+    "speed": 14.708127977604885
+   },
+   "A3": {
+    "N2": 8.019997943397458e-05,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 30.745197322608675,
+     "600": 22.747661635881812,
+     "700": 17.325309161761645
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 7,
+      "maxGdC": 0.004361367819756852,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 5,
+      "maxGdC": 0.004869342830762101,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 7,
+     "maxGdC": 0.004794952909658073,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 5,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": 0.026844603626852145,
+   "G7corr": 0.9572711094731937,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": true,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 5,
+    "Scup": 7,
+    "W": 224,
+    "maskedBoth": 0,
+    "maskedHigh": 1,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-27",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.22628430157635,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.006074151455653958,
+    "rmsDCapp": 0.007777255410431601
+   },
+   "maskedAppShare": 3.869522086852486e-07,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": 0.7230098989078109,
+    "Frev_hsub": 0.3596304913090068,
+    "dC_B": -0.119571277843597
+   },
+   "seam": true,
+   "singlePass": true,
+   "site": "sydney",
+   "split": {
+    "NhU": 0.16023106972335918,
+    "NhUBin": "le1",
+    "coastShareW": 0.44642857142857145,
+    "crossTrackKm": 786.9865646950988,
+    "crossTrackLE430": false,
+    "sunAzDeg": 84.45909069913166,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 30.959065122792165
+  },
+  "sydney_2026-10-31": {
+   "A1": {
+    "ok": false,
+    "rmsM": 49.32735765358127
+   },
+   "A2": {
+    "ok": true,
+    "speed": 10.953508891436712
+   },
+   "A3": {
+    "N2": 0.0001399740195829206,
+    "ok": true
+   },
+   "A4": {
+    "dots": {
+     "500": 16.162495967024554,
+     "600": 16.842392493266136,
+     "700": 15.500547636706374
+    },
+    "ok": true,
+    "reason": "ok"
+   },
+   "A5": {
+    "dem": true,
+    "ok": true,
+    "ringNull": {
+     "high": 0,
+     "low": 0,
+     "mid": 0,
+     "total": 0
+    },
+    "sounding": true,
+    "soundingMissing": []
+   },
+   "A6": {
+    "app": {
+     "low": {
+      "converged": true,
+      "iters": 3,
+      "maxGdC": 0.0048329587615586166,
+      "ok": true
+     },
+     "mid": {
+      "converged": true,
+      "iters": 1,
+      "maxGdC": 0.004720975327209938,
+      "ok": true
+     },
+     "ok": true
+    },
+    "judge": {
+     "converged": true,
+     "iters": 3,
+     "maxGdC": 0.0047374020979282306,
+     "ok": true
+    }
+   },
+   "A7": {
+    "S": 17,
+    "ok": false
+   },
+   "A8": {
+    "ok": true,
+    "status": "ok"
+   },
+   "Ddc": -0.09302053645985603,
+   "G7corr": 0.9930984367267209,
+   "appA": false,
+   "armInputs": {
+    "latest": true,
+    "m1h": true,
+    "n64": true,
+    "p1h": false,
+    "zSnow42": true,
+    "zSnow7": true
+   },
+   "bMissing": false,
+   "bank": "ext",
+   "counted": false,
+   "counts": {
+    "S": 17,
+    "Scup": 22,
+    "W": 187,
+    "maskedBoth": 0,
+    "maskedHigh": 38,
+    "maskedSnow": 0
+   },
+   "date": "2026-10-31",
+   "devJudgeable": null,
+   "extSunOk": true,
+   "extTarget": false,
+   "group": "held",
+   "judge": false,
+   "lambdaApp": 1.1221573648538221,
+   "m8": {
+    "member": false,
+    "rmsDC": 0.010840318909367505,
+    "rmsDCapp": 0.012149420943573309
+   },
+   "maskedAppShare": 0.019344725411351228,
+   "multiPass": false,
+   "preCorr": {
+    "F_hsub": 0.5022255998710613,
+    "Frev_hsub": -0.2187872320731219,
+    "dC_B": -0.2673758096813103
+   },
+   "seam": false,
+   "singlePass": true,
+   "site": "sydney",
+   "split": {
+    "NhU": 0.2842414799614449,
+    "NhUBin": "le1",
+    "coastShareW": 0.35294117647058826,
+    "crossTrackKm": 508.6940782918791,
+    "crossTrackLE430": false,
+    "sunAzDeg": 76.30007982426292,
+    "sunSlopeExcl": [],
+    "surfaceInversion": false
+   },
+   "sunAltDeg": 43.48951892075026
   }
  },
  "schema": "oro-apply/1",
@@ -14709,7 +17553,7 @@
    "commit": "115fbe227d782bcf1336b4ca853a04844d464452",
    "esbuild": "0.28.2"
   },
-  "cmrGeomSha256": "b99bebab560337586691bb246a8f4dc7a3b5dd6d6e8cc37d1ef4e9ce9b9abc28",
+  "cmrGeomSha256": "79493cf2e0a2a9cbe9c8473a38f204b0dffc28477c4095a294195a3fe8b6aef2",
   "code": {
    "fetch-nwp-ring.py": "58e4cc416ec1051fd7aa446c7f1ae8e1201f827f79c4667d2d9a7a3c3a741700",
    "fetch-sat.py": "bfa0606f0ef09899adc3cf75abec7825f0240aaaca8478461d11609814f6c4ec",
@@ -14732,7 +17576,7 @@
    ],
    "python": "3.13.18"
   },
-  "oroInputsSha256": "0b1b7f5f58b50587d5daa5a9815c9d0c11326ebe7b0a5640d7c9766ac3d1622a"
+  "oroInputsSha256": "84db9486ee11455535a08e9369b6ad97d0d70da87955a5925e9bef786f6d2a49"
  },
  "summary": {
   "DdcMedian": 0.12635649247034558,
@@ -14814,7 +17658,7 @@
   "lambdaAppMedian": 1.088758391199942,
   "lambdaTilde": 1.088758391199942,
   "m8": {
-   "count": 19,
+   "count": 24,
    "scenes": [
     "denver_2026-09-13",
     "denver_2026-09-17",
@@ -14823,6 +17667,7 @@
     "denver_2026-10-11",
     "denver_2026-10-15",
     "denver_2026-10-19",
+    "denver_2026-10-23",
     "osaka_2026-09-01",
     "osaka_2026-09-09",
     "osaka_2026-09-13",
@@ -14830,11 +17675,15 @@
     "osaka_2026-09-29",
     "osaka_2026-10-15",
     "osaka_2026-10-19",
+    "osaka_2026-10-23",
+    "osaka_2026-10-27",
     "sapporo_2026-09-05",
     "sapporo_2026-09-09",
     "sapporo_2026-09-25",
     "sapporo_2026-09-29",
-    "sapporo_2026-10-19"
+    "sapporo_2026-10-19",
+    "sapporo_2026-10-23",
+    "sapporo_2026-10-27"
    ]
   },
   "maskedAppShareMedian": 0.0379424390836528,
