@@ -1,0 +1,122 @@
+{
+ "busan": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.556,
+  "anySeaBoxShare": 0.742,
+  "hBoxMean_q1_q2_m": [
+   0.0,
+   80.1
+  ],
+  "lowTertileCount(<=q1)": 102,
+  "seaShareInLowTertile": 1.0,
+  "hZeroBoxShare": 0.453
+ },
+ "denver": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.0,
+  "anySeaBoxShare": 0.0,
+  "hBoxMean_q1_q2_m": [
+   1697.6,
+   2490.7
+  ],
+  "lowTertileCount(<=q1)": 75,
+  "seaShareInLowTertile": 0.0,
+  "hZeroBoxShare": 0.0
+ },
+ "hamburg": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.164,
+  "anySeaBoxShare": 0.32,
+  "hBoxMean_q1_q2_m": [
+   15.2,
+   36.8
+  ],
+  "lowTertileCount(<=q1)": 75,
+  "seaShareInLowTertile": 0.493,
+  "hZeroBoxShare": 0.076
+ },
+ "kanazawa": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.484,
+  "anySeaBoxShare": 0.604,
+  "hBoxMean_q1_q2_m": [
+   0.0,
+   273.5
+  ],
+  "lowTertileCount(<=q1)": 89,
+  "seaShareInLowTertile": 1.0,
+  "hZeroBoxShare": 0.396
+ },
+ "lisbon": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.489,
+  "anySeaBoxShare": 0.604,
+  "hBoxMean_q1_q2_m": [
+   0.0,
+   69.3
+  ],
+  "lowTertileCount(<=q1)": 94,
+  "seaShareInLowTertile": 1.0,
+  "hZeroBoxShare": 0.418
+ },
+ "osaka": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.178,
+  "anySeaBoxShare": 0.307,
+  "hBoxMean_q1_q2_m": [
+   107.8,
+   326.8
+  ],
+  "lowTertileCount(<=q1)": 75,
+  "seaShareInLowTertile": 0.533,
+  "hZeroBoxShare": 0.067
+ },
+ "sapporo": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.373,
+  "anySeaBoxShare": 0.489,
+  "hBoxMean_q1_q2_m": [
+   8.1,
+   229.4
+  ],
+  "lowTertileCount(<=q1)": 75,
+  "seaShareInLowTertile": 0.933,
+  "hZeroBoxShare": 0.244
+ },
+ "seoul": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.142,
+  "anySeaBoxShare": 0.307,
+  "hBoxMean_q1_q2_m": [
+   40.5,
+   179.9
+  ],
+  "lowTertileCount(<=q1)": 75,
+  "seaShareInLowTertile": 0.427,
+  "hZeroBoxShare": 0.049
+ },
+ "shanghai": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.427,
+  "anySeaBoxShare": 0.618,
+  "hBoxMean_q1_q2_m": [
+   0.5,
+   4.0
+  ],
+  "lowTertileCount(<=q1)": 75,
+  "seaShareInLowTertile": 1.0,
+  "hZeroBoxShare": 0.28
+ },
+ "sydney": {
+  "boxes": 225,
+  "seaBoxShare(>half sea)": 0.476,
+  "anySeaBoxShare": 0.547,
+  "hBoxMean_q1_q2_m": [
+   0.0,
+   132.9
+  ],
+  "lowTertileCount(<=q1)": 96,
+  "seaShareInLowTertile": 1.0,
+  "hZeroBoxShare": 0.427
+ }
+}

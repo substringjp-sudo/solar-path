@@ -1,0 +1,132 @@
+{
+ "busan": {
+  "seaBox(>=3 of 4 cells h=0)": 106,
+  "value-cut low tertile n / sea share": [
+   102,
+   1.0
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   1.0
+  ],
+  "rank-cut mid sea share": 0.41,
+  "boxes whose tertile differs between the two cuts": 27
+ },
+ "denver": {
+  "seaBox(>=3 of 4 cells h=0)": 0,
+  "value-cut low tertile n / sea share": [
+   75,
+   0.0
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   0.0
+  ],
+  "rank-cut mid sea share": 0.0,
+  "boxes whose tertile differs between the two cuts": 0
+ },
+ "hamburg": {
+  "seaBox(>=3 of 4 cells h=0)": 19,
+  "value-cut low tertile n / sea share": [
+   75,
+   0.25
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   0.25
+  ],
+  "rank-cut mid sea share": 0.0,
+  "boxes whose tertile differs between the two cuts": 0
+ },
+ "kanazawa": {
+  "seaBox(>=3 of 4 cells h=0)": 95,
+  "value-cut low tertile n / sea share": [
+   89,
+   1.0
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   1.0
+  ],
+  "rank-cut mid sea share": 0.27,
+  "boxes whose tertile differs between the two cuts": 14
+ },
+ "lisbon": {
+  "seaBox(>=3 of 4 cells h=0)": 100,
+  "value-cut low tertile n / sea share": [
+   94,
+   1.0
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   1.0
+  ],
+  "rank-cut mid sea share": 0.33,
+  "boxes whose tertile differs between the two cuts": 19
+ },
+ "osaka": {
+  "seaBox(>=3 of 4 cells h=0)": 23,
+  "value-cut low tertile n / sea share": [
+   75,
+   0.31
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   0.31
+  ],
+  "rank-cut mid sea share": 0.0,
+  "boxes whose tertile differs between the two cuts": 0
+ },
+ "sapporo": {
+  "seaBox(>=3 of 4 cells h=0)": 63,
+  "value-cut low tertile n / sea share": [
+   75,
+   0.81
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   0.81
+  ],
+  "rank-cut mid sea share": 0.03,
+  "boxes whose tertile differs between the two cuts": 0
+ },
+ "seoul": {
+  "seaBox(>=3 of 4 cells h=0)": 16,
+  "value-cut low tertile n / sea share": [
+   75,
+   0.21
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   0.21
+  ],
+  "rank-cut mid sea share": 0.0,
+  "boxes whose tertile differs between the two cuts": 0
+ },
+ "shanghai": {
+  "seaBox(>=3 of 4 cells h=0)": 70,
+  "value-cut low tertile n / sea share": [
+   75,
+   0.93
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   0.93
+  ],
+  "rank-cut mid sea share": 0.0,
+  "boxes whose tertile differs between the two cuts": 0
+ },
+ "sydney": {
+  "seaBox(>=3 of 4 cells h=0)": 99,
+  "value-cut low tertile n / sea share": [
+   96,
+   1.0
+  ],
+  "rank-cut low n / sea share": [
+   75,
+   1.0
+  ],
+  "rank-cut mid sea share": 0.32,
+  "boxes whose tertile differs between the two cuts": 21
+ }
+}

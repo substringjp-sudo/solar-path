@@ -1,0 +1,36 @@
+{
+ "F1": {
+  "nKeys": 121,
+  "nFiles": 121,
+  "nCommon": 121,
+  "missing": [],
+  "extra": [],
+  "indexEntries": 130,
+  "indexSkip": 9,
+  "indexError": 0,
+  "nwpBlendFiles": 121,
+  "nwpBlendCommon": 121
+ },
+ "F2": {
+  "nLeavesOld": 767,
+  "nLeavesNew": 767,
+  "nCommon": 767,
+  "nSame": 767
+ },
+ "F3": {
+  "nRef": 97,
+  "nCompared": 97,
+  "nMissingSceneOrSyn": 0,
+  "nAllFiveSame": 97,
+  "perColumnSame": {
+   "ringRmse": 97,
+   "ringRmseBase": 97,
+   "betaSyn": 97,
+   "betaC0": 97,
+   "partialSyn": 97
+  }
+ },
+ "recordedUtc": "2026-11-04T02:30:59Z",
+ "esbuild": "0.28.2",
+ "note": "F2 \ud45c\uc900 \ucd9c\ub825(.harness/oro/f2.log)\uacfc F3 \uc2e4\ud589 \ub85c\uadf8(.harness/oro/f3-run.log)\ub294 \uc5f4\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4. \uc218\ub9cc \uae30\ub85d\ud569\ub2c8\ub2e4."
+}

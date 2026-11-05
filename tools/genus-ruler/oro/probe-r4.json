@@ -1,0 +1,138 @@
+{
+ "site": "seoul",
+ "lat": 37.5,
+ "lon": 127.0,
+ "date": "2026-09-05",
+ "requestedUtc": "2026-11-04T02:28:15Z",
+ "req1": {
+  "url": "https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=37.5&longitude=127.0&hourly=boundary_layer_height,sensible_heat_flux,cape,temperature_850hPa&models=best_match,ecmwf_ifs025,icon_seamless,gfs_seamless&start_date=2026-09-05&end_date=2026-09-05&timezone=GMT",
+  "status": 200,
+  "headers": {
+   "X-RateLimit-Cost": "1.6",
+   "X-RateLimit-Limit": "600.0",
+   "X-RateLimit-Remaining": "598.4",
+   "X-RateLimit-Reset": "1793759344",
+   "X-RateLimit-Window": "60"
+  },
+  "availability": {
+   "boundary_layer_height_best_match": {
+    "n": 24,
+    "null": 0
+   },
+   "sensible_heat_flux_best_match": {
+    "n": 24,
+    "null": 0
+   },
+   "cape_best_match": {
+    "n": 24,
+    "null": 0
+   },
+   "temperature_850hPa_best_match": {
+    "n": 24,
+    "null": 0
+   },
+   "boundary_layer_height_ecmwf_ifs025": {
+    "n": 24,
+    "null": 24
+   },
+   "sensible_heat_flux_ecmwf_ifs025": {
+    "n": 24,
+    "null": 24
+   },
+   "cape_ecmwf_ifs025": {
+    "n": 24,
+    "null": 0
+   },
+   "temperature_850hPa_ecmwf_ifs025": {
+    "n": 24,
+    "null": 0
+   },
+   "boundary_layer_height_icon_seamless": {
+    "n": 24,
+    "null": 24
+   },
+   "sensible_heat_flux_icon_seamless": {
+    "n": 24,
+    "null": 0
+   },
+   "cape_icon_seamless": {
+    "n": 24,
+    "null": 0
+   },
+   "temperature_850hPa_icon_seamless": {
+    "n": 24,
+    "null": 0
+   },
+   "boundary_layer_height_gfs_seamless": {
+    "n": 24,
+    "null": 0
+   },
+   "sensible_heat_flux_gfs_seamless": {
+    "n": 24,
+    "null": 0
+   },
+   "cape_gfs_seamless": {
+    "n": 24,
+    "null": 0
+   },
+   "temperature_850hPa_gfs_seamless": {
+    "n": 24,
+    "null": 0
+   }
+  },
+  "error": null
+ },
+ "req2": {
+  "url": "https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=37.5&longitude=127.0&hourly=temperature_850hPa,geopotential_height_700hPa,wind_speed_700hPa,wind_direction_700hPa&start_date=2026-09-05&end_date=2026-09-05&timezone=GMT&wind_speed_unit=ms",
+  "status": 200,
+  "headers": {
+   "X-RateLimit-Cost": "1.0",
+   "X-RateLimit-Limit": "600.0",
+   "X-RateLimit-Remaining": "599.0",
+   "X-RateLimit-Reset": "1793759311",
+   "X-RateLimit-Window": "60"
+  },
+  "finite00to05Z": {
+   "temperature_850hPa": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "geopotential_height_700hPa": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "wind_speed_700hPa": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "wind_direction_700hPa": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "nullAllDay": {
+   "temperature_850hPa": 0,
+   "geopotential_height_700hPa": 0,
+   "wind_speed_700hPa": 0,
+   "wind_direction_700hPa": 0
+  },
+  "elevation": 19.0,
+  "error": null
+ }
+}

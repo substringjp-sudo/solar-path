@@ -1,0 +1,32 @@
+{
+ "null_tau0_sig0.2": {
+  "P_pass_dateblockL95": 0.041,
+  "P_pass_signflip": 0.017,
+  "P_pass_dateblock_LOSO": 0.041
+ },
+ "null_tau0.05_sig0.2": {
+  "P_pass_dateblockL95": 0.048,
+  "P_pass_signflip": 0.019,
+  "P_pass_dateblock_LOSO": 0.048
+ },
+ "mu0.10_tau0_sig0.2": {
+  "P_pass_dateblockL95": 0.547,
+  "P_pass_signflip": 0.423,
+  "P_pass_dateblock_LOSO": 0.547
+ },
+ "mu0.10_tau0.05_sig0.2": {
+  "P_pass_dateblockL95": 0.507,
+  "P_pass_signflip": 0.411,
+  "P_pass_dateblock_LOSO": 0.507
+ },
+ "denverArtifact+0.25_mu0": {
+  "P_pass_dateblockL95": 0.221,
+  "P_pass_signflip": 0.141,
+  "P_pass_dateblock_LOSO": 0.208
+ },
+ "denverArtifact+0.40_mu0": {
+  "P_pass_dateblockL95": 0.3,
+  "P_pass_signflip": 0.217,
+  "P_pass_dateblock_LOSO": 0.286
+ }
+}

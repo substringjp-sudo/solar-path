@@ -1,0 +1,33 @@
+{
+ "branch_diff_after_filters": {
+  "relrms(ours-fsbranch)": 0.0006,
+  "relrms(with-without sigma_min damping)": 0.1152
+ },
+ "col_vs_upslope_limit_corr": 0.94,
+ "combiner_iters": {
+  "1": {
+   "max|G*dC|": 0.02712,
+   "p99|G*dC|": 0.01345
+  },
+  "2": {
+   "max|G*dC|": 0.0204,
+   "p99|G*dC|": 0.00943
+  },
+  "3": {
+   "max|G*dC|": 0.01486,
+   "p99|G*dC|": 0.00731
+  },
+  "5": {
+   "max|G*dC|": 0.01002,
+   "p99|G*dC|": 0.00505
+  },
+  "8": {
+   "max|G*dC|": 0.00642,
+   "p99|G*dC|": 0.0034
+  },
+  "rms_eta_m": 79.5,
+  "rms_F": 0.294,
+  "corr(dC, F)": 0.885,
+  "corr(dC, F - G*F)": 0.895
+ }
+}

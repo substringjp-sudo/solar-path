@@ -1,0 +1,455 @@
+#!/usr/bin/env node
+/**
+ * g1-render.mjs — G1(b) 하네스 렌더와 G1(c) 날씨 키(자 L748, S3-design.md §8 (b)(c)).
+ *
+ *   node tools/genus-ruler/oro/g1/g1-render.mjs --jobs tools/genus-ruler/oro/g1/jobs-g1.json --control <jobs-control.json>
+ *        --out <b.json> [--work .harness/oro/g1/render] [--steps build,run1,run2,control,keys] [--wait-idle <s>=900]
+ *
+ * 차례(같은 컨테이너에서 하나씩):
+ *   build    bash tools/genus-ruler/volsky/build.sh(기본 출력 .harness/volsky/app.js) → 하네스 번들 sha256·md5
+ *   run1/2   node tools/genus-ruler/volsky/run.js <jobs> <work>/runN 390 584 gen — 같은 코드 두 번(A/A), PNG md5
+ *   control  같은 명령으로 원래 B0_app·P0_seoul(옵션·고리 없음)을 그려 oro/merge-aa.json 의 합친 뒤 md5 와 견줌(환경 확인)
+ *   keys     node tools/genus-ruler/oro/g1/g1-keys.cjs — 앱이 만든 날씨 키, 그리고 그 실행의 PNG md5(run1 과 같아야 함)
+ * 판(versions): node, esbuild(build.sh 의 고정 판), chromium(run.js 의 executablePath 와 --version), 깃발(run.js 소스).
+ * 부하 지킴(S3-design.md G1 build note 19): run1·run2·control·keys 는 그리기 전에 컨테이너가 놀고 있어야 합니다 — os.loadavg()[0] < 1.0 이고
+ *   `ps -eo pid,pcpu,comm` 에서 이 도구·그 조상·ps 밖의 어떤 프로세스도 pcpu ≥ 50 이 아님. 아니면 5 s 마다 다시 보며 --wait-idle 초까지
+ *   기다리고(앞 단계의 chromium 이 올린 1 분 부하가 내려가는 데 1~2 분), 그래도 아니면 exit 3(그리지 않음; 0 이면 바로 거절).
+ *   그리는 동안에는 1 s 마다 /proc 을 읽어 이 도구의 자손이 아닌 프로세스의 CPU(foreignCores = (전체 바쁨 − 우리 나무) / 벽시계)를 잽니다.
+ *   res.load[step] = {before: os.loadavg(), cpus, waitedSec, heavy, during: {wallSec, busyCores, ourCores, foreignCores, foreignPeakCores,
+ *   foreignTop}}. g1-baseline.mjs 는 네 단계 모두 before[0] < 1.0·heavy 없음·foreignCores < 0.5 가 아니면 쓰지 않습니다.
+ * SwiftShader 일꾼 수(--swiftshader-threads N, 고르는 것 — 주지 않으면 예전 그대로 SwiftShader 기본 = CPU 수):
+ *   P0_seoul 의 지평선 몇 화소는 SwiftShader 일꾼 스레드 일정에 따라 렌더마다 1 단계씩 달라집니다(g1det 조사: 같은 GL 명령열·같은
+ *   입력에서 구름 행진 그리기 하나가 1~2 텍셀을 다르게 씀; 일꾼 1 개면 늘 같음). N 을 주면 run.js 가 부르는 chromium 디렉터리를
+ *   .harness/oro/g1/chromium-ssN 에 하드 링크로 복사하고(같은 inode = 같은 바이너리·판·깃발) SwiftShader.ini([Processor] ThreadCount=N)를
+ *   둔 뒤, run.js·g1-keys.cjs 를 `node --require g1-swiftshader.cjs` 로 띄워 그 사본의 chrome 을 쓰게 합니다(volsky·src 는 그대로).
+ *   res.versions.swiftshader = {threads, ini, launchDir, sameInode, steps}; 그리는 단계마다 during.swiftshaderWorkers(GPU 프로세스의 marl
+ *   일꾼 스레드 수 최댓값)를 적고, 고정한 단계에서 N 과 다르면 exit 3.
+ *   고정은 run1·run2·keys(G1(b)(c) 렌더)에만 겁니다(steps). control 은 oro/merge-aa.json(SwiftShader 기본 일꾼 수에서 잼)과 견주는
+ *   환경 확인이라 늘 merge-aa 와 같은 원래 chromium·기본 일꾼 수로 그립니다 — 그래서 control 의 P0_seoul 은 드물게(g1det 기록: 기본 일꾼 수 control 10 번 중 1 번)
+ *   a6d7d5c8 로 갈릴 수 있습니다(그러면 controlMatchesMergeAA 거짓, g1-baseline 은 쓰지 않음; 그때 control 만 다시 그릴지는 S4 가 정함).
+ *   일꾼 1 개의 control 은 a6d7d5c8/d8aa02a4 로 늘 같지만 merge-aa(97b2edf6/6f72aad6)와 다름(지평선 5+1 화소, 1 단계).
+ * 호출 기록(S3-design.md G1 build note 19, fix G1-REC):
+ *   프로세스마다 호출 id 하나(`<pid>-<시작 ISO>-<무작위 8 자>`, g1-attempts.mjs). b.json 맨 위 invocation = {id, pid, startedAt, commit,
+ *   steps, out, work, attemptsLog, swiftshaderThreads}(마지막으로 쓴 호출), 단계마다 stepRuns[step] = {invocation, start, end}(ISO),
+ *   invocations(단계들의 id, 정렬), singleInvocation(build·run1·run2·control·keys 다섯이 모두 이 호출). --steps 로 이어 그리면
+ *   앞 호출의 단계는 앞 id 그대로 남아 singleInvocation 거짓 — g1-baseline --final 은 쓰지 않음.
+ *   호출마다(인자 오류·거절·die·예외·SIGINT/SIGTERM/SIGHUP 포함) .harness/oro/g1/render-attempts.jsonl 에 start 줄과 end 줄을
+ *   덧붙임(덧붙이기만): end = 끝 코드, 끝낸 단계와 그 시각, 단계마다 잡별 rgb·alpha md5, 부하 기록, 어긋남. SIGKILL 이면 start 만.
+ * 어긋남 재기(fix G1-REC): A/A(run1·run2), keys·run1, control·merge-aa 에서 md5 가 다른 잡·채널마다 두 PNG 를 풀어(g1-png.mjs)
+ *   mismatches[] = {kind: aa|keys|control, job, channel: rgb|alpha, a/b: {source, md5}, decoded, reason, width, height, pixels,
+ *   bbox: {row: [위, 아래], col: [왼, 오른]}(row 0 = 위), maxLevel, channels(달라진 PNG 채널 r·g·b·a), channelPixels}.
+ *   단계가 끝날 때마다 다시 잼. 디스크의 PNG 가 기록된 md5 가 아니면(이어 그린 앞 단계 등) decoded 거짓과 까닭.
+ *   control 의 맞은편은 merge-aa 의 PNG: merge-aa.json 은 md5 만 적었으므로, md5 가 merge-aa 와 같은 control PNG 를
+ *   .harness/oro/g1/merge-aa-ref/<md5>.png 로 남겨 두고(그 md5 로 확인해서만 씀) 그것과 견줌. 없으면 decoded 거짓.
+ * 출력(--out): 키 정렬 JSON. 표준 출력은 단계·md5·수와 MISMATCH 한 줄씩.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import cp from 'node:child_process';
+import os from 'node:os';
+import { ROOT, canonicalJson, die as die0, forbiddenPath, gitPorcelain, md5, parseArgs, resolveCommit, sha256 } from './g1-lib.mjs';
+import { ATTEMPTS_REL, appendAttempt, newInvocationId, stepMd5 } from './g1-attempts.mjs';
+import { decodePng, mismatchSummary, pngDiff } from './g1-png.mjs';
+
+const TOOL = 'g1-render';
+/** 이 프로세스의 호출 기록(main 이 채움; die 가 까닭을 적음). */
+let ATTEMPT = null;
+/** 지금 도는 자식(신호로 끝날 때 함께 끝냄). */
+let CHILD = null;
+const die = (m, c) => { if (ATTEMPT && !ATTEMPT.error) ATTEMPT.error = m; die0(TOOL, m, c); };
+const W = '390', H = '584';
+const STEPS_ALL = ['build', 'run1', 'run2', 'control', 'keys'];
+const RENDER_STEPS = ['run1', 'run2', 'control', 'keys'];
+/** --swiftshader-threads 가 걸리는 단계(G1(b)(c) 렌더). control 은 빠짐(merge-aa 환경 그대로). */
+export const SS_STEPS = ['run1', 'run2', 'keys'];
+export const LOAD_MAX = 1.0, PROC_PCPU_MAX = 50, FOREIGN_CORES_MAX = 0.5, POLL_SEC = 5;
+
+function runLogged(cmd, args, log) {
+  const fd = fs.openSync(log, 'w');
+  const r = cp.spawnSync(cmd, args, { cwd: ROOT, stdio: ['ignore', fd, fd], maxBuffer: 1 << 26 });
+  fs.closeSync(fd);
+  return r.status;
+}
+
+// ── 부하 지킴 ──
+/** 이 도구의 조상 pid(g1-run.sh 의 bash 등 — 이 도구를 기다리는 중이라 ps 의 평생 pcpu 가 지금 부하가 아님). */
+function ancestors() {
+  const out = new Set();
+  for (let pid = process.ppid; pid > 1 && !out.has(pid);) {
+    out.add(pid);
+    let st; try { st = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch { break; }
+    pid = Number(st.slice(st.lastIndexOf(')') + 2).split(' ')[1]);
+  }
+  return out;
+}
+/** ps 로 본 다른 프로세스 가운데 pcpu ≥ PROC_PCPU_MAX 인 것(이 도구·그 조상·ps 자신은 뺌). ps 의 pcpu 는 평생 평균(cputime/elapsed). */
+export function heavyProcesses() {
+  const r = cp.spawnSync('ps', ['-eo', 'pid=,pcpu=,comm='], { encoding: 'utf8' });
+  if (r.status !== 0) die('ps -eo pid,pcpu,comm failed', 3);
+  const out = [], anc = ancestors();
+  for (const line of r.stdout.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+([0-9.]+)\s+(.*)$/);
+    if (!m) continue;
+    const pid = Number(m[1]), pcpu = Number(m[2]);
+    if (pid === process.pid || pid === r.pid || anc.has(pid)) continue;
+    if (pcpu >= PROC_PCPU_MAX) out.push({ pid, pcpu, comm: m[3] });
+  }
+  return out;
+}
+/** 그리기 전: 놀고 있을 때까지 waitSec 초까지 기다림. 아니면 exit 3. 기다림은 비동기(그 사이 SIGTERM 등이 바로 처리됨). */
+export async function idleGate(step, waitSec) {
+  const t0 = Date.now();
+  for (;;) {
+    const before = os.loadavg(), heavy = heavyProcesses();
+    if (before[0] < LOAD_MAX && heavy.length === 0) return { before, cpus: os.cpus().length, waitedSec: Math.round((Date.now() - t0) / 1000), heavy };
+    if ((Date.now() - t0) / 1000 >= waitSec) {
+      const hv = heavy.map(h => `${h.comm}(${h.pid}) ${h.pcpu}%`).join(', ');
+      die(`${step}: container not idle after ${waitSec} s (loadavg ${before.map(x => x.toFixed(2)).join(' ')} on ${os.cpus().length} cpus; need < ${LOAD_MAX}${hv ? `; processes ≥ ${PROC_PCPU_MAX} % CPU: ${hv}` : ''}) — refused`, 3);
+    }
+    await new Promise(r => setTimeout(r, POLL_SEC * 1000));
+  }
+}
+let HZ = null;
+function procSnapshot() {
+  if (HZ === null) HZ = Number(cp.execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim()) || 100;
+  const cpu = fs.readFileSync('/proc/stat', 'utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number);
+  const busy = cpu[0] + cpu[1] + cpu[2] + cpu[5] + cpu[6];       // user nice system irq softirq(guest 는 user 안; iowait·steal 뺌)
+  const procs = new Map();
+  for (const d of fs.readdirSync('/proc')) {
+    if (!/^\d+$/.test(d)) continue;
+    let st; try { st = fs.readFileSync(`/proc/${d}/stat`, 'utf8'); } catch { continue; }
+    const close = st.lastIndexOf(')'), f = st.slice(close + 2).split(' ');
+    procs.set(Number(d), { ppid: Number(f[1]), t: Number(f[11]) + Number(f[12]), comm: st.slice(st.indexOf('(') + 1, close) });
+  }
+  return { busy, procs, ms: Date.now() };
+}
+/** 그리는 동안: 이 도구의 자손(한 번이라도 자손이었던 pid)을 뺀 CPU. */
+class ForeignMonitor {
+  constructor() {
+    this.ours = new Set([process.pid]); this.base = new Map(); this.last = new Map(); this.comms = new Map(); this.peak = 0;
+    this.gpuSeen = new Set(); this.gpuPids = new Set(); this.ssWorkers = 0;
+    this.s0 = this.prev = procSnapshot();
+    for (const [pid, p] of this.s0.procs) { this.base.set(pid, p.t); this.last.set(pid, p.t); this.comms.set(pid, p.comm); }
+    this.markOurs(this.s0); this.prevOur = this.ourTicks();
+  }
+  markOurs(s) {
+    const kids = new Map();
+    for (const [pid, p] of s.procs) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(pid); }
+    const stack = [...this.ours];
+    while (stack.length) for (const c of kids.get(stack.pop()) ?? []) if (!this.ours.has(c)) { this.ours.add(c); stack.push(c); }
+  }
+  ourTicks() { let t = 0; for (const pid of this.ours) t += (this.last.get(pid) ?? 0) - (this.base.get(pid) ?? 0); return t; }
+  sample(final = false) {
+    const s = procSnapshot();
+    this.markOurs(s);
+    // 처음 보는 pid 는 이 단계 안에서 태어난 것(카운터가 0 에서 시작)
+    for (const [pid, p] of s.procs) { if (!this.base.has(pid)) this.base.set(pid, 0); this.last.set(pid, p.t); this.comms.set(pid, p.comm); }
+    const our = this.ourTicks(), dt = (s.ms - this.prev.ms) / 1000;
+    // 끝 표본은 자식이 끝나며 잃는 틱(재지 못한 마지막 몫)이 '남의 것' 으로 보여 봉우리에서 뺌(봉우리는 참고값)
+    if (dt > 0 && !final) this.peak = Math.max(this.peak, ((s.busy - this.prev.busy) - (our - this.prevOur)) / HZ / dt);
+    this.prev = s; this.prevOur = our;
+    // 우리 나무의 chromium GPU 프로세스에서 SwiftShader(marl) 일꾼 스레드 'Thread<NN>' 수
+    for (const pid of this.ours) {
+      if (this.gpuSeen.has(pid)) continue;
+      this.gpuSeen.add(pid);
+      try { if (fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('--type=gpu-process')) this.gpuPids.add(pid); } catch { /* gone */ }
+    }
+    for (const pid of this.gpuPids) {
+      let n = 0;
+      try { for (const t of fs.readdirSync(`/proc/${pid}/task`)) { try { if (/^Thread<\d+>$/.test(fs.readFileSync(`/proc/${pid}/task/${t}/comm`, 'utf8').trim())) n++; } catch { /* gone */ } } } catch { continue; }
+      this.ssWorkers = Math.max(this.ssWorkers, n);
+    }
+  }
+  result() {
+    this.sample(true);
+    const wall = (this.prev.ms - this.s0.ms) / 1000, our = this.ourTicks(), busy = this.prev.busy - this.s0.busy;
+    const foreign = [...this.last].filter(([pid]) => !this.ours.has(pid)).map(([pid, t]) => ({ comm: this.comms.get(pid) ?? '?', ticks: t - (this.base.get(pid) ?? 0) }))
+      .filter(x => x.ticks > 0).sort((a, b) => b.ticks - a.ticks || (a.comm < b.comm ? -1 : 1)).slice(0, 3);
+    const r3 = x => Math.round(x * 1000) / 1000;
+    return { wallSec: Math.round(wall), busyCores: r3(busy / HZ / wall), ourCores: r3(our / HZ / wall), foreignCores: r3(Math.max(0, busy - our) / HZ / wall),
+      foreignPeakCores: r3(this.peak), foreignTop: foreign.map(x => ({ comm: x.comm, cores: r3(x.ticks / HZ / wall) })), swiftshaderWorkers: this.ssWorkers };
+  }
+}
+/** runLogged 와 같되, 도는 동안 1 s 마다 ForeignMonitor 를 표본함. env 를 주면 자식 환경에 덧붙임. */
+export function runMonitored(cmd, args, log, env = null) {
+  return new Promise(resolve => {
+    const fd = fs.openSync(log, 'w');
+    const mon = new ForeignMonitor();
+    const child = cp.spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', fd, fd], env: env ? { ...process.env, ...env } : process.env });
+    CHILD = child;
+    const iv = setInterval(() => mon.sample(), 1000);
+    child.on('exit', code => { CHILD = null; clearInterval(iv); fs.closeSync(fd); resolve({ status: code, during: mon.result() }); });
+  });
+}
+function pngMd5(dir, names) {
+  const o = {};
+  for (const n of names) {
+    const f = { rgb: path.join(dir, `${n}.png`), alpha: path.join(dir, `${n}.alpha.png`) };
+    o[n] = {};
+    for (const [k, p] of Object.entries(f)) o[n][k] = fs.existsSync(p) ? md5(fs.readFileSync(p)) : null;
+  }
+  return o;
+}
+function runJsLaunch() {
+  const src = fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/volsky/run.js'), 'utf8');
+  const ex = src.match(/executablePath:\s*'([^']+)'/), ar = src.match(/args:\s*(\[[^\]]*\])/);
+  if (!ex || !ar) die('run.js: launch options not found', 3);
+  return { executablePath: ex[1], args: JSON.parse(ar[1].replace(/'/g, '"')) };
+}
+/**
+ * --swiftshader-threads N: run.js 의 chromium 디렉터리를 .harness/oro/g1/chromium-ssN 에 하드 링크로 복사하고 SwiftShader.ini 를 둠.
+ * SwiftShader 는 ini 를 실행 파일 디렉터리에서 읽음(ANGLE 이 ICD 를 실을 때 그리로 chdir). 사본의 chrome 은 원본과 같은 inode 여야 함.
+ */
+export function swiftshaderDir(threads, L) {
+  const real = fs.realpathSync(L.executablePath);
+  const dir = path.join(ROOT, `.harness/oro/g1/chromium-ss${threads}`);
+  const exe = path.join(dir, path.basename(real));
+  const same = () => fs.existsSync(exe) && fs.statSync(exe).ino === fs.statSync(real).ino && fs.statSync(exe).dev === fs.statSync(real).dev;
+  if (!same()) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    const r = cp.spawnSync('cp', ['-al', path.dirname(real), dir], { encoding: 'utf8' });
+    if (r.status !== 0 || !same()) die(`--swiftshader-threads: cp -al ${path.dirname(real)} ${dir} failed (${(r.stderr || '').trim()})`, 3);
+  }
+  const ini = `[Processor]\nThreadCount=${threads}\n`;
+  const iniPath = path.join(dir, 'SwiftShader.ini');
+  if (fs.existsSync(iniPath)) fs.rmSync(iniPath);   // 새 파일(하드 링크 아님)로 씀
+  fs.writeFileSync(iniPath, ini);
+  return { threads, ini, iniSha256: sha256(Buffer.from(ini)), launchDir: path.relative(ROOT, dir), launchExecutable: path.relative(ROOT, exe), sameInode: same() };
+}
+// ── 어긋남 재기(fix G1-REC) ──
+export const REF_DIR_REL = '.harness/oro/g1/merge-aa-ref';
+/** 저장소 안이면 뿌리 기준 상대 경로, 밖이면 절대 경로. */
+const relp = p => { const r = path.relative(ROOT, p).split(path.sep).join('/'); return r.startsWith('../') || path.isAbsolute(r) ? path.resolve(p) : r; };
+const pngPath = (dir, n, ch) => path.join(dir, ch === 'rgb' ? `${n}.png` : `${n}.alpha.png`);
+/** merge-aa.json post.run1 → {job: {rgb, alpha}}(합친 뒤 첫 실행; control 이 견주는 값). */
+export function mergeAARef() {
+  const aa = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/oro/merge-aa.json'), 'utf8'));
+  const r = aa.post && aa.post.run1;
+  if (!r) return null;
+  const o = {};
+  for (const k of Object.keys(r)) { const m = k.match(/^(.*?)(\.alpha)?\.png$/); if (m) (o[m[1]] ??= {})[m[2] ? 'alpha' : 'rgb'] = r[k]; }
+  return o;
+}
+/** 두 PNG(a, b = {source, md5, file})의 화소 차이 → mismatches 한 칸. 파일이 없거나 기록된 md5 가 아니면 decoded 거짓. */
+export function characterisePair(kind, job, channel, a, b) {
+  const base = { kind, job, channel, a: { source: a.source, md5: a.md5 ?? null }, b: { source: b.source, md5: b.md5 ?? null }, decoded: false, reason: null,
+    width: null, height: null, pixels: null, bbox: null, maxLevel: null, channels: null, channelPixels: null };
+  const load = s => {
+    if (!s.md5) return { err: `${s.source} has no PNG md5` };
+    if (!s.file || !fs.existsSync(s.file)) return { err: `${s.source} PNG not on disk${s.file ? ` (${relp(s.file)})` : ''}` };
+    const buf = fs.readFileSync(s.file);
+    if (md5(buf) !== s.md5) return { err: `${s.source} PNG on disk (${relp(s.file)}) is not the recorded md5` };
+    try { return { img: decodePng(buf) }; } catch (e) { return { err: `${s.source} PNG: ${e.message}` }; }
+  };
+  const A = load(a), B = load(b);
+  if (A.err || B.err) return { ...base, reason: [A.err, B.err].filter(Boolean).join('; ') };
+  const d = pngDiff(A.img, B.img);
+  if (!d.comparable) return { ...base, reason: d.reason };
+  return { ...base, decoded: true, width: d.width, height: d.height, pixels: d.pixels, bbox: d.bbox, maxLevel: d.maxLevel, channels: d.channels, channelPixels: d.channelPixels };
+}
+/**
+ * res(b.json)의 run1·run2·keys·control md5 에서 어긋난 잡·채널을 모두 찾아 PNG 를 풀어 잼(차례: aa, keys, control; 잡 파일 차례; rgb, alpha).
+ * work/<step>/<job>(.alpha).png 를 읽음. ref = mergeAARef(), refDir = merge-aa PNG 사본(<md5>.png).
+ */
+export function characterise(res, work, names, cnames, ref, refDir = path.join(ROOT, REF_DIR_REL)) {
+  const out = [];
+  const side = (step, n, ch) => ({ source: step, md5: res[step]?.[n]?.[ch] ?? null, file: pngPath(path.join(work, step), n, ch) });
+  for (const [kind, sa, sb] of [['aa', 'run1', 'run2'], ['keys', 'run1', 'keys']]) {
+    if (!res[sa] || !res[sb]) continue;
+    for (const n of names) for (const ch of ['rgb', 'alpha']) {
+      const a = side(sa, n, ch), b = side(sb, n, ch);
+      if (a.md5 && a.md5 === b.md5) continue;
+      out.push(characterisePair(kind, n, ch, a, b));
+    }
+  }
+  if (res.control) {
+    for (const n of cnames) for (const ch of ['rgb', 'alpha']) {
+      const want = ref?.[n]?.[ch] ?? null, b = side('control', n, ch);
+      if (want && want === b.md5) continue;
+      out.push(characterisePair('control', n, ch, { source: 'mergeAA', md5: want, file: want ? path.join(refDir, `${want}.png`) : null }, b));
+    }
+  }
+  return out;
+}
+/** control 이 merge-aa 와 같은 잡·채널의 PNG 를 merge-aa-ref/<md5>.png 로 남김(이미 있으면 그대로). */
+function seedMergeAARef(res, work, cnames, ref) {
+  const dir = path.join(ROOT, REF_DIR_REL);
+  for (const n of cnames) for (const ch of ['rgb', 'alpha']) {
+    const want = ref?.[n]?.[ch];
+    if (!want || res.control?.[n]?.[ch] !== want) continue;
+    const dst = path.join(dir, `${want}.png`), src = pngPath(path.join(work, 'control'), n, ch);
+    if (fs.existsSync(dst) && md5(fs.readFileSync(dst)) === want) continue;
+    if (!fs.existsSync(src) || md5(fs.readFileSync(src)) !== want) continue;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(src, dst);
+  }
+}
+function headNow() {
+  try { return cp.execFileSync('git', ['rev-parse', '--quiet', '--verify', 'HEAD^{commit}'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; }
+}
+
+function buildShEsbuild() {
+  const m = fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/volsky/build.sh'), 'utf8').match(/esbuild@([0-9.]+)/);
+  return m ? m[1] : null;
+}
+
+async function main() {
+  // ── 호출 기록(fix G1-REC): 인자를 풀기 전에 끝 줄 쓰개를 걸어 둠(인자 오류·거절·die·예외·신호 모두 end 줄을 남김) ──
+  const t0Inv = new Date();
+  const id = newInvocationId(process.pid, t0Inv);
+  const head0 = headNow();
+  const A = ATTEMPT = { completed: [], md5: {}, load: {}, bundle: null, flags: {}, mismatches: [], error: null, signal: null, startWritten: false, endWritten: false };
+  const startRec = extra => ({ event: 'start', invocation: id, pid: process.pid, startedAt: t0Inv.toISOString(), commit: head0, argv: process.argv.slice(2), ...extra });
+  const writeStart = extra => { if (A.startWritten) return; A.startWritten = true; appendAttempt(startRec(extra)); };
+  process.on('uncaughtExceptionMonitor', e => { if (!A.error) A.error = `exception: ${String((e && e.message) || e).slice(0, 300)}`; });
+  process.on('exit', code => {
+    if (A.endWritten) return;
+    A.endWritten = true;
+    try {
+      writeStart({ steps: null, out: null, work: null, swiftshaderThreads: null, waitIdle: null });
+      appendAttempt({ event: 'end', invocation: id, endedAt: new Date().toISOString(), exitCode: code, signal: A.signal, error: A.error, commit: head0, commitAtEnd: headNow(),
+        completed: A.completed, md5: A.md5, bundle: A.bundle, load: A.load, flags: A.flags, mismatches: A.mismatches });
+    } catch (e) { console.error(`${TOOL}: could not append to ${ATTEMPTS_REL}: ${e.message}`); }
+  });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => {
+      A.signal = sig;
+      try { if (CHILD) CHILD.kill('SIGTERM'); } catch { /* gone */ }
+      process.exit(128 + (os.constants.signals[sig] ?? 0));
+    });
+  }
+  const o = parseArgs(TOOL, process.argv.slice(2), { '--jobs': true, '--control': true, '--out': true, '--work': true, '--steps': true, '--wait-idle': true, '--swiftshader-threads': true });
+  const ssThreads = o['--swiftshader-threads'] === undefined ? null : Number(o['--swiftshader-threads']);
+  if (ssThreads !== null && !(Number.isInteger(ssThreads) && ssThreads >= 1 && ssThreads <= 16)) die('--swiftshader-threads: a whole number 1..16');
+  if (!o['--jobs'] || !o['--control'] || !o['--out']) die('--jobs, --control and --out are required');
+  for (const k of ['--jobs', '--control', '--out', '--work']) if (o[k] && forbiddenPath(o[k])) die(`${k}: path refused`);
+  const work = path.resolve(o['--work'] ?? path.join(ROOT, '.harness/oro/g1/render'));
+  const steps = o['--steps'] ? o['--steps'].split(',') : STEPS_ALL;
+  for (const s of steps) if (!STEPS_ALL.includes(s)) die(`unknown step ${s}`);
+  const waitIdle = o['--wait-idle'] === undefined ? 900 : Number(o['--wait-idle']);
+  if (!Number.isInteger(waitIdle) || waitIdle < 0) die('--wait-idle: a whole number of seconds ≥ 0');
+  fs.mkdirSync(work, { recursive: true });
+  const outPath = path.resolve(o['--out']);
+  writeStart({ steps, out: relp(outPath), work: relp(work), swiftshaderThreads: ssThreads, waitIdle });
+  const prev = fs.existsSync(outPath) ? JSON.parse(fs.readFileSync(outPath, 'utf8')) : {};
+  const res = { ...prev };
+  // 맨 위 invocation = 이 호출(b.json 을 마지막으로 쓴 호출). 앞 호출이 그린 단계는 stepRuns 에 그 id 로 남음.
+  res.invocation = { id, pid: process.pid, startedAt: t0Inv.toISOString(), commit: head0, steps, out: relp(outPath), work: relp(work), attemptsLog: ATTEMPTS_REL, swiftshaderThreads: ssThreads };
+  const ref = mergeAARef();
+  const jobs = JSON.parse(fs.readFileSync(path.resolve(o['--jobs']), 'utf8'));
+  const ctl = JSON.parse(fs.readFileSync(path.resolve(o['--control']), 'utf8'));
+  const names = jobs.map(j => j.name), cnames = ctl.map(j => j.name);
+  res.jobsFileSha256 = sha256(fs.readFileSync(path.resolve(o['--jobs'])));
+  // 묶음은 작업 트리에서 만들므로(build.sh) src·volsky 가 깨끗해야 그 커밋의 앱 코드입니다.
+  const dirty = gitPorcelain(['src', 'tools/genus-ruler/volsky']);
+  if (dirty.length) die(`src or tools/genus-ruler/volsky has uncommitted changes (${dirty.length})`, 2);
+  if (steps.includes('build')) res.commit = resolveCommit(TOOL, 'HEAD');
+  res.jobOptions = Object.fromEntries(jobs.map(j => [j.name, j.options ?? {}]));
+  const L = runJsLaunch();
+  const chromiumVersion = cp.execFileSync(L.executablePath, ['--version'], { encoding: 'utf8' }).trim();
+  res.versions = {
+    node: process.version, esbuild: buildShEsbuild(), chromium: chromiumVersion,
+    chromiumPath: L.executablePath, chromiumRealPath: fs.realpathSync(L.executablePath), chromiumFlags: L.args,
+  };
+  // SwiftShader 일꾼 수 고정(고를 때만): 같은 chromium 의 하드 링크 사본 + SwiftShader.ini, run.js·g1-keys 는 preload 로 그 사본을 띄움
+  const SS_SHIM = 'tools/genus-ruler/oro/g1/g1-swiftshader.cjs';
+  let ssEnv = null;
+  if (ssThreads !== null) {
+    res.versions.swiftshader = swiftshaderDir(ssThreads, L);
+    ssEnv = { G1_SWIFTSHADER_DIR: path.join(ROOT, res.versions.swiftshader.launchDir) };
+  }
+  // control 은 oro/merge-aa.json 과 견주는 환경 확인이므로 merge-aa 를 잰 그대로(SwiftShader 기본 일꾼 수, 원래 chromium 경로)에서 그림.
+  const ssStep = step => ssThreads !== null && SS_STEPS.includes(step);
+  if (ssThreads !== null) res.versions.swiftshader.steps = SS_STEPS;
+  const nodeArgs = (script, step) => (ssStep(step) ? ['--require', `./${SS_SHIM}`, script] : [script]);
+  const envFor = step => (ssStep(step) ? ssEnv : null);
+  const checkWorkers = (step, during) => {
+    if (ssStep(step) && during.swiftshaderWorkers !== ssThreads) die(`${step}: GPU process ran ${during.swiftshaderWorkers} SwiftShader workers, not ${ssThreads}`, 3);
+  };
+  const save = () => { fs.mkdirSync(path.dirname(outPath), { recursive: true }); fs.writeFileSync(outPath, canonicalJson(res)); };
+  for (const step of steps) {
+    const log = path.join(work, `${step}.log`);
+    // 부하 지킴: 그리는 단계는 놀고 있는 컨테이너에서만 시작(G1 build note 19). 기록은 단계가 끝나야 남음(거절이면 b.json 의 그 단계는 그대로).
+    const gate = RENDER_STEPS.includes(step) ? await idleGate(step, waitIdle) : null;
+    if (gate) console.log(`IDLE ${step} loadavg ${gate.before.map(x => x.toFixed(2)).join(' ')} waited ${gate.waitedSec} s`);
+    const t0 = Date.now(), stepStart = new Date(t0).toISOString();
+    if (step === 'build') {
+      const rc = runLogged('bash', ['tools/genus-ruler/volsky/build.sh'], log);
+      if (rc !== 0) die(`build.sh exit ${rc}`, 3);
+      const app = fs.readFileSync(path.join(ROOT, '.harness/volsky/app.js'));
+      res.harnessBundle = { sha256: sha256(app), md5: md5(app), build: 'tools/genus-ruler/volsky/build.sh', out: '.harness/volsky/app.js' };
+    } else if (step === 'run1' || step === 'run2' || step === 'control') {
+      if (!res.harnessBundle) die('run the build step first', 3);
+      const app = fs.readFileSync(path.join(ROOT, '.harness/volsky/app.js'));
+      if (sha256(app) !== res.harnessBundle.sha256) die('.harness/volsky/app.js changed since the build step', 3);
+      const dir = path.join(work, step);
+      fs.rmSync(dir, { recursive: true, force: true });
+      const jf = step === 'control' ? path.resolve(o['--control']) : path.resolve(o['--jobs']);
+      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/volsky/run.js', step), jf, dir, W, H, 'gen'], log, envFor(step));
+      if (rc !== 0) die(`run.js ${step} exit ${rc}`, 3);
+      checkWorkers(step, during);
+      res.load = { ...(res.load ?? {}), [step]: { ...gate, during } };
+      res[step] = pngMd5(dir, step === 'control' ? cnames : names);
+      res[`${step}Bundle`] = res.harnessBundle.sha256;
+      // 거시 격자가 실제로 걸렸는지(G1 잡의 전제 macro: 1) — run.js 의 results.json 균일변수 덤프에서 genusMacroTexOn
+      const rj = JSON.parse(fs.readFileSync(path.join(dir, 'results.json'), 'utf8'));
+      res[`${step}MacroOn`] = Object.fromEntries(Object.entries(rj).map(([n, v]) => [n, v?.uvLane?.clouds?.genusMacroTexOn === 1 && v?.uvLane?.shadow?.genusMacroTexOn === 1]));
+      res[`${step}GlError`] = Object.fromEntries(Object.entries(rj).map(([n, v]) => [n, v?.glError ?? null]));
+    } else if (step === 'keys') {
+      if (!res.harnessBundle) die('run the build step first', 3);
+      const dir = path.join(work, 'keys');
+      fs.rmSync(dir, { recursive: true, force: true });
+      const kj = path.join(work, 'keys.json');
+      const { status: rc, during } = await runMonitored('node', [...nodeArgs('tools/genus-ruler/oro/g1/g1-keys.cjs', 'keys'), path.resolve(o['--jobs']), dir, kj, W, H], log, envFor('keys'));
+      if (rc !== 0) die(`g1-keys exit ${rc}`, 3);
+      checkWorkers('keys', during);
+      res.load = { ...(res.load ?? {}), keys: { ...gate, during } };
+      const k = JSON.parse(fs.readFileSync(kj, 'utf8'));
+      res.keys = k.jobs;
+      res.keysBundle = res.harnessBundle.sha256;
+    }
+    // 호출 기록: 이 단계는 이 호출이 그렸음(시작·끝 ISO)
+    const stepEnd = new Date().toISOString();
+    res.stepRuns = { ...(res.stepRuns ?? {}), [step]: { invocation: id, start: stepStart, end: stepEnd } };
+    A.completed.push({ step, start: stepStart, end: stepEnd });
+    if (step === 'build') A.bundle = res.harnessBundle;
+    else { A.md5[step] = stepMd5(res[step]); A.load[step] = res.load[step]; }
+    if (step === 'control') seedMergeAARef(res, work, cnames, ref);
+    res.mismatches = characterise(res, work, names, cnames, ref);
+    A.mismatches = res.mismatches;
+    res.invocations = [...new Set(Object.values(res.stepRuns).map(r => r.invocation))].sort();
+    res.singleInvocation = STEPS_ALL.every(s => res.stepRuns[s]?.invocation === id);
+    const ld = res.load?.[step]?.during;
+    console.log(`STEP ${step} ${Math.round((Date.now() - t0) / 1000)} s${ld && gate ? ` foreignCores ${ld.foreignCores} (peak ${ld.foreignPeakCores})` : ''}`);
+    save();
+  }
+  // A/A 와 일치 점검(있는 단계만)
+  if (res.run1MacroOn) res.macroOnAllJobs = names.every(n => res.run1MacroOn[n] === true && (!res.run2MacroOn || res.run2MacroOn[n] === true));
+  if (res.run1 && res.run2) {
+    res.aa = names.every(n => res.run1[n].rgb && res.run1[n].alpha && res.run1[n].rgb === res.run2[n].rgb && res.run1[n].alpha === res.run2[n].alpha);
+    res.aaDiff = names.flatMap(n => ['rgb', 'alpha'].filter(k => res.run1[n][k] !== res.run2[n][k]).map(k => `${n}.${k}`));
+  }
+  // 부하 지킴 요약(네 그리기 단계가 모두 기록돼 있을 때만 참)
+  res.renderUnloaded = RENDER_STEPS.every(s => {
+    const l = res.load?.[s];
+    return !!l && l.before[0] < LOAD_MAX && Array.isArray(l.heavy) && l.heavy.length === 0 && !!l.during && l.during.foreignCores < FOREIGN_CORES_MAX;
+  });
+  if (res.run1 && res.keys) res.keysMatchRun1 = names.every(n => res.keys[n] && res.keys[n].rgb === res.run1[n].rgb && res.keys[n].alpha === res.run1[n].alpha);
+  if (res.control) {
+    const aa = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/oro/merge-aa.json'), 'utf8'));
+    res.controlMatchesMergeAA = !!ref && cnames.every(n => res.control[n].rgb === ref[n]?.rgb && res.control[n].alpha === ref[n]?.alpha);
+    res.controlBundleMd5MatchesMergeAA = !!aa.post && res.harnessBundle.md5 === aa.post.bundleMd5;
+  }
+  // 호출 요약: 다섯 단계가 모두 이 호출이면 singleInvocation(g1-baseline --final 의 renderSingleInvocation)
+  res.invocations = [...new Set(Object.values(res.stepRuns ?? {}).map(r => r.invocation))].sort();
+  res.singleInvocation = STEPS_ALL.every(s => res.stepRuns?.[s]?.invocation === id);
+  res.mismatches = characterise(res, work, names, cnames, ref);
+  A.mismatches = res.mismatches;
+  A.flags = { aa: res.aa ?? null, keysMatchRun1: res.keysMatchRun1 ?? null, controlMatchesMergeAA: res.controlMatchesMergeAA ?? null, renderUnloaded: res.renderUnloaded, singleInvocation: res.singleInvocation };
+  save();
+  for (const m of res.mismatches) console.log(`MISMATCH ${mismatchSummary(m)}`);
+  console.log(`DONE invocation ${id} single ${res.singleInvocation} unloaded ${res.renderUnloaded} aa ${res.aa ?? '-'} keysMatchRun1 ${res.keysMatchRun1 ?? '-'} control ${res.controlMatchesMergeAA ?? '-'} bundleMd5=mergeAA ${res.controlBundleMd5MatchesMergeAA ?? '-'} mismatches ${res.mismatches.length}`);
+}
+
+if (path.resolve(process.argv[1] ?? '') === path.resolve(new URL(import.meta.url).pathname)) await main();

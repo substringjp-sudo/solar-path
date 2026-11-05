@@ -1,0 +1,447 @@
+{
+ "calibration": {
+  "mu=0.00,kappa=1": {
+   "beta": 0.0,
+   "bracketed": true,
+   "medianRhoRes": -7.481691106964019e-05
+  },
+  "mu=0.00,kappa=3": {
+   "beta": 0.0,
+   "bracketed": true,
+   "medianRhoRes": -0.0003751949661310489
+  },
+  "mu=0.05,kappa=1": {
+   "beta": 0.03143197859981228,
+   "bracketed": true,
+   "medianRhoRes": 0.05000000000067128
+  },
+  "mu=0.05,kappa=3": {
+   "beta": 0.03154636827230206,
+   "bracketed": true,
+   "medianRhoRes": 0.05000000000022688
+  },
+  "mu=0.10,kappa=1": {
+   "beta": 0.06305450944864788,
+   "bracketed": true,
+   "medianRhoRes": 0.09999999999965456
+  },
+  "mu=0.10,kappa=3": {
+   "beta": 0.06309586433189907,
+   "bracketed": true,
+   "medianRhoRes": 0.10000000000005765
+  },
+  "mu=0.15,kappa=1": {
+   "beta": 0.09516297294931064,
+   "bracketed": true,
+   "medianRhoRes": 0.1499999999993771
+  },
+  "mu=0.15,kappa=3": {
+   "beta": 0.09513583081343313,
+   "bracketed": true,
+   "medianRhoRes": 0.15000000000008037
+  }
+ },
+ "cells": {
+  "mu=0.00,sigma=0.15,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.00,sigma=0.15,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.00,sigma=0.20,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.00,sigma=0.20,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.05,sigma=0.15,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.05,sigma=0.15,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.05,sigma=0.20,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.05,sigma=0.20,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.10,sigma=0.15,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.10,sigma=0.15,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.10,sigma=0.20,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.10,sigma=0.20,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.15,sigma=0.15,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.15,sigma=0.15,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.15,sigma=0.20,kappa=1": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  },
+  "mu=0.15,sigma=0.20,kappa=3": {
+   "pA_c2c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0,
+   "product": 0.0
+  }
+ },
+ "cellsA": {
+  "mu=0.00,sigma=0.15": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.00,sigma=0.20": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.05,sigma=0.15": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.05,sigma=0.20": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.10,sigma=0.15": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.10,sigma=0.20": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.15,sigma=0.15": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  },
+  "mu=0.15,sigma=0.20": {
+   "pA_c2": 0.0,
+   "pA_c2c3": 0.0,
+   "pA_c3": 0.0
+  }
+ },
+ "cellsB": {
+  "mu=0.00,kappa=1": {
+   "beta": 0.0,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.00,kappa=3": {
+   "beta": 0.0,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.05,kappa=1": {
+   "beta": 0.03143197859981228,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.05,kappa=3": {
+   "beta": 0.03154636827230206,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.10,kappa=1": {
+   "beta": 0.06305450944864788,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.10,kappa=3": {
+   "beta": 0.06309586433189907,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.15,kappa=1": {
+   "beta": 0.09516297294931064,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  },
+  "mu=0.15,kappa=3": {
+   "beta": 0.09513583081343313,
+   "nB_c2c3": 0,
+   "pB_c2": 0.0,
+   "pB_c2c3": 0.0,
+   "pB_c3": 0.0,
+   "pB_c3b_given": null,
+   "pB_joint": 0.0
+  }
+ },
+ "decision": {
+  "below0.2": true,
+  "mu": 0.1,
+  "over": "min product over sigma × kappa",
+  "value": 0.0
+ },
+ "falsePass": {
+  "null": {
+   "sigma=0.15,kappa=1": {
+    "pA_c2c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0,
+    "product": 0.0
+   },
+   "sigma=0.15,kappa=3": {
+    "pA_c2c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0,
+    "product": 0.0
+   },
+   "sigma=0.20,kappa=1": {
+    "pA_c2c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0,
+    "product": 0.0
+   },
+   "sigma=0.20,kappa=3": {
+    "pA_c2c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0,
+    "product": 0.0
+   }
+  },
+  "sitePattern": {
+   "A=0.05,kappa=1": {
+    "nB_c2c3": 0,
+    "pB_c2": 0.0,
+    "pB_c2c3": 0.0,
+    "pB_c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0
+   },
+   "A=0.05,kappa=3": {
+    "nB_c2c3": 0,
+    "pB_c2": 0.0,
+    "pB_c2c3": 0.0,
+    "pB_c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0
+   },
+   "A=0.10,kappa=1": {
+    "nB_c2c3": 0,
+    "pB_c2": 0.0,
+    "pB_c2c3": 0.0,
+    "pB_c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0
+   },
+   "A=0.10,kappa=3": {
+    "nB_c2c3": 0,
+    "pB_c2": 0.0,
+    "pB_c2c3": 0.0,
+    "pB_c3": 0.0,
+    "pB_c3b_given": null,
+    "pB_joint": 0.0
+   }
+  }
+ },
+ "models": {
+  "A": {
+   "clip": 1.0,
+   "eCorr": -0.79,
+   "revSlope": -0.8,
+   "sigmas": [
+    0.15,
+    0.2
+   ],
+   "siteSd": 0.05,
+   "source": "draft1 stat/sim2c.py",
+   "tests": "c2 ∧ c3 (median, L95, sign flip)"
+  },
+  "B": {
+   "bandLogSd": 0.6,
+   "bandWavelengthKm": 45.0,
+   "c3b": "mean d_shuf on W, sign flip (mean) p ≤ 0.10; 못 잼 → not passing",
+   "cEven": 0.175,
+   "dCScale": 0.02,
+   "grid": [
+    64,
+    6.0
+   ],
+   "highPassKm": 10.0,
+   "kappas": [
+    1.0,
+    3.0
+   ],
+   "noiseKm": 7.0,
+   "patternDirection": "prevailing",
+   "source": "draft2 recheck-sims/simA2_gshuf_mean.py"
+  }
+ },
+ "notes": {
+  "c2bC8": "[estimate] only, not multiplied (L615)",
+  "c6": "not included (D12)"
+ },
+ "pendingSites": {
+  "ring": [],
+  "sounding": []
+ },
+ "placement": {
+  "c3bMeasurable": false,
+  "dates": [
+   "2026-09-01",
+   "2026-10-03",
+   "2026-10-07",
+   "2026-10-15"
+  ],
+  "gshufScenes": 3,
+  "gshufSites": [
+   "sapporo"
+  ],
+  "n": 4,
+  "nDates": 4,
+  "sites": {
+   "denver": 1,
+   "sapporo": 3
+  }
+ },
+ "provisional": false,
+ "reps": {
+  "bootstrap": 1000,
+  "calibration": 2000,
+  "calibrationSteps": 40,
+  "cell": 1000
+ },
+ "schema": "power-oro/1",
+ "seeds": {
+  "bootstrapCalls": 20261103,
+  "calibration": 20261103,
+  "cells": {
+   "A:mu=0.00,sigma=0.15": 20261103,
+   "A:mu=0.00,sigma=0.20": 20261104,
+   "A:mu=0.05,sigma=0.15": 20261105,
+   "A:mu=0.05,sigma=0.20": 20261106,
+   "A:mu=0.10,sigma=0.15": 20261107,
+   "A:mu=0.10,sigma=0.20": 20261108,
+   "A:mu=0.15,sigma=0.15": 20261109,
+   "A:mu=0.15,sigma=0.20": 20261110,
+   "B:mu=0.00,kappa=1": 20261111,
+   "B:mu=0.00,kappa=3": 20261112,
+   "B:mu=0.05,kappa=1": 20261113,
+   "B:mu=0.05,kappa=3": 20261114,
+   "B:mu=0.10,kappa=1": 20261115,
+   "B:mu=0.10,kappa=3": 20261116,
+   "B:mu=0.15,kappa=1": 20261117,
+   "B:mu=0.15,kappa=3": 20261118,
+   "P:A=0.05,kappa=1": 20261119,
+   "P:A=0.05,kappa=3": 20261120,
+   "P:A=0.10,kappa=1": 20261121,
+   "P:A=0.10,kappa=3": 20261122
+  },
+  "signFlipMC": 20261103
+ },
+ "sources": {
+  "code": {
+   "oro.py": "c31fe15db798f5ff96df7304dcaf68f5f264b2d9725dd0fb35fc5b70249f16bd",
+   "oro_ref.py": "88a600ba7f3df178ca9e46437826e19354f84dd13c9dcd7c4f5e87f9a01576f2"
+  },
+  "env": {
+   "Pillow": "12.3.0",
+   "machine": "x86_64",
+   "numpy": "2.5.3",
+   "numpyCpuBaseline": [
+    "X86_V2"
+   ],
+   "numpyCpuDispatch": [
+    "AVX512_ICL",
+    "AVX512_SPR",
+    "X86_V3",
+    "X86_V4"
+   ],
+   "python": "3.13.18"
+  },
+  "oroApply": {
+   "path": "tools/genus-ruler/oro/oro-apply.json",
+   "sha256": "fe6b579cd3df61833bda5b848111f095e74e2d0a7936f232a7fa5992c9d68d1d"
+  }
+ },
+ "status": "ok"
+}
