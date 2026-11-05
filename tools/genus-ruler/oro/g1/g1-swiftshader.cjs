@@ -6,7 +6,7 @@
  * (quarter-res row 3) ~1 half-float ulp differently, in single frames at certain temporal-jitter phases. The 16-frame temporal
  * upscale carries it to the output, so P0_seoul's rgb lands on one of a few discrete states (control 97b2edf6/a6d7d5c8, G1
  * ee0ad83b/bc8cd61f/520cb701/771abaab/...). Not the CPU/GL side, not GPU command timing (gl.finish after every draw keeps it), not
- * ANGLE event barriers / async GC, not the FP mode (all workers FTZ|DAZ). Two shader candidates were tested and did NOT remove it
+ * ANGLE async GC / command-buffer reset, not the FP mode (all workers FTZ|DAZ). Two shader candidates were tested and did NOT remove it
  * (marchOpticalDepth's unwritten out param; getMipLevel's dFdx/dFdy in non-uniform control flow) — the instruction-level cause
  * inside SwiftShader is not isolated. With ONE SwiftShader worker the render is repeatable (on a different, equally valid state).
  *
