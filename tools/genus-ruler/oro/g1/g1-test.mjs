@@ -2,27 +2,38 @@
 /**
  * g1-test.mjs — G1 기준 도구의 시험(S3-design.md §8, 자 L748·L862). 자의 기준을 바꾸지 않고, 도구가 그 기준을 제대로 재는지만 봅니다.
  *
- *   node tools/genus-ruler/oro/g1/g1-test.mjs [--only ID[,ID…]]
+ *   node tools/genus-ruler/oro/g1/g1-test.mjs [--only ID[,ID…]] [--baseline <g1-baseline.json>]
  *
  * 한 시험이 한 줄: `ID PASS|FAIL|SKIP key=value…`. exit 0 iff FAIL 없음(SKIP 은 통과가 아님).
+ * --baseline: BASELINE·CONTAM 이 볼 파일(기본 tools/genus-ruler/oro/g1-baseline.json; 임시 측정은 .harness/oro/g1/ 아래).
+ * "G1 build note N" = S3-design.md '### G1 baseline tooling' 아래 N 번(같은 번호가 oro.py 쪽에도 있음).
  *   MD5-ALLOW  g1-md5 가 허용 목록만 씀: 가짜 trueGrid·cover·empty 와 허용 밖 키를 바꾼 inputs 사본으로 출력 같음, 허용 키 하나를
  *              바꾸면 그 밴드만 달라짐(음성 대조), 두 번 따로 돌려 바이트 같음, fs 감사(읽은 파일·쓴 파일·명령), 금지 경로 거절.
- *   MD5-CROSS  실제 a 조각: 121 × 3, 모드 1 base md5 = oro-base 가 쓴 .harness/oro/base/<scene>__closest__<band>.f32 의 md5
+ *   MD5-CROSS  실제 a 조각: oro-inputs 장면 수(121 + 확장) × 3, 모드 1 base md5 = oro-base 가 쓴 .harness/oro/base/<scene>__closest__<band>.f32 의 md5
  *              (같은 허용 목록 길·같은 B 번들), cover = base(noise false), macro 번들 = oro-base B 번들(Q-45), state 배열 = re·im.
  *   MD5-CHAIN  모드 2: 걸음마다 md5 가 다름(사슬이 실제로 걸음), 첫 장 ≠ 1 걸음; 사슬 번들로 다시 잰 모드 1 = B 번들 모드 1.
  *   JOBS       잡 파일을 다시 만들면 바이트 같음; 잡 넷·이름·G1 옵션; 고리 입력 = oro-inputs closest 고리(비트 같음); B0_app·P0_seoul
  *              의 나머지는 원래 잡 그대로; 산악 둘 = kanazawa 처음 두 날짜, dev, A1 ✓(oro-apply); 대조 잡 = 원래 잡; 감사.
  *   QKEY       qKey 식 꺼내기: 손으로 계산한 문자열과 같음, 식이 둘이면 거절.
  *   LIVE       g1-live 두 번(따로) 출력 바이트 같음, 검사 통과; 가로채기 음성 대조(남은 타이머·진짜 망 시도·D6 꼴 요청을 잡음).
- *   CALLSITES  정적 호출 자리(build note 17): 작업 트리 = d 조각, 알려진 자리; src 사본(.ts/.tsx 만)에 한 줄씩 바꾼 변이 —
+ *   CALLSITES  정적 호출 자리(G1 build note 17): 작업 트리 = d 조각, 알려진 자리; src 사본(.ts/.tsx 만)에 한 줄씩 바꾼 변이 —
  *              실행 경로 밖의 요청(SkyScene3D fetch·이름 없는 weather 적재기·지형 요청 더함·volumetricScene WebSocket·liveScene 의
  *              닿지 않는 export)은 자리가 늘고, 실행 경로 안의 옵션 문(fetchDayWeatherRing 마지막 인자·buildLiveScene 적재기)은 그대로;
  *              runPath 가 세 요청 뿌리에 OPTIONS 를 마지막 인자로 넘김.
- *   RENDER     b 조각: A/A, 키 실행 = run1, 대조 = merge-aa.json, chromium 판·깃발 = merge-aa.json, 잡마다 키 하나, 부하 지킴 통과.
- *   LOADGUARD  부하 지킴(build note 19): 남의 CPU 프로세스(바쁜 고리)가 돌 때 g1-render --wait-idle 0 이 그리지 않고 exit 3; 조각
- *              b 의 부하 기록을 바꾼 사본으로 g1-baseline 이 쓰지 않음; --final 은 status.final 이 아니면 쓰지 않음(build note 20).
- *   BASELINE   g1-baseline.json: §8 꼴의 키, 장면 121 × 3, 15 걸음, 조각에서 다시 모으면 바이트 같음.
- *   CONTAM     저장소에 gate-oro-*.json·judge.lock(.1) 없음, 조각·잡 파일에 MODIS 키(trueGrid·empty) 없음.
+ *   RENDER     b 조각: A/A, 키 실행 = run1, 대조 = merge-aa.json, chromium 판·깃발 = merge-aa.json, 잡마다 키 하나, 부하 지킴 통과;
+ *              호출 기록(G1 build note 19 fix G1-REC): invocation·stepRuns 다섯 단계, 한 호출, render-attempts.jsonl 에 exit 0 과 같은
+ *              md5 로 있음, mismatches[] 마당 갖춤·aa/keysMatchRun1/controlMatchesMergeAA 와 맞음; 일꾼 1 개 고정(fix G1-DET).
+ *   LOADGUARD  부하 지킴(G1 build note 19): 남의 CPU 프로세스(바쁜 고리)가 돌 때 g1-render --wait-idle 0 이 그리지 않고 exit 3, 그
+ *              호출이 render-attempts.jsonl 에 exit 3 으로 남음; 조각 b 의 부하 기록을 바꾼 사본으로 g1-baseline 이 쓰지 않음;
+ *              --final 은 status.final 이 아니면 쓰지 않음(G1 build note 20).
+ *   INVOCATION 호출 id(G1 build note 19 fix G1-REC): control 이 다른 호출 id 인 b 사본은 status.renderSingleInvocation 거짓, --final
+ *              이 거절(NOT-FINAL renderSingleInvocation); 호출 기록 없는 사본은 아예 거절; md5 하나를 고친 사본은 renderInvocationLogged
+ *              거짓; status.renderAttempts 에 이 b 를 만든 호출.
+ *   MISMATCH   어긋남 재기(fix G1-REC): 거르개 0~4 를 모두 쓴 합성 PNG 풀기, 화소 수·상자·단계·채널; 합성 작업 폴더에서 characterise
+ *              (aa·control, 기록과 다른 PNG 는 decoded 거짓); 실제 b 의 mismatches[] 마당; g1-baseline status.mismatches 요약.
+ *   BASELINE   g1-baseline.json(--baseline): §8 꼴의 키와 G1 build note 19·20 의 status 마당, 장면(121 + 확장) × 3, 15 걸음,
+ *              조각에서 다시 모으면 바이트 같음.
+ *   CONTAM     저장소에 gate-oro-*.json·judge.lock(.1) 없음, 조각·잡 파일·기준 파일·render-attempts.jsonl 에 MODIS 키(trueGrid·empty) 없음.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,12 +42,20 @@ import { createRequire } from 'node:module';
 import {
   BANDS3, G1_HARNESS, ROOT, canonicalJson, extractQKey, md5, pickRingInputs, resolveCommit, ringPoints, sha256,
 } from './g1-lib.mjs';
+import { ATTEMPTS_FILE, INVOCATION_RE, invocationLogged, readAttempts } from './g1-attempts.mjs';
+import { decodePng, encodePng, mismatchSummary, pngDiff, validMismatch } from './g1-png.mjs';
+import { characterise } from './g1-render.mjs';
 
 const G = path.join(ROOT, 'tools/genus-ruler/oro/g1');
 const INPUTS = path.join(ROOT, 'tools/genus-ruler/oro/oro-inputs.json');
 const PARTS = path.join(G1_HARNESS, 'parts');
 const TMP = path.join(G1_HARNESS, 'test-tmp');
-const only = (() => { const i = process.argv.indexOf('--only'); return i > 0 ? new Set(process.argv[i + 1].split(',')) : null; })();
+const argOf = k => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
+const only = argOf('--only') ? new Set(argOf('--only').split(',')) : null;
+const BASELINE_FILE = path.resolve(argOf('--baseline') ?? path.join(ROOT, 'tools/genus-ruler/oro/g1-baseline.json'));
+const STEPS5 = ['build', 'run1', 'run2', 'control', 'keys'], RENDER4 = ['run1', 'run2', 'control', 'keys'], PINNED = ['run1', 'run2', 'keys'];
+/** oro-inputs.json 의 장면 수(121 + 확장; §8 "121 (+ ext)"). 장면 이름만 셈. */
+const nScenes = () => Object.keys(JSON.parse(fs.readFileSync(INPUTS, 'utf8')).scenes).length;
 const results = [];
 const fmt = v => (typeof v === 'number' && !Number.isInteger(v) ? Number(v.toPrecision(6)) : v);
 
@@ -202,7 +221,8 @@ await test('MD5-CROSS', async ck => {
   if (!fs.existsSync(af)) { ck.skip = 'no a.json part'; return; }
   const A = rdJson(af);
   const names = Object.keys(A.a).sort();
-  ck.ok(names.length === 121 && names.every(s => BANDS3.every(b => A.a[s][b] && A.aMode2[s][b] && A.aMode2[s][b].length === 15)), 'shape121x3x15');
+  const nSc = nScenes();
+  ck.ok(names.length === nSc && A.inputs.scenes === nSc && names.every(s => BANDS3.every(b => A.a[s][b] && A.aMode2[s][b] && A.aMode2[s][b].length === 15)), 'shapeScenesx3x15');
   const head = resolveCommit('g1-test', 'HEAD');
   ck.ok(A.commit === head || cp.spawnSync('git', ['diff', '--quiet', A.commit, head, '--', 'src', 'tools/genus-ruler/volsky'], { cwd: ROOT }).status === 0, 'commitAppSameAsHEAD');
   ck.ok(A.inputs.oroInputsSha256 === sha256(fs.readFileSync(INPUTS)), 'inputsSha');
@@ -438,9 +458,36 @@ await test('RENDER', async ck => {
   ck.ok(keys.size === jobs.length, 'keysDistinct');
   const rgb = new Set(jobs.map(j => B.run1[j.name].rgb));
   ck.ok(rgb.size === jobs.length, 'rendersDistinct');
-  ck.kv = { jobs: jobs.length, oneKey, aaDiff: (B.aaDiff ?? []).join('+') || 'none', chromium: JSON.stringify(B.versions.chromium),
+  // 호출 기록(fix G1-REC): 다섯 단계 모두 한 g1-render 호출, 그 호출이 기록 파일에 exit 0·같은 md5 로 있음
+  const SR = B.stepRuns ?? {};
+  ck.ok(!!B.invocation && INVOCATION_RE.test(B.invocation.id ?? '') && STEPS5.every(st => SR[st] && INVOCATION_RE.test(SR[st].invocation ?? '') && SR[st].start <= SR[st].end), 'invocationRecord');
+  ck.ok(B.singleInvocation === true && STEPS5.every(st => SR[st]?.invocation === B.invocation?.id), 'singleInvocation');
+  ck.ok(invocationLogged(B, readAttempts().recs, RENDER4), 'attemptLogged');
+  // 어긋남 재기: 마당 갖춤, 판정 깃발과 맞음(깃발 참 ⇔ 그 종류의 어긋남 없음)
+  const mm = Array.isArray(B.mismatches) ? B.mismatches : null, nk = k => (mm ?? []).filter(m => m.kind === k).length;
+  ck.ok(!!mm && mm.every(validMismatch) && (B.aa === true) === (nk('aa') === 0) && (B.keysMatchRun1 === true) === (nk('keys') === 0)
+    && (B.controlMatchesMergeAA === true) === (nk('control') === 0), 'mismatchesConsistent');
+  // 일꾼 1 개 고정(fix G1-DET): run1·run2·keys 만, 사본 chrome 은 원본과 같은 inode
+  const ss = B.versions.swiftshader;
+  ck.ok(!!ss && ss.threads === 1 && ss.sameInode === true && JSON.stringify(ss.steps) === JSON.stringify(PINNED) && PINNED.every(st => L[st]?.during?.swiftshaderWorkers === 1), 'pinnedSingleWorker');
+  ck.kv = { jobs: jobs.length, oneKey, aaDiff: (B.aaDiff ?? []).join('+') || 'none', mismatches: mm ? mm.length : '-', invocation: B.invocation?.id ?? '-', chromium: JSON.stringify(B.versions.chromium),
     load1: Math.max(...['run1', 'run2', 'control', 'keys'].map(st => L[st]?.before?.[0] ?? 99)), foreign: Math.max(...['run1', 'run2', 'control', 'keys'].map(st => L[st]?.during?.foreignCores ?? 99)) };
 });
+
+// 실제 조각으로 test-tmp 에서 g1-baseline 을 돌리는 고정물(LOADGUARD·INVOCATION·MISMATCH): a·d 는 그대로, b 는 mut 로 고친 사본.
+// 부하·호출과 무관한 b 의 판정(A/A·키 실행·대조·거시 격자)이 실제 조각에서 거짓이면 사본에서만 참으로 두고 forced 로 밝힘
+// (그 판정은 실제 조각에서 RENDER 가 봄).
+const OTHER_FLAGS = ['aa', 'keysMatchRun1', 'controlMatchesMergeAA', 'controlBundleMd5MatchesMergeAA', 'macroOnAllJobs'];
+const partsReady = () => ['a.json', 'b.json', 'd.json'].every(f => fs.existsSync(path.join(PARTS, f)));
+function assembleCopy(d, tag, B0, mut, extra = []) {
+  const forced = OTHER_FLAGS.filter(k => B0[k] !== true);
+  const pd = fresh(path.join(d, `parts-${tag}`));
+  for (const f of ['a.json', 'd.json']) fs.copyFileSync(path.join(PARTS, f), path.join(pd, f));
+  const B = JSON.parse(JSON.stringify(B0)); for (const k of forced) B[k] = true; mut(B); fs.writeFileSync(path.join(pd, 'b.json'), canonicalJson(B));
+  const o2 = path.join(d, `g1-baseline-${tag}.json`); fs.rmSync(o2, { force: true });
+  const r = node([path.join(G, 'g1-baseline.mjs'), '--parts', pd, '--jobs', path.join(G, 'jobs-g1.json'), '--inputs', INPUTS, '--out', o2, ...extra]);
+  return { r, wrote: fs.existsSync(o2), o2, forced };
+}
 
 await test('LOADGUARD', async ck => {
   const d = fresh(path.join(TMP, 'loadguard'));
@@ -454,24 +501,21 @@ await test('LOADGUARD', async ck => {
       '--work', work, '--steps', 'run1', '--wait-idle', '0']);
     ck.ok(r.status === 3 && /run1: container not idle/.test(r.stderr) && /node\(\d+\)/.test(r.stderr), 'renderRefusedUnderLoad');
     ck.ok(!fs.existsSync(path.join(work, 'run1')) && !fs.existsSync(out), 'nothingRendered');
+    // 거절된 호출도 render-attempts.jsonl 에 남음(fix G1-REC): 이 out 의 마지막 start 와 그 end(exit 3, 끝낸 단계 없음)
+    const { recs } = readAttempts();
+    const outRel = path.relative(ROOT, out).split(path.sep).join('/');   // g1-render 는 저장소 안의 경로를 뿌리 기준으로 적음
+    const st = recs.filter(x => x.event === 'start' && x.out === outRel).pop();
+    const en = st && recs.find(x => x.event === 'end' && x.invocation === st.invocation);
+    ck.ok(!!st && !!en && en.exitCode === 3 && en.completed.length === 0 && /container not idle/.test(en.error ?? ''), 'refusalLogged');
     ck.kv.renderExit = r.status;
   } finally { hog.kill('SIGKILL'); }
   // 2. g1-baseline: 부하 기록이 어긋난 b 사본이면 쓰지 않음; --final 은 final 이 아니면 쓰지 않음
-  if (!['a.json', 'b.json', 'd.json'].every(f => fs.existsSync(path.join(PARTS, f)))) { ck.skip = 'no parts'; return; }
+  if (!partsReady()) { ck.skip = 'no parts'; return; }
   const B0 = rdJson(path.join(PARTS, 'b.json'));
   if (!B0.load) { ck.skip = 'b.json without load record'; return; }
-  // 시험 고정물: 부하와 무관한 b 의 판정(A/A·키 실행·대조·거시 격자)이 실제 조각에서 거짓이면 사본에서만 참으로 두고 forced= 로 밝힘
-  // (이 시험은 부하 지킴과 --final 만 봄; 실제 조각의 그 판정은 RENDER 가 봄)
-  const OTHER = ['aa', 'keysMatchRun1', 'controlMatchesMergeAA', 'controlBundleMd5MatchesMergeAA', 'macroOnAllJobs'];
-  const forced = OTHER.filter(k => B0[k] !== true);
-  const assemble = (tag, mut, extra = []) => {
-    const pd = fresh(path.join(d, 'parts'));
-    for (const f of ['a.json', 'd.json']) fs.copyFileSync(path.join(PARTS, f), path.join(pd, f));
-    const B = JSON.parse(JSON.stringify(B0)); for (const k of forced) B[k] = true; mut(B); fs.writeFileSync(path.join(pd, 'b.json'), canonicalJson(B));
-    const o2 = path.join(d, `g1-baseline-${tag}.json`); fs.rmSync(o2, { force: true });
-    const r = node([path.join(G, 'g1-baseline.mjs'), '--parts', pd, '--jobs', path.join(G, 'jobs-g1.json'), '--inputs', INPUTS, '--out', o2, ...extra]);
-    return { r, wrote: fs.existsSync(o2), o2 };
-  };
+  // 이 시험은 부하 지킴과 --final 만 봄(assembleCopy 의 forced)
+  const forced = OTHER_FLAGS.filter(k => B0[k] !== true);
+  const assemble = (tag, mut, extra = []) => assembleCopy(d, tag, B0, mut, extra);
   const same = assemble('same', () => {});
   ck.ok(same.r.status === 0 && same.wrote, 'unchangedWrites');
   const loaded = assemble('loaded', B => { B.load.run2.before[0] = 1.5; });
@@ -487,38 +531,132 @@ await test('LOADGUARD', async ck => {
   ck.kv = { ...ck.kv, forced: forced.join('+') || 'none', final: X ? X.status.final : '-', notFinal: X ? X.status.notFinal.join('+') || 'none' : '-' };
 });
 
+await test('INVOCATION', async ck => {
+  if (!partsReady()) { ck.skip = 'no parts'; return; }
+  const B0 = rdJson(path.join(PARTS, 'b.json'));
+  if (!B0.invocation || !B0.stepRuns) { ck.skip = 'b.json without invocation record (g1-render before fix G1-REC)'; return; }
+  const d = fresh(path.join(TMP, 'invocation'));
+  const id0 = B0.invocation.id;
+  // id 꼴: <pid>-<시작 ISO>-<무작위 8 자>, pid·startedAt 과 맞음
+  const m = INVOCATION_RE.exec(id0 ?? '');
+  ck.ok(!!m && Number(m[1]) === B0.invocation.pid && m[2] === B0.invocation.startedAt, 'idForm');
+  const single = B0.singleInvocation === true;
+  // 1. 고치지 않은 사본: 실제 b 와 같은 판정
+  const same = assembleCopy(d, 'same', B0, () => {});
+  const X = same.wrote ? rdJson(same.o2) : null;
+  ck.ok(same.r.status === 0 && !!X && X.status.renderSingleInvocation === single && X.status.notFinal.includes('renderSingleInvocation') === !single
+    && JSON.stringify(X.status.renderInvocations) === JSON.stringify(B0.invocations), 'sameCopy');
+  // 2. control 만 다른 호출 id(--steps control 로 다시 그린 b 꼴): 표시되고 --final 이 거절
+  const other = `${process.pid}-${new Date().toISOString()}-0badc0de`;
+  const mixCtl = B => { B.stepRuns.control.invocation = other; };
+  const mixed = assembleCopy(d, 'mixed', B0, mixCtl);
+  const XM = mixed.wrote ? rdJson(mixed.o2) : null;
+  ck.ok(mixed.r.status === 0 && !!XM && XM.status.renderSingleInvocation === false && XM.status.final === false && XM.status.notFinal.includes('renderSingleInvocation')
+    && XM.status.renderInvocations.includes(other) && XM.status.renderInvocations.includes(id0), 'mixedMarked');
+  const mixedFinal = assembleCopy(d, 'mixed-final', B0, mixCtl, ['--final']);
+  ck.ok(mixedFinal.r.status === 1 && !mixedFinal.wrote && /NOT-FINAL renderSingleInvocation/.test(mixedFinal.r.stderr), 'mixedControlRefusedFinal');
+  const sameFinal = assembleCopy(d, 'same-final', B0, () => {}, ['--final']);
+  ck.ok(/NOT-FINAL renderSingleInvocation/.test(sameFinal.r.stderr) === !single, 'sameFinalInvocationLine');
+  // 3. 호출 기록이 없는 b(fix G1-REC 앞의 g1-render): 아예 쓰지 않음
+  const none = assembleCopy(d, 'none', B0, B => { delete B.invocation; delete B.stepRuns; });
+  ck.ok(none.r.status === 1 && !none.wrote && /no invocation record/.test(none.r.stderr), 'noRecordRefused');
+  const noCtl = assembleCopy(d, 'no-control', B0, B => { delete B.stepRuns.control; });
+  ck.ok(noCtl.r.status === 1 && !noCtl.wrote && /no invocation record for control/.test(noCtl.r.stderr), 'noControlRecordRefused');
+  // 4. md5 하나를 고친 사본은 기록과 맞지 않음
+  const edited = assembleCopy(d, 'edited', B0, B => { const n = Object.keys(B.control)[0]; B.control[n].rgb = 'f'.repeat(32); });
+  const XE = edited.wrote ? rdJson(edited.o2) : null;
+  ck.ok(!!XE && XE.status.renderInvocationLogged === false && XE.status.notFinal.includes('renderInvocationLogged'), 'editedMd5NotLogged');
+  // 5. status.renderAttempts: 이 b 를 만든 호출이 exit 0 으로 들어 있음
+  const RA = X?.status?.renderAttempts;
+  ck.ok(!!RA && RA.upToInvocationLogged === true && RA.n === RA.attempts.length && RA.attempts.some(a => a.id === id0 && a.usedForThisBaseline && a.exit === 0 && a.completed === STEPS5.join(',')), 'attemptsListed');
+  ck.kv = { invocation: id0, single, attempts: RA ? RA.n : '-', samePart: RA ? RA.samePart : '-', rendered: RA ? RA.rendered : '-' };
+});
+
+await test('MISMATCH', async ck => {
+  const d = fresh(path.join(TMP, 'mismatch'));
+  // 1. 합성 PNG(23 × 17 RGBA, 줄마다 거르개 0~4): 풀면 표본이 같고, 세 화소를 바꾼 짝의 차이가 손으로 센 값과 같음
+  const W = 23, H = 17, base = new Uint8Array(W * H * 4);
+  let k = 7; for (let i = 0; i < base.length; i++) { k = (Math.imul(k, 1103515245) + 12345) >>> 0; base[i] = k >>> 24; }
+  const alt = Uint8Array.from(base);
+  const bump = (y, x, c, dv) => { const i = (y * W + x) * 4 + c; alt[i] = base[i] < 128 ? base[i] + dv : base[i] - dv; };
+  bump(5, 7, 2, 1); bump(6, 9, 1, 1); bump(12, 3, 3, 2);
+  const pa = encodePng(W, H, 6, base), pb = encodePng(W, H, 6, alt);
+  const A = decodePng(pa), Bm = decodePng(pb);
+  ck.ok(Buffer.from(A.samples).equals(Buffer.from(base)) && Buffer.from(Bm.samples).equals(Buffer.from(alt)), 'decodeFilters0to4');
+  const df = pngDiff(A, Bm);
+  ck.ok(df.comparable && df.pixels === 3 && JSON.stringify(df.bbox) === JSON.stringify({ row: [5, 12], col: [3, 9] }) && df.maxLevel === 2
+    && df.channels.join('') === 'gba' && JSON.stringify(df.channelPixels) === JSON.stringify({ g: 1, b: 1, a: 1 }), 'diffFields');
+  ck.ok(pngDiff(A, decodePng(encodePng(W, H, 6, base))).pixels === 0 && pngDiff(A, decodePng(encodePng(W, H - 1, 6, base.subarray(0, W * (H - 1) * 4)))).comparable === false, 'sameZeroSizeRefused');
+  // 2. characterise: 합성 작업 폴더(run1·run2·keys·control)와 merge-aa 사본 폴더
+  const work = fresh(path.join(d, 'work')), refDir = fresh(path.join(d, 'ref'));
+  const put = (step, n, ch, buf) => { fs.mkdirSync(path.join(work, step), { recursive: true }); fs.writeFileSync(path.join(work, step, ch === 'rgb' ? `${n}.png` : `${n}.alpha.png`), buf); };
+  for (const [st, rgbBuf] of [['run1', pa], ['run2', pb], ['keys', pa]]) { put(st, 'J', 'rgb', rgbBuf); put(st, 'J', 'alpha', pa); }
+  put('control', 'C', 'rgb', pb); put('control', 'C', 'alpha', pa);
+  fs.writeFileSync(path.join(refDir, `${md5(pa)}.png`), pa);
+  const mk = (r, a) => ({ rgb: md5(r), alpha: md5(a) });
+  const res = { run1: { J: mk(pa, pa) }, run2: { J: mk(pb, pa) }, keys: { J: mk(pa, pa) }, control: { C: mk(pb, pa) } };
+  const ref = { C: { rgb: md5(pa), alpha: md5(pa) } };
+  const out = characterise(res, work, ['J'], ['C'], ref, refDir);
+  const want = ['aa J.rgb run1/run2 3 px rows 5-12 cols 3-9 max 2 ch gba', 'control C.rgb mergeAA/control 3 px rows 5-12 cols 3-9 max 2 ch gba'];
+  ck.ok(out.length === 2 && out.every(validMismatch) && JSON.stringify(out.map(mismatchSummary)) === JSON.stringify(want), 'characteriseSynthetic');
+  // 기록된 md5 가 디스크의 PNG 가 아니면(앞 호출의 단계를 덮어 그림 등) 풀지 않고 까닭을 적음; 맞은편 사본이 없으면 마찬가지
+  const stale = characterise({ ...res, run2: { J: { rgb: 'e'.repeat(32), alpha: md5(pa) } } }, work, ['J'], ['C'], { C: { rgb: 'd'.repeat(32), alpha: md5(pa) } }, refDir);
+  ck.ok(stale.length === 2 && stale.every(validMismatch) && stale.every(x => x.decoded === false) && /not the recorded md5/.test(stale[0].reason) && /mergeAA PNG not on disk/.test(stale[1].reason), 'undecodedWithReason');
+  ck.kv = { synthetic: out.length };
+  // 3. 실제 b 조각: mismatches[] 의 모든 칸이 마당을 갖춤(RENDER 가 깃발과 맞는지 봄)
+  if (!partsReady()) { ck.skip = 'no parts'; return; }
+  const B0 = rdJson(path.join(PARTS, 'b.json'));
+  if (!Array.isArray(B0.mismatches)) { ck.fails.push('realPartHasMismatches'); return; }
+  ck.ok(B0.mismatches.every(validMismatch), 'realPartFields');
+  // 4. g1-baseline status.mismatches = b 의 mismatches 한 줄 요약(정렬)
+  const asm = assembleCopy(d, 'summary', B0, B => { B.mismatches = [...B.mismatches, ...out]; });
+  const X = asm.wrote ? rdJson(asm.o2) : null;
+  const wantS = [...B0.mismatches, ...out].map(mismatchSummary).sort();
+  ck.ok(!!X && JSON.stringify(X.status.mismatches) === JSON.stringify(wantS), 'baselineSummary');
+  const bad = assembleCopy(d, 'malformed', B0, B => { B.mismatches = [{ kind: 'aa', job: 'P0_seoul' }]; });
+  ck.ok(bad.r.status === 1 && !bad.wrote && /no mismatch characterisation/.test(bad.r.stderr), 'malformedRefused');
+  ck.kv = { ...ck.kv, real: B0.mismatches.length, realSummary: B0.mismatches.map(mismatchSummary).join(' | ') || 'none' };
+});
+
 await test('BASELINE', async ck => {
-  const bf = path.join(ROOT, 'tools/genus-ruler/oro/g1-baseline.json');
-  if (!fs.existsSync(bf)) { ck.skip = 'no g1-baseline.json'; return; }
+  const bf = BASELINE_FILE;
+  if (!fs.existsSync(bf)) { ck.skip = `no ${path.relative(ROOT, bf)}`; return; }
   const X = rdJson(bf);
   const has = (o, p) => p.split('.').reduce((a, k) => (a && Object.prototype.hasOwnProperty.call(a, k) ? a[k] : undefined), o) !== undefined;
   const keys = ['schema', 'commit', 'mergedCommit', 'bundles.macro.sha256', 'bundles.macro.esbuild', 'bundles.harness.sha256', 'bundles.harness.build',
     'versions.node', 'versions.esbuild', 'versions.chromium', 'versions.chromiumPath', 'versions.chromiumFlags', 'inputs.oroInputsSha256',
     'a', 'aMode2', 'b.aa', 'b.jobs', 'c', 'd.requests', 'd.rebuilds', 'd.timers', 'd.callSites', 'status.final', 'status.notFinal',
-    'status.g1ToolsCommitted', 'status.renderUnloaded'];
+    'status.g1ToolsCommitted', 'status.renderUnloaded', 'versions.swiftshader', 'status.renderInvocations', 'status.renderAttempts', 'status.mismatches',
+    'status.renderSingleInvocation', 'status.renderInvocationLogged', 'status.renderPinnedSingleWorker'];
   const missing = keys.filter(k => !has(X, k));
   ck.ok(!missing.length && X.schema === 'g1-baseline/1' && X.mergedCommit === '115fbe2' && X.bundles.macro.esbuild === '0.28.2', 'schemaKeys');
   const sc = Object.keys(X.a);
-  ck.ok(sc.length === 121 && sc.every(s => BANDS3.every(b => X.a[s][b] && typeof X.a[s][b].cover === 'string' && X.a[s][b].state && X.aMode2[s][b].length === 15)), 'a121x3');
+  const nSc = nScenes();
+  ck.ok(sc.length === nSc && X.inputs.scenes === nSc && sc.every(s => BANDS3.every(b => X.a[s][b] && typeof X.a[s][b].cover === 'string' && X.a[s][b].state && X.aMode2[s][b].length === 15)), 'aScenesx3');
   const jn = Object.keys(X.b.jobs);
   ck.ok(jn.length === 4 && jn.every(n => /^[0-9a-f]{32}$/.test(X.b.jobs[n].rgb) && /^[0-9a-f]{32}$/.test(X.b.jobs[n].alpha) && X.b.jobs[n].options.macro === 1 && X.b.jobs[n].options.macroN === 128), 'bJobs');
   ck.ok(jn.every(n => X.c[n] && typeof X.c[n].weatherKey === 'string' && typeof X.c[n].qKey === 'string'), 'cJobs');
   const head = resolveCommit('g1-test', 'HEAD');
   const appSame = X.commit === head || cp.spawnSync('git', ['diff', '--quiet', X.commit, head, '--', 'src', 'tools/genus-ruler/volsky'], { cwd: ROOT }).status === 0;
   ck.ok(X.b.aa === true && X.b.macroOnAllJobs === true && X.d.d6d14Requests === 0 && appSame && X.status.appUnchangedSinceMerge === true, 'values');
+  // G1 build note 19·20 의 status 마당: 호출·시도·어긋남 요약
+  const RA = X.status.renderAttempts;
+  ck.ok(Array.isArray(X.status.renderInvocations) && X.status.renderInvocations.length >= 1 && Array.isArray(X.status.mismatches) && !!RA && RA.n === RA.attempts.length
+    && X.status.renderInvocations.every(id => RA.attempts.some(a => a.id === id && a.usedForThisBaseline)), 'statusRecords');
   // 조각에서 다시 모으면 바이트 같음
   const d = fresh(path.join(TMP, 'baseline'));
   const o2 = path.join(d, 'g1-baseline.json');
   const r = node([path.join(G, 'g1-baseline.mjs'), '--parts', PARTS, '--jobs', path.join(G, 'jobs-g1.json'), '--inputs', INPUTS, '--out', o2]);
   ck.ok(r.status === 0 && fs.existsSync(o2) && fs.readFileSync(o2).equals(fs.readFileSync(bf)), 'reassembleSame');
-  ck.kv = { missing: missing.length, scenes: sc.length, jobs: jn.length, sha256: sha256(fs.readFileSync(bf)).slice(0, 12) };
+  ck.kv = { file: path.relative(ROOT, bf), missing: missing.length, scenes: sc.length, jobs: jn.length, final: X.status.final, notFinal: (X.status.notFinal ?? []).join('+') || 'none',
+    attempts: RA ? RA.n : '-', sha256: sha256(fs.readFileSync(bf)).slice(0, 12) };
 });
 
 await test('CONTAM', async ck => {
   const oroDir = path.join(ROOT, 'tools/genus-ruler/oro');
   const bad = fs.readdirSync(oroDir).filter(f => /^gate-oro-.*\.json$/.test(f) || /^judge\.lock(\.1)?$/.test(f));
   ck.ok(!bad.length, 'noGateNoLock');
-  const files = [path.join(G, 'jobs-g1.json'), ...['a.json', 'b.json', 'd.json'].map(f => path.join(PARTS, f)), path.join(oroDir, 'g1-baseline.json')].filter(f => fs.existsSync(f));
+  const files = [...new Set([path.join(G, 'jobs-g1.json'), ...['a.json', 'b.json', 'd.json'].map(f => path.join(PARTS, f)), path.join(oroDir, 'g1-baseline.json'), BASELINE_FILE, ATTEMPTS_FILE])].filter(f => fs.existsSync(f));
   const hit = files.filter(f => /"(trueGrid|empty)"\s*:/.test(fs.readFileSync(f, 'utf8')));
   ck.ok(!hit.length, 'noModisKeys');
   ck.kv = { files: files.length, gate: bad.length, hits: hit.length };

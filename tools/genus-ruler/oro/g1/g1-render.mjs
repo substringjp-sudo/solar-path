@@ -11,7 +11,7 @@
  *   control  같은 명령으로 원래 B0_app·P0_seoul(옵션·고리 없음)을 그려 oro/merge-aa.json 의 합친 뒤 md5 와 견줌(환경 확인)
  *   keys     node tools/genus-ruler/oro/g1/g1-keys.cjs — 앱이 만든 날씨 키, 그리고 그 실행의 PNG md5(run1 과 같아야 함)
  * 판(versions): node, esbuild(build.sh 의 고정 판), chromium(run.js 의 executablePath 와 --version), 깃발(run.js 소스).
- * 부하 지킴(build note 19): run1·run2·control·keys 는 그리기 전에 컨테이너가 놀고 있어야 합니다 — os.loadavg()[0] < 1.0 이고
+ * 부하 지킴(S3-design.md G1 build note 19): run1·run2·control·keys 는 그리기 전에 컨테이너가 놀고 있어야 합니다 — os.loadavg()[0] < 1.0 이고
  *   `ps -eo pid,pcpu,comm` 에서 이 도구·그 조상·ps 밖의 어떤 프로세스도 pcpu ≥ 50 이 아님. 아니면 5 s 마다 다시 보며 --wait-idle 초까지
  *   기다리고(앞 단계의 chromium 이 올린 1 분 부하가 내려가는 데 1~2 분), 그래도 아니면 exit 3(그리지 않음; 0 이면 바로 거절).
  *   그리는 동안에는 1 s 마다 /proc 을 읽어 이 도구의 자손이 아닌 프로세스의 CPU(foreignCores = (전체 바쁨 − 우리 나무) / 벽시계)를 잽니다.
@@ -28,16 +28,35 @@
  *   환경 확인이라 늘 merge-aa 와 같은 원래 chromium·기본 일꾼 수로 그립니다 — 그래서 control 의 P0_seoul 은 드물게(g1det 기록: 기본 일꾼 수 control 10 번 중 1 번)
  *   a6d7d5c8 로 갈릴 수 있습니다(그러면 controlMatchesMergeAA 거짓, g1-baseline 은 쓰지 않음; 그때 control 만 다시 그릴지는 S4 가 정함).
  *   일꾼 1 개의 control 은 a6d7d5c8/d8aa02a4 로 늘 같지만 merge-aa(97b2edf6/6f72aad6)와 다름(지평선 5+1 화소, 1 단계).
- * 출력(--out): 키 정렬 JSON. 표준 출력은 단계·md5·수만.
+ * 호출 기록(S3-design.md G1 build note 19, fix G1-REC):
+ *   프로세스마다 호출 id 하나(`<pid>-<시작 ISO>-<무작위 8 자>`, g1-attempts.mjs). b.json 맨 위 invocation = {id, pid, startedAt, commit,
+ *   steps, out, work, attemptsLog, swiftshaderThreads}(마지막으로 쓴 호출), 단계마다 stepRuns[step] = {invocation, start, end}(ISO),
+ *   invocations(단계들의 id, 정렬), singleInvocation(build·run1·run2·control·keys 다섯이 모두 이 호출). --steps 로 이어 그리면
+ *   앞 호출의 단계는 앞 id 그대로 남아 singleInvocation 거짓 — g1-baseline --final 은 쓰지 않음.
+ *   호출마다(인자 오류·거절·die·예외·SIGINT/SIGTERM/SIGHUP 포함) .harness/oro/g1/render-attempts.jsonl 에 start 줄과 end 줄을
+ *   덧붙임(덧붙이기만): end = 끝 코드, 끝낸 단계와 그 시각, 단계마다 잡별 rgb·alpha md5, 부하 기록, 어긋남. SIGKILL 이면 start 만.
+ * 어긋남 재기(fix G1-REC): A/A(run1·run2), keys·run1, control·merge-aa 에서 md5 가 다른 잡·채널마다 두 PNG 를 풀어(g1-png.mjs)
+ *   mismatches[] = {kind: aa|keys|control, job, channel: rgb|alpha, a/b: {source, md5}, decoded, reason, width, height, pixels,
+ *   bbox: {row: [위, 아래], col: [왼, 오른]}(row 0 = 위), maxLevel, channels(달라진 PNG 채널 r·g·b·a), channelPixels}.
+ *   단계가 끝날 때마다 다시 잼. 디스크의 PNG 가 기록된 md5 가 아니면(이어 그린 앞 단계 등) decoded 거짓과 까닭.
+ *   control 의 맞은편은 merge-aa 의 PNG: merge-aa.json 은 md5 만 적었으므로, md5 가 merge-aa 와 같은 control PNG 를
+ *   .harness/oro/g1/merge-aa-ref/<md5>.png 로 남겨 두고(그 md5 로 확인해서만 씀) 그것과 견줌. 없으면 decoded 거짓.
+ * 출력(--out): 키 정렬 JSON. 표준 출력은 단계·md5·수와 MISMATCH 한 줄씩.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import cp from 'node:child_process';
 import os from 'node:os';
 import { ROOT, canonicalJson, die as die0, forbiddenPath, gitPorcelain, md5, parseArgs, resolveCommit, sha256 } from './g1-lib.mjs';
+import { ATTEMPTS_REL, appendAttempt, newInvocationId, stepMd5 } from './g1-attempts.mjs';
+import { decodePng, mismatchSummary, pngDiff } from './g1-png.mjs';
 
 const TOOL = 'g1-render';
-const die = (m, c) => die0(TOOL, m, c);
+/** 이 프로세스의 호출 기록(main 이 채움; die 가 까닭을 적음). */
+let ATTEMPT = null;
+/** 지금 도는 자식(신호로 끝날 때 함께 끝냄). */
+let CHILD = null;
+const die = (m, c) => { if (ATTEMPT && !ATTEMPT.error) ATTEMPT.error = m; die0(TOOL, m, c); };
 const W = '390', H = '584';
 const STEPS_ALL = ['build', 'run1', 'run2', 'control', 'keys'];
 const RENDER_STEPS = ['run1', 'run2', 'control', 'keys'];
@@ -53,7 +72,6 @@ function runLogged(cmd, args, log) {
 }
 
 // ── 부하 지킴 ──
-const sleepMs = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 /** 이 도구의 조상 pid(g1-run.sh 의 bash 등 — 이 도구를 기다리는 중이라 ps 의 평생 pcpu 가 지금 부하가 아님). */
 function ancestors() {
   const out = new Set();
@@ -78,8 +96,8 @@ export function heavyProcesses() {
   }
   return out;
 }
-/** 그리기 전: 놀고 있을 때까지 waitSec 초까지 기다림. 아니면 exit 3. */
-export function idleGate(step, waitSec) {
+/** 그리기 전: 놀고 있을 때까지 waitSec 초까지 기다림. 아니면 exit 3. 기다림은 비동기(그 사이 SIGTERM 등이 바로 처리됨). */
+export async function idleGate(step, waitSec) {
   const t0 = Date.now();
   for (;;) {
     const before = os.loadavg(), heavy = heavyProcesses();
@@ -88,7 +106,7 @@ export function idleGate(step, waitSec) {
       const hv = heavy.map(h => `${h.comm}(${h.pid}) ${h.pcpu}%`).join(', ');
       die(`${step}: container not idle after ${waitSec} s (loadavg ${before.map(x => x.toFixed(2)).join(' ')} on ${os.cpus().length} cpus; need < ${LOAD_MAX}${hv ? `; processes ≥ ${PROC_PCPU_MAX} % CPU: ${hv}` : ''}) — refused`, 3);
     }
-    sleepMs(POLL_SEC * 1000);
+    await new Promise(r => setTimeout(r, POLL_SEC * 1000));
   }
 }
 let HZ = null;
@@ -158,8 +176,9 @@ export function runMonitored(cmd, args, log, env = null) {
     const fd = fs.openSync(log, 'w');
     const mon = new ForeignMonitor();
     const child = cp.spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', fd, fd], env: env ? { ...process.env, ...env } : process.env });
+    CHILD = child;
     const iv = setInterval(() => mon.sample(), 1000);
-    child.on('exit', code => { clearInterval(iv); fs.closeSync(fd); resolve({ status: code, during: mon.result() }); });
+    child.on('exit', code => { CHILD = null; clearInterval(iv); fs.closeSync(fd); resolve({ status: code, during: mon.result() }); });
   });
 }
 function pngMd5(dir, names) {
@@ -198,12 +217,108 @@ export function swiftshaderDir(threads, L) {
   fs.writeFileSync(iniPath, ini);
   return { threads, ini, iniSha256: sha256(Buffer.from(ini)), launchDir: path.relative(ROOT, dir), launchExecutable: path.relative(ROOT, exe), sameInode: same() };
 }
+// ── 어긋남 재기(fix G1-REC) ──
+export const REF_DIR_REL = '.harness/oro/g1/merge-aa-ref';
+/** 저장소 안이면 뿌리 기준 상대 경로, 밖이면 절대 경로. */
+const relp = p => { const r = path.relative(ROOT, p).split(path.sep).join('/'); return r.startsWith('../') || path.isAbsolute(r) ? path.resolve(p) : r; };
+const pngPath = (dir, n, ch) => path.join(dir, ch === 'rgb' ? `${n}.png` : `${n}.alpha.png`);
+/** merge-aa.json post.run1 → {job: {rgb, alpha}}(합친 뒤 첫 실행; control 이 견주는 값). */
+export function mergeAARef() {
+  const aa = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/oro/merge-aa.json'), 'utf8'));
+  const r = aa.post && aa.post.run1;
+  if (!r) return null;
+  const o = {};
+  for (const k of Object.keys(r)) { const m = k.match(/^(.*?)(\.alpha)?\.png$/); if (m) (o[m[1]] ??= {})[m[2] ? 'alpha' : 'rgb'] = r[k]; }
+  return o;
+}
+/** 두 PNG(a, b = {source, md5, file})의 화소 차이 → mismatches 한 칸. 파일이 없거나 기록된 md5 가 아니면 decoded 거짓. */
+export function characterisePair(kind, job, channel, a, b) {
+  const base = { kind, job, channel, a: { source: a.source, md5: a.md5 ?? null }, b: { source: b.source, md5: b.md5 ?? null }, decoded: false, reason: null,
+    width: null, height: null, pixels: null, bbox: null, maxLevel: null, channels: null, channelPixels: null };
+  const load = s => {
+    if (!s.md5) return { err: `${s.source} has no PNG md5` };
+    if (!s.file || !fs.existsSync(s.file)) return { err: `${s.source} PNG not on disk${s.file ? ` (${relp(s.file)})` : ''}` };
+    const buf = fs.readFileSync(s.file);
+    if (md5(buf) !== s.md5) return { err: `${s.source} PNG on disk (${relp(s.file)}) is not the recorded md5` };
+    try { return { img: decodePng(buf) }; } catch (e) { return { err: `${s.source} PNG: ${e.message}` }; }
+  };
+  const A = load(a), B = load(b);
+  if (A.err || B.err) return { ...base, reason: [A.err, B.err].filter(Boolean).join('; ') };
+  const d = pngDiff(A.img, B.img);
+  if (!d.comparable) return { ...base, reason: d.reason };
+  return { ...base, decoded: true, width: d.width, height: d.height, pixels: d.pixels, bbox: d.bbox, maxLevel: d.maxLevel, channels: d.channels, channelPixels: d.channelPixels };
+}
+/**
+ * res(b.json)의 run1·run2·keys·control md5 에서 어긋난 잡·채널을 모두 찾아 PNG 를 풀어 잼(차례: aa, keys, control; 잡 파일 차례; rgb, alpha).
+ * work/<step>/<job>(.alpha).png 를 읽음. ref = mergeAARef(), refDir = merge-aa PNG 사본(<md5>.png).
+ */
+export function characterise(res, work, names, cnames, ref, refDir = path.join(ROOT, REF_DIR_REL)) {
+  const out = [];
+  const side = (step, n, ch) => ({ source: step, md5: res[step]?.[n]?.[ch] ?? null, file: pngPath(path.join(work, step), n, ch) });
+  for (const [kind, sa, sb] of [['aa', 'run1', 'run2'], ['keys', 'run1', 'keys']]) {
+    if (!res[sa] || !res[sb]) continue;
+    for (const n of names) for (const ch of ['rgb', 'alpha']) {
+      const a = side(sa, n, ch), b = side(sb, n, ch);
+      if (a.md5 && a.md5 === b.md5) continue;
+      out.push(characterisePair(kind, n, ch, a, b));
+    }
+  }
+  if (res.control) {
+    for (const n of cnames) for (const ch of ['rgb', 'alpha']) {
+      const want = ref?.[n]?.[ch] ?? null, b = side('control', n, ch);
+      if (want && want === b.md5) continue;
+      out.push(characterisePair('control', n, ch, { source: 'mergeAA', md5: want, file: want ? path.join(refDir, `${want}.png`) : null }, b));
+    }
+  }
+  return out;
+}
+/** control 이 merge-aa 와 같은 잡·채널의 PNG 를 merge-aa-ref/<md5>.png 로 남김(이미 있으면 그대로). */
+function seedMergeAARef(res, work, cnames, ref) {
+  const dir = path.join(ROOT, REF_DIR_REL);
+  for (const n of cnames) for (const ch of ['rgb', 'alpha']) {
+    const want = ref?.[n]?.[ch];
+    if (!want || res.control?.[n]?.[ch] !== want) continue;
+    const dst = path.join(dir, `${want}.png`), src = pngPath(path.join(work, 'control'), n, ch);
+    if (fs.existsSync(dst) && md5(fs.readFileSync(dst)) === want) continue;
+    if (!fs.existsSync(src) || md5(fs.readFileSync(src)) !== want) continue;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(src, dst);
+  }
+}
+function headNow() {
+  try { return cp.execFileSync('git', ['rev-parse', '--quiet', '--verify', 'HEAD^{commit}'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; }
+}
+
 function buildShEsbuild() {
   const m = fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/volsky/build.sh'), 'utf8').match(/esbuild@([0-9.]+)/);
   return m ? m[1] : null;
 }
 
 async function main() {
+  // ── 호출 기록(fix G1-REC): 인자를 풀기 전에 끝 줄 쓰개를 걸어 둠(인자 오류·거절·die·예외·신호 모두 end 줄을 남김) ──
+  const t0Inv = new Date();
+  const id = newInvocationId(process.pid, t0Inv);
+  const head0 = headNow();
+  const A = ATTEMPT = { completed: [], md5: {}, load: {}, bundle: null, flags: {}, mismatches: [], error: null, signal: null, startWritten: false, endWritten: false };
+  const startRec = extra => ({ event: 'start', invocation: id, pid: process.pid, startedAt: t0Inv.toISOString(), commit: head0, argv: process.argv.slice(2), ...extra });
+  const writeStart = extra => { if (A.startWritten) return; A.startWritten = true; appendAttempt(startRec(extra)); };
+  process.on('uncaughtExceptionMonitor', e => { if (!A.error) A.error = `exception: ${String((e && e.message) || e).slice(0, 300)}`; });
+  process.on('exit', code => {
+    if (A.endWritten) return;
+    A.endWritten = true;
+    try {
+      writeStart({ steps: null, out: null, work: null, swiftshaderThreads: null, waitIdle: null });
+      appendAttempt({ event: 'end', invocation: id, endedAt: new Date().toISOString(), exitCode: code, signal: A.signal, error: A.error, commit: head0, commitAtEnd: headNow(),
+        completed: A.completed, md5: A.md5, bundle: A.bundle, load: A.load, flags: A.flags, mismatches: A.mismatches });
+    } catch (e) { console.error(`${TOOL}: could not append to ${ATTEMPTS_REL}: ${e.message}`); }
+  });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => {
+      A.signal = sig;
+      try { if (CHILD) CHILD.kill('SIGTERM'); } catch { /* gone */ }
+      process.exit(128 + (os.constants.signals[sig] ?? 0));
+    });
+  }
   const o = parseArgs(TOOL, process.argv.slice(2), { '--jobs': true, '--control': true, '--out': true, '--work': true, '--steps': true, '--wait-idle': true, '--swiftshader-threads': true });
   const ssThreads = o['--swiftshader-threads'] === undefined ? null : Number(o['--swiftshader-threads']);
   if (ssThreads !== null && !(Number.isInteger(ssThreads) && ssThreads >= 1 && ssThreads <= 16)) die('--swiftshader-threads: a whole number 1..16');
@@ -216,8 +331,12 @@ async function main() {
   if (!Number.isInteger(waitIdle) || waitIdle < 0) die('--wait-idle: a whole number of seconds ≥ 0');
   fs.mkdirSync(work, { recursive: true });
   const outPath = path.resolve(o['--out']);
+  writeStart({ steps, out: relp(outPath), work: relp(work), swiftshaderThreads: ssThreads, waitIdle });
   const prev = fs.existsSync(outPath) ? JSON.parse(fs.readFileSync(outPath, 'utf8')) : {};
   const res = { ...prev };
+  // 맨 위 invocation = 이 호출(b.json 을 마지막으로 쓴 호출). 앞 호출이 그린 단계는 stepRuns 에 그 id 로 남음.
+  res.invocation = { id, pid: process.pid, startedAt: t0Inv.toISOString(), commit: head0, steps, out: relp(outPath), work: relp(work), attemptsLog: ATTEMPTS_REL, swiftshaderThreads: ssThreads };
+  const ref = mergeAARef();
   const jobs = JSON.parse(fs.readFileSync(path.resolve(o['--jobs']), 'utf8'));
   const ctl = JSON.parse(fs.readFileSync(path.resolve(o['--control']), 'utf8'));
   const names = jobs.map(j => j.name), cnames = ctl.map(j => j.name);
@@ -251,10 +370,10 @@ async function main() {
   const save = () => { fs.mkdirSync(path.dirname(outPath), { recursive: true }); fs.writeFileSync(outPath, canonicalJson(res)); };
   for (const step of steps) {
     const log = path.join(work, `${step}.log`);
-    // 부하 지킴: 그리는 단계는 놀고 있는 컨테이너에서만 시작(build note 19). 기록은 단계가 끝나야 남음(거절이면 b.json 의 그 단계는 그대로).
-    const gate = RENDER_STEPS.includes(step) ? idleGate(step, waitIdle) : null;
+    // 부하 지킴: 그리는 단계는 놀고 있는 컨테이너에서만 시작(G1 build note 19). 기록은 단계가 끝나야 남음(거절이면 b.json 의 그 단계는 그대로).
+    const gate = RENDER_STEPS.includes(step) ? await idleGate(step, waitIdle) : null;
     if (gate) console.log(`IDLE ${step} loadavg ${gate.before.map(x => x.toFixed(2)).join(' ')} waited ${gate.waitedSec} s`);
-    const t0 = Date.now();
+    const t0 = Date.now(), stepStart = new Date(t0).toISOString();
     if (step === 'build') {
       const rc = runLogged('bash', ['tools/genus-ruler/volsky/build.sh'], log);
       if (rc !== 0) die(`build.sh exit ${rc}`, 3);
@@ -290,6 +409,17 @@ async function main() {
       res.keys = k.jobs;
       res.keysBundle = res.harnessBundle.sha256;
     }
+    // 호출 기록: 이 단계는 이 호출이 그렸음(시작·끝 ISO)
+    const stepEnd = new Date().toISOString();
+    res.stepRuns = { ...(res.stepRuns ?? {}), [step]: { invocation: id, start: stepStart, end: stepEnd } };
+    A.completed.push({ step, start: stepStart, end: stepEnd });
+    if (step === 'build') A.bundle = res.harnessBundle;
+    else { A.md5[step] = stepMd5(res[step]); A.load[step] = res.load[step]; }
+    if (step === 'control') seedMergeAARef(res, work, cnames, ref);
+    res.mismatches = characterise(res, work, names, cnames, ref);
+    A.mismatches = res.mismatches;
+    res.invocations = [...new Set(Object.values(res.stepRuns).map(r => r.invocation))].sort();
+    res.singleInvocation = STEPS_ALL.every(s => res.stepRuns[s]?.invocation === id);
     const ld = res.load?.[step]?.during;
     console.log(`STEP ${step} ${Math.round((Date.now() - t0) / 1000)} s${ld && gate ? ` foreignCores ${ld.foreignCores} (peak ${ld.foreignPeakCores})` : ''}`);
     save();
@@ -308,12 +438,18 @@ async function main() {
   if (res.run1 && res.keys) res.keysMatchRun1 = names.every(n => res.keys[n] && res.keys[n].rgb === res.run1[n].rgb && res.keys[n].alpha === res.run1[n].alpha);
   if (res.control) {
     const aa = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/genus-ruler/oro/merge-aa.json'), 'utf8'));
-    const ref = aa.post && aa.post.run1;
-    res.controlMatchesMergeAA = !!ref && cnames.every(n => res.control[n].rgb === ref[`${n}.png`] && res.control[n].alpha === ref[`${n}.alpha.png`]);
+    res.controlMatchesMergeAA = !!ref && cnames.every(n => res.control[n].rgb === ref[n]?.rgb && res.control[n].alpha === ref[n]?.alpha);
     res.controlBundleMd5MatchesMergeAA = !!aa.post && res.harnessBundle.md5 === aa.post.bundleMd5;
   }
+  // 호출 요약: 다섯 단계가 모두 이 호출이면 singleInvocation(g1-baseline --final 의 renderSingleInvocation)
+  res.invocations = [...new Set(Object.values(res.stepRuns ?? {}).map(r => r.invocation))].sort();
+  res.singleInvocation = STEPS_ALL.every(s => res.stepRuns?.[s]?.invocation === id);
+  res.mismatches = characterise(res, work, names, cnames, ref);
+  A.mismatches = res.mismatches;
+  A.flags = { aa: res.aa ?? null, keysMatchRun1: res.keysMatchRun1 ?? null, controlMatchesMergeAA: res.controlMatchesMergeAA ?? null, renderUnloaded: res.renderUnloaded, singleInvocation: res.singleInvocation };
   save();
-  console.log(`DONE unloaded ${res.renderUnloaded} aa ${res.aa ?? '-'} keysMatchRun1 ${res.keysMatchRun1 ?? '-'} control ${res.controlMatchesMergeAA ?? '-'} bundleMd5=mergeAA ${res.controlBundleMd5MatchesMergeAA ?? '-'}`);
+  for (const m of res.mismatches) console.log(`MISMATCH ${mismatchSummary(m)}`);
+  console.log(`DONE invocation ${id} single ${res.singleInvocation} unloaded ${res.renderUnloaded} aa ${res.aa ?? '-'} keysMatchRun1 ${res.keysMatchRun1 ?? '-'} control ${res.controlMatchesMergeAA ?? '-'} bundleMd5=mergeAA ${res.controlBundleMd5MatchesMergeAA ?? '-'} mismatches ${res.mismatches.length}`);
 }
 
 if (path.resolve(process.argv[1] ?? '') === path.resolve(new URL(import.meta.url).pathname)) await main();

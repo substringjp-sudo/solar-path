@@ -16,7 +16,7 @@
  *   옵션 OPTIONS = {macroOro: 0, regime: 0} 를 buildLiveScene 인자와 설정(qKey)에 함께 넣고, 세 요청 뿌리(fetchWeatherCanary·
  *   fetchDayWeatherRing·fetchNearestMetar)에도 기존 인자 뒤의 마지막 인자로 넘깁니다(기준 커밋에는 없는 이름·자리라 무시됨).
  *   정적 호출 자리 callSites(scanCallSites): 위 동적 경로가 닿지 못하는 곳(SkyScreen·SkyScene3D·volumetricScene 등)의 망 호출 자리
- *   목록 — S7 에서 새 자리가 생기면 d 가 달라져 G1 이 실패합니다(build note 17).
+ *   목록 — S7 에서 새 자리가 생기면 d 가 달라져 G1 이 실패합니다(G1 build note 17).
  * 가로채기(모듈을 불러오기 전에 겁니다):
  *   - globalThis.fetch → 가짜(URL 을 차례대로 적고 Open-Meteo 꼴의 결정적 합성 응답; METAR 는 빈 목록). http/https/net/tls/dns 와
  *     XMLHttpRequest·WebSocket 은 부르면 적고 실패(진짜 망은 한 번도 안 나감 — 시험이 확인).
@@ -171,7 +171,7 @@ function buildBundle() {
 
 const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
 
-// ── 정적 호출 자리(callSites; build note 17) ──
+// ── 정적 호출 자리(callSites; G1 build note 17) ──
 // runPath 가 실제로 돌리는 것은 EXEC_MODULES 의 뿌리(아래)뿐이라, SkyScreen·SkyScene3D·volumetricScene 같은 곳에 새로 놓인 요청은
 // 동적 가로채기로는 보이지 않습니다. 그래서 src 의 망 호출 자리를 정적으로 셉니다. 자리 하나 = 문자열 하나, 정렬, 같은 자리가
 // 여러 번이면 여러 번(호출마다 하나).
@@ -182,7 +182,7 @@ const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve()
 //     '실행됨' = 뿌리(EXEC_MODULES 값)와 '<top>' 에서 변으로 닿음 — 동적 경로가 돌리는 코드의 정적 상한.
 //   (1) EXEC_MODULES 안, 실행되지 않는 마디의 원시 망 호출과 망에 닿는 마디 호출 → `<relpath>:<마디>:<부른 이름>`.
 //   (2) 나머지 src/**/*.ts(x): 원시 망 호출과, 부른 이름이 EXEC_MODULES 의 뿌리 아닌 망에 닿는 export 인 호출 → `<relpath>:<부른 이름>`.
-// 별칭으로 넘긴 값(`const f = fetchX; f()`)·동적 import 는 따라가지 않습니다(정적 근사; build note 17).
+// 별칭으로 넘긴 값(`const f = fetchX; f()`)·동적 import 는 따라가지 않습니다(정적 근사; G1 build note 17).
 export const EXEC_MODULES = {
   'src/utils/weather.ts': ['fetchDayWeatherRing', 'fetchWeatherCanary', 'getInterpolatedWeather'],
   'src/utils/metar.ts': ['applyMetarToObs', 'fetchNearestMetar'],
@@ -332,7 +332,7 @@ export async function runPath(L, qKeyOf) {
   const F = FIXTURE, t0 = new Date(Date.parse(F.nowIso));
   const ctl = new AbortController();
   // 1. SkyScreen: 카나리아 + 고리(같이). 세 요청 뿌리에는 기존 인자 뒤에 OPTIONS 사본을 마지막 인자로 더 넘깁니다
-  //    (기준 커밋에서는 쓰지 않는 자리라 무시됨 — 고리의 6 번째 nowMs 는 undefined 그대로; build note 17 의 S7 규칙).
+  //    (기준 커밋에서는 쓰지 않는 자리라 무시됨 — 고리의 6 번째 nowMs 는 undefined 그대로; G1 build note 17 의 S7 규칙).
   const [canary, path_] = await Promise.all([
     L.fetchWeatherCanary(F.lat, F.lon, t0, ctl.signal, { ...OPTIONS }).catch(() => null),
     L.fetchDayWeatherRing(F.lat, F.lon, t0, false, ctl.signal, undefined, { ...OPTIONS }),
