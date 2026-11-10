@@ -42,7 +42,7 @@ import {
   seaHorizonDipDeg,
   TERRAIN_MAX_ANGLE_DEG,
 } from './TerrainRing';
-import { createSun, updateSun, sunDisplayScale, type SunHandle } from './SunMesh';
+import { createSun, updateSun, sunDisplayScale, setSunCloudAlpha, type SunHandle } from './SunMesh';
 import { sunVisibility, aerosolOpticsFromObs } from '../../utils/sunVisibility';
 import { createMoonGroup, updateMoonPosition, type MoonHandle } from './MoonMesh';
 import { createWaterMask2DTexture, type WaterMaskHandle } from '../../utils/waterMask';
@@ -2138,6 +2138,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
            }
           }
           composerNow.setExternalSky(volTex);
+          // 해 판은 볼륨 하늘 위에 그려지므로, 그 텍스처의 알파(화소마다 구름 불투명도)로 가립니다.
+          if (sunRef.current) setSunCloudAlpha(sunRef.current, volTex);
           if (!volTex) composerNow.setTerrainLit(false);   // §129 볼륨 하늘이 아니면 지형 빛 판을 그리지 않음
           volDrewRef.current = !!volTex;
           if (volTex) volFreshRef.current = true;

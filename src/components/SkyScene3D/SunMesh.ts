@@ -23,9 +23,11 @@ const SUN_HALO_RADII = 10;
 
 const VERT = `
 varying vec2 vUv;
+varying vec4 vClip;
 void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vClip = gl_Position;
 }
 `;
 
@@ -46,7 +48,12 @@ uniform float uBlur;
 uniform float uHalo;
 // §152 분광 모형: 최댓값 1 정규화 색(uColor)에 곱할 표시 단계 목표 밝기. 0 이면 옛 경로(uColor·uIntensity).
 uniform float uPeak;
+// 볼륨 하늘이 켜져 있으면 그 텍스처(볼륨 하늘 renderToTexture)의 알파 = 화소마다 구름(과 지형) 불투명도.
+// 해 판은 볼륨 하늘을 깐 **뒤** 그 위에 그려지므로, 이것으로 화소마다 가리지 않으면 해가 구름 앞에 뜹니다.
+uniform sampler2D uCloudAlphaTex;
+uniform float uCloudAlphaOn;
 varying vec2 vUv;
+varying vec4 vClip;
 
 void main() {
   // 판 가운데로부터 반경(0~1)과, 원반 반지름을 1 로 한 반경 r
@@ -61,6 +68,11 @@ void main() {
   //   0.1~0.7  : 다중산란이 각을 퍼뜨려 흐리고 넓어짐 ("물먹은 해")
   //   T < 0.1  : 원반 소멸
   float T = clamp(uOcclusion, 0.0, 1.0);
+  if (uCloudAlphaOn > 0.5) {
+    // 이 화소 시선의 구름 불투명도 → 투과율. 하늘 전체 하나의 값(1 − 운량) 대신 해 앞에 실제로 있는 구름만 가립니다.
+    vec2 suv = vClip.xy / vClip.w * 0.5 + 0.5;
+    T = clamp(1.0 - texture2D(uCloudAlphaTex, suv).a, 0.0, 1.0);
+  }
   float spread = 1.0 - smoothstep(0.08, 0.75, T);
   // 경계 흐림: 구름 번짐 + 연무 앞산란(§151 uBlur)
   float soft = max(spread, uBlur);
@@ -145,6 +157,8 @@ export function createSun(): SunHandle {
       uBlur: { value: 0 },
       uHalo: { value: SUN_HALO_RADII },
       uPeak: { value: 0 },
+      uCloudAlphaTex: { value: null },
+      uCloudAlphaOn: { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -218,4 +232,14 @@ export function updateSun(
 
   // 겉보기 위 끝이 해수면 수평선(높은 산 위에서도 약 −1°)보다 한참 아래면 끕니다. 그 사이는 땅·바다가 가립니다.
   handle.mesh.visible = placeAltDeg > -1.5;
+}
+
+/**
+ * 볼륨 하늘 텍스처(알파 = 화소마다 구름·지형 불투명도)를 해 판에 겁니다. null 이면 예전처럼 `occlusion` 값 하나로 가립니다.
+ * 해 판은 볼륨 하늘을 배경으로 깐 뒤 그 위에 그려지므로, 이것이 없으면 두꺼운 구름 앞에도 원반과 빛무리가 뜹니다.
+ */
+export function setSunCloudAlpha(handle: SunHandle, tex: THREE.Texture | null): void {
+  const u = handle.material.uniforms;
+  u.uCloudAlphaTex.value = tex;
+  u.uCloudAlphaOn.value = tex ? 1 : 0;
 }
