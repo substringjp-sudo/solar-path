@@ -854,7 +854,8 @@ def t_shear():
     b, _, _ = R.shear(nodes_simple(), 0.0, 1000.0, 'sfc')
     c, sv, deg = R.shear(nodes_simple(), 0.0, 0.0, 'zi01')
     want = (8.0 - (3.0 + 90.0 / 990.0 * 5.0)) / 900.0
-    ok = near(a, want, 1e-15) and near(a, 5.0505e-3, 1e-7) and near(b, 5e-3, 1e-15) and c == 0.0 and sv == (0.0, 0.0) and deg
+    # sfc = Santellanes 2021 §2b: (U_Zi − U_10m)/(Zi − 10 m) → (8 − 3)/990 (RULER-regime L261 source check)
+    ok = near(a, want, 1e-15) and near(a, 5.0505e-3, 1e-7) and near(b, 5.0 / 990.0, 1e-15) and c == 0.0 and sv == (0.0, 0.0) and deg
     return ok, f'zi01 {a:.6e} s⁻¹, sfc {b:.6e} s⁻¹, zi 0 → 0'
 
 

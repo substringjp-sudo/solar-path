@@ -1,7 +1,7 @@
-regime_ref.py sha256 a3ce4196eadff561484bbb71833495883de8f823d3c391e8e69a1a3344391e0f
-regime-test.py sha256 bee1d34ba61023de5f8b9d861cc3d6db028090d2f335c6a2fecd1203c05e14de
+regime_ref.py sha256 5d67acd3df0539a81a6d400438a687ec8d60837f510f3c46b9667f92ca7dc3ac
+regime-test.py sha256 2276db9109824ffa49b64c3e5f5bf2d93fb02a903fbb9667fad65bd5bbc5c9b1
 stage pre-count
-shearDef zi01
+shearDef sfc
 f1Variant solar
 R-OLD PASS frozen files equal 6/6; oro_ref executed from bytes
 R-GEOM0 PASS 8/8 functions text-equal; oro-geom sha 606529d154f9
@@ -27,7 +27,7 @@ R-LCL PASS 4/4 cases
 R-LCL-TS PASS 500 inputs, max |Δ| 4.55e-13 m; bundle sha 48443a223e0a; node v22.23.4
 R-ZI PASS 8/8 cases
 R-UCBL PASS 4/4 cases
-R-SHEAR PASS zi01 5.050505e-03 s⁻¹, sfc 5.000000e-03 s⁻¹, zi 0 → 0
+R-SHEAR PASS zi01 5.050505e-03 s⁻¹, sfc 5.050505e-03 s⁻¹, zi 0 → 0
 R-AXIS PASS 7/7 cases
 R-TREE PASS 10/10 cases; end-to-end {'ROLL': 'ROLL', 'NONE': 'NONE', 'DISORG': 'DISORG', 'CELL': 'CELL', 'NA': 'NA', 'NONE-sun': 'NONE'}
 R-EQ PASS 12/12 cases
@@ -35,7 +35,7 @@ R-NA PASS 16/16 cases
 R-MARGIN PASS 45/45 cases over 11 keys
 R-DENVER PASS 6/6 cases; ROLL/CELL/NA ROLL/CELL/NA, p_sfc 837.53 hPa
 R-SYDNEY PASS 4/4 cases; low-sun Aqua altitude 17.2°
-R-EDGE PASS 4/4 cases; real first-day passes before the file start: 1; kanazawa/osaka/sapporo Terra inputs complete 3/3
+R-EDGE FAIL exception KeyError: 'sydney'
 R-F2 PASS 6/6 cases
 R-SAT PASS 5/5 cases
 R-VARIANT PASS main terra ct300 terra ct520 aqua; 350 km main aqua ct300 terra/None
@@ -47,5 +47,5 @@ R-SHIFT PASS 9/9 cases
 R-SHIFT-SELF PASS synthetic 98/98
 R-SUNSET PASS 5/5 cases; phase checks 52/52; synthetic evening ROLL 0/398
 R-SENS PASS 6/6 cases
-R-DET PASS synthetic list twice (second with reversed key/query order) identical: True; sha b1fc7a345f92
-ALL PASS 45/45
+R-DET PASS synthetic list twice (second with reversed key/query order) identical: True; sha 43ce79c5855c
+FAIL 1/45

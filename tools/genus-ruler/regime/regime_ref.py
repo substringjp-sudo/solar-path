@@ -856,7 +856,12 @@ def u_cbl(nodes, zs, zi):
 
 
 def shear(nodes, zs, zi, defn):
-    """(s⁻¹, (Su, Sv), degenerate). zi01 = |V(zi) − V(0.1 zi)|/(0.9 zi) (L258); sfc = |V(zi) − V10|/zi (L259, L261)."""
+    """(s⁻¹, (Su, Sv), degenerate). zi01 = |V(zi) − V(0.1 zi)|/(0.9 zi) (L258); sfc = |V(zi) − V10|/(zi − 10 m) (L261).
+
+    sfc follows the source as RULER-regime L261 requires ("원문이 지면 ~ zi 라면 그 정의로"): Santellanes et al. 2021
+    (MWR 149, 1305-1316, §2b): "Wind shear dU/dz is calculated by taking the difference between the wind velocity at the
+    top of the CBL (U_Zi) and wind velocity at 10 m ... and dividing by (Zi − 10 m) following Weckwerth et al. (1997)."
+    (L259 wrote the draft-1 form with /zi; the source's denominator is Zi − 10 m. zi ≥ 100 m by the L252 clip.)"""
     if defn not in SHEAR_DEFS:
         raise ValueError(f'shear definition {defn!r}')
     if zi <= 0:
@@ -867,7 +872,7 @@ def shear(nodes, zs, zi, defn):
         den = 0.9 * zi
     else:
         vb = nodes[0][1]
-        den = zi
+        den = zi - 10.0
     S = (vt[0] - vb[0], vt[1] - vb[1])
     return math.hypot(S[0], S[1]) / den, S, False
 

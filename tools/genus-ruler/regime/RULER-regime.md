@@ -102,7 +102,11 @@
   - Terra: 2026-06~10 9.02 h(8.57~9.52), 2026 봄 9.25 h, 2025 9.60 h.
   - 3판까지 적은 ~13:30(Aqua)·~09:40(Terra)은 2026 년에 맞지 않습니다(§0.1·§2.1·§9 고침). 장면 시각은 CMR 통과의 가운데 시각을 그대로 쓰므로(§2.1) 판정 식은 그대로입니다.
 - 레이어 탐침(R9, `regime/probe-layers.json`): `MODIS_Aqua_CorrectedReflectance_TrueColor`·`MODIS_Terra_CorrectedReflectance_TrueColor` 둘 다 HTTP 200 image/png(64 px, 서울 2026-06-15). 디코드·저장하지 않았습니다 [measured].
-- 시어 정의 원문 확인(m9): ____
+- 시어 정의 원문 확인(m9): **지면 ~ zi** [from doc]. Santellanes et al. 2021(MWR 149, 1305–1316) §2b: "Wind shear dU/dz is calculated by taking the difference between the wind velocity at the top of the CBL (U_Zi) and wind velocity at 10 m from the Oklahoma Mesonet and dividing by (Zi − 10 m) following Weckwerth et al. (1997)." (NSF PAR 공개 원고 10280767, 2026-11-11 확인).
+  - §3.1 규칙대로 시어는 원문 정의 \|V(z_sfc + zi) − V10\| / (zi − 10 m) 로 바꿉니다(`regime_ref.py --shear-def sfc`). 1판 식의 분모 zi 대신 원문의 (zi − 10 m) 을 씁니다(zi ≥ 100 m 에서 차 ≤ 11 %, zi 1 km 에서 1 %).
+  - 2판의 0.1 zi ~ zi 정의는 민감도로 둡니다. 축 θ_CBL 의 약풍 대체 벡터(L264)는 그대로입니다.
+  - **순서 기록**: S5a 빌드가 이 확인과 O-2 결정 전에 쓴 그대로(zi01·solar)로 임시 셈을 한 번 했고 그 값(2026 N_R 57)이 화면에 나왔습니다(`regime/S5-design.md` O-6). 이 바꿈은 그 값이 아니라 §3.1 에 미리 적힌 규칙(원문이 지면 ~ zi 이면 바꿈)과 원문 글로 정해졌습니다. 기간을 정하는 정식 셈(§2.6)은 이 결정 뒤에 한 번 합니다.
+- GIBS UTC 날짜 모호성(`regime/S5-design.md` O-2): **(A) 쓴 그대로**(§2.1 평균 태양일의 '통과 하나' 규칙, `--f1-variant solar`). 같은 UTC 날에 다른 DAY 통과가 있는 장면은 `gibsAmbiguous` 로 적고 수를 셉니다. (B)(UTC 날짜 거름 더함)는 규칙 바꿈이라 쓰지 않습니다. 해당 장면은 Aqua 가 거름 1 을 못 넘은 날의 Terra 뿐이고, 영상과 통과가 어긋나면 잡음을 더할 뿐 방향 쏠림을 만들지 않습니다 [estimate].
 - 탐침: best_match 기압면이 00~05Z 매시 유한한가(p2): **예**(R4 `oro/probe-r4.json`, 서울 2026-09-05 하루: best_match T850·Z700·700 hPa 바람 00~05Z 매시 유한, 하루 null 0) [measured].
   - 같은 탐침: best_match 에 BLH·SHF·CAPE·T850 이 24/24 유한, ecmwf_ifs025 는 BLH·SHF 없음, icon_seamless 는 BLH 없음. 한 곳·하루라 §3.1 의 BLH 결측 대체 규칙은 그대로입니다.
 - 기간별 N_R, 고른 기간: ____
