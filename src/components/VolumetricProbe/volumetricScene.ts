@@ -947,7 +947,10 @@ export async function createVolumetricScene(
     const bands = { low: bandRange('low', [0.8, 2.5]), mid: bandRange('mid', [2.5, 6]), high: bandRange('high', [7, 11]) };
     const sl = sun.clone().transformDirection(curNue.clone().invert());   // 국소 북(x)·위(y)·동(z)
     const sunAz = ((Math.atan2(sl.z, sl.x) * 180) / Math.PI + 360) % 360;
-    const key = JSON.stringify([bands, Math.round(sunAz * 5), Math.round(sunAltDeg * 10), p.macro.low?.length, p.macro.low?.[0]?.cover, p.macro.mid?.[0]?.cover]);
+    // 고리 운량 전체의 간단한 지문(점 순서·운량) — 첫 점만 보면 해 쪽만 다른 두 장면이 같은 지도를 썼음(1차 하네스).
+    let ringSig = 0;
+    for (const b of ['low', 'mid', 'high'] as const) (p.macro[b] ?? []).forEach((q, i) => { ringSig = (ringSig * 31 + Math.round(q.cover * 100) * (i + 1) + Math.round(q.distance) + Math.round(q.azimuthOffset) * 7) % 1000000007; });
+    const key = JSON.stringify([bands, Math.round(sunAz * 5), Math.round(sunAltDeg * 10), ringSig]);
     if (!farMap || farMap.key !== key) {
       farMap?.map.tex.dispose();
       farMap = { key, map: buildFarSunMap({ ring: p.macro, bands, sunAzDeg: sunAz, sunAltDeg }) };
