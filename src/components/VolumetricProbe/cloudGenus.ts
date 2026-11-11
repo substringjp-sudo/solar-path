@@ -68,6 +68,8 @@ export interface GenusParams extends Partial<FlowLayerParams> {
    * 됩니다. 위쪽 광학두께 τ 로 확산 투과한 햇빛 sun·(1−e^(−0.1τ))·2/(2+0.15τ)·thru 를 더합니다. 0 이면 끔.
    * 기본 1. 뭉게 종류(cu·cg·cb)는 0: 이 항은 보는 방향과 무관해 해 쪽(역광) 구름 속까지 밝혀, 사진처럼 어두운 속과
    * 밝은 가장자리가 안 생깁니다(2026-11-11 역광 A/B, docs/evidence/backlit-thru).
+   * 흩어진 층 구름(sc·ac)도 0: 11월 12일 07:42 서초(해 5.3°, sc 44 %) 재현에서 이 항이 해 쪽 구름 몸통을 황갈색으로 밝혔고, 끄면 사진처럼
+   * 어두운 몸통·밝은 테두리(docs/evidence/backlit-sc-1112.jpg). 덮개 판 구름(st·as·ns)·흐린 날 채우기는 아직 1.
    */
   thru?: number;
   /** 날씨 값 d 의 감마(d^domePow) */
@@ -119,9 +121,9 @@ export interface GenusParams extends Partial<FlowLayerParams> {
  */
 export const GENUS: Record<GenusKey, GenusParams> = {
   cu: { mode: 0, height: 1600, base: 0.3, top: 1.1, edge: 1.4, ao: 1.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.55, radius: 0.6, turrets: 8, thru: 0 },
-  ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 1.3, ao: 3, domePow: 1, densityScale: 0.12, shapeAmount: 0.6, shapeDetailAmount: 0.7 },
+  ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 1.3, ao: 3, domePow: 1, densityScale: 0.12, shapeAmount: 0.6, shapeDetailAmount: 0.7, thru: 0 },
   ci: { mode: 0, height: 800, base: 0.4, top: 0.5, edge: 1.5, ao: 0, domePow: 1.5, densityScale: 0.003, shapeAmount: 0.15, shapeDetailAmount: 0 },
-  sc: { mode: 0, height: 750, base: 0.3, top: 0.45, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.65, warp: 0.8, lumps: 0.75, gap: 0.3 },
+  sc: { mode: 0, height: 750, base: 0.3, top: 0.45, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.65, warp: 0.8, lumps: 0.75, gap: 0.3, thru: 0 },
   // 층운: 판 종류는 렌즈 단면(top 4 → 층 대부분에서 hs≈1)이라 d>0 인 곳이 전부 구름이고 d 는 두께만 바꿉니다.
   // (첫 판은 돔 단면 top 0.15 라 d<0.16 인 곳이 비어 판이 덩어리로 깨졌습니다.)
   st: { mode: 1, height: 400, base: 0, top: 4, edge: 2, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.1, shapeDetailAmount: 0, topQuantile: 0.5 },
