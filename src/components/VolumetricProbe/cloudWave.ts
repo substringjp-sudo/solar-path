@@ -41,6 +41,12 @@ export interface WaveParams {
   dome?: boolean;
   /** 지붕 꼴에서 3차원 큰 파동 세기 */
   gamma?: number;
+  /** 높이별 채우기(흐린 날): 높이(m, 해발)별 운량 0~1. 주면 이 모드 — 판·지붕 대신 높이마다 그 운량만큼 채움 */
+  profile?: { zM: number; cover: number }[];
+  /** 세로 파장 배율(크면 위아래가 같이 움직임) */
+  vstretch?: number;
+  /** 작은 구멍 메우기 반경(m, 0 끔): max(V, 주변 평균) 뒤 높이별 운량 다시 맞춤 */
+  fillM?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -92,7 +98,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
       let dx = s * Math.cos(th), dy = s * Math.sin(th), dz = u;
       // 바람 차이 방향 성분은 줄이고(그 방향으로 길어짐), 수직 성분은 키움(납작해짐)
       const along = dx * sx + dy * sy;
-      dx -= along * sx * (1 - 1 / alpha); dy -= along * sy * (1 - 1 / alpha); dz *= beta;
+      dx -= along * sx * (1 - 1 / alpha); dy -= along * sy * (1 - 1 / alpha); dz *= beta / p.vstretch;
       const kx = kmag * dx, ky = kmag * dy, kz = kmag * dz;
       // 비틀림 방향 ê ⟂ k
       let ex = -ky, ey = kx, ez = 0; const el = Math.hypot(ex, ey) || 1; ex /= el; ey /= el;
@@ -104,11 +110,15 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
 export function waveLaneRange(p: WaveParams): { zMin: number; zMax: number } {
+  if (p.profile && p.profile.length) {
+    const on = p.profile.filter(q => q.cover > 0).map(q => q.zM);
+    return { zMin: Math.min(...on) - 300, zMax: Math.max(...on) + 400 };
+  }
   return { zMin: p.baseM - 150, zMax: p.baseM + 1.3 * p.thickM };
 }
 
@@ -144,6 +154,58 @@ export function bakeWaveField(input: WaveParams): WaveField {
   const vox = new Float32Array(n * n * nz);
   const colMax = new Float32Array(n * n);
   const c = Math.min(0.999, Math.max(0.001, p.cover));
+  if (p.profile.length) {
+    // 높이별 채우기: 장 F(x,y,z) 를 높이 칸마다 그 높이 운량만큼 남기는 문턱으로 자름. 판·지붕 꼴 없음.
+    const prof = [...p.profile].sort((a, b) => a.zM - b.zM);
+    const coverAt = (z: number) => {
+      if (z <= prof[0].zM) return prof[0].zM - z < 150 ? prof[0].cover : 0;
+      for (let i = 1; i < prof.length; i++) if (z <= prof[i].zM) { const t = (z - prof[i - 1].zM) / (prof[i].zM - prof[i - 1].zM); return prof[i - 1].cover + t * (prof[i].cover - prof[i - 1].cover); }
+      return z - prof[prof.length - 1].zM < 150 ? prof[prof.length - 1].cover : 0;
+    };
+    const slice = new Float32Array(n * n);
+    const cutSlice = (iz: number, src: Float32Array) => {
+      const cz = coverAt(zMin + ((iz + 0.5) / nz) * (zMax - zMin));
+      const off = iz * n * n;
+      if (cz <= 0.002) { for (let i = 0; i < n * n; i++) src[off + i] = -5; return; }
+      for (let i = 0; i < n * n; i++) slice[i] = src[off + i];
+      slice.sort();
+      const t = slice[Math.min(n * n - 1, Math.floor((1 - Math.min(0.999, cz)) * n * n))];
+      for (let i = 0; i < n * n; i++) src[off + i] -= t;
+    };
+    for (let iz = 0; iz < nz; iz++) {
+      const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
+      for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+        const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
+        vox[(iz * n + iy) * n + ix] = skew(fbig(x, y, z));
+      }
+      cutSlice(iz, vox);
+    }
+    if (p.fillM > 0) {
+      // 구멍 메우기: 가로 상자 평균(반경 r 칸, 두 번 = 삼각 가중) · 세로 ±1 칸 → max(V, 평균) → 높이별 운량 다시 맞춤
+      const r = Math.max(1, Math.round(p.fillM / ((2 * half) / n)));
+      const blur = Float32Array.from(vox), tmp = new Float32Array(vox.length);
+      const pass = (a: Float32Array, b: Float32Array, dx: number, dy: number) => {
+        for (let iz = 0; iz < nz; iz++) for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+          let s = 0;
+          for (let k = -r; k <= r; k++) {
+            const jx = Math.min(n - 1, Math.max(0, ix + k * dx)), jy = Math.min(n - 1, Math.max(0, iy + k * dy));
+            s += a[(iz * n + jy) * n + jx];
+          }
+          b[(iz * n + iy) * n + ix] = s / (2 * r + 1);
+        }
+      };
+      for (let rep = 0; rep < 2; rep++) { pass(blur, tmp, 1, 0); pass(tmp, blur, 0, 1); }
+      for (let iz = 0; iz < nz; iz++) for (let i = 0; i < n * n; i++) {
+        const o = iz * n * n + i, zm = Math.max(0, iz - 1) * n * n + i, zp = Math.min(nz - 1, iz + 1) * n * n + i;
+        vox[o] = Math.max(vox[o], (blur[zm] + 2 * blur[o] + blur[zp]) / 4);
+      }
+      for (let iz = 0; iz < nz; iz++) cutSlice(iz, vox);
+    }
+    let vMin = Infinity, vMax = -Infinity, covered = 0;
+    for (let i = 0; i < vox.length; i++) { const v = vox[i]; if (v < vMin) vMin = v; if (v > vMax) vMax = v; }
+    for (let i = 0; i < n * n; i++) { for (let iz = 0; iz < nz; iz++) if (vox[iz * n * n + i] > 0) { covered++; break; } }
+    return finish(vox, 0, covered / (n * n), vMin, vMax);
+  }
   if (p.dome) {
     // 지붕 꼴(2차 시제품 판정: 3차원 경계면만으로는 평평한 밑면·솟는 지붕이 안 나오고 기울어진 타원 덩어리가 됨).
     // a = 바닥 무늬 − 문턱. 높이 z 에서는 a > a_max·((z−z_b)/H)² 인 곳만 구름 → 위로 갈수록 안쪽 등고선, 둥근 지붕.
