@@ -49,7 +49,7 @@ import {
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
-import { patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
+import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
@@ -411,6 +411,8 @@ export interface VolumetricOptions extends TsunOptions {
    * 기본 끔(끄면 날씨 바이트 그대로). flow·skeleton 이 켜져 있으면 그쪽이 우선이고 morph 는 쓰지 않습니다(앱 화면이 throw 로 깨지지 않게).
    */
   morph: boolean;
+  /** 뭉게구름(cu·cg·cb) 표면 혹 깎기(cloudBillow, docs/WAVE_FIELD_DESIGN.md §8). 해 쪽 추적은 부르는 쪽이 촘촘히 겁니다(BILLOW_SUN_MARCH). */
+  billow: boolean;
   /**
    * RULER-grain §8.2 알갱이 손잡이(전부 기본 끔 — 끄면 셰이더 글자·균일변수·층 값이 측정 번들과 같음, cloudGenus.ts `setGrainKnobs`).
    * E1b — 1차 행진에서 광선당 한 번, 첫 적중 표본을 직전 증분 Δ 만큼 되감아 h = max(50 m, Δ/8) 보폭으로 최대 8 표본 다시 걷기(구름 패스).
@@ -441,7 +443,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1300,7 +1302,8 @@ export async function createVolumetricScene(
           lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats };
         } else lastWaveInfo = null;
         for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
-        const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow ?? null);
+        const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
+          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb') ? BILLOW_DEFAULT : null));
         const bFirst = bp.find(x => x) ?? null;
         for (const m of genusMats) setBillowUniforms(m, bFirst, bp.map(x => (x ? 1 : 0)));
       }

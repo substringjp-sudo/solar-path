@@ -107,3 +107,8 @@ export function setBillowUniforms(mat: PatchableMaterial, p: BillowParams | null
   const dirs = directions(p.seed ?? 1), cur = u.billowDir.value as Vector4[];
   dirs.forEach((d, i) => cur[i].copy(d));
 }
+
+/** 앱 기본값(§8 10회차에서 고른 것): 혹 400 m, 깎기 0.3. */
+export const BILLOW_DEFAULT: BillowParams = { lambdaM: 400, amp: 0.3, carve: true };
+/** 혹 그늘이 읽히는 해 쪽 추적(걸음 수, 첫 걸음 m, 배율). 끄면 [6, 250, 1.6]. */
+export const BILLOW_SUN_MARCH: [number, number, number] = [10, 60, 1.5];

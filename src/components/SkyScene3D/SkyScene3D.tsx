@@ -222,6 +222,8 @@ export interface SkySettings {
   volumetricMacro?: 0 | 1 | 2;
   /** 연속 형태 생성기(morph) — 저층 무늬를 종류 프리셋 대신 예보 연속량으로 만듦 (개발 패널 MORPH 칩). */
   volumetricMorph?: boolean;
+  /** 뭉게구름 표면 혹 + 촘촘한 해 쪽 추적(기본 켬) */
+  volumetricBillow?: boolean;
   /**
    * §178 조명 결함 고침 A/B — 대기 원근 산란을 0 에서 자름(clampInscatter) · 조도 표 μs 로그 보간(irradianceLogMu). 사용자 승인으로 기본 켬,
    * 개발 패널 CLAMP·LOGμ 칩으로 끄고 비교합니다(끄면 셰이더 글자가 고치기 전과 같음).
@@ -247,6 +249,7 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   volumetricPhysicsIce: false,
   volumetricMacro: 1,
   volumetricMorph: false,
+  volumetricBillow: true,
   volumetricClampInscatter: true,
   volumetricIrradianceLogMu: true,
 };
@@ -2006,11 +2009,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
               // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
-              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
+              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, sunMarch: (volSet.volumetricBillow ?? true) ? [10, 60, 1.5] : [6, 250, 1.6], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
               volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
