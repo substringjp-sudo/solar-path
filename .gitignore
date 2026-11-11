@@ -18,6 +18,10 @@ google-services.json
 # Local debug log files
 *logcat*.txt
 *.txt
+# oro 동결 파일(자 L874 `oro-test.py(+ oro-test.txt)`) — 커밋 대상이라 예외
+!tools/genus-ruler/oro/oro-test.txt
+# regime 동결 파일(RULER-regime §10.2 `regime-test.py`(+ 결과)) — 커밋 대상이라 예외
+!tools/genus-ruler/regime/regime-test.txt
 
 # Builds and Temp Files
 *.apk

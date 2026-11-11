@@ -1,0 +1,33 @@
+{
+ "cases": 311,
+ "n_rho_vis_neg": 2,
+ "frac_neg": 0.006,
+ "rho_vis_quantiles": [
+  -0.351,
+  0.26,
+  0.454,
+  0.61
+ ],
+ "rho_vis_appT_min": 0.999,
+ "by_scene_k_any_neg": 1,
+ "examples_neg": [
+  {
+   "k": 24,
+   "deg": 45,
+   "nS": 20,
+   "rho_vis": -0.351,
+   "rho_vis_appT": 1.0,
+   "sdD": 0.0912,
+   "sd_dC_S": 0.0294
+  },
+  {
+   "k": 24,
+   "deg": 180,
+   "nS": 24,
+   "rho_vis": -0.049,
+   "rho_vis_appT": 0.999,
+   "sdD": 0.0912,
+   "sd_dC_S": 0.0334
+  }
+ ]
+}

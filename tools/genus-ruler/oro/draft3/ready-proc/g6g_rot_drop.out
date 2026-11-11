@@ -1,0 +1,22 @@
+{
+ "seoul/even": {
+  "med_rho_rot": 1.0,
+  "med_rho_res": 0.044,
+  "max_rho_res": 0.236
+ },
+ "seoul/skew": {
+  "med_rho_rot": 1.0,
+  "med_rho_res": -0.047,
+  "max_rho_res": 0.228
+ },
+ "synth/even": {
+  "med_rho_rot": 0.999,
+  "med_rho_res": -0.179,
+  "max_rho_res": 0.049
+ },
+ "synth/skew": {
+  "med_rho_rot": 0.999,
+  "med_rho_res": -0.153,
+  "max_rho_res": -0.034
+ }
+}

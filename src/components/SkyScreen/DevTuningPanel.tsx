@@ -26,7 +26,7 @@ import {
   PanResponder,
   Platform,
 } from 'react-native';
-import { RotateCcw, Code2, X, CloudSun } from 'lucide-react-native';
+import { RotateCcw, Code2, X } from 'lucide-react-native';
 import {
   getTuning,
   setTuning,
@@ -42,12 +42,8 @@ import {
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { volumetricStats } from '../../utils/volumetricGovernor';
 import { getVolumetricStatus, subscribeVolumetricStatus, type VolumetricStatus } from '../VolumetricProbe/volumetricStatus';
-// 볼륨 구름 시험 화면(§123)은 개발용 빌드와 볼륨 미리보기 빌드(EXPO_PUBLIC_VOLUMETRIC_SKY=1)에서만 —
-// 출시 번들에 takram·postprocessing 을 싣지 않으려고 이 조건 안에서만 불러옵니다(Metro 가 __DEV__ 와
-// EXPO_PUBLIC_* 를 상수로 접어 출시 빌드에서는 이 require 를 지웁니다).
-const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }> | null =
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  require('../VolumetricProbe/VolumetricProbe').VolumetricProbe;
+// 볼륨 하늘 칩·상태 줄을 보입니다. 시험 화면(§123 VolumetricProbe, 가나자와·후쿠이 장면)은 2026-11-11 사용자 결정으로 패널에서 뺐습니다 — 앱 화면에서 위치를 바꿔 봅니다.
+const VOL_DEV = true;
 
 const TRACK_W = 148;
 
@@ -139,6 +135,11 @@ const VolumetricPerfRow: React.FC = () => {
   const physIce = useCelestialStore(s => !!s.skySettings.volumetricPhysicsIce);
   const macroMode = useCelestialStore(s => s.skySettings.volumetricMacro ?? 1);
   const morph = useCelestialStore(s => !!s.skySettings.volumetricMorph);
+  const billow = useCelestialStore(s => s.skySettings.volumetricBillow ?? true);
+  const fill = useCelestialStore(s => s.skySettings.volumetricFill ?? true);
+  const accSun = useCelestialStore(s => s.skySettings.volumetricAccurateSun ?? true);
+  const lowShadow = useCelestialStore(s => s.skySettings.volumetricLowSunShadow ?? true);
+  const farSun = useCelestialStore(s => !!s.skySettings.volumetricFarSun);
   const clampIn = useCelestialStore(s => s.skySettings.volumetricClampInscatter ?? true);
   const logMu = useCelestialStore(s => s.skySettings.volumetricIrradianceLogMu ?? true);
   const camVol = useCelestialStore(s => !!s.skySettings.cameraVolumetric);
@@ -154,6 +155,7 @@ const VolumetricPerfRow: React.FC = () => {
           {`${fps}fps(${st.frameMs.toFixed(0)}ms) · 구름 ×${st.resScale.toFixed(2)} · 날씨 ${(st.weatherMs / 1000).toFixed(1)}s · 대기 ${(st.atmosMs / 1000).toFixed(0)}s${st.spectral ? '(15파장)' : '(3파장)'}`}
         </Text>
       )}
+      {/* 품질·해상도 */}
       <View style={styles.volRow}>
         {(['low', 'medium', 'high'] as const).map(k => (
           <TouchableOpacity key={k} onPress={() => set({ volumetricQuality: k })} style={chip(q === k)}>
@@ -166,48 +168,63 @@ const VolumetricPerfRow: React.FC = () => {
             <Text style={styles.volChipText}>{r === 1 ? '1' : r.toString().slice(1)}</Text>
           </TouchableOpacity>
         ))}
-        <View style={{ width: 6 }} />
         <TouchableOpacity onPress={() => set({ volumetricAutoRes: !auto })} style={chip(auto)}>
-          <Text style={styles.volChipText}>AUTO</Text>
+          <Text style={styles.volChipText}>자동</Text>
         </TouchableOpacity>
-        <View style={{ width: 6 }} />
-        {/* §130 대기 흐름 구름 모형(FLOW) · 층별 드리프트/기울임(UV) — 자 통과 전 기기 확인용 */}
-        <TouchableOpacity onPress={() => set({ volumetricFlow: !flow })} style={chip(flow)}>
-          <Text style={styles.volChipText}>FLOW</Text>
+      </View>
+      {/* 켜고 끄는 요소 — 이름은 화면에 보이는 효과로 */}
+      <View style={styles.volRow}>
+        {/* 뭉게구름 표면 혹 + 촘촘한 해 쪽 추적(docs/WAVE_FIELD_DESIGN.md §8, 기본 켬) */}
+        <TouchableOpacity onPress={() => set({ volumetricBillow: !billow })} style={chip(billow)}>
+          <Text style={styles.volChipText}>뭉게 혹</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => set({ volumetricFlowUv: !flowUv })} style={chip(flowUv)}>
-          <Text style={styles.volChipText}>UV</Text>
+        {/* 흐린 날 높이별 채우기(파동 장, docs/WAVE_FIELD_DESIGN.md §9, 기본 켬) — 상태 줄 맨 앞에 '채우기' 가 붙으면 쓰는 중 */}
+        <TouchableOpacity onPress={() => set({ volumetricFill: !fill })} style={chip(fill)}>
+          <Text style={styles.volChipText}>흐린 날 채우기</Text>
         </TouchableOpacity>
-        <View style={{ width: 6 }} />
-        {/* §136 구름 미세물리(PHYS: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(ICE, PHYS 위에서만) — 자 통과 전 기기 확인용 */}
+        {/* 해 15° 아래에서 구름 위치마다 햇빛(지구 그림자·붉어짐) — 끄면 관측점 위 한 값 */}
+        <TouchableOpacity onPress={() => set({ volumetricAccurateSun: !accSun })} style={chip(accSun)}>
+          <Text style={styles.volChipText}>위치별 햇빛</Text>
+        </TouchableOpacity>
+        {/* 층 그림자 지도를 해 −4° 까지(끄면 12° 아래 끔). 화면이 검게 깨지면 끄세요 */}
+        <TouchableOpacity onPress={() => set({ volumetricLowSunShadow: !lowShadow })} style={chip(lowShadow)}>
+          <Text style={styles.volChipText}>노을 그림자</Text>
+        </TouchableOpacity>
+        {/* 먼 구름 햇빛 가림(시험, 기본 끔) — 해 10° 아래에서 지평선 너머 구름이 해를 가림 */}
+        <TouchableOpacity onPress={() => set({ volumetricFarSun: !farSun })} style={chip(farSun)}>
+          <Text style={styles.volChipText}>먼 구름 가림</Text>
+        </TouchableOpacity>
+        {/* §156 고리 예보 운량 격자 — 0 끔 · 1 격자 · 2 격자+잡음 */}
+        <TouchableOpacity onPress={() => set({ volumetricMacro: ((macroMode + 1) % 3) as 0 | 1 | 2 })} style={chip(macroMode > 0)}>
+          <Text style={styles.volChipText}>{`운량 격자 ${macroMode}`}</Text>
+        </TouchableOpacity>
+        {/* §136 구름 미세물리(종류별 소광·응결 밑면) · 얼음 무리 */}
         <TouchableOpacity onPress={() => set({ volumetricPhysics: !phys })} style={chip(phys)}>
-          <Text style={styles.volChipText}>PHYS</Text>
+          <Text style={styles.volChipText}>물리 밀도</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => set({ volumetricPhysicsIce: !physIce })} style={chip(phys && physIce)}>
-          <Text style={styles.volChipText}>ICE</Text>
+          <Text style={styles.volChipText}>얼음 무리</Text>
         </TouchableOpacity>
-        <View style={{ width: 6 }} />
-        {/* §156 거시 운량 격자 — MAC0 끔(기울기 두 수) · MAC1 Barnes 격자(기본) · MAC2 스펙트럼 잡음까지. 누를 때마다 0→1→2 */}
-        <TouchableOpacity onPress={() => set({ volumetricMacro: ((macroMode + 1) % 3) as 0 | 1 | 2 })} style={chip(macroMode > 0)}>
-          <Text style={styles.volChipText}>{`MAC${macroMode}`}</Text>
+        {/* §130 흐름 모형 · §(morph) 연속 형태 — 둘 다 구름을 단순하게 만들어 기본 끔 */}
+        <TouchableOpacity onPress={() => set({ volumetricFlow: !flow })} style={chip(flow)}>
+          <Text style={styles.volChipText}>흐름</Text>
         </TouchableOpacity>
-        <View style={{ width: 6 }} />
-        {/* 연속 형태 생성기(MORPH) — 예보 연속 물리량(대류성·얼음·바람·전단)으로 저층 형태 생성 */}
+        <TouchableOpacity onPress={() => set({ volumetricFlowUv: !flowUv })} style={chip(flowUv)}>
+          <Text style={styles.volChipText}>층별 바람</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => set({ volumetricMorph: !morph })} style={chip(morph)}>
-          <Text style={styles.volChipText}>MORPH</Text>
+          <Text style={styles.volChipText}>연속 형태</Text>
         </TouchableOpacity>
-        <View style={{ width: 6 }} />
-        {/* §178 조명 결함 고침 A/B — CLAMP 대기 원근 산란 0 자르기 · LOGμ 조도 표 μs 로그 보간(둘 다 기본 켬) */}
+        {/* §178 조명 결함 고침(기본 켬) */}
         <TouchableOpacity onPress={() => set({ volumetricClampInscatter: !clampIn })} style={chip(clampIn)}>
-          <Text style={styles.volChipText}>CLAMP</Text>
+          <Text style={styles.volChipText}>산란 자르기</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => set({ volumetricIrradianceLogMu: !logMu })} style={chip(logMu)}>
-          <Text style={styles.volChipText}>LOGμ</Text>
+          <Text style={styles.volChipText}>박명 조도</Text>
         </TouchableOpacity>
-        <View style={{ width: 6 }} />
-        {/* §143 촬영(카메라) 화면의 3D 시뮬에도 볼륨 하늘 — 메인 시뮬레이션과 같은 구름. 카메라 스트림과 GPU 를 나눠 쓰므로 기기 확인용 */}
+        {/* §143 촬영 화면 3D 시뮬에도 볼륨 하늘 */}
         <TouchableOpacity onPress={() => set({ cameraVolumetric: !camVol })} style={chip(camVol)}>
-          <Text style={styles.volChipText}>CAM-VOL</Text>
+          <Text style={styles.volChipText}>촬영 화면 볼륨</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -220,8 +237,8 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 }) => {
   const [tuning, setLocal] = useState<SkyTuning>(getTuning());
   const [showCode, setShowCode] = useState(false);
-  // 볼륨 구름 시험 화면(§123) — 이 기기에서 takram 대기·구름이 도는지 잽니다.
-  const [showProbe, setShowProbe] = useState(false);
+  // 수치 조정 슬라이더는 접어 둡니다(2026-11-11 사용자: 켜고 끄는 요소가 더 중요).
+  const [showSliders, setShowSliders] = useState(false);
   // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 적용
   const volumetricSky = useCelestialStore(s => s.skySettings.volumetricSky ?? true);
 
@@ -240,7 +257,7 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 
   if (!visible) return null;
 
-  const volLine = !VolumetricProbe ? null
+  const volLine = !VOL_DEV ? null
     : volStatus.phase === 'creating' ? `볼륨: 준비 중 ${Math.round((Date.now() - volStatus.sinceMs) / 1000)}초`
     : volStatus.phase === 'running' ? `볼륨: 동작 중${volStatus.summary ? ' · ' + volStatus.summary : ''}`
     : volStatus.phase === 'failed' ? `볼륨 실패 — ${volStatus.error ?? '이유 모름'} (VOL 을 껐다 켜면 다시 시도)`
@@ -250,7 +267,6 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 
   return (
     <View style={styles.panel} pointerEvents="box-none">
-      {showProbe && VolumetricProbe && <VolumetricProbe visible onClose={() => setShowProbe(false)} />}
       <View style={styles.card}>
         {/* 1줄: 제목과 닫기 — 패널 폭(208)에 아이콘이 다 들어가지 않아 닫기 버튼이 화면 밖으로 밀렸습니다(폰 2026-10-05). */}
         <View style={styles.header}>
@@ -263,7 +279,7 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
         </View>
         {/* 2줄: 도구 */}
         <View style={styles.header}>
-          {VolumetricProbe && (
+          {VOL_DEV && (
             <>
               <TouchableOpacity
                 onPress={() => useCelestialStore.getState().setSkySettings({ volumetricSky: !volumetricSky })}
@@ -271,9 +287,6 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
                 accessibilityLabel="볼륨 하늘 켜기/끄기"
               >
                 <Text style={{ fontSize: 10, fontWeight: '800', color: volumetricSky ? '#34D399' : '#94A3B8' }}>VOL</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowProbe(true)} style={styles.iconBtn} accessibilityLabel="볼륨 구름 시험">
-                <CloudSun size={13} color="#94A3B8" />
               </TouchableOpacity>
             </>
           )}
@@ -290,7 +303,7 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
           </Text>
         )}
 
-        {VolumetricProbe && volumetricSky && <VolumetricPerfRow />}
+        {VOL_DEV && volumetricSky && <VolumetricPerfRow />}
 
         {/* 맞춘 값을 소스에 되돌리기 위한 출력.
             클립보드 의존성을 넣지 않고, 길게 눌러 선택 복사할 수 있게 둡니다. */}
@@ -308,7 +321,10 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
           onScrollBeginDrag={() => useCelestialStore.getState().setGestureBlocked(true)}
           onScrollEndDrag={() => useCelestialStore.getState().setGestureBlocked(false)}
         >
-          {TUNING_GROUPS.map(g => (
+          <TouchableOpacity onPress={() => setShowSliders(v => !v)} style={styles.group}>
+            <Text style={styles.groupTitle}>{showSliders ? '▾ 수치 조정' : '▸ 수치 조정'}</Text>
+          </TouchableOpacity>
+          {showSliders && TUNING_GROUPS.map(g => (
             <View key={g.title} style={styles.group}>
               <Text style={styles.groupTitle}>{g.title}</Text>
               {g.fields.map(f => (
@@ -355,7 +371,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 12, fontWeight: '900', color: '#F1F5F9' },
   volBox: { marginBottom: 6, padding: 5, borderRadius: 6, backgroundColor: 'rgba(52,211,153,0.10)' },
   volText: { fontSize: 9, fontWeight: '700', color: '#A7F3D0', fontVariant: ['tabular-nums'] },
-  volRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 3 },
+  volRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 4, gap: 3 },
   volChip: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(148,163,184,0.18)' },
   volChipOn: { backgroundColor: 'rgba(52,211,153,0.45)' },
   volChipText: { fontSize: 9, fontWeight: '800', color: '#E2E8F0' },

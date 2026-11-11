@@ -69,6 +69,23 @@ export interface LiveSceneArgs {
   altitudeM?: number;
   /** §160 가장 가까운 공항 METAR — 장면 시각이 보고 ±90 분·60 km 안이면 저층 운량·밑면·강수를 관측으로 바꿉니다. */
   metar?: MetarObs | null;
+  /** 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9). 기본 켬 — 조건이 맞을 때만 저·중층을 파동 장 한 층으로 바꿉니다. */
+  fill?: boolean;
+}
+
+/** 흐린 날 채우기 조건: 7.5 km 아래 기압면 운량 최대 80 % 이상 · 50 % 이상인 면 2 개 이상 · CAPE 300 미만(대류 날 아님). */
+export const FILL_RULE = { maxZ: 7500, peak: 80, wetPct: 50, wetLevels: 2, capeMax: 300 } as const;
+
+/** 기압면 단면에서 높이별 운량(0~1)을 뽑습니다. 조건이 안 맞으면 null. */
+export function fillProfileOf(obs: CloudData): { zM: number; cover: number }[] | null {
+  const hs = obs.profileHeightM, cs = obs.profileCoverPct;
+  if (!hs || !cs || hs.length !== cs.length) return null;
+  if (obs.capeJkg != null && Number.isFinite(obs.capeJkg) && obs.capeJkg >= FILL_RULE.capeMax) return null;
+  const lv = hs.map((z, i) => ({ zM: z, c: cs[i] })).filter(q => Number.isFinite(q.zM) && Number.isFinite(q.c) && q.zM <= FILL_RULE.maxZ).sort((a, b) => a.zM - b.zM);
+  if (!lv.length) return null;
+  const peak = Math.max(...lv.map(q => q.c)), wet = lv.filter(q => q.c >= FILL_RULE.wetPct).length;
+  if (peak < FILL_RULE.peak || wet < FILL_RULE.wetLevels) return null;
+  return lv.map(q => ({ zM: Math.round(q.zM), cover: Math.round(Math.min(100, Math.max(0, q.c))) / 100 }));
 }
 
 export interface LiveScene {
@@ -261,10 +278,31 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     }
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.high, band: 'high' });
 
+  // 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9): 저·중층 두 종류 층 대신 파동 장 한 층. 적란운 날은 쓰지 않음.
+  const fillProf = a.fill !== false && !anvil ? fillProfileOf(obs) : null;
+  let fillOn = false;
+  if (fillProf) {
+    const on = fillProf.filter(q => q.cover > 0.02);
+    if (on.length) {
+      const zLo = on[0].zM, zHi = on[on.length - 1].zM;
+      const [lu, lv] = W.low, [mu, mv] = W.mid, dz = Math.max(500, ((obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low)) * 1000);
+      const shear = Math.hypot(mu - lu, mv - lv) / 3.6 / dz;
+      const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
+      const wave = {
+        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: 0.1,
+        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 3, profile: fillProf,
+        seed: flowSeed % 997, nxy: 128, nz: 32,
+      };
+      const zMin = zLo - 300, zMax = zHi + 400;
+      layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave } as VolumetricLayerInput['opts'] };
+      layers[1] = { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' };
+      fillOn = true;
+    }
+  }
   if (anvil) layers.push(anvil);
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
+  const summary = `${fillOn ? '채우기 · ' : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
   const ringPts = dropSeamCopies(interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));

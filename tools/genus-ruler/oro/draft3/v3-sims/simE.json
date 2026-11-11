@@ -1,0 +1,104 @@
+{
+ "model": "v3 sim E: RULER-regime P1 null — 재검토가 권한 '사이트 공통 시간 이동(모든 날)' 이 ROLL 날의 바람 축이 다른 날보다 몰려 있을 때도 맞는가,\n그리고 이동한 날을 같은 사이트의 ROLL 날(탐측만으로 정함)로 한정하면 고쳐지는가.  MODIS 없음, 합성 각만.\n모형(재검토 simB3 에 하나를 더함) [estimate]:\n- 8 사이트 x 153 일. ROLL 날: 2 상태 Markov(평형 비율 0.14, 머무름 p_stay). P1 = ROLL 날 가운데 0.18(기하·예보·품질·A 문턱 통과 가정) -> n ~ 30.\n- theta_CBL(s,t) = b_s + R*(t/T - 0.5) + e_t, e: AR(1)(phi), SD 35 deg.  conc=True 이면 ROLL 이 아닌 날에는 축에 넓은 떨림(doubled-angle vM kappa 0.4)을 더함\n  (약풍 날·시어 축 대체 날의 축은 ROLL 날보다 흩어짐).\n- theta_sat(H0) = 30 % 주사 축(vM 90, kappa 4), 나머지 b_s + R*(t/T-0.5) + g_t(+ vM kappa 8), g 는 e 와 독립 AR(1).  H1: 확률 q 로 theta_CBL + vM(kappa 4).\n- 검정(한쪽 p <= 0.025, 각 P 번):\n  (i) 사이트 안 순열(2판), (ii) 사이트 공통 시간 이동 ±10~45 일, 모든 날(재검토 고칠 글),\n  (iii) 사이트 공통 시간 이동, 이동한 날을 그 사이트 ROLL 날로 한정: t_i+u 에서 7 일 안의 가장 가까운 ROLL 날 d(|d - t_i| >= 10), 없으면 t_i-u, 그래도 없으면 자기 축(보수적),\n  (iv) 장면마다 따로: 그 사이트 ROLL 날 가운데 10 <= |d - t_i| <= 45 에서 고르게(없으면 자기 축).\n",
+ "reps": 1000,
+ "P": 1000,
+ "H0_iid_noconc": {
+  "i_sitePerm": 0.026,
+  "ii_shiftAllDays": 0.029,
+  "iii_shiftRollPool": 0.029,
+  "iv_indepRollPool": 0.046,
+  "i_and_ii": 0.014,
+  "i_and_iii": 0.013,
+  "i_and_iv": 0.015,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.083
+ },
+ "H0_iid_conc": {
+  "i_sitePerm": 0.022,
+  "ii_shiftAllDays": 0.115,
+  "iii_shiftRollPool": 0.047,
+  "iv_indepRollPool": 0.054,
+  "i_and_ii": 0.017,
+  "i_and_iii": 0.014,
+  "i_and_iv": 0.015,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.08
+ },
+ "H0_persist0.85_conc": {
+  "i_sitePerm": 0.026,
+  "ii_shiftAllDays": 0.127,
+  "iii_shiftRollPool": 0.034,
+  "iv_indepRollPool": 0.1,
+  "i_and_ii": 0.015,
+  "i_and_iii": 0.011,
+  "i_and_iv": 0.018,
+  "nP1_med": 30.0,
+  "keepOwn_share": 0.208
+ },
+ "H0_season60_conc": {
+  "i_sitePerm": 0.039,
+  "ii_shiftAllDays": 0.116,
+  "iii_shiftRollPool": 0.042,
+  "iv_indepRollPool": 0.052,
+  "i_and_ii": 0.027,
+  "i_and_iii": 0.019,
+  "i_and_iv": 0.021,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.081
+ },
+ "H0_season60_persist0.7_conc": {
+  "i_sitePerm": 0.06,
+  "ii_shiftAllDays": 0.129,
+  "iii_shiftRollPool": 0.034,
+  "iv_indepRollPool": 0.084,
+  "i_and_ii": 0.038,
+  "i_and_iii": 0.017,
+  "i_and_iv": 0.03,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.153
+ },
+ "H0_season60_persist0.7_noconc": {
+  "i_sitePerm": 0.046,
+  "ii_shiftAllDays": 0.041,
+  "iii_shiftRollPool": 0.041,
+  "iv_indepRollPool": 0.082,
+  "i_and_ii": 0.021,
+  "i_and_iii": 0.016,
+  "i_and_iv": 0.024,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.152
+ },
+ "H1_q0.27_iid_conc": {
+  "i_sitePerm": 0.277,
+  "ii_shiftAllDays": 0.628,
+  "iii_shiftRollPool": 0.38,
+  "iv_indepRollPool": 0.432,
+  "i_and_ii": 0.266,
+  "i_and_iii": 0.23,
+  "i_and_iv": 0.246,
+  "nP1_med": 30.0,
+  "keepOwn_share": 0.081
+ },
+ "H1_q0.27_season60_persist0.7_conc": {
+  "i_sitePerm": 0.395,
+  "ii_shiftAllDays": 0.672,
+  "iii_shiftRollPool": 0.384,
+  "iv_indepRollPool": 0.508,
+  "i_and_ii": 0.373,
+  "i_and_iii": 0.284,
+  "i_and_iv": 0.334,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.152
+ },
+ "H1_q0.40_season60_persist0.7_conc": {
+  "i_sitePerm": 0.639,
+  "ii_shiftAllDays": 0.87,
+  "iii_shiftRollPool": 0.646,
+  "iv_indepRollPool": 0.757,
+  "i_and_ii": 0.632,
+  "i_and_iii": 0.541,
+  "i_and_iv": 0.603,
+  "nP1_med": 31.0,
+  "keepOwn_share": 0.151
+ }
+}

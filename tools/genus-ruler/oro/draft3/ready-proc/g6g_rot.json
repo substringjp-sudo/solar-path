@@ -1,0 +1,197 @@
+{
+ "gauss20": {
+  "P_pass_all4": 0.438,
+  "per_set": {
+   "seoul/even": {
+    "P_pass": 0.875,
+    "sd_median": 0.032,
+    "mean_sd_scene": 0.07,
+    "nSu": [
+     71,
+     73,
+     85,
+     82,
+     71,
+     73,
+     85,
+     82
+    ]
+   },
+   "seoul/skew": {
+    "P_pass": 0.88,
+    "sd_median": 0.033,
+    "mean_sd_scene": 0.075,
+    "nSu": [
+     85,
+     79,
+     81,
+     82,
+     80,
+     70,
+     79,
+     80
+    ]
+   },
+   "synth/even": {
+    "P_pass": 0.795,
+    "sd_median": 0.041,
+    "mean_sd_scene": 0.093,
+    "nSu": [
+     80,
+     83,
+     86,
+     79,
+     80,
+     83,
+     86,
+     79
+    ]
+   },
+   "synth/skew": {
+    "P_pass": 0.705,
+    "sd_median": 0.045,
+    "mean_sd_scene": 0.094,
+    "nSu": [
+     86,
+     78,
+     78,
+     79,
+     74,
+     68,
+     78,
+     74
+    ]
+   }
+  }
+ },
+ "gauss50": {
+  "P_pass_all4": 0.385,
+  "per_set": {
+   "seoul/even": {
+    "P_pass": 0.912,
+    "sd_median": 0.031,
+    "mean_sd_scene": 0.07,
+    "nSu": [
+     71,
+     73,
+     85,
+     82,
+     71,
+     73,
+     85,
+     82
+    ]
+   },
+   "seoul/skew": {
+    "P_pass": 0.82,
+    "sd_median": 0.036,
+    "mean_sd_scene": 0.08,
+    "nSu": [
+     85,
+     79,
+     81,
+     82,
+     80,
+     70,
+     79,
+     80
+    ]
+   },
+   "synth/even": {
+    "P_pass": 0.735,
+    "sd_median": 0.044,
+    "mean_sd_scene": 0.101,
+    "nSu": [
+     80,
+     83,
+     86,
+     79,
+     80,
+     83,
+     86,
+     79
+    ]
+   },
+   "synth/skew": {
+    "P_pass": 0.698,
+    "sd_median": 0.049,
+    "mean_sd_scene": 0.1,
+    "nSu": [
+     86,
+     78,
+     78,
+     79,
+     74,
+     68,
+     78,
+     74
+    ]
+   }
+  }
+ },
+ "pow3": {
+  "P_pass_all4": 0.395,
+  "per_set": {
+   "seoul/even": {
+    "P_pass": 0.86,
+    "sd_median": 0.034,
+    "mean_sd_scene": 0.074,
+    "nSu": [
+     71,
+     73,
+     85,
+     82,
+     71,
+     73,
+     85,
+     82
+    ]
+   },
+   "seoul/skew": {
+    "P_pass": 0.85,
+    "sd_median": 0.035,
+    "mean_sd_scene": 0.082,
+    "nSu": [
+     85,
+     79,
+     81,
+     82,
+     80,
+     70,
+     79,
+     80
+    ]
+   },
+   "synth/even": {
+    "P_pass": 0.743,
+    "sd_median": 0.044,
+    "mean_sd_scene": 0.101,
+    "nSu": [
+     80,
+     83,
+     86,
+     79,
+     80,
+     83,
+     86,
+     79
+    ]
+   },
+   "synth/skew": {
+    "P_pass": 0.71,
+    "sd_median": 0.047,
+    "mean_sd_scene": 0.1,
+    "nSu": [
+     86,
+     78,
+     78,
+     79,
+     74,
+     68,
+     78,
+     74
+    ]
+   }
+  }
+ }
+}

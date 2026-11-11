@@ -1,0 +1,53 @@
+{
+ "purpose": "계획 S1(D8): main 합치기 전후 하네스 A/A. 합치기 전후 B0_app·P0_seoul 의 rgb·alpha md5 가 같아야 함",
+ "preCommit": "679f460",
+ "postCommit": "115fbe2 (merge origin/main a8a4f61), 하네스 묶기는 ece32b1 의 build.sh",
+ "jobs": [
+  "B0_app (shape/jobs-overcast.json)",
+  "P0_seoul (flow/jobs-phys-guards.json)"
+ ],
+ "run": "node tools/genus-ruler/volsky/run.js jobs.json out 390 584 gen",
+ "chromium": "Google Chrome for Testing 153.0.8010.12",
+ "chromiumFlags": [
+  "--no-sandbox",
+  "--use-gl=angle",
+  "--use-angle=swiftshader",
+  "--enable-unsafe-swiftshader",
+  "--ignore-gpu-blocklist"
+ ],
+ "esbuild": "0.28.2",
+ "pre": {
+  "bundleMd5": "5bef1320f2dd84a974d5150c7100e31c",
+  "run1": {
+   "B0_app.alpha.png": "29ce17f56873ac637ced2cadb51e2770",
+   "B0_app.png": "001fb6a42d27ed46d15524a9aad14cb0",
+   "P0_seoul.alpha.png": "6f72aad6e0ab01e02037a09ba2cda71a",
+   "P0_seoul.png": "97b2edf629480de78ae8892896d53e29"
+  },
+  "run2": {
+   "B0_app.alpha.png": "29ce17f56873ac637ced2cadb51e2770",
+   "B0_app.png": "001fb6a42d27ed46d15524a9aad14cb0",
+   "P0_seoul.alpha.png": "6f72aad6e0ab01e02037a09ba2cda71a",
+   "P0_seoul.png": "97b2edf629480de78ae8892896d53e29"
+  }
+ },
+ "post": {
+  "bundleMd5": "4333dc41e394baf6153488d0578f2e35",
+  "run1": {
+   "B0_app.alpha.png": "29ce17f56873ac637ced2cadb51e2770",
+   "B0_app.png": "001fb6a42d27ed46d15524a9aad14cb0",
+   "P0_seoul.alpha.png": "6f72aad6e0ab01e02037a09ba2cda71a",
+   "P0_seoul.png": "97b2edf629480de78ae8892896d53e29"
+  },
+  "run2": {
+   "B0_app.alpha.png": "29ce17f56873ac637ced2cadb51e2770",
+   "B0_app.png": "001fb6a42d27ed46d15524a9aad14cb0",
+   "P0_seoul.alpha.png": "6f72aad6e0ab01e02037a09ba2cda71a",
+   "P0_seoul.png": "97b2edf629480de78ae8892896d53e29"
+  }
+ },
+ "preAA": true,
+ "postAA": true,
+ "preEqualsPost": true,
+ "pass": true
+}

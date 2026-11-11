@@ -49,6 +49,9 @@ import {
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
+import { buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarSunMap } from './farSun';
+import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
+import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
 // §179 검토 반영(회귀 1): 구축기(tsunAtlas.ts)는 하네스(tools/genus-ruler/tsun/tsun-build.ts)만 부름 — 앱 묶음에는 형만(지워지는 import type).
@@ -409,6 +412,10 @@ export interface VolumetricOptions extends TsunOptions {
    * 기본 끔(끄면 날씨 바이트 그대로). flow·skeleton 이 켜져 있으면 그쪽이 우선이고 morph 는 쓰지 않습니다(앱 화면이 throw 로 깨지지 않게).
    */
   morph: boolean;
+  /** 뭉게구름(cu·cg·cb) 표면 혹 깎기(cloudBillow, docs/WAVE_FIELD_DESIGN.md §8). 해 쪽 추적은 부르는 쪽이 촘촘히 겁니다(BILLOW_SUN_MARCH). */
+  billow: boolean;
+  /** 노을 3단계: 먼 거리 햇빛 가림 지도(farSun.ts). 해 10° 아래 · 장면에 고리(macro) 있을 때만. */
+  farSun: boolean;
   /**
    * RULER-grain §8.2 알갱이 손잡이(전부 기본 끔 — 끄면 셰이더 글자·균일변수·층 값이 측정 번들과 같음, cloudGenus.ts `setGrainKnobs`).
    * E1b — 1차 행진에서 광선당 한 번, 첫 적중 표본을 직전 증분 Δ 만큼 되감아 h = max(50 m, Δ/8) 보폭으로 최대 8 표본 다시 걷기(구름 패스).
@@ -439,7 +446,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, farSun: false, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -489,6 +496,10 @@ export interface VolumetricScene {
   weatherMs(): number;
   /** §131 진단: 흐름 핵의 왜곡 s90·실제 의사시간(h), 카메라 칸 오프셋(km) — 흐름이 꺼졌으면 null 들 */
   flowInfo(): { s90: number | null; hoursUsed: number | null; camKm: [number, number] | null };
+  /** 파동 합성 장 진단(굽는 시간·문턱·잰 운량) — 꺼져 있으면 null */
+  waveInfo(): Record<string, number> | null;
+  /** 먼 거리 햇빛 가림 진단 */
+  farInfo(): Record<string, number> | null;
   /** §136 진단: 마지막 장면의 층별 물리 값(β·τ·얼음·무리·가루) — 물리가 꺼져 있으면 null */
   physicsInfo(): (LayerPhysics | null)[] | null;
   /**
@@ -915,6 +926,41 @@ export async function createVolumetricScene(
   patchFlowShader(clouds.shadowPass.currentMaterial as never);
   patchMacroShader(clouds.cloudsPass.currentMaterial as never);
   patchMacroShader(clouds.shadowPass.currentMaterial as never);
+  // 파동 합성 장(하네스 시제품, docs/WAVE_FIELD_DESIGN.md) — 층 opts.wave 가 있을 때만 켬. 종류 패치 뒤(genusOrigin 사용).
+  patchWaveShader(clouds.cloudsPass.currentMaterial as never);
+  patchWaveShader(clouds.shadowPass.currentMaterial as never);
+  // 뭉게구름 표면 혹(하네스 시제품, 층 opts.billow 가 있을 때만) — 종류 패치 뒤.
+  patchBillowShader(clouds.cloudsPass.currentMaterial as never);
+  patchBillowShader(clouds.shadowPass.currentMaterial as never);
+  // 먼 거리 햇빛 가림(노을 3단계, 구름 패스만, 기본 꺼짐).
+  patchFarSunShader(clouds.cloudsPass.currentMaterial as never);
+  let farMap: { key: string; map: FarSunMap } | null = null;
+  const applyFarSun = (p: VolumetricSceneInput, sunAltDeg: number) => {
+    const cm = clouds.cloudsPass.currentMaterial as never;
+    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; return; }
+    const ls = p.layers.slice(0, 4);
+    const bandRange = (b: 'low' | 'mid' | 'high', d: [number, number]): [number, number] => {
+      const L = ls.filter(x => x && x.band === b && (x.cover ?? 0) > 0);
+      if (!L.length) return d;
+      return [Math.min(...L.map(x => x.baseKm)), Math.max(...L.map(x => x.baseKm + (x.thicknessM ?? 1000) / 1000))];
+    };
+    const bands = { low: bandRange('low', [0.8, 2.5]), mid: bandRange('mid', [2.5, 6]), high: bandRange('high', [7, 11]) };
+    const sl = sun.clone().transformDirection(curNue.clone().invert());   // 국소 북(x)·위(y)·동(z)
+    const sunAz = ((Math.atan2(sl.z, sl.x) * 180) / Math.PI + 360) % 360;
+    // 고리 운량 전체의 간단한 지문(점 순서·운량) — 첫 점만 보면 해 쪽만 다른 두 장면이 같은 지도를 썼음(1차 하네스).
+    let ringSig = 0;
+    for (const b of ['low', 'mid', 'high'] as const) (p.macro[b] ?? []).forEach((q, i) => { ringSig = (ringSig * 31 + Math.round(q.cover * 100) * (i + 1) + Math.round(q.distance) + Math.round(q.azimuthOffset) * 7) % 1000000007; });
+    const key = JSON.stringify([bands, Math.round(sunAz * 5), Math.round(sunAltDeg * 10), ringSig]);
+    if (!farMap || farMap.key !== key) {
+      farMap?.map.tex.dispose();
+      farMap = { key, map: buildFarSunMap({ ring: p.macro, bands, sunAzDeg: sunAz, sunAltDeg }) };
+    }
+    const ch = ls.map(x => (x?.band === 'mid' ? 1 : x?.band === 'high' ? 2 : 0));
+    while (ch.length < 4) ch.push(0);
+    setFarSunUniforms(cm, farMap.map, ch as [number, number, number, number]);
+    lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3] };
+  };
+  let waveCache: { key: string; field: WaveField } | null = null;
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
   // 다시 만듭니다. 끄면 세 글자 모두 고치기 전과 바이트가 같습니다(verify-lighting-fixes.js).
@@ -1035,6 +1081,8 @@ export async function createVolumetricScene(
   let driftSecOverride: number | null = null;
   /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
   let lastCamKm: [number, number] | null = null;
+  let lastWaveInfo: Record<string, number> | null = null;
+  let lastFarInfo: Record<string, number> | null = null;
   /** §136 마지막 장면의 층별 물리 값(진단·하네스 출력용) — 물리가 꺼져 있으면 null */
   let lastPhysics: (LayerPhysics | null)[] | null = null;
   const sun = new Vector3();
@@ -1280,6 +1328,20 @@ export async function createVolumetricScene(
         const origin = position.clone().add(altCorr).addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
+      {
+        const wp = (gl[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+        if (wp) {
+          const key = JSON.stringify(wp);
+          if (!waveCache || waveCache.key !== key) { waveCache?.field.tex.dispose(); waveCache = { key, field: bakeWaveField(wp) }; }
+          lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats };
+        } else lastWaveInfo = null;
+        for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
+        const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
+          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb') ? BILLOW_DEFAULT : null));
+        const bFirst = bp.find(x => x) ?? null;
+        for (const m of genusMats) setBillowUniforms(m, bFirst, bp.map(x => (x ? 1 : 0)));
+        applyFarSun(p, sunAltDeg);
+      }
       // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
       disposeMacro();
       if (opt.macro > 0 && p.macro) {
@@ -1305,6 +1367,8 @@ export async function createVolumetricScene(
       disposeMacro();
       for (const mm of genusMats) setMacroUniforms(mm, null);
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
+      for (const m of genusMats) setWaveUniforms(m, null);
+      for (const m of genusMats) setBillowUniforms(m, null, []);
       for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
@@ -1347,6 +1411,19 @@ export async function createVolumetricScene(
       cachePut(plan.key, tex);
     }
     if (my !== sceneToken || disposed) return false;
+    // 파동 장(흐린 날 채우기 등)은 굽는 데 수 초 — 여기서 조각내 미리 구워 두면 applyScene 이 캐시를 씁니다.
+    const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+    if (wp) {
+      const key = JSON.stringify(wp);
+      if (!waveCache || waveCache.key !== key) {
+        const t0 = Date.now();
+        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed);
+        if (!field) return false;
+        if (my !== sceneToken || disposed) { field.tex.dispose(); return false; }
+        waveCache?.field.tex.dispose(); waveCache = { key, field };
+        weatherMs += Date.now() - t0;
+      }
+    }
     applyScene(p, plan, tex);
     return true;
   };
@@ -1376,6 +1453,7 @@ export async function createVolumetricScene(
     clouds.sunDirection.copy(sun);
     lastSunAltForLight = sunAltDeg;
     applySunLight();
+    if (opt.farSun && lastInput) applyFarSun(lastInput, sunAltDeg);
     // §179 T_sun: 해 12° 건넘에 글자 넣기·빼기, 아치 무게 w(θ) 갱신(끄면 아무것도 안 함).
     if (opt.tsun === 1 || opt.tsunRef !== 0) applyTsun();
     // §130 C3 층별 바람 드리프트 — 두 재질 모두(빠뜨리면 해 > 12° 의 층 그림자가 시간이 가며 구름에서 떨어집니다).
@@ -1445,6 +1523,8 @@ export async function createVolumetricScene(
     debug: { clouds, toneMapping },
     spectral,
     weatherMs: () => weatherMs,
+    waveInfo: () => lastWaveInfo,
+    farInfo: () => lastFarInfo,
     flowInfo: () => {
       const st = (weather?.userData as { flow?: { s90?: number; hoursUsed?: number } } | undefined)?.flow;
       return { s90: st?.s90 ?? null, hoursUsed: st?.hoursUsed ?? null, camKm: lastCamKm };

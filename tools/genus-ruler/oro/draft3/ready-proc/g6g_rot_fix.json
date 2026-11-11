@@ -1,0 +1,19 @@
+{
+ "det": {
+  "seoul/even": 0.9996,
+  "seoul/skew": 0.9996,
+  "synth/even": 0.9995,
+  "synth/skew": 0.9995
+ },
+ "noise_mean": {
+  "gauss20/seed20261103": 0.0007,
+  "gauss20/seed1": -0.0018,
+  "gauss20/seed2": 0.0009,
+  "gauss50/seed20261103": -0.0008,
+  "gauss50/seed1": -0.0025,
+  "gauss50/seed2": 0.0011,
+  "pow3/seed20261103": 0.0002,
+  "pow3/seed1": -0.0028,
+  "pow3/seed2": 0.0013
+ }
+}

@@ -1,0 +1,202 @@
+{
+ "A1.3_s0.2_ndev8_nheld30": {
+  "P_fail_draft": 0.508,
+  "P_fail_alt": 0.243,
+  "P_fail_point_ln1.25": 0.037,
+  "P_fail_U95_ln1.25": 0.216,
+  "a_share": {
+   "1.25": 0.68,
+   "1.5": 0.32,
+   "2.0": 0.01
+  }
+ },
+ "A1.3_s0.2_ndev8_nheld45": {
+  "P_fail_draft": 0.493,
+  "P_fail_alt": 0.272,
+  "P_fail_point_ln1.25": 0.03,
+  "P_fail_U95_ln1.25": 0.167,
+  "a_share": {
+   "1.25": 0.68,
+   "1.5": 0.31,
+   "2.0": 0.01
+  }
+ },
+ "A1.3_s0.2_ndev15_nheld30": {
+  "P_fail_draft": 0.514,
+  "P_fail_alt": 0.246,
+  "P_fail_point_ln1.25": 0.044,
+  "P_fail_U95_ln1.25": 0.224,
+  "a_share": {
+   "1.25": 0.68,
+   "1.5": 0.32,
+   "2.0": 0.0
+  }
+ },
+ "A1.3_s0.2_ndev15_nheld45": {
+  "P_fail_draft": 0.485,
+  "P_fail_alt": 0.27,
+  "P_fail_point_ln1.25": 0.035,
+  "P_fail_U95_ln1.25": 0.173,
+  "a_share": {
+   "1.25": 0.69,
+   "1.5": 0.3,
+   "2.0": 0.0
+  }
+ },
+ "A1.3_s0.2_FORCED_a2.0": {
+  "P_fail_draft": 1.0,
+  "P_fail_alt": 1.0,
+  "P_fail_point_ln1.25": 1.0,
+  "P_fail_U95_ln1.25": 1.0
+ },
+ "A1.3_s0.35_ndev8_nheld30": {
+  "P_fail_draft": 0.578,
+  "P_fail_alt": 0.202,
+  "P_fail_point_ln1.25": 0.1,
+  "P_fail_U95_ln1.25": 0.411,
+  "a_share": {
+   "1.25": 0.62,
+   "1.5": 0.34,
+   "2.0": 0.04
+  }
+ },
+ "A1.3_s0.35_ndev8_nheld45": {
+  "P_fail_draft": 0.557,
+  "P_fail_alt": 0.246,
+  "P_fail_point_ln1.25": 0.103,
+  "P_fail_U95_ln1.25": 0.342,
+  "a_share": {
+   "1.25": 0.61,
+   "1.5": 0.35,
+   "2.0": 0.04
+  }
+ },
+ "A1.3_s0.35_ndev15_nheld30": {
+  "P_fail_draft": 0.52,
+  "P_fail_alt": 0.169,
+  "P_fail_point_ln1.25": 0.077,
+  "P_fail_U95_ln1.25": 0.372,
+  "a_share": {
+   "1.25": 0.66,
+   "1.5": 0.32,
+   "2.0": 0.02
+  }
+ },
+ "A1.3_s0.35_ndev15_nheld45": {
+  "P_fail_draft": 0.542,
+  "P_fail_alt": 0.22,
+  "P_fail_point_ln1.25": 0.074,
+  "P_fail_U95_ln1.25": 0.303,
+  "a_share": {
+   "1.25": 0.66,
+   "1.5": 0.33,
+   "2.0": 0.02
+  }
+ },
+ "A1.3_s0.35_FORCED_a2.0": {
+  "P_fail_draft": 1.0,
+  "P_fail_alt": 0.999,
+  "P_fail_point_ln1.25": 0.989,
+  "P_fail_U95_ln1.25": 1.0
+ },
+ "A1.5_s0.2_ndev8_nheld30": {
+  "P_fail_draft": 0.443,
+  "P_fail_alt": 0.151,
+  "P_fail_point_ln1.25": 0.087,
+  "P_fail_U95_ln1.25": 0.141,
+  "a_share": {
+   "1.25": 0.21,
+   "1.5": 0.68,
+   "2.0": 0.11
+  }
+ },
+ "A1.5_s0.2_ndev8_nheld45": {
+  "P_fail_draft": 0.434,
+  "P_fail_alt": 0.153,
+  "P_fail_point_ln1.25": 0.088,
+  "P_fail_U95_ln1.25": 0.107,
+  "a_share": {
+   "1.25": 0.21,
+   "1.5": 0.69,
+   "2.0": 0.1
+  }
+ },
+ "A1.5_s0.2_ndev15_nheld30": {
+  "P_fail_draft": 0.446,
+  "P_fail_alt": 0.132,
+  "P_fail_point_ln1.25": 0.062,
+  "P_fail_U95_ln1.25": 0.11,
+  "a_share": {
+   "1.25": 0.19,
+   "1.5": 0.74,
+   "2.0": 0.07
+  }
+ },
+ "A1.5_s0.2_ndev15_nheld45": {
+  "P_fail_draft": 0.462,
+  "P_fail_alt": 0.141,
+  "P_fail_point_ln1.25": 0.064,
+  "P_fail_U95_ln1.25": 0.086,
+  "a_share": {
+   "1.25": 0.19,
+   "1.5": 0.74,
+   "2.0": 0.07
+  }
+ },
+ "A1.5_s0.2_FORCED_a2.0": {
+  "P_fail_draft": 1.0,
+  "P_fail_alt": 0.995,
+  "P_fail_point_ln1.25": 0.836,
+  "P_fail_U95_ln1.25": 0.993
+ },
+ "A1.5_s0.35_ndev8_nheld30": {
+  "P_fail_draft": 0.452,
+  "P_fail_alt": 0.198,
+  "P_fail_point_ln1.25": 0.141,
+  "P_fail_U95_ln1.25": 0.326,
+  "a_share": {
+   "1.25": 0.3,
+   "1.5": 0.51,
+   "2.0": 0.19
+  }
+ },
+ "A1.5_s0.35_ndev8_nheld45": {
+  "P_fail_draft": 0.464,
+  "P_fail_alt": 0.207,
+  "P_fail_point_ln1.25": 0.143,
+  "P_fail_U95_ln1.25": 0.255,
+  "a_share": {
+   "1.25": 0.27,
+   "1.5": 0.55,
+   "2.0": 0.18
+  }
+ },
+ "A1.5_s0.35_ndev15_nheld30": {
+  "P_fail_draft": 0.454,
+  "P_fail_alt": 0.162,
+  "P_fail_point_ln1.25": 0.121,
+  "P_fail_U95_ln1.25": 0.306,
+  "a_share": {
+   "1.25": 0.26,
+   "1.5": 0.59,
+   "2.0": 0.15
+  }
+ },
+ "A1.5_s0.35_ndev15_nheld45": {
+  "P_fail_draft": 0.482,
+  "P_fail_alt": 0.184,
+  "P_fail_point_ln1.25": 0.128,
+  "P_fail_U95_ln1.25": 0.25,
+  "a_share": {
+   "1.25": 0.23,
+   "1.5": 0.61,
+   "2.0": 0.16
+  }
+ },
+ "A1.5_s0.35_FORCED_a2.0": {
+  "P_fail_draft": 1.0,
+  "P_fail_alt": 0.927,
+  "P_fail_point_ln1.25": 0.771,
+  "P_fail_U95_ln1.25": 0.992
+ }
+}

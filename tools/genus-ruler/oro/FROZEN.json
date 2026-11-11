@@ -1,0 +1,237 @@
+{
+ "bank": {
+  "F1": {
+   "extra": 0,
+   "indexError": 0,
+   "indexSkip": 9,
+   "missing": 0,
+   "names": 121,
+   "of": 121
+  },
+  "F2": {
+   "of": 767,
+   "same": 767
+  },
+  "F3": {
+   "esbuild": "0.28.2",
+   "of": 97,
+   "same": 97
+  },
+  "ext": {
+   "added": 0,
+   "dates": [
+    "2026-10-23",
+    "2026-10-27",
+    "2026-10-31"
+   ],
+   "dir": ".harness/oro/sat-ext",
+   "held": 24,
+   "kind": "동결 전 확장(§2.7)",
+   "n": 24,
+   "nTarget": 9,
+   "ringTag": "blend-ext",
+   "targetSites": [
+    "denver",
+    "osaka",
+    "sapporo"
+   ],
+   "times": "tools/genus-ruler/oro/modis-times-ext.json"
+  },
+  "name": "원",
+  "nameReason": "F1 121/121·F2 767/767·F3 97/97 모두 같음 → §2.5 ⑥ 의 '복원 은행' 조건 없음",
+  "orig": {
+   "dev": 24,
+   "dir": ".harness/macro/sat",
+   "held": 97,
+   "n": 121,
+   "skipped": 9
+  },
+  "source": "tools/genus-ruler/oro/restore-fingerprints.json, tools/genus-ruler/oro/bank-manifest.json",
+  "total": 145
+ },
+ "close": {
+  "dateBlocks": 4,
+  "line": 2,
+  "lock": false,
+  "maxShare": 0.75,
+  "n": 4,
+  "paired": false,
+  "reason": "c1 미달",
+  "sites": 2,
+  "tRead": false,
+  "verdict": "미결"
+ },
+ "decisions": {
+  "D1": {
+   "answer": "예 — 기둥 변위 η_w(S&B 습윤 가중), 두 고도 평균은 민감도 팔",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D10": {
+   "answer": "예 — macroTileCover 상한 그대로",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D11": {
+   "answer": "예(\"엄격하게\") — c2·c3 에 날짜 블록 부호 뒤집기 정확 검정(한쪽 p ≤ 0.025)",
+   "commit": "37787e1",
+   "date": "2026-11-04"
+  },
+  "D12": {
+   "answer": "예(\"보고만\") — c6 단일 통과 일관성은 보고만",
+   "commit": "37787e1",
+   "date": "2026-11-04"
+  },
+  "D13": {
+   "answer": "예(\"엄격하게\") — c1 바닥(날짜 블록 ≥ 8·사이트 ≥ 3·한 사이트 ≤ 50 %)·c2b·c3b·c8 을 합격 조항으로",
+   "commit": "37787e1",
+   "date": "2026-11-04"
+  },
+  "D14": {
+   "answer": "예(\"더 넣기\") — D6 별도 요청에 강수·일사",
+   "commit": "37787e1",
+   "date": "2026-11-04"
+  },
+  "D15": {
+   "answer": "아니오 — 동결 전 확장 뒤에도 c1 미달, 동결 뒤 확장 안 함. 그대로 동결하고 c1 미달 = 미결",
+   "commit": "a8c0806",
+   "date": "2026-11-05"
+  },
+  "D16": {
+   "answer": "(가) 그대로 동결 — power-oro.json 동시 통과 0.0 < 0.2",
+   "commit": "a8c0806",
+   "date": "2026-11-05"
+  },
+  "D2": {
+   "answer": "예 — 판정 집합 = held 적용 장면 전부(closest) + 단일 통과 일관성 조항(D12 로 보고만), 장면 수는 동결 전에 개수만 보고 확장",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D3": {
+   "answer": "예 — G-rev 와 결빙고도 눈 가림(21 일 눈 기억)을 합격 조항에",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D4": {
+   "answer": "예 — C4 는 ROLL 늘임만(a ≤ 2), RULER-regime 몫",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D5": {
+   "answer": "예 — C4 참값 Aqua + Terra 250 m, RULER-regime 몫(C4 held 위성은 oro 동결 뒤)",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D6": {
+   "answer": "예 — 925/700/500 hPa·10 m 바람과 저·상층 운량을 별도 요청(자기 null 캐시)",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D7": {
+   "answer": "예 — 적용 장면에서 지형에 묶인 ΔC 를 60 s 마다 CPU 로 다시 만듦",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D8": {
+   "answer": "예 — 구현 전 main 합치기(115fbe2), DEM 은 demCpu 만",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "D9": {
+   "answer": "예 — 모드 2 에서 macroOro 끔",
+   "commit": "a027662",
+   "date": "2026-11-04"
+  },
+  "DdcMedian": 0.12635649247034558,
+  "lambdaAppMedian": 1.088758391199942,
+  "lambdaTilde": 1.088758391199942,
+  "primaryMetric": "rho_res",
+  "primaryMetricRule": "중앙 D_dc < 0.3 → ρ_res(§4.5)",
+  "source": "tools/genus-ruler/oro/draft1/decisions-2026-11-04.md"
+ },
+ "exposure": {
+  "grade": "dev 만",
+  "restoreStep": "없음(복원 단계, 2026-11-04 13:41 KST 기록 커밋 8c88acf)",
+  "source": "tools/genus-ruler/oro/restore-log.md '노출 기록', tools/genus-ruler/oro/RULER-oro.md §0.1·§0.5",
+  "tag": null,
+  "tagRule": "dev 만 → 적기만 함(§0.1), 꼬리표 없음",
+  "time": "2026-11-04 23:22 KST(기록 커밋 150e338 — S3b 중 dev 장면 값 하나가 화면에 나옴)"
+ },
+ "files": {
+  "tools/genus-ruler/oro/RULER-oro.md": "1a4b190e4970393487cb4ea1c9a3019d87a1c2b7643808a6d6c7482cc89c2ad0",
+  "tools/genus-ruler/oro/bank-manifest.json": "9092d4989fe6259f3cc24f350e1e23f7ba3db75a25afadc2136db43f6ff9b3eb",
+  "tools/genus-ruler/oro/cmr-geom.json": "79493cf2e0a2a9cbe9c8473a38f204b0dffc28477c4095a294195a3fe8b6aef2",
+  "tools/genus-ruler/oro/dem-grids.json": "7f79153613f069d145509a00d8c5fe6ce48749427f5deb495ec627b9043649cf",
+  "tools/genus-ruler/oro/dem-manifest.json": "d9942bf603c95dfbddbc486c45e3117725589fe3e4404d6b8f1352d43e87d930",
+  "tools/genus-ruler/oro/fetch-dem.py": "3a9ae1036fa3307a6c38b714f35ed5510c3208b1b2070b7225f32bbad69f6d12",
+  "tools/genus-ruler/oro/fetch-sounding.py": "a525c6a9c379c88786ba0a204bc2137cce69d641c5a9c336a5a1f2b6058dac9f",
+  "tools/genus-ruler/oro/g1-baseline.json": "bb9f0087a087436ef7621f01a03cf25b48993273782fc74a9801bf2772f34f76",
+  "tools/genus-ruler/oro/modis-times-ext.json": "9d9132b4f5b83db87b669eba7c70f3e7ac726dd389ea71c12444c97ae52124eb",
+  "tools/genus-ruler/oro/oro-apply.json": "fe6b579cd3df61833bda5b848111f095e74e2d0a7936f232a7fa5992c9d68d1d",
+  "tools/genus-ruler/oro/oro-base.mjs": "0b09cb05fa5e9003d7ed7f8de36e4e99c108535492cb5143300f68ffd871377f",
+  "tools/genus-ruler/oro/oro-fingerprint.py": "b03800e75e40984f9834157973a2082b7bf129c9a44ed32438c7b020d5c213f6",
+  "tools/genus-ruler/oro/oro-geom.py": "606529d154f9c1c4936aa93b71f6940c9723331419e263fbd3ed886fa0007252",
+  "tools/genus-ruler/oro/oro-inputs.json": "84db9486ee11455535a08e9369b6ad97d0d70da87955a5925e9bef786f6d2a49",
+  "tools/genus-ruler/oro/oro-test.py": "6ab87840833370fb0d1bb4222e4ee5c556cbbe86160b438bd94e56bb2e23ce95",
+  "tools/genus-ruler/oro/oro-test.txt": "99e9ad52381735aacee0fcfa5e602740be5f9cd3091e5c6a44123a25dc2450af",
+  "tools/genus-ruler/oro/oro.py": "c31fe15db798f5ff96df7304dcaf68f5f264b2d9725dd0fb35fc5b70249f16bd",
+  "tools/genus-ruler/oro/oro_ref.py": "88a600ba7f3df178ca9e46437826e19354f84dd13c9dcd7c4f5e87f9a01576f2",
+  "tools/genus-ruler/oro/power-oro.json": "c3c59a539b08186d3a2619c8eb005477a4ffa711c03a5bbdc7ee30542d088f7a",
+  "tools/genus-ruler/oro/restore-fingerprints.json": "4b5d3a5a1f17f1bbe80803321650b9c484290da2fef37ffabafd28cbd5ef662f",
+  "tools/genus-ruler/oro/ring-manifest.json": "f37da5c3f78777640d370389fa864b9e968b76da3cade7837b0c6ef291b1a531",
+  "tools/genus-ruler/oro/sounding-manifest.json": "ea08f4fef488ae02dbc9fde9eb2e97bdb7003cc0ee3278ef4be5317828f88068",
+  "tools/genus-ruler/oro/sunset-apply.json": "3835bd267a0ebea3ca05e47b744f99bb9b07af66cc6fac84ce8849d9e63ba7cd"
+ },
+ "filesNote": "RULER-oro.md 는 기록만(판정 전 확인 2 에서 빠지고 rulerHash 로 봄, §9.2). 그 sha256 은 §10 을 쓰기 전 판. sounding-ecmwf-manifest.json(R11 받지 않음)·modis-times-pre2.json(§4.7 (나) 아님)은 없음",
+ "gateFilesAtFreeze": [],
+ "old": {
+  "src/components/VolumetricProbe/cloudFlow.ts": "b717f1a69d8b48d63de435dff487f837d49af9a3f79a267921919e15282f9e7e",
+  "src/components/VolumetricProbe/liveScene.ts": "e86485b5a6404e0a96e9eb43df5c039d7083fdabe08f123cdf7c6fd5449de1ec",
+  "src/components/VolumetricProbe/macroShader.ts": "7d4a6b58bb1915f9a35bb41906b25bce34e0d3a0e582970fdbba6ae2cf64cf7d",
+  "src/components/VolumetricProbe/volumetricScene.ts": "2bd036913d7d80540c33b2af5a423ed5a470ba7d3ccc32817666edf0857151cc",
+  "src/utils/macroField.ts": "adb49dff35a69cb234f3e259636d49fcf5e8092d3576d2380123ecc9e8b489ed",
+  "src/utils/weather.ts": "d7fd37f3665446449267118ccad2baf4976526e05e4d688023c57296c0779ac0",
+  "tools/genus-ruler/macro/downscale-run.mjs": "858a4c941872896266398d0a1f31d3537a1b4779c1782ba9fbd7271ac84bd609",
+  "tools/genus-ruler/macro/fetch-sat.py": "bfa0606f0ef09899adc3cf75abec7825f0240aaaca8478461d11609814f6c4ec",
+  "tools/genus-ruler/macro/macro.py": "5717c6be170d012718eb4d8e39660a76df3a30d7783117353f74078e2b4bffa5",
+  "tools/genus-ruler/ring/eval-ringtruth.py": "0ff030c533cac0015d4329b237fc80babc45c0c199dfb6fda9d4543048ac5e28",
+  "tools/genus-ruler/ring/fetch-modis-time.py": "3e573a96544c6a8d894e77f0399a0a9aef20e6745ba4531a1865ef7dd43ec876",
+  "tools/genus-ruler/ring/fetch-nwp-ring.py": "58e4cc416ec1051fd7aa446c7f1ae8e1201f827f79c4667d2d9a7a3c3a741700",
+  "tools/genus-ruler/ring/modis-times-latest.json": "b6cb2dcf586ba7d2011a91a055318fd9f279b97e70b5c5e73e3d446c3fdedb47",
+  "tools/genus-ruler/ring/modis-times.json": "6bc464fa7d384ca2c01f7d022fdf23bbab2a329c3ce83bf9bab1bef9596a854f",
+  "tools/genus-ruler/volsky/entry.ts": "6c055aa0b6fe13ca1127e6bda56990c02cd5496adba932f88eef90b8cec656f6",
+  "tools/genus-ruler/volsky/run.js": "f0f049543ed2a30572d4cb995882528186912dc5cd40466fcaaaa85b09e3e5c4"
+ },
+ "oldNote": "HEAD 1fb905a 의 sha256. G1 기준 커밋이 없어 src·volsky 도 HEAD 값(src 는 115fbe2 와, tools/genus-ruler/volsky 는 ece32b1 과 같음). cloudFlow.ts 는 src/components/VolumetricProbe/ 에 있음",
+ "rulerHash": "63957b8c24e7fce0bf14a691fd7cea24ba6d2fba8eddc834ff7be2070f3fdf0f",
+ "runtime": {
+  "bBundleSha256": "2650525260504e4a70a4f6213decdd195dec28e582f251b443f8e36e89493800",
+  "bBundleSource": "oro-base.mjs: 115fbe2 의 macroField.ts, 빈 tsconfig/package, esbuild 0.28.2(S3-design build note 1)",
+  "bCommit": "115fbe227d782bcf1336b4ca853a04844d464452",
+  "bundleFixCommit": "ece32b1",
+  "g1BaselineCommit": null,
+  "g1HarnessBundleSha256": null,
+  "g1Reason": "G1 기준(§9.1 ⑦) 재지 않음 — c1 미달로 결과가 §5.2 ② 미결로 정해져 앱 구현(§9.3 ①)·가드(S7)가 뒤따르지 않음. g1-baseline.json 은 d1b4d09 임시 측정(g1ToolsCommitted false, 탐측 대기 9 곳)이라 기준이 아님",
+  "mergedCommit": "115fbe2",
+  "mergedCommitFull": "115fbe227d782bcf1336b4ca853a04844d464452",
+  "originMain": "a8a4f61"
+ },
+ "versions": {
+  "Pillow": "12.3.0",
+  "chromium": "Google Chrome for Testing 153.0.8010.12",
+  "chromiumPath": "/opt/pw-browsers/chromium",
+  "chromiumRealPath": "/opt/pw-browsers/chromium-1243/chrome-linux64/chrome",
+  "esbuild": "0.28.2",
+  "node": "v22.23.4",
+  "numpy": "2.5.3",
+  "python": "3.13.18",
+  "swiftShaderFlags": [
+   "--no-sandbox",
+   "--use-gl=angle",
+   "--use-angle=swiftshader",
+   "--enable-unsafe-swiftshader",
+   "--ignore-gpu-blocklist"
+  ]
+ },
+ "written": "2026-11-05 12:06 KST"
+}

@@ -1,0 +1,40 @@
+{
+ "chance": {
+  "kCBL0.0_wLocked0.0": 0.334,
+  "kCBL0.0_wLocked0.3": 0.333,
+  "kCBL0.0_wLocked0.5": 0.334,
+  "kCBL1.0_wLocked0.0": 0.334,
+  "kCBL1.0_wLocked0.3": 0.403,
+  "kCBL1.0_wLocked0.5": 0.449,
+  "kCBL2.0_wLocked0.0": 0.333,
+  "kCBL2.0_wLocked0.3": 0.448,
+  "kCBL2.0_wLocked0.5": 0.522
+ },
+ "P1_pass": {
+  "n15_f0.33": 0.041,
+  "n15_f0.40": 0.095,
+  "n15_f0.45": 0.176,
+  "n15_f0.50": 0.277,
+  "n15_f0.60": 0.545,
+  "n30_f0.33": 0.025,
+  "n30_f0.40": 0.118,
+  "n30_f0.45": 0.267,
+  "n30_f0.50": 0.445,
+  "n30_f0.60": 0.833,
+  "n50_f0.33": 0.024,
+  "n50_f0.40": 0.157,
+  "n50_f0.45": 0.37,
+  "n50_f0.50": 0.681,
+  "n50_f0.60": 0.969
+ },
+ "P1_null_persistence": {
+  "n30_clusterSize3": {
+   "falsePass_dailyBlocks": 0.048,
+   "falsePass_weekBlocks": 0.028
+  },
+  "n30_clusterSize5": {
+   "falsePass_dailyBlocks": 0.078,
+   "falsePass_weekBlocks": 0.042
+  }
+ }
+}

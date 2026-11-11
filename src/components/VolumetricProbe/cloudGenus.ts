@@ -66,6 +66,8 @@ export interface GenusParams extends Partial<FlowLayerParams> {
   /**
    * 햇빛 확산 투과(§126.6). takram 은 구름 속 빛이 '해 쪽 행진 + 하늘빛'뿐이라 두꺼운 층 밑면이 하늘빛 색(푸른 회색)이
    * 됩니다. 위쪽 광학두께 τ 로 확산 투과한 햇빛 sun·(1−e^(−0.1τ))·2/(2+0.15τ)·thru 를 더합니다. 0 이면 끔.
+   * 기본 1. 뭉게 종류(cu·cg·cb)는 0: 이 항은 보는 방향과 무관해 해 쪽(역광) 구름 속까지 밝혀, 사진처럼 어두운 속과
+   * 밝은 가장자리가 안 생깁니다(2026-11-11 역광 A/B, docs/evidence/backlit-thru).
    */
   thru?: number;
   /** 날씨 값 d 의 감마(d^domePow) */
@@ -116,7 +118,7 @@ export interface GenusParams extends Partial<FlowLayerParams> {
  * 종류별 값 — 웹 하네스에서 판정기(§124.1)로 고른 후보(§124.3). st 는 아직 재지 않았습니다.
  */
 export const GENUS: Record<GenusKey, GenusParams> = {
-  cu: { mode: 0, height: 1600, base: 0.3, top: 1.1, edge: 1.4, ao: 1.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.55, radius: 0.6, turrets: 8 },
+  cu: { mode: 0, height: 1600, base: 0.3, top: 1.1, edge: 1.4, ao: 1.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.55, radius: 0.6, turrets: 8, thru: 0 },
   ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 1.3, ao: 3, domePow: 1, densityScale: 0.12, shapeAmount: 0.6, shapeDetailAmount: 0.7 },
   ci: { mode: 0, height: 800, base: 0.4, top: 0.5, edge: 1.5, ao: 0, domePow: 1.5, densityScale: 0.003, shapeAmount: 0.15, shapeDetailAmount: 0 },
   sc: { mode: 0, height: 750, base: 0.3, top: 0.45, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.65, warp: 0.8, lumps: 0.75, gap: 0.3 },
@@ -125,9 +127,9 @@ export const GENUS: Record<GenusKey, GenusParams> = {
   st: { mode: 1, height: 400, base: 0, top: 4, edge: 2, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.1, shapeDetailAmount: 0, topQuantile: 0.5 },
   // ── §126 D3: 아래는 아직 사진 자로 재지 않은 값입니다(물리 선험). ──
   // 웅대적운: 거대한 수직 대류 탑 복합체 (congestus stack).
-  cg: { mode: 0, height: 4000, base: 0.08, top: 1.2, edge: 1.3, ao: 2.5, domePow: 1, densityScale: 0.22, shapeAmount: 1, shapeDetailAmount: 0.4, spacingKm: 4, radius: 0.6, turrets: 8, sizeSkew: 1.0, topQuantile: 1 },
+  cg: { mode: 0, height: 4000, base: 0.08, top: 1.2, edge: 1.3, ao: 2.5, domePow: 1, densityScale: 0.22, shapeAmount: 1, shapeDetailAmount: 0.4, spacingKm: 4, radius: 0.6, turrets: 8, sizeSkew: 1.0, topQuantile: 1, thru: 0 },
   // 적란운 탑: 10km 이상 솟구치는 거대한 대류 기둥.
-  cb: { mode: 0, height: 8000, base: 0.07, top: 1.35, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.25, shapeAmount: 1, shapeDetailAmount: 0.4, spacingKm: 15, radius: 0.4, turrets: 6, sizeSkew: 0.7, warp: 0.2, topQuantile: 1 },
+  cb: { mode: 0, height: 8000, base: 0.07, top: 1.35, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.25, shapeAmount: 1, shapeDetailAmount: 0.4, spacingKm: 15, radius: 0.4, turrets: 6, sizeSkew: 0.7, warp: 0.2, topQuantile: 1, thru: 0 },
   // 적란운 모루: 탑과 같은 세포 위에 3배 반지름의 렌즈, 바람 방향으로 늘임. 운량 문턱 없이 장 값 그대로.
   cbanvil: { mode: 1, height: 1500, base: 0, top: 1.0, edge: 3, ao: 0, domePow: 1, densityScale: 0.06, shapeAmount: 0.3, shapeDetailAmount: 0, spacingKm: 15, radius: 0.35, sizeSkew: 0.7, warp: 0.2, absolute: true, anvilScale: 3, stretch: 1.2 },
   // 난층운: 두꺼운(3.2km) 비구름 층. 묵직하고 어두운 밑면(ao 4.5)과 하강 기류로 아래가 굽이치며 처져 내림.

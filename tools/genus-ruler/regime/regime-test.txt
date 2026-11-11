@@ -1,0 +1,51 @@
+regime_ref.py sha256 5d67acd3df0539a81a6d400438a687ec8d60837f510f3c46b9667f92ca7dc3ac
+regime-test.py sha256 2276db9109824ffa49b64c3e5f5bf2d93fb02a903fbb9667fad65bd5bbc5c9b1
+stage pre-count
+shearDef sfc
+f1Variant solar
+R-OLD PASS frozen files equal 6/6; oro_ref executed from bytes
+R-GEOM0 PASS 8/8 functions text-equal; oro-geom sha 606529d154f9
+R-SITES PASS 5 tables equal: True; sites 10
+R-GUARD PASS verdict forbidden 5/5, allow-list True, subprocess ['perm:oro guard', 'perm:oro guard', 'perm:regime guard', 'read-ok', 'write-ok', 'perm:regime guard']
+R-PRECOUNT PASS no-def exits (2, 2, 2); bad record exits (4, 4, 4) at (g)
+R-CMR PASS used queries 40 complete True; synthetic missing/hits-mismatch exits [(4, True), (4, True)]
+R-SOLAR PASS 18647/18647 granules
+R-SAT-SUM PASS aqua (239, 248) terra (228, 247)
+R-PASS PASS 11/11 cases
+R-CT PASS 5/5 cases; equator ct(430) − 430 = -5.68e-14 km
+R-CT-AXIS PASS initial track bearing → scan axis at the nearest track point 40→138.94, 140→39.03, 0→0.00, 20→159.43 (45° is the frozen edge-rule tie; 40/140 used)
+R-GIBS PASS 7/7 cases; real Aqua filter-1 passes with gibsAmbiguous true: 0
+R-F1 PASS 4/4 cases (gibs clause in R-GIBS)
+R-VARS PASS keys read 49 = map 49: True; never-read touched 0
+R-SND-SAME PASS hourlySha256 equal 10/10; regimeNulls = manifest: True
+R-INTERP PASS 6/6 cases
+R-UV PASS midway speed 4.924039 toward south; null direction → None
+R-INPUTS PASS schema keys 14, levels 11, % → fraction
+R-PSFC PASS 4/4 cases
+R-THV PASS θv level 303.598434 K, θv 2 m 299.646200 K
+R-LCL PASS 4/4 cases
+R-LCL-TS PASS 500 inputs, max |Δ| 4.55e-13 m; bundle sha 48443a223e0a; node v22.23.4
+R-ZI PASS 8/8 cases
+R-UCBL PASS 4/4 cases
+R-SHEAR PASS zi01 5.050505e-03 s⁻¹, sfc 5.050505e-03 s⁻¹, zi 0 → 0
+R-AXIS PASS 7/7 cases
+R-TREE PASS 10/10 cases; end-to-end {'ROLL': 'ROLL', 'NONE': 'NONE', 'DISORG': 'DISORG', 'CELL': 'CELL', 'NA': 'NA', 'NONE-sun': 'NONE'}
+R-EQ PASS 12/12 cases
+R-NA PASS 16/16 cases
+R-MARGIN PASS 45/45 cases over 11 keys
+R-DENVER PASS 6/6 cases; ROLL/CELL/NA ROLL/CELL/NA, p_sfc 837.53 hPa
+R-SYDNEY PASS 4/4 cases; low-sun Aqua altitude 17.2°
+R-EDGE FAIL exception KeyError: 'sydney'
+R-F2 PASS 6/6 cases
+R-SAT PASS 5/5 cases
+R-VARIANT PASS main terra ct300 terra ct520 aqua; 350 km main aqua ct300 terra/None
+R-TERRAIN PASS 5/5 cases
+R-TERRAIN-ORO PASS 145 equal / 145
+R-NR PASS 13/13 cases
+R-SAMPLE PASS 8/8 sizes
+R-SHIFT PASS 9/9 cases
+R-SHIFT-SELF PASS synthetic 98/98
+R-SUNSET PASS 5/5 cases; phase checks 52/52; synthetic evening ROLL 0/398
+R-SENS PASS 6/6 cases
+R-DET PASS synthetic list twice (second with reversed key/query order) identical: True; sha 43ce79c5855c
+FAIL 1/45

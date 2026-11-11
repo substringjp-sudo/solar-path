@@ -1,0 +1,71 @@
+{
+ "W_dx6km": {
+  "frac_evan": 0.0,
+  "ours_vs_fs_corr": 0.98747,
+  "ours_vs_fs_relrms": 0.1613,
+  "fsbranch_vs_fs_relrms": 0.0,
+  "V_flipped_vs_fs_corr": 0.987
+ },
+ "S_dx6km": {
+  "frac_evan": 0.0,
+  "ours_vs_fs_corr": 0.97964,
+  "ours_vs_fs_relrms": 0.2044,
+  "fsbranch_vs_fs_relrms": 0.0,
+  "V_flipped_vs_fs_corr": -0.504
+ },
+ "SW_dx6km": {
+  "frac_evan": 0.0,
+  "ours_vs_fs_corr": 0.98339,
+  "ours_vs_fs_relrms": 0.1841,
+  "fsbranch_vs_fs_relrms": 6e-06,
+  "V_flipped_vs_fs_corr": 0.256
+ },
+ "W_dx2km_evan": {
+  "frac_evan": 0.362,
+  "ours_vs_fs_corr": 0.99802,
+  "ours_vs_fs_relrms": 0.0629,
+  "fsbranch_vs_fs_relrms": 0.0,
+  "V_flipped_vs_fs_corr": 0.998
+ },
+ "W_strong_evan": {
+  "frac_evan": 0.768,
+  "ours_vs_fs_corr": 0.99881,
+  "ours_vs_fs_relrms": 0.0517,
+  "fsbranch_vs_fs_relrms": 0.0,
+  "V_flipped_vs_fs_corr": 0.999
+ },
+ "robust_corr_to_ref": {
+  "two_U7": {
+   "U*1.25": 0.281,
+   "U*0.8": -0.096,
+   "N*1.2": 0.122,
+   "N*0.6(moist)": 0.066,
+   "Hw2.0": NaN,
+   "dir+20deg": 0.363
+  },
+  "col_U7": {
+   "U*1.25": 0.998,
+   "U*0.8": 0.999,
+   "N*1.2": 0.999,
+   "N*0.6(moist)": 0.987,
+   "Hw2.0": 0.998,
+   "dir+20deg": 0.935
+  },
+  "two_U10": {
+   "U*1.25": 0.691,
+   "U*0.8": 0.478,
+   "N*1.2": 0.617,
+   "N*0.6(moist)": 0.36,
+   "Hw2.0": NaN,
+   "dir+20deg": 0.673
+  },
+  "col_U10": {
+   "U*1.25": 0.996,
+   "U*0.8": 0.998,
+   "N*1.2": 0.998,
+   "N*0.6(moist)": 0.97,
+   "Hw2.0": 0.997,
+   "dir+20deg": 0.934
+  }
+ }
+}
