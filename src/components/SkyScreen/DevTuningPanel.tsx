@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 12, fontWeight: '900', color: '#F1F5F9' },
   volBox: { marginBottom: 6, padding: 5, borderRadius: 6, backgroundColor: 'rgba(52,211,153,0.10)' },
   volText: { fontSize: 9, fontWeight: '700', color: '#A7F3D0', fontVariant: ['tabular-nums'] },
-  volRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 3 },
+  volRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 4, gap: 3 },
   volChip: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(148,163,184,0.18)' },
   volChipOn: { backgroundColor: 'rgba(52,211,153,0.45)' },
   volChipText: { fontSize: 9, fontWeight: '800', color: '#E2E8F0' },
