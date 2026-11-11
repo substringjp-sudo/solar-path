@@ -49,6 +49,7 @@ import {
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
+import { patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
@@ -921,6 +922,9 @@ export async function createVolumetricScene(
   // 파동 합성 장(하네스 시제품, docs/WAVE_FIELD_DESIGN.md) — 층 opts.wave 가 있을 때만 켬. 종류 패치 뒤(genusOrigin 사용).
   patchWaveShader(clouds.cloudsPass.currentMaterial as never);
   patchWaveShader(clouds.shadowPass.currentMaterial as never);
+  // 뭉게구름 표면 혹(하네스 시제품, 층 opts.billow 가 있을 때만) — 종류 패치 뒤.
+  patchBillowShader(clouds.cloudsPass.currentMaterial as never);
+  patchBillowShader(clouds.shadowPass.currentMaterial as never);
   let waveCache: { key: string; field: WaveField } | null = null;
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
@@ -1296,6 +1300,9 @@ export async function createVolumetricScene(
           lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats };
         } else lastWaveInfo = null;
         for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
+        const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow ?? null);
+        const bFirst = bp.find(x => x) ?? null;
+        for (const m of genusMats) setBillowUniforms(m, bFirst, bp.map(x => (x ? 1 : 0)));
       }
       // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
       disposeMacro();
@@ -1323,6 +1330,7 @@ export async function createVolumetricScene(
       for (const mm of genusMats) setMacroUniforms(mm, null);
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
       for (const m of genusMats) setWaveUniforms(m, null);
+      for (const m of genusMats) setBillowUniforms(m, null, []);
       for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
