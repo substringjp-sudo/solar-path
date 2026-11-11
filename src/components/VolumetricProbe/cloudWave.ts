@@ -35,6 +35,12 @@ export interface WaveParams {
   spec?: number;
   /** 작은 파동(혹) 세기 배율 */
   bump?: number;
+  /** 가장자리 솜털(takram 잔무늬 텍스처) 세기 0~1 — 표면 근처만 깎음 */
+  detail?: number;
+  /** 뭉게구름 지붕 꼴: 바닥 무늬 세기 a 가 클수록 높이 솟는 둥근 지붕 + 3차원 큰 파동(γ). 기본 χ ≥ 0.5 */
+  dome?: boolean;
+  /** 지붕 꼴에서 3차원 큰 파동 세기 */
+  gamma?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -54,6 +60,7 @@ export interface WaveField {
   /** 작은 파동: k(1/m)·위상, 단계별 진폭 */
   smallK: Vector4[];
   smallAmp: [number, number, number];
+  detail: number;
   bakeMs: number;
   stats: { coverMeasured: number; vMin: number; vMax: number };
 }
@@ -97,7 +104,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
@@ -107,7 +114,7 @@ export function waveLaneRange(p: WaveParams): { zMin: number; zMax: number } {
 
 export function bakeWaveField(input: WaveParams): WaveField {
   const t0 = Date.now();
-  const p = { ...DEF, ...input } as Required<WaveParams>;
+  const p = { ...DEF, dome: input.chi >= 0.5, ...input } as Required<WaveParams>;
   const r = rng(p.seed * 7919 + 13);
   const W = makeWaves(p, r);
   const { zMin, zMax } = waveLaneRange(p);
@@ -136,6 +143,38 @@ export function bakeWaveField(input: WaveParams): WaveField {
   };
   const vox = new Float32Array(n * n * nz);
   const colMax = new Float32Array(n * n);
+  const c = Math.min(0.999, Math.max(0.001, p.cover));
+  if (p.dome) {
+    // 지붕 꼴(2차 시제품 판정: 3차원 경계면만으로는 평평한 밑면·솟는 지붕이 안 나오고 기울어진 타원 덩어리가 됨).
+    // a = 바닥 무늬 − 문턱. 높이 z 에서는 a > a_max·((z−z_b)/H)² 인 곳만 구름 → 위로 갈수록 안쪽 등고선, 둥근 지붕.
+    const G2 = new Float32Array(n * n);
+    for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+      const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
+      G2[iy * n + ix] = skew(fbig(x, y, zb));
+    }
+    const s2 = Float32Array.from(G2).sort();
+    const tau2 = s2[Math.min(s2.length - 1, Math.floor((1 - c) * s2.length))];
+    const aMax = Math.max(0.2, s2[Math.floor(0.995 * (s2.length - 1))] - tau2);
+    let vMin = Infinity, vMax = -Infinity, covered = 0;
+    for (let iy = 0; iy < n; iy++) {
+      const y = -half + ((iy + 0.5) / n) * 2 * half;
+      for (let ix = 0; ix < n; ix++) {
+        const x = -half + ((ix + 0.5) / n) * 2 * half;
+        const g0 = G2[iy * n + ix], a = g0 - tau2;
+        if (a > 0) covered++;
+        for (let iz = 0; iz < nz; iz++) {
+          const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
+          const hz = Math.max(0, (z - zb) / H);
+          let v = Math.min(a - aMax * hz * hz, (z - zb) / 50);
+          // 3차원 큰 파동: 밑면에서 0, 위로 갈수록 탑이 옆으로 휘고 갈라짐. 구름 근처에서만 계산.
+          if (v > -1.5 && hz > 0) v += p.gamma * Math.min(1, hz * 2) * (skew(fbig(x, y, z)) - g0);
+          vox[(iz * n + iy) * n + ix] = v;
+          if (v < vMin) vMin = v; if (v > vMax) vMax = v;
+        }
+      }
+    }
+    return finish(vox, 0, covered / (n * n), vMin, vMax);
+  }
   const sigB = p.sigmaB * (1 - p.chi);
   let vMin = Infinity, vMax = -Infinity;
   for (let iy = 0; iy < n; iy++) {
@@ -161,9 +200,11 @@ export function bakeWaveField(input: WaveParams): WaveField {
   }
   // 운량 문턱: 기둥 최댓값의 위쪽 cover 만큼
   const sorted = Float32Array.from(colMax).sort();
-  const c = Math.min(0.999, Math.max(0.001, p.cover));
   const tau = sorted[Math.min(sorted.length - 1, Math.floor((1 - c) * sorted.length))];
   let covered = 0; for (let i = 0; i < colMax.length; i++) if (colMax[i] > tau) covered++;
+  return finish(vox, tau, covered / colMax.length, vMin, vMax);
+
+  function finish(vox: Float32Array, tau: number, coverMeasured: number, vMin: number, vMax: number): WaveField {
   const half16 = new Uint16Array(vox.length);
   for (let i = 0; i < vox.length; i++) half16[i] = DataUtils.toHalfFloat(Math.max(-60000, Math.min(60000, vox[i])));
   const tex = new Data3DTexture(half16, n, n, nz);
@@ -174,11 +215,12 @@ export function bakeWaveField(input: WaveParams): WaveField {
   const smallK: Vector4[] = [];
   for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
   return {
-    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, smallK,
+    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, smallK,
     // 단계 5(~λ0/32)는 행진 보폭보다 짧아 반짝이는 점으로 깨져 뺍니다(2차 판정).
     smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
-    stats: { coverMeasured: covered / colMax.length, vMin, vMax },
+    stats: { coverMeasured, vMin, vMax },
   };
+  }
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };
@@ -220,10 +262,20 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '    float wv = texture(waveTex, wuv).r;',
     '    float ws = wv - waveP.x;',
     '    // 작은 파동은 표면 근처에서만(속과 먼 바깥은 계산 생략)',
-    '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * waveSmall(vec3(wxy, wz));',
     '    float wfb = clamp((wz - waveBox.y) / max(waveBox.z, 1.0), 0.0, 1.0);',
+    '    // 혹은 밑면에서 꺼지고 옆·꼭대기에서 켜짐(평평한 밑면, 꽃양배추 윗면)',
+    '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * smoothstep(0.0, 0.3, wfb) * waveSmall(vec3(wxy, wz));',
     '    float wprof = 0.25 + 0.75 * pow(wfb, 0.6667);',
-    '    float wq = wprof * clamp(waveP.z * ws, 0.0, 1.0) * (1.0 + 0.3 * (1.0 - waveP.y) * tanh(wv));',
+    '    float wc = clamp(waveP.z * ws, 0.0, 1.0);',
+    '    // 가장자리 솜털: takram 잔무늬로 얇은 곳만 깎음(속 wc≈1 은 그대로). 위는 몽글, 아래는 가닥(takram 규칙).',
+    '#ifdef SHAPE_DETAIL',
+    '    if (waveP.w > 0.0 && wc > 0.0 && wc < 1.0) {',
+    '      float wdet = texture(shapeDetailTexture, position * shapeDetailRepeat + shapeDetailOffset).r;',
+    '      float wmod = waveP.w * mix(pow(wdet, 6.0), 1.0 - wdet, remapClamped(wfb, 0.2, 0.4));',
+    '      wc = remapClamped(wc * 2.0, wmod * 0.5, 1.0);',
+    '    }',
+    '#endif',
+    '    float wq = wprof * wc * (1.0 + 0.3 * (1.0 - waveP.y) * tanh(wv));',
     '    density.x = wq / max(getLayerDensity(weather.heightFraction).x, 1e-3);',
     '  }',
     MEDIA_ANCHOR,
@@ -245,7 +297,7 @@ export function setWaveUniforms(mat: PatchableMaterial, field: WaveField | null,
   if (!field) { u.waveTex.value = DUMMY; return; }
   u.waveTex.value = field.tex;
   (u.waveBox.value as Vector4).set(field.halfM, baseM, thickM, 0);
-  (u.waveP.value as Vector4).set(field.tau, field.chi, field.edge, 0);
+  (u.waveP.value as Vector4).set(field.tau, field.chi, field.edge, field.detail);
   const ks = u.waveK.value as Vector4[];
   field.smallK.forEach((k, i) => ks[i].copy(k));
   u.waveAmp.value = [...field.smallAmp];
