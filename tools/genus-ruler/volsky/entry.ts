@@ -209,7 +209,7 @@ const show = (tex: Texture, mode: number) => {
       }
       for (let i = 0; i < frames; i++) tex = vol.renderToTexture(1 / 60);
       const ms = (performance.now() - ts) / frames;
-      const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
+      const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), farInfo: vol.farInfo(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
         bad: ((window as unknown as Record<string, unknown>).__badUniforms as () => string[])() };
       // §139 진단: fetch 레인 균일변수(구름·그림자 패스)
       {
