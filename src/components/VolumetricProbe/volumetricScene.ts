@@ -49,6 +49,7 @@ import {
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
+import { bakeWaveField, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
 // §179 검토 반영(회귀 1): 구축기(tsunAtlas.ts)는 하네스(tools/genus-ruler/tsun/tsun-build.ts)만 부름 — 앱 묶음에는 형만(지워지는 import type).
@@ -489,6 +490,8 @@ export interface VolumetricScene {
   weatherMs(): number;
   /** §131 진단: 흐름 핵의 왜곡 s90·실제 의사시간(h), 카메라 칸 오프셋(km) — 흐름이 꺼졌으면 null 들 */
   flowInfo(): { s90: number | null; hoursUsed: number | null; camKm: [number, number] | null };
+  /** 파동 합성 장 진단(굽는 시간·문턱·잰 운량) — 꺼져 있으면 null */
+  waveInfo(): Record<string, number> | null;
   /** §136 진단: 마지막 장면의 층별 물리 값(β·τ·얼음·무리·가루) — 물리가 꺼져 있으면 null */
   physicsInfo(): (LayerPhysics | null)[] | null;
   /**
@@ -915,6 +918,10 @@ export async function createVolumetricScene(
   patchFlowShader(clouds.shadowPass.currentMaterial as never);
   patchMacroShader(clouds.cloudsPass.currentMaterial as never);
   patchMacroShader(clouds.shadowPass.currentMaterial as never);
+  // 파동 합성 장(하네스 시제품, docs/WAVE_FIELD_DESIGN.md) — 층 opts.wave 가 있을 때만 켬. 종류 패치 뒤(genusOrigin 사용).
+  patchWaveShader(clouds.cloudsPass.currentMaterial as never);
+  patchWaveShader(clouds.shadowPass.currentMaterial as never);
+  let waveCache: { key: string; field: WaveField } | null = null;
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
   // 다시 만듭니다. 끄면 세 글자 모두 고치기 전과 바이트가 같습니다(verify-lighting-fixes.js).
@@ -1035,6 +1042,7 @@ export async function createVolumetricScene(
   let driftSecOverride: number | null = null;
   /** §131 K 가 고른 관측점 오프셋(km) — 진단·하네스 출력용 */
   let lastCamKm: [number, number] | null = null;
+  let lastWaveInfo: Record<string, number> | null = null;
   /** §136 마지막 장면의 층별 물리 값(진단·하네스 출력용) — 물리가 꺼져 있으면 null */
   let lastPhysics: (LayerPhysics | null)[] | null = null;
   const sun = new Vector3();
@@ -1280,6 +1288,15 @@ export async function createVolumetricScene(
         const origin = position.clone().add(altCorr).addScaledVector(east, -ox * 1000).addScaledVector(north, -oy * 1000);
         setGenusFrame(m, { origin, east, north, tileM: GENUS_TILE_KM * 1000 });
       }
+      {
+        const wp = (gl[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+        if (wp) {
+          const key = JSON.stringify(wp);
+          if (!waveCache || waveCache.key !== key) { waveCache?.field.tex.dispose(); waveCache = { key, field: bakeWaveField(wp) }; }
+          lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats };
+        } else lastWaveInfo = null;
+        for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
+      }
       // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
       disposeMacro();
       if (opt.macro > 0 && p.macro) {
@@ -1305,6 +1322,7 @@ export async function createVolumetricScene(
       disposeMacro();
       for (const mm of genusMats) setMacroUniforms(mm, null);
       clouds.localWeatherRepeat.copy(baseWeatherRepeat);
+      for (const m of genusMats) setWaveUniforms(m, null);
       for (const m of genusMats) { setGenusUniforms(m, []); setGenusSkeleton(m, [], false); setGenusPhysics(m, [], false); setGenusLightFloors(m, opt.debugLightFloors); setGenusDiffuse(m, opt.diffuse); setFlowUniforms(m, [], { density: false, uv: false }, GENUS_TILE_KM); setGenusFrame(m, null); }
     }
     weather = tex;
@@ -1445,6 +1463,7 @@ export async function createVolumetricScene(
     debug: { clouds, toneMapping },
     spectral,
     weatherMs: () => weatherMs,
+    waveInfo: () => lastWaveInfo,
     flowInfo: () => {
       const st = (weather?.userData as { flow?: { s90?: number; hoursUsed?: number } } | undefined)?.flow;
       return { s90: st?.s90 ?? null, hoursUsed: st?.hoursUsed ?? null, camKm: lastCamKm };
