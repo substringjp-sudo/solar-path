@@ -50,7 +50,7 @@ import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
-import { bakeWaveField, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
+import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
 import { archWeight, checkTsunSamplerBudget, TSUN_OPTIONS_OFF, tsunUniformValues, validateTsunAtlas, validateTsunOptions, type TsunAtlas, type TsunOptions } from './cloudTsun';
 // §179 검토 반영(회귀 1): 구축기(tsunAtlas.ts)는 하네스(tools/genus-ruler/tsun/tsun-build.ts)만 부름 — 앱 묶음에는 형만(지워지는 import type).
@@ -1376,6 +1376,19 @@ export async function createVolumetricScene(
       cachePut(plan.key, tex);
     }
     if (my !== sceneToken || disposed) return false;
+    // 파동 장(흐린 날 채우기 등)은 굽는 데 수 초 — 여기서 조각내 미리 구워 두면 applyScene 이 캐시를 씁니다.
+    const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+    if (wp) {
+      const key = JSON.stringify(wp);
+      if (!waveCache || waveCache.key !== key) {
+        const t0 = Date.now();
+        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed);
+        if (!field) return false;
+        if (my !== sceneToken || disposed) { field.tex.dispose(); return false; }
+        waveCache?.field.tex.dispose(); waveCache = { key, field };
+        weatherMs += Date.now() - t0;
+      }
+    }
     applyScene(p, plan, tex);
     return true;
   };

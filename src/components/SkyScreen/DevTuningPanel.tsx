@@ -136,6 +136,7 @@ const VolumetricPerfRow: React.FC = () => {
   const macroMode = useCelestialStore(s => s.skySettings.volumetricMacro ?? 1);
   const morph = useCelestialStore(s => !!s.skySettings.volumetricMorph);
   const billow = useCelestialStore(s => s.skySettings.volumetricBillow ?? true);
+  const fill = useCelestialStore(s => s.skySettings.volumetricFill ?? true);
   const clampIn = useCelestialStore(s => s.skySettings.volumetricClampInscatter ?? true);
   const logMu = useCelestialStore(s => s.skySettings.volumetricIrradianceLogMu ?? true);
   const camVol = useCelestialStore(s => !!s.skySettings.cameraVolumetric);
@@ -173,6 +174,10 @@ const VolumetricPerfRow: React.FC = () => {
         {/* 뭉게구름 표면 혹 + 촘촘한 해 쪽 추적(docs/WAVE_FIELD_DESIGN.md §8, 기본 켬) */}
         <TouchableOpacity onPress={() => set({ volumetricBillow: !billow })} style={chip(billow)}>
           <Text style={styles.volChipText}>뭉게 혹</Text>
+        </TouchableOpacity>
+        {/* 흐린 날 높이별 채우기(파동 장, docs/WAVE_FIELD_DESIGN.md §9, 기본 켬) — 상태 줄 맨 앞에 '채우기' 가 붙으면 쓰는 중 */}
+        <TouchableOpacity onPress={() => set({ volumetricFill: !fill })} style={chip(fill)}>
+          <Text style={styles.volChipText}>흐린 날 채우기</Text>
         </TouchableOpacity>
         {/* §156 고리 예보 운량 격자 — 0 끔 · 1 격자 · 2 격자+잡음 */}
         <TouchableOpacity onPress={() => set({ volumetricMacro: ((macroMode + 1) % 3) as 0 | 1 | 2 })} style={chip(macroMode > 0)}>

@@ -334,6 +334,7 @@ export const useCelestialStore = create<CelestialState>()(
         volumetricMacro: 1,
         volumetricMorph: false,
         volumetricBillow: true,
+        volumetricFill: true,
         volumetricClampInscatter: true,
         volumetricIrradianceLogMu: true,
       },

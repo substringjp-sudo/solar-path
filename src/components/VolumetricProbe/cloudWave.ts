@@ -122,7 +122,7 @@ export function waveLaneRange(p: WaveParams): { zMin: number; zMax: number } {
   return { zMin: p.baseM - 150, zMax: p.baseM + 1.3 * p.thickM };
 }
 
-export function bakeWaveField(input: WaveParams): WaveField {
+export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveField, void> {
   const t0 = Date.now();
   const p = { ...DEF, dome: input.chi >= 0.5, ...input } as Required<WaveParams>;
   const r = rng(p.seed * 7919 + 13);
@@ -173,6 +173,7 @@ export function bakeWaveField(input: WaveParams): WaveField {
       for (let i = 0; i < n * n; i++) src[off + i] -= t;
     };
     for (let iz = 0; iz < nz; iz++) {
+      yield;
       const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
       for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
         const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
@@ -194,12 +195,12 @@ export function bakeWaveField(input: WaveParams): WaveField {
           b[(iz * n + iy) * n + ix] = s / (2 * r + 1);
         }
       };
-      for (let rep = 0; rep < 2; rep++) { pass(blur, tmp, 1, 0); pass(tmp, blur, 0, 1); }
+      for (let rep = 0; rep < 2; rep++) { pass(blur, tmp, 1, 0); yield; pass(tmp, blur, 0, 1); yield; }
       for (let iz = 0; iz < nz; iz++) for (let i = 0; i < n * n; i++) {
         const o = iz * n * n + i, zm = Math.max(0, iz - 1) * n * n + i, zp = Math.min(nz - 1, iz + 1) * n * n + i;
         vox[o] = Math.max(vox[o], (blur[zm] + 2 * blur[o] + blur[zp]) / 4);
       }
-      for (let iz = 0; iz < nz; iz++) cutSlice(iz, vox);
+      for (let iz = 0; iz < nz; iz++) { cutSlice(iz, vox); if (iz % 8 === 7) yield; }
     }
     let vMin = Infinity, vMax = -Infinity, covered = 0;
     for (let i = 0; i < vox.length; i++) { const v = vox[i]; if (v < vMin) vMin = v; if (v > vMax) vMax = v; }
@@ -219,6 +220,7 @@ export function bakeWaveField(input: WaveParams): WaveField {
     const aMax = Math.max(0.2, s2[Math.floor(0.995 * (s2.length - 1))] - tau2);
     let vMin = Infinity, vMax = -Infinity, covered = 0;
     for (let iy = 0; iy < n; iy++) {
+      yield;
       const y = -half + ((iy + 0.5) / n) * 2 * half;
       for (let ix = 0; ix < n; ix++) {
         const x = -half + ((ix + 0.5) / n) * 2 * half;
@@ -240,6 +242,7 @@ export function bakeWaveField(input: WaveParams): WaveField {
   const sigB = p.sigmaB * (1 - p.chi);
   let vMin = Infinity, vMax = -Infinity;
   for (let iy = 0; iy < n; iy++) {
+    yield;
     const y = -half + ((iy + 0.5) / n) * 2 * half;
     for (let ix = 0; ix < n; ix++) {
       const x = -half + ((ix + 0.5) / n) * 2 * half;
@@ -282,6 +285,27 @@ export function bakeWaveField(input: WaveParams): WaveField {
     smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
     stats: { coverMeasured, vMin, vMax },
   };
+  }
+}
+
+/** 한 번에 굽기(하네스 setScene). */
+export function bakeWaveField(input: WaveParams): WaveField {
+  const g = bakeWaveFieldSteps(input);
+  for (;;) { const r = g.next(); if (r.done) return r.value; }
+}
+
+/** 조각내 굽기(앱 setSceneAsync) — 약 budgetMs 마다 다음 틀로 넘깁니다. 취소되면 null. */
+export async function bakeWaveFieldAsync(input: WaveParams, cancelled: () => boolean, budgetMs = 12): Promise<WaveField | null> {
+  const g = bakeWaveFieldSteps(input);
+  let t = Date.now();
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+    if (Date.now() - t >= budgetMs) {
+      await new Promise<void>(res => setTimeout(res, 0));
+      if (cancelled()) { return null; }
+      t = Date.now();
+    }
   }
 }
 
