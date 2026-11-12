@@ -23,7 +23,7 @@ export interface FarSunInput {
   /** 관측점 운량(고리가 비었을 때) 0~1 */
   obsCover?: Partial<Record<'low' | 'mid' | 'high', number>>;
 }
-export interface FarSunMap { tex: DataTexture; extentKm: number; ms: number; meanT: [number, number, number, number] }
+export interface FarSunMap { tex: DataTexture; extentKm: number; ms: number; meanT: [number, number, number, number]; /** 관측점(지도 가운데) 칸의 T */ centerT: [number, number, number, number] }
 
 const R = 6371;
 const KAPPA = { low: 0.1, mid: 0.075, high: 0.01 } as const;
@@ -63,6 +63,8 @@ export function buildFarSunMap(inp: FarSunInput, n = 64, extentKm = 300, nearKm 
   ];
   const data = new Uint16Array(n * n * 4);
   const sum = [0, 0, 0, 0];
+  const centerT: [number, number, number, number] = [1, 1, 1, 1];
+  const ci = Math.floor(n / 2);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const x0 = -half + (i + 0.5) * cell, y0 = -half + (j + 0.5) * cell;
     for (let k = 0; k < 4; k++) {
@@ -80,13 +82,14 @@ export function buildFarSunMap(inp: FarSunInput, n = 64, extentKm = 300, nearKm 
       const T = blocked ? 0 : Math.exp(-tau);
       data[(j * n + i) * 4 + k] = DataUtils.toHalfFloat(T);
       sum[k] += T;
+      if (i === ci && j === ci) centerT[k] = T;
     }
   }
   const tex = new DataTexture(data, n, n, RGBAFormat, HalfFloatType);
   tex.minFilter = LinearFilter; tex.magFilter = LinearFilter; tex.wrapS = ClampToEdgeWrapping; tex.wrapT = ClampToEdgeWrapping;
   tex.needsUpdate = true;
   const m = n * n;
-  return { tex, extentKm, ms: Date.now() - t0, meanT: [sum[0] / m, sum[1] / m, sum[2] / m, sum[3] / m] };
+  return { tex, extentKm, ms: Date.now() - t0, meanT: [sum[0] / m, sum[1] / m, sum[2] / m, sum[3] / m], centerT };
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };

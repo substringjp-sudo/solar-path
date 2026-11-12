@@ -768,16 +768,18 @@ export async function createVolumetricScene(
       'float volTerrainLitHit = 0.0;',
       TERRAIN_DIST_GLSL, SUN_RIDGE_DECODE_GLSL,
       // 구름 아래 공기 그늘 길이(km): 지형·지평선 시선만 — 지형까지(앱 지형 거리 텍스처) 또는 100 km 상한 × 그늘 비율.
-      'uniform float cloudAirShade;', 'uniform float cloudAirTopKm;',
+      'uniform float cloudAirShade;', 'uniform float cloudAirTopKm;', 'uniform float farAirShade;',
       'float volCloudAirKm(vec3 rayDir, vec2 uv) {',
-      '  if (cloudAirShade <= 0.0) return 0.0;',
+      '  if (cloudAirShade <= 0.0 && farAirShade <= 0.0) return 0.0;',
       '  float sinT = dot(rayDir, normalize(vCameraPosition));',
+      // 먼 구름 가림(farSun): 해 쪽 수백 km 구름이 관측점 둘레 공기의 햇빛을 막으면 열린 하늘의 해 산란도 그만큼 그늘(2026-11-13 — 켜도 해 쪽 지평선이 하얗던 것).
+      '  if (sinT > 0.02) return farAirShade * 100.0;',
       // 위로 열린 하늘(구름 틈)은 건드리지 않음: 파란 하늘은 대부분 한 번 산란이라 지우면 틈이 남색이 됨(웹 재현 2026-11-12).
       // 구름 화소는 구름 패스가, 여기서는 지형·지평선 쪽 시선만.
       '  if (sinT > 0.02) return 0.0;',
       '  float d = 100.0;',
       '  if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) d = min(d, k); }',
-      '  return cloudAirShade * min(d, 100.0);',
+      '  return max(cloudAirShade, farAirShade) * min(d, 100.0);',
       '}',
       // §129 해 쪽 능선 그림자 속 공기의 길이(km) — 눈에서 시작하는 그늘 구간(Bruneton shadow_length 의 뜻과 같음).
       // 능선 하나(눈 위 높이 z, 해 방위로 거리 D)가 해 방향과 직각으로 길게 놓였다고 보고(지형 셰이더 hazeLitWeight 와 같은 모형),
@@ -893,7 +895,8 @@ export async function createVolumetricScene(
       // 구름 너머 하늘(2026-11-13): 맑은 하늘 산란 표(해 둘레 노을 번짐 포함)를 그대로 쓰면, 하늘을 덮은 구름층이어도 지평선 쪽 얇은 곳·끝 너머로
       // 해 쪽이 하얗게 빛났음(신발타 비 해 질 녘: 지평선 81, 맑은 날 95). 덮인 만큼(cloudAirShade) 그 하늘도 같은 구름층을 지나온 밝기(cloudSkyT)로.
       // 구름 화소의 앞쪽 공기·지형 화소는 그대로(각자 처리됨).
-      '  if (cloudAirShade > 0.01) {',
+      '  float sBlock = max(cloudAirShade, farAirShade);',
+      '  if (sBlock > 0.01) {',
       '    vec4 sOv = vec4(0.0);',
       '    #ifdef HAS_OVERLAY',
       '    sOv = texture(overlayBuffer, uv);',
@@ -902,8 +905,8 @@ export async function createVolumetricScene(
       '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) sTer = 1.0; }',
       '    vec3 sBg = max(outputColor.rgb - sOv.rgb, vec3(0.0));',
       '    float sL = dot(sBg, vec3(0.2126, 0.7152, 0.0722));',
-      '    vec3 sDim = mix(sBg, vec3(sL), 0.6) * cloudSkyT;',
-      '    outputColor.rgb = sOv.rgb + mix(sBg, mix(sBg, sDim, cloudAirShade), 1.0 - sTer);',
+      '    vec3 sDim = mix(sBg, vec3(sL), 0.6) * min(cloudSkyT, max(0.15, 1.0 - farAirShade));',
+      '    outputColor.rgb = sOv.rgb + mix(sBg, mix(sBg, sDim, sBlock), 1.0 - sTer);',
       '  }',
       // 도시 불빛 하늘(2026-11-13): 맑은 하늘 화소에 지평선 쪽이 밝은 인공 하늘빛. 구름·지형 화소는 뺌(구름 밑면은 구름 패스가 비춤).
       '  if (cityAirOn > 0.5) {',
@@ -938,7 +941,7 @@ export async function createVolumetricScene(
       // 구름 화소(덮개 overlay)는 구름 밑면(cloudAirBaseKm, 눈 위 높이)까지만.
       '  vec3 hSkyE;',
       '  vec3 hSunE = GetSunAndSkyIrradiance(vCameraPosition, sunDirection, sunDirection, hSkyE);',
-      '  hSunE *= 1.0 - cloudAirShade;   // 구름 아래 연무는 그 비율만큼 햇빛을 못 받음(싼 근사)',
+      '  hSunE *= 1.0 - max(cloudAirShade, farAirShade);   // 구름 아래 연무는 그 비율만큼 햇빛을 못 받음(싼 근사·먼 구름 가림)',
       '  float hCos = dot(hRd, normalize(sunDirection));',
       '  float hG = hazeP.z;',
       '  float hPh = (1.0 - hG * hG) / (12.5663706 * pow(max(1.0 + hG * hG - 2.0 * hG * hCos, 1e-3), 1.5));',
@@ -978,6 +981,7 @@ export async function createVolumetricScene(
     fx.uniforms.set('sunRidgeOn', new Uniform(0));
     fx.uniforms.set('cloudAirShade', new Uniform(0));
     fx.uniforms.set('cloudAirTopKm', new Uniform(2));
+    fx.uniforms.set('farAirShade', new Uniform(0));
     fx.uniforms.set('cloudAirBaseKm', new Uniform(50));
     fx.uniforms.set('cityAir', new Uniform(new Vector3()));
     fx.uniforms.set('cityAirOn', new Uniform(0));
@@ -1020,7 +1024,8 @@ export async function createVolumetricScene(
     }
     au.get('cloudAirShade')!.value = opt.cloudAirShade ? 1 - T : 0;
     // 구름 패스 연무는 빛줄기(SHADOW_LENGTH)가 켜진 high 에서는 그 값이 맡으므로 0.
-    (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.cloudAirShadeC.value = opt.cloudAirShade && !aerial.shadowLength ? 1 - T : 0;
+    lastAirShadeC = opt.cloudAirShade && !aerial.shadowLength ? 1 - T : 0;
+    (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.cloudAirShadeC.value = Math.max(lastAirShadeC, farAirShadeV);
     au.get('cloudAirTopKm')!.value = Math.max(0.2, top - (p.heightM ?? 0) / 1000);
     // 연무를 구름 앞까지만 셀 때 쓰는 가장 낮은 구름 밑면(눈 위 km). 구름이 없으면 50(= 연무층 전체).
     au.get('cloudAirBaseKm')!.value = base >= 50 ? 50 : Math.max(0.05, base - (p.heightM ?? 0) / 1000 - (p.altitudeM ?? 0) / 1000);
@@ -1088,9 +1093,18 @@ export async function createVolumetricScene(
     cm.needsUpdate = true;
   }
   let farMap: { key: string; map: FarSunMap } | null = null;
+  /** 먼 구름 가림의 관측점 공기 그늘(1 − T_air) — 대기 패스(열린 하늘·연무·구름 너머 하늘)와 구름 패스 공기 원근에 곱함. */
+  let farAirShadeV = 0;
+  const setFarAirShade = (v: number) => {
+    farAirShadeV = Math.min(1, Math.max(0, v));
+    (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('farAirShade')!.value = farAirShadeV;
+    const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+    cu.cloudAirShadeC.value = Math.max(lastAirShadeC, farAirShadeV);
+  };
+  let lastAirShadeC = 0;
   const applyFarSun = (p: VolumetricSceneInput, sunAltDeg: number) => {
     const cm = clouds.cloudsPass.currentMaterial as never;
-    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; return; }
+    if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; setFarAirShade(0); return; }
     const ls = p.layers.slice(0, 4);
     const bandRange = (b: 'low' | 'mid' | 'high', d: [number, number]): [number, number] => {
       const L = ls.filter(x => x && x.band === b && (x.cover ?? 0) > 0);
@@ -1111,7 +1125,8 @@ export async function createVolumetricScene(
     const ch = ls.map(x => (x?.band === 'mid' ? 1 : x?.band === 'high' ? 2 : 0));
     while (ch.length < 4) ch.push(0);
     setFarSunUniforms(cm, farMap.map, ch as [number, number, number, number]);
-    lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3] };
+    lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3], tAirHere: farMap.map.centerT[3] };
+    setFarAirShade(1 - farMap.map.centerT[3]);
   };
   let waveCache: { key: string; field: WaveField } | null = null;
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
