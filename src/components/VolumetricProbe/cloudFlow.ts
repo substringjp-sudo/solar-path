@@ -111,6 +111,8 @@ export interface FlowLayerWeights {
   wT: number;
   /** 템플릿을 변위의 몇 배로 이류할지(< 1 = 셀 재생: 셀 나이 / 에디 회전 시간) */
   lag: number;
+  /** 변위 배율(flowDisp) */
+  disp: number;
   /** 전단파 진폭(발단 적용 후) */
   wW: number;
   /** 전단파 정수 파수(타일당 주기 수) */
@@ -130,6 +132,8 @@ export interface FlowLayerParams {
   flowZ?: number;
   flowT?: number;
   flowLag?: number;
+  /** 이 층이 흐름 변위를 얼마나 받는지(1 = 그대로). 높은 구름은 작게 — 장면 공통 변위가 상층에서 우유 거품 같은 소용돌이를 만듦(2026-11-13). */
+  flowDisp?: number;
   /** 전단파 최대 진폭·파장(km) */
   flowWave?: number;
   flowWaveKm?: number;
@@ -196,7 +200,8 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   sc: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.4, flowLag: 0.4, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 256,
     flowMode: 2, flowTop: 2, densPow: 0.5, flowEdge: 1.5, flowDensityScale: 0.03, flowErode: 0.5, flowTilt: 0.3, sheet: 0.3,
     flowShapeAmount: 0.35, flowShapeDetailAmount: 0.2 },
-  ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.5, flowLag: 0.6, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 512,
+  // 2026-11-13 상·중층(ac·ci·cs)은 변위를 줄임(flowDisp) — 흐름 + high 에서 우유 거품처럼 소용돌이로 늘어지던 것. 덩어리 배치는 그대로.
+  ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.5, flowLag: 0.6, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 512,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.04, flowErode: 0.6, flowTilt: 0.3,
     flowShapeAmount: 0.25, flowShapeDetailAmount: 0.3 },
   cu: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 1.2, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 256,
@@ -206,9 +211,9 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   cb: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 1.2, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 256,
     flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1.5, flowErode: 1.0, flowTilt: 0 },
   // 권운: mode/top 0/0.5 와 densityScale 은 불변(GENUS 로 내려감). 섬유 축 = high−mid 전단, 기울임 2.5(낙하 줄무늬).
-  ci: { flow: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.7, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 256,
+  ci: { flow: 1, flowQ: 0.6, flowZ: 0.2, flowT: 0.9, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 256,
     densPow: 1.0, flowEdge: 1.5, flowErode: 0.3, flowTilt: 2.5 },
-  cs: { flow: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 256,
+  cs: { flow: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 3, flowErode: 0.1, flowTilt: 1.0 },
   // 시트(st/as/ns): topQuantile 0.5/0.7/0.8 → 0.997 로 0/255 마스크 소멸.
   st: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
@@ -600,13 +605,13 @@ export function* flowComposeSteps(core: FlowCore, T: Float32Array, TS: number, S
   if (f.length < S * S) throw new Error('cloudFlow.flowComposeSteps: f shorter than S*S');
   if (w.wT !== 0 && T.length < TS * TS) throw new Error('cloudFlow.flowComposeSteps: T shorter than TS*TS');
   const n = core.n, DX = core.dx, DY = core.dy, Q0 = core.q0, Z0n = core.z0n, qn = core.qn ?? n;
-  const wQ = w.wQ, wZ = w.wZ, wT = w.wT, wW = w.wW, lag = w.lag;
+  const wQ = w.wQ, wZ = w.wZ, wT = w.wT, wW = w.wW, lag = w.lag, disp = w.disp ?? 1;
   const kwx = w.waveK[0], kwy = w.waveK[1], ph = w.wavePhase;
   for (let y = 0; y < S; y++) {
     const v = (y + 0.5) / S;
     for (let x = 0; x < S; x++) {
       const u = (x + 0.5) / S;
-      const dX = bilinearPeriodic(DX, n, u, v), dY = bilinearPeriodic(DY, n, u, v);
+      const dX = disp * bilinearPeriodic(DX, n, u, v), dY = disp * bilinearPeriodic(DY, n, u, v);
       const X = u - dX, Y = v - dY;
       let val = 0;
       if (wQ !== 0) val += wQ * bilinearPeriodic(Q0, qn, X, Y);
@@ -709,7 +714,7 @@ export function flowLayerWeightsOf(opts: Partial<FlowLayerParams>, genus: GenusK
   const onset = Math.max(0, Math.min(1, (S - FLOW_WAVE_S0) / FLOW_WAVE_S1));
   const seed = pick('flowSeed', FLOW_DEFAULTS.seed);
   return {
-    wQ: pick('flowQ', 1), wZ: pick('flowZ', 0), wT: pick('flowT', 1), lag: pick('flowLag', 1),
+    wQ: pick('flowQ', 1), wZ: pick('flowZ', 0), wT: pick('flowT', 1), lag: pick('flowLag', 1), disp: pick('flowDisp', 1),
     wW: pick('flowWave', 0) * onset,
     waveK: waveVectorFor(su, sv, pick('flowWaveKm', 8), tileKm),
     wavePhase: rng(seed * 31 + 5)() * TWO_PI,
