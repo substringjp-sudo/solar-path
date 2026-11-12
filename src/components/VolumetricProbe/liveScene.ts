@@ -197,6 +197,38 @@ export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; 
   return { aod: Math.min(3, extra), alpha: op.alpha, g: op.g, omega: op.omega };
 }
 
+/**
+ * 그날 지방 태양시 자정부터 장면 시각까지 층 바람(동·북 km/h)을 시간별 예보로 적분한 이동(km, 동·북). 관측점(거리가 가장 짧은 경로 점)의
+ * 시간별 층 바람(windU·VLow/Mid/High)을 선형 보간해 10 분 걸음으로 더함. 그 시각 바람이 없으면 fallback(지금 바람)을 씀.
+ * 시각이 바뀌어도 이동이 이어지므로 시간 막대를 움직이면 구름이 바람 따라 연속으로 흘러감.
+ */
+function integratedDriftKm(a: LiveSceneArgs, band: 'low' | 'mid' | 'high', fallback: [number, number]): [number, number] {
+  const DAY = 86400000, t = a.date.getTime(), lonMs = (a.lon / 360) * DAY;
+  const t0 = Math.floor((t + lonMs) / DAY) * DAY - lonMs;
+  const pts = a.pathData ?? [];
+  let obsPt = pts[0];
+  for (const q of pts) if (Number.isFinite(q.distance) && (!obsPt || q.distance < obsPt.distance)) obsPt = q;
+  const h = obsPt?.hourly;
+  const key = band === 'low' ? 'Low' : band === 'mid' ? 'Mid' : 'High';
+  const us = h?.[`windU${key}` as const], vs = h?.[`windV${key}` as const], ts = h?.timeMs;
+  const windAt = (tm: number): [number, number] => {
+    if (!ts || !us || !vs || ts.length < 2) return fallback;
+    let i = 0;
+    while (i + 1 < ts.length && ts[i + 1] < tm) i++;
+    if (i + 1 >= ts.length || tm < ts[0]) return fallback;
+    const f = Math.min(1, Math.max(0, (tm - ts[i]) / Math.max(1, ts[i + 1] - ts[i])));
+    const u = us[i] + (us[i + 1] - us[i]) * f, v = vs[i] + (vs[i + 1] - vs[i]) * f;
+    return Number.isFinite(u) && Number.isFinite(v) ? [u, v] : fallback;
+  };
+  const STEP = 600000;
+  let x = 0, y = 0;
+  for (let tm = t0; tm < t; tm += STEP) {
+    const dt = Math.min(STEP, t - tm) / 3600000, [u, v] = windAt(tm + Math.min(STEP, t - tm) / 2);
+    x += u * dt; y += v * dt;
+  }
+  return [Math.round(x * 100) / 100, Math.round(y * 100) / 100];
+}
+
 export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // §175 해 위치는 엔진(NOAA, solarPosition)으로 — 렌더(takram)와 0.003° 안. 예전 SunCalc 는 0.19~0.21° 높아 요약 패널·빔·τ 가 렌더와 어긋났음.
   const sun = sunPosition(a.date, a.lat, a.lon);
@@ -246,7 +278,10 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     const ang = ((Math.round((Math.atan2(su, sv) * 180) / Math.PI / 10) * 10) * Math.PI) / 180, mq = q5(m);
     return [mq * Math.sin(ang), mq * Math.cos(ang)];
   };
-  const flowSeed = flowSeedOf(a.lat, a.lon, a.date);
+  // 2026-11-13 무늬 씨앗은 하루 하나(지방 태양시 자정에 바뀜) — 한 시간마다 바뀌면 시간 막대가 정시를 넘을 때마다 구름 배치가 통째로 새로 나왔음.
+  // 운량·종류가 바뀌면 같은 무늬에서 문턱만 달라져 구름이 자라거나 줄어듦. 자리는 아래 driftKm(바람 적분)이 옮김.
+  const flowSeed = flowSeedOf(a.lat, a.lon, a.date, 24);
+  const driftKm = (band: 'low' | 'mid' | 'high'): [number, number] => integratedDriftKm(a, band, W[band]);
   const flowOpts = (band: 'low' | 'mid' | 'high') => {
     const [u, v] = W[band], [su, sv] = shearOf(band);
     const mGrad = macro[band];
@@ -375,6 +410,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     }
   }
   if (anvil) layers.push(anvil);
+  for (const L of layers) if (L && L.genus) L.driftKm = driftKm(L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low'));
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
   const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;

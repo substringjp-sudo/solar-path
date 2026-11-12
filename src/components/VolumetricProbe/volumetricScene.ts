@@ -115,6 +115,8 @@ export interface VolumetricLayerInput {
   band?: 'low' | 'mid' | 'high';
   /** 종류 손잡이 덮어쓰기(씨앗·바람 방향 등) */
   opts?: Partial<GenusParams>;
+  /** 장면 시각까지 바람에 밀려간 거리(동·북 km) — 그날 지방 자정부터 시간별 바람 적분(liveScene). 날씨 캐시 키에 들어가지 않음. 없으면 0. */
+  driftKm?: [number, number];
   /** §136 물리(physics 켬)일 때의 밑면(km, 해발) — 적운류 = 지면 + 응결고도. 물리가 꺼져 있으면 쓰지 않습니다. */
   physBaseKm?: number;
 }
@@ -1465,12 +1467,11 @@ export async function createVolumetricScene(
     }
   };
   let sceneToken = 0;
-  /**
-   * 바람 드리프트의 기준 시각(초) = 장면 시각이 속한 정시(2026-11-13). 예전에는 1970 년부터의 초(약 1.8·10⁹)에 바람을 곱해 타일 소수부만 남겼는데,
-   * 그러면 바람이 5 km/h 만 달라도 이동량이 수백만 km 달라져 구름 자리가 아무 데로나 튐 — 시간 막대 드래그 중 미리보기(그때의 예보 바람)와
-   * 손을 뗀 뒤 장면(새로 보간한 바람)이 전혀 다른 배치로 보이던 원인. 정시 기준이면 한 시간 안의 이동(수 km)만 남아 바람이 조금 달라도 거의 같은 자리.
+  /*
+   * 바람 드리프트(2026-11-13): 장면 시각까지 밀려간 거리는 층의 driftKm(그날 지방 자정부터 시간별 바람 적분), 그 뒤는 지금 바람 × 흐른 시간.
+   * 예전에는 1970 년부터의 초(약 1.8·10⁹)에 지금 바람을 곱해 타일 소수부만 남겨, 바람이 5 km/h 만 달라도 구름 자리가 아무 데로나 튐 —
+   * 시간 막대 미리보기와 손을 뗀 뒤 장면이 전혀 다른 배치로 보이던 원인. 적분이면 시각이 바뀔 때 이동이 이어짐.
    */
-  const driftRefSec = (d: Date) => Math.floor(d.getTime() / 3600000) * 3600;
   /** 날씨가 준비된 뒤 장면을 한 번에 겁니다(층·종류 균일변수·날씨·노출). */
   const applyScene = (p: VolumetricSceneInput, plan: WeatherPlan, tex: DataTexture) => {
     lastInput = p;
@@ -1577,7 +1578,7 @@ export async function createVolumetricScene(
         setGenusLightFloors(m, opt.debugLightFloors);
         setGenusDiffuse(m, opt.diffuse);
         setFlowUniforms(m, gl, { density: flowDens, uv: flowUv, macroGrad: opt.macroGrad }, GENUS_TILE_KM);
-        setGenusDrift(m, gl, driftSec - driftRefSec(p.date), GENUS_TILE_KM);
+        setGenusDrift(m, gl, driftSec - p.date.getTime() / 1000, GENUS_TILE_KM, p.layers.slice(0, 4).map(L => L?.driftKm));
         // 거시 격자는 표본 시각(장면 시각)에 자리가 맞으므로 그때부터 흐른 시간만큼만(km, 감싸지 않음)
         setMacroDrift(m, gl, driftSec - p.date.getTime() / 1000);
         if (opt.skeleton === 3) setSkeletonTilt(m, gl, opt.skeletonTiltScale);   // 드리프트 뒤(드리프트 0 으로 덮음)
@@ -1727,7 +1728,7 @@ export async function createVolumetricScene(
     if (genLayers) {
       const driftSec = driftSecOverride ?? date.getTime() / 1000;
       const macroSec = driftSec - (genDate ?? date).getTime() / 1000;
-      for (const m of genusMats) { setGenusDrift(m, genLayers, driftSec - driftRefSec(genDate ?? date), GENUS_TILE_KM); setMacroDrift(m, genLayers, macroSec); }
+      for (const m of genusMats) { setGenusDrift(m, genLayers, driftSec - (genDate ?? date).getTime() / 1000, GENUS_TILE_KM, lastInput.layers.slice(0, 4).map(L => L?.driftKm)); setMacroDrift(m, genLayers, macroSec); }
       // §156 거시 격자 시간 걸음(AR(1)) — 1 분마다 새 장을 B 에, 이전 B 를 A 로; 그 사이는 mix 로 섞습니다. 잡음 없는 모드(1)는 걸음이 없습니다.
       if (macro && opt.macro === 2) {
         if (macro.lastSec == null) macro.lastSec = driftSec;
