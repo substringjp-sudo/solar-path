@@ -17,6 +17,8 @@ type Job = {
   quality?: VolumetricQuality;
   res?: number;
   options?: Partial<VolumetricOptions>;
+  /** 도시 불빛 0~1(앱 광공해 설정과 같은 값). 없으면 0. */
+  cityLight?: number;
   /** 'rgb' 표시 색 · 'alpha' 구름 불투명도(회색) · 'both' 둘 다 · 'direct' 텍스처를 거치지 않고 화면에 바로(시제품과 같은 길) */
   out?: 'rgb' | 'alpha' | 'both' | 'direct';
   /** 손으로 만든 지형 거리 판(§127 판정): 화면 아래 frac 만큼(물결 능선)을 km 거리의 지형으로 둡니다. */
@@ -133,7 +135,7 @@ const show = (tex: Texture, mode: number) => {
     const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
-      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macroGrad: false, billow: false, farSun: false, cloudAirShade: true,
+      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macroGrad: false, billow: false, farSun: false, cloudAirShade: true, moonLight: true,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       // §grain 앞 grain 잡이 남긴 비용 변형·화소 오프셋만 되돌림(grain 잡이 없던 페이지에서는 아무것도 하지 않음).
@@ -176,6 +178,7 @@ const show = (tex: Texture, mode: number) => {
       // §grain 잡음 텍스처 씨앗(없으면 12345 = 앱; 지금 텍스처와 같으면 아무것도 안 함).
       applyNoiseSeed(vol, job.grain?.noiseSeed);
       vol.setResolutionScale(job.res ?? 0.5);
+      vol.setCityLight(job.cityLight ?? 0);
       vol.setScene(input);
       vol.setTerrainDistance(job.terrain ? terrainTex(job.terrain.km, job.terrain.frac) : null);
       if (job.grain) return runGrain({ renderer, vol, W, H, show }, job as never);
@@ -209,7 +212,7 @@ const show = (tex: Texture, mode: number) => {
       }
       for (let i = 0; i < frames; i++) tex = vol.renderToTexture(1 / 60);
       const ms = (performance.now() - ts) / frames;
-      const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), farInfo: vol.farInfo(), airShade: vol.airShade(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
+      const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), farInfo: vol.farInfo(), airShade: vol.airShade(), city: vol.cityInfo(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
         bad: ((window as unknown as Record<string, unknown>).__badUniforms as () => string[])() };
       // §139 진단: fetch 레인 균일변수(구름·그림자 패스)
       {

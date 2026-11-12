@@ -36,7 +36,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getSunDirectionECEF } from '@takram/three-atmosphere';
+import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getAltitudeCorrectionOffset, getMoonDirectionECEF, getSunDirectionECEF } from '@takram/three-atmosphere';
 import { CloudLayer, CloudShape, CloudShapeDetail, CloudsEffect, Turbulence } from '@takram/three-clouds';
 import {
   Ellipsoid,
@@ -418,6 +418,8 @@ export interface VolumetricOptions extends TsunOptions {
   farSun: boolean;
   /** 구름 아래 공기 그늘 싼 근사(low·medium, 빛줄기 없을 때). 기본 켬. */
   cloudAirShade: boolean;
+  /** 밤 달빛(2026-11-13): 해가 −10° 아래이고 달이 떠 있으면 빛 방향·세기를 달로 바꿈(구름·하늘·그림자 모두 같은 길) */
+  moonLight: boolean;
   /**
    * RULER-grain §8.2 알갱이 손잡이(전부 기본 끔 — 끄면 셰이더 글자·균일변수·층 값이 측정 번들과 같음, cloudGenus.ts `setGrainKnobs`).
    * E1b — 1차 행진에서 광선당 한 번, 첫 적중 표본을 직전 증분 Δ 만큼 되감아 h = max(50 m, Δ/8) 보폭으로 최대 8 표본 다시 걷기(구름 패스).
@@ -448,7 +450,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, farSun: false, cloudAirShade: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, farSun: false, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -466,6 +468,8 @@ export interface VolumetricScene {
   setView(az: number, el: number, fov: number, altitudeM?: number): void;
   /** 시각만 바꿉니다(해 방향·노출·바람 드리프트). driftSec 는 §155 바람 드리프트 시각(초), 없으면 date. */
   setDate(date: Date, driftSec?: number): void;
+  /** 도시 불빛 세기 0~1(광공해 설정: 6.5 등급 0 ~ 3 등급 1). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
+  setCityLight(v: number): void;
   /**
    * 화면 대신 텍스처로 그립니다(§126.7 — 하늘 화면 합성기가 하늘 층으로 씁니다). 반환 텍스처는 다음 호출까지 유효.
    * rgb 는 톤매핑 뒤 **선형** 색(하늘 + 구름 — 화면에 낼 때 sRGB 로 부호화해야 함, §127: §126.8 은 이것을 빠뜨려
@@ -504,6 +508,7 @@ export interface VolumetricScene {
   farInfo(): Record<string, number> | null;
   /** 구름 아래 공기 그늘 비율(0~1) */
   airShade(): number;
+  cityInfo(): { artCd: number; baseCd: number; adaptCd: number; timeF: number } | null;
   /** §136 진단: 마지막 장면의 층별 물리 값(β·τ·얼음·무리·가루) — 물리가 꺼져 있으면 null */
   physicsInfo(): (LayerPhysics | null)[] | null;
   /**
@@ -874,9 +879,22 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
+      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
+      // 도시 불빛 하늘(2026-11-13): 맑은 하늘 화소에 지평선 쪽이 밝은 인공 하늘빛. 구름·지형 화소는 뺌(구름 밑면은 구름 패스가 비춤).
+      '  if (cityAirOn > 0.5) {',
+      '    vec3 cRd = normalize(vRayDirection);',
+      '    float cSin = dot(cRd, normalize(vCameraPosition));',
+      '    vec4 cOv = vec4(0.0);',
+      '    #ifdef HAS_OVERLAY',
+      '    cOv = texture(overlayBuffer, uv);',
+      '    #endif',
+      '    float cTer = 0.0;',
+      '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) cTer = 1.0; }',
+      '    float cG = min(4.0, pow(1.1 / (max(cSin, 0.0) + 0.1), 0.7));',
+      '    outputColor.rgb += cityAir * cG * (1.0 - cOv.a) * (1.0 - cTer) * step(-0.02, cSin);',
+      '  }',
       '  if (hazeOn < 0.5) return;',
       '  vec3 hRd = normalize(vRayDirection);',
       '  vec3 hUp = normalize(vCameraPosition);',
@@ -931,6 +949,8 @@ export async function createVolumetricScene(
     fx.uniforms.set('cloudAirShade', new Uniform(0));
     fx.uniforms.set('cloudAirTopKm', new Uniform(2));
     fx.uniforms.set('cloudAirBaseKm', new Uniform(50));
+    fx.uniforms.set('cityAir', new Uniform(new Vector3()));
+    fx.uniforms.set('cityAirOn', new Uniform(0));
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     aerialBase = src;
     fx.setFragmentShader(applyLightingFixAerial(src, lightingFlags()));
@@ -1009,6 +1029,13 @@ export async function createVolumetricScene(
       // 불투명 구름 화소의 공기 원근은 구름 패스가 직접 더함(대기 효과는 겹쳐 그리지 않음) — 눈~구름 앞면 구간의 그 비율을 그늘로.
       .replace(ap, '      applyAerialPerspective(cameraPosition, frontPosition, max(shadowLength, cloudAirShadeC * frontDepth), color);');
     cm.uniforms.cloudAirShadeC = { value: 0 };
+    // 도시 불빛 구름 밑면(2026-11-13): 땅에서 올라온 빛이 구름 밑면을 비춤 — 밑면에서 가장 밝고 구름 속으로 e^(−(1−g)·τ_밑에서) 로 줄어듦,
+    // 높을수록 퍼져 약해짐 e^(−(h − 1 km)/4 km). cityUp 은 1 km 두꺼운 밑면이 보일 휘도(렌더 단위).
+    const fin = '      // Finally multiply by scattering.';
+    if (!cm.fragmentShader.includes(fin)) throw new Error('volumetricScene: cloud city anchor missing');
+    cm.fragmentShader = cm.fragmentShader.replace('vec4 getLayerDensity', 'uniform vec3 cityUp;\nvec4 getLayerDensity')
+      .replace(fin, '      radiance += cityUp * exp(-0.15 * media.extinction * dot(weather.heightFraction * max(maxLayerHeights - minLayerHeights, vec4(1.0)), media.weight)) * exp(-(max(height, 0.0) - 1000.0) / 4000.0);\n' + fin);
+    cm.uniforms.cityUp = { value: new Vector3() };
     cm.needsUpdate = true;
   }
   let farMap: { key: string; map: FarSunMap } | null = null;
@@ -1222,10 +1249,95 @@ export async function createVolumetricScene(
     camera.updateMatrixWorld(true);
     updateLod();
   };
+  /**
+   * 빛의 방향·고도(°). 기본은 해. 밤(해 −10° 아래)에 달이 떠 있으면 달(2026-11-13 달빛): 달빛은 햇빛을 반사한 빛이라 스펙트럼이 거의 같고
+   * 세기만 다름 — 같은 대기·구름 계산에 방향만 달로 두고 노출을 그 세기만큼 올림(moonGain). 해 원반은 달 자리에 둥근 달로 그려짐(위상 모양은 없음).
+   *   세기 = 2.5·10⁻⁶(보름달/해, 14 등급) × 10^(−0.4·(0.026α + 4·10⁻⁹α⁴)), α = 위상각 ≈ 180° − 이각(Allen).
+   */
+  const moonVec = new Vector3();
+  let moonGain = 0;   // 0 이면 해가 빛, 아니면 달빛 세기(해 대비)
+  const altOf = (v: Vector3) => {
+    const local = v.clone().transformDirection(curNue.clone().invert());
+    return (Math.asin(Math.max(-1, Math.min(1, local.y))) * 180) / Math.PI;
+  };
+  let lastTrueSunAlt = 90;
   const sunAltAt = (date: Date) => {
     getSunDirectionECEF(date, sun);
-    const local = sun.clone().transformDirection(curNue.clone().invert());
-    return (Math.asin(Math.max(-1, Math.min(1, local.y))) * 180) / Math.PI;
+    const sunAlt = altOf(sun);
+    lastTrueSunAlt = sunAlt;
+    moonGain = 0;
+    if (opt.moonLight && sunAlt < -10) {
+      getMoonDirectionECEF(date, moonVec);
+      const moonAlt = altOf(moonVec);
+      const elong = (Math.acos(Math.max(-1, Math.min(1, sun.dot(moonVec)))) * 180) / Math.PI;
+      const a = 180 - elong;
+      const gain = 2.5e-6 * Math.pow(10, -0.4 * (0.026 * a + 4e-9 * a ** 4));
+      // 초승달(위상각 140° 넘음, 보름의 2 % 아래)이나 지평선 아래 달은 쓰지 않음.
+      if (moonAlt > -1 && a < 140) { sun.copy(moonVec); moonGain = gain; return moonAlt; }
+    }
+    return sunAlt;
+  };
+  /**
+   * 달빛 노출. 렌더는 달 방향에서 햇빛 세기 그대로 빛을 계산하므로 실제 휘도는 그 × moonGain. 눈이 밤에 맞춰진 노출 = 낮 노출 ÷ 보름 세기 × MOON_DIM
+   * 이라 화면에 곱할 값은 낮 노출 × MOON_DIM × (moonGain / 보름 세기)^½.
+   * 1차 하네스: 1/64·위상 그대로면 보름도 거의 검고 반달(보름의 1/10)은 완전히 검었음 → 보름 −3 단(1/8), 위상은 제곱근(눈이 위상에도 적응; 반달 ≈ −1.7 단 더).
+   */
+  const MOON_FULL = 2.5e-6;
+  const MOON_DIM = 1 / 8;
+  /**
+   * 도시 불빛(2026-11-13). 광공해 설정 c(0~1, 6.5 → 3 등급) → 한계 등급 m = 6.5 − 3.5c → 천정 밝기 SQM ≈ 14.5 + 1.08m(mag/arcsec²)
+   * → 인공 천정 휘도 L_art = 10.8만·(10^(−0.4·SQM) − 10^(−0.4·21.6)) cd/m²(도심 3 등급 ≈ 0.009). 낮고 두꺼운 구름 밑면은 그 약 8 배
+   * (흐린 도시 밤이 맑은 밤보다 수 배 밝음 — 구름이 땅 빛을 되돌림). 밤 10 시부터 불이 꺼지며 줄어듦(새벽 2~5 시 0.6, 6 시 반까지 0.8).
+   * 렌더 단위 = 휘도 × 4.3·10⁻⁶ ÷ g(빛이 해면 1, 달이면 달빛 세기) — 낮 노출 7.2 가 맑은 하늘(약 6000 cd/m²)을 0.19 로 보이는 것에서.
+   */
+  const CD_TO_RENDER = 4.3e-6;
+  const MOONLIT_CLOUD_CD = 0.056;   // 보름달이 비춘 구름 휘도(0.25 lux × 0.7 / π)
+  const CITY_COLOR = new Vector3(1.22, 0.96, 0.70);   // 흰빛에 가까운 호박색(휘도 1) — 옛 슬랩 §13-D 색
+  let cityLight = 0;
+  let cityState: { artCd: number; baseCd: number; adaptCd: number; timeF: number } | null = null;
+  const cityTimeF = (date: Date, lonDeg: number) => {
+    const h = ((date.getUTCHours() + date.getUTCMinutes() / 60 + lonDeg / 15) % 24 + 24) % 24;
+    if (h >= 22) return 1 - 0.25 * (h - 22) / 2;
+    if (h < 2) return 0.75 - 0.15 * h / 2;
+    if (h < 5) return 0.6;
+    if (h < 6.5) return 0.6 + 0.2 * (h - 5) / 1.5;
+    if (h < 18) return 0.8;
+    return 1;
+  };
+  const updateCity = (p: VolumetricSceneInput | null, date: Date) => {
+    const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
+    const cu = (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+    if (!p || cityLight <= 0.01) {
+      cityState = null; au.get('cityAirOn')!.value = 0; (cu.cityUp.value as Vector3).set(0, 0, 0); return;
+    }
+    const m = 6.5 - 3.5 * cityLight, sqm = 14.5 + 1.08 * m;
+    const timeF = cityTimeF(date, p.lon);
+    const artCd = Math.max(0, 10.8e4 * (Math.pow(10, -0.4 * sqm) - Math.pow(10, -0.4 * 21.6))) * timeF;
+    const baseCd = 8 * artCd;
+    const low = p.layers.filter(L => L && L.cover > 0 && (L.band ?? (L.baseKm < 2 ? 'low' : 'mid')) === 'low').reduce((a, L) => Math.max(a, Math.min(1, L.cover)), 0);
+    const adaptCd = artCd + (baseCd - artCd) * low;
+    cityState = { artCd, baseCd, adaptCd, timeF };
+    const g = moonGain > 0 ? moonGain : 1;
+    (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((baseCd * CD_TO_RENDER) / g);
+    (au.get('cityAir')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((artCd * CD_TO_RENDER) / g);
+    au.get('cityAirOn')!.value = 1;
+  };
+  /**
+   * 노출. 해: 해 고도 표. 밤(달 또는 도시 불빛): 눈이 맞춘 휘도 L_a(달빛 구름 + 도시)로 낮 노출 × MOON_DIM × (g/보름)·√(0.056/L_a)
+   * — 달만이면 위의 달빛 식과 같음. 달 없이 도시만이면 해 −12° → −16° 사이에서 해 고도 노출과 로그로 이어 붙임.
+   */
+  const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
+    if (p.exposure != null) return p.exposure;
+    const cityA = cityState?.adaptCd ?? 0;
+    if (moonGain > 0) {
+      const La = MOONLIT_CLOUD_CD * (moonGain / MOON_FULL) + cityA;
+      return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
+    }
+    const base = autoExposure(lightAlt);
+    if (cityA <= 1e-5 || lastTrueSunAlt > -12) return base;
+    const city = (autoExposure(45) * MOON_DIM / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / cityA);
+    const t = Math.min(1, Math.max(0, (-12 - lastTrueSunAlt) / 4));
+    return Math.exp(Math.log(base) + (Math.log(city) - Math.log(base)) * t);
   };
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
@@ -1457,7 +1569,8 @@ export async function createVolumetricScene(
     weather = tex;
     clouds.localWeatherTexture = tex;
     genLayers = gl; genDate = p.date; genUv = flowUv;
-    const exposure = p.exposure ?? autoExposure(sunAltDeg);
+    updateCity(p, p.date);
+    const exposure = exposureFor(sunAltDeg, p);
     applyHaze(p.haze);
     applyCloudAir(p);
     renderer.toneMappingExposure = exposure;
@@ -1563,7 +1676,8 @@ export async function createVolumetricScene(
         }
       }
     }
-    const exposure = lastInput.exposure ?? autoExposure(sunAltDeg);
+    updateCity(lastInput, date);
+    const exposure = exposureFor(sunAltDeg, lastInput);
     applyHaze(lastInput.haze);
     renderer.toneMappingExposure = exposure;
     last = { sunAltDeg, exposure };
@@ -1612,6 +1726,19 @@ export async function createVolumetricScene(
     waveInfo: () => lastWaveInfo,
     farInfo: () => lastFarInfo,
     airShade: () => lastAirShade,
+    cityInfo: () => cityState,
+    setCityLight: (v: number) => {
+      const c = Math.max(0, Math.min(1, v));
+      if (Math.abs(c - cityLight) < 1e-3) return;
+      cityLight = c;
+      if (!lastInput) return;
+      const d = lastInput.date;
+      sunAltAt(d);
+      updateCity(lastInput, d);
+      const exposure = exposureFor(lastSunAltForLight, lastInput);
+      renderer.toneMappingExposure = exposure;
+      last = { sunAltDeg: lastSunAltForLight, exposure };
+    },
     flowInfo: () => {
       const st = (weather?.userData as { flow?: { s90?: number; hoursUsed?: number } } | undefined)?.flow;
       return { s90: st?.s90 ?? null, hoursUsed: st?.hoursUsed ?? null, camKm: lastCamKm };
