@@ -1296,7 +1296,12 @@ const DIFF_TAU_LINE = '        vec4 gTau = media.extinction * max(vec4(1.0) - we
 const DIFF_SKY_FLOOR = '      skyGradient *= dot(mix(vec4(1.0), max(vec4(0.35), exp(-genusAO * weather.depth)), genusOn), media.weight);';
 /** 구름 패스 판별자(= takram 하늘빛 항) — 이 줄이 있으면 구름 패스. */
 const IS_CLOUDS = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
-const DIFF_MU0 = `max(${MU0_MIN.toFixed(4)}, dot(surfaceNormal, sunDirection))`;
+/**
+ * 확산장의 해 입사 코사인 μ0. 평면평행 판이면 해가 낮을 때 윗면에 닿는 빛이 μ0 배로 줄어 구름 아래가 지나치게 어두움(해 1° 에서 2~5 %).
+ * 실제 구름 윗면은 수백 m 울퉁불퉁해 솟은 곳의 옆면이 낮은 해를 정면으로 받음(해가 낮을수록 평면평행 근사가 투과·반사를 크게 과소평가하는
+ * 3차원 효과). 윗면 기울기 약 15° 를 μ_r = 0.25 로 두고 μ_eff = √(μ0² + μ_r²) (2026-11-13; 해가 높으면 거의 그대로).
+ */
+const DIFF_MU0 = `max(${MU0_MIN.toFixed(4)}, sqrt(pow(max(0.0, dot(surfaceNormal, sunDirection)), 2.0) + 0.0625))`;
 /** 해석적 기둥 τ(표본 위·전체, vec4 층별) — L1·L2·L3 공통. gTauA(위), gTauT(전체) 를 둡니다. */
 const COLUMN_GLSL = [
   '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
