@@ -60,6 +60,8 @@ export interface WaveParams {
   smoothZ?: number;
   /** 밑면에서도 작은 파동(혹)을 켜는 비율 0~1(거친 비구름 밑면). 0 이면 밑면 30 % 높이까지 꺼짐 */
   baseBump?: number;
+  /** 관측 일사로 정한 기둥 광학두께(있으면 장면이 레인 0 의 densityScale 을 이것에 맞춤, volumetricScene) */
+  tauTarget?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -83,6 +85,8 @@ export interface WaveField {
   baseBump: number;
   bakeMs: number;
   stats: { coverMeasured: number; vMin: number; vMax: number };
+  /** 셰이더 waveColumn 의 기둥 적분 t 의 가로 평균(레인 높이 대비 0~1) — τ_기둥 ≈ densityScale × 레인 높이 × colMean */
+  colMean: number;
 }
 
 const OCT = 6, PER = 12, NSMALL = 3 * PER;
@@ -127,7 +131,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, smoothM: 0, smoothZ: 0, baseBump: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, smoothM: 0, smoothZ: 0, baseBump: 0, tauTarget: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
@@ -326,13 +330,25 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
   tex.minFilter = LinearFilter; tex.magFilter = LinearFilter;
   tex.wrapS = RepeatWrapping; tex.wrapT = RepeatWrapping; tex.wrapR = ClampToEdgeWrapping;
   tex.unpackAlignment = 1; tex.needsUpdate = true;
+  // 셰이더 waveColumn 과 같은 식: q = (0.25 + 0.75 fb^⅔)·clamp(e·(v − τ))·(1 + 0.3(1 − χ)·tanh v), fb = (z − 밑면)/두께.
+  let qSum = 0;
+  for (let iz = 0; iz < nz; iz++) {
+    const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
+    const fb = Math.min(1, Math.max(0, (z - p.baseM) / Math.max(p.thickM, 1)));
+    const prof = 0.25 + 0.75 * Math.pow(fb, 2 / 3);
+    for (let i = iz * n * n; i < (iz + 1) * n * n; i++) {
+      const v = vox[i];
+      qSum += prof * Math.min(1, Math.max(0, p.edge * (v - tau))) * (1 + 0.3 * (1 - p.chi) * Math.tanh(v));
+    }
+  }
+  const colMean = qSum / vox.length;
   const smallK: Vector4[] = [];
   for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
   return {
     tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, baseBump: p.baseBump, smallK,
     // 단계 5(~λ0/32)는 행진 보폭보다 짧아 반짝이는 점으로 깨져 뺍니다(2차 판정).
     smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
-    stats: { coverMeasured, vMin, vMax },
+    stats: { coverMeasured, vMin, vMax }, colMean,
   };
   }
 }

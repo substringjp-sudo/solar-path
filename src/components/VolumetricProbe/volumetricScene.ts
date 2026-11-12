@@ -1387,9 +1387,14 @@ export async function createVolumetricScene(
       {
         const wp = (gl[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
         if (wp) {
-          const key = JSON.stringify(wp);
+          const key = waveKey(wp);
           if (!waveCache || waveCache.key !== key) { waveCache?.field.tex.dispose(); waveCache = { key, field: bakeWaveField(wp) }; }
-          lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats };
+          // 2026-11-12 관측 일사 맞춤: 기둥 τ = densityScale × 레인 높이 × colMean 이 tauTarget 이 되게 레인 0 의 densityScale 을 바꿈(구름·그림자 패스 공용 층).
+          const L0 = clouds.cloudLayers[0];
+          const tauModel = L0 ? L0.densityScale * L0.height * waveCache.field.colMean : 0;
+          let tauUsed = tauModel;
+          if (L0 && wp.tauTarget && wp.tauTarget > 0 && tauModel > 0) { L0.densityScale *= wp.tauTarget / tauModel; tauUsed = wp.tauTarget; }
+          lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats, colMean: waveCache.field.colMean, tauModel, tauUsed };
         } else lastWaveInfo = null;
         for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
         const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
@@ -1471,7 +1476,7 @@ export async function createVolumetricScene(
     // 파동 장(흐린 날 채우기 등)은 굽는 데 수 초 — 여기서 조각내 미리 구워 두면 applyScene 이 캐시를 씁니다.
     const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
     if (wp) {
-      const key = JSON.stringify(wp);
+      const key = waveKey(wp);
       if (!waveCache || waveCache.key !== key) {
         const t0 = Date.now();
         const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed);
@@ -1486,6 +1491,8 @@ export async function createVolumetricScene(
   };
   let disposed = false;
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
+  /** 파동 장 캐시 키 — tauTarget 은 굽기에 안 쓰므로 뺌(일사가 바뀌어도 다시 굽지 않음). */
+  function waveKey(wp: WaveParams): string { return JSON.stringify({ ...wp, tauTarget: undefined }); }
   const setView = (az: number, el: number, fov: number, altitudeM?: number) => {
     if (!lastInput) return;
     lastInput = { ...lastInput, az, el, fov, altitudeM: altitudeM !== undefined ? altitudeM : lastInput.altitudeM };
