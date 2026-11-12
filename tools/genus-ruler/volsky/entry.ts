@@ -5,6 +5,7 @@
  *
  * 묶기·돌리기: run.js 머리말.
  */
+import { decodeGrayPng, type NightLights } from '../../../src/utils/cityLightMap';
 import { DataTexture, Mesh, NearestFilter, OrthographicCamera, PerspectiveCamera, PlaneGeometry, RGBAFormat, Scene, ShaderMaterial, UnsignedByteType, Vector3, WebGLRenderer, type Texture } from 'three';
 import { PrecomputedTexturesLoader } from '@takram/three-atmosphere';
 import { autoExposure, createVolumetricScene, type VolumetricOptions, type VolumetricQuality, type VolumetricSceneInput } from '../../../src/components/VolumetricProbe/volumetricScene';
@@ -19,6 +20,8 @@ type Job = {
   options?: Partial<VolumetricOptions>;
   /** 도시 불빛 0~1(앱 광공해 설정과 같은 값). 없으면 0. */
   cityLight?: number;
+  /** 밤 불빛 지도(assets/nightlights) 쓰기. 없으면 끔. */
+  cityMap?: boolean;
   /** 'rgb' 표시 색 · 'alpha' 구름 불투명도(회색) · 'both' 둘 다 · 'direct' 텍스처를 거치지 않고 화면에 바로(시제품과 같은 길) */
   out?: 'rgb' | 'alpha' | 'both' | 'direct';
   /** 손으로 만든 지형 거리 판(§127 판정): 화면 아래 frac 만큼(물결 능선)을 km 거리의 지형으로 둡니다. */
@@ -179,6 +182,11 @@ const show = (tex: Texture, mode: number) => {
       applyNoiseSeed(vol, job.grain?.noiseSeed);
       vol.setResolutionScale(job.res ?? 0.5);
       vol.setCityLight(job.cityLight ?? 0);
+      if (job.cityMap) {
+        const w = window as unknown as { __nightLights?: NightLights };
+        if (!w.__nightLights) w.__nightLights = decodeGrayPng(new Uint8Array(await (await fetch('assets/nightlights/lights_01deg.png')).arrayBuffer()));
+        vol.setCityMap(w.__nightLights);
+      } else vol.setCityMap(null);
       vol.setScene(input);
       vol.setTerrainDistance(job.terrain ? terrainTex(job.terrain.km, job.terrain.frac) : null);
       if (job.grain) return runGrain({ renderer, vol, W, H, show }, job as never);

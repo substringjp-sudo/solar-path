@@ -74,6 +74,7 @@ import {
   type StarFieldHandle,
 } from './StarField';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
+import { loadNightLights } from '../../utils/nightLightsAsset';
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
@@ -2012,7 +2013,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   volGovRef.current = createResolutionGovernor({ maxScale: skySettingsRef.current.volumetricRes ?? 0.5 });
                   v.setResolutionScale(volGovRef.current.scale);
                   volQualityRef.current = '';
-                  volRef.current = v; volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
+                  volRef.current = v; loadNightLights().then(m => { if (volRef.current === v) v.setCityMap(m); }); volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
                   volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 24;
                   setVolumetricStatus({ phase: 'running' }); requestRender(3);
                 })
