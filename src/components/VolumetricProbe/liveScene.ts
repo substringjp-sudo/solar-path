@@ -290,7 +290,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
       const wave = {
         ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: 0.1,
-        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 3, profile: fillProf,
+        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 1.5, profile: fillProf,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
       const zMin = zLo - 300, zMax = zHi + 400;

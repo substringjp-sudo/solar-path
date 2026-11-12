@@ -353,6 +353,9 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * smoothstep(0.0, 0.3, wfb) * waveSmall(vec3(wxy, wz));',
     '    float wprof = 0.25 + 0.75 * pow(wfb, 0.6667);',
     '    float wc = clamp(waveP.z * ws, 0.0, 1.0);',
+    // 표면 깎기(2026-11-12): 다른 구름과 같은 takram 모양 잡음으로, 세기는 대류성 χ 로 0.4(판)~1(뭉게). 속(wc≈1)은 그대로.
+    '    float wsh = texture(shapeTexture, position * shapeRepeat + shapeOffset).r;',
+    '    wc = remapClamped(wc, (1.0 - wsh) * mix(0.4, 1.0, waveP.y), 1.0);',
     '    // 가장자리 솜털: takram 잔무늬로 얇은 곳만 깎음(속 wc≈1 은 그대로). 위는 몽글, 아래는 가닥(takram 규칙).',
     '#ifdef SHAPE_DETAIL',
     '    if (waveP.w > 0.0 && wc > 0.0 && wc < 1.0) {',

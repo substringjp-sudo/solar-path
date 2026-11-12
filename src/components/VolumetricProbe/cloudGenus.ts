@@ -1354,13 +1354,19 @@ export function genusEnvelope(L: GenusLayer): { mode: number; base: number; top:
 }
 
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */
+/**
+ * 표면 깎기(takram 모양 잡음 remap) 세기의 종류별 하한(2026-11-12). 솜털·덩어리 두 가지로 갈리던 것은 이 세기 차이(1.0 대 0.1~0.35)였음.
+ * 뭉게 계열은 1 근처, 판 구름은 0.4(구멍 대신 흐릿한 결). 상층 얇은 막(ci·cs)·모루는 손대지 않음(0).
+ */
+export const SHAPE_FLOOR: Partial<Record<GenusKey, number>> = { cu: 1, cg: 1, cb: 1, sc: 0.8, ac: 0.6, ns: 0.6, as: 0.4, st: 0.4 };
 export function genusLayerShape(L: GenusLayer, flowDensity = false) {
   // §130 C2 흐름 밀도가 켜진 층은 소광·모양 잡음 양을 흐름값(GENUS_FLOW 의 flowDensityScale 등)으로 — 꺼진 층은 GENUS 그대로.
   const fd = flowDensity && (fp(L, 'flow') ?? 0) > 0;
   return {
     height: param(L, 'height'),
     densityScale: (fd ? fp(L, 'flowDensityScale') : undefined) ?? param(L, 'densityScale'),
-    shapeAmount: (fd ? fp(L, 'flowShapeAmount') : undefined) ?? param(L, 'shapeAmount'),
+    // 2026-11-12 표면 깎기 하한: 경로(흐름·연속 형태·판 종류)마다 0.1~0.35 로 내려가 매끈한 덩어리가 되던 것 — 종류별 하한 아래로 못 내려감.
+    shapeAmount: Math.max(SHAPE_FLOOR[L.genus] ?? 0, (fd ? fp(L, 'flowShapeAmount') : undefined) ?? param(L, 'shapeAmount')),
     shapeDetailAmount: (fd ? fp(L, 'flowShapeDetailAmount') : undefined) ?? param(L, 'shapeDetailAmount'),
   };
 }
