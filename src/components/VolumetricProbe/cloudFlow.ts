@@ -216,11 +216,12 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   cs: { flow: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 3, flowErode: 0.1, flowTilt: 1.0 },
   // 시트(st/as/ns): topQuantile 0.5/0.7/0.8 → 0.997 로 0/255 마스크 소멸.
-  st: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  // 판 구름도 변위를 줄임(2026-11-13): 밤 고층운이 크림처럼 휘감긴 골로 보였음 — 무늬는 바람 쪽으로 조금 길게 남음.
+  st: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.05, flowErode: 0.15, flowTilt: 0.2, topQuantile: 0.997 },
-  as: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  as: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.02, flowErode: 0.2, flowTilt: 0.2, topQuantile: 0.997 },
-  ns: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  ns: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.08, flowErode: 0.4, flowTilt: 0.2, topQuantile: 0.997 },
   // 모루: 흐름 끔(absolute 유지, 탑 위에 고정). 셰이더 쪽 값만.
   cbanvil: { flow: 0, flowDensityScale: 0.03, flowErode: 0.3, flowTilt: 0 },
