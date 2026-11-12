@@ -1252,9 +1252,13 @@ export async function createVolumetricScene(
     }
     return sunAlt;
   };
-  /** 달빛 노출: 같은 고도의 낮 노출 ÷ 달빛 세기 × MOON_DIM(밤은 낮보다 어둡게 보이게 −6 단). */
+  /**
+   * 달빛 노출. 렌더는 달 방향에서 햇빛 세기 그대로 빛을 계산하므로 실제 휘도는 그 × moonGain. 눈이 밤에 맞춰진 노출 = 낮 노출 ÷ 보름 세기 × MOON_DIM
+   * 이라 화면에 곱할 값은 낮 노출 × MOON_DIM × (moonGain / 보름 세기) — 보름이 −6 단(1/64), 반달은 위상만큼 더 어둡게.
+   */
+  const MOON_FULL = 2.5e-6;
   const MOON_DIM = 1 / 64;
-  const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => p.exposure ?? (moonGain > 0 ? (autoExposure(Math.max(3, lightAlt)) / moonGain) * MOON_DIM : autoExposure(lightAlt));
+  const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => p.exposure ?? (moonGain > 0 ? autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) : autoExposure(lightAlt));
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
   // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
