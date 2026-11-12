@@ -76,6 +76,9 @@ export interface CloudData {
   capeJkg?: number;
   freezingLevelM?: number;
   pblM?: number;
+  /** 10 m 돌풍(km/h)·소나기 여부(날씨 코드 80~82·95~99 → 1, 그 밖 0; 보간값 0~1) — 비구름 거칠기(liveScene rainRoughness) 재료 */
+  gustKmh?: number;
+  showers?: number;
   /** `THERMO_TEMP_LEVELS` / `THERMO_RH_LEVELS` 순서의 기온(°C)·상대습도(%) */
   profileTempC?: number[];
   profileRhPct?: number[];
@@ -226,6 +229,8 @@ export interface HourlyCloudData {
   capeJkg?: number[];
   freezingLevelM?: number[];
   pblM?: number[];
+  gustKmh?: number[];
+  showers?: number[];
   profileTempC?: number[][];
   profileRhPct?: number[][];
   visibility?: number[];
@@ -749,6 +754,8 @@ export interface ThermoHourly {
   t2mC: number[]; td2mC: number[];
   /** CAPE(J/kg) · 결빙고도(m, 해발) · 경계층 높이(m). 없으면 NaN. */
   capeJkg: number[]; freezingLevelM: number[]; pblM: number[];
+  /** 10 m 돌풍(km/h) · 소나기 여부(0/1, 날씨 코드에서). 없으면 NaN. */
+  gustKmh: number[]; showers: number[];
   /** [면 (`THERMO_TEMP_LEVELS` 순서)][시각] 기온(°C) / [면 (`THERMO_RH_LEVELS` 순서)][시각] 상대습도(%). 빈 칸 NaN. */
   profileTempC: number[][];
   profileRhPct: number[][];
@@ -771,7 +778,7 @@ export const fetchThermoProfile = async (
   const missAt = thermoMiss.get(key);
   if (missAt != null && Date.now() - missAt < FALLBACK_CACHE_TTL_MS) return null;
 
-  const vars = ['temperature_2m', 'dew_point_2m', 'cape', 'freezing_level_height', 'boundary_layer_height']
+  const vars = ['temperature_2m', 'dew_point_2m', 'cape', 'freezing_level_height', 'boundary_layer_height', 'wind_gusts_10m', 'weather_code']
     .concat(THERMO_TEMP_LEVELS.map(p => `temperature_${p}hPa`))
     .concat(THERMO_RH_LEVELS.map(p => `relative_humidity_${p}hPa`))
     .join(',');
@@ -801,6 +808,8 @@ export const fetchThermoProfile = async (
       time,
       t2mC: col('temperature_2m'), td2mC: col('dew_point_2m'),
       capeJkg: col('cape'), freezingLevelM: col('freezing_level_height'), pblM: col('boundary_layer_height'),
+      gustKmh: col('wind_gusts_10m'),
+      showers: col('weather_code').map(c => (Number.isFinite(c) ? ([80, 81, 82, 85, 86, 95, 96, 99].includes(c) ? 1 : 0) : NaN)),
       profileTempC: THERMO_TEMP_LEVELS.map(p => col(`temperature_${p}hPa`)),
       profileRhPct: THERMO_RH_LEVELS.map(p => col(`relative_humidity_${p}hPa`)),
     };
@@ -831,6 +840,8 @@ export function attachThermo(hourly: HourlyCloudData, t: ThermoHourly): void {
   hourly.capeJkg = pick(t.capeJkg);
   hourly.freezingLevelM = pick(t.freezingLevelM);
   hourly.pblM = pick(t.pblM);
+  hourly.gustKmh = t.gustKmh ? pick(t.gustKmh) : undefined;
+  hourly.showers = t.showers ? pick(t.showers) : undefined;
   hourly.profileTempC = t.profileTempC.map(pick);
   hourly.profileRhPct = t.profileRhPct.map(pick);
 }
@@ -1273,6 +1284,8 @@ export const getInterpolatedWeather = (pathData: CloudPathData[], targetTime: Da
       capeJkg: interpolateOpt(p.hourly.capeJkg),
       freezingLevelM: interpolateOpt(p.hourly.freezingLevelM),
       pblM: interpolateOpt(p.hourly.pblM),
+      gustKmh: interpolateOpt(p.hourly.gustKmh),
+      showers: interpolateOpt(p.hourly.showers),
       profileTempC: p.hourly.profileTempC?.map(a => interpolateOpt(a) ?? NaN),
       profileRhPct: p.hourly.profileRhPct?.map(a => interpolateOpt(a) ?? NaN),
       visibility: interpolateOpt(p.hourly.visibility),

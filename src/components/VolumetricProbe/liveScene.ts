@@ -79,6 +79,22 @@ export interface LiveSceneArgs {
  * 0.02~0.04 에서 회색 덱(80~100/255) — 0.03.
  */
 export const FILL_DENSITY_SCALE = 0.03;
+
+/**
+ * 비구름 거칠기(2026-11-12). 매끈한 난층운 = 안정·약한 바람·구름 아래 포화, 거친 비구름 = 대류(CAPE·소나기)·센 바람(돌풍)·구름 아래 건조.
+ *   conv = max(CAPE/600, 소나기 0/1) · wind = (돌풍 m/s − 8)/12(돌풍 없으면 저층 바람 × 1.3) · dry = (기온 − 이슬점 − 1.5)/5, 모두 0~1
+ *   r = 1 − (1 − conv)(1 − 0.7·wind)(1 − 0.4·dry)
+ */
+export function rainRoughness(obs: CloudData, windLowKmh: [number, number]): { r: number; conv: number; wind: number; dry: number } {
+  const c01 = (v: number) => Math.min(1, Math.max(0, v));
+  const fin = (v: number | undefined): v is number => v != null && Number.isFinite(v);
+  const conv = Math.max(fin(obs.capeJkg) ? c01(obs.capeJkg / 600) : 0, fin(obs.showers) && obs.showers >= 0.5 ? 1 : 0);
+  const gustMs = fin(obs.gustKmh) ? obs.gustKmh / 3.6 : (Math.hypot(windLowKmh[0], windLowKmh[1]) / 3.6) * 1.3;
+  const wind = c01((gustMs - 8) / 12);
+  const dry = fin(obs.t2mC) && fin(obs.td2mC) ? c01((obs.t2mC - obs.td2mC - 1.5) / 5) : 0;
+  const r = c01(1 - (1 - conv) * (1 - 0.7 * wind) * (1 - 0.4 * dry));
+  return { r, conv, wind, dry };
+}
 export const FILL_RULE = { maxZ: 7500, peak: 80, wetPct: 50, wetLevels: 2, capeMax: 300 } as const;
 
 /** 기압면 단면에서 높이별 운량(0~1)을 뽑습니다. 조건이 안 맞으면 null. */
@@ -291,6 +307,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // 흐린 날 높이별 채우기(docs/WAVE_FIELD_DESIGN.md §9): 저·중층 두 종류 층 대신 파동 장 한 층. 적란운 날은 쓰지 않음.
   const fillProf = a.fill !== false && !anvil ? fillProfileOf(obs) : null;
   let fillOn = false;
+  let fillRough = 0;
   if (fillProf) {
     const on = fillProf.filter(q => q.cover > 0.02);
     if (on.length) {
@@ -298,21 +315,31 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const [lu, lv] = W.low, [mu, mv] = W.mid, dz = Math.max(500, ((obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low)) * 1000);
       const shear = Math.hypot(mu - lu, mv - lv) / 3.6 / dz;
       const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
+      const rr = rainRoughness(obs, W.low);
+      fillRough = rr.r;
+      // 거칠기 r(0 매끈한 난층운 ~ 1 거친 비구름): 작은 혹·표면 깎기(χ), 3차원 섞임, 가장자리 선명도는 키우고 흐림은 줄임.
+      const q2 = (v: number) => Math.round(v * 100) / 100;
       const wave = {
-        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: 0.1,
-        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 1.5, mix3d: 0.3, fillM: 1500, smoothM: 800, smoothZ: 2, profile: fillProf,
+        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q2(0.1 + 0.5 * rr.r),
+        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: q2(1.5 + 1.5 * rr.r), spec: 1.6, vstretch: 1.5, mix3d: q2(0.3 + 0.4 * rr.r),
+        fillM: 1500, smoothM: Math.round(800 - 500 * rr.r), smoothZ: rr.r > 0.5 ? 1 : 2, profile: fillProf,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
       const zMin = zLo - 300, zMax = zHi + 400;
       layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave, densityScale: FILL_DENSITY_SCALE } as VolumetricLayerInput['opts'] };
       layers[1] = { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' };
+      // 편운(밑면 아래 조각구름): 비가 오고 바람이 세며 구름 아래가 건조할 때 — 빗방울 증발로 식은 공기가 밑면 아래에 낮고 빠른 조각을 만듦.
+      if ((obs.precipitation ?? 0) >= 0.1 && rr.wind > 0.3 && rr.dry > 0.15) {
+        const fBase = Math.max(a.heightM / 1000 + 0.15, zLo / 1000 - 0.45);
+        layers[1] = { genus: 'sc', cover: q2(0.2 + 0.25 * rr.wind), baseKm: fBase, thicknessM: 300, band: 'low', opts: { ...flowOpts('low') } };
+      }
       fillOn = true;
     }
   }
   if (anvil) layers.push(anvil);
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `${fillOn ? '채우기 · ' : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
+  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
   const haze = hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
   const ringPts = dropSeamCopies(interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
