@@ -19,7 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
-import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
+import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
@@ -1328,7 +1328,15 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
     // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
     const backlit = THRU_BLOCK.slice(0, THRU_BLOCK.indexOf('        vec4 gLayerH'));
     // 덱 아래 확산광(gUnderJ)은 역광 감쇠(직사광 실루엣용) 뒤에 더함 — 해를 마주볼 때 덱 τ 로 편운이 검게 되던 것.
-    src = src.replace(THRU_BLOCK, backlit + '      }\n      radiance += gUnderJ;\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
+    src = src.replace(THRU_BLOCK, backlit + '      }\n      radiance += gUnderJ;\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', [
+      // 2026-11-12 방향 보정: J 는 4π 평균 휘도라 등방 산란원으로 쓰면 덱 밑에서 올려다볼 때(아래로 가는 빛을 봄) 절반쯤 어두움.
+      // 두-흐름의 순 흐름 비 f = F_net/(F↓+F↑) ≈ T/D 로 L ≈ J·(1 + f·μ), μ = 빛 진행(아래)과 눈으로 오는 방향의 코사인 = dot(시선, 위).
+      // 밑면(f≈1)을 올려다보면 2J = F↓/π, 위에서 내려다보면 0 쪽(아래로 빠져나간 빛은 안 보임).
+      `        float gTn = 1.0 / (1.0 + ${DIFFUSE_K.toFixed(4)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTt);`,
+      '        float gF = clamp(gTn / max(gDsun, 1e-3), 0.0, 1.0);',
+      '        float gDir = max(0.0, 1.0 + gF * dot(rayDirection, surfaceNormal));',
+      '        radiance += gJ * gDir * dot(genusOn * genusThru, media.weight);',
+    ].join('\n')));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
       '      float gDeckA = 0.0, gDeckT = 0.0;',
