@@ -1,5 +1,5 @@
 /**
- * 먼 거리 햇빛 가림 지도(노을 3단계, docs/WAVE_FIELD_DESIGN.md §11) — 기본 꺼짐.
+ * 먼 거리 햇빛 가림 지도(노을 3단계, docs/WAVE_FIELD_DESIGN.md §11) — 기본 켬(2026-11-13: 해 낮은 흐린 날 해 쪽 빛이 새던 것).
  *
  * 그림자 지도·해 쪽 짧은 추적은 시야 근처 구름만 봅니다. 해가 낮으면 햇빛은 구름층 아래를 수십~수백 km 지나오므로,
  * 내 지평선 너머의 구름이 그 빛을 가립니다. 여기서는 예보 고리(층별 운량)로 넓은 범위의 운량 격자를 만들고,
@@ -23,7 +23,7 @@ export interface FarSunInput {
   /** 관측점 운량(고리가 비었을 때) 0~1 */
   obsCover?: Partial<Record<'low' | 'mid' | 'high', number>>;
 }
-export interface FarSunMap { tex: DataTexture; extentKm: number; ms: number; meanT: [number, number, number, number] }
+export interface FarSunMap { tex: DataTexture; extentKm: number; ms: number; meanT: [number, number, number, number]; /** 관측점(지도 가운데) 칸의 T */ centerT: [number, number, number, number] }
 
 const R = 6371;
 const KAPPA = { low: 0.1, mid: 0.075, high: 0.01 } as const;
@@ -63,6 +63,8 @@ export function buildFarSunMap(inp: FarSunInput, n = 64, extentKm = 300, nearKm 
   ];
   const data = new Uint16Array(n * n * 4);
   const sum = [0, 0, 0, 0];
+  const centerT: [number, number, number, number] = [1, 1, 1, 1];
+  const ci = Math.floor(n / 2);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const x0 = -half + (i + 0.5) * cell, y0 = -half + (j + 0.5) * cell;
     for (let k = 0; k < 4; k++) {
@@ -80,13 +82,14 @@ export function buildFarSunMap(inp: FarSunInput, n = 64, extentKm = 300, nearKm 
       const T = blocked ? 0 : Math.exp(-tau);
       data[(j * n + i) * 4 + k] = DataUtils.toHalfFloat(T);
       sum[k] += T;
+      if (i === ci && j === ci) centerT[k] = T;
     }
   }
   const tex = new DataTexture(data, n, n, RGBAFormat, HalfFloatType);
   tex.minFilter = LinearFilter; tex.magFilter = LinearFilter; tex.wrapS = ClampToEdgeWrapping; tex.wrapT = ClampToEdgeWrapping;
   tex.needsUpdate = true;
   const m = n * n;
-  return { tex, extentKm, ms: Date.now() - t0, meanT: [sum[0] / m, sum[1] / m, sum[2] / m, sum[3] / m] };
+  return { tex, extentKm, ms: Date.now() - t0, meanT: [sum[0] / m, sum[1] / m, sum[2] / m, sum[3] / m], centerT };
 }
 
 type PatchableMaterial = { fragmentShader: string; uniforms: Record<string, { value: unknown }>; needsUpdate: boolean };

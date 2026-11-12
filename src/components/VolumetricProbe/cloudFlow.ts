@@ -134,6 +134,13 @@ export interface FlowLayerParams {
   flowLag?: number;
   /** 이 층이 흐름 변위를 얼마나 받는지(1 = 그대로). 높은 구름은 작게 — 장면 공통 변위가 상층에서 우유 거품 같은 소용돌이를 만듦(2026-11-13). */
   flowDisp?: number;
+  /**
+   * 1 = 안정층 판 구름(고층운·권층운·층운·난층운) — 장면 공통 소용돌이를 쓰지 않고 대기 원리로 무늬를 만듦(cloudGenus.stratiformField):
+   * 넓게 천천히 올라가는 공기의 습윤 패치 + 바람 차이(전단) 방향으로 늘어선 줄무늬 + 안정도·전단으로 정해지는 중력파 물결.
+   */
+  flowLaminar?: number;
+  /** 층 높이의 부력 진동수 N(1/s, 기온 단면 → 온위 기울기; liveScene). 없으면 0.01. */
+  flowN?: number;
   /** 전단파 최대 진폭·파장(km) */
   flowWave?: number;
   flowWaveKm?: number;
@@ -213,14 +220,15 @@ export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   // 권운: mode/top 0/0.5 와 densityScale 은 불변(GENUS 로 내려감). 섬유 축 = high−mid 전단, 기울임 2.5(낙하 줄무늬).
   ci: { flow: 1, flowQ: 0.6, flowZ: 0.2, flowT: 0.9, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 256,
     densPow: 1.0, flowEdge: 1.5, flowErode: 0.3, flowTilt: 2.5 },
-  cs: { flow: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 256,
+  cs: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 3, flowErode: 0.1, flowTilt: 1.0 },
   // 시트(st/as/ns): topQuantile 0.5/0.7/0.8 → 0.997 로 0/255 마스크 소멸.
-  st: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  // 판 구름도 변위를 줄임(2026-11-13): 밤 고층운이 크림처럼 휘감긴 골로 보였음 — 무늬는 바람 쪽으로 조금 길게 남음.
+  st: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.05, flowErode: 0.15, flowTilt: 0.2, topQuantile: 0.997 },
-  as: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  as: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.02, flowErode: 0.2, flowTilt: 0.2, topQuantile: 0.997 },
-  ns: { flow: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  ns: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.08, flowErode: 0.4, flowTilt: 0.2, topQuantile: 0.997 },
   // 모루: 흐름 끔(absolute 유지, 탑 위에 고정). 셰이더 쪽 값만.
   cbanvil: { flow: 0, flowDensityScale: 0.03, flowErode: 0.3, flowTilt: 0 },

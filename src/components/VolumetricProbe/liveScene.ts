@@ -151,6 +151,25 @@ export interface LiveScene {
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** §136 관측점 예보의 열역학 입력 → cloudPhysics 형식(기압면 높이·기온이 둘 다 있는 면만). */
+/**
+ * 층(zLo~zHi m, 해발)의 부력 진동수 N(1/s) — 기압면 기온으로 온위 θ = T·(1000/p)^0.286 을 만들고 N² = g/θ·dθ/dz.
+ * 그 높이 범위를 걸치는 두 면(없으면 가장 가까운 두 면)으로. 0.002 눈금(날씨 캐시가 자주 안 바뀌게). 자료가 없으면 null.
+ */
+export function bruntN(th: ThermoInput, zLo: number, zHi: number): number | null {
+  const lv = (th.levels ?? []).filter(l => Number.isFinite(l.zM) && Number.isFinite(l.tC) && l.pHPa > 0).sort((a, b) => a.zM - b.zM);
+  if (lv.length < 2) return null;
+  const mid = (zLo + zHi) / 2;
+  let i = lv.findIndex(l => l.zM >= mid);
+  if (i <= 0) i = i === 0 ? 1 : lv.length - 1;
+  const a = lv[i - 1], b = lv[i];
+  const th1 = (a.tC + 273.15) * Math.pow(1000 / a.pHPa, 0.286), th2 = (b.tC + 273.15) * Math.pow(1000 / b.pHPa, 0.286);
+  const dz = b.zM - a.zM;
+  if (!(dz > 50)) return null;
+  const n2 = (9.81 / ((th1 + th2) / 2)) * ((th2 - th1) / dz);
+  const n = Math.sqrt(Math.max(n2, 1e-6));
+  return Math.round(n / 0.002) * 0.002;
+}
+
 export function thermoOf(obs: CloudData, groundM: number): ThermoInput {
   const hs = obs.profileHeightM, ts = obs.profileTempC;
   const levels: ThermoInput['levels'] = [];
@@ -282,11 +301,13 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // 운량·종류가 바뀌면 같은 무늬에서 문턱만 달라져 구름이 자라거나 줄어듦. 자리는 아래 driftKm(바람 적분)이 옮김.
   const flowSeed = flowSeedOf(a.lat, a.lon, a.date, 24);
   const driftKm = (band: 'low' | 'mid' | 'high'): [number, number] => integratedDriftKm(a, band, W[band]);
+  const NBAND: Record<'low' | 'mid' | 'high', [number, number]> = { low: [1000, 2500], mid: [3000, 6000], high: [7000, 11000] };
   const flowOpts = (band: 'low' | 'mid' | 'high') => {
     const [u, v] = W[band], [su, sv] = shearOf(band);
+    const nB = bruntN(thermo, NBAND[band][0], NBAND[band][1]);
     const mGrad = macro[band];
     return {
-      windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed,
+      windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed, ...(nB != null ? { flowN: nB } : {}),
       macroGradX: mGrad?.gradXPer100Km ?? 0,
       macroGradY: mGrad?.gradYPer100Km ?? 0,
       beamTransmittance: macro.beamTransmittance[band] ?? 1,
