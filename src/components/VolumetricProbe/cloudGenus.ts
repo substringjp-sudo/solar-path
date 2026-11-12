@@ -1330,14 +1330,30 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
     src = src.replace(THRU_BLOCK, backlit + '      }\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
+      '      float gDeckA = 0.0, gDeckT = 0.0;',
       DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - genusThru)), media.weight);'),
       '      float gSkyUncol = 1.0;',
       '      {',
       COLW,
       `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
+      '#ifdef WAVE_FIELD',
+      '        if (waveOn > 0.5) { gDeckA = gTauA.x; gDeckT = gTauT.x; }',
+      '#endif',
+      '      }',
+      // 2026-11-12 덱 아래 하늘빛: 흐린 날 채우기(레인 0) 밑·속의 다른 레인 표본(편운 sc 등)은 맑은 하늘빛 대신
+      // 덱을 지나온 빛 = 충돌 전 하늘빛 e^(−sec·(1−g)·τ) + 덱 확산장 J(τ_위, τ_전체)의 아래 반구(산란원 등가 조도 2π·J).
+      // 덱이 없으면(τ = 0) 맑은 하늘빛 그대로. 첫 그림에서 편운이 남색(그늘 속 파란 하늘빛만)으로 나오던 것.
+      '      vec3 gSkyIrr = skyIrradiance;',
+      '      if (gDeckT > 0.0) {',
+      `        float gMu0d = ${DIFF_MU0};`,
+      '        float gDs = genusDiffuseField(gDeckA, gDeckT, 1.0 / gMu0d);',
+      `        float gDk = genusDiffuseField(gDeckA, gDeckT, ${SKY_SECANT.toFixed(1)});`,
+      `        vec3 gJd = (sunIrradiance * gMu0d * genusSunWeight(gMu0d) * gDs + skyIrradiance * ${INV_2PI.toFixed(6)} * gDk) * ${INV_2PI.toFixed(6)};`,
+      `        vec3 gUnder = skyIrradiance * exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gDeckA) + 6.2831853 * gJd;`,
+      '        gSkyIrr = mix(skyIrradiance, gUnder, dot(vec4(1.0) - genusOn * genusThru, media.weight));',
       '      }',
     ].join('\n'));
-    return src.replace(IS_CLOUDS, `radiance += skyIrradiance * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
+    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
