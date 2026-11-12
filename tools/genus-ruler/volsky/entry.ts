@@ -133,7 +133,7 @@ const show = (tex: Texture, mode: number) => {
     const JOB_BASE_OPTIONS: Partial<VolumetricOptions> = {
       genus: true, coverRemap: true, weatherLod: null, shadowMinSunDeg: 12, sunMarch: [6, 250, 1.6], accurateSunBelowDeg: null, maxRayKm: null,
       flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2,
-      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macroGrad: false, billow: false, farSun: false,
+      flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: true, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macroGrad: false, billow: false, farSun: false, cloudAirShade: true,
     };
     (window as unknown as Record<string, unknown>).__job = async (job: Job) => {
       // §grain 앞 grain 잡이 남긴 비용 변형·화소 오프셋만 되돌림(grain 잡이 없던 페이지에서는 아무것도 하지 않음).
@@ -209,7 +209,7 @@ const show = (tex: Texture, mode: number) => {
       }
       for (let i = 0; i < frames; i++) tex = vol.renderToTexture(1 / 60);
       const ms = (performance.now() - ts) / frames;
-      const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), farInfo: vol.farInfo(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
+      const out: Record<string, unknown> = { ms, scene: vol.lastScene(), weatherMs: vol.weatherMs(), flowInfo: vol.flowInfo(), waveInfo: vol.waveInfo(), farInfo: vol.farInfo(), airShade: vol.airShade(), physics: vol.physicsInfo(), glError: renderer.getContext().getError(),
         bad: ((window as unknown as Record<string, unknown>).__badUniforms as () => string[])() };
       // §139 진단: fetch 레인 균일변수(구름·그림자 패스)
       {
