@@ -1327,7 +1327,8 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
     // 흩어진 구름(cu·cg·cb·sc·ac, thru 0)은 원래 식 그대로 — §138 판정에서 L2 가 조각 구름 밑면을 2~3 배 밝힌 것을 피함.
     // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
     const backlit = THRU_BLOCK.slice(0, THRU_BLOCK.indexOf('        vec4 gLayerH'));
-    src = src.replace(THRU_BLOCK, backlit + '      }\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
+    // 덱 아래 확산광(gUnderJ)은 역광 감쇠(직사광 실루엣용) 뒤에 더함 — 해를 마주볼 때 덱 τ 로 편운이 검게 되던 것.
+    src = src.replace(THRU_BLOCK, backlit + '      }\n      radiance += gUnderJ;\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
       '      float gDeckA = 0.0, gDeckT = 0.0;',
@@ -1357,7 +1358,7 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '        gUnderJ = 0.55 * gJd * gUw;',
       '      }',
     ].join('\n'));
-    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale + gUnderJ;   // §L4`);
+    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
