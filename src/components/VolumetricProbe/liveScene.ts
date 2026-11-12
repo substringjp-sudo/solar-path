@@ -78,7 +78,9 @@ export interface LiveSceneArgs {
  * 흐린 날 채우기 층의 소광 배율(2026-11-12). 난층운 값 0.28 을 빌려 쓰면 1~7 km 덱의 기둥 광학두께가 커서 두-흐름 확산광이 거의 0(덱 평균 43/255).
  * 0.02~0.04 에서 회색 덱(80~100/255) — 0.03.
  */
-export const FILL_DENSITY_SCALE = 0.03;
+export /** 비구름 밑 조각구름(편운) — 빛이 맞을 때까지 끔 */
+const FRACTUS_ON = false;
+const FILL_DENSITY_SCALE = 0.03;
 
 /**
  * 비구름 거칠기(2026-11-12). 매끈한 난층운 = 안정·약한 바람·구름 아래 포화, 거친 비구름 = 대류(CAPE·소나기)·센 바람(돌풍)·구름 아래 건조.
@@ -329,7 +331,8 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave, densityScale: FILL_DENSITY_SCALE } as VolumetricLayerInput['opts'] };
       layers[1] = { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' };
       // 편운(밑면 아래 조각구름): 비가 오고 바람이 세며 구름 아래가 건조할 때 — 빗방울 증발로 식은 공기가 밑면 아래에 낮고 빠른 조각을 만듦.
-      if ((obs.precipitation ?? 0) >= 0.1 && rr.wind > 0.3 && rr.dry > 0.15) {
+      // 꺼 둠: 첫 그림(rough-compare)에서 남색 불투명 덩어리로 나옴. 그늘 속 sc 빛을 고친 뒤 켬.
+      if (FRACTUS_ON && (obs.precipitation ?? 0) >= 0.1 && rr.wind > 0.3 && rr.dry > 0.15) {
         const fBase = Math.max(a.heightM / 1000 + 0.15, zLo / 1000 - 0.45);
         layers[1] = { genus: 'sc', cover: q2(0.2 + 0.25 * rr.wind), baseKm: fBase, thicknessM: 300, band: 'low', opts: { ...flowOpts('low') } };
       }
