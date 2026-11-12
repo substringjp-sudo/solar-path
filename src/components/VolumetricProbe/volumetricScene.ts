@@ -412,7 +412,7 @@ export interface VolumetricOptions extends TsunOptions {
    * 기본 끔(끄면 날씨 바이트 그대로). flow·skeleton 이 켜져 있으면 그쪽이 우선이고 morph 는 쓰지 않습니다(앱 화면이 throw 로 깨지지 않게).
    */
   morph: boolean;
-  /** 뭉게구름(cu·cg·cb) 표면 혹 깎기(cloudBillow, docs/WAVE_FIELD_DESIGN.md §8). 해 쪽 추적은 부르는 쪽이 촘촘히 겁니다(BILLOW_SUN_MARCH). */
+  /** 뭉게구름(cu·cg·cb)·층적운(sc) 표면 혹 깎기(cloudBillow, docs/WAVE_FIELD_DESIGN.md §8). 해 쪽 추적은 부르는 쪽이 촘촘히 겁니다(BILLOW_SUN_MARCH). */
   billow: boolean;
   /** 노을 3단계: 먼 거리 햇빛 가림 지도(farSun.ts). 해 10° 아래 · 장면에 고리(macro) 있을 때만. */
   farSun: boolean;
@@ -1393,7 +1393,7 @@ export async function createVolumetricScene(
         } else lastWaveInfo = null;
         for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
         const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
-          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb') ? BILLOW_DEFAULT : null));
+          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb' || L.genus === 'sc') ? BILLOW_DEFAULT : null));   // 2026-11-12 sc 추가: 흐름·연속 형태로 그린 층적운 풍선도 혹이 생김
         const bFirst = bp.find(x => x) ?? null;
         for (const m of genusMats) setBillowUniforms(m, bFirst, bp.map(x => (x ? 1 : 0)));
         applyFarSun(p, sunAltDeg);
