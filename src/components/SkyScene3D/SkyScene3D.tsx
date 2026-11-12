@@ -14,6 +14,7 @@
  * - CelestialPathMesh: 태양/달 24h 이동 궤적 리본 & 관측자 그림자
  * - CloudField: 10종 SVG 템플릿 아틀라스 기반 InstancedMesh 구름 (draw call 1개)
  */
+import { getPrimarySky, setPrimarySky } from './primarySky';
 import React, { useRef, useCallback, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
@@ -316,6 +317,8 @@ interface SkyScene3DProps {
   hideCompassBar?: boolean;
   /** 땅을 떠나 위로 올라갔는지(지상 시야각 단계를 넘었는지) 바뀔 때. 화면이 "지도로" 버튼을 숨기는 데 씁니다. */
   onAscendedChange?: (ascended: boolean) => void;
+  /** 하늘 화면의 장면을 다른 화면(촬영)이 renderRemote 로 빌려 쓰게 등록합니다(primarySky.ts). */
+  registerPrimary?: boolean;
 }
 
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
@@ -341,6 +344,11 @@ export interface SkyScene3DHandle {
   getRenderState: () => SkyRenderState | null;
   /** §165 볼륨 장면이 적용돼 마지막 프레임에 실제로 그려졌는가 — 카메라가 스냅샷 전에 묻습니다. */
   isVolumetricReady: () => boolean;
+  /**
+   * 다른 화면(촬영)을 위해 이 장면을 주어진 방위·고도·세로 화각으로 한 장 그려 줍니다 — 이 화면이 비활성이어도 잠깐 그립니다.
+   * 볼륨 하늘이 준비될 때까지 최대 waitMs 기다리고, 끝나면 원래 시선으로 되돌립니다. ready 가 거짓이면 준비 전에 찍은 것(uri 는 null).
+   */
+  renderRemote: (view: { az: number; el: number; fov: number }, opts?: { waitMs?: number; format?: 'jpeg' | 'png'; compress?: number; requireReady?: boolean }) => Promise<{ uri: string | null; ready: boolean; error: string | null; state: SkyRenderState | null }>;
   /**
    * 하늘 → 지도(구름 레이더 축척)로 날아갑니다. 두 손가락 줌아웃의 **누르기 대안**입니다(디자인 2단).
    * 돌아올 때는 지도 위의 "착륙"을 씁니다.
@@ -427,6 +435,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     isActive = true,
     isSliding = false,
     cameraAzimuthProp,
+    registerPrimary = false,
     cameraElevationProp,
     fovProp,
     hideHudOverlay = false,
@@ -625,6 +634,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const timelineRef = useRef<SkyTimeline | null>(timeline);
   const isActiveRef = useRef(isActive);
+  /** 촬영 화면이 빌려 쓰는 동안의 시선(renderRemote). 있으면 비활성이어도 그리고, 이 시선을 씁니다. */
+  const remoteViewRef = useRef<{ az: number; el: number; fov: number } | null>(null);
+  const remoteFramesRef = useRef(0);
   const isSlidingRef = useRef(isSliding);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
@@ -653,7 +665,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   /** 렌더링 요청: 화면 변화 시 루프를 깨우고 지정 프레임 수만큼 렌더링 후 자동 슬립 */
   const requestRender = useCallback((frames = 4) => {
     framesToRenderRef.current = Math.max(framesToRenderRef.current, frames);
-    if (!isLoopRunningRef.current && isActiveRef.current && glRef.current) {
+    if (!isLoopRunningRef.current && (isActiveRef.current || remoteViewRef.current) && glRef.current) {
       isLoopRunningRef.current = true;
       animFrameRef.current = requestAnimationFrame(animateRef.current);
     }
@@ -861,7 +873,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const lastSnapshotErrorRef = useRef<string | null>(null);
   /** 스냅샷 직전에 GL 버퍼에서 직접 잰 가운데 32×32 평균 밝기. −1 = 못 쟀음. */
   const lastBufferMeanRef = useRef<number>(-1);
-  useImperativeHandle(ref, () => ({
+  useImperativeHandle(ref, () => { const h = ({
+    renderRemote: null as unknown as SkyScene3DHandle['renderRemote'],
     getLastSnapshotError: () => lastSnapshotErrorRef.current,
     getLastBufferMean: () => lastBufferMeanRef.current,
     flyToMap: () => flyToMapRef.current(),
@@ -986,7 +999,54 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       return null;
     },
-  }), []);
+  }) as SkyScene3DHandle;
+    // 촬영 화면용: 이 장면을 잠깐 다른 시선으로 그려 한 장(primarySky.ts). 그리는 동안 원래 시선·줌을 맡겨 두었다가 되돌립니다.
+    // 한 번에 하나씩(미리보기와 셔터가 겹치면 앞 것이 끝난 뒤) — 겹치면 한쪽의 되돌리기가 다른 쪽 시선을 지움.
+    let remoteChain: Promise<unknown> = Promise.resolve();
+    const renderRemoteOnce: SkyScene3DHandle['renderRemote'] = async (view, opts = {}) => {
+      const waitMs = opts.waitMs ?? 3000;
+      const wasActive = isActiveRef.current;
+      const saved = { az: cameraAzRef.current, el: cameraElevRef.current, fov: fovRef.current, zoom: zoomProgressRef.current };
+      remoteViewRef.current = view;
+      remoteFramesRef.current = 0;
+      zoomProgressRef.current = 0;
+      try {
+        const t0 = Date.now();
+        // 시선을 건 뒤 적어도 3 프레임은 그리고(볼륨 텍스처가 새 시선으로), 볼륨 하늘이 준비되면 찍습니다.
+        for (;;) {
+          requestRender(3);
+          await new Promise(r => setTimeout(r, 60));
+          const ready = h.isVolumetricReady();
+          if (remoteFramesRef.current >= 3 && ready) break;
+          if (Date.now() - t0 > waitMs) {
+            if (opts.requireReady !== false) return { uri: null, ready: false, error: null, state: h.getRenderState() };
+            break;
+          }
+        }
+        const state = h.getRenderState();
+        const uri = await h.takeSnapshot({ format: opts.format ?? 'jpeg', compress: opts.compress ?? 0.85 });
+        return { uri, ready: h.isVolumetricReady(), error: uri ? null : lastSnapshotErrorRef.current, state };
+      } finally {
+        remoteViewRef.current = null;
+        cameraAzRef.current = saved.az; cameraElevRef.current = saved.el; zoomProgressRef.current = saved.zoom;
+        if (Math.abs(fovRef.current - saved.fov) > 0.01 && cameraRef.current) { fovRef.current = saved.fov; cameraRef.current.fov = saved.fov; cameraRef.current.updateProjectionMatrix(); }
+        if (!wasActive && !isActiveRef.current) { isLoopRunningRef.current = false; if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = 0; } }
+        else requestRender(2);
+      }
+    };
+    h.renderRemote = (view, opts) => {
+      const run = remoteChain.then(() => renderRemoteOnce(view, opts));
+      remoteChain = run.catch(() => undefined);
+      return run;
+    };
+    return h;
+  }, [requestRender]);
+  useEffect(() => {
+    if (!registerPrimary) return;
+    const h = (ref as React.MutableRefObject<SkyScene3DHandle | null> | null)?.current ?? null;
+    setPrimarySky(h);
+    return () => { if (getPrimarySky() === h) setPrimarySky(null); };
+  }, [registerPrimary, ref]);
 
   // ── 성능 캐시 ref ──────────────────────────────────────────────────────────
   /** makeAtmosphereParams 결과 캐시 (2분 간격) */
@@ -1773,7 +1833,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         return;
       }
 
-      if (!isActiveRef.current) {
+      if (!isActiveRef.current && !remoteViewRef.current) {
         // 탭 비활성화 시 렌더링 및 루프 완전 중단 (GPU/CPU 0% 절전)
         isLoopRunningRef.current = false;
         return;
@@ -1781,7 +1841,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
       // 지도가 3D 를 다 덮었으면 그리지 않습니다 — GPU 를 지도·구에 양보(줌아웃 끊김 줄이기).
       // 줌인으로 넘기는 점 아래로 오면 `applyZoomProgress` 의 requestRender 가 다시 깨웁니다.
-      if (!glVisibleForProgress(zoomProgressRef.current)) {
+      if (!remoteViewRef.current && !glVisibleForProgress(zoomProgressRef.current)) {
         isLoopRunningRef.current = false;
         return;
       }
@@ -1889,6 +1949,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           fovRef.current = fovPropRef.current;
           camera.fov = fovPropRef.current;
           camera.updateProjectionMatrix();
+        }
+        // 촬영 화면이 빌려 쓰는 시선(renderRemote)
+        const rv = remoteViewRef.current;
+        if (rv) {
+          cameraAzRef.current = rv.az; cameraElevRef.current = rv.el;
+          if (Math.abs(fovRef.current - rv.fov) > 0.05) { fovRef.current = rv.fov; camera.fov = rv.fov; camera.updateProjectionMatrix(); }
         }
 
         // 카메라 높이 및 무한 줌 스펙트럼 (지상 1.6m ~ 상공 20km 조감도 수직 다이빙 착륙/상승)
@@ -2281,6 +2347,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
 
       gl.endFrameEXP();
+      if (remoteViewRef.current) remoteFramesRef.current++;
       lastRenderTsRef.current = performance.now();
       lastRenderedSceneTimeMsRef.current = targetTimeMsRef.current;
 

@@ -661,6 +661,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           timeline={timelineValid ? timeline : null}
           isActive={isActive}
           isSliding={isSliding}
+          registerPrimary
         />
 
         {trackingTarget && (

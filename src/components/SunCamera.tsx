@@ -21,7 +21,6 @@ import { X, Camera, RotateCcw, Sun, Check, RefreshCw, Star, QrCode } from 'lucid
 import { Skia, rect, PaintStyle, ImageFormat } from '@shopify/react-native-skia';
 import { buildSimReportPayload, encodeSimReportPayload } from '../utils/simReport';
 import { resolveLayerWinds } from '../utils/skyColumn';
-import { isTimelineUsable, dateKeyOf } from '../utils/skyTimeline';
 import { SimReportQR } from './SkyScreen/SimReportQR';
 
 
@@ -38,7 +37,8 @@ import { predictSunset } from '../utils/sunsetPhysics';
 import { getInterpolatedWeather, fetchDayWeatherRing } from '../utils/weather';
 import { t, Language, translateSunsetDesc, L3 } from '../utils/i18n';
 import { PostDetailModal } from './PostDetailModal';
-import { SkyScene3D, type SkyScene3DHandle, type SkyRenderState } from './SkyScene3D';
+import { type SkyRenderState } from './SkyScene3D';
+import { getPrimarySky } from './SkyScene3D/primarySky';
 import { PressScale } from './ui';
 import { color, radius, space, type, TOUCH } from '../theme/tokens';
 import { SunPathOverlay } from './SunPathOverlay';
@@ -197,17 +197,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   const thumbY = stageH + DOCK_PAD_TOP + (SHUTTER - DOCK_BTN_H) / 2;
 
   const { uploadAndPostPhoto, weatherCacheList, addWeatherCache, terrainCacheList, language } = useCelestialStore();
-  // 하늘 화면과 같은 레이어·하늘 설정으로 그립니다(스토어 공유).
-  const skyLayers = useCelestialStore(s => s.skyLayers);
-  const skySettings = useCelestialStore(s => s.skySettings);
-  // 카메라 화면 내 3D 시뮬레이터도 메인과 동일한 볼륨 하늘로 통일합니다.
-  const camSkySettings = useMemo(() => ({
-    ...skySettings,
-    volumetricSky: true,
-  }), [skySettings]);
-  // 하늘 화면이 만든 하루치 하늘(360° 고리 기상). 같은 장소·날짜일 때만 씁니다 — 아니면 카메라가 따로 받은
-  // 360° 고리 기상(camInterpolated, 절대 방위 = 중심 0)으로 그립니다.
-  const sharedTimeline = useCelestialStore(s => s.skyTimeline);
+  // 3D 예측은 하늘 화면의 장면을 빌려 그립니다(primarySky.ts) — 레이어·하늘 설정·하루치 하늘도 그 화면 것.
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ writeOnly: true });
   const cameraRef = useRef<CameraView>(null);
@@ -345,8 +335,9 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   });
 
   // 촬영 상태
-  const sky3dRef = useRef<SkyScene3DHandle>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const isCapturingRef = useRef(false);
+  isCapturingRef.current = isCapturing;
 
   // 촬영 후 미리보기 상태
   const [previewUri, setPreviewUri] = useState<string | null>(null);
@@ -466,23 +457,10 @@ export const SunCamera: React.FC<SunCameraProps> = ({
     };
   }, [camWeatherData, currentTime, dynamicEventAzimuths.sunset, terrainCacheList, latitude, longitude]);
 
-  // 3D 시뮬레이터 전달용 노을 예측 결과
-  // SkyScene3D 가 읽는 모양(location.coords)으로 — 하늘 화면이 넘기는 expo-location 객체와 같은 꼴.
-  const camSceneLocation = useMemo(
-    () => ({ coords: { latitude, longitude } }),
-    [latitude, longitude]
-  );
-
   // 하늘 화면과 **같은 식**(scenePrediction) — 예전에는 시정 15km·습도 50%·고도 0 을 박았습니다.
   const camInterpolated = useMemo(
     () => (camWeatherData ? getInterpolatedWeather(camWeatherData, currentTime) : []),
     [camWeatherData, currentTime]
-  );
-  const camDateKey = dateKeyOf(currentTime);
-  const camTimeline = useMemo(
-    () => (isTimelineUsable(sharedTimeline, latitude, longitude, currentTime) ? sharedTimeline : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 날짜가 바뀔 때만 다시 봅니다
-    [sharedTimeline, latitude, longitude, camDateKey]
   );
   const currentPrediction = useMemo(() => scenePrediction({
     pathData: camWeatherData ?? [],
@@ -814,11 +792,61 @@ export const SunCamera: React.FC<SunCameraProps> = ({
   // ── 전체 화면 카메라 위 그림(2026-10-25) ──
   /** 3D 예측을 무대에 펼쳤나(아니면 "예측 보기" 단추 칸 안의 작은 살아 있는 그림). */
   const [showPrediction, setShowPrediction] = useState(false);
+  /**
+   * 3D 예측 미리보기(2026-11-13): 하늘 화면의 장면에 카메라 시선을 걸어 그린 한 장(primarySky.renderRemote).
+   * 펼쳤을 때 약 0.4 초, 접어 둔 썸네일은 1.5 초마다, 시선이 1° 넘게 바뀌었거나 5 초가 지났을 때만 다시 그립니다.
+   * 세로 화각은 하늘 화면의 가로세로 비에 맞춰 넓혀, 무대(cover)에 꽉 채웠을 때 카메라와 같은 넓이가 되게 합니다.
+   */
+  const [predUri, setPredUri] = useState<string | null>(null);
+  const [predNote, setPredNote] = useState<string | null>(null);
+  const predAspectRef = useRef<number | null>(null);
+  const predFileRef = useRef<string | null>(null);
+  const remoteViewNowRef = useRef<() => { az: number; el: number; fov: number }>(() => ({ az: 0, el: 0, fov: 60 }));
+  const remoteViewNow = useCallback(() => remoteViewNowRef.current(), []);
   const tzHours = useCelestialStore(s => s.timezoneOffsetHours) ?? 0;
   const optics = useMemo(
     () => previewOptics(W, stageH, measuredHfov ?? DEFAULT_SENSOR_SHORT_FOV_DEG, currentMagnification),
     [W, stageH, measuredHfov, currentMagnification],
   );
+  // 하늘 화면 장면에 걸 시선 — 세로 화각을 하늘 화면 가로세로 비(aspect)에 맞춰 넓힘(무대보다 좁은 그림이면 cover 가 위아래를 잘라 하늘이 커 보임).
+  remoteViewNowRef.current = () => {
+    const stageAspect = W / Math.max(1, stageH), imgAspect = predAspectRef.current ?? stageAspect;
+    let fov = optics.vFovDeg;
+    if (imgAspect < stageAspect) {
+      const hHalf = Math.atan(Math.tan((optics.vFovDeg * Math.PI) / 360) * stageAspect);
+      fov = (2 * Math.atan(Math.tan(hHalf) / imgAspect) * 180) / Math.PI;
+    }
+    return { az: effectiveAz, el: effectivePitch, fov: Math.min(150, fov) };
+  };
+  useEffect(() => {
+    if (!visible) return;
+    let stop = false, busy = false, last: { az: number; el: number; fov: number; at: number } | null = null;
+    const tick = async () => {
+      if (stop || busy || isCapturingRef.current) return;
+      const sky = getPrimarySky();
+      if (!sky) { setPredNote(L3(language, '하늘 화면의 3D 가 없음', 'Sky screen 3D not available', '空画面の3Dがありません')); return; }
+      const v = remoteViewNowRef.current();
+      const moved = !last || Math.abs(((v.az - last.az + 540) % 360) - 180) > 1 || Math.abs(v.el - last.el) > 1 || Math.abs(v.fov - last.fov) > 1;
+      if (!moved && last && Date.now() - last.at < 5000) return;
+      busy = true;
+      try {
+        const r = await sky.renderRemote(v, { waitMs: 1500, requireReady: false, compress: 0.6 });
+        if (stop) return;
+        if (r.state?.view.aspect) predAspectRef.current = r.state.view.aspect;
+        if (r.uri) {
+          // 미리보기 그림은 계속 새로 생기므로 앞 파일은 지웁니다(캐시 폴더에 쌓이지 않게).
+          const prev = predFileRef.current; predFileRef.current = r.uri;
+          if (prev && prev !== r.uri) FileSystem.deleteAsync(prev, { idempotent: true }).catch(() => {});
+          setPredUri(r.uri); setPredNote(r.ready ? null : L3(language, '구름 준비 중', 'Clouds loading', '雲を準備中'));
+        }
+        last = { ...v, at: Date.now() };
+      } finally { busy = false; }
+    };
+    const id = setInterval(tick, showPrediction ? 400 : 1500);
+    tick();
+    return () => { stop = true; clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, showPrediction, language]);
   const sunDayPathPts = useMemo(
     () => sunDayPath(currentTime, latitude, longitude),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 하루에 한 번
@@ -860,19 +888,19 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       //   그래도 준비 전이면 스냅샷을 쓰지 않고 카드에 "3D 준비 중" 을 적습니다 — 틀린 그림보다 빈 칸이 낫습니다.
       //   사진을 늦추지는 않습니다(셔터 느낌과 실제 노출이 어긋남) — 준비 전이면 지금은 건너뛰고, 사진 뒤 재시도(아래 1.)에서 한 번 더 봅니다.
       let simNotReadyPhase: string | null = null;
+      // 2026-11-13 하늘 화면의 3D 장면을 빌려 이 시선으로 그립니다(primarySky.ts) — 카메라가 자기 3D 를 따로 만들던 것은
+      //   대기·구름을 처음부터 다시 만들어 몹시 끊기고, 구름이 준비되기 전이라 늘 "준비 안 됨" 이었습니다.
+      const simView = remoteViewNow();
       {
-        const sky = sky3dRef.current;
+        const sky = getPrimarySky();
         if (sky) {
-          simRenderState = sky.getRenderState();
-          if (sky.isVolumetricReady()) {
-            simUri = (await sky.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
-            simBufMean = sky.getLastBufferMean();
-            if (!simUri) simFailReason = sky.getLastSnapshotError();
-          } else {
-            simNotReadyPhase = simRenderState?.volPhase ?? 'unknown';
-          }
+          const r = await sky.renderRemote(simView, { waitMs: 2500 });
+          simRenderState = r.state;
+          if (r.uri) { simUri = r.uri; simBufMean = sky.getLastBufferMean(); }
+          else if (!r.ready) simNotReadyPhase = r.state?.volPhase ?? 'unknown';
+          else simFailReason = r.error;
         } else {
-          simFailReason = L3(language, '3D 화면이 아직 준비되지 않음', '3D view not ready yet', '3D画面の準備ができていません');
+          simFailReason = L3(language, '하늘 화면의 3D 가 없음 — 하늘 탭을 한 번 연 뒤 다시 시도', 'Sky screen 3D not available — open the Sky tab once and retry', '空画面の3Dがありません — 空タブを開いてから再試行');
         }
       }
 
@@ -1045,18 +1073,12 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       // 1. 셔터 직전에 못 찍었으면 여기서 한 번 더 시도합니다.
       // ⚠ await 뒤에는 ref 를 다시 읽습니다 — 기다리는 동안 카메라를 닫으면 null 입니다.
       {
-        const sky = sky3dRef.current;
+        const sky = getPrimarySky();
         if (!simUri && sky) {
-          if (sky.isVolumetricReady()) {
-            simNotReadyPhase = null;
-            simRenderState = sky.getRenderState();
-            simUri = (await sky.takeSnapshot({ format: 'jpeg', compress: 0.85 })) ?? '';
-            simBufMean = sky.getLastBufferMean();
-            if (simUri) simFailReason = null;
-            else simFailReason = sky.getLastSnapshotError() ?? simFailReason;
-          } else {
-            simNotReadyPhase = sky.getRenderState()?.volPhase ?? 'unknown';
-          }
+          const r = await sky.renderRemote(simView, { waitMs: 4000 });
+          if (r.uri) { simNotReadyPhase = null; simRenderState = r.state; simUri = r.uri; simBufMean = sky.getLastBufferMean(); simFailReason = null; }
+          else if (!r.ready) simNotReadyPhase = r.state?.volPhase ?? 'unknown';
+          else simFailReason = r.error ?? simFailReason;
         }
       }
       if (!simUri && simNotReadyPhase) {
@@ -1620,32 +1642,13 @@ export const SunCamera: React.FC<SunCameraProps> = ({
               <View style={[{ position: 'absolute', width: W, height: stageH }, showPrediction
                 ? { left: 0, top: 0 }
                 : { left: (THUMB - W) / 2, top: (THUMB - stageH) / 2, transform: [{ scale: THUMB / W }] }]}>
-                <SkyScene3D
-                  ref={sky3dRef}
-                  sim={cameraSimState}
-                  currentTime={currentTime}
-                  sunAltitude={sunPos.altitude}
-                  sunAzimuth={sunPos.azimuth}
-                  prediction={currentPrediction}
-                  // ⚠ SkyScene3D 는 위치를 expo-location 모양(location.coords.latitude)으로 읽습니다.
-                  //   예전에는 { latitude, longitude } 를 넘겨 전부 undefined 가 됐고, 카메라 3D 는
-                  //   서울(37.5, 127) 기본값으로 달·별·대기·수역 마스크를 그리고 DEM 지형은 아예
-                  //   안 받았습니다 — 하늘 화면과 땅·하늘색이 다르던 원인 하나입니다(§112).
-                  location={camSceneLocation}
-                  interpolatedWeather={camInterpolated}
-                  timeline={camTimeline}
-                  layers={skyLayers}
-                  skySettings={camSkySettings}
-                  theme={{ accent: color.accent }}
-                  cameraAzimuthProp={effectiveAz}
-                  cameraElevationProp={effectivePitch}
-                  // 미리보기와 같은 세로 화각 — 카메라와 3D 가 같은 하늘 넓이를 보여야 견줄 수 있습니다.
-                  fovProp={optics.vFovDeg}
-                  fullScreen={true}
-                  hideHudOverlay={true}
-                  hideCompassBar={true}
-                  isActive={visible}
-                />
+                {predUri ? (
+                  <Image source={{ uri: predUri }} style={{ width: W, height: stageH }} resizeMode="cover" fadeDuration={0} />
+                ) : (
+                  <View style={{ width: W, height: stageH, alignItems: 'center', justifyContent: 'center' }}>
+                    {showPrediction && <Text style={styles.microText}>{predNote ?? L3(language, '3D 예측 준비 중', 'Preparing 3D prediction', '3D予測を準備中')}</Text>}
+                  </View>
+                )}
               </View>
             </View>
 
