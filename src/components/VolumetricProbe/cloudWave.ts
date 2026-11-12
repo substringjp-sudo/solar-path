@@ -47,6 +47,11 @@ export interface WaveParams {
   vstretch?: number;
   /** 작은 구멍 메우기 반경(m, 0 끔): max(V, 주변 평균) 뒤 높이별 운량 다시 맞춤 */
   fillM?: number;
+  /**
+   * 채우기 모드의 3차원 섞임 비율(0~1). 1 = 장 전체가 3차원(1판). 큰 파동 몇 개가 모양을 정하면 사인 파동의 평면 등고면이 비스듬한 판·절벽으로
+   * 보였음(2026-11-12) → 큰 모양은 밑면 높이의 2차원 무늬, 3차원은 이 비율만큼만.
+   */
+  mix3d?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -110,7 +115,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
@@ -163,6 +168,12 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       return z - prof[prof.length - 1].zM < 150 ? prof[prof.length - 1].cover : 0;
     };
     const slice = new Float32Array(n * n);
+    // 밑면 높이에서의 2차원 무늬(채우기 모드 큰 모양)
+    const base2 = new Float32Array(n * n);
+    for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+      const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
+      base2[iy * n + ix] = skew(fbig(x, y, zb));
+    }
     const cutSlice = (iz: number, src: Float32Array) => {
       const cz = coverAt(zMin + ((iz + 0.5) / nz) * (zMax - zMin));
       const off = iz * n * n;
@@ -177,7 +188,8 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
       for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
         const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
-        vox[(iz * n + iy) * n + ix] = skew(fbig(x, y, z));
+        const g2 = base2[iy * n + ix];
+        vox[(iz * n + iy) * n + ix] = p.mix3d >= 1 ? skew(fbig(x, y, z)) : g2 + p.mix3d * (skew(fbig(x, y, z)) - g2);
       }
       cutSlice(iz, vox);
     }
