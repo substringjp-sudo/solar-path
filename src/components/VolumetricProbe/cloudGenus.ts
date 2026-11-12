@@ -777,6 +777,39 @@ export function morphCoverIn(m: MorphParams, cover: number): number {
   return m.c <= 0.5 ? cover + (sc - cover) * (m.c / 0.5) : sc + (cu - sc) * ((m.c - 0.5) / 0.5);
 }
 
+/**
+ * 안정층 판 구름의 무늬(2026-11-13) — 소용돌이 대신 상층 대기의 원리로:
+ *  1) 습윤 패치: 수백 km 규모로 천천히 올라가는 공기(온난 전선 앞 등)가 만드는 넓은 덮개 — 30 km 규모의 부드러운 잡음.
+ *  2) 줄무늬: 층 위아래 바람 차이(전단 ΔU)가 무늬를 그 방향으로 늘림. 늘임 A = 2 + ΔU/(3 m/s) (2~8), 폭 약 4 km, 약하게(판 구름은 거의 고른 회색).
+ *  3) 물결(파상운): 안정층(부력 진동수 N)에 전단이 걸리면 중력파 — 파장 λ = 2π·ΔU/N (2~15 km), 마루는 전단에 수직.
+ *     세기는 리처드슨 수 Ri = N²/(ΔU/Δz)² 가 작을수록 셈(Ri 3 이상 거의 없음, 0.5 에서 최대).
+ * 모든 파수는 타일 정수 파수라 경계가 이어짐. 값이 클수록 구름 — 뒤의 운량 문턱이 그대로 씀.
+ */
+function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer): FieldPx {
+  const o = (L.opts ?? {}) as Record<string, number | undefined>;
+  const su = o.shearU ?? 0, sv = o.shearV ?? 0, dzKm = Math.max(0.3, o.shearDzKm ?? 2);
+  const dU = Math.hypot(su, sv) / 3.6;                       // m/s
+  const N = Math.min(0.03, Math.max(0.003, o.flowN ?? 0.01));
+  const sh = dU / (dzKm * 1000);
+  const Ri = (N * N) / Math.max(sh * sh, 1e-10);
+  const wu = o.windU ?? 0, wv = o.windV ?? 0;
+  const dirDeg = dU > 1 ? ((Math.atan2(su, sv) * 180) / Math.PI + 360) % 360 : ((Math.atan2(wu, wv) * 180) / Math.PI + 360) % 360;
+  const A = Math.min(8, Math.max(2, 2 + dU / 3));
+  const moist = spectralNoise(Math.max(1, tileKm / 30), 1, null, seed + 1);
+  // spectralNoise 의 비등방은 그 방향의 파장을 짧게 함(마루가 그 방향에 수직) — 전단을 따라 늘어선 줄은 90° 돌린 방향을 줌.
+  const stria = spectralNoise(Math.max(2, tileKm / 4), A, (dirDeg + 90) % 360, seed + 3);
+  const lamKm = Math.min(15, Math.max(2, (2 * Math.PI * Math.max(dU, 3)) / N / 1000));
+  const [a, b] = intDir(dirDeg), kk = Math.max(1, Math.round(tileKm / lamKm / Math.hypot(a, b)));
+  const wA = 0.3 * smoothstep(3, 0.5, Ri);
+  const ph = rng(seed + 5)() * 6.2832;
+  return (x, y) => {
+    const u = (x + 0.5) / S, v = (y + 0.5) / S;
+    const m = moist(u, v);
+    const w = wA > 0 ? wA * (0.5 + 0.5 * Math.cos(6.2831853 * kk * (a * u + b * v) + ph)) : 0;
+    return 0.8 * m + 0.12 * stria(u, v) + w * (0.4 + m);
+  };
+}
+
 function* genusWeatherSteps(
   data: Uint8Array, layers: (GenusLayer | null)[], S: number, tileKm: number, seed: number, plainCover: number[],
   flow: FlowSceneParams | null = null,
@@ -803,7 +836,14 @@ function* genusWeatherSteps(
     if (!L || !(L.cover > 0) || k > 3) continue;
     const useFlow = !!flow && (fp(L, 'flow') ?? 0) > 0;
     const f = new Float32Array(S * S);
-    if (useFlow && flow) {
+    if (useFlow && flow && (fp(L, 'flowLaminar') ?? 0) > 0) {
+      // 안정층 판 구름: 장면 공통 소용돌이 대신 전단·안정도 원리의 무늬(stratiformField). d 매핑(순위)은 흐름 층과 같게.
+      const px = stratiformField(S, tileKm, (fp(L, 'flowSeed') ?? seed) + k * 101, L);
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
+        if (y % ROWS === ROWS - 1) yield;
+      }
+    } else if (useFlow && flow) {
       // §130 흐름 층: 원시장 f = wQ·q₀(X) + wZ·ζ̂₀(X) + wT·T(x − lag·D) + wW·cos(k_w·X) — 템플릿 T 는 기존 종류 무늬를 작은
       // 격자(TS²)에서 한 번 평가한 것, X = x − D(x) 는 흐름이 밀어낸 자리(라벨). 그 뒤 문턱·바이트는 아래 그대로(면적 = 운량).
       if (!core) {
