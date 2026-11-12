@@ -1341,19 +1341,23 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
       '#endif',
       '      }',
       // 2026-11-12 덱 아래 하늘빛: 흐린 날 채우기(레인 0) 밑·속의 다른 레인 표본(편운 sc 등)은 맑은 하늘빛 대신
-      // 덱을 지나온 빛 = 충돌 전 하늘빛 e^(−sec·(1−g)·τ) + 덱 확산장 J(τ_위, τ_전체)의 아래 반구(산란원 등가 조도 2π·J).
+      // 덱을 지나온 빛 = 충돌 전 하늘빛 e^(−sec·(1−g)·τ)(takram 식) + 덱 확산장 J(τ_위, τ_전체)를 휘도로 직접.
       // 덱이 없으면(τ = 0) 맑은 하늘빛 그대로. 첫 그림에서 편운이 남색(그늘 속 파란 하늘빛만)으로 나오던 것.
       '      vec3 gSkyIrr = skyIrradiance;',
+      '      vec3 gUnderJ = vec3(0.0);',
       '      if (gDeckT > 0.0) {',
       `        float gMu0d = ${DIFF_MU0};`,
       '        float gDs = genusDiffuseField(gDeckA, gDeckT, 1.0 / gMu0d);',
       `        float gDk = genusDiffuseField(gDeckA, gDeckT, ${SKY_SECANT.toFixed(1)});`,
       `        vec3 gJd = (sunIrradiance * gMu0d * genusSunWeight(gMu0d) * gDs + skyIrradiance * ${INV_2PI.toFixed(6)} * gDk) * ${INV_2PI.toFixed(6)};`,
-      `        vec3 gUnder = skyIrradiance * exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gDeckA) + 6.2831853 * gJd;`,
-      '        gSkyIrr = mix(skyIrradiance, gUnder, dot(vec4(1.0) - genusOn * genusThru, media.weight));',
+      '        float gUw = dot(vec4(1.0) - genusOn * genusThru, media.weight);',
+      `        gSkyIrr = mix(skyIrradiance, skyIrradiance * exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gDeckA), gUw);`,
+      // 고른 확산 빛 속의 두꺼운 구름은 다중 산란으로 그 빛의 평균 휘도에 가까워짐(takram 하늘빛 항은 단일 산란 E/4π·기울기·ao 라 너무 어두움).
+      // 아래 반구는 지면 반사(알베도 ~0.1) → L ≈ J·(1 + a)/2.
+      '        gUnderJ = 0.55 * gJd * gUw;',
       '      }',
     ].join('\n'));
-    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
+    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale + gUnderJ;   // §L4`);
   }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
