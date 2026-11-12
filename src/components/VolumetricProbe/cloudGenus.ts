@@ -1002,7 +1002,8 @@ const THRU_BLOCK = [
   '        // 다중산란에 의해 하얗게 뜨지 않고 관찰자 시점에서 짙은 그늘(실루엣)이 지도록 감쇠합니다.',
   '        if (cosTheta > 0.0) {',
   '          float backlitDarken = exp(-0.035 * opticalDepth * cosTheta);',
-  '          radiance *= mix(1.0, backlitDarken, dot(genusOn, media.weight));',
+  // 2026-11-13 직사광 몫(gSunPart)에만 — 예전에는 하늘빛·지면 반사까지 곱해 해 쪽 구름이 거의 검은 남회색(서초 11/13 08:04 사진은 밝은 회색).
+  '          radiance -= gSunPart * (1.0 - mix(1.0, backlitDarken, dot(genusOn, media.weight)));',
   '        }',
   '        vec4 gLayerH = max(maxLayerHeights - minLayerHeights, vec4(1.0));',
   '        vec4 gTau = media.extinction * max(vec4(1.0) - weather.heightFraction, vec4(0.0)) * gLayerH;',
@@ -1051,6 +1052,9 @@ export function patchGenusShader(mat: PatchableMaterial): void {
   // 햇빛 확산 투과(GenusParams.thru): 위쪽 광학두께 ≈ 이 표본의 소광 × 꼭대기까지 거리.
   const amb = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
   if (src.includes(amb)) {
+    const sunLine = '      vec3 radiance = sunIrradiance * approximateMultipleScattering(opticalDepth, cosTheta);';
+    if (!src.includes(sunLine)) throw new Error('cloudGenus: sun term anchor missing');
+    src = src.replace(sunLine, sunLine + '\n      vec3 gSunPart = radiance;');
     src = src.replace(amb, amb + THRU_BLOCK);
   }
   src = src.replace(g, [
