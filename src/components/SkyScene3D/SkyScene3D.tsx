@@ -1951,8 +1951,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 개발자 튜닝 값을 매 프레임 밀어 넣습니다. 슬라이더를 움직이는 즉시
         // 스카이돔·태양·구름·덱이 같은 값으로 다시 그려집니다.
         // §95 — 광공해만큼 밤 암순응을 덜 받습니다. 구름 슬랩에 넘기는 cityLight 와 같은 식.
-        setSceneCityLight(layersRef.current.cityLights === false
-          ? 0 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5)));
+        const cityLightNow = layersRef.current.cityLights === false
+          ? 0 : Math.max(0, Math.min(1, (6.5 - skySettingsRef.current.starMagLimit) / 3.5));
+        setSceneCityLight(cityLightNow);
+        // 입체 구름 화면의 도시 불빛(구름 밑면·지평선 하늘빛) — 같은 값. 값이 같으면 아무것도 안 함.
+        volRef.current?.setCityLight(cityLightNow);
         applyTuningUniforms(skydomeRef.current?.material.uniforms);
         applyTuningUniforms(sunRef.current?.material.uniforms);
         applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
