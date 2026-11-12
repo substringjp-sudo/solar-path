@@ -1317,14 +1317,18 @@ export async function createVolumetricScene(
     const low = p.layers.filter(L => L && L.cover > 0 && (L.band ?? (L.baseKm < 2 ? 'low' : 'mid')) === 'low').reduce((a, L) => Math.max(a, Math.min(1, L.cover)), 0);
     const adaptCd = artCd + (baseCd - artCd) * low;
     cityState = { artCd, baseCd, adaptCd, timeF };
-    const g = moonGain > 0 ? moonGain : 1;
-    (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((baseCd * CD_TO_RENDER) / g);
-    (au.get('cityAir')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((artCd * CD_TO_RENDER) / g);
+    // 렌더 단위의 눈금 g: 해 빛이면 1, 달빛이면 달빛 세기, 달 없는 밤(해 −12° 아래)이면 보름 세기 — 반 정밀 버퍼에 10⁻⁷ 같은 작은 값이 들어가면
+    // 계단 무늬로 깨지거나 0 이 됨(1차 하네스: 도심 띠 무늬, 교외 완전히 검음). 해 −12° → −14° 에서 도시 빛을 서서히 켬(그 사이 박명 잔광은 버림).
+    const cityNight = moonGain <= 0 && lastTrueSunAlt < -12;
+    const g = moonGain > 0 ? moonGain : cityNight ? MOON_FULL : 1;
+    const ramp = moonGain > 0 ? 1 : cityNight ? Math.min(1, (-12 - lastTrueSunAlt) / 2) : 1;
+    (cu.cityUp.value as Vector3).copy(CITY_COLOR).multiplyScalar((baseCd * CD_TO_RENDER * ramp) / g);
+    (au.get('cityAir')!.value as Vector3).copy(CITY_COLOR).multiplyScalar((artCd * CD_TO_RENDER * ramp) / g);
     au.get('cityAirOn')!.value = 1;
   };
   /**
    * 노출. 해: 해 고도 표. 밤(달 또는 도시 불빛): 눈이 맞춘 휘도 L_a(달빛 구름 + 도시)로 낮 노출 × MOON_DIM × (g/보름)·√(0.056/L_a)
-   * — 달만이면 위의 달빛 식과 같음. 달 없이 도시만이면 해 −12° → −16° 사이에서 해 고도 노출과 로그로 이어 붙임.
+   * — 달만이면 위의 달빛 식과 같음. 달 없이 도시만이면 해 −12° 아래에서 보름 세기 눈금으로(도시 빛은 −12° → −14° 에서 켜짐).
    */
   const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
     if (p.exposure != null) return p.exposure;
@@ -1334,10 +1338,9 @@ export async function createVolumetricScene(
       return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
     }
     const base = autoExposure(lightAlt);
-    if (cityA <= 1e-5 || lastTrueSunAlt > -12) return base;
-    const city = (autoExposure(45) * MOON_DIM / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / cityA);
-    const t = Math.min(1, Math.max(0, (-12 - lastTrueSunAlt) / 4));
-    return Math.exp(Math.log(base) + (Math.log(city) - Math.log(base)) * t);
+    if (cityA <= 1e-5 || lastTrueSunAlt >= -12) return base;
+    // 보름 세기 눈금(g = MOON_FULL)에서의 노출 — 달빛 식에 g = 보름을 넣은 것.
+    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / cityA);
   };
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
