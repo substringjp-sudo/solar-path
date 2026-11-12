@@ -874,7 +874,7 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform float hazeOn;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
+      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
       '  if (hazeOn < 0.5) return;',
@@ -884,10 +884,10 @@ export async function createVolumetricScene(
       '  float hKm = 1e9;',
       '  if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) hKm = k; }',
       `  float hH = ${HAZE_SCALE_HEIGHT_KM.toFixed(2)};`,
-      // 시선을 따라 쌓인 광학두께 = AOD ∫exp(-h/H)ds/H ≈ AOD/sinθ · (1 − exp(−d·sinθ/H))
-      '  float hTau = hazeP.x / hSin * (1.0 - exp(-min(hKm, 1e4) * hSin / hH));',
-      '  vec3 hTv = hTau * pow(vec3(640.0, 550.0, 460.0) / 550.0, vec3(-hazeP.y));',
-      '  vec3 hT = exp(-hTv);',
+      // 2026-11-13 단일 산란을 지수 분포 연무층에서 직접 적분: 햇빛도 그 점까지 연무에 깎임(e^(−τ0·u/μs), u = e^(−h/H)).
+      // 예전 식 hL·(1 − T)는 햇빛 감쇠가 없어 해 쪽 하늘이 통째로 하얗게 됐고(AOD 0.3 에서 구름 안 보임), 구름 화소도 하늘 끝까지의 연무를 받았음.
+      //   L = E·ω·P·(τ0/μv)·e^(−τ0/μv)·∫_{u_end}^{1} e^(−a·u) du,  a = τ0(1/μs − 1/μv),  u_end = e^(−d·μv/H)
+      // 구름 화소(덮개 overlay)는 구름 밑면(cloudAirBaseKm, 눈 위 높이)까지만.
       '  vec3 hSkyE;',
       '  vec3 hSunE = GetSunAndSkyIrradiance(vCameraPosition, sunDirection, sunDirection, hSkyE);',
       '  hSunE *= 1.0 - cloudAirShade;   // 구름 아래 연무는 그 비율만큼 햇빛을 못 받음(싼 근사)',
@@ -896,8 +896,26 @@ export async function createVolumetricScene(
       '  float hPh = (1.0 - hG * hG) / (12.5663706 * pow(max(1.0 + hG * hG - 2.0 * hG * hCos, 1e-3), 1.5));',
       // 실제 에어로졸은 옆·뒤 산란이 HG 한 덩어리보다 큽니다 → 등방 35% 섞음. 하늘 조도 항은 두꺼울수록 다중산란으로 채워 /π 에 가깝게.
       '  hPh = mix(hPh, 0.0795775, 0.35);',
-      '  vec3 hL = hazeP.w * (hSunE * hPh + hSkyE * mix(0.1591549, 0.3183099, 1.0 - exp(-hazeP.x * 2.0)));',
-      '  outputColor.rgb = outputColor.rgb * hT + hL * (vec3(1.0) - hT);',
+      '  vec3 hTau0 = hazeP.x * pow(vec3(640.0, 550.0, 460.0) / 550.0, vec3(-hazeP.y));',
+      '  float hMuS = max(dot(normalize(sunDirection), hUp), 0.02);',
+      '  float hUBg = exp(-min(hKm, 1e4) * hSin / hH);',
+      '  float hUCl = exp(-max(cloudAirBaseKm, 0.0) / hH);',
+      '  vec3 hA = hTau0 * (1.0 / hMuS - 1.0 / hSin);',
+      '  vec3 hE0 = hTau0 / hSin * exp(-hTau0 / hSin);',
+      '  vec3 hSafeA = mix(hA, vec3(1e-4), step(abs(hA), vec3(1e-4)));',
+      '  vec3 hIntBg = mix((exp(-hA * hUBg) - exp(-hA)) / hSafeA, vec3(1.0 - hUBg) * exp(-hA * 0.5 * (1.0 + hUBg)), step(abs(hA), vec3(1e-4)));',
+      '  vec3 hIntCl = mix((exp(-hA * hUCl) - exp(-hA)) / hSafeA, vec3(1.0 - hUCl) * exp(-hA * 0.5 * (1.0 + hUCl)), step(abs(hA), vec3(1e-4)));',
+      '  vec3 hTBg = exp(-hTau0 / hSin * (1.0 - hUBg));',
+      '  vec3 hTCl = exp(-hTau0 / hSin * (1.0 - hUCl));',
+      '  vec3 hSkyL = hSkyE * mix(0.1591549, 0.3183099, 1.0 - exp(-hazeP.x * 2.0));',
+      '  vec3 hLBg = hazeP.w * (hSunE * hPh * hE0 * hIntBg + hSkyL * (vec3(1.0) - hTBg));',
+      '  vec3 hLCl = hazeP.w * (hSunE * hPh * hE0 * hIntCl + hSkyL * (vec3(1.0) - hTCl));',
+      '  vec4 hOv = vec4(0.0);',
+      '  #ifdef HAS_OVERLAY',
+      '  hOv = texture(overlayBuffer, uv);',
+      '  #endif',
+      '  vec3 hBgPart = max(outputColor.rgb - hOv.rgb, vec3(0.0));',
+      '  outputColor.rgb = hBgPart * hTBg + hOv.rgb * hTCl + (1.0 - hOv.a) * hLBg + hOv.a * hLCl;',
       '}',
     ].join('\n');
     fx.uniforms.set('hazeOn', new Uniform(0));
@@ -912,6 +930,7 @@ export async function createVolumetricScene(
     fx.uniforms.set('sunRidgeOn', new Uniform(0));
     fx.uniforms.set('cloudAirShade', new Uniform(0));
     fx.uniforms.set('cloudAirTopKm', new Uniform(2));
+    fx.uniforms.set('cloudAirBaseKm', new Uniform(50));
     fx.uniforms.set('seaSlopeVar', new Uniform(0.03));
     aerialBase = src;
     fx.setFragmentShader(applyLightingFixAerial(src, lightingFlags()));
@@ -935,18 +954,21 @@ export async function createVolumetricScene(
   const AIR_OPACITY: Record<string, number> = { cu: 0.9, cg: 0.95, cb: 1, sc: 0.85, st: 0.95, ns: 1, ac: 0.6, as: 0.85, ci: 0.1, cs: 0.3, cbanvil: 0.8 };
   const applyCloudAir = (p: VolumetricSceneInput) => {
     const au = (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms;
-    let T = 1, top = 0;
+    let T = 1, top = 0, base = 50;
     for (const L of p.layers) {
       if (!L || !(L.cover > 0)) continue;
       const o = Math.min(1, L.cover) * (L.genus ? AIR_OPACITY[L.genus] ?? 0.7 : 0.7);
       if (o <= 0.02) continue;
       T *= 1 - o;
       top = Math.max(top, L.baseKm + (L.thicknessM ?? 1000) / 1000);
+      base = Math.min(base, L.baseKm);
     }
     au.get('cloudAirShade')!.value = opt.cloudAirShade ? 1 - T : 0;
     // 구름 패스 연무는 빛줄기(SHADOW_LENGTH)가 켜진 high 에서는 그 값이 맡으므로 0.
     (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.cloudAirShadeC.value = opt.cloudAirShade && !aerial.shadowLength ? 1 - T : 0;
     au.get('cloudAirTopKm')!.value = Math.max(0.2, top - (p.heightM ?? 0) / 1000);
+    // 연무를 구름 앞까지만 셀 때 쓰는 가장 낮은 구름 밑면(눈 위 km). 구름이 없으면 50(= 연무층 전체).
+    au.get('cloudAirBaseKm')!.value = base >= 50 ? 50 : Math.max(0.05, base - (p.heightM ?? 0) / 1000 - (p.altitudeM ?? 0) / 1000);
     lastAirShade = opt.cloudAirShade ? 1 - T : 0;
   };
   const applyHaze = (h: HazeInput | undefined) => {
