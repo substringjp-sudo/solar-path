@@ -202,9 +202,10 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
  * §155 **모든 층**에 겁니다(바람 opts 가 있는 층). 예전에는 흐름 모형 층(cu·sc, 그것도 흐름 uv 옵션이 켜졌을 때)만 움직여,
  * 흐름을 기본으로 끈 뒤(S0-1) 비늘구름(ac) 같은 층은 하늘에 붙박여 전혀 흐르지 않았습니다. 드리프트가 있으면 층별 fetch 를 켭니다.
  */
-export function setGenusDrift(mat: PatchableMaterial, layers: (GenusLayer | null)[], seconds: number, tileKm: number): void {
+export function setGenusDrift(mat: PatchableMaterial, layers: (GenusLayer | null)[], seconds: number, tileKm: number, baseKm?: ([number, number] | null | undefined)[]): void {
   const s = seconds / 3600 / tileKm;
-  const lane = (k: 'windU' | 'windV') => [0, 1, 2, 3].map(i => (layers[i] ? -flowParam(layers[i] as GenusLayer, k, 0) * s : 0));
+  // baseKm: 장면 시각까지 이미 밀려간 거리(동·북 km, 시간별 바람 적분 — liveScene). seconds 는 그 뒤 흐른 시간.
+  const lane = (k: 'windU' | 'windV') => [0, 1, 2, 3].map(i => (layers[i] ? -flowParam(layers[i] as GenusLayer, k, 0) * s - (baseKm?.[i]?.[k === 'windU' ? 0 : 1] ?? 0) / tileKm : 0));
   const set = (u: string, v: number[]) => (mat.uniforms[u].value as Vector4).set(v[0], v[1], v[2], v[3]);
   // fp32 위상 보호: 타일 단위로 소수부만(정수 타일 이동은 주기 텍스처라 같음).
   const wrap = (v: number[]) => v.map(x => x - Math.floor(x));
