@@ -190,7 +190,10 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       for (let i = 0; i < n * n; i++) slice[i] = src[off + i];
       slice.sort();
       const t = slice[Math.min(n * n - 1, Math.floor((1 - Math.min(0.999, cz)) * n * n))];
-      for (let i = 0; i < n * n; i++) src[off + i] -= t;
+      // 운량이 높은 높이(0.85 → 1)는 문턱을 겨우 넘은 자리도 밀도를 갖게 1/e 만큼 올림 — 안 그러면 '100 % 덮임' 이어도
+      // 장 값이 낮은 곳이 거의 투명해 큰 틈처럼 보였음(2026-11-12 비 오는 날 재현). 덮이지 않은 자리(문턱 아래)는 그대로 음수로 남김.
+      const lift = (1 / Math.max(0.2, p.edge)) * Math.min(1, Math.max(0, (cz - 0.85) / 0.15));
+      for (let i = 0; i < n * n; i++) { const v = src[off + i] - t; src[off + i] = v > 0 ? v + lift : v; }
     };
     for (let iz = 0; iz < nz; iz++) {
       yield;
@@ -364,7 +367,7 @@ export function patchWaveShader(mat: PatchableMaterial): void {
   let src = mat.fragmentShader;
   if (!src.includes(WEATHER_ANCHOR) || !src.includes(MEDIA_ANCHOR)) throw new Error('cloudWave: shader anchor missing');
   const decl = [
-    'uniform float waveOn;', 'uniform sampler3D waveTex;', 'uniform vec4 waveBox;', 'uniform vec4 waveP;',
+    'uniform sampler3D waveTex;', 'uniform vec4 waveBox;', 'uniform vec4 waveP;',
     `uniform vec4 waveK[${NSMALL}];`, 'uniform vec3 waveAmp;',
     // 셰이더 안 작은 파동(혹): 단계마다 |합| 을 접어 둥근 혹 사이에 날카로운 골(2|z| − 평균)
     '#define WAVE_FIELD 1',
@@ -396,9 +399,14 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '}',
     '',
   ].join('\n');
-  src = src.replace('vec4 getLayerDensity', decl + 'vec4 getLayerDensity');
-  // 빈 칸 건너뛰기를 막으려고 레인 0 의 날씨 밀도를 층 안에서 1 로
+  // 빈 칸 건너뛰기를 막으려고 레인 0 의 날씨 밀도를 층 안에서 1 로. ⚠ 선언(decl)을 넣기 **전에** — 선언이 이 앵커 사이에 끼면 치환이 조용히
+  // 실패해, 그리는 행진이 레인 종류(ns) 무늬 바깥을 빈 칸으로 건너뛰어 그 무늬 윤곽이 거대한 도형으로 보였음(2026-11-12).
+  // waveOn 은 sampleWeather 에서도 쓰므로 그보다 앞에 선언.
+  src = src.replace('WeatherSample sampleWeather(', 'uniform float waveOn;\nWeatherSample sampleWeather(');
+  const before = src;
   src = src.replace(WEATHER_ANCHOR, '  if (waveOn > 0.5) { float wIn = step(0.0, weather.heightFraction.x) * step(weather.heightFraction.x, 1.0); weather.density.x = wIn; }\n' + WEATHER_ANCHOR);
+  if (src === before) throw new Error('cloudWave: weather anchor replace failed');
+  src = src.replace('vec4 getLayerDensity', decl + 'vec4 getLayerDensity');
   src = src.replace(MEDIA_ANCHOR, [
     '  if (waveOn > 0.5) {',
     '    vec3 wd = position - genusOrigin;',

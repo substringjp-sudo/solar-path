@@ -90,7 +90,12 @@ export function fillProfileOf(obs: CloudData): { zM: number; cover: number }[] |
   if (!lv.length) return null;
   const peak = Math.max(...lv.map(q => q.c)), wet = lv.filter(q => q.c >= FILL_RULE.wetPct).length;
   if (peak < FILL_RULE.peak || wet < FILL_RULE.wetLevels) return null;
-  return lv.map(q => ({ zM: Math.round(q.zM), cover: Math.round(Math.min(100, Math.max(0, q.c))) / 100 }));
+  // 비가 오면(시간당 0.1 mm 이상) 덱의 주요 높이(운량 50 % 이상)는 다 덮인 것으로 — 실제 난층운 아래는 거의 다 덮여 보임(2026-11-12).
+  const raining = (obs.precipitation ?? 0) >= 0.1;
+  return lv.map(q => {
+    const c = Math.round(Math.min(100, Math.max(0, q.c))) / 100;
+    return { zM: Math.round(q.zM), cover: raining && c >= 0.5 ? 1 : c };
+  });
 }
 
 export interface LiveScene {
@@ -295,7 +300,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
       const wave = {
         ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: 0.1,
-        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 1.5, mix3d: 0.3, profile: fillProf,
+        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 1.5, mix3d: 0.3, fillM: 1500, smoothM: 800, smoothZ: 2, profile: fillProf,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
       const zMin = zLo - 300, zMax = zHi + 400;
