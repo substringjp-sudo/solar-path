@@ -887,9 +887,24 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
+      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cloudSkyT;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
+      // 구름 너머 하늘(2026-11-13): 맑은 하늘 산란 표(해 둘레 노을 번짐 포함)를 그대로 쓰면, 하늘을 덮은 구름층이어도 지평선 쪽 얇은 곳·끝 너머로
+      // 해 쪽이 하얗게 빛났음(신발타 비 해 질 녘: 지평선 81, 맑은 날 95). 덮인 만큼(cloudAirShade) 그 하늘도 같은 구름층을 지나온 밝기(cloudSkyT)로.
+      // 구름 화소의 앞쪽 공기·지형 화소는 그대로(각자 처리됨).
+      '  if (cloudAirShade > 0.01) {',
+      '    vec4 sOv = vec4(0.0);',
+      '    #ifdef HAS_OVERLAY',
+      '    sOv = texture(overlayBuffer, uv);',
+      '    #endif',
+      '    float sTer = 0.0;',
+      '    if (terrainDistOn > 0.5) { float k = terrainDistDecodeKm(texture(terrainDist, uv)); if (k < 1e8) sTer = 1.0; }',
+      '    vec3 sBg = max(outputColor.rgb - sOv.rgb, vec3(0.0));',
+      '    float sL = dot(sBg, vec3(0.2126, 0.7152, 0.0722));',
+      '    vec3 sDim = mix(sBg, vec3(sL), 0.6) * cloudSkyT;',
+      '    outputColor.rgb = sOv.rgb + mix(sBg, mix(sBg, sDim, cloudAirShade), 1.0 - sTer);',
+      '  }',
       // 도시 불빛 하늘(2026-11-13): 맑은 하늘 화소에 지평선 쪽이 밝은 인공 하늘빛. 구름·지형 화소는 뺌(구름 밑면은 구름 패스가 비춤).
       '  if (cityAirOn > 0.5) {',
       '    vec3 cRd = normalize(vRayDirection);',
@@ -966,6 +981,7 @@ export async function createVolumetricScene(
     fx.uniforms.set('cloudAirBaseKm', new Uniform(50));
     fx.uniforms.set('cityAir', new Uniform(new Vector3()));
     fx.uniforms.set('cityAirOn', new Uniform(0));
+    fx.uniforms.set('cloudSkyT', new Uniform(1));
     fx.uniforms.set('cityAz', new Uniform(new Array(36).fill(1)));
     fx.uniforms.set('cityAzOn', new Uniform(0));
     fx.uniforms.set('cityNorth', new Uniform(new Vector3(1, 0, 0)));
@@ -1399,8 +1415,8 @@ export async function createVolumetricScene(
    * T = Π(1 − 운량·(1 − T_종류)), 파동 장(흐린 날 채우기)은 그 기둥 τ 로 T = 1/(1 + 0.75·0.15·τ).
    */
   const TD_GENUS: Record<string, number> = { ns: 0.12, cb: 0.08, cbanvil: 0.3, cg: 0.3, st: 0.3, as: 0.35, sc: 0.45, cu: 0.5, ac: 0.6, cs: 0.8, ci: 0.9 };
+  let lastDeckT = 1;
   const overcastGain = (p: VolumetricSceneInput, sunAlt: number) => {
-    if (!(sunAlt > -6)) return 1;
     let T = 1;
     p.layers.forEach((L, i) => {
       if (!L || !L.genus || !(L.cover > 0)) return;
@@ -1408,6 +1424,9 @@ export async function createVolumetricScene(
       const td = tau != null && Number.isFinite(tau) ? 1 / (1 + 0.1125 * tau) : TD_GENUS[L.genus] ?? 0.5;
       T *= 1 - Math.min(1, L.cover) * (1 - td);
     });
+    lastDeckT = T;
+    (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudSkyT')!.value = Math.max(0.05, T);
+    if (!(sunAlt > -6)) return 1;
     const f = Math.min(1, 0.12 + 0.88 * Math.exp(-Math.max(0, sunAlt) / 6));
     const R = T / f;
     return R >= 1 ? 1 : Math.min(4, Math.pow(R, -0.7));
