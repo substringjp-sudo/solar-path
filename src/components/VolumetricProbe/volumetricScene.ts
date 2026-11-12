@@ -456,7 +456,7 @@ export interface VolumetricOptions extends TsunOptions {
   // §179 T_sun·아치 빛 손잡이(tsun·tsunN·tsunRangeKm·archLight·archNoT·tsunRef·tsunRefStepM·tsunDebug·tsunSync)는 cloudTsun.ts TsunOptions —
   // 하네스 전용, 기본 끔(TSUN_OPTIONS_OFF), 앱은 넘기지 않음. 끄면 셰이더 글자·균일변수·텍스처가 이 손잡이가 없던 트리와 같음.
 }
-export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, farSun: false, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
+export const DEFAULT_VOLUMETRIC_OPTIONS: VolumetricOptions = { weatherPeriod: 16, weatherRamp: 2, shadowMinSunDeg: 12, bufferType: 'half', frame: 'local', shadowMaxFar: null, atmosphereShadow: true, temporalUpscale: true, shadowTemporal: true, sunMarch: [6, 250, 1.6], genus: false, celestial: true, weatherLod: null, accurateSunBelowDeg: null, maxRayKm: 100, coverRemap: true, flow: false, flowDensity: true, flowUv: false, flowN: 64, flowSteps: 20, flowHours: 0.5, flowVrms: 2, flowPsiEvery: 2, flowQMode: 0, flowQN: 128, flowQH: 0.5, flowS90: 0, flowCamCell: false, physics: false, physicsIce: false, iceHalo: false, icePowderOff: false, debugLightFloors: null, diffuse: 0, skeleton: 0, skeletonTiltScale: 1, profileBase: null, macro: 0, macroN: 128, macroGrad: false, morph: false, billow: false, farSun: true, cloudAirShade: true, moonLight: true, refineOnHit: 0, sunLowpass: 0, erodeCentered: 0, erodePixelAngleDeg: null, jitterMode: 0, debugDensityMul: 1, clampInscatter: false, irradianceLogMu: false, ...TSUN_OPTIONS_OFF };
 
 export interface VolumetricScene {
   camera: Camera;
@@ -1064,11 +1064,22 @@ export async function createVolumetricScene(
     if (!cm.fragmentShader.includes(hz) || !cm.fragmentShader.includes(hd)) throw new Error('volumetricScene: cloud haze anchor missing');
     const ap = '      applyAerialPerspective(cameraPosition, frontPosition, shadowLength, color);';
     if (!cm.fragmentShader.includes(ap)) throw new Error('volumetricScene: cloud aerial anchor missing');
-    cm.fragmentShader = cm.fragmentShader.replace(hd, 'uniform float cloudAirShadeC;\n' + hd)
+    cm.fragmentShader = cm.fragmentShader.replace(hd, 'uniform float cloudAirShadeC;\nuniform float cloudSkyTC;\n' + hd)
       .replace(hz, '  vec3 inscatter = sunIrradiance * (1.0 - cloudAirShadeC) * phaseFunction(cosTheta) * shadowTransmittance;')
       // 불투명 구름 화소의 공기 원근은 구름 패스가 직접 더함(대기 효과는 겹쳐 그리지 않음) — 눈~구름 앞면 구간의 그 비율을 그늘로.
-      .replace(ap, '      applyAerialPerspective(cameraPosition, frontPosition, max(shadowLength, cloudAirShadeC * frontDepth), color);');
+      // 2026-11-13 구름 앞 공기의 하늘빛: 구름층이 하늘을 덮었으면 그 공기는 맑은 하늘의 푸른 산란빛이 아니라 구름층을 지나온 회색빛(투과 T 배)만 받음
+      //   — 덮인 만큼(cloudAirShadeC) 채도를 70 % 빼고 T 쪽으로 줄임. 해 막힌 비 오는 해 질 녘에 지평선 띠·먼 구름층이 진한 남색이던 것.
+      .replace(ap, [
+        '      {',
+        '        vec3 cT;',
+        '        vec3 cIn = GetSkyRadianceToPoint(cameraPosition * METER_TO_LENGTH_UNIT, frontPosition * METER_TO_LENGTH_UNIT, max(shadowLength, cloudAirShadeC * frontDepth) * METER_TO_LENGTH_UNIT, sunDirection, cT);',
+        '        float cL = dot(cIn, vec3(0.2126, 0.7152, 0.0722));',
+        '        cIn = mix(cIn, vec3(cL), 0.7 * cloudAirShadeC) * mix(1.0, cloudSkyTC, cloudAirShadeC);',
+        '        color.rgb = color.rgb * cT + cIn * color.a;',
+        '      }',
+      ].join('\n'));
     cm.uniforms.cloudAirShadeC = { value: 0 };
+    cm.uniforms.cloudSkyTC = { value: 1 };
     // 도시 불빛 구름 밑면(2026-11-13): 땅에서 올라온 빛이 구름 밑면을 비춤 — 밑면에서 가장 밝고 구름 속으로 e^(−(1−g)·τ_밑에서) 로 줄어듦,
     // 높을수록 퍼져 약해짐 e^(−(h − 1 km)/4 km). cityUp 은 1 km 두꺼운 밑면이 보일 휘도(렌더 단위).
     const fin = '      // Finally multiply by scattering.';
@@ -1441,6 +1452,7 @@ export async function createVolumetricScene(
     });
     lastDeckT = T;
     (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudSkyT')!.value = Math.max(0.05, T);
+    (clouds.cloudsPass.currentMaterial as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms.cloudSkyTC.value = Math.max(0.05, T);
     if (!(sunAlt > -6)) return 1;
     const f = Math.min(1, 0.12 + 0.88 * Math.exp(-Math.max(0, sunAlt) / 6));
     const R = T / f;

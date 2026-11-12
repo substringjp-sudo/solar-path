@@ -139,7 +139,7 @@ const VolumetricPerfRow: React.FC = () => {
   const fill = useCelestialStore(s => s.skySettings.volumetricFill ?? true);
   const accSun = useCelestialStore(s => s.skySettings.volumetricAccurateSun ?? true);
   const lowShadow = useCelestialStore(s => s.skySettings.volumetricLowSunShadow ?? true);
-  const farSun = useCelestialStore(s => !!s.skySettings.volumetricFarSun);
+  const farSun = useCelestialStore(s => s.skySettings.volumetricFarSun ?? true);
   const sheetDiff = useCelestialStore(s => s.skySettings.volumetricSheetDiffuse ?? true);
   const clampIn = useCelestialStore(s => s.skySettings.volumetricClampInscatter ?? true);
   const logMu = useCelestialStore(s => s.skySettings.volumetricIrradianceLogMu ?? true);
