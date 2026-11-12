@@ -74,6 +74,11 @@ export interface LiveSceneArgs {
 }
 
 /** 흐린 날 채우기 조건: 7.5 km 아래 기압면 운량 최대 80 % 이상 · 50 % 이상인 면 2 개 이상 · CAPE 300 미만(대류 날 아님). */
+/**
+ * 흐린 날 채우기 층의 소광 배율(2026-11-12). 난층운 값 0.28 을 빌려 쓰면 1~7 km 덱의 기둥 광학두께가 커서 두-흐름 확산광이 거의 0(덱 평균 43/255).
+ * 0.02~0.04 에서 회색 덱(80~100/255) — 0.03.
+ */
+export const FILL_DENSITY_SCALE = 0.03;
 export const FILL_RULE = { maxZ: 7500, peak: 80, wetPct: 50, wetLevels: 2, capeMax: 300 } as const;
 
 /** 기압면 단면에서 높이별 운량(0~1)을 뽑습니다. 조건이 안 맞으면 null. */
@@ -290,11 +295,11 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
       const wave = {
         ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: 0.1,
-        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 1.5, profile: fillProf,
+        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: 1.5, spec: 1.6, vstretch: 1.5, mix3d: 0.3, profile: fillProf,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
       const zMin = zLo - 300, zMax = zHi + 400;
-      layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave } as VolumetricLayerInput['opts'] };
+      layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave, densityScale: FILL_DENSITY_SCALE } as VolumetricLayerInput['opts'] };
       layers[1] = { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' };
       fillOn = true;
     }

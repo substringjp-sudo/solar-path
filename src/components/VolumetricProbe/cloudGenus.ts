@@ -1312,17 +1312,28 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): s
     return src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL.replace('        radiance += gJ * dot(genusOn, media.weight);', '        radiance = vec3(gTt / 200.0, gTa / 200.0, gDsun);'));
   }
   if (mode === 4) {
+    // 파동 장 레인(흐린 날 채우기)은 기둥 τ 를 그 장에서 셈(cloudWave.ts waveColumn) — 레인 0 만.
+    const WAVE_COL = [
+      '#ifdef WAVE_FIELD',
+      '        if (waveOn > 0.5) {',
+      '          vec2 gWc = waveColumn(position, gHf0.x);',
+      '          gTauA.x = densityScales.x * gLayerH.x * gWc.x;',
+      '          gTauT.x = max(gTauA.x, densityScales.x * gLayerH.x * gWc.y);',
+      '        }',
+      '#endif',
+    ].join('\n');
+    const COLW = COLUMN_GLSL + '\n' + WAVE_COL;
     // L4(2026-11-12): L2 두-흐름 확산장·하늘빛 처리를 thru 레인(판 구름 st·as·ns·흐린 날 채우기, GenusParams.thru 1)에만.
     // 흩어진 구름(cu·cg·cb·sc·ac, thru 0)은 원래 식 그대로 — §138 판정에서 L2 가 조각 구름 밑면을 2~3 배 밝힌 것을 피함.
     // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
     const backlit = THRU_BLOCK.slice(0, THRU_BLOCK.indexOf('        vec4 gLayerH'));
-    src = src.replace(THRU_BLOCK, backlit + '      }\n' + DIFFUSE_FIELD_GLSL.replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
+    src = src.replace(THRU_BLOCK, backlit + '      }\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
     src = src.replace(DIFF_SKY_FLOOR, [
       '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
       DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - genusThru)), media.weight);'),
       '      float gSkyUncol = 1.0;',
       '      {',
-      COLUMN_GLSL,
+      COLW,
       `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
       '      }',
     ].join('\n'));

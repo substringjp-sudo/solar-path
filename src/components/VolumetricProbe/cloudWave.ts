@@ -7,7 +7,7 @@
  *  - 운량 문턱 τ 는 구운 장의 기둥 최댓값 분포에서 운량만큼 남기는 값입니다.
  * waveOn 이 0 이면 셰이더는 원래 경로 그대로입니다(분기 하나).
  */
-import { Data3DTexture, DataUtils, HalfFloatType, LinearFilter, MirroredRepeatWrapping, RedFormat, Vector4 } from 'three';
+import { ClampToEdgeWrapping, Data3DTexture, DataUtils, HalfFloatType, LinearFilter, RedFormat, RepeatWrapping, Vector4 } from 'three';
 
 export interface WaveParams {
   /** 경계층 높이(m) — 가장 큰 파장 λ0 = 2.5 z_i */
@@ -104,7 +104,10 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
       // 바람 차이 방향 성분은 줄이고(그 방향으로 길어짐), 수직 성분은 키움(납작해짐)
       const along = dx * sx + dy * sy;
       dx -= along * sx * (1 - 1 / alpha); dy -= along * sy * (1 - 1 / alpha); dz *= beta / p.vstretch;
-      const kx = kmag * dx, ky = kmag * dy, kz = kmag * dz;
+      // 가로 파수를 상자 길이(2·halfM)의 정수배로 맞춰 장이 상자마다 이음매 없이 되풀이되게 함. 예전엔 거울 반복이라
+      // 상자 경계(관측점에서 halfM)에서 무늬가 좌우로 뒤집혀 대칭 판·절벽으로 보였음(2026-11-12 흐린 날 재현).
+      const kq = (2 * Math.PI) / (2 * p.halfM);
+      const kx = Math.round((kmag * dx) / kq) * kq, ky = Math.round((kmag * dy) / kq) * kq, kz = kmag * dz;
       // 비틀림 방향 ê ⟂ k
       let ex = -ky, ey = kx, ez = 0; const el = Math.hypot(ex, ey) || 1; ex /= el; ey /= el;
       row.push({ kx, ky, kz, ph: 2 * Math.PI * r(), ex, ey, ez });
@@ -287,7 +290,7 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
   const tex = new Data3DTexture(half16, n, n, nz);
   tex.format = RedFormat; tex.type = HalfFloatType;
   tex.minFilter = LinearFilter; tex.magFilter = LinearFilter;
-  tex.wrapS = MirroredRepeatWrapping; tex.wrapT = MirroredRepeatWrapping; tex.wrapR = MirroredRepeatWrapping;
+  tex.wrapS = RepeatWrapping; tex.wrapT = RepeatWrapping; tex.wrapR = ClampToEdgeWrapping;
   tex.unpackAlignment = 1; tex.needsUpdate = true;
   const smallK: Vector4[] = [];
   for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
@@ -336,6 +339,24 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     'uniform float waveOn;', 'uniform sampler3D waveTex;', 'uniform vec4 waveBox;', 'uniform vec4 waveP;',
     `uniform vec4 waveK[${NSMALL}];`, 'uniform vec3 waveAmp;',
     // 셰이더 안 작은 파동(혹): 단계마다 |합| 을 접어 둥근 혹 사이에 날카로운 골(2|z| − 평균)
+    '#define WAVE_FIELD 1',
+    // 기둥 적분(두-흐름 확산광 diffuse 4 용): 표본 기둥의 파동 장 밀도(모양 잡음·혹 없음)를 12 점으로 — x = 표본 위, y = 전체(층 높이 비 단위 평균).
+    // 확산광이 레인 종류(ns) 날씨 무늬로 기둥을 세면 실제 덱과 다른 판·절벽 무늬가 그려졌음(2026-11-12).
+    'vec2 waveColumn(vec3 position, float hf0) {',
+    '  vec3 wd = position - genusOrigin;',
+    '  vec2 wxy = vec2(dot(wd, genusEast), dot(wd, genusNorth)) / (2.0 * waveBox.x) + 0.5;',
+    '  float a = 0.0, t = 0.0;',
+    '  for (int i = 0; i < 12; ++i) {',
+    '    float hf = (float(i) + 0.5) / 12.0;',
+    '    float wv = texture(waveTex, vec3(wxy, hf)).r;',
+    '    float z = mix(minLayerHeights.x, maxLayerHeights.x, hf);',
+    '    float fb = clamp((z - waveBox.y) / max(waveBox.z, 1.0), 0.0, 1.0);',
+    '    float q = (0.25 + 0.75 * pow(fb, 0.6667)) * clamp(waveP.z * (wv - waveP.x), 0.0, 1.0) * (1.0 + 0.3 * (1.0 - waveP.y) * tanh(wv));',
+    '    t += q;',
+    '    a += q * step(hf0, hf);',
+    '  }',
+    '  return vec2(a, t) / 12.0;',
+    '}',
     'float waveSmall(vec3 q) {',
     '  float b = 0.0;',
     '  for (int j = 0; j < 3; j++) {',
