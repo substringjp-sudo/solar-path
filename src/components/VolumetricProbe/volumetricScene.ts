@@ -1391,6 +1391,27 @@ export async function createVolumetricScene(
    * 노출. 해: 해 고도 표. 밤(달 또는 도시 불빛): 눈이 맞춘 휘도 L_a(달빛 구름 + 도시)로 낮 노출 × MOON_DIM × (g/보름)·√(0.056/L_a)
    * — 달만이면 위의 달빛 식과 같음. 달 없이 도시만이면 해 −12° 아래에서 보름 세기 눈금으로(도시 빛은 −12° → −14° 에서 켜짐).
    */
+  /**
+   * 흐린 날 노출 보정(2026-11-13). 노출 표는 맑은 하늘에 맞춘 것. 구름층 아래 하늘 휘도 ∝ 확산 투과율 T × 맑은 날 수평면 일사,
+   * 맑은 하늘 휘도 ∝ 그 일사의 확산 몫 f(해 고도: 높으면 약 0.12, 지평선에서 1 에 가까움). 비 R = T/f 가 1 보다 작으면(해가 낮은 흐린 날)
+   * 눈·카메라처럼 R^−0.7 만큼(최대 4 배) 밝힘. 한낮(τ 21: T 0.30, f 0.12 → R 2.5)은 그대로 — 위성 일사로 맞춘 흐린 날 밝기를 건드리지 않음.
+   * 신발타 11월 2일 16:32(해 1.2°, 비) 재현: 구름층 20/255(맑은 하늘 120~190) → 약 4 배.
+   * T = Π(1 − 운량·(1 − T_종류)), 파동 장(흐린 날 채우기)은 그 기둥 τ 로 T = 1/(1 + 0.75·0.15·τ).
+   */
+  const TD_GENUS: Record<string, number> = { ns: 0.12, cb: 0.08, cbanvil: 0.3, cg: 0.3, st: 0.3, as: 0.35, sc: 0.45, cu: 0.5, ac: 0.6, cs: 0.8, ci: 0.9 };
+  const overcastGain = (p: VolumetricSceneInput, sunAlt: number) => {
+    if (!(sunAlt > -6)) return 1;
+    let T = 1;
+    p.layers.forEach((L, i) => {
+      if (!L || !L.genus || !(L.cover > 0)) return;
+      const tau = i === 0 && (L.opts as { wave?: unknown } | undefined)?.wave ? lastWaveInfo?.tauUsed : undefined;
+      const td = tau != null && Number.isFinite(tau) ? 1 / (1 + 0.1125 * tau) : TD_GENUS[L.genus] ?? 0.5;
+      T *= 1 - Math.min(1, L.cover) * (1 - td);
+    });
+    const f = Math.min(1, 0.12 + 0.88 * Math.exp(-Math.max(0, sunAlt) / 6));
+    const R = T / f;
+    return R >= 1 ? 1 : Math.min(4, Math.pow(R, -0.7));
+  };
   const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
     if (p.exposure != null) return p.exposure;
     const cityA = cityState?.adaptCd ?? 0;
@@ -1398,7 +1419,7 @@ export async function createVolumetricScene(
       const La = MOONLIT_CLOUD_CD * (moonGain / MOON_FULL) + cityA;
       return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
     }
-    const base = autoExposure(lightAlt);
+    const base = autoExposure(lightAlt) * overcastGain(p, lastTrueSunAlt);
     if (cityA <= 1e-5 || lastTrueSunAlt >= -12) return base;
     // 보름 세기 눈금(g = MOON_FULL)에서의 노출 — 달빛 식에 g = 보름을 넣은 것.
     return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / cityA);
