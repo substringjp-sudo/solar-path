@@ -52,6 +52,12 @@ export interface WaveParams {
    * 보였음(2026-11-12) → 큰 모양은 밑면 높이의 2차원 무늬, 3차원은 이 비율만큼만.
    */
   mix3d?: number;
+  /**
+   * 채우기 모드 3차원 흐림(가로 m · 세로 칸): 자르기 전에 장을 흐려 등고면을 둥글게 — 구멍 가장자리가 직각 절벽 대신 위아래로 말려 들어감.
+   * 0 이면 끔. 흐린 뒤 높이별 운량을 다시 맞춤.
+   */
+  smoothM?: number;
+  smoothZ?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -118,7 +124,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, smoothM: 0, smoothZ: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
@@ -195,6 +201,28 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
         vox[(iz * n + iy) * n + ix] = p.mix3d >= 1 ? skew(fbig(x, y, z)) : g2 + p.mix3d * (skew(fbig(x, y, z)) - g2);
       }
       cutSlice(iz, vox);
+    }
+    if (p.smoothM > 0 || p.smoothZ > 0) {
+      // 3차원 상자 흐림 두 번(삼각 가중): 가로 반경 rs 칸, 세로 반경 rz 칸. 원래 값(자르기 전 문턱 기준)을 흐린 뒤 높이별로 다시 자름.
+      const rs = Math.max(0, Math.round(p.smoothM / ((2 * half) / n))), rz = Math.max(0, Math.round(p.smoothZ));
+      const tmp = new Float32Array(vox.length);
+      const blurAxis = (a: Float32Array, b: Float32Array, axis: 0 | 1 | 2, r: number) => {
+        if (r <= 0) { b.set(a); return; }
+        for (let iz = 0; iz < nz; iz++) for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+          let sum = 0, cnt = 0;
+          for (let k = -r; k <= r; k++) {
+            let jx = ix, jy = iy, jz = iz;
+            if (axis === 0) jx = (ix + k + n) % n; else if (axis === 1) jy = (iy + k + n) % n; else { jz = iz + k; if (jz < 0 || jz >= nz) continue; }
+            sum += a[(jz * n + jy) * n + jx]; cnt++;
+          }
+          b[(iz * n + iy) * n + ix] = sum / cnt;
+        }
+      };
+      for (let rep = 0; rep < 2; rep++) {
+        blurAxis(vox, tmp, 0, rs); yield; blurAxis(tmp, vox, 1, rs); yield;
+        blurAxis(vox, tmp, 2, rz); vox.set(tmp); yield;
+      }
+      for (let iz = 0; iz < nz; iz++) { cutSlice(iz, vox); if (iz % 8 === 7) yield; }
     }
     if (p.fillM > 0) {
       // 구멍 메우기: 가로 상자 평균(반경 r 칸, 두 번 = 삼각 가중) · 세로 ±1 칸 → max(V, 평균) → 높이별 운량 다시 맞춤
