@@ -7,7 +7,7 @@
  *  - 운량 문턱 τ 는 구운 장의 기둥 최댓값 분포에서 운량만큼 남기는 값입니다.
  * waveOn 이 0 이면 셰이더는 원래 경로 그대로입니다(분기 하나).
  */
-import { Data3DTexture, DataUtils, HalfFloatType, LinearFilter, MirroredRepeatWrapping, RedFormat, Vector4 } from 'three';
+import { ClampToEdgeWrapping, Data3DTexture, DataUtils, HalfFloatType, LinearFilter, RedFormat, RepeatWrapping, Vector4 } from 'three';
 
 export interface WaveParams {
   /** 경계층 높이(m) — 가장 큰 파장 λ0 = 2.5 z_i */
@@ -47,6 +47,21 @@ export interface WaveParams {
   vstretch?: number;
   /** 작은 구멍 메우기 반경(m, 0 끔): max(V, 주변 평균) 뒤 높이별 운량 다시 맞춤 */
   fillM?: number;
+  /**
+   * 채우기 모드의 3차원 섞임 비율(0~1). 1 = 장 전체가 3차원(1판). 큰 파동 몇 개가 모양을 정하면 사인 파동의 평면 등고면이 비스듬한 판·절벽으로
+   * 보였음(2026-11-12) → 큰 모양은 밑면 높이의 2차원 무늬, 3차원은 이 비율만큼만.
+   */
+  mix3d?: number;
+  /**
+   * 채우기 모드 3차원 흐림(가로 m · 세로 칸): 자르기 전에 장을 흐려 등고면을 둥글게 — 구멍 가장자리가 직각 절벽 대신 위아래로 말려 들어감.
+   * 0 이면 끔. 흐린 뒤 높이별 운량을 다시 맞춤.
+   */
+  smoothM?: number;
+  smoothZ?: number;
+  /** 밑면에서도 작은 파동(혹)을 켜는 비율 0~1(거친 비구름 밑면). 0 이면 밑면 30 % 높이까지 꺼짐 */
+  baseBump?: number;
+  /** 관측 일사로 정한 기둥 광학두께(있으면 장면이 레인 0 의 densityScale 을 이것에 맞춤, volumetricScene) */
+  tauTarget?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -67,8 +82,11 @@ export interface WaveField {
   smallK: Vector4[];
   smallAmp: [number, number, number];
   detail: number;
+  baseBump: number;
   bakeMs: number;
   stats: { coverMeasured: number; vMin: number; vMax: number };
+  /** 셰이더 waveColumn 의 기둥 적분 t 의 가로 평균(레인 높이 대비 0~1) — τ_기둥 ≈ densityScale × 레인 높이 × colMean */
+  colMean: number;
 }
 
 const OCT = 6, PER = 12, NSMALL = 3 * PER;
@@ -99,7 +117,10 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
       // 바람 차이 방향 성분은 줄이고(그 방향으로 길어짐), 수직 성분은 키움(납작해짐)
       const along = dx * sx + dy * sy;
       dx -= along * sx * (1 - 1 / alpha); dy -= along * sy * (1 - 1 / alpha); dz *= beta / p.vstretch;
-      const kx = kmag * dx, ky = kmag * dy, kz = kmag * dz;
+      // 가로 파수를 상자 길이(2·halfM)의 정수배로 맞춰 장이 상자마다 이음매 없이 되풀이되게 함. 예전엔 거울 반복이라
+      // 상자 경계(관측점에서 halfM)에서 무늬가 좌우로 뒤집혀 대칭 판·절벽으로 보였음(2026-11-12 흐린 날 재현).
+      const kq = (2 * Math.PI) / (2 * p.halfM);
+      const kx = Math.round((kmag * dx) / kq) * kq, ky = Math.round((kmag * dy) / kq) * kq, kz = kmag * dz;
       // 비틀림 방향 ê ⟂ k
       let ex = -ky, ey = kx, ez = 0; const el = Math.hypot(ex, ey) || 1; ex /= el; ey /= el;
       row.push({ kx, ky, kz, ph: 2 * Math.PI * r(), ex, ey, ez });
@@ -110,7 +131,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, smoothM: 0, smoothZ: 0, baseBump: 0, tauTarget: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
@@ -163,6 +184,12 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       return z - prof[prof.length - 1].zM < 150 ? prof[prof.length - 1].cover : 0;
     };
     const slice = new Float32Array(n * n);
+    // 밑면 높이에서의 2차원 무늬(채우기 모드 큰 모양)
+    const base2 = new Float32Array(n * n);
+    for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+      const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
+      base2[iy * n + ix] = skew(fbig(x, y, zb));
+    }
     const cutSlice = (iz: number, src: Float32Array) => {
       const cz = coverAt(zMin + ((iz + 0.5) / nz) * (zMax - zMin));
       const off = iz * n * n;
@@ -170,16 +197,42 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       for (let i = 0; i < n * n; i++) slice[i] = src[off + i];
       slice.sort();
       const t = slice[Math.min(n * n - 1, Math.floor((1 - Math.min(0.999, cz)) * n * n))];
-      for (let i = 0; i < n * n; i++) src[off + i] -= t;
+      // 운량이 높은 높이(0.85 → 1)는 문턱을 겨우 넘은 자리도 밀도를 갖게 1/e 만큼 올림 — 안 그러면 '100 % 덮임' 이어도
+      // 장 값이 낮은 곳이 거의 투명해 큰 틈처럼 보였음(2026-11-12 비 오는 날 재현). 덮이지 않은 자리(문턱 아래)는 그대로 음수로 남김.
+      const lift = (1 / Math.max(0.2, p.edge)) * Math.min(1, Math.max(0, (cz - 0.85) / 0.15));
+      for (let i = 0; i < n * n; i++) { const v = src[off + i] - t; src[off + i] = v > 0 ? v + lift : v; }
     };
     for (let iz = 0; iz < nz; iz++) {
       yield;
       const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
       for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
         const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
-        vox[(iz * n + iy) * n + ix] = skew(fbig(x, y, z));
+        const g2 = base2[iy * n + ix];
+        vox[(iz * n + iy) * n + ix] = p.mix3d >= 1 ? skew(fbig(x, y, z)) : g2 + p.mix3d * (skew(fbig(x, y, z)) - g2);
       }
       cutSlice(iz, vox);
+    }
+    if (p.smoothM > 0 || p.smoothZ > 0) {
+      // 3차원 상자 흐림 두 번(삼각 가중): 가로 반경 rs 칸, 세로 반경 rz 칸. 원래 값(자르기 전 문턱 기준)을 흐린 뒤 높이별로 다시 자름.
+      const rs = Math.max(0, Math.round(p.smoothM / ((2 * half) / n))), rz = Math.max(0, Math.round(p.smoothZ));
+      const tmp = new Float32Array(vox.length);
+      const blurAxis = (a: Float32Array, b: Float32Array, axis: 0 | 1 | 2, r: number) => {
+        if (r <= 0) { b.set(a); return; }
+        for (let iz = 0; iz < nz; iz++) for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+          let sum = 0, cnt = 0;
+          for (let k = -r; k <= r; k++) {
+            let jx = ix, jy = iy, jz = iz;
+            if (axis === 0) jx = (ix + k + n) % n; else if (axis === 1) jy = (iy + k + n) % n; else { jz = iz + k; if (jz < 0 || jz >= nz) continue; }
+            sum += a[(jz * n + jy) * n + jx]; cnt++;
+          }
+          b[(iz * n + iy) * n + ix] = sum / cnt;
+        }
+      };
+      for (let rep = 0; rep < 2; rep++) {
+        blurAxis(vox, tmp, 0, rs); yield; blurAxis(tmp, vox, 1, rs); yield;
+        blurAxis(vox, tmp, 2, rz); vox.set(tmp); yield;
+      }
+      for (let iz = 0; iz < nz; iz++) { cutSlice(iz, vox); if (iz % 8 === 7) yield; }
     }
     if (p.fillM > 0) {
       // 구멍 메우기: 가로 상자 평균(반경 r 칸, 두 번 = 삼각 가중) · 세로 ±1 칸 → max(V, 평균) → 높이별 운량 다시 맞춤
@@ -275,15 +328,27 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
   const tex = new Data3DTexture(half16, n, n, nz);
   tex.format = RedFormat; tex.type = HalfFloatType;
   tex.minFilter = LinearFilter; tex.magFilter = LinearFilter;
-  tex.wrapS = MirroredRepeatWrapping; tex.wrapT = MirroredRepeatWrapping; tex.wrapR = MirroredRepeatWrapping;
+  tex.wrapS = RepeatWrapping; tex.wrapT = RepeatWrapping; tex.wrapR = ClampToEdgeWrapping;
   tex.unpackAlignment = 1; tex.needsUpdate = true;
+  // 셰이더 waveColumn 과 같은 식: q = (0.25 + 0.75 fb^⅔)·clamp(e·(v − τ))·(1 + 0.3(1 − χ)·tanh v), fb = (z − 밑면)/두께.
+  let qSum = 0;
+  for (let iz = 0; iz < nz; iz++) {
+    const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
+    const fb = Math.min(1, Math.max(0, (z - p.baseM) / Math.max(p.thickM, 1)));
+    const prof = 0.25 + 0.75 * Math.pow(fb, 2 / 3);
+    for (let i = iz * n * n; i < (iz + 1) * n * n; i++) {
+      const v = vox[i];
+      qSum += prof * Math.min(1, Math.max(0, p.edge * (v - tau))) * (1 + 0.3 * (1 - p.chi) * Math.tanh(v));
+    }
+  }
+  const colMean = qSum / vox.length;
   const smallK: Vector4[] = [];
   for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
   return {
-    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, smallK,
+    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, baseBump: p.baseBump, smallK,
     // 단계 5(~λ0/32)는 행진 보폭보다 짧아 반짝이는 점으로 깨져 뺍니다(2차 판정).
     smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
-    stats: { coverMeasured, vMin, vMax },
+    stats: { coverMeasured, vMin, vMax }, colMean,
   };
   }
 }
@@ -321,9 +386,27 @@ export function patchWaveShader(mat: PatchableMaterial): void {
   let src = mat.fragmentShader;
   if (!src.includes(WEATHER_ANCHOR) || !src.includes(MEDIA_ANCHOR)) throw new Error('cloudWave: shader anchor missing');
   const decl = [
-    'uniform float waveOn;', 'uniform sampler3D waveTex;', 'uniform vec4 waveBox;', 'uniform vec4 waveP;',
+    'uniform sampler3D waveTex;', 'uniform vec4 waveBox;', 'uniform vec4 waveP;',
     `uniform vec4 waveK[${NSMALL}];`, 'uniform vec3 waveAmp;',
     // 셰이더 안 작은 파동(혹): 단계마다 |합| 을 접어 둥근 혹 사이에 날카로운 골(2|z| − 평균)
+    '#define WAVE_FIELD 1',
+    // 기둥 적분(두-흐름 확산광 diffuse 4 용): 표본 기둥의 파동 장 밀도(모양 잡음·혹 없음)를 12 점으로 — x = 표본 위, y = 전체(층 높이 비 단위 평균).
+    // 확산광이 레인 종류(ns) 날씨 무늬로 기둥을 세면 실제 덱과 다른 판·절벽 무늬가 그려졌음(2026-11-12).
+    'vec2 waveColumn(vec3 position, float hf0) {',
+    '  vec3 wd = position - genusOrigin;',
+    '  vec2 wxy = vec2(dot(wd, genusEast), dot(wd, genusNorth)) / (2.0 * waveBox.x) + 0.5;',
+    '  float a = 0.0, t = 0.0;',
+    '  for (int i = 0; i < 12; ++i) {',
+    '    float hf = (float(i) + 0.5) / 12.0;',
+    '    float wv = texture(waveTex, vec3(wxy, hf)).r;',
+    '    float z = mix(minLayerHeights.x, maxLayerHeights.x, hf);',
+    '    float fb = clamp((z - waveBox.y) / max(waveBox.z, 1.0), 0.0, 1.0);',
+    '    float q = (0.25 + 0.75 * pow(fb, 0.6667)) * clamp(waveP.z * (wv - waveP.x), 0.0, 1.0) * (1.0 + 0.3 * (1.0 - waveP.y) * tanh(wv));',
+    '    t += q;',
+    '    a += q * step(hf0, hf);',
+    '  }',
+    '  return vec2(a, t) / 12.0;',
+    '}',
     'float waveSmall(vec3 q) {',
     '  float b = 0.0;',
     '  for (int j = 0; j < 3; j++) {',
@@ -335,9 +418,14 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '}',
     '',
   ].join('\n');
-  src = src.replace('vec4 getLayerDensity', decl + 'vec4 getLayerDensity');
-  // 빈 칸 건너뛰기를 막으려고 레인 0 의 날씨 밀도를 층 안에서 1 로
+  // 빈 칸 건너뛰기를 막으려고 레인 0 의 날씨 밀도를 층 안에서 1 로. ⚠ 선언(decl)을 넣기 **전에** — 선언이 이 앵커 사이에 끼면 치환이 조용히
+  // 실패해, 그리는 행진이 레인 종류(ns) 무늬 바깥을 빈 칸으로 건너뛰어 그 무늬 윤곽이 거대한 도형으로 보였음(2026-11-12).
+  // waveOn 은 sampleWeather 에서도 쓰므로 그보다 앞에 선언.
+  src = src.replace('WeatherSample sampleWeather(', 'uniform float waveOn;\nWeatherSample sampleWeather(');
+  const before = src;
   src = src.replace(WEATHER_ANCHOR, '  if (waveOn > 0.5) { float wIn = step(0.0, weather.heightFraction.x) * step(weather.heightFraction.x, 1.0); weather.density.x = wIn; }\n' + WEATHER_ANCHOR);
+  if (src === before) throw new Error('cloudWave: weather anchor replace failed');
+  src = src.replace('vec4 getLayerDensity', decl + 'vec4 getLayerDensity');
   src = src.replace(MEDIA_ANCHOR, [
     '  if (waveOn > 0.5) {',
     '    vec3 wd = position - genusOrigin;',
@@ -350,9 +438,12 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '    // 작은 파동은 표면 근처에서만(속과 먼 바깥은 계산 생략)',
     '    float wfb = clamp((wz - waveBox.y) / max(waveBox.z, 1.0), 0.0, 1.0);',
     '    // 혹은 밑면에서 꺼지고 옆·꼭대기에서 켜짐(평평한 밑면, 꽃양배추 윗면)',
-    '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * smoothstep(0.0, 0.3, wfb) * waveSmall(vec3(wxy, wz));',
+    '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * mix(smoothstep(0.0, 0.3, wfb), 1.0, waveBox.w) * waveSmall(vec3(wxy, wz));',
     '    float wprof = 0.25 + 0.75 * pow(wfb, 0.6667);',
     '    float wc = clamp(waveP.z * ws, 0.0, 1.0);',
+    // 표면 깎기(2026-11-12): 다른 구름과 같은 takram 모양 잡음으로, 세기는 대류성 χ 로 0.4(판)~1(뭉게). 속(wc≈1)은 그대로.
+    '    float wsh = texture(shapeTexture, position * shapeRepeat + shapeOffset).r;',
+    '    wc = remapClamped(wc, (1.0 - wsh) * mix(0.4, 1.0, waveP.y), 1.0);',
     '    // 가장자리 솜털: takram 잔무늬로 얇은 곳만 깎음(속 wc≈1 은 그대로). 위는 몽글, 아래는 가닥(takram 규칙).',
     '#ifdef SHAPE_DETAIL',
     '    if (waveP.w > 0.0 && wc > 0.0 && wc < 1.0) {',
@@ -382,7 +473,7 @@ export function setWaveUniforms(mat: PatchableMaterial, field: WaveField | null,
   u.waveOn.value = field ? 1 : 0;
   if (!field) { u.waveTex.value = DUMMY; return; }
   u.waveTex.value = field.tex;
-  (u.waveBox.value as Vector4).set(field.halfM, baseM, thickM, 0);
+  (u.waveBox.value as Vector4).set(field.halfM, baseM, thickM, field.baseBump);
   (u.waveP.value as Vector4).set(field.tau, field.chi, field.edge, field.detail);
   const ks = u.waveK.value as Vector4[];
   field.smallK.forEach((k, i) => ks[i].copy(k));

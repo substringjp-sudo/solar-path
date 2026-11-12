@@ -2,7 +2,7 @@
 /**
  * thermo-test.mjs — §135 열역학 입력(`weather.ts: fetchThermoProfile` · `attachThermo`)의 단위 테스트. 네트워크 없이 fetch 를 가짜로 둡니다.
  *   node tools/genus-ruler/flow/thermo-test.mjs
- * 검사: 요청 URL(변수 33개·예보/아카이브 구분) · 값 파싱(null → NaN) · 지원 안 되는 응답은 null 로 캐시하고 두 번 두드리지 않음 ·
+ * 검사: 요청 URL(변수 35개(2026-11-12 돌풍·날씨 코드 추가)·예보/아카이브 구분) · 값 파싱(null → NaN) · 지원 안 되는 응답은 null 로 캐시하고 두 번 두드리지 않음 ·
  * 시각 축이 어긋날 때 NaN 으로 채움 · 같은 날 같은 칸 재요청은 캐시.
  */
 import { execFileSync } from 'node:child_process';
@@ -47,7 +47,7 @@ const NOW = Date.parse('2026-10-12T12:00:00Z');
   const t = await W.fetchThermoProfile(37.57, 126.98, D, undefined, NOW);
   const u = urls[0];
   const vars = u.split('hourly=')[1].split('&')[0].split(',');
-  check('thermo URL uses the forecast API with 33 variables', u.includes('api.open-meteo.com/v1/forecast') && vars.length === 33, `${vars.length} variables`);
+  check('thermo URL uses the forecast API with 35 variables', u.includes('api.open-meteo.com/v1/forecast') && vars.length === 35, `${vars.length} variables`);
   check('thermo URL has surface + 15 temperature + 13 humidity variables', vars.includes('temperature_2m') && vars.includes('dew_point_2m') && vars.includes('cape') && vars.includes('freezing_level_height') && vars.includes('boundary_layer_height')
     && vars.filter(v => /^temperature_\d+hPa$/.test(v)).length === 15 && vars.filter(v => /^relative_humidity_\d+hPa$/.test(v)).length === 13, '');
   check('thermo parses arrays: 15 temperature levels × 24 h, 13 humidity levels × 24 h', t && t.profileTempC.length === 15 && t.profileRhPct.length === 13 && t.profileTempC[0].length === 24, '');

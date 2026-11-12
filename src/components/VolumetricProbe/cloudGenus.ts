@@ -19,7 +19,7 @@
  * 웹 시제품(하네스)과 같은 계산입니다. GLSL 문자열 안에 백틱을 쓰지 않습니다.
  */
 import { DataTexture, LinearFilter, LinearMipMapLinearFilter, NoColorSpace, RepeatWrapping, RGBAFormat, UnsignedByteType, Vector3, Vector4 } from 'three';
-import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
+import { COLUMN_N, DIFFUSE_G, DIFFUSE_GLSL, DIFFUSE_K, INV_2PI, MU0_MIN, SKY_SECANT } from './cloudDiffuse';
 import { FLOW_DEFAULTS, FLOW_D_POW, GENUS_FLOW, camCellOffset, flowComposeSteps, flowCoreSteps, flowLayerWeightsOf, newFlowCore, normalizeTemplate, quantileHist, rankNormalize, type FlowCore, type FlowLayerParams, type FlowSceneParams } from './cloudFlow';
 import type { Skeleton } from './cloudSkeleton';
 import type { MorphParams } from './cloudMorph';
@@ -68,6 +68,8 @@ export interface GenusParams extends Partial<FlowLayerParams> {
    * 됩니다. 위쪽 광학두께 τ 로 확산 투과한 햇빛 sun·(1−e^(−0.1τ))·2/(2+0.15τ)·thru 를 더합니다. 0 이면 끔.
    * 기본 1. 뭉게 종류(cu·cg·cb)는 0: 이 항은 보는 방향과 무관해 해 쪽(역광) 구름 속까지 밝혀, 사진처럼 어두운 속과
    * 밝은 가장자리가 안 생깁니다(2026-11-11 역광 A/B, docs/evidence/backlit-thru).
+   * 흩어진 층 구름(sc·ac)도 0: 11월 12일 07:42 서초(해 5.3°, sc 44 %) 재현에서 이 항이 해 쪽 구름 몸통을 황갈색으로 밝혔고, 끄면 사진처럼
+   * 어두운 몸통·밝은 테두리(docs/evidence/backlit-sc-1112.jpg). 덮개 판 구름(st·as·ns)·흐린 날 채우기는 아직 1.
    */
   thru?: number;
   /** 날씨 값 d 의 감마(d^domePow) */
@@ -119,9 +121,9 @@ export interface GenusParams extends Partial<FlowLayerParams> {
  */
 export const GENUS: Record<GenusKey, GenusParams> = {
   cu: { mode: 0, height: 1600, base: 0.3, top: 1.1, edge: 1.4, ao: 1.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.55, radius: 0.6, turrets: 8, thru: 0 },
-  ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 1.3, ao: 3, domePow: 1, densityScale: 0.12, shapeAmount: 0.6, shapeDetailAmount: 0.7 },
+  ac: { mode: 1, height: 400, base: 0, top: 1.0, edge: 1.3, ao: 3, domePow: 1, densityScale: 0.12, shapeAmount: 0.6, shapeDetailAmount: 0.7, thru: 0 },
   ci: { mode: 0, height: 800, base: 0.4, top: 0.5, edge: 1.5, ao: 0, domePow: 1.5, densityScale: 0.003, shapeAmount: 0.15, shapeDetailAmount: 0 },
-  sc: { mode: 0, height: 750, base: 0.3, top: 0.45, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.65, warp: 0.8, lumps: 0.75, gap: 0.3 },
+  sc: { mode: 0, height: 750, base: 0.3, top: 0.45, edge: 1.8, ao: 3.5, domePow: 1, densityScale: 0.22, shapeAmount: 1.0, shapeDetailAmount: 0.65, warp: 0.8, lumps: 0.75, gap: 0.3, thru: 0 },
   // 층운: 판 종류는 렌즈 단면(top 4 → 층 대부분에서 hs≈1)이라 d>0 인 곳이 전부 구름이고 d 는 두께만 바꿉니다.
   // (첫 판은 돔 단면 top 0.15 라 d<0.16 인 곳이 비어 판이 덩어리로 깨졌습니다.)
   st: { mode: 1, height: 400, base: 0, top: 4, edge: 2, ao: 0, domePow: 1, densityScale: 0.2, shapeAmount: 0.1, shapeDetailAmount: 0, topQuantile: 0.5 },
@@ -1107,7 +1109,7 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
 interface ShaderVariant extends GrainKnobs {
-  base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean; lighting: LightingFixFlags;
+  base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 4 | 9; skeleton: boolean; lighting: LightingFixFlags;
   /** §179 T_sun 글자 설정(null = 넣지 않음 — tsun 0 이거나 해 > shadowMinSunDeg)과 균일변수 값(cloudTsun.ts). */
   tsun: TsunShaderConfig | null; tsunValues: TsunUniformValues | null;   // §179 검토 반영(회귀 6): 값은 처음 켤 때 만듦(끈 재질에 JS 객체도 없음)
 }
@@ -1292,7 +1294,7 @@ const DIFFUSE_FIELD_GLSL = [
   '        radiance += gJ * dot(genusOn, media.weight);',
   '      }',
 ].join('\n');
-export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): string {
+export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): string {
   if (!mode) return base;
   if (!base.includes(IS_CLOUDS)) return base;   // 그림자 패스
   if (!base.includes(THRU_BLOCK) || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH) || !base.includes(DIFF_SKY_FLOOR)) throw new Error('cloudGenus: diffuse anchor missing');
@@ -1309,6 +1311,63 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): strin
     // 진단 전용(후보 아님): 표본의 해석적 기둥 τ 를 색으로 — R = τ_total/200, G = τ_above/200, B = D_sun. 산란 광원 대신 그대로 씁니다.
     return src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL.replace('        radiance += gJ * dot(genusOn, media.weight);', '        radiance = vec3(gTt / 200.0, gTa / 200.0, gDsun);'));
   }
+  if (mode === 4) {
+    // 파동 장 레인(흐린 날 채우기)은 기둥 τ 를 그 장에서 셈(cloudWave.ts waveColumn) — 레인 0 만.
+    const WAVE_COL = [
+      '#ifdef WAVE_FIELD',
+      '        if (waveOn > 0.5) {',
+      '          vec2 gWc = waveColumn(position, gHf0.x);',
+      '          gTauA.x = densityScales.x * gLayerH.x * gWc.x;',
+      '          gTauT.x = max(gTauA.x, densityScales.x * gLayerH.x * gWc.y);',
+      '        }',
+      '#endif',
+    ].join('\n');
+    const COLW = COLUMN_GLSL + '\n' + WAVE_COL;
+    // L4(2026-11-12): L2 두-흐름 확산장·하늘빛 처리를 thru 레인(판 구름 st·as·ns·흐린 날 채우기, GenusParams.thru 1)에만.
+    // 흩어진 구름(cu·cg·cb·sc·ac, thru 0)은 원래 식 그대로 — §138 판정에서 L2 가 조각 구름 밑면을 2~3 배 밝힌 것을 피함.
+    // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
+    const backlit = THRU_BLOCK.slice(0, THRU_BLOCK.indexOf('        vec4 gLayerH'));
+    // 덱 아래 확산광(gUnderJ)은 역광 감쇠(직사광 실루엣용) 뒤에 더함 — 해를 마주볼 때 덱 τ 로 편운이 검게 되던 것.
+    src = src.replace(THRU_BLOCK, backlit + '      }\n      radiance += gUnderJ;\n' + DIFFUSE_FIELD_GLSL.replace(COLUMN_GLSL, COLW).replace('radiance += gJ * dot(genusOn, media.weight);', [
+      // 2026-11-12 방향 보정: J 는 4π 평균 휘도라 등방 산란원으로 쓰면 덱 밑에서 올려다볼 때(아래로 가는 빛을 봄) 절반쯤 어두움.
+      // 두-흐름의 순 흐름 비 f = F_net/(F↓+F↑) ≈ T/D 로 L ≈ J·(1 + f·μ), μ = 빛 진행(아래)과 눈으로 오는 방향의 코사인 = dot(시선, 위).
+      // 밑면(f≈1)을 올려다보면 2J = F↓/π, 위에서 내려다보면 0 쪽(아래로 빠져나간 빛은 안 보임).
+      `        float gTn = 1.0 / (1.0 + ${DIFFUSE_K.toFixed(4)} * ${(1 - DIFFUSE_G).toFixed(4)} * gTt);`,
+      '        float gF = clamp(gTn / max(gDsun, 1e-3), 0.0, 1.0);',
+      '        float gDir = max(0.0, 1.0 + gF * dot(rayDirection, surfaceNormal));',
+      '        radiance += gJ * gDir * dot(genusOn * genusThru, media.weight);',
+    ].join('\n')));
+    src = src.replace(DIFF_SKY_FLOOR, [
+      '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
+      '      float gDeckA = 0.0, gDeckT = 0.0;',
+      DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - genusThru)), media.weight);'),
+      '      float gSkyUncol = 1.0;',
+      '      {',
+      COLW,
+      `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
+      '#ifdef WAVE_FIELD',
+      '        if (waveOn > 0.5) { gDeckA = gTauA.x; gDeckT = gTauT.x; }',
+      '#endif',
+      '      }',
+      // 2026-11-12 덱 아래 하늘빛: 흐린 날 채우기(레인 0) 밑·속의 다른 레인 표본(편운 sc 등)은 맑은 하늘빛 대신
+      // 덱을 지나온 빛 = 충돌 전 하늘빛 e^(−sec·(1−g)·τ)(takram 식) + 덱 확산장 J(τ_위, τ_전체)를 휘도로 직접.
+      // 덱이 없으면(τ = 0) 맑은 하늘빛 그대로. 첫 그림에서 편운이 남색(그늘 속 파란 하늘빛만)으로 나오던 것.
+      '      vec3 gSkyIrr = skyIrradiance;',
+      '      vec3 gUnderJ = vec3(0.0);',
+      '      if (gDeckT > 0.0) {',
+      `        float gMu0d = ${DIFF_MU0};`,
+      '        float gDs = genusDiffuseField(gDeckA, gDeckT, 1.0 / gMu0d);',
+      `        float gDk = genusDiffuseField(gDeckA, gDeckT, ${SKY_SECANT.toFixed(1)});`,
+      `        vec3 gJd = (sunIrradiance * gMu0d * genusSunWeight(gMu0d) * gDs + skyIrradiance * ${INV_2PI.toFixed(6)} * gDk) * ${INV_2PI.toFixed(6)};`,
+      '        float gUw = dot(vec4(1.0) - genusOn * genusThru, media.weight);',
+      `        gSkyIrr = mix(skyIrradiance, skyIrradiance * exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * gDeckA), gUw);`,
+      // 고른 확산 빛 속의 두꺼운 구름은 다중 산란으로 그 빛의 평균 휘도에 가까워짐(takram 하늘빛 항은 단일 산란 E/4π·기울기·ao 라 너무 어두움).
+      // 아래 반구는 지면 반사(알베도 ~0.1) → L ≈ J·(1 + a)/2.
+      '        gUnderJ = 0.55 * gJd * gUw;',
+      '      }',
+    ].join('\n'));
+    return src.replace(IS_CLOUDS, `radiance += gSkyIrr * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
+  }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
     // L2: 하늘빛 항 = 충돌 전 하늘빛만(E_h·½·e^(−2τ'_above)·skyGradient), ao·0.35 바닥값 은퇴.
@@ -1324,7 +1383,7 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): strin
   }
   return src;
 }
-export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3 | 9): void {
+export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3 | 4 | 9): void {
   variantOf(mat).diffuse = mode;
   refreshVariant(mat);
 }
@@ -1335,13 +1394,19 @@ export function genusEnvelope(L: GenusLayer): { mode: number; base: number; top:
 }
 
 /** 종류별 층 기본값(두께·밀도·모양 양) — CloudLayer 생성에 씁니다. */
+/**
+ * 표면 깎기(takram 모양 잡음 remap) 세기의 종류별 하한(2026-11-12). 솜털·덩어리 두 가지로 갈리던 것은 이 세기 차이(1.0 대 0.1~0.35)였음.
+ * 뭉게 계열은 1 근처, 판 구름은 0.4(구멍 대신 흐릿한 결). 상층 얇은 막(ci·cs)·모루는 손대지 않음(0).
+ */
+export const SHAPE_FLOOR: Partial<Record<GenusKey, number>> = { cu: 1, cg: 1, cb: 1, sc: 0.8, ac: 0.6, ns: 0.6, as: 0.4, st: 0.4 };
 export function genusLayerShape(L: GenusLayer, flowDensity = false) {
   // §130 C2 흐름 밀도가 켜진 층은 소광·모양 잡음 양을 흐름값(GENUS_FLOW 의 flowDensityScale 등)으로 — 꺼진 층은 GENUS 그대로.
   const fd = flowDensity && (fp(L, 'flow') ?? 0) > 0;
   return {
     height: param(L, 'height'),
     densityScale: (fd ? fp(L, 'flowDensityScale') : undefined) ?? param(L, 'densityScale'),
-    shapeAmount: (fd ? fp(L, 'flowShapeAmount') : undefined) ?? param(L, 'shapeAmount'),
+    // 2026-11-12 표면 깎기 하한: 경로(흐름·연속 형태·판 종류)마다 0.1~0.35 로 내려가 매끈한 덩어리가 되던 것 — 종류별 하한 아래로 못 내려감.
+    shapeAmount: Math.max(SHAPE_FLOOR[L.genus] ?? 0, (fd ? fp(L, 'flowShapeAmount') : undefined) ?? param(L, 'shapeAmount')),
     shapeDetailAmount: (fd ? fp(L, 'flowShapeDetailAmount') : undefined) ?? param(L, 'shapeDetailAmount'),
   };
 }
