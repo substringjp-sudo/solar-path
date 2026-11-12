@@ -22,6 +22,11 @@ if (ATMOS === 'load') {
   const src = path.join(__dirname, '../../../node_modules/@takram/three-atmosphere/assets');
   for (const f of fs.readdirSync(src)) if (f.endsWith('.bin')) fs.copyFileSync(path.join(src, f), path.join(ROOT, 'assets', f));
 }
+// 밤 불빛 지도(job.cityMap) — 잡이 assets/nightlights/… 로 읽음.
+{
+  const nl = path.join(__dirname, '../../../assets/nightlights');
+  if (fs.existsSync(nl)) { fs.mkdirSync(path.join(ROOT, 'assets/nightlights'), { recursive: true }); for (const f of fs.readdirSync(nl)) fs.copyFileSync(path.join(nl, f), path.join(ROOT, 'assets/nightlights', f)); }
+}
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'index.html'), '<!doctype html><html><head><meta charset="utf-8"></head><body><script type="module" src="app.js"></script></body></html>');
 const server = http.createServer((req, res) => {
