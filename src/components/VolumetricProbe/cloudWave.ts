@@ -58,6 +58,8 @@ export interface WaveParams {
    */
   smoothM?: number;
   smoothZ?: number;
+  /** 밑면에서도 작은 파동(혹)을 켜는 비율 0~1(거친 비구름 밑면). 0 이면 밑면 30 % 높이까지 꺼짐 */
+  baseBump?: number;
   seed?: number;
   /** 구울 상자: 반 폭(m)·가로 칸·세로 칸 */
   halfM?: number;
@@ -78,6 +80,7 @@ export interface WaveField {
   smallK: Vector4[];
   smallAmp: [number, number, number];
   detail: number;
+  baseBump: number;
   bakeMs: number;
   stats: { coverMeasured: number; vMin: number; vMax: number };
 }
@@ -124,7 +127,7 @@ function makeWaves(p: Required<WaveParams>, r: () => number): Wave[][] {
 }
 
 const DEF: Omit<Required<WaveParams>, 'ziM' | 'baseM' | 'thickM' | 'cover' | 'chi'> = {
-  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, smoothM: 0, smoothZ: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
+  shearDeg: 90, shear: 0.002, N: 0.004, wStar: 1.5, edge: 3, sigmaB: 120, warp: 0.15, spec: 1, bump: 1, detail: 0.55, dome: false, gamma: 0.3, profile: [], vstretch: 1, fillM: 0, mix3d: 1, smoothM: 0, smoothZ: 0, baseBump: 0, seed: 1, halfM: 15000, nxy: 192, nz: 40,
 };
 
 /** 레인 높이 범위(m): 밑면 100 m 아래 ~ 윗면 + 0.3H. 장면 층의 baseKm·thicknessM 을 이것에 맞추세요. */
@@ -326,7 +329,7 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
   const smallK: Vector4[] = [];
   for (let j = 3; j < OCT; j++) for (const w of W[j]) smallK.push(new Vector4(w.kx, w.ky, w.kz, w.ph));
   return {
-    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, smallK,
+    tex, tau, zMin, zMax, halfM: half, chi: p.chi, edge: p.edge, detail: p.detail, baseBump: p.baseBump, smallK,
     // 단계 5(~λ0/32)는 행진 보폭보다 짧아 반짝이는 점으로 깨져 뺍니다(2차 판정).
     smallAmp: [AMP[3] * p.bump, AMP[4] * p.bump, 0], bakeMs: Date.now() - t0,
     stats: { coverMeasured, vMin, vMax },
@@ -419,7 +422,7 @@ export function patchWaveShader(mat: PatchableMaterial): void {
     '    // 작은 파동은 표면 근처에서만(속과 먼 바깥은 계산 생략)',
     '    float wfb = clamp((wz - waveBox.y) / max(waveBox.z, 1.0), 0.0, 1.0);',
     '    // 혹은 밑면에서 꺼지고 옆·꼭대기에서 켜짐(평평한 밑면, 꽃양배추 윗면)',
-    '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * smoothstep(0.0, 0.3, wfb) * waveSmall(vec3(wxy, wz));',
+    '    if (ws > -1.2 && ws < 0.6) ws += waveP.y * mix(smoothstep(0.0, 0.3, wfb), 1.0, waveBox.w) * waveSmall(vec3(wxy, wz));',
     '    float wprof = 0.25 + 0.75 * pow(wfb, 0.6667);',
     '    float wc = clamp(waveP.z * ws, 0.0, 1.0);',
     // 표면 깎기(2026-11-12): 다른 구름과 같은 takram 모양 잡음으로, 세기는 대류성 χ 로 0.4(판)~1(뭉게). 속(wc≈1)은 그대로.
@@ -454,7 +457,7 @@ export function setWaveUniforms(mat: PatchableMaterial, field: WaveField | null,
   u.waveOn.value = field ? 1 : 0;
   if (!field) { u.waveTex.value = DUMMY; return; }
   u.waveTex.value = field.tex;
-  (u.waveBox.value as Vector4).set(field.halfM, baseM, thickM, 0);
+  (u.waveBox.value as Vector4).set(field.halfM, baseM, thickM, field.baseBump);
   (u.waveP.value as Vector4).set(field.tau, field.chi, field.edge, field.detail);
   const ks = u.waveK.value as Vector4[];
   field.smallK.forEach((k, i) => ks[i].copy(k));

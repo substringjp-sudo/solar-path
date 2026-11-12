@@ -78,8 +78,9 @@ export interface LiveSceneArgs {
  * 흐린 날 채우기 층의 소광 배율(2026-11-12). 난층운 값 0.28 을 빌려 쓰면 1~7 km 덱의 기둥 광학두께가 커서 두-흐름 확산광이 거의 0(덱 평균 43/255).
  * 0.02~0.04 에서 회색 덱(80~100/255) — 0.03.
  */
-export /** 비구름 밑 조각구름(편운) — 빛이 맞을 때까지 끔 */
-const FRACTUS_ON = false;
+export /** 비구름 밑 조각구름(편운). 덱 아래 빛(cloudGenus §L4 gUnderJ)을 고친 뒤 켬 */
+const FRACTUS_ON = true;
+const FRACTUS_OPTS = { densityScale: 0.06, shapeAmount: 1, shapeDetailAmount: 1, edge: 1.2 } as const;
 const FILL_DENSITY_SCALE = 0.03;
 
 /**
@@ -311,30 +312,43 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   let fillOn = false;
   let fillRough = 0;
   if (fillProf) {
-    const on = fillProf.filter(q => q.cover > 0.02);
+    const rr = rainRoughness(obs, W.low);
+    const q2 = (v: number) => Math.round(v * 100) / 100;
+    // 거친 비구름(2026-11-12): 밑면이 평평한 판으로 끝나 아래에서 거칠기가 안 보였음 → 밑면 아래로 운량이 줄어드는 자락(깊이 500·r m)을 붙여
+    // 덱 밑에 늘어진 덩어리·틈이 생기게 함. 자락 안의 원래 높이 칸은 자락 값으로 바꿈.
+    // 자락은 덱 본체(운량 0.5 이상) 밑면에서 — 그 아래 얇은 칸(예: 0.09)은 자락으로 바뀜.
+    const z0 = fillProf.find(q => q.cover >= 0.5)?.zM;
+    let prof = fillProf;
+    if (z0 != null && rr.r > 0.15 && z0 - a.heightM > 500) {
+      // 땅에서 400 m 위까지만(레인 바닥은 자락 아래 300 m).
+      const d = Math.round(Math.max(0, Math.min(500 * rr.r, z0 - a.heightM - 400)));
+      prof = [
+        ...fillProf.filter(q => q.zM >= z0 || q.zM < z0 - d - 100),
+        { zM: z0 - d, cover: q2(0.2 * rr.r) }, { zM: z0 - Math.round(d / 2), cover: q2(0.6 * rr.r) },
+      ].sort((a, b) => a.zM - b.zM);
+    }
+    const on = prof.filter(q => q.cover > 0.02);
     if (on.length) {
       const zLo = on[0].zM, zHi = on[on.length - 1].zM;
       const [lu, lv] = W.low, [mu, mv] = W.mid, dz = Math.max(500, ((obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low)) * 1000);
       const shear = Math.hypot(mu - lu, mv - lv) / 3.6 / dz;
       const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
-      const rr = rainRoughness(obs, W.low);
       fillRough = rr.r;
       // 거칠기 r(0 매끈한 난층운 ~ 1 거친 비구름): 작은 혹·표면 깎기(χ), 3차원 섞임, 가장자리 선명도는 키우고 흐림은 줄임.
-      const q2 = (v: number) => Math.round(v * 100) / 100;
       const wave = {
         ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q2(0.1 + 0.5 * rr.r),
         shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: q2(1.5 + 1.5 * rr.r), spec: 1.6, vstretch: 1.5, mix3d: q2(0.3 + 0.4 * rr.r),
-        fillM: 1500, smoothM: Math.round(800 - 500 * rr.r), smoothZ: rr.r > 0.5 ? 1 : 2, profile: fillProf,
+        fillM: 1500, smoothM: Math.round(800 - 500 * rr.r), smoothZ: rr.r > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rr.r),
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
       const zMin = zLo - 300, zMax = zHi + 400;
       layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave, densityScale: FILL_DENSITY_SCALE } as VolumetricLayerInput['opts'] };
       layers[1] = { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' };
       // 편운(밑면 아래 조각구름): 비가 오고 바람이 세며 구름 아래가 건조할 때 — 빗방울 증발로 식은 공기가 밑면 아래에 낮고 빠른 조각을 만듦.
-      // 꺼 둠: 첫 그림(rough-compare)에서 남색 불투명 덩어리로 나옴. 그늘 속 sc 빛을 고친 뒤 켬.
       if (FRACTUS_ON && (obs.precipitation ?? 0) >= 0.1 && rr.wind > 0.3 && rr.dry > 0.15) {
         const fBase = Math.max(a.heightM / 1000 + 0.15, zLo / 1000 - 0.45);
-        layers[1] = { genus: 'sc', cover: q2(0.2 + 0.25 * rr.wind), baseKm: fBase, thicknessM: 300, band: 'low', opts: { ...flowOpts('low') } };
+        // 옅고 찢어진 조각: 밀도 sc 의 약 1/4, 표면 깎기·잔무늬 최대, 가장자리 무르게(edge 1.2), 얇게(250 m).
+        layers[1] = { genus: 'sc', cover: q2(0.15 + 0.2 * rr.wind), baseKm: fBase, thicknessM: 250, band: 'low', opts: { ...flowOpts('low'), ...FRACTUS_OPTS } };
       }
       fillOn = true;
     }
