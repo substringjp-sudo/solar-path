@@ -387,7 +387,7 @@ export interface VolumetricOptions extends TsunOptions {
    * §138 구름 속 확산광(RULER-physics3). 0 = 끔(기본, 셰이더 글자 그대로) · 1 = L1 thru 의 τ_up 을 기둥 광학두께로 · 2 = L2 두-흐름 확산장이 thru 를 대체 ·
    * 3 = L3 L2 + 하늘빛 항을 기둥 τ 로 감쇠(ao·바닥값 은퇴). 구름 패스에만 삽입하고, 0 이면 삽입 전 원문으로 되돌립니다.
    */
-  diffuse: 0 | 1 | 2 | 3 | 9;
+  diffuse: 0 | 1 | 2 | 3 | 4 | 9;
   /**
    * §139 구름 뼈대(cloudSkeleton.ts, RULER-shape). 0 = 끔(기본 — 날씨 바이트·셰이더 글자 그대로) · 1 = K0h 대조군(옛 무늬, 층 밑면·두께만 뼈대) ·
    * 2 = K1 뼈대(열기둥 자리·폭·깊이·뚜껑 단면·봉투 거리 밀도) · 3 = K2 = K1 + 전단 기울기(흐름 S4 fetch 레인) · 4 = K3 = K1 + 열기둥별 변이(세기·종·생애 단계·비대칭,

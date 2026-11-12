@@ -140,6 +140,7 @@ const VolumetricPerfRow: React.FC = () => {
   const accSun = useCelestialStore(s => s.skySettings.volumetricAccurateSun ?? true);
   const lowShadow = useCelestialStore(s => s.skySettings.volumetricLowSunShadow ?? true);
   const farSun = useCelestialStore(s => !!s.skySettings.volumetricFarSun);
+  const sheetDiff = useCelestialStore(s => s.skySettings.volumetricSheetDiffuse ?? true);
   const clampIn = useCelestialStore(s => s.skySettings.volumetricClampInscatter ?? true);
   const logMu = useCelestialStore(s => s.skySettings.volumetricIrradianceLogMu ?? true);
   const camVol = useCelestialStore(s => !!s.skySettings.cameraVolumetric);
@@ -193,6 +194,10 @@ const VolumetricPerfRow: React.FC = () => {
         {/* 먼 구름 햇빛 가림(시험, 기본 끔) — 해 10° 아래에서 지평선 너머 구름이 해를 가림 */}
         <TouchableOpacity onPress={() => set({ volumetricFarSun: !farSun })} style={chip(farSun)}>
           <Text style={styles.volChipText}>먼 구름 가림</Text>
+        </TouchableOpacity>
+        {/* 판 구름·흐린 날 채우기에 구름을 뚫고 흩어져 내려오는 햇빛(두-흐름, 기본 켬) */}
+        <TouchableOpacity onPress={() => set({ volumetricSheetDiffuse: !sheetDiff })} style={chip(sheetDiff)}>
+          <Text style={styles.volChipText}>흐린 날 밝기</Text>
         </TouchableOpacity>
         {/* §156 고리 예보 운량 격자 — 0 끔 · 1 격자 · 2 격자+잡음 */}
         <TouchableOpacity onPress={() => set({ volumetricMacro: ((macroMode + 1) % 3) as 0 | 1 | 2 })} style={chip(macroMode > 0)}>

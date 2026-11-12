@@ -1109,7 +1109,7 @@ export function applyGenusFloors(base: string, floors: [number, number] | null):
  * 변형이 쓰던 균일변수도 지웁니다(끈 장면의 상태 해시가 처음 만든 장면과 같도록 — 같은 페이지에서 얼음 장면 뒤 물 장면이 균일변수를 물려받던 결함).
  */
 interface ShaderVariant extends GrainKnobs {
-  base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 9; skeleton: boolean; lighting: LightingFixFlags;
+  base: string; ice: boolean; floors: [number, number] | null; diffuse: 0 | 1 | 2 | 3 | 4 | 9; skeleton: boolean; lighting: LightingFixFlags;
   /** §179 T_sun 글자 설정(null = 넣지 않음 — tsun 0 이거나 해 > shadowMinSunDeg)과 균일변수 값(cloudTsun.ts). */
   tsun: TsunShaderConfig | null; tsunValues: TsunUniformValues | null;   // §179 검토 반영(회귀 6): 값은 처음 켤 때 만듦(끈 재질에 JS 객체도 없음)
 }
@@ -1294,7 +1294,7 @@ const DIFFUSE_FIELD_GLSL = [
   '        radiance += gJ * dot(genusOn, media.weight);',
   '      }',
 ].join('\n');
-export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): string {
+export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 4 | 9): string {
   if (!mode) return base;
   if (!base.includes(IS_CLOUDS)) return base;   // 그림자 패스
   if (!base.includes(THRU_BLOCK) || !base.includes(DIFF_TAU_LINE) || !base.includes(ICE_MARCH) || !base.includes(DIFF_SKY_FLOOR)) throw new Error('cloudGenus: diffuse anchor missing');
@@ -1311,6 +1311,23 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): strin
     // 진단 전용(후보 아님): 표본의 해석적 기둥 τ 를 색으로 — R = τ_total/200, G = τ_above/200, B = D_sun. 산란 광원 대신 그대로 씁니다.
     return src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL.replace('        radiance += gJ * dot(genusOn, media.weight);', '        radiance = vec3(gTt / 200.0, gTa / 200.0, gDsun);'));
   }
+  if (mode === 4) {
+    // L4(2026-11-12): L2 두-흐름 확산장·하늘빛 처리를 thru 레인(판 구름 st·as·ns·흐린 날 채우기, GenusParams.thru 1)에만.
+    // 흩어진 구름(cu·cg·cb·sc·ac, thru 0)은 원래 식 그대로 — §138 판정에서 L2 가 조각 구름 밑면을 2~3 배 밝힌 것을 피함.
+    // 흐린 날 덱이 거의 검던 것(11월 8일 13:43 재현 덱 평균 20/255, 파랑/빨강 1.96)이 L2 에서 113/255·1.06(중성 회색).
+    const backlit = THRU_BLOCK.slice(0, THRU_BLOCK.indexOf('        vec4 gLayerH'));
+    src = src.replace(THRU_BLOCK, backlit + '      }\n' + DIFFUSE_FIELD_GLSL.replace('radiance += gJ * dot(genusOn, media.weight);', 'radiance += gJ * dot(genusOn * genusThru, media.weight);'));
+    src = src.replace(DIFF_SKY_FLOOR, [
+      '      // §L4: ao·0.35 바닥값은 thru 레인만 은퇴(그 밖 레인은 원래 식).',
+      DIFF_SKY_FLOOR.replace('genusOn), media.weight);', 'genusOn * (vec4(1.0) - genusThru)), media.weight);'),
+      '      float gSkyUncol = 1.0;',
+      '      {',
+      COLUMN_GLSL,
+      `        gSkyUncol = exp(-${SKY_SECANT.toFixed(1)} * ${(1 - DIFFUSE_G).toFixed(4)} * dot(gTauA, media.weight));`,
+      '      }',
+    ].join('\n'));
+    return src.replace(IS_CLOUDS, `radiance += skyIrradiance * mix(RECIPROCAL_PI4, ${(0.5 * INV_2PI).toFixed(6)} * gSkyUncol, dot(genusOn * genusThru, media.weight)) * skyGradient * skyLightScale;   // §L4`);
+  }
   src = src.replace(THRU_BLOCK, '\n' + DIFFUSE_FIELD_GLSL);
   if (mode === 2) {
     // L2: 하늘빛 항 = 충돌 전 하늘빛만(E_h·½·e^(−2τ'_above)·skyGradient), ao·0.35 바닥값 은퇴.
@@ -1326,7 +1343,7 @@ export function injectGenusDiffuse(base: string, mode: 0 | 1 | 2 | 3 | 9): strin
   }
   return src;
 }
-export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3 | 9): void {
+export function setGenusDiffuse(mat: PatchableMaterial, mode: 0 | 1 | 2 | 3 | 4 | 9): void {
   variantOf(mat).diffuse = mode;
   refreshVariant(mat);
 }
