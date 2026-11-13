@@ -108,7 +108,8 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   // S7 평균 보존 침식 + 발자국 페이드(mipLevel 은 sampleMedia 의 매개변수).
   src = src.replace(gShape, [
     '  float gFoot = genusTexelM * exp2(mipLevel);',
-    '  vec4 gErodeAmt = genusErode * (1.0 - smoothstep(150.0, 600.0, gFoot));',
+    // 찢긴 결 잡음은 늘인 능선이라 멀리서도 알갱이가 덜 생김 — wisp 만큼 침식 페이드를 1.5~6 km 로 늘려 중간 거리 구름 끝도 결로.
+    '  vec4 gErodeAmt = genusErode * mix(vec4(1.0 - smoothstep(150.0, 600.0, gFoot)), vec4(1.0 - smoothstep(1500.0, 6000.0, gFoot)), clamp(genusWisp, vec4(0.0), vec4(1.0)));',
     // 2026-11-13 찢긴 결(genusWisp): 모양 잡음(Perlin-Worley)은 어느 문턱에서 잘라도 둥근 방울 → 흐름 구름 끝이 포도송이(서울 14:04).
     //   잡음을 뒤집어 셀 경계선(능선 1 − |2n − 1|)을 쓰고 바람 방향으로 8 배 늘이면 방울 대신 실 같은 결. 결의 가로 위치를 낮은 주파수 잡음으로
     //   흔들어(도메인 휨) 곧은 줄무늬가 아니라 휘어진 결로. 침식(평균 보존 곱)과 깎기 둘 다 이 잡음을 wisp 만큼 섞어 씀.
