@@ -214,7 +214,7 @@ export interface SkySettings {
   volumetricRes?: number;
   /** §127 프레임 간격을 보고 구름 해상도를 자동으로 내리고 올림 — 기본 켬. */
   volumetricAutoRes?: boolean;
-  /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 자(RULER-flow)·운량 역표 재맞춤 전까지 기본 끔. */
+  /** §130 대기 흐름 구름 모형(flow) · 층별 바람 드리프트/전단 기울임(flowUv) — 기본 켬. */
   volumetricFlow?: boolean;
   volumetricFlowUv?: boolean;
   /** §136 구름 미세물리(physics: 종류별 소광·단열 단면·응결고도 밑면) · 얼음 무리(physicsIce) — 자(RULER-physics)를 넘기지 못해 기본 끔, 개발 패널 PHYS/ICE 칩으로 켬. */
@@ -256,9 +256,9 @@ export const DEFAULT_SKY_SETTINGS: SkySettings = {
   volumetricQuality: 'low',
   volumetricRes: 0.5,
   volumetricAutoRes: true,
-  // §135 0단계: 흐름 모형은 자(RULER-flow)를 다 넘기지 못해 기본 끔으로 되돌립니다(커밋 1918960 이 켜 둔 것). 개발 패널 FLOW/UV 칩으로 켤 수 있습니다.
-  volumetricFlow: false,
-  volumetricFlowUv: false,
+  // 대기 흐름 구름 모형과 층별 바람 드리프트/전단 기울임(flowUv)을 기본으로 켭니다. 개발 패널 FLOW/UV 칩으로 끌 수 있습니다.
+  volumetricFlow: true,
+  volumetricFlowUv: true,
   volumetricPhysics: false,
   volumetricPhysicsIce: false,
   volumetricMacro: 1,
@@ -768,7 +768,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const target = settleProgress(flingProgress(from, rate), lat, vs.w / vs.h, rate);
     const duration = settleDurationMs(from, target, rate);
     if (duration <= 0) {
-      applyZoomProgress(from, { force: true, keepCenter: true });
+      if (Math.abs(target - from) >= 1e-6) {
+        applyZoomProgress(from, { force: true, keepCenter: true });
+      }
       return;
     }
     const t0 = performance.now();
@@ -848,25 +850,27 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const wasSliding = isSlidingRef.current;
     isSlidingRef.current = isSliding;
     if (!isSliding && wasSliding) {
-      // 슬라이더에서 손을 떼는 순간: 슬라이딩 중 돌던 미완료 비동기 작업만 취소하고
-      // 대기 플래그를 정상화 (이미 같은 시간대 키가 있으면 텍스처를 불필요하게 다시 굽지 않음)
-      if (volRef.current?.cancelAsync) {
-        volRef.current.cancelAsync();
-      }
-      volPendingRef.current = false;
+      // 슬라이더에서 손을 떼는 순간: 진행 중인 같은 시간대(key) 비동기 빌드는 취소하지 않고 그대로 마저 끝내며,
+      // 만약 다른 시간대로 바뀌었으면 animate 루프에서 새 setSceneAsync 가 이전 작업을 덮어씁니다.
       lastTargetSyncPerfRef.current = performance.now();
-      requestRender(5);
+      requestRender(4);
     }
   }, [isSliding, requestRender]);
 
-  // 볼륨 하늘 실시간 구름 유영: 0.4 초마다 렌더를 깨워 바람 드리프트(§155)를 반영 — 1 초 간격은 한 번에 몇 px 씩 툭툭 넘어갔습니다.
+  // 볼륨 하늘 실시간 구름 유영: 정지 상태에서 바람 드리프트(§155)만 2초 간격으로 가볍게 갱신합니다.
   useEffect(() => {
     if (!isActive) return;
     const timer = setInterval(() => {
-      if (volRef.current && !isSlidingRef.current) {
-        requestRender(2);
+      if (
+        volRef.current &&
+        !isSlidingRef.current &&
+        !volPendingRef.current &&
+        volSettleRef.current <= 0 &&
+        !useCelestialStore.getState().isGestureBlocked
+      ) {
+        requestRender(1);
       }
-    }, 400);
+    }, 2000);
     return () => clearInterval(timer);
   }, [isActive, requestRender]);
 
@@ -1527,10 +1531,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         pinchDistRef.current = null;
         setCameraAzimuth(cameraAzRef.current);
         setCameraElevation(cameraElevRef.current);
-        setCameraFov(fovRef.current);
-        // 놓기·끊김 모두 같은 식(예전 끊김 처리는 고도 식과 단계 문턱이 달랐습니다).
-        // 손가락 속도로 조금 더 가고, 겹침 구간이면 끝까지 마저 갑니다(§153).
-        settleZoomRef.current(pinchRateFromSamples(pinchSamplesRef.current));
+        const hadPinchOrOverlay = pinchSamplesRef.current.length > 0 || zoomProgressRef.current > P_FOV_END;
+        if (hadPinchOrOverlay) {
+          setCameraFov(fovRef.current);
+          // 놓기·끊김 모두 같은 식(예전 끊김 처리는 고도 식과 단계 문턱이 달랐습니다).
+          // 손가락 속도로 조금 더 가고, 겹침 구간이면 끝까지 마저 갑니다(§153).
+          settleZoomRef.current(pinchRateFromSamples(pinchSamplesRef.current));
+        }
         pinchSamplesRef.current = [];
         requestRender(5);
         // 드래그 종료: TabNavigator 스와이프 다시 허용
@@ -1547,10 +1554,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         pinchDistRef.current = null;
         setCameraAzimuth(cameraAzRef.current);
         setCameraElevation(cameraElevRef.current);
-        setCameraFov(fovRef.current);
+        const hadPinchOrOverlay = pinchSamplesRef.current.length > 0 || zoomProgressRef.current > P_FOV_END;
         // 빼앗겼을 때는 미끄러지지 않고, 겹침 구간이면 끝으로만 갑니다.
         pinchSamplesRef.current = [];
-        settleZoomRef.current(0);
+        if (hadPinchOrOverlay) {
+          setCameraFov(fovRef.current);
+          settleZoomRef.current(0);
+        }
         requestRender(3);
         useCelestialStore.getState().setGestureBlocked(false);
         markAdjustingRef.current(false);
@@ -1865,7 +1875,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
 
       // ── 프레임 시간 적산 (적응 해상도) ───────────────────────────────────
-      {
+      if (!(volRef.current && volHasSceneRef.current)) {
         if (adaptLastTs > 0) {
           const dt = now - adaptLastTs;
           if (dt < 200) {
@@ -2081,7 +2091,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               // 하네스 전용(tools/web-repro) — 미리 만든 대기 표 등 만들기 옵션을 덮습니다. 기기에서는 정의되지 않습니다.
               const harnessVolOpts = (globalThis as unknown as { __volCreateOpts?: (r: THREE.WebGLRenderer) => Promise<Record<string, unknown>> }).__volCreateOpts;
               (harnessVolOpts ? harnessVolOpts(renderer as unknown as THREE.WebGLRenderer) : Promise.resolve({}))
-                .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, ...extra }))
+                .then(extra => mod.createVolumetricScene(renderer as unknown as THREE.WebGLRenderer, gl.drawingBufferWidth, gl.drawingBufferHeight, { genus: true, celestial: false, flow: skySettingsRef.current.volumetricFlow ?? true, flowUv: skySettingsRef.current.volumetricFlowUv ?? true, ...extra }))
                 .then(v => {
                   volumetricStats.atmosMs = Date.now() - tAtmos;
                   volumetricStats.spectral = v.spectral;
@@ -2090,7 +2100,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   v.setResolutionScale(volGovRef.current.scale);
                   volQualityRef.current = '';
                   volRef.current = v; loadNightLights().then(m => { if (volRef.current === v) v.setCityMap(m); }); volBusyRef.current = false; volKeyRef.current = ''; volHasSceneRef.current = false; volPendingRef.current = false;
-                  volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 24;
+                  volSizeRef.current = `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`; volSettleRef.current = 8;
                   setVolumetricStatus({ phase: 'running' }); requestRender(3);
                 })
                 .catch(e => { volFailedRef.current = '생성: ' + String((e as Error)?.message ?? e); volBusyRef.current = false; setVolumetricStatus({ phase: 'failed', error: volFailedRef.current }); console.warn('[SkyScene] 볼륨 하늘 생성 실패:', (e as Error)?.stack ?? e); requestRender(2); });
@@ -2104,15 +2114,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (szKey !== volSizeRef.current) { vol.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight); volSizeRef.current = szKey; }
             // §127 품질 단계·최대 해상도 설정이 바뀌면 겁니다.
             const q = volSet.volumetricQuality ?? 'low';
-            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${volSet.volumetricFlow ? 1 : 0}|${volSet.volumetricFlowUv ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
+            const qKey = `${q}|${volSet.volumetricRes ?? 0.5}|${(volSet.volumetricFlow ?? true) ? 1 : 0}|${(volSet.volumetricFlowUv ?? true) ? 1 : 0}|${volSet.volumetricPhysics ? 1 : 0}|${volSet.volumetricPhysicsIce ? 1 : 0}|${volSet.volumetricMacro ?? 1}|${volSet.volumetricMorph ? 1 : 0}|${volSet.volumetricBillow ?? true ? 1 : 0}|${volSet.volumetricFill ?? true ? 1 : 0}|${volSet.volumetricAccurateSun ?? true ? 1 : 0}|${volSet.volumetricLowSunShadow ?? true ? 1 : 0}|${volSet.volumetricFarSun ?? true ? 1 : 0}|${volSet.volumetricSheetDiffuse ?? true ? 1 : 0}|${volSet.volumetricClampInscatter ?? true ? 1 : 0}|${volSet.volumetricIrradianceLogMu ?? true ? 1 : 0}`;
             if (qKey !== volQualityRef.current) {
               vol.setQuality(q);
               // §130 흐름 모형 플래그 — 장면은 아래 키를 비워 setSceneAsync(잘라 만들기)로 다시 만듭니다(동기 재생성은 수 초 멈춤).
-              vol.setOptions({ flow: !!volSet.volumetricFlow, flowUv: !!volSet.volumetricFlowUv, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 15 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunMarch: (volSet.volumetricBillow ?? true) ? [10, 60, 1.5] : [6, 250, 1.6], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
+              vol.setOptions({ flow: volSet.volumetricFlow ?? true, flowUv: volSet.volumetricFlowUv ?? true, physics: !!volSet.volumetricPhysics, physicsIce: !!volSet.volumetricPhysics && !!volSet.volumetricPhysicsIce, macro: volSet.volumetricMacro ?? 1, morph: !!volSet.volumetricMorph, billow: volSet.volumetricBillow ?? true, accurateSunBelowDeg: (volSet.volumetricAccurateSun ?? true) ? 15 : null, shadowMinSunDeg: (volSet.volumetricLowSunShadow ?? true) ? -4 : 12, farSun: volSet.volumetricFarSun ?? true, diffuse: (volSet.volumetricSheetDiffuse ?? true) ? 4 : 0, sunMarch: (volSet.volumetricBillow ?? true) ? [10, 60, 1.5] : [6, 250, 1.6], clampInscatter: volSet.volumetricClampInscatter ?? true, irradianceLogMu: volSet.volumetricIrradianceLogMu ?? true }, false);
               volKeyRef.current = '';
               const changed = volGovRef.current?.setMax(volSet.volumetricRes ?? 0.5);
               if (changed != null) vol.setResolutionScale(changed);
-              volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 16);
+              volQualityRef.current = qKey; volSettleRef.current = Math.max(volSettleRef.current, 8);
             }
             const vLat = location?.coords?.latitude ?? 37.5, vLon = location?.coords?.longitude ?? 127.0;
             const vElev = simRef.current?.terrain?.observerElevation ?? location?.coords?.altitude ?? 50;
@@ -2149,7 +2159,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 약 30 %(흐름 핵이 해상도와 무관하게 대부분) — 드래그 중에도 같은 판으로 만들고 180 ms 쓰로틀만 둡니다.
             const isFast = false;
             const needUpgrade = false;
-            if (live && (key !== volKeyRef.current || needUpgrade) && !volPendingRef.current && allowSlidingBuild) {
+            if (live && (key !== volKeyRef.current || needUpgrade) && (!volPendingRef.current || !isSlidingNow) && allowSlidingBuild) {
               lastSlidingVolBuildTimeRef.current = nowPerf;
               lastVolIsFastRef.current = isFast;
               const built = live.buildLiveScene({
@@ -2166,7 +2176,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volPendingRef.current = true;
               const tW = Date.now();
               vol.setSceneAsync(built.input, isFast).then(applied => {
-                volPendingRef.current = false;
+                if (volKeyRef.current === key) volPendingRef.current = false;
                 volumetricStats.weatherMs = vol.weatherMs();
                 if (applied) {
                   volHasSceneRef.current = true;
@@ -2180,13 +2190,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                     tau: built.tauDni != null ? Math.round(built.tauDni * 10) / 10 : undefined,
                   } : null;
                   volViewRef.current = '';          // 다음 프레임에 지금 시선을 다시 겁니다(생성 중에 돌렸을 수 있음)
-                  volSettleRef.current = 24;
+                  volSettleRef.current = 8;
                   volFreshRef.current = false;      // §165 새 장면이 한 프레임 그려질 때까지 준비 아님
                 } else if (volKeyRef.current === key) volKeyRef.current = '';
                 if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
                 requestRender(3);
               }).catch(e => {
-                volPendingRef.current = false; volKeyRef.current = '';
+                if (volKeyRef.current === key) { volPendingRef.current = false; volKeyRef.current = ''; }
                 volFailedRef.current = '층: ' + String((e as Error)?.message ?? e);
                 setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
                 console.warn('[SkyScene] 볼륨 층 생성 실패:', (e as Error)?.stack ?? e); requestRender(2);
@@ -2202,11 +2212,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               vol.setDate(vDate, (a2.sceneMs + (nowWall - a2.wallMs)) / 1000);
               const intervalMs = lastRenderTsRef.current > 0 ? now - lastRenderTsRef.current : 0;
               const dtSec = intervalMs > 0 ? Math.min(0.1, Math.max(0.001, intervalMs / 1000)) : 1 / 60;
-              // §127 해상도 자동 조절 — 이어서 그린 프레임 간격으로 구름 해상도 배율을 계단으로 내리고 올립니다.
+              // §127 해상도 자동 조절 — 상호작용 중에만 판단해 손을 뗀 뒤 수렴 구간에서 해상도가 출렁이지 않게 합니다.
               const gov = volGovRef.current;
-              if (gov && (volSet.volumetricAutoRes ?? true)) {
+              const isInteractingNow = isSlidingRef.current || useCelestialStore.getState().isGestureBlocked;
+              if (gov && (volSet.volumetricAutoRes ?? true) && isInteractingNow) {
                 const next = gov.sample(intervalMs);
-                if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 16); }
+                if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 8); }
               }
               volumetricStats.frameMs = gov?.emaMs ?? 0;
               // §169 조절기 값이 아니라 렌더러가 실제로 쓰는 배율 — 둘이 어긋나던 버그(품질 단계가 1.0 으로 되돌림)를 숨기지 않게.
@@ -2226,7 +2237,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               if (viewKey !== volViewRef.current) {
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM);
                 volViewRef.current = viewKey;
-                volSettleRef.current = Math.max(volSettleRef.current, 16);
+                volSettleRef.current = Math.max(volSettleRef.current, 8);
               }
               volTex = vol.renderToTexture(dtSec);
 
@@ -2251,6 +2262,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           // 해 판은 볼륨 하늘 위에 그려지므로, 그 텍스처의 알파(화소마다 구름 불투명도)로 가립니다.
           if (sunRef.current) setSunCloudAlpha(sunRef.current, volTex);
           if (!volTex) composerNow.setTerrainLit(false);   // §129 볼륨 하늘이 아니면 지형 빛 판을 그리지 않음
+          if (terrainFieldRef.current) terrainFieldRef.current.material.colorWrite = !volTex;
+          if (seaPlaneRef.current) seaPlaneRef.current.material.colorWrite = !volTex;
           volDrewRef.current = !!volTex;
           if (volTex) volFreshRef.current = true;
           if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
@@ -2881,7 +2894,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           optics: sampled.optics,
           halo: sampled.halo,
           obs: sampled.obs,
-          maxTotal: getTuning().maxClouds,
+          maxTotal: cloudFieldRef.current?.mesh.visible ? getTuning().maxClouds : 0,
         })
       : buildCloudInstances({
           atlas: cloudAtlasRef.current ?? ({} as any),
@@ -2892,7 +2905,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           weather: weatherRef.current ?? [],
           // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166, 기본값도 0).
           weatherCenterAzDeg: 0,
-          maxTotal: getTuning().maxClouds,
+          maxTotal: cloudFieldRef.current?.mesh.visible ? getTuning().maxClouds : 0,
         });
 
     lastCloudBuildRef.current = built;
@@ -2948,12 +2961,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         : 1;
     }
   }, [location]);
-
-  useEffect(() => {
-    if (sceneRef.current) {
-      updateScene();
-    }
-  }, [sunAltitude, sunAzimuth, currentTime, prediction, layers, skySettings]);
 
   useEffect(() => {
     const scene = sceneRef.current;

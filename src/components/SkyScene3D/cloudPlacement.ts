@@ -321,6 +321,9 @@ function placeClouds(
   dniTau: DniTauResult | null,
   maxTotal: number
 ): BuildCloudsResult {
+  if (maxTotal <= 0) {
+    return { instances: [], samples, dniTau, optics, halo, beamShade: new Float32Array(0) };
+  }
 
   // ── 4단계: 방향별 그늘 ────────────────────────────────────────────────
   //

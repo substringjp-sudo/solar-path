@@ -298,7 +298,7 @@ function quantile(arr: Float32Array, q: number): number {
 // ───── 종류별 수평 무늬(원시 장 f: 클수록 기둥이 높음) ─────
 /** 화소 함수 — 준비(세포·잡음)를 한 번 하고 (x, y) → 장 값. 날씨를 잘라 만들 수 있게(§127, 폰에서 JS 를 오래 막지 않게) 화소 단위로 둡니다. */
 type FieldPx = (x: number, y: number) => number;
-type Field = (S: number, tileKm: number, seed: number, L: GenusLayer, flow?: boolean) => FieldPx;
+type Field = (S: number, tileKm: number, seed: number, L: GenusLayer) => FieldPx;
 // ───── §139 뼈대 생성기(RULER-shape §1) ─────
 /**
  * 적운·웅대적운: 켜진 열기둥마다 캡 (D_i/H)·(1 − ρ²/R²)^p (p = 0.5/r_i — 깊은 탑도 꼭대기가 둥글게) + 터렛 6(반지름 0.2~0.35 R, 캡 둘레 — 맥동 열기둥의 잔재,
@@ -455,7 +455,7 @@ const FIELDS: Record<GenusKey, Field> = {
       return best;
     };
   },
-  ac(S, tileKm, seed, L, flow) {
+  ac(S, tileKm, seed, L) {
     const n = Math.max(4, Math.round(tileKm / (param(L, 'spacingKm') ?? 0.35)));
     const C = cells(n, seed, 0.7), env = fbm(3, 4, seed + 5), rows = param(L, 'rows') ?? 0.35;
     const ang = ((param(L, 'windDeg') ?? 30) * Math.PI) / 180, ca = Math.cos(ang), sa = Math.sin(ang);
@@ -472,8 +472,7 @@ const FIELDS: Record<GenusKey, Field> = {
         if (q > 0) best = Math.max(best, (0.6 + 0.4 * p.t) * q * (1.3 - 0.3 * q));
       }
       const wave = 1 - rows + rows * (0.5 + 0.5 * Math.cos(2 * Math.PI * k * (u * ca + v * sa)));
-      // §130 흐름 층은 패치 마스크를 수분장(q₀)이 맡으므로 fbm 마스크를 뺍니다(끄면 이전과 같음).
-      return best * wave * (flow ? 1 : Math.min(1, Math.max(0, (env(u, v) - 0.35) * 4)));
+      return best * wave * Math.min(1, Math.max(0, (env(u, v) - 0.35) * 4));
     };
   },
   // 권운: 바람(텍스처 x = 동쪽) 방향으로 긴 띠 + 띠 속 가늘고 긴 평행 결 + 결을 휘는 저주파 휨.
@@ -489,15 +488,13 @@ const FIELDS: Record<GenusKey, Field> = {
       return bandMask * (0.25 + 0.75 * Math.pow(r, fp));
     };
   },
-  sc(S, tileKm, seed, L, flow) {
+  sc(S, tileKm, seed, L) {
     if (L.opts?.skeleton) return skeletonScField(S, tileKm, seed, L.opts.skeleton);
     const n = Math.max(2, Math.round(tileKm / (param(L, 'spacingKm') ?? 1.8)));
     const C = cells(n, seed, 0.8), warp = fbm(Math.max(4, n * 2), 3, seed + 21), warp2 = fbm(Math.max(4, n * 2), 3, seed + 23);
     const wa = (param(L, 'warp') ?? 0.3) / n, lumps = param(L, 'lumps') ?? 0, gap = param(L, 'gap') ?? 0.5;
     const lumpN = fbm(Math.max(8, n * 4), 3, seed + 29);
     const cl = param(L, 'cluster') ?? 0;
-    // §130 흐름 층: 칸 경계 틈에 바닥값(sheet)을 둬 습한 골 안의 칸들이 얇은 틈 구름으로 이어집니다(0 이면 칸마다 따로 떨어짐).
-    const sheet = flow ? (param(L, 'sheet') ?? 0.3) : 0;
     const clN = cl > 0 ? fbm(Math.max(2, Math.round(tileKm / (param(L, 'clusterKm') ?? 8))), 3, seed + 31) : null;
     return (x, y) => {
       let u = (x + 0.5) / S, v = (y + 0.5) / S;
@@ -511,7 +508,7 @@ const FIELDS: Record<GenusKey, Field> = {
         const p = C.at(ci + di, cj + dj), dx = wrapD(u, p.x), dy = wrapD(v, p.y), d = Math.sqrt(dx * dx + dy * dy) * n;
         if (d < d1) { d2 = d1; d1 = d; s1 = p.s; } else if (d < d2) d2 = d;
       }
-      const gapM0 = Math.min(1, (d2 - d1) / gap), gapM = sheet + (1 - sheet) * gapM0;
+      const gapM = Math.min(1, (d2 - d1) / gap);
       // 부드러운 코사인 롤 곡선으로 다각형 타일감 제거하고 몽실몽실한 3D 롤/웨이브 형성
       const roll = Math.cos(Math.min(1, d1) * 3.141592 * 0.5);
       // 세포 내부 복합 거품 요철 (Sub-billows within cell: 밋밋한 빵 느낌 파괴)
@@ -796,8 +793,8 @@ function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer)
   const dirDeg = dU > 1 ? ((Math.atan2(su, sv) * 180) / Math.PI + 360) % 360 : ((Math.atan2(wu, wv) * 180) / Math.PI + 360) % 360;
   const A = Math.min(8, Math.max(2, 2 + dU / 3));
   const moist = spectralNoise(Math.max(1, tileKm / 30), 1, null, seed + 1);
-  // spectralNoise 의 비등방은 그 방향의 파장을 짧게 함(마루가 그 방향에 수직) — 전단을 따라 늘어선 줄은 90° 돌린 방향을 줌.
-  const stria = spectralNoise(Math.max(2, tileKm / 4), A, (dirDeg + 90) % 360, seed + 3);
+  // 주기 격자 기반 비등방 fbm 으로 수백 개 사인파 적분(spectralNoise)을 대체해 CPU 비용을 크게 줄임.
+  const stria = alignedFbm(dirDeg, Math.min(24, 4 * A), 4, tileKm, 3, seed + 3);
   const lamKm = Math.min(15, Math.max(2, (2 * Math.PI * Math.max(dU, 3)) / N / 1000));
   const [a, b] = intDir(dirDeg), kk = Math.max(1, Math.round(tileKm / lamKm / Math.hypot(a, b)));
   const wA = 0.3 * smoothstep(3, 0.5, Ri);
@@ -807,6 +804,47 @@ function stratiformField(S: number, tileKm: number, seed: number, L: GenusLayer)
     const m = moist(u, v);
     const w = wA > 0 ? wA * (0.5 + 0.5 * Math.cos(6.2831853 * kk * (a * u + b * v) + ph)) : 0;
     return 0.8 * m + 0.12 * stria(u, v) + w * (0.4 + m);
+  };
+}
+
+/**
+ * 흐름 구름 전용 연속 결·난류 생성기(보로노이 구슬 FIELDS 를 쓰지 않음) — 바람 방향으로 이어진 띠와
+ * 다중 스케일 능선 난류(1 − |2n − 1|) 및 도메인 워프를 생성해 flowComposeSteps 의 q0·z0n 에 합성합니다.
+ */
+function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer, flow: FlowSceneParams): FieldPx {
+  const windDeg = flow.windDeg ?? param(L, 'windDeg') ?? 30;
+  const warpU = fbm(8, 2, seed + 11), warpV = fbm(8, 2, seed + 13);
+  if (L.genus === 'ci') {
+    const band = alignedFbm(windDeg, 12, 2.5, tileKm, 3, seed + 1);
+    const fib = alignedFbm(windDeg, 4, 0.25, tileKm, 2, seed + 7);
+    return (x, y) => {
+      const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
+      const u = u0 + (warpU(u0, v0) - 0.5) * 0.06, v = v0 + (warpV(u0, v0) - 0.5) * 0.06;
+      const r = 1 - Math.abs(2 * fib(u, v) - 1);
+      return band(u, v) * (0.25 + 0.75 * r * r * r);
+    };
+  }
+  if (L.genus === 'sc' || L.genus === 'ac') {
+    const cellKm = L.genus === 'ac' ? 0.8 : 2.2;
+    const band = alignedFbm(windDeg, cellKm * 3.5, cellKm, tileKm, 3, seed + 3);
+    const coarse = fbm(Math.max(4, Math.round(tileKm / (cellKm * 1.4))), 3, seed + 5);
+    const fine = fbm(Math.max(8, Math.round(tileKm / (cellKm * 0.45))), 2, seed + 7);
+    return (x, y) => {
+      const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
+      const u = u0 + (warpU(u0, v0) - 0.5) * 0.06, v = v0 + (warpV(u0, v0) - 0.5) * 0.06;
+      const ridge = 1 - Math.abs(2 * coarse(u, v) - 1);
+      return 0.45 * band(u, v) + 0.35 * ridge + 0.20 * fine(u, v);
+    };
+  }
+  const cellKm = L.genus === 'cb' ? 6.0 : L.genus === 'cg' ? 3.2 : 2.0;
+  const macro = fbm(Math.max(2, Math.round(tileKm / (cellKm * 2.0))), 3, seed + 3);
+  const eddy = fbm(Math.max(4, Math.round(tileKm / (cellKm * 0.8))), 3, seed + 5);
+  const detail = alignedFbm(windDeg, cellKm * 1.5, cellKm * 0.5, tileKm, 2, seed + 7);
+  return (x, y) => {
+    const u0 = (x + 0.5) / S, v0 = (y + 0.5) / S;
+    const u = u0 + (warpU(u0, v0) - 0.5) * 0.06, v = v0 + (warpV(u0, v0) - 0.5) * 0.06;
+    const ridge = 1 - Math.abs(2 * eddy(u, v) - 1);
+    return 0.45 * macro(u, v) + 0.35 * ridge + 0.20 * detail(u, v);
   };
 }
 
@@ -844,15 +882,14 @@ function* genusWeatherSteps(
         if (y % ROWS === ROWS - 1) yield;
       }
     } else if (useFlow && flow) {
-      // §130 흐름 층: 원시장 f = wQ·q₀(X) + wZ·ζ̂₀(X) + wT·T(x − lag·D) + wW·cos(k_w·X) — 템플릿 T 는 기존 종류 무늬를 작은
-      // 격자(TS²)에서 한 번 평가한 것, X = x − D(x) 는 흐름이 밀어낸 자리(라벨). 그 뒤 문턱·바이트는 아래 그대로(면적 = 운량).
+      // §130 흐름 층: 정적 보로노이 FIELDS 를 거치지 않고, 흐름 핵(q₀·ζ̂₀·D)과 연속 난류 결(flowDetailField)을 바로 합성합니다.
       if (!core) {
         core = newFlowCore(flow.n);
         yield* flowCoreSteps(flow, tileKm, core);
         stats.s90 = core.s90; stats.hoursUsed = core.hoursUsed; stats.umax = core.umax;
       }
-      const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 256));
-      const px = FIELDS[L.genus](TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, true);
+      const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 128));
+      const px = flowDetailField(TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, flow);
       const T = new Float32Array(TS * TS);
       for (let y = 0; y < TS; y++) {
         for (let x = 0; x < TS; x++) T[y * TS + x] = px(x, y);

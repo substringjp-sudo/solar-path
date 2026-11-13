@@ -295,7 +295,7 @@ ${CATMULL_GLSL}
 ${DENOISE_GLSL}
 ${SRGB_ENCODE_GLSL}
 void main() {
-  vec4 t = skyDenoise(uTex, vUv, uTexSize);   // §140 첫 blit 과 같은 표본이어야 구름 화소에 알갱이가 되살아나지 않음
+  vec4 t = texture2D(uTex, vUv);
   gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
 }
 `;
@@ -311,7 +311,7 @@ ${DENOISE_GLSL}
 ${SRGB_ENCODE_GLSL}
 void main() {
   if (terrainDistDecodeKm(texture2D(uDist, vUv)) > 1e8) discard;
-  vec4 t = skyDenoise(uTex, vUv, uTexSize);
+  vec4 t = texture2D(uTex, vUv);
   gl_FragColor = vec4(linearToSrgb(t.rgb), clamp(t.a, 0.0, 1.0));
 }
 `;
@@ -370,7 +370,9 @@ ${CATMULL_GLSL}
 ${DENOISE_GLSL}
 ${SRGB_ENCODE_GLSL}
 void main() {
-  vec3 c = skyDenoise(uTex, vUv, uTexSize).rgb;
+  vec3 c = (uEncodeSrgb > 0.5 && uDenoise < 0.5)
+    ? texture2D(uTex, vUv).rgb
+    : skyDenoise(uTex, vUv, uTexSize).rgb;
   if (uEncodeSrgb > 0.5) c = linearToSrgb(c);
   c += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
   gl_FragColor = vec4(c, 1.0);
@@ -789,8 +791,8 @@ export function createSceneComposer(
     ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, count: 2,
   });
   let terrainLitOn = false;
-  // §140 볼륨 하늘 알갱이 지우기 — 기본 켬(하네스 ablation: 프레임 누적·시간 해상·행진 간격·가루·투과항으로는 안 사라짐).
-  let volumetricDenoise = true;
+  // §140 볼륨 하늘 알갱이 지우기 — 원해상도 externalSky 에서는 중복 필터를 건너뛰어 기본 끔.
+  let volumetricDenoise = false;
   /** §126.7 밖에서 그린 하늘(선형 색 + 알파 = 구름 불투명도, §127). null 이면 하늘돔 층을 그립니다. */
   let externalSky: THREE.Texture | null = null;
   /**
@@ -1184,8 +1186,9 @@ export function createSceneComposer(
     // 그려 늘리면 도트 안에서 번집니다(§97).
     const softPath = scale > 1.0001 && pixelRows === 0;
     const postOn =
-      bloom.strength > 0.001 ||
-      (softPath && rays.strength > 0.001 && sunDirWorld !== null);
+      !externalSky &&
+      (bloom.strength > 0.001 ||
+        (softPath && rays.strength > 0.001 && sunDirWorld !== null));
     // 도트 모드면 화면 대신 도트 버퍼가 마지막 출력입니다(끝에서 최근접으로 늘림).
     const finalTarget = pixelRows > 0 ? rtPixel : null;
     const sceneTarget = postOn ? rtScene : finalTarget;
@@ -1224,12 +1227,12 @@ export function createSceneComposer(
         camera.layers.disable(LAYER_CELESTIAL);
         camera.layers.disable(LAYER_FRONT);
         renderer.render(scene, camera);
-        if (terrainDistOn) {
+        camera.layers.set(LAYER_FRONT);
+        renderer.render(scene, camera);
+        if (terrainDistOn && !terrainLitOn) {
           extFrontMat.uniforms.uDist.value = rtDist.texture;
           blit(renderer, extFrontQuad, externalSky);
         }
-        camera.layers.set(LAYER_FRONT);
-        renderer.render(scene, camera);
         renderer.autoClear = true;
       } else {
         renderer.autoClear = true;
@@ -1246,19 +1249,16 @@ export function createSceneComposer(
 
       // ── 2) 구름 덱 (저해상도, 투명) ──────────────────────────────────
       //
-      // 투명 검정으로 지웁니다. 덱 재질의 알파 블렌딩이 (One, 1−SrcAlpha)라
-      // 여기 쌓인 결과가 미리곱해진 형태가 됩니다.
-      // 볼륨 하늘(§126.7)이면 구름은 밖의 하늘 텍스처에 있고 슬랩은 숨겨져 있습니다 — 빈 판을 지우고 얹는 일을 건너뜁니다.
-      // (광선 그늘은 이 판의 알파에서 나오므로 볼륨 하늘에서는 예전처럼 비어 있게 지워 둡니다.)
-      renderer.setRenderTarget(rtCloud);
-      renderer.setClearAlpha(0);
-      renderer.clear(true, true, true);
-      renderer.autoClear = false;
+      // 볼륨 하늘(§126.7)이면 구름·지형빛·후처리가 externalSky 에 이미 들어 있고 구름 덱도 쓰지 않으므로 건너뜁니다.
       if (!externalSky) {
+        renderer.setRenderTarget(rtCloud);
+        renderer.setClearAlpha(0);
+        renderer.clear(true, true, true);
+        renderer.autoClear = false;
         camera.layers.set(LAYER_SOFT_CLOUD);
         renderer.render(scene, camera);
+        renderer.setClearAlpha(1);
       }
-      renderer.setClearAlpha(1);
 
       // ── 3) 합성 ──────────────────────────────────────────────────────
       renderer.setRenderTarget(sceneTarget);
@@ -1282,10 +1282,10 @@ export function createSceneComposer(
       }
 
       if (externalSky) {
-        // §127 — 지형을 그린 뒤 지형 화소에만 지형 앞 구름을 다시 얹습니다(구름 행진이 지형 거리에서 멈춤).
+        // §127 — 지형을 그린 뒤(볼륨 지형 빛 판이 꺼진 경우만) 지형 앞 구름을 다시 얹습니다.
         camera.layers.set(LAYER_MID);
         renderer.render(scene, camera);
-        if (terrainDistOn) {
+        if (terrainDistOn && !terrainLitOn) {
           extFrontMat.uniforms.uDist.value = rtDist.texture;
           blit(renderer, extFrontQuad, externalSky);
         }

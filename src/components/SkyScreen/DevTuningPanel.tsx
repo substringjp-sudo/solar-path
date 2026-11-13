@@ -129,8 +129,8 @@ const VolumetricPerfRow: React.FC = () => {
   const q = useCelestialStore(s => s.skySettings.volumetricQuality ?? 'low');
   const res = useCelestialStore(s => s.skySettings.volumetricRes ?? 0.5);
   const auto = useCelestialStore(s => s.skySettings.volumetricAutoRes ?? true);
-  const flow = useCelestialStore(s => !!s.skySettings.volumetricFlow);
-  const flowUv = useCelestialStore(s => !!s.skySettings.volumetricFlowUv);
+  const flow = useCelestialStore(s => s.skySettings.volumetricFlow ?? true);
+  const flowUv = useCelestialStore(s => s.skySettings.volumetricFlowUv ?? true);
   const phys = useCelestialStore(s => !!s.skySettings.volumetricPhysics);
   const physIce = useCelestialStore(s => !!s.skySettings.volumetricPhysicsIce);
   const macroMode = useCelestialStore(s => s.skySettings.volumetricMacro ?? 1);

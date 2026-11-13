@@ -210,35 +210,38 @@ export const FLOW_DEFAULTS: FlowSceneParams = {
  * flowDensityScale 을 두지 않아 genusLayerShape 가 GENUS.densityScale 로 내려갑니다(cu 가드).
  */
 export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
-  sc: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.4, flowLag: 0.4, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 256,
-    flowMode: 2, flowTop: 2, densPow: 0.5, flowEdge: 1.5, flowDensityScale: 0.03, flowErode: 0.5, flowTilt: 0.3, sheet: 0.3,
+  sc: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.35, flowLag: 0.85, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 128,
+    flowMode: 2, flowTop: 2, densPow: 0.5, flowEdge: 1.5, flowDensityScale: 0.03, flowErode: 0.5, flowTilt: 0.3, sheet: 0.55,
     flowShapeAmount: 0.35, flowShapeDetailAmount: 0.2,
-    // 2026-11-13 가까운 가장자리 깎기 + 바람결(4배) — 흐름 모형 층적운이 결 없이 뭉개지던 것(하네스 세기 1·1.6·2.4 중 1.6).
-    flowCarve: 1.6, flowGrain: 4,
-    // 2026-11-13 찢긴 결 0.5(하네스 0.5·1.0 중 — 1.0 은 권운처럼 가늘게 쪼개짐). 흐름 구름 끝의 포도송이 대신 바람결.
-    flowWisp: 0.5 },
+    // 2026-11-13 가까운 가장자리 깎기 + 바람결(4배) — 흐름 모형 층적운이 결 없이 뭉개지던 것.
+    flowCarve: 1.4, flowGrain: 4,
+    // 2026-11-13 찢긴 결 0.65 — 흐름 구름 끝이 포도송이 대신 이어지면서 거칠게 찢긴 결로 풀리게 함.
+    flowWisp: 0.65 },
   // 2026-11-13 상·중층(ac·ci·cs)은 변위를 줄임(flowDisp) — 흐름 + high 에서 우유 거품처럼 소용돌이로 늘어지던 것. 덩어리 배치는 그대로.
-  ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.5, flowLag: 0.6, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 512,
+  ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.45, flowLag: 0.8, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 128,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.04, flowErode: 0.6, flowTilt: 0.3,
-    flowShapeAmount: 0.25, flowShapeDetailAmount: 0.3 },
-  cu: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 1.2, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 256,
-    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1, flowErode: 1.0, flowTilt: 0 },
-  cg: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 1.2, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 256,
-    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1, flowErode: 1.0, flowTilt: 0 },
-  cb: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 1.2, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 256,
+    flowShapeAmount: 0.25, flowShapeDetailAmount: 0.3,
+    flowCarve: 0.8, flowGrain: 3, flowWisp: 0.4 },
+  cu: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.75, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 128,
+    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1, flowErode: 1.0, flowTilt: 0,
+    flowCarve: 0.7, flowGrain: 2.5, flowWisp: 0.35 },
+  cg: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.75, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 128,
+    flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1, flowErode: 1.0, flowTilt: 0,
+    flowCarve: 0.7, flowGrain: 2.5, flowWisp: 0.35 },
+  cb: { flow: 1, flowQ: 0.5, flowZ: 0.2, flowT: 0.75, flowLag: 0.6, flowWave: 0, flowAniso: 0.5, flowTemplateRes: 128,
     flowMode: 2, flowTop: 2, densPow: 0.3, flowEdge: 1.5, flowErode: 1.0, flowTilt: 0 },
   // 권운: mode/top 0/0.5 와 densityScale 은 불변(GENUS 로 내려감). 섬유 축 = high−mid 전단, 기울임 2.5(낙하 줄무늬).
-  ci: { flow: 1, flowQ: 0.6, flowZ: 0.2, flowT: 0.9, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 256,
+  ci: { flow: 1, flowQ: 0.6, flowZ: 0.2, flowT: 0.8, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 6, flowAniso: 3.0, flowTemplateRes: 128,
     densPow: 1.0, flowEdge: 1.5, flowErode: 0.3, flowTilt: 2.5 },
-  cs: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 256,
+  cs: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.2, flowT: 0.3, flowLag: 1.0, flowDisp: 0.35, flowWave: 0.2, flowWaveKm: 8, flowAniso: 2.0, flowTemplateRes: 128,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 3, flowErode: 0.1, flowTilt: 1.0 },
   // 시트(st/as/ns): topQuantile 0.5/0.7/0.8 → 0.997 로 0/255 마스크 소멸.
   // 판 구름도 변위를 줄임(2026-11-13): 밤 고층운이 크림처럼 휘감긴 골로 보였음 — 무늬는 바람 쪽으로 조금 길게 남음.
-  st: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  st: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 128,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.05, flowErode: 0.15, flowTilt: 0.2, topQuantile: 0.997 },
-  as: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  as: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.3, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 128,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.02, flowErode: 0.2, flowTilt: 0.2, topQuantile: 0.997 },
-  ns: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 256,
+  ns: { flow: 1, flowLaminar: 1, flowQ: 1.0, flowZ: 0.3, flowT: 0.2, flowLag: 1.0, flowDisp: 0.4, flowWave: 0.2, flowWaveKm: 8, flowAniso: 0.3, flowTemplateRes: 128,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.08, flowErode: 0.4, flowTilt: 0.2, topQuantile: 0.997 },
   // 모루: 흐름 끔(absolute 유지, 탑 위에 고정). 셰이더 쪽 값만.
   cbanvil: { flow: 0, flowDensityScale: 0.03, flowErode: 0.3, flowTilt: 0 },

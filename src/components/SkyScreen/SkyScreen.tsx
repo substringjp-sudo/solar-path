@@ -320,7 +320,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             if (__DEV__) {
               console.log('[Weather] 카나리아 지문 일치 또는 캐시 유지 — 대용량 요청 생략!');
             }
-            setPathData(existingCache.data as CloudPathData[]);
+            setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
             setIsWeatherLoading(false);
             setWeatherError(null);
             return;
@@ -331,14 +331,14 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         } catch (err: any) {
           if (controller.signal.aborted) return;
           // 에러(타임아웃 포함) 시에도 기존 캐시 안전하게 유지
-          setPathData(existingCache.data as CloudPathData[]);
+          setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
           setIsWeatherLoading(false);
           setWeatherError(null);
           return;
         }
       } else {
         // 저장된 지문이 없더라도 캐시 데이터가 있으므로 화면에 즉시 띄우고 불필요한 재요청 생략
-        setPathData(existingCache.data as CloudPathData[]);
+        setPathData(prev => (prev === existingCache.data ? prev : (existingCache.data as CloudPathData[])));
         setIsWeatherLoading(false);
         setWeatherError(null);
         return;
@@ -429,7 +429,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
       c.key.includes(newDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
     );
     if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
-      setPathData(cached.data as CloudPathData[]);
+      setPathData(prev => (prev === cached.data ? prev : (cached.data as CloudPathData[])));
     }
   }, [weatherCacheList, latitude, longitude]);
 
@@ -499,7 +499,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         c.key.includes(currentDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
       );
       if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
-        setPathData(cached.data as CloudPathData[]);
+        setPathData(prev => (prev === cached.data ? prev : (cached.data as CloudPathData[])));
         return;
       }
       if (pathData.length === 0) {
@@ -514,7 +514,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         c.key.includes(currentDateStr) && sameBucket(c.latitude, c.longitude, latitude, longitude)
       );
       if (cached?.data && Array.isArray(cached.data) && cached.data.length > 0) {
-        setPathData(cached.data as CloudPathData[]);
+        setPathData(prev => (prev === cached.data ? prev : (cached.data as CloudPathData[])));
       }
 
       // 날짜나 위치가 변경된 경우: 기존 요청 중단 + 250ms 디바운스

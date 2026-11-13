@@ -58,7 +58,7 @@ export const VolumetricProbe: React.FC<{ visible: boolean; onClose: () => void }
   // 구름 종류별 모형(§124) — 켜면 적운·고적운 등 종류마다 다른 무늬·단면, 끄면 takram 기본(같은 잡음 덩어리).
   const [genusOn, setGenusOn] = useState(true);
   // §130 대기 흐름 구름 모형 — 켜면 흐름이 변형한 종류별 템플릿 + 수분장(연속 밀도 포함), 끄면 §124 정적 무늬.
-  const [flowOn, setFlowOn] = useState(false);
+  const [flowOn, setFlowOn] = useState(true);
   const [morphOn, setMorphOn] = useState(false);
   const [weatherMs, setWeatherMs] = useState<number | null>(null);
 
