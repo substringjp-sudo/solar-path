@@ -236,6 +236,8 @@ export interface SkySettings {
   volumetricFarSun?: boolean;
   /** 판 구름(st·as·ns·흐린 날 채우기)에 두-흐름 확산광(diffuse 4, 기본 켬) — 흐린 날 덱이 검던 것 */
   volumetricSheetDiffuse?: boolean;
+  /** 진단: 대기를 입히지 못한 원래 지형 화소를 분홍으로 칠함(기본 끔, 자오산 먼 산 초록 띠 2026-11-13) */
+  diagRawTerrain?: boolean;
   /**
    * §178 조명 결함 고침 A/B — 대기 원근 산란을 0 에서 자름(clampInscatter) · 조도 표 μs 로그 보간(irradianceLogMu). 사용자 승인으로 기본 켬,
    * 개발 패널 CLAMP·LOGμ 칩으로 끄고 비교합니다(끄면 셰이더 글자가 고치기 전과 같음).
@@ -2591,6 +2593,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uMoonAzRad.value = moonAzRad;
         u.uMoonAltRad.value = moonApparentAltRad;
         u.uExposure.value = lit.exposure;
+        u.uDiagRaw.value = skySettingsRef.current.diagRawTerrain ? 1 : 0;
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
         u.uSunAltDeg.value = sunAltRef.current;
