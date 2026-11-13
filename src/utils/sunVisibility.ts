@@ -195,12 +195,24 @@ export function sunVisibility(apparentAltDeg: number, observerElevM: number, a: 
  * 예보 한 시각의 에어로졸 → 광학 입력. AOD(CAMS)가 있으면 그것, 없으면 PM(0.012·PM2.5 + 0.004·(PM10−PM2.5)),
  * 그것도 없으면 시정(3.912/vis·1.5 km). 초미세 비중 f 가 크면 Ångström 가 크고 앞산란이 약하며, 먼지·조대 입자가 많으면 반대.
  * 모르면 null.
+ *
+ * 2026-11-13 습윤 성장: 지표 PM 은 건조 질량이라, 습할수록 입자가 물을 머금어 커지고 빛을 더 막습니다(Hänel).
+ * PM 으로 낸 AOD 에 f(RH) = ((1−RH)/(1−0.4))^(−0.5) 를 곱합니다(RH 40 % 아래는 1, RH 는 0.95 에서 자름 — 66 % ×1.33, 83 % ×1.88, 93 % ×2.9).
+ * CAMS AOD 가 있어도 이 지표 추정이 더 크면 그것을 씁니다 — 안개 걷힌 뒤의 습한 연무를 CAMS 가 놓침(수원 11/13 11:52: CAMS 0.31, 사진은 해가 흐린 원반).
  */
-export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number }): AerosolOptics | null {
+export function hygroscopicGrowth(rhPct: number | undefined): number {
+  if (rhPct == null || !Number.isFinite(rhPct)) return 1;
+  const rh = Math.min(0.95, Math.max(0, rhPct / 100));
+  return rh <= 0.4 ? 1 : Math.pow((1 - rh) / 0.6, -0.5);
+}
+export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number }): AerosolOptics | null {
   const ok = (v: number | undefined): v is number => v != null && Number.isFinite(v) && v >= 0;
   let aod: number | null = null;
-  if (ok(o.aod550)) aod = o.aod550;
-  else if (ok(o.pm25) || ok(o.pm10)) aod = (o.pm25 ?? 0) * 0.012 + Math.max(0, (o.pm10 ?? 0) - (o.pm25 ?? 0)) * 0.004;
+  const pmAod = ok(o.pm25) || ok(o.pm10)
+    ? ((o.pm25 ?? 0) * 0.012 + Math.max(0, (o.pm10 ?? 0) - (o.pm25 ?? 0)) * 0.004) * hygroscopicGrowth(o.humidity)
+    : null;
+  if (ok(o.aod550)) aod = pmAod != null ? Math.max(o.aod550, pmAod) : o.aod550;
+  else if (pmAod != null) aod = pmAod;
   else if (ok(o.visibility) && o.visibility > 0 && o.visibility < 30000) aod = (3.912 / (o.visibility / 1000)) * 1.5;
   if (aod == null) return null;
   const fine = ok(o.pm25) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.pm25 / o.pm10) : 0.6;

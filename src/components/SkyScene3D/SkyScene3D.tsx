@@ -324,6 +324,9 @@ interface SkyScene3DProps {
 }
 
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
+/** 촬영 화면용 한 장(renderRemote)을 찍기 전 새 시선으로 그릴 프레임 수 — 구름 시간 누적 한 바퀴(16) + 여유. */
+const REMOTE_SETTLE_FRAMES = 20;
+
 export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
   /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
@@ -1014,14 +1017,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       zoomProgressRef.current = 0;
       try {
         const t0 = Date.now();
-        // 시선을 건 뒤 적어도 3 프레임은 그리고(볼륨 텍스처가 새 시선으로), 볼륨 하늘이 준비되면 찍습니다.
+        // 시선을 건 뒤 적어도 REMOTE_SETTLE_FRAMES 프레임은 그리고, 볼륨 하늘이 준비되면 찍습니다.
+        // 2026-11-13 예전 3 프레임: 구름은 takram 시간 누적(4×4 = 16 프레임에 한 바퀴)으로 완성되는데, 시선을 크게 옮긴 직후라
+        // 가장자리가 덜 쌓여 점점이 부서지고 테두리가 생겼음(수원 촬영 예측; 웹 재현 3·8 프레임 얼룩, 30 프레임 깨끗).
         for (;;) {
           requestRender(3);
           await new Promise(r => setTimeout(r, 60));
           const ready = h.isVolumetricReady();
-          if (remoteFramesRef.current >= 3 && ready) break;
+          if (remoteFramesRef.current >= REMOTE_SETTLE_FRAMES && ready) break;
           if (Date.now() - t0 > waitMs) {
-            if (opts.requireReady !== false) return { uri: null, ready: false, error: null, state: h.getRenderState() };
+            // 볼륨 하늘이 준비됐는데 프레임만 덜 쌓였으면 그대로 찍습니다(느린 폰에서 "준비 안 됨" 으로 버리지 않게).
+            if (!ready && opts.requireReady !== false) return { uri: null, ready: false, error: null, state: h.getRenderState() };
             break;
           }
         }

@@ -208,7 +208,7 @@ export const HAZE_BACKGROUND_AOD = 0.12;
 export const DNI_VEIL_TAU = 1.5;
 export const DNI_SHEET_TAU = 3;
 export const DNI_VEIL_MAX_DENSITY = 0.07;
-export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number }): HazeInput | undefined {
+export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
   const extra = op.aod - HAZE_BACKGROUND_AOD;
