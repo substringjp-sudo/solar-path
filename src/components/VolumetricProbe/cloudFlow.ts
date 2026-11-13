@@ -158,6 +158,8 @@ export interface FlowLayerParams {
   flowCarve?: number;
   /** 깎기 잡음을 바람 방향으로 늘이는 배수(1 = 늘이지 않음) */
   flowGrain?: number;
+  /** 찢긴 결 몫(0 = 둥근 모양 잡음, 1 = 바람 방향으로 늘인 능선 잡음) — 흐름 구름 끝의 포도송이 대신 실 같은 결 */
+  flowWisp?: number;
   flowTilt?: number;
   /** sc 시트 바닥(Voronoi 틈 가중 gap_eff = sheet + (1 − sheet)·gap) */
   sheet?: number;
