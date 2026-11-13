@@ -15,6 +15,8 @@ import { applyNoiseSeed, checkGrainMaterial, grainBaseOptions, restoreGrainState
 type Job = {
   input: Omit<VolumetricSceneInput, 'date'> & { date: string };
   frames?: number;
+  /** true = 드래그 중 빠른 판(setSceneAsync S=128), false = 손 뗀 뒤 판(setSceneAsync S=256), 없으면 setScene */
+  fast?: boolean;
   quality?: VolumetricQuality;
   res?: number;
   options?: Partial<VolumetricOptions>;
@@ -187,7 +189,10 @@ const show = (tex: Texture, mode: number) => {
         if (!w.__nightLights) w.__nightLights = decodeGrayPng(new Uint8Array(await (await fetch('assets/nightlights/lights_01deg.png')).arrayBuffer()));
         vol.setCityMap(w.__nightLights);
       } else vol.setCityMap(null);
-      vol.setScene(input);
+      // fast: 앱의 시간 막대 드래그 중 빠른 판(S=128)과 같은 길 — 'async' 면 손을 뗀 뒤의 판(S=256)과 같은 비동기 길.
+      if (job.fast === true) await vol.setSceneAsync(input, true);
+      else if (job.fast === false) await vol.setSceneAsync(input, false);
+      else vol.setScene(input);
       vol.setTerrainDistance(job.terrain ? terrainTex(job.terrain.km, job.terrain.frac) : null);
       if (job.grain) return runGrain({ renderer, vol, W, H, show }, job as never);
       const frames = job.frames ?? 48;
