@@ -154,6 +154,10 @@ export interface FlowLayerParams {
   flowDensityScale?: number;
   flowEdge?: number;
   flowErode?: number;
+  /** 가까운 구름 가장자리 깎기 세기(0 = 끔, 2026-11-13 층적운 결) */
+  flowCarve?: number;
+  /** 깎기 잡음을 바람 방향으로 늘이는 배수(1 = 늘이지 않음) */
+  flowGrain?: number;
   flowTilt?: number;
   /** sc 시트 바닥(Voronoi 틈 가중 gap_eff = sheet + (1 − sheet)·gap) */
   sheet?: number;
