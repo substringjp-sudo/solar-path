@@ -2134,8 +2134,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 슬라이딩 중에는 180ms 쓰로틀로 S=128 초고속 프리뷰를 돌리고,
             // 손을 뗐을 때는 동일한 구름 위치 그대로 S=256 고화질 디테일 업을 1회 진행합니다.
             const allowSlidingBuild = !isSlidingNow || (nowPerf - lastSlidingVolBuildTimeRef.current > 180);
-            const isFast = isSlidingNow;
-            const needUpgrade = !isSlidingNow && lastVolIsFastRef.current;
+            // 2026-11-13 드래그 중 빠른 판(S=128, 운량 5 % 단위)을 없앰: 같은 시각이라도 고화질 판(S=256)과 배치가 달라, 손을 떼면 구름이
+            // 통째로 다시 그려졌음(수원 녹화 11:23 → 11:26; 하네스 같은 장면 두 판 비교 docs/evidence/fast-vs-full-1113.png). 하네스에서 빠른 판이 아낀 시간은
+            // 약 30 %(흐름 핵이 해상도와 무관하게 대부분) — 드래그 중에도 같은 판으로 만들고 180 ms 쓰로틀만 둡니다.
+            const isFast = false;
+            const needUpgrade = false;
             if (live && (key !== volKeyRef.current || needUpgrade) && !volPendingRef.current && allowSlidingBuild) {
               lastSlidingVolBuildTimeRef.current = nowPerf;
               lastVolIsFastRef.current = isFast;
