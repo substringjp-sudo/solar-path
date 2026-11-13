@@ -137,7 +137,7 @@ import { buildSunOverlay } from '../../utils/solarGeometry';
 import { sameBucket } from '../../utils/weatherCacheKey';
 import * as d3 from 'd3-geo';
 import { useCloudTopView } from '../IsolineMap/useCloudTopView';
-import { fetchDayWeatherRing, type CloudPathData } from '../../utils/weather';
+import { fetchDayWeatherRing, getInterpolatedWeather, type CloudPathData } from '../../utils/weather';
 import { fetchNearestMetar, type MetarObs } from '../../utils/metar';
 import {
   PRESET_OPTICS,
@@ -612,6 +612,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const predictionRef = useRef(prediction);
   const simRef = useRef(sim);
   const weatherRef = useRef(interpolatedWeather);
+  /** 볼륨 구름 배치용 그 시간(정시 + 30 분)의 날씨 — 시간 버킷·경로 자료·보간 날씨가 바뀔 때만 다시 계산. */
+  const volBucketWxRef = useRef<{ ms: number; path: CloudPathData[]; live: unknown; wx: any[] } | null>(null);
   const layersRef = useRef(layers);
   const skySettingsRef = useRef(skySettings);
   // §126.7 볼륨 하늘 — 장면·생성 중 표시·마지막 층 키(층은 바뀔 때만 다시 만듦)·실패 표시
@@ -2114,16 +2116,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             }
             const vLat = location?.coords?.latitude ?? 37.5, vLon = location?.coords?.longitude ?? 127.0;
             const vElev = simRef.current?.terrain?.observerElevation ?? location?.coords?.altitude ?? 50;
-            const vObs = weatherRef.current?.[0] ?? null;
             const vDate = new Date(renderedTimeMsRef.current);
+            // 2026-11-13 구름 배치는 그 시간(정시 + 30 분)의 날씨로 고정 — 분 단위 보간 날씨를 쓰면 운량이 5 % 경계를 넘을 때마다 키가 바뀌어
+            // 시간 막대를 놓은 뒤에도 구름이 통째로 새로 그려졌음(수원 11/13, 안개가 걷히며 저층 100 → 10 %). 해·빛·바람 이동은 vol.setDate 가 분 단위로.
+            const vPath: CloudPathData[] = simRef.current?.pathData ?? [];
+            const vBucketMs = Math.floor(renderedTimeMsRef.current / 3600000) * 3600000 + 1800000;
+            if (!volBucketWxRef.current || volBucketWxRef.current.ms !== vBucketMs || volBucketWxRef.current.path !== vPath || volBucketWxRef.current.live !== weatherRef.current) {
+              volBucketWxRef.current = { ms: vBucketMs, path: vPath, live: weatherRef.current, wx: vPath.length ? getInterpolatedWeather(vPath, new Date(vBucketMs)) : (weatherRef.current ?? []) };
+            }
+            const vWx = volBucketWxRef.current.wx;
+            const vObs = vWx?.[0] ?? null;
             // §135 안정적 기상 블록 버킷팅:
             // 분 단위 미세 소수점 차이로 텍스처가 매번 다시 구워지는 것을 방지하기 위해 1시간/5% 단위로 양자화합니다.
             // 같은 시간대 내에서는 구름 형태가 유지되며 vol.setDate(바람 드리프트·태양 조명)만 60fps로 매끄럽게 돌아갑니다.
-            const wLen = weatherRef.current?.length ?? 0;
-            const wSample = weatherRef.current?.[Math.min(4, Math.max(0, wLen - 1))];
+            const wLen = vWx?.length ?? 0;
+            const wSample = vWx?.[Math.min(4, Math.max(0, wLen - 1))];
             // §165 키는 순수 모듈 sceneKey.ts — 시간 버킷·자리·운량·덱·바람에 τ 구간과 비 0.3 플래그를 더했습니다.
             const key = loadSceneKey()!.volSceneKey({
-              sceneMs: renderedTimeMsRef.current, lat: vLat, lon: vLon, elevM: vElev,
+              sceneMs: vBucketMs, lat: vLat, lon: vLon, elevM: vElev,   // 키의 τ 구간도 그 시간 가운데 해 고도로(분마다 해가 움직여 구간이 넘어가지 않게)
               metarId: metarRef.current ? `${metarRef.current.icao}@${metarRef.current.timeMs}` : '',
               metarTimeMs: metarRef.current?.timeMs ?? null,
               obs: vObs, sample: wSample,
@@ -2146,7 +2156,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 lat: vLat, lon: vLon, heightM: vElev, date: vDate,
                 pathData: simRef.current?.pathData ?? [],
                 obs: vObs,
-                interpolatedWeather: weatherRef.current,
+                interpolatedWeather: vWx,
                 az: effectiveAz, el: effectiveElev, fov: camera.fov,
                 altitudeM,
                 metar: metarRef.current,
