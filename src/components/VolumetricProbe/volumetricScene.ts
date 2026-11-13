@@ -1668,7 +1668,7 @@ export async function createVolumetricScene(
         } else lastWaveInfo = null;
         for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
         const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
-          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb' || L.genus === 'sc') ? BILLOW_DEFAULT : null));   // 2026-11-12 sc 추가: 흐름·연속 형태로 그린 층적운 풍선도 혹이 생김
+          ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb') ? BILLOW_DEFAULT : null));   // 2026-11-13 sc 뺌: 둥근 혹이 매끈한 덩어리에 종기처럼 붙음 — 층적운 결은 흐름 깎기(flowCarve·flowGrain)가 맡음
         const bFirst = bp.find(x => x) ?? null;
         for (const m of genusMats) setBillowUniforms(m, bFirst, bp.map(x => (x ? 1 : 0)));
         applyFarSun(p, sunAltDeg);
