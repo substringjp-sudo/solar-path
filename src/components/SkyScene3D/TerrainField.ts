@@ -300,6 +300,8 @@ uniform float uMoonAltRad;
 uniform vec3  uAlbedo;
 uniform vec3  uLitAlbedo;     // §129 볼륨 하늘(지형 빛 판)에서 쓰는 알베도 — 흙·암반·물가 비율은 uAlbedo 대비로 그대로
 uniform float uExposure;
+// 진단(개발용 칩 '지형 대기 진단'): 대기 안 입힌 원래 지형 화소를 분홍으로 — 볼륨 하늘이 덮지 못한 자리가 드러남.
+uniform float uDiagRaw;
 uniform float uSaturation;
 uniform vec3  uHazeRadiance;  // 방위 평균 지평선 하늘빛 — 대비책일 뿐입니다
 uniform float uOzoneDU;
@@ -792,6 +794,7 @@ void main() {
   }
 
   gl_FragColor = vec4(atm_display_ground(col * uExposure, uSaturation, uSunAltDeg), 1.0);
+  if (uDiagRaw > 0.5) gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
 }
 `;
 
@@ -969,6 +972,7 @@ export function createTerrainField(opts: {
       uAlbedo: { value: new THREE.Vector3(alb.r, alb.g, alb.b) },
       uLitAlbedo: { value: new THREE.Vector3(VOLUMETRIC_TERRAIN_ALBEDO.r, VOLUMETRIC_TERRAIN_ALBEDO.g, VOLUMETRIC_TERRAIN_ALBEDO.b) },
       uExposure: { value: 1.0 },
+      uDiagRaw: { value: 0 },
       uSaturation: { value: 1.0 },
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },

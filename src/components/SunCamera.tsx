@@ -830,7 +830,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       if (!moved && last && Date.now() - last.at < 5000) return;
       busy = true;
       try {
-        const r = await sky.renderRemote(v, { waitMs: 1500, requireReady: false, compress: 0.6 });
+        const r = await sky.renderRemote(v, { waitMs: 2500, requireReady: false, compress: 0.6 });
         if (stop) return;
         if (r.state?.view.aspect) predAspectRef.current = r.state.view.aspect;
         if (r.uri) {
@@ -894,7 +894,7 @@ export const SunCamera: React.FC<SunCameraProps> = ({
       {
         const sky = getPrimarySky();
         if (sky) {
-          const r = await sky.renderRemote(simView, { waitMs: 2500 });
+          const r = await sky.renderRemote(simView, { waitMs: 4000 });
           simRenderState = r.state;
           if (r.uri) { simUri = r.uri; simBufMean = sky.getLastBufferMean(); }
           else if (!r.ready) simNotReadyPhase = r.state?.volPhase ?? 'unknown';

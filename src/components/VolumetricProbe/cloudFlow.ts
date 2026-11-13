@@ -154,6 +154,10 @@ export interface FlowLayerParams {
   flowDensityScale?: number;
   flowEdge?: number;
   flowErode?: number;
+  /** 가까운 구름 가장자리 깎기 세기(0 = 끔, 2026-11-13 층적운 결) */
+  flowCarve?: number;
+  /** 깎기 잡음을 바람 방향으로 늘이는 배수(1 = 늘이지 않음) */
+  flowGrain?: number;
   flowTilt?: number;
   /** sc 시트 바닥(Voronoi 틈 가중 gap_eff = sheet + (1 − sheet)·gap) */
   sheet?: number;
@@ -206,7 +210,9 @@ export const FLOW_DEFAULTS: FlowSceneParams = {
 export const GENUS_FLOW: Partial<Record<GenusKey, Partial<FlowLayerParams>>> = {
   sc: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.4, flowLag: 0.4, flowWave: 0.3, flowWaveKm: 8, flowAniso: 1.0, flowTemplateRes: 256,
     flowMode: 2, flowTop: 2, densPow: 0.5, flowEdge: 1.5, flowDensityScale: 0.03, flowErode: 0.5, flowTilt: 0.3, sheet: 0.3,
-    flowShapeAmount: 0.35, flowShapeDetailAmount: 0.2 },
+    flowShapeAmount: 0.35, flowShapeDetailAmount: 0.2,
+    // 2026-11-13 가까운 가장자리 깎기 + 바람결(4배) — 흐름 모형 층적운이 결 없이 뭉개지던 것(하네스 세기 1·1.6·2.4 중 1.6).
+    flowCarve: 1.6, flowGrain: 4 },
   // 2026-11-13 상·중층(ac·ci·cs)은 변위를 줄임(flowDisp) — 흐름 + high 에서 우유 거품처럼 소용돌이로 늘어지던 것. 덩어리 배치는 그대로.
   ac: { flow: 1, flowQ: 1.0, flowZ: 0.4, flowT: 0.5, flowLag: 0.6, flowDisp: 0.4, flowWave: 0.5, flowWaveKm: 3, flowAniso: 1.5, flowTemplateRes: 512,
     flowMode: 1, flowTop: 2, densPow: 0.5, flowEdge: 2, flowDensityScale: 0.04, flowErode: 0.6, flowTilt: 0.3,

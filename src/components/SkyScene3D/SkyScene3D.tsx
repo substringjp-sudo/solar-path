@@ -236,6 +236,8 @@ export interface SkySettings {
   volumetricFarSun?: boolean;
   /** 판 구름(st·as·ns·흐린 날 채우기)에 두-흐름 확산광(diffuse 4, 기본 켬) — 흐린 날 덱이 검던 것 */
   volumetricSheetDiffuse?: boolean;
+  /** 진단: 대기를 입히지 못한 원래 지형 화소를 분홍으로 칠함(기본 끔, 자오산 먼 산 초록 띠 2026-11-13) */
+  diagRawTerrain?: boolean;
   /**
    * §178 조명 결함 고침 A/B — 대기 원근 산란을 0 에서 자름(clampInscatter) · 조도 표 μs 로그 보간(irradianceLogMu). 사용자 승인으로 기본 켬,
    * 개발 패널 CLAMP·LOGμ 칩으로 끄고 비교합니다(끄면 셰이더 글자가 고치기 전과 같음).
@@ -322,6 +324,9 @@ interface SkyScene3DProps {
 }
 
 /** 3D 시뮬레이터 외부 제어 및 스냅샷 캡처 핸들 */
+/** 촬영 화면용 한 장(renderRemote)을 찍기 전 새 시선으로 그릴 프레임 수 — 구름 시간 누적 한 바퀴(16) + 여유. */
+const REMOTE_SETTLE_FRAMES = 20;
+
 export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
   /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
@@ -1012,14 +1017,17 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       zoomProgressRef.current = 0;
       try {
         const t0 = Date.now();
-        // 시선을 건 뒤 적어도 3 프레임은 그리고(볼륨 텍스처가 새 시선으로), 볼륨 하늘이 준비되면 찍습니다.
+        // 시선을 건 뒤 적어도 REMOTE_SETTLE_FRAMES 프레임은 그리고, 볼륨 하늘이 준비되면 찍습니다.
+        // 2026-11-13 예전 3 프레임: 구름은 takram 시간 누적(4×4 = 16 프레임에 한 바퀴)으로 완성되는데, 시선을 크게 옮긴 직후라
+        // 가장자리가 덜 쌓여 점점이 부서지고 테두리가 생겼음(수원 촬영 예측; 웹 재현 3·8 프레임 얼룩, 30 프레임 깨끗).
         for (;;) {
           requestRender(3);
           await new Promise(r => setTimeout(r, 60));
           const ready = h.isVolumetricReady();
-          if (remoteFramesRef.current >= 3 && ready) break;
+          if (remoteFramesRef.current >= REMOTE_SETTLE_FRAMES && ready) break;
           if (Date.now() - t0 > waitMs) {
-            if (opts.requireReady !== false) return { uri: null, ready: false, error: null, state: h.getRenderState() };
+            // 볼륨 하늘이 준비됐는데 프레임만 덜 쌓였으면 그대로 찍습니다(느린 폰에서 "준비 안 됨" 으로 버리지 않게).
+            if (!ready && opts.requireReady !== false) return { uri: null, ready: false, error: null, state: h.getRenderState() };
             break;
           }
         }
@@ -2126,8 +2134,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             // 슬라이딩 중에는 180ms 쓰로틀로 S=128 초고속 프리뷰를 돌리고,
             // 손을 뗐을 때는 동일한 구름 위치 그대로 S=256 고화질 디테일 업을 1회 진행합니다.
             const allowSlidingBuild = !isSlidingNow || (nowPerf - lastSlidingVolBuildTimeRef.current > 180);
-            const isFast = isSlidingNow;
-            const needUpgrade = !isSlidingNow && lastVolIsFastRef.current;
+            // 2026-11-13 드래그 중 빠른 판(S=128, 운량 5 % 단위)을 없앰: 같은 시각이라도 고화질 판(S=256)과 배치가 달라, 손을 떼면 구름이
+            // 통째로 다시 그려졌음(수원 녹화 11:23 → 11:26; 하네스 같은 장면 두 판 비교 docs/evidence/fast-vs-full-1113.png). 하네스에서 빠른 판이 아낀 시간은
+            // 약 30 %(흐름 핵이 해상도와 무관하게 대부분) — 드래그 중에도 같은 판으로 만들고 180 ms 쓰로틀만 둡니다.
+            const isFast = false;
+            const needUpgrade = false;
             if (live && (key !== volKeyRef.current || needUpgrade) && !volPendingRef.current && allowSlidingBuild) {
               lastSlidingVolBuildTimeRef.current = nowPerf;
               lastVolIsFastRef.current = isFast;
@@ -2591,6 +2602,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         u.uMoonAzRad.value = moonAzRad;
         u.uMoonAltRad.value = moonApparentAltRad;
         u.uExposure.value = lit.exposure;
+        u.uDiagRaw.value = skySettingsRef.current.diagRawTerrain ? 1 : 0;
         u.uSunAzRad.value = sunAzRad;
         u.uSunAltRad.value = sunAltRad;
         u.uSunAltDeg.value = sunAltRef.current;

@@ -27,6 +27,7 @@ const FLOW_VEC_UNIFORMS = [
   'genusFlow', 'genusDensPow', 'genusDriftU', 'genusDriftV',
   'genusTiltU', 'genusTiltV', 'genusErode', 'genusTauRef',
   'genusMacroGradX', 'genusMacroGradY',
+  'genusCarve', 'genusGrain', 'genusGrainDir',
 ] as const;
 
 /** 흐름 손잡이 — 층 opts 가 우선, 없으면 종류별 GENUS_FLOW, 그것도 없으면 기본값. */
@@ -108,9 +109,28 @@ export function patchFlowShader(mat: PatchableMaterial): void {
   src = src.replace(gShape, [
     '  float gFoot = genusTexelM * exp2(mipLevel);',
     '  vec4 gErodeAmt = genusErode * (1.0 - smoothstep(150.0, 600.0, gFoot));',
-    '  density = mix(remapClamped(density, vec4(1.0 - shape) * shapeAmounts, vec4(1.0)),',
-    '                density * clamp(vec4(1.0) + gErodeAmt * (2.0 * shape - 1.0), vec4(0.0), vec4(2.0)),',
-    '                genusFlow);',
+    '  vec4 gMul = density * clamp(vec4(1.0) + gErodeAmt * (2.0 * shape - 1.0), vec4(0.0), vec4(2.0));',
+    // 2026-11-13 가까운 구름 가장자리 깎기(genusCarve) + 바람결(genusGrain): 평균 보존 곱만으로는 표면이 깎이지 않아 층적운이 결 없이 뭉개졌음.
+    //   결 = 바람 방향으로 genusGrain 배 늘인 모양 잡음(층 0 의 방향, 대개 저층). 문턱 lo = carve·(1 − 섞은 잡음)^1.5·1.5 아래는 지우고,
+    //   lo 의 0.55 배부터 lo 까지는 부드럽게 — 깎인 가장자리 바깥에 옅게 번지는 띠. 화소 발자국 800~3000 m 에서 꺼짐(먼 구름 알갱이 방지).
+    //   흐름 밀도(densityScales 곱하기 전)는 보이는 구름에서 대략 0.3~2(하네스 문턱 시험) — lo 최대 1.5·carve.
+    '  vec4 gCarveAmt = genusCarve * (1.0 - smoothstep(800.0, 3000.0, gFoot));',
+    '  if (dot(gCarveAmt, genusFlow) > 0.0) {',
+    '    vec2 gPm = uv * genusTileM;',
+    '    vec2 gW = vec2(sin(genusGrainDir.x), cos(genusGrainDir.x));',
+    '    float gAlong = dot(gPm, gW) / max(1.0, genusGrain.x), gAcross = dot(gPm, vec2(-gW.y, gW.x));',
+    '    float gGrain = texture(shapeTexture, vec3(gAlong, weather.heightFraction.x * 600.0, gAcross) * shapeRepeat * 4.0 + shapeOffset).r;',
+    '    #ifdef SHAPE_DETAIL',
+    '    float gFine = texture(shapeDetailTexture, vec3(gAlong, weather.heightFraction.x * 600.0, gAcross) * shapeDetailRepeat * 0.6 + shapeDetailOffset).r;',
+    '    #else',
+    '    float gFine = texture(shapeTexture, vec3(gAlong, weather.heightFraction.x * 600.0, gAcross) * shapeRepeat * 11.0 + shapeOffset).r;',
+    '    #endif',
+    // 잡음 섞기: 큰 모양 0.35 · 바람결(늘인 모양) 0.4 · 잔무늬 0.25 — 큰 구멍 대신 잘게 풀린 가장자리.
+    '    vec4 gN = vec4(0.35 * shape + 0.4 * mix(shape, gGrain, step(1.01, genusGrain.x)) + 0.25 * gFine);',
+    '    vec4 gLo = gCarveAmt * pow(vec4(1.0) - gN, vec4(1.5)) * 1.5;',
+    '    gMul *= smoothstep(gLo * 0.55, gLo + vec4(1e-3), gMul);',
+    '  }',
+    '  density = mix(remapClamped(density, vec4(1.0 - shape) * shapeAmounts, vec4(1.0)), gMul, genusFlow);',
   ].join('\n'));
   src = src.replace(gDetail, [
     '    density = mix(remapClamped(density * 2.0, vec4(modifier * 0.5), vec4(1.0)),',
@@ -166,6 +186,9 @@ export function setFlowUniforms(mat: PatchableMaterial, layers: (GenusLayer | nu
   set('genusFlow', lane(() => dens));
   set('genusDensPow', lane(L => flowParam(L, 'densPow', 0.5)));
   set('genusErode', lane(L => flowParam(L, 'flowErode', 0.5)));
+  set('genusCarve', lane(L => flowParam(L, 'flowCarve', 0)));
+  set('genusGrain', lane(L => flowParam(L, 'flowGrain', 1)));
+  set('genusGrainDir', lane(L => { const u = flowParam(L, 'windU', 0), v = flowParam(L, 'windV', 0); return u === 0 && v === 0 ? 0 : Math.atan2(u, v); }));
   set('genusTauRef', [4, 4, 4, 4]);
   // 거시 상태장 기울기 — §171 on.macroGrad 가 아니면 0(기본 끔; §156 거시 격자가 자리별로 대신함)
   const macroLane = (fn: (L: GenusLayer) => number) => [0, 1, 2, 3].map(i => (on.macroGrad && layers[i] ? fn(layers[i] as GenusLayer) : 0));

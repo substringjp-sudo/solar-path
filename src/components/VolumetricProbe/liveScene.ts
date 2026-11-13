@@ -204,11 +204,46 @@ import { dropSeamCopies } from '../../utils/macroField';
  * 먼지·조대 입자가 많으면 지수가 작고(하얗게 흐림) 해 둘레가 넓게 번집니다.
  */
 export const HAZE_BACKGROUND_AOD = 0.12;
+/** 습한 막 문턱: 역전층 아래 습도, 그 위 마른 공기, 막을 켜는 최소 연직 광학두께, 해 둘레 구름이 이미 해를 가린다고 볼 운량. */
+export const MIST_RH_MOIST = 75;
+export const MIST_RH_DRY = 50;
+export const MIST_MIN_TAU = 0.1;
+export const MIST_TAU_PER_DENSITY_KM = 670;
+/**
+ * 역전층 아래 습한 층(지면 위 2.5 km 안) + 직달일사 감소 → 하늘을 덮는 얇은 층운 막. 없으면 null.
+ * - 꼭대기: 지면 위 가장 낮은 기압면부터 습도 ≥ MIST_RH_MOIST 가 이어지다 습도 < MIST_RH_DRY 로 30 %p 넘게 뚝 떨어지는 곳(두 면 가운데).
+ * - 두께: 직달일사(위성 > 예보)를 배경 에어로졸(0.12)만 있는 맑은 하늘과 견준 기울기 τ × sin(해 고도) = 연직 τ. 해가 5° 아래면 null.
+ * - 중층 30 %·상층 50 % 이상이면 직달일사 감소를 그 구름 몫으로 보고 끔. 저층 60 % 이상이면 저층 구름이 맡으므로 끔.
+ * densityScale = τ / (MIST_TAU_PER_DENSITY_KM × 두께 km) — 층운(st)은 cs 의 τ ≈ 57 × densityScale 보다 훨씬 짙어 따로 잼:
+ *   하네스 수원 11:52(두께 1,219 m, 해 34.5°) densityScale 0.0007 에서 해 쪽 불투명도 0.635 → 기울기 τ 1.01 → 연직 τ 0.57 → 670/km.
+ */
+export function mistLayerOf(thermo: ThermoInput, groundM: number, obs: CloudData, sunAltDeg: number, dni: number | undefined):
+  { baseKm: number; thicknessM: number; densityScale: number; tau: number; topAglM: number } | null {
+  if ((obs.mid ?? 0) >= 30 || (obs.high ?? 0) >= 50 || (obs.low ?? 0) >= 60) return null;
+  const rl = (thermo.rhLevels ?? []).filter(q => q.zM > groundM + 20).sort((p, q) => p.zM - q.zM);
+  if (rl.length < 2 || rl[0].rhPct < MIST_RH_MOIST) return null;
+  let topM: number | null = null;
+  for (let i = 1; i < rl.length; i++) {
+    if (rl[i].zM - groundM > 2500) break;
+    if (rl[i].rhPct >= MIST_RH_MOIST) continue;
+    if (rl[i].rhPct < MIST_RH_DRY && rl[i - 1].rhPct - rl[i].rhPct >= 30) topM = (rl[i - 1].zM + rl[i].zM) / 2;
+    break;
+  }
+  if (topM == null) return null;
+  const tauSlant = cloudOpticalDepthFromDni(dni, sunAltDeg);
+  if (tauSlant == null) return null;
+  const tau = Math.min(6, tauSlant * Math.sin((sunAltDeg * Math.PI) / 180));
+  if (tau < MIST_MIN_TAU) return null;
+  const baseM = groundM + 50;
+  const thicknessM = Math.max(200, topM - baseM);
+  return { baseKm: baseM / 1000, thicknessM, densityScale: tau / (MIST_TAU_PER_DENSITY_KM * (thicknessM / 1000)), tau, topAglM: topM - groundM };
+}
+
 /** §158 DNI 광학두께 문턱: 이 위면 상층 100 % 를 권운이 아닌 시트(cs)로, 더 두꺼우면 중층도 고층운(as)으로. */
 export const DNI_VEIL_TAU = 1.5;
 export const DNI_SHEET_TAU = 3;
 export const DNI_VEIL_MAX_DENSITY = 0.07;
-export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number }): HazeInput | undefined {
+export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
   const extra = op.aod - HAZE_BACKGROUND_AOD;
@@ -430,12 +465,17 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       fillOn = true;
     }
   }
+  // 습한 막(2026-11-13 수원 11:52): 역전층 아래 갇힌 습한 연무·걷히는 안개. 예보 운량은 포화가 아니라 0 % 지만 해가 젖빛 유리 너머처럼 보이고
+  // 하늘이 어느 쪽이나 고른 회색 — 연무 셰이더(한 번 산란)로는 해 둘레만 넓게 희어져 못 그림. 구름 패스(다중산란)의 얇은 층운으로 그림.
+  const mist = !fillOn && !anvil ? mistLayerOf(thermo, a.heightM, obs, sunAltDeg, dniPick.dni) : null;
+  if (mist) layers[0] = { genus: 'st', cover: 1, baseKm: mist.baseKm, thicknessM: mist.thicknessM, band: 'low', opts: { densityScale: mist.densityScale } };
   if (anvil) layers.push(anvil);
   for (const L of layers) if (L && L.genus) L.driftKm = driftKm(L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low'));
   const name = (g: ForecastGenus | null, cover: number) => (g ? `${g} ${Math.round(cover)}%` : '—');
   const beamPct = Math.round((macro.beamTransmittance.low * 0.5 + macro.beamTransmittance.mid * 0.5) * 100);
-  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
-  const haze = hazeFromObs(obs);
+  const summary = `${fillOn ? `채우기 r${fillRough.toFixed(1)}${deckTau ? ` τ${Math.round(deckTau.tau)}(일사 ${Math.round(deckTau.T * 100)}%)` : ''} · ` : ''}저 ${name(forecast.low, obs.low)} · 중 ${name(promoteMid ? 'as' : forecast.mid, obs.mid)} · 상 ${name(promoteHigh ? 'cs' : forecast.high, obs.high)} · 해 ${sunAltDeg.toFixed(1)}° · 빔 ${beamPct}%${tauDni != null ? ` · τ ${tauDni.toFixed(1)}${dniPick.source === 'sat' ? '(위성)' : ''}` : ''}${mist ? ` · 습한 막 τ${mist.tau.toFixed(2)} ~${Math.round(mist.topAglM)}m` : ''}${metarOv ? ` · ${metarOv.note}` : ''}${(() => { const o = a.pathData?.[0]?.origin; return o && o !== 'forecast' ? ` · 출처 ${o}` : ''; })()}`;
+  // 습한 막이 있으면 그 막이 곧 습한 에어로졸층(직달일사 감소 전체로 두께를 정함) — 연무를 따로 더하면 두 번 셈.
+  const haze = mist ? undefined : hazeFromObs(obs);
   // §156 거시 운량 격자 입력 — 고리 점들의 층별 운량(관측점 포함). 고리가 없으면(관측점 하나) 넣지 않음.
   const ringPts = dropSeamCopies(interpolatedList.filter(q => Number.isFinite(q.distance) && Number.isFinite(q.azimuthOffset)));
   const macroRing = ringPts.length >= 20 ? {
