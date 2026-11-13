@@ -29,46 +29,83 @@
  * 사용자가 어디 있었는지가 그대로 남습니다.
  */
 
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import { encryptData, decryptData } from './security';
 import {
-  CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, MAX_RING_ENTRIES, CacheEntry,
+  CACHE_SCHEMA_VERSION, MAX_CACHE_ENTRIES, CacheEntry,
 } from './cachePolicy';
 
 const WEATHER_KEY = 'solar-path-cache-weather';
 const TERRAIN_KEY = 'solar-path-cache-terrain';
 const RING_KEY = 'solar-path-cache-ring';
 
+const BASE_DIR = Platform.OS !== 'web' && FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}weather_store/`
+  : null;
+
 interface Envelope<T> {
   v: number;
   entries: CacheEntry<T>[];
 }
 
-const read = async <T>(key: string, max = MAX_CACHE_ENTRIES): Promise<CacheEntry<T>[]> => {
+interface FileEnvelope<T> {
+  v: number;
+  entry: CacheEntry<T>;
+}
+
+const MAX_STORAGE_CHARS = 1_400_000; // Web/AsyncStorage 폴백용 행 크기 상한
+const HARD_STORAGE_CHARS = 1_800_000;
+const writtenTimestamps = new Map<string, number>();
+
+const decodeText = (raw: string): string => {
+  try {
+    return decryptData(raw);
+  } catch {
+    return raw; // 암호화 전에 쓰인 것이 있으면 그대로 읽어 봅니다
+  }
+};
+
+const safeFileName = (entryKey: string): string =>
+  `${entryKey.replace(/[^a-zA-Z0-9._-]/g, '_')}.dat`;
+
+const ensureDir = async (dir: string): Promise<void> => {
+  const info = await FileSystem.getInfoAsync(dir);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  }
+};
+
+const readAsyncStorage = async <T>(key: string, max = MAX_CACHE_ENTRIES): Promise<CacheEntry<T>[]> => {
   try {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return [];
-    let text: string;
-    try {
-      text = decryptData(raw);
-    } catch {
-      text = raw; // 암호화 전에 쓰인 것이 있으면 그대로 읽어 봅니다
-    }
-    const env = JSON.parse(text) as Envelope<T>;
+    const env = JSON.parse(decodeText(raw)) as Envelope<T>;
     // ⚠ 형식이 다르면 **읽지 않고 버립니다.** 모양이 달라진 캐시를 화면에
     //   먹이면 조용히 망가지는데, 다시 받으면 되는 것이라 버리는 값이 0입니다.
     if (!env || env.v !== CACHE_SCHEMA_VERSION || !Array.isArray(env.entries)) return [];
     return env.entries.slice(0, max);
   } catch (e) {
     console.warn(`[Cache] ${key} 를 못 읽었습니다:`, e);
+    await AsyncStorage.removeItem(key).catch(() => {});
     return [];
   }
 };
 
-const write = async <T>(key: string, entries: CacheEntry<T>[]): Promise<void> => {
+const writeAsyncStorage = async <T>(key: string, entries: CacheEntry<T>[]): Promise<void> => {
   try {
-    const body = JSON.stringify({ v: CACHE_SCHEMA_VERSION, entries } as Envelope<T>);
-    await AsyncStorage.setItem(key, encryptData(body));
+    let trimmed = entries;
+    let encrypted = encryptData(JSON.stringify({ v: CACHE_SCHEMA_VERSION, entries: trimmed } as Envelope<T>));
+    while (encrypted.length > MAX_STORAGE_CHARS && trimmed.length > 1) {
+      trimmed = trimmed.slice(0, -1);
+      encrypted = encryptData(JSON.stringify({ v: CACHE_SCHEMA_VERSION, entries: trimmed } as Envelope<T>));
+    }
+    if (encrypted.length > HARD_STORAGE_CHARS) {
+      console.warn(`[Cache] ${key} 크기가 한도를 초과해 쓰기를 건너뜁니다 (${encrypted.length} chars)`);
+      return;
+    }
+    await AsyncStorage.setItem(key, encrypted);
   } catch (e) {
     // 캐시 쓰기 실패는 **치명적이지 않습니다** — 다음에 다시 받으면 됩니다.
     // 앱을 멈추지 않고 넘어갑니다.
@@ -76,18 +113,91 @@ const write = async <T>(key: string, entries: CacheEntry<T>[]): Promise<void> =>
   }
 };
 
-export const loadWeatherCache = <T = any>() => read<T>(WEATHER_KEY);
-export const loadTerrainCache = <T = any>() => read<T>(TERRAIN_KEY);
-/** ⚠ 고리는 한 칸이 139KB 라 칸 수가 적습니다(`MAX_RING_ENTRIES`). */
-export const loadRingCache = <T = any>() => read<T>(RING_KEY, MAX_RING_ENTRIES);
-export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => write(WEATHER_KEY, e);
-export const saveTerrainCache = <T = any>(e: CacheEntry<T>[]) => write(TERRAIN_KEY, e);
-export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => write(RING_KEY, e);
+const readFiles = async <T>(bucket: string, legacyKey: string, max = MAX_CACHE_ENTRIES): Promise<CacheEntry<T>[]> => {
+  if (!BASE_DIR) return readAsyncStorage<T>(legacyKey, max);
+  const dir = `${BASE_DIR}${bucket}/`;
+  try {
+    await ensureDir(dir);
+    const files = (await FileSystem.readDirectoryAsync(dir)).filter(f => f.endsWith('.dat'));
+    const loaded: CacheEntry<T>[] = [];
+    for (const file of files) {
+      const path = `${dir}${file}`;
+      try {
+        const raw = await FileSystem.readAsStringAsync(path);
+        const env = JSON.parse(decodeText(raw)) as FileEnvelope<T>;
+        if (env?.v === CACHE_SCHEMA_VERSION && env.entry?.key) {
+          loaded.push(env.entry);
+          writtenTimestamps.set(path, env.entry.timestamp);
+        } else {
+          await FileSystem.deleteAsync(path, { idempotent: true });
+        }
+      } catch {
+        await FileSystem.deleteAsync(path, { idempotent: true });
+      }
+    }
+    loaded.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+    if (loaded.length > 0) {
+      await AsyncStorage.removeItem(legacyKey).catch(() => {});
+      return loaded.slice(0, max);
+    }
+
+    // 기존 AsyncStorage 에 남아있던 항목이 있으면 파일 저장소로 1회 이관
+    const legacy = await readAsyncStorage<T>(legacyKey, max);
+    if (legacy.length > 0) {
+      await writeFiles(bucket, legacyKey, legacy);
+      await AsyncStorage.removeItem(legacyKey).catch(() => {});
+    }
+    return legacy;
+  } catch (e) {
+    console.warn(`[Cache] ${bucket} 파일 저장소를 못 읽었습니다:`, e);
+    return [];
+  }
+};
+
+const writeFiles = async <T>(bucket: string, legacyKey: string, entries: CacheEntry<T>[]): Promise<void> => {
+  if (!BASE_DIR) return writeAsyncStorage<T>(legacyKey, entries);
+  const dir = `${BASE_DIR}${bucket}/`;
+  try {
+    await ensureDir(dir);
+    const keepNames = new Set<string>();
+    for (const entry of entries) {
+      const name = safeFileName(entry.key);
+      keepNames.add(name);
+      const path = `${dir}${name}`;
+      // 이미 같은 timestamp 로 저장된 파일은 다시 암호화·기록하지 않습니다.
+      if (writtenTimestamps.get(path) === entry.timestamp) continue;
+      const body = JSON.stringify({ v: CACHE_SCHEMA_VERSION, entry } as FileEnvelope<T>);
+      await FileSystem.writeAsStringAsync(path, encryptData(body));
+      writtenTimestamps.set(path, entry.timestamp);
+    }
+    const existing = await FileSystem.readDirectoryAsync(dir);
+    for (const file of existing) {
+      if (!keepNames.has(file)) {
+        const path = `${dir}${file}`;
+        await FileSystem.deleteAsync(path, { idempotent: true });
+        writtenTimestamps.delete(path);
+      }
+    }
+  } catch (e) {
+    console.warn(`[Cache] ${bucket} 파일 저장소에 못 썼습니다:`, e);
+  }
+};
+
+export const loadWeatherCache = <T = any>() => readFiles<T>('weather', WEATHER_KEY, MAX_CACHE_ENTRIES);
+export const loadTerrainCache = <T = any>() => readAsyncStorage<T>(TERRAIN_KEY);
+export const loadRingCache = <T = any>() => readFiles<T>('ring', RING_KEY, MAX_CACHE_ENTRIES);
+export const saveWeatherCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('weather', WEATHER_KEY, e);
+export const saveTerrainCache = <T = any>(e: CacheEntry<T>[]) => writeAsyncStorage(TERRAIN_KEY, e);
+export const saveRingCache = <T = any>(e: CacheEntry<T>[]) => writeFiles('ring', RING_KEY, e);
 
 /** 캐시만 통째로 비웁니다. 사용자 자료(`solar-path-storage`)는 안 건드립니다. */
 export const clearCaches = async (): Promise<void> => {
   try {
+    writtenTimestamps.clear();
     await AsyncStorage.multiRemove([WEATHER_KEY, TERRAIN_KEY, RING_KEY]);
+    if (BASE_DIR) {
+      await FileSystem.deleteAsync(BASE_DIR, { idempotent: true });
+    }
   } catch (e) {
     console.warn('[Cache] 비우기 실패:', e);
   }

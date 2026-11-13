@@ -9,7 +9,7 @@ import { BLEND_MODELS_PARAM, blendHourly } from './modelBlend';
 import { CANARY_VARIABLE, ringCacheKey } from './cachePolicy';
 import { localDateString } from './localDate';
 import { fetchSatelliteIrradiance, attachSatelliteIrradiance } from './satelliteIrradiance';
-import { weatherSourceFor, archiveFallbackOf, isArchiveOrigin, isHistoricalForbidden, setHistoricalForbidden, type WeatherSource, type WeatherOrigin } from './weatherSource';
+import { weatherSourceFor, archiveFallbackOf, isArchiveOrigin, isHistoricalForbidden, setHistoricalForbidden, ICON_ONLY_PARAM, type WeatherSource, type WeatherOrigin } from './weatherSource';
 import { extractProfile, layerAltitudes, lowDeck } from './cloudProfile';
 import { gridBucket } from './weatherCacheKey';
 import { getSunPosition } from './celestial';
@@ -1127,12 +1127,40 @@ export const fetchDayWeatherRing = async (
         `&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,relative_humidity_2m,direct_normal_irradiance,total_column_integrated_water_vapour,precipitation` +
         `&start_date=${targetDateStr}&end_date=${targetDateStr}&timezone=auto${sr.modelParam}`;
 
-    // 1) 360° 메인 구름 링 먼저 수신
-    let response = await fetchWithTimeout(ringUrlFor(src), { signal }, 15000);
-    if (response.status === 403 && src.origin.startsWith('historical')) {
-      setHistoricalForbidden(true);
-      src = archiveFallbackOf(src);
-      response = await fetchWithTimeout(ringUrlFor(src), { signal }, 15000);
+    // 1) 360° 메인 구름 링 먼저 수신 (서버 지연·5xx 시 경량 단일 모델 폴백으로 1회 자동 재시도)
+    const attemptRingFetch = async (sr: WeatherSource, timeoutMs: number): Promise<{ res: Response; usedSrc: WeatherSource }> => {
+      let res = await fetchWithTimeout(ringUrlFor(sr), { signal }, timeoutMs);
+      if (res.status === 403 && sr.origin.startsWith('historical')) {
+        setHistoricalForbidden(true);
+        sr = archiveFallbackOf(sr);
+        res = await fetchWithTimeout(ringUrlFor(sr), { signal }, timeoutMs);
+      }
+      return { res, usedSrc: sr };
+    };
+
+    let response: Response;
+    try {
+      const first = await attemptRingFetch(src, 18000);
+      src = first.usedSrc;
+      response = first.res;
+      if (response.status >= 500) {
+        throw new Error(`HTTP_ERROR: ${response.status}`);
+      }
+    } catch (firstErr: any) {
+      if (signal?.aborted) throw firstErr;
+      // 4xx 등 비일시적 오류는 재시도하지 않습니다(429·403은 아래 분기 처리).
+      if (firstErr?.message?.startsWith('HTTP_ERROR:') && !/^HTTP_ERROR: 5\d\d/.test(firstErr.message)) {
+        throw firstErr;
+      }
+      console.warn(`[WeatherAPI] 링 1차 수신 지연/오류, 경량 폴백 재시도: ${firstErr?.name || ''} ${firstErr?.message || firstErr}`);
+      await sleep(400);
+      if (signal?.aborted) throw firstErr;
+      const fallbackSrc = (!isArchiveOrigin(src.origin) && src.modelParam && src.modelParam !== ICON_ONLY_PARAM)
+        ? { ...src, modelParam: ICON_ONLY_PARAM }
+        : src;
+      const retry = await attemptRingFetch(fallbackSrc, 22000);
+      src = retry.usedSrc;
+      response = retry.res;
     }
     if (!response.ok) {
       if (response.status === 429) {

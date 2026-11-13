@@ -329,8 +329,8 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             console.log('[Weather] 카나리아 지문 불일치 또는 새 모델 런 감지 — 360° 전체 날씨 갱신 진행');
           }
         } catch (err: any) {
-          if (controller.signal.aborted || err?.name === 'AbortError') return;
-          // 에러 시에도 기존 캐시 안전하게 유지
+          if (controller.signal.aborted) return;
+          // 에러(타임아웃 포함) 시에도 기존 캐시 안전하게 유지
           setPathData(existingCache.data as CloudPathData[]);
           setIsWeatherLoading(false);
           setWeatherError(null);
@@ -351,10 +351,7 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     setWeatherError(null);
 
     try {
-      const [canarySeries, ringData] = await Promise.all([
-        fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal).catch(() => null),
-        fetchDayWeatherRing(reqLat, reqLon, reqTime, forceRefresh, controller.signal),
-      ]);
+      const ringData = await fetchDayWeatherRing(reqLat, reqLon, reqTime, forceRefresh, controller.signal);
 
       if (controller.signal.aborted) return;
 
@@ -362,7 +359,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
         throw new Error(t('weatherLoadFailed', language));
       }
 
+      // 링 수신 직후 화면에 바로 반영하고, 카나리아 지문 조회는 뒤에서 순차 실행해 연결 경쟁을 피합니다.
+      setPathData(ringData);
+      setWeatherError(null);
+      setIsWeatherLoading(false);
+
       if (!(ringData as any)[0]?.isFallback) {
+        const canarySeries = await fetchWeatherCanary(reqLat, reqLon, reqTime, controller.signal).catch(() => null);
         addWeatherCache({
           key: weatherCacheKey(reqLat, reqLon, reqDate),
           data: ringData,
@@ -372,13 +375,13 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
           canaryPrint: canarySeries ? canaryPrint(canarySeries) : undefined,
         } as any);
       }
-
-      setPathData(ringData);
-      setWeatherError(null);
     } catch (err: any) {
-      if (controller.signal.aborted || err?.name === 'AbortError') return;
-      const msg = err?.message || t('weatherLoadFailed', language);
-      console.warn('3D weather fetch error:', msg);
+      if (controller.signal.aborted) return;
+      const isTimeout = err?.name === 'AbortError';
+      const msg = isTimeout
+        ? L3(language, '날씨 서버 응답 시간이 초과되었습니다', 'Weather server request timed out', '天気サーバーの応答がタイムアウトしました')
+        : (err?.message || t('weatherLoadFailed', language));
+      console.warn(`3D weather fetch error: ${msg}`);
       if (pathData.length === 0) {
         setWeatherError(msg);
         hapticError();

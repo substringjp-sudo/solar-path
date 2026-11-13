@@ -12,7 +12,7 @@ import {
 import {
   weatherCacheKey, terrainCacheKey, needTerrainFetch, upsertEntry,
   findEntry, fingerprint, MAX_CACHE_ENTRIES, sameBucket,
-  canaryPrint, canarySaysSkip, canaryIsUsable, MAX_RING_ENTRIES,
+  canaryPrint, canarySaysSkip, canaryIsUsable,
 } from '../utils/cachePolicy';
 import { auth, db, storage } from '../config/firebase';
 import { doc, collection, setDoc, deleteDoc, onSnapshot, writeBatch, updateDoc, deleteField } from 'firebase/firestore';
@@ -1136,7 +1136,7 @@ export const useCelestialStore = create<CelestialState>()(
               diskRing = upsertEntry(
                 diskRing as any,
                 { key, data, timestamp: Date.now(), latitude: la, longitude: lo } as any,
-                MAX_RING_ENTRIES,
+                MAX_CACHE_ENTRIES,
               ) as any;
               void saveRingCache(diskRing as any);
             });
@@ -1216,11 +1216,9 @@ export const useCelestialStore = create<CelestialState>()(
             (!skipWeather)
               ? (async () => {
                   try {
-                    const [fetchedCanary, ringData] = await Promise.all([
-                      canarySeries ? Promise.resolve(canarySeries) : fetchWeatherCanary(lat, lon, now).catch(() => null),
-                      fetchDayWeatherRing(lat, lon, now, false).catch(() => null),
-                    ]);
+                    const ringData = await fetchDayWeatherRing(lat, lon, now, false).catch(() => null);
                     if (ringData && ringData.length > 0 && !(ringData as any)[0]?.isFallback) {
+                      const fetchedCanary = canarySeries ?? await fetchWeatherCanary(lat, lon, now).catch(() => null);
                       get().addWeatherCache({
                         key: weatherCacheKey(lat, lon, dateStr),
                         data: ringData,
