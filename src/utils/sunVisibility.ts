@@ -197,19 +197,30 @@ export function sunVisibility(apparentAltDeg: number, observerElevM: number, a: 
  * 모르면 null.
  *
  * 2026-11-13 습윤 성장: 지표 PM 은 건조 질량이라, 습할수록 입자가 물을 머금어 커지고 빛을 더 막습니다(Hänel).
- * PM 으로 낸 AOD 에 f(RH) = ((1−RH)/(1−0.4))^(−0.5) 를 곱합니다(RH 40 % 아래는 1, RH 는 0.95 에서 자름 — 66 % ×1.33, 83 % ×1.88, 93 % ×2.9).
+ * PM 으로 낸 AOD 에 f(RH) = ((1−RH)/(1−0.65))^(−0.5) 를 곱합니다 — 0.012 계수가 이미 보통 습도(약 65 %)의 값이라 그 아래는 1.
+ * RH 는 지표 2 m 가 아니라 연무층(975·950·925 hPa) 평균, 단면이 없을 때만 지표. RH 는 0.95 에서 자름(75 % ×1.18, 83 % ×1.43, 90 % ×1.87, 최대 ×2.65).
+ *   처음(같은 날 낮)에는 기준 40 %·지표 습도로 했다가, 아침저녁 지표 99 % 에서 ×3.5 가 되어 맑은 날에도 뿌연 층이 늘 깔렸음(사용자 보고).
  * CAMS AOD 가 있어도 이 지표 추정이 더 크면 그것을 씁니다 — 안개 걷힌 뒤의 습한 연무를 CAMS 가 놓침(수원 11/13 11:52: CAMS 0.31, 사진은 해가 흐린 원반).
  */
 export function hygroscopicGrowth(rhPct: number | undefined): number {
   if (rhPct == null || !Number.isFinite(rhPct)) return 1;
   const rh = Math.min(0.95, Math.max(0, rhPct / 100));
-  return rh <= 0.4 ? 1 : Math.pow((1 - rh) / 0.6, -0.5);
+  return rh <= 0.65 ? 1 : Math.pow((1 - rh) / 0.35, -0.5);
 }
-export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number }): AerosolOptics | null {
+/** 연무층 습도(%) — 975·950·925 hPa(THERMO_RH_LEVELS 의 1~3 번) 평균, 둘 미만이면 지표 2 m. */
+export function hazeLayerRh(o: { humidity?: number; profileRhPct?: number[] }): number | undefined {
+  const p = o.profileRhPct;
+  if (p) {
+    const v = [p[1], p[2], p[3]].filter((x): x is number => x != null && Number.isFinite(x));
+    if (v.length >= 2) return v.reduce((a, b) => a + b, 0) / v.length;
+  }
+  return o.humidity;
+}
+export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[] }): AerosolOptics | null {
   const ok = (v: number | undefined): v is number => v != null && Number.isFinite(v) && v >= 0;
   let aod: number | null = null;
   const pmAod = ok(o.pm25) || ok(o.pm10)
-    ? ((o.pm25 ?? 0) * 0.012 + Math.max(0, (o.pm10 ?? 0) - (o.pm25 ?? 0)) * 0.004) * hygroscopicGrowth(o.humidity)
+    ? ((o.pm25 ?? 0) * 0.012 + Math.max(0, (o.pm10 ?? 0) - (o.pm25 ?? 0)) * 0.004) * hygroscopicGrowth(hazeLayerRh(o))
     : null;
   if (ok(o.aod550)) aod = pmAod != null ? Math.max(o.aod550, pmAod) : o.aod550;
   else if (pmAod != null) aod = pmAod;
