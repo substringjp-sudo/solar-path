@@ -219,5 +219,7 @@ export function aerosolOpticsFromObs(o: { aod550?: number; pm25?: number; pm10?:
   const dustShare = ok(o.dust) && ok(o.pm10) && o.pm10 > 0 ? Math.min(1, o.dust / o.pm10) : 0;
   const f = fine * (1 - dustShare);
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-  return { aod, alpha: clamp(0.3 + 1.1 * f, 0.3, 1.6), g: 0.62 + 0.18 * (1 - f), omega: 0.93 + 0.05 * (1 - f) };
+  // 습윤 성장으로 커진 입자(2026-11-13): 앞산란이 세지고(g ↑) 파장 의존이 약해짐(Ångström ↓, 흰 연무). wet = 0(건조)…약 0.66(RH 95 %).
+  const wet = 1 - 1 / hygroscopicGrowth(o.humidity);
+  return { aod, alpha: clamp((0.3 + 1.1 * f) * (1 - 0.5 * wet), 0.3, 1.6), g: Math.min(0.85, 0.62 + 0.18 * (1 - f) + 0.1 * wet), omega: 0.93 + 0.05 * (1 - f) };
 }
