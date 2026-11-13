@@ -12,7 +12,7 @@ import { FALLBACK_ALT_KM, type ProfileLevel } from '../../utils/cloudProfile';
 import { GENUS, type GenusKey } from './cloudGenus';
 import { flowSeedOf } from './cloudFlow';
 import { resolveLayerWinds } from '../../utils/skyColumn';
-import { aerosolOpticsFromObs, hygroscopicGrowth } from '../../utils/sunVisibility';
+import { aerosolOpticsFromObs } from '../../utils/sunVisibility';
 import { cloudOpticalDepthFromDni } from '../../utils/dniOpticalDepth';
 import { pickDni } from '../../utils/satelliteIrradiance';
 import { clearSkyGHIMean } from '../../utils/satelliteBias';
@@ -213,9 +213,7 @@ export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; 
   if (!op) return undefined;
   const extra = op.aod - HAZE_BACKGROUND_AOD;
   if (extra < 0.02) return undefined;
-  // 습한 연무의 좁은 광륜(2026-11-13 수원 사진: 해 바로 둘레만 밝고 바깥은 고른 회색) — 커진 입자의 회절 봉우리를 날카로운 앞 로브로.
-  const fwd = 0.3 * (1 - 1 / hygroscopicGrowth(o.humidity));
-  return { aod: Math.min(3, extra), alpha: op.alpha, g: op.g, omega: op.omega, ...(fwd > 0.005 ? { fwd } : {}) };
+  return { aod: Math.min(3, extra), alpha: op.alpha, g: op.g, omega: op.omega };
 }
 
 /**

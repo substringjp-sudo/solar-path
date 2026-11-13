@@ -149,8 +149,7 @@ export interface MacroRingPoint { distance: number; azimuthOffset: number; cover
  * aod: 550nm 광학두께(배경 초과분) · alpha: Ångström 지수(클수록 푸른빛을 더 산란 — 초미세먼지) ·
  * g: 비대칭도(클수록 해 쪽으로 앞산란 — 조대 먼지) · omega: 단일 산란 반사율.
  */
-/** fwd: 날카로운 앞 로브(HG g 0.95)의 몫 0…0.3 — 습윤 성장으로 커진 입자의 좁은 광륜(없으면 0). */
-export interface HazeInput { aod: number; alpha: number; g: number; omega: number; fwd?: number }
+export interface HazeInput { aod: number; alpha: number; g: number; omega: number }
 export const HAZE_SCALE_HEIGHT_KM = 1.5;
 
 /**
@@ -890,7 +889,7 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cloudSkyT;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;', 'uniform vec4 hazeP;   // aod, alpha, g, omega', 'uniform float hazeFwd;',
+      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cloudSkyT;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
       // 구름 너머 하늘(2026-11-13): 맑은 하늘 산란 표(해 둘레 노을 번짐 포함)를 그대로 쓰면, 하늘을 덮은 구름층이어도 지평선 쪽 얇은 곳·끝 너머로
@@ -947,10 +946,7 @@ export async function createVolumetricScene(
       '  float hG = hazeP.z;',
       '  float hPh = (1.0 - hG * hG) / (12.5663706 * pow(max(1.0 + hG * hG - 2.0 * hG * hCos, 1e-3), 1.5));',
       // 실제 에어로졸은 옆·뒤 산란이 HG 한 덩어리보다 큽니다 → 등방 35% 섞음. 하늘 조도 항은 두꺼울수록 다중산란으로 채워 /π 에 가깝게.
-      '  hPh = mix(hPh, 0.0795775, 0.35 * (1.0 - hazeFwd));',
-      // 습한 연무: 커진 입자의 회절 봉우리(좁은 광륜) — g 0.95 로브를 fwd 만큼. 바깥은 다중산란이 고른 회색으로 채움.
-      '  float hPhF = (1.0 - 0.9025) / (12.5663706 * pow(max(1.9025 - 1.9 * hCos, 1e-4), 1.5));',
-      '  hPh = mix(hPh, hPhF, hazeFwd);',
+      '  hPh = mix(hPh, 0.0795775, 0.35);',
       '  vec3 hTau0 = hazeP.x * pow(vec3(640.0, 550.0, 460.0) / 550.0, vec3(-hazeP.y));',
       '  float hMuS = max(dot(normalize(sunDirection), hUp), 0.02);',
       '  float hUBg = exp(-min(hKm, 1e4) * hSin / hH);',
@@ -975,7 +971,6 @@ export async function createVolumetricScene(
     ].join('\n');
     fx.uniforms.set('hazeOn', new Uniform(0));
     fx.uniforms.set('hazeP', new Uniform(new Vector4(0, 1, 0.7, 0.95)));
-    fx.uniforms.set('hazeFwd', new Uniform(0));
     fx.uniforms.set('terrainDist', new Uniform(null));
     fx.uniforms.set('terrainDistOn', new Uniform(0));
     fx.uniforms.set('cloudAlphaOut', new Uniform(0));
@@ -1041,7 +1036,6 @@ export async function createVolumetricScene(
     const on = !!h && h.aod > 0.005;
     au.get('hazeOn')!.value = on ? 1 : 0;
     if (on && h) (au.get('hazeP')!.value as Vector4).set(h.aod, h.alpha, h.g, h.omega);
-    au.get('hazeFwd')!.value = on && h ? Math.min(0.3, Math.max(0, h.fwd ?? 0)) : 0;
   };
   const setCloudAlphaOut = (on: boolean) => {
     (aerial as unknown as { uniforms: Map<string, Uniform> }).uniforms.get('cloudAlphaOut')!.value = on ? 1 : 0;
