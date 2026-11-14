@@ -271,13 +271,80 @@ function makeWeather(cover: number[], o: VolumetricOptions): DataTexture {
   return t;
 }
 
-/** STBN 대신 백색 잡음 — 1MB 자산을 싣지 않으려고. */
+/**
+ * 1MB 외부 자산 없이 절차적으로 생성하는 시공간 블루 노이즈(STBN, Spatiotemporal Blue Noise).
+ * 공간(x, y): Interleaved Gradient Noise + 3×3 주기적 고주파 반발(void-and-cluster 근사) + 순위 정규화로 균일 분포 보장.
+ * 시간/깊이(z): 황금비(Golden Ratio φ⁻¹ ≈ 0.6180339887) 저불일치 수열 + 공간 순환 이동으로 프레임 간 수렴 속도를 극대화.
+ */
+let cachedStbnBytes: Uint8Array | null = null;
 function makeWhiteNoise3D(): Data3DTexture {
-  const n = STBN_TEXTURE_WIDTH * STBN_TEXTURE_HEIGHT * STBN_TEXTURE_DEPTH;
-  const data = new Uint8Array(n);
-  let s = 12345;
-  for (let i = 0; i < n; i++) { s = (s * 1664525 + 1013904223) >>> 0; data[i] = s >>> 24; }
-  const t = new Data3DTexture(data, STBN_TEXTURE_WIDTH, STBN_TEXTURE_HEIGHT, STBN_TEXTURE_DEPTH);
+  const W = STBN_TEXTURE_WIDTH, H = STBN_TEXTURE_HEIGHT, D = STBN_TEXTURE_DEPTH;
+  if (!cachedStbnBytes) {
+    const n2d = W * H;
+    const base = new Float32Array(n2d);
+    const refined = new Float32Array(n2d);
+    let s = 12345;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        s = (s * 1664525 + 1013904223) >>> 0;
+        const ign = (52.9829189 * ((0.06711056 * x + 0.00583715 * y) % 1)) % 1;
+        base[y * W + x] = (ign + (s >>> 8) / 16777216 * 0.35) % 1;
+      }
+    }
+    const wMask = W - 1, hMask = H - 1;
+    for (let pass = 0; pass < 2; pass++) {
+      const src = pass === 0 ? base : refined;
+      const dst = pass === 0 ? refined : base;
+      for (let y = 0; y < H; y++) {
+        const ym = ((y - 1) & hMask) * W, y0 = y * W, yp = ((y + 1) & hMask) * W;
+        for (let x = 0; x < W; x++) {
+          const xm = (x - 1) & wMask, xp = (x + 1) & wMask;
+          const c = src[y0 + x];
+          let push = 0;
+          const nb = [
+            src[ym + xm], src[ym + x], src[ym + xp],
+            src[y0 + xm],              src[y0 + xp],
+            src[yp + xm], src[yp + x], src[yp + xp],
+          ];
+          for (let k = 0; k < 8; k++) {
+            let d = c - nb[k];
+            if (d > 0.5) d -= 1;
+            else if (d < -0.5) d += 1;
+            const wt = (k & 1) === 1 ? 0.14 : 0.07;
+            push += (d >= 0 ? 0.5 - d : -0.5 - d) * wt;
+          }
+          let v = (c + push * 0.45) % 1;
+          if (v < 0) v += 1;
+          dst[y0 + x] = v;
+        }
+      }
+    }
+    const order = new Uint32Array(n2d);
+    for (let i = 0; i < n2d; i++) order[i] = i;
+    order.sort((a, b) => base[a] - base[b]);
+    const rank2d = new Float32Array(n2d);
+    const invN = 1 / n2d;
+    for (let r = 0; r < n2d; r++) rank2d[order[r]] = (r + 0.5) * invN;
+
+    const data = new Uint8Array(n2d * D);
+    const PHI = 0.6180339887498949;
+    for (let z = 0; z < D; z++) {
+      const zOff = z * n2d;
+      const zShift = (z * PHI) % 1;
+      const sx = (z * 17) & wMask, sy = (z * 29) & hMask;
+      for (let y = 0; y < H; y++) {
+        const syRow = ((y + sy) & hMask) * W;
+        const dstRow = zOff + y * W;
+        for (let x = 0; x < W; x++) {
+          const u0 = rank2d[syRow + ((x + sx) & wMask)];
+          const u = (u0 + zShift) % 1;
+          data[dstRow + x] = Math.min(255, (u * 256) | 0);
+        }
+      }
+    }
+    cachedStbnBytes = data;
+  }
+  const t = new Data3DTexture(cachedStbnBytes, W, H, D);
   t.format = RedFormat; t.type = UnsignedByteType;
   t.minFilter = NearestFilter; t.magFilter = NearestFilter;
   t.wrapS = t.wrapT = t.wrapR = RepeatWrapping;
@@ -285,6 +352,15 @@ function makeWhiteNoise3D(): Data3DTexture {
   t.needsUpdate = true;
   return t;
 }
+
+/**
+ * 렌더러(WebGL 컨텍스트)별 15파장 대기 산란 LUT(Transmittance / Scattering / Irradiance) 캐시.
+ * 대기 물리 상수는 불변이므로 같은 WebGLRenderer 내에서는 최초 1회만 GPU 셰이더 적분을 수행하고 이후 즉시 재사용합니다.
+ */
+const atmosGeneratorCache = new WeakMap<
+  WebGLRenderer,
+  Map<string, { generator: PrecomputedTexturesGenerator; spectral: boolean }>
+>();
 
 /** 종류별 모형의 날씨 텍스처 한 장이 덮는 길이(km). 512 칸이면 47m/칸. */
 const GENUS_TILE_KM = 24;
@@ -636,6 +712,20 @@ export async function createVolumetricScene(
   const applyMaxRay = () => { clouds.clouds.maxRayDistance = opt.maxRayKm != null ? opt.maxRayKm * 1000 : baseMaxRay; };
   let isInteracting = false;
   let baseMinStepSize = clouds.clouds.minStepSize;
+  let baseMaxIter = clouds.clouds.maxIterationCount;
+  let lastViewElDeg = 14;
+  /**
+   * 천정/고고도 적응형 1차 광선 행진 수 조절(Horizon-Adaptive Step Budget):
+   * 지평선 부근(el <= 20°)은 광선이 구름 슬랩을 수십 km 비스듬히 통과하므로 baseMaxIter 100% 유지.
+   * 고고도/천정(el > 25°)은 구름 슬랩(두께 1~2km)을 수직에 가깝게 통과해 조기 탈출하므로 상한을 70%까지 줄이고,
+   * 드래그/스크러빙(isInteracting) 중에는 추가로 75%로 낮춰 GPU 프레임 타임을 방어합니다.
+   */
+  const applyPrimaryMarch = () => {
+    const elAbs = Math.abs(lastViewElDeg);
+    const elScale = elAbs <= 20 ? 1.0 : Math.max(0.7, 1.0 - ((elAbs - 20) / 70) * 0.3);
+    const interactScale = isInteracting ? 0.75 : 1.0;
+    clouds.clouds.maxIterationCount = Math.max(64, Math.round(baseMaxIter * elScale * interactScale));
+  };
   const applySunMarch = () => {
     if (!opt.sunMarch) {
       if (baseMarch.n > 0) {   // 품질 단계 기본값으로 되돌림
@@ -658,6 +748,7 @@ export async function createVolumetricScene(
       if (curQuality === 'low') clouds.clouds.minStepSize = baseMinStepSize;
       applySunMarch();
     }
+    applyPrimaryMarch();
   };
   applySunMarch();
   applyMaxRay();
@@ -1241,13 +1332,33 @@ export async function createVolumetricScene(
   clouds.stbnTexture = makeWhiteNoise3D();
 
   // 대기 표: 기기 GPU 에서 만듭니다(자산 25MB 를 싣지 않으려고). 하네스는 takram 의 미리 만든 표를 넘겨 비교할 수 있습니다.
-  const generator = options.precomputed ? null : new PrecomputedTexturesGenerator(renderer);
-  if (generator && spectral && !patchSpectralGenerator(generator, { effectiveTransmittance: options.effectiveTransmittance ?? true })) {
-    spectral = false;
-    atmosphereParams.skyRadianceToRelativeLuminance.copy(renderAtmosphere(false).skyRadianceToRelativeLuminance);
-    console.warn('[volumetric] takram 표 생성기 내부가 달라 3파장 표로 만듭니다');
+  let generator: PrecomputedTexturesGenerator | null = null;
+  if (!options.precomputed) {
+    const effTrans = options.effectiveTransmittance ?? true;
+    const cacheKey = `${spectral ? '15w' : '3w'}_${effTrans ? '1' : '0'}`;
+    let mapForRenderer = atmosGeneratorCache.get(renderer);
+    if (!mapForRenderer) {
+      mapForRenderer = new Map();
+      atmosGeneratorCache.set(renderer, mapForRenderer);
+    }
+    const cached = mapForRenderer.get(cacheKey);
+    if (cached) {
+      generator = cached.generator;
+      if (!cached.spectral && spectral) {
+        spectral = false;
+        atmosphereParams.skyRadianceToRelativeLuminance.copy(renderAtmosphere(false).skyRadianceToRelativeLuminance);
+      }
+    } else {
+      generator = new PrecomputedTexturesGenerator(renderer);
+      if (spectral && !patchSpectralGenerator(generator, { effectiveTransmittance: effTrans })) {
+        spectral = false;
+        atmosphereParams.skyRadianceToRelativeLuminance.copy(renderAtmosphere(false).skyRadianceToRelativeLuminance);
+        console.warn('[volumetric] takram 표 생성기 내부가 달라 3파장 표로 만듭니다');
+      }
+      await generator.update();
+      mapForRenderer.set(cacheKey, { generator, spectral });
+    }
   }
-  if (generator) await generator.update();
   const atmosTextures = options.precomputed ?? generator!.textures;
   Object.assign(aerial, atmosTextures);
   Object.assign(clouds, atmosTextures);
@@ -1363,6 +1474,8 @@ export async function createVolumetricScene(
     clouds.worldToECEFMatrix.copy(worldToECEF);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
+    lastViewElDeg = p.el;
+    applyPrimaryMarch();
     updateLod();
   };
   /**
@@ -2056,6 +2169,7 @@ export async function createVolumetricScene(
       // (기기 캡처의 흰 점·알갱이; 하네스 low 렌더 알파 편차 0.0070 → 0.0044, medium 0.0045). 보폭만 medium 과 같은 50 m 로 — 반복 수 200·종료 투과율 0.1 은 그대로.
       if (q === 'low') clouds.clouds.minStepSize = LOW_MIN_STEP_M;
       baseMinStepSize = clouds.clouds.minStepSize;
+      baseMaxIter = clouds.clouds.maxIterationCount;
       baseMaxRay = clouds.clouds.maxRayDistance;
       applyMaxRay();
       baseAccurate = clouds.clouds.accurateSunSkyLight;
@@ -2064,6 +2178,7 @@ export async function createVolumetricScene(
       baseMarch.step = clouds.clouds.minSecondaryStepSize;
       baseMarch.scale = clouds.clouds.secondaryStepScale;
       applySunMarch();
+      applyPrimaryMarch();
       if (isInteracting) applyInteractionLod();
       applyTsun();
     },
@@ -2131,7 +2246,7 @@ export async function createVolumetricScene(
       composer.dispose();
       clouds.dispose();
       aerial.dispose();
-      generator?.dispose();
+      // generator 는 atmosGeneratorCache (WeakMap<WebGLRenderer, ...>) 에 공유 캐시되어 재사용되므로 여기서 dispose 하지 않습니다.
       for (const t of weatherCache.values()) t.dispose();
       weatherCache.clear();
       for (const f of waveCacheMap.values()) f.tex.dispose();

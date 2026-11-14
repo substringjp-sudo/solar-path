@@ -16,7 +16,15 @@
  */
 import { getPrimarySky, setPrimarySky } from './primarySky';
 import React, { useRef, useCallback, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
-import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
+import { View, StyleSheet, PanResponder, useWindowDimensions, Text, TouchableOpacity, ActivityIndicator, Animated, Platform } from 'react-native';
+import { registerWorkletModule } from '../VolumetricProbe/skyWorklet';
+
+if (Platform.OS !== 'web') {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    registerWorkletModule(require('react-native-worklets'));
+  } catch { /* fallback to main-thread chunked generator */ }
+}
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import { Renderer, loadTextureAsync } from 'expo-three';
 import * as THREE from 'three';
@@ -2202,7 +2210,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             if (volInteractingRef.current !== isInteractingNow) {
               volInteractingRef.current = isInteractingNow;
               vol.setInteracting?.(isInteractingNow);
-              if (!isInteractingNow) volSettleRef.current = Math.max(volSettleRef.current, 8);
+              composerNow.setInteracting?.(isInteractingNow);
+              if (!isInteractingNow) volSettleRef.current = Math.max(volSettleRef.current, 5);
             }
             const isFast = false;
             const needUpgrade = false;
@@ -2237,7 +2246,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 } : null;
                 volViewRef.current = '';
                 lastVolDateSyncRef.current.vMs = -1;
-                volSettleRef.current = 8;
+                volSettleRef.current = 5;
                 volFreshRef.current = false;
               } else if (!volPendingRef.current && !isSlidingNow) {
                 lastSlidingVolBuildTimeRef.current = nowPerf;
@@ -2261,7 +2270,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                     } : null;
                     volViewRef.current = '';          // 다음 프레임에 지금 시선을 다시 겁니다(생성 중에 돌렸을 수 있음)
                     lastVolDateSyncRef.current.vMs = -1;
-                    volSettleRef.current = 8;
+                    volSettleRef.current = 5;
                     volFreshRef.current = false;      // §165 새 장면이 한 프레임 그려질 때까지 준비 아님
                   } else if (volKeyRef.current === key) volKeyRef.current = '';
                   if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
@@ -2368,7 +2377,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               const gov = volGovRef.current;
               if (gov && (volSet.volumetricAutoRes ?? true) && isInteractingNow) {
                 const next = gov.sample(intervalMs);
-                if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 8); }
+                if (next != null) { vol.setResolutionScale(next); volSettleRef.current = Math.max(volSettleRef.current, 5); }
               }
               volumetricStats.frameMs = gov?.emaMs ?? 0;
               // §169 조절기 값이 아니라 렌더러가 실제로 쓰는 배율 — 둘이 어긋나던 버그(품질 단계가 1.0 으로 되돌림)를 숨기지 않게.
@@ -2376,9 +2385,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               volumetricStats.quality = q;
               // §127 지형 거리 — 이번 프레임의 판을 먼저 그려 구름 행진이 지형에서 멈추게 합니다(산 앞 구름은 산 위, 산 뒤 구름은 가림).
               // §129 지형 빛 판도 같이 — 지형을 takram 이 하늘·구름과 같은 빛·노출로 칠합니다.
-              composerNow.setTerrainLit(true);
-              composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera);
+              // TBDR 최적화: 카메라 시선(viewKey)·태양 방향·지형 메시가 바뀌지 않은 프레임(TAA 수렴·구름 드리프트)에서는 FBO 3개를 재사용합니다.
               const terrainOn = !!terrainFieldRef.current?.mesh.visible;
+              const terrainPassKey = `${viewKey}|${Math.round(sunAltRef.current * 20)}|${Math.round(sunAzRef.current * 20)}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}`;
+              composerNow.setTerrainLit(true);
+              composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera, terrainPassKey);
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;
               vol.setTerrainDistance(terrainOn ? composerNow.terrainDistanceTexture() : null, terrainOn ? composerNow.terrainLitTexture() : null,
                 ridge?.valid ? ridge.texture : null, (seaPlaneRef.current?.material.uniforms.uSlopeVar?.value as number | undefined) ?? 0.03,
@@ -2388,7 +2399,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               if (viewKey !== volViewRef.current) {
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM);
                 volViewRef.current = viewKey;
-                volSettleRef.current = Math.max(volSettleRef.current, 8);
+                volSettleRef.current = Math.max(volSettleRef.current, 5);
               }
               volTex = vol.renderToTexture(dtSec);
 

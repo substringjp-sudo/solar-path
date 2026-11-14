@@ -327,6 +327,7 @@ uniform float uLookFill;      // §157 구름을 뚫은 햇빛 몫(terrainLook.t
 uniform float uDepthOnly;     // 1 이면 깊이만 기록(볼륨 하늘 시 LAYER_MID 용) — 물빛·윤슬·포말 조기 종료
 #ifdef SEA_LIT_OUT
 layout(location = 1) out highp vec4 pc_fragColor1;
+layout(location = 2) out highp vec4 pc_fragColor2;
 ${LIT2_ENCODE_GLSL}
 #endif
 varying float vDistM;
@@ -405,6 +406,9 @@ void main() {
     // §157 알베도는 sqrt 로 적습니다(지형과 같은 규약 — TerrainField 주석). 하늘빛 몫 1(열린 바다) · 젖음 0(바다는 자기 되비침이 있음).
     gl_FragColor = vec4(sqrt(clamp(mix(uWaterAlbedo + uBedAlbedo * thru, vec3(0.70, 0.71, 0.72), fm), 0.0, 1.0)), seaCloudT);
     pc_fragColor1 = lit2Encode(1.0, 0.0, (1.0 - seaCloudT) * uLookFill, 1.0 - seaCloudT);
+    vec4 seaDist = terrainDistEncode(vDistM / 1000.0);
+    seaDist.b = 1.0;
+    pc_fragColor2 = seaDist;
     return;
   }
 #endif

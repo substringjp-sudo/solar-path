@@ -744,23 +744,47 @@ class Lp3Tracer {
 }
 
 /**
- * 레인 k 의 구간들 → τ = Σ G(Λ; c_eff = ΣA·c / ΣA, hf_eff = Σλ·hf / Λ). near 가 있으면(아치 자기 레인) [τ_own, τ_rest_own] 을 돌려줌
- * (첫 구간 = near 를 포함하는 구간).
+ * 레인 k 의 구간들 → τ = Σ G(Λ; c_eff = ΣA·c / ΣA, hf_eff = Σλ·hf / Λ).
+ * 핫루프 GC 할당을 없애기 위해 배열/클로저를 만들지 않고 스칼라로 out[0]=own, out[1]=rest 를 기록합니다.
  */
-type Acc4 = [number, number, number, number];   // Λ, ΣA·c, ΣA, Σλ·hf
-function laneTau(acc: { accL: Float64Array; accC: Float64Array; accA: Float64Array; accH: Float64Array; tF: Float64Array; tL: Float64Array }, k: number, law: TsunLaneLaw, near: Acc4 | null): [number, number] {
-  const Gm = (a: Acc4) => (a[0] > 1e-9 ? law.G(a[0], a[2] > 0 ? Math.min(1, Math.max(0, a[1] / a[2])) : 0, Math.min(1 - 1e-6, Math.max(1e-6, a[3] / a[0]))) : 0);
-  const s0 = k * 2, s1 = k * 2 + 1;
+function gmAcc(law: TsunLaneLaw, l: number, c: number, a: number, h: number): number {
+  if (!(l > 1e-9)) return 0;
+  const ce = a > 0 ? Math.min(1, Math.max(0, c / a)) : 0;
+  const he = Math.min(1 - 1e-6, Math.max(1e-6, h / l));
+  return law.G(l, ce, he);
+}
+function laneTauInto(
+  acc: { accL: Float64Array; accC: Float64Array; accA: Float64Array; accH: Float64Array; tF: Float64Array; tL: Float64Array },
+  k: number,
+  law: TsunLaneLaw,
+  useNear: boolean,
+  nearL: number,
+  nearC: number,
+  nearA: number,
+  nearH: number,
+  out: Float64Array,
+): void {
+  const s0 = k * 2, s1 = s0 + 1;
   const a0 = acc.tF[s0] < Infinity, a1 = acc.tF[s1] < Infinity;
-  const A0: Acc4 = [acc.accL[s0], acc.accC[s0], acc.accA[s0], acc.accH[s0]], A1: Acc4 = [acc.accL[s1], acc.accC[s1], acc.accA[s1], acc.accH[s1]];
-  let first: Acc4 | null = null, second: Acc4 | null = null;
-  if (a0 && a1 && Math.abs(acc.tL[s0] - acc.tF[s1]) < 1e-6) first = [A0[0] + A1[0], A0[1] + A1[1], A0[2] + A1[2], A0[3] + A1[3]];   // 근지점이 레인 안 — 한 구간
-  else { if (a0) first = A0; if (a1) { if (first) second = A1; else first = A1; } }
-  const tFirst = first ? Gm(first) : 0;
-  const tSecond = second ? Gm(second) : 0;
-  if (!near) return [tFirst + tSecond, 0];
-  const own = Gm(near);
-  return [own, Math.max(0, tFirst - own) + tSecond];
+  let tFirst = 0, tSecond = 0;
+  if (a0 && a1 && Math.abs(acc.tL[s0] - acc.tF[s1]) < 1e-6) {
+    tFirst = gmAcc(law, acc.accL[s0] + acc.accL[s1], acc.accC[s0] + acc.accC[s1], acc.accA[s0] + acc.accA[s1], acc.accH[s0] + acc.accH[s1]);
+  } else {
+    if (a0) {
+      tFirst = gmAcc(law, acc.accL[s0], acc.accC[s0], acc.accA[s0], acc.accH[s0]);
+      if (a1) tSecond = gmAcc(law, acc.accL[s1], acc.accC[s1], acc.accA[s1], acc.accH[s1]);
+    } else if (a1) {
+      tFirst = gmAcc(law, acc.accL[s1], acc.accC[s1], acc.accA[s1], acc.accH[s1]);
+    }
+  }
+  if (!useNear) {
+    out[0] = tFirst + tSecond;
+    out[1] = 0;
+    return;
+  }
+  const own = gmAcc(law, nearL, nearC, nearA, nearH);
+  out[0] = own;
+  out[1] = Math.max(0, tFirst - own) + tSecond;
 }
 
 // ───── 결과 ─────
@@ -833,6 +857,7 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
   const tau = new Float32Array(width * height * 4);
   const earthShadow = new Uint8Array(n * width);
   const t1 = now();
+  const tauPair = new Float64Array(2);
   const tr = new Lp3Tracer(lanes, R, K, dq, nc, W, range, cx, cy, [aE, aN]);
   let msRows = 0, rays = 0, nShadow = 0, nSun = 0;
   const O = geom.O;
@@ -842,7 +867,8 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
     const v = -W + (jr + 0.5) * tex;
     tr.buildRow(v);
     msRows += now() - ta;
-    for (const own of lanes) {
+    for (let li = 0; li < lanes.length; li++) {
+      const own = lanes[li];
       const blk = laneBlock[own.k];
       for (let i = 0; i < n; i++) {
         const u = -W + (i + 0.5) * tex;
@@ -852,7 +878,11 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
           const h = own.base + S[s] * own.th, r = R + h, Z = Math.sqrt(Math.max(0, r * r - XY2));
           tr.trace(X, Y, Z, sun[0], sun[1], sun[2], u, hz, range, -1, 0);
           let t = 0;
-          for (const L of lanes) t += laneTau(tr, L.k, L.law, null)[0];
+          for (let lj = 0; lj < lanes.length; lj++) {
+            const L = lanes[lj];
+            laneTauInto(tr, L.k, L.law, false, 0, 0, 0, 0, tauPair);
+            t += tauPair[0];
+          }
           tau[(jr * width + blk * n + i) * 4 + s] = t;
           nSun++;
           if (tr.ground) { earthShadow[jr * width + blk * n + i] |= 1 << s; nShadow++; }
@@ -872,9 +902,15 @@ export function buildTsunAtlasData(input: TsunBuildInput, laws: (TsunLaneLaw | n
             const dx = ce * tx + se * ux, dy = ce * ty + se * uy, dz = ce * tz + se * uz;
             tr.trace(X, Y, Z, dx, dy, dz, u, dx * aE + dy * aN, range, own.k, own.law.dlKm);
             let tOwn = 0, tRest = 0;
-            for (const L of lanes) {
-              if (L.k === own.k) { const [o2, r2] = laneTau(tr, L.k, L.law, [tr.nearL, tr.nearC, tr.nearA, tr.nearH]); tOwn += o2; tRest += r2; }
-              else tRest += laneTau(tr, L.k, L.law, null)[0];
+            for (let lj = 0; lj < lanes.length; lj++) {
+              const L = lanes[lj];
+              if (L.k === own.k) {
+                laneTauInto(tr, L.k, L.law, true, tr.nearL, tr.nearC, tr.nearA, tr.nearH, tauPair);
+                tOwn += tauPair[0]; tRest += tauPair[1];
+              } else {
+                laneTauInto(tr, L.k, L.law, false, 0, 0, 0, 0, tauPair);
+                tRest += tauPair[0];
+              }
             }
             const o = (((1 + sl) * n + jr) * width + blk * n + i) * 4 + g * 2;
             tau[o] = tOwn; tau[o + 1] = tRest;
@@ -1010,8 +1046,10 @@ export function tsunLineTau(input: TsunBuildInput, laws: (TsunLaneLaw | null)[],
   tr.trace(X, Y, Z, d[0], d[1], d[2], u, d[0] * aE + d[1] * aN, input.rangeKm, own, split);
   let tau = 0, ownT = 0, rest = 0;
   const perLane = [0, 0, 0, 0];
+  const tauPair = new Float64Array(2);
   for (const L of lanes) {
-    const [a, b] = laneTau(tr, L.k, L.law, L.k === own && split > 0 ? [tr.nearL, tr.nearC, tr.nearA, tr.nearH] : null);
+    laneTauInto(tr, L.k, L.law, L.k === own && split > 0, tr.nearL, tr.nearC, tr.nearA, tr.nearH, tauPair);
+    const a = tauPair[0], b = tauPair[1];
     perLane[L.k] = a + b; tau += a + b;
     if (L.k === own && split > 0) { ownT += a; rest += b; } else rest += a;
   }

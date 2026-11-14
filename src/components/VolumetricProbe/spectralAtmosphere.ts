@@ -146,7 +146,9 @@ export function patchSpectralGenerator(gen: PrecomputedTexturesGenerator, opts: 
         atm.value = b.params.toUniform().value;
         ctx.lambdas.set(b.lambdas[0], b.lambdas[1], b.lambdas[2]);
         ctx.luminanceFromRadiance.copy(b.luminanceFromRadiance);
-        yield* orig.call(g, ctx, additive || i > 0);
+        // 묶음 내부의 5회 yield(총 25회 requestIdleCallback 프레임 대기)를 생략해 초기 대기 LUT 생성 지연을 크게 줄입니다.
+        for (const _ of orig.call(g, ctx, additive || i > 0)) { /* GPU 명령 연속 발행 */ }
+        if (i < batches.length - 1) yield;
       }
       if (opts.effectiveTransmittance) {
         effectiveTransmittance(g, batches);

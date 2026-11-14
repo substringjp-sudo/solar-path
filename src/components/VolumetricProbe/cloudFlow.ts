@@ -276,16 +276,56 @@ export function flowSeedOf(lat: number, lon: number, date: Date, hourBucketHours
 }
 
 // ───── radix-2 복소 FFT(제자리). 2-D = 행 다음 열. inverse 는 1/n 씩(합계 1/n²) 나눕니다. ─────
-function fft1(re: Float64Array, im: Float64Array, off: number, stride: number, n: number, inverse: boolean): void {
+interface FftPlan1D {
+  bitRev: Int32Array;
+  wrFwd: Float64Array;
+  wiFwd: Float64Array;
+  wrInv: Float64Array;
+  wiInv: Float64Array;
+}
+const fftPlanCache = new Map<number, FftPlan1D>();
+
+function getFftPlan(n: number): FftPlan1D {
+  let plan = fftPlanCache.get(n);
+  if (plan) return plan;
+  const bitRev = new Int32Array(n);
   for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit;
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    bitRev[i] = j;
+  }
+  const stages = Math.round(Math.log2(n));
+  const wrFwd = new Float64Array(stages + 1);
+  const wiFwd = new Float64Array(stages + 1);
+  const wrInv = new Float64Array(stages + 1);
+  const wiInv = new Float64Array(stages + 1);
+  for (let s = 1, len = 2; len <= n; s++, len <<= 1) {
+    const ang = TWO_PI / len;
+    wrFwd[s] = Math.cos(-ang);
+    wiFwd[s] = Math.sin(-ang);
+    wrInv[s] = Math.cos(ang);
+    wiInv[s] = Math.sin(ang);
+  }
+  plan = { bitRev, wrFwd, wiFwd, wrInv, wiInv };
+  fftPlanCache.set(n, plan);
+  return plan;
+}
+
+function fft1(re: Float64Array, im: Float64Array, off: number, stride: number, n: number, inverse: boolean): void {
+  const plan = getFftPlan(n);
+  const bitRev = plan.bitRev;
+  for (let i = 1; i < n; i++) {
+    const j = bitRev[i];
     if (i < j) {
       const a = off + i * stride, b = off + j * stride;
       let t = re[a]; re[a] = re[b]; re[b] = t; t = im[a]; im[a] = im[b]; im[b] = t;
     }
   }
-  for (let len = 2; len <= n; len <<= 1) {
-    const ang = (inverse ? TWO_PI : -TWO_PI) / len, wr = Math.cos(ang), wi = Math.sin(ang), half = len >> 1;
+  const wrArr = inverse ? plan.wrInv : plan.wrFwd;
+  const wiArr = inverse ? plan.wiInv : plan.wiFwd;
+  for (let s = 1, len = 2; len <= n; s++, len <<= 1) {
+    const wr = wrArr[s], wi = wiArr[s], half = len >> 1;
     for (let i = 0; i < n; i += len) {
       let cr = 1, ci = 0;
       for (let j = 0; j < half; j++) {
@@ -296,7 +336,10 @@ function fft1(re: Float64Array, im: Float64Array, off: number, stride: number, n
       }
     }
   }
-  if (inverse) for (let i = 0; i < n; i++) { re[off + i * stride] /= n; im[off + i * stride] /= n; }
+  if (inverse) {
+    const invN = 1 / n;
+    for (let i = 0; i < n; i++) { re[off + i * stride] *= invN; im[off + i * stride] *= invN; }
+  }
 }
 /** n×n 복소 FFT(제자리, 행우선 re/im 길이 n²). n 은 2 의 거듭제곱. inverse 는 1/n² 정규화 포함. */
 export function fft2(re: Float64Array, im: Float64Array, n: number, inverse: boolean): void {
@@ -334,14 +377,24 @@ function standardize(A: Float32Array): void {
  */
 export function normalizeTemplate(T: Float32Array): void { standardize(T); }
 
+const laplacianCache = new Map<string, Float64Array>();
+
 /** (2π|k|/L)² 표(스펙트럼 색인 순) */
 function laplacianTable(n: number, L: number): Float64Array {
+  const key = `${n}|${L}`;
+  const cached = laplacianCache.get(key);
+  if (cached) return cached;
   const KK = new Float64Array(n * n);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const kx = i <= n / 2 ? i : i - n, ky = j <= n / 2 ? j : j - n;
     const k = Math.sqrt(kx * kx + ky * ky);
     KK[j * n + i] = (TWO_PI * k / L) * (TWO_PI * k / L);
   }
+  if (laplacianCache.size >= 8) {
+    const first = laplacianCache.keys().next().value;
+    if (first !== undefined) laplacianCache.delete(first);
+  }
+  laplacianCache.set(key, KK);
   return KK;
 }
 /** ∇²ψ = ζ 를 주기 FFT 로(평균 모드 0). re/im 은 n² 작업 버퍼. */
@@ -493,7 +546,13 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
   if (qn < 8 || (qn & (qn - 1)) !== 0) throw new Error(`cloudFlow: qN must be a power of two >= 8 (got ${qn})`);
   newFlowCore(n, out, qn);
   const n2 = n * n, L = tileKm * 1000, dx = L / n;
-  const steps = Math.max(1, p.steps | 0), dt = (p.hours * 3600) / steps, dtu = dt / L;
+  const rawSteps = Math.max(1, p.steps | 0);
+  const gate = (p.s90 ?? 0) > 0;
+  // 약풍·단시간 조건에서는 CFL 안정성을 유지하는 범위 내에서 적분 스텝 수를 적응형으로 줄여 CPU 비용을 절감합니다.
+  const steps = !gate && rawSteps > 6
+    ? Math.max(6, Math.round(rawSteps * Math.min(1, Math.max(0.35, (p.vrms * p.hours) / 1.0))))
+    : rawSteps;
+  const dt = (p.hours * 3600) / steps, dtu = dt / L;
   const psiEvery = Math.max(1, p.psiEvery | 0);
   const DX = out.dx, DY = out.dy, Z0n = out.z0n, Q0 = out.q0;
   DX.fill(0); DY.fill(0);
@@ -566,7 +625,6 @@ export function* flowCoreSteps(p: FlowSceneParams, tileKm: number, out: FlowCore
   let dxA: Float32Array = DX, dyA: Float32Array = DY, dxB: Float32Array = new Float32Array(n2), dyB: Float32Array = new Float32Array(n2);
   const zeta = new Float32Array(n2);
   const blocks = n >= 128 ? 4 : 1, rowsPerBlock = n / blocks;
-  const gate = (p.s90 ?? 0) > 0;
   const hoursMax = gate ? Math.max(p.hours, p.hoursMax ?? 1.2) : p.hours;
   const maxSteps = gate ? Math.max(1, Math.ceil((hoursMax * 3600) / dt - 1e-9)) : steps;
   const minSteps = gate ? Math.max(1, Math.ceil(((p.hoursMin ?? 0.25) * 3600) / dt - 1e-9)) : steps;

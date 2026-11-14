@@ -652,8 +652,11 @@ export interface SceneComposerHandle {
   /**
    * §127 지형 거리 판을 **지금** 그립니다(합성 전에 다른 패스가 같은 프레임의 판을 읽어야 할 때 — 볼륨 하늘의 구름
    * 행진). 그린 프레임에는 `render` 가 다시 그리지 않습니다. 지형 거리 판이 꺼져 있으면 아무것도 안 합니다.
+   * `cacheKey` 가 직전 프레임과 같으면(시선·태양·지형이 안 바뀜) FBO 재렌더를 건너뛰고 기존 버퍼를 재사용합니다.
    */
-  prepareTerrainDistance: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
+  prepareTerrainDistance: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, cacheKey?: string) => void;
+  /** 카메라 드래그·슬라이더 조작 중 고비용 필터(9탭 양방향 디노이즈·캣멀롬·박명광선)를 잠시 우회합니다. */
+  setInteracting?: (active: boolean) => void;
   /** 지형 거리 판의 텍스처(원해상도 — 구름 슬랩은 제 화소 가운데를 정규화 좌표로 읽습니다). */
   terrainDistanceTexture: () => THREE.Texture;
   /**
@@ -785,14 +788,19 @@ export function createSceneComposer(
   });
   let terrainDistOn = false;
   // §129 지형 빛 판(알베도·햇빛 몫, 8비트 — 값이 0~1). 거리 판과 같은 원해상도·최근접·깊이 버퍼(앞 능선이 이김).
-  // §157 출력이 **둘**입니다(count: 2) — 0: sqrt(알베도)·해 몫, 1: 하늘빛 몫·젖음·구름 투과(terrainLook.ts LIT2_ENCODE_GLSL).
-  //   앱의 구름(takram)이 이미 같은 방식의 다중 출력으로 기기에서 돕니다.
+  // §157 + TBDR 최적화: 출력이 **셋**입니다(count: 3) — 0: sqrt(알베도)·해 몫, 1: 하늘빛 몫·젖음·구름 투과(terrainLook.ts LIT2_ENCODE_GLSL),
+  //   2: 지형 거리(terrainDistEncode). 볼륨 하늘에서 지형 빛 판을 켤 때 별도 rtDist 패스 없이 MRT×3 단일 패스로 거리까지 함께 그립니다.
   const rtLit = new THREE.WebGLRenderTarget(w, h, {
-    ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, count: 2,
+    ...rtOptions, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, count: 3,
   });
   let terrainLitOn = false;
+  const activeDistTex = () => (terrainLitOn ? rtLit.textures[2] : rtDist.texture);
   // §140 볼륨 하늘 알갱이 지우기 — 원해상도 externalSky 에서는 중복 필터를 건너뛰어 기본 끔.
   let volumetricDenoise = false;
+  let interacting = false;
+  let baseCatmull = 1;
+  let lastTerrainPassKey = '';
+  let lastTerrainLitState = false;
   /** §126.7 밖에서 그린 하늘(선형 색 + 알파 = 구름 불투명도, §127). null 이면 하늘돔 층을 그립니다. */
   let externalSky: THREE.Texture | null = null;
   /**
@@ -1021,6 +1029,7 @@ export function createSceneComposer(
 
   const resize = () => {
     fitInternal();
+    lastTerrainPassKey = '';
     rtPixel.setSize(w, h);
     rtSky.setSize(softW(), softH());
     rtCloud.setSize(softW(), softH());
@@ -1084,7 +1093,7 @@ export function createSceneComposer(
     const bloomOn = bloom.strength > 0.001;
     // 그늘 지도는 구름 덱 버퍼에서 나옵니다. 한 번에 그리는 경로(배율 1)에는
     // 그 버퍼가 없으므로 광선도 없습니다 — 틀린 그늘보다 없는 편이 낫습니다.
-    rayGain = softPathUsed ? computeRayGain(camera) : 0;
+    rayGain = softPathUsed && !interacting ? computeRayGain(camera) : 0;
 
     // 1) 밝은 부분 뽑기 (1/4 해상도) — 둘이 함께 씁니다.
     brightMat.uniforms.uThreshold.value = bloom.threshold;
@@ -1137,33 +1146,57 @@ export function createSceneComposer(
   /** §117 지형 거리 판을 그립니다(원해상도). 렌더 타깃·카메라 층·지움 색은 호출자가 되돌립니다(render·prepare). */
   let distPrepared = false;
   const distClear = new THREE.Color();
+  const DIST_CLEAR_VEC = new Float32Array([1, 1, 1, 1]);
   const drawTerrainDistance = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => {
-    if (rtDist.width !== w || rtDist.height !== h) rtDist.setSize(w, h);
-    camera.layers.set(LAYER_TERRAIN_DIST);
-    renderer.setRenderTarget(rtDist);
     renderer.getClearColor(distClear);
     const prevClearAlpha = renderer.getClearAlpha();
-    renderer.setClearColor(0xffffff, 1);
-    renderer.clear(true, true, true);
-    renderer.autoClear = false;
-    renderer.render(scene, camera);
     if (terrainLitOn) {
+      // TBDR 최적화: 지형 빛 판이 켜진 경우 MRT×3 단일 패스로 lit0(알베도/직달), lit1(AO/젖음/투과), lit2(지형 거리)를 한 번에 그립니다.
       if (rtLit.width !== w || rtLit.height !== h) rtLit.setSize(w, h);
       camera.layers.set(LAYER_TERRAIN_LIT);
       renderer.setRenderTarget(rtLit);
       renderer.setClearColor(0x000000, 0);
       renderer.clear(true, true, true);
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      if (typeof gl.clearBufferfv === 'function') {
+        gl.clearBufferfv(gl.COLOR, 2, DIST_CLEAR_VEC);
+      }
+      renderer.autoClear = false;
+      renderer.render(scene, camera);
+    } else {
+      if (rtDist.width !== w || rtDist.height !== h) rtDist.setSize(w, h);
+      camera.layers.set(LAYER_TERRAIN_DIST);
+      renderer.setRenderTarget(rtDist);
+      renderer.setClearColor(0xffffff, 1);
+      renderer.clear(true, true, true);
+      renderer.autoClear = false;
       renderer.render(scene, camera);
     }
     renderer.setClearColor(distClear, prevClearAlpha);
   };
 
-  const prepareTerrainDistance = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => {
+  const prepareTerrainDistance = (
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    camera: THREE.Camera,
+    cacheKey?: string,
+  ) => {
     if (!terrainDistOn) return;
+    if (
+      cacheKey &&
+      cacheKey === lastTerrainPassKey &&
+      lastTerrainLitState === terrainLitOn &&
+      (terrainLitOn ? (rtLit.width === w && rtLit.height === h) : (rtDist.width === w && rtDist.height === h))
+    ) {
+      distPrepared = true;
+      return;
+    }
     const prevTarget = renderer.getRenderTarget();
     const prevAutoClear = renderer.autoClear;
     const prevMask = camera.layers.mask;
     drawTerrainDistance(renderer, scene, camera);
+    lastTerrainPassKey = cacheKey ?? '';
+    lastTerrainLitState = terrainLitOn;
     distPrepared = true;
     camera.layers.mask = prevMask;
     renderer.autoClear = prevAutoClear;
@@ -1212,7 +1245,7 @@ export function createSceneComposer(
         renderer.autoClear = false;
         opaqueMat.uniforms.uDither.value = dither;
         opaqueMat.uniforms.uEncodeSrgb.value = 1;
-        opaqueMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
+        opaqueMat.uniforms.uDenoise.value = volumetricDenoise && !interacting ? 1 : 0;
         blit(renderer, opaqueQuad, externalSky);
         opaqueMat.uniforms.uEncodeSrgb.value = 0;
         opaqueMat.uniforms.uDenoise.value = 0;
@@ -1265,7 +1298,7 @@ export function createSceneComposer(
       renderer.autoClear = true;
       opaqueMat.uniforms.uDither.value = dither;
       opaqueMat.uniforms.uEncodeSrgb.value = externalSky ? 1 : 0;
-      opaqueMat.uniforms.uDenoise.value = externalSky && volumetricDenoise ? 1 : 0;
+      opaqueMat.uniforms.uDenoise.value = externalSky && volumetricDenoise && !interacting ? 1 : 0;
       blit(renderer, opaqueQuad, externalSky ?? rtSky.texture);
       opaqueMat.uniforms.uEncodeSrgb.value = 0;
       opaqueMat.uniforms.uDenoise.value = 0;
@@ -1400,23 +1433,42 @@ export function createSceneComposer(
     },
     getDither: () => dither,
     setReconstruct: (mode: 'catmull' | 'bilinear') => {
-      const v = mode === 'bilinear' ? 0 : 1;
+      baseCatmull = mode === 'bilinear' ? 0 : 1;
+      const v = interacting ? 0 : baseCatmull;
       opaqueMat.uniforms.uCatmull.value = v;
       overMat.uniforms.uCatmull.value = v;
+      extMaskMat.uniforms.uCatmull.value = v;
+      extFrontMat.uniforms.uCatmull.value = v;
+    },
+    setInteracting: (active: boolean) => {
+      if (interacting === active) return;
+      interacting = active;
+      const cat = interacting ? 0 : baseCatmull;
+      opaqueMat.uniforms.uCatmull.value = cat;
+      overMat.uniforms.uCatmull.value = cat;
+      extMaskMat.uniforms.uCatmull.value = cat;
+      extFrontMat.uniforms.uCatmull.value = cat;
+      const den = volumetricDenoise && !interacting ? 1 : 0;
+      extMaskMat.uniforms.uDenoise.value = den;
+      extFrontMat.uniforms.uDenoise.value = den;
     },
     lastRayGain: () => rayGain,
-    setTerrainDistance: (on: boolean) => { terrainDistOn = !!on; },
+    setTerrainDistance: (on: boolean) => {
+      if (terrainDistOn !== !!on) lastTerrainPassKey = '';
+      terrainDistOn = !!on;
+    },
     setTerrainLit: (on: boolean) => { terrainLitOn = !!on; },
     setVolumetricDenoise: (on: boolean) => {
       volumetricDenoise = !!on;
-      extMaskMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
-      extFrontMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
+      const den = volumetricDenoise && !interacting ? 1 : 0;
+      extMaskMat.uniforms.uDenoise.value = den;
+      extFrontMat.uniforms.uDenoise.value = den;
     },
     terrainLitTexture: () => (terrainLitOn ? rtLit.texture : null),
     terrainLit2Texture: () => (terrainLitOn ? rtLit.textures[1] : null),
     setExternalSky: (tex: THREE.Texture | null) => { externalSky = tex; },
     prepareTerrainDistance,
-    terrainDistanceTexture: () => rtDist.texture,
+    terrainDistanceTexture: () => activeDistTex(),
     dispose: () => {
       rtDist.dispose();
       rtLit.dispose();

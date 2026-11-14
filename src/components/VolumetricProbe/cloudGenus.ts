@@ -253,35 +253,59 @@ const rng = (seed: number) => () => {
 };
 type F2 = (u: number, v: number) => number;
 function periodicNoise(n: number, seed: number): F2 {
-  const r = rng(seed), g = new Float32Array(n * n).map(() => r());
-  const at = (i: number, j: number) => g[(((j % n) + n) % n) * n + (((i % n) + n) % n)];
+  const r = rng(seed), g = new Float32Array(n * n);
+  for (let i = 0; i < g.length; i++) g[i] = r();
   return (u, v) => {
     const x = u * n, y = v * n, x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
     const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    const a = at(x0, y0), b = at(x0 + 1, y0), c = at(x0, y0 + 1), d = at(x0 + 1, y0 + 1);
+    let i0 = x0 % n; if (i0 < 0) i0 += n;
+    const i1 = i0 + 1 === n ? 0 : i0 + 1;
+    let j0 = y0 % n; if (j0 < 0) j0 += n;
+    const j1 = j0 + 1 === n ? 0 : j0 + 1;
+    const r0 = j0 * n, r1 = j1 * n;
+    const a = g[r0 + i0], b = g[r0 + i1], c = g[r1 + i0], d = g[r1 + i1];
     const ab = a + (b - a) * sx;
     return ab + (c + (d - c) * sx - ab) * sy;
   };
 }
 /** 가로·세로 격자 수가 다른 주기 잡음 — 늘인 무늬(권운)를 주기 경계를 지키며 만들려고 축에 맞춰 늘입니다. */
 function periodicNoise2(nx: number, ny: number, seed: number): F2 {
-  const r = rng(seed), g = new Float32Array(nx * ny).map(() => r());
-  const at = (i: number, j: number) => g[(((j % ny) + ny) % ny) * nx + (((i % nx) + nx) % nx)];
+  const r = rng(seed), g = new Float32Array(nx * ny);
+  for (let i = 0; i < g.length; i++) g[i] = r();
   return (u, v) => {
     const x = u * nx, y = v * ny, x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
     const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    const a = at(x0, y0), b = at(x0 + 1, y0), c = at(x0, y0 + 1), d = at(x0 + 1, y0 + 1);
+    let i0 = x0 % nx; if (i0 < 0) i0 += nx;
+    const i1 = i0 + 1 === nx ? 0 : i0 + 1;
+    let j0 = y0 % ny; if (j0 < 0) j0 += ny;
+    const j1 = j0 + 1 === ny ? 0 : j0 + 1;
+    const r0 = j0 * nx, r1 = j1 * nx;
+    const a = g[r0 + i0], b = g[r0 + i1], c = g[r1 + i0], d = g[r1 + i1];
     const ab = a + (b - a) * sx;
     return ab + (c + (d - c) * sx - ab) * sy;
   };
 }
 function fbm2(nx: number, ny: number, oct: number, seed: number): F2 {
   const ns = Array.from({ length: oct }, (_, k) => periodicNoise2(nx << k, ny << k, seed + k * 131));
-  return (u, v) => { let s = 0, a = 0.5, w = 0; for (const f of ns) { s += a * f(u, v); w += a; a *= 0.5; } return s / w; };
+  let w = 0, a0 = 0.5;
+  for (let k = 0; k < oct; k++) { w += a0; a0 *= 0.5; }
+  const invW = 1 / w;
+  return (u, v) => {
+    let s = 0, a = 0.5;
+    for (let k = 0; k < oct; k++) { s += a * ns[k](u, v); a *= 0.5; }
+    return s * invW;
+  };
 }
 function fbm(n0: number, oct: number, seed: number): F2 {
   const ns = Array.from({ length: oct }, (_, k) => periodicNoise(n0 << k, seed + k * 101));
-  return (u, v) => { let s = 0, a = 0.5, w = 0; for (const f of ns) { s += a * f(u, v); w += a; a *= 0.5; } return s / w; };
+  let w = 0, a0 = 0.5;
+  for (let k = 0; k < oct; k++) { w += a0; a0 *= 0.5; }
+  const invW = 1 / w;
+  return (u, v) => {
+    let s = 0, a = 0.5;
+    for (let k = 0; k < oct; k++) { s += a * ns[k](u, v); a *= 0.5; }
+    return s * invW;
+  };
 }
 interface Pt { x: number; y: number; s: number; t: number }
 function cells(n: number, seed: number, jitter = 0.9) {
@@ -379,10 +403,20 @@ function spectralNoise(kPeak: number, aniso: number, dirDeg: number | null, seed
     modes.push({ kx, ky, a, ph: r() * 6.2832 }); s2 += 0.5 * a * a;
   }
   const norm = 0.25 / Math.sqrt(Math.max(1e-9, s2));
+  const nModes = modes.length;
+  const mKx = new Float64Array(nModes), mKy = new Float64Array(nModes);
+  const mA = new Float64Array(nModes), mPh = new Float64Array(nModes);
+  for (let i = 0; i < nModes; i++) {
+    const m = modes[i];
+    mKx[i] = 6.2831853 * m.kx;
+    mKy[i] = 6.2831853 * m.ky;
+    mA[i] = m.a * norm;
+    mPh[i] = m.ph;
+  }
   return (u, v) => {
     let s = 0;
-    for (const m of modes) s += m.a * Math.cos(6.2831853 * (m.kx * u + m.ky * v) + m.ph);
-    return Math.min(1, Math.max(0, 0.5 + s * norm));
+    for (let i = 0; i < nModes; i++) s += mA[i] * Math.cos(mKx[i] * u + mKy[i] * v + mPh[i]);
+    return Math.min(1, Math.max(0, 0.5 + s));
   };
 }
 /**

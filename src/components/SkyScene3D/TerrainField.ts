@@ -387,8 +387,9 @@ varying vec3  vViewDir;
 varying float vSlantM;
 ${TERRAIN_DIST_GLSL}
 #ifdef TERRAIN_LIT_OUT
-// 지형 빛 판은 출력이 둘입니다 — 0: sqrt(알베도) · 해 몫, 1: 하늘빛 몫 · 젖음 · 구름 투과 (LIT2_ENCODE_GLSL).
+// 지형 빛 판은 출력이 셋입니다(MRT×3) — 0: sqrt(알베도) · 해 몫, 1: 하늘빛 몫 · 젖음 · 구름 투과 (LIT2_ENCODE_GLSL), 2: 지형 거리(terrainDistEncode).
 layout(location = 1) out highp vec4 pc_fragColor1;
+layout(location = 2) out highp vec4 pc_fragColor2;
 ${LIT2_ENCODE_GLSL}
 #endif
 
@@ -781,6 +782,7 @@ void main() {
 
   gl_FragColor = vec4(sqrt(clamp(albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0)), litFactor);
   pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
+  pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
   return;
 #endif
 

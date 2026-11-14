@@ -134,25 +134,136 @@ export function sampleSpacingKm(samples: MacroSample[]): Float64Array {
   return out;
 }
 
-function barnesPass(samples: MacroSample[], values: Float64Array, sigma: Float64Array, n: number, cellKm: number, out: Float32Array, wsum: Float32Array): void {
-  out.fill(0); wsum.fill(0);
+interface SampleWeightPatch {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  weights: Float32Array;
+}
+
+interface CachedBarnesPlan {
+  spacing: Float64Array;
+  sigma: Float64Array;
+  sig2: Float64Array;
+  lambdaRes: Float32Array;
+  patches1: SampleWeightPatch[];
+  wsum1: Float32Array;
+  patches2: SampleWeightPatch[];
+  wsum2: Float32Array;
+}
+
+const barnesPlanCache = new Map<string, CachedBarnesPlan>();
+const BARNES_PLAN_CACHE_MAX = 8;
+
+function buildWeightPatches(
+  samples: MacroSample[],
+  sigma: Float64Array,
+  n: number,
+  cellKm: number,
+): { patches: SampleWeightPatch[]; wsum: Float32Array } {
   const half = (n * cellKm) / 2;
+  const wsum = new Float32Array(n * n);
+  const patches: SampleWeightPatch[] = new Array(samples.length);
   for (let i = 0; i < samples.length; i++) {
-    const s = samples[i], sg = sigma[i], v = values[i];
+    const s = samples[i], sg = sigma[i];
     const reach = 3 * sg;
-    const x0 = Math.max(0, Math.floor((s.xKm - reach + half) / cellKm)), x1 = Math.min(n - 1, Math.ceil((s.xKm + reach + half) / cellKm));
-    const y0 = Math.max(0, Math.floor((s.yKm - reach + half) / cellKm)), y1 = Math.min(n - 1, Math.ceil((s.yKm + reach + half) / cellKm));
+    const x0 = Math.max(0, Math.floor((s.xKm - reach + half) / cellKm));
+    const x1 = Math.min(n - 1, Math.ceil((s.xKm + reach + half) / cellKm));
+    const y0 = Math.max(0, Math.floor((s.yKm - reach + half) / cellKm));
+    const y1 = Math.min(n - 1, Math.ceil((s.yKm + reach + half) / cellKm));
+    const wLen = Math.max(0, (x1 - x0 + 1) * (y1 - y0 + 1));
+    const weights = new Float32Array(wLen);
     const inv = -0.5 / (sg * sg);
+    let idx = 0;
     for (let y = y0; y <= y1; y++) {
       const dy = (y + 0.5) * cellKm - half - s.yKm;
       for (let x = x0; x <= x1; x++) {
         const dx = (x + 0.5) * cellKm - half - s.xKm;
         const w = Math.exp((dx * dx + dy * dy) * inv);
-        const k = y * n + x;
-        out[k] += w * v; wsum[k] += w;
+        weights[idx++] = w;
+        wsum[y * n + x] += w;
+      }
+    }
+    patches[i] = { x0, x1, y0, y1, weights };
+  }
+  return { patches, wsum };
+}
+
+function applyWeightPatches(
+  patches: SampleWeightPatch[],
+  values: Float64Array,
+  n: number,
+  out: Float32Array,
+): void {
+  out.fill(0);
+  for (let i = 0; i < patches.length; i++) {
+    const p = patches[i];
+    const v = values[i];
+    if (v === 0) continue;
+    const { x0, x1, y0, y1, weights } = p;
+    let idx = 0;
+    for (let y = y0; y <= y1; y++) {
+      let k = y * n + x0;
+      for (let x = x0; x <= x1; x++) {
+        out[k++] += weights[idx++] * v;
       }
     }
   }
+}
+
+function getBarnesPlan(
+  samples: MacroSample[],
+  n: number,
+  cellKm: number,
+  gamma: number,
+  sigmaMinKm: number,
+  sigmaFactor: number,
+): CachedBarnesPlan {
+  let geomSig = `${n}|${cellKm}|${gamma}|${sigmaMinKm}|${sigmaFactor}|${samples.length}:`;
+  for (let i = 0; i < samples.length; i++) {
+    geomSig += `${Math.round(samples[i].xKm * 10)},${Math.round(samples[i].yKm * 10)};`;
+  }
+  const existing = barnesPlanCache.get(geomSig);
+  if (existing) {
+    barnesPlanCache.delete(geomSig);
+    barnesPlanCache.set(geomSig, existing);
+    return existing;
+  }
+  const spacing = sampleSpacingKm(samples);
+  const sigma = new Float64Array(samples.length);
+  const sig2 = new Float64Array(samples.length);
+  const sqrtGamma = Math.sqrt(Math.max(0, gamma));
+  for (let i = 0; i < samples.length; i++) {
+    sigma[i] = Math.max(sigmaMinKm, sigmaFactor * spacing[i]);
+    sig2[i] = Math.max(3, sigma[i] * sqrtGamma);
+  }
+  const { patches: patches1, wsum: wsum1 } = buildWeightPatches(samples, sigma, n, cellKm);
+  const { patches: patches2, wsum: wsum2 } = gamma > 0
+    ? buildWeightPatches(samples, sig2, n, cellKm)
+    : { patches: [], wsum: new Float32Array(0) };
+
+  const lambdaRes = new Float32Array(n * n);
+  const half = (n * cellKm) / 2;
+  for (let y = 0; y < n; y++) {
+    const py = (y + 0.5) * cellKm - half;
+    for (let x = 0; x < n; x++) {
+      const px = (x + 0.5) * cellKm - half;
+      let best = Infinity, bs = 10;
+      for (let i = 0; i < samples.length; i++) {
+        const d2 = (samples[i].xKm - px) ** 2 + (samples[i].yKm - py) ** 2;
+        if (d2 < best) { best = d2; bs = spacing[i]; }
+      }
+      lambdaRes[y * n + x] = 2 * bs;
+    }
+  }
+  const plan: CachedBarnesPlan = { spacing, sigma, sig2, lambdaRes, patches1, wsum1, patches2, wsum2 };
+  barnesPlanCache.set(geomSig, plan);
+  if (barnesPlanCache.size > BARNES_PLAN_CACHE_MAX) {
+    const oldest = barnesPlanCache.keys().next().value;
+    if (oldest !== undefined) barnesPlanCache.delete(oldest);
+  }
+  return plan;
 }
 
 /** 격자 (x, y) 칸에서 표본 값을 읽음(1차 결과를 표본 자리에서 되읽어 잔차를 냄) */
@@ -170,41 +281,24 @@ function sampleGrid(F: Float32Array, n: number, cellKm: number, xKm: number, yKm
  * 표본이 미치지 않는 칸(가중합 0)은 가장 가까운 표본 값 대신 전체 가중 평균으로 채웁니다.
  */
 export function barnesGrid(samples: MacroSample[], n: number, cellKm: number, gamma = MACRO_DEFAULTS.barnesGamma, sigmaMinKm = MACRO_DEFAULTS.sigmaMinKm, sigmaFactor = MACRO_DEFAULTS.sigmaFactor): { grid: Float32Array; lambdaRes: Float32Array; sigma: Float64Array } {
-  const spacing = sampleSpacingKm(samples);
-  const sigma = new Float64Array(samples.length);
-  for (let i = 0; i < samples.length; i++) sigma[i] = Math.max(sigmaMinKm, sigmaFactor * spacing[i]);
+  const plan = getBarnesPlan(samples, n, cellKm, gamma, sigmaMinKm, sigmaFactor);
   const vals = new Float64Array(samples.length);
   let mean = 0;
   for (let i = 0; i < samples.length; i++) { vals[i] = Math.min(1, Math.max(0, samples[i].cover)); mean += vals[i]; }
   mean /= Math.max(1, samples.length);
-  const grid = new Float32Array(n * n), wsum = new Float32Array(n * n);
-  barnesPass(samples, vals, sigma, n, cellKm, grid, wsum);
-  for (let k = 0; k < n * n; k++) grid[k] = wsum[k] > 1e-6 ? grid[k] / wsum[k] : mean;
+  const grid = new Float32Array(n * n);
+  applyWeightPatches(plan.patches1, vals, n, grid);
+  const wsum1 = plan.wsum1;
+  for (let k = 0; k < n * n; k++) grid[k] = wsum1[k] > 1e-6 ? grid[k] / wsum1[k] : mean;
   if (gamma > 0) {
     const resid = new Float64Array(samples.length);
     for (let i = 0; i < samples.length; i++) resid[i] = vals[i] - sampleGrid(grid, n, cellKm, samples[i].xKm, samples[i].yKm);
-    const sig2 = new Float64Array(samples.length);
-    for (let i = 0; i < samples.length; i++) sig2[i] = Math.max(3, sigma[i] * Math.sqrt(gamma));
-    const g2 = new Float32Array(n * n), w2 = new Float32Array(n * n);
-    barnesPass(samples, resid, sig2, n, cellKm, g2, w2);
+    const g2 = new Float32Array(n * n);
+    applyWeightPatches(plan.patches2, resid, n, g2);
+    const w2 = plan.wsum2;
     for (let k = 0; k < n * n; k++) if (w2[k] > 1e-6) grid[k] = Math.min(1, Math.max(0, grid[k] + g2[k] / w2[k]));
   }
-  // 분해능 지도: 가장 가까운 표본의 이웃 간격 × 2
-  const lambdaRes = new Float32Array(n * n);
-  const half = (n * cellKm) / 2;
-  for (let y = 0; y < n; y++) {
-    const py = (y + 0.5) * cellKm - half;
-    for (let x = 0; x < n; x++) {
-      const px = (x + 0.5) * cellKm - half;
-      let best = Infinity, bs = 10;
-      for (let i = 0; i < samples.length; i++) {
-        const d2 = (samples[i].xKm - px) ** 2 + (samples[i].yKm - py) ** 2;
-        if (d2 < best) { best = d2; bs = spacing[i]; }
-      }
-      lambdaRes[y * n + x] = 2 * bs;
-    }
-  }
-  return { grid, lambdaRes, sigma };
+  return { grid, lambdaRes: plan.lambdaRes, sigma: plan.sigma };
 }
 
 // ───────── 3. 스펙트럼 기울기 ─────────
