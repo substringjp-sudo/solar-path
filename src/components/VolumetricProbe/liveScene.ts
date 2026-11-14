@@ -493,9 +493,11 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       fillRough = rr.r;
       deckTau = deckTauFromGhi(obs, a.date, a.lat, a.lon);
       // 거칠기 r(0 매끈한 난층운 ~ 1 거친 비구름): 작은 혹·표면 깎기(χ), 3차원 섞임, 가장자리 선명도는 키우고 흐림은 줄임.
+      // 비슷한 시간대끼리 3D 원시 파동 볼륨 캐시를 재사용하도록 미세 소수점을 양자화합니다.
+      const q05 = (x: number) => Math.round(x * 20) / 20;
       const wave = {
-        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q2(0.1 + 0.5 * rEff),
-        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: q2(1.5 + 1.5 * rEff), spec: 1.6, vstretch: 1.5, mix3d: q2(0.3 + 0.4 * rEff),
+        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q05(0.1 + 0.5 * rEff),
+        shear: Math.round(shear * 1e3) / 1e3, shearDeg, edge: q2(1.5 + 1.5 * rEff), spec: 1.6, vstretch: 1.5, mix3d: q05(0.3 + 0.4 * rEff),
         fillM: 1500, smoothM: Math.round(800 - 500 * rEff), smoothZ: rEff > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rEff), tauTarget: deckTau?.tau,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };

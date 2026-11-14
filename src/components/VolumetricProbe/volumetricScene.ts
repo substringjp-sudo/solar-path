@@ -163,7 +163,7 @@ export const HAZE_SCALE_HEIGHT_KM = 1.5;
  * 밤은 1000 에서 멈춥니다.
  */
 export const AUTO_EXPOSURE_POINTS: [number, number][] = [
-  [50, 5.8], [30, 7.2], [15, 8.0], [8, 9.4], [3, 16.1], [1.1, 30], [-2.7, 100], [-8, 1000],
+  [50, 5.8], [30, 7.2], [15, 8.0], [8, 9.4], [3, 16.1], [1.1, 30], [-2.7, 220], [-5.0, 950], [-8.0, 2400],
 ];
 export function autoExposure(sunAltDeg: number): number {
   const pts = AUTO_EXPOSURE_POINTS;
@@ -561,6 +561,8 @@ export interface VolumetricScene {
   setDate(date: Date, driftSec?: number): void;
   /** 도시 불빛 세기 0~1(광공해 설정: 6.5 등급 0 ~ 3 등급 1). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
   setCityLight(v: number): void;
+  /** 개발자 튜닝 노출 배율(기본 1.0). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
+  setExposureScale(s: number): void;
   /** 밤 불빛 지도(cityLightMap.ts). 있으면 도시 쪽 지평선·도심 위 구름만 더 밝게. null 이면 고르게. */
   setCityMap(m: NightLights | null): void;
   /**
@@ -741,11 +743,9 @@ export async function createVolumetricScene(
   };
   const applyInteractionLod = () => {
     if (isInteracting) {
-      if (curQuality === 'low') clouds.clouds.minStepSize = 90;
-      const targetSunN = opt.sunMarch ? opt.sunMarch[0] : baseMarch.n;
-      if (targetSunN > 0) clouds.clouds.maxIterationCountToSun = Math.min(targetSunN, 4);
+      // minStepSize 와 태양 방향 2차 행진 횟수는 유지해 카메라 이동 중 구름과 태양 그림자가 사라지지 않게 합니다.
     } else {
-      if (curQuality === 'low') clouds.clouds.minStepSize = baseMinStepSize;
+      clouds.clouds.minStepSize = baseMinStepSize;
       applySunMarch();
     }
     applyPrimaryMarch();
@@ -882,7 +882,7 @@ export async function createVolumetricScene(
       'float volTerrainLitHit = 0.0;',
       TERRAIN_DIST_GLSL, SUN_RIDGE_DECODE_GLSL,
       // 구름 아래 공기 그늘 길이(km): 지형·지평선 시선만 — 지형까지(앱 지형 거리 텍스처) 또는 100 km 상한 × 그늘 비율.
-      'uniform float cloudAirShade;', 'uniform float cloudAirTopKm;', 'uniform float farAirShade;',
+      'uniform float cloudAirShade;', 'uniform float cloudAirTopKm;', 'uniform float farAirShade;', 'uniform float cloudSkyT;',
       'float volCloudAirKm(vec3 rayDir, vec2 uv) {',
       '  if (cloudAirShade <= 0.0 && farAirShade <= 0.0) return 0.0;',
       '  float sinT = dot(rayDir, normalize(vCameraPosition));',
@@ -949,16 +949,23 @@ export async function createVolumetricScene(
       '            float F = 0.02 + 0.98 * pow(1.0 - cosV, 5.0);',
       '            vec3 tRefl;',
       '            vec3 refl = GetSkyRadiance(vtP, reflect(rayDirection, vtUp), 0.0, sunDirection, tRefl);',
-      '            float vtSunH = max(0.0, dot(vtUp, sunDirection));',
+      '            float sunElevSin = dot(vtUp, sunDirection);',
+      // 해가 지평선 위로 올라오기 전(일출 전)에는 구름 없는 맑은 하늘 반사(GetSkyRadiance)가 주황빛으로 먼저 뜨지 않도록 0 으로 끕니다.
+      '            float reflFade = smoothstep(-0.005, 0.05, sunElevSin) * mix(1.0, 0.20, vtL2.a);',
+      '            refl *= reflFade;',
+      '            float vtSunH = max(0.0, sunElevSin);',
       '            vec3 body = vtAlb * (1.0 / 3.14159265) * (vtSun * vtSunH * (vtLit.a + vtFill) + vtSky);',
       '            vec3 V = -rayDirection;',
       '            vec3 Hh = normalize(V + sunDirection);',
       '            float cosN = max(dot(Hh, vtUp), 1e-3);',
       '            float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);',
-      '            float sv = max(1e-3, seaSlopeVar);',
+      '            float sv = clamp(seaSlopeVar, 1e-3, 0.025);',
       '            float pg = min(exp(-min(tan2 / sv, 50.0)) / (3.14159265 * sv * pow(cosN, 4.0)), 220.0);',
       '            float Fg = 0.02 + 0.98 * pow(1.0 - clamp(dot(V, Hh), 0.0, 1.0), 5.0);',
-      '            vec3 glint = vtSun * vtLit.a * Fg * pg / (4.0 * cosV);',
+      // 해가 뜨기 전(지평선 아래)에는 윤슬을 끄고, 카메라 발밑(고각·근거리)에서는 부드럽게 감쇠합니다.
+      '            float sunVisSea = smoothstep(-0.005, 0.02, sunElevSin);',
+      '            float nearFade = smoothstep(0.45, 0.08, cosV) * smoothstep(0.04, 0.30, vtKm);',
+      '            vec3 glint = vtSun * vtLit.a * Fg * pg / (4.0 * cosV) * 0.65 * nearFade * sunVisSea;',
       '            vtRad = mix(body, refl, F) + glint;',
       '          } else {',
       '            // 해 직달(Lambert × 산·구름 그림자) + 하늘빛과 구름을 뚫은 확산 햇빛(수평면 몫) × 하늘 보임·사면 방향.',
@@ -982,9 +989,18 @@ export async function createVolumetricScene(
       '              vtRad += vtSun * min(vtLit.a / max(vtSunH, 0.05), 1.0) * wFg * wPg / (4.0 * wCosV) * vtWet * 0.5;',
       '            }',
       '          }',
+      '          vec3 vtRadNoAir = vtRad;',
       '          #if defined(TRANSMITTANCE) || defined(INSCATTER)',
       '          applyTransmittanceInscatter(vtP, min(shadowLength, vtKm), vtRad);',
       '          #endif',
+      // 구름층이 지평선 빛을 가릴 때 바다·지형 앞의 공기 원근(inscatter)도 하늘과 같은 비율로 어두워지게 합니다.
+      '          float vtAirBlock = max(cloudAirShade, farAirShade);',
+      '          if (vtAirBlock > 0.01) {',
+      '            vec3 vtAir = max(vtRad - vtRadNoAir, vec3(0.0));',
+      '            float vtAirL = dot(vtAir, vec3(0.2126, 0.7152, 0.0722));',
+      '            vec3 vtAirDim = mix(vtAir, vec3(vtAirL), 0.6) * min(cloudSkyT, max(0.15, 1.0 - farAirShade));',
+      '            vtRad = vtRadNoAir + mix(vtAir, vtAirDim, vtAirBlock);',
+      '          }',
       '          outputColor.rgb = vtRad;',
       '          outputColor.a = 1.0;',
       '          volTerrainLitHit = 1.0;',
@@ -1003,7 +1019,7 @@ export async function createVolumetricScene(
     // §146 연무: 원래 mainImage 를 volBaseImage 로 바꿔 두고, 끝에 감싸는 mainImage 를 붙입니다(원본 함수가 셰이더의 마지막이어야 함).
     if (!src.trimEnd().endsWith('}')) throw new Error('volumetricScene: aerial 끝 모양이 달라 연무를 붙일 수 없음');
     src += [
-      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cloudSkyT;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
+      '', 'uniform float hazeOn;', 'uniform float cloudAirBaseKm;', 'uniform vec3 cityAir;', 'uniform float cityAirOn;', 'uniform float cityAz[36];', 'uniform float cityAzOn;', 'uniform vec3 cityNorth;', 'uniform vec3 cityEast;', 'uniform vec4 hazeP;   // aod, alpha, g, omega',
       'void mainImage(const vec4 inputColor, const vec2 uv, out vec4 outputColor) {',
       '  volBaseImage(inputColor, uv, outputColor);',
       // 구름 너머 하늘(2026-11-13): 맑은 하늘 산란 표(해 둘레 노을 번짐 포함)를 그대로 쓰면, 하늘을 덮은 구름층이어도 지평선 쪽 얇은 곳·끝 너머로
@@ -1612,17 +1628,19 @@ export async function createVolumetricScene(
     const R = T / f;
     return R >= 1 ? 1 : Math.min(4, Math.pow(R, -0.7));
   };
+  let exposureScale = 1;
   const exposureFor = (lightAlt: number, p: VolumetricSceneInput) => {
-    if (p.exposure != null) return p.exposure;
+    const scale = Math.max(0.1, Math.min(8, exposureScale));
+    if (p.exposure != null) return p.exposure * scale;
     const cityA = cityState?.adaptCd ?? 0;
     if (moonGain > 0) {
       const La = MOONLIT_CLOUD_CD * (moonGain / MOON_FULL) + cityA;
-      return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La);
+      return autoExposure(Math.max(3, lightAlt)) * MOON_DIM * (moonGain / MOON_FULL) * Math.sqrt(MOONLIT_CLOUD_CD / La) * scale;
     }
     const base = autoExposure(lightAlt) * overcastGain(p, lastTrueSunAlt);
-    if (cityA <= 1e-5 || lastTrueSunAlt >= -12) return base;
+    if (cityA <= 1e-5 || lastTrueSunAlt >= -12) return base * scale;
     // 보름 세기 눈금(g = MOON_FULL)에서의 노출 — 달빛 식에 g = 보름을 넣은 것.
-    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / cityA);
+    return autoExposure(45) * MOON_DIM * Math.sqrt(MOONLIT_CLOUD_CD / cityA) * scale;
   };
   // §127 날씨 텍스처 캐시 — 날씨는 층(종류·운량·손잡이)만으로 정해지고 시각·시선과 무관합니다. 시간 막대를 앞뒤로
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
@@ -1988,7 +2006,7 @@ export async function createVolumetricScene(
         if (!tex) {
           didWork = true;
           tex = plan.useGenus
-            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 4, () => !!shouldAbort?.() || disposed, plan.flow, 16, isPaused)
+            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 10, () => !!shouldAbort?.() || disposed, plan.flow, 2, isPaused)
             : makeWeather(plan.plain, opt);
           if (!tex || shouldAbort?.() || disposed) {
             tex?.dispose();
@@ -2001,7 +2019,7 @@ export async function createVolumetricScene(
           const wKey = waveKey(wp);
           if (!waveCacheGet(wKey)) {
             didWork = true;
-            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, 4, 16, isPaused);
+            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, 10, 2, isPaused);
             if (!field || shouldAbort?.() || disposed) {
               field?.tex.dispose();
               return doneCount;
@@ -2010,7 +2028,7 @@ export async function createVolumetricScene(
           }
         }
         if (didWork) {
-          await new Promise(r => setTimeout(r, 16));
+          await new Promise(r => setTimeout(r, 0));
         }
       }
       doneCount++;
@@ -2134,6 +2152,15 @@ export async function createVolumetricScene(
       const d = lastInput.date;
       sunAltAt(d);
       updateCity(lastInput, d);
+      const exposure = exposureFor(lastSunAltForLight, lastInput);
+      renderer.toneMappingExposure = exposure;
+      last = { sunAltDeg: lastSunAltForLight, exposure };
+    },
+    setExposureScale: (s: number) => {
+      const next = Number.isFinite(s) ? Math.max(0.1, Math.min(8, s)) : 1;
+      if (Math.abs(next - exposureScale) < 1e-4) return;
+      exposureScale = next;
+      if (!lastInput) return;
       const exposure = exposureFor(lastSunAltForLight, lastInput);
       renderer.toneMappingExposure = exposure;
       last = { sunAltDeg: lastSunAltForLight, exposure };

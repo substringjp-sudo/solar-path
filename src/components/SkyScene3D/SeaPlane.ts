@@ -438,8 +438,11 @@ void main() {
     // 검게 죽는 것을 막습니다 (49절: 상수를 깔면 태양 반대쪽 물이
     // 육지보다 밝아지는 결함이 났습니다).
     float sunWarmth = smoothstep(-2.0, 12.0, uSunAltDeg);
-    vec3 skyFallback = uSurfaceIrr * 0.05 * mix(vec3(1.2, 0.8, 0.6), vec3(0.7, 0.95, 1.4), sunWarmth);
-    skyRefl = clamp(max(skyFallback, skyRefl), vec3(0.0), vec3(12.0));
+    // 해가 지평선 아래로 내려갈수록 반사 바닥값과 하늘 반사 휘도를 실제 하늘 어두워짐에 맞춰 감쇠합니다.
+    float twilightRefl = smoothstep(-5.0, 2.0, uSunAltDeg);
+    float cloudRefl = mix(0.45, 1.0, cloudShadowAt(vGround.xz));
+    vec3 skyFallback = uSurfaceIrr * 0.05 * twilightRefl * mix(vec3(1.2, 0.8, 0.6), vec3(0.7, 0.95, 1.4), sunWarmth);
+    skyRefl = clamp(max(skyFallback, skyRefl * mix(0.25, 1.0, twilightRefl) * cloudRefl), vec3(0.0), vec3(12.0));
 
     // 반사와 수체의 몫은 프레넬이 정합니다 — 발밑(cosV↑)은 수체, 지평선
     // 쪽(cosV↓)은 하늘이 이깁니다. 그 대비가 물을 물로 보이게 합니다.
@@ -460,11 +463,13 @@ void main() {
     vec3 H = normalize(V + L + vec3(1e-5, 1e-4, 1e-5));
     float cosN = max(H.y, 1e-3);
     float tan2 = max(0.0, 1.0 - cosN * cosN) / (cosN * cosN);
-    float sv = max(1e-3, uSlopeVar);
+    float sv = clamp(uSlopeVar, 1e-3, 0.025);
     float p = exp(-clamp(tan2 / sv, 0.0, 50.0)) / (3.14159265 * sv * pow(cosN, 4.0));
     p = clamp(p, 0.0, 220.0);
     float cosVg = max(0.02, V.y);
     float Fg = waterFresnel(clamp(dot(V, H), 0.0, 1.0));
+    // 카메라 발밑(가파른 내려다봄·근거리)에서는 윤슬을 부드럽게 감쇠해 수평선 쪽에 집중시킵니다.
+    float nearFade = smoothstep(0.45, 0.08, V.y) * smoothstep(40.0, 300.0, vDistM);
     // ⚠ 상한을 8 로 두면 윤슬이 **아예 안 보입니다.** 태양 쪽 하늘 되비침이
     // 이미 4 쯤이라 2배도 못 되고, 그 자리는 톤 곡선이 거의 평평해 화면에서
     // 251 → 255 로 끝납니다. 되비친 태양은 되비친 하늘보다 자릿수로 밝은
@@ -473,8 +478,8 @@ void main() {
     // 윤슬은 **직달광**입니다 — 구름이 가리면 같이 죽습니다. 그래야 구름이
     // 지나갈 때 물 위의 빛줄기가 함께 흐려집니다.
     vec3 glitter = uSunRadiance * cloudShadowAt(vGround.xz) * Fg
-                 * (p / max(1.0, 4.0 * cosVg)) * 3.0;
-    col += clamp(glitter, vec3(0.0), vec3(60.0)) / eyeAdapt;
+                 * (p / max(1.0, 4.0 * cosVg)) * 1.4 * nearFade;
+    col += clamp(glitter, vec3(0.0), vec3(24.0)) / eyeAdapt;
 
     // 달빛 윤슬 (Moonlight Cox-Munk glitter)
     float moonUp = max(0.0, sin(uMoonAltRad));
@@ -488,8 +493,8 @@ void main() {
       pm = clamp(pm, 0.0, 220.0);
       float Fgm = waterFresnel(clamp(dot(V, Hm), 0.0, 1.0));
       vec3 moonGlitter = uMoonRadiance * cloudShadowAt(vGround.xz) * Fgm
-                       * (pm / max(1.0, 4.0 * cosVg)) * 3.0;
-      col += clamp(moonGlitter, vec3(0.0), vec3(60.0)) / eyeAdapt;
+                       * (pm / max(1.0, 4.0 * cosVg)) * 1.4 * nearFade;
+      col += clamp(moonGlitter, vec3(0.0), vec3(24.0)) / eyeAdapt;
     }
   }
 

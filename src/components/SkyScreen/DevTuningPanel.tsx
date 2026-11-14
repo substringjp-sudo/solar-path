@@ -247,8 +247,6 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 }) => {
   const [tuning, setLocal] = useState<SkyTuning>(getTuning());
   const [showCode, setShowCode] = useState(false);
-  // 수치 조정 슬라이더는 접어 둡니다(2026-11-11 사용자: 켜고 끄는 요소가 더 중요).
-  const [showSliders, setShowSliders] = useState(false);
   // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 적용
   const volumetricSky = useCelestialStore(s => s.skySettings.volumetricSky ?? true);
 
@@ -289,17 +287,6 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
         </View>
         {/* 2줄: 도구 */}
         <View style={styles.header}>
-          {VOL_DEV && (
-            <>
-              <TouchableOpacity
-                onPress={() => useCelestialStore.getState().setSkySettings({ volumetricSky: !volumetricSky })}
-                style={[styles.iconBtn, volumetricSky && { backgroundColor: 'rgba(52,211,153,0.35)', borderRadius: 4 }]}
-                accessibilityLabel="볼륨 하늘 켜기/끄기"
-              >
-                <Text style={{ fontSize: 10, fontWeight: '800', color: volumetricSky ? '#34D399' : '#94A3B8' }}>VOL</Text>
-              </TouchableOpacity>
-            </>
-          )}
           <TouchableOpacity onPress={() => setShowCode(v => !v)} style={styles.iconBtn}>
             <Code2 size={13} color={showCode ? '#34D399' : '#94A3B8'} />
           </TouchableOpacity>
@@ -331,10 +318,7 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
           onScrollBeginDrag={() => useCelestialStore.getState().setGestureBlocked(true)}
           onScrollEndDrag={() => useCelestialStore.getState().setGestureBlocked(false)}
         >
-          <TouchableOpacity onPress={() => setShowSliders(v => !v)} style={styles.group}>
-            <Text style={styles.groupTitle}>{showSliders ? '▾ 수치 조정' : '▸ 수치 조정'}</Text>
-          </TouchableOpacity>
-          {showSliders && TUNING_GROUPS.map(g => (
+          {TUNING_GROUPS.map(g => (
             <View key={g.title} style={styles.group}>
               <Text style={styles.groupTitle}>{g.title}</Text>
               {g.fields.map(f => (

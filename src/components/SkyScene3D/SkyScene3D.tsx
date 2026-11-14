@@ -33,7 +33,6 @@ import SunCalc from 'suncalc';
 import { sunPosition } from '../../utils/solarPosition';
 import { planetLabelVisible, moonLabelVisible, milkyWayLabelVisible } from '../../utils/labelVisibility';
 
-import { createSkydome, updateSkydome, type SkydomeHandle } from './Skydome';
 import {
   createTerrainRing,
   createTerrainBands,
@@ -99,23 +98,8 @@ const loadLiveScene = (): typeof import('../VolumetricProbe/liveScene') | null =
 const loadSceneKey = (): typeof import('../VolumetricProbe/sceneKey') | null =>
   (VOLUMETRIC_SKY_ENABLED ? require('../VolumetricProbe/sceneKey') : null);
 import { createCelestialPathsGroup, updateCelestialPaths, setCelestialPathsNow, setCelestialPathsNearFade, NEAR_FADE_INNER_HOURS, CelestialPathsGroup } from './CelestialPathMesh';
-import { bakeCloudAtlas, type CloudAtlas } from './cloudAtlas';
-import { createCloudField, updateCloudField, type CloudField } from './CloudField';
 import { ViewfinderOverlay } from './ViewfinderOverlay';
-import {
-  buildCloudInstances,
-  buildCloudsFromColumns,
-  LAYER_ALTITUDE_KM,
-  type BuildCloudsResult,
-} from './cloudPlacement';
 import { sampleTimeline, type SkyTimeline, type SampledSky } from '../../utils/skyTimeline';
-import {
-  createCloudDeck,
-  updateCloudDeck,
-  CLOUD_SAMPLE_AZ_STEPS,
-  type CloudDeckHandle,
-  type GenusInput,
-} from './CloudDeck';
 import {
   createSceneComposer,
   assignLayer,
@@ -151,6 +135,7 @@ import {
   PRESET_OPTICS,
   representativePresetForObserver,
   blendedOpticsFromWeather,
+  representativeTauForObserver,
   type BlendedOptics,
 } from '../../utils/cloudPresets';
 
@@ -158,12 +143,22 @@ import {
 const _genusOut: BlendedOptics = {
   tau: 0, shadowContrast: 0, cellSizeKm: 0, cellStrength: 0, cellAspect: 1,
 };
-import { resolveLayerWinds, elevationGrid, layerMeanCover } from '../../utils/skyColumn';
+import {
+  WeatherFan,
+  buildSkyColumns,
+  solveColumnOptics,
+  resolveLayerWinds,
+  elevationGrid,
+  layerMeanCover,
+  PLACEHOLDER_WIND_SPEED_KMH,
+  PLACEHOLDER_WIND_BEARING_DEG,
+  type ColumnOptics,
+} from '../../utils/skyColumn';
 import type { LayerWinds } from '../../utils/weather';
 import { fogAtObserver, layerTauScale } from '../../utils/cloudProfile';
 import { makeAtmosphereParams, skyRadiance, beamAtAltitude, applyCloudDimming, applyTuningUniforms, angularSeparationDeg, groundLighting, moonLight, setSceneCityLight, SOLAR_BEAM_SCALE } from '../../utils/atmosphere';
 import { getApparentAltitude } from '../../utils/sunsetPhysics';
-import { getTuning, subscribeTuning } from '../../utils/skyTuning';
+import { DEFAULT_TUNING, getTuning, subscribeTuning } from '../../utils/skyTuning';
 import { getPlanetEquatorialCoord, PlanetKey } from '../../utils/celestialPlanets';
 import { effectiveMagLimit } from '../../utils/moonlight';
 import { useCelestialStore } from '../../store/useCelestialStore';
@@ -407,9 +402,6 @@ const DEFAULT_LAYERS: LayerState = {
 
 const DRAG_SENSITIVITY = 0.3;
 
-/** InstancedMesh 용량. 29셀 × 최대 4개 ≈ 116이지만 여유를 둡니다. */
-const MAX_CLOUDS = 160; // 320 → 160: 모바일 GPU 부하 절반 절감
-
 /** 연중 일수 — 지구·태양 거리 보정에 사용 */
 function dayOfYearOf(d: Date): number {
   const start = Date.UTC(d.getUTCFullYear(), 0, 0);
@@ -473,7 +465,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const rendererRef = useRef<any>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const skydomeRef = useRef<SkydomeHandle | null>(null);
   const terrainRef = useRef<THREE.Mesh | null>(null);
   /** 거리대별 능선 (docs/GROUND_PLAN.md 3단계) */
   const terrainBandsRef = useRef<TerrainBandsHandle | null>(null);
@@ -523,11 +514,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   
   /** 별·은하수가 공유하는 적도→지평 회전 행렬 (프레임당 1회만 계산) */
   const equToHorizonRef = useRef(new THREE.Matrix3());
-  const cloudAtlasRef = useRef<CloudAtlas | null>(null);
-  /** 마지막 구름 빌드 결과 — 덱 셸과 태양 차폐가 같은 샘플을 씁니다. */
-  const lastCloudBuildRef = useRef<BuildCloudsResult | null>(null);
-  const cloudFieldRef = useRef<CloudField | null>(null);
-  const cloudDeckRef = useRef<CloudDeckHandle | null>(null);
+  /** 마지막 구름 기둥 광학 결과 — 태양 차폐에 사용합니다. */
+  const lastCloudOpticsRef = useRef<ColumnOptics | null>(null);
   const composerRef = useRef<SceneComposerHandle | null>(null);
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const animFrameRef = useRef<number>(0);
@@ -1638,12 +1626,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     camera.position.set(0, 1.6, 0);
     cameraRef.current = camera;
 
-    // 1. Skydome (물리 대기 산란 셰이더)
-    const skydome = createSkydome();
-    scene.add(skydome.mesh);
-    assignLayer(skydome.mesh, LAYER_SOFT_SKY);
-    skydomeRef.current = skydome;
-
     // 2a. Ground Plane (3D 대지 원반) — 지금은 근거리(0~3km)의 **대비책**입니다.
     // DEM 이 없거나 아직 못 받았을 때, 그리고 3km 밖에서 계속 이 자리를
     // 채웁니다. 아래 2a′ 가 그 위에 실제 지형을 얹습니다.
@@ -1802,33 +1784,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     scene.add(celPaths.containerGroup);
     assignLayer(celPaths.containerGroup, LAYER_MID);
     celestialPathsRef.current = celPaths;
-
-    // 7. Clouds
-    const atlas = bakeCloudAtlas(renderer as unknown as THREE.WebGLRenderer);
-    cloudAtlasRef.current = atlas;
-    const cloudField = createCloudField(atlas, MAX_CLOUDS);
-    scene.add(cloudField.mesh);
-    // 빌보드 구름은 산 능선 뒤에 가려져야 하므로 LAYER_MID에서 산(-0.35)보다 먼저(-0.42) 렌더링
-    assignLayer(cloudField.mesh, LAYER_MID);
-    cloudFieldRef.current = cloudField;
-
-    // 연속 구름층 — 운량이 병합 임계를 넘으면 빌보드 위로 덮입니다.
-    const cloudDeck = createCloudDeck({
-      maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
-    });
-    scene.add(cloudDeck.group);
-    assignLayer(cloudDeck.group, LAYER_SOFT_CLOUD);
-    cloudDeckRef.current = cloudDeck;
-
-    // ── 구름 슬랩 (docs/SKY_REBUILD_PLAN.md) ─────────────────────────────
-    //
-    // 구면 껍질 덱과 빌보드를 대체합니다. 전체화면 패스 하나로, 화면 픽셀에서
-    // 방향 → 지상거리 → 월드 (x, z) 로 바로 갑니다. 극좌표 격자가 없으므로
-    // 천정 특이점도 지평선 타일 격자도 생기지 않고, 알파가 두께에서 나오므로
-    // 가장자리가 저절로 얇아 노을빛이 투과합니다.
-    //
-    cloudDeck.group.visible = false;
-    cloudField.mesh.visible = false;
 
     // ── 분리 해상도 합성 (docs 배율 훑기 결과) ──────────────────────────
     //
@@ -2097,11 +2052,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           setSceneCityLight(cityLightNow);
           // 입체 구름 화면의 도시 불빛(구름 밑면·지평선 하늘빛) — 같은 값. 값이 같으면 아무것도 안 함.
           volRef.current?.setCityLight(cityLightNow);
-          applyTuningUniforms(skydomeRef.current?.material.uniforms);
+          volRef.current?.setExposureScale(tuningNow.displayExposure / DEFAULT_TUNING.displayExposure);
           applyTuningUniforms(sunRef.current?.material.uniforms);
-          applyTuningUniforms(cloudFieldRef.current?.material.uniforms);
-          const deckLayers = cloudDeckRef.current?.layers;
-          if (deckLayers) for (const dl of deckLayers) applyTuningUniforms(dl.material.uniforms);
           if (groundRef.current) applyTuningUniforms((groundRef.current.material as THREE.ShaderMaterial).uniforms);
           if (terrainFieldRef.current) applyTuningUniforms(terrainFieldRef.current.material.uniforms);
           if (seaPlaneRef.current) applyTuningUniforms(seaPlaneRef.current.material.uniforms);
@@ -2294,7 +2246,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 let aborted = false;
                 prewarmCancelRef.current = () => { aborted = true; };
                 const hourBuckets: number[] = [];
-                for (let h = 0; h < 24; h++) {
+                // 2시간 간격(12개 버킷) 우선 프리워밍으로 하루 계산량을 절반으로 줄입니다.
+                for (let h = 0; h < 24; h += 2) {
                   hourBuckets.push(dayStartMs + h * 3600000 + 1800000);
                 }
                 hourBuckets.sort((a, b) => Math.abs(a - vBucketMs) - Math.abs(b - vBucketMs));
@@ -2438,7 +2391,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }
           volDrewRef.current = !!volTex;
           if (volTex) volFreshRef.current = true;
-          if (skydomeRef.current) skydomeRef.current.mesh.visible = !volTex;
 
           // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
           composerNow.setPixelArt(skySettingsRef.current.pixelArtRows ?? 0);
@@ -2635,19 +2587,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       cachedAtmosphereMsRef.current = nowMs;
     }
     const atmosphere = cachedAtmosphereRef.current;
-
-    if (skydomeRef.current) {
-      // 달빛 하늘 (§92) — 구름 슬랩도 같은 moonLight 로 달을 광원으로 씁니다.
-      const skyMoonPos = SunCalc.getMoonPosition(targetDate, lat, lng);
-      const skyMoonAlt = (skyMoonPos.altitude * 180) / Math.PI;
-      const skyMoon = moonLight(
-        sunAltRef.current, skyMoonAlt, SunCalc.getMoonIllumination(targetDate).fraction, atmosphere);
-      updateSkydome(skydomeRef.current, sunAltRef.current, sunAzRef.current, atmosphere, 1.0, {
-        altDeg: skyMoonAlt,
-        azDeg: (skyMoonPos.azimuth * 180) / Math.PI + 180,
-        gain: skyMoon.gain,
-      });
-    }
 
     // 지면·능선이 **같이 쓰는** 하늘 조도. 몇 방향만 뽑아 평균해도 충분합니다
     // (지면은 방향을 구분해 보지 않고 전부 합쳐 받습니다). 태양 쪽이 훨씬
@@ -2924,8 +2863,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       const ow = observerWeather();
       const sunOptics = (ow && aerosolOpticsFromObs(ow)) ?? { aod: 0.12, alpha: 1.3, g: 0.64, omega: 0.95 };
       const sunVis = sunVisibility(sunPlaceAlt, simRef.current?.terrain?.observerElevation ?? 0, sunOptics);
-      const cloudOcc = (currentLayers.clouds && lastCloudBuildRef.current)
-        ? lastCloudBuildRef.current.optics.sunTransmittance
+      const cloudOcc = (currentLayers.clouds && lastCloudOpticsRef.current)
+        ? lastCloudOpticsRef.current.sunTransmittance
         : 1;
       updateSun(sunRef.current, sunAltRef.current, sunAzRef.current, atmosphere, cloudOcc, sunPlaceAlt, sunScale.scale, sunVis);
       sunDiscRadiusDegRef.current = sunScale.radiusDeg;
@@ -2933,7 +2872,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     }
 
     if (moonRef.current) {
-      updateMoonPosition(moonRef.current, targetDate, lat, lng);
+      updateMoonPosition(moonRef.current, targetDate, lat, lng, fovRef.current);
       moonRef.current.group.visible = currentLayers.moon && moonRef.current.group.visible;
     }
 
@@ -2996,13 +2935,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       setCelestialPathsNow(celestialPathsRef.current, targetDate);
       setCelestialPathsNearFade(celestialPathsRef.current, Math.max(NEAR_FADE_INNER_HOURS, (sunDiscRadiusDegRef.current * 2.2) / 15));
       celestialPathsRef.current.containerGroup.visible = currentLayers.paths;
-    }
-
-    if (cloudFieldRef.current) {
-      cloudFieldRef.current.mesh.visible = false;
-    }
-    if (cloudDeckRef.current) {
-      cloudDeckRef.current.group.visible = false;
     }
 
     // ── 구름 재빌드 조건 ──────────────────────────────────────────────────────
@@ -3069,33 +3001,29 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         dayOfYear: dayOfYearOf(targetDate),
       });
 
-    // 타임라인이 있으면 **비싼 앞부분을 건너뜁니다** — 팬 샘플링도, 576방향
-    // fBm도, 기둥 광학도 이미 계산돼 있습니다. 여기서는 조명만 다시 겁니다.
-    const built = sampled
-      ? buildCloudsFromColumns({
-          atlas: cloudAtlasRef.current ?? ({} as any),
-          sunAltDeg: sunAltRef.current,
-          sunAzDeg: sunAzRef.current,
-          atmosphere,
-          samples: sampled.samples,
-          optics: sampled.optics,
-          halo: sampled.halo,
-          obs: sampled.obs,
-          maxTotal: cloudFieldRef.current?.mesh.visible ? getTuning().maxClouds : 0,
-        })
-      : buildCloudInstances({
-          atlas: cloudAtlasRef.current ?? ({} as any),
-          currentTime: targetDate,
-          sunAltDeg: sunAltRef.current,
-          sunAzDeg: sunAzRef.current,
-          atmosphere,
-          weather: weatherRef.current ?? [],
-          // 날씨 배열은 360° 고리(절대 방위, 0 = 북). 해 방위로 돌려 읽으면 안 됩니다(§166, 기본값도 0).
-          weatherCenterAzDeg: 0,
-          maxTotal: cloudFieldRef.current?.mesh.visible ? getTuning().maxClouds : 0,
-        });
+    let builtSamples;
+    let builtOptics: ColumnOptics;
+    if (sampled) {
+      builtSamples = sampled.samples;
+      builtOptics = sampled.optics;
+    } else {
+      const fan = new WeatherFan(weatherRef.current ?? [], 0);
+      const obs = fan.observerData();
+      const { winds: layerWinds } = resolveLayerWinds(obs);
+      const driftMinutes = (targetDate.getTime() / 60000) % 1440;
+      builtSamples = buildSkyColumns({
+        fan,
+        driftMinutes,
+        windSpeedKmh: PLACEHOLDER_WIND_SPEED_KMH,
+        windBearingDeg: PLACEHOLDER_WIND_BEARING_DEG,
+        layerWinds,
+      });
+      builtOptics = solveColumnOptics(builtSamples, sunAzRef.current, sunAltRef.current, layer =>
+        representativeTauForObserver(layer, obs)
+      );
+    }
 
-    lastCloudBuildRef.current = built;
+    lastCloudOpticsRef.current = builtOptics;
 
     // ── 땅에 지는 구름 그림자 지도 ─────────────────────────────────────────
     //
@@ -3112,15 +3040,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           : deg.toFixed(1);
       const key = [
         qAngle(sunAltRef.current), qAngle(sunAzRef.current),
-        built.samples.length, layerMeanCover(built.samples, 'low').toFixed(3),
-        layerMeanCover(built.samples, 'mid').toFixed(3),
-        layerMeanCover(built.samples, 'high').toFixed(3),
+        builtSamples.length, layerMeanCover(builtSamples, 'low').toFixed(3),
+        layerMeanCover(builtSamples, 'mid').toFixed(3),
+        layerMeanCover(builtSamples, 'high').toFixed(3),
       ].join('|');
       if (key !== cloudShadowKeyRef.current) {
         cloudShadowKeyRef.current = key;
         cloudShadowTexRef.current = buildCloudShadowTexture({
-          samples: built.samples,
-          azSteps: CLOUD_SAMPLE_AZ_STEPS,
+          samples: builtSamples,
+          azSteps: 24,
           elevs: elevationGrid(),
           sunAltDeg: sunAltRef.current,
           sunAzDeg: sunAzRef.current,
@@ -3138,17 +3066,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
     }
 
-    // 하늘도 구름층 아래로 들어갑니다.
-    if (skydomeRef.current) {
-      const su = skydomeRef.current.material.uniforms;
-      su.uCloudDiffuse.value = layersRef.current.clouds ? built.optics.diffuseToGround : 1;
-      su.uHaloStrength.value = layersRef.current.clouds ? built.halo : 0;
-    }
-
     // 태양 원반 차폐
     if (sunRef.current) {
       sunRef.current.material.uniforms.uOcclusion.value = layersRef.current.clouds
-        ? built.optics.sunTransmittance
+        ? builtOptics.sunTransmittance
         : 1;
     }
   }, [location]);
@@ -3317,12 +3238,10 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         cloudRebuildTimerRef.current = null;
       }
 
-      skydomeRef.current?.dispose();
       volRef.current?.dispose();
       volRef.current = null;
       volHasSceneRef.current = false;
       volPendingRef.current = false;
-      skydomeRef.current = null;
 
       if (terrainBandsRef.current) {
         terrainBandsRef.current.dispose();
@@ -3385,20 +3304,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       celestialPathsRef.current?.dispose();
       celestialPathsRef.current = null;
 
-      cloudDeckRef.current?.dispose();
-      cloudDeckRef.current = null;
-
       // 합성기가 잡고 있는 렌더 타깃 두 장 — 화면 크기라 놓치면 큽니다.
       composerRef.current?.dispose();
       composerRef.current = null;
-
-      cloudAtlasRef.current?.dispose();
-      cloudAtlasRef.current = null;
-
-      if (cloudFieldRef.current) {
-        cloudFieldRef.current.dispose();
-        cloudFieldRef.current = null;
-      }
 
       if (sceneRef.current) {
         sceneRef.current.traverse(child => {

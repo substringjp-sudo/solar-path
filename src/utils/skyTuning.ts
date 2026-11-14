@@ -358,52 +358,7 @@ export const TUNING_GROUPS: TuningGroup[] = [
   {
     title: '노출 · 밝기',
     fields: [
-      { key: 'displayExposure', label: '노출', min: 0.1, max: 2.0, step: 0.01, hint: '올리면 전체가 밝아짐', live: true },
-      { key: 'skyExposure', label: '산란 이득', min: 5, max: 60, step: 0.5, hint: '하늘빛 자체의 세기', live: true },
-      { key: 'adaptMax', label: '눈 순응 최대', min: 1, max: 40, step: 0.5, hint: '밤이 얼마나 밝게 보이나', live: true },
-      { key: 'adaptStartAlt', label: '순응 시작 고도', min: -10, max: 30, step: 0.5, hint: '이 태양고도 아래부터 순응 시작', live: true },
-      { key: 'adaptEndAlt', label: '순응 완료 고도', min: -30, max: 0, step: 0.5, hint: '이 고도에서 순응 최대', live: true },
-      { key: 'rodAdaptGain', label: '밤 암순응', min: 1, max: 32, step: 0.5, hint: '해 −12°~−18° 에 더 들어오는 밝기', live: true },
-      { key: 'rodDesat', label: '밤 색 빠짐', min: 0, max: 1, step: 0.05, hint: '간상체 시야 — 밤에 색이 빠지는 몫', live: true },
-    ],
-  },
-  {
-    title: '색 · 대비',
-    fields: [
-      { key: 'displaySaturation', label: '채도', min: 0.3, max: 2.5, step: 0.01, hint: '올리면 색이 진해짐', live: true },
-      { key: 'displayContrast', label: '대비', min: 0.7, max: 1.8, step: 0.01, hint: '올리면 어두운 쪽이 더 눌림', live: true },
-      { key: 'skyBlueBoost', label: '하늘 파랑', min: 1.0, max: 4.0, step: 0.01, hint: '푸른 하늘만 진해짐 (노을은 안 건드림)', live: true },
-      { key: 'skyBlueCap', label: '파랑 천장', min: 0.3, max: 0.9, step: 0.01, hint: '이 채도 위로는 안 밀림', live: true },
-    ],
-  },
-  {
-    title: '흐린 날 감광',
-    fields: [
-      { key: 'cloudDimFloor', label: '완전 차폐 시 하늘빛', min: 0.02, max: 1.0, step: 0.01, hint: '낮출수록 흐린 날이 어두워짐', live: true },
-      { key: 'cloudDimDesat', label: '구름 아래 탈색', min: 0, max: 1, step: 0.01, hint: '올리면 흐린 날 색이 빠짐', live: true },
-      { key: 'deckSealCover', label: '덱 밀폐 운량', min: 0.7, max: 1.0, step: 0.01, hint: '이 운량 넘으면 빌보드를 버리고 덱만', live: false },
-      { key: 'maxClouds', label: '빌보드 최대 수', min: 40, max: 400, step: 10, hint: '내리면 가벼워지고 성겨짐', live: false },
-    ],
-  },
-  {
-    title: '박명 (해 진 뒤)',
-    fields: [
-      { key: 'twilightScaleKm', label: '직달 척도고도', min: 4, max: 30, step: 0.5, hint: '낮출수록 해 지고 빨리 어두워짐', live: true },
-      { key: 'twilightMsScaleKm', label: '다중산란 척도고도', min: 10, max: 90, step: 1, hint: '올릴수록 잔광이 오래 남음', live: true },
-      { key: 'ozoneTwilightGain', label: '박명 오존 경로', min: 0, max: 0.8, step: 0.01, hint: '올리면 박명 하늘이 짙은 파랑·어두워짐', live: true },
-      { key: 'twilightTint', label: '구름 황혼 물듦', min: 0, max: 1.5, step: 0.01, hint: '올리면 그늘진 구름이 노을색으로 물듦', live: true },
-    ],
-  },
-  {
-    title: '운형 판정 (기상 → 구름)',
-    fields: [
-      { key: 'cbPrecipMm', label: '적란운 강수 문턱', min: 0.1, max: 5, step: 0.1, hint: '낮출수록 적란운이 자주 나옴', live: false },
-      { key: 'cbHighPct', label: '적란운 상층 문턱 %', min: 0, max: 90, step: 5, hint: '낮출수록 적란운이 자주 나옴', live: false },
-      { key: 'nsPrecipMm', label: '난층운 강수 문턱', min: 0.05, max: 3, step: 0.05, hint: '낮출수록 비구름이 자주 나옴', live: false },
-      { key: 'nsCover', label: '난층운 운량 문턱', min: 0.2, max: 1.0, step: 0.02, hint: '낮출수록 비구름이 자주 나옴', live: false },
-      { key: 'stratusCover', label: '층운계 운량 문턱', min: 0.2, max: 1.0, step: 0.02, hint: '넘으면 층운/층적운', live: false },
-      { key: 'stratusHumidityPct', label: '층운 습도 문턱 %', min: 50, max: 100, step: 1, hint: '넘으면 층운, 아니면 층적운', live: false },
-      { key: 'cumulusCover', label: '적운 운량 문턱', min: 0.05, max: 0.8, step: 0.02, hint: '넘으면 뭉게구름이 섞임', live: false },
+      { key: 'displayExposure', label: '노출', min: 0.1, max: 3.0, step: 0.05, hint: '올리면 Volumetric Sky 전체가 밝아짐', live: true },
     ],
   },
 ];

@@ -374,8 +374,8 @@ const persistRing = (key: string, lat: number, lon: number, data: CloudPathData[
   }
 };
 
-/** 링 방위 (12방위, 30° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
-const RING_AZIMUTHS = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30];
+/** 원거리 고리용 8방위 (45° 간격). WeatherFan이 쓰도록 [-180,180]로 매핑합니다. */
+const RING_AZIMUTHS_OCT = [0, 45, 90, 135, 180, -135, -90, -45];
 /** 가까운 고리용 6방위 (60° 간격). 아래 `RING` 주석 참고. */
 const RING_AZIMUTHS_NEAR = [0, 60, 120, 180, -120, -60];
 
@@ -415,15 +415,16 @@ const RING_AZIMUTHS_NEAR = [0, 60, 120, 180, -120, -60];
  * 같은 값 12개를 받으려고 요청을 12번 하는 셈입니다. 6방위면 간격이 5km 라
  * 격자와 맞고, 요청점은 85 → 91 로 7%만 늘어납니다.
  */
+// 근거리(5·10·30km)는 6방위, 원거리(70~380km)는 8방위로 총 59점으로 경량화해 Open-Meteo 응답 지연을 줄입니다.
 const RING: { dist: number; azimuths: number[] }[] = [
   { dist: 5, azimuths: RING_AZIMUTHS_NEAR },
-  { dist: 10, azimuths: RING_AZIMUTHS },
-  { dist: 30, azimuths: RING_AZIMUTHS },
-  { dist: 70, azimuths: RING_AZIMUTHS },
-  { dist: 130, azimuths: RING_AZIMUTHS },
-  { dist: 200, azimuths: RING_AZIMUTHS },
-  { dist: 280, azimuths: RING_AZIMUTHS },
-  { dist: 380, azimuths: RING_AZIMUTHS },
+  { dist: 10, azimuths: RING_AZIMUTHS_NEAR },
+  { dist: 30, azimuths: RING_AZIMUTHS_NEAR },
+  { dist: 70, azimuths: RING_AZIMUTHS_OCT },
+  { dist: 130, azimuths: RING_AZIMUTHS_OCT },
+  { dist: 200, azimuths: RING_AZIMUTHS_OCT },
+  { dist: 280, azimuths: RING_AZIMUTHS_OCT },
+  { dist: 380, azimuths: RING_AZIMUTHS_OCT },
 ];
 
 /** 고리 거리(km). 16일 예보(`sunForecast.ts`)가 같은 거리로 해 쪽 줄을 받아 오늘 판정과 맞춥니다. */
@@ -1140,7 +1141,7 @@ export const fetchDayWeatherRing = async (
 
     let response: Response;
     try {
-      const first = await attemptRingFetch(src, 18000);
+      const first = await attemptRingFetch(src, 10000);
       src = first.usedSrc;
       response = first.res;
       if (response.status >= 500) {
@@ -1153,12 +1154,12 @@ export const fetchDayWeatherRing = async (
         throw firstErr;
       }
       console.warn(`[WeatherAPI] 링 1차 수신 지연/오류, 경량 폴백 재시도: ${firstErr?.name || ''} ${firstErr?.message || firstErr}`);
-      await sleep(400);
+      await sleep(300);
       if (signal?.aborted) throw firstErr;
       const fallbackSrc = (!isArchiveOrigin(src.origin) && src.modelParam && src.modelParam !== ICON_ONLY_PARAM)
         ? { ...src, modelParam: ICON_ONLY_PARAM }
         : src;
-      const retry = await attemptRingFetch(fallbackSrc, 22000);
+      const retry = await attemptRingFetch(fallbackSrc, 16000);
       src = retry.usedSrc;
       response = retry.res;
     }

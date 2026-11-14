@@ -30,8 +30,39 @@
  * 원래 km 규모라 250m 해상도로 충분합니다.
  */
 import * as THREE from 'three';
-import { sampleCoverAt } from '../components/SkyScene3D/CloudDeck';
 import { LAYER_ALTITUDE_KM, type LayerKey, type LayerSample } from './skyColumn';
+
+function sampleCoverAt(
+  samples: LayerSample[],
+  layer: LayerKey,
+  azSteps: number,
+  elevs: number[],
+  azDeg: number,
+  elevDeg: number
+): number {
+  const layerSamples = samples.filter(s => s.layer === layer);
+  if (layerSamples.length === 0) return 0;
+
+  const aF = (azDeg / 360) * azSteps;
+  const a0 = Math.floor(aF) % azSteps;
+  const a1 = (a0 + 1) % azSteps;
+  const at = aF - Math.floor(aF);
+
+  let e0 = 0;
+  while (e0 < elevs.length - 2 && elevs[e0 + 1] < elevDeg) e0++;
+  const e1 = Math.min(elevs.length - 1, e0 + 1);
+  const span = Math.max(1e-6, elevs[e1] - elevs[e0]);
+  const et = Math.max(0, Math.min(1, (elevDeg - elevs[e0]) / span));
+
+  const at00 = layerSamples[a0 * elevs.length + e0]?.cover ?? 0;
+  const at01 = layerSamples[a0 * elevs.length + e1]?.cover ?? 0;
+  const at10 = layerSamples[a1 * elevs.length + e0]?.cover ?? 0;
+  const at11 = layerSamples[a1 * elevs.length + e1]?.cover ?? 0;
+
+  return (
+    (at00 * (1 - et) + at01 * et) * (1 - at) + (at10 * (1 - et) + at11 * et) * at
+  );
+}
 
 /** 지도 한 변의 화소 수. */
 export const CLOUD_SHADOW_PX = 96;

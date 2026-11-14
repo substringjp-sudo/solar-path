@@ -8,9 +8,10 @@
 import * as THREE from 'three';
 import SunCalc from 'suncalc';
 import { getMoonPosition } from '../../utils/celestial';
+import { sunDisplayScale } from './SunMesh';
 
-/** 사람 눈 체감 감성 착시 스케일 반영 (반지름 약 8.0 유닛) */
-const MOON_ANGULAR_RADIUS_DEG = 1.02;
+/** 태양(0.267°)과 눈에 보이는 시직경이 일치하도록 실제 평균 각반지름 0.259°(시직경 ~0.52°) 사용 */
+const MOON_ANGULAR_RADIUS_DEG = 0.259;
 const MOON_DISTANCE = 490;
 
 const VERT = `
@@ -159,7 +160,8 @@ export function updateMoonPosition(
   moonHandle: MoonHandle,
   date: Date,
   lat: number,
-  lng: number
+  lng: number,
+  fovDeg?: number,
 ): void {
   const { group, material } = moonHandle;
   const moonPos = getMoonPosition(date, lat, lng);
@@ -175,6 +177,8 @@ export function updateMoonPosition(
 
   group.position.set(x, y, z);
   group.lookAt(0, 0, 0);
+  const displayScale = fovDeg !== undefined ? sunDisplayScale(fovDeg, moonPos.altitude).scale : 1;
+  group.scale.setScalar(Math.max(1, displayScale));
 
   // 달 고도가 -5도 이하이면 비가시화
   group.visible = moonPos.altitude > -5;

@@ -144,7 +144,55 @@ export function waveLaneRange(p: WaveParams): { zMin: number; zMax: number } {
   return { zMin: p.baseM - 150, zMax: p.baseM + 1.3 * p.thickM };
 }
 
-let cachedRawWave: { key: string; data: Float32Array } | null = null;
+const RAW_WAVE_CACHE_MAX = 6;
+const rawWaveCache = new Map<string, Float32Array>();
+
+function getCachedRawWave(key: string, len: number): Float32Array | null {
+  const hit = rawWaveCache.get(key);
+  if (!hit || hit.length !== len) return null;
+  rawWaveCache.delete(key);
+  rawWaveCache.set(key, hit);
+  return hit;
+}
+
+function setCachedRawWave(key: string, data: Float32Array): void {
+  if (rawWaveCache.has(key)) rawWaveCache.delete(key);
+  rawWaveCache.set(key, data);
+  if (rawWaveCache.size > RAW_WAVE_CACHE_MAX) {
+    const oldest = rawWaveCache.keys().next().value;
+    if (oldest !== undefined) rawWaveCache.delete(oldest);
+  }
+}
+
+const HIST_BINS = 512;
+const histCounts = new Int32Array(HIST_BINS);
+
+/** O(N) 히스토그램 분위수 근사 — slice.sort() O(N log N) 정렬 비용을 제거합니다. */
+function fastQuantileSlice(src: Float32Array, off: number, count: number, frac: number): number {
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < count; i++) {
+    const v = src[off + i];
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  const span = hi - lo;
+  if (!(span > 1e-6)) return lo;
+  histCounts.fill(0);
+  const invSpan = (HIST_BINS - 1) / span;
+  for (let i = 0; i < count; i++) {
+    const bin = Math.min(HIST_BINS - 1, Math.max(0, ((src[off + i] - lo) * invSpan) | 0));
+    histCounts[bin]++;
+  }
+  const target = Math.min(count - 1, Math.max(0, Math.floor(frac * count)));
+  let acc = 0;
+  for (let b = 0; b < HIST_BINS; b++) {
+    acc += histCounts[b];
+    if (acc > target) {
+      return lo + ((b + 0.5) / HIST_BINS) * span;
+    }
+  }
+  return hi;
+}
 
 function buildWaveSetup(input: WaveParams) {
   const p = { ...DEF, dome: input.chi >= 0.5, ...input } as Required<WaveParams>;
@@ -220,21 +268,19 @@ export function* bakeWaveFieldSteps(input: WaveParams, preSetup?: ReturnType<typ
       for (let i = 1; i < prof.length; i++) if (z <= prof[i].zM) { const t = (z - prof[i - 1].zM) / (prof[i].zM - prof[i - 1].zM); return prof[i - 1].cover + t * (prof[i].cover - prof[i - 1].cover); }
       return z - prof[prof.length - 1].zM < 150 ? prof[prof.length - 1].cover : 0;
     };
-    const slice = new Float32Array(n * n);
     const cutSlice = (iz: number, src: Float32Array) => {
       const cz = coverAt(zMin + ((iz + 0.5) / nz) * (zMax - zMin));
       const off = iz * n * n;
       if (cz <= 0.002) { for (let i = 0; i < n * n; i++) src[off + i] = -5; return; }
-      for (let i = 0; i < n * n; i++) slice[i] = src[off + i];
-      slice.sort();
-      const t = slice[Math.min(n * n - 1, Math.floor((1 - Math.min(0.999, cz)) * n * n))];
+      const t = fastQuantileSlice(src, off, n * n, 1 - Math.min(0.999, cz));
       // 운량이 높은 높이(0.85 → 1)는 문턱을 겨우 넘은 자리도 밀도를 갖게 1/e 만큼 올림 — 안 그러면 '100 % 덮임' 이어도
       // 장 값이 낮은 곳이 거의 투명해 큰 틈처럼 보였음(2026-11-12 비 오는 날 재현). 덮이지 않은 자리(문턱 아래)는 그대로 음수로 남김.
       const lift = (1 / Math.max(0.2, p.edge)) * Math.min(1, Math.max(0, (cz - 0.85) / 0.15));
       for (let i = 0; i < n * n; i++) { const v = src[off + i] - t; src[off + i] = v > 0 ? v + lift : v; }
     };
-    if (cachedRawWave && cachedRawWave.key === rawKey && cachedRawWave.data.length === vox.length) {
-      vox.set(cachedRawWave.data);
+    const cachedRaw = getCachedRawWave(rawKey, vox.length);
+    if (cachedRaw) {
+      vox.set(cachedRaw);
       for (let iz = 0; iz < nz; iz++) {
         cutSlice(iz, vox);
         if ((iz & 7) === 7) yield;
@@ -260,7 +306,7 @@ export function* bakeWaveFieldSteps(input: WaveParams, preSetup?: ReturnType<typ
           if ((iy & 7) === 7) yield;
         }
       }
-      cachedRawWave = { key: rawKey, data: vox.slice() };
+      setCachedRawWave(rawKey, vox.slice());
       for (let iz = 0; iz < nz; iz++) {
         cutSlice(iz, vox);
         if ((iz & 7) === 7) yield;
@@ -486,7 +532,7 @@ export async function bakeWaveFieldAsync(
   shouldPause?: () => boolean,
 ): Promise<WaveField | null> {
   const setup = input.profile && input.profile.length > 0 ? buildWaveSetup(input) : undefined;
-  if (setup && !(cachedRawWave && cachedRawWave.key === setup.rawKey && cachedRawWave.data.length === setup.n * setup.n * setup.nz)) {
+  if (setup && !getCachedRawWave(setup.rawKey, setup.n * setup.n * setup.nz)) {
     const raw = await computeRawWaveOnWorklet({
       n: setup.n, nz: setup.nz, half: setup.half, zb: setup.zb, zMin: setup.zMin, zMax: setup.zMax,
       mix3d: setup.p.mix3d, kappa: setup.kappa, eK: setup.eK, sK: setup.sK,
@@ -495,7 +541,7 @@ export async function bakeWaveFieldAsync(
       wEx: setup.wEx, wEy: setup.wEy, wEz: setup.wEz, wAmp: setup.wAmp,
     });
     if (cancelled()) return null;
-    if (raw) cachedRawWave = { key: setup.rawKey, data: raw };
+    if (raw) setCachedRawWave(setup.rawKey, raw);
   }
   const g = bakeWaveFieldSteps(input, setup);
   let t = Date.now();

@@ -1245,7 +1245,7 @@ export function createSceneComposer(
         renderer.autoClear = false;
         opaqueMat.uniforms.uDither.value = dither;
         opaqueMat.uniforms.uEncodeSrgb.value = 1;
-        opaqueMat.uniforms.uDenoise.value = volumetricDenoise && !interacting ? 1 : 0;
+        opaqueMat.uniforms.uDenoise.value = volumetricDenoise ? 1 : 0;
         blit(renderer, opaqueQuad, externalSky);
         opaqueMat.uniforms.uEncodeSrgb.value = 0;
         opaqueMat.uniforms.uDenoise.value = 0;
@@ -1298,7 +1298,7 @@ export function createSceneComposer(
       renderer.autoClear = true;
       opaqueMat.uniforms.uDither.value = dither;
       opaqueMat.uniforms.uEncodeSrgb.value = externalSky ? 1 : 0;
-      opaqueMat.uniforms.uDenoise.value = externalSky && volumetricDenoise && !interacting ? 1 : 0;
+      opaqueMat.uniforms.uDenoise.value = externalSky && volumetricDenoise ? 1 : 0;
       blit(renderer, opaqueQuad, externalSky ?? rtSky.texture);
       opaqueMat.uniforms.uEncodeSrgb.value = 0;
       opaqueMat.uniforms.uDenoise.value = 0;
@@ -1434,21 +1434,20 @@ export function createSceneComposer(
     getDither: () => dither,
     setReconstruct: (mode: 'catmull' | 'bilinear') => {
       baseCatmull = mode === 'bilinear' ? 0 : 1;
-      const v = interacting ? 0 : baseCatmull;
-      opaqueMat.uniforms.uCatmull.value = v;
-      overMat.uniforms.uCatmull.value = v;
-      extMaskMat.uniforms.uCatmull.value = v;
-      extFrontMat.uniforms.uCatmull.value = v;
+      opaqueMat.uniforms.uCatmull.value = baseCatmull;
+      overMat.uniforms.uCatmull.value = baseCatmull;
+      extMaskMat.uniforms.uCatmull.value = baseCatmull;
+      extFrontMat.uniforms.uCatmull.value = baseCatmull;
     },
     setInteracting: (active: boolean) => {
       if (interacting === active) return;
       interacting = active;
-      const cat = interacting ? 0 : baseCatmull;
-      opaqueMat.uniforms.uCatmull.value = cat;
-      overMat.uniforms.uCatmull.value = cat;
-      extMaskMat.uniforms.uCatmull.value = cat;
-      extFrontMat.uniforms.uCatmull.value = cat;
-      const den = volumetricDenoise && !interacting ? 1 : 0;
+      // uCatmull/uDenoise 는 조작 중에도 켜 두어 temporalUpscale 로 생긴 빈 픽셀 구름이 사라져 보이지 않게 합니다.
+      opaqueMat.uniforms.uCatmull.value = baseCatmull;
+      overMat.uniforms.uCatmull.value = baseCatmull;
+      extMaskMat.uniforms.uCatmull.value = baseCatmull;
+      extFrontMat.uniforms.uCatmull.value = baseCatmull;
+      const den = volumetricDenoise ? 1 : 0;
       extMaskMat.uniforms.uDenoise.value = den;
       extFrontMat.uniforms.uDenoise.value = den;
     },
@@ -1460,7 +1459,7 @@ export function createSceneComposer(
     setTerrainLit: (on: boolean) => { terrainLitOn = !!on; },
     setVolumetricDenoise: (on: boolean) => {
       volumetricDenoise = !!on;
-      const den = volumetricDenoise && !interacting ? 1 : 0;
+      const den = volumetricDenoise ? 1 : 0;
       extMaskMat.uniforms.uDenoise.value = den;
       extFrontMat.uniforms.uDenoise.value = den;
     },

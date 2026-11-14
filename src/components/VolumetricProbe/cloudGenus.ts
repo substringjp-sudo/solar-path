@@ -897,6 +897,8 @@ interface CachedBaseField {
 }
 const LAYER_BASE_FIELD_CACHE_MAX = 24;
 const layerBaseFieldCache = new Map<string, CachedBaseField>();
+const FLOW_TEMPLATE_CACHE_MAX = 16;
+const flowTemplateCache = new Map<string, Float32Array>();
 
 function layerPatternKey(
   L: GenusLayer,
@@ -997,14 +999,28 @@ function* genusWeatherSteps(
           stats.s90 = core.s90; stats.hoursUsed = core.hoursUsed; stats.umax = core.umax;
         }
         const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 128));
-        const px = flowDetailField(TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, flow);
-        const T = new Float32Array(TS * TS);
-        for (let y = 0; y < TS; y++) {
-          for (let x = 0; x < TS; x++) T[y * TS + x] = px(x, y);
-          if (y % ROWS === ROWS - 1) yield;
+        const tSeed = (((L.opts?.seed ?? seed + k * 1000) % 4) + 4) % 4;
+        const lo = L.opts as Record<string, unknown> | undefined;
+        const tKey = `${L.genus}|${TS}|${tileKm}|${tSeed}|${lo?.scale ?? ''}|${lo?.detail ?? ''}`;
+        let T = flowTemplateCache.get(tKey);
+        if (T) {
+          flowTemplateCache.delete(tKey);
+          flowTemplateCache.set(tKey, T);
+        } else {
+          const px = flowDetailField(TS, tileKm, tSeed, L, flow);
+          T = new Float32Array(TS * TS);
+          for (let y = 0; y < TS; y++) {
+            for (let x = 0; x < TS; x++) T[y * TS + x] = px(x, y);
+            if (y % ROWS === ROWS - 1) yield;
+          }
+          normalizeTemplate(T);
+          yield;
+          flowTemplateCache.set(tKey, T);
+          if (flowTemplateCache.size > FLOW_TEMPLATE_CACHE_MAX) {
+            const oldest = flowTemplateCache.keys().next().value;
+            if (oldest !== undefined) flowTemplateCache.delete(oldest);
+          }
         }
-        normalizeTemplate(T);
-        yield;
         const w = flowLayerWeightsOf(L.opts ?? {}, L.genus, tileKm, 0, L.opts?.shearDzKm ?? 2);
         yield* flowComposeSteps(core, T, TS, S, w, raw);
       } else {
