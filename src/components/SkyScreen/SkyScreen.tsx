@@ -50,6 +50,11 @@ import { hapticError } from '../../utils/haptics';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
 import { DevTuningPanel } from './DevTuningPanel';
+import {
+  getVolumetricStatus,
+  subscribeVolumetricStatus,
+  type VolumetricPrewarmStatus,
+} from '../VolumetricProbe/volumetricStatus';
 import SunCalc from 'suncalc';
 import { sunPosition } from '../../utils/solarPosition';
 import { buildSkyEvents } from '../../utils/skyEvents';
@@ -238,6 +243,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [volPrewarm, setVolPrewarm] = useState<VolumetricPrewarmStatus | null>(() => getVolumetricStatus().prewarm);
+
+  useEffect(() => {
+    return subscribeVolumetricStatus(s => setVolPrewarm(s.prewarm));
+  }, []);
 
   const simObj = useMemo(() => ({
     terrain: terrainData,
@@ -723,6 +733,43 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
             </OverlayButton>
           )}
         </View>
+
+        {/* 날씨 수신 또는 백그라운드 24시간 하늘 사전 계산 진행률 배너 (터치 통과) */}
+        {!weatherError && (isWeatherLoading || volPrewarm?.active) && (() => {
+          const pct = isWeatherLoading
+            ? 15
+            : Math.min(100, Math.max(5, Math.round(((volPrewarm?.done ?? 0) / Math.max(1, volPrewarm?.total ?? 24)) * 100)));
+          const label = isWeatherLoading
+            ? L3(language, '기상 데이터 수신 중…', 'Fetching weather data…', '気象データを受信中…')
+            : L3(
+                language,
+                `오늘의 하늘 준비 중 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                `Preparing day sky · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+                `1日の空を準備中 · ${volPrewarm?.done ?? 0}/${volPrewarm?.total ?? 24} (${pct}%)`,
+              );
+          const hint = isWeatherLoading
+            ? L3(
+                language,
+                '선택한 날짜·장소의 360° 구름 예보를 불러오고 있습니다',
+                'Loading 360° cloud forecast for selected date & place',
+                '選択した日時・場所の360°雲予報を読み込んでいます',
+              )
+            : L3(
+                language,
+                '백그라운드에서 시간대별 하늘을 미리 계산하고 있습니다',
+                'Precomputing hourly sky in the background',
+                'バックグラウンドで時間帯別の空を計算しています',
+              );
+          return (
+            <View style={overlayStyles.buildBanner} pointerEvents="none">
+              <Text style={overlayStyles.buildLabel} numberOfLines={1}>{label}</Text>
+              <View style={overlayStyles.progressTrack}>
+                <View style={[overlayStyles.progressFill, { width: `${pct}%` }]} />
+              </View>
+              <Text style={overlayStyles.buildHint} numberOfLines={1}>{hint}</Text>
+            </View>
+          );
+        })()}
 
         {/* 날씨 수신 실패 배너 및 재시도 버튼 */}
         {weatherError && (

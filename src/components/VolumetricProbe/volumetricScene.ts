@@ -471,7 +471,12 @@ export interface VolumetricScene {
   /** 해당 장면의 날씨·파동 텍스처가 이미 캐시에 있어 0ms 동기 전환 가능한지 확인합니다. */
   hasCachedScene?(input: VolumetricSceneInput, isFast?: boolean): boolean;
   /** 날짜/날씨 변경 시 하루치 여러 시간대(24h)의 날씨·파동 텍스처를 미리 구워 캐시에 적재합니다. */
-  prewarmScenesAsync?(inputs: VolumetricSceneInput[], shouldAbort?: () => boolean): Promise<number>;
+  prewarmScenesAsync?(
+    inputs: VolumetricSceneInput[],
+    shouldAbort?: () => boolean,
+    onProgress?: (done: number, total: number) => void,
+    shouldPause?: () => boolean,
+  ): Promise<number>;
   /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
   cancelAsync?(): void;
   /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
@@ -1815,7 +1820,7 @@ export async function createVolumetricScene(
     if (!tex) {
       const t0 = Date.now();
       tex = plan.useGenus
-        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 16, () => my !== sceneToken || disposed, plan.flow)
+        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 8, () => my !== sceneToken || disposed, plan.flow, 4)
         : makeWeather(plan.plain, opt);
       if (!tex) return false;
       if (my !== sceneToken || disposed) { tex.dispose(); return false; }
@@ -1829,7 +1834,7 @@ export async function createVolumetricScene(
       const key = waveKey(wp);
       if (!waveCacheGet(key)) {
         const t0 = Date.now();
-        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed);
+        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed, 6, 4);
         if (!field) return false;
         if (my !== sceneToken || disposed) { field.tex.dispose(); return false; }
         waveCachePut(key, field);
@@ -1846,42 +1851,57 @@ export async function createVolumetricScene(
     if (wp && !waveCacheMap.has(waveKey(wp))) return false;
     return true;
   };
-  const prewarmScenesAsync = async (inputs: VolumetricSceneInput[], shouldAbort?: () => boolean): Promise<number> => {
+  const prewarmScenesAsync = async (
+    inputs: VolumetricSceneInput[],
+    shouldAbort?: () => boolean,
+    onProgress?: (done: number, total: number) => void,
+    shouldPause?: () => boolean,
+  ): Promise<number> => {
     let doneCount = 0;
+    const total = inputs.length;
     const seenKeys = new Set<string>();
-    for (const p of inputs) {
-      while (isInteracting && !shouldAbort?.() && !disposed) {
-        await new Promise(r => setTimeout(r, 60));
+    const isPaused = () => isInteracting || !!shouldPause?.();
+    for (let idx = 0; idx < inputs.length; idx++) {
+      const p = inputs[idx];
+      while (isPaused() && !shouldAbort?.() && !disposed) {
+        await new Promise(r => setTimeout(r, 80));
       }
       if (shouldAbort?.() || disposed) return doneCount;
       const plan = weatherPlan(p, false);
-      if (seenKeys.has(plan.key)) continue;
-      seenKeys.add(plan.key);
-      let tex = cacheGet(plan.key);
-      if (!tex) {
-        tex = plan.useGenus
-          ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 8, () => !!shouldAbort?.() || disposed, plan.flow)
-          : makeWeather(plan.plain, opt);
-        if (!tex || shouldAbort?.() || disposed) {
-          tex?.dispose();
-          return doneCount;
-        }
-        cachePut(plan.key, tex);
-      }
-      const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
-      if (wp) {
-        const wKey = waveKey(wp);
-        if (!waveCacheGet(wKey)) {
-          const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed);
-          if (!field || shouldAbort?.() || disposed) {
-            field?.tex.dispose();
+      if (!seenKeys.has(plan.key)) {
+        seenKeys.add(plan.key);
+        let tex = cacheGet(plan.key);
+        let didWork = false;
+        if (!tex) {
+          didWork = true;
+          tex = plan.useGenus
+            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 4, () => !!shouldAbort?.() || disposed, plan.flow, 16, isPaused)
+            : makeWeather(plan.plain, opt);
+          if (!tex || shouldAbort?.() || disposed) {
+            tex?.dispose();
             return doneCount;
           }
-          waveCachePut(wKey, field);
+          cachePut(plan.key, tex);
+        }
+        const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+        if (wp) {
+          const wKey = waveKey(wp);
+          if (!waveCacheGet(wKey)) {
+            didWork = true;
+            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, 4, 16, isPaused);
+            if (!field || shouldAbort?.() || disposed) {
+              field?.tex.dispose();
+              return doneCount;
+            }
+            waveCachePut(wKey, field);
+          }
+        }
+        if (didWork) {
+          await new Promise(r => setTimeout(r, 16));
         }
       }
       doneCount++;
-      await new Promise(r => setTimeout(r, 8));
+      onProgress?.(idx + 1, total);
     }
     return doneCount;
   };

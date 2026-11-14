@@ -143,6 +143,8 @@ export function waveLaneRange(p: WaveParams): { zMin: number; zMax: number } {
   return { zMin: p.baseM - 150, zMax: p.baseM + 1.3 * p.thickM };
 }
 
+let cachedRawWave: { key: string; data: Float32Array } | null = null;
+
 export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveField, void> {
   const t0 = Date.now();
   const p = { ...DEF, dome: input.chi >= 0.5, ...input } as Required<WaveParams>;
@@ -157,15 +159,18 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
   const kappa = 0.6 * p.chi;
   const eK = Math.exp((kappa * kappa) / 2), sK = Math.sqrt(Math.exp(kappa * kappa) * (Math.exp(kappa * kappa) - 1));
   const skew = (f: number) => (kappa < 1e-3 ? f : (Math.exp(kappa * f) - eK) / sK);
+  const warpScale0 = p.warp * ((2 * Math.PI) / Math.hypot(W[0][0].kx, W[0][0].ky, W[0][0].kz)) / PER * 3;
+  const warpScale1 = p.warp * ((2 * Math.PI) / Math.hypot(W[1][0].kx, W[1][0].ky, W[1][0].kz)) / PER * 3;
   // 큰 파동 F_big(x,y,z) — 단계 0·1 로 비튼 좌표에서 0~2 단계 합(단위 분산)
   const fbig = (x: number, y: number, z: number) => {
     let wx = 0, wy = 0, wz = 0;
-    for (let j = 0; j < 2; j++) {
-      const lamj = (2 * Math.PI) / Math.hypot(W[j][0].kx, W[j][0].ky, W[j][0].kz);
-      for (const w of W[j]) {
-        const s = p.warp * lamj * Math.sin(w.kx * x + w.ky * y + w.kz * z + w.ph * 1.7) / PER * 3;
-        wx += s * w.ex; wy += s * w.ey; wz += s * w.ez;
-      }
+    for (const w of W[0]) {
+      const s = warpScale0 * Math.sin(w.kx * x + w.ky * y + w.kz * z + w.ph * 1.7);
+      wx += s * w.ex; wy += s * w.ey; wz += s * w.ez;
+    }
+    for (const w of W[1]) {
+      const s = warpScale1 * Math.sin(w.kx * x + w.ky * y + w.kz * z + w.ph * 1.7);
+      wx += s * w.ex; wy += s * w.ey; wz += s * w.ez;
     }
     const X = x + wx, Y = y + wy, Z = z + wz;
     let f = 0;
@@ -184,12 +189,6 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       return z - prof[prof.length - 1].zM < 150 ? prof[prof.length - 1].cover : 0;
     };
     const slice = new Float32Array(n * n);
-    // 밑면 높이에서의 2차원 무늬(채우기 모드 큰 모양)
-    const base2 = new Float32Array(n * n);
-    for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
-      const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
-      base2[iy * n + ix] = skew(fbig(x, y, zb));
-    }
     const cutSlice = (iz: number, src: Float32Array) => {
       const cz = coverAt(zMin + ((iz + 0.5) / nz) * (zMax - zMin));
       const off = iz * n * n;
@@ -202,35 +201,64 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       const lift = (1 / Math.max(0.2, p.edge)) * Math.min(1, Math.max(0, (cz - 0.85) / 0.15));
       for (let i = 0; i < n * n; i++) { const v = src[off + i] - t; src[off + i] = v > 0 ? v + lift : v; }
     };
-    for (let iz = 0; iz < nz; iz++) {
-      yield;
-      const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
-      for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
-        const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
-        const g2 = base2[iy * n + ix];
-        vox[(iz * n + iy) * n + ix] = p.mix3d >= 1 ? skew(fbig(x, y, z)) : g2 + p.mix3d * (skew(fbig(x, y, z)) - g2);
+    const rawKey = JSON.stringify([p.seed, p.ziM, zb, zMin, zMax, p.shearDeg, p.shear, p.N, p.wStar, p.vstretch, half, p.warp, p.spec, n, nz, p.chi, p.mix3d]);
+    if (cachedRawWave && cachedRawWave.key === rawKey && cachedRawWave.data.length === vox.length) {
+      vox.set(cachedRawWave.data);
+      for (let iz = 0; iz < nz; iz++) {
+        cutSlice(iz, vox);
+        if ((iz & 7) === 7) yield;
       }
-      cutSlice(iz, vox);
+    } else {
+      // 밑면 높이에서의 2차원 무늬(채우기 모드 큰 모양)
+      const base2 = new Float32Array(n * n);
+      for (let iy = 0; iy < n; iy++) {
+        for (let ix = 0; ix < n; ix++) {
+          const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
+          base2[iy * n + ix] = skew(fbig(x, y, zb));
+        }
+        if ((iy & 7) === 7) yield;
+      }
+      for (let iz = 0; iz < nz; iz++) {
+        const z = zMin + ((iz + 0.5) / nz) * (zMax - zMin);
+        for (let iy = 0; iy < n; iy++) {
+          for (let ix = 0; ix < n; ix++) {
+            const x = -half + ((ix + 0.5) / n) * 2 * half, y = -half + ((iy + 0.5) / n) * 2 * half;
+            const g2 = base2[iy * n + ix];
+            vox[(iz * n + iy) * n + ix] = p.mix3d >= 1 ? skew(fbig(x, y, z)) : g2 + p.mix3d * (skew(fbig(x, y, z)) - g2);
+          }
+          if ((iy & 7) === 7) yield;
+        }
+      }
+      cachedRawWave = { key: rawKey, data: vox.slice() };
+      for (let iz = 0; iz < nz; iz++) {
+        cutSlice(iz, vox);
+        if ((iz & 7) === 7) yield;
+      }
     }
     if (p.smoothM > 0 || p.smoothZ > 0) {
       // 3차원 상자 흐림 두 번(삼각 가중): 가로 반경 rs 칸, 세로 반경 rz 칸. 원래 값(자르기 전 문턱 기준)을 흐린 뒤 높이별로 다시 자름.
       const rs = Math.max(0, Math.round(p.smoothM / ((2 * half) / n))), rz = Math.max(0, Math.round(p.smoothZ));
       const tmp = new Float32Array(vox.length);
-      const blurAxis = (a: Float32Array, b: Float32Array, axis: 0 | 1 | 2, r: number) => {
+      function* blurAxis(a: Float32Array, b: Float32Array, axis: 0 | 1 | 2, r: number): Generator<void, void, void> {
         if (r <= 0) { b.set(a); return; }
-        for (let iz = 0; iz < nz; iz++) for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
-          let sum = 0, cnt = 0;
-          for (let k = -r; k <= r; k++) {
-            let jx = ix, jy = iy, jz = iz;
-            if (axis === 0) jx = (ix + k + n) % n; else if (axis === 1) jy = (iy + k + n) % n; else { jz = iz + k; if (jz < 0 || jz >= nz) continue; }
-            sum += a[(jz * n + jy) * n + jx]; cnt++;
+        for (let iz = 0; iz < nz; iz++) {
+          for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+            let sum = 0, cnt = 0;
+            for (let k = -r; k <= r; k++) {
+              let jx = ix, jy = iy, jz = iz;
+              if (axis === 0) jx = (ix + k + n) % n; else if (axis === 1) jy = (iy + k + n) % n; else { jz = iz + k; if (jz < 0 || jz >= nz) continue; }
+              sum += a[(jz * n + jy) * n + jx]; cnt++;
+            }
+            b[(iz * n + iy) * n + ix] = sum / cnt;
           }
-          b[(iz * n + iy) * n + ix] = sum / cnt;
+          if ((iz & 3) === 3) yield;
         }
-      };
+      }
       for (let rep = 0; rep < 2; rep++) {
-        blurAxis(vox, tmp, 0, rs); yield; blurAxis(tmp, vox, 1, rs); yield;
-        blurAxis(vox, tmp, 2, rz); vox.set(tmp); yield;
+        yield* blurAxis(vox, tmp, 0, rs);
+        yield* blurAxis(tmp, vox, 1, rs);
+        yield* blurAxis(vox, tmp, 2, rz);
+        vox.set(tmp);
       }
       for (let iz = 0; iz < nz; iz++) { cutSlice(iz, vox); if (iz % 8 === 7) yield; }
     }
@@ -238,17 +266,20 @@ export function* bakeWaveFieldSteps(input: WaveParams): Generator<void, WaveFiel
       // 구멍 메우기: 가로 상자 평균(반경 r 칸, 두 번 = 삼각 가중) · 세로 ±1 칸 → max(V, 평균) → 높이별 운량 다시 맞춤
       const r = Math.max(1, Math.round(p.fillM / ((2 * half) / n)));
       const blur = Float32Array.from(vox), tmp = new Float32Array(vox.length);
-      const pass = (a: Float32Array, b: Float32Array, dx: number, dy: number) => {
-        for (let iz = 0; iz < nz; iz++) for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
-          let s = 0;
-          for (let k = -r; k <= r; k++) {
-            const jx = Math.min(n - 1, Math.max(0, ix + k * dx)), jy = Math.min(n - 1, Math.max(0, iy + k * dy));
-            s += a[(iz * n + jy) * n + jx];
+      function* pass(a: Float32Array, b: Float32Array, dx: number, dy: number): Generator<void, void, void> {
+        for (let iz = 0; iz < nz; iz++) {
+          for (let iy = 0; iy < n; iy++) for (let ix = 0; ix < n; ix++) {
+            let s = 0;
+            for (let k = -r; k <= r; k++) {
+              const jx = Math.min(n - 1, Math.max(0, ix + k * dx)), jy = Math.min(n - 1, Math.max(0, iy + k * dy));
+              s += a[(iz * n + jy) * n + jx];
+            }
+            b[(iz * n + iy) * n + ix] = s / (2 * r + 1);
           }
-          b[(iz * n + iy) * n + ix] = s / (2 * r + 1);
+          if ((iz & 3) === 3) yield;
         }
-      };
-      for (let rep = 0; rep < 2; rep++) { pass(blur, tmp, 1, 0); yield; pass(tmp, blur, 0, 1); yield; }
+      }
+      for (let rep = 0; rep < 2; rep++) { yield* pass(blur, tmp, 1, 0); yield* pass(tmp, blur, 0, 1); }
       for (let iz = 0; iz < nz; iz++) for (let i = 0; i < n * n; i++) {
         const o = iz * n * n + i, zm = Math.max(0, iz - 1) * n * n + i, zp = Math.min(nz - 1, iz + 1) * n * n + i;
         vox[o] = Math.max(vox[o], (blur[zm] + 2 * blur[o] + blur[zp]) / 4);
@@ -360,14 +391,23 @@ export function bakeWaveField(input: WaveParams): WaveField {
 }
 
 /** 조각내 굽기(앱 setSceneAsync) — 약 budgetMs 마다 다음 틀로 넘깁니다. 취소되면 null. */
-export async function bakeWaveFieldAsync(input: WaveParams, cancelled: () => boolean, budgetMs = 12): Promise<WaveField | null> {
+export async function bakeWaveFieldAsync(
+  input: WaveParams,
+  cancelled: () => boolean,
+  budgetMs = 12,
+  restMs = 0,
+  shouldPause?: () => boolean,
+): Promise<WaveField | null> {
   const g = bakeWaveFieldSteps(input);
   let t = Date.now();
   for (;;) {
     const r = g.next();
     if (r.done) return r.value;
     if (Date.now() - t >= budgetMs) {
-      await new Promise<void>(res => setTimeout(res, 0));
+      await new Promise<void>(res => setTimeout(res, restMs));
+      while (shouldPause?.() && !cancelled()) {
+        await new Promise<void>(res => setTimeout(res, 80));
+      }
       if (cancelled()) { return null; }
       t = Date.now();
     }

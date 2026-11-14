@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, StatusBar, Animated, Platform, Modal, ScrollView, Image, Dimensions, Linking, AppState } from 'react-native';
 import Constants from 'expo-constants';
 import { MapPin, Star, Trash2, X } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
@@ -135,6 +135,17 @@ export default function App() {
   // 앱 마운트 시 즉시 네이티브 스플래시 화면을 숨기고 하이브리드 로딩 화면을 노출합니다.
   React.useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
+  // 다른 앱으로 전환하거나 홈 화면으로 내려갔을 때 3D 렌더링·백그라운드 프리워밍을 즉시 멈춥니다.
+  const [isAppActive, setIsAppActive] = React.useState(
+    () => AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+  );
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      setIsAppActive(nextState !== 'background' && nextState !== 'inactive');
+    });
+    return () => sub.remove();
   }, []);
 
   const progressVal = React.useRef(new Animated.Value(0.15)).current;
@@ -297,7 +308,7 @@ export default function App() {
           setMapVisible={setMapVisible}
           onCameraPress={() => setSunCameraVisible(true)}
           onOpenDatePicker={() => setShowDatePicker(true)}
-          isSuspended={isSunCameraVisible || isMapVisible || isSettingsVisible || isSavedListVisible}
+          isSuspended={!isAppActive || isSunCameraVisible || isMapVisible || isSettingsVisible || isSavedListVisible}
         />
       </View>
 

@@ -144,9 +144,9 @@ export const ForecastScreen: React.FC<ForecastScreenProps> = ({ isActive, setCur
   }, [weatherCacheList, lat, lon]);
 
   const days = useMemo(() => {
-    if (lat == null || lon == null) return [];
+    if (!isActive || lat == null || lon == null) return [];
     return buildForecastDays({ latitude: lat, longitude: lon, now, tzHours: tz, observerElevM: elev, forecast, ringFor });
-  }, [lat, lon, now, tz, elev, forecast, ringFor]);
+  }, [isActive, lat, lon, now, tz, elev, forecast, ringFor]);
   const best = useMemo(() => bestUpcoming(days, now), [days, now]);
   const bestDay = best ? days.find(d => d.sunrise === best || d.sunset === best) : undefined;
 

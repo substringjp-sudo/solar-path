@@ -461,34 +461,42 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   let fillRough = 0;
   let deckTau: { tau: number; T: number } | null = null;
   if (fillProf) {
-    const rr = rainRoughness(obs, W.low);
+    const rr = rainRoughness(obs, Wpat.low);
+    const rEff = hasDayWind ? Math.round(rr.r * 4) / 4 : rr.r;
     const q2 = (v: number) => Math.round(v * 100) / 100;
+    const baseProf = hasDayWind
+      ? fillProf.map(q => ({
+          zM: Math.round(q.zM / 200) * 200,
+          cover: q.cover <= 0.02 ? 0 : q.cover >= 0.9 ? 1 : Math.round(q.cover * 4) / 4,
+        }))
+      : fillProf;
     // 거친 비구름(2026-11-12): 밑면이 평평한 판으로 끝나 아래에서 거칠기가 안 보였음 → 밑면 아래로 운량이 줄어드는 자락(깊이 500·r m)을 붙여
     // 덱 밑에 늘어진 덩어리·틈이 생기게 함. 자락 안의 원래 높이 칸은 자락 값으로 바꿈.
     // 자락은 덱 본체(운량 0.5 이상) 밑면에서 — 그 아래 얇은 칸(예: 0.09)은 자락으로 바뀜.
-    const z0 = fillProf.find(q => q.cover >= 0.5)?.zM;
-    let prof = fillProf;
-    if (z0 != null && rr.r > 0.15 && z0 - a.heightM > 500) {
+    const z0 = baseProf.find(q => q.cover >= 0.5)?.zM;
+    let prof = baseProf;
+    if (z0 != null && rEff > 0.15 && z0 - a.heightM > 500) {
       // 땅에서 400 m 위까지만(레인 바닥은 자락 아래 300 m).
-      const d = Math.round(Math.max(0, Math.min(500 * rr.r, z0 - a.heightM - 400)));
+      const d = Math.round(Math.max(0, Math.min(500 * rEff, z0 - a.heightM - 400)));
       prof = [
-        ...fillProf.filter(q => q.zM >= z0 || q.zM < z0 - d - 100),
-        { zM: z0 - d, cover: q2(0.2 * rr.r) }, { zM: z0 - Math.round(d / 2), cover: q2(0.6 * rr.r) },
+        ...baseProf.filter(q => q.zM >= z0 || q.zM < z0 - d - 100),
+        { zM: z0 - d, cover: q2(0.2 * rEff) }, { zM: z0 - Math.round(d / 2), cover: q2(0.6 * rEff) },
       ].sort((a, b) => a.zM - b.zM);
     }
     const on = prof.filter(q => q.cover > 0.02);
     if (on.length) {
       const zLo = on[0].zM, zHi = on[on.length - 1].zM;
-      const [lu, lv] = W.low, [mu, mv] = W.mid, dz = Math.max(500, ((obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low)) * 1000);
+      const [lu, lv] = Wpat.low, [mu, mv] = Wpat.mid;
+      const dz = hasDayWind ? 2500 : Math.max(500, ((obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid) - (obs.layerAltLowKm ?? FALLBACK_ALT_KM.low)) * 1000);
       const shear = Math.hypot(mu - lu, mv - lv) / 3.6 / dz;
       const shearDeg = Math.round(((Math.atan2(mu - lu, mv - lv) * 180) / Math.PI + 360) % 360 / 10) * 10;
       fillRough = rr.r;
       deckTau = deckTauFromGhi(obs, a.date, a.lat, a.lon);
       // 거칠기 r(0 매끈한 난층운 ~ 1 거친 비구름): 작은 혹·표면 깎기(χ), 3차원 섞임, 가장자리 선명도는 키우고 흐림은 줄임.
       const wave = {
-        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q2(0.1 + 0.5 * rr.r),
-        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: q2(1.5 + 1.5 * rr.r), spec: 1.6, vstretch: 1.5, mix3d: q2(0.3 + 0.4 * rr.r),
-        fillM: 1500, smoothM: Math.round(800 - 500 * rr.r), smoothZ: rr.r > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rr.r), tauTarget: deckTau?.tau,
+        ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q2(0.1 + 0.5 * rEff),
+        shear: Math.round(shear * 1e4) / 1e4, shearDeg, edge: q2(1.5 + 1.5 * rEff), spec: 1.6, vstretch: 1.5, mix3d: q2(0.3 + 0.4 * rEff),
+        fillM: 1500, smoothM: Math.round(800 - 500 * rEff), smoothZ: rEff > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rEff), tauTarget: deckTau?.tau,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
       const zMin = zLo - 300, zMax = zHi + 400;

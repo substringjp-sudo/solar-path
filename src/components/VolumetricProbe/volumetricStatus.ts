@@ -6,6 +6,12 @@
  */
 export type VolumetricPhase = 'off' | 'creating' | 'running' | 'failed';
 
+export interface VolumetricPrewarmStatus {
+  active: boolean;
+  done: number;
+  total: number;
+}
+
 export interface VolumetricStatus {
   phase: VolumetricPhase;
   /** 생성을 시작한 시각(ms) — 준비 중 경과 시간 표시용 */
@@ -14,9 +20,11 @@ export interface VolumetricStatus {
   error: string | null;
   /** 마지막 프레임의 장면 요약(예보 종류 등) */
   summary: string | null;
+  /** 날짜·장소 변경 후 백그라운드 24시간 하늘 프리워밍 진행률 */
+  prewarm: VolumetricPrewarmStatus | null;
 }
 
-let status: VolumetricStatus = { phase: 'off', sinceMs: 0, error: null, summary: null };
+let status: VolumetricStatus = { phase: 'off', sinceMs: 0, error: null, summary: null, prewarm: null };
 const listeners = new Set<(s: VolumetricStatus) => void>();
 
 export function getVolumetricStatus(): VolumetricStatus {
@@ -25,7 +33,22 @@ export function getVolumetricStatus(): VolumetricStatus {
 
 export function setVolumetricStatus(patch: Partial<VolumetricStatus>): void {
   const next = { ...status, ...patch };
-  if (next.phase === status.phase && next.error === status.error && next.summary === status.summary && next.sinceMs === status.sinceMs) return;
+  const samePrewarm =
+    next.prewarm === status.prewarm ||
+    (next.prewarm != null &&
+      status.prewarm != null &&
+      next.prewarm.active === status.prewarm.active &&
+      next.prewarm.done === status.prewarm.done &&
+      next.prewarm.total === status.prewarm.total);
+  if (
+    next.phase === status.phase &&
+    next.error === status.error &&
+    next.summary === status.summary &&
+    next.sinceMs === status.sinceMs &&
+    samePrewarm
+  ) {
+    return;
+  }
   status = next;
   listeners.forEach(l => l(status));
 }

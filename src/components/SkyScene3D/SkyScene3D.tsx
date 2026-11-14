@@ -2291,15 +2291,24 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 hourBuckets.sort((a, b) => Math.abs(a - vBucketMs) - Math.abs(b - vBucketMs));
                 const metarSnap = metarRef.current;
                 const fillSnap = skySettingsRef.current.volumetricFill ?? true;
+                const shouldPausePrewarm = () =>
+                  !isActiveRef.current ||
+                  isSlidingRef.current ||
+                  useCelestialStore.getState().isGestureBlocked ||
+                  volPendingRef.current ||
+                  volSettleRef.current > 0;
                 (async () => {
-                  for (const bMs of hourBuckets) {
+                  const totalHours = hourBuckets.length;
+                  // 첫 장면 렌더링과 스플래시 전환이 먼저 안정화되도록 잠깐 대기합니다.
+                  await new Promise(r => setTimeout(r, 350));
+                  let reportedActive = false;
+                  for (let idx = 0; idx < totalHours; idx++) {
                     if (aborted) return;
-                    while ((isSlidingRef.current || useCelestialStore.getState().isGestureBlocked || volPendingRef.current) && !aborted) {
-                      await new Promise(r => setTimeout(r, 60));
+                    while (shouldPausePrewarm() && !aborted) {
+                      await new Promise(r => setTimeout(r, 100));
                     }
                     if (aborted) return;
-                    await new Promise(r => setTimeout(r, 0));
-                    if (aborted) return;
+                    const bMs = hourBuckets[idx];
                     const bDate = new Date(bMs);
                     const bWx = getInterpolatedWeather(vPath, bDate);
                     const input = live.buildLiveScene({
@@ -2312,9 +2321,33 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                       metar: metarSnap,
                       fill: fillSnap,
                     }).input;
-                    await vol.prewarmScenesAsync!([input], () => aborted);
+                    const alreadyCached = vol.hasCachedScene?.(input, false) ?? false;
+                    if (!alreadyCached) {
+                      if (!reportedActive) {
+                        reportedActive = true;
+                        setVolumetricStatus({
+                          prewarm: { active: true, done: idx, total: totalHours },
+                        });
+                      }
+                      await vol.prewarmScenesAsync!([input], () => aborted, undefined, shouldPausePrewarm);
+                      if (aborted) return;
+                    }
+                    const done = idx + 1;
+                    if (reportedActive || done === totalHours) {
+                      setVolumetricStatus({
+                        prewarm: {
+                          active: reportedActive && done < totalHours,
+                          done,
+                          total: totalHours,
+                        },
+                      });
+                    }
                   }
-                })().catch(() => {});
+                })().catch(() => {
+                  if (!aborted) {
+                    setVolumetricStatus({ prewarm: null });
+                  }
+                });
               }
             }
             if (volHasSceneRef.current) {

@@ -1113,6 +1113,7 @@ export function makeGenusWeather(
 export async function makeGenusWeatherAsync(
   layers: (GenusLayer | null)[], S = 256, tileKm = 24, seed = 7, plainCover: number[] = [],
   sliceMs = 16, cancelled: () => boolean = () => false, flow: FlowSceneParams | null = null,
+  restMs = 0, shouldPause?: () => boolean,
 ): Promise<DataTexture | null> {
   const data = new Uint8Array(S * S * 4);
   const stats = {};
@@ -1121,7 +1122,10 @@ export async function makeGenusWeatherAsync(
   for (; ;) {
     if (it.next().done) break;
     if (Date.now() - t0 >= sliceMs) {
-      await new Promise<void>(r => setTimeout(r, 0));
+      await new Promise<void>(r => setTimeout(r, restMs));
+      while (shouldPause?.() && !cancelled()) {
+        await new Promise<void>(r => setTimeout(r, 80));
+      }
       if (cancelled()) return null;
       t0 = Date.now();
     }
