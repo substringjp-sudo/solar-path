@@ -67,7 +67,11 @@ void main() {
                   + dem_elevationAt(g + vec2(0.0, 60.0)) + dem_elevationAt(g - vec2(0.0, 60.0)));
   float convex = clamp(0.5 + 0.5 * (h0 - m) / 6.0, 0.0, 1.0);
 
-  gl_FragColor = vec4(V, convex, 0.5, 1.0);
+  // 16-tap B-spline 기울기 (∂h/∂x, ∂h/∂z) 를 signed-sqrt 압축해 B, A 에 함께 굽습니다 (±4 = ~76° 경사 커버).
+  vec2 grad = dem_gradientBicubic(g);
+  vec2 encG = sign(grad) * sqrt(clamp(abs(grad) * 0.25, 0.0, 1.0)) * 0.5 + 0.5;
+
+  gl_FragColor = vec4(V, convex, encG.x, encG.y);
 }
 `;
 

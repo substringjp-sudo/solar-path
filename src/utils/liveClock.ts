@@ -101,3 +101,19 @@ export function followClock(
     off();
   };
 }
+
+
+// ── Fast scrub time pub/sub (bypasses React tree re-render during slider drag) ──
+type ScrubListener = (ms: number) => void;
+const scrubListeners = new Set<ScrubListener>();
+
+export function emitScrubTime(ms: number): void {
+  scrubListeners.forEach((fn) => fn(ms));
+}
+
+export function subscribeScrubTime(fn: ScrubListener): () => void {
+  scrubListeners.add(fn);
+  return () => {
+    scrubListeners.delete(fn);
+  };
+}

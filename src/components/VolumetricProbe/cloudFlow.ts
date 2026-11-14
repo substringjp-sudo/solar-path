@@ -172,6 +172,10 @@ export interface FlowLayerParams {
   flowSeed?: number;
   /** 비등방 바닥값 */
   flowAniso?: number;
+  /** 하루 단위 공통 흐름 핵 고정용 바람·비등방 */
+  flowCoreWindU?: number;
+  flowCoreWindV?: number;
+  flowCoreAniso?: number;
   rollDeg?: number;
   flowShapeAmount?: number;
   flowShapeDetailAmount?: number;

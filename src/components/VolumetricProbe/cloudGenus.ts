@@ -195,12 +195,14 @@ export function planFlowScene(gl: (GenusLayer | null)[], o: FlowPlanOptions): Fl
   const first = gl.find(L => L && (fp(L, 'flow') ?? 0) > 0);
   if (!first) return null;
   const op = first.opts ?? {};
-  const hasWind = op.windU != null && op.windV != null;
-  const speedMps = hasWind ? Math.hypot(op.windU!, op.windV!) / 3.6 : 0;
+  const cu = op.flowCoreWindU ?? op.windU;
+  const cv = op.flowCoreWindV ?? op.windV;
+  const hasWind = cu != null && cv != null;
+  const speedMps = hasWind ? Math.hypot(cu!, cv!) / 3.6 : 0;
   return {
     ...FLOW_DEFAULTS, seed: op.flowSeed ?? FLOW_DEFAULTS.seed, n: o.n, steps: o.steps, hours: o.hours, vrms: o.vrms, psiEvery: o.psiEvery,
-    windDeg: hasWind ? ((Math.atan2(op.windU!, op.windV!) * 180) / Math.PI + 360) % 360 : FLOW_DEFAULTS.windDeg,
-    aniso: (fp(first, 'flowAniso') ?? 0) + Math.max(0, Math.min(3, (speedMps - 6) / 6)),
+    windDeg: hasWind ? ((Math.atan2(cu!, cv!) * 180) / Math.PI + 360) % 360 : FLOW_DEFAULTS.windDeg,
+    aniso: (op.flowCoreAniso ?? fp(first, 'flowAniso') ?? 0) + Math.max(0, Math.min(3, (speedMps - 6) / 6)),
     rollDeg: op.rollDeg ?? FLOW_DEFAULTS.rollDeg,
     // §131: 기본값(qMode 0·s90 0)이면 1회차와 같은 바이트.
     ...(o.qMode ? { qMode: o.qMode, qN: o.qN ?? 128, qH: o.qH ?? FLOW_DEFAULTS.qH } : {}),
@@ -848,6 +850,54 @@ function flowDetailField(S: number, tileKm: number, seed: number, L: GenusLayer,
   };
 }
 
+const FLOW_CORE_CACHE_MAX = 8;
+const flowCoreCache = new Map<string, FlowCore>();
+
+interface CachedBaseField {
+  raw: Float32Array;
+  grown: Float32Array | null;
+  nz: number;
+  s90?: number;
+  hoursUsed?: number;
+  umax?: number;
+}
+const LAYER_BASE_FIELD_CACHE_MAX = 24;
+const layerBaseFieldCache = new Map<string, CachedBaseField>();
+
+function layerPatternKey(
+  L: GenusLayer,
+  S: number,
+  tileKm: number,
+  seed: number,
+  k: number,
+  flow: FlowSceneParams | null,
+): string {
+  const useFlow = !!flow && (fp(L, 'flow') ?? 0) > 0;
+  const o = (L.opts ?? {}) as Record<string, unknown>;
+  const {
+    beamTransmittance: _bt,
+    sunGap: _sg,
+    macroGradX: _gx,
+    macroGradY: _gy,
+    wave: _wv,
+    billow: _bl,
+    skelGeom: _sk,
+    densityScale: _ds,
+    ao: _ao,
+    thru: _th,
+    domePow: _dp,
+    topQuantile: _tq,
+    flowDPow: _fdp,
+    profileBase: _pb,
+    flowCoreWindU: _fcu,
+    flowCoreWindV: _fcv,
+    flowCoreAniso: _fca,
+    ...patternOpts
+  } = o;
+  if (useFlow) delete patternOpts.spacingKm;
+  return JSON.stringify([L.genus, S, tileKm, seed, k, useFlow ? flow : 0, patternOpts]);
+}
+
 function* genusWeatherSteps(
   data: Uint8Array, layers: (GenusLayer | null)[], S: number, tileKm: number, seed: number, plainCover: number[],
   flow: FlowSceneParams | null = null,
@@ -873,55 +923,107 @@ function* genusWeatherSteps(
     const L = layers[k];
     if (!L || !(L.cover > 0) || k > 3) continue;
     const useFlow = !!flow && (fp(L, 'flow') ?? 0) > 0;
-    const f = new Float32Array(S * S);
-    if (useFlow && flow && (fp(L, 'flowLaminar') ?? 0) > 0) {
-      // 안정층 판 구름: 장면 공통 소용돌이 대신 전단·안정도 원리의 무늬(stratiformField). d 매핑(순위)은 흐름 층과 같게.
-      const px = stratiformField(S, tileKm, (fp(L, 'flowSeed') ?? seed) + k * 101, L);
-      for (let y = 0; y < S; y++) {
-        for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
-        if (y % ROWS === ROWS - 1) yield;
+    const pKey = layerPatternKey(L, S, tileKm, seed, k, flow);
+    let baseEntry = layerBaseFieldCache.get(pKey);
+    if (baseEntry) {
+      layerBaseFieldCache.delete(pKey);
+      layerBaseFieldCache.set(pKey, baseEntry);
+      if (baseEntry.s90 !== undefined) {
+        stats.s90 = baseEntry.s90;
+        stats.hoursUsed = baseEntry.hoursUsed;
+        stats.umax = baseEntry.umax;
       }
-    } else if (useFlow && flow) {
-      // §130 흐름 층: 정적 보로노이 FIELDS 를 거치지 않고, 흐름 핵(q₀·ζ̂₀·D)과 연속 난류 결(flowDetailField)을 바로 합성합니다.
-      if (!core) {
-        core = newFlowCore(flow.n);
-        yield* flowCoreSteps(flow, tileKm, core);
-        stats.s90 = core.s90; stats.hoursUsed = core.hoursUsed; stats.umax = core.umax;
-      }
-      const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 128));
-      const px = flowDetailField(TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, flow);
-      const T = new Float32Array(TS * TS);
-      for (let y = 0; y < TS; y++) {
-        for (let x = 0; x < TS; x++) T[y * TS + x] = px(x, y);
-        if (y % ROWS === ROWS - 1) yield;
-      }
-      normalizeTemplate(T);
-      yield;
-      const w = flowLayerWeightsOf(L.opts ?? {}, L.genus, tileKm, 0, L.opts?.shearDzKm ?? 2);
-      yield* flowComposeSteps(core, T, TS, S, w, f);
     } else {
-      const lseed = L.opts?.seed ?? seed + k * 1000;
-      const px = L.opts?.morph ? morphField(S, tileKm, lseed, L.opts.morph) : FIELDS[L.genus](S, tileKm, lseed, L);
-      for (let y = 0; y < S; y++) {
-        for (let x = 0; x < S; x++) f[y * S + x] = px(x, y);
-        if (y % ROWS === ROWS - 1) yield;
+      const raw = new Float32Array(S * S);
+      if (useFlow && flow && (fp(L, 'flowLaminar') ?? 0) > 0) {
+        // 안정층 판 구름: 장면 공통 소용돌이 대신 전단·안정도 원리의 무늬(stratiformField). d 매핑(순위)은 흐름 층과 같게.
+        const px = stratiformField(S, tileKm, (fp(L, 'flowSeed') ?? seed) + k * 101, L);
+        for (let y = 0; y < S; y++) {
+          for (let x = 0; x < S; x++) raw[y * S + x] = px(x, y);
+          if (y % ROWS === ROWS - 1) yield;
+        }
+      } else if (useFlow && flow) {
+        // §130 흐름 층: 정적 보로노이 FIELDS 를 거치지 않고, 흐름 핵(q₀·ζ̂₀·D)과 연속 난류 결(flowDetailField)을 바로 합성합니다.
+        if (!core) {
+          const cKey = JSON.stringify([flow, tileKm]);
+          const cachedCore = flowCoreCache.get(cKey);
+          if (cachedCore) {
+            flowCoreCache.delete(cKey);
+            flowCoreCache.set(cKey, cachedCore);
+            core = cachedCore;
+          } else {
+            core = newFlowCore(flow.n);
+            yield* flowCoreSteps(flow, tileKm, core);
+            flowCoreCache.set(cKey, core);
+            if (flowCoreCache.size > FLOW_CORE_CACHE_MAX) {
+              const oldest = flowCoreCache.keys().next().value;
+              if (oldest !== undefined) flowCoreCache.delete(oldest);
+            }
+          }
+          stats.s90 = core.s90; stats.hoursUsed = core.hoursUsed; stats.umax = core.umax;
+        }
+        const TS = Math.max(64, Math.round(fp(L, 'flowTemplateRes') ?? 128));
+        const px = flowDetailField(TS, tileKm, L.opts?.seed ?? seed + k * 1000, L, flow);
+        const T = new Float32Array(TS * TS);
+        for (let y = 0; y < TS; y++) {
+          for (let x = 0; x < TS; x++) T[y * TS + x] = px(x, y);
+          if (y % ROWS === ROWS - 1) yield;
+        }
+        normalizeTemplate(T);
+        yield;
+        const w = flowLayerWeightsOf(L.opts ?? {}, L.genus, tileKm, 0, L.opts?.shearDzKm ?? 2);
+        yield* flowComposeSteps(core, T, TS, S, w, raw);
+      } else {
+        const lseed = L.opts?.seed ?? seed + k * 1000;
+        const px = L.opts?.morph ? morphField(S, tileKm, lseed, L.opts.morph) : FIELDS[L.genus](S, tileKm, lseed, L);
+        for (let y = 0; y < S; y++) {
+          for (let x = 0; x < S; x++) raw[y * S + x] = px(x, y);
+          if (y % ROWS === ROWS - 1) yield;
+        }
+      }
+      let nz = 0;
+      for (let i = 0; i < raw.length; i++) if (raw[i] > 0) nz++;
+      baseEntry = {
+        raw,
+        grown: null,
+        nz,
+        s90: stats.s90,
+        hoursUsed: stats.hoursUsed,
+        umax: stats.umax,
+      };
+      layerBaseFieldCache.set(pKey, baseEntry);
+      if (layerBaseFieldCache.size > LAYER_BASE_FIELD_CACHE_MAX) {
+        const oldest = layerBaseFieldCache.keys().next().value;
+        if (oldest !== undefined) layerBaseFieldCache.delete(oldest);
       }
     }
     // 흐름 층은 히스토그램 분위수(정렬과 같은 값, 3배 빠름 — cloudFlow 테스트가 같음을 확인).
     const qf = useFlow ? quantileHist : quantile;
     const pw = param(L, 'domePow');
     if (L.opts?.skeleton && (L.genus === 'cu' || L.genus === 'cg')) {
+      const f = baseEntry.raw;
       // §139 뼈대 열기둥: 운량은 생성기(켠 열기둥 Σ면적 + 스커트)가 맞췄으므로 문턱·감마 없이 절대 d. 0 < f < 1/510 도 1 로(스커트 끝).
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = f[i] > 0 ? Math.max(1, Math.round(Math.min(1, f[i]) * 255)) : 0;
       continue;
     }
     if (param(L, 'absolute')) {
+      const f = baseEntry.raw;
       // 문턱 없이 장 값 그대로 — 모루처럼 "탑 둘레에만" 있어야 하는 층. cover 는 쓰지 않습니다.
       for (let i = 0; i < S * S; i++) data[i * 4 + k] = Math.round(Math.pow(Math.min(1, Math.max(0, f[i])), pw) * 255);
       continue;
     }
     const isHighCloud = L.genus === 'ci' || L.genus === 'cs';
-    if (!isHighCloud && L.cover < 0.999) { growBeyondCapacity(f, S, L.cover); yield; }
+    const needGrow = !isHighCloud && L.cover < 0.999 && baseEntry.nz > 0 && L.cover > (baseEntry.nz / baseEntry.raw.length) * 0.98;
+    let f = baseEntry.raw;
+    if (needGrow) {
+      if (!baseEntry.grown) {
+        const g = baseEntry.raw.slice();
+        growBeyondCapacity(g, S, L.cover);
+        baseEntry.grown = g;
+        yield;
+      }
+      f = baseEntry.grown;
+    }
     const th = L.cover >= 0.999 ? -1 : qf(f, 1 - L.cover);
     yield;
     if (useFlow) {

@@ -108,6 +108,8 @@ uniform float uObsElevM;
 uniform float uEyeHeightM;
 uniform float uShoreLegacy;   // 1 이면 옛 물가 규칙 (판정이 A/B 로 씁니다)
 uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m)
+uniform float uShoreMode;     // 1 이면 프래그먼트가 dem_shoreField 로 수심·기울기 계산 — 정점 4회 조회 생략
+uniform float uDepthOnly;     // 1 이면 깊이만 기록(볼륨 하늘 시 LAYER_MID 용) — 바닥 기울기 DEM 조회 생략
 varying float vDistM;
 varying float vDepthM;   // 수심 (m) — 물가 표현의 재료 (5단계)
 varying float vWater;    // 1 = 물, 0 = 뭍 (프래그먼트에서 버립니다)
@@ -145,7 +147,8 @@ void main() {
   //
   // 그래서 **모르는 곳은 깊다**고 둡니다. 쌍선형 보간 덕에 물가 근처는 0 이
   // 아닌 작은 값이 나오므로, 정확히 0 인 곳만 "자료 없음"으로 갈립니다.
-  float hs = dem_elevationAt(gc);
+  bool inside = uDemValid > 0.5 && dem_inside(gc) > 0.5;
+  float hs = inside ? dem_elevationAt(gc) : 0.0;
 
   // ── 수심, 그리고 "이 0 을 믿어도 되는가" ─────────────────────────────────
   //
@@ -173,24 +176,41 @@ void main() {
   //      다시 들여온 것이라 물빛이 거리를 따라갔습니다(변동 69.44%).
   //   ② "값이 0 에 가까울수록 못 믿는다" → 진짜 얕은 물까지 깊게 만들어
   //      **얕을수록 밝다**가 뒤집혔습니다(0.488배).
-  float tx = max(8.0, uDemSpanM / 256.0);
-  float bx = dem_elevationAt(gc + vec2(tx, 0.0)) - dem_elevationAt(gc - vec2(tx, 0.0));
-  float bz = dem_elevationAt(gc + vec2(0.0, tx)) - dem_elevationAt(gc - vec2(0.0, tx));
-  bool inside = uDemValid > 0.5 && dem_inside(gc) > 0.5;
-  vBedSlope = inside ? length(vec2(bx, bz)) / (2.0 * tx) : 0.0;
+  // 거리 판(SEA_DIST_OUT) 및 깊이 전용 패스(uDepthOnly)는 수심·포말을 안 쓰므로 4방향 DEM 조회를 건너뜁니다.
+#ifdef SEA_DIST_OUT
+  vBedSlope = 0.0;
+  vDepthM = 30.0;
+#else
+#ifndef SEA_LIT_OUT
+  if (uDepthOnly > 0.5) {
+    vBedSlope = 0.0;
+    vDepthM = 30.0;
+  } else
+#endif
+  if (uShoreMode > 0.5) {
+    vBedSlope = 0.0;
+    vDepthM = uShoreLegacy > 0.5 ? 999.0 : 30.0;
+  } else
+  {
+    float tx = max(8.0, uDemSpanM / 256.0);
+    float bx = inside ? (dem_elevationAt(gc + vec2(tx, 0.0)) - dem_elevationAt(gc - vec2(tx, 0.0))) : 0.0;
+    float bz = inside ? (dem_elevationAt(gc + vec2(0.0, tx)) - dem_elevationAt(gc - vec2(0.0, tx))) : 0.0;
+    vBedSlope = inside ? length(vec2(bx, bz)) / (2.0 * tx) : 0.0;
 
-  // 기울기 0 인 고원이면 0(못 믿음), 조금이라도 기울어져 있으면 1(믿음).
-  // 문턱 0.002 는 화소 한 칸(15m)에 3cm — 자료의 눈금(1/256m)보다 크고
-  // 진짜 갯벌 기울기(약 0.0005~)보다 작은 자리입니다.
-  float trust = smoothstep(0.0, 0.002, vBedSlope);
-  // 먼바다는 30m 로 둡니다 — 흡수가 다 먹는 깊이라 999 와 같은 값이면서
-  // 섞을 때 얌전합니다(999 와 섞으면 경계에서 수백 m 가 튑니다).
-  if (uShoreLegacy > 0.5) {
-    vDepthM = (inside && hs < 0.0) ? -hs : 999.0;
-    vBedSlope = 1.0;   // 옛 규칙에는 기울기 개념이 없었습니다
-  } else {
-    vDepthM = inside ? mix(30.0, max(0.0, -hs), trust) : 30.0;
+    // 기울기 0 인 고원이면 0(못 믿음), 조금이라도 기울어져 있으면 1(믿음).
+    // 문턱 0.002 는 화소 한 칸(15m)에 3cm — 자료의 눈금(1/256m)보다 크고
+    // 진짜 갯벌 기울기(약 0.0005~)보다 작은 자리입니다.
+    float trust = smoothstep(0.0, 0.002, vBedSlope);
+    // 먼바다는 30m 로 둡니다 — 흡수가 다 먹는 깊이라 999 와 같은 값이면서
+    // 섞을 때 얌전합니다(999 와 섞으면 경계에서 수백 m 가 튑니다).
+    if (uShoreLegacy > 0.5) {
+      vDepthM = (inside && hs < 0.0) ? -hs : 999.0;
+      vBedSlope = 1.0;   // 옛 규칙에는 기울기 개념이 없었습니다
+    } else {
+      vDepthM = inside ? mix(30.0, max(0.0, -hs), trust) : 30.0;
+    }
   }
+#endif
 
   vGround = vec3(gc.x, 0.0, gc.y);
 
@@ -207,10 +227,10 @@ void main() {
   // **그 밖에서만** 말합니다. 둘 다 없으면 예전처럼 전부 물 — 높이장이
   // 아예 없을 때의 평판 대체는 그대로 둡니다.
   float hm =
-      (uDemValid > 0.5 && dem_inside(gc) > 0.5) ? dem_elevationAt(gc)
-    : (uSeaMaskValid > 0.5)                     ? seaMask_elevationExtended(gc)
-    : (uDemValid > 0.5)                         ? dem_elevationExtended(gc)
-    :                                             -1.0;
+      inside                  ? hs
+    : (uSeaMaskValid > 0.5)   ? seaMask_elevationExtended(gc)
+    : (uDemValid > 0.5)       ? dem_elevationExtended(gc)
+    :                           -1.0;
   // ⚠ 지형과 **조금 겹치게** 이어 그립니다(uShoreOverlapM) — TerrainField 의
   //   같은 이름 주석 참고. 뭍 쪽으로 조금 넘어가도 그 자리에는 지형이 위에
   //   그려지므로 보이지 않고, 두 면이 어긋나 생기던 구멍만 없어집니다.
@@ -304,6 +324,7 @@ uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uOzoneDU;
 uniform float uLookFill;      // §157 구름을 뚫은 햇빛 몫(terrainLook.ts) — 지형과 같은 값
+uniform float uDepthOnly;     // 1 이면 깊이만 기록(볼륨 하늘 시 LAYER_MID 용) — 물빛·윤슬·포말 조기 종료
 #ifdef SEA_LIT_OUT
 layout(location = 1) out highp vec4 pc_fragColor1;
 ${LIT2_ENCODE_GLSL}
@@ -346,6 +367,12 @@ void main() {
   seaDist.b = 1.0;
   gl_FragColor = seaDist;
   return;
+#endif
+#ifndef SEA_LIT_OUT
+  if (uDepthOnly > 0.5) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
 #endif
   // §157 **수심·바닥 기울기(포말)는 화소마다 자료에서 읽습니다** — 어디를 그릴지(위)는 그대로 두고 칠하는 값만.
   //   정점(격자 살 간격 25~74m)에서 읽은 값을 보간하면 포말·바닥 비침이 **삼각형 모양 그대로의 얼룩**이 됩니다(못 안의 흰 판·
@@ -548,6 +575,7 @@ export function createSeaPlane(opts: {
       // TerrainField 의 같은 이름 유니폼과 **같은 값**이어야 합니다.
       uShoreOverlapM: { value: 3 },
       uShoreMode: { value: 1 },
+      uDepthOnly: { value: 0.0 },
       uGlitter: { value: 1.0 },
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },

@@ -325,8 +325,39 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     return [w.speedKmh * Math.sin(to), w.speedKmh * Math.cos(to)];
   };
   const W = { low: windOf('low'), mid: windOf('mid'), high: windOf('high') };
+  const dayWindOf = (band: 'low' | 'mid' | 'high'): [number, number] | null => {
+    const pts = a.pathData ?? [];
+    if (!pts.length) return null;
+    let obsPt = pts[0];
+    for (const q of pts) if (Number.isFinite(q.distance) && (!obsPt || q.distance < obsPt.distance)) obsPt = q;
+    const h = obsPt?.hourly;
+    const ts = h?.timeMs;
+    const key = band === 'low' ? 'Low' : band === 'mid' ? 'Mid' : 'High';
+    const us = h?.[`windU${key}` as const], vs = h?.[`windV${key}` as const];
+    if (!ts || !us || !vs || ts.length === 0) return null;
+    const DAY = 86400000, lonMs = (a.lon / 360) * DAY;
+    const t0 = Math.floor((a.date.getTime() + lonMs) / DAY) * DAY - lonMs;
+    const t1 = t0 + DAY;
+    let su = 0, sv = 0, cnt = 0;
+    for (let i = 0; i < ts.length; i++) {
+      if (ts[i] >= t0 && ts[i] <= t1 && Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
+        su += us[i]; sv += vs[i]; cnt++;
+      }
+    }
+    if (cnt === 0) {
+      for (let i = 0; i < ts.length; i++) {
+        if (Number.isFinite(us[i]) && Number.isFinite(vs[i])) {
+          su += us[i]; sv += vs[i]; cnt++;
+        }
+      }
+    }
+    return cnt > 0 ? [su / cnt, sv / cnt] : null;
+  };
+  const dLow = dayWindOf('low'), dMid = dayWindOf('mid'), dHigh = dayWindOf('high');
+  const hasDayWind = !!(dLow && dMid && dHigh);
+  const Wpat = hasDayWind ? { low: dLow!, mid: dMid!, high: dHigh! } : W;
   const shearOf = (band: 'low' | 'mid' | 'high'): [number, number] => {
-    const [au, av] = band === 'low' ? W.mid : W.high, [bu, bv] = band === 'low' ? W.low : W.mid;
+    const [au, av] = band === 'low' ? Wpat.mid : Wpat.high, [bu, bv] = band === 'low' ? Wpat.low : Wpat.mid;
     const su = au - bu, sv = av - bv, m = Math.hypot(su, sv);
     if (m < 1e-6) return [0, 0];
     const ang = ((Math.round((Math.atan2(su, sv) * 180) / Math.PI / 10) * 10) * Math.PI) / 180, mq = q5(m);
@@ -338,11 +369,18 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   const driftKm = (band: 'low' | 'mid' | 'high'): [number, number] => integratedDriftKm(a, band, W[band]);
   const NBAND: Record<'low' | 'mid' | 'high', [number, number]> = { low: [1000, 2500], mid: [3000, 6000], high: [7000, 11000] };
   const flowOpts = (band: 'low' | 'mid' | 'high') => {
-    const [u, v] = W[band], [su, sv] = shearOf(band);
-    const nB = bruntN(thermo, NBAND[band][0], NBAND[band][1]);
+    const [u, v] = Wpat[band], [su, sv] = shearOf(band);
+    const nB = hasDayWind ? 0.012 : bruntN(thermo, NBAND[band][0], NBAND[band][1]);
     const mGrad = macro[band];
     return {
-      windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed, ...(nB != null ? { flowN: nB } : {}),
+      windU: q5(u), windV: q5(v), shearU: su, shearV: sv, flowSeed,
+      ...(nB != null ? { flowN: nB } : {}),
+      ...(hasDayWind ? {
+        shearDzKm: band === 'low' ? 2.5 : 4.0,
+        flowCoreWindU: q5(Wpat.low[0]),
+        flowCoreWindV: q5(Wpat.low[1]),
+        flowCoreAniso: 1.0,
+      } : {}),
       macroGradX: mGrad?.gradXPer100Km ?? 0,
       macroGradY: mGrad?.gradYPer100Km ?? 0,
       beamTransmittance: macro.beamTransmittance[band] ?? 1,

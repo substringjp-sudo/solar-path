@@ -468,6 +468,10 @@ export interface VolumetricScene {
    * 더 새 setScene/setSceneAsync 가 오면 버려지고 false. isFast 가 참이면 드래그 중 S=128 초고속 모드로 생성합니다.
    */
   setSceneAsync(input: VolumetricSceneInput, isFast?: boolean): Promise<boolean>;
+  /** 해당 장면의 날씨·파동 텍스처가 이미 캐시에 있어 0ms 동기 전환 가능한지 확인합니다. */
+  hasCachedScene?(input: VolumetricSceneInput, isFast?: boolean): boolean;
+  /** 날짜/날씨 변경 시 하루치 여러 시간대(24h)의 날씨·파동 텍스처를 미리 구워 캐시에 적재합니다. */
+  prewarmScenesAsync?(inputs: VolumetricSceneInput[], shouldAbort?: () => boolean): Promise<number>;
   /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
   cancelAsync?(): void;
   /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
@@ -497,6 +501,8 @@ export interface VolumetricScene {
   lastScene(): { sunAltDeg: number; exposure: number } | null;
   /** 품질 단계를 겁니다. 구름 해상도 배율은 바꾸지 않습니다(§169 — 해상도는 setResolutionScale 몫). */
   setQuality(q: VolumetricQuality): void;
+  /** 상호작용 중(드래그/줌) 레이마칭 보폭·2차 해 행진을 낮춰 응답성을 높이고, 떼면 원복합니다. */
+  setInteracting?(active: boolean): void;
   setResolutionScale(s: number): void;
   /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
   resolutionScale(): number;
@@ -623,6 +629,8 @@ export async function createVolumetricScene(
   clouds.shadow.temporalPass = opt.shadowTemporal;
   let baseMaxRay = clouds.clouds.maxRayDistance;
   const applyMaxRay = () => { clouds.clouds.maxRayDistance = opt.maxRayKm != null ? opt.maxRayKm * 1000 : baseMaxRay; };
+  let isInteracting = false;
+  let baseMinStepSize = clouds.clouds.minStepSize;
   const applySunMarch = () => {
     if (!opt.sunMarch) {
       if (baseMarch.n > 0) {   // 품질 단계 기본값으로 되돌림
@@ -635,6 +643,16 @@ export async function createVolumetricScene(
     clouds.clouds.maxIterationCountToSun = opt.sunMarch[0];
     clouds.clouds.minSecondaryStepSize = opt.sunMarch[1];
     clouds.clouds.secondaryStepScale = opt.sunMarch[2];
+  };
+  const applyInteractionLod = () => {
+    if (isInteracting) {
+      if (curQuality === 'low') clouds.clouds.minStepSize = 90;
+      const targetSunN = opt.sunMarch ? opt.sunMarch[0] : baseMarch.n;
+      if (targetSunN > 0) clouds.clouds.maxIterationCountToSun = Math.min(targetSunN, 4);
+    } else {
+      if (curQuality === 'low') clouds.clouds.minStepSize = baseMinStepSize;
+      applySunMarch();
+    }
   };
   applySunMarch();
   applyMaxRay();
@@ -1139,7 +1157,25 @@ export async function createVolumetricScene(
     lastFarInfo = { ms: farMap.map.ms, tLow: farMap.map.meanT[0], tMid: farMap.map.meanT[1], tHigh: farMap.map.meanT[2], tAir: farMap.map.meanT[3], tAirHere: farMap.map.centerT[3] };
     setFarAirShade(1 - farMap.map.centerT[3]);
   };
-  let waveCache: { key: string; field: WaveField } | null = null;
+  const waveCacheMap = new Map<string, WaveField>();
+  const WAVE_CACHE_SIZE = 8;
+  let activeWaveField: WaveField | null = null;
+  const waveCacheGet = (key: string): WaveField | null => {
+    const f = waveCacheMap.get(key);
+    if (f) { waveCacheMap.delete(key); waveCacheMap.set(key, f); }
+    return f ?? null;
+  };
+  const waveCachePut = (key: string, field: WaveField) => {
+    const prev = waveCacheMap.get(key);
+    if (prev && prev !== field && prev !== activeWaveField) prev.tex.dispose();
+    waveCacheMap.set(key, field);
+    for (const [k, old] of waveCacheMap) {
+      if (waveCacheMap.size <= WAVE_CACHE_SIZE) break;
+      if (old === activeWaveField || k === key) continue;
+      waveCacheMap.delete(k);
+      old.tex.dispose();
+    }
+  };
   const genusMats = [clouds.cloudsPass.currentMaterial, clouds.shadowPass.currentMaterial] as never[];
   // §178 조명 결함 고침 — 구름 패스 조각 셰이더는 cloudGenus 변형(setLightingFix, 원문 기억)이, 정점 셰이더와 대기 효과는 여기서 붙든 원문에서
   // 다시 만듭니다. 끄면 세 글자 모두 고치기 전과 바이트가 같습니다(verify-lighting-fixes.js).
@@ -1474,7 +1510,7 @@ export async function createVolumetricScene(
   // 움직이거나 그림자 지도 문턱(해 12°)을 넘나들 때마다 CPU 로 다시 만들던 것(적운 512² 크롬 1.3초)을 건너뜁니다.
   // 운량은 1% 눈금으로 묶습니다(예보 보간값의 소수점 차이로 다시 만들지 않게).
   const weatherCache = new Map<string, DataTexture>();
-  const WEATHER_CACHE_SIZE = 8;
+  const WEATHER_CACHE_SIZE = 32;
   const bandOfInput = (L: VolumetricLayerInput): MacroBand => L.band ?? (L.baseKm >= 7 ? 'high' : L.baseKm >= 2 ? 'mid' : 'low');
   const weatherPlan = (p: VolumetricSceneInput, isFast = false) => {
     const S = isFast ? 128 : 256;
@@ -1495,7 +1531,7 @@ export async function createVolumetricScene(
       // §130 흐름 층: 종류별 흐름 기본값(GENUS_FLOW)을 opts 에 합치고(캐시 키에 자동 포함) 운량 역표는 흐름용(항등으로 시작 —
       // 가산 장은 0 인 곳이 없어 chamfer 스커트가 안 생기므로 §127 표가 맞지 않음). 전단은 바로 위 층까지의 고도 차로 잽니다.
       const above = inputs.slice(i + 1).find(o => o.baseKm > L.baseKm);
-      const shearDzKm = Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
+      const shearDzKm = L.opts?.shearDzKm ?? Math.max(0.5, (above?.baseKm ?? L.baseKm + 3) - L.baseKm);
       return mergeFlowOpts({ genus: L.genus, cover: flowCoverIn(L.genus, qc), opts: { ...L.opts, shearDzKm } });
     });
     // §139 뼈대: cu·cg·sc 층의 자리·폭·깊이·층 높이를 열역학에서(cloudSkeleton). 1 = 층 높이만(K0h), 2·3 = 뼈대(원 운량, 역표 건너뜀). opts 에 넣어 캐시 키에 포함.
@@ -1516,7 +1552,27 @@ export async function createVolumetricScene(
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
     const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery, qMode: opt.flowQMode, qN: opt.flowQN, qH: opt.flowQH, s90: opt.flowS90 }) : null;
-    const key = JSON.stringify([useGenus, gl, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
+    const glForKey = gl.map(g => {
+      if (!g || !g.opts) return g;
+      const {
+        beamTransmittance: _bt,
+        sunGap: _sg,
+        macroGradX: _gx,
+        macroGradY: _gy,
+        wave: _wv,
+        billow: _bl,
+        skelGeom: _sk,
+        densityScale: _ds,
+        ao: _ao,
+        flowCoreWindU: _fcu,
+        flowCoreWindV: _fcv,
+        flowCoreAniso: _fca,
+        ...restOpts
+      } = g.opts as Record<string, unknown>;
+      if (useFlow) delete restOpts.spacingKm;
+      return { genus: g.genus, cover: g.cover, opts: restOpts };
+    });
+    const key = JSON.stringify([useGenus, glForKey, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
     return { inputs, gl, useGenus, plain, key, flow, S };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
@@ -1658,15 +1714,23 @@ export async function createVolumetricScene(
         const wp = (gl[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
         if (wp) {
           const key = waveKey(wp);
-          if (!waveCache || waveCache.key !== key) { waveCache?.field.tex.dispose(); waveCache = { key, field: bakeWaveField(wp) }; }
+          let wf = waveCacheGet(key);
+          if (!wf) {
+            wf = bakeWaveField(wp);
+            waveCachePut(key, wf);
+          }
+          activeWaveField = wf;
           // 2026-11-12 관측 일사 맞춤: 기둥 τ = densityScale × 레인 높이 × colMean 이 tauTarget 이 되게 레인 0 의 densityScale 을 바꿈(구름·그림자 패스 공용 층).
           const L0 = clouds.cloudLayers[0];
-          const tauModel = L0 ? L0.densityScale * L0.height * waveCache.field.colMean : 0;
+          const tauModel = L0 ? L0.densityScale * L0.height * wf.colMean : 0;
           let tauUsed = tauModel;
           if (L0 && wp.tauTarget && wp.tauTarget > 0 && tauModel > 0) { L0.densityScale *= wp.tauTarget / tauModel; tauUsed = wp.tauTarget; }
-          lastWaveInfo = { bakeMs: waveCache.field.bakeMs, tau: waveCache.field.tau, ...waveCache.field.stats, colMean: waveCache.field.colMean, tauModel, tauUsed };
-        } else lastWaveInfo = null;
-        for (const m of genusMats) setWaveUniforms(m, wp && waveCache ? waveCache.field : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
+          lastWaveInfo = { bakeMs: wf.bakeMs, tau: wf.tau, ...wf.stats, colMean: wf.colMean, tauModel, tauUsed };
+        } else {
+          activeWaveField = null;
+          lastWaveInfo = null;
+        }
+        for (const m of genusMats) setWaveUniforms(m, wp ? activeWaveField : null, wp?.baseM ?? 0, wp?.thickM ?? 1000);
         const bp = gl.map(L => (L?.opts as { billow?: BillowParams } | undefined)?.billow
           ?? (opt.billow && L && (L.genus === 'cu' || L.genus === 'cg' || L.genus === 'cb') ? BILLOW_DEFAULT : null));   // 2026-11-13 sc 뺌: 둥근 혹이 매끈한 덩어리에 종기처럼 붙음 — 층적운 결은 흐름 깎기(flowCarve·flowGrain)가 맡음
         const bFirst = bp.find(x => x) ?? null;
@@ -1674,24 +1738,39 @@ export async function createVolumetricScene(
         applyFarSun(p, sunAltDeg);
       }
       // §156 거시 운량 격자 — 띠마다 고리 표본 → 격자(Barnes [+ 잡음]) → 텍스처, 타일 바이트 히스토그램 → 레인별 문턱 표.
-      disposeMacro();
+      const getCachedMacroTable = (t: DataTexture, S: number, ch: number) => {
+        const ud = (t.userData ?? (t.userData = {})) as { macroTables?: (Float32Array | null)[] };
+        if (!ud.macroTables) ud.macroTables = [null, null, null, null];
+        if (!ud.macroTables[ch]) ud.macroTables[ch] = macroThresholdTable(t.image.data as Uint8Array, S, ch);
+        return ud.macroTables[ch];
+      };
       if (opt.macro > 0 && p.macro) {
-        const samples: Partial<Record<MacroBand, MacroSample[]>> = {};
-        for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
-          const pts = p.macro[b];
-          if (pts && pts.length >= 12) samples[b] = samplesFromRing(pts.map(q => ({ distance: q.distance, azimuthOffset: q.azimuthOffset, cover: q.cover * 100 })));
+        const laneBand = [0, 1, 2, 3].map(i => (inputs[i] ? bandOfInput(inputs[i]) : null));
+        const S = tex.image.width;
+        if (isInteracting && macro) {
+          macro.laneBand = laneBand;
+          macro.lut.dispose();
+          macro.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && macro!.samples[laneBand[i]!] ? getCachedMacroTable(tex, S, i) : null)));
+          for (const mm of genusMats) setMacroUniforms(mm, { texA: macro.texA, texB: macro.texB, mix: 0, extentKm: macro.extentKm, laneBand, lut: macro.lut });
+        } else {
+          disposeMacro();
+          const samples: Partial<Record<MacroBand, MacroSample[]>> = {};
+          for (const b of ['low', 'mid', 'high'] as MacroBand[]) {
+            const pts = p.macro[b];
+            if (pts && pts.length >= 12) samples[b] = samplesFromRing(pts.map(q => ({ distance: q.distance, azimuthOffset: q.azimuthOffset, cover: q.cover * 100 })));
+          }
+          if (Object.keys(samples).length) {
+            const n = opt.macroN, extentKm = 768;
+            const m: NonNullable<typeof macro> = { samples, states: {}, fields: {}, texA: null as unknown as DataTexture, texB: null as unknown as DataTexture, lut: null as unknown as DataTexture, laneBand, n, extentKm, lastSec: driftSecOverride };
+            const tex0 = macroBuildFields(m, opt.macro === 2);
+            m.texA = tex0; m.texB = tex0;
+            m.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && samples[laneBand[i]!] ? getCachedMacroTable(tex, S, i) : null)));
+            macro = m;
+            for (const mm of genusMats) setMacroUniforms(mm, { texA: m.texA, texB: m.texB, mix: 0, extentKm, laneBand, lut: m.lut });
+          }
         }
-        if (Object.keys(samples).length) {
-          const n = opt.macroN, extentKm = 768;
-          const laneBand = [0, 1, 2, 3].map(i => (inputs[i] ? bandOfInput(inputs[i]) : null));
-          const m: NonNullable<typeof macro> = { samples, states: {}, fields: {}, texA: null as unknown as DataTexture, texB: null as unknown as DataTexture, lut: null as unknown as DataTexture, laneBand, n, extentKm, lastSec: driftSecOverride };
-          const tex0 = macroBuildFields(m, opt.macro === 2);
-          m.texA = tex0; m.texB = tex0;
-          const S = tex.image.width;
-          m.lut = makeMacroLutTexture([0, 1, 2, 3].map(i => (inputs[i] && laneBand[i] && samples[laneBand[i]!] ? macroThresholdTable(tex.image.data as Uint8Array, S, i) : null)));
-          macro = m;
-          for (const mm of genusMats) setMacroUniforms(mm, { texA: m.texA, texB: m.texB, mix: 0, extentKm, laneBand, lut: m.lut });
-        }
+      } else {
+        disposeMacro();
       }
       if (!macro) for (const mm of genusMats) setMacroUniforms(mm, null);
     } else {
@@ -1748,17 +1827,63 @@ export async function createVolumetricScene(
     const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
     if (wp) {
       const key = waveKey(wp);
-      if (!waveCache || waveCache.key !== key) {
+      if (!waveCacheGet(key)) {
         const t0 = Date.now();
         const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed);
         if (!field) return false;
         if (my !== sceneToken || disposed) { field.tex.dispose(); return false; }
-        waveCache?.field.tex.dispose(); waveCache = { key, field };
+        waveCachePut(key, field);
         weatherMs += Date.now() - t0;
       }
     }
     applyScene(p, plan, tex);
     return true;
+  };
+  const hasCachedScene = (p: VolumetricSceneInput, isFast = false): boolean => {
+    const plan = weatherPlan(p, isFast);
+    if (!weatherCache.has(plan.key)) return false;
+    const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+    if (wp && !waveCacheMap.has(waveKey(wp))) return false;
+    return true;
+  };
+  const prewarmScenesAsync = async (inputs: VolumetricSceneInput[], shouldAbort?: () => boolean): Promise<number> => {
+    let doneCount = 0;
+    const seenKeys = new Set<string>();
+    for (const p of inputs) {
+      while (isInteracting && !shouldAbort?.() && !disposed) {
+        await new Promise(r => setTimeout(r, 60));
+      }
+      if (shouldAbort?.() || disposed) return doneCount;
+      const plan = weatherPlan(p, false);
+      if (seenKeys.has(plan.key)) continue;
+      seenKeys.add(plan.key);
+      let tex = cacheGet(plan.key);
+      if (!tex) {
+        tex = plan.useGenus
+          ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 8, () => !!shouldAbort?.() || disposed, plan.flow)
+          : makeWeather(plan.plain, opt);
+        if (!tex || shouldAbort?.() || disposed) {
+          tex?.dispose();
+          return doneCount;
+        }
+        cachePut(plan.key, tex);
+      }
+      const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+      if (wp) {
+        const wKey = waveKey(wp);
+        if (!waveCacheGet(wKey)) {
+          const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed);
+          if (!field || shouldAbort?.() || disposed) {
+            field?.tex.dispose();
+            return doneCount;
+          }
+          waveCachePut(wKey, field);
+        }
+      }
+      doneCount++;
+      await new Promise(r => setTimeout(r, 8));
+    }
+    return doneCount;
   };
   let disposed = false;
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
@@ -1889,6 +2014,8 @@ export async function createVolumetricScene(
     setPreset,
     setScene,
     setSceneAsync,
+    hasCachedScene,
+    prewarmScenesAsync,
     cancelAsync: () => {
       sceneToken++;
     },
@@ -1908,6 +2035,7 @@ export async function createVolumetricScene(
       // §140 low 프리셋의 1차 행진 최소 보폭 100 m 는 모양 잡음(수백 m 주기)을 성기게 떠서 텍셀마다 투과율이 3~4 텍셀 덩어리로 흔들립니다
       // (기기 캡처의 흰 점·알갱이; 하네스 low 렌더 알파 편차 0.0070 → 0.0044, medium 0.0045). 보폭만 medium 과 같은 50 m 로 — 반복 수 200·종료 투과율 0.1 은 그대로.
       if (q === 'low') clouds.clouds.minStepSize = LOW_MIN_STEP_M;
+      baseMinStepSize = clouds.clouds.minStepSize;
       baseMaxRay = clouds.clouds.maxRayDistance;
       applyMaxRay();
       baseAccurate = clouds.clouds.accurateSunSkyLight;
@@ -1916,7 +2044,13 @@ export async function createVolumetricScene(
       baseMarch.step = clouds.clouds.minSecondaryStepSize;
       baseMarch.scale = clouds.clouds.secondaryStepScale;
       applySunMarch();
+      if (isInteracting) applyInteractionLod();
       applyTsun();
+    },
+    setInteracting: active => {
+      if (isInteracting === active) return;
+      isInteracting = active;
+      applyInteractionLod();
     },
     setOptions: (o, reapply = true) => {
       // §179 합친 값으로 먼저 점검 — throw 하면 옵션을 바꾸지 않음. 하늘 화면은 매 프레임 부르므로 T_sun 이 꺼져 있고 관련 키(T_sun 손잡이·genus·diffuse)를
@@ -1928,6 +2062,7 @@ export async function createVolumetricScene(
       }
       Object.assign(opt, o);
       applySunMarch();
+      if (isInteracting) applyInteractionLod();
       updateLod();
       clouds.temporalUpscale = opt.temporalUpscale;
       clouds.shadow.temporalPass = opt.shadowTemporal;
@@ -1979,6 +2114,9 @@ export async function createVolumetricScene(
       generator?.dispose();
       for (const t of weatherCache.values()) t.dispose();
       weatherCache.clear();
+      for (const f of waveCacheMap.values()) f.tex.dispose();
+      waveCacheMap.clear();
+      activeWaveField = null;
     },
   };
 }

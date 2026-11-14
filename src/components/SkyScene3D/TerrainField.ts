@@ -156,6 +156,9 @@ float groundAtEye() {
  *   입니다. 근거리 격자와 먼 지형 격자를 따로 만들던 방식이 계속 돕니다.
  */
 uniform float uBlendInner;   // 촘촘→성김 넘기기를 시작하는 반지름 비율
+uniform float uDepthOnly;    // 1 이면 깊이만 기록(볼륨 하늘 시 LAYER_MID 용) — 정점 법선 생략
+uniform float uAmbValid;     // 1 이면 프래그먼트가 uAmbTex 에서 B-spline 기울기를 읽음
+uniform float uBicubicNormal;
 
 float tf_fineWeight(vec2 g) {
   if (uDemValid < 0.5) return 0.0;
@@ -175,6 +178,19 @@ float fieldElev(vec2 g) {
   return mix(demFar_elevationDespiked(g), dem_elevationDespiked(g), w);
 }
 
+// 법선 차분용 빠른 고도 조회 (성긴 패치 despike 생략 — 정점 높이 h 자체는 fieldElev 로 despike 유지)
+float fieldElevFast(vec2 g) {
+  bool hasFine = uDemValid > 0.5;
+  bool hasFar = uDemFarValid > 0.5;
+  if (!hasFine && !hasFar) return uObsElevM;
+  if (!hasFar) return dem_elevationAt(g);
+  if (!hasFine) return demFar_elevationAt(g);
+  float w = tf_fineWeight(g);
+  if (w <= 0.001) return demFar_elevationAt(g);
+  if (w >= 0.999) return dem_elevationAt(g);
+  return mix(demFar_elevationAt(g), dem_elevationAt(g), w);
+}
+
 void main() {
   vec2  g = vec2(position.x, position.z);   // (동, 남) m
   float r = position.y;                     // 깊이 순서용 반경
@@ -187,11 +203,26 @@ void main() {
 
   // 법선은 실제 지상 간격으로 낸 유한차분입니다. 고리 간격에 비례해 떨어져야
   // 가까이서 너무 잘고 멀리서 너무 뭉개지는 것을 피합니다.
-  float e = max(8.0, d * 0.03);
-  float hx = fieldElev(g + vec2(e, 0.0)) - fieldElev(g - vec2(e, 0.0));
-  float hz = fieldElev(g + vec2(0.0, e)) - fieldElev(g - vec2(0.0, e));
-  // (동, 남) 평면에서의 기울기 → 씬 좌표 법선 (+x 동, +z 남, +y 위)
-  vNormal = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
+  // 거리 판(TERRAIN_DIST_OUT) 및 깊이 전용 패스(uDepthOnly), 그리고 프래그먼트가 구운 B-spline 법선을 덮어쓰는 구간은 DEM 4회 조회를 건너뜁니다.
+#ifdef TERRAIN_DIST_OUT
+  vNormal = vec3(0.0, 1.0, 0.0);
+#else
+#ifndef TERRAIN_LIT_OUT
+  if (uDepthOnly > 0.5) {
+    vNormal = vec3(0.0, 1.0, 0.0);
+  } else
+#endif
+  if (uAmbValid > 0.5 && uBicubicNormal > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5 && tf_fineWeight(g) > 0.65) {
+    vNormal = vec3(0.0, 1.0, 0.0);
+  } else
+  {
+    float e = max(8.0, d * 0.03);
+    float hx = fieldElevFast(g + vec2(e, 0.0)) - fieldElevFast(g - vec2(e, 0.0));
+    float hz = fieldElevFast(g + vec2(0.0, e)) - fieldElevFast(g - vec2(0.0, e));
+    // (동, 남) 평면에서의 기울기 → 씬 좌표 법선 (+x 동, +z 남, +y 위)
+    vNormal = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
+  }
+#endif
 
   float eyeElevM = groundAtEye() + uEyeHeightM;
   vec3 p = gp_project(g, h, eyeElevM, r);
@@ -270,6 +301,25 @@ vec2 sunRidgeZDFrom(sampler2D t0) {
 }
 `;
 
+// 36걸음 지평선 각도 계산 — FIELD_FRAG 와 256×256 그림자 사전 굽기(TERRAIN_SHADE_BAKE_FRAG)가 공유합니다.
+const TERRAIN_HORIZON_GLSL = /* glsl */ `
+float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
+  float best = -1.5;
+  float spanFar = uDemFarValid > 0.5 ? uDemFarSpanM : uDemSpanM;
+  float t = max(6.0, min(uDemSpanM, spanFar) / 256.0);
+  for (int i = 0; i < 36; i++) {
+    vec2 g = g0 + sunHoriz * t;
+    float inFine = uDemValid > 0.5 ? dem_inside(g) : 0.0;
+    float inFar = uDemFarValid > 0.5 ? demFar_inside(g) : 0.0;
+    if (inFine < 0.5 && inFar < 0.5) break;
+    float h = inFine > 0.5 ? dem_elevationAt(g) : demFar_elevationDespiked(g);
+    best = max(best, atan(h - h0, t));
+    t *= 1.2;
+  }
+  return best;
+}
+`;
+
 export const FIELD_FRAG = /* glsl */ `
 precision highp float;
 const float SUN_RADIUS_RAD = 0.00463;   // 해 원반 각반경 0.265° — 아래 산 그림자의 반그림자와 같은 값
@@ -280,6 +330,7 @@ ${demGlsl('demFar')}
 ${CLOUD_SHADOW_GLSL}
 ${TERRAIN_NOISE_GLSL}
 uniform float uBlendInner;    // 촘촘→성김 넘기기를 시작하는 반지름 비율
+uniform float uDepthOnly;     // 1 이면 깊이만 기록(볼륨 하늘 시 LAYER_MID 용) — 조명·노이즈 조기 종료
 uniform float uShoreOverlapM; // 물가에서 겹쳐 그릴 폭 (m). 0 이면 예전처럼 딱 맞닿음
 uniform float uShoreMode;     // §157 물가 근처 칠 — 0 정점 보간(예전) · 1 화소마다 자료에서 (SeaPlane 과 같은 값)
 uniform float uBicubicNormal; // 1 이면 법선을 3차 B-스플라인으로 (①)
@@ -317,8 +368,10 @@ uniform float uAngstrom;
 uniform float uElevScale;
 uniform float uShadow;        // 0 이면 드리운 그림자를 끕니다 (대조 판정용)
 // §157 볼륨 하늘 경로의 땅 보임새(terrainLook.ts) — 지형 빛 판의 둘째 출력에만 쓰입니다.
-uniform sampler2D uAmbTex;    // terrainAmbient.ts 가 DEM 에서 구운 하늘 보임(R)·볼록도(G) — dem_uv 좌표
+uniform sampler2D uAmbTex;    // terrainAmbient.ts 가 DEM 에서 구운 하늘 보임(R)·볼록도(G)·기울기(B,A) — dem_uv 좌표
 uniform float uAmbValid;
+uniform sampler2D uBakedShadeTex; // TERRAIN_SHADE_BAKE_FRAG 가 구운 해(R)·달(G) 산 그림자 — dem_uv 좌표
+uniform float uBakedShadeValid;
 uniform float uLookAo;
 uniform float uLookHemi;
 uniform float uLookAmbGain;
@@ -354,25 +407,7 @@ ${LIT2_ENCODE_GLSL}
  * ⚠ 자료 밖으로 나가면 **거기서 멈춥니다.** 가장자리 값이 늘어난 것을
  * 지형으로 읽으면 패치 경계에 가짜 그림자 벽이 생깁니다.
  */
-float terrainHorizonAngle(vec2 g0, float h0, vec2 sunHoriz) {
-  float best = -1.5;
-  // 첫 걸음은 **화소 한 칸**입니다. 그보다 잘게 떼면 같은 화소를 여러 번
-  // 읽을 뿐이고, 성긴 패치(먼 지형)에서는 걸음이 너무 짧아 닿는 거리가
-  // 모자랍니다.
-  // 한 격자가 두 해상도를 걸치므로 걸음도 그 자리의 화소로 잡습니다.
-  float spanFar = uDemFarValid > 0.5 ? uDemFarSpanM : uDemSpanM;
-  float t = max(6.0, min(uDemSpanM, spanFar) / 256.0);
-  for (int i = 0; i < 36; i++) {
-    vec2 g = g0 + sunHoriz * t;
-    float inFine = uDemValid > 0.5 ? dem_inside(g) : 0.0;
-    float inFar = uDemFarValid > 0.5 ? demFar_inside(g) : 0.0;
-    if (inFine < 0.5 && inFar < 0.5) break;
-    float h = inFine > 0.5 ? dem_elevationAt(g) : demFar_elevationDespiked(g);
-    best = max(best, atan(h - h0, t));
-    t *= 1.2;
-  }
-  return best;
-}
+${TERRAIN_HORIZON_GLSL}
 
 /** 구운 해 쪽 능선 — x = 꼭대기의 눈 위 높이(m), y = 수평 거리(m). 인코딩은 SUN_SHADOW_BAKE_FRAG. */
 vec2 sunRidgeZD() {
@@ -468,6 +503,17 @@ void main() {
   //   verify-coastline 6개 · verify-inland 1개가 걸렸습니다.
   //
   if (uDemValid > 0.5 && vElevM <= 0.0) discard;
+#ifdef TERRAIN_DIST_OUT
+  // §117 지형 거리 판 — 색 대신 눈에서 이 점까지 거리(km)를 적습니다.
+  gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
+  return;
+#endif
+#ifndef TERRAIN_LIT_OUT
+  if (uDepthOnly > 0.5) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
+#endif
   //
   // §157 **물가 근처의 고도는 화소마다 자료에서 다시 읽습니다 — 어디를 버릴지(위)는 그대로 두고, 칠하는 값만.**
   //   젖은 띠·마른 띠·물가의 하늘 되비침·산 그림자의 출발 높이가 정점 고도(격자 살 간격 25~74m)를 삼각형 안에서 보간한
@@ -482,11 +528,6 @@ void main() {
     float hbS; vec2 grS;
     elevF = dem_shoreField(vGround, hbS, grS);
   }
-#ifdef TERRAIN_DIST_OUT
-  // §117 지형 거리 판 — 색 대신 눈에서 이 점까지 거리(km)를 적습니다.
-  gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
-  return;
-#endif
 
   // ── 법선 ────────────────────────────────────────────────────────────────
   //
@@ -502,14 +543,23 @@ void main() {
   //   보이지도 않습니다.
   vec3 n = normalize(vNormal);
   vec2 texGrad = vec2(0.0);
-  // 세배 법선은 **촘촘한 패치가 맡는 자리**에만 겁니다. 성긴 쪽은 despike 가
-  // 필요한데 표본 열여섯 개마다 그걸 붙이면 너무 비싸고, 3km 밖은 연무에
-  // 잠겨 면의 결이 보이지도 않습니다.
+  vec4 ambSample = vec4(0.93, 0.5, 0.5, 0.5);
+  bool hasAmbSample = uAmbValid > 0.5;
+  if (hasAmbSample) {
+    ambSample = texture2D(uAmbTex, dem_uv(vGround));
+  }
+  // 세배 법선은 **촘촘한 패치가 맡는 자리**에만 겁니다. uAmbTex 가 유효하면 B, A 에 구운
+  // 16-tap B-스플라인 기울기를 읽어 화소당 16회 DEM 텍셀 읽기를 생략합니다.
   float fineW = uDemValid > 0.5 ? 1.0 - smoothstep(dem_probeRadiusM() * uBlendInner,
                                                    dem_probeRadiusM() * 0.98,
                                                    length(vGround)) : 0.0;
   if (uBicubicNormal > 0.5 && uDemValid > 0.5 && uDemDespike < 0.5 && fineW > 0.5) {
-    texGrad = dem_gradientBicubic(vGround);
+    if (hasAmbSample) {
+      vec2 encG = ambSample.ba * 2.0 - 1.0;
+      texGrad = sign(encG) * encG * encG * 4.0;
+    } else {
+      texGrad = dem_gradientBicubic(vGround);
+    }
     n = normalize(vec3(-texGrad.x, 1.0, -texGrad.y));
   } else {
     // 정점 법선에서 기울기를 되찾습니다 (아래 ② 의 세기가 이것에 비례).
@@ -603,7 +653,14 @@ void main() {
   // 조도에서 통째로 빼면 그늘이 새까매지는데, 실제 그늘은 하늘빛을 받아
   // 푸르스름합니다.
   float shade = 0.0;
-  if (uShadow > 0.5 && uDemValid > 0.5) {
+  float moonShade = 0.0;
+  bool useBakedShade = uBakedShadeValid > 0.5 && uShadow > 0.5 && uDemValid > 0.5 && dem_inside(vGround) > 0.5;
+  vec4 bakedHzSample = vec4(0.0);
+  if (useBakedShade) {
+    bakedHzSample = texture2D(uBakedShadeTex, dem_uv(vGround));
+    float hzSun = -0.10 + (bakedHzSample.r + bakedHzSample.g) * 0.60;
+    shade = smoothstep(uSunAltRad - 0.00463, uSunAltRad + 0.00463, hzSun);
+  } else if (uShadow > 0.5 && uDemValid > 0.5) {
     vec2 sunHoriz = vec2(sun.x, sun.z);
     float sl = length(sunHoriz);
     if (sl > 1e-4) {
@@ -625,8 +682,12 @@ void main() {
                   -cos(uMoonAltRad) * cos(uMoonAzRad));
   float moonUp = max(0.0, sin(uMoonAltRad));
   float ndlMoon = max(0.0, dot(n, moon));
-  float moonShade = 0.0;
-  if (uShadow > 0.5 && uDemValid > 0.5 && moonUp > 0.0 && length(uMoonRadiance) > 1e-4) {
+  if (useBakedShade) {
+    if (moonUp > 0.0 && length(uMoonRadiance) > 1e-4) {
+      float hzMoon = -0.10 + (bakedHzSample.b + bakedHzSample.a) * 0.60;
+      moonShade = smoothstep(uMoonAltRad - 0.00463, uMoonAltRad + 0.00463, hzMoon);
+    }
+  } else if (uShadow > 0.5 && uDemValid > 0.5 && moonUp > 0.0 && length(uMoonRadiance) > 1e-4) {
     vec2 moonHoriz = vec2(moon.x, moon.z);
     float ml = length(moonHoriz);
     if (ml > 1e-4) {
@@ -686,12 +747,11 @@ void main() {
   float slopeFlat = 1.0 - smoothstep(0.03, 0.18, slope);
   float slopeFlat0 = 1.0 - smoothstep(0.35, 0.8, slope);   // 군락은 급사면(암반)만 아니면 어디서나
   float convex = 0.5, aoV = 1.0;
-  if (uAmbValid > 0.5) {
-    vec4 am = texture2D(uAmbTex, dem_uv(vGround));
+  if (hasAmbSample) {
     float rp = dem_probeRadiusM();
     float fadeAmb = 1.0 - smoothstep(rp * 0.6, rp * 0.97, length(vGround));   // 촘촘한 패치 밖은 평균값으로
-    aoV = mix(0.93, am.r, fadeAmb);
-    convex = mix(0.5, am.g, fadeAmb);
+    aoV = mix(0.93, ambSample.r, fadeAmb);
+    convex = mix(0.5, ambSample.g, fadeAmb);
   }
   vec3 albL = alb;
   albL *= 1.0 + uLookMottle * vec3(0.50, 0.34, -0.12) * mot;   // 밝고 노란 풀 ↔ 어둡고 짙은 풀 (파랑으로는 안 기웁니다)
@@ -858,6 +918,53 @@ void main() {
 }
 `;
 
+// 256×256 산 그림자 사전 굽기(해: R, 달: G) — dem_uv 좌표계로 굽고, uBakedShadeTex 는 선언하지 않아 되먹임을 피합니다.
+const SHADE_MAP_SIZE = 256;
+const TERRAIN_SHADE_BAKE_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = position.xy * 0.5 + 0.5;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`;
+const TERRAIN_SHADE_BAKE_FRAG = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+${DEM_GLSL}
+${demGlsl('demFar')}
+${TERRAIN_HORIZON_GLSL}
+uniform float uShadow;
+uniform float uSunAzRad;
+uniform float uSunAltRad;
+uniform float uMoonAzRad;
+uniform float uMoonAltRad;
+uniform vec3  uMoonRadiance;
+
+vec2 encodeHz(float hz) {
+  return vec2(
+    clamp((hz + 0.10) / 0.60, 0.0, 1.0),
+    clamp((hz - 0.50) / 0.60, 0.0, 1.0)
+  );
+}
+
+void main() {
+  if (uShadow < 0.5 || uDemValid < 0.5) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
+  vec2 g0 = (vUv * uDemBlock - uDemObs) * uDemSpanM;
+  float h0 = dem_elevationAt(g0);
+  vec2 sunDir2D = vec2(sin(uSunAzRad), -cos(uSunAzRad));
+  float hzSun = terrainHorizonAngle(g0, h0, sunDir2D);
+  float hzMoon = -0.10;
+  if (uMoonAltRad > 0.0 && length(uMoonRadiance) > 1e-4) {
+    vec2 moonDir2D = vec2(sin(uMoonAzRad), -cos(uMoonAzRad));
+    hzMoon = terrainHorizonAngle(g0, h0, moonDir2D);
+  }
+  gl_FragColor = vec4(encodeHz(hzSun), encodeHz(hzMoon));
+}
+`;
+
 /**
  * §129 볼륨 하늘에서 지형 빛 판이 쓰는 알베도(선형). takram 의 물리 조명(해·하늘 조도 × 같은 노출 · ACES)을 받으므로
  * 이전 대기 모형의 표시 곡선에 맞춘 값(흙 0.22, 0.17, 0.13)이 아니라 실제 땅의 가시광 알베도여야 합니다 —
@@ -886,7 +993,7 @@ export interface TerrainFieldHandle {
    * 해 방위의 지평선 능선을 굽습니다(SUN_SHADOW_BAKE_FRAG). 해 방위(uSunAzRad)·지형·눈높이가
    * 그대로면 아무것도 안 합니다 — 매 프레임 불러도 됩니다. 그리기 전에 부릅니다.
    */
-  bakeSunShadow: (renderer: THREE.WebGLRenderer) => void;
+  bakeSunShadow: (renderer: THREE.WebGLRenderer, skipShadeBake?: boolean) => void;
   /**
    * §157 DEM 에서 하늘 보임(AO)을 한 번 굽습니다. 패치가 바뀔 때만 다시 굽고 아니면 아무것도 안 합니다 —
    * 매 프레임 불러도 됩니다. 그리기 전에 부릅니다(지형 빛 판이 읽음).
@@ -973,6 +1080,7 @@ export function createTerrainField(opts: {
       uLitAlbedo: { value: new THREE.Vector3(VOLUMETRIC_TERRAIN_ALBEDO.r, VOLUMETRIC_TERRAIN_ALBEDO.g, VOLUMETRIC_TERRAIN_ALBEDO.b) },
       uExposure: { value: 1.0 },
       uDiagRaw: { value: 0 },
+      uDepthOnly: { value: 0 },
       uSaturation: { value: 1.0 },
       // 지평선 부근 하늘빛(선형). 공기원근이 먼 지형을 여기로 끌고 갑니다.
       uHazeRadiance: { value: new THREE.Vector3(0.05, 0.06, 0.09) },
@@ -981,6 +1089,8 @@ export function createTerrainField(opts: {
       uHazeSkyScale: { value: 1.0 },
       uSunShadowTex: { value: null as THREE.Texture | null },
       uSunShadowValid: { value: 0.0 },
+      uBakedShadeTex: { value: null as THREE.Texture | null },
+      uBakedShadeValid: { value: 0.0 },
       uHazeShadow: { value: 1.0 },
       uAerial: { value: 1.0 },
       uShadow: { value: 1.0 },
@@ -1061,6 +1171,28 @@ export function createTerrainField(opts: {
   const bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   let bakedKey = '';
   let patchSerial = 0;
+
+  // 256×256 산 그림자(해·달) 굽기 — 해/달 고도·방위가 바뀔 때만 갱신해 카메라 회전 중 36걸음 루프 생략.
+  const shadeMapRT = new THREE.WebGLRenderTarget(SHADE_MAP_SIZE, SHADE_MAP_SIZE, {
+    format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
+  });
+  material.uniforms.uBakedShadeTex.value = shadeMapRT.texture;
+  const shadeMapMat = new THREE.ShaderMaterial({
+    uniforms: material.uniforms,
+    vertexShader: TERRAIN_SHADE_BAKE_VERT,
+    fragmentShader: TERRAIN_SHADE_BAKE_FRAG,
+    depthTest: false,
+    depthWrite: false,
+    blending: THREE.NoBlending,
+  });
+  const shadeMapQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), shadeMapMat);
+  shadeMapQuad.frustumCulled = false;
+  const shadeMapScene = new THREE.Scene();
+  shadeMapScene.add(shadeMapQuad);
+  let shadeBakedKey = '';
+
   const ambientBake = createTerrainAmbientBake();
   const unbindLook = bindTerrainLook(material.uniforms);
 
@@ -1070,23 +1202,49 @@ export function createTerrainField(opts: {
     litMesh,
     material,
     sunRidge: () => ({ texture: shadowRT.texture, valid: material.uniforms.uSunShadowValid.value > 0.5 }),
-    bakeSunShadow: (renderer) => {
+    bakeSunShadow: (renderer, skipShadeBake = false) => {
       const u = material.uniforms;
       const hasDem = u.uDemValid?.value > 0.5 || u.uDemFarValid?.value > 0.5;
-      if (!hasDem) { u.uSunShadowValid.value = 0; bakedKey = ''; return; }
+      if (!hasDem) {
+        u.uSunShadowValid.value = 0;
+        u.uBakedShadeValid.value = 0;
+        bakedKey = '';
+        shadeBakedKey = '';
+        return;
+      }
       // 해 **방위**가 0.0017° 움직이면 다시 굽습니다 — 한 화소라 값이 거의 들지 않습니다. 해 고도와는 무관합니다.
       const q = (x: number) => Math.round(x / 3e-5);
       const key = `${patchSerial}|${q(u.uSunAzRad.value)}|${u.uEyeHeightM.value}`;
-      if (key === bakedKey) return;
+      const qs = (x: number) => Math.round(x / 0.01);
+      const moonActive = u.uMoonAltRad.value > 0 && (u.uMoonRadiance.value as THREE.Vector3).lengthSq() > 1e-8;
+      const shadeKey = !skipShadeBake && u.uDemValid?.value > 0.5
+        ? `${patchSerial}|${u.uShadow.value > 0.5 ? 1 : 0}|${qs(u.uSunAzRad.value)}|${moonActive ? qs(u.uMoonAzRad.value) : 'n'}`
+        : '';
+      const needRidge = key !== bakedKey;
+      const needShadeMap = !skipShadeBake && shadeKey !== '' && shadeKey !== shadeBakedKey;
+      if (u.uDemValid?.value <= 0.5) {
+        u.uBakedShadeValid.value = 0;
+        shadeBakedKey = '';
+      }
+      if (!needRidge && !needShadeMap) return;
+
       const prev = renderer.getRenderTarget();
       const prevAuto = renderer.autoClear;
       renderer.autoClear = false;
-      renderer.setRenderTarget(shadowRT);
-      renderer.render(bakeScene, bakeCam);
+      if (needRidge) {
+        renderer.setRenderTarget(shadowRT);
+        renderer.render(bakeScene, bakeCam);
+        u.uSunShadowValid.value = 1;
+        bakedKey = key;
+      }
+      if (needShadeMap) {
+        renderer.setRenderTarget(shadeMapRT);
+        renderer.render(shadeMapScene, bakeCam);
+        u.uBakedShadeValid.value = 1;
+        shadeBakedKey = shadeKey;
+      }
       renderer.setRenderTarget(prev);
       renderer.autoClear = prevAuto;
-      u.uSunShadowValid.value = 1;
-      bakedKey = key;
     },
     bakeAmbient: (renderer) => {
       const u = material.uniforms;
@@ -1120,6 +1278,9 @@ export function createTerrainField(opts: {
       bakeQuad.geometry.dispose();
       bakeMaterial.dispose();
       shadowRT.dispose();
+      shadeMapQuad.geometry.dispose();
+      shadeMapMat.dispose();
+      shadeMapRT.dispose();
       unbindLook();
       ambientBake.dispose();
     },

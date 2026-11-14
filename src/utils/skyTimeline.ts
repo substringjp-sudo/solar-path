@@ -148,6 +148,8 @@ export interface BuildTimelineParams {
   language?: 'ko' | 'en' | 'ja';
   /** 취소 신호 — true를 반환하면 중단합니다. */
   isCancelled?: () => boolean;
+  /** 이미 받은 360° 고리 날씨가 있으면 네트워크/캐시 재조회를 건너뜁니다. */
+  pathData?: CloudPathData[];
 }
 
 export const DEFAULT_STEP_MINUTES = 5;
@@ -179,7 +181,9 @@ export async function buildSkyTimeline(params: BuildTimelineParams): Promise<Sky
   const report = (p: number, label: string) => onProgress?.(Math.max(0, Math.min(1, p)), label);
 
   report(0.02, L3('하루치 날씨를 받는 중…', 'Fetching the day\'s weather…', '1日分の天気を取得中…'));
-  const ring: CloudPathData[] = await fetchDayWeatherRing(latitude, longitude, date);
+  const ring: CloudPathData[] = params.pathData && params.pathData.length > 0
+    ? params.pathData
+    : await fetchDayWeatherRing(latitude, longitude, date);
   if (isCancelled?.()) throw new Error('CANCELLED');
   report(0.18, L3('하늘 격자를 세우는 중…', 'Building the sky grid…', '空のグリッドを作成中…'));
 

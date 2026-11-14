@@ -45,7 +45,7 @@ import {
   type SkyTimeline,
 } from '../../utils/skyTimeline';
 import { PredictionCard, VerdictMeter, verdictColor, verdictWord, localHHMM } from '../SunsetSimulation/PredictionCard';
-import { findGlowPeak } from '../../utils/glowPeak';
+import { findGlowPeak, type GlowPeak } from '../../utils/glowPeak';
 import { hapticError } from '../../utils/haptics';
 import { InfoCard } from '../InfoCard';
 import { PeekSheet, PEEK_HEIGHT } from './PeekSheet';
@@ -215,10 +215,6 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     }
   }, [isCacheHydrated, latitude, longitude, terrainCacheList, addTerrainCache]);
 
-  const simObj = useMemo(() => ({
-    terrain: terrainData,
-  }), [terrainData]);
-
   const sunPos = sunPosition(currentTime, latitude, longitude);
   const sunAltitude = (sunPos.altitude * 180) / Math.PI;
   const sunAzimuth = (sunPos.azimuth * 180) / Math.PI + 180;
@@ -242,6 +238,11 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   const [pathData, setPathData] = useState<CloudPathData[]>(initialWeather);
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  const simObj = useMemo(() => ({
+    terrain: terrainData,
+    pathData,
+  }), [terrainData, pathData]);
 
   // 비동기 스토어 캐시 로드 후 initialWeather가 생기면 즉시 화면 상태 동기화
   useEffect(() => {
@@ -566,15 +567,21 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
     [pathData, currentTime]
   );
 
-  const prediction = useMemo(() => scenePrediction({
-    pathData,
-    time: currentTime,
-    sunAltDeg: sunAltitude,
-    sunAzDeg: sunAzimuth,
-    obs: interpolatedWeather[0],
-    latitude,
-    observerElevM: terrainData.observerElevation,
-  }), [pathData, interpolatedWeather, currentTime, sunAltitude, sunAzimuth, latitude, terrainData.observerElevation]);
+  const lastPredictionRef = useRef<ReturnType<typeof scenePrediction>>(null);
+  const prediction = useMemo(() => {
+    if (isSliding && lastPredictionRef.current) return lastPredictionRef.current;
+    const next = scenePrediction({
+      pathData,
+      time: currentTime,
+      sunAltDeg: sunAltitude,
+      sunAzDeg: sunAzimuth,
+      obs: interpolatedWeather[0],
+      latitude,
+      observerElevM: terrainData.observerElevation,
+    });
+    lastPredictionRef.current = next;
+    return next;
+  }, [isSliding, pathData, interpolatedWeather, currentTime, sunAltitude, sunAzimuth, latitude, terrainData.observerElevation]);
 
   // 오늘의 추천 및 일반 이벤트 — 모두 계산에서 나옵니다(`skyEvents.ts` 머리말).
   // 일몰·일출은 **그 시각의** 노을 예측으로 품질·점수를 답니다.
@@ -606,23 +613,29 @@ export const SkyScreen: React.FC<SkyScreenProps> = ({
   // 판정 한 줄(디자인 개정 A2): 다가오는 출몰(밤이고 일출 전이면 일출, 아니면 일몰)의 노을 판정과
   // "가장 붉을 때". 지금 시각의 점수가 아니라 그 출몰 앞뒤에서 점수가 가장 높은 순간입니다(`utils/glowPeak.ts`).
   const isSunriseSide = sunAltitude < 0 && (events?.sunrise ? currentTime < events.sunrise : false);
-  const glow = useMemo(() => findGlowPeak(
-    isSunriseSide ? events?.sunrise : events?.sunset,
-    isSunriseSide ? 'sunrise' : 'sunset',
-    (tm) => {
-      if (!pathData.length) return null;
-      const sp = sunPosition(tm, latitude, longitude);
-      return scenePrediction({
-        pathData,
-        time: tm,
-        sunAltDeg: sp.altitude * (180 / Math.PI),
-        sunAzDeg: sp.azimuth * (180 / Math.PI) + 180,
-        obs: getInterpolatedWeather(pathData, tm)[0],
-        latitude,
-        observerElevM: terrainData.observerElevation,
-      });
-    },
-  ), [isSunriseSide, events, pathData, latitude, longitude, terrainData.observerElevation]);
+  const lastGlowRef = useRef<GlowPeak<NonNullable<ReturnType<typeof scenePrediction>>> | null>(null);
+  const glow = useMemo(() => {
+    if (isSliding && lastGlowRef.current) return lastGlowRef.current;
+    const next = findGlowPeak(
+      isSunriseSide ? events?.sunrise : events?.sunset,
+      isSunriseSide ? 'sunrise' : 'sunset',
+      (tm) => {
+        if (!pathData.length) return null;
+        const sp = sunPosition(tm, latitude, longitude);
+        return scenePrediction({
+          pathData,
+          time: tm,
+          sunAltDeg: sp.altitude * (180 / Math.PI),
+          sunAzDeg: sp.azimuth * (180 / Math.PI) + 180,
+          obs: getInterpolatedWeather(pathData, tm)[0],
+          latitude,
+          observerElevM: terrainData.observerElevation,
+        });
+      },
+    );
+    lastGlowRef.current = next;
+    return next;
+  }, [isSliding, isSunriseSide, events, pathData, latitude, longitude, terrainData.observerElevation]);
 
   const featuredList = useMemo(() => eventItems.filter(e => e.category === 'featured'), [eventItems]);
   const generalList = useMemo(() => eventItems.filter(e => e.category === 'general'), [eventItems]);

@@ -41,6 +41,7 @@ import {
   dayIndexPct, daysInYear, shiftDays, shiftHours, shiftYears, withLocalDayOfYear, withLocalMinutes, localDayStartMs,
   dayPhaseSegments, minuteInDay, createCommitThrottle,
 } from '../../utils/timeBar';
+import { emitScrubTime } from '../../utils/liveClock';
 
 export type ScrubKind = 'date' | 'time';
 
@@ -217,6 +218,7 @@ export const DateTimeBar: React.FC<Props> = ({
 
   const apply = useCallback((ms: number) => {
     tRef.current = ms;
+    emitScrubTime(ms);
     onPickRef.current(new Date(ms));
   }, []);
   // 단추는 반복해도 busy 를 잡습니다 — 다음 렌더의 props 가 한 칸 전 값이라도 이어서 셉니다.
@@ -252,6 +254,7 @@ export const DateTimeBar: React.FC<Props> = ({
     const idx = Math.round((pct / 100) * (daysInYear(yearRef.current) - 1));
     const ms = withLocalDayOfYear(tRef.current, tzRef.current, yearRef.current, idx);
     tRef.current = ms;
+    emitScrubTime(ms);
     dateThrottle.push(ms);
   }, [dateThrottle]);
   // 끄는 동안 일출 · 일몰 표시를 지나면 가볍게 한 번 떱니다(§8.4). 첫 칸은 기준만 잡습니다.
@@ -265,6 +268,7 @@ export const DateTimeBar: React.FC<Props> = ({
     lastScrubMinRef.current = m;
     const ms = withLocalMinutes(tRef.current, tzRef.current, m);
     tRef.current = ms;
+    emitScrubTime(ms);
     timeThrottle.push(ms);
   }, [timeThrottle]);
 
