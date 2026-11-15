@@ -918,7 +918,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       const volPhase: VolumetricPhaseOf = volFailedRef.current ? 'failed'
         : (volHasSceneRef.current && volDrewRef.current) ? (volPendingRef.current ? 'updating' : 'running')
-        : (VOLUMETRIC_SKY_ENABLED && skySettingsRef.current.volumetricSky !== false) ? 'creating' : 'off';
+        : VOLUMETRIC_SKY_ENABLED ? 'creating' : 'off';
       return {
         view: { az, el, roll, fov: cam.fov, aspect: cam.aspect },
         slab: null,
@@ -2079,7 +2079,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           // ── §126.7 볼륨 하늘(개발 빌드 설정) — takram 대기+구름을 텍스처로 그려 하늘 층으로 넘깁니다 ──
           let volTex: THREE.Texture | null = null;
           const volSet = skySettingsRef.current;
-          const volSetting = (volSet.volumetricSky ?? VOLUMETRIC_SKY_DEFAULT_ON) && VOLUMETRIC_SKY_ENABLED;
+          // 레거시 하늘/구름이 제거되었으므로 저장된 volumetricSky: false 여부와 무관하게 항상 활성화합니다.
+          const volSetting = VOLUMETRIC_SKY_ENABLED;
           // 끄면 실패 기록을 지웁니다 — VOL 을 껐다 켜면 다시 시도합니다.
           if (!volSetting && volFailedRef.current) { volFailedRef.current = null; }
           if (VOLUMETRIC_SKY_ENABLED && !volSetting && !volBusyRef.current) setVolumetricStatus({ phase: 'off', error: null });
@@ -2201,6 +2202,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 volSettleRef.current = 5;
                 volFreshRef.current = false;
               } else if (!volPendingRef.current && !isSlidingNow) {
+                if (!volHasSceneRef.current) {
+                  vol.setScene({ ...built.input, layers: [], macro: undefined });
+                  volHasSceneRef.current = true;
+                  volViewRef.current = '';
+                  lastVolDateSyncRef.current.vMs = -1;
+                }
                 lastSlidingVolBuildTimeRef.current = nowPerf;
                 lastVolIsFastRef.current = isFast;
                 volKeyRef.current = key;

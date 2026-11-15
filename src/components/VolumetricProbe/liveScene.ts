@@ -243,12 +243,13 @@ export function mistLayerOf(thermo: ThermoInput, groundM: number, obs: CloudData
 export const DNI_VEIL_TAU = 1.5;
 export const DNI_SHEET_TAU = 3;
 export const DNI_VEIL_MAX_DENSITY = 0.07;
-export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[] }): HazeInput | undefined {
+export function hazeFromObs(o: { aod550?: number; pm25?: number; pm10?: number; dust?: number; visibility?: number; humidity?: number; profileRhPct?: number[]; precipitation?: number }): HazeInput | undefined {
   const op = aerosolOpticsFromObs(o);
   if (!op) return undefined;
   const extra = op.aod - HAZE_BACKGROUND_AOD;
   if (extra < 0.02) return undefined;
-  return { aod: Math.min(3, extra), alpha: op.alpha, g: op.g, omega: op.omega };
+  const cap = (o.precipitation ?? 0) >= 0.1 ? 0.45 : 3;
+  return { aod: Math.min(cap, extra), alpha: op.alpha, g: op.g, omega: op.omega };
 }
 
 /**
@@ -405,12 +406,37 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   // §136 적운류 밑면 = 지면 + 응결고도(물리를 켰을 때만 volumetricScene 이 씀). 지상 이슬점이 없으면 없음.
   const thermo = thermoOf(obs, a.heightM);
   const lclKm = lclBaseKm(thermo);
+  const groundKm = a.heightM / 1000;
+  const rhAtGround = (() => {
+    const rl = thermo.rhLevels;
+    if (!rl?.length) return obs.humidity ?? 0;
+    const sorted = [...rl].sort((p, q) => p.zM - q.zM);
+    if (a.heightM <= sorted[0].zM) return Math.max(sorted[0].rhPct, obs.humidity ?? 0);
+    for (let i = 1; i < sorted.length; i++) {
+      if (a.heightM <= sorted[i].zM) {
+        const span = Math.max(1, sorted[i].zM - sorted[i - 1].zM);
+        const f = (a.heightM - sorted[i - 1].zM) / span;
+        return sorted[i - 1].rhPct * (1 - f) + sorted[i].rhPct * f;
+      }
+    }
+    return obs.humidity ?? sorted[sorted.length - 1].rhPct;
+  })();
+  const dewSpread = obs.t2mC != null && obs.td2mC != null ? obs.t2mC - obs.td2mC : Infinity;
+  const inMountainCloud =
+    forecast.lowBaseKm != null &&
+    groundKm >= forecast.lowBaseKm - 0.05 &&
+    (forecast.lowTopKm == null || groundKm <= forecast.lowTopKm) &&
+    (rhAtGround >= 95 || dewSpread <= 1.5);
   // 저층: 단면 덱이 있으면 밑면·두께를 그대로, 없으면 층 높이(가운데)에서 두께의 반을 뺀 밑면.
   if (obs.low > 0) {
     const thick = forecast.lowBaseKm != null && forecast.lowTopKm != null ? (forecast.lowTopKm - forecast.lowBaseKm) * 1000 : NaN;
     const thicknessM = Number.isFinite(thick) ? clamp(thick, 300, 3000) : undefined;
     const centerKm = obs.layerAltLowKm ?? FALLBACK_ALT_KM.low;
-    const baseKm = forecast.lowBaseKm ?? Math.max(a.heightM / 1000 + 0.2, centerKm - (thicknessM ?? 1200) / 2000);
+    const minBaseKm = inMountainCloud ? Math.max(0, groundKm - 0.05) : groundKm + 0.15;
+    const baseKm = Math.max(
+      minBaseKm,
+      forecast.lowBaseKm ?? centerKm - (thicknessM ?? 1200) / 2000,
+    );
     if (forecast.low === 'cb') {
       // 적란운: 탑은 밑면~권계면 한 층, 모루는 4번째 채널에 같은 씨앗으로 — 바람 방향은 중층 바람.
       const topKm = Math.max(baseKm + 4, CB_TOP_KM);
@@ -440,7 +466,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
   if (obs.mid > 0) {
     const centerKm = obs.layerAltMidKm ?? FALLBACK_ALT_KM.mid;
     const midGenus = promoteMid ? 'as' : renderGenusFor(forecast.mid);
-    const baseKm = Math.max(2.2, forecast.midBaseKm ?? (centerKm - 0.3));
+    const baseKm = Math.max(a.heightM / 1000 + 0.5, 2.2, forecast.midBaseKm ?? (centerKm - 0.3));
     layers.push({ genus: midGenus, cover: midGenus === 'as' && obs.mid >= 80 ? Math.max(obs.mid / 100, 0.99) : obs.mid / 100, baseKm, thicknessM: midThicknessM, band: 'mid', opts: flowOpts('mid') });
   } else layers.push({ genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' });
   if (obs.high > 0) {
@@ -474,13 +500,15 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
     // 덱 밑에 늘어진 덩어리·틈이 생기게 함. 자락 안의 원래 높이 칸은 자락 값으로 바꿈.
     // 자락은 덱 본체(운량 0.5 이상) 밑면에서 — 그 아래 얇은 칸(예: 0.09)은 자락으로 바뀜.
     const z0 = baseProf.find(q => q.cover >= 0.5)?.zM;
+    const c0 = baseProf.find(q => q.cover >= 0.5)?.cover ?? 1;
     let prof = baseProf;
     if (z0 != null && rEff > 0.15 && z0 - a.heightM > 500) {
-      // 땅에서 400 m 위까지만(레인 바닥은 자락 아래 300 m).
+      // 땅에서 400 m 위까지만(레인 바닥은 자락 아래 300 m). 잘록한 원통 기둥 대신 완만한 기울기로 이어줌.
       const d = Math.round(Math.max(0, Math.min(500 * rEff, z0 - a.heightM - 400)));
       prof = [
         ...baseProf.filter(q => q.zM >= z0 || q.zM < z0 - d - 100),
-        { zM: z0 - d, cover: q2(0.2 * rEff) }, { zM: z0 - Math.round(d / 2), cover: q2(0.6 * rEff) },
+        { zM: z0 - d, cover: q2(c0 * 0.45) },
+        { zM: z0 - Math.round(d / 2), cover: q2(c0 * 0.78) },
       ].sort((a, b) => a.zM - b.zM);
     }
     const on = prof.filter(q => q.cover > 0.02);
@@ -497,11 +525,12 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
       const q05 = (x: number) => Math.round(x * 20) / 20;
       const wave = {
         ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q05(0.1 + 0.5 * rEff),
-        shear: Math.round(shear * 1e3) / 1e3, shearDeg, edge: q2(1.5 + 1.5 * rEff), spec: 1.6, vstretch: 1.5, mix3d: q05(0.3 + 0.4 * rEff),
-        fillM: 1500, smoothM: Math.round(800 - 500 * rEff), smoothZ: rEff > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rEff), tauTarget: deckTau?.tau,
+        shear: Math.round(shear * 1e3) / 1e3, shearDeg, edge: q2(1.5 + 1.5 * rEff), spec: 1.6, vstretch: 1.5, mix3d: q05(0.55 + 0.35 * rEff),
+        fillM: 1500, smoothM: Math.round(450 - 300 * rEff), smoothZ: rEff > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rEff), tauTarget: deckTau?.tau,
         seed: flowSeed % 997, nxy: 128, nz: 32,
       };
-      const zMin = zLo - 300, zMax = zHi + 400;
+      const minFillM = inMountainCloud ? Math.max(0, a.heightM - 50) : a.heightM + 350;
+      const zMin = Math.max(minFillM, zLo - 300), zMax = zHi + 400;
       layers[0] = { genus: 'ns', cover: wave.cover, baseKm: zMin / 1000, thicknessM: zMax - zMin, band: 'low', opts: { ...flowOpts('low'), wave, densityScale: FILL_DENSITY_SCALE } as VolumetricLayerInput['opts'] };
       layers[1] = { genus: null, cover: 0, baseKm: FALLBACK_ALT_KM.mid, band: 'mid' };
       // 편운(밑면 아래 조각구름): 비가 오고 바람이 세며 구름 아래가 건조할 때 — 빗방울 증발로 식은 공기가 밑면 아래에 낮고 빠른 조각을 만듦.

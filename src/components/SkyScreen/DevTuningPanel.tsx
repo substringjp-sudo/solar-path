@@ -247,8 +247,8 @@ export const DevTuningPanel: React.FC<{ visible: boolean; onClose: () => void }>
 }) => {
   const [tuning, setLocal] = useState<SkyTuning>(getTuning());
   const [showCode, setShowCode] = useState(false);
-  // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 적용
-  const volumetricSky = useCelestialStore(s => s.skySettings.volumetricSky ?? true);
+  // §126.7 볼륨 하늘 — 레거시 하늘 제거로 항상 활성화
+  const volumetricSky = true;
 
   // 볼륨 하늘 상태(준비 중·동작·실패 이유) — 폰에서는 콘솔을 못 보니 여기 보여 줍니다.
   const [volStatus, setVolStatus] = useState<VolumetricStatus>(getVolumetricStatus());

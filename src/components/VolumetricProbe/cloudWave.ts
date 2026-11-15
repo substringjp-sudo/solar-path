@@ -264,7 +264,12 @@ export function* bakeWaveFieldSteps(input: WaveParams, preSetup?: ReturnType<typ
     // 높이별 채우기: 장 F(x,y,z) 를 높이 칸마다 그 높이 운량만큼 남기는 문턱으로 자름. 판·지붕 꼴 없음.
     const prof = [...p.profile].sort((a, b) => a.zM - b.zM);
     const coverAt = (z: number) => {
-      if (z <= prof[0].zM) return prof[0].zM - z < 150 ? prof[0].cover : 0;
+      if (z <= prof[0].zM) {
+        const dz = prof[0].zM - z;
+        if (dz >= 250) return 0;
+        const t = 1 - dz / 250;
+        return prof[0].cover * (t * t * (3 - 2 * t));
+      }
       for (let i = 1; i < prof.length; i++) if (z <= prof[i].zM) { const t = (z - prof[i - 1].zM) / (prof[i].zM - prof[i - 1].zM); return prof[i - 1].cover + t * (prof[i].cover - prof[i - 1].cover); }
       return z - prof[prof.length - 1].zM < 150 ? prof[prof.length - 1].cover : 0;
     };

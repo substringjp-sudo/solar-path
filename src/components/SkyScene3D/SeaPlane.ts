@@ -84,8 +84,8 @@ export const SEA_SPOKES = 256;
  * 한라산·지리산·설악산 같은 고봉을 빼면 국내 대부분의 능선·전망대를
  * 포괄합니다. 그 이상은 다음에 필요할 때 늘립니다.
  */
-export const SEA_TAIL_FAR_M = 90000;
-export const SEA_TAIL_RINGS = 16;
+export const SEA_TAIL_FAR_M = 220000;
+export const SEA_TAIL_RINGS = 20;
 
 /**
  * **물이 있는지 없는지**만 가리는 성긴 높이장의 반경 (m).
