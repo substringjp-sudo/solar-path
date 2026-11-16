@@ -15,10 +15,6 @@ export interface RawWaveWorkletParams {
   zb: number;
   zMin: number;
   zMax: number;
-  mix3d: number;
-  kappa: number;
-  eK: number;
-  sK: number;
   nWarp: number;
   nAll: number;
   wKx: Float64Array;
@@ -88,10 +84,6 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
           zb: number,
           zMin: number,
           zMax: number,
-          mix3d: number,
-          kappa: number,
-          eK: number,
-          sK: number,
           nWarp: number,
           nAll: number,
           wKx: Float64Array,
@@ -107,58 +99,81 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
         ) => {
           'worklet';
           try {
-            const fbig = (x: number, y: number, z: number): number => {
-              let wx = 0;
-              let wy = 0;
-              let wz = 0;
-              for (let m = 0; m < nWarp; m++) {
-                const s = Math.sin(wKx[m] * x + wKy[m] * y + wKz[m] * z + wPhWarp[m]);
-                wx += s * wEx[m];
-                wy += s * wEy[m];
-                wz += s * wEz[m];
-              }
-              const X = x + wx;
-              const Y = y + wy;
-              const Z = z + wz;
-              let f = 0;
-              for (let m = 0; m < nAll; m++) {
-                f += wAmp[m] * Math.cos(wKx[m] * X + wKy[m] * Y + wKz[m] * Z + wPh[m]);
-              }
-              return f;
-            };
-            const skew = (f: number): number => (kappa < 1e-3 ? f : (Math.exp(kappa * f) - eK) / sK);
             const n2 = n * n;
-            const vox = new Float32Array(n2 * nz);
-            const base2 = new Float32Array(n2);
+            const packed = new Float32Array(n2 * (nz + 1));
             const spanXY = 2 * half;
+            const dx = spanXY / n;
+            const x0 = -half + 0.5 * dx;
             const invN = 1 / n;
             const invNz = 1 / nz;
             const spanZ = zMax - zMin;
 
+            const warpCosD = new Float64Array(nWarp);
+            const warpSinD = new Float64Array(nWarp);
+            for (let m = 0; m < nWarp; m++) {
+              const d = wKx[m] * dx;
+              warpCosD[m] = Math.cos(d);
+              warpSinD[m] = Math.sin(d);
+            }
+            const bigStepX = new Float64Array(nAll);
+            for (let m = 0; m < nAll; m++) {
+              bigStepX[m] = wKx[m] * dx;
+            }
+            const wxRow = new Float64Array(n);
+            const wyRow = new Float64Array(n);
+            const wzRow = new Float64Array(n);
+            const fRow = new Float64Array(n);
+
+            const evalRow = (y: number, z: number, dstOff: number) => {
+              wxRow.fill(0);
+              wyRow.fill(0);
+              wzRow.fill(0);
+              for (let m = 0; m < nWarp; m++) {
+                const ang0 = wKx[m] * x0 + wKy[m] * y + wKz[m] * z + wPhWarp[m];
+                let s = Math.sin(ang0);
+                let c = Math.cos(ang0);
+                const cd = warpCosD[m];
+                const sd = warpSinD[m];
+                const ex = wEx[m];
+                const ey = wEy[m];
+                const ez = wEz[m];
+                for (let ix = 0; ix < n; ix++) {
+                  wxRow[ix] += s * ex;
+                  wyRow[ix] += s * ey;
+                  wzRow[ix] += s * ez;
+                  const ns = s * cd + c * sd;
+                  c = c * cd - s * sd;
+                  s = ns;
+                }
+              }
+              fRow.fill(0);
+              for (let m = 0; m < nAll; m++) {
+                const kx = wKx[m];
+                const ky = wKy[m];
+                const kz = wKz[m];
+                const amp = wAmp[m];
+                const dpx = bigStepX[m];
+                const p0 = kx * x0 + ky * y + kz * z + wPh[m];
+                for (let ix = 0; ix < n; ix++) {
+                  fRow[ix] += amp * Math.cos(p0 + ix * dpx + kx * wxRow[ix] + ky * wyRow[ix] + kz * wzRow[ix]);
+                }
+              }
+              for (let ix = 0; ix < n; ix++) packed[dstOff + ix] = fRow[ix];
+            };
+
             for (let iy = 0; iy < n; iy++) {
               const y = -half + (iy + 0.5) * invN * spanXY;
-              const rowOff = iy * n;
-              for (let ix = 0; ix < n; ix++) {
-                const x = -half + (ix + 0.5) * invN * spanXY;
-                base2[rowOff + ix] = skew(fbig(x, y, zb));
-              }
+              evalRow(y, zb, iy * n);
             }
             for (let iz = 0; iz < nz; iz++) {
               const z = zMin + (iz + 0.5) * invNz * spanZ;
-              const sliceOff = iz * n2;
+              const sliceOff = n2 + iz * n2;
               for (let iy = 0; iy < n; iy++) {
                 const y = -half + (iy + 0.5) * invN * spanXY;
-                const rowOff = iy * n;
-                const dstRow = sliceOff + rowOff;
-                for (let ix = 0; ix < n; ix++) {
-                  const x = -half + (ix + 0.5) * invN * spanXY;
-                  const g2 = base2[rowOff + ix];
-                  const val3 = skew(fbig(x, y, z));
-                  vox[dstRow + ix] = mix3d >= 1 ? val3 : g2 + mix3d * (val3 - g2);
-                }
+                evalRow(y, z, sliceOff + iy * n);
               }
             }
-            scheduleOnRN(cb, vox);
+            scheduleOnRN(cb, packed);
           } catch {
             scheduleOnRN(cb, null);
           }
@@ -172,10 +187,6 @@ export function computeRawWaveOnWorklet(p: RawWaveWorkletParams): Promise<Float3
         p.zb,
         p.zMin,
         p.zMax,
-        p.mix3d,
-        p.kappa,
-        p.eK,
-        p.sK,
         p.nWarp,
         p.nAll,
         p.wKx,

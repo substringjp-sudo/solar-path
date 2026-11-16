@@ -23,66 +23,148 @@ export interface FarSunInput {
   /** 관측점 운량(고리가 비었을 때) 0~1 */
   obsCover?: Partial<Record<'low' | 'mid' | 'high', number>>;
 }
+export interface FarCoverGrids {
+  grids: Record<'low' | 'mid' | 'high', Float32Array>;
+  gn: number;
+  gHalf: number;
+  gCell: number;
+}
+
 export interface FarSunMap { tex: DataTexture; extentKm: number; ms: number; meanT: [number, number, number, number]; /** 관측점(지도 가운데) 칸의 T */ centerT: [number, number, number, number] }
 
 const R = 6371;
 const KAPPA = { low: 0.1, mid: 0.075, high: 0.01 } as const;
 const BANDS = ['low', 'mid', 'high'] as const;
 
-export function buildFarSunMap(inp: FarSunInput, n = 64, extentKm = 300, nearKm = 12, maxKm = 420, stepKm = 4): FarSunMap {
-  const t0 = Date.now();
-  const half = extentKm / 2;
-  const cell = extentKm / n;
-  // 1) 층별 운량 격자: 고리 점 역거리 가중(가까운 점일수록 크게). 격자는 해 쪽으로 maxKm 까지 필요하므로 넓게(±(half + maxKm)).
-  const gHalf = half + maxKm, gn = 96, gCell = (2 * gHalf) / gn;
-  const grids: Record<string, Float32Array> = {};
+/** 태양 각도와 무관한 3층 운량 격자 — 고리 예보가 같으면 재사용해 노을 중 0.1° 재계산 비용을 줄입니다. */
+export function buildFarCoverGrids(
+  ring: FarSunInput['ring'],
+  obsCover?: FarSunInput['obsCover'],
+  extentKm = 300,
+  maxKm = 420,
+  gn = 96,
+): FarCoverGrids {
+  const gHalf = extentKm / 2 + maxKm;
+  const gCell = (2 * gHalf) / gn;
+  const grids = {} as Record<'low' | 'mid' | 'high', Float32Array>;
   for (const b of BANDS) {
-    const pts = (inp.ring[b] ?? []).map(p => {
+    const pts = (ring[b] ?? []).map(p => {
       const a = (p.azimuthOffset * Math.PI) / 180;
       return { x: p.distance * Math.sin(a), y: p.distance * Math.cos(a), c: Math.min(1, Math.max(0, p.cover)) };
     });
     const g = new Float32Array(gn * gn);
-    const fallback = inp.obsCover?.[b] ?? 0;
-    for (let j = 0; j < gn; j++) for (let i = 0; i < gn; i++) {
-      const x = -gHalf + (i + 0.5) * gCell, y = -gHalf + (j + 0.5) * gCell;
-      let sw = 0, sc = 0;
-      for (const p of pts) { const d2 = (p.x - x) ** 2 + (p.y - y) ** 2 + 400; const w = 1 / d2; sw += w; sc += w * p.c; }
-      g[j * gn + i] = sw > 0 ? sc / sw : fallback;
+    const fallback = obsCover?.[b] ?? 0;
+    if (pts.length === 0) {
+      g.fill(fallback);
+    } else {
+      for (let j = 0; j < gn; j++) {
+        const y = -gHalf + (j + 0.5) * gCell;
+        for (let i = 0; i < gn; i++) {
+          const x = -gHalf + (i + 0.5) * gCell;
+          let sw = 0, sc = 0;
+          for (let pi = 0; pi < pts.length; pi++) {
+            const p = pts[pi];
+            const ddx = p.x - x, ddy = p.y - y;
+            const w = 1 / (ddx * ddx + ddy * ddy + 400);
+            sw += w; sc += w * p.c;
+          }
+          g[j * gn + i] = sc / sw;
+        }
+      }
     }
     grids[b] = g;
   }
-  const coverAt = (b: string, x: number, y: number) => {
-    const fx = Math.min(gn - 1.001, Math.max(0, (x + gHalf) / gCell - 0.5)), fy = Math.min(gn - 1.001, Math.max(0, (y + gHalf) / gCell - 0.5));
-    const i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j, g = grids[b];
-    return (g[j * gn + i] * (1 - u) + g[j * gn + i + 1] * u) * (1 - v) + (g[(j + 1) * gn + i] * (1 - u) + g[(j + 1) * gn + i + 1] * u) * v;
+  return { grids, gn, gHalf, gCell };
+}
+
+export function buildFarSunMap(
+  inp: FarSunInput,
+  n = 64,
+  extentKm = 300,
+  nearKm = 12,
+  maxKm = 420,
+  stepKm = 4,
+  prebakedGrids?: FarCoverGrids,
+): FarSunMap {
+  const t0 = Date.now();
+  const half = extentKm / 2;
+  const cell = extentKm / n;
+  const cg = prebakedGrids ?? buildFarCoverGrids(inp.ring, inp.obsCover, extentKm, maxKm);
+  const { grids, gn, gHalf, gCell } = cg;
+  const invGCell = 1 / gCell;
+  const maxIdx = gn - 1.001;
+  const gridLow = grids.low, gridMid = grids.mid, gridHigh = grids.high;
+
+  const sampleGrid = (g: Float32Array, x: number, y: number) => {
+    let fx = (x + gHalf) * invGCell - 0.5;
+    let fy = (y + gHalf) * invGCell - 0.5;
+    fx = fx < 0 ? 0 : fx > maxIdx ? maxIdx : fx;
+    fy = fy < 0 ? 0 : fy > maxIdx ? maxIdx : fy;
+    const i = fx | 0, j = fy | 0;
+    const u = fx - i, v = fy - j;
+    const row0 = j * gn + i;
+    const row1 = row0 + gn;
+    return (g[row0] * (1 - u) + g[row0 + 1] * u) * (1 - v) + (g[row1] * (1 - u) + g[row1 + 1] * u) * v;
   };
-  // 2) 칸마다 높이 4 개에서 해 쪽 광선
+
+  // z(s) 는 (i, j)와 무관하므로 4개 높이 채널의 활성 광선 스텝표를 미리 만들어 빈 높이·거리 루프를 건너뜁니다.
   const az = (inp.sunAzDeg * Math.PI) / 180, dx = Math.sin(az), dy = Math.cos(az), te = Math.tan((inp.sunAltDeg * Math.PI) / 180);
   const hs = [
     (inp.bands.low[0] + inp.bands.low[1]) / 2, (inp.bands.mid[0] + inp.bands.mid[1]) / 2, (inp.bands.high[0] + inp.bands.high[1]) / 2, 0.3,
   ];
+  const [loL, hiL] = inp.bands.low;
+  const [loM, hiM] = inp.bands.mid;
+  const [loH, hiH] = inp.bands.high;
+  const kL = KAPPA.low * stepKm, kM = KAPPA.mid * stepKm, kH = KAPPA.high * stepKm;
+
+  type RayStep = { sx: number; sy: number; wL: number; wM: number; wH: number };
+  const schedules: { steps: RayStep[]; blocked: boolean }[] = [0, 1, 2, 3].map(k => {
+    const steps: RayStep[] = [];
+    let blocked = false;
+    for (let s = nearKm; s <= maxKm; s += stepKm) {
+      const z = hs[k] + s * te + (s * s) / (2 * R);
+      if (z < 0.2) { blocked = true; break; }
+      if (z > 12) break;
+      const wL = z >= loL && z <= hiL ? kL : 0;
+      const wM = z >= loM && z <= hiM ? kM : 0;
+      const wH = z >= loH && z <= hiH ? kH : 0;
+      if (wL > 0 || wM > 0 || wH > 0) {
+        steps.push({ sx: s * dx, sy: s * dy, wL, wM, wH });
+      }
+    }
+    return { steps, blocked };
+  });
+
   const data = new Uint16Array(n * n * 4);
   const sum = [0, 0, 0, 0];
   const centerT: [number, number, number, number] = [1, 1, 1, 1];
   const ci = Math.floor(n / 2);
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const x0 = -half + (i + 0.5) * cell, y0 = -half + (j + 0.5) * cell;
-    for (let k = 0; k < 4; k++) {
-      let tau = 0, blocked = false;
-      for (let s = nearKm; s <= maxKm && tau < 12; s += stepKm) {
-        const z = hs[k] + s * te + (s * s) / (2 * R);
-        if (z < 0.2) { blocked = true; break; }
-        if (z > 12) break;
-        const x = x0 + s * dx, y = y0 + s * dy;
-        for (const b of BANDS) {
-          const [lo, hi] = inp.bands[b];
-          if (z >= lo && z <= hi) tau += KAPPA[b] * coverAt(b, x, y) * stepKm;
+  for (let j = 0; j < n; j++) {
+    const y0 = -half + (j + 0.5) * cell;
+    for (let i = 0; i < n; i++) {
+      const x0 = -half + (i + 0.5) * cell;
+      const baseIdx = (j * n + i) * 4;
+      for (let k = 0; k < 4; k++) {
+        const sch = schedules[k];
+        let T: number;
+        if (sch.blocked && sch.steps.length === 0) {
+          T = 0;
+        } else {
+          let tau = 0;
+          const steps = sch.steps;
+          for (let si = 0; si < steps.length && tau < 12; si++) {
+            const st = steps[si];
+            const x = x0 + st.sx, y = y0 + st.sy;
+            if (st.wL > 0) tau += st.wL * sampleGrid(gridLow, x, y);
+            if (st.wM > 0) tau += st.wM * sampleGrid(gridMid, x, y);
+            if (st.wH > 0) tau += st.wH * sampleGrid(gridHigh, x, y);
+          }
+          T = sch.blocked && tau < 12 ? 0 : Math.exp(-tau);
         }
+        data[baseIdx + k] = DataUtils.toHalfFloat(T);
+        sum[k] += T;
+        if (i === ci && j === ci) centerT[k] = T;
       }
-      const T = blocked ? 0 : Math.exp(-tau);
-      data[(j * n + i) * 4 + k] = DataUtils.toHalfFloat(T);
-      sum[k] += T;
-      if (i === ci && j === ci) centerT[k] = T;
     }
   }
   const tex = new DataTexture(data, n, n, RGBAFormat, HalfFloatType);

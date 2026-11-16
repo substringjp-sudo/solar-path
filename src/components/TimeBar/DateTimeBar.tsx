@@ -17,10 +17,10 @@
  *   노을이 몰리는 몇십 분이 하루 막대에서는 몇 px 뿐이었습니다. 단추로 범위를 벗어나면 하루로 돌아갑니다.
  *   범례는 칩(ⓘ)을 누르면 펼쳐집니다. 등급의 근거와 한계는 `utils/timeBar.ts` 머리말에 적었습니다.
  * - **데이터 기간.** 날씨를 받을 수 있는 끝(지금 + 16일)이 날짜 트랙에서 색이 끊기는 자리이고, 칩이 그 날짜를 적습니다.
- * - **한 칸씩.** ±1일 · ±1시간 · ±1년. 누르고 있으면 반복합니다(시간·날짜는 빠르게, 연도는 천천히).
- *   2/29 는 평년에서 2/28, 시간은 자정을 넘으면 날짜가 같이 갑니다.
- * - **가볍게.** 손잡이는 네이티브로 움직이고, 앱 전체 상태(시각)는 손을 움직이는 동안 초당 약 11번만 바꿉니다
- *   (`createCommitThrottle`). 손을 떼면 마지막 값이 바로 나갑니다.
+ * - **한 칸씩.** ±1일 · ±1분 · ±1년. 누르고 있으면 반복합니다(분·날짜는 빠르게, 연도는 천천히).
+ *   2/29 는 평년에서 2/28, 분은 자정을 넘으면 날짜가 같이 갑니다.
+ * - **가볍게.** 손잡이와 루페 이동은 네이티브 `Animated.Value` 로 구동하고, 앱 전체 상태(시각)는 손을 잠시 멈추거나
+ *   (`createIdleCommit`) 손을 뗄 때만 커밋해 드래그 중 React 재계산으로 터치가 밀리지 않습니다. 3D 씬은 `emitScrubTime` 으로 즉시 따라옵니다.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
@@ -38,8 +38,8 @@ import {
   MS_HOUR, MS_MIN, TIER_LEAD_HOURS, FORECAST_DAYS, DATA_START_MS,
   type AccuracyTier, type TierSegment,
   tierAt, dataWindow, yearTierSegments, tierSegmentsBetween, nowPctInYear,
-  dayIndexPct, daysInYear, shiftDays, shiftHours, shiftYears, withLocalDayOfYear, withLocalMinutes, localDayStartMs,
-  dayPhaseSegments, minuteInDay, createCommitThrottle,
+  dayIndexPct, daysInYear, shiftDays, shiftMinutes, shiftYears, withLocalDayOfYear, withLocalMinutes, localDayStartMs,
+  dayPhaseSegments, minuteInDay, createIdleCommit,
 } from '../../utils/timeBar';
 import { emitScrubTime } from '../../utils/liveClock';
 
@@ -213,8 +213,9 @@ export const DateTimeBar: React.FC<Props> = ({
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
 
-  const dateThrottle = useRef(createCommitThrottle<number>(ms => onPickRef.current(new Date(ms), { scrub: 'date' }), 90)).current;
-  const timeThrottle = useRef(createCommitThrottle<number>(ms => onPickRef.current(new Date(ms), { scrub: 'time' }), 90)).current;
+  const dateThrottle = useRef(createIdleCommit<number>(ms => onPickRef.current(new Date(ms), { scrub: 'date' }), 220)).current;
+  const timeThrottle = useRef(createIdleCommit<number>(ms => onPickRef.current(new Date(ms), { scrub: 'time' }), 240)).current;
+  useEffect(() => () => { dateThrottle.cancel(); timeThrottle.cancel(); }, [dateThrottle, timeThrottle]);
 
   const apply = useCallback((ms: number) => {
     tRef.current = ms;
@@ -239,14 +240,17 @@ export const DateTimeBar: React.FC<Props> = ({
     const d = new Date(Date.UTC(yearRef.current, 0, 1 + idx));
     return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
   }, []);
-  const minuteAtPct = (pct: number) => {
+  const minuteFloatAtPct = (pct: number) => {
     const r = rangeRef.current;
-    return Math.max(r.from, Math.min(r.to - 1, r.from + Math.floor((pct / 100) * (r.to - r.from))));
+    const span = Math.max(1, r.to - r.from - 1);
+    return Math.max(r.from, Math.min(r.to - 1, r.from + (pct / 100) * span));
   };
+  const minuteAtPct = (pct: number) => Math.round(minuteFloatAtPct(pct));
+  const timeLoupeBucket = useCallback((pct: number) => Math.round(minuteFloatAtPct(pct) * 4), []);
   const timeLabel = useCallback((pct: number) => {
-    const m = Math.floor(minuteAtPct(pct));
+    const m = minuteAtPct(pct);
     const h = Math.floor(m / 60) % 24;
-    const mm = Math.floor(m % 60);
+    const mm = m % 60;
     return `${pad2(h)}:${pad2(mm)}`;
   }, []);
 
@@ -263,6 +267,7 @@ export const DateTimeBar: React.FC<Props> = ({
   const lastScrubMinRef = useRef<number | null>(null);
   const onTimeScrub = useCallback((pct: number) => {
     const m = minuteAtPct(pct);
+    if (m === lastScrubMinRef.current) return;
     const prev = lastScrubMinRef.current;
     if (prev != null && crossesMarker(prev, m, markerMinsRef.current)) hapticTick();
     lastScrubMinRef.current = m;
@@ -347,7 +352,7 @@ export const DateTimeBar: React.FC<Props> = ({
   ];
 
   const adjustDate = useCallback((dir: 1 | -1) => step(t => shiftDays(t, dir)), [step]);
-  const adjustTime = useCallback((dir: 1 | -1) => step(t => shiftHours(t, dir)), [step]);
+  const adjustTime = useCallback((dir: 1 | -1) => step(t => shiftMinutes(t, dir)), [step]);
 
   return (
     <View style={styles.wrap}>
@@ -439,22 +444,28 @@ export const DateTimeBar: React.FC<Props> = ({
         {/* ── 2행: 풀와이드 24시간 시간 트랙 ──────────────────────────── */}
         <View style={styles.timeRow}>
           <StepButton
-            label={L3(language, '1시간 전', '1 hour back', '1時間前')}
+            label={L3(language, '1분 전', '1 min back', '1分前')}
             onStep={() => adjustTime(-1)}
             icon={<ChevronLeft size={16} color={color.textDim} />}
           />
           <View style={{ flex: 1 }}>
             <ScrubTrack
               variant="pin"
+              precisionMode
+              getDisplayBucket={timeLoupeBucket}
               renderValueBadge={(lbl) => (
                 <View style={styles.timeBadge}>
                   <Text style={styles.timeBadgeText}>{lbl}</Text>
                 </View>
               )}
-              renderLoupe={(pct, lbl) => {
-                const m = minuteAtPct(pct);
-                return <TimeLoupe label={lbl} minute={m} accentColor={color.accent} />;
-              }}
+              renderLoupe={(pct, lbl, gear) => (
+                <TimeLoupe
+                  label={lbl}
+                  minute={minuteFloatAtPct(pct)}
+                  accentColor={color.accent}
+                  precisionGear={gear}
+                />
+              )}
               value={timePct}
               formatLabel={timeLabel}
               onScrub={onTimeScrub}
@@ -485,7 +496,7 @@ export const DateTimeBar: React.FC<Props> = ({
             </ScrubTrack>
           </View>
           <StepButton
-            label={L3(language, '1시간 뒤', '1 hour forward', '1時間後')}
+            label={L3(language, '1분 뒤', '1 min forward', '1分後')}
             onStep={() => adjustTime(1)}
             icon={<ChevronRight size={16} color={color.textDim} />}
           />

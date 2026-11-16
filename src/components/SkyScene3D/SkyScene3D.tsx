@@ -165,6 +165,7 @@ import { useCelestialStore } from '../../store/useCelestialStore';
 import { subscribeScrubTime } from '../../utils/liveClock';
 import { L3 } from '../../utils/i18n';
 import { isReducedMotion } from '../../theme/motion';
+import { isSunVisibleAboveHorizon, terrainHorizonDegAtAz } from '../../utils/terrainPick';
 
 // 매 프레임 / 매 초마다 발생하는 객체 할당(GC Churn) 방지용 재사용 Vector3
 const tempPlanetVec = new THREE.Vector3();
@@ -1945,23 +1946,35 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const horizDist = Math.hypot(tPos.x, tPos.z);
             const targetElev = Math.atan2(tPos.y, horizDist) * (180 / Math.PI);
 
-            let azDiff = targetAz - cameraAzRef.current;
-            while (azDiff > 180) azDiff -= 360;
-            while (azDiff < -180) azDiff += 360;
+            const horizonDeg = target === 'sun'
+              ? terrainHorizonDegAtAz(simRef.current?.terrain, targetAz)
+              : 0;
+            // 땅·산 능선 아래로 태양이 완전히 사라져 화면에 안 보이는 순간부터는 현재 방위·고도에서 정지합니다.
+            const sunVisible = target !== 'sun' || isSunVisibleAboveHorizon(
+              targetElev,
+              sunDiscRadiusDegRef.current,
+              horizonDeg,
+              targetElev > -1.5,
+            );
 
-            // 태양(sun) 추적 시 지평선 아래로 내려가면 지평선(0°)에 고정하여 땅 밑을 보지 않음
-            const minElev = target === 'sun' ? 0 : -20;
-            const clampedTargetElev = Math.max(minElev, targetElev);
-            const elevDiff = clampedTargetElev - cameraElevRef.current;
+            if (sunVisible) {
+              let azDiff = targetAz - cameraAzRef.current;
+              while (azDiff > 180) azDiff -= 360;
+              while (azDiff < -180) azDiff += 360;
 
-            if (Math.abs(azDiff) > 0.05 || Math.abs(elevDiff) > 0.05) {
-              isTrackingMoving = true;
+              const minElev = target === 'sun' ? Math.max(0, horizonDeg) : -20;
+              const clampedTargetElev = Math.max(minElev, targetElev);
+              const elevDiff = clampedTargetElev - cameraElevRef.current;
+
+              if (Math.abs(azDiff) > 0.05 || Math.abs(elevDiff) > 0.05) {
+                isTrackingMoving = true;
+              }
+
+              cameraAzRef.current = (cameraAzRef.current + azDiff * 0.14 + 360) % 360;
+              cameraElevRef.current += elevDiff * 0.14;
+              setCameraAzimuth(cameraAzRef.current);
+              setCameraElevation(cameraElevRef.current);
             }
-
-            cameraAzRef.current = (cameraAzRef.current + azDiff * 0.14 + 360) % 360;
-            cameraElevRef.current += elevDiff * 0.14;
-            setCameraAzimuth(cameraAzRef.current);
-            setCameraElevation(cameraElevRef.current);
           }
         }
 
@@ -2252,10 +2265,25 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 prewarmedDayKeyRef.current = dayPrewarmKey;
                 let aborted = false;
                 prewarmCancelRef.current = () => { aborted = true; };
+                const times = SunCalc.getTimes(new Date(dayStartMs + 12 * 3600000), vLat, vLon);
+                const riseMs = times.sunrise instanceof Date && Number.isFinite(times.sunrise.getTime())
+                  ? times.sunrise.getTime()
+                  : dayStartMs + 6 * 3600000;
+                const setMs = times.sunset instanceof Date && Number.isFinite(times.sunset.getTime())
+                  ? times.sunset.getTime()
+                  : dayStartMs + 18 * 3600000;
+                const winStartMs = Math.max(dayStartMs, riseMs - 1.5 * 3600000);
+                const winEndMs = Math.min(dayStartMs + 24 * 3600000, setMs + 1.5 * 3600000);
                 const hourBuckets: number[] = [];
-                // 2시간 간격(12개 버킷) 우선 프리워밍으로 하루 계산량을 절반으로 줄입니다.
+                // 일출 -1.5h ~ 일몰 +1.5h 주간 핵심 2시간 버킷만 프리워밍해 계산량과 캐시 evict를 줄입니다.
                 for (let h = 0; h < 24; h += 2) {
-                  hourBuckets.push(dayStartMs + h * 3600000 + 1800000);
+                  const bMs = dayStartMs + h * 3600000 + 1800000;
+                  if (bMs >= winStartMs && bMs <= winEndMs) hourBuckets.push(bMs);
+                }
+                if (hourBuckets.length === 0) {
+                  for (let h = 6; h <= 18; h += 2) {
+                    hourBuckets.push(dayStartMs + h * 3600000 + 1800000);
+                  }
                 }
                 hourBuckets.sort((a, b) => Math.abs(a - vBucketMs) - Math.abs(b - vBucketMs));
                 const metarSnap = metarRef.current;
@@ -2269,12 +2297,12 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 (async () => {
                   const totalHours = hourBuckets.length;
                   // 첫 장면 렌더링과 스플래시 전환이 먼저 안정화되도록 잠깐 대기합니다.
-                  await new Promise(r => setTimeout(r, 350));
+                  await new Promise(r => setTimeout(r, 150));
                   let reportedActive = false;
                   for (let idx = 0; idx < totalHours; idx++) {
                     if (aborted) return;
                     while (shouldPausePrewarm() && !aborted) {
-                      await new Promise(r => setTimeout(r, 100));
+                      await new Promise(r => setTimeout(r, 60));
                     }
                     if (aborted) return;
                     const bMs = hourBuckets[idx];
@@ -2347,7 +2375,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               // §129 지형 빛 판도 같이 — 지형을 takram 이 하늘·구름과 같은 빛·노출로 칠합니다.
               // TBDR 최적화: 카메라 시선(viewKey)·태양 방향·지형 메시가 바뀌지 않은 프레임(TAA 수렴·구름 드리프트)에서는 FBO 3개를 재사용합니다.
               const terrainOn = !!terrainFieldRef.current?.mesh.visible;
-              const terrainPassKey = `${viewKey}|${Math.round(sunAltRef.current * 20)}|${Math.round(sunAzRef.current * 20)}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}`;
+              const qSunAlt = isInteractingNow ? Math.round(sunAltRef.current * 4) : Math.round(sunAltRef.current * 20);
+              const qSunAz = isInteractingNow ? Math.round(sunAzRef.current * 4) : Math.round(sunAzRef.current * 20);
+              const terrainPassKey = `${viewKey}|${qSunAlt}|${qSunAz}|${terrainFieldRef.current?.mesh.uuid ?? ''}|${terrainOn ? 1 : 0}`;
               composerNow.setTerrainLit(true);
               composerNow.prepareTerrainDistance(renderer as unknown as THREE.WebGLRenderer, scene, camera, terrainPassKey);
               const ridge = terrainOn ? terrainFieldRef.current!.sunRidge() : null;

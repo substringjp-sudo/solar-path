@@ -196,10 +196,18 @@ export function createConcentricGeometry(
  * 복사되어 갈라진 적이 있습니다.)
  */
 export const TERRAIN_NOISE_GLSL = /* glsl */ `
+const mat2 TN_ROT = mat2(0.8, -0.6, 0.6, 0.8);
+
 float tn_hash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 tn_hash2(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
 }
 
 /** 0~1. 이중 부드럼(smoothstep)으로 보간해 C1 입니다. */
@@ -209,6 +217,65 @@ float tn_noise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(tn_hash(i + vec2(0.0, 0.0)), tn_hash(i + vec2(1.0, 0.0)), u.x),
              mix(tn_hash(i + vec2(0.0, 1.0)), tn_hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+vec2 tn_grad2(vec2 p) {
+  // 정수 셀 해시(0~1)를 2π로 펴서 모바일 mediump에서도 큰 좌표 정밀도 깨짐 없이 등방 기울기를 얻습니다.
+  float a = 6.2831853 * tn_hash(p);
+  return vec2(cos(a), sin(a));
+}
+
+/** 0~1. 5차 보간(C2) 기반 2D Gradient Noise — Value Noise의 축 정렬 격자감을 없앱니다. */
+float tn_gnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float n00 = dot(tn_grad2(i + vec2(0.0, 0.0)), f - vec2(0.0, 0.0));
+  float n10 = dot(tn_grad2(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+  float n01 = dot(tn_grad2(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+  float n11 = dot(tn_grad2(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+  float v = mix(mix(n00, n10, u.x), mix(n01, n11, u.x), u.y);
+  return clamp(0.5 + 0.7 * v, 0.0, 1.0);
+}
+
+/**
+ * 3x3 Voronoi/Cellular — x: 중심 거리(F1), y: 경계 틈새 거리(F2-F1), z: 셀 ID(0~1),
+ * cellVec: 셀 중심 방향 벡터(경계에서 0으로 감쇠해 이음새 없는 자갈·풀 뭉치 법선 산출용).
+ */
+vec3 tn_cell(vec2 p, out vec2 cellVec) {
+  vec2 n = floor(p);
+  vec2 f = fract(p);
+  float f1 = 8.0;
+  float f2 = 8.0;
+  float id = 0.0;
+  vec2 bestR = vec2(0.0);
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 o = tn_hash2(n + g);
+      vec2 r = g + (0.15 + 0.70 * o) - f;
+      float d = dot(r, r);
+      if (d < f1) {
+        f2 = f1;
+        f1 = d;
+        id = o.x;
+        bestR = r;
+      } else if (d < f2) {
+        f2 = d;
+      }
+    }
+  }
+  float s1 = sqrt(f1);
+  float s2 = sqrt(f2);
+  float edge = s2 - s1;
+  cellVec = bestR * smoothstep(0.0, 0.18, edge);
+  return vec3(s1, edge, id);
+}
+
+/** 높이 기반 블렌딩 — mask(0/1) 끝점은 유지하면서 경계(0.5)만 미세 높이차로 또렷하게 가릅니다. */
+float tn_hblend(float mask, float hA, float hB) {
+  float raw = mask * 2.0 - 0.5 + clamp(hB - hA, -0.5, 0.5);
+  return smoothstep(0.26, 0.74, clamp(raw, 0.0, 1.0));
 }
 `;
 

@@ -527,7 +527,7 @@ export function buildLiveScene(a: LiveSceneArgs): LiveScene {
         ziM: 3200, baseM: zLo, thickM: Math.max(300, zHi - zLo), cover: Math.max(...on.map(q => q.cover)), chi: q05(0.1 + 0.5 * rEff),
         shear: Math.round(shear * 1e3) / 1e3, shearDeg, edge: q2(1.5 + 1.5 * rEff), spec: 1.6, vstretch: 1.5, mix3d: q05(0.55 + 0.35 * rEff),
         fillM: 1500, smoothM: Math.round(450 - 300 * rEff), smoothZ: rEff > 0.5 ? 1 : 2, profile: prof, baseBump: q2(rEff), tauTarget: deckTau?.tau,
-        seed: flowSeed % 997, nxy: 128, nz: 32,
+        seed: flowSeed % 997, nxy: 96, nz: 24,
       };
       const minFillM = inMountainCloud ? Math.max(0, a.heightM - 50) : a.heightM + 350;
       const zMin = Math.max(minFillM, zLo - 300), zMax = zHi + 400;

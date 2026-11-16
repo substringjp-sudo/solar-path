@@ -73,6 +73,21 @@ const realTerrain = (lat, lon) => ({
     ok(pickTerrainForLocation(cache, 40.0, 100.0) === null, '아무 데도 안 맞으면 null');
   }
 
+  console.log('\n[6] 태양 추적 지평선·산 능선 가림 판정');
+  {
+    const { terrainHorizonDegAtAz, isSunVisibleAboveHorizon } = M;
+    ok(terrainHorizonDegAtAz(null, 240) === 0, '지형이 없으면 0°');
+    ok(terrainHorizonDegAtAz({ panoramicAngles: [10, 10], isFallback: true }, 180) === 0, 'fallback 지형은 0°');
+    const hillTerrain = { panoramicAngles: [0, 0, 6, 0, 0], minAz: 0, maxAz: 360 };
+    ok(Math.abs(terrainHorizonDegAtAz(hillTerrain, 180) - 6) < 1e-6, '180° 산 능선 6° 보간');
+    ok(Math.abs(terrainHorizonDegAtAz(hillTerrain, 135) - 3) < 1e-6, '90°(0°)·180°(6°) 중간 135° 는 3°');
+    ok(isSunVisibleAboveHorizon(0.0, 0.27, 0) === true, '지평선에 반쯤 걸린 태양은 보인다');
+    ok(isSunVisibleAboveHorizon(-0.35, 0.27, 0) === false, '지평선 아래로 완전히 지면 안 보인다');
+    ok(isSunVisibleAboveHorizon(5.6, 0.5, 6) === true, '6° 산 위로 원반 윗부분이 걸리면 보인다');
+    ok(isSunVisibleAboveHorizon(5.4, 0.5, 6) === false, '6° 산 뒤로 완전히 넘어가면 안 보인다');
+    ok(isSunVisibleAboveHorizon(2.0, 0.5, 0, false) === false, '시각 가시성이 false 면 안 보인다');
+  }
+
   console.log(`\n${fail ? 'FAILURES' : '모두 통과'} — pass ${pass} / fail ${fail}`);
   process.exit(fail ? 1 : 0);
 })();

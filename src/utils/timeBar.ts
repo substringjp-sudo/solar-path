@@ -161,6 +161,9 @@ export const clampMs = (tMs: number) => Math.max(DATA_START_MS, Math.min(MAX_MS,
 /** 같은 지역 시각으로 n일 앞뒤(고정 오프셋이라 24시간 × n). */
 export const shiftDays = (tMs: number, n: number) => clampMs(tMs + n * MS_DAY);
 
+/** n분 앞뒤. 자정을 넘으면 날짜도 따라갑니다. */
+export const shiftMinutes = (tMs: number, n: number) => clampMs(tMs + n * MS_MIN);
+
 /** n시간 앞뒤. 자정을 넘으면 날짜도 따라갑니다. */
 export const shiftHours = (tMs: number, n: number) => clampMs(tMs + n * MS_HOUR);
 
@@ -279,4 +282,120 @@ export function createCommitThrottle<T>(commit: (v: T) => void, intervalMs: numb
       pending = null;
     },
   };
+}
+
+/**
+ * 연속 드래그 중에는 앱 전체 React 상태 커밋을 멈추고, 손가락이 잠시 멈추거나(`idleMs`)
+ * 손을 뗄 때(`flush`) 마지막 값만 반영합니다. 3D 씬은 `emitScrubTime` 으로 별도 즉시 갱신됩니다.
+ */
+export function createIdleCommit<T>(commit: (v: T) => void, idleMs: number, env: ThrottleEnv = REAL_ENV) {
+  let pending: { v: T } | null = null;
+  let timer: unknown = null;
+  const clear = () => {
+    if (timer !== null) { env.clearTimeout(timer); timer = null; }
+  };
+  return {
+    push(v: T) {
+      pending = { v };
+      clear();
+      timer = env.setTimeout(() => {
+        timer = null;
+        if (pending) { const p = pending; pending = null; commit(p.v); }
+      }, idleMs);
+    },
+    flush() {
+      clear();
+      if (pending) { const p = pending; pending = null; commit(p.v); }
+    },
+    cancel() {
+      clear();
+      pending = null;
+    },
+  };
+}
+
+// ── 수직 정밀 스크럽 감속 & 손 뗄 때 튐 방지 ─────────────────────────────────
+
+export type PrecisionGear = 1 | 0.25 | 0.1;
+
+/**
+ * 트랙에서 세로(|dy|)로 손가락을 뗄수록 가로 감도를 낮춰(1/4× · 1/10×) 1분 조절을 돕습니다.
+ * 경계 부근 떨림을 막기 위해 히스테리시스를 둡니다.
+ */
+export function nextPrecisionGear(absDyPx: number, current: PrecisionGear): PrecisionGear {
+  if (current === 1) {
+    if (absDyPx >= 64) return 0.1;
+    if (absDyPx >= 24) return 0.25;
+    return 1;
+  }
+  if (current === 0.25) {
+    if (absDyPx <= 16) return 1;
+    if (absDyPx >= 64) return 0.1;
+    return 0.25;
+  }
+  if (absDyPx <= 16) return 1;
+  if (absDyPx <= 52) return 0.25;
+  return 0.1;
+}
+
+export interface ScrubSample {
+  t: number;
+  pct: number;
+  dx: number;
+}
+
+/**
+ * 손을 떼기 직전(`settleWindowMs`) 터치 접촉 면적 축소로 생기는 미세 이동(lift-off jitter)을 걸러냅니다.
+ * 짧은 탭은 처음 닿은 위치를, 멈춰 겨냥했거나 직전 튐이 감지된 드래그는 직전 안정 위치를 반환합니다.
+ */
+export function resolveReleasePct(
+  samples: readonly ScrubSample[],
+  releaseAtMs: number,
+  settleWindowMs = 65,
+  tapTolerancePx = 3,
+): number {
+  if (samples.length === 0) return 0;
+  const first = samples[0];
+  const latest = samples[samples.length - 1];
+  if (samples.length === 1) return first.pct;
+
+  let maxAbsDx = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const d = Math.abs(samples[i].dx - first.dx);
+    if (d > maxAbsDx) maxAbsDx = d;
+  }
+  if (releaseAtMs - first.t < 180 && maxAbsDx <= tapTolerancePx) {
+    return first.pct;
+  }
+
+  const cutoff = releaseAtMs - settleWindowMs;
+  let anchorIdx = 0;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    if (samples[i].t <= cutoff) {
+      anchorIdx = i;
+      break;
+    }
+  }
+  const anchor = samples[anchorIdx];
+  if (anchor === latest) return latest.pct;
+  if (releaseAtMs - anchor.t > 140) return anchor.pct;
+
+  let preAnchor = anchor;
+  for (let i = anchorIdx - 1; i >= 0; i--) {
+    preAnchor = samples[i];
+    if (anchor.t - samples[i].t >= 45) break;
+  }
+  const preDt = Math.max(1, anchor.t - preAnchor.t);
+  const preVx = (anchor.dx - preAnchor.dx) / preDt;
+  const tailDt = Math.max(1, latest.t - anchor.t);
+  const tailDx = latest.dx - anchor.dx;
+  const prevSample = samples[samples.length - 2];
+  const lastStepDx = latest.dx - prevSample.dx;
+
+  if (Math.abs(preVx) < 0.05) return anchor.pct;
+  if (tailDx !== 0 && Math.sign(tailDx) !== Math.sign(preVx)) return anchor.pct;
+  if (lastStepDx !== 0 && Math.sign(lastStepDx) !== Math.sign(preVx)) return anchor.pct;
+  if (Math.abs(tailDx) > Math.abs(preVx) * tailDt * 1.8 + 2) return anchor.pct;
+
+  return latest.pct;
 }

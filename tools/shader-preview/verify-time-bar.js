@@ -179,6 +179,92 @@ const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
   th2.flush();
   ok(log.length <= 32 && log[log.length - 1] === 2999, `1 ms 간격 3000 입력 → 커밋 ${log.length}회(≈ 초당 10회), 마지막 값 보존`);
 
+  console.log('\n[6] ±1분 · idle 커밋 · 정밀 기어 · 손 뗄 때 튐 방지');
+  ok(loc(T.shiftMinutes(t0, 1)) === '2026-10-16 13:34' && loc(T.shiftMinutes(t0, -1)) === '2026-10-16 13:32', '±1분');
+  const minEdgeLate = Date.UTC(2026, 9, 16, 14, 59); // KST 23:59
+  ok(loc(T.shiftMinutes(minEdgeLate, 1)) === '2026-10-17 00:00', '23:59 + 1분 → 다음 날 00:00');
+  ok(loc(T.shiftMinutes(minEdgeLate + 60000, -1)) === '2026-10-16 23:59', '00:00 − 1분 → 전날 23:59');
+  ok(T.shiftMinutes(T.DATA_START_MS, -1) === T.DATA_START_MS && T.shiftMinutes(T.MAX_MS, 1) === T.MAX_MS, '±1분도 범위 끝에서 멈춘다');
+
+  {
+    const idleLog = [];
+    let iclock = 0; const itimers = [];
+    const ienv = {
+      now: () => iclock,
+      setTimeout: (fn, ms) => { const t = { at: iclock + ms, fn, live: true }; itimers.push(t); return t; },
+      clearTimeout: t => { if (t) t.live = false; },
+    };
+    const iadv = ms => {
+      const end = iclock + ms;
+      for (;;) {
+        const next = itimers.filter(t => t.live && t.at <= end).sort((a, b) => a.at - b.at)[0];
+        if (!next) break;
+        iclock = next.at; next.live = false; next.fn();
+      }
+      iclock = end;
+    };
+    const ic = T.createIdleCommit(v => idleLog.push([iclock, v]), 240, ienv);
+    ic.push(10); iadv(100); ic.push(11); iadv(100); ic.push(12);
+    ok(idleLog.length === 0, '연속 드래그 중에는 idle 커밋을 보류한다');
+    iadv(240);
+    ok(idleLog.length === 1 && idleLog[0][1] === 12, '손이 240ms 멈추면 마지막 값(12)만 커밋');
+    ic.push(13); ic.flush();
+    ok(idleLog.length === 2 && idleLog[1][1] === 13, 'flush 는 즉시 커밋(손 뗄 때)');
+    ic.push(14); ic.cancel(); iadv(500);
+    ok(idleLog.length === 2, 'cancel 은 남은 값을 버린다');
+  }
+
+  // 정밀 기어 & 히스테리시스
+  {
+    let g = T.nextPrecisionGear(10, 1);
+    ok(g === 1, '트랙 근처(|dy|=10)는 1×');
+    g = T.nextPrecisionGear(28, g);
+    ok(g === 0.25, '|dy|>=24 에서 1/4× 진입');
+    ok(T.nextPrecisionGear(20, g) === 0.25, '경계 히스테리시스(|dy|=20)로 1/4× 유지');
+    g = T.nextPrecisionGear(70, g);
+    ok(g === 0.1, '|dy|>=64 에서 1/10× 진입');
+    ok(T.nextPrecisionGear(56, g) === 0.1, '경계 히스테리시스(|dy|=56)로 1/10× 유지');
+    g = T.nextPrecisionGear(12, g);
+    ok(g === 1, '트랙 근처(|dy|<=16)로 내리면 1× 복귀');
+  }
+
+  // 손 뗄 때 튐 방지
+  {
+    // 1) 짧은 탭 + lift-off 떨림(3px) -> 처음 누른 pct 유지
+    const tapSamples = [
+      { t: 1000, pct: 50, dx: 0 },
+      { t: 1070, pct: 52.5, dx: 3 },
+    ];
+    ok(T.resolveReleasePct(tapSamples, 1085, 65, 5) === 50, '짧은 탭 직후 떨림은 탭 위치를 유지');
+
+    // 2) 멈춰 겨냥(t=1000..1120) 뒤 lift-off 튐(t=1160) -> 안정 위치(68.5) 유지
+    const aimSamples = [
+      { t: 900, pct: 65, dx: 40 },
+      { t: 1000, pct: 68.5, dx: 50 },
+      { t: 1120, pct: 68.5, dx: 50.1 },
+      { t: 1160, pct: 71.2, dx: 53.5 },
+    ];
+    ok(T.resolveReleasePct(aimSamples, 1185, 65, 2.5) === 68.5, '정지 겨냥 뒤 lift-off 튐은 직전 안정 값 복원');
+
+    // 3) 한 방향으로 빠르게 연속 플릭 -> 마지막 위치 유지
+    const flickSamples = [
+      { t: 1000, pct: 20, dx: 0 },
+      { t: 1045, pct: 35, dx: 30 },
+      { t: 1090, pct: 50, dx: 60 },
+      { t: 1135, pct: 65, dx: 90 },
+    ];
+    ok(T.resolveReleasePct(flickSamples, 1150, 65, 2.5) === 65, '빠른 연속 드래그는 마지막 위치 유지');
+
+    // 4) 연속 드래그 중 마지막 순간 역방향 튐 -> 직전 안정 값 복원
+    const revTwitchSamples = [
+      { t: 1000, pct: 20, dx: 0 },
+      { t: 1050, pct: 30, dx: 20 },
+      { t: 1100, pct: 40, dx: 40 },
+      { t: 1140, pct: 37, dx: 34 },
+    ];
+    ok(T.resolveReleasePct(revTwitchSamples, 1155, 65, 2.5) === 30, '마지막 역방향 lift-off 튐 차단');
+  }
+
   console.log(fail ? `\n실패 ${fail} / 통과 ${pass}` : `\n모두 통과 — pass ${pass} / fail 0`);
   process.exit(fail ? 1 : 0);
 })();

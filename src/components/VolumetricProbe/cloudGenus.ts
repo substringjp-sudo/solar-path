@@ -958,6 +958,11 @@ function* genusWeatherSteps(
   for (let k = 0; k < layers.length; k++) {
     const L = layers[k];
     if (!L || !(L.cover > 0) || k > 3) continue;
+    // 레인 0이 3D 파동 장(waveOn > 0.5)으로 구동되면 셰이더가 2D 날씨 R 채널을 1.0으로 덮어쓰므로 2D 합성을 생략합니다.
+    if (k === 0 && (L.opts as { wave?: unknown } | undefined)?.wave) {
+      for (let i = 0; i < S * S; i++) data[i * 4] = 255;
+      continue;
+    }
     const useFlow = !!flow && (fp(L, 'flow') ?? 0) > 0;
     const pKey = layerPatternKey(L, S, tileKm, seed, k, flow);
     let baseEntry = layerBaseFieldCache.get(pKey);

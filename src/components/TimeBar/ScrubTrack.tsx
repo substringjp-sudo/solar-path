@@ -19,10 +19,11 @@
  * 앱 전체 상태(시각)를 얼마나 자주 바꿀지는 부모가 정합니다(`createCommitThrottle`).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, PanResponder, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { useCelestialStore } from '../../store/useCelestialStore';
 import { mono, radius } from '../../theme/tokens';
 import { useThemeColors } from '../../theme/useTheme';
+import { nextPrecisionGear, resolveReleasePct, type PrecisionGear, type ScrubSample } from '../../utils/timeBar';
 
 /** 손잡이 가로 폭 — 가장자리 여백(손잡이가 트랙 끝에서 잘리지 않게)이 이 절반입니다. */
 export const KNOB_W = 56;
@@ -30,6 +31,10 @@ export const KNOB_H = 30;
 const KNOB_PAD = KNOB_W / 2;
 const PIN_W = 16;
 const PIN_PAD = 8;
+const PIN_GRAB_RADIUS = 30;
+const MAX_SAMPLES = 20;
+
+const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 
 interface Props {
   /** 손잡이 위치 0~100 (바깥이 정한 값. 손가락을 쥐고 있는 동안은 손가락이 이깁니다). */
@@ -41,6 +46,10 @@ interface Props {
   onScrubEnd?: () => void;
   /** 위치 → 손잡이 안 글자 */
   formatLabel: (pct: number) => string;
+  /** 드래그 중 배지·루페 React 갱신 주기를 줄이기 위한 버킷 키(기본값: formatLabel). */
+  getDisplayBucket?: (pct: number) => string | number;
+  /** 트랙에서 세로로 손가락을 뗄수록 1/4×·1/10× 감속하는 정밀 스크럽 사용 여부. */
+  precisionMode?: boolean;
   /** 터치 높이(손잡이가 이 안에 가운데로 앉습니다). */
   height?: number;
   /** 트랙 바탕(띠·눈금) — 손가락을 받지 않습니다. 가로는 트랙 폭(손잡이 중심이 움직이는 범위)에 맞춰집니다. */
@@ -59,11 +68,11 @@ interface Props {
   /** 트랙 우측에 실시간으로 연동되는 고정 라벨 배지를 렌더링할 때 사용 */
   renderValueBadge?: (label: string) => React.ReactNode;
   /** 드래그 중 상단에 표시할 정밀 돋보기(Loupe) 렌더러 */
-  renderLoupe?: (pct: number, label: string) => React.ReactNode;
+  renderLoupe?: (pct: number, label: string, gear: PrecisionGear) => React.ReactNode;
 }
 
 export const ScrubTrack: React.FC<Props> = ({
-  value, onScrub, onScrubStart, onScrubEnd, formatLabel, height = 44,
+  value, onScrub, onScrubStart, onScrubEnd, formatLabel, getDisplayBucket, precisionMode = false, height = 44,
   children, trackTop, trackHeight = 4, onAdjust, accessibilityLabel, accessibilityValue, style, knobTone,
   variant = 'knob', renderValueBadge, renderLoupe,
 }) => {
@@ -77,93 +86,146 @@ export const ScrubTrack: React.FC<Props> = ({
   padRef.current = pad;
   const variantRef = useRef(variant);
   variantRef.current = variant;
+  const precisionRef = useRef(precisionMode);
+  precisionRef.current = precisionMode;
 
-  const [dragPct, setDragPct] = useState<number | null>(null);
+  const clampedValue = clampPct(value);
+  const valueRef = useRef(clampedValue);
+  valueRef.current = clampedValue;
+
+  // 위치 이동은 React 상태를 거치지 않고 네이티브 드라이버 Animated.Value 로 직접 구동합니다.
+  const animX = useRef(new Animated.Value(0)).current;
   const draggingRef = useRef(false);
-  const startPctRef = useRef(value);
+  const pctRef = useRef(clampedValue);
+  const prevDxRef = useRef(0);
+  const gearRef = useRef<PrecisionGear>(1);
+  const tapJumpRef = useRef(false);
+  const samplesRef = useRef<ScrubSample[]>([]);
+
+  const [hudState, setHudState] = useState<{ pct: number; label: string; bucket: string | number; gear: PrecisionGear } | null>(null);
+  const hudMetaRef = useRef<{ label: string; bucket: string | number; gear: PrecisionGear } | null>(null);
 
   // 콜백은 ref 로 — 제스처 핸들러에서 항상 최신 콜백을 참조합니다.
-  const cb = useRef({ onScrub, onScrubStart, onScrubEnd, formatLabel });
-  cb.current = { onScrub, onScrubStart, onScrubEnd, formatLabel };
-
-  const currentPct = dragPct !== null ? dragPct : Math.max(0, Math.min(100, value));
+  const cb = useRef({ onScrub, onScrubStart, onScrubEnd, formatLabel, getDisplayBucket });
+  cb.current = { onScrub, onScrubStart, onScrubEnd, formatLabel, getDisplayBucket };
 
   const onTrackLayout = (e: LayoutChangeEvent) => {
     setTrackWidth(e.nativeEvent.layout.width);
   };
 
-  const end = useCallback(() => {
-    if (!draggingRef.current) return;
-    draggingRef.current = false;
-    setDragPct(null);
-    useCelestialStore.getState().setGestureBlocked(false);
-    cb.current.onScrubEnd?.();
+  const syncHudState = useCallback((pct: number, gear: PrecisionGear, force = false) => {
+    const label = cb.current.formatLabel(pct);
+    const bucket = cb.current.getDisplayBucket ? cb.current.getDisplayBucket(pct) : label;
+    const prev = hudMetaRef.current;
+    if (!force && prev && prev.label === label && prev.bucket === bucket && prev.gear === gear) {
+      return;
+    }
+    hudMetaRef.current = { label, bucket, gear };
+    setHudState({ pct, label, bucket, gear });
   }, []);
+
+  const end = useCallback((terminated = false) => {
+    if (!draggingRef.current) return;
+    const settledPct = terminated
+      ? pctRef.current
+      : resolveReleasePct(samplesRef.current, Date.now(), 65, tapJumpRef.current ? 5 : 2.5);
+    const didMoveOrJump = samplesRef.current.length > 1 || tapJumpRef.current;
+    pctRef.current = settledPct;
+    animX.setValue((settledPct / 100) * usableRef.current);
+    if (didMoveOrJump) {
+      cb.current.onScrub(settledPct);
+    }
+
+    draggingRef.current = false;
+    samplesRef.current = [];
+    hudMetaRef.current = null;
+    useCelestialStore.getState().setGestureBlocked(false);
+    // 반드시 flush(onScrubEnd) 를 먼저 호출해 스토어 value 가 확정된 뒤 드래그 HUD 를 내립니다.
+    cb.current.onScrubEnd?.();
+    setHudState(null);
+  }, [animX]);
 
   const responder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: (evt) => {
-      draggingRef.current = true;
-      useCelestialStore.getState().setGestureBlocked(true);
-      cb.current.onScrubStart?.();
-
-      const touchX = evt.nativeEvent.locationX;
       const u = usableRef.current;
       const curPad = padRef.current;
       const curVariant = variantRef.current;
-      // 현재 마커 중심의 X 위치 (트랙 View 기준)
-      const currentMarkerX = curPad + (startPctRef.current / 100) * u;
+      const currentMarkerX = curPad + (valueRef.current / 100) * u;
+      const touchX = evt.nativeEvent.locationX;
       const dist = Math.abs(touchX - currentMarkerX);
-      const grabRadius = curVariant === 'pin' ? 24 : KNOB_W / 2 + 8;
+      const grabRadius = curVariant === 'pin' ? PIN_GRAB_RADIUS : KNOB_W / 2 + 8;
+      const jumped = dist > grabRadius;
+      const initialPct = jumped
+        ? clampPct(((touchX - curPad) / u) * 100)
+        : valueRef.current;
 
-      if (dist <= grabRadius) {
-        // 손잡이 근처를 잡은 경우: 현재 위치 유지한 채 dx 이동 준비
-        setDragPct(startPctRef.current);
-      } else {
-        // 트랙의 다른 부분을 탭한 경우: 탭한 위치로 즉시 점프
-        const tapPct = Math.max(0, Math.min(100, ((touchX - curPad) / u) * 100));
-        startPctRef.current = tapPct;
-        setDragPct(tapPct);
-        cb.current.onScrub(tapPct);
+      draggingRef.current = true;
+      tapJumpRef.current = jumped;
+      pctRef.current = initialPct;
+      prevDxRef.current = 0;
+      gearRef.current = 1;
+      samplesRef.current = [{ t: Date.now(), pct: initialPct, dx: 0 }];
+
+      animX.setValue((initialPct / 100) * u);
+      useCelestialStore.getState().setGestureBlocked(true);
+      cb.current.onScrubStart?.();
+      if (jumped) {
+        cb.current.onScrub(initialPct);
       }
+      syncHudState(initialPct, 1, true);
     },
     onPanResponderMove: (_evt, g) => {
       if (!draggingRef.current) return;
       const u = usableRef.current;
-      const deltaPct = (g.dx / u) * 100;
-      const nextPct = Math.max(0, Math.min(100, startPctRef.current + deltaPct));
-      setDragPct(nextPct);
-      cb.current.onScrub(nextPct);
-    },
-    onPanResponderRelease: () => end(),
-    onPanResponderTerminate: () => end(),
-  }), [end]);
+      const stepDx = g.dx - prevDxRef.current;
+      prevDxRef.current = g.dx;
 
-  // 외부 value 동기화 (드래그 중이 아닐 때 startPctRef 갱신)
+      // 수직(|g.dy|) 거리에 따른 정밀 기어를 누적 이동분(stepDx)에만 곱해 기어 전환 시 위치 점프를 없앱니다.
+      const gear: PrecisionGear = precisionRef.current
+        ? nextPrecisionGear(Math.abs(g.dy), gearRef.current)
+        : 1;
+      gearRef.current = gear;
+
+      const nextPct = clampPct(pctRef.current + (stepDx / u) * 100 * gear);
+      pctRef.current = nextPct;
+      animX.setValue((nextPct / 100) * u);
+
+      const list = samplesRef.current;
+      if (list.length >= MAX_SAMPLES) list.shift();
+      list.push({ t: Date.now(), pct: nextPct, dx: g.dx });
+
+      cb.current.onScrub(nextPct);
+      syncHudState(nextPct, gear, false);
+    },
+    onPanResponderRelease: () => end(false),
+    onPanResponderTerminate: () => end(true),
+  }), [animX, end, syncHudState]);
+
+  // 외부 value 또는 트랙 폭이 바뀌면(비드래그 상태일 때) 네이티브 위치 동기화
   useEffect(() => {
     if (!draggingRef.current) {
-      startPctRef.current = Math.max(0, Math.min(100, value));
+      pctRef.current = clampedValue;
+      animX.setValue((clampedValue / 100) * usable);
     }
-  }, [value]);
+  }, [clampedValue, usable, animX]);
 
-  useEffect(() => () => { if (draggingRef.current) end(); }, [end]);
+  useEffect(() => () => { if (draggingRef.current) end(true); }, [end]);
 
   const top = trackTop ?? (height - trackHeight) / 2;
-  const label = formatLabel(currentPct);
+  const label = hudState ? hudState.label : formatLabel(clampedValue);
 
-  const isDragging = dragPct !== null;
+  const isDragging = hudState !== null;
   const LOUPE_W = 154;
-  const markerCenter = pad + (currentPct / 100) * usable;
-  // 슬라이더 트랙보다 좌우로 자연스럽게 넘어가도록 마커 중심 기준으로 직접 배치
-  const loupeLeft = markerCenter - LOUPE_W / 2;
   const caretX = LOUPE_W / 2;
 
   return (
     <View style={[{ height, flexDirection: 'row', alignItems: 'center', width: '100%' }, style]}>
       {/* 인터랙션 트랙 영역 */}
       <View
+        collapsable={false}
         style={{ flex: 1, height, justifyContent: 'center' }}
         onLayout={onTrackLayout}
         accessible
@@ -182,15 +244,15 @@ export const ScrubTrack: React.FC<Props> = ({
           <View style={{ position: 'absolute', left: 0, right: 0, top, height: trackHeight }}>{children}</View>
         </View>
 
-        {/* 손잡이 / 핀: transform translateX 로 이동 */}
+        {/* 손잡이 / 핀: 네이티브 드라이버 translateX 로 이동 */}
         {variant === 'pin' ? (
-          <View
+          <Animated.View
             pointerEvents="none"
             style={[
               styles.pinContainer,
               {
                 height,
-                transform: [{ translateX: (currentPct / 100) * usable }],
+                transform: [{ translateX: animX }],
               },
             ]}
           >
@@ -216,40 +278,41 @@ export const ScrubTrack: React.FC<Props> = ({
                 },
               ]}
             />
-          </View>
+          </Animated.View>
         ) : (
-          <View
+          <Animated.View
             pointerEvents="none"
             style={[
               styles.knob,
               {
                 top: (height - KNOB_H) / 2,
                 left: 0,
-                transform: [{ translateX: (currentPct / 100) * usable }],
+                transform: [{ translateX: animX }],
                 backgroundColor: color.panelRaised,
                 borderColor: knobTone ?? color.accentLine,
               },
             ]}
           >
             <Text style={[styles.knobText, { color: color.accent }]} numberOfLines={1}>{label}</Text>
-          </View>
+          </Animated.View>
         )}
 
         {/* ── 드래그 중 실시간 돋보기(Loupe) 팝업 ─────────────────────── */}
-        {isDragging && renderLoupe && trackWidth > 0 && (
-          <View
+        {isDragging && hudState && renderLoupe && trackWidth > 0 && (
+          <Animated.View
             pointerEvents="none"
             style={[
               styles.loupeAnchor,
               {
-                left: loupeLeft,
-                top: top - 62,
+                left: pad - LOUPE_W / 2,
+                top: top - 64,
+                transform: [{ translateX: animX }],
               },
             ]}
           >
-            {renderLoupe(currentPct, label)}
+            {renderLoupe(hudState.pct, hudState.label, hudState.gear)}
             <View style={[styles.loupeCaret, { left: caretX - 5 }]} />
-          </View>
+          </Animated.View>
         )}
       </View>
 

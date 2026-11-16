@@ -53,7 +53,7 @@ import {
 import { patchSpectralGenerator, renderAtmosphere } from './spectralAtmosphere';
 import { flowCamCellOffsetKm, flowCoverIn, genusCoverIn, genusEnvelope, genusLayerShape, makeGenusWeather, makeGenusWeatherAsync, mergeFlowOpts, morphCoverIn, morphShapeOpts, patchGenusShader, planFlowScene, setGenusFrame, setGenusDiffuse, setGenusLightFloors, setGenusPhysics, setGenusSkeleton, setGenusUniforms, setGrainKnobs, setLightingFix, setTsunShader, setTsunUniforms, type GenusKey, type GenusLayer, type GenusParams, GENUS } from './cloudGenus';
 import { morphParamsOf } from './cloudMorph';
-import { buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarSunMap } from './farSun';
+import { buildFarCoverGrids, buildFarSunMap, patchFarSunShader, setFarSunUniforms, type FarCoverGrids, type FarSunMap } from './farSun';
 import { BILLOW_DEFAULT, patchBillowShader, setBillowUniforms, type BillowParams } from './cloudBillow';
 import { bakeWaveField, bakeWaveFieldAsync, patchWaveShader, setWaveUniforms, type WaveField, type WaveParams } from './cloudWave';
 import { applyLightingFixAerial, applyLightingFixCloudsVertex, type LightingFixFlags } from './lightingFix';
@@ -1328,7 +1328,8 @@ export async function createVolumetricScene(
     cm.uniforms.cityShiftM = { value: new Vector2() };
     cm.needsUpdate = true;
   }
-  let farMap: { key: string; map: FarSunMap } | null = null;
+  let farCover: { ringSig: number; grids: FarCoverGrids } | null = null;
+  let farMap: { key: string; ringSig: number; altDeg: number; azDeg: number; draft: boolean; map: FarSunMap } | null = null;
   /** 먼 구름 가림의 관측점 공기 그늘(1 − T_air) — 대기 패스(열린 하늘·연무·구름 너머 하늘)와 구름 패스 공기 원근에 곱함. */
   let farAirShadeV = 0;
   const setFarAirShade = (v: number) => {
@@ -1343,20 +1344,51 @@ export async function createVolumetricScene(
     if (!opt.farSun || !p.macro || sunAltDeg > 10) { setFarSunUniforms(cm, null, [0, 1, 2, 2]); lastFarInfo = null; setFarAirShade(0); return; }
     const ls = p.layers.slice(0, 4);
     const bandRange = (b: 'low' | 'mid' | 'high', d: [number, number]): [number, number] => {
-      const L = ls.filter(x => x && x.band === b && (x.cover ?? 0) > 0);
-      if (!L.length) return d;
-      return [Math.min(...L.map(x => x.baseKm)), Math.max(...L.map(x => x.baseKm + (x.thicknessM ?? 1000) / 1000))];
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < ls.length; i++) {
+        const x = ls[i];
+        if (x && x.band === b && (x.cover ?? 0) > 0) {
+          if (x.baseKm < lo) lo = x.baseKm;
+          const top = x.baseKm + (x.thicknessM ?? 1000) / 1000;
+          if (top > hi) hi = top;
+        }
+      }
+      return lo <= hi ? [lo, hi] : d;
     };
     const bands = { low: bandRange('low', [0.8, 2.5]), mid: bandRange('mid', [2.5, 6]), high: bandRange('high', [7, 11]) };
     const sl = sun.clone().transformDirection(curNue.clone().invert());   // 국소 북(x)·위(y)·동(z)
     const sunAz = ((Math.atan2(sl.z, sl.x) * 180) / Math.PI + 360) % 360;
     // 고리 운량 전체의 간단한 지문(점 순서·운량) — 첫 점만 보면 해 쪽만 다른 두 장면이 같은 지도를 썼음(1차 하네스).
     let ringSig = 0;
-    for (const b of ['low', 'mid', 'high'] as const) (p.macro[b] ?? []).forEach((q, i) => { ringSig = (ringSig * 31 + Math.round(q.cover * 100) * (i + 1) + Math.round(q.distance) + Math.round(q.azimuthOffset) * 7) % 1000000007; });
-    const key = JSON.stringify([bands, Math.round(sunAz * 5), Math.round(sunAltDeg * 10), ringSig]);
-    if (!farMap || farMap.key !== key) {
+    for (const b of ['low', 'mid', 'high'] as const) {
+      const arr = p.macro[b];
+      if (!arr) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const q = arr[i];
+        ringSig = (ringSig * 31 + Math.round(q.cover * 100) * (i + 1) + Math.round(q.distance) + Math.round(q.azimuthOffset) * 7) % 1000000007;
+      }
+    }
+    const draft = isInteracting;
+    const azQ = draft ? Math.round(sunAz * 2) : Math.round(sunAz * 5);
+    const altQ = draft ? Math.round(sunAltDeg * 2.5) : Math.round(sunAltDeg * 10);
+    const key = `${bands.low[0].toFixed(2)},${bands.low[1].toFixed(2)}|${bands.mid[0].toFixed(2)},${bands.mid[1].toFixed(2)}|${bands.high[0].toFixed(2)},${bands.high[1].toFixed(2)}|${azQ}|${altQ}|${ringSig}|${draft ? 1 : 0}`;
+    const reuseFullDuringDraft = draft && farMap && !farMap.draft && farMap.ringSig === ringSig
+      && Math.abs(farMap.altDeg - sunAltDeg) < 0.25 && Math.abs(farMap.azDeg - sunAz) < 0.35;
+    if (!farMap || (farMap.key !== key && !reuseFullDuringDraft)) {
+      if (!farCover || farCover.ringSig !== ringSig) {
+        farCover = { ringSig, grids: buildFarCoverGrids(p.macro) };
+      }
       farMap?.map.tex.dispose();
-      farMap = { key, map: buildFarSunMap({ ring: p.macro, bands, sunAzDeg: sunAz, sunAltDeg }) };
+      const map = buildFarSunMap(
+        { ring: p.macro, bands, sunAzDeg: sunAz, sunAltDeg },
+        draft ? 32 : 64,
+        300,
+        12,
+        420,
+        draft ? 8 : 4,
+        farCover.grids,
+      );
+      farMap = { key, ringSig, altDeg: sunAltDeg, azDeg: sunAz, draft, map };
     }
     const ch = ls.map(x => (x?.band === 'mid' ? 1 : x?.band === 'high' ? 2 : 0));
     while (ch.length < 4) ch.push(0);
@@ -1365,7 +1397,7 @@ export async function createVolumetricScene(
     setFarAirShade(1 - farMap.map.centerT[3]);
   };
   const waveCacheMap = new Map<string, WaveField>();
-  const WAVE_CACHE_SIZE = 8;
+  const WAVE_CACHE_SIZE = 16;
   let activeWaveField: WaveField | null = null;
   const waveCacheGet = (key: string): WaveField | null => {
     const f = waveCacheMap.get(key);
@@ -1783,8 +1815,10 @@ export async function createVolumetricScene(
     const plain = useGenus ? inputs.map((L, i) => (gl[i] ? 0 : quantCover(L.cover))) : [0, 1, 2, 3].map(i => inputs[i]?.cover ?? 0);
     // §130 흐름 핵은 장면당 하나(모든 층이 같은 변위 지도를 공유 → 같은 골에 sc·ac 가 정렬) — planFlowScene(cloudGenus.ts).
     const flow: FlowSceneParams | null = useFlow ? planFlowScene(gl, { n: opt.flowN, steps: opt.flowSteps, hours: opt.flowHours, vrms: opt.flowVrms, psiEvery: opt.flowPsiEvery, qMode: opt.flowQMode, qN: opt.flowQN, qH: opt.flowQH, s90: opt.flowS90 }) : null;
-    const glForKey = gl.map(g => {
+    const glForKey = gl.map((g, i) => {
       if (!g || !g.opts) return g;
+      // 레인 0이 wave 3D 장을 쓰면 2D 날씨 R 채널이 고정 255로 채워지므로 cover/opts 변동과 무관하게 2D 날씨 캐시를 재사용합니다.
+      if (i === 0 && (g.opts as { wave?: unknown }).wave) return { waveChannel: true };
       const {
         beamTransmittance: _bt,
         sunGap: _sg,
@@ -1803,8 +1837,10 @@ export async function createVolumetricScene(
       if (useFlow) delete restOpts.spacingKm;
       return { genus: g.genus, cover: g.cover, opts: restOpts };
     });
-    const key = JSON.stringify([useGenus, glForKey, plain, useGenus ? (flow ? ['flow', flow] : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
-    return { inputs, gl, useGenus, plain, key, flow, S };
+    const flowNeeded = !!flow && gl.some((g, i) => !!g && g.cover > 0 && !(i === 0 && (g.opts as { wave?: unknown }).wave) && ((g.opts?.flow ?? 0) > 0));
+    const texFlow = flowNeeded ? flow : null;
+    const key = JSON.stringify([useGenus, glForKey, plain, useGenus ? (texFlow ? ['flow', texFlow] : 0) : [opt.weatherPeriod, opt.weatherRamp], S]);
+    return { inputs, gl, useGenus, plain, key, flow: texFlow, S };
   };
   type WeatherPlan = ReturnType<typeof weatherPlan>;
   const cacheGet = (key: string) => {
@@ -2046,7 +2082,7 @@ export async function createVolumetricScene(
     if (!tex) {
       const t0 = Date.now();
       tex = plan.useGenus
-        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 8, () => my !== sceneToken || disposed, plan.flow, 4)
+        ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 12, () => my !== sceneToken || disposed, plan.flow, 0)
         : makeWeather(plan.plain, opt);
       if (!tex) return false;
       if (my !== sceneToken || disposed) { tex.dispose(); return false; }
@@ -2060,7 +2096,7 @@ export async function createVolumetricScene(
       const key = waveKey(wp);
       if (!waveCacheGet(key)) {
         const t0 = Date.now();
-        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed, 6, 4);
+        const field = await bakeWaveFieldAsync(wp, () => my !== sceneToken || disposed, 12, 0);
         if (!field) return false;
         if (my !== sceneToken || disposed) { field.tex.dispose(); return false; }
         waveCachePut(key, field);
@@ -2086,6 +2122,7 @@ export async function createVolumetricScene(
     let doneCount = 0;
     const total = inputs.length;
     const seenKeys = new Set<string>();
+    const seenWaveKeys = new Set<string>();
     const isPaused = () => isInteracting || !!shouldPause?.();
     for (let idx = 0; idx < inputs.length; idx++) {
       const p = inputs[idx];
@@ -2094,27 +2131,30 @@ export async function createVolumetricScene(
       }
       if (shouldAbort?.() || disposed) return doneCount;
       const plan = weatherPlan(p, false);
+      let didWork = false;
       if (!seenKeys.has(plan.key)) {
         seenKeys.add(plan.key);
-        let tex = cacheGet(plan.key);
-        let didWork = false;
+        const tex = cacheGet(plan.key);
         if (!tex) {
           didWork = true;
-          tex = plan.useGenus
-            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 10, () => !!shouldAbort?.() || disposed, plan.flow, 2, isPaused)
+          const bakedTex = plan.useGenus
+            ? await makeGenusWeatherAsync(plan.gl, plan.S, GENUS_TILE_KM, 7, plan.plain, 14, () => !!shouldAbort?.() || disposed, plan.flow, 0, isPaused)
             : makeWeather(plan.plain, opt);
-          if (!tex || shouldAbort?.() || disposed) {
-            tex?.dispose();
+          if (!bakedTex || shouldAbort?.() || disposed) {
+            bakedTex?.dispose();
             return doneCount;
           }
-          cachePut(plan.key, tex);
+          cachePut(plan.key, bakedTex);
         }
-        const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
-        if (wp) {
-          const wKey = waveKey(wp);
+      }
+      const wp = (plan.gl?.[0]?.opts as { wave?: WaveParams } | undefined)?.wave;
+      if (wp) {
+        const wKey = waveKey(wp);
+        if (!seenWaveKeys.has(wKey)) {
+          seenWaveKeys.add(wKey);
           if (!waveCacheGet(wKey)) {
             didWork = true;
-            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, 10, 2, isPaused);
+            const field = await bakeWaveFieldAsync(wp, () => !!shouldAbort?.() || disposed, 14, 0, isPaused);
             if (!field || shouldAbort?.() || disposed) {
               field?.tex.dispose();
               return doneCount;
@@ -2122,9 +2162,9 @@ export async function createVolumetricScene(
             waveCachePut(wKey, field);
           }
         }
-        if (didWork) {
-          await new Promise(r => setTimeout(r, 0));
-        }
+      }
+      if (didWork) {
+        await new Promise(r => setTimeout(r, 0));
       }
       doneCount++;
       onProgress?.(idx + 1, total);
@@ -2308,6 +2348,9 @@ export async function createVolumetricScene(
       if (isInteracting === active) return;
       isInteracting = active;
       applyInteractionLod();
+      if (!active && opt.farSun && lastInput && farMap?.draft) {
+        applyFarSun(lastInput, lastSunAltForLight);
+      }
     },
     setOptions: (o, reapply = true) => {
       // §179 합친 값으로 먼저 점검 — throw 하면 옵션을 바꾸지 않음. 하늘 화면은 매 프레임 부르므로 T_sun 이 꺼져 있고 관련 키(T_sun 손잡이·genus·diffuse)를
@@ -2363,6 +2406,7 @@ export async function createVolumetricScene(
     },
     dispose: () => {
       disposeMacro();
+      farMap?.map.tex.dispose(); farMap = null; farCover = null;
       tsunAtlas = null;   // §179 아틀라스 텍스처는 부른 쪽 소유(dispose 하지 않음)
       disposed = true;
       composer.dispose();

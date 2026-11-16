@@ -20,10 +20,14 @@
 
 /** 산줄기를 그리는 데 필요한 최소한의 모양. */
 export interface TerrainLike {
-  bandAngles?: number[];
+  panoramicAngles?: number[];
+  bandAngles?: number[] | number[][];
   bandDistancesKm?: number[];
   waterFrac?: number[];
   observerElevation?: number;
+  minAz?: number;
+  maxAz?: number;
+  isFallback?: boolean;
   [k: string]: unknown;
 }
 
@@ -60,3 +64,43 @@ export function pickTerrainForLocation(
 
 /** 지형을 못 고를 때 쓰는 최소 모양. 산은 안 그려집니다(그릴 자료가 없으니까). */
 export const fallbackTerrain = (observerElevation = 50): TerrainLike => ({ observerElevation });
+
+/**
+ * 지형 프로필(`panoramicAngles`)에서 방위각 `azDeg` 방향의 지평선/능선 앙각(°)을 보간합니다.
+ * 자료가 없거나 fallback 이면 평평한 지평선 `0°` 를 돌려줍니다.
+ */
+export function terrainHorizonDegAtAz(
+  terrain: TerrainLike | null | undefined,
+  azDeg: number,
+): number {
+  const angles = terrain?.panoramicAngles;
+  if (!terrain || terrain.isFallback || !Array.isArray(angles) || angles.length === 0) {
+    return 0;
+  }
+  const minAz = typeof terrain.minAz === 'number' && Number.isFinite(terrain.minAz) ? terrain.minAz : 0;
+  const maxAz = typeof terrain.maxAz === 'number' && Number.isFinite(terrain.maxAz) ? terrain.maxAz : 360;
+  const span = maxAz - minAz;
+  if (span <= 0 || angles.length === 1) return Math.max(0, angles[0] ?? 0);
+
+  const normAz = (((azDeg - minAz) % 360) + 360) % 360;
+  const frac = Math.max(0, Math.min(1, normAz / span));
+  const idx = frac * (angles.length - 1);
+  const i0 = Math.floor(idx);
+  const i1 = Math.min(i0 + 1, angles.length - 1);
+  const f = idx - i0;
+  return Math.max(0, (angles[i0] ?? 0) * (1 - f) + (angles[i1] ?? 0) * f);
+}
+
+/**
+ * 태양 원반의 윗가장자리 겉보기 고도가 지평선·산 능선 위로 보이는지 판정합니다.
+ * 땅 아래로 완전히 사라져 안 보이는 순간 `false` 가 되어 카메라 추적을 멈추는 데 씁니다.
+ */
+export function isSunVisibleAboveHorizon(
+  sunApparentElevDeg: number,
+  sunDiscRadiusDeg: number,
+  horizonDeg: number,
+  sunMeshVisible = true,
+): boolean {
+  if (!sunMeshVisible) return false;
+  return sunApparentElevDeg + Math.max(0, sunDiscRadiusDeg) > horizonDeg;
+}
