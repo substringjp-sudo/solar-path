@@ -71,6 +71,8 @@ import {
 import {
   createBuildingField,
   updateBuildingFieldEye,
+  computeNightWindowRate,
+  computeNightWindowGlow,
   type BuildingFieldHandle,
 } from './BuildingField';
 import { fetchNearbyBuildings, BUILDING_RADIUS_M } from '../../utils/buildingTiles';
@@ -1757,6 +1759,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     buildingField.mesh.renderOrder = -0.475;
     scene.add(buildingField.mesh);
     assignLayer(buildingField.mesh, LAYER_MID);
+    buildingField.windowMesh.renderOrder = -0.468;
+    scene.add(buildingField.windowMesh);
+    assignLayer(buildingField.windowMesh, LAYER_MID);
     scene.add(buildingField.distMesh);
     assignLayer(buildingField.distMesh, LAYER_TERRAIN_DIST);
     scene.add(buildingField.litMesh);
@@ -2903,9 +2908,21 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         if (u.uOzoneDU) u.uOzoneDU.value = atmosphere.ozoneDU;
         if (u.uOvercast) u.uOvercast.value = overcast;
       }
-      if (buildingFieldRef.current?.material.uniforms.uObsElevM) {
-        buildingFieldRef.current.material.uniforms.uObsElevM.value =
-          simRef.current?.terrain?.observerElevation ?? 0;
+      if (buildingFieldRef.current) {
+        if (buildingFieldRef.current.material.uniforms.uObsElevM) {
+          buildingFieldRef.current.material.uniforms.uObsElevM.value =
+            simRef.current?.terrain?.observerElevation ?? 0;
+        }
+        const tzOffsetHours =
+          useCelestialStore.getState().timezoneOffsetHours ??
+          (-targetDate.getTimezoneOffset() / 60);
+        const localD = new Date(targetDate.getTime() + tzOffsetHours * 3600_000);
+        const localHour =
+          localD.getUTCHours() + localD.getUTCMinutes() / 60 + localD.getUTCSeconds() / 3600;
+        buildingFieldRef.current.setWindowLighting(
+          computeNightWindowRate(localHour),
+          computeNightWindowGlow(sunAltRef.current, currentLayers.cityLights !== false),
+        );
       }
       if (seaPlaneRef.current) {
         const u = seaPlaneRef.current.material.uniforms;

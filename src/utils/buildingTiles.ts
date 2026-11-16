@@ -26,6 +26,8 @@ const OVERPASS_URLS = [
 const CACHE_MAX = 12;
 const WALL_SUBDIV_M = 18;
 export const SKIRT_DEPTH_M = 5.0;
+/** 외벽 창문 칸 간격 (층고·열 피치 3.2m; 내부 실제 유리창은 약 1.6m × 1.4m) */
+export const WINDOW_CELL_M = 3.2;
 
 export interface OsmBuildingPoint {
   lat: number;
@@ -44,6 +46,8 @@ export interface BuildingMeshData {
   normals: Float32Array;
   /** 각 정점이 속한 건물의 지반 중심 (centerEastM, centerSouthM) */
   groundPos: Float32Array;
+  /** 외벽 창문 격자 좌표 (wallU, wallV, cols, rows) — 지붕은 (-1, -1, 0, 0) */
+  wallCoords: Float32Array;
   buildingCount: number;
   vertexCount: number;
 }
@@ -232,6 +236,7 @@ export function buildMergedBuildingGeometry(
   const posOut: number[] = [];
   const normOut: number[] = [];
   const gndOut: number[] = [];
+  const winOut: number[] = [];
   let buildingCount = 0;
 
   const pushTri = (
@@ -240,10 +245,15 @@ export function buildMergedBuildingGeometry(
     cx: number, cy: number, cz: number,
     nx: number, ny: number, nz: number,
     gx: number, gz: number,
+    ua: number, va: number,
+    ub: number, vb: number,
+    uc: number, vc: number,
+    cols: number, rows: number,
   ) => {
     posOut.push(ax, ay, az, bx, by, bz, cx, cy, cz);
     normOut.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     gndOut.push(gx, gz, gx, gz, gx, gz);
+    winOut.push(ua, va, cols, rows, ub, vb, cols, rows, uc, vc, cols, rows);
   };
 
   for (const el of elements) {
@@ -302,10 +312,24 @@ export function buildMergedBuildingGeometry(
       const a = oriented[roofTris[t]];
       const b = oriented[roofTris[t + 1]];
       const c = oriented[roofTris[t + 2]];
-      pushTri(a.x, topH, a.z, c.x, topH, c.z, b.x, topH, b.z, 0, 1, 0, cx, cz);
+      pushTri(a.x, topH, a.z, c.x, topH, c.z, b.x, topH, b.z, 0, 1, 0, cx, cz, -1, -1, -1, -1, -1, -1, 0, 0);
     }
 
     // 4. 외벽 쿼드 (ring 은 +x=동, +z=남 기준 반시계이므로 바깥 법선은 (+dz, 0, -dx))
+    let wallPerimM = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      const eLen = Math.hypot(b.x - a.x, b.z - a.z);
+      if (eLen >= 0.2) wallPerimM += eLen;
+    }
+    const winBaseH = minH > 0.2 ? minH : 0;
+    const winCols = Math.floor(wallPerimM / WINDOW_CELL_M);
+    const winRows = Math.floor(Math.max(0, topH - winBaseH) / WINDOW_CELL_M);
+    const vBot = baseH - winBaseH;
+    const vTop = topH - winBaseH;
+    let uAcc = 0;
+
     for (let i = 0; i < ring.length; i++) {
       const a = ring[i];
       const b = ring[(i + 1) % ring.length];
@@ -313,8 +337,11 @@ export function buildMergedBuildingGeometry(
       const eLen = Math.hypot(ex, ez);
       if (eLen < 0.2) continue;
       const nx = ez / eLen, nz = -ex / eLen;
-      pushTri(a.x, baseH, a.z, a.x, topH, a.z, b.x, topH, b.z, nx, 0, nz, cx, cz);
-      pushTri(a.x, baseH, a.z, b.x, topH, b.z, b.x, baseH, b.z, nx, 0, nz, cx, cz);
+      const u0 = uAcc;
+      const u1 = uAcc + eLen;
+      uAcc = u1;
+      pushTri(a.x, baseH, a.z, a.x, topH, a.z, b.x, topH, b.z, nx, 0, nz, cx, cz, u0, vBot, u0, vTop, u1, vTop, winCols, winRows);
+      pushTri(a.x, baseH, a.z, b.x, topH, b.z, b.x, baseH, b.z, nx, 0, nz, cx, cz, u0, vBot, u1, vTop, u1, vBot, winCols, winRows);
     }
     buildingCount++;
   }
@@ -324,6 +351,7 @@ export function buildMergedBuildingGeometry(
     positions: new Float32Array(posOut),
     normals: new Float32Array(normOut),
     groundPos: new Float32Array(gndOut),
+    wallCoords: new Float32Array(winOut),
     buildingCount,
     vertexCount: posOut.length / 3,
   };
@@ -335,6 +363,7 @@ export function createBuildingThreeGeometry(data: BuildingMeshData): THREE.Buffe
   geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
   geo.setAttribute('aGroundPos', new THREE.BufferAttribute(data.groundPos, 2));
+  geo.setAttribute('aWallCoord', new THREE.BufferAttribute(data.wallCoords, 4));
   return geo;
 }
 

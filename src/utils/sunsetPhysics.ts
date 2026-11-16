@@ -31,6 +31,10 @@ const LAMBDA_B = 450;
 
 export const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const smoothstep = (e0: number, e1: number, x: number): number => {
+  const t = clamp01((x - e0) / (e1 - e0));
+  return t * t * (3 - 2 * t);
+};
 
 const toSrgb = (c: number): number => {
   const x = clamp01(c);
@@ -848,8 +852,6 @@ export const predictSunset = (
   const illumHigh = cloudIllumination(effectiveSunAlt, CLOUD_ALT_HIGH_KM);
 
   const obsPoint = localPath.find(p => p.distance === 0) ?? localPath[0] ?? { low: 0, mid: 0, high: 0, visibility: 25000, humidity: 50 };
-  const centralPath = localPath.filter(p => p.azimuthOffset === 0).sort((a, b) => a.distance - b.distance);
-  const centerPoint = centralPath[1] ?? obsPoint ?? { low: 0, mid: 0, high: 0 };
 
   const lowVal = obsPoint.low / 100;
   const midVal = obsPoint.mid / 100;
@@ -873,64 +875,59 @@ export const predictSunset = (
   const overheadOvercast = clamp01(Math.max(cloudWeight, waterFactor, precipFactor, dniBlockFactor));
   const overheadGlow = clamp01(highVal * illumHigh + midVal * illumMid * 0.7);
 
-  const isHorizonBlocked = effectiveSunAlt < 3.0 && pathClarity < 0.15 &&
-    (obsPoint.low > 40 || centerPoint.low > 40);
+  // 1) 구름을 붉게 칠한 양:
+  //    하층운에 가리지 않고 시야에 드러난 상·중·하층 구름 비율 × 각 고도에 닿는 붉은 빛(지구그림자·색순도·세기) × 해쪽 경로 투과율
+  const layerRedBeam = (altKm: number, illum: number): number => {
+    if (illum <= 0) return 0;
+    const dipLayer = horizonDepressionDeg(altKm);
+    const localAlt = Math.max(-1.0, apparentAlt + dipLayer * 0.72);
+    // 높은 구름일수록 지표 경계층 먼지 위를 스쳐 붉은 광선을 더 강하게 받음
+    const beam = directBeamRGB(localAlt, Math.min(2800, altKm * 360), latVal, beta, doy);
+    const redExcess = Math.max(0, beam.r - 0.50 * beam.g - 0.25 * beam.b);
+    const redRatio = beam.r > 1e-4 ? Math.max(0, (beam.r - beam.g) / beam.r) : 0;
+    const redPurity = smoothstep(0.24, 0.58, redRatio);
+    const redPower = clamp01(redExcess / 0.14);
+    return illum * redPurity * redPower;
+  };
 
-  // 1) 구름 가득 낀 날 (완전 오버캐스트) 체크 -> 무조건 0점
-  const isOvercast = overheadOvercast > 0.8;
+  const visLow = lowVal * (1 - 0.35 * lowVal);
+  const visMid = midVal * (1 - 0.80 * lowVal);
+  const visHigh = highVal * (1 - 0.80 * lowVal) * (1 - 0.40 * midVal);
+  const rawLitCloud =
+    visHigh * 1.25 * layerRedBeam(CLOUD_ALT_HIGH_KM, illumHigh) +
+    visMid * 1.55 * layerRedBeam(CLOUD_ALT_MID_KM, illumMid) +
+    visLow * 0.90 * layerRedBeam(CLOUD_ALT_LOW_KM, illumLow);
+  const paintedCloud = (1 - Math.exp(-2.8 * rawLitCloud)) * Math.pow(pathClarity, 0.85);
 
-  // 2) 미세먼지가 아주 심해 시정이 나쁜 상태 체크 -> 낮은 점수대로 강제
-  const isDusty = (beta > 0.25) || (visibilityM !== undefined && visibilityM < 8000);
+  // 2) 날씨가 흐리지 않고 공기가 맑은 정도 (적당한 중·상층 노을 구름은 감점하지 않고 두꺼운 저층·수증기·강수·황사만 연속 감쇠)
+  const cloudDreary = clamp01(
+    lowVal * 0.88 +
+    Math.max(0, midVal - 0.45) * 0.75 +
+    Math.max(0, highVal - 0.75) * 0.35 +
+    lowVal * midVal * 0.25,
+  );
+  const waterPresence = clamp01((lowVal * 0.9 + midVal * 0.5) * 3.0);
+  const waterDreary = clamp01((liquidWater - 22) / 18) * waterPresence;
+  const precipDreary = clamp01(precip > 0.1 ? 1.0 : precip * 8.0);
+  const weatherDreary = Math.max(cloudDreary, waterDreary, precipDreary, dniBlockFactor * 0.90);
 
-  // 3) 구름 한 점 없는 맑은 하늘 체크 -> 50점대 고정
-  const totalCloudAmount = obsPoint.low + obsPoint.mid + obsPoint.high;
-  const isClearSky = totalCloudAmount < 15;
+  const skyClear = Math.pow(clamp01(1 - weatherDreary / 0.86), 1.25);
+  const airClear = Math.exp(-Math.max(0, beta - 0.01) * 1.9);
+  const weatherClear = skyClear * airClear;
 
-  let score = 0;
-
-  if (isOvercast) {
-    score = 0;
-  } else if (isClearSky) {
-    let clearScore = 53;
-    if (isDusty) clearScore -= 15; 
-    if (isHorizonBlocked) clearScore -= 15; 
-    score = Math.max(15, Math.round(clearScore));
-  } else {
-    const horizonProximity = clamp01(1 - Math.abs(effectiveSunAlt) / 8);
-    const cloudShow = pathClarity * overheadGlow * (0.5 + 0.5 * beamRedness);
-    let raw = 25 * pathClarity * horizonProximity + 70 * cloudShow;
-    
-    raw *= 1 - 0.85 * overheadOvercast;
-    
-    // 먼 지평선 근처에 구름이 많아 붉어지기 전에 태양이 가려지면 낮은 점수대로 제한 (10~30점)
-    if (isHorizonBlocked) {
-      raw = Math.min(25, raw * 0.3 + 10);
-    }
-    
-    // 미세먼지가 매우 심해 해가 바로 뿌얘지면 낮은 점수대로 제한 (10~30점)
-    if (isDusty) {
-      raw = Math.min(25, raw * 0.4 + 10);
-    }
-
-    // 구름 정도가 이상적일수록 (중층운/상층운 적정량 및 하층운이 맑을 때) 높은 점수
-    const isIdealCloud = obsPoint.mid >= 20 && obsPoint.mid <= 70 && obsPoint.low < 30;
-    if (isIdealCloud) {
-      raw += 15;
-    }
-
-    score = Math.max(0, Math.min(100, Math.round(raw)));
-  }
+  // 3) 최종 점수: 맑은 하늘 노을 기본(지평선 최대 38점) + 붉게 물든 구름량(최대 62점)
+  const sunWindow = smoothstep(10.0, 2.0, effectiveSunAlt) * smoothstep(-6.5, -1.5, effectiveSunAlt);
+  const baseSkyGlow = 38 * sunWindow * pathClarity * Math.pow(weatherClear, 0.85);
+  const cloudRedScore = 62 * paintedCloud * Math.pow(weatherClear, 0.55);
+  const score = Math.max(0, Math.min(100, Math.round(baseSkyGlow + cloudRedScore)));
 
   let quality: SunsetPrediction['quality'];
   let description: string;
-  if (overheadOvercast > 0.82) {
+  if (weatherDreary > 0.78 || precipFactor > 0.85 || (score <= 5 && overheadOvercast > 0.65)) {
     quality = 'Overcast';
     description = precip > 0
       ? 'Heavy rain clouds cover the entire sky, completely blocking the sunset light.'
       : 'A thick single layer of clouds covers the sky, completely hiding the sunlight.';
-  } else if (isHorizonBlocked) {
-    quality = 'Muted';
-    description = 'Thick clouds block the horizon in the sunset direction, making it hard to see the sunset glow.';
   } else if (score >= 75) {
     quality = 'Epic';
     description = 'Clear horizon combined with mid-to-high clouds suggests an intense, beautiful sunset.';
@@ -942,7 +939,9 @@ export const predictSunset = (
     description = 'Light is weak or there are many clouds, but a subtle sunset glow is visible.';
   } else {
     quality = 'Muted';
-    description = 'Lack of scattering or too few clouds might make the sunset look plain.';
+    description = effectiveSunAlt < 3.0 && pathClarity < 0.25
+      ? 'Thick clouds block the horizon in the sunset direction, making it hard to see the sunset glow.'
+      : 'Lack of scattering or too few clouds might make the sunset look plain.';
   }
 
   // Sky gradient (vertical only — for legacy consumers)
@@ -1057,8 +1056,8 @@ export const predictSunset = (
   //   칙칙: 구름이 많아 흑칙칙한 상태
   //   깨끗: 구름 없는 맑은 하늘
   const colorLabel: SunsetPrediction['colorLabel'] =
-    (beamRedness > 0.30 && overheadGlow > 0.08) ? 'Vivid'
-    : overheadOvercast > 0.55 ? 'Muted'
+    (score >= 60 && paintedCloud >= 0.25) ? 'Vivid'
+    : (weatherDreary > 0.55 || score < 20) ? 'Muted'
     : 'Clean';
 
   return {

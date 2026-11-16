@@ -46,6 +46,7 @@ const balancedIfdefs = (s) => {
     import {
       BUILDING_RADIUS_M,
       SKIRT_DEPTH_M,
+      WINDOW_CELL_M,
       estimateBuildingHeightM,
       estimateBuildingMinHeightM,
       triangulatePolygonXZ,
@@ -55,12 +56,18 @@ const balancedIfdefs = (s) => {
     } from ${JSON.stringify(path.join(ROOT, 'src/utils/buildingTiles.ts'))};
     import { decodeMvtTile, fetchMvtTileRaw, fetchUrbanMask, lonLatToTileXY, extractOuterRings, tilePointToLonLat } from ${JSON.stringify(path.join(ROOT, 'src/utils/mvtTiles.ts'))};
     import { createTerrainField } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/TerrainField.ts'))};
-    import { createBuildingField, updateBuildingFieldEye } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/BuildingField.ts'))};
+    import {
+      createBuildingField,
+      updateBuildingFieldEye,
+      computeNightWindowRate,
+      computeNightWindowGlow,
+    } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/BuildingField.ts'))};
     import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/SceneComposer.ts'))};
     (globalThis as any).__BLD_MOD = {
       THREE,
       BUILDING_RADIUS_M,
       SKIRT_DEPTH_M,
+      WINDOW_CELL_M,
       estimateBuildingHeightM,
       estimateBuildingMinHeightM,
       triangulatePolygonXZ,
@@ -76,6 +83,8 @@ const balancedIfdefs = (s) => {
       createTerrainField,
       createBuildingField,
       updateBuildingFieldEye,
+      computeNightWindowRate,
+      computeNightWindowGlow,
       LAYER_TERRAIN_DIST,
       LAYER_TERRAIN_LIT,
     };
@@ -165,6 +174,20 @@ const balancedIfdefs = (s) => {
   ok(roofUpCount === 6 && wallHorizCount >= 48,
     `지붕 +Y 법선(${roofUpCount}v) & 18m 세분화 외벽 단위법선(${wallHorizCount}v) 검증`);
   ok(groundAligned, '한 건물의 모든 정점이 동일 지반 중심(aGroundPos) 공유 → 경사지에서도 옥상 수평 유지');
+
+  const geo = M.createBuildingThreeGeometry(merged);
+  const wallAttr = geo.getAttribute('aWallCoord');
+  let wallVerts = 0, roofMarked = 0;
+  for (let i = 0; i < merged.vertexCount; i++) {
+    if (Math.abs(merged.normals[i * 3 + 1]) > 0.5) {
+      if (wallAttr.getX(i) < 0) roofMarked++;
+    } else {
+      wallVerts++;
+    }
+  }
+  ok(wallAttr?.count === merged.vertexCount && wallVerts > 0 && roofMarked === 6,
+    `aWallCoord 외벽/지붕 분리 바인딩 확인 (wall=${wallVerts}v, roofExcluded=${roofMarked}v)`);
+  geo.dispose();
 
   // 최소 MVT v2 바이너리 인코더 (네트워크 없이 decodeMvtTile · fetchNearbyBuildings · fetchUrbanMask 실증)
   const varint = (n) => {
@@ -356,10 +379,26 @@ const balancedIfdefs = (s) => {
   ok(tf.material.uniforms.uUrbanValid.value === 0, 'setUrbanMask(null) 해제 확인');
   tf.dispose();
 
-  console.log('\n[3] BuildingField 셰이더 · 3패스(main/dist/lit) · ON/OFF 토글 규약');
+  console.log('\n[3] BuildingField 셰이더 · 4패스(main/dist/lit/window) · 2시 이후 1% 내림 규약');
+  const r20 = M.computeNightWindowRate(20);
+  const r23 = M.computeNightWindowRate(23);
+  const r00 = M.computeNightWindowRate(0);
+  const r01 = M.computeNightWindowRate(1);
+  const r02 = M.computeNightWindowRate(2);
+  const r03 = M.computeNightWindowRate(3.5);
+  ok(Math.abs(r20 - 0.46) < 1e-6 && r23 < r20 && r23 > r00 && r01 < r00 && r01 > 0.01 &&
+     Math.abs(r02 - 0.01) < 1e-6 && Math.abs(r03 - 0.01) < 1e-6,
+    `심야 점등 비율 단조 감소 및 02시 이후 1% 유지 (20h=${r20.toFixed(2)}, 23h=${r23.toFixed(2)}, 0h=${r00.toFixed(2)}, 1h=${r01.toFixed(2)}, 2h=${r02.toFixed(2)}, 3.5h=${r03.toFixed(2)})`);
+  ok(Math.floor(24 * r02) === 0 && Math.floor(1200 * r02) === 12,
+    '건물별 floor 내림: 시골 24창문=0개 소등 vs 도심 1200창문=12개(1%) 유지');
+  ok(M.computeNightWindowGlow(20, true) === 0 &&
+     M.computeNightWindowGlow(-2, true) > 0 && M.computeNightWindowGlow(-2, true) < 1 &&
+     M.computeNightWindowGlow(-10, true) === 1 && M.computeNightWindowGlow(-10, false) === 0,
+    '태양 고도/도시불빛 연동: 주간=0, 박명=페이드, 야간=1, 도시불빛 OFF=0');
+
   const bf = M.createBuildingField({ eyeHeightM: 1.6 });
-  ok(bf.mesh.visible === false && bf.distMesh.visible === false && bf.litMesh.visible === false,
-    '초기 상태는 3개 메시 모두 visible=false');
+  ok(bf.mesh.visible === false && bf.distMesh.visible === false && bf.litMesh.visible === false && bf.windowMesh.visible === false,
+    '초기 상태는 4개 메시 모두 visible=false');
   ok(bf.distMesh.layers.isEnabled(M.LAYER_TERRAIN_DIST) && bf.litMesh.layers.isEnabled(M.LAYER_TERRAIN_LIT),
     'distMesh/litMesh 가 LAYER_TERRAIN_DIST / LAYER_TERRAIN_LIT 레이어에 배치됨');
 
@@ -387,18 +426,24 @@ const balancedIfdefs = (s) => {
     '옵션 OFF 상태에서 데이터 적재만으로는 표시되지 않음');
 
   bf.setVisible(true);
-  ok(bf.mesh.visible === true && bf.distMesh.visible === true && bf.litMesh.visible === true,
-    '옵션 ON + 데이터 있음 → 3개 메시 모두 visible=true');
+  bf.setWindowLighting(r20, 0);
+  ok(bf.mesh.visible === true && bf.distMesh.visible === true && bf.litMesh.visible === true && bf.windowMesh.visible === false,
+    '옵션 ON + 주간(glow=0) → 실루엣 3메시 ON, windowMesh 는 자동 스킵(visible=false)');
+  bf.setWindowLighting(r20, 1);
+  ok(bf.windowMesh.visible === true,
+    '야간(glow=1) → windowMesh 활성화(visible=true)');
 
   const cam = new M.THREE.PerspectiveCamera(60, 1, 0.1, 1000);
   cam.position.set(12, 34, -56);
   M.updateBuildingFieldEye(bf, cam);
-  ok(bf.mesh.position.distanceTo(cam.position) < 1e-6 && bf.distMesh.position.distanceTo(cam.position) < 1e-6,
-    'updateBuildingFieldEye 가 카메라 원점을 3메시에 동기화');
+  ok(bf.mesh.position.distanceTo(cam.position) < 1e-6 &&
+     bf.distMesh.position.distanceTo(cam.position) < 1e-6 &&
+     bf.windowMesh.position.distanceTo(cam.position) < 1e-6,
+    'updateBuildingFieldEye 가 카메라 원점을 4메시에 동기화');
 
   bf.setVisible(false);
-  ok(bf.mesh.visible === false && bf.distMesh.visible === false && bf.litMesh.visible === false,
-    '옵션 OFF 전환 → 3개 메시 모두 즉시 visible=false');
+  ok(bf.mesh.visible === false && bf.distMesh.visible === false && bf.litMesh.visible === false && bf.windowMesh.visible === false,
+    '옵션 OFF 전환 → 4개 메시 모두 즉시 visible=false');
 
   bf.setVisible(true);
   bf.setBuildings(null);
@@ -422,31 +467,38 @@ const balancedIfdefs = (s) => {
   ok(sceneSrc.includes('if (!bldEnabled)') && sceneSrc.includes('fetchNearbyBuildings(bldLat, bldLng') &&
      sceneSrc.includes('fetchUrbanMask(bldLat, bldLng') &&
      sceneSrc.includes('location?.coords?.latitude ?? 37.5665') &&
+     sceneSrc.includes('buildingField.windowMesh') &&
+     sceneSrc.includes('setWindowLighting(') &&
      sceneSrc.includes('setUrbanMask(mask)') && sceneSrc.includes('setFarUrban(') &&
      sceneSrc.includes('buildingRetryTimerRef') &&
      sceneSrc.includes('buildingFieldRef.current?.setPatch(patch, patch, maskPatch)') &&
      sceneSrc.includes('buildingFieldRef.current.dispose()'),
-    'SkyScene3D 조건부 건물 조회/재시도(OFF시 미요청), 서울 기본좌표 폴백, 도시 지반 마스크, DEM 동기화, 3패스 통합 및 해제 완비');
+    'SkyScene3D 조건부 건물 조회/재시도, 창문 야간점등 배선, 서울 폴백, 도시 지반 마스크, DEM 동기화 및 해제 완비');
   ok(stageSrc.includes('BuildingField.ts') && stageSrc.includes('buildingTiles.ts') && stageSrc.includes('mvtTiles.ts'),
     'tools/shader-preview/stage-esm.js 스테이징 목록 포함');
 
   const chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   if (fs.existsSync(chromeBin)) {
-    console.log('\n[5] 실제 Chrome WebGL2 3패스(main/dist/lit MRT) 셰이더 컴파일 · 픽셀 출력 검증');
+    console.log('\n[5] 실제 Chrome WebGL2 4패스(main/dist/lit MRT/야간 창문) 셰이더 컴파일 · 2시 이후 1% 내림 검증');
     const glWork = fs.mkdtempSync(path.join(os.tmpdir(), 'bld-gl-verify-'));
     const glEntry = path.join(glWork, 'entry.ts');
     const glBundle = path.join(glWork, 'bundle.js');
     fs.writeFileSync(glEntry, `
       import * as THREE from 'three';
       import { buildMergedBuildingGeometry } from ${JSON.stringify(path.join(ROOT, 'src/utils/buildingTiles.ts'))};
-      import { createBuildingField, updateBuildingFieldEye } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/BuildingField.ts'))};
+      import {
+        createBuildingField,
+        updateBuildingFieldEye,
+        computeNightWindowRate,
+        computeNightWindowGlow,
+      } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/BuildingField.ts'))};
       import { createTerrainField, updateTerrainFieldEye } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/TerrainField.ts'))};
       import { createSceneComposer, LAYER_MID, LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, assignLayer } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/SceneComposer.ts'))};
       (window as any).__runGlVerify = async () => {
         const shaderLogs: string[] = [];
         const origErr = console.error;
         console.error = (...a: any[]) => { shaderLogs.push(a.map(String).join(' ')); origErr(...a); };
-        const W = 128, H = 128;
+        const W = 160, H = 160;
         const canvas = document.createElement('canvas');
         canvas.width = W; canvas.height = H;
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
@@ -455,25 +507,39 @@ const balancedIfdefs = (s) => {
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(60, 1, 0.2, 1000);
         camera.position.set(0, 1.6, 0);
-        camera.lookAt(80, 1.6 + 6, 0);
+        camera.lookAt(80, 1.6 + 8, 0);
         const tf = createTerrainField({ rings: 32, spokes: 48, farM: 3000, eyeHeightM: 1.6, observerElevM: 20 });
         scene.add(tf.mesh); assignLayer(tf.mesh, LAYER_MID);
         scene.add(tf.distMesh); assignLayer(tf.distMesh, LAYER_TERRAIN_DIST);
         scene.add(tf.litMesh); assignLayer(tf.litMesh, LAYER_TERRAIN_LIT);
         tf.mesh.visible = true;
         const bf = createBuildingField({ eyeHeightM: 1.6, observerElevM: 20 });
+        bf.mesh.renderOrder = -0.475;
         scene.add(bf.mesh); assignLayer(bf.mesh, LAYER_MID);
+        bf.windowMesh.renderOrder = -0.468;
+        scene.add(bf.windowMesh); assignLayer(bf.windowMesh, LAYER_MID);
         scene.add(bf.distMesh); assignLayer(bf.distMesh, LAYER_TERRAIN_DIST);
         scene.add(bf.litMesh); assignLayer(bf.litMesh, LAYER_TERRAIN_LIT);
-        const bld = buildMergedBuildingGeometry([{
-          tags: { height: '65' },
+
+        const cityTower = buildMergedBuildingGeometry([{
+          tags: { height: '96' }, // 약 180m 둘레(56열) × 30층 = 1680 창문
           geometry: [
-            { lat: 37.5665 + 0.00025, lon: 126.9780 + 0.0005 },
-            { lat: 37.5665 + 0.00025, lon: 126.9780 + 0.0010 },
-            { lat: 37.5665 - 0.00025, lon: 126.9780 + 0.0010 },
-            { lat: 37.5665 - 0.00025, lon: 126.9780 + 0.0005 },
+            { lat: 37.5665 + 0.00025, lon: 126.9780 + 0.0007 },
+            { lat: 37.5665 + 0.00025, lon: 126.9780 + 0.0012 },
+            { lat: 37.5665 - 0.00025, lon: 126.9780 + 0.0012 },
+            { lat: 37.5665 - 0.00025, lon: 126.9780 + 0.0007 },
           ],
         }], 37.5665, 126.9780, 1000);
+        const ruralHouse = buildMergedBuildingGeometry([{
+          tags: { height: '6.4' }, // 약 26m 둘레(8열) × 2층 = 16 창문 (<100 → 2시 이후 floor 0)
+          geometry: [
+            { lat: 37.5665 + 0.00003, lon: 126.9780 + 0.0003 },
+            { lat: 37.5665 + 0.00003, lon: 126.9780 + 0.00037 },
+            { lat: 37.5665 - 0.00003, lon: 126.9780 + 0.00037 },
+            { lat: 37.5665 - 0.00003, lon: 126.9780 + 0.0003 },
+          ],
+        }], 37.5665, 126.9780, 1000);
+
         const composer = createSceneComposer(W, H, 1);
         composer.setTerrainDistance(true);
         const quadMat = new THREE.ShaderMaterial({
@@ -484,19 +550,20 @@ const balancedIfdefs = (s) => {
         const quadScene = new THREE.Scene();
         quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMat));
         const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        const sync = (depthOnly: number) => {
+        const sync = (depthOnly: number, sunAlt: number) => {
           for (const h of [tf, bf]) {
             h.material.uniforms.uObsElevM.value = 20;
             h.material.uniforms.uEyeHeightM.value = 1.6;
             h.material.uniforms.uDepthOnly.value = depthOnly;
-            h.material.uniforms.uSunAltDeg.value = 25;
-            h.material.uniforms.uSunAltRad.value = 25 * Math.PI / 180;
+            h.material.uniforms.uSunAltDeg.value = sunAlt;
+            h.material.uniforms.uSunAltRad.value = sunAlt * Math.PI / 180;
             h.material.uniforms.uSunAzRad.value = 2.0;
           }
           updateTerrainFieldEye(tf, camera);
           updateBuildingFieldEye(bf, camera);
         };
-        bf.setBuildings(null); bf.setVisible(false); sync(1);
+
+        bf.setBuildings(null); bf.setVisible(false); bf.setWindowLighting(0.46, 0); sync(1, 25);
         composer.setTerrainLit(true);
         composer.prepareTerrainDistance(renderer, scene, camera, 'base');
         quadMat.uniforms.t.value = composer.terrainLitTexture();
@@ -505,7 +572,7 @@ const balancedIfdefs = (s) => {
         const baseLit = new Uint8Array(W * H * 4);
         gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, baseLit);
 
-        bf.setBuildings(bld); bf.setVisible(true); sync(1);
+        bf.setBuildings(cityTower); bf.setVisible(true); sync(1, 25);
         composer.setTerrainLit(true);
         composer.prepareTerrainDistance(renderer, scene, camera, 'lit');
         const errLit = gl.getError();
@@ -519,17 +586,37 @@ const balancedIfdefs = (s) => {
         composer.prepareTerrainDistance(renderer, scene, camera, 'dist');
         const errDist = gl.getError();
 
-        sync(0);
-        renderer.setRenderTarget(null);
-        camera.layers.set(LAYER_MID);
-        renderer.render(scene, camera);
-        const errDirect = gl.getError();
+        // 야간 창문 패스: buildingField.mesh(depth only) 후 windowMesh(AdditiveBlending) 검증
+        const countWindowPx = (bldData: typeof cityTower, rate: number, glow: number) => {
+          bf.setBuildings(bldData);
+          bf.setVisible(true);
+          bf.setWindowLighting(rate, glow);
+          sync(1, glow > 0 ? -15 : 25);
+          renderer.setRenderTarget(null);
+          renderer.setClearColor(0x000000, 1);
+          renderer.clear(true, true, true);
+          camera.layers.set(LAYER_MID);
+          renderer.render(scene, camera);
+          const px = new Uint8Array(W * H * 4);
+          gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          let count = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            if (px[i] > 8 || px[i+1] > 8 || px[i+2] > 8) count++;
+          }
+          return { count, err: gl.getError() };
+        };
+
+        const cityEve = countWindowPx(cityTower, computeNightWindowRate(21), computeNightWindowGlow(-15, true));
+        const city2am = countWindowPx(cityTower, computeNightWindowRate(2.5), computeNightWindowGlow(-15, true));
+        const cityDay = countWindowPx(cityTower, computeNightWindowRate(21), computeNightWindowGlow(25, true));
+        const ruralEve = countWindowPx(ruralHouse, computeNightWindowRate(21), computeNightWindowGlow(-15, true));
+        const rural2am = countWindowPx(ruralHouse, computeNightWindowRate(2.5), computeNightWindowGlow(-15, true));
 
         let diffLit = 0;
         for (let i = 0; i < bldLit.length; i += 4) {
           if (Math.abs(bldLit[i] - baseLit[i]) + Math.abs(bldLit[i+1] - baseLit[i+1]) + Math.abs(bldLit[i+2] - baseLit[i+2]) > 2) diffLit++;
         }
-        return { errLit, errDist, errDirect, diffLit, shaderLogs };
+        return { errLit, errDist, diffLit, cityEve, city2am, cityDay, ruralEve, rural2am, shaderLogs };
       };
     `);
     execFileSync(
@@ -567,8 +654,13 @@ const balancedIfdefs = (s) => {
     srv.close();
     setTimeout(() => { try { fs.rmSync(glWork, { recursive: true, force: true }); } catch {} }, 100);
     ok(!glRes.fatal && !glRes.timeout && glRes.shaderLogs?.length === 0 &&
-       glRes.errLit === 0 && glRes.errDist === 0 && glRes.errDirect === 0 && glRes.diffLit > 100,
-      `WebGL2 3패스 컴파일 및 MRT rtLit 건물 픽셀 출력 확인 (diffLit=${glRes.diffLit}, errLit=${glRes.errLit}, logs=${glRes.shaderLogs?.length})`);
+       glRes.errLit === 0 && glRes.errDist === 0 && glRes.diffLit > 100 &&
+       glRes.cityEve?.err === 0 && glRes.city2am?.err === 0 && glRes.rural2am?.err === 0,
+      `WebGL2 4패스 컴파일 및 MRT rtLit 건물 출력 확인 (diffLit=${glRes.diffLit}, logs=${glRes.shaderLogs?.length})`);
+    ok(glRes.cityEve?.count > 50 && glRes.city2am?.count > 0 && glRes.city2am?.count < glRes.cityEve?.count * 0.25 && glRes.cityDay?.count === 0,
+      `WebGL2 도심 타워 야간 창문: 저녁21h=${glRes.cityEve?.count}px → 새벽2:30(1%)=${glRes.city2am?.count}px / 주간=${glRes.cityDay?.count}px`);
+    ok(glRes.ruralEve?.count > 0 && glRes.rural2am?.count === 0,
+      `WebGL2 시골 소형 주택 내림 소등: 저녁21h=${glRes.ruralEve?.count}px → 새벽2:30(floor=0)=${glRes.rural2am?.count}px`);
   }
 
   console.log(`\n결과: ${pass} passed, ${fail} failed`);

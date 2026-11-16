@@ -17,10 +17,39 @@ import {
 } from './groundProjection';
 import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './SceneComposer';
 import { LIT2_ENCODE_GLSL } from './terrainLook';
-import { createBuildingThreeGeometry, type BuildingMeshData } from '../../utils/buildingTiles';
+import { createBuildingThreeGeometry, WINDOW_CELL_M, type BuildingMeshData } from '../../utils/buildingTiles';
 
 /** 중성 밝은 석재/콘크리트 회색 건축 매스 알베도 (도시 포장 지반보다 밝게 구분) */
 const BUILDING_ALBEDO = { r: 0.125, g: 0.130, b: 0.140 };
+
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+const smooth01 = (x: number) => {
+  const t = clamp01(x);
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * 현지 시각(0~24h)에 따른 야간 창문 점등 비율 (0~1).
+ * - 저녁(16:00~21:30): 약 46% 점등
+ * - 늦은 밤~자정(21:30~24:00): 46% -> 22% 점진 감소
+ * - 심야(00:00~02:00): 22% -> 1% 감소
+ * - 새벽 2시 이후(02:00~05:30): 1%(0.01) 유지 (건물당 floor 내림으로 소형 시골 건물은 완전 소등)
+ */
+export function computeNightWindowRate(localHour: number): number {
+  const h = ((localHour % 24) + 24) % 24;
+  if (h >= 2 && h < 5.5) return 0.01;
+  if (h < 2) return 0.22 - (0.22 - 0.01) * smooth01(h / 2.0);
+  if (h >= 21.5) return 0.46 - (0.46 - 0.22) * smooth01((h - 21.5) / 2.5);
+  if (h >= 16) return 0.46;
+  if (h < 8.5) return 0.01 + (0.24 - 0.01) * smooth01((h - 5.5) / 3.0);
+  return 0.24 + (0.46 - 0.24) * smooth01((h - 8.5) / 7.5);
+}
+
+/** 태양 고도(°) 및 도시 불빛 옵션에 따른 창문 발광 세기 (0=주간/꺼짐 ~ 1=야간). */
+export function computeNightWindowGlow(sunAltDeg: number, cityLightsEnabled: boolean = true): number {
+  if (!cityLightsEnabled || !Number.isFinite(sunAltDeg)) return 0;
+  return smooth01((2.0 - sunAltDeg) / 8.0);
+}
 
 const BUILDING_VERT = /* glsl */ `
 precision highp float;
@@ -30,6 +59,7 @@ ${demGlsl('demFar')}
 ${GROUND_PROJECT_GLSL}
 
 attribute vec2 aGroundPos;
+attribute vec4 aWallCoord;
 
 uniform float uObsElevM;
 uniform float uEyeHeightM;
@@ -39,6 +69,10 @@ varying vec3  vNormalW;
 varying float vDistM;
 varying float vSlantM;
 varying vec3  vViewDir;
+#ifdef TERRAIN_WINDOW_OUT
+varying vec2  vBuildPos;
+varying vec4  vWallCoord;
+#endif
 
 float bf_groundAtEye() {
   if (uDemEyeValid > 0.5) return demEye_elevationAt(vec2(0.0));
@@ -85,6 +119,10 @@ void main() {
   vDistM = d;
   vNormalW = normalize(normal);
   vViewDir = normalize(p);
+#ifdef TERRAIN_WINDOW_OUT
+  vBuildPos = aGroundPos;
+  vWallCoord = aWallCoord;
+#endif
 
   vec4 wp = modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -103,6 +141,64 @@ varying vec3  vViewDir;
 ${TERRAIN_DIST_GLSL}
 void main() {
   gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
+}
+#elif defined(TERRAIN_WINDOW_OUT)
+${ATMOSPHERE_GLSL}
+
+varying vec2 vBuildPos;
+varying vec4 vWallCoord;
+
+uniform float uWinRate;
+uniform float uWinGlow;
+uniform float uBeta;
+uniform float uAngstrom;
+uniform float uElevScale;
+
+float bf_hash13(vec3 p3) {
+  p3 = fract(p3 * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+void main() {
+  if (uWinGlow <= 0.001 || uWinRate <= 0.0) discard;
+  if (vWallCoord.x < 0.0 || vWallCoord.y < 0.0 || abs(vNormalW.y) > 0.5) discard;
+
+  float cellU = vWallCoord.x / ${WINDOW_CELL_M.toFixed(1)};
+  float cellV = vWallCoord.y / ${WINDOW_CELL_M.toFixed(1)};
+  float colIdx = floor(cellU);
+  float rowIdx = floor(cellV);
+  if (colIdx < 0.0 || colIdx >= vWallCoord.z || rowIdx < 0.0 || rowIdx >= vWallCoord.w) discard;
+
+  // 건물 전체 창문 개수에 내림(floor) 적용 → 2시 이후 1%일 때 소형 시골 건물(<100칸)은 0개로 완전 소등
+  float totalWin = vWallCoord.z * vWallCoord.w;
+  float litQuota = floor(totalWin * clamp(uWinRate, 0.0, 1.0));
+  if (litQuota < 0.5) discard;
+
+  vec2 bSeed = fract(vBuildPos * 0.0173) * 97.0;
+  float seedZ = bSeed.x * 1.31 + bSeed.y * 2.17;
+  float rLit = bf_hash13(vec3(colIdx + 1.0, rowIdx + 1.0, seedZ));
+  if (rLit >= litQuota / max(1.0, totalWin)) discard;
+
+  float uF = fract(cellU);
+  float vF = fract(cellV);
+  float aa = clamp(vDistM * 0.00055, 0.02, 0.21);
+  float wx = smoothstep(0.25 - aa, 0.25 + aa, uF) * (1.0 - smoothstep(0.75 - aa, 0.75 + aa, uF));
+  float wy = smoothstep(0.30 - aa, 0.30 + aa, vF) * (1.0 - smoothstep(0.74 - aa, 0.74 + aa, vF));
+  float winShape = wx * wy;
+  if (winShape < 0.01) discard;
+
+  float rTone = bf_hash13(vec3(colIdx + 19.0, rowIdx + 7.0, seedZ * 1.37 + 5.0));
+  vec3 colWarm = vec3(1.00, 0.68, 0.30);
+  vec3 colSoft = vec3(1.00, 0.86, 0.62);
+  vec3 colCool = vec3(0.84, 0.91, 1.00);
+  vec3 winTint = rTone < 0.58 ? mix(colWarm, colSoft, rTone / 0.58)
+                              : mix(colSoft, colCool, ((rTone - 0.58) / 0.42) * 0.65);
+
+  float lum = (0.48 + 0.34 * rTone) * uWinGlow * (0.82 + 0.24 * vF);
+  vec3 T = atm_aerialTransmittance(vDistM / 1000.0, 0.0, uBeta, uAngstrom, uElevScale);
+  float distFade = 1.0 - smoothstep(650.0, 1020.0, vDistM);
+  gl_FragColor = vec4(winTint * winShape * lum * T * distFade, 1.0);
 }
 #elif defined(TERRAIN_LIT_OUT)
 ${TERRAIN_DIST_GLSL}
@@ -205,10 +301,12 @@ export interface BuildingFieldHandle {
   mesh: THREE.Mesh;
   distMesh: THREE.Mesh;
   litMesh: THREE.Mesh;
+  windowMesh: THREE.Mesh;
   material: THREE.ShaderMaterial;
   setBuildings: (data: BuildingMeshData | null) => void;
   setPatch: (patch: DemPatch | null, eyePatch?: DemPatch | null, farPatch?: DemPatch | null) => void;
   setVisible: (v: boolean) => void;
+  setWindowLighting: (rate: number, glow: number) => void;
   hasGeometry: () => boolean;
   geomSerial: () => number;
   dispose: () => void;
@@ -242,6 +340,8 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     uOzoneDU: { value: 300 },
     uOvercast: { value: 0 },
     uDiagRaw: { value: 0 },
+    uWinRate: { value: 0.46 },
+    uWinGlow: { value: 0 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -265,6 +365,18 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
   litMaterial.transparent = false;
   litMaterial.blending = THREE.NoBlending;
 
+  const windowMaterial = material.clone();
+  windowMaterial.uniforms = material.uniforms;
+  windowMaterial.defines = { TERRAIN_WINDOW_OUT: 1 };
+  windowMaterial.transparent = true;
+  windowMaterial.blending = THREE.AdditiveBlending;
+  windowMaterial.depthWrite = false;
+  windowMaterial.depthTest = true;
+  windowMaterial.depthFunc = THREE.LessEqualDepth;
+  windowMaterial.polygonOffset = true;
+  windowMaterial.polygonOffsetFactor = -1;
+  windowMaterial.polygonOffsetUnits = -1;
+
   const emptyGeo = new THREE.BufferGeometry();
   const mesh = new THREE.Mesh(emptyGeo, material);
   mesh.name = 'buildingField';
@@ -283,6 +395,11 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
   litMesh.visible = false;
   litMesh.layers.set(LAYER_TERRAIN_LIT);
 
+  const windowMesh = new THREE.Mesh(emptyGeo, windowMaterial);
+  windowMesh.name = 'buildingFieldWindows';
+  windowMesh.frustumCulled = false;
+  windowMesh.visible = false;
+
   let currentGeo = emptyGeo;
   let hasData = false;
   let enabled = false;
@@ -293,12 +410,14 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
     mesh.visible = show;
     distMesh.visible = show;
     litMesh.visible = show;
+    windowMesh.visible = show && Number(uniforms.uWinGlow.value) > 0.001 && Number(uniforms.uWinRate.value) > 0;
   };
 
   return {
     mesh,
     distMesh,
     litMesh,
+    windowMesh,
     material,
     setBuildings: (data) => {
       serial++;
@@ -306,6 +425,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       mesh.geometry = nextGeo;
       distMesh.geometry = nextGeo;
       litMesh.geometry = nextGeo;
+      windowMesh.geometry = nextGeo;
       if (currentGeo !== nextGeo) currentGeo.dispose();
       currentGeo = nextGeo;
       hasData = !!data && data.vertexCount > 0;
@@ -328,6 +448,11 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       enabled = v;
       syncVisibility();
     },
+    setWindowLighting: (rate, glow) => {
+      uniforms.uWinRate.value = clamp01(rate);
+      uniforms.uWinGlow.value = clamp01(glow);
+      syncVisibility();
+    },
     hasGeometry: () => hasData,
     geomSerial: () => serial,
     dispose: () => {
@@ -335,6 +460,7 @@ export function createBuildingField(opts: { observerElevM?: number; eyeHeightM?:
       material.dispose();
       distMaterial.dispose();
       litMaterial.dispose();
+      windowMaterial.dispose();
     },
   };
 }
@@ -346,6 +472,7 @@ export function updateBuildingFieldEye(handle: BuildingFieldHandle, camera: THRE
   handle.mesh.position.copy(camera.position);
   handle.distMesh.position.copy(camera.position);
   handle.litMesh.position.copy(camera.position);
+  handle.windowMesh.position.copy(camera.position);
   handle.distMesh.visible = handle.mesh.visible;
   handle.litMesh.visible = handle.mesh.visible;
 }
