@@ -90,6 +90,7 @@ import {
   buildPlanetPoints,
   type StarFieldHandle,
 } from './StarField';
+import { computeTrackedAttitudeAt } from '../../utils/astroStackMath';
 import { createMilkyWayBand, updateMilkyWay, type MilkyWayHandle } from './MilkyWayBand';
 import { loadNightLights, getCachedNightLights } from '../../utils/nightLightsAsset';
 import { estimateLightPollution, type LightPollutionEstimate, type NightLights } from '../../utils/cityLightMap';
@@ -343,6 +344,39 @@ interface SkyScene3DProps {
 /** 촬영 화면용 한 장(renderRemote)을 찍기 전 새 시선으로 그릴 프레임 수 — 구름 시간 누적 한 바퀴(16) + 여유. */
 const REMOTE_SETTLE_FRAMES = 20;
 
+export type LongExposureSimMode = 'trails' | 'tracked' | 'tracked_fixed_ground';
+
+export interface LongExposureSimOptions {
+  /** 'trails': 고정 화각(별 궤적) · 'tracked': 적도의 추적(별 고정·땅 흐름) · 'tracked_fixed_ground': 별 추적+지상 고정 합성 */
+  mode: LongExposureSimMode;
+  /** 노출 시작 시각 (epoch ms). 없으면 현재 씬 시각. */
+  startTimeMs?: number;
+  /** 총 노출 시간 (초). 예: 240(4분) ~ 600(10분). 기본 300초. */
+  durationSec?: number;
+  /** 적분 스텝 수. 기본 20 (궤적 길이와 구름 이동이 매끄럽게 이어지도록 조절). */
+  steps?: number;
+  /** 장노출 밝기 증폭 배율. 없으면 durationSec 기준으로 자동 계산. */
+  exposureGain?: number;
+  /** 암부 리프트(미약한 은하수·지상 윤곽). 기본 0.015. */
+  shadowLift?: number;
+  /** 천체 밝기 추가 배율 (기본 1.25). */
+  starBoost?: number;
+  waitMs?: number;
+  format?: 'jpeg' | 'png';
+  compress?: number;
+}
+
+export interface LongExposureSimResult {
+  uri: string | null;
+  ready: boolean;
+  error: string | null;
+  mode: LongExposureSimMode;
+  durationSec: number;
+  steps: number;
+  exposureGain: number;
+  state: SkyRenderState | null;
+}
+
 export interface SkyScene3DHandle {
   takeSnapshot: (options?: { format?: 'jpeg' | 'png'; compress?: number }) => Promise<string | null>;
   /** 마지막 스냅샷이 실패한 이유. 성공했거나 아직 안 찍었으면 null. */
@@ -370,6 +404,14 @@ export interface SkyScene3DHandle {
    * 볼륨 하늘이 준비될 때까지 최대 waitMs 기다리고, 끝나면 원래 시선으로 되돌립니다. ready 가 거짓이면 준비 전에 찍은 것(uri 는 null).
    */
   renderRemote: (view: { az: number; el: number; fov: number }, opts?: { waitMs?: number; format?: 'jpeg' | 'png'; compress?: number; requireReady?: boolean }) => Promise<{ uri: string | null; ready: boolean; error: string | null; state: SkyRenderState | null }>;
+  /**
+   * 4~10분 야간 장노출 시뮬레이션 결과물 생성: 여러 시간 스텝을 선형 누적·톤매핑해
+   * 별 궤적 또는 적도의 추적 결과와 바람 따라 지나가는 구름의 가림 효과를 미리 그립니다.
+   */
+  renderLongExposure: (
+    view: { az: number; el: number; fov: number; rollDeg?: number },
+    opts: LongExposureSimOptions,
+  ) => Promise<LongExposureSimResult>;
   /**
    * 하늘 → 지도(구름 레이더 축척)로 날아갑니다. 두 손가락 줌아웃의 **누르기 대안**입니다(디자인 2단).
    * 돌아올 때는 지도 위의 "착륙"을 씁니다.
@@ -661,9 +703,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
   const timelineRef = useRef<SkyTimeline | null>(timeline);
   const isActiveRef = useRef(isActive);
-  /** 촬영 화면이 빌려 쓰는 동안의 시선(renderRemote). 있으면 비활성이어도 그리고, 이 시선을 씁니다. */
-  const remoteViewRef = useRef<{ az: number; el: number; fov: number } | null>(null);
+  /** 촬영 화면이 빌려 쓰는 동안의 시선(renderRemote / renderLongExposure). 있으면 비활성이어도 그리고, 이 시선을 씁니다. */
+  const remoteViewRef = useRef<{ az: number; el: number; fov: number; rollDeg?: number } | null>(null);
   const remoteFramesRef = useRef(0);
+  /** 장노출 시뮬레이션 동안 씬 시각을 스텝마다 고정 덮어쓰기 */
+  const overrideSceneTimeMsRef = useRef<number | null>(null);
+  /** 장노출 시뮬레이션 동안 별 밝기 추가 배율 */
+  const starBoostOverrideRef = useRef<number>(1);
+  /** 장노출 누적 패스 지시자 (animate 루프가 한 스텝씩 처리) */
+  const accumDirectiveRef = useRef<{
+    begin?: boolean;
+    captureStep?: { weight: number; fixedBase: boolean };
+    pendingResolve?: { gain: number; shadowLift: number; fixedGround: boolean };
+    onDone?: () => void;
+  } | null>(null);
   const isSlidingRef = useRef(isSliding);
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
@@ -964,7 +1017,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     // 준비 = 실패 아님 · 예보 장면이 적용됨(lastVolSceneRef, 예보 없는 빈 장면은 아님) · 다시 만드는 중 아님 · 적용 뒤 그려졌고 시간 업스케일이 반쯤 가라앉음.
     isVolumetricReady: () => !volFailedRef.current && volHasSceneRef.current && volDrewRef.current && !volPendingRef.current
       && lastVolSceneRef.current != null && volFreshRef.current && volSettleRef.current <= 8,
-    takeSnapshot: async (options = { format: 'jpeg', compress: 0.85 }) => {
+    takeSnapshot: null as unknown as SkyScene3DHandle['takeSnapshot'],
+  }) as SkyScene3DHandle;
+
+    const captureGlSnapshot = async (
+      drawOnce: () => void,
+      options: { format?: 'jpeg' | 'png'; compress?: number } = { format: 'jpeg', compress: 0.85 },
+    ): Promise<string | null> => {
       lastSnapshotErrorRef.current = null;
       // ⚠ 한 번 더 시도합니다. 카메라 촬영 직후에는 GL 표면이 잠깐 뺏길 수
       //   있어 첫 시도가 던지는 경우가 있습니다. 한 프레임 쉬고 다시 겁니다.
@@ -976,59 +1035,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             lastSnapshotErrorRef.current = '3D 장면 준비 안 됨';
             continue;
           }
-          // ── **컴포저로 그립니다** ────────────────────────────────────
-          //
-          // ⚠ 실기에서 썸네일이 **검게** 나왔습니다. 칸도 보이고 실패 사유도
-          //   안 떴으니 스냅샷은 성공했고 내용만 비었다는 뜻이었습니다.
-          //
-          //   원인은 스냅샷 경로가 아니라 **무엇을 그렸는가** 였습니다.
-          //   여기서는 `renderer.render(scene, camera)` 를 직접 불렀는데,
-          //   이 장면의 객체는 전부 레이어 1~4 에 배정돼 있습니다
-          //   (LAYER_SOFT_SKY 1 · LAYER_MID 2 · LAYER_SOFT_CLOUD 3 ·
-          //   LAYER_FRONT 4 — 위 assignLayer 호출들). **레이어 0 에는
-          //   아무것도 없습니다.** three.js 카메라의 기본 마스크는 레이어 0
-          //   하나만 켜므로 그 호출은 **아무것도 안 그리고**, 남는 것은
-          //   지우기색(검정)뿐입니다. 실기 화면의 검은 사각형이 그것입니다.
-          //
-          //   실시간 루프는 `composer.render(...)` 로 그립니다(아래 animate).
-          //   스냅샷도 같은 길로 가야 같은 그림이 나옵니다 — 레이어를 나눠
-          //   그리는 것도, 블룸·박명광선 후처리도 전부 그 안에 있습니다.
-          const composer = composerRef.current;
-          const drawOnce = () => {
-            if (composer) {
-              composer.render(rendererRef.current as unknown as THREE.WebGLRenderer,
-                              sceneRef.current!, cameraRef.current!);
-            } else {
-              // 컴포저가 아직 없으면(첫 프레임 전) 최소한 레이어는 다 켭니다.
-              cameraRef.current!.layers.enableAll();
-              rendererRef.current!.setRenderTarget(null);
-              rendererRef.current!.render(sceneRef.current!, cameraRef.current!);
-            }
-          };
-          // ⚠ 두 번 그립니다. takeSnapshotAsync 가 앞버퍼를 읽는지 뒷버퍼를
-          //   읽는지는 expo-gl 구현에 달렸고 기기 없이는 못 정합니다. 한 번
-          //   그려 넘기고 한 번 더 그리면 **어느 쪽을 읽든** 같은 최신
-          //   프레임입니다. 한 컷 캡처라 프레임 하나가 더 드는 것은 문제가
-          //   안 됩니다.
+          // ⚠ 두 번 그립니다. takeSnapshotAsync 가 앞버퍼를 읽는지 뒷버퍼를 읽는지는 expo-gl 구현에 달렸고
+          //   기기 없이는 못 정합니다. 한 번 그려 넘기고 한 번 더 그리면 어느 쪽을 읽든 최신 프레임입니다.
           drawOnce();
           glRef.current.endFrameEXP();
           drawOnce();
           glRef.current.flush();
 
-          // ── 자가 진단 ───────────────────────────────────────────────
-          //
-          // ⚠ 위 손질이 맞는지는 기기에서만 압니다. 그래서 **GL 버퍼를 직접
-          //   찍어** 두 후보를 가릅니다. 여기서 잰 밝기가 0 이면 그린 것
-          //   자체가 검은 것이고(장면·카메라 문제), 0 이 아닌데 저장된
-          //   그림이 검으면 스냅샷 경로가 잃는 것입니다.
-          //   전체를 읽으면 비싸므로 화면 가운데 32×32 만 봅니다.
           let bufMean = -1;
           try {
             const g = glRef.current;
-            const w = g.drawingBufferWidth, h = g.drawingBufferHeight;
+            const w = g.drawingBufferWidth, ch = g.drawingBufferHeight;
             const n = 32;
             const px = new Uint8Array(n * n * 4);
-            g.readPixels(Math.max(0, (w >> 1) - (n >> 1)), Math.max(0, (h >> 1) - (n >> 1)),
+            g.readPixels(Math.max(0, (w >> 1) - (n >> 1)), Math.max(0, (ch >> 1) - (n >> 1)),
                          n, n, g.RGBA, g.UNSIGNED_BYTE, px);
             let sum = 0;
             for (let i = 0; i < n * n; i++) {
@@ -1053,8 +1073,20 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         }
       }
       return null;
-    },
-  }) as SkyScene3DHandle;
+    };
+
+    h.takeSnapshot = (options = { format: 'jpeg', compress: 0.85 }) =>
+      captureGlSnapshot(() => {
+        const composer = composerRef.current;
+        if (composer) {
+          composer.render(rendererRef.current as unknown as THREE.WebGLRenderer, sceneRef.current!, cameraRef.current!);
+        } else if (cameraRef.current && rendererRef.current && sceneRef.current) {
+          cameraRef.current.layers.enableAll();
+          rendererRef.current.setRenderTarget(null);
+          rendererRef.current.render(sceneRef.current, cameraRef.current);
+        }
+      }, options);
+
     // 촬영 화면용: 이 장면을 잠깐 다른 시선으로 그려 한 장(primarySky.ts). 그리는 동안 원래 시선·줌을 맡겨 두었다가 되돌립니다.
     // 한 번에 하나씩(미리보기와 셔터가 겹치면 앞 것이 끝난 뒤) — 겹치면 한쪽의 되돌리기가 다른 쪽 시선을 지움.
     let remoteChain: Promise<unknown> = Promise.resolve();
@@ -1094,6 +1126,175 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     };
     h.renderRemote = (view, opts) => {
       const run = remoteChain.then(() => renderRemoteOnce(view, opts));
+      remoteChain = run.catch(() => undefined);
+      return run;
+    };
+
+    const runRenderStep = (directive: {
+      begin?: boolean;
+      captureStep?: { weight: number; fixedBase: boolean };
+      pendingResolve?: { gain: number; shadowLift: number; fixedGround: boolean };
+    }) => new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        if (accumDirectiveRef.current?.onDone === done) accumDirectiveRef.current = null;
+        done();
+      }, 2000);
+      accumDirectiveRef.current = { ...directive, onDone: done };
+      requestRender(2);
+    });
+
+    const renderLongExposureOnce: SkyScene3DHandle['renderLongExposure'] = async (view, opts) => {
+      const mode = opts.mode;
+      const startTimeMs = opts.startTimeMs ?? targetTimeMsRef.current;
+      const durationSec = Math.max(10, Math.min(3600, opts.durationSec ?? 300));
+      const steps = Math.max(4, Math.min(40, Math.round(opts.steps ?? 20)));
+      const exposureGain = opts.exposureGain ?? Number((1 + Math.log2(1 + durationSec / 90) * 0.72).toFixed(2));
+      const shadowLift = opts.shadowLift ?? 0.015;
+      const starBoost = opts.starBoost ?? 1.25;
+      const waitMs = opts.waitMs ?? 5000;
+
+      const wasActive = isActiveRef.current;
+      const saved = {
+        az: cameraAzRef.current,
+        el: cameraElevRef.current,
+        fov: fovRef.current,
+        zoom: zoomProgressRef.current,
+      };
+      const baseAttitude = {
+        yawDeg: view.az,
+        pitchDeg: view.el,
+        rollDeg: view.rollDeg ?? 0,
+      };
+      const lat = locationRef.current?.coords?.latitude ?? 37.5;
+      const lon = locationRef.current?.coords?.longitude ?? 127.0;
+      const startDate = new Date(startTimeMs);
+
+      overrideSceneTimeMsRef.current = startTimeMs;
+      starBoostOverrideRef.current = starBoost;
+      remoteViewRef.current = { ...view };
+      remoteFramesRef.current = 0;
+      zoomProgressRef.current = 0;
+      sceneDirtyRef.current = true;
+
+      try {
+        const t0 = Date.now();
+        for (;;) {
+          requestRender(3);
+          await new Promise(r => setTimeout(r, 60));
+          const ready = h.isVolumetricReady();
+          if (remoteFramesRef.current >= REMOTE_SETTLE_FRAMES && ready) break;
+          if (Date.now() - t0 > waitMs) {
+            if (!ready) {
+              return {
+                uri: null,
+                ready: false,
+                error: '볼륨 하늘 준비 시간 초과',
+                mode,
+                durationSec,
+                steps,
+                exposureGain,
+                state: h.getRenderState(),
+              };
+            }
+            break;
+          }
+        }
+
+        if (!composerRef.current) {
+          return {
+            uri: null,
+            ready: false,
+            error: 'SceneComposer 준비 안 됨',
+            mode,
+            durationSec,
+            steps,
+            exposureGain,
+            state: h.getRenderState(),
+          };
+        }
+
+        for (let k = 0; k < steps; k++) {
+          const frac = steps <= 1 ? 0 : k / (steps - 1);
+          const tkMs = startTimeMs + frac * durationSec * 1000;
+          overrideSceneTimeMsRef.current = tkMs;
+          sceneDirtyRef.current = true;
+
+          if (mode === 'trails') {
+            remoteViewRef.current = { ...view };
+          } else {
+            // 적도의 추적: 기준 시각(startDate)의 하늘 시선·업벡터를 지구 자전에 맞춰 따라갑니다.
+            const tracked = computeTrackedAttitudeAt(baseAttitude, startDate, new Date(tkMs), lat, lon);
+            remoteViewRef.current = {
+              az: tracked.yawDeg,
+              el: tracked.pitchDeg,
+              fov: view.fov,
+              rollDeg: tracked.rollDeg,
+            };
+          }
+
+          await runRenderStep({
+            begin: k === 0,
+            captureStep: {
+              weight: 1,
+              fixedBase: k === 0 && mode === 'tracked_fixed_ground',
+            },
+          });
+        }
+
+        const useFixedGround = mode === 'tracked_fixed_ground';
+        const state = h.getRenderState();
+        const uri = await captureGlSnapshot(() => {
+          if (composerRef.current && rendererRef.current) {
+            composerRef.current.resolveAccumulation(
+              rendererRef.current as unknown as THREE.WebGLRenderer,
+              { exposureGain, shadowLift, useFixedGround },
+            );
+          }
+        }, { format: opts.format ?? 'jpeg', compress: opts.compress ?? 0.9 });
+
+        return {
+          uri,
+          ready: true,
+          error: uri ? null : lastSnapshotErrorRef.current,
+          mode,
+          durationSec,
+          steps,
+          exposureGain,
+          state,
+        };
+      } finally {
+        accumDirectiveRef.current = null;
+        composerRef.current?.endAccumulation();
+        overrideSceneTimeMsRef.current = null;
+        starBoostOverrideRef.current = 1;
+        remoteViewRef.current = null;
+        sceneDirtyRef.current = true;
+        cameraAzRef.current = saved.az;
+        cameraElevRef.current = saved.el;
+        zoomProgressRef.current = saved.zoom;
+        if (Math.abs(fovRef.current - saved.fov) > 0.01 && cameraRef.current) {
+          fovRef.current = saved.fov;
+          cameraRef.current.fov = saved.fov;
+          cameraRef.current.updateProjectionMatrix();
+        }
+        if (!wasActive && !isActiveRef.current) {
+          isLoopRunningRef.current = false;
+          if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = 0; }
+        } else {
+          requestRender(3);
+        }
+      }
+    };
+
+    h.renderLongExposure = (view, opts) => {
+      const run = remoteChain.then(() => renderLongExposureOnce(view, opts));
       remoteChain = run.catch(() => undefined);
       return run;
     };
@@ -1976,12 +2177,13 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       try {
         // 즉시(0ms) 시간 이동 + 실시간 경과 시간 연속 반영 (바람 드리프트 및 천체 연속 유영)
         const wallElapsedMs = isSlidingRef.current ? 0 : Math.max(0, performance.now() - lastTargetSyncPerfRef.current);
-        const effectiveTimeMs = targetTimeMsRef.current + wallElapsedMs;
+        const effectiveTimeMs = overrideSceneTimeMsRef.current ?? (targetTimeMsRef.current + wallElapsedMs);
         renderedTimeMsRef.current = effectiveTimeMs;
         const frameDate = new Date(renderedTimeMsRef.current);
         if (
           sceneDirtyRef.current ||
           isSlidingRef.current ||
+          overrideSceneTimeMsRef.current !== null ||
           Math.abs(effectiveTimeMs - lastUpdateSceneTimeMsRef.current) >= 500 ||
           now - lastUpdateSceneWallMsRef.current >= 500
         ) {
@@ -2102,6 +2304,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 화면 위쪽은 시선에 수직인 연속 벡터 — 내려다볼 때 북쪽(−Z)이 위.
         // ⚠ 예전에는 −85° 에서 (0,1,0) → (0,0,−1) 로 바꿔, 그 한 프레임에 화면이 방위각만큼 돌았습니다.
         camera.up.set(pose.up[0], pose.up[1], pose.up[2]);
+        if (rv?.rollDeg && Math.abs(rv.rollDeg) > 1e-4) {
+          const fwdRoll = new THREE.Vector3(
+            Math.cos(elevRad) * Math.sin(azRad),
+            Math.sin(elevRad),
+            -Math.cos(elevRad) * Math.cos(azRad),
+          ).normalize();
+          camera.up.applyAxisAngle(fwdRoll, (rv.rollDeg * Math.PI) / 180);
+        }
 
         camera.lookAt(
           lookDist * Math.cos(elevRad) * Math.sin(azRad),
@@ -2265,7 +2475,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               metarId: '', metar: metarRef.current,
               obs: vObs, sample: wSample,
             });
-            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}`;
+            const viewKey = `${effectiveAz.toFixed(2)}|${effectiveElev.toFixed(2)}|${camera.fov.toFixed(2)}|${Math.round(altitudeM)}|${(rv?.rollDeg ?? 0).toFixed(2)}`;
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
             const isInteractingNow = isSlidingNow || useCelestialStore.getState().isGestureBlocked;
@@ -2451,14 +2661,19 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               // 흐르고, '지금' 모드에서 시각이 1 분씩 넘어가도 시계가 이어져 튀지 않습니다(넘어간 만큼 이미 흘렀음).
               const nowWall = Date.now();
               const vMs = vDate.getTime();
-              const anc = driftAnchorRef.current;
-              if (!anc || anc.sceneMs !== vMs) driftAnchorRef.current = { sceneMs: vMs, wallMs: nowWall };
-              const a2 = driftAnchorRef.current!;
-              const dateChanged = vMs !== lastVolDateSyncRef.current.vMs;
-              if (dateChanged || nowWall - lastVolDateSyncRef.current.wallMs >= 250) {
-                vol.setDate(vDate, (a2.sceneMs + (nowWall - a2.wallMs)) / 1000);
+              if (overrideSceneTimeMsRef.current !== null) {
+                vol.setDate(vDate, vMs / 1000);
                 lastVolDateSyncRef.current = { vMs, wallMs: nowWall };
-                if (dateChanged) volSettleRef.current = Math.max(volSettleRef.current, 18);
+              } else {
+                const anc = driftAnchorRef.current;
+                if (!anc || anc.sceneMs !== vMs) driftAnchorRef.current = { sceneMs: vMs, wallMs: nowWall };
+                const a2 = driftAnchorRef.current!;
+                const dateChanged = vMs !== lastVolDateSyncRef.current.vMs;
+                if (dateChanged || nowWall - lastVolDateSyncRef.current.wallMs >= 250) {
+                  vol.setDate(vDate, (a2.sceneMs + (nowWall - a2.wallMs)) / 1000);
+                  lastVolDateSyncRef.current = { vMs, wallMs: nowWall };
+                  if (dateChanged) volSettleRef.current = Math.max(volSettleRef.current, 18);
+                }
               }
               const intervalMs = lastRenderTsRef.current > 0 ? now - lastRenderTsRef.current : 0;
               const dtSec = intervalMs > 0 ? Math.min(0.1, Math.max(0.001, intervalMs / 1000)) : 1 / 60;
@@ -2491,9 +2706,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
               // ── 볼륨 뷰포트 렌더링 ──
               if (viewKey !== volViewRef.current) {
-                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM);
+                vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, rv?.rollDeg ?? 0);
                 volViewRef.current = viewKey;
-                volSettleRef.current = Math.max(volSettleRef.current, 18);
+                if (overrideSceneTimeMsRef.current === null) {
+                  volSettleRef.current = Math.max(volSettleRef.current, 18);
+                }
               }
               volTex = vol.renderToTexture(dtSec);
 
@@ -2541,7 +2758,28 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
 
           // 도트 모드(§97) — 합성기가 내부 해상도로 그리고 끝에서 최근접으로 늘립니다.
           composerNow.setPixelArt(skySettingsRef.current.pixelArtRows ?? 0);
-          composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
+          const accumDir = accumDirectiveRef.current;
+          if (accumDir) {
+            const threeRenderer = renderer as unknown as THREE.WebGLRenderer;
+            accumDirectiveRef.current = null;
+            if (accumDir.begin) composerNow.beginAccumulation(threeRenderer);
+            if (accumDir.captureStep) {
+              composerNow.renderAccumStep(threeRenderer, scene, camera, {
+                weight: accumDir.captureStep.weight,
+                captureAsFixedBase: accumDir.captureStep.fixedBase,
+              });
+            }
+            if (accumDir.pendingResolve) {
+              composerNow.resolveAccumulation(threeRenderer, {
+                exposureGain: accumDir.pendingResolve.gain,
+                shadowLift: accumDir.pendingResolve.shadowLift,
+                useFixedGround: accumDir.pendingResolve.fixedGround,
+              });
+            }
+            accumDir.onDone?.();
+          } else {
+            composerNow.render(renderer as unknown as THREE.WebGLRenderer, scene, camera);
+          }
 
           // 볼륨 하늘이 켜져 있을 때는 볼륨 텍스처(volTex)가 첫 렌더링된 후 앱 스플래시 완료 트리거
           if (!isSceneReadyRef.current) {
@@ -2553,6 +2791,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
           }
         } else {
           renderer.render(scene, camera);
+          if (accumDirectiveRef.current) {
+            const cb = accumDirectiveRef.current.onDone;
+            accumDirectiveRef.current = null;
+            cb?.();
+          }
           if (!isSceneReadyRef.current) {
             isSceneReadyRef.current = true;
             useCelestialStore.getState().setAppReady(true);
@@ -3078,7 +3321,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       updateStarField(starFieldRef.current, {
         equToHorizon,
         sunAltDeg: sunAltRef.current,
-        brightness: settings.starBrightness,
+        brightness: settings.starBrightness * starBoostOverrideRef.current,
         magLimit: liveMagLimit,
         pixelRatio: pixelRatioRef.current,
         planets: cachedPlanetPointsRef.current,
@@ -3093,7 +3336,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         milkyWayRef.current,
         equToHorizon,
         sunAltRef.current,
-        settings.starBrightness,
+        settings.starBrightness * starBoostOverrideRef.current,
         liveMagLimit
       );
       milkyWayRef.current.mesh.visible = currentLayers.milkyway;

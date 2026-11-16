@@ -125,6 +125,8 @@ export interface VolumetricSceneInput {
   date: Date;
   /** 시선 방위·고도·세로 시야(도) */
   az: number; el: number; fov: number;
+  /** 카메라 전방 축 기준 기울기(도, 양수=시계방향). 적도의 추적 시뮬레이션용. */
+  rollDeg?: number;
   /** 카메라 고도(m). 기본값은 지상 눈높이 2m */
   altitudeM?: number;
   layers: VolumetricLayerInput[];
@@ -556,7 +558,7 @@ export interface VolumetricScene {
   /** 진행 중인 setSceneAsync 생성을 즉시 취소합니다(슬라이더 조작 완료 직후 등). */
   cancelAsync?(): void;
   /** 시선 및 고도만 바꿉니다(매 프레임 싸게). */
-  setView(az: number, el: number, fov: number, altitudeM?: number): void;
+  setView(az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number): void;
   /** 시각만 바꿉니다(해 방향·노출·바람 드리프트). driftSec 는 §155 바람 드리프트 시각(초), 없으면 date. */
   setDate(date: Date, driftSec?: number): void;
   /** 도시 불빛 세기 0~1(광공해 설정: 6.5 등급 0 ~ 3 등급 1). 매 프레임 불러도 됨(값이 같으면 아무것도 안 함). */
@@ -1698,6 +1700,12 @@ export async function createVolumetricScene(
     clouds.cloudLayers.forEach((layer, i) => { const c = on && !!castEligible[i]; layer.shadow = c; if (c && layer.height > 0) any = true; });
     if (!any) { layerU.shadowTopHeight.value = 0; layerU.shadowBottomHeight.value = 0; }
   };
+  const rollAxis = new Vector3();
+  const applyRollToUp = (fwd: Vector3, rollDeg?: number) => {
+    if (!rollDeg || Math.abs(rollDeg) <= 1e-4) return;
+    rollAxis.copy(fwd).normalize();
+    camera.up.applyAxisAngle(rollAxis, radians(rollDeg));
+  };
   const placeCamera = (p: VolumetricSceneInput) => {
     const az = radians(p.az), el = radians(p.el);
     const position = curPos, nue = curNue;
@@ -1718,6 +1726,7 @@ export async function createVolumetricScene(
       } else {
         camera.up.copy(up);
       }
+      applyRollToUp(dir, p.rollDeg);
       camera.lookAt(camera.position.clone().add(dir));
     } else {
       // 장면 좌표는 북·위·동(NUE).
@@ -1728,7 +1737,9 @@ export async function createVolumetricScene(
       } else {
         camera.up.set(0, 1, 0);
       }
-      camera.lookAt(Math.cos(el) * Math.cos(az), alt + Math.sin(el), Math.cos(el) * Math.sin(az));
+      const dirLocal = new Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+      applyRollToUp(dirLocal, p.rollDeg);
+      camera.lookAt(dirLocal.x, alt + dirLocal.y, dirLocal.z);
     }
     aerial.worldToECEFMatrix.copy(worldToECEF);
     clouds.worldToECEFMatrix.copy(worldToECEF);
@@ -2392,9 +2403,16 @@ export async function createVolumetricScene(
   const setPreset = (p: VolumetricPreset) => setScene(presetToInput(p));
   /** 파동 장 캐시 키 — tauTarget 은 굽기에 안 쓰므로 뺌(일사가 바뀌어도 다시 굽지 않음). */
   function waveKey(wp: WaveParams): string { return JSON.stringify({ ...wp, tauTarget: undefined }); }
-  const setView = (az: number, el: number, fov: number, altitudeM?: number) => {
+  const setView = (az: number, el: number, fov: number, altitudeM?: number, rollDeg?: number) => {
     if (!lastInput) return;
-    lastInput = { ...lastInput, az, el, fov, altitudeM: altitudeM !== undefined ? altitudeM : lastInput.altitudeM };
+    lastInput = {
+      ...lastInput,
+      az,
+      el,
+      fov,
+      rollDeg: rollDeg !== undefined ? rollDeg : lastInput.rollDeg,
+      altitudeM: altitudeM !== undefined ? altitudeM : lastInput.altitudeM,
+    };
     placeCamera(lastInput);
   };
   /**

@@ -706,11 +706,26 @@ export interface SceneComposerHandle {
    * 프레임에서 나란히 재면 낡을 일이 없습니다.
    */
   setReconstruct: (mode: 'catmull' | 'bilinear') => void;
-  /**
-   * 검증용 — 마지막 프레임에 실제로 들어간 광선 세기. 고도·화면 밖 감쇠가
+  /** 검증용 — 마지막 프레임에 실제로 들어간 광선 세기. 고도·화면 밖 감쇠가
    * 모두 곱해진 뒤의 값이라, 밤에 0인지 같은 것을 이걸로 잽니다.
    */
   lastRayGain: () => number;
+  /** 장노출(4~10분) 시간 누적 시작 — 내부 HDR/선형 누적 버퍼를 초기화합니다. */
+  beginAccumulation: (renderer: THREE.WebGLRenderer) => void;
+  /** 한 타임스텝 장면을 선형 누적 버퍼에 합산합니다(render 와 동일한 씬 패스 재사용). */
+  renderAccumStep: (
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    camera: THREE.Camera,
+    opts?: { weight?: number; captureAsFixedBase?: boolean },
+  ) => void;
+  /** 누적된 선형 밝기에 노출 게인·천체 톤매핑(+선택 고정 지형)을 적용해 화면에 출력합니다. */
+  resolveAccumulation: (
+    renderer: THREE.WebGLRenderer,
+    opts?: { exposureGain?: number; shadowLift?: number; useFixedGround?: boolean },
+  ) => void;
+  /** 장노출 누적 버퍼를 해제합니다. */
+  endAccumulation: () => void;
 }
 
 /**
@@ -1005,6 +1020,135 @@ export function createSceneComposer(
   bloomQuad.frustumCulled = false;
   opaqueQuad.frustumCulled = false;
   overQuad.frustumCulled = false;
+
+  // ── 장노출 시간 누적(Temporal Accumulation) 리소스 — 필요할 때만 지연 할당 ──
+  const ACCUM_BLEND_FRAG = `
+    precision highp float;
+    uniform sampler2D uPrev;
+    uniform sampler2D uTex;
+    uniform sampler2D uDist;
+    uniform float uAlpha;
+    uniform float uEncodePrev;
+    uniform float uPackGroundMask;
+    varying vec2 vUv;
+    float decodeDistKm(vec4 c) {
+      float t = (floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5)) / 65535.0;
+      return t > 0.99995 ? 1e9 : 1e-3 * exp2(t * 20.0);
+    }
+    void main() {
+      vec3 pRaw = texture2D(uPrev, vUv).rgb;
+      vec3 cRaw = texture2D(uTex, vUv).rgb;
+      if (uPackGroundMask > 0.5) {
+        float isGround = decodeDistKm(texture2D(uDist, vUv)) < 5e8 ? 1.0 : 0.0;
+        gl_FragColor = vec4(cRaw, isGround);
+        return;
+      }
+      vec3 pLin = uEncodePrev > 0.5 ? pRaw : pow(max(pRaw, vec3(0.0)), vec3(2.2));
+      vec3 cLin = pow(max(cRaw, vec3(0.0)), vec3(2.2));
+      vec3 outLin = mix(pLin, cLin, clamp(uAlpha, 0.0, 1.0));
+      vec3 enc = uEncodePrev > 0.5 ? outLin : pow(clamp(outLin, 0.0, 1.0), vec3(1.0 / 2.2));
+      gl_FragColor = vec4(enc, 1.0);
+    }
+  `;
+  const ACCUM_RESOLVE_FRAG = `
+    precision highp float;
+    uniform sampler2D uTex;
+    uniform sampler2D uBase;
+    uniform float uEncodeAccum;
+    uniform float uGain;
+    uniform float uShadowLift;
+    uniform float uUseFixedGround;
+    uniform float uDither;
+    varying vec2 vUv;
+    ${DITHER_GLSL}
+    vec3 acesFilm(vec3 x) {
+      const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+      return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    }
+    void main() {
+      vec3 accRaw = texture2D(uTex, vUv).rgb;
+      vec3 lin = uEncodeAccum > 0.5 ? accRaw : pow(max(accRaw, vec3(0.0)), vec3(2.2));
+      lin *= uGain;
+      // 암부 리프트(미약한 은하수·지상 윤곽을 블랙 위에서 살림) + ACES 하이라이트 보호
+      lin = lin + uShadowLift * (1.0 - exp(-lin * 4.0));
+      vec3 displaySrgb = pow(acesFilm(lin), vec3(1.0 / 2.2));
+      if (uUseFixedGround > 0.5) {
+        vec4 baseTex = texture2D(uBase, vUv);
+        if (baseTex.a > 0.5) {
+          vec3 baseLin = pow(max(baseTex.rgb, vec3(0.0)), vec3(2.2));
+          baseLin = baseLin * max(1.0, uGain * 0.55) + uShadowLift * 0.5 * (1.0 - exp(-baseLin * 4.0));
+          displaySrgb = pow(acesFilm(baseLin), vec3(1.0 / 2.2));
+        }
+      }
+      displaySrgb += (ditherNoise(gl_FragCoord.xy) - 0.5) * uDither / 255.0;
+      gl_FragColor = vec4(displaySrgb, 1.0);
+    }
+  `;
+  const accumBlendMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uPrev: { value: null as THREE.Texture | null },
+      uTex: { value: null as THREE.Texture | null },
+      uDist: { value: null as THREE.Texture | null },
+      uAlpha: { value: 1 },
+      uEncodePrev: { value: 0 },
+      uPackGroundMask: { value: 0 },
+    },
+    vertexShader: BLIT_VERT,
+    fragmentShader: ACCUM_BLEND_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const accumResolveMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTex: { value: null as THREE.Texture | null },
+      uBase: { value: null as THREE.Texture | null },
+      uEncodeAccum: { value: 0 },
+      uGain: { value: 1 },
+      uShadowLift: { value: 0 },
+      uUseFixedGround: { value: 0 },
+      uDither: { value: DEFAULT_DITHER },
+    },
+    vertexShader: BLIT_VERT,
+    fragmentShader: ACCUM_RESOLVE_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const accumBlendQuad = new THREE.Mesh(quad, accumBlendMat);
+  const accumResolveQuad = new THREE.Mesh(quad, accumResolveMat);
+  accumBlendQuad.frustumCulled = false;
+  accumResolveQuad.frustumCulled = false;
+
+  let rtAccumFrame: THREE.WebGLRenderTarget | null = null;
+  let rtAccumA: THREE.WebGLRenderTarget | null = null;
+  let rtAccumB: THREE.WebGLRenderTarget | null = null;
+  let rtFixedBase: THREE.WebGLRenderTarget | null = null;
+  let accumHalfFloat = false;
+  let accumPing = 0;
+  let accumWeightSum = 0;
+
+  const ensureAccumTargets = (renderer: THREE.WebGLRenderer) => {
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    const hasFloatBuf = !!(
+      gl.getExtension?.('EXT_color_buffer_float') ||
+      gl.getExtension?.('EXT_color_buffer_half_float')
+    );
+    accumHalfFloat = renderer.capabilities.isWebGL2 && hasFloatBuf;
+    const accumType = accumHalfFloat ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    const accumOpts: THREE.RenderTargetOptions = { ...rtOptions, type: accumType };
+    if (!rtAccumFrame) rtAccumFrame = new THREE.WebGLRenderTarget(w, h, { ...rtOptions, depthBuffer: true });
+    if (!rtAccumA || rtAccumA.texture.type !== accumType) {
+      rtAccumA?.dispose();
+      rtAccumB?.dispose();
+      rtAccumA = new THREE.WebGLRenderTarget(w, h, accumOpts);
+      rtAccumB = new THREE.WebGLRenderTarget(w, h, accumOpts);
+    }
+    if (!rtFixedBase) rtFixedBase = new THREE.WebGLRenderTarget(w, h, rtOptions);
+    if (rtAccumFrame.width !== w || rtAccumFrame.height !== h) rtAccumFrame.setSize(w, h);
+    if (rtAccumA.width !== w || rtAccumA.height !== h) rtAccumA.setSize(w, h);
+    if (rtAccumB!.width !== w || rtAccumB!.height !== h) rtAccumB!.setSize(w, h);
+    if (rtFixedBase.width !== w || rtFixedBase.height !== h) rtFixedBase.setSize(w, h);
+  };
+
   const blitScene = new THREE.Scene();
 
   const blit = (renderer: THREE.WebGLRenderer, mesh: THREE.Mesh, tex: THREE.Texture) => {
@@ -1040,6 +1184,10 @@ export function createSceneComposer(
     rtBloomA.setSize(bloomW(), bloomH());
     rtBloomB.setSize(bloomW(), bloomH());
     rtRay.setSize(bloomW(), bloomH());
+    rtAccumFrame?.setSize(w, h);
+    rtAccumA?.setSize(w, h);
+    rtAccumB?.setSize(w, h);
+    rtFixedBase?.setSize(w, h);
   };
 
   /**
@@ -1088,7 +1236,8 @@ export function createSceneComposer(
   const runPost = (
     renderer: THREE.WebGLRenderer,
     camera: THREE.Camera,
-    softPathUsed: boolean
+    softPathUsed: boolean,
+    outputTarget?: THREE.WebGLRenderTarget | null
   ) => {
     const bloomOn = bloom.strength > 0.001;
     // 그늘 지도는 구름 덱 버퍼에서 나옵니다. 한 번에 그리는 경로(배율 1)에는
@@ -1133,7 +1282,7 @@ export function createSceneComposer(
     }
 
     // 4) 화면에 원본 + 번짐 + 광선
-    renderer.setRenderTarget(pixelRows > 0 ? rtPixel : null);
+    renderer.setRenderTarget(outputTarget !== undefined ? outputTarget : (pixelRows > 0 ? rtPixel : null));
     bloomMat.uniforms.uBloom.value = rtBloomA.texture;
     // 꺼져 있어도 샘플러는 묶어 둡니다 — 안 묶인 sampler2D 는 기기에 따라
     // 경고나 검정 이상의 것을 냅니다. 세기 0이라 결과에는 영향이 없습니다.
@@ -1203,10 +1352,11 @@ export function createSceneComposer(
     renderer.setRenderTarget(prevTarget);
   };
 
-  const render = (
+  const renderTo = (
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
-    camera: THREE.Camera
+    camera: THREE.Camera,
+    targetOverride?: THREE.WebGLRenderTarget
   ) => {
     const prevTarget = renderer.getRenderTarget();
     const prevAutoClear = renderer.autoClear;
@@ -1223,7 +1373,7 @@ export function createSceneComposer(
       (bloom.strength > 0.001 ||
         (softPath && rays.strength > 0.001 && sunDirWorld !== null));
     // 도트 모드면 화면 대신 도트 버퍼가 마지막 출력입니다(끝에서 최근접으로 늘림).
-    const finalTarget = pixelRows > 0 ? rtPixel : null;
+    const finalTarget = targetOverride ?? (pixelRows > 0 ? rtPixel : null);
     const sceneTarget = postOn ? rtScene : finalTarget;
 
     // §117 — 지형 거리 판(원해상도). 이번 프레임에 이미 그렸으면(prepareTerrainDistance) 건너뜁니다.
@@ -1362,13 +1512,13 @@ export function createSceneComposer(
 
     if (postOn) {
       renderer.autoClear = false;
-      runPost(renderer, camera, softPath);
+      runPost(renderer, camera, softPath, targetOverride ? finalTarget : undefined);
     } else {
       rayGain = 0;
     }
 
     // 도트 모드 — 내부 해상도 그림을 최근접으로 화면에 늘립니다.
-    if (pixelRows > 0) {
+    if (pixelRows > 0 && !targetOverride) {
       renderer.setRenderTarget(null);
       renderer.autoClear = true;
       copyMat.uniforms.uFactor.value = pixelFactor;
@@ -1378,6 +1528,114 @@ export function createSceneComposer(
     camera.layers.mask = prevMask;
     renderer.autoClear = prevAutoClear;
     renderer.setRenderTarget(prevTarget);
+  };
+
+  const render = (
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    camera: THREE.Camera
+  ) => renderTo(renderer, scene, camera);
+
+  const clearAccumTargets = (renderer: THREE.WebGLRenderer) => {
+    const prev = renderer.getRenderTarget();
+    const prevAuto = renderer.autoClear;
+    renderer.autoClear = true;
+    for (const rt of [rtAccumA, rtAccumB, rtFixedBase]) {
+      if (!rt) continue;
+      renderer.setRenderTarget(rt);
+      renderer.setClearColor(0x000000, 1);
+      renderer.clear(true, false, false);
+    }
+    renderer.autoClear = prevAuto;
+    renderer.setRenderTarget(prev);
+  };
+
+  const beginAccumulation = (renderer: THREE.WebGLRenderer) => {
+    ensureAccumTargets(renderer);
+    accumPing = 0;
+    accumWeightSum = 0;
+    clearAccumTargets(renderer);
+  };
+
+  const renderAccumStep = (
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    camera: THREE.Camera,
+    opts?: { weight?: number; captureAsFixedBase?: boolean },
+  ) => {
+    ensureAccumTargets(renderer);
+    const frameRt = rtAccumFrame!;
+    const dst = accumPing === 0 ? rtAccumA! : rtAccumB!;
+    const src = accumPing === 0 ? rtAccumB! : rtAccumA!;
+    const wStep = Math.max(1e-4, opts?.weight ?? 1);
+    const prevWeightSum = accumWeightSum;
+    accumWeightSum += wStep;
+    const alpha = prevWeightSum <= 0 ? 1 : wStep / accumWeightSum;
+
+    renderTo(renderer, scene, camera, frameRt);
+
+    const prevTarget = renderer.getRenderTarget();
+    const prevAutoClear = renderer.autoClear;
+    const prevMask = camera.layers.mask;
+
+    if (opts?.captureAsFixedBase && rtFixedBase) {
+      renderer.setRenderTarget(rtFixedBase);
+      renderer.autoClear = true;
+      accumBlendMat.uniforms.uPrev.value = frameRt.texture;
+      accumBlendMat.uniforms.uDist.value = activeDistTex();
+      accumBlendMat.uniforms.uAlpha.value = 1;
+      accumBlendMat.uniforms.uEncodePrev.value = 0;
+      accumBlendMat.uniforms.uPackGroundMask.value = terrainDistOn ? 1 : 0;
+      blit(renderer, accumBlendQuad, frameRt.texture);
+      accumBlendMat.uniforms.uPackGroundMask.value = 0;
+    }
+
+    renderer.setRenderTarget(dst);
+    renderer.autoClear = true;
+    accumBlendMat.uniforms.uPrev.value = src.texture;
+    accumBlendMat.uniforms.uDist.value = activeDistTex();
+    accumBlendMat.uniforms.uAlpha.value = alpha;
+    accumBlendMat.uniforms.uEncodePrev.value = accumHalfFloat ? 1 : 0;
+    accumBlendMat.uniforms.uPackGroundMask.value = 0;
+    blit(renderer, accumBlendQuad, frameRt.texture);
+
+    accumPing = 1 - accumPing;
+    camera.layers.mask = prevMask;
+    renderer.autoClear = prevAutoClear;
+    renderer.setRenderTarget(prevTarget);
+  };
+
+  const resolveAccumulation = (
+    renderer: THREE.WebGLRenderer,
+    opts?: { exposureGain?: number; shadowLift?: number; useFixedGround?: boolean },
+  ) => {
+    if (!rtAccumA || !rtAccumB) return;
+    // 직전 step 에서 쓴 버퍼가 (1 - accumPing) 쪽에 놓임
+    const latest = accumPing === 1 ? rtAccumA : rtAccumB;
+    const prevTarget = renderer.getRenderTarget();
+    const prevAutoClear = renderer.autoClear;
+
+    renderer.setRenderTarget(null);
+    renderer.autoClear = true;
+    accumResolveMat.uniforms.uBase.value = (rtFixedBase ?? latest).texture;
+    accumResolveMat.uniforms.uEncodeAccum.value = accumHalfFloat ? 1 : 0;
+    accumResolveMat.uniforms.uGain.value = Math.max(0.1, opts?.exposureGain ?? 1);
+    accumResolveMat.uniforms.uShadowLift.value = Math.max(0, opts?.shadowLift ?? 0);
+    accumResolveMat.uniforms.uUseFixedGround.value = opts?.useFixedGround ? 1 : 0;
+    accumResolveMat.uniforms.uDither.value = dither;
+    blit(renderer, accumResolveQuad, latest.texture);
+
+    renderer.autoClear = prevAutoClear;
+    renderer.setRenderTarget(prevTarget);
+  };
+
+  const endAccumulation = () => {
+    rtAccumFrame?.dispose(); rtAccumFrame = null;
+    rtAccumA?.dispose(); rtAccumA = null;
+    rtAccumB?.dispose(); rtAccumB = null;
+    rtFixedBase?.dispose(); rtFixedBase = null;
+    accumWeightSum = 0;
+    accumPing = 0;
   };
 
   return {
@@ -1452,6 +1710,10 @@ export function createSceneComposer(
       extFrontMat.uniforms.uDenoise.value = den;
     },
     lastRayGain: () => rayGain,
+    beginAccumulation,
+    renderAccumStep,
+    resolveAccumulation,
+    endAccumulation,
     setTerrainDistance: (on: boolean) => {
       if (terrainDistOn !== !!on) lastTerrainPassKey = '';
       terrainDistOn = !!on;
@@ -1489,6 +1751,9 @@ export function createSceneComposer(
       blurMat.dispose();
       rayMat.dispose();
       bloomMat.dispose();
+      accumBlendMat.dispose();
+      accumResolveMat.dispose();
+      endAccumulation();
     },
   };
 }

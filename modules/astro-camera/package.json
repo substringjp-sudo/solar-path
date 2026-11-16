@@ -1,0 +1,8 @@
+{
+  "name": "astro-camera",
+  "version": "0.1.0",
+  "description": "Local Expo module for Android Camera2 manual long exposure, RAW_SENSOR capture, and linear float stacking",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true
+}
