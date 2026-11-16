@@ -144,7 +144,8 @@ export function waveLaneRange(p: WaveParams): { zMin: number; zMax: number } {
   return { zMin: p.baseM - 150, zMax: p.baseM + 1.3 * p.thickM };
 }
 
-const RAW_WAVE_CACHE_MAX = 16;
+// 날씨 캐시(WEATHER_CACHE_SIZE = 32)와 짝을 맞춰 하루 24시간 버킷이 밀려나지 않도록 유지
+const RAW_WAVE_CACHE_MAX = 32;
 const rawWaveCache = new Map<string, Float32Array>();
 
 function getCachedRawWave(key: string, len: number): Float32Array | null {

@@ -587,7 +587,7 @@ export interface VolumetricScene {
   /** 품질 단계를 겁니다. 구름 해상도 배율은 바꾸지 않습니다(§169 — 해상도는 setResolutionScale 몫). */
   setQuality(q: VolumetricQuality): void;
   /** 상호작용 중(드래그/줌) 레이마칭 보폭·2차 해 행진을 낮춰 응답성을 높이고, 떼면 원복합니다. */
-  setInteracting?(active: boolean): void;
+  setInteracting?(active: boolean, deferFarSun?: boolean): void;
   setResolutionScale(s: number): void;
   /** §169 지금 실제로 쓰는 구름 해상도 배율(takram resolutionScale) — 성능 표시용. */
   resolutionScale(): number;
@@ -1516,7 +1516,8 @@ export async function createVolumetricScene(
     setFarAirShade((1 - farMap.map.centerT[3]) * airSunWeight);
   };
   const waveCacheMap = new Map<string, WaveField>();
-  const WAVE_CACHE_SIZE = 16;
+  // WEATHER_CACHE_SIZE(32) 와 크기를 맞춰 24시간 프리워밍 중 파동 텍스처가 먼저 축출되지 않도록 함
+  const WAVE_CACHE_SIZE = 32;
   let activeWaveField: WaveField | null = null;
   const waveCacheGet = (key: string): WaveField | null => {
     const f = waveCacheMap.get(key);
@@ -2585,11 +2586,11 @@ export async function createVolumetricScene(
       if (isInteracting) applyInteractionLod();
       applyTsun();
     },
-    setInteracting: active => {
+    setInteracting: (active, deferFarSun = false) => {
       if (isInteracting === active) return;
       isInteracting = active;
       applyInteractionLod();
-      if (!active && opt.farSun && lastInput && farMap?.draft) {
+      if (!active && !deferFarSun && opt.farSun && lastInput && farMap?.draft) {
         applyFarSun(lastInput, lastSunAltForLight);
       }
     },

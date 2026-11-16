@@ -97,6 +97,11 @@ import { estimateLightPollution, type LightPollutionEstimate, type NightLights }
 import type { VolumetricScene } from '../VolumetricProbe/volumetricScene';
 import { createResolutionGovernor, volumetricStats, type ResolutionGovernor } from '../../utils/volumetricGovernor';
 import { setVolumetricStatus } from '../VolumetricProbe/volumetricStatus';
+import {
+  evaluateVolDateSync,
+  buildDayPrewarmBuckets,
+  type VolDateSyncState,
+} from '../../utils/sliderSettle';
 // §126.7 볼륨 하늘 — 메인 시뮬레이션 기본 경로로 활성화
 const VOLUMETRIC_SKY_ENABLED = true;
 /** 볼륨 하늘 기본 활성화 */
@@ -721,6 +726,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   const trackingTargetRef = useRef(trackingTarget);
   const onSelectTrackingTargetRef = useRef(onSelectTrackingTarget);
   const targetTimeMsRef = useRef(currentTime.getTime());
+  const lastSyncedPropTimeMsRef = useRef<number | null>(null);
   const lastTargetSyncPerfRef = useRef(performance.now());
   const lastCloudRebuildMsRef = useRef(0);   // 구름 마지막 재빌드 시각 (벽시계)
   const lastCloudSunAltRef   = useRef(-999); // 구름 재빌드 당시 태양 고도
@@ -760,7 +766,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   };
   const lastCityLightValRef = useRef<number>(-1);
   const lastVolCityLightRef = useRef<number>(-1);
-  const lastVolDateSyncRef = useRef<{ vMs: number; wallMs: number }>({ vMs: -1, wallMs: 0 });
+  const lastVolDateSyncRef = useRef<VolDateSyncState>({ targetMs: null, wallMs: 0 });
   const prevLabelsRef = useRef<Array<{ id: string; name: string; x: number; y: number; color: string }>>([]);
   const lastSentAzElevRef = useRef<{ az: number; el: number }>({ az: -999, el: -999 });
   const volInteractingRef = useRef<boolean>(false);
@@ -946,11 +952,22 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     const wasSliding = isSlidingRef.current;
     isSlidingRef.current = isSliding;
     if (!isSliding && wasSliding) {
-      // 슬라이더에서 손을 떼는 순간: 진행 중인 같은 시간대(key) 비동기 빌드는 취소하지 않고 그대로 마저 끝내며,
-      // 만약 다른 시간대로 바뀌었으면 animate 루프에서 새 setSceneAsync 가 이전 작업을 덮어씁니다.
+      // 슬라이더에서 손을 떼는 순간: 드래그 중 예약된 레거시 구름 타이머(180ms)가 뒤늦게 터지지 않게 즉시 플러시합니다.
+      if (cloudRebuildTimerRef.current) {
+        clearTimeout(cloudRebuildTimerRef.current);
+        cloudRebuildTimerRef.current = null;
+        lastCloudSceneMsRef.current = -1e15;
+      }
+      sceneDirtyRef.current = true;
       lastTargetSyncPerfRef.current = performance.now();
-      volSettleRef.current = Math.max(volSettleRef.current, 18);
-      requestRender(4);
+      if (volPendingRef.current) {
+        // 비동기 빌드가 이미 대기 중이면 완료 후 1회만 수렴하도록 옛 구름 재수렴을 돌리지 않습니다.
+        volSettleRef.current = 0;
+        requestRender(1);
+      } else {
+        volSettleRef.current = Math.max(volSettleRef.current, 18);
+        requestRender(4);
+      }
     }
   }, [isSliding, requestRender]);
 
@@ -1400,7 +1417,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
   useEffect(() => { trackingTargetRef.current = trackingTarget; if (trackingTarget) requestRender(15); }, [trackingTarget, requestRender]);
   useEffect(() => { onSelectTrackingTargetRef.current = onSelectTrackingTarget; }, [onSelectTrackingTarget]);
   useEffect(() => {
-    targetTimeMsRef.current = currentTime.getTime();
+    const nextMs = currentTime.getTime();
+    // emitScrubTime 으로 이미 같은 시각이 반영된 뒤 React 상태만 뒤따라 커밋될 때는 드리프트 기준을 되감지 않습니다.
+    if (lastSyncedPropTimeMsRef.current !== null && nextMs === targetTimeMsRef.current) {
+      lastSyncedPropTimeMsRef.current = nextMs;
+      return;
+    }
+    lastSyncedPropTimeMsRef.current = nextMs;
+    targetTimeMsRef.current = nextMs;
     lastTargetSyncPerfRef.current = performance.now();
     sceneDirtyRef.current = true;
     requestRender(4);
@@ -2479,15 +2503,18 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
             const nowPerf = performance.now();
             const isSlidingNow = !!isSlidingRef.current;
             const isInteractingNow = isSlidingNow || useCelestialStore.getState().isGestureBlocked;
-            if (volInteractingRef.current !== isInteractingNow) {
-              volInteractingRef.current = isInteractingNow;
-              vol.setInteracting?.(isInteractingNow);
-              composerNow.setInteracting?.(isInteractingNow);
-              if (!isInteractingNow) volSettleRef.current = Math.max(volSettleRef.current, 18);
-            }
             const isFast = false;
             const needUpgrade = false;
-            if (live && (key !== volKeyRef.current || needUpgrade)) {
+            const volKeyChanged = Boolean(live && (key !== volKeyRef.current || needUpgrade));
+            if (volInteractingRef.current !== isInteractingNow) {
+              volInteractingRef.current = isInteractingNow;
+              vol.setInteracting?.(isInteractingNow, !isInteractingNow && volKeyChanged);
+              composerNow.setInteracting?.(isInteractingNow);
+              if (!isInteractingNow && !volPendingRef.current && !volKeyChanged) {
+                volSettleRef.current = Math.max(volSettleRef.current, 18);
+              }
+            }
+            if (volKeyChanged && live) {
               const built = live.buildLiveScene({
                 lat: vLat, lon: vLon, heightM: vElev, date: new Date(vBucketMs),
                 pathData: vPath,
@@ -2500,6 +2527,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               });
               const cachedHit = vol.hasCachedScene?.(built.input, isFast) ?? false;
               if (cachedHit) {
+                ++volBuildSeqRef.current;
                 lastSlidingVolBuildTimeRef.current = nowPerf;
                 lastVolIsFastRef.current = isFast;
                 volKeyRef.current = key;
@@ -2517,25 +2545,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                   tau: built.tauDni != null ? Math.round(built.tauDni * 10) / 10 : undefined,
                 } : null;
                 volViewRef.current = '';
-                lastVolDateSyncRef.current.vMs = -1;
+                lastVolDateSyncRef.current.targetMs = null;
                 volSettleRef.current = 18;
                 volFreshRef.current = false;
-              } else if (!volPendingRef.current && !isSlidingNow) {
+              } else if (!isSlidingNow) {
                 const isFirstCloudScene = !volHasSceneRef.current;
                 if (isFirstCloudScene) {
                   vol.setScene({ ...built.input, layers: [], macro: undefined });
                   volHasSceneRef.current = true;
                   volViewRef.current = '';
-                  lastVolDateSyncRef.current.vMs = -1;
+                  lastVolDateSyncRef.current.targetMs = null;
                 }
                 lastSlidingVolBuildTimeRef.current = nowPerf;
                 lastVolIsFastRef.current = isFast;
                 volKeyRef.current = key;
                 volPendingRef.current = true;
+                // 비동기 구름 빌드가 끝나기 전까지 예전 구름으로 18프레임 헛수렴을 돌리지 않고
+                // 현재 프레임만 1회 즉시 그린 뒤 완료 콜백에서 딱 한 번만 수렴합니다.
+                volSettleRef.current = 0;
+                if (framesToRenderRef.current > 1) framesToRenderRef.current = 1;
                 const myBuildSeq = ++volBuildSeqRef.current;
                 const tW = Date.now();
                 vol.setSceneAsync(built.input, isFast, isFirstCloudScene ? 24 : 12).then(applied => {
-                  if (volBuildSeqRef.current === myBuildSeq) volPendingRef.current = false;
+                  if (volBuildSeqRef.current !== myBuildSeq) return;
+                  volPendingRef.current = false;
                   volumetricStats.weatherMs = vol.weatherMs();
                   if (applied) {
                     volHasSceneRef.current = true;
@@ -2549,14 +2582,15 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                       tau: built.tauDni != null ? Math.round(built.tauDni * 10) / 10 : undefined,
                     } : null;
                     volViewRef.current = '';          // 다음 프레임에 지금 시선을 다시 겁니다(생성 중에 돌렸을 수 있음)
-                    lastVolDateSyncRef.current.vMs = -1;
+                    lastVolDateSyncRef.current.targetMs = null;
                     volSettleRef.current = 18;
                     volFreshRef.current = false;      // §165 새 장면이 한 프레임 그려질 때까지 준비 아님
                   } else if (volKeyRef.current === key) volKeyRef.current = '';
                   if (__DEV__ && Date.now() - tW > 50) console.log(`[SkyScene] 볼륨 층 ${applied ? '바꿈' : '버림'} ${Date.now() - tW}ms`);
                   requestRender(3);
                 }).catch(e => {
-                  if (volBuildSeqRef.current === myBuildSeq) volPendingRef.current = false;
+                  if (volBuildSeqRef.current !== myBuildSeq) return;
+                  volPendingRef.current = false;
                   if (volKeyRef.current === key) volKeyRef.current = '';
                   volFailedRef.current = '층: ' + String((e as Error)?.message ?? e);
                   setVolumetricStatus({ phase: 'failed', error: volFailedRef.current });
@@ -2574,27 +2608,8 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
                 prewarmedDayKeyRef.current = dayPrewarmKey;
                 let aborted = false;
                 prewarmCancelRef.current = () => { aborted = true; };
-                const times = SunCalc.getTimes(new Date(dayStartMs + 12 * 3600000), vLat, vLon);
-                const riseMs = times.sunrise instanceof Date && Number.isFinite(times.sunrise.getTime())
-                  ? times.sunrise.getTime()
-                  : dayStartMs + 6 * 3600000;
-                const setMs = times.sunset instanceof Date && Number.isFinite(times.sunset.getTime())
-                  ? times.sunset.getTime()
-                  : dayStartMs + 18 * 3600000;
-                const winStartMs = Math.max(dayStartMs, riseMs - 1.5 * 3600000);
-                const winEndMs = Math.min(dayStartMs + 24 * 3600000, setMs + 1.5 * 3600000);
-                const hourBuckets: number[] = [];
-                // 일출 -1.5h ~ 일몰 +1.5h 주간 핵심 2시간 버킷만 프리워밍해 계산량과 캐시 evict를 줄입니다.
-                for (let h = 0; h < 24; h += 2) {
-                  const bMs = dayStartMs + h * 3600000 + 1800000;
-                  if (bMs >= winStartMs && bMs <= winEndMs) hourBuckets.push(bMs);
-                }
-                if (hourBuckets.length === 0) {
-                  for (let h = 6; h <= 18; h += 2) {
-                    hourBuckets.push(dayStartMs + h * 3600000 + 1800000);
-                  }
-                }
-                hourBuckets.sort((a, b) => Math.abs(a - vBucketMs) - Math.abs(b - vBucketMs));
+                // 날씨·파동 캐시(32칸)에 하루 24시간 버킷이 모두 들어가므로 현재 시각 주변부터 전 시간대를 예열합니다.
+                const hourBuckets = buildDayPrewarmBuckets(dayStartMs, vBucketMs);
                 const metarSnap = metarRef.current;
                 const fillSnap = skySettingsRef.current.volumetricFill ?? true;
                 const shouldPausePrewarm = () =>
@@ -2661,19 +2676,26 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               // 흐르고, '지금' 모드에서 시각이 1 분씩 넘어가도 시계가 이어져 튀지 않습니다(넘어간 만큼 이미 흘렀음).
               const nowWall = Date.now();
               const vMs = vDate.getTime();
-              if (overrideSceneTimeMsRef.current !== null) {
-                vol.setDate(vDate, vMs / 1000);
-                lastVolDateSyncRef.current = { vMs, wallMs: nowWall };
-              } else {
-                const anc = driftAnchorRef.current;
-                if (!anc || anc.sceneMs !== vMs) driftAnchorRef.current = { sceneMs: vMs, wallMs: nowWall };
-                const a2 = driftAnchorRef.current!;
-                const dateChanged = vMs !== lastVolDateSyncRef.current.vMs;
-                if (dateChanged || nowWall - lastVolDateSyncRef.current.wallMs >= 250) {
-                  vol.setDate(vDate, (a2.sceneMs + (nowWall - a2.wallMs)) / 1000);
-                  lastVolDateSyncRef.current = { vMs, wallMs: nowWall };
-                  if (dateChanged) volSettleRef.current = Math.max(volSettleRef.current, 18);
-                }
+              const overrideMs = overrideSceneTimeMsRef.current;
+              const syncDecision = evaluateVolDateSync({
+                targetMs: overrideMs ?? targetTimeMsRef.current,
+                overrideActive: overrideMs !== null,
+                renderedMs: vMs,
+                nowWall,
+                lastSync: lastVolDateSyncRef.current,
+                driftAnchor: driftAnchorRef.current,
+                volPending: volPendingRef.current,
+                isInteracting: isInteractingNow,
+                volSettleRemaining: volSettleRef.current,
+                isLiveClock: !useCelestialStore.getState().isTimeMachineEnabled,
+              });
+              driftAnchorRef.current = syncDecision.nextAnchor;
+              lastVolDateSyncRef.current = syncDecision.nextLastSync;
+              if (syncDecision.shouldCallSetDate) {
+                vol.setDate(vDate, syncDecision.driftSec);
+              }
+              if (syncDecision.shouldResetSettle) {
+                volSettleRef.current = Math.max(volSettleRef.current, 18);
               }
               const intervalMs = lastRenderTsRef.current > 0 ? now - lastRenderTsRef.current : 0;
               const dtSec = intervalMs > 0 ? Math.min(0.1, Math.max(0.001, intervalMs / 1000)) : 1 / 60;
@@ -2708,7 +2730,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
               if (viewKey !== volViewRef.current) {
                 vol.setView(effectiveAz, effectiveElev, camera.fov, altitudeM, rv?.rollDeg ?? 0);
                 volViewRef.current = viewKey;
-                if (overrideSceneTimeMsRef.current === null) {
+                if (overrideSceneTimeMsRef.current === null && !volPendingRef.current) {
                   volSettleRef.current = Math.max(volSettleRef.current, 18);
                 }
               }
