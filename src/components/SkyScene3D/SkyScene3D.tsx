@@ -74,6 +74,7 @@ import {
   type BuildingFieldHandle,
 } from './BuildingField';
 import { fetchNearbyBuildings, BUILDING_RADIUS_M } from '../../utils/buildingTiles';
+import { fetchUrbanMask } from '../../utils/mvtTiles';
 import {
   createSeaPlane,
   SEA_MASK_RADIUS_M,
@@ -492,8 +493,11 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    * (아래 렌더 순서 참고). 절대 기존 경로를 대체하지 않습니다.
    */
   const terrainFieldRef = useRef<TerrainFieldHandle | null>(null);
+  const urbanLoadedKeyRef = useRef<string | null>(null);
   const buildingFieldRef = useRef<BuildingFieldHandle | null>(null);
   const buildingLoadedKeyRef = useRef<string | null>(null);
+  const buildingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const buildingRetryCountRef = useRef(0);
   const seaPlaneRef = useRef<SeaPlaneHandle | null>(null);
   const demPatchRef = useRef<DemPatch | null>(null);
   /** 진행 중인 요청과 마지막으로 받은 좌표 — 같은 자리를 중복 요청하지 않습니다. */
@@ -517,6 +521,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
    */
   const [demRetryTick, setDemRetryTick] = useState(0);
   const [buildingSyncTick, setBuildingSyncTick] = useState(0);
+  const [buildingRetryTick, setBuildingRetryTick] = useState(0);
   const sunRef = useRef<SunHandle | null>(null);
   const moonRef = useRef<MoonHandle | null>(null);
   /** 달을 광원으로 둔 지면 조도(이득 곱하기 전) — 달이 움직였을 때만 다시 구합니다. */
@@ -1656,7 +1661,9 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     if (rendererRef.current) clearDemCache(rendererRef.current);
     demLoadedKeyRef.current = null;
     demLoadingKeyRef.current = null;
+    urbanLoadedKeyRef.current = null;
     buildingLoadedKeyRef.current = null;
+    buildingRetryCountRef.current = 0;
     glRef.current = gl;
 
     const renderer = new Renderer({ gl });
@@ -2124,6 +2131,7 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         // 개발자 튜닝 값 및 광공해는 튜닝/설정/레이어가 바뀔 때만 밀어 넣습니다(카메라만 돌릴 때 매 프레임 7개 머티리얼 순회 생략).
         const locNow = locationRef.current;
         const lightEstNow = getLightEst(locNow?.coords?.latitude ?? 37.5, locNow?.coords?.longitude ?? 127.0);
+        terrainFieldRef.current?.setFarUrban(lightEstNow ? lightEstNow.pollution : 0);
         const cityLightsEnabled = layersRef.current.cityLights !== false;
         const cityLightNow = !cityLightsEnabled
           ? 0
@@ -3376,11 +3384,36 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
     return () => { cancelled = true; };
   }, [location, requestRender, demRetryTick]);
 
-  const bldLat = location?.coords?.latitude;
-  const bldLng = location?.coords?.longitude;
+  const bldLat = location?.coords?.latitude ?? 37.5665;
+  const bldLng = location?.coords?.longitude ?? 126.9780;
+  useEffect(() => {
+    if (!terrainFieldRef.current) return;
+
+    const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
+    if (urbanLoadedKeyRef.current === key) return;
+
+    const controller = new AbortController();
+    fetchUrbanMask(bldLat, bldLng, { signal: controller.signal })
+      .then((mask) => {
+        if (controller.signal.aborted || !terrainFieldRef.current || !mask) return;
+        urbanLoadedKeyRef.current = key;
+        terrainFieldRef.current.setUrbanMask(mask);
+        sceneDirtyRef.current = true;
+        requestRender(6);
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [bldLat, bldLng, requestRender, buildingSyncTick]);
+
   const bldEnabled = Boolean(layers.buildings);
   useEffect(() => {
     if (!bldEnabled) {
+      if (buildingRetryTimerRef.current) {
+        clearTimeout(buildingRetryTimerRef.current);
+        buildingRetryTimerRef.current = null;
+      }
+      buildingRetryCountRef.current = 0;
       if (buildingFieldRef.current) {
         buildingFieldRef.current.setVisible(false);
         sceneDirtyRef.current = true;
@@ -3388,7 +3421,6 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       }
       return;
     }
-    if (typeof bldLat !== 'number' || typeof bldLng !== 'number') return;
     if (!buildingFieldRef.current) return;
 
     const key = `${bldLat.toFixed(3)},${bldLng.toFixed(3)}`;
@@ -3404,18 +3436,30 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
       .then((meshData) => {
         if (controller.signal.aborted || !buildingFieldRef.current) return;
         buildingLoadedKeyRef.current = key;
+        buildingRetryCountRef.current = 0;
         buildingFieldRef.current.setBuildings(meshData);
         buildingFieldRef.current.setVisible(Boolean(layersRef.current.buildings));
+        if (__DEV__) {
+          console.log('[Buildings] 주변 건물 로드:', meshData ? `${meshData.buildingCount}채 / ${meshData.vertexCount}정점` : '0채', key);
+        }
         sceneDirtyRef.current = true;
         requestRender(10);
       })
       .catch((e) => {
         if (controller.signal.aborted) return;
         if (__DEV__) console.warn('[Buildings] 주변 건물 데이터를 못 받았습니다.', e);
+        const n = buildingRetryCountRef.current;
+        buildingRetryCountRef.current = n + 1;
+        const waitMs = Math.min(30_000, 3000 * 2 ** n);
+        if (buildingRetryTimerRef.current) clearTimeout(buildingRetryTimerRef.current);
+        buildingRetryTimerRef.current = setTimeout(() => {
+          buildingRetryTimerRef.current = null;
+          setBuildingRetryTick((t) => t + 1);
+        }, waitMs);
       });
 
     return () => controller.abort();
-  }, [bldLat, bldLng, bldEnabled, requestRender, buildingSyncTick]);
+  }, [bldLat, bldLng, bldEnabled, requestRender, buildingSyncTick, buildingRetryTick]);
 
   useEffect(() => {
     return () => {
@@ -3452,9 +3496,14 @@ export const SkyScene3D = forwardRef<SkyScene3DHandle, SkyScene3DProps>((
         terrainFieldRef.current.dispose();
         terrainFieldRef.current = null;
       }
+      urbanLoadedKeyRef.current = null;
       if (buildingFieldRef.current) {
         buildingFieldRef.current.dispose();
         buildingFieldRef.current = null;
+      }
+      if (buildingRetryTimerRef.current) {
+        clearTimeout(buildingRetryTimerRef.current);
+        buildingRetryTimerRef.current = null;
       }
       buildingLoadedKeyRef.current = null;
       if (seaPlaneRef.current) {

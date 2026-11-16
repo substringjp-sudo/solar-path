@@ -36,6 +36,7 @@
  */
 import * as THREE from 'three';
 import { DEM_GLSL, demGlsl, makeDemUniforms, type DemPatch } from '../../utils/demTiles';
+import type { UrbanMaskResult } from '../../utils/mvtTiles';
 import {
   ATMOSPHERE_GLSL, GROUND_DISPLAY_GLSL, makeTuningUniforms,
 } from '../../utils/atmosphere';
@@ -379,6 +380,10 @@ uniform float uLookFill;
 uniform float uLookSheen;
 uniform float uLookMottle;
 uniform float uLookMicro;
+uniform sampler2D uUrbanTex;
+uniform float uUrbanValid;
+uniform float uUrbanHalfM;
+uniform float uFarUrban;
 varying float vDistM;
 varying float vElevM;
 varying vec3  vNormal;
@@ -796,6 +801,23 @@ void main() {
     ? 1.0 - smoothstep(0.0, max(0.05, uWetBandM), elevF) : 0.0;
   alb = mix(alb, alb * 0.52, wet);
 
+  // ── 도시·거주지 포장 지반(회색 콘크리트/아스팔트) ────────────────────────
+  // MVT 토지이용 마스크(±3km)가 있으면 구역별로, 밖이나 로드 전엔 불빛 지도(uFarUrban)로 보조합니다.
+  float urbanRaw = clamp(uFarUrban * 0.65, 0.0, 1.0);
+  if (uUrbanValid > 0.5) {
+    vec2 uUv = (vGround + uUrbanHalfM) / max(1.0, 2.0 * uUrbanHalfM);
+    float inBox = step(0.0, uUv.x) * step(uUv.x, 1.0) * step(0.0, uUv.y) * step(uUv.y, 1.0);
+    if (inBox > 0.5) {
+      float edgeFade = 1.0 - smoothstep(0.82, 0.99, max(abs(uUv.x * 2.0 - 1.0), abs(uUv.y * 2.0 - 1.0)));
+      float mapUrban = texture2D(uUrbanTex, uUv).r;
+      urbanRaw = mix(urbanRaw, mapUrban, edgeFade);
+    }
+  }
+  float urbanSlopeGuard = 1.0 - smoothstep(0.16, 0.38, slope);
+  float urbanMask = clamp(urbanRaw * urbanSlopeGuard * (1.0 - wet), 0.0, 1.0);
+  vec3 albUrban = vec3(dot(uAlbedo, vec3(0.30, 0.59, 0.11)));
+  alb = mix(alb, albUrban, urbanMask);
+
 #ifdef TERRAIN_LIT_OUT
   // §129 볼륨 하늘 — 색 대신 **알베도(선형)와 햇빛 몫**을 적습니다. §157 부터 둘째 출력에 하늘빛 몫·젖음·구름 투과를 더합니다.
   //
@@ -807,6 +829,7 @@ void main() {
   if (nearW > 0.001) {
     alb = mix(albSoil, albRock, rockMaskHi);
     alb = mix(alb, alb * 0.52, wet);
+    alb = mix(alb, albUrban, urbanMask);
   }
 
   // ── 알베도 얼룩 + 초근접 입자감 ─────────────────────────────────────────
@@ -839,7 +862,7 @@ void main() {
     convex = mix(0.5, ambSample.g, fadeAmb);
   }
   vec3 albL = alb;
-  albL *= 1.0 + uLookMottle * vec3(0.50, 0.34, -0.12) * mot;   // 밝고 노란 풀 ↔ 어둡고 짙은 풀 (파랑으로는 안 기웁니다)
+  albL *= 1.0 + uLookMottle * mix(vec3(0.50, 0.34, -0.12), vec3(0.15, 0.15, 0.15), urbanMask) * mot;   // 도시 지반은 무채색 콘크리트 농담
   // 군락: 근거리에서는 Height-Based Blending 으로 큰 패치(46m·9.5m·23m) 경계를 자잘한 풀·자갈·틈새로 쪼갭니다.
   vec2 patchG = vGround + nearWarp * (1.2 * nearW);
   float shrub = clamp(smoothstep(0.58, 0.64, tn_noise(patchG / 46.0 + 9.1)) * smoothstep(1.0, 3.0, 46.0 / pixG)
@@ -849,15 +872,16 @@ void main() {
     shrub = mix(shrub, tn_hblend(shrub, detailH * 0.85, detailGrain), nearW);
     bare = mix(bare, tn_hblend(bare, detailH, detailRockH), nearW);
   }
-  albL = mix(albL, albL * vec3(0.70, 0.80, 0.62), shrub * 0.8 * uLookMottle * slopeFlat0);
-  albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * slopeFlat0);
+  float natVeg = slopeFlat0 * (1.0 - urbanMask * 0.85);
+  albL = mix(albL, albL * vec3(0.70, 0.80, 0.62), shrub * 0.8 * uLookMottle * natVeg);
+  albL = mix(albL, albL * vec3(1.38, 1.20, 0.95), bare * 0.7 * uLookMottle * natVeg);
   if (nearW > 0.001) {
     float dryNear = nearW * (1.0 - wet);
     float soilMicro = (detailCellId - 0.5) * 0.28 + (detailGrain - 0.5) * 0.26;
     float tuftTip = mix(0.84, 1.18, detailH);
     float rockFissure = 1.0 - 0.28 * clamp(rockCrack, 0.0, 1.0);
     float rockSpeck = 1.0 + 0.16 * (detailCellId - 0.5);
-    float grassMod = mix(1.0 + soilMicro, tuftTip, shrub * 0.75);
+    float grassMod = mix(mix(1.0 + soilMicro, tuftTip, shrub * 0.75), 1.0 + soilMicro * 0.65, urbanMask);
     float grainFactor = mix(grassMod, rockFissure * rockSpeck, rockMaskHi);
     albL *= mix(1.0, grainFactor, dryNear * clamp(uLookMottle, 0.0, 1.2));
   }
@@ -912,7 +936,10 @@ void main() {
   // 젖은 면의 하늘 되비침: 갯벌(wet) 중 평평한 곳, 덩어리로 얼룩(고인 물 자리).
   float sheen = wet * slopeFlat * mix(0.5, 1.0, tn_noise(vGround / 23.0 + 7.1)) * uLookSheen;
 
-  gl_FragColor = vec4(sqrt(clamp(albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4))), 0.0, 1.0)), litOut);
+  vec3 natLitAlb = albL * (uLitAlbedo / max(uAlbedo, vec3(1e-4)));
+  float urbLumaScale = clamp(dot(albL, vec3(0.30, 0.59, 0.11)) / max(dot(uAlbedo, vec3(0.30, 0.59, 0.11)), 1e-4), 0.70, 1.30);
+  vec3 urbLitAlb = vec3(0.056, 0.058, 0.062) * urbLumaScale;
+  gl_FragColor = vec4(sqrt(clamp(mix(natLitAlb, urbLitAlb, urbanMask), 0.0, 1.0)), litOut);
   pc_fragColor1 = lit2Encode(amb, sheen, fill, 1.0 - cloudT);
   pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
   return;
@@ -1107,6 +1134,16 @@ void main() {
  */
 export const VOLUMETRIC_TERRAIN_ALBEDO = { r: 0.048, g: 0.065, b: 0.048 };
 
+function createEmptyUrbanTexture(): THREE.DataTexture {
+  const tex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export interface TerrainFieldHandle {
   mesh: THREE.Mesh;
   /** §117 지형 거리 판의 쌍둥이 메시(`LAYER_TERRAIN_DIST`). 씬에 넣으면 합성기가 거리 판에 그립니다. */
@@ -1123,6 +1160,10 @@ export interface TerrainFieldHandle {
     eyePatch?: DemPatch | null,
     farPatch?: DemPatch | null,
   ) => void;
+  /** 도시·거주지 토지이용(MVT) 마스크를 적용합니다. null 이면 끄고 uFarUrban 으로 물러납니다. */
+  setUrbanMask: (mask: UrbanMaskResult | null) => void;
+  /** 빛지도 등 거시 도시 밀도(0~1)를 전달해 원경(3km 밖) 및 로드 전 바닥 회색 톤을 조절합니다. */
+  setFarUrban: (farUrban: number) => void;
   /**
    * 해 방위의 지평선 능선을 굽습니다(SUN_SHADOW_BAKE_FRAG). 해 방위(uSunAzRad)·지형·눈높이가
    * 그대로면 아무것도 안 합니다 — 매 프레임 불러도 됩니다. 그리기 전에 부릅니다.
@@ -1167,6 +1208,8 @@ export function createTerrainField(opts: {
   farPatch?: DemPatch | null;
 }): TerrainFieldHandle {
   const alb = opts.albedo ?? { r: 0.22, g: 0.17, b: 0.13 };
+  const emptyUrbanTex = createEmptyUrbanTexture();
+  let activeUrbanTex: THREE.DataTexture | null = null;
   // 성긴 패치는 **늘** 튀는 화소를 걷어냅니다. 저줌 Terrarium 타일의 R 채널
   // 결함이 8.96° 짜리 첨탑으로 서는 것을 막습니다(계획서 8.1절). 촘촘한
   // 패치에는 걸지 않습니다 — 진짜 능선이 깎입니다.
@@ -1237,6 +1280,10 @@ export function createTerrainField(opts: {
       // §157 볼륨 하늘 경로의 땅 보임새 — 값은 terrainLook.ts 한 곳에서(손잡이), 맵은 bakeAmbient 가 채웁니다.
       uAmbTex: { value: null as THREE.Texture | null },
       uAmbValid: { value: 0 },
+      uUrbanTex: { value: emptyUrbanTex },
+      uUrbanValid: { value: 0 },
+      uUrbanHalfM: { value: 3200 },
+      uFarUrban: { value: 0 },
       ...makeTerrainLookUniforms(),
       uBeta: { value: 0.08 },
       uAngstrom: { value: 1.3 },
@@ -1404,6 +1451,45 @@ export function createTerrainField(opts: {
         if (material.uniforms.uDemFarDespike) material.uniforms.uDemFarDespike.value = 1;
       }
     },
+    setUrbanMask: (mask) => {
+      if (!mask) {
+        material.uniforms.uUrbanTex.value = emptyUrbanTex;
+        material.uniforms.uUrbanValid.value = 0;
+        if (activeUrbanTex) {
+          activeUrbanTex.dispose();
+          activeUrbanTex = null;
+        }
+        return;
+      }
+      const n = mask.size;
+      const rgba = new Uint8Array(n * n * 4);
+      for (let i = 0; i < n * n; i++) {
+        const v = mask.data[i];
+        const o = i * 4;
+        rgba[o] = v;
+        rgba[o + 1] = v;
+        rgba[o + 2] = v;
+        rgba[o + 3] = 255;
+      }
+      if (!activeUrbanTex || (activeUrbanTex.image as { width?: number })?.width !== n) {
+        activeUrbanTex?.dispose();
+        activeUrbanTex = new THREE.DataTexture(rgba, n, n, THREE.RGBAFormat);
+        activeUrbanTex.colorSpace = THREE.NoColorSpace;
+        activeUrbanTex.minFilter = THREE.LinearFilter;
+        activeUrbanTex.magFilter = THREE.LinearFilter;
+        activeUrbanTex.wrapS = THREE.ClampToEdgeWrapping;
+        activeUrbanTex.wrapT = THREE.ClampToEdgeWrapping;
+      } else {
+        (activeUrbanTex.image.data as Uint8Array).set(rgba);
+      }
+      activeUrbanTex.needsUpdate = true;
+      material.uniforms.uUrbanTex.value = activeUrbanTex;
+      material.uniforms.uUrbanHalfM.value = mask.halfM;
+      material.uniforms.uUrbanValid.value = 1;
+    },
+    setFarUrban: (farUrban) => {
+      material.uniforms.uFarUrban.value = Math.max(0, Math.min(1, Number.isFinite(farUrban) ? farUrban : 0));
+    },
     dispose: () => {
       mesh.geometry.dispose();
       material.dispose();
@@ -1415,6 +1501,9 @@ export function createTerrainField(opts: {
       shadeMapQuad.geometry.dispose();
       shadeMapMat.dispose();
       shadeMapRT.dispose();
+      emptyUrbanTex.dispose();
+      activeUrbanTex?.dispose();
+      activeUrbanTex = null;
       unbindLook();
       ambientBake.dispose();
     },

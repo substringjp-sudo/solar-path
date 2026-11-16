@@ -1,17 +1,31 @@
 /**
- * buildingTiles.ts — 관측자 반경 1 km 이내 OSM 건물 폴리곤 조회 · 공통 높이 추정 · 단일 병합 기하 생성.
+ * buildingTiles.ts — 관측자 반경 1 km 이내 건물 폴리곤 조회 · 공통 높이 추정 · 단일 병합 기하 생성.
  *
+ * - 1차 소스: OpenFreeMap(OpenMapTiles) z=14 MVT 벡터 타일(`mvtTiles.ts`, CDN 고속 응답 · `render_height`/`render_min_height`).
+ * - 예비 소스: OpenFreeMap 실패 시 Overpass API (`way`/`relation` building) 폴백.
  * - 외부 라이브러리 없이 순수 Ear-clipping 삼각분할과 벽면/옥상 정점 병합을 수행합니다.
  * - 각 정점은 `(eastM, southM, heightOffsetM)` 와 건물 중심 지반 좌표 `aGroundPos(centerE, centerS)` 를 가져
  *   경사지에서도 옥상이 수평을 유지하고 지형 DEM 위에 정확히 안착합니다.
  */
 import * as THREE from 'three';
+import {
+  decodeMvtTile,
+  extractOuterRings,
+  fetchMvtTileRaw,
+  ringSignedArea,
+  tileListForRadius,
+  tilePointToLonLat,
+} from './mvtTiles';
 
 export const BUILDING_RADIUS_M = 1000;
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const OVERPASS_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
 const CACHE_MAX = 12;
 const WALL_SUBDIV_M = 18;
-const SKIRT_DEPTH_M = 3.0;
+export const SKIRT_DEPTH_M = 5.0;
 
 export interface OsmBuildingPoint {
   lat: number;
@@ -261,8 +275,15 @@ export function buildMergedBuildingGeometry(
     cx /= rawPts.length;
     cz /= rawPts.length;
     if (cx * cx + cz * cz > maxR2) continue;
-    // 자기 바로 발밑(< 2m) 정점은 시야 막힘 방지
-    if (cx * cx + cz * cz < 4) continue;
+    // 자기 바로 발밑(< 3m) 또는 관측점을 둘러싼 건물 내부 가림 방지
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of rawPts) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    }
+    if (cx * cx + cz * cz < 9 || (minX <= 2.5 && maxX >= -2.5 && minZ <= 2.5 && maxZ >= -2.5)) continue;
 
     const topH = estimateBuildingHeightM(el.tags);
     const minH = estimateBuildingMinHeightM(el.tags);
@@ -322,8 +343,99 @@ function cacheKey(lat: number, lon: number, radiusM: number): string {
   return `${lat.toFixed(3)}|${lon.toFixed(3)}|${Math.round(radiusM)}`;
 }
 
+const BUILDING_MVT_LAYERS = new Set(['building']);
+
+function ringCenterTile(ring: { x: number; y: number }[]): { cx: number; cy: number } {
+  let sx = 0;
+  let sy = 0;
+  for (let i = 0; i < ring.length; i++) {
+    sx += ring[i].x;
+    sy += ring[i].y;
+  }
+  return { cx: sx / ring.length, cy: sy / ring.length };
+}
+
+async function fetchBuildingsFromMvt(
+  lat: number,
+  lon: number,
+  radiusM: number,
+  signal: AbortSignal,
+): Promise<OsmBuildingElement[]> {
+  const tiles = tileListForRadius(lat, lon, radiusM, 14);
+  const results = await Promise.all(
+    tiles.map(async (tc) => {
+      try {
+        const raw = await fetchMvtTileRaw(tc, { signal });
+        const layers = decodeMvtTile(raw, BUILDING_MVT_LAYERS);
+        return { tc, bld: layers.building ?? null };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const okTiles = results.filter((r): r is NonNullable<typeof r> => r !== null);
+  if (okTiles.length === 0) throw new Error('MVT building tiles unavailable');
+
+  const elements: OsmBuildingElement[] = [];
+  for (const { tc, bld } of okTiles) {
+    if (!bld) continue;
+    for (const f of bld.features) {
+      if (f.type !== 3) continue;
+      const rawH = typeof f.props.render_height === 'number' ? f.props.render_height : 9;
+      const h = Math.max(3.5, Math.min(400, rawH));
+      const minH = typeof f.props.render_min_height === 'number' ? Math.max(0, f.props.render_min_height) : 0;
+      for (const ring of extractOuterRings(f.rings)) {
+        if (ring.length < 3 || Math.abs(ringSignedArea(ring)) < 1) continue;
+        // 타일 버퍼 영역에 걸친 중복 폴리곤은 중심이 속한 타일 1곳에서만 생성
+        const { cx, cy } = ringCenterTile(ring);
+        if (cx < 0 || cx >= bld.extent || cy < 0 || cy >= bld.extent) continue;
+        elements.push({
+          tags: minH > 0.2 ? { height: h.toFixed(2), min_height: minH.toFixed(2) } : { height: h.toFixed(2) },
+          geometry: ring.map((pt) => tilePointToLonLat(tc.x, tc.y, tc.z, pt.x, pt.y, bld.extent)),
+        });
+      }
+    }
+  }
+  return elements;
+}
+
+async function fetchBuildingsFromOverpass(
+  lat: number,
+  lon: number,
+  radiusM: number,
+  signal: AbortSignal,
+): Promise<OsmBuildingElement[]> {
+  const query = `[out:json][timeout:10];(way["building"](around:${Math.round(radiusM)},${lat.toFixed(5)},${lon.toFixed(5)});relation["building"](around:${Math.round(radiusM)},${lat.toFixed(5)},${lon.toFixed(5)}););out tags geom;`;
+  for (const base of OVERPASS_URLS) {
+    if (signal.aborted) break;
+    try {
+      const res = await fetch(`${base}?data=${encodeURIComponent(query)}`, { signal });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const rawEls: any[] = Array.isArray(json?.elements) ? json.elements : [];
+      const out: OsmBuildingElement[] = [];
+      for (const el of rawEls) {
+        if (Array.isArray(el?.geometry)) {
+          out.push(el);
+        } else if (el?.type === 'relation' && Array.isArray(el.members)) {
+          for (const m of el.members) {
+            if (m?.role === 'outer' && Array.isArray(m.geometry)) {
+              out.push({ id: el.id, tags: el.tags, geometry: m.geometry });
+            }
+          }
+        }
+      }
+      return out;
+    } catch {
+      // 다음 미러 시도
+    }
+  }
+  throw new Error('Overpass building fetch failed');
+}
+
 /**
- * 관측 위치 주변 반경 1 km 건물을 Overpass API에서 조회해 병합 기하를 반환합니다(위치 버킷 LRU 캐시).
+ * 관측 위치 주변 반경 1 km 건물을 OpenFreeMap MVT(1차) / Overpass(예비)에서 조회해 병합 기하를 반환합니다.
+ * 네트워크 실패 시에는 `null`을 캐시하지 않고 예외를 던져 호출부에서 재시도할 수 있게 합니다.
  */
 export async function fetchNearbyBuildings(
   lat: number,
@@ -339,19 +451,19 @@ export async function fetchNearbyBuildings(
     return hit;
   }
 
-  const query = `[out:json][timeout:10];way["building"](around:${Math.round(radiusM)},${lat.toFixed(5)},${lon.toFixed(5)});out tags geom;`;
-  const url = `${OVERPASS_URL}?data=${encodeURIComponent(query)}`;
-
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 10_000);
+  const timer = setTimeout(() => ctl.abort(), 12_000);
   const onAbort = () => ctl.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const res = await fetch(url, { signal: ctl.signal });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const elements: OsmBuildingElement[] = Array.isArray(json?.elements) ? json.elements : [];
+    let elements: OsmBuildingElement[];
+    try {
+      elements = await fetchBuildingsFromMvt(lat, lon, radiusM, ctl.signal);
+    } catch (mvtErr) {
+      if (ctl.signal.aborted) throw mvtErr;
+      elements = await fetchBuildingsFromOverpass(lat, lon, radiusM, ctl.signal);
+    }
     const data = buildMergedBuildingGeometry(elements, lat, lon, radiusM);
     buildingCache.set(key, data);
     while (buildingCache.size > CACHE_MAX) {
@@ -360,8 +472,6 @@ export async function fetchNearbyBuildings(
       else break;
     }
     return data;
-  } catch {
-    return null;
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);

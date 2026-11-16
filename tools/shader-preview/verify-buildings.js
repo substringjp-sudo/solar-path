@@ -5,7 +5,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
+const http = require('http');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 let pass = 0, fail = 0;
@@ -44,6 +45,7 @@ const balancedIfdefs = (s) => {
     import * as THREE from 'three';
     import {
       BUILDING_RADIUS_M,
+      SKIRT_DEPTH_M,
       estimateBuildingHeightM,
       estimateBuildingMinHeightM,
       triangulatePolygonXZ,
@@ -51,17 +53,27 @@ const balancedIfdefs = (s) => {
       createBuildingThreeGeometry,
       fetchNearbyBuildings,
     } from ${JSON.stringify(path.join(ROOT, 'src/utils/buildingTiles.ts'))};
+    import { decodeMvtTile, fetchMvtTileRaw, fetchUrbanMask, lonLatToTileXY, extractOuterRings, tilePointToLonLat } from ${JSON.stringify(path.join(ROOT, 'src/utils/mvtTiles.ts'))};
+    import { createTerrainField } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/TerrainField.ts'))};
     import { createBuildingField, updateBuildingFieldEye } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/BuildingField.ts'))};
     import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/SceneComposer.ts'))};
     (globalThis as any).__BLD_MOD = {
       THREE,
       BUILDING_RADIUS_M,
+      SKIRT_DEPTH_M,
       estimateBuildingHeightM,
       estimateBuildingMinHeightM,
       triangulatePolygonXZ,
       buildMergedBuildingGeometry,
       createBuildingThreeGeometry,
       fetchNearbyBuildings,
+      decodeMvtTile,
+      fetchMvtTileRaw,
+      fetchUrbanMask,
+      lonLatToTileXY,
+      extractOuterRings,
+      tilePointToLonLat,
+      createTerrainField,
       createBuildingField,
       updateBuildingFieldEye,
       LAYER_TERRAIN_DIST,
@@ -148,26 +160,201 @@ const balancedIfdefs = (s) => {
       groundAligned = false;
     }
   }
-  ok(Math.abs(minY - (-3.0)) < 1e-5 && Math.abs(maxY - 16.0) < 1e-5,
-    `기초 스커트(-3.0m) ~ 옥상(16.0m) 높이 범위 확인: [${minY.toFixed(1)}, ${maxY.toFixed(1)}]`);
+  ok(Math.abs(minY - (-M.SKIRT_DEPTH_M)) < 1e-5 && Math.abs(maxY - 16.0) < 1e-5,
+    `기초 스커트(-${M.SKIRT_DEPTH_M.toFixed(1)}m) ~ 옥상(16.0m) 높이 범위 확인: [${minY.toFixed(1)}, ${maxY.toFixed(1)}]`);
   ok(roofUpCount === 6 && wallHorizCount >= 48,
     `지붕 +Y 법선(${roofUpCount}v) & 18m 세분화 외벽 단위법선(${wallHorizCount}v) 검증`);
   ok(groundAligned, '한 건물의 모든 정점이 동일 지반 중심(aGroundPos) 공유 → 경사지에서도 옥상 수평 유지');
 
+  // 최소 MVT v2 바이너리 인코더 (네트워크 없이 decodeMvtTile · fetchNearbyBuildings · fetchUrbanMask 실증)
+  const varint = (n) => {
+    const out = [];
+    while (n >= 0x80) { out.push((n & 0x7f) | 0x80); n = Math.floor(n / 128); }
+    out.push(n & 0x7f);
+    return out;
+  };
+  const zz = (n) => (n < 0 ? -n * 2 - 1 : n * 2);
+  const pbStr = (fn, s) => {
+    const b = Buffer.from(s, 'utf8');
+    return [...varint((fn << 3) | 2), ...varint(b.length), ...b];
+  };
+  const pbBytes = (fn, arr) => [...varint((fn << 3) | 2), ...varint(arr.length), ...arr];
+  const pbPacked = (fn, ints) => {
+    const body = ints.flatMap((v) => varint(v));
+    return pbBytes(fn, body);
+  };
+  const encPolyGeom = (pts) => {
+    const ints = [((pts.length === 0 ? 0 : 1) << 3) | 1];
+    let px = 0, py = 0;
+    for (let i = 0; i < pts.length; i++) {
+      if (i === 1) ints.push(((pts.length - 1) << 3) | 2);
+      ints.push(zz(pts[i][0] - px), zz(pts[i][1] - py));
+      px = pts[i][0]; py = pts[i][1];
+    }
+    ints.push((1 << 3) | 7);
+    return ints;
+  };
+  const pbDoubleVal = (d) => {
+    const b = Buffer.alloc(8);
+    b.writeDoubleLE(d, 0);
+    return [...pbBytes(1 /* dummy replaced */, [...b])];
+  };
+  const pbValDouble = (d) => {
+    const b = Buffer.alloc(8);
+    b.writeDoubleLE(d, 0);
+    return [...varint((3 << 3) | 1), ...b];
+  };
+  const makeMvtLayer = (name, keys, vals, feats) => [
+    ...pbStr(1, name),
+    ...feats.flatMap((f) => pbBytes(2, f)),
+    ...keys.flatMap((k) => pbStr(3, k)),
+    ...vals.flatMap((v) => pbBytes(4, v)),
+    ...varint((5 << 3) | 0), ...varint(4096),
+  ];
+  const sqBld = encPolyGeom([[1900, 1900], [2020, 1900], [2020, 2020], [1900, 2020]]);
+  const featBld = [...pbPacked(2, [0, 0]), ...varint((3 << 3) | 0), ...varint(3), ...pbPacked(4, sqBld)];
+  const layerBld = makeMvtLayer('building', ['render_height'], [pbValDouble(28)], [featBld]);
+
+  const sqUrban = encPolyGeom([[1024, 1024], [3072, 1024], [3072, 3072], [1024, 3072]]);
+  const featUrban = [...pbPacked(2, [0, 0]), ...varint((3 << 3) | 0), ...varint(3), ...pbPacked(4, sqUrban)];
+  const layerLu = makeMvtLayer('landuse', ['class'], [pbStr(1, 'commercial')], [featUrban]);
+
+  const sqPark = encPolyGeom([[2400, 2400], [2800, 2400], [2800, 2800], [2400, 2800]]);
+  const featPark = [...pbPacked(2, []), ...varint((3 << 3) | 0), ...varint(3), ...pbPacked(4, sqPark)];
+  const layerPk = makeMvtLayer('park', [], [], [featPark]);
+
+  const mvtTileBytes = new Uint8Array([
+    ...pbBytes(3, layerBld),
+    ...pbBytes(3, layerLu),
+    ...pbBytes(3, layerPk),
+  ]);
+  const decTest = M.decodeMvtTile(mvtTileBytes, new Set(['building', 'landuse', 'park']));
+  ok(decTest.building?.features.length === 1 && decTest.building.features[0].props.render_height === 28 &&
+     decTest.landuse?.features[0]?.props.class === 'commercial' && decTest.park?.features.length === 1,
+    '순수 TS MVT 프로토버프 디코더: building(28m)·landuse(commercial)·park 정확한 해석');
+
   let fetchCalls = 0;
+  let forceFail = false;
   const origFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (url) => {
     fetchCalls++;
+    if (forceFail) throw new Error('network down');
+    if (String(url).endsWith('/planet')) {
+      return { ok: true, json: async () => ({ tiles: ['https://mock.mvt/{z}/{x}/{y}.pbf'] }) };
+    }
+    if (String(url).includes('.pbf')) {
+      return { ok: true, arrayBuffer: async () => mvtTileBytes.buffer.slice(mvtTileBytes.byteOffset, mvtTileBytes.byteOffset + mvtTileBytes.byteLength) };
+    }
     return { ok: true, json: async () => ({ elements: [bNear] }) };
   };
   try {
-    const f1 = await M.fetchNearbyBuildings(37.566, 126.978, { radiusM: 1000 });
-    const f2 = await M.fetchNearbyBuildings(37.566, 126.978, { radiusM: 1000 });
-    ok(f1 !== null && f2 !== null && fetchCalls === 1,
-      `fetchNearbyBuildings LRU 캐시 동작 확인 (2회 호출 중 네트워크 1회: ${fetchCalls})`);
+    // 1) 실패 시 캐시 잠금 없이 throw 해 재시도가 가능해야 함
+    forceFail = true;
+    let threwOnFail = false;
+    try { await M.fetchNearbyBuildings(35.100, 129.000, { radiusM: 500 }); }
+    catch { threwOnFail = true; }
+    ok(threwOnFail, '모든 건물 소스 실패 시 빈 null 캐시 잠금 대신 예외 전파 (재시도 가능)');
+
+    // 2) MVT 정상 응답 시 28m 건물 병합 + 위치 캐시 히트 검증
+    forceFail = false;
+    const tile14 = M.lonLatToTileXY(37.5665, 126.978, 14);
+    const llMid = M.tilePointToLonLat(tile14.x, tile14.y, 14, 1960, 1960, 4096);
+    const callsBefore = fetchCalls;
+    const f1 = await M.fetchNearbyBuildings(llMid.lat + 0.002, llMid.lon - 0.002, { radiusM: 800 });
+    const callsAfterF1 = fetchCalls;
+    const f2 = await M.fetchNearbyBuildings(llMid.lat + 0.002, llMid.lon - 0.002, { radiusM: 800 });
+    let f1MaxY = 0;
+    if (f1) for (let i = 0; i < f1.vertexCount; i++) f1MaxY = Math.max(f1MaxY, f1.positions[i * 3 + 1]);
+    ok(f1 !== null && f1.buildingCount >= 1 && Math.abs(f1MaxY - 28) < 1e-3 && callsAfterF1 > callsBefore,
+      `MVT 1차 소스 건물(28m) 생성 확인 (buildings=${f1?.buildingCount}, calls=${callsAfterF1 - callsBefore})`);
+    ok(f2 === f1 && fetchCalls === callsAfterF1, '동일 버킷 2차 호출 네트워크 0회 및 캐시 즉시 반환');
+
+    // 3) 도시 토지이용 마스크(상업지역 235+ vs 공원 0 carve) 검증
+    const tile13 = M.lonLatToTileXY(37.5665, 126.978, 13);
+    const llMask = M.tilePointToLonLat(tile13.x, tile13.y, 13, 2048, 2048, 4096);
+    const urban = await M.fetchUrbanMask(llMask.lat, llMask.lon, { halfM: 1800, size: 128 });
+    const llPark = M.tilePointToLonLat(tile13.x, tile13.y, 13, 2600, 2600, 4096);
+    const dxP = (llPark.lon - llMask.lon) * 111320 * Math.cos(llMask.lat * Math.PI / 180);
+    const dzP = -(llPark.lat - llMask.lat) * 111320;
+    const colP = Math.max(0, Math.min(127, Math.floor((dxP + 1800) / 3600 * 128)));
+    const rowP = Math.max(0, Math.min(127, Math.floor((dzP + 1800) / 3600 * 128)));
+    const urbanVal = urban ? urban.data[50 * 128 + 50] : -1;
+    const parkVal = urban ? urban.data[rowP * 128 + colP] : -1;
+    ok(urban !== null && urbanVal > 180 && parkVal < 60,
+      `fetchUrbanMask: 상업지 포장=${urbanVal} vs 도심 공원 녹지=${parkVal}`);
   } finally {
     globalThis.fetch = origFetch;
   }
+
+  // 4) React Native 환경 바이너리 XHR(responseType='arraybuffer') 경로 검증
+  const origNavDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const origXHR = globalThis.XMLHttpRequest;
+  let xhrUsed = false;
+  let xhrRespType = '';
+  let rnFetchCalled = false;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('.pbf')) rnFetchCalled = true;
+    return { ok: true, json: async () => ({ tiles: ['https://mock.mvt/{z}/{x}/{y}.pbf'] }) };
+  };
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { product: 'ReactNative' },
+  });
+  globalThis.XMLHttpRequest = class MockXHR {
+    constructor() {
+      this.status = 0;
+      this.responseType = '';
+      this.response = null;
+      this.timeout = 0;
+      this.onload = null;
+      this.onerror = null;
+      this.ontimeout = null;
+    }
+    open(_method, url) { this._url = url; }
+    addEventListener() {}
+    abort() {}
+    send() {
+      xhrUsed = true;
+      xhrRespType = this.responseType;
+      this.status = 200;
+      this.response = mvtTileBytes.buffer.slice(mvtTileBytes.byteOffset, mvtTileBytes.byteOffset + mvtTileBytes.byteLength);
+      setTimeout(() => this.onload && this.onload(), 0);
+    }
+  };
+  try {
+    const rnBytes = await M.fetchMvtTileRaw({ z: 14, x: 9999, y: 8888 });
+    ok(xhrUsed && xhrRespType === 'arraybuffer' && !rnFetchCalled && rnBytes.length === mvtTileBytes.length,
+      `RN 환경 MVT 바이너리 수신 시 XMLHttpRequest(arraybuffer) 직접 사용 (bytes=${rnBytes.length})`);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (origXHR === undefined) delete globalThis.XMLHttpRequest;
+    else globalThis.XMLHttpRequest = origXHR;
+    if (origNavDesc) Object.defineProperty(globalThis, 'navigator', origNavDesc);
+    else delete globalThis.navigator;
+  }
+
+  console.log('\n[2b] TerrainField 도시 바닥 회색 알베도 셰이더 · setUrbanMask · setFarUrban 검증');
+  const tf = M.createTerrainField({ observerElevM: 20 });
+  const tfMat = tf.material;
+  const tfLitMat = tf.litMesh.material;
+  ok(balancedBraces(tfMat.fragmentShader) && balancedIfdefs(tfMat.fragmentShader), 'TerrainField FRAGMENT 괄호/#ifdef 균형');
+  ok(tfLitMat.fragmentShader.includes('uUrbanTex') && tfLitMat.fragmentShader.includes('urbLitAlb') && tfMat.fragmentShader.includes('albUrban'),
+    'TerrainField 일반/볼륨 패스 모두 도시 회색 지반 셰이더(albUrban/urbLitAlb) 포함');
+  const dupCheck = new Set();
+  let tfDups = 0;
+  for (const line of tfMat.fragmentShader.split('\n')) {
+    const m = line.match(/^\s*uniform\s+\w+\s+(\w+)\s*;/);
+    if (m) { if (dupCheck.has(m[1])) tfDups++; dupCheck.add(m[1]); }
+  }
+  ok(tfDups === 0, `TerrainField 중복 uniform 0건 (실측 ${tfDups})`);
+  tf.setFarUrban(0.8);
+  ok(Math.abs(tf.material.uniforms.uFarUrban.value - 0.8) < 1e-6, 'setFarUrban 전달 확인');
+  tf.setUrbanMask({ size: 4, halfM: 2000, data: new Uint8Array(16).fill(220) });
+  ok(tf.material.uniforms.uUrbanValid.value === 1 && tf.material.uniforms.uUrbanHalfM.value === 2000,
+    'setUrbanMask RGBA DataTexture 업로드 및 활성화 확인');
+  tf.setUrbanMask(null);
+  ok(tf.material.uniforms.uUrbanValid.value === 0, 'setUrbanMask(null) 해제 확인');
+  tf.dispose();
 
   console.log('\n[3] BuildingField 셰이더 · 3패스(main/dist/lit) · ON/OFF 토글 규약');
   const bf = M.createBuildingField({ eyeHeightM: 1.6 });
@@ -190,6 +377,8 @@ const balancedIfdefs = (s) => {
   ok(balancedBraces(mat.fragmentShader) && balancedIfdefs(mat.fragmentShader), 'BuildingField FRAGMENT 셰이더 괄호/#ifdef 균형');
   ok(litMat.fragmentShader.includes('pc_fragColor1') && litMat.fragmentShader.includes('pc_fragColor2') &&
      distMat.fragmentShader.includes('terrainDistEncode'), 'TERRAIN_DIST_OUT / TERRAIN_LIT_OUT MRT 계약 포함');
+  ok(litMat.fragmentShader.includes('#elif defined(TERRAIN_LIT_OUT)') && !/TERRAIN_LIT_OUT[\s\S]*vec3 alb\s*=/.test(litMat.fragmentShader.split('#else')[0]),
+    'TERRAIN_LIT_OUT 분기 독립 및 vec3 alb 중복 선언 제거');
 
   const s0 = bf.geomSerial();
   bf.setBuildings(merged);
@@ -231,11 +420,156 @@ const balancedIfdefs = (s) => {
   ok((i18nSrc.match(/layerBuildings:/g) || []).length === 3,
     'i18n 3개 언어(ko/en/ja) 모두 layerBuildings 정의');
   ok(sceneSrc.includes('if (!bldEnabled)') && sceneSrc.includes('fetchNearbyBuildings(bldLat, bldLng') &&
+     sceneSrc.includes('fetchUrbanMask(bldLat, bldLng') &&
+     sceneSrc.includes('location?.coords?.latitude ?? 37.5665') &&
+     sceneSrc.includes('setUrbanMask(mask)') && sceneSrc.includes('setFarUrban(') &&
+     sceneSrc.includes('buildingRetryTimerRef') &&
      sceneSrc.includes('buildingFieldRef.current?.setPatch(patch, patch, maskPatch)') &&
      sceneSrc.includes('buildingFieldRef.current.dispose()'),
-    'SkyScene3D 조건부 Overpass 요청(OFF시 미요청), DEM 동기화, 3패스 통합 및 해제 완비');
-  ok(stageSrc.includes('BuildingField.ts') && stageSrc.includes('buildingTiles.ts'),
+    'SkyScene3D 조건부 건물 조회/재시도(OFF시 미요청), 서울 기본좌표 폴백, 도시 지반 마스크, DEM 동기화, 3패스 통합 및 해제 완비');
+  ok(stageSrc.includes('BuildingField.ts') && stageSrc.includes('buildingTiles.ts') && stageSrc.includes('mvtTiles.ts'),
     'tools/shader-preview/stage-esm.js 스테이징 목록 포함');
+
+  const chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (fs.existsSync(chromeBin)) {
+    console.log('\n[5] 실제 Chrome WebGL2 3패스(main/dist/lit MRT) 셰이더 컴파일 · 픽셀 출력 검증');
+    const glWork = fs.mkdtempSync(path.join(os.tmpdir(), 'bld-gl-verify-'));
+    const glEntry = path.join(glWork, 'entry.ts');
+    const glBundle = path.join(glWork, 'bundle.js');
+    fs.writeFileSync(glEntry, `
+      import * as THREE from 'three';
+      import { buildMergedBuildingGeometry } from ${JSON.stringify(path.join(ROOT, 'src/utils/buildingTiles.ts'))};
+      import { createBuildingField, updateBuildingFieldEye } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/BuildingField.ts'))};
+      import { createTerrainField, updateTerrainFieldEye } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/TerrainField.ts'))};
+      import { createSceneComposer, LAYER_MID, LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, assignLayer } from ${JSON.stringify(path.join(ROOT, 'src/components/SkyScene3D/SceneComposer.ts'))};
+      (window as any).__runGlVerify = async () => {
+        const shaderLogs: string[] = [];
+        const origErr = console.error;
+        console.error = (...a: any[]) => { shaderLogs.push(a.map(String).join(' ')); origErr(...a); };
+        const W = 128, H = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+        renderer.setSize(W, H, false);
+        const gl = renderer.getContext();
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, 1, 0.2, 1000);
+        camera.position.set(0, 1.6, 0);
+        camera.lookAt(80, 1.6 + 6, 0);
+        const tf = createTerrainField({ rings: 32, spokes: 48, farM: 3000, eyeHeightM: 1.6, observerElevM: 20 });
+        scene.add(tf.mesh); assignLayer(tf.mesh, LAYER_MID);
+        scene.add(tf.distMesh); assignLayer(tf.distMesh, LAYER_TERRAIN_DIST);
+        scene.add(tf.litMesh); assignLayer(tf.litMesh, LAYER_TERRAIN_LIT);
+        tf.mesh.visible = true;
+        const bf = createBuildingField({ eyeHeightM: 1.6, observerElevM: 20 });
+        scene.add(bf.mesh); assignLayer(bf.mesh, LAYER_MID);
+        scene.add(bf.distMesh); assignLayer(bf.distMesh, LAYER_TERRAIN_DIST);
+        scene.add(bf.litMesh); assignLayer(bf.litMesh, LAYER_TERRAIN_LIT);
+        const bld = buildMergedBuildingGeometry([{
+          tags: { height: '65' },
+          geometry: [
+            { lat: 37.5665 + 0.00025, lon: 126.9780 + 0.0005 },
+            { lat: 37.5665 + 0.00025, lon: 126.9780 + 0.0010 },
+            { lat: 37.5665 - 0.00025, lon: 126.9780 + 0.0010 },
+            { lat: 37.5665 - 0.00025, lon: 126.9780 + 0.0005 },
+          ],
+        }], 37.5665, 126.9780, 1000);
+        const composer = createSceneComposer(W, H, 1);
+        composer.setTerrainDistance(true);
+        const quadMat = new THREE.ShaderMaterial({
+          uniforms: { t: { value: null as THREE.Texture | null } },
+          vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+          fragmentShader: 'precision highp float; uniform sampler2D t; varying vec2 vUv; void main(){ gl_FragColor = texture2D(t, vUv); }',
+        });
+        const quadScene = new THREE.Scene();
+        quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMat));
+        const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const sync = (depthOnly: number) => {
+          for (const h of [tf, bf]) {
+            h.material.uniforms.uObsElevM.value = 20;
+            h.material.uniforms.uEyeHeightM.value = 1.6;
+            h.material.uniforms.uDepthOnly.value = depthOnly;
+            h.material.uniforms.uSunAltDeg.value = 25;
+            h.material.uniforms.uSunAltRad.value = 25 * Math.PI / 180;
+            h.material.uniforms.uSunAzRad.value = 2.0;
+          }
+          updateTerrainFieldEye(tf, camera);
+          updateBuildingFieldEye(bf, camera);
+        };
+        bf.setBuildings(null); bf.setVisible(false); sync(1);
+        composer.setTerrainLit(true);
+        composer.prepareTerrainDistance(renderer, scene, camera, 'base');
+        quadMat.uniforms.t.value = composer.terrainLitTexture();
+        renderer.setRenderTarget(null);
+        renderer.render(quadScene, ortho);
+        const baseLit = new Uint8Array(W * H * 4);
+        gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, baseLit);
+
+        bf.setBuildings(bld); bf.setVisible(true); sync(1);
+        composer.setTerrainLit(true);
+        composer.prepareTerrainDistance(renderer, scene, camera, 'lit');
+        const errLit = gl.getError();
+        quadMat.uniforms.t.value = composer.terrainLitTexture();
+        renderer.setRenderTarget(null);
+        renderer.render(quadScene, ortho);
+        const bldLit = new Uint8Array(W * H * 4);
+        gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, bldLit);
+
+        composer.setTerrainLit(false);
+        composer.prepareTerrainDistance(renderer, scene, camera, 'dist');
+        const errDist = gl.getError();
+
+        sync(0);
+        renderer.setRenderTarget(null);
+        camera.layers.set(LAYER_MID);
+        renderer.render(scene, camera);
+        const errDirect = gl.getError();
+
+        let diffLit = 0;
+        for (let i = 0; i < bldLit.length; i += 4) {
+          if (Math.abs(bldLit[i] - baseLit[i]) + Math.abs(bldLit[i+1] - baseLit[i+1]) + Math.abs(bldLit[i+2] - baseLit[i+2]) > 2) diffLit++;
+        }
+        return { errLit, errDist, errDirect, diffLit, shaderLogs };
+      };
+    `);
+    execFileSync(
+      'npx',
+      [
+        'esbuild', glEntry, '--bundle', '--format=iife', '--platform=browser',
+        '--define:__DEV__=false', '--loader:.png=empty',
+        `--alias:three=${path.join(ROOT, 'node_modules/three')}`,
+        `--alias:react-native=${stub}`, `--alias:expo-asset=${stub}`, `--alias:expo-file-system/legacy=${stub}`,
+        `--outfile=${glBundle}`, '--log-level=error',
+      ],
+      { cwd: ROOT, stdio: 'inherit', env: { ...process.env, NODE_PATH: path.join(ROOT, 'node_modules') } },
+    );
+    const glHtml = `<!DOCTYPE html><html><body><script>${fs.readFileSync(glBundle, 'utf8')}</script><script>window.__runGlVerify().then(r=>fetch('/done',{method:'POST',body:JSON.stringify(r)})).catch(e=>fetch('/done',{method:'POST',body:JSON.stringify({fatal:String(e)})}));</script></body></html>`;
+    let doneRes;
+    const glDone = new Promise(r => { doneRes = r; });
+    const srv = http.createServer((req, res) => {
+      if (req.url === '/done' && req.method === 'POST') {
+        let b = ''; req.on('data', c => { b += c; }); req.on('end', () => { res.end('ok'); doneRes(JSON.parse(b)); });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(glHtml);
+    });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const profDir = path.join(glWork, 'prof');
+    fs.mkdirSync(profDir);
+    const chrome = spawn(chromeBin, [
+      '--headless', `--user-data-dir=${profDir}`, '--no-first-run', '--disable-background-networking',
+      '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox',
+      `http://127.0.0.1:${srv.address().port}/`,
+    ], { stdio: 'ignore' });
+    const glRes = await Promise.race([glDone, new Promise(r => setTimeout(() => r({ timeout: true }), 15000))]);
+    chrome.kill('SIGKILL');
+    srv.close();
+    setTimeout(() => { try { fs.rmSync(glWork, { recursive: true, force: true }); } catch {} }, 100);
+    ok(!glRes.fatal && !glRes.timeout && glRes.shaderLogs?.length === 0 &&
+       glRes.errLit === 0 && glRes.errDist === 0 && glRes.errDirect === 0 && glRes.diffLit > 100,
+      `WebGL2 3패스 컴파일 및 MRT rtLit 건물 픽셀 출력 확인 (diffLit=${glRes.diffLit}, errLit=${glRes.errLit}, logs=${glRes.shaderLogs?.length})`);
+  }
 
   console.log(`\n결과: ${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

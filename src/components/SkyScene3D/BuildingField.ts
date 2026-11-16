@@ -19,10 +19,11 @@ import { LAYER_TERRAIN_DIST, LAYER_TERRAIN_LIT, TERRAIN_DIST_GLSL } from './Scen
 import { LIT2_ENCODE_GLSL } from './terrainLook';
 import { createBuildingThreeGeometry, type BuildingMeshData } from '../../utils/buildingTiles';
 
-/** 중성 무채색 건축 매스 알베도 (선형, 볼륨 하늘 조명 보정 포함) */
-const BUILDING_ALBEDO = { r: 0.085, g: 0.087, b: 0.092 };
+/** 중성 밝은 석재/콘크리트 회색 건축 매스 알베도 (도시 포장 지반보다 밝게 구분) */
+const BUILDING_ALBEDO = { r: 0.125, g: 0.130, b: 0.140 };
 
 const BUILDING_VERT = /* glsl */ `
+precision highp float;
 ${DEM_GLSL}
 ${demGlsl('demEye')}
 ${demGlsl('demFar')}
@@ -103,11 +104,37 @@ ${TERRAIN_DIST_GLSL}
 void main() {
   gl_FragColor = terrainDistEncode(vSlantM / 1000.0);
 }
+#elif defined(TERRAIN_LIT_OUT)
+${TERRAIN_DIST_GLSL}
+${LIT2_ENCODE_GLSL}
+
+uniform float uSunAzRad;
+uniform float uSunAltRad;
+uniform float uOvercast;
+
+layout(location = 1) out highp vec4 pc_fragColor1;
+layout(location = 2) out highp vec4 pc_fragColor2;
+
+void main() {
+  vec3 n = normalize(vNormalW);
+  vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad),
+                  sin(uSunAltRad),
+                 -cos(uSunAltRad) * cos(uSunAzRad));
+  float ndl = max(0.0, dot(n, sun));
+  float cloudT = clamp(1.0 - uOvercast, 0.05, 1.0);
+  float skyHemi = 0.60 + 0.40 * n.y;
+  float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
+  float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
+  float fill = (1.0 - cloudT) * 0.45 * clamp(fillGeo / fillFlat, 0.0, 2.0);
+  vec3 litAlb = vec3(${BUILDING_ALBEDO.r.toFixed(4)}, ${BUILDING_ALBEDO.g.toFixed(4)}, ${BUILDING_ALBEDO.b.toFixed(4)}) * (0.90 + 0.16 * n.y);
+  gl_FragColor = vec4(sqrt(clamp(litAlb, 0.0, 1.0)), clamp(ndl * cloudT, 0.0, 1.0));
+  pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
+  pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
+}
 #else
 
 ${ATMOSPHERE_GLSL}
 ${GROUND_DISPLAY_GLSL}
-${TERRAIN_DIST_GLSL}
 
 uniform float uDepthOnly;
 uniform float uSunAzRad;
@@ -129,19 +156,11 @@ uniform float uOzoneDU;
 uniform float uOvercast;
 uniform float uDiagRaw;
 
-#ifdef TERRAIN_LIT_OUT
-layout(location = 1) out highp vec4 pc_fragColor1;
-layout(location = 2) out highp vec4 pc_fragColor2;
-${LIT2_ENCODE_GLSL}
-#endif
-
 void main() {
-#ifndef TERRAIN_LIT_OUT
   if (uDepthOnly > 0.5) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
-#endif
 
   vec3 n = normalize(vNormalW);
   vec3 sun = vec3(cos(uSunAltRad) * sin(uSunAzRad),
@@ -149,18 +168,6 @@ void main() {
                  -cos(uSunAltRad) * cos(uSunAzRad));
   float ndl = max(0.0, dot(n, sun));
   float cloudT = clamp(1.0 - uOvercast, 0.05, 1.0);
-
-#ifdef TERRAIN_LIT_OUT
-  float skyHemi = 0.62 + 0.38 * n.y;
-  float fillGeo = clamp((dot(n, sun) + 0.6) / 1.6, 0.0, 1.0);
-  float fillFlat = clamp((sin(uSunAltRad) + 0.6) / 1.6, 0.05, 1.0);
-  float fill = (1.0 - cloudT) * 0.45 * clamp(fillGeo / fillFlat, 0.0, 2.0);
-  vec3 alb = vec3(${BUILDING_ALBEDO.r.toFixed(4)}, ${BUILDING_ALBEDO.g.toFixed(4)}, ${BUILDING_ALBEDO.b.toFixed(4)});
-  gl_FragColor = vec4(sqrt(clamp(alb, 0.0, 1.0)), clamp(ndl * cloudT, 0.0, 1.0));
-  pc_fragColor1 = lit2Encode(skyHemi, 0.0, fill, 1.0 - cloudT);
-  pc_fragColor2 = terrainDistEncode(vSlantM / 1000.0);
-  return;
-#endif
 
   vec3 moon = vec3(cos(uMoonAltRad) * sin(uMoonAzRad),
                    sin(uMoonAltRad),
